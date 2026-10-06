@@ -626,6 +626,9 @@ parity:
 	bash build/test-amd64-t2-detect.sh
 	bash build/test-amd64-t2-default-compat.sh
 	bash build/test-nouveau-runpm.sh
+	bash build/test-gpu-probe-no-hang.sh
+	bash build/test-hook-watchdog.sh
+	bash build/test-amd64-cuda-gates.sh
 	build/test-arm64-freshness-gate.sh
 	build/test-overlay-modversions.sh
 	build/test-amd64-dracut-isolation.sh

@@ -185,6 +185,8 @@ build/test-components.sh	common	-	hermetic fixture test for build/components.py 
 build/test-components-gate.sh	common	-	hermetic fail-before/pass-after for components.py check --gate (phase 2)
 build/test-components-generate.sh	common	-	hermetic fail-before/pass-after for the phase 3 registry generators (seeds, NCZ_LOCAL_DEBS, allowlist)
 build/test-dual-arch-parity.sh	common	-	fixture tests for the parity gates
+build/test-gpu-probe-no-hang.sh	amd64	-	PEGASUS hang regressions: sysfs PCI probing, 54-gpu-accel.sh completes with a hanging lspci/rocminfo, T2 detection without lspci
+build/test-hook-watchdog.sh	common	-	bounded-run.sh deadline runner and the run-all.sh optional-hook watchdog (hung hook killed, install continues)
 build/test-hostname-suggest.sh	common	-	hostname algorithm tests
 build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier test
 build/test-dkms-status-parse.sh	sky1	-	dkms status parser test for the kernel-debs headers postinst
@@ -335,9 +337,11 @@ post-install/apt-progress-shim	common	-	apt progress wrapper
 post-install/buildkite-ncz-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/hooks.list.amd64	common	-	generated ordered hook list for platform amd64 (build/gen-hooks-lists.sh)
 post-install/hooks.list.sky1-arm64	common	-	generated ordered hook list for platform sky1-arm64 (build/gen-hooks-lists.sh)
+post-install/lib/bounded-run.sh	common	-	deadline runner that a D-state child cannot defeat (own session, output to a file, kill by PGID); used by run-all.sh for optional hooks and by 54-gpu-accel.sh
 post-install/lib/cuda-select.sh	amd64	nvidia-cuda	AMD64 GPU-family -> driver branch + CUDA toolkit selector sourced by 54-gpu-accel.sh and tested by build/test-amd64-cuda-gates.sh
 post-install/lib/hw-detect.sh	common	-	shared hardware detection helpers
 post-install/lib/kernel-purity.sh	common	-	shared Debian-kernel apt preferences pin sourced by both kernel install hooks
+post-install/lib/pci-sysfs.sh	common	-	PCI enumeration from sysfs vendor/device/class (no lspci, no config-space reads) for install-time hooks
 post-install/ncz-os-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/run-all.sh	common	-	hook orchestrator; platform selection via hooks.list
 preseed/	common	-	installer helpers (hostname, disk chooser, diag console, rescan)

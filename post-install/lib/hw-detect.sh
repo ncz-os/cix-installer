@@ -7,7 +7,7 @@
 # post-install/ (see 55-t2-firmware.sh for the real calling convention).
 # No shared lib directory existed on this project before this file —
 # everything else lives as one function per numbered hook (e.g.
-# 54-gpu-accel.sh's inline `lspci -nn` PCI-class grep). This file exists
+# 54-gpu-accel.sh's inline PCI-class grep). This file exists
 # because T2 detection needed to be reused (and unit-testable on its own)
 # rather than re-copy-pasted, per operator directive 2026-09-15.
 #
@@ -67,10 +67,26 @@
 # function's DMI fallback is a strict improvement on that, not a behavior
 # regression, since it only ever adds a detection path, never removes one).
 #
+# 2026-10-06: the PCI probe reads sysfs (lib/pci-sysfs.sh), never lspci.
+# lspci reads every device's config space, and on PEGASUS (Optimus laptop,
+# nouveau runtime-suspend oops) that read blocked in D state forever and hung
+# the install. "lspci unavailable" in the text above now means "no sysfs PCI
+# device list" (e.g. a chroot without /sys mounted).
+#
 # Returns: 0 = T2 hardware detected, 1 = not detected (or undeterminable).
+ncz__hw_pci_lines() {
+    if ! command -v ncz_pci_lspci_nn >/dev/null 2>&1; then
+        # shellcheck source=post-install/lib/pci-sysfs.sh
+        . "$(dirname "${BASH_SOURCE[0]}")/pci-sysfs.sh" 2>/dev/null || return 1
+    fi
+    ncz_pci_available || return 1
+    ncz_pci_lspci_nn
+}
+
 is_t2_hardware() {
-    if command -v lspci >/dev/null 2>&1; then
-        lspci -nn 2>/dev/null | grep -qi '\[106b:1801\]' && return 0
+    local pci
+    if pci=$(ncz__hw_pci_lines); then
+        printf '%s\n' "$pci" | grep -qi '\[106b:1801\]' && return 0
         return 1
     fi
 
@@ -102,20 +118,21 @@ is_t2_hardware() {
 # is_t2_hardware's answer was reached. Diagnostic/logging use only; never
 # parsed by a caller, format may change freely.
 t2_hardware_detail() {
-    if command -v lspci >/dev/null 2>&1; then
-        if lspci -nn 2>/dev/null | grep -qi '\[106b:1801\]'; then
-            echo "PCI probe: [106b:1801] Apple T2 bridge present"
+    local pci
+    if pci=$(ncz__hw_pci_lines); then
+        if printf '%s\n' "$pci" | grep -qi '\[106b:1801\]'; then
+            echo "PCI probe (sysfs): [106b:1801] Apple T2 bridge present"
         else
-            echo "PCI probe ran, no [106b:1801] Apple T2 bridge found"
+            echo "PCI probe (sysfs) ran, no [106b:1801] Apple T2 bridge found"
         fi
         return
     fi
     if [ -r /sys/class/dmi/id/sys_vendor ]; then
-        echo "lspci unavailable -- DMI fallback: sys_vendor='$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)' product_name='$(cat /sys/class/dmi/id/product_name 2>/dev/null)'"
+        echo "sysfs PCI list unavailable -- DMI fallback: sys_vendor='$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)' product_name='$(cat /sys/class/dmi/id/product_name 2>/dev/null)'"
         return
     fi
     if command -v dmidecode >/dev/null 2>&1; then
-        echo "lspci unavailable -- dmidecode fallback: manufacturer='$(dmidecode -s system-manufacturer 2>/dev/null)' product='$(dmidecode -s system-product-name 2>/dev/null)'"
+        echo "sysfs PCI list unavailable -- dmidecode fallback: manufacturer='$(dmidecode -s system-manufacturer 2>/dev/null)' product='$(dmidecode -s system-product-name 2>/dev/null)'"
         return
     fi
     echo "no PCI or DMI probe available -- cannot verify, treating as not-T2 (fail closed)"

@@ -216,7 +216,24 @@ mktarget "$T" "bogus";                           expect_rc 1 "target: unrecogniz
 # Extract the function block from the real hook and redirect its absolute paths
 # into a scratch root, so the tested code IS the shipped code.
 SB="$W/sb"; mkdir -p "$SB/bin" "$SB/post-install/lib" "$SB/assets"
-cp "$ROOT/post-install/lib/cuda-select.sh" "$SB/post-install/lib/"
+cp "$ROOT/post-install/lib/cuda-select.sh" "$ROOT/post-install/lib/pci-sysfs.sh" "$ROOT/post-install/lib/bounded-run.sh" "$SB/post-install/lib/"
+# The hook reads the PCI list from sysfs (lib/pci-sysfs.sh), never lspci: turn
+# an `lspci -nn` fixture line into a fake /sys/bus/pci/devices tree.
+mksysfs() { # mksysfs "<lspci -nn line>"
+    rm -rf "$SB/pci"; mkdir -p "$SB/pci"
+    local bdf cls ids
+    bdf=$(printf '%s' "$1" | awk '{print $1}')
+    cls=$(printf '%s' "$1" | grep -oE '\[[0-9a-f]{4}\]:' | head -1 | tr -d '[]:')
+    ids=$(printf '%s' "$1" | grep -oiE '\[[0-9a-f]{4}:[0-9a-f]{4}\]' | tail -1 | tr -d '[]')
+    mkdir -p "$SB/pci/0000:$bdf"
+    printf '0x%s00\n' "$cls" > "$SB/pci/0000:$bdf/class"
+    printf '0x%s\n' "${ids%%:*}" > "$SB/pci/0000:$bdf/vendor"
+    printf '0x%s\n' "${ids##*:}" > "$SB/pci/0000:$bdf/device"
+}
+export NCZ_PCI_DEVICES_ROOT="$SB/pci"
+# lspci must never be called: a stub that fails the test if it is
+printf '#!/bin/bash\necho called >> "%s/lspci.called"\nexit 99\n' "$SB" > "$SB/bin/lspci"
+chmod +x "$SB/bin/lspci"
 extract54() {
     awk '/^# --- NVIDIA driver \+ CUDA: selected per GPU family/{f=1} /^echo "\[54\] AMD64 GPU\/accelerator vendor detection/{f=0} f' \
         "$ROOT/post-install/54-gpu-accel.sh" \
@@ -226,7 +243,8 @@ extract54() {
             -e "s#/usr/local/sbin#$SB/usr/local/sbin#g" -e "s#/etc/systemd/system#$SB/etc/systemd/system#g" \
             -e "s#/etc/apt/preferences.d#$SB/etc/apt/preferences.d#g" -e "s#/etc/apt/sources.list.d#$SB/etc/apt/sources.list.d#g" \
             -e "s#/usr/share/keyrings#$SB/usr/share/keyrings#g" -e "s#/etc/crypto-policies#$SB/etc/crypto-policies#g" \
-            -e "s#/usr/share/apt/default-sequoia.config#$SB/default-sequoia.config#g"
+            -e "s#/usr/share/apt/default-sequoia.config#$SB/default-sequoia.config#g" \
+            -e "s#/var/log#$SB/var/log#g"
 }
 extract54 > "$SB/nvfunc.sh"
 [ -s "$SB/nvfunc.sh" ] && ok "54: NVIDIA function block extracted from the real hook" || nok "54: could not extract the NVIDIA block"
@@ -243,13 +261,11 @@ cp "$ROOT/assets/nvidia/ncz-cuda-setup.service" "$ROOT/assets/nvidia/ncz-cuda-se
 printf 'sha1.second_preimage_resistance = 2026-02-01\n' > "$SB/default-sequoia.config"
 # The function resolves lib/ via $0; run it through a wrapper script placed in post-install/
 run54w() {
-    rm -rf "$SB/var" "$SB/etc" "$SB/usr" "$SB/x"; mkdir -p "$SB/etc/cix-installer" "$SB/x"
-    printf '%s\n' "$1" > "$SB/lspci"
+    rm -rf "$SB/var" "$SB/etc" "$SB/usr" "$SB/x"; mkdir -p "$SB/etc/cix-installer" "$SB/x" "$SB/var/log"
+    mksysfs "$1"
     [ "${3:-none}" != none ] && echo "$3" > "$SB/etc/cix-installer/COMPONENTS_cuda"
     cat > "$SB/post-install/wrap.sh" <<EOF
 #!/bin/bash
-lspci() { cat "$SB/lspci"; }
-export -f lspci 2>/dev/null
 . "$SB/nvfunc.sh"
 ncz_nvidia_dynamic_setup
 EOF
@@ -288,13 +304,11 @@ got="$(run54w "$RTX" 0 none 1)"; eq "54: NCZ_SKIP_CUDA=1 skips" "$got" "skipped:
 
 # --- the durable COMPONENTS list decides (a decline must survive late.sh's persistence, which never wrote COMPONENTS_cuda)
 run54l() {   # run54l "<comma list or NONE>" : COMPONENTS list persisted in the target, no COMPONENTS_cuda file
-    rm -rf "$SB/var" "$SB/etc" "$SB/usr" "$SB/x"; mkdir -p "$SB/etc/cix-installer" "$SB/x"
-    printf '%s\n' "$RTX" > "$SB/lspci"
+    rm -rf "$SB/var" "$SB/etc" "$SB/usr" "$SB/x"; mkdir -p "$SB/etc/cix-installer" "$SB/x" "$SB/var/log"
+    mksysfs "$RTX"
     [ "$1" != NONE ] && echo "$1" > "$SB/etc/cix-installer/COMPONENTS"
     cat > "$SB/post-install/wrap.sh" <<EOF
 #!/bin/bash
-lspci() { cat "$SB/lspci"; }
-export -f lspci 2>/dev/null
 . "$SB/nvfunc.sh"
 ncz_nvidia_dynamic_setup
 EOF
@@ -316,6 +330,18 @@ got="$(run54w "$GTX" 0)"; eq "54: sequoia policy line not found is a visible fai
 printf 'sha1.second_preimage_resistance = 2026-02-01\n' > "$SB/default-sequoia.config"
 # a failure in the setup tool must not abort the caller
 ( PATH="$SB/bin:$PATH" STUB_SETUP_RC=1 bash "$SB/post-install/wrap.sh" >/dev/null 2>&1 ) && ok "54: a hard setup failure returns 0 (never aborts post-install)" || nok "54: hard failure aborted the hook"
+# a CUDA installer that never returns must not hold the install (bounded, killed, deferred to the timer)
+cp "$SB/assets/ncz-cuda-setup" "$SB/assets/ncz-cuda-setup.real"
+printf '#!/bin/bash\necho "stub ncz-cuda-setup hangs"\nsleep 3604 &\nexec sleep 3604\n' > "$SB/assets/ncz-cuda-setup"
+_t0=$(date +%s)
+got="$(NCZ_CUDA_SETUP_TIMEOUT=2 run54w "$RTX" 0)"
+_dt=$(( $(date +%s) - _t0 ))
+[ "$_dt" -lt 30 ] && ok "54: a hung ncz-cuda-setup is cut off by its deadline (${_dt}s)" || nok "54: hung ncz-cuda-setup held the hook ${_dt}s"
+eq "54: hung setup leaves the deferred install pending" "$got" "pending:install"
+grep -q 'timed out after 2s' "$SB/log" && ok "54: the CUDA timeout is logged" || nok "54: CUDA timeout not logged"
+grep -q 'will retry after boot' "$SB/log" && ok "54: hung setup logs that the timer will retry" || nok "54: hung setup retry not logged"
+mv -f "$SB/assets/ncz-cuda-setup.real" "$SB/assets/ncz-cuda-setup"
+[ ! -e "$SB/lspci.called" ] && ok "54: lspci was never called by the NVIDIA path" || nok "54: the NVIDIA path called lspci"
 
 # -------------------------------------------------- ncz-cuda-setup under stubs
 CS="$W/cs"; mkdir -p "$CS/bin"
