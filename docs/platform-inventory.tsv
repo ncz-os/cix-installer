@@ -193,7 +193,7 @@ build/test-amd64-kernel-classifier.sh	amd64	-	amd64 unified-7.3 kernel classifie
 build/test-amd64-t2-detect.sh	amd64	t2	T2 DMI detection + pcie_ports=compat gating test
 build/test-amd64-t2-default-compat.sh	amd64	t2	amd64 default-entry T2 pcie_ports=compat test (token only on the default entry)
 build/test-arm64-freshness-gate.sh	sky1	-	arm64 unified-7.3 freshness gate test
-build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test
+build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test (incl. overlay MODVERSIONS wiring)
 build/test-boot-speed.sh	common	-	regression tests for boot-blocking systemd units (docs/BOOT-SPEED.md)
 build/test-components.sh	common	-	hermetic fixture test for build/components.py check (pristine passes; injected drifts fail)
 build/test-dual-arch-parity.sh	common	-	fixture tests for the parity gates
@@ -207,11 +207,12 @@ build/test-kernel-purity-guards.sh	common	-	behavioural test of the rEFInd Debia
 build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kernel.sh (clean 7.3 trees pass; every Debian-kernel leak and wrong default fails)
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
+build/test-overlay-modversions.sh	sky1	-	fixture tests for verify-overlay-modversions.py (stale CRC, unresolved, no __versions, vermagic, missing set fail)
 build/test-release-identity.sh	common	-	release identity/label + Cygnus logo wiring regression test
 build/test-under-di-busybox.sh	common	-	d-i busybox runner
 build/tests/	common	-	offline pool tests
 build/validate-accelerators.sh	sky1	-	GPU/NPU/VPU binding validation
-build/verify-arm64-inputs.sh	sky1	-	Sky1 input preflight
+build/verify-arm64-inputs.sh	sky1	-	Sky1 input preflight (firmware, cix-debs, rescue, mirror, overlay MODVERSIONS CRCs)
 build/verify-assets.sh	common	-	SBOM asset verifier
 build/verify-base-kernel-assets.sh	amd64	-	staged amd64 kernel asset verifier
 build/verify-cuda-assets.sh	amd64	nvidia-cuda	AMD64 NVIDIA/CUDA asset gate (keyring, keyring, no NVIDIA or CUDA packages in manifests or the offline pool)
@@ -226,6 +227,7 @@ build/verify-iso-offline-pool.py	common	-	offline pool verifier
 build/verify-local-package-versions.sh	common	-	local package version gate
 build/verify-offline-mirror-seeds.sh	common	-	mirror seed verifier
 build/verify-overlays.py	sky1	-	module overlay verifier
+build/verify-overlay-modversions.py	sky1	-	committed Sky1 overlay .ko MODVERSIONS CRCs vs the pinned kernel Module.symvers (assets/kernel/mainline staging)
 build/verify-packages.sh	common	-	package seed verifier
 build/verify-udebs.sh	common	-	udeb verifier
 build/yocto-layers.conf	sky1	-	Yocto layer pins for the CIX stack
