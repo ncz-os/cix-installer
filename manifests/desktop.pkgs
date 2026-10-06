@@ -147,10 +147,11 @@ systemd-zram-generator
 # 57-screensaver.sh was a Wayland idle-lock fallback that post-install/59
 # fully supersedes on desktop variants: the package owns the engine
 # (ncz-screensaver), the idle timer (ncz-screensaver-idled.service), the
-# dev.ncz.screensaver GSettings schema, the Singularity screensaver plugin
-# (libscreensaver.so + screensaver.plugin, shipped INSIDE ncz-screensavers),
-# the GTK4 settings app (ncz-screensaver-settings) and the launcher entry
-# (dev.ncz.screensaver.desktop). 57-screensaver.sh was already removed from
+# dev.ncz.screensaver GSettings schema and the shipped 74-title catalogue.
+# Verified against the published 0.8.9 .deb: it ships NO Singularity plugin
+# files, NO GTK4 settings app and NO launcher entry -- the plugin is a
+# separate ncz-screensavers-plugin package, not yet published (the deb's own
+# Description says it is "installed by the NCZ-OS image"). 57-screensaver.sh was already removed from
 # build-squashfs-layers.sh / build-baked-rootfs.sh hook loops and from
 # run-all.sh's MACHINE_HOOKS_RE regex; this item (fix/screensavers-mandatory
 # -install-20261006, operator 2026-10-05: "If we are distributing screensavers

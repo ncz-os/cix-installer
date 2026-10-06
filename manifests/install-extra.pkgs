@@ -18,7 +18,8 @@
 # ncz-screensavers-plugin is intentionally NOT listed: there is no such
 # published package (Buildkite + R2 serve ncz-screensavers, ncz-singularity-
 # desktop, ncz-screensavers-gtk4-reference only). The Singularity screensaver
-# plugin is shipped INSIDE ncz-screensavers.
+# plugin is a separate ncz-screensavers-plugin package, not yet published
+# (the 0.8.9 engine deb ships no plugin files).
 ncz-screensavers
 #
 # The installer's user-setup step runs `apt-get install sudo` in the target, and
