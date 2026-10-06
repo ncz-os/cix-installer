@@ -296,10 +296,12 @@ apply_queue() {  # apply_queue <label> <tree> <patch>...
 
 cmd_check_patches() {
     cmd_validate >/dev/null || return 1
-    local work rc
-    work="$(mktemp -d "${TMPDIR:-/tmp}/ncz-pin-check.XXXXXX")" || return 2
-    check_patches_in "$work"; rc=$?
-    rm -rf "$work"
+    local rc
+    CHECK_WORK="$(mktemp -d "${TMPDIR:-/tmp}/ncz-pin-check.XXXXXX")" || return 2
+    trap 'rm -rf "$CHECK_WORK"; exit 130' INT TERM
+    check_patches_in "$CHECK_WORK"; rc=$?
+    rm -rf "$CHECK_WORK"
+    trap - INT TERM
     return "$rc"
 }
 
