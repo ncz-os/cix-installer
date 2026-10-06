@@ -522,7 +522,18 @@ $f"
     cat > "$TARGET/usr/local/sbin/ncz-firstboot" <<'FBS'
 #!/bin/sh
 export DEBIAN_FRONTEND=noninteractive
-dpkg --configure -a 2>/dev/null || true
+# Package configure step. lib/firstboot-gpu.sh wraps `dpkg --configure -a`
+# with an on-screen status whenever a DKMS kernel-module build is involved
+# (a build that is needed runs here with a live status line; one that
+# already failed with a compiler error at install time is left to the
+# background retry instead of delaying the login screen). Older payloads
+# without the helper keep the bare command.
+_fbg=/usr/local/lib/cix-installer/post-install/lib/firstboot-gpu.sh
+if [ -r "$_fbg" ] && command -v bash >/dev/null 2>&1; then
+    bash "$_fbg" configure || dpkg --configure -a 2>/dev/null || true
+else
+    dpkg --configure -a 2>/dev/null || true
+fi
 [ -s /etc/machine-id ] || systemd-machine-id-setup 2>/dev/null || true
 
 # r177: per-machine hostname ncz-<last-6-hex-of-primary-ethernet-MAC>. The real
@@ -654,7 +665,7 @@ FBS
     chmod +x "$TARGET/usr/local/sbin/ncz-firstboot"
     cat > "$TARGET/etc/systemd/system/ncz-firstboot.service" <<'FBU'
 [Unit]
-Description=NCZ first-boot finalize (dpkg configure + machine identity)
+Description=NCZ first-boot finalize (dpkg configure, GPU driver build status, machine identity)
 ConditionPathExists=!/var/lib/ncz-firstboot-done
 DefaultDependencies=no
 # dpkg --configure -a may run package ldconfig triggers; let systemd's stock
@@ -665,6 +676,9 @@ Before=display-manager.service gdm.service graphical.target
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/sbin/ncz-firstboot
+# A first-boot DKMS build must never be cut short (oneshot already defaults
+# to no start timeout; stated explicitly so a drop-in default cannot add one).
+TimeoutStartSec=infinity
 [Install]
 WantedBy=multi-user.target
 FBU
