@@ -50,6 +50,8 @@ if [ -r "$ROOT/release.conf" ]; then
     # shellcheck source=../release.conf
     . "$ROOT/release.conf"
 fi
+# shellcheck source=lib/mirror-apt-opts.sh
+. "$ROOT/build/lib/mirror-apt-opts.sh"
 SUITE="${3:-${NCZ_BASE_CODENAME:-forky}}"
 ARCH="${4:-arm64}"
 MIRROR="${5:-${NCZ_BASE_MIRROR:-https://deb.debian.org/debian}}"
@@ -77,7 +79,9 @@ done
 [ -f "$PKG_MANIFEST" ] || { echo "ERROR: manifest not found: $PKG_MANIFEST" >&2; exit 1; }
 
 # Resolve the package list: strip comments + inline '# ...' notes, dedupe.
-PKGS=$(grep -vE '^\s*(#|$)' "$PKG_MANIFEST" | sed 's/#.*//' | awk '{print $1}' | grep . | sort -u | tr '\n' ' ')
+# grep . under pipefail exits 1 on an empty manifest and kills the script
+# with no message. ncz_pkgs_from_manifest reports that case explicitly.
+PKGS=$(ncz_pkgs_from_manifest "$PKG_MANIFEST")
 echo "[rescue-rootfs] chroot:   $CHROOT"
 echo "[rescue-rootfs] out:      $OUT"
 echo "[rescue-rootfs] suite:    $SUITE   arch: $ARCH"
@@ -120,9 +124,11 @@ echo "[rescue-rootfs] debootstrap $SUITE..."
 debootstrap --arch="$ARCH" --variant=minbase \
     --include=ca-certificates,apt-utils "$SUITE" "$CHROOT" "$MIRROR"
 
-cat > "$CHROOT/etc/apt/sources.list" <<EOF
-deb $MIRROR $SUITE $COMPONENTS
-EOF
+# debootstrap writes its own sources.list with no deb options. Rewrite it
+# so a pinned snapshot (NCZ_BASE_MIRROR_APT_OPTS=check-valid-until=no) is
+# accepted; an unpinned build emits the same plain deb line as before.
+ncz_mirror_sources_list "$MIRROR" "$SUITE" "$COMPONENTS" "" "" "" \
+    > "$CHROOT/etc/apt/sources.list"
 
 # ----------------------------------------------------------------------
 # Stage 2 — bind mounts + apt install of the rescue toolset.
@@ -136,8 +142,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Surface apt-get update failures (E:/W: lines) instead of letting a later
+# install hide an expired snapshot Release behind a bare non-zero exit.
+RESCUE_APT_UPDATE_LOG="$CHROOT/tmp/ncz-apt-update.log"
+mkdir -p "$CHROOT/tmp"
+ncz_apt_update_or_die "$RESCUE_APT_UPDATE_LOG" "rescue chroot" \
+    chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp apt-get update
 if ! chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp bash -eu <<CHROOT_APT
-apt-get update
 apt-get install -y --no-install-recommends $PKGS
 apt-get clean
 CHROOT_APT

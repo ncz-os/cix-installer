@@ -156,6 +156,7 @@ build/kvm-install-gate-gpt.sh	common	-	architecture-generic KVM gate for raw GPT
 build/kvm-install-gate.sh	sky1	-	arm64 ISO KVM install gate
 build/kvm-kernel-gate.sh	sky1	-	Sky1 kernel boot gate
 build/lib/release-identity.sh	common	-	shared release label + ISO volume-id derivation from release.conf
+build/lib/mirror-apt-opts.sh	common	-	sources.list options and apt-get update failure helper for a pinned snapshot mirror
 build/lint-hook-arch-gates.sh	common	-	heuristic arch-gate lint for hooks (dual-arch parity)
 build/lint-platform.sh	common	-	platform-split lint (inventory, hook lists, deny patterns, guards, manifest divergence)
 build/logs/	sky1	-	Sky1 bitbake/KVM resume logs
@@ -411,6 +412,8 @@ build/verify-installed-target-screensavers.sh	common	-	section (vi) of verify-in
 build/verify-installed-target-screensavers-default.sh	common	-	section (vi) continuation: schema default, Cygnus override, idle timer, gtk4-reference ban, plugin files when installed
 build/test-singularity-deb-depends.sh	common	-	hermetic fail-before/pass-after test for the derived Singularity deb Depends
 build/test-singularity-supervisor-forensics.sh	common	-	singularity supervisor per-run logs, signal names and core-limit regression
+build/test-sibling-mirror-apt-opts.sh	common	-	hermetic fixture test that sibling rootfs scripts put snapshot apt options on every sources.list line
+build/test-sibling-empty-index.sh	common	-	hermetic fixture test that an empty package manifest or Packages index exits with an explicit error
 build/test-refind-rescue-promotion.sh	common	-	rEFInd rescue auto-promotion guard: rc/edge kernels are never promoted; existing rescue survives a failed copy (item RRH)
 build/test-wallpaper-rotator-relogin.sh	common	-	ncz-wallpaper-rotator.service is wanted by the per-login session target (item RRH)
 build/test-t2-dkms-provenance.sh	amd64	t2	proves every vendored T2 DKMS module has a PROVENANCE file pinned to a 40-hex upstream commit and a licence line
