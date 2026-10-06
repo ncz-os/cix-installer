@@ -622,6 +622,7 @@ parity:
 	build/test-kernel-default-policy.sh
 	build/test-rescue-kernel-channel.sh
 	build/test-late-npu-aipu.sh
+	build/test-dkms-btf-toolchain.sh
 	build/test-kernel-purity-pin.sh
 	build/test-kernel-purity-guards.sh
 	build/test-no-debian-kernel.sh

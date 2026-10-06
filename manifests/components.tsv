@@ -119,6 +119,8 @@ drawing	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh
 drawing	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 dropbear-bin	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
 dropbear-bin	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
+dwarves	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs	
+dwarves	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs	
 e2fsprogs	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	
 e2fsprogs	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs; manifests/mgmt.pkgs; manifests/rescue.pkgs	
 efibootmgr	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	

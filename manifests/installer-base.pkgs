@@ -55,6 +55,12 @@ bison
 bc
 libelf-dev
 libselinux-dev
+# pahole: the shipped kernels are built with CONFIG_DEBUG_INFO_BTF(_MODULES)=y by a
+# different compiler than the target gcc, so modules_prepare re-runs Kconfig on the
+# header tree. Without pahole that drops DEBUG_INFO_BTF_MODULES, struct module shrinks
+# (0x500 -> 0x4c0 on Sky1 r284) and every DKMS module is refused: "Exec format error",
+# ".gnu.linkonce.this_module section size must match" (2026-10-06 KVM gate, aipu).
+dwarves
 
 # --- disk / partition identify (required by choose-disk UI) ---
 util-linux          # lsblk, blkid, wipefs, fdisk, sfdisk, cfdisk, lscpu
