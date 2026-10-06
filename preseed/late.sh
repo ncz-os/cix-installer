@@ -1052,22 +1052,39 @@ ncz_npu_install_time() {
     # lacked it) and is unioned from $SRC earlier in this script, so it is at
     # least as complete as $SRC. Mirrors the existing dual-candidate pattern
     # in post-install/80-npu.sh and 81-vpu.sh (ISO path + already-staged path).
+    # 2026-10-06: the Sky1 NPU driver is the vendor aipu.ko (cix-npu-driver-dkms,
+    # built by 80-npu.sh into updates/dkms/; prebuilt r284 overlay at
+    # assets/kernel/npu/<KVER>/aipu.ko). armchina_npu is the in-tree name, which
+    # the Sky1 kernels leave unset, so the old armchina_npu-only lookup never
+    # found anything on r282+ ("FIX B: no armchina_npu.ko overlay found").
     for _kv in $NPU_KVERS; do
+        [ -d "/target/usr/lib/modules/$_kv" ] || { echo "[npu]   no /target modules dir for $_kv"; continue; }
+        if find "/target/usr/lib/modules/$_kv" -name 'aipu.ko*' 2>/dev/null | grep -q .; then
+            echo "[npu]   FIX B: aipu.ko already installed for $_kv"
+            continue
+        fi
         _ov=""
-        for _cand in             "$SRC/assets/kernel/modules-overlay/$_kv/armchina_npu.ko"             "/target/usr/local/lib/cix-installer/assets/kernel/modules-overlay/$_kv/armchina_npu.ko"; do
+        for _cand in \
+            "$SRC/assets/kernel/npu/$_kv/aipu.ko" \
+            "/target/usr/local/lib/cix-installer/assets/kernel/npu/$_kv/aipu.ko" \
+            "$SRC/assets/kernel/modules-overlay/$_kv/armchina_npu.ko" \
+            "/target/usr/local/lib/cix-installer/assets/kernel/modules-overlay/$_kv/armchina_npu.ko"; do
             [ -f "$_cand" ] && { _ov="$_cand"; break; }
         done
-        [ -n "$_ov" ] || { echo "[npu]   FIX B: no armchina_npu.ko overlay found for $_kv (checked SRC + baked /target)"; continue; }
-        [ -d "/target/usr/lib/modules/$_kv" ] || { echo "[npu]   no /target modules dir for $_kv"; continue; }
-        if install -D -m 0644 "$_ov" "/target/usr/lib/modules/$_kv/updates/armchina_npu.ko" 2>/dev/null; then
+        [ -n "$_ov" ] || { echo "[npu]   FIX B: no aipu.ko or armchina_npu.ko overlay found for $_kv (checked SRC + baked /target)"; continue; }
+        _ovn=$(basename "$_ov")
+        if install -D -m 0644 "$_ov" "/target/usr/lib/modules/$_kv/updates/$_ovn" 2>/dev/null; then
             in-target depmod -a "$_kv" 2>/dev/null || true
-            echo "[npu]   FIX B: zhouyi_v3 armchina_npu.ko ($_ov) -> /usr/lib/modules/$_kv/updates/ (+ depmod)"
+            echo "[npu]   FIX B: $_ovn ($_ov) -> /usr/lib/modules/$_kv/updates/ (+ depmod)"
         fi
     done
-    # ensure the module auto-loads on boot (baked 80-npu also writes this)
+    # Auto-load on boot. 80-npu.sh owns /etc/modules-load.d/ncz-npu.conf and
+    # lists aipu; this used to overwrite it with armchina_npu whenever that line
+    # was missing, i.e. on every install, so the NPU never loaded and
+    # systemd-modules-load failed on every boot. Only fill in a missing file.
     mkdir -p /target/etc/modules-load.d
-    if ! grep -qs '^armchina_npu' /target/etc/modules-load.d/ncz-npu.conf 2>/dev/null; then
-        printf '# NCZ: Cix Sky1 / Zhouyi v3 NPU driver\narmchina_npu\n' \
+    if [ ! -s /target/etc/modules-load.d/ncz-npu.conf ]; then
+        printf '# NCZ: Cix Sky1 / Zhouyi v3 NPU driver (vendor aipu.ko)\naipu\n' \
             > /target/etc/modules-load.d/ncz-npu.conf
     fi
 
