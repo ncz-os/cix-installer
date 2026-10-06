@@ -467,6 +467,15 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     asset_names = (
         "agent-stack", "branding", "cix-debs", "diag", "firmware",
         "kernel", "npu", "python311", "sky1-firmware", "mgmt",
+        # assets/update-manager/ ships the OTA desktop update UI (7 tracked
+        # files: the .manager/.policy units, the ncz-update-* helpers and the
+        # .desktop entry). It was never listed here, so hook
+        # 50-update-manager.sh looked for /usr/local/lib/cix-installer/assets/
+        # update-manager and /cdrom/ncz-payload/assets/update-manager, found
+        # neither, and failed as an optional hook on every install (KNOWN-
+        # ISSUES #2). Listing it is all that is needed: the copy loop below
+        # is generic and skips a name whose source directory is absent.
+        "update-manager",
     )
     copied_assets = []
     for name in asset_names:

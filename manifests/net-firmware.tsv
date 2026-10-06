@@ -28,8 +28,24 @@
 # interface changes netcfg's choose_interface=auto behaviour on a machine
 # with no wired carrier (it can stop at the ESSID prompt in an unattended
 # install).  The T2 Broadcom path is handled separately (post-install/
-# 55-t2-firmware.sh on the target; build/iso/patch-initrd-firmware.py for d-i
-# is not wired into build-installer-image.sh).
+# 55-t2-firmware.sh on the target, from the same tarball).
+#
+# Apple T2 WiFi: firmware-brcm80211 does NOT carry the Apple board variants
+# (brcmfmac4355c1 / 4364b2 / 4364b3 / 4377b3). Verified 2026-10-06 against
+# firmware-brcm80211_20260810-1_all.deb: 0 hits for those names; the 113 files
+# it does ship under brcm/ are all upstream boards. The T2 blobs are
+# Apple-licensed and ship only in
+# assets/firmware/apple-t2/apple-t2-firmware-sonoma14.tar.xz, so they cannot be
+# a row here -- this table resolves `package` to a .deb in the offline mirror,
+# and naming firmware-brcm80211 would bake 113 wrong-board blobs into d-i while
+# the radio still could not associate.
+#
+# They DO reach d-i through a different, purpose-built path:
+# build/iso/patch-initrd-firmware.py extracts the brcmfmac* blobs from that
+# tarball into the initrd's lib/firmware/brcm/. build/build-installer-image.sh
+# now calls it (wired 2026-10-06, before patch-initrd-t2-kernel.py so the two
+# chain instead of overwriting each other). Keep these rows target-only; the
+# initrd half is that script's job, not this table's.
 #
 # device	driver	package	firmware	where
 Realtek RTL8111/8168/8125/8126/8127 PCIe 1-10GbE (O6N 8125B, MS-R1 8127A, PEGASUS 8168H)	r8169	firmware-realtek	rtl_nic/*	initrd+target
