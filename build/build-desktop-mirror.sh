@@ -143,8 +143,16 @@ mkdir -p "$T/etc/apt/preferences.d" "$T/etc/apt/apt.conf.d" "$T/etc/apt/keyrings
 : > "$T/var/lib/dpkg/status"
 
 echo "  source: Debian ($PORTS_URL, $SUITE) — authoritative desktop closure"
+# A pinned snapshot.debian.org mirror carries a short-lived Valid-Until.
+# NCZ_BASE_MIRROR_APT_OPTS (release.conf) adds check-valid-until=no only when
+# actually pinned, the same contract build-forky-mirror.sh and
+# build-squashfs-layers.sh already honour. Without it apt-get update fails
+# with "Release file ... is expired" once the pin is a few days old, and the
+# silenced update below surfaces only as make's "Error 100".
+DEBIAN_DEB_OPTS="arch=$ARCH trusted=yes"
+[ -n "${NCZ_BASE_MIRROR_APT_OPTS:-}" ] && DEBIAN_DEB_OPTS="$DEBIAN_DEB_OPTS $NCZ_BASE_MIRROR_APT_OPTS"
 cat > "$T/etc/apt/sources.list" <<EOF
-deb [arch=$ARCH trusted=yes] $PORTS_URL $SUITE $NCZ_BASE_COMPONENTS
+deb [$DEBIAN_DEB_OPTS] $PORTS_URL $SUITE $NCZ_BASE_COMPONENTS
 EOF
 
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
