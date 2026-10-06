@@ -140,6 +140,20 @@ EOC
     rm -rf "$USRSRC"/t2thunderbolt-* 2>/dev/null || true
 fi
 
+# t2gmux owns APP000B on T2 hardware (operator 2026-10-05). Blacklist the
+# in-kernel apple_gmux so the DKMS t2gmux is the sole owner. This file is
+# only ever written on T2 hardware (we already gated above); non-T2 Macs
+# and PCs are NEVER touched.
+cat > "$MODPROBE_D/ncz-t2-gmux.conf" <<'EOC'
+# NCZ-OS: apple_gmux (in-kernel) is not loaded on Apple T2 hardware.
+# t2gmux (DKMS) is the canonical owner of APP000B on T2 Macs (operator
+# 2026-10-05). The in-kernel driver does not handle the T2 gmux. This
+# file is written by post-install/56-t2-dkms.sh on T2 hardware only --
+# it is NEVER installed on non-T2 Macs or non-Apple machines.
+blacklist apple_gmux
+install apple_gmux /bin/false
+EOC
+
 _ok=""; _fail=""
 for m in $MODULES; do
     src="$ASSETS/$m"
