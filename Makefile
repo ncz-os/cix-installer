@@ -625,6 +625,7 @@ parity:
 	build/test-dkms-btf-toolchain.sh
 	build/test-fwupd-i2c-mask.sh
 	build/test-apt-sources-offline-canary.sh
+	build/test-dkms-prep-keep-going.sh
 	build/test-kernel-purity-pin.sh
 	build/test-kernel-purity-guards.sh
 	build/test-no-debian-kernel.sh
