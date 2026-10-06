@@ -78,7 +78,7 @@ fi
 NCZ_T2_EDGE_EXTRA_CMDLINE=""
 if ncz_is_t2_hardware; then
     NCZ_T2_EDGE_EXTRA_CMDLINE="pcie_ports=compat"
-    echo "  T2 hardware detected ($(ncz_t2_detect_detail)); amd64 edge entry gets pcie_ports=compat"
+    echo "  T2 hardware detected ($(ncz_t2_detect_detail)); amd64 edge entry gets the T2 compat cmdline"
 else
     echo "  not T2 hardware ($(ncz_t2_detect_detail)); amd64 edge entry keeps default PCIe services"
 fi
