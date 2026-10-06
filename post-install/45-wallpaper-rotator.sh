@@ -80,6 +80,16 @@ if [ -x "$OCS_ASSETS/ncz-wallpaper-ocs" ]; then
 else
     echo "[45]   WARN: OCS wallpaper backend asset missing" >&2
 fi
+# Aspect-ratio variants (docs/WALLPAPER-SAFE-AREA.md): ncz-wallpaper-rotate asks
+# this helper which file of a wallpaper fits the primary output -- the 16:9
+# original or a pre-composed 16:10 variant a pack declares under [Variants].
+# Optional: without it the rotator applies the original exactly as before.
+if [ -x "$OCS_ASSETS/ncz-wallpaper-fit" ]; then
+    install -m 0755 "$OCS_ASSETS/ncz-wallpaper-fit" /usr/local/bin/ncz-wallpaper-fit
+    echo "[45]   installed aspect-variant chooser: ncz-wallpaper-fit"
+else
+    echo "[45]   WARN: aspect-variant chooser asset missing: ncz-wallpaper-fit" >&2
+fi
 if [ -f "$OCS_ASSETS/ocs-category-index.json" ]; then
     install -m 0644 "$OCS_ASSETS/ocs-category-index.json" /usr/share/ncz-wallpapers/ocs-category-index.json
     echo "[45]   installed OCS wallpaper category index"
@@ -427,6 +437,75 @@ if command -v systemctl >/dev/null 2>&1; then
     unset _ncz_env _ncz_name _ncz_line
 fi
 
+# The NCZ_* overrides exist for build/test_wallpaper_fit.py only.
+SSD=${NCZ_SINGULARITY_SCHEMA_DIR:-/opt/singularity/share/glib-2.0/schemas}
+FIT=${NCZ_WALLPAPER_FIT:-/usr/local/bin/ncz-wallpaper-fit}
+COLLECTIONS=${NCZ_WALLPAPER_COLLECTIONS:-/usr/local/bin/ncz-wallpaper-collections}
+
+detect_de() {
+    case "${XDG_CURRENT_DESKTOP:-}${DESKTOP_SESSION:-}" in
+        *Singularity*|*singularity*) echo singularity; return ;;
+        *GNOME*|*gnome*)      echo gnome; return ;;
+    esac
+    if   pgrep -u "$USER" -x singularity-desktop >/dev/null 2>&1; then echo singularity
+    elif pgrep -u "$USER" -x gnome-shell >/dev/null 2>&1; then echo gnome
+    fi
+}
+
+# Apply a file:// URI the way each desktop reads it.
+apply_uri() {  # <de> <uri>
+    case "$1" in
+        singularity)
+            # Singularity reads dev.sinty.desktop; its schema lives in the isolated
+            # /opt/singularity prefix, so point gsettings at that schema dir.
+            if command -v gsettings >/dev/null 2>&1 && [ -d "$SSD" ]; then
+                GSETTINGS_SCHEMA_DIR="$SSD" gsettings set dev.sinty.desktop background-picture-uri "$2" 2>/dev/null || true
+            fi
+            # The native shell observes this setting. A second background layer
+            # would hide changes made through the desktop wallpaper chooser.
+            ;;
+        gnome)
+            gsettings set org.gnome.desktop.background picture-uri "$2" 2>/dev/null || true
+            gsettings set org.gnome.desktop.background picture-uri-dark "$2" 2>/dev/null || true
+            gsettings set org.gnome.desktop.background picture-options zoom 2>/dev/null || true
+            ;;
+    esac
+}
+
+current_uri() {  # <de>
+    _cur=""
+    case "$1" in
+        singularity)
+            [ -d "$SSD" ] && _cur=$(GSETTINGS_SCHEMA_DIR="$SSD" gsettings get dev.sinty.desktop background-picture-uri 2>/dev/null) ;;
+        gnome)
+            _cur=$(gsettings get org.gnome.desktop.background picture-uri-dark 2>/dev/null) ;;
+    esac
+    # gsettings prints a GVariant string: 'file:///...'
+    _cur=${_cur#\'}; _cur=${_cur%\'}
+    printf '%s\n' "$_cur"
+}
+
+# --refit: keep the CURRENT wallpaper but swap it for the aspect variant that
+# fits the primary output now (docs/WALLPAPER-SAFE-AREA.md). The desktop draws
+# with cover/zoom, so a 16:9 image on a 16:10 panel loses 5% per side. The
+# daemon runs this every tick, so a panel or mode change, or an image picked
+# by the shell's own rotator or the Settings chooser, is re-fitted within one
+# tick. It never picks a new image, never touches the rotation state, and
+# writes GSettings only when the fitted URI differs.
+if [ "${1:-}" = --refit ]; then
+    [ -x "$FIT" ] || exit 0
+    DE=$(detect_de)
+    [ -n "$DE" ] || exit 0
+    CUR=$(current_uri "$DE")
+    [ -n "$CUR" ] || exit 0
+    NEW=$("$FIT" choose-uri "$CUR" 2>/dev/null)
+    if [ -n "$NEW" ] && [ "$NEW" != "$CUR" ]; then
+        apply_uri "$DE" "$NEW"
+        printf '%s\n' "ncz-wallpaper-rotate: refit $CUR -> $NEW" >&2
+    fi
+    exit 0
+fi
+
 # WHICH COLLECTION. Singularity Desktop writes the user's choice directly to
 # its wallpaper-rotation state directory. Keep reading the old NCZ-owned path
 # as a fallback for upgrades from builds that exposed it independently.
@@ -439,7 +518,7 @@ COLLECTION=""
 # Default collection: the Cygnus Artist Pack (falls back to ncz if absent).
 if [ -z "$COLLECTION" ]; then
     COLLECTION=ncz
-    /usr/local/bin/ncz-wallpaper-collections path cygnus-2610 >/dev/null 2>&1 && COLLECTION=cygnus-2610
+    "$COLLECTIONS" path cygnus-2610 >/dev/null 2>&1 && COLLECTION=cygnus-2610
 fi
 
 PIC=""
@@ -456,9 +535,9 @@ wallpaper_log() {
     printf '%s\n' "ncz-wallpaper-rotate: $*" >&2
 }
 
-if [ -x /usr/local/bin/ncz-wallpaper-collections ]; then
+if [ -x "$COLLECTIONS" ]; then
     PICK_ERROR_FILE="$STATE_DIR/ncz-wallpaper-pick-error.$$"
-    PIC=$(/usr/local/bin/ncz-wallpaper-collections pick "$COLLECTION" 2>"$PICK_ERROR_FILE")
+    PIC=$("$COLLECTIONS" pick "$COLLECTION" 2>"$PICK_ERROR_FILE")
     PICK_STATUS=$?
     PICK_ERROR=$(tr '\n' ' ' < "$PICK_ERROR_FILE" 2>/dev/null)
     rm -f "$PICK_ERROR_FILE"
@@ -488,6 +567,13 @@ if [ "$PICK_STATUS" -ne 0 ] || [ -z "$PIC" ] || [ ! -f "$PIC" ]; then
     fi
 fi
 [ -z "$PIC" ] && { wallpaper_log "collection '$COLLECTION' has no usable image"; exit 1; }
+# Show the aspect variant of the picked image that fits the primary output
+# (16:10 panels get the 16:10 composition). The helper prints its input on any
+# doubt, and a missing helper or file keeps the original.
+if [ -x "$FIT" ]; then
+    FIT_PIC=$("$FIT" choose "$PIC" 2>/dev/null)
+    [ -n "$FIT_PIC" ] && [ -f "$FIT_PIC" ] && PIC=$FIT_PIC
+fi
 # default.jpg is a convenience pointer, not the mechanism -- the wallpaper is
 # applied through GSettings below. The rotator runs as the logged-in
 # user and $WP_DIR is root-owned 0755, so this ln FAILS with EPERM every time.
@@ -497,36 +583,7 @@ if [ -w "$WP_DIR" ]; then
     ln -sfn "$(basename "$PIC")" "$WP_DIR/default.jpg" 2>/dev/null || true
 fi
 
-DE=""
-case "${XDG_CURRENT_DESKTOP:-}${DESKTOP_SESSION:-}" in
-    *Singularity*|*singularity*) DE=singularity ;;
-    *GNOME*|*gnome*)      DE=gnome ;;
-esac
-if [ -z "$DE" ]; then
-    if   pgrep -u "$USER" -x singularity-desktop >/dev/null 2>&1; then DE=singularity
-    elif pgrep -u "$USER" -x gnome-shell >/dev/null 2>&1; then DE=gnome
-    fi
-fi
-
-case "$DE" in
-    singularity)
-        URI="file://$PIC"
-        # Singularity reads dev.sinty.desktop; its schema lives in the isolated
-        # /opt/singularity prefix, so point gsettings at that schema dir.
-        SSD=/opt/singularity/share/glib-2.0/schemas
-        if command -v gsettings >/dev/null 2>&1 && [ -d "$SSD" ]; then
-            GSETTINGS_SCHEMA_DIR="$SSD" gsettings set dev.sinty.desktop background-picture-uri "$URI" 2>/dev/null || true
-        fi
-        # The native shell observes this setting. A second background layer
-        # would hide changes made through the desktop wallpaper chooser.
-        ;;
-    gnome)
-        URI="file://$PIC"
-        gsettings set org.gnome.desktop.background picture-uri "$URI" 2>/dev/null || true
-        gsettings set org.gnome.desktop.background picture-uri-dark "$URI" 2>/dev/null || true
-        gsettings set org.gnome.desktop.background picture-options zoom 2>/dev/null || true
-        ;;
-esac
+apply_uri "$(detect_de)" "file://$PIC"
 printf '%s\n' "$PIC" > "$STATE_FILE" 2>/dev/null
 printf '%s\n' "$COLLECTION" > "$STATE_COLLECTION_FILE" 2>/dev/null
 ROT
@@ -556,6 +613,20 @@ sleep 2
 CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
 CONF_DIR="$CONFIG_HOME/singularity/wallpaper-rotation"
 LEGACY_CONF_DIR="$CONFIG_HOME/ncz-wallpaper"
+
+# ASPECT RE-FIT (docs/WALLPAPER-SAFE-AREA.md). The loop wakes every TICK
+# seconds and runs `ncz-wallpaper-rotate --refit`, which swaps the current
+# wallpaper for the aspect variant that fits the primary output and is a no-op
+# when nothing changed. That re-evaluates within one tick after a panel, mode
+# or rotation change, and also re-fits an image chosen by the Singularity
+# shell's own rotator or the Settings wallpaper chooser (both write the
+# original 16:9 file). Rotation itself still happens once per interval.
+# Cost per tick: one gsettings read, one wlr-randr call and one short python3
+# run; GSettings is written only when the fitted file differs. A rotation
+# interval lowered below the time already elapsed rotates on the next tick,
+# the same as the old loop picking up a new interval after its sleep.
+TICK=15
+last_rotate=$(date +%s)
 while true; do
     interval=""
     INTERVAL_CONF="$CONF_DIR/rotate-interval"
@@ -568,7 +639,13 @@ while true; do
     # rotation would hammer gsettings and, for the Bing collection, the network.
     [ "$interval" -lt 30 ] && interval=30
 
-    sleep "$interval"
+    sleep "$TICK"
+    /usr/local/bin/ncz-wallpaper-rotate --refit
+    # Wall-clock time since the last rotation, so the refit's own run time
+    # does not stretch the interval.
+    now=$(date +%s)
+    [ $((now - last_rotate)) -lt "$interval" ] && continue
+    last_rotate=$now
 
     enabled=""
     ENABLED_CONF="$CONF_DIR/rotate-enabled"
