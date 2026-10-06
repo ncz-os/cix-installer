@@ -50,8 +50,12 @@ assets/kernel/amd64-stable/	amd64	-	amd64 stable kernel KVER stamp
 assets/kernel/amd64-edge/	amd64	-	amd64 pinned 7.3.0-rc6 AER-revert edge kernel KVER stamp
 assets/kernel/amd64-edge-manifest.json	amd64	-	amd64 edge kernel artifact manifest (sha256, provenance)
 assets/kernel/t2gmux/	amd64	t2	T2 gmux DKMS source
+assets/kernel/t2gmux/patches/	amd64	t2	local hardening patches applied by DKMS (t2gmux G2/G3/G4)
 assets/kernel/t2smc/	amd64	t2	T2 SMC DKMS source
+assets/kernel/t2smc/patches/	amd64	t2	local hardening patches applied by DKMS (t2smc S1-S4/S8 + range rework)
+assets/kernel/t2smc/tests/	amd64	t2	userspace unit tests for the t2smc validators
 assets/kernel/t2smp/	amd64	t2	T2 SMP DKMS source
+assets/kernel/t2smp/patches/	amd64	t2	local hardening patches applied by DKMS (t2smp M1)
 assets/kernel/t2thunderbolt/	amd64	t2	T2 Thunderbolt DKMS source
 assets/keys/	common	-	OTA archive keyring and cosign key
 assets/models/	sky1	-	.cix NPU model bundle
