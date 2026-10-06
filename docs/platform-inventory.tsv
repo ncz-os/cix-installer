@@ -46,12 +46,12 @@ assets/firmware/rtl_nic/	common	-	Realtek NIC firmware; used by x86 and Orion bo
 assets/gpu/	sky1	-	ncz-gpu-select/switcher for mali/panthor
 assets/hostnames/	common	-	hostname generator word list
 assets/install_ncz_agents.sh	common	-	agent stack installer
-assets/kernel-manifest.json	sky1	-	Sky1 kernel manifest
+assets/kernel-manifest.json	sky1	-	Sky1 kernel manifest (unified 7.3 mainline)
 assets/kernel/	sky1	-	Sky1 kernel staging, mali/panthor/vpu/npu overlays, patches (default for the tree)
 assets/kernel/.gitkeep	common	-	placeholder
-assets/kernel/amd64-stable/	amd64	-	amd64 stable kernel KVER stamp
-assets/kernel/amd64-edge/	amd64	-	amd64 pinned 7.3.0-rc6 AER-revert edge kernel KVER stamp
-assets/kernel/amd64-edge-manifest.json	amd64	-	amd64 edge kernel artifact manifest (sha256, provenance)
+assets/kernel/amd64-stable/	amd64	-	amd64 unified 7.3 default kernel KVER stamp
+assets/kernel/amd64-stable-manifest.json	amd64	-	amd64 default 7.3 kernel artifact manifest (sha256, provenance)
+assets/kernel/sky1-manifest.json	sky1	-	Sky1 r282 7.3 default kernel artifact manifest (sha256, provenance)
 assets/kernel/t2gmux/	amd64	t2	T2 gmux DKMS source
 assets/kernel/t2smc/	amd64	t2	T2 SMC DKMS source
 assets/kernel/t2smp/	amd64	t2	T2 SMP DKMS source
@@ -68,6 +68,7 @@ assets/refind/ncz-refind-refresh.sh	sky1	-	rEFInd refresh for Sky1 kernels (Imag
 assets/refind/refind_aa64.efi	sky1	-	rEFInd arm64 binary
 assets/refind/refind_x64.efi	amd64	-	rEFInd x86_64 binary
 assets/refind/zz1-ncz-refind-refresh-amd64	amd64	-	kernel postinst hook for amd64 rEFInd refresh
+assets/refind/ncz-t2-detect.sh	amd64	t2	DMI-based Apple T2 detection sourced by the amd64 rEFInd refresh (gates pcie_ports=compat and the rescue blacklist)
 assets/regreet/	common	-	notes
 assets/rescue/	common	-	rescue notes
 assets/singularity/	common	-	Singularity patch series
@@ -114,8 +115,8 @@ build/build-wallpaper-contrib-deb.sh	common	-	wallpaper pack debs
 build/check-early-command-size.sh	common	-	preseed size gate
 build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
 build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
-build/verify-kernel-default-policy.sh	common	-	enforces the kernel default policy (default=stable release; edge=7.3.0-rc6 on both arches; amd64 edge pinned to the AER revert build)
-build/verify-no-debian-kernel.sh	common	-	fails closed if a Debian 7.1.x/linux-image-{arm64,amd64} kernel or a non-7.2.9 default is present in a rootfs/ESP/initrd/listing
+build/verify-kernel-default-policy.sh	common	-	enforces the unified kernel policy (one 7.3 default per arch; rescue = same kernel + accelerator blacklist; no edge; rc default only while allowed)
+build/verify-no-debian-kernel.sh	common	-	fails closed if a Debian 7.1.x/linux-image-{arm64,amd64} kernel or a non-7.3 default is present in a rootfs/ESP/initrd/listing
 build/fixtures/	common	-	static fixture data for build gates
 build/check-preseed-mirror-sync.sh	common	-	preseed mirror vs release.conf gate
 build/component-prompt-gate.sh	common	-	interactive component prompt gate
@@ -182,8 +183,10 @@ build/systemd/	common	-	singularity patch reconcile units
 build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	AMD64 dynamic NVIDIA driver + CUDA gate tests (Turing plan, R580 plan, Kepler skip, ncz-cuda-setup simulation, removals refused, status/retry/park/backoff, installed-target fixture, chooser)
 build/test-amd64-dracut-isolation.sh	amd64	-	amd64 base must not stage the Sky1 dracut config (static checks + the real staging loop)
 build/test-amd64-intel-vaapi.sh	amd64	-	amd64 desktop closure ships intel-media-va-driver (Intel VA-API gap, MEDUSA UHD 630)
-build/test-amd64-kernel-classifier.sh	amd64	-	amd64 kernel classifier test
-build/test-arm64-freshness-gate.sh	sky1	-	arm64 freshness gate test
+build/test-amd64-kernel-classifier.sh	amd64	-	amd64 unified-7.3 kernel classifier test
+build/test-amd64-t2-detect.sh	amd64	t2	T2 DMI detection + pcie_ports=compat gating test
+build/test-amd64-t2-default-compat.sh	amd64	t2	amd64 default-entry T2 pcie_ports=compat test (token only on the default entry)
+build/test-arm64-freshness-gate.sh	sky1	-	arm64 unified-7.3 freshness gate test
 build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test
 build/test-boot-speed.sh	common	-	regression tests for boot-blocking systemd units (docs/BOOT-SPEED.md)
 build/test-dual-arch-parity.sh	common	-	fixture tests for the parity gates
@@ -194,7 +197,7 @@ build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-kernel-default-policy.sh	common	-	fixture tests for verify-kernel-default-policy.sh (positive ship states + every failure path)
 build/test-kernel-purity-pin.sh	common	-	apt simulation proving the Debian-kernel preferences pin blocks dependencies while NCZ's own kernel still installs
 build/test-kernel-purity-guards.sh	common	-	behavioural test of the rEFInd Debian-kernel guards + static test of the legacy amd64 installer-kernel swap
-build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kernel.sh (clean 7.2.9 trees pass; every Debian-kernel leak and wrong default fails)
+build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kernel.sh (clean 7.3 trees pass; every Debian-kernel leak and wrong default fails)
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
 build/test-release-identity.sh	common	-	release identity/label + Cygnus logo wiring regression test

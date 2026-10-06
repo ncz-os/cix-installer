@@ -3,13 +3,13 @@
 # (forky 7.1.x linux-image-arm64 / linux-image-amd64 / versioned
 # linux-image-7.1*) has leaked into installer media, the target rootfs,
 # the ESP, or an initrd, or if the DEFAULT boot kernel is not the
-# expected 7.2.9 string for the architecture.
+# expected unified 7.3 string for the architecture.
 #
-# Policy (operator directive 2026-10-04, Cygnus 26.10 kernel purity):
-#   - The kernel in the installer image AND the installed system is
-#     7.2.9 on both arches:
-#         arm64  expected KVER = 7.2.9-sky1-ncz       (assets/kernel/mainline/KVER)
-#         amd64  expected KVER = 7.2.9-2-t2-trixie    (assets/kernel/amd64-stable/KVER)
+# Policy (operator directive 2026-10-05, unified 7.3; Cygnus 26.10 kernel purity):
+#   - The kernel in the installer image AND the installed system is 7.3 on
+#     both arches, read from the per-arch sidecar:
+#         arm64  expected KVER = assets/kernel/mainline/KVER
+#         amd64  expected KVER = assets/kernel/amd64-stable/KVER
 #   - NO Debian default kernel (the forky 7.1.x linux-image-arm64 /
 #     linux-image-amd64 meta or any versioned linux-image-7.1*) may be
 #     included, installed, pulled back by a dependency, or used to boot.
@@ -39,7 +39,7 @@
 #   --quiet                 only print failures.
 #
 # Exit codes:
-#   0  no Debian kernel present, default kernel is the expected 7.2.9
+#   0  no Debian kernel present, default kernel is the expected 7.3
 #   1  violation found
 #   2  misuse (bad args / no input / could not determine ARCH/expected KVER)
 set -uo pipefail

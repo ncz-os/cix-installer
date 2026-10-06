@@ -52,15 +52,11 @@ ASSETS="$ROOT/assets/kernel"
 eval "gate_img=$gate_img"
 describe "build-kernel-debs KVM-gated Image" "$gate_img"
 
-# 3. build-squashfs-layers.sh: the KVER_NEXT sidecar source
+# 3. build-squashfs-layers.sh: the KVER_NEXT sidecar source (the unified 7.3
+#    mainline pointer; the retired KVER_EDGE/edge channel is gone)
 side_src="$(grep -E 'sudo cp .*KVER_NEXT"' build/build-squashfs-layers.sh | grep -oE '"\$ROOT/assets/kernel/[a-z-]+/KVER"' | head -1)"
 eval "side_src=$side_src"
 say "squashfs KVER_NEXT sidecar source" "$side_src -> $(cat "$side_src" 2>/dev/null || echo MISSING)"
-edge_src="$(grep -E 'KVER_EDGE"' build/build-squashfs-layers.sh | grep -oE '"\$ROOT/assets/kernel/[a-z-]+/KVER"' | head -1)"
-if [ -n "$edge_src" ]; then
-    eval "edge_src=$edge_src"
-    say "squashfs KVER_EDGE (test) source" "$edge_src -> $(cat "$edge_src" 2>/dev/null || echo MISSING)"
-fi
 
 # 4. Makefile kernel-debs freshness key
 mk_kver="$(grep -oE '"\$\(ROOT\)/assets/kernel/[a-z-]+/KVER"' Makefile | head -1 | sed 's/\$(ROOT)/$ROOT/')"

@@ -37,8 +37,8 @@ case "$ARCH" in
     x86_64)  ARCH=amd64 ;;
 esac
 case "$ARCH" in
-    arm64) DEB_META="linux-image-arm64"; OUR_PKG="linux-image-cixmini"; OUR_VER="7.2.9-sky1-ncz+r281" ;;
-    amd64) DEB_META="linux-image-amd64"; OUR_PKG="linux-image-7.2.9-2-t2-trixie"; OUR_VER="7.2.9-2" ;;
+    arm64) DEB_META="linux-image-arm64"; OUR_PKG="linux-image-cixmini"; OUR_VER="7.3.0-rc6-sky1-ncz+r282" ;;
+    amd64) DEB_META="linux-image-amd64"; OUR_PKG="linux-image-7.3.0-rc6-1-t2-edge-aerfix"; OUR_VER="7.3.0-rc6-1" ;;
     *) echo "SKIP: unsupported host arch '$ARCH' for the apt simulation"; exit 0 ;;
 esac
 DEB_VERSIONED="linux-image-7.1.9-1-${ARCH}"

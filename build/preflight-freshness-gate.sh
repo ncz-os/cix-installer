@@ -306,10 +306,23 @@ check_arm64_channel() {
     local pin_name pin_class
     pin_name="$(basename "$abs_target")"
     if is_prerelease "$pin_name"; then pin_class="prerelease"; else pin_class="stable"; fi
-    if [ "$pin_class" != "$want_class" ]; then
+    # Unified 7.3 policy (operator 2026-10-05): there is ONE arm64 channel.
+    # want_class=unified accepts either a 7.3 -rcN or a 7.3 final pin (rc is
+    # allowed while KERNEL-POLICY RC_DEFAULT_ALLOWED=1) but refuses any other
+    # series (7.2.x is retired).
+    if [ "$want_class" = "unified" ]; then
+        case "$pin_name" in
+            *7.3.*|*7.3-*) ;;
+            *)
+                echo "[3] FAIL: arm64 $label -- $local_pointer -> $pin_name is not the unified 7.3 kernel"
+                echo "          (7.2.x is retired; operator 2026-10-05). Repoint $local_pointer at the 7.3 build."
+                FAIL=$((FAIL + 1))
+                return
+                ;;
+        esac
+    elif [ "$pin_class" != "$want_class" ]; then
         echo "[3] FAIL: arm64 $label -- $local_pointer -> $pin_name is a $pin_class build;"
-        echo "          the $label line only takes $want_class builds (mainline = 7.2.x release,"
-        echo "          edge = 7.3.x -rc test kernel). Repoint the right channel instead."
+        echo "          the $label line only takes $want_class builds. Repoint the right channel instead."
         FAIL=$((FAIL + 1))
         return
     fi
@@ -325,7 +338,9 @@ check_arm64_channel() {
         name="$(basename "$d")"
         mt="${line%% *}"
         mt="${mt%%.*}"
-        if is_prerelease "$name"; then
+        if [ "$want_class" = "unified" ]; then
+            case "$name" in *7.3.*|*7.3-*) ;; *) continue ;; esac
+        elif is_prerelease "$name"; then
             [ "$want_class" = prerelease ] || continue
         else
             [ "$want_class" = stable ] || continue
@@ -353,18 +368,18 @@ EOF
 check_amd64_line() {
     local line="$1"
     local newest=""
-    # The edge line is pinned, not newest-by-mtime: a stale amd64-edge-rc5
-    # build lingering in the pool must not be selected over the committed
-    # 7.3.0-rc6 revert build. Look for any pool directory (a published
-    # amd64-edge-* or a member of an amd64-t2-* build tree) whose KVER
-    # sidecar matches the pin. If the pin exists but no build matches it,
-    # FAIL closed -- falling back to mtime would silently defeat the pin.
+    # The unified 7.3 line is pinned, not newest-by-mtime: a stale 7.2.x or
+    # rc build lingering in the pool must not be selected over the committed
+    # default build. Look for any pool directory (a published amd64-stable-*
+    # or a member of an amd64-t2-* build tree) whose KVER sidecar matches the
+    # pin. If the pin exists but no build matches it, FAIL closed -- falling
+    # back to mtime would silently defeat the pin.
     local _pinned=0
-    if [ "$line" = "amd64-edge" ] && [ -s "assets/kernel/amd64-edge/KVER" ]; then
+    if [ "$line" = "amd64-stable" ] && [ -s "assets/kernel/amd64-stable/KVER" ]; then
         _pinned=1
         local _pin _d _cands
-        _pin="$(tr -d '[:space:]' < assets/kernel/amd64-edge/KVER)"
-        mapfile -t _cands < <(find "$KERNEL_STAGING_DIR" -maxdepth 3 -type d \( -name 'amd64-edge-*' -o -path '*/amd64-t2-*/*' \) 2>/dev/null)
+        _pin="$(tr -d '[:space:]' < assets/kernel/amd64-stable/KVER)"
+        mapfile -t _cands < <(find "$KERNEL_STAGING_DIR" -maxdepth 3 -type d \( -name 'amd64-stable-*' -o -path '*/amd64-t2-*/*' \) 2>/dev/null)
         for _d in "${_cands[@]}"; do
             [ -d "$_d" ] || continue
             [ -s "$_d/KVER" ] || continue
@@ -374,8 +389,8 @@ check_amd64_line() {
             fi
         done
         if [ -z "$newest" ]; then
-            echo "[3] FAIL: amd64-edge is pinned to '$_pin' but no build with that KVER is staged under $KERNEL_STAGING_DIR"
-            echo "          publish it with build/publish-amd64-kernel.sh edge <deb-dir> before building."
+            echo "[3] FAIL: amd64-stable is pinned to '$_pin' but no build with that KVER is staged under $KERNEL_STAGING_DIR"
+            echo "          publish it with build/publish-amd64-kernel.sh default <deb-dir> before building."
             FAIL=$((FAIL + 1))
             return
         fi
@@ -446,16 +461,15 @@ check_amd64_line() {
 if [ -d "$KERNEL_STAGING_DIR" ]; then
     case "$NCZ_SYSTEM_ARCH" in
         amd64)
-            # Operator directive 2026-10-05: amd64 ships the 7.2.9 stable
-            # line as the default plus the pinned 7.3.0-rc6 AER-revert edge
-            # line. Both are checked; the edge check selects the pool dir
-            # matching assets/kernel/amd64-edge/KVER, not newest-by-mtime.
+            # Operator directive 2026-10-05 (unified): amd64 ships ONE 7.3
+            # kernel as the default and installer kernel. The retired
+            # 7.2.9 line and the separate amd64-edge channel are gone.
             check_amd64_line amd64-stable
-            check_amd64_line amd64-edge
             ;;
         arm64)
-            check_arm64_channel assets/kernel/mainline stable required
-            check_arm64_channel assets/kernel/edge prerelease optional
+            # Unified 7.3: one required channel (assets/kernel/mainline).
+            # assets/kernel/edge was retired.
+            check_arm64_channel assets/kernel/mainline unified required
             ;;
         *)
             # An arch we don't recognise. Don't claim OK -- say we don't
@@ -485,10 +499,9 @@ if [ -d "$KERNEL_STAGING_DIR" ]; then
     while IFS= read -r d; do
         [ -n "$d" ] || continue
         case "$(basename "$d")" in
-            # amd64: the two live lines (operator directive 2026-10-05).
-            # amd64-stable-* is the default; amd64-edge-* is the pinned
-            # 7.3.0-rc6 AER-revert edge.
-            amd64-stable-*|amd64-edge-*) ;;
+            # amd64: the single unified 7.3 line (operator directive
+            # 2026-10-05). amd64-edge-* was retired.
+            amd64-stable-*) ;;
             # arm64: the single live namespace -- r<N>-<kver>-sky1-ncz-<date>.
             # The trailing * lets a future suffix (e.g. -xhcifix) still
             # classify instead of falling through unseen, same posture as
@@ -515,11 +528,11 @@ EOF
     if [ -n "$orphans" ]; then
         echo "[3] FAIL: kernel-staging holds build(s) under a prefix nothing consumes:"
         for o in $orphans; do echo "          $o"; done
-        echo "          The amd64 branch globs amd64-stable-* and amd64-edge-*;"
+        echo "          The amd64 branch globs amd64-stable-*;"
         echo "          the arm64 branch globs r<digit>*-*-sky1-ncz*. Anything else"
         echo "          will NEVER be staged into an image."
         echo "          Rename to the correct line prefix, or republish with"
-        echo "          build/publish-amd64-kernel.sh stable|edge <deb-dir> (amd64)"
+        echo "          build/publish-amd64-kernel.sh default <deb-dir> (amd64)"
         echo "          or build/stage-kernel.sh (arm64)."
         FAIL=$((FAIL + 1))
     fi
