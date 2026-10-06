@@ -206,21 +206,36 @@ fi
 
 # ---------------------------------------------------------------------------
 # (4) build-squashfs-layers.sh + build-role-delta-mkosi.sh -- the consumers
-#     of desktop-mirror. Both should pre-flight the mirror against
-#     assert-mirror-has-screensavers.sh BEFORE touching the chroot.
+#     of desktop-mirror. Both must pre-flight the mirror the DESKTOP layer
+#     actually installs from (desktop-mirror when MIRROR_DIRS is not
+#     overridden), not the base role's suite/vendor mirrors, and only for the
+#     stages that build a desktop layer. assert-mirror's own fail/pass
+#     behaviour is covered by the cases in section (1) above.
 # ---------------------------------------------------------------------------
-for s in build-squashfs-layers.sh build-role-delta-mkosi.sh; do
-    f="$ROOT/build/$s"
-    if [ -r "$f" ]; then
-        if grep -q 'assert-mirror-has-screensavers.sh' "$f"; then
-            ok "$s pre-flights desktop-mirror for ncz-screensavers"
-        else
-            bad "$s does NOT pre-flight desktop-mirror for ncz-screensavers"
-        fi
+SQFS="$ROOT/build/build-squashfs-layers.sh"
+if [ -r "$SQFS" ]; then
+    if grep -q 'assert-mirror-has-screensavers.sh' "$SQFS" \
+       && grep -q 'desktop|all)' "$SQFS" \
+       && grep -q '_ss_effective="desktop-mirror"' "$SQFS"; then
+        ok "build-squashfs-layers.sh pre-flights desktop-mirror for ncz-screensavers (desktop|all only)"
     else
-        bad "$s missing"
+        bad "build-squashfs-layers.sh pre-flights the wrong mirror or the wrong stages"
     fi
-done
+else
+    bad "build-squashfs-layers.sh missing"
+fi
+
+RD="$ROOT/build/build-role-delta-mkosi.sh"
+if [ -r "$RD" ]; then
+    if grep -q 'assert-mirror-has-screensavers.sh' "$RD" \
+       && grep -q 'desktop) MIRROR_DIRS="desktop-mirror"' "$RD"; then
+        ok "build-role-delta-mkosi.sh pre-flights desktop-mirror for ncz-screensavers"
+    else
+        bad "build-role-delta-mkosi.sh does NOT pre-flight desktop-mirror"
+    fi
+else
+    bad "build-role-delta-mkosi.sh missing"
+fi
 
 # ---------------------------------------------------------------------------
 # (5) post-install/24-apt-sources.sh -- live update path. The fixed hook
