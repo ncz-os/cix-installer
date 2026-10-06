@@ -4,7 +4,10 @@
 # WHY THIS EXISTS. We retired the in-tree applesmc driver in favour of t2smc
 # (operator directive 2026-09-28, "for starters I would remove applesmc in
 # favour of t2smc"), and built t2smc/t2gmux/t2smp/t2thunderbolt as DKMS
-# modules. The DKMS sources were committed to assets/kernel/<name>/ and the
+# modules. t2thunderbolt is NO LONGER built or loaded by default (operator
+# 2026-10-05: "don't load t2thunderbolt"): it is a suspend/resume ordering
+# quirk, and the T2 community considers the Thunderbolt-on-T2 area unsafe.
+# Opt in with NCZ_T2_DKMS_EXTRA=t2thunderbolt (and remove the modprobe.d file). The DKMS sources were committed to assets/kernel/<name>/ and the
 # bulk asset copy in build-squashfs-layers.sh does carry them into
 # base.squashfs -- but NOTHING EVER INSTALLED THEM, so every install shipped
 # with no SMC driver at all.
@@ -44,10 +47,22 @@ esac
 unset _ncz_pg_arch
 set -uo pipefail
 
-ASSETS=/usr/local/lib/cix-installer/assets/kernel
-MODULES="t2smc t2gmux t2smp t2thunderbolt"
+ASSETS="${NCZ_ASSETS_KERNEL:-/usr/local/lib/cix-installer/assets/kernel}"
+DMI_ROOT="${NCZ_DMI_ROOT:-/sys/class/dmi/id}"
+USRSRC="${NCZ_USRSRC:-/usr/src}"
+MODPROBE_D="${NCZ_MODPROBE_D:-/etc/modprobe.d}"
+LIBMODULES="${NCZ_LIB_MODULES:-/lib/modules}"
+# Default set. t2thunderbolt is opt-in only (see header).
+MODULES="t2smc t2gmux t2smp"
+_optin=0
+for _x in ${NCZ_T2_DKMS_EXTRA:-}; do
+    case "$_x" in
+        t2thunderbolt) MODULES="$MODULES $_x"; _optin=1 ;;
+        *) echo "[56] WARN: NCZ_T2_DKMS_EXTRA entry '$_x' is not a known optional module -- ignored" >&2 ;;
+    esac
+done
 
-_vendor=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)
+_vendor=$(cat "$DMI_ROOT/sys_vendor" 2>/dev/null || true)
 case "$_vendor" in
     *Apple*) ;;
     *) echo "[56] sys_vendor='$_vendor' is not Apple -- skipping T2 DKMS modules"; exit 0 ;;
@@ -59,9 +74,30 @@ if ! command -v dkms >/dev/null 2>&1 && [ ! -x /usr/sbin/dkms ]; then
 fi
 PATH="$PATH:/usr/sbin"   # dkms lives in /usr/sbin and is absent from some PATHs
 
-KVER=$(ls -1 /lib/modules 2>/dev/null | grep -v -- '-rc' | sort -V | tail -1)
+KVER=$(ls -1 "$LIBMODULES" 2>/dev/null | grep -v -- '-rc' | sort -V | tail -1)
 [ -n "$KVER" ] || KVER=$(uname -r)
 echo "[56] installing T2 DKMS modules against $KVER"
+
+# t2thunderbolt: never loaded unless explicitly opted in. Keep a modprobe.d file so it cannot
+# autoload even if some earlier install or a manual dkms build left the module on disk, and
+# drop a stale DKMS registration so new kernels do not rebuild it.
+if [ "$_optin" = 1 ]; then
+    rm -f "$MODPROBE_D/ncz-t2thunderbolt.conf"
+else
+    mkdir -p "$MODPROBE_D"
+    cat > "$MODPROBE_D/ncz-t2thunderbolt.conf" <<'EOC'
+# NCZ-OS: t2thunderbolt is not loaded by default (suspend/resume ordering quirk for Thunderbolt
+# controllers on T2 Macs; the T2 community treats Thunderbolt on T2 as unsafe for now).
+# To opt in: remove this file and install with NCZ_T2_DKMS_EXTRA=t2thunderbolt (post-install/56).
+blacklist t2thunderbolt
+install t2thunderbolt /bin/false
+EOC
+    if dkms status 2>/dev/null | grep -q '^t2thunderbolt'; then
+        dkms remove -m t2thunderbolt --all >/dev/null 2>&1 || true
+        echo "[56] removed stale DKMS registration of t2thunderbolt"
+    fi
+    rm -rf "$USRSRC"/t2thunderbolt-* 2>/dev/null || true
+fi
 
 _ok=""; _fail=""
 for m in $MODULES; do
@@ -71,14 +107,14 @@ for m in $MODULES; do
     fi
     ver=$(sed -n 's/^PACKAGE_VERSION="\(.*\)"/\1/p' "$src/dkms.conf" | head -1)
     [ -n "$ver" ] || ver=0
-    rm -rf "/usr/src/$m-$ver"
-    mkdir -p "/usr/src/$m-$ver"
-    cp -a "$src/dkms.conf" "/usr/src/$m-$ver/"
-    [ -d "$src/src" ] && cp -a "$src/src/." "/usr/src/$m-$ver/"
+    rm -rf "$USRSRC/$m-$ver"
+    mkdir -p "$USRSRC/$m-$ver"
+    cp -a "$src/dkms.conf" "$USRSRC/$m-$ver/"
+    [ -d "$src/src" ] && cp -a "$src/src/." "$USRSRC/$m-$ver/"
     # dkms applies PATCH[0] relative to the source root; carry the patches dir.
     if [ -d "$src/patches" ]; then
-        mkdir -p "/usr/src/$m-$ver/patches"
-        cp -a "$src/patches/." "/usr/src/$m-$ver/patches/"
+        mkdir -p "$USRSRC/$m-$ver/patches"
+        cp -a "$src/patches/." "$USRSRC/$m-$ver/patches/"
     fi
     if dkms add -m "$m" -v "$ver" >/dev/null 2>&1 || true; then :; fi
     if dkms build -m "$m" -v "$ver" -k "$KVER" >/dev/null 2>&1 \
