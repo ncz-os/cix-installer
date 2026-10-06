@@ -809,7 +809,9 @@ def main(argv=None):
     for r in all_rows:
         key = (r["name"], r["kind"], r["source"], r["arch"])
         if key not in seen:
-            seen[key] = dict(r)
+            row = dict(r)
+            row["_prov_parts"] = [r["provenance"]] if r.get("provenance") else []
+            seen[key] = row
             continue
         old = seen[key]
         old["variant"] = variant_union([variant_set(old["variant"]), variant_set(r["variant"])])
@@ -817,8 +819,15 @@ def main(argv=None):
             old["required"] = "yes"
         if r.get("notes") and r["notes"] not in old.get("notes", ""):
             old["notes"] = "; ".join(x for x in (old.get("notes", ""), r["notes"]) if x)
-        if r.get("provenance") and r["provenance"] not in old.get("provenance", ""):
-            old["provenance"] = old["provenance"] + "; " + r["provenance"] if old.get("provenance") else r["provenance"]
+        if r.get("provenance") and r["provenance"] not in old["_prov_parts"]:
+            old["_prov_parts"].append(r["provenance"])
+
+    # Finalize provenance order-independently: when a key was contributed by
+    # more than one source row, the union of citations is sorted, so the
+    # output does not depend on the order all_rows happened to be built in.
+    for row in seen.values():
+        parts = row.pop("_prov_parts", [])
+        row["provenance"] = "; ".join(sorted(set(parts))) if parts else ""
 
     final = sorted(seen.values(), key=sort_key)
 

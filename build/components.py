@@ -385,6 +385,23 @@ def gather_hook_installs(root):
 # ---------------------------------------------------------------------------
 
 
+def installer_tokens(installed_by):
+    """Every installer path in an installed_by cell.
+
+    Splits on commas outside parentheses (so a parenthetical annotation such
+    as "(apt-get install, best-effort)" stays attached), drops the
+    "manifest" pseudo-installer, and returns each remaining path so a
+    multi-installer row is checked in full.
+    """
+    out = []
+    for tok in _split_paren_commas(installed_by):
+        path = tok.split("(", 1)[0].strip()
+        if not path or path == "manifest":
+            continue
+        out.append(path)
+    return out
+
+
 def cmd_check(ctx, args):
     _, rows = ctx.load_registry()
     findings = []  # (severity, code, msg)
@@ -429,11 +446,7 @@ def cmd_check(ctx, args):
 
         ib = r["installed_by"]
         if ib and ib != "manifest":
-            primary = ib.split("(", 1)[0].strip()
-            for tok in primary.split(","):
-                tok = tok.strip()
-                if not tok or tok == "manifest":
-                    continue
+            for tok in installer_tokens(ib):
                 p = ctx.resolve(tok)
                 if not p.exists():
                     add("error", "row-installer",
@@ -583,16 +596,16 @@ def cmd_check(ctx, args):
         for r in required_per_name[name]:
             ib = r["installed_by"]
             if ib and ib != "manifest":
-                hook = ib.split("(", 1)[0].strip().split(",")[0].strip()
-                m = re.match(r"post-install/([\w.-]+\.sh)$", hook)
-                if not m:
-                    continue
-                hookfile = m.group(1)
-                in_any = any(hookfile in hooks for hooks in hook_lists.values())
-                if not in_any:
-                    add("error", "hook-never-runs",
-                        f"{name!r}: required=yes row installed by {hook} "
-                        f"but {hookfile} appears in no hooks.list.* file")
+                for hook in installer_tokens(ib):
+                    m = re.match(r"post-install/(?:[\w.-]+/)*([\w.-]+\.sh)$", hook)
+                    if not m:
+                        continue
+                    hookfile = m.group(1)
+                    in_any = any(hookfile in hooks for hooks in hook_lists.values())
+                    if not in_any:
+                        add("error", "hook-never-runs",
+                            f"{name!r}: required=yes row installed by {hook} "
+                            f"but {hookfile} appears in no hooks.list.* file")
 
     # ---- output ----------------------------------------------------------
     errors = [f for f in findings if f[0] == "error"]
