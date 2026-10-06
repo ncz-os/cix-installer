@@ -513,7 +513,6 @@ test-timesync-retry:
 # display pin, bounded NetworkManager-wait-online, diag-console alive() order.
 test-boot-sequence:
 	@bash $(ROOT)/build/test-boot-sequence.sh
-	@NCZ_TEST_SH="busybox sh" bash $(ROOT)/build/test-boot-sequence.sh
 
 secretscan:
 	@bash $(ROOT)/build/secret-scan-gate.sh

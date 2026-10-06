@@ -17,7 +17,7 @@
 #     greetd drop-in does not order the greeter after network-online.
 #  E. preseed/diag-console.sh: alive() is defined before serial_tick first runs.
 #
-#   bash build/test-boot-sequence.sh            (NCZ_TEST_SH="busybox sh" re-runs A/B under busybox ash)
+#   bash build/test-boot-sequence.sh            (re-runs itself under busybox sh when busybox is installed)
 #   NCZ_BS_ROOT=<tree> bash build/test-boot-sequence.sh   (run against another checkout, e.g. the base commit)
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -212,4 +212,9 @@ d=$(grep -n '^alive()' "$DC" | head -1 | cut -d: -f1); u=$(grep -n '^serial_tick
 [ -n "$d" ] && [ -n "$u" ] && [ "$d" -lt "$u" ] && ok "alive() (line $d) is defined before the first serial_tick (line $u)" || bad "alive() defined at line '$d', first serial_tick at line '$u'"
 
 echo "boot-sequence tests ($SHX): $PASS passed, $FAILS failed"
-[ "$FAILS" = 0 ]
+rc=0; [ "$FAILS" = 0 ] || rc=1
+# Same convention as test-installer-flow.sh: one run under sh, then again under busybox ash (the installer's shell).
+if [ -z "${NCZ_TEST_SH:-}" ] && command -v busybox >/dev/null 2>&1 && busybox sh -c 'exit 0' 2>/dev/null; then
+    NCZ_TEST_SH="busybox sh" bash "$0" || rc=1
+fi
+exit $rc
