@@ -630,7 +630,10 @@ if [ "$_rm" != "drwxr-xr-x" ]; then
     _rm=$(ls -ld / 2>/dev/null | awk '{print $1}')
     [ -n "$_rm" ] || _rm="???"
 fi
-echo "NCZ-ROOTMODE: $_rm" > /dev/kmsg 2>/dev/null || true
+# <6> = info: the marker is a normal-boot report, not a warning (a bare
+# /dev/kmsg write is logged at the default warning level). The console
+# echo below is what the KVM gate reads; it is unchanged.
+echo "<6>NCZ-ROOTMODE: $_rm" > /dev/kmsg 2>/dev/null || true
 echo "NCZ-ROOTMODE: $_rm" > /dev/console 2>/dev/null || true
 
 # 2026-09-08 GPU glvnd-compat belt (labwc SIGSEGV / free(): invalid pointer

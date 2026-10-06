@@ -70,6 +70,10 @@ then fails with `-EINVAL`.
 
 **Fix:** drop one of the two configurations — preferably the cmdline
 parameters if the ACPI description is correct, or ignore the PRP0001 node.
+**Resolved 2026-10-06 (r285 respin):** the cmdline parameters are gone from
+`NEXT_CMDLINE_EXTRA`. The DSDT RAOP node is correct (0xa0000 @ 0x83d00000)
+and registers pstore by itself; the cmdline instance was 1 MiB and overlapped
+the firmware's rdr_ap_adapter reservation at 0x83de0000.
 **Impact:** cosmetic; pstore is functional. Classed as a kludge: two mechanisms
 configuring one device.
 **Confidence:** high.

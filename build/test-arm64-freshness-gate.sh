@@ -67,7 +67,7 @@ mkpool() {
     done
 }
 # A pool holding the retired 7.2.x builds plus the unified 7.3 line (r282,
-# r283, r284; r284 newest by mtime).
+# r283, r284, r285; r285 newest by mtime).
 std_pool() {
     mkpool "$KERNEL_STAGING_DIR" \
         "r272-7.2.6-sky1-ncz-20260915|2026-09-15" \
@@ -77,7 +77,8 @@ std_pool() {
         "r281-7.2.9-sky1-ncz-20261003|2026-10-03" \
         "r282-7.3.0-rc6-sky1-ncz-20261004|2026-10-04" \
         "r283-7.3.0-rc6-sky1-ncz-20261006|2026-10-05" \
-        "r284-7.3.0-rc6-sky1-ncz-20261006|2026-10-06"
+        "r284-7.3.0-rc6-sky1-ncz-20261006|2026-10-06" \
+        "r285-7.3.0-rc6-sky1-ncz-20261006|2026-10-07"
 }
 one() { check_arm64_channel assets/kernel/mainline unified required; }
 export -f mktime mksymlink mkpool std_pool one
@@ -107,10 +108,10 @@ run_case() {   # label want_ok want_warn want_fail(exact) snippet
     fi
 }
 
-echo "=== Case 1: POSITIVE -- mainline=r284 (newest 7.3 build) ==="
+echo "=== Case 1: POSITIVE -- mainline=r285 (newest 7.3 build) ==="
 run_case "mainline on the newest unified 7.3 build" 1 0 0 '
     set -e; std_pool
-    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r284-7.3.0-rc6-sky1-ncz-20261006"
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r285-7.3.0-rc6-sky1-ncz-20261006"
     one'
 
 echo; echo "=== Case 2: NEGATIVE -- mainline points at a retired 7.2.8 build ==="
@@ -119,22 +120,28 @@ run_case "mainline pointing at 7.2.x is FAIL" 0 0 1 '
     mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r277-7.2.8-sky1-ncz-20260927"
     one'
 
-echo; echo "=== Case 3: NEGATIVE -- mainline=r273 rc4 while newer 7.3 r284 exists ==="
+echo; echo "=== Case 3: NEGATIVE -- mainline=r273 rc4 while newer 7.3 r285 exists ==="
 run_case "stale unified 7.3 pin is FAIL" 0 0 1 '
     set -e; std_pool
     mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r273-7.3.0-rc4-sky1-ncz-20260920"
     one'
 
-echo; echo "=== Case 3b: NEGATIVE -- mainline=r282 rc6 while newer 7.3 r284 exists ==="
+echo; echo "=== Case 3b: NEGATIVE -- mainline=r282 rc6 while newer 7.3 r285 exists ==="
 run_case "superseded r282 pin is FAIL" 0 0 1 '
     set -e; std_pool
     mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r282-7.3.0-rc6-sky1-ncz-20261004"
     one'
 
+echo; echo "=== Case 3c: NEGATIVE -- mainline=r284 rc6 while newer 7.3 r285 exists ==="
+run_case "superseded r284 pin is FAIL" 0 0 1 '
+    set -e; std_pool
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r284-7.3.0-rc6-sky1-ncz-20261006"
+    one'
+
 echo; echo "=== Case 4: NEGATIVE -- mainline dangling ==="
 run_case "dangling mainline is FAIL" 0 0 1 '
     set -e; std_pool
-    mksymlink "$ASSETS/kernel/mainline" "/nonexistent/pool/r284-7.3.0-rc6-sky1-ncz-20261006"
+    mksymlink "$ASSETS/kernel/mainline" "/nonexistent/pool/r285-7.3.0-rc6-sky1-ncz-20261006"
     one'
 
 echo; echo "=== Case 5: NEGATIVE -- no mainline pointer (required line) ==="
@@ -146,7 +153,7 @@ echo; echo "=== Case 6: NEGATIVE -- mainline outside the pool ==="
 run_case "mainline outside the pool is FAIL" 0 0 1 '
     set -e; std_pool
     mkdir -p "$TMPROOT/outside"
-    mksymlink "$ASSETS/kernel/mainline" "$TMPROOT/outside/r284-7.3.0-rc6-sky1-ncz-20261006"
+    mksymlink "$ASSETS/kernel/mainline" "$TMPROOT/outside/r285-7.3.0-rc6-sky1-ncz-20261006"
     one'
 
 # --- Case 7: the FULL gate, orphan check + the one pointer. Drives the real
@@ -160,13 +167,14 @@ KERNEL_STAGING_DIR="$SYN_POOL" mkpool "$SYN_POOL" \
     "r281-7.2.9-sky1-ncz-20261003|2026-10-03" \
     "r282-7.3.0-rc6-sky1-ncz-20261004|2026-10-04" \
     "r284-7.3.0-rc6-sky1-ncz-20261006|2026-10-06" \
+    "r285-7.3.0-rc6-sky1-ncz-20261006|2026-10-07" \
     "sky1-7.2.9-20261003|2026-10-03"
-mksymlink "$SYN_REPO/assets/kernel/mainline" "$SYN_POOL/r284-7.3.0-rc6-sky1-ncz-20261006"
+mksymlink "$SYN_REPO/assets/kernel/mainline" "$SYN_POOL/r285-7.3.0-rc6-sky1-ncz-20261006"
 GATE_OUT="$(NCZ_TARGET_ARCH=arm64 bash "$SYN_REPO/build/preflight-freshness-gate.sh" \
     --kernel-staging-dir "$SYN_POOL" 2>&1)"
 printf '%s\n' "$GATE_OUT" | grep -E '^\[3\]|          sky1-' | sed 's/^/    /'
 if printf '%s\n' "$GATE_OUT" | grep -q 'sky1-7.2.9-20261003' \
-   && printf '%s\n' "$GATE_OUT" | grep -q '^\[3\] OK: arm64 mainline -- assets/kernel/mainline -> r284-7.3.0-rc6-sky1-ncz-20261006'; then
+   && printf '%s\n' "$GATE_OUT" | grep -q '^\[3\] OK: arm64 mainline -- assets/kernel/mainline -> r285-7.3.0-rc6-sky1-ncz-20261006'; then
     echo "  PASS  full gate: orphan flagged, unified mainline OK"
     PASS=$((PASS+1))
 else

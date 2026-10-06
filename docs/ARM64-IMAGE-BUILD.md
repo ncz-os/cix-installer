@@ -33,8 +33,9 @@ ULTRA, only downloads/sstate/kernel staging are on ARGONAS.
    The 2026-09-27/28 images were built from a worktree that had 1 Cix deb and
    2 firmware files; every gate passed. That cannot happen again.
 3. `assets/kernel/mainline` symlink points at a kernel-staging directory named
-   `r<N>-<kver>-sky1-ncz-<date>` (today r284, see
-   `docs/reports/2026-10-06-sky1-r284-pin.md`), and it must be the newest unified
+   `r<N>-<kver>-sky1-ncz-<date>` (today r285: provenance in that staging
+   dir's PROVENANCE.txt and in assets/kernel/sky1-manifest.json; the pin
+   procedure itself is in `docs/reports/2026-10-06-sky1-r284-pin.md`), and it must be the newest unified
    7.3 build in the pool. There is no `assets/kernel/edge` any more. Directories with any other prefix inside
    `/mnt/argonas-yocto-shared/kernel-staging` fail preflight gate [3]
    (move them to `kernel-staging-archive/`, do not delete).
