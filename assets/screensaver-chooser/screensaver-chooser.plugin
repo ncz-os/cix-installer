@@ -1,8 +1,0 @@
-[Plugin]
-Module=screensaver-chooser
-Name=Screensaver Chooser
-Description=Configures screensavers, rotation, previews, and idle timing
-Authors=NCZ-OS Team
-Copyright=Copyright (c) 2026 NCZ-OS Team
-Website=https://ncz-os.dev
-Builtin=false

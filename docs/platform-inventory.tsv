@@ -70,7 +70,6 @@ assets/refind/refind_x64.efi	amd64	-	rEFInd x86_64 binary
 assets/refind/zz1-ncz-refind-refresh-amd64	amd64	-	kernel postinst hook for amd64 rEFInd refresh
 assets/regreet/	common	-	notes
 assets/rescue/	common	-	rescue notes
-assets/screensaver-chooser/	common	-	chooser plugin and idle manager
 assets/singularity/	common	-	Singularity patch series
 assets/sinty-nm/	common	-	sinty-nm service files
 assets/sky1-firmware/	sky1	-	gitignored Sky1 firmware blob input
@@ -299,7 +298,6 @@ post-install/56-t2-dkms.sh	amd64	t2	builds t2smc/t2gmux/t2smp/t2thunderbolt DKMS
 post-install/57-qotd.sh	common	-	quote of the day; generic
 post-install/57-screensaver.sh	common	-	legacy idle-lock screensaver stack; generic
 post-install/58-boot-hygiene.sh	mixed	-	generic unit hygiene plus cix_resume unit masking (Sky1); TODO split
-post-install/58-screensaver-chooser.sh	common	-	screensaver chooser; generic
 post-install/59-desktop-curate.sh	mixed	-	launcher curation generic; amd64 branch at line ~100; TODO split
 post-install/59-ncz-screensavers-pkg.sh	common	-	installs ncz-screensavers if the mirror carries it
 post-install/60-boot-splash.sh	common	-	KMS boot splash; DRM-generic (panthor initramfs strip is a harmless sed)

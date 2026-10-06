@@ -64,7 +64,7 @@ guessed into a platform. That keeps phase B a listing and gating change.
 common/
   post-install/        common + mixed hooks, run-all.sh, lib/, keyrings
   manifests/           *.pkgs shared closure, firmware.pkgs, firmware-bom.allow
-  assets/              branding, screensaver-chooser, singularity patches, ...
+  assets/              branding, singularity patches, ...
   preseed/  build/  tests/  tools/  scripts/  packaging/   (shared library and gates)
 platforms/
   sky1-arm64/
