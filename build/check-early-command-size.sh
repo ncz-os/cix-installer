@@ -34,6 +34,13 @@ buf = lines[k].split("string", 1)[1]
 parts = []
 while True:
     cur = buf.rstrip()
+    core = cur[:-1] if cur.endswith("\\") else cur
+    if "\\" in core:
+        # d-i's cdebconf interprets backslash escapes in a preseeded value
+        # (printf's \n became a real newline on 2026-10-06): the stored value
+        # ends there with an open quote and the whole command fails to parse.
+        print("COMMENT:line %d has a backslash inside the value: %s" % (k + 1, core.strip()[:80]))
+        sys.exit(0)
     if cur.endswith("\\"):
         parts.append(cur[:-1])
         k += 1
@@ -56,7 +63,7 @@ case "$len" in
     ERR:*) echo "check-early-command-size: ${len#ERR:}" >&2; exit 2 ;;
     COMMENT:*)
         echo "check-early-command-size: FAIL: preseed/early_command ${len#COMMENT:}" >&2
-        echo "check-early-command-size:       everything after that line is dropped; move the comment above the d-i line." >&2
+        echo "check-early-command-size:       d-i drops everything after it; move comments above the d-i line and avoid backslash escapes." >&2
         exit 1 ;;
 esac
 
