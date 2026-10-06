@@ -233,6 +233,8 @@ BAKED_HELPERS = [
     "user-chooser.sh",
     "boot-progress.sh",
     "ssh-keys.sh",
+    # 2026-10-06: NIC carrier scan + netcfg pin, re-applied after the media preseed reload.
+    "net-pick.sh",
 ]
 
 REQUIRED_SSH_UDEBS = (

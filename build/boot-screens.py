@@ -40,9 +40,14 @@ lba = int(re.search(r"First sector:\s*(\d+)", sh("sgdisk", "-i", "1", img)).grou
 cfg = os.path.join(W, "refind.conf")
 subprocess.check_call(["mcopy", "-o", "-n", "-i", f"{img}@@{off}", "::/EFI/BOOT/refind.conf", cfg])
 text = open(cfg).read()
-params = ("passwd/username=nczuser passwd/user-fullname=NCZTestUser passwd/user-password=nczpassword123 "
-          "passwd/user-password-again=nczpassword123 ncz_diag_pw=parity-screen-test "
+params = ("ncz_diag_pw=parity-screen-test "
           "debian-installer/locale=en_US.UTF-8 keyboard-configuration/xkb-keymap=us clock-setup/ntp=false time/zone=UTC")
+# --interactive walks the operator's path, so it must NOT preseed passwd/*: with them on the command line d-i's own
+# user-setup questions were hidden and the r199 double account prompt (d-i user-setup, then the NCZ dialogs) never
+# showed up in the capture.
+if not a.interactive:
+    params = ("passwd/username=nczuser passwd/user-fullname=NCZTestUser passwd/user-password=nczpassword123 "
+              "passwd/user-password-again=nczpassword123 ") + params
 if not a.ask_disk:
     params += " ncz_disk=/dev/vda ncz_fs=ext4"
 if not a.interactive:

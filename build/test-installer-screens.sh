@@ -82,6 +82,13 @@ expect "operator-required full 9-dialog sequence (6-step + 2x password + target/
 # Negative: out-of-order swap of root-fs and erase-confirm must FAIL.
 mk9 "$DIALOG_COMP" "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_HOST" "$DIALOG_DISK" "$DIALOG_ERASE" "$DIALOG_ROOTFS"
 expect "operator-required 9-step sequence fails when root-fs and ERASE are swapped" 1 chk --require-prompt-sequence "optional components" "select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "name this computer" "TARGET DISK" "root \\(/\\) filesystem" "ERASE"
+# 2026-10-06 operator flow (photos from PEGASUS): region FIRST, username, password, confirm, components, then the disk
+# dialogs; no hostname dialog. The checker accepts that sequence and rejects the r199 order (components before region).
+SEQ_NEW=("select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "optional components" "TARGET DISK" "root \\(/\\) filesystem" "ERASE")
+mk8 "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_COMP" "$DIALOG_DISK" "$DIALOG_ROOTFS" "$DIALOG_ERASE"
+expect "2026-10-06 flow (region, user, password, confirm, components, disk, fs, erase) passes" 0 chk --require-prompt-sequence "${SEQ_NEW[@]}"
+mk8 "$DIALOG_COMP" "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_DISK" "$DIALOG_ROOTFS" "$DIALOG_ERASE"
+expect "the r199 order (components before region) fails the 2026-10-06 sequence" 1 chk --require-prompt-sequence "${SEQ_NEW[@]}"
 DIALOG_BAD=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - WRONG-ORDER dialog tqqqqqqqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
 mk6() { rm -rf "$T/s"; mkdir -p "$T/s"
     printf '# t=15s\n%s\n' "$1" > "$T/s/0000-0015s.txt"
@@ -131,7 +138,13 @@ expect_one_presource() {
 expect "preseed.cfg invokes component-selector.sh --prompt exactly once" 0 expect_one_presource component-selector "$PRCFG"
 expect "preseed.cfg invokes region-chooser.sh --prompt exactly once"   0 expect_one_presource region-chooser   "$PRCFG"
 expect "preseed.cfg invokes user-chooser.sh --prompt exactly once"      0 expect_one_presource user-chooser      "$PRCFG"
-expect "preseed.cfg invokes hostname-suggest.sh --prompt exactly once"  0 expect_one_presource hostname-suggest  "$PRCFG"
+# 2026-10-06 operator flow: the hostname is generated, never asked (no hostname-suggest.sh --prompt anywhere).
+expect_no_presource() {
+    local n
+    n=$(tr -d '\n\\' < "$2" | grep -oE "/tmp/${1}\\.sh[[:space:]]+--prompt" | wc -l)
+    [ "$n" = 0 ] || { echo "expected NO --prompt invocation of $1 in $2 (hostname is automatic), got $n" >&2; return 1; }
+}
+expect "preseed.cfg never prompts for the hostname (hostname-suggest.sh has no --prompt call)" 0 expect_no_presource hostname-suggest "$PRCFG"
 # --- source-level regression: the dialog templates carry the operator's required phrases ---
 expect_template_phrase() {
     local file="$1"; local phrase="$2"
@@ -345,14 +358,14 @@ expect_orchestrator_order() {
     # Join line-continued invocations
     local joined
     joined=$(printf '%s' "$payload" | tr -d '\n\\')
-    # Order: component -> region -> user -> hostname -> disk (the operator-required
-    # partman/early_command order -- the password + password-confirm are inside
-    # user-chooser.sh so they count as a single chooser invocation here).
+    # Order (operator 2026-10-06): region -> user -> component -> disk. The
+    # password + password-confirm are inside user-chooser.sh; the hostname is
+    # automatic (hostname-suggest.sh re-applied WITHOUT --prompt).
     local a b c d e
-    a=$(printf '%s' "$joined" | grep -boE '/tmp/component-selector\.sh[[:space:]]+--prompt' | head -1 | cut -d: -f1)
-    b=$(printf '%s' "$joined" | grep -boE '/tmp/region-chooser\.sh[[:space:]]+--prompt'   | head -1 | cut -d: -f1)
-    c=$(printf '%s' "$joined" | grep -boE '/tmp/user-chooser\.sh[[:space:]]+--prompt'      | head -1 | cut -d: -f1)
-    d=$(printf '%s' "$joined" | grep -boE '/tmp/hostname-suggest\.sh[[:space:]]+--prompt'  | head -1 | cut -d: -f1)
+    a=$(printf '%s' "$joined" | grep -boE '/tmp/region-chooser\.sh[[:space:]]+--prompt'   | head -1 | cut -d: -f1)
+    b=$(printf '%s' "$joined" | grep -boE '/tmp/user-chooser\.sh[[:space:]]+--prompt'      | head -1 | cut -d: -f1)
+    c=$(printf '%s' "$joined" | grep -boE '/tmp/hostname-suggest\.sh[[:space:]]+>>'         | head -1 | cut -d: -f1)
+    d=$(printf '%s' "$joined" | grep -boE '/tmp/component-selector\.sh[[:space:]]+--prompt' | head -1 | cut -d: -f1)
     # For disk-fs-chooser.sh we must skip the early guard references (the
     # `if ! [ -f /cdrom/.../disk-fs-chooser.sh ]` tests) and pick the
     # actual invocation, which uses the variable form `sh "$D/disk-fs-chooser.sh"`.
@@ -360,10 +373,10 @@ expect_orchestrator_order() {
     [ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ] && [ -n "$d" ] && [ -n "$e" ] || { echo "$cfg: one of the 5 chooser invocations is missing from partman/early_command" >&2; return 1; }
     # Order check (each must come strictly AFTER the previous)
     [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ] && [ "$c" -lt "$d" ] && [ "$d" -lt "$e" ] \
-        || { echo "$cfg: chooser invocations are not in the orchestrator-required order (component -> region -> user -> hostname -> disk)" >&2; return 1; }
+        || { echo "$cfg: chooser invocations are not in the operator-required order (region -> user -> hostname(auto) -> component -> disk)" >&2; return 1; }
     return 0
 }
-expect "preseed.cfg invokes component->region->user->hostname->disk in the orchestrator-required order (partman/early_command)" 0 expect_orchestrator_order "$PRCFG"
+expect "preseed.cfg invokes region->user->hostname(auto)->component->disk in the operator-required order (partman/early_command)" 0 expect_orchestrator_order "$PRCFG"
 # --- source-level regression: the 6 choosers each set a debconf question with seen=true on the orchestrator-required d-i questions ---
 # The orchestrator's directive: the choosers REPLACE d-i's native locale/
 # country/keymap/user/password/hostname questions. If a chooser stops
@@ -438,11 +451,11 @@ expect_chooser_type() {
         END { if (bad) exit 2; exit !found }
     ' "$file"
 }
-expect "component-selector.sh exposes a Type: multiselect template (the operator's first interactive prompt)" 0 expect_chooser_type "$ROOT/preseed/component-selector.sh" multiselect
-expect "region-chooser.sh exposes a Type: select template (the operator's second interactive prompt)"   0 expect_chooser_type "$ROOT/preseed/region-chooser.sh"     select
-expect "user-chooser.sh exposes a Type: string template (username is the third interactive prompt)"     0 expect_chooser_type "$ROOT/preseed/user-chooser.sh"      string
+expect "component-selector.sh exposes a Type: multiselect template (the prompt right before the disk dialogs)" 0 expect_chooser_type "$ROOT/preseed/component-selector.sh" multiselect
+expect "region-chooser.sh exposes a Type: select template (the operator's first interactive prompt)"   0 expect_chooser_type "$ROOT/preseed/region-chooser.sh"     select
+expect "user-chooser.sh exposes a Type: string template (username is the second interactive prompt)"     0 expect_chooser_type "$ROOT/preseed/user-chooser.sh"      string
 expect "user-chooser.sh exposes a Type: password template (the password + confirm step)"               0 expect_chooser_type "$ROOT/preseed/user-chooser.sh"      password
-expect "hostname-suggest.sh exposes a Type: string template (the fifth interactive prompt)"             0 expect_chooser_type "$ROOT/preseed/hostname-suggest.sh"  string
+expect "hostname-suggest.sh keeps its Type: string template (not invoked with --prompt: hostname automatic)"             0 expect_chooser_type "$ROOT/preseed/hostname-suggest.sh"  string
 expect "disk-fs-chooser.sh exposes a Type: select template (the sixth interactive prompt, target disk)" 0 expect_chooser_type "$ROOT/preseed/disk-fs-chooser.sh"   select
 expect "disk-fs-chooser.sh exposes a Type: boolean template (the sixth-step erase confirmation)"       0 expect_chooser_type "$ROOT/preseed/disk-fs-chooser.sh"   boolean
 # --- adversarial: user-chooser.sh has EXACTLY 3 interactive templates (username + password + password-confirm) ---
@@ -506,11 +519,13 @@ expect_hostname_only_in_partman_early_command() {
     # The orchestrator's hostname invocation MUST be inside this block (it is the
     # one allowed invocation; expect_one_presource already pinned the global count
     # to 1, so this is just the location check).
+    printf '%s' "$payload" | tr -d '\n\\' | grep -qE '/tmp/hostname-suggest\.sh[[:space:]]+>>' \
+        || { echo "$cfg: hostname-suggest.sh is not re-applied inside partman/early_command" >&2; return 1; }
     printf '%s' "$payload" | tr -d '\n\\' | grep -qE '/tmp/hostname-suggest\.sh[[:space:]]+--prompt' \
-        || { echo "$cfg: the hostname --prompt invocation is NOT inside partman/early_command" >&2; return 1; }
+        && { echo "$cfg: partman/early_command still PROMPTS for the hostname (operator 2026-10-06: hostname automatic)" >&2; return 1; }
     return 0
 }
-expect "hostname-suggest.sh --prompt is invoked inside partman/early_command (orchestrator-required single-prompt-per-step)" 0 expect_hostname_only_in_partman_early_command "$PRCFG"
+expect "hostname-suggest.sh is re-applied in partman/early_command without a dialog (hostname automatic)" 0 expect_hostname_only_in_partman_early_command "$PRCFG"
 # --- adversarial: the disk-fs-chooser ERASE confirmation names the actual chosen disk (not a placeholder) ---
 # A regression that registered the ERASE confirm template with the literal
 # text "ERASE ${DISK}" without expanding ${CHOSEN_DISK} would show the same
