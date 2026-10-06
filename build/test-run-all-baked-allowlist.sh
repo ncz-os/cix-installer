@@ -59,6 +59,9 @@ for plat in sky1-arm64 amd64; do
     [ -f "$list" ] || { bad "$plat: $list missing"; continue; }
     case "$plat" in sky1-arm64) arch=arm64 ;; *) arch=amd64 ;; esac
     d="$T/$plat"
+    nlisted=$(grep -vE '^[[:space:]]*(#|$)' "$list" | awk 'NF{n++} END{print n+0}')
+    # Guard against a vacuous pass: an unparsable list would make every check below trivially true.
+    if [ "$nlisted" -ge 10 ]; then ok "$plat: $nlisted hooks listed"; else bad "$plat: only $nlisted hooks parsed from $list"; continue; fi
     mkfix "$d" "$list"
     out=$(runfix "$d" "$arch")
     orphans=""; known=""
@@ -82,10 +85,10 @@ done
 # reported and must not run -- proof that the fixture really is in baked mode, so the checks
 # above cannot pass vacuously.
 d="$T/control"
-cp "$ROOT/post-install/hooks.list.sky1-arm64" "$T/control.list"
-echo "63-zz-unallowlisted.sh" >> "$T/control.list"
-mkfix "$d" "$T/control.list"
-mv "$d/hooks/control.list" "$d/hooks/hooks.list.sky1-arm64"
+mkdir -p "$T/control-src"
+cp "$ROOT/post-install/hooks.list.sky1-arm64" "$T/control-src/hooks.list.sky1-arm64"
+echo "63-zz-unallowlisted.sh" >> "$T/control-src/hooks.list.sky1-arm64"
+mkfix "$d" "$T/control-src/hooks.list.sky1-arm64"
 out=$(runfix "$d" arm64)
 if printf '%s\n' "$out" | grep -q "ORPHAN: 63-zz-unallowlisted.sh" && [ ! -e "$d/log/63-zz-unallowlisted.log" ]; then
     ok "control: an unallowlisted listed hook is reported as ORPHAN and does not run"
