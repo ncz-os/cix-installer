@@ -129,11 +129,36 @@ python3 "$ROOT/build/iso/patch-debootstrap-stub.py" \
 PATCHED_UDEB=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["staged_udeb_path"])' "$WORK_DIR/debootstrap-receipt.json")
 
 echo "[4/6] preparing architecture kernel/initrd"
-INITRD_ARGS=(--base-initrd "$SUBSTRATE_NODE/extract/d-i/initrd.gz" --arch "$ARCH")
-# d-i ships no non-free firmware: bake the NIC/Bluetooth blobs named in
-# manifests/net-firmware.tsv (rtl_nic/*, MT79xx BT) into the initrd from the
-# same offline mirror the medium carries. Without them every Realtek NIC runs
-# the installer unpatched and the MT7922 BT reset loop floods the ring buffer.
+# d-i ships no non-free firmware. Two independent sources feed the initrd:
+#
+#   1. Apple T2 Broadcom blobs (brcmfmac4355c1/4364b2/4364b3/4377b3). These
+#      exist ONLY in our macOS-extracted tarball. There is no .deb for them:
+#      firmware-brcm80211 carries 0 of those board variants (its 113 brcm/
+#      files are all upstream boards), so they cannot be named in
+#      manifests/net-firmware.tsv -- that table's rows resolve `package` to a
+#      binary package in the offline mirror. patch-initrd-firmware.py is the
+#      script that injects them, and until now nothing called it, so T2 Macs
+#      booted the installer with a brcmfmac that could not associate.
+#   2. The NIC/Bluetooth blobs named in manifests/net-firmware.tsv
+#      (rtl_nic/*, MT79xx BT), taken from the offline mirror the medium
+#      carries. Without them every Realtek NIC runs the installer unpatched
+#      and the MT7922 BT reset loop floods the ring buffer.
+#
+# T2 goes FIRST because patch-initrd-t2-kernel.py consumes a base initrd and
+# prints the patched one; feeding it the firmware-patched initrd chains the
+# two rather than dropping one of them.
+BASE_INITRD="$SUBSTRATE_NODE/extract/d-i/initrd.gz"
+if [ "$ARCH" = amd64 ]; then
+  T2_FW_TAR="$ROOT/assets/firmware/apple-t2/apple-t2-firmware-sonoma14.tar.xz"
+  [ -f "$T2_FW_TAR" ] || { echo "FATAL: $T2_FW_TAR missing; the installer initrd needs the T2 Broadcom blobs" >&2; exit 1; }
+  T2_FW_INITRD=$(python3 "$ROOT/build/iso/patch-initrd-firmware.py" \
+      --substrate-node-dir "$SUBSTRATE_NODE" --arch "$ARCH") \
+      || { echo "FATAL: T2 firmware injection failed" >&2; exit 1; }
+  [ -f "$T2_FW_INITRD" ] || { echo "FATAL: T2 firmware injection produced no initrd" >&2; exit 1; }
+  echo "  T2 Broadcom firmware injected -> $T2_FW_INITRD"
+  BASE_INITRD="$T2_FW_INITRD"
+fi
+INITRD_ARGS=(--base-initrd "$BASE_INITRD" --arch "$ARCH")
 FW_SUITE=$(sed -n 's/^NCZ_BASE_CODENAME=//p' "$ROOT/release.conf" | tr -d "\"' " | head -1)
 FW_POOL="$ROOT/build/${FW_SUITE:-forky}-mirror/pool"
 [ -d "$FW_POOL" ] || { echo "FATAL: offline mirror pool $FW_POOL missing (run make offline-mirror); the installer initrd needs its firmware-*.deb" >&2; exit 1; }

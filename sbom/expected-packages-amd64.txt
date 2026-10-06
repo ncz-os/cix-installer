@@ -229,6 +229,7 @@ manifests/desktop-amd64.pkgs:firmware-iwlwifi
 manifests/desktop-amd64.pkgs:firmware-ath9k-htc
 manifests/desktop-amd64.pkgs:intel-microcode
 manifests/desktop-amd64.pkgs:amd64-microcode
+manifests/desktop-amd64.pkgs:gnome-online-accounts
 manifests/rescue-amd64.pkgs:intel-microcode
 manifests/rescue-amd64.pkgs:amd64-microcode
 manifests/rescue-amd64.pkgs:memtest86+

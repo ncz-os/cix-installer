@@ -120,6 +120,17 @@ intel-media-va-driver
 mesa-vulkan-drivers
 mesa-opencl-icd
 libglu1-mesa
+
+# Online Accounts UI backend. post-install/20-desktop.sh runs on BOTH
+# platforms and does `apt-get install -y gnome-online-accounts`, but until
+# this entry no seed provided it, so on an offline install that call could
+# only fail and the Online Accounts UI had nothing to talk to (KNOWN-ISSUES
+# #4). Seeded here rather than in desktop.pkgs because the package is
+# amd64-only: gnome-online-accounts 3.58.1-2 is published for amd64 and is
+# absent from the arm64 published index, and Sky1 has no Online Accounts
+# requirement. Claimed in build/arch-parity-allowlist.tsv
+# (desktop/gnome-online-accounts, amd64-only).
+gnome-online-accounts
 clinfo
 
 # Firmware visibility (see desktop.pkgs). On amd64 fwupd additionally
