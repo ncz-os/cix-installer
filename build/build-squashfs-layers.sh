@@ -612,6 +612,17 @@ build_layer(){ local role="$1" manifest="$2"
       sudo cp -a "$ROOT/assets/vivaldi/." "$MG/usr/local/lib/cix-installer/assets/vivaldi/" 2>/dev/null || true
       log "  staged vivaldi assets ($(find "$ROOT/assets/vivaldi" -type f | wc -l | tr -d ' ') files)"
     fi
+    # The OTA desktop update UI (KNOWN-ISSUES #2). 50-update-manager.sh looks
+    # for /usr/local/lib/cix-installer/assets/update-manager and then
+    # /cdrom/ncz-payload/assets/update-manager; on a raw-image install only
+    # this copy exists, so without it the hook fails as optional on every
+    # install. The USB/media path carries the same assets via the
+    # asset_names tuple in build/iso/write-usb-image.py.
+    if [ -d "$ROOT/assets/update-manager" ]; then
+      sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/update-manager"
+      sudo cp -a "$ROOT/assets/update-manager/." "$MG/usr/local/lib/cix-installer/assets/update-manager/" 2>/dev/null || true
+      log "  staged update-manager assets ($(find "$ROOT/assets/update-manager" -type f | wc -l | tr -d ' ') files)"
+    fi
     # Stage NVIDIA's real cuda-keyring .deb so 54-gpu-accel.sh (AMD64) can
     # wire the official CUDA apt repo without a build-time network fetch --
     # small (~4KB) signing-key installer, committed directly rather than
