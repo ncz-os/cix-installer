@@ -43,18 +43,46 @@ Upstream services (not shipped here):
   image.
 
 Local modifications:
-  - dkms.conf: adds PATCH[0]/PATCH_MATCH[0] to apply patches/0001-t2smc-range-checks.patch
-    during the DKMS build. DKMS 3.2.2 resolves the PATCH[] value below its patches/
-    directory, so the value is the bare file name (0001-t2smc-range-checks.patch).
-    The C source stays pristine so upstream re-syncs remain byte-diffable.
-  - patches/0001-t2smc-range-checks.patch: local hardening (fan min/target range checks
-    against F%dMn/F%dMx, battery charge-limit value validation, RTC offset range check).
-    Adds t2smc_range.h at the DKMS module root at build time only (56-t2-dkms.sh
-    flattens src/ into /usr/src/t2smc-0.1/, so the patch is written with -p1
-    paths at the module root). Rebased onto a88f36f: the old
-    t2smc_rtc_set_time hunk is gone (upstream now computes the offset in s64 and
-    masks it), and the new t2smc_rtc_write_offset() path folds CLKO through
-    t2smc_rtc_offset_normalize().
+  - dkms.conf: adds PATCH[0..4]/PATCH_MATCH[0..4] to apply the local hardening
+    patches during the DKMS build (see patches/). DKMS 3.2.2 resolves the
+    PATCH[] value below its patches/ directory, so the value is the bare file
+    name (e.g. 0001-t2smc-range-checks.patch).  The C source stays pristine so
+    upstream re-syncs remain byte-diffable.
+  - patches/0001-t2smc-range-checks.patch: local hardening (fan min/target range
+    checks against the factory F%dMn/F%dMx envelope captured at probe, battery
+    charge-limit value validation, RTC offset range check, modulo-and-sign-extend
+    fold).  Adds t2smc_range.h at the DKMS module root at build time only
+    (56-t2-dkms.sh flattens src/ into /usr/src/t2smc-0.1/, so the patch is
+    written with -p1 paths at the module root).  The rework keeps the pinned
+    modulo behaviour for the RTC offset (no upstream semantics change) but
+    rejects writes outside the signed 48-bit register range; the fan validator
+    captures the factory envelope so the min cannot ratchet upward, validates
+    the 64-bit hwmon long before narrowing it to unsigned int, and does not
+    read F%dTg for a target write (irrelevant there; a stale/zero or
+    unreadable target would otherwise reject an otherwise-valid write).  The
+    envelope capture is non-fatal: if the SMC cannot report the limits the
+    write path falls back to the live F%dMn/F%dMx.
+  - patches/0002-t2smc-temp-discovery-idx.patch: bound temperature-discovery
+    idx by the T..U candidate range, not pass-1's success count.  Pass one
+    allocates only for successful sp78 entries and skips transient lookups,
+    but pass two retries without checking idx; the fix allocates the full
+    candidate range and updates temp_count to the actual populated count.
+  - patches/0003-t2smc-cache-init.patch: initialise the cache-fill return
+    value in t2smc_get_entry_by_index() so the locked goto-out does not
+    read an uninitialised int when a second caller observes the cache
+    already populated.
+  - patches/0004-t2smc-charge-limit-atomic.patch: validate the charge limit
+    before the first write and reject values the CHWA-only binary flag cannot
+    represent; serialise the full BCLM + CHLS/CHWA transaction under a
+    dedicated charge_lock so another setter cannot interleave between the two
+    writes.  charge_lock is deliberately not the SMC mailbox mutex: each
+    t2smc_write_key() still takes that internally, so holding it across the
+    transaction would self-deadlock.  get_charge_limit() takes the same lock
+    so it cannot observe BCLM mid-transaction.
+  - patches/0005-t2smc-telemetry-robust.patch: saturate the float-telemetry
+    shift before it overflows u64, and stop reading from an uninitialised
+    value16/signed16 in t2smc_power_show() (the read-failure path returns
+    ret without exposing val).
   - PROVENANCE: packaging metadata, not an upstream file.
 
 Re-sync:

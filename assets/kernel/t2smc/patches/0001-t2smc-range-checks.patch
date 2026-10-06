@@ -1,17 +1,110 @@
 diff --git a/t2smc.c b/t2smc.c
-index 5108030..52f518a 100644
+index 5108030..60674c2 100644
 --- a/t2smc.c
 +++ b/t2smc.c
-@@ -99,6 +99,8 @@ static const char *const fan_speed_fmt[] = {
+@@ -99,6 +99,7 @@ static const char *const fan_speed_fmt[] = {
  };
  #define FAN_MANUAL_FMT  "F%dMd"  /* T2 per-fan manual mode key */
  
 +#include "t2smc_range.h"
-+
  #define INIT_TIMEOUT_MSECS  5000
  #define INIT_WAIT_MSECS     50
  
-@@ -874,11 +876,8 @@ static int t2smc_write_fan_manual(struct t2smc_device *t2, int fan_idx,
+@@ -127,6 +128,11 @@ struct t2smc_device {
+ 	unsigned int fan_count;
+ 	unsigned int temp_count;
+ 	unsigned int power_count;
++	/*
++	 * Factory fan envelope captured at init; the validator uses this
++	 * instead of the live F%dMn so the min cannot ratchet upward.
++	 */
++	unsigned int *fan_min_factory, *fan_max_factory;
+ 	struct t2smc_entry *cache;
+ 	char (*temp_keys)[5]; /* [temp_count] dynamically allocated */
+ 	char (*power_keys)[5]; /* [power_count] dynamically allocated */
+@@ -582,6 +588,8 @@ static int t2smc_read_temp(struct t2smc_device *t2, const char *key, long *val)
+ }
+ 
+ /* -- Initialization -- */
++static void t2smc_capture_fan_envelope(struct t2smc_device *t2);
++
+ static int t2smc_init_keycache(struct t2smc_device *t2)
+ {
+ 	unsigned int count;
+@@ -610,6 +618,8 @@ static int t2smc_init_keycache(struct t2smc_device *t2)
+ 	t2->fan_count = tmp[0];
+ 	if (t2->fan_count > 10)
+ 		t2->fan_count = 10;
++	t2->fan_min_factory = NULL;
++	t2->fan_max_factory = NULL;
+ 
+ 	/* Discover all power keys in the sorted P..Q range. */
+ 	{
+@@ -711,6 +721,13 @@ static int t2smc_init_keycache(struct t2smc_device *t2)
+ 	if (ret)
+ 		return ret;
+ 
++	/*
++	 * Snapshot the factory fan envelope now that the key cache is
++	 * populated.  Non-fatal: if the SMC cannot report the limits the
++	 * write path falls back to the live F%dMn/F%dMx.
++	 */
++	t2smc_capture_fan_envelope(t2);
++
+ 	dev_info(t2->dev, "initialized: keys=%u fans=%u temps=%u power=%u\n",
+ 		 t2->key_count, t2->fan_count, t2->temp_count,
+ 		 t2->power_count);
+@@ -817,6 +834,49 @@ static int t2smc_read_fan(struct t2smc_device *t2, int fan_idx, int option,
+ 	return 0;
+ }
+ 
++/*
++ * Snapshot the factory fan envelope once at init. The validator uses this
++ * (not the live F%dMn) so writing a new F%dMn cannot create a one-way
++ * ratchet that rejects a later, smaller min.
++ */
++static void t2smc_capture_fan_envelope(struct t2smc_device *t2)
++{
++	unsigned int *mins, *maxs;
++	unsigned int i;
++	int ret;
++
++	if (!t2->fan_count)
++		return;
++
++	mins = kcalloc(t2->fan_count, sizeof(*mins), GFP_KERNEL);
++	maxs = kcalloc(t2->fan_count, sizeof(*maxs), GFP_KERNEL);
++	if (!mins || !maxs) {
++		kfree(mins);
++		kfree(maxs);
++		dev_warn(t2->dev, "fan envelope allocation failed\n");
++		return;
++	}
++
++	for (i = 0; i < t2->fan_count; i++) {
++		ret = t2smc_read_fan(t2, i, T2SMC_FAN_OPT_MIN, &mins[i]);
++		if (ret)
++			goto out;
++		ret = t2smc_read_fan(t2, i, T2SMC_FAN_OPT_MAX, &maxs[i]);
++		if (ret)
++			goto out;
++	}
++
++	t2->fan_min_factory = mins;
++	t2->fan_max_factory = maxs;
++	return;
++out:
++	dev_warn(t2->dev,
++		 "fan envelope unavailable (%d); falling back to live limits\n",
++		 ret);
++	kfree(mins);
++	kfree(maxs);
++}
++
+ static int t2smc_write_fan(struct t2smc_device *t2, int fan_idx, int option,
+ 			    unsigned int speed)
+ {
+@@ -874,11 +934,7 @@ static int t2smc_write_fan_manual(struct t2smc_device *t2, int fan_idx,
  }
  
  /* -- hwmon interface -- */
@@ -20,83 +113,128 @@ index 5108030..52f518a 100644
 -#define T2SMC_FAN_OPT_MAX     2
 -#define T2SMC_FAN_OPT_SAFE    3
 -#define T2SMC_FAN_OPT_TARGET  4
-+/* T2SMC_FAN_OPT_* live in t2smc_range.h (included above) so the validator
-+ * can be unit-tested from userspace. */
++/* T2SMC_FAN_OPT_* live in t2smc_range.h (included above). */
  
  static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
  			     u32 attr, int channel, long *val)
-@@ -930,6 +929,13 @@ static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
+@@ -930,30 +986,99 @@ static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
  	}
  }
  
-+/* Adapt t2smc_read_fan() to the unit-testable validator in t2smc_range.h. */
++/* Adapter from the kernel fan reader to the unit-testable validator. */
 +static int t2smc_read_fan_cb(void *ctx, int fan_idx, int option,
 +			     unsigned int *speed)
 +{
 +	return t2smc_read_fan(ctx, fan_idx, option, speed);
 +}
 +
++/*
++ * Fan envelope for @channel: the factory snapshot captured at init, or the
++ * live F%dMn/F%dMx when the snapshot is unavailable (an SMC read failed at
++ * init).  Using the snapshot keeps a raised minimum from ratcheting the
++ * accepted floor upward.
++ */
++static int t2smc_fan_envelope(struct t2smc_device *t2, int channel,
++			      unsigned int *min, unsigned int *max)
++{
++	int ret;
++
++	if (channel < 0 || (unsigned int)channel >= t2->fan_count)
++		return -EINVAL;
++
++	if (t2->fan_min_factory) {
++		*min = t2->fan_min_factory[channel];
++		*max = t2->fan_max_factory[channel];
++		return 0;
++	}
++
++	ret = t2smc_read_fan(t2, channel, T2SMC_FAN_OPT_MIN, min);
++	if (ret)
++		return ret;
++	return t2smc_read_fan(t2, channel, T2SMC_FAN_OPT_MAX, max);
++}
++
  static int t2smc_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
  			      u32 attr, int channel, long val)
  {
-@@ -944,11 +950,36 @@ static int t2smc_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
- 			if (val < 0)
- 				return -EINVAL;
- 			speed = (unsigned int)val;
+ 	struct t2smc_device *t2 = dev_get_drvdata(dev);
+-	unsigned int speed;
++	unsigned int env_min, env_max;
+ 	int ret;
+ 
+ 	switch (type) {
+ 	case hwmon_fan:
+ 		switch (attr) {
+ 		case hwmon_fan_min:
+-			if (val < 0)
+-				return -EINVAL;
+-			speed = (unsigned int)val;
+-			return t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_MIN, speed);
 +			/*
-+			 * Check against the fan's own F%dMn/F%dMx envelope and the
-+			 * current target before touching the EC. An out-of-range
-+			 * write can leave the SMC driving a fan outside its
-+			 * mechanical range; reject it and warn once.
++			 * Validate against the factory envelope (captured at
++			 * init) and the current target BEFORE narrowing the
++			 * 64-bit hwmon long to unsigned int - the old order
++			 * truncated a value above INT_MAX and let it through.
++			 * Targets may be zero in auto mode, so skip the
++			 * target bound when stale.
 +			 */
++			ret = t2smc_fan_envelope(t2, channel, &env_min,
++						 &env_max);
++			if (ret)
++				return ret;
 +			ret = t2smc_fan_write_check(t2smc_read_fan_cb, t2,
-+						    channel, speed, true);
++						    channel, val, true,
++						    env_min, env_max);
 +			if (ret) {
-+				pr_warn_once("rejecting fan%d min %u outside [F%dMn,F%dMx] or above the current target\n",
-+					     channel, speed, channel, channel);
++				pr_warn_once("rejecting fan%d min %ld outside factory envelope or above current target\n",
++					     channel, val);
 +				return ret;
 +			}
- 			return t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_MIN, speed);
++			return t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_MIN,
++					       (unsigned int)val);
  		case hwmon_fan_target:
- 			if (val < 0)
- 				return -EINVAL;
- 			speed = (unsigned int)val;
+-			if (val < 0)
+-				return -EINVAL;
+-			speed = (unsigned int)val;
+-			/* Enter manual mode before setting target speed */
 +			/*
-+			 * Validate before switching the fan to manual mode so a
-+			 * rejected request cannot leave it in manual with a stale
-+			 * target.
++			 * Validate against the factory envelope BEFORE entering
++			 * manual mode so a rejected target cannot leave the
++			 * fan pinned to manual with a stale target.  The target
++			 * itself is not read here - it is irrelevant for a
++			 * target write, and reading it could reject an
++			 * otherwise-valid target if the SMC returns it as
++			 * zero or fails to respond.
 +			 */
++			ret = t2smc_fan_envelope(t2, channel, &env_min,
++						 &env_max);
++			if (ret)
++				return ret;
 +			ret = t2smc_fan_write_check(t2smc_read_fan_cb, t2,
-+						    channel, speed, false);
++						    channel, val, false,
++						    env_min, env_max);
 +			if (ret) {
-+				pr_warn_once("rejecting fan%d target %u outside [F%dMn,F%dMx]\n",
-+					     channel, speed, channel, channel);
++				pr_warn_once("rejecting fan%d target %ld outside factory envelope\n",
++					     channel, val);
 +				return ret;
 +			}
- 			/* Enter manual mode before setting target speed */
  			ret = t2smc_write_fan_manual(t2, channel, 1);
  			if (ret)
-@@ -1050,7 +1081,11 @@ static int t2smc_get_charge_limit(struct t2smc_device *t2, u8 *val)
- 
- static int t2smc_set_charge_limit(struct t2smc_device *t2, u8 val)
- {
--	if (val > 100)
-+	/*
-+	 * Only accept limits the SMC can honour. CHWA-only hardware has no
-+	 * variable percent: it is either the fixed 80% limit or off.
-+	 */
-+	if (!t2smc_charge_limit_valid(t2->has_chls, t2->has_chwa, val))
- 		return -EINVAL;
- 	if (t2smc_write_key(t2, T2SMC_CHARGE_LIMIT, &val, 1))
- 		return -ENODEV;
-@@ -1408,6 +1443,15 @@ static int t2smc_write_rtc_key(struct t2smc_device *t2, const char *key, u64 val
+ 				return ret;
+-			return t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_TARGET, speed);
++			return t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_TARGET,
++					       (unsigned int)val);
+ 		default:
+ 			return -EOPNOTSUPP;
+ 		}
+@@ -1408,6 +1533,15 @@ static int t2smc_write_rtc_key(struct t2smc_device *t2, const char *key, u64 val
  {
  	u8 buf[T2SMC_RTC_BYTES];
  
 +	/*
 +	 * The SMC RTC keys are 48-bit registers (T2SMC_RTC_BYTES * 8). CLKO is
 +	 * a signed offset in 1/32768 s units; a value outside the signed range
-+	 * would be reinterpreted when the SMC loads it. Reject rather than
++	 * would be reinterpreted when the SMC loads it.  Reject rather than
 +	 * truncate so an out-of-range clock set cannot silently move the RTC.
 +	 */
 +	if (!t2smc_rtc_offset_valid((long long)val))
@@ -105,27 +243,36 @@ index 5108030..52f518a 100644
  	memcpy(buf, &val, T2SMC_RTC_BYTES);
  	return t2smc_write_key(t2, key, buf, T2SMC_RTC_BYTES);
  }
-@@ -1500,7 +1544,7 @@ static int t2smc_rtc_write_offset(struct t2smc_device *t2, s64 off,
+@@ -1500,7 +1634,7 @@ static int t2smc_rtc_write_offset(struct t2smc_device *t2, s64 off,
  {
  	int ret;
  
 -	off = sign_extend64((u64)off & T2SMC_RTC_MASK, T2SMC_RTC_BITS - 1);
-+	off = t2smc_rtc_offset_normalize(off);
++	off = t2smc_rtc_offset_wrap(off);
  	if (abs(off - READ_ONCE(t2->rtc_offset)) < tolerance)
  		return 0;
  
+@@ -1727,6 +1861,8 @@ static void t2smc_devm_cleanup(void *data)
+ 	kfree(t2->cache);
+ 	kfree(t2->temp_keys);
+ 	kfree(t2->power_keys);
++	kfree(t2->fan_min_factory);
++	kfree(t2->fan_max_factory);
+ }
+ 
+ static void t2smc_unregister_power_notifier(void *data)
 diff --git a/t2smc_range.h b/t2smc_range.h
 new file mode 100644
-index 0000000..e12c48f
+index 0000000..7ef4be6
 --- /dev/null
 +++ b/t2smc_range.h
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,147 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
 + * t2smc_range.h - side-effect-free range validation for t2smc.
 + *
 + * The user-writable SMC surfaces (fan F%dMn/F%dTg, charge limit BCLM/CHLS/
-+ * CHWA, RTC offset CLKO) are validated here. The helpers touch no kernel
++ * CHWA, RTC offset CLKO) are validated here.  The helpers touch no kernel
 + * state, so the boundary logic is unit-testable from userspace with a stub
 + * reader (tests/test_t2smc_range.c).
 + */
@@ -159,43 +306,69 @@ index 0000000..e12c48f
 +typedef int (*t2smc_fan_read_fn)(void *ctx, int fan_idx, int option,
 +				 unsigned int *speed);
 +
-+/* Accept @val only inside the fan envelope; a fan_min write may not exceed
-+ * the fan's current target either. */
++/*
++ * Accept @val only inside the factory envelope; @is_min writes may not
++ * exceed the current target unless the target is zero (the SMC reports
++ * stale/auto mode as zero).  Take @val as a signed long so a hwmon writer
++ * can hand us the original 64-bit value before narrowing to unsigned int -
++ * min/max comparisons against an unsigned int reject any negative input
++ * and any value above UINT_MAX.
++ */
 +static inline bool t2smc_fan_speed_valid(unsigned int min, unsigned int max,
-+					 unsigned int cur, unsigned int val,
++					 unsigned int cur, long val,
 +					 bool is_min)
 +{
 +	if (min > max)
 +		return false;
-+	if (val < min || val > max)
++	if (val < (long)min || val > (long)max)
 +		return false;
-+	if (is_min && val > cur)
++	if (is_min && cur && val > (long)cur)
 +		return false;
 +	return true;
 +}
 +
-+/* Read min/max/current-target via @read and validate @val. Returns 0 when
-+ * acceptable, -EINVAL when out of range, or the reader's error. */
++/*
++ * Validate a fan min/target write against the *factory* envelope captured at
++ * init.  Reading the live F%dMn as the floor would let a raised minimum
++ * ratchet one-way upward (a later, smaller minimum could never be written
++ * again); the factory snapshot keeps the floor fixed.
++ *
++ * The current target is read only for a minimum write.  A target write is
++ * validated purely against the envelope: reading F%dTg there would reject an
++ * otherwise-valid target whenever the SMC reports a stale zero or fails the
++ * read.  Returns 0 when acceptable, -EINVAL when out of range, or the
++ * reader's error.
++ */
 +static inline int t2smc_fan_write_check(t2smc_fan_read_fn read, void *ctx,
-+					int fan_idx, unsigned int val,
-+					bool is_min)
++					int fan_idx, long val, bool is_min,
++					unsigned int envelope_min,
++					unsigned int envelope_max)
 +{
-+	unsigned int min, max, cur;
++	unsigned int cur = 0;
 +	int ret;
 +
-+	ret = read(ctx, fan_idx, T2SMC_FAN_OPT_MIN, &min);
-+	if (ret)
-+		return ret;
-+	ret = read(ctx, fan_idx, T2SMC_FAN_OPT_MAX, &max);
-+	if (ret)
-+		return ret;
-+	ret = read(ctx, fan_idx, T2SMC_FAN_OPT_TARGET, &cur);
-+	if (ret)
-+		return ret;
++	if (is_min) {
++		ret = read(ctx, fan_idx, T2SMC_FAN_OPT_TARGET, &cur);
++		if (ret)
++			return ret;
++	}
 +
-+	if (!t2smc_fan_speed_valid(min, max, cur, val, is_min))
++	if (!t2smc_fan_speed_valid(envelope_min, envelope_max, cur, val,
++				   is_min))
 +		return -EINVAL;
 +	return 0;
++}
++
++/*
++ * Number of slots to allocate for the T..U temperature-discovery pass.
++ * Allocate the whole candidate range, not pass one's success count: a key
++ * that transiently failed pass one can succeed on pass two and would
++ * otherwise overrun a pass-one-sized array.
++ */
++static inline unsigned int t2smc_temp_alloc_count(unsigned int begin,
++						  unsigned int end)
++{
++	return end > begin ? end - begin : 0;
 +}
 +
 +/* Only accept limits the SMC implements: CHLS keeps 0..100; CHWA-only
@@ -222,11 +395,15 @@ index 0000000..e12c48f
 +	return off >= lo && off <= hi;
 +}
 +
-+/* Fold @off into the signed 48-bit CLKO register the SMC expects: keep the
-+ * low T2SMC_RTC_BITS bits and sign-extend from bit T2SMC_RTC_BITS - 1. The new RTC write path
-+ * (t2smc_rtc_write_offset) normalizes with this before handing the value to
-+ * the shared writer, so the writer only ever sees an in-range offset. */
-+static inline long long t2smc_rtc_offset_normalize(long long off)
++/*
++ * Fold @off into the signed 48-bit CLKO register the SMC expects: keep the
++ * low T2SMC_RTC_BITS bits and sign-extend from bit T2SMC_RTC_BITS - 1.
++ *
++ * This intentionally preserves the pinned driver's modulo-and-sign-extend
++ * behaviour.  Unlike the validator, it never rejects; callers that need to
++ * reject out-of-range offsets must call t2smc_rtc_offset_valid() first.
++ */
++static inline long long t2smc_rtc_offset_wrap(long long off)
 +{
 +	const unsigned long long mask = (1ULL << T2SMC_RTC_BITS) - 1;
 +	unsigned long long raw = (unsigned long long)off & mask;

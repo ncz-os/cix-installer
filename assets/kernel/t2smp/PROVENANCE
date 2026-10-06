@@ -19,7 +19,16 @@ Upstream-derived file hashes (sha256) as vendored:
 Source tree digest (sha256 of `find src -type f | sort | xargs sha256sum | sha256sum`):
   450922c34d23cb44f7aca27e4317bdf14ddf36d07663cbacc86504eca1744d5d
 
-Local modifications: none (all vendored upstream files byte-identical to the commit).
+Local modifications:
+  - dkms.conf: adds PATCH[0]/PATCH_MATCH[0] to apply patches/0001-t2smp-zero-mask.patch
+    during the DKMS build. DKMS 3.2.2 resolves the PATCH[] value below its patches/
+    directory.
+  - patches/0001-t2smp-zero-mask.patch: change alloc_cpumask_var() to
+    zalloc_cpumask_var() so the offlined-cpu mask is zero-initialised.
+    alloc_cpumask_var() with GFP_KERNEL does not zero the mask when
+    CONFIG_CPUMASK_OFFSTACK=y (the normal case on x86); a stale-on-allocation
+    mask would carry arbitrary bits, so the first suspend could try to add_cpu()
+    CPUs the module never offlined - including intentionally offline CPUs.
 
 Re-sync:
   git clone https://github.com/kaiT2en/KaiT2en-Fedora.git
