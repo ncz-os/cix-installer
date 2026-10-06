@@ -35,12 +35,14 @@
 # conf file in /etc/systemd, full stop.
 #
 # Kernel half:
-#   The shipped CIX Sky1 kernel config
-#   (assets/kernel/edge/config-7.2.0-rc7-sky1-ncz, verified at audit
-#   time) has:
-#     # CONFIG_ZRAM is not set
-#     no CONFIG_CRYPTO_ZSTD
-#   i.e. the CIX Sky1 kernel build DOES NOT have CONFIG_ZRAM enabled.
+#   The shipped CIX Sky1 kernel is r285 (7.3.0-rc6-sky1-ncz). Its config
+#   (staged config-7.3.0-rc6-sky1-ncz, verified at build time) has:
+#     CONFIG_ZRAM=y            (built in, not a module)
+#     CONFIG_CRYPTO_ZSTD=m     (available for the zstd backend)
+#   The retired edge channel's config (7.2.0-rc7, referenced by earlier
+#   revisions of this comment) had neither; assets/kernel/edge no longer
+#   exists. The point of the check below is unchanged: read the TARGET
+#   kernel's own config rather than trusting any single staged copy.
 # This hook verifies the TARGET kernel actually has zram support
 # before trusting the generator. We do NOT probe /sys/block/zram0
 # here: post-install hooks run in the installer's chroot, so /sys
@@ -162,10 +164,8 @@ echo "[93] /etc/systemd/zram-generator.conf: zram0, zstd, ram*0.5 capped [1GiB, 
 # Sky1 kernel that was just installed on the target. Probing
 # /sys/block/zram0 would test the wrong kernel and print a false
 # success on any installer kernel that happens to have CONFIG_ZRAM.
-# The shipped CIX Sky1 kernel config
-# (assets/kernel/edge/config-7.2.0-rc7-sky1-ncz, verified) has
-# `# CONFIG_ZRAM is not set`, so the install would silently ship
-# with no swap at all if we trusted the running-kernel probe.
+# Reading the target kernel's config instead keeps the check honest
+# whichever kernel is actually staged.
 #
 # Instead we look at the TARGET kernel's own config and module
 # tree. /boot/config-<kver> is dropped by linux-image-cixmini at
@@ -235,14 +235,14 @@ elif [ "$ZRAM_KVER_FOUND" -eq 0 ]; then
 [93] Expected at least one of:
 [93]   CONFIG_ZRAM=y                     (built into the kernel image)
 [93]   CONFIG_ZRAM=m + zram.ko under /lib/modules/$TARGET_KVER/kernel/drivers/block/zram/
-[93] The shipped CIX Sky1 kernel config
-[93] (assets/kernel/edge/config-7.2.0-rc7-sky1-ncz, audited at install time)
-[93] has \`# CONFIG_ZRAM is not set\` and no CONFIG_CRYPTO_ZSTD — i.e. the
-[93] kernel half is MISSING in this release. /etc/systemd/zram-generator.conf
+[93] The shipped CIX Sky1 r285 config has CONFIG_ZRAM=y and
+[93] CONFIG_CRYPTO_ZSTD=m, so this WARN means the TARGET kernel is not the
+[93] one we staged — check the pin before assuming the release is at fault.
+[93] /etc/systemd/zram-generator.conf
 [93] above is the ready-to-go sizing policy, and
 [93] /usr/lib/modules-load.d/20-zram-generator.conf (from the package)
-[93] requests zram.ko at boot; a kernel rebuild with CONFIG_ZRAM=y and
-[93] CONFIG_CRYPTO_ZSTD=y will produce /sys/block/zram0 automatically on
+[93] requests zram.ko at boot; a kernel with CONFIG_ZRAM=y and
+[93] CONFIG_CRYPTO_ZSTD will produce /sys/block/zram0 automatically on
 [93] next boot, the path-based generator will instantiate
 [93] systemd-zram-setup@zram0.service, and the swap will come up.
 [93] NO fallback to disk swapfile — btrfs swapfile needs nodatacow
