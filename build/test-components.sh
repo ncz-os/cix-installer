@@ -16,6 +16,8 @@
 #        bad-installed   installed_by points at a ghost  -> row-installer
 #        bad-required    pool row required=no vs mirror  -> required-optional
 #        bad-hook-arch   hook arch vs registry arch      -> hook-arch
+#        bad-hook-never-runs  required row names a second, orphan installer
+#                             after a listed one             -> hook-never-runs
 #   3. report / diff-published smoke -> exit 0
 #
 # bash 3.2 compatible (STUDIO /bin/bash): no associative arrays, no
@@ -111,6 +113,16 @@ run_check "drift-bad-required" "$GEN/bad-required.tsv" 1 "required-optional"
 awk -F'\t' -v OFS='\t' '$1=="htop"{$4="arm64"}{print}' "$PRISTINE" \
     > "$GEN/bad-hook-arch.tsv"
 run_check "drift-bad-hook-arch" "$GEN/bad-hook-arch.tsv" 1 "hook-arch"
+
+# bad-hook-never-runs: ncz-core (required=yes) installed_by names two hooks;
+# the first (10-base.sh) is listed, the second (99-orphan.sh) exists on disk
+# but is in no hooks.list.*. A checker that only inspects the first installer
+# would miss this -- the finding must still be raised.
+awk -F'\t' -v OFS='\t' \
+    '$1=="ncz-core"{$8="post-install/10-base.sh, post-install/99-orphan.sh"}{print}' \
+    "$PRISTINE" > "$GEN/bad-hook-never-runs.tsv"
+run_check "drift-bad-hook-never-runs" "$GEN/bad-hook-never-runs.tsv" 1 \
+    "hook-never-runs"
 
 # ---------------------------------------------------------------------------
 # 3. report + diff-published smoke (pristine registry).
