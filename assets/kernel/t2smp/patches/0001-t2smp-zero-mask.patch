@@ -1,0 +1,16 @@
+diff --git a/t2smp.c b/t2smp.c
+index 3004fa6..c10d8d8 100644
+--- a/t2smp.c
++++ b/t2smp.c
+@@ -122,7 +122,7 @@ static int __init t2smp_init(void)
+ 		return -ENODEV;
+ 	pci_dev_put(t2);
+ 
+-	if (!alloc_cpumask_var(&t2smp_offlined_cpus, GFP_KERNEL))
++	if (!zalloc_cpumask_var(&t2smp_offlined_cpus, GFP_KERNEL))
+ 		return -ENOMEM;
+ 
+ 	ret = register_pm_notifier(&t2smp_prepare_notifier);
+-- 
+2.50.1 (Apple Git-155)
+
