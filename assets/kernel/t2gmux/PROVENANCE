@@ -36,7 +36,27 @@ power-sequencing fixes, no new module parameters and no new sysfs interface):
   26fa944  t2gmux: add transition lock (2026-10-05)
   Log: https://github.com/kaiT2en/KaiT2en-Fedora/compare/8760e41...a88f36f
 
-Local modifications: none (all vendored upstream files byte-identical to the commit).
+Local modifications:
+  - dkms.conf: adds PATCH[0..2]/PATCH_MATCH[0..2] to apply the local hardening
+    patches (see below) during the DKMS build. DKMS 3.2.2 resolves the
+    PATCH[] value below its patches/ directory.
+  - patches/0001-t2gmux-bounded-drain.patch: bound the interrupt acknowledge
+    loop in gmux_interrupt_work() to 32 drains; if the status does not
+    clear, disable the interrupt source via gmux_stop_interrupts() and bail
+    out so suspend/shutdown/unload do not block forever on power_lock.
+  - patches/0002-t2gmux-pm-quiesce.patch: introduce gmux_data->quiescing;
+    set it under power_lock in gmux_suspend()/gmux_shutdown(), have the
+    interrupt worker refuse to touch the mailbox when set, cancel_work_sync
+    the worker, and clear it on gmux_resume().  Prevents a worker queued
+    before the suspend path from accessing the mailbox or re-enabling gmux
+    interrupts after they were stopped.
+  - patches/0003-t2gmux-error-recording.patch: add gmux_data->last_mmio_error
+    so the MMIO accessors record -EBUSY/-ETIMEDOUT instead of silently
+    returning the historical 0xef sentinel.  Plain callers still receive the
+    sentinel for back-compat; the power-state path resets the field before
+    each transition so a stale value from a previous transition cannot be
+    misread.  Full error-return propagation across all 42 call sites is a
+    larger surgery and is documented in the report as future work.
 
 Re-sync:
   git clone https://github.com/kaiT2en/KaiT2en-Fedora.git
