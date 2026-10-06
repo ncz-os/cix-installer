@@ -768,6 +768,64 @@ late_progress_state() {
         "$_now" "$_now" "$_event" "$_phase" "$_idx" "$_total" "$_hook" "$_detail" \
         > "$_tmp" && mv -f "$_tmp" "$PROGRESS_STATE"
 }
+# --- NCZ-HB-UNITS-BEGIN (extracted by build/test-gpu-install-progress.sh) --
+# hb_units_for <event> <idx> <total> <pct> <plan-file> <units>
+# Bar units owned by 07preseed that the current record has earned. run-all.sh
+# writes progress.plan (index|hook|weight, one row per scheduled step); when
+# it is present and matches <total>, each step gets bar room in proportion to
+# its weight, so a long GPU/DKMS step (weight 12) ticks through its own share
+# instead of parking at one slot. Without a usable plan: one equal slot per
+# step, exactly as before. APT and GPU records carry a real in-step percent.
+hb_units_for() {
+    _u_ev="$1"; _u_idx="$2"; _u_tot="$3"; _u_pct="$4"; _u_plan="$5"; _u_units="$6"
+    case "$_u_idx" in ''|*[!0-9]*) _u_idx=0 ;; esac
+    case "$_u_tot" in ''|*[!0-9]*) _u_tot=0 ;; esac
+    case "$_u_units" in ''|*[!0-9]*) _u_units=0 ;; esac
+    case "$_u_pct" in ''|*[!0-9]*) _u_pct=0 ;; esac
+    [ "$_u_pct" -gt 100 ] && _u_pct=100
+    if [ "$_u_tot" -le 0 ] || [ "$_u_idx" -le 0 ] || [ "$_u_units" -le 0 ]; then
+        echo 0; return 0
+    fi
+    case "$_u_ev" in
+        DONE|WARN|FAIL|SKIP|COMPLETE|FINALIZE) _u_frac=100 ;;
+        APT|GPU) _u_frac="$_u_pct" ;;
+        *) _u_frac=0 ;;
+    esac
+    _u_out=""
+    if [ -n "$_u_plan" ] && [ -r "$_u_plan" ]; then
+        _u_out=$(awk -F'|' -v idx="$_u_idx" -v tot="$_u_tot" -v frac="$_u_frac" -v units="$_u_units" '
+            $1 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && $3 > 0 { w[$1] = $3; tw += $3; n++ }
+            END {
+                if (n != tot || tw <= 0) exit 1
+                b = 0; for (i = 1; i < idx; i++) b += w[i]
+                v = int((b * 100 + w[idx] * frac) * units / (tw * 100))
+                if (v > units) v = units
+                print v
+            }' "$_u_plan" 2>/dev/null) || _u_out=""
+    fi
+    if [ -z "$_u_out" ]; then
+        _u_out=$(( ((_u_idx - 1) * 100 + _u_frac) * _u_units / (_u_tot * 100) ))
+        [ "$_u_out" -gt "$_u_units" ] && _u_out="$_u_units"
+    fi
+    echo "$_u_out"
+}
+
+# hb_gpu_status <detail> <elapsed-seconds> <tick>
+# The on-screen line for a GPU record. The elapsed clock and the moving marker
+# go FIRST so the 150-column cut can never remove them, and they change on
+# every heartbeat even while one large file compiles, so the line never looks
+# frozen. ASCII only (newt draws anything else as <ERR>).
+hb_gpu_status() {
+    _g_el="$2"
+    case "$_g_el" in ''|*[!0-9]*) _g_el=0 ;; esac
+    case $(( ${3:-0} % 4 )) in
+        0) _g_spin='*...' ;; 1) _g_spin='.*..' ;; 2) _g_spin='..*.' ;; *) _g_spin='...*' ;;
+    esac
+    printf '[%d:%02d %s] %s\n' $((_g_el / 60)) $((_g_el % 60)) "$_g_spin" "$1"
+}
+# --- NCZ-HB-UNITS-END ------------------------------------------------------
+PROGRESS_PLAN=/target/var/log/cix-install/progress.plan
+
 set +e
 # Do not background `in-target` here. in-target intentionally configures the
 # target command to use d-i debconf passthrough on fd 0/fd 3; if it runs while
@@ -875,6 +933,9 @@ hb_last_key=""
           FAIL)
               hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total) - FAILED: $hb_detail"
               ;;
+          GPU)
+              hb_status=$(hb_gpu_status "$hb_detail" "$hb_elapsed" "$hb_iter")
+              ;;
           COMPLETE)
               hb_status="$hb_detail"
               ;;
@@ -887,6 +948,8 @@ hb_last_key=""
       esac
       hb_status=$(printf '%s' "$hb_status" | cut -c1-150)
       hb_key="$hb_event|$hb_phase|$hb_idx|$hb_hook|$hb_pct|$hb_detail"
+      # GPU records name a new build/stage every few seconds; the tty3 mirror
+      # follows the record (not the per-tick clock) so it stays readable.
       if [ "$hb_key" != "$hb_last_key" ]; then
           ttymsg "  → $hb_status"
           hb_last_key="$hb_key"
@@ -917,22 +980,11 @@ hb_last_key=""
       # safely degrades to changing INFO text without touching the parent bar.
       if [ "$DEBCONF_OK" = 1 ] && [ "$NCZ_PROGRESS_UNITS" -gt 0 ] \
          && [ "${hb_total:-0}" -gt 0 ] 2>/dev/null; then
-          case "$hb_pct" in ''|*[!0-9]*) hb_pkg_pct=0 ;; *) hb_pkg_pct="$hb_pct" ;; esac
-          [ "$hb_pkg_pct" -gt 100 ] 2>/dev/null && hb_pkg_pct=100
-          case "$hb_event" in
-              DONE|WARN|FAIL|SKIP|COMPLETE|FINALIZE)
-                  hb_work=$((hb_idx * 100))
-                  ;;
-              APT)
-                  hb_work=$(((hb_idx - 1) * 100 + hb_pkg_pct))
-                  ;;
-              *)
-                  hb_work=$(((hb_idx - 1) * 100))
-                  ;;
-          esac
-          hb_target_units=$((hb_work * NCZ_PROGRESS_UNITS / (hb_total * 100)))
-          [ "$hb_target_units" -gt "$NCZ_PROGRESS_UNITS" ] && \
-              hb_target_units="$NCZ_PROGRESS_UNITS"
+          hb_target_units=$(hb_units_for "$hb_event" "$hb_idx" "$hb_total" "$hb_pct" \
+              "$PROGRESS_PLAN" "$NCZ_PROGRESS_UNITS")
+          case "$hb_target_units" in ''|*[!0-9]*) hb_target_units=0 ;; esac
+          # Only ever forward: a later step record with a lower in-step
+          # percent (a new apt transaction) holds the bar, never rewinds it.
           if [ "$hb_target_units" -gt "$hb_last_units" ]; then
               hb_delta=$((hb_target_units - hb_last_units))
               hb_step_rc=0

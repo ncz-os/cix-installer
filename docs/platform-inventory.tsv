@@ -200,6 +200,7 @@ build/test-kernel-purity-guards.sh	common	-	behavioural test of the rEFInd Debia
 build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kernel.sh (clean 7.3 trees pass; every Debian-kernel leak and wrong default fails)
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-late-npu-aipu.sh	common	-	late.sh NPU aipu overlay + modules-load test
+build/test-gpu-install-progress.sh	common	-	GPU/DKMS install-step feedback: step profiles, simulated growing DKMS make.log monitor, apt window scaling, late.sh weighted bar math and GPU screen line, run-all end to end
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
 build/test-overlay-modversions.sh	sky1	-	fixture tests for verify-overlay-modversions.py (stale CRC, unresolved, no __versions, vermagic, missing set fail)
 build/test-release-identity.sh	common	-	release identity/label + Cygnus logo wiring regression test
@@ -335,6 +336,7 @@ post-install/buildkite-ncz-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/hooks.list.amd64	common	-	generated ordered hook list for platform amd64 (build/gen-hooks-lists.sh)
 post-install/hooks.list.sky1-arm64	common	-	generated ordered hook list for platform sky1-arm64 (build/gen-hooks-lists.sh)
 post-install/lib/cuda-select.sh	amd64	nvidia-cuda	AMD64 GPU-family -> driver branch + CUDA toolkit selector sourced by 54-gpu-accel.sh and tested by build/test-amd64-cuda-gates.sh
+post-install/lib/gpu-progress.sh	mixed	-	GPU/DKMS install-step feedback for the d-i screen (named step, live DKMS build status, reserved bar weight); per-platform step profiles keyed on hook name + arch, the monitor itself is platform-neutral (docs/GPU-INSTALL-PROGRESS.md)
 post-install/lib/hw-detect.sh	common	-	shared hardware detection helpers
 post-install/lib/kernel-purity.sh	common	-	shared Debian-kernel apt preferences pin sourced by both kernel install hooks
 post-install/ncz-os-apt-keyring.asc	common	-	NCZ apt repo key
