@@ -170,5 +170,75 @@ grep -qE "^build -m t2smc -v 0.1 -k 7.3.0-rc6-1-t2-edge-aerfix(\$| )" "$B/dkms.c
     || bad "rc-only tree: modules not built against the rc KVER"
 [ "$(built "$B" t2smp)" = 0 ] && ok "rc-only tree: t2smp still not built" || bad "rc-only tree: t2smp was built"
 
+# ===========================================================================
+# 10. KVER_LIST_AMD64 missing on T2 -> hook exits 1, refuses to fall back.
+# ===========================================================================
+B="$T/no-kverlist"; mkbox "$B" "Apple Inc." "MacBookPro16,1"
+echo "" > "$B/meta/KVER_LIST_AMD64"
+run_hook "$B" && bad "no-kverlist: hook succeeded but should have failed loudly" \
+            || ok "no-kverlist: hook failed loudly (exit 1) on T2 hardware"
+grep -q "no usable KVER" "$B/out" && ok "no-kverlist: diagnostic mentions 'no usable KVER'" || bad "no-kverlist: diagnostic missing"
+
+# ===========================================================================
+# 11. KVER_LIST_AMD64 present but no matching /lib/modules/<kver> dir ->
+#     hook refuses to fall back to /lib/modules scan.
+# ===========================================================================
+B="$T/missing-libmod"; mkbox "$B" "Apple Inc." "MacBookPro16,1"
+echo "7.2.9-ncz-t2" > "$B/meta/KVER_LIST_AMD64"
+run_hook "$B" && bad "missing-libmod: hook succeeded but should have failed loudly" \
+              || ok "missing-libmod: hook failed loudly (no fallback to /lib/modules)"
+grep -q "no usable KVER" "$B/out" && ok "missing-libmod: diagnostic mentions 'no usable KVER'" || bad "missing-libmod: diagnostic missing"
+
+# ===========================================================================
+# 12. Multi-KVER build: a stable+edge image builds against BOTH KVERs.
+# ===========================================================================
+B="$T/multi"; mkbox "$B" "Apple Inc." "MacBookPro16,1"; set_kver_list "$B" "7.2.9-ncz-t2" "7.3.0-rc6-1-t2-edge-aerfix"
+run_hook "$B"
+grep -qE "^build -m t2smc -v 0.1 -k 7.2.9-ncz-t2(\$| )" "$B/dkms.calls" \
+  && grep -qE "^build -m t2smc -v 0.1 -k 7.3.0-rc6-1-t2-edge-aerfix(\$| )" "$B/dkms.calls" \
+  && ok "multi-KVER: t2smc built against both stable and edge KVERs" \
+  || bad "multi-KVER: t2smc not built against both KVERs"
+grep -qE "^build -m t2gmux -v 0.1 -k 7.2.9-ncz-t2(\$| )" "$B/dkms.calls" \
+  && grep -qE "^build -m t2gmux -v 0.1 -k 7.3.0-rc6-1-t2-edge-aerfix(\$| )" "$B/dkms.calls" \
+  && ok "multi-KVER: t2gmux built against both stable and edge KVERs" \
+  || bad "multi-KVER: t2gmux not built against both KVERs"
+
+# ===========================================================================
+# 13. Idempotent re-run: same three modprobe.d files, no extra DKMS work.
+# ===========================================================================
+B="$T/idemp"; mkbox "$B" "Apple Inc." "MacBookPro16,1"; set_kver_list "$B" "7.2.9-ncz-t2"
+run_hook "$B"
+cp "$B/modprobe.d/ncz-t2smp.conf" "$T/ncz-t2smp.conf.1"
+cp "$B/modprobe.d/ncz-t2-gmux.conf" "$T/ncz-t2-gmux.conf.1"
+cp "$B/modprobe.d/ncz-t2thunderbolt.conf" "$T/ncz-t2thunderbolt.conf.1"
+run_hook "$B"
+cmp -s "$T/ncz-t2smp.conf.1" "$B/modprobe.d/ncz-t2smp.conf" \
+    && cmp -s "$T/ncz-t2-gmux.conf.1" "$B/modprobe.d/ncz-t2-gmux.conf" \
+    && cmp -s "$T/ncz-t2thunderbolt.conf.1" "$B/modprobe.d/ncz-t2thunderbolt.conf" \
+    && ok "idempotent: all three modprobe.d files unchanged on re-run" \
+    || bad "idempotent: modprobe.d file changed on re-run"
+
+# ===========================================================================
+# 14. Stale t2smp registration is removed on every run.
+# ===========================================================================
+B="$T/stale-smp"; mkbox "$B" "Apple Inc." "MacBookPro16,1"; set_kver_list "$B" "7.2.9-ncz-t2"
+echo "t2smp/0.1, 7.2.9-ncz-t2: installed" > "$B/dkms.status"
+mkdir -p "$B/usrsrc/t2smp-0.1"
+echo "/* stale source */" > "$B/usrsrc/t2smp-0.1/main.c"
+run_hook "$B"
+grep -q -E "^remove -m t2smp " "$B/dkms.calls" && ok "stale-smp: t2smp DKMS registration removed" || bad "stale-smp: t2smp registration not removed"
+[ ! -d "$B/usrsrc/t2smp-0.1" ] && ok "stale-smp: t2smp source tree removed" || bad "stale-smp: t2smp source tree left"
+
+# ===========================================================================
+# 15. Opt-in: NCZ_T2_DKMS_EXTRA=t2thunderbolt builds t2thunderbolt, removes
+#     the t2thunderbolt blacklist; t2smp and apple_gmux blacklists remain.
+# ===========================================================================
+B="$T/optin"; mkbox "$B" "Apple Inc." "MacBookPro16,1"; set_kver_list "$B" "7.2.9-ncz-t2"
+run_hook "$B" NCZ_T2_DKMS_EXTRA=t2thunderbolt
+[ "$(built "$B" t2thunderbolt)" = 1 ] && ok "opt-in: t2thunderbolt built" || bad "opt-in: t2thunderbolt not built"
+[ ! -e "$B/modprobe.d/ncz-t2thunderbolt.conf" ] && ok "opt-in: t2thunderbolt blacklist removed" || bad "opt-in: t2thunderbolt blacklist still present"
+[ -e "$B/modprobe.d/ncz-t2smp.conf" ] && ok "opt-in: t2smp blacklist still present (separate from t2thunderbolt)" || bad "opt-in: t2smp blacklist went away"
+[ -e "$B/modprobe.d/ncz-t2-gmux.conf" ] && ok "opt-in: apple_gmux blacklist still present (T2 only)" || bad "opt-in: apple_gmux blacklist went away"
+
 echo "t2-dkms-hook tests: $pass passed, $fail failed"
 [ "$fail" = 0 ]
