@@ -580,3 +580,4 @@ parity:
 	build/test-reap-images.sh
 	REPO_ROOT=$(ROOT) bash build/test-amd64-kernel-classifier.sh
 	build/test-kernel-default-policy.sh
+	build/test-amd64-edge-compat.sh
