@@ -1,5 +1,11 @@
 # Hardware video decode on CIX Sky1 — status
 
+> **2026-10-06 update (7.3.0-rc6, cix-vaapi 1.0.0 as shipped): see
+> `docs/SKY1-MEDIA-STATUS.md`.** The VA-API rows below describe the patched 1.1.0
+> driver of August; the driver in the current image hangs or fails for H.264/HEVC
+> decode and offers no VP9/AV1. mpv now defaults to V4L2 M2M, and Chromium NCZ Sky1
+> Edition decodes H.264/VP9/AV1 through V4L2 (it has no VA-API).
+
 **Board:** O6N (Radxa Orion O6 / CIX Sky1), NCZ-OS.
 **Measured:** 2026-08-05, Chromium/Chrome 151, `cix-vaapi` 1.1.0 sources.
 **Applies to:** the six patches in `docs/upstream-patches/cix-vaapi/`. Without

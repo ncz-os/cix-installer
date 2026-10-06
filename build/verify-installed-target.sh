@@ -339,11 +339,10 @@ else
 fi
 if fetch /etc/mpv/mpv.conf "$TMP/mpv.conf" && grep -q '^hwdec=' "$TMP/mpv.conf"; then
     HW="$(grep -m1 '^hwdec=' "$TMP/mpv.conf")"
-    if exists /usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so; then
-        echo "$HW" | grep -q 'vaapi' || gate_miss vpu "mpv $HW although the CIX VA driver is installed"
-    else
-        echo "$HW" | grep -q 'v4l2m2m' || gate_miss vpu "mpv $HW but no VA driver is installed (mpv would silently fall back to software; expect hwdec=v4l2m2m-copy)"
-    fi
+    # 2026-10-06 (docs/SKY1-MEDIA-STATUS.md): VA-API decode fails or hangs on 7.3 with the CIX VA
+    # driver on both O6N and MS-R1, V4L2 M2M is healthy; mpv must use V4L2 whether or not the VA
+    # driver is installed.
+    echo "$HW" | grep -q 'v4l2m2m' || gate_miss vpu "mpv $HW (expect hwdec=v4l2m2m-copy: the VA-API decode route fails/hangs on Sky1, V4L2 M2M is the working VPU path)"
     echo "[verify-target]     mpv: $HW"
 else
     gate_miss vpu "/etc/mpv/mpv.conf with a hwdec= line (84-vpu-mpv)"

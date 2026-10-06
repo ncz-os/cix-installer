@@ -1,14 +1,12 @@
 #!/bin/bash
 # 84-vpu-mpv.sh — mpv default HW video (CIX Sky1 amvx VPU via V4L2 stateful M2M).
 #
-# NCZ-OS 26.7 "Maximilian": mpv is the shipped default video player. The Sky1
-# amvx VPU exposes stateful V4L2 M2M decoders; mpv's `hwdec=v4l2m2m-copy` decodes
-# on the VPU and copies frames to the (Mali GLES) presentation path. This is the
-# HW-video FLOOR for the appliance. Browser HW decode via the cix-vaapi driver
-# is now ALSO fixed — see 84-vpu-vaapi.sh (root-caused + hardware-validated
-# 2026-07-27: a VA-API driver-name auto-detection mismatch plus an
-# ld.so.conf.d priority bug were silently breaking it; both fixed, real
-# Chrome hardware AV1/H264/HEVC/VP9 decode confirmed working end-to-end).
+# mpv is the shipped default video player. The Sky1 amvx VPU exposes stateful
+# V4L2 M2M decoders; mpv's `hwdec=v4l2m2m-copy` decodes on the VPU and copies
+# frames to the (Mali GLES) presentation path. Chromium NCZ Sky1 Edition uses
+# the same V4L2 decoder (it is built without VA-API). The CIX VA-API driver
+# (84-vpu-vaapi.sh) stays installed for vainfo/encode experiments but is NOT
+# the playback default: on 7.3 it fails or hangs for decode (measured below).
 #
 # RUNS INSIDE CHROOT (build-squashfs-layers.sh desktop loop / run-all.sh).
 # ARCH GATE (dual-arch parity): Sky1-only hook. run-all.sh runs every hook on every architecture, so
@@ -33,33 +31,30 @@ esac
 
 # System-wide mpv config.
 #
-# 2026-08-04, measured on O6N: hwdec=vaapi with vo=dmabuf-wayland is a
-# ZERO-COPY path (VPU decode -> dmabuf -> Wayland -> linlondp overlay plane)
-# and runs 1080p30 H.264 at ~7% CPU. The previous default, hwdec=v4l2m2m-copy
-# with vo=gpu-next, decoded on the same VPU but copied every frame out to the
-# GLES presentation path; software decode for comparison is ~82% CPU. Same
-# decoder silicon, but the copy is pure overhead now that the VA-API driver
-# loads reliably (84-vpu-vaapi.sh's auto-detection symlink).
-#
-# vo falls back gpu-next -> x11 if dmabuf-wayland is unavailable (e.g. a
-# non-Wayland session), and hwdec falls back to software per codec.
+# 2026-10-06, measured on BOTH the O6N and the MS-R1 (7.3.0-rc6-sky1-ncz,
+# cix-vpu-driver-dkms 1.0.2-ncz1, cix-vaapi 1.0.0, mpv 0.41, same clips and
+# commands, docs/SKY1-MEDIA-STATUS.md): the VA-API route is broken and the
+# V4L2 stateful M2M route is healthy, identically on both boards.
+#   hwdec=vaapi (the previous default): H.264 1080p either exits with
+#     "Failed to send decoder command" (MS-R1) or silently drops to software
+#     at ~68% CPU (O6N); HEVC 4K does not play at all ("SPS is missing",
+#     mpv rc=2); VP9/AV1/MPEG-2 are not offered by the driver -> software.
+#     ffmpeg -hwaccel vaapi hangs in the driver (futex) until SIGKILL, and the
+#     kernel logs "MVX if: Buffer plane too small" / "MMU ABORT": the CIX VA
+#     driver hands the VPU capture surfaces smaller than the frame it writes.
+#   hwdec=v4l2m2m-copy + vo=gpu-next: hardware decode, 0 dropped frames,
+#     H.264 1080p 4% CPU, HEVC/VP9 2160p 13-15% CPU (software: 39-75%);
+#     frames bit-identical to software decode (framemd5, 60 frames per clip).
+#   hwdec=v4l2m2m + vo=dmabuf-wayland (zero-copy) never engages the VPU: the
+#     VO only takes VA-API surfaces, so it decodes in software (70-268% CPU).
+# AV1 has no V4L2 M2M decoder in FFmpeg; mpv uses dav1d (1080p30 ~30% CPU).
+# hwdec falls back to software per codec; vo falls back gpu-next -> x11.
 install -d -m0755 /etc/mpv
-# hwdec depends on what is really installed. vaapi + dmabuf-wayland is the zero-copy path but
-# it needs the CIX VA driver (cix-vaapi); libva otherwise guesses linlondp_drv_video.so, fails
-# with va_openDriver() = -1 and mpv drops to software. Without that driver use the V4L2
-# stateful M2M decoders of the amvx VPU (verified on O6N: h264/hevc decode+encode), which is
-# what the shipped Chromium 'Sky1 Edition' uses as well.
-if [ -f /usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so ]; then
-    _HWDEC=vaapi
-    _VO="dmabuf-wayland,gpu-next,x11"
-    _NOTE="CIX VA-API driver present: zero-copy VPU decode -> dmabuf -> Wayland overlay plane"
-else
-    _HWDEC=v4l2m2m-copy
-    _VO="gpu-next,x11"
-    _NOTE="no CIX VA-API driver: V4L2 stateful M2M decode on the amvx VPU, frames copied to the GLES path"
-fi
+_HWDEC=v4l2m2m-copy
+_VO="gpu-next,x11"
+_NOTE="V4L2 stateful M2M decode on the amvx VPU (VA-API route is broken, see docs/SKY1-MEDIA-STATUS.md)"
 cat > /etc/mpv/mpv.conf <<MPVCONF
-# NCZ-OS 26.7 -- HW video on CIX Sky1 (amvx VPU). $_NOTE.
+# NCZ-OS -- HW video on CIX Sky1 (amvx VPU). $_NOTE.
 hwdec=$_HWDEC
 vo=$_VO
 gpu-api=opengl

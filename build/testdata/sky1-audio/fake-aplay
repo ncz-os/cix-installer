@@ -1,0 +1,9 @@
+#!/bin/sh
+# aplay stand-in: logs the probed device; devices in $FAKE_APLAY_FAIL fail with the
+# real EINVAL text, devices in $FAKE_APLAY_BUSY report busy.
+dev=
+while [ $# -gt 0 ]; do [ "$1" = -D ] && dev=$2; shift; done
+[ -n "$FAKE_APLAY_LOG" ] && echo "$dev" >> "$FAKE_APLAY_LOG"
+case " $FAKE_APLAY_FAIL " in *" $dev "*) echo "aplay: set_params:1462: Unable to install hw params:" >&2; exit 1;; esac
+case " $FAKE_APLAY_BUSY " in *" $dev "*) echo "aplay: main:850: audio open error: Device or resource busy" >&2; exit 1;; esac
+exit 0

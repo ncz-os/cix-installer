@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""Minimal stateful pactl stand-in for test-sky1-audio-policy.sh (state: $FAKE_PA_STATE JSON).
+
+Models the parts of PipeWire Pulse that ncz-sky1-audio-autoswitch talks to. A
+module-alsa-sink loaded for a device listed in "start_fail" loads fine but its sink
+is gone on the next query, the way pipewire-pulse drops a module whose node hits
+"Start error: Invalid argument"; one for a device in "persist_fail" stays listed but its
+node turns to state "error" (what O6N showed), which fake-pw-dump reports.
+"""
+
+import json
+import os
+import sys
+
+path = os.environ["FAKE_PA_STATE"]
+st = json.load(open(path))
+st.setdefault("calls", []).append(" ".join(sys.argv[1:]))
+args = sys.argv[1:]
+out = ""
+rc = 0
+
+
+def reap():
+    for m in list(st["modules"]):
+        if m["device"] in st.get("start_fail", []) and m.get("queried"):
+            st["modules"].remove(m)
+        elif m["device"] in st.get("persist_fail", []) and m.get("queried"):
+            st.setdefault("errored", []).append(m["sink"]) if m["sink"] not in st.get("errored", []) else None
+        else:
+            m["queried"] = True
+
+
+def sinks():
+    reap()
+    return st["native"] + [{"name": m["sink"], "card": m["device"][3:].split(",")[0], "dev": m["device"].split(",")[1]} for m in st["modules"]]
+
+
+if args[:1] == ["info"]:
+    out = "Server Name: PulseAudio (on PipeWire 1.6.9)\n"
+elif args[:3] == ["list", "short", "sinks"]:
+    out = "".join(f"{i}\t{s['name']}\tPipeWire\ts32le 2ch 48000Hz\tSUSPENDED\n" for i, s in enumerate(sinks(), 50))
+elif args[:2] == ["list", "sinks"]:
+    for i, s in enumerate(sinks(), 50):
+        out += f'Sink #{i}\n\tName: {s["name"]}\n\tProperties:\n\t\talsa.card = "{s["card"]}"\n\t\talsa.device = "{s["dev"]}"\n'
+elif args[:3] == ["list", "short", "modules"]:
+    out = "".join(f"{m['id']}\t{m.get('module', 'module-alsa-sink')}\tsink_name={m['sink']} device={m['device']}\n" for m in st["modules"])
+elif args[:3] == ["list", "short", "sink-inputs"]:
+    out = ""
+elif args[:1] == ["get-default-sink"]:
+    out = (st.get("default") or "") + "\n"
+elif args[:1] == ["set-default-sink"]:
+    if args[1] in {s["name"] for s in sinks()}:
+        st["default"] = args[1]
+    else:
+        sys.stderr.write("Failure: No such entity\n")
+        rc = 1
+elif args[:1] == ["load-module"] and args[1] in ("module-alsa-sink", "module-null-sink"):
+    kv = dict(a.split("=", 1) for a in args[2:])
+    st["next_id"] = st.get("next_id", 500) + 1
+    st["modules"].append({"id": st["next_id"], "sink": kv["sink_name"], "device": kv.get("device", "null,0"), "module": args[1]})
+    out = f"{st['next_id']}\n"
+elif args[:1] == ["unload-module"]:
+    st["modules"] = [m for m in st["modules"] if str(m["id"]) != args[1]]
+elif args[:1] == ["move-sink-input"]:
+    pass
+else:
+    sys.stderr.write(f"fake-pactl: unsupported {args}\n")
+    rc = 1
+json.dump(st, open(path, "w"))
+sys.stdout.write(out)
+sys.stdout.flush()
+if st.get("garbage") and args[:2] == ["list", "sinks"]:
+    # a client property that is not UTF-8 (seen live from a Chromium stream on O6N)
+    sys.stdout.buffer.write(b'\t\tclient.name = "\xd5\xff"\n')
+sys.exit(rc)

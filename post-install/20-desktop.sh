@@ -147,6 +147,15 @@ for status in /sys/class/drm/card*-*/status; do
     [ -n "$render_node" ] && break
 done
 
+# Video decode (measured 2026-10-06 on O6N and MS-R1, docs/SKY1-MEDIA-STATUS.md):
+# this build has the V4L2 stateful decoder and no VA-API (no libva in the
+# binary), so AcceleratedVideoDecoder is the one switch that matters; it puts
+# H.264, VP9 and AV1 (1080p and 2160p) on the VPU via V4L2VideoDecoder at
+# real-time speed. VA-API feature names (VaapiVideoDecoder...) would be dead
+# weight. HEVC is advertised but fails in this build (PIPELINE_ERROR_DECODE).
+# Audio: with AudioServiceOutOfProcess disabled, streams reach PipeWire and
+# play normally once the default sink works; a broken default sink stalls the
+# media clock and freezes video too, which the audio autoswitch now prevents.
 set -- --ozone-platform=wayland \
   --enable-features=AcceleratedVideoDecoder \
   --disable-features=AudioServiceOutOfProcess,AudioServiceSandbox \
@@ -165,9 +174,11 @@ fi
 # Audio: PipeWire stack so HDMI/analog reaches apps; pavucontrol for control.
 # pulseaudio-utils supplies pactl. PipeWire Pulse supports pactl load-module
 # for module-alsa-sink, which the Sky1 HDMI/DP autoswitch helper uses without
-# putting static objects in pipewire.conf.d.
+# putting static objects in pipewire.conf.d. The helper also needs aplay
+# (alsa-utils: hw_params probe of a DP/HDMI PCM before it becomes a sink) and
+# pw-dump (pipewire-bin, a pipewire dependency: spots sinks stuck in "error").
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol pulseaudio-utils 2>&1 | tail -3 || true
+    pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol pulseaudio-utils alsa-utils 2>&1 | tail -3 || true
 systemctl --global enable pipewire pipewire-pulse wireplumber 2>&1 | tail -2 || true
 
 # Asset lookup (2026-09-29 regression fix): the ISO installer exposes the payload
