@@ -231,9 +231,19 @@ NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 $EFI_RT_WORKAROUND acpi=f
 # The edge (NEXT) kernel needs board-specific PCIe/SCMI knobs that the stable
 # kernel does not: the 7.2 forward-port was only ever metal-validated with
 # these (r195 shipped edge WITHOUT them and the board hung at boot — the
-# generic cmdline is NOT safe for 7.2 on Sky1). Also carve ramoops so an edge
-# hang leaves a crash record, and prefer fast panic over a silent wedge.
-NEXT_CMDLINE_EXTRA="pcie_aspm=off sky1_pcie_native=off pcie_pnp_en acpi_scmi_en=off loglevel=3 oops=panic panic=6 ramoops.mem_address=0x83d00000 ramoops.mem_size=0x100000 ramoops.record_size=0x40000 ramoops.console_size=0x80000 ramoops.ecc=0"
+# generic cmdline is NOT safe for 7.2 on Sky1). Prefer fast panic over a
+# silent wedge.
+#
+# No ramoops.* parameters: the firmware already describes ramoops. The DSDT
+# RAOP node (PRP0001 "ramoops", 0xa0000 @ 0x83d00000, record 0x40000, console
+# 0x40000, pmsg 0x1000) registers pstore on every 7.2 and 7.3 Sky1 kernel. The
+# old cmdline carve (mem_size=0x100000) made the kernel register a second,
+# module-parameter instance first, so the ACPI device then failed with
+# "ramoops: already initialized" / "probe ... failed with error -22", and the
+# 1 MiB region ran past the firmware's 0x83d9ffff into the rdr_ap_adapter
+# reservation at 0x83de0000 (PRP0001:02 in /proc/iomem). Crash records still
+# land in pstore through the firmware node.
+NEXT_CMDLINE_EXTRA="pcie_aspm=off sky1_pcie_native=off pcie_pnp_en acpi_scmi_en=off loglevel=3 oops=panic panic=6"
 NEXT_CMDLINE_BASE="$NEXT_CMDLINE_BASE $NEXT_CMDLINE_EXTRA"
 
 merge_module_blacklist() {

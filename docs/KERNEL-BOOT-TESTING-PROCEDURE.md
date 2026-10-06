@@ -173,8 +173,6 @@ menuentry "TEST -- <kver> (Console, NO accelerators, NOT boot-tested yet)" {
              module_blacklist=panthor,panfrost,mali_kbase,memory_group_manager,protected_memory_allocator,amvx,aipu
              pcie_aspm=off sky1_pcie_native=off pcie_pnp_en acpi_scmi_en=off
              loglevel=3 oops=panic panic=6
-             ramoops.mem_address=0x83d00000 ramoops.mem_size=0x100000
-             ramoops.record_size=0x40000 ramoops.console_size=0x80000 ramoops.ecc=0
              sky1.gpu=none systemd.unit=multi-user.target"
 }
 ```
