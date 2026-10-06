@@ -78,12 +78,15 @@ run_hook() {
 
 built() { grep -c -E "^build -m $2 " "$1/dkms.calls"; }
 
-# 1. default on T2 hardware: t2smc + t2gmux + t2smp each built once, t2thunderbolt NOT built, blacklist file written.
+# 1. default on T2 hardware: t2smc + t2gmux each built once; t2smp NEVER
+#    built (in-kernel 9001 owns CPU offline); t2thunderbolt NOT built,
+#    blacklist file written.
 B="$T/a"; mkbox "$B" "Apple Inc." "MacBookPro16,1"; set_kver_list "$B" "7.2.9-test"
 run_hook "$B"
-for m in t2smc t2gmux t2smp; do
+for m in t2smc t2gmux; do
     [ "$(built "$B" $m)" = 1 ] && ok "default: $m built" || bad "default: $m not built exactly once"
 done
+[ "$(built "$B" t2smp)" = 0 ] && ok "default: t2smp NOT built (in-kernel 9001 owns CPU offline)" || bad "default: t2smp was built"
 [ "$(built "$B" t2thunderbolt)" = 0 ] && ok "default: t2thunderbolt NOT built" || bad "default: t2thunderbolt was built"
 [ ! -d "$B/usrsrc/t2thunderbolt-0.1" ] && ok "default: no t2thunderbolt source tree installed" || bad "default: t2thunderbolt source installed"
 if grep -qx 'blacklist t2thunderbolt' "$B/modprobe.d/ncz-t2thunderbolt.conf" 2>/dev/null && grep -qx 'install t2thunderbolt /bin/false' "$B/modprobe.d/ncz-t2thunderbolt.conf"; then ok "default: modprobe.d blacklist + install-false written"; else bad "default: blacklist file missing/incomplete"; fi
