@@ -29,7 +29,7 @@
 #   gate: a pre-T2 Intel Mac, a VM, or a non-Apple machine all fail closed.
 #
 # The DMI root is overridable for tests via NCZ_DMI_ROOT, pointing at a fake
-# /sys/class/dmi/id tree (see build/test-amd64-edge-compat.sh).
+# /sys/class/dmi/id tree (see build/test-amd64-t2-detect.sh).
 #
 # ncz_t2_pci_bridge_present() is a belt-and-braces secondary probe: it scans
 # /sys/bus/pci/devices for the Apple T2 bridge [106b:1801] or the T2 NHI
