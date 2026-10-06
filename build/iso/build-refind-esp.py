@@ -200,10 +200,48 @@ AMD64_RESCUE_OPTIONS = f"{_PC_RESCUE_OPTIONS} {AMD64_NOUVEAU_OPTIONS}"
 # This is exactly why the pre-rEFInd GRUB ISOs worked: they named ttyAMA2,
 # which does not exist on O6N, so no serial console ever registered.
 # Serial tracing remains available on the Rescue entry and via diag-console.
+#
+# 2026-10-06 (serial diagnostics without a serial console=): the operator asked
+# for kernel output and a root shell on ttyAMA0 during the on-screen install.
+# Re-adding console=ttyAMA0,115200 here is NOT the way to get it: both orders
+# were tried on real O6N hardware and both moved d-i onto the UART --
+# 0871d09f/65c91e3e had 'console=ttyAMA0,115200 console=tty0' (tty0 LAST) and
+# 91060aca found /etc/inittab carrying 'ttyAMA0::respawn:/sbin/debian-installer'
+# with the monitor blank; 91060aca's reverse order was disproven by 4f262f4c
+# above.  preseed/diag-console.sh therefore provides the serial side itself,
+# independent of /dev/console: it replays and follows /dev/kmsg onto ttyAMA0
+# (every log level, from boot, so 'quiet loglevel=3' does not hide anything)
+# and runs a busybox getty there, and only when reopen-console did not give
+# the UART to d-i.  No earlycon either: without keep_bootcon the earlycon
+# console is dropped when tty0 registers at ~0.0001s, so it would add nothing,
+# and with keep_bootcon it is an unproven change to the O6N boot path (its
+# UART is the ARMH0011 SBSA device; no SPCR line appears in the captured logs).
+#
+# sky1_pcie_native=off pcie_pnp_en (2026-10-06, O6N r199 on 7.3.0-rc6-sky1-ncz,
+# serial capture saved from PROTEUS): only sky1-pcie-cix.1 (NVMe, bus 90)
+# probed.  All twelve ACPI PRP0001 fixed regulators fail at ~0.2386s ("probe
+# with driver reg-fixed-voltage failed with error -12") because the 7.3 port
+# dropped CIX patch 0028 "regulator: add acpi support", so
+# reg_fixed_voltage_probe() returns -ENOMEM (fixed.c: if (!config) return
+# -ENOMEM).  The native Sky1 PCIe devices then wait on them forever: "platform
+# sky1-pcie-cix.2.auto: deferred probe pending: platform: supplier PRP0001:11
+# not ready" (cix.3: PRP0001:10), so neither controller carrying the RTL8125
+# NICs probes and d-i sees only lo.  fw_devlink=permissive would not help: the
+# links are explicit device_link_add() calls from the Sky1 ACPI resource
+# lookup, which the supplier check honours regardless of fw_devlink.  The real
+# fix is a kernel rebuild (meta-cix fix/sky1-pcie-reg-fixed-defer-20261006).
+# Until then the installer uses the installed system's own PCIe mode
+# (assets/refind/ncz-refind-refresh.sh NEXT_CMDLINE_EXTRA, the mode the 7.2.6
+# installed boots with a working NIC used): with sky1_pcie_native=off the
+# native Sky1 PCIe platform devices are not created, so the firmware-created
+# links have nothing to hold back and the standard ACPI PCIe host path takes
+# over.  EXPERIMENT, unproven on 7.3.0-rc6 metal: confirm on the O6N.
+SKY1_PCIE_ACPI_MODE = "sky1_pcie_native=off pcie_pnp_en"
 SKY1_GFX_OPTIONS = (
     "console=tty0 efi=noruntime acpi=force "
     "arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused "
-    "panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453,linlon_dp,trilin_dpsub"
+    "panic=30 nmi_watchdog=0 " + SKY1_PCIE_ACPI_MODE + " "
+    "module_blacklist=typec_rts5453,rts5453,linlon_dp,trilin_dpsub"
 )
 # linlon_dp / trilin_dpsub are the Sky1 display-controller DRM drivers. The installer
 # kernel has no simpledrm (CONFIG_DRM_SIMPLEDRM is not set) and draws on the firmware
@@ -220,7 +258,7 @@ ARM64_RESCUE_OPTIONS = (
     "DEBIAN_FRONTEND=newt consoleblank=0 console=tty0 console=ttyAMA0,115200 "
     "efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 "
     "audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 "
-    "nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+    "nmi_watchdog=0 " + SKY1_PCIE_ACPI_MODE + " module_blacklist=typec_rts5453,rts5453"
 )
 
 

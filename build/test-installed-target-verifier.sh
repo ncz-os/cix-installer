@@ -77,6 +77,10 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
         mkdir -p "$r/opt/cixgpu-compat/share/glvnd/egl_vendor.d" "$r/etc/glvnd/egl_vendor.d"
         echo '{}' > "$r/opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json"
         ln -s /opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json "$r/etc/glvnd/egl_vendor.d/10_cix.json"
+        # serial login (36-telemetry) + the REAL installed boot-entry generator (70-bootloader copies it)
+        mkdir -p "$r/etc/systemd/system/getty.target.wants" "$r/usr/local/sbin"
+        ln -s /usr/lib/systemd/system/serial-getty@.service "$r/etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service"
+        cp "$ROOT/assets/refind/ncz-refind-refresh.sh" "$r/usr/local/sbin/ncz-refind-refresh"
     fi
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
@@ -145,6 +149,9 @@ run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name 
     rm -rf "$r" "$img"
 }
 
+m_no_serial_getty() { rm -f "$1/etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service"; }
+m_refresh_no_acpi_pcie() { sed -i 's/sky1_pcie_native=off //' "$1/usr/local/sbin/ncz-refind-refresh"; }
+m_refresh_serial_last() { sed -i 's/^NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 /NEXT_CMDLINE_BASE="console=tty0 console=ttyAMA0,115200 /' "$1/usr/local/sbin/ncz-refind-refresh"; }
 m_no_fwb()      { rm -f "$1/usr/lib/firmware/hevcenc.fwb"; }
 m_no_dsp()      { rm -f "$1/usr/lib/firmware/dsp_fw.bin"; }
 m_old_aipu()    { printf 'junk\0005.11.0\000AIPU KMD (v%%s) probe start...\000' | xz -c > "$1/usr/lib/modules/$KVER/updates/dkms/aipu.ko.xz"; }
@@ -266,6 +273,9 @@ m_gpu_egl_leak() { m_amd64_strip "$1"; mkdir -p "$1/etc/glvnd/egl_vendor.d"; ln 
 m_no_loader()   { rm -f "$1/usr/bin/load-modules.sh"; }
 
 run_case "healthy installed root passes"        0 ""
+run_case "serial-getty@ttyAMA0 not enabled fails" 1 m_no_serial_getty
+run_case "installed boot cmdline without sky1_pcie_native=off fails" 1 m_refresh_no_acpi_pcie
+run_case "installed boot cmdline with tty0 not last fails" 1 m_refresh_serial_last
 run_case "missing hevcenc.fwb fails"            1 m_no_fwb
 run_case "missing dsp_fw.bin fails"             1 m_no_dsp
 run_case "aipu 5.11.0 fails"                    1 m_old_aipu
