@@ -94,9 +94,31 @@ if ! command -v dkms >/dev/null 2>&1 && [ ! -x /usr/sbin/dkms ]; then
 fi
 PATH="$PATH:/usr/sbin"   # dkms lives in /usr/sbin and is absent from some PATHs
 
-KVER=$(ls -1 "$LIBMODULES" 2>/dev/null | grep -v -- '-rc' | sort -V | tail -1)
-[ -n "$KVER" ] || KVER=$(uname -r)
-echo "[56] installing T2 DKMS modules against $KVER"
+# KVER selection: read KVER_LIST_AMD64 (the kernels the image actually
+# shipped via post-install/10-amd64-kernel.sh). Never read /lib/modules
+# (could include a Debian default kernel) and never exclude an -rc KVER
+# (the 7.3.0-rc6-1-t2-edge-aerfix amd64 edge is the canonical example).
+# Missing or empty KVER_LIST on T2 hardware is fatal (exit 1): no
+# fallback to uname -r or to /lib/modules scan.
+KVER_LIST="${NCZ_KVER_LIST:-/usr/local/lib/cix-installer/KVER_LIST_AMD64}"
+TARGET_KVERS=()
+if [ -s "$KVER_LIST" ]; then
+    while IFS= read -r kver; do
+        case "$kver" in
+            ""|\#*) continue ;;
+        esac
+        if [ -d "$LIBMODULES/$kver" ]; then
+            TARGET_KVERS+=("$kver")
+        else
+            echo "[56] WARN: KVER $kver from $KVER_LIST has no $LIBMODULES/$kver; skipping" >&2
+        fi
+    done < "$KVER_LIST"
+fi
+if [ "${#TARGET_KVERS[@]}" -eq 0 ]; then
+    echo "[56] ERROR: T2 hardware detected but no usable KVER found in $KVER_LIST (each entry must have $LIBMODULES/<kver>). Refusing to fall back to /lib/modules or uname -r (operator 2026-10-05)." >&2
+    exit 1
+fi
+echo "[56] building t2smc/t2gmux against ${#TARGET_KVERS[@]} KVER(s) from $KVER_LIST"
 
 # t2smp: ALWAYS blacklisted. In-kernel patch 9001 is the canonical owner.
 # Run BEFORE the t2thunderbolt block so a single hook pass cleans both stale
