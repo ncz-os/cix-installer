@@ -167,7 +167,7 @@ m_no_amvx()     { printf 'updates/dkms/aipu.ko.xz:\n' > "$1/usr/lib/modules/$KVE
 m_no_chrome()   { printf 'Package: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$1/var/lib/dpkg/status"; }
 m_half_chrome() { printf 'Package: google-chrome-stable\nStatus: deinstall ok config-files\n\nPackage: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$1/var/lib/dpkg/status"; }
 m_no_v4l2m2m()  { printf 'plain' > "$1/usr/lib/aarch64-linux-gnu/libavcodec.so.62.1.100"; }
-m_va_but_mpv_v4l2() { echo x > "$1/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so"; }
+m_va_and_mpv_vaapi() { echo x > "$1/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_video.so"; echo 'hwdec=vaapi' > "$1/etc/mpv/mpv.conf"; }
 m_no_encnode()  { echo 'ln -sf $_d /dev/video-cixdec0' > "$1/usr/bin/load-modules.sh"; }
 m_no_mpv()      { echo 'vo=gpu' > "$1/etc/mpv/mpv.conf"; }
 m_mpv_vaapi_no_driver() { echo 'hwdec=vaapi' > "$1/etc/mpv/mpv.conf"; }
@@ -311,7 +311,7 @@ run_case "sudo not installed fails"             1 m_no_sudo
 run_case "firmware-mediatek (MT7922 WiFi/BT) absent fails" 1 m_no_fw_mediatek
 run_case "firmware-realtek removed-not-purged fails" 1 m_half_fw_realtek
 run_case "empty sudo group fails"               1 m_sudo_empty
-run_case "VA driver present but mpv on v4l2 fails" 1 m_va_but_mpv_v4l2
+run_case "VA driver present and mpv on vaapi fails" 1 m_va_and_mpv_vaapi
 run_case "no encode node helper fails"          1 m_no_encnode
 run_case "mpv vaapi without a VA driver fails"   1 m_mpv_vaapi_no_driver
 run_case "mpv without hwdec fails"              1 m_no_mpv
