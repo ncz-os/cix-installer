@@ -1,0 +1,16 @@
+# singularity-runtime-extra-deps.txt -- Depends entries for ncz-singularity-desktop
+# that the payload ELF closure cannot reveal (they are not DT_NEEDED).
+# build/singularity-deb-depends.sh appends these to the derived set; every other
+# Depends entry comes from the payload itself. One package per line. Keep each
+# entry justified here; build/test-singularity-deb-depends.sh pins the set.
+#
+# upower          the shell talks to org.freedesktop.UPower over D-Bus (battery,
+#                 power profiles); without the daemon those panels stay empty.
+# libadwaita-1-0  part of the desktop closure carried by the vetted +deps1
+#                 package; payload apps load it at runtime on some builds.
+# libglib2.0-bin  glib-compile-schemas for DEBIAN/postinst (the desktop aborts on
+#                 an uncompiled schema dir) and the gsettings CLI the session
+#                 wrapper calls.
+upower
+libadwaita-1-0
+libglib2.0-bin
