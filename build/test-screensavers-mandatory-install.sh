@@ -114,6 +114,19 @@ if [ -x "$HERE/assert-mirror-has-screensavers.sh" ]; then
     fi
 fi
 
+# 1d) PASS_AFTER: a later mirror with no Packages index must not inherit the
+#     previous mirror's index. A stale PKG_INDEX across loop iterations used
+#     to report an absent/empty mirror as OK when an earlier --mirror passed.
+m1="$(make_mirror "$NCZ_SCREENSAVERS_MIN_VERSION")"
+m2="$T/mirror-nodists-$RANDOM"; mkdir -p "$m2"
+if [ -x "$HERE/assert-mirror-has-screensavers.sh" ]; then
+    if "$HERE/assert-mirror-has-screensavers.sh" --mirror "$m1" --label good --mirror "$m2" --label nodists >/dev/null 2>"$T/err.1d"; then
+        bad "assert-mirror: a mirror without a Packages index must fail even when an earlier mirror passed"
+    else
+        ok "assert-mirror: per-mirror Packages index reset (absent index in a later mirror fails)"
+    fi
+fi
+
 # ---------------------------------------------------------------------------
 # (2) post-install/59-ncz-screensavers-pkg.sh -- the install hook itself.
 #     We can't run it without a real chroot, but we can prove the FIXED
