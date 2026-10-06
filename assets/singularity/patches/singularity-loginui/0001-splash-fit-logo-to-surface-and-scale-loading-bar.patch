@@ -1,0 +1,67 @@
+From 8fd0c702563efa699739cbc8604e0b7b9ce9d6e7 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 6 Oct 2026 10:27:13 -0400
+Subject: [PATCH] splash: fit the logo to the surface and scale the loading bar
+
+loginui_render_splash() sized the logo from the surface height alone
+(16 %). A wide wordmark therefore came out about 2.1x the screen height
+wide and was cropped on every landscape panel: the 696x52 NCZ-OS Cygnus
+wordmark rendered roughly 4100 px wide on a 3072x1920 MacBook Pro panel
+and roughly 2300 px wide on 1920x1080. The loading bar was a fixed
+220x4 px, a thin sliver on a high-density panel.
+
+Fit the logo inside 60 % of the width and 16 % of the height, keeping
+its aspect ratio, and grow the bar with the surface height (1080 px is
+1x, clamped to 1x..4x, never wider than 60 % of the width). Square
+emblem logos keep their previous size; only logos that would overflow
+are reduced.
+---
+ src/render.c | 22 +++++++++++++++++++---
+ 1 file changed, 19 insertions(+), 3 deletions(-)
+
+diff --git a/src/render.c b/src/render.c
+index 7664592..de577e6 100644
+--- a/src/render.c
++++ b/src/render.c
+@@ -135,11 +135,26 @@ void loginui_render_splash(cairo_t *cr, int width, int height,
+ 
+     double cx = w / 2.0;
+ 
++    /* Size everything from the surface actually being painted. The old code
++     * sized the logo from the screen HEIGHT alone (16 %), so a wide wordmark
++     * (NCZ-OS ships a 13:1 one) came out about 2.1x the screen height wide and
++     * was cropped on every landscape panel, while the loading bar stayed a
++     * fixed 220x4 px whatever the resolution. Fit the logo inside 60 % of the
++     * width AND 16 % of the height, keeping its aspect, and grow the bar with
++     * the height (1080 px = 1x) so it stays visible on a 3072x1920 panel. */
++    double unit = h / 1080.0;
++    if (unit < 1.0) unit = 1.0;
++    if (unit > 4.0) unit = 4.0;
++
+     if (logo) {
+         int lw = cairo_image_surface_get_width(logo);
+         int lh = cairo_image_surface_get_height(logo);
+-        double target = h * 0.16;
+-        double scale = lh > 0 ? target / lh : 1.0;
++        double scale = 1.0;
++        if (lw > 0 && lh > 0) {
++            double sh = (h * 0.16) / lh;
++            double sw = (w * 0.60) / lw;
++            scale = sh < sw ? sh : sw;
++        }
+         double dw = lw * scale, dh = lh * scale;
+         cairo_save(cr);
+         cairo_translate(cr, cx - dw / 2.0, h * 0.46 - dh / 2.0);
+@@ -149,7 +164,8 @@ void loginui_render_splash(cairo_t *cr, int width, int height,
+         cairo_restore(cr);
+     }
+ 
+-    double track_w = 220, track_h = 4;
++    double track_w = 220 * unit, track_h = 4 * unit;
++    if (track_w > w * 0.60) track_w = w * 0.60;
+     double track_x = cx - track_w / 2.0;
+     double track_y = h * 0.62;
+     double r = track_h / 2.0;
+-- 
+2.50.1 (Apple Git-155)
+

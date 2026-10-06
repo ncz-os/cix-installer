@@ -446,6 +446,28 @@ cd /work
 git clone --depth 1 --recurse-submodules \
     https://github.com/singularityos-lab/singularity-boot-splash.git
 cd singularity-boot-splash
+# The boot splash bundles its OWN copy of singularity-loginui (the Cairo
+# renderer that draws the logo and loading bar), so the loginui patches the
+# desktop tree received above must be applied here as well, or the boot splash
+# keeps the unpatched renderer while the session splash gets the fixed one.
+# Same contract as the desktop loop: apply, or skip when already present, or
+# fail the build. Only the loginui queue applies here; the other patch
+# directories target subprojects this repository does not bundle.
+if [ -d /ncz-patches/singularity-loginui ]; then
+    for _p in /ncz-patches/singularity-loginui/*.patch; do
+        [ -e "$_p" ] || continue
+        _lt=subprojects/singularity-loginui
+        if git -C "$_lt" apply --check "$_p" 2>/dev/null; then
+            git -C "$_lt" apply "$_p"
+            echo "    ncz patch applied (boot-splash): singularity-loginui/$(basename "$_p")"
+        elif git -C "$_lt" apply --reverse --check "$_p" 2>/dev/null; then
+            echo "    ncz patch already present (boot-splash): singularity-loginui/$(basename "$_p")"
+        else
+            echo "ERROR: ncz patch does not apply to the boot-splash loginui: $(basename "$_p")" >&2
+            exit 1
+        fi
+    done
+fi
 meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
 ninja -C build
 DESTDIR=/work/stage meson install -C build
