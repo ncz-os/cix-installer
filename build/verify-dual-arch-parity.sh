@@ -71,7 +71,7 @@ if [ -n "$DEBS" ]; then
             [ -f "$DEBS/$V/ncz-screensavers_${V}_$arch.deb" ] || bad "ncz-screensavers $V has no $arch deb"
         done
         ( cd "$DEBS/$V" && sha256sum -c SHA256SUMS >/dev/null 2>&1 ) || bad "ncz-screensavers $V SHA256SUMS do not verify"
-        # the Singularity plugin ships in the same staged dir for both arches (0.7+); the GTK4 reference app must not be in any list
+        # a ncz-screensavers-plugin deb (a separate package, not published yet), if ever staged, must exist for BOTH arches and be seeded; the GTK4 reference app must not be in any list
         if ls "$DEBS/$V"/ncz-screensavers-plugin_*_arm64.deb >/dev/null 2>&1 || ls "$DEBS/$V"/ncz-screensavers-plugin_*_amd64.deb >/dev/null 2>&1; then
             for arch in arm64 amd64; do
                 ls "$DEBS/$V"/ncz-screensavers-plugin_*_$arch.deb >/dev/null 2>&1 || bad "ncz-screensavers-plugin has no $arch deb in $V"

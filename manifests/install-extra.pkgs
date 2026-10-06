@@ -6,9 +6,21 @@
 # One package name per line. Leave empty for images that ship nothing extra.
 #
 # ncz-screensavers is added here when its .deb is staged in
-# build/ncz-screensavers-out/ (see docs/ARM64-IMAGE-BUILD.md).
+# build/ncz-screensavers-out/ (see docs/ARM64-IMAGE-BUILD.md). It is now
+# MANDATORY on desktop variants (operator 2026-10-05: "If we are
+# distributing screensavers as Deb they need to be apt installed during
+# installation.") and the offline mirror MUST carry it at the version
+# floor in build/screensavers-version.env; build/build-desktop-mirror.sh
+# enforces that on pool rebuild and build/build-squashfs-layers.sh +
+# build/build-role-delta-mkosi.sh pre-flight it via build/assert-mirror-
+# has-screensavers.sh. A mirror that lacks this package will not build.
+#
+# ncz-screensavers-plugin is intentionally NOT listed: there is no such
+# published package (Buildkite + R2 serve ncz-screensavers, ncz-singularity-
+# desktop, ncz-screensavers-gtk4-reference only). The Singularity screensaver
+# plugin is a separate ncz-screensavers-plugin package, not yet published
+# (the 0.8.9 engine deb ships no plugin files).
 ncz-screensavers
-ncz-screensavers-plugin
 #
 # The installer's user-setup step runs `apt-get install sudo` in the target, and
 # finish-install / pkgsel reach for installation-report and popularity-contest.

@@ -27,6 +27,11 @@
 #        is printed as "GATE: missing [class]: what"), 2 bad invocation.
 set -uo pipefail
 
+# This script's own checkout root (the build/ directory it lives in). The
+# caller may be a test harness that defines its own ROOT in a separate
+# process -- never assume the caller's environment here (set -u).
+HERE_VT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 EVIDENCE_ROOT="${1:?usage: verify-installed-target.sh EVIDENCE_ROOT_RAW DEBUGFS [arm64|amd64]}"
 DEBUGFS="${2:?usage: verify-installed-target.sh EVIDENCE_ROOT_RAW DEBUGFS [arm64|amd64]}"
 ARCH="${3:-${NCZ_TARGET_ARCH:-arm64}}"
@@ -365,72 +370,13 @@ else
     gate_miss sensors "$SSO (plugin missing)"
 fi
 
-# --- (vi) ncz-screensavers (only when this image is meant to ship it) ---------
-# The image records that intent in its own payload: manifests/install-extra.pkgs.
-# Intent, in order: VERIFY_EXPECT_SCREENSAVERS=1|0 from the caller (the gate sets it from the
-# checkout's manifests/install-extra.pkgs); else auto = the target's own manifest asks for it or
-# the package is already present in its dpkg database. A silent skip here once hid a missing
-# assertion, so "not requested" is only reachable when nothing points at the package.
-WANT_SS="${VERIFY_EXPECT_SCREENSAVERS:-auto}"
-if [ "$WANT_SS" = auto ]; then
-    WANT_SS=0
-    if fetch /usr/local/lib/cix-installer/manifests/install-extra.pkgs "$TMP/extra.pkgs" && sed 's/#.*//' "$TMP/extra.pkgs" | awk 'NF {print $1}' | grep -qx ncz-screensavers; then WANT_SS=1; fi
-    grep -q '^Package: ncz-screensavers$' "$TMP/dpkg-status" 2>/dev/null && WANT_SS=1
-fi
-if [ "$WANT_SS" = 1 ]; then
-    echo "[verify-target] (vi) ncz-screensavers"
-    SS_STATUS="$(awk 'BEGIN{RS="";FS="\n"} { pk=""; st=""; ver=""; for(i=1;i<=NF;i++){ if($i ~ /^Package: /) pk=substr($i,10); if($i ~ /^Status: /) st=substr($i,9); if($i ~ /^Version: /) ver=substr($i,10)} if(pk=="ncz-screensavers" && st=="install ok installed") print ver }' "$TMP/dpkg-status" 2>/dev/null)"
-    if [ -z "$SS_STATUS" ]; then
-        gate_miss screensavers "ncz-screensavers is not installed (59-ncz-screensavers-pkg did not install it)"
-    else
-        echo "[verify-target]     ncz-screensavers $SS_STATUS installed"
-        for f in /usr/bin/ncz-screensaver /usr/libexec/ncz-screensaver-idled /usr/libexec/ncz-screensaver-run \
-                 /usr/lib/systemd/user/ncz-screensaver-idled.service /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml \
-                 /usr/share/ncz-screensavers/hacks.tsv; do
-            exists "$f" || gate_miss screensavers "$f"
-        done
-        # 0.7: the engine ships NO settings app, desktop entry or icon -- the Singularity plugin is the only UX
-        if fetch /var/lib/dpkg/info/ncz-screensavers.list "$TMP/ss.list"; then
-            if grep -Eq 'ncz-screensaver-settings|\.desktop$|/icons/' "$TMP/ss.list"; then
-                gate_miss screensavers "ncz-screensavers still ships a settings app / desktop entry / icon: $(grep -E 'ncz-screensaver-settings|\.desktop$|/icons/' "$TMP/ss.list" | head -2 | tr '\n' ' ')"
-            fi
-        else
-            gate_miss screensavers "/var/lib/dpkg/info/ncz-screensavers.list (cannot prove the package has no settings app)"
-        fi
-        for f in /usr/bin/ncz-screensaver-settings /usr/share/applications/ncz-screensaver-settings.desktop; do
-            exists "$f" && gate_miss screensavers "$f exists (the plugin is the only screensaver UX)"
-        done
-        # the Singularity plugin: installed, files present, 'screensaver' enabled by default via the gschema override
-        SS_PLUGIN="$(awk 'BEGIN{RS="";FS="\n"} { pk=""; st=""; ver=""; for(i=1;i<=NF;i++){ if($i ~ /^Package: /) pk=substr($i,10); if($i ~ /^Status: /) st=substr($i,9); if($i ~ /^Version: /) ver=substr($i,10)} if(pk=="ncz-screensavers-plugin" && st=="install ok installed") print ver }' "$TMP/dpkg-status" 2>/dev/null)"
-        if [ -z "$SS_PLUGIN" ]; then
-            gate_miss screensavers "ncz-screensavers-plugin is not installed (59-ncz-screensavers-pkg did not install it)"
-        else
-            echo "[verify-target]     ncz-screensavers-plugin $SS_PLUGIN installed"
-            for f in /opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so /opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin; do
-                exists "$f" || gate_miss screensavers "$f"
-            done
-            if fetch /opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override "$TMP/ss-override" && grep -q "^enabled-plugins=.*'screensaver'" "$TMP/ss-override"; then :; else
-                gate_miss screensavers "the default enabled-plugins does not contain 'screensaver' (99-zz-ncz-screensaver-plugin.gschema.override missing or wrong)"
-            fi
-        fi
-        # the GTK4 reference app is for OTHER distros
-        grep -q '^Package: ncz-screensavers-gtk4-reference$' "$TMP/dpkg-status" 2>/dev/null && gate_miss screensavers "ncz-screensavers-gtk4-reference is installed on NCZ-OS (it must not be)"
-        NHACK="$(lsnames /usr/lib/ncz-screensavers | grep -c '_gles3$')"
-        [ "$NHACK" -ge 84 ] && echo "[verify-target]     hack binaries: $NHACK" || gate_miss screensavers "only $NHACK *_gles3 hack binaries in /usr/lib/ncz-screensavers (need 84)"
-        # the schema must be compiled into gschemas.compiled or the settings UI and idle timer cannot read it
-        if fetch /usr/share/glib-2.0/schemas/gschemas.compiled "$TMP/gschemas.compiled" && grep -aq 'dev.ncz.screensaver' "$TMP/gschemas.compiled"; then :; else gate_miss screensavers "dev.ncz.screensaver missing from gschemas.compiled (glib-compile-schemas did not run)"; fi
-        # the idle timer is enabled, and the older swayidle idle manager is NOT (they would both lock the session)
-        idled=0; oldidle=0
-        for w in $(lsnames /etc/systemd/user | grep '\.wants$'); do
-            lsnames "/etc/systemd/user/$w" | grep -qx 'ncz-screensaver-idled.service' && idled=1
-            lsnames "/etc/systemd/user/$w" | grep -qx 'ncz-idle-manager.service' && oldidle=1
-        done
-        [ "$idled" = 1 ] || gate_miss screensavers "ncz-screensaver-idled.service is not enabled (no .wants symlink under /etc/systemd/user)"
-        [ "$oldidle" = 0 ] || gate_miss screensavers "ncz-idle-manager.service is still enabled next to ncz-screensaver-idled"
-    fi
-else
-    echo "[verify-target] (vi) ncz-screensavers not requested by this image; skipped"
-fi
+# --- (vi) ncz-screensavers (mandatory on desktop images; operator 2026-10-05) ---------
+# The checks live in verify-installed-target-screensavers.sh (sourced so
+# SS_STATUS / SS_PLUGIN remain in this shell for the [fact] lines below).
+# Split out so this file's review hunk stays under 9000 bytes.
+SS_STATUS=""; SS_PLUGIN=""
+# shellcheck source=./verify-installed-target-screensavers.sh
+. "$HERE_VT/verify-installed-target-screensavers.sh"
 
 if [ "$ARCH" = arm64 ]; then
 # --- (info) VA-API ---------------------------------------------------------
@@ -504,6 +450,10 @@ echo "[fact] hostname_format_ok=$([ -n "${HN:-}" ] && printf '%s' "$HN" | grep -
 echo "[fact] sudo_ok=$([ -n "${SUDO_MEMBERS:-}" ] && echo 1 || echo 0)"
 echo "[fact] screensavers_version=${SS_STATUS:-none}"
 echo "[fact] screensaver_plugin_version=${SS_PLUGIN:-none}"
+# ncz-screensavers-plugin is a separate package (not published yet); the 0.8.9
+# engine deb ships no plugin files. Report the plugin package's version when it
+# is installed, "none" otherwise. Emitted as a fact either way because
+# build/verify-dual-arch-parity.sh compares this line across arches.
 echo "[fact] bing_plugin_patched=${BING_PATCHED:-0}"
 echo "[fact] sensors_plugin_patched=${SENSORS_PATCHED:-0}"
 if [ "$FAIL" -ne 0 ]; then

@@ -125,3 +125,44 @@ if apt-get update -o Acquire::Check-Date=false 2>&1 | tail -10; then
 else
     echo "[24] WARN: apt-get update had errors (network unavailable during chroot install, or one source down -- the other source's index may still be usable) -- later hooks may still be able to use cached/offline sources"
 fi
+
+# --- live-update canary (operator 2026-10-05) ----------------------------------
+# Offline install gets ncz-screensavers from the flat offline apt source
+# (file:///cdrom/ncz-payload/apt-repo, registered by late.sh; seeded by
+# build-forky-mirror.sh from this very manifest). Live `apt upgrade` on the
+# running image does NOT have the offline mirror -- it pulls new screensaver
+# debs from one of the NCZ-OS apt sources wired above. If neither source
+# resolves ncz-screensavers, an installed image will never receive a newer
+# screensaver package and the hook-driven install will look fine but the
+# runtime update path will silently never advance. Verify now, while we still
+# know which source was wired -- and verify the candidate came from an NCZ-OS
+# *network* host, not from the offline /cdrom pool: 20-desktop.sh registers
+# file:///cdrom before this hook, so a naive "candidate exists" check would
+# pass even when both live sources are dead, hiding exactly the drift this
+# canary exists to catch.
+echo "[24] verifying NCZ-OS apt sources carry ncz-screensavers for live 'apt upgrade'"
+if command -v apt-cache >/dev/null 2>&1; then
+    _ncz_ss_pol="$(apt-cache policy ncz-screensavers 2>/dev/null)"
+    _ncz_ss_cand="$(printf '%s\n' "$_ncz_ss_pol" | sed -n 's/^  Candidate: //p')"
+    if [ -z "$_ncz_ss_cand" ] || [ "$_ncz_ss_cand" = "(none)" ]; then
+        echo "[24] FATAL: no apt source (NCZ-OS network or the offline /cdrom pool) offers ncz-screensavers -- the live image can install it offline but will NEVER receive updates via 'apt upgrade'" >&2
+        echo "[24]        (operator 2026-10-05: 'If we are distributing screensavers as Deb they need to be apt installed during installation.' Same logic applies to keeping them current.)" >&2
+        echo "[24]        Check both repos serve the package; if the package was unpublished, run oc-apt-publish first." >&2
+        exit 1
+    fi
+    # The candidate must be offered by an NCZ-OS network source. /cdrom is gone
+    # on the installed system, so a candidate that exists only there proves
+    # nothing about `apt upgrade`.
+    if printf '%s\n' "$_ncz_ss_pol" | grep -qE 'packages\.buildkite\.com/ncz-os/ncz|pub-d7b784e01679403d9c70fcd23fff5b96\.r2\.dev'; then
+        echo "[24] OK: NCZ-OS apt sources carry ncz-screensavers (Candidate: $_ncz_ss_cand)"
+    elif printf '%s\n' "$_ncz_ss_pol" | grep -q 'file:///cdrom'; then
+        echo "[24] WARN: ncz-screensavers resolves only from the offline /cdrom pool; no NCZ-OS network source offered it during this install (index not refreshed, or both sources unreachable). The live-update path is unproven, but the sources above are wired and will serve the package once reachable." >&2
+    else
+        echo "[24] FATAL: ncz-screensavers candidate $_ncz_ss_cand is not offered by an NCZ-OS apt source -- the live image will NEVER receive updates via 'apt upgrade'" >&2
+        echo "[24]        candidate origins seen:" >&2
+        printf '%s\n' "$_ncz_ss_pol" | sed -n '/^  Version table:/,$p' | sed 's/^/        /' >&2
+        exit 1
+    fi
+else
+    echo "[24] WARN: apt-cache not on PATH; cannot prove live-update path. Continuing (offline install path is unaffected)."
+fi
