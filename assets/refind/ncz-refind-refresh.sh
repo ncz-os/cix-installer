@@ -226,7 +226,15 @@ echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol
 # (doctrine: serial console must work). The edge cmdline drops the base
 # panic=30 because NEXT_CMDLINE_EXTRA sets panic=6 (edge wants fast panic) —
 # carrying both was a confusing duplicate on one cmdline.
-NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 $EFI_RT_WORKAROUND acpi=force systemd.condition_first_boot=false arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused module_blacklist=typec_rts5453,rts5453"
+#
+# fw_devlink=permissive (2026-10-06): on 7.3.0-rc6-sky1-ncz the O6N's
+# sky1-pcie-cix.2/.3 controllers (the RTL8125 NICs) sit in deferred probe
+# forever ("supplier PRP0001:11 not ready") because every ACPI PRP0001
+# reg-fixed-voltage regulator fails to probe with -12. The -12 is old (same on
+# 7.3.0-rc3 where enp1s0 worked); fw_devlink now blocks the consumer on it.
+# Same token as the installer entries (build/iso/build-refind-esp.py
+# SKY1_FW_DEVLINK); an experiment to confirm on hardware.
+NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 $EFI_RT_WORKAROUND acpi=force systemd.condition_first_boot=false arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused fw_devlink=permissive module_blacklist=typec_rts5453,rts5453"
 
 # The edge (NEXT) kernel needs board-specific PCIe/SCMI knobs that the stable
 # kernel does not: the 7.2 forward-port was only ever metal-validated with

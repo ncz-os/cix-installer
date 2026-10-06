@@ -170,6 +170,146 @@ printf 'root:%s\n' "$PW" | "$BB" chpasswd 2>/dev/null \
     && say "root password set (ssh/telnet password auth enabled)" \
     || say "ERROR: failed to set root password; SSH password login will fail"
 
+# >>> ncz-serial-diag (arm64/Sky1 only; build/test-sky1-serial-diag.sh tests this block in isolation)
+# Serial diagnostics on the on-board UART while the installer runs on screen.
+#
+# WHY NOT console=ttyAMA0 ON THE INSTALL ENTRIES: d-i's reopen-console picks a
+# UART from the kernel consoles and moves the whole newt UI onto it, leaving the
+# monitor blank. Both console= orders did that on real O6N hardware (0871d09f,
+# 65c91e3e, 91060aca; root cause in 4f262f4c and build/iso/build-refind-esp.py),
+# so the on-screen entries keep console=tty0 only and the serial side lives here,
+# independent of /dev/console:
+#   1. kernel log: /dev/kmsg is replayed from the start of the ring buffer and
+#      followed onto ttyAMA0 at every log level (the Install entry's
+#      'quiet loglevel=3' only filters printk consoles, not /dev/kmsg readers);
+#   2. a busybox getty + login on ttyAMA0 (root / ncz_diag_pw, default "diags",
+#      the same credential as telnet), up before ethdetect/netcfg run;
+#   3. when the installer finds no network interface (only lo while netcfg or
+#      ethdetect runs, or after 120s of uptime), a one-shot summary of the PCI
+#      devices and the relevant dmesg lines is written to the serial port and
+#      to /var/log/ncz-noiface.txt, so the failure documents itself.
+# None of it runs when reopen-console gave ttyAMA0 to d-i (the Rescue entry,
+# or a QEMU boot whose firmware makes the UART the preferred console): d-i owns
+# the line then and any extra writer would land on its dialogs. ncz_diag=0
+# disables this with the rest of the module; ncz_diag_serial=0 disables only
+# this block. amd64 never runs it (no PL011 UART; BB_ARCH gate below).
+NCZ_SERIAL_DEV=${NCZ_SERIAL_DEV:-/dev/ttyAMA0}
+NCZ_SERIAL_NAME=${NCZ_SERIAL_NAME:-${NCZ_SERIAL_DEV##*/}}
+NCZ_INITTAB=${NCZ_INITTAB:-/etc/inittab}
+NCZ_CONSOLE_PREFERRED=${NCZ_CONSOLE_PREFERRED:-/var/run/console-preferred}
+NCZ_PROC_CONSOLES=${NCZ_PROC_CONSOLES:-/proc/consoles}
+NCZ_KMSG=${NCZ_KMSG:-/dev/kmsg}
+NCZ_SYS_NET=${NCZ_SYS_NET:-/sys/class/net}
+NCZ_SYS_PCI=${NCZ_SYS_PCI:-/sys/bus/pci/devices}
+NCZ_NOIFACE_LOG=${NCZ_NOIFACE_LOG:-/var/log/ncz-noiface.txt}
+NCZ_NOIFACE_AFTER=${NCZ_NOIFACE_AFTER:-120}
+NCZ_ROOT_PROFILE=${NCZ_ROOT_PROFILE:-/root/.profile}
+
+serial_diag_enabled() {
+    [ "$BB_ARCH" = arm64 ] || return 1
+    case "$(kv ncz_diag_serial)" in 0|off|no|false|disable|disabled) return 1 ;; esac
+    # NCZ_SERIAL_ALLOW_FILE=1 is for build/test-sky1-serial-diag.sh only (a
+    # plain file stands in for the UART); the installer never sets it.
+    [ -c "$NCZ_SERIAL_DEV" ] || [ "${NCZ_SERIAL_ALLOW_FILE:-0}" = 1 ]
+}
+# d-i owns the UART when reopen-console wrote an installer line for it.
+serial_owned_by_installer() {
+    grep -qs "^$NCZ_SERIAL_NAME:" "$NCZ_INITTAB" && return 0
+    grep -qs "/dev/$NCZ_SERIAL_NAME\$\|/dev/$NCZ_SERIAL_NAME " "$NCZ_CONSOLE_PREFERRED" && return 0
+    return 1
+}
+# The kernel already prints there when the UART is a registered console.
+serial_is_kernel_console() {
+    grep -qs "^${NCZ_SERIAL_NAME}[[:space:]]" "$NCZ_PROC_CONSOLES"
+}
+serial_setup_line() {
+    "$BB" stty -F "$NCZ_SERIAL_DEV" 115200 cs8 -cstopb -parenb -crtscts clocal 2>/dev/null || true
+}
+start_serial_kmsg() {
+    serial_diag_enabled || return 0
+    serial_owned_by_installer && return 0
+    if serial_is_kernel_console; then
+        [ -e "$RUN/serial-kmsg.skip" ] || { : > "$RUN/serial-kmsg.skip"; say "serial: $NCZ_SERIAL_NAME is already a kernel console; not mirroring /dev/kmsg"; }
+        return 0
+    fi
+    alive "$RUN/serial-kmsg.pid" && return 0
+    serial_setup_line
+    # /dev/kmsg records are "<prio>,<seq>,<usec>,<flags>;<text>"; continuation
+    # lines (dictionary) start with a space and are dropped.
+    # shellcheck disable=SC2016  # awk program, not shell
+    ( "$BB" cat "$NCZ_KMSG" 2>/dev/null | "$BB" awk '
+        /^ / { next }
+        { i = index($0, ";"); if (i == 0) next
+          split(substr($0, 1, i - 1), h, ",")
+          printf "[%5d.%06d] %s\r\n", int(h[3] / 1000000), h[3] % 1000000, substr($0, i + 1)
+          fflush() }' >> "$NCZ_SERIAL_DEV" 2>/dev/null ) </dev/null &
+    echo $! > "$RUN/serial-kmsg.pid"
+    say "serial: kernel log mirrored from $NCZ_KMSG to $NCZ_SERIAL_DEV (pid $(cat "$RUN/serial-kmsg.pid"))"
+}
+start_serial_getty() {
+    serial_diag_enabled || return 0
+    if serial_owned_by_installer; then
+        [ -e "$RUN/serial-getty.skip" ] || { : > "$RUN/serial-getty.skip"; say "serial: d-i runs on $NCZ_SERIAL_NAME (inittab/console-preferred); no getty there"; }
+        return 0
+    fi
+    alive "$RUN/serial-getty.pid" && return 0
+    # Login shells read ~/.profile: give the serial (and telnet) root shell the
+    # full applet farm, as the telnet 'rich shell' has.
+    mkdir -p "${NCZ_ROOT_PROFILE%/*}" 2>/dev/null
+    [ -s "$NCZ_ROOT_PROFILE" ] || printf 'export PATH=%s:/usr/bin:/bin:/usr/sbin:/sbin\nexport PS1='"'"'ncz-diag:\\w# '"'"'\n' "$BIN" > "$NCZ_ROOT_PROFILE"
+    "$BB" getty -L -l "$BIN/login" 115200 "$NCZ_SERIAL_NAME" vt100 </dev/null >/dev/null 2>&1 &
+    echo $! > "$RUN/serial-getty.pid"
+    say "serial: root login on $NCZ_SERIAL_DEV at 115200 (getty pid $(cat "$RUN/serial-getty.pid"))"
+}
+only_loopback() {
+    for _ifp in "$NCZ_SYS_NET"/*; do
+        [ -e "$_ifp" ] || continue
+        [ "${_ifp##*/}" = lo ] && continue
+        return 1
+    done
+    return 0
+}
+netcfg_running() {
+    # shellcheck disable=SC2009  # d-i has no pgrep
+    ps 2>/dev/null | grep -E '(^|[[:space:]/])(netcfg|ethdetect)([[:space:]]|$)' | grep -v grep >/dev/null 2>&1
+}
+uptime_secs() { _u=$(cut -d. -f1 /proc/uptime 2>/dev/null); echo "${_u:-0}"; }
+noiface_report() {
+    echo "[ncz-noiface] NO NETWORK INTERFACE: only lo after $(uptime_secs)s; kernel $(uname -r 2>/dev/null)"
+    echo "[ncz-noiface] cmdline: $CMDLINE"
+    echo "[ncz-noiface] --- PCI devices (bdf vendor:device class driver)"
+    for _d in "$NCZ_SYS_PCI"/*; do
+        [ -e "$_d" ] || { echo "[ncz-noiface] (no PCI devices enumerated)"; break; }
+        _drv=$(readlink "$_d/driver" 2>/dev/null); _drv=${_drv##*/}
+        echo "[ncz-noiface] ${_d##*/} $(cat "$_d/vendor" 2>/dev/null):$(cat "$_d/device" 2>/dev/null) $(cat "$_d/class" 2>/dev/null) ${_drv:-<no driver>}"
+    done
+    echo "[ncz-noiface] --- dmesg | grep -i -E 'pcie|r8169|eth'"
+    "$BB" dmesg 2>/dev/null | grep -i -E 'pcie|r8169|eth' | tail -n 60 | sed 's/^/[ncz-noiface] /'
+    echo "[ncz-noiface] --- dmesg | grep -E 'deferred probe|reg-fixed|sky1-pcie'"
+    "$BB" dmesg 2>/dev/null | grep -E 'deferred probe|reg-fixed|sky1-pcie' | tail -n 60 | sed 's/^/[ncz-noiface] /'
+    echo "[ncz-noiface] --- end (full copy: $NCZ_NOIFACE_LOG; shell: log in on this port)"
+}
+check_noiface() {
+    [ "$BB_ARCH" = arm64 ] || return 0
+    [ -e "$RUN/noiface.done" ] && return 0
+    only_loopback || return 0
+    netcfg_running || [ "$(uptime_secs)" -ge "$NCZ_NOIFACE_AFTER" ] || return 0
+    : > "$RUN/noiface.done"
+    noiface_report > "$NCZ_NOIFACE_LOG" 2>&1
+    say "NO NETWORK INTERFACE (only lo): summary in $NCZ_NOIFACE_LOG"
+    if serial_diag_enabled && ! serial_owned_by_installer; then
+        serial_setup_line
+        sed 's/$/\r/' "$NCZ_NOIFACE_LOG" >> "$NCZ_SERIAL_DEV" 2>/dev/null || true
+    fi
+}
+serial_tick() {
+    start_serial_kmsg
+    start_serial_getty
+    check_noiface
+}
+# <<< ncz-serial-diag
+serial_tick
+
 # ---- bring the network up OURSELVES -----------------------------------------
 # ROOT CAUSE of the 2026-08-23 "telnet listens but never answers" arc: this
 # module used to WAIT for an IP that only d-i's netcfg would assign — but
@@ -422,7 +562,7 @@ start_sshd
 # current_ip() defined above (busybox ifconfig — d-i's own `ip` is not
 # guaranteed). diag_net_up() actively DHCPs, so this loop normally exits on
 # its first few iterations rather than timing out at 120s with IP=<none>.
-i=0; while [ -z "$(current_ip)" ] && [ "$i" -lt 120 ]; do diag_net_up >/dev/null 2>&1; sleep 1; i=$((i+1)); done
+i=0; while [ -z "$(current_ip)" ] && [ "$i" -lt 120 ]; do serial_tick; diag_net_up >/dev/null 2>&1; sleep 1; i=$((i+1)); done
 IP="$(current_ip)"
 say "==================================================================="
 say "NCZ installer diagnostics READY  (ncz_diag=$DIAG)  IP=${IP:-<none>}"
@@ -443,6 +583,7 @@ say "==================================================================="
 
 # ---- idempotent respawn for the life of the install -------------------------
 while :; do
+    serial_tick
     diag_net_up >/dev/null 2>&1
     start_syslogd
     start_telnetd

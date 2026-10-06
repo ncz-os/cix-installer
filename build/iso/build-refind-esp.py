@@ -186,10 +186,42 @@ AMD64_RESCUE_OPTIONS = (
 # This is exactly why the pre-rEFInd GRUB ISOs worked: they named ttyAMA2,
 # which does not exist on O6N, so no serial console ever registered.
 # Serial tracing remains available on the Rescue entry and via diag-console.
+#
+# 2026-10-06 (serial diagnostics without a serial console=): the operator asked
+# for kernel output and a root shell on ttyAMA0 during the on-screen install.
+# Re-adding console=ttyAMA0,115200 here is NOT the way to get it: both orders
+# were tried on real O6N hardware and both moved d-i onto the UART --
+# 0871d09f/65c91e3e had 'console=ttyAMA0,115200 console=tty0' (tty0 LAST) and
+# 91060aca found /etc/inittab carrying 'ttyAMA0::respawn:/sbin/debian-installer'
+# with the monitor blank; 91060aca's reverse order was disproven by 4f262f4c
+# above.  preseed/diag-console.sh therefore provides the serial side itself,
+# independent of /dev/console: it replays and follows /dev/kmsg onto ttyAMA0
+# (every log level, from boot, so 'quiet loglevel=3' does not hide anything)
+# and runs a busybox getty there, and only when reopen-console did not give
+# the UART to d-i.  No earlycon either: without keep_bootcon the earlycon
+# console is dropped when tty0 registers at ~0.0001s, so it would add nothing,
+# and with keep_bootcon it is an unproven change to the O6N boot path (its
+# UART is the ARMH0011 SBSA device; no SPCR line appears in the captured logs).
+#
+# fw_devlink=permissive (2026-10-06, O6N r199 on 7.3.0-rc6-sky1-ncz, serial
+# capture saved from PROTEUS): only sky1-pcie-cix.1 (NVMe, bus 90) probed.
+# All twelve ACPI PRP0001 reg-fixed-voltage regulators fail at ~0.2386s
+# ("probe with driver reg-fixed-voltage failed with error -12"), and at 11.7s
+# "platform sky1-pcie-cix.2.auto: deferred probe pending: platform: supplier
+# PRP0001:11 not ready" (cix.3: supplier PRP0001:10), so neither controller
+# carrying the RTL8125 NICs ever probes and d-i sees only lo.  The same -12
+# failures are in the 7.3.0-rc3-sky1-ncz boot of 2026-09-13 where enp1s0 came
+# up, so the new part is fw_devlink holding the consumer on a supplier that
+# never binds.  permissive keeps the device links for ordering but stops them
+# from blocking the probe.  This is an EXPERIMENT still to be confirmed on the
+# hardware; the controllers already log "no vcc-pcie regulator found" and run
+# without one on the controller that does probe.
+SKY1_FW_DEVLINK = "fw_devlink=permissive"
 SKY1_GFX_OPTIONS = (
     "console=tty0 efi=noruntime acpi=force "
     "arm-smmu-v3.disable_bypass=0 audit_backlog_limit=8192 clk_ignore_unused "
-    "panic=30 nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453,linlon_dp,trilin_dpsub"
+    "panic=30 nmi_watchdog=0 " + SKY1_FW_DEVLINK + " "
+    "module_blacklist=typec_rts5453,rts5453,linlon_dp,trilin_dpsub"
 )
 # linlon_dp / trilin_dpsub are the Sky1 display-controller DRM drivers. The installer
 # kernel has no simpledrm (CONFIG_DRM_SIMPLEDRM is not set) and draws on the firmware
@@ -206,7 +238,7 @@ ARM64_RESCUE_OPTIONS = (
     "DEBIAN_FRONTEND=newt consoleblank=0 console=tty0 console=ttyAMA0,115200 "
     "efi=noruntime acpi=force arm-smmu-v3.disable_bypass=0 "
     "audit_backlog_limit=8192 clk_ignore_unused keep_bootcon panic=30 "
-    "nmi_watchdog=0 module_blacklist=typec_rts5453,rts5453"
+    "nmi_watchdog=0 " + SKY1_FW_DEVLINK + " module_blacklist=typec_rts5453,rts5453"
 )
 
 
