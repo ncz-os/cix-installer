@@ -203,6 +203,25 @@ else
     gate_miss vpu "$avc without the h264_v4l2m2m codec"
 fi
 
+# --- (v-c) Sky1 serial diagnostics on the installed system ---------------------
+# 36-telemetry enables the ttyAMA0 login (the O6N's only remote way in when the
+# NIC does not come up), and the installed rEFInd entries come from
+# /usr/local/sbin/ncz-refind-refresh, which must carry the same
+# fw_devlink=permissive token as the installer (sky1-pcie-cix.2/.3 deferred
+# probe on 7.3.0-rc6, see build/iso/build-refind-esp.py SKY1_FW_DEVLINK).
+echo "[verify-target] (v-c) Sky1 serial login + installed boot cmdline"
+if exists /etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service; then
+    echo "[verify-target]     serial-getty@ttyAMA0 enabled (getty.target.wants)"
+else
+    gate_miss serial "serial-getty@ttyAMA0 not enabled under getty.target.wants"
+fi
+if fetch /usr/local/sbin/ncz-refind-refresh "$TMP/ncz-refind-refresh" \
+    && grep -q '^NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0 .*fw_devlink=permissive' "$TMP/ncz-refind-refresh"; then
+    echo "[verify-target]     installed boot entries: console=ttyAMA0,115200 console=tty0 + fw_devlink=permissive"
+else
+    gate_miss serial "/usr/local/sbin/ncz-refind-refresh lacks console=ttyAMA0,115200 console=tty0 ... fw_devlink=permissive"
+fi
+
 else
 # --- (amd64) x86 target: a T2/x86 kernel is installed and no Sky1 policy leaked onto it ----------
 # 36-telemetry enabled serial-getty@ttyAMA0, 85-power-perf-mode pinned the max P-state and 22-display-fix

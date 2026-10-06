@@ -340,6 +340,7 @@ post-install/lib/kernel-purity.sh	common	-	shared Debian-kernel apt preferences 
 post-install/ncz-os-apt-keyring.asc	common	-	NCZ apt repo key
 post-install/run-all.sh	common	-	hook orchestrator; platform selection via hooks.list
 preseed/	common	-	installer helpers (hostname, disk chooser, diag console, rescan)
+preseed/diag-console.sh	mixed	-	installer remote diagnostics; arm64-only ttyAMA0 serial block (kmsg mirror, getty, no-iface dump) gated on uname -m; TODO split
 preseed/extract-rootfs.sh	mixed	-	rootfs extraction with per-arch paths; TODO split
 preseed/late.sh	mixed	-	install-time late command; per-arch branches (141 arm64 refs, 5 amd64); TODO split
 preseed/preseed.cfg	mixed	-	d-i preseed with per-arch tuning
@@ -359,6 +360,7 @@ tools/kvm-smoke.sh	sky1	-	aarch64 KVM kernel smoke test on cixmini
 tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
 tools/verify-drivers.sh	sky1	-	Sky1 driver fidelity check
 build/test-sky1-audio-policy.sh	sky1	-	Sky1 audio default-sink policy fixture tests
+build/test-sky1-serial-diag.sh	sky1	-	Sky1 installer serial diagnostics (diag-console kmsg mirror/getty/no-iface dump) + fw_devlink=permissive on arm64 entries; amd64 entries pinned unchanged
 build/boot-screens.py	common	-	installer console capture harness (qemu screendump + VT text over the diag telnet)
 preseed/ncz-ui.sh	common	-	shared d-i dialog look (brand, arch, build id)
 build/test-ncz-ui.sh	common	-	ncz-ui.sh tests
