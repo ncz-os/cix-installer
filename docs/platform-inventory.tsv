@@ -113,7 +113,10 @@ build/check-early-command-size.sh	common	-	preseed size gate
 build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
 build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
 build/singularity-pins.sh	common	-	Singularity upstream pin reader: validate, pinned clone/checkout, patch-queue check against pins
+build/stage-accel-overlays.sh	sky1	-	builds and stages the mali/panthor/vpu/npu overlays for a kernel; fails on compile error or CRC/source mismatch
 build/test-singularity-pins.sh	common	-	offline test for the Singularity upstream pins and their build/preflight wiring
+build/test-verify-dkms-deb-sources.sh	sky1	-	verify-dkms-deb-sources test (stale-deb gate, overlay stamps)
+build/verify-dkms-deb-sources.py	sky1	-	fails when a staged accelerator DKMS deb payload differs from the assets source (stale debs)
 build/verify-kernel-default-policy.sh	common	-	enforces the unified kernel policy (one 7.3 default per arch; rescue = same kernel + accelerator blacklist; no edge; rc default only while allowed)
 build/verify-no-debian-kernel.sh	common	-	fails closed if a Debian 7.1.x/linux-image-{arm64,amd64} kernel or a non-7.3 default is present in a rootfs/ESP/initrd/listing
 build/fixtures/	common	-	static fixture data for build gates
@@ -396,7 +399,6 @@ build/test-panthor-vulkan.sh	sky1	-	Panthor must keep the Mesa PanVK ICD (arm64 
 build/software-render-allowlist.tsv	common	-	software-render lint allowlist
 assets/singularity/patches/singularity-session/0001-session-no-software-fallback-with-gpu.patch	common	-	labwc-session: no software retry on a machine with a GPU
 assets/singularity/patches/libsingularity/0002-user-theme-loads-above-base.patch	common	-	NCZ overlay: load user themes above the base palette (proposed upstream, not filed)
-
 build/test-base-stamp.sh	common	-	base.squashfs reuse stamp tests
 build/reap-images.sh	common	-	image reaping policy script
 build/test-reap-images.sh	common	-	reap-images fixture tests
