@@ -52,6 +52,18 @@ upower
 gsettings-desktop-schemas
 libglib2.0-bin
 
+# Libraries the 2026-10-07 payload links that no other seed pulled in. The
+# offline mirror is built from this seed only (build/build-desktop-mirror.sh does
+# not read the deb's Depends), so without these `apt-get install
+# ncz-singularity-desktop` could not be satisfied from file:///cdrom. Gate:
+# build/verify-singularity-depends-seeded.sh. libsane1 and libges-1.0-0 pull
+# their own closure (libsane-common, libieee1284, libsnmp, libnl-route, ...).
+libfreerdp3-3
+libfreerdp-client3-3
+libwinpr3-3
+libges-1.0-0
+libsane1
+
 # --- Wayland session infra --------------------------------------------------
 foot
 xsettingsd
