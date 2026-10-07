@@ -1,81 +1,38 @@
-From c19ef2d14c6d3d6df5fcd1354bb958368b2efbb3 Mon Sep 17 00:00:00 2001
+From 26853eb773c4172518f4a83ef0dc251a68f482fc Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Mon, 21 Sep 2026 15:03:25 -0400
-Subject: [PATCH 1/2] fix(wallpapers-ocs): choices() must fetch its own index
+Date: Wed, 7 Oct 2026 14:20:27 -0400
+Subject: [PATCH 3/5] fix(wallpapers-ocs): fetch the index and set the import
+ owner
 
-The plugin-based wallpaper manager refactor made the browser
-provider-generic and always passes an empty index string to
-choices(); WallpaperOcs.categories() then fails to parse "" as JSON
-("Expected a JSON object"), confirmed live on real hardware. Fetch the
-index from the helper directly, same pattern wallpapers-bing already
-uses for its own choices().
+choices() is always called with an empty index, so the plugin now fetches its own from the helper. items() set owner_id to the network name, so imports failed with Wallpaper provider is not active; set it to the provider id.
 
 Assisted-by: Claude Code:claude-sonnet-5
-AI-Scope: Root-caused and fixed choices() against the empty index string the refactored browser now always passes.
+AI-Scope: Wrote the index fetch and the owner_id fix from the observed failures.
 ---
- wallpapers-ocs/wallpapers_ocs.vala | 4 +++-
- 1 file changed, 3 insertions(+), 1 deletion(-)
+ wallpapers-ocs/wallpapers_ocs.vala | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/wallpapers-ocs/wallpapers_ocs.vala b/wallpapers-ocs/wallpapers_ocs.vala
-index 0fb898b..281b0dc 100644
+index 0fb898b..c515ae0 100644
 --- a/wallpapers-ocs/wallpapers_ocs.vala
 +++ b/wallpapers-ocs/wallpapers_ocs.vala
-@@ -31,7 +31,9 @@ namespace WallpapersOcs {
+@@ -31,7 +31,7 @@ namespace WallpapersOcs {
          public bool supports_search { get { return false; } }
          public Provider() { base("/usr/local/bin/ncz-wallpaper-ocs"); }
          public async ArrayList<WallpaperProviderChoice> choices(string index, Cancellable? cancel) throws Error {
 -            return WallpaperOcs.categories(index, id);
-+            // The browser passes an empty index; this provider fetches its own,
-+            // same as wallpapers-bing's choices() fetching its own markets.
 +            return WallpaperOcs.categories(yield command({helper, "index"}, cancel, 90), id);
          }
          public async WallpaperProviderResult browse(string category, string query, int page,
                  bool refresh, Cancellable? cancel) throws Error {
--- 
-2.50.1 (Apple Git-155)
-
-
-From d3e44d6b8258522456d3cb875d178b9a08d85ab1 Mon Sep 17 00:00:00 2001
-From: Jason Perlow <jperlow@gmail.com>
-Date: Mon, 21 Sep 2026 16:31:14 -0400
-Subject: [PATCH 2/2] fix(wallpapers-ocs): self-fetch index, fix owner_id for
- import lookup
-
-Two real bugs confirmed live on real hardware:
-
-1. The plugin-based browser always passes an empty index string to
-   choices() (the shell no longer stages a per-provider index file).
-   WallpaperOcs.categories("") throws "Expected a JSON object". Fetch
-   the index from the helper directly, matching wallpapers-bing's own
-   choices() pattern.
-
-2. WallpaperOcs.items() sets item.owner_id to the per-network name
-   (e.g. "pling"), but the registered provider id is the "ocs"
-   aggregate. import_card()'s provider_registry.lookup(item.owner_id)
-   then fails "Wallpaper provider is not active" for every OCS import.
-
-Assisted-by: Claude Code:claude-sonnet-5
-AI-Scope: Root-caused and fixed both against a live desktop session; real amd64 build verified clean.
----
- wallpapers-ocs/wallpapers_ocs.vala | 5 +++++
- 1 file changed, 5 insertions(+)
-
-diff --git a/wallpapers-ocs/wallpapers_ocs.vala b/wallpapers-ocs/wallpapers_ocs.vala
-index 281b0dc..e8ab7fd 100644
---- a/wallpapers-ocs/wallpapers_ocs.vala
-+++ b/wallpapers-ocs/wallpapers_ocs.vala
-@@ -47,6 +47,11 @@ namespace WallpapersOcs {
+@@ -45,6 +45,7 @@ namespace WallpapersOcs {
                  "--pages", "1", "--page-size", OCS_PAGE_SIZE}, cancel, 60, refresh);
              var result = new WallpaperProviderResult();
              result.items = WallpaperOcs.items(data, network, network_category);
-+            // items() sets owner_id to the per-network name (e.g. "pling"),
-+            // but the registered provider id is the "ocs" aggregate -- fix
-+            // it up here so import_card()'s provider_registry.lookup(owner_id)
-+            // finds this provider instead of failing "not active".
 +            foreach (var item in result.items) item.owner_id = id;
              var response = WallpaperOcs.document(data);
              var failed = response.get_member("failed_networks");
              if (failed != null && failed.get_node_type() == Json.NodeType.ARRAY && failed.get_array().get_length() > 0)
 -- 
-2.50.1 (Apple Git-155)
+2.53.0
 
