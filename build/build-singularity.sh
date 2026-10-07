@@ -429,7 +429,15 @@ fi
 meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
 # Bundled labwc/wlroots (labwc uses the wlroots-0.20 fallback wrap upstream ships).
 if [ -f Makefile ] && grep -q LABWC_BUILD Makefile; then
-    make compile
+    # Since 2026-10-07 the upstream `make compile` re-runs `meson configure` with
+    # PREFIX_OPTIONS (-Dprefix=$(DEPLOY_PREFIX), default /opt/local, and
+    # -Dlocalstatedir=/var/local), which silently replaced the --prefix given to
+    # `meson setup` above: the payload then staged under /opt/local and
+    # `meson install` put nothing at $PREFIX. Pass the payload prefix and the
+    # relative localstatedir this payload has always used (state stays inside
+    # $PREFIX; the tarball carries only $PREFIX).
+    make compile DEPLOY_PREFIX='"$PREFIX"' \
+        PREFIX_OPTIONS="-Dprefix='"$PREFIX"' -Dlibdir=lib -Dlocalstatedir=var"
 else
     ninja -C build
     # labwc subproject, if the tree carries it as a separate meson project
