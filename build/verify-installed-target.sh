@@ -398,11 +398,11 @@ for t in ncz-wallpaper-bing.timer ncz-wallpaper-bing-daily.timer; do
 done
 WSO=/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so
 if fetch "$WSO" "$TMP/libwallpapers-bing.so"; then
-    if grep -aq 'Preferred market' "$TMP/libwallpapers-bing.so"; then
-        echo "[verify-target]     wallpapers-bing plugin is the patched build (Preferred market row)"
+    if grep -aq 'Bing Preferred Region' "$TMP/libwallpapers-bing.so"; then
+        echo "[verify-target]     wallpapers-bing plugin is the patched build (Bing Preferred Region row)"
         BING_PATCHED=1
     else
-        gate_miss wallpaper "$WSO does not contain 'Preferred market' (stale, unpatched plugin build)"
+        gate_miss wallpaper "$WSO does not contain 'Bing Preferred Region' (stale, unpatched plugin build)"
     fi
 else
     gate_miss wallpaper "$WSO (plugin missing)"
