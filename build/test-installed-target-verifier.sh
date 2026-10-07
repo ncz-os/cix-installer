@@ -50,7 +50,7 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     for u in ncz-wallpaper-bing.service ncz-wallpaper-bing.timer ncz-wallpaper-bing-daily.timer; do echo x > "$r/usr/lib/systemd/user/$u"; done
     ln -s /usr/lib/systemd/user/ncz-wallpaper-bing.timer "$r/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing.timer"
     ln -s /usr/lib/systemd/user/ncz-wallpaper-bing-daily.timer "$r/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing-daily.timer"
-    printf 'xx Preferred market xx' > "$r/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"
+    printf 'xx Bing Preferred Region xx' > "$r/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"
     mkdir -p "$r/opt/singularity/lib/singularity/plugins/sensors"
     printf 'xx sensors_contrast_ensure_contrast xx' > "$r/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"
     # release identity + final ldconfig (common to both architectures)

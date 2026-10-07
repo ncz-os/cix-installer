@@ -113,3 +113,7 @@ German (`Aus Gletschern entstanden` for the en-US `Born of glaciers`).
   markets is a one-line change to `MARKET_NAMES`.
 - Several accounts on one machine share `/var/cache/ncz-wallpapers/bing`; the
   combined view can be replaced only by the account that owns it.
+
+## 2026-10-07: plugin queue converged on the upstream PR heads
+
+The plugin patches are now the heads of singularity-plugins#3 (picker) and the refresh stacked on it. The plugin no longer passes `--prefer` or writes a config file itself: it lists markets with `markets`, reads the preference with `market` and stores it with `market M` (`build/test-wallpaper-market.sh`). The helper resolves the preference on every `fetch`, so the refresh runs plain `fetch --if-stale`. The installed-target gate looks for the `Bing Preferred Region` string.
