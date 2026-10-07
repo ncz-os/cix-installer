@@ -205,6 +205,10 @@ grep -q 'install -d -m0755 /etc/systemd/system/NetworkManager-wait-online.servic
 GREET="$ROOT/post-install/55-greeter.sh"
 awk "/10-ncz-drm.conf <<'GREETDDRM'/{f=1;next} /^GREETDDRM\$/{f=0} f" "$GREET" | grep -q 'network-online' \
     && bad "greetd drop-in orders the greeter after network-online" || ok "greetd drop-in is not ordered after network-online"
+# r201: the drop-in written on BOTH arches must not pull cix-detect-display (disabled on amd64);
+# the arm64-only ordering is covered by build/test-greeter-display-detect.sh.
+awk "/10-ncz-drm.conf <<'GREETDDRM'/{f=1;next} /^GREETDDRM\$/{f=0} f" "$GREET" | grep -q 'cix-detect-display' \
+    && bad "arch-neutral greetd drop-in pulls cix-detect-display.service (amd64 leak)" || ok "arch-neutral greetd drop-in does not name cix-detect-display"
 
 # ---------------------------------------------------------------- E. diag-console -----------------------------------
 echo "== E. diag-console.sh alive() before first use"

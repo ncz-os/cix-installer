@@ -269,6 +269,15 @@ m_amd64_leak_perf() { m_amd64_strip "$1"; m_leak_perf "$1"; }
 m_leak_perf_dropin() { mkdir -p "$1/etc/systemd/system/greetd.service.d"; printf '[Service]\nExecStartPre=/usr/local/bin/ncz-performance-mode on\n' > "$1/etc/systemd/system/greetd.service.d/ncz-performance-mode.conf"; }
 m_amd64_leak_perf_dropin() { m_amd64_strip "$1"; m_leak_perf_dropin "$1"; }
 m_amd64_leak_display() { m_amd64_strip "$1"; m_leak_display "$1"; }
+m_greetd_dropins() {   # what 55-greeter writes: arch-neutral 10- always, 11- display-detect on arm64
+    mkdir -p "$1/etc/systemd/system/greetd.service.d"
+    printf '[Unit]\nAfter=ncz-usb2-rescan.service\nWants=ncz-usb2-rescan.service\n' > "$1/etc/systemd/system/greetd.service.d/10-ncz-drm.conf"
+}
+m_amd64_greetd_ok() { m_amd64_strip "$1"; m_greetd_dropins "$1"; }
+m_amd64_leak_greetd_display() {
+    m_amd64_greetd_ok "$1"
+    printf '[Unit]\nAfter=cix-detect-display.service\nWants=cix-detect-display.service\n' > "$1/etc/systemd/system/greetd.service.d/11-ncz-display-detect.conf"
+}
 m_amd64_leak_dracut() { m_amd64_strip "$1"; m_leak_dracut "$1"; }
 m_amd64_strip_leak() { m_amd64_strip "$1"; m_leak_getty "$1"; }
 m_amd64_strip_nohost() { m_amd64_strip "$1"; echo ncz-setup > "$1/etc/hostname"; }
@@ -371,6 +380,8 @@ run_case "amd64: BUILD_ARCH of the other architecture fails"        1 m_id_arch_
 run_case "amd64: ncz-performance-mode leak fails"                   1 m_amd64_leak_perf
 run_case "amd64: greetd ncz-performance-mode drop-in leak fails"     1 m_amd64_leak_perf_dropin
 run_case "amd64: cix-detect-display leak fails"                     1 m_amd64_leak_display
+run_case "amd64: greetd drop-ins without display-detect pass"        0 m_amd64_greetd_ok
+run_case "amd64: greetd Wants=cix-detect-display drop-in fails"      1 m_amd64_leak_greetd_display
 run_case "amd64: Sky1 dracut config leak fails"                     1 m_amd64_leak_dracut
 run_case "gpu: amd64 with a leaked Mali EGL entry fails"        1 m_gpu_egl_leak
 unset TEST_ARCH

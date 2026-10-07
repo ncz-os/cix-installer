@@ -159,13 +159,36 @@ cat > /etc/systemd/system/greetd.service.d/10-ncz-drm.conf <<'GREETDDRM'
 # labwc needs at least one libinput device at creation; let USB recovery finish
 # its bounded keyboard probe before starting the greeter. The splash runs in
 # parallel and releases DRM when this wrapper creates its ready marker.
-After=cix-detect-display.service ncz-usb2-rescan.service
-Wants=cix-detect-display.service ncz-usb2-rescan.service
+After=ncz-usb2-rescan.service
+Wants=ncz-usb2-rescan.service
 
 [Service]
 ExecCondition=/usr/local/bin/ncz-has-drm-output
 ExecStartPre=/usr/local/bin/ncz-wait-input-ready
 GREETDDRM
+
+# The display-detect ordering is arm64 only. 22-display-fix.sh leaves
+# cix-detect-display.service disabled on amd64, but a Wants= here pulled it in
+# on every boot anyway (7.4 s in the boot blame on CHIMERA, r201). Its own
+# drop-in so the arch-neutral file above stays identical on both platforms.
+_ncz_greeter_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_greeter_arch" ] || _ncz_greeter_arch=$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)
+[ -n "$_ncz_greeter_arch" ] || _ncz_greeter_arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+case "$_ncz_greeter_arch" in
+    arm64|aarch64)
+        cat > /etc/systemd/system/greetd.service.d/11-ncz-display-detect.conf <<'GREETDDISPLAY'
+[Unit]
+# arm64 only: let the display-detect oneshot settle the connector set first.
+After=cix-detect-display.service
+Wants=cix-detect-display.service
+GREETDDISPLAY
+        ;;
+    *)
+        rm -f /etc/systemd/system/greetd.service.d/11-ncz-display-detect.conf
+        echo "[55] arch=$_ncz_greeter_arch: greetd does not order on the display-detect unit"
+        ;;
+esac
+unset _ncz_greeter_arch
 
 # --- greeter labwc config: greeter is Labwc's session client -----------------
 install -d -m0755 /etc/greetd/singularity-labwc
