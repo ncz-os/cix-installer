@@ -94,6 +94,9 @@ mv "$NEW/etc/apt/sources.list.d/ncz-os-apt-r2.list.disabled" "$NEW/etc/apt/sourc
 expect_rc "new config with R2 re-enabled (two repos) fails" 1 "$ROOT/build/check-installed-apt-config.sh" "$NEW"
 echo '# hand edit' >> "$NEW/etc/apt/preferences.d/$NCZ_APT_PIN_NAME"
 expect_rc "hand-edited pin file fails" 1 "$ROOT/build/check-installed-apt-config.sh" "$NEW"
+ncz_apt_write_separation_pin "$NEW" >/dev/null
+echo '# hand edit' >> "$NEW/etc/apt/preferences.d/00-ncz-kernel-purity.pref"
+expect_rc "hand-edited kernel-purity pin fails" 1 "$ROOT/build/check-installed-apt-config.sh" "$NEW"
 
 echo "=== 3. version discipline: deb-version-gate.sh ==="
 command -v dpkg-deb >/dev/null 2>&1 || { echo "SKIP: dpkg-deb missing (sections 3-4)"; echo "test-ncz-repo-policy: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; exit; }
@@ -200,6 +203,10 @@ pol = "libfoo:armhf:\n  Installed: 1\n  Candidate: 2\n  Version table:\n     2 5
 c = m.parse_candidate_hosts(pol)
 ok &= c.get("libfoo") == ["deb.debian.org"] and c.get("libfoo:armhf") == ["deb.debian.org"]
 ok &= m.group_for(c["libfoo"], o, m.NCZ_HOSTS) == "debian"
+pol2 = ("libfoo:\n  Installed: 1\n  Candidate: 2\n  Version table:\n     2 500\n        500 https://packages.buildkite.com/ncz-os/ncz/any any/main amd64 Packages\n"
+        "libfoo:armhf:\n  Installed: 1\n  Candidate: 2\n  Version table:\n     2 500\n        500 https://deb.debian.org/debian forky/main armhf Packages\n")
+c2 = m.parse_candidate_hosts(pol2)
+ok &= c2["libfoo"] == ["packages.buildkite.com", "deb.debian.org"] and c2["libfoo:armhf"] == ["deb.debian.org"]  # native entry kept
 sys.exit(0 if ok else 1)
 PY
     python3 -I - "$ROOT/assets/update-manager/ncz-update-check" <<'PY' && ok "third-party host (Google, no NCZ/Debian origin) -> third-party" || bad "third-party classification"
