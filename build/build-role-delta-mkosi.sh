@@ -325,13 +325,9 @@ deb [signed-by=/etc/apt/keyrings/buildkite-ncz-apt-keyring.gpg] https://packages
 SRCEOF
         echo "[$ROLE] NCZ Buildkite Packages source wired into mkosi pkgmgr tree"
     fi
-    if [ -f "$ROOT/post-install/ncz-os-apt-keyring.asc" ] && \
-       gpg --dearmor < "$ROOT/post-install/ncz-os-apt-keyring.asc" > "$NCZ_PKGMGR_APT/keyrings/ncz-os-apt-keyring.gpg" 2>/dev/null; then
-        cat > "$NCZ_PKGMGR_APT/sources.list.d/ncz-os-apt-r2.list" <<SRCEOF
-deb [signed-by=/etc/apt/keyrings/ncz-os-apt-keyring.gpg] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main
-SRCEOF
-        echo "[$ROLE] NCZ Cloudflare R2 source wired into mkosi pkgmgr tree"
-    fi
+    # r201 apt separation: ONE NCZ repo (Buildkite) + the origin pin; R2 is only a
+    # disabled fallback on the installed system, never a second build source.
+    ( . "$ROOT/post-install/lib/apt-separation.sh" && ncz_apt_write_separation_pin "$WORK/pkgmgr" )
 fi
 
 # --- package/account database preservation hooks (REQUIRED) ----------------

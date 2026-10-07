@@ -693,5 +693,7 @@ parity:
 	build/test-dkms-prep-keep-going.sh
 	build/test-kernel-purity-pin.sh
 	build/test-kernel-purity-guards.sh
+	bash build/test-apt-separation.sh
+	bash build/test-ncz-repo-policy.sh
 	build/test-no-debian-kernel.sh
 	$(MAKE) --no-print-directory test-cygnus-branding

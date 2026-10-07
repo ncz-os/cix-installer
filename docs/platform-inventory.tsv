@@ -453,3 +453,12 @@ post-install/lib/intel-accel.sh	amd64	-	Intel GPU/NPU userspace installer source
 build/test-intel-accel-deferred.sh	amd64	-	proves the Intel userspace path uses the vendored key, arms the retry marker/timer when the repo is unreachable, installs once the network is up, and refuses a transaction that would remove packages (r201)
 build/test-stage-canonical-dkms.sh	sky1	-	contract test: stage-canonical-assets.sh restages every checked DKMS deb incl. vpu and the stale-deb failure names the fix (r201)
 build/test-panthor-hook-overlay-fallback.sh	sky1	-	proves 83-panthor-gpu.sh installs the prebuilt panthor overlay when the staged DKMS deb leaves no module (r201)
+post-install/lib/apt-separation.sh	common	-	single source for the NCZ/Debian/T2 apt separation: NCZ namespace, Debian-name override allowlist, T2 package set, pin text, single-enabled-NCZ-repo writer and the ncz-apt-source switch helper
+build/check-ncz-repo-policy.sh	common	-	gate: fails when a Debian-named package is published or seeded in the NCZ suite without an allowlist row (index files, components.tsv, --live)
+build/check-installed-apt-config.sh	common	-	audit of an apt config tree or rootfs: separation pin present and current, kernel-purity pin present, exactly one NCZ repo enabled, T2 pin present
+build/lib/deb-version-gate.sh	common	-	version discipline: refuses a rebuilt .deb that reuses an already-published version with different content (apt 1.0 -> 1.0)
+build/build-ncz-apt-policy-deb.sh	common	-	builds the ncz-apt-policy package that delivers the apt separation pins to already-installed systems
+build/test-apt-separation.sh	common	-	real apt resolution against throwaway Debian/NCZ/T2 repos, old behaviour vs new, plus the single-source writer and ncz-apt-source helper
+build/test-ncz-repo-policy.sh	common	-	behavioural tests for the repo-content gate, installed-config audit, version gate, publisher policy and update classification
+build/testdata/apt-separation/	common	-	recorded MEDUSA r200 apt list/policy output and the r200 Buildkite amd64 package names used by test-ncz-repo-policy.sh
+docs/APT-SEPARATION.md	common	-	design and operator runbook: separating NCZ-OS package updates from Debian and third-party ones

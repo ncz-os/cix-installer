@@ -1,5 +1,16 @@
 #!/usr/bin/python3
-"""Report upgrades from the machine's currently configured APT sources."""
+"""Report upgrades from the machine's currently configured APT sources, each
+labelled with WHO supplies it: the NCZ-OS repo, Debian, or a third party.
+
+The label comes from the candidate's apt origin, never from the package name:
+  ncz-os       the source host is an NCZ-OS repo host, or its Release says
+               Origin: NCZ-OS (Buildkite Packages cannot carry that Origin, so
+               the hosts are listed; see post-install/lib/apt-separation.sh)
+  debian       the source's Release says Origin: Debian
+  third-party  anything else (Google Chrome, the T2 repo, ...)
+Extra NCZ hosts can be added, one per line, in /etc/ncz-os/update-origins.conf
+(`ncz-os <host>`), without touching this file.
+"""
 
 import json
 import re
@@ -7,33 +18,145 @@ import subprocess
 import sys
 
 DESKTOP_PACKAGE = "ncz-singularity-desktop"
+NCZ_HOSTS = {"packages.buildkite.com", "pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev"}
+NCZ_RELEASE_ORIGIN = "NCZ-OS"
+ORIGINS_CONF = "/etc/ncz-os/update-origins.conf"
+GROUPS = ("ncz-os", "debian", "third-party")
 LINE_RE = re.compile(
     r"^(?P<package>[^/]+)/(?P<suite>\S+)\s+(?P<candidate>\S+)\s+\S+\s+"
     r"\[upgradable from: (?P<installed>[^\]]+)\]$"
 )
+ENV = {"LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
 
 
-def collect() -> list[dict[str, object]]:
+def run_apt(*args):
     proc = subprocess.run(
-        ["apt", "list", "--upgradable"],
+        list(args),
         text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=False,
-        env={"LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
+        env=ENV,
     )
     if proc.returncode:
-        raise RuntimeError(proc.stderr.strip() or f"apt exited {proc.returncode}")
+        raise RuntimeError(proc.stderr.strip() or f"{args[0]} exited {proc.returncode}")
+    return proc.stdout
 
-    updates = []
-    for line in proc.stdout.splitlines():
-        match = LINE_RE.match(line.strip())
-        if not match:
+
+def extra_ncz_hosts(path=ORIGINS_CONF):
+    hosts = set()
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for raw in handle:
+                parts = raw.split("#", 1)[0].split()
+                if len(parts) == 2 and parts[0] == "ncz-os":
+                    hosts.add(parts[1])
+    except OSError:
+        pass
+    return hosts
+
+
+def parse_source_origins(policy_text):
+    """host -> set of Release Origin values, from a bare `apt-cache policy`."""
+    origins = {}
+    url_host = None
+    for line in policy_text.splitlines():
+        match = re.match(r"^\s+-?\d+ (\S+://\S+)", line)
+        if match:
+            url_host = (
+                re.sub(r"^\S+://", "", match.group(1)).split("/", 1)[0].split(":", 1)[0]
+            )
+            origins.setdefault(url_host, set())
             continue
-        item: dict[str, object] = match.groupdict()
+        text = line.strip()
+        if url_host and text.startswith("release "):
+            for field in text[len("release ") :].split(","):
+                if field.startswith("o="):
+                    origins[url_host].add(field[2:])
+        elif (
+            url_host and not text.startswith("origin ") and not line.startswith("     ")
+        ):
+            url_host = None
+    return origins
+
+
+def classify_host(host, origins, ncz_hosts):
+    labels = origins.get(host, set())
+    if host in ncz_hosts or NCZ_RELEASE_ORIGIN in labels:
+        return "ncz-os"
+    if "Debian" in labels:
+        return "debian"
+    return "third-party"
+
+
+def parse_candidate_hosts(policy_text):
+    """package -> list of source hosts serving its Candidate version."""
+    result = {}
+    package = candidate = None
+    in_candidate = False
+    for line in policy_text.splitlines():
+        head = re.match(r"^(\S+):$", line)
+        if head:
+            package, candidate, in_candidate = head.group(1), None, False
+            result.setdefault(package, [])
+            continue
+        if package is None:
+            continue
+        cand = re.match(r"^\s+Candidate: (\S+)", line)
+        if cand:
+            candidate = cand.group(1)
+            continue
+        ver = re.match(r"^(?: \*\*\* |     )(\S+) (-?\d+)\s*$", line)
+        if ver:
+            in_candidate = ver.group(1) == candidate
+            continue
+        src = re.match(r"^\s{8}-?\d+ (\S+://\S+)", line)
+        if src and in_candidate:
+            host = (
+                re.sub(r"^\S+://", "", src.group(1)).split("/", 1)[0].split(":", 1)[0]
+            )
+            result[package].append(host)
+    return result
+
+
+def group_for(hosts, origins, ncz_hosts):
+    groups = {classify_host(host, origins, ncz_hosts) for host in hosts}
+    for name in GROUPS:  # NCZ wins a tie, then Debian
+        if name in groups:
+            return name
+    return "third-party"
+
+
+def collect():
+    listing = run_apt("apt", "list", "--upgradable")
+    parsed = []
+    for line in listing.splitlines():
+        match = LINE_RE.match(line.strip())
+        if match:
+            parsed.append(match.groupdict())
+    ncz_hosts = NCZ_HOSTS | extra_ncz_hosts()
+    origins, cand_hosts = {}, {}
+    if parsed:
+        origins = parse_source_origins(run_apt("apt-cache", "policy"))
+        cand_hosts = parse_candidate_hosts(
+            run_apt("apt-cache", "policy", *[item["package"] for item in parsed])
+        )
+    updates = []
+    for item in parsed:
         item["desktop"] = item["package"] == DESKTOP_PACKAGE
+        item["group"] = group_for(
+            cand_hosts.get(item["package"], []), origins, ncz_hosts
+        )
+        # apt keys a version by (string, metadata hash): a rebuild that kept the
+        # version string shows as "1.0 -> 1.0". Flag it so the UI says why.
+        item["same_version"] = item["installed"] == item["candidate"]
         updates.append(item)
-    updates.sort(key=lambda item: (not bool(item["desktop"]), str(item["package"])))
+    updates.sort(
+        key=lambda it: (
+            GROUPS.index(it["group"]),
+            not bool(it["desktop"]),
+            str(it["package"]),
+        )
+    )
     return updates
 
 
@@ -43,11 +166,19 @@ def main() -> int:
     except (OSError, RuntimeError) as error:
         print(json.dumps({"error": str(error), "updates": []}))
         return 1
-    print(json.dumps({
-        "count": len(updates),
-        "desktop_update": any(item["desktop"] for item in updates),
-        "updates": updates,
-    }))
+    counts = {
+        name: sum(1 for item in updates if item["group"] == name) for name in GROUPS
+    }
+    print(
+        json.dumps(
+            {
+                "count": len(updates),
+                "desktop_update": any(item["desktop"] for item in updates),
+                "groups": counts,
+                "updates": updates,
+            }
+        )
+    )
     return 0
 
 

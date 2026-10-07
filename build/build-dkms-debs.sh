@@ -192,6 +192,9 @@ PRERM
 
     DEB="$OUT/${NAME}-dkms_${DEB_VER}_all.deb"
     dpkg-deb --build --root-owner-group "$WORK" "$DEB" >/dev/null
+    # shellcheck source=lib/deb-version-gate.sh
+    . "$ROOT/build/lib/deb-version-gate.sh"
+    ncz_deb_version_gate "$DEB" || { rm -rf "$WORK"; exit 1; }
     rm -rf "$WORK"
     echo "built: $(basename "$DEB")  ($(du -h "$DEB" | cut -f1))"
     built=$((built + 1))

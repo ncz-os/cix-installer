@@ -66,6 +66,40 @@ dpkg-deb --info "$TMPDEB" >/dev/null 2>&1 || { echo "FATAL: not a valid .deb" >&
 PKG_NAME="${PKG_NAME:-$(dpkg-deb -f "$TMPDEB" Package)}"
 [ -n "$PKG_NAME" ] || { echo "FATAL: could not read Package field from the .deb" >&2; exit 1; }
 
+# --- policy-begin (r201 apt separation; extracted by build/test-ncz-repo-policy.sh) ---
+# Fail closed BEFORE anything is included or uploaded:
+#   1. a Debian-named package may enter the NCZ suite only if it is a reviewed
+#      override (ncz_apt_debian_overrides) for this architecture. This is what
+#      stops another fonts-liberation 1:2.1.5-3build1 leaking in.
+#   2. a version that is already published may not be republished with
+#      different content: rebuilt packages must bump their version, otherwise
+#      installed systems show "1.0 -> 1.0" for ever.
+# The two libraries are copies of post-install/lib/apt-separation.sh and
+# build/lib/deb-version-gate.sh from cix-installer; deploy them with this
+# script into $NCZ_POLICY_DIR (default ~/ncz-policy) -- see docs/APT-SEPARATION.md.
+NCZ_POLICY_DIR="${NCZ_POLICY_DIR:-/home/jasonperlow/ncz-policy}"
+ncz_publish_policy() {  # deb
+    local deb="$1" name arch cls
+    for _f in apt-separation.sh deb-version-gate.sh; do
+        [ -r "$NCZ_POLICY_DIR/$_f" ] || { echo "FATAL: policy library $NCZ_POLICY_DIR/$_f missing; refusing to publish without the NCZ/Debian separation gate" >&2; return 1; }
+        # shellcheck disable=SC1090
+        . "$NCZ_POLICY_DIR/$_f"
+    done
+    name="$(dpkg-deb -f "$deb" Package)"; arch="$(dpkg-deb -f "$deb" Architecture)"
+    cls="$(ncz_apt_name_class "$name")"
+    case "$cls" in
+        namespace) ;;
+        override)
+            ncz_apt_override_arch_ok "$name" "$arch" \
+                || { echo "FATAL: $name is an allowlisted Debian-name override but not for architecture $arch" >&2; return 1; } ;;
+        *)  echo "FATAL: refusing to publish '$name' ($cls): a Debian-named package may enter the NCZ suite only if listed in ncz_apt_debian_overrides (post-install/lib/apt-separation.sh)" >&2
+            return 1 ;;
+    esac
+    NCZ_VERSION_GATE_STRICT=1 ncz_deb_version_gate "$deb" || return 1
+}
+# --- policy-end ---
+ncz_publish_policy "$TMPDEB" || exit 4
+
 echo "== reprepro includedeb: $(dpkg-deb -f "$TMPDEB" Package)_$(dpkg-deb -f "$TMPDEB" Version) =="
 reprepro -b "$REPO" includedeb any "$TMPDEB"
 

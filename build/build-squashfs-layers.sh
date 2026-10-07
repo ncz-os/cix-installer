@@ -402,9 +402,10 @@ apt_offline(){ local c="$1"
     if [ -f "$ROOT/post-install/buildkite-ncz-apt-keyring.asc" ] &&        gpg --dearmor < "$ROOT/post-install/buildkite-ncz-apt-keyring.asc" | sudo tee "$c/etc/apt/keyrings/buildkite-ncz-apt-keyring.gpg" >/dev/null 2>&1; then
       echo "deb [signed-by=/etc/apt/keyrings/buildkite-ncz-apt-keyring.gpg] https://packages.buildkite.com/ncz-os/ncz/any/ any main" |         sudo tee "$c/etc/apt/sources.list.d/ncz-os-apt-buildkite-live.list" >/dev/null
     fi
-    if [ -f "$ROOT/post-install/ncz-os-apt-keyring.asc" ] &&        gpg --dearmor < "$ROOT/post-install/ncz-os-apt-keyring.asc" | sudo tee "$c/etc/apt/keyrings/ncz-os-apt-keyring.gpg" >/dev/null 2>&1; then
-      echo "deb [signed-by=/etc/apt/keyrings/ncz-os-apt-keyring.gpg] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main" |         sudo tee "$c/etc/apt/sources.list.d/ncz-os-apt-r2-live.list" >/dev/null
-    fi
+    # Exactly ONE NCZ repo (Buildkite, the superset) + the origin-separation pin,
+    # same as the shipped image (post-install/lib/apt-separation.sh); R2 is no
+    # longer wired as a second source (r201 apt separation).
+    sudo bash -c '. "$1/post-install/lib/apt-separation.sh"; ncz_apt_write_separation_pin "$2"' _ "$ROOT" "$c"
     # A pinned snapshot.debian.org mirror (release.conf) expires its Release
     # file quickly -- without check-valid-until=no this apt-get update fails
     # closed the moment NCZ_BASE_MIRROR_SNAPSHOT is set.
