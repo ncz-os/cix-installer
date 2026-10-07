@@ -70,6 +70,12 @@ $CREDITS
         PKG="ncz-wallpapers-cygnus-2610"
         SRC="$ROOT/assets/branding/wallpaper/contrib/$PACK"
         ARTISTPACK_SRC="$ARTISTPACK_SOURCE_ROOT/$PACK"
+        # NCZ's own release pack is not published in the ArtistPack repo, so
+        # a build host with only that checkout could not build it ("missing
+        # ArtistPack manifest"). Its manifest lives in-repo next to the art;
+        # an ArtistPack checkout that does carry the pack still wins.
+        [ -f "$ARTISTPACK_SRC/artist.json" ] \
+            || ARTISTPACK_SRC="$ROOT/assets/branding/wallpaper/artistpack/$PACK"
         ART_SUBPATH="/$PACK"
         AUTHOR="NCZ-OS Cygnus"
         YEAR="2026"

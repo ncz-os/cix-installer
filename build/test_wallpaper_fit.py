@@ -557,6 +557,49 @@ class DebPackaging(unittest.TestCase):
             )
             self.assertIn("Dir=/usr/share/backgrounds/ncz/cygnus-2610\n", coll)
 
+    def test_cygnus_manifest_falls_back_to_in_repo_copy(self):
+        """An ArtistPack checkout without cygnus-2610 still builds the pack."""
+        if not shutil.which("bash"):
+            self.skipTest("bash missing")
+        with tempfile.TemporaryDirectory(
+            prefix="wallfit-deb-", dir=os.environ.get("TMPDIR")
+        ) as td:
+            t = Path(td)
+            (t / "artistpack").mkdir()
+            (t / "bin").mkdir()
+            write_exe(
+                t / "bin" / "dpkg-deb",
+                '#!/bin/sh\n[ "$1" = --info ] && exit 0\n'
+                f'cp -a "$3" {t / "tree"}\n: > "$4"\n',
+            )
+            env = dict(
+                os.environ,
+                PATH=f"{t / 'bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+                ARTISTPACK_SOURCE_ROOT=str(t / "artistpack"),
+                WALLPAPER_DEB_OUT=str(t / "out"),
+                TMPDIR=str(t),
+            )
+            r = subprocess.run(
+                ["bash", str(DEB), "cygnus-2610"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            meta = (
+                t
+                / "tree/opt/singularity/share/singularity/wallpaper-collections"
+                / "cygnus-2610.artistpack"
+            )
+            repo = (
+                DEB.parent.parent / "assets/branding/wallpaper/artistpack/cygnus-2610"
+            )
+            for name in ("artist.json", "pack.json"):
+                self.assertEqual(
+                    (meta / name).read_text(), (repo / name).read_text(), name
+                )
+
 
 class CygnusAssets(unittest.TestCase):
     def originals(self):
