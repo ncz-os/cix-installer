@@ -141,7 +141,7 @@ if [ -z "$BUILD_TMPDIR" ]; then
 fi
 mkdir -p "$BUILD_TMPDIR"
 BUILD_TMPDIR="$(cd "$BUILD_TMPDIR" 2>/dev/null && pwd -P)" || {
-    echo "ERROR: TMPDIR ${TMPDIR:-<unset>} is not a usable directory" >&2
+    echo "ERROR: TMPDIR ${BUILD_TMPDIR:-<unset>} is not a usable directory" >&2
     exit 1
 }
 case "$BUILD_TMPDIR" in
@@ -159,10 +159,6 @@ case "$(findmnt -no FSTYPE -T "$BUILD_TMPDIR" 2>/dev/null || true)" in
 esac
 TMP_DIR_NAME="ncz-base-rootfs-tmp"
 BUILD_TMP_ROOT="$BUILD_TMPDIR/$TMP_DIR_NAME"
-case "$BUILD_TMP_ROOT" in
-    "$BUILD_TMPDIR"/*) ;;
-    *) echo "ERROR: refused to construct an unsafe temporary path" >&2; exit 1 ;;
-esac
 mkdir -p "$BUILD_TMP_ROOT"
 cleanup_build_tmp() {
     rm -rf -- "$BUILD_TMP_ROOT"
