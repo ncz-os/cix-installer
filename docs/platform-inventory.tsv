@@ -435,3 +435,4 @@ build/test-splash-logo-fit.sh	common	-	manual harness: renders the loginui splas
 build/hidpi/	common	-	manual KVM/render proof tools for the boot-splash scaling fix (docs/HIDPI-SCALING.md)
 post-install/lib/telnet-inetd.sh	common	-	POSIX-sh helper that points the inetd telnet line at the telnetd binary that exists (in.telnetd or telnetd) and disables stale/tcpd-wrapped lines; sourced by 36-telemetry.sh, 72-rescue-partition.sh, preseed/late.sh and build/build-rescue-rootfs.sh (r201)
 build/test-telnet-inetd.sh	common	-	proves every active inetd telnet line execs an existing binary (negative control on the r200 in.telnetd line), helper idempotence and the busybox-fallback return code
+build/test-timezone-region.sh	common	-	proves the installer region timezone reaches the target (late.sh NCZ-REGION-PERSIST copies /tmp/ncz-region; 37-ntp-hostname NCZ-TIMEZONE applies it once) and that /etc/timezone always matches /etc/localtime (r201)

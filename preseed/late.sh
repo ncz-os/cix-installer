@@ -346,6 +346,26 @@ for f in BUILD_VERSION BUILD_DATE BUILD_HOST BUILD_ARCH KVER_LEGACY KVER_NEXT RE
     fi
 done
 
+# NCZ-REGION-PERSIST-BEGIN
+# r201: carry the installer's region choice (preseed/region-chooser.sh writes
+# /tmp/ncz-region: locale, country, timezone, keymap -- one per line, also for
+# the ncz_region= cmdline override) onto the target. Nothing used to, so
+# 37-ntp-hostname.sh never saw the timezone and MS-R1 installed on UTC after
+# the operator picked America/New_York.
+_ncz_region_src="${NCZ_REGION_FILE:-/tmp/ncz-region}"
+if [ -s "$_ncz_region_src" ]; then
+    if cp "$_ncz_region_src" /target/etc/cix-installer/ncz-region 2>/dev/null; then
+        chmod 0644 /target/etc/cix-installer/ncz-region 2>/dev/null || true
+        echo "[late] region choice persisted: $(tr '\n' ' ' < /target/etc/cix-installer/ncz-region)"
+    else
+        echo "[late] WARN: could not copy $_ncz_region_src to /target/etc/cix-installer/ncz-region"
+    fi
+else
+    echo "[late] no $_ncz_region_src (region chooser did not run); timezone policy falls back to hook defaults"
+fi
+unset _ncz_region_src
+# NCZ-REGION-PERSIST-END
+
 # NCZ-NOUVEAU-RUNPM-BEGIN
 # amd64 only: keep nouveau's runtime PM off on the installed system, written
 # BEFORE run-all.sh so the first hook that touches the GPU, the initramfs that

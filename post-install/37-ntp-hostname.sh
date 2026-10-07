@@ -216,27 +216,62 @@ else
 fi
 
 # ----- timezone --------------------------------------------------------
-# The CIX vendor rootfs ships TZ=Asia/Shanghai. Nothing in our pipeline ever
-# reset it, so every installed board silently ran on Shanghai local time
-# (confirmed on O6N 2026-08-02). Honour an operator/preseed choice if one was
-# made; otherwise correct the vendor default to UTC, which is the only sane
-# default for a fleet that spans timezones and logs to a shared bus.
-NCZ_TZ_DEFAULT="${NCZ_TIMEZONE:-UTC}"
-CURRENT_TZ=$(readlink -f /etc/localtime 2>/dev/null | sed 's|^.*/zoneinfo/||')
-case "$CURRENT_TZ" in
-    ""|Asia/Shanghai|Etc/UTC|UTC)
-        if [ -f "/usr/share/zoneinfo/$NCZ_TZ_DEFAULT" ]; then
-            ln -sf "/usr/share/zoneinfo/$NCZ_TZ_DEFAULT" /etc/localtime
-            echo "$NCZ_TZ_DEFAULT" > /etc/timezone
-            echo "[33] timezone: '${CURRENT_TZ:-unset}' (CIX vendor default) -> $NCZ_TZ_DEFAULT"
-        else
-            echo "[33] WARN: /usr/share/zoneinfo/$NCZ_TZ_DEFAULT missing (tzdata not installed?) — timezone left as '${CURRENT_TZ:-unset}'"
-        fi
-        ;;
-    *)
-        echo "[33] preserving operator timezone: $CURRENT_TZ"
-        ;;
-esac
+# NCZ-TIMEZONE-BEGIN
+# Source of truth, first match wins:
+#   1. NCZ_TIMEZONE in the environment (operator/preseed override);
+#   2. the installer's region choice, line 3 of /etc/cix-installer/ncz-region
+#      (preseed/region-chooser.sh -> /tmp/ncz-region -> late.sh copies it; the
+#      ncz_region= cmdline override lands there too). Applied ONCE per install
+#      (marker ncz-region.applied) so a later re-run of this hook never undoes
+#      a timezone the operator changed after install;
+#   3. otherwise the old rule: the CIX vendor rootfs ships Asia/Shanghai, and an
+#      unset/UTC zone becomes UTC; any other zone is preserved.
+# r201: before the region file was persisted, MS-R1 installed on UTC although
+# the operator picked America/New_York, and amd64 had /etc/localtime ->
+# America/New_York next to an EMPTY /etc/timezone. /etc/timezone is now always
+# rewritten to match /etc/localtime, on both architectures.
+_tzr="${NCZ_TZ_SYSROOT:-}"
+_tz_zoneinfo="$_tzr/usr/share/zoneinfo"
+_tz_region_file="${NCZ_REGION_FILE:-$_tzr/etc/cix-installer/ncz-region}"
+_tz_valid() {   # a zoneinfo-relative name that exists, no absolute path or ..
+    case "$1" in ""|/*|*..*) return 1 ;; esac
+    [ -f "$_tz_zoneinfo/$1" ]
+}
+_tz_region=""
+if [ -r "$_tz_region_file" ] && [ ! -e "$_tz_region_file.applied" ]; then
+    _tz_region=$(sed -n '3p' "$_tz_region_file" 2>/dev/null | tr -d ' \t\r')
+fi
+_tz_chosen="${NCZ_TIMEZONE:-$_tz_region}"
+if [ -n "$_tz_chosen" ] && ! _tz_valid "$_tz_chosen"; then
+    echo "[33] WARN: requested timezone '$_tz_chosen' is not in $_tz_zoneinfo -- ignored"
+    _tz_chosen=""
+fi
+# Only a link into zoneinfo names a zone. readlink -f prints the path itself
+# for a missing /etc/localtime, which used to be "preserved" as a zone name.
+CURRENT_TZ=$(readlink -f "$_tzr/etc/localtime" 2>/dev/null | sed -n 's|^.*/zoneinfo/||p')
+if [ -n "$_tz_chosen" ]; then
+    TARGET_TZ="$_tz_chosen"
+    echo "[33] timezone: installer/operator choice $TARGET_TZ (was '${CURRENT_TZ:-unset}')"
+else
+    case "$CURRENT_TZ" in
+        ""|Asia/Shanghai|Etc/UTC|UTC) TARGET_TZ=UTC ;;
+        *) TARGET_TZ="$CURRENT_TZ"; echo "[33] preserving operator timezone: $CURRENT_TZ" ;;
+    esac
+fi
+if _tz_valid "$TARGET_TZ"; then
+    if [ "$CURRENT_TZ" != "$TARGET_TZ" ] || [ ! -L "$_tzr/etc/localtime" ]; then
+        ln -sf "/usr/share/zoneinfo/$TARGET_TZ" "$_tzr/etc/localtime"
+        echo "[33] timezone: '${CURRENT_TZ:-unset}' -> $TARGET_TZ"
+    fi
+    # Debian still reads /etc/timezone in places (tzdata reconfigure, some
+    # apps); an empty or stale one disagrees with /etc/localtime.
+    echo "$TARGET_TZ" > "$_tzr/etc/timezone"
+    [ -n "$_tz_region" ] && [ "$TARGET_TZ" = "$_tz_region" ] && : > "$_tz_region_file.applied" 2>/dev/null
+else
+    echo "[33] WARN: $_tz_zoneinfo/$TARGET_TZ missing (tzdata not installed?) -- timezone left as '${CURRENT_TZ:-unset}'"
+fi
+unset _tzr _tz_zoneinfo _tz_region_file _tz_region _tz_chosen
+# NCZ-TIMEZONE-END
 
 # ----- summary ---------------------------------------------------------
 echo ""
