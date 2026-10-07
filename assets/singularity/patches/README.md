@@ -116,6 +116,44 @@ Deliberately has no `**Upstream PR:**` link, so
 `build/singularity-patch-reconcile.py` will not auto-retire it. When the
 change is filed and merged upstream, delete the patch and this block.
 
+**Not filed upstream** (2026-10-07). Patch
+`0003-build-cups-flags-not-a-vala-package.patch`. The 2026-10-06
+libsingularity release added `dependency('cups')` to the Vala target, which
+makes meson pass `--pkg cups` to valac. Debian's valac (0.56.19) ships no
+`cups.vapi`, so the build stops with "Package `cups' not found in specified
+Vala API directories". No Vala source uses a libcups binding (only
+`src/print/ipp_transport.c` does), so the patch passes the cups compile and
+link flags directly, exactly as `lcms2` is already handled in the same file.
+Delete it when upstream stops handing libcups to valac or Debian ships the
+binding.
+
+**Not filed upstream** (2026-10-07). Patch
+`libsingularity/0004-drag-lift-bind-drag-icon-unowned.patch`. Vala 0.56's
+gtk4.vapi declares `DragIcon.get_for_drag` as a named constructor, so the
+static-method call in `drag_lift.vala` stops valac with "use `new' operator".
+Writing `new Gtk.DragIcon.get_for_drag(drag)` compiles but is wrong: the C
+function returns the drag's existing icon widget (transfer none) and Vala
+would unref a reference it never took when the variable goes out of scope. The
+patch binds the C function as an unowned function in `gdkextra.vapi`. Delete it
+when upstream's call compiles against the distribution's vapi.
+
+**Not filed upstream** (2026-10-07). Patch
+`singularity-write/0001-write-implement-accessibletext-vfuncs-added-in-gtk-4-22.patch`.
+`WriteDocView` implements `Gtk.AccessibleText` but not the five vfuncs GTK 4.22
+added, which Vala 0.56's gtk4.vapi declares abstract. Each reports "not
+supported". Delete it when upstream implements them.
+
+**Not filed upstream** (2026-10-07). Patch
+`singularity-shell/0004-wallpaper-tests-link-libm.patch`. Three wallpaper test
+executables compile `dynamic_wallpaper.vala` (which calls `sin()`) without a
+math library; Debian's linker has no implicit DT_NEEDED and stops with
+"undefined reference to symbol 'sin@@GLIBC_2.17'". Adds `cc.find_library('m')`.
+Delete it when upstream does.
+
+Status note (2026-10-07): PR #15 above was CLOSED upstream without merging,
+so `build/singularity-patch-reconcile.py` (which retires only MERGED PRs)
+will never retire patch 0001; it stays a carried downstream patch.
+
 ## singularity-loginui — active
 
 **Not yet filed upstream.** Patch

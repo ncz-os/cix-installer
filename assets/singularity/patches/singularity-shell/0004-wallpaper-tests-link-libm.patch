@@ -1,0 +1,48 @@
+From 106fb1ff8341bccaf370b82e9d519dcbf7c2f6d5 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 7 Oct 2026 12:38:49 -0400
+Subject: [PATCH] tests: link libm into the wallpaper tests that use
+ dynamic_wallpaper
+
+wallpaper-collections-test, wallpaper-gallery-test and wallpaper-rotator-test
+compile src/core/dynamic_wallpaper.vala, which calls sin(), but list no math
+library. Debian's linker (no implicit DT_NEEDED) then stops with:
+undefined reference to symbol 'sin@@GLIBC_2.17' ... DSO missing from command line.
+Add cc.find_library('m'), as the other targets in this file already do.
+---
+ meson.build | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/meson.build b/meson.build
+index 65b37ac..5789d22 100644
+--- a/meson.build
++++ b/meson.build
+@@ -904,7 +904,7 @@ install_data('data/icons/singularity-account-secure-mail.svg',
+ 
+ wallpaper_collections_test = executable('wallpaper-collections-test',
+   sources: ['src/core/wallpaper_collections.vala', 'src/core/dynamic_wallpaper.vala', 'tests/wallpaper_collections_test.vala'],
+-  dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep, json_dep],
++  dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep, json_dep, cc.find_library('m')],
+ )
+ test('wallpaper-collections', wallpaper_collections_test)
+ 
+@@ -916,14 +916,14 @@ test('wallpaper-rotation-state', wallpaper_rotation_state_test)
+ 
+ wallpaper_gallery_test = executable('wallpaper-gallery-test',
+   sources: ['src/core/wallpaper_gallery.vala', 'src/core/dynamic_wallpaper.vala', 'tests/wallpaper_gallery_test.vala'],
+-  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep, json_dep],
++  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep, json_dep, cc.find_library('m')],
+ )
+ test('wallpaper-gallery', wallpaper_gallery_test)
+ wallpaper_rotator_test = executable('wallpaper-rotator-test',
+   sources: ['src/core/wallpaper_collections.vala', 'src/core/wallpaper_gallery.vala', 'src/core/dynamic_wallpaper.vala',
+             'src/core/wallpaper_rotation_state.vala', 'src/core/wallpaper_rotator.vala',
+             'tests/wallpaper_rotator_test.vala'],
+-  dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep, json_dep],
++  dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep, json_dep, cc.find_library('m')],
+ )
+ test('wallpaper-rotator', wallpaper_rotator_test)
+ 
+-- 
+2.55.0
+

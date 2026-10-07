@@ -1,0 +1,45 @@
+From 4c34651349c379f7c0f27d49c38b8b007d8ebc13 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 7 Oct 2026 12:13:26 -0400
+Subject: [PATCH] build: do not hand libcups to valac as a package
+
+src/print/ipp_transport.c is plain C and no Vala source uses a libcups
+binding. dependency('cups') on the Vala target makes meson pass --pkg cups
+to valac, which fails on distributions whose valac ships no cups.vapi
+(Debian: Package 'cups' not found in specified Vala API directories).
+Require libcups, then link it by name instead.
+---
+ meson.build | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/meson.build b/meson.build
+index 8e9e7db..19fb78a 100644
+--- a/meson.build
++++ b/meson.build
+@@ -35,8 +35,12 @@ gst_video_dep  = dependency('gstreamer-video-1.0')
+ gst_app_dep    = dependency('gstreamer-app-1.0')
+ libsingularity_deps = [gtk4_dep, wayland_dep, gee_dep, json_dep, peas_dep, gmodule_dep, gio_unix_dep, soup_dep, gtksource_dep, enchant_dep, m_dep]
+ libsingularity_deps += [gst_dep, gst_video_dep, gst_app_dep]
+-cups_dep       = dependency('cups')
+-libsingularity_deps += [cups_dep]
++# src/print/ipp_transport.c is plain C and no Vala source uses a libcups
++# binding. A dependency() object on the Vala target makes meson pass --pkg cups
++# to valac, and Debian's valac ships no cups.vapi. Require libcups here, then
++# link it by name (headers are in the default include path, as <cups/cups.h>).
++dependency('cups')
++cups_link_args  = ['-lcups']
+ lcms2_dep      = dependency('lcms2')
+ lcms2_c_args   = ['-I' + lcms2_dep.get_variable(pkgconfig: 'includedir')]
+ lcms2_link_args = ['-L' + lcms2_dep.get_variable(pkgconfig: 'libdir'), '-llcms2']
+@@ -382,7 +386,7 @@ libsingularity = shared_library('singularity',
+   ],
+   dependencies: libsingularity_deps + [dependency('gnutls')],
+   c_args: parental_c_args + lcms2_c_args,
+-  link_args: lcms2_link_args,
++  link_args: lcms2_link_args + cups_link_args,
+   vala_args: libsingularity_vala_args,
+   include_directories: include_directories('src'),
+   vala_header: 'singularity.h',
+-- 
+2.53.0
+
