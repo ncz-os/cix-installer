@@ -406,6 +406,7 @@ build/ship-image.sh	common	-	publish a gated image (ARGONAS + operator Mac) and 
 build/assert-mirror-has-screensavers.sh	common	-	pre-flight: every desktop mirror must carry ncz-screensavers >= the floor in build/screensavers-version.env (item S4)
 build/screensavers-version.env	common	-	single source of truth for the ncz-screensavers version floor + operator-mandated error message (item S4; shared with the install hook, the mirror builder, the squashfs/role-delta pre-flights and the post-install verifier)
 build/test-wallpaper-probe.sh	common	-	Bing helper offline probe test
+build/test-wallpaper-market.sh	common	-	Bing helper market get/set test
 build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, chatter, blank screen)
 docs/installer-ux/	common	-	installer console before/after evidence
 build/test-usb2-rescan-sky1-only.sh	common	-	regression tests: ncz-usb2-rescan is Sky1-only (hook lists, amd64 manifests, unit Conditions, arm64-only package)

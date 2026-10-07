@@ -20,6 +20,9 @@
 #                   archive entries as JSON; --consolidated is one row per
 #                   unique photograph, ordered and captioned per --prefer
 #   markets         "<code>\t<Human Name>" per line, "consolidated" first
+#   market [M]      print the effective preferred market (a code, or "all" for no
+#                   preference); with M ("all", "auto", "consolidated" = all, or a
+#                   market code) store it in the preference file and print nothing
 #   consolidate [--prefer M]
 #                   rebuild the de-duplicated view (photo identity is the
 #                   sha256 of the image); the preferred market's copy of a
@@ -814,6 +817,29 @@ def cmd_markets(_args):
     return 0
 
 
+def cmd_market(args):
+    if not args:
+        print(preferred_market() or "all")
+        return 0
+    value = args[0].strip()
+    low = value.lower()
+    if low in ("all", "consolidated", CONSOLIDATED_ID):
+        value = "all"
+    elif low == "auto":
+        value = "auto"
+    else:
+        m = MARKET_RE.match(value)
+        value = f"{m.group(1).lower()}-{m.group(2).upper()}" if m else None
+        if value not in DEFAULT_MARKETS:
+            print(f"market: unknown market {args[0]!r}", file=sys.stderr)
+            return 2
+    MARKET_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = MARKET_FILE.with_name(MARKET_FILE.name + ".tmp")
+    tmp.write_text(value + "\n")
+    os.replace(tmp, MARKET_FILE)
+    return 0
+
+
 def cmd_consolidate(_args):
     with Lock(wait=120) as got:
         if not got:
@@ -847,6 +873,7 @@ commands = {
     "info": cmd_info,
     "list": cmd_list,
     "markets": cmd_markets,
+    "market": cmd_market,
     "consolidate": cmd_consolidate,
 }
 if cmd == "pin":
@@ -854,7 +881,7 @@ if cmd == "pin":
 if cmd == "unpin":
     raise SystemExit(cmd_pin(args, False))
 if cmd not in commands:
-    print("usage: ncz-wallpaper-bing {fetch [--if-stale]|pick|latest|info|list [--all|--consolidated|<market>...]|markets|consolidate|pin <market> <yyyymmdd>|unpin <market> <yyyymmdd>} [--prefer <market|auto>]", file=sys.stderr)
+    print("usage: ncz-wallpaper-bing {fetch [--if-stale]|pick|latest|info|list [--all|--consolidated|<market>...]|markets|market [<market|all|auto>]|consolidate|pin <market> <yyyymmdd>|unpin <market> <yyyymmdd>} [--prefer <market|auto>]", file=sys.stderr)
     raise SystemExit(2)
 raise SystemExit(commands[cmd](args))
 PY
