@@ -57,46 +57,48 @@ to bottom-left, no existing behavior changes on its own.
 
 Delete this patch once PR #262 merges.
 
+**Upstream PR:** [singularityos-lab/singularity-desktop#267](https://github.com/singularityos-lab/singularity-desktop/pull/267)
+— open. Patch `0002-sensors-settings-keys.patch`. Declares the six `sensors-*` keys the
+sensors plugin reads (interval 2 s with range 1-60, frequency, utilization, grouped,
+GPU and CPU zone). The earlier private `sensors-color-mode` key is gone: nothing in the
+pinned payload reads it. Delete this patch once PR #267 merges.
+
 ## singularity-plugins — active
 
+All six patches are the heads of our upstream PRs, applied in order to the pinned commit
+(7bc0e598), except 0004. The 2026-10-07 convergence replaced the earlier private variants
+that had drifted from what the maintainer reviewed.
+
 **Upstream PR:** [singularityos-lab/singularity-plugins#2](https://github.com/singularityos-lab/singularity-plugins/pull/2)
-— open, not yet merged. Patch
-`0001-sensors-dpi-columns-bordered-sections.patch`.
-
-Restores two things that regressed when sensors moved out of
-`panel.vala` into this standalone plugin: (1) column count in the
-sensors popover now derives from monitor scale factor as well as
-logical width (up to 3 columns), not a fixed 1-or-2 split at one
-breakpoint; (2) `begin_detail_section()` applies the
-`sensors-resource-section` CSS class so each resource-pool section
-(CPU/GPU/VPU/Storage/...) reads as a distinct bordered card instead of
-one continuous list — the exact "outlined groups" behavior. Depends on
-`libsingularity#15` below for the CSS class to exist at all.
-
-Delete this patch once PR #2 merges.
+— open. Patch `0001-sensors-dpi-columns-bordered-sections.patch`. Popover column
+count from the logical width only (up to 3) and the `.sensors-resource-section`
+outline, defined in the plugin own `compact_rows_provider` so libsingularity is not
+touched. Delete this patch once PR #2 merges.
 
 **Upstream PR:** [singularityos-lab/singularity-plugins#3](https://github.com/singularityos-lab/singularity-plugins/pull/3)
-— open, not yet merged, and superseded by the two patches below (that PR
-wrote `~/.config/ncz-wallpaper/bing-markets`; these use a generic path and
-pass the choice to the helper). Patches
-`0002-wallpapers-bing-preferred-market.patch` (Preferred market row; the
-choice picks the language of titles and credits and lists that market's
-photos first while the feed stays combined) and
-`0004-wallpapers-bing-prefetch.patch` (the plugin fetches the feed on
-activation with network-aware retry). Both need the helper flags added in
-`assets/wallpaper/ncz-wallpaper-bing`; see `docs/WALLPAPER-BING-PREFETCH.md`.
+— open. Patch `0002-wallpapers-bing-preferred-market.patch`. Preferred Region row:
+the market list comes from the helper `markets` command and the choice is read and
+saved through the helper `market` command (added to `assets/wallpaper/ncz-wallpaper-bing`,
+covered by `build/test-wallpaper-market.sh`). Delete this patch once PR #3 merges.
 
-Delete these patches once they merge upstream.
+**Upstream PR:** [singularityos-lab/singularity-plugins#4](https://github.com/singularityos-lab/singularity-plugins/pull/4)
+— open. Patch `0003-ocs-fetch-index.patch`. `choices()` fetches its own index from the
+helper. Delete this patch once PR #4 merges.
+
+**Upstream PR:** [singularityos-lab/singularity-plugins#5](https://github.com/singularityos-lab/singularity-plugins/pull/5)
+— open. Patch `0005-sensors-adaptive-contrast.patch`. WCAG contrast for the sensors chip
+and popover. Delete this patch once PR #5 merges.
+
+**Upstream PR:** [singularityos-lab/singularity-plugins#6](https://github.com/singularityos-lab/singularity-plugins/pull/6)
+— open. Patch `0006-ocs-import-owner-id.patch`. Items carry the provider id as owner so
+imports find the provider. Delete this patch once PR #6 merges.
+
+**Not yet filed upstream.** Patch `0004-wallpapers-bing-prefetch.patch`, stacked on #3:
+runs the helper `fetch --if-stale` on activation, when the network returns and daily,
+skipping metered links, with backoff. It has no PR link on purpose: it must not be
+retired when #3 merges. See `docs/WALLPAPER-BING-PREFETCH.md`.
 
 ## libsingularity — active
-
-**Upstream PR:** [singularityos-lab/libsingularity#15](https://github.com/singularityos-lab/libsingularity/pull/15)
-— open, not yet merged. Patch
-`0001-sensors-resource-section-outline.patch`. Adds the
-`.sensors-resource-section` CSS class (1px border, 8px radius, padding)
-that `singularity-plugins#2` above applies. CSS-only, 10 lines.
-
-Delete this patch once PR #15 merges.
 
 **Not yet filed upstream** (proposed to Mirko Brombin, the upstream
 maintainer, by this branch's operator brief; NOT filed by this task). Patch
@@ -150,10 +152,6 @@ math library; Debian's linker has no implicit DT_NEEDED and stops with
 "undefined reference to symbol 'sin@@GLIBC_2.17'". Adds `cc.find_library('m')`.
 Delete it when upstream does.
 
-Status note (2026-10-07): PR #15 above was CLOSED upstream without merging,
-so `build/singularity-patch-reconcile.py` (which retires only MERGED PRs)
-will never retire patch 0001; it stays a carried downstream patch.
-
 ## singularity-loginui — active
 
 **Not yet filed upstream.** Patch
@@ -178,6 +176,21 @@ Deliberately has no `**Upstream PR:**` link, so
 upstream needs the singularityos-lab AI-disclosure trailers that the
 project's CI enforces. When it merges upstream, delete the patch and this
 block.
+
+## singularity-session — active
+
+**Not filed upstream.** Patch `0001-session-no-software-fallback-with-gpu.patch` is the
+NCZ never-software-render policy (refuses the software compositor retry when a render
+device exists) and stays downstream; a neutral opt-out env var is drafted separately.
+Patch `0002-supervisor-per-run-logs-signals-core.patch`: per-run shell logs, named crash
+signals, core limit; drafted for upstream, not yet filed. Neither has an
+`**Upstream PR:**` link, so the reconcile script never retires them.
+
+## singularity-shell — also carried, not filed
+
+Patch `0003-plain-contrast-live-quadrant-and-wrap.patch` (plain attribution text, live
+quadrant move, two-line wrap) sits on top of `0002` above and has no PR link; its two bug
+fixes are drafted as follow-ups to #30.
 
 ## Previously landed
 
@@ -226,6 +239,14 @@ and [#26](https://github.com/singularityos-lab/singularity-shell/pull/26) —
 both **MERGED** (2026-09-14 and 2026-09-17 respectively, per `gh pr list
 --state merged`). No patch files exist in this tree — already removed
 before this branch's history begins.
+
+## libsingularity — retired 2026-10-07 (closed, not merged)
+
+**Upstream PR:** [libsingularity#15](https://github.com/singularityos-lab/libsingularity/pull/15) was closed by the
+maintainer ("plugin-specific styles belong in the plugin"). Patch
+`0001-sensors-resource-section-outline.patch` deleted: the class now lives in
+`singularity-plugins/0001`, and nothing else in the pinned shell, libsingularity or
+plugins reads `sensors-resource-section`.
 
 ## Artist Packs
 
