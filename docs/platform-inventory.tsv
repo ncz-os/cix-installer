@@ -451,3 +451,4 @@ assets/intel/	amd64	-	Intel apt signing key (vendored, sha256-pinned in lib/inte
 post-install/lib/intel-accel.sh	amd64	-	Intel GPU/NPU userspace installer sourced by 54-gpu-accel.sh and installed as ncz-intel-accel-setup: vendored key, Debian Level Zero/OpenCL/VA + Intel OpenVINO plugins, apt simulation gate, deferred retry (r201)
 build/test-intel-accel-deferred.sh	amd64	-	proves the Intel userspace path uses the vendored key, arms the retry marker/timer when the repo is unreachable, installs once the network is up, and refuses a transaction that would remove packages (r201)
 build/test-stage-canonical-dkms.sh	sky1	-	contract test: stage-canonical-assets.sh restages every checked DKMS deb incl. vpu and the stale-deb failure names the fix (r201)
+build/test-panthor-hook-overlay-fallback.sh	sky1	-	proves 83-panthor-gpu.sh installs the prebuilt panthor overlay when the staged DKMS deb leaves no module (r201)
