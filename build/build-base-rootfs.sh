@@ -130,6 +130,24 @@ OUT_DIR="$(cd "$(dirname "$OUT")" 2>/dev/null && pwd || { mkdir -p "$(dirname "$
 OUT_BASE="$(basename "$OUT")"
 TAR_NAME="${OUT_BASE%.tar.zst}.tar"
 MM_COMPONENTS="$(echo "$COMPONENTS" | tr -s ' ' ',')"
+
+# mmdebstrap creates its own temporary tree.  Keep that tree on the same
+# local-disk scratch area as the rest of the build; the host's TMPDIR is not
+# visible inside the container unless it is explicitly mounted.
+BUILD_TMPDIR="${TMPDIR:-}"
+if [ -z "$BUILD_TMPDIR" ]; then
+    echo "ERROR: TMPDIR must point at build-host local-disk scratch" >&2
+    exit 1
+fi
+mkdir -p "$BUILD_TMPDIR"
+case "$(findmnt -no FSTYPE -T "$BUILD_TMPDIR" 2>/dev/null || true)" in
+    tmpfs|ramfs)
+        echo "ERROR: TMPDIR $BUILD_TMPDIR is on a tmpfs/ramfs" >&2
+        exit 1
+        ;;
+esac
+TMP_DIR_NAME="ncz-base-rootfs-tmp"
+mkdir -p "$BUILD_TMPDIR/$TMP_DIR_NAME"
 # mmdebstrap's OWN internal apt-get update runs inside the tree it is still
 # building, before ca-certificates is installed there -- the classic
 # bootstrap chicken-and-egg. https fails with a cert-verify error at that
@@ -180,6 +198,10 @@ CMD
 # same-arch-as-host container instead of a genuinely $ARCH one. This was
 # the actual gap in the version of this script that pre-emptively refused
 # cross-arch rather than testing it -- verified 2026-09-14 (see header).
-"$CE" run --rm --network=host --arch="$ARCH" -v "$OUT_DIR":/out:Z "$CONTAINER_IMAGE" bash -c "$CONTAINER_CMD"
+"$CE" run --rm --network=host --arch="$ARCH" \
+    -v "$OUT_DIR":/out:Z \
+    -v "$BUILD_TMPDIR/$TMP_DIR_NAME":/build-tmp:Z \
+    -e TMPDIR=/build-tmp \
+    "$CONTAINER_IMAGE" bash -c "$CONTAINER_CMD"
 
 echo "[base-rootfs] done: $(du -h "$OUT" | cut -f1)"
