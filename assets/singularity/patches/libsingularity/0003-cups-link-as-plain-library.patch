@@ -1,0 +1,35 @@
+From af9375166305b68dccc9cc6bd04a28354d2502c7 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 7 Oct 2026 12:14:50 -0400
+Subject: [PATCH] build: link libcups as a plain library, valac has no cups
+ binding
+
+dependency('cups') in libsingularity_deps makes meson pass --pkg cups to
+valac, which stops with: error: Package `cups' not found in specified Vala API
+directories. Only the C IPP transport uses libcups, so find the library
+directly and check cups/cups.h, the same way the C-only lcms2 flags are handled.
+---
+ meson.build | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/meson.build b/meson.build
+index 8e9e7db..ac1b3f3 100644
+--- a/meson.build
++++ b/meson.build
+@@ -35,7 +35,12 @@ gst_video_dep  = dependency('gstreamer-video-1.0')
+ gst_app_dep    = dependency('gstreamer-app-1.0')
+ libsingularity_deps = [gtk4_dep, wayland_dep, gee_dep, json_dep, peas_dep, gmodule_dep, gio_unix_dep, soup_dep, gtksource_dep, enchant_dep, m_dep]
+ libsingularity_deps += [gst_dep, gst_video_dep, gst_app_dep]
+-cups_dep       = dependency('cups')
++# Vala has no cups binding: a pkg-config dependency here makes meson pass
++# --pkg cups to valac, which stops with "Package `cups' not found". Only the C
++# IPP transport (src/print/ipp_transport.c) uses libcups, so link it as a plain
++# library and check the header directly.
++cups_dep       = cc.find_library('cups')
++cc.has_header('cups/cups.h', required: true)
+ libsingularity_deps += [cups_dep]
+ lcms2_dep      = dependency('lcms2')
+ lcms2_c_args   = ['-I' + lcms2_dep.get_variable(pkgconfig: 'includedir')]
+-- 
+2.55.0
+

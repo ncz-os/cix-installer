@@ -186,6 +186,13 @@ apt-get install -y --no-install-recommends \
     libdisplay-info-dev \
     libseat-dev \
     libliftoff-dev \
+    cmake libcups2-dev libfuse3-dev libges-1.0-dev libgles-dev \
+    libgnutls28-dev libharfbuzz-dev liblcms2-dev libsqlite3-dev zlib1g-dev \
+    libgphoto2-dev libtiff-dev libwebp-dev \
+    freerdp3-dev libarchive-dev libfido2-dev libfreetype-dev liblzma-dev \
+    libsane-dev libxcb-render-util0-dev libxcb-xinput-dev libzbar-dev \
+    libzstd-dev nettle-dev \
+    libusb-1.0-0-dev libnss3-dev \
     build-essential
 
 mkdir -p /work && cd /work
