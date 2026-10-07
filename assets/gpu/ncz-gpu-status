@@ -184,6 +184,63 @@ EOF
     exit 1
 fi
 
+# ---------------------------------------------------------------------------------------------------------------
+# Not a Sky1 board: the Mali/Panthor switcher (sky1.gpu=, /etc/default/ncz-gpu) does not apply, so report the real
+# stack instead of "selected : mali (from built-in default)", which is what CHIMERA and PEGASUS printed (r201).
+# Sky1 = arm64 with the CIX GPU's ACPI device. Test seams: NCZ_GPU_STATUS_ARCH, NCZ_SYSROOT.
+# ---------------------------------------------------------------------------------------------------------------
+_sys="${NCZ_SYSROOT:-}/sys"
+_arch="${NCZ_GPU_STATUS_ARCH:-$(uname -m 2>/dev/null)}"
+_sky1=0
+case "$_arch" in
+    aarch64|arm64)
+        # An arm64 board without the CIXH5000 device is not Sky1; an unreadable /sys keeps the Sky1 report.
+        if [ -e "$_sys/bus/platform/devices/CIXH5000:00" ] || [ -e /dev/mali0 ] || [ ! -d "$_sys/bus/platform/devices" ]; then
+            _sky1=1
+        fi
+        ;;
+esac
+if [ "$_sky1" = 0 ]; then
+    echo "=== NCZ-OS GPU stack ==="
+    echo "platform      : $_arch -- not a CIX Sky1 board; the Mali/Panthor switcher (sky1.gpu=) does not apply"
+    _ncards=0
+    for _c in "$_sys"/class/drm/card*; do
+        [ -e "$_c" ] || continue
+        _n=${_c##*/}
+        case "$_n" in card*-*) continue ;; esac            # connectors (card0-eDP-1), not cards
+        _ncards=$((_ncards + 1))
+        _drv=none
+        [ -e "$_c/device/driver" ] && _drv=$(basename "$(readlink -f "$_c/device/driver")")
+        _bus=$(basename "$(readlink -f "$_c/device" 2>/dev/null)" 2>/dev/null)
+        _ids=""
+        [ -r "$_c/device/vendor" ] && [ -r "$_c/device/device" ] && \
+            _ids=" [$(sed 's/^0x//' "$_c/device/vendor"):$(sed 's/^0x//' "$_c/device/device")]"
+        _boot=""
+        [ "$(cat "$_c/device/boot_vga" 2>/dev/null)" = 1 ] && _boot=" boot_vga"
+        case "$_drv" in
+            amdgpu|radeon) _what="AMD (Mesa radeonsi/RADV)" ;;
+            i915|xe)       _what="Intel (Mesa iris/ANV)" ;;
+            nvidia)        _what="NVIDIA proprietary" ;;
+            nouveau)       _what="NVIDIA nouveau (Mesa)" ;;
+            simpledrm|efifb|vesafb|bochs|bochs-drm|virtio_gpu|virtio-pci|qxl|cirrus*|vmwgfx) _what="firmware/virtual display" ;;
+            none)          _what="NO DRIVER BOUND" ;;
+            *)             _what="$_drv" ;;
+        esac
+        printf 'gpu %-10s: driver=%s (%s) device=%s%s%s\n' "$_n" "$_drv" "$_what" "${_bus:-?}" "$_ids" "$_boot"
+    done
+    [ "$_ncards" -gt 0 ] || echo "gpu           : no DRM card (no GPU driver bound)"
+    echo -n "render nodes  : "
+    for _r in "$_sys"/class/drm/renderD*; do
+        [ -e "$_r" ] || continue
+        printf '/dev/dri/%s(%s) ' "${_r##*/}" "$(basename "$(readlink -f "$_r/device/driver" 2>/dev/null)" 2>/dev/null)"
+    done
+    echo
+    _vk_icds="$(ls "${NCZ_SYSROOT:-}"/etc/vulkan/icd.d/*.json "${NCZ_SYSROOT:-}"/usr/share/vulkan/icd.d/*.json 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
+    echo "vulkan ICDs   : ${_vk_icds:-(none)}"
+    echo "health check  : ncz-gpu-status --require-hardware"
+    exit 0
+fi
+
 sel=$(sed -n 's/.*\bsky1\.gpu=\([a-z]*\).*/\1/p' /proc/cmdline 2>/dev/null)
 src="kernel cmdline sky1.gpu="
 if [ -z "$sel" ]; then
