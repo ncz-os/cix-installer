@@ -33,6 +33,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+umask 022   # reproducible file modes (the version gate compares content)
 OUT="$ROOT/build/dkms-debs"
 DRIVERS=("$@")
 [ ${#DRIVERS[@]} -eq 0 ] && DRIVERS=(mali panthor vpu npu)

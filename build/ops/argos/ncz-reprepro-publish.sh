@@ -77,7 +77,7 @@ PKG_NAME="${PKG_NAME:-$(dpkg-deb -f "$TMPDEB" Package)}"
 # The two libraries are copies of post-install/lib/apt-separation.sh and
 # build/lib/deb-version-gate.sh from cix-installer; deploy them with this
 # script into $NCZ_POLICY_DIR (default ~/ncz-policy) -- see docs/APT-SEPARATION.md.
-NCZ_POLICY_DIR="${NCZ_POLICY_DIR:-/home/jasonperlow/ncz-policy}"
+NCZ_POLICY_DIR="${NCZ_POLICY_DIR:-${HOME:?HOME is unset: set NCZ_POLICY_DIR}/ncz-policy}"
 ncz_publish_policy() {  # deb
     local deb="$1" name arch cls
     for _f in apt-separation.sh deb-version-gate.sh; do
@@ -95,6 +95,10 @@ ncz_publish_policy() {  # deb
         *)  echo "FATAL: refusing to publish '$name' ($cls): a Debian-named package may enter the NCZ suite only if listed in ncz_apt_debian_overrides (post-install/lib/apt-separation.sh)" >&2
             return 1 ;;
     esac
+    # ncz-apt-policy carries the pin: it must be built from exactly the library deployed here.
+    if [ "$name" = ncz-apt-policy ]; then
+        ncz_policy_deb_lib_check "$deb" "$NCZ_POLICY_DIR/apt-separation.sh" || return 1
+    fi
     NCZ_VERSION_GATE_STRICT=1 ncz_deb_version_gate "$deb" || return 1
 }
 # --- policy-end ---

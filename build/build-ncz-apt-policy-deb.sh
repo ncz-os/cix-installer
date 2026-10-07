@@ -95,4 +95,5 @@ dpkg-deb -Zxz --build --root-owner-group "$WORK" "$DEB" >/dev/null
 # shellcheck source=lib/deb-version-gate.sh
 . "$ROOT/build/lib/deb-version-gate.sh"
 ncz_deb_version_gate "$DEB" || exit 1
+ncz_policy_deb_lib_check "$DEB" "$LIB" || exit 1
 echo "built: $DEB ($(du -h "$DEB" | cut -f1))"

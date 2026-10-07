@@ -461,6 +461,8 @@ build/build-ncz-apt-policy-deb.sh	common	-	builds the ncz-apt-policy package tha
 build/test-apt-separation.sh	common	-	real apt resolution against throwaway Debian/NCZ/T2 repos, old behaviour vs new, plus the single-source writer and ncz-apt-source helper
 build/test-ncz-repo-policy.sh	common	-	behavioural tests for the repo-content gate, installed-config audit, version gate, publisher policy and update classification
 build/testdata/apt-separation/	common	-	recorded MEDUSA r200 apt list/policy output and the r200 Buildkite amd64 package names used by test-ncz-repo-policy.sh
+build/apt-live-gate.sh	common	-	read-only live NCZ repo policy gate with fail/warn/skip modes (preflight warns, ship-image fails)
+build/test-install-extra-local-debs.sh	common	-	every ncz-* install-extra seed must be resolvable by the offline-mirror build (the real NCZ_LOCAL_DEBS loop, both arches, with and without the local deb)
 build/test-apt-sources-hook-container.sh	common	-	runs the real hook 24 with the separation pin in debian:forky (no network, /cdrom offline pool): rc, single NCZ list, canary verdict, unchanged policy source lines, hard failure with no keyrings
 build/test-ncz-apt-policy-deb.sh	common	-	builds the ncz-apt-policy deb and runs its real maintainer scripts (dash/bash parse, debian:forky container install/reinstall/purge, sh-postinst negative control)
 docs/APT-SEPARATION.md	common	-	design and operator runbook: separating NCZ-OS package updates from Debian and third-party ones

@@ -28,7 +28,12 @@ SRC="$REPO/post-install/41-usb2-rescan.sh"
 # without touching the real build tree.
 OUT="${NCZ_USB_RECOVERY_OUT:-$REPO/build/usb-recovery-deb}"
 PKG=ncz-usb-recovery
-VERSION="${NCZ_USB_RECOVERY_VERSION:-1.1}"
+# Reproducible modes: the file modes come from the umask, which differs per host and shell.
+umask 022
+# 1.2 (r201): the PUBLISHED ncz-usb-recovery 1.1 is a different package from what this script builds
+# (Architecture: all, an older unit and README; this builder emits Architecture: arm64 since item RS).
+# Same version + different content is what makes apt show "1.1 -> 1.1", so the version moved.
+VERSION="${NCZ_USB_RECOVERY_VERSION:-1.2}"
 
 [ -f "$SRC" ] || { echo "ERROR: $SRC not found" >&2; exit 1; }
 
