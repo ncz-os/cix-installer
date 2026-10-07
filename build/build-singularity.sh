@@ -186,6 +186,13 @@ apt-get install -y --no-install-recommends \
     libdisplay-info-dev \
     libseat-dev \
     libliftoff-dev \
+    libarchive-dev libcups2-dev libfido2-dev libfreetype-dev libfuse3-dev \
+    libges-1.0-dev libgnutls28-dev libgphoto2-dev libharfbuzz-dev \
+    liblcms2-dev liblzma-dev libsane-dev libsqlite3-dev libtiff-dev \
+    libwebp-dev libzbar-dev libzstd-dev freerdp3-dev nettle-dev zlib1g-dev \
+    libevdev-dev libmtdev-dev libwacom-dev libtracker-sparql-3.0-dev \
+    libsfdo-dev libxcb-xinput-dev libxcb-render-util0-dev libudev-dev \
+    libusb-1.0-0-dev libnss3-dev \
     build-essential
 
 mkdir -p /work && cd /work
@@ -422,7 +429,11 @@ fi
 meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
 # Bundled labwc/wlroots (labwc uses the wlroots-0.20 fallback wrap upstream ships).
 if [ -f Makefile ] && grep -q LABWC_BUILD Makefile; then
-    make compile
+    # Upstream `make compile` reconfigures the top project with
+    # -Dprefix=$(DEPLOY_PREFIX), default /opt/local (since 2026-10-06). Without
+    # this the install lands in /opt/local, not the payload prefix, and the
+    # staged-tree check below fails with a missing schema.
+    make compile DEPLOY_PREFIX='"$PREFIX"'
 else
     ninja -C build
     # labwc subproject, if the tree carries it as a separate meson project

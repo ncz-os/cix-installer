@@ -116,6 +116,21 @@ Deliberately has no `**Upstream PR:**` link, so
 `build/singularity-patch-reconcile.py` will not auto-retire it. When the
 change is filed and merged upstream, delete the patch and this block.
 
+**Not filed upstream** (2026-10-07). Patch
+`0003-build-cups-flags-not-a-vala-package.patch`. The 2026-10-06
+libsingularity release added `dependency('cups')` to the Vala target, which
+makes meson pass `--pkg cups` to valac. Debian's valac (0.56.19) ships no
+`cups.vapi`, so the build stops with "Package `cups' not found in specified
+Vala API directories". No Vala source uses a libcups binding (only
+`src/print/ipp_transport.c` does), so the patch passes the cups compile and
+link flags directly, exactly as `lcms2` is already handled in the same file.
+Delete it when upstream stops handing libcups to valac or Debian ships the
+binding.
+
+Status note (2026-10-07): PR #15 above was CLOSED upstream without merging,
+so `build/singularity-patch-reconcile.py` (which retires only MERGED PRs)
+will never retire patch 0001; it stays a carried downstream patch.
+
 ## singularity-loginui — active
 
 **Not yet filed upstream.** Patch

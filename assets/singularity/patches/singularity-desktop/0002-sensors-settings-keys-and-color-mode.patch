@@ -1,4 +1,4 @@
-From c1461580fc2ee2b79930c6a3e83c68937e3550be Mon Sep 17 00:00:00 2001
+From 28f00009a6137ba97e8e341b58c00f12548ba6ff Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Mon, 21 Sep 2026 16:30:54 -0400
 Subject: [PATCH] schema: sensors settings keys + color-mode toggle
@@ -17,17 +17,17 @@ severity-colored dots, per operator request.
 Assisted-by: Claude Code:claude-sonnet-5
 AI-Scope: Declared the missing sensors-* keys plus a new sensors-color-mode key.
 ---
- data/dev.sinty.desktop.gschema.xml | 34 ++++++++++++++++++++++++++++++
- 1 file changed, 34 insertions(+)
+ data/dev.sinty.desktop.gschema.xml | 35 ++++++++++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
 
 diff --git a/data/dev.sinty.desktop.gschema.xml b/data/dev.sinty.desktop.gschema.xml
-index 93f09bf..502e4cb 100644
+index 93f09bf..5f9f6ee 100644
 --- a/data/dev.sinty.desktop.gschema.xml
 +++ b/data/dev.sinty.desktop.gschema.xml
-@@ -1089,6 +1089,40 @@
-       <default>{}</default>
+@@ -1090,5 +1090,40 @@
        <summary>Tablet button actions</summary>
        <description>Action for each tablet button (Pad, Pad2 to Pad9): a mouse button, none, action:NAME for a shell action or key:SHORTCUT for a keyboard shortcut. Missing buttons are sent to the app.</description>
+     </key>
 +    <key name="sensors-interval-seconds" type="i">
 +      <default>3</default>
 +      <summary>Sensors polling interval</summary>
@@ -62,7 +62,7 @@ index 93f09bf..502e4cb 100644
 +      <default>"rgb"</default>
 +      <summary>Sensors indicator text color mode</summary>
 +      <description>"rgb" colors each reading by severity (success/warning/error). "auto-contrast" renders plain, legible text using the panel's own foreground color instead of severity colors.</description>
-     </key>
++    </key>
    </schema>
  </schemalist>
 -- 
