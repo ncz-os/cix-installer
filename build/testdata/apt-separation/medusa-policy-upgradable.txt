@@ -1,0 +1,85 @@
+fonts-liberation:
+  Installed: 1:2.1.5-3
+  Candidate: 1:2.1.5-3build1
+  Version table:
+     1:2.1.5-3build1 500
+        500 https://packages.buildkite.com/ncz-os/ncz/any any/main amd64 Packages
+ *** 1:2.1.5-3 500
+        500 https://deb.debian.org/debian forky/main amd64 Packages
+        100 /var/lib/dpkg/status
+ncz-wallpapers-alex-jay-brady:
+  Installed: 1.0
+  Candidate: 1.0
+  Version table:
+     1.0 500
+        500 https://packages.buildkite.com/ncz-os/ncz/any any/main amd64 Packages
+        500 https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any/main amd64 Packages
+ *** 1.0 100
+        100 /var/lib/dpkg/status
+ncz-wallpapers-brandon-perlow:
+  Installed: 1.0
+  Candidate: 1.0
+  Version table:
+     1.0 500
+        500 https://packages.buildkite.com/ncz-os/ncz/any any/main amd64 Packages
+        500 https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any/main amd64 Packages
+ *** 1.0 100
+        100 /var/lib/dpkg/status
+ncz-wallpapers-ncz:
+  Installed: 1.0
+  Candidate: 1.0
+  Version table:
+     1.0 500
+        500 https://packages.buildkite.com/ncz-os/ncz/any any/main amd64 Packages
+        500 https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any/main amd64 Packages
+ *** 1.0 100
+        100 /var/lib/dpkg/status
+ncz-wallpapers-singularity:
+  Installed: 1.0
+  Candidate: 1.0
+  Version table:
+     1.0 500
+        500 https://packages.buildkite.com/ncz-os/ncz/any any/main amd64 Packages
+        500 https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any/main amd64 Packages
+ *** 1.0 100
+        100 /var/lib/dpkg/status
+node-terser:
+  Installed: 5.51.2-1
+  Candidate: 5.51.2-2
+  Version table:
+     5.51.2-2 500
+        500 https://deb.debian.org/debian forky/main amd64 Packages
+ *** 5.51.2-1 100
+        100 /var/lib/dpkg/status
+spirv-tools-dev:
+  Installed: 2026.3~rc1-1
+  Candidate: 2026.4~rc2-1
+  Version table:
+     2026.4~rc2-1 500
+        500 https://deb.debian.org/debian forky/main amd64 Packages
+ *** 2026.3~rc1-1 100
+        100 /var/lib/dpkg/status
+spirv-tools-headers:
+  Installed: 2026.3~rc1-1
+  Candidate: 2026.4~rc2-1
+  Version table:
+     2026.4~rc2-1 500
+        500 https://deb.debian.org/debian forky/main amd64 Packages
+ *** 2026.3~rc1-1 100
+        100 /var/lib/dpkg/status
+spirv-tools:
+  Installed: 2026.3~rc1-1
+  Candidate: 2026.4~rc2-1
+  Version table:
+     2026.4~rc2-1 500
+        500 https://deb.debian.org/debian forky/main amd64 Packages
+ *** 2026.3~rc1-1 100
+        100 /var/lib/dpkg/status
+terser:
+  Installed: 5.51.2-1
+  Candidate: 5.51.2-2
+  Version table:
+     5.51.2-2 500
+        500 https://deb.debian.org/debian forky/main amd64 Packages
+ *** 5.51.2-1 100
+        100 /var/lib/dpkg/status

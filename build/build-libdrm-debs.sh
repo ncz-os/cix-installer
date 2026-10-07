@@ -51,6 +51,13 @@ DEB_BUILD_OPTIONS="${DEB_BUILD_OPTIONS:-nocheck}" dpkg-buildpackage -us -uc -b
 find "$WORK" -maxdepth 1 -type f \( -name 'libdrm*_*.deb' -o -name 'libdrm*_*.udeb' \) \
     ! -name '*-dbgsym_*' -exec cp -f {} "$OUT/" \;
 
+# shellcheck source=lib/deb-version-gate.sh
+. "$ROOT/build/lib/deb-version-gate.sh"
+for _d in "$OUT"/libdrm*_*.deb; do
+    [ -e "$_d" ] || continue
+    ncz_deb_version_gate "$_d" || exit 1
+done
+
 echo "built patched libdrm packages:"
 find "$OUT" -maxdepth 1 -type f \( -name 'libdrm*_*.deb' -o -name 'libdrm*_*.udeb' \) \
     | sort | sed 's/^/  /'

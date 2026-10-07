@@ -12,6 +12,10 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 CHECKER = "/usr/bin/ncz-update-check"
 HELPER = "/usr/libexec/ncz-update-apply"
+# (group key, short label for the summary) and (group key, section heading).
+# The key comes from ncz-update-check's apt-origin classification.
+GROUP_LABELS = (("ncz-os", "NCZ-OS"), ("debian", "Debian"), ("third-party", "third-party"))
+GROUP_TITLES = (("ncz-os", "NCZ-OS updates"), ("debian", "Debian updates"), ("third-party", "Third-party updates"))
 
 
 class UpdateWindow(Gtk.ApplicationWindow):
@@ -91,11 +95,26 @@ class UpdateWindow(Gtk.ApplicationWindow):
             self.apply_button.set_sensitive(False)
             return False
         desktop = bool(payload.get("desktop_update"))
-        message = f"{len(updates)} package update{'s' if len(updates) != 1 else ''} available."
+        groups = payload.get("groups", {})
+        message = f"{len(updates)} package update{'s' if len(updates) != 1 else ''} available"
+        parts = [f"{groups[key]} {label}" for key, label in GROUP_LABELS if groups.get(key)]
+        if parts:
+            message += " (" + ", ".join(parts) + ")"
+        message += "."
         if desktop:
             message += " A Singularity Desktop update is included."
         self.status.set_text(message)
+        current_group = None
         for update in updates:
+            group = update.get("group", "third-party")
+            if group != current_group:
+                current_group = group
+                title = dict(GROUP_TITLES).get(group, group)
+                header = Gtk.Label(label=f"{title} ({groups.get(group, 0)})", xalign=0)
+                header.add_css_class("title-4")
+                header.set_margin_top(10)
+                header.set_margin_start(10)
+                self.listbox.append(header)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
             box.set_margin_top(8)
             box.set_margin_bottom(8)
@@ -106,8 +125,9 @@ class UpdateWindow(Gtk.ApplicationWindow):
                 name += " — Singularity Desktop"
             heading = Gtk.Label(label=name, xalign=0)
             heading.add_css_class("heading")
+            note = "  [rebuilt, same version]" if update.get("same_version") else ""
             detail = Gtk.Label(
-                label=f'{update["installed"]} → {update["candidate"]}  ({update["suite"]})',
+                label=f'{update["installed"]} → {update["candidate"]}  ({update["suite"]}){note}',
                 xalign=0,
             )
             detail.add_css_class("dim-label")

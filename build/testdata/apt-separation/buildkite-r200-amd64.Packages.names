@@ -1,0 +1,76 @@
+# Names/versions only, recorded from https://packages.buildkite.com/ncz-os/ncz/any/dists/any/main/binary-amd64/Packages on 2026-10-07 (r200 era). Contains the leaked Ubuntu fonts-liberation 1:2.1.5-3build1.
+Package: fonts-liberation
+Version: 1:2.1.5-3build1
+Architecture: all
+
+Package: libdrm-common
+Version: 2.4.134-3+ncz1
+Architecture: all
+
+Package: ncz-screensavers-gtk4-reference
+Version: 0.8.9
+Architecture: all
+
+Package: ncz-screensavers-gtk4-reference
+Version: 0.8.10
+Architecture: all
+
+Package: ncz-usb-recovery
+Version: 1.1
+Architecture: all
+
+Package: ncz-wallpapers-alex-jay-brady
+Version: 1.0
+Architecture: all
+
+Package: ncz-wallpapers-brandon-perlow
+Version: 1.0
+Architecture: all
+
+Package: ncz-wallpapers-ncz
+Version: 1.0
+Architecture: all
+
+Package: ncz-wallpapers-singularity
+Version: 1.0
+Architecture: all
+
+Package: panthor-cix-dkms
+Version: 7.2.0+ncz1
+Architecture: all
+
+Package: linux-headers-7.2.6-1-t2-trixie
+Version: 7.2.6-1
+Architecture: amd64
+
+Package: linux-headers-7.3.0-rc3-ncz-amd64-edge
+Version: 7.3.0~rc3-1
+Architecture: amd64
+
+Package: linux-image-7.2.6-1-t2-trixie
+Version: 7.2.6-1
+Architecture: amd64
+
+Package: linux-image-7.3.0-rc3-ncz-amd64-edge
+Version: 7.3.0~rc3-1
+Architecture: amd64
+
+Package: ncz-screensavers
+Version: 0.8.9
+Architecture: amd64
+
+Package: ncz-screensavers
+Version: 0.8.10
+Architecture: amd64
+
+Package: ncz-singularity-desktop
+Version: 20260916+bk0
+Architecture: amd64
+
+Package: ncz-singularity-desktop
+Version: 20261005+u20260925.g5c75e563d10e+deps1
+Architecture: amd64
+
+Package: zoder
+Version: 0.2.1~dev20260727.5165cb9
+Architecture: amd64

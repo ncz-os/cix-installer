@@ -202,7 +202,12 @@ fi
 [ -f "$ARTISTPACK_SRC/artist.json" ] || { echo "ERROR: missing ArtistPack manifest: $ARTISTPACK_SRC/artist.json" >&2; exit 1; }
 [ -f "$ARTISTPACK_SRC/pack.json" ] || { echo "ERROR: missing ArtistPack manifest: $ARTISTPACK_SRC/pack.json" >&2; exit 1; }
 
-VERSION="${NCZ_WALLPAPER_PACK_VERSION:-1.0}"
+# 1.1 (r201): the four ncz-wallpapers-* debs were published as 1.0 in two repos and
+# then rebuilt as 1.0 again, which apt reports as "1.0 -> 1.0" on every installed
+# system. ANY change to a pack's images, control data or this script's output
+# must bump this default (or set NCZ_WALLPAPER_PACK_VERSION); the version gate
+# below refuses a same-version rebuild with different content.
+VERSION="${NCZ_WALLPAPER_PACK_VERSION:-1.1}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK" ${SRC_TMP:+"$SRC_TMP"}' EXIT
 
@@ -324,6 +329,20 @@ COPYRIGHT
 
 install -d "$OUT"
 DEB="$OUT/${PKG}_${VERSION}_all.deb"
+# Reproducible bytes: an identical rebuild must hash identically, otherwise the
+# version gate (and apt, "1.0 -> 1.0") cannot tell a real change from a re-run.
+# The epoch is the last commit that touched the packaging script or the art.
+if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
+    SOURCE_DATE_EPOCH="$(git -C "$ROOT" log -1 --format=%ct -- build/build-wallpaper-contrib-deb.sh assets/branding/wallpaper 2>/dev/null || true)"
+    : "${SOURCE_DATE_EPOCH:=1790000000}"
+fi
+export SOURCE_DATE_EPOCH
+find "$WORK" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
 dpkg-deb --build --root-owner-group "$WORK" "$DEB" >/dev/null
+# r201 version discipline: refuse to rebuild an already-published version with
+# different content (apt would show "X -> X"); see build/lib/deb-version-gate.sh.
+# shellcheck source=lib/deb-version-gate.sh
+. "$ROOT/build/lib/deb-version-gate.sh"
+ncz_deb_version_gate "$DEB" || exit 1
 echo "  built: $DEB ($(du -h "$DEB" | cut -f1))"
 dpkg-deb --info "$DEB" | sed 's/^/    /'
