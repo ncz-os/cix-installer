@@ -157,6 +157,20 @@ fwupd
 # 2026-09-27 that intel-gpu-tools is absent from the forky arm64 index, and
 # seeding it into desktop.pkgs would hard-fail build-forky-mirror.sh.
 intel-gpu-tools
+
+# Intel compute/Level Zero userspace, offline. The deferred installer
+# (post-install/lib/intel-accel.sh, ncz-intel-accel-setup.timer) installs these
+# three from Debian when an Intel GPU is present, but with no network at install
+# time (offline install, KVM gate, PROTEUS without a link) apt could not fetch
+# them. Seeded so the mirror carries them and the installer finds them already
+# available. Verified present for amd64 in snapshot 20261006T143441Z:
+# intel-opencl-icd 26.27.39122.14-1, libze-intel-gpu1 26.27.39122.14-1,
+# libze1 1.32.0-1. amd64 ONLY (Intel GPUs do not exist on Sky1); claimed in
+# build/arch-parity-allowlist.tsv. Do not add to desktop.pkgs. The Intel-repo
+# libopenvino-intel-*-plugin packages are NOT here: they come from Intel only.
+intel-opencl-icd
+libze-intel-gpu1
+libze1
 glmark2-es2-wayland
 glmark2-wayland
 glmark2-x11
