@@ -653,6 +653,7 @@ parity:
 	build/test-wallpaper-rotator-relogin.sh
 	python3 build/test_wallpaper_fit.py
 	python3 -m unittest build/iso/tests/test_stage_payload_desktop_guard.py
+	python3 -m unittest build/iso/tests/test_patch_initrd_firmware.py
 	build/test-boot-speed.sh
 	build/test-timesync-retry.sh
 	build/test-boot-sequence.sh
