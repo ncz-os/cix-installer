@@ -193,6 +193,15 @@ def main() -> int:
                 print(f"[reconcile] WARN: could not check {pr_label} ({pr_url}): {e}")
                 continue
 
+            if state.get("state") == "CLOSED":
+                # Closed WITHOUT a merge: upstream declined it. The patch is still
+                # carried (the build needs it) but nothing will ever retire it, so
+                # say so instead of calling it open.
+                print(
+                    f"[reconcile] ATTENTION: {pr_label} was CLOSED without merging -- "
+                    "keeping patch; decide whether to carry it, move it, or drop it"
+                )
+                continue
             if state.get("state") != "MERGED":
                 print(f"[reconcile] OK: {pr_label} still open -- keeping patch")
                 continue
