@@ -149,7 +149,6 @@ def patch_initrd(
             cwd=extract_dir,
             check=True,
         )
-        import os
         subprocess.run(
             ["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}", str(extract_dir)],
             check=True,
