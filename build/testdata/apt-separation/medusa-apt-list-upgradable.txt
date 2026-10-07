@@ -1,0 +1,11 @@
+Listing...
+fonts-liberation/any 1:2.1.5-3build1 all [upgradable from: 1:2.1.5-3]
+ncz-wallpapers-alex-jay-brady/any,unknown 1.0 all [upgradable from: 1.0]
+ncz-wallpapers-brandon-perlow/any,unknown 1.0 all [upgradable from: 1.0]
+ncz-wallpapers-ncz/any,unknown 1.0 all [upgradable from: 1.0]
+ncz-wallpapers-singularity/any,unknown 1.0 all [upgradable from: 1.0]
+node-terser/testing 5.51.2-2 all [upgradable from: 5.51.2-1]
+spirv-tools-dev/testing 2026.4~rc2-1 amd64 [upgradable from: 2026.3~rc1-1]
+spirv-tools-headers/testing 2026.4~rc2-1 all [upgradable from: 2026.3~rc1-1]
+spirv-tools/testing 2026.4~rc2-1 amd64 [upgradable from: 2026.3~rc1-1]
+terser/testing 5.51.2-2 all [upgradable from: 5.51.2-1]

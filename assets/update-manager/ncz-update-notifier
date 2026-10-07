@@ -21,7 +21,17 @@ def notify(payload):
     count = int(payload["count"])
     if count == 0:
         return
-    summary = f"{count} NCZ-OS update{'s' if count != 1 else ''} available"
+    groups = payload.get("groups", {})
+    ncz, debian = int(groups.get("ncz-os", 0)), int(groups.get("debian", 0))
+    other = count - ncz - debian
+    pieces = []
+    if ncz:
+        pieces.append(f"{ncz} NCZ-OS")
+    if debian:
+        pieces.append(f"{debian} Debian")
+    if other > 0:
+        pieces.append(f"{other} third-party")
+    summary = " + ".join(pieces) + f" update{'s' if count != 1 else ''} available" if pieces else f"{count} updates available"
     body = "A Singularity Desktop update is included." if payload["desktop_update"] else "Open Update Manager to review and install them."
     command = [
         "notify-send", "--app-name=NCZ-OS Updates", "--icon=system-software-update",

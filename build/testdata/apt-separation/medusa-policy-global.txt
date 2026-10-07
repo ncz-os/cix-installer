@@ -1,0 +1,47 @@
+Package files:
+ 100 /var/lib/dpkg/status
+     release a=now
+ 500 https://adityagarg8.github.io/t2-ubuntu-repo ./ Packages
+     release c=
+     origin adityagarg8.github.io
+ 500 https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any/main amd64 Packages
+     release o=NCZ-OS,n=any,l=NCZ-OS,c=main,b=amd64
+     origin pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev
+ 500 https://packages.buildkite.com/ncz-os/ncz/any any/main amd64 Packages
+     release v=1,o=packagecloud.io/019f10bc-fa3e-4aff-8d25-4b63ccf6e569/019f10be-ed1e-7f3a-ae71-d226f85832e4,a=any,n=any,l=019f10be-ed1e-7f3a-ae71-d226f85832e4,c=main,b=amd64
+     origin packages.buildkite.com
+ 500 https://deb.debian.org/debian forky/non-free-firmware amd64 Packages
+     release o=Debian,a=testing,n=forky,l=Debian,c=non-free-firmware,b=amd64
+     origin deb.debian.org
+ 500 https://deb.debian.org/debian forky/non-free amd64 Packages
+     release o=Debian,a=testing,n=forky,l=Debian,c=non-free,b=amd64
+     origin deb.debian.org
+ 500 https://deb.debian.org/debian forky/contrib amd64 Packages
+     release o=Debian,a=testing,n=forky,l=Debian,c=contrib,b=amd64
+     origin deb.debian.org
+ 500 https://deb.debian.org/debian forky/main amd64 Packages
+     release o=Debian,a=testing,n=forky,l=Debian,c=main,b=amd64
+     origin deb.debian.org
+ 500 https://dl.google.com/linux/chrome-stable/deb stable/main amd64 Packages
+     release v=1.0,o=Google LLC,a=stable,n=stable,l=Google,c=main,b=amd64
+     origin dl.google.com
+Pinned packages:
+     linux-headers-7.2.8+deb14-common -> 7.2.8-1 with priority -1
+     linux-image-rt-amd64-dbg -> 7.2.8-1 with priority -1
+     linux-image-7.2.8+deb14-rt-amd64-dbg -> 7.2.8-1 with priority -1
+     linux-image-7.2.8+deb14-rt-amd64 -> 7.2.8-1 with priority -1
+     linux-headers-7.2.8+deb14-rt-amd64 -> 7.2.8-1 with priority -1
+     linux-image-7.2.8+deb14-cloud-amd64 -> 7.2.8-1 with priority -1
+     linux-headers-amd64 -> 7.2.8-1 with priority -1
+     linux-headers-cloud-amd64 -> 7.2.8-1 with priority -1
+     linux-image-amd64-dbg -> 7.2.8-1 with priority -1
+     linux-image-7.2.8+deb14-amd64 -> 7.2.8-1 with priority -1
+     linux-image-amd64 -> 7.2.8-1 with priority -1
+     linux-image-cloud-amd64-dbg -> 7.2.8-1 with priority -1
+     linux-image-7.2.8+deb14-cloud-amd64-dbg -> 7.2.8-1 with priority -1
+     linux-headers-rt-amd64 -> 7.2.8-1 with priority -1
+     linux-image-rt-amd64 -> 7.2.8-1 with priority -1
+     linux-headers-7.2.8+deb14-amd64 -> 7.2.8-1 with priority -1
+     linux-image-7.2.8+deb14-amd64-dbg -> 7.2.8-1 with priority -1
+     linux-image-cloud-amd64 -> 7.2.8-1 with priority -1
+     linux-headers-7.2.8+deb14-cloud-amd64 -> 7.2.8-1 with priority -1

@@ -225,6 +225,12 @@ else
     fakeroot dpkg-deb --build "$STAGE" "$OUTDEB"
 fi
 
+# r201 version discipline: refuse to rebuild an already-published version with
+# different content (apt would show "X -> X"); see build/lib/deb-version-gate.sh.
+# shellcheck source=lib/deb-version-gate.sh
+. "$REPO/build/lib/deb-version-gate.sh"
+ncz_deb_version_gate "$OUTDEB" || exit 1
+
 echo "== package self-check: $OUTDEB =="
 dpkg-deb -I "$OUTDEB"
 dpkg-deb -c "$OUTDEB"

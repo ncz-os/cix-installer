@@ -140,5 +140,10 @@ install -d "$OUT"
 # that (build/build-desktop-mirror.sh, gated to arm64).
 DEB="$OUT/${PKG}_${VERSION}_arm64.deb"
 dpkg-deb --build --root-owner-group "$WORK" "$DEB" >/dev/null
+# r201 version discipline: refuse to rebuild an already-published version with
+# different content (apt would show "X -> X"); see build/lib/deb-version-gate.sh.
+# shellcheck source=lib/deb-version-gate.sh
+. "$REPO/build/lib/deb-version-gate.sh"
+ncz_deb_version_gate "$DEB" || exit 1
 echo "  built: $DEB ($(du -h "$DEB" | cut -f1))"
 dpkg-deb --contents "$DEB" | awk '{print "    " $NF}' | grep -vE '/$'
