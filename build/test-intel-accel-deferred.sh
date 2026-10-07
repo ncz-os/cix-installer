@@ -36,8 +36,18 @@ echo "apt-get $*" >> "$LOG"
 case " $* " in
     *" update "*) exit 0 ;;
     *" -s "*) echo "Inst libze1"; [ "${REMV:-0}" = 1 ] && echo "Remv mesa-opencl-icd [1]"; exit 0 ;;
-    *" install "*) [ "$NET" = up ] && exit 0; exit 100 ;;
+    *" install "*) [ "$NET" = up ] && exit 0
+                   # network down: only the Debian set can come (offline mirror, MIRROR=1)
+                   [ "${MIRROR:-0}" = 1 ] && ! echo " $* " | grep -q libopenvino && exit 0
+                   exit 100 ;;
 esac
+EOF
+# dpkg-query: packages listed in $INSTALLED report as installed
+cat > "$W/bin/dpkg-query" <<'EOF'
+#!/bin/sh
+for a in "$@"; do p="$a"; done
+case " ${INSTALLED:-} " in *" $p "*) printf 'install ok installed'; exit 0 ;; esac
+exit 1
 EOF
 printf '#!/bin/sh\ncat\n' > "$W/bin/gpg"
 chmod +x "$W/bin/"*
@@ -62,7 +72,7 @@ mkroot; NET=down run ncz_intel_accel_install 1 1
 [ -f "$P" ] && grep -qx GPU=1 "$P" && grep -qx NPU=1 "$P" && ok "retry marker records GPU=1 NPU=1" || bad "no retry marker" "$(cat "$W/out")"
 [ -L "$T" ] && [ -f "$W/r/etc/systemd/system/ncz-intel-accel-setup.service" ] && [ -x "$W/r/usr/local/sbin/ncz-intel-accel-setup" ] \
     && ok "timer enabled, service + ncz-intel-accel-setup installed" || bad "deferred units not installed"
-grep -q ' install -y' "$LOG" && bad "attempted a real install without the repo index" || ok "no install attempted without the index"
+grep ' install -y' "$LOG" | grep -q libopenvino && bad "attempted an OpenVINO install without the repo index" || ok "no OpenVINO install attempted without the index"
 
 echo "=== deferred run, still down -> stays pending ==="
 NET=down run ncz_intel_accel_run; rc=$?
@@ -78,6 +88,26 @@ done
 printf '%s\n' "$inst" | grep -qwE 'openvino|level-zero|intel-driver-compiler-npu' && bad "asks for packages no repo publishes" "$inst" || ok "installs the newest OpenVINO plugins + Debian Level Zero/OpenCL/VA; no phantom package names"
 grep -q ' -s ' "$LOG" && [ "$(grep -n ' -s ' "$LOG" | head -1 | cut -d: -f1)" -lt "$(grep -n ' install -y' "$LOG" | head -1 | cut -d: -f1)" ] \
     && ok "simulated before installing" || bad "no simulation before install"
+
+echo "=== offline mirror: Debian set installs with no Intel index, OpenVINO stays pending ==="
+mkroot; NET=down MIRROR=1 run ncz_intel_accel_install 1 0; rc=$?
+inst=$(grep ' install -y' "$LOG")
+for p in intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1; do
+    printf '%s\n' "$inst" | grep -qw -- "$p" || bad "offline install lacks $p" "$inst"
+done
+printf '%s\n' "$inst" | grep -q libopenvino && bad "offline install pulled an Intel-repo package" "$inst" || ok "Debian GPU set installed from the mirror with the network down"
+[ -f "$P" ] && ok "OpenVINO plugins still deferred (marker kept, timer armed)" || bad "marker lost although the plugins are not installed" "$(cat "$W/out")"
+
+echo "=== already installed from the mirror: skipped without touching apt install ==="
+mkroot; NET=up INSTALLED="intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1" run ncz_intel_accel_install 1 0
+inst=$(grep ' install -y' "$LOG")
+printf '%s\n' "$inst" | grep -qwE 'intel-opencl-icd|intel-media-va-driver|libze1|libze-intel-gpu1' && bad "reinstalled packages that are already present" "$inst" || ok "present packages are not passed to apt again"
+printf '%s\n' "$inst" | grep -q libopenvino-intel-gpu-plugin && ok "only the Intel-repo plugin is installed" || bad "plugin install missing" "$inst"
+grep -qx done "$W/r/var/lib/ncz/intel-accel.status" && ok "status done" || bad "status not done" "$(cat "$W/out")"
+
+echo "=== everything present, network down: nothing to do except the plugin index ==="
+mkroot; NET=down MIRROR=1 INSTALLED="intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1" run ncz_intel_accel_install 1 0
+grep -q ' install ' "$LOG" && bad "ran apt install although all Debian packages are present" || ok "no apt install call when the Debian set is already installed"
 
 echo "=== a transaction that would remove packages is refused, not forced ==="
 mkroot; NET=up REMV=1 run ncz_intel_accel_install 1 0
