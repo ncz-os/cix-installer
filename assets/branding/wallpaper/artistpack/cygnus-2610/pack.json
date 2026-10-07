@@ -1,0 +1,352 @@
+{
+  "artistpack": "0.1",
+  "pack": {
+    "id": "ncz-os.cygnus-2610",
+    "title": "NCZ-OS 26.10 Cygnus",
+    "version": "1.0.0",
+    "description": "The default NCZ-OS 26.10 Cygnus wallpaper collection."
+  },
+  "artist": {
+    "id": "ncz-os",
+    "name": "NCZ-OS",
+    "website": "https://github.com/ncz-os",
+    "socials": {
+      "gitlab": "https://gitlab.com/ncz-os/cix-installer"
+    }
+  },
+  "rights": {
+    "copyright": "Copyright NCZ-OS contributors, 2026",
+    "license": "All rights reserved -- NCZ-OS project",
+    "attribution_required": true
+  },
+  "artworks": [
+    {
+      "id": "hero-edge-on",
+      "title": "Edge-on",
+      "original": {
+        "file": "cygnus-hero-edge-on.jpg",
+        "sha256": "ee95309f8832555ff1dc25301f0f46642c6dbb2d7b98d8325491ba00357b209d",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "cygnus-hero-edge-on.jpg",
+          "sha256": "ee95309f8832555ff1dc25301f0f46642c6dbb2d7b98d8325491ba00357b209d",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "binary-cyg",
+      "title": "Binary",
+      "original": {
+        "file": "cygnus-binary-cyg.jpg",
+        "sha256": "87e7baed30a43cc4d7262c895c97e351c7aeaa77c51d04edae73e7ce279b0b4e",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "cygnus-binary-cyg.jpg",
+          "sha256": "87e7baed30a43cc4d7262c895c97e351c7aeaa77c51d04edae73e7ce279b0b4e",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "galaxy-cyg",
+      "title": "Galaxy",
+      "original": {
+        "file": "cygnus-galaxy-cyg.jpg",
+        "sha256": "3c157f6da6ccbbee82f74a7f9f09659c85283c1359fe23856016a0cfec66417f",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "cygnus-galaxy-cyg.jpg",
+          "sha256": "3c157f6da6ccbbee82f74a7f9f09659c85283c1359fe23856016a0cfec66417f",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "hero-reveal-64ss",
+      "title": "Reveal",
+      "original": {
+        "file": "cygnus-hero-reveal-64ss.jpg",
+        "sha256": "b7bca05ffeeebb99b06e2e8952b6d1111dbed0d198065e13fcaffe02ce01c2e8",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "cygnus-hero-reveal-64ss.jpg",
+          "sha256": "b7bca05ffeeebb99b06e2e8952b6d1111dbed0d198065e13fcaffe02ce01c2e8",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "merger-cyg",
+      "title": "Merger",
+      "original": {
+        "file": "cygnus-merger-cyg.jpg",
+        "sha256": "0fa2c7397815cf50ef779c339af08bf1a9e2e464fa822c90a1986b12ebb1b964",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "cygnus-merger-cyg.jpg",
+          "sha256": "0fa2c7397815cf50ef779c339af08bf1a9e2e464fa822c90a1986b12ebb1b964",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "single-cyg",
+      "title": "Cygnus",
+      "original": {
+        "file": "cygnus-single-cyg.jpg",
+        "sha256": "b0e0d4c03cc7dad863e657134dfc79326936a5c88900d88c971e03be7e1356f6",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "cygnus-single-cyg.jpg",
+          "sha256": "b0e0d4c03cc7dad863e657134dfc79326936a5c88900d88c971e03be7e1356f6",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "single-eht",
+      "title": "Event Horizon",
+      "original": {
+        "file": "cygnus-single-eht.jpg",
+        "sha256": "7c9d97bd2766abaf4fa4c2a6399cf6f75cd0d199f45f5e1b66ffb5f710519c3a",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "cygnus-single-eht.jpg",
+          "sha256": "7c9d97bd2766abaf4fa4c2a6399cf6f75cd0d199f45f5e1b66ffb5f710519c3a",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "single-kipthorne",
+      "title": "Thorne",
+      "original": {
+        "file": "cygnus-single-kipthorne.jpg",
+        "sha256": "6e9ef163aa162a9e0f4f9eb7c73666e415db95062b18e8eab9424eff6522542e",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "cygnus-single-kipthorne.jpg",
+          "sha256": "6e9ef163aa162a9e0f4f9eb7c73666e415db95062b18e8eab9424eff6522542e",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "single-singularity",
+      "title": "Singularity",
+      "original": {
+        "file": "cygnus-single-singularity.jpg",
+        "sha256": "1a6f9a0a9a27f90c1869680ce54fbf25bfa99603ef009c49d62cdcf0c4b08a79",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "cygnus-single-singularity.jpg",
+          "sha256": "1a6f9a0a9a27f90c1869680ce54fbf25bfa99603ef009c49d62cdcf0c4b08a79",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "single-whitehole",
+      "title": "White hole",
+      "original": {
+        "file": "cygnus-single-whitehole.jpg",
+        "sha256": "fbd8996761118e41e358c913603168374a924b2302867358b454a197308da4d6",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "cygnus-single-whitehole.jpg",
+          "sha256": "fbd8996761118e41e358c913603168374a924b2302867358b454a197308da4d6",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "tde-cyg",
+      "title": "Tidal disruption",
+      "original": {
+        "file": "cygnus-tde-cyg.jpg",
+        "sha256": "344b879f898b08b53addce9b418926c5623e2a8c26a6a3d938d58a825a59a34e",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "cygnus-tde-cyg.jpg",
+          "sha256": "344b879f898b08b53addce9b418926c5623e2a8c26a6a3d938d58a825a59a34e",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "three-cyg",
+      "title": "Three bodies",
+      "original": {
+        "file": "cygnus-three-cyg.jpg",
+        "sha256": "0766980c95ec98ed7fc68da03ea03463ef5f789f81376298ab87ec15e776cee4",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "cygnus-three-cyg.jpg",
+          "sha256": "0766980c95ec98ed7fc68da03ea03463ef5f789f81376298ab87ec15e776cee4",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    }
+  ],
+  "compatibility": {
+    "wallpaper": true,
+    "lock_screen": true
+  }
+}
