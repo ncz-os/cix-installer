@@ -116,6 +116,17 @@ Deliberately has no `**Upstream PR:**` link, so
 `build/singularity-patch-reconcile.py` will not auto-retire it. When the
 change is filed and merged upstream, delete the patch and this block.
 
+**Not yet filed upstream.** Patch `0003-cups-link-as-plain-library.patch`
+(2026-10-07). libsingularity 23fb1709 lists `dependency('cups')` among the
+dependencies of the Vala library target, so meson passes `--pkg cups` to valac,
+and Debian forky's valac 0.56.19 (like Ubuntu 24.04's) has no cups binding:
+`error: Package 'cups' not found in specified Vala API directories`. Only the
+C file `src/print/ipp_transport.c` uses libcups, so the patch finds the library
+with `cc.find_library('cups')` and checks `cups/cups.h`. Deliberately has no
+`**Upstream PR:**` link, so `build/singularity-patch-reconcile.py` will not
+auto-retire it. When upstream carries a binding or changes the dependency,
+delete the patch and this block.
+
 ## singularity-loginui — active
 
 **Not yet filed upstream.** Patch
