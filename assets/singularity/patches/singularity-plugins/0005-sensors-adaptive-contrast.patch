@@ -1,21 +1,22 @@
-From 674cd65cc9534e5d6997d652f6967e64f33408c0 Mon Sep 17 00:00:00 2001
+From d9ba27f33d958fedfcc9aa7ec1169d8f233211f0 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Tue, 29 Sep 2026 11:48:08 -0400
-Subject: [PATCH] fix(sensors): keep text contrast against the real background
+Date: Tue, 29 Sep 2026 12:25:01 -0400
+Subject: [PATCH 5/5] fix(sensors): keep text contrast against the real
+ background
 
 The chip colored its markup from theme severity tokens regardless of
-what it rendered on, and the popover used dim-label opacity, so text
-went unreadable on light, translucent or mismatched panels.
+what it rendered on, and the popover dimmed values with opacity, so
+text became unreadable on light, translucent or mismatched panels.
 
-Sample the pixels around the chip and the popover content, composite
-them, and derive neutral, muted and severity colors that reach WCAG
-7:1 (4.5:1 minimum) by shifting lightness only. A translucent surface
-gets its own backing scrim. Warning and critical also differ by glyph
-and weight. Re-evaluated on theme, dark-preference and panel redraw
-signals. Contrast math lives in contrast.vala with a meson test.
+Sample the pixels around the chip and the popover content, then derive
+neutral, muted and severity colors that reach WCAG 7:1 (4.5:1 minimum)
+by shifting lightness only. A translucent surface gets its own backing.
+Warning and critical also differ by glyph and weight. Re-evaluated on
+theme, dark-preference and panel redraw signals. The contrast math is
+in contrast.vala with a meson test.
 
 Assisted-by: Claude Code:claude-sonnet-5-5
-AI-Scope: Drafted the contrast math, sampling and CSS wiring from an operator description of the bug
+AI-Scope: Drafted the contrast math, sampling and CSS wiring from a description of the bug.
 ---
  sensors/contrast.vala            | 228 ++++++++++++++++++++++
  sensors/meson.build              |   8 +
@@ -282,10 +283,10 @@ index 859cf03..492ff3e 100644
 +)
 +test('sensors-contrast', contrast_test)
 diff --git a/sensors/sensors.vala b/sensors/sensors.vala
-index ddf1872..c33c1db 100644
+index b3a1058..22648e0 100644
 --- a/sensors/sensors.vala
 +++ b/sensors/sensors.vala
-@@ -71,6 +71,15 @@ class SensorsIndicator : Gtk.Box {
+@@ -67,6 +67,15 @@ class SensorsIndicator : Gtk.Box {
      private int detail_column_count = 1;
      private int[] detail_column_rows;
      private static Gtk.CssProvider? compact_rows_provider = null;
@@ -301,7 +302,7 @@ index ddf1872..c33c1db 100644
      private SensorMonitor monitor;
      private bool show_frequency = true;
      private bool show_utilization = true;
-@@ -113,6 +122,8 @@ class SensorsIndicator : Gtk.Box {
+@@ -109,6 +118,8 @@ class SensorsIndicator : Gtk.Box {
          // glance shows WHICH figure needs attention, not just that one
          // does.
          summary_label.use_markup = true;
@@ -310,7 +311,7 @@ index ddf1872..c33c1db 100644
  
          button = new MenuButton();
          button.add_css_class("flat");
-@@ -131,6 +142,7 @@ class SensorsIndicator : Gtk.Box {
+@@ -130,6 +141,7 @@ class SensorsIndicator : Gtk.Box {
                  compact_rows_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
          }
          detail_box = new Box(Orientation.VERTICAL, 4);
@@ -318,7 +319,7 @@ index ddf1872..c33c1db 100644
          detail_box.margin_top = 10;
          detail_box.margin_bottom = 10;
          detail_box.margin_start = 12;
-@@ -190,8 +202,21 @@ class SensorsIndicator : Gtk.Box {
+@@ -189,8 +201,21 @@ class SensorsIndicator : Gtk.Box {
              if (popover.visible) {
                  configure_detail_layout();
                  monitor.refresh();
@@ -340,7 +341,7 @@ index ddf1872..c33c1db 100644
  
          monitor = new_sensor_monitor();
          util = new UtilizationMonitor();
-@@ -282,6 +307,22 @@ class SensorsIndicator : Gtk.Box {
+@@ -281,6 +306,22 @@ class SensorsIndicator : Gtk.Box {
      }
  
      public override void dispose() {
@@ -363,7 +364,7 @@ index ddf1872..c33c1db 100644
          monitor.updated.disconnect(on_updated);
          monitor.stop();
          util.updated.disconnect(on_updated);
-@@ -376,40 +417,214 @@ class SensorsIndicator : Gtk.Box {
+@@ -362,40 +403,214 @@ class SensorsIndicator : Gtk.Box {
          return show_utilization && util.memory_fraction >= 0.0;
      }
  
@@ -606,7 +607,7 @@ index ddf1872..c33c1db 100644
      }
  
      private static int percent_of(double fraction) {
-@@ -536,15 +751,17 @@ class SensorsIndicator : Gtk.Box {
+@@ -522,15 +737,17 @@ class SensorsIndicator : Gtk.Box {
  
          StringBuilder markup = new StringBuilder();
          if (primary >= 0) {
@@ -627,7 +628,7 @@ index ddf1872..c33c1db 100644
          }
          // Utilisation in the compact chip, not only in the popover.
          //
-@@ -561,14 +778,16 @@ class SensorsIndicator : Gtk.Box {
+@@ -547,14 +764,16 @@ class SensorsIndicator : Gtk.Box {
                  // user to ignore the colour that does mean something --
                  // the same reasoning the popover's Clocks section and
                  // capacity_severity() already document.
@@ -647,7 +648,7 @@ index ddf1872..c33c1db 100644
              }
          }
          summary_label.label = markup.str;
-@@ -660,7 +879,7 @@ class SensorsIndicator : Gtk.Box {
+@@ -644,7 +863,7 @@ class SensorsIndicator : Gtk.Box {
          Button toggle = new Button();
          toggle.has_frame = false;
          toggle.add_css_class("flat");
@@ -656,7 +657,7 @@ index ddf1872..c33c1db 100644
          toggle.label = sensors_grouped ? _("Grouped") : _("Ungrouped");
          toggle.clicked.connect(() => {
              sensors_grouped = !sensors_grouped;
-@@ -689,31 +908,12 @@ class SensorsIndicator : Gtk.Box {
+@@ -673,31 +892,12 @@ class SensorsIndicator : Gtk.Box {
       * the first step of the ramp. Colour is spent only where it means
       * something: dim, plain, amber, red.
       */
@@ -691,7 +692,7 @@ index ddf1872..c33c1db 100644
          }
      }
  
-@@ -763,7 +963,9 @@ class SensorsIndicator : Gtk.Box {
+@@ -747,7 +947,9 @@ class SensorsIndicator : Gtk.Box {
              double fill_w = double.max(h, w * f);
              double r, g, b;
              heat_rgb(f, out r, out g, out b);
@@ -702,7 +703,7 @@ index ddf1872..c33c1db 100644
              rounded_rect(cr, 0, 0, fill_w, h, radius);
              cr.fill();
          });
-@@ -803,7 +1005,11 @@ class SensorsIndicator : Gtk.Box {
+@@ -787,7 +989,11 @@ class SensorsIndicator : Gtk.Box {
              row.append(make_heat_bar(heat));
          }
  
@@ -822,5 +823,5 @@ index 0000000..ef3fd21
 +    Test.run();
 +}
 -- 
-2.55.0
+2.53.0
 

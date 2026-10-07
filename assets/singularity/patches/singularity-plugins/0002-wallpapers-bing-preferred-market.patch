@@ -1,23 +1,19 @@
-From d7a049546a0f103a9b0d561f981a9ffc8f282a22 Mon Sep 17 00:00:00 2001
+From 40c5cf367aab2e921e0e3b78b7477206651a1a01 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Tue, 29 Sep 2026 11:27:34 -0400
-Subject: [PATCH 1/2] feat(wallpapers-bing): add preferred market setting
+Date: Wed, 7 Oct 2026 13:59:08 -0400
+Subject: [PATCH 2/5] feat(wallpapers-bing): add a preferred-region picker
 
-Add a Preferred market row to the plugin settings: Automatic (session
-locale) or any market the helper advertises. The choice is stored in
-~/.config/singularity/wallpapers-bing/market and passed to the helper as
---prefer on list --consolidated and consolidate, so it selects the
-language of titles and credits and puts that market's photos first while
-the feed stays combined. The row is hidden when the helper is missing.
+Adds a Bing Preferred Region row to the plugin settings. Markets come from the helper's markets command and the choice is read and saved through its market command.
 
-Assisted-by: Claude Code:claude-sonnet-5-5
-AI-Scope: Wrote the settings row, locale mapping and helper arguments from the operator brief; built against installed libsingularity and checked on a live desktop.
+Assisted-by: Claude Code:claude-sonnet-5
+Assisted-by: Codex:gpt-5.6-sol
+AI-Scope: Wrote the picker row and the helper calls for listing, reading and saving the market.
 ---
- wallpapers-bing/wallpapers_bing.vala | 138 ++++++++++++++++++++++++++-
- 1 file changed, 135 insertions(+), 3 deletions(-)
+ wallpapers-bing/wallpapers_bing.vala | 52 ++++++++++++++++++++++++++++
+ 1 file changed, 52 insertions(+)
 
 diff --git a/wallpapers-bing/wallpapers_bing.vala b/wallpapers-bing/wallpapers_bing.vala
-index dc75e00..8a23b82 100644
+index dc75e00..1e005f5 100644
 --- a/wallpapers-bing/wallpapers_bing.vala
 +++ b/wallpapers-bing/wallpapers_bing.vala
 @@ -2,6 +2,7 @@ using GLib;
@@ -28,187 +24,78 @@ index dc75e00..8a23b82 100644
  using Peas;
  
  [ModuleInit]
-@@ -12,6 +13,58 @@ public void peas_register_types(TypeModule module) {
- 
- namespace WallpapersBing {
- 
-+    private const string AUTO = "auto";
-+
-+    public class Setting : Object {
-+        public static string file_path() {
-+            return Path.build_filename(Environment.get_user_config_dir(),
-+                "singularity", "wallpapers-bing", "market");
-+        }
-+
-+        public static string load() {
-+            string text;
-+            try {
-+                FileUtils.get_contents(file_path(), out text);
-+            } catch (FileError e) {
-+                return AUTO;
-+            }
-+            string value = text.strip();
-+            return value == "" ? AUTO : value;
-+        }
-+
-+        public static void store(string value) throws Error {
-+            DirUtils.create_with_parents(Path.get_dirname(file_path()), 0755);
-+            FileUtils.set_contents(file_path(), value + "\n");
-+        }
-+
-+        // Best advertised market for the session locale; en-US when nothing matches.
-+        public static string locale_market(Collection<WallpaperProviderChoice> markets) {
-+            var codes = new Gee.ArrayList<string>();
-+            foreach (var choice in markets)
-+                if (choice.id != WallpaperBing.CONSOLIDATED_ID) codes.add(choice.id);
-+            foreach (string name in Intl.get_language_names()) {
-+                if (name.contains(".") || name.contains("@") || name == "C") continue;
-+                string[] parts = name.split("_");
-+                string language = parts[0];
-+                if (parts.length > 1 && codes.contains("%s-%s".printf(language, parts[1])))
-+                    return "%s-%s".printf(language, parts[1]);
-+                if (language == "en" && codes.contains("en-US")) return "en-US";
-+                foreach (string code in codes)
-+                    if (code.has_prefix(language + "-")) return code;
-+            }
-+            if (codes.contains("en-US") || codes.size == 0) return "en-US";
-+            codes.sort();
-+            return codes[0];
-+        }
-+
-+        public static string resolve(Collection<WallpaperProviderChoice> markets) {
-+            string value = load();
-+            bool known = false;
-+            foreach (var choice in markets) known = known || choice.id == value;
-+            return known ? value : locale_market(markets);
-+        }
-+    }
-+
-     /**
-      * Bing's daily wallpaper images, across every market. Requires the
-      * external `ncz-wallpaper-bing` helper, which is not shipped by plain
-@@ -23,6 +76,7 @@ namespace WallpapersBing {
-         // until the first choices() call, so the name starts as plain "Bing"
-         // and the browser refreshes the label once the helper has replied.
-         private bool combined = false;
-+        private Gee.ArrayList<WallpaperProviderChoice> known_markets = new Gee.ArrayList<WallpaperProviderChoice>();
-         public string id { get { return WallpaperBing.PROVIDER_ID; } }
-         // Matches the collection label the rotator helper writes for the
-         // same de-duplicated view, so the online browser and the wallpaper
-@@ -33,8 +87,21 @@ namespace WallpapersBing {
+@@ -33,6 +34,15 @@ namespace WallpapersBing {
          public bool requires_credentials { get { return false; } }
          public bool supports_search { get { return false; } }
          public Provider() { base("/usr/local/bin/ncz-wallpaper-bing"); }
--        public async ArrayList<WallpaperProviderChoice> choices(string index, Cancellable? cancel) throws Error {
-+
-+        public bool is_available() {
-+            return FileUtils.test(helper, FileTest.IS_EXECUTABLE);
++        public async string market_list(Cancellable? cancel) throws Error {
++            return yield command({helper, "markets"}, cancel, 30);
 +        }
-+
-+        public Gee.List<WallpaperProviderChoice> markets_snapshot() { return known_markets; }
-+
-+        public async ArrayList<WallpaperProviderChoice> load_markets(Cancellable? cancel) throws Error {
++        public async string preferred_market(Cancellable? cancel) throws Error {
++            return (yield command({helper, "market"}, cancel, 30)).strip();
++        }
++        public async void set_preferred_market(string market, Cancellable? cancel) throws Error {
++            yield command({helper, "market", market}, cancel, 30);
++        }
+         public async ArrayList<WallpaperProviderChoice> choices(string index, Cancellable? cancel) throws Error {
              var loaded = WallpaperBing.markets(yield command({helper, "markets"}, cancel, 30));
-+            known_markets = loaded;
-+            return loaded;
-+        }
-+
-+        public async ArrayList<WallpaperProviderChoice> choices(string index, Cancellable? cancel) throws Error {
-+            var loaded = yield load_markets(cancel);
              // The helper is expected to always advertise the combined view
-             // (it fetches every market), so this should unconditionally be
-             // the only browsing axis -- per-market browsing is no longer
-@@ -48,16 +115,33 @@ namespace WallpapersBing {
-             }
-             return only ?? loaded;
-         }
-+
-         public async WallpaperProviderResult browse(string market, string query, int page,
-                 bool refresh, Cancellable? cancel) throws Error {
-             var result = new WallpaperProviderResult();
--            string selector = market == WallpaperBing.CONSOLIDATED_ID ? "--consolidated" : market;
--            result.items = WallpaperBing.items(yield command({helper, "list", selector}, cancel, 60, refresh));
-+            if (known_markets.size == 0) yield load_markets(cancel);
-+            string[] argv;
-+            if (market == WallpaperBing.CONSOLIDATED_ID)
-+                argv = {helper, "list", "--consolidated", "--prefer", Setting.resolve(known_markets)};
-+            else
-+                argv = {helper, "list", market};
-+            result.items = WallpaperBing.items(yield command(argv, cancel, 60, refresh));
-             return result;
-         }
-+
-         public async string import_item(WallpaperItem item, Cancellable? cancel) throws Error {
-             throw new IOError.NOT_SUPPORTED("Bing wallpapers are already installed locally.");
-         }
-+
-+        public async void apply_market_change() {
-+            try {
-+                if (known_markets.size == 0) yield load_markets(null);
-+                yield command({helper, "consolidate", "--prefer", Setting.resolve(known_markets)}, null, 120);
-+            } catch (Error e) {
-+                warning("wallpapers-bing: consolidate failed: %s", e.message);
-+            }
-+        }
-+
-     }
- }
+@@ -64,6 +74,7 @@ namespace WallpapersBing {
+ public class WallpapersBingPlugin : Object, Singularity.Plugin {
+     private PluginContext context;
+     private WallpapersBing.Provider? provider;
++    private const string BING_MARKETS_ID_ALL = "all";
  
-@@ -84,6 +168,54 @@ public class WallpapersBingPlugin : Object, Singularity.Plugin {
+     public void activate(PluginContext ctx) {
+         this.context = ctx;
+@@ -84,6 +95,47 @@ public class WallpapersBingPlugin : Object, Singularity.Plugin {
          lbl.wrap = true;
          lbl.xalign = 0;
          box.append(lbl);
-+        var source = provider ?? new WallpapersBing.Provider();
-+        if (!source.is_available()) return box;
-+
-+        if (source.markets_snapshot().size > 0) {
-+            box.append(market_group(source));
-+            return box;
-+        }
-+        source.load_markets.begin(null, (obj, res) => {
-+            try {
-+                source.load_markets.end(res);
-+            } catch (Error e) {
-+                warning("wallpapers-bing: could not load markets: %s", e.message);
-+            }
-+            box.append(market_group(source));
-+        });
++        load_bing_markets.begin(box);
          return box;
      }
 +
-+    private PreferencesGroup market_group(WallpapersBing.Provider source) {
-+        var group = new PreferencesGroup();
-+        var row = new SelectionRow.with_options(_("Preferred market"), market_options(source),
-+            WallpapersBing.Setting.load());
-+        row.subtitle = _("Language of titles and credits, and whose photos are listed first. The feed stays combined.");
-+        row.selected.connect((value) => {
-+            try {
-+                WallpapersBing.Setting.store(value);
-+            } catch (Error e) {
-+                warning("wallpapers-bing: could not save market: %s", e.message);
-+                return;
++    private async void load_bing_markets(Box box) {
++        if (provider == null) return;
++        var bing_markets_options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
++        bing_markets_options.add(new Singularity.Core.AppSettingOption() { id = BING_MARKETS_ID_ALL, label = _("All Markets, No Preference") });
++        string bing_markets_current = BING_MARKETS_ID_ALL;
++        try {
++            foreach (string line in (yield provider.market_list(null)).split("\n")) {
++                string[] columns = line.split("\t");
++                if (columns.length < 2 || columns[0].strip() == "") continue;
++                bing_markets_options.add(new Singularity.Core.AppSettingOption() {
++                    id = columns[0].strip(), label = columns[1].strip() });
 +            }
-+            source.apply_market_change.begin();
++            string configured = yield provider.preferred_market(null);
++            if (configured.ascii_down() != BING_MARKETS_ID_ALL) {
++                foreach (var option in bing_markets_options) {
++                    if (option.id == configured) bing_markets_current = configured;
++                }
++            }
++        } catch (Error e) {
++            warning("wallpapers-bing: could not load market settings: %s", e.message);
++            return;
++        }
++        var bing_markets_row = new SelectionRow.with_options(_("Bing Preferred Region"), bing_markets_options,
++            bing_markets_current);
++        bing_markets_row.subtitle = _("Bing always combines every region's photo of the day; this only picks whose caption and credit win when the same photo is shared");
++        bing_markets_row.selected.connect((id) => {
++            persist_bing_market.begin(id);
 +        });
-+        group.add_row(row);
-+        return group;
++        box.append(bing_markets_row);
 +    }
 +
-+    private Gee.ArrayList<Singularity.Core.AppSettingOption> market_options(WallpapersBing.Provider source) {
-+        var options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
-+        var markets = source.markets_snapshot();
-+        string auto_label = _("Automatic");
-+        if (markets.size > 0)
-+            auto_label = _("Automatic (%s)").printf(WallpapersBing.Setting.locale_market(markets));
-+        options.add(new Singularity.Core.AppSettingOption() { id = "auto", label = auto_label });
-+        foreach (var choice in markets) {
-+            if (choice.id == WallpaperBing.CONSOLIDATED_ID) continue;
-+            options.add(new Singularity.Core.AppSettingOption() {
-+                id = choice.id, label = "%s (%s)".printf(choice.name, choice.id) });
++    private async void persist_bing_market(string market) {
++        if (provider == null) return;
++        try {
++            yield provider.set_preferred_market(market, null);
++        } catch (Error e) {
++            warning("wallpapers-bing: could not save preferred market: %s", e.message);
 +        }
-+        return options;
 +    }
  }
 -- 
-2.47.3
+2.53.0
 
