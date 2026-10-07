@@ -119,6 +119,7 @@ expect_rc "identical bytes republished are idempotent" 0 bash -c ". '$HERE/lib/d
 mkdeb "$T/bumped.deb" ncz-wallpapers-ncz 1.1 all different-bytes
 expect_rc "bumped version passes" 0 bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/bumped.deb'"
 expect_rc "unreachable index is a warning offline" 0 env NCZ_PUBLISHED_INDEX="$T/does-not-exist" bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
+expect_rc "an unreachable first index falls through to the next source (same-version leak still caught)" 1 env NCZ_PUBLISHED_INDEX="$T/does-not-exist $T/index" bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
 expect_rc "unreachable index is an error when strict" 1 env NCZ_PUBLISHED_INDEX="$T/does-not-exist" NCZ_VERSION_GATE_STRICT=1 bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
 # the builders actually call the gate
 for b in build-wallpaper-contrib-deb.sh build-usb-recovery-deb.sh build-dkms-debs.sh build-singularity-deb.sh build-libdrm-debs.sh build-ncz-apt-policy-deb.sh; do
