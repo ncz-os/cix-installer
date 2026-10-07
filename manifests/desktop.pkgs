@@ -63,6 +63,7 @@ libfreerdp-client3-3
 libwinpr3-3
 libges-1.0-0
 libsane1
+libsfdo0
 
 # --- Wayland session infra --------------------------------------------------
 foot
