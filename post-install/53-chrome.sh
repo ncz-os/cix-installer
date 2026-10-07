@@ -1,4 +1,5 @@
 #!/bin/bash
+# NCZ-MIXED-HOOK: Google Chrome install generic; arm64 applies lib/sky1-browser-policy.sh (chromium-ncz-sky1 default, VA-API-off Vivaldi/Chrome) from an EXIT trap; TODO split (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 53-chrome.sh — installs + wires real, official Google Chrome, the SECOND
 # browser choice alongside Vivaldi (default, 52-vivaldi.sh).
 #
@@ -46,6 +47,31 @@ case "$VARIANT" in
         exit 0
         ;;
 esac
+
+# NCZ-SKY1-BROWSER-BEGIN
+# Sky1 (arm64) only: chromium-ncz-sky1 is the default browser and Vivaldi/Chrome
+# start with VA-API off (post-install/lib/sky1-browser-policy.sh, r201: the CIX
+# VA-API decoder hangs on H.264/HEVC). Applied from an EXIT trap so it also runs
+# when this hook leaves early, and AFTER this hook's own default-browser writes.
+_ncz_bp_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_bp_arch" ] || _ncz_bp_arch=$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)
+[ -n "$_ncz_bp_arch" ] || _ncz_bp_arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+case "$_ncz_bp_arch" in
+    arm64|aarch64)
+        _ncz_bp_lib="$(cd "$(dirname "$0")" && pwd)/lib/sky1-browser-policy.sh"
+        [ -r "$_ncz_bp_lib" ] || _ncz_bp_lib=/usr/local/lib/cix-installer/post-install/lib/sky1-browser-policy.sh
+        _ncz_sky1_browser_exit() {
+            if [ -r "$_ncz_bp_lib" ]; then
+                . "$_ncz_bp_lib"
+                ncz_sky1_browser_policy
+            else
+                echo "[${0##*/}] WARN: $_ncz_bp_lib missing; Sky1 browser policy not applied" >&2
+            fi
+        }
+        trap _ncz_sky1_browser_exit EXIT
+        ;;
+esac
+# NCZ-SKY1-BROWSER-END
 
 if [ ! -x /usr/bin/google-chrome-stable ]; then
     echo "[53] google-chrome-stable not yet installed — installing from the offline mirror"

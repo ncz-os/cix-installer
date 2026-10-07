@@ -304,8 +304,8 @@ post-install/48-server-variant.sh	common	-	server variant toggle; generic
 post-install/49-artist-pack-browser.sh	common	-	artist pack backend; generic
 post-install/50-brand.sh	mixed	-	branding generic; issue SOC label detects Sky1 via uname/cpuinfo (line ~117)
 post-install/50-update-manager.sh	common	-	update manager; generic
-post-install/52-vivaldi.sh	common	-	Vivaldi from staged deb; selects arch by BUILD_ARCH
-post-install/53-chrome.sh	common	-	Google Chrome apt wiring; dpkg architecture aware
+post-install/52-vivaldi.sh	mixed	-	Vivaldi from staged deb; selects arch by BUILD_ARCH; on arm64 applies lib/sky1-browser-policy.sh (chromium-ncz-sky1 default, VA-API off for Vivaldi/Chrome, r201); TODO split
+post-install/53-chrome.sh	mixed	-	Google Chrome apt wiring; dpkg architecture aware; on arm64 applies lib/sky1-browser-policy.sh (r201); TODO split
 post-install/54-gpu-accel.sh	amd64	nvidia-cuda	AMD64 GPU/accelerator stack (ROCm, CUDA, Intel); guard exits when arch != amd64
 post-install/55-greeter.sh	common	-	greetd plus singularity-greeter; generic
 post-install/55-t2-firmware.sh	amd64	t2	Apple T2 WiFi/BT firmware and audio; guard exits when arch != amd64
@@ -440,3 +440,4 @@ build/test-amd64-serial-console.sh	amd64	-	proves installed amd64 rEFInd entries
 build/test-greeter-display-detect.sh	common	-	proves the greetd drop-ins order on cix-detect-display.service on arm64 only (amd64 pulled the disabled unit in, 7.4 s on CHIMERA) while ncz-usb2-rescan ordering stays on both (r201)
 assets/gpu/ncz-gpu-status	common	-	GPU stack report + never-software-render health check; installed on both platforms by 98-gpu-health.sh (Sky1 switcher report on Sky1, per-card driver report elsewhere, r201)
 build/test-gpu-status-arch.sh	common	-	proves ncz-gpu-status reports the bound DRM drivers (amdgpu/i915/nouveau/none) and not the Sky1 Mali selection on non-Sky1 machines, and keeps the switcher report on Sky1 (r201)
+post-install/lib/sky1-browser-policy.sh	sky1	-	Sky1 browser defaults sourced by 52-vivaldi/53-chrome on arm64: chromium-ncz-sky1 default (alternatives, mimeapps), VA-API-off .desktop overrides in /usr/local/share/applications and /usr/local/bin wrappers for Vivaldi/Chrome (CIX VA-API decode hangs, docs/SKY1-MEDIA-STATUS.md; r201)
