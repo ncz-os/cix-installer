@@ -337,3 +337,6 @@ manifests/rescue-amd64.pkgs:lsof
 manifests/rescue-amd64.pkgs:strace
 manifests/rescue-amd64.pkgs:gnupg
 manifests/rescue-amd64.pkgs:python3
+manifests/desktop-amd64.pkgs:intel-opencl-icd
+manifests/desktop-amd64.pkgs:libze-intel-gpu1
+manifests/desktop-amd64.pkgs:libze1

@@ -304,7 +304,7 @@ intel-gpu-tools	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-pac
 intel-level-zero-npu	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	no		post-install/54-gpu-accel.sh (HAS_INTEL_NPU gated)	build/verify-installed-target.sh	post-install/54-gpu-accel.sh (Intel OpenVINO repo block)	Installed at runtime from apt.repos.intel.com/openvino; source label approximate (format gap, see drift report 2026-10-06).
 intel-media-va-driver	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 intel-microcode	debian	debian-forky	amd64	desktop,rescue	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs; manifests/rescue-amd64.pkgs	
-intel-opencl-icd	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	no		post-install/54-gpu-accel.sh (HAS_INTEL gated)	build/verify-installed-target.sh	post-install/54-gpu-accel.sh (Intel OpenVINO repo block)	Installed at runtime from apt.repos.intel.com/openvino; source label approximate (format gap, see drift report 2026-10-06).
+intel-opencl-icd	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs; post-install/54-gpu-accel.sh (Intel OpenVINO repo block)	Installed at runtime from apt.repos.intel.com/openvino; source label approximate (format gap, see drift report 2026-10-06).
 inxi	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
 inxi	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
 iperf3	debian	debian-forky	amd64	desktop,rescue	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs; manifests/rescue-amd64.pkgs	
@@ -425,6 +425,8 @@ libxcb-res0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-package
 libxcb-res0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libxml2-16	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libxml2-16	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libze-intel-gpu1	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+libze1	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 linux-image-cixmini	staged-deb	staged:kernel-staging/<kver>/debs/linux-image-cixmini_*_arm64.deb	arm64	desktop,installer,mgmt,rescue,server	yes		manifest (installer-base.pkgs) resolved via build/build-vendor-mirror.sh pool	build/verify-offline-mirror-seeds.sh	manifests/installer-base.pkgs; build/build-vendor-mirror.sh (KERNEL_DEBS publish); assets/kernel/sky1-manifest.json (debs/linux-image-cixmini)	cixmini kernel image deb; the sky1-mainline-kernel row carries the version floor.
 lm-sensors	debian	debian-forky	amd64	desktop,rescue	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs; manifests/rescue-amd64.pkgs	
 lm-sensors	debian	debian-forky	arm64	desktop,rescue	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs; manifests/rescue.pkgs	
