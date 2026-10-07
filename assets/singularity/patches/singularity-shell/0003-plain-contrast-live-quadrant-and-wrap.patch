@@ -1,4 +1,4 @@
-From be9c0f3adf15a70f83a6cb8da249080cd72de529 Mon Sep 17 00:00:00 2001
+From 3626ff141f878072bba60a14e7b2a1e61273f340 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Mon, 21 Sep 2026 16:30:31 -0400
 Subject: [PATCH] fix(background): plain auto-contrast attribution text, live
@@ -32,10 +32,10 @@ AI-Scope: Root-caused and fixed all three against real operator reports on live 
  1 file changed, 31 insertions(+), 13 deletions(-)
 
 diff --git a/src/components/background/background.vala b/src/components/background/background.vala
-index 58cf1e2..4e456dd 100644
+index 3a867b8..070d459 100644
 --- a/src/components/background/background.vala
 +++ b/src/components/background/background.vala
-@@ -121,6 +121,16 @@ namespace Singularity {
+@@ -123,6 +123,16 @@ namespace Singularity {
              attribution_label.visible = false;
              attribution_label.can_focus = false;
              attribution_label.can_target = false;
@@ -50,8 +50,8 @@ index 58cf1e2..4e456dd 100644
 +            attribution_label.ellipsize = Pango.EllipsizeMode.END;
 +            attribution_label.max_width_chars = 40;
              wp_overlay = new Gtk.Overlay();
-             wp_overlay.set_child(wp_stack);
-             wp_overlay.add_overlay(attribution_label);
+             wp_motion = new Singularity.Animation.MotionBin(wp_stack);
+             wp_overlay.set_child(wp_motion);
 @@ -224,22 +234,18 @@ namespace Singularity {
          // and rationale unchanged, just relocated to the actual consumer.
          private const string ATTRIBUTION_CSS = """
@@ -128,5 +128,5 @@ index 58cf1e2..4e456dd 100644
  
          private void update_wallpaper(WallpaperManager manager) {
 -- 
-2.50.1 (Apple Git-155)
+2.55.0
 

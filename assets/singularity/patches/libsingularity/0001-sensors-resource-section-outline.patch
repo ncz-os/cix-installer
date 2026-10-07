@@ -1,4 +1,4 @@
-From 9bb61e8e00f4b11fa4baf548349c49177d0091ae Mon Sep 17 00:00:00 2001
+From 025192d7b8447e7b3d7e3c7de052cf86bf70eed9 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sat, 26 Sep 2026 15:35:32 -0400
 Subject: [PATCH] style: bordered frame for stacked popover sections
@@ -15,12 +15,12 @@ AI-Scope: Rebased an existing downstream CSS patch onto current upstream head af
  1 file changed, 10 insertions(+)
 
 diff --git a/src/style/style.css b/src/style/style.css
-index 9e17413..f217044 100644
+index 5f20bb8..de4f489 100644
 --- a/src/style/style.css
 +++ b/src/style/style.css
-@@ -5513,3 +5513,13 @@ row.settings-highlight,
-     border-radius: 12px;
-     transition: background-color 400ms ease-out;
+@@ -6631,3 +6631,13 @@ button.recent-color-swatch {
+     min-width: 0;
+     min-height: 0;
  }
 +
 +/* Bordered frame so stacked sections sharing a popover column (e.g. the
@@ -33,5 +33,5 @@ index 9e17413..f217044 100644
 +    margin-bottom: 4px;
 +}
 -- 
-2.53.0
+2.55.0
 
