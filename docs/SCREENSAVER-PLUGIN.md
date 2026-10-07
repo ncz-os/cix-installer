@@ -14,10 +14,17 @@ named: version, ARGONAS directory, source commit, and for each arch the deb
 sha256, the payload version it was built against, and that payload's
 `libsingularity` sha256. Every consumer below reads this file.
 
-Current pin: 0.3.16 from `ncz-screensavers` `fix/plugin-package-20261006`
-(4612aa6e), staged on ARGONAS at
-`/mnt/datapool/projects/ncz-screensavers-debs/plugin-0.3.16-20261006/`
-(debs, `SHA256SUMS`, `BUILT-FROM.txt`, build logs).
+Current pin: 0.3.17 from `ncz-screensavers` `fix/plugin-inpage-options-20261007`
+(9f9bf085), built against the r201 payloads (amd64 `20261007+bk0+tgzbf349870`,
+arm64 `20261007+bk0+tgzb69d3482`) and staged on ARGONAS at
+`/mnt/datapool/projects/ncz-screensavers-debs/plugin-0.3.17-20261007/`
+(debs, `SHA256SUMS`, `BUILT-FROM.txt`, build and test logs).
+
+Per-screensaver options open in place: the gear on a screensaver row expands
+its options directly under that row, inside the Settings page, one screensaver
+at a time, and a second click collapses them. The plugin opens no window of its
+own for options (0.3.16 used a separate dialog); only Preview starts the
+fullscreen screensaver.
 
 ## Path into the image
 
