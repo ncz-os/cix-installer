@@ -465,7 +465,19 @@ if [ -x "$REPO/build/build-dkms-debs.sh" ]; then
                  "$REPO/build/dkms-debs"/panthor-cix-dkms_*.deb \
                  "$REPO/build/dkms-debs"/cix-npu-kmd-dkms_*.deb; do
             [ -e "$d" ] || continue
-            if cp -an "$d" "$ASSETS/cix-debs/" 2>/dev/null; then
+            # These debs were just built from assets/kernel/<drv>, so they
+            # replace whatever is staged. A no-clobber copy kept a stale
+            # panthor-cix-dkms_7.2.0+ncz1_all.deb (same filename, older
+            # source) in the r200 image, and DKMS then failed on 7.3 with
+            # "DRIVER_GEM_GPUVA undeclared". Drop other versions of the same
+            # package too: the post-install hooks take the first ls match.
+            pkg="$(basename "$d")"; pkg="${pkg%%_*}"
+            for old in "$ASSETS/cix-debs/${pkg}"_*.deb; do
+                [ -e "$old" ] || continue
+                [ "$(basename "$old")" = "$(basename "$d")" ] && continue
+                rm -f "$old" && log "  removed superseded $(basename "$old")"
+            done
+            if cp -a "$d" "$ASSETS/cix-debs/" 2>/dev/null; then
                 log "  staged $(basename "$d")"
                 DKMS_BUILT+=("$(basename "$d")")
             fi
