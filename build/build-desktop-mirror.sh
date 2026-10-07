@@ -379,6 +379,7 @@ NCZ_LOCAL_DEBS="
 ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_${ARCH}.deb|optional
 ncz-singularity-desktop|$REPO/assets/cix-debs/ncz-singularity-desktop_*_${ARCH}.deb|optional
 ncz-screensavers|$REPO/build/ncz-screensavers-out/ncz-screensavers_*_${ARCH}.deb|required
+ncz-apt-policy|$REPO/build/ncz-apt-policy-deb/ncz-apt-policy_*_all.deb|required
 "
 if [ "$ARCH" = arm64 ]; then
 NCZ_LOCAL_DEBS+="
@@ -412,6 +413,7 @@ printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
             else
                 echo "  ERROR: required local package missing; build the artifact first." >&2
                 echo "  ERROR: for patched libdrm, run: build/build-libdrm-debs.sh" >&2
+                echo "  ERROR: for ncz-apt-policy (manifests/install-extra.pkgs seed; arch-independent), run: build/build-ncz-apt-policy-deb.sh (make apt-policy-deb)" >&2
             fi
             exit 1
         fi

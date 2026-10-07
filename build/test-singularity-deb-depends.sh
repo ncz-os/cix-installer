@@ -30,6 +30,8 @@
 #
 # Usage: build/test-singularity-deb-depends.sh
 set -euo pipefail
+# Hermetic: the version gate must read a fixture index, never the live Buildkite one.
+export NCZ_PUBLISHED_INDEX="${NCZ_PUBLISHED_INDEX:-/dev/null}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEB_SCRIPT="${NCZ_SINGULARITY_DEB_SCRIPT:-$ROOT/build/build-singularity-deb.sh}"

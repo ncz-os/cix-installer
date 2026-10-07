@@ -60,11 +60,22 @@ if command -v python3 >/dev/null 2>&1; then
     for _ in 1 2 3 4 5 6 7 8 9 10; do python3 -c "import socket;socket.create_connection(('127.0.0.1',$LPORT),1)" 2>/dev/null && break; sleep 0.3; done
     NCZ_BK_BASE="http://127.0.0.1:$LPORT/dists/any" NCZ_R2_BASE="http://127.0.0.1:$LPORT/dists/any" \
         "$ROOT/build/check-ncz-repo-policy.sh" --live > "$T/live.out" 2>&1; lrc=$?
-    kill "$LPID" 2>/dev/null
     [ "$lrc" = 1 ] && ok "--live fails on the leaked amd64 index (rc=1)" || bad "--live rc=$lrc" "$(cat "$T/live.out")"
     n=$(grep -c '^FAIL: .*fonts-liberation' "$T/live.out"); [ "$n" = 2 ] && ok "--live saw the leak in both repos (amd64 only)" || bad "--live leak count $n, wanted 2" "$(cat "$T/live.out")"
     grep -q 'examined' "$T/live.out" && grep -q 'binary-/' "$T/live.out" && bad "--live clobbered the architecture variable" || ok "--live requests binary-amd64 and binary-arm64, never binary-"
     grep -q 'OK: R2 Release Origin is NCZ-OS' "$T/live.out" && ok "--live checks the R2 Release Origin" || bad "--live skipped the Origin check" "$(cat "$T/live.out")"
+    # apt-live-gate.sh modes against the same leaky fixture (preflight = warn, ship = fail)
+    ( export NCZ_BK_BASE="http://127.0.0.1:$LPORT/dists/any" NCZ_R2_BASE="http://127.0.0.1:$LPORT/dists/any"
+      env -u NCZ_APT_LIVE_GATE bash "$ROOT/build/apt-live-gate.sh" fail >/dev/null 2>&1; echo "fail=$?" >  "$T/gate.rc"
+      env -u NCZ_APT_LIVE_GATE bash "$ROOT/build/apt-live-gate.sh" warn >/dev/null 2>&1; echo "warn=$?" >> "$T/gate.rc"
+      env -u NCZ_APT_LIVE_GATE bash "$ROOT/build/apt-live-gate.sh" >/dev/null 2>&1;      echo "default=$?" >> "$T/gate.rc"
+      NCZ_APT_LIVE_GATE=skip bash "$ROOT/build/apt-live-gate.sh" fail >/dev/null 2>&1;    echo "skip=$?" >> "$T/gate.rc"
+      NCZ_APT_LIVE_GATE=fail bash "$ROOT/build/apt-live-gate.sh" warn >/dev/null 2>&1;    echo "envfail=$?" >> "$T/gate.rc" )
+    grep -qx 'fail=1' "$T/gate.rc" && ok "apt-live-gate fail mode: a live leak exits 1 (ship gate)" || bad "apt-live-gate fail mode" "$(cat "$T/gate.rc")"
+    grep -qx 'warn=0' "$T/gate.rc" && ok "apt-live-gate warn mode: the same leak exits 0 (preflight)" || bad "apt-live-gate warn mode" "$(cat "$T/gate.rc")"
+    grep -qx 'default=1' "$T/gate.rc" && ok "apt-live-gate with no mode defaults to fail" || bad "apt-live-gate default" "$(cat "$T/gate.rc")"
+    grep -qx 'skip=0' "$T/gate.rc" && grep -qx 'envfail=1' "$T/gate.rc" && ok "NCZ_APT_LIVE_GATE overrides the caller's default (skip, fail)" || bad "apt-live-gate env override" "$(cat "$T/gate.rc")"
+    kill "$LPID" 2>/dev/null
 fi
 
 echo "=== 2. installed-config audit: check-installed-apt-config.sh ==="
@@ -102,25 +113,55 @@ echo "=== 3. version discipline: deb-version-gate.sh ==="
 command -v dpkg-deb >/dev/null 2>&1 || { echo "SKIP: dpkg-deb missing (sections 3-4)"; echo "test-ncz-repo-policy: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; exit; }
 # shellcheck source=lib/deb-version-gate.sh
 . "$HERE/lib/deb-version-gate.sh"
-mkdeb() {  # out name ver arch marker
+mkdeb() {  # out name ver arch marker [mtime-epoch] [mode] [description]
     local w="$T/w.$RANDOM"; mkdir -p "$w/DEBIAN" "$w/usr/share/x"
-    printf 'Package: %s\nVersion: %s\nArchitecture: %s\nMaintainer: T <t@example.invalid>\nDescription: t\n' "$2" "$3" "$4" > "$w/DEBIAN/control"
+    printf 'Package: %s\nVersion: %s\nArchitecture: %s\nMaintainer: T <t@example.invalid>\nDescription: %s\n' "$2" "$3" "$4" "${8:-t}" > "$w/DEBIAN/control"
     echo "$5" > "$w/usr/share/x/f"
+    [ -n "${7:-}" ] && chmod "$7" "$w/usr/share/x/f"
+    [ -n "${6:-}" ] && touch -d "@$6" "$w/usr/share/x/f" "$w/usr/share/x" "$w/usr/share" "$w/usr"
     dpkg-deb --root-owner-group -b "$w" "$1" >/dev/null 2>&1
 }
-mkdeb "$T/pub.deb" ncz-wallpapers-ncz 1.0 all published-bytes
+gate() { bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$1'"; }
+mkdir -p "$T/pool"
+mkdeb "$T/pub.deb" ncz-wallpapers-ncz 1.0 all published-bytes 1000000000
+cp "$T/pub.deb" "$T/pool/ncz-wallpapers-ncz_1.0_all.deb"
 PUBSHA="$(sha256sum "$T/pub.deb" | awk '{print $1}')"
-printf 'Package: ncz-wallpapers-ncz\nVersion: 1.0\nArchitecture: all\nSHA256: %s\n\n' "$PUBSHA" > "$T/index"
-export NCZ_PUBLISHED_INDEX="$T/index"
-mkdeb "$T/rebuilt.deb" ncz-wallpapers-ncz 1.0 all different-bytes
-expect_rc "rebuilt with the SAME version and different bytes FAILS" 1 bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
+printf 'Package: ncz-wallpapers-ncz\nVersion: 1.0\nArchitecture: all\nSHA256: %s\nFilename: ncz-wallpapers-ncz_1.0_all.deb\n\n' "$PUBSHA" > "$T/index"
+export NCZ_PUBLISHED_INDEX="$T/index" NCZ_PUBLISHED_POOL="$T/pool"
+mkdeb "$T/rebuilt.deb" ncz-wallpapers-ncz 1.0 all different-bytes 1000000000
+expect_rc "same version, CHANGED FILE CONTENT is refused" 1 gate "$T/rebuilt.deb"
 case "$LAST" in *"must bump their version"*) ok "  message says to bump" ;; *) bad "  no bump message" "$LAST" ;; esac
-expect_rc "identical bytes republished are idempotent" 0 bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/pub.deb'"
+case "$LAST" in *"file: "*) ok "  message shows what differs" ;; *) bad "  no diff shown" "$LAST" ;; esac
+mkdeb "$T/again.deb" ncz-wallpapers-ncz 1.0 all published-bytes 1700000000
+cmp -s "$T/again.deb" "$T/pub.deb" && bad "fixture error: the rebuild is byte-identical" || ok "fixture: the unchanged rebuild differs in bytes (mtimes)"
+expect_rc "same version, SAME content, different bytes (mtimes) is allowed" 0 gate "$T/again.deb"
+case "$LAST" in *"same content as the published build"*) ok "  message says content is identical" ;; *) bad "  no identical-content message" "$LAST" ;; esac
+mkdeb "$T/mode.deb" ncz-wallpapers-ncz 1.0 all published-bytes 1000000000 0755
+expect_rc "same version, changed file MODE is refused" 1 gate "$T/mode.deb"
+mkdeb "$T/desc.deb" ncz-wallpapers-ncz 1.0 all published-bytes 1000000000 "" "different description"
+expect_rc "same version, changed CONTROL field is refused" 1 gate "$T/desc.deb"
+expect_rc "identical bytes republished are idempotent" 0 gate "$T/pub.deb"
 mkdeb "$T/bumped.deb" ncz-wallpapers-ncz 1.1 all different-bytes
-expect_rc "bumped version passes" 0 bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/bumped.deb'"
+expect_rc "bumped version passes" 0 gate "$T/bumped.deb"
 expect_rc "unreachable index is a warning offline" 0 env NCZ_PUBLISHED_INDEX="$T/does-not-exist" bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
-expect_rc "an unreachable first index falls through to the next source (same-version leak still caught)" 1 env NCZ_PUBLISHED_INDEX="$T/does-not-exist $T/index" bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
+expect_rc "an unreachable first index falls through to the next source (changed content still caught)" 1 env NCZ_PUBLISHED_INDEX="$T/does-not-exist $T/index" bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
 expect_rc "unreachable index is an error when strict" 1 env NCZ_PUBLISHED_INDEX="$T/does-not-exist" NCZ_VERSION_GATE_STRICT=1 bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
+expect_rc "published .deb unfetchable: warning offline" 0 env NCZ_PUBLISHED_POOL="$T/nopool" bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/again.deb'"
+expect_rc "published .deb unfetchable: error when strict" 1 env NCZ_PUBLISHED_POOL="$T/nopool" NCZ_VERSION_GATE_STRICT=1 bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/again.deb'"
+# a real builder is reproducible in identity: ncz-usb-recovery built twice differs in bytes but not in content
+if [ "$(dpkg --print-architecture 2>/dev/null)" != "" ]; then
+    for i in 1 2; do NCZ_PUBLISHED_INDEX=/dev/null NCZ_USB_RECOVERY_OUT="$T/usb$i" bash "$HERE/build-usb-recovery-deb.sh" >/dev/null 2>&1; sleep 2; done
+    if ls "$T"/usb1/*.deb >/dev/null 2>&1 && ls "$T"/usb2/*.deb >/dev/null 2>&1; then
+        cmp -s "$T"/usb1/*.deb "$T"/usb2/*.deb && bad "fixture: two usb-recovery builds are byte-identical (cannot exercise the gate)" || ok "two ncz-usb-recovery builds differ in bytes"
+        ( . "$HERE/lib/deb-version-gate.sh"; ncz_deb_identity "$T"/usb1/*.deb > "$T/id1"; ncz_deb_identity "$T"/usb2/*.deb > "$T/id2" )
+        cmp -s "$T/id1" "$T/id2" && ok "  ...and have the same content identity" || bad "  usb-recovery identity differs between runs" "$(diff "$T/id1" "$T/id2")"
+        U1="$(ls "$T"/usb1/*.deb)"; U2="$(ls "$T"/usb2/*.deb)"; mkdir -p "$T/upool"; cp "$U1" "$T/upool/u.deb"
+        printf 'Package: ncz-usb-recovery\nVersion: %s\nArchitecture: arm64\nSHA256: %s\nFilename: u.deb\n\n' "$(dpkg-deb -f "$U1" Version)" "$(sha256sum "$U1" | awk '{print $1}')" > "$T/uindex"
+        expect_rc "gate: an unchanged real usb-recovery rebuild of a published version is allowed" 0 env NCZ_PUBLISHED_INDEX="$T/uindex" NCZ_PUBLISHED_POOL="$T/upool" NCZ_VERSION_GATE_STRICT=1 bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$U2'"
+    else
+        bad "build-usb-recovery-deb.sh did not produce a deb"
+    fi
+fi
 # the builders actually call the gate
 for b in build-wallpaper-contrib-deb.sh build-usb-recovery-deb.sh build-dkms-debs.sh build-singularity-deb.sh build-libdrm-debs.sh build-ncz-apt-policy-deb.sh; do
     grep -q 'ncz_deb_version_gate' "$HERE/$b" && ok "$b calls the version gate" || bad "$b does not call the version gate"
@@ -150,11 +191,31 @@ expect_rc "publisher accepts an ncz-* package" 0 bash -c ". '$T/policy.sh'; ncz_
 expect_rc "publisher accepts the allowlisted libdrm2 on arm64" 0 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/ok2.deb'"
 expect_rc "publisher refuses libdrm2 on amd64" 1 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/bad2.deb'"
 expect_rc "publisher refuses a Debian kernel name" 1 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/dk.deb'"
-printf 'Package: ncz-newthing\nVersion: 1.0\nArchitecture: all\nSHA256: %064d\n\n' 1 > "$T/idx2"
-expect_rc "publisher refuses a same-version different-bytes republish" 1 env NCZ_PUBLISHED_INDEX="$T/idx2" bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/ok1.deb'"
+mkdeb "$T/np-pub.deb" ncz-newthing 1.0 all published-version 1000000000; cp "$T/np-pub.deb" "$T/pool/ncz-newthing_1.0_all.deb"
+printf 'Package: ncz-newthing\nVersion: 1.0\nArchitecture: all\nSHA256: %s\nFilename: ncz-newthing_1.0_all.deb\n\n' "$(sha256sum "$T/np-pub.deb" | awk '{print $1}')" > "$T/idx2"
+expect_rc "publisher refuses a same-version CHANGED-content republish" 1 env NCZ_PUBLISHED_INDEX="$T/idx2" NCZ_PUBLISHED_POOL="$T/pool" bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/ok1.deb'"
+mkdeb "$T/np-again.deb" ncz-newthing 1.0 all published-version 1700000000
+expect_rc "publisher accepts a byte-different rebuild of identical content" 0 env NCZ_PUBLISHED_INDEX="$T/idx2" NCZ_PUBLISHED_POOL="$T/pool" bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/np-again.deb'"
+# ncz-apt-policy must carry exactly the library deployed next to the publisher (the pin it publishes)
+mkpol() {  # out libfile
+    local w="$T/pw.$RANDOM"; mkdir -p "$w/DEBIAN" "$w/usr/share/ncz-apt-policy"
+    printf 'Package: ncz-apt-policy\nVersion: 1.0.1\nArchitecture: all\nMaintainer: T <t@example.invalid>\nDescription: t\n' > "$w/DEBIAN/control"
+    cp "$2" "$w/usr/share/ncz-apt-policy/apt-separation.sh"
+    dpkg-deb --root-owner-group -b "$w" "$1" >/dev/null 2>&1
+}
+mkpol "$T/pol-ok.deb" "$T/poldir/apt-separation.sh"
+{ cat "$T/poldir/apt-separation.sh"; echo '# an older pin'; } > "$T/old-lib.sh"; mkpol "$T/pol-old.deb" "$T/old-lib.sh"
+expect_rc "publisher accepts ncz-apt-policy built from the deployed library" 0 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/pol-ok.deb'"
+expect_rc "publisher REFUSES ncz-apt-policy whose packaged pin differs from the deployed library" 1 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/pol-old.deb'"
+case "$LAST" in *"different pin"*) ok "  message names the stale pin" ;; *) bad "  no pin message" "$LAST" ;; esac
+# the policy directory default is $HOME-relative, never a fixed user's home
+grep -q '/home/jasonperlow' "$T/policy.sh" && bad "the policy block still hard-codes /home/jasonperlow" || ok "no hard-coded home directory in the policy block"
+mkdir -p "$T/fakehome/ncz-policy"; cp "$T/poldir/"*.sh "$T/fakehome/ncz-policy/"
+expect_rc "default policy dir is \$HOME/ncz-policy" 0 env -u NCZ_POLICY_DIR HOME="$T/fakehome" NCZ_PUBLISHED_INDEX="$T/empty-index" bash -c ". '$T/policy.sh'; [ \"\$NCZ_POLICY_DIR\" = '$T/fakehome/ncz-policy' ] && ncz_publish_policy '$T/ok1.deb'"
+env -i PATH="$PATH" bash -c ". '$T/policy.sh'" >/dev/null 2>&1 && bad "no HOME and no NCZ_POLICY_DIR must fail closed" || ok "no HOME and no NCZ_POLICY_DIR fails closed"
 rm -rf "$T/poldir2"; mkdir "$T/poldir2"
 expect_rc "publisher fails closed when the policy library is missing" 1 env NCZ_POLICY_DIR="$T/poldir2" bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/ok1.deb'"
-unset NCZ_PUBLISHED_INDEX NCZ_POLICY_DIR
+unset NCZ_PUBLISHED_INDEX NCZ_POLICY_DIR NCZ_PUBLISHED_POOL
 
 echo "=== 5. update classification: assets/update-manager/ncz-update-check ==="
 if command -v python3 >/dev/null 2>&1; then
@@ -223,8 +284,9 @@ else
 fi
 
 echo "=== 6. the gates are wired into the real gate scripts, not only their own tests ==="
-grep -q 'check-ncz-repo-policy.sh" --components' "$HERE/preflight-sbom-check.sh" && grep -q 'check-ncz-repo-policy.sh" --live' "$HERE/preflight-sbom-check.sh" \
-    && ok "preflight-sbom-check.sh runs the seed and live repo-content gates" || bad "preflight-sbom-check.sh does not run the repo-content gates"
+grep -q 'check-ncz-repo-policy.sh" --components' "$HERE/preflight-sbom-check.sh" && grep -q 'apt-live-gate.sh" warn' "$HERE/preflight-sbom-check.sh" \
+    && ok "preflight-sbom-check.sh runs the seed gate (fails) and the live gate in WARN mode" || bad "preflight-sbom-check.sh gate wiring"
+grep -q 'apt-live-gate.sh" fail' "$HERE/ship-image.sh" && ok "ship-image.sh (the ship gate) runs the live gate in FAIL mode" || bad "ship-image.sh does not run the live gate in fail mode"
 grep -q 'check-installed-apt-config.sh' "$HERE/verify-installed-target.sh" \
     && ok "verify-installed-target.sh runs the installed-config audit" || bad "verify-installed-target.sh does not run the installed-config audit"
 grep -q 'ncz-apt-policy' "$ROOT/manifests/install-extra.pkgs" && grep -q 'install-extra.pkgs:ncz-apt-policy' "$ROOT/sbom/expected-packages.txt" \

@@ -50,12 +50,14 @@ case " ${INSTALLED:-} " in *" $p "*) printf 'install ok installed'; exit 0 ;; es
 exit 1
 EOF
 printf '#!/bin/sh\ncat\n' > "$W/bin/gpg"
+# hermetic: the key download (fallback) must never reach the network
+printf '#!/bin/sh\nexit 22\n' > "$W/bin/curl"
 chmod +x "$W/bin/"*
 export PATH="$W/bin:$PATH" LOG="$W/apt.log"
 
 mkroot() { rm -rf "$W/r" "$LOG"; mkdir -p "$W/r"; : > "$LOG"; }
 run() {   # run FUNC ARGS... in the fixture root
-    ( export NCZ_INTEL_ROOT="$W/r" NCZ_INTEL_ASSETS="$ROOT/assets/intel" NCZ_INTEL_LIB_SRC="$LIB" NCZ_INTEL_ACCEL_LIB=1
+    ( export NCZ_INTEL_ROOT="$W/r" NCZ_INTEL_ASSETS="${KEYASSETS:-$ROOT/assets/intel}" NCZ_INTEL_LIB_SRC="$LIB" NCZ_INTEL_ACCEL_LIB=1
       . "$LIB"; "$@" ) > "$W/out" 2>&1
 }   # returns the function's exit status
 P="$W/r/var/lib/ncz/intel-accel.pending"
@@ -97,6 +99,15 @@ for p in intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1; do
 done
 printf '%s\n' "$inst" | grep -q libopenvino && bad "offline install pulled an Intel-repo package" "$inst" || ok "Debian GPU set installed from the mirror with the network down"
 [ -f "$P" ] && ok "OpenVINO plugins still deferred (marker kept, timer armed)" || bad "marker lost although the plugins are not installed" "$(cat "$W/out")"
+
+echo "=== no Intel signing key at all: the Debian set still installs, the plugins wait (r201 re-review) ==="
+mkroot; mkdir -p "$W/nokey"; NET=down MIRROR=1 KEYASSETS="$W/nokey" NCZ_INTEL_KEY_URL=file:///nonexistent run ncz_intel_accel_install 1 0
+inst=$(grep ' install -y' "$LOG")
+for p in intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1; do
+    printf '%s\n' "$inst" | grep -qw -- "$p" || bad "no key: Debian package $p was not installed" "$inst$(cat "$W/out")"
+done
+[ ! -s "$W/r/etc/apt/keyrings/intel-openvino.gpg" ] && [ ! -e "$W/r/etc/apt/sources.list.d/intel-openvino.list" ] && ok "no key: no Intel keyring and no Intel repo list written" || bad "no key: Intel repo wired without a key"
+[ -f "$P" ] && ok "no key: retry armed for the OpenVINO plugins" || bad "no key: retry not armed" "$(cat "$W/out")"
 
 echo "=== already installed from the mirror: skipped without touching apt install ==="
 mkroot; NET=up INSTALLED="intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1" run ncz_intel_accel_install 1 0

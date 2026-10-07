@@ -39,7 +39,7 @@
 # Tested by build/test-intel-accel-deferred.sh.
 
 NCZ_INTEL_KEY_SHA256=db932ba032a71f732dc415eef5f4f185fc7ae768487d7a357bc2772746b6c48c
-NCZ_INTEL_KEY_URL=https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+NCZ_INTEL_KEY_URL="${NCZ_INTEL_KEY_URL:-https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB}"
 NCZ_INTEL_REPO="https://apt.repos.intel.com/openvino ubuntu24 main"
 
 _ni_r()      { printf '%s' "${NCZ_INTEL_ROOT:-}"; }
@@ -132,8 +132,10 @@ ncz_intel_apt_install() {
 
 # ncz_intel_setup GPU NPU -> 0 done, 75 retry later, 1 refused/permanent
 ncz_intel_setup() {
-    ncz_intel_keyring || return 75
-    ncz_intel_repo
+    # The Debian-origin set needs neither the Intel key nor the Intel repo, so a missing key must not
+    # keep it from installing: only the OpenVINO plugins (Intel repo) wait for the key.
+    _key=0
+    if ncz_intel_keyring; then _key=1; ncz_intel_repo; fi
     apt-get update 2>&1 | tail -3
     # Debian-origin packages first: they need no Intel index, so an offline
     # install (mirror seeds) or an install without a link still gets them.
@@ -143,6 +145,7 @@ ncz_intel_setup() {
         # shellcheck disable=SC2086
         ncz_intel_apt_install $_dp || return $?
     fi
+    [ "$_key" = 1 ] || { ncz_intel_log "Intel signing key unavailable; OpenVINO plugins deferred"; return 75; }
     _pk=$(ncz_intel_packages "$1" "$2") || { ncz_intel_log "Intel repo index unavailable (network?)"; return 75; }
     [ -n "${_pk// /}" ] || { ncz_intel_log "nothing more requested (GPU=$1 NPU=$2)"; return 0; }
     # shellcheck disable=SC2086

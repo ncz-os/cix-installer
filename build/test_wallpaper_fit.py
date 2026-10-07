@@ -42,6 +42,8 @@ REPO = HERE.parent
 HELPER = REPO / "assets" / "wallpaper" / "ncz-wallpaper-fit"
 HOOK = REPO / "post-install" / "45-wallpaper-rotator.sh"
 DEB = REPO / "build" / "build-wallpaper-contrib-deb.sh"
+# Hermetic: the version gate must read a fixture index, never the live Buildkite one.
+os.environ.setdefault("NCZ_PUBLISHED_INDEX", "/dev/null")
 PACK = REPO / "assets" / "branding" / "wallpaper" / "contrib" / "cygnus-2610"
 VARIANTS = PACK / "16x10"
 

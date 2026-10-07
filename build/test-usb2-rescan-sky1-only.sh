@@ -21,6 +21,8 @@
 # Run: bash build/test-usb2-rescan-sky1-only.sh
 # Exit 0 = all cases passed; 1 = a case failed; 2 = a source file missing.
 set -uo pipefail
+# Hermetic: the version gate must read a fixture index, never the live Buildkite one.
+export NCZ_PUBLISHED_INDEX="${NCZ_PUBLISHED_INDEX:-/dev/null}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/.." && pwd)"

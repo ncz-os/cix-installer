@@ -87,7 +87,9 @@ Branch `fix/r201-apt-separation-20261007`, off the respin `d287f207`.
 | `build/check-installed-apt-config.sh [ROOT]` | pin file missing or stale, kernel-purity pin missing, two NCZ repos enabled, `t2.list` without a T2 pin |
 | `build/lib/deb-version-gate.sh` in the wallpaper, usb-recovery, dkms, singularity, libdrm and policy builders | a package reuses a published version with different content |
 | `build/verify-installed-target.sh` (section `apt`) | an installed image fails the audit above or lacks `ncz-apt-policy` |
-| `build/preflight-sbom-check.sh` | `check-ncz-repo-policy.sh --components` fails, or `--live` (read-only) finds a violation; `NCZ_APT_LIVE_GATE=warn\|skip` overrides the live part |
+| `build/preflight-sbom-check.sh` | `check-ncz-repo-policy.sh --components` fails (always fatal); the live index check only WARNS here (`build/apt-live-gate.sh warn`) |
+| `build/ship-image.sh` | `build/apt-live-gate.sh fail`: a Debian-named package published in the live NCZ repos blocks shipping (read-only; skips when the indexes are unreachable) |
+| `build/test-install-extra-local-debs.sh` | an `ncz-*` seed in `install-extra.pkgs` that the offline-mirror build cannot resolve (no `NCZ_LOCAL_DEBS` row / no builder), for both arches |
 | `build/test-ncz-apt-policy-deb.sh` | the built deb's scripts do not parse under their own interpreter, or the real `dpkg -i`/reinstall/purge in debian:forky is not clean (negative control: the 1.0.0 sh postinst) |
 | `build/test-apt-separation.sh` | real apt resolution against throwaway Debian / NCZ(http) / T2(http) repos: old behaviour reproduced, new behaviour asserted |
 | `build/test-ncz-repo-policy.sh` | the gates above, plus update classification of MEDUSA's recorded r200 output |
@@ -102,6 +104,16 @@ Branch `fix/r201-apt-separation-20261007`, off the respin `d287f207`.
 | `ncz-apt-policy` owns no `ncz-intel-accel-setup.*` or `/var/lib/ncz/intel-accel.*` | `build/test-ncz-apt-policy-deb.sh` (package contents, and the files survive install, reinstall and purge in debian:forky) |
 
 The writer only ever removes the four exact `ncz-os-apt-{buildkite,r2}.list[.disabled]` names; the Intel host is `apt.repos.intel.com` (override `NCZ_APT_INTEL_HOST`).
+
+## Version identity
+
+The gate compares a normalised content identity (control fields, maintainer
+scripts, the `dpkg-deb -c` listing without mtimes, and the sha256 of every data
+file), not the bytes of the .deb: our builders are not all reproducible. An
+unchanged rebuild of a published version is allowed; a changed file, mode or
+control field at the same version is refused with the first differences.
+`ncz-usb-recovery` is bumped to 1.2 because the published 1.1 (Architecture: all)
+is a genuinely different package from what the repo builds (Architecture: arm64).
 
 ## Version discipline
 
@@ -126,12 +138,21 @@ through `build/ops/argos/ncz-reprepro-publish.sh`, which dual-publishes.
 2. Bump and republish the four wallpaper packs
    (`build/build-wallpaper-contrib-deb.sh {ncz,singularity,alex-jay-brady,brandon-perlow}`
    builds 1.1) and publish them.
-3. Build and publish `ncz-apt-policy` 1.0.1:
-   `build/build-ncz-apt-policy-deb.sh`. Publish it BEFORE the next image build:
-   `install-extra.pkgs` seeds it, so the mirror build and the installed-target
-   verifier need it to exist.
-   Until the leaked `fonts-liberation` is removed (step 2),
-   `preflight-sbom-check.sh` fails on the live check by design.
+3. Build and publish `ncz-apt-policy` 1.0.1 from the **exact final head**
+   (`build/build-ncz-apt-policy-deb.sh`): the pin text changed several times
+   while 1.0.1 was never published, so any earlier-tip 1.0.1 must be discarded.
+   The publisher refuses a deb whose packaged `apt-separation.sh` differs from
+   the copy deployed in `~/ncz-policy` (step 0), and the version gate refuses a
+   later same-version rebuild with different content. Publishing is needed only
+   for installed systems (hook 24 and `ncz-update-apply` install it from the live
+   repo). **An image build needs no publish**: the offline mirror gets the
+   package as a LOCAL deb (`make apt-policy-deb` -> `build/ncz-apt-policy-deb`,
+   the `NCZ_LOCAL_DEBS` row in `build/build-desktop-mirror.sh`), for both
+   architectures (it is `Architecture: all`).
+   The live-repo gate: `build/preflight-sbom-check.sh` only WARNS while the
+   leaked `fonts-liberation` is still published (step 2); `build/ship-image.sh`
+   runs `build/apt-live-gate.sh fail` and refuses to ship until it is gone
+   (`NCZ_APT_LIVE_GATE=fail|warn|skip` overrides either).
 4. Confirm the R2 Release keeps `Origin: NCZ-OS` (`conf/distributions` on ARGOS)
    and that `build/check-ncz-repo-policy.sh --live` ends clean.
 5. Optional: backfill R2 so the fallback is not degraded (it lacks zoder,

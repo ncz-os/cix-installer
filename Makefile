@@ -156,7 +156,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage
 
 all: image
 
@@ -407,7 +407,15 @@ libdrm-debs:
 		echo "[libdrm-debs] using existing packages from $(BUILD)/libdrm-debs"; \
 	fi
 
-desktop-mirror: vendor-mirror libdrm-debs
+# ncz-apt-policy (manifests/install-extra.pkgs seed, both arches, Architecture: all) is built locally for the
+# offline mirror -- NOT fetched from the live repo -- so an image build needs no publish. Always rebuilt
+# (deterministic, seconds) so a stale pin can never ride along.
+apt-policy-deb:
+	@rm -f $(BUILD)/ncz-apt-policy-deb/ncz-apt-policy_*.deb
+	@echo "[apt-policy-deb] building ncz-apt-policy for the offline mirror"
+	@bash $(ROOT)/build/build-ncz-apt-policy-deb.sh
+
+desktop-mirror: vendor-mirror libdrm-debs apt-policy-deb
 	@if [ ! -d $(BUILD)/desktop-mirror/dists/$(shell . $(ROOT)/release.conf; printf '%s' "$$NCZ_BASE_CODENAME") ]; then \
 		echo "[desktop-mirror] missing; building desktop package closure"; \
 		bash $(ROOT)/build/build-desktop-mirror.sh; \
@@ -697,5 +705,6 @@ parity:
 	bash build/test-ncz-repo-policy.sh
 	bash build/test-ncz-apt-policy-deb.sh
 	bash build/test-apt-sources-hook-container.sh
+	bash build/test-install-extra-local-debs.sh
 	build/test-no-debian-kernel.sh
 	$(MAKE) --no-print-directory test-cygnus-branding

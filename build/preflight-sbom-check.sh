@@ -56,14 +56,10 @@ fi
 echo "preflight-sbom-check: PASS"
 
 # NCZ/Debian separation (r201): no Debian-named package may be seeded in, or published to, the NCZ
-# suite unless it is a reviewed override. The seed check is offline. The live check reads the real
-# Buildkite and R2 indexes (read-only; it skips when they are unreachable). NCZ_APT_LIVE_GATE:
-# fail (default) | warn | skip.
+# suite unless it is a reviewed override. The seed check is offline and always fails the build. The live
+# check reads the real Buildkite and R2 indexes (read-only; skips when unreachable) and only WARNS here, so
+# a leak in the live repo does not block builds; build/ship-image.sh runs the same gate in `fail` mode.
+# NCZ_APT_LIVE_GATE=fail|warn|skip overrides.
 echo "=== NCZ/Debian apt separation (repo content) ==="
 bash "$REPO/build/check-ncz-repo-policy.sh" --components
-case "${NCZ_APT_LIVE_GATE:-fail}" in
-    skip) echo "NCZ_APT_LIVE_GATE=skip: live NCZ repo index check skipped" ;;
-    warn) bash "$REPO/build/check-ncz-repo-policy.sh" --live \
-              || echo "WARN: live NCZ repo content violates the separation policy (NCZ_APT_LIVE_GATE=warn)" ;;
-    *)    bash "$REPO/build/check-ncz-repo-policy.sh" --live ;;
-esac
+bash "$REPO/build/apt-live-gate.sh" warn
