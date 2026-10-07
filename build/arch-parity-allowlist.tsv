@@ -32,9 +32,3 @@ rescue	memtest86+	amd64-only	x86 memory test
 rescue	ms-sys	amd64-only	x86 MBR tooling
 rescue	syslinux	amd64-only	x86 boot media
 rescue	syslinux-efi	amd64-only	x86 boot media
-desktop	libfreerdp-client3-3	arm64-only	seeded for the 2026-10-07 ncz-singularity-desktop Depends; amd64 seed (desktop-amd64.pkgs) is added by the amd64 refresh, then delete this row
-desktop	libfreerdp3-3	arm64-only	seeded for the 2026-10-07 ncz-singularity-desktop Depends; amd64 seed (desktop-amd64.pkgs) is added by the amd64 refresh, then delete this row
-desktop	libges-1.0-0	arm64-only	seeded for the 2026-10-07 ncz-singularity-desktop Depends; amd64 seed (desktop-amd64.pkgs) is added by the amd64 refresh, then delete this row
-desktop	libsane1	arm64-only	seeded for the 2026-10-07 ncz-singularity-desktop Depends; amd64 seed (desktop-amd64.pkgs) is added by the amd64 refresh, then delete this row
-desktop	libwinpr3-3	arm64-only	seeded for the 2026-10-07 ncz-singularity-desktop Depends; amd64 seed (desktop-amd64.pkgs) is added by the amd64 refresh, then delete this row
-desktop	libsfdo0	arm64-only	seeded for the 2026-10-07 ncz-singularity-desktop Depends; amd64 seed (desktop-amd64.pkgs) is added by the amd64 refresh, then delete this row
