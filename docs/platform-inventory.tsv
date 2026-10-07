@@ -433,3 +433,5 @@ assets/display/	common	-	NCZ output-scale policy helper (ncz-display-scale): gre
 build/test_display_scale.py	common	-	unit tests for ncz-display-scale: density policy, greeter mode choice, first-login session rules
 build/test-splash-logo-fit.sh	common	-	manual harness: renders the loginui splash at several resolutions and checks the logo is uncropped and <= 60% wide
 build/hidpi/	common	-	manual KVM/render proof tools for the boot-splash scaling fix (docs/HIDPI-SCALING.md)
+post-install/lib/telnet-inetd.sh	common	-	POSIX-sh helper that points the inetd telnet line at the telnetd binary that exists (in.telnetd or telnetd) and disables stale/tcpd-wrapped lines; sourced by 36-telemetry.sh, 72-rescue-partition.sh, preseed/late.sh and build/build-rescue-rootfs.sh (r201)
+build/test-telnet-inetd.sh	common	-	proves every active inetd telnet line execs an existing binary (negative control on the r200 in.telnetd line), helper idempotence and the busybox-fallback return code
