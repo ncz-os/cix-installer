@@ -87,6 +87,7 @@ build/*.img.receipt.json
 build/*.img.gated
 build/kernel-debs/
 build/dkms-debs/
+build/accel-overlays/
 build/libdrm-debs/
 build/keys/
 build/*.log

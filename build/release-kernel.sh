@@ -167,36 +167,21 @@ fi
 step "4/7 stage kernel assets and run boot/ABI gates"
 NCZ_SKIP_PACKAGING=1 BUILD_REV="$REV" "$REPO/build/stage-kernel.sh" || die "staging or gates failed"
 
-# ---------------------------------------------------- 4b. panthor (DKMS-only)
-# Panthor has no Yocto recipe -- unlike cix-gpu-kmd (mali), it only ever
-# builds via DKMS. The generic path (dpkg -i linux-headers-cixmini, let
-# postinst run dkms autoinstall against /lib/modules/$KVER/build) rebuilds
-# the headers own host tools locally and silently swaps the build identity
-# out from under it -- confirmed 2026-09-07 on O6N: image built oe-user@
-# oe-host/binutils-2.46.1, but dkms-abi-gate caught the installed headers
-# reporting root@ncz-20e7bc/binutils-2.47. Exactly the r245 failure mode,
-# just via panthor instead of mali this time.
-#
-# Fix: point dkms explicitly at the SAME staged headers-dir stage-kernel.sh
-# just extracted from the real OE build tree (never a generic apt/dpkg
-# install of the headers package), so there is no second, drifted copy to
-# accidentally build against.
+# ------------------------------------------- 4b. accelerator overlays (all 4)
+# Every kernel, every time (operator 2026-10-07): mali, panthor, vpu and npu
+# are rebuilt from assets/kernel/<drv> against THIS build tree with the
+# kernel's own OE toolchain, staged into assets/kernel/<drv>/$KVER/ with a
+# SOURCE.sha256 stamp, and checked against this build's Module.symvers.
+# This replaces the old panthor step, which rebuilt whatever panthor-cix the
+# build host's DKMS had registered and never staged the result, so the
+# shipped panthor.ko depended on a hand copy.
 if [ $SKIP_GPU = 0 ]; then
-    step "4b/7 rebuild panthor-cix DKMS module against staged headers for $KVER"
-    HDRDIR="$(readlink -f "$REPO/assets/kernel/mainline")/headers-dir/lib/modules/$KVER/build"
-    [ -d "$HDRDIR" ] || die "no staged headers-dir at $HDRDIR -- did stage-kernel.sh run?"
-    PANTHOR_VER="$(command -v dkms >/dev/null 2>&1 || PATH="$PATH:/usr/sbin"; dkms status 2>/dev/null | grep -oE '^panthor-cix/[0-9.]+' | head -1 | cut -d/ -f2)"
-    [ -n "$PANTHOR_VER" ] || die "panthor-cix not registered in dkms -- nothing to rebuild"
-    sudo dkms build  panthor-cix/"$PANTHOR_VER" -k "$KVER" --kernelsourcedir "$HDRDIR"         || die "panthor-cix dkms build failed against $HDRDIR"
-    sudo dkms install panthor-cix/"$PANTHOR_VER" -k "$KVER" --kernelsourcedir "$HDRDIR" --force         || die "panthor-cix dkms install failed"
-    PKO="/lib/modules/$KVER/updates/dkms/panthor.ko"
-    [ -e "$PKO" ] || PKO="$(find /var/lib/dkms/panthor-cix/$PANTHOR_VER/$KVER -iname 'panthor.ko*' 2>/dev/null | head -1)"
-    [ -n "$PKO" ] && [ -e "$PKO" ] || die "panthor.ko not found after dkms install"
-    pvm="$(modinfo -F vermagic "$PKO" 2>/dev/null | awk '{print $1}')"
-    [ "$pvm" = "$KVER" ] || die "panthor vermagic mismatch: '$pvm' vs kernel '$KVER'"
-    echo "  panthor.ko vermagic=$KVER confirmed, built against $HDRDIR"
+    step "4b/7 build + stage mali, panthor, vpu, npu overlays against $KVER"
+    NCZ_YBUILD_DIR="${NCZ_YBUILD_DIR:-$HOME/ybuild}" \
+        "$REPO/build/stage-accel-overlays.sh" "$KDIR" "$KVER" \
+        || die "accelerator overlays failed for $KVER (panthor included) -- do not ship this kernel"
 else
-    step "4b/7 panthor-cix rebuild -- SKIPPED"
+    step "4b/7 accelerator overlays -- SKIPPED (--skip-gpu-kmd)"
 fi
 
 # ------------------------------------------------------------ 5. kernel debs
@@ -214,6 +199,8 @@ echo "  ok: $got GPU modules inside $DEBBASE"
 if [ "$DO_DKMS" = 1 ]; then
     step "6/7 build accelerator DKMS debs (mali, panthor, vpu, npu)"
     deb_run "build/build-dkms-debs.sh" || die "dkms deb build failed"
+    deb_run "python3 build/verify-dkms-deb-sources.py --deb-dir build/dkms-debs" \
+        || die "dkms debs do not carry the current assets/kernel source"
     ls -la "$REPO/build/dkms-debs/" 2>/dev/null | tail -6
 else
     step "6/7 dkms debs -- SKIPPED"
