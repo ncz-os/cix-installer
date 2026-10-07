@@ -34,7 +34,13 @@ else
 fi
 
 KP="$APT/preferences.d/00-ncz-kernel-purity.pref"
-if [ -f "$KP" ]; then ok "kernel-purity pin present"; else fail "$KP is missing"; fi
+if [ ! -f "$KP" ]; then
+    fail "$KP is missing"
+elif ! diff -q <(ncz_kernel_purity_pin_text) "$KP" >/dev/null 2>&1; then
+    fail "$KP differs from post-install/lib/kernel-purity.sh (stale or hand-edited)"
+else
+    ok "kernel-purity pin present and current"
+fi
 
 # Enabled NCZ repos: any non-comment 'deb' line (classic) or URIs: line (deb822)
 # in an active *.list / *.sources file that names an NCZ host.

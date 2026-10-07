@@ -106,7 +106,7 @@ def parse_candidate_hosts(policy_text):
             package, candidate, in_candidate = head.group(1), None, False
             result.setdefault(package, [])
             if ":" in package:
-                result[package.split(":", 1)[0]] = result[package]
+                result.setdefault(package.split(":", 1)[0], [])
             continue
         if package is None:
             continue
@@ -120,7 +120,12 @@ def parse_candidate_hosts(policy_text):
             continue
         src = re.match(r"^\s{8}-?\d+ (\S+:\S*)", line)
         if src and in_candidate:
-            result[package].append(source_key(src.group(1)))
+            key = source_key(src.group(1))
+            result[package].append(key)
+            if (
+                ":" in package
+            ):  # also file it under the bare name, WITHOUT replacing a native entry
+                result[package.split(":", 1)[0]].append(key)
     return result
 
 
