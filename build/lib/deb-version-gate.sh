@@ -22,7 +22,7 @@
 # Output: one line "version-gate: ..." per decision. Needs dpkg-deb.
 
 ncz_deb_version_gate() {
-    local deb="$1" name ver arch sha idx src rc=0 found_sha="" tmp highest="" v a s
+    local deb="$1" name ver arch sha src rc=0 found_sha="" tmp highest="" v a s
     [ -f "$deb" ] || { echo "version-gate: no such file: $deb" >&2; return 1; }
     name="$(dpkg-deb -f "$deb" Package 2>/dev/null || true)"; ver="$(dpkg-deb -f "$deb" Version 2>/dev/null || true)"
     arch="$(dpkg-deb -f "$deb" Architecture 2>/dev/null || true)"
