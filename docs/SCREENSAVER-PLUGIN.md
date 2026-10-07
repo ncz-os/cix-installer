@@ -14,11 +14,20 @@ named: version, ARGONAS directory, source commit, and for each arch the deb
 sha256, the payload version it was built against, and that payload's
 `libsingularity` sha256. Every consumer below reads this file.
 
-Current pin: 0.3.17 from `ncz-screensavers` `fix/plugin-inpage-options-20261007`
-(9f9bf085), built against the r201 payloads (amd64 `20261007+bk0+tgzbf349870`,
-arm64 `20261007+bk0+tgzb69d3482`) and staged on ARGONAS at
-`/mnt/datapool/projects/ncz-screensavers-debs/plugin-0.3.17-20261007/`
+Current pin: 0.3.18 from `ncz-screensavers` `fix/r201-plugin-018-20261007`
+(c5e1552d), built against the 2026-10-07 Singularity refresh payloads (amd64
+`20261007185124+bk0+tgz8529a9b6`, arm64 `20261007184442+bk0+tgzfc441ab9`) and staged on
+ARGONAS at `/mnt/datapool/projects/ncz-screensavers-debs/plugin-0.3.18b-20261007/`
 (debs, `SHA256SUMS`, `BUILT-FROM.txt`, build and test logs).
+
+0.3.18 is 0.3.17 rebuilt for the refreshed libsingularity: the plugin target now
+names `libsoup-3.0`, because the new `singularity-1.0.vapi` uses `Soup.Session`
+while its `.deps` and pkg-config `Requires:` do not list it (an upstream
+libsingularity defect), and the build host needs the gtksourceview, gstreamer
+and gtk4-layer-shell `-dev` packages the new `singularity-1.0.pc` requires.
+
+The pin matches the final payloads built from `fix/singularity-converge-20261007`
+(`ncz-singularity-debs/singularity-refresh-20261007b`).
 
 Per-screensaver options open in place: the gear on a screensaver row expands
 its options directly under that row, inside the Settings page, one screensaver
