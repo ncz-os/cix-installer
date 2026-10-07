@@ -1095,6 +1095,16 @@ build_base(){
   # test/validation debs are SKIPPED by 25-cix-proprietary at install time
   # (see its DEBS filter) and consumed by nothing else -- do not bake ~2.2G
   # of dead weight into base.squashfs
+  # BEGIN prune-singularity-from-base
+  # The Singularity desktop payload reaches the target via the desktop layer /
+  # /cdrom/pool/main (25-cix-proprietary.sh skips it by name), so the copy of
+  # assets/cix-debs just made into the base is dead weight (~40 MB) and, when it
+  # is an OLDER build than the one build/sinty-out supplies, a stale second deb
+  # shipped in the image (found on the r201 amd64 image).
+  if compgen -G "$ROOT/build/sinty-out/ncz-singularity-desktop_*.deb" >/dev/null; then
+    sudo rm -f "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"ncz-singularity-desktop_*.deb
+  fi
+  # END prune-singularity-from-base
   sudo rm -f "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-unit-test_*.deb \
              "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-ltp_*.deb \
              "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-gpu-test_*.deb \
@@ -1386,6 +1396,28 @@ ExecStartPre=/usr/sbin/sshd -t
 # 15:01Z on 2026-10-06 (libsingularity f3d0f49) break the r199 respin's stage
 # 1 the same afternoon. Moving forward is a deliberate pin bump.
 build_singularity_payload(){
+  # Operator-tested payload: stage EXACTLY this deb instead of recompiling.
+  # Both variables are required and the sha256 is verified, so a wrong or
+  # swapped file cannot slip in. Without them the behaviour is unchanged
+  # (rebuild from the pinned sources; the version string and tarball hash then
+  # differ on every run even though the sources are identical).
+  if [ -n "${NCZ_SINGULARITY_PREBUILT_DEB:-}" ]; then
+    local _pre="$NCZ_SINGULARITY_PREBUILT_DEB" _want="${NCZ_SINGULARITY_PREBUILT_SHA256:-}" _got
+    [ -s "$_pre" ] || { log "ERROR: NCZ_SINGULARITY_PREBUILT_DEB=$_pre is missing/empty"; exit 1; }
+    [ -n "$_want" ] || { log "ERROR: NCZ_SINGULARITY_PREBUILT_DEB needs NCZ_SINGULARITY_PREBUILT_SHA256"; exit 1; }
+    _got="$(sha256sum "$_pre" | cut -d' ' -f1)"
+    [ "$_got" = "$_want" ] || { log "ERROR: $_pre sha256 $_got != expected $_want"; exit 1; }
+    case "$(basename "$_pre")" in
+      ncz-singularity-desktop_*_"$NCZ_TARGET_ARCH".deb) ;;
+      *) log "ERROR: $_pre is not an ncz-singularity-desktop deb for $NCZ_TARGET_ARCH"; exit 1 ;;
+    esac
+    mkdir -p "$ROOT/build/sinty-out"
+    rm -f "$ROOT/build/sinty-out/"ncz-singularity-desktop_*.deb "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb
+    install -m 0644 "$_pre" "$ROOT/build/sinty-out/"
+    install -m 0644 "$_pre" "$ROOT/assets/cix-debs/"
+    log "SINGULARITY: staged the prebuilt $(basename "$_pre") (sha256 $_got); NOT rebuilding"
+    return 0
+  fi
   log "SINGULARITY: rebuilding ncz-singularity-desktop from the pinned upstream sources (assets/singularity/upstream-pins.tsv)"
   local _sinty_out="$ROOT/build/sinty-out"
   local _tgz="$_sinty_out/singularity-opt.tgz"
