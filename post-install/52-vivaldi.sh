@@ -37,7 +37,7 @@ esac
 # VA-API decoder hangs on H.264/HEVC). Applied from an EXIT trap so it also runs
 # when this hook leaves early, and AFTER this hook's own default-browser writes.
 _ncz_bp_arch="${NCZ_TARGET_ARCH:-}"
-[ -n "$_ncz_bp_arch" ] || _ncz_bp_arch=$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)
+[ -n "$_ncz_bp_arch" ] || _ncz_bp_arch=$(tr -d '[:space:]' 2>/dev/null < /usr/local/lib/cix-installer/BUILD_ARCH || true)
 [ -n "$_ncz_bp_arch" ] || _ncz_bp_arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
 case "$_ncz_bp_arch" in
     arm64|aarch64)

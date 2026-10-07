@@ -170,5 +170,21 @@ for a in arm64 amd64; do
     [ "$first" = "$want" ] && ok "browser: 20-desktop x-www-browser on $a tries $want first" || bad "browser: x-www-browser on $a tries '$first' first" "$(cat "$W/xwb" 2>/dev/null)"
 done
 
+# Regression (r201 review): with NCZ_TARGET_ARCH unset and no BUILD_ARCH file, the arch probe
+# must fall through to dpkg/uname instead of aborting the hook under `set -euo pipefail`.
+rm -rf "$W/xwb" "$W/xdg"
+if env -u NCZ_TARGET_ARCH bash -c "set -euo pipefail; $blk" >/dev/null 2>&1 && [ -s "$W/xwb" ]; then
+    ok "browser: 20-desktop arch probe survives set -e with no NCZ_TARGET_ARCH/BUILD_ARCH"
+else
+    bad "browser: 20-desktop arch probe aborts under set -e with no NCZ_TARGET_ARCH/BUILD_ARCH"
+fi
+for f in 20-desktop 52-vivaldi 53-chrome; do
+    if grep -n 'tr -d .\[:space:\]. < /usr/local/lib/cix-installer/BUILD_ARCH' "$ROOT/post-install/$f.sh" >/dev/null 2>&1; then
+        bad "browser: $f.sh reads BUILD_ARCH with the abort-prone redirect order"
+    else
+        ok "browser: $f.sh BUILD_ARCH read is guarded"
+    fi
+done
+
 echo "media defaults tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
