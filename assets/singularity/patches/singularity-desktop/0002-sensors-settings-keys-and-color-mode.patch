@@ -1,4 +1,4 @@
-From 9e34833602d4a08d721f303a5c768069976f0691 Mon Sep 17 00:00:00 2001
+From 8541b04ae0a49b239aa533575af258f6347de596 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Mon, 21 Sep 2026 16:30:54 -0400
 Subject: [PATCH] schema: sensors settings keys + color-mode toggle
@@ -21,12 +21,12 @@ AI-Scope: Declared the missing sensors-* keys plus a new sensors-color-mode key.
  1 file changed, 35 insertions(+)
 
 diff --git a/data/dev.sinty.desktop.gschema.xml b/data/dev.sinty.desktop.gschema.xml
-index 0712a58..251d979 100644
+index 93f09bf..5f9f6ee 100644
 --- a/data/dev.sinty.desktop.gschema.xml
 +++ b/data/dev.sinty.desktop.gschema.xml
-@@ -551,5 +551,40 @@
-       <summary>Graphics rendering mode</summary>
-       <description>auto, hardware or software. Software is a safe fallback for GPUs whose driver crashes the hardware renderer.</description>
+@@ -1090,5 +1090,40 @@
+       <summary>Tablet button actions</summary>
+       <description>Action for each tablet button (Pad, Pad2 to Pad9): a mouse button, none, action:NAME for a shell action or key:SHORTCUT for a keyboard shortcut. Missing buttons are sent to the app.</description>
      </key>
 +    <key name="sensors-interval-seconds" type="i">
 +      <default>3</default>
@@ -66,5 +66,5 @@ index 0712a58..251d979 100644
    </schema>
  </schemalist>
 -- 
-2.50.1 (Apple Git-155)
+2.55.0
 
