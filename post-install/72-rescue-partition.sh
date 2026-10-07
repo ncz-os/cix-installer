@@ -305,6 +305,13 @@ if [ -f "$MNT/usr/lib/systemd/system/inetd.service" ] || [ -x "$MNT/usr/sbin/tel
     for svc in inetd.service telnet.socket; do
         [ -f "$MNT/usr/lib/systemd/system/$svc" ] && ln -sf "/usr/lib/systemd/system/$svc" "$MNT/etc/systemd/system/multi-user.target.wants/$svc"
     done
+    # r201: a rescue rootfs built before the fix carries an inetd line that
+    # execs /usr/sbin/in.telnetd, which forky does not ship. Repair it in place.
+    _ncz_telnet_lib="$(dirname "$0")/lib/telnet-inetd.sh"
+    [ -r "$_ncz_telnet_lib" ] || _ncz_telnet_lib="$INSTALLER_META/post-install/lib/telnet-inetd.sh"
+    if [ -f "$MNT/etc/inetd.conf" ] && [ -r "$_ncz_telnet_lib" ]; then
+        ( . "$_ncz_telnet_lib" && ncz_telnet_inetd_fix "$MNT" ) || echo "[72]   WARN: rescue inetd telnet line could not be repaired"
+    fi
     echo "[72]   telnet available and enabled (console fallback, LAN-only per fleet doctrine)"
 fi
 echo "[72] auto-network + remote access verified (single owner: ncz-rescue-net)"

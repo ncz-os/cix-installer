@@ -686,7 +686,14 @@ CDROM_PREF
         # mirrors post-install/36-telemetry.sh. Non-fatal.
         if chroot /target dpkg -s inetutils-telnetd >/dev/null 2>&1; then
             chroot /target update-inetd --enable telnet 2>/dev/null || true
-            chroot /target sh -c "grep -qE '^[[:space:]]*telnet[[:space:]]' /etc/inetd.conf 2>/dev/null || printf 'telnet\tstream\ttcp\tnowait\troot\t/usr/sbin/telnetd\ttelnetd\n' >> /etc/inetd.conf"
+            # r201: one direct line to the telnetd that EXISTS (forky ships
+            # /usr/sbin/telnetd, not in.telnetd); stale or tcpd-wrapped lines
+            # that would exec a missing path are disabled by the shared helper.
+            if [ -r /target/usr/local/lib/cix-installer/post-install/lib/telnet-inetd.sh ]; then
+                chroot /target sh -c '. /usr/local/lib/cix-installer/post-install/lib/telnet-inetd.sh && ncz_telnet_inetd_fix ""' || echo "WARN: telnet inetd line repair failed"
+            else
+                chroot /target sh -c "grep -qE '^[[:space:]]*telnet[[:space:]]' /etc/inetd.conf 2>/dev/null || printf 'telnet\tstream\ttcp\tnowait\troot\t/usr/sbin/telnetd\ttelnetd\n' >> /etc/inetd.conf"
+            fi
             chroot /target systemctl enable inetd 2>/dev/null || true
             chroot /target systemctl enable openbsd-inetd 2>/dev/null || true
             echo "[late r178] telnet enabled on :23 (doctrine #9): inetd.conf active + inetd service enabled"

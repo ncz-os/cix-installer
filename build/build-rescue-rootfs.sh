@@ -207,10 +207,11 @@ chroot "$CHROOT" systemctl enable getty@tty1.service 2>/dev/null || true
 } >> "$CHROOT/etc/securetty"
 
 # --- telnetd on :23 via openbsd-inetd (busybox fallback) ---
-if [ -e "$CHROOT/usr/sbin/in.telnetd" ]; then
-    if ! grep -qE '^telnet[[:space:]]' "$CHROOT/etc/inetd.conf" 2>/dev/null; then
-        echo 'telnet stream tcp nowait root /usr/sbin/in.telnetd in.telnetd' >> "$CHROOT/etc/inetd.conf"
-    fi
+# The inetd line names whichever telnetd the rootfs really ships (forky's
+# inetutils-telnetd has /usr/sbin/telnetd, not in.telnetd); the shared helper
+# disables stale lines that would exec a missing path (r201).
+. "$ROOT/post-install/lib/telnet-inetd.sh"
+if [ -e "$CHROOT/usr/sbin/inetd" ] && ncz_telnet_inetd_fix "$CHROOT"; then
     chroot "$CHROOT" systemctl enable openbsd-inetd.service 2>/dev/null || true
 else
     # busybox-static fallback telnetd socket

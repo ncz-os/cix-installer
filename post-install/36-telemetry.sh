@@ -50,18 +50,24 @@ echo "[36] installing telnetd (backup console on :23)"
 timeout 300 env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     inetutils-telnetd openbsd-inetd 2>&1 | tail -3
 
-if dpkg -s openbsd-inetd >/dev/null 2>&1 && dpkg -s inetutils-telnetd >/dev/null 2>&1; then
-    # Ensure the inetd telnet line is present + enabled. Invoke in.telnetd
-    # DIRECTLY (no /usr/sbin/tcpd wrapper) — inetutils-telnetd does not pull
-    # tcp-wrappers, so a tcpd-wrapped line silently fails to spawn telnetd
-    # when tcpd is absent (Codex 26.6 review nit). Run as root so the daemon
-    # can exec /bin/login.
-    if ! grep -qE '^telnet[[:space:]]' /etc/inetd.conf 2>/dev/null; then
-        echo 'telnet stream tcp nowait root /usr/sbin/in.telnetd in.telnetd' >> /etc/inetd.conf
-    fi
+# The inetd line must name the telnetd binary that EXISTS. It used to hardcode
+# /usr/sbin/in.telnetd, but forky's inetutils-telnetd ships /usr/sbin/telnetd
+# only: :23 accepted and inetd logged "execv /usr/sbin/in.telnetd: No such file
+# or directory" (r201, every reflashed machine). lib/telnet-inetd.sh detects the
+# real binary, disables stale/tcpd-wrapped lines and writes one direct line (no
+# tcpd: inetutils-telnetd does not pull tcp-wrappers). Runs as root so the
+# daemon can exec /bin/login.
+_ncz_telnet_lib="$(dirname "$0")/lib/telnet-inetd.sh"
+[ -r "$_ncz_telnet_lib" ] || _ncz_telnet_lib=/usr/local/lib/cix-installer/post-install/lib/telnet-inetd.sh
+_ncz_telnet_ok=0
+if dpkg -s openbsd-inetd >/dev/null 2>&1 && dpkg -s inetutils-telnetd >/dev/null 2>&1 \
+   && [ -r "$_ncz_telnet_lib" ] && . "$_ncz_telnet_lib" && ncz_telnet_inetd_fix ""; then
+    _ncz_telnet_ok=1
+fi
+if [ "$_ncz_telnet_ok" = 1 ]; then
     systemctl enable inetd 2>&1 | tail -1
     systemctl enable openbsd-inetd 2>&1 | tail -1
-    echo "[36] telnetd via openbsd-inetd enabled"
+    echo "[36] telnetd via openbsd-inetd enabled: $(grep -E '^telnet[[:space:]]' /etc/inetd.conf | head -1)"
 else
     echo "[36] WARN: inetutils-telnetd/openbsd-inetd unavailable — falling back to busybox telnetd socket"
     BB=$(command -v busybox || echo /bin/busybox)
