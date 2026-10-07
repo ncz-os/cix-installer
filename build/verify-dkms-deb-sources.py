@@ -113,7 +113,9 @@ def expected_tree(root, drv):
                     out[rel] = sha256(f.read())
     else:
         base = os.path.join(asset, "src")
-        if not os.path.isdir(base):
+        if not os.path.isdir(base) or not os.path.isfile(
+            os.path.join(asset, "dkms.conf")
+        ):
             return None
         for dirpath, _dirnames, filenames in os.walk(base):
             rel_dir = os.path.relpath(dirpath, base)

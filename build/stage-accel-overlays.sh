@@ -51,8 +51,8 @@ mkdir -p "$WORK/tmp"
 
 echo "== building ${DRIVERS[*]} against $KVER ($KDIR)"
 podman run --rm --security-opt label=disable --userns=keep-id \
-    -v "$YB:/ybuild" -v "$ROOT:/repo" "$IMAGE" \
-    "set -e; export TMPDIR=/repo/build/accel-overlays/tmp PATH=$TC:/usr/bin:/bin \
+    -v "$YB:/ybuild" -v "$ROOT:/repo" --entrypoint /bin/bash "$IMAGE" \
+    -c "set -e; export TMPDIR=/repo/build/accel-overlays/tmp PATH=$TC:/usr/bin:/bin \
        CROSS_COMPILE=aarch64-nclawzero-linux- ARCH=arm64; cd /repo && \
      bash build/build-accel-overlays.sh $CKDIR/build $KVER /repo/$OUT_REL ${DRIVERS[*]}" \
     || die "accelerator overlay build failed (logs: $ROOT/$OUT_REL/build-<drv>.log)"
