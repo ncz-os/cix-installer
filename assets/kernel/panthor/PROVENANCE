@@ -1,0 +1,24 @@
+Module: panthor (Arm Mali CSF GPU, Panthor DRM driver) for CIX Sky1 (ACPI CIXH5000)
+DKMS package: panthor-cix (PACKAGE_VERSION in dkms.conf; the number is historical
+  and does not track the kernel it builds for)
+Origin: Linux drivers/gpu/drm/panthor, forked for NCZ-OS with the CIX Sky1 changes
+SPDX-License-Identifier: GPL-2.0-only OR MIT
+Compared with: Linux v7.3-rc6 drivers/gpu/drm/panthor (Sky1 port tree c3e054c7d4ea,
+  base a90ee4305c4a), 2026-10-07
+
+Delta from v7.3-rc6 in-tree panthor, as of that comparison:
+  - Sky1 additions: panthor_sky1.c/.h (shader core harvesting), ACPI CIXH5000
+    probe and positional IRQs, ACPI power-supply (GPUP/CIXH5001) un-secure,
+    SCMI perf-domain DVFS, noirq system-sleep replay of the IP reset,
+    coherency_mode (ACE-Lite) instead of the bool coherent.
+  - Not carried: uAPI 1.9 (DRM_PANTHOR_DEV_QUERY_MMU_INFO,
+    DRM_PANTHOR_VM_BIND_OP_MAP_SPARSE and the dummy BO). The driver reports
+    1.8, so userspace does not ask for them.
+  - Builds on 7.2.x and 7.3: DRIVER_GEM_GPUVA is set only below 7.3.0
+    (upstream 21fcb222f0d1 removed the flag and made gpuva init unconditional).
+  - drm_gpuvm/drm_gem usage (immediate mode, obtain_prealloc, deferred vm_bo
+    put, gpuva.lock) matches v7.3-rc6 line for line.
+
+Built per kernel by build/build-accel-overlays.sh (overlay + SOURCE.sha256) and
+packaged by build/build-dkms-debs.sh; build/verify-dkms-deb-sources.py checks
+both against this directory.

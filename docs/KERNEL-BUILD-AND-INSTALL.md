@@ -115,6 +115,25 @@ from failed to active/exited-success.
    forget: during the r252 session, `kernel-manifest.py check` failed once with
    a real sha256 drift until `assets/kernel-manifest.json` was regenerated.
 
+   Rebuild all four accelerator overlays, panthor included, from the new
+   kernel's headers every time, then rebuild the DKMS debs from the same
+   tree. `build-accel-overlays.sh` stops on any compile error, a wrong
+   vermagic or an unresolved symbol, and writes `<drv>/<kver>/SOURCE.sha256`
+   next to each `.ko`. `verify-arm64-inputs.sh` then refuses the image unless
+   every overlay matches the pinned kernel's CRCs
+   (`verify-overlay-modversions.py`), every overlay's `SOURCE.sha256` matches
+   today's `assets/kernel/<drv>`, and every staged DKMS deb carries exactly
+   that source (`verify-dkms-deb-sources.py`). A stale
+   `panthor-cix-dkms_7.2.0+ncz1` deb from before the 7.3 port is what left the
+   r200 O6N without `panthor.ko`.
+
+   ```bash
+   bash build/build-accel-overlays.sh <headers-dir>/lib/modules/$KVER/build \
+       "$KVER" <staging>/overlays            # copy overlays/<drv>/$KVER/ into assets/kernel/
+   bash build/build-dkms-debs.sh mali panthor vpu npu
+   bash build/verify-arm64-inputs.sh
+   ```
+
 5. Build the kernel debs with a freshly bumped package revision.
 
    `build/build-kernel-debs.sh` defaults `BUILD_REV` to the next release

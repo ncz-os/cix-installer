@@ -29,8 +29,18 @@ WHAT IT CHECKS, per driver whose assets/kernel/<drv>/dkms.conf exists:
 A driver with no dkms.conf in the tree, or no deb staged, is reported and
 skipped: presence of each deb is verify-arm64-inputs.sh's job, not this one.
 
+--overlays [KVER]: the prebuilt overlay side of the same rule. Each
+assets/kernel/<drv>/<kver>/ dir must exist and carry SOURCE.sha256, written by
+build/build-accel-overlays.sh when it compiled that overlay, equal to the
+digest of today's assets/kernel/<drv> source (--source-digest DRV prints it).
+Together with verify-overlay-modversions.py (CRCs vs the pinned kernel) this
+means a kernel bump cannot ship without a panthor.ko compiled from the current
+source against that kernel.
+
 Usage:
   build/verify-dkms-deb-sources.py [--root DIR] [--deb-dir DIR] [--driver D ...]
+  build/verify-dkms-deb-sources.py [--root DIR] --overlays [KVER] [--driver D ...]
+  build/verify-dkms-deb-sources.py [--root DIR] --source-digest DRV
 Environment: VERIFY_ROOT (same as --root).
 
 Exit: 0 pass, 1 gate failure (every failure printed), 2 bad invocation.
@@ -40,6 +50,7 @@ import argparse
 import glob
 import hashlib
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -185,14 +196,105 @@ def drv_kver_path(rel):
     return "/" in rel and is_kver_dir(first)
 
 
+def source_digest(tree):
+    """One sha256 over the staged source set: sorted '<sha256>  <relpath>' lines."""
+    lines = "".join(f"{tree[k]}  {k}\n" for k in sorted(tree))
+    return sha256(lines.encode())
+
+
+def pinned_kver(root):
+    path = os.path.join(root, "assets", "kernel-manifest.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)["variants"]["mainline"]["kver"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def check_overlays(root, drivers, kver):
+    """Every <drv>/<kver>/ overlay dir must carry SOURCE.sha256 equal to the
+    digest of today's assets/kernel/<drv> source (written by
+    build/build-accel-overlays.sh when it compiles the overlay)."""
+    failures = 0
+    for drv in drivers:
+        if not os.path.isfile(os.path.join(root, "assets", "kernel", drv, "dkms.conf")):
+            print(f"SKIP {drv}: no assets/kernel/{drv}/dkms.conf")
+            continue
+        want_tree = expected_tree(root, drv)
+        if want_tree is None:
+            print(f"SKIP {drv}: no assets/kernel/{drv}/src")
+            continue
+        want = source_digest(want_tree)
+        rel = os.path.join("assets", "kernel", drv, kver)
+        stamp = os.path.join(root, rel, "SOURCE.sha256")
+        if not os.path.isdir(os.path.join(root, rel)):
+            print(f"FAIL {drv}: no overlay dir {rel}/ for the pinned kernel")
+            failures += 1
+            continue
+        try:
+            with open(stamp, encoding="utf-8") as f:
+                words = f.read().split()
+            have = words[0] if words else ""
+        except OSError:
+            have = None
+        if have is None:
+            print(
+                f"FAIL {drv}: {rel}/SOURCE.sha256 missing; rebuild the overlay with "
+                "build/build-accel-overlays.sh so it records the source it compiled"
+            )
+            failures += 1
+        elif have != want:
+            print(
+                f"FAIL {drv}: {rel} was built from other source "
+                f"(stamp {have[:12]}, assets/kernel/{drv} is {want[:12]}); "
+                "rebuild with build/build-accel-overlays.sh"
+            )
+            failures += 1
+        else:
+            print(f"OK {drv}: {rel} built from current source ({want[:12]})")
+    return failures
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     ap.add_argument("--root", default=os.environ.get("VERIFY_ROOT"))
     ap.add_argument("--deb-dir")
     ap.add_argument("--driver", action="append", choices=DRIVERS)
+    ap.add_argument(
+        "--source-digest",
+        metavar="DRV",
+        choices=DRIVERS,
+        help="print the source digest of assets/kernel/DRV and exit",
+    )
+    ap.add_argument(
+        "--overlays",
+        nargs="?",
+        const="",
+        metavar="KVER",
+        help="check overlay SOURCE.sha256 stamps instead of debs "
+        "(KVER defaults to assets/kernel-manifest.json variants.mainline.kver)",
+    )
     args = ap.parse_args()
 
     root = args.root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if args.source_digest:
+        tree = expected_tree(root, args.source_digest)
+        if not tree:
+            print(f"no source for {args.source_digest} under {root}", file=sys.stderr)
+            return 2
+        print(source_digest(tree))
+        return 0
+    if args.overlays is not None:
+        kver = args.overlays or pinned_kver(root)
+        if not kver:
+            print("verify-dkms-deb-sources: overlays: SKIP (no pinned kver)")
+            return 0
+        failures = check_overlays(root, args.driver or list(DRIVERS), kver)
+        if failures:
+            print(f"verify-dkms-deb-sources: overlays {kver}: FAIL ({failures})")
+            return 1
+        print(f"verify-dkms-deb-sources: overlays {kver}: PASS")
+        return 0
     deb_dir = args.deb_dir or os.path.join(root, "assets", "cix-debs")
     drivers = args.driver or list(DRIVERS)
     if not os.path.isdir(deb_dir):

@@ -299,6 +299,11 @@ if [ -e "$ROOT/assets/kernel/mainline" ] || [ -L "$ROOT/assets/kernel/mainline" 
     else
         mark_miss "overlay-modversions" "$ROOT/assets/kernel/{mali,vpu,npu,panthor}/<kver>/*.ko vs the pinned kernel Module.symvers (see build/verify-overlay-modversions.py output above)"
     fi
+    # Same kver dirs: each overlay must have been compiled from today's
+    # assets/kernel/<drv> source (SOURCE.sha256 from build-accel-overlays.sh).
+    if ! python3 "$SCRIPT_DIR/verify-dkms-deb-sources.py" --root "$ROOT" --overlays; then
+        mark_miss "overlay-source" "$ROOT/assets/kernel/{mali,vpu,npu,panthor}/<kver>/SOURCE.sha256 vs assets/kernel/<drv> (rebuild with build/build-accel-overlays.sh)"
+    fi
 fi
 
 # --- summary ------------------------------------------------------------
