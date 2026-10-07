@@ -678,6 +678,7 @@ parity:
 	bash build/test-amd64-cuda-gates.sh
 	build/test-arm64-freshness-gate.sh
 	bash build/test-singularity-pins.sh
+	@bash build/test-singularity-deb-version.sh; rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 77 ]; then exit $$rc; fi
 	build/test-overlay-modversions.sh
 	build/test-amd64-dracut-isolation.sh
 	build/test-kernel-default-policy.sh

@@ -30,7 +30,31 @@ elif [ -f "$TGZ" ]; then
 else
     GIT_TAG="tgz00000000"
 fi
-VERSION="${NCZ_SINGULARITY_VERSION:-$(date -u +%Y%m%d)+bk${BUILDKITE_BUILD_NUMBER:-0}+${GIT_TAG}}"
+# Version = <UTC build timestamp>+bk<N>+<tag>, e.g. 20261007153012+bk0+tgzb025ea52.
+#
+# The leading field is a 14-digit UTC timestamp, NOT a bare YYYYMMDD. dpkg
+# compares the leading digit run numerically, so a later build always sorts
+# above an earlier one and above every previously shipped 8-digit-date version
+# (20261007+bk0+tgzb69d3482 and friends). The old YYYYMMDD+bkN+tgz<hash> scheme
+# let two builds on the same day be ordered by the hex content hash, which is
+# random: on 2026-10-07 the newer 20261007+bk0+tgzb025ea52 sorted BELOW the
+# installed 20261007+bk0+tgzb69d3482, so apt called the upgrade a downgrade and
+# a newer build was never offered. The <tag> after the timestamp stays a
+# content fingerprint; it only matters when timestamp and bk number tie.
+# Reproducible re-wraps: pin the timestamp with NCZ_SINGULARITY_BUILD_TS
+# (YYYYMMDDHHMMSS, UTC) or SOURCE_DATE_EPOCH; same tarball + same timestamp +
+# same BUILDKITE_BUILD_NUMBER gives the same version string.
+if [ -n "${NCZ_SINGULARITY_BUILD_TS:-}" ]; then
+    BUILD_TS="$NCZ_SINGULARITY_BUILD_TS"
+elif [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    BUILD_TS="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y%m%d%H%M%S 2>/dev/null)" || {
+        echo "ERROR: SOURCE_DATE_EPOCH='$SOURCE_DATE_EPOCH' is not an epoch timestamp" >&2; exit 1; }
+else
+    BUILD_TS="$(date -u +%Y%m%d%H%M%S)"
+fi
+[[ "$BUILD_TS" =~ ^[0-9]{14}$ ]] || {
+    echo "ERROR: build timestamp '$BUILD_TS' is not YYYYMMDDHHMMSS (NCZ_SINGULARITY_BUILD_TS?)" >&2; exit 1; }
+VERSION="${NCZ_SINGULARITY_VERSION:-${BUILD_TS}+bk${BUILDKITE_BUILD_NUMBER:-0}+${GIT_TAG}}"
 OUT="${OUT:-$(cd "$(dirname "$TGZ")" && pwd)}"
 STAGE=""
 

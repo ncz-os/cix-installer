@@ -422,6 +422,7 @@ build/test-screensavers-mandatory-install-builders.sh	common	-	sections 3-7 of t
 build/verify-installed-target-screensavers.sh	common	-	section (vi) of verify-installed-target.sh: dpkg status, version floor, engine, catalogue (sourced; sets SS_STATUS)
 build/verify-installed-target-screensavers-default.sh	common	-	section (vi) continuation: schema default, Cygnus override, idle timer, gtk4-reference ban, plugin files when installed
 build/test-singularity-deb-depends.sh	common	-	hermetic fail-before/pass-after test for the derived Singularity deb Depends
+build/test-singularity-deb-version.sh	common	-	hermetic fail-before/pass-after test that the Singularity deb version is monotonic (UTC timestamp before bk/hash)
 build/test-singularity-supervisor-forensics.sh	common	-	singularity supervisor per-run logs, signal names and core-limit regression
 build/test-sibling-mirror-apt-opts.sh	common	-	hermetic fixture test that sibling rootfs scripts put snapshot apt options on every sources.list line
 build/test-sibling-empty-index.sh	common	-	hermetic fixture test that an empty package manifest or Packages index exits with an explicit error
