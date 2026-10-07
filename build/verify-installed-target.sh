@@ -268,6 +268,15 @@ for leak in /etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service 
             /etc/dracut.conf.d/10-ncz-sky1.conf; do
     exists "$leak" && gate_miss sky1-leak "$leak is enabled on amd64 (Sky1 policy leaked onto x86)"
 done
+# A greetd drop-in with Wants=/After=cix-detect-display.service pulls the disabled
+# unit in on every boot (7.4 s on CHIMERA, r201); 55-greeter writes it on arm64 only.
+for _gd in $(lsnames /etc/systemd/system/greetd.service.d); do
+    case "$_gd" in *.conf) ;; *) continue ;; esac
+    if fetch "/etc/systemd/system/greetd.service.d/$_gd" "$TMP/greetd-dropin" \
+       && grep -Eq '^[[:space:]]*(Wants|Requires|After)=.*cix-detect-display' "$TMP/greetd-dropin"; then
+        gate_miss sky1-leak "greetd drop-in $_gd orders/pulls cix-detect-display.service on amd64"
+    fi
+done
 fi
 # --- (iv) browsers --------------------------------------------------------
 echo "[verify-target] (iv) browsers"
