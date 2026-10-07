@@ -11,9 +11,10 @@
 # a >128 exit code to a signal name, raises the soft core limit inside the child
 # subshell, and leaves the crash-count/safe-mode logic untouched.
 #
-# Runs standalone. The functional half is skipped (not failed) when the upstream
-# singularity-session checkout is not present; point SINGULARITY_SESSION_SRC at
-# one to force it.
+# Runs standalone. The functional half uses the pinned singularity-session commit
+# (cloned via build/singularity-pins.sh) and is skipped (not failed) when that
+# clone is impossible (offline, pin not cached); point SINGULARITY_SESSION_SRC at
+# a checkout to override.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
@@ -61,7 +62,15 @@ kept="$(find "$T/runs" -name 'desktop-*.log' | wc -l)"
 [ "$kept" = 8 ] && ok "retention keeps exactly 8 run logs" || bad "retention kept $kept (want 8)"
 
 # ---- functional: apply the patch to an upstream checkout and run the supervisor
-SRC="${SINGULARITY_SESSION_SRC:-$HOME/Projects/singularity-sync-real-20261004/subprojects/singularity-session}"
+# Default: the singularity-session commit pinned in assets/singularity/upstream-pins.tsv,
+# cloned through build/singularity-pins.sh (bare-mirror cache first, then the
+# network). This used to default to a stray home-directory checkout from
+# 2026-10-04, so a pin bump made the patch "not apply" to a tree that is not the
+# one the payload is built from.
+SRC="${SINGULARITY_SESSION_SRC:-}"
+if [ -z "$SRC" ] && bash "$ROOT/build/singularity-pins.sh" clone subprojects/singularity-session "$T/pinned-session" >/dev/null 2>&1; then
+    SRC="$T/pinned-session"
+fi
 if [ -f "$SRC/src/singularity-desktop-session.in" ] && [ -f "$PATCH" ]; then
     cp -r "$SRC" "$T/sess"; rm -rf "$T/sess/.git"
     git -C "$T/sess" init -q
