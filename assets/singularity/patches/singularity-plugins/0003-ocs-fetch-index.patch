@@ -1,0 +1,34 @@
+From 7ad95f6fc3b11ad08ec7fe0165dc6ffc4b8d7048 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 21 Sep 2026 15:03:25 -0400
+Subject: [PATCH] fix(wallpapers-ocs): choices() must fetch its own index
+
+The plugin-based wallpaper manager refactor made the browser
+provider-generic and always passes an empty index string to
+choices(); WallpaperOcs.categories() then fails to parse "" as JSON
+("Expected a JSON object"), confirmed live on real hardware. Fetch the
+index from the helper directly, same pattern wallpapers-bing already
+uses for its own choices().
+
+Assisted-by: Claude Code:claude-sonnet-5
+AI-Scope: Root-caused and fixed choices() against the empty index string the refactored browser now always passes.
+---
+ wallpapers-ocs/wallpapers_ocs.vala | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/wallpapers-ocs/wallpapers_ocs.vala b/wallpapers-ocs/wallpapers_ocs.vala
+index 0fb898b..278930c 100644
+--- a/wallpapers-ocs/wallpapers_ocs.vala
++++ b/wallpapers-ocs/wallpapers_ocs.vala
+@@ -31,7 +31,7 @@ namespace WallpapersOcs {
+         public bool supports_search { get { return false; } }
+         public Provider() { base("/usr/local/bin/ncz-wallpaper-ocs"); }
+         public async ArrayList<WallpaperProviderChoice> choices(string index, Cancellable? cancel) throws Error {
+-            return WallpaperOcs.categories(index, id);
++            return WallpaperOcs.categories(yield command({helper, "index"}, cancel, 90), id);
+         }
+         public async WallpaperProviderResult browse(string category, string query, int page,
+                 bool refresh, Cancellable? cancel) throws Error {
+-- 
+2.53.0
+
