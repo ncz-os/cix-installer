@@ -333,3 +333,4 @@ manifests/rescue.pkgs:wget
 manifests/rescue.pkgs:xfsprogs
 manifests/rescue.pkgs:xz-utils
 manifests/rescue.pkgs:zstd
+manifests/install-extra.pkgs:ncz-apt-policy

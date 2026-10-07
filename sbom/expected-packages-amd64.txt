@@ -331,3 +331,4 @@ manifests/rescue-amd64.pkgs:lsof
 manifests/rescue-amd64.pkgs:strace
 manifests/rescue-amd64.pkgs:gnupg
 manifests/rescue-amd64.pkgs:python3
+manifests/install-extra.pkgs:ncz-apt-policy

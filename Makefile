@@ -694,5 +694,6 @@ parity:
 	build/test-kernel-purity-guards.sh
 	bash build/test-apt-separation.sh
 	bash build/test-ncz-repo-policy.sh
+	bash build/test-ncz-apt-policy-deb.sh
 	build/test-no-debian-kernel.sh
 	$(MAKE) --no-print-directory test-cygnus-branding

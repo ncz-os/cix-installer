@@ -10,6 +10,12 @@
 #     ncz-os-apt-r2.list are enabled, R2 becomes ncz-os-apt-r2.list.disabled.
 # It never touches sources.list.d otherwise and never removes a package.
 #
+# Delivery: nothing installs a standalone package by itself, so it is pulled in
+# three ways -- a Depends from ncz-singularity-desktop (build/build-singularity-deb.sh),
+# manifests/install-extra.pkgs + hook 24 on new installs, and ncz-update-apply, which
+# installs it before every refresh/apply. Publish it BEFORE building images or a new
+# Singularity package.
+#
 # Version: bump NCZ_APT_POLICY_VERSION whenever lib/apt-separation.sh changes
 # (the version gate refuses a same-version rebuild with different content).
 # Output: build/ncz-apt-policy-deb/ncz-apt-policy_<ver>_all.deb
@@ -17,7 +23,9 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG=ncz-apt-policy
-VERSION="${NCZ_APT_POLICY_VERSION:-1.0.0}"
+# 1.0.1: 1.0.0 shipped a /bin/sh postinst that sourced the bash-only library
+# and died under dash. 1.0.0 must never be published.
+VERSION="${NCZ_APT_POLICY_VERSION:-1.0.1}"
 OUT="${NCZ_APT_POLICY_OUT:-$ROOT/build/ncz-apt-policy-deb}"
 LIB="$ROOT/post-install/lib/apt-separation.sh"
 [ -r "$LIB" ] || { echo "ERROR: $LIB missing" >&2; exit 1; }
@@ -40,7 +48,7 @@ Priority: optional
 Architecture: all
 Maintainer: Jason Perlow <jperlow@gmail.com>
 Installed-Size: $SIZE_KB
-Depends: apt
+Depends: apt, bash
 Description: NCZ-OS apt origin separation (pins and single-repo policy)
  Writes /etc/apt/preferences.d/10-ncz-origin-separation.pref so NCZ-OS
  packages come from the NCZ-OS repository, Debian packages from Debian, and
@@ -48,8 +56,9 @@ Description: NCZ-OS apt origin separation (pins and single-repo policy)
  ncz-apt-source to switch the single enabled NCZ repo to its fallback.
 CONTROL
 
+# bash, not sh: the library is bash (process substitution, $'\t').
 cat > "$WORK/DEBIAN/postinst" <<'POSTINST'
-#!/bin/sh
+#!/bin/bash
 set -e
 if [ "$1" = configure ]; then
     # shellcheck disable=SC1091

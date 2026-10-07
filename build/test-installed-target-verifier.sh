@@ -84,6 +84,13 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     fi
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
+    # NCZ/Debian apt separation (r201): pins, ONE enabled NCZ repo (R2 disabled), ncz-apt-policy installed
+    mkdir -p "$r/etc/apt/preferences.d" "$r/etc/apt/sources.list.d"
+    ( . "$ROOT/post-install/lib/kernel-purity.sh"; ncz_kernel_purity_pin_text > "$r/etc/apt/preferences.d/00-ncz-kernel-purity.pref"
+      . "$ROOT/post-install/lib/apt-separation.sh"; ncz_apt_separation_pin_text > "$r/etc/apt/preferences.d/$NCZ_APT_PIN_NAME" )
+    echo 'deb [signed-by=/x] https://packages.buildkite.com/ncz-os/ncz/any/ any main' > "$r/etc/apt/sources.list.d/ncz-os-apt-buildkite.list"
+    echo 'deb [signed-by=/x] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main' > "$r/etc/apt/sources.list.d/ncz-os-apt-r2.list.disabled"
+    printf 'Package: ncz-apt-policy\nStatus: install ok installed\nVersion: 1.0.1\n\n' >> "$r/var/lib/dpkg/status"
     # network firmware packages named in manifests/net-firmware.tsv (13-firmware-bom)
     while IFS= read -r f; do
         printf 'Package: %s\nArchitecture: all\nStatus: install ok installed\n\n' "$f" >> "$r/var/lib/dpkg/status"
@@ -250,6 +257,9 @@ m_sens_stale()  { printf 'old sensors build' > "$1/opt/singularity/lib/singulari
 m_sens_missing() { rm -f "$1/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"; }
 m_id_arch()     { echo arm64 > "$1/usr/local/lib/cix-installer/BUILD_ARCH"; }
 m_id_release()  { echo 'NCZ_PRODUCT_NAME="Other"' > "$1/usr/local/lib/cix-installer/RELEASE"; }
+m_apt_nopin()    { rm -f "$1/etc/apt/preferences.d/10-ncz-origin-separation.pref"; }
+m_apt_tworepos() { mv "$1/etc/apt/sources.list.d/ncz-os-apt-r2.list.disabled" "$1/etc/apt/sources.list.d/ncz-os-apt-r2.list"; }
+m_apt_nopolicy() { sed -i '/^Package: ncz-apt-policy$/,/^$/d' "$1/var/lib/dpkg/status"; }
 m_ld_dropin()   { rm -f "$1/etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf"; }
 m_ld_stamp()    { rm -f "$1/etc/.updated"; }
 m_leak_getty()  { mkdir -p "$1/etc/systemd/system/getty.target.wants"; ln -s /lib/systemd/system/serial-getty@.service "$1/etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service"; }
@@ -398,6 +408,9 @@ run_case "gpu: labwc-session without the overlay patch fails"   1 m_gpu_session
 run_case "gpu: arm64 without the Mali EGL vendor entry fails"   1 m_gpu_egl
 run_case "arm64: wrong BUILD_ARCH fails"                        1 m_id_arch_arm
 run_case "identity: RELEASE not NCZ-OS fails"                   1 m_id_release
+run_case "apt separation: pin file missing fails"             1 m_apt_nopin
+run_case "apt separation: two NCZ repos enabled fails"        1 m_apt_tworepos
+run_case "apt separation: ncz-apt-policy not installed fails" 1 m_apt_nopolicy
 run_case "ldconfig: tolerate-race drop-in missing fails"        1 m_ld_dropin
 run_case "ldconfig: /etc/.updated stamp missing fails"         1 m_ld_stamp
 echo "verifier tests: $PASS passed, $FAILS failed"

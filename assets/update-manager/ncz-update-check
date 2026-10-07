@@ -42,6 +42,14 @@ def run_apt(*args):
     return proc.stdout
 
 
+def source_key(url):
+    """Identity of a source for classification: the host of a network source,
+    the PATH of a file: source (each local repo has its own Release Origin)."""
+    if url.startswith("file:"):
+        return "file:" + re.sub(r"^file:/*", "/", url)
+    return re.sub(r"^\S+://", "", url).split("/", 1)[0].split(":", 1)[0]
+
+
 def extra_ncz_hosts(path=ORIGINS_CONF):
     hosts = set()
     try:
@@ -56,26 +64,22 @@ def extra_ncz_hosts(path=ORIGINS_CONF):
 
 
 def parse_source_origins(policy_text):
-    """host -> set of Release Origin values, from a bare `apt-cache policy`."""
+    """source key -> set of Release Origin values, from a bare `apt-cache policy`."""
     origins = {}
-    url_host = None
+    key = None
     for line in policy_text.splitlines():
-        match = re.match(r"^\s+-?\d+ (\S+://\S+)", line)
+        match = re.match(r"^\s+-?\d+ (\S+:\S*)", line)
         if match:
-            url_host = (
-                re.sub(r"^\S+://", "", match.group(1)).split("/", 1)[0].split(":", 1)[0]
-            )
-            origins.setdefault(url_host, set())
+            key = source_key(match.group(1))
+            origins.setdefault(key, set())
             continue
         text = line.strip()
-        if url_host and text.startswith("release "):
+        if key and text.startswith("release "):
             for field in text[len("release ") :].split(","):
                 if field.startswith("o="):
-                    origins[url_host].add(field[2:])
-        elif (
-            url_host and not text.startswith("origin ") and not line.startswith("     ")
-        ):
-            url_host = None
+                    origins[key].add(field[2:])
+        elif key and not text.startswith("origin ") and not line.startswith("     "):
+            key = None
     return origins
 
 
@@ -83,13 +87,16 @@ def classify_host(host, origins, ncz_hosts):
     labels = origins.get(host, set())
     if host in ncz_hosts or NCZ_RELEASE_ORIGIN in labels:
         return "ncz-os"
-    if "Debian" in labels:
+    if any(label == "Debian" or label.startswith("Debian ") for label in labels):
         return "debian"
     return "third-party"
 
 
 def parse_candidate_hosts(policy_text):
-    """package -> list of source hosts serving its Candidate version."""
+    """package -> list of source keys serving its Candidate version.
+
+    A foreign-architecture heading ("libfoo:armhf:") is also filed under the
+    bare name, because `apt list` prints the name without the architecture."""
     result = {}
     package = candidate = None
     in_candidate = False
@@ -98,6 +105,8 @@ def parse_candidate_hosts(policy_text):
         if head:
             package, candidate, in_candidate = head.group(1), None, False
             result.setdefault(package, [])
+            if ":" in package:
+                result[package.split(":", 1)[0]] = result[package]
             continue
         if package is None:
             continue
@@ -109,12 +118,9 @@ def parse_candidate_hosts(policy_text):
         if ver:
             in_candidate = ver.group(1) == candidate
             continue
-        src = re.match(r"^\s{8}-?\d+ (\S+://\S+)", line)
+        src = re.match(r"^\s{8}-?\d+ (\S+:\S*)", line)
         if src and in_candidate:
-            host = (
-                re.sub(r"^\S+://", "", src.group(1)).split("/", 1)[0].split(":", 1)[0]
-            )
-            result[package].append(host)
+            result[package].append(source_key(src.group(1)))
     return result
 
 

@@ -12,12 +12,27 @@ export DEBIAN_FRONTEND=noninteractive
 export LC_ALL=C.UTF-8
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
+# ncz-apt-policy carries the NCZ/Debian origin pins. It is a standalone package
+# (full-upgrade never installs a new one), so make sure it is present after every
+# index refresh and BEFORE the upgrade is planned. Failure is not fatal: the pin
+# file written at install time is still in place.
+ensure_policy() {
+    if dpkg-query -W -f='${Status}' ncz-apt-policy 2>/dev/null | grep -q 'install ok installed'; then
+        return 0
+    fi
+    apt-get -y -o Dpkg::Use-Pty=0 install ncz-apt-policy \
+        || echo "ncz-update-apply: WARN could not install ncz-apt-policy" >&2
+}
+
 case "${1:-}" in
     refresh)
-        exec apt-get -o Acquire::Check-Date=false update
+        apt-get -o Acquire::Check-Date=false update
+        ensure_policy
+        exit 0
         ;;
     apply)
         apt-get -o Acquire::Check-Date=false update
+        ensure_policy
         exec apt-get -y -o Dpkg::Use-Pty=0 -o Dpkg::Progress-Fancy=0 full-upgrade
         ;;
     *)

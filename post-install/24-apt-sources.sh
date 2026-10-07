@@ -113,6 +113,17 @@ else
     echo "[24] WARN: apt-get update had errors (network unavailable during chroot install, or one source down -- the other source's index may still be usable) -- later hooks may still be able to use cached/offline sources"
 fi
 
+# The pin is already written above; the package keeps it current (and is what
+# `apt upgrade` updates later). Best effort: a missing candidate (not yet
+# published, or no network and not on the offline pool) is a warning, not a failure.
+if command -v apt-cache >/dev/null 2>&1 && \
+   [ -n "$(apt-cache policy ncz-apt-policy 2>/dev/null | sed -n 's/^  Candidate: //p' | grep -v '^(none)$')" ]; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ncz-apt-policy 2>&1 | tail -3 \
+        || echo "[24] WARN: could not install ncz-apt-policy (pin file is in place)"
+else
+    echo "[24] WARN: no candidate for ncz-apt-policy yet (publish it); the pin file written above stays in force"
+fi
+
 # --- live-update canary (operator 2026-10-05) ----------------------------------
 # Offline install gets ncz-screensavers from the flat offline apt source
 # (file:///cdrom/ncz-payload/apt-repo, registered by late.sh; seeded by

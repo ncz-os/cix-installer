@@ -54,3 +54,16 @@ else
     echo "verify-dkms-modules: skipped (NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH has no Sky1 accelerator DKMS modules)"
 fi
 echo "preflight-sbom-check: PASS"
+
+# NCZ/Debian separation (r201): no Debian-named package may be seeded in, or published to, the NCZ
+# suite unless it is a reviewed override. The seed check is offline. The live check reads the real
+# Buildkite and R2 indexes (read-only; it skips when they are unreachable). NCZ_APT_LIVE_GATE:
+# fail (default) | warn | skip.
+echo "=== NCZ/Debian apt separation (repo content) ==="
+bash "$REPO/build/check-ncz-repo-policy.sh" --components
+case "${NCZ_APT_LIVE_GATE:-fail}" in
+    skip) echo "NCZ_APT_LIVE_GATE=skip: live NCZ repo index check skipped" ;;
+    warn) bash "$REPO/build/check-ncz-repo-policy.sh" --live \
+              || echo "WARN: live NCZ repo content violates the separation policy (NCZ_APT_LIVE_GATE=warn)" ;;
+    *)    bash "$REPO/build/check-ncz-repo-policy.sh" --live ;;
+esac

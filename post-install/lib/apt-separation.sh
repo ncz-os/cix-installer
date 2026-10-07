@@ -19,8 +19,10 @@
 #   * Buildkite Packages is a managed registry: its Release says
 #     `Origin: packagecloud.io/<uuid>`, `Label: <uuid>`. We cannot make it say
 #     "NCZ-OS". Only the reprepro/R2 copy carries `Origin: NCZ-OS`. So the
-#     pins match NCZ by the repository HOST (apt `Pin: origin <host>`) and, for
-#     self-labelled repos, by `release o=NCZ-OS`.
+#     pins match NCZ by the repository HOST (apt `Pin: origin <host>`) ONLY.
+#     They deliberately do NOT match `release o=NCZ-OS`: the offline install
+#     mirror (build/build-forky-mirror.sh) is stamped `Origin: NCZ-OS` and
+#     carries Debian-named packages that must keep apt's default priority.
 #
 # Rules the pin file encodes (apt priority = who wins a version contest):
 #   NCZ origin, NCZ-reserved namespace (ncz-* cix-* ... kernels)   990
@@ -152,8 +154,9 @@ ncz_apt_separation_pin_text() {
 # NCZ-OS packages come from the NCZ repo; Debian packages come from Debian.
 # Priorities: 990 = wins, 500 = apt default (Debian), 100 = only if nothing
 # better, -1 = never. Origins are matched by repository HOST because Buildkite
-# Packages is a managed registry whose Release Origin cannot be set to NCZ-OS;
-# the reprepro/R2 copy is also matched by 'release o=$NCZ_APT_NCZ_RELEASE_ORIGIN'.
+# Packages is a managed registry whose Release Origin cannot be set to NCZ-OS.
+# Not matched by Release Origin: the offline install mirror is also labelled
+# NCZ-OS and must keep priority 500 for its Debian-named packages.
 #
 # Debian-named packages in the NCZ repo (fonts-liberation 1:2.1.5-3build1) lose
 # to Debian unless named in the override list below.
@@ -170,7 +173,6 @@ EOF
     for h in $NCZ_APT_NCZ_HOSTS; do
         _ncz_apt_nczstanzas "origin $h" "$ns" "$allow"
     done
-    _ncz_apt_nczstanzas "release o=$NCZ_APT_NCZ_RELEASE_ORIGIN" "$ns" "$allow"
     cat <<EOF
 # Third-party t2-ubuntu-repo (Ubuntu-built). Only the known T2 set may win;
 # everything else it carries ranks below Debian; it never supplies a kernel.
@@ -188,7 +190,7 @@ Pin-Priority: 100
 EOF
 }
 
-_ncz_apt_nczstanzas() {  # "origin host"|"release o=X"  namespace-globs  allowlist-names
+_ncz_apt_nczstanzas() {  # "origin host"  namespace-globs  allowlist-names
     printf '# NCZ origin: %s\nPackage: %s\nPin: %s\nPin-Priority: 990\n\n' "$1" "$2" "$1"
     printf 'Package: %s\nPin: %s\nPin-Priority: 990\n\n' "$3" "$1"
     printf 'Package: *\nPin: %s\nPin-Priority: 100\n\n' "$1"
@@ -214,26 +216,34 @@ ncz_apt_write_separation_pin() {
 # ncz_apt_write_ncz_sources HERE [ROOT]  -> prints "buildkite", "r2" or "none"
 # (which one is ENABLED); returns 1 when none could be wired.
 ncz_apt_write_ncz_sources() {
-    local here="$1" root="${2:-}" kr_dir sl_dir
+    local here="$1" root="${2:-}" kr_dir sl_dir tmp
     kr_dir="$root/etc/apt/keyrings"; sl_dir="$root/etc/apt/sources.list.d"
     local bk_kr="$kr_dir/buildkite-ncz-apt-keyring.gpg" r2_kr="$kr_dir/ncz-os-apt-keyring.gpg"
     local bk_src="$sl_dir/ncz-os-apt-buildkite.list" r2_src="$sl_dir/ncz-os-apt-r2.list"
     local bk_ok=0 r2_ok=0
     install -d "$kr_dir" "$sl_dir"
 
-    if [ -f "$here/buildkite-ncz-apt-keyring.asc" ] && \
-       gpg --dearmor < "$here/buildkite-ncz-apt-keyring.asc" > "$bk_kr" 2>/dev/null; then
-        chmod 0644 "$bk_kr"; bk_ok=1
-    fi
-    if [ -f "$here/ncz-os-apt-keyring.asc" ] && \
-       gpg --dearmor < "$here/ncz-os-apt-keyring.asc" > "$r2_kr" 2>/dev/null; then
-        chmod 0644 "$r2_kr"; r2_ok=1
-    fi
+    # Dearmor to a temp file and move it into place only on success: a failing
+    # gpg must never truncate a keyring that already works (hook 24 re-runs).
+    _ncz_apt_stage_keyring() {  # asc dest
+        [ -f "$1" ] || return 0
+        tmp="$(mktemp "$kr_dir/.keyring.XXXXXX")" || return 0
+        if gpg --dearmor < "$1" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+            chmod 0644 "$tmp"; mv -f "$tmp" "$2"
+        else
+            rm -f "$tmp"
+        fi
+    }
+    _ncz_apt_stage_keyring "$here/buildkite-ncz-apt-keyring.asc" "$bk_kr"
+    _ncz_apt_stage_keyring "$here/ncz-os-apt-keyring.asc" "$r2_kr"
+    [ -s "$bk_kr" ] && bk_ok=1
+    [ -s "$r2_kr" ] && r2_ok=1
 
     local bk_line="deb [signed-by=/etc/apt/keyrings/buildkite-ncz-apt-keyring.gpg] https://packages.buildkite.com/ncz-os/ncz/any/ any main"
     local r2_line="deb [signed-by=/etc/apt/keyrings/ncz-os-apt-keyring.gpg] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main"
-    # A pre-existing dual configuration (r200 and earlier) is migrated here.
-    rm -f "$bk_src.disabled" "$r2_src.disabled" "$r2_src"
+    # Exactly one enabled NCZ repo, whatever state a previous run (or the r200
+    # dual configuration) left: drop every NCZ list first, then write the one.
+    rm -f "$bk_src" "$bk_src.disabled" "$r2_src" "$r2_src.disabled"
     if [ "$bk_ok" = 1 ]; then
         printf '%s\n' \
           '# NCZ-OS packages (kernels, CIX userspace, Singularity Desktop, NCZ wallpapers/screensavers).' \
@@ -254,6 +264,7 @@ ncz_apt_write_ncz_sources() {
     else
         echo none; return 1
     fi
+    return 0
 }
 
 # --- the switch helper (installed as /usr/sbin/ncz-apt-source) ----------------
