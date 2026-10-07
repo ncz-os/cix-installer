@@ -39,6 +39,7 @@ eq()  { [ "$2" = "$3" ] && ok "$1 = $3" || bad "$1: got '$2', want '$3'"; }
 
 export NCZ_APT_NCZ_HOSTS="localhost"
 export NCZ_APT_T2_HOST="127.0.0.1"
+export NCZ_APT_INTEL_HOST="127.0.0.2"   # loopback alias: a third distinct apt origin host
 # shellcheck source=../post-install/lib/apt-separation.sh
 . "$PI/lib/apt-separation.sh"
 # shellcheck source=../post-install/lib/kernel-purity.sh
@@ -92,7 +93,7 @@ inst libfoo 1.0
 
 # loopback http server for the two host-matched repos
 PORT=$((20000 + RANDOM % 20000))
-( cd "$T/www" && exec python3 -m http.server "$PORT" --bind 127.0.0.1 >"$T/http.log" 2>&1 ) &
+( cd "$T/www" && exec python3 -m http.server "$PORT" --bind 0.0.0.0 >"$T/http.log" 2>&1 ) &
 SRVPID=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do
     python3 -c "import socket;s=socket.create_connection(('127.0.0.1',$PORT),1)" 2>/dev/null && break; sleep 0.3
@@ -211,6 +212,79 @@ mapfile -t _o < <(aptopts "$NEW")
 case "$(apt-get "${_o[@]}" -s dist-upgrade 2>&1)" in *"Remv fonts-liberation"*) bad "dist-upgrade would remove fonts-liberation" ;; *) ok "dist-upgrade does not remove fonts-liberation" ;; esac
 cp "$T/status.A" "$T/status"
 
+echo "=== scenario D: Intel deferred install (ncz-intel-accel-setup: UNPINNED apt-get install, Ubuntu-named suite ubuntu24) ==="
+# Intel carries Ubuntu builds of the Level Zero / OpenCL runtime with HIGHER versions; Debian forky ships same-named
+# libopenvino-intel-* plugin packages with higher versions than Intel's. Required: libopenvino-intel-* from Intel,
+# intel-opencl-icd / libze1 / libze-intel-gpu1 from Debian forky.
+INTEL="$T/www/intel"; DEBI="$T/debintel"
+mk_repo "$INTEL" Intel ubuntu24; mk_repo "$DEBI" Debian testing
+for p in intel-opencl-icd libze1 libze-intel-gpu1; do entry "$INTEL" "$p" 99.0-ubuntu24 "$ARCH"; entry "$DEBI" "$p" 25.1-1 "$ARCH"; done
+entry "$INTEL" libopenvino-intel-npu-plugin 2026.1.0-intel "$ARCH"; entry "$DEBI" libopenvino-intel-npu-plugin 3000.0-1 "$ARCH"
+gzip -kf "$INTEL/Packages" "$DEBI/Packages"
+cat > "$T/sources" <<EOF
+deb [trusted=yes] file://$DEBI ./
+deb [trusted=yes] http://127.0.0.2:$PORT/intel ./
+EOF
+apt-get "${UPD[@]}" update >"$T/update4.log" 2>&1
+eq "OLD: Intel's Ubuntu intel-opencl-icd wins (the bug the pin prevents)" "$(cand "$OLD" intel-opencl-icd)" "99.0-ubuntu24"
+eq "OLD: Debian's libopenvino-intel-npu-plugin beats Intel's (the bug the pin prevents)" "$(cand "$OLD" libopenvino-intel-npu-plugin)" "3000.0-1"
+eq "NEW: libopenvino-intel-npu-plugin comes from Intel" "$(cand "$NEW" libopenvino-intel-npu-plugin)" "2026.1.0-intel"
+for p in intel-opencl-icd libze1 libze-intel-gpu1; do eq "NEW: $p comes from Debian forky" "$(cand "$NEW" "$p")" "25.1-1"; done
+mapfile -t _o < <(aptopts "$NEW")
+PLAN="$(apt-get "${_o[@]}" -s install libopenvino-intel-npu-plugin intel-opencl-icd libze1 libze-intel-gpu1 2>&1)"; prc=$?
+[ "$prc" = 0 ] && ok "an unpinned apt-get install of the Intel set resolves (rc=0)" || bad "unpinned install plan failed rc=$prc" "$PLAN"
+printf '%s\n' "$PLAN" | grep -q '^Inst libopenvino-intel-npu-plugin (2026.1.0-intel' && printf '%s\n' "$PLAN" | grep -q '^Inst intel-opencl-icd (25.1-1' \
+    && ok "the plan installs the Intel plugin and Debian's runtime" || bad "wrong sources in the install plan" "$PLAN"
+ncz_apt_separation_pin_text | grep -qi 'cdrom' && bad "the pin text mentions /cdrom" || ok "the pin text does not depend on /cdrom"
+
+echo "=== scenario E: hook 24's ncz-screensavers canary reads the same policy shape with the pin installed ==="
+# Extract the canary block from the real hook, run it against REAL apt-cache output (paths/hosts rewritten to what
+# the hook greps for: file:/cdrom and packages.buildkite.com/ncz-os/ncz).
+python3 - "$PI/24-apt-sources.sh" > "$T/canary.sh" <<'PYC'
+import sys
+s = open(sys.argv[1]).read()
+a = s.index('echo "[24] verifying NCZ-OS apt sources carry ncz-screensavers')
+b = s.index("\nfi\n", s.index("apt-cache not on PATH", a)) + 4
+print(s[a:b])
+PYC
+CD="$T/cdrom"; mk_repo "$CD" nclawzero forky; entry "$CD" ncz-screensavers 0.8.9; gzip -kf "$CD/Packages"
+entry "$NCZ" ncz-screensavers 0.8.10; gzip -kf -f "$NCZ/Packages"
+mkshim() {  # prefsdir dest
+    local -a o; mapfile -t o < <(aptopts "$1")
+    { echo '#!/bin/bash'; printf '/usr/bin/apt-cache'; printf ' %q' "${o[@]}"
+      printf ' "$@" | sed -e %q -e %q\n' "s#http://localhost:$PORT/ncz#https://packages.buildkite.com/ncz-os/ncz/any#" "s#file:$CD#file:/cdrom#"; } > "$2"
+    chmod +x "$2"
+}
+canary() {  # prefsdir tag
+    mkdir -p "$T/shim-$2"; mkshim "$1" "$T/shim-$2/apt-cache"
+    PATH="$T/shim-$2:$PATH" bash "$T/canary.sh" > "$T/canary-$2.log" 2>&1; echo $?
+}
+shape() {  # prefsdir -> the source URLs apt lists for ncz-screensavers, priorities dropped
+    mkdir -p "$T/shim-s"; mkshim "$1" "$T/shim-s/apt-cache"
+    "$T/shim-s/apt-cache" policy ncz-screensavers | awk '/^ +[0-9]+ /{print $2}' | sort -u | tr '\n' ' '
+}
+cat > "$T/sources" <<EOF
+deb [trusted=yes] file://$CD ./
+deb [trusted=yes] http://localhost:$PORT/ncz ./
+EOF
+apt-get "${UPD[@]}" update >"$T/update5.log" 2>&1
+eq "canary with the pin: NCZ network source + /cdrom pool -> rc 0" "$(canary "$NEW" netpin)" "0"
+grep -q 'OK: NCZ-OS apt sources carry ncz-screensavers (Candidate: 0.8.10)' "$T/canary-netpin.log" && ok "  verdict: OK, candidate from the NCZ network source" || bad "  canary verdict" "$(cat "$T/canary-netpin.log")"
+eq "  same source URLs listed with and without the pin" "$(shape "$NEW")" "$(shape "$OLD")"
+case "$(shape "$NEW")" in *file:/cdrom*packages.buildkite.com*|*packages.buildkite.com*file:/cdrom*) ok "  policy output still shows both file:/cdrom and the NCZ host" ;; *) bad "  policy shape: $(shape "$NEW")" ;; esac
+cat > "$T/sources" <<EOF
+deb [trusted=yes] file://$CD ./
+EOF
+apt-get "${UPD[@]}" update >"$T/update6.log" 2>&1
+eq "canary with the pin, offline pool only -> rc 0 (warn, not fatal)" "$(canary "$NEW" offpin)" "0"
+grep -q 'resolves only from the offline /cdrom pool' "$T/canary-offpin.log" && ok "  verdict: WARN offline-only" || bad "  canary verdict" "$(cat "$T/canary-offpin.log")"
+eq "  same source URLs with and without the pin (offline only)" "$(shape "$NEW")" "$(shape "$OLD")"
+cat > "$T/sources" <<EOF
+deb [trusted=yes] file://$DEB ./
+EOF
+apt-get "${UPD[@]}" update >"$T/update7.log" 2>&1
+eq "canary with the pin, no ncz-screensavers anywhere -> rc 1 (still FATAL)" "$(canary "$NEW" nonepin)" "1"
+
 echo "=== source writer leaves exactly ONE enabled NCZ repo ==="
 FAKEBIN="$T/fakebin"; mkdir -p "$FAKEBIN" "$T/keys"
 printf '#!/bin/sh\ncat\n' > "$FAKEBIN/gpg"; chmod +x "$FAKEBIN/gpg"
@@ -259,6 +333,34 @@ sh "$H" buildkite >/dev/null
 [ -f "$R/etc/apt/sources.list.d/ncz-os-apt-buildkite.list" ] && [ ! -f "$R/etc/apt/sources.list.d/ncz-os-apt-r2.list" ] \
     && ok "switching back leaves only Buildkite enabled" || bad "switch back failed"
 unset NCZ_APT_ROOT
+
+echo "=== source writer + helper: leave foreign, build-time and Intel/CUDA/ROCm lists alone (build-squashfs-layers, hook 54, intel-accel) ==="
+R6="$T/root6"; mkdir -p "$R6/etc/apt/sources.list.d" "$R6/etc/apt/keyrings"
+SL="$R6/etc/apt/sources.list.d"
+echo 'deb [signed-by=/etc/apt/keyrings/intel-openvino.gpg] https://apt.repos.intel.com/openvino ubuntu24 main' > "$SL/intel-openvino.list"
+echo 'deb https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/ /' > "$SL/ncz-cuda-debian12.list"
+echo 'deb https://repo.radeon.com/rocm/apt/latest noble main' > "$SL/rocm.list"
+echo 'deb [signed-by=/x] https://packages.buildkite.com/ncz-os/ncz/any/ any main' > "$SL/ncz-os-apt-buildkite-live.list"
+echo 'deb [signed-by=/x] https://example.invalid/old any main' > "$SL/ncz-os-apt-buildkite.list.disabled-for-build"
+echo 'deb [signed-by=/x] https://example.invalid/r2 any main' > "$SL/ncz-os-apt-r2.list.disabled-for-build"
+printf 'Types: deb\nURIs: https://deb.debian.org/debian\n' > "$SL/ncz-base.sources.disabled-for-build"
+echo ring > "$R6/etc/apt/keyrings/intel-openvino.gpg"
+echo t2 > "$SL/t2.list"
+echo key > "$T/keys/buildkite-ncz-apt-keyring.asc"; echo key > "$T/keys/ncz-os-apt-keyring.asc"
+snap6() {
+    ( cd "$R6/etc/apt" && for f in sources.list.d/intel-openvino.list sources.list.d/ncz-cuda-debian12.list sources.list.d/rocm.list \
+        sources.list.d/ncz-os-apt-buildkite-live.list sources.list.d/ncz-os-apt-buildkite.list.disabled-for-build \
+        sources.list.d/ncz-os-apt-r2.list.disabled-for-build sources.list.d/ncz-base.sources.disabled-for-build sources.list.d/t2.list \
+        keyrings/intel-openvino.gpg; do sha256sum "$f" 2>&1; done )
+}
+snap6 > "$T/before6"
+PATH="$FAKEBIN:$PATH" ncz_apt_write_ncz_sources "$T/keys" "$R6" >/dev/null
+mkdir -p "$T/h6/usr/sbin"; ncz_apt_install_source_helper "$T/h6"
+NCZ_APT_ROOT="$R6" sh "$T/h6/usr/sbin/ncz-apt-source" r2 >/dev/null; NCZ_APT_ROOT="$R6" sh "$T/h6/usr/sbin/ncz-apt-source" buildkite >/dev/null
+snap6 > "$T/after6"
+grep -q 'No such file' "$T/before6" && bad "fixture file missing" "$(cat "$T/before6")"
+diff -q "$T/before6" "$T/after6" >/dev/null && ok "writer + helper (r2 then buildkite) left 9 foreign/build-time files byte-identical" || bad "a foreign or build-time file changed or vanished" "$(diff "$T/before6" "$T/after6")"
+eq "exactly one enabled ncz-os-apt-{buildkite,r2}.list (the -live and .disabled-for-build copies are not ours)" "$(ls "$SL"/ncz-os-apt-buildkite.list "$SL"/ncz-os-apt-r2.list 2>/dev/null | wc -l | tr -d ' ')" "1"
 
 echo "=== hook 24 wires the pin + single source (static) ==="
 H24="$PI/24-apt-sources.sh"

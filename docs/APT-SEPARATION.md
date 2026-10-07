@@ -56,11 +56,14 @@ Branch `fix/r201-apt-separation-20261007`, off the respin `d287f207`.
    apt operation. Everyone, including already-installed r200 machines: the
    `ncz-apt-policy` package (1.0.1; `build/build-ncz-apt-policy-deb.sh`) rewrites
    the pin in its (bash) postinst and migrates a dual-repo configuration. A
-   standalone package does not install itself, so it is pulled in by
-   `ncz-singularity-desktop` (`Depends: ncz-apt-policy (>= 1.0.1)`),
-   `manifests/install-extra.pkgs` (+ SBOM rows, `components.tsv`), hook 24, and
-   `ncz-update-apply`, which installs it after every index refresh and before
-   the upgrade is planned. 1.0.0 had a `#!/bin/sh` postinst that died under
+   standalone package does not install itself, so it is delivered by
+   `manifests/install-extra.pkgs` (+ SBOM rows, `components.tsv`; images), hook 24
+   (best effort at install), and `ncz-update-apply`, which installs it after every
+   index refresh and before the upgrade is planned (installed systems). There is
+   deliberately NO Depends from `ncz-singularity-desktop`: the payload debs are
+   built against exact versions and ABI-gated, and a new Depends would force a
+   rewrap and make the deb uninstallable until the policy package is published.
+   `build/verify-installed-target.sh` requires it installed in every image. 1.0.0 had a `#!/bin/sh` postinst that died under
    dash and must never be published.
 6. **Single-repo outage behaviour.** Only Buildkite is enabled, so a Buildkite
    outage during `apt update` is a warning and the installed system keeps
@@ -89,6 +92,17 @@ Branch `fix/r201-apt-separation-20261007`, off the respin `d287f207`.
 | `build/test-apt-separation.sh` | real apt resolution against throwaway Debian / NCZ(http) / T2(http) repos: old behaviour reproduced, new behaviour asserted |
 | `build/test-ncz-repo-policy.sh` | the gates above, plus update classification of MEDUSA's recorded r200 output |
 
+## Compatibility with the other hooks (tested)
+
+| Constraint | Covered by |
+|---|---|
+| Hook 24 (bare `apt-get update`, hard failure with no NCZ source, ncz-screensavers canary on `file:/+cdrom` and NCZ hosts) is unaffected by the pin | `build/test-apt-sources-hook-container.sh` runs the real hook in debian:forky with the pin and an `/cdrom` pool (rc 0, canary verdict, policy source lines identical with and without the pin, rc 1 with no keyrings); `build/test-apt-separation.sh` scenario E runs the hook's canary block on real `apt-cache` output for network+cdrom, cdrom-only and neither |
+| `build-squashfs-layers.sh` `...-live.list` and `.disabled-for-build` files are not collapsed, deleted or re-enabled | `build/test-apt-separation.sh` "source writer + helper: leave foreign, build-time ..." (byte-identical before/after writer and `ncz-apt-source r2` then `buildkite`) |
+| Intel deferred units: `intel-openvino.list`, `ncz-cuda-debian12.list`, `rocm.list` and keyring survive; `libopenvino-intel-*` from the Intel repo (suite `ubuntu24`), `intel-opencl-icd`/`libze1`/`libze-intel-gpu1` from Debian forky for the UNPINNED install; nothing needs `/cdrom` | same test (list survival); scenario D (real apt: old behaviour wrong both ways, new right, `apt-get -s install` of the set resolves, pin text has no `/cdrom`) |
+| `ncz-apt-policy` owns no `ncz-intel-accel-setup.*` or `/var/lib/ncz/intel-accel.*` | `build/test-ncz-apt-policy-deb.sh` (package contents, and the files survive install, reinstall and purge in debian:forky) |
+
+The writer only ever removes the four exact `ncz-os-apt-{buildkite,r2}.list[.disabled]` names; the Intel host is `apt.repos.intel.com` (override `NCZ_APT_INTEL_HOST`).
+
 ## Version discipline
 
 A rebuilt package must bump its version. The wallpaper default moved to 1.1 and
@@ -113,9 +127,9 @@ through `build/ops/argos/ncz-reprepro-publish.sh`, which dual-publishes.
    (`build/build-wallpaper-contrib-deb.sh {ncz,singularity,alex-jay-brady,brandon-perlow}`
    builds 1.1) and publish them.
 3. Build and publish `ncz-apt-policy` 1.0.1:
-   `build/build-ncz-apt-policy-deb.sh`. Publish it BEFORE the next Singularity
-   package or image build: `ncz-singularity-desktop` now depends on it and
-   `install-extra.pkgs` seeds it, so both fail to resolve until it exists.
+   `build/build-ncz-apt-policy-deb.sh`. Publish it BEFORE the next image build:
+   `install-extra.pkgs` seeds it, so the mirror build and the installed-target
+   verifier need it to exist.
    Until the leaked `fonts-liberation` is removed (step 2),
    `preflight-sbom-check.sh` fails on the live check by design.
 4. Confirm the R2 Release keeps `Origin: NCZ-OS` (`conf/distributions` on ARGOS)
