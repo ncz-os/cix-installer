@@ -5,6 +5,7 @@
 # mirror treats these packages as required because stock libdrm collapses Sky1's
 # ACPI platform DRM devices and hides panthor behind linlondp.
 set -euo pipefail
+umask 022   # reproducible file modes: the version gate compares content, modes included
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/build/libdrm-debs"

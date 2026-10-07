@@ -9,6 +9,7 @@
 # Usage:
 #   ./build/build-singularity-deb.sh [path-to-singularity-opt.tgz]
 set -euo pipefail
+umask 022   # reproducible file modes: the version gate compares content, modes included
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TGZ="${1:-$REPO/build/sinty-out/singularity-opt.tgz}"

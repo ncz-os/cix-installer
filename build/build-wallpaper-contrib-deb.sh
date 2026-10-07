@@ -19,6 +19,7 @@
 # Usage: build/build-wallpaper-contrib-deb.sh [pack-name]
 #        default pack: cygnus-2610
 set -euo pipefail
+umask 022   # reproducible file modes: the version gate compares content, modes included
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PACK="${1:-cygnus-2610}"
