@@ -23,7 +23,8 @@
 #   AMD:    Debian's configured repositories. Do not mix Ubuntu ROCm packages
 #           into Debian; repo.radeon.com publishes jammy and noble suites but
 #           no Debian suite.
-#   Intel:  apt.repos.intel.com/openvino, component named ubuntuNN even when
+#   Intel:  apt.repos.intel.com/openvino (OpenVINO plugins only, r201: see
+#           post-install/lib/intel-accel.sh), component named ubuntuNN even when
 #           targeting Debian (Intel does not publish a debianNN-named
 #           component; the ubuntu24 component is what their own current
 #           install docs point at and is not OS-gated by apt itself).
@@ -342,39 +343,6 @@ HAS_INTEL_NPU=0; HAS_AMD_NPU=0
 echo "$NPU_PCI" | grep -qi '\[1200\]:.*\[8086:' && HAS_INTEL_NPU=1
 echo "$NPU_PCI" | grep -qiE '\[1180\]:.*\[1022:(1502|17f0|17f2|17f3|1b0b|1b0c)\]' && HAS_AMD_NPU=1
 
-if [ "$HAS_INTEL_NPU" = 1 ]; then
-    echo "[54] Intel NPU detected — installing OpenVINO NPU runtime"
-    # Reuses the Intel OpenVINO repo wired above if this machine also has an
-    # Intel GPU; if it doesn't (NPU with no matched Intel display-class
-    # device), the repo/keyring block from the Intel GPU section above never
-    # ran, so wire it here too -- idempotent, same keyring path.
-    install -d -m0755 /etc/apt/keyrings
-    INTEL_KEYRING=/etc/apt/keyrings/intel-openvino.gpg
-    if [ ! -f "$INTEL_KEYRING" ] || [ ! -s "$INTEL_KEYRING" ]; then
-        rm -f "$INTEL_KEYRING"
-        if curl -fsSL https://apt.repos.intel.com/openvino/2026/GPG-PUB-KEY-INTEL-OPENVINO-2026 2>/dev/null | gpg --dearmor -o "$INTEL_KEYRING" 2>/dev/null && \
-           [ -s "$INTEL_KEYRING" ] && [ "$(stat -c%s "$INTEL_KEYRING" 2>/dev/null || echo 0)" -gt 100 ]; then
-            echo "[54] fetched Intel OpenVINO signing key ($(stat -c%s "$INTEL_KEYRING") bytes)"
-        else
-            rm -f "$INTEL_KEYRING"
-            echo "[54] WARN: could not fetch a real Intel OpenVINO signing key — skipping Intel NPU stack"
-        fi
-    fi
-    if [ -f "$INTEL_KEYRING" ] && [ -s "$INTEL_KEYRING" ]; then
-        if [ ! -f /etc/apt/sources.list.d/intel-openvino.list ]; then
-            cat > /etc/apt/sources.list.d/intel-openvino.list <<EOF
-deb [signed-by=$INTEL_KEYRING] https://apt.repos.intel.com/openvino ubuntu24 main
-EOF
-            apt-get update 2>&1 | tail -5
-        fi
-        # intel-driver-compiler-npu + level-zero are the real NPU runtime
-        # packages (distinct from intel-opencl-icd, which is the GPU OpenCL
-        # ICD already installed above if an Intel GPU was also present).
-        apt-get install -y intel-driver-compiler-npu intel-level-zero-npu level-zero 2>&1 | tail -10
-        echo "[54] Intel NPU: OpenVINO NPU runtime + Level-Zero installed"
-    fi
-fi
-
 if [ "$HAS_AMD_NPU" = 1 ]; then
     # AMD's XDNA/Ryzen-AI NPU has no equivalent mature Debian-native apt
     # repo the way ROCm/OpenVINO do -- real, current AMD documentation
@@ -391,35 +359,23 @@ fi
 
 echo "[54] NPU wiring done (Intel-NPU=$HAS_INTEL_NPU AMD-NPU=$HAS_AMD_NPU)"
 
-# --- Intel ------------------------------------------------------------------
-if [ "$HAS_INTEL" = 1 ]; then
-    echo "[54] Intel GPU detected — wiring real Intel OpenVINO repo"
-    install -d -m0755 /etc/apt/keyrings
-    INTEL_KEYRING=/etc/apt/keyrings/intel-openvino.gpg
-    if [ ! -f "$INTEL_KEYRING" ] || [ ! -s "$INTEL_KEYRING" ]; then
-        rm -f "$INTEL_KEYRING"
-        # Same key-material validation fix as the AMD block above (zoder
-        # review, 2026-09-14) — don't trust a bare -f test on the output of
-        # a pipeline whose own errors are swallowed.
-        if curl -fsSL https://apt.repos.intel.com/openvino/2026/GPG-PUB-KEY-INTEL-OPENVINO-2026 2>/dev/null | gpg --dearmor -o "$INTEL_KEYRING" 2>/dev/null && \
-           [ -s "$INTEL_KEYRING" ] && [ "$(stat -c%s "$INTEL_KEYRING" 2>/dev/null || echo 0)" -gt 100 ]; then
-            echo "[54] fetched Intel OpenVINO signing key ($(stat -c%s "$INTEL_KEYRING") bytes)"
-        else
-            rm -f "$INTEL_KEYRING"
-            echo "[54] WARN: could not fetch a real Intel OpenVINO signing key (no network at install time, or key content invalid) — skipping Intel OpenVINO stack"
-        fi
-    fi
-    if [ -f "$INTEL_KEYRING" ] && [ -s "$INTEL_KEYRING" ]; then
-        cat > /etc/apt/sources.list.d/intel-openvino.list <<EOF
-# Written by post-install/54-gpu-accel.sh — real Intel official OpenVINO
-# repo. Component is named ubuntu24 by Intel's own current install docs
-# even when the host is Debian; apt does not gate on the OS name in this
-# path string, only on it matching what the repo actually publishes.
-deb [signed-by=$INTEL_KEYRING] https://apt.repos.intel.com/openvino ubuntu24 main
-EOF
-        apt-get update 2>&1 | tail -5
-        apt-get install -y openvino intel-opencl-icd intel-media-va-driver 2>&1 | tail -10
-        echo "[54] Intel: OpenVINO + VAAPI stack installed"
+# --- Intel GPU / NPU userspace ------------------------------------------------
+# One path for both (r201): vendored, sha256-pinned signing key; Level Zero,
+# OpenCL ICD and VA driver from Debian; only the OpenVINO GPU/NPU plugins from
+# Intel's ubuntu24 component; apt simulation first (any removal refuses it);
+# and a deferred retry (ncz-intel-accel-setup.timer) when the network is not
+# up yet. Details and evidence: post-install/lib/intel-accel.sh.
+if [ "$HAS_INTEL" = 1 ] || [ "$HAS_INTEL_NPU" = 1 ]; then
+    echo "[54] Intel GPU=$HAS_INTEL NPU=$HAS_INTEL_NPU -- Intel userspace (OpenCL / VA-API / Level Zero / OpenVINO)"
+    NCZ_INTEL_LIB_SRC="$(dirname "$(readlink -f "$0")")/lib/intel-accel.sh"
+    if [ -r "$NCZ_INTEL_LIB_SRC" ]; then
+        export NCZ_INTEL_LIB_SRC
+        NCZ_INTEL_ACCEL_LIB=1
+        # shellcheck source=post-install/lib/intel-accel.sh
+        . "$NCZ_INTEL_LIB_SRC"
+        ncz_intel_accel_install "$HAS_INTEL" "$HAS_INTEL_NPU"
+    else
+        echo "[54] WARN: $NCZ_INTEL_LIB_SRC missing -- Intel userspace not installed"
     fi
 fi
 
