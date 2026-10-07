@@ -78,6 +78,12 @@ manifests/desktop-amd64.pkgs:libsodium26
 manifests/desktop-amd64.pkgs:upower
 manifests/desktop-amd64.pkgs:gsettings-desktop-schemas
 manifests/desktop-amd64.pkgs:libglib2.0-bin
+manifests/desktop-amd64.pkgs:libfreerdp3-3
+manifests/desktop-amd64.pkgs:libfreerdp-client3-3
+manifests/desktop-amd64.pkgs:libwinpr3-3
+manifests/desktop-amd64.pkgs:libges-1.0-0
+manifests/desktop-amd64.pkgs:libsane1
+manifests/desktop-amd64.pkgs:libsfdo0
 manifests/desktop-amd64.pkgs:foot
 manifests/desktop-amd64.pkgs:xsettingsd
 manifests/desktop-amd64.pkgs:seatd
