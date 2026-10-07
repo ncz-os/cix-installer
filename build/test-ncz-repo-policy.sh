@@ -75,6 +75,31 @@ if command -v python3 >/dev/null 2>&1; then
     grep -qx 'warn=0' "$T/gate.rc" && ok "apt-live-gate warn mode: the same leak exits 0 (preflight)" || bad "apt-live-gate warn mode" "$(cat "$T/gate.rc")"
     grep -qx 'default=1' "$T/gate.rc" && ok "apt-live-gate with no mode defaults to fail" || bad "apt-live-gate default" "$(cat "$T/gate.rc")"
     grep -qx 'skip=0' "$T/gate.rc" && grep -qx 'envfail=1' "$T/gate.rc" && ok "NCZ_APT_LIVE_GATE overrides the caller's default (skip, fail)" || bad "apt-live-gate env override" "$(cat "$T/gate.rc")"
+    # ship-apt-gate.sh (build/ship-image.sh): always fail mode; env cannot weaken it; unreachable/empty index fails
+    mkdir -p "$T/live/clean/dists/any/main/binary-amd64" "$T/live/clean/dists/any/main/binary-arm64" "$T/live/empty/dists/any/main/binary-amd64" "$T/live/empty/dists/any/main/binary-arm64"
+    for d in clean empty; do : > "$T/live/$d/dists/any/InRelease"; printf 'Origin: NCZ-OS\n' > "$T/live/$d/dists/any/Release"; done
+    cp "$T/good.Packages" "$T/live/clean/dists/any/main/binary-amd64/Packages"; cp "$T/good.Packages" "$T/live/clean/dists/any/main/binary-arm64/Packages"
+    : > "$T/live/empty/dists/any/main/binary-amd64/Packages"; : > "$T/live/empty/dists/any/main/binary-arm64/Packages"
+    shipgate() {  # name base [VAR=val ...] -> rc; output in $T/ship.out
+        local b="$1"; shift
+        env -u NCZ_APT_LIVE_GATE -u NCZ_SHIP_ALLOW_APT_GATE_OVERRIDE NCZ_BK_BASE="$b" NCZ_R2_BASE="$b" "$@" bash "$ROOT/build/ship-apt-gate.sh" > "$T/ship.out" 2>&1
+    }
+    LEAK="http://127.0.0.1:$LPORT/dists/any"; CLEAN="http://127.0.0.1:$LPORT/clean/dists/any"; EMPTY="http://127.0.0.1:$LPORT/empty/dists/any"; DOWN="http://127.0.0.1:1/dists/any"
+    shipgate "$LEAK";                                                            [ $? = 1 ] && ok "ship gate: leak, env unset -> FAIL" || bad "ship: leak/unset" "$(cat "$T/ship.out")"
+    shipgate "$LEAK" NCZ_APT_LIVE_GATE=warn;                                     [ $? = 1 ] && ok "ship gate: leak, NCZ_APT_LIVE_GATE=warn exported (no override flag) -> still FAIL" || bad "ship: leak/warn" "$(cat "$T/ship.out")"
+    grep -q 'ignoring NCZ_APT_LIVE_GATE=warn' "$T/ship.out" && ok "  ...and it says it ignored the variable" || bad "  no ignore notice" "$(cat "$T/ship.out")"
+    shipgate "$LEAK" NCZ_APT_LIVE_GATE=skip;                                     [ $? = 1 ] && ok "ship gate: leak, NCZ_APT_LIVE_GATE=skip (no override flag) -> still FAIL" || bad "ship: leak/skip" "$(cat "$T/ship.out")"
+    shipgate "$LEAK" NCZ_SHIP_ALLOW_APT_GATE_OVERRIDE=1;                         [ $? = 1 ] && ok "ship gate: override flag alone (no NCZ_APT_LIVE_GATE) weakens nothing -> FAIL" || bad "ship: leak/allow-only" "$(cat "$T/ship.out")"
+    shipgate "$LEAK" NCZ_APT_LIVE_GATE=warn NCZ_SHIP_ALLOW_APT_GATE_OVERRIDE=1;  [ $? = 0 ] && ok "ship gate: leak, warn + explicit override flag -> allowed" || bad "ship: leak/warn+allow" "$(cat "$T/ship.out")"
+    grep -q 'OVERRIDDEN' "$T/ship.out" && ok "  ...and logs the override loudly" || bad "  override not logged" "$(cat "$T/ship.out")"
+    shipgate "$CLEAN";                                                           [ $? = 0 ] && ok "ship gate: clean live repos -> pass" || bad "ship: clean" "$(cat "$T/ship.out")"
+    shipgate "$DOWN";                                                            [ $? != 0 ] && ok "ship gate: unreachable index -> FAIL (no verdict, no shipment)" || bad "ship: unreachable passed" "$(cat "$T/ship.out")"
+    shipgate "$EMPTY";                                                           [ $? != 0 ] && ok "ship gate: empty/unparseable index -> FAIL" || bad "ship: empty passed" "$(cat "$T/ship.out")"
+    # preflight (warn) stays tolerant of both
+    ( export NCZ_BK_BASE="$DOWN" NCZ_R2_BASE="$DOWN"; env -u NCZ_APT_LIVE_GATE bash "$ROOT/build/apt-live-gate.sh" warn >/dev/null 2>&1; echo "pre-down=$?" > "$T/pre.rc"
+      export NCZ_BK_BASE="$EMPTY" NCZ_R2_BASE="$EMPTY"; env -u NCZ_APT_LIVE_GATE bash "$ROOT/build/apt-live-gate.sh" warn >/dev/null 2>&1; echo "pre-empty=$?" >> "$T/pre.rc" )
+    grep -qx 'pre-down=0' "$T/pre.rc" && grep -qx 'pre-empty=0' "$T/pre.rc" && ok "preflight (warn): unreachable and empty indexes only warn" || bad "preflight tolerance" "$(cat "$T/pre.rc")"
+    grep -q 'ship-apt-gate.sh' "$HERE/ship-image.sh" && ok "ship-image.sh calls ship-apt-gate.sh" || bad "ship-image.sh does not call ship-apt-gate.sh"
     kill "$LPID" 2>/dev/null
 fi
 
@@ -110,7 +135,30 @@ echo '# hand edit' >> "$NEW/etc/apt/preferences.d/00-ncz-kernel-purity.pref"
 expect_rc "hand-edited kernel-purity pin fails" 1 "$ROOT/build/check-installed-apt-config.sh" "$NEW"
 
 echo "=== 3. version discipline: deb-version-gate.sh ==="
-command -v dpkg-deb >/dev/null 2>&1 || { echo "SKIP: dpkg-deb missing (sections 3-4)"; echo "test-ncz-repo-policy: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; exit; }
+command -v dpkg-deb >/dev/null 2>&1 || { echo "SKIP: dpkg-deb missing (sections 3-4)"; echo "=== 7. builders of published/staged debs normalise modes (umask 022) ==="
+for b in $(grep -lE 'dpkg-deb (-[A-Za-z-]+ )*(--build|-b)\b|dpkg-deb -b|dpkg-buildpackage|fakeroot dpkg-deb' "$HERE"/*.sh "$ROOT"/staging/*/*.sh 2>/dev/null | grep -v '/test-'); do
+    um="$(grep -nE '^umask 0?22' "$b" | head -1 | cut -d: -f1)"
+    first="$(grep -nE 'dpkg-deb (-[A-Za-z-]+ )*(--build|-b)\b|dpkg-deb -b|dpkg-buildpackage|fakeroot dpkg-deb' "$b" | grep -v '^[0-9]*:[[:space:]]*#' | head -1 | cut -d: -f1)"
+    if [ -n "$um" ] && [ -n "$first" ] && [ "$um" -lt "$first" ]; then ok "${b#"$ROOT/"}: umask 022 (line $um) precedes the first build (line $first)"
+    else bad "${b#"$ROOT/"}: no umask 022 before the first deb build (umask line '${um:-none}', build line '${first:-?}')"; fi
+done
+# dynamic: the same tree built under umask 002 and 022 has one content identity
+ident_under() {  # umask builder-env... -> identity file
+    local um="$1" out="$2"; shift 2
+    ( umask "$um"; env NCZ_PUBLISHED_INDEX=/dev/null "$@" ) >/dev/null 2>&1
+}
+for um in 002 022; do
+    ident_under "$um" x NCZ_USB_RECOVERY_OUT="$T/um$um/usb" bash "$HERE/build-usb-recovery-deb.sh"
+    ident_under "$um" x NCZ_APT_POLICY_OUT="$T/um$um/pol" bash "$HERE/build-ncz-apt-policy-deb.sh"
+done
+for k in usb pol; do
+    if ls "$T"/um002/$k/*.deb >/dev/null 2>&1 && ls "$T"/um022/$k/*.deb >/dev/null 2>&1; then
+        ( . "$HERE/lib/deb-version-gate.sh"; ncz_deb_identity "$T"/um002/$k/*.deb > "$T/umi1"; ncz_deb_identity "$T"/um022/$k/*.deb > "$T/umi2" )
+        cmp -s "$T/umi1" "$T/umi2" && ok "$k: built under umask 002 and 022 -> identical content identity" || bad "$k: identity depends on the umask" "$(diff "$T/umi1" "$T/umi2" | head -4)"
+    else bad "$k: did not build under both umasks"; fi
+done
+
+echo "test-ncz-repo-policy: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; exit; }
 # shellcheck source=lib/deb-version-gate.sh
 . "$HERE/lib/deb-version-gate.sh"
 mkdeb() {  # out name ver arch marker [mtime-epoch] [mode] [description]
@@ -208,6 +256,11 @@ mkpol "$T/pol-ok.deb" "$T/poldir/apt-separation.sh"
 expect_rc "publisher accepts ncz-apt-policy built from the deployed library" 0 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/pol-ok.deb'"
 expect_rc "publisher REFUSES ncz-apt-policy whose packaged pin differs from the deployed library" 1 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/pol-old.deb'"
 case "$LAST" in *"different pin"*) ok "  message names the stale pin" ;; *) bad "  no pin message" "$LAST" ;; esac
+mkdir -p "$T/poldir-old"; cp "$T/poldir/apt-separation.sh" "$T/poldir-old/"
+sed '/^ncz_policy_deb_lib_check() {/,$d' "$T/poldir/deb-version-gate.sh" > "$T/poldir-old/deb-version-gate.sh"
+grep -q '^ncz_policy_deb_lib_check()' "$T/poldir-old/deb-version-gate.sh" && bad "fixture: the old gate library still has the function"
+expect_rc "publisher fails CLOSED for ncz-apt-policy when the deployed gate library predates the lib check" 1 env NCZ_POLICY_DIR="$T/poldir-old" bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/pol-ok.deb'"
+expect_rc "  ...while an ordinary package is unaffected by the old library" 0 env NCZ_POLICY_DIR="$T/poldir-old" bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/ok1.deb'"
 # the policy directory default is $HOME-relative, never a fixed user's home
 grep -q '/home/jasonperlow' "$T/policy.sh" && bad "the policy block still hard-codes /home/jasonperlow" || ok "no hard-coded home directory in the policy block"
 mkdir -p "$T/fakehome/ncz-policy"; cp "$T/poldir/"*.sh "$T/fakehome/ncz-policy/"
@@ -286,7 +339,6 @@ fi
 echo "=== 6. the gates are wired into the real gate scripts, not only their own tests ==="
 grep -q 'check-ncz-repo-policy.sh" --components' "$HERE/preflight-sbom-check.sh" && grep -q 'apt-live-gate.sh" warn' "$HERE/preflight-sbom-check.sh" \
     && ok "preflight-sbom-check.sh runs the seed gate (fails) and the live gate in WARN mode" || bad "preflight-sbom-check.sh gate wiring"
-grep -q 'apt-live-gate.sh" fail' "$HERE/ship-image.sh" && ok "ship-image.sh (the ship gate) runs the live gate in FAIL mode" || bad "ship-image.sh does not run the live gate in fail mode"
 grep -q 'check-installed-apt-config.sh' "$HERE/verify-installed-target.sh" \
     && ok "verify-installed-target.sh runs the installed-config audit" || bad "verify-installed-target.sh does not run the installed-config audit"
 grep -q 'ncz-apt-policy' "$ROOT/manifests/install-extra.pkgs" && grep -q 'install-extra.pkgs:ncz-apt-policy' "$ROOT/sbom/expected-packages.txt" \
@@ -298,6 +350,29 @@ grep -q 'ncz-apt-policy' "$ROOT/build/build-singularity-deb.sh" && bad "ncz-sing
     || ok "ncz-singularity-desktop control Depends is unchanged (no ncz-apt-policy)"
 grep -q '^Depends: \$DEPENDS$' "$ROOT/build/build-singularity-deb.sh" && ok "Depends line is exactly the derived closure" || bad "Depends line changed"
 grep -q 'ensure_policy' "$ROOT/assets/update-manager/ncz-update-apply" && ok "ncz-update-apply installs ncz-apt-policy" || bad "ncz-update-apply does not install ncz-apt-policy"
+
+echo "=== 7. builders of published/staged debs normalise modes (umask 022) ==="
+for b in $(grep -lE 'dpkg-deb (-[A-Za-z-]+ )*(--build|-b)\b|dpkg-deb -b|dpkg-buildpackage|fakeroot dpkg-deb' "$HERE"/*.sh "$ROOT"/staging/*/*.sh 2>/dev/null | grep -v '/test-'); do
+    um="$(grep -nE '^umask 0?22' "$b" | head -1 | cut -d: -f1)"
+    first="$(grep -nE 'dpkg-deb (-[A-Za-z-]+ )*(--build|-b)\b|dpkg-deb -b|dpkg-buildpackage|fakeroot dpkg-deb' "$b" | grep -v '^[0-9]*:[[:space:]]*#' | head -1 | cut -d: -f1)"
+    if [ -n "$um" ] && [ -n "$first" ] && [ "$um" -lt "$first" ]; then ok "${b#"$ROOT/"}: umask 022 (line $um) precedes the first build (line $first)"
+    else bad "${b#"$ROOT/"}: no umask 022 before the first deb build (umask line '${um:-none}', build line '${first:-?}')"; fi
+done
+# dynamic: the same tree built under umask 002 and 022 has one content identity
+ident_under() {  # umask builder-env... -> identity file
+    local um="$1" out="$2"; shift 2
+    ( umask "$um"; env NCZ_PUBLISHED_INDEX=/dev/null "$@" ) >/dev/null 2>&1
+}
+for um in 002 022; do
+    ident_under "$um" x NCZ_USB_RECOVERY_OUT="$T/um$um/usb" bash "$HERE/build-usb-recovery-deb.sh"
+    ident_under "$um" x NCZ_APT_POLICY_OUT="$T/um$um/pol" bash "$HERE/build-ncz-apt-policy-deb.sh"
+done
+for k in usb pol; do
+    if ls "$T"/um002/$k/*.deb >/dev/null 2>&1 && ls "$T"/um022/$k/*.deb >/dev/null 2>&1; then
+        ( . "$HERE/lib/deb-version-gate.sh"; ncz_deb_identity "$T"/um002/$k/*.deb > "$T/umi1"; ncz_deb_identity "$T"/um022/$k/*.deb > "$T/umi2" )
+        cmp -s "$T/umi1" "$T/umi2" && ok "$k: built under umask 002 and 022 -> identical content identity" || bad "$k: identity depends on the umask" "$(diff "$T/umi1" "$T/umi2" | head -4)"
+    else bad "$k: did not build under both umasks"; fi
+done
 
 echo "test-ncz-repo-policy: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

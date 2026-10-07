@@ -29,6 +29,7 @@
 #
 # Usage: build-xwayland-26.1-rc1-deb.sh [outdir]
 set -euo pipefail
+umask 022   # reproducible file modes: the version gate compares content, modes included
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="${1:-$PWD}"

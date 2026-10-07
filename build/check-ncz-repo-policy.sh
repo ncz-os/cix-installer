@@ -73,6 +73,9 @@ case "${1:-}" in
         ;;
     --live)
         if ! curl -fsS -m 20 -o /dev/null -L "$BK_BASE/InRelease" 2>/dev/null; then
+            if [ "${NCZ_LIVE_REQUIRE_REACHABLE:-0}" = 1 ]; then
+                echo "FAIL: cannot reach the live NCZ repos and the caller requires a verdict (NCZ_LIVE_REQUIRE_REACHABLE=1)"; exit 3
+            fi
             echo "SKIP: cannot reach the live NCZ repos"; exit 0
         fi
         for a in amd64 arm64; do
@@ -94,5 +97,8 @@ case "${1:-}" in
         ;;
 esac
 
+if [ "${1:-}" = --live ] && [ "${NCZ_LIVE_REQUIRE_REACHABLE:-0}" = 1 ] && [ "$SEEN" -eq 0 ]; then
+    echo "FAIL: the live indexes yielded no package rows (unparseable or empty) and the caller requires a verdict"; BAD=$((BAD + 1))
+fi
 echo "check-ncz-repo-policy: $SEEN package row(s) examined, $BAD violation(s)"
 [ "$BAD" -eq 0 ]

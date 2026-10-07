@@ -1,6 +1,7 @@
 #!/bin/bash
 # Verify every package named in the desktop manifest is present in
-# build/desktop-mirror's index.
+# build/desktop-mirror's index, and that every locally built NCZ package (NCZ_LOCAL_DEBS) is
+# present at its current version (ncz-apt-policy: with the same content, i.e. the same pin).
 #
 # WHY THIS EXISTS (2026-09-28). The Makefile's desktop-mirror target only
 # asked "does the directory exist". A manifest-only change was therefore
@@ -60,9 +61,57 @@ sed 's/#.*//' "$MANIFEST" | awk 'NF {print $1}' | LC_ALL=C sort -u > "$TMP/seed"
 awk '/^Package: / {print $2}' "$PKG_INDEX"      | LC_ALL=C sort -u > "$TMP/have"
 LC_ALL=C comm -23 "$TMP/seed" "$TMP/have" > "$TMP/missing"
 
+STALE=0
 if [ -s "$TMP/missing" ]; then
     echo "ERROR: $LABEL is stale -- desktop manifest package(s) absent from the mirror:" >&2
     sed 's/^/  /' "$TMP/missing" >&2
+    STALE=1
+fi
+
+# NCZ-OS local packages (r201 re-review). Packages that are not in Debian reach this mirror only through the
+# NCZ_LOCAL_DEBS rows of build-desktop-mirror.sh (ncz-apt-policy, ncz-screensavers, libdrm, ...), and they are NOT
+# desktop manifest names, so the check above never noticed a mirror built before a row existed or from an older
+# deb. For every row that has a locally built deb: the mirror must carry that package at THAT version, and for
+# ncz-apt-policy (the pin) the mirror's deb must have the same content identity as the local one.
+LOCAL_SCRIPT="$ROOT/build/build-desktop-mirror.sh"
+if [ -r "$LOCAL_SCRIPT" ]; then
+    sed -n '/^NCZ_LOCAL_DEBS="/,$p' "$LOCAL_SCRIPT" | sed '/^printf .%s\\n. "\$NCZ_LOCAL_DEBS" | while/,$d' > "$TMP/rows.sh"
+    echo 'printf "%s\n" "$NCZ_LOCAL_DEBS"' >> "$TMP/rows.sh"
+    ROWS="$(REPO="$ROOT" ARCH="$ARCH" bash "$TMP/rows.sh" 2>/dev/null || true)"
+    # shellcheck source=lib/deb-version-gate.sh
+    [ -r "$ROOT/build/lib/deb-version-gate.sh" ] && . "$ROOT/build/lib/deb-version-gate.sh"
+    : > "$TMP/localmiss"
+    while IFS='|' read -r lpkg lglob lreq; do
+        [ -n "$lpkg" ] || continue
+        # shellcheck disable=SC2086
+        ldeb="$(ls -1 $lglob 2>/dev/null | sort -V | tail -1 || true)"
+        [ -n "$ldeb" ] || continue
+        lver="$(dpkg-deb -f "$ldeb" Version 2>/dev/null || true)"
+        [ -n "$lver" ] || continue
+        mfile="$(awk -v n="$lpkg" -v v="$lver" '/^Package: /{p=$2} /^Version: /{ver=$2} /^Filename: /{f=$2}
+                  /^$/{ if (p==n && ver==v) {print f; done=1; exit} p=""; ver=""; f="" }
+                  END{ if (!done && p==n && ver==v) print f }' "$PKG_INDEX")"
+        if [ -z "$mfile" ]; then
+            have="$(awk -v n="$lpkg" '/^Package: /{p=$2} /^Version: /{ver=$2} /^$/{ if (p==n) printf "%s ", ver; p="" } END{ if (p==n) printf "%s ", ver }' "$PKG_INDEX")"
+            echo "  $lpkg $lver (local $(basename "$ldeb")); mirror has: ${have:-nothing}" >> "$TMP/localmiss"
+            continue
+        fi
+        if [ "$lpkg" = ncz-apt-policy ] && command -v ncz_deb_identity >/dev/null 2>&1; then
+            if [ ! -s "$MIRROR/$mfile" ]; then
+                echo "  $lpkg $lver: the mirror index lists $mfile but the file is missing" >> "$TMP/localmiss"
+            elif ! cmp -s <(ncz_deb_identity "$ldeb") <(ncz_deb_identity "$MIRROR/$mfile"); then
+                echo "  $lpkg $lver: same version but different CONTENT (the pin changed); the mirror carries an older build" >> "$TMP/localmiss"
+            fi
+        fi
+    done <<< "$ROWS"
+    if [ -s "$TMP/localmiss" ]; then
+        echo "ERROR: $LABEL is stale -- NCZ local package(s) (NCZ_LOCAL_DEBS) missing, outdated or different in the mirror:" >&2
+        cat "$TMP/localmiss" >&2
+        STALE=1
+    fi
+fi
+
+if [ "$STALE" -ne 0 ]; then
     echo "  (rebuild: move build/desktop-mirror aside and re-run make desktop-mirror)" >&2
     exit 1
 fi

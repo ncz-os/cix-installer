@@ -21,6 +21,7 @@
 # Output: build/ncz-apt-policy-deb/ncz-apt-policy_<ver>_all.deb
 # Publishing is an operator action (build/ops/argos/ncz-reprepro-publish.sh).
 set -euo pipefail
+umask 022   # reproducible file modes: the version gate compares content, modes included
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG=ncz-apt-policy
 # 1.0.1: 1.0.0 shipped a /bin/sh postinst that sourced the bash-only library

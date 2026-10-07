@@ -20,6 +20,7 @@
 # from the build; the empty-transitional-package trick that used to depend on
 # the legacy channel is also gone.
 set -euo pipefail
+umask 022   # reproducible file modes: the version gate compares content, modes included
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"   # cix-installer/
 ASSETS="$REPO/assets/kernel"

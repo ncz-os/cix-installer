@@ -6,7 +6,8 @@
 #   fail  a violation exits 1         (ship / publish gate: build/ship-image.sh)
 #   warn  a violation is reported, exit 0   (build preflight: build/preflight-sbom-check.sh)
 #   skip  not run
-# check-ncz-repo-policy.sh --live exits 0 with "SKIP" when the indexes are unreachable.
+# In warn mode check-ncz-repo-policy.sh --live exits 0 with "SKIP" when the indexes are unreachable; in fail mode
+# an unreachable or empty index is a FAILURE (a ship gate needs a verdict).
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 MODE="${NCZ_APT_LIVE_GATE:-${1:-fail}}"
@@ -15,7 +16,9 @@ case "$MODE" in
     warn|fail) ;;
     *) echo "apt-live-gate: unknown mode '$MODE' (fail|warn|skip)" >&2; exit 2 ;;
 esac
-if bash "$HERE/check-ncz-repo-policy.sh" --live; then
+# fail mode needs a verdict: an unreachable or empty index is a failure there, only a warning in warn mode.
+REQ=0; [ "$MODE" = fail ] && REQ=1
+if NCZ_LIVE_REQUIRE_REACHABLE=$REQ bash "$HERE/check-ncz-repo-policy.sh" --live; then
     exit 0
 fi
 if [ "$MODE" = warn ]; then

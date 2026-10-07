@@ -107,6 +107,13 @@ The writer only ever removes the four exact `ncz-os-apt-{buildkite,r2}.list[.dis
 
 ## Version identity
 
+File modes are part of the identity and come from the builder's umask, so every builder that makes
+a published or staged deb sets `umask 022` (`build/test-ncz-repo-policy.sh` section 7 lists and proves it).
+`ncz_policy_deb_lib_check` inside `build-ncz-apt-policy-deb.sh` compares the deb with the library it was
+just built from, so it cannot fail: it is a build sanity check, not protection. The protection is the
+publisher call against the library deployed in `~/ncz-policy`; a deployed gate library that predates the
+function makes the publisher fail closed (command not found), so redeploy both libraries (step 0).
+
 The gate compares a normalised content identity (control fields, maintainer
 scripts, the `dpkg-deb -c` listing without mtimes, and the sha256 of every data
 file), not the bytes of the .deb: our builders are not all reproducible. An
@@ -150,9 +157,15 @@ through `build/ops/argos/ncz-reprepro-publish.sh`, which dual-publishes.
    the `NCZ_LOCAL_DEBS` row in `build/build-desktop-mirror.sh`), for both
    architectures (it is `Architecture: all`).
    The live-repo gate: `build/preflight-sbom-check.sh` only WARNS while the
-   leaked `fonts-liberation` is still published (step 2); `build/ship-image.sh`
-   runs `build/apt-live-gate.sh fail` and refuses to ship until it is gone
-   (`NCZ_APT_LIVE_GATE=fail|warn|skip` overrides either).
+   leaked `fonts-liberation` is still published (step 2; `NCZ_APT_LIVE_GATE=fail|warn|skip`
+   applies there). `build/ship-image.sh` runs `build/ship-apt-gate.sh`: always fail mode,
+   it IGNORES `NCZ_APT_LIVE_GATE`, treats an unreachable or empty index as a failure, and can
+   be weakened only with `NCZ_SHIP_ALLOW_APT_GATE_OVERRIDE=1` plus `NCZ_APT_LIVE_GATE=warn|skip`
+   (logged loudly).
+   An existing `build/desktop-mirror` is reused only if `verify-desktop-mirror-seeds.sh` passes,
+   and that verifier now also requires every `NCZ_LOCAL_DEBS` package at its current local
+   version, and the ncz-apt-policy deb with the same content (pin) as the one just built; a mirror
+   built before the row existed, or from an older pin, is rebuilt.
 4. Confirm the R2 Release keeps `Origin: NCZ-OS` (`conf/distributions` on ARGOS)
    and that `build/check-ncz-repo-policy.sh --live` ends clean.
 5. Optional: backfill R2 so the fallback is not degraded (it lacks zoder,

@@ -103,6 +103,7 @@
 #   2  source unreachable in --strict mode (some sources are by design optional)
 #
 set -euo pipefail
+umask 022   # reproducible file modes: the version gate compares content, modes included
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 ASSETS="$REPO/assets"

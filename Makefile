@@ -409,7 +409,7 @@ libdrm-debs:
 
 # ncz-apt-policy (manifests/install-extra.pkgs seed, both arches, Architecture: all) is built locally for the
 # offline mirror -- NOT fetched from the live repo -- so an image build needs no publish. Always rebuilt
-# (deterministic, seconds) so a stale pin can never ride along.
+# (deterministic, seconds); verify-desktop-mirror-seeds.sh then rebuilds an existing desktop mirror that lacks it or carries an older build.
 apt-policy-deb:
 	@rm -f $(BUILD)/ncz-apt-policy-deb/ncz-apt-policy_*.deb
 	@echo "[apt-policy-deb] building ncz-apt-policy for the offline mirror"
@@ -706,5 +706,6 @@ parity:
 	bash build/test-ncz-apt-policy-deb.sh
 	bash build/test-apt-sources-hook-container.sh
 	bash build/test-install-extra-local-debs.sh
+	bash build/test-desktop-mirror-local-debs.sh
 	build/test-no-debian-kernel.sh
 	$(MAKE) --no-print-directory test-cygnus-branding
