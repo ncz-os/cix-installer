@@ -15,7 +15,9 @@
 # Usage:
 #   build/build-accel-overlays.sh <kernel-build-dir> <kver> <out-dir> [drv...]
 #     kernel-build-dir  a prepared tree (headers-dir/lib/modules/<kver>/build)
-#     out-dir           receives <drv>/<kver>/*.ko plus OVERLAYS.txt
+#     out-dir           receives <drv>/<kver>/*.ko and <drv>/<kver>/SOURCE.sha256
+#                       (digest of the assets/kernel/<drv> source compiled),
+#                       plus OVERLAYS.txt
 #   Toolchain: CROSS_COMPILE / CC in the environment are honored. mali's gpu.mk
 #   hard-codes aarch64-linux-gnu-, so put a matching prefix on PATH when the
 #   kernel was built with a different triplet (the r279 run does).
@@ -73,6 +75,13 @@ for drv in "${DRIVERS[@]}"; do
             cp "$ko" "$OUT/$drv/$KVER/"
             i=$((i + 1))
         done
+        # Record which source this overlay was compiled from. The arm64 input
+        # gate (verify-dkms-deb-sources.py --overlays) refuses an overlay whose
+        # stamp does not match today's assets/kernel/<drv>, so a source change
+        # without an overlay rebuild fails the image build instead of shipping.
+        python3 "$ROOT/build/verify-dkms-deb-sources.py" --root "$ROOT" \
+            --source-digest "$drv" > "$OUT/$drv/$KVER/SOURCE.sha256" \
+            || { echo "ERROR: $drv source digest failed" >&2; exit 1; }
     )
 done
 

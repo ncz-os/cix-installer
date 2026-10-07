@@ -97,6 +97,53 @@ rm -rf "$R"; mkdir -p "$R/assets/cix-debs"
 printf 'stub' > "$R/assets/cix-debs/panthor-cix-dkms_1.0.0_arm64.deb"
 expect "no assets/kernel tree (gate-test fixture) -> SKIP, PASS" 0 'SKIP panthor: no ' "$R"
 
+# --- overlay SOURCE.sha256 stamps (--overlays) -------------------------------
+# expect_ovl <label> <want_rc> <want_regex> <root> [kver]
+expect_ovl() {
+    local label="$1" want_rc="$2" pat="$3" root="$4" kver="${5:-}" out rc=0
+    if [ -n "$kver" ]; then
+        out=$(python3 "$GATE" --root "$root" --driver panthor --overlays "$kver" 2>&1) || rc=$?
+    else
+        out=$(python3 "$GATE" --root "$root" --driver panthor --overlays 2>&1) || rc=$?
+    fi
+    if [ "$rc" = "$want_rc" ] && printf '%s\n' "$out" | grep -Eq "$pat"; then
+        echo "PASS: $label"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL: $label (rc=$rc want=$want_rc, pattern '$pat')"
+        printf '%s\n' "$out" | sed 's/^/    /'
+        FAILED=$((FAILED + 1))
+    fi
+}
+K=7.3.0-rc6-sky1-ncz
+stamp() { python3 "$GATE" --root "$1" --source-digest panthor > "$1/assets/kernel/panthor/$K/SOURCE.sha256"; }
+
+mkroot "$R"; stamp "$R"
+expect_ovl "overlay stamped from current source -> PASS" 0 'OK panthor: .*built from current source' "$R" "$K"
+
+mkroot "$R"
+printf '{"variants": {"mainline": {"kver": "%s"}}}\n' "$K" > "$R/assets/kernel-manifest.json"
+stamp "$R"
+expect_ovl "kver taken from kernel-manifest.json -> PASS" 0 "overlays $K: PASS" "$R"
+
+mkroot "$R"
+expect_ovl "overlay without SOURCE.sha256 -> FAIL" 1 'SOURCE\.sha256 missing' "$R" "$K"
+
+mkroot "$R"; stamp "$R"
+printf '/* changed */\n' >> "$R/assets/kernel/panthor/panthor_drv.c"
+expect_ovl "source changed after the overlay was built -> FAIL" 1 'built from other source' "$R" "$K"
+
+mkroot "$R"; stamp "$R"
+printf 'patch2\n' > "$R/assets/kernel/panthor/patches/0002.patch"
+printf 'ELF2' > "$R/assets/kernel/panthor/$K/panthor.ko"
+expect_ovl "patches/ and .ko changes do not move the digest -> PASS" 0 'OK panthor' "$R" "$K"
+
+mkroot "$R"
+expect_ovl "no overlay dir for the pinned kernel -> FAIL" 1 'no overlay dir' "$R" "7.4.0-sky1-ncz"
+
+mkroot "$R"
+expect_ovl "no pinned kver -> SKIP, PASS" 0 'overlays: SKIP' "$R"
+
 echo "---"
 echo "passed=$PASS failed=$FAILED"
 [ "$FAILED" -eq 0 ]

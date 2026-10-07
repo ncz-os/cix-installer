@@ -18,6 +18,7 @@ Ground truth sources (parsed from this tree):
     assets/kernel/amd64-stable/KVER, assets/kernel/amd64-stable-manifest.json,
     assets/kernel/sky1-manifest.json
   - assets/kernel/t2{smc,gmux,smp,thunderbolt}/{dkms.conf,PROVENANCE}
+  - assets/kernel/panthor/dkms.conf (Sky1 panthor-cix DKMS source)
   - post-install/*.sh install commands + hooks.list.{amd64,sky1-arm64}
     (hook-only installs that no manifest seeds)
 
@@ -382,6 +383,40 @@ def parse_kernel_entries(kernel_root):
     # EDGE_ENABLED=0: do not emit amd64-edge-kernel or sky1-edge-kernel.
     # The overlay manifest rides along so parse_overlay_rows can cite it.
     return rows, sky1_manifest
+
+
+def parse_sky1_dkms_rows(kernel_root):
+    """DKMS source row for the Sky1 panthor-cix GPU driver.
+
+    Operator 2026-10-07: panthor is built for every kernel, every time. The
+    same assets/kernel/panthor source feeds the per-kernel overlay
+    (build/build-accel-overlays.sh, SOURCE.sha256 stamp) and the
+    panthor-cix-dkms deb (build/build-dkms-debs.sh); both are gated against
+    it by build/verify-dkms-deb-sources.py.
+    """
+    dkms_conf = kernel_root / "panthor" / "dkms.conf"
+    if not dkms_conf.exists():
+        return []
+    name, ver = parse_dkms_conf(dkms_conf)
+    if not name:
+        return []
+    return [{
+        "name": name,
+        "kind": "dkms",
+        "source": "vendored:assets/kernel/panthor",
+        "arch": "arm64",
+        "variant": "desktop,mgmt,rescue,server",
+        "required": "yes",
+        "version_floor": ver or "",
+        "installed_by": "post-install/83-panthor-gpu.sh (panthor-cix-dkms deb; dkms build per kernel)",
+        "verified_by": "build/verify-dkms-deb-sources.py,build/build-accel-overlays.sh",
+        "provenance": "assets/kernel/panthor/dkms.conf; deb from build/build-dkms-debs.sh",
+        "notes": (
+            "Sky1 Panthor GPU driver source. Every kernel gets a panthor.ko "
+            "overlay compiled from it (SOURCE.sha256 stamp, CRC-checked) and "
+            "the DKMS deb must carry it byte-for-byte."
+        ),
+    }]
 
 
 def parse_overlay_rows(kernel_root, sky1_manifest):
@@ -876,6 +911,7 @@ def main(argv=None):
 
     # 5. T2 DKMS modules.
     all_rows.extend(parse_t2_dkms_modules(root / "assets" / "kernel"))
+    all_rows.extend(parse_sky1_dkms_rows(root / "assets" / "kernel"))
 
     # 6. Kernel entries + overlays (sky1-manifest.json).
     kernel_rows, edge_data = parse_kernel_entries(root / "assets" / "kernel")
