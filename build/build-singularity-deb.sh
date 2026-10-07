@@ -135,7 +135,7 @@ Architecture: $ARCH
 Maintainer: Jason Perlow <jperlow@gmail.com>
 Section: x11
 Priority: optional
-Depends: $DEPENDS, ncz-apt-policy (>= 1.0.1)
+Depends: $DEPENDS
 Recommends: $RECOMMENDS
 Description: NCZ-OS Singularity Desktop runtime payload
  Bundled /opt/singularity tree: singularity-shell, libsingularity,

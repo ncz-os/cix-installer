@@ -63,6 +63,11 @@ if [ -n "$SHDASH" ]; then
         || ok "the library is bash-only under dash, so the postinst must be bash"
 fi
 [ "$n" -ge 3 ] && ok "$n maintainer/helper scripts examined" || bad "only $n scripts examined"
+# ownership: the deb must not own the Intel deferred-install units/state, nor any foreign apt list or keyring
+owned="$(dpkg-deb -c "$DEB" | awk '{print $6}')"
+printf '%s\n' "$owned" | grep -Eq 'ncz-intel-accel|/var/lib/ncz/|intel-openvino|ncz-cuda|rocm|sources\.list\.d|/etc/apt/keyrings' \
+    && bad "the package owns a path it must not (Intel units/state, foreign apt lists or keyrings)" "$owned" \
+    || ok "the package owns no ncz-intel-accel-setup.*, /var/lib/ncz/intel-accel.*, foreign apt list or keyring"
 head -1 "$T/x/DEBIAN/postinst" | grep -q 'bash' && ok "postinst shebang is bash" || bad "postinst shebang is not bash: $(head -1 "$T/x/DEBIAN/postinst")"
 
 echo "=== 2. real maintainer scripts in debian:forky ==="
@@ -80,6 +85,15 @@ mkdir -p /etc/apt/sources.list.d
 # the r200 shape: BOTH NCZ repos enabled
 echo 'deb [trusted=yes] https://packages.buildkite.com/ncz-os/ncz/any/ any main' > /etc/apt/sources.list.d/ncz-os-apt-buildkite.list
 echo 'deb [trusted=yes] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main' > /etc/apt/sources.list.d/ncz-os-apt-r2.list
+# files other components own (hook 54, ncz-intel-accel-setup): must survive install, reinstall and purge untouched
+mkdir -p /etc/systemd/system /var/lib/ncz /etc/apt/keyrings
+echo 'deb [signed-by=/etc/apt/keyrings/intel-openvino.gpg] https://apt.repos.intel.com/openvino ubuntu24 main' > /etc/apt/sources.list.d/intel-openvino.list
+echo 'deb https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/ /' > /etc/apt/sources.list.d/ncz-cuda-debian12.list
+echo ring > /etc/apt/keyrings/intel-openvino.gpg
+echo '[Unit]' > /etc/systemd/system/ncz-intel-accel-setup.service; echo '[Timer]' > /etc/systemd/system/ncz-intel-accel-setup.timer
+echo pending > /var/lib/ncz/intel-accel.pending
+sums() { sha256sum /etc/apt/sources.list.d/intel-openvino.list /etc/apt/sources.list.d/ncz-cuda-debian12.list /etc/apt/keyrings/intel-openvino.gpg /etc/systemd/system/ncz-intel-accel-setup.* /var/lib/ncz/intel-accel.pending 2>&1 | sha256sum | cut -c1-16; }
+FOREIGN_BEFORE="$(sums)"
 dpkg -i /w/policy.deb > /tmp/dpkg1.log 2>&1; echo "RC_INSTALL=$?"
 echo "STATUS=$(dpkg-query -W -f='${db:Status-Abbrev}' ncz-apt-policy 2>/dev/null | tr -d ' ')"
 [ -s /etc/apt/preferences.d/10-ncz-origin-separation.pref ] && echo PIN=yes || echo PIN=no
@@ -91,6 +105,7 @@ echo "AUDIT=$(dpkg --audit 2>&1 | wc -l)"
 dpkg -i /w/policy.deb > /tmp/dpkg2.log 2>&1; echo "RC_REINSTALL=$?"
 dpkg -P ncz-apt-policy > /tmp/dpkg3.log 2>&1; echo "RC_PURGE=$?"
 [ ! -e /etc/apt/preferences.d/10-ncz-origin-separation.pref ] && echo PURGED=yes || echo PURGED=no
+[ "$(sums)" = "$FOREIGN_BEFORE" ] && echo FOREIGN_UNTOUCHED=yes || echo FOREIGN_UNTOUCHED=no
 tail -5 /tmp/dpkg1.log | sed 's/^/LOG: /'
 INSIDE
 run_in() {  # deb -> output
@@ -100,7 +115,7 @@ run_in() {  # deb -> output
 OUT="$(run_in "$DEB")"
 want() { printf '%s\n' "$OUT" | grep -qx "$1" && ok "container: $1" || bad "container: expected $1" "$OUT"; }
 want RC_INSTALL=0; want STATUS=ii; want PIN=yes; want PINCONTENT=yes; want MIGRATED=yes; want BKKEPT=yes
-want HELPER=yes; want AUDIT=0; want RC_REINSTALL=0; want RC_PURGE=0; want PURGED=yes
+want HELPER=yes; want AUDIT=0; want RC_REINSTALL=0; want RC_PURGE=0; want PURGED=yes; want FOREIGN_UNTOUCHED=yes
 
 echo "=== 3. negative control: the 1.0.0 shape (sh postinst) must fail the same run ==="
 mkdir -p "$T/old"; dpkg-deb -R "$DEB" "$T/old/tree"
