@@ -347,9 +347,12 @@ libdrm-tegra0	staged-deb	staged:build/libdrm-debs/libdrm-tegra0_2.4.134-3+ncz*_a
 libdrm2	staged-deb	staged:build/libdrm-debs/libdrm2_2.4.134-3+ncz*_arm64.deb	arm64	desktop,installer,mgmt,rescue,server	yes	2.4.134-3+ncz	build/build-desktop-mirror.sh (pool staging; apt resolver installs)	build/verify-desktop-mirror-seeds.sh	build/build-desktop-mirror.sh (NCZ_LOCAL_DEBS)	NCZ_LOCAL_DEBS: required; NCZ libdrm 2.4.134-3+ncz (Sky1 ACPI platform fix); built by build/build-libdrm-debs.sh.
 libelf-dev	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs	
 libelf-dev	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs	
+libfreerdp-client3-3	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libfreerdp3-3	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libgee-0.8-2	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libgee-0.8-2	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libgee-0.8-dev	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libges-1.0-0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libglib2.0-bin	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libglib2.0-bin	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libglu1-mesa	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
@@ -379,6 +382,7 @@ libpeas-2-0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-package
 libpeas-2-0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 librsvg2-bin	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 librsvg2-bin	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libsane1	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libseat1	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libseat1	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libselinux-dev	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs	
@@ -401,6 +405,7 @@ libwayland-bin	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-pack
 libwayland-bin	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libwebkitgtk-6.0-4	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libwebkitgtk-6.0-4	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libwinpr3-3	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libxcb-composite0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libxcb-composite0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libxcb-errors0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
