@@ -192,7 +192,6 @@ apt-get install -y --no-install-recommends \
     freerdp3-dev libarchive-dev libfido2-dev libfreetype-dev liblzma-dev \
     libsane-dev libxcb-render-util0-dev libxcb-xinput-dev libzbar-dev \
     libzstd-dev nettle-dev \
-    libusb-1.0-0-dev libnss3-dev \
     libevdev-dev libmtdev-dev libwacom-dev libtracker-sparql-3.0-dev \
     libsfdo-dev libudev-dev \
     build-essential
@@ -424,6 +423,16 @@ if [ -f Makefile ] && grep -q "gesture-runtime" Makefile; then
     sed -i "s/^compile: gesture-runtime /compile: /" Makefile
     sed -i "s/: | gesture-runtime$/:/" Makefile   # keep the rule colon
     echo "    NOTE: gesture-runtime make prerequisite removed"
+fi
+# The upstream `make compile` also builds libgusb and libfprint-TOD (git-cloned
+# from freedesktop gitlab) since 2026-10-06. They are installed only by
+# the upstream host helper scripts/install-fprint.sh, never by `meson install`, so
+# building them here produced code that is not in the payload (and that is
+# hardcoded to lib/x86_64-linux-gnu). Fingerprint support comes from the Debian
+# libfprint-2-2 and fprintd, not from a vendored build. Drop the prerequisite.
+if [ -f Makefile ] && grep -Eq "^compile:.* libfprint( |$)" Makefile; then
+    sed -i -E "/^compile:/s/ libfprint( |$)/\\1/" Makefile
+    echo "    NOTE: libfprint-TOD/libgusb make prerequisite removed (not packaged; use Debian libfprint-2-2/fprintd)"
 fi
 
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
