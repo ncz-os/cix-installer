@@ -1,4 +1,4 @@
-From be62a712def6b6f942bc9eeb24ee67091bcd62b8 Mon Sep 17 00:00:00 2001
+From 815660b780f0b03d08def2b5eba462c9d7f82307 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sun, 4 Oct 2026 11:40:52 -0400
 Subject: [PATCH] supervisor: keep per-run output, name crash signals, allow
@@ -23,17 +23,17 @@ unchanged.
 Assisted-by: opencode:deepseek-flash
 AI-Scope: Added per-run timestamped supervisor logs, signal-name decoding, and a core-limit bump in the child subshell. Crash-count and safe-mode logic unchanged.
 ---
- src/singularity-desktop-session.in | 53 ++++++++++++++++++++++++++++--
- 1 file changed, 51 insertions(+), 2 deletions(-)
+ src/singularity-desktop-session.in | 54 ++++++++++++++++++++++++++++--
+ 1 file changed, 52 insertions(+), 2 deletions(-)
 
 diff --git a/src/singularity-desktop-session.in b/src/singularity-desktop-session.in
-index f4674dd..1cdd1de 100755
+index c0b7831..db4acad 100755
 --- a/src/singularity-desktop-session.in
 +++ b/src/singularity-desktop-session.in
-@@ -44,16 +44,63 @@ fi
- _STATE="${XDG_STATE_HOME:-$HOME/.local/state}/singularity"
- mkdir -p "$_STATE"
- _LOG="$_STATE/desktop.log"
+@@ -66,18 +66,66 @@ stop_helpers_of() {
+     rm -f "$_file"
+ }
+ 
 +# Per-run child output. Each supervisor restart gets its own timestamped file
 +# under state/runs/, the newest _RUN_KEEP are kept, and a previous run's file is
 +# never truncated. Before this, every restart appended to the single desktop.log
@@ -70,7 +70,7 @@ index f4674dd..1cdd1de 100755
 +        printf '%s' "$1"
 +    fi
 +}
- 
++
  run_desktop_supervisor() {
      _crashes=0
      _crash_window_started=0
@@ -79,7 +79,7 @@ index f4674dd..1cdd1de 100755
 +    _run_seq=0
      while true; do
          _t0=$SECONDS
--        "$_DESKTOP" >> "$_LOG" 2>&1
+-        "$_DESKTOP" >> "$_LOG" 2>&1 &
 +        _run_seq=$((_run_seq + 1))
 +        _RUNLOG=$(_run_log_path "$_run_seq")
 +        (
@@ -88,14 +88,17 @@ index f4674dd..1cdd1de 100755
 +            # this, so raise it only as far as the hard limit allows.
 +            ulimit -c unlimited 2>/dev/null || true
 +            exec "$_DESKTOP"
-+        ) >> "$_RUNLOG" 2>&1
++        ) >> "$_RUNLOG" 2>&1 &
+         _shell_pid=$!
+         record_helper "$_shell_pid" "$_DESKTOP"
+         wait "$_shell_pid"
          _EC=$?
 +        echo "[$(date)] singularity-desktop run output: $_RUNLOG" >> "$_LOG"
 +        _prune_run_logs
          _dt=$((SECONDS - _t0))
          if [ $_EC -eq 0 ]; then
              echo "[$(date)] singularity-desktop exited 0, restarting..." >> "$_LOG"
-@@ -81,7 +128,9 @@ run_desktop_supervisor() {
+@@ -105,7 +153,9 @@ run_desktop_supervisor() {
                  kill "$PPID" 2>/dev/null || true
                  return 1
              fi
@@ -107,5 +110,5 @@ index f4674dd..1cdd1de 100755
          fi
      done
 -- 
-2.55.0
+2.53.0
 

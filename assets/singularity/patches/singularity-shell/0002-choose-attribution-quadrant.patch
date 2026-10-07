@@ -1,4 +1,4 @@
-From 4548ba4dd42c72c1260187b1160706acd1a66672 Mon Sep 17 00:00:00 2001
+From aa67633e7b8062a7abf4f8a1f1ba67d8bcd1868d Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Fri, 18 Sep 2026 14:49:47 -0400
 Subject: [PATCH] feat(background): choose attribution quadrant
@@ -33,10 +33,10 @@ AI-Scope: Ported and extended prior left/right attribution-position vala logic t
  2 files changed, 87 insertions(+), 18 deletions(-)
 
 diff --git a/src/components/background/background.vala b/src/components/background/background.vala
-index 70caf21..58cf1e2 100644
+index 219c41d..3a867b8 100644
 --- a/src/components/background/background.vala
 +++ b/src/components/background/background.vala
-@@ -42,10 +42,16 @@ namespace Singularity {
+@@ -44,10 +44,16 @@ namespace Singularity {
          // but the manager owns that decision). Bottom-left, 40% width x
          // 30% height, with a small margin from the very edge so the
          // sample doesn't include the empty space around the label.
@@ -55,9 +55,9 @@ index 70caf21..58cf1e2 100644
          // Pixel margin from the screen edge to the attribution label.
          // Bottom-left is clear of the dock (which is bottom-anchored
          // and horizontally centered) at any reasonable screen width,
-@@ -92,9 +98,10 @@ namespace Singularity {
-             wp_stack.add_named(picture_a, "a");
-             wp_stack.add_named(picture_b, "b");
+@@ -94,9 +100,10 @@ namespace Singularity {
+             picture_b.can_target = false;
+             wp_stack.add_overlay(picture_b);
  
 -            // Attribution overlay. The label is bottom-left-anchored
 -            // (halign=START, valign=END, ATTRIBUTION_MARGIN gutter)
@@ -69,7 +69,7 @@ index 70caf21..58cf1e2 100644
              // events. can_target=false is GTK4's correct way to make a
              // widget hit-test-transparent; setting can_focus=false
              // prevents the label from grabbing Tab focus out of the
-@@ -107,10 +114,6 @@ namespace Singularity {
+@@ -109,10 +116,6 @@ namespace Singularity {
              // the contrast rule is consistent across panel + overlay.
              attribution_label = new Label("");
              attribution_label.add_css_class("attribution-label");
@@ -80,7 +80,7 @@ index 70caf21..58cf1e2 100644
              attribution_label.margin_start = ATTRIBUTION_MARGIN;
              attribution_label.margin_end = ATTRIBUTION_MARGIN;
              attribution_label.margin_bottom = ATTRIBUTION_MARGIN;
-@@ -130,9 +133,14 @@ namespace Singularity {
+@@ -133,9 +136,14 @@ namespace Singularity {
              // the toggle in Settings immediately hides or re-shows the
              // overlay for the wallpaper that's currently displayed.
              settings = new GLib.Settings("dev.sinty.desktop");
@@ -174,13 +174,13 @@ index 70caf21..58cf1e2 100644
 +        }
 +
          private void update_wallpaper(WallpaperManager manager) {
-             if (manager.display_texture == null) return;
-             // Write to the off-screen picture, then crossfade to it
+             var texture = manager.display_texture;
+             if (texture == null) return;
 diff --git a/src/components/sidebar/pages/desktop_page.vala b/src/components/sidebar/pages/desktop_page.vala
-index 53d4070..5870ea0 100644
+index 90aea33..8e687fc 100644
 --- a/src/components/sidebar/pages/desktop_page.vala
 +++ b/src/components/sidebar/pages/desktop_page.vala
-@@ -266,6 +266,24 @@ namespace Singularity {
+@@ -288,6 +288,24 @@ namespace Singularity {
                  settings.set_boolean("show-wallpaper-attribution", attribution_row.switch_btn.active);
              });
  
@@ -205,3 +205,6 @@ index 53d4070..5870ea0 100644
              var interval_options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
              interval_options.add(new Singularity.Core.AppSettingOption() { id = "600", label = _("Every 10 minutes") });
              interval_options.add(new Singularity.Core.AppSettingOption() { id = "1800", label = _("Every 30 minutes") });
+-- 
+2.53.0
+

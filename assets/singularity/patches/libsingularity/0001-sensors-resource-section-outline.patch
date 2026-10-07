@@ -1,4 +1,4 @@
-From 9bb61e8e00f4b11fa4baf548349c49177d0091ae Mon Sep 17 00:00:00 2001
+From 2a2cc04fc839fc63fc7f665b8d6153f38a83e871 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sat, 26 Sep 2026 15:35:32 -0400
 Subject: [PATCH] style: bordered frame for stacked popover sections
@@ -11,18 +11,17 @@ one continuous list.
 Assisted-by: Claude Code:claude-opus-5
 AI-Scope: Rebased an existing downstream CSS patch onto current upstream head after the original anchor line moved.
 ---
- src/style/style.css | 10 ++++++++++
- 1 file changed, 10 insertions(+)
+ src/style/style.css | 8 ++++++++
+ 1 file changed, 8 insertions(+)
 
 diff --git a/src/style/style.css b/src/style/style.css
-index 9e17413..f217044 100644
+index 5f20bb8..5d081ab 100644
 --- a/src/style/style.css
 +++ b/src/style/style.css
-@@ -5513,3 +5513,13 @@ row.settings-highlight,
-     border-radius: 12px;
-     transition: background-color 400ms ease-out;
- }
-+
+@@ -6630,4 +6630,12 @@ button.recent-color-swatch {
+     padding: 2px;
+     min-width: 0;
+     min-height: 0;
 +/* Bordered frame so stacked sections sharing a popover column (e.g. the
 +   sensors panel resource-pool groups: GPU, VPU, Storage, ...) read as
 +   distinct cards instead of one continuous list. */
@@ -31,7 +30,7 @@ index 9e17413..f217044 100644
 +    border-radius: 8px;
 +    padding: 8px 10px;
 +    margin-bottom: 4px;
-+}
+ }
 -- 
 2.53.0
 
