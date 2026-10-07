@@ -100,6 +100,34 @@ exists /etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf || gate_
 exists /etc/ld.so.cache || gate_miss ldconfig "/etc/ld.so.cache"
 exists /etc/.updated || gate_miss ldconfig "/etc/.updated stamp (late.sh)"
 
+# --- (apt) NCZ-OS / Debian apt separation (r201), same on both architectures ---------------------------
+# The installed apt configuration must keep NCZ packages and Debian packages apart: the origin pin
+# file present and current, the kernel-purity pin present, exactly ONE NCZ repo enabled, a T2 repo
+# covered by its pin, and the ncz-apt-policy package installed (it keeps the pin current). The audit
+# itself is build/check-installed-apt-config.sh, run here on the files read out of the image.
+echo "[verify-target] (apt) NCZ/Debian apt separation"
+APTROOT="$TMP/aptroot"
+mkdir -p "$APTROOT/etc/apt/preferences.d" "$APTROOT/etc/apt/sources.list.d"
+for _f in 10-ncz-origin-separation.pref 00-ncz-kernel-purity.pref; do
+    fetch "/etc/apt/preferences.d/$_f" "$APTROOT/etc/apt/preferences.d/$_f" || true
+done
+fetch /etc/apt/sources.list "$APTROOT/etc/apt/sources.list" || true
+while IFS= read -r _n; do
+    case "$_n" in *.list|*.sources) fetch "/etc/apt/sources.list.d/$_n" "$APTROOT/etc/apt/sources.list.d/$_n" || true ;; esac
+done < <(lsnames /etc/apt/sources.list.d)
+if _aud="$(bash "$HERE_VT/check-installed-apt-config.sh" "$APTROOT" 2>&1)"; then
+    echo "[fact] apt_separation_ok=1"
+else
+    echo "[fact] apt_separation_ok=0"
+    gate_miss apt-separation "$(printf '%s\n' "$_aud" | grep '^FAIL' | tr '\n' ';')"
+fi
+if fetch /var/lib/dpkg/status "$TMP/apt-status" \
+   && awk '/^Package:/ {p=$2} /^Status:/ {s=$0} /^$/ {if (p=="ncz-apt-policy" && s ~ /install ok installed/) f=1; p=""; s=""} END {if (p=="ncz-apt-policy" && s ~ /install ok installed/) f=1; exit !f}' "$TMP/apt-status"; then
+    :
+else
+    gate_miss apt-separation "ncz-apt-policy is not installed (nothing keeps the pin current)"
+fi
+
 # --- (net-fw) NIC / WiFi / Bluetooth firmware packages, same on both architectures ---------------------
 # manifests/net-firmware.tsv maps each network driver we ship to the firmware
 # package that carries its blobs; post-install/13-firmware-bom.sh installs the

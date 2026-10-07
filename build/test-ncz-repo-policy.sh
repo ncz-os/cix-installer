@@ -181,6 +181,27 @@ PY
     for p in terser node-terser spirv-tools spirv-tools-dev spirv-tools-headers; do
         chk "$p" debian && ok "$p -> debian" || bad "$p group" "$OUTJ"
     done
+    python3 -I - "$ROOT/assets/update-manager/ncz-update-check" <<'PY' && ok "file: sources are per path; foreign-arch Debian packages stay Debian; Debian Backports is Debian" || bad "file:/foreign-arch/backports classification"
+import importlib.machinery, importlib.util, sys
+loader = importlib.machinery.SourceFileLoader("nuc", sys.argv[1])
+spec = importlib.util.spec_from_loader("nuc", loader)
+m = importlib.util.module_from_spec(spec); loader.exec_module(m)
+glob = (" 500 file:/srv/offline forky/main amd64 Packages\n     release o=NCZ-OS,n=forky\n"
+        " 500 file:/srv/debian-copy ./ Packages\n     release o=Debian,n=forky\n"
+        " 500 https://deb.debian.org/debian forky-backports/main amd64 Packages\n     release o=Debian Backports,n=forky-backports\n     origin deb.debian.org\n"
+        " 500 https://deb.debian.org/debian forky/main amd64 Packages\n     release o=Debian,n=forky\n     origin deb.debian.org\n")
+o = m.parse_source_origins(glob)
+ok = True
+ok &= m.source_key("file:/srv/offline") != m.source_key("file:/srv/debian-copy")
+ok &= m.group_for([m.source_key("file:/srv/debian-copy")], o, m.NCZ_HOSTS) == "debian"
+ok &= m.group_for([m.source_key("file:///srv/offline")], o, m.NCZ_HOSTS) == "ncz-os"
+ok &= m.classify_host("deb.debian.org", o, m.NCZ_HOSTS) == "debian"
+pol = "libfoo:armhf:\n  Installed: 1\n  Candidate: 2\n  Version table:\n     2 500\n        500 https://deb.debian.org/debian forky/main armhf Packages\n"
+c = m.parse_candidate_hosts(pol)
+ok &= c.get("libfoo") == ["deb.debian.org"] and c.get("libfoo:armhf") == ["deb.debian.org"]
+ok &= m.group_for(c["libfoo"], o, m.NCZ_HOSTS) == "debian"
+sys.exit(0 if ok else 1)
+PY
     python3 -I - "$ROOT/assets/update-manager/ncz-update-check" <<'PY' && ok "third-party host (Google, no NCZ/Debian origin) -> third-party" || bad "third-party classification"
 import importlib.machinery, importlib.util, sys
 loader = importlib.machinery.SourceFileLoader("nuc", sys.argv[1])
@@ -192,6 +213,17 @@ PY
 else
     echo "SKIP: python3 missing"
 fi
+
+echo "=== 6. the gates are wired into the real gate scripts, not only their own tests ==="
+grep -q 'check-ncz-repo-policy.sh" --components' "$HERE/preflight-sbom-check.sh" && grep -q 'check-ncz-repo-policy.sh" --live' "$HERE/preflight-sbom-check.sh" \
+    && ok "preflight-sbom-check.sh runs the seed and live repo-content gates" || bad "preflight-sbom-check.sh does not run the repo-content gates"
+grep -q 'check-installed-apt-config.sh' "$HERE/verify-installed-target.sh" \
+    && ok "verify-installed-target.sh runs the installed-config audit" || bad "verify-installed-target.sh does not run the installed-config audit"
+grep -q 'ncz-apt-policy' "$ROOT/manifests/install-extra.pkgs" && grep -q 'install-extra.pkgs:ncz-apt-policy' "$ROOT/sbom/expected-packages.txt" \
+    && grep -q 'install-extra.pkgs:ncz-apt-policy' "$ROOT/sbom/expected-packages-amd64.txt" && grep -q '^ncz-apt-policy\b' "$ROOT/manifests/components.tsv" \
+    && ok "ncz-apt-policy is in install-extra, both SBOMs and components.tsv" || bad "ncz-apt-policy is missing from a manifest/SBOM/registry"
+grep -q 'ncz-apt-policy' "$ROOT/build/build-singularity-deb.sh" && ok "ncz-singularity-desktop Depends on ncz-apt-policy" || bad "no Depends from ncz-singularity-desktop"
+grep -q 'ensure_policy' "$ROOT/assets/update-manager/ncz-update-apply" && ok "ncz-update-apply installs ncz-apt-policy" || bad "ncz-update-apply does not install ncz-apt-policy"
 
 echo "test-ncz-repo-policy: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
