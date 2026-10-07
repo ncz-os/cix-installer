@@ -1362,18 +1362,33 @@ else
     echo "[20] no XFCE/X11-desktop packages present — nothing to purge (Singularity-only)"
 fi
 
-# Default browser routing — Vivaldi (52-vivaldi, real arm64 .deb) primary.
-# Google Chrome (google-chrome-stable, real official build, 53-chrome.sh) is
-# the secondary real browser choice.
-cat > /usr/local/bin/x-www-browser <<'BRWRAP'
+# Default browser routing. amd64: Vivaldi (52-vivaldi) primary, Google Chrome
+# (53-chrome.sh) secondary. Sky1/arm64: chromium-ncz-sky1 primary (r201) --
+# it decodes on the VPU through V4L2; Vivaldi and Chrome take the session's
+# VA-API path, and the CIX VA-API driver hangs on H.264/HEVC
+# (docs/SKY1-MEDIA-STATUS.md). /usr/local/bin/vivaldi-stable and
+# google-chrome-stable are the VA-API-off wrappers on arm64
+# (lib/sky1-browser-policy.sh, applied by 52/53), so they come before /usr/bin.
+_ncz_br_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_ncz_br_arch" ] || _ncz_br_arch=$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)
+[ -n "$_ncz_br_arch" ] || _ncz_br_arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+case "$_ncz_br_arch" in
+    arm64|aarch64)
+        _ncz_br_order="/usr/bin/chromium-ncz-sky1 /usr/local/bin/vivaldi-stable /usr/local/bin/google-chrome-stable /usr/bin/chromium /usr/bin/chromium-browser"
+        _bd=chromium-ncz-sky1.desktop ;;
+    *)
+        _ncz_br_order="/usr/bin/vivaldi-stable /usr/bin/google-chrome-stable /usr/bin/chromium /usr/bin/chromium-browser"
+        _bd=vivaldi-stable.desktop ;;
+esac
+cat > /usr/local/bin/x-www-browser <<BRWRAP
 #!/bin/sh
-for b in /usr/bin/vivaldi-stable /usr/bin/google-chrome-stable /usr/bin/chromium /usr/bin/chromium-browser; do
-    [ -x "$b" ] && exec "$b" "$@"
+for b in $_ncz_br_order; do
+    [ -x "\$b" ] && exec "\$b" "\$@"
 done
-exec xdg-open "$@"
+exec xdg-open "\$@"
 BRWRAP
 chmod 0755 /usr/local/bin/x-www-browser
-_bd=vivaldi-stable.desktop
+unset _ncz_br_arch _ncz_br_order
 mkdir -p /etc/xdg
 cat > /etc/xdg/mimeapps.list <<MIME
 [Default Applications]
@@ -1382,7 +1397,7 @@ x-scheme-handler/http=$_bd
 x-scheme-handler/https=$_bd
 application/xhtml+xml=$_bd
 MIME
-echo "[20] default browser: $_bd (Vivaldi primary; Google Chrome installed as secondary, snap-free)"
+echo "[20] default browser: $_bd (arm64: chromium-ncz-sky1, amd64: Vivaldi; Google Chrome secondary; snap-free)"
 
 # Appliance noise reduction — mask services that fail for no benefit here.
 for u in iscsid.service apport.service; do
