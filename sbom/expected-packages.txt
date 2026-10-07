@@ -89,6 +89,11 @@ manifests/desktop.pkgs:libdrm-radeon1
 manifests/desktop.pkgs:libdrm-tegra0
 manifests/desktop.pkgs:libgee-0.8-2
 manifests/desktop.pkgs:libglib2.0-bin
+manifests/desktop.pkgs:libfreerdp3-3
+manifests/desktop.pkgs:libfreerdp-client3-3
+manifests/desktop.pkgs:libwinpr3-3
+manifests/desktop.pkgs:libges-1.0-0
+manifests/desktop.pkgs:libsane1
 manifests/desktop.pkgs:libglu1-mesa
 manifests/desktop.pkgs:libgraphene-1.0-0
 manifests/desktop.pkgs:libgtk-4-1
