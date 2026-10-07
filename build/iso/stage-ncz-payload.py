@@ -324,6 +324,21 @@ def stage_payload(
     hotfix_layer = squashfs_dir / "desktop-hotfix.squashfs"
     hotfix_manifest = squashfs_dir / "desktop-hotfix.overlay-manifest"
     hotfix_present = hotfix_layer.is_file()
+    # The hotfix is a delta over desktop.squashfs, and `make image` rebuilds
+    # it from the Singularity deb on its own while it never builds the
+    # desktop layer (that is stage 1). A stale or skipped stage 1 therefore
+    # produced a "complete looking" image with the hotfix and no desktop:
+    # ncz-os-amd64-20261006-25c30d6d shipped 5.1 GB instead of ~7.9 GB and
+    # its gate failed downstream on chrome, sudo, screensavers and GPU
+    # checks. Refuse here, where the cause is still obvious.
+    if hotfix_present and not desktop_present:
+        raise RuntimeError(
+            f"FATAL: {hotfix_layer} is staged but {desktop_layer} is not.\n"
+            f"  The hotfix only overlays the desktop layer; an image without\n"
+            f"  desktop.squashfs installs base-only with a broken desktop.\n"
+            f"  Build the desktop layer first (stage 1): NCZ_TARGET_ARCH={arch} "
+            f"build/build-squashfs-layers.sh desktop"
+        )
     if hotfix_present:
         assert_squashfs_root_mode(hotfix_layer, "desktop-hotfix")
         if hotfix_manifest.is_file():
