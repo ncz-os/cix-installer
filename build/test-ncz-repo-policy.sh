@@ -230,7 +230,11 @@ grep -q 'check-installed-apt-config.sh' "$HERE/verify-installed-target.sh" \
 grep -q 'ncz-apt-policy' "$ROOT/manifests/install-extra.pkgs" && grep -q 'install-extra.pkgs:ncz-apt-policy' "$ROOT/sbom/expected-packages.txt" \
     && grep -q 'install-extra.pkgs:ncz-apt-policy' "$ROOT/sbom/expected-packages-amd64.txt" && grep -q '^ncz-apt-policy\b' "$ROOT/manifests/components.tsv" \
     && ok "ncz-apt-policy is in install-extra, both SBOMs and components.tsv" || bad "ncz-apt-policy is missing from a manifest/SBOM/registry"
-grep -q 'ncz-apt-policy' "$ROOT/build/build-singularity-deb.sh" && ok "ncz-singularity-desktop Depends on ncz-apt-policy" || bad "no Depends from ncz-singularity-desktop"
+# The payload debs are built, installed and ABI-gated against their exact versions; a new Depends would force a rewrap
+# (new version, plugin rebuild) and make the Singularity deb uninstallable until ncz-apt-policy is published.
+grep -q 'ncz-apt-policy' "$ROOT/build/build-singularity-deb.sh" && bad "ncz-singularity-desktop must NOT depend on ncz-apt-policy" \
+    || ok "ncz-singularity-desktop control Depends is unchanged (no ncz-apt-policy)"
+grep -q '^Depends: \$DEPENDS$' "$ROOT/build/build-singularity-deb.sh" && ok "Depends line is exactly the derived closure" || bad "Depends line changed"
 grep -q 'ensure_policy' "$ROOT/assets/update-manager/ncz-update-apply" && ok "ncz-update-apply installs ncz-apt-policy" || bad "ncz-update-apply does not install ncz-apt-policy"
 
 echo "test-ncz-repo-policy: $PASS passed, $FAIL failed"

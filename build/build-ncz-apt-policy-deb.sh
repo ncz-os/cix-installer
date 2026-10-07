@@ -11,9 +11,9 @@
 # It never touches sources.list.d otherwise and never removes a package.
 #
 # Delivery: nothing installs a standalone package by itself, so it is pulled in
-# three ways -- a Depends from ncz-singularity-desktop (build/build-singularity-deb.sh),
-# manifests/install-extra.pkgs + hook 24 on new installs, and ncz-update-apply, which
-# installs it before every refresh/apply. Publish it BEFORE building images or a new
+# two ways -- manifests/install-extra.pkgs + hook 24 on new installs, and ncz-update-apply,
+# which installs it before every refresh/apply. (No Depends from ncz-singularity-desktop:
+# that deb is ABI-gated against exact versions and must not be rewrapped.) Publish it BEFORE building images or a new
 # Singularity package.
 #
 # Version: bump NCZ_APT_POLICY_VERSION whenever lib/apt-separation.sh changes

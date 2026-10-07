@@ -40,6 +40,7 @@
 : "${NCZ_APT_NCZ_HOSTS:=packages.buildkite.com pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev}"
 : "${NCZ_APT_T2_HOST:=adityagarg8.github.io}"
 : "${NCZ_APT_NCZ_RELEASE_ORIGIN:=NCZ-OS}"
+: "${NCZ_APT_INTEL_HOST:=apt.repos.intel.com}"
 NCZ_APT_PIN_NAME=10-ncz-origin-separation.pref
 
 # Names only NCZ may supply. One glob per line. linux-image-*/linux-headers-*
@@ -186,6 +187,20 @@ Pin-Priority: 990
 
 Package: *
 Pin: origin $NCZ_APT_T2_HOST
+Pin-Priority: 100
+
+# Intel OpenVINO repo (suite ubuntu24, written by the deferred ncz-intel-accel-setup).
+# The deferred install is an UNPINNED apt-get install, so the pin decides:
+# libopenvino-intel-* comes from Intel (Debian forky ships same-named plugin packages with
+# other versions); the Level Zero / OpenCL runtime comes from Debian forky even if the Intel
+# repo carries an Ubuntu build of it. Nothing here refers to the install medium (gone after install),
+# and no other Intel package is demoted.
+Package: libopenvino-intel-*
+Pin: origin $NCZ_APT_INTEL_HOST
+Pin-Priority: 990
+
+Package: intel-opencl-icd libze1 libze-intel-gpu1
+Pin: origin $NCZ_APT_INTEL_HOST
 Pin-Priority: 100
 EOF
 }
