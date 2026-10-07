@@ -1,0 +1,61 @@
+From 8efefcea4cbd574099fb630bf26e41e9419134ff Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 29 Sep 2026 14:34:30 -0400
+Subject: [PATCH] schema: declare the sensors-* keys the sensors plugin reads
+
+The sensors plugin reads sensors-interval-seconds, sensors-show-frequency,
+sensors-show-utilization, sensors-grouped, sensors-gpu-zone and
+sensors-cpu-zone behind has_key(), but the schema never declared them, so
+they could not be set. Defaults match the plugin built-in values.
+
+Assisted-by: Claude Code:claude-sonnet-5-5
+AI-Scope: Wrote the six key declarations from the keys and defaults the sensors plugin reads, and checked them with a strict schema compile.
+---
+ data/dev.sinty.desktop.gschema.xml | 31 ++++++++++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/data/dev.sinty.desktop.gschema.xml b/data/dev.sinty.desktop.gschema.xml
+index 93f09bf..4dcd84a 100644
+--- a/data/dev.sinty.desktop.gschema.xml
++++ b/data/dev.sinty.desktop.gschema.xml
+@@ -636,6 +636,37 @@
+       <summary>Show panel on all monitors</summary>
+       <description>When enabled, the top panel appears on every connected monitor.</description>
+     </key>
++    <key name="sensors-interval-seconds" type="i">
++      <range min="1" max="60"/>
++      <default>2</default>
++      <summary>Sensors polling interval</summary>
++      <description>Seconds between sensor reads for the sensors indicator.</description>
++    </key>
++    <key name="sensors-show-frequency" type="b">
++      <default>true</default>
++      <summary>Show CPU clock frequency</summary>
++      <description>Whether the sensors indicator includes the current CPU clock speed.</description>
++    </key>
++    <key name="sensors-show-utilization" type="b">
++      <default>true</default>
++      <summary>Show utilization</summary>
++      <description>Whether the sensors indicator includes CPU and memory usage.</description>
++    </key>
++    <key name="sensors-grouped" type="b">
++      <default>true</default>
++      <summary>Group sensors by family</summary>
++      <description>Whether the sensors popover shows one aggregate row per sensor family.</description>
++    </key>
++    <key name="sensors-gpu-zone" type="s">
++      <default>""</default>
++      <summary>GPU thermal zone</summary>
++      <description>Thermal zone name to use for the GPU. Empty means autodetect.</description>
++    </key>
++    <key name="sensors-cpu-zone" type="s">
++      <default>""</default>
++      <summary>CPU thermal zone</summary>
++      <description>Thermal zone name to use for the CPU. Empty means autodetect.</description>
++    </key>
+     <key name="hot-corner-top-left" type="s">
+       <default>'workspaces'</default>
+       <summary>Hot corner action for top-left</summary>
+-- 
+2.53.0
+
