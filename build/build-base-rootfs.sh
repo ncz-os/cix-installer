@@ -136,18 +136,22 @@ MM_COMPONENTS="$(echo "$COMPONENTS" | tr -s ' ' ',')"
 # visible inside the container unless it is explicitly mounted.
 BUILD_TMPDIR="${TMPDIR:-}"
 if [ -z "$BUILD_TMPDIR" ]; then
-    echo "ERROR: TMPDIR must point at build-host local-disk scratch" >&2
+    echo "ERROR: TMPDIR must point at build-host local-disk scratch (for example, $ROOT/tmp)" >&2
     exit 1
 fi
 mkdir -p "$BUILD_TMPDIR"
 case "$(findmnt -no FSTYPE -T "$BUILD_TMPDIR" 2>/dev/null || true)" in
     tmpfs|ramfs)
-        echo "ERROR: TMPDIR $BUILD_TMPDIR is on a tmpfs/ramfs" >&2
+        echo "ERROR: TMPDIR $BUILD_TMPDIR is on a tmpfs/ramfs; set TMPDIR to local disk (for example, $ROOT/tmp)" >&2
         exit 1
         ;;
 esac
 TMP_DIR_NAME="ncz-base-rootfs-tmp"
 mkdir -p "$BUILD_TMPDIR/$TMP_DIR_NAME"
+cleanup_build_tmp() {
+    rm -rf "$BUILD_TMPDIR/$TMP_DIR_NAME"
+}
+trap cleanup_build_tmp EXIT
 # mmdebstrap's OWN internal apt-get update runs inside the tree it is still
 # building, before ca-certificates is installed there -- the classic
 # bootstrap chicken-and-egg. https fails with a cert-verify error at that
