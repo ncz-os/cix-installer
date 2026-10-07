@@ -340,3 +340,4 @@ manifests/rescue-amd64.pkgs:python3
 manifests/desktop-amd64.pkgs:intel-opencl-icd
 manifests/desktop-amd64.pkgs:libze-intel-gpu1
 manifests/desktop-amd64.pkgs:libze1
+manifests/install-extra.pkgs:ncz-apt-policy

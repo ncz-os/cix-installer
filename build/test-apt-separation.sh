@@ -177,18 +177,27 @@ case "$PLAN" in *fonts-liberation*) bad "new plan still upgrades fonts-liberatio
 case "$PLAN" in *terser*) ok "terser (Debian update) still offered" ;; *) bad "terser missing from plan: $PLAN" ;; esac
 case "$PLAN" in *ncz-wallpapers-ncz*) ok "ncz-wallpapers-ncz (NCZ update) still offered" ;; *) bad "ncz-wallpapers-ncz missing from plan: $PLAN" ;; esac
 
-echo "=== scenario B: a self-labelled NCZ repo (Release Origin: NCZ-OS, like R2) is matched by origin name ==="
-NCZB="$T/nczb"; mk_repo "$NCZB" NCZ-OS any
-entry "$NCZB" fonts-liberation 1:2.1.5-3build1
-entry "$NCZB" ncz-wallpapers-ncz 1.1
+echo "=== scenario B: image-style install -- offline mirror (Release Origin: NCZ-OS, like build-forky-mirror.sh) + network ==="
+# The offline install mirror is labelled NCZ-OS and carries Debian-named packages. The pin must NOT
+# demote them (it matches NCZ by host only), so the offline path keeps apt's default priority.
+NCZB="$T/nczb"; mk_repo "$NCZB" NCZ-OS forky
+entry "$NCZB" fonts-liberation 1:2.1.5-3
+entry "$NCZB" libfoo 1.5
+entry "$NCZB" offline-only 1.0
 gzip -kf "$NCZB/Packages"
 cat > "$T/sources" <<EOF
 deb [trusted=yes] file://$DEB ./
 deb [trusted=yes] file://$NCZB ./
+deb [trusted=yes] http://localhost:$PORT/ncz ./
+deb [trusted=yes] http://127.0.0.1:$PORT/t2 ./
 EOF
 apt-get "${UPD[@]}" update >"$T/update2.log" 2>&1
-eq "label-matched: fonts-liberation candidate" "$(cand "$NEW" fonts-liberation)" "1:2.1.5-3"
-eq "label-matched: ncz-wallpapers-ncz candidate" "$(cand "$NEW" ncz-wallpapers-ncz)" "1.1"
+eq "offline-mirror Debian-named package keeps priority (libfoo 1.5 beats NCZ-host 2.0 / T2 3.0)" "$(cand "$NEW" libfoo)" "1.5"
+eq "offline-mirror-only package is installable" "$(cand "$NEW" offline-only)" "1.0"
+case "$(src_of "$NEW" libfoo)" in "file:$NCZB"*) ok "libfoo is served by the offline mirror" ;; *) bad "libfoo source: $(src_of "$NEW" libfoo)" ;; esac
+eq "network leak still loses with the offline mirror present (fonts-liberation)" "$(cand "$NEW" fonts-liberation)" "1:2.1.5-3"
+eq "NCZ-host ncz-* package still wins" "$(cand "$NEW" ncz-wallpapers-ncz)" "1.1"
+apt-cache "${UPD[@]/prefs-old/prefs-new}" policy libfoo 2>/dev/null | grep -q ' 500 .*nczb' && ok "offline mirror stays at priority 500" || bad "offline mirror lost its priority 500"
 
 echo "=== scenario C: a machine that ALREADY installed the leaked build (the arm64 O6N case) ==="
 cp "$T/sources.A" "$T/sources"
@@ -221,6 +230,23 @@ eq "Buildkite keyring missing -> R2 is the single enabled repo" "$W" "r2"
 eq "  enabled list files" "$(ls "$R2"/etc/apt/sources.list.d/ncz-os-apt-*.list | wc -l | tr -d ' ')" "1"
 R3="$T/root3"; rm -f "$T/keys/ncz-os-apt-keyring.asc"
 if PATH="$FAKEBIN:$PATH" ncz_apt_write_ncz_sources "$T/keys" "$R3" >/dev/null; then bad "no keyrings should fail"; else ok "no keyring -> failure (hook turns it into FATAL)"; fi
+
+echo "=== source writer: re-runs never truncate a keyring or leave two repos ==="
+echo key > "$T/keys/buildkite-ncz-apt-keyring.asc"; echo key > "$T/keys/ncz-os-apt-keyring.asc"
+R4="$T/root4"; PATH="$FAKEBIN:$PATH" ncz_apt_write_ncz_sources "$T/keys" "$R4" >/dev/null
+GOODSHA="$(sha256sum "$R4/etc/apt/keyrings/buildkite-ncz-apt-keyring.gpg" | cut -d' ' -f1)"
+mkdir -p "$T/failbin"; printf '#!/bin/sh\nexit 1\n' > "$T/failbin/gpg"; chmod +x "$T/failbin/gpg"
+W="$(PATH="$T/failbin:$PATH" ncz_apt_write_ncz_sources "$T/keys" "$R4")"
+eq "gpg failing on a re-run keeps the working repo" "$W" "buildkite"
+eq "gpg failing on a re-run leaves the keyring byte-identical" "$(sha256sum "$R4/etc/apt/keyrings/buildkite-ncz-apt-keyring.gpg" | cut -d' ' -f1)" "$GOODSHA"
+eq "re-run: exactly one enabled NCZ list" "$(ls "$R4"/etc/apt/sources.list.d/ncz-os-apt-*.list | wc -l | tr -d ' ')" "1"
+R5="$T/root5"; mkdir -p "$R5/etc/apt/sources.list.d"
+echo 'deb stale https://packages.buildkite.com/ncz-os/ncz/any/ any main' > "$R5/etc/apt/sources.list.d/ncz-os-apt-buildkite.list"
+rm -f "$T/keys/buildkite-ncz-apt-keyring.asc"
+W="$(PATH="$FAKEBIN:$PATH" ncz_apt_write_ncz_sources "$T/keys" "$R5")"
+eq "stale Buildkite list without a keyring: R2 becomes the only repo" "$W" "r2"
+eq "  enabled NCZ lists after the re-run" "$(ls "$R5"/etc/apt/sources.list.d/ncz-os-apt-*.list | wc -l | tr -d ' ')" "1"
+echo key > "$T/keys/buildkite-ncz-apt-keyring.asc"
 
 echo "=== ncz-apt-source helper switches exactly one ==="
 mkdir -p "$T/hroot/usr/sbin"; ncz_apt_install_source_helper "$T/hroot"
