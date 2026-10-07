@@ -46,8 +46,10 @@ grep -qxF 'manifests/desktop-amd64.pkgs:intel-media-va-driver' "$SBOM" \
     || bad "sbom/expected-packages-amd64.txt does not pin intel-media-va-driver"
 
 # ---- the target-install hook still asks for it (network path stays intact)
-grep -qE 'apt-get install .*intel-media-va-driver' "$HOOK" \
-    && ok "post-install/54-gpu-accel.sh still installs intel-media-va-driver" \
+# r201: 54 delegates the Intel install to lib/intel-accel.sh (GPU package set).
+INTEL_LIB="$ROOT/post-install/lib/intel-accel.sh"
+grep -q 'ncz_intel_accel_install' "$HOOK" && grep -qE '_p="intel-opencl-icd intel-media-va-driver ' "$INTEL_LIB" \
+    && ok "post-install/54-gpu-accel.sh (via lib/intel-accel.sh) still installs intel-media-va-driver" \
     || bad "post-install/54-gpu-accel.sh no longer installs intel-media-va-driver"
 
 echo "amd64 intel vaapi test: $PASS passed, $FAILS failed"

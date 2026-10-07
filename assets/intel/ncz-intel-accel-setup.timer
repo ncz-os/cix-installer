@@ -1,0 +1,13 @@
+[Unit]
+Description=Retry the NCZ-OS Intel GPU/NPU userspace setup until it completes
+ConditionPathExists=/var/lib/ncz/intel-accel.pending
+
+[Timer]
+# Never on the boot/login critical path: 2 minutes after boot, then every
+# 10 minutes while /var/lib/ncz/intel-accel.pending exists.
+OnBootSec=2min
+OnUnitInactiveSec=10min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
