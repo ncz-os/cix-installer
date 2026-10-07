@@ -127,15 +127,22 @@ fi
 # 126 = found but not executable, 127 = interpreter/file not found.
 tool_usable() {
     [ -x "$1" ] || return 1
-    "$1" --version >/dev/null 2>&1
+    "$1" --version </dev/null >/dev/null 2>&1
     case $? in
         126|127) return 1 ;;   # cannot exec: wrong ABI or missing loader
         *)       return 0 ;;   # ran (a usage error is still a successful exec)
     esac
 }
 
+# Every host tool a DKMS build runs. genksyms is one of them: a module that
+# exports symbols (aipu) runs it for CONFIG_MODVERSIONS, and the shipped r285
+# headers carry a genksyms linked against Yocto's uninative loader even when
+# fixdep and modpost are already native (r201 arm64 KVM gate: "genksyms: not
+# found", no aipu.ko). Checking only fixdep/modpost skipped the rebuild.
+HOST_TOOLS="scripts/basic/fixdep scripts/mod/modpost scripts/genksyms/genksyms"
+
 need_rebuild=0
-for tool in scripts/basic/fixdep scripts/mod/modpost; do
+for tool in $HOST_TOOLS; do
     tool_usable "$B/$tool" || need_rebuild=1
 done
 
@@ -174,7 +181,7 @@ if [ "$need_rebuild" = "1" ]; then
     restore_selinux
     trap - EXIT INT TERM
 
-    for tool in scripts/basic/fixdep scripts/mod/modpost; do
+    for tool in $HOST_TOOLS; do
         if tool_usable "$B/$tool"; then
             echo "[79]   $tool -> native"
         else
