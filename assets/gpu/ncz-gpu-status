@@ -274,6 +274,7 @@ drm_card_driven_by() {
 echo "=== NCZ-OS GPU stack ==="
 echo "selected      : $sel   (from $src)"
 echo "last applied  : $(cat /etc/ncz-gpu-profile 2>/dev/null || echo unset)"
+[ -s /run/ncz-gpu-fallback ] && echo "fallback      : $(cat /run/ncz-gpu-fallback)"
 
 # Decide by what is actually BOUND, not merely loaded. Both modules can sit in
 # lsmod at once after a failed switch -- measured on O6N 2026-08-16, where a

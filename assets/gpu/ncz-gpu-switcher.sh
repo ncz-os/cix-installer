@@ -323,6 +323,9 @@ drop_legacy
 ensure_blacklist
 
 mode=$(get_mode)
+# Written only when a Panthor request fell back to Mali (below); read by ncz-gpu-status.
+FALLBACK_NOTE=/run/ncz-gpu-fallback
+rm -f "$FALLBACK_NOTE" 2>/dev/null
 if [ "$mode" = none ]; then
     log "sky1.gpu=none -- accelerators disabled by the boot entry, loading nothing"
     echo none > "$STATE" 2>/dev/null || true
@@ -342,6 +345,44 @@ if driver_live "$mode"; then
     echo "$mode" > "$STATE" 2>/dev/null || true
     log "GPU stack set to $mode"
     exit 0
+fi
+
+# Panthor was asked for (sky1.gpu=mesa / ncz.gpu=panthor / GPU_MODE=panthor) but
+# is not bound, and nothing else is: fall back to Mali when its module exists.
+# The standing rule is never to software-render on a machine that has a GPU,
+# and measured on O6N 2026-10-07 (r201) the "7.3 Panthor (Experimental)" entry
+# booted a 7.3 kernel with no panthor.ko at all (panthor-cix-dkms 7.2.0 does
+# not build on 7.3): the old path logged "no panthor driver on this kernel",
+# exited 0, and the desktop ran on llvmpipe until greetd hit its start limit.
+# Mali can only be loaded if the boot entry did not hard-block it with a
+# cmdline module_blacklist= (a modprobe.d blacklist does not stop the explicit
+# load below); the generator stopped putting the kbase trio there in r201.
+cmdline_blacklists() {
+    sed -n 's/.*\bmodule_blacklist=\([^ ]*\).*/\1/p' /proc/cmdline 2>/dev/null | tr ',' '\n' | grep -qx "$1"
+}
+if [ "$mode" = panthor ] && ! driver_live mali && driver_available mali; then
+    if driver_available panthor; then
+        why="panthor is installed for $(uname -r) but did not bind to the GPU"
+    else
+        why="no panthor module for $(uname -r)"
+    fi
+    if cmdline_blacklists mali_kbase; then
+        err "ERROR: Panthor selected but $why, and this boot entry's module_blacklist= blocks mali_kbase,"
+        err "ERROR: so there is no GPU driver: boot the Mali (Default) entry. Rendering is in SOFTWARE."
+        exit 1
+    fi
+    err "WARN: Panthor selected but $why -- falling back to the Mali stack (no software rendering with a GPU present)"
+    modprobe -r panthor 2>/dev/null || true
+    activate_mali
+    if driver_live mali; then
+        echo mali > "$STATE" 2>/dev/null || true
+        echo "selected panthor, fell back to mali: $why" > "$FALLBACK_NOTE" 2>/dev/null || true
+        log "GPU stack set to mali (fallback from panthor: $why)"
+        exit 0
+    fi
+    err "ERROR: Mali fallback also failed to bind; see dmesg | grep -iE 'mali|panthor'"
+    err "ERROR: a GPU driver is installed but none is bound -- rendering is in SOFTWARE."
+    exit 1
 fi
 
 # The requested driver is not bound. Leaving the userspace half where it was

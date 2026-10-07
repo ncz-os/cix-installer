@@ -506,6 +506,27 @@ fi
 # EGL/glvnd/ICD ownership during the greeter handoff.
 MALI_OPTIONS=""
 PANTHOR_OPTIONS=""
+# NCZ-PANTHOR-ENTRY-BEGIN
+# The Panthor (Experimental) entry is written ONLY when a panthor module exists
+# for the kernel it boots. r201, O6N: the entry booted 7.3 with sky1.gpu=mesa
+# while updates/dkms held only mali_kbase.ko (panthor-cix-dkms 7.2.0 does not
+# build on 7.3), so no GPU driver bound and the desktop fell to software
+# rendering. NCZ_MODULES_ROOT is a test seam.
+ncz_panthor_module_present() {   # KVER -> 0 when a panthor*.ko[.xz|.zst|.gz] exists
+    [ -n "${1:-}" ] || return 1
+    _ncz_md="${NCZ_MODULES_ROOT:-/lib/modules}/$1"
+    [ -d "$_ncz_md" ] || return 1
+    [ -n "$(find "$_ncz_md" \( -name 'panthor.ko' -o -name 'panthor.ko.*' \) -print -quit 2>/dev/null)" ]
+}
+PANTHOR_ENTRY=0
+if [ "$NEXT_AVAILABLE" = "1" ]; then
+    if ncz_panthor_module_present "$KVER_NEXT"; then
+        PANTHOR_ENTRY=1
+    else
+        echo "  no panthor module for $KVER_NEXT -- Panthor (Experimental) entry omitted"
+    fi
+fi
+# NCZ-PANTHOR-ENTRY-END
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     # The GPU choice is a sky1.gpu= token, plus an entry-specific cmdline
     # blacklist for the losing stack. The kernel honors only one
@@ -515,9 +536,13 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     # sky1.gpu= is spelled to match amazingfate's Sky1-Linux switcher so a
     # cmdline copied between the two distros keeps its meaning.
     MALI_GPU_BLACKLIST="panthor"
-    PANTHOR_GPU_BLACKLIST="mali_kbase,memory_group_manager,protected_memory_allocator"
     MALI_OPTIONS="$(merge_module_blacklist "$NEXT_OPTIONS" "$MALI_GPU_BLACKLIST") sky1.gpu=vendor"
-    PANTHOR_OPTIONS="$(merge_module_blacklist "$NEXT_OPTIONS" "$PANTHOR_GPU_BLACKLIST") sky1.gpu=mesa"
+    # The Panthor entry no longer hard-blocks the kbase trio on the cmdline
+    # (r201). ncz-gpu-switcher holds both drivers in modprobe.d and loads only
+    # the selected one, and when Panthor does not bind it falls back to Mali --
+    # which a cmdline module_blacklist= would make impossible (it refuses even
+    # an explicit modprobe), leaving software rendering on a machine with a GPU.
+    PANTHOR_OPTIONS="$NEXT_OPTIONS sky1.gpu=mesa"
     # Panthor keeps acpi_scmi_en=off, same as Mali and SAFE. Metal-verified
     # on O6N 2026-07-31: the patched panthor-cix DKMS module powers on and
     # un-secures the GPU itself with SCMI off ("GPU power domain 21 powered
@@ -820,6 +845,7 @@ fi
         # against it. Making it default is a separate, deliberate change to
         # DEFAULT_TOKEN -- do not flip it as a side effect of this entry
         # existing.
+        if [ "$PANTHOR_ENTRY" = "1" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Panthor (Experimental)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
@@ -827,6 +853,7 @@ fi
         echo "    options \"$PANTHOR_OPTIONS\""
         echo "}"
         echo
+        fi
         # The no-initrd recovery entry (loaded the default kernel with no
         # initrd, proving nvme+btrfs are builtin) was DROPPED from the menu
         # 2026-08-19 to cut the operator-facing list down to four entries:
