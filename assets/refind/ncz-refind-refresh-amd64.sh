@@ -21,7 +21,8 @@
 #     trixie/sid, so it is vendored as a build-time repo asset exactly the
 #     way refind_aa64.efi already is, never apt-installed on the target)
 #     instead of refind_aa64.efi; BOOTX64.EFI instead of BOOTAA64.EFI.
-#   - console=ttyS0,115200 (standard PC/T2 UART) instead of ttyAMA0.
+#   - console=ttyS0,115200 (standard PC/T2 UART) instead of ttyAMA0, and
+#     only when ttyS0 is a real UART (NCZ-SERIAL-CONSOLE block below).
 #   - NO MS-R1 efi=noruntime DMI workaround -- that is a specific Sky1
 #     board's firmware bug, meaningless on generic x86/T2 hardware.
 #   - NO Mali-vs-Panthor GPU-driver menu split, no sky1.gpu=. The single
@@ -233,7 +234,50 @@ echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol
 # greeter own tty0, while a real serial port still gets kernel messages AND
 # a serial-getty for lockout recovery (doctrine: serial console must work,
 # same as arm64).
-STABLE_CMDLINE_BASE="console=ttyS0,115200 console=tty0 systemd.condition_first_boot=false audit_backlog_limit=8192"
+#
+# ...but ONLY when ttyS0 is a real UART. The 8250 driver registers ttyS0-3 as
+# placeholders on every PC, so /sys/class/tty/ttyS0 exists on machines with no
+# serial port at all; console=ttyS0 then makes systemd start serial-getty@ttyS0,
+# which fails "agetty: failed to get terminal attributes: Input/output error"
+# in a restart loop (28 per boot on PEGASUS, also CHIMERA/T2). The port type
+# tells them apart: 0 (PORT_UNKNOWN) is a placeholder, anything else (4 =
+# 16550A, QEMU's ISA serial included, so the KVM gate keeps its console) is a
+# UART that answered the probe. The installer media entries are generated
+# elsewhere (build/iso/build-refind-esp.py) and keep their serial console.
+# NCZ-SERIAL-CONSOLE-BEGIN
+ncz_serial_console_present() {   # 0 when ttyS0 is a real UART
+    _ncz_sys="${NCZ_SYSFS_ROOT:-/sys}"
+    _ncz_proc="${NCZ_PROC_ROOT:-/proc}"
+    case "${NCZ_SERIAL_CONSOLE:-auto}" in
+        on|force|1)  return 0 ;;
+        off|none|0)  return 1 ;;
+    esac
+    if [ -r "$_ncz_sys/class/tty/ttyS0/type" ]; then
+        _ncz_t=$(tr -d '[:space:]' < "$_ncz_sys/class/tty/ttyS0/type" 2>/dev/null)
+        case "$_ncz_t" in
+            ''|*[!0-9]*) ;;
+            0) return 1 ;;
+            *) return 0 ;;
+        esac
+    fi
+    # Fallback (root only): "0: uart:16550A port:000003F8 ..." vs "uart:unknown".
+    if [ -r "$_ncz_proc/tty/driver/serial" ]; then
+        if grep -Eq '^0:[[:space:]]+uart:' "$_ncz_proc/tty/driver/serial" 2>/dev/null; then
+            grep -Eq '^0:[[:space:]]+uart:unknown' "$_ncz_proc/tty/driver/serial" 2>/dev/null && return 1
+            return 0
+        fi
+    fi
+    return 1
+}
+NCZ_SERIAL_CONSOLE_ARG=""
+if ncz_serial_console_present; then
+    NCZ_SERIAL_CONSOLE_ARG="console=ttyS0,115200 "
+    echo "  serial console: ttyS0 is a real UART -> console=ttyS0,115200 on every entry"
+else
+    echo "  serial console: no UART behind ttyS0 -> no console=ttyS0 (avoids the agetty I/O-error loop)"
+fi
+# NCZ-SERIAL-CONSOLE-END
+STABLE_CMDLINE_BASE="${NCZ_SERIAL_CONSOLE_ARG:-}console=tty0 systemd.condition_first_boot=false audit_backlog_limit=8192"
 # NCZ-NOUVEAU-RUNPM-BEGIN
 # nouveau.runpm=0 on the default and console entries (the rescue entries
 # blacklist nouveau outright). On 7.3-rc5+ nouveau's runtime suspend oopses in
@@ -497,10 +541,10 @@ if ncz_is_t2_hardware; then
     RESCUE_ACCEL_BLACKLIST="nvidia,nvidia_drm,nvidia_modeset,nvidia_uvm,nouveau,radeon"
 fi
 # NCZ-RESCUE-ACCEL-END
-RESCUE_CMDLINE_BASE="console=ttyS0,115200 console=tty0 systemd.condition_first_boot=false audit_backlog_limit=8192"
+RESCUE_CMDLINE_BASE="${NCZ_SERIAL_CONSOLE_ARG:-}console=tty0 systemd.condition_first_boot=false audit_backlog_limit=8192"
 RESCUE_OPTIONS="$ROOT_OPTS $RESCUE_CMDLINE_BASE module_blacklist=$RESCUE_ACCEL_BLACKLIST systemd.unit=multi-user.target"
 
-RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw console=ttyS0,115200 console=tty0 module_blacklist=$RESCUE_ACCEL_BLACKLIST systemd.unit=multi-user.target"
+RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw ${NCZ_SERIAL_CONSOLE_ARG:-}console=tty0 module_blacklist=$RESCUE_ACCEL_BLACKLIST systemd.unit=multi-user.target"
 echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — same 7.3 kernel, accelerators blacklisted ($RESCUE_ACCEL_BLACKLIST)"
 # NCZ-DEFAULT-OPTIONS-END
 
