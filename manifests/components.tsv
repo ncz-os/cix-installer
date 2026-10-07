@@ -34,6 +34,8 @@ name	kind	source	arch	variant	required	version_floor	installed_by	verified_by	pr
 aarch64-linux-gnu-gcc	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	no		post-install/79-dkms-prep.sh (conditional, missing-toolchain only)	build/verify-dkms-modules.sh	post-install/79-dkms-prep.sh	Cross-compiler for Sky1 kernel module rebuilds; installed only when the toolchain probe fails.
 aardvark-dns	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 aardvark-dns	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+adduser	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs	
+adduser	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs	
 alsa-utils	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 alsa-utils	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 amd64-microcode	debian	debian-forky	amd64	desktop,rescue	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs; manifests/rescue-amd64.pkgs	
