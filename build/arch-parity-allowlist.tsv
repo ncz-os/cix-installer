@@ -37,3 +37,4 @@ desktop	libfreerdp3-3	arm64-only	seeded for the 2026-10-07 ncz-singularity-deskt
 desktop	libges-1.0-0	arm64-only	seeded for the 2026-10-07 ncz-singularity-desktop Depends; amd64 seed (desktop-amd64.pkgs) is added by the amd64 refresh, then delete this row
 desktop	libsane1	arm64-only	seeded for the 2026-10-07 ncz-singularity-desktop Depends; amd64 seed (desktop-amd64.pkgs) is added by the amd64 refresh, then delete this row
 desktop	libwinpr3-3	arm64-only	seeded for the 2026-10-07 ncz-singularity-desktop Depends; amd64 seed (desktop-amd64.pkgs) is added by the amd64 refresh, then delete this row
+desktop	libsfdo0	arm64-only	seeded for the 2026-10-07 ncz-singularity-desktop Depends; amd64 seed (desktop-amd64.pkgs) is added by the amd64 refresh, then delete this row
