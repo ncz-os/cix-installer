@@ -19,6 +19,11 @@
 #   * Level Zero, the OpenCL ICD and the VA driver come from Debian (libze1,
 #     libze-intel-gpu1, intel-opencl-icd, intel-media-va-driver); only the
 #     OpenVINO GPU/NPU plugins come from Intel's repo (newest version present);
+#   * the Debian-origin packages are seeded in manifests/desktop-amd64.pkgs and are
+#     installed FIRST, with no Intel index needed, so an offline install, the KVM
+#     gate and an install without a link still get them from the mirror; packages
+#     already installed are skipped without calling apt. Only the OpenVINO plugins
+#     wait for the Intel repo (deferred timer);
 #   * every transaction is simulated first (apt-get install -s); any removal
 #     refuses it -- nothing is forced. Simulated on debian:forky 2026-10-07:
 #     GPU set 15 installs / 0 removals, NPU set 7 / 0;
@@ -75,15 +80,29 @@ deb [signed-by=/etc/apt/keyrings/intel-openvino.gpg] $NCZ_INTEL_REPO
 EOF
 }
 
-# ncz_intel_packages GPU NPU -> package list on stdout; 1 when the Intel repo
-# index is not available (no network yet).
+# ncz_intel_debian_packages GPU NPU -> the Debian-origin packages (Level Zero
+# loader + Intel GPU driver, OpenCL ICD, VA driver) minus the ones already
+# installed. These are seeded in manifests/desktop-amd64.pkgs, so they resolve
+# from the offline mirror with no network and with no Intel repo index.
+ncz_intel_debian_packages() {
+    _d=""
+    [ "$1" = 1 ] && _d="intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1"
+    [ "$2" = 1 ] && _d="$_d libze1"
+    for _p in $(echo "$_d" | tr ' ' '\n' | sed '/^$/d' | sort -u); do
+        dpkg-query -W -f='${Status}' "$_p" 2>/dev/null | grep -q '^install ok installed' || printf '%s ' "$_p"
+    done
+}
+
+# ncz_intel_packages GPU NPU -> the Intel-repo packages (OpenVINO plugins, and
+# the NPU user-mode driver when some repo offers it) on stdout; 1 when the Intel
+# repo index is not available (no network yet).
 ncz_intel_packages() {
     _v=$(apt-cache pkgnames libopenvino-intel-gpu-plugin- 2>/dev/null | sed 's/^libopenvino-intel-gpu-plugin-//' | sort -V | tail -1)
     [ -n "$_v" ] || return 1
     _p=""
-    [ "$1" = 1 ] && _p="intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1 libopenvino-intel-gpu-plugin-$_v"
+    [ "$1" = 1 ] && _p="libopenvino-intel-gpu-plugin-$_v"
     if [ "$2" = 1 ]; then
-        _p="$_p libze1 libopenvino-intel-npu-plugin-$_v"
+        _p="$_p libopenvino-intel-npu-plugin-$_v"
         for _u in intel-driver-compiler-npu intel-level-zero-npu; do
             if apt-cache policy "$_u" 2>/dev/null | grep -q 'Candidate: [0-9]'; then _p="$_p $_u"
             else ncz_intel_log "NPU: $_u is in no configured apt repo (github.com/intel/linux-npu-driver debs only); NPU user-mode driver not installed" >&2; fi
@@ -92,15 +111,11 @@ ncz_intel_packages() {
     echo "$_p" | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' '
 }
 
-# ncz_intel_setup GPU NPU -> 0 done, 75 retry later, 1 refused/permanent
-ncz_intel_setup() {
-    ncz_intel_keyring || return 75
-    ncz_intel_repo
-    apt-get update 2>&1 | tail -3
-    _pk=$(ncz_intel_packages "$1" "$2") || { ncz_intel_log "Intel repo index unavailable (network?)"; return 75; }
-    [ -n "${_pk// /}" ] || { ncz_intel_log "nothing requested (GPU=$1 NPU=$2)"; return 0; }
-    ncz_intel_log "packages: $_pk"
-    _sim=$(LC_ALL=C apt-get install -s --no-install-recommends $_pk 2>&1); _rc=$?
+# ncz_intel_apt_install PKGS... -> 0 installed, 75 retry later, 1 refused.
+# Simulated first; any removal refuses the whole transaction.
+ncz_intel_apt_install() {
+    ncz_intel_log "packages: $*"
+    _sim=$(LC_ALL=C apt-get install -s --no-install-recommends "$@" 2>&1); _rc=$?
     if [ "$_rc" -ne 0 ]; then
         printf '%s\n' "$_sim" | tail -5
         ncz_intel_log "simulation failed (rc=$_rc)"; return 75
@@ -110,9 +125,28 @@ ncz_intel_setup() {
         printf '%s\n' "$_sim" | grep '^Remv ' | head -10
         ncz_intel_status "failed:would-remove-$_rm-packages"; return 1
     fi
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $_pk 2>&1 | tail -10
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" 2>&1 | tail -10
     [ "${PIPESTATUS[0]:-0}" -eq 0 ] || return 75
     return 0
+}
+
+# ncz_intel_setup GPU NPU -> 0 done, 75 retry later, 1 refused/permanent
+ncz_intel_setup() {
+    ncz_intel_keyring || return 75
+    ncz_intel_repo
+    apt-get update 2>&1 | tail -3
+    # Debian-origin packages first: they need no Intel index, so an offline
+    # install (mirror seeds) or an install without a link still gets them.
+    # Already-installed packages are skipped without calling apt at all.
+    _dp=$(ncz_intel_debian_packages "$1" "$2")
+    if [ -n "${_dp// /}" ]; then
+        # shellcheck disable=SC2086
+        ncz_intel_apt_install $_dp || return $?
+    fi
+    _pk=$(ncz_intel_packages "$1" "$2") || { ncz_intel_log "Intel repo index unavailable (network?)"; return 75; }
+    [ -n "${_pk// /}" ] || { ncz_intel_log "nothing more requested (GPU=$1 NPU=$2)"; return 0; }
+    # shellcheck disable=SC2086
+    ncz_intel_apt_install $_pk
 }
 
 ncz_intel_arm_retry() {   # GPU NPU
