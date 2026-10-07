@@ -134,16 +134,17 @@ MM_COMPONENTS="$(echo "$COMPONENTS" | tr -s ' ' ',')"
 # mmdebstrap creates its own temporary tree.  Keep that tree on the same
 # local-disk scratch area as the rest of the build; the host's TMPDIR is not
 # visible inside the container unless it is explicitly mounted.
-BUILD_TMPDIR="${TMPDIR:-}"
+REQUESTED_TMPDIR="${TMPDIR:-}"
+BUILD_TMPDIR="$REQUESTED_TMPDIR"
 if [ -z "$BUILD_TMPDIR" ]; then
     echo "ERROR: TMPDIR must point at build-host local-disk scratch (for example, $ROOT/tmp)" >&2
     exit 1
 fi
 mkdir -p "$BUILD_TMPDIR"
-BUILD_TMPDIR="$(cd "$BUILD_TMPDIR" 2>/dev/null && pwd -P)" || {
-    echo "ERROR: TMPDIR ${BUILD_TMPDIR:-<unset>} is not a usable directory" >&2
+if ! BUILD_TMPDIR="$(cd "$BUILD_TMPDIR" 2>/dev/null && pwd -P)"; then
+    echo "ERROR: TMPDIR ${REQUESTED_TMPDIR:-<unset>} is not a usable directory" >&2
     exit 1
-}
+fi
 case "$BUILD_TMPDIR" in
     "$ROOT"/*) ;;
     *)
@@ -159,6 +160,10 @@ case "$(findmnt -no FSTYPE -T "$BUILD_TMPDIR" 2>/dev/null || true)" in
 esac
 TMP_DIR_NAME="ncz-base-rootfs-tmp"
 BUILD_TMP_ROOT="$BUILD_TMPDIR/$TMP_DIR_NAME"
+case "$BUILD_TMP_ROOT" in
+    "$BUILD_TMPDIR"/*) ;;
+    *) echo "ERROR: refused to construct an unsafe temporary path" >&2; exit 1 ;;
+esac
 mkdir -p "$BUILD_TMP_ROOT"
 cleanup_build_tmp() {
     rm -rf -- "$BUILD_TMP_ROOT"
