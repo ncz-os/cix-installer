@@ -197,7 +197,7 @@ case "$BUILD_VARIANT" in
             # prefix check above and left the r200 O6N without panthor.ko.
             if ! python3 "$SCRIPT_DIR/verify-dkms-deb-sources.py" \
                     --root "$ROOT" --deb-dir "$DEB_DIR" | sed "s/^/verify-arm64-inputs: /"; then
-                mark_miss "cix-debs.dkms-source" "$DEB_DIR (stale DKMS deb; see above)"
+                mark_miss "cix-debs.dkms-source" "$DEB_DIR (stale DKMS deb; see above). Fix: build/stage-canonical-assets.sh, or build/build-dkms-debs.sh <mali|panthor|vpu> (needs dpkg-deb; run in the ncz-imagebuild container on Fedora hosts) and replace the old deb in $DEB_DIR with build/dkms-debs/<name>-dkms_*.deb"
             fi
             N_DEBS=$(find "$DEB_DIR" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')
             if [ "$N_DEBS" -lt "$NCZ_CIX_DEB_MIN" ]; then
