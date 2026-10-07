@@ -26,7 +26,8 @@
 #   mali    src/ + dkms.conf
 #   vpu     src/ + dkms.conf
 #   npu     src/ + dkms.conf
-#   panthor the whole asset dir minus build artifacts and the patches/ dir
+#   panthor the whole asset dir minus build artifacts, the patches/ dir and
+#           the per-KVER prebuilt overlay dirs (<kver>/panthor.ko)
 #
 # Usage: build/build-dkms-debs.sh [driver ...]     (default: all four)
 set -euo pipefail
@@ -69,6 +70,11 @@ for drv in "${DRIVERS[@]}"; do
             rm -f  "$SRCDIR"/*.o "$SRCDIR"/*.ko "$SRCDIR"/*.mod* \
                    "$SRCDIR"/Module.symvers "$SRCDIR"/modules.order 2>/dev/null || true
             rm -rf "$SRCDIR"/patches 2>/dev/null || true
+            # The <kver>/panthor.ko dirs are prebuilt overlays, not DKMS
+            # source; DKMS never reads them and they only made the package
+            # look like it carried a module for kernels it did not.
+            find "$SRCDIR" -mindepth 1 -maxdepth 1 -type d \
+                -name "[0-9]*.[0-9]*-*" -exec rm -rf {} +
             ;;
         *)
             if [ -d "$ASSET/src" ] && [ -n "$(ls -A "$ASSET/src" 2>/dev/null)" ]; then
