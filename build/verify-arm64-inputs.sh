@@ -192,6 +192,13 @@ case "$BUILD_VARIANT" in
                     mark_miss "cix-debs.prefix" "$DEB_DIR/${prefix}*.deb"
                 fi
             done
+            # The DKMS debs must carry today's assets/kernel/<drv> source.
+            # A stale panthor-cix-dkms deb (pre-7.3 panthor_drv.c) passed the
+            # prefix check above and left the r200 O6N without panthor.ko.
+            if ! python3 "$SCRIPT_DIR/verify-dkms-deb-sources.py" \
+                    --root "$ROOT" --deb-dir "$DEB_DIR" | sed "s/^/verify-arm64-inputs: /"; then
+                mark_miss "cix-debs.dkms-source" "$DEB_DIR (stale DKMS deb; see above)"
+            fi
             N_DEBS=$(find "$DEB_DIR" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')
             if [ "$N_DEBS" -lt "$NCZ_CIX_DEB_MIN" ]; then
                 mark_miss "cix-debs.count" "$DEB_DIR (have=$N_DEBS, need>=$NCZ_CIX_DEB_MIN)"
