@@ -468,3 +468,4 @@ build/test-install-extra-local-debs.sh	common	-	every ncz-* install-extra seed m
 build/test-apt-sources-hook-container.sh	common	-	runs the real hook 24 with the separation pin in debian:forky (no network, /cdrom offline pool): rc, single NCZ list, canary verdict, unchanged policy source lines, hard failure with no keyrings
 build/test-ncz-apt-policy-deb.sh	common	-	builds the ncz-apt-policy deb and runs its real maintainer scripts (dash/bash parse, debian:forky container install/reinstall/purge, sh-postinst negative control)
 docs/APT-SEPARATION.md	common	-	design and operator runbook: separating NCZ-OS package updates from Debian and third-party ones
+build/test-dkms-prep-genksyms.sh	sky1	-	proves 79-dkms-prep.sh rebuilds the native host tools when only genksyms is a foreign (Yocto uninative) binary (r201)
