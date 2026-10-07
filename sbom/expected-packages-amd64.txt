@@ -1,5 +1,6 @@
 # SBOM/SPDX-style expected package seeds -- AMD64/forky line.
 # Format: manifest-file:package-name
+manifests/installer-base-amd64.pkgs:adduser
 manifests/installer-base-amd64.pkgs:dracut
 manifests/installer-base-amd64.pkgs:dracut-core
 manifests/installer-base-amd64.pkgs:dkms

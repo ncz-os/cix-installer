@@ -106,6 +106,15 @@ bolt
 rsync
 # Complete firmware seed: manifests/firmware.pkgs.
 
+# --- account setup ---------------------------------------------------------
+# d-i's user-setup-apply creates the first user with adduser only when
+# /usr/sbin/adduser exists in the target; otherwise it falls back to plain
+# useradd, and its passwd/user-default-groups loop (`adduser "$USER" $group`)
+# then fails silently: the first user lands in no group at all, sudo
+# included. minbase does not carry adduser, so a target without the desktop
+# layer (which happened to pull it in) had an empty sudo group.
+adduser
+
 # --- operator quality-of-life ---
 htop
 tmux
