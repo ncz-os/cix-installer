@@ -700,6 +700,7 @@ parity:
 	build/test-apt-sources-offline-canary.sh
 	build/test-dkms-prep-keep-going.sh
 	build/test-dkms-prep-genksyms.sh
+	build/test-stale-singularity-prune.sh
 	build/test-kernel-purity-pin.sh
 	build/test-kernel-purity-guards.sh
 	bash build/test-apt-separation.sh
