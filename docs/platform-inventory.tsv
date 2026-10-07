@@ -469,3 +469,4 @@ build/test-apt-sources-hook-container.sh	common	-	runs the real hook 24 with the
 build/test-ncz-apt-policy-deb.sh	common	-	builds the ncz-apt-policy deb and runs its real maintainer scripts (dash/bash parse, debian:forky container install/reinstall/purge, sh-postinst negative control)
 docs/APT-SEPARATION.md	common	-	design and operator runbook: separating NCZ-OS package updates from Debian and third-party ones
 build/test-dkms-prep-genksyms.sh	sky1	-	proves 79-dkms-prep.sh rebuilds the native host tools when only genksyms is a foreign (Yocto uninative) binary (r201)
+build/test-stale-singularity-prune.sh	sky1	-	proves the base layer drops a stale Singularity deb and the prebuilt-deb mode stages exactly the sha256-checked deb (r201)
