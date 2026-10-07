@@ -131,5 +131,15 @@ grep -q 'ncz_intel_accel_install "$HAS_INTEL" "$HAS_INTEL_NPU"' "$HOOK" && ok "5
 grep -q 'ConditionPathExists=/var/lib/ncz/intel-accel.pending' "$ROOT/assets/intel/ncz-intel-accel-setup.service" \
     && ! grep -qE '^(Before|RequiredBy)=' "$ROOT/assets/intel/ncz-intel-accel-setup.service" && ok "deferred unit gated on the marker and never ordered before boot targets" || bad "unit gating"
 
+echo "=== assets/intel reaches the image (key + deferred units) ==="
+# r201 amd64 build c638bbf8: assets/intel was in no staging allowlist, so the installed
+# target had intel-accel.sh but neither the vendored key nor the service/timer it installs.
+SQ="$ROOT/build/build-squashfs-layers.sh"
+grep -E '^\s*for a in cix-debs kernel .*\bintel\b' "$SQ" >/dev/null && ok "base staging allowlist stages assets/intel" || bad "build-squashfs-layers.sh base staging loop omits assets/intel"
+grep -E '^\s*for a in gpu audio .*\bintel\b' "$SQ" >/dev/null && ok "base fingerprint covers assets/intel (a change rebuilds the base)" || bad "base_assets_stamp omits assets/intel"
+for f in GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB ncz-intel-accel-setup.service ncz-intel-accel-setup.timer; do
+    [ -s "$ROOT/assets/intel/$f" ] || bad "assets/intel/$f missing from the tree"
+done
+
 echo "intel accel tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
