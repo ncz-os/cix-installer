@@ -140,6 +140,17 @@ if [ -z "$BUILD_TMPDIR" ]; then
     exit 1
 fi
 mkdir -p "$BUILD_TMPDIR"
+BUILD_TMPDIR="$(cd "$BUILD_TMPDIR" 2>/dev/null && pwd -P)" || {
+    echo "ERROR: TMPDIR ${TMPDIR:-<unset>} is not a usable directory" >&2
+    exit 1
+}
+case "$BUILD_TMPDIR" in
+    "$ROOT"/*) ;;
+    *)
+        echo "ERROR: TMPDIR $BUILD_TMPDIR must be beneath repository root $ROOT" >&2
+        exit 1
+        ;;
+esac
 case "$(findmnt -no FSTYPE -T "$BUILD_TMPDIR" 2>/dev/null || true)" in
     tmpfs|ramfs)
         echo "ERROR: TMPDIR $BUILD_TMPDIR is on a tmpfs/ramfs; set TMPDIR to local disk (for example, $ROOT/tmp)" >&2
@@ -147,9 +158,14 @@ case "$(findmnt -no FSTYPE -T "$BUILD_TMPDIR" 2>/dev/null || true)" in
         ;;
 esac
 TMP_DIR_NAME="ncz-base-rootfs-tmp"
-mkdir -p "$BUILD_TMPDIR/$TMP_DIR_NAME"
+BUILD_TMP_ROOT="$BUILD_TMPDIR/$TMP_DIR_NAME"
+case "$BUILD_TMP_ROOT" in
+    "$BUILD_TMPDIR"/*) ;;
+    *) echo "ERROR: refused to construct an unsafe temporary path" >&2; exit 1 ;;
+esac
+mkdir -p "$BUILD_TMP_ROOT"
 cleanup_build_tmp() {
-    rm -rf "$BUILD_TMPDIR/$TMP_DIR_NAME"
+    rm -rf -- "$BUILD_TMP_ROOT"
 }
 trap cleanup_build_tmp EXIT
 # mmdebstrap's OWN internal apt-get update runs inside the tree it is still
