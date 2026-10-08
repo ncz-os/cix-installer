@@ -1,8 +1,8 @@
 #!/bin/bash
 # build-mgmt-rootfs.sh - build the Server nspawn recovery/management rootfs.
 #
-# Produces assets/mgmt/ncz-mgmt-rootfs.tar.zst: a minimal Ubuntu (resolute)
-# arm64 rootfs that boots under systemd-nspawn (Boot=yes) with its OWN complete
+# Produces assets/mgmt/ncz-mgmt-rootfs.tar.zst: a minimal Debian forky
+# rootfs (arm64 or amd64) that boots under systemd-nspawn (Boot=yes) with its OWN complete
 # userland (glibc/NSS/PAM/openssh). This is the MIDDLE recovery tier on Server
 # edge boxes, between the day-to-day host sshd:22 and the crash-proof static
 # busybox telnet :2323 (post-install/37-failsafe-access.sh):
@@ -18,15 +18,15 @@
 #
 # KERNEL-FREE on purpose: nspawn shares the host kernel.
 #
-# Runs on the Linux arm64 build host (ARGOS), native debootstrap - no qemu.
+# Runs on a Linux build host of the target arch (ARGOS/ULTRA arm64, HYDRA amd64), native debootstrap - no qemu.
 # Usage:  sudo bash build/build-mgmt-rootfs.sh [chroot_dir] [out_tarball] [suite] [arch] [mirror]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Follow the active release profile so the recovery container matches the image
-# it ships inside. Defaulting to Ubuntu resolute put an Ubuntu userland (and
-# ports.ubuntu.com sources) inside a Debian forky ISO.
+# it ships inside. There is NO Ubuntu fallback any more: the script refuses to
+# run unless the suite is Debian forky and the mirror is a Debian archive.
 if [ -r "$ROOT/release.conf" ]; then
     # shellcheck source=../release.conf
     . "$ROOT/release.conf"
@@ -40,19 +40,13 @@ NCZ_MGMT_BANNER_LABEL="${NCZ_PRODUCT_NAME:-NCZ-OS}${NCZ_RELEASE_VERSION:+ ${NCZ_
 
 CHROOT="${1:-$ROOT/build/mgmt-rootfs}"
 OUT="${2:-$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst}"
-SUITE="${3:-${NCZ_BASE_CODENAME:-resolute}}"
+SUITE="${3:-${NCZ_BASE_CODENAME:-forky}}"
 ARCH="${4:-arm64}"
-MIRROR="${5:-${NCZ_BASE_MIRROR:-http://ports.ubuntu.com/ubuntu-ports}}"
+MIRROR="${5:-${NCZ_BASE_MIRROR:-https://deb.debian.org/debian}}"
 
-if [ "${NCZ_BASE_NAME:-Ubuntu}" = "Debian" ]; then
-    COMPONENTS="${NCZ_BASE_COMPONENTS:-main contrib non-free non-free-firmware}"
-    SECURITY_URI="https://security.debian.org/debian-security"
-    DEBOOTSTRAP_KEYRING="/usr/share/keyrings/debian-archive-keyring.gpg"
-else
-    COMPONENTS="main universe restricted multiverse"
-    SECURITY_URI="$MIRROR"
-    DEBOOTSTRAP_KEYRING=""
-fi
+ncz_require_debian_forky "$SUITE" "$MIRROR" "${NCZ_BASE_NAME:-}" || exit 1
+COMPONENTS="${NCZ_BASE_COMPONENTS:-main contrib non-free non-free-firmware}"
+DEBOOTSTRAP_KEYRING="/usr/share/keyrings/debian-archive-keyring.gpg"
 
 PKG_MANIFEST="$ROOT/manifests/mgmt.pkgs"
 
@@ -103,20 +97,16 @@ mkdir -p "$CHROOT" "$(dirname "$OUT")"
 # ----------------------------------------------------------------------
 echo "[mgmt-rootfs] debootstrap $SUITE..."
 DEBOOTSTRAP_ARGS=(--arch="$ARCH" --variant=minbase --include=ca-certificates,apt-utils)
-# A Debian suite will not verify against the host's default (Ubuntu) keyring.
-[ -n "$DEBOOTSTRAP_KEYRING" ] && DEBOOTSTRAP_ARGS+=(--keyring "$DEBOOTSTRAP_KEYRING")
+DEBOOTSTRAP_ARGS+=(--keyring "$DEBOOTSTRAP_KEYRING")
 debootstrap "${DEBOOTSTRAP_ARGS[@]}" "$SUITE" "$CHROOT" "$MIRROR"
 
 # debootstrap writes its own sources.list with no deb options. A pinned
 # snapshot Release is expired once Valid-Until passes, so rewrite every line
 # with NCZ_BASE_MIRROR_APT_OPTS (empty when unpinned: a live mirror keeps
-# normal expiry checks). $SUITE-updates is on the same snapshot and gets the
-# same options. $SUITE-security is not served by a snapshot.debian.org
-# debian-archive timestamp (it lives on archive/debian-security, and the
-# forky-security Packages files there are empty); the line is still emitted,
-# with the same options, so a missing Release fails in the open instead of
-# the base suite failing as an expired pin.
-ncz_mirror_sources_list "$MIRROR" "$SUITE" "$COMPONENTS" updates "$SECURITY_URI" "$SUITE-security" \
+# normal expiry checks). ONLY the forky suite itself is written (operator
+# 2026-10-08: "only Debian versions from forky"): no forky-updates, no
+# forky-security, so the rootfs matches the pinned snapshot exactly.
+ncz_mirror_sources_list "$MIRROR" "$SUITE" "$COMPONENTS" "" "" "" \
     > "$CHROOT/etc/apt/sources.list"
 
 # ----------------------------------------------------------------------

@@ -56,6 +56,8 @@ SUITE="${3:-${NCZ_BASE_CODENAME:-forky}}"
 ARCH="${4:-arm64}"
 MIRROR="${5:-${NCZ_BASE_MIRROR:-https://deb.debian.org/debian}}"
 
+ncz_require_debian_forky "$SUITE" "$MIRROR" "${NCZ_BASE_NAME:-Debian}" || exit 1
+
 # Components come from the release profile. The list used to be Ubuntu's
 # (main universe restricted multiverse) with -updates and -security suites
 # appended, which on Debian produces "Skipping acquire of configured file

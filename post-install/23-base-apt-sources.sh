@@ -15,13 +15,21 @@ case "${NCZ_BASE_NAME:-}" in
         : "${NCZ_RUNTIME_MIRROR:?Debian profile requires NCZ_RUNTIME_MIRROR}"
         : "${NCZ_BASE_CODENAME:?Debian profile requires NCZ_BASE_CODENAME}"
         : "${NCZ_BASE_COMPONENTS:?Debian profile requires NCZ_BASE_COMPONENTS}"
+        # Operator rule 2026-10-08: only Debian forky. No other suite, ever.
+        if [ "$NCZ_BASE_CODENAME" != "forky" ]; then
+            echo "[23] FATAL: base suite is '${NCZ_BASE_CODENAME}', only Debian forky is allowed" >&2
+            exit 1
+        fi
+        case "$NCZ_RUNTIME_MIRROR" in
+            *ubuntu*|*launchpad*) echo "[23] FATAL: runtime mirror ${NCZ_RUNTIME_MIRROR} is not a Debian archive" >&2; exit 1 ;;
+        esac
         KEYRING=/usr/share/keyrings/debian-archive-keyring.gpg
         [ -s "$KEYRING" ] || { echo "[23] FATAL: missing $KEYRING" >&2; exit 1; }
         install -d -m 0755 /etc/apt/sources.list.d
-        # Never leave Ubuntu Ports as a live fallback on a Debian-profiled image.
+        # Never leave any foreign archive as a live fallback on the image.
         rm -f /etc/apt/sources.list
         find /etc/apt/sources.list.d -maxdepth 1 -type f \
-            \( -iname '*ubuntu*' -o -iname '*resolute*' \) -delete
+            -iname '*ubuntu*' -delete
         # release.conf sets NCZ_BASE_MIRROR_APT_OPTS (currently
         # "check-valid-until=no") precisely BECAUSE a pinned
         # snapshot.debian.org Release file carries a short Valid-Until and DOES
@@ -86,7 +94,8 @@ EOF
         esac
         ;;
     Ubuntu)
-        echo "[23] retaining Ubuntu base sources for this profile"
+        echo "[23] FATAL: Ubuntu base profiles are not supported (operator rule 2026-10-08: no Ubuntu debs, ever)" >&2
+        exit 1
         ;;
     *)
         echo "[23] FATAL: unsupported NCZ_BASE_NAME=${NCZ_BASE_NAME:-unset}" >&2

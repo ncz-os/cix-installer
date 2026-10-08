@@ -76,7 +76,7 @@ ncz_ports_fallback() {
 # Pre-purge any inherited GNOME display manager — it would claim
 # display-manager.service and the loser black-screens.
 if dpkg -l gdm3 2>/dev/null | grep -q '^ii'; then
-    echo "[20] purging gdm3 (resolute default DM, conflicts with lightdm)"
+    echo "[20] purging gdm3 (stale default DM, conflicts with lightdm)"
     DEBIAN_FRONTEND=noninteractive apt-get purge -y gdm3 ubuntu-session 2>&1 | tail -3 || true
     rm -f /etc/systemd/system/display-manager.service
 fi

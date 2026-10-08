@@ -96,3 +96,32 @@ ncz_package_record_count() {
     fi
     printf "%s\n" "$count"
 }
+
+# ncz_require_debian_forky SUITE MIRROR [BASE_NAME]
+# Operator rule 2026-10-08: "We shouldn't be using Ubuntu debs ever" and "we
+# should only use Debian versions from forky". Every rootfs/mirror builder calls
+# this before it touches a network or a chroot. Returns 1 (with a message) for
+# any non-forky suite or any non-Debian mirror; callers `|| exit 1`.
+ncz_require_debian_forky() {
+    local suite="$1" mirror="$2" base="${3:-Debian}"
+    if [ "$suite" != "forky" ]; then
+        echo "ERROR: suite '$suite' refused: only Debian forky is allowed (no Ubuntu, trixie, stable, sid, backports)" >&2
+        return 1
+    fi
+    case "$mirror" in
+        *ubuntu*|*launchpad*|*canonical*)
+            echo "ERROR: mirror '$mirror' refused: Ubuntu archives are never allowed" >&2
+            return 1 ;;
+    esac
+    case "$mirror" in
+        https://snapshot.debian.org/*|http://snapshot.debian.org/*|https://deb.debian.org/debian*|http://deb.debian.org/debian*|file:*|/*) ;;
+        *)
+            echo "ERROR: mirror '$mirror' refused: not a Debian archive or snapshot.debian.org" >&2
+            return 1 ;;
+    esac
+    if [ "$base" != "Debian" ]; then
+        echo "ERROR: NCZ_BASE_NAME='$base' refused: only Debian" >&2
+        return 1
+    fi
+    return 0
+}

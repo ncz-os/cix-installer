@@ -7,9 +7,9 @@
 # r189 regression this fixes: vivaldi-stable stuck in dpkg `iU`
 # (half-configured) on every fresh install because fonts-liberation couldn't
 # be resolved. The root cause was NOT a missing apt source --
-# /etc/apt/sources.list already ships full Ubuntu ports
-# main+universe+restricted+multiverse (+updates/security/backports) by
-# default, always has (confirmed live on .66, r189). The real problem was
+# /etc/apt/sources.list shipped full Ubuntu ports on the then Ubuntu-based
+# legacy base (r189, .66); Ubuntu is gone (operator 2026-10-08) and the only
+# base source is Debian forky (23-base-apt-sources.sh). The real problem was
 # two-fold: (1) nothing ever ran `apt-get update` before 52-vivaldi.sh needed
 # a resolved index, so apt had no package data to work with regardless of
 # which sources existed; (2) 52-vivaldi.sh's own dependency-fix step used
