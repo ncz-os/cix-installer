@@ -601,7 +601,9 @@ syslinux-efi	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline
 sysstat	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 sysstat	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 systemd-container	debian	debian-forky	all	desktop,installer,mgmt,rescue,server	yes		post-install/38-recovery-container.sh (apt-get install)	build/verify-installed-target.sh	post-install/38-recovery-container.sh	Host nspawn runtime for the recovery container (offline from the embedded server-mirror).
-systemd-coredump	debian	debian-forky	all	desktop,installer,mgmt,rescue,server	no		post-install/20-desktop.sh (apt-get install, best-effort || true)	build/verify-installed-target.sh	post-install/20-desktop.sh (diagnostics section)	Desktop-session crash traceability (replaces the apport core-dump handler).
+systemd-coredump	debian	debian-forky	all	desktop,installer,mgmt,rescue,server	yes		post-install/20-desktop.sh (ncz_apt_require; seeded in desktop.pkgs)	build/verify-installed-target.sh	post-install/20-desktop.sh (diagnostics section)	Desktop-session crash traceability (replaces the apport core-dump handler).
+systemd-coredump	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+systemd-coredump	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 systemd-resolved	debian	debian-forky	arm64	mgmt	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/mgmt.pkgs	
 systemd-sysv	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
 systemd-sysv	debian	debian-forky	arm64	mgmt,rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/mgmt.pkgs; manifests/rescue.pkgs	

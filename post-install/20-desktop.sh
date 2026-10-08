@@ -100,6 +100,28 @@ CORE_DESKTOP="greetd glycin-loaders \
     polkitd rtkit \
     mesa-utils vulkan-tools libglu1-mesa vainfo \
     libglib2.0-bin"
+# ncz_apt_require <apt-get install args...>: install, then PROVE each named
+# package is "install ok installed". r201: `apt-get install ... | tail -3 || true`
+# hid an `E: Unable to locate package systemd-coredump` (rc=100) and the hook
+# went on to print "systemd-coredump installed". These packages are all seeded
+# in the offline closure (verified at stage 0), so a failure here is a real
+# mirror/closure defect and must stop the hook, not be reported as success.
+ncz_apt_require() {
+    local a miss=""
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" || {
+        echo "[20] ERROR: apt-get install $* failed" >&2; return 1; }
+    for a in "$@"; do
+        case "$a" in -*) continue ;; esac
+        case "$(dpkg-query -W -f='${Status}' "$a" 2>/dev/null)" in
+            *"install ok installed"*) ;;
+            *) miss="$miss $a" ;;
+        esac
+    done
+    if [ -n "$miss" ]; then
+        echo "[20] ERROR: not installed after apt-get:$miss" >&2; return 1
+    fi
+}
+
 if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CORE_DESKTOP; then
     ncz_ports_fallback
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CORE_DESKTOP || \
@@ -177,8 +199,8 @@ fi
 # putting static objects in pipewire.conf.d. The helper also needs aplay
 # (alsa-utils: hw_params probe of a DP/HDMI PCM before it becomes a sink) and
 # pw-dump (pipewire-bin, a pipewire dependency: spots sinks stuck in "error").
-DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol pulseaudio-utils alsa-utils 2>&1 | tail -3 || true
+ncz_apt_require \
+    pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol pulseaudio-utils alsa-utils || exit 1
 systemctl --global enable pipewire pipewire-pulse wireplumber 2>&1 | tail -2 || true
 
 # Asset lookup (2026-09-29 regression fix): the ISO installer exposes the payload
@@ -254,8 +276,8 @@ fi
 
 # Removable media + bluetooth. (NO network-manager-gnome — the base-layer
 # sinty-nm daemon replaces NetworkManager.)
-DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    gvfs gvfs-backends udisks2 bluez blueman 2>&1 | tail -3 || true
+ncz_apt_require \
+    gvfs gvfs-backends udisks2 bluez blueman || exit 1
 systemctl enable bluetooth 2>&1 | tail -1 || true
 
 # Make bluetooth-autoconnect conditional on there actually being a radio.
@@ -347,8 +369,8 @@ systemctl --global enable xdg-desktop-portal-singularity.service 2>&1 | tail -2 
 echo "[20] singularity portal backend: enabled"
 
 # Fonts: Noto base + CJK + colour emoji.
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation 2>&1 | tail -3 || true
+ncz_apt_require --no-install-recommends \
+    fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation || exit 1
 
 # Video: mpv HW player (84-vpu-mpv wires hwdec=v4l2m2m-copy). Browsers =
 # Vivaldi (52-vivaldi, real arm64 .deb, default) and (26.7+) real official
@@ -358,8 +380,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 # package remains snap-only; NCZ-OS does not ship snapd. (An earlier
 # ungoogled-chromium/XtraDeb stop-gap was dropped 2026-07-27 once real Chrome
 # became available for arm64 — superseded outright.)
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    mpv 2>&1 | tail -3 || echo "[20] mpv: deferred"
+ncz_apt_require --no-install-recommends mpv || exit 1
 
 echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland + audio + mpv)"
 
@@ -373,8 +394,7 @@ echo "[20] runtime deps installed (Singularity libs + Wayland stack + Xwayland +
 # otherwise swallow silently on error exit (observed: a real session crash
 # left literally zero output in its own log, exit code only).
 # ---------------------------------------------------------------------------
-DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    systemd-coredump 2>&1 | tail -3 || true
+ncz_apt_require systemd-coredump || exit 1
 ENVF=/etc/environment
 touch "$ENVF"
 set_env() {  # key value — idempotent replace-or-append

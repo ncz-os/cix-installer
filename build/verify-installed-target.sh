@@ -153,6 +153,25 @@ else
         fi
     done < <(awk -F'\t' '!/^[[:space:]]*(#|$)/ && NF==5 {print $3}' "$NETFW_TSV" | sort -u)
 fi
+
+# --- (fw-bom) the WHOLE firmware BOM, plus systemd-coredump, must be really installed ------------------
+# r201: 13-firmware-bom.sh's `dpkg -s` check counted "install ok not-installed" (licence preinst
+# failed: firmware-ipw2x00, firmware-ivtv) as present, and 20-desktop.sh printed "systemd-coredump
+# installed" after `E: Unable to locate package`. Both hooks now fail themselves; this is the
+# independent check on the installed dpkg database.
+echo "[verify-target] (fw-bom) firmware BOM + diagnostics packages"
+BOM_PKGS="$HERE_VT/../manifests/firmware.pkgs"
+if [ ! -f "$BOM_PKGS" ]; then
+    gate_miss fw-bom "verifier checkout has no manifests/firmware.pkgs"
+elif [ -s "$TMP/netfw-installed" ]; then
+    _bom_n=0
+    while IFS= read -r _p; do
+        _bom_n=$((_bom_n + 1))
+        grep -qxF -- "$_p" "$TMP/netfw-installed" || gate_miss fw-bom "$_p is not 'install ok installed' (manifests/firmware.pkgs; post-install/13-firmware-bom.sh)"
+    done < <(grep -hvE '^[[:space:]]*(#|$)' "$BOM_PKGS" | awk '{print $1}' | sort -u)
+    echo "[fact] firmware_bom_checked=$_bom_n"
+    grep -qxF -- systemd-coredump "$TMP/netfw-installed" || gate_miss diagnostics "systemd-coredump is not installed (post-install/20-desktop.sh)"
+fi
 if [ "$ARCH" = arm64 ]; then
 # --- (i) firmware ---------------------------------------------------------
 FW=/usr/lib/firmware
