@@ -13,6 +13,10 @@
 # manual tool; it needs the same toolchain and is not wired into make.)
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -z "${LOGINUI_SRC:-}" ] || [ -z "${OUT_DIR:-}" ]; then
+    echo "SKIP: test-splash-brand-aspect.sh needs an external singularity-loginui checkout (set LOGINUI_SRC=<checkout at the pin in assets/singularity/upstream-pins.tsv> and OUT_DIR=<dir>); not testable in a bare repo checkout. Exit 0 is a skip, not a pass." >&2
+    exit 0
+fi
 SRC="${LOGINUI_SRC:?set LOGINUI_SRC to a singularity-loginui checkout}"
 OUT="${OUT_DIR:?set OUT_DIR to a directory for the rendered PNGs}"
 LOGO="${LOGO:-$ROOT/assets/branding/greeter/cygnus/ncz-os-cygnus-logo.png}"
@@ -29,7 +33,7 @@ cp -a "$SRC/." "$WORK/loginui"
 if [ "$PATCH" = 1 ]; then
     for p in "$ROOT"/assets/singularity/patches/singularity-loginui/*.patch; do
         [ -e "$p" ] || continue
-        (cd "$WORK/loginui" && rm -f .git && patch -p1 -s < "$p") || { echo "FATAL: patch does not apply: $(basename "$p")" >&2; exit 2; }
+        (cd "$WORK/loginui" && rm -rf .git && patch -p1 -s < "$p") || { echo "FATAL: patch does not apply: $(basename "$p")" >&2; exit 2; }
     done
 fi
 # shellcheck disable=SC2046

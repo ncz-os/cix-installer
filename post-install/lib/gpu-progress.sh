@@ -455,8 +455,11 @@ ncz_gpu_watch() {
             fi
         fi
         # A failed build leaves its make.log behind; it must not restart as a
-        # "new" build on the next tick.
-        if [ -n "$log" ] && [ -z "$G_B_KEY" ] && [ "$(_g_log_id "$log")" != "${G_DONE_ID:-}" ]; then
+        # "new" build on the next tick. $log was sampled before the finish check
+        # above; DKMS moves make.log away at the end of a successful build, so
+        # require it to still exist or the build that just finished is reported
+        # a second time (extra "ok" row, inflated module-build count).
+        if [ -n "$log" ] && [ -f "$log" ] && [ -z "$G_B_KEY" ] && [ "$(_g_log_id "$log")" != "${G_DONE_ID:-}" ]; then
             _g_build_begin "$log"
             G_B_ID=$(_g_log_id "$log")
         fi
