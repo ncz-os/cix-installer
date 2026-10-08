@@ -83,7 +83,7 @@ picon="$(pmeta Icon)"
 [ -n "$picon" ] && [ -s "$work/opt/singularity/share/icons/hicolor/scalable/apps/$picon.svg" ] || {
     ssp_err "FATAL: screensaver.plugin names Icon='$picon' but the deb installs no scalable $picon.svg"; exit 1; }
 case "$(pmeta X-Singularity-Category)" in
-    panel|dock|wallpapers|search|files|tools|other) ;;
+    panel|dock|wallpapers|search|files|lock|tools|other) ;;
     *) ssp_err "FATAL: screensaver.plugin has no valid X-Singularity-Category (the plugin would sit in Other)"; exit 1 ;;
 esac
 ssp_log "plugin metadata OK: Version $SSP_VERSION, Icon $picon, category $(pmeta X-Singularity-Category)"
@@ -108,6 +108,15 @@ lib="$work$SSP_ABI_LIB"
 if [ -L "$lib" ]; then lib="$(dirname "$lib")/$(readlink "$lib")"; fi
 libsha=""; [ -f "$lib" ] && libsha="$(ssp_sha256 "$lib")"
 [ -n "$libsha" ] || { ssp_err "FATAL: $SSP_ABI_LIB in $PAYLOAD_DEB does not resolve to a file"; exit 1; }
+# A plugin that declares the lock category needs a shell whose Plugins page has that row; an
+# older shell treats the unknown id as Other. The shell is compiled into singularity-desktop,
+# where the row title is a string constant.
+if [ "$(pmeta X-Singularity-Category)" = lock ]; then
+    nrow="$(dpkg-deb --fsys-tarfile "$PAYLOAD_DEB" | tar -xO ./opt/singularity/bin/singularity-desktop 2>/dev/null | grep -ac 'Screensaver and Lock' || true)"
+    [ "${nrow:-0}" -gt 0 ] || {
+        ssp_err "FATAL: $(basename "$PLUGIN_DEB") declares X-Singularity-Category=lock but the shell in $(basename "$PAYLOAD_DEB") has no Screensaver and Lock row (the plugin would sit in Other); rebuild the payload with singularity-shell patch 0005"; exit 1; }
+    ssp_log "shell category table OK: the payload has the Screensaver and Lock row"
+fi
 if verdict="$(ssplugin_abi_verdict "$pver" "$libsha")"; then
     ssp_log "ABI OK ($verdict): payload $pver, libsingularity $libsha; plugin built against $SSP_PAYLOAD"
     exit 0
