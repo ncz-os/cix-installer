@@ -103,7 +103,13 @@ ncz_package_record_count() {
 # this before it touches a network or a chroot. Returns 1 (with a message) for
 # any non-forky suite or any non-Debian mirror; callers `|| exit 1`.
 ncz_require_debian_forky() {
-    local suite="$1" mirror="$2" base="${3:-Debian}"
+    local suite="$1" mirror="$2" base="${3:-Debian}" pin root stamp
+    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    pin="$(sed -n 's/^NCZ_BASE_MIRROR_SNAPSHOT="\{0,1\}\([0-9TZ]*\)"\{0,1\}.*/\1/p' "$root/release.conf" | head -1)"
+    if [ -z "$pin" ]; then
+        echo "ERROR: release.conf has no NCZ_BASE_MIRROR_SNAPSHOT -- refusing an unpinned base" >&2
+        return 1
+    fi
     if [ "$suite" != "forky" ]; then
         echo "ERROR: suite '$suite' refused: only Debian forky is allowed (no Ubuntu, trixie, stable, sid, backports)" >&2
         return 1
@@ -114,7 +120,10 @@ ncz_require_debian_forky() {
             return 1 ;;
     esac
     case "$mirror" in
-        https://snapshot.debian.org/*|http://snapshot.debian.org/*|https://deb.debian.org/debian*|http://deb.debian.org/debian*|file:*|/*) ;;
+        https://snapshot.debian.org/archive/debian/*|http://snapshot.debian.org/archive/debian/*)
+            stamp="${mirror#*/archive/debian/}"; stamp="${stamp%%/*}"
+            [ "$stamp" = "$pin" ] || { echo "ERROR: snapshot '$stamp' is not the release.conf pin '$pin'" >&2; return 1; } ;;
+        file:*|/*) ;;
         *)
             echo "ERROR: mirror '$mirror' refused: not a Debian archive or snapshot.debian.org" >&2
             return 1 ;;

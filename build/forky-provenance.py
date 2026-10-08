@@ -35,9 +35,10 @@ import sys
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# The checkout containing this verifier is the trust root.  In particular, do
+# not let an environment variable redirect a ship-mode invocation to a
+# different tree with different release.conf/manifests.
 ROOT = os.path.dirname(HERE) if os.path.basename(HERE) == "build" else HERE
-if os.environ.get("NCZ_PROVENANCE_ROOT"):
-    ROOT = os.environ["NCZ_PROVENANCE_ROOT"]
 
 FAILS = []
 
@@ -169,7 +170,10 @@ class Ref:
             self.load_index(a)
 
     def load_index(self, a):
-        d = a.index_dir or os.environ.get("NCZ_FORKY_INDEX_DIR")
+        # Ship callers must supply the index directory explicitly.  Keeping
+        # environment lookup here made it possible to steer the gate to an
+        # attacker-controlled cache while leaving the command line unchanged.
+        d = a.index_dir
         if not d:
             print(
                 "ERROR: no forky snapshot index (use --index-dir DIR, NCZ_FORKY_INDEX_DIR, or --fetch-index DIR); "
@@ -293,13 +297,12 @@ def classify(ref, src, name, ver, arch, maint, sha=None):
 
 def scan_status(ref, text, src):
     n = 0
-    for d in parse_stanzas(text):
-        if (
-            "installed" not in d.get("Status", "installed")
-            or d.get("Status", "").endswith("not-installed")
-            or d.get("Status", "").split(" ")[-1]
-            in ("config-files", "half-installed", "not-installed")
-        ):
+    for d in parse_stanzas(text or ""):
+        # Any package with a dpkg record other than absent/config-files can
+        # affect the image.  Unpacked and half-configured records must not be
+        # silently skipped by the provenance gate.
+        state = d.get("Status", "").split(" ")[-1]
+        if state in ("", "config-files", "not-installed"):
             continue
         n += 1
         classify(
@@ -428,7 +431,7 @@ def audit_apt_files(ref, src, files):
                 if not m or int(m.group(1)) < 0:
                     continue
                 for pl in re.findall(r"^Pin:\s*(.*)$", st, re.MULTILINE):
-                    if SUITE_BAD.search(pl) and not re.search(r"o=NCZ|origin", pl):
+                    if SUITE_BAD.search(pl):
                         fail(src, rel, f"apt pin >=0 names a non-forky suite: '{pl}'")
             continue
         if not ("sources.list" in rel):
@@ -555,10 +558,17 @@ def scan_image(ref, img, work):
 
     for t in ("dists", "pool"):
         dbg("rdump", "/" + t, base)
-    for line in dbg("ls", "-p", "/ncz-payload").split("\n"):
+        if not os.path.exists(os.path.join(base, t)):
+            fail("image", img, f"required /{t} tree is missing or unreadable")
+    payload_ls = dbg("ls", "-p", "/ncz-payload")
+    if "ncz-payload" not in payload_ls:
+        fail("image", img, "required /ncz-payload tree is missing or unreadable")
+    for line in payload_ls.split("\n"):
         f = line.split("/")[5] if line.count("/") >= 5 else ""
         if f.endswith(".squashfs"):
             dbg("dump", "/ncz-payload/" + f, os.path.join(pl, f))
+            if not os.path.isfile(os.path.join(pl, f)):
+                fail("image", img, f"payload squashfs {f} is missing or unreadable")
     for rel in (
         "rescue",
         "mgmt",
@@ -578,11 +588,15 @@ def scan_image(ref, img, work):
         fail("image", img, "no squashfs layers found in /ncz-payload")
     for f in layers:
         total += scan_squashfs(ref, f, "image:" + os.path.basename(f))
-    for tb in glob.glob(os.path.join(pl, "**", "*rootfs*.tar.zst"), recursive=True):
+    rootfs_tars = glob.glob(os.path.join(pl, "**", "*rootfs*.tar.zst"), recursive=True)
+    for required in ("rescue", "mgmt"):
+        if not any(required in os.path.basename(p) for p in rootfs_tars):
+            fail("image", img, f"required {required} rootfs tarball is missing")
+    for tb in rootfs_tars:
         d = tb[: -len(".tar.zst")] + ".x"
         os.makedirs(d, exist_ok=True)
         z = subprocess.Popen(["zstd", "-dc", tb], stdout=subprocess.PIPE)
-        subprocess.run(
+        tx = subprocess.run(
             [
                 "tar",
                 "-x",
@@ -596,6 +610,8 @@ def scan_image(ref, img, work):
             capture_output=True,
             check=False,
         )
+        if z.wait() != 0 or tx.returncode != 0:
+            fail("image", tb, "rootfs tarball could not be extracted")
         total += scan_rootfs(ref, d, "image:" + os.path.basename(tb))
     for d in ("cix-debs", "ncz-screensavers-plugin", "kernel", "npu"):
         if os.path.isdir(os.path.join(pl, d)):
