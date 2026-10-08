@@ -358,7 +358,12 @@ open(os.path.join(outdir, "abs"), "wb").write(esc.replace(b"aaaaaa\x00", b"/etc/
 
 r5 = mkroot("sym"); os.symlink("aaaaaa", os.path.join(r5, "link"))
 sy = cpio(r5, "newc")
-open(os.path.join(outdir, "symlink"), "wb").write(sy.replace(b"aaaaaa", b"/etc/p", 1))
+# r5 + absolute symlink target: etc/mtab -> /proc/mounts class.  SAFE: it binds
+# to the virtual archive root and is never materialised onto the host.
+open(os.path.join(outdir, "symlink"), "wb").write(sy.replace(b"aaaaaa\x00", b"/etc/p\x00", 1))
+
+r7 = mkroot("symesc"); os.symlink("../../etc/passwd", os.path.join(r7, "link"))
+open(os.path.join(outdir, "symlink_escape"), "wb").write(cpio(r7, "newc"))
 
 r6 = mkroot("ubu"); add(r6, "boot/ubuntu.deb", ubu_b)
 open(os.path.join(outdir, "ubuntu"), "wb").write(cpio(r6, "newc"))
@@ -388,7 +393,7 @@ PY
 expect_rc "initrd: concatenated newc/gz/xz/zst scanned; escapes/unknown/CRC/Ubuntu FAIL" 0 \
   python3 -I "$T/initrd_probe.py" "$T/repo/build/forky-provenance.py" "$IDX" "$IRD" \
   initrd=0 nc.gz=0 nc.xz=0 nc.zst=0 concat=0 mixed=0 crc=0 \
-  escape=1 abs=1 symlink=1 unknown.bin=1 crc_bad=1 ubuntu=1
+  escape=1 abs=1 symlink=0 symlink_escape=1 unknown.bin=1 crc_bad=1 ubuntu=1
 echo "$LAST" | grep -q MISMATCH && bad "initrd fixture mismatch" "$LAST" || ok "  initrd fixtures all matched expectation"
 
 

@@ -273,7 +273,80 @@ Real artifacts (not hand-serialized) are exercised end to end:
 `debugfs ls -p` **before** dumping, then asserts every enumerated path/type/size
 exists in the extraction. debugfs's version banner is ignored; any other stderr
 line is a hard failure for required trees. A partial dump therefore fails even
-though `rdump` leaves a directory behind.
+though `rdump` leaves a directory behind. The one tolerated stderr line is the
+exact non-root `rdump` warning `... Operation not permitted while changing
+ownership` (a non-root scan cannot chown dumped files); it is accepted **only**
+for `rdump`, never changes the type+size completeness proof above, and a
+different-worded error on the same command still fails closed.
+
+### Architecture-neutral archive handling (safe virtual archive root)
+
+A finished image legitimately contains absolute *symlink targets* that name a
+path inside the archive's own virtual root, not a host path: the installer
+initrd's `etc/mtab -> /proc/mounts`, and a usrmerge rootfs's `var/run -> /run`
+and `var/lock -> /run/lock`. The scanner accepts these (they were false
+positives) while never following them onto the host:
+
+* **cpio**: an absolute symlink target is validated against the virtual root and
+  is recorded but **never materialised**, so nothing can be written through it.
+* **tar**: an absolute symlink target is rewritten to the equivalent *relative*
+  link inside the extraction root before materialising, so a later member cannot
+  be written onto the host; a relative target that climbs above the root, an
+  absolute member path, an absolute/`..`-climbing hard-link and a duplicate
+  cpio pathname all still fail closed.
+
+### A no-dpkg squashfs layer is a hard failure (no blanket overlay bypass)
+
+`desktop-hotfix.squashfs` is a real overlay delta with no `var/lib/dpkg/status`.
+It is **rejected by default**: a layer with no dpkg database cannot establish
+package origin, and accepting it merely because it lacks an `etc/apt`/`.deb`
+surface would let a foreign ELF overlay override a packaged base with no content
+binding -- a policy relaxation the operator never approved. To pass, such a
+layer must be bound to an **external, committed** overlay-source manifest/hash
+(the existing `build_hotfix` source with exact file coverage), and that binding
+does not exist yet. Until it does, this layer is an explicit, fail-closed
+blocker. A self-written `.overlay-manifest` carried inside the image is NOT a
+trust root (the image owner can rewrite it) and is not accepted.
+
+### Tar shadow check
+
+Within the extraction root, tarfile could otherwise let a later member overwrite
+an earlier mapped file at the same path (e.g. `var/lib/dpkg/status`). The tar
+extractor now rejects a duplicate normalized member path when it would shadow
+earlier content. Legitimate usr-merge symlinks (`lib -> usr/lib`) and pure data
+hard-links have distinct names and are unaffected. (The residual, ambiguous
+case is a symlink *alias* that maps a later path onto an earlier one; strict
+root confinement keeps it inside the scratch root, and it is reported as a
+limited blocker rather than guessed at.)
+
+## NCZ derivative packages (debootstrap-udeb)
+
+`build/iso/patch-debootstrap-stub.py` derives Debian's `debootstrap-udeb` (the
+d-i package that runs `debootstrap`) into an NCZ artifact. The old repack kept
+Debian's `Package`/`Version` while replacing `/usr/sbin/debootstrap`, so the
+scanner saw "same name/version as forky but sha256 differs (rebuilt/foreign
+bytes)" -- correct, because the bytes are no longer Debian's. The derivative
+contract now:
+
+* `Version` becomes `<base>+ncz1` (deterministic; never byte-identical to the
+  pinned snapshot entry) and the control records the **authenticated** base
+  sha256 (`NCZ-Base-SHA256`, which the consumer verified against the signed
+  snapshot index) and the exact stub recipe hash (`NCZ-Recipe-SHA256`);
+* `Package: debootstrap-udeb` and `Architecture: all` are preserved so d-i's
+  dependency resolution is unaffected and no architecture-specific bytes enter a
+  common package (a non-`all` base is refused);
+* the packaging is byte-reproducible (Python deterministic tar/gzip and `ar`
+  writers; `SOURCE_DATE_EPOCH` defaults to 0), so the same inputs always produce
+  the same sha256;
+* the consumer `build/build-installer-image.sh` fetches the base through
+  `build/iso/fetch-pinned-debootstrap-udeb.py`, which resolves it from the
+  **pinned signed snapshot** (same trust root as the scanner) and never from a
+  live `deb.debian.org` forky index.
+* The derivative must be added to `manifests/ncz-packages.tsv` (name, version
+  `1.0.145+ncz1`, arch `all`, its sha256, recipe `build/iso/patch-debootstrap-stub.py`,
+  source revision, note) once built; the control fields are audit evidence, NOT
+  a self-blessing authorization -- the scanner still requires the reviewed
+  ledger row, exactly like every other NCZ package.
 
 ## External gates and blockers (not satisfiable in-repo)
 
