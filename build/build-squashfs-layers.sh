@@ -723,7 +723,8 @@ $_found"
     # agnostic; the asset was never staged so the hook always hard-failed.
     if [ -f "$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst" ]; then
       sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/mgmt"
-      sudo cp -a "$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst" "$MG/usr/local/lib/cix-installer/assets/mgmt/" 2>/dev/null || true
+      sudo cp -a "$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst" "$MG/usr/local/lib/cix-installer/assets/mgmt/" \
+        || { echo "FATAL: could not stage the mgmt rootfs into the layer" >&2; exit 1; }
       log "  staged mgmt rootfs ($(du -h "$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst" | cut -f1))"
     else
       # r201: this used to pass silently and 38-recovery-container.sh then failed on every

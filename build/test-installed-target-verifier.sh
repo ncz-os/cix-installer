@@ -152,14 +152,16 @@ GSCHEMA
     printf '/usr/bin/ncz-screensaver\n/usr/libexec/ncz-screensaver-idled\n' > "$r/var/lib/dpkg/info/ncz-screensavers.list"
 }
 
-run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name or ""
+run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name or "", $4 = optional regex the output must contain
     local name="$1" want="$2" mut="$3" r="$W/root-$RANDOM" img out rc
     build_root "$r"
     [ -n "$mut" ] && "$mut" "$r"
     img="$W/img-$RANDOM"; truncate -s 16M "$img"
     "$MKE2FS" -q -t ext4 -d "$r" "$img" 2>/dev/null || { echo "FAIL  $name: mke2fs"; FAILS=$((FAILS+1)); return; }
     out="$("$VERIFIER" "$img" "$DEBUGFS" "${TEST_ARCH:-arm64}" 2>&1)"; rc=$?
-    if [ "$rc" = "$want" ]; then echo "PASS  $name (rc=$rc)"; PASS=$((PASS+1));
+    if [ "$rc" = "$want" ] && [ -n "${4:-}" ] && ! printf '%s\n' "$out" | grep -q -- "$4"; then
+        echo "FAIL  $name: rc=$rc but the output lacks /$4/"; printf '%s\n' "$out" | sed 's/^/      /'; FAILS=$((FAILS+1))
+    elif [ "$rc" = "$want" ]; then echo "PASS  $name (rc=$rc)"; PASS=$((PASS+1));
     else echo "FAIL  $name: rc=$rc want=$want"; printf '%s\n' "$out" | sed 's/^/      /'; FAILS=$((FAILS+1)); fi
     rm -rf "$r" "$img"
 }
@@ -255,6 +257,7 @@ m_half_fw_realtek() { sed -i '/^Package: firmware-realtek$/,/^$/s/install ok ins
 m_amd64_strip_no_iwlwifi() { m_amd64_strip "$1"; sed -i '/^Package: firmware-iwlwifi$/,/^$/d' "$1/var/lib/dpkg/status"; }
 m_fw_notinst_ipw() { sed -i '/^Package: firmware-ipw2x00$/,/^$/s/install ok installed/install ok not-installed/' "$1/var/lib/dpkg/status"; }
 m_no_coredump()    { sed -i '/^Package: systemd-coredump$/,/^$/d' "$1/var/lib/dpkg/status"; }
+m_no_installed_list() { sed -i 's/install ok installed/deinstall ok config-files/' "$1/var/lib/dpkg/status"; }
 m_no_sudo()     { sed -i '/^Package: sudo$/,+2d' "$1/var/lib/dpkg/status"; }
 m_sudo_empty()  { printf 'root:x:0:\nsudo:x:27:\n' > "$1/etc/group"; }
 m_aud_nodaemon() { rm -f "$1/usr/local/bin/ncz-sky1-audio-autoswitch"; }
@@ -355,6 +358,7 @@ run_case "missing sensors plugin fails"         1 m_sens_missing
 run_case "sudo not installed fails"             1 m_no_sudo
 run_case "firmware-ipw2x00 install ok not-installed fails" 1 m_fw_notinst_ipw
 run_case "systemd-coredump absent fails"        1 m_no_coredump
+run_case "no installed packages at all fails the BOM check (not skipped)" 1 m_no_installed_list "no installed-package list to check"
 run_case "firmware-mediatek (MT7922 WiFi/BT) absent fails" 1 m_no_fw_mediatek
 run_case "firmware-realtek removed-not-purged fails" 1 m_half_fw_realtek
 run_case "empty sudo group fails"               1 m_sudo_empty

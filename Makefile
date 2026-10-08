@@ -459,9 +459,7 @@ stage-build-inputs:
 	@bash $(ROOT)/build/stage-build-inputs.sh --arch $(ARCH)
 
 $(ROOT)/assets/python311/uv:
-	@bash $(ROOT)/build/stage-build-inputs.sh --arch $(ARCH) --only assets/python311 || { \
-	    echo "[python311-assets] not in the build-inputs store; provisioning relocatable CPython 3.11 + uv (NPU venv, offline-first)"; \
-	    bash $(ROOT)/build/build-python311-assets.sh; }
+	@bash $(ROOT)/build/stage-build-inputs.sh --arch $(ARCH) --only assets/python311
 $(ROOT)/assets/squashfs/desktop-hotfix.squashfs: $(LATEST_SINGULARITY_DEB)
 	@echo "[hotfix-squashfs] rebuilding from $(LATEST_SINGULARITY_DEB)"
 	@bash $(ROOT)/build/build-squashfs-layers.sh hotfix
@@ -726,4 +724,5 @@ parity:
 	bash build/test-deb-rev-defaults.sh
 	bash build/test-panthor-hook-overlay-fallback.sh
 	bash build/test-panthor-fallback-real-overlay.sh
+	bash build/test-npu-dkms-deferral.sh
 	$(MAKE) --no-print-directory test-cygnus-branding
