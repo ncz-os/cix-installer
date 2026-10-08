@@ -177,6 +177,19 @@ upstream needs the singularityos-lab AI-disclosure trailers that the
 project's CI enforces. When it merges upstream, delete the patch and this
 block.
 
+**Not yet filed upstream.** Patch `0002-brand-splash-keep-logo-aspect-session-only.patch`.
+`loginui_render_brand()` (the splash `singularity-splash` shows after greeter login) scaled
+the logo with `cairo_scale(size / lw, size / lh)`, forcing every logo into a 256x256 square.
+`singularity-splash` loads the OS wordmark with `loginui_load_image(path, -1, 256)`, a wide
+image, so the 13:1 Cygnus wordmark came out squeezed horizontally and stretched vertically.
+The patch fits the logo inside a box (256 tall, up to 768 or half the surface wide) with one
+scale factor, centred, and puts the loading bar 48 px under the drawn logo; square emblems
+are unchanged. The file name carries `session-only`: the boot splash's bundled loginui copy
+has no `brand.c`, so the build and `singularity-pins.sh check-patches` skip such patches there.
+Separate from 0001, which fixes `loginui_render_splash()` (the boot splash).
+Covered by `build/test-splash-brand-aspect.sh` (manual, like `test-splash-logo-fit.sh`, which
+is a known env-only failure on HYDRA). No `**Upstream PR:**` link on purpose.
+
 ## singularity-session — active
 
 **Not filed upstream.** Patch `0001-session-no-software-fallback-with-gpu.patch` is the
