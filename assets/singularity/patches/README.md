@@ -98,6 +98,15 @@ runs the helper `fetch --if-stale` on activation, when the network returns and d
 skipping metered links, with backoff. It has no PR link on purpose: it must not be
 retired when #3 merges. See `docs/WALLPAPER-BING-PREFETCH.md`.
 
+**Not yet filed upstream** (draft in the r200 upstream-drafts folder). Patch
+`0007-sensors-popover-tabs-per-category.patch`, on top of #2 and #5. The sensors popover
+stacked every category in one tall column that reached the dock on a 16 inch panel. It now
+has tabs (CPU, Processor, Memory & Storage, Hardware; empty tabs are left out)
+using `Singularity.Widgets.SegmentedControl` over a `Gtk.Stack`. Grouped/Ungrouped works
+inside each tab, the logical-width column count from #2 is unchanged, the per-group row cap
+is 12 (was 6) and a height cap (monitor - chip bottom - dock - gap) stays as a safety net.
+No `**Upstream PR:**` link on purpose.
+
 ## libsingularity — active
 
 **Not yet filed upstream** (proposed to Mirko Brombin, the upstream
