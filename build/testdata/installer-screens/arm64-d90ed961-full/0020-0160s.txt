@@ -1,0 +1,16 @@
+# t=160s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                                                         │
+  │                                   18%                                   │
+  │                                                                         │
+  │ Installing NCZ-OS: firmware bom (5/78, 6s) - packages 8%:               │
+  │ firmware-atheros Unpacking firmware-atheros (arm64)                     │
+  └─────────────────────────────────────────────────────────────────────────┘

@@ -777,5 +777,23 @@ expect "frames present but no title parseable fails" 1 chk
 rm -rf "$T/s"; mkdir "$T/s"; printf '# t=0s\n[framebuffer: dialog or progress on screen, 18.3%% non-background pixels]\n' > "$T/s/0000-0000s.txt"
 chk >"$T/ev" 2>&1; grep -q 'dialogs in capture order (0): NOT VERIFIED' "$T/ev" && { PASS=$((PASS+1)); echo "ok   framebuffer-only capture says the dialog order is NOT VERIFIED"; } || { FAILS=$((FAILS+1)); echo "FAIL framebuffer-only capture does not say NOT VERIFIED"; cat "$T/ev"; }
 expect "framebuffer-only capture fails with --min-dialogs" 1 chk --min-dialogs 5
+# --- title regex is anchored to a frame line (review: body text with "l ... t k" produced bogus titles like "ec") ---
+rm -rf "$T/s"; mkdir "$T/s"
+printf '# t=20s\n  Select keyboard layout for the console\n  the install will not keep it, build the kernel\n  lunch is at noon, not at six k\n' > "$T/s/0000-0020s.txt"
+chk >"$T/ev" 2>&1; grep -q 'dialogs in capture order (0)' "$T/ev" && { PASS=$((PASS+1)); echo "ok   body text with l...t k yields no bogus title"; } || { FAILS=$((FAILS+1)); echo "FAIL bogus title extracted from body text"; cat "$T/ev"; }
+expect "bogus body-text titles cannot satisfy --min-dialogs" 1 chk --min-dialogs 1
+# --- the FULL 33-state d90ed961 arm64 gate capture, with the gate's exact arguments: must pass, 8 titles ---
+FULL="$HERE/testdata/installer-screens/arm64-d90ed961-full"
+fullchk() { python3 "$HERE/check-installer-screens.py" "$FULL" --start-at "select your REGION" \
+    --require-dialog "optional components" --require-dialog "select your REGION" --require-dialog "choose a USERNAME" \
+    --require-prompt-sequence "select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "optional components" \
+    --require-header "NCZ-OS [0-9.]+ [A-Za-z]+" --min-states 20 --min-dialogs 5; }
+expect "full real 33-state gate capture passes the arm64 gate arguments (no false failure)" 0 fullchk
+fullchk >"$T/ev" 2>&1; grep -q 'dialogs in capture order (8): ' "$T/ev" && { PASS=$((PASS+1)); echo "ok   full capture: exactly the 8 real titles"; } || { FAILS=$((FAILS+1)); echo "FAIL full capture titles"; cat "$T/ev"; }
+expect "full capture: no-blank-after the component dialog" 0 python3 "$HERE/check-installer-screens.py" "$FULL" --start-at "optional components" --no-blank-after "optional components"
+# --- kvm-installer-ui-check.sh: the amd64 distinct-frame floor must run BEFORE the LIMITED early exit ---
+KV="$HERE/kvm-installer-ui-check.sh"
+nl="$(grep -n 'ndist=' "$KV" | head -1 | cut -d: -f1)"; ll="$(grep -n 'PASS-LIMITED' "$KV" | head -1 | cut -d: -f1)"
+[ -n "$nl" ] && [ -n "$ll" ] && [ "$nl" -lt "$ll" ] && { PASS=$((PASS+1)); echo "ok   amd64 frame-count check (line $nl) precedes the PASS-LIMITED exit (line $ll)"; } || { FAILS=$((FAILS+1)); echo "FAIL frame-count check does not precede PASS-LIMITED ($nl vs $ll)"; }
 echo "installer screen tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]

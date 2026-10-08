@@ -1,0 +1,16 @@
+# t=168s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                                                         │
+  │                                   19%                                   │
+  │                                                                         │
+  │ Installing NCZ-OS: firmware bom (5/78, 14s) - packages 36%:             │
+  │ firmware-qcom-dsp Unpacking firmware-qcom-dsp (arm64)                   │
+  └─────────────────────────────────────────────────────────────────────────┘

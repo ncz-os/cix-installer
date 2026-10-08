@@ -1,0 +1,16 @@
+# t=136s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                                                         │
+  │                                   15%                                   │
+  │                                                                         │
+  │ Installing NCZ-OS: our kernel (2/78, 8s) - Package transaction          │
+  │ complete; continuing 10-our-kernel.sh                                   │
+  └─────────────────────────────────────────────────────────────────────────┘

@@ -1,0 +1,16 @@
+# t=172s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                                                         │
+  │                                   19%                                   │
+  │                                                                         │
+  │ Installing NCZ-OS: firmware bom (5/78, 18s) - packages 47%:             │
+  │ firmware-ti-connectivity Unpacking firmware-ti-connectivity (arm64)     │
+  └─────────────────────────────────────────────────────────────────────────┘

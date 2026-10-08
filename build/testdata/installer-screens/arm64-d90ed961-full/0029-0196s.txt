@@ -1,0 +1,16 @@
+# t=196s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                                                         │
+  │                                   23%                                   │
+  │                                                                         │
+  │ Installing NCZ-OS: desktop (9/78, 10s) - packages 92%:                  │
+  │ gnome-online-accounts Installed gnome-online-accounts (arm64)           │
+  └─────────────────────────────────────────────────────────────────────────┘

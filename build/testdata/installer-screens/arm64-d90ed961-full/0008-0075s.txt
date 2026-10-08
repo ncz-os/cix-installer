@@ -1,0 +1,16 @@
+# t=75s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Installing the base system ├──────────────────────┐
+  │                                                                         │
+  │                                   73%                                   │
+  │                                                                         │
+  │ Updating the list of available packages...                              │
+  │                                                                         │
+  └─────────────────────────────────────────────────────────────────────────┘

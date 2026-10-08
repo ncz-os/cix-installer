@@ -376,8 +376,11 @@ fi
 #
 # libdrm (ACPI platform identity patch, pinned +ncz2 set in build-inputs): BOTH arches. r201 amd64 shipped
 # libdrm-common +ncz1 from the published index, plus stock libdrm2/amdgpu1/intel1/nouveau2, because these rows
-# were arm64-only. Every runtime libdrm package that can enter a closure has a row on every arch that pins it
-# (libdrm-common is arch:all and byte-identical across arches); etnaviv1/tegra0 are not built for amd64.
+# were arm64-only. Both arches: libdrm-common (arch:all, byte-identical) and the Mesa runtime libs libdrm2, amdgpu1,
+# intel1, nouveau2, radeon1. arm64-only (arm64 block): freedreno1/etnaviv1/tegra0 (SoC DRM backends) and libdrm-dev
+# (an on-target build dependency of the Sky1 Singularity build; amd64 installs the prebuilt deb, and libdrm-dev's
+# libpciaccess-dev dependency is not in the pool). The amd64 pins for freedreno1/dev exist but are deliberately not
+# carried; if an amd64 closure ever pulls one, the verifier fails on the unpinned stock deb and a row must be added.
 #
 # Each row: <package name>|<glob of candidate .debs>|<required?>
 NCZ_LOCAL_DEBS="
@@ -389,14 +392,14 @@ libdrm-common|$REPO/build/libdrm-debs/libdrm-common_2.4.134-3+ncz*_all.deb|requi
 libdrm2|$REPO/build/libdrm-debs/libdrm2_2.4.134-3+ncz*_${ARCH}.deb|required
 libdrm-amdgpu1|$REPO/build/libdrm-debs/libdrm-amdgpu1_2.4.134-3+ncz*_${ARCH}.deb|required
 libdrm-intel1|$REPO/build/libdrm-debs/libdrm-intel1_2.4.134-3+ncz*_${ARCH}.deb|required
-libdrm-freedreno1|$REPO/build/libdrm-debs/libdrm-freedreno1_2.4.134-3+ncz*_${ARCH}.deb|required
 libdrm-nouveau2|$REPO/build/libdrm-debs/libdrm-nouveau2_2.4.134-3+ncz*_${ARCH}.deb|required
 libdrm-radeon1|$REPO/build/libdrm-debs/libdrm-radeon1_2.4.134-3+ncz*_${ARCH}.deb|required
-libdrm-dev|$REPO/build/libdrm-debs/libdrm-dev_2.4.134-3+ncz*_${ARCH}.deb|required
 "
 if [ "$ARCH" = arm64 ]; then
 NCZ_LOCAL_DEBS+="
 ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_arm64.deb|optional
+libdrm-freedreno1|$REPO/build/libdrm-debs/libdrm-freedreno1_2.4.134-3+ncz*_arm64.deb|required
+libdrm-dev|$REPO/build/libdrm-debs/libdrm-dev_2.4.134-3+ncz*_arm64.deb|required
 libdrm-etnaviv1|$REPO/build/libdrm-debs/libdrm-etnaviv1_2.4.134-3+ncz*_arm64.deb|required
 libdrm-tegra0|$REPO/build/libdrm-debs/libdrm-tegra0_2.4.134-3+ncz*_arm64.deb|required
 "

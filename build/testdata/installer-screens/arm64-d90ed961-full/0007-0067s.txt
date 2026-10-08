@@ -1,0 +1,16 @@
+# t=67s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Installing the base system ├──────────────────────┐
+  │                                                                         │
+  │                                    1%                                   │
+  │                                                                         │
+  │ Preparing to install the base system...                                 │
+  │                                                                         │
+  └─────────────────────────────────────────────────────────────────────────┘

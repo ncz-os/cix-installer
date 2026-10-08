@@ -1,0 +1,16 @@
+# t=180s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                                                         │
+  │                                   20%                                   │
+  │                                                                         │
+  │ Installing NCZ-OS: mesa gpu 2613 (7/78, 1s) - packages 0%: Resolving    │
+  │ package transaction (0 packages)                                        │
+  └─────────────────────────────────────────────────────────────────────────┘

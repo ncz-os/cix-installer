@@ -1,0 +1,16 @@
+# t=164s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                                                         │
+  │                                   18%                                   │
+  │                                                                         │
+  │ Installing NCZ-OS: firmware bom (5/78, 10s) - packages 27%:             │
+  │ firmware-marvell-prestera Unpacking firmware-marvell-prestera (arm64)   │
+  └─────────────────────────────────────────────────────────────────────────┘

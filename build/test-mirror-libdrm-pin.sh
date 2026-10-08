@@ -28,8 +28,11 @@ for arch in amd64 arm64; do
     rows="$(REPO=/r ARCH="$arch" bash "$T/rows.sh" 2>/dev/null | awk -F'|' '$1 ~ /^libdrm/ {print $1}' | LC_ALL=C sort -u)"
     pinned="$(awk -F'\t' -v a="$arch" '$1==a && $2 ~ /^build\/libdrm-debs\// {b=$2; sub(/^.*\//,"",b); split(b,x,"_"); print x[1]}' "$TSV" | grep -v -e '-tests$' -e '-udeb$' | LC_ALL=C sort -u)"
     [ -n "$pinned" ] || { bad "$arch: no libdrm pins found in $TSV"; continue; }
+    # amd64 deliberately does not carry libdrm-dev / libdrm-freedreno1 (see build-desktop-mirror.sh)
+    [ "$arch" = amd64 ] && pinned="$(echo "$pinned" | grep -v -e '^libdrm-dev$' -e '^libdrm-freedreno1$')"
     miss="$(LC_ALL=C comm -23 <(echo "$pinned") <(echo "$rows"))"
     [ -z "$miss" ] && ok "$arch: every pinned libdrm runtime/dev package has a mirror row" || bad "$arch: pinned libdrm package(s) without a mirror row (taken from the published index instead)" "$miss"
+    if [ "$arch" = amd64 ]; then echo "$rows" | grep -q -e '^libdrm-dev$' -e '^libdrm-freedreno1$' && bad "amd64 carries libdrm-dev/freedreno1 rows" || ok "amd64 does not carry libdrm-dev/freedreno1 (arm64-only)"; fi
     echo "$rows" | grep -qx libdrm-common && ok "$arch: libdrm-common has a row" || bad "$arch: no libdrm-common row"
 done
 a="$(awk -F'\t' '$1=="amd64" && $2 ~ /libdrm-common/ {print $3}' "$TSV")"; b="$(awk -F'\t' '$1=="arm64" && $2 ~ /libdrm-common/ {print $3}' "$TSV")"

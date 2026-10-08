@@ -48,5 +48,9 @@ grep -q 'cix-npu-driver-dkms_.*stage-build-inputs' "$ROOT/build/verify-arm64-inp
     && ok "verify-arm64-inputs.sh names the stager when the NPU deb is absent" || bad "verify-arm64-inputs.sh miss message does not name the stager"
 grep -q 'stage-build-inputs.sh --arch \$(ARCH)$' "$ROOT/Makefile" && ok "make image runs the stager for every pinned row" || bad "Makefile image rule does not run the stager"
 
+grep -q 'NPU SDK tarball not needed: all SDK-derived debs are already staged' "$ROOT/build/stage-canonical-assets.sh" \
+    && grep -q 'elif \[ ! -f "$SRC_NPU_SDK_TGZ" \]' "$ROOT/build/stage-canonical-assets.sh" \
+    && ok "stage-canonical-assets.sh: an unreachable SDK is not counted missing (no PARTIAL) once the SDK-derived debs are staged" || bad "stage-canonical-assets.sh still counts the SDK as missing after staging from the store"
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
