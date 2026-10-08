@@ -28,22 +28,6 @@ PATCH="$ROOT/docs/upstream-patches/libdrm-xf86drm-acpi-platform-identity.patch"
 # THIS version (SRC_VER-DEB_REV+NCZ_REV, whose patch hash is pinned in release.conf) it is staged and used as
 # is, so every host and both arches ship the same bytes. LIBDRM_REBUILD=1 forces a build (then publish the
 # result with `build/stage-build-inputs.sh --arch <a> --publish --only build/libdrm-debs/` and commit the pins).
-WANT_VER="${SRC_VER}-${DEB_REV}+${NCZ_REV}"
-HOST_ARCH="${LIBDRM_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
-if [ "${LIBDRM_REBUILD:-0}" != 1 ] && [ -n "$HOST_ARCH" ] && [ -x "$ROOT/build/stage-build-inputs.sh" ]; then
-    mkdir -p "$OUT"
-    if bash "$ROOT/build/stage-build-inputs.sh" --arch "$HOST_ARCH" --only build/libdrm-debs/ >/dev/null 2>&1 \
-       && [ -f "$OUT/libdrm2_${WANT_VER}_${HOST_ARCH}.deb" ] && [ -f "$OUT/libdrm-common_${WANT_VER}_all.deb" ]; then
-        echo "reusing the published libdrm ${WANT_VER} ($HOST_ARCH) from the build-inputs store (sha256-pinned); LIBDRM_REBUILD=1 to rebuild"
-        find "$OUT" -maxdepth 1 -type f \( -name 'libdrm*_*.deb' -o -name 'libdrm*_*.udeb' \) | sort | sed 's/^/  /'
-        exit 0
-    fi
-    echo "no published libdrm ${WANT_VER} for $HOST_ARCH in the build-inputs store; building from source (the version gate applies)" >&2
-fi
-
-for t in curl dpkg-source dpkg-buildpackage patch; do
-    command -v "$t" >/dev/null 2>&1 || { echo "ERROR: missing tool: $t" >&2; exit 1; }
-done
 [ -f "$PATCH" ] || { echo "ERROR: missing patch: $PATCH" >&2; exit 1; }
 # The patch is part of the package content: changing it under the same revision republishes
 # different bytes under a published version (the deb-version-gate refuses that, late). Fail early.
@@ -53,6 +37,37 @@ if [ "$_psha" != "${NCZ_LIBDRM_PATCH_SHA256:-}" ]; then
     echo "       Bump NCZ_LIBDRM_NCZ_REV and update NCZ_LIBDRM_PATCH_SHA256 in release.conf together." >&2
     exit 1
 fi
+
+WANT_VER="${SRC_VER}-${DEB_REV}+${NCZ_REV}"
+HOST_ARCH="${LIBDRM_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
+mkdir -p "$OUT"
+# Clear debs of any OTHER revision first: a stale older set beside the new one would be picked up by the
+# desktop mirror (r201 review). Only libdrm*.deb/.udeb files are touched, only in this build output dir.
+for _old in "$OUT"/libdrm*_*.deb "$OUT"/libdrm*_*.udeb; do
+    [ -e "$_old" ] || continue
+    case "$_old" in *"_${WANT_VER}_"*) ;; *) echo "removing stale $(basename "$_old") (not ${WANT_VER})"; rm -f "$_old" ;; esac
+done
+# If the pins name this version for this arch, the pinned set MUST be used: a staging failure (truncated or
+# wrongly pinned store file, store not mounted) is fatal and shown, never a silent rebuild on another toolchain.
+if [ "${LIBDRM_REBUILD:-0}" != 1 ] && [ -n "$HOST_ARCH" ] && [ -x "$ROOT/build/stage-build-inputs.sh" ] \
+   && awk -F'\t' -v a="$HOST_ARCH" -v n="build/libdrm-debs/libdrm2_${WANT_VER}_${HOST_ARCH}.deb" '$1==a && $2==n {f=1} END{exit !f}' "$ROOT/manifests/build-inputs.tsv" 2>/dev/null; then
+    if ! bash "$ROOT/build/stage-build-inputs.sh" --arch "$HOST_ARCH" --only build/libdrm-debs/; then
+        echo "ERROR: libdrm ${WANT_VER} ($HOST_ARCH) is pinned in manifests/build-inputs.tsv but could not be staged (output above)." >&2
+        echo "       Not rebuilding on this host's toolchain. Fix the store/pin, or set LIBDRM_REBUILD=1 to build from source deliberately." >&2
+        exit 1
+    fi
+    if [ ! -f "$OUT/libdrm2_${WANT_VER}_${HOST_ARCH}.deb" ] || [ ! -f "$OUT/libdrm-common_${WANT_VER}_all.deb" ]; then
+        echo "ERROR: the pinned libdrm ${WANT_VER} set is incomplete after staging in $OUT" >&2; exit 1
+    fi
+    echo "reusing the published libdrm ${WANT_VER} ($HOST_ARCH) from the build-inputs store (sha256-pinned); LIBDRM_REBUILD=1 to rebuild"
+    find "$OUT" -maxdepth 1 -type f \( -name 'libdrm*_*.deb' -o -name 'libdrm*_*.udeb' \) | sort | sed 's/^/  /'
+    exit 0
+fi
+echo "no pinned libdrm ${WANT_VER} for ${HOST_ARCH:-?} (or LIBDRM_REBUILD=1): building from source; the version gate applies" >&2
+for t in curl dpkg-source dpkg-buildpackage patch; do
+    command -v "$t" >/dev/null 2>&1 || { echo "ERROR: missing tool: $t" >&2; exit 1; }
+done
+
 
 rm -rf "$WORK"
 mkdir -p "$WORK" "$OUT"

@@ -25,8 +25,9 @@
 #   Same version published => identical bytes pass at once; otherwise the published
 #   .deb is fetched ($NCZ_PUBLISHED_POOL: directory or URL base for the index's
 #   Filename; default the Buildkite pool) and the identities are compared.
-#   Unreachable index/pool is a WARNING (an offline build must still work) unless
-#   NCZ_VERSION_GATE_STRICT=1. TESTS MUST SET NCZ_PUBLISHED_INDEX to a fixture so
+#   Unreachable index/pool, or an unreadable .deb, FAILS CLOSED (r201: a rebuilt package must not ship
+#   unchecked because the network was down). Set NCZ_VERSION_GATE_STRICT=0 explicitly for a deliberately
+#   offline build; that downgrades it to a WARNING. TESTS MUST SET NCZ_PUBLISHED_INDEX to a fixture so
 #   they never reach the live index.
 #
 # ncz_policy_deb_lib_check DEB LIB
@@ -57,7 +58,7 @@ ncz_deb_version_gate() {
     arch="$(dpkg-deb -f "$deb" Architecture 2>/dev/null || true)"
     if [ -z "$name" ] || [ -z "$ver" ] || [ -z "$arch" ]; then
         # Not a readable .deb (e.g. a test stubbing dpkg-deb). Never silently pass in strict mode.
-        if [ "${NCZ_VERSION_GATE_STRICT:-0}" = 1 ]; then echo "version-gate: FAIL cannot read control fields of $deb" >&2; return 1; fi
+        if [ "${NCZ_VERSION_GATE_STRICT:-1}" = 1 ]; then echo "version-gate: FAIL cannot read control fields of $deb" >&2; return 1; fi
         echo "version-gate: WARN cannot read control fields of $deb; not checked" >&2; return 0
     fi
     sha="$(sha256sum "$deb" | awk '{print $1}')"
@@ -92,7 +93,7 @@ ncz_deb_version_gate() {
     rm -f "$tmp"
 
     if [ "$rc" = 3 ]; then
-        if [ "${NCZ_VERSION_GATE_STRICT:-0}" = 1 ]; then
+        if [ "${NCZ_VERSION_GATE_STRICT:-1}" = 1 ]; then
             echo "version-gate: FAIL cannot read the published index and NCZ_VERSION_GATE_STRICT=1" >&2; return 1
         fi
         echo "version-gate: WARN published index unreachable; $name $ver NOT checked for a version bump" >&2
@@ -110,7 +111,7 @@ ncz_deb_version_gate() {
         esac
         if [ ! -s "$pub" ]; then
             rm -rf "$pubdir"
-            if [ "${NCZ_VERSION_GATE_STRICT:-0}" = 1 ]; then
+            if [ "${NCZ_VERSION_GATE_STRICT:-1}" = 1 ]; then
                 echo "version-gate: FAIL $name $ver differs in bytes from the published build and the published .deb ($found_file) cannot be fetched to compare content" >&2; return 1
             fi
             echo "version-gate: WARN $name $ver differs in bytes from the published build; the published .deb could not be fetched, content NOT compared" >&2

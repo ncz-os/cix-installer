@@ -128,8 +128,12 @@ if [ -r /etc/ncz-loghost ]; then
     [ "$FWD_HOST" = "default" ] && FWD_HOST="$LOGHOST"
 fi
 if [ -n "$FWD_HOST" ]; then
-    timeout 300 env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends rsyslog 2>&1 | tail -3 || \
-        echo "[36] WARN: rsyslog install failed; journald-only loghost path disabled"
+    # BEGIN rsyslog-status
+    # set +e and no pipefail here: `... | tail || echo WARN` tested tail, so the WARN could never fire.
+    timeout 300 env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends rsyslog 2>&1 | tail -3
+    _rsys_rc=${PIPESTATUS[0]}
+    [ "$_rsys_rc" -eq 0 ] || echo "[36] WARN: rsyslog install failed (rc=$_rsys_rc); journald-only loghost path disabled" >&2
+    # END rsyslog-status
     if dpkg -s rsyslog >/dev/null 2>&1; then
         mkdir -p /etc/rsyslog.d
         cat > /etc/rsyslog.d/90-loghost.conf <<EOF
