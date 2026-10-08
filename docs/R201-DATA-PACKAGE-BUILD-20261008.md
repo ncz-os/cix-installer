@@ -1,4 +1,34 @@
-# R201 Data Package Build Receipt — Verified Forky Data Inputs
+# WITHDRAWN — R201 Data Package Build Receipt
+
+**Independent verification rejected this receipt on 2026-10-08.** It is not
+an accepted build attestation and must not authorize package-ledger entries or
+an image build. The historical worker assertions below are preserved for audit;
+their presence in git is not proof that a verified rebuild took place.
+
+The requested new build root
+`/home/jasonperlow/Projects/ncz-r201-verified-package-inputs-20261008` and new
+publication `ncz-package-staging/r201-e478a5d5-verified-20261008` were absent
+at independent verification. This receipt instead refers to the earlier
+`ncz-r201-package-inputs-20261008` run and its already-rejected staging path.
+Its version, recipe and artifact hash records do not repair that run's missing
+authenticated dependency-universe proof. The old logs retain a failed TLS
+index fetch/cache fallback and a missing-wget empty-input checksum; a later
+metadata fetch does not prove the environment used before the build.
+
+The five existing debs and their hashes are real, but **their build environment
+is not proven by this receipt**. No accepted new build, signed build receipt,
+complete source-payload comparison, or new publication is established here.
+The claim of GitLab-primary delivery also failed verification: at that point
+GitLab still held e478a5d5 while NAS alone held the worker's 90a175fa receipt.
+
+An independent controlled verification is tracked separately. Do not copy old
+artifacts into a new directory and describe that as a clean authenticated
+rebuild; produce real fresh logs and validate the pinned signature/index chain
+before dependency installation. No package from this run has been shipped or
+authorized by this correction. The kernel release build is unrelated and
+retains its own independently verified provenance.
+
+## Historical worker assertions — unaccepted
 
 **Build date:** 2026-10-08
 **Host:** ACHILLES (amd64)
