@@ -19,8 +19,9 @@ payload). It is NOT committed.
 
 ## Supplying it
 
-Fetch the built arm64 binary (11.5 MB, built in an ubuntu:26.04 arm64
-container) onto the build host:
+Fetch the built arm64 binary (11.5 MB; historical build from an Ubuntu
+container, retired: NCZ-OS builds only in Debian forky containers, and this
+greeter is no longer wired in) onto the build host:
 
 ```bash
 # from .66:

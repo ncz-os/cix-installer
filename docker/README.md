@@ -22,7 +22,7 @@ needs device nodes (see below).
 
 Measured before the change:
 
-    TYDEUS  ncz-yocto-y6   base ubuntu:22.04    docker 29.1.3, rooted
+    TYDEUS  ncz-yocto-y6   base Ubuntu 22.04    docker 29.1.3, rooted
     ULTRA   ncz-isobuild   base debian:trixie   podman 5.8.4, ROOTLESS
 
 Two base distributions, two container engines, one of them rootless, and

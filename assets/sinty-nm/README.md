@@ -27,8 +27,11 @@ enables `sinty-nm.service`.
 
 ## Rebuilding the binary (arm64, static)
 
-Built in an `ubuntu:26.04` arm64 container (matches O6N / .66) with the official
-Go 1.25 toolchain (go.mod requires `go 1.25.0`):
+Build in a `debian:forky` container (never Ubuntu: operator rule 2026-10-08) with
+the official Go 1.25 toolchain (go.mod requires `go 1.25.0`). The result is a
+static, CGO-free Go binary with no libc/library dependency, so the container
+only supplies the toolchain; the shipped r201 binary (go1.25.0, `statically
+linked`, no interpreter) carries no Ubuntu userland:
 
 ```sh
 git clone --depth 1 https://github.com/singularityos-lab/sinty-nm.git
