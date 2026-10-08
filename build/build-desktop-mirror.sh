@@ -381,18 +381,25 @@ ncz-singularity-desktop|$REPO/assets/cix-debs/ncz-singularity-desktop_*_${ARCH}.
 ncz-screensavers|$REPO/build/ncz-screensavers-out/ncz-screensavers_*_${ARCH}.deb|required
 ncz-apt-policy|$REPO/build/ncz-apt-policy-deb/ncz-apt-policy_*_all.deb|required
 "
+# libdrm (ACPI platform identity patch, pinned +ncz2 set in build-inputs): BOTH arches. r201 amd64 shipped
+# libdrm-common +ncz1 from the published index, plus stock libdrm2/amdgpu1/intel1/nouveau2, because these rows
+# were arm64-only. Every runtime libdrm package that can enter a closure has a row on every arch that pins it
+# (libdrm-common is arch:all and byte-identical across arches); etnaviv1/tegra0 are not built for amd64.
+NCZ_LOCAL_DEBS+="
+libdrm-common|$REPO/build/libdrm-debs/libdrm-common_2.4.134-3+ncz*_all.deb|required
+libdrm2|$REPO/build/libdrm-debs/libdrm2_2.4.134-3+ncz*_${ARCH}.deb|required
+libdrm-amdgpu1|$REPO/build/libdrm-debs/libdrm-amdgpu1_2.4.134-3+ncz*_${ARCH}.deb|required
+libdrm-intel1|$REPO/build/libdrm-debs/libdrm-intel1_2.4.134-3+ncz*_${ARCH}.deb|required
+libdrm-freedreno1|$REPO/build/libdrm-debs/libdrm-freedreno1_2.4.134-3+ncz*_${ARCH}.deb|required
+libdrm-nouveau2|$REPO/build/libdrm-debs/libdrm-nouveau2_2.4.134-3+ncz*_${ARCH}.deb|required
+libdrm-radeon1|$REPO/build/libdrm-debs/libdrm-radeon1_2.4.134-3+ncz*_${ARCH}.deb|required
+libdrm-dev|$REPO/build/libdrm-debs/libdrm-dev_2.4.134-3+ncz*_${ARCH}.deb|required
+"
 if [ "$ARCH" = arm64 ]; then
 NCZ_LOCAL_DEBS+="
 ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_arm64.deb|optional
-libdrm-common|$REPO/build/libdrm-debs/libdrm-common_2.4.134-3+ncz*_all.deb|required
-libdrm2|$REPO/build/libdrm-debs/libdrm2_2.4.134-3+ncz*_arm64.deb|required
-libdrm-amdgpu1|$REPO/build/libdrm-debs/libdrm-amdgpu1_2.4.134-3+ncz*_arm64.deb|required
 libdrm-etnaviv1|$REPO/build/libdrm-debs/libdrm-etnaviv1_2.4.134-3+ncz*_arm64.deb|required
-libdrm-freedreno1|$REPO/build/libdrm-debs/libdrm-freedreno1_2.4.134-3+ncz*_arm64.deb|required
-libdrm-nouveau2|$REPO/build/libdrm-debs/libdrm-nouveau2_2.4.134-3+ncz*_arm64.deb|required
-libdrm-radeon1|$REPO/build/libdrm-debs/libdrm-radeon1_2.4.134-3+ncz*_arm64.deb|required
 libdrm-tegra0|$REPO/build/libdrm-debs/libdrm-tegra0_2.4.134-3+ncz*_arm64.deb|required
-libdrm-dev|$REPO/build/libdrm-debs/libdrm-dev_2.4.134-3+ncz*_arm64.deb|required
 "
 fi
 
@@ -446,6 +453,16 @@ printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
     pooldir="$OUT/pool/main/$(printf '%s' "$pkg" | cut -c1)/$pkg"
     mkdir -p "$pooldir"
     cp -f "$deb" "$pooldir/"
+    # The closure download (apt-get download) already fetched this package from the Debian snapshot or the
+    # published NCZ index (r201 amd64: libdrm-common +ncz1, libdrm2 stock -3) into the flat pool. A second
+    # version of a locally built package must not stay in the mirror, so drop every other deb of $pkg.
+    for _other in "$OUT"/pool/main/"${pkg}"_*.deb "$pooldir"/"${pkg}"_*.deb; do
+        [ -e "$_other" ] || continue
+        [ "$req" = required ] || continue   # optional rows may be alternatives of one another
+        [ "$(basename "$_other")" = "$(basename "$deb")" ] && continue
+        echo "  removed superseded $pkg deb from the mirror: $(basename "$_other")"
+        rm -f "$_other"
+    done
     echo "  added local NCZ package: $deb -> $pooldir/"
     # A local package is not a Debian seed, so it is absent from the resolved
     # closure and the "prune debs no longer in the closure" pass below would

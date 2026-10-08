@@ -111,6 +111,35 @@ if [ -r "$LOCAL_SCRIPT" ]; then
     fi
 fi
 
+# libdrm pin (r201 amd64, d90ed961). The patched libdrm set is pinned by sha256 in manifests/build-inputs.tsv
+# (revision NCZ_LIBDRM_NCZ_REV). EVERY libdrm* package in the mirror index -- not just the ones that have a row --
+# must be exactly a pinned file of this arch: a libdrm-common +ncz1 from the published index, or a stock
+# Debian libdrm2, makes the mirror stale. Checked against the index AND the bytes of the file it points at.
+PINS="$ROOT/manifests/build-inputs.tsv"
+if awk '/^Package: libdrm/{f=1} END{exit !f}' "$PKG_INDEX"; then
+    : > "$TMP/drmbad"
+    if [ ! -r "$PINS" ] || ! awk -F'\t' -v a="$ARCH" '$1==a && $2 ~ /^build\/libdrm-debs\//{f=1} END{exit !f}' "$PINS"; then
+        echo "  no libdrm pins for $ARCH in $PINS, but the mirror carries libdrm packages" >> "$TMP/drmbad"
+    else
+        awk -v RS= -F'\n' '{ p="";v="";a="";f=""; for(i=1;i<=NF;i++){ if($i ~ /^Package: /)p=substr($i,10); else if($i ~ /^Version: /)v=substr($i,10); else if($i ~ /^Architecture: /)a=substr($i,15); else if($i ~ /^Filename: /)f=substr($i,11)} if (p ~ /^libdrm/) print p "\t" v "\t" a "\t" f }' "$PKG_INDEX" > "$TMP/drmidx"
+        while IFS=$'\t' read -r dpkg_n dver darch dfile; do
+            want="$(awk -F'\t' -v a="$ARCH" -v n="$dpkg_n" -v v="$dver" '$1==a && $2 ~ /^build\/libdrm-debs\// { b=$2; sub(/^.*\//,"",b); split(b, x, "_"); if (x[1]==n && x[2]==v) {print $3; exit} }' "$PINS")"
+            if [ -z "$want" ]; then
+                echo "  $dpkg_n $dver ($darch) is not a pinned libdrm of this release (release.conf NCZ_LIBDRM_NCZ_REV=${NCZ_LIBDRM_NCZ_REV:-?}; pins: manifests/build-inputs.tsv)" >> "$TMP/drmbad"
+            elif [ ! -s "$MIRROR/$dfile" ]; then
+                echo "  $dpkg_n $dver: the mirror index lists $dfile but the file is missing" >> "$TMP/drmbad"
+            elif [ "$(sha256sum "$MIRROR/$dfile" | awk '{print $1}')" != "$want" ]; then
+                echo "  $dpkg_n $dver: $dfile has a different sha256 than the pin ($want)" >> "$TMP/drmbad"
+            fi
+        done < "$TMP/drmidx"
+    fi
+    if [ -s "$TMP/drmbad" ]; then
+        echo "ERROR: $LABEL carries libdrm package(s) that are not the pinned NCZ set:" >&2
+        cat "$TMP/drmbad" >&2
+        STALE=1
+    fi
+fi
+
 if [ "$STALE" -ne 0 ]; then
     echo "  (rebuild: move build/desktop-mirror aside and re-run make desktop-mirror)" >&2
     exit 1
