@@ -35,12 +35,12 @@ echo "=== 1. repo-content gate: check-ncz-repo-policy.sh ==="
 { stanza ncz-screensavers 0.8.10 amd64; stanza libdrm-common 2.4.134-3+ncz1 all
   stanza linux-image-cixmini 7.3.0 arm64; stanza zoder 0.2.1 arm64; stanza libdrm2 2.4.134-3+ncz1 arm64; } > "$T/good.Packages"
 { cat "$T/good.Packages"; stanza fonts-liberation 1:2.1.5-3build1 all; } > "$T/leak.Packages"
-{ stanza libdrm2 2.4.134-3+ncz1 amd64; } > "$T/wrongarch.Packages"
+{ stanza libdrm-etnaviv1 2.4.134-3+ncz1 amd64; } > "$T/wrongarch.Packages"
 { stanza linux-image-amd64 7.1.9-1 amd64; } > "$T/debkernel.Packages"
 expect_rc "good index passes" 0 "$ROOT/build/check-ncz-repo-policy.sh" "$T/good.Packages"
 expect_rc "leaked fonts-liberation fails" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$T/leak.Packages"
 case "$LAST" in *"fonts-liberation 1:2.1.5-3build1"*"not in the allowlist"*) ok "  message names the package" ;; *) bad "message lacks the package" "$LAST" ;; esac
-expect_rc "allowlisted libdrm2 on the wrong arch fails" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$T/wrongarch.Packages"
+expect_rc "allowlisted arm64-only libdrm-etnaviv1 on amd64 fails" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$T/wrongarch.Packages"
 expect_rc "Debian kernel name in the NCZ suite fails" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$T/debkernel.Packages"
 gzip -kf "$T/leak.Packages"
 expect_rc "gz index is read" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$T/leak.Packages.gz"
@@ -232,12 +232,14 @@ export NCZ_POLICY_DIR="$T/poldir"
 mkdeb "$T/fl.deb" fonts-liberation 1:2.1.5-3build1 all ubuntu
 mkdeb "$T/ok1.deb" ncz-newthing 1.0 all x
 mkdeb "$T/ok2.deb" libdrm2 2.4.134-3+ncz2 arm64 x
-mkdeb "$T/bad2.deb" libdrm2 2.4.134-3+ncz2 amd64 x
+mkdeb "$T/ok3.deb" libdrm2 2.4.134-3+ncz2 amd64 x
+mkdeb "$T/bad2.deb" libdrm-etnaviv1 2.4.134-3+ncz2 amd64 x
 mkdeb "$T/dk.deb" linux-image-arm64 7.1.9-1 arm64 x
 expect_rc "publisher refuses fonts-liberation (the r200 leak)" 1 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/fl.deb'"
 expect_rc "publisher accepts an ncz-* package" 0 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/ok1.deb'"
 expect_rc "publisher accepts the allowlisted libdrm2 on arm64" 0 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/ok2.deb'"
-expect_rc "publisher refuses libdrm2 on amd64" 1 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/bad2.deb'"
+expect_rc "publisher accepts the allowlisted libdrm2 on amd64" 0 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/ok3.deb'"
+expect_rc "publisher refuses the arm64-only libdrm-etnaviv1 on amd64 (libdrm2 is allowlisted for both arches since r201)" 1 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/bad2.deb'"
 expect_rc "publisher refuses a Debian kernel name" 1 bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/dk.deb'"
 mkdeb "$T/np-pub.deb" ncz-newthing 1.0 all published-version 1000000000; cp "$T/np-pub.deb" "$T/pool/ncz-newthing_1.0_all.deb"
 printf 'Package: ncz-newthing\nVersion: 1.0\nArchitecture: all\nSHA256: %s\nFilename: ncz-newthing_1.0_all.deb\n\n' "$(sha256sum "$T/np-pub.deb" | awk '{print $1}')" > "$T/idx2"
