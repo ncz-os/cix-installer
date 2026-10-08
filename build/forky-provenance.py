@@ -539,6 +539,7 @@ def scan_image(ref, img, work):
     part = max(j["partitiontable"]["partitions"], key=lambda x: x["size"])
     dev = f"{img}?offset={part['start'] * 512}"
     base = os.path.join(work, "img")
+    subprocess.run(["chmod", "-R", "u+rwX", base], capture_output=True, check=False)
     shutil.rmtree(base, ignore_errors=True)
     os.makedirs(base)
     pl = os.path.join(base, "payload")
@@ -599,6 +600,7 @@ def scan_image(ref, img, work):
     for d in ("cix-debs", "ncz-screensavers-plugin", "kernel", "npu"):
         if os.path.isdir(os.path.join(pl, d)):
             total += scan_debs(ref, os.path.join(pl, d), "image:assets/" + d)
+    subprocess.run(["chmod", "-R", "u+rwX", base], capture_output=True, check=False)
     shutil.rmtree(base, ignore_errors=True)
     return total
 
