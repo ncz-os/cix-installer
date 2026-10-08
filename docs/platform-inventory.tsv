@@ -480,3 +480,4 @@ build/test-firmware-bom-hook.sh	common	-	proves 13-firmware-bom.sh preseeds the 
 build/test-panthor-fallback-real-overlay.sh	sky1	-	executes hook 83 against the real tracked panthor overlay of the shipping Sky1 kernel (r201)
 build/test-npu-dkms-deferral.sh	sky1	-	proves 25-cix-proprietary.sh installs the vendor NPU DKMS deb with a register-only postinst so apt-get install -fy cannot fail on unrepaired headers (r201)
 build/test-splash-brand-aspect.sh	common	-	renders the session splash through the real singularity-loginui sources and checks the wordmark keeps its aspect ratio
+build/test-hooks-fail-loudly.sh	common	-	proves hook 86 fails on an aipu build failure, hooks 36/55 read the apt status behind | tail, and the deb version gate fails closed when the index is unreachable (r201)

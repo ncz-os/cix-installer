@@ -191,11 +191,11 @@ expect_rc "same version, changed CONTROL field is refused" 1 gate "$T/desc.deb"
 expect_rc "identical bytes republished are idempotent" 0 gate "$T/pub.deb"
 mkdeb "$T/bumped.deb" ncz-wallpapers-ncz 1.1 all different-bytes
 expect_rc "bumped version passes" 0 gate "$T/bumped.deb"
-expect_rc "unreachable index is a warning offline" 0 env NCZ_PUBLISHED_INDEX="$T/does-not-exist" bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
+expect_rc "unreachable index is a warning only with the explicit NCZ_VERSION_GATE_STRICT=0 override" 0 env NCZ_VERSION_GATE_STRICT=0 NCZ_PUBLISHED_INDEX="$T/does-not-exist" bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
 expect_rc "an unreachable first index falls through to the next source (changed content still caught)" 1 env NCZ_PUBLISHED_INDEX="$T/does-not-exist $T/index" bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
-expect_rc "unreachable index is an error when strict" 1 env NCZ_PUBLISHED_INDEX="$T/does-not-exist" NCZ_VERSION_GATE_STRICT=1 bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
-expect_rc "published .deb unfetchable: warning offline" 0 env NCZ_PUBLISHED_POOL="$T/nopool" bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/again.deb'"
-expect_rc "published .deb unfetchable: error when strict" 1 env NCZ_PUBLISHED_POOL="$T/nopool" NCZ_VERSION_GATE_STRICT=1 bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/again.deb'"
+expect_rc "unreachable index is an error by default (fail closed)" 1 env -u NCZ_VERSION_GATE_STRICT NCZ_PUBLISHED_INDEX="$T/does-not-exist" NCZ_VERSION_GATE_STRICT=1 bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/rebuilt.deb'"
+expect_rc "published .deb unfetchable: warning only with NCZ_VERSION_GATE_STRICT=0" 0 env NCZ_VERSION_GATE_STRICT=0 NCZ_PUBLISHED_POOL="$T/nopool" bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/again.deb'"
+expect_rc "published .deb unfetchable: error by default (fail closed)" 1 env -u NCZ_VERSION_GATE_STRICT NCZ_PUBLISHED_POOL="$T/nopool" NCZ_VERSION_GATE_STRICT=1 bash -c ". '$HERE/lib/deb-version-gate.sh'; ncz_deb_version_gate '$T/again.deb'"
 # a real builder is reproducible in identity: ncz-usb-recovery built twice differs in bytes but not in content
 if [ "$(dpkg --print-architecture 2>/dev/null)" != "" ]; then
     for i in 1 2; do NCZ_PUBLISHED_INDEX=/dev/null NCZ_USB_RECOVERY_OUT="$T/usb$i" bash "$HERE/build-usb-recovery-deb.sh" >/dev/null 2>&1; sleep 2; done

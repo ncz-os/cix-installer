@@ -69,6 +69,34 @@ rm -f "$T/changelog.top"; rm -rf "$T/lroot/build/libdrm-debs"
 ( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T" TMPDIR="$T" LIBDRM_ARCH=amd64 LIBDRM_NCZ_REV=ncz9 NCZ_BUILD_INPUTS_DIR="$T/store" bash "$T/lroot/build/build-libdrm-debs.sh" ) >"$T/lo4" 2>&1
 [ -e "$T/changelog.top" ] && ok "a version with no pinned set (ncz9) falls back to building" || { bad "unpinned version did not build"; cat "$T/lo4"; }
 
+# --- reuse path hardening (round-2 review) ---
+run_pinned() { ( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T" TMPDIR="$T" LIBDRM_ARCH=amd64 NCZ_BUILD_INPUTS_DIR="$T/store" "$@" bash "$T/lroot/build/build-libdrm-debs.sh" ); }
+# (a) a pinned set that cannot be staged is FATAL and shown, never a silent rebuild
+rm -rf "$T/lroot/build/libdrm-debs"; rm -f "$T/changelog.top"
+cp "$T/store/amd64/build/libdrm-debs/libdrm2_2.4.134-3+ncz2_amd64.deb" "$T/good.deb"
+echo corrupt >> "$T/store/amd64/build/libdrm-debs/libdrm2_2.4.134-3+ncz2_amd64.deb"
+run_pinned >"$T/lo5" 2>&1; rc=$?
+if [ $rc != 0 ] && [ ! -e "$T/changelog.top" ] && grep -q 'wrong sha256' "$T/lo5" && grep -q 'Not rebuilding on this host' "$T/lo5"; then
+    ok "a pinned libdrm set that fails staging is fatal, shows why, and does not rebuild"
+else bad "staging failure fell through (rc=$rc)"; cat "$T/lo5"; fi
+cp "$T/good.deb" "$T/store/amd64/build/libdrm-debs/libdrm2_2.4.134-3+ncz2_amd64.deb"
+# (b) the patch pin is checked on the reuse path too
+rm -rf "$T/lroot/build/libdrm-debs"
+cp "$PATCH" "$T/lroot/docs/upstream-patches/"; echo "# edited" >> "$T/lroot/docs/upstream-patches/libdrm-xf86drm-acpi-platform-identity.patch"
+run_pinned >"$T/lo6" 2>&1; rc=$?
+if [ $rc != 0 ] && grep -q 'Bump NCZ_LIBDRM_NCZ_REV' "$T/lo6" && [ ! -e "$T/lroot/build/libdrm-debs/libdrm2_2.4.134-3+ncz2_amd64.deb" ]; then
+    ok "editing the patch is caught even when a pinned set exists"; else bad "patch edit not caught on the reuse path (rc=$rc)"; cat "$T/lo6"; fi
+cp "$PATCH" "$T/lroot/docs/upstream-patches/"
+# (c) older-revision debs in the output dir are cleared before the pinned set is staged
+mkdir -p "$T/lroot/build/libdrm-debs"; echo old > "$T/lroot/build/libdrm-debs/libdrm2_2.4.134-3+ncz1_amd64.deb"; echo old > "$T/lroot/build/libdrm-debs/libdrm2-udeb_2.4.134-3+ncz1_amd64.udeb"
+run_pinned >"$T/lo7" 2>&1; rc=$?
+if [ $rc = 0 ] && ! ls "$T/lroot/build/libdrm-debs/" | grep -q 'ncz1' && [ -f "$T/lroot/build/libdrm-debs/libdrm2_2.4.134-3+ncz2_amd64.deb" ]; then
+    ok "stale older-revision libdrm debs are removed before reuse"; else bad "stale ncz1 debs survived (rc=$rc)"; ls "$T/lroot/build/libdrm-debs"; cat "$T/lo7"; fi
+# (d) reuse needs none of the source-build tools
+mkdir -p "$T/emptybin"; rm -rf "$T/lroot/build/libdrm-debs"
+( cd "$T" && env -i PATH="$T/emptybin:/usr/bin:/bin" HOME="$T" TMPDIR="$T" LIBDRM_ARCH=amd64 NCZ_BUILD_INPUTS_DIR="$T/store" bash "$T/lroot/build/build-libdrm-debs.sh" ) >"$T/lo8" 2>&1
+grep -q 'reusing the published libdrm' "$T/lo8" && ok "reuse does not require curl/dpkg-source/dpkg-buildpackage" || { bad "reuse path needs source-build tools"; cat "$T/lo8"; }
+
 # --- DKMS: run the REAL builder on a minimal asset tree, no env ---
 if command -v dpkg-deb >/dev/null; then
     mkdir -p "$T/droot/build/lib" "$T/droot/assets/kernel/vpu/src"
