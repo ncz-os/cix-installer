@@ -1,0 +1,73 @@
+From 309d8292a5fad73dab1b24f4cce8d5702585c12f Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 7 Oct 2026 22:25:09 -0400
+Subject: [PATCH] brand splash: keep the logo aspect ratio
+
+loginui_render_brand() scaled the logo with cairo_scale(size / lw,
+size / lh), forcing every logo into a size x size square. singularity-splash
+loads the OS wordmark with loginui_load_image(path, -1, 256), which gives a
+wide image (about 3430x256 for the 13:1 NCZ-OS wordmark), so the splash
+squeezed it horizontally and stretched it vertically.
+
+Fit the logo inside a box (size tall, up to 3x size or half the surface
+wide) with a single scale factor, centred, and place the loading bar 48 px
+under the drawn logo. Square emblems are unchanged. Load the default brand
+logo up to 4x size wide so a wide mark stays sharp.
+---
+ src/brand.c | 20 ++++++++++++++++----
+ 1 file changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/src/brand.c b/src/brand.c
+index 5a1722e..bf79456 100644
+--- a/src/brand.c
++++ b/src/brand.c
+@@ -8,7 +8,8 @@
+ cairo_surface_t *loginui_load_brand_logo(void) {
+     const char *path = getenv("SINGULARITY_SPLASH_LOGO");
+     if (!path || !path[0]) path = LOGINUI_BRAND_LOGO_PATH;
+-    return loginui_load_image(path, LOGINUI_BRAND_LOGO_SIZE, LOGINUI_BRAND_LOGO_SIZE);
++    /* Wide marks need more than LOGO_SIZE pixels of width to stay sharp. */
++    return loginui_load_image(path, LOGINUI_BRAND_LOGO_SIZE * 4, LOGINUI_BRAND_LOGO_SIZE);
+ }
+ 
+ void loginui_render_brand(cairo_t *cr, int width, int height,
+@@ -22,14 +23,25 @@ void loginui_render_brand(cairo_t *cr, int width, int height,
+ 
+     double size = LOGINUI_BRAND_LOGO_SIZE;
+     double top = floor((h - size) / 2.0);
++    double logo_h = size;
+     if (logo) {
+         int lw = cairo_image_surface_get_width(logo);
+         int lh = cairo_image_surface_get_height(logo);
+         if (lw > 0 && lh > 0) {
++            /* Fit inside a box (size tall, up to 3x size / half the surface
++             * wide) with ONE scale factor so the aspect ratio is kept. Square
++             * emblems still come out size x size; a wide wordmark is no
++             * longer squeezed into a square. Coordinates are the logical
++             * surface size, so a scaled output scales the result as a whole. */
++            double box_w = fmin(w * 0.5, size * 3.0);
++            double s = fmin(box_w / lw, size / lh);
++            double dw = lw * s, dh = lh * s;
++            logo_h = dh;
+             cairo_save(cr);
+-            cairo_translate(cr, floor((w - size) / 2.0), top);
+-            cairo_scale(cr, size / lw, size / lh);
++            cairo_translate(cr, floor((w - dw) / 2.0), floor(top + (size - dh) / 2.0));
++            cairo_scale(cr, s, s);
+             cairo_set_source_surface(cr, logo, 0, 0);
++            cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BEST);
+             cairo_paint(cr);
+             cairo_restore(cr);
+         }
+@@ -38,7 +50,7 @@ void loginui_render_brand(cairo_t *cr, int width, int height,
+     if (track_alpha > 0.0) {
+         double track_w = 220, track_h = 4, r = track_h / 2.0;
+         double track_x = w / 2.0 - track_w / 2.0;
+-        double track_y = top + size + 48;
++        double track_y = top + (size + logo_h) / 2.0 + 48;
+         lui_rounded_rect(cr, track_x, track_y, track_w, track_h, r);
+         cairo_set_source_rgba(cr, 1, 1, 1, 0.12 * track_alpha);
+         cairo_fill(cr);
+-- 
+2.53.0
+

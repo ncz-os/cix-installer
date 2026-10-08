@@ -98,6 +98,15 @@ runs the helper `fetch --if-stale` on activation, when the network returns and d
 skipping metered links, with backoff. It has no PR link on purpose: it must not be
 retired when #3 merges. See `docs/WALLPAPER-BING-PREFETCH.md`.
 
+**Not yet filed upstream** (draft in the r200 upstream-drafts folder). Patch
+`0007-sensors-popover-tabs-per-category.patch`, on top of #2 and #5. The sensors popover
+stacked every category in one tall column that reached the dock on a 16 inch panel. It now
+has tabs (CPU, Processor, Memory & Storage, Hardware; empty tabs are left out)
+using `Singularity.Widgets.SegmentedControl` over a `Gtk.Stack`. Grouped/Ungrouped works
+inside each tab, the logical-width column count from #2 is unchanged, the per-group row cap
+is 12 (was 6) and a height cap (monitor - chip bottom - dock - gap) stays as a safety net.
+No `**Upstream PR:**` link on purpose.
+
 ## libsingularity — active
 
 **Not yet filed upstream** (proposed to Mirko Brombin, the upstream
@@ -176,6 +185,19 @@ Deliberately has no `**Upstream PR:**` link, so
 upstream needs the singularityos-lab AI-disclosure trailers that the
 project's CI enforces. When it merges upstream, delete the patch and this
 block.
+
+**Not yet filed upstream.** Patch `0002-brand-splash-keep-logo-aspect-session-only.patch`.
+`loginui_render_brand()` (the splash `singularity-splash` shows after greeter login) scaled
+the logo with `cairo_scale(size / lw, size / lh)`, forcing every logo into a 256x256 square.
+`singularity-splash` loads the OS wordmark with `loginui_load_image(path, -1, 256)`, a wide
+image, so the 13:1 Cygnus wordmark came out squeezed horizontally and stretched vertically.
+The patch fits the logo inside a box (256 tall, up to 768 or half the surface wide) with one
+scale factor, centred, and puts the loading bar 48 px under the drawn logo; square emblems
+are unchanged. The file name carries `session-only`: the boot splash's bundled loginui copy
+has no `brand.c`, so the build and `singularity-pins.sh check-patches` skip such patches there.
+Separate from 0001, which fixes `loginui_render_splash()` (the boot splash).
+Covered by `build/test-splash-brand-aspect.sh` (manual, like `test-splash-logo-fit.sh`, which
+is a known env-only failure on HYDRA). No `**Upstream PR:**` link on purpose.
 
 ## singularity-session — active
 

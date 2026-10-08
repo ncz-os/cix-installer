@@ -340,7 +340,13 @@ check_patches_in() {
                 else
                     materialise "$url" "$lg" "$work/boot-splash-loginui"; rc=$?
                     if [ "$rc" = 0 ]; then
-                        apply_queue "singularity-loginui(boot-splash@${lg:0:12})" "$work/boot-splash-loginui" "${patches[@]}" || fail=1
+                        # `session-only` patches target code the boot splash's
+                        # loginui copy lacks; build-singularity.sh skips them too.
+                        local bs_patches=() bp
+                        for bp in "${patches[@]}"; do
+                            case "$bp" in *session-only*) ;; *) bs_patches+=("$bp") ;; esac
+                        done
+                        apply_queue "singularity-loginui(boot-splash@${lg:0:12})" "$work/boot-splash-loginui" "${bs_patches[@]}" || fail=1
                     elif [ "$rc" = 1 ]; then
                         echo "[pins] FAIL: boot splash's loginui gitlink $lg does not exist at $url"; fail=1
                     else
