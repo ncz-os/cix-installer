@@ -540,6 +540,9 @@ cd singularity-boot-splash
 if [ -d /ncz-patches/singularity-loginui ]; then
     for _p in /ncz-patches/singularity-loginui/*.patch; do
         [ -e "$_p" ] || continue
+        # session-only patches target code the bundled loginui copy lacks
+        # (the session splash renderer, brand.c).
+        case "$_p" in *session-only*) echo "    ncz patch skipped (session-only): singularity-loginui/$(basename "$_p")"; continue ;; esac
         _lt=subprojects/singularity-loginui
         if git -C "$_lt" apply --check "$_p" 2>/dev/null; then
             git -C "$_lt" apply "$_p"
