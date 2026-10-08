@@ -24,10 +24,17 @@ if [ -n "$blk" ]; then ( eval "$blk" ); fi
 if [ -n "$blk" ] && [ ! -e "$D/ncz-singularity-desktop_old_arm64.deb" ] && [ -e "$D/cix-env_1.0.0_arm64.deb" ]; then
     ok "stale singularity deb removed from base, other debs kept"
 else bad "stale singularity deb still in base (or block missing)"; fi
-mk 2
-if [ -n "$blk" ]; then ( eval "$blk" ); fi
-if [ -e "$D/ncz-singularity-desktop_old_arm64.deb" ]; then ok "no sinty-out deb -> base copy untouched"
-else bad "base copy removed although sinty-out holds none"; fi
+# CLEAN tree: build_base runs before build_singularity_payload in STAGE=all, so
+# build/sinty-out is still empty here and the base copy must be pruned anyway.
+for arch in amd64 arm64; do
+    ROOT="$W/c$arch"; WORK="$W/cw$arch"; D="$WORK/base/usr/local/lib/cix-installer/assets/cix-debs"
+    mkdir -p "$ROOT/build" "$D"   # no build/sinty-out at all
+    : > "$D/ncz-singularity-desktop_20261006000000+bk0+tgzold00000_$arch.deb"; : > "$D/cix-env_1.0.0_$arch.deb"
+    if [ -n "$blk" ]; then ( eval "$blk" ); fi
+    if [ -n "$blk" ] && ! ls "$D"/ncz-singularity-desktop_* >/dev/null 2>&1 && [ -e "$D/cix-env_1.0.0_$arch.deb" ]; then
+        ok "clean tree ($arch): stale singularity deb pruned from base, other debs kept"
+    else bad "clean tree ($arch): base layer still carries an ncz-singularity-desktop deb"; fi
+done
 
 # --- 2. prebuilt mode -------------------------------------------------------
 fn="$(sed -n '/^build_singularity_payload(){/,/^}/p' "$SCRIPT")"
