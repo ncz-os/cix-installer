@@ -14,11 +14,25 @@ named: version, ARGONAS directory, source commit, and for each arch the deb
 sha256, the payload version it was built against, and that payload's
 `libsingularity` sha256. Every consumer below reads this file.
 
-Current pin: 0.3.19 from `ncz-screensavers` `fix/r201-plugin-019-20261007`
-(49c6a40e), built against the 2026-10-07 Singularity refresh payloads (amd64
-`20261007185124+bk0+tgz8529a9b6`, arm64 `20261007184442+bk0+tgzfc441ab9`) and staged on
-ARGONAS at `/mnt/datapool/projects/ncz-screensavers-debs/plugin-0.3.19-20261007/`
+Current pin: 0.3.20 from `ncz-screensavers` `fix/r201-plugin-020-20261007`
+(dcdf3200), built against the 2026-10-07c Singularity payloads (amd64
+`20261008005256+bk0+tgzd3e4529c`, arm64 `20261008005309+bk0+tgze53a0286`, from
+`ncz-singularity-debs/singularity-refresh-20261007c`) and staged on
+ARGONAS at `/mnt/datapool/projects/ncz-screensavers-debs/plugin-0.3.20-20261007/`
 (debs, `SHA256SUMS`, `BUILT-FROM.txt`, build and test logs).
+
+0.3.20 gives the page its own Plugins row. The plugin file declares
+`X-Singularity-Category=lock` and the shell's category table gets a
+"Screensaver and Lock" row between Files and Previews and Tools
+(`assets/singularity/patches/singularity-shell/0005`). The row is in the
+payload, not the plugin: on a shell without it the unknown id falls back to
+Other, so the plugin now depends on `ncz-singularity-desktop (>= 20261008)`
+and the stage-2 gate, the offline installer and the installed-target
+verifier all fail when the plugin declares `lock` and the payload's
+`singularity-desktop` does not carry the row title. `libsingularity` is
+byte-identical to the 20261007b payloads, so the ABI rule is unchanged.
+A prebuilt payload from before the patch therefore cannot be paired with this
+plugin; rebuild the payload or pin the previous plugin.
 
 0.3.19 fixes what the 2026-10-07 multi-level Settings page showed on the test
 hosts. The page is narrower than the pop-out the plugin was written for, and the
@@ -30,13 +44,14 @@ open and brings them into view. The plugin file now carries what the Plugins
 page reads: `Version` (the package version, written by `make-plugin-deb.sh`),
 `Icon` (a themed scalable icon the package installs under
 `/opt/singularity/share/icons/hicolor/scalable/apps/`) and
-`X-Singularity-Category=tools` (without it the page falls back to a name
-heuristic and lists the plugin under Other). Packaging, the stage-2 gate
+`X-Singularity-Category` (0.3.19 declared `tools`; without it the page falls
+back to a name heuristic and lists the plugin under Other). Packaging, the stage-2 gate
 (`check-ssplugin-abi.sh`), the installer and the installed-target verifier all
 fail when any of the three is missing or `Version` is not the pinned version.
 
-The pin matches the final payloads built from `fix/singularity-converge-20261007`
-(`ncz-singularity-debs/singularity-refresh-20261007b`).
+The pin matches the payloads built from `fix/r201-lock-category-20261007` (the
+converged queue of `fix/singularity-converge-20261007` plus shell patch 0005;
+`ncz-singularity-debs/singularity-refresh-20261007c`).
 
 Per-screensaver options open in place: the gear on a screensaver row expands
 its options directly under that row, inside the Settings page, one screensaver

@@ -35,7 +35,7 @@ LIB="$ROOT/post-install/lib/ncz-ssplugin-install.sh"
 # deb whose screensaver.plugin carries the keys the Plugins page reads (Version, Icon with
 # its scalable svg, X-Singularity-Category); the optional arguments break one of them.
 mkplugin() {
-    local out="$1" arch="$2" ver="$3" pkg="${4:-ncz-screensavers-plugin}" mver="${5:-$3}" icon="${6:-dev.ncz.screensaver}" cat="${7:-tools}" d
+    local out="$1" arch="$2" ver="$3" pkg="${4:-ncz-screensavers-plugin}" mver="${5:-$3}" icon="${6:-dev.ncz.screensaver}" cat="${7:-lock}" d
     d="$(mktemp -d "$T/pkg.XXXXXX")"
     mkdir -p "$d/DEBIAN" "$d/opt/singularity/lib/singularity/plugins/screensaver"
     echo "so $arch $ver" > "$d/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"
@@ -48,11 +48,13 @@ mkplugin() {
     printf 'Package: %s\nVersion: %s\nArchitecture: %s\nMaintainer: Jason Perlow <jperlow@gmail.com>\nDescription: test\n' "$pkg" "$ver" "$arch" > "$d/DEBIAN/control"
     dpkg-deb --root-owner-group -b "$d" "$out" >/dev/null 2>&1 || dpkg-deb -b "$d" "$out" >/dev/null
 }
-# mkpayload OUT ARCH VERSION LIBBYTES: a Singularity-payload-shaped deb.
+# mkpayload OUT ARCH VERSION LIBBYTES [SHELLTEXT]: a Singularity-payload-shaped deb; the shell
+# binary carries the Plugins category row titles (SHELLTEXT replaces them).
 mkpayload() {
-    local out="$1" arch="$2" ver="$3" bytes="$4" d
+    local out="$1" arch="$2" ver="$3" bytes="$4" shell="${5:-Plugins without a category Screensaver and Lock}" d
     d="$(mktemp -d "$T/pay.XXXXXX")"
-    mkdir -p "$d/DEBIAN" "$d/opt/singularity/lib"
+    mkdir -p "$d/DEBIAN" "$d/opt/singularity/lib" "$d/opt/singularity/bin"
+    printf '%s\n' "$shell" > "$d/opt/singularity/bin/singularity-desktop"
     printf '%s' "$bytes" > "$d/opt/singularity/lib/libsingularity.so.0.1.0"
     ln -s libsingularity.so.0.1.0 "$d/opt/singularity/lib/libsingularity.so.0"
     printf 'Package: ncz-singularity-desktop\nVersion: %s\nArchitecture: %s\nMaintainer: x <x@x>\nDescription: test\n' "$ver" "$arch" > "$d/DEBIAN/control"
@@ -139,6 +141,9 @@ if [ -r "$CK" ]; then
         expect "abi: metadata $vname is refused" 1 "$vmsg" env NCZ_SSPLUGIN_LOCK="$V/lock" NCZ_SSPLUGIN_OUT="$V" NCZ_SSPLUGIN_CIX_DEBS="$C" bash "$CK" --arch amd64
     done
     expect "abi: no payload deb fails" 1 "no Singularity payload deb" abi
+    mkpayload "$C/ncz-singularity-desktop_20261006+bk0+tgzaaaaaaaa_amd64.deb" amd64 20261006+bk0+tgzaaaaaaaa LIB-A "Plugins without a category"
+    expect "abi: a lock-category plugin over a shell without the row is refused" 1 "no Screensaver and Lock row" abi
+    rm -f "$C"/*
     mkpayload "$C/ncz-singularity-desktop_20261006+bk0+tgzaaaaaaaa_amd64.deb" amd64 20261006+bk0+tgzaaaaaaaa LIB-A
     expect "abi: the payload the plugin was built against passes" 0 "ABI OK (version-match)" abi
     rm -f "$C"/*; mkpayload "$C/ncz-singularity-desktop_20261007+bk0+tgzcccccccc_amd64.deb" amd64 20261007+bk0+tgzcccccccc LIB-A
@@ -197,7 +202,8 @@ EOF
     # mkroot DIR PAYLOADVER LIBBYTES [deb-placement: cdrom|union|none|tampered]
     mkroot() {
         local r="$1" pv="$2" lb="$3" where="${4:-cdrom}" dd
-        mkdir -p "$r/opt/singularity/lib"
+        mkdir -p "$r/opt/singularity/lib" "$r/opt/singularity/bin"
+        printf 'Plugins without a category Screensaver and Lock\n' > "$r/opt/singularity/bin/singularity-desktop"
         printf 'Package: ncz-singularity-desktop\nStatus: install ok installed\nVersion: %s\n\n' "$pv" > "$r/status"
         printf '%s' "$lb" > "$r/opt/singularity/lib/libsingularity.so.0.1.0"
         ln -sf libsingularity.so.0.1.0 "$r/opt/singularity/lib/libsingularity.so.0"
@@ -216,6 +222,8 @@ EOF
     expect "install: a re-run only re-asserts" 0 "already installed" inst "$R"
     R="$T/r2"; mkroot "$R" 20261009+bk0+tgzeeeeeeee LIB-B union
     expect "install: a rebuilt payload with identical libsingularity installs (union-synced copy)" 0 "ABI ok (lib-identical)" inst "$R"
+    R="$T/r9"; mkroot "$R" 20261006+bk0+tgzbbbbbbbb LIB-B cdrom; printf 'Plugins without a category\n' > "$R/opt/singularity/bin/singularity-desktop"
+    expect "install: the lock category over a shell without the row is refused" 1 "no Screensaver and Lock row" inst "$R"
     R="$T/r3"; mkroot "$R" 20261009+bk0+tgzeeeeeeee LIB-OTHER cdrom
     expect "install: an ABI mismatch refuses the plugin" 1 "ABI MISMATCH" inst "$R"
     [ ! -e "$R/apt.log" ] && ok "install: apt never ran on an ABI mismatch" || bad "install: apt ran despite the ABI mismatch"

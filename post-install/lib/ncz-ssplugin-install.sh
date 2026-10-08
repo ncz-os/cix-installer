@@ -182,6 +182,12 @@ ncz_ssplugin_install() {
     pi="$(sed -n 's/^Icon=//p' "$R$p/screensaver.plugin" | head -n 1)"
     [ -n "$pi" ] && [ -e "$R/opt/singularity/share/icons/hicolor/scalable/apps/$pi.svg" ] || {
         ssp_err "FATAL: $SSP_PKG installed but its Icon '$pi' is not in /opt/singularity/share/icons/hicolor/scalable/apps"; return 1; }
+    # The category decides which Plugins row lists the plugin; the shell must have that row.
+    local pc
+    pc="$(sed -n 's/^X-Singularity-Category=//p' "$R$p/screensaver.plugin" | head -n 1)"
+    if [ "$pc" = lock ] && ! grep -aq 'Screensaver and Lock' "$R/opt/singularity/bin/singularity-desktop" 2>/dev/null; then
+        ssp_err "FATAL: $SSP_PKG declares category lock but the installed shell has no Screensaver and Lock row (the plugin would sit in Other)"; return 1
+    fi
     # The package postinst adds 'screensaver' to the distribution default
     # enabled-plugins (from 20-desktop.sh's 99-ncz-defaults override) so a NEW
     # user starts with the page enabled; ncz-screensaver ensure-plugin covers
