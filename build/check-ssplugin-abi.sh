@@ -8,6 +8,8 @@
 #     build/ncz-screensavers-out/, and its sha256 is the one pinned in
 #     post-install/lib/ncz-screensavers-plugin.lock (stage it with
 #     build/stage-screensaver-plugin.sh ARCH on the build host);
+#  1b. metadata: the deb's screensaver.plugin carries the pinned Version, an Icon that
+#     the deb installs as a scalable svg, and a valid X-Singularity-Category;
 #  2. ABI: the Singularity payload the image installs -- the newest
 #     assets/cix-debs/ncz-singularity-desktop_*_ARCH.deb, which stage 1 rebuilt
 #     and baked into the desktop layer, and which 20-desktop.sh installs -- is
@@ -64,6 +66,28 @@ fi
     ssp_err "FATAL: $PLUGIN_DEB is not named ${SSP_PKG}_${SSP_VERSION}_${ARCH}.deb (the installer looks for that name)"; exit 1; }
 ssp_log "staged plugin OK: $(basename "$PLUGIN_DEB") sha256 $got"
 
+# 1b. the metadata the Plugins page reads ------------------------------------------------
+# A plugin file without Version shows "Version Unknown", one without a valid Icon shows
+# the generic (in this theme: broken) icon, and one without X-Singularity-Category lands
+# in "Other". The pinned deb must carry all three, the version being the pinned one.
+work="$(mktemp -d "${TMPDIR:-/var/tmp}/ssplugin-abi.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
+pdir=/opt/singularity/lib/singularity/plugins/screensaver
+dpkg-deb --fsys-tarfile "$PLUGIN_DEB" | tar -x -C "$work" --wildcards \
+    ".$pdir/screensaver.plugin" "./opt/singularity/share/icons/hicolor/scalable/apps/*.svg" 2>/dev/null
+pmeta() { sed -n "s/^$1=//p" "$work$pdir/screensaver.plugin" 2>/dev/null | head -n 1; }
+[ -s "$work$pdir/screensaver.plugin" ] || { ssp_err "FATAL: $(basename "$PLUGIN_DEB") has no $pdir/screensaver.plugin"; exit 1; }
+[ "$(pmeta Version)" = "$SSP_VERSION" ] || {
+    ssp_err "FATAL: screensaver.plugin in $(basename "$PLUGIN_DEB") says Version='$(pmeta Version)', not the pinned $SSP_VERSION (the plugin page would show Version Unknown or a stale one)"; exit 1; }
+picon="$(pmeta Icon)"
+[ -n "$picon" ] && [ -s "$work/opt/singularity/share/icons/hicolor/scalable/apps/$picon.svg" ] || {
+    ssp_err "FATAL: screensaver.plugin names Icon='$picon' but the deb installs no scalable $picon.svg"; exit 1; }
+case "$(pmeta X-Singularity-Category)" in
+    panel|dock|wallpapers|search|files|tools|other) ;;
+    *) ssp_err "FATAL: screensaver.plugin has no valid X-Singularity-Category (the plugin would sit in Other)"; exit 1 ;;
+esac
+ssp_log "plugin metadata OK: Version $SSP_VERSION, Icon $picon, category $(pmeta X-Singularity-Category)"
+
 # 2. the payload the image installs ---------------------------------------------------
 if [ -z "$PAYLOAD_DEB" ]; then
     PAYLOAD_DEB="$(ls -1 "$CIX_DEBS"/ncz-singularity-desktop_*_"$ARCH".deb 2>/dev/null | sort -V | tail -1)"
@@ -74,8 +98,6 @@ if [ -z "$PAYLOAD_DEB" ] || [ ! -s "$PAYLOAD_DEB" ]; then
 fi
 pver="$(dpkg-deb -f "$PAYLOAD_DEB" Version 2>/dev/null || true)"
 [ -n "$pver" ] || { ssp_err "FATAL: cannot read the Version of $PAYLOAD_DEB"; exit 1; }
-work="$(mktemp -d "${TMPDIR:-/var/tmp}/ssplugin-abi.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
 # Extract only the libsingularity entries (the soname link and its target).
 rel=".${SSP_ABI_LIB}"
 if ! dpkg-deb --fsys-tarfile "$PAYLOAD_DEB" | tar -x -C "$work" --wildcards "${rel}*" 2>/dev/null; then

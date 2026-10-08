@@ -189,6 +189,9 @@ m_ss_schema()   { printf 'nothing' > "$1/usr/share/glib-2.0/schemas/gschemas.com
 # installer tree, or VERIFY_EXPECT_SS_PLUGIN=1) or when it is installed.
 m_ssp_installed_no_so()       { m_ssp_pkg "$1"; rm -f "$1/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"; }
 m_ssp_installed_no_pluginfile() { m_ssp_pkg "$1"; rm -f "$1/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"; }
+# the plugin file must carry the installed version and an icon the package installs
+m_ssp_installed_stale_version() { m_ssp_pkg "$1"; sed -i 's/^Version=.*/Version=0.0.1/' "$1/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"; }
+m_ssp_installed_no_icon()     { m_ssp_pkg "$1"; rm -f "$1/opt/singularity/share/icons/hicolor/scalable/apps/dev.ncz.screensaver.svg"; }
 m_ssp_installed_nofiles()     { m_ssp_pkg "$1"; rm -f "$1"/opt/singularity/lib/singularity/plugins/screensaver/*; }
 m_ss_ref()      { printf 'Package: ncz-screensavers-gtk4-reference\nStatus: install ok installed\nVersion: 0.7.1\n\n' >> "$1/var/lib/dpkg/status"; }
 m_ss_launcher() { rm -f "$1/usr/bin/ncz-screensaver"; }
@@ -230,7 +233,10 @@ m_ssp_pkg() {
     printf 'Package: ncz-screensavers-plugin\nStatus: install ok installed\nVersion: %s\n\n' "$SSP_PIN_VER" >> "$1/var/lib/dpkg/status"
     mkdir -p "$1/opt/singularity/lib/singularity/plugins/screensaver" "$1/opt/singularity/share/glib-2.0/schemas"
     echo x > "$1/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"
-    echo x > "$1/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"
+    printf '[Plugin]\nModule=screensaver\nVersion=%s\nIcon=dev.ncz.screensaver\nX-Singularity-Category=tools\n' "$SSP_PIN_VER" \
+        > "$1/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"
+    mkdir -p "$1/opt/singularity/share/icons/hicolor/scalable/apps"
+    echo '<svg/>' > "$1/opt/singularity/share/icons/hicolor/scalable/apps/dev.ncz.screensaver.svg"
     printf "enabled-plugins='screensaver'\n" > "$1/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"
 }
 # Stanza-scoped edits: from the Package line up to the blank line ending it,
@@ -348,6 +354,8 @@ run_case "screensavers with 74 of 84 hacks fails"  1 m_ss_hacks
 run_case "screensavers without launcher fails"  1 m_ss_launcher
 run_case "plugin pkg installed but .so missing fails" 1 m_ssp_installed_no_so
 run_case "plugin pkg installed but .plugin manifest missing fails" 1 m_ssp_installed_no_pluginfile
+run_case "plugin file says another version than the installed package fails" 1 m_ssp_installed_stale_version
+run_case "plugin file names an icon the package does not install fails" 1 m_ssp_installed_no_icon
 run_case "plugin pkg installed but no plugin files fails" 1 m_ssp_installed_nofiles
 run_case "plugin pkg installed with files present passes" 0 m_ssp_pkg
 run_case "plugin pinned by the image but not installed fails" 1 m_ssp_pinned_missing
