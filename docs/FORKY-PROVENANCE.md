@@ -104,7 +104,8 @@ behaviour, not a bug):
   `libgtk4-layer-shell0 1.3.0-1+ncz20260925`, and the older `libdrm2` /
   `libdrm-common 2.4.134-3+ncz1` still present in the r201 desktop-mirror pool.
 * **Ships, no ledger row yet** — `ncz-wallpapers-cygnus-2610 1.1 all` (both arches).
-* **Kernel / boot (separate kernel followup, not this ledger)** — amd64
+* **Kernel / boot input provenance (image-input work, distinct from the
+  current-kernel-warning followup)** — amd64
   `linux-image-7.3.0-rc6-4-t2-edge-aer9010` and `linux-headers-…` `7.3.0-rc6-4`;
   arm64 `linux-image-cixmini` / `linux-headers-cixmini 7.3.0-rc6-sky1-ncz+r285`
   and `cixmini-boot 1.2+r285`.
