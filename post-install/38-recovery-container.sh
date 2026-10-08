@@ -80,6 +80,9 @@ EOF
 # macvlan is not auto-loaded by systemd-nspawn; without it the container fails to
 # start ("Failed to add new macvlan interfaces: Operation not supported"). Load
 # it at boot (the netparent oneshot also modprobes it before the container).
+# /etc/modules-load.d is not guaranteed to exist (a real run of this hook on forky died here, set -e,
+# before the netparent unit and the container enable were written).
+install -d -m 0755 /etc/modules-load.d
 echo macvlan > /etc/modules-load.d/ncz-recovery.conf
 
 # ---- 4. fleet authorized_keys into the container's root account ----
