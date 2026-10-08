@@ -90,7 +90,7 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
       . "$ROOT/post-install/lib/apt-separation.sh"; ncz_apt_separation_pin_text > "$r/etc/apt/preferences.d/$NCZ_APT_PIN_NAME" )
     echo 'deb [signed-by=/x] https://packages.buildkite.com/ncz-os/ncz/any/ any main' > "$r/etc/apt/sources.list.d/ncz-os-apt-buildkite.list"
     echo 'deb [signed-by=/x] https://pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev any main' > "$r/etc/apt/sources.list.d/ncz-os-apt-r2.list.disabled"
-    printf 'Package: ncz-apt-policy\nStatus: install ok installed\nVersion: 1.0.1\n\n' >> "$r/var/lib/dpkg/status"
+    printf 'Package: ncz-apt-policy\nStatus: install ok installed\nVersion: 1.0.2\n\n' >> "$r/var/lib/dpkg/status"
     # network firmware packages named in manifests/net-firmware.tsv (13-firmware-bom)
     while IFS= read -r f; do
         printf 'Package: %s\nArchitecture: all\nStatus: install ok installed\n\n' "$f" >> "$r/var/lib/dpkg/status"

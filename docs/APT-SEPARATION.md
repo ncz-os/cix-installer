@@ -33,11 +33,13 @@ Branch `fix/r201-apt-separation-20261007`, off the respin `d287f207`.
    | NCZ | anything else, i.e. a Debian-named package | 100 (Debian's 500 wins) |
    | Debian | `ncz-* cix-* cixmini-* chromium-ncz-*` | -1 (Debian cannot hijack) |
    | any | leaked `fonts-liberation 1:2.1.5-3build1` | -1 |
-   | T2 repo | the 12 known T2 package names | 990 |
-   | T2 repo | everything else | 100 |
-   | T2 repo | `linux-image-* linux-headers-* linux-t2*` | -1 |
+   | Debian | `intel-opencl-icd libze1 libze-intel-gpu1` | 990 (Debian's runtime beats any Ubuntu build Intel's repo carries) |
 
-   990 and not 1000+, so nothing ever forces a downgrade.
+   990 and not 1000+, so nothing ever forces a downgrade. The former third-party
+   T2 stanzas are gone (r201 native-vendor closure, 2026-10-08): `55-t2-firmware.sh`
+   wires no third-party T2 apt source, so there is no T2 host to pin. Verified
+   2026-10-08 against the pinned forky snapshot: Debian ships **no** openvino
+   package, so the Intel plugin needs no pin.
 3. **One NCZ repo.** Buildkite is enabled: it is the superset (zoder, libdrm,
    `ncz-model-nomic-embed` that R2's 300 MB single-PUT rejects) and the
    2026-07-26 operator primary. R2 stays staged as
@@ -54,7 +56,7 @@ Branch `fix/r201-apt-separation-20261007`, off the respin `d287f207`.
    generic "apt origin/label" grouping in the Store, which today is Flatpak-only.
 5. **Delivery of the pin.** New installs: hook 24 writes it before any other
    apt operation. Everyone, including already-installed r200 machines: the
-   `ncz-apt-policy` package (1.0.1; `build/build-ncz-apt-policy-deb.sh`) rewrites
+   `ncz-apt-policy` package (1.0.2; `build/build-ncz-apt-policy-deb.sh`) rewrites
    the pin in its (bash) postinst and migrates a dual-repo configuration. A
    standalone package does not install itself, so it is delivered by
    `manifests/install-extra.pkgs` (+ SBOM rows, `components.tsv`; images), hook 24
@@ -84,14 +86,14 @@ Branch `fix/r201-apt-separation-20261007`, off the respin `d287f207`.
 |---|---|
 | `build/check-ncz-repo-policy.sh INDEX...` / `--components` / `--live` | a Debian-named package is published or seeded in the NCZ suite and is not an allowlist row for that architecture, or is a Debian kernel name |
 | `ncz-reprepro-publish.sh` policy block | same check, before `includedeb`, fail closed; also refuses a same-version republish with different bytes |
-| `build/check-installed-apt-config.sh [ROOT]` | pin file missing or stale, kernel-purity pin missing, two NCZ repos enabled, `t2.list` without a T2 pin |
+| `build/check-installed-apt-config.sh [ROOT]` | pin file missing or stale, kernel-purity pin missing, two NCZ repos enabled; a stale `t2.list` is noted |
 | `build/lib/deb-version-gate.sh` in the wallpaper, usb-recovery, dkms, singularity, libdrm and policy builders | a package reuses a published version with different content |
 | `build/verify-installed-target.sh` (section `apt`) | an installed image fails the audit above or lacks `ncz-apt-policy` |
 | `build/preflight-sbom-check.sh` | `check-ncz-repo-policy.sh --components` fails (always fatal); the live index check only WARNS here (`build/apt-live-gate.sh warn`) |
 | `build/ship-image.sh` | `build/apt-live-gate.sh fail`: a Debian-named package published in the live NCZ repos blocks shipping (read-only; skips when the indexes are unreachable) |
 | `build/test-install-extra-local-debs.sh` | an `ncz-*` seed in `install-extra.pkgs` that the offline-mirror build cannot resolve (no `NCZ_LOCAL_DEBS` row / no builder), for both arches |
 | `build/test-ncz-apt-policy-deb.sh` | the built deb's scripts do not parse under their own interpreter, or the real `dpkg -i`/reinstall/purge in debian:forky is not clean (negative control: the 1.0.0 sh postinst) |
-| `build/test-apt-separation.sh` | real apt resolution against throwaway Debian / NCZ(http) / T2(http) repos: old behaviour reproduced, new behaviour asserted |
+| `build/test-apt-separation.sh` | real apt resolution against throwaway Debian / NCZ(http) repos: old behaviour reproduced, new behaviour asserted |
 | `build/test-ncz-repo-policy.sh` | the gates above, plus update classification of MEDUSA's recorded r200 output |
 
 ## Compatibility with the other hooks (tested)
@@ -100,10 +102,10 @@ Branch `fix/r201-apt-separation-20261007`, off the respin `d287f207`.
 |---|---|
 | Hook 24 (bare `apt-get update`, hard failure with no NCZ source, ncz-screensavers canary on `file:/+cdrom` and NCZ hosts) is unaffected by the pin | `build/test-apt-sources-hook-container.sh` runs the real hook in debian:forky with the pin and an `/cdrom` pool (rc 0, canary verdict, policy source lines identical with and without the pin, rc 1 with no keyrings); `build/test-apt-separation.sh` scenario E runs the hook's canary block on real `apt-cache` output for network+cdrom, cdrom-only and neither |
 | `build-squashfs-layers.sh` `...-live.list` and `.disabled-for-build` files are not collapsed, deleted or re-enabled | `build/test-apt-separation.sh` "source writer + helper: leave foreign, build-time ..." (byte-identical before/after writer and `ncz-apt-source r2` then `buildkite`) |
-| Intel deferred units: `intel-openvino.list`, `ncz-cuda-debian12.list`, `rocm.list` and keyring survive; `libopenvino-intel-*` from the Intel repo (suite `ubuntu24`), `intel-opencl-icd`/`libze1`/`libze-intel-gpu1` from Debian forky for the UNPINNED install; nothing needs `/cdrom` | same test (list survival); scenario D (real apt: old behaviour wrong both ways, new right, `apt-get -s install` of the set resolves, pin text has no `/cdrom`) |
+| Intel deferred units: `intel-openvino.list`, `ncz-cuda-debian12.list`, `rocm.list` and keyring survive; the Intel GPU/NPU plugin comes from the Intel repo (suite `ubuntu24`, its only source — Debian forky ships no openvino package), `intel-opencl-icd`/`libze1`/`libze-intel-gpu1` from Debian forky for the UNPINNED install; nothing needs `/cdrom` | same test (list survival); scenario D (real apt: old behaviour wrong both ways, new right, `apt-get -s install` of the set resolves, pin text has no `/cdrom` and names no pending vendor host) |
 | `ncz-apt-policy` owns no `ncz-intel-accel-setup.*` or `/var/lib/ncz/intel-accel.*` | `build/test-ncz-apt-policy-deb.sh` (package contents, and the files survive install, reinstall and purge in debian:forky) |
 
-The writer only ever removes the four exact `ncz-os-apt-{buildkite,r2}.list[.disabled]` names; the Intel host is `apt.repos.intel.com` (override `NCZ_APT_INTEL_HOST`).
+The writer only ever removes the four exact `ncz-os-apt-{buildkite,r2}.list[.disabled]` names; it never touches a foreign vendor list.
 
 ## Version identity
 
@@ -145,9 +147,11 @@ through `build/ops/argos/ncz-reprepro-publish.sh`, which dual-publishes.
 2. Bump and republish the four wallpaper packs
    (`build/build-wallpaper-contrib-deb.sh {ncz,singularity,alex-jay-brady,brandon-perlow}`
    builds 1.1) and publish them.
-3. Build and publish `ncz-apt-policy` 1.0.1 from the **exact final head**
-   (`build/build-ncz-apt-policy-deb.sh`): the pin text changed several times
-   while 1.0.1 was never published, so any earlier-tip 1.0.1 must be discarded.
+3. Build and publish `ncz-apt-policy` 1.0.2 from the **exact final head**
+   (`build/build-ncz-apt-policy-deb.sh`): the library changed (r201 native-vendor
+   closure — the unreferenced T2 pending-host pin stanzas are gone and the Intel
+   runtime is pinned `release o=Debian`), so the version moves to 1.0.2; any
+   earlier-tip 1.0.2 must be discarded.
    The publisher refuses a deb whose packaged `apt-separation.sh` differs from
    the copy deployed in `~/ncz-policy` (step 0), and the version gate refuses a
    later same-version rebuild with different content. Publishing is needed only

@@ -52,7 +52,7 @@ run_block() {  # <hook> <marker> <prelude>
 o="$(run_block "$ROOT/post-install/36-telemetry.sh" rsyslog-status 'true')"
 echo "$o" | grep -q 'WARN: rsyslog install failed (rc=100)' && ok "36: a failed rsyslog install now prints its WARN" || { bad "36: WARN did not fire"; echo "$o"; }
 o="$(run_block "$ROOT/post-install/55-t2-firmware.sh" t2-pkg-status 'true')"
-echo "$o" | grep -q 'ERROR: apple-firmware-script is not installed' && echo "$o" | grep -q 'T2_PKG_FAIL=1' && ok "55: missing T2 packages are detected (flag set, error printed)" || { bad "55: failure not detected"; echo "$o"; }
+echo "$o" | grep -q 'ERROR: /usr/bin/get-apple-firmware is not installed' && echo "$o" | grep -q 'T2_PKG_FAIL=1' && ok "55: missing T2 native assets are detected (flag set, error printed)" || { bad "55: failure not detected"; echo "$o"; }
 grep -q 'exit 1' <(sed -n '/T2_PKG_FAIL" = 1/,/^fi$/p' "$ROOT/post-install/55-t2-firmware.sh") && ok "55: the hook exits 1 when the flag is set" || bad "55: no exit 1 on T2_PKG_FAIL"
 # control: the old shape really could not fire
 printf '#!/bin/bash\nset +e\napt-get install x 2>&1 | tail -3 || echo OLDWARN\n' > "$T/old.sh"

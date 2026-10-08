@@ -1,6 +1,6 @@
 #!/bin/bash
 # post-install/lib/apt-separation.sh -- keep NCZ-OS package updates separate
-# from Debian's (and from the third-party T2 repo's) on installed systems.
+# from Debian's on installed systems.
 #
 # Sourced by post-install/24-apt-sources.sh, shipped inside the ncz-apt-policy
 # deb (build/build-ncz-apt-policy-deb.sh) for systems that are already
@@ -29,18 +29,22 @@
 #   NCZ origin, allowlisted intentional Debian-name override       990
 #   NCZ origin, any other name (i.e. a Debian-named package)       100  -> Debian (500) wins
 #   Debian origin, NCZ-reserved prefixes (ncz-* cix-* cixmini-*)    -1  -> Debian cannot hijack
-#   T2 repo, known T2 package names                                990
-#   T2 repo, anything else                                         100  -> Debian wins
-#   T2 repo, kernel/headers                                         -1
+#   Intel origin, Debian runtime names (via release o=Debian)      990  -> Debian wins
 # 990 (not 1000+) on purpose: never forces a downgrade.
 #
-# Test overrides: NCZ_APT_NCZ_HOSTS / NCZ_APT_T2_HOST may be set before
-# sourcing (build/test-apt-separation.sh points them at localhost).
+# The former third-party T2 repo stanzas are GONE (r201 native-vendor closure):
+# post-install/55-t2-firmware.sh no longer wires adityagarg8.github.io at all,
+# and a positive pin on that pending host failed the provenance pin audit on
+# every image. The Intel ubuntu24 host stays a `pending` SOURCE (its row is not
+# approved); its plugin packages come from that host only when the deferred
+# installer wires it, and Debian's own runtime packages are made to win with a
+# `release o=Debian` pin rather than a positive pin on the pending Intel host.
+#
+# Test overrides: NCZ_APT_NCZ_HOSTS may be set before sourcing
+# (build/test-apt-separation.sh points it at localhost).
 
 : "${NCZ_APT_NCZ_HOSTS:=packages.buildkite.com pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev}"
-: "${NCZ_APT_T2_HOST:=adityagarg8.github.io}"
 : "${NCZ_APT_NCZ_RELEASE_ORIGIN:=NCZ-OS}"
-: "${NCZ_APT_INTEL_HOST:=apt.repos.intel.com}"
 NCZ_APT_PIN_NAME=10-ncz-origin-separation.pref
 
 # Names only NCZ may supply. One glob per line. linux-image-*/linux-headers-*
@@ -94,27 +98,6 @@ ncz_apt_leaked_versions() {
 # that are NOT published to the NCZ repo; their own vendor repos update them.
 ncz_apt_vendor_staged() { printf '%s\n' google-chrome-stable vivaldi-stable; }
 
-# The known T2 package set from the third-party t2-ubuntu-repo (Ubuntu-built).
-# None of these names exist in Debian. post-install/55-t2-firmware.sh installs
-# apple-firmware-script and apple-t2-audio-config; the rest are the DKMS and
-# daemon packages the t2linux project ships for the same hardware.
-ncz_apt_t2_packages() {
-    cat <<'EOF'
-apfs-dkms
-apple-bce
-apple-firmware-script
-apple-t2-audio-config
-apple-touchbar
-applesmc-t2
-bcm5974-t2
-t2-apple-audio-dsp-mic
-t2-apple-audio-dsp-speakers161
-t2-ncm
-t2-touchid
-t2fanrd
-EOF
-}
-
 _ncz_apt_join() { tr '\n' ' ' | sed 's/ *$//'; }
 
 # Classify one package name for the repo-content gate.
@@ -146,11 +129,10 @@ ncz_apt_override_arch_ok() {
 
 # The preferences file, to stdout.
 ncz_apt_separation_pin_text() {
-    local ns resv allow t2 h
+    local ns resv allow h
     ns="$(ncz_apt_namespace_patterns | _ncz_apt_join)"
     resv="$(ncz_apt_reserved_prefixes | _ncz_apt_join)"
     allow="$(ncz_apt_debian_overrides | cut -f1 | _ncz_apt_join)"
-    t2="$(ncz_apt_t2_packages | _ncz_apt_join)"
     cat <<EOF
 # /etc/apt/preferences.d/$NCZ_APT_PIN_NAME
 # Written by post-install/24-apt-sources.sh and the ncz-apt-policy package from
@@ -180,33 +162,18 @@ EOF
         _ncz_apt_nczstanzas "origin $h" "$ns" "$allow"
     done
     cat <<EOF
-# Third-party t2-ubuntu-repo (Ubuntu-built). Only the known T2 set may win;
-# everything else it carries ranks below Debian; it never supplies a kernel.
-Package: linux-image-* linux-headers-* linux-t2*
-Pin: origin $NCZ_APT_T2_HOST
-Pin-Priority: -1
-
-Package: $t2
-Pin: origin $NCZ_APT_T2_HOST
-Pin-Priority: 990
-
-Package: *
-Pin: origin $NCZ_APT_T2_HOST
-Pin-Priority: 100
-
 # Intel OpenVINO repo (suite ubuntu24, written by the deferred ncz-intel-accel-setup).
-# The deferred install is an UNPINNED apt-get install, so the pin decides:
-# libopenvino-intel-* comes from Intel (Debian forky ships same-named plugin packages with
-# other versions); the Level Zero / OpenCL runtime comes from Debian forky even if the Intel
-# repo carries an Ubuntu build of it. Nothing here refers to the install medium (gone after install),
-# and no other Intel package is demoted.
-Package: libopenvino-intel-*
-Pin: origin $NCZ_APT_INTEL_HOST
-Pin-Priority: 990
-
+# The deferred install is an UNPINNED apt-get install, so the pin decides. Verified
+# 2026-10-08 against the pinned forky snapshot: Debian forky ships NO openvino package
+# at all, under any name, so the Intel GPU/NPU plugin packages have no Debian
+# competitor and need no pin (the old libopenvino-intel-* Intel-origin pin was
+# guarding a collision that does not exist). Debian's own Level Zero / OpenCL runtime
+# must win over any Ubuntu build Intel's repo carries, so those names are pinned to
+# the Debian ORIGIN (release o=Debian, which the provenance pin audit accepts) rather
+# than to a positive pin on the still-pending Intel host.
 Package: intel-opencl-icd libze1 libze-intel-gpu1
-Pin: origin $NCZ_APT_INTEL_HOST
-Pin-Priority: 100
+Pin: release o=Debian
+Pin-Priority: 990
 EOF
 }
 

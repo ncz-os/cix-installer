@@ -8,7 +8,8 @@
 #   debian  file:  Release Origin: Debian         fonts-liberation 1:2.1.5-3, terser 5.2.0, ...
 #   ncz     http://localhost  Release Origin: packagecloud.io/<uuid> (what Buildkite
 #           really publishes -- NOT "NCZ-OS"), so the pin must match by HOST
-#   t2      http://127.0.0.1  no Origin at all (like adityagarg8's flat repo)
+#   (the r200 third-party t2 origin is deliberately NOT in the universe: r201 wires
+#    no third-party T2 apt source, and 55 installs T2 inputs from staged assets.)
 # Installed: fonts-liberation 1:2.1.5-3, libdrm-common 2.4.134-3+ncz1, terser 5.1.0,
 #            ncz-wallpapers-ncz 1.0, libfoo 1.0
 #
@@ -38,8 +39,6 @@ bad() { FAIL=$((FAIL+1)); echo "  FAIL  $1"; [ -n "${2:-}" ] && printf '%s\n' "$
 eq()  { [ "$2" = "$3" ] && ok "$1 = $3" || bad "$1: got '$2', want '$3'"; }
 
 export NCZ_APT_NCZ_HOSTS="localhost"
-export NCZ_APT_T2_HOST="127.0.0.1"
-export NCZ_APT_INTEL_HOST="127.0.0.2"   # loopback alias: a third distinct apt origin host
 # shellcheck source=../post-install/lib/apt-separation.sh
 . "$PI/lib/apt-separation.sh"
 # shellcheck source=../post-install/lib/kernel-purity.sh
@@ -58,10 +57,9 @@ entry() {  # dir name ver [arch]
         "$2" "$3" "${4:-all}" "$2" "$2" "$3" 0 >> "$1/Packages"
 }
 mkdir -p "$T/www"
-DEB="$T/debian"; NCZ="$T/www/ncz"; T2="$T/www/t2"
+DEB="$T/debian"; NCZ="$T/www/ncz"
 mk_repo "$DEB" Debian testing
 mk_repo "$NCZ" 'packagecloud.io/019f10bc-0000-0000-0000-000000000000/019f10be-0000' any
-mk_repo "$T2" - ./
 # Debian
 entry "$DEB" fonts-liberation 1:2.1.5-3
 entry "$DEB" libdrm-common 2.4.134-3
@@ -77,11 +75,7 @@ entry "$NCZ" ncz-evil 1.0
 entry "$NCZ" zoder 0.2.1 "$ARCH"
 entry "$NCZ" linux-image-7.3.0-t2-trixie 7.3.0-1 "$ARCH"
 entry "$NCZ" libfoo 2.0
-# T2
-entry "$T2" t2fanrd 0.1.0-4 "$ARCH"
-entry "$T2" libfoo 3.0 "$ARCH"
-entry "$T2" linux-image-t2-fake 1.0 "$ARCH"
-for d in "$DEB" "$NCZ" "$T2"; do gzip -kf "$d/Packages"; done
+for d in "$DEB" "$NCZ"; do gzip -kf "$d/Packages"; done
 
 : > "$T/status"
 inst() { printf 'Package: %s\nStatus: install ok installed\nPriority: optional\nSection: misc\nInstalled-Size: 1\nMaintainer: T <t@example.invalid>\nArchitecture: all\nVersion: %s\nDescription: %s\n\n' "$1" "$2" "$1" >> "$T/status"; }
@@ -106,7 +100,6 @@ mkdir -p "$T/prefs-old" "$T/prefs-new"
 cat > "$T/sources" <<EOF
 deb [trusted=yes] file://$DEB ./
 deb [trusted=yes] http://localhost:$PORT/ncz ./
-deb [trusted=yes] http://127.0.0.1:$PORT/t2 ./
 EOF
 cp "$T/sources" "$T/sources.A"
 # r200 configuration: only the kernel-purity pin. New: purity + separation.
@@ -145,14 +138,14 @@ OLD="$T/prefs-old"; NEW="$T/prefs-new"
 
 echo "=== NEGATIVE CONTROL: r200 configuration (no separation pin) reproduces the flagged update ==="
 eq "old fonts-liberation candidate (Ubuntu build leaks)" "$(cand "$OLD" fonts-liberation)" "1:2.1.5-3build1"
-eq "old libfoo candidate (T2 Ubuntu build wins on version)" "$(cand "$OLD" libfoo)" "3.0"
+eq "old libfoo candidate (NCZ build wins on version)" "$(cand "$OLD" libfoo)" "2.0"
 eq "old ncz-evil candidate (Debian hijacks an NCZ name)" "$(cand "$OLD" ncz-evil)" "9.0"
 case "$(upgrade_plan "$OLD")" in *fonts-liberation*) ok "old dist-upgrade plan includes fonts-liberation" ;; *) bad "old plan lacks fonts-liberation: $(upgrade_plan "$OLD")" ;; esac
 
 echo "=== NEW: Debian names come from Debian ==="
 eq "fonts-liberation candidate" "$(cand "$NEW" fonts-liberation)" "1:2.1.5-3"
 case "$(src_of "$NEW" fonts-liberation)" in "file:$DEB"*) ok "fonts-liberation is served by the Debian source" ;; *) bad "fonts-liberation source: $(src_of "$NEW" fonts-liberation)" ;; esac
-eq "libfoo candidate (Debian, not NCZ 2.0 / T2 3.0)" "$(cand "$NEW" libfoo)" "1.0"
+eq "libfoo candidate (Debian, not NCZ 2.0)" "$(cand "$NEW" libfoo)" "1.0"
 eq "terser candidate (genuine Debian update)" "$(cand "$NEW" terser)" "5.2.0"
 case "$(src_of "$NEW" terser)" in "file:$DEB"*) ok "terser is served by the Debian source" ;; *) bad "terser source: $(src_of "$NEW" terser)" ;; esac
 
@@ -164,10 +157,6 @@ eq "linux-image-7.3.0-t2-trixie (NCZ kernel) installable" "$(cand "$NEW" linux-i
 
 echo "=== NEW: allowlisted intentional Debian-name override wins ==="
 eq "libdrm-common stays on the NCZ +ncz1 patch build" "$(cand "$NEW" libdrm-common)" "2.4.134-3+ncz1"
-
-echo "=== NEW: third-party T2 repo ==="
-eq "t2fanrd (known T2 package) candidate" "$(cand "$NEW" t2fanrd)" "0.1.0-4"
-eq "linux-image-t2-fake from the T2 repo is blocked" "$(cand "$NEW" linux-image-t2-fake)" "(none)"
 
 echo "=== NEW: Debian kernel purity pin still composes ==="
 eq "Debian linux-image-$ARCH unavailable" "$(cand "$NEW" "linux-image-$ARCH")" "(none)"
@@ -190,10 +179,9 @@ cat > "$T/sources" <<EOF
 deb [trusted=yes] file://$DEB ./
 deb [trusted=yes] file://$NCZB ./
 deb [trusted=yes] http://localhost:$PORT/ncz ./
-deb [trusted=yes] http://127.0.0.1:$PORT/t2 ./
 EOF
 apt-get "${UPD[@]}" update >"$T/update2.log" 2>&1
-eq "offline-mirror Debian-named package keeps priority (libfoo 1.5 beats NCZ-host 2.0 / T2 3.0)" "$(cand "$NEW" libfoo)" "1.5"
+eq "offline-mirror Debian-named package keeps priority (libfoo 1.5 beats NCZ-host 2.0)" "$(cand "$NEW" libfoo)" "1.5"
 eq "offline-mirror-only package is installable" "$(cand "$NEW" offline-only)" "1.0"
 case "$(src_of "$NEW" libfoo)" in "file:$NCZB"*) ok "libfoo is served by the offline mirror" ;; *) bad "libfoo source: $(src_of "$NEW" libfoo)" ;; esac
 eq "network leak still loses with the offline mirror present (fonts-liberation)" "$(cand "$NEW" fonts-liberation)" "1:2.1.5-3"
@@ -213,13 +201,15 @@ case "$(apt-get "${_o[@]}" -s dist-upgrade 2>&1)" in *"Remv fonts-liberation"*) 
 cp "$T/status.A" "$T/status"
 
 echo "=== scenario D: Intel deferred install (ncz-intel-accel-setup: UNPINNED apt-get install, Ubuntu-named suite ubuntu24) ==="
-# Intel carries Ubuntu builds of the Level Zero / OpenCL runtime with HIGHER versions; Debian forky ships same-named
-# libopenvino-intel-* plugin packages with higher versions than Intel's. Required: libopenvino-intel-* from Intel,
-# intel-opencl-icd / libze1 / libze-intel-gpu1 from Debian forky.
+# Verified 2026-10-08 against the pinned forky snapshot: Debian forky ships NO
+# openvino package at all, so the Intel GPU/NPU plugin has no Debian competitor
+# and needs no pin; the Debian runtime packages (intel-opencl-icd / libze1 /
+# libze-intel-gpu1) must still come from Debian even though Intel's repo carries a
+# higher Ubuntu build, via the `release o=Debian` pin (not a positive pending-host pin).
 INTEL="$T/www/intel"; DEBI="$T/debintel"
 mk_repo "$INTEL" Intel ubuntu24; mk_repo "$DEBI" Debian testing
 for p in intel-opencl-icd libze1 libze-intel-gpu1; do entry "$INTEL" "$p" 99.0-ubuntu24 "$ARCH"; entry "$DEBI" "$p" 25.1-1 "$ARCH"; done
-entry "$INTEL" libopenvino-intel-npu-plugin 2026.1.0-intel "$ARCH"; entry "$DEBI" libopenvino-intel-npu-plugin 3000.0-1 "$ARCH"
+entry "$INTEL" libopenvino-intel-npu-plugin 2026.1.0-intel "$ARCH"
 gzip -kf "$INTEL/Packages" "$DEBI/Packages"
 cat > "$T/sources" <<EOF
 deb [trusted=yes] file://$DEBI ./
@@ -227,15 +217,17 @@ deb [trusted=yes] http://127.0.0.2:$PORT/intel ./
 EOF
 apt-get "${UPD[@]}" update >"$T/update4.log" 2>&1
 eq "OLD: Intel's Ubuntu intel-opencl-icd wins (the bug the pin prevents)" "$(cand "$OLD" intel-opencl-icd)" "99.0-ubuntu24"
-eq "OLD: Debian's libopenvino-intel-npu-plugin beats Intel's (the bug the pin prevents)" "$(cand "$OLD" libopenvino-intel-npu-plugin)" "3000.0-1"
-eq "NEW: libopenvino-intel-npu-plugin comes from Intel" "$(cand "$NEW" libopenvino-intel-npu-plugin)" "2026.1.0-intel"
-for p in intel-opencl-icd libze1 libze-intel-gpu1; do eq "NEW: $p comes from Debian forky" "$(cand "$NEW" "$p")" "25.1-1"; done
+eq "OLD: the Intel libopenvino plugin is offered (Debian forky ships none)" "$(cand "$OLD" libopenvino-intel-npu-plugin)" "2026.1.0-intel"
+eq "NEW: intel-opencl-icd comes from Debian forky (release o=Debian pin)" "$(cand "$NEW" intel-opencl-icd)" "25.1-1"
+for p in libze1 libze-intel-gpu1; do eq "NEW: $p comes from Debian forky" "$(cand "$NEW" "$p")" "25.1-1"; done
+eq "NEW: the Intel plugin still installs (no Debian competitor, no pin)" "$(cand "$NEW" libopenvino-intel-npu-plugin)" "2026.1.0-intel"
 mapfile -t _o < <(aptopts "$NEW")
 PLAN="$(apt-get "${_o[@]}" -s install libopenvino-intel-npu-plugin intel-opencl-icd libze1 libze-intel-gpu1 2>&1)"; prc=$?
 [ "$prc" = 0 ] && ok "an unpinned apt-get install of the Intel set resolves (rc=0)" || bad "unpinned install plan failed rc=$prc" "$PLAN"
 printf '%s\n' "$PLAN" | grep -q '^Inst libopenvino-intel-npu-plugin (2026.1.0-intel' && printf '%s\n' "$PLAN" | grep -q '^Inst intel-opencl-icd (25.1-1' \
     && ok "the plan installs the Intel plugin and Debian's runtime" || bad "wrong sources in the install plan" "$PLAN"
 ncz_apt_separation_pin_text | grep -qi 'cdrom' && bad "the pin text mentions /cdrom" || ok "the pin text does not depend on /cdrom"
+ncz_apt_separation_pin_text | grep -qiE 'adityagarg8|apt\.repos\.intel\.com' && bad "the pin still names a pending vendor host" || ok "the pin names no pending vendor host"
 
 echo "=== scenario E: hook 24's ncz-screensavers canary reads the same policy shape with the pin installed ==="
 # Extract the canary block from the real hook, run it against REAL apt-cache output (paths/hosts rewritten to what

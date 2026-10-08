@@ -90,8 +90,9 @@ fi
 . "$HERE/lib/apt-separation.sh"
 
 install -d /etc/apt/keyrings /etc/apt/sources.list.d
-# The pin goes in BEFORE any apt-get update/install below, and before the T2
-# hook (55) wires t2.list, so no NCZ/T2 package can ever win a Debian name.
+# The pin goes in BEFORE any apt-get update/install below, so no NCZ package
+# can ever win a Debian name. (Hook 55 no longer wires a third-party T2 source;
+# its inputs are staged native assets.)
 ncz_apt_write_separation_pin
 ncz_apt_install_source_helper
 
