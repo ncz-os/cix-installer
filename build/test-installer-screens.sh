@@ -33,6 +33,12 @@ mk2 "$GOOD" "$BLANK";                                         expect "a trailing
 mk2 "$GOOD" "$GOOD";                                          expect "a dialog that stays up passes"            0 chk --no-blank-after "optional component"
 mk2 "$BLANK" "$BLANK";                                        expect "blank BEFORE the marker dialog is not judged" 0 chk --no-blank-after "optional component"
 rm -rf "$T/s"; mkdir "$T/s";                                  expect "empty capture fails"                     1 chk
+# --- state count is a floor + evidence, not an equality (r201: arm64 35 -> 33 -> 32, same dialogs) ---
+mk "$GOOD";                                                   expect "--min-states floor: 1 state < 5 fails"   1 chk --min-states 5
+mk "$GOOD";                                                   expect "--min-states floor met passes"           0 chk --min-states 1
+mk "$GOOD"; chk >"$T/ev" 2>&1
+if grep -q 'dialogs in capture order (1): NCZ-OS install' "$T/ev"; then PASS=$((PASS+1)); echo "ok   OK output names the dialogs in capture order"
+else FAILS=$((FAILS+1)); echo "FAIL dialog evidence line missing"; sed 's/^/     /' "$T/ev"; fi
 # --- operator-required 6-step prompt sequence (2026-09-30) -------------------
 # Components, region, username, password, password-confirm, hostname, target disk, erase-confirm.
 # Each prompt is a distinct dialog state. The regex tokens are the operator's phrases
