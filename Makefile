@@ -720,4 +720,10 @@ parity:
 	bash build/test-install-extra-local-debs.sh
 	bash build/test-desktop-mirror-local-debs.sh
 	build/test-no-debian-kernel.sh
+	bash build/test-firmware-bom-hook.sh
+	bash build/test-desktop-apt-require.sh
+	bash build/test-build-inputs.sh
+	bash build/test-deb-rev-defaults.sh
+	bash build/test-panthor-hook-overlay-fallback.sh
+	bash build/test-panthor-fallback-real-overlay.sh
 	$(MAKE) --no-print-directory test-cygnus-branding
