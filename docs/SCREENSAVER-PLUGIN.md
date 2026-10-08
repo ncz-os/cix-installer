@@ -82,6 +82,14 @@ byte-identical `libsingularity` (`70bc3ae4...`), so a pinned-source rebuild
 passes on `lib-identical`. A payload built from a newer upstream
 `libsingularity` fails and needs a plugin rebuild.
 
+Stage 1 recompiles the payload on every run, so its version string differs from
+the pinned one and the gate then passes on `lib-identical` (same sources, same
+`libsingularity` bytes). To make the image carry exactly the pinned payload (the
+`version-match` case), set `NCZ_SINGULARITY_PREBUILT_DEB=<payload deb>` and
+`NCZ_SINGULARITY_PREBUILT_SHA256=<its sha256>` for `build/build-squashfs-layers.sh`:
+stage 1 then stages that sha256-checked deb instead of recompiling, and refuses a
+missing deb, a missing or wrong sha256, or a deb for another architecture.
+
 ## Rebuilding the plugin for a new payload
 
 Rebuild amd64 on HYDRA (192.168.207.78, container `debian:forky`) and arm64
