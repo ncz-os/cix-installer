@@ -192,6 +192,15 @@ Patch `0003-plain-contrast-live-quadrant-and-wrap.patch` (plain attribution text
 quadrant move, two-line wrap) sits on top of `0002` above and has no PR link; its two bug
 fixes are drafted as follow-ups to #30.
 
+Patch `0005-plugins-add-a-screensaver-and-lock-category.patch` adds the `lock` row
+("Screensaver and Lock") to the Settings > Plugins hub category table, between Files
+and Previews and Tools, so a plugin declaring `X-Singularity-Category=lock` (the
+ncz-screensavers plugin, 0.3.20) gets its own row instead of sitting in Tools. One
+table line: the rows, links, counts and search filtering are all built from the table.
+A shell without the row treats the unknown id as Other. Not filed upstream yet (no PR
+link, so the reconcile script never retires it); the upstream draft is
+`upstream-drafts/singularity-shell/08-lock-category`.
+
 ## Previously landed
 
 **Currently no OTHER patches carried.** Everything else previously tracked
