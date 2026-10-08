@@ -79,7 +79,8 @@ fi
 # Belt-and-braces: xwayland MUST survive (labwc -Dxwayland=enabled compat layer).
 if ! dpkg -l xwayland 2>/dev/null | grep -q '^ii'; then
     echo "[59] WARN: xwayland missing after purge — reinstalling (X-app compat)"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xwayland 2>&1 | tail -2 || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xwayland 2>&1 | tail -2 \
+        || echo "[59] WARN: xwayland reinstall failed -- X-app compat is missing" >&2
 fi
 
 # ---------------------------------------------------------------------------

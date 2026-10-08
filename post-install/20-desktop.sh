@@ -125,7 +125,7 @@ ncz_apt_require() {
 if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CORE_DESKTOP; then
     ncz_ports_fallback
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CORE_DESKTOP || \
-        echo "[20] WARN: some core desktop pkgs failed (see closure)"
+        { echo "[20] ERROR: core desktop packages failed to install after the ports fallback (see apt.log); not continuing with a half desktop" >&2; exit 1; }
 fi
 
 # chromium-ncz-sky1's launcher wrapper is baked into that package (no source
