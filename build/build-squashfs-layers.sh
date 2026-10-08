@@ -118,6 +118,11 @@ case "$NCZ_TARGET_ARCH" in
   amd64) HOST_NATIVE_ARCH=x86_64;  QEMU_BIN=qemu-x86-64-static ;;
   *) echo "ERROR: unsupported NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH (expected arm64 or amd64)" >&2; exit 1 ;;
 esac
+
+# Pinned, gitignored inputs (recovery rootfs, rescue rootfs, python311, wallpaper debs): staged from
+# the ARGONAS store and checksum-verified before anything is built (r201: a missing
+# ncz-mgmt-rootfs.tar.zst made post-install/38-recovery-container.sh fail on every image).
+bash "$ROOT/build/stage-build-inputs.sh" --arch "$NCZ_TARGET_ARCH" || exit 1
 BASE_TARBALL="${BASE_TARBALL:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-$NCZ_TARGET_ARCH.tar.zst}"
 APT_SUITE="${APT_SUITE:-$NCZ_BASE_CODENAME}"
 APT_COMPONENTS="${APT_COMPONENTS:-main}"
@@ -720,6 +725,11 @@ $_found"
       sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/mgmt"
       sudo cp -a "$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst" "$MG/usr/local/lib/cix-installer/assets/mgmt/" 2>/dev/null || true
       log "  staged mgmt rootfs ($(du -h "$ROOT/assets/mgmt/ncz-mgmt-rootfs.tar.zst" | cut -f1))"
+    else
+      # r201: this used to pass silently and 38-recovery-container.sh then failed on every
+      # installed image. The rootfs is a pinned build input, not optional.
+      echo "FATAL: assets/mgmt/ncz-mgmt-rootfs.tar.zst missing: run build/stage-build-inputs.sh --arch <arch>" >&2
+      exit 1
     fi
     if [ -f "$ROOT/assets/ncz-cli.sh" ]; then
       sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets"
