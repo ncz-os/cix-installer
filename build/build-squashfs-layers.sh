@@ -1415,10 +1415,26 @@ build_singularity_payload(){
       *) log "ERROR: $_pre is not an ncz-singularity-desktop deb for $NCZ_TARGET_ARCH"; exit 1 ;;
     esac
     mkdir -p "$ROOT/build/sinty-out"
-    rm -f "$ROOT/build/sinty-out/"ncz-singularity-desktop_*.deb "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb
+    # build/sinty-out/singularity-opt.tgz is read by build-wallpaper-contrib-deb.sh
+    # (Singularity wallpaper pack) and secret-scan-gate.sh. Leaving the one from an
+    # EARLIER run would cut the pack from, and scan, a different payload than the
+    # staged deb. The deb keeps opt/singularity byte-for-byte, so regenerate the
+    # tarball from it; the .depends/.sources sidecars describe a build we did not
+    # run here and cannot be regenerated, so drop them.
+    local _x _tgz_tmp="$ROOT/build/sinty-out/.singularity-opt.tgz.prebuilt.$$"
+    _x="$(mktemp -d "$ROOT/build/.sinty-prebuilt.XXXXXX")" || { log "ERROR: cannot create a scratch dir under $ROOT/build"; exit 1; }
+    if ! dpkg-deb -x "$_pre" "$_x" || [ ! -d "$_x/opt/singularity" ] \
+       || ! tar -czf "$_tgz_tmp" --sort=name --owner=0 --group=0 --numeric-owner -C "$_x" opt/singularity; then
+      rm -rf "$_x"; rm -f "$_tgz_tmp"
+      log "ERROR: $_pre has no usable opt/singularity tree (cannot regenerate singularity-opt.tgz)"; exit 1
+    fi
+    rm -rf "$_x"
+    rm -f "$ROOT/build/sinty-out/"ncz-singularity-desktop_*.deb "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb \
+          "$ROOT/build/sinty-out/singularity-opt.tgz.depends" "$ROOT/build/sinty-out/singularity-opt.tgz.sources"
+    mv -f "$_tgz_tmp" "$ROOT/build/sinty-out/singularity-opt.tgz"
     install -m 0644 "$_pre" "$ROOT/build/sinty-out/"
     install -m 0644 "$_pre" "$ROOT/assets/cix-debs/"
-    log "SINGULARITY: staged the prebuilt $(basename "$_pre") (sha256 $_got); NOT rebuilding"
+    log "SINGULARITY: staged the prebuilt $(basename "$_pre") (sha256 $_got) + regenerated singularity-opt.tgz from it; NOT rebuilding"
     return 0
   fi
   log "SINGULARITY: rebuilding ncz-singularity-desktop from the pinned upstream sources (assets/singularity/upstream-pins.tsv)"
