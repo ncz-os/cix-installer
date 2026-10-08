@@ -72,6 +72,18 @@
                      /opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin; do
                 exists "$f" || gate_miss screensavers "$f (Singularity screensaver plugin)"
             done
+            # the plugin page reads Version and Icon from the plugin file: "Version Unknown" and a
+            # generic icon mean a file without them
+            if fetch /opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin "$TMP/ss.plugin-file"; then
+                _ssp_mv="$(sed -n 's/^Version=//p' "$TMP/ss.plugin-file" | head -n 1)"
+                _ssp_mi="$(sed -n 's/^Icon=//p' "$TMP/ss.plugin-file" | head -n 1)"
+                if [ -n "$SS_PLUGIN" ] && [ "$_ssp_mv" != "$SS_PLUGIN" ]; then
+                    gate_miss screensavers "screensaver.plugin says Version='${_ssp_mv}' but ncz-screensavers-plugin $SS_PLUGIN is installed (the plugin page would show Version Unknown or a stale version)"
+                fi
+                if [ -z "$_ssp_mi" ] || ! exists "/opt/singularity/share/icons/hicolor/scalable/apps/${_ssp_mi}.svg"; then
+                    gate_miss screensavers "screensaver.plugin Icon='${_ssp_mi}' has no /opt/singularity/share/icons/hicolor/scalable/apps/${_ssp_mi}.svg (generic icon on the plugin page)"
+                fi
+            fi
             if fetch /opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override "$TMP/ss.plugin-override" && grep -q "^enabled-plugins=.*'screensaver'" "$TMP/ss.plugin-override"; then :; else
                 gate_miss screensavers "the default enabled-plugins does not contain 'screensaver' (99-zz-ncz-screensaver-plugin.gschema.override missing or wrong): new users would not get the Settings page"
             fi
