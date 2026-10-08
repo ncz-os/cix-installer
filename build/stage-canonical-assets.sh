@@ -281,6 +281,21 @@ if [ -f "$ASSETS/cix-debs/cix-noe-umd_2.0.2_arm64.deb" ]; then
     rm -f "$ASSETS/cix-debs/cix-noe-umd_2.0.2_arm64.deb"
 fi
 
+# The vendor NPU/aipu KMD DKMS deb is built from the SDK + our patch series, but the SDK tarball is not always
+# reachable (r201: it was not, and the deb was copied by hand from the r200 tree). The built +ncz3 deb is therefore
+# checksum-pinned in manifests/build-inputs.tsv and held in the ARGONAS build-inputs store: stage it from there
+# first. Only for the real tree (--from points at a fixture/other tree, which has no store pins).
+NPU_DKMS_DEB="cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz3_arm64.deb"
+if [ "$ASSETS" = "$REPO/assets" ] && [ -x "$REPO/build/stage-build-inputs.sh" ] \
+   && awk -F'\t' -v n="assets/cix-debs/$NPU_DKMS_DEB" '$1=="arm64" && $2==n {f=1} END{exit !f}' "$REPO/manifests/build-inputs.tsv" 2>/dev/null; then
+    if bash "$REPO/build/stage-build-inputs.sh" --arch arm64 --only "assets/cix-debs/$NPU_DKMS_DEB"; then
+        log "  cix-npu-driver-dkms +ncz3 staged from the pinned build-inputs store (SDK rebuild not needed)"
+    else
+        warn "pinned cix-npu-driver-dkms +ncz3 could not be staged from the build-inputs store (output above)"
+        missing=$((missing+1))
+    fi
+fi
+
 if [ ! -f "$SRC_NPU_SDK_TGZ" ]; then
     warn "NPU SDK tarball not reachable: $SRC_NPU_SDK_TGZ"
     missing=$((missing+1))

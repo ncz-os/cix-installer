@@ -399,13 +399,10 @@ vendor-mirror: kernel-debs usb-recovery-deb sinty-out-sync
 	    --label forky-vendor-mirror \
 	    $(SINTY_DEBS_ARG)
 
+# Always run the builder: it removes debs of any other revision (a stale +ncz1 set must never be "existing"),
+# and reuses/stages the sha256-pinned set for this arch instead of rebuilding.
 libdrm-debs:
-	@if ! ls $(BUILD)/libdrm-debs/libdrm-common_*+ncz*_all.deb >/dev/null 2>&1; then \
-		echo "[libdrm-debs] no patched package set present; building it"; \
-		bash $(ROOT)/build/build-libdrm-debs.sh; \
-	else \
-		echo "[libdrm-debs] using existing packages from $(BUILD)/libdrm-debs"; \
-	fi
+	@bash $(ROOT)/build/build-libdrm-debs.sh
 
 # ncz-apt-policy (manifests/install-extra.pkgs seed, both arches, Architecture: all) is built locally for the
 # offline mirror -- NOT fetched from the live repo -- so an image build needs no publish. Always rebuilt
