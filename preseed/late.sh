@@ -191,6 +191,7 @@ done
 
 if [ -z "$SRC" ]; then
     echo "FATAL: no /ncz-payload source found in any expected location."
+    ttymsg "FATAL: no NCZ payload found; installation refused (see late.log)."
     echo "Mounts:"
     mount
     echo
@@ -664,6 +665,7 @@ CDROM_PREF
         # NO generic firmware -- e.g. rtl_nic/rtl8125k-1.fw for the r8169 NIC.
         if [ "${NCZ_BASE_NAME:-}" != "Debian" ]; then
             echo "FATAL: NCZ_BASE_NAME='${NCZ_BASE_NAME:-unset}' -- only a Debian forky base is supported (no Ubuntu)" >&2
+            ttymsg "FATAL: base is not Debian forky; installation refused (see late.log)."
             exit 1
         fi
         FW_PKGS="firmware-linux-free firmware-realtek firmware-misc-nonfree"
@@ -1654,6 +1656,7 @@ grep -rhsE '^[[:space:]]*deb' \
 # Operator rule 2026-10-08: no Ubuntu archive is ever written here.
 if [ "${NCZ_BASE_NAME:-}" != "Debian" ]; then
     echo "FATAL: NCZ_BASE_NAME='${NCZ_BASE_NAME:-unset}' -- only a Debian forky base is supported (no Ubuntu)" >&2
+    ttymsg "FATAL: base is not Debian forky; installation refused (see late.log)."
     exit 1
 else
     echo "--- ${NCZ_BASE_NAME} base: leaving sources.list to the profile deb822 source ---"

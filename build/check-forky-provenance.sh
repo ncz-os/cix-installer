@@ -15,8 +15,8 @@
 # Exit 0 clean, 1 violations, 2 usage / no index (fails closed).
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-ROOT="${NCZ_PROVENANCE_ROOT:-$(cd "$HERE/.." && pwd)}"
+ROOT="$(cd "$HERE/.." && pwd)"
 PIN="$(sed -n 's/^NCZ_BASE_MIRROR_SNAPSHOT="\{0,1\}\([0-9TZ]*\)"\{0,1\}.*/\1/p' "$ROOT/release.conf" | head -1)"
-IDX="${NCZ_FORKY_INDEX_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ncz-forky-index/${PIN:-unpinned}}"
+IDX="${HOME}/.cache/ncz-forky-index/${PIN:-unpinned}"
 for a in "$@"; do [ "$a" = "--ubuntu-only" ] && exec python3 -I "$HERE/forky-provenance.py" "$@"; done
 exec python3 -I "$HERE/forky-provenance.py" --index-dir "$IDX" --fetch-index "$@"
