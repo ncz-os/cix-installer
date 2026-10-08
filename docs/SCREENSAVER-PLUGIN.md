@@ -14,17 +14,26 @@ named: version, ARGONAS directory, source commit, and for each arch the deb
 sha256, the payload version it was built against, and that payload's
 `libsingularity` sha256. Every consumer below reads this file.
 
-Current pin: 0.3.18 from `ncz-screensavers` `fix/r201-plugin-018-20261007`
-(c5e1552d), built against the 2026-10-07 Singularity refresh payloads (amd64
+Current pin: 0.3.19 from `ncz-screensavers` `fix/r201-plugin-019-20261007`
+(49c6a40e), built against the 2026-10-07 Singularity refresh payloads (amd64
 `20261007185124+bk0+tgz8529a9b6`, arm64 `20261007184442+bk0+tgzfc441ab9`) and staged on
-ARGONAS at `/mnt/datapool/projects/ncz-screensavers-debs/plugin-0.3.18b-20261007/`
+ARGONAS at `/mnt/datapool/projects/ncz-screensavers-debs/plugin-0.3.19-20261007/`
 (debs, `SHA256SUMS`, `BUILT-FROM.txt`, build and test logs).
 
-0.3.18 is 0.3.17 rebuilt for the refreshed libsingularity: the plugin target now
-names `libsoup-3.0`, because the new `singularity-1.0.vapi` uses `Soup.Session`
-while its `.deps` and pkg-config `Requires:` do not list it (an upstream
-libsingularity defect), and the build host needs the gtksourceview, gstreamer
-and gtk4-layer-shell `-dev` packages the new `singularity-1.0.pc` requires.
+0.3.19 fixes what the 2026-10-07 multi-level Settings page showed on the test
+hosts. The page is narrower than the pop-out the plugin was written for, and the
+options and chooser were wider than it (clipped value labels, switches, buttons
+and preview): the engine filter is now a selection row, the seed buttons are
+icon buttons and the palette grid wraps. The inner sections are no longer cards
+inside the page card. The Options button says Hide options while the options are
+open and brings them into view. The plugin file now carries what the Plugins
+page reads: `Version` (the package version, written by `make-plugin-deb.sh`),
+`Icon` (a themed scalable icon the package installs under
+`/opt/singularity/share/icons/hicolor/scalable/apps/`) and
+`X-Singularity-Category=tools` (without it the page falls back to a name
+heuristic and lists the plugin under Other). Packaging, the stage-2 gate
+(`check-ssplugin-abi.sh`), the installer and the installed-target verifier all
+fail when any of the three is missing or `Version` is not the pinned version.
 
 The pin matches the final payloads built from `fix/singularity-converge-20261007`
 (`ncz-singularity-debs/singularity-refresh-20261007b`).
@@ -40,10 +49,10 @@ fullscreen screensaver.
 | Step | What | Where |
 |---|---|---|
 | stage (build host) | copy the pinned deb from ARGONAS, check sha256 and control fields | `make ssplugin-stage` (`build/stage-screensaver-plugin.sh ARCH`) into `build/ncz-screensavers-out/` |
-| stage 2 gate | staged deb == pin; the image's payload matches the plugin's ABI | `build/check-ssplugin-abi.sh --arch ARCH`, run by `make image` |
+| stage 2 gate | staged deb == pin, its `screensaver.plugin` carries the pinned Version, an installed Icon and a valid category; the image's payload matches the plugin's ABI | `build/check-ssplugin-abi.sh --arch ARCH`, run by `make image` |
 | medium | pinned deb copied to `ncz-payload/assets/ncz-screensavers-plugin/` | `build/iso/write-usb-image.py` (`stage_ssplugin_deb`) |
 | install | hook 59 installs the engine from the offline `/cdrom` pool, then the plugin from the medium (`apt-get install ./deb`, dependencies from `/cdrom`) | `post-install/59-ncz-screensavers-pkg.sh` with `post-install/lib/ncz-ssplugin-install.sh` |
-| install gate | plugin installed at the pinned version, `.so`, `.plugin`, and the default-enabled override | `build/verify-installed-target-screensavers*.sh` (the KVM gate sets `VERIFY_EXPECT_SS_PLUGIN=1` from the pin) |
+| install gate | plugin installed at the pinned version, `.so`, `.plugin` (with the pinned `Version` and an installed `Icon`), and the default-enabled override | `build/verify-installed-target-screensavers*.sh` (the KVM gate sets `VERIFY_EXPECT_SS_PLUGIN=1` from the pin) |
 
 The plugin does not go through the stage-0 offline mirror. Stage 1 rebuilds
 the Singularity payload after that mirror is built, and the plugin has to
@@ -75,8 +84,8 @@ passes on `lib-identical`. A payload built from a newer upstream
 
 ## Rebuilding the plugin for a new payload
 
-Rebuild amd64 on PROTEUS (192.168.207.68, container `debian:forky`) and arm64
-on ULTRA (192.168.207.88, container `debian:testing`). Use an
+Rebuild amd64 on HYDRA (192.168.207.78, container `debian:forky`) and arm64
+on ULTRA (192.168.207.88, container `debian:forky`); keep scratch under `~/Projects`, never a tmpfs. Use an
 `ncz-screensavers` checkout of `integration/cygnus-26.10-2026-10-03`, and the
 payload deb that stage 1 produced (`assets/cix-debs/ncz-singularity-desktop_*_ARCH.deb`).
 

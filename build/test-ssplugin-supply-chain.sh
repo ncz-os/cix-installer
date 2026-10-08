@@ -31,13 +31,20 @@ LOCK="$ROOT/post-install/lib/ncz-screensavers-plugin.lock"
 LIB="$ROOT/post-install/lib/ncz-ssplugin-install.sh"
 
 # --- fixtures ---------------------------------------------------------------------
-# mkplugin OUT ARCH VERSION [PKGNAME]: a plugin-shaped deb.
+# mkplugin OUT ARCH VERSION [PKGNAME] [META_VERSION] [ICON|none] [CATEGORY]: a plugin-shaped
+# deb whose screensaver.plugin carries the keys the Plugins page reads (Version, Icon with
+# its scalable svg, X-Singularity-Category); the optional arguments break one of them.
 mkplugin() {
-    local out="$1" arch="$2" ver="$3" pkg="${4:-ncz-screensavers-plugin}" d
+    local out="$1" arch="$2" ver="$3" pkg="${4:-ncz-screensavers-plugin}" mver="${5:-$3}" icon="${6:-dev.ncz.screensaver}" cat="${7:-tools}" d
     d="$(mktemp -d "$T/pkg.XXXXXX")"
     mkdir -p "$d/DEBIAN" "$d/opt/singularity/lib/singularity/plugins/screensaver"
     echo "so $arch $ver" > "$d/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"
-    echo "[Plugin]" > "$d/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"
+    printf '[Plugin]\nModule=screensaver\nVersion=%s\nIcon=%s\nX-Singularity-Category=%s\n' "$mver" "$icon" "$cat" \
+        > "$d/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"
+    if [ "$icon" != none ]; then
+        mkdir -p "$d/opt/singularity/share/icons/hicolor/scalable/apps"
+        echo "<svg/>" > "$d/opt/singularity/share/icons/hicolor/scalable/apps/$icon.svg"
+    fi
     printf 'Package: %s\nVersion: %s\nArchitecture: %s\nMaintainer: Jason Perlow <jperlow@gmail.com>\nDescription: test\n' "$pkg" "$ver" "$arch" > "$d/DEBIAN/control"
     dpkg-deb --root-owner-group -b "$d" "$out" >/dev/null 2>&1 || dpkg-deb -b "$d" "$out" >/dev/null
 }
@@ -118,6 +125,19 @@ if [ -r "$CK" ]; then
     O="$T/out-abi"; C="$T/cix-debs"; mkdir -p "$O" "$C"
     cp "$A/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_amd64.deb" "$O/"
     abi() { NCZ_SSPLUGIN_LOCK="$FL" NCZ_SSPLUGIN_OUT="$O" NCZ_SSPLUGIN_CIX_DEBS="$C" bash "$CK" --arch amd64 "$@"; }
+    # the plugin file inside the deb: Version, Icon and category (each broken in turn)
+    mkpayload "$C/ncz-singularity-desktop_20261006+bk0+tgzaaaaaaaa_amd64.deb" amd64 20261006+bk0+tgzaaaaaaaa LIB-A
+    expect "abi: the good fixture reports its plugin metadata" 0 "plugin metadata OK: Version 0.3.16, Icon dev.ncz.screensaver" abi
+    rm -f "$C"/*
+    for variant in "stale-version:0.3.16:0.3.15:dev.ncz.screensaver:tools:says Version='0.3.15'" \
+                   "no-icon-file:0.3.16:0.3.16:none:tools:installs no scalable" \
+                   "bad-category:0.3.16:0.3.16:dev.ncz.screensaver:screensavers:no valid X-Singularity-Category"; do
+        IFS=: read -r vname vver vmeta vicon vcat vmsg <<< "$variant"
+        V="$T/variant-$vname"; mkdir -p "$V"
+        mkplugin "$V/ncz-screensavers-plugin_${vver}_amd64.deb" amd64 "$vver" ncz-screensavers-plugin "$vmeta" "$vicon" "$vcat"
+        sed "s/^NCZ_SSPLUGIN_SHA256_amd64=.*/NCZ_SSPLUGIN_SHA256_amd64=$(sha "$V/ncz-screensavers-plugin_${vver}_amd64.deb")/" "$FL" > "$V/lock"
+        expect "abi: metadata $vname is refused" 1 "$vmsg" env NCZ_SSPLUGIN_LOCK="$V/lock" NCZ_SSPLUGIN_OUT="$V" NCZ_SSPLUGIN_CIX_DEBS="$C" bash "$CK" --arch amd64
+    done
     expect "abi: no payload deb fails" 1 "no Singularity payload deb" abi
     mkpayload "$C/ncz-singularity-desktop_20261006+bk0+tgzaaaaaaaa_amd64.deb" amd64 20261006+bk0+tgzaaaaaaaa LIB-A
     expect "abi: the payload the plugin was built against passes" 0 "ABI OK (version-match)" abi
