@@ -63,7 +63,6 @@ gen_sources() {
                 MIRROR="$NCZ_BASE_MIRROR"
                 SUITE="$NCZ_BASE_CODENAME"
                 COMPONENTS="$NCZ_BASE_COMPONENTS"
-                SECURITY_URI="https://security.debian.org/debian-security"
                 ;;
             build-rescue-rootfs.sh)
                 MIRROR="$NCZ_BASE_MIRROR"
@@ -136,21 +135,20 @@ for script in build-mgmt-rootfs.sh build-rescue-rootfs.sh build-baked-rootfs.sh;
     fi
 done
 
-check_pinned build-mgmt-rootfs.sh "$T/build-mgmt-rootfs.sh.pinned" 3
+check_pinned build-mgmt-rootfs.sh "$T/build-mgmt-rootfs.sh.pinned" 1
 check_pinned build-rescue-rootfs.sh "$T/build-rescue-rootfs.sh.pinned" 1
 check_pinned build-baked-rootfs.sh "$T/build-baked-rootfs.sh.pinned" 1
 check_live build-mgmt-rootfs.sh "$T/build-mgmt-rootfs.sh.live"
 check_live build-rescue-rootfs.sh "$T/build-rescue-rootfs.sh.live"
 check_live build-baked-rootfs.sh "$T/build-baked-rootfs.sh.live"
 
-# mgmt must still name updates and security (security is not on this pin).
-if grep -q 'forky-updates' "$T/build-mgmt-rootfs.sh.pinned" \
-    && grep -q 'forky-security' "$T/build-mgmt-rootfs.sh.pinned" \
-    && grep -q 'security.debian.org' "$T/build-mgmt-rootfs.sh.pinned"; then
-    ok "mgmt pinned sources name updates and security suites"
-else
-    no "mgmt pinned sources dropped updates or security"
+# operator 2026-10-08 ("only Debian versions from forky"): mgmt is the single base suite too --
+# no forky-updates, no forky-security, no security.debian.org.
+if grep -Eq 'updates|security' "$T/build-mgmt-rootfs.sh.pinned"; then
+    no "mgmt pinned sources grew a suite beyond forky"
     cat "$T/build-mgmt-rootfs.sh.pinned" >&2
+else
+    ok "mgmt pinned sources is the single forky base suite"
 fi
 if grep -Eq 'updates|security' "$T/build-rescue-rootfs.sh.pinned"; then
     no "rescue pinned sources grew a suite it did not have"

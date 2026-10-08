@@ -1,0 +1,8 @@
+# manifests/vendor-repos.tsv -- third-party apt repositories an image or installed system may reference.
+# Columns (TAB): host, suite (* = any), vendor, note
+# Operator to confirm each row; rows whose suite is Ubuntu-named are vendor-published packages.
+dl.google.com	stable	Google LLC	Chrome repo (written disabled-by-default by the vendor deb)
+repo.vivaldi.com	stable	Vivaldi Technologies	Vivaldi repo (neutralised to .disabled by 52-vivaldi.sh)
+apt.repos.intel.com	ubuntu24	Intel	OpenVINO/oneAPI runtime, written by deferred ncz-intel-accel-setup (vendor suite is Ubuntu-named)
+adityagarg8.github.io	./	t2linux (AdityaGarg8)	T2 firmware/DKMS repo written by 55-t2-firmware.sh on Apple T2 only; Ubuntu-built, third-party
+developer.download.nvidia.com	*	NVIDIA	CUDA repo

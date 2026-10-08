@@ -493,6 +493,7 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	@bash $(ROOT)/build/stage-build-inputs.sh --arch $(ARCH)
 	@echo "[image] platform-split lint (inventory, hooks.list, deny patterns, guards, manifest divergence)"
 	@bash $(ROOT)/build/lint-platform.sh
+	@bash $(ROOT)/build/check-no-ubuntu.sh
 	@echo "[image] preseed early_command shape/size"
 	@bash $(ROOT)/build/check-early-command-size.sh $(PRESEED)/preseed.cfg
 	@echo "[image] verifying arm64 inputs (sky1-firmware, cix-debs, rescue-rootfs, mirror)"
@@ -530,6 +531,7 @@ ssplugin-stage:
 # are generated from it and run-all.sh runs only the listed hooks.
 lint-platform:
 	@bash $(ROOT)/build/lint-platform.sh
+	@bash $(ROOT)/build/check-no-ubuntu.sh
 
 gen-hooks-lists:
 	@bash $(ROOT)/build/gen-hooks-lists.sh
@@ -710,6 +712,7 @@ parity:
 	build/test-kernel-purity-guards.sh
 	bash build/test-apt-separation.sh
 	bash build/test-ncz-repo-policy.sh
+	bash build/test-no-ubuntu.sh
 	bash build/test-ncz-apt-policy-deb.sh
 	bash build/test-apt-sources-hook-container.sh
 	bash build/test-install-extra-local-debs.sh

@@ -27,6 +27,13 @@ NAME="$(basename "$IMG")"; ARCH="$(echo "$NAME" | sed -n 's/^ncz-os-\([a-z0-9]*\
 [ -n "$GATELOG" ] && grep -q "GATE PASS (phase 1+2)" "$GATELOG" || { echo "ship-image: refusing: --gate-log must be a log containing 'GATE PASS (phase 1+2)'" >&2; exit 3; }
 # Final ship gate: the live NCZ repos must satisfy the apt separation policy. Always fail mode (the environment cannot
 # weaken it; only NCZ_SHIP_ALLOW_APT_GATE_OVERRIDE=1 + NCZ_APT_LIVE_GATE=warn|skip, loudly); unreachable index = failure.
+# Provenance gate (operator 2026-10-08: no Ubuntu debs ever; only Debian forky, NCZ-built or reviewed vendor debs): every package in
+# the FINISHED image (offline pool, base/desktop/hotfix layers, rescue + mgmt rootfs) must be NCZ, a sha-pinned vendor deb, or
+# byte-identical to the pinned forky snapshot, and the apt sources/pins/os-release must be forky-only. No override.
+PROV_WORK="${NCZ_PROVENANCE_WORK:-$HOME/Projects/.ship-provenance.$$}"
+bash "$HERE/check-forky-provenance.sh" --image "$IMG" --work "$PROV_WORK"; _prov_rc=$?
+rm -rf "$PROV_WORK"
+[ "$_prov_rc" -eq 0 ] || { echo "ship-image: refusing: the image fails the forky-provenance / no-Ubuntu gate (rc=$_prov_rc)" >&2; exit 10; }
 bash "$HERE/ship-apt-gate.sh" || { echo "ship-image: refusing: the live NCZ apt repos violate the separation policy" >&2; exit 9; }
 SHA="$(sha256sum "$IMG" | cut -d' ' -f1)"
 echo "ship-image: $NAME sha256=$SHA"
