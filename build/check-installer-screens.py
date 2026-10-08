@@ -149,14 +149,16 @@ if a.require_boot_progress:
 titles = []
 tre = re.compile(r"lq+\S?\s*(?:\[[^\]]*\]\s*)?(.*?)\s*tq+\s*k")
 for f in files:
-    for line in open(os.path.join(a.dir, f), encoding="utf-8", errors="replace").read().split("\n"):
+    with open(os.path.join(a.dir, f), encoding="utf-8", errors="replace") as fh:
+        lines = fh.read().split("\n")
+    for line in lines:
         m = tre.search(line)
         if m and m.group(1).strip() and m.group(1).strip() not in titles:
             titles.append(m.group(1).strip())
 if a.min_states and len(files) < a.min_states:
     bad += 1
-    print("check-installer-screens: FAIL only %d console states captured, expected at least %d (truncated capture?)" % (len(files), a.min_states), file=sys.stderr)
+    print(f"check-installer-screens: FAIL only {len(files)} console states captured, expected at least {a.min_states} (truncated capture?)", file=sys.stderr)
 if bad:
     sys.exit(1)
 print("check-installer-screens: OK (%d console states)" % len(files))
-print("check-installer-screens: dialogs in capture order (%d): %s" % (len(titles), " > ".join(titles) if titles else "none"))
+print(f"check-installer-screens: dialogs in capture order ({len(titles)}): {' > '.join(titles) if titles else 'none'}")
