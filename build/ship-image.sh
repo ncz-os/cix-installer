@@ -30,9 +30,15 @@ NAME="$(basename "$IMG")"; ARCH="$(echo "$NAME" | sed -n 's/^ncz-os-\([a-z0-9]*\
 # Provenance gate (operator 2026-10-08: no Ubuntu debs ever; only Debian forky, NCZ-built or reviewed vendor debs): every package in
 # the FINISHED image (offline pool, base/desktop/hotfix layers, rescue + mgmt rootfs) must be NCZ, a sha-pinned vendor deb, or
 # byte-identical to the pinned forky snapshot, and the apt sources/pins/os-release must be forky-only. No override.
-PROV_WORK="${NCZ_PROVENANCE_WORK:-$HOME/Projects/.ship-provenance.$$}"
-bash "$HERE/check-forky-provenance.sh" --image "$IMG" --work "$PROV_WORK"; _prov_rc=$?
-rm -rf "$PROV_WORK"
+# Owned, unique scratch; never rm a caller-supplied tree.  The verifier makes its
+# own unique subdirectory and cleans up after itself.
+PROV_BASE="${NCZ_PROVENANCE_WORK_BASE:-$HOME/Projects/.ncz-ship-provenance}"
+mkdir -p "$PROV_BASE" || { echo "ship-image: cannot create provenance base $PROV_BASE" >&2; exit 2; }
+PROV_WORK="$(mktemp -d "$PROV_BASE/run.XXXXXX")" \
+    || { echo "ship-image: cannot create provenance scratch" >&2; exit 2; }
+trap 'rm -rf "$PROV_WORK"' EXIT
+bash "$HERE/check-forky-provenance.sh" --image "$IMG" --work "$PROV_WORK" \
+    --index-dir "$PROV_WORK/index" --fetch-index; _prov_rc=$?
 [ "$_prov_rc" -eq 0 ] || { echo "ship-image: refusing: the image fails the forky-provenance / no-Ubuntu gate (rc=$_prov_rc)" >&2; exit 10; }
 bash "$HERE/ship-apt-gate.sh" || { echo "ship-image: refusing: the live NCZ apt repos violate the separation policy" >&2; exit 9; }
 SHA="$(sha256sum "$IMG" | cut -d' ' -f1)"

@@ -1,6 +1,35 @@
 # manifests/vendor-debs.tsv -- the ONLY third-party (non-Debian, non-NCZ) debs allowed in an image.
-# Reviewed list; build/check-forky-provenance.sh matches name+version+arch and, when the deb is available, sha256.
-# Columns (TAB): name, version, arch, vendor, source URL, sha256, note
+# Reviewed list; build/check-forky-provenance.sh matches exact name+version+arch and, when the deb
+# is available, sha256. Package-name prefixes and '+ncz' versions are NOT proof of anything.
+# CIX rows are the original vendor-proprietary binaries: identity/size/sha pinned in
+# sbom/expected-assets.txt and documented in docs/SOURCE-RELEASES.md ("CIX proprietary vendor .debs").
+# The NCZ-repacked +ncz3 NPU DKMS is NOT here -- it is an NCZ build (manifests/ncz-packages.tsv).
+# Columns (TAB): name, version, arch, vendor, source URL/ref, sha256, note
+cix-ai-engine	2.0.0-cixdeb13-260714	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	9221b503a4fc018fadc1803b80fc25f5c5365b1563f7a567b4016b4e8662d0ab	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-ai-test	1.0.1-cixdeb13-260714	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	21b5fd5e89918b2ea1113838de663f662d7696c9fdd4b13332c6ff05e5d2c3ee	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-audio-dsp	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	74be55742cf1f1f21ed95774a645a117865ba92f2007e21ac9b0529567fe6d10	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-bkup	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	6a80ffe12556cd5f4b6278ed04f17376c636045dad456a383d9cc31af5226de6	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-common-misc	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	24c5170b93139601ede3218d1576ccc07011791eed9857f779083e8c37db32d6	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-cpipe	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	174f93bc3fd1304011481180a89d34465d084f514c0c66cbf67021f46dc0e99b	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-debian-misc	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	d81bf3cf9e6baa7e0151d4e4cc5d0de9b5d056e70a2c0442d3048a18e543e738	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-dpu-ddk	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	b95c0e830d1f81191338c44a2a20be5e998eacb42df93633601eb3d0c2503a42	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-env	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	1590c99ee85a5fed06b1ae73fcffff8479d4ea7a0382261a3303a92922405609	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-firmware	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	02c28ed27f5a1808b220c43333ff4e17c57bdde91a7a59411c83781e230a05ff	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-gpu-umd	2.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	f94eef4e5dca93d43d52699f0b24a4890c19ef6857f653069a687c7aa6d1368b	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-gstreamer	1.22.1	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	ea3f73b533d855ea6280bf289ba30b0422c977b1dc3dcafd9720d1ad4e5094d8	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-hdcp2	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	149df7b44100fd1f8dc62614ba15564acd43455950766590a38c6715fe331bee	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-isp-umd	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	d8ca476339754c82aa021235a549f5f25a7759e5a76cfe63984d510cb78f63d8	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-libdrm	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	fa9133d52fb5b9500ea0fa2879c5c55a0aa7e17dde7e58f2f74c3c2de2792b15	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-libglvnd	1.7.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	17f6290d02135d49050918024a5aa9532457f1580bebd9f005060f263bdb7cc2	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-llama-cpp	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	8ded3e24f72fed0c1b9756c1876ae98494bb6eec10f201c703fc3c60150b4c11	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-mesa	24.0.4	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	996a11f18d238398d36582eb10ec9da2429fe7cc6feaeec569df6a7510d11084	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-mnn	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	954bc31f597074d1a318964dee5ce1c575ff7656e4b8c97d5acaf954da3ab5bb	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-noe-umd	3.1.4-cixdeb13-260714	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	b6075dc63331849452b68d755f2940332a0851f7940770813be2480c0d51abf8	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-npu-umd	3.2.0-cixdeb13-260714	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	f851cb9996f8422d723da82a81a811b7da8f51af27af0326f69a0ab65e9b491a	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-optee	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	6c441ed7a2927cd1d9e8cde65b82a063e36a0578bb4983eafaa092265bbb7579	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-sd-demo	1.4.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	5e6d3aae482c8b2a8d99cef63bb1ba42c56a1670a446884ce23049e24f03d05c	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-tools	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	11a52be12c84f7dd4508f7a7814c87b66363403df8911af9281a56df51057c85	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
+cix-whisper-cpp	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	47e3a01af9b78d2f541eac32364cbaf908e20551198a9ae61781343e2e475157	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
 google-chrome-stable	155.0.8059.39-1	amd64	Google LLC	https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_155.0.8059.39-1_amd64.deb	c58aa0f2cd66179c9f050e062c882d27aa9b9f8c2b7c73fee3498560b5ed0b38	vendor browser, staged in the offline pool
 google-chrome-stable	155.0.8059.39-1	arm64	Google LLC	https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_155.0.8059.39-1_arm64.deb	3556494580a71ecee15cbeb3b6ce23bf3af360bc053d90d3105241c2247da52b	vendor browser, staged in the offline pool
 vivaldi-stable	8.1.4087.55-1	amd64	Vivaldi Technologies	https://repo.vivaldi.com/archive/deb/pool/main/vivaldi-stable_8.1.4087.55-1_amd64.deb	1a27310d8649c5eac4103bb4f199727a02cb65292766db9166b094613f90d4dd	default browser, assets/vivaldi (tracked in git)

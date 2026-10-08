@@ -26,7 +26,8 @@ PAT='(ports|archive|security|old-releases|us\.archive|[a-z]{2}\.archive)\.ubuntu
 # Reviewed exclusions: tests/fixtures (they must name Ubuntu to test the gate),
 # this gate, and docs/history. Vendor repos are listed in manifests/vendor-repos.tsv.
 list_files() {
-    if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+       && [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$ROOT" && pwd -P)" ]; then
         git -C "$ROOT" ls-files -- build post-install preseed docker scripts tools packaging release.conf Makefile manifests
     else
         (cd "$ROOT" && find build post-install preseed docker scripts tools packaging manifests release.conf Makefile -type f 2>/dev/null)
@@ -35,7 +36,7 @@ list_files() {
 while IFS= read -r f; do
     case "$f" in
         build/test-*|build/testdata/*|build/fixtures/*|build/check-no-ubuntu.sh|build/forky-provenance.py|build/check-forky-provenance.sh) continue ;;
-        manifests/vendor-repos.tsv|manifests/vendor-debs.tsv) continue ;;
+        manifests/vendor-repos.tsv|manifests/vendor-debs.tsv|manifests/keys/*) continue ;;
         *.deb|*.udeb|*.png|*.svg|*.xz|*.zst|*.gz|*.bin) continue ;;
     esac
     [ -f "$ROOT/$f" ] || continue
@@ -52,7 +53,7 @@ done < <(list_files)
 # --- DEB / rootfs: delegate to the provenance tool in Ubuntu-only mode ---------
 ARGS=("$@")
 [ ${#ARGS[@]} -gt 0 ] || ARGS=(--debs "$ROOT/assets")
-NCZ_PROVENANCE_ROOT="$ROOT" python3 -I "$HERE/forky-provenance.py" --ubuntu-only "${ARGS[@]}" || BAD=$((BAD + 1))
+python3 -I "$HERE/forky-provenance.py" --ubuntu-only "${ARGS[@]}" || BAD=$((BAD + 1))
 
 if [ "$BAD" -gt 0 ]; then
     echo "check-no-ubuntu: FAIL ($BAD finding group(s))" >&2

@@ -10,13 +10,13 @@
 # Usage: build/check-forky-provenance.sh SCAN...    (see build/forky-provenance.py --help)
 #   --image IMG --work DIR     a finished .img (no root, no loop mount: uses debugfs)
 #   --debs DIR | --packages F | --status F | --rootfs DIR | --squashfs F
-# The snapshot Packages index is cached under $NCZ_FORKY_INDEX_DIR (default
-# ~/.cache/ncz-forky-index/<pin>) and fetched from snapshot.debian.org when missing.
+# The snapshot index is verified against the committed trust metadata
+# (manifests/forky-snapshot.tsv) every run, so its directory may live anywhere
+# the caller chooses; full callers pass --index-dir (ship-image.sh does).
 # Exit 0 clean, 1 violations, 2 usage / no index (fails closed).
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-ROOT="$(cd "$HERE/.." && pwd)"
-PIN="$(sed -n 's/^NCZ_BASE_MIRROR_SNAPSHOT="\{0,1\}\([0-9TZ]*\)"\{0,1\}.*/\1/p' "$ROOT/release.conf" | head -1)"
-IDX="${HOME}/.cache/ncz-forky-index/${PIN:-unpinned}"
-for a in "$@"; do [ "$a" = "--ubuntu-only" ] && exec python3 -I "$HERE/forky-provenance.py" "$@"; done
-exec python3 -I "$HERE/forky-provenance.py" --index-dir "$IDX" --fetch-index "$@"
+# No HOME-derived, environment-steerable cache and no trust-root override: the
+# Python verifier owns the trust root (this checkout) and cryptographically
+# verifies the index contents.  --ubuntu-only (offline lint) needs no index.
+exec python3 -I "$HERE/forky-provenance.py" "$@"

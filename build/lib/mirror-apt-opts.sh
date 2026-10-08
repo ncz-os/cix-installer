@@ -97,6 +97,45 @@ ncz_package_record_count() {
     printf "%s\n" "$count"
 }
 
+# ncz_pin_snapshot [ROOT] -- print the release.conf NCZ_BASE_MIRROR_SNAPSHOT pin.
+# Single parser for the whole tree (no divergent sed copies).  The pin is
+# YYYYMMDDTHHMMSSZ; an exactly-16-character match means a longer/garbled value
+# cannot be silently truncated to a valid-looking prefix.  Empty => callers fail.
+ncz_pin_snapshot() {
+    local root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}" count line val
+    count="$(grep -c '^NCZ_BASE_MIRROR_SNAPSHOT=' "$root/release.conf" 2>/dev/null || true)"
+    [ "${count:-0}" -eq 1 ] || return 1
+    line="$(grep '^NCZ_BASE_MIRROR_SNAPSHOT=' "$root/release.conf")"
+    val="${line#NCZ_BASE_MIRROR_SNAPSHOT=}"; val="${val%\"}"; val="${val#\"}"
+    case "$val" in
+        [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+        *) return 1 ;;
+    esac
+    printf '%s\n' "$val"
+}
+
+# ncz_verify_local_mirror DIR
+# A local (file:/absolute) build mirror is used only after it verifies against
+# the pinned signed forky index: the signed InRelease must match the committed
+# digest and every Packages index must match the signed Release's SHA256+size.
+# A path name or a stamp is not proof.  Returns 1 (with a message) otherwise.
+ncz_verify_local_mirror() {
+    local dir="${1#file:}" here root pin cache
+    here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    root="$(cd "$here/.." && pwd)"
+    [ -d "$dir" ] || { echo "ERROR: local mirror '$dir' does not exist" >&2; return 1; }
+    pin="$(ncz_pin_snapshot "$root")" || { echo "ERROR: release.conf has no valid snapshot pin" >&2; return 1; }
+    # Verified upstream index cache.  The path is NOT a trust decision: the cache
+    # is re-verified against the committed signed Release on every run.
+    cache="${NCZ_FORKY_INDEX_CACHE:-$HOME/.cache/ncz-forky-index/${pin:-unpinned}}"
+    if ! python3 -I "$here/forky-provenance.py" --verify-mirror "$dir" \
+            --index-dir "$cache" --fetch-index >/dev/null 2>&1; then
+        echo "ERROR: local mirror '$dir' does not verify against the pinned signed forky index" >&2
+        return 1
+    fi
+    return 0
+}
+
 # ncz_require_debian_forky SUITE MIRROR [BASE_NAME]
 # Operator rule 2026-10-08: "We shouldn't be using Ubuntu debs ever" and "we
 # should only use Debian versions from forky". Every rootfs/mirror builder calls
@@ -105,7 +144,7 @@ ncz_package_record_count() {
 ncz_require_debian_forky() {
     local suite="$1" mirror="$2" base="${3:-Debian}" pin root stamp
     root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-    pin="$(sed -n 's/^NCZ_BASE_MIRROR_SNAPSHOT="\{0,1\}\([0-9TZ]*\)"\{0,1\}.*/\1/p' "$root/release.conf" | head -1)"
+    pin="$(ncz_pin_snapshot "$root")"
     if [ -z "$pin" ]; then
         echo "ERROR: release.conf has no NCZ_BASE_MIRROR_SNAPSHOT -- refusing an unpinned base" >&2
         return 1
@@ -123,7 +162,8 @@ ncz_require_debian_forky() {
         https://snapshot.debian.org/archive/debian/*|http://snapshot.debian.org/archive/debian/*)
             stamp="${mirror#*/archive/debian/}"; stamp="${stamp%%/*}"
             [ "$stamp" = "$pin" ] || { echo "ERROR: snapshot '$stamp' is not the release.conf pin '$pin'" >&2; return 1; } ;;
-        file:*|/*) ;;
+        file:*|/*)
+            ncz_verify_local_mirror "$mirror" || return 1 ;;
         *)
             echo "ERROR: mirror '$mirror' refused: not a Debian archive or snapshot.debian.org" >&2
             return 1 ;;
