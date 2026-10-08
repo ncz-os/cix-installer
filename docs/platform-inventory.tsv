@@ -471,3 +471,10 @@ docs/APT-SEPARATION.md	common	-	design and operator runbook: separating NCZ-OS p
 build/test-dkms-prep-genksyms.sh	sky1	-	proves 79-dkms-prep.sh rebuilds the native host tools when only genksyms is a foreign (Yocto uninative) binary (r201)
 build/test-stale-singularity-prune.sh	sky1	-	proves the base layer drops a stale Singularity deb and the prebuilt-deb mode stages exactly the sha256-checked deb (r201)
 build/test-libpeas-plugin-icon.sh	common	-	proves the generic libpeas-plugin fallback icon (NCZ puzzle-piece svg under assets/branding/icons) is a plain scalable svg and that 56-icon-theme.sh installs it into hicolor (idempotent, no clobber, never fails)
+build/stage-build-inputs.sh	common	-	stages the gitignored rescue/mgmt rootfs, python311 and wallpaper debs from the ARGONAS build-inputs store, sha256-pinned (r201)
+manifests/build-inputs.tsv	common	-	sha256 pins for the ARGONAS build inputs staged by build/stage-build-inputs.sh
+build/test-build-inputs.sh	common	-	proves stage-build-inputs publish/fetch/check/refusal and that hooks 20/25/38 packages are seeded (r201)
+build/test-deb-rev-defaults.sh	common	-	proves libdrm and DKMS debs build at the release.conf +ncz2 revision with no env, and a libdrm patch edit without a bump fails (r201)
+build/test-desktop-apt-require.sh	common	-	proves 20-desktop.sh ncz_apt_require propagates apt failures and checks install ok installed (r201)
+build/test-firmware-bom-hook.sh	common	-	proves 13-firmware-bom.sh preseeds the firmware licence questions and fails on any not-installed package (r201)
+build/test-panthor-fallback-real-overlay.sh	sky1	-	executes hook 83 against the real tracked panthor overlay of the shipping Sky1 kernel (r201)
