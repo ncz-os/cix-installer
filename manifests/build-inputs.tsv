@@ -1,0 +1,22 @@
+# manifests/build-inputs.tsv -- checksum pins for the gitignored image build inputs.
+# Staged from the ARGONAS store by build/stage-build-inputs.sh (see its header for the path
+# per host). Columns (TAB): arch, dest (repo-relative), sha256, size, note.
+# Update a pin ONLY with `build/stage-build-inputs.sh --arch <a> --publish` from the tree that
+# holds the new file, then commit this file.
+# arch	dest	sha256	size	note
+amd64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	27a0cfd3911b0780aba9fcb31934010749cc5ef0785c1febb6a1e2e4961d96ee	55425277	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky amd64)
+amd64	assets/rescue/rescue-rootfs-amd64.tar.zst	3c93b1c86ebc188c74e4e5f40252c94234936ccb6e4702a4c3727ff732bde392	213637051	rescue partition rootfs (build/build-rescue-rootfs.sh)
+arm64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	096f1d9de4f135fbef54e22fde11df59fb9dd29de2579d212d63ba9f23f3da63	53946144	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky arm64)
+arm64	assets/rescue/rescue-rootfs-arm64.tar.zst	9671c6c8f0965647e74788e1f282bbb13f8bbd543d985ba943e4a3b813272d5c	200177088	rescue partition rootfs (build/build-rescue-rootfs.sh)
+amd64	assets/python311/cpython-3.11.17+20261003-x86_64-unknown-linux-gnu-install_only.tar.gz	c624af93ad62a596806bbd2404e1fb80744a407ca7279854445ede16d93858b8	48919491	relocatable CPython 3.11 (build/build-python311-assets.sh)
+amd64	assets/python311/uv	abdc39eab8b4ad341dca91f3823a23a343fae94bdb22ebdd9e91694415206f2f	47993144	uv toolchain (build/build-python311-assets.sh)
+arm64	assets/python311/cpython-3.11.16+20260924-aarch64-unknown-linux-gnu-install_only.tar.gz	96f6f6af710762a34507ba222435a8d58d0b2a97c48cb84c0a0c73cdff199bb0	48940326	relocatable CPython 3.11 (build/build-python311-assets.sh)
+arm64	assets/python311/uv	ba87a4f36e123f77da72c0e1a17e611d0b6b33e4ca0a6a8a4847feb30ac5a79e	43673472	uv toolchain (build/build-python311-assets.sh)
+amd64	assets/wallpaper-debs/ncz-wallpapers-alex-jay-brady_1.0_all.deb	c1faa686905432d68a3597d8f723a32dfae7672023382356872d8476d315d28b	17654376	Artist Pack deb (build/build-wallpaper-contrib-deb.sh alex-jay-brady)
+amd64	assets/wallpaper-debs/ncz-wallpapers-brandon-perlow_1.0_all.deb	09dac390f72059da7d410b67d905ccf3ff4fca04ab2f277cf777b08b125d15eb	9589616	Artist Pack deb (build/build-wallpaper-contrib-deb.sh brandon-perlow)
+amd64	assets/wallpaper-debs/ncz-wallpapers-ncz_1.0_all.deb	d3d179a81ba94085fd0d5c1134a49d30c0ec66b45711f70934a91c1e8bbc3876	2398676	Artist Pack deb (build/build-wallpaper-contrib-deb.sh ncz)
+amd64	assets/wallpaper-debs/ncz-wallpapers-singularity_1.0_all.deb	1d9a8fc95723e5544554c06b67b79d39954fa009bd5b9726bb045a3a6a6d9027	4247588	Artist Pack deb (build/build-wallpaper-contrib-deb.sh singularity)
+arm64	assets/wallpaper-debs/ncz-wallpapers-alex-jay-brady_1.0_all.deb	52c79c75acd88bb0ef3b5a23858663f4de34ef4e1de6a223734ee3e3117d0382	17654464	Artist Pack deb (build/build-wallpaper-contrib-deb.sh alex-jay-brady)
+arm64	assets/wallpaper-debs/ncz-wallpapers-brandon-perlow_1.0_all.deb	46e849b58f9eef61373bf93a03f7acb07ba12f6456c4b16c41972d8663eaebc4	9589516	Artist Pack deb (build/build-wallpaper-contrib-deb.sh brandon-perlow)
+arm64	assets/wallpaper-debs/ncz-wallpapers-ncz_1.0_all.deb	da73a041ad74c607ba7c5f369903e1c7191119669f9a84cd3549a0edb96d23bf	2948800	Artist Pack deb (build/build-wallpaper-contrib-deb.sh ncz)
+arm64	assets/wallpaper-debs/ncz-wallpapers-singularity_1.0_all.deb	717d1d26545ce9a4c5260c44b8bec9ebe377454ea5e1e3c83faa8788fffe6ca2	4247080	Artist Pack deb (build/build-wallpaper-contrib-deb.sh singularity)
