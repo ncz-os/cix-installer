@@ -35,3 +35,4 @@ rescue	memtest86+	amd64-only	x86 memory test
 rescue	ms-sys	amd64-only	x86 MBR tooling
 rescue	syslinux	amd64-only	x86 boot media
 rescue	syslinux-efi	amd64-only	x86 boot media
+desktop	python3-numpy	arm64-only	installed by post-install/25-cix-proprietary.sh (Sky1 NPU userspace); amd64 has no cix NOE_Engine

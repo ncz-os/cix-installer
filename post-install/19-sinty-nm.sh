@@ -37,7 +37,8 @@ done
 
 if [ -z "$SINTY_NMD" ]; then
     echo "[19-sinty-nm] WARN: assets/sinty-nm/sinty-nmd not staged - falling back to NetworkManager" >&2
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends network-manager netplan.io 2>&1 | tail -2 || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends network-manager netplan.io 2>&1 | tail -2 \
+        || echo "[19-sinty-nm] WARN: network-manager/netplan.io install failed -- no network manager on this image" >&2
     systemctl enable NetworkManager 2>/dev/null || true
     exit 0
 fi

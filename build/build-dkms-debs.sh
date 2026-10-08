@@ -34,6 +34,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 umask 022   # reproducible file modes (the version gate compares content)
+# Revision default comes from release.conf (one value for both arches); see the BUMP RULE there.
+# shellcheck source=../release.conf
+. "$ROOT/release.conf"
 OUT="$ROOT/build/dkms-debs"
 DRIVERS=("$@")
 [ ${#DRIVERS[@]} -eq 0 ] && DRIVERS=(mali panthor vpu npu)
@@ -97,7 +100,7 @@ for drv in "${DRIVERS[@]}"; do
     [ -f "$SRCDIR/dkms.conf" ] || { echo "SKIP $drv: no dkms.conf staged" >&2; rm -rf "$WORK"; continue; }
 
     SIZE_KB=$(du -sk "$WORK/usr" | cut -f1)
-    DEB_VER="${VER}+ncz${NCZ_DKMS_DEB_REV:-1}"
+    DEB_VER="${VER}+ncz${NCZ_DKMS_DEB_REV:?release.conf must define NCZ_DKMS_DEB_REV}"
 
     cat > "$WORK/DEBIAN/control" <<CONTROL
 Package: ${NAME}-dkms

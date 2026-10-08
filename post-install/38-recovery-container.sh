@@ -41,7 +41,9 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 
 # ---- 2. extract the container rootfs ----
 if [ ! -f "$ROOTFS_TARBALL" ]; then
-    echo "[38] ERROR: $ROOTFS_TARBALL missing (build/build-mgmt-rootfs.sh not run before ISO build)"
+    echo "[38] ERROR: $ROOTFS_TARBALL missing: the image was built without the recovery rootfs." >&2
+    echo "[38] Stage it from the ARGONAS build-inputs store before building: build/stage-build-inputs.sh --arch <arch>" >&2
+    echo "[38] (manifests/build-inputs.tsv pins it; build/build-mgmt-rootfs.sh produces it, then --publish)." >&2
     exit 1
 fi
 echo "[38] extracting container rootfs -> $MACHINE_ROOT"
@@ -78,6 +80,9 @@ EOF
 # macvlan is not auto-loaded by systemd-nspawn; without it the container fails to
 # start ("Failed to add new macvlan interfaces: Operation not supported"). Load
 # it at boot (the netparent oneshot also modprobes it before the container).
+# /etc/modules-load.d is not guaranteed to exist (a real run of this hook on forky died here, set -e,
+# before the netparent unit and the container enable were written).
+install -d -m 0755 /etc/modules-load.d
 echo macvlan > /etc/modules-load.d/ncz-recovery.conf
 
 # ---- 4. fleet authorized_keys into the container's root account ----

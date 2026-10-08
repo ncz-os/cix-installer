@@ -452,9 +452,14 @@ offline-mirror: desktop-mirror
 	@bash $(ROOT)/build/verify-firmware-bom.sh --mirror $(BUILD)/forky-mirror --label forky-mirror
 
 
+# Pinned build inputs (rescue rootfs, python311, wallpaper debs, recovery rootfs) come from the
+# ARGONAS store, checksum-pinned in manifests/build-inputs.tsv; see build/stage-build-inputs.sh.
+.PHONY: stage-build-inputs
+stage-build-inputs:
+	@bash $(ROOT)/build/stage-build-inputs.sh --arch $(ARCH)
+
 $(ROOT)/assets/python311/uv:
-	@echo "[python311-assets] provisioning relocatable CPython 3.11 + uv (NPU venv, offline-first)"
-	@bash $(ROOT)/build/build-python311-assets.sh
+	@bash $(ROOT)/build/stage-build-inputs.sh --arch $(ARCH) --only assets/python311
 $(ROOT)/assets/squashfs/desktop-hotfix.squashfs: $(LATEST_SINGULARITY_DEB)
 	@echo "[hotfix-squashfs] rebuilding from $(LATEST_SINGULARITY_DEB)"
 	@bash $(ROOT)/build/build-squashfs-layers.sh hotfix
@@ -487,6 +492,8 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(wildcard $(ASSETS)/kernel/*/*) \
 	               $(wildcard $(ASSETS)/rootfs/*) \
 	               $(wildcard $(ASSETS)/sky1-firmware/*)
+	@echo "[image] pinned build inputs (recovery rootfs, rescue rootfs, python311, wallpaper debs)"
+	@bash $(ROOT)/build/stage-build-inputs.sh --arch $(ARCH)
 	@echo "[image] platform-split lint (inventory, hooks.list, deny patterns, guards, manifest divergence)"
 	@bash $(ROOT)/build/lint-platform.sh
 	@echo "[image] preseed early_command shape/size"
@@ -711,4 +718,11 @@ parity:
 	bash build/test-install-extra-local-debs.sh
 	bash build/test-desktop-mirror-local-debs.sh
 	build/test-no-debian-kernel.sh
+	bash build/test-firmware-bom-hook.sh
+	bash build/test-desktop-apt-require.sh
+	bash build/test-build-inputs.sh
+	bash build/test-deb-rev-defaults.sh
+	bash build/test-panthor-hook-overlay-fallback.sh
+	bash build/test-panthor-fallback-real-overlay.sh
+	bash build/test-npu-dkms-deferral.sh
 	$(MAKE) --no-print-directory test-cygnus-branding

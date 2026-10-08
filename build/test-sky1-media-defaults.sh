@@ -57,7 +57,7 @@ for m in desktop.pkgs desktop-amd64.pkgs; do
     done
 done
 [ "$FAILS" = 0 ] && ok "seeds: audio/media runtime packages present in both desktop manifests"
-line="$(awk '/apt-get install -y \\$/ {getline n; if (n ~ /pipewire-pulse/) print n}' "$ROOT/post-install/20-desktop.sh")"
+line="$(awk '/(apt-get install -y|ncz_apt_require) \\$/ {getline n; if (n ~ /pipewire-pulse/) print n}' "$ROOT/post-install/20-desktop.sh")"
 for p in pipewire pulseaudio-utils alsa-utils; do
     printf '%s\n' "$line" | grep -qw -- "$p" || { bad "20-desktop audio install line lacks $p (autoswitch needs it)"; continue; }
 done
