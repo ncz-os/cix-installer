@@ -174,6 +174,14 @@ ncz_ssplugin_install() {
     for f in "$p/libscreensaver.so" "$p/screensaver.plugin"; do
         [ -e "$R$f" ] || { ssp_err "FATAL: $SSP_PKG installed but $f is absent"; return 1; }
     done
+    # The plugin page reads Version and Icon from the plugin file.
+    local pv pi
+    pv="$(sed -n 's/^Version=//p' "$R$p/screensaver.plugin" | head -n 1)"
+    [ "$pv" = "$SSP_VERSION" ] || {
+        ssp_err "FATAL: $p/screensaver.plugin says Version='$pv', not $SSP_VERSION"; return 1; }
+    pi="$(sed -n 's/^Icon=//p' "$R$p/screensaver.plugin" | head -n 1)"
+    [ -n "$pi" ] && [ -e "$R/opt/singularity/share/icons/hicolor/scalable/apps/$pi.svg" ] || {
+        ssp_err "FATAL: $SSP_PKG installed but its Icon '$pi' is not in /opt/singularity/share/icons/hicolor/scalable/apps"; return 1; }
     # The package postinst adds 'screensaver' to the distribution default
     # enabled-plugins (from 20-desktop.sh's 99-ncz-defaults override) so a NEW
     # user starts with the page enabled; ncz-screensaver ensure-plugin covers
