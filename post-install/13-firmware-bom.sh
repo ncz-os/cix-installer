@@ -22,7 +22,7 @@
 # work on hardware we have not seen should not be guessing which blobs it will
 # need. Exclusions belong in firmware-bom.allow, not here.
 set -u
-BOM=/usr/local/lib/cix-installer/manifests/firmware.pkgs
+BOM=${NCZ_FW_BOM:-/usr/local/lib/cix-installer/manifests/firmware.pkgs}
 [ -f "$BOM" ] || BOM=/cdrom/manifests/firmware.pkgs
 if [ ! -f "$BOM" ]; then
     echo "[13] firmware BOM not found; skipping"
@@ -32,16 +32,48 @@ mapfile -t PKGS < <(grep -hvE '^[[:space:]]*(#|$)' "$BOM" | awk '{print $1}')
 [ "${#PKGS[@]}" -gt 0 ] || { echo "[13] firmware BOM empty; skipping"; exit 0; }
 echo "[13] installing ${#PKGS[@]} firmware packages from the BOM"
 export DEBIAN_FRONTEND=noninteractive
-# --no-install-recommends: firmware packages must not drag in extras.
-if apt-get install -y --no-install-recommends "${PKGS[@]}"; then
-    echo "[13] firmware BOM installed"
+
+# LICENCE ACCEPTANCE (r201 defect). firmware-ipw2x00 and firmware-ivtv ask a
+# critical-priority "do you accept the licence" debconf question in their
+# preinst. Under DEBIAN_FRONTEND=noninteractive it cannot be asked, the preinst
+# exits 2 and dpkg leaves the package "install ok not-installed" (r201 gate:
+# "firmware-ipw2x00 agree question could not be asked"). The firmware is
+# redistributable non-free-firmware that the operator already ships, so the
+# acceptance is preseeded before apt runs. Template names were read from the
+# 20260916-1 debs (firmware-*/license/accepted, boolean). Any future
+# licence-gated package shows up as MISSING below and fails the hook.
+if command -v debconf-set-selections >/dev/null 2>&1; then
+    printf '%s\n' \
+        'firmware-ipw2x00 firmware-ipw2x00/license/accepted boolean true' \
+        'firmware-ivtv firmware-ivtv/license/accepted boolean true' \
+        | debconf-set-selections \
+        || echo "[13] WARNING: could not preseed firmware licence acceptance" >&2
 else
-    # Do not fail the install over firmware: report what is missing and move on.
-    echo "[13] WARNING: some firmware packages did not install; checking individually" >&2
-    miss=0
-    for p in "${PKGS[@]}"; do
-        dpkg -s "$p" >/dev/null 2>&1 || { echo "[13]   MISSING: $p" >&2; miss=$((miss+1)); }
-    done
-    echo "[13] $miss of ${#PKGS[@]} firmware packages missing" >&2
+    echo "[13] WARNING: debconf-set-selections missing; licence-gated firmware will fail" >&2
 fi
+
+# Real install state. `dpkg -s` exits 0 for "install ok not-installed" (a package
+# whose preinst failed), which made the old check report "0 of 40 missing" while
+# two packages were absent. Only "install ok installed" counts.
+fw_installed() {
+    case "$(dpkg-query -W -f='${Status}' "$1" 2>/dev/null)" in
+        *"install ok installed"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# --no-install-recommends: firmware packages must not drag in extras.
+if ! apt-get install -y --no-install-recommends "${PKGS[@]}"; then
+    echo "[13] WARNING: apt-get install of the firmware BOM failed; checking each package" >&2
+fi
+MISSING=()
+for p in "${PKGS[@]}"; do
+    fw_installed "$p" || MISSING+=("$p")
+done
 echo "[13] /lib/firmware/i915: $(ls /lib/firmware/i915 2>/dev/null | wc -l) files"
+if [ "${#MISSING[@]}" -gt 0 ]; then
+    for p in "${MISSING[@]}"; do echo "[13]   MISSING: $p" >&2; done
+    echo "[13] FAILED: ${#MISSING[@]} of ${#PKGS[@]} firmware packages are not installed" >&2
+    exit 1
+fi
+echo "[13] firmware BOM installed: all ${#PKGS[@]} packages are 'install ok installed'"
