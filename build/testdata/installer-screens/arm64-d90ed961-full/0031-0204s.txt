@@ -1,0 +1,16 @@
+# t=204s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                                                         │
+  │                                   23%                                   │
+  │                                                                         │
+  │ Installing NCZ-OS: desktop (9/78, 19s) - Package transaction            │
+  │ complete; continuing 20-desktop.sh                                      │
+  └─────────────────────────────────────────────────────────────────────────┘

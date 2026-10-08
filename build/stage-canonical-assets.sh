@@ -286,17 +286,32 @@ fi
 # checksum-pinned in manifests/build-inputs.tsv and held in the ARGONAS build-inputs store: stage it from there
 # first. Only for the real tree (--from points at a fixture/other tree, which has no store pins).
 NPU_DKMS_DEB="cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz3_arm64.deb"
+NPU_DKMS_PINNED=0
 if [ "$ASSETS" = "$REPO/assets" ] && [ -x "$REPO/build/stage-build-inputs.sh" ] \
    && awk -F'\t' -v n="assets/cix-debs/$NPU_DKMS_DEB" '$1=="arm64" && $2==n {f=1} END{exit !f}' "$REPO/manifests/build-inputs.tsv" 2>/dev/null; then
     if bash "$REPO/build/stage-build-inputs.sh" --arch arm64 --only "assets/cix-debs/$NPU_DKMS_DEB"; then
         log "  cix-npu-driver-dkms +ncz3 staged from the pinned build-inputs store (SDK rebuild not needed)"
+        NPU_DKMS_PINNED=1
     else
         warn "pinned cix-npu-driver-dkms +ncz3 could not be staged from the build-inputs store (output above)"
         missing=$((missing+1))
     fi
 fi
 
-if [ ! -f "$SRC_NPU_SDK_TGZ" ]; then
+# Every SDK-derived output already staged (the matched-stack debs from the r200 copy, the NPU DKMS deb from the
+# pinned store)? Then the unreachable tarball is not a gap: no warning, nothing counted missing, no PARTIAL.
+sdk_all_staged=0
+if [ "$NPU_DKMS_PINNED" = 1 ]; then
+    sdk_all_staged=1
+    for d in cix-ai-engine_2.0.0-cixdeb13-260714 cix-ai-test_1.0.1-cixdeb13-260714 \
+             cix-noe-umd_3.1.4-cixdeb13-260714 cix-npu-umd_3.2.0-cixdeb13-260714; do
+        [ -s "$ASSETS/cix-debs/${d}_arm64.deb" ] || sdk_all_staged=0
+    done
+fi
+if [ ! -f "$SRC_NPU_SDK_TGZ" ] && [ "$sdk_all_staged" = 1 ]; then
+    log "  NPU SDK tarball not needed: all SDK-derived debs are already staged (NPU DKMS deb from the pinned store)"
+    reached=$((reached+1))
+elif [ ! -f "$SRC_NPU_SDK_TGZ" ]; then
     warn "NPU SDK tarball not reachable: $SRC_NPU_SDK_TGZ"
     missing=$((missing+1))
 else

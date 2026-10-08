@@ -158,7 +158,9 @@ if a.require_boot_progress:
 # can: a candidate that lost or reordered a dialog differs here, one that only sampled one frame
 # fewer does not.
 titles = []
-tre = re.compile(r"lq*u?\s*(?:\[[^\]]*\]\s*)?(.*?)\s*tq*\s*k")   # newt title bar: l qqq u TITLE t qqq k (a long title leaves no q's)
+# A newt title bar is a whole frame line: l qqq u TITLE t qqq k (a long title leaves no q's, "lu TITLE tk").
+# Anchored, with the box structure required, so body text containing an "l" ... "t k" is never read as a title.
+tre = re.compile(r"^\s*l(?:q*u(?=\s)|q{3,})\s*(?:\[[^\]]*\]\s*)?(\S.*?)\s+tq*\s*k\s*$")
 for f in files:
     lines = rd(os.path.join(a.dir, f)).split("\n")
     for line in lines:

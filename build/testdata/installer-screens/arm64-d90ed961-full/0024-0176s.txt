@@ -1,0 +1,16 @@
+# t=176s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                                                         │
+  │                                   19%                                   │
+  │                                                                         │
+  │ Installing NCZ-OS: firmware bom (5/78, 22s) - Package transaction       │
+  │ complete; continuing 13-firmware-bom.sh                                 │
+  └─────────────────────────────────────────────────────────────────────────┘

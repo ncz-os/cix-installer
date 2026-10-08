@@ -29,13 +29,14 @@
 #                       here once that build exists. Stock `ffmpeg` (already
 #                       below, from the r189.4 bucket) covers software
 #                       encode/decode in the meantime.
-# libdrm-radeon1, libdrm-nouveau1, libdrm-freedreno1, libdrm-tegra0,
-# libdrm-etnaviv1    — these were pulled into the Sky1 closure only as
-#                       transitive Mesa dependency noise for architectures
-#                       NCZ-OS does not target; irrelevant to AMD64's own
-#                       real AMD/Intel/NVIDIA DRM backends (amdgpu/i915/
-#                       nouveau ship their own libdrm backends via
-#                       mesa-vulkan-drivers below). Not carried forward.
+# libdrm-freedreno1, libdrm-tegra0, libdrm-etnaviv1 — SoC DRM backends for
+#                       architectures NCZ-OS does not target on AMD64; not
+#                       seeded and not carried in the amd64 mirror.
+# libdrm-radeon1, libdrm-nouveau2 — not desktop seeds on AMD64, but Mesa pulls
+#                       them (and libdrm2/amdgpu1/intel1) in transitively, and
+#                       every libdrm in the amd64 mirror must be the pinned
+#                       +ncz2 build: they come from the NCZ_LOCAL_DEBS rows of
+#                       build/build-desktop-mirror.sh (r201), not from Debian.
 
 # ============================================================================
 # KEPT AS-IS (portable, unchanged from desktop.pkgs)

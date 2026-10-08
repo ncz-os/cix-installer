@@ -1,0 +1,16 @@
+# t=184s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+
+
+  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                                                         │
+  │                                   21%                                   │
+  │                                                                         │
+  │ Installing NCZ-OS: sinty nm (8/78, 2s) - Package transaction            │
+  │ complete; continuing 19-sinty-nm.sh                                     │
+  └─────────────────────────────────────────────────────────────────────────┘

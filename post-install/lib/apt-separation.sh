@@ -70,13 +70,13 @@ ncz_apt_reserved_prefixes() { printf '%s\n' 'ncz-*' 'cix-*' 'cixmini-*' 'chromiu
 # the NCZ suite and win over Debian on an installed system.
 ncz_apt_debian_overrides() {
     # Both arches ship the pinned +ncz2 set from the offline mirror (r201: amd64 had shipped +ncz1/stock);
-    # etnaviv1/tegra0 are not built for amd64.
+    # dev/freedreno1/etnaviv1/tegra0 are arm64-only (the amd64 mirror does not carry them).
     local n why='libdrm ACPI-identity patch for Panthor (build/build-libdrm-debs.sh; pinned set 2.4.134-3+ncz2, release.conf NCZ_LIBDRM_NCZ_REV)'
     printf '%s\t%s\t%s\n' libdrm-common 'all,amd64,arm64' "$why"
-    for n in libdrm2 libdrm-amdgpu1 libdrm-dev libdrm-freedreno1 libdrm-intel1 libdrm-nouveau2 libdrm-radeon1; do   # arch 'all' = the registry spelling of a ${ARCH} row
+    for n in libdrm2 libdrm-amdgpu1 libdrm-intel1 libdrm-nouveau2 libdrm-radeon1; do   # arch 'all' = the registry spelling of a ${ARCH} row
         printf '%s\t%s\t%s\n' "$n" 'all,amd64,arm64' "$why"
     done
-    for n in libdrm-etnaviv1 libdrm-tegra0; do
+    for n in libdrm-dev libdrm-freedreno1 libdrm-etnaviv1 libdrm-tegra0; do
         printf '%s\t%s\t%s\n' "$n" arm64 "$why"
     done
 }

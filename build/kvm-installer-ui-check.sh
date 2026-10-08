@@ -36,6 +36,9 @@ rc=0
 if [ "$ARCH" = amd64 ]; then
     # the framebuffer never goes blank (the bootloader's text stays up until the installer draws)
     "${CHK[@]}" "$WORK/fb-states" --no-blank-after "framebuffer" 2>&1 | tee "$WORK/fb-check.out"; [ "${PIPESTATUS[0]}" = 0 ] || rc=1
+    # proof the installer really progressed on the framebuffer (dialogs and progress bars): many distinct frames
+    ndist=$(awk '{print $2}' "$WORK/fb-frames.txt" 2>/dev/null | sort -u | wc -l | tr -d ' ')
+    [ "${ndist:-0}" -ge 8 ] || { echo "check-installer-screens: FAIL only ${ndist:-0} distinct framebuffer frames captured (dialogs and progress bars expected)" >&2; rc=1; }
     # The amd64 harness has no text channel for the d-i dialogs (the fbcon VT reads back blank/banner text while the
     # framebuffer shows the dialog), so dialog titles, their order and the branded header are NOT verified here. Say so,
     # loudly, instead of printing a PASS that implies they were (r201: "dialogs branded" over "dialogs (0): none").
@@ -45,9 +48,6 @@ if [ "$ARCH" = amd64 ]; then
         if [ "${NCZ_UI_CHECK_REQUIRE_DIALOGS:-0}" = 1 ]; then echo "UI CHECK FAIL (amd64): NCZ_UI_CHECK_REQUIRE_DIALOGS=1 and no dialog could be extracted" >&2; exit 1; fi
         [ $rc = 0 ] && { echo "UI CHECK PASS-LIMITED (amd64): no chatter, UI never blank after the first dialog; dialog order NOT verified"; exit 0; }
     fi
-    # proof the installer really progressed on the framebuffer (dialogs and progress bars): many distinct frames
-    ndist=$(awk '{print $2}' "$WORK/fb-frames.txt" 2>/dev/null | sort -u | wc -l | tr -d ' ')
-    [ "${ndist:-0}" -ge 8 ] || { echo "check-installer-screens: FAIL only ${ndist:-0} distinct framebuffer frames captured (dialogs and progress bars expected)" >&2; rc=1; }
 else
     "${CHK[@]}" "$WORK/serial-screens" --start-at "select your REGION" \
         --require-dialog "optional components" --require-dialog "select your REGION" \
