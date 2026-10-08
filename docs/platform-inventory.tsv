@@ -84,10 +84,8 @@ build/arch-parity-allowlist.tsv	common	-	reviewed manifest divergence between pl
 build/boot-timeline.py	common	-	boot log timeline analysis
 build/boot-speed-scan.py	common	-	static detector for boot-blocking systemd oneshots (docs/BOOT-SPEED.md item F)
 build/build-accel-overlays.sh	sky1	-	rebuilds the four Sky1 accelerator overlays from their dkms.conf
-build/build-apt-repo.sh	common	-	apt repo assembly from release.conf
 build/build-baked-rootfs.sh	sky1	-	bakes generic hooks in an arm64 chroot (31 arm64 refs, 1 amd64)
 build/build-base-rootfs.sh	common	-	mmdebstrap base rootfs with ARCH parameter
-build/build-bootstrap-pool.sh	common	-	netinstall bootstrap pool
 build/build-desktop-mirror.sh	common	-	closure mirror; seed file chosen as manifests/desktop-$ARCH.pkgs
 build/build-dkms-debs.sh	sky1	-	packages CIX accelerator DKMS sources
 build/build-forky-mirror.sh	common	-	profile-matched forky offline closure
@@ -96,7 +94,6 @@ build/build-installer-image.sh	common	-	shared raw-GPT image orchestration for a
 build/build-kernel-debs.sh	sky1	-	debianizes the cixmini kernel
 build/build-libdrm-debs.sh	sky1	-	libdrm with NCZ ACPI platform fix for Sky1 GPU
 build/build-mgmt-rootfs.sh	sky1	-	server management rootfs from arm64 mgmt.pkgs
-build/build-mirror.sh	sky1	-	legacy resolute arm64 mirror
 build/build-npu-ssdt.sh	sky1	-	NPU ACPI SSDT early CPIO
 build/build-ota-image.sh	sky1	-	OTA OCI image of the arm64 repo
 build/build-ota-repo.sh	sky1	-	OTA repo with Sky1 kernel debs
@@ -167,7 +164,6 @@ build/release-kernel.sh	sky1	-	Sky1 kernel release
 build/release-ota.sh	sky1	-	OTA release
 build/resolve-sky1-kernel-inputs.sh	sky1	-	dry-run of which Sky1 kernel each image input resolves
 build/secret-scan-gate.sh	common	-	secret scan gate
-build/server-mirror.gaps	common	-	server mirror gap notes
 build/singularity-deb-depends.sh	common	-	derives the ncz-singularity-desktop Depends from the payload ELF closure (dpkg-shlibdeps + dpkg -S), per build
 build/singularity-nightly-track.sh	common	-	singularity nightly tracker
 build/singularity-patch-reconcile.py	common	-	singularity patch reconcile
@@ -484,3 +480,9 @@ build/test-panthor-fallback-real-overlay.sh	sky1	-	executes hook 83 against the 
 build/test-npu-dkms-deferral.sh	sky1	-	proves 25-cix-proprietary.sh installs the vendor NPU DKMS deb with a register-only postinst so apt-get install -fy cannot fail on unrepaired headers (r201)
 build/test-splash-brand-aspect.sh	common	-	renders the session splash through the real singularity-loginui sources and checks the wordmark keeps its aspect ratio
 build/test-hooks-fail-loudly.sh	common	-	proves hook 86 fails on an aipu build failure, hooks 36/55 read the apt status behind | tail, and the deb version gate fails closed when the index is unreachable (r201)
+build/check-no-ubuntu.sh	common	-	gate: no Ubuntu deb/archive/userland (offline; make lint-platform + image target): SRC scan of build sources + Ubuntu evidence in debs/rootfs
+build/check-forky-provenance.sh	common	-	gate: every package is NCZ, a sha-pinned vendor deb or byte-identical to the pinned Debian forky snapshot; apt sources/pins/os-release forky-only; run by ship-image.sh on the finished .img
+build/forky-provenance.py	common	-	implementation of check-no-ubuntu.sh / check-forky-provenance.sh (debs, Packages, dpkg status, rootfs, squashfs, finished .img via debugfs)
+build/test-no-ubuntu.sh	common	-	positive+negative fixtures for the no-Ubuntu and forky-provenance gates (fonts-liberation 1:2.1.5-3build1 must fail)
+manifests/vendor-debs.tsv	common	-	reviewed third-party vendor debs (Chrome, Vivaldi, NVIDIA keyring) with source URL and sha256: the only non-Debian non-NCZ debs allowed
+manifests/vendor-repos.tsv	common	-	reviewed third-party apt repositories that sources/pins may reference (Chrome, Vivaldi, Intel, t2linux, NVIDIA)
