@@ -20,6 +20,8 @@
 #   build/stage-build-inputs.sh --arch amd64|arm64           # fetch + verify (default)
 #   build/stage-build-inputs.sh --arch arm64 --check         # verify only, copy nothing
 #   build/stage-build-inputs.sh --arch arm64 --only assets/python311   # subset by dest prefix
+#   build/stage-build-inputs.sh --arch arm64 --replace-local # overwrite a LOCAL file whose sha256 differs from the
+#                                                            # pin (default: refuse; a locally rebuilt input is never clobbered)
 #   build/stage-build-inputs.sh --arch amd64 --publish       # copy from this tree to ARGONAS
 #                                                            # and rewrite the pins
 # Producing the mgmt rootfs (needs root + debootstrap; any container works):
@@ -33,13 +35,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TSV="${NCZ_BUILD_INPUTS_TSV:-$ROOT/manifests/build-inputs.tsv}"
 TREE="${NCZ_BUILD_INPUTS_TREE:-$ROOT}"
-ARCH="" ; MODE=fetch ; ONLY=""
+ARCH="" ; MODE=fetch ; ONLY="" ; REPLACE_LOCAL=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --arch) ARCH="${2:?--arch needs a value}"; shift ;;
         --check) MODE=check ;;
         --publish) MODE=publish ;;
+        --replace-local) REPLACE_LOCAL=1 ;;
         --only) ONLY="${2:?--only needs a dest prefix}"; shift ;;
         -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "stage-build-inputs: unknown argument: $1" >&2; exit 2 ;;
@@ -104,9 +107,14 @@ while IFS= read -r line || [ -n "$line" ]; do
             if [ -f "$local_f" ]; then miss "$dest sha256 differs from the pin ($sha)"; else miss "$dest not staged (run build/stage-build-inputs.sh --arch $ARCH)"; fi
             continue
         fi
+        if [ -f "$local_f" ] && [ "$REPLACE_LOCAL" != 1 ]; then
+            miss "$dest exists locally with sha256 $(sha_of "$local_f") != pin $sha: refusing to overwrite (a rebuilt or modified input); publish it, remove it, or pass --replace-local"
+            continue
+        fi
         if [ -z "$STORE" ]; then miss "$dest not staged and no ARGONAS build-inputs store is mounted (set NCZ_BUILD_INPUTS_DIR)"; continue; fi
         if [ ! -f "$store_f" ]; then miss "$dest not in the store ($store_f): $note"; continue; fi
         if [ "$(sha_of "$store_f")" != "$sha" ]; then miss "$dest in the store has the wrong sha256 (pin $sha): refusing"; continue; fi
+        [ -f "$local_f" ] && echo "[build-inputs] replacing $dest (local sha256 $(sha_of "$local_f") != pin $sha) as requested"
         mkdir -p "$(dirname "$local_f")"
         cp -f "$store_f" "$local_f.part" && mv -f "$local_f.part" "$local_f"
         [ "$dest" = assets/python311/uv ] && chmod 0755 "$local_f"

@@ -171,6 +171,9 @@ elif [ -s "$TMP/netfw-installed" ]; then
     done < <(grep -hvE '^[[:space:]]*(#|$)' "$BOM_PKGS" | awk '{print $1}' | sort -u)
     echo "[fact] firmware_bom_checked=$_bom_n"
     grep -qxF -- systemd-coredump "$TMP/netfw-installed" || gate_miss diagnostics "systemd-coredump is not installed (post-install/20-desktop.sh)"
+else
+    # An empty or unreadable installed-package list must FAIL, never skip the BOM check.
+    gate_miss fw-bom "no installed-package list to check (empty or missing /var/lib/dpkg/status)"
 fi
 if [ "$ARCH" = arm64 ]; then
 # --- (i) firmware ---------------------------------------------------------

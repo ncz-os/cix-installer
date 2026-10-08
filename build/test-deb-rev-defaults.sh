@@ -49,6 +49,26 @@ echo "# edited" >> "$T/lroot/docs/upstream-patches/libdrm-xf86drm-acpi-platform-
 rm -f "$T/changelog.top"; run_libdrm
 if [ ! -e "$T/changelog.top" ] && grep -q 'Bump NCZ_LIBDRM_NCZ_REV' "$T/lo"; then ok "editing the libdrm patch without a bump fails before building"; else bad "patch edit not caught"; cat "$T/lo"; fi
 
+# --- libdrm: a published+pinned set for this version is REUSED, never rebuilt (toolchain drift trips the gate) ---
+mkdir -p "$T/lroot/manifests" "$T/store/amd64/build/libdrm-debs"
+cp "$ROOT/build/stage-build-inputs.sh" "$T/lroot/build/"
+echo "# t" > "$T/lroot/manifests/build-inputs.tsv"
+for n in libdrm2_2.4.134-3+ncz2_amd64.deb libdrm-common_2.4.134-3+ncz2_all.deb; do
+    echo "deb $n" > "$T/store/amd64/build/libdrm-debs/$n"
+    printf 'amd64\tbuild/libdrm-debs/%s\t%s\t8\tt\n' "$n" "$(sha256sum "$T/store/amd64/build/libdrm-debs/$n" | awk '{print $1}')" >> "$T/lroot/manifests/build-inputs.tsv"
+done
+cp "$PATCH" "$T/lroot/docs/upstream-patches/"   # undo the earlier edit
+rm -f "$T/changelog.top"
+( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T" TMPDIR="$T" LIBDRM_ARCH=amd64 NCZ_BUILD_INPUTS_DIR="$T/store" bash "$T/lroot/build/build-libdrm-debs.sh" ) >"$T/lo2" 2>&1; rc=$?
+if [ $rc = 0 ] && [ ! -e "$T/changelog.top" ] && grep -q 'reusing the published libdrm 2.4.134-3+ncz2' "$T/lo2" && [ -f "$T/lroot/build/libdrm-debs/libdrm2_2.4.134-3+ncz2_amd64.deb" ]; then
+    ok "pinned published libdrm is staged and reused, no rebuild"; else bad "published libdrm not reused (rc=$rc)"; cat "$T/lo2"; fi
+rm -f "$T/changelog.top"
+( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T" TMPDIR="$T" LIBDRM_ARCH=amd64 LIBDRM_REBUILD=1 NCZ_BUILD_INPUTS_DIR="$T/store" bash "$T/lroot/build/build-libdrm-debs.sh" ) >"$T/lo3" 2>&1
+[ -e "$T/changelog.top" ] && ok "LIBDRM_REBUILD=1 forces a build" || { bad "LIBDRM_REBUILD=1 did not build"; cat "$T/lo3"; }
+rm -f "$T/changelog.top"; rm -rf "$T/lroot/build/libdrm-debs"
+( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T" TMPDIR="$T" LIBDRM_ARCH=amd64 LIBDRM_NCZ_REV=ncz9 NCZ_BUILD_INPUTS_DIR="$T/store" bash "$T/lroot/build/build-libdrm-debs.sh" ) >"$T/lo4" 2>&1
+[ -e "$T/changelog.top" ] && ok "a version with no pinned set (ncz9) falls back to building" || { bad "unpinned version did not build"; cat "$T/lo4"; }
+
 # --- DKMS: run the REAL builder on a minimal asset tree, no env ---
 if command -v dpkg-deb >/dev/null; then
     mkdir -p "$T/droot/build/lib" "$T/droot/assets/kernel/vpu/src"

@@ -478,3 +478,4 @@ build/test-deb-rev-defaults.sh	common	-	proves libdrm and DKMS debs build at the
 build/test-desktop-apt-require.sh	common	-	proves 20-desktop.sh ncz_apt_require propagates apt failures and checks install ok installed (r201)
 build/test-firmware-bom-hook.sh	common	-	proves 13-firmware-bom.sh preseeds the firmware licence questions and fails on any not-installed package (r201)
 build/test-panthor-fallback-real-overlay.sh	sky1	-	executes hook 83 against the real tracked panthor overlay of the shipping Sky1 kernel (r201)
+build/test-npu-dkms-deferral.sh	sky1	-	proves 25-cix-proprietary.sh installs the vendor NPU DKMS deb with a register-only postinst so apt-get install -fy cannot fail on unrepaired headers (r201)

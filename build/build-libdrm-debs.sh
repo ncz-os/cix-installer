@@ -20,6 +20,27 @@ SUITE="${LIBDRM_SUITE:-forky}"
 BASE_URL="${LIBDRM_DEBIAN_POOL:-https://deb.debian.org/debian/pool/main/libd/libdrm}"
 PATCH="$ROOT/docs/upstream-patches/libdrm-xf86drm-acpi-platform-identity.patch"
 
+# REUSE, DON'T REBUILD. The version gate (build/lib/deb-version-gate.sh) compares file contents, and a
+# libdrm rebuilt on a different toolchain (another container, another snapshot) is not byte-identical:
+# that is how the first revision tripped it in r201, and the arm64 libdrm2 contains compiled objects. Once a
+# revision is built (in the pinned forky container) its binary debs are published to the ARGONAS build-inputs
+# store, pinned by sha256 in manifests/build-inputs.tsv under build/libdrm-debs/. When the pinned set matches
+# THIS version (SRC_VER-DEB_REV+NCZ_REV, whose patch hash is pinned in release.conf) it is staged and used as
+# is, so every host and both arches ship the same bytes. LIBDRM_REBUILD=1 forces a build (then publish the
+# result with `build/stage-build-inputs.sh --arch <a> --publish --only build/libdrm-debs/` and commit the pins).
+WANT_VER="${SRC_VER}-${DEB_REV}+${NCZ_REV}"
+HOST_ARCH="${LIBDRM_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
+if [ "${LIBDRM_REBUILD:-0}" != 1 ] && [ -n "$HOST_ARCH" ] && [ -x "$ROOT/build/stage-build-inputs.sh" ]; then
+    mkdir -p "$OUT"
+    if bash "$ROOT/build/stage-build-inputs.sh" --arch "$HOST_ARCH" --only build/libdrm-debs/ >/dev/null 2>&1 \
+       && [ -f "$OUT/libdrm2_${WANT_VER}_${HOST_ARCH}.deb" ] && [ -f "$OUT/libdrm-common_${WANT_VER}_all.deb" ]; then
+        echo "reusing the published libdrm ${WANT_VER} ($HOST_ARCH) from the build-inputs store (sha256-pinned); LIBDRM_REBUILD=1 to rebuild"
+        find "$OUT" -maxdepth 1 -type f \( -name 'libdrm*_*.deb' -o -name 'libdrm*_*.udeb' \) | sort | sed 's/^/  /'
+        exit 0
+    fi
+    echo "no published libdrm ${WANT_VER} for $HOST_ARCH in the build-inputs store; building from source (the version gate applies)" >&2
+fi
+
 for t in curl dpkg-source dpkg-buildpackage patch; do
     command -v "$t" >/dev/null 2>&1 || { echo "ERROR: missing tool: $t" >&2; exit 1; }
 done

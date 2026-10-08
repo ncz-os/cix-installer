@@ -53,6 +53,14 @@ echo x >> "$T/dst/assets/python311/uv"
 run "$T/dst" --arch amd64 --check >"$T/o5" 2>&1; rc=$?
 if [ $rc != 0 ] && grep -q 'assets/python311/uv sha256 differs' "$T/o5"; then ok "--check flags a locally modified input"; else bad "--check missed a modified input (rc=$rc)"; cat "$T/o5"; fi
 
+# 5b. fetch refuses to clobber a differing local file; --replace-local does, and says so
+run "$T/dst" --arch amd64 >"$T/o5b" 2>&1; rc=$?
+if [ $rc != 0 ] && grep -q 'refusing to overwrite' "$T/o5b" && ! cmp -s "$T/src/assets/python311/uv" "$T/dst/assets/python311/uv"; then ok "fetch refuses to overwrite a locally modified input"
+else bad "fetch overwrote or ignored a modified local input (rc=$rc)"; cat "$T/o5b"; fi
+run "$T/dst" --arch amd64 --replace-local >"$T/o5c" 2>&1; rc=$?
+if [ $rc = 0 ] && cmp -s "$T/src/assets/python311/uv" "$T/dst/assets/python311/uv" && grep -q 'replacing assets/python311/uv' "$T/o5c"; then ok "--replace-local restores the pinned input and logs the replacement"
+else bad "--replace-local (rc=$rc)"; cat "$T/o5c"; fi
+
 # 6. a missing input names itself; an arch with no rows fails
 mkdir -p "$T/dst3"; rm -rf "$T/store/arm64"
 run "$T/dst3" --arch arm64 >"$T/o6" 2>&1; rc=$?
@@ -72,6 +80,14 @@ badpins=$(awk -F'\t' '!/^[[:space:]]*(#|$)/ && $3 !~ /^[0-9a-f]{64}$/ {print $1"
 [ -z "$badpins" ] && ok "every pin in build-inputs.tsv is a sha256" || { bad "unpinned rows: $badpins"; }
 grep -q 'stage-build-inputs.sh' "$ROOT/Makefile" && grep -q 'stage-build-inputs.sh' "$ROOT/build/build-squashfs-layers.sh" \
     && ok "Makefile and build-squashfs-layers.sh call the stager" || bad "stager not wired into the build"
+
+# python311 comes from the pinned store only: no unpinned network fallback in the Makefile rule
+if awk '/^\$\(ROOT\)\/assets\/python311\/uv:/ {f=1; next} f && /^[^\t]/ {exit} f' "$ROOT/Makefile" | grep -q 'build-python311-assets'; then
+    bad "Makefile python311 rule still falls back to the unpinned build-python311-assets.sh"; else ok "Makefile python311 rule uses the pinned store only"; fi
+grep -n 'ncz-mgmt-rootfs.tar.zst" "\$MG' -A1 "$ROOT/build/build-squashfs-layers.sh" | grep -q '|| true' \
+    && bad "build-squashfs-layers.sh still swallows a failed mgmt rootfs copy" || ok "mgmt rootfs copy failure is fatal"
+grep -q 'install -d -m 0755 /etc/modules-load.d' "$ROOT/post-install/38-recovery-container.sh" \
+    && ok "hook 38 creates /etc/modules-load.d (a real run died there)" || bad "hook 38 does not create /etc/modules-load.d"
 
 # --- hook apt packages are seeded (rc=100 root causes) ---------------------------------------
 seeded() { grep -qx "$2" "$ROOT/manifests/$1"; }
