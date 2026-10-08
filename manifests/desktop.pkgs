@@ -282,6 +282,9 @@ im-config
 chromium-ncz-sky1
 google-chrome-stable
 mpv
+# crash traceability for the desktop session (post-install/20-desktop.sh diagnostics;
+# r201: it was unseeded, so the hook installed nothing while claiming success)
+systemd-coredump
 
 # --- archives + PDF + image (GTK, DE-agnostic) -----------------------------
 xarchiver
