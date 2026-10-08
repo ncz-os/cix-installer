@@ -313,7 +313,7 @@ post-install/53-chrome.sh	mixed	-	Google Chrome apt wiring; dpkg architecture aw
 post-install/54-gpu-accel.sh	amd64	nvidia-cuda	AMD64 GPU/accelerator stack (ROCm, CUDA, Intel); guard exits when arch != amd64
 post-install/55-greeter.sh	common	-	greetd plus singularity-greeter; generic
 post-install/55-t2-firmware.sh	amd64	t2	Apple T2 WiFi/BT firmware and audio; guard exits when arch != amd64
-post-install/56-icon-theme.sh	common	-	icon theme; generic
+post-install/56-icon-theme.sh	common	-	icon theme; generic; also installs the libpeas-plugin fallback icon into hicolor (Plugins page rows)
 post-install/56-t2-dkms.sh	amd64	t2	builds t2smc/t2gmux DKMS on Apple T2 hardware only (DMI gate via ncz_is_t2_hardware); t2smp is dropped (in-kernel 9001 owns CPU offline) and blacklisted; t2thunderbolt is opt-in (NCZ_T2_DKMS_EXTRA) and blacklisted by default; apple_gmux (in-kernel) is blacklisted on T2 hardware only; KVERs come from KVER_LIST_AMD64, never -rc-skipped, never --fallback to /lib/modules or uname -r; -rc kernel trees still build t2smc/t2gmux; missing KVER_LIST on T2 is fatal
 post-install/57-qotd.sh	common	-	quote of the day; generic
 post-install/58-boot-hygiene.sh	mixed	-	generic unit hygiene plus cix_resume unit masking (Sky1); TODO split
@@ -470,3 +470,4 @@ build/test-ncz-apt-policy-deb.sh	common	-	builds the ncz-apt-policy deb and runs
 docs/APT-SEPARATION.md	common	-	design and operator runbook: separating NCZ-OS package updates from Debian and third-party ones
 build/test-dkms-prep-genksyms.sh	sky1	-	proves 79-dkms-prep.sh rebuilds the native host tools when only genksyms is a foreign (Yocto uninative) binary (r201)
 build/test-stale-singularity-prune.sh	sky1	-	proves the base layer drops a stale Singularity deb and the prebuilt-deb mode stages exactly the sha256-checked deb (r201)
+build/test-libpeas-plugin-icon.sh	common	-	proves the generic libpeas-plugin fallback icon (NCZ puzzle-piece svg under assets/branding/icons) is a plain scalable svg and that 56-icon-theme.sh installs it into hicolor (idempotent, no clobber, never fails)

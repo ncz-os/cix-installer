@@ -668,6 +668,7 @@ parity:
 	build/test-greeter-output-mode.sh
 	python3 build/test_display_scale.py
 	build/test-chromium-icon.sh
+	build/test-libpeas-plugin-icon.sh
 	build/test-run-all-baked-allowlist.sh
 	build/test-sky1-audio-policy.sh
 	build/test-sky1-media-defaults.sh
