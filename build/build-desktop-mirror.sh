@@ -374,18 +374,17 @@ fi
 # every boot. The package is now Architecture: arm64 and its glob matches
 # _arm64.deb.
 #
+# libdrm (ACPI platform identity patch, pinned +ncz2 set in build-inputs): BOTH arches. r201 amd64 shipped
+# libdrm-common +ncz1 from the published index, plus stock libdrm2/amdgpu1/intel1/nouveau2, because these rows
+# were arm64-only. Every runtime libdrm package that can enter a closure has a row on every arch that pins it
+# (libdrm-common is arch:all and byte-identical across arches); etnaviv1/tegra0 are not built for amd64.
+#
 # Each row: <package name>|<glob of candidate .debs>|<required?>
 NCZ_LOCAL_DEBS="
 ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_${ARCH}.deb|optional
 ncz-singularity-desktop|$REPO/assets/cix-debs/ncz-singularity-desktop_*_${ARCH}.deb|optional
 ncz-screensavers|$REPO/build/ncz-screensavers-out/ncz-screensavers_*_${ARCH}.deb|required
 ncz-apt-policy|$REPO/build/ncz-apt-policy-deb/ncz-apt-policy_*_all.deb|required
-"
-# libdrm (ACPI platform identity patch, pinned +ncz2 set in build-inputs): BOTH arches. r201 amd64 shipped
-# libdrm-common +ncz1 from the published index, plus stock libdrm2/amdgpu1/intel1/nouveau2, because these rows
-# were arm64-only. Every runtime libdrm package that can enter a closure has a row on every arch that pins it
-# (libdrm-common is arch:all and byte-identical across arches); etnaviv1/tegra0 are not built for amd64.
-NCZ_LOCAL_DEBS+="
 libdrm-common|$REPO/build/libdrm-debs/libdrm-common_2.4.134-3+ncz*_all.deb|required
 libdrm2|$REPO/build/libdrm-debs/libdrm2_2.4.134-3+ncz*_${ARCH}.deb|required
 libdrm-amdgpu1|$REPO/build/libdrm-debs/libdrm-amdgpu1_2.4.134-3+ncz*_${ARCH}.deb|required
