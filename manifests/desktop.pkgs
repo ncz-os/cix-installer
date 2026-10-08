@@ -282,6 +282,15 @@ im-config
 chromium-ncz-sky1
 google-chrome-stable
 mpv
+# crash traceability for the desktop session (post-install/20-desktop.sh diagnostics;
+# r201: it was unseeded, so the hook installed nothing while claiming success)
+systemd-coredump
+# nspawn runtime for the recovery container (post-install/38-recovery-container.sh);
+# r201: unseeded, so the hook's apt-get install failed rc=100 on arm64
+systemd-container
+# NOE_Engine imports numpy at module scope (post-install/25-cix-proprietary.sh, Sky1 only);
+# r201: unseeded, so its apt-get install failed rc=100 and the NPU python path was left without numpy
+python3-numpy
 
 # --- archives + PDF + image (GTK, DE-agnostic) -----------------------------
 xarchiver

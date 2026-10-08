@@ -372,6 +372,62 @@ for i in "${!DEBS[@]}"; do
     rm -rf "$work"
 done
 
+# BEGIN npu-dkms-deferral
+# The vendor cix-npu-driver-dkms postinst runs `dkms autoinstall` (common.postinst) for every
+# kernel under /lib/modules the moment it is configured. At this point the installed Sky1 kernel's
+# headers are still the unrepaired Yocto build-host artifact (foreign fixdep/modpost; 79-dkms-prep.sh
+# repairs them LATER), so the build fails, dpkg leaves the package half-configured (iF), and
+# `apt-get install -fy` below re-runs the postinst and returns rc=100: the optional-hook WARN seen on
+# every arm64 gate (r200 and r201). Reproduced for real on arm64 with the shipped headers
+# (r285 headers-cixmini.tar.zst): `Building module(s)...(bad exit status: 2)`, postinst exit 10,
+# `apt-get install -fy` rc=100, package left iF. Our own panthor/mali/vpu DKMS debs already defer
+# politely ("dkms build deferred"). So install the vendor deb with a postinst that only REGISTERS the
+# source (`dkms add`); 86-cix-dkms-register.sh (after 79-dkms-prep.sh) and 80-npu.sh build and
+# install aipu/6.2.0, and a later kernel upgrade autoinstalls it as for any registered module.
+for i in "${!DEBS[@]}"; do
+    case "${DEBS[$i]}" in
+        cix-npu-driver-dkms_*.deb) ;;
+        *) continue ;;
+    esac
+    deb="${DEBS[$i]}"; base=$(basename "$deb" .deb)
+    work=/tmp/cix-npu-defer-$base
+    rm -rf "$work"
+    if ! dpkg-deb -R "$deb" "$work" 2>/dev/null; then
+        echo "[25] WARN: could not unpack $deb to defer its DKMS build; installing it unmodified" >&2
+        rm -rf "$work"; continue
+    fi
+    _dn=$(sed -n 's/^DKMS_NAME="\(.*\)"/\1/p' "$work/DEBIAN/postinst" | head -1)
+    _dv=$(sed -n 's/^DKMS_VERSION="\(.*\)"/\1/p' "$work/DEBIAN/postinst" | head -1)
+    if [ -z "$_dn" ] || [ -z "$_dv" ]; then
+        echo "[25] WARN: $deb postinst has no DKMS_NAME/DKMS_VERSION; installing it unmodified" >&2
+        rm -rf "$work"; continue
+    fi
+    cat > "$work/DEBIAN/postinst" <<NPUPOSTINST
+#!/bin/sh
+# [25-patched] register only; the module is built by 86-cix-dkms-register.sh once the kernel
+# headers are repaired by 79-dkms-prep.sh (the stock postinst builds now, fails, and half-configures).
+set -e
+case "\$1" in
+    configure)
+        if command -v dkms >/dev/null 2>&1; then
+            dkms add -m "$_dn" -v "$_dv" >/dev/null 2>&1 || true
+        fi
+    ;;
+esac
+exit 0
+NPUPOSTINST
+    chmod 0755 "$work/DEBIAN/postinst"
+    patched="$ASSETS/${base}.dkmsdeferred.deb"
+    if dpkg-deb -b "$work" "$patched" >/dev/null 2>&1; then
+        DEBS[$i]="$(basename "$patched")"
+        echo "    $deb: DKMS build deferred to 86-cix-dkms-register.sh (postinst registers $_dn/$_dv only)"
+    else
+        echo "[25] WARN: repack of $deb failed; installing it unmodified" >&2
+    fi
+    rm -rf "$work"
+done
+# END npu-dkms-deferral
+
 if [ "${#DEBS[@]}" -eq 0 ]; then
     echo "[25] no installable Cix proprietary .debs remain after kernel/driver/NPU filters; skipping"
     exit 0
@@ -430,7 +486,12 @@ fi
 
 echo ""
 echo "--- apt-get install -fy (resolve unmet apt deps) ---"
-apt-get install -fy 2>&1 | tee /var/log/cix-install/25-apt-fix.log || true
+apt-get install -fy 2>&1 | tee /var/log/cix-install/25-apt-fix.log
+_apt_fix_rc=${PIPESTATUS[0]}
+# r201: this used to be `|| true` with nothing printed, so an rc=100 here (and the optional-hook
+# WARN it produced) had no visible cause. The hook still continues (a Cix postinst quirk must not
+# halt the installer) but the failure is now stated, with the log to read.
+[ "$_apt_fix_rc" -eq 0 ] || echo "[25] WARN: apt-get install -fy returned $_apt_fix_rc (see /var/log/cix-install/25-apt-fix.log)" >&2
 
 # The desktop.squashfs base image carries an old dpkg "hold" selection on
 # cix-noe-umd from an earlier build cycle (when 2.0.2 was the only confirmed-
@@ -524,10 +585,10 @@ if [ -d /usr/share/cix/lib ]; then
         _numpy_remv=$(printf '%s' "${_numpy_remv:-0}" | tr -dc '0-9' | head -c 8)
         if [ "${_numpy_remv:-0}" = "0" ]; then
             echo "    NPU userspace: installing python3-numpy (NOE_Engine imports it at module scope)"
-            if apt-get install -y python3-numpy >/dev/null 2>&1; then
+            if apt-get install -y python3-numpy >/var/log/cix-install/25-numpy.log 2>&1; then
                 echo "    NPU userspace: python3-numpy installed"
             else
-                echo "    NPU userspace: WARN python3-numpy install failed -- NOE_Engine will not import"
+                echo "    NPU userspace: WARN python3-numpy install failed -- NOE_Engine will not import (see /var/log/cix-install/25-numpy.log; python3-numpy must be in manifests/desktop.pkgs)"
             fi
         else
             echo "    NPU userspace: WARN skipping python3-numpy -- apt wanted to REMOVE $_numpy_remv package(s)"

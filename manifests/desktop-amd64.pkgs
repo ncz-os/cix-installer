@@ -198,6 +198,12 @@ fcitx5-config-qt
 im-config
 google-chrome-stable
 mpv
+# crash traceability for the desktop session (post-install/20-desktop.sh diagnostics;
+# r201: it was unseeded, so the hook installed nothing while claiming success)
+systemd-coredump
+# nspawn runtime for the recovery container (post-install/38-recovery-container.sh);
+# r201: unseeded, so the hook's apt-get install failed rc=100 on arm64
+systemd-container
 xarchiver
 7zip
 unrar-free

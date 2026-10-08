@@ -95,7 +95,8 @@ echo "[88] setting up the NPU userspace (cix-noe-umd) venv"
 # --- the runtime package (ships libnoe.so + the wheels) ----------------------
 if ! dpkg -s cix-noe-umd >/dev/null 2>&1; then
     echo "[88] installing cix-noe-umd"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y cix-noe-umd >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y cix-noe-umd >/dev/null 2>&1 \
+        || echo "[88] WARN: apt-get install cix-noe-umd failed (rc=$?)" >&2
 fi
 if [ ! -d "$WHEELDIR" ]; then
     echo "[88] no wheels at $WHEELDIR — cix-noe-umd not available; skipping"
