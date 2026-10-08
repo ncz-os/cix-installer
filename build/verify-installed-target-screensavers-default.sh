@@ -84,6 +84,15 @@
                     gate_miss screensavers "screensaver.plugin Icon='${_ssp_mi}' has no /opt/singularity/share/icons/hicolor/scalable/apps/${_ssp_mi}.svg (generic icon on the plugin page)"
                 fi
             fi
+            # a plugin in the lock category needs a shell whose Plugins page has that row
+            # (an older shell lists it under Other)
+            _ssp_mc="$(sed -n 's/^X-Singularity-Category=//p' "$TMP/ss.plugin-file" 2>/dev/null | head -n 1)"
+            if [ "$_ssp_mc" = lock ]; then
+                if ! fetch /opt/singularity/bin/singularity-desktop "$TMP/ss.shell-bin" || ! grep -aq 'Screensaver and Lock' "$TMP/ss.shell-bin"; then
+                    gate_miss screensavers "screensaver.plugin declares X-Singularity-Category=lock but the installed shell has no Screensaver and Lock row (the plugin would sit in Other)"
+                fi
+                rm -f "$TMP/ss.shell-bin"
+            fi
             if fetch /opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override "$TMP/ss.plugin-override" && grep -q "^enabled-plugins=.*'screensaver'" "$TMP/ss.plugin-override"; then :; else
                 gate_miss screensavers "the default enabled-plugins does not contain 'screensaver' (99-zz-ncz-screensaver-plugin.gschema.override missing or wrong): new users would not get the Settings page"
             fi

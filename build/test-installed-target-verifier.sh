@@ -233,12 +233,17 @@ m_ssp_pkg() {
     printf 'Package: ncz-screensavers-plugin\nStatus: install ok installed\nVersion: %s\n\n' "$SSP_PIN_VER" >> "$1/var/lib/dpkg/status"
     mkdir -p "$1/opt/singularity/lib/singularity/plugins/screensaver" "$1/opt/singularity/share/glib-2.0/schemas"
     echo x > "$1/opt/singularity/lib/singularity/plugins/screensaver/libscreensaver.so"
-    printf '[Plugin]\nModule=screensaver\nVersion=%s\nIcon=dev.ncz.screensaver\nX-Singularity-Category=tools\n' "$SSP_PIN_VER" \
+    printf '[Plugin]\nModule=screensaver\nVersion=%s\nIcon=dev.ncz.screensaver\nX-Singularity-Category=lock\n' "$SSP_PIN_VER" \
         > "$1/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"
     mkdir -p "$1/opt/singularity/share/icons/hicolor/scalable/apps"
     echo '<svg/>' > "$1/opt/singularity/share/icons/hicolor/scalable/apps/dev.ncz.screensaver.svg"
     printf "enabled-plugins='screensaver'\n" > "$1/opt/singularity/share/glib-2.0/schemas/99-zz-ncz-screensaver-plugin.gschema.override"
+    mkdir -p "$1/opt/singularity/bin"
+    printf 'Plugins without a category\nScreensaver and Lock\n' > "$1/opt/singularity/bin/singularity-desktop"
 }
+# the lock category needs the row in the installed shell
+m_ssp_installed_no_shell_row() { m_ssp_pin "$1"; m_ssp_pkg "$1"; printf 'Plugins without a category\n' > "$1/opt/singularity/bin/singularity-desktop"; }
+m_ssp_installed_old_category() { m_ssp_installed_no_shell_row "$1"; sed -i 's/^X-Singularity-Category=.*/X-Singularity-Category=tools/' "$1/opt/singularity/lib/singularity/plugins/screensaver/screensaver.plugin"; }
 # Stanza-scoped edits: from the Package line up to the blank line ending it,
 # so the mutation holds whatever fields sit between Package and Status.
 m_no_fw_mediatek() { sed -i '/^Package: firmware-mediatek$/,/^$/d' "$1/var/lib/dpkg/status"; }
@@ -356,6 +361,8 @@ run_case "plugin pkg installed but .so missing fails" 1 m_ssp_installed_no_so
 run_case "plugin pkg installed but .plugin manifest missing fails" 1 m_ssp_installed_no_pluginfile
 run_case "plugin file says another version than the installed package fails" 1 m_ssp_installed_stale_version
 run_case "plugin file names an icon the package does not install fails" 1 m_ssp_installed_no_icon
+run_case "lock category without the row in the installed shell fails" 1 m_ssp_installed_no_shell_row
+run_case "a tools-category plugin does not need the shell row" 0 m_ssp_installed_old_category
 run_case "plugin pkg installed but no plugin files fails" 1 m_ssp_installed_nofiles
 run_case "plugin pkg installed with files present passes" 0 m_ssp_pkg
 run_case "plugin pinned by the image but not installed fails" 1 m_ssp_pinned_missing
