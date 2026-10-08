@@ -38,7 +38,17 @@ ap.add_argument("--no-blank-after", default=None, help="after the first state co
 ap.add_argument("--min-states", type=int, default=0, help="fail when fewer than N distinct console states were captured. The state COUNT itself is timing-dependent (arm64 r201 candidates: 35, 33, 32 with identical dialog sequences), so this is only a floor that catches a truncated capture; the content assertions above are the real checks")
 ap.add_argument("--require-prompt-sequence", nargs="+", default=[], help="assert every REGEX appears in the given order across the captured screens (operator's interactive sequence)")
 ap.add_argument("--require-boot-progress", nargs="+", default=[], help="assert every PHASE appears in the given order in the boot-time serial log (the [NCZ HH:MM:SS +Ns] lines from preseed/boot-progress.sh)")
+ap.add_argument("--min-dialogs", type=int, default=0, help="fail unless at least N distinct dialog titles were extracted from the captured states (proves the dialog order is real; a capture whose frames could not be parsed fails instead of printing 'none')")
 a = ap.parse_args()
+
+# The capture harness renders the d-i newt UI through pyte, which turns the terminal's ACS line-drawing set into
+# Unicode box characters; the older fixtures (and slang on a raw terminal) use the ACS letters. Everything below
+# matches the ACS letters, so normalise once on read. r201: without this every frame regex was dead on real
+# captures: the header check never fired and the dialog list always printed "none".
+BOX = str.maketrans("\u250c\u2510\u2514\u2518\u2500\u2502\u251c\u2524\u252c\u2534\u253c", "lkmjqxtuwvn")
+def rd(path, n=-1):
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return fh.read(n).translate(BOX)
 
 BAD = [
     (re.compile(r"\[diag\]"), "diagnostics chatter on the primary console"),
@@ -54,7 +64,7 @@ bad = 0; seen = {t: False for t in a.require_dialog}
 hdr = re.compile(a.require_header) if a.require_header else None
 started_chk = a.start_at is None
 for f in files:
-    txt = open(os.path.join(a.dir, f), encoding="utf-8", errors="replace").read()
+    txt = rd(os.path.join(a.dir, f))
     if not started_chk and a.start_at in txt: started_chk = True
     if not started_chk: continue
     for t in seen:
@@ -65,14 +75,15 @@ for f in files:
             bad += 1
             line = next((l for l in txt.split("\n") if m.group(0) in l), m.group(0))
             print("check-installer-screens: FAIL %s: %s: %r" % (f, why, line.strip()[:100]), file=sys.stderr)
-    if hdr and re.search(r"[lk]q{5,}|x .* x", txt) and not hdr.search(txt):
+    # d-i's own progress dialogs ("Installing the base system", a bar and "N%") are not NCZ prompts and carry no brand.
+    if hdr and re.search(r"[lk]q{5,}|lu .* tk|x .* x", txt) and not re.search(r"x\s+\d{1,3}%\s+x", txt) and not hdr.search(txt):
         bad += 1
         print("check-installer-screens: FAIL %s: dialog without the branded header /%s/" % (f, a.require_header), file=sys.stderr)
 if a.no_blank_after:
     started = False
     blank_seen = 0
     for f in files:
-        txt = open(os.path.join(a.dir, f), encoding="utf-8", errors="replace").read()
+        txt = rd(os.path.join(a.dir, f))
         m_t = re.match(r"# t=(\d+)s", txt)
         if a.no_blank_after in txt: started = True
         if a.after_t is not None and m_t and int(m_t.group(1)) >= a.after_t: started = True
@@ -82,7 +93,7 @@ if a.no_blank_after:
             # duration of this blank state = until the next state file
             ts = []
             for g in files:
-                mt = re.match(r"# t=(\d+)s", open(os.path.join(a.dir, g), encoding="utf-8", errors="replace").read(20))
+                mt = re.match(r"# t=(\d+)s", rd(os.path.join(a.dir, g), 20))
                 ts.append(int(mt.group(1)) if mt else 0)
             idx = files.index(f)
             dur = (ts[idx + 1] - ts[idx]) if idx + 1 < len(files) else 10**6
@@ -110,7 +121,7 @@ if a.require_prompt_sequence:
         matched_at = -1
         for fi, f in enumerate(files):
             if fi <= cur_file_idx: continue
-            txt = open(os.path.join(a.dir, f), encoding="utf-8", errors="replace").read()
+            txt = rd(os.path.join(a.dir, f))
             if rx.search(txt):
                 matched_at = fi
                 break
@@ -128,7 +139,7 @@ if a.require_prompt_sequence:
 if a.require_boot_progress:
     all_text = ""
     for f in files:
-        all_text += open(os.path.join(a.dir, f), encoding="utf-8", errors="replace").read() + "\n"
+        all_text += rd(os.path.join(a.dir, f)) + "\n"
     cur_off = 0
     for i, phase in enumerate(a.require_boot_progress):
         # The phase token appears between "[NCZ " and " +" (e.g. "[NCZ 14:22:31 +5s] Loading installer...")
@@ -147,18 +158,28 @@ if a.require_boot_progress:
 # can: a candidate that lost or reordered a dialog differs here, one that only sampled one frame
 # fewer does not.
 titles = []
-tre = re.compile(r"lq+\S?\s*(?:\[[^\]]*\]\s*)?(.*?)\s*tq+\s*k")
+tre = re.compile(r"lq*u?\s*(?:\[[^\]]*\]\s*)?(.*?)\s*tq*\s*k")   # newt title bar: l qqq u TITLE t qqq k (a long title leaves no q's)
 for f in files:
-    with open(os.path.join(a.dir, f), encoding="utf-8", errors="replace") as fh:
-        lines = fh.read().split("\n")
+    lines = rd(os.path.join(a.dir, f)).split("\n")
     for line in lines:
         m = tre.search(line)
         if m and m.group(1).strip() and m.group(1).strip() not in titles:
             titles.append(m.group(1).strip())
+frames = sum(1 for f in files if re.search(r"[lk]q{5,}|lu .* tk", rd(os.path.join(a.dir, f))))
+if frames and not titles:
+    bad += 1
+    print("check-installer-screens: FAIL %d console state(s) draw a dialog frame but NO dialog title could be parsed from any of them (the title extraction is broken for this capture; the dialog order is unverified)" % frames, file=sys.stderr)
+if a.min_dialogs and len(titles) < a.min_dialogs:
+    bad += 1
+    print("check-installer-screens: FAIL only %d dialog title(s) extracted (%s), expected at least %d" % (len(titles), " > ".join(titles) or "none", a.min_dialogs), file=sys.stderr)
 if a.min_states and len(files) < a.min_states:
     bad += 1
     print(f"check-installer-screens: FAIL only {len(files)} console states captured, expected at least {a.min_states} (truncated capture?)", file=sys.stderr)
 if bad:
     sys.exit(1)
 print("check-installer-screens: OK (%d console states)" % len(files))
-print(f"check-installer-screens: dialogs in capture order ({len(titles)}): {' > '.join(titles) if titles else 'none'}")
+if titles:
+    print(f"check-installer-screens: dialogs in capture order ({len(titles)}): {' > '.join(titles)}")
+else:
+    print("check-installer-screens: dialogs in capture order (0): NOT EXTRACTED -- this capture has no dialog text (framebuffer-only sampling); the dialog order was NOT verified", file=sys.stderr)
+    print("check-installer-screens: dialogs in capture order (0): NOT VERIFIED")

@@ -2,8 +2,8 @@
 desktop	chromium-ncz-sky1	arm64-only	Sky1 V4L2-M2M Chromium build; amd64 uses google-chrome-stable
 desktop	libdrm-etnaviv1	arm64-only	SoC DRM backends shipped for Sky1/embedded; not needed on x86
 desktop	libdrm-freedreno1	arm64-only	SoC DRM backend
-desktop	libdrm-nouveau2	arm64-only	amd64 gets nouveau/radeon via the x86 mesa stack pulled by the T2/NVIDIA hooks
-desktop	libdrm-radeon1	arm64-only	see libdrm-nouveau2
+desktop	libdrm-nouveau2	arm64-only	not a desktop SEED on amd64 (mesa pulls it in transitively); the pinned +ncz2 deb is supplied on BOTH arches by the NCZ_LOCAL_DEBS row
+desktop	libdrm-radeon1	arm64-only	see libdrm-nouveau2 (NCZ_LOCAL_DEBS row on both arches)
 desktop	libdrm-tegra0	arm64-only	SoC DRM backend
 desktop	libgee-0.8-dev	arm64-only	Sky1 on-target build of Singularity from source; amd64 installs the prebuilt ncz-singularity-desktop deb
 desktop	libgtk-4-dev	arm64-only	see libgee-0.8-dev

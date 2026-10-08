@@ -754,5 +754,28 @@ expect_region_chooser_writes_all_four() {
     return $missing
 }
 expect "region-chooser.sh writes all 4 derived values (locale, country, keymap, tz) to debconf" 0 expect_region_chooser_writes_all_four "$ROOT/preseed/region-chooser.sh"
+# --- REAL capture (r201 d90ed961 arm64 KVM gate, pyte-rendered: Unicode box characters, not ACS letters) ---
+# The extraction used to match ACS letters only, so on every real capture the dialog list printed "none" and the
+# branded-header check never ran. The fixture holds one state per distinct dialog of that capture.
+REAL="$HERE/testdata/installer-screens/arm64-d90ed961"
+real() { python3 "$HERE/check-installer-screens.py" "$REAL" "$@"; }
+expect "real capture: the ordered dialog list is extracted (>= 5 titles)" 0 real --min-dialogs 5 --require-header "NCZ-OS [0-9.]+ [A-Za-z]+"
+real >"$T/ev" 2>&1
+if grep -q 'dialogs in capture order (8): NCZ-OS 26.10 Cygnus - select your REGION > .*choose a USERNAME > .*choose a PASSWORD.* > .*type the same PASSWORD.* > .*optional components > Installing the base system' "$T/ev"; then PASS=$((PASS+1)); echo "ok   real capture: titles come out in capture order"
+else FAILS=$((FAILS+1)); echo "FAIL real capture: dialog titles/order wrong"; sed 's/^/     /' "$T/ev"; fi
+expect "real capture: the operator's prompt sequence is satisfied" 0 real --require-prompt-sequence "select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "optional components"
+expect "real capture: 9 dialogs required but only 8 exist fails" 1 real --min-dialogs 9
+# the branded-header check is live on Unicode frames: an unbranded prompt dialog fails, a d-i progress bar does not
+rm -rf "$T/s"; mkdir "$T/s"; sed 's/NCZ-OS 26.10 Cygnus - //' "$REAL/0000-0043s.txt" | sed 's/NCZ-OS 26.10 Cygnus//' > "$T/s/0000-0043s.txt"
+expect "real-format unbranded prompt dialog fails the header check" 1 chk --require-header "NCZ-OS [0-9.]+ [A-Za-z]+"
+rm -rf "$T/s"; mkdir "$T/s"; cp "$REAL/0005-0067s.txt" "$T/s/"
+expect "real-format d-i progress dialog needs no brand" 0 chk --require-header "NCZ-OS [0-9.]+ [A-Za-z]+"
+# frames that cannot be parsed must FAIL, never print "none" and pass
+rm -rf "$T/s"; mkdir "$T/s"; printf '# t=20s\n  lqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqk\n  x no title bar here           x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj\n' > "$T/s/0000-0020s.txt"
+expect "frames present but no title parseable fails" 1 chk
+# a capture with no dialog text at all is reported as NOT VERIFIED (framebuffer-only amd64) and fails when dialogs are required
+rm -rf "$T/s"; mkdir "$T/s"; printf '# t=0s\n[framebuffer: dialog or progress on screen, 18.3%% non-background pixels]\n' > "$T/s/0000-0000s.txt"
+chk >"$T/ev" 2>&1; grep -q 'dialogs in capture order (0): NOT VERIFIED' "$T/ev" && { PASS=$((PASS+1)); echo "ok   framebuffer-only capture says the dialog order is NOT VERIFIED"; } || { FAILS=$((FAILS+1)); echo "FAIL framebuffer-only capture does not say NOT VERIFIED"; cat "$T/ev"; }
+expect "framebuffer-only capture fails with --min-dialogs" 1 chk --min-dialogs 5
 echo "installer screen tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
