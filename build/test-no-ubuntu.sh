@@ -137,7 +137,7 @@ echo "=== 6. the real tree ==="
 expect_rc "check-no-ubuntu.sh on this repo passes" 0 bash "$NOUB"
 expect_rc "builders refuse Ubuntu/other suites (ncz_require_debian_forky)" 0 bash -c '
   . "'"$ROOT"'/build/lib/mirror-apt-opts.sh"
-  ncz_require_debian_forky forky https://deb.debian.org/debian Debian &&
+  ! ncz_require_debian_forky forky https://deb.debian.org/debian Debian 2>/dev/null &&
   ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20261007T202437Z Debian &&
   ! ncz_require_debian_forky resolute http://ports.ubuntu.com/ubuntu-ports Ubuntu 2>/dev/null &&
   ! ncz_require_debian_forky forky http://ports.ubuntu.com/ubuntu-ports Debian 2>/dev/null &&
