@@ -9,7 +9,7 @@
 #
 # This is the SUPERSET: it includes everything in installer-base.pkgs plus the
 # deeper recovery / forensics / fs / net toolset cherry-picked from the
-# SystemRescue 13.01 package list, mapped to Ubuntu 26.04 (resolute) arm64.
+# SystemRescue 13.01 package list, mapped to Debian forky package names.
 #
 # EXCLUDED on purpose (not applicable to a headless arm64 box):
 #   - all X11/Wayland/XFCE/GTK/Qt GUI apps (gparted, firefox, remmina, thunar,

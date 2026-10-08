@@ -1,7 +1,8 @@
 # NCZ-OS RESCUE ENVIRONMENT — AGENTS.md
 
 You are an agent (or operator) running inside the **NCZ-OS dedicated rescue
-partition**. This is a self-contained Ubuntu (resolute / 26.04) arm64 rootfs on
+partition**. This is a self-contained Debian forky rootfs (arm64 or amd64, built by
+`build/build-rescue-rootfs.sh` from the pinned forky snapshot) on
 its own partition (`NCZRESCUE`), booted via the **LTS kernel**
 (the legacy `7.0.12-cix-sky1-next`) with the NPU/GPU/VPU/KMS module blacklist, completely
 independent of the main system root. Your job here is to **inspect, repair, and
