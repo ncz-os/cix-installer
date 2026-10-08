@@ -12,9 +12,9 @@
 #     is kept; --prompt asks username + password + confirm ONCE, replaces the placeholder; a re-run asks nothing.
 #  C. component-selector.sh: a second --prompt run asks nothing and keeps the operator's answer.
 #  D. net-pick.sh: with a cable-less PCI NIC and a USB NIC that has carrier, the USB NIC is pinned and the link
-#     wait drops to 10 s; the pin survives the media-preseed reload (re-apply run); with no carrier, or no NIC at all
+#     wait drops to 10 s; a defensive second evaluation re-applies the pin; with no carrier, or no NIC at all
 #     (O6N: only lo), netcfg is left on auto with the preseeded wait.
-#  E. preseed.cfg wiring: the duplicate early_command run re-applies through helpers that source confmodule; the
+#  E. preseed.cfg wiring: the defensive re-apply branch uses helpers that source confmodule; the
 #     partman/early_command order is region, user, components, disk with the hostname automatic.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -218,11 +218,11 @@ netrun na "$W/sys.na" scan
 check "PEGASUS shape: the USB NIC with carrier is pinned, not the cable-less eno2" "$(val netcfg/choose_interface)" "enx00e05c6701d5"
 check "the pin is seen (netcfg does not ask)" "$(seen netcfg/choose_interface)" true
 check "link wait for any other interface drops to 10 s" "$(val netcfg/link_wait_timeout)" "10"
-# file-preseed reloads preseed.cfg: choose_interface back to auto, link wait back to 60; the duplicate run re-applies
+# a defensive second evaluation: choose_interface back to auto, link wait back to 60; the apply pass restores them
 printf auto > "$FDB/v/netcfg%choose_interface"; printf 60 > "$FDB/v/netcfg%link_wait_timeout"
 netrun na "$W/sys.na"
-check "after the preseed reload the duplicate run restores the pin" "$(val netcfg/choose_interface)" "enx00e05c6701d5"
-check "after the preseed reload the duplicate run restores the short wait" "$(val netcfg/link_wait_timeout)" "10"
+check "a second evaluation (defensive) restores the pin" "$(val netcfg/choose_interface)" "enx00e05c6701d5"
+check "a second evaluation (defensive) restores the short wait" "$(val netcfg/link_wait_timeout)" "10"
 newdb nb; mkq netcfg/choose_interface auto; mkq netcfg/link_wait_timeout 60
 mksys "$W/sys.nb" 1 1
 netrun nb "$W/sys.nb" scan

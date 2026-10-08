@@ -2,18 +2,21 @@
 # net-pick.sh -- pick the wired NIC that has carrier and make netcfg use it. Run from preseed/early_command
 # (baked at /ncz/net-pick.sh, copied to /tmp/net-pick.sh):
 #
-#   net-pick.sh scan   first early_command run: raise every NIC, poll carrier, remember the best wired interface
+#   net-pick.sh scan   the scan pass: raise every NIC, poll carrier, remember the best wired interface
 #                      that has carrier in $STATE, then apply it (below).
-#   net-pick.sh        every later run: apply the remembered pick again.
+#   net-pick.sh        an apply pass: apply the remembered pick (used after the scan, and defensively if
+#                      early_command is ever evaluated a second time).
 #
-# WHY "apply again": preseed/early_command runs twice, once from the initrd preseed and once after file-preseed
-# reloads preseed.cfg from the medium. The reload sets netcfg/choose_interface back to "auto" (preseed.cfg line
-# "d-i netcfg/choose_interface select auto", and the kernel command line carries interface=auto) and
-# netcfg/link_wait_timeout back to 60. The old inline re-apply in the duplicate run tested `command -v db_set`
-# before anything had sourced confmodule (preseed_command runs the value with `sh -c`), so it never fired:
-# PEGASUS 2026-10-06 logged "ALREADY RAN -- skipping duplicate invocation (no stored pick to re-apply)" with
-# /tmp/.ncz-picked-if = enx00e05c6701d5 present, then netcfg ran in auto mode, activated the cable-less onboard
-# eno2 first and waited the full 60 s link timeout before trying the USB NIC that had carrier all along.
+# WHY "apply" IS SEPARATE FROM "scan": until 2026-10-08 the Install entry passed preseed/file=, so
+# file-preseed loaded preseed.cfg a second time and re-ran preseed/early_command. That reload set
+# netcfg/choose_interface back to "auto" (preseed.cfg "d-i netcfg/choose_interface select auto", and the
+# kernel command line carries interface=auto) and netcfg/link_wait_timeout back to 60, and the re-apply put
+# the scan's pick back. The 2026-10-08 fix loads preseed.cfg once (d-i S30initrd-preseed from the baked
+# /preseed.cfg), so no reload happens; the scan/apply split and $STATE are kept so the helper stays correct
+# if the command is ever evaluated twice, and they document the PEGASUS failure: 2026-10-06 logged
+# "ALREADY RAN -- skipping duplicate invocation (no stored pick to re-apply)" with /tmp/.ncz-picked-if =
+# enx00e05c6701d5 present, then netcfg ran in auto mode, activated the cable-less onboard eno2 first and
+# waited the full 60 s link timeout before trying the USB NIC that had carrier all along.
 #
 # What "apply" sets:
 #   carrier found  -> netcfg/choose_interface=<that NIC> (seen), and netcfg/link_wait_timeout=$FAST_WAIT so any

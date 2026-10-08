@@ -6,8 +6,8 @@
 #     placeholder identifiers rejected, random fallback varies.
 #  B. preseed/hostname-suggest.sh (debconf side, stubbed): unattended never prompts and marks the
 #     questions seen; interactive asks at CRITICAL priority with the generated default and applies the
-#     operator's answer (or falls back on an invalid one); ncz_hostname= overrides; and the value is
-#     RE-APPLIED after the media preseed reload resets netcfg/get_hostname (the 18e8a14 bug).
+#     operator's answer (or falls back on an invalid one); ncz_hostname= overrides; and a defensive
+#     re-run keeps the same value after a hypothetical netcfg/get_hostname reset (the 18e8a14 bug).
 # Runs the real scripts under sh, dash and (when present) busybox sh.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -127,7 +127,7 @@ grep -q '^input' "$W/calls" && bad "--prompt on an unattended install prompted" 
 rm -f "$W/state" "$W/calls"; helper "ncz_components=desktop ncz_hostname=lab-07" ""
 check "ncz_hostname= overrides the generated name" "$(applied)" "lab-07"
 
-# the 18e8a14 bug: the media preseed reload resets netcfg/get_hostname; the second early_command run
+# the 18e8a14 bug: a re-run that begins with netcfg/get_hostname reset; the state-driven re-apply
 # must put the SAME name back, without prompting again
 rm -f "$W/state" "$W/calls" "$W/asked"; helper "quiet" ""; helper "quiet" "Kitchen-PC" --prompt
 : > "$W/calls"                               # "reload": nothing carried over except /tmp state

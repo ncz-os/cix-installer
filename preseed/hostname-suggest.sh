@@ -6,11 +6,13 @@
 # WHY A HELPER: the logic used to be inlined in early_command, which pushed the joined command to
 # 15,634 bytes and broke d-i media detection (build/check-early-command-size.sh guards the budget).
 #
-# WHY IT RUNS TWICE: preseed/early_command runs once from the initrd preseed and again after d-i
-# reloads the media preseed. The reload RESETS netcfg/get_hostname to the preseeded placeholder
-# (ncz-setup, seen=true), which silently discarded the earlier suggestion: an installed O6N
-# (18e8a14) ended up ncz-20e7bc from the first-boot fallback instead of an IAU name. So:
-#   run 1 (no /tmp/.ncz-hostname): decide the name -- prompt when interactive, otherwise the
+# WHY IT HANDLES A RE-RUN: until 2026-10-08 preseed/early_command ran twice (the initrd preseed, then
+# the media preseed that file-preseed reloaded). That reload RESET netcfg/get_hostname to the preseeded
+# placeholder (ncz-setup, seen=true), which silently discarded the earlier suggestion: an installed O6N
+# (18e8a14) ended up ncz-20e7bc from the first-boot fallback instead of an IAU name. Since 2026-10-08 the
+# Install entry loads preseed.cfg once, so no reload happens; this state-driven behaviour is retained
+# defensively in case the command is ever evaluated twice. So:
+#   first run (no /tmp/.ncz-hostname): decide the name -- prompt when interactive, otherwise the
 #         generated (or ncz_hostname=) name -- and save it in /tmp/.ncz-hostname;
 #   every run: db_set netcfg/get_hostname + netcfg/hostname from the saved name and mark them seen.
 #

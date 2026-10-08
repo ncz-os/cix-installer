@@ -147,17 +147,23 @@ def find_refind_extract(arch: str) -> Path:
 
 
 # Match the old builder's unattended DI_OPTS for the normal Install entry.
-# auto=true makes d-i apply the preseed at the auto-install point, after
-# networking is configured, instead of allowing choose-mirror to race DHCP's
-# resolv.conf update.  The preseed early_command mounts the raw-GPT ext4 data
-# partition at /cdrom after USB rescan, before cdrom-detect runs; that makes the
-# explicit medium path valid on this hd-media layout too.  Expert remains the
-# human/on-screen path (the old DI_OPTS_GFX): it deliberately omits auto=true
-# because d-i's single-console preseeding path can select a firmware UART and
-# make the installer disappear from the local display.  Rescue is not an
-# automatic/preseeded install either.
+# auto=true makes d-i take its unattended path and apply the preseed early.
+# Since 2026-10-08 the Install entry does NOT pass preseed/file=: preseed.cfg
+# is loaded exactly ONCE, by d-i's own S30initrd-preseed from the initrd root
+# (/preseed.cfg, baked by patch-initrd-t2-kernel.py). The old media fetch at
+# /cdrom/ncz-payload/preseed.cfg made the file-preseed udeb load the same file
+# a second time and re-run preseed/early_command; that duplicate cost 2 to
+# 13.5 s before the first dialog and reset the NIC pick and hostname the first
+# run had chosen. The preseed early_command still mounts the raw-GPT ext4 data
+# partition at /cdrom before cdrom-detect, and the medium's apt/udeb pool is
+# unchanged. The locale/keyboard component window file-preseed used to reopen
+# is restored by the baked S61ncz-preseed-reenable startup hook. Expert remains
+# the human/on-screen path (the old DI_OPTS_GFX): it deliberately omits
+# auto=true because d-i's single-console preseeding path can select a firmware
+# UART and make the installer disappear from the local display. Rescue is not
+# an automatic/preseeded install either.
 _PC_INSTALL_OPTIONS = (
-    "auto=true priority=critical preseed/file=/cdrom/ncz-payload/preseed.cfg "
+    "auto=true priority=critical "
     "ipv6.disable=1 interface=auto "
     "netcfg/dhcp_timeout=120 locale=en_US.UTF-8 "
     "keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt "
