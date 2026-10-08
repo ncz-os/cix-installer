@@ -44,8 +44,14 @@ mkfix() {  # arch -> fixture root in $T/fx-<arch>
     while IFS='|' read -r pkg glob req; do
         [ -n "$pkg" ] || continue
         path="${glob/\*/9.9.9}"
+        case "$pkg" in libdrm*) path="${glob/\*/2}" ;; esac    # pinned set is 2.4.134-3+ncz2
         mkdir -p "$(dirname "$path")"
-        case "$pkg" in ncz-apt-policy) : ;; *) mkdeb "$path" "$pkg" 9.9.9 all ;; esac
+        case "$pkg" in
+            ncz-apt-policy) : ;;
+            libdrm*) mkdeb "$path" "$pkg" 2.4.134-3+ncz2 all
+                     printf '%s\tbuild/libdrm-debs/%s\t%s\t1\tfixture\n' "$arch" "$(basename "$path")" "$(sha256sum "$path" | awk '{print $1}')" >> "$fx/manifests/build-inputs.tsv" ;;
+            *) mkdeb "$path" "$pkg" 9.9.9 all ;;
+        esac
     done < <(REPO="$fx" ARCH="$arch" bash "$T/rows.sh" 2>/dev/null)
     NCZ_PUBLISHED_INDEX="$T/empty-index" NCZ_APT_POLICY_OUT="$fx/build/ncz-apt-policy-deb" bash "$ROOT/build/build-ncz-apt-policy-deb.sh" >/dev/null 2>&1
 }
@@ -56,7 +62,7 @@ mkmirror() {
     local arch="$1" name="$2" fx="$T/fx-$1" m="$T/m-$1-$2" opt seedfile idx
     shift 2; rm -rf "$m"; idx="$m/dists/forky/main/binary-$arch/Packages"; mkdir -p "$(dirname "$idx")" "$m/pool/main"
     seedfile="$fx/manifests/desktop-$arch.pkgs"; [ -f "$seedfile" ] || seedfile="$fx/manifests/desktop.pkgs"
-    sed 's/#.*//' "$seedfile" | awk 'NF{print $1}' | sort -u | while read -r s; do
+    sed 's/#.*//' "$seedfile" | awk 'NF{print $1}' | sort -u | grep -v '^libdrm' | while read -r s; do   # libdrm seeds come from the pinned local rows
         printf 'Package: %s\nVersion: 1\nArchitecture: %s\nFilename: pool/main/%s.deb\n\n' "$s" "$arch" "$s"
     done > "$idx"
     local pkg glob req deb ver base skip
