@@ -76,9 +76,11 @@ DEBIAN_FRONTEND=noninteractive dpkg -i "$DEB" 2>&1 | tail -6
 # fully pre-satisfied -- but fonts-liberation was never actually staged that way,
 # leaving vivaldi-stable stuck dpkg `iU` (half-configured) on every fresh install
 # (found validating r189). 24-apt-sources.sh now wires real persistent apt
-# sources (Ubuntu universe + Buildkite, which mirrors fonts-liberation itself)
-# BEFORE this hook runs, so --fix-broken can actually resolve the dependency
-# instead of only working when it happens to already be cached.
+# sources (Debian forky via 23-base-apt-sources.sh, plus the NCZ repo whose pin
+# keeps Debian names on Debian's versions) BEFORE this hook runs, so
+# --fix-broken can resolve the dependency from Debian forky. Never Ubuntu: an
+# Ubuntu build of fonts-liberation (1:2.1.5-3build1) leaked into the NCZ repo
+# on exactly this path in r189.
 DEBIAN_FRONTEND=noninteractive apt-get -y -f install 2>&1 | tail -6 || true
 
 if [ ! -x /usr/bin/vivaldi-stable ]; then

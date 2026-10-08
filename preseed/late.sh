@@ -662,11 +662,11 @@ CDROM_PREF
         # non-free-firmware bundles. Asking for the wrong one aborted with
         # "E: Unable to locate package linux-firmware" and left the system with
         # NO generic firmware -- e.g. rtl_nic/rtl8125k-1.fw for the r8169 NIC.
-        if [ "${NCZ_BASE_NAME:-Ubuntu}" = "Debian" ]; then
-            FW_PKGS="firmware-linux-free firmware-realtek firmware-misc-nonfree"
-        else
-            FW_PKGS="linux-firmware"
+        if [ "${NCZ_BASE_NAME:-}" != "Debian" ]; then
+            echo "FATAL: NCZ_BASE_NAME='${NCZ_BASE_NAME:-unset}' -- only a Debian forky base is supported (no Ubuntu)" >&2
+            exit 1
         fi
+        FW_PKGS="firmware-linux-free firmware-realtek firmware-misc-nonfree"
         chroot /target /usr/bin/apt-get install -y --allow-unauthenticated $FW_PKGS || { echo "WARN: firmware install failed ($FW_PKGS)"; true; }
         # r178: telnetd (doctrine #9 fleet lockout-prevention) from the OFFLINE
         # /cdrom pool. pkgsel/include is now EMPTY (the baked squashfs is the
@@ -722,14 +722,14 @@ CDROM_PREF
     CDROM_BIND_MOUNTED=1
 else
     echo "--- netinstall mode: cdrom has no regular deb component, skipping cdrom apt source ---"
-    echo "    (post-install hooks rely on ports.ubuntu.com via apt-setup)"
+    echo "    (post-install hooks rely on the Debian forky base source written by 23-base-apt-sources.sh)"
     CDROM_BIND_MOUNTED=0
 fi
 
 # 2026-05-07 take9 (per .66 take8 pkgsel cascade fail): pre-write apt
 # retries config so post-install hooks 10-our-kernel.sh / 20-desktop.sh
 # / etc retry transient DNS/network blips when fetching packages from
-# ports.ubuntu.com. pkgsel itself runs BEFORE late.sh so this doesn't
+# the Debian archive. pkgsel itself runs BEFORE late.sh so this doesn't
 # help that step — pkgsel/install-recommends=false in preseed handles
 # pkgsel resilience by minimizing the dep cascade. This config covers
 # everything our hooks do after.
@@ -1644,33 +1644,19 @@ grep -rhsE '^[[:space:]]*deb' \
     /target/etc/apt/sources.list /target/etc/apt/sources.list.d/ 2>/dev/null \
     | sed 's/^/      /' || echo "      (none)"
 
-# r130 fix: write the canonical ports.ubuntu.com network sources for the
-# INSTALLED system. Previously post-install/20-desktop.sh overwrote
-# sources.list with ports, which (being a network line) survived the cdrom
-# strip and gave the booted system working apt. r130 makes 20-desktop install
-# OFFLINE from the bundled /cdrom pool and no longer writes sources.list, so
-# without this the strip would leave an EMPTY sources.list and `apt-get update`
-# would have nothing post-boot. Write ports here for ALL variants (server +
-# desktop), as the final apt action, so updates work post-boot (MrSBC/COS
-# requirement). arm64 => ports.ubuntu.com.
-# Profile-aware: the suite above is Ubuntu-only. On a Debian base the
-# profile-correct base repo is already written as a signed deb822 file
-# (/etc/apt/sources.list.d/ncz-base.sources) by post-install/24-apt-sources.sh,
-# so writing an Ubuntu sources.list here would leave a Debian system pointing
-# at ports.ubuntu.com and break apt-get update outright. Only write the ports
-# list for an actual Ubuntu base, and take the codename from release.conf
-# rather than hard-coding it.
-if [ "${NCZ_BASE_NAME:-}" = "Ubuntu" ]; then
-    _ubu_suite="${NCZ_BASE_CODENAME:-forky}"
-    echo "--- writing canonical ports.ubuntu.com network sources ($_ubu_suite) ---"
-    cat > /target/etc/apt/sources.list <<PORTS
-deb http://ports.ubuntu.com/ubuntu-ports $_ubu_suite main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports $_ubu_suite-updates main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports $_ubu_suite-security main universe restricted multiverse
-deb http://ports.ubuntu.com/ubuntu-ports $_ubu_suite-backports main universe restricted multiverse
-PORTS
+# r130 fix: the INSTALLED system's apt sources. Previously 20-desktop overwrote
+# sources.list with a network line that survived the cdrom strip; r130 made
+# 20-desktop install OFFLINE from the bundled pool, so without this the strip
+# would leave an EMPTY sources.list. The profile-correct base repo (Debian
+# forky, the only allowed base) is the signed deb822 file
+# /etc/apt/sources.list.d/ncz-base.sources written by
+# post-install/23-base-apt-sources.sh, so sources.list itself stays empty.
+# Operator rule 2026-10-08: no Ubuntu archive is ever written here.
+if [ "${NCZ_BASE_NAME:-}" != "Debian" ]; then
+    echo "FATAL: NCZ_BASE_NAME='${NCZ_BASE_NAME:-unset}' -- only a Debian forky base is supported (no Ubuntu)" >&2
+    exit 1
 else
-    echo "--- ${NCZ_BASE_NAME:-non-Ubuntu} base: leaving sources.list to the profile deb822 source ---"
+    echo "--- ${NCZ_BASE_NAME} base: leaving sources.list to the profile deb822 source ---"
     : > /target/etc/apt/sources.list
     if [ -s /target/etc/apt/sources.list.d/ncz-base.sources ]; then
         echo "    base repo carried by /etc/apt/sources.list.d/ncz-base.sources:"

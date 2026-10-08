@@ -70,11 +70,10 @@ NCZ_RELEASE_VERSION="${NCZ_RELEASE_VERSION}"
 NCZ_RELEASE_CODENAME="${NCZ_RELEASE_CODENAME}"
 NCZ_BASE_VERSION="${NCZ_BASE_VERSION}"
 ID=ncz
-ID_LIKE=ubuntu
+ID_LIKE=debian
 HOME_URL="https://gitlab.com/nclawzero"
 SUPPORT_URL="https://gitlab.com/nclawzero/cix-installer/-/issues"
 BUG_REPORT_URL="https://gitlab.com/nclawzero/cix-installer/-/issues"
-UBUNTU_CODENAME=${NCZ_BASE_CODENAME}
 LOGO=ncz-os-${SKU_LOWER}
 EOF_OS
 

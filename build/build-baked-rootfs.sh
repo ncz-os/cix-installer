@@ -102,7 +102,7 @@ sudo mount --bind /dev "$CHROOT/dev"
 sudo mount --bind /dev/pts "$CHROOT/dev/pts"
 sudo mount -t tmpfs tmpfs "$CHROOT/run"
 
-# Set up apt sources (ports.ubuntu.com) + update BEFORE the hooks so the first
+# Set up apt sources (Debian forky, the pinned snapshot) + update BEFORE the hooks so the first
 # hook (10-our-kernel) can apt-get install initramfs-tools etc. The base rootfs
 # ships no usable sources; 20-desktop set them up itself but runs after kernel.
 log "configure apt sources in chroot ($NCZ_BASE_MIRROR) + update"
@@ -112,6 +112,7 @@ log "configure apt sources in chroot ($NCZ_BASE_MIRROR) + update"
 # shell rather than an inner heredoc, and surface apt-get update failures
 # (E:/W: lines) instead of a WARN that lets later hooks fail with no cause.
 sudo mkdir -p "$CHROOT/etc/apt"
+ncz_require_debian_forky "$NCZ_BASE_CODENAME" "$NCZ_BASE_MIRROR" "${NCZ_BASE_NAME:-}" || exit 1
 ncz_mirror_sources_list "$NCZ_BASE_MIRROR" "$NCZ_BASE_CODENAME" "$NCZ_BASE_COMPONENTS" "" "" "" \
     | sudo tee "$CHROOT/etc/apt/sources.list" >/dev/null
 # ncz_apt_update_or_die prints the E:/W: lines and exits 1. The previous
