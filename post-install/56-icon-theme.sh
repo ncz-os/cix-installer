@@ -15,6 +15,32 @@ case "$VARIANT" in
         ;;
 esac
 
+# BEGIN libpeas-plugin-fallback-icon
+# The Singularity Plugins page (Settings > Plugins) shows each plugin row with the Icon key of its
+# plugin file, and libpeas answers "libpeas-plugin" for a plugin that has none -- an icon name no
+# theme in the image provided, so every such row showed a broken-image icon. Install a neutral
+# puzzle-piece SVG under that name in hicolor (the theme every other theme falls back to). The
+# artwork is NCZ-owned (assets/branding/icons/libpeas-plugin); no payload or plugin deb carries it.
+# A file already at that path (a package that ships its own) is left alone. Never fails the hook.
+# Test seams (build/test-libpeas-plugin-icon.sh): NCZ_LIBPEAS_ICON_SRC, NCZ_HICOLOR_ROOT.
+_lp_src="${NCZ_LIBPEAS_ICON_SRC:-/usr/local/lib/cix-installer/assets/branding/icons/libpeas-plugin/libpeas-plugin.svg}"
+_lp_dst="${NCZ_HICOLOR_ROOT:-/usr/share/icons/hicolor}/scalable/apps/libpeas-plugin.svg"
+if [ ! -s "$_lp_src" ]; then
+    echo "[56] WARN: libpeas-plugin fallback icon asset missing ($_lp_src); Plugins rows keep the generic icon" >&2
+elif [ -e "$_lp_dst" ] && ! cmp -s "$_lp_src" "$_lp_dst"; then
+    echo "[56] hicolor already has a different libpeas-plugin.svg; leaving it"
+elif install -d -m 0755 "$(dirname "$_lp_dst")" && install -m 0644 "$_lp_src" "$_lp_dst"; then
+    echo "[56] installed the libpeas-plugin fallback icon at $_lp_dst"
+    # an existing icon-theme.cache does not list the new file (and a change below scalable/apps
+    # does not invalidate it), so refresh it or GTK would keep answering "not found"
+    if [ -f "${_lp_dst%/scalable/apps/libpeas-plugin.svg}/icon-theme.cache" ] && command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f "${_lp_dst%/scalable/apps/libpeas-plugin.svg}" >/dev/null 2>&1 || echo "[56] WARN: gtk-update-icon-cache failed for hicolor" >&2
+    fi
+else
+    echo "[56] WARN: could not install $_lp_dst" >&2
+fi
+# END libpeas-plugin-fallback-icon
+
 ASSETS=/usr/local/lib/cix-installer/assets/branding/icon-theme
 # Source dir is named "NCZ" historically (NeXT homage); destination is the
 # canonical NCZ brand. r74 had \$ASSETS/NCZ literal-escape that always
