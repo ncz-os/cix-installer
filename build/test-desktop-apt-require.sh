@@ -48,13 +48,28 @@ if [ $rc -ne 0 ] && grep -q 'not installed after apt-get: halfway' "$T/out"; the
 for m in desktop.pkgs desktop-amd64.pkgs; do
     grep -qx systemd-coredump "$ROOT/manifests/$m" && ok "systemd-coredump seeded in $m" || bad "systemd-coredump missing from $m"
 done
-# every `apt-get install` in the hook (continuation lines joined) must not swallow its failure
-awk '{ line = $0; while (line ~ /\\$/ && (getline nxt) > 0) { sub(/\\$/, " ", line); line = line nxt }
-       if (line ~ /apt-get install/ && line !~ /^[[:space:]]*#/) print NR ": " line }' "$HOOK" > "$T/installs.txt"
-nswallow=$(grep -cE '\|\|[[:space:]]*(true|echo)\b' "$T/installs.txt")
-ntail=$(grep -E '\| *tail' "$T/installs.txt" | grep -cvE '^[0-9]+: *(if|elif) ')
-if [ "$nswallow" = 0 ] && [ "$ntail" = 0 ]; then ok "no apt-get install in the hook swallows its failure (|| true / || echo / bare | tail)"
-else bad "swallowed apt-get install in the hook ($nswallow x '|| true|echo', $ntail x bare '| tail')"; grep -E '\|\|[[:space:]]*(true|echo)\b|\| *tail' "$T/installs.txt"; fi
+# every apt install in the hook (apt or apt-get, any leading options, continuation lines joined) must not
+# swallow its failure: no `|| true`, `|| :`, `|| echo`, and no bare `| tail` outside an if/elif condition.
+scan_swallow() {  # <hook file> -> prints offending logical lines
+    awk '{ line = $0; while (line ~ /\\$/ && (getline nxt) > 0) { sub(/\\$/, " ", line); line = line nxt }
+           if (line ~ /(^|[^[:alnum:]_-])apt(-get)?[[:space:]]+(-[^[:space:]]+[[:space:]]+)*install/ && line !~ /^[[:space:]]*#/) print NR ": " line }' "$1" \
+      | awk '/\|\|[[:space:]]*(true|:|echo)([[:space:];|&)]|$)/ { print; next }
+             /\| *tail/ && $0 !~ /^[0-9]+: *(if|elif) / { print }'
+}
+swallowed="$(scan_swallow "$HOOK")"
+if [ -z "$swallowed" ]; then ok "no apt/apt-get install in the hook swallows its failure (|| true / || : / || echo / bare | tail)"
+else bad "swallowed apt install in the hook"; printf '%s\n' "$swallowed"; fi
+# the guard itself, proven by mutations of a copy of the hook: each must be flagged
+mutant() {  # <name> <sed expr>
+    sed -E "$2" "$HOOK" > "$T/mut.sh"
+    if [ -n "$(scan_swallow "$T/mut.sh")" ]; then ok "guard catches mutation: $1"; else bad "guard MISSED mutation: $1"; fi
+}
+mutant '|| true after ncz install line'      's#^(ncz_apt_require systemd-coredump) \|\| exit 1#DEBIAN_FRONTEND=noninteractive apt-get install -y systemd-coredump >/dev/null 2>\&1 || true#'
+mutant '|| : after apt-get install'          's#^(ncz_apt_require systemd-coredump) \|\| exit 1#DEBIAN_FRONTEND=noninteractive apt-get install -y systemd-coredump >/dev/null 2>\&1 || :#'
+mutant 'apt install (no -get) || true'       's#^(ncz_apt_require systemd-coredump) \|\| exit 1#apt install -y systemd-coredump || true#'
+mutant 'apt -y install || :'                 's#^(ncz_apt_require systemd-coredump) \|\| exit 1#apt -y install systemd-coredump \|\| :#'
+mutant 'bare | tail'                         's#^(ncz_apt_require systemd-coredump) \|\| exit 1#apt-get install -y systemd-coredump 2>\&1 | tail -3#'
+mutant '|| echo WARN'                        's#^(ncz_apt_require systemd-coredump) \|\| exit 1#apt-get install -y systemd-coredump || echo WARN#'
 # the required package groups all go through ncz_apt_require
 awk '{ line = $0; while (line ~ /\\$/ && (getline nxt) > 0) { sub(/\\$/, " ", line); line = line nxt }
        if (line ~ /^[[:space:]]*ncz_apt_require /) print line }' "$HOOK" > "$T/required.txt"
