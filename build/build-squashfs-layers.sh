@@ -1096,14 +1096,17 @@ build_base(){
   # (see its DEBS filter) and consumed by nothing else -- do not bake ~2.2G
   # of dead weight into base.squashfs
   # BEGIN prune-singularity-from-base
-  # The Singularity desktop payload reaches the target via the desktop layer /
-  # /cdrom/pool/main (25-cix-proprietary.sh skips it by name), so the copy of
-  # assets/cix-debs just made into the base is dead weight (~40 MB) and, when it
-  # is an OLDER build than the one build/sinty-out supplies, a stale second deb
+  # The base layer NEVER carries an ncz-singularity-desktop deb. The payload
+  # reaches the target from the desktop layer (build_layer stages the arch's
+  # deb from assets/cix-debs into its own assets/cix-debs, same path), from
+  # /cdrom/pool/main and from /cdrom/ncz-payload; 25-cix-proprietary.sh skips it
+  # by name and 20-desktop.sh falls back to apt. The copy of assets/cix-debs
+  # just made into the base is therefore dead weight (~46 MB) and, when it is an
+  # OLDER build than the one the payload stage produces, a stale second deb
   # shipped in the image (found on the r201 amd64 image).
-  if compgen -G "$ROOT/build/sinty-out/ncz-singularity-desktop_*.deb" >/dev/null; then
-    sudo rm -f "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"ncz-singularity-desktop_*.deb
-  fi
+  # This must NOT depend on build/sinty-out: in STAGE=all build_base runs BEFORE
+  # build_singularity_payload, so on a clean tree sinty-out is still empty here.
+  sudo rm -f "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"ncz-singularity-desktop_*.deb
   # END prune-singularity-from-base
   sudo rm -f "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-unit-test_*.deb \
              "$WORK/base/usr/local/lib/cix-installer/assets/cix-debs/"cix-ltp_*.deb \
