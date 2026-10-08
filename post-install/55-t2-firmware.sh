@@ -134,7 +134,18 @@ deb [signed-by=/etc/apt/trusted.gpg.d/t2-ubuntu-repo.gpg] https://adityagarg8.gi
 EOF
 
 apt-get update 2>&1 | tail -5
+# BEGIN t2-pkg-status
 apt-get install -y apple-firmware-script apple-t2-audio-config 2>&1 | tail -10
+_t2_rc=${PIPESTATUS[0]}
+# `| tail` hid the status; check the apt rc AND that each package really landed (r201 review).
+T2_PKG_FAIL=0
+for _p in apple-firmware-script apple-t2-audio-config; do
+    case "$(dpkg-query -W -f='${Status}' "$_p" 2>/dev/null)" in
+        *"install ok installed"*) ;;
+        *) echo "[55] ERROR: $_p is not installed (apt-get rc=$_t2_rc)" >&2; T2_PKG_FAIL=1 ;;
+    esac
+done
+# END t2-pkg-status
 
 # --- Real Apple WiFi/BT firmware: extract from the staged build-time asset
 # (fast, offline, no Apple CDN hit) instead of fetching per-install. ------
@@ -147,6 +158,7 @@ else
     echo "[55] WARN: staged firmware tarball missing ($STAGED_FW_TARBALL) — falling back to a real per-install Apple CDN fetch"
     if ! dpkg-query -W -f='${Status}\n' dmg2img 2>/dev/null | grep -q "install ok installed"; then
         apt-get install -y dmg2img 2>&1 | tail -10
+        [ "${PIPESTATUS[0]}" -eq 0 ] || echo "[55] WARN: apt-get install dmg2img failed (rc=${PIPESTATUS[0]})" >&2
     fi
     if ! command -v dmg2img >/dev/null 2>&1; then
         echo "[55] WARN: dmg2img still missing after install attempt -- skipping get-apple-firmware fallback (would hit its own internal dependency prompt and corrupt the piped macOS-version answer below)"
@@ -178,4 +190,8 @@ else
     echo "[55] WARN: no Apple-specific brcmfmac*.apple,*.bin firmware appeared in /lib/firmware/brcm/ -- check the tail above for the real failure"
 fi
 
+if [ "$T2_PKG_FAIL" = 1 ]; then
+    echo "[55] FAILED: the T2 audio/firmware packages did not install" >&2
+    exit 1
+fi
 echo "[55] T2 firmware wiring done"

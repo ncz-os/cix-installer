@@ -725,4 +725,5 @@ parity:
 	bash build/test-panthor-hook-overlay-fallback.sh
 	bash build/test-panthor-fallback-real-overlay.sh
 	bash build/test-npu-dkms-deferral.sh
+	bash build/test-hooks-fail-loudly.sh
 	$(MAKE) --no-print-directory test-cygnus-branding

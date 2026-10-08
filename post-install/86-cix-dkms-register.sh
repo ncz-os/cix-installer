@@ -41,6 +41,7 @@ if [ "$(dpkg --print-architecture 2>/dev/null)" != "arm64" ]; then
 fi
 
 INSTALLER_META=/usr/local/lib/cix-installer
+NPU_BUILD_FAILED=0
 
 KVER_NEXT=""
 [ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(tr -d ' \t\r\n' < "$INSTALLER_META/KVER_NEXT")
@@ -198,6 +199,7 @@ if [ -d /usr/src/aipu-6.2.0 ] && [ -f /usr/src/aipu-6.2.0/dkms.conf ]; then
                     | head -5 | sed "s/^/[86]     /"
             fi
             echo "[86]     (this install must not ship without updates/dkms/aipu.ko*)"
+            NPU_BUILD_FAILED=1
         fi
     else
         echo "[86] NPU: no kernel headers for $KVER_NEXT — aipu/6.2.0 will autoinstall on kernel upgrade"
@@ -213,4 +215,12 @@ if command -v dkms >/dev/null 2>&1; then
     dkms status 2>/dev/null | sed 's/^/[86]   /'
 fi
 
+# r201: a failed aipu build used to end in a WARNING line and exit 0, so nothing reached progress.tsv
+# and only the KVM gate's NPU check noticed a missing module. 25 no longer produces a (misleading) rc=100
+# here, so this is now the one place the failure shows: exit non-zero (the hook is optional, so the
+# install continues, but the optional-hook WARN list names 86 and the gate stays loud).
+if [ "$NPU_BUILD_FAILED" = 1 ]; then
+    echo "[86] FAILED: aipu/6.2.0 did not build for $KVER_NEXT; this image would ship without the NPU driver" >&2
+    exit 1
+fi
 exit 0
