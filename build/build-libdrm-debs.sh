@@ -8,11 +8,14 @@ set -euo pipefail
 umask 022   # reproducible file modes: the version gate compares content, modes included
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Revision defaults come from release.conf (one value for both arches); see the BUMP RULE there.
+# shellcheck source=../release.conf
+. "$ROOT/release.conf"
 OUT="$ROOT/build/libdrm-debs"
 WORK="${TMPDIR:-/tmp}/ncz-libdrm-build.$$"
 SRC_VER="${LIBDRM_SRC_VER:-2.4.134}"
 DEB_REV="${LIBDRM_DEB_REV:-3}"
-NCZ_REV="${LIBDRM_NCZ_REV:-ncz1}"
+NCZ_REV="${LIBDRM_NCZ_REV:-${NCZ_LIBDRM_NCZ_REV:?release.conf must define NCZ_LIBDRM_NCZ_REV}}"
 SUITE="${LIBDRM_SUITE:-forky}"
 BASE_URL="${LIBDRM_DEBIAN_POOL:-https://deb.debian.org/debian/pool/main/libd/libdrm}"
 PATCH="$ROOT/docs/upstream-patches/libdrm-xf86drm-acpi-platform-identity.patch"
@@ -21,6 +24,14 @@ for t in curl dpkg-source dpkg-buildpackage patch; do
     command -v "$t" >/dev/null 2>&1 || { echo "ERROR: missing tool: $t" >&2; exit 1; }
 done
 [ -f "$PATCH" ] || { echo "ERROR: missing patch: $PATCH" >&2; exit 1; }
+# The patch is part of the package content: changing it under the same revision republishes
+# different bytes under a published version (the deb-version-gate refuses that, late). Fail early.
+_psha="$(sha256sum "$PATCH" | awk '{print $1}')"
+if [ "$_psha" != "${NCZ_LIBDRM_PATCH_SHA256:-}" ]; then
+    echo "ERROR: $PATCH changed (sha256 $_psha, pinned ${NCZ_LIBDRM_PATCH_SHA256:-unset})." >&2
+    echo "       Bump NCZ_LIBDRM_NCZ_REV and update NCZ_LIBDRM_PATCH_SHA256 in release.conf together." >&2
+    exit 1
+fi
 
 rm -rf "$WORK"
 mkdir -p "$WORK" "$OUT"
