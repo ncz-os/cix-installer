@@ -189,7 +189,7 @@ case "$BUILD_VARIANT" in
                 if compgen -G "$DEB_DIR/${prefix}*.deb" > /dev/null; then
                     :
                 else
-                    mark_miss "cix-debs.prefix" "$DEB_DIR/${prefix}*.deb"
+                    mark_miss "cix-debs.prefix" "$DEB_DIR/${prefix}*.deb$([ "$prefix" = cix-npu-driver-dkms_ ] && echo " (pinned input: run build/stage-build-inputs.sh --arch arm64)")"
                 fi
             done
             # The DKMS debs must carry today's assets/kernel/<drv> source.
