@@ -430,7 +430,12 @@ fi
 
 echo ""
 echo "--- apt-get install -fy (resolve unmet apt deps) ---"
-apt-get install -fy 2>&1 | tee /var/log/cix-install/25-apt-fix.log || true
+apt-get install -fy 2>&1 | tee /var/log/cix-install/25-apt-fix.log
+_apt_fix_rc=${PIPESTATUS[0]}
+# r201: this used to be `|| true` with nothing printed, so an rc=100 here (and the optional-hook
+# WARN it produced) had no visible cause. The hook still continues (a Cix postinst quirk must not
+# halt the installer) but the failure is now stated, with the log to read.
+[ "$_apt_fix_rc" -eq 0 ] || echo "[25] WARN: apt-get install -fy returned $_apt_fix_rc (see /var/log/cix-install/25-apt-fix.log)" >&2
 
 # The desktop.squashfs base image carries an old dpkg "hold" selection on
 # cix-noe-umd from an earlier build cycle (when 2.0.2 was the only confirmed-
@@ -524,10 +529,10 @@ if [ -d /usr/share/cix/lib ]; then
         _numpy_remv=$(printf '%s' "${_numpy_remv:-0}" | tr -dc '0-9' | head -c 8)
         if [ "${_numpy_remv:-0}" = "0" ]; then
             echo "    NPU userspace: installing python3-numpy (NOE_Engine imports it at module scope)"
-            if apt-get install -y python3-numpy >/dev/null 2>&1; then
+            if apt-get install -y python3-numpy >/var/log/cix-install/25-numpy.log 2>&1; then
                 echo "    NPU userspace: python3-numpy installed"
             else
-                echo "    NPU userspace: WARN python3-numpy install failed -- NOE_Engine will not import"
+                echo "    NPU userspace: WARN python3-numpy install failed -- NOE_Engine will not import (see /var/log/cix-install/25-numpy.log; python3-numpy must be in manifests/desktop.pkgs)"
             fi
         else
             echo "    NPU userspace: WARN skipping python3-numpy -- apt wanted to REMOVE $_numpy_remv package(s)"
