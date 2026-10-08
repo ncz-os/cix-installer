@@ -1,8 +1,23 @@
-# manifests/vendor-repos.tsv -- third-party apt repositories an image or installed system may reference.
-# Columns (TAB): host, suite (* = any), vendor, note
-# Operator to confirm each row; rows whose suite is Ubuntu-named are vendor-published packages.
-dl.google.com	stable	Google LLC	Chrome repo (written disabled-by-default by the vendor deb)
-repo.vivaldi.com	stable	Vivaldi Technologies	Vivaldi repo (neutralised to .disabled by 52-vivaldi.sh)
-apt.repos.intel.com	ubuntu24	Intel	OpenVINO/oneAPI runtime, written by deferred ncz-intel-accel-setup (vendor suite is Ubuntu-named)
-adityagarg8.github.io	./	t2linux (AdityaGarg8)	T2 firmware/DKMS repo written by 55-t2-firmware.sh on Apple T2 only; Ubuntu-built, third-party
-developer.download.nvidia.com	*	NVIDIA	CUDA repo
+# manifests/vendor-repos.tsv -- the complete reviewed apt-SOURCE allowlist.
+# Every source line (.list) and deb822 source a scanned image references must match a row
+# here EXACTLY on (scheme, host, path, suite). There is NO host-only exception and NO '*'
+# suite wildcard: a host being known is not enough, and a suite name alone is never proof.
+# 'approved=yes' rows are reviewed. 'pending' rows are real sources we have NOT approved;
+# the gate fails closed on them until the operator signs off (do not invent approval).
+# Columns (TAB): kind, scheme, host, path, suite, approved, vendor, note
+# kind: debian-pin (BUILD snapshot; path contains the literal <pin>), debian-live (runtime),
+#       ncz, vendor.
+debian-pin	https	snapshot.debian.org	/archive/debian/<pin>	forky	yes	Debian	BUILD-time pinned snapshot (release.conf NCZ_BASE_MIRROR_SNAPSHOT)
+debian-live	https	deb.debian.org	/debian	forky	yes	Debian	installed-system runtime base (release.conf NCZ_RUNTIME_MIRROR)
+debian-live	https	ftp.debian.org	/debian	forky	yes	Debian	alternative Debian runtime mirror
+ncz	https	packages.buildkite.com	/ncz-os/ncz/any/	any	yes	NCZ	the ONE enabled NCZ repo (apt-separation.sh)
+ncz	https	pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev	/	any	yes	NCZ	NCZ R2 fallback (kept disabled by default)
+vendor	https	dl.google.com	/linux/chrome-stable/deb/	stable	yes	Google LLC	Chrome deb822 repo (53-chrome.sh)
+vendor	https	dl.google.com	/linux/chrome/deb/	stable	yes	Google LLC	Chrome legacy .list repo
+vendor	https	repo.vivaldi.com	/archive/deb/	stable	yes	Vivaldi Technologies	neutralised to .disabled by 52-vivaldi.sh
+vendor	https	developer.download.nvidia.com	/compute/cuda/repos/debian12/x86_64/	/	yes	NVIDIA	CUDA repo written by the vendor keyring
+vendor	https	developer.download.nvidia.com	/compute/cuda/repos/debian13/x86_64/	/	yes	NVIDIA	CUDA repo written by the vendor keyring
+vendor	https	apt.repos.intel.com	/openvino	ubuntu24	pending	Intel	OpenVINO runtime -- OPERATOR APPROVAL REQUIRED (intel-accel.sh)
+vendor	https	adityagarg8.github.io	/t2-ubuntu-repo	./	pending	t2linux	Apple T2 firmware -- OPERATOR APPROVAL REQUIRED (55-t2-firmware.sh)
+offline	file	-	/cdrom/ncz-payload/apt-repo	/	yes	NCZ-OS	installer offline NCZ apt-repo (preseed/late.sh; bound only when the image pool is enumerated+verified)
+offline	file	-	/cdrom	forky	yes	NCZ-OS	installer offline base pool (preseed/late.sh; bound only when the image pool is enumerated+verified)

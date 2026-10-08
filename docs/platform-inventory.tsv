@@ -1,7 +1,6 @@
 # path	class	feature	reason
 # class: common|sky1|amd64|mixed.  feature: - or comma list of t2,nvidia-cuda.  A path ending in / is a directory prefix; the longest matching row wins.
 .codex-audit-brief.md	common	-	audit artifact
-.codex-audit.out	common	-	audit artifact
 .codex-review-brief.md	common	-	audit artifact
 .codex-review.out	common	-	audit artifact
 .gitignore	common	-	repo config
@@ -484,5 +483,10 @@ build/check-no-ubuntu.sh	common	-	gate: no Ubuntu deb/archive/userland (offline;
 build/check-forky-provenance.sh	common	-	gate: every package is NCZ, a sha-pinned vendor deb or byte-identical to the pinned Debian forky snapshot; apt sources/pins/os-release forky-only; run by ship-image.sh on the finished .img
 build/forky-provenance.py	common	-	implementation of check-no-ubuntu.sh / check-forky-provenance.sh (debs, Packages, dpkg status, rootfs, squashfs, finished .img via debugfs)
 build/test-no-ubuntu.sh	common	-	positive+negative fixtures for the no-Ubuntu and forky-provenance gates (fonts-liberation 1:2.1.5-3build1 must fail)
-manifests/vendor-debs.tsv	common	-	reviewed third-party vendor debs (Chrome, Vivaldi, NVIDIA keyring) with source URL and sha256: the only non-Debian non-NCZ debs allowed
-manifests/vendor-repos.tsv	common	-	reviewed third-party apt repositories that sources/pins may reference (Chrome, Vivaldi, Intel, t2linux, NVIDIA)
+manifests/vendor-repos.tsv	common	-	complete reviewed apt-SOURCE allowlist; every source/pin must match a row exactly on scheme/host/path/suite (Debian pin+runtime, NCZ, Chrome, Vivaldi, NVIDIA; Intel/t2 pending operator approval)
+manifests/vendor-debs.tsv	common	-	reviewed third-party debs (original CIX vendor binaries from sbom/expected-assets.txt, plus Chrome, Vivaldi, NVIDIA keyring), identity+sha256 pinned; the only non-Debian non-NCZ debs allowed
+manifests/ncz-packages.tsv	common	-	reviewed NCZ build ledger: exact (name,version,arch)->sha256 + build recipe; the ONLY way a package is NCZ (no name-prefix or +ncz proof)
+manifests/forky-snapshot.tsv	common	-	immutable trust metadata for the BUILD pin: signed InRelease sha256+size and Debian keyring sha256; the root of the forky-provenance index verification
+manifests/keys/debian-archive-keyring.gpg	common	-	official Debian archive signing keyring used by gpgv to verify the pinned snapshot Release
+docs/FORKY-PROVENANCE.md	common	-	policy + design for the forky-provenance gate: trust root, signed-index chain, NCZ ledger, apt allowlist, blockers
+build/testdata/forky-snapshot/InRelease	common	-	the real pinned snapshot.debian.org InRelease (20261007T202437Z) fixture used to prove production keyring/digest compatibility offline

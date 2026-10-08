@@ -24,7 +24,7 @@ here.
 | Category | Source obligation |
 |---|---|
 | Components **we** build from source (below) | **Ours.** Source published here. |
-| CIX proprietary vendor `.deb`s (28 packages: `cix-gpu-umd`, `cix-ai-engine`, `cix-firmware`, …) | **Not ours.** Vendor-proprietary binaries redistributed under vendor terms. We do not hold or republish their source. |
+| CIX proprietary vendor `.deb`s (current reviewed ledger: 25 vendor originals in `manifests/vendor-debs.tsv` plus 1 NCZ-repacked NPU DKMS in `manifests/ncz-packages.tsv`; older releases shipped a larger set) | **Not ours.** Vendor-proprietary binaries redistributed under vendor terms. We do not hold or republish their source. The NCZ-repacked NPU DKMS carries our packaging recipe. |
 | Stock Debian forky packages | Debian's. Available from `deb.debian.org` per Debian's own terms. |
 
 ---
