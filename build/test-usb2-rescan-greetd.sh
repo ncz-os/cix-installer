@@ -76,7 +76,12 @@ GREETD_FIXTURE
         SYSTEMD_LOG_LEVEL=warning systemd-analyze verify --man=no \
             "$TMP/greetd/greetd.service" >"$TMP/greetd/out" 2>&1 || true
         # Only the install-time ExecStart binaries are absent on a dev host.
-        nonbenign="$(grep -vE ': Command /.* is not executable: No such file or directory$' "$TMP/greetd/out" | sed '/^[[:space:]]*$/d')"
+        # systemd-analyze also lints every unit already installed on the host
+        # (e.g. /etc/systemd/system/fleet-net-tune.service on the build hosts),
+        # which says nothing about the fixture; judge only diagnostics that name
+        # the fixture units or its directory.
+        nonbenign="$(grep -E "greetd\\.service|ncz-usb2-rescan\\.service|$TMP/greetd" "$TMP/greetd/out" \
+            | grep -vE ': Command /.* is not executable: No such file or directory$' | sed '/^[[:space:]]*$/d')"
         [ -z "$nonbenign" ] \
             && ok "greetd verifies with ncz-usb2-rescan.service $1 (Wants/After harmless)" \
             || bad "greetd verifies with ncz-usb2-rescan.service $1" "$(cat "$TMP/greetd/out")"

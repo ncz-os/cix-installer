@@ -18,6 +18,10 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -z "${LOGINUI_SRC:-}" ] || [ -z "${OUT_DIR:-}" ]; then
+    echo "SKIP: test-splash-logo-fit.sh needs an external singularity-loginui checkout (set LOGINUI_SRC=<checkout at the pin in assets/singularity/upstream-pins.tsv> and OUT_DIR=<dir>); not testable in a bare repo checkout. Exit 0 is a skip, not a pass." >&2
+    exit 0
+fi
 SRC="${LOGINUI_SRC:?set LOGINUI_SRC to a singularity-loginui checkout}"
 OUT="${OUT_DIR:?set OUT_DIR to a directory for the rendered PNGs}"
 LOGO="${LOGO:-$ROOT/assets/branding/greeter/cygnus/ncz-os-cygnus-logo.png}"

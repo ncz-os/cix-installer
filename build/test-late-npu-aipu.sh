@@ -38,7 +38,12 @@ fixture() {   # $1 root  $2 conf content ('' = absent)  $3 dkms aipu (1/0)  $4 o
 
 run() {   # $1 late.sh  $2 root
     local fn; fn="$(extract "$1" "$2")"
-    SRC="$2/src" "$SH" -c "in-target() { :; }; $fn
+    # in-target is an external d-i command, so stub it as an executable on PATH:
+    # dash (/bin/sh on Debian/Ubuntu) rejects a hyphenated function name, which
+    # made every case that reached the stub fail on dash hosts.
+    mkdir -p "$2/stubbin"
+    printf '#!/bin/sh\nexit 0\n' > "$2/stubbin/in-target"; chmod +x "$2/stubbin/in-target"
+    PATH="$2/stubbin:$PATH" SRC="$2/src" "$SH" -c "$fn
 ncz_npu_install_time" > "$2/out.log" 2>&1
 }
 
