@@ -75,25 +75,63 @@ the mapping and the gate prints a NOTE that bytes were not hashed.
 
 The ledger is seeded from the committed reviewed pin file
 `manifests/build-inputs.tsv` plus the packaging recipe for the repacked CIX NPU
-DKMS (`packaging/cix-npu-driver-dkms-6.2.0`). It is **incomplete by design**: it
-lists only entries whose reviewed bytes exist today.
+DKMS (`packaging/cix-npu-driver-dkms-6.2.0`), and from the r201 built payloads
+whose bytes are held on a canonical ARGONAS store and were independently
+sha256-verified (`ncz-singularity-desktop`, `ncz-screensavers-plugin`; source
+revision bound to the `singularity-opt.tgz` content digest +
+`assets/singularity/upstream-pins.tsv`, and to the `ncz-screensavers` plug-in
+commit). It is **incomplete by design**: it lists only entries whose reviewed
+bytes exist today.
 
 ### Open blocker — NCZ ledger coverage
 
-The following NCZ packages ship but are **not** yet in the ledger, so the gate
-hard-fails on them until they are reviewed and added (this is the intended
-fail-closed behaviour, not a bug):
+The list below is the **actual** shipping set from the read-only strict-gate
+inventory of the r201 `ba426921` images (clean `e478a5d5` trust root), not a
+policy name list. These identities ship and are not yet in the ledger, so the
+gate hard-fails on them until reviewed and added (intended fail-closed
+behaviour, not a bug):
 
-* `ncz-apt-policy`, `ncz-screensavers-plugin`, `ncz-agent-*` and other `ncz-*`
-  agent/policy debs — no committed reviewed sha256 + build-source record found;
-* `chromium-ncz-*`, `ncz-ffmpeg`, `ncz-singularity-desktop`, `zoder`,
-  `ncz-intel-accel` and the CIX-repacked GPU/VPU DKMS debs — build outputs exist
-  only on the build hosts and are not pinned in `manifests/build-inputs.tsv`.
+* **Built, non-live, proof incomplete** — `ncz-apt-policy 1.0.1 all`,
+  `ncz-usb-recovery 1.2 arm64`, and the CIX-repacked `cix-gpu-kmd-dkms
+  1.0+ncz2 all`, `panthor-cix-dkms 7.2.0+ncz2 all`, `cix-vpu-driver-dkms
+  1.0.2-ncz1+ncz2 all`. Bytes exist on the non-live ARGONAS staging store
+  (`ncz-package-staging/r201-e478a5d5-20261008`); the build's dependency
+  universe is not yet cryptographically bound to the pinned snapshot, so the
+  rows are **withheld** until the authenticated rebuild completes and is
+  independently verified (see the cheap-package verification receipt).
+* **Ships, no canonical build record / bytes** — arm64 `ncz-ffmpeg 9.0.1-ncz3`,
+  arm64 `chromium-ncz-sky1 154.0.8037.0-ncz20260907`, arm64
+  `libgtk4-layer-shell0 1.3.0-1+ncz20260925`, and the older `libdrm2` /
+  `libdrm-common 2.4.134-3+ncz1` still present in the r201 desktop-mirror pool.
+* **Ships, no ledger row yet** — `ncz-wallpapers-cygnus-2610 1.1 all` (both arches).
+* **Kernel / boot (separate kernel followup, not this ledger)** — amd64
+  `linux-image-7.3.0-rc6-4-t2-edge-aer9010` and `linux-headers-…` `7.3.0-rc6-4`;
+  arm64 `linux-image-cixmini` / `linux-headers-cixmini 7.3.0-rc6-sky1-ncz+r285`
+  and `cixmini-boot 1.2+r285`.
+* **Additional CIX names that ship** — beyond the ledgered
+  `cix-npu-driver-dkms 6.2.0-…+ncz3`, the images also carry `cix-vaapi 1.0.0`,
+  `cix-libcme 1.0.0` and `cix-libva2 2.2.1-1` (arm64); classify vendor-vs-NCZ
+  before adding.
 
-Each must be added with its recipe and reviewed sha256 (or the build-input pin
-extended). Until then, a finished image containing them fails the gate — a
-deliberate guarantee that provenance is reviewed, never manufactured by hashing
-whatever happens to be staged.
+Not ledger blockers (correcting an earlier framing — do not list these as
+shipped-but-unpinned):
+
+* `ncz-agent-*` and `zoder` are **absent from both r201 images**; no canonical
+  deb artifact exists, so there is nothing to pin. (`zoder` ships as a tarball,
+  `zoder-0.2.1`, not a deb, and is not in this repo's deb namespace.)
+* `ncz-intel-accel` is **not a deb**: it is a userspace setup service plus
+  `assets/intel` keying. The Intel OpenVINO plugin is instead supplied by the
+  `pending` `apt.repos.intel.com/openvino` (`ubuntu24`) vendor repo (item 3 below).
+
+Reviewed r201 entries added 2026-10-08, for the exact debs the gated images
+install, are excluded from the list above: `ncz-singularity-desktop`
+(amd64/arm64) and `ncz-screensavers-plugin` (amd64/arm64).
+
+Each remaining package must be added with its recipe and reviewed sha256 once
+its bytes exist on a canonical store (or the build-input pin extended). Until
+then, a finished image containing them fails the gate — a deliberate guarantee
+that provenance is reviewed, never manufactured by hashing whatever happens to
+be staged.
 
 ### CIX vendor debs
 
@@ -283,12 +321,14 @@ though `rdump` leaves a directory behind.
    snapshot (`20261007T202437Z`, 107354 index entries), then checked both
    reviewed Vivaldi packages: 2 packages checked, 0 failures. This verifies
    snapshot compatibility; it does not accept any release image.
-2. **NCZ ledger coverage.** `ncz-apt-policy`, `ncz-screensavers-plugin`,
-   `ncz-agent-*`, `chromium-ncz-*`, `ncz-ffmpeg`, `ncz-singularity-desktop`,
-   `zoder`, `ncz-intel-accel` and the CIX-repacked GPU/VPU DKMS debs have no
-   committed reviewed sha256 + source revision. A finished image containing them
-   fails until they are reviewed and added (or `manifests/build-inputs.tsv` is
-   extended).
+2. **NCZ ledger coverage.** The r201 `ba426921` images fail the strict gate on the
+   actual shipping identities listed under "Open blocker — NCZ ledger coverage"
+   above (the five built-but-unauthenticated cheap debs, arm64
+   ffmpeg/chromium/gtk4-layer-shell, `ncz-wallpapers-cygnus-2610`, the kernel/boot
+   set, and the additional CIX names). `ncz-singularity-desktop` and
+   `ncz-screensavers-plugin` are now covered (r201 entries, 2026-10-08).
+   `ncz-agent-*` and `zoder` do **not** ship and `ncz-intel-accel` is not a deb, so
+   they are not ledger blockers.
 3. **Intel `ubuntu24` / t2linux vendor repos** are marked `pending`; the gate
    fails closed on them until the operator approves the exact URI+suite.
 4. **Release-image acceptance remains separate.** The fixture suite exercises
