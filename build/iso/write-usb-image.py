@@ -9,12 +9,13 @@ use case. The El-Torito + isohybrid-MBR/GPT-basdat + append_partition
 machinery in write-image.py exists to make ONE artifact bootable as both
 a real CD/DVD and a USB stick; we only need the second. Carrying the
 ISO9660 mastering step bought nothing and cost a real bug: d-i's early
-`preseed/file=/cdrom/ncz-payload/preseed.cfg` kernel-param fetch depends on
+`preseed/file=/cdrom/ncz-payload/preseed.cfg` kernel-param fetch (removed
+2026-10-08 -- the preseed is now loaded once from the initrd) depended on
 some d-i component classifying + mounting the medium as a CD-ROM before
-that fetch runs, and on a real USB-written hybrid medium that timing is
+that fetch ran, and on a real USB-written hybrid medium that timing is
 not guaranteed (confirmed on real MEDUSA hardware 2026-09-24, not a QEMU
 artifact -- see patch-initrd-t2-kernel.py's preseed.cfg bake-in, which
-fixes the EARLY fetch specifically; this script removes the underlying
+fixed the EARLY fetch; this script removes the underlying
 ISO9660/El-Torito complexity class that caused it).
 
 Real, confirmed-in-initrd d-i mechanism this relies on (investigated
@@ -696,9 +697,11 @@ def stage_offline_mirror(stage_dir: Path, arch: str,
     for name in ("dists", "pool"):
         shutil.copytree(mirror / name, stage_dir / name, symlinks=True)
 
-    # preseed/file=/cdrom/... makes d-i treat the already-mounted GPT data
-    # partition as installation media and run load-cdrom before netcfg.  The
-    # raw-image mirror contains regular .debs only, while cdrom-retriever
+    # The medium stays a d-i installation source even without preseed/file=:
+    # preseed/early_command mounts this GPT data partition at /cdrom before
+    # cdrom-detect runs, so cdrom-detect exits on the already-mounted /cdrom and
+    # cdrom-retriever (load-cdrom) reads the installer Packages index from here.
+    # The raw-image mirror contains regular .debs only, while cdrom-retriever
     # requires the installer Packages path to exist in (and be hashed by)
     # Release even when every required udeb is already baked into the initrd.
     # Carry the substrate's matching udeb pool and index it, as the old ISO

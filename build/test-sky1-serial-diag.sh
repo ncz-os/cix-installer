@@ -91,7 +91,7 @@ check(all(all(t in l.split() or t + '"' in l.split() for t in TOKENS) for l in o
       "arm64 refind.conf: an entry lacks sky1_pcie_native=off pcie_pnp_en")
 # amd64: pinned to the values before this change.
 AMD64 = {
-    "install": "auto=true priority=critical preseed/file=/cdrom/ncz-payload/preseed.cfg "
+    "install": "auto=true priority=critical "
                "ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 locale=en_US.UTF-8 "
                "keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt "
                "quiet loglevel=3 vt.global_cursor_default=0 consoleblank=0 console=tty0",

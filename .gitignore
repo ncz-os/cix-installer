@@ -139,6 +139,8 @@ preseed/*.rej
 public/
 *.pyc
 __pycache__/
+# project-local test sandbox (never /tmp); see build/iso/tests/test-single-preseed.sh
+.test-tmp/
 # Python / shell editor leftovers
 # r130 fat-ISO + rescue build artifacts (rebuildable; do NOT commit)
 # r181: Vivaldi browser .deb — build-time blob (staged via NFS, like base.squashfs)

@@ -67,6 +67,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zlib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -118,6 +119,217 @@ def write_single_member_initrd(base_initrd: Path, overlay_initrd: Path,
 def module_name(path: Path) -> str:
     """foo.ko / foo.ko.xz / foo.ko.zst -> foo"""
     return path.name.split(".ko")[0]
+
+
+_CPIO_MAGIC = (b"070701", b"070702")
+_CPIO_TRAILER = "TRAILER!!!"
+_HEX_DIGITS = frozenset(b"0123456789abcdefABCDEF")
+_S_IFMT = 0o170000
+_S_IFREG = 0o100000
+
+
+class CpioError(ValueError):
+    """A newc cpio stream the kernel's initramfs unpacker would reject."""
+
+
+def _parse_newc_entries(data: bytes):
+    """Strictly parse a (possibly concatenated) newc cpio stream.
+
+    Matches the kernel initramfs unpacker: every archive must end in a
+    TRAILER!!!; header/name/body offsets must stay in bounds; names must be
+    NUL-terminated; 070702 entries must sum-match; and no nonzero junk may
+    remain. Raises CpioError instead of silently stopping, so a truncated
+    archive is rejected even when /preseed.cfg and the hook were already seen.
+
+    Do NOT shell out to `cpio` for this: GNU cpio stops at the first
+    TRAILER!!! and silently ignores every appended archive, so it never sees
+    the overlay's /preseed.cfg.
+    """
+    pos, end = 0, len(data)
+    archive_open = False
+    archives = 0
+    while True:
+        while pos < end and data[pos] == 0:
+            pos += 1
+        if pos == end:
+            break
+        if pos + 110 > end:
+            raise CpioError(f"truncated cpio header at offset {pos}")
+        header = data[pos : pos + 110]
+        magic = header[:6]
+        if magic not in _CPIO_MAGIC:
+            raise CpioError(f"junk at offset {pos}: {header[:8]!r}")
+        # All 13 fixed 8-byte fields (104 bytes) must be ASCII hex. newc fields
+        # are unsigned hex, so a sign, space, or other non-hex byte in ANY field
+        # -- even inode/uid/gid, which this parser does not otherwise read -- is
+        # a corrupt archive the kernel would reject. Refuse it here too.
+        if not _HEX_DIGITS.issuperset(header[6:110]):
+            raise CpioError(f"non-hex cpio header field at offset {pos}")
+        mode = int(header[14:22], 16)
+        filesize = int(header[54:62], 16)
+        namesize = int(header[94:102], 16)
+        check = int(header[102:110], 16)
+        if namesize < 1:
+            raise CpioError(f"cpio entry with namesize 0 at offset {pos}")
+        name_end = pos + 110 + namesize
+        if name_end > end:
+            raise CpioError(f"truncated cpio name at offset {pos}")
+        raw_name = data[pos + 110 : name_end]
+        if raw_name[-1] != 0:
+            raise CpioError(f"cpio name not NUL-terminated at offset {pos}")
+        if b"\0" in raw_name[:-1]:
+            # The kernel treats the name as a C string, so "preseed.cfg\0x"
+            # would really overwrite /preseed.cfg while this parser saw a
+            # different member (and would ignore it). Refuse embedded NULs.
+            raise CpioError(f"cpio name has an embedded NUL at offset {pos}")
+        name = raw_name[:-1].decode("utf-8", "surrogateescape")
+        data_start = name_end
+        data_start += (-data_start) % 4
+        if data_start + filesize > end:
+            raise CpioError(f"truncated cpio body at offset {pos}")
+        payload = data[data_start : data_start + filesize]
+        if magic == b"070702" and (sum(payload) & 0xFFFFFFFF) != check:
+            raise CpioError(f"cpio 070702 CRC mismatch at offset {pos}")
+        yield {"name": name, "mode": mode, "payload": payload}
+        if name == _CPIO_TRAILER:
+            archive_open = False
+            archives += 1
+        else:
+            archive_open = True
+        pos = data_start + filesize
+        pos += (-pos) % 4
+    if archive_open:
+        raise CpioError("cpio archive ended without TRAILER!!!")
+    if archives == 0:
+        raise CpioError("no cpio archive found")
+
+
+def _member_target(name: str, targets: tuple) -> tuple:
+    """Resolve a cpio member name the way the kernel would, for the two paths
+    we care about.
+
+    Returns (target, exact). `exact` is False when the name reaches a target
+    only through an alias -- absolute, `..`, `.`, or extra path structure --
+    which the kernel could place somewhere else (or overwrite); callers refuse
+    those instead of trusting a placement that may not boot.
+    """
+    candidate = name.removeprefix("./")
+    parts: list = []
+    for segment in candidate.split("/"):
+        if segment in ("", "."):
+            continue
+        if segment == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(segment)
+    resolved = "/".join(parts)
+    if resolved not in targets:
+        return None, False
+    return resolved, candidate == resolved
+
+
+def _decompress_single_gzip(initrd: Path) -> bytes:
+    """Decompress one gzip member, failing on truncation or concatenation."""
+    decomp = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    try:
+        stream = decomp.decompress(initrd.read_bytes())
+        stream += decomp.flush()
+    except zlib.error as exc:
+        raise RuntimeError(f"FATAL: {initrd} is not a gzip initrd: {exc}")
+    if not decomp.eof:
+        raise RuntimeError(
+            f"FATAL: {initrd} gzip stream is truncated (no end-of-stream marker)"
+        )
+    if decomp.unused_data:
+        raise RuntimeError(
+            f"FATAL: {initrd} holds more than one gzip member; the Sky1 arm64 "
+            f"kernel stops after the first member and drops the overlay"
+        )
+    return stream
+
+
+def verify_baked_preseed(
+    initrd: Path, preseed_cfg: Path, hook_name: str | None = None
+) -> dict:
+    """Prove the FINAL initrd actually carries the baked preseed and hook.
+
+    Decompresses the single gzip member and strictly walks its concatenated
+    cpio archives, so a dropped member, a truncated gzip or archive, junk, a
+    non-regular or aliased member, or a wrong hook body all fail the build
+    instead of shipping. /preseed.cfg and the hook bytes are compared to their
+    sources.
+    """
+    if hook_name is None:
+        hook_name = NCZ_STARTUP_HOOK_NAME
+    if not initrd.is_file():
+        raise RuntimeError(f"FATAL: patched initrd missing: {initrd}")
+    stream = _decompress_single_gzip(initrd)
+    hook_rel = "usr/lib/debian-installer-startup.d/" + hook_name
+    targets = ("preseed.cfg", hook_rel)
+    preseed: bytes | None = None
+    hook: bytes | None = None
+    try:
+        for entry in _parse_newc_entries(stream):
+            resolved, exact = _member_target(entry["name"], targets)
+            if resolved is None:
+                continue
+            if not exact:
+                raise RuntimeError(
+                    f"FATAL: initrd {initrd} reaches /{resolved} via "
+                    f"non-canonical member {entry['name']!r}; refusing an "
+                    f"alias the kernel may not place where we expect"
+                )
+            if entry["mode"] & _S_IFMT != _S_IFREG:
+                raise RuntimeError(
+                    f"FATAL: /{resolved} in {initrd} is not a regular file "
+                    f"(mode {oct(entry['mode'])})"
+                )
+            if resolved == hook_rel and entry["mode"] & 0o777 != 0o755:
+                raise RuntimeError(
+                    f"FATAL: /{hook_rel} in {initrd} has mode "
+                    f"{oct(entry['mode'] & 0o777)}, want 0o755 (d-i only runs "
+                    f"executable startup scripts)"
+                )
+            if resolved == "preseed.cfg":
+                preseed = entry["payload"]
+            else:
+                hook = entry["payload"]
+    except CpioError as exc:
+        raise RuntimeError(f"FATAL: malformed initrd cpio {initrd}: {exc}")
+    if preseed is None:
+        raise RuntimeError(f"FATAL: patched initrd {initrd} has no /preseed.cfg member")
+    if hook is None:
+        raise RuntimeError(f"FATAL: patched initrd {initrd} has no /{hook_rel} member")
+    want_sha = sha256_bytes(preseed_cfg.read_bytes())
+    got_sha = sha256_bytes(preseed)
+    if got_sha != want_sha:
+        raise RuntimeError(
+            f"FATAL: baked /preseed.cfg in {initrd} does not match "
+            f"{preseed_cfg} (initrd {got_sha} != source {want_sha})"
+        )
+    if hook != NCZ_STARTUP_HOOK_BODY.encode("utf-8"):
+        raise RuntimeError(
+            f"FATAL: /{hook_rel} in {initrd} does not match NCZ_STARTUP_HOOK_BODY"
+        )
+    return {
+        "preseed_member": "preseed.cfg",
+        "preseed_sha256": want_sha,
+        "hook_member": hook_rel,
+        "hook_mode": "0755",
+    }
+
+
+def _verify_node_outputs(
+    node_dir: Path, preseed_cfg: Path, hook_name: str | None = None
+) -> dict:
+    """Verify a completed (possibly cached) node: kernel present and the
+    preseed/hook bytes in the final initrd. Called on cache hits too, so a
+    corrupt or half-written node is never trusted just because receipt.json
+    exists."""
+    if not (node_dir / "linux").is_file():
+        raise RuntimeError(f"FATAL: initrd node {node_dir} has no kernel file (linux)")
+    return verify_baked_preseed(node_dir / "initrd.gz", preseed_cfg, hook_name)
 
 
 def module_depends(paths: dict) -> dict:
@@ -363,6 +575,36 @@ BAKED_HELPERS = [
     "clock-sync.sh",
 ]
 
+# NCZ startup hook. d-i runs its /usr/lib/debian-installer-startup.d/S* scripts
+# in lexical order; S60auto-install writes /var/run/auto-install.active=1
+# ("disable locale & kbd selection for now") and file-preseed.postinst used to
+# set it back to 0 after loading the media preseed. The Install entry no longer
+# passes preseed/file= (see build-refind-esp.py), so file-preseed is not
+# installed and nothing reopens that window. This hook runs after S60 (S61 >
+# S60) and clears the flag, restoring the localechooser/console-setup
+# installability operators see today. It acts only when the baked /preseed.cfg
+# actually drove auto mode -- the interactive Expert and Rescue entries never
+# create the active file, so they are untouched. A proposed `echo 0` inside
+# preseed/early_command does NOT work: early_command is S33, before S60 writes
+# the 1.
+NCZ_STARTUP_HOOK_NAME = "S61ncz-preseed-reenable"
+NCZ_STARTUP_HOOK_REL = "usr/lib/debian-installer-startup.d/" + NCZ_STARTUP_HOOK_NAME
+NCZ_STARTUP_HOOK_BODY = """#!/bin/sh
+# NCZ single-preseed locale/keyboard window.
+#
+# The rEFInd Install entry loads preseed.cfg once (d-i S30initrd-preseed, from
+# the baked /preseed.cfg) and no longer passes preseed/file=, so the
+# file-preseed udeb is not installed and its postinst no longer sets
+# /var/run/auto-install.active back to 0. S60auto-install writes 1 and exits;
+# this hook runs after it (S61 > S60) and clears the flag so localechooser and
+# console-setup-udeb stay installable, exactly as before. It acts only when the
+# baked /preseed.cfg drove auto mode, so the interactive Expert and Rescue
+# entries (which never create the active file) are untouched.
+if [ -e /preseed.cfg ] && [ -f /var/run/auto-install.active ] && [ "$(cat /var/run/auto-install.active 2>/dev/null)" = "1" ]; then
+    echo 0 > /var/run/auto-install.active
+fi
+"""
+
 REQUIRED_SSH_UDEBS = (
     "libc6-udeb", "zlib1g-udeb", "libcrypt1-udeb", "libcrypto3-udeb",
     "openssh-client-udeb", "openssh-server-udeb",
@@ -396,8 +638,12 @@ def patch_t2_kernel(
         raise RuntimeError("FATAL: provide --kernel-deb, or both --kernel-image and --modules-tar")
     if kernel_deb is not None and (kernel_image is not None or modules_tar is not None):
         raise RuntimeError("FATAL: --kernel-deb and --kernel-image/--modules-tar are mutually exclusive")
-    if preseed_cfg is not None and not preseed_cfg.is_file():
-        raise RuntimeError(f"FATAL: preseed.cfg not found: {preseed_cfg}")
+    if preseed_cfg is None or not preseed_cfg.is_file():
+        raise RuntimeError(
+            "FATAL: a real preseed.cfg is required -- the installer loads it "
+            "once from the baked initrd and there is no media fallback. Pass a "
+            "preseed file; unit fixtures use a real file, never a skip."
+        )
 
     # The moment preseed.cfg goes into the initrd it is what every install
     # reads, so this is the last place a snapshot drift can still be cheap.
@@ -459,22 +705,31 @@ def patch_t2_kernel(
             if row["initrd"] and row["package"] not in fw_debs:
                 fw_debs[row["package"]] = find_pool_deb(firmware_pool, row["package"])
 
-    canonical = canonical_encode({
-        "schema_version": "ncz-initrd-t2kernel/v5",
-        "arch": arch,
-        "base_initrd": _stat(base_initrd),
-        "kernel_deb": _stat(kernel_deb) if kernel_deb else {"present": False},
-        "kernel_image": _stat(kernel_image) if kernel_image else {"present": False},
-        "modules_tar": _stat(modules_tar) if modules_tar else {"present": False},
-        "prune_mod_dirs": PRUNE_MOD_DIRS,
-        "preseed_cfg": _stat(preseed_cfg) if preseed_cfg is not None else {"present": False},
-        "helpers": {p.name: _stat(p) for p in helpers},
-        "diag_busybox": _stat(diag_busybox) if diag_busybox is not None else {"present": False},
-        "ssh_udebs": sorted(u.name for u in ssh_udebs),
-        "net_firmware_table": (_stat(net_firmware_table)
-                               if fw_rows else {"present": False}),
-        "net_firmware_debs": {k: _stat(v) for k, v in sorted(fw_debs.items())},
-    })
+    canonical = canonical_encode(
+        {
+            "schema_version": "ncz-initrd-t2kernel/v6",
+            "arch": arch,
+            "startup_hook": {
+                "name": NCZ_STARTUP_HOOK_NAME,
+                "sha256": sha256_bytes(NCZ_STARTUP_HOOK_BODY.encode("utf-8")),
+            },
+            "base_initrd": _stat(base_initrd),
+            "kernel_deb": _stat(kernel_deb) if kernel_deb else {"present": False},
+            "kernel_image": _stat(kernel_image) if kernel_image else {"present": False},
+            "modules_tar": _stat(modules_tar) if modules_tar else {"present": False},
+            "prune_mod_dirs": PRUNE_MOD_DIRS,
+            "preseed_cfg": _stat(preseed_cfg),
+            "helpers": {p.name: _stat(p) for p in helpers},
+            "diag_busybox": _stat(diag_busybox)
+            if diag_busybox is not None
+            else {"present": False},
+            "ssh_udebs": sorted(u.name for u in ssh_udebs),
+            "net_firmware_table": (
+                _stat(net_firmware_table) if fw_rows else {"present": False}
+            ),
+            "net_firmware_debs": {k: _stat(v) for k, v in sorted(fw_debs.items())},
+        }
+    )
 # Content-addressed cache nodes are created EMPTY and filled afterwards, and
 # every reader treats "the directory exists" as "the build succeeded". An
 # interrupted or crashed run therefore leaves a partial node that later runs
@@ -485,9 +740,14 @@ def patch_t2_kernel(
 # rebuilt rather than trusted.
     node_key = sha256_bytes(canonical)
     node_dir = cache_root / "ncz-initrd-t2kernel" / node_key
+    initrd_verify: dict | None = None
     if node_dir.exists() and not force:
         if (node_dir / "receipt.json").is_file():
-            log(f"node exists: {node_dir}")
+            # A cache hit gets the same final-output check as a fresh build:
+            # the kernel file must exist and the initrd must still carry the
+            # exact preseed + hook bytes. receipt.json alone is not proof.
+            _verify_node_outputs(node_dir, preseed_cfg)
+            log(f"node exists: {node_dir} (verified)")
             return node_dir / "linux", node_dir / "initrd.gz"
         log(f"WARNING: incomplete cache node (no receipt.json): {node_dir} -- rebuilding")
     if node_dir.exists():
@@ -598,10 +858,16 @@ def patch_t2_kernel(
         # filesystem with ZERO device/mount dependency if the file is
         # simply present at the initrd root -- so bake it there instead
         # of fetching it from /cdrom at all.
-        if preseed_cfg is not None:
-            shutil.copy2(preseed_cfg, overlay_root / "preseed.cfg")
-            log(f"    baked {preseed_cfg} -> initrd root /preseed.cfg "
-                f"({preseed_cfg.stat().st_size} bytes)")
+        # Since 2026-10-08 this is the ONLY preseed load: the Install entry no
+        # longer passes preseed/file=, so the file-preseed udeb is not
+        # installed and cannot load the same file a second time. The S61 hook
+        # baked below restores the locale/keyboard component window that
+        # file-preseed.postinst used to reopen.
+        shutil.copy2(preseed_cfg, overlay_root / "preseed.cfg")
+        log(
+            f"    baked {preseed_cfg} -> initrd root /preseed.cfg "
+            f"({preseed_cfg.stat().st_size} bytes)"
+        )
 
         # --- bake early_command's helpers into the initrd too -------------
         # /ncz is a NEW top-level directory, so the usr-merge clean_path()
@@ -699,6 +965,20 @@ def patch_t2_kernel(
             branded.append(component)
         log(f"    baked persistent NCZ d-i template branding: {branded}")
 
+        # --- bake the single-preseed startup hook -------------------------
+        # Runs after S60auto-install to reopen the locale/keyboard window that
+        # file-preseed.postinst used to (it no longer runs: preseed/file is not
+        # on the Install cmdline). Lives under usr/lib, so the usr walk in the
+        # filelist below picks it up; it is not the top-level lib symlink.
+        hook_dst = overlay_root / NCZ_STARTUP_HOOK_REL
+        hook_dst.parent.mkdir(parents=True, exist_ok=True)
+        hook_dst.write_text(NCZ_STARTUP_HOOK_BODY)
+        hook_dst.chmod(0o755)
+        log(
+            f"    baked {NCZ_STARTUP_HOOK_NAME} -> initrd /{NCZ_STARTUP_HOOK_REL} "
+            f"({len(NCZ_STARTUP_HOOK_BODY)} bytes)"
+        )
+
         # Real usr-merge gotcha (verbatim from build-iso-di.sh): NEVER
         # emit a bare top-level "lib" dir entry, or a later archive's
         # directory-creation deletes the base initrd's lib->usr/lib
@@ -713,8 +993,7 @@ def patch_t2_kernel(
         ).stdout
         with filelist.open("w") as fl:
             fl.write(find_lib)
-            if preseed_cfg is not None:
-                fl.write("preseed.cfg\n")
+            fl.write("preseed.cfg\n")
             if ncz_dir.is_dir():
                 fl.write(subprocess.run(
                     ["find", "ncz", "-print"],
@@ -750,6 +1029,15 @@ def patch_t2_kernel(
         # the first member, dropping /preseed.cfg and /ncz completely.
         out_initrd = build_dir / "initrd.gz"
         write_single_member_initrd(base_initrd, overlay_cpio_gz, out_initrd)
+        # Read the FINAL cpio back: a missing/mismatched /preseed.cfg or a hook
+        # that did not make it in fails the build here, not at KVM.
+        initrd_verify = verify_baked_preseed(out_initrd, preseed_cfg)
+        log(
+            f"    verified initrd carries /{initrd_verify['preseed_member']} "
+            f"({initrd_verify['preseed_sha256'][:12]}) and "
+            f"{initrd_verify['hook_member']} "
+            f"(mode {initrd_verify['hook_mode']})"
+        )
 
         out_linux = build_dir / "linux"
         shutil.copy2(vmlinuz_src, out_linux)
@@ -769,7 +1057,9 @@ def patch_t2_kernel(
             "modules_tar": str(modules_tar) if modules_tar else None,
             "prune_mod_dirs": PRUNE_MOD_DIRS,
             "pruned_unsatisfiable_modules": orphans,
-            "baked_preseed_cfg": str(preseed_cfg) if preseed_cfg else None,
+            "baked_preseed_cfg": str(preseed_cfg),
+            "baked_preseed_verified": initrd_verify,
+            "baked_startup_hook": NCZ_STARTUP_HOOK_NAME,
             "baked_helpers": [h.name for h in helpers],
             "baked_diag_busybox": str(diag_busybox) if diag_busybox else None,
             "baked_ssh_udebs": [u.name for u in ssh_udebs],
@@ -812,12 +1102,15 @@ def main() -> int:
                      help="Static busybox baked in at /ncz/busybox for the "
                           "diag console; defaults to "
                           "assets/diag/busybox-<arch>.")
-    ap.add_argument("--preseed-cfg", type=Path,
-                     default=REPO_ROOT / "preseed" / "preseed.cfg",
-                     help="Baked into the initrd root as /preseed.cfg (d-i's "
-                          "S30initrd-preseed auto-loads it with zero "
-                          "device/mount dependency). Pass --preseed-cfg= "
-                          "(empty) to skip.")
+    ap.add_argument(
+        "--preseed-cfg",
+        type=Path,
+        default=REPO_ROOT / "preseed" / "preseed.cfg",
+        help="Baked into the initrd root as /preseed.cfg (d-i's "
+        "S30initrd-preseed auto-loads it with zero "
+        "device/mount dependency). Required: there is no "
+        "skip; the installer has no media preseed fallback.",
+    )
     ap.add_argument("--ssh-udeb-dir", type=Path, default=None,
                      help="Directory of *.udeb files (openssh-server-udeb + "
                           "its real deps) baked into the initrd at "
@@ -842,11 +1135,14 @@ def main() -> int:
     if args.firmware_pool is None:
         log("WARNING: no --firmware-pool -- the installer initrd will carry NO "
             "NIC/Bluetooth firmware (rtl_nic/*, MT79xx BT)")
-    preseed_cfg = args.preseed_cfg if str(args.preseed_cfg) else None
-    if preseed_cfg is not None and not preseed_cfg.is_file():
-        preseed_cfg = None
-        log(f"WARNING: no preseed.cfg at {args.preseed_cfg} -- initrd will "
-            f"NOT carry a baked-in preseed")
+    preseed_cfg = args.preseed_cfg
+    if not preseed_cfg.is_file():
+        log(
+            "FATAL: a real --preseed-cfg file is required. The installer loads "
+            "the preseed once from the baked initrd and has no media fallback, "
+            "so there is no supported skip (including --preseed-cfg=)."
+        )
+        return 1
 
     helper_dir = args.helper_dir if str(args.helper_dir) else None
     if helper_dir is not None and not helper_dir.is_dir():

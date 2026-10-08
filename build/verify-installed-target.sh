@@ -369,8 +369,9 @@ fi
 
 # --- (iv-c) hostname: the generated IAU name, not a placeholder or a MAC-hex fallback ------
 # The unattended gate install must end with ncz-<star>-<4 digits> (preseed/ncz-hostname-gen.sh).
-# 18e8a14 on the O6N ended as ncz-20e7bc: the media preseed reload had reset netcfg/get_hostname to
-# ncz-setup and first boot fell back to a MAC-derived name. Set VERIFY_EXPECT_GENERATED_HOSTNAME=0
+# 18e8a14 on the O6N ended as ncz-20e7bc: the historical media preseed reload (the duplicate load was
+# removed 2026-10-08) had reset netcfg/get_hostname to ncz-setup and first boot fell back to a
+# MAC-derived name. Set VERIFY_EXPECT_GENERATED_HOSTNAME=0
 # to skip when a run deliberately overrides the name.
 echo "[verify-target] (iv-c) hostname"
 if [ "${VERIFY_EXPECT_GENERATED_HOSTNAME:-1}" = 1 ]; then
