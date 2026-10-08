@@ -93,6 +93,11 @@ for arch in amd64 arm64; do
     : > "$W/log"; run $arch "$D1" ""; rc=$?
     if [ $rc != 0 ] && grep -q 'needs NCZ_SINGULARITY_PREBUILT_SHA256' "$W/log"; then ok "deb without sha256 refused ($arch)"
     else bad "deb without sha256 not refused for the right reason ($arch, rc=$rc)"; fi
+    : > "$W/log"; run $arch "" "$SHA"; rc=$?
+    if [ $rc != 0 ] && grep -q 'NCZ_SINGULARITY_PREBUILT_SHA256 .*NCZ_SINGULARITY_PREBUILT_DEB' "$W/log" \
+       && ! grep -q 'rebuilding' "$W/log"; then
+        ok "sha256 without a deb path fails loudly instead of recompiling ($arch)"
+    else bad "sha256 without a deb path was not refused (silently ignored?) ($arch, rc=$rc)"; fi
     # a deb without an opt/singularity tree cannot yield a tarball: refuse, tree untouched
     BD="$W/fx-bad-$arch"; mkdir -p "$BD/DEBIAN" "$BD/usr/share/x"; : > "$BD/usr/share/x/f"
     printf 'Package: ncz-singularity-desktop\nVersion: 1\nArchitecture: %s\nMaintainer: t <t@example.invalid>\nDescription: fixture\n' "$arch" > "$BD/DEBIAN/control"

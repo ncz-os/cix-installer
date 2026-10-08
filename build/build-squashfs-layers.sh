@@ -1404,6 +1404,12 @@ build_singularity_payload(){
   # swapped file cannot slip in. Without them the behaviour is unchanged
   # (rebuild from the pinned sources; the version string and tarball hash then
   # differ on every run even though the sources are identical).
+  if [ -z "${NCZ_SINGULARITY_PREBUILT_DEB:-}" ] && [ -n "${NCZ_SINGULARITY_PREBUILT_SHA256:-}" ]; then
+    # A sha256 alone used to be ignored and the payload silently recompiled,
+    # i.e. an operator who pinned a hash got an unpinned build. Refuse instead.
+    log "ERROR: NCZ_SINGULARITY_PREBUILT_SHA256 is set but NCZ_SINGULARITY_PREBUILT_DEB is not -- refusing to recompile an unpinned payload"
+    exit 1
+  fi
   if [ -n "${NCZ_SINGULARITY_PREBUILT_DEB:-}" ]; then
     local _pre="$NCZ_SINGULARITY_PREBUILT_DEB" _want="${NCZ_SINGULARITY_PREBUILT_SHA256:-}" _got
     [ -s "$_pre" ] || { log "ERROR: NCZ_SINGULARITY_PREBUILT_DEB=$_pre is missing/empty"; exit 1; }
