@@ -15,7 +15,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${NCZ_TEST_ROOT:-$(cd "$HERE/.." && pwd)}"
 LIB="$ROOT/post-install/lib/intel-accel.sh"
 HOOK="$ROOT/post-install/54-gpu-accel.sh"
-W="$(mktemp -d -t intel-accel.XXXXXX)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d "${TMPDIR:-$ROOT/build}/intel-accel.XXXXXX")"; trap 'rm -rf "$W"' EXIT
 PASS=0; FAIL=0
 ok()  { echo "  PASS  $1"; PASS=$((PASS + 1)); }
 bad() { echo "  FAIL  $1"; FAIL=$((FAIL + 1)); [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/        /'; }
@@ -35,6 +35,9 @@ cat > "$W/bin/apt-get" <<'EOF'
 echo "apt-get $*" >> "$LOG"
 case " $* " in
     *" update "*) exit 0 ;;
+    *" download "*) [ "$NET" = up ] || exit 100
+                     p=${2%%=*}; v=${2#*=}
+                     printf 'fixture vendor deb\n' > "${p}_${v}_amd64.deb"; exit 0 ;;
     *" -s "*) echo "Inst libze1"; [ "${REMV:-0}" = 1 ] && echo "Remv mesa-opencl-icd [1]"; exit 0 ;;
     *" install "*) [ "$NET" = up ] && exit 0
                    # network down: only the Debian set can come (offline mirror, MIRROR=1)
@@ -50,6 +53,25 @@ case " ${INSTALLED:-} " in *" $p "*) printf 'install ok installed'; exit 0 ;; es
 exit 1
 EOF
 printf '#!/bin/sh\ncat\n' > "$W/bin/gpg"
+# These stubs exercise the verifier/refusal control flow, NOT real vendor byte
+# authenticity. Real Intel byte/hash/install/linking proof is a separate receipt.
+REAL_SHA256=$(command -v sha256sum); export REAL_SHA256 LIB
+cat > "$W/bin/sha256sum" <<'EOF'
+#!/bin/bash
+case "$1" in
+    *libopenvino*.deb)
+        name=$(basename "$1"); name=${name%%_*}
+        if [ "${BAD_HASH:-0}" = 1 ]; then hash=bad
+        else NCZ_INTEL_ACCEL_LIB=1; . "$LIB"; hash=$(ncz_intel_openvino_hashes | awk -v n="$name" '$1==n{print $2}'); fi
+        printf '%s  %s\n' "$hash" "$1" ;;
+    *) exec "$REAL_SHA256" "$@" ;;
+esac
+EOF
+cat > "$W/bin/dpkg-deb" <<'EOF'
+#!/bin/bash
+name=$(basename "$2"); name=${name%%_*}
+printf 'Package: %s\nVersion: %s\nArchitecture: %s\n' "$name" "${BAD_VERSION:-2026.4.1.22982}" "${BAD_ARCH:-amd64}"
+EOF
 # hermetic: the key download (fallback) must never reach the network
 printf '#!/bin/sh\nexit 22\n' > "$W/bin/curl"
 chmod +x "$W/bin/"*
@@ -57,7 +79,8 @@ export PATH="$W/bin:$PATH" LOG="$W/apt.log"
 
 mkroot() { rm -rf "$W/r" "$LOG"; mkdir -p "$W/r"; : > "$LOG"; }
 run() {   # run FUNC ARGS... in the fixture root
-    ( export NCZ_INTEL_ROOT="$W/r" NCZ_INTEL_ASSETS="${KEYASSETS:-$ROOT/assets/intel}" NCZ_INTEL_LIB_SRC="$LIB" NCZ_INTEL_ACCEL_LIB=1
+    ( [ "${STRICT_SHELL:-0}" != 1 ] || set -e
+      export NCZ_INTEL_ROOT="$W/r" NCZ_INTEL_ASSETS="${KEYASSETS:-$ROOT/assets/intel}" NCZ_INTEL_LIB_SRC="$LIB" NCZ_INTEL_ACCEL_LIB=1
       . "$LIB"; "$@" ) > "$W/out" 2>&1
 }   # returns the function's exit status
 P="$W/r/var/lib/ncz/intel-accel.pending"
@@ -85,9 +108,12 @@ echo "=== deferred run, network up -> installed, marker + timer gone ==="
 [ ! -f "$P" ] && [ ! -e "$T" ] && grep -qx done "$W/r/var/lib/ncz/intel-accel.status" && ok "done: marker removed, timer disabled" || bad "network-up run" "$(cat "$W/out")"
 inst=$(grep ' install -y' "$LOG")
 for p in intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1 libopenvino-intel-gpu-plugin-2026.4.1 libopenvino-intel-npu-plugin-2026.4.1; do
-    printf '%s\n' "$inst" | grep -qw -- "$p" || bad "install lacks $p" "$inst"
+    printf '%s\n' "$inst" | grep -qF -- "$p" || bad "install lacks $p" "$inst"
 done
-printf '%s\n' "$inst" | grep -qwE 'openvino|level-zero|intel-driver-compiler-npu' && bad "asks for packages no repo publishes" "$inst" || ok "installs the newest OpenVINO plugins + Debian Level Zero/OpenCL/VA; no phantom package names"
+printf '%s\n' "$inst" | grep -qE '(^| )(openvino|level-zero|intel-driver-compiler-npu)( |$)' && bad "asks for packages no repo publishes" "$inst" || ok "installs fixed OpenVINO plugins + Debian Level Zero/OpenCL/VA; no phantom package names"
+grep -q 'download libopenvino-2026.4.1=2026.4.1.22982' "$LOG" && ok "core downloaded at exact reviewed version" || bad "core version not fixed"
+grep -q 'download libopenvino-intel-gpu-plugin-2026.4.1=2026.4.1.22982' "$LOG" && ok "GPU plugin downloaded at exact reviewed version" || bad "GPU plugin version not fixed"
+[ -z "$(find "$W/r/var/cache/ncz/intel-openvino" -name '*.deb' -print)" ] && ok "vendor scratch removed after success" || bad "vendor scratch leaked"
 grep -q ' -s ' "$LOG" && [ "$(grep -n ' -s ' "$LOG" | head -1 | cut -d: -f1)" -lt "$(grep -n ' install -y' "$LOG" | head -1 | cut -d: -f1)" ] \
     && ok "simulated before installing" || bad "no simulation before install"
 
@@ -124,6 +150,36 @@ echo "=== a transaction that would remove packages is refused, not forced ==="
 mkroot; NET=up REMV=1 run ncz_intel_accel_install 1 0
 grep -q ' install -y' "$LOG" && bad "installed despite removals" || ok "no install when the simulation removes packages"
 grep -q 'failed:would-remove-1-packages' "$W/r/var/lib/ncz/intel-accel.status" && [ ! -f "$P" ] && ok "status records the refusal; no endless retry" || bad "removal refusal" "$(cat "$W/out")"
+
+echo "=== changed vendor bytes/control identity fail closed ==="
+for defect in BAD_HASH BAD_VERSION BAD_ARCH; do
+    mkroot
+    case "$defect" in
+        BAD_HASH) NET=up BAD_HASH=1 run ncz_intel_accel_install 1 0 ;;
+        BAD_VERSION) NET=up BAD_VERSION=2026.4.1.99999 run ncz_intel_accel_install 1 0 ;;
+        BAD_ARCH) NET=up BAD_ARCH=arm64 run ncz_intel_accel_install 1 0 ;;
+    esac
+    if grep ' install -y' "$LOG" | grep -q libopenvino; then bad "$defect installed unverified vendor deb"
+    else ok "$defect prevents vendor install"; fi
+    grep -qx 'failed:openvino-identity-or-hash' "$W/r/var/lib/ncz/intel-accel.status" && [ ! -f "$P" ] \
+        && ok "$defect is permanent refusal, not an endless retry" || bad "$defect refusal status" "$(cat "$W/out")"
+    [ -z "$(find "$W/r/var/cache/ncz/intel-openvino" -name '*.deb' -print)" ] \
+        && ok "$defect download scratch removed" || bad "$defect scratch leaked"
+done
+
+echo "=== vendor ledger and runtime hash authority agree ==="
+while read -r name hash; do
+    row=$(awk -F'\t' -v n="$name" '$1==n{print $2 " " $3 " " $6}' "$ROOT/manifests/vendor-debs.tsv")
+    [ "$row" = "2026.4.1.22982 amd64 $hash" ] && ok "$name ledger equals runtime pin" || bad "$name ledger mismatch" "$row"
+done < <(NCZ_INTEL_ACCEL_LIB=1; . "$LIB"; ncz_intel_openvino_hashes)
+
+echo "=== production strict-shell zero-removal install ==="
+mkroot; NET=up STRICT_SHELL=1 run ncz_intel_accel_install 1 0; rc=$?
+[ "$rc" = 0 ] && grep -qx done "$W/r/var/lib/ncz/intel-accel.status" \
+    && ok "zero removals does not trigger errexit" || bad "strict shell aborted rc=$rc" "$(cat "$W/out")"
+mkroot; NET=down STRICT_SHELL=1 run ncz_intel_accel_install 1 0; rc=$?
+[ "$rc" = 0 ] && [ -f "$P" ] && [ -L "$T" ] \
+    && ok "strict-shell network failure arms retry instead of aborting" || bad "strict-shell retry aborted rc=$rc" "$(cat "$W/out")"
 
 echo "=== 54-gpu-accel.sh wiring ==="
 grep -q "grep -qi '\\\\\[1200\\\\\]:.\*\\\\\[8086:' && HAS_INTEL_NPU=1" "$HOOK" && ok "Intel NPU detection unchanged (class [1200] vendor 8086)" || bad "Intel NPU detection changed"

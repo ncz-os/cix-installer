@@ -4,10 +4,10 @@
 # Update a pin ONLY with `build/stage-build-inputs.sh --arch <a> --publish` from the tree that
 # holds the new file, then commit this file.
 # arch	dest	sha256	size	note
-amd64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	27a0cfd3911b0780aba9fcb31934010749cc5ef0785c1febb6a1e2e4961d96ee	55425277	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky amd64)
-amd64	assets/rescue/rescue-rootfs-amd64.tar.zst	3c93b1c86ebc188c74e4e5f40252c94234936ccb6e4702a4c3727ff732bde392	213637051	rescue partition rootfs (build/build-rescue-rootfs.sh)
-arm64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	096f1d9de4f135fbef54e22fde11df59fb9dd29de2579d212d63ba9f23f3da63	53946144	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky arm64)
-arm64	assets/rescue/rescue-rootfs-arm64.tar.zst	9671c6c8f0965647e74788e1f282bbb13f8bbd543d985ba943e4a3b813272d5c	200177088	rescue partition rootfs (build/build-rescue-rootfs.sh)
+amd64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	ca90d5c2d797a650d207669a5223bf57085f6d4455f0ae905fee3147f98568b1	55430762	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky amd64)
+amd64	assets/rescue/rescue-rootfs-amd64.tar.zst	3e981e440fd2726f4eddadaeaa6874958884afd3351e4b707fafcac6d443289f	212914480	rescue partition rootfs (build/build-rescue-rootfs.sh)
+arm64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	2203812256d269da51c59c407d8e554ca2f860c2cda34ed544c19eee6e1b520b	52917232	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky arm64)
+arm64	assets/rescue/rescue-rootfs-arm64.tar.zst	0581eebf8c3f3b9a891785b899a703920de665a8108667e56a9e27007a04816f	200419355	rescue partition rootfs (build/build-rescue-rootfs.sh)
 amd64	assets/python311/cpython-3.11.17+20261003-x86_64-unknown-linux-gnu-install_only.tar.gz	c624af93ad62a596806bbd2404e1fb80744a407ca7279854445ede16d93858b8	48919491	relocatable CPython 3.11 (build/build-python311-assets.sh)
 amd64	assets/python311/uv	abdc39eab8b4ad341dca91f3823a23a343fae94bdb22ebdd9e91694415206f2f	47993144	uv toolchain (build/build-python311-assets.sh)
 arm64	assets/python311/cpython-3.11.16+20260924-aarch64-unknown-linux-gnu-install_only.tar.gz	96f6f6af710762a34507ba222435a8d58d0b2a97c48cb84c0a0c73cdff199bb0	48940326	relocatable CPython 3.11 (build/build-python311-assets.sh)

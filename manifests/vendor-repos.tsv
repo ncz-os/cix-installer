@@ -17,7 +17,7 @@ vendor	https	dl.google.com	/linux/chrome/deb/	stable	yes	Google LLC	Chrome legac
 vendor	https	repo.vivaldi.com	/archive/deb/	stable	yes	Vivaldi Technologies	neutralised to .disabled by 52-vivaldi.sh
 vendor	https	developer.download.nvidia.com	/compute/cuda/repos/debian12/x86_64/	/	yes	NVIDIA	CUDA repo written by the vendor keyring
 vendor	https	developer.download.nvidia.com	/compute/cuda/repos/debian13/x86_64/	/	yes	NVIDIA	CUDA repo written by the vendor keyring
-vendor	https	apt.repos.intel.com	/openvino	ubuntu24	pending	Intel	OpenVINO runtime -- OPERATOR APPROVAL REQUIRED (intel-accel.sh)
+vendor	https	apt.repos.intel.com	/openvino	ubuntu24	yes	Intel	Operator 2026-10-09 conditional APT approval satisfied by signed-index/hash, Forky-only zero-removal install and linking checks; ONLY exact three OpenVINO 2026.4.1.22982 vendor-debs.tsv rows; all other Intel packages pinned -1; docs/OPENVINO-FORKY-APT-20261009.md
 vendor	https	adityagarg8.github.io	/t2-ubuntu-repo	./	pending	t2linux	Apple T2 firmware -- OPERATOR APPROVAL REQUIRED (55-t2-firmware.sh)
 offline	file	-	/cdrom/ncz-payload/apt-repo	/	yes	NCZ-OS	installer offline NCZ apt-repo (preseed/late.sh; bound only when the image pool is enumerated+verified)
 offline	file	-	/cdrom	forky	yes	NCZ-OS	installer offline base pool (preseed/late.sh; bound only when the image pool is enumerated+verified)

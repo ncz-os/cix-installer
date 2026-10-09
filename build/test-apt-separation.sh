@@ -186,7 +186,15 @@ eq "offline-mirror-only package is installable" "$(cand "$NEW" offline-only)" "1
 case "$(src_of "$NEW" libfoo)" in "file:$NCZB"*) ok "libfoo is served by the offline mirror" ;; *) bad "libfoo source: $(src_of "$NEW" libfoo)" ;; esac
 eq "network leak still loses with the offline mirror present (fonts-liberation)" "$(cand "$NEW" fonts-liberation)" "1:2.1.5-3"
 eq "NCZ-host ncz-* package still wins" "$(cand "$NEW" ncz-wallpapers-ncz)" "1.1"
-apt-cache "${UPD[@]/prefs-old/prefs-new}" policy libfoo 2>/dev/null | grep -q ' 500 .*nczb' && ok "offline mirror stays at priority 500" || bad "offline mirror lost its priority 500"
+# Capture the complete output before grep: with pipefail, grep -q may close
+# the pipe early and turn a matching apt-cache result into a SIGPIPE failure.
+offline_policy=$(apt-cache "${UPD[@]/prefs-old/prefs-new}" policy libfoo 2>/dev/null)
+offline_policy_rc=$?
+if [ "$offline_policy_rc" -eq 0 ] && grep -q ' 500 .*nczb' <<< "$offline_policy"; then
+    ok "offline mirror stays at priority 500"
+else
+    bad "offline mirror lost its priority 500 (apt-cache rc=$offline_policy_rc)" "$offline_policy"
+fi
 
 echo "=== scenario C: a machine that ALREADY installed the leaked build (the arm64 O6N case) ==="
 cp "$T/sources.A" "$T/sources"
@@ -200,16 +208,20 @@ mapfile -t _o < <(aptopts "$NEW")
 case "$(apt-get "${_o[@]}" -s dist-upgrade 2>&1)" in *"Remv fonts-liberation"*) bad "dist-upgrade would remove fonts-liberation" ;; *) ok "dist-upgrade does not remove fonts-liberation" ;; esac
 cp "$T/status.A" "$T/status"
 
-echo "=== scenario D: Intel deferred install (ncz-intel-accel-setup: UNPINNED apt-get install, Ubuntu-named suite ubuntu24) ==="
-# Verified 2026-10-08 against the pinned forky snapshot: Debian forky ships NO
-# openvino package at all, so the Intel GPU/NPU plugin has no Debian competitor
-# and needs no pin; the Debian runtime packages (intel-opencl-icd / libze1 /
-# libze-intel-gpu1) must still come from Debian even though Intel's repo carries a
-# higher Ubuntu build, via the `release o=Debian` pin (not a positive pending-host pin).
+echo "=== scenario D: bounded Intel vendor APT, Debian prerequisites ==="
+# Rewrite ONLY the Intel hostname in the fixture preferences to the dedicated
+# loopback origin. Package names, version rules and priorities remain production.
+sed -i 's/apt\.repos\.intel\.com/127.0.0.2/g' "$NEW/$NCZ_APT_PIN_NAME"
 INTEL="$T/www/intel"; DEBI="$T/debintel"
 mk_repo "$INTEL" Intel ubuntu24; mk_repo "$DEBI" Debian testing
 for p in intel-opencl-icd libze1 libze-intel-gpu1; do entry "$INTEL" "$p" 99.0-ubuntu24 "$ARCH"; entry "$DEBI" "$p" 25.1-1 "$ARCH"; done
 entry "$INTEL" libopenvino-intel-npu-plugin 2026.1.0-intel "$ARCH"
+for p in libopenvino-2026.4.1 libopenvino-intel-gpu-plugin-2026.4.1 libopenvino-intel-npu-plugin-2026.4.1; do
+    entry "$INTEL" "$p" 2026.4.1.22982 "$ARCH"
+    entry "$INTEL" "$p" 2026.4.1.99999 "$ARCH"
+done
+entry "$INTEL" libopenvino-intel-gpu-plugin-2026.5.0 2026.5.0.1 "$ARCH"
+entry "$INTEL" intel-unreviewed 1.0 "$ARCH"
 gzip -kf "$INTEL/Packages" "$DEBI/Packages"
 cat > "$T/sources" <<EOF
 deb [trusted=yes] file://$DEBI ./
@@ -220,14 +232,19 @@ eq "OLD: Intel's Ubuntu intel-opencl-icd wins (the bug the pin prevents)" "$(can
 eq "OLD: the Intel libopenvino plugin is offered (Debian forky ships none)" "$(cand "$OLD" libopenvino-intel-npu-plugin)" "2026.1.0-intel"
 eq "NEW: intel-opencl-icd comes from Debian forky (release o=Debian pin)" "$(cand "$NEW" intel-opencl-icd)" "25.1-1"
 for p in libze1 libze-intel-gpu1; do eq "NEW: $p comes from Debian forky" "$(cand "$NEW" "$p")" "25.1-1"; done
-eq "NEW: the Intel plugin still installs (no Debian competitor, no pin)" "$(cand "$NEW" libopenvino-intel-npu-plugin)" "2026.1.0-intel"
+eq "NEW: old unreviewed Intel plugin blocked" "$(cand "$NEW" libopenvino-intel-npu-plugin)" "(none)"
+for p in libopenvino-2026.4.1 libopenvino-intel-gpu-plugin-2026.4.1 libopenvino-intel-npu-plugin-2026.4.1; do
+    eq "NEW: $p stays on exact approved build, not newer build" "$(cand "$NEW" "$p")" "2026.4.1.22982"
+done
+eq "NEW: new unreviewed plugin name blocked" "$(cand "$NEW" libopenvino-intel-gpu-plugin-2026.5.0)" "(none)"
+eq "NEW: other Intel packages blocked" "$(cand "$NEW" intel-unreviewed)" "(none)"
 mapfile -t _o < <(aptopts "$NEW")
-PLAN="$(apt-get "${_o[@]}" -s install libopenvino-intel-npu-plugin intel-opencl-icd libze1 libze-intel-gpu1 2>&1)"; prc=$?
-[ "$prc" = 0 ] && ok "an unpinned apt-get install of the Intel set resolves (rc=0)" || bad "unpinned install plan failed rc=$prc" "$PLAN"
-printf '%s\n' "$PLAN" | grep -q '^Inst libopenvino-intel-npu-plugin (2026.1.0-intel' && printf '%s\n' "$PLAN" | grep -q '^Inst intel-opencl-icd (25.1-1' \
+PLAN="$(apt-get "${_o[@]}" -s install libopenvino-intel-npu-plugin-2026.4.1=2026.4.1.22982 intel-opencl-icd libze1 libze-intel-gpu1 2>&1)"; prc=$?
+[ "$prc" = 0 ] && ok "exact-version Intel set resolves (rc=0)" || bad "exact-version install plan failed rc=$prc" "$PLAN"
+printf '%s\n' "$PLAN" | grep -q '^Inst libopenvino-intel-npu-plugin-2026.4.1 (2026.4.1.22982' && printf '%s\n' "$PLAN" | grep -q '^Inst intel-opencl-icd (25.1-1' \
     && ok "the plan installs the Intel plugin and Debian's runtime" || bad "wrong sources in the install plan" "$PLAN"
 ncz_apt_separation_pin_text | grep -qi 'cdrom' && bad "the pin text mentions /cdrom" || ok "the pin text does not depend on /cdrom"
-ncz_apt_separation_pin_text | grep -qiE 'adityagarg8|apt\.repos\.intel\.com' && bad "the pin still names a pending vendor host" || ok "the pin names no pending vendor host"
+ncz_apt_separation_pin_text | grep -qi 'adityagarg8' && bad "the pin still names the pending T2 vendor host" || ok "the pin names no pending T2 vendor host"
 
 echo "=== scenario E: hook 24's ncz-screensavers canary reads the same policy shape with the pin installed ==="
 # Extract the canary block from the real hook, run it against REAL apt-cache output (paths/hosts rewritten to what

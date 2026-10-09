@@ -403,8 +403,12 @@ contract now:
    `ncz-screensavers-plugin` are now covered (r201 entries, 2026-10-08).
    `ncz-agent-*` and `zoder` do **not** ship and `ncz-intel-accel` is not a deb, so
    they are not ledger blockers.
-3. **Intel `ubuntu24` / t2linux vendor repos** are marked `pending`; the gate
-   fails closed on them until the operator approves the exact URI+suite.
+3. **Vendor source decisions.** The operator's conditional Intel APT approval
+   was satisfied on 2026-10-09 for the exact OpenVINO 2026.4.1.22982 trio: signed
+   index, independent deb hashes, actual Forky-only install and linking checks.
+   The exact Intel URI+suite is now approved with every other Intel package/build
+   blocked; see `docs/OPENVINO-FORKY-APT-20261009.md`. The unused t2linux source
+   remains `pending`; native pinned T2 assets replace its installer use.
 4. **Release-image acceptance remains separate.** The fixture suite exercises
    `--image` using a real, small GPT/ext4/FAT image and GNU-produced initrds.
    Neither release image has been rebuilt or accepted by this change. Both

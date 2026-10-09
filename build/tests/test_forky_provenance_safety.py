@@ -25,6 +25,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 REPO = Path(__file__).resolve().parents[2]
 VER = REPO / "build" / "forky-provenance.py"
@@ -34,6 +35,38 @@ fp = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(fp)
 
 HAVE_ZSTD = shutil.which("zstd") is not None
+
+
+class SnapshotSourceTest(unittest.TestCase):
+    def setUp(self):
+        self.ref = SimpleNamespace(
+            pin="20261007T202437Z",
+            codename="forky",
+            sources=[
+                {
+                    "kind": "debian-pin",
+                    "scheme": "https",
+                    "host": "snapshot.debian.org",
+                    "path": "/archive/debian/<pin>",
+                }
+            ],
+        )
+        self.uri = "https://snapshot.debian.org/archive/debian/20261007T202437Z"
+
+    def test_single_trailing_slash_is_same_snapshot(self):
+        for uri in (self.uri, self.uri + "/"):
+            self.assertIsNone(fp.source_ok(self.ref, uri, "forky"))
+
+    def test_changed_path_pin_suite_and_unsafe_url_fail(self):
+        for uri, suite in (
+            (self.uri + "/unscanned", "forky"),
+            (self.uri.replace("20261007T202437Z", "20261006T202437Z"), "forky"),
+            (self.uri, "trixie"),
+            (self.uri + "//", "forky"),
+            (self.uri + "/../20261007T202437Z", "forky"),
+            (self.uri + "?x=1", "forky"),
+        ):
+            self.assertIsNotNone(fp.source_ok(self.ref, uri, suite), uri)
 
 
 class SymlinkTargetTest(unittest.TestCase):

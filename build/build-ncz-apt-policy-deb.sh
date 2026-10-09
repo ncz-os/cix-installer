@@ -30,7 +30,8 @@ PKG=ncz-apt-policy
 # unreferenced T2 positive-pending-host pin stanzas are gone and Debian's Intel
 # runtime is pinned via `release o=Debian`. The version gate would refuse a
 # same-version rebuild with different bytes, so the version moves.
-VERSION="${NCZ_APT_POLICY_VERSION:-1.0.2}"
+# 1.0.3: bound Intel vendor versions; reject all other Intel packages/builds.
+VERSION="${NCZ_APT_POLICY_VERSION:-1.0.3}"
 OUT="${NCZ_APT_POLICY_OUT:-$ROOT/build/ncz-apt-policy-deb}"
 LIB="$ROOT/post-install/lib/apt-separation.sh"
 [ -r "$LIB" ] || { echo "ERROR: $LIB missing" >&2; exit 1; }

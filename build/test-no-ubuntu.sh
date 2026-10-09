@@ -17,7 +17,15 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$HERE/.."
-T="$(mktemp -d "${TMPDIR:-$HOME}/.no-ubuntu-test.XXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-$HOME}/.no-ubuntu-test.XXXXXX")"
+cleanup() {
+    # Only this fixture's agent; never a shared user's signing agent.
+    if [ -d "$T/gnupg" ] && command -v gpgconf >/dev/null 2>&1; then
+        gpgconf --homedir "$T/gnupg" --kill gpg-agent >/dev/null 2>&1 || true
+    fi
+    rm -rf "$T"
+}
+trap cleanup EXIT
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  PASS  $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL  $1"; [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/        /'; }
@@ -107,7 +115,11 @@ Name-Email: test@ncz.invalid
 Expire-Date: 0
 %commit
 EOF
-gpg --batch --gen-key "$T/keyparams" >/dev/null 2>&1 || { echo "SKIP: gpg key generation failed"; exit 0; }
+gpg --batch --gen-key "$T/keyparams" > "$T/keygen.log" 2>&1 || {
+    echo "FAIL: gpg key generation failed (check GNUPGHOME socket path length)" >&2
+    cat "$T/keygen.log" >&2
+    exit 1
+}
 gpg --batch --export > "$T/repo/manifests/keys/test-keyring.gpg"
 KFPR="$(gpg --with-colons --fingerprint test@ncz.invalid | awk -F: '/^fpr:/{print $10; exit}')"
 

@@ -18,7 +18,8 @@
 #     against a pinned sha256 -- no network needed for the key;
 #   * Level Zero, the OpenCL ICD and the VA driver come from Debian (libze1,
 #     libze-intel-gpu1, intel-opencl-icd, intel-media-va-driver); only the
-#     OpenVINO GPU/NPU plugins come from Intel's repo (newest version present);
+#     OpenVINO core/GPU/NPU packages come from Intel's repo at the exact reviewed
+#     version, with package identity and sha256 checked before apt installs them;
 #   * the Debian-origin packages are seeded in manifests/desktop-amd64.pkgs and are
 #     installed FIRST, with no Intel index needed, so an offline install, the KVM
 #     gate and an install without a link still get them from the mirror; packages
@@ -27,10 +28,8 @@
 #   * every transaction is simulated first (apt-get install -s); any removal
 #     refuses it -- nothing is forced. Simulated on debian:forky 2026-10-07:
 #     GPU set 15 installs / 0 removals, NPU set 7 / 0;
-#   * the NPU user-mode driver (intel-driver-compiler-npu, intel-level-zero-npu)
-#     is in no apt repository (github.com/intel/linux-npu-driver release debs
-#     only); it is installed when some configured repo offers it, otherwise the
-#     gap is logged;
+#   * the separately distributed NPU user-mode driver is NOT approved here;
+#     having an NPU plugin installed is not proof of a working NPU driver;
 #   * a failure that can heal (no network, repo unreachable, download error)
 #     leaves /var/lib/ncz/intel-accel.pending and enables the timer, which
 #     retries after boot (2 min, then every 10 min, at most NCZ_INTEL_MAX_TRIES).
@@ -41,6 +40,38 @@
 NCZ_INTEL_KEY_SHA256=db932ba032a71f732dc415eef5f4f185fc7ae768487d7a357bc2772746b6c48c
 NCZ_INTEL_KEY_URL="${NCZ_INTEL_KEY_URL:-https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB}"
 NCZ_INTEL_REPO="https://apt.repos.intel.com/openvino ubuntu24 main"
+NCZ_INTEL_OPENVINO_VERSION=2026.4.1.22982
+
+# Exact vendor bytes verified against Intel's signed ubuntu24 index, then
+# installed successfully with dependencies from the pinned Forky snapshot.
+# Keep these rows identical to manifests/vendor-debs.tsv. No environment override.
+ncz_intel_openvino_hashes() {
+    printf '%s\n' \
+        'libopenvino-2026.4.1 ce8a501d7fabcee72ed4c32328f90ff853812dba64b611c137bca12c733246a7' \
+        'libopenvino-intel-gpu-plugin-2026.4.1 71d2c0157ec1662dcf65fb83d734a53e1e7f6a297de8c88f835c22ac7a35bb0a' \
+        'libopenvino-intel-npu-plugin-2026.4.1 57e6064917e141b01f7d451e56a3776c2ea01e3b1ad5a21933d3559d0a0a08bb'
+}
+
+# Also written here for already-installed systems that have not yet received
+# ncz-apt-policy 1.0.3. Prevent Intel from supplying any Debian prerequisite or
+# a newer unreviewed build of the same versioned package name.
+ncz_intel_write_pins() {
+    local pref="$(_ni_r)/etc/apt/preferences.d/09-ncz-intel-openvino.pref"
+    mkdir -p "$(dirname "$pref")"
+    cat > "$pref" <<EOF
+Package: libopenvino-2026.4.1 libopenvino-intel-gpu-plugin-2026.4.1 libopenvino-intel-npu-plugin-2026.4.1
+Pin: version $NCZ_INTEL_OPENVINO_VERSION
+Pin-Priority: 990
+
+Package: libopenvino-2026.4.1 libopenvino-intel-gpu-plugin-2026.4.1 libopenvino-intel-npu-plugin-2026.4.1
+Pin: version *
+Pin-Priority: -1
+
+Package: *
+Pin: origin apt.repos.intel.com
+Pin-Priority: -1
+EOF
+}
 
 _ni_r()      { printf '%s' "${NCZ_INTEL_ROOT:-}"; }
 _ni_keyring() { echo "$(_ni_r)/etc/apt/keyrings/intel-openvino.gpg"; }
@@ -93,40 +124,67 @@ ncz_intel_debian_packages() {
     done
 }
 
-# ncz_intel_packages GPU NPU -> the Intel-repo packages (OpenVINO plugins, and
-# the NPU user-mode driver when some repo offers it) on stdout; 1 when the Intel
-# repo index is not available (no network yet).
+# ncz_intel_packages GPU NPU -> exact version-qualified Intel packages.
 ncz_intel_packages() {
-    _v=$(apt-cache pkgnames libopenvino-intel-gpu-plugin- 2>/dev/null | sed 's/^libopenvino-intel-gpu-plugin-//' | sort -V | tail -1)
-    [ -n "$_v" ] || return 1
-    _p=""
-    [ "$1" = 1 ] && _p="libopenvino-intel-gpu-plugin-$_v"
+    [ "$1" = 1 ] || [ "$2" = 1 ] || return 0
+    printf '%s ' "libopenvino-2026.4.1=$NCZ_INTEL_OPENVINO_VERSION"
+    [ "$1" != 1 ] || printf '%s ' "libopenvino-intel-gpu-plugin-2026.4.1=$NCZ_INTEL_OPENVINO_VERSION"
     if [ "$2" = 1 ]; then
-        _p="$_p libopenvino-intel-npu-plugin-$_v"
-        for _u in intel-driver-compiler-npu intel-level-zero-npu; do
-            if apt-cache policy "$_u" 2>/dev/null | grep -q 'Candidate: [0-9]'; then _p="$_p $_u"
-            else ncz_intel_log "NPU: $_u is in no configured apt repo (github.com/intel/linux-npu-driver debs only); NPU user-mode driver not installed" >&2; fi
-        done
+        printf '%s ' "libopenvino-intel-npu-plugin-2026.4.1=$NCZ_INTEL_OPENVINO_VERSION"
+        ncz_intel_log 'NPU: separate user-mode driver not installed by this OpenVINO transaction; hardware acceptance remains required' >&2
     fi
-    echo "$_p" | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' '
 }
+
+# Signed-index APT download, then independently bound bytes/control identity.
+# Only verified local debs enter the simulated/real APT transaction. Owned
+# download scratch is removed on every normal success/failure path.
+ncz_intel_openvino_install() (
+    local cache work p name file expected identity rc
+    local -a files=()
+    cache="$(_ni_r)/var/cache/ncz/intel-openvino"
+    mkdir -p "$cache" || return 75
+    work=$(mktemp -d "$cache/download.XXXXXX") || return 75
+    trap 'rm -rf "$work"' EXIT
+    for p in "$@"; do
+        name=${p%%=*}
+        expected=$(ncz_intel_openvino_hashes | awk -v n="$name" '$1==n {print $2}')
+        [ -n "$expected" ] && [ "$p" = "$name=$NCZ_INTEL_OPENVINO_VERSION" ] || {
+            ncz_intel_status 'failed:unapproved-openvino-package'; return 1;
+        }
+        (cd "$work" && apt-get download "$p") || return 75
+        file="$work/${name}_${NCZ_INTEL_OPENVINO_VERSION}_amd64.deb"
+        identity=$(dpkg-deb -f "$file" Package Version Architecture 2>/dev/null) || {
+            ncz_intel_status 'failed:invalid-openvino-deb'; return 1;
+        }
+        if [ "$identity" != "$(printf 'Package: %s\nVersion: %s\nArchitecture: amd64' "$name" "$NCZ_INTEL_OPENVINO_VERSION")" ] ||
+           [ "$(sha256sum "$file" | cut -d' ' -f1)" != "$expected" ]; then
+            ncz_intel_status 'failed:openvino-identity-or-hash'; return 1
+        fi
+        files+=("$file")
+    done
+    ncz_intel_apt_install "${files[@]}"; rc=$?
+    return "$rc"
+)
 
 # ncz_intel_apt_install PKGS... -> 0 installed, 75 retry later, 1 refused.
 # Simulated first; any removal refuses the whole transaction.
 ncz_intel_apt_install() {
     ncz_intel_log "packages: $*"
-    _sim=$(LC_ALL=C apt-get install -s --no-install-recommends "$@" 2>&1); _rc=$?
+    _sim=$(LC_ALL=C apt-get install -s --no-install-recommends "$@" 2>&1) && _rc=0 || _rc=$?
     if [ "$_rc" -ne 0 ]; then
         printf '%s\n' "$_sim" | tail -5
         ncz_intel_log "simulation failed (rc=$_rc)"; return 75
     fi
-    _rm=$(printf '%s\n' "$_sim" | grep -c '^Remv ')
+    _rm=$(printf '%s\n' "$_sim" | grep -c '^Remv ' || true)
     if [ "$_rm" -gt 0 ]; then
         printf '%s\n' "$_sim" | grep '^Remv ' | head -10
         ncz_intel_status "failed:would-remove-$_rm-packages"; return 1
     fi
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" 2>&1 | tail -10
-    [ "${PIPESTATUS[0]:-0}" -eq 0 ] || return 75
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" 2>&1 | tail -10; then
+        [ "${PIPESTATUS[0]:-0}" -eq 0 ] || return 75
+    else
+        return 75
+    fi
     return 0
 }
 
@@ -135,6 +193,7 @@ ncz_intel_setup() {
     # The Debian-origin set needs neither the Intel key nor the Intel repo, so a missing key must not
     # keep it from installing: only the OpenVINO plugins (Intel repo) wait for the key.
     _key=0
+    ncz_intel_write_pins || return 1
     if ncz_intel_keyring; then _key=1; ncz_intel_repo; fi
     apt-get update 2>&1 | tail -3
     # Debian-origin packages first: they need no Intel index, so an offline
@@ -146,10 +205,10 @@ ncz_intel_setup() {
         ncz_intel_apt_install $_dp || return $?
     fi
     [ "$_key" = 1 ] || { ncz_intel_log "Intel signing key unavailable; OpenVINO plugins deferred"; return 75; }
-    _pk=$(ncz_intel_packages "$1" "$2") || { ncz_intel_log "Intel repo index unavailable (network?)"; return 75; }
+    _pk=$(ncz_intel_packages "$1" "$2") || return 1
     [ -n "${_pk// /}" ] || { ncz_intel_log "nothing more requested (GPU=$1 NPU=$2)"; return 0; }
     # shellcheck disable=SC2086
-    ncz_intel_apt_install $_pk
+    ncz_intel_openvino_install $_pk
 }
 
 ncz_intel_arm_retry() {   # GPU NPU
@@ -172,7 +231,7 @@ ncz_intel_finish() {
 
 # Install-time entry (54-gpu-accel.sh).
 ncz_intel_accel_install() {   # GPU NPU
-    ncz_intel_setup "$1" "$2"; _rc=$?
+    ncz_intel_setup "$1" "$2" && _rc=0 || _rc=$?
     case "$_rc" in
         0)  ncz_intel_status "done"; ncz_intel_finish ;;
         75) ncz_intel_log "not finished at install time; ncz-intel-accel-setup.timer retries after boot"; ncz_intel_arm_retry "$1" "$2" ;;
@@ -189,7 +248,7 @@ ncz_intel_accel_run() {
     _t=$(( ${_t:-0} + 1 ))
     sed -i "s/^TRIES=.*/TRIES=$_t/" "$_pf"
     ncz_intel_log "attempt $_t (GPU=$_g NPU=$_n)"
-    ncz_intel_setup "${_g:-0}" "${_n:-0}"; _rc=$?
+    ncz_intel_setup "${_g:-0}" "${_n:-0}" && _rc=0 || _rc=$?
     if [ "$_rc" = 0 ]; then ncz_intel_status "done"; ncz_intel_finish; return 0; fi
     if [ "$_rc" = 75 ] && [ "$_t" -lt "${NCZ_INTEL_MAX_TRIES:-36}" ]; then ncz_intel_status "pending:attempt-$_t"; return 75; fi
     [ "$_rc" = 75 ] && ncz_intel_status "failed:gave-up-after-$_t-attempts"

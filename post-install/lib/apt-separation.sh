@@ -162,15 +162,21 @@ EOF
         _ncz_apt_nczstanzas "origin $h" "$ns" "$allow"
     done
     cat <<EOF
-# Intel OpenVINO repo (suite ubuntu24, written by the deferred ncz-intel-accel-setup).
-# The deferred install is an UNPINNED apt-get install, so the pin decides. Verified
-# 2026-10-08 against the pinned forky snapshot: Debian forky ships NO openvino package
-# at all, under any name, so the Intel GPU/NPU plugin packages have no Debian
-# competitor and need no pin (the old libopenvino-intel-* Intel-origin pin was
-# guarding a collision that does not exist). Debian's own Level Zero / OpenCL runtime
-# must win over any Ubuntu build Intel's repo carries, so those names are pinned to
-# the Debian ORIGIN (release o=Debian, which the provenance pin audit accepts) rather
-# than to a positive pin on the still-pending Intel host.
+# Intel vendor packages: operator-approved only after actual Forky closure,
+# install and ELF linking checks. Fixed version plus independent deb hash checks
+# in intel-accel.sh; Intel must never replace Debian prerequisites.
+Package: libopenvino-2026.4.1 libopenvino-intel-gpu-plugin-2026.4.1 libopenvino-intel-npu-plugin-2026.4.1
+Pin: version 2026.4.1.22982
+Pin-Priority: 990
+
+Package: libopenvino-2026.4.1 libopenvino-intel-gpu-plugin-2026.4.1 libopenvino-intel-npu-plugin-2026.4.1
+Pin: version *
+Pin-Priority: -1
+
+Package: *
+Pin: origin apt.repos.intel.com
+Pin-Priority: -1
+
 Package: intel-opencl-icd libze1 libze-intel-gpu1
 Pin: release o=Debian
 Pin-Priority: 990

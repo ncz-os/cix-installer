@@ -1072,7 +1072,7 @@ def source_ok(ref, uri, suite):
             continue
         if r["kind"] == "debian-pin":
             want = r["path"].replace("<pin>", ref.pin)
-            if path == want and suite == ref.codename:
+            if path.rstrip("/") == want.rstrip("/") and suite == ref.codename:
                 return None
             continue
         if path != r["path"]:

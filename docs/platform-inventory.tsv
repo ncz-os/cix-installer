@@ -444,6 +444,10 @@ post-install/lib/sky1-browser-policy.sh	sky1	-	Sky1 browser defaults sourced by 
 build/test-panthor-entry-gate.sh	sky1	-	proves the Panthor (Experimental) rEFInd entry is written only when a panthor module exists for its kernel and carries no cmdline kbase blacklist (O6N r201)
 build/test-gpu-switcher-fallback.sh	sky1	-	proves ncz-gpu-switcher falls back to Mali (or fails loudly when the cmdline blocks it) when Panthor is selected but not bound, in a stubbed sandbox (O6N r201)
 assets/intel/	amd64	-	Intel apt signing key (vendored, sha256-pinned in lib/intel-accel.sh) and the ncz-intel-accel-setup deferred service/timer (r201)
+assets/t2/	amd64	t2	pinned native Apple firmware helper and MIT PulseAudio profile-set assets; no third-party T2 apt source
+build/iso/fetch-pinned-debootstrap-udeb.py	common	-	authenticated exact-snapshot debootstrap udeb downloader
+build/test-t2-native.sh	amd64	t2	native T2 asset contract and safe archive extraction regression tests
+build/tests/	common	-	shared provenance, archive safety, kernel staging and Make gate regression tests
 post-install/lib/intel-accel.sh	amd64	-	Intel GPU/NPU userspace installer sourced by 54-gpu-accel.sh and installed as ncz-intel-accel-setup: vendored key, Debian Level Zero/OpenCL/VA + Intel OpenVINO plugins, apt simulation gate, deferred retry (r201)
 build/test-intel-accel-deferred.sh	amd64	-	proves the Intel userspace path uses the vendored key, arms the retry marker/timer when the repo is unreachable, installs once the network is up, and refuses a transaction that would remove packages (r201)
 build/test-stage-canonical-dkms.sh	sky1	-	contract test: stage-canonical-assets.sh restages every checked DKMS deb incl. vpu and the stale-deb failure names the fix (r201)
@@ -483,8 +487,8 @@ build/check-no-ubuntu.sh	common	-	gate: no Ubuntu deb/archive/userland (offline;
 build/check-forky-provenance.sh	common	-	gate: every package is NCZ, a sha-pinned vendor deb or byte-identical to the pinned Debian forky snapshot; apt sources/pins/os-release forky-only; run by ship-image.sh on the finished .img
 build/forky-provenance.py	common	-	implementation of check-no-ubuntu.sh / check-forky-provenance.sh (debs, Packages, dpkg status, rootfs, squashfs, finished .img via debugfs)
 build/test-no-ubuntu.sh	common	-	positive+negative fixtures for the no-Ubuntu and forky-provenance gates (fonts-liberation 1:2.1.5-3build1 must fail)
-manifests/vendor-repos.tsv	common	-	complete reviewed apt-SOURCE allowlist; every source/pin must match a row exactly on scheme/host/path/suite (Debian pin+runtime, NCZ, Chrome, Vivaldi, NVIDIA; Intel/t2 pending operator approval)
-manifests/vendor-debs.tsv	common	-	reviewed third-party debs (original CIX vendor binaries from sbom/expected-assets.txt, plus Chrome, Vivaldi, NVIDIA keyring), identity+sha256 pinned; the only non-Debian non-NCZ debs allowed
+manifests/vendor-repos.tsv	common	-	complete reviewed apt-SOURCE allowlist; exact scheme/host/path/suite (Debian pin+runtime, NCZ, Chrome, Vivaldi, NVIDIA; Intel bounded 2026-10-09 approval; unused t2 source remains pending)
+manifests/vendor-debs.tsv	common	-	reviewed third-party debs (original CIX vendor binaries, Chrome, Vivaldi, NVIDIA keyring, exact Intel OpenVINO 2026.4.1.22982 trio), identity+sha256 pinned; the only non-Debian non-NCZ debs allowed
 manifests/ncz-packages.tsv	common	-	reviewed NCZ build ledger: exact (name,version,arch)->sha256 + build recipe; the ONLY way a package is NCZ (no name-prefix or +ncz proof)
 manifests/forky-snapshot.tsv	common	-	immutable trust metadata for the BUILD pin: signed InRelease sha256+size and Debian keyring sha256; the root of the forky-provenance index verification
 manifests/keys/debian-archive-keyring.gpg	common	-	official Debian archive signing keyring used by gpgv to verify the pinned snapshot Release
