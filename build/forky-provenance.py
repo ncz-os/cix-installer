@@ -66,7 +66,8 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 # mistaken for it.  Only ever tolerated for rdump, and only alongside the
 # independent type+size completeness proof in check_complete().
 CHOWN_PERM_RE = re.compile(
-    r"^.*:?\s*Operation not permitted while changing ownership\s*$")
+    r"^.*:?\s*Operation not permitted while changing ownership\s*$"
+)
 
 FAILS = []
 
@@ -161,23 +162,33 @@ def parse_stanzas(text):
 def stanza_ok(d, src, kind="control"):
     missing = [k for k in ("Package", "Version", "Architecture") if not d.get(k)]
     if missing:
-        fail(src, d.get("Package", "<record without Package>"),
-             f"malformed {kind} record: missing field(s) {', '.join(missing)}")
+        fail(
+            src,
+            d.get("Package", "<record without Package>"),
+            f"malformed {kind} record: missing field(s) {', '.join(missing)}",
+        )
         return False
     return True
 
 
 def read_maybe_compressed(path):
-    op = (lzma.open if path.endswith(".xz")
-          else gzip.open if path.endswith(".gz")
-          else open)
+    op = (
+        lzma.open
+        if path.endswith(".xz")
+        else gzip.open
+        if path.endswith(".gz")
+        else open
+    )
     with op(path, "rt", encoding="utf-8", errors="replace") as f:
         return f.read()
 
 
 def deb_control(path):
-    r = run(["dpkg-deb", "-f", path, "Package", "Version", "Architecture", "Maintainer"],
-            capture_output=True, text=True)
+    r = run(
+        ["dpkg-deb", "-f", path, "Package", "Version", "Architecture", "Maintainer"],
+        capture_output=True,
+        text=True,
+    )
     d = {}
     for line in r.stdout.split("\n"):
         if ": " in line:
@@ -214,8 +225,14 @@ def load_trust():
         if k in kv:
             die(f"duplicate trust metadata key: {k}")
         kv[k.strip()] = v.strip()
-    for k in ("snapshot", "codename", "inrelease_sha256", "inrelease_size",
-              "keyring", "keyring_sha256"):
+    for k in (
+        "snapshot",
+        "codename",
+        "inrelease_sha256",
+        "inrelease_size",
+        "keyring",
+        "keyring_sha256",
+    ):
         if not kv.get(k):
             die(f"trust metadata {p} lacks '{k}'")
     if not PIN_RE.match(kv["snapshot"]):
@@ -238,7 +255,7 @@ def release_conf(key, default=None):
         for line in slurp(p, encoding="utf-8").splitlines():
             if line.startswith("#"):
                 continue
-            m = re.match(rf'^{re.escape(key)}=(.*)$', line)
+            m = re.match(rf"^{re.escape(key)}=(.*)$", line)
             if m:
                 raw = m.group(1).strip()
                 if raw.startswith('"'):
@@ -248,7 +265,9 @@ def release_conf(key, default=None):
                 elif raw.startswith("'"):
                     die(f"release.conf {key} must not use single quotes: {raw!r}")
                 elif not raw or re.search(r"[\s#\"']", raw):
-                    die(f"release.conf {key} has trailing junk/unquoted whitespace: {raw!r}")
+                    die(
+                        f"release.conf {key} has trailing junk/unquoted whitespace: {raw!r}"
+                    )
                 else:
                     val = raw
                 if not val:
@@ -272,7 +291,7 @@ def strip_clearsign(text):
     while i < len(lines) and lines[i].strip() != "":
         i += 1
     body = []
-    for line in lines[i + 1:]:
+    for line in lines[i + 1 :]:
         if line.startswith("-----BEGIN PGP SIGNATURE"):
             break
         body.append(line.removeprefix("- "))
@@ -302,8 +321,11 @@ def gpgv_ok(keyring, path, signer_keys):
     if not need_tool("gpgv"):
         return False
     # Machine-readable status on fd 1; human output on stderr.
-    r = run(["gpgv", "--status-fd", "1", "--keyring", keyring, path],
-            capture_output=True, text=True)
+    r = run(
+        ["gpgv", "--status-fd", "1", "--keyring", keyring, path],
+        capture_output=True,
+        text=True,
+    )
     if r.returncode != 0:
         fail("index", path, "OpenPGP signature verification FAILED (gpgv)")
         return False
@@ -316,12 +338,15 @@ def gpgv_ok(keyring, path, signer_keys):
             f = line.split()
             # VALIDSIG <fpr> <date> <ts> <exp> <ver> <res> <algo> <hash> <class> [<primary-fpr>]
             if len(f) >= 3:
-                found.add(f[2].upper())          # signing (sub)key fingerprint
+                found.add(f[2].upper())  # signing (sub)key fingerprint
             if len(f) >= 12:
-                found.add(f[11].upper())         # primary key fingerprint, when emitted
+                found.add(f[11].upper())  # primary key fingerprint, when emitted
         if not (wanted & found):
-            fail("index", path,
-                 "signature verified but VALIDSIG fingerprint is not one of the pinned keys")
+            fail(
+                "index",
+                path,
+                "signature verified but VALIDSIG fingerprint is not one of the pinned keys",
+            )
             return False
     return True
 
@@ -374,9 +399,12 @@ def verify_index(d, trust, need, fetch, verify_pool=False, src="index"):
     want_size = int(trust["inrelease_size"])
 
     def inrelease_valid(p):
-        return (os.path.isfile(p) and os.path.getsize(p) == want_size
-                and sha256_file(p) == want_sha
-                and gpgv_ok(keyring, p, trust.get("signer_keys", "")))
+        return (
+            os.path.isfile(p)
+            and os.path.getsize(p) == want_size
+            and sha256_file(p) == want_sha
+            and gpgv_ok(keyring, p, trust.get("signer_keys", ""))
+        )
 
     if not inrelease_valid(ir):
         if not fetch:
@@ -389,7 +417,9 @@ def verify_index(d, trust, need, fetch, verify_pool=False, src="index"):
             fail(src, ir, f"could not fetch/verify signed InRelease: {e}")
             return None
         if not inrelease_valid(ir):
-            fail(src, ir, "downloaded InRelease did not verify against the committed pin")
+            fail(
+                src, ir, "downloaded InRelease did not verify against the committed pin"
+            )
             return None
 
     body = strip_clearsign(slurp(ir, encoding="utf-8", errors="replace"))
@@ -405,14 +435,21 @@ def verify_index(d, trust, need, fetch, verify_pool=False, src="index"):
     for comp, arch in need:
         relpath = f"{comp}/binary-{arch}/Packages.xz"
         if relpath not in rel:
-            fail(src, relpath, "not present in the signed Release (unexpected index shape)")
+            fail(
+                src,
+                relpath,
+                "not present in the signed Release (unexpected index shape)",
+            )
             continue
         esha, esize = rel[relpath]
         dest = os.path.join(d, "dists", codename, comp, f"binary-{arch}", "Packages.xz")
 
         def pkg_valid(p, esha=esha, esize=esize):
-            return (os.path.isfile(p) and os.path.getsize(p) == esize
-                    and sha256_file(p) == esha)
+            return (
+                os.path.isfile(p)
+                and os.path.getsize(p) == esize
+                and sha256_file(p) == esha
+            )
 
         if not pkg_valid(dest):
             if not fetch:
@@ -512,8 +549,12 @@ def verify_candidate_mirror(ref, mirror, up_dir, fetch):
         fail("mirror", mirror, "upstream snapshot index could not be verified")
         return False
     records = read_candidate_packages(mirror)
-    return authorize_records(ref, records, mirror, up, "mirror",
-                             orphan_root=os.path.join(mirror, "pool")) is not None
+    return (
+        authorize_records(
+            ref, records, mirror, up, "mirror", orphan_root=os.path.join(mirror, "pool")
+        )
+        is not None
+    )
 
 
 def authorize_records(ref, records, root, auth_idx, src, orphan_root=None):
@@ -556,8 +597,12 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None):
         elif key in auth_idx and auth_idx[key][0] == sha:
             auth = "verified"
         if auth is None:
-            fail(src, what, "not authorized by the verified snapshot index or a "
-                            "reviewed vendor/NCZ ledger")
+            fail(
+                src,
+                what,
+                "not authorized by the verified snapshot index or a "
+                "reviewed vendor/NCZ ledger",
+            )
             continue
         referenced.add(rel)
         if not os.path.isfile(fp):
@@ -574,8 +619,9 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None):
             fail(src, rel, "deb control identity does not match its Packages record")
             continue
     if orphan_root is not None:
-        for p in (glob.glob(os.path.join(orphan_root, "**", "*.deb"), recursive=True)
-                  + glob.glob(os.path.join(orphan_root, "**", "*.udeb"), recursive=True)):
+        for p in glob.glob(
+            os.path.join(orphan_root, "**", "*.deb"), recursive=True
+        ) + glob.glob(os.path.join(orphan_root, "**", "*.udeb"), recursive=True):
             rel = os.path.normpath(os.path.relpath(p, root))
             if rel not in referenced:
                 fail(src, rel, "orphan pool file not listed in any Packages index")
@@ -591,8 +637,11 @@ def authorize_pool(ref, root, auth_idx, src, flat=False, orphan_root=None):
     pools do not authorize)."""
     if not os.path.isdir(root):
         return None
-    files = (glob.glob(os.path.join(root, "Packages*")) if flat
-             else glob.glob(os.path.join(root, "dists", "**", "Packages*"), recursive=True))
+    files = (
+        glob.glob(os.path.join(root, "Packages*"))
+        if flat
+        else glob.glob(os.path.join(root, "dists", "**", "Packages*"), recursive=True)
+    )
     flags = "flat" if flat else "dists"
     records = []
     idx_src = f"{src}:{flags}"
@@ -634,44 +683,69 @@ class Ref:
         self.pin = release_conf("NCZ_BASE_MIRROR_SNAPSHOT")
         self.codename = release_conf("NCZ_BASE_CODENAME")
         if not PIN_RE.match(self.pin or ""):
-            die(f"release.conf NCZ_BASE_MIRROR_SNAPSHOT is not a valid timestamp: {self.pin!r}")
+            die(
+                f"release.conf NCZ_BASE_MIRROR_SNAPSHOT is not a valid timestamp: {self.pin!r}"
+            )
         if not self.codename:
             die("release.conf has no NCZ_BASE_CODENAME")
         if not a.ubuntu_only:
             if self.pin != self.trust["snapshot"]:
-                die(f"release.conf pin '{self.pin}' != forky-snapshot.tsv "
-                    f"snapshot '{self.trust['snapshot']}'")
+                die(
+                    f"release.conf pin '{self.pin}' != forky-snapshot.tsv "
+                    f"snapshot '{self.trust['snapshot']}'"
+                )
             if self.codename != self.trust["codename"]:
-                die(f"release.conf codename '{self.codename}' != trust metadata "
-                    f"'{self.trust['codename']}'")
+                die(
+                    f"release.conf codename '{self.codename}' != trust metadata "
+                    f"'{self.trust['codename']}'"
+                )
 
         self.vendor = {}
-        for n, r in load_tsv(os.path.join(ROOT, "manifests/vendor-debs.tsv"), 7,
-                             "manifests/vendor-debs.tsv"):
+        for n, r in load_tsv(
+            os.path.join(ROOT, "manifests/vendor-debs.tsv"),
+            7,
+            "manifests/vendor-debs.tsv",
+        ):
             if not SHA256_RE.match(r[5]):
                 die(f"vendor-debs.tsv:{n} sha256 is not 64 hex")
             self.vendor.setdefault((r[0], r[1], r[2]), set()).add(r[5])
         self.ncz = {}
-        for n, r in load_tsv(os.path.join(ROOT, "manifests/ncz-packages.tsv"), 7,
-                             "manifests/ncz-packages.tsv"):
+        for n, r in load_tsv(
+            os.path.join(ROOT, "manifests/ncz-packages.tsv"),
+            7,
+            "manifests/ncz-packages.tsv",
+        ):
             if not SHA256_RE.match(r[3]):
                 die(f"ncz-packages.tsv:{n} sha256 is not 64 hex")
             # Columns: name, version, arch, sha256, recipe, source_revision, note.
             # The build recipe (col 5) and the canonical source revision (col 6)
             # must be non-empty; note (col 7) is optional.
             if not r[4].strip() or not r[5].strip():
-                die(f"ncz-packages.tsv:{n} needs a non-empty recipe (col 5) and "
-                    f"source revision (col 6)")
+                die(
+                    f"ncz-packages.tsv:{n} needs a non-empty recipe (col 5) and "
+                    f"source revision (col 6)"
+                )
             self.ncz[(r[0], r[1], r[2])] = r[3]
 
         self.sources = []
-        for n, r in load_tsv(os.path.join(ROOT, "manifests/vendor-repos.tsv"), 8,
-                             "manifests/vendor-repos.tsv"):
-            self.sources.append({
-                "kind": r[0], "scheme": r[1].lower(), "host": r[2].lower(),
-                "path": r[3], "suite": r[4], "approved": r[5], "vendor": r[6],
-                "note": r[7], "line": n,
-            })
+        for n, r in load_tsv(
+            os.path.join(ROOT, "manifests/vendor-repos.tsv"),
+            8,
+            "manifests/vendor-repos.tsv",
+        ):
+            self.sources.append(
+                {
+                    "kind": r[0],
+                    "scheme": r[1].lower(),
+                    "host": r[2].lower(),
+                    "path": r[3],
+                    "suite": r[4],
+                    "approved": r[5],
+                    "vendor": r[6],
+                    "note": r[7],
+                    "line": n,
+                }
+            )
         self.origins = {r["host"] for r in self.sources if r["approved"] == "yes"}
         self.origins.add(self.codename)
         # Offline (file:) roots that have actually been enumerated+verified in
@@ -722,22 +796,31 @@ def classify(ref, src, name, ver, arch, maint, sha=None):
         if ref.ncz.get(key) is not None:
             return "ncz-identity"
         if UBU_RE.search(maint or ""):
-            print(f"WARN  [{src}] {what} :: @ubuntu.com maintainer ({maint}); "
-                  f"needs the verified snapshot index to clear")
+            print(
+                f"WARN  [{src}] {what} :: @ubuntu.com maintainer ({maint}); "
+                f"needs the verified snapshot index to clear"
+            )
         return "unchecked"
 
     v = ref.vendor.get(key)
     if v is not None:
         if sha and v and sha not in v:
-            fail(src, what, f"vendor deb sha256 {sha[:16]}.. not pinned in vendor-debs.tsv")
+            fail(
+                src,
+                what,
+                f"vendor deb sha256 {sha[:16]}.. not pinned in vendor-debs.tsv",
+            )
             return None
         return "vendor"
 
     n = ref.ncz.get(key)
     if n is not None:
         if sha and n and sha != n:
-            fail(src, what,
-                 f"NCZ ledger sha256 mismatch: {sha[:16]}.. vs reviewed {n[:16]}..")
+            fail(
+                src,
+                what,
+                f"NCZ ledger sha256 mismatch: {sha[:16]}.. vs reviewed {n[:16]}..",
+            )
             return None
         if not sha:
             # Identity-only: dpkg status / Packages carry no bytes; document the
@@ -749,18 +832,28 @@ def classify(ref, src, name, ver, arch, maint, sha=None):
     if key in ref.idx:
         esha = ref.idx[key][0]
         if sha and esha and sha != esha:
-            fail(src, what,
-                 f"same name/version as the forky snapshot but sha256 differs "
-                 f"(rebuilt/foreign bytes): {sha[:16]}.. vs {esha[:16]}..")
+            fail(
+                src,
+                what,
+                f"same name/version as the forky snapshot but sha256 differs "
+                f"(rebuilt/foreign bytes): {sha[:16]}.. vs {esha[:16]}..",
+            )
             return None
         return "forky"
 
     if UBU_RE.search(maint or ""):
-        fail(src, what, f"@ubuntu.com maintainer ({maint}) and not in the pinned "
-                        f"forky snapshot")
+        fail(
+            src,
+            what,
+            f"@ubuntu.com maintainer ({maint}) and not in the pinned forky snapshot",
+        )
         return None
-    fail(src, what, "not in the reviewed NCZ ledger, not a reviewed vendor deb, "
-                    "and not in the pinned forky snapshot (unknown origin)")
+    fail(
+        src,
+        what,
+        "not in the reviewed NCZ ledger, not a reviewed vendor deb, "
+        "and not in the pinned forky snapshot (unknown origin)",
+    )
     return None
 
 
@@ -779,8 +872,14 @@ def scan_status(ref, text, src):
         if state in ("config-files", "not-installed"):
             continue
         n += 1
-        classify(ref, src, d["Package"], d["Version"], d["Architecture"],
-                 d.get("Maintainer", ""))
+        classify(
+            ref,
+            src,
+            d["Package"],
+            d["Version"],
+            d["Architecture"],
+            d.get("Maintainer", ""),
+        )
     return n
 
 
@@ -790,8 +889,15 @@ def scan_packages(ref, text, src):
         if not stanza_ok(d, src, "Packages"):
             continue
         n += 1
-        classify(ref, src, d["Package"], d["Version"], d["Architecture"],
-                 d.get("Maintainer", ""), d.get("SHA256"))
+        classify(
+            ref,
+            src,
+            d["Package"],
+            d["Version"],
+            d["Architecture"],
+            d.get("Maintainer", ""),
+            d.get("SHA256"),
+        )
     return n
 
 
@@ -803,15 +909,24 @@ def scan_debs(ref, d, src, required=True):
     if not need_tool("dpkg-deb"):
         return 0
     n = 0
-    for p in sorted(glob.glob(os.path.join(d, "**", "*.deb"), recursive=True)
-                    + glob.glob(os.path.join(d, "**", "*.udeb"), recursive=True)):
+    for p in sorted(
+        glob.glob(os.path.join(d, "**", "*.deb"), recursive=True)
+        + glob.glob(os.path.join(d, "**", "*.udeb"), recursive=True)
+    ):
         c = deb_control(p)
         if "Package" not in c:
             fail(src, p, "unreadable deb (dpkg-deb could not parse control)")
             continue
         n += 1
-        classify(ref, src + ":" + os.path.relpath(p, d), c["Package"], c["Version"],
-                 c.get("Architecture", ""), c.get("Maintainer", ""), sha256_file(p))
+        classify(
+            ref,
+            src + ":" + os.path.relpath(p, d),
+            c["Package"],
+            c["Version"],
+            c.get("Architecture", ""),
+            c.get("Maintainer", ""),
+            sha256_file(p),
+        )
     if required and n == 0:
         fail(src, d, "no .deb/.udeb found in a requested pool")
     return n
@@ -872,7 +987,7 @@ def parse_pref_stanzas(text):
             raise BadSource("preferences file has no Package: record")
         return []
     bounds = starts + [len(text)]
-    return [text[bounds[i]:bounds[i + 1]] for i in range(len(starts))]
+    return [text[bounds[i] : bounds[i + 1]] for i in range(len(starts))]
 
 
 def pin_ok(ref, pl):
@@ -934,14 +1049,18 @@ def source_ok(ref, uri, suite):
             if p != root:
                 continue
             if r["suite"] != "*" and r["suite"] != suite:
-                return (f"offline source {p} with suite '{suite}' is not the "
-                        f"reviewed suite '{r['suite']}'")
+                return (
+                    f"offline source {p} with suite '{suite}' is not the "
+                    f"reviewed suite '{r['suite']}'"
+                )
             if r["approved"] != "yes":
                 return f"offline source {p} is not approved: {r['note']}"
             if root not in {os.path.normpath(b) for b in ref.bound_offline}:
-                return (f"offline source {p} is not bound to content enumerated+"
-                        f"verified in this scan (standalone rootfs cannot approve "
-                        f"an unscanned pool)")
+                return (
+                    f"offline source {p} is not bound to content enumerated+"
+                    f"verified in this scan (standalone rootfs cannot approve "
+                    f"an unscanned pool)"
+                )
             return None
         return f"unknown offline source root '{p}' (not a reviewed layout path)"
     parts = uri_parts(uri)
@@ -961,11 +1080,15 @@ def source_ok(ref, uri, suite):
         if r["suite"] != "*" and r["suite"] != suite:
             continue
         if r["approved"] != "yes":
-            return (f"source {host}{path} ({suite}) is 'pending' operator approval, "
-                    f"not approved: {r['note']}")
+            return (
+                f"source {host}{path} ({suite}) is 'pending' operator approval, "
+                f"not approved: {r['note']}"
+            )
         return None
-    return (f"source {uri} {suite} is not a reviewed Debian forky, NCZ or vendor "
-            f"source (exact URI+suite required)")
+    return (
+        f"source {uri} {suite} is not a reviewed Debian forky, NCZ or vendor "
+        f"source (exact URI+suite required)"
+    )
 
 
 def audit_apt_files(ref, src, files):
@@ -990,7 +1113,9 @@ def audit_apt_files(ref, src, files):
                     continue
                 pins = re.findall(r"^Pin:\s*(.*)$", st, re.MULTILINE)
                 if not pins:
-                    fail(src, rel, "preferences stanza with Pin-Priority >= 0 has no Pin")
+                    fail(
+                        src, rel, "preferences stanza with Pin-Priority >= 0 has no Pin"
+                    )
                     continue
                 for pl in pins:
                     if not pin_ok(ref, pl):
@@ -999,7 +1124,8 @@ def audit_apt_files(ref, src, files):
         if "sources.list" not in rel:
             continue
         if rel.endswith(".sources") and not re.search(
-                r"^Types\s*:", text, re.MULTILINE | re.IGNORECASE):
+            r"^Types\s*:", text, re.MULTILINE | re.IGNORECASE
+        ):
             fail(src, rel, ".sources file has no Types: field")
             continue
         try:
@@ -1042,7 +1168,9 @@ def scan_rootfs(ref, root, src):
     stp = _safe_open(root, "var/lib/dpkg/status")
     st = slurp(stp, errors="replace") if stp else None
     if st is None:
-        fail(src, root, "rootfs has no var/lib/dpkg/status (cannot establish provenance)")
+        fail(
+            src, root, "rootfs has no var/lib/dpkg/status (cannot establish provenance)"
+        )
         return 0
     n = scan_status(ref, st, src)
     if n == 0:
@@ -1053,8 +1181,12 @@ def scan_rootfs(ref, root, src):
             audit_osrelease(src, slurp(p, errors="replace"))
             break
     files = {}
-    for pat in ("etc/apt/sources.list", "etc/apt/sources.list.d/*",
-                "etc/apt/preferences", "etc/apt/preferences.d/*"):
+    for pat in (
+        "etc/apt/sources.list",
+        "etc/apt/sources.list.d/*",
+        "etc/apt/preferences",
+        "etc/apt/preferences.d/*",
+    ):
         for p in glob.glob(os.path.join(root, pat)):
             sp = _safe_open(root, os.path.relpath(p, root))
             if sp:
@@ -1089,9 +1221,13 @@ def scan_squashfs(ref, sq, src):
         # manifest/hash (build_hotfix + exact file coverage) is required before
         # any such layer may pass; that binding does not exist yet, so the
         # desktop-hotfix layer remains an explicit blocker.
-        fail(src, sq, "squashfs layer has no readable var/lib/dpkg/status "
-                      "(no package origin; strict reject -- content binding "
-                      "required, not a blanket overlay bypass)")
+        fail(
+            src,
+            sq,
+            "squashfs layer has no readable var/lib/dpkg/status "
+            "(no package origin; strict reject -- content binding "
+            "required, not a blanket overlay bypass)",
+        )
         return 0
     n = scan_status(ref, st, src)
     if n == 0:
@@ -1109,7 +1245,8 @@ def scan_squashfs(ref, sq, src):
     for line in lst.stdout.split("\n"):
         m = re.search(
             r"squashfs-root/(etc/apt/(?:sources\.list(?:\.d/[^ ]+)?|preferences(?:\.d/[^ ]+)?))$",
-            line.strip())
+            line.strip(),
+        )
         if m and not line.startswith("d"):
             t = cat(m.group(1))
             if t is None:
@@ -1150,15 +1287,20 @@ def safe_extract_zst(tar_path, dest, src):
                 # repeated plain directory entry is harmless; legitimate
                 # usr-merge symlinks and pure data hard-links have distinct
                 # names and are unaffected.
-                nm = m.name[2:] if m.name.startswith("./") else m.name
+                nm = m.name.removeprefix("./")
                 key = posixpath.normpath(nm) if nm not in ("", ".") else ""
                 if key:
                     if key in seen and not (seen[key] and m.isdir()):
-                        fail(src, tar_path, "duplicate tar member path (would "
-                             f"shadow earlier content): {m.name}")
+                        fail(
+                            src,
+                            tar_path,
+                            "duplicate tar member path (would "
+                            f"shadow earlier content): {m.name}",
+                        )
                         return False
                     seen[key] = m.isdir()
             try:
+
                 def _member_filter(member, *_):
                     # Names are prevalidated above; links need a virtual
                     # archive-root rewrite so an absolute symlink target
@@ -1166,16 +1308,21 @@ def safe_extract_zst(tar_path, dest, src):
                     # cannot be followed onto the host, and a hard-link cannot
                     # reach an absolute/'..'-climbing host path.
                     if member.issym():
-                        ok, rewritten = safe_symlink_target(member.name, member.linkname)
+                        ok, rewritten = safe_symlink_target(
+                            member.name, member.linkname
+                        )
                         if not ok:
                             raise UnsafeArchive(
-                                f"tar symlink escapes: {member.name} -> {member.linkname}")
+                                f"tar symlink escapes: {member.name} -> {member.linkname}"
+                            )
                         member.linkname = rewritten
                     elif member.islnk():
                         if not safe_hardlink_target(member.linkname):
                             raise UnsafeArchive(
-                                f"tar hard-link escapes: {member.name} -> {member.linkname}")
+                                f"tar hard-link escapes: {member.name} -> {member.linkname}"
+                            )
                     return member
+
                 tf.extractall(dest, filter=_member_filter)
             except UnsafeArchive as e:
                 fail(src, tar_path, f"safe tar extraction failed: {e}")
@@ -1210,8 +1357,9 @@ def scan_image(ref, img, work):
     if not os.path.isdir(work):
         fail("image", work, "--work directory does not exist")
         return 0
-    fs = run(["findmnt", "-no", "FSTYPE", "-T", work], capture_output=True,
-             text=True).stdout.strip()
+    fs = run(
+        ["findmnt", "-no", "FSTYPE", "-T", work], capture_output=True, text=True
+    ).stdout.strip()
     if fs in ("tmpfs", "ramfs", "devtmpfs"):
         die(f"--work {work} is on {fs}; use local disk")
     # Owned, unique scratch: never rmtree a caller-supplied path.
@@ -1221,8 +1369,11 @@ def scan_image(ref, img, work):
     ref.bound_offline.clear()
     owned = tempfile.mkdtemp(prefix="ncz-imgscan-", dir=work)
     try:
-        j = json.loads(run(["sfdisk", "-J", img], capture_output=True, text=True,
-                           check=True).stdout)
+        j = json.loads(
+            run(
+                ["sfdisk", "-J", img], capture_output=True, text=True, check=True
+            ).stdout
+        )
         ptab = j["partitiontable"]
         sector = int(ptab.get("sectorsize", 512) or 512)
         parts = ptab["partitions"]
@@ -1245,16 +1396,28 @@ def scan_image(ref, img, work):
             path/type/size from the image BEFORE the dump and requires each in
             the extraction).  No other stderr line is tolerated, and a partial
             dump still fails in check_complete()."""
-            r = run(["debugfs", "-R", " ".join(args), dev], capture_output=True,
-                    text=True)
-            err = [l for l in (r.stderr or "").splitlines()
-                   if l.strip() and not l.startswith("debugfs ")]
+            r = run(
+                ["debugfs", "-R", " ".join(args), dev], capture_output=True, text=True
+            )
+            err = [
+                l
+                for l in (r.stderr or "").splitlines()
+                if l.strip() and not l.startswith("debugfs ")
+            ]
             if allow_chown:
                 err = [l for l in err if not CHOWN_PERM_RE.search(l.strip())]
-            bad = r.returncode != 0 or bool(err) or "not found by ext2_lookup" in (r.stdout or "")
+            bad = (
+                r.returncode != 0
+                or bool(err)
+                or "not found by ext2_lookup" in (r.stdout or "")
+            )
             if bad and required:
-                fail("image", img, f"debugfs {' '.join(args)} failed: "
-                                   f"{(r.stderr or r.stdout or '').strip()[:200]}")
+                fail(
+                    "image",
+                    img,
+                    f"debugfs {' '.join(args)} failed: "
+                    f"{(r.stderr or r.stdout or '').strip()[:200]}",
+                )
             return None if bad else (r.stdout or "")
 
         def walk(root):
@@ -1303,7 +1466,7 @@ def scan_image(ref, img, work):
                 return
             checked = 0
             for p, (kind, size) in enum.items():
-                rel = p[len(root):].lstrip("/")
+                rel = p[len(root) :].lstrip("/")
                 lp = os.path.join(dest, rel)
                 if kind == "dir":
                     ok = os.path.isdir(lp)
@@ -1329,13 +1492,16 @@ def scan_image(ref, img, work):
                 check_complete("/" + t, os.path.join(base, t))
         if os.path.isdir(os.path.join(base, "pool")):
             total += scan_debs(ref, os.path.join(base, "pool"), "image:pool")
-        pkgidx = glob.glob(os.path.join(base, "dists", "**", "Packages*"), recursive=True)
+        pkgidx = glob.glob(
+            os.path.join(base, "dists", "**", "Packages*"), recursive=True
+        )
         if not pkgidx:
             fail("image", img, "no Packages index found under /dists")
         for p in pkgidx:
             try:
-                total += scan_packages(ref, read_maybe_compressed(p),
-                                       "image:" + os.path.relpath(p, base))
+                total += scan_packages(
+                    ref, read_maybe_compressed(p), "image:" + os.path.relpath(p, base)
+                )
             except Exception as e:  # noqa: BLE001
                 fail("image", p, f"Packages index could not be read: {e}")
 
@@ -1354,7 +1520,11 @@ def scan_image(ref, img, work):
                     referenced.add(os.path.normpath(fn))
         for fn in sorted(referenced):
             if not os.path.isfile(os.path.join(base, fn)):
-                fail("image", fn, "pool file referenced by /dists is missing after extraction")
+                fail(
+                    "image",
+                    fn,
+                    "pool file referenced by /dists is missing after extraction",
+                )
 
         # Dump the whole /ncz-payload subtree and verify it against a recursive
         # pre-dump enumeration (a partial rdump still leaves a directory behind).
@@ -1370,27 +1540,50 @@ def scan_image(ref, img, work):
         # the partition root); /cdrom/ncz-payload/apt-repo is a separate flat
         # candidate pool.  Only a fully authenticated pool binds; a missing,
         # empty, partial, foreign or unapproved pool does not.
-        if authorize_pool(ref, base, ref.idx, "image:/cdrom", flat=False,
-                          orphan_root=os.path.join(base, "pool")) is not None:
+        if (
+            authorize_pool(
+                ref,
+                base,
+                ref.idx,
+                "image:/cdrom",
+                flat=False,
+                orphan_root=os.path.join(base, "pool"),
+            )
+            is not None
+        ):
             ref.bound_offline.add("/cdrom")
         else:
-            fail("image", img, "/cdrom pool is not fully authorized; file:///cdrom "
-                               "sources cannot be trusted")
+            fail(
+                "image",
+                img,
+                "/cdrom pool is not fully authorized; file:///cdrom "
+                "sources cannot be trusted",
+            )
         aptrepo = os.path.join(pl, "apt-repo")
         if os.path.isdir(aptrepo):
-            if authorize_pool(ref, aptrepo, ref.idx, "image:/ncz-payload/apt-repo",
-                              flat=True) is not None:
+            if (
+                authorize_pool(
+                    ref, aptrepo, ref.idx, "image:/ncz-payload/apt-repo", flat=True
+                )
+                is not None
+            ):
                 ref.bound_offline.add("/cdrom/ncz-payload/apt-repo")
             else:
-                fail("image", img, "/ncz-payload/apt-repo present but not fully "
-                                   "authorized; its file: source cannot be trusted")
+                fail(
+                    "image",
+                    img,
+                    "/ncz-payload/apt-repo present but not fully "
+                    "authorized; its file: source cannot be trusted",
+                )
         layers = sorted(glob.glob(os.path.join(pl, "**", "*.squashfs"), recursive=True))
         if not layers:
             fail("image", img, "no squashfs layers found in /ncz-payload")
         for f in layers:
             total += scan_squashfs(ref, f, "image:" + os.path.basename(f))
 
-        rootfs_tars = glob.glob(os.path.join(pl, "**", "*rootfs*.tar.zst"), recursive=True)
+        rootfs_tars = glob.glob(
+            os.path.join(pl, "**", "*rootfs*.tar.zst"), recursive=True
+        )
         for required in ("rescue", "mgmt"):
             if not any(required in os.path.basename(p) for p in rootfs_tars):
                 fail("image", img, f"required {required} rootfs tarball is missing")
@@ -1402,9 +1595,13 @@ def scan_image(ref, img, work):
 
         # Scan every present .deb/.udeb anywhere under the extracted payload,
         # regardless of directory name; require non-empty when a dir exists.
-        for adir in sorted({os.path.dirname(p) for p in glob.glob(
-                os.path.join(pl, "**", "*.deb"), recursive=True)
-                + glob.glob(os.path.join(pl, "**", "*.udeb"), recursive=True)}):
+        for adir in sorted(
+            {
+                os.path.dirname(p)
+                for p in glob.glob(os.path.join(pl, "**", "*.deb"), recursive=True)
+                + glob.glob(os.path.join(pl, "**", "*.udeb"), recursive=True)
+            }
+        ):
             found_any = True
             total += scan_debs(ref, adir, "image:" + os.path.relpath(adir, pl))
 
@@ -1448,8 +1645,11 @@ def _scan_esp(ref, img, parts, sector, owned):
         if os.path.basename(rel).endswith((".deb", ".udeb")):
             dest = os.path.join(owned, "esp")
             os.makedirs(dest, exist_ok=True)
-            cp = run(["mcopy", "-i", dev, "-s", f"::/{rel}", dest + "/"],
-                     capture_output=True, text=True)
+            cp = run(
+                ["mcopy", "-i", dev, "-s", f"::/{rel}", dest + "/"],
+                capture_output=True,
+                text=True,
+            )
             if cp.returncode != 0:
                 fail("image", img, f"mcopy failed for ESP entry {rel}")
                 continue
@@ -1457,8 +1657,11 @@ def _scan_esp(ref, img, parts, sector, owned):
         if initrd_candidate(rel):
             dest = os.path.join(owned, "esp-initrd")
             os.makedirs(dest, exist_ok=True)
-            cp = run(["mcopy", "-i", dev, "-s", f"::/{rel}", dest + "/"],
-                     capture_output=True, text=True)
+            cp = run(
+                ["mcopy", "-i", dev, "-s", f"::/{rel}", dest + "/"],
+                capture_output=True,
+                text=True,
+            )
             if cp.returncode != 0:
                 fail("image", img, f"mcopy failed for ESP initrd {rel}")
                 continue
@@ -1472,8 +1675,10 @@ def _scan_esp(ref, img, parts, sector, owned):
 
 NEWC_MAGIC = (b"070701", b"070702")
 INITRD_MAGIC = (
-    (b"\x1f\x8b", ["gzip", "-dc"]), (b"\xfd7zXZ\x00", ["xz", "-dc"]),
-    (b"\x28\xb5\x2f\xfd", ["zstd", "-dc"]), (b"\x04\x22\x4d\x18", ["lz4", "-dc"]),
+    (b"\x1f\x8b", ["gzip", "-dc"]),
+    (b"\xfd7zXZ\x00", ["xz", "-dc"]),
+    (b"\x28\xb5\x2f\xfd", ["zstd", "-dc"]),
+    (b"\x04\x22\x4d\x18", ["lz4", "-dc"]),
     (b"BZh", ["bzip2", "-dc"]),
 )
 INITRD_NAME_RE = re.compile(r"^(initrd|initramfs)([.\-_].*)?$", re.IGNORECASE)
@@ -1552,8 +1757,12 @@ def _extract_newc(data, dest, src, allow_tail=False, written=None):
 
     def write(path, content):
         if path in written:
-            fail("image", src, f"duplicate cpio pathname (would hide earlier "
-                               f"content): {os.path.relpath(path, dest)}")
+            fail(
+                "image",
+                src,
+                f"duplicate cpio pathname (would hide earlier "
+                f"content): {os.path.relpath(path, dest)}",
+            )
             return False
         os.makedirs(os.path.dirname(path) or dest, exist_ok=True)
         with open(path, "wb") as fh:
@@ -1570,8 +1779,12 @@ def _extract_newc(data, dest, src, allow_tail=False, written=None):
     def flush_hardlinks():
         for key, g in groups.items():
             if g["content"] is None:
-                fail("image", src, f"unresolved cpio hard-link group "
-                                   f"(dev {key[0]}/{key[1]} ino {key[2]})")
+                fail(
+                    "image",
+                    src,
+                    f"unresolved cpio hard-link group "
+                    f"(dev {key[0]}/{key[1]} ino {key[2]})",
+                )
                 return False
             for p in g["paths"]:
                 if not write(p, g["content"]):
@@ -1586,29 +1799,45 @@ def _extract_newc(data, dest, src, allow_tail=False, written=None):
         if off + 6 > n:
             fail("image", src, "truncated cpio header")
             return None
-        magic = data[off:off + 6]
+        magic = data[off : off + 6]
         if magic not in NEWC_MAGIC:
             if allow_tail and not archive_open and archives > 0:
                 break  # a compressed tail follows; the caller sniffs and parses it
-            fail("image", src, f"unsupported/unknown cpio magic at offset {off}: "
-                               f"{magic!r}")
+            fail(
+                "image",
+                src,
+                f"unsupported/unknown cpio magic at offset {off}: {magic!r}",
+            )
             return None
         if off + 110 > n:
             fail("image", src, "truncated cpio header")
             return None
-        hdr = data[off + 6:off + 110]
+        hdr = data[off + 6 : off + 110]
         try:
-            vals = [int(hdr[i * 8:(i + 1) * 8], 16) for i in range(13)]
+            vals = [int(hdr[i * 8 : (i + 1) * 8], 16) for i in range(13)]
         except ValueError:
             fail("image", src, "malformed newc header")
             return None
-        (ino, mode, _uid, _gid, nlink, _mtime, filesize, dmaj, dmin,
-         _rmaj, _rmin, namesize, check) = vals
+        (
+            ino,
+            mode,
+            _uid,
+            _gid,
+            nlink,
+            _mtime,
+            filesize,
+            dmaj,
+            dmin,
+            _rmaj,
+            _rmin,
+            namesize,
+            check,
+        ) = vals
         off += 110
         if namesize < 1 or off + namesize > n:
             fail("image", src, "truncated or zero-length cpio pathname")
             return None
-        namebytes = data[off:off + namesize]
+        namebytes = data[off : off + namesize]
         if not namebytes.endswith(b"\0"):
             fail("image", src, "cpio pathname has no NUL terminator")
             return None
@@ -1618,7 +1847,7 @@ def _extract_newc(data, dest, src, allow_tail=False, written=None):
         if off + filesize > n:
             fail("image", src, f"truncated cpio data for {name}")
             return None
-        fdata = data[off:off + filesize]
+        fdata = data[off : off + filesize]
         off += filesize
         off = (off + 3) & ~3
         if name == "TRAILER!!!":
@@ -1663,8 +1892,11 @@ def _extract_newc(data, dest, src, allow_tail=False, written=None):
                     if g["content"] is None:
                         g["content"] = fdata
                     elif g["content"] != fdata:
-                        fail("image", src,
-                             f"contradictory cpio hard-link data for ino {ino}")
+                        fail(
+                            "image",
+                            src,
+                            f"contradictory cpio hard-link data for ino {ino}",
+                        )
                         return None
             else:
                 if not write(d, fdata):
@@ -1697,17 +1929,18 @@ def _scan_initrd(ref, path, owned):
         if not stripped:
             break
         off = len(remaining) - len(stripped)
-        head = remaining[off:off + 8]
+        head = remaining[off : off + 8]
         if head[:6] in NEWC_MAGIC:
-            consumed = _extract_newc(remaining[off:], out, path, allow_tail=True,
-                                     written=written)
+            consumed = _extract_newc(
+                remaining[off:], out, path, allow_tail=True, written=written
+            )
             if consumed is None:
                 return 0
             if consumed == 0:
                 fail("image", path, "cpio section parsed to zero bytes")
                 return 0
             saw = True
-            remaining = remaining[off + consumed:]
+            remaining = remaining[off + consumed :]
             continue
         for magic, argv in INITRD_MAGIC:
             if head.startswith(magic):
@@ -1718,18 +1951,27 @@ def _scan_initrd(ref, path, owned):
                 remaining = dec
                 break
         else:
-            fail("image", path, "initrd contains an unrecognised section (not "
-                                "gzip/xz/zstd/lz4/bzip2/newc cpio); refusing to skip it")
+            fail(
+                "image",
+                path,
+                "initrd contains an unrecognised section (not "
+                "gzip/xz/zstd/lz4/bzip2/newc cpio); refusing to skip it",
+            )
             return 0
     if not saw:
         fail("image", path, "initrd has no parsable cpio/compressed archive")
         return 0
     total = 0
-    pools = {os.path.dirname(p) for p in glob.glob(os.path.join(out, "**", "*.deb"),
-             recursive=True) + glob.glob(os.path.join(out, "**", "*.udeb"), recursive=True)}
+    pools = {
+        os.path.dirname(p)
+        for p in glob.glob(os.path.join(out, "**", "*.deb"), recursive=True)
+        + glob.glob(os.path.join(out, "**", "*.udeb"), recursive=True)
+    }
     for d in pools:
         total += scan_debs(ref, d, "image:initrd")
-    for stf in glob.glob(os.path.join(out, "**", "var/lib/dpkg/status"), recursive=True):
+    for stf in glob.glob(
+        os.path.join(out, "**", "var/lib/dpkg/status"), recursive=True
+    ):
         total += scan_status(ref, slurp(stf, errors="replace"), "image:initrd-status")
     return total
 
@@ -1737,15 +1979,20 @@ def _scan_initrd(ref, path, owned):
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--ubuntu-only", action="store_true")
-    ap.add_argument("--index-dir",
-                    help="directory holding the verified snapshot index (required "
-                         "unless --ubuntu-only or --verify-mirror)")
+    ap.add_argument(
+        "--index-dir",
+        help="directory holding the verified snapshot index (required "
+        "unless --ubuntu-only or --verify-mirror)",
+    )
     ap.add_argument("--fetch-index", action="store_true")
-    ap.add_argument("--verify-mirror",
-                    help="verify an offline mirror root (dists/<codename>/...) and "
-                         "its referenced pool bytes against the pinned signed index")
+    ap.add_argument(
+        "--verify-mirror",
+        help="verify an offline mirror root (dists/<codename>/...) and "
+        "its referenced pool bytes against the pinned signed index",
+    )
     ap.add_argument("--debs", action="append", default=[])
     ap.add_argument("--packages", action="append", default=[])
     ap.add_argument("--status", action="append", default=[])
@@ -1757,13 +2004,17 @@ def main():
 
     # The offline lint mode must never be usable to downgrade a shipping scan.
     if a.ubuntu_only and (a.image or a.verify_mirror):
-        ap.error("--ubuntu-only cannot be combined with --image or --verify-mirror "
-                 "(the shipping scan must not be downgraded)")
+        ap.error(
+            "--ubuntu-only cannot be combined with --image or --verify-mirror "
+            "(the shipping scan must not be downgraded)"
+        )
 
     if a.verify_mirror:
         if not a.index_dir:
-            die("--verify-mirror needs --index-dir for the verified upstream "
-                "snapshot index that authorizes the candidate packages")
+            die(
+                "--verify-mirror needs --index-dir for the verified upstream "
+                "snapshot index that authorizes the candidate packages"
+            )
         ref = Ref(a)
         ok = verify_candidate_mirror(ref, a.verify_mirror, a.index_dir, a.fetch_index)
         print(f"== verify-mirror {a.verify_mirror}: {'OK' if ok else 'FAIL'}")
@@ -1772,7 +2023,9 @@ def main():
     if not (a.debs or a.packages or a.status or a.rootfs or a.squashfs or a.image):
         ap.error("nothing to scan")
     if not a.ubuntu_only and not a.index_dir:
-        die("no verified snapshot index (use --index-dir DIR, --fetch-index); failing closed")
+        die(
+            "no verified snapshot index (use --index-dir DIR, --fetch-index); failing closed"
+        )
 
     ref = Ref(a)
     total = 0
@@ -1799,8 +2052,11 @@ def main():
             ap.error("--image needs --work DIR")
         total += scan_image(ref, im, a.work)
 
-    mode = ("ubuntu-only" if a.ubuntu_only
-            else f"forky-provenance (snapshot {ref.pin}, {len(ref.idx)} index entries)")
+    mode = (
+        "ubuntu-only"
+        if a.ubuntu_only
+        else f"forky-provenance (snapshot {ref.pin}, {len(ref.idx)} index entries)"
+    )
     print(f"== {mode}: {total} packages checked, {len(FAILS)} failure(s)")
     sys.exit(1 if FAILS else 0)
 

@@ -46,14 +46,14 @@ HEADER = (
 )
 
 KINDS = (
-    "debian",       # standard apt package from a configured archive
-    "ncz-apt",      # custom NCZ-OS deb in the Buildkite/R2 apt repo
-    "staged-deb",   # vendor/NCZ .deb staged under assets/ or a build dir
-    "npm",          # npm install -g from a hook
-    "dkms",         # DKMS module built per-kernel by a hook
-    "kernel",       # kernel image + headers + modules
-    "overlay",      # kernel overlay .ko for an accelerator
-    "firmware",     # firmware blob staged under assets/
+    "debian",  # standard apt package from a configured archive
+    "ncz-apt",  # custom NCZ-OS deb in the Buildkite/R2 apt repo
+    "staged-deb",  # vendor/NCZ .deb staged under assets/ or a build dir
+    "npm",  # npm install -g from a hook
+    "dkms",  # DKMS module built per-kernel by a hook
+    "kernel",  # kernel image + headers + modules
+    "overlay",  # kernel overlay .ko for an accelerator
+    "firmware",  # firmware blob staged under assets/
 )
 
 # Canonical variant order for the union column (deterministic output).
@@ -95,6 +95,7 @@ def parse_ssplugin_lock(path):
         out[k.strip()] = v.strip().strip('"')
     return out
 
+
 # install-extra.pkgs rows that are plain Debian packages, not NCZ-apt.
 # (The manifest's own comment: the installer's user-setup step runs
 # `apt-get install sudo` in the target; finish-install/pkgsel reach for
@@ -124,10 +125,7 @@ def is_ncz_name(name):
     proprietary). Plain Debian names (firmware-*, libdrm-*, sudo, ...)
     return False.
     """
-    return (
-        name.startswith(("ncz-", "cix-"))
-        or "-ncz-" in name
-    )
+    return name.startswith(("ncz-", "cix-")) or "-ncz-" in name
 
 
 def variant_union(sets):
@@ -268,19 +266,21 @@ def parse_t2_dkms_modules(kernel_root):
                 "post-install/56-t2-dkms.sh"
             )
             policy_note += " PROVENANCE file missing."
-        rows.append({
-            "name": name,
-            "kind": "dkms",
-            "source": f"vendored:assets/kernel/{d}",
-            "arch": "amd64",
-            "variant": "desktop,installer,mgmt,rescue,server",
-            "required": required,
-            "version_floor": ver or "",
-            "installed_by": "post-install/56-t2-dkms.sh (dkms build/install)",
-            "verified_by": "build/verify-dkms-modules.sh",
-            "provenance": provenance,
-            "notes": policy_note,
-        })
+        rows.append(
+            {
+                "name": name,
+                "kind": "dkms",
+                "source": f"vendored:assets/kernel/{d}",
+                "arch": "amd64",
+                "variant": "desktop,installer,mgmt,rescue,server",
+                "required": required,
+                "version_floor": ver or "",
+                "installed_by": "post-install/56-t2-dkms.sh (dkms build/install)",
+                "verified_by": "build/verify-dkms-modules.sh",
+                "provenance": provenance,
+                "notes": policy_note,
+            }
+        )
     return rows
 
 
@@ -329,28 +329,30 @@ def parse_kernel_entries(kernel_root):
         held = (amd64_manifest.get("source") or {}).get("held_not_applied") or []
         applied_s = ",".join(str(p) for p in applied) if applied else "see manifest"
         held_s = ",".join(str(p) for p in held) if held else "none"
-        rows.append({
-            "name": "amd64-stable-kernel",
-            "kind": "kernel",
-            "source": "vendored:assets/kernel/amd64-stable",
-            "arch": "amd64",
-            "variant": "desktop,installer,mgmt,rescue,server",
-            "required": "yes",
-            "version_floor": kver,
-            "installed_by": "post-install/10-amd64-kernel.sh",
-            "verified_by": "build/verify-base-kernel-assets.sh,build/verify-kernel-default-policy.sh",
-            "provenance": (
-                "assets/kernel/amd64-stable/KVER; "
-                "assets/kernel/amd64-stable-manifest.json; "
-                "assets/kernel/KERNEL-POLICY (DEFAULT_BASE, EDGE_ENABLED=0)"
-            ),
-            "notes": (
-                f"Default + installer + rescue kernel on amd64 ({kver}). "
-                f"Applied patches include {applied_s}; held (not applied) {held_s}. "
-                "No EDGE channel (EDGE_ENABLED="
-                f"{edge_enabled})."
-            ),
-        })
+        rows.append(
+            {
+                "name": "amd64-stable-kernel",
+                "kind": "kernel",
+                "source": "vendored:assets/kernel/amd64-stable",
+                "arch": "amd64",
+                "variant": "desktop,installer,mgmt,rescue,server",
+                "required": "yes",
+                "version_floor": kver,
+                "installed_by": "post-install/10-amd64-kernel.sh",
+                "verified_by": "build/verify-base-kernel-assets.sh,build/verify-kernel-default-policy.sh",
+                "provenance": (
+                    "assets/kernel/amd64-stable/KVER; "
+                    "assets/kernel/amd64-stable-manifest.json; "
+                    "assets/kernel/KERNEL-POLICY (DEFAULT_BASE, EDGE_ENABLED=0)"
+                ),
+                "notes": (
+                    f"Default + installer + rescue kernel on amd64 ({kver}). "
+                    f"Applied patches include {applied_s}; held (not applied) {held_s}. "
+                    "No EDGE channel (EDGE_ENABLED="
+                    f"{edge_enabled})."
+                ),
+            }
+        )
 
     sky1_kver = sky1_manifest.get("kver", "")
     sky1_rev = sky1_manifest.get("build_rev", "")
@@ -359,27 +361,29 @@ def parse_kernel_entries(kernel_root):
     mainline_path = kernel_root / "mainline"
     if sky1_kver or mainline_path.exists() or default_base:
         rev_note = f" build_rev={sky1_rev}." if sky1_rev else ""
-        rows.append({
-            "name": "sky1-mainline-kernel",
-            "kind": "kernel",
-            "source": "vendored:assets/kernel/mainline",
-            "arch": "arm64",
-            "variant": "desktop,installer,mgmt,rescue,server",
-            "required": "yes",
-            "version_floor": sky1_kver,
-            "installed_by": "post-install/10-our-kernel.sh",
-            "verified_by": "build/verify-base-kernel-assets.sh,build/verify-kernel-default-policy.sh",
-            "provenance": (
-                "assets/kernel/sky1-manifest.json; "
-                "assets/kernel/mainline (symlink -> NFS kernel staging); "
-                "assets/kernel/KERNEL-POLICY (DEFAULT_BASE, EDGE_ENABLED=0)"
-            ),
-            "notes": (
-                "Default + installer + rescue kernel on Sky1/arm64"
-                f" ({sky1_kver}).{rev_note} No EDGE channel. Symlink target "
-                "lives outside the repo."
-            ),
-        })
+        rows.append(
+            {
+                "name": "sky1-mainline-kernel",
+                "kind": "kernel",
+                "source": "vendored:assets/kernel/mainline",
+                "arch": "arm64",
+                "variant": "desktop,installer,mgmt,rescue,server",
+                "required": "yes",
+                "version_floor": sky1_kver,
+                "installed_by": "post-install/10-our-kernel.sh",
+                "verified_by": "build/verify-base-kernel-assets.sh,build/verify-kernel-default-policy.sh",
+                "provenance": (
+                    "assets/kernel/sky1-manifest.json; "
+                    "assets/kernel/mainline (symlink -> NFS kernel staging); "
+                    "assets/kernel/KERNEL-POLICY (DEFAULT_BASE, EDGE_ENABLED=0)"
+                ),
+                "notes": (
+                    "Default + installer + rescue kernel on Sky1/arm64"
+                    f" ({sky1_kver}).{rev_note} No EDGE channel. Symlink target "
+                    "lives outside the repo."
+                ),
+            }
+        )
     # EDGE_ENABLED=0: do not emit amd64-edge-kernel or sky1-edge-kernel.
     # The overlay manifest rides along so parse_overlay_rows can cite it.
     return rows, sky1_manifest
@@ -400,23 +404,25 @@ def parse_sky1_dkms_rows(kernel_root):
     name, ver = parse_dkms_conf(dkms_conf)
     if not name:
         return []
-    return [{
-        "name": name,
-        "kind": "dkms",
-        "source": "vendored:assets/kernel/panthor",
-        "arch": "arm64",
-        "variant": "desktop,mgmt,rescue,server",
-        "required": "yes",
-        "version_floor": ver or "",
-        "installed_by": "post-install/83-panthor-gpu.sh (panthor-cix-dkms deb; dkms build per kernel)",
-        "verified_by": "build/verify-dkms-deb-sources.py,build/build-accel-overlays.sh",
-        "provenance": "assets/kernel/panthor/dkms.conf; deb from build/build-dkms-debs.sh",
-        "notes": (
-            "Sky1 Panthor GPU driver source. Every kernel gets a panthor.ko "
-            "overlay compiled from it (SOURCE.sha256 stamp, CRC-checked) and "
-            "the DKMS deb must carry it byte-for-byte."
-        ),
-    }]
+    return [
+        {
+            "name": name,
+            "kind": "dkms",
+            "source": "vendored:assets/kernel/panthor",
+            "arch": "arm64",
+            "variant": "desktop,mgmt,rescue,server",
+            "required": "yes",
+            "version_floor": ver or "",
+            "installed_by": "post-install/83-panthor-gpu.sh (panthor-cix-dkms deb; dkms build per kernel)",
+            "verified_by": "build/verify-dkms-deb-sources.py,build/build-accel-overlays.sh",
+            "provenance": "assets/kernel/panthor/dkms.conf; deb from build/build-dkms-debs.sh",
+            "notes": (
+                "Sky1 Panthor GPU driver source. Every kernel gets a panthor.ko "
+                "overlay compiled from it (SOURCE.sha256 stamp, CRC-checked) and "
+                "the DKMS deb must carry it byte-for-byte."
+            ),
+        }
+    ]
 
 
 def parse_overlay_rows(kernel_root, sky1_manifest):
@@ -441,27 +447,31 @@ def parse_overlay_rows(kernel_root, sky1_manifest):
         if not m:
             continue
         drv, row_kver, ko = m.groups()
-        rows.append({
-            "name": f"{drv}-{ko.removesuffix('.ko')}",
-            "kind": "overlay",
-            "source": f"vendored:{key}",
-            "arch": "arm64",
-            "variant": "desktop,mgmt,rescue,server",
-            "required": "yes",
-            "version_floor": row_kver,
-            "installed_by": installed_by.get(drv, "post-install/86-cix-dkms-register.sh"),
-            "verified_by": "build/verify-overlay-modversions.py,build/verify-overlays.py",
-            "provenance": (
-                f"assets/kernel/sky1-manifest.json (overlays_mirrored: {key}"
-                + (f", build_rev={rev}" if rev else "")
-                + ")"
-            ),
-            "notes": (
-                f"Pinned Sky1 default-kernel overlay for {drv}"
-                + (f" ({rev})" if rev else "")
-                + "; no EDGE channel."
-            ),
-        })
+        rows.append(
+            {
+                "name": f"{drv}-{ko.removesuffix('.ko')}",
+                "kind": "overlay",
+                "source": f"vendored:{key}",
+                "arch": "arm64",
+                "variant": "desktop,mgmt,rescue,server",
+                "required": "yes",
+                "version_floor": row_kver,
+                "installed_by": installed_by.get(
+                    drv, "post-install/86-cix-dkms-register.sh"
+                ),
+                "verified_by": "build/verify-overlay-modversions.py,build/verify-overlays.py",
+                "provenance": (
+                    f"assets/kernel/sky1-manifest.json (overlays_mirrored: {key}"
+                    + (f", build_rev={rev}" if rev else "")
+                    + ")"
+                ),
+                "notes": (
+                    f"Pinned Sky1 default-kernel overlay for {drv}"
+                    + (f" ({rev})" if rev else "")
+                    + "; no EDGE channel."
+                ),
+            }
+        )
     return rows, sky1_manifest.get("kver", "")
 
 
@@ -471,9 +481,12 @@ def parse_overlay_rows(kernel_root, sky1_manifest):
 HOOK_ONLY_ROWS = [
     {
         "name": "apple-t2-audio-config",
-        "kind": "firmware", "source": "staged:assets/t2/t2-better-audio/files",
-        "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "kind": "firmware",
+        "source": "staged:assets/t2/t2-better-audio/files",
+        "arch": "amd64",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/55-t2-firmware.sh (install from assets/t2; no apt)",
         "verified_by": "build/test-t2-native.sh",
         "provenance": "assets/t2/SOURCES.tsv (t2-better-audio @ e46839a2, MIT)",
@@ -481,9 +494,12 @@ HOOK_ONLY_ROWS = [
     },
     {
         "name": "get-apple-firmware",
-        "kind": "firmware", "source": "staged:assets/t2/firmware-helper/get-apple-firmware",
-        "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "kind": "firmware",
+        "source": "staged:assets/t2/firmware-helper/get-apple-firmware",
+        "arch": "amd64",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/55-t2-firmware.sh (install from assets/t2; no apt)",
         "verified_by": "build/test-t2-native.sh",
         "provenance": "assets/t2/SOURCES.tsv (t2linux/wiki docs/tools/firmware.sh @ 986f5a79, MIT)",
@@ -491,9 +507,12 @@ HOOK_ONLY_ROWS = [
     },
     {
         "name": "systemd-coredump",
-        "kind": "debian", "source": "debian-forky",
-        "arch": "all", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "yes", "version_floor": "",
+        "kind": "debian",
+        "source": "debian-forky",
+        "arch": "all",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "yes",
+        "version_floor": "",
         "installed_by": "post-install/20-desktop.sh (ncz_apt_require; seeded in desktop.pkgs)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "post-install/20-desktop.sh (diagnostics section)",
@@ -501,9 +520,12 @@ HOOK_ONLY_ROWS = [
     },
     {
         "name": "systemd-container",
-        "kind": "debian", "source": "debian-forky",
-        "arch": "all", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "yes", "version_floor": "",
+        "kind": "debian",
+        "source": "debian-forky",
+        "arch": "all",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "yes",
+        "version_floor": "",
         "installed_by": "post-install/38-recovery-container.sh (apt-get install)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "post-install/38-recovery-container.sh",
@@ -511,9 +533,12 @@ HOOK_ONLY_ROWS = [
     },
     {
         "name": "wpasupplicant",
-        "kind": "debian", "source": "debian-forky",
-        "arch": "all", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "kind": "debian",
+        "source": "debian-forky",
+        "arch": "all",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/33-network.sh (conditional fallback)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "post-install/33-network.sh",
@@ -521,9 +546,12 @@ HOOK_ONLY_ROWS = [
     },
     {
         "name": "aarch64-linux-gnu-gcc",
-        "kind": "debian", "source": "debian-forky",
-        "arch": "arm64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "kind": "debian",
+        "source": "debian-forky",
+        "arch": "arm64",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/79-dkms-prep.sh (conditional, missing-toolchain only)",
         "verified_by": "build/verify-dkms-modules.sh",
         "provenance": "post-install/79-dkms-prep.sh",
@@ -533,8 +561,10 @@ HOOK_ONLY_ROWS = [
         "name": "cix-noe-umd",
         "kind": "staged-deb",
         "source": "staged:assets/cix-debs/cix-noe-umd_*_${ARCH}.deb",
-        "arch": "arm64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "arch": "arm64",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/88-noe-umd-venv.sh (apt from offline mirror, best-effort || true)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "post-install/88-noe-umd-venv.sh; build/build-gst-cix.sh ('cix-noe-umd ... which is not published'); build/stage-canonical-assets.sh (3.1.4 matched-stack pin)",
@@ -542,9 +572,12 @@ HOOK_ONLY_ROWS = [
     },
     {
         "name": "intel-driver-compiler-npu",
-        "kind": "debian", "source": "debian-forky",
-        "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "kind": "debian",
+        "source": "debian-forky",
+        "arch": "amd64",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL_NPU gated)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "post-install/54-gpu-accel.sh (Intel OpenVINO repo block)",
@@ -552,9 +585,12 @@ HOOK_ONLY_ROWS = [
     },
     {
         "name": "intel-level-zero-npu",
-        "kind": "debian", "source": "debian-forky",
-        "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "kind": "debian",
+        "source": "debian-forky",
+        "arch": "amd64",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL_NPU gated)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "post-install/54-gpu-accel.sh (Intel OpenVINO repo block)",
@@ -562,9 +598,12 @@ HOOK_ONLY_ROWS = [
     },
     {
         "name": "level-zero",
-        "kind": "debian", "source": "debian-forky",
-        "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "kind": "debian",
+        "source": "debian-forky",
+        "arch": "amd64",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL_NPU gated)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "post-install/54-gpu-accel.sh (Intel OpenVINO repo block)",
@@ -572,9 +611,12 @@ HOOK_ONLY_ROWS = [
     },
     {
         "name": "openvino",
-        "kind": "debian", "source": "debian-forky",
-        "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "kind": "debian",
+        "source": "debian-forky",
+        "arch": "amd64",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL gated)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "post-install/54-gpu-accel.sh (Intel OpenVINO repo block)",
@@ -582,9 +624,12 @@ HOOK_ONLY_ROWS = [
     },
     {
         "name": "intel-opencl-icd",
-        "kind": "debian", "source": "debian-forky",
-        "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "kind": "debian",
+        "source": "debian-forky",
+        "arch": "amd64",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL gated)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "post-install/54-gpu-accel.sh (Intel OpenVINO repo block)",
@@ -598,8 +643,10 @@ VENDOR_DEB_ROWS = [
         "name": "vivaldi-stable",
         "kind": "staged-deb",
         "source": "staged:assets/vivaldi/vivaldi-stable_*_${ARCH}.deb",
-        "arch": "all", "variant": "desktop",
-        "required": "no", "version_floor": "",
+        "arch": "all",
+        "variant": "desktop",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/52-vivaldi.sh (dpkg -i staged .deb)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "assets/vivaldi/ (vendor .debs, archived); post-install/52-vivaldi.sh",
@@ -609,8 +656,10 @@ VENDOR_DEB_ROWS = [
         "name": "google-chrome-stable",
         "kind": "staged-deb",
         "source": "staged:build/forky-vendor-mirror/google-chrome-stable_*_${ARCH}.deb",
-        "arch": "all", "variant": "desktop",
-        "required": "no", "version_floor": "",
+        "arch": "all",
+        "variant": "desktop",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/53-chrome.sh (apt from the offline forky-vendor-mirror)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "build/forky-vendor-mirror (pinned Google .deb, SHA256-verified); build/build-vendor-mirror.sh; manifests/desktop.pkgs; manifests/desktop-amd64.pkgs",
@@ -620,8 +669,10 @@ VENDOR_DEB_ROWS = [
         "name": "cixmini-boot",
         "kind": "staged-deb",
         "source": "staged:kernel-staging/<kver>/debs/cixmini-boot_*_arm64.deb",
-        "arch": "arm64", "variant": "installer,desktop,mgmt,rescue,server",
-        "required": "yes", "version_floor": "",
+        "arch": "arm64",
+        "variant": "installer,desktop,mgmt,rescue,server",
+        "required": "yes",
+        "version_floor": "",
         "installed_by": "manifest (installer-base.pkgs) resolved via build/build-vendor-mirror.sh pool",
         "verified_by": "build/verify-offline-mirror-seeds.sh",
         "provenance": "manifests/installer-base.pkgs; build/build-vendor-mirror.sh (KERNEL_DEBS publish); assets/kernel/sky1-manifest.json (debs/cixmini-boot)",
@@ -631,8 +682,10 @@ VENDOR_DEB_ROWS = [
         "name": "linux-image-cixmini",
         "kind": "staged-deb",
         "source": "staged:kernel-staging/<kver>/debs/linux-image-cixmini_*_arm64.deb",
-        "arch": "arm64", "variant": "installer,desktop,mgmt,rescue,server",
-        "required": "yes", "version_floor": "",
+        "arch": "arm64",
+        "variant": "installer,desktop,mgmt,rescue,server",
+        "required": "yes",
+        "version_floor": "",
         "installed_by": "manifest (installer-base.pkgs) resolved via build/build-vendor-mirror.sh pool",
         "verified_by": "build/verify-offline-mirror-seeds.sh",
         "provenance": "manifests/installer-base.pkgs; build/build-vendor-mirror.sh (KERNEL_DEBS publish); assets/kernel/sky1-manifest.json (debs/linux-image-cixmini)",
@@ -647,8 +700,10 @@ NPM_ROWS = [
         "name": "@anthropic-ai/claude-code",
         "kind": "npm",
         "source": "npm:@anthropic-ai/claude-code",
-        "arch": "all", "variant": "desktop,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "arch": "all",
+        "variant": "desktop,mgmt,rescue,server",
+        "required": "no",
+        "version_floor": "",
         "installed_by": "post-install/40-claude-code.sh (npm install -g after nodejs npm)",
         "verified_by": "post-install/40-claude-code.sh (claude --version)",
         "provenance": "post-install/40-claude-code.sh",
@@ -661,8 +716,10 @@ FIRMWARE_ROWS = [
         "name": "apple-t2-firmware-sonoma14",
         "kind": "firmware",
         "source": "staged:assets/firmware/apple-t2/apple-t2-firmware-sonoma14.tar.xz",
-        "arch": "amd64", "variant": "desktop,mgmt,rescue",
-        "required": "yes", "version_floor": "",
+        "arch": "amd64",
+        "variant": "desktop,mgmt,rescue",
+        "required": "yes",
+        "version_floor": "",
         "installed_by": "post-install/55-t2-firmware.sh (sha256-verified extract to /lib/firmware/brcm/)",
         "verified_by": "post-install/55-t2-firmware.sh (sha256 inline + brcmfmac*.apple,*.bin check)",
         "provenance": "assets/firmware/apple-t2/ (extracted from a 753 MB macOS Sonoma 14 Recovery Image); sha256 78810308c304eb999555b90de5debba7ad77eebe4614327a7539efe385e1e72a",
@@ -672,8 +729,10 @@ FIRMWARE_ROWS = [
         "name": "sky1-firmware-blobs",
         "kind": "firmware",
         "source": "staged:assets/sky1-firmware/",
-        "arch": "arm64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "yes", "version_floor": "",
+        "arch": "arm64",
+        "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "yes",
+        "version_floor": "",
         "installed_by": "post-install/12-sky1-firmware.sh (mali_csffw, dsp_fw, *.fwb to /lib/firmware)",
         "verified_by": "build/verify-assets.sh",
         "provenance": "assets/sky1-firmware/ (gitignored SoC blobs; restaged by build/stage-canonical-assets.sh)",
@@ -687,18 +746,34 @@ def main(argv=None):
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--root", default=str(ROOT),
-                    help="repo root (default: %(default)s)")
-    ap.add_argument("--out", default=None,
-                    help="output TSV path (default: <root>/manifests/components.tsv)")
-    ap.add_argument("--render-seeds", action="store_true",
-                    help="rewrite manifests/*.pkgs package lines from the registry")
-    ap.add_argument("--render-local-debs", action="store_true",
-                    help="rewrite NCZ_LOCAL_DEBS data lines from the registry")
-    ap.add_argument("--render-allowlist", action="store_true",
-                    help="confirm arch-parity-allowlist.tsv agrees with the registry")
-    ap.add_argument("--check", action="store_true",
-                    help="with a --render-*: exit 1 if a rewrite would change a file")
+    ap.add_argument(
+        "--root", default=str(ROOT), help="repo root (default: %(default)s)"
+    )
+    ap.add_argument(
+        "--out",
+        default=None,
+        help="output TSV path (default: <root>/manifests/components.tsv)",
+    )
+    ap.add_argument(
+        "--render-seeds",
+        action="store_true",
+        help="rewrite manifests/*.pkgs package lines from the registry",
+    )
+    ap.add_argument(
+        "--render-local-debs",
+        action="store_true",
+        help="rewrite NCZ_LOCAL_DEBS data lines from the registry",
+    )
+    ap.add_argument(
+        "--render-allowlist",
+        action="store_true",
+        help="confirm arch-parity-allowlist.tsv agrees with the registry",
+    )
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="with a --render-*: exit 1 if a rewrite would change a file",
+    )
     args = ap.parse_args(argv)
     root = Path(args.root).resolve()
     if args.render_seeds or args.render_local_debs or args.render_allowlist:
@@ -710,7 +785,9 @@ def main(argv=None):
         if args.render_allowlist:
             rc |= cmd_render_allowlist(root, args.check)
         return rc
-    out_path = Path(args.out).resolve() if args.out else root / "manifests" / "components.tsv"
+    out_path = (
+        Path(args.out).resolve() if args.out else root / "manifests" / "components.tsv"
+    )
 
     all_rows = []
 
@@ -778,9 +855,13 @@ def main(argv=None):
                 kind, source = "debian", "debian-forky"
                 notes = ""
             if fname == "install-extra.pkgs" and pkg in INSTALL_EXTRA_DEBIAN:
-                kind, source, notes = "debian", "debian-forky", (
-                    "Offline install-mirror seed; a post-install hook installs it "
-                    "(not a base/desktop closure package)."
+                kind, source, notes = (
+                    "debian",
+                    "debian-forky",
+                    (
+                        "Offline install-mirror seed; a post-install hook installs it "
+                        "(not a base/desktop closure package)."
+                    ),
                 )
             required = (
                 "no"
@@ -792,19 +873,24 @@ def main(argv=None):
                 if ("desktop" in fname or "installer-base" in fname)
                 else "build/verify-offline-mirror-seeds.sh"
             )
-            all_rows.append({
-                "name": pkg,
-                "kind": kind,
-                "source": source,
-                "arch": arch,
-                "variant": variant,
-                "required": required,
-                "version_floor": ss_floor if pkg == "ncz-screensavers" else ("1.0.2" if pkg == "ncz-apt-policy" else ""),
-                "installed_by": "manifest",
-                "verified_by": verified_by,
-                "provenance": f"manifests/{fname}" + ("; NCZ apt repo" if kind == "ncz-apt" else ""),
-                "notes": notes,
-            })
+            all_rows.append(
+                {
+                    "name": pkg,
+                    "kind": kind,
+                    "source": source,
+                    "arch": arch,
+                    "variant": variant,
+                    "required": required,
+                    "version_floor": ss_floor
+                    if pkg == "ncz-screensavers"
+                    else ("1.0.2" if pkg == "ncz-apt-policy" else ""),
+                    "installed_by": "manifest",
+                    "verified_by": verified_by,
+                    "provenance": f"manifests/{fname}"
+                    + ("; NCZ apt repo" if kind == "ncz-apt" else ""),
+                    "notes": notes,
+                }
+            )
 
     # 2. NCZ_LOCAL_DEBS rows (staged pool in build/desktop-mirror).
     #    Kind is staged-deb for every pool row: the component reaches the
@@ -828,66 +914,84 @@ def main(argv=None):
         libdrm_note = (
             "NCZ libdrm 2.4.134-3+ncz (Sky1 ACPI platform fix); built by "
             "build/build-libdrm-debs.sh."
-            if name.startswith("libdrm") else ""
+            if name.startswith("libdrm")
+            else ""
         )
-        notes = "; ".join(x for x in (
-            f"NCZ_LOCAL_DEBS: {row['req']}",
-            base_note,
-            libdrm_note,
-        ) if x)
+        notes = "; ".join(
+            x
+            for x in (
+                f"NCZ_LOCAL_DEBS: {row['req']}",
+                base_note,
+                libdrm_note,
+            )
+            if x
+        )
         installed_by = {
             "ncz-singularity-desktop": "post-install/20-desktop.sh",
             "ncz-screensavers": "post-install/59-ncz-screensavers-pkg.sh",
             "ncz-usb-recovery": "post-install/41-usb2-rescan.sh",
-        }.get(name, "build/build-desktop-mirror.sh (pool staging; apt resolver installs)")
+        }.get(
+            name, "build/build-desktop-mirror.sh (pool staging; apt resolver installs)"
+        )
         verified_by = {
             "ncz-usb-recovery": "build/verify-installed-target.sh",
         }.get(name, "build/verify-desktop-mirror-seeds.sh")
         provenance = "build/build-desktop-mirror.sh (NCZ_LOCAL_DEBS)"
         if name in manifest_by_name:
-            provenance += "; " + "; ".join(f"manifests/{m}" for m in manifest_by_name[name])
-        all_rows.append({
-            "name": name,
-            "kind": "staged-deb",
-            "source": f"staged:{row['glob'].split('$REPO/')[-1]}",
-            "arch": row["arch"],
-            "variant": "desktop,installer,mgmt,rescue,server",
-            "required": required,
-            "version_floor": (
-                "2.4.134-3+ncz" if name.startswith("libdrm")
-                else (ss_floor if name == "ncz-screensavers" else "")
-            ),
-            "installed_by": installed_by,
-            "verified_by": verified_by,
-            "provenance": provenance,
-            "notes": notes,
-        })
+            provenance += "; " + "; ".join(
+                f"manifests/{m}" for m in manifest_by_name[name]
+            )
+        all_rows.append(
+            {
+                "name": name,
+                "kind": "staged-deb",
+                "source": f"staged:{row['glob'].split('$REPO/')[-1]}",
+                "arch": row["arch"],
+                "variant": "desktop,installer,mgmt,rescue,server",
+                "required": required,
+                "version_floor": (
+                    "2.4.134-3+ncz"
+                    if name.startswith("libdrm")
+                    else (ss_floor if name == "ncz-screensavers" else "")
+                ),
+                "installed_by": installed_by,
+                "verified_by": verified_by,
+                "provenance": provenance,
+                "notes": notes,
+            }
+        )
 
     # 2b. The Singularity screensaver settings plugin (pinned medium deb).
     pin = parse_ssplugin_lock(root / SSPLUGIN_LOCK_REL)
     if pin:
-        all_rows.append({
-            "name": pin["NCZ_SSPLUGIN_PKG"],
-            "kind": "staged-deb",
-            "source": (f"staged:build/ncz-screensavers-out/"
-                       f"{pin['NCZ_SSPLUGIN_PKG']}_*_${{ARCH}}.deb"),
-            "arch": "all",
-            "variant": "desktop",
-            "required": "yes",
-            "version_floor": pin["NCZ_SSPLUGIN_VERSION"],
-            "installed_by": "post-install/59-ncz-screensavers-pkg.sh",
-            "verified_by": "build/check-ssplugin-abi.sh,build/verify-installed-target-screensavers-default.sh",
-            "provenance": (f"{SSPLUGIN_LOCK_REL} (ARGONAS "
-                           f"{pin['NCZ_SSPLUGIN_ARGONAS_DIR']}); "
-                           "build/stage-screensaver-plugin.sh; docs/SCREENSAVER-PLUGIN.md"),
-            "notes": (
-                "Singularity Screensaver and Lockscreen settings page. Not published "
-                "to the NCZ apt set (item AC open question 5); pinned sha256 per arch, "
-                "carried on the install medium (ncz-payload/assets/ncz-screensavers-plugin), "
-                "installed only over the Singularity payload it was linked against "
-                "(version or byte-identical libsingularity)."
-            ),
-        })
+        all_rows.append(
+            {
+                "name": pin["NCZ_SSPLUGIN_PKG"],
+                "kind": "staged-deb",
+                "source": (
+                    f"staged:build/ncz-screensavers-out/"
+                    f"{pin['NCZ_SSPLUGIN_PKG']}_*_${{ARCH}}.deb"
+                ),
+                "arch": "all",
+                "variant": "desktop",
+                "required": "yes",
+                "version_floor": pin["NCZ_SSPLUGIN_VERSION"],
+                "installed_by": "post-install/59-ncz-screensavers-pkg.sh",
+                "verified_by": "build/check-ssplugin-abi.sh,build/verify-installed-target-screensavers-default.sh",
+                "provenance": (
+                    f"{SSPLUGIN_LOCK_REL} (ARGONAS "
+                    f"{pin['NCZ_SSPLUGIN_ARGONAS_DIR']}); "
+                    "build/stage-screensaver-plugin.sh; docs/SCREENSAVER-PLUGIN.md"
+                ),
+                "notes": (
+                    "Singularity Screensaver and Lockscreen settings page. Not published "
+                    "to the NCZ apt set (item AC open question 5); pinned sha256 per arch, "
+                    "carried on the install medium (ncz-payload/assets/ncz-screensavers-plugin), "
+                    "installed only over the Singularity payload it was linked against "
+                    "(version or byte-identical libsingularity)."
+                ),
+            }
+        )
 
     # 3. Vendor staged .debs (not in NCZ_LOCAL_DEBS, not seeded).
     for row in VENDOR_DEB_ROWS:
@@ -946,7 +1050,9 @@ def main(argv=None):
             seen[key] = row
             continue
         old = seen[key]
-        old["variant"] = variant_union([variant_set(old["variant"]), variant_set(r["variant"])])
+        old["variant"] = variant_union(
+            [variant_set(old["variant"]), variant_set(r["variant"])]
+        )
         if r["required"] == "yes" and old["required"] != "yes":
             old["required"] = "yes"
         if r.get("notes") and r["notes"] not in old.get("notes", ""):
@@ -964,41 +1070,71 @@ def main(argv=None):
     final = sorted(seen.values(), key=sort_key)
 
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write("# manifests/components.tsv -- NCZ-OS component registry (Item C1, phase 1)\n")
+        f.write(
+            "# manifests/components.tsv -- NCZ-OS component registry (Item C1, phase 1)\n"
+        )
         f.write("#\n")
-        f.write("# Operator directive 2026-10-05. TSV; one component per row. Generated by\n")
-        f.write("# build/gen-components-registry.py from manifests/*.pkgs + NCZ_LOCAL_DEBS\n")
-        f.write("# + KERNEL-POLICY + sky1-manifest.json + amd64-stable-manifest.json +\n")
-        f.write("# post-install hook installs; audited by `build/components.py check`.\n")
+        f.write(
+            "# Operator directive 2026-10-05. TSV; one component per row. Generated by\n"
+        )
+        f.write(
+            "# build/gen-components-registry.py from manifests/*.pkgs + NCZ_LOCAL_DEBS\n"
+        )
+        f.write(
+            "# + KERNEL-POLICY + sky1-manifest.json + amd64-stable-manifest.json +\n"
+        )
+        f.write(
+            "# post-install hook installs; audited by `build/components.py check`.\n"
+        )
         f.write("#\n")
         f.write("# Columns:\n")
-        f.write("#   name            package name, or curated identifier for kernel / DKMS /\n")
+        f.write(
+            "#   name            package name, or curated identifier for kernel / DKMS /\n"
+        )
         f.write("#                    overlay / firmware / npm rows.\n")
-        f.write("#   kind            debian | ncz-apt | staged-deb | npm | dkms | kernel |\n")
+        f.write(
+            "#   kind            debian | ncz-apt | staged-deb | npm | dkms | kernel |\n"
+        )
         f.write("#                    overlay | firmware\n")
         f.write("#   source          debian-forky | buildkite-packages | r2 |\n")
         f.write("#                    staged:<path> | npm:<pkg> | vendored:<path>\n")
         f.write("#   arch            all | arm64 | amd64\n")
-        f.write("#   variant         comma-list of desktop,installer,mgmt,rescue,server,\n")
+        f.write(
+            "#   variant         comma-list of desktop,installer,mgmt,rescue,server,\n"
+        )
         f.write("#                    or 'all'\n")
         f.write("#   required        yes | no | conditional:<cond>\n")
-        f.write("#   version_floor   minimum acceptable version (semver-ish or kver); empty\n")
+        f.write(
+            "#   version_floor   minimum acceptable version (semver-ish or kver); empty\n"
+        )
         f.write("#                    if not applicable\n")
-        f.write("#   installed_by    hook or build script, or 'manifest' (install implicit\n")
+        f.write(
+            "#   installed_by    hook or build script, or 'manifest' (install implicit\n"
+        )
         f.write("#                    in the apt resolver)\n")
         f.write("#   verified_by     verify*/check* script(s) that audit the install\n")
         f.write("#   provenance      source-of-truth path(s) or doc\n")
         f.write("#   notes           free-form, single line, no tabs\n")
         f.write("#\n")
-        f.write("# Phases: phase 1 seeded this registry; phase 2 enforces required/floor/arch\n")
-        f.write("# (K2 aer9011, T1 DKMS policy, S4 screensaver floor, S7 r285 overlays);\n")
+        f.write(
+            "# Phases: phase 1 seeded this registry; phase 2 enforces required/floor/arch\n"
+        )
+        f.write(
+            "# (K2 aer9011, T1 DKMS policy, S4 screensaver floor, S7 r285 overlays);\n"
+        )
         f.write("# phase 3 generates seed files and mirror rows from this registry.\n")
         f.write(HEADER + "\n")
         for r in final:
             notes = (r.get("notes") or "").replace("\t", " ").replace("\n", " ")
             fields = [
-                r["name"], r["kind"], r["source"], r["arch"], r["variant"],
-                r["required"], r["version_floor"], r["installed_by"],
+                r["name"],
+                r["kind"],
+                r["source"],
+                r["arch"],
+                r["variant"],
+                r["required"],
+                r["version_floor"],
+                r["installed_by"],
                 r["verified_by"],
                 (r.get("provenance") or "").replace("\t", " "),
                 notes,
@@ -1062,7 +1198,7 @@ def render_pkgs(existing_text, names):
             # and rescue.pkgs align comments with runs of spaces; collapsing
             # them would fail the byte-identity check for no data change.
             if "#" in raw:
-                out.append(name + raw[len(raw.split("#", 1)[0].rstrip()):])
+                out.append(name + raw[len(raw.split("#", 1)[0].rstrip()) :])
             else:
                 out.append(name)
         else:
@@ -1108,16 +1244,21 @@ def cmd_render_seeds(root, check_only):
         if existing != generated:
             only_file = [n for n in existing if n not in generated]
             only_reg = [n for n in generated if n not in existing]
-            print(f"render-seeds: {fname} name set differs "
-                  f"(file-only={only_file or '-'} registry-only={only_reg or '-'})",
-                  file=sys.stderr)
+            print(
+                f"render-seeds: {fname} name set differs "
+                f"(file-only={only_file or '-'} registry-only={only_reg or '-'})",
+                file=sys.stderr,
+            )
             failed += 1
             continue
         new_text = render_pkgs(path.read_text(encoding="utf-8"), generated)
         if new_text != path.read_text(encoding="utf-8"):
             if check_only:
-                print(f"render-seeds: {fname} would change (name set matches; "
-                      f"header/order rewrite)", file=sys.stderr)
+                print(
+                    f"render-seeds: {fname} would change (name set matches; "
+                    f"header/order rewrite)",
+                    file=sys.stderr,
+                )
                 failed += 1
             else:
                 path.write_text(new_text, encoding="utf-8")
@@ -1136,12 +1277,21 @@ def _registry_rows(root):
         cols = raw.split("\t")
         if len(cols) < 11:
             continue
-        rows.append({
-            "name": cols[0], "kind": cols[1], "source": cols[2],
-            "arch": cols[3], "variant": cols[4], "required": cols[5],
-            "version_floor": cols[6], "installed_by": cols[7],
-            "verified_by": cols[8], "provenance": cols[9], "notes": cols[10],
-        })
+        rows.append(
+            {
+                "name": cols[0],
+                "kind": cols[1],
+                "source": cols[2],
+                "arch": cols[3],
+                "variant": cols[4],
+                "required": cols[5],
+                "version_floor": cols[6],
+                "installed_by": cols[7],
+                "verified_by": cols[8],
+                "provenance": cols[9],
+                "notes": cols[10],
+            }
+        )
     return rows
 
 
@@ -1160,7 +1310,7 @@ def _mirror_rows_from_registry(rows):
             continue
         glob = r["source"]
         if glob.startswith("staged:"):
-            glob = "$REPO/" + glob[len("staged:"):]
+            glob = "$REPO/" + glob[len("staged:") :]
         req = "required" if r["required"] == "yes" else "optional"
         # notes carry the raw word; prefer it when present so a future
         # required vocabulary change cannot silently rewrite the literal.
@@ -1188,8 +1338,11 @@ def render_local_debs(existing_text, rows):
     # file does not have yet goes in the arm64 block iff its glob is
     # arm64-specific.
     lines = existing_text.splitlines()
-    opens = [i for i, ln in enumerate(lines)
-             if re.search(r"\bNCZ_LOCAL_DEBS\s*\+?=\s*\"", ln)]
+    opens = [
+        i
+        for i, ln in enumerate(lines)
+        if re.search(r"\bNCZ_LOCAL_DEBS\s*\+?=\s*\"", ln)
+    ]
 
     def block_end(start):
         for j in range(start + 1, len(lines)):
@@ -1203,7 +1356,7 @@ def render_local_debs(existing_text, rows):
     for start in opens[:2]:
         end = block_end(start)
         mine = []
-        for raw in lines[start + 1:end]:
+        for raw in lines[start + 1 : end]:
             s = raw.strip()
             if s.count("|") == 2 and not s.startswith("#"):
                 pkg, glob, _req = s.split("|")
@@ -1242,7 +1395,7 @@ def render_local_debs(existing_text, rows):
     for n, start in enumerate(opens[:2]):
         end = block_end(start)
         pending = list(block_rows[n] if n < len(block_rows) else [])
-        out[start + 1:end] = fill(lines[start + 1:end], pending)
+        out[start + 1 : end] = fill(lines[start + 1 : end], pending)
     nl = "\r\n" if "\r\n" in existing_text[:200] else "\n"
     text = nl.join(out)
     if existing_text.endswith(("\n", "\r\n")):
@@ -1261,20 +1414,26 @@ def cmd_render_local_debs(root, check_only):
     # file order, so compare sets here and let render_local_debs refill in
     # file order.
     if sorted(existing) != sorted(generated):
-        print("render-local-debs: NCZ_LOCAL_DEBS rows differ from the registry",
-              file=sys.stderr)
+        print(
+            "render-local-debs: NCZ_LOCAL_DEBS rows differ from the registry",
+            file=sys.stderr,
+        )
         for i, (a, b) in enumerate(zip(existing, generated)):
             if a != b:
                 print(f"  row {i}: file={a} registry={b}", file=sys.stderr)
         if len(existing) != len(generated):
-            print(f"  count file={len(existing)} registry={len(generated)}",
-                  file=sys.stderr)
+            print(
+                f"  count file={len(existing)} registry={len(generated)}",
+                file=sys.stderr,
+            )
         return 1
     new_text = render_local_debs(path.read_text(encoding="utf-8"), rows)
     if new_text != path.read_text(encoding="utf-8"):
         if check_only:
-            print("render-local-debs: would change build-desktop-mirror.sh",
-                  file=sys.stderr)
+            print(
+                "render-local-debs: would change build-desktop-mirror.sh",
+                file=sys.stderr,
+            )
             return 1
         path.write_text(new_text, encoding="utf-8")
         print("render-local-debs: rewrote build/build-desktop-mirror.sh")
@@ -1331,8 +1490,11 @@ def cmd_render_allowlist(root, check_only):
         # contradict the registry, so it is not drift.
         if pkg not in arm and pkg not in amd:
             continue
-        print(f"render-allowlist: {manifest}/{pkg} side {side} disagrees with "
-              f"registry arches {sorted(arches) or '(no row)'}", file=sys.stderr)
+        print(
+            f"render-allowlist: {manifest}/{pkg} side {side} disagrees with "
+            f"registry arches {sorted(arches) or '(no row)'}",
+            file=sys.stderr,
+        )
         failed += 1
     # The other direction: a package in one manifest of a pair but not the
     # other must have an allowlist row. verify-dual-arch-parity.sh is the
@@ -1355,13 +1517,19 @@ def cmd_render_allowlist(root, check_only):
         amd = set(_pkgs_names(amd_path))
         for pkg in sorted(arm - amd):
             if (base, pkg, "arm64-only") not in listed:
-                print(f"render-allowlist: {base}/{pkg} is arm64-only in the "
-                      f"manifests and has no allowlist row", file=sys.stderr)
+                print(
+                    f"render-allowlist: {base}/{pkg} is arm64-only in the "
+                    f"manifests and has no allowlist row",
+                    file=sys.stderr,
+                )
                 failed += 1
         for pkg in sorted(amd - arm):
             if (base, pkg, "amd64-only") not in listed:
-                print(f"render-allowlist: {base}/{pkg} is amd64-only in the "
-                      f"manifests and has no allowlist row", file=sys.stderr)
+                print(
+                    f"render-allowlist: {base}/{pkg} is amd64-only in the "
+                    f"manifests and has no allowlist row",
+                    file=sys.stderr,
+                )
                 failed += 1
     if failed:
         return 1

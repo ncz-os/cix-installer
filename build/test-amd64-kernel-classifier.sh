@@ -15,7 +15,8 @@ REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SRC="$REPO_ROOT/assets/refind/zz1-ncz-refind-refresh-amd64"
 [ -f "$SRC" ] || { echo "EXTRACT FAILED: $SRC not found"; exit 2; }
 SHIM="$(mktemp -t classifier-shim.XXXXXX.sh)"
-trap 'rm -f "$SHIM"' EXIT
+WORK="$(mktemp -d)"
+trap 'rm -f "$SHIM"; rm -rf "$WORK"' EXIT
 awk '/^BOOTDIR=/,/^KVER_STABLE=\$\(find_newest\)$/' "$SRC" \
   | sed '/^KVER_STABLE=\$(find_newest)$/d' > "$SHIM"
 grep -q 'is_prerelease' "$SHIM" || { echo "EXTRACT FAILED: classifier functions missing"; exit 2; }
@@ -42,39 +43,44 @@ check() { # check <label> <expect_default>
 }
 
 echo "=== unified 7.3: newest 7.3 kernel is the default; 7.2.x is not ==="
-export BOOTDIR=/tmp/b1
+export BOOTDIR="$WORK/b1"
 mkboot $BOOTDIR 7.2.7-2-t2-trixie 7.2.9-2-t2-trixie 7.3.0-rc5-1-t2-trixie 7.3.0-rc6-4-t2-edge-aer9010 7.2.4-2-t2-trixie-rescue
 check "amd64: newest 7.3 wins over the retired 7.2.9" 7.3.0-rc6-4-t2-edge-aer9010
 
 echo "=== a 7.2.x-only /boot is not surfaced (retired) ==="
-export BOOTDIR=/tmp/b2
+export BOOTDIR="$WORK/b2"
 mkboot $BOOTDIR 7.2.8-1-t2-trixie 7.2.9-2-t2-trixie
 check "amd64: pure-7.2.x /boot has no default" ""
 
 echo "=== unpinned 7.3 rc variants are still 7.3 (build gate pins the exact one) ==="
-export BOOTDIR=/tmp/b3
+export BOOTDIR="$WORK/b3"
 mkboot $BOOTDIR 7.2.9-2-t2-trixie 7.3.0-rc6-1-t2-edge-plain
 check "amd64: a 7.3 rc6 variant classifies as default" 7.3.0-rc6-1-t2-edge-plain
 
 echo "=== Debian-archive kernels are never surfaced ==="
-export BOOTDIR=/tmp/b4
+export BOOTDIR="$WORK/b4"
 mkboot $BOOTDIR 7.1.4-amd64 6.1.0-13-amd64
 check "amd64: Debian kernels are not the default" ""
 
 echo "=== rescue images are skipped ==="
-export BOOTDIR=/tmp/b5
+export BOOTDIR="$WORK/b5"
 mkboot $BOOTDIR 7.3.0-rc6-4-t2-edge-aer9010-rescue 7.3.0-rc6-4-t2-edge-aer9010
 check "amd64: the rescue image is skipped, the live 7.3 kernel is default" 7.3.0-rc6-4-t2-edge-aer9010
 
 echo "=== missing initrd: newest 7.3 without an initrd is skipped ==="
-export BOOTDIR=/tmp/b6
+export BOOTDIR="$WORK/b6"
 mkboot $BOOTDIR 7.3.0-rc5-1-t2-trixie 7.3.0-rc6-4-t2-edge-aer9010
 rm -f $BOOTDIR/initrd.img-7.3.0-rc6-4-t2-edge-aer9010
 check "amd64: the incomplete newer 7.3 kernel is skipped" 7.3.0-rc5-1-t2-trixie
 
 echo "=== negative: no 7.3 at all -> empty ==="
-export BOOTDIR=/tmp/b7
+export BOOTDIR="$WORK/b7"
 mkboot $BOOTDIR 6.1.0-13-amd64
 check "amd64: no 7.3 -> no default" ""
+
+echo "=== release name: no legacy edge/aer suffix required ==="
+export BOOTDIR="$WORK/b8"
+mkboot "$BOOTDIR" 7.3.0-rc6-4-t2-edge-aer9010 7.3.0-rc6-t2-ncz
+check "amd64: tested NCZ release name becomes default" 7.3.0-rc6-t2-ncz
 
 echo; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

@@ -129,6 +129,15 @@ MGMT_APT_UPDATE_LOG="$CHROOT/tmp/ncz-apt-update.log"
 mkdir -p "$CHROOT/tmp"
 ncz_apt_update_or_die "$MGMT_APT_UPDATE_LOG" "management chroot" \
     chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp apt-get update
+# A fresh root must not hide package removals in its dependency transaction.
+MGMT_APT_SIMULATION="$CHROOT/tmp/ncz-apt-install.simulation"
+# shellcheck disable=SC2086
+chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp \
+    apt-get -s install --no-install-recommends $PKGS > "$MGMT_APT_SIMULATION"
+if grep -q '^Remv ' "$MGMT_APT_SIMULATION"; then
+    echo "[management-rootfs] ERROR: package installation would remove packages" >&2
+    exit 1
+fi
 if ! chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp bash -eu <<CHROOT_APT
 apt-get install -y --no-install-recommends $PKGS
 apt-get clean
@@ -136,6 +145,12 @@ CHROOT_APT
 then
     mountpoint -q "$CHROOT/proc" || mount -t proc proc "$CHROOT/proc"
     chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp dpkg --configure -a
+    chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp \
+        apt-get -s install -f > "$MGMT_APT_SIMULATION"
+    if grep -q '^Remv ' "$MGMT_APT_SIMULATION"; then
+        echo "[management-rootfs] ERROR: dependency repair would remove packages" >&2
+        exit 1
+    fi
     chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp apt-get install -f -y
     chroot "$CHROOT" apt-get clean
 fi

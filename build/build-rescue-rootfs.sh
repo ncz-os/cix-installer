@@ -150,6 +150,15 @@ RESCUE_APT_UPDATE_LOG="$CHROOT/tmp/ncz-apt-update.log"
 mkdir -p "$CHROOT/tmp"
 ncz_apt_update_or_die "$RESCUE_APT_UPDATE_LOG" "rescue chroot" \
     chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp apt-get update
+# A fresh root must not hide package removals in its dependency transaction.
+RESCUE_APT_SIMULATION="$CHROOT/tmp/ncz-apt-install.simulation"
+# shellcheck disable=SC2086
+chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp \
+    apt-get -s install --no-install-recommends $PKGS > "$RESCUE_APT_SIMULATION"
+if grep -q '^Remv ' "$RESCUE_APT_SIMULATION"; then
+    echo "[rescue-rootfs] ERROR: package installation would remove packages" >&2
+    exit 1
+fi
 if ! chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp bash -eu <<CHROOT_APT
 apt-get install -y --no-install-recommends $PKGS
 apt-get clean
@@ -161,6 +170,12 @@ then
     # otherwise complete rootfs.
     mountpoint -q "$CHROOT/proc" || mount -t proc proc "$CHROOT/proc"
     chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp dpkg --configure -a
+    chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp \
+        apt-get -s install -f > "$RESCUE_APT_SIMULATION"
+    if grep -q '^Remv ' "$RESCUE_APT_SIMULATION"; then
+        echo "[rescue-rootfs] ERROR: dependency repair would remove packages" >&2
+        exit 1
+    fi
     chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive DPKG_ROOT=/ TMPDIR=/tmp apt-get install -f -y
     chroot "$CHROOT" apt-get clean
 fi

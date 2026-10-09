@@ -609,7 +609,9 @@ image-verified: $(OUTPUT_IMAGE)
 	fi
 	@mkdir -p "$${KVM_INSTALL_WORKDIR:-$(ROOT)/build/kvm-install}"
 	@WORK="$${KVM_INSTALL_WORKDIR:-$(ROOT)/build/kvm-install}"; \
-	if ! ARCH=$(ARCH) bash "$(ROOT)/build/kvm-install-gate-gpt.sh" "$(OUTPUT_IMAGE)" "$$WORK"; then \
+	if ARCH=$(ARCH) bash "$(ROOT)/build/kvm-install-gate-gpt.sh" "$(OUTPUT_IMAGE)" "$$WORK"; then \
+	    :; \
+	else \
 	    rc=$$?; \
 	    echo "" >&2; \
 	    echo "[image-verified] GATE FAILED (rc=$$rc): $(OUTPUT_IMAGE) is NOT safe to ship to hardware." >&2; \

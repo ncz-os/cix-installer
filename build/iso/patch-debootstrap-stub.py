@@ -73,6 +73,7 @@ What this script does NOT do:
   * It does NOT modify d-i itself. The patched udeb replaces the
     ``/usr/sbin/debootstrap`` shell INSIDE the udeb package, not d-i.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -96,6 +97,7 @@ DEFAULT_CACHE_ROOT = REPO_ROOT / "build" / "iso-cache" / "v1"
 # Bump only with a reviewed recipe change; the suffix is part of the
 # derivative identity checked by the provenance consumer.
 DERIVATIVE_SUFFIX = "+ncz1"
+
 
 # Reproducible-build epoch.  Overridable by SOURCE_DATE_EPOCH for replay, but a
 # fixed default means two builds of the same inputs produce the same bytes.
@@ -129,8 +131,7 @@ def log(msg: str) -> None:
 
 def _chmod_r(p: Path) -> None:
     try:
-        subprocess.run(["chmod", "-R", "u+w", str(p)], check=False,
-                       capture_output=True)
+        subprocess.run(["chmod", "-R", "u+w", str(p)], check=False, capture_output=True)
     except Exception:
         pass
 
@@ -804,8 +805,9 @@ REQUIRED_UDEB_SHELL = ["debootstrap-udeb", "libzstd1-udeb", "liblzma5-udeb"]
 REQUIRED_UDEB_DI = ["cdebconf-udeb", "cdebconf-newt-udeb", "hw-detect"]
 
 
-def verify_udeb_required(substrate_pool: Path, required, label: str,
-                         fatal: bool = True):
+def verify_udeb_required(
+    substrate_pool: Path, required, label: str, fatal: bool = True
+):
     """Check that each name in ``required`` is present in the pool at
     ``pool/**/<name>_*.udeb``. Returns a list of names that were FOUND
     (so a caller can both gate and report). Raises RuntimeError if any
@@ -822,7 +824,9 @@ def verify_udeb_required(substrate_pool: Path, required, label: str,
         matches = list(substrate_pool.rglob(f"{pkg}_*.udeb"))
         if matches:
             found.append(pkg)
-            log(f"    udeb assertion [{label}]: {pkg}: PRESENT ({len(matches)} match(es))")
+            log(
+                f"    udeb assertion [{label}]: {pkg}: PRESENT ({len(matches)} match(es))"
+            )
         else:
             missing.append(pkg)
             log(f"    udeb assertion [{label}]: {pkg}: MISSING")
@@ -838,8 +842,9 @@ def verify_udeb_required(substrate_pool: Path, required, label: str,
 def _run_ar(ar_args, cwd=None):
     """Wrapper around the system ``ar`` that surfaces stderr on failure."""
     cmd = ["ar"] + ar_args
-    return subprocess.run(cmd, cwd=str(cwd) if cwd else None,
-                          capture_output=True, text=True)
+    return subprocess.run(
+        cmd, cwd=str(cwd) if cwd else None, capture_output=True, text=True
+    )
 
 
 def _list_udeb_members(udeb_path: Path):
@@ -896,12 +901,12 @@ def _extract_data_tar(udeb_path: Path, dest_dir: Path):
     data_tar = candidates[0]
     extract_proc = subprocess.run(
         ["tar", "-xf", str(data_tar), "-C", str(dest_dir)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if extract_proc.returncode != 0:
         raise RuntimeError(
-            f"tar -xf {data_tar} -C {dest_dir} failed: "
-            f"{extract_proc.stderr.strip()}"
+            f"tar -xf {data_tar} -C {dest_dir} failed: {extract_proc.stderr.strip()}"
         )
     return data_tar
 
@@ -918,10 +923,8 @@ def _deterministic_tar_gz(src_dir: Path, out_path: Path, epoch: int) -> None:
             entries.append(os.path.join(root, n))
     entries.sort()
     with out_path.open("wb") as raw:
-        with gzip.GzipFile(fileobj=raw, mode="wb", mtime=epoch,
-                           compresslevel=9) as gz:
-            with tarfile.open(fileobj=gz, mode="w",
-                              format=tarfile.GNU_FORMAT) as tf:
+        with gzip.GzipFile(fileobj=raw, mode="wb", mtime=epoch, compresslevel=9) as gz:
+            with tarfile.open(fileobj=gz, mode="w", format=tarfile.GNU_FORMAT) as tf:
                 for p in entries:
                     arc = os.path.relpath(p, src_dir).replace(os.sep, "/")
                     info = tf.gettarinfo(str(p), arcname=arc)
@@ -943,14 +946,17 @@ def _write_ar(out_path: Path, members) -> None:
     100644) in the given member order.  Implemented here instead of shelling out
     to ``ar`` because GNU ar's ``-D`` is not portable and BSD ar has no
     deterministic mode, so the system tool would leak timestamps/ownership."""
+
     def header(name: str, size: int) -> bytes:
-        return (name[:16].ljust(16).encode("ascii")
-                + b"%-12d" % 0
-                + b"%-6d" % 0
-                + b"%-6d" % 0
-                + b"%-8s" % b"100644"
-                + b"%-10d" % size
-                + b"`\n")
+        return (
+            name[:16].ljust(16).encode("ascii")
+            + b"%-12d" % 0
+            + b"%-6d" % 0
+            + b"%-6d" % 0
+            + b"%-8s" % b"100644"
+            + b"%-10d" % size
+            + b"`\n"
+        )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("wb") as f:
@@ -962,8 +968,7 @@ def _write_ar(out_path: Path, members) -> None:
                 f.write(b"\n")
 
 
-def _apply_derivative_control(text: str, base_sha256: str,
-                              stub_sha256: str) -> str:
+def _apply_derivative_control(text: str, base_sha256: str, stub_sha256: str) -> str:
     """Rewrite a base udeb ``control`` into the NCZ derivative identity.
 
     The base version gains the deterministic ``DERIVATIVE_SUFFIX`` so the
@@ -994,16 +999,17 @@ def _apply_derivative_control(text: str, base_sha256: str,
         # drag architecture-specific bytes into a common package.
         raise RuntimeError(
             f"refusing to derive: base debootstrap-udeb Architecture={arch!r}, "
-            "expected 'all'")
+            "expected 'all'"
+        )
     out.append(f"NCZ-Derivative-Of: debootstrap-udeb {base_version}")
     out.append(f"NCZ-Base-SHA256: {base_sha256}")
     out.append(f"NCZ-Recipe-SHA256: {stub_sha256}")
     return "\n".join(out) + "\n", base_version
 
 
-def _build_derivative_control(ar_dir: Path, control_member: str,
-                              base_sha256: str, stub_sha256: str,
-                              epoch: int):
+def _build_derivative_control(
+    ar_dir: Path, control_member: str, base_sha256: str, stub_sha256: str, epoch: int
+):
     """Replace ``control_member`` in ``ar_dir`` with a deterministic
     ``control.tar.gz`` carrying the derivative identity.  Returns
     ``(new_member_name, base_version)``."""
@@ -1016,9 +1022,12 @@ def _build_derivative_control(ar_dir: Path, control_member: str,
             tf.extractall(tree, filter="data")
         cpath = tree / "control"
         if not cpath.is_file():
-            raise RuntimeError(f"control archive {control_member} has no 'control' file")
+            raise RuntimeError(
+                f"control archive {control_member} has no 'control' file"
+            )
         text, base_version = _apply_derivative_control(
-            cpath.read_text(), base_sha256, stub_sha256)
+            cpath.read_text(), base_sha256, stub_sha256
+        )
         cpath.write_text(text)
         for p in tree.rglob("*"):
             if p.is_file():
@@ -1029,9 +1038,13 @@ def _build_derivative_control(ar_dir: Path, control_member: str,
     return "control.tar.gz", base_version
 
 
-def _repack_udeb(ar_dir: Path, control_member: str,
-                 data_member_original: Path, output_udeb: Path,
-                 epoch: int = 0) -> None:
+def _repack_udeb(
+    ar_dir: Path,
+    control_member: str,
+    data_member_original: Path,
+    output_udeb: Path,
+    epoch: int = 0,
+) -> None:
     """Repack a directory of ar members into a fresh, byte-reproducible .udeb.
     Members, in the order dpkg expects:
 
@@ -1039,8 +1052,7 @@ def _repack_udeb(ar_dir: Path, control_member: str,
       2. control.tar.gz     (rewritten derivative control)
       3. data.tar.gz        (recompressed deterministically from the data tree)
     """
-    members_to_skip = {"debian-binary", control_member,
-                       data_member_original.name}
+    members_to_skip = {"debian-binary", control_member, data_member_original.name}
 
     with tempfile.TemporaryDirectory() as tmpdir_str:
         tmpdir = Path(tmpdir_str)
@@ -1061,25 +1073,28 @@ def _repack_udeb(ar_dir: Path, control_member: str,
         debian_binary = (ar_dir / "debian-binary").read_bytes()
         control_bytes = (ar_dir / control_member).read_bytes()
         data_bytes = data_tar_gz.read_bytes()
-    _write_ar(output_udeb, [
-        ("debian-binary", debian_binary),
-        (control_member, control_bytes),
-        ("data.tar.gz", data_bytes),
-    ])
+    _write_ar(
+        output_udeb,
+        [
+            ("debian-binary", debian_binary),
+            (control_member, control_bytes),
+            ("data.tar.gz", data_bytes),
+        ],
+    )
 
 
 def _syntax_check_stub(stub_text: str, label: str) -> None:
     """The build-iso-di.sh author runs ``bash -n`` after writing the stub
     (line 1674). We do the same — both ``sh -n`` (POSIX compliance) and
     ``bash -n`` (no bashisms, since the stub is supposed to be POSIX)."""
-    with tempfile.NamedTemporaryFile("w", suffix=".sh",
-                                     delete=False) as f:
+    with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
         f.write(stub_text)
         path = Path(f.name)
     try:
         for interp in ("sh", "bash"):
-            p = subprocess.run([interp, "-n", str(path)],
-                               capture_output=True, text=True)
+            p = subprocess.run(
+                [interp, "-n", str(path)], capture_output=True, text=True
+            )
             if p.returncode != 0:
                 raise RuntimeError(
                     f"{label} stub failed {interp} -n: {p.stderr.strip()}"
@@ -1127,8 +1142,7 @@ def _find_debootstrap_udeb(pool: Path):
     return matches[0]
 
 
-def patch_udeb(udeb_path: Path, output_path: Path, stub_text: str,
-               force: bool = False):
+def patch_udeb(udeb_path: Path, output_path: Path, stub_text: str, force: bool = False):
     """Patch the debootstrap-udeb at ``udeb_path`` so its
     ``usr/sbin/debootstrap`` member is ``stub_text`` (the r159 stub
     script). Writes the patched udeb to ``output_path``.
@@ -1147,7 +1161,9 @@ def patch_udeb(udeb_path: Path, output_path: Path, stub_text: str,
         # exactly that with --force, while without --force it returned an
         # "output exists" cache hit and patched nothing.  Build beside the
         # source and atomically replace only after all verification passes.
-        output_path = output_path.with_name(output_path.name + f".patched.{os.getpid()}")
+        output_path = output_path.with_name(
+            output_path.name + f".patched.{os.getpid()}"
+        )
         output_path.unlink(missing_ok=True)
 
     members = _list_udeb_members(udeb_path)
@@ -1210,7 +1226,8 @@ def patch_udeb(udeb_path: Path, output_path: Path, stub_text: str,
         # identity BEFORE repacking, so the shipped control declares the
         # derivative version and the base/stub provenance.
         control_member, base_version = _build_derivative_control(
-            ar_dir, control_member, base_sha256, stub_sha256, epoch)
+            ar_dir, control_member, base_sha256, stub_sha256, epoch
+        )
 
         _repack_udeb(
             ar_dir=ar_dir,
@@ -1258,19 +1275,23 @@ def stage_patched_udeb_in_cache(
     ``<substrate>/extract/pool/.../debootstrap-udeb_*_all.udeb`` in
     place by ``patch_substrate()``.
     """
-    canonical_payload = canonical_encode({
-        "schema_version": "patched-debootstrap-udeb/v1",
-        "patched_udeb_sha256": sha256_file(patched_udeb),
-        "patched_udeb_size": patched_udeb.stat().st_size,
-        "source": "external --source-udeb (netboot substrate)",
-    })
+    canonical_payload = canonical_encode(
+        {
+            "schema_version": "patched-debootstrap-udeb/v1",
+            "patched_udeb_sha256": sha256_file(patched_udeb),
+            "patched_udeb_size": patched_udeb.stat().st_size,
+            "source": "external --source-udeb (netboot substrate)",
+        }
+    )
     node_key = sha256_bytes(canonical_payload)
     node_dir = cache_root / "ncz-udeb" / node_key
     if node_dir.exists():
         if (node_dir / "node-key.json").is_file():
             log(f"    patched udeb cache node exists: {node_dir}")
             return node_dir
-        log(f"    WARNING: incomplete cache node (no node-key.json): {node_dir} -- restaging")
+        log(
+            f"    WARNING: incomplete cache node (no node-key.json): {node_dir} -- restaging"
+        )
         shutil.rmtree(node_dir)
     # Same atomicity rule as the other cache nodes: build under
     # .partial.<pid>, publish by rename once node-key.json is written, so an
@@ -1279,10 +1300,16 @@ def stage_patched_udeb_in_cache(
     shutil.rmtree(build_dir, ignore_errors=True)
     build_dir.mkdir(parents=True)
     shutil.copy2(str(patched_udeb), str(build_dir / patched_udeb.name))
-    (build_dir / "node-key.json").write_text(json.dumps({
-        "node_key": node_key,
-        "canonical_payload_sha256": sha256_bytes(canonical_payload),
-    }, indent=2, sort_keys=True))
+    (build_dir / "node-key.json").write_text(
+        json.dumps(
+            {
+                "node_key": node_key,
+                "canonical_payload_sha256": sha256_bytes(canonical_payload),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
     os.replace(build_dir, node_dir)
     log(f"    staged patched udeb at {node_dir}")
     return node_dir
@@ -1322,18 +1349,22 @@ def patch_substrate(
         if not skip_udeb_assertions:
             verify_udeb_required(pool, REQUIRED_UDEB_SHELL, "shell-side")
             _, baked_only = verify_udeb_required(
-                pool, REQUIRED_UDEB_DI, "d-i runtime pool", fatal=False)
+                pool, REQUIRED_UDEB_DI, "d-i runtime pool", fatal=False
+            )
             if baked_only:
-                log("    NOTE: d-i runtime components absent from optical pool "
-                    f"(expected when baked into initrd): {baked_only}")
+                log(
+                    "    NOTE: d-i runtime components absent from optical pool "
+                    f"(expected when baked into initrd): {baked_only}"
+                )
         else:
             log("    --skip-udeb-assertions: skipping 3+3 udeb gate")
         debootstrap_udeb = _find_debootstrap_udeb(pool)
         log(f"    patching immutable source: {debootstrap_udeb}")
         with tempfile.TemporaryDirectory(prefix="ncz-udeb-stage.") as tmpdir_str:
             out_udeb = Path(tmpdir_str) / debootstrap_udeb.name
-            receipt = patch_udeb(debootstrap_udeb, out_udeb,
-                                 syntax_checked_stub, force=True)
+            receipt = patch_udeb(
+                debootstrap_udeb, out_udeb, syntax_checked_stub, force=True
+            )
             staged = stage_patched_udeb_in_cache(out_udeb, cache_root)
         receipt["layout"] = layout
         receipt["in_place"] = False
@@ -1373,27 +1404,49 @@ def patch_substrate(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--substrate-node-dir", required=True, type=Path,
-                    help="substrate import node dir (created by "
-                         "build/iso/import-substrate.py)")
-    ap.add_argument("--cache-root", type=Path, default=DEFAULT_CACHE_ROOT,
-                    help=f"cache root (default: {DEFAULT_CACHE_ROOT})")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--substrate-node-dir",
+        required=True,
+        type=Path,
+        help="substrate import node dir (created by build/iso/import-substrate.py)",
+    )
+    ap.add_argument(
+        "--cache-root",
+        type=Path,
+        default=DEFAULT_CACHE_ROOT,
+        help=f"cache root (default: {DEFAULT_CACHE_ROOT})",
+    )
     ap.add_argument("--arch", required=True, choices=["amd64", "arm64"])
-    ap.add_argument("--source-udeb", type=Path, default=None,
-                    help="(netboot substrate only) path to a real "
-                         "debootstrap-udeb_*_all.udeb to patch. Required "
-                         "when the substrate has no pool/ (mini.iso "
-                         "layout).")
-    ap.add_argument("--force", action="store_true",
-                    help="re-patch even if cache says it's already done")
-    ap.add_argument("--skip-udeb-assertions", action="store_true",
-                    help="skip the 3+3 udeb gate (only sensible for "
-                         "local experiments; production MUST run the "
-                         "assertions)")
-    ap.add_argument("--report", type=Path, default=None,
-                    help="optional path to write the patch receipt as JSON")
+    ap.add_argument(
+        "--source-udeb",
+        type=Path,
+        default=None,
+        help="(netboot substrate only) path to a real "
+        "debootstrap-udeb_*_all.udeb to patch. Required "
+        "when the substrate has no pool/ (mini.iso "
+        "layout).",
+    )
+    ap.add_argument(
+        "--force",
+        action="store_true",
+        help="re-patch even if cache says it's already done",
+    )
+    ap.add_argument(
+        "--skip-udeb-assertions",
+        action="store_true",
+        help="skip the 3+3 udeb gate (only sensible for "
+        "local experiments; production MUST run the "
+        "assertions)",
+    )
+    ap.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="optional path to write the patch receipt as JSON",
+    )
     args = ap.parse_args()
 
     if shutil.which("ar") is None:

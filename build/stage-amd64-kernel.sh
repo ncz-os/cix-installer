@@ -1,96 +1,131 @@
 #!/bin/bash
-# stage-amd64-kernel.sh -- pull the single unified amd64 7.3 kernel from the
-# shared ARGONAS kernel-staging pool into assets/kernel/amd64-stable/.
-#
-# Mirrors the arm64 side's stage-kernel.sh in spirit (kernel artifacts are
-# gitignored and live in a shared, dated staging area on ARGONAS, per
-# ~/.claude/rules/kernel-build-checklist.md's staging convention) but the
-# amd64 payload is just a linux-image/linux-headers .deb pair, so this stays
-# a plain copy rather than stage-kernel.sh's Image/modules/headers/staleness-
-# check ceremony (that machinery is Sky1/Yocto-specific).
-#
-# POLICY (operator directive 2026-10-05, unified): amd64 ships ONE kernel,
-# 7.3, as the DEFAULT and the installer boot kernel (today
-# 7.3.0-rc6-4-t2-edge-aer9010, the T2 build with the plain revert of eddba19b8b5f (PCI/AER ANFE); the
-# 7.3.0 final build later). The committed assets/kernel/amd64-stable/KVER is
-# the pin; a pool build whose KVER disagrees with it is never staged, so a
-# different series (7.2.x) or an unpinned build cannot slip in. There is no
-# edge channel any more.
-#
-# Usage: build/stage-amd64-kernel.sh [default|stable|all]  (default: default)
-#   default copy the build matching the committed KVER pin into
-#           assets/kernel/amd64-stable/ (set AMD64_SRC=<dir> to override)
-#   stable  alias for default (historical name)
-#   all     alias for default (single-kernel tree)
+# Stage only the committed, hash-bound amd64 release image/headers pair.
+# No filename search, package rename, or KVER-sidecar-only authorization.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WHAT="${1:-default}"
-
-# Different hosts mount the same ARGONAS export at different local paths
-# (HYDRA/ACHILLES/PROTEUS: /mnt/argonas/datapool/yocto-shared via autofs;
-# ULTRA: /mnt/argonas-yocto-shared) -- try both rather than hardcoding one.
-for candidate in /mnt/argonas/datapool/yocto-shared /mnt/argonas-yocto-shared /mnt/yocto-shared; do
-    [ -d "$candidate/kernel-staging" ] && SHARED="$candidate/kernel-staging" && break
-done
-[ -n "${SHARED:-}" ] || { echo "ERROR: no ARGONAS yocto-shared/kernel-staging mount found on this host" >&2; exit 1; }
-
-# Prune the previous .deb pair from the line dir before copying the new one.
-# Same rationale as before: a fresh kernel version carries new .deb basenames,
-# so without pruning the old pair accumulates and a human/verifier can no
-# longer tell which one is shipping.
-prune_debs() {
-    find "$1" -maxdepth 1 -type f \( -name 'linux-image-*_amd64.deb' \
-        -o -name 'linux-headers-*_amd64.deb' \) -delete
-}
-
-stage_default() {
-    # Copy the build that matches the committed pin. The pin is the contract:
-    # a pool build whose KVER disagrees with it is never staged.
-    local pin_file="$ROOT/assets/kernel/amd64-stable/KVER"
-    [ -s "$pin_file" ] || { echo "ERROR: $pin_file missing -- the pinned amd64 7.3 KVER must be committed" >&2; return 1; }
-    local wanted d
-    wanted=$(tr -d '[:space:]' < "$pin_file")
-    [ -n "$wanted" ] || { echo "ERROR: $pin_file is empty" >&2; return 1; }
-    case "$wanted" in
-        7.3.*|7.3-*) ;;
-        *) echo "ERROR: pinned amd64 KVER '$wanted' is not the unified 7.3 series" >&2; return 1 ;;
-    esac
-    local src=""
-    if [ -n "${AMD64_SRC:-}" ]; then
-        src="$AMD64_SRC"
-    else
-        # Search the pool for a directory whose KVER sidecar matches the pin.
-        # Covers the multi-variant amd64-t2-* build trees (e.g.
-        # amd64-t2-rc6-20261004/7.3.0-rc6-4-t2-edge-aer9010) and the generic
-        # amd64-stable-<date> namespace.
-        for d in "$SHARED"/amd64-t2-*/*/ "$SHARED"/amd64-stable-*/; do
-            [ -d "$d" ] || continue
-            [ -s "$d/KVER" ] || continue
-            if [ "$(tr -d '[:space:]' < "$d/KVER")" = "$wanted" ]; then
-                src="${d%/}"
-                break
-            fi
-        done
-    fi
-    [ -n "$src" ] && [ -d "$src" ] || {
-        echo "ERROR: no staged amd64 build matches pinned KVER '$wanted' under $SHARED" >&2
-        echo "       (publish it with build/publish-amd64-kernel.sh <deb-dir>, or set AMD64_SRC)" >&2
-        return 1
-    }
-    if [ ! -s "$src/KVER" ] || [ "$(tr -d '[:space:]' < "$src/KVER")" != "$wanted" ]; then
-        echo "ERROR: $src/KVER does not match the pinned amd64 KVER '$wanted' -- refusing to stage" >&2
-        return 1
-    fi
-    local dest="$ROOT/assets/kernel/amd64-stable"
-    mkdir -p "$dest"
-    prune_debs "$dest"
-    cp -f "$src"/*.deb "$src/KVER" "$dest/"
-    echo "[stage-amd64-kernel] amd64-stable <- $(basename "$src") (pinned KVER $wanted, pruned to $(ls "$dest"/linux-image-*_amd64.deb 2>/dev/null | wc -l) image + $(ls "$dest"/linux-headers-*_amd64.deb 2>/dev/null | wc -l) headers pair)"
-}
-
-case "$WHAT" in
-    default|stable|"") stage_default ;;
-    all)               stage_default ;;
-    edge)              echo "ERROR: the amd64 edge channel was retired (unified 7.3 policy, operator 2026-10-05)" >&2; exit 2 ;;
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+case "${1:-default}" in
+    default|stable|all|"") ;;
+    edge) echo "ERROR: amd64 edge channel is retired" >&2; exit 2 ;;
     *) echo "usage: $0 [default|stable|all]" >&2; exit 2 ;;
 esac
+manifest="$ROOT/assets/kernel/amd64-stable-manifest.json"
+pin_file="$ROOT/assets/kernel/amd64-stable/KVER"
+[ -s "$manifest" ] && [ -s "$pin_file" ] || {
+    echo "ERROR: committed amd64 manifest or KVER missing" >&2; exit 1;
+}
+wanted=$(tr -d '[:space:]' < "$pin_file")
+pool=$(python3 - "$manifest" "$wanted" <<'PY'
+import json
+import sys
+from pathlib import PurePosixPath
+
+m = json.load(open(sys.argv[1], encoding="utf-8"))
+kver = sys.argv[2]
+if m.get("arch") != "amd64" or m.get("kver") != kver:
+    sys.exit("ERROR: manifest arch/KVER disagrees with committed pin")
+if not kver.startswith("7.3.") or m.get("identity", {}).get("kernel_release") != kver:
+    sys.exit("ERROR: manifest is not the pinned unified 7.3 kernel")
+pool = m.get("staging_pool_relative", "")
+p = PurePosixPath(pool)
+if p.is_absolute() or ".." in p.parts or not p.parts or p.parts[0] != "kernel-staging":
+    sys.exit("ERROR: invalid committed kernel pool path")
+print(pool)
+PY
+)
+src="${AMD64_SRC:-}"
+if [ -z "$src" ]; then
+    for shared in /mnt/argonas/datapool/yocto-shared /mnt/argonas-yocto-shared /mnt/yocto-shared; do
+        [ -d "$shared/$pool" ] || continue
+        src="$shared/$pool"
+        break
+    done
+fi
+[ -n "$src" ] && [ -d "$src" ] || {
+    echo "ERROR: pinned kernel pool unavailable: $pool" >&2; exit 1;
+}
+verify_payload() {
+    python3 - "$manifest" "$wanted" "$1" <<'PY'
+import hashlib
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+m = json.load(open(sys.argv[1], encoding="utf-8"))
+kver, root = sys.argv[2], Path(sys.argv[3])
+identity = m["identity"]
+expected = {}
+for kind in ("image", "headers"):
+    package = identity[f"{kind}_deb_package"]
+    version = identity[f"{kind}_deb_version"]
+    if package != f"linux-{kind}-{kver}":
+        sys.exit("ERROR: kernel package name disagrees with KVER")
+    expected[f"{package}_{version}_amd64.deb"] = (package, version)
+names = set(expected) | {f"kernel_config_{kver}", f"PROVENANCE-{kver}"}
+if set(m.get("artifacts", {})) != names:
+    sys.exit("ERROR: manifest must bind exactly image, headers, config and provenance")
+for name in sorted(names):
+    if Path(name).name != name:
+        sys.exit("ERROR: unsafe artifact basename")
+    f = root / name
+    row = m["artifacts"][name]
+    if f.is_symlink() or not f.is_file():
+        sys.exit(f"ERROR: missing or symlinked artifact: {f}")
+    digest = row.get("sha256", "")
+    if not re.fullmatch(r"[0-9a-f]{64}", digest) or f.stat().st_size != row.get("size"):
+        sys.exit(f"ERROR: artifact size/hash metadata mismatch: {name}")
+    h = hashlib.sha256()
+    with f.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(block)
+    if h.hexdigest() != digest:
+        sys.exit(f"ERROR: artifact SHA256 mismatch: {name}")
+    if name in expected:
+        package, version = expected[name]
+        for field, value in (("Package", package), ("Version", version), ("Architecture", "amd64")):
+            got = subprocess.check_output(["dpkg-deb", "-f", str(f), field], text=True).strip()
+            if got != value:
+                sys.exit(f"ERROR: {name} control {field} mismatch")
+provenance = (root / f"PROVENANCE-{kver}").read_text()
+for key, value in (("kernel_release", kver), ("anfe_wunner_test", "0"),
+                   ("source_commit", m["source"]["base_commit"]),
+                   ("t2_repo_commit", m["source"]["t2_repo_commit"])):
+    if provenance.splitlines().count(f"{key}={value}") != 1:
+        sys.exit(f"ERROR: provenance {key} disagrees with committed manifest")
+sidecar = root / "KVER"
+if sidecar.exists() and sidecar.read_text().strip() != kver:
+    sys.exit("ERROR: optional source KVER sidecar disagrees")
+PY
+}
+# Validate everything BEFORE touching any prior staged candidate files.
+verify_payload "$src"
+dest="$ROOT/assets/kernel/amd64-stable"
+mkdir -p "$dest"
+# Only the explicitly named image and headers are staged; never glob-copy
+# linux-libc-dev or the >1GiB debug package into the installer kernel payload.
+staged_debs=()
+for kind in image headers; do
+    name=$(python3 - "$manifest" "$kind" <<'PY'
+import json
+import sys
+m = json.load(open(sys.argv[1], encoding="utf-8"))["identity"]
+kind = sys.argv[2]
+print(f'{m[f"{kind}_deb_package"]}_{m[f"{kind}_deb_version"]}_amd64.deb')
+PY
+)
+    staged_debs+=("$name")
+    cp -f -- "$src/$name" "$dest/$name"
+done
+cp -f -- "$src/kernel_config_$wanted" "$src/PROVENANCE-$wanted" "$dest/"
+verify_payload "$dest"
+# Preserve the tracked pin; remove only obsolete debs from this staging dir
+# after the complete new payload has been copied and checked.
+for old in "$dest"/linux-image-*_amd64.deb "$dest"/linux-headers-*_amd64.deb; do
+    [ -f "$old" ] || continue
+    case "${old##*/}" in
+        "${staged_debs[0]}"|"${staged_debs[1]}") ;;
+        *) rm -f -- "$old" ;;
+    esac
+done
+echo "[stage-amd64-kernel] verified committed payload: $wanted"

@@ -16,7 +16,6 @@ These tests pin the new contract:
 import gzip
 import hashlib
 import importlib.util
-import os
 import shutil
 import subprocess
 import tarfile
@@ -49,17 +48,30 @@ def _tar_gz(path, entries):
 def _make_base_udeb(root, arch="all"):
     root.mkdir(parents=True, exist_ok=True)
     (root / "debian-binary").write_text("2.0\n")
-    _tar_gz(root / "control.tar.gz", [(
-        "control",
-        (f"Package: debootstrap-udeb\nVersion: 1.0.145\nArchitecture: {arch}\n"
-         "Maintainer: Debian Install System Team <debian-boot@lists.debian.org>\n"
-         "Depends: libc6-udeb\n").encode())])
-    _tar_gz(root / "data.tar.gz", [(
-        "usr/sbin/debootstrap", b"#!/bin/sh\necho upstream-original\n")])
+    _tar_gz(
+        root / "control.tar.gz",
+        [
+            (
+                "control",
+                (
+                    f"Package: debootstrap-udeb\nVersion: 1.0.145\nArchitecture: {arch}\n"
+                    "Maintainer: Debian Install System Team <debian-boot@lists.debian.org>\n"
+                    "Depends: libc6-udeb\n"
+                ).encode(),
+            )
+        ],
+    )
+    _tar_gz(
+        root / "data.tar.gz",
+        [("usr/sbin/debootstrap", b"#!/bin/sh\necho upstream-original\n")],
+    )
     base = root / "debootstrap-udeb_1.0.145_all.udeb"
-    subprocess.run(["ar", "rc", str(base), "debian-binary",
-                    "control.tar.gz", "data.tar.gz"],
-                   cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["ar", "rc", str(base), "debian-binary", "control.tar.gz", "data.tar.gz"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
     return base
 
 
@@ -78,8 +90,10 @@ class DerivativeUdebTest(unittest.TestCase):
     def test_reproducible_bytes(self):
         _, a = self._patch("a.udeb")
         _, b = self._patch("b.udeb")
-        self.assertEqual(hashlib.sha256(a.read_bytes()).digest(),
-                         hashlib.sha256(b.read_bytes()).digest())
+        self.assertEqual(
+            hashlib.sha256(a.read_bytes()).digest(),
+            hashlib.sha256(b.read_bytes()).digest(),
+        )
 
     def test_control_derivative_identity(self):
         receipt, out = self._patch("c.udeb")
@@ -108,8 +122,9 @@ class DerivativeUdebTest(unittest.TestCase):
         ex.mkdir()
         subprocess.run(["ar", "x", str(out)], cwd=ex, check=True)
         with tarfile.open(ex / "data.tar.gz", "r:gz") as tf:
-            self.assertEqual(tf.extractfile("usr/sbin/debootstrap").read().decode(),
-                             STUB)
+            self.assertEqual(
+                tf.extractfile("usr/sbin/debootstrap").read().decode(), STUB
+            )
 
     def test_non_all_architecture_refused(self):
         amd = _make_base_udeb(self.root / "amd", arch="amd64")
