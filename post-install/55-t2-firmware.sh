@@ -99,7 +99,8 @@ fi
 echo "[55] Apple T2 hardware confirmed — installing Forky-native T2 firmware + audio config (no third-party apt repo)"
 
 # Test seams: NCZ_T2_ASSETS overrides the staged asset root; NCZ_T2_FW_TARBALL
-# overrides the firmware tarball path.
+# overrides the firmware tarball path; NCZ_T2_DMI_PRODUCT overrides the DMI
+# product-name read (so the BT coverage note can be exercised in a chroot).
 T2_ASSETS="${NCZ_T2_ASSETS:-/usr/local/lib/cix-installer/assets/t2}"
 STAGED_FW_TARBALL="${NCZ_T2_FW_TARBALL:-/usr/local/lib/cix-installer/assets/firmware/apple-t2/apple-t2-firmware-sonoma14.tar.xz}"
 T2_PKG_FAIL=0
@@ -206,4 +207,108 @@ if [ "$T2_PKG_FAIL" = 1 ]; then
     echo "[55] FAILED: the T2 firmware/audio assets did not install" >&2
     exit 1
 fi
+
+# --- Bluetooth staging inventory + recovery-hint (diagnosis, not a fix) ---
+# The Sonoma14 tarball ships Apple Bluetooth firmware for a known set of board
+# names whose `brcmbt<chip><stepping>-apple,<board>-{m,u}.ptb` files end up in
+# /lib/firmware/brcm/ above. We log the staged set so an operator can compare
+# it to their T2 model's BT chip without booting a debugger. The audited gaps
+# are *not* fixable in user-space: the kernel's `hci_uart_bcm` driver only
+# matches firmware by chip-id+board rev, and there is no in-kernel entry for
+# BCM4364B3 "Trinidad Olympic GEN" on the current 7.3.0-rc6-t2-ncz tree, so
+# even with an Apple file present, the driver will not load it. The
+# source-authorised recovery for the missing boards is the same helper the hook
+# already installed above (MIT, pinned in assets/t2/SOURCES.tsv): invoke it from
+# a Linux session with internet to fetch the matching firmware.
+#
+# We deliberately do NOT install a `brcm/BCM.hcd` symlink shortcut. A blind
+# alias of `BCM.hcd` to a `brcmbt4377b3-apple,formosa-m.ptb` (or any other
+# board) breaks the kernel's chip-id matching and only adds noise:
+#   `Bluetooth: hci0: BCM: firmware Patch file not found, tried: brcm/BCM.hcd`
+# masks the real chip-id+board-rev gap, and
+#   `Bluetooth: hci0: HCI Read Transmit Power Level command is advertised,
+#    but not supported.`
+# is independent harmless Apple firmware noise (the HCI command is advertised
+# but stubbed by the BCM ROM; it is not a fault and not suppressed).
+#
+# The adjacent `brcmf_p2p_set_firmware` returns -52 (-EBUSY) symptom on this
+# family is a kernel-side WiFi P2P path, NOT this hook's path -- see
+# docs branch followup/amd64-kernel-audit-20261008 for the separate diagnosis.
+bt_boards_staged=""
+# The tarball uses two filename shapes for BT firmware:
+#   - newer/revendorised files: brcmbt<chip><stepping>-apple,<board>-m.ptb
+#     (or -u for Murata vendor).  Both end in '.<x>.ptb' where x is one of
+#     {m, u}.
+#   - the BCM4377B3 (formosa) BT files do NOT carry a -m/-u vendor suffix:
+#     brcmbt4377b3-apple,formosa.bin / .ptb.
+# We parse the board name out of either form and strip an optional trailing
+# -m/-u so the inventory line lists one entry per board.
+#
+# Glob note: this hook runs under bash 3.2 on macOS Studio (`#!/bin/bash`
+# build images target Debian forky but the host shell is the Apple-supplied
+# bash 3.2 from /bin/bash), which interprets a literal `,` in a glob
+# pattern as list-union semantics and silently fails to expand the glob.
+# `brcmbt*apple*.ptb` is the smallest pattern that does NOT contain a literal
+# `,` and still matches both shapes (because the `*` covers any intermediate
+# characters, including the `,` separator).
+for ptb in /lib/firmware/brcm/brcmbt*apple*.ptb /lib/firmware/brcm/brcmbt*apple*.bin; do
+    [ -e "$ptb" ] || continue
+    bn="${ptb##*/}"
+    # Every Apple firmware file uses 'apple,<board>' as the manufacturer
+    # separator. If a file in the staged directory doesn't carry that
+    # canonical separator, it is either a non-Apple file or a tarball entry
+    # that escaped an earlier filter -- skip it (no silent prefix-leak into
+    # the inventory line). The pre-image formatter for this hook is the
+    # upstream `BluetoothFWCollection` in `assets/t2/firmware-helper/
+    # get-apple-firmware`, which always emits `brcmbt<chip><stepping>-apple,
+    # <board>-<m|u>.{bin,ptb}` (with `formosa` etc. as the no-vendor edge case).
+    case "$bn" in
+        brcmbt*-apple,*) board="${bn#brcmbt*-apple,}" ;;
+        *) continue ;;
+    esac
+    # Strip the trailing Apple-firmware extension. Apple firmware uses both
+    # `.ptb` (Bluetooth) and `.bin` (Bluetooth / firmware blob) extensions;
+    # `%.*` removes the trailing `.<anything>`, handling both without a
+    # multi-clause case and tolerating any future `.N+char` extension that
+    # Apple might add (this hook's only contract is the staging inventory,
+    # not validation).
+    board="${board%.*}"
+    # Optional vendor suffix: -m (GEN/Murata-derived) or -u (USI).
+    case "$board" in
+        *-[mu]) board="${board%-[mu]}" ;;
+    esac
+    case ",${bt_boards_staged}," in
+        *",${board},"*) ;;
+        *) bt_boards_staged="${bt_boards_staged:+$bt_boards_staged,}$board" ;;
+    esac
+done
+if [ -n "$bt_boards_staged" ]; then
+    echo "[55] Apple Bluetooth staged boards (board names parsed from .ptb files): ${bt_boards_staged}"
+else
+    echo "[55] Apple Bluetooth staged boards: none in this tarball"
+fi
+# Cross-check against the host DMI product_name so a T2 Mac whose BCM chip the
+# staged set does not cover does not silently succeed. The MEDUSA audit
+# snapshot (MacBookPro16,1, kernel 7.3.0-rc6-4-t2-edge-aer9010) reports:
+#   Bluetooth: hci0: BCM4364B3 Trinidad Olympic GEN (MFG)
+#   Bluetooth: hci0: BCM: chip id 150
+#   Bluetooth: hci0: BCM: firmware Patch file not found, tried: 'brcm/BCM.hcd'
+# i.e. BCM4364B3 BT firmware is NOT in the staged set and the kernel has no
+# chip-id entry for it. The recovery command is therefore surfaced, not a
+# fabricated fix.
+_ncz_t2_product="${NCZ_T2_DMI_PRODUCT:-}"
+if [ -z "$_ncz_t2_product" ]; then
+    if [ -r /sys/class/dmi/id/product_name ]; then
+        _ncz_t2_product=$(cat /sys/class/dmi/id/product_name 2>/dev/null)
+    elif command -v dmidecode >/dev/null 2>&1; then
+        _ncz_t2_product=$(dmidecode -s system-product-name 2>/dev/null)
+    fi
+fi
+case "$_ncz_t2_product" in
+    MacBookPro16,[12]|iMac20,1|iMac20,2)
+        echo "[55] NOTE: $_ncz_t2_product Bluetooth is BCM4364B3 'Trinidad Olympic GEN' (NOT in staged set; the kernel chip-id table also lacks BCM4364B3 on this branch). Recovery: '/usr/bin/get-apple-firmware get_from_online' from a Linux session with internet (helper is MIT, installed above by this hook)."
+        ;;
+esac
+unset _ncz_t2_product bt_boards_staged
+
 echo "[55] T2 firmware wiring done"

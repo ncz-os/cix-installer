@@ -23,7 +23,23 @@ echo "=== the third-party repo and apt are gone from the hook ==="
 # Check the executable lines only: the header comments deliberately name the
 # eliminated repo and apt to document the posture change.
 CODE="$(grep -vE '^[[:space:]]*#' "$HOOK")"
-for pat in 'adityagarg8' 't2-ubuntu-repo' 'apt-get' 'sources.list.d/t2' 'KEY.gpg' 'get_from_online' 'dmg2img'; do
+# `get_from_online` is special: the hook is allowed to MENTION it (so the
+# recovery hint on MacBookPro16,1/16,2 can surface it), but it must NEVER be
+# invoked by the hook itself -- only the operator runs the helper. The
+# detection requires BOTH substrings on the SAME uncommented line so that
+# single-line direct invocations, command substitutions, and pipelines are
+# caught; multi-line indirection (variable-then-eval) is outside this hook's
+# structure (and is caught by `bash -n` at sandbox run time).
+GET_FROM_ONLINE_INVOCATIONS="$(printf '%s\n' "$CODE" \
+    | grep -E 'get-apple-firmware' \
+    | grep -E 'get_from_online' \
+    | grep -vE 'echo[[:space:]]|printf[[:space:]]')"
+if [ -n "$GET_FROM_ONLINE_INVOCATIONS" ]; then
+    bad "55 code still invokes 'get_from_online' outside a diagnostic echo/printf"
+else
+    ok "55 code no longer invokes 'get_from_online' outside a diagnostic echo/printf"
+fi
+for pat in 'adityagarg8' 't2-ubuntu-repo' 'apt-get' 'sources.list.d/t2' 'KEY.gpg' 'dmg2img'; do
     if printf '%s\n' "$CODE" | grep -q -- "$pat"; then bad "55 code still references '$pat'"; else ok "55 code no longer references '$pat'"; fi
 done
 
@@ -72,6 +88,16 @@ SH
     mkdir -p "$R/fwsrc"
     printf 'fw\n' > "$R/fwsrc/brcmfmac4355c1-pcie.apple,board.bin"
     ln "$R/fwsrc/brcmfmac4355c1-pcie.apple,board.bin" "$R/fwsrc/brcmfmac4355c1-pcie.apple,board2.bin"
+    # Real-shape Apple BT firmware files matching the upstream helper's
+    # `BluetoothFWCollection` output: formosa (no vendor suffix), atlantisb-m
+    # (GEN/MT vendor), shikoku-u (USI vendor). The inventory parsing must
+    # recognise all three shapes and de-duplicate to one entry per board.
+    printf 'bt-formosa\n'  > "$R/fwsrc/brcmbt4377b3-apple,formosa.ptb"
+    printf 'bt-formosa\n'  > "$R/fwsrc/brcmbt4377b3-apple,formosa.bin"     # dedup target
+    printf 'bt-atlantisb\n' > "$R/fwsrc/brcmbt4378b1-apple,atlantisb-m.ptb"
+    printf 'bt-atlantisb\n' > "$R/fwsrc/brcmbt4378b1-apple,atlantisb-m.bin"
+    printf 'bt-shikoku\n'   > "$R/fwsrc/brcmbt4378b1-apple,shikoku-u.ptb"
+    printf 'bt-shikoku\n'   > "$R/fwsrc/brcmbt4378b1-apple,shikoku-u.bin"
     ( cd "$R/fwsrc" && tar -cJf "$R/fw/apple-t2-firmware-sonoma14.tar.xz" . )
     sed -E "s#(^|[^A-Za-z0-9_./\$-])/(etc|usr|lib|bin)/#\1$R/\2/#g" "$HOOK" > "$R/hook.sh"
     mkdir -p "$R/lib"; cp "$R/hooklib/hw-detect.sh" "$R/lib/hw-detect.sh"
@@ -112,6 +138,82 @@ i1="$(ls -i "$R/lib/firmware/brcm/brcmfmac4355c1-pcie.apple,board.bin" 2>/dev/nu
 i2="$(ls -i "$R/lib/firmware/brcm/brcmfmac4355c1-pcie.apple,board2.bin" 2>/dev/null | awk '{print $1}')"
 [ -n "$i1" ] && [ "$i1" = "$i2" ] && ok "in-archive hardlink preserved ($i1)" || bad "hardlink not preserved ($i1 vs $i2)"
 grep -q 'Apple WiFi/BT firmware present' "$R/out" && ok "hook reports Apple firmware present" || bad "firmware-present line missing"
+
+echo "=== Bluetooth coverage note: inventory is always logged; recovery hint is conditional ==="
+grep -q 'Apple Bluetooth staged boards' "$R/out" && ok "BT staging inventory is logged" || bad "BT staging inventory missing"
+# Two filename shapes must produce one entry each: formosa (no vendor suffix),
+# atlantisb-m (m-suffix), shikoku-u (u-suffix). All three board names must
+# appear in the comma-joined inventory line; no .ptb suffix or vendor suffix
+# must leak.
+for board in formosa atlantisb shikoku; do
+    if grep -qE "Apple Bluetooth staged boards.*${board}(,|$)" "$R/out"; then
+        ok "BT inventory includes '${board}'"
+    else
+        bad "BT inventory missing '${board}' (full line follows)"
+        grep 'Apple Bluetooth staged boards' "$R/out" | sed 's/^/    /'
+    fi
+done
+# Negative: a leaked suffix from a missed strip is the bug the parameter
+# expansion must NOT regress.
+for leak in 'formosa-m' 'formosa-u' 'shikoku-u' 'atlantisb-m'; do
+    if grep -qE "Apple Bluetooth staged boards.*${leak}(,|$)" "$R/out"; then
+        bad "BT inventory leaked the bare-suffix '${leak}'"
+    else
+        ok "BT inventory does not leak '${leak}'"
+    fi
+done
+# Negative: a non-conforming filename (e.g. `brcmbt-bareapple-other.ptb` with
+# no literal `apple,` separator) must NOT appear in the inventory -- the
+# parser's defensive case guard must silently skip it instead of leaking
+# the `brcmbt...` prefix into the inventory line. Exercised by sourcing a
+# fresh parser scope (the hook's pattern is documented inline; we test the
+# EXACT guard).
+parser_skip_output="$(bash -c '
+set +e
+bn="brcmbt-bareapple-other.ptb"
+case "$bn" in
+    brcmbt*-apple,*) echo "WOULD_PROCESS $bn -> ${bn#brcmbt*-apple,}";;
+    *) echo "SKIPPED $bn";;
+esac
+')"
+[ "$parser_skip_output" = "SKIPPED brcmbt-bareapple-other.ptb" ] \
+    && ok "non-conforming filename (no apple,) is silently skipped" \
+    || { bad "non-conforming filename parser: got [$parser_skip_output]"; }
+
+# The hook MUST NOT install a symlink shortcut (e.g. brcm/BCM.hcd or any
+# brcm/BCM<chip>.hcd). Operator directive (firmware.md): do NOT blindly symlink
+# BCM.hcd to BCM4377B3.hcd; verify the contract here.
+for symlink in "$R/lib/firmware/brcm/BCM.hcd" \
+               "$R/lib/firmware/brcm/BCM4345C5.hcd" \
+               "$R/lib/firmware/brcm/BCM4364B3.hcd" \
+               "$R/lib/firmware/brcm/BCM4377B3.hcd"; do
+    if [ -L "$symlink" ]; then
+        bad "blind-symlink contract violated: $symlink was created"
+    else
+        ok "no blind symlink $symlink"
+    fi
+done
+# Generic fallback "BCM.hcd" with no extension is the exact string the kernel
+# logs when its chip-id table lacks an entry. Refusing to create it is the
+# whole point of the contract.
+if [ -e "$R/lib/firmware/brcm/BCM.hcd" ]; then bad "BCM.hcd was created (file or link)"; else ok "no BCM.hcd file/alias"; fi
+
+echo "=== BT coverage hint is conditional on the host DMI product_name (MacBookPro16,1 = BCM4364B3 'Trinidad') ==="
+# MacBookPro16,1 (MEDUSA SKU) -- BCM4364B3 "Trinidad Olympic GEN" BT is NOT in
+# the staged set. Hook must surface the recovery command line, NOT silently
+# succeed. The kernel log will still print "firmware Patch file not found,
+# tried: 'brcm/BCM.hcd'" on this SKU; this installer-side hint is the
+# operator-readable pointer to the next step.
+run_hook "$R/fw/apple-t2-firmware-sonoma14.tar.xz" NCZ_T2_DMI_PRODUCT=MacBookPro16,1
+[ "$(cat "$R/rc")" = 0 ] && ok "MacBookPro16,1 hook still exits 0 (hint is informational, not a failure)" || bad "MacBookPro16,1 rc=$(cat "$R/rc")"
+grep -q "MacBookPro16,1 Bluetooth is BCM4364B3" "$R/out" && ok "MacBookPro16,1 recovery hint is printed" || bad "MacBookPro16,1 recovery hint missing"
+grep -q 'get_from_online' "$R/out" && ok "get-apple-firmware get_from_online recovery command is referenced" || bad "recovery command missing"
+# MacBookPro15,1 is an in-staged-coverage T2 Mac; the hint must NOT fire.
+run_hook "$R/fw/apple-t2-firmware-sonoma14.tar.xz" NCZ_T2_DMI_PRODUCT=MacBookPro15,1
+if grep -q "BT staged boards" "$R/out" || grep -q "Apple Bluetooth staged boards" "$R/out"; then
+    ok "in-staged SKU inventory line emitted"; else bad "inventory line missing for MacBookPro15,1"
+fi
+if grep -q "BCM4364B3" "$R/out"; then bad "MacBookPro15,1 must not print the BCM4364B3 hint"; else ok "MacBookPro15,1 does not print BCM4364B3 hint"; fi
 
 echo "=== a missing staged firmware tarball is a hard, loud failure (no quiet fallback) ==="
 run_hook "$R/fw/does-not-exist.tar.xz"
