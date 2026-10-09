@@ -36,6 +36,7 @@ import hashlib
 import json
 import lzma
 import os
+import posixpath
 import re
 import shutil
 import stat
@@ -59,6 +60,13 @@ TOOL_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 PIN_RE = re.compile(r"^[0-9]{8}T[0-9]{6}Z$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+# The exact, expected debugfs rdump warning a NON-ROOT scan cannot avoid: it
+# cannot chown a dumped file.  Anchored so a differently-worded error is not
+# mistaken for it.  Only ever tolerated for rdump, and only alongside the
+# independent type+size completeness proof in check_complete().
+CHOWN_PERM_RE = re.compile(
+    r"^.*:?\s*Operation not permitted while changing ownership\s*$")
 
 FAILS = []
 
@@ -89,6 +97,49 @@ def need_tool(name):
         return True
     fail("env", name, "required tool not found (PATH is fixed and scrubbed)")
     return False
+
+
+# ---------------------------------------------------------------- virtual archive root
+class UnsafeArchive(Exception):
+    """A tar/cpio member would escape the extraction root or link to the host."""
+
+
+def safe_symlink_target(name, target):
+    """Validate a symlink target against a VIRTUAL ARCHIVE ROOT.
+
+    Returns ``(True, rewritten)`` when the link stays inside the archive's own
+    virtual root, else ``(False, None)``.
+
+    Absolute targets name a path inside the archive root, never the host:
+    an initrd's ``etc/mtab -> /proc/mounts`` and a usrmerge rootfs's
+    ``var/run -> /run`` / ``var/lock -> /run/lock`` are legitimate and were the
+    false positives.  We rewrite an absolute target to the equivalent RELATIVE
+    link so that, if it is ever materialised, it still cannot be followed onto
+    the host.  A relative target that climbs above the root escapes and is
+    rejected.  An empty or interior-NUL target is rejected.
+    """
+    if not target or "\x00" in target:
+        return False, None
+    if target.startswith("/"):
+        virt = posixpath.normpath(target).lstrip("/")
+        if virt in ("", "."):
+            return False, None
+        parent = posixpath.dirname(posixpath.normpath(name)) if name else ""
+        rewritten = posixpath.relpath(virt, parent or ".")
+        # relpath from one in-root path to another always stays in-root.
+        return True, rewritten
+    norm = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
+    if norm == ".." or norm.startswith("../"):
+        return False, None
+    return True, target
+
+
+def safe_hardlink_target(name):
+    """A tar hard-link target must be a plain relative archive path; absolute or
+    '..'-climbing targets could hard-link (and thus expose) a host file."""
+    if not name or name.startswith("/") or "\x00" in name:
+        return False
+    return ".." not in name.split("/")
 
 
 # ---------------------------------------------------------------- parsing
@@ -1029,7 +1080,18 @@ def scan_squashfs(ref, sq, src):
 
     st = cat("var/lib/dpkg/status")
     if st is None:
-        fail(src, sq, "squashfs layer has no readable var/lib/dpkg/status")
+        # STRICT: a layer with no dpkg database cannot establish package origin
+        # and is rejected by default.  Do NOT accept it just because it lacks an
+        # apt/.deb surface: a foreign ELF overlay can override a packaged base
+        # without any content binding.  Accepting it would be a policy
+        # relaxation the operator never approved.  Binding the exact known
+        # desktop-hotfix content to an EXTERNAL, committed overlay-source
+        # manifest/hash (build_hotfix + exact file coverage) is required before
+        # any such layer may pass; that binding does not exist yet, so the
+        # desktop-hotfix layer remains an explicit blocker.
+        fail(src, sq, "squashfs layer has no readable var/lib/dpkg/status "
+                      "(no package origin; strict reject -- content binding "
+                      "required, not a blanket overlay bypass)")
         return 0
     n = scan_status(ref, st, src)
     if n == 0:
@@ -1077,12 +1139,47 @@ def safe_extract_zst(tar_path, dest, src):
             fail(src, tar_path, "zstd decompression failed")
             return False
         with tarfile.open(tmp, "r:") as tf:
+            seen = {}
             for m in tf.getmembers():
                 if m.name.startswith("/") or ".." in m.name.split("/"):
                     fail(src, tar_path, f"unsafe tar member: {m.name}")
                     return False
+                # Shadow check: two content-bearing members at the same
+                # normalized path would let a later entry overwrite an earlier
+                # mapped file (e.g. var/lib/dpkg/status) inside the root.  A
+                # repeated plain directory entry is harmless; legitimate
+                # usr-merge symlinks and pure data hard-links have distinct
+                # names and are unaffected.
+                nm = m.name[2:] if m.name.startswith("./") else m.name
+                key = posixpath.normpath(nm) if nm not in ("", ".") else ""
+                if key:
+                    if key in seen and not (seen[key] and m.isdir()):
+                        fail(src, tar_path, "duplicate tar member path (would "
+                             f"shadow earlier content): {m.name}")
+                        return False
+                    seen[key] = m.isdir()
             try:
-                tf.extractall(dest, filter="data")
+                def _member_filter(member, *_):
+                    # Names are prevalidated above; links need a virtual
+                    # archive-root rewrite so an absolute symlink target
+                    # (var/run -> /run) is materialised as a RELATIVE link that
+                    # cannot be followed onto the host, and a hard-link cannot
+                    # reach an absolute/'..'-climbing host path.
+                    if member.issym():
+                        ok, rewritten = safe_symlink_target(member.name, member.linkname)
+                        if not ok:
+                            raise UnsafeArchive(
+                                f"tar symlink escapes: {member.name} -> {member.linkname}")
+                        member.linkname = rewritten
+                    elif member.islnk():
+                        if not safe_hardlink_target(member.linkname):
+                            raise UnsafeArchive(
+                                f"tar hard-link escapes: {member.name} -> {member.linkname}")
+                    return member
+                tf.extractall(dest, filter=_member_filter)
+            except UnsafeArchive as e:
+                fail(src, tar_path, f"safe tar extraction failed: {e}")
+                return False
             except Exception as e:  # noqa: BLE001
                 fail(src, tar_path, f"safe tar extraction failed: {e}")
                 return False
@@ -1135,14 +1232,25 @@ def scan_image(ref, img, work):
         pl = os.path.join(base, "ncz-payload")
         os.makedirs(base, exist_ok=True)
 
-        def dbg(*args, required=True):
+        def dbg(*args, required=True, allow_chown=False):
             """Run a debugfs command; return stdout (or None on failure).  The
             normal version banner is ignored; any other stderr line, a non-zero
-            exit or an ext2 lookup failure is a hard error for required trees."""
+            exit or an ext2 lookup failure is a hard error for required trees.
+
+            ``allow_chown`` is used ONLY for ``rdump``: a non-root debugfs
+            cannot chown the dumped files and emits exactly
+            ``... Operation not permitted while changing ownership`` per failed
+            chown.  Those lines affect ownership only; content completeness is
+            proven independently by ``check_complete()`` (which enumerates every
+            path/type/size from the image BEFORE the dump and requires each in
+            the extraction).  No other stderr line is tolerated, and a partial
+            dump still fails in check_complete()."""
             r = run(["debugfs", "-R", " ".join(args), dev], capture_output=True,
                     text=True)
             err = [l for l in (r.stderr or "").splitlines()
                    if l.strip() and not l.startswith("debugfs ")]
+            if allow_chown:
+                err = [l for l in err if not CHOWN_PERM_RE.search(l.strip())]
             bad = r.returncode != 0 or bool(err) or "not found by ext2_lookup" in (r.stdout or "")
             if bad and required:
                 fail("image", img, f"debugfs {' '.join(args)} failed: "
@@ -1213,7 +1321,7 @@ def scan_image(ref, img, work):
         found_any = False
 
         for t in ("dists", "pool"):
-            dbg("rdump", "/" + t, base)
+            dbg("rdump", "/" + t, base, allow_chown=True)
             if not os.path.exists(os.path.join(base, t)):
                 fail("image", img, f"required /{t} tree is missing or unreadable")
             else:
@@ -1250,7 +1358,7 @@ def scan_image(ref, img, work):
 
         # Dump the whole /ncz-payload subtree and verify it against a recursive
         # pre-dump enumeration (a partial rdump still leaves a directory behind).
-        dbg("rdump", "/ncz-payload", base)
+        dbg("rdump", "/ncz-payload", base, allow_chown=True)
         if not os.path.isdir(pl):
             fail("image", img, "required /ncz-payload tree is missing or unreadable")
         else:
@@ -1535,10 +1643,13 @@ def _extract_newc(data, dest, src, allow_tail=False, written=None):
             continue
         if statmod.S_ISLNK(mode):
             target = fdata.decode("utf-8", "replace")
-            if target.startswith("/") or ".." in target.split("/"):
+            ok, _ = safe_symlink_target(name, target)
+            if not ok:
                 fail("image", src, f"cpio symlink escapes: {name} -> {target}")
                 return None
-            continue  # a safe symlink is recorded but never materialised
+            continue  # a safe symlink is recorded but never materialised; an
+            # absolute target (/proc/mounts, /run) binds to the virtual archive
+            # root, never the host, so it cannot be followed on extraction.
         if statmod.S_ISREG(mode):
             d = _safe_member(dest, name)
             if d is None:

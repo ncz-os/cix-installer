@@ -249,7 +249,7 @@ expect_rc "publisher accepts a byte-different rebuild of identical content" 0 en
 # ncz-apt-policy must carry exactly the library deployed next to the publisher (the pin it publishes)
 mkpol() {  # out libfile
     local w="$T/pw.$RANDOM"; mkdir -p "$w/DEBIAN" "$w/usr/share/ncz-apt-policy"
-    printf 'Package: ncz-apt-policy\nVersion: 1.0.1\nArchitecture: all\nMaintainer: T <t@example.invalid>\nDescription: t\n' > "$w/DEBIAN/control"
+    printf 'Package: ncz-apt-policy\nVersion: 1.0.2\nArchitecture: all\nMaintainer: T <t@example.invalid>\nDescription: t\n' > "$w/DEBIAN/control"
     cp "$2" "$w/usr/share/ncz-apt-policy/apt-separation.sh"
     dpkg-deb --root-owner-group -b "$w" "$1" >/dev/null 2>&1
 }

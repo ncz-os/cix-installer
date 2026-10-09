@@ -8,7 +8,10 @@
 #        differs from the pin text the shipped lib generates
 #     2. the Debian kernel-purity pin (00-ncz-kernel-purity.pref) is missing
 #     3. more than ONE NCZ repo is enabled (Buildkite + R2 both active)
-#     4. t2.list is present but the pin file lacks the T2 host stanza
+#
+# The former t2.list invariant is gone (r201 native-vendor closure):
+# post-install/55-t2-firmware.sh no longer wires any third-party T2 apt source,
+# so a present t2.list is a stale/foreign file, not something a pin should cover.
 #
 # Usage: build/check-installed-apt-config.sh [ROOT]     (default ROOT=/)
 set -uo pipefail
@@ -63,11 +66,7 @@ else
 fi
 
 if [ -f "$APT/sources.list.d/t2.list" ]; then
-    if [ -f "$PIN" ] && grep -q "Pin: origin $NCZ_APT_T2_HOST" "$PIN"; then
-        ok "t2.list is covered by the T2 pin"
-    else
-        fail "t2.list present but the pin has no 'Pin: origin $NCZ_APT_T2_HOST' stanza"
-    fi
+    echo "  note: t2.list present (stale; r201 no longer wires a third-party T2 apt source; delete it)"
 fi
 
 echo "check-installed-apt-config($ROOT): $BAD failure(s)"

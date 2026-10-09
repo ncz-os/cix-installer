@@ -76,17 +76,35 @@ What this script does NOT do:
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_CACHE_ROOT = REPO_ROOT / "build" / "iso-cache" / "v1"
+
+# The deterministic NCZ derivative suffix.  It must be a valid Debian version
+# suffix (> the base) and MUST differ from the upstream base version so the
+# patched udeb can never be mistaken for Debian's byte-identical package.
+# Bump only with a reviewed recipe change; the suffix is part of the
+# derivative identity checked by the provenance consumer.
+DERIVATIVE_SUFFIX = "+ncz1"
+
+# Reproducible-build epoch.  Overridable by SOURCE_DATE_EPOCH for replay, but a
+# fixed default means two builds of the same inputs produce the same bytes.
+def _epoch() -> int:
+    raw = os.environ.get("SOURCE_DATE_EPOCH", "0")
+    try:
+        return int(raw)
+    except ValueError:
+        raise RuntimeError(f"SOURCE_DATE_EPOCH is not an integer: {raw!r}")
 
 
 def sha256_file(path: Path) -> str:
@@ -888,19 +906,138 @@ def _extract_data_tar(udeb_path: Path, dest_dir: Path):
     return data_tar
 
 
+def _deterministic_tar_gz(src_dir: Path, out_path: Path, epoch: int) -> None:
+    """Write a gzip'd tar of ``src_dir`` that is byte-identical across runs with
+    the same inputs: entry names sorted, uid/gid 0, empty uname/gname, every
+    mtime = epoch, gzip mtime = epoch and no stored gzip filename.  Pure Python
+    (no GNU tar --sort, which is not portable)."""
+    entries = []
+    for root, dirs, files in os.walk(src_dir):
+        dirs.sort()
+        for n in sorted(dirs) + sorted(files):
+            entries.append(os.path.join(root, n))
+    entries.sort()
+    with out_path.open("wb") as raw:
+        with gzip.GzipFile(fileobj=raw, mode="wb", mtime=epoch,
+                           compresslevel=9) as gz:
+            with tarfile.open(fileobj=gz, mode="w",
+                              format=tarfile.GNU_FORMAT) as tf:
+                for p in entries:
+                    arc = os.path.relpath(p, src_dir).replace(os.sep, "/")
+                    info = tf.gettarinfo(str(p), arcname=arc)
+                    info.uid = 0
+                    info.gid = 0
+                    info.uname = ""
+                    info.gname = ""
+                    info.mtime = epoch
+                    info.pax_headers = {}
+                    if info.isreg():
+                        with open(p, "rb") as fh:
+                            tf.addfile(info, fh)
+                    else:
+                        tf.addfile(info)
+
+
+def _write_ar(out_path: Path, members) -> None:
+    """Write an ``ar`` archive deterministically (mtime 0, uid/gid 0, mode
+    100644) in the given member order.  Implemented here instead of shelling out
+    to ``ar`` because GNU ar's ``-D`` is not portable and BSD ar has no
+    deterministic mode, so the system tool would leak timestamps/ownership."""
+    def header(name: str, size: int) -> bytes:
+        return (name[:16].ljust(16).encode("ascii")
+                + b"%-12d" % 0
+                + b"%-6d" % 0
+                + b"%-6d" % 0
+                + b"%-8s" % b"100644"
+                + b"%-10d" % size
+                + b"`\n")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("wb") as f:
+        f.write(b"!<arch>\n")
+        for name, data in members:
+            f.write(header(name, len(data)))
+            f.write(data)
+            if len(data) % 2:
+                f.write(b"\n")
+
+
+def _apply_derivative_control(text: str, base_sha256: str,
+                              stub_sha256: str) -> str:
+    """Rewrite a base udeb ``control`` into the NCZ derivative identity.
+
+    The base version gains the deterministic ``DERIVATIVE_SUFFIX`` so the
+    artifact can never be confused with Debian's byte-identical package, and the
+    exact provenance (the authenticated base sha256 and the stub recipe sha256)
+    is recorded IN the control so a consumer can verify it without any
+    self-blessing runtime ledger.  The ``Package`` name is preserved so d-i's
+    dependency resolution is unaffected."""
+    lines = text.splitlines()
+    out = []
+    base_version = None
+    arch = None
+    for ln in lines:
+        if ln.startswith("Version:"):
+            base_version = ln.split(":", 1)[1].strip()
+            out.append(f"Version: {base_version}{DERIVATIVE_SUFFIX}")
+        elif ln.startswith("Architecture:"):
+            arch = ln.split(":", 1)[1].strip()
+            out.append(ln)
+        elif ln.startswith("Maintainer:"):
+            out.append("Maintainer: NCZ-OS Derivative Build <ncz-udeb@ncz.invalid>")
+        else:
+            out.append(ln)
+    if not base_version:
+        raise RuntimeError("base debootstrap-udeb control has no Version field")
+    if arch != "all":
+        # The patched stub is architecture-independent; a non-'all' base would
+        # drag architecture-specific bytes into a common package.
+        raise RuntimeError(
+            f"refusing to derive: base debootstrap-udeb Architecture={arch!r}, "
+            "expected 'all'")
+    out.append(f"NCZ-Derivative-Of: debootstrap-udeb {base_version}")
+    out.append(f"NCZ-Base-SHA256: {base_sha256}")
+    out.append(f"NCZ-Recipe-SHA256: {stub_sha256}")
+    return "\n".join(out) + "\n", base_version
+
+
+def _build_derivative_control(ar_dir: Path, control_member: str,
+                              base_sha256: str, stub_sha256: str,
+                              epoch: int):
+    """Replace ``control_member`` in ``ar_dir`` with a deterministic
+    ``control.tar.gz`` carrying the derivative identity.  Returns
+    ``(new_member_name, base_version)``."""
+    src = ar_dir / control_member
+    base_version = None
+    with tempfile.TemporaryDirectory(prefix="ncz-control.") as td:
+        tree = Path(td) / "control"
+        tree.mkdir()
+        with tarfile.open(src, "r:*") as tf:
+            tf.extractall(tree, filter="data")
+        cpath = tree / "control"
+        if not cpath.is_file():
+            raise RuntimeError(f"control archive {control_member} has no 'control' file")
+        text, base_version = _apply_derivative_control(
+            cpath.read_text(), base_sha256, stub_sha256)
+        cpath.write_text(text)
+        for p in tree.rglob("*"):
+            if p.is_file():
+                os.chmod(p, 0o644)
+        _deterministic_tar_gz(tree, ar_dir / "control.tar.gz", epoch)
+    if src.name != "control.tar.gz":
+        src.unlink()
+    return "control.tar.gz", base_version
+
+
 def _repack_udeb(ar_dir: Path, control_member: str,
-                 data_member_original: Path, output_udeb: Path) -> None:
-    """Repack a directory of ar members into a fresh .udeb. Members
-    (in the order dpkg expects):
+                 data_member_original: Path, output_udeb: Path,
+                 epoch: int = 0) -> None:
+    """Repack a directory of ar members into a fresh, byte-reproducible .udeb.
+    Members, in the order dpkg expects:
 
       1. debian-binary      (verbatim from ar_dir)
-      2. control.tar.*      (verbatim from ar_dir)
-      3. data.tar.gz        (recompressed from the modified data tree)
-
-    We always repack as data.tar.gz because that's what dpkg reads
-    most portably; the original .xz/.zst extraction was just for the
-    in-place edit. The other members (debian-binary, control.tar.*)
-    are copied verbatim from ar_dir.
+      2. control.tar.gz     (rewritten derivative control)
+      3. data.tar.gz        (recompressed deterministically from the data tree)
     """
     members_to_skip = {"debian-binary", control_member,
                        data_member_original.name}
@@ -920,40 +1057,15 @@ def _repack_udeb(ar_dir: Path, control_member: str,
             else:
                 shutil.copy2(str(entry), str(dest))
         data_tar_gz = tmpdir / "data.tar.gz"
-        tar_proc = subprocess.run(
-            ["tar", "--numeric-owner", "--owner=0", "--group=0",
-             "-cf", "-", "-C", str(staged_data), "."],
-            capture_output=True,
-        )
-        if tar_proc.returncode != 0:
-            raise RuntimeError(f"tar -cf failed: {tar_proc.stderr.decode()}")
-        gzip_proc = subprocess.run(
-            ["gzip", "-9n"], input=tar_proc.stdout,
-            capture_output=True,
-        )
-        if gzip_proc.returncode != 0:
-            raise RuntimeError(f"gzip -9n failed: {gzip_proc.stderr.decode()}")
-        data_tar_gz.write_bytes(gzip_proc.stdout)
-
-        output_udeb.parent.mkdir(parents=True, exist_ok=True)
-        # Stage data.tar.gz in ar_dir for `ar rc` (which operates from cwd).
-        shutil.copy2(str(data_tar_gz), str(ar_dir / "data.tar.gz"))
-        try:
-            ar_proc = subprocess.run(
-                ["ar", "rc", str(output_udeb),
-                 "debian-binary", control_member, "data.tar.gz"],
-                cwd=str(ar_dir),
-                capture_output=True, text=True,
-            )
-            if ar_proc.returncode != 0:
-                raise RuntimeError(
-                    f"ar rc {output_udeb} failed: {ar_proc.stderr.strip()}"
-                )
-        finally:
-            try:
-                (ar_dir / "data.tar.gz").unlink()
-            except FileNotFoundError:
-                pass
+        _deterministic_tar_gz(staged_data, data_tar_gz, epoch)
+        debian_binary = (ar_dir / "debian-binary").read_bytes()
+        control_bytes = (ar_dir / control_member).read_bytes()
+        data_bytes = data_tar_gz.read_bytes()
+    _write_ar(output_udeb, [
+        ("debian-binary", debian_binary),
+        (control_member, control_bytes),
+        ("data.tar.gz", data_bytes),
+    ])
 
 
 def _syntax_check_stub(stub_text: str, label: str) -> None:
@@ -1042,6 +1154,12 @@ def patch_udeb(udeb_path: Path, output_path: Path, stub_text: str,
     debian_binary, control_member, data_member = members
     log(f"    udeb members: {members}")
 
+    # Provenance anchors: the authenticated base bytes (must equal the pinned
+    # snapshot sha the consumer verifies) and the exact stub recipe hash.
+    base_sha256 = sha256_file(udeb_path)
+    stub_sha256 = sha256_bytes(stub_text.encode("utf-8"))
+    epoch = _epoch()
+
     with tempfile.TemporaryDirectory(prefix="patch-debootstrap-stub.") as tmpdir_str:
         tmpdir = Path(tmpdir_str)
         ar_dir = tmpdir / "ar"
@@ -1088,11 +1206,18 @@ def patch_udeb(udeb_path: Path, output_path: Path, stub_text: str,
             else:
                 shutil.move(str(entry), str(dest))
 
+        # Rewrite the control member into the deterministic NCZ derivative
+        # identity BEFORE repacking, so the shipped control declares the
+        # derivative version and the base/stub provenance.
+        control_member, base_version = _build_derivative_control(
+            ar_dir, control_member, base_sha256, stub_sha256, epoch)
+
         _repack_udeb(
             ar_dir=ar_dir,
             control_member=control_member,
             data_member_original=orig_data_tar,
             output_udeb=output_path,
+            epoch=epoch,
         )
 
     out_members = _list_udeb_members(output_path)
@@ -1104,12 +1229,18 @@ def patch_udeb(udeb_path: Path, output_path: Path, stub_text: str,
     return {
         "input_udeb": str(udeb_path),
         "output_udeb": str(output_path),
-        "input_sha256": sha256_file(udeb_path),
+        "input_sha256": base_sha256,
         "output_sha256": sha256_file(output_path),
         "input_size": udeb_path.stat().st_size,
         "output_size": output_path.stat().st_size,
         "members": out_members,
         "patched": True,
+        "derivative_version": f"{base_version}{DERIVATIVE_SUFFIX}",
+        "base_version": base_version,
+        "base_sha256": base_sha256,
+        "recipe_sha256": stub_sha256,
+        "source_date_epoch": epoch,
+        "architecture": "all",
     }
 
 

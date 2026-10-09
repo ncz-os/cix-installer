@@ -24,7 +24,7 @@ ncz-screensavers
 # ncz-apt-policy (r201 apt separation): the pin that keeps NCZ-OS packages and Debian
 # packages apart. Hook 24 writes the pin itself on a fresh install; this package keeps it
 # current afterwards (ncz-update-apply installs it on running systems). It must be PUBLISHED
-# (>= 1.0.1) before an image or mirror is built.
+# (>= 1.0.2) before an image or mirror is built.
 ncz-apt-policy
 #
 # The installer's user-setup step runs `apt-get install sudo` in the target, and

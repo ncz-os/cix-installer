@@ -75,25 +75,64 @@ the mapping and the gate prints a NOTE that bytes were not hashed.
 
 The ledger is seeded from the committed reviewed pin file
 `manifests/build-inputs.tsv` plus the packaging recipe for the repacked CIX NPU
-DKMS (`packaging/cix-npu-driver-dkms-6.2.0`). It is **incomplete by design**: it
-lists only entries whose reviewed bytes exist today.
+DKMS (`packaging/cix-npu-driver-dkms-6.2.0`), and from the r201 built payloads
+whose bytes are held on a canonical ARGONAS store and were independently
+sha256-verified (`ncz-singularity-desktop`, `ncz-screensavers-plugin`; source
+revision bound to the `singularity-opt.tgz` content digest +
+`assets/singularity/upstream-pins.tsv`, and to the `ncz-screensavers` plug-in
+commit). It is **incomplete by design**: it lists only entries whose reviewed
+bytes exist today.
 
 ### Open blocker — NCZ ledger coverage
 
-The following NCZ packages ship but are **not** yet in the ledger, so the gate
-hard-fails on them until they are reviewed and added (this is the intended
-fail-closed behaviour, not a bug):
+The list below is the **actual** shipping set from the read-only strict-gate
+inventory of the r201 `ba426921` images (clean `e478a5d5` trust root), not a
+policy name list. These identities ship and are not yet in the ledger, so the
+gate hard-fails on them until reviewed and added (intended fail-closed
+behaviour, not a bug):
 
-* `ncz-apt-policy`, `ncz-screensavers-plugin`, `ncz-agent-*` and other `ncz-*`
-  agent/policy debs — no committed reviewed sha256 + build-source record found;
-* `chromium-ncz-*`, `ncz-ffmpeg`, `ncz-singularity-desktop`, `zoder`,
-  `ncz-intel-accel` and the CIX-repacked GPU/VPU DKMS debs — build outputs exist
-  only on the build hosts and are not pinned in `manifests/build-inputs.tsv`.
+* **Built, non-live, proof incomplete** — `ncz-apt-policy 1.0.1 all`,
+  `ncz-usb-recovery 1.2 arm64`, and the CIX-repacked `cix-gpu-kmd-dkms
+  1.0+ncz2 all`, `panthor-cix-dkms 7.2.0+ncz2 all`, `cix-vpu-driver-dkms
+  1.0.2-ncz1+ncz2 all`. Bytes exist on the non-live ARGONAS staging store
+  (`ncz-package-staging/r201-e478a5d5-20261008`); the build's dependency
+  universe is not yet cryptographically bound to the pinned snapshot, so the
+  rows are **withheld** until the authenticated rebuild completes and is
+  independently verified (see the cheap-package verification receipt).
+* **Ships, no canonical build record / bytes** — arm64 `ncz-ffmpeg 9.0.1-ncz3`,
+  arm64 `chromium-ncz-sky1 154.0.8037.0-ncz20260907`, arm64
+  `libgtk4-layer-shell0 1.3.0-1+ncz20260925`, and the older `libdrm2` /
+  `libdrm-common 2.4.134-3+ncz1` still present in the r201 desktop-mirror pool.
+* **Ships, no ledger row yet** — `ncz-wallpapers-cygnus-2610 1.1 all` (both arches).
+* **Kernel / boot input provenance (image-input work, distinct from the
+  current-kernel-warning followup)** — amd64
+  `linux-image-7.3.0-rc6-4-t2-edge-aer9010` and `linux-headers-…` `7.3.0-rc6-4`;
+  arm64 `linux-image-cixmini` / `linux-headers-cixmini 7.3.0-rc6-sky1-ncz+r285`
+  and `cixmini-boot 1.2+r285`.
+* **Additional CIX names that ship** — beyond the ledgered
+  `cix-npu-driver-dkms 6.2.0-…+ncz3`, the images also carry `cix-vaapi 1.0.0`,
+  `cix-libcme 1.0.0` and `cix-libva2 2.2.1-1` (arm64); classify vendor-vs-NCZ
+  before adding.
 
-Each must be added with its recipe and reviewed sha256 (or the build-input pin
-extended). Until then, a finished image containing them fails the gate — a
-deliberate guarantee that provenance is reviewed, never manufactured by hashing
-whatever happens to be staged.
+Not ledger blockers (correcting an earlier framing — do not list these as
+shipped-but-unpinned):
+
+* `ncz-agent-*` and `zoder` are **absent from both r201 images**; no canonical
+  deb artifact exists, so there is nothing to pin. (`zoder` ships as a tarball,
+  `zoder-0.2.1`, not a deb, and is not in this repo's deb namespace.)
+* `ncz-intel-accel` is **not a deb**: it is a userspace setup service plus
+  `assets/intel` keying. The Intel OpenVINO plugin is instead supplied by the
+  `pending` `apt.repos.intel.com/openvino` (`ubuntu24`) vendor repo (item 3 below).
+
+Reviewed r201 entries added 2026-10-08, for the exact debs the gated images
+install, are excluded from the list above: `ncz-singularity-desktop`
+(amd64/arm64) and `ncz-screensavers-plugin` (amd64/arm64).
+
+Each remaining package must be added with its recipe and reviewed sha256 once
+its bytes exist on a canonical store (or the build-input pin extended). Until
+then, a finished image containing them fails the gate — a deliberate guarantee
+that provenance is reviewed, never manufactured by hashing whatever happens to
+be staged.
 
 ### CIX vendor debs
 
@@ -273,7 +312,80 @@ Real artifacts (not hand-serialized) are exercised end to end:
 `debugfs ls -p` **before** dumping, then asserts every enumerated path/type/size
 exists in the extraction. debugfs's version banner is ignored; any other stderr
 line is a hard failure for required trees. A partial dump therefore fails even
-though `rdump` leaves a directory behind.
+though `rdump` leaves a directory behind. The one tolerated stderr line is the
+exact non-root `rdump` warning `... Operation not permitted while changing
+ownership` (a non-root scan cannot chown dumped files); it is accepted **only**
+for `rdump`, never changes the type+size completeness proof above, and a
+different-worded error on the same command still fails closed.
+
+### Architecture-neutral archive handling (safe virtual archive root)
+
+A finished image legitimately contains absolute *symlink targets* that name a
+path inside the archive's own virtual root, not a host path: the installer
+initrd's `etc/mtab -> /proc/mounts`, and a usrmerge rootfs's `var/run -> /run`
+and `var/lock -> /run/lock`. The scanner accepts these (they were false
+positives) while never following them onto the host:
+
+* **cpio**: an absolute symlink target is validated against the virtual root and
+  is recorded but **never materialised**, so nothing can be written through it.
+* **tar**: an absolute symlink target is rewritten to the equivalent *relative*
+  link inside the extraction root before materialising, so a later member cannot
+  be written onto the host; a relative target that climbs above the root, an
+  absolute member path, an absolute/`..`-climbing hard-link and a duplicate
+  cpio pathname all still fail closed.
+
+### A no-dpkg squashfs layer is a hard failure (no blanket overlay bypass)
+
+`desktop-hotfix.squashfs` is a real overlay delta with no `var/lib/dpkg/status`.
+It is **rejected by default**: a layer with no dpkg database cannot establish
+package origin, and accepting it merely because it lacks an `etc/apt`/`.deb`
+surface would let a foreign ELF overlay override a packaged base with no content
+binding -- a policy relaxation the operator never approved. To pass, such a
+layer must be bound to an **external, committed** overlay-source manifest/hash
+(the existing `build_hotfix` source with exact file coverage), and that binding
+does not exist yet. Until it does, this layer is an explicit, fail-closed
+blocker. A self-written `.overlay-manifest` carried inside the image is NOT a
+trust root (the image owner can rewrite it) and is not accepted.
+
+### Tar shadow check
+
+Within the extraction root, tarfile could otherwise let a later member overwrite
+an earlier mapped file at the same path (e.g. `var/lib/dpkg/status`). The tar
+extractor now rejects a duplicate normalized member path when it would shadow
+earlier content. Legitimate usr-merge symlinks (`lib -> usr/lib`) and pure data
+hard-links have distinct names and are unaffected. (The residual, ambiguous
+case is a symlink *alias* that maps a later path onto an earlier one; strict
+root confinement keeps it inside the scratch root, and it is reported as a
+limited blocker rather than guessed at.)
+
+## NCZ derivative packages (debootstrap-udeb)
+
+`build/iso/patch-debootstrap-stub.py` derives Debian's `debootstrap-udeb` (the
+d-i package that runs `debootstrap`) into an NCZ artifact. The old repack kept
+Debian's `Package`/`Version` while replacing `/usr/sbin/debootstrap`, so the
+scanner saw "same name/version as forky but sha256 differs (rebuilt/foreign
+bytes)" -- correct, because the bytes are no longer Debian's. The derivative
+contract now:
+
+* `Version` becomes `<base>+ncz1` (deterministic; never byte-identical to the
+  pinned snapshot entry) and the control records the **authenticated** base
+  sha256 (`NCZ-Base-SHA256`, which the consumer verified against the signed
+  snapshot index) and the exact stub recipe hash (`NCZ-Recipe-SHA256`);
+* `Package: debootstrap-udeb` and `Architecture: all` are preserved so d-i's
+  dependency resolution is unaffected and no architecture-specific bytes enter a
+  common package (a non-`all` base is refused);
+* the packaging is byte-reproducible (Python deterministic tar/gzip and `ar`
+  writers; `SOURCE_DATE_EPOCH` defaults to 0), so the same inputs always produce
+  the same sha256;
+* the consumer `build/build-installer-image.sh` fetches the base through
+  `build/iso/fetch-pinned-debootstrap-udeb.py`, which resolves it from the
+  **pinned signed snapshot** (same trust root as the scanner) and never from a
+  live `deb.debian.org` forky index.
+* The derivative must be added to `manifests/ncz-packages.tsv` (name, version
+  `1.0.145+ncz1`, arch `all`, its sha256, recipe `build/iso/patch-debootstrap-stub.py`,
+  source revision, note) once built; the control fields are audit evidence, NOT
+  a self-blessing authorization -- the scanner still requires the reviewed
+  ledger row, exactly like every other NCZ package.
 
 ## External gates and blockers (not satisfiable in-repo)
 
@@ -283,12 +395,14 @@ though `rdump` leaves a directory behind.
    snapshot (`20261007T202437Z`, 107354 index entries), then checked both
    reviewed Vivaldi packages: 2 packages checked, 0 failures. This verifies
    snapshot compatibility; it does not accept any release image.
-2. **NCZ ledger coverage.** `ncz-apt-policy`, `ncz-screensavers-plugin`,
-   `ncz-agent-*`, `chromium-ncz-*`, `ncz-ffmpeg`, `ncz-singularity-desktop`,
-   `zoder`, `ncz-intel-accel` and the CIX-repacked GPU/VPU DKMS debs have no
-   committed reviewed sha256 + source revision. A finished image containing them
-   fails until they are reviewed and added (or `manifests/build-inputs.tsv` is
-   extended).
+2. **NCZ ledger coverage.** The r201 `ba426921` images fail the strict gate on the
+   actual shipping identities listed under "Open blocker — NCZ ledger coverage"
+   above (the five built-but-unauthenticated cheap debs, arm64
+   ffmpeg/chromium/gtk4-layer-shell, `ncz-wallpapers-cygnus-2610`, the kernel/boot
+   set, and the additional CIX names). `ncz-singularity-desktop` and
+   `ncz-screensavers-plugin` are now covered (r201 entries, 2026-10-08).
+   `ncz-agent-*` and `zoder` do **not** ship and `ncz-intel-accel` is not a deb, so
+   they are not ledger blockers.
 3. **Intel `ubuntu24` / t2linux vendor repos** are marked `pending`; the gate
    fails closed on them until the operator approves the exact URI+suite.
 4. **Release-image acceptance remains separate.** The fixture suite exercises

@@ -301,7 +301,7 @@ mkdir -p "$OUT" "$WORK"
 BASE_STAMP_REL=usr/local/lib/cix-installer/BASE-ASSETS.sha256
 base_assets_stamp() {
   ( cd "$ROOT" || exit 1
-    for a in gpu audio display refind grub branding dracut regreet diag keys dev docs embedkit intel; do
+    for a in gpu audio display refind grub branding dracut regreet diag keys dev docs embedkit intel t2; do
       # assets/dracut is Sky1-only and is not staged into an amd64 base (see the
       # staging loop below). Excluding it from the amd64 fingerprint changes the
       # stamp, so an amd64 base.squashfs that still carries the leaked Sky1
@@ -1078,7 +1078,7 @@ build_base(){
   # this allowlist, breaking the NCZ agent stack, EmbedKit LLM stack, the
   # regreet login theme, NPU assets, and Singularity Desktop's own asset
   # tree on every amd64 build since this loop was last updated.
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs sinty-nm agent-images agent-stack audio display cix-c-shims cix-mm dev diag docs dracut embedkit intel keys npu regreet singularity; do
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs sinty-nm agent-images agent-stack audio display cix-c-shims cix-mm dev diag docs dracut embedkit intel keys npu regreet singularity t2; do
     # assets/dracut is Sky1-only (docs/platform-inventory.tsv): 10-ncz-sky1.conf
     # is the linlon-dp/trilin-dpsub Sky1 display + USB-ethernet module set.
     # 94-dracut-config refuses to apply it on amd64, but staging the file still

@@ -1,0 +1,14 @@
+# assets/t2/SOURCES.tsv -- exact provenance for the Forky-native T2 inputs.
+# TAB-separated: path<TAB>upstream_repo<TAB>commit<TAB>license<TAB>sha256
+# sha256 is over the file as stored in this tree; re-checked by
+# build/test-t2-native.sh.
+t2-better-audio/LICENSE	https://github.com/kekrby/t2-better-audio	e46839a28963e2f7d364020518b9dac98236bcae	MIT	490cdde1c89d42b9cf04b02b75bd5e094672221d51eafe740917323a4540304d
+t2-better-audio/files/91-audio-custom.rules	https://github.com/kekrby/t2-better-audio	e46839a28963e2f7d364020518b9dac98236bcae	MIT	92b249fa174ae09c7942f0f8f9cae1bd1bd3752d8cf6d478a94ded56e5fa4c67
+t2-better-audio/files/paths/t2-builtin-mic.conf	https://github.com/kekrby/t2-better-audio	e46839a28963e2f7d364020518b9dac98236bcae	MIT	8a235dc31ec728131b6f360d4b1c46cf317ff654ca3a9ca661eb6944c4470ef3
+t2-better-audio/files/paths/t2-headphones.conf	https://github.com/kekrby/t2-better-audio	e46839a28963e2f7d364020518b9dac98236bcae	MIT	32c9e601bd874a0b9bb19de3124fce886b9cde41d61a67d4e96d0d85b02d25b7
+t2-better-audio/files/paths/t2-headset-mic.conf	https://github.com/kekrby/t2-better-audio	e46839a28963e2f7d364020518b9dac98236bcae	MIT	7c3f91f40ae92c962d2869b5c1c41d63e8d484596aae9f53b33dfc5185941086
+t2-better-audio/files/paths/t2-speakers.conf	https://github.com/kekrby/t2-better-audio	e46839a28963e2f7d364020518b9dac98236bcae	MIT	beb29c74e6e427f512ecb46213a84f86f32d43f850a557e44e24d9cb20e771f8
+t2-better-audio/files/profile-sets/apple-t2x2.conf	https://github.com/kekrby/t2-better-audio	e46839a28963e2f7d364020518b9dac98236bcae	MIT	c31da4e18e848ab51c033eac970adc42c339d6ee9a2c69c05f5dd98fae549cdf
+t2-better-audio/files/profile-sets/apple-t2x4.conf	https://github.com/kekrby/t2-better-audio	e46839a28963e2f7d364020518b9dac98236bcae	MIT	1a748ce13cf1995fc4963abd4acc64afbfdb5493b0e77f7a3093338f9aac02eb
+t2-better-audio/files/profile-sets/apple-t2x6.conf	https://github.com/kekrby/t2-better-audio	e46839a28963e2f7d364020518b9dac98236bcae	MIT	67db4e04646a37f4cdceeabb5f4c7e62519e1d1c15a60d4bea3dd67c8f0d0a3b
+firmware-helper/get-apple-firmware	https://github.com/t2linux/wiki	986f5a79d43b75d93d84b8d57bc338853b51a0e0	MIT (embedded)	c1c1d8aa25bb5f089e46ccd0d9738fc13bfbd784f499aa924466c690f059961e

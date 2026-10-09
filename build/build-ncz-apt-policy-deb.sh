@@ -26,7 +26,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG=ncz-apt-policy
 # 1.0.1: 1.0.0 shipped a /bin/sh postinst that sourced the bash-only library
 # and died under dash. 1.0.0 must never be published.
-VERSION="${NCZ_APT_POLICY_VERSION:-1.0.1}"
+# 1.0.2: lib/apt-separation.sh changed (r201 native-vendor closure): the
+# unreferenced T2 positive-pending-host pin stanzas are gone and Debian's Intel
+# runtime is pinned via `release o=Debian`. The version gate would refuse a
+# same-version rebuild with different bytes, so the version moves.
+VERSION="${NCZ_APT_POLICY_VERSION:-1.0.2}"
 OUT="${NCZ_APT_POLICY_OUT:-$ROOT/build/ncz-apt-policy-deb}"
 LIB="$ROOT/post-install/lib/apt-separation.sh"
 [ -r "$LIB" ] || { echo "ERROR: $LIB missing" >&2; exit 1; }

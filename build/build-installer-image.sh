@@ -102,24 +102,23 @@ if [ ! -d "$SUBSTRATE_NODE/extract/pool" ]; then
   DEBOOTSTRAP_UDEB=${DEBOOTSTRAP_UDEB:-$(find "$ROOT/build/iso-cache/v1/nodes/$ARCH/substrate" \
     -path '*/extract/pool/*' -type f -name 'debootstrap-udeb_*_all.udeb' | head -1)}
   if [ ! -f "${DEBOOTSTRAP_UDEB:-}" ]; then
-    echo "    no cached debootstrap udeb; resolving the real forky package"
-    UDEB_INDEX="$WORK_DIR/Packages-debian-installer.xz"
-    curl -fL -o "$UDEB_INDEX" \
-      "https://deb.debian.org/debian/dists/forky/main/debian-installer/binary-$ARCH/Packages.xz"
-    # Consume the complete index instead of exiting awk on the first match.
-    # With pipefail enabled, an early awk exit closes the pipe while xz is
-    # still writing, so xz receives SIGPIPE and the whole substitution exits
-    # 141 even though the requested Filename was found successfully.
-    UDEB_REL=$(xz -dc "$UDEB_INDEX" | awk '
-      $1 == "Package:" { pkg=$2 }
-      !found && pkg == "debootstrap-udeb" && $1 == "Filename:" {
-        print $2
-        found=1
-      }
-    ')
-    [ -n "$UDEB_REL" ] || { echo "FATAL: debootstrap-udeb absent from forky installer index" >&2; exit 1; }
-    DEBOOTSTRAP_UDEB="$WORK_DIR/$(basename "$UDEB_REL")"
-    curl -fL -o "$DEBOOTSTRAP_UDEB" "https://deb.debian.org/debian/$UDEB_REL"
+    # Pinned, AUTHENTICATED base.  Resolve the udeb through the same signed
+    # snapshot trust root the provenance scanner uses (manifests/forky-snapshot.tsv
+    # -> signed InRelease -> main/debian-installer Packages -> udeb sha256).  We
+    # must NOT fall back to a live deb.debian.org forky index: that would let the
+    # base bytes drift out from under the committed pin.
+    echo "    no cached debootstrap udeb; fetching the PINNED authenticated base"
+    PINNED_DIR="$WORK_DIR/pinned-udeb-$ARCH"
+    PINNED_JSON="$WORK_DIR/pinned-udeb-$ARCH.json"
+    if ! python3 "$ROOT/build/iso/fetch-pinned-debootstrap-udeb.py" \
+          --arch "$ARCH" --out-dir "$PINNED_DIR" > "$PINNED_JSON"; then
+      echo "FATAL: could not fetch/authenticate the pinned debootstrap-udeb" >&2
+      echo "       (no live forky index fallback; run make offline-mirror or set" >&2
+      echo "        DEBOOTSTRAP_UDEB=<verified udeb path>)" >&2
+      exit 1
+    fi
+    DEBOOTSTRAP_UDEB=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["udeb_path"])' "$PINNED_JSON")
+    [ -f "$DEBOOTSTRAP_UDEB" ] || { echo "FATAL: pinned udeb path missing: $DEBOOTSTRAP_UDEB" >&2; exit 1; }
   fi
   UDEB_ARGS+=(--source-udeb "$DEBOOTSTRAP_UDEB")
 fi
