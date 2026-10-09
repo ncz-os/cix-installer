@@ -172,6 +172,8 @@ assets/kernel/*/headers-dir/
 # convention as assets/cix-debs/*.deb and assets/wallpaper-debs/*.deb.
 # KVER sidecars stay tracked; the .debs themselves do not.
 assets/kernel/amd64-stable/*.deb
+assets/kernel/amd64-stable/kernel_config_*
+assets/kernel/amd64-stable/PROVENANCE-*
 assets/kernel/amd64-edge/*.deb
 build/.sqfs-work/
 build/sinty-out/
