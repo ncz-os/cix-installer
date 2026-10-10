@@ -438,6 +438,16 @@ fi
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
 # session launchers'"'"' fixed LD_LIBRARY_PATH=$PREFIX/lib resolves.
 meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
+# libmali / SceneFX (O6N black screen, 2026-10-10). labwc's bundled SceneFX is a
+# meson [wrap-git] subproject, invisible to singularity-pins.sh and /ncz-patches
+# (both key on superproject submodule paths). Resolve the wrap and apply
+# assets/singularity/scenefx-patches/ BEFORE `make compile` fetches it, so the
+# arms meson builds are already libmali-clean. See the helper's header for the
+# full root cause (libmali rejects a quoted `#error` even in a disabled branch).
+if [ -f subprojects/labwc/subprojects/scenefx.wrap ]; then
+    NCZ_SCENEFX_PATCHES=/ncz-scenefx-patches \
+        bash /ncz-build/patch-singularity-scenefx.sh subprojects/labwc
+fi
 # Bundled labwc/wlroots (labwc uses the wlroots-0.20 fallback wrap upstream ships).
 if [ -f Makefile ] && grep -q LABWC_BUILD Makefile; then
     # Since 2026-10-07 the upstream `make compile` re-runs `meson configure` with
@@ -491,6 +501,12 @@ fi
 # PREFIX (the session launcher resolves labwc from there).
 meson configure "$LABWC_BUILD_DIR" --prefix='"$PREFIX"' >/dev/null
 DESTDIR=/work/stage meson install -C "$LABWC_BUILD_DIR"
+
+# GATE (static): the staged labwc must not embed SceneFX GLSL with a quoted
+# `#error` -- libmali rejects it and the Sky1 Mali boot black-screens. This
+# fails the payload build (amd64 and arm64) if patch-singularity-scenefx.sh ever
+# silently stops reaching the wrap. Hardware smoke: assets/singularity/scenefx-smoke/.
+bash /ncz-build/check-singularity-shaders.sh "/work/stage'"$PREFIX"'/bin/labwc"
 
 # The upstream Meson install deliberately installs schema XML, but it does not
 # install a compiled GSettings database.  Raw XML is not usable by GSettings at
@@ -649,6 +665,13 @@ fi
 NCZ_PATCHES="$REPO_ROOT/assets/singularity/patches"
 if [ -d "$NCZ_PATCHES" ]; then
     CE_ARGS+=(-v "$NCZ_PATCHES":/ncz-patches:ro)
+fi
+# SceneFX patches for labwc's meson wrap (not a superproject submodule, so it
+# cannot live under assets/singularity/patches/). Applied by
+# build/patch-singularity-scenefx.sh. Mounted read-only like the main queue.
+NCZ_SCENEFX_PATCHES="$REPO_ROOT/assets/singularity/scenefx-patches"
+if [ -d "$NCZ_SCENEFX_PATCHES" ]; then
+    CE_ARGS+=(-v "$NCZ_SCENEFX_PATCHES":/ncz-scenefx-patches:ro)
 fi
 "$CE" run "${CE_ARGS[@]}" "$IMAGE" bash -euo pipefail -c "$BUILD_SCRIPT"
 

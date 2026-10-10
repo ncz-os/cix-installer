@@ -1,0 +1,26 @@
+diff --git a/render/fx_renderer/shaders/quad.frag b/render/fx_renderer/shaders/quad.frag
+index 93c9fe6..752e3b9 100644
+--- a/render/fx_renderer/shaders/quad.frag
++++ b/render/fx_renderer/shaders/quad.frag
+@@ -1,7 +1,7 @@
+ #define EFFECTS %d
+ 
+ #if !defined(EFFECTS)
+-#error "Missing shader preamble"
++#error Missing shader preamble
+ #endif
+ 
+ #ifdef GL_FRAGMENT_PRECISION_HIGH
+diff --git a/render/fx_renderer/shaders/tex.frag b/render/fx_renderer/shaders/tex.frag
+index 11e3102..e2e6c48 100644
+--- a/render/fx_renderer/shaders/tex.frag
++++ b/render/fx_renderer/shaders/tex.frag
+@@ -6,7 +6,7 @@
+ #define SOURCE_TEXTURE_EXTERNAL 3
+ 
+ #if !defined(SOURCE) || !defined(EFFECTS)
+-#error "Missing shader preamble"
++#error Missing shader preamble
+ #endif
+ 
+ #if SOURCE == SOURCE_TEXTURE_EXTERNAL
