@@ -47,6 +47,7 @@ closed).
 
 import argparse
 import datetime as dt
+import fnmatch
 import glob
 import gzip
 import hashlib
@@ -76,6 +77,37 @@ TOOL_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 PIN_RE = re.compile(r"^[0-9]{8}T[0-9]{6}Z$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def rglob(root, pattern):
+    """Like ``glob.glob(os.path.join(root, '**', pattern), recursive=True)`` but
+    it NEVER descends into a symlinked directory.
+
+    A finished image legitimately contains absolute symlinks (e.g.
+    ``usr/local/lib/cix-installer/assets/kernel/mainline ->
+    /mnt/argonas-yocto-shared/kernel-staging/...``).  Python's glob ``**``
+    follows such a link, so the scanner walked the BUILD HOST's NFS trees
+    (kernel sources, Yocto work dirs) -- millions of files that are not in the
+    image -- and the gate never finished.  os.walk(followlinks=False) enumerates
+    only what is actually inside ``root``.  ``pattern`` is matched against the
+    basename, or against the path relative to ``root`` when it contains a '/'
+    (e.g. 'var/lib/dpkg/status')."""
+    out = []
+    if not os.path.isdir(root):
+        return out
+    for dp, dns, fns in os.walk(root, followlinks=False):
+        # os.walk already refuses to recurse into symlinked dirs with
+        # followlinks=False; prune them explicitly so the intent is obvious and
+        # a future followlinks=True cannot creep back in unnoticed.
+        dns[:] = [d for d in dns if not os.path.islink(os.path.join(dp, d))]
+        for fn in fns:
+            rel = os.path.relpath(os.path.join(dp, fn), root)
+            if "/" in pattern:
+                if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(rel, "*/" + pattern):
+                    out.append(os.path.join(dp, fn))
+            elif fnmatch.fnmatch(fn, pattern):
+                out.append(os.path.join(dp, fn))
+    return out
 
 
 def _verrevcmp(a, b):
@@ -597,7 +629,7 @@ def read_candidate_packages(mirror):
     """Parse every Packages index in a candidate mirror.  The candidate's own
     metadata is NOT trusted to authorize anything; it only names the pool files."""
     rows = []
-    files = glob.glob(os.path.join(mirror, "dists", "**", "Packages*"), recursive=True)
+    files = rglob(os.path.join(mirror, "dists"), "Packages*")
     if not files:
         fail("mirror", mirror, "candidate mirror has no Packages index")
         return rows
@@ -708,8 +740,8 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None,
             fail(src, rel, "deb control identity does not match its Packages record")
             continue
     if orphan_root is not None:
-        for p in (glob.glob(os.path.join(orphan_root, "**", "*.deb"), recursive=True)
-                  + glob.glob(os.path.join(orphan_root, "**", "*.udeb"), recursive=True)):
+        for p in (rglob(orphan_root, "*.deb")
+                  + rglob(orphan_root, "*.udeb")):
             rel = os.path.normpath(os.path.relpath(p, root))
             if rel not in referenced:
                 fail(src, rel, "orphan pool file not listed in any Packages index")
@@ -727,7 +759,7 @@ def authorize_pool(ref, root, auth_idx, src, flat=False, orphan_root=None,
     if not os.path.isdir(root):
         return None
     files = (glob.glob(os.path.join(root, "Packages*")) if flat
-             else glob.glob(os.path.join(root, "dists", "**", "Packages*"), recursive=True))
+             else rglob(os.path.join(root, "dists"), "Packages*"))
     flags = "flat" if flat else "dists"
     records = []
     idx_src = f"{src}:{flags}"
@@ -1192,8 +1224,7 @@ def scan_debs(ref, d, src, required=True):
     if not need_tool("dpkg-deb"):
         return 0
     n = 0
-    for p in sorted(glob.glob(os.path.join(d, "**", "*.deb"), recursive=True)
-                    + glob.glob(os.path.join(d, "**", "*.udeb"), recursive=True)):
+    for p in sorted(rglob(d, "*.deb") + rglob(d, "*.udeb")):
         c = deb_control(p)
         if "Package" not in c:
             fail(src, p, "unreadable deb (dpkg-deb could not parse control)")
@@ -1824,7 +1855,7 @@ def scan_image(ref, img, work):
                 check_complete("/" + t, os.path.join(base, t))
         if os.path.isdir(os.path.join(base, "pool")):
             total += scan_debs(ref, os.path.join(base, "pool"), "image:pool")
-        pkgidx = glob.glob(os.path.join(base, "dists", "**", "Packages*"), recursive=True)
+        pkgidx = rglob(os.path.join(base, "dists"), "Packages*")
         if not pkgidx:
             fail("image", img, "no Packages index found under /dists")
         for p in pkgidx:
@@ -1880,13 +1911,13 @@ def scan_image(ref, img, work):
             else:
                 fail("image", img, "/ncz-payload/apt-repo present but not fully "
                                    "authorized; its file: source cannot be trusted")
-        layers = sorted(glob.glob(os.path.join(pl, "**", "*.squashfs"), recursive=True))
+        layers = sorted(rglob(pl, "*.squashfs"))
         if not layers:
             fail("image", img, "no squashfs layers found in /ncz-payload")
         for f in layers:
             total += scan_squashfs(ref, f, "image:" + os.path.basename(f))
 
-        rootfs_tars = glob.glob(os.path.join(pl, "**", "*rootfs*.tar.zst"), recursive=True)
+        rootfs_tars = rglob(pl, "*rootfs*.tar.zst")
         for required in ("rescue", "mgmt"):
             if not any(required in os.path.basename(p) for p in rootfs_tars):
                 fail("image", img, f"required {required} rootfs tarball is missing")
@@ -1898,9 +1929,8 @@ def scan_image(ref, img, work):
 
         # Scan every present .deb/.udeb anywhere under the extracted payload,
         # regardless of directory name; require non-empty when a dir exists.
-        for adir in sorted({os.path.dirname(p) for p in glob.glob(
-                os.path.join(pl, "**", "*.deb"), recursive=True)
-                + glob.glob(os.path.join(pl, "**", "*.udeb"), recursive=True)}):
+        for adir in sorted({os.path.dirname(p) for p in rglob(pl, "*.deb")
+                + rglob(pl, "*.udeb")}):
             found_any = True
             total += scan_debs(ref, adir, "image:" + os.path.relpath(adir, pl))
 
@@ -2264,11 +2294,10 @@ def _scan_initrd(ref, path, owned):
         fail("image", path, "initrd has no parsable cpio/compressed archive")
         return 0
     total = 0
-    pools = {os.path.dirname(p) for p in glob.glob(os.path.join(out, "**", "*.deb"),
-             recursive=True) + glob.glob(os.path.join(out, "**", "*.udeb"), recursive=True)}
+    pools = {os.path.dirname(p) for p in rglob(out, "*.deb") + rglob(out, "*.udeb")}
     for d in pools:
         total += scan_debs(ref, d, "image:initrd")
-    for stf in glob.glob(os.path.join(out, "**", "var/lib/dpkg/status"), recursive=True):
+    for stf in rglob(out, "var/lib/dpkg/status"):
         total += scan_status(ref, slurp(stf, errors="replace"), "image:initrd-status")
     return total
 
