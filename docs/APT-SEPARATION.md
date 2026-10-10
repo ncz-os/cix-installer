@@ -54,7 +54,7 @@ Branch `fix/r201-apt-separation-20261007`, off the respin `d287f207`.
    generic "apt origin/label" grouping in the Store, which today is Flatpak-only.
 5. **Delivery of the pin.** New installs: hook 24 writes it before any other
    apt operation. Everyone, including already-installed r200 machines: the
-   `ncz-apt-policy` package (1.0.1; `build/build-ncz-apt-policy-deb.sh`) rewrites
+   `ncz-apt-policy` package (1.0.2; `build/build-ncz-apt-policy-deb.sh`) rewrites
    the pin in its (bash) postinst and migrates a dual-repo configuration. A
    standalone package does not install itself, so it is delivered by
    `manifests/install-extra.pkgs` (+ SBOM rows, `components.tsv`; images), hook 24
@@ -145,9 +145,12 @@ through `build/ops/argos/ncz-reprepro-publish.sh`, which dual-publishes.
 2. Bump and republish the four wallpaper packs
    (`build/build-wallpaper-contrib-deb.sh {ncz,singularity,alex-jay-brady,brandon-perlow}`
    builds 1.1) and publish them.
-3. Build and publish `ncz-apt-policy` 1.0.1 from the **exact final head**
+3. Build and publish `ncz-apt-policy` 1.0.2 from the **exact final head**
    (`build/build-ncz-apt-policy-deb.sh`): the pin text changed several times
    while 1.0.1 was never published, so any earlier-tip 1.0.1 must be discarded.
+   1.0.2 additionally makes `Installed-Size` host-independent so the same
+   Architecture:all package is byte-identical on amd64 and arm64 (one reviewed
+   ledger row in `manifests/ncz-packages.tsv`, not one per host).
    The publisher refuses a deb whose packaged `apt-separation.sh` differs from
    the copy deployed in `~/ncz-policy` (step 0), and the version gate refuses a
    later same-version rebuild with different content. Publishing is needed only
