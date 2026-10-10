@@ -4,7 +4,11 @@
 #   kind = ww    -> a world-writable DIRECTORY outside this list WARNs
 # The path regex is matched (grep -E) against the layer-relative member path.
 # Keep this list tight: it exists so an unexpected setuid binary fails loudly.
-suid	^usr/bin/(sudo|passwd|chsh|chfn|gpasswd|newgrp|su|mount|umount|pkexec)$	coreutils/util-linux/openssh setuid helpers (Debian base)
+suid	^usr/bin/(sudo|passwd|chsh|chfn|chage|gpasswd|newgrp|su|mount|umount|pkexec)$	coreutils/util-linux/shadow setuid helpers (Debian base)
+suid	^usr/sbin/unix_chkpwd$	PAM password check helper
+suid	^usr/lib/mc/cons\.saver$	Midnight Commander console-saver helper
+suid	^opt/google/chrome/chrome-sandbox$	Chrome setuid sandbox helper
+suid	^opt/vivaldi/vivaldi-sandbox$	Vivaldi setuid sandbox helper
 suid	^bin/(mount|umount|su|fusermount)$	util-linux/fuse setuid helpers (Debian base)
 suid	^usr/bin/fusermount3$	fuse3 helper
 suid	^usr/lib/openssh/ssh-keysign$	OpenSSH host-based auth helper
