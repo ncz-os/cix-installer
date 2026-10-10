@@ -103,7 +103,7 @@ static GLuint compile_stage(GLenum type, const char *src, const char *label) {
 			putchar(log[i]);
 			if (log[i] == '\n' && i + 1 < len) printf("    | ");
 		}
-		if (log[len - 1] != '\n') putchar('\n');
+		if (len > 0 && log[len - 1] != '\n') putchar('\n');
 	}
 	if (ok != GL_TRUE) { glDeleteShader(sh); return 0; }
 	return sh;
