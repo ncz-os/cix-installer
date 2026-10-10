@@ -279,17 +279,33 @@ chk_manifest() {  # LAYER, label, manifest
     local l="$1" lbl="$2" mf="$3"
     [ -n "$mf" ] && [ -f "$mf" ] || { _rec "$lbl" pkg-set-manifest SKIP "no --manifest given"; return; }
     if ! _has "$l" "var/lib/dpkg/status"; then _rec "$lbl" pkg-set-manifest SKIP "no dpkg status"; return; fi
-    local want have
-    want="$(grep -vE '^\s*#|^\s*$' "$mf" | awk '{print $1"\t"$2}' | sort -u)"
+    # The manifests/ *.pkgs files are SEED lists (package names, no versions):
+    # the layer's closure installs far more than the seeds.  So: every seeded
+    # package must be present (subset), and the full set+version equality is
+    # only asserted when the manifest actually carries versions (a closure
+    # manifest, e.g. a `name<TAB>version` file).
+    local want_names have have_names missing with_ver
+    want_names="$(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$mf" | awk '{print $1}' | sort -u)"
+    with_ver="$(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$mf" | awk 'NF>=2{c++} END{print c+0}')"
     have="$(_cat "$l" var/lib/dpkg/status 2>/dev/null | awk '
-        /^Package:/{p=$2} /^Version:/{v=$2; if(p!=""){print p"\t"v}}' | sort -u)"
-    local missing extra
-    missing="$(comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "$have") | head -20)"
-    extra="$(comm -13 <(printf '%s\n' "$want") <(printf '%s\n' "$have") | head -20)"
-    if [ -n "$missing" ] || [ -n "$extra" ]; then
-        _rec "$lbl" pkg-set-manifest FAIL "manifest diff (missing: $(printf '%s' "$missing" | tr '\n' ' '); extra: $(printf '%s' "$extra" | tr '\n' ' '))"
+        /^Package:/{p=$2} /^Version:/{v=$2; if(p!=""){print p"\t"v; p=""}}' | sort -u)"
+    have_names="$(printf '%s\n' "$have" | awk -F'\t' 'NF{print $1}' | sort -u)"
+    missing="$(comm -23 <(printf '%s\n' "$want_names") <(printf '%s\n' "$have_names") | head -20)"
+    if [ -n "$missing" ]; then
+        _rec "$lbl" pkg-set-manifest FAIL "expected package(s) missing from the layer: $(printf '%s' "$missing" | tr '\n' ' ')"
+        return
+    fi
+    if [ "${with_ver:-0}" -gt 0 ]; then
+        local want_ver extra
+        want_ver="$(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$mf" | awk 'NF>=2{print $1"\t"$2}' | sort -u)"
+        extra="$(comm -13 <(printf '%s\n' "$want_ver") <(printf '%s\n' "$have") | head -20)"
+        if [ -n "$extra" ]; then
+            _rec "$lbl" pkg-set-manifest FAIL "manifest diff (extra/version-mismatch): $(printf '%s' "$extra" | tr '\n' ' ')"
+        else
+            _rec "$lbl" pkg-set-manifest PASS "package set+versions == closure manifest ($(printf '%s\n' "$want_ver" | grep -c .) pkgs)"
+        fi
     else
-        _rec "$lbl" pkg-set-manifest PASS "dpkg set+versions == manifest ($(printf '%s\n' "$want" | wc -l | tr -d ' ') pkgs)"
+        _rec "$lbl" pkg-set-manifest PASS "all $(printf '%s\n' "$want_names" | grep -c .) seeded packages present (name-only seed list)"
     fi
 }
 
