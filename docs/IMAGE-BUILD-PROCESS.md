@@ -242,6 +242,15 @@ the kernel-deb manifest and the mirror closure).
   snapshot explicitly.
 * Initramfs / cpio are built with `SOURCE_DATE_EPOCH` and a reproducible member
   order.
+* Golden-image identity is reset **deliberately**: `build/build-squashfs-layers.sh`
+  truncates `/etc/machine-id`, removes `ssh_host_*` keys and the systemd
+  `random-seed`, and forces `ssh-keygen` at first boot, so every install gets a
+  unique identity. These first-boot-generated items are therefore **not** part
+  of the determinism contract and are kept out of the hashed layer. The
+  `ldconfig` cache is regenerated inside the build (`chroot … ldconfig`), so it
+  *is* deterministic. No Python `.pyc` is baked (the image ships source); package
+  caches (`/var/cache/apt`, man-db, fontconfig) are rebuilt by their own hooks
+  or regenerated at first boot — none is a build-time random input.
 * The build time appears **only** in `run-metadata.json` (never an artifact
   input). The image name carries a date, which is not hashed.
 
