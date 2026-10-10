@@ -1,0 +1,21 @@
+# build/nightly/test-hosts.tsv -- the canonical NCZ hardware test fleet for the
+# nightly canary's hardware-smoke layer.
+#
+# Columns (TAB):
+#   host  ip  hostname  arch  gpu  kernel  ssh_user  cred_ref  role  smoke  forbidden
+#
+#   ssh_user   user the canary connects as (never root for the smoke)
+#   cred_ref   where the password/creds come from when pubkey is unavailable
+#              (a key path into ~/.api_keys_master.json); "-" = pubkey only
+#   smoke      comma list of the smoke steps that apply on this host:
+#              scenefx-probe,labwc-headless,saver-headless,dmesg-regress
+#   forbidden  comma list of things the nightly must NEVER do on this host
+#
+# SAFETY (enforced by build/nightly/hw-smoke.sh): user-directory-only scratch,
+# headless only, exact-PID cleanup, never reboot/flash, never kill the desktop
+# session, one GPU client at a time (a busy host is SKIPPED, not interrupted).
+# host	ip	hostname	arch	gpu	kernel	ssh_user	cred_ref	role	smoke	forbidden
+o6n	192.168.207.3	ncz-beemim-4060	arm64	Mali-G720 (CIX Sky1)	ncz sky1	root	-	vendor-Mali arm64 primary	scenefx-probe,labwc-headless,saver-headless	dmesg-write,reboot,flash,amdgpu-debugfs
+medusa	192.168.207.38	(apple T2)	amd64	AMD Navi14 + Intel iGPU	7.3.0-rc6-6-t2-edge-apple-sep-anfe-test	ncz	-	T2 dGPU primary	scenefx-probe,labwc-headless,saver-headless,dmesg-regress	amdgpu-debugfs,reboot,flash,suspend
+chimera	192.168.207.6	(apple T2)	amd64	AMD Navi14 + Intel iGPU	7.3.0-rc6-6-t2-edge-apple-sep-anfe-test	ncz	-	T2 dGPU primary	scenefx-probe,labwc-headless,saver-headless,dmesg-regress	amdgpu-debugfs,reboot,flash,suspend
+pegasus	192.168.207.85	(ASUS ROG)	amd64	(non-T2 dGPU)	SEP test kernel	ncz	fleet_test_hosts.pegasus_85_ncz	non-T2 amd64 control	scenefx-probe,labwc-headless,saver-headless,dmesg-regress	reboot,flash,suspend

@@ -39,6 +39,9 @@
 # OPTIONS
 #   --no-publish           build + gates, never copy to ARGONAS images/
 #   --gates kvm,provenance run only these gates (REQUIRES --no-publish)
+#   --ledger-mode MODE     release (default) | nightly (accept the run's
+#                          ledger-candidates.tsv at the provenance stages)
+#   --ledger-candidates F  the run's candidates file (requires --ledger-mode nightly)
 #   --substrate refresh|pinned   substrate policy (refresh default for --full)
 #   --resume-from STAGE    start at STAGE (skips earlier stages)
 #   --run-dir DIR          run directory (logs + run metadata + tmp scratch)
@@ -92,6 +95,8 @@ KEEP_WORK=0
 CLEAN=0
 CONTAINER_TAG=""
 LAYERS_CHECK_ONLY=""  # standalone: run the per-layer post-checks on existing layers
+LEDGER_MODE="release" # release|nightly (nightly: accept the run's HEAD candidates)
+LEDGER_CANDIDATES=""  # candidates file for --ledger-mode nightly
 ORIG_ARGS=("$@")      # for the both-arch re-dispatch
 FORWARD=()            # child args (everything except --arch/--run-dir)
 
@@ -132,6 +137,11 @@ OPTIONS
                             their hosts (NCZ_AMD64_HOST, NCZ_ARM64_HOST)
   --no-publish              build + gates, never copy to ARGONAS images/
   --gates kvm,provenance    run only these gates (REQUIRES --no-publish)
+  --ledger-mode release|nightly  nightly: the provenance stages ALSO accept a
+                            package whose exact (name,version,arch)+sha256 is in
+                            --ledger-candidates (a HEAD build's fresh bytes).
+                            release (default) never reads candidates.
+  --ledger-candidates FILE  the run's ledger-candidates.tsv (requires nightly)
   --substrate refresh|pinned  substrate policy (refresh is the --full default)
   --sources latest|pinned   singularity payload source pins: 'latest' resolves
                             the current upstream heads of every singularity
@@ -208,6 +218,8 @@ while [ $# -gt 0 ]; do
         --no-container) USE_CONTAINER=0; FORWARD+=("--no-container"); shift ;;
         --no-archive) NO_ARCHIVE=1; FORWARD+=("--no-archive"); shift ;;
         --keep-going) KEEP_GOING=1; FORWARD+=("--keep-going"); shift ;;
+        --ledger-mode) LEDGER_MODE="${2:?--ledger-mode needs release|nightly}"; FORWARD+=("--ledger-mode" "$2"); shift 2 ;;
+        --ledger-candidates) LEDGER_CANDIDATES="${2:?--ledger-candidates needs a path}"; FORWARD+=("--ledger-candidates" "$2"); shift 2 ;;
         -h|--help) usage 0 ;;
         --) shift; break ;;
         *) echo "build-image.sh: unknown argument: $1" >&2; usage 2 ;;
@@ -281,6 +293,17 @@ if [ -n "$GATES" ]; then
             *) die2 "unknown gate '$g' (known: kvm,provenance)" ;;
         esac
     done
+fi
+# Nightly-candidate ledger mode (operator ruling 2026-10-10): a HEAD build's
+# bytes change every run, so the pre-build provenance stage can accept them from
+# the RUN's own candidates file when (and only when) the sha256 matches.  Release
+# mode never reads candidates, so nightly mode REQUIRES a candidates file.
+case "$LEDGER_MODE" in release|nightly) ;; *) die2 "bad --ledger-mode '$LEDGER_MODE' (expected release|nightly)" ;; esac
+if [ "$LEDGER_MODE" = nightly ] && [ -z "$LEDGER_CANDIDATES" ]; then
+    die2 "--ledger-mode nightly requires --ledger-candidates FILE"
+fi
+if [ -n "$LEDGER_CANDIDATES" ] && [ "$LEDGER_MODE" != nightly ]; then
+    die2 "--ledger-candidates requires --ledger-mode nightly (release authorizes only the reviewed ledger)"
 fi
 if [ -n "$JOBS" ] && ! [[ "$JOBS" =~ ^[1-9][0-9]*$ ]]; then die2 "--jobs needs a positive integer"; fi
 if [ "$ARCH" = both ] && [ -n "$HOST_OVERRIDE" ]; then
@@ -798,6 +821,10 @@ stage_provenance_inputs() {
     # never by a static ledger.
     local receipt="$RUN_DIR/singularity-sources/payload-receipt.json"
     local -a fetch=(); [ "$OFFLINE" = 1 ] || fetch=(--fetch-index)
+    # nightly mode: a HEAD build's freshly built NCZ debs are not in the reviewed
+    # ledger yet; accept them from the run's candidates file, bytes-matched.
+    local -a ledger=()
+    [ "$LEDGER_MODE" = nightly ] && ledger=(--ledger-mode nightly --ledger-candidates "$LEDGER_CANDIDATES")
 
     # 1. the offline mirror bytes vs the pinned signed snapshot + the ledgers
     if [ -d "$mirror/dists" ]; then
@@ -826,7 +853,7 @@ stage_provenance_inputs() {
         local -a rargs=()
         [ -f "$receipt" ] && rargs=(--receipt "$receipt")
         if ( cd "$ROOT" && bash build/check-forky-provenance.sh "${dargs[@]}" "${rargs[@]}" \
-                 --index-dir "$idx" "${fetch[@]}" ) >>"$log" 2>&1; then
+                 "${ledger[@]}" --index-dir "$idx" "${fetch[@]}" ) >>"$log" 2>&1; then
             say "staged deb dirs verify against the ledger/receipt (${#dargs[@]} dir(s))"
         else
             bad "a staged .deb has an unreviewed origin (see the log)"
@@ -1194,8 +1221,10 @@ stage_provenance_gate() {
     [ -n "$img" ] && [ -f "$img" ] || { echo "[provenance-gate] FAIL: no image path" | tee -a "$log" >&2; return 1; }
     local work="$RUN_DIR/prov-work" idx="$RUN_DIR/prov-index"
     mkdir -p "$work" "$idx"
+    local ledger=()
+    [ "$LEDGER_MODE" = nightly ] && ledger=(--ledger-mode nightly --ledger-candidates "$LEDGER_CANDIDATES")
     ( cd "$ROOT" && bash build/check-forky-provenance.sh --image "$img" \
-        --work "$work" --index-dir "$idx" --fetch-index ) 2>&1 | tee -a "$log"
+        --work "$work" --index-dir "$idx" --fetch-index "${ledger[@]}" ) 2>&1 | tee -a "$log"
     local rc="${PIPESTATUS[0]}"
     if [ "$rc" = 0 ]; then
         { printf 'gate=provenance\nresult=PASS\none_kernel=PASS\nimage=%s\nat=%s\n' "$img" "$(date -u +%s)"; } > "$RUN_DIR/provenance.result"
@@ -1341,8 +1370,8 @@ stage_enabled() {
         provenance-inputs) gate_selected provenance ;;
         layers) [ "$SCOPE" = only-image ] && return 1 || return 0 ;;
         image) return 0 ;;
-        kvm-gate) gate_selected kvm ;;
         provenance-gate) gate_selected provenance ;;
+        kvm-gate) gate_selected kvm ;;
         receipt) return 0 ;;
         archive) [ "$NO_PUBLISH" = 1 ] && return 1 || return 0 ;;
         *) return 0 ;;

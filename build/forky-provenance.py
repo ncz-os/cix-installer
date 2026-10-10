@@ -28,10 +28,21 @@
           d-i package with no ledger row FAILS, and a ledger row whose package
           forky now provides at the same-or-newer version FAILS ("use forky").
 
+  CANDIDATE
+          (only with --ledger-mode nightly AND --ledger-candidates FILE) the
+          CURRENT nightly run's auto-generated candidate ledger: an NCZ package
+          rebuilt from upstream HEAD whose exact (name, version, arch) row names a
+          recipe + resolved source revision, with status=candidate, and is accepted
+          ONLY when the sha256 of the bytes being scanned matches the candidate's
+          recorded sha256.  This is how a nightly can pass provenance without
+          human review; release mode never reads candidates, so a candidate is
+          simply an unknown package there (hard failure).
+
 Anything else -- Ubuntu, another Debian suite, an older snapshot, an
 unreviewed sid d-i package, unknown -- is a hard failure.  There is
 deliberately NO allow-by-reason mechanism and NO allow-by-suite mechanism: the
-only sid allowance is the per-package reviewed ledger.
+only sid allowance is the per-package reviewed ledger, and the only candidate
+allowance is an exact name+arch+sha256 match from the current run.
 
 Trust root: the checkout that contains this file.  No environment variable and
 no command-line flag relocates the trust metadata (manifests/, release.conf).
@@ -762,6 +773,7 @@ def load_tsv(path, min_cols, roster_name):
 class Ref:
     def __init__(self, a):
         self.ubuntu_only = a.ubuntu_only
+        self.ledger_mode = getattr(a, "ledger_mode", "release")
         self.verify_mirror = bool(a.verify_mirror)
         self.trust = {} if a.ubuntu_only else load_trust()
         self.pin = release_conf("NCZ_BASE_MIRROR_SNAPSHOT")
@@ -800,6 +812,21 @@ class Ref:
                 die(f"ncz-packages.tsv:{n} needs a non-empty recipe (col 5) and "
                     f"source revision (col 6)")
             self.ncz.setdefault((r[0], r[1], r[2]), set()).add(r[3])
+
+        # NIGHTLY CANDIDATES (--ledger-mode nightly + --ledger-candidates FILE).
+        # The nightly canary rebuilds every NCZ component from upstream HEAD, so
+        # the bytes change every run and cannot be in the REVIEWED ledger yet.
+        # The run writes auto-generated candidates (same schema + resolved source
+        # SHAs + build-run id + status=candidate); nightly mode authorizes such a
+        # package ONLY when its sha256 matches the bytes scanned.  This never
+        # widens release mode: candidates are not even read unless mode==nightly.
+        # {(name, version, arch): {"sha256": {..}, "recipe": .., "source_revision": ..,
+        #  "source_shas": .., "run_id": ..}}
+        self.ncz_candidates = {}
+        self.candidates_path = getattr(a, "ledger_candidates", None)
+        self.candidates_sha256 = None
+        if self.ledger_mode == "nightly" and self.candidates_path:
+            self._load_candidates(self.candidates_path)
 
         # Reviewed NCZ packages whose VERSION embeds a build timestamp and so
         # cannot be statically sha-pinned: {(name, arch): version_regex}.  Such a
@@ -896,6 +923,39 @@ class Ref:
                     sys.exit(1)
                 self.sid_idx = got2
             self._audit_sid_exceptions()
+
+    def _load_candidates(self, path):
+        """Load the CURRENT run's ledger-candidates.tsv (nightly mode only).
+
+        Schema (TAB, header lines start with '#'):
+          name version arch sha256 recipe source_revision note
+          resolved_source_shas build_run_id status
+        status MUST be 'candidate'; sha256 must be 64 lowercase hex; recipe and
+        source_revision must be non-empty (same reviewed-ledger contract).  A
+        malformed candidates file is a hard error (die): it would otherwise be a
+        silent authorization downgrade.
+        """
+        if not os.path.isfile(path):
+            die(f"ledger-candidates file not found: {path}")
+        self.candidates_sha256 = sha256_file(path)
+        for n, r in load_tsv(path, 10, "ledger-candidates.tsv"):
+            name, ver, arch, sha = r[0], r[1], r[2], r[3]
+            recipe, source_revision, _note = r[4], r[5], r[6]
+            source_shas, run_id, status = r[7], r[8], r[9]
+            if status.strip() != "candidate":
+                die(f"ledger-candidates.tsv:{n} status must be 'candidate' "
+                    f"(got {status!r}); promoted rows belong in "
+                    f"manifests/ncz-packages.tsv")
+            if not SHA256_RE.match(sha):
+                die(f"ledger-candidates.tsv:{n} sha256 is not 64 lowercase hex")
+            if not recipe.strip() or not source_revision.strip():
+                die(f"ledger-candidates.tsv:{n} needs a non-empty recipe (col 5) "
+                    f"and source revision (col 6)")
+            key = (name, ver, arch)
+            self.ncz_candidates.setdefault(key, {
+                "sha256": set(), "recipe": recipe, "source_revision": source_revision,
+                "source_shas": source_shas, "run_id": run_id,
+            })["sha256"].add(sha)
 
     def note_kernel(self, name, ver, arch):
         """Record a kernel-artifact package seen in this scan (one-kernel audit)."""
@@ -1015,6 +1075,24 @@ def classify(ref, src, name, ver, arch, maint, sha=None):
             return "ncz-identity"
         return "ncz"
 
+    # NIGHTLY CANDIDATE (--ledger-mode nightly only): an auto-generated row from
+    # the CURRENT run.  Accepted ONLY when the bytes being scanned match the
+    # candidate's recorded sha256; a candidate whose bytes differ is a hard FAIL
+    # (never silently fall through to the forky/unknown checks).  Release mode
+    # never populates ref.ncz_candidates, so this branch is unreachable there.
+    cand = ref.ncz_candidates.get(key) if ref.ledger_mode == "nightly" else None
+    if cand is not None:
+        if sha:
+            if sha in cand["sha256"]:
+                return "ncz-candidate"
+            fail(src, what,
+                 f"nightly candidate sha256 {sha[:16]}.. does not match this run's "
+                 f"candidate sha256 (run {cand['run_id'] or '?'}) -- refusing")
+            return None
+        print(f"NOTE  [{src}] {what} :: nightly candidate identity (run "
+              f"{cand['run_id'] or '?'}, recipe {cand['recipe']}; no bytes to hash)")
+        return "ncz-candidate-identity"
+
     # Build-timestamped NCZ packages: exact name + version regex + the finished
     # image receipt's recorded sha256.  No receipt / no record => fail closed.
     tsrx = ref.ncz_ts.get((name, arch))
@@ -1111,6 +1189,10 @@ def classify_noarch(ref, src, name, ver, maint):
         return "ncz-identity"
     if any(k[0] == name and k[1] == ver for k in ref.vendor):
         return "vendor"
+    if ref.ledger_mode == "nightly" and any(
+            k[0] == name and k[1] == ver for k in ref.ncz_candidates):
+        print(f"NOTE  [{src}] {what} :: nightly candidate identity (no bytes/arch)")
+        return "ncz-candidate-identity"
     archs = ref.trust.get("architectures", "").split() if ref.trust else []
     for a in archs:
         if (name, ver, a) in ref.idx:
@@ -2275,6 +2357,19 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ubuntu-only", action="store_true")
+    ap.add_argument("--ledger-mode", choices=("release", "nightly"), default="release",
+                    help="release (default): only the REVIEWED manifests/ncz-packages.tsv "
+                         "authorizes an NCZ package.  nightly: ALSO accept a package whose "
+                         "exact (name,version,arch)+sha256 appears in --ledger-candidates "
+                         "(the CURRENT run's auto-generated candidates).  A candidates file "
+                         "is never honored in release mode.")
+    ap.add_argument("--ledger-candidates",
+                    help="path to the current nightly run's ledger-candidates.tsv "
+                         "(same schema as manifests/ncz-packages.tsv plus resolved source "
+                         "SHAs + build-run id + status=candidate).  Requires --ledger-mode "
+                         "nightly; a candidate is accepted ONLY when its sha256 matches the "
+                         "package bytes being scanned (or, for a byte-less dpkg-status scan, "
+                         "its identity is recorded).")
     ap.add_argument("--index-dir",
                     help="directory holding the verified snapshot index (required "
                          "unless --ubuntu-only or --verify-mirror)")
@@ -2297,6 +2392,18 @@ def main():
                          "The --image scan's own receipt takes precedence.")
     ap.add_argument("--work", help="scratch dir for --image (not tmpfs)")
     a = ap.parse_args()
+
+    # The candidates mechanism is a NIGHTLY-ONLY, byte-matched widening of the NCZ
+    # ledger.  It must be impossible to reach it in release mode, and impossible to
+    # combine with the offline lint mode.
+    if a.ledger_candidates and a.ledger_mode != "nightly":
+        ap.error("--ledger-candidates requires --ledger-mode nightly (release mode "
+                 "authorizes only the reviewed manifests/ncz-packages.tsv)")
+    if a.ledger_mode == "nightly" and not a.ledger_candidates:
+        ap.error("--ledger-mode nightly requires --ledger-candidates FILE (the current "
+                 "run's candidate ledger)")
+    if a.ubuntu_only and a.ledger_mode != "release":
+        ap.error("--ledger-mode nightly cannot be combined with --ubuntu-only")
 
     # The offline lint mode must never be usable to downgrade a shipping scan.
     if a.ubuntu_only and (a.image or a.verify_mirror):

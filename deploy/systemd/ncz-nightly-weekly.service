@@ -1,0 +1,22 @@
+[Unit]
+Description=NCZ-OS weekly full build (both arches; all gates; never publish)
+Documentation=file:/opt/ncz/cix-installer/docs/NIGHTLY-CANARY.md
+Wants=network-online.target
+ConditionPathExists=/opt/ncz/cix-installer/build/nightly-canary.sh
+
+[Service]
+Type=oneshot
+User=jasonperlow
+Group=jasonperlow
+EnvironmentFile=-/etc/ncz-nightly.conf
+Environment=NCZ_NIGHTLY_ROOT=/mnt/argonas/datapool/projects/ncz-os-assets/nightly
+WorkingDirectory=/opt/ncz/cix-installer
+# weekly = nightly stages + build-image.sh --arch both --full --sources latest
+# --no-publish (KVM incl. UI, provenance, installer messages) + determinism.
+ExecStart=/opt/ncz/cix-installer/build/nightly-canary.sh --arch both --mode weekly --unattended --sources latest
+SuccessExitStatus=0 1
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+TimeoutStartSec=43200
+PrivateTmp=false
