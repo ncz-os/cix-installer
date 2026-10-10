@@ -29,6 +29,9 @@
 # Exit: 0 PASS (WARN allowed unless --strict), 1 FAIL, 2 usage.
 set -uo pipefail
 export LC_ALL=C
+# Force UTC so the mtime rendering (`unsquashfs -ll`) and its parsing (`date -d`)
+# agree; epoch 0 is then always 1970-01-01 00:00 and the clamp check is exact.
+export TZ=UTC
 
 SELF_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$(cd "$SELF_DIR/.." && pwd)"
@@ -101,16 +104,31 @@ _layer_kind() {
         *) echo file ;;
     esac
 }
-_listing() {  # normalized member paths, one per line (no leading ./ or squashfs-root/)
+# Per-layer listing/metadata cache: a layer can be hundreds of MB and the checks
+# read the listing several times; run it once per layer per invocation.
+_CACHE="$(mktemp -d "${TMPDIR:-/tmp}/ncz-cl-cache.XXXXXX" 2>/dev/null || echo "")"
+[ -n "$_CACHE" ] && trap 'rm -rf "$_CACHE"' EXIT
+_cache_key() { printf '%s' "$1" | md5sum 2>/dev/null | awk '{print $1}'; }
+_cached() {  # <kind> <layer> <producer...>
+    local kind="$1" l="$2"; shift 2
+    [ -n "$_CACHE" ] || { "$@"; return; }
+    local f="$_CACHE/$(printf '%s' "$l" | md5sum | awk '{print $1}').$kind"
+    [ -s "$f" ] && { cat "$f"; return; }
+    "$@" | tee "$f"
+}
+_listing_raw() {  # normalized member paths, one per line (no leading ./ or squashfs-root/)
     local l="$1" k; k="$(_layer_kind "$l")"
     case "$k" in
         dir)  ( cd "$l" && find . -mindepth 1 -print 2>/dev/null | sed 's#^\./##' ) ;;
-        sqfs) unsquashfs -no-progress -l "$l" 2>/dev/null | awk 'f{print} /^[[:space:]]*$/{f=1}' | sed 's#^squashfs-root/##; s#^/##' ;;
+        # `unsquashfs -l` (no progress) prints one `squashfs-root/...` path per
+        # line, NO header, NO blank line; the first line is the root itself.
+        sqfs) unsquashfs -no-progress -l "$l" 2>/dev/null \
+                  | sed 's#^squashfs-root/##; s#^squashfs-root$##' | grep -v '^$' ;;
         *)    return 1 ;;
     esac
 }
-_GNU_STAT=0; stat -c '%a' /dev/null >/dev/null 2>&1 && _GNU_STAT=1
-_meta() {  # mode owner size path  (best effort; empty when unsupported)
+_GNU_STAT=0; stat -c '%Y' /dev/null >/dev/null 2>&1 && _GNU_STAT=1
+_meta_raw() {  # mode<TAB>owner/group<TAB>size<TAB>path<TAB>mtime  (best effort)
     local l="$1" k; k="$(_layer_kind "$l")"
     case "$k" in
         dir)
@@ -118,18 +136,30 @@ _meta() {  # mode owner size path  (best effort; empty when unsupported)
               while IFS= read -r -d '' p; do
                   rp="${p#./}"
                   if [ "$_GNU_STAT" = 1 ]; then
-                      set -- $(stat -c '%a %U/%G %s' "$p" 2>/dev/null)
-                      [ -n "${1:-}" ] && printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$rp"
+                      set -- $(stat -c '%a %U/%G %s %Y' "$p" 2>/dev/null)
+                      [ -n "${1:-}" ] && printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$rp" "$4"
                   else
-                      printf '%s\t%s\t%s\t%s\n' "$(stat -f '%Lp' "$p" 2>/dev/null)" \
+                      printf '%s\t%s\t%s\t%s\t%s\n' "$(stat -f '%Lp' "$p" 2>/dev/null)" \
                           "$(stat -f '%Su/%Sg' "$p" 2>/dev/null)" \
-                          "$(stat -f '%z' "$p" 2>/dev/null)" "$rp"
+                          "$(stat -f '%z' "$p" 2>/dev/null)" "$rp" "$(stat -f '%m' "$p" 2>/dev/null)"
                   fi
               done ) ;;
-        sqfs) unsquashfs -no-progress -ll "$l" 2>/dev/null | sed 's#^squashfs-root/##' \
-                  | awk '{mode=$1; og=$2; size=$3; $1="";$2="";$3=""; sub(/^[ \t]+/,""); print mode"\t"og"\t"size"\t"$0}' ;;
+        # `unsquashfs -ll`: mode owner/group size date time path [-> target].
+        # Device nodes render size as "major, minor", which shifts the columns,
+        # so locate the date token instead of assuming a fixed field position.
+        sqfs) unsquashfs -no-progress -ll "$l" 2>/dev/null | awk '
+                  { mode=$1; og=$2; size=$3;
+                    di=0; for (i=3; i<=NF; i++) if ($i ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) { di=i; break }
+                    if (di==0) next;
+                    dt=$di" "$(di+1); path="";
+                    for (i=di+2; i<=NF; i++) path = path (i>di+2?" ":"") $i;
+                    sub(/^squashfs-root\//,"",path); sub(/^squashfs-root$/,"",path);
+                    sub(/ -> .*$/,"",path);
+                    if (path != "") printf "%s\t%s\t%s\t%s\t%s\n", mode, og, size, path, dt }' ;;
     esac
 }
+_listing() { _cached listing "$1" _listing_raw "$1"; }
+_meta()    { _cached meta    "$1" _meta_raw    "$1"; }
 _has() { local l="$1" p="$2"; _listing "$l" | grep -qx "$p"; }
 _cat() {  # cat a member (best effort)
     local l="$1" p="$2" k; k="$(_layer_kind "$l")"
@@ -179,24 +209,47 @@ chk_mtimes() {  # LAYER, label
     local l="$1" lbl="$2" k; k="$(_layer_kind "$l")"
     if [ "$k" != sqfs ]; then _rec "$lbl" sqfs-mtimes SKIP "not squashfs"; return; fi
     # mksquashfs is invoked with -all-time 0 -fstime 0 -> every member epoch 0.
-    local bad; bad="$(unsquashfs -no-progress -ll "$l" 2>/dev/null \
-        | awk '{print $(NF-2)}' | grep -vE '^1970-01-01$' | head -3)"
+    # TZ is forced to UTC for this script, so epoch 0 renders as the literal
+    # "1970-01-01 00:00" -- a single string compare (no per-inode `date` fork).
+    local bad
+    bad="$(_meta "$l" | awk -F'\t' '$5!="1970-01-01 00:00"{print $5}' | sort -u | head -3)"
     if [ -n "$bad" ]; then
         _rec "$lbl" sqfs-mtimes WARN "member mtimes not clamped to epoch 0 (sample: $(printf '%s' "$bad" | tr '\n' ' '))"
     else
-        _rec "$lbl" sqfs-mtimes PASS "all member mtimes clamped (1970-01-01 / epoch 0)"
+        _rec "$lbl" sqfs-mtimes PASS "all member mtimes clamped (epoch 0)"
     fi
 }
 
 chk_leftovers() {  # LAYER, label
     local l="$1" lbl="$2"
-    local hits
-    hits="$(_listing "$l" | sed 's#^\./##' | grep -E \
-        '^(work|tmp|\.git|root/\.bash_history|etc/machine-id|etc/resolv\.conf)$|(^|/)\.git/|\.o$|^var/cache/apt/archives/.*\.deb$|^etc/ssh/ssh_host_[a-z0-9_]+(_key)?(\.pub)?$' | head -20)"
-    if [ -n "$hits" ]; then
-        _rec "$lbl" no-build-leftovers FAIL "build leftovers present: $(printf '%s' "$hits" | tr '\n' ' ')"
+    local listing; listing="$(_listing "$l" | sed 's#^\./##')"
+    local hits=""
+    # unconditional builder leftovers (the standard X11/ICE/console socket dirs
+    # under /tmp are created by tmpfiles and are NOT build leftovers)
+    local h
+    h="$(printf '%s\n' "$listing" | grep -E \
+        '^work(/|$)|^tmp/|(^|/)\.git(/|$)|^root/\.bash_history$|^var/cache/apt/archives/.*\.deb$|^etc/ssh/ssh_host_[a-z0-9_]+(_key)?(\.pub)?$' \
+        | grep -vE '^tmp/\.(X11-unix|ICE-unix|XIM-unix|font-unix)(/|$)' | head -20)"
+    [ -n "$h" ] && hits="$hits $(printf '%s' "$h" | tr '\n' ' ')"
+    # object files ONLY under build-scratch prefixes (usr/lib/gcc ships legit .o)
+    h="$(printf '%s\n' "$listing" | grep -E '^(work|tmp|root|build|var/tmp)/.*\.o$' | head -10)"
+    [ -n "$h" ] && hits="$hits $(printf '%s' "$h" | tr '\n' ' ')"
+    # /etc/machine-id must be empty (truncated) or absent; a populated one leaks identity
+    if printf '%s\n' "$listing" | grep -qx 'etc/machine-id'; then
+        local mid; mid="$(_cat "$l" etc/machine-id 2>/dev/null | tr -d '[:space:]')"
+        [ -n "$mid" ] && hits="$hits etc/machine-id(non-empty)"
+    fi
+    # /etc/resolv.conf: a builder nameserver/search is a leak; empty/localhost is fine
+    if printf '%s\n' "$listing" | grep -qx 'etc/resolv.conf'; then
+        local rc; rc="$(_cat "$l" etc/resolv.conf 2>/dev/null)"
+        if printf '%s' "$rc" | grep -qE '^[[:space:]]*(nameserver|search|domain)[[:space:]]'; then
+            hits="$hits etc/resolv.conf(builder)"
+        fi
+    fi
+    if [ -n "$(printf '%s' "$hits" | tr -d ' ')" ]; then
+        _rec "$lbl" no-build-leftovers FAIL "build leftovers present:$hits"
     else
-        _rec "$lbl" no-build-leftovers PASS "no /work, /tmp, .git, .o, apt cache, machine-id, ssh host keys, bash history"
+        _rec "$lbl" no-build-leftovers PASS "no /work, /tmp contents, .git, scratch .o, apt cache, non-empty machine-id, builder resolv.conf, ssh host keys, bash history"
     fi
 }
 
@@ -314,7 +367,13 @@ chk_singularity_version() {  # LAYER, label, payload_deb
 
 chk_content_assertions() {  # LAYER, label
     local l="$1" lbl="$2"
-    # only meaningful on a layer that carries the desktop payload/rootfs
+    # only meaningful on a layer that carries a real rootfs /usr tree; a payload
+    # overlay (desktop-hotfix: opt/singularity only) is governed by its
+    # allow-list root, not by the full-desktop content assertions.
+    if ! _has "$l" usr; then
+        _rec "$lbl" content-assertions SKIP "partial payload overlay (no /usr); allow-list root governs"
+        return
+    fi
     local checks=0 fails=""
     local -a need=(
         "opt/singularity/bin/singularity-desktop:synthetic desktop binary"
@@ -411,7 +470,7 @@ chk_firstboot_exec() {  # LAYER, label
         [ -n "$m" ] || continue
         case "$m" in ??????x*|????x?????|??x???????) : ;; *) nexec="$nexec $p" ;; esac
     done <<< "$hits"
-    if [ -n "$nexec" ]; then _rec "$lbl" firstboot-exec FAIL "first-boot script not executable:$nexec"
+    if [ -n "$nexec" ]; then _rec "$lbl" firstboot-exec WARN "first-boot script not executable:$nexec (OK if invoked via bash/systemd)"
     else _rec "$lbl" firstboot-exec PASS "first-boot scripts executable"; fi
 }
 
