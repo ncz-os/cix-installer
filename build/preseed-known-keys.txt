@@ -1,0 +1,91 @@
+# preseed-known-keys.txt — allow-list of debconf questions preseed/preseed.cfg
+# is permitted to set. build/test-preseed-consistency.sh fails on any key that
+# is NOT listed here, so a new preseed line must be added here (with a reason)
+# rather than slipped in. Removed keys are removed from this list too.
+#
+# One question per line. Blank lines and #-comments ignored. The consumer is
+# noted where it is not obvious; "d-i <component>" names the udeb that owns the
+# question.
+anna/no_kernel_modules
+apt-cdrom-setup/no-cd
+apt-setup/contrib
+apt-setup/local0/repository        # 60local: file:///cdrom source for the installed system
+apt-setup/non-free
+apt-setup/non-free-firmware
+apt-setup/security_host
+apt-setup/security_path
+apt-setup/services-select
+apt-setup/use_mirror
+base-installer/debootstrap_script
+base-installer/install-recommends
+base-installer/kernel/failed-install
+base-installer/kernel/image
+base-installer/kernel/no-kernels-found
+base-installer/kernel/skip-install
+cdrom/codename
+cdrom/suite
+clock-setup/ntp
+clock-setup/utc
+debian-installer/allow_unauthenticated
+debian-installer/exit/poweroff
+debian-installer/exit/reboot
+finish-install/keep-consoles
+finish-install/reboot_in_progress
+grub-installer/skip
+mirror/codename
+mirror/country
+mirror/http/directory
+mirror/http/hostname
+mirror/http/suite
+mirror/protocol
+mirror/suite
+mirror/udeb/components
+mirror/udeb/suite
+netcfg/choose_interface
+netcfg/dhcp_failed
+netcfg/dhcp_timeout
+netcfg/dhcpv6_timeout
+netcfg/disable_autoconfig
+netcfg/get_domain
+netcfg/get_hostname
+netcfg/get_nameservers
+netcfg/hostname
+netcfg/link_detection_timeout
+netcfg/link_wait_timeout
+netcfg/no_default_route
+network-console/password
+network-console/password-again
+network-console/start
+nobootloader/confirmation_common
+partman-auto/choose_recipe
+partman-auto/expert_recipe
+partman-auto/method
+partman-basicfilesystems/no_mount_point
+partman-basicfilesystems/no_swap
+partman-lvm/confirm
+partman-lvm/confirm_nooverwrite
+partman-lvm/device_remove_lvm
+partman-md/device_remove_md
+partman-partitioning/confirm_write_new_label
+partman/choose_partition
+partman/confirm
+partman/confirm_nooverwrite
+partman/confirm_write_new_label
+partman/early_command
+partman/unmount_active
+passwd/make-user
+passwd/root-login
+passwd/user-default-groups
+pkgsel/exclude
+pkgsel/include
+pkgsel/include/install-recommends
+pkgsel/run_tasksel
+pkgsel/update-policy
+pkgsel/updatedb
+pkgsel/upgrade
+preseed/early_command
+preseed/late_command
+systemd-boot-installer/skip
+time/zone
+user-setup/allow-password-weak
+user-setup/encrypt-home

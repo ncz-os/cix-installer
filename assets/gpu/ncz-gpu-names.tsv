@@ -1,0 +1,19 @@
+# ncz-gpu-names.tsv - curated display-class GPU names for installer feedback.
+#
+# key    = <vendor:device> lowercase hex (as read from /sys/bus/pci/devices/*)
+# value  = <human name> (<family>)   -- concise; keep <= 40 chars
+#
+# WHY A CURATED TABLE: the installer does not ship pci.ids, so a generic
+# vendor:device lookup cannot produce a product name. Rather than guess, this
+# table names only the GPUs we have actually seen/validated on the fleet, and
+# post-install/lib/gpu-progress.sh falls back to the always-truthful numeric
+# form "<Vendor> [vvvv:dddd]" for everything else. Never invent a name here.
+# The driver DECISION is emitted separately (ncz_gpu_step_profile), not here.
+#
+# Consumed by post-install/lib/gpu-progress.sh (ncz_gpu_name).
+10de:2882	NVIDIA GeForce RTX 4060 (Ada)
+10de:1f95	NVIDIA GeForce GTX 1650 Ti (Turing)
+1002:7340	AMD Radeon Pro 5500M (Navi14)
+1002:73ff	AMD Radeon RX 6600/6600 XT (Navi23)
+8086:9a49	Intel Iris Xe Graphics (Tiger Lake)
+8086:46a6	Intel Iris Xe Graphics (Alder Lake-P)

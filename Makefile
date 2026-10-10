@@ -714,6 +714,8 @@ parity:
 	build/test-rescue-kernel-channel.sh
 	build/test-late-npu-aipu.sh
 	build/test-gpu-install-progress.sh
+	build/test-preseed-consistency.sh
+	build/test-install-feedback.sh
 	build/test-progress-bar-drive.sh
 	build/test-firstboot-gpu.sh
 	build/test-dkms-btf-toolchain.sh
