@@ -87,6 +87,7 @@ import argparse
 import gzip
 import hashlib
 import json
+import os
 import re
 import shutil
 import socket
@@ -623,7 +624,6 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # via exact name + version regex (manifests/ncz-timestamped.tsv) + this
     # receipt entry.  A declared package that is not staged, or whose staged
     # version misses the reviewed regex, fails the build here.
-    import re as _re
     ts_tsv = REPO_ROOT / "manifests" / "ncz-timestamped.tsv"
     if ts_tsv.is_file():
         decl = {}
@@ -632,7 +632,7 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
                 continue
             f = line.split("\t")
             if len(f) >= 6:
-                decl[(f[0], f[2])] = _re.compile(f[1])
+                decl[(f[0], f[2])] = re.compile(f[1])
         required = {k for k in decl if k[1] in (arch, "all")}
         ts_rec = []
         seen = set()
