@@ -70,6 +70,12 @@ fi
 
 cd "$REPO_ROOT"
 
+# ONE exit trap for the whole run: in bash a later `trap ... EXIT` REPLACES the
+# earlier one, so registering one per temp file leaves the earlier files behind.
+CLEANUP_PATHS=()
+cleanup() { [ "${#CLEANUP_PATHS[@]}" -gt 0 ] && rm -rf "${CLEANUP_PATHS[@]}" 2>/dev/null; return 0; }
+trap cleanup EXIT
+
 PRESEED=preseed/preseed.cfg
 KNOWN=build/preseed-known-keys.txt
 OVER=build/preseed-runtime-overrides.txt
@@ -108,8 +114,7 @@ fi
 
 # ------------------------------------------ 2. duplicate/conflicting static keys
 # Emit: <key>\t<value> for every `d-i <key> <type> <value>` line except `seen`.
-tmp_vals="$(mktemp -t preseed-vals.XXXXXX)"
-trap 'rm -f "$tmp_vals"' EXIT
+tmp_vals="$(mktemp -t preseed-vals.XXXXXX)"; CLEANUP_PATHS+=("$tmp_vals")
 awk '
     /^d-i[ \t]+[^ \t]+[ \t]+seen[ \t]*/ { next }   # seen-markers carry no value
     /^d-i[ \t]+[^ \t]+[ \t]+[^ \t]+/ {
@@ -150,8 +155,7 @@ done
 # ------------------------------------------ 3. allow-list (known consumer) check
 unknown=0
 # allow-list lines: strip #-comments and surrounding blanks before matching
-KNOWN_KEYS="$(mktemp -t preseed-known.XXXXXX)"
-trap 'rm -f "$tmp_vals" "$rtset" "$KNOWN_KEYS"' EXIT
+KNOWN_KEYS="$(mktemp -t preseed-known.XXXXXX)"; CLEANUP_PATHS+=("$KNOWN_KEYS")
 awk '{ sub(/#.*/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); if ($0!="") print }' "$KNOWN" > "$KNOWN_KEYS"
 while IFS=$'\t' read -r key _; do
     [ -n "$key" ] || continue
@@ -166,8 +170,7 @@ fi
 
 # ------------------------------------------ 4. runtime-override double-set check
 # keys set by db_set in preseed/*.sh
-rtset="$(mktemp -t preseed-rt.XXXXXX)"
-trap 'rm -f "$tmp_vals" "$rtset"' EXIT
+rtset="$(mktemp -t preseed-rt.XXXXXX)"; CLEANUP_PATHS+=("$rtset")
 shopt -s nullglob
 _pres_sh=(preseed/*.sh)
 shopt -u nullglob

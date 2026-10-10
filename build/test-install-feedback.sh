@@ -97,7 +97,8 @@ len_ok() {
             [ -n "$out" ] || continue
             n=${#out}
             [ "$n" -le 175 ] || { echo "  too long ($n): $out"; return 1; }
-        done < <(grep -hoE 'ncz_msg "[^"]+"' "$f" 2>/dev/null || true)
+        # measure the MESSAGE only: strip the `ncz_msg "` prefix and closing quote
+        done < <(grep -hoE 'ncz_msg "[^"]+"' "$f" 2>/dev/null | sed -E 's/^ncz_msg "//; s/"$//' || true)
     done
     return 0
 }
