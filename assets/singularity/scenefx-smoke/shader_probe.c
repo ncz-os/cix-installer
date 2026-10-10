@@ -167,22 +167,38 @@ int main(int argc, char **argv) {
 	FILE *m = fopen(argv[1], "r");
 	if (!m) { perror(argv[1]); return 2; }
 	char line[4096];
-	int fails = 0, total = 0;
+	int fails = 0, total = 0, expected = -1, empty_rows = 0;
 	while (fgets(line, sizeof(line), m)) {
 		char *nl = strchr(line, '\n'); if (nl) *nl = '\0';
-		if (line[0] == '\0' || line[0] == '#') continue;
+		if (line[0] == '#') {
+			/* "# expected_programs=<n>" binds the run to the generator's
+			 * program set, so a truncated/empty manifest fails closed. */
+			if (strncmp(line, "# expected_programs=", 20) == 0) {
+				expected = atoi(line + 20);
+			}
+			continue;
+		}
+		if (line[0] == '\0') continue;
 		char *tab1 = strchr(line, '\t'); if (!tab1) continue; *tab1 = '\0';
 		char *tab2 = strchr(tab1 + 1, '\t'); if (!tab2) continue; *tab2 = '\0';
 		const char *label = line;
 		const char *vpath = tab1 + 1;
 		const char *fpath = tab2 + 1;
 
+		int has_v = vpath[0] && strcmp(vpath, "-") != 0;
+		int has_f = fpath[0] && strcmp(fpath, "-") != 0;
+		if (!has_v && !has_f) {
+			/* A row with no stages at all must not count as a pass. */
+			printf("=== %s ===\n  FAIL: no shader stages in row\n", label);
+			empty_rows++;
+			fails++;
+			continue;
+		}
 		total++;
 		printf("=== %s ===\n", label);
-		char *vsrc = (vpath[0] && strcmp(vpath, "-") != 0) ? read_file(vpath) : NULL;
-		char *fsrc = (fpath[0] && strcmp(fpath, "-") != 0) ? read_file(fpath) : NULL;
-		if ((vpath[0] && strcmp(vpath, "-") != 0 && !vsrc) ||
-		    (fpath[0] && strcmp(fpath, "-") != 0 && !fsrc)) {
+		char *vsrc = has_v ? read_file(vpath) : NULL;
+		char *fsrc = has_f ? read_file(fpath) : NULL;
+		if ((has_v && !vsrc) || (has_f && !fsrc)) {
 			printf("  file read failed (v=%s f=%s)\n", vpath, fpath);
 			fails++; free(vsrc); free(fsrc); continue;
 		}
@@ -216,7 +232,17 @@ int main(int argc, char **argv) {
 		free(vsrc); free(fsrc);
 	}
 	fclose(m);
-	printf("\n[summary] programs=%d failures=%d\n", total, fails);
+	printf("\n[summary] programs=%d failures=%d expected=%d empty_rows=%d\n",
+		total, fails, expected, empty_rows);
+	if (total == 0) {
+		fprintf(stderr, "[FAIL] manifest yielded no programs -- refusing to pass an empty run\n");
+		fails++;
+	}
+	if (expected >= 0 && total != expected) {
+		fprintf(stderr, "[FAIL] manifest had %d programs, generator expected %d (source drift or truncation)\n",
+			total, expected);
+		fails++;
+	}
 	eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 	eglDestroyContext(dpy, ctx);
 	eglTerminate(dpy);
