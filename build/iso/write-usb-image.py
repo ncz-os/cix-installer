@@ -87,6 +87,7 @@ import argparse
 import gzip
 import hashlib
 import json
+import os
 import shutil
 import socket
 import struct
@@ -111,6 +112,31 @@ GPT_TYPE_LINUX = "8300"
 # rather than grepping sgdisk's English prose for "EFI system partition".
 GPT_TYPE_GUID_ESP = bytes.fromhex("28732ac11ff8d211ba4b00a0c93ec93b")
 GPT_TYPE_GUID_LINUX = bytes.fromhex("af3dc60f838472478e793d69d8477de4")
+
+
+def repro_uuid(kind: str) -> str | None:
+    """A stable UUID/GUID derived from the build pin (docs/IMAGE-BUILD-PROCESS.md).
+
+    Precedence: an explicit NCZ_REPRO_UUID_<KIND> from the environment (the
+    entrypoint exports these), else derive from NCZ_PIN_FILE + NCZ_REPRO_ARCH.
+    Returns None when no pin is available, in which case the caller keeps the
+    tool's nondeterministic default so an ad-hoc run still works -- but a build
+    through build/build-image.sh always has a pin, and the determinism test
+    fails if this ever returns None in that path."""
+    env_key = "NCZ_REPRO_UUID_" + kind.upper().replace("-", "_")
+    val = os.environ.get(env_key)
+    if val:
+        return val
+    pin = os.environ.get("NCZ_PIN_FILE")
+    if not pin:
+        return None
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "build" / "lib"))
+        import reproducible  # noqa: WPS433 (deliberate local import)
+        digest = reproducible.pin_digest(Path(pin))
+        return reproducible.derive_uuid(kind, digest, os.environ.get("NCZ_REPRO_ARCH", ""))
+    except Exception:
+        return None
 
 # Real staleness bug found 2026-09-24: write-image.py's stage_ncz_payload()
 # `expected` list never picked up desktop-hotfix.squashfs / its manifest /
@@ -773,7 +799,19 @@ def build_data_partition_img(ncz_payload_tree_dir: Path, out_img: Path,
     with out_img.open("wb") as f:
         f.truncate(size_bytes)
 
-    run(["/sbin/mkfs.ext4", "-F", "-L", "NCZDATA", "-q", str(out_img)])
+    # Deterministic filesystem: pin the UUID and the directory hash_seed so two
+    # builds of the same pin are byte-identical (mke2fs otherwise randomises
+    # both, which alone makes the image differ every run).  mke2fs honours
+    # SOURCE_DATE_EPOCH for the superblock/inode creation time.
+    mkfs_cmd = ["/sbin/mkfs.ext4", "-F", "-L", "NCZDATA", "-q"]
+    data_uuid = repro_uuid("ext4-data")
+    hash_seed = repro_uuid("ext4-hashseed")
+    if data_uuid:
+        mkfs_cmd += ["-U", data_uuid]
+    if hash_seed:
+        mkfs_cmd += ["-E", f"hash_seed={hash_seed}"]
+    mkfs_cmd.append(str(out_img))
+    run(mkfs_cmd)
 
     # Take the loop device straight from --show. The previous code discarded
     # it and re-queried via "losetup -j", parsing the first line of what can
@@ -829,12 +867,30 @@ def sgdisk_partition(out_path: Path, esp_size_bytes: int, data_size_bytes: int) 
     with out_path.open("wb") as f:
         f.truncate(total_bytes)
 
-    run(["/sbin/sgdisk", "--clear",
-         f"--new=1:0:+{esp_mib}M", f"--typecode=1:{GPT_TYPE_ESP}",
-         "--change-name=1:NCZESP",
-         "--new=2:0:0", f"--typecode=2:{GPT_TYPE_LINUX}",
-         "--change-name=2:NCZDATA",
-         str(out_path)])
+    # Deterministic GPT: sgdisk randomises the disk GUID and both partition
+    # GUIDs on every run.  Pin all three from the build pin so the table is
+    # byte-identical across builds (only the PBR PARTUUID/label-id, which the
+    # kernel boot line references, needs to stay constant per artifact).
+    sgdisk_cmd = ["/sbin/sgdisk", "--clear"]
+    disk_guid = repro_uuid("gpt-disk")
+    esp_guid = repro_uuid("gpt-esp")
+    data_guid = repro_uuid("gpt-data")
+    if disk_guid:
+        sgdisk_cmd += [f"--disk-guid={disk_guid}"]
+    sgdisk_cmd += [
+        f"--new=1:0:+{esp_mib}M", f"--typecode=1:{GPT_TYPE_ESP}",
+        "--change-name=1:NCZESP",
+    ]
+    if esp_guid:
+        sgdisk_cmd += [f"--partition-guid=1:{esp_guid}"]
+    sgdisk_cmd += [
+        "--new=2:0:0", f"--typecode=2:{GPT_TYPE_LINUX}",
+        "--change-name=2:NCZDATA",
+    ]
+    if data_guid:
+        sgdisk_cmd += [f"--partition-guid=2:{data_guid}"]
+    sgdisk_cmd.append(str(out_path))
+    run(sgdisk_cmd)
 
     info = {}
     for part in (1, 2):

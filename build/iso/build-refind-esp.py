@@ -549,7 +549,11 @@ def make_fat_image_mtools(esp_root: Path, out_img: Path, size_mib: int = 4) -> d
     # smaller images get FAT12 or FAT16, which is what we want for a
     # 64 MiB ESP carrying the kernel + initrd. We pin a numeric serial
     # (4 bytes) so the formatted image is reproducible.
-    serial = "0x4bcd8d9c"
+    # The serial is a fixed 4-byte value so the FAT image is reproducible.
+    # build/build-image.sh passes NCZ_REPRO_VFAT_SERIAL (derived from the build
+    # pin); falling back to the long-standing constant keeps an ad-hoc run
+    # byte-identical to every previous build.
+    serial = os.environ.get("NCZ_REPRO_VFAT_SERIAL") or "0x4bcd8d9c"
     subprocess.run([
         mformat,
         "-i", str(out_img),   # image file (replaces the positional device arg)
