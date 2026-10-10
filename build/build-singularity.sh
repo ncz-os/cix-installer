@@ -632,6 +632,10 @@ CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
          -v "$REPO_ROOT/build":/ncz-build:ro \
          -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV" \
          -e NCZ_SINGULARITY_TRACK_HEAD="$TRACK_HEAD")
+# Optional exact SceneFX commit for the wrap the compositor-pins resolver
+# freezes (build/patch-singularity-scenefx.sh honours it). Unset -> the helper
+# resolves labwc's scenefx.wrap revision itself.
+[ -n "${NCZ_SCENEFX_SHA:-}" ] && CE_ARGS+=(-e NCZ_SCENEFX_SHA="$NCZ_SCENEFX_SHA")
 if [ "$TRACK_HEAD" != 1 ]; then
     CE_ARGS+=(-v "$PINS_FILE":/ncz-pins.tsv:ro -e NCZ_SINGULARITY_PINS=/ncz-pins.tsv)
     # An explicit SINGULARITY_REPO / VETRO_REPO (e.g. a local mirror) still
