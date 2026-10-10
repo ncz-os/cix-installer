@@ -743,14 +743,22 @@ stage_refresh_sources() {
     # 2. build the payload deb -- or, for --sources pinned with a committed
     #    prebuilt deb present, reuse it (reproduces the committed build).
     local deb="" sha="" sdir_out="$sdir/out"
+    mkdir -p "$sdir_out"
+    local pins_sha marker="$sdir_out/.built-pins.sha256"
+    pins_sha="$(sha256sum "$up" | awk '{print $1}')"
     if [ "$SOURCES" = pinned ]; then
         deb="$(ls -1 "$ROOT/assets/cix-debs/ncz-singularity-desktop_"*_"$ARCH".deb 2>/dev/null | sort -V | tail -1)"
     fi
     if [ -n "$deb" ] && [ -f "$deb" ]; then
         echo "[refresh-sources] pinned: using committed prebuilt $(basename "$deb")" | tee -a "$log"
+    elif [ -s "$marker" ] && [ "$(cat "$marker")" = "$pins_sha" ] && \
+         [ -n "$(ls -1 "$sdir_out"/ncz-singularity-desktop_"*"_"$ARCH".deb 2>/dev/null)" ]; then
+        # idempotent reuse: a deb already built from THESE exact resolved pins
+        # (lets a `--resume-from refresh-sources` / retry avoid a full rebuild).
+        deb="$(ls -1 "$sdir_out"/ncz-singularity-desktop_"*"_"$ARCH".deb 2>/dev/null | sort -V | tail -1)"
+        echo "[refresh-sources] reusing the deb built from these exact pins: $(basename "$deb")" | tee -a "$log"
     else
         echo "[refresh-sources] building ncz-singularity-desktop ($ARCH) from $SOURCES sources" | tee -a "$log"
-        mkdir -p "$sdir_out"
         ( cd "$ROOT" && TMPDIR="$RUN_DIR/tmp" NCZ_SINGULARITY_PINS="$up" NCZ_SINGULARITY_TRACK_HEAD=0 \
             OUT="$sdir_out" SINGULARITY_IMAGE="debian:${NCZ_BASE_CODENAME:-forky}" \
             bash build/build-singularity.sh ) 2>&1 | tee -a "$log"
@@ -767,6 +775,7 @@ stage_refresh_sources() {
             echo "[refresh-sources] FAIL: build-singularity-deb.sh produced no usable deb" | tee -a "$log" >&2
             return 1
         fi
+        printf '%s\n' "$pins_sha" > "$marker"
     fi
     sha="$(sha256sum "$deb" | awk '{print $1}')"
 
