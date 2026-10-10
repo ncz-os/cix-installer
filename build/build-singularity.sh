@@ -502,12 +502,6 @@ fi
 meson configure "$LABWC_BUILD_DIR" --prefix='"$PREFIX"' >/dev/null
 DESTDIR=/work/stage meson install -C "$LABWC_BUILD_DIR"
 
-# GATE (static): the staged labwc must not embed SceneFX GLSL with a quoted
-# `#error` -- libmali rejects it and the Sky1 Mali boot black-screens. This
-# fails the payload build (amd64 and arm64) if patch-singularity-scenefx.sh ever
-# silently stops reaching the wrap. Hardware smoke: assets/singularity/scenefx-smoke/.
-bash /ncz-build/check-singularity-shaders.sh "/work/stage'"$PREFIX"'/bin/labwc"
-
 # The upstream Meson install deliberately installs schema XML, but it does not
 # install a compiled GSettings database.  Raw XML is not usable by GSettings at
 # runtime: launching singularity-desktop then aborts with "Settings schema
@@ -530,6 +524,17 @@ for staged in "/work/stage'"$PREFIX"'/bin/singularity-desktop" \
 done
 [ -s "$SCHEMA_DIR/gschemas.compiled" ] || {
     echo "ERROR: compiled GSettings schema cache is missing or empty" >&2; exit 1; }
+
+# GATE (static, O6N/Mali SceneFX): the staged labwc must not embed SceneFX GLSL
+# with a quoted `#error` -- libmali (CIX Sky1, Valhall r53p0) rejects the double
+# quote even inside a disabled preprocessor branch, so labwc cannot create its fx
+# renderer and the Mali boot black-screens. This fails the payload build (amd64
+# and arm64) if build/patch-singularity-scenefx.sh ever silently stops reaching
+# the wrap. STAGE_PREFIX is derived from SCHEMA_DIR (already a staged path) so it
+# needs no new host/container prefix splice. Hardware smoke:
+# assets/singularity/scenefx-smoke/run_probe.sh on a Mali board.
+STAGE_PREFIX="${SCHEMA_DIR%/share/glib-2.0/schemas}"
+bash /ncz-build/check-singularity-shaders.sh "$STAGE_PREFIX/bin/labwc"
 
 # --- singularity-boot-splash (NATIVE KMS boot splash — Plymouth replacement) --
 # Separate upstream repo (github.com/singularityos-lab/singularity-boot-splash),
@@ -627,6 +632,10 @@ CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
          -v "$REPO_ROOT/build":/ncz-build:ro \
          -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV" \
          -e NCZ_SINGULARITY_TRACK_HEAD="$TRACK_HEAD")
+# Optional exact SceneFX commit for the wrap the compositor-pins resolver
+# freezes (build/patch-singularity-scenefx.sh honours it). Unset -> the helper
+# resolves labwc's scenefx.wrap revision itself.
+[ -n "${NCZ_SCENEFX_SHA:-}" ] && CE_ARGS+=(-e NCZ_SCENEFX_SHA="$NCZ_SCENEFX_SHA")
 if [ "$TRACK_HEAD" != 1 ]; then
     CE_ARGS+=(-v "$PINS_FILE":/ncz-pins.tsv:ro -e NCZ_SINGULARITY_PINS=/ncz-pins.tsv)
     # An explicit SINGULARITY_REPO / VETRO_REPO (e.g. a local mirror) still
