@@ -22,6 +22,9 @@
 # desktop loop), NOT via install-time MACHINE_HOOKS.
 
 set -euo pipefail
+_pm="$(dirname "$0")/lib/progress-msg.sh"; [ -r "$_pm" ] || _pm=/usr/local/lib/cix-installer/post-install/lib/progress-msg.sh
+[ -r "$_pm" ] && . "$_pm"
+command -v ncz_msg >/dev/null 2>&1 && ncz_msg "Desktop: installing the desktop, greeter and applications (several minutes; log: /var/log/cix-install/20-desktop.log)"
 echo "[20] Singularity Desktop layer (labwc/wlroots + greetd/native singularity-greeter, Mali)"
 
 VARIANT=desktop

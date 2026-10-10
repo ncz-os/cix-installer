@@ -107,7 +107,7 @@ fi
 UV=$(command -v uv || echo "$HOME/.local/bin/uv")
 if [ ! -x "$UV" ]; then
     echo "[88] installing uv (needed for a standalone CPython $PYVER)"
-    curl -LsSf https://astral.sh/uv/install.sh 2>/dev/null | sh >/dev/null 2>&1 || true
+    curl -LsSf --connect-timeout 5 --max-time 60 https://astral.sh/uv/install.sh 2>/dev/null | sh >/dev/null 2>&1 || true
     UV="$HOME/.local/bin/uv"
 fi
 if [ ! -x "$UV" ]; then
