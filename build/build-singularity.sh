@@ -506,7 +506,8 @@ DESTDIR=/work/stage meson install -C "$LABWC_BUILD_DIR"
 # `#error` -- libmali rejects it and the Sky1 Mali boot black-screens. This
 # fails the payload build (amd64 and arm64) if patch-singularity-scenefx.sh ever
 # silently stops reaching the wrap. Hardware smoke: assets/singularity/scenefx-smoke/.
-bash /ncz-build/check-singularity-shaders.sh "/work/stage'"$PREFIX"'/bin/labwc"
+STAGE_PREFIX="/work/stage'"$PREFIX"'"
+bash /ncz-build/check-singularity-shaders.sh "$STAGE_PREFIX/bin/labwc"
 
 # The upstream Meson install deliberately installs schema XML, but it does not
 # install a compiled GSettings database.  Raw XML is not usable by GSettings at

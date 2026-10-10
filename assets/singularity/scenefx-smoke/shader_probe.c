@@ -30,6 +30,11 @@
 extern void *gbm_create_device(int fd);
 extern void gbm_device_destroy(void *gbm);
 
+/* Kept alive for the whole process: the EGL display created from the GBM device
+ * outlives try_gbm(), so both must be released only after eglTerminate(). */
+static void *g_gbm = NULL;
+static int g_drm_fd = -1;
+
 static char *read_file(const char *path) {
 	FILE *f = fopen(path, "rb");
 	if (!f) return NULL;
@@ -71,6 +76,8 @@ static EGLDisplay try_gbm(void) {
 	}
 	if (dpy != EGL_NO_DISPLAY) {
 		printf("[egl] using EGL_PLATFORM_GBM_KHR on renderD128\n");
+		g_gbm = gbm;
+		g_drm_fd = fd;
 		return dpy;
 	}
 	gbm_device_destroy(gbm);
@@ -118,8 +125,10 @@ int main(int argc, char **argv) {
 		return 2;
 	}
 	printf("[egl] EGL %d.%d\n", major, minor);
-	printf("[egl] EGL_VENDOR   = %s\n", eglQueryString(dpy, EGL_VENDOR));
-	printf("[egl] EGL_VERSION  = %s\n", eglQueryString(dpy, EGL_VERSION));
+	const char *egl_vendor = eglQueryString(dpy, EGL_VENDOR);
+	const char *egl_version = eglQueryString(dpy, EGL_VERSION);
+	printf("[egl] EGL_VENDOR   = %s\n", egl_vendor ? egl_vendor : "(null)");
+	printf("[egl] EGL_VERSION  = %s\n", egl_version ? egl_version : "(null)");
 	eglBindAPI(EGL_OPENGL_ES_API);
 	EGLint cfg_attr[] = {
 		EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
@@ -207,5 +216,14 @@ int main(int argc, char **argv) {
 	eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 	eglDestroyContext(dpy, ctx);
 	eglTerminate(dpy);
+	/* release the GBM platform resources after EGL is done with them */
+	if (g_gbm) {
+		gbm_device_destroy(g_gbm);
+		g_gbm = NULL;
+	}
+	if (g_drm_fd >= 0) {
+		close(g_drm_fd);
+		g_drm_fd = -1;
+	}
 	return fails ? 1 : 0;
 }
