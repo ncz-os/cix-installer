@@ -27,6 +27,27 @@ This writes `<image>.gated`. Nothing is deleted.
 
 ## 2. Operator validation (hardware)
 
+### 2.1 Mali (Sky1 / O6N) smoke — REQUIRED for an arm64 ship
+
+The vendor-Mali default entry is the one the SceneFX/libmali regression broke
+(black screen). Before shipping an arm64 payload, run the hardware smoke on a
+Sky1 Mali board (O6N, `sky1.gpu=vendor`) with the shaders of the *built* payload:
+
+```sh
+# generate the payload's formatted SceneFX shaders (on the arm64 build host)
+python3 assets/singularity/scenefx-smoke/make_shaders.py \
+    <labwc-build-tree>/subprojects/scenefx $HOME/Projects/shaders   # or a checkout + patch
+# copy assets/singularity/scenefx-smoke/ + the shaders to the board's user dir, then:
+NCZ_SMOKE_SHADERS_DIR=$PWD/shaders bash run_probe.sh $PWD/shaders $PWD/out
+# PASS: "[summary] programs=15 failures=0" on GL_RENDERER=Mali-G720-Immortalis
+```
+
+`programs=15 failures=0` is the acceptance line; `failures=8` (quad, quad_clip,
+tex_*) means the SceneFX patch did not reach the build. The static gate
+(`build/check-singularity-shaders.sh`) already runs in every payload build; the
+hardware smoke proves the *driver* accepts the shaders. Record the deb sha256 and
+the smoke line in `assets/singularity/MALI-VERIFIED.md`.
+
 Flash the candidate to a test device and boot it (operator-only; the fleet
 policy forbids unattended flash/reboot of test hosts). When satisfied:
 
