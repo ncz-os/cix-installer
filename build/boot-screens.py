@@ -216,11 +216,13 @@ n = 0
 try:
     if MODE == "vt":
         # the UI is on the fbcon VT: poll the VT text back to back, record each change as a "screen", answer by rules
-        last, nsnap, changed = None, 0, time.monotonic()
+        last, nsnap, changed = None, 0, time.monotonic()   # changed is loop-carried; only the rules block updates it
         answered_vt = set()
         next_enter = 0; next_dump = 0; next_probe = 0; fb_hist = []; fb_last = None; nfb = 0
         while p.poll() is None and time.monotonic() - t0 < a.secs:
             t = int(time.monotonic() - t0)
+            txt = ""                    # default; the VT block fills it when rules exist
+            now = time.monotonic()      # default; refreshed right after the slow VT read
             fbp = os.path.join(S, f"{n:04d}-{t:04d}s.ppm")
             c.sendall(f"screendump {fbp}\n".encode())
             try: c.recv(4096)
@@ -244,24 +246,32 @@ try:
                 except OSError: pass
             if a.probe and t >= next_probe and t > 30:
                 open(os.path.join(T, f"{n:04d}-{t:04d}s-probe.txt"), "w").write(probe(a.probe)); next_probe = t + 25
-            txt = grab_vt(1).rstrip("\n")
-            if txt.startswith("(telnet not ready") or txt.startswith("(no console size"):
-                time.sleep(2); continue
-            now = time.monotonic()
-            if txt != last:
-                seen_any = nsnap > 0 or txt.strip()
-                if seen_any:
-                    open(os.path.join(TS, f"{nsnap:04d}-{int(now - t0):04d}s.txt"), "w").write(f"# t={int(now - t0)}s\n{txt}\n"); nsnap += 1
-                    with lock: rawlog.write((f"\n--- t={int(now - t0)}s ---\n" + txt + "\n").encode()); rawlog.flush()
-                last, changed = txt, now
+            # Reading the fbcon VT costs a full telnet round-trip (~6 s), which
+            # throttled framebuffer sampling to roughly one frame per 7 s. On
+            # amd64 the VT text is NOT what is under test (the dialogs are
+            # unreadable from it -- see kvm-installer-ui-check.sh); only --answer
+            # rules need it. Sample the framebuffer every loop when there are no
+            # rules, so the distinct-framebuffer-frame evidence the amd64 UI
+            # check counts is dense instead of accidentally sparse.
+            if rules:
+                txt = grab_vt(1).rstrip("\n")
+                if txt.startswith("(telnet not ready") or txt.startswith("(no console size"):
+                    time.sleep(2); continue
+                now = time.monotonic()  # refresh: grab_vt took ~6 s; rule timing needs the post-read clock
+                if txt != last:
+                    seen_any = nsnap > 0 or txt.strip()
+                    if seen_any:
+                        open(os.path.join(TS, f"{nsnap:04d}-{int(now - t0):04d}s.txt"), "w").write(f"# t={int(now - t0)}s\n{txt}\n"); nsnap += 1
+                        with lock: rawlog.write((f"\n--- t={int(now - t0)}s ---\n" + txt + "\n").encode()); rawlog.flush()
+                    last, changed = txt, now
+                for i, (rx, keys) in enumerate(rules):
+                    if i not in answered_vt and txt and rx.search(txt) and now - changed > 3.5:
+                        answered_vt.add(i); send_keys_monitor(keys)
+                        open(os.path.join(W, "answers.log"), "a").write(f"t={int(time.monotonic() - t0)}s rule {i} matched -> {keys!r}\n")
+                        last = None   # force a fresh state after the keys
             if a.enter_every and t >= a.enter_after and time.monotonic() >= next_enter:
                 send_keys_monitor(b"\r"); next_enter = time.monotonic() + a.enter_every
                 open(os.path.join(W, "answers.log"), "a").write(f"t={int(time.monotonic() - t0)}s Enter\n")
-            for i, (rx, keys) in enumerate(rules):
-                if i not in answered_vt and txt and rx.search(txt) and now - changed > 3.5:
-                    answered_vt.add(i); send_keys_monitor(keys)
-                    open(os.path.join(W, "answers.log"), "a").write(f"t={int(now - t0)}s rule {i} matched -> {keys!r}\n")
-                    last = None   # force a fresh state after the keys
             time.sleep(0.5)
     else:
       while p.poll() is None and time.monotonic() - t0 < a.secs:
