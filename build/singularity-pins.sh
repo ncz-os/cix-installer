@@ -143,10 +143,23 @@ cmd_validate() {
 # build for an hour (preflight-freshness-gate.sh check [1] has the incident).
 tgit() { timeout "$GIT_TIMEOUT" git "$@"; }
 
-# Make <sha> present in repository <dir>, fetching from <url> only if needed.
+# Make <sha> present in repository <dir>, fetching from the local bare mirror
+# (the PHASE-1 cache, keyed by URL) when it has the commit, else the network.
+# NCZ_OFFLINE=1 makes the network path a hard error: the build FAILS loudly
+# rather than silently fetching (hermetic builds; docs/IMAGE-BUILD-PROCESS.md).
 ensure_commit() {
-    local dir="$1" url="$2" sha="$3"
+    local dir="$1" url="$2" sha="$3" m
     git -C "$dir" cat-file -e "$sha^{commit}" 2>/dev/null && return 0
+    m="$(cache_dir_for "$url")"
+    if [ -d "$m" ] && git -C "$m" cat-file -e "$sha^{commit}" 2>/dev/null; then
+        git -C "$dir" fetch -q "$m" "$sha" 2>/dev/null || true
+        git -C "$dir" cat-file -e "$sha^{commit}" 2>/dev/null && return 0
+    fi
+    if [ "${NCZ_OFFLINE:-0}" = 1 ]; then
+        echo "ERROR: offline: pinned commit $sha for $url is not in the local mirror $m" >&2
+        echo "       (phase-1 fetch-inputs must mirror it first; no network fallback offline)" >&2
+        return 1
+    fi
     tgit -C "$dir" fetch -q --depth 1 "$url" "$sha" 2>/dev/null \
         || tgit -C "$dir" fetch -q "$url" "$sha" 2>/dev/null \
         || tgit -C "$dir" fetch -q --tags "$url" '+refs/heads/*:refs/ncz-pin/*' 2>/dev/null \
@@ -408,6 +421,7 @@ case "$cmd" in
     validate)       cmd_validate ;;
     sha)            [ $# = 1 ] || die "usage: $0 sha <path>"; pin_sha "$1" ;;
     url)            [ $# = 1 ] || die "usage: $0 url <path>"; pin_url "$1" ;;
+    cache-dir)      [ $# = 1 ] || die "usage: $0 cache-dir <url>"; cache_dir_for "$1" ;;
     clone)          [ $# = 2 ] || die "usage: $0 clone <path> <dest>"; cmd_clone "$1" "$2" ;;
     checkout-tree)  [ $# = 1 ] || die "usage: $0 checkout-tree <superproject-dir>"; cmd_checkout_tree "$1" ;;
     provenance)     [ $# -ge 1 ] || die "usage: $0 provenance <dir> [vetro-dir] [boot-splash-dir]"; cmd_provenance "$@" ;;

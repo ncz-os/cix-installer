@@ -60,6 +60,14 @@ case "$IMAGE" in
         ;;
 esac
 CONTAINER_NETWORK="${SINGULARITY_CONTAINER_NETWORK:-host}"
+# HERMETIC (phase 2): NCZ_OFFLINE=1 forces the payload container to have NO
+# network at all.  Every fetch below (apt, git, go, meson wraps) then fails
+# loudly unless it is served from a phase-1 cache mounted in.  See
+# docs/IMAGE-BUILD-PROCESS.md "Hermetic builds".
+if [ "${NCZ_OFFLINE:-0}" = 1 ]; then
+    CONTAINER_NETWORK=none
+    export GIT_ALLOW_PROTOCOL=file GIT_TERMINAL_PROMPT=0
+fi
 # UPSTREAM PINS (2026-10-06). Every upstream repository this build clones --
 # the singularity-desktop superproject, each of its submodules, vetro and the
 # boot splash -- is checked out at the exact commit in
@@ -135,12 +143,30 @@ echo "   out    = $OUT/singularity-opt.tgz"
 echo "           $OUT/singularity-opt.tgz.depends (Depends sidecar)"
 echo "           $OUT/singularity-opt.tgz.sources (upstream commit of every repo built)"
 
+# ---- offline (phase 2) in-container switches ---------------------------------
+# When NCZ_OFFLINE=1 the container has --network none.  These switches make each
+# ecosystem consume its phase-1 cache and FAIL LOUDLY on a miss (never fetch):
+#   apt  -> a pre-staged file:// closure at /ncz-apt-cache (if mounted)
+#   go   -> /go-modcache (mounted) with GOPROXY=off
+#   meson-> --wrap-mode=nodownload with /ncz-meson-cache (mounted) pre-seeded
+MESON_WRAP_ARG=""; GO_ENV=""
+if [ "${NCZ_OFFLINE:-0}" = 1 ]; then
+    MESON_WRAP_ARG="--wrap-mode=nodownload"
+    GO_ENV="GOPROXY=off GOSUMDB=off GOFLAGS=-mod=mod GOMODCACHE=/go-modcache"
+fi
+
 # ---- in-container build script ---------------------------------------------
 # Everything below runs inside the arm64 debian:<codename> container. The DESTDIR
 # stage is tarred and copied out via the bind-mounted /out.
 BUILD_SCRIPT='
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+# phase-2 offline: no network.  apt must use the pre-staged local closure, or
+# fail (the network is unreachable, so a rolling mirror cannot be reached).
+if [ "${NCZ_OFFLINE:-0}" = 1 ] && [ -d /ncz-apt-cache ]; then
+    echo "deb [trusted=yes] file:///ncz-apt-cache ./" > /etc/apt/sources.list
+    rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+fi
 apt-get update -q
 # Build deps (Debian 13 / Ubuntu 26.04 names — see docs/upstream/singularity/
 # 20-pr-arm64-build.md). No arch guards needed; the tree builds clean on aarch64.
@@ -204,7 +230,7 @@ if [ "$NCZ_SINGULARITY_TRACK_HEAD" = 1 ]; then
 else
     NCZ_SINGULARITY_URL_OVERRIDE="${VETRO_REPO_OVERRIDE:-}" bash /ncz-build/singularity-pins.sh clone vetro vetro
 fi
-( cd vetro && go build -o /usr/local/bin/vetro . )
+( cd vetro && '"$GO_ENV"' go build -o /usr/local/bin/vetro . )
 vetro --version 2>/dev/null || true
 
 # Singularity Desktop (recursive: bundled labwc/wlroots + subprojects).  The
@@ -437,7 +463,7 @@ fi
 
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
 # session launchers'"'"' fixed LD_LIBRARY_PATH=$PREFIX/lib resolves.
-meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
+meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release '"$MESON_WRAP_ARG"'
 # libmali / SceneFX (O6N black screen, 2026-10-10). The bundled SceneFX in
 # labwc is a meson [wrap-git] subproject, invisible to singularity-pins.sh and
 # /ncz-patches (both key on superproject submodule paths). Resolve the wrap and
@@ -576,7 +602,7 @@ if [ -d /ncz-patches/singularity-loginui ]; then
         fi
     done
 fi
-meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
+meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release '"$MESON_WRAP_ARG"'
 ninja -C build
 DESTDIR=/work/stage meson install -C build
 test -x "/work/stage'"$PREFIX"'/bin/singularity-boot-splash"
@@ -632,6 +658,19 @@ CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
          -v "$REPO_ROOT/build":/ncz-build:ro \
          -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV" \
          -e NCZ_SINGULARITY_TRACK_HEAD="$TRACK_HEAD")
+# Phase-1 caches (phase 2 / offline).  Mount each ONLY when provided, so an
+# offline build that lacks a cache fails on the fetch (network unreachable),
+# never silently.  Paths come from fetch-inputs.sh.
+CE_ARGS+=(-e NCZ_OFFLINE="${NCZ_OFFLINE:-0}")
+if [ -n "${NCZ_SINGULARITY_PIN_CACHE:-}" ] && [ -d "$NCZ_SINGULARITY_PIN_CACHE" ]; then
+    CE_ARGS+=(-v "$NCZ_SINGULARITY_PIN_CACHE":/ncz-git-cache:ro -e NCZ_SINGULARITY_PIN_CACHE=/ncz-git-cache)
+fi
+if [ -n "${NCZ_SINGULARITY_GOMODCACHE:-}" ] && [ -d "$NCZ_SINGULARITY_GOMODCACHE" ]; then
+    CE_ARGS+=(-v "$NCZ_SINGULARITY_GOMODCACHE":/go-modcache:ro)
+fi
+if [ -n "${NCZ_SINGULARITY_APT_CACHE:-}" ] && [ -d "$NCZ_SINGULARITY_APT_CACHE" ]; then
+    CE_ARGS+=(-v "$NCZ_SINGULARITY_APT_CACHE":/ncz-apt-cache:ro)
+fi
 # Optional exact SceneFX commit for the wrap the compositor-pins resolver
 # freezes (build/patch-singularity-scenefx.sh honours it). Unset -> the helper
 # resolves labwc's scenefx.wrap revision itself.

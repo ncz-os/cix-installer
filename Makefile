@@ -154,7 +154,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage refresh-substrate check-substrate-pin sid-exceptions release-image print-substrate-sha test-build-determinism test-build-image test-layers-hardening test-build compare-images gen-base-pin
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage refresh-substrate check-substrate-pin sid-exceptions release-image print-substrate-sha test-build-determinism test-build-image test-layers-hardening test-hermetic test-env-pin test-build compare-images gen-base-pin env-pin fetch-inputs
 
 all: image
 
@@ -775,6 +775,18 @@ release-image:
 gen-base-pin:
 	@bash $(ROOT)/build/gen-base-pin.sh
 
+# Regenerate the BUILD ENVIRONMENT pin (container digests + toolchain) and commit
+# it.  A deliverate act: a toolchain bump is a new build-environment identity.
+env-pin:
+	@bash $(ROOT)/build/gen-env-pin.sh
+
+# PHASE 1: resolve + pre-fetch build inputs into the content-addressed caches
+# and write inputs.lock.  The only build step allowed to use the network.
+fetch-inputs:
+	@bash $(ROOT)/build/fetch-inputs.sh --arch $(or $(ARCH),amd64) \
+		--output $(or $(RUN_DIR),$(ROOT)/build/fetch-inputs) \
+		--cache $(or $(NCZ_BUILD_INPUT_CACHE),/mnt/datapool/projects/ncz-os-assets/build-inputs)
+
 # Unit-level determinism tests (derivation + wrapper byte-stability).
 test-build-determinism:
 	@bash $(ROOT)/build/test-build-determinism.sh
@@ -788,9 +800,19 @@ test-build-image:
 test-layers-hardening:
 	@bash $(ROOT)/build/test-layers-hardening.sh
 
+# Hermeticity (operator decision D5): the network-off enforcement really blocks
+# a child connect() (both directions) + the build-script network-verb lint.
+test-hermetic:
+	@bash $(ROOT)/build/test-hermetic.sh
+
+# The committed manifests/env.pin matches THIS host's build environment.
+# Run on a canonical builder; not part of test-build (host-specific by design).
+test-env-pin:
+	@bash $(ROOT)/build/gen-env-pin.sh --check
+
 # Everything about the build process itself (no image is built).
-test-build: test-build-determinism test-build-image test-layers-hardening
-	@echo "[test-build] OK: determinism + entrypoint + layer-hardening tests passed"
+test-build: test-build-determinism test-build-image test-layers-hardening test-hermetic
+	@echo "[test-build] OK: determinism + entrypoint + layer-hardening + hermeticity tests passed"
 
 # Compare two built artifacts with the documented normalisation rules.
 #   make compare-images COMPARE_IMAGE_ARGS="--arch amd64 A.img B.img"

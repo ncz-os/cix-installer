@@ -18,6 +18,7 @@
 #   10 refresh-substrate  refresh/verify the pinned substrate (pin file)
 #   20 stage-inputs       stage the checksum-pinned gitignored build inputs
 #   30 refresh-sources    resolve+freeze the singularity payload sources, build its deb
+#   35 fetch-inputs       PHASE 1: prefetch git/go/meson caches; write inputs.lock
 #   40 offline-mirror     build the offline apt closure (stage 0)
 #   50 provenance-inputs  PROVENANCE + one-kernel check on the INPUTS (fail fast)
 #   60 layers             build the squashfs layers (stage 1)
@@ -48,7 +49,9 @@
 #   --jobs N               make job parallelism (never changes artifact bytes)
 #   --keep-work            keep build scratch/work dirs instead of cleaning them
 #   --clean                remove this run's scratch at the end (logs kept)
-#   --offline              block all network; fail if anything needs to fetch
+#   --offline              phase-2 network OFF, fail-closed (default for --full;
+#                          phase 1 resolves+fetches and records inputs.lock)
+#   --online-ok            dev only: allow phase-2 network; requires --no-publish
 #   --dry-run              print the plan (stages + per-layer reuse) and exit
 #   -h | --help            this help
 #
@@ -70,12 +73,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/build/lib/reproducible.sh"
 # shellcheck source=/dev/null
 . "$ROOT/build/lib/priv.sh"
+# shellcheck source=/dev/null
+. "$ROOT/build/lib/offline.sh"
+# shellcheck source=/dev/null
+. "$ROOT/build/lib/envpin.sh"
 LAYERPLAN_PY="$ROOT/build/lib/layerplan.py"
 
 # ---------------------------------------------------------------------------
 # argparse
 # ---------------------------------------------------------------------------
-ARCH="" RESUME_FROM="" RUN_DIR="" DRY_RUN=0 OFFLINE=0
+ARCH="" RESUME_FROM="" RUN_DIR="" DRY_RUN=0 OFFLINE=0 ONLINE_OK=0
 USE_CONTAINER="${NCZ_BUILD_CONTAINER:-1}"
 NO_ARCHIVE=0
 IMAGE_ARG=""
@@ -115,8 +122,9 @@ build-image.sh -- the single entrypoint for a repeatable, deterministic NCZ-OS i
 
 STAGES (fixed order; provenance runs on the INPUTS before layers, and again on
 the finished image BEFORE the KVM gate -- never waste hours on a doomed build)
-  preflight  refresh-substrate  stage-inputs  refresh-sources  offline-mirror
-  provenance-inputs  layers  image  provenance-gate  kvm-gate  receipt  archive
+  preflight  refresh-substrate  stage-inputs  refresh-sources  fetch-inputs
+  offline-mirror  provenance-inputs  layers  image  provenance-gate  kvm-gate
+  receipt  archive
 
 SCOPE (choose ONE; default --full)
   --full                    substrate refresh + every layer + image + all gates
@@ -147,7 +155,9 @@ OPTIONS
   --jobs N                  make job parallelism (never changes artifact bytes)
   --keep-work               keep build scratch instead of cleaning it
   --clean                   remove this run's scratch at the end (logs kept)
-  --offline                 block all network; fail if anything must fetch
+  --offline                 phase-2 network OFF, fail-closed (default for --full;
+                            phase 1 resolves+fetches and records inputs.lock)
+  --online-ok               dev only: allow phase-2 network; requires --no-publish
   --dry-run                 print the plan (stages + per-layer reuse) and exit
   --layers-check-only DIR   run the per-layer post-checks (build/check-layers.sh)
                             against EXISTING layers (a dir of *.squashfs or one
@@ -205,6 +215,7 @@ while [ $# -gt 0 ]; do
         --dry-run) DRY_RUN=1; shift ;;
         --layers-check-only) LAYERS_CHECK_ONLY="${2:?--layers-check-only needs a dir or layer path}"; shift 2 ;;
         --offline) OFFLINE=1; FORWARD+=("--offline"); shift ;;
+        --online-ok) ONLINE_OK=1; FORWARD+=("--online-ok"); shift ;;
         --no-container) USE_CONTAINER=0; FORWARD+=("--no-container"); shift ;;
         --no-archive) NO_ARCHIVE=1; FORWARD+=("--no-archive"); shift ;;
         --keep-going) KEEP_GOING=1; FORWARD+=("--keep-going"); shift ;;
@@ -272,6 +283,17 @@ case "$SOURCES" in
     latest|pinned) ;;
     *) die2 "bad --sources '$SOURCES' (expected latest|pinned)" ;;
 esac
+# Hermetic defaults (OPERATOR DECISION D5, 2026-10-10): a --full (weekly/nightly)
+# build runs PHASE 2 with the network OFF, fail-closed.  --online-ok is a
+# development-only escape hatch and is accepted only with --no-publish; it never
+# applies to a build that may be published.
+if [ "$ONLINE_OK" = 1 ]; then
+    [ "$NO_PUBLISH" = 1 ] || die2 "--online-ok may only be used with --no-publish (a build that may publish must be offline)"
+    OFFLINE=0
+elif [ "$SCOPE" = full ] && [ "$OFFLINE" != 1 ]; then
+    OFFLINE=1
+    case " ${FORWARD[*]} " in *" --offline "*) ;; *) FORWARD+=("--offline") ;; esac
+fi
 if [ -n "$GATES" ]; then
     [ "$NO_PUBLISH" = 1 ] || die2 "--gates may only be used together with --no-publish (a build that skips a gate can never be published)"
     for g in ${GATES//,/ }; do
@@ -394,7 +416,7 @@ ncz_kernel_staging_dir() {
 # ---------------------------------------------------------------------------
 # Stages
 # ---------------------------------------------------------------------------
-STAGES=(preflight refresh-substrate stage-inputs refresh-sources offline-mirror \
+STAGES=(preflight refresh-substrate stage-inputs refresh-sources fetch-inputs offline-mirror \
         provenance-inputs layers image provenance-gate kvm-gate receipt archive)
 stage_index() {
     local want="$1" i=0 s
@@ -515,7 +537,7 @@ ncz_container_run() {
     )
     local kv
     while IFS= read -r kv; do renv+=(-e "$kv"); done < <(ncz_repro_env_assignments "$ARCH")
-    ncz_sudo podman run --rm --privileged --net=host "${mounts[@]}" \
+    ncz_sudo podman run --rm --privileged --net="$(ncz_container_network_arg)" "${mounts[@]}" \
         -w /work/cix-installer "${renv[@]}" \
         "$NCZ_IMAGEBUILD_TAG" \
         bash -lc "git config --global --add safe.directory '*'; $line" 2>&1 | tee -a "$log"
@@ -546,6 +568,16 @@ run_stage() {
     fi
     local t0; t0="$(date -u +%s)"
     ncz_log "BEGIN [$name] log=$log"
+    # Per-phase network policy.  Phase-2 stages (build) get NCZ_OFFLINE=1 when
+    # $OFFLINE=1: containers run --network none and any fetch FAILS loudly.
+    # Phase-1 stages (resolve+fetch) may reach the network so the caches and
+    # inputs.lock can be recorded.
+    if [ "$OFFLINE" = "1" ] && ! ncz_stage_is_phase1 "$name"; then
+        export NCZ_OFFLINE=1
+        ncz_offline_export_env
+    else
+        export NCZ_OFFLINE=0
+    fi
     local rc=0
     if [ -n "${NCZ_TEST_STAGE_CMD:-}" ]; then
         # Test-only hook (build/test-build-image.sh): run a fake stage command so
@@ -631,6 +663,21 @@ stage_preflight() {
     fi
     say "run pin: $RUN_PIN"
 
+    # -- build environment pin (manifests/env.pin) -------------------------
+    # Closes the "build environment pinning" gap: fail with a precise per-key
+    # diff if the container digest / toolchain / locale is not the pinned one.
+    if [ -r "$ROOT/manifests/env.pin" ]; then
+        if ncz_envpin_check --pin "$ROOT/manifests/env.pin" \
+                --payload-image "${NCZ_BASE_IMAGE:-debian:forky}" \
+                --report "$RUN_DIR/envpin.diff" >>"$log" 2>&1; then
+            say "env.pin OK ($(grep -c '^OK' "$RUN_DIR/envpin.diff" 2>/dev/null || echo 0) key(s) verified)"
+        else
+            bad "env.pin mismatch: the build environment is not the pinned one (diff: $RUN_DIR/envpin.diff)"
+        fi
+    else
+        say "WARN: manifests/env.pin absent -- the build environment is NOT pinned (run build/gen-env-pin.sh)"
+    fi
+
     # -- required host tools ----------------------------------------------
     local tools="git make python3 mksquashfs mkfs.ext4 sgdisk tar sha256sum zstd unsquashfs"
     [ "$USE_CONTAINER" = "1" ] && tools="$tools podman"
@@ -678,10 +725,10 @@ stage_preflight() {
        [ "$(sha256sum "$DOWNLOADS/$UPSTREAM_ISO" | awk '{print $1}')" = "$SUBSTRATE_SHA" ]; then
         say "substrate pre-staged and pinned: $UPSTREAM_ISO ($SUBSTRATE_SHA)"
     else
-        if [ "$OFFLINE" = "1" ]; then
-            bad -- "--offline but the pinned substrate is not pre-staged in downloads/"
+        if [ "${NCZ_OFFLINE_PHASE1:-0}" = "1" ]; then
+            bad -- "strict phase-1 (NCZ_OFFLINE_PHASE1=1) but the pinned substrate is not pre-staged in downloads/"
         else
-            say "substrate not staged yet; the refresh-substrate stage will fetch it"
+            say "substrate not staged yet; the refresh-substrate stage (phase 1) will fetch it"
         fi
     fi
 
@@ -744,8 +791,8 @@ stage_refresh_substrate() {
         echo "[refresh-substrate] pinned substrate already present: $UPSTREAM_ISO ($want)" | tee -a "$log"
         return 0
     fi
-    if [ "$OFFLINE" = "1" ]; then
-        echo "[refresh-substrate] FAIL: --offline and the pinned substrate is not staged" | tee -a "$log" >&2
+    if [ "${NCZ_OFFLINE_PHASE1:-0}" = "1" ]; then
+        echo "[refresh-substrate] FAIL: strict phase-1 and the pinned substrate is not staged" | tee -a "$log" >&2
         return 3
     fi
     echo "[refresh-substrate] restoring the pinned substrate from the ARGONAS cache via make download" | tee -a "$log"
@@ -1023,6 +1070,53 @@ with open(out, "w") as fh:
 print("[refresh-sources] wrote payload receipt %s (%s %s %s)" % (out, name, ver, arch))
 PYEOF
     echo "[refresh-sources] payload deb: $(basename "$deb") sha256=$sha (sources=$SOURCES)" | tee -a "$log"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Stage 35 -- fetch-inputs (PHASE 1: resolve+prefetch build inputs into
+# content-addressed caches; write inputs.lock)
+# ---------------------------------------------------------------------------
+# OPERATOR DECISION D5 (2026-10-10): --offline fail-closed is mandatory for
+# shipped/weekly/nightly builds.  This stage is the ONLY one allowed to fetch
+# build inputs; every later stage consumes the caches with the network off.
+# It prefetches the git mirrors, the Go module cache (vetro), and the meson
+# [wrap-git] subprojects for the resolved pins, and records all of them
+# (url, resolved rev, sha256) in $RUN_DIR/inputs.lock.
+stage_fetch_inputs() {
+    local log="$1"
+    local pins="$RUN_DIR/singularity-sources/upstream-pins.tsv"
+    [ -s "$pins" ] || pins="$ROOT/assets/singularity/upstream-pins.tsv"
+    local cache="${NCZ_BUILD_INPUT_CACHE:-/mnt/datapool/projects/ncz-os-assets/build-inputs}"
+    mkdir -p "$RUN_DIR/fetch-inputs"
+    local args=(--arch "$ARCH" --output "$RUN_DIR" --pins "$pins" --cache "$cache")
+    [ "$OFFLINE" = 1 ] && args+=(--offline)
+    ( cd "$ROOT" && TMPDIR="$RUN_DIR/tmp" bash build/fetch-inputs.sh "${args[@]}" ) 2>&1 | tee -a "$log"
+    local rc="${PIPESTATUS[0]}"
+    if [ "$rc" != 0 ]; then
+        echo "[fetch-inputs] FAIL: could not resolve/prefetch the build inputs (rc=$rc)" | tee -a "$log" >&2
+        return "$rc"
+    fi
+    # Export the phase-1 cache locations so later stages (and a --resume-from)
+    # consume them rather than reaching the network.
+    export NCZ_SINGULARITY_PIN_CACHE="$cache/git-mirrors"
+    local gomod=""
+    [ -s "$RUN_DIR/inputs.lock" ] && gomod="$(python3 - "$RUN_DIR/inputs.lock" "$cache" <<'PY' 2>/dev/null || true
+import json, os, sys
+d = json.load(open(sys.argv[1])); cache = sys.argv[2]
+for i in d.get("inputs", []):
+    if i.get("kind") == "go":
+        p = os.path.join(cache, i.get("cache", ""))
+        if os.path.isdir(p):
+            print(p); break
+PY
+)"
+    [ -n "$gomod" ] && export NCZ_SINGULARITY_GOMODCACHE="$gomod"
+    { printf 'NCZ_SINGULARITY_PIN_CACHE=%s\n' "$NCZ_SINGULARITY_PIN_CACHE"
+      [ -n "${NCZ_SINGULARITY_GOMODCACHE:-}" ] && printf 'NCZ_SINGULARITY_GOMODCACHE=%s\n' "$NCZ_SINGULARITY_GOMODCACHE"
+      printf 'NCZ_BUILD_INPUT_CACHE=%s\n' "$cache"
+    } > "$RUN_DIR/fetch-inputs/result.env"
+    echo "[fetch-inputs] inputs.lock: $RUN_DIR/inputs.lock" | tee -a "$log"
     return 0
 }
 
@@ -1417,14 +1511,21 @@ if [ "$DRY_RUN" = 1 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# offline guard: fail fast if anything tries the network
+# two-phase hermeticity (docs/IMAGE-BUILD-PROCESS.md "Hermetic builds")
 # ---------------------------------------------------------------------------
+# PHASE 1 (resolve+fetch): refresh-substrate, stage-inputs, refresh-sources,
+#   fetch-inputs, offline-mirror.  Network ALLOWED: this is where every external
+#   input is pinned and pre-fetched into a content-addressed cache and recorded
+#   in inputs.lock.  A strict no-network phase 1 (pure reproduce from a prior
+#   lock) is NCZ_OFFLINE_PHASE1=1.
+# PHASE 2 (build): provenance-inputs, layers, image, gates, receipt, archive.
+#   Network FORBIDDEN when $OFFLINE=1 (default for --full): containers run
+#   --network none, host stages get the offline env, any fetch FAILS the build.
+PHASE1_STAGES=" refresh-substrate stage-inputs refresh-sources fetch-inputs offline-mirror "
+ncz_stage_is_phase1() { case "$PHASE1_STAGES" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+export NCZ_OFFLINE_PHASE1="${NCZ_OFFLINE_PHASE1:-0}"
 if [ "$OFFLINE" = "1" ]; then
-    export NCZ_OFFLINE=1
-    export http_proxy="http://127.0.0.1:9/" https_proxy="http://127.0.0.1:9/" \
-           HTTP_PROXY="http://127.0.0.1:9/" HTTPS_PROXY="http://127.0.0.1:9/" \
-           no_proxy="" NO_PROXY=""
-    ncz_info "--offline: network access is blocked (proxy 127.0.0.1:9)"
+    ncz_info "hermetic: phase-2 network OFF (default for --full); phase-1 fetch recorded in inputs.lock"
 fi
 
 # ---------------------------------------------------------------------------

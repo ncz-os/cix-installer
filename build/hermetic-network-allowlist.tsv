@@ -1,0 +1,58 @@
+# build/hermetic-network-allowlist.tsv -- classification of every build script
+# that contains a network verb, for build/test-hermetic.sh (lint D) and
+# docs/IMAGE-BUILD-PROCESS.md "Hermetic builds".
+#
+# Columns (TAB): file<TAB>class<TAB>reason
+#   class:
+#     phase1       phase-1 resolve+fetch stage: network is allowed here BY DESIGN
+#                  (the pin/fetch step).  Must record what it fetched (inputs.lock).
+#     mirror       fetches the pinned/offline apt closure or a local mirror; no
+#                  rolling upstream (the mirror is built in phase 1).
+#     gate         CI/gate/test tooling, not part of the shipped build path.
+#     runtime      runs INSIDE the installer / at first boot, not at image build
+#                  time (install-time network is legitimate and documented).
+#     guarded      network verbs are guarded by NCZ_OFFLINE (fail-closed offline).
+#     comment-only the verb appears only in a comment / help text.
+#     phase2-todo  a build-time fetch that is NOT yet served from a phase-1
+#                  cache.  Tracked work; a --full offline build will FAIL on it
+#                  until the cache exists (this is honest, not hidden).
+#
+# The lint FAILS on any build script with a network verb that is NOT listed here
+# and not matched by the phase-1 / gate / guarded rules in test-hermetic.sh.
+# Adding a new dependency: add a cache + an inputs.lock entry in fetch-inputs.sh
+# (phase-1) and list the script here; never add an unguarded build-time fetch.
+file	class	reason
+70-bootloader.sh	mirror	apt-get install inside the build container against the pinned/offline mirror
+build-baked-rootfs.sh	mirror	apt-get update inside the baked chroot against the offline mirror
+build-base-rootfs.sh	mirror	mmdebstrap bootstraps from the pinned/offline mirror (not upstream)
+build-desktop-mirror.sh	phase1	builds the desktop apt mirror from pinned sources
+build-gst-cix.sh	phase2-todo	git clone + apt-get for the CIX gstreamer build; needs a phase-1 cache
+build-image.sh	comment-only	stage list / usage text mentions the verbs only in comments
+build-installer-image.sh	phase2-todo	curl of the debootstrap udeb from the snapshot; needs a phase-1 cache
+build-libdrm-debs.sh	phase1	downloads the pinned libdrm source tarball (url+sha recorded)
+build-mgmt-rootfs.sh	mirror	debootstrap from the pinned/offline mirror
+build-python311-assets.sh	phase2-todo	curl of python-build-standalone; needs a phase-1 prefetch + sha256
+build-rescue-rootfs.sh	mirror	debootstrap from the pinned/offline mirror
+build-role-delta-mkosi.sh	mirror	apt-get install against the pinned/offline mirror
+build-singularity-deb.sh	comment-only	mentions apt-get only in a comment
+build-singularity.sh	guarded	apt/git/go/meson all fail-closed when NCZ_OFFLINE=1 (--network none)
+build-squashfs-layers.sh	mirror	debootstrap/apt-get inside the layer chroot against the offline mirror
+build-vendor-mirror.sh	phase1	builds the vendor apt mirror from pinned sources
+check-extract-rootfs-consistency.sh	gate	tree-consistency check tooling
+check-ncz-repo-policy.sh	gate	policy check reaches upstream repos by design (not the build path)
+fetch-inputs.sh	phase1	THE phase-1 fetcher: records every input in inputs.lock
+kvm-install-gate-gpt.sh	gate	KVM install gate (test tooling)
+kvm-installer-ui-check.sh	gate	installer UI check (test tooling)
+layers-preflight.sh	comment-only	mentions debootstrap/mmdebstrap only in a comment
+ncz-yocto.sh	phase1	Yocto mirror fetch (phase-1 asset acquisition)
+patch-singularity-scenefx.sh	guarded	git ls-remote guarded; offline uses NCZ_SCENEFX_SHA / the wrap cache
+pin-forky-snapshot.sh	phase1	pins the Debian snapshot (phase-1 pinning)
+preflight-freshness-gate.sh	gate	freshness gate (test tooling)
+rebuild-sid-udeb.sh	phase1	rebuilds sid udebs from the pinned source (phase-1)
+refresh-singularity-sources.sh	phase1	resolves 'latest' upstream heads into pinned SHAs (phase-1)
+refresh-substrate.sh	phase1	refreshes/verifies the pinned substrate (phase-1)
+singularity-deb-depends.sh	phase1	reads shlibs from the payload container (analysis)
+singularity-nightly-track.sh	phase1	nightly upstream tracking (phase-1)
+singularity-pins.sh	phase1	materialises pinned upstream from the bare-mirror cache (network only as a fallback)
+stage-build-inputs.sh	phase1	stages the checksum-pinned build inputs (phase-1)
+stage-canonical-assets.sh	phase1	stages canonical assets from pinned sources (phase-1)

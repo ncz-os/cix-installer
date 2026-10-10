@@ -1,0 +1,26 @@
+# build/config/builders.tsv -- the build-host registry for second-builder
+# verification (build/verify-reproducible.sh) and the per-image attestation
+# (build/attest.sh).  One row per host that can build or verify an image.
+#
+# Columns (TAB):
+#   builder_id   short stable id recorded in the attestation (builder.id)
+#   host         DNS/IP to reach it (ssh jasonperlow@host)
+#   arch         amd64 | arm64
+#   cpu          the SoC/microarch (recorded as builder_cpu; proves CPU
+#                independence when two DIFFERENT microarchitectures agree)
+#   container    the imagebuild container the host must load, by digest
+#   role         primary | second | pending
+#
+# OPERATOR DECISION D6 (2026-10-10): cixmini (.66, CIX Sky1 / Cortex-A720) is
+# the SECOND arm64 builder ONCE its installation is stabilised (the operator
+# reflashes it).  Until then the arm64 verification path is same-host-twice on
+# ULTRA and the attestation records second_builder=pending(cixmini).
+# A bit-identical rebuild across ULTRA (Apple Silicon / Asahi) and cixmini
+# (CIX Sky1 / Cortex-A720) proves CPU-independence of the build (no
+# -march=native, no CPU-feature-dependent codegen/paths).
+builder_id	host	arch	cpu	container	role
+achilles	192.168.207.11	amd64	Intel/AMD x86_64 (Ubuntu)	localhost/ncz-imagebuild:trixie	primary
+hydra	192.168.207.78	amd64	Intel/AMD x86_64 (Ubuntu)	localhost/ncz-imagebuild:trixie	second
+proteus	192.168.207.68	amd64	Intel/AMD x86_64 (Debian)	localhost/ncz-imagebuild:trixie	second
+ultra	192.168.207.88	arm64	Apple Silicon (Asahi, aarch64)	localhost/ncz-imagebuild:trixie	primary
+cixmini	192.168.207.66	arm64	CIX Sky1 (Cortex-A720)	localhost/ncz-imagebuild:trixie	pending

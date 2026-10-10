@@ -118,6 +118,8 @@ never hand-edited:
 | Singularity payload | `assets/singularity/upstream-pins.tsv`, optional `manifests/singularity-payload.tsv` | bump the upstream commit pin, or record the prebuilt deb sha256 | singularity owner |
 | Wallpaper / screensaver packs | `assets/wallpaper*`, `manifests/build-inputs.tsv` | build the pack deb, re-pin | operator |
 | Git-ignored staged inputs (rescue/mgmt rootfs, python311, wallpaper debs) | `manifests/build-inputs.tsv` | `build/stage-build-inputs.sh --arch <a> --publish` from the tree that holds the file | build owner |
+| Build inputs (git mirrors, Go modules, meson wraps) — the hermetic cache | `build/fetch-inputs.sh` (phase 1; resolutions recorded from the upstream pins) | re-run phase 1; `inputs.lock` carries every `(url, resolved, sha256)` + `inputs_lock_digest` | build owner |
+| Build **environment** (container digests, toolchain, locale/TZ/umask) | `manifests/env.pin` | `build/gen-env-pin.sh` on the canonical builder, then commit (a deliberate environment identity) | build owner |
 
 `build/gen-base-pin.sh` regenerates `manifests/determinism.pin` from these
 sources and `--check` fails preflight when it is stale. The substrate/snapshot
@@ -183,6 +185,7 @@ aborts with the stage name and a ready-to-paste resume command.
 | 10 | `refresh-substrate` | `build/refresh-substrate.sh` (or the pinned ISO cache) | refreshed `base.pin`, pinned ISO into `downloads/` | fails closed on signature/sha mismatch; `--substrate pinned` only within the 8-day staleness guard |
 | 20 | `stage-inputs` | `manifests/build-inputs.tsv` | staged `assets/…` | refuses a missing/mismatched git-ignored input |
 | 30 | `refresh-sources` | `build/refresh-singularity-sources.sh` (`--sources latest\|pinned`) | frozen `upstream-pins.tsv` + `compositor-pins.tsv` + `source-resolution.json`, the payload `.deb` (also into `assets/cix-debs/`) | resolves the singularity upstream heads (latest) or the committed pins (pinned); builds the payload deb and fails closed on upstream drift (never silently falls back to stale pins) |
+| 35 | `fetch-inputs` | `build/fetch-inputs.sh` (phase 1 only) | `$RUN_DIR/inputs.lock` (+ `.tsv`), the content-addressed caches under `ncz-os-assets/build-inputs/` | **PHASE 1 (resolve+fetch; the only stage allowed to reach the network for build inputs):** mirrors every pinned upstream repo (bare, by URL), pre-fetches the Go module cache (`vetro`, keyed by sha256 of `go.sum`) and the meson `[wrap-git]` subprojects, and records every input `(kind,name,url,resolved,sha256,cache)` + a canonical `inputs_lock_digest`. `--offline` verifies the caches exist instead of fetching |
 | 40 | `offline-mirror` | the forky/vendor/desktop mirror sources + package manifests | `build/{forky,desktop,vendor}-mirror`; `mirror.build-fingerprint` | every image `.deb` resolves from the pinned snapshot |
 | 50 | `provenance-inputs` | the **inputs**: the offline mirror, the staged deb dirs, the staged payload `.deb`, `manifests/*.tsv`, `base.pin`, `determinism.pin` | `provenance-inputs.result`, gate log | **PROVENANCE + one-kernel ON THE INPUTS** (operator ruling 2026-10-10): every package that will enter the image is checked *before* hours of layer work -- `--verify-mirror` (bytes vs the pinned signed snapshot + ledgers), `--debs` (ledger/receipt-authorized), the one-kernel input rule, the SceneFX static shader gate on the staged payload deb, and pin freshness. A failure here stops the build before `layers`. |
 | 60 | `layers` | the offline mirror + staged assets + the layer plan | `assets/squashfs/{base,desktop,desktop-hotfix}.squashfs` (+ `.build-fingerprint`) | **hardened (operator ruling 2026-10-10)**: `build/layers-preflight.sh` runs FIRST (clean-tree, frozen-deb handshake, unique/ledgered inputs, resources, pin consistency; fail fast, before any expensive work), then every layer is post-checked by `build/check-layers.sh` (structural, dpkg state, one-kernel, payload facts, layer-chain, determinism). Findings -> `$RUN_DIR/layer-checks.tsv`. A FAIL stops the stage; a stale layer is rotated aside, never clobbered |
@@ -302,6 +305,62 @@ is rebuilt against the same lower-layer bytes a full build would use, so
 `compare-images` of a full build vs a `--components X` respin from the same pin
 must be identical. `build/test-build-image.sh` proves the plan/fingerprint
 mechanics; the host-side proof is recorded under `reports/r203-determinism/`.
+
+### 5.7 Hermetic builds (phase-1 fetch + phase-2 network-off) and the env pin
+
+The determinism contract names the git commit and the recorded **input** pins.
+Two gaps remained: (a) the build fetched things the pins did not cover (Go
+modules for `vetro`, meson `[wrap-git]` subprojects, a rolling apt mirror), and
+(b) the **build environment** (container digests, toolchain versions) was not
+pinned. Both are now closed.
+
+**Two phases.** Every build is split, and `--full` (weekly/nightly) runs phase 2
+with the network OFF by default:
+
+* **Phase 1 — resolve + fetch** (`refresh-substrate stage-inputs refresh-sources
+  fetch-inputs offline-mirror`): the network is allowed. `fetch-inputs` mirrors
+  every pinned upstream repo into a content-addressed bare-mirror cache, prefetches
+  the Go module cache and the meson wraps, and writes **`inputs.lock`** — one row
+  per input `{kind,name,url,resolved,sha256,cache}` plus a canonical
+  `inputs_lock_digest`. A digest that cannot be computed is a hard error.
+* **Phase 2 — build** (`provenance-inputs layers image …`): the network is
+  **forbidden** when `--offline` (the default for `--full`). Each container stage
+  runs with `--network none`; host stages get the offline environment
+  (`GOPROXY=off`, `CARGO_NET_OFFLINE=true`, `PIP_NO_INDEX=1`, `MESON_WRAP_MODE=nodownload`,
+  `GIT_ALLOW_PROTOCOL=file`, a blackhole proxy). Every fetch consumes a phase-1
+  cache; a cache miss **fails the build loudly** — nothing silently falls through
+  to the network. `--online-ok` is a development-only escape hatch and is accepted
+  only together with `--no-publish`.
+
+The enforcement wrapper is `build/lib/offline.sh` (`ncz_nonet_run`,
+`ncz_container_network_arg`); the per-stage phase policy is in `run_stage` in
+`build/build-image.sh`. `build/singularity-pins.sh` consumes the bare mirrors
+offline (`NCZ_OFFLINE=1` makes the network path a hard error).
+
+**The build environment pin — `manifests/env.pin`.** Container images are pinned
+**by digest** (host-independent when every builder loads the same
+`podman save | podman load` tar), alongside locale/TZ/umask and the
+`SOURCE_DATE_EPOCH` derivation. `preflight` runs `build/lib/envpin.sh` and FAILS
+with a per-key diff on any container/env mismatch; host toolchain drift (e.g.
+`mksquashfs` 4.6 vs 4.7) is surfaced as a WARN unless
+`NCZ_ENVPIN_STRICT_HOST=1`. Regenerate with `build/gen-env-pin.sh` and commit.
+
+**Adding a new dependency (without breaking hermeticity).** Add its fetch to the
+phase-1 fetcher (`build/fetch-inputs.sh`), keyed by a content hash, and list the
+script in `build/hermetic-network-allowlist.tsv`; never add an unguarded
+build-time fetch. `build/test-hermetic.sh` (lint D) FAILS on any build script
+with a network verb that is neither an allow-listed phase-1 fetcher, a gate/test
+tool, a runtime (install-time) hook, nor explicitly `NCZ_OFFLINE`-guarded.
+
+**Verifying.** `make test-hermetic` proves the enforcement blocks a child
+`connect()` and that `curl`/`go`/`git`/`pip` fail offline yet succeed online
+(both directions), that an offline `file://` clone from the mirror works, and
+lints the build scripts. `make test-env-pin` checks `manifests/env.pin` against
+the host. `build/verify-reproducible.sh` rebuilds from the same `inputs.lock` on
+a second builder (amd64: ACHILLES ↔ HYDRA/PROTEUS; arm64: same-host-twice on
+ULTRA until `cixmini` is provisioned — operator decision D6) and emits a
+`build/attest.sh` in-toto/SLSA statement (unsigned, digest-verifiable; signing is
+operator-key-only, D7).
 
 ---
 
