@@ -21,9 +21,15 @@ only kernel staging, the image archive and pinned inputs live on ARGONAS.
    PROTEUS that is `/mnt/argonas/datapool/yocto-shared`; the tracked
    `assets/kernel/mainline` symlink uses the ULTRA spelling
    `/mnt/argonas-yocto-shared`, which must also be mounted.
-4. Substrate: `downloads/debian-testing-amd64-netinst.iso` must match
-   `SUBSTRATE_SHA` (amd64 `c517f8ff...`). An empty `downloads/` restores it from
-   the ARGONAS substrate store.
+4. Substrate: **`make refresh-substrate ARCH=amd64` is the MANDATORY first
+   stage** of an image build. It fetches the newest Debian testing netinst,
+   verifies it against the committed CD signing key, caches it on ARGONAS,
+   derives the snapshot pin, and writes `manifests/base.pin`. The Makefile's
+   `SUBSTRATE_SHA` is then read from `base.pin` (currently `123a250b...`), and
+   `downloads/debian-testing-amd64-netinst.iso` must match it (an empty
+   `downloads/` restores it from the ARGONAS substrate store). `make
+   check-substrate-pin` fails closed if the pin is stale (>8 days) or the
+   substrate is not authorized by the pinned snapshot.
 5. Git-ignored inputs that stage 0/1 do not produce:
    - `assets/cix-debs/ncz-singularity-desktop_*_amd64.deb`. Stage 0's
      `sinty-out-sync` copies the newest one into `build/sinty-out/`, and
@@ -42,6 +48,9 @@ only kernel staging, the image archive and pinned inputs live on ARGONAS.
 ```
 cd ~/Projects/<dir>/cix-installer
 SHA=$(git rev-parse --short HEAD)
+make refresh-substrate ARCH=amd64        # MANDATORY first stage: newest netinst,
+                                         # verified, cached, pin derived (base.pin)
+make check-substrate-pin ARCH=amd64      # preflight: fresh + covered by the pin
 KS=/mnt/argonas/datapool/yocto-shared/kernel-staging
 ctr() { sudo podman run --rm --privileged --net=host -v "$PWD":/work/cix-installer -v /dev:/dev \
   -v $KS:$KS -v /mnt/argonas-yocto-shared:/mnt/argonas-yocto-shared -w /work/cix-installer \
@@ -51,8 +60,15 @@ ctr() { sudo podman run --rm --privileged --net=host -v "$PWD":/work/cix-install
 ctr "make offline-mirror BUILD_SHA=$SHA"                     # stage 0, about 6 min
 sudo chown -R "$USER": build/sinty-out build/chrome-deb-cache
 NCZ_TARGET_ARCH=amd64 build/build-squashfs-layers.sh all      # stage 1, about 13 min
-ctr "make image BUILD_SHA=$SHA"                               # stage 2, about 10 min
+NCZ_ONE_KERNEL=1 ctr "make image BUILD_SHA=$SHA"              # stage 2, about 10 min
 ```
+
+`make refresh-substrate` and `make check-substrate-pin` are mandatory BEFORE
+`make offline-mirror`/`make image` (the image target itself depends on
+`check-substrate-pin`, so `make image` fails closed on a stale or uncovered
+substrate). `NCZ_ONE_KERNEL=1` enables the one-kernel filter that stops merging
+Debian's kernel/module udebs into the image (operator ruling 2026-10-10); the
+installer then runs the NCZ kernel — see [ONE-KERNEL.md](ONE-KERNEL.md).
 
 `make image` does NOT build the base or desktop layers. Since this revision
 `stage-ncz-payload.py` refuses a `desktop-hotfix.squashfs` without

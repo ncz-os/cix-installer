@@ -8,11 +8,17 @@
   VENDOR  a third-party vendor's own deb, listed in manifests/vendor-debs.tsv
           (name, version, arch, vendor, source, sha256, note); sha enforced when
           the deb bytes are available.
-  FORKY   (name, version, arch) present in the PINNED Debian forky snapshot,
+  FORKY   (name, version, arch) present in the PINNED Debian snapshot,
           whose signed Release is verified against the committed keyring and
           InRelease digest in manifests/forky-snapshot.tsv, with a sha256+size
           chain to every Packages index.  When the deb itself is available it
-          must be byte-identical.
+          must be byte-identical.  The pinned snapshot is read across its suites:
+          the codename's (forky/testing) full index set, plus -- when the trust
+          metadata declares ``di_suite`` -- that suite's (sid/unstable)
+          debian-installer indexes only, because the netinst substrate's d-i
+          udebs are built from sid.  That is the SAME snapshot timestamp and
+          keyring, not a fourth origin; the d-i suite's RUNTIME packages are not
+          authorized.
 
 Anything else -- Ubuntu, another Debian suite, an older snapshot, unknown --
 is a hard failure.  There is deliberately NO allow-by-reason mechanism.
@@ -164,7 +170,7 @@ def load_trust():
             die(f"duplicate trust metadata key: {k}")
         kv[k.strip()] = v.strip()
     for k in ("snapshot", "codename", "inrelease_sha256", "inrelease_size",
-              "keyring", "keyring_sha256"):
+              "inrelease_path", "keyring", "keyring_sha256"):
         if not kv.get(k):
             die(f"trust metadata {p} lacks '{k}'")
     if not PIN_RE.match(kv["snapshot"]):
@@ -173,6 +179,21 @@ def load_trust():
         die("trust metadata inrelease_sha256 is not a sha256")
     if not SHA256_RE.match(kv["keyring_sha256"]):
         die("trust metadata keyring_sha256 is not a sha256")
+    # Optional d-i suite: the netinst substrate's debian-installer content is
+    # built from the pinned snapshot's development suite (sid), not from the
+    # codename's testing suite.  When declared, its signed InRelease digest is
+    # committed here and its main/debian-installer indexes are loaded alongside
+    # the codename's -- the SAME snapshot timestamp, read across its suites, so
+    # this is not a fourth origin.  A malformed declaration is a hard error, not
+    # a silently-ignored key.
+    if kv.get("di_suite"):
+        for k in ("di_inrelease_path", "di_inrelease_sha256", "di_inrelease_size"):
+            if not kv.get(k):
+                die(f"trust metadata {p} declares di_suite but lacks '{k}'")
+        if not SHA256_RE.match(kv["di_inrelease_sha256"]):
+            die("trust metadata di_inrelease_sha256 is not a sha256")
+        if kv["di_suite"] == kv["codename"]:
+            die("trust metadata di_suite must differ from codename")
     return kv
 
 
@@ -297,13 +318,34 @@ def atomic_fetch(url, dest, sha, size):
             os.remove(tmp)
 
 
+def suite_releases(trust):
+    """{suite: (inrelease_path, sha256, size)} for every suite of the pinned
+    snapshot whose indexes may authorize content.
+
+    The codename suite (forky/testing) is always present.  When the trust
+    metadata declares ``di_suite`` (the substrate's own development suite,
+    sid/unstable) its debian-installer suite is present too.  Both are the SAME
+    snapshot timestamp, signed by the same archive keys, so reading both is not
+    a second trust root -- it is the pinned snapshot read across its suites."""
+    out = {trust["codename"]: (trust["inrelease_path"], trust["inrelease_sha256"],
+                               int(trust["inrelease_size"]))}
+    ds = trust.get("di_suite", "")
+    if ds and ds != trust["codename"]:
+        out[ds] = (trust["di_inrelease_path"], trust["di_inrelease_sha256"],
+                   int(trust["di_inrelease_size"]))
+    return out
+
+
 def verify_index(d, trust, need, fetch, verify_pool=False, src="index"):
     """Verify the signed Release for the pinned snapshot and every needed
-    Packages index against it.  Returns {key: (sha, filename, size)} or None.
-    ANY failure (missing/corrupt/forged index, partial pool) fails the whole
-    call; callers must not proceed on a partial result."""
+    Packages index against it.  ``need`` is a list of (suite, component, arch):
+    each suite's InRelease is verified against its own committed digest in the
+    trust metadata (all suites share one snapshot timestamp and one keyring)
+    BEFORE any of that suite's indexes are trusted.  Returns
+    {key: (sha, filename, size)} or None.  ANY failure (missing/corrupt/forged
+    index, partial pool) fails the whole call; callers must not proceed on a
+    partial result."""
     before = len(FAILS)
-    codename = trust["codename"]
     pin = trust["snapshot"]
     keyring = trust["keyring"]
     if not d:
@@ -318,78 +360,87 @@ def verify_index(d, trust, need, fetch, verify_pool=False, src="index"):
         fail(src, keyring, "trust keyring sha256 does not match forky-snapshot.tsv")
         return None
 
-    ir = os.path.join(d, "dists", codename, "InRelease")
-    want_sha = trust["inrelease_sha256"]
-    want_size = int(trust["inrelease_size"])
-
-    def inrelease_valid(p):
-        return (os.path.isfile(p) and os.path.getsize(p) == want_size
-                and sha256_file(p) == want_sha
-                and gpgv_ok(keyring, p, trust.get("signer_keys", "")))
-
-    if not inrelease_valid(ir):
-        if not fetch:
-            fail(src, ir, "no valid signed InRelease for the pinned snapshot")
-            return None
-        url = f"https://snapshot.debian.org/archive/debian/{pin}/{trust['inrelease_path']}"
-        try:
-            atomic_fetch(url, ir, want_sha, want_size)
-        except Exception as e:  # noqa: BLE001
-            fail(src, ir, f"could not fetch/verify signed InRelease: {e}")
-            return None
-        if not inrelease_valid(ir):
-            fail(src, ir, "downloaded InRelease did not verify against the committed pin")
-            return None
-
-    body = strip_clearsign(slurp(ir, encoding="utf-8", errors="replace"))
-    if body is None:
-        fail(src, ir, "InRelease is not a clearsigned document")
-        return None
-    rel = parse_release_sha256(body)
-    if not rel:
-        fail(src, ir, "signed Release has no SHA256 index section")
-        return None
+    suites = suite_releases(trust)
+    by_suite = {}
+    for suite, comp, arch in need:
+        by_suite.setdefault(suite, []).append((comp, arch))
 
     idx = {}
-    for comp, arch in need:
-        relpath = f"{comp}/binary-{arch}/Packages.xz"
-        if relpath not in rel:
-            fail(src, relpath, "not present in the signed Release (unexpected index shape)")
+    for suite, pairs in by_suite.items():
+        if suite not in suites:
+            fail(src, suite, "requested index suite is not a declared snapshot suite")
             continue
-        esha, esize = rel[relpath]
-        dest = os.path.join(d, "dists", codename, comp, f"binary-{arch}", "Packages.xz")
+        ipath, want_sha, want_size = suites[suite]
+        ir = os.path.join(d, ipath)
 
-        def pkg_valid(p, esha=esha, esize=esize):
-            return (os.path.isfile(p) and os.path.getsize(p) == esize
-                    and sha256_file(p) == esha)
+        def inrelease_valid(p, want_sha=want_sha, want_size=want_size):
+            return (os.path.isfile(p) and os.path.getsize(p) == want_size
+                    and sha256_file(p) == want_sha
+                    and gpgv_ok(keyring, p, trust.get("signer_keys", "")))
 
-        if not pkg_valid(dest):
+        if not inrelease_valid(ir):
             if not fetch:
-                fail(src, dest, "Packages index missing/corrupt (fetch disabled)")
+                fail(src, ir, f"no valid signed InRelease for snapshot suite {suite}")
                 continue
-            url = f"https://snapshot.debian.org/archive/debian/{pin}/dists/{codename}/{relpath}"
+            url = f"https://snapshot.debian.org/archive/debian/{pin}/{ipath}"
             try:
-                atomic_fetch(url, dest, esha, esize)
+                atomic_fetch(url, ir, want_sha, want_size)
             except Exception as e:  # noqa: BLE001
-                fail(src, relpath, f"could not fetch/verify Packages index: {e}")
+                fail(src, ir, f"could not fetch/verify signed InRelease: {e}")
                 continue
+            if not inrelease_valid(ir):
+                fail(src, ir, "downloaded InRelease did not verify against the committed pin")
+                continue
+
+        body = strip_clearsign(slurp(ir, encoding="utf-8", errors="replace"))
+        if body is None:
+            fail(src, ir, "InRelease is not a clearsigned document")
+            continue
+        rel = parse_release_sha256(body)
+        if not rel:
+            fail(src, ir, "signed Release has no SHA256 index section")
+            continue
+
+        for comp, arch in pairs:
+            relpath = f"{comp}/binary-{arch}/Packages.xz"
+            if relpath not in rel:
+                fail(src, relpath,
+                     f"not present in the signed Release for {suite} (unexpected index shape)")
+                continue
+            esha, esize = rel[relpath]
+            dest = os.path.join(d, "dists", suite, comp, f"binary-{arch}", "Packages.xz")
+
+            def pkg_valid(p, esha=esha, esize=esize):
+                return (os.path.isfile(p) and os.path.getsize(p) == esize
+                        and sha256_file(p) == esha)
+
             if not pkg_valid(dest):
-                fail(src, dest, "Packages index did not match the signed Release")
+                if not fetch:
+                    fail(src, dest, "Packages index missing/corrupt (fetch disabled)")
+                    continue
+                url = f"https://snapshot.debian.org/archive/debian/{pin}/dists/{suite}/{relpath}"
+                try:
+                    atomic_fetch(url, dest, esha, esize)
+                except Exception as e:  # noqa: BLE001
+                    fail(src, relpath, f"could not fetch/verify Packages index: {e}")
+                    continue
+                if not pkg_valid(dest):
+                    fail(src, dest, "Packages index did not match the signed Release")
+                    continue
+            try:
+                text = read_maybe_compressed(dest)
+            except Exception as e:  # noqa: BLE001
+                fail(src, dest, f"Packages index could not be decompressed: {e}")
                 continue
-        try:
-            text = read_maybe_compressed(dest)
-        except Exception as e:  # noqa: BLE001
-            fail(src, dest, f"Packages index could not be decompressed: {e}")
-            continue
-        stanzas = list(parse_stanzas(text))
-        if not stanzas:
-            fail(src, dest, "Packages index has no records")
-            continue
-        for s in stanzas:
-            if not stanza_ok(s, f"{src}:{os.path.basename(dest)}", "Packages"):
+            stanzas = list(parse_stanzas(text))
+            if not stanzas:
+                fail(src, dest, "Packages index has no records")
                 continue
-            key = (s["Package"], s["Version"], s["Architecture"])
-            idx[key] = (s.get("SHA256", ""), s.get("Filename", ""), s.get("Size", ""))
+            for s in stanzas:
+                if not stanza_ok(s, f"{src}:{os.path.basename(dest)}", "Packages"):
+                    continue
+                key = (s["Package"], s["Version"], s["Architecture"])
+                idx[key] = (s.get("SHA256", ""), s.get("Filename", ""), s.get("Size", ""))
 
     if verify_pool:
         # Before a BUILD uses a local mirror, verify the actual referenced pool
@@ -417,14 +468,41 @@ def verify_index(d, trust, need, fetch, verify_pool=False, src="index"):
     return idx
 
 
-def all_need(trust):
+def index_need(trust):
+    """Every (suite, component, arch) index the verified snapshot must supply.
+
+    The codename suite covers every component x architecture in the trust
+    metadata (which includes the literal ``all`` pseudo-architecture for
+    Architecture:all packages) AND its debian-installer indexes for every
+    architecture, including ``main/debian-installer/binary-all`` --
+    Architecture:all udebs live only there.  Omitting binary-all made every
+    Arch:all d-i udeb report as unauthorized even though the pinned snapshot
+    carries it (gate bug (a)).
+
+    When the trust metadata declares ``di_suite`` (the netinst substrate's own
+    development suite -- its d-i udebs are built from there), that suite's
+    debian-installer indexes for every architecture are supplied as well.  Only
+    the d-i component of that suite is loaded: its runtime (binary-*) packages
+    are NOT authorized, so this is a narrow, substrate-specific allowance on the
+    SAME pinned snapshot, not a second Debian origin.
+    """
     need = []
+    archs = trust["architectures"].split()
+    codename = trust["codename"]
     for comp in trust["components"].split():
-        for arch in trust["architectures"].split():
-            need.append((comp, arch))
-    for arch in ("amd64", "arm64"):
-        need.append(("main/debian-installer", arch))
+        for arch in archs:
+            need.append((codename, comp, arch))
+    for arch in archs:
+        need.append((codename, "main/debian-installer", arch))
+    di = trust.get("di_suite", "")
+    if di and di != codename:
+        for arch in archs:
+            need.append((di, "main/debian-installer", arch))
     return list(dict.fromkeys(need))
+
+
+def all_need(trust):
+    return index_need(trust)
 
 
 def read_candidate_packages(mirror):
@@ -500,7 +578,7 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None):
         v = ref.vendor.get(key)
         if v is not None and sha in v:
             auth = "vendor"
-        elif ref.ncz.get(key) == sha:
+        elif sha in ref.ncz.get(key, ()):
             auth = "ncz"
         elif key in auth_idx and auth_idx[key][0] == sha:
             auth = "verified"
@@ -600,6 +678,10 @@ class Ref:
             if not SHA256_RE.match(r[5]):
                 die(f"vendor-debs.tsv:{n} sha256 is not 64 hex")
             self.vendor.setdefault((r[0], r[1], r[2]), set()).add(r[5])
+        # {(name, version, arch): {reviewed sha256, ...}}.  A set (not a single
+        # sha) because a non-bit-reproducible Architecture:all build (e.g.
+        # Installed-Size differs per host) still has exactly REVIEWED bytes per
+        # build; every member is an explicit reviewed sha256, never a pattern.
         self.ncz = {}
         for n, r in load_tsv(os.path.join(ROOT, "manifests/ncz-packages.tsv"), 7,
                              "manifests/ncz-packages.tsv"):
@@ -611,7 +693,29 @@ class Ref:
             if not r[4].strip() or not r[5].strip():
                 die(f"ncz-packages.tsv:{n} needs a non-empty recipe (col 5) and "
                     f"source revision (col 6)")
-            self.ncz[(r[0], r[1], r[2])] = r[3]
+            self.ncz.setdefault((r[0], r[1], r[2]), set()).add(r[3])
+
+        # Reviewed NCZ packages whose VERSION embeds a build timestamp and so
+        # cannot be statically sha-pinned: {(name, arch): version_regex}.  Such a
+        # package is authorized ONLY by exact name + regex + a sha256 recorded in
+        # the finished image's receipt (`ncz_timestamped_debs`).  See
+        # manifests/ncz-timestamped.tsv and docs/FORKY-PROVENANCE.md.
+        self.ncz_ts = {}
+        for n, r in load_tsv(os.path.join(ROOT, "manifests/ncz-timestamped.tsv"), 6,
+                             "manifests/ncz-timestamped.tsv"):
+            if not r[1].strip() or not r[3].strip() or not r[4].strip():
+                die(f"ncz-timestamped.tsv:{n} needs a non-empty version_regex "
+                    f"(col 2), recipe (col 4) and source revision (col 5)")
+            try:
+                rx = re.compile(r[1])
+            except re.error as e:  # noqa: BLE001
+                die(f"ncz-timestamped.tsv:{n} version_regex does not compile: {e}")
+            self.ncz_ts[(r[0], r[2])] = rx
+        # Per-image receipt shas, populated by scan_image from <img>.receipt.json;
+        # never inherited across scans (cleared/restored in scan_image).
+        self.receipt_ts = {}
+        # Kernel-artifact packages seen in THIS scan, for the one-kernel audit.
+        self.seen_kernel = set()
 
         self.sources = []
         for n, r in load_tsv(os.path.join(ROOT, "manifests/vendor-repos.tsv"), 8,
@@ -623,6 +727,16 @@ class Ref:
             })
         self.origins = {r["host"] for r in self.sources if r["approved"] == "yes"}
         self.origins.add(self.codename)
+        # Reviewed PARTIAL squashfs overlay layers (no dpkg status by design):
+        # {basename: (tree_root, recipe, source_revision)}.  A status-less layer
+        # that is not listed here still fails closed.
+        self.overlays = {}
+        for n, r in load_tsv(os.path.join(ROOT, "manifests/overlay-layers.tsv"), 5,
+                             "manifests/overlay-layers.tsv"):
+            if not r[1].strip() or not r[2].strip() or not r[3].strip():
+                die(f"overlay-layers.tsv:{n} needs a non-empty tree_root (col 2), "
+                    f"recipe (col 3) and source revision (col 4)")
+            self.overlays[r[0]] = (r[1].strip("/"), r[2], r[3])
         # Offline (file:) roots that have actually been enumerated+verified in
         # THIS scan.  Empty for a standalone rootfs: a file: source cannot imply
         # approval of a pool nobody scanned.
@@ -630,30 +744,40 @@ class Ref:
 
         self.idx = {}
         if not a.ubuntu_only and not self.verify_mirror:
-            need = []
-            for comp in self.trust["components"].split():
-                for arch in self.trust["architectures"].split():
-                    need.append((comp, arch))
-                need.append((comp, "all"))
-            for arch in ("amd64", "arm64"):
-                need.append(("main/debian-installer", arch))
-            # de-dup, keep order
-            need = list(dict.fromkeys(need))
+            need = index_need(self.trust)
             got = verify_index(a.index_dir, self.trust, need, a.fetch_index)
             if got is None:
                 sys.exit(1)
             self.idx = got
+
+    def note_kernel(self, name, ver, arch):
+        """Record a kernel-artifact package seen in this scan (one-kernel audit)."""
+        if KERNEL_ARTIFACT_RE.search(name or ""):
+            self.seen_kernel.add((name, ver, arch))
 
 
 # ---------------------------------------------------------------- classification
 UBU_RE = re.compile(r"ubuntu", re.IGNORECASE)
 UBU_CANONICAL = re.compile(r"Ubuntu Developers|lists\.ubuntu\.com")
 
+# One-kernel policy (operator ruling 2026-10-10: "ship only OUR kernel").
+# A "kernel artifact" package: an image/headers/modules/binary kernel package,
+# any linux-base-* helper, or a d-i kernel-module/binary udeb.  Note linux-base
+# (exactly, the Debian helper) is NOT a kernel; linux-base-<x> is.
+KERNEL_ARTIFACT_RE = re.compile(
+    r"^(linux-image|linux-headers|linux-modules|linux-binary|kernel-image)"
+    r"|^linux-base-"
+    r"|(^.+-(modules|binary)-.*-di$)")
+# Packages excluded from the "one kernel version string" set (boot payload, not
+# the kernel itself).
+KERNEL_VERSION_EXEMPT_RE = re.compile(r"^(cixmini-boot)$")
+
 
 def classify(ref, src, name, ver, arch, maint, sha=None):
     """Return origin string or None after emitting a FAIL."""
     what = f"{name} {ver} {arch}"
     key = (name, ver, arch)
+    ref.note_kernel(name, ver, arch)
 
     # Hard Ubuntu rejection first: never exonerated by anything.
     if UBU_CANONICAL.search(maint or ""):
@@ -670,6 +794,13 @@ def classify(ref, src, name, ver, arch, maint, sha=None):
             return "vendor-identity"
         if ref.ncz.get(key) is not None:
             return "ncz-identity"
+        _tsrx = ref.ncz_ts.get((name, arch))
+        if _tsrx is not None and _tsrx.match(ver or ""):
+            # identity-only mode cannot hash bytes; only clear it when the
+            # identity itself is recorded in the same scan's receipt.
+            if key in ref.receipt_ts:
+                return "ncz-receipt-identity"
+            return "unchecked"
         if UBU_RE.search(maint or ""):
             print(f"WARN  [{src}] {what} :: @ubuntu.com maintainer ({maint}); "
                   f"needs the verified snapshot index to clear")
@@ -684,9 +815,19 @@ def classify(ref, src, name, ver, arch, maint, sha=None):
 
     n = ref.ncz.get(key)
     if n is not None:
-        if sha and n and sha != n:
+        if sha and sha not in n:
+            # An NCZ identity whose BYTES are not a reviewed NCZ build may
+            # still be authorized by the pinned snapshot when those exact bytes
+            # are the upstream build the NCZ package derives from (e.g. the
+            # UNPATCHED debootstrap-udeb that build/iso/patch-debootstrap-stub.py
+            # patches).  Only the snapshot's exact bytes qualify; anything else
+            # still fails.
+            esha = ref.idx.get(key, (None,))[0]
+            if esha and sha == esha:
+                return "forky"
             fail(src, what,
-                 f"NCZ ledger sha256 mismatch: {sha[:16]}.. vs reviewed {n[:16]}..")
+                 f"NCZ ledger sha256 mismatch: {sha[:16]}.. not a reviewed sha256 "
+                 f"for this identity")
             return None
         if not sha:
             # Identity-only: dpkg status / Packages carry no bytes; document the
@@ -695,28 +836,89 @@ def classify(ref, src, name, ver, arch, maint, sha=None):
             return "ncz-identity"
         return "ncz"
 
+    # Build-timestamped NCZ packages: exact name + version regex + the finished
+    # image receipt's recorded sha256.  No receipt / no record => fail closed.
+    tsrx = ref.ncz_ts.get((name, arch))
+    if tsrx is not None and tsrx.match(ver or ""):
+        rsha = ref.receipt_ts.get(key)
+        if rsha is None:
+            fail(src, what, "build-timestamped NCZ package is not recorded in the "
+                            "image receipt (ncz_timestamped_debs); refusing to "
+                            "authorize bytes that no reviewed record pins")
+            return None
+        if sha and sha != rsha:
+            fail(src, what, f"build-timestamped NCZ sha256 {sha[:16]}.. does not "
+                            f"match the image receipt {rsha[:16]}..")
+            return None
+        if not sha:
+            print(f"NOTE  [{src}] {what} :: build-timestamped NCZ identity "
+                  f"(receipt-pinned, no bytes to hash)")
+            return "ncz-receipt-identity"
+        return "ncz-receipt"
+
     if key in ref.idx:
         esha = ref.idx[key][0]
         if sha and esha and sha != esha:
             fail(src, what,
-                 f"same name/version as the forky snapshot but sha256 differs "
+                 f"same name/version as the pinned snapshot but sha256 differs "
                  f"(rebuilt/foreign bytes): {sha[:16]}.. vs {esha[:16]}..")
             return None
         return "forky"
 
     if UBU_RE.search(maint or ""):
         fail(src, what, f"@ubuntu.com maintainer ({maint}) and not in the pinned "
-                        f"forky snapshot")
+                        f"snapshot")
         return None
     fail(src, what, "not in the reviewed NCZ ledger, not a reviewed vendor deb, "
-                    "and not in the pinned forky snapshot (unknown origin)")
+                    "and not in the pinned snapshot (unknown origin)")
+    return None
+
+
+def classify_noarch(ref, src, name, ver, maint):
+    """Classify a dpkg-status record that carries NO Architecture.
+
+    The d-i/udpkg udeb status format (the initrd's /var/lib/dpkg/status) omits
+    Architecture on every record -- a real, common format, not a malformed one.
+    Such a record is cleared only if its exact (name,version) is in the pinned
+    snapshot for SOME architecture or in a reviewed ledger; it is never
+    exonerated from the hard Ubuntu checks.  Anything else FAILS (genuine)."""
+    what = f"{name} {ver} (no Architecture in dpkg status)"
+    ref.note_kernel(name, ver, "")
+    if UBU_CANONICAL.search(maint or ""):
+        fail(src, what, f"Ubuntu-built ({maint}) -- never allowed")
+        return None
+    if UBU_RE.search(ver or ""):
+        fail(src, what, "version contains 'ubuntu'")
+        return None
+    if ref.ubuntu_only:
+        if any(k[0] == name and k[1] == ver for k in ref.ncz):
+            return "ncz-identity"
+        if any(k[0] == name and k[1] == ver for k in ref.vendor):
+            return "vendor-identity"
+        return "unchecked"
+    if any(k[0] == name and k[1] == ver for k in ref.ncz):
+        print(f"NOTE  [{src}] {what} :: NCZ reviewed identity (no bytes/arch)")
+        return "ncz-identity"
+    if any(k[0] == name and k[1] == ver for k in ref.vendor):
+        return "vendor"
+    archs = ref.trust.get("architectures", "").split() if ref.trust else []
+    for a in archs:
+        if (name, ver, a) in ref.idx:
+            print(f"NOTE  [{src}] {what} :: present in the pinned snapshot ({a})")
+            return "forky"
+    fail(src, what, "dpkg status record has no Architecture and its "
+                    "(name,version) is not in the pinned snapshot or a reviewed ledger")
     return None
 
 
 def scan_status(ref, text, src):
     n = 0
     for d in parse_stanzas(text or ""):
-        if not stanza_ok(d, src, "dpkg status"):
+        # Package and Version are mandatory; Architecture is NOT (the d-i/udpkg
+        # udeb status format legitimately omits it -- see classify_noarch).
+        if not d.get("Package") or not d.get("Version"):
+            fail(src, d.get("Package", "<record without Package>"),
+                 "malformed dpkg status record: missing Package and/or Version")
             continue
         raw_status = d.get("Status")
         if not raw_status:
@@ -728,8 +930,12 @@ def scan_status(ref, text, src):
         if state in ("config-files", "not-installed"):
             continue
         n += 1
-        classify(ref, src, d["Package"], d["Version"], d["Architecture"],
-                 d.get("Maintainer", ""))
+        if d.get("Architecture"):
+            classify(ref, src, d["Package"], d["Version"], d["Architecture"],
+                     d.get("Maintainer", ""))
+        else:
+            classify_noarch(ref, src, d["Package"], d["Version"],
+                            d.get("Maintainer", ""))
     return n
 
 
@@ -901,8 +1107,10 @@ def source_ok(ref, uri, suite):
         if r["scheme"] != scheme or r["host"] != host:
             continue
         if r["kind"] == "debian-pin":
+            # A trailing slash is semantically identical (a real rootfs writes
+            # `.../archive/debian/<pin>/`); compare with it normalised.
             want = r["path"].replace("<pin>", ref.pin)
-            if path == want and suite == ref.codename:
+            if path.rstrip("/") == want.rstrip("/") and suite == ref.codename:
                 return None
             continue
         if path != r["path"]:
@@ -1002,14 +1210,53 @@ def scan_rootfs(ref, root, src):
             audit_osrelease(src, slurp(p, errors="replace"))
             break
     files = {}
-    for pat in ("etc/apt/sources.list", "etc/apt/sources.list.d/*",
-                "etc/apt/preferences", "etc/apt/preferences.d/*"):
-        for p in glob.glob(os.path.join(root, pat)):
-            sp = _safe_open(root, os.path.relpath(p, root))
-            if sp:
-                files[os.path.relpath(p, root)] = slurp(sp, errors="replace")
+    # Never traverse a symlinked directory: a real rootfs can legitimately
+    # contain an absolute symlink (now allowed by the tar extractor), and
+    # globbing it would follow the link out of the root (hang / read a host
+    # tree).  Walk etc/apt WITHOUT following symlinks and match the apt files.
+    apt_rel = ("etc/apt/sources.list", "etc/apt/preferences")
+    apt_dir_re = re.compile(
+        r"^etc/apt/(sources\.list\.d|preferences\.d)/[^/]+$")
+    aptdir = os.path.join(root, "etc/apt")
+    for _d in (aptdir, os.path.join(aptdir, "sources.list.d"),
+               os.path.join(aptdir, "preferences.d")):
+        if os.path.islink(_d):
+            fail(src, os.path.relpath(_d, root),
+                 "apt directory is a symlink (refusing to traverse out of the root)")
+    if os.path.isdir(aptdir) and not os.path.islink(aptdir):
+        for rel in apt_rel:
+            p = _safe_open(root, rel)
+            if p:
+                files[rel] = slurp(p, errors="replace")
+        for dp, dns, fns in os.walk(aptdir, followlinks=False):
+            dns[:] = [d for d in dns if not os.path.islink(os.path.join(dp, d))]
+            for fn in fns:
+                rel = os.path.relpath(os.path.join(dp, fn), root)
+                if not apt_dir_re.match(rel):
+                    continue
+                sp = _safe_open(root, rel)
+                if sp:
+                    files[rel] = slurp(sp, errors="replace")
     audit_apt_files(ref, src, files)
     return n
+
+
+def _layer_has_root(sq, root):
+    """True if a squashfs layer contains `root` (a repo-relative dir path).
+
+    Used to confirm a reviewed partial overlay actually carries the subtree it
+    declares -- a stale/mislabelled layer must not be waved through."""
+    root = root.strip("/")
+    if not root:
+        return False
+    r = run(["unsquashfs", "-ll", sq, root], capture_output=True, text=True)
+    if r.returncode != 0:
+        return False
+    # `unsquashfs -ll SQ <missing>` still prints the existing parent prefix, so a
+    # non-empty stdout is NOT proof.  Require a line whose path IS the declared
+    # root (or a child of it).
+    pat = re.compile(r"(^|\s)squashfs-root/" + re.escape(root) + r"(/\S+)?\s*$")
+    return any(pat.search(line) for line in r.stdout.splitlines())
 
 
 def scan_squashfs(ref, sq, src):
@@ -1029,7 +1276,21 @@ def scan_squashfs(ref, sq, src):
 
     st = cat("var/lib/dpkg/status")
     if st is None:
-        fail(src, sq, "squashfs layer has no readable var/lib/dpkg/status")
+        # A status-less layer is a reviewed PARTIAL overlay only if its exact
+        # basename is in manifests/overlay-layers.tsv AND it actually contains
+        # the declared tree root.  Any other status-less layer fails closed.
+        base = os.path.basename(sq)
+        ov = ref.overlays.get(base)
+        if ov is None:
+            fail(src, sq, "squashfs layer has no readable var/lib/dpkg/status")
+            return 0
+        if not _layer_has_root(sq, ov[0]):
+            fail(src, sq, f"reviewed partial overlay {base}: declared tree root "
+                          f"'{ov[0]}' is not present in the layer")
+            return 0
+        print(f"NOTE  [{src}] {base} :: reviewed partial overlay (tree root "
+              f"'{ov[0]}'); no dpkg status by design "
+              f"(manifests/overlay-layers.tsv)")
         return 0
     n = scan_status(ref, st, src)
     if n == 0:
@@ -1077,12 +1338,54 @@ def safe_extract_zst(tar_path, dest, src):
             fail(src, tar_path, "zstd decompression failed")
             return False
         with tarfile.open(tmp, "r:") as tf:
+            # Explicit filter (replaces tarfile's "data" filter): reject absolute
+            # and '..' MEMBER paths and hardlinks that escape, allow an absolute
+            # symlink TARGET (a real rootfs has `var/lock -> /run/lock`), reject
+            # only a relative target that resolves outside the root, and never
+            # write a member *through* a symlink extracted earlier in the tar
+            # (the write-through escape the data filter also guards).  Gate
+            # bug (b): the data filter rejected the legitimate absolute symlinks
+            # outright, so the rescue/mgmt rootfs tarballs could not be scanned.
+            seen_links = set()
+
+            def safe_filter(m, _dest_path=None):
+                name = m.name
+                if name.startswith("/") or os.path.isabs(name):
+                    raise tarfile.FilterError(f"absolute tar member path: {name}")
+                np = os.path.normpath(name)
+                if np == ".." or np.startswith("../") or ".." in np.split("/"):
+                    raise tarfile.FilterError(f"tar member path escapes: {name}")
+                parts = np.split("/")
+                for i in range(1, len(parts)):
+                    if "/".join(parts[:i]) in seen_links:
+                        raise tarfile.FilterError(
+                            f"tar member under a symlink (write-through escape): {name}")
+                if m.issym():
+                    if _rel_link_escapes(np, m.linkname or ""):
+                        raise tarfile.FilterError(
+                            f"tar symlink target escapes: {name} -> {m.linkname}")
+                    seen_links.add(np)
+                elif m.islnk():
+                    t = m.linkname or ""
+                    tnp = os.path.normpath(t)
+                    if t.startswith("/") or os.path.isabs(t) or tnp == ".." \
+                            or tnp.startswith("../") or ".." in tnp.split("/"):
+                        raise tarfile.FilterError(
+                            f"tar hardlink target escapes: {name} -> {t}")
+                elif m.isdev():
+                    # A real rootfs tarball legitimately carries /dev nodes
+                    # (./dev/console, ./dev/null).  They are not needed to
+                    # classify packages and materialising them needs root, so
+                    # skip rather than reject (same posture as the cpio parser).
+                    return None
+                return m
+
             for m in tf.getmembers():
                 if m.name.startswith("/") or ".." in m.name.split("/"):
                     fail(src, tar_path, f"unsafe tar member: {m.name}")
                     return False
             try:
-                tf.extractall(dest, filter="data")
+                tf.extractall(dest, filter=safe_filter)
             except Exception as e:  # noqa: BLE001
                 fail(src, tar_path, f"safe tar extraction failed: {e}")
                 return False
@@ -1093,6 +1396,28 @@ def safe_extract_zst(tar_path, dest, src):
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)
+
+
+def audit_kernel_purity(ref, src):
+    """One-kernel policy (operator ruling 2026-10-10): every kernel artifact the
+    gate saw in the image must be a reviewed NCZ kernel, and there must be
+    exactly ONE kernel version string across all of them.  A Debian
+    linux-image/-modules/-headers package or a `*-modules-*-di` d-i kernel-module
+    udeb FAILS.  Returns the number of kernel artifacts audited."""
+    ncz_vers = set()
+    for (name, ver, arch) in sorted(ref.seen_kernel):
+        in_ncz = ((name, ver, arch) in ref.ncz
+                  or (arch == "" and any(k[0] == name and k[1] == ver for k in ref.ncz)))
+        if not in_ncz:
+            fail(src, f"{name} {ver} {arch}".strip(),
+                 "non-NCZ kernel artifact present (one-kernel policy: ship only OUR kernel)")
+        elif not KERNEL_VERSION_EXEMPT_RE.match(name):
+            ncz_vers.add(ver)
+    if len(ncz_vers) > 1:
+        fail(src, "kernel versions",
+             f"more than one kernel version string present: {sorted(ncz_vers)} "
+             f"(one-kernel policy)")
+    return len(ref.seen_kernel)
 
 
 def scan_image(ref, img, work):
@@ -1122,6 +1447,37 @@ def scan_image(ref, img, work):
     # prior state in finally, so one image can never authorize another.
     saved_bound = set(ref.bound_offline)
     ref.bound_offline.clear()
+    saved_receipt = dict(ref.receipt_ts)
+    ref.receipt_ts.clear()
+    saved_kernel = set(ref.seen_kernel)
+    ref.seen_kernel.clear()
+    # The finished-image receipt records the sha256 of every build-timestamped
+    # NCZ payload deb actually installed (write-usb-image.py).  Register it for
+    # THIS image only; a timestamped package with no matching receipt entry
+    # fails closed in classify().
+    receipt = img + ".receipt.json"
+    if os.path.isfile(receipt):
+        try:
+            rec = json.loads(slurp(receipt, encoding="utf-8"))
+        except Exception as e:  # noqa: BLE001
+            fail("image", receipt, f"image receipt is unreadable: {e}")
+            rec = None
+        if not isinstance(rec, dict):
+            rec = {}
+        entries = (rec or {}).get("ncz_timestamped_debs")
+        if not entries:
+            nested = (rec or {}).get("ncz_payload")
+            if isinstance(nested, dict):
+                entries = nested.get("ncz_timestamped_debs", [])
+        if not isinstance(entries, list):
+            fail("image", receipt, "image receipt ncz_timestamped_debs is not a list")
+            entries = []
+        for e in entries:
+            key = (e.get("name"), e.get("version"), e.get("arch"))
+            if not all(key) or not SHA256_RE.match(e.get("sha256", "")):
+                fail("image", receipt, f"malformed ncz_timestamped_debs entry: {e!r}")
+                continue
+            ref.receipt_ts[key] = e["sha256"]
     owned = tempfile.mkdtemp(prefix="ncz-imgscan-", dir=work)
     try:
         j = json.loads(run(["sfdisk", "-J", img], capture_output=True, text=True,
@@ -1301,6 +1657,7 @@ def scan_image(ref, img, work):
             total += scan_debs(ref, adir, "image:" + os.path.relpath(adir, pl))
 
         total += _scan_esp(ref, img, parts, sector, owned)
+        total += audit_kernel_purity(ref, img)
 
         if not found_any:
             fail("image", img, "no inspectable package tree found in the image")
@@ -1309,6 +1666,10 @@ def scan_image(ref, img, work):
         shutil.rmtree(owned, ignore_errors=True)
         ref.bound_offline.clear()
         ref.bound_offline.update(saved_bound)
+        ref.receipt_ts.clear()
+        ref.receipt_ts.update(saved_receipt)
+        ref.seen_kernel.clear()
+        ref.seen_kernel.update(saved_kernel)
 
 
 def _scan_esp(ref, img, parts, sector, owned):
@@ -1420,6 +1781,28 @@ def _safe_member(root, name):
     return p
 
 
+def _rel_link_escapes(member_name, target):
+    """True if a symlink/hardlink TARGET escapes the extraction root.
+
+    The real security property is that extraction never writes outside the root
+    and never follows a link to do so.  An **absolute** target is NOT an escape:
+    a real rootfs (`./var/lock -> /run/lock`) and initrd (`etc/mtab ->
+    /proc/mounts`) legitimately contain them, the scanner never materialises a
+    cpio symlink, and the tar filter below refuses to write *through* any link
+    (see the ancestor guard).  Only a RELATIVE target that resolves outside the
+    member's own directory is an escape (gate bug (b)).
+
+    `member_name` must already be a validated, relative member path.
+    """
+    if target == "":
+        return False
+    if target.startswith("/"):
+        # Absolute target: allowed (not an escape in this model).
+        return False
+    rel = os.path.normpath(os.path.join(os.path.dirname(member_name), target))
+    return rel == ".." or rel.startswith("../")
+
+
 def _extract_newc(data, dest, src, allow_tail=False, written=None):
     """Safely extract every concatenated newc (070701) / crc (070702) archive in
     data.  Returns the number of bytes consumed (through the last trailer and
@@ -1440,24 +1823,36 @@ def _extract_newc(data, dest, src, allow_tail=False, written=None):
     import stat as statmod
 
     if written is None:
-        written = set()
+        written = {}
+    archives = 0  # bound before `write` closes over it
 
     def write(path, content):
-        if path in written:
-            fail("image", src, f"duplicate cpio pathname (would hide earlier "
-                               f"content): {os.path.relpath(path, dest)}")
+        # `written` maps an extracted path -> the archive index that wrote it.
+        # A COLLISION WITHIN ONE ARCHIVE is a malformed archive (fails).  A
+        # collision ACROSS concatenated archives is normal initramfs semantics
+        # (a later section overrides an earlier one), so the later copy is
+        # written to a distinct path and BOTH are scanned -- no content is
+        # hidden, and every embedded .deb/.udeb is still classified.
+        prev = written.get(path)
+        if prev is not None and prev == archives:
+            fail("image", src, f"duplicate cpio pathname within one archive "
+                               f"(would hide earlier content): {os.path.relpath(path, dest)}")
             return False
-        os.makedirs(os.path.dirname(path) or dest, exist_ok=True)
-        with open(path, "wb") as fh:
+        real = path
+        if prev is not None:
+            real = f"{path}.__nczoverride{archives}"
+            print(f"NOTE  [{src}] cpio: {os.path.relpath(path, dest)} overridden by "
+                  f"a later archive section; both copies are scanned")
+        os.makedirs(os.path.dirname(real) or dest, exist_ok=True)
+        with open(real, "wb") as fh:
             fh.write(content)
-        written.add(path)
+        written[path] = archives
         return True
 
     off = 0
     n = len(data)
     groups = {}
     archive_open = False
-    archives = 0
 
     def flush_hardlinks():
         for key, g in groups.items():
@@ -1534,8 +1929,15 @@ def _extract_newc(data, dest, src, allow_tail=False, written=None):
             os.makedirs(d, exist_ok=True)
             continue
         if statmod.S_ISLNK(mode):
+            # Validate the MEMBER path (an absolute/`..` member name is an
+            # escape regardless of type), then the TARGET: an absolute target is
+            # allowed (never materialised), only a relative target that resolves
+            # outside the root fails.
+            if _safe_member(dest, name) is None:
+                fail("image", src, f"cpio symlink path escapes the scratch root: {name}")
+                return None
             target = fdata.decode("utf-8", "replace")
-            if target.startswith("/") or ".." in target.split("/"):
+            if _rel_link_escapes(name, target):
                 fail("image", src, f"cpio symlink escapes: {name} -> {target}")
                 return None
             continue  # a safe symlink is recorded but never materialised
@@ -1580,7 +1982,7 @@ def _scan_initrd(ref, path, owned):
     out = tempfile.mkdtemp(prefix="ncz-initrd-", dir=owned)
     remaining = _read_bytes(path)
     saw = False
-    written = set()  # shared across every section so a collision cannot hide content
+    written = {}  # path -> archive index; shared so a collision cannot hide content
     while True:
         stripped = remaining.lstrip(b"\x00")
         if not stripped:

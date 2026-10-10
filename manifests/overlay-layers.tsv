@@ -1,0 +1,18 @@
+# manifests/overlay-layers.tsv -- reviewed PARTIAL squashfs overlay layers.
+#
+# A finished image normally ships full squashfs layers, each carrying its own
+# /var/lib/dpkg/status.  A layer listed HERE is a reviewed PARTIAL overlay: it
+# deliberately installs only a subtree (declared as an `opaque` dir in its
+# <layer>.overlay-manifest) and therefore has NO dpkg database.  The gate must
+# NOT fail such a layer as "no readable var/lib/dpkg/status" -- but it must not
+# silently pass *any* status-less layer either:
+#   * a status-less layer that is NOT listed here still HARD-FAILS;
+#   * a listed layer must actually contain its declared tree root, or it fails.
+#
+# Columns (TAB): layer (basename), tree_root (repo-relative path the layer must
+# contain), recipe, source_revision, note.  recipe (col 3) and source_revision
+# (col 4) must be non-empty -- same strictness as manifests/ncz-packages.tsv.
+# Adding a row is a reviewed act: the layer must be reproducibly built by the
+# named recipe from the named source revision.
+# layer	tree_root	recipe	source_revision	note
+desktop-hotfix.squashfs	opt/singularity	build/build-squashfs-layers.sh (build_hotfix)	assets/cix-debs/ncz-singularity-desktop_*.deb (singularityos-lab/singularity + labwc/wlroots)	partial overlay: opaque /opt/singularity only; 588/589 files are the ncz-singularity-desktop .deb payload plus the ld.so.conf.d/singularity.conf snippet the deb postinst writes

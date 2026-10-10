@@ -63,12 +63,36 @@ mkdeb "$T/nameonly-pool/cix-gpu-umd_2.0.0_arm64.deb" cix-gpu-umd 2.0.0 arm64 'CI
 mkdeb "$T/nameonly-pool/ncz-apt-policy_1.0_all.deb" ncz-apt-policy 1.0 all 'Jason Perlow <jperlow@gmail.com>'
 mkdeb "$T/plusncz-pool/mystery_1.0+ncz1_amd64.deb" mystery 1.0+ncz1 amd64 'Nobody <n@example.invalid>'
 mkdeb "$T/unknown/mystery_1.0_all.deb" mystery 1.0 all 'Someone <s@example.invalid>'
+mkdir -p "$T/shadow-bad"
+mkdeb "$T/shadow-bad/fonts-liberation_1%3a2.1.5-3_all.deb" fonts-liberation 1:2.1.5-3 all "$DEB_MAINT" DIFFERENT-BYTES
+
+# di_suite fixtures: the netinst substrate's d-i udebs are built from the SAME
+# snapshot's development suite (sid).  A d-i udeb present ONLY in sid's
+# debian-installer index MUST be authorized; a runtime (non-d-i) package present
+# only in sid's main/binary-* MUST NOT be (the allowance is d-i only).
+mkdir -p "$T/sid-di-pool" "$T/sid-di-badpool" "$T/sid-rt-pool"
+mkdeb "$T/sid-di-pool/base-modules-7.2.9+deb14-amd64-di_7.2.9-1_amd64.udeb" \
+  base-modules-7.2.9+deb14-amd64-di 7.2.9-1 amd64 "$DEB_MAINT"
+mkdeb "$T/sid-di-pool/base-modules-7.2.9+deb14-arm64-di_7.2.9-1_arm64.udeb" \
+  base-modules-7.2.9+deb14-arm64-di 7.2.9-1 arm64 "$DEB_MAINT"
+mkdeb "$T/sid-di-pool/mdcfg-utils_1.87_all.udeb" mdcfg-utils 1.87 all "$DEB_MAINT"
+mkdeb "$T/sid-di-badpool/base-modules-7.2.9+deb14-amd64-di_7.2.9-1_amd64.udeb" \
+  base-modules-7.2.9+deb14-amd64-di 7.2.9-1 amd64 "$DEB_MAINT" DIFFERENT-BYTES
+mkdeb "$T/sid-rt-pool/libsidonly_9.9_amd64.deb" libsidonly 9.9 amd64 "$DEB_MAINT"
 
 DEBSHA="$(sha "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb")"
 TPMSHA="$(sha "$T/tpm-pool/libtss2-rc0t64_4.1.3-7_amd64.deb")"
 VSHA="$(sha "$T/vendor-pool/acme-browser_1.0-1_amd64.deb")"
 DEBSIZE="$(wc -c < "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb")"
 TPMSIZE="$(wc -c < "$T/tpm-pool/libtss2-rc0t64_4.1.3-7_amd64.deb")"
+SIDDI_SHA="$(sha "$T/sid-di-pool/base-modules-7.2.9+deb14-amd64-di_7.2.9-1_amd64.udeb")"
+SIDDI_SIZE="$(wc -c < "$T/sid-di-pool/base-modules-7.2.9+deb14-amd64-di_7.2.9-1_amd64.udeb")"
+SIDDI_A64_SHA="$(sha "$T/sid-di-pool/base-modules-7.2.9+deb14-arm64-di_7.2.9-1_arm64.udeb")"
+SIDDI_A64_SIZE="$(wc -c < "$T/sid-di-pool/base-modules-7.2.9+deb14-arm64-di_7.2.9-1_arm64.udeb")"
+SIDDI_ALL_SHA="$(sha "$T/sid-di-pool/mdcfg-utils_1.87_all.udeb")"
+SIDDI_ALL_SIZE="$(wc -c < "$T/sid-di-pool/mdcfg-utils_1.87_all.udeb")"
+SIDRT_SHA="$(sha "$T/sid-rt-pool/libsidonly_9.9_amd64.deb")"
+SIDRT_SIZE="$(wc -c < "$T/sid-rt-pool/libsidonly_9.9_amd64.deb")"
 
 # --- isolated trust root ---------------------------------------------------------------------
 mkdir -p "$T/repo/build" "$T/repo/manifests/keys"
@@ -84,6 +108,9 @@ cat > "$T/repo/manifests/ncz-packages.tsv" <<EOF
 # name	version	arch	sha256	recipe	source_revision	note
 ncz-widget	1.0	all	$NW_SHA	build/build-widget.sh	test revision 1	test NCZ build
 libdrm2	2.4.134-3+ncz2	amd64	$LD_SHA	build/build-libdrm-debs.sh	test revision 1	test NCZ repack
+linux-image-test	1.0	amd64	$(printf '1%.0s' {1..64})	build/build-kernel-debs.sh	test revision 1	test NCZ kernel
+linux-headers-test	1.0	amd64	$(printf '2%.0s' {1..64})	build/build-kernel-debs.sh	test revision 1	test NCZ kernel headers
+linux-image-other	2.0	amd64	$(printf '3%.0s' {1..64})	build/build-kernel-debs.sh	test revision 1	second NCZ kernel (different version)
 EOF
 cat > "$T/repo/manifests/vendor-repos.tsv" <<'EOF'
 # kind	scheme	host	path	suite	approved	vendor	note
@@ -94,6 +121,14 @@ vendor	https	acme.example	/repo	stable	yes	Acme	test vendor
 vendor	https	apt.repos.intel.com	/openvino	ubuntu24	pending	Intel	test pending
 offline	file	-	/cdrom/ncz-payload/apt-repo	/	yes	NCZ-OS	test flat media pool
 offline	file	-	/cdrom	forky	yes	NCZ-OS	test installer data root
+EOF
+cat > "$T/repo/manifests/overlay-layers.tsv" <<'EOF'
+# layer	tree_root	recipe	source_revision	note
+tinyoverlay.squashfs	opt/tiny	build/build-tiny-overlay.sh	test revision 1	reviewed partial overlay for the fixture
+EOF
+cat > "$T/repo/manifests/ncz-timestamped.tsv" <<'EOF'
+# name	version_regex	arch	recipe	source_revision	note
+tswidget	^1\.[0-9]+\+ts[0-9a-f]+$	all	build/build-tswidget.sh	test revision 1	timestamped fixture
 EOF
 
 # keyring + signed Release + Packages indexes -----------------------------------------------
@@ -112,7 +147,7 @@ gpg --batch --export > "$T/repo/manifests/keys/test-keyring.gpg"
 KFPR="$(gpg --with-colons --fingerprint test@ncz.invalid | awk -F: '/^fpr:/{print $10; exit}')"
 
 IDX="$T/idx"
-COMPS="main/binary-amd64 main/binary-arm64 main/binary-all contrib/binary-amd64 contrib/binary-arm64 contrib/binary-all non-free/binary-amd64 non-free/binary-arm64 non-free/binary-all non-free-firmware/binary-amd64 non-free-firmware/binary-arm64 non-free-firmware/binary-all main/debian-installer/binary-amd64 main/debian-installer/binary-arm64"
+COMPS="main/binary-amd64 main/binary-arm64 main/binary-all contrib/binary-amd64 contrib/binary-arm64 contrib/binary-all non-free/binary-amd64 non-free/binary-arm64 non-free/binary-all non-free-firmware/binary-amd64 non-free-firmware/binary-arm64 non-free-firmware/binary-all main/debian-installer/binary-amd64 main/debian-installer/binary-arm64 main/debian-installer/binary-all"
 mkdir -p "$IDX/dists/forky"
 REL="$T/Release.body"
 {
@@ -135,6 +170,45 @@ cp "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb" "$IDX/pool/main/f/fonts
 cp "$T/tpm-pool/libtss2-rc0t64_4.1.3-7_amd64.deb" "$IDX/pool/main/libt/libtss2-rc0t64/"
 gpg --batch --yes --clearsign -o "$IDX/dists/forky/InRelease" "$REL" >/dev/null 2>&1
 IRSHA="$(sha "$IDX/dists/forky/InRelease")"; IRSIZE="$(wc -c < "$IDX/dists/forky/InRelease")"
+
+# The SAME snapshot's development suite (sid) -- only its debian-installer
+# indexes are loaded by the gate.  The runtime (main/binary-amd64) index is
+# present in the signed Release and names a fixture deb, to prove the gate does
+# NOT authorize sid runtime packages.
+SIDCOMPS="main/debian-installer/binary-amd64 main/debian-installer/binary-arm64 main/debian-installer/binary-all"
+mkdir -p "$IDX/dists/sid"
+REL2="$T/Release-sid.body"
+{
+  printf 'Origin: Debian\nLabel: Debian\nSuite: unstable\nCodename: sid\n'
+  printf 'Architectures: all amd64 arm64\nComponents: main contrib non-free non-free-firmware\n'
+  printf 'SHA256:\n'
+} > "$REL2"
+for rel in $SIDCOMPS; do
+  mkdir -p "$IDX/dists/sid/$rel"
+  pf="$IDX/dists/sid/$rel/Packages"
+  {
+    if [ "$rel" = "main/debian-installer/binary-amd64" ]; then
+      printf 'Package: base-modules-7.2.9+deb14-amd64-di\nVersion: 7.2.9-1\nArchitecture: amd64\nMaintainer: %s\nFilename: pool/main/b/base-modules-7.2.9+deb14-amd64-di/base-modules-7.2.9+deb14-amd64-di_7.2.9-1_amd64.udeb\nSize: %s\nSHA256: %s\n\n' "$DEB_MAINT" "$SIDDI_SIZE" "$SIDDI_SHA"
+    elif [ "$rel" = "main/debian-installer/binary-arm64" ]; then
+      printf 'Package: base-modules-7.2.9+deb14-arm64-di\nVersion: 7.2.9-1\nArchitecture: arm64\nMaintainer: %s\nFilename: pool/main/b/base-modules-7.2.9+deb14-arm64-di/base-modules-7.2.9+deb14-arm64-di_7.2.9-1_arm64.udeb\nSize: %s\nSHA256: %s\n\n' "$DEB_MAINT" "$SIDDI_A64_SIZE" "$SIDDI_A64_SHA"
+    elif [ "$rel" = "main/debian-installer/binary-all" ]; then
+      printf 'Package: mdcfg-utils\nVersion: 1.87\nArchitecture: all\nMaintainer: %s\nFilename: pool/main/m/mdcfg-utils/mdcfg-utils_1.87_all.udeb\nSize: %s\nSHA256: %s\n\n' "$DEB_MAINT" "$SIDDI_ALL_SIZE" "$SIDDI_ALL_SHA"
+    fi
+  } > "$pf"
+  xz -f -k "$pf"
+  printf ' %s %s %s\n' "$(sha "$pf.xz")" "$(wc -c < "$pf.xz")" "$rel/Packages.xz" >> "$REL2"
+done
+mkdir -p "$IDX/pool/main/b/base-modules-7.2.9+deb14-amd64-di" \
+         "$IDX/pool/main/b/base-modules-7.2.9+deb14-arm64-di" \
+         "$IDX/pool/main/m/mdcfg-utils"
+cp "$T/sid-di-pool/base-modules-7.2.9+deb14-amd64-di_7.2.9-1_amd64.udeb" \
+   "$IDX/pool/main/b/base-modules-7.2.9+deb14-amd64-di/"
+cp "$T/sid-di-pool/base-modules-7.2.9+deb14-arm64-di_7.2.9-1_arm64.udeb" \
+   "$IDX/pool/main/b/base-modules-7.2.9+deb14-arm64-di/"
+cp "$T/sid-di-pool/mdcfg-utils_1.87_all.udeb" "$IDX/pool/main/m/mdcfg-utils/"
+gpg --batch --yes --clearsign -o "$IDX/dists/sid/InRelease" "$REL2" >/dev/null 2>&1
+SIDIRSHA="$(sha "$IDX/dists/sid/InRelease")"; SIDIRSIZE="$(wc -c < "$IDX/dists/sid/InRelease")"
+
 cat > "$T/repo/manifests/forky-snapshot.tsv" <<EOF
 snapshot	20260101T000000Z
 codename	forky
@@ -143,6 +217,10 @@ architectures	amd64 arm64 all
 inrelease_path	dists/forky/InRelease
 inrelease_sha256	$IRSHA
 inrelease_size	$IRSIZE
+di_suite	sid
+di_inrelease_path	dists/sid/InRelease
+di_inrelease_sha256	$SIDIRSHA
+di_inrelease_size	$SIDIRSIZE
 keyring	manifests/keys/test-keyring.gpg
 keyring_sha256	$(sha "$T/repo/manifests/keys/test-keyring.gpg")
 signer_keys	$KFPR
@@ -194,6 +272,15 @@ PY
 expect_rc "NCZ ledger with EMPTY source_revision FAILS (strict schema)" 2 \
   python3 -I "$T/repo-badledger/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/debian-pool"
 expect_rc "unchanged reviewed NCZ ledger still passes" 0 prov --debs "$T/ncz-pool"
+# An NCZ identity whose bytes are NOT a reviewed NCZ sha may still be the pinned
+# snapshot's upstream build (the base of a patched package, e.g. debootstrap-udeb).
+cp -a "$T/repo" "$T/repo-nczshadow"
+printf 'fonts-liberation\t1:2.1.5-3\tall\t%s\tbuild/x\trev\tpatch-base shadow\n' "$(printf '0%.0s' {1..64})" \
+  >> "$T/repo-nczshadow/manifests/ncz-packages.tsv"
+expect_rc "NCZ identity whose bytes ARE the pinned snapshot passes (patch base)" 0 \
+  python3 -I "$T/repo-nczshadow/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/debian-pool"
+expect_rc "NCZ identity whose bytes are neither NCZ nor the snapshot FAILS" 1 \
+  python3 -I "$T/repo-nczshadow/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/shadow-bad"
 
 echo "=== 2c. index integrity / env steering ==="
 BADIDX="$T/badidx"; cp -a "$IDX" "$BADIDX"; printf 'tampered\n' >> "$BADIDX/dists/forky/InRelease"
@@ -208,6 +295,196 @@ expect_rc "HOME pointing at a poisoned cache is irrelevant (explicit verified in
 expect_rc "--verify-mirror on the full upstream copy passes (rc 0)" 0 python3 -I "$T/repo/build/forky-provenance.py" --verify-mirror "$IDX" --index-dir "$IDX"
 BADPOOL="$T/badpoolmir"; cp -a "$IDX" "$BADPOOL"; printf 'x' >> "$BADPOOL/pool/main/f/fonts-liberation/fonts-liberation_1%3a2.1.5-3_all.deb"
 expect_rc "--verify-mirror rejects a tampered pool deb (real bytes)" 1 python3 -I "$T/repo/build/forky-provenance.py" --verify-mirror "$BADPOOL" --index-dir "$IDX"
+
+echo "=== 2d. build-timestamped NCZ rule (exact name + version regex + receipt sha) ==="
+cat > "$T/ts_probe.py" <<'PY'
+import importlib.util, sys
+ver, idx = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("fp", ver)
+fp = importlib.util.module_from_spec(spec); spec.loader.exec_module(fp)
+class A:
+    ubuntu_only = False; index_dir = idx; fetch_index = False; verify_mirror = None
+ref = fp.Ref(A())
+def run(name, v, arch, sha, receipt):
+    fp.FAILS.clear(); ref.receipt_ts.clear(); ref.receipt_ts.update(receipt)
+    fp.classify(ref, "t", name, v, arch, "", sha)
+    return 1 if fp.FAILS else 0
+sha = "a" * 64
+cases = [
+    ("timestamped pkg with NO receipt entry FAILS", run("tswidget", "1.2+tsabc", "all", sha, {}), 1),
+    ("timestamped pkg with a DIFFERENT receipt sha FAILS", run("tswidget", "1.2+tsabc", "all", sha, {("tswidget", "1.2+tsabc", "all"): "b" * 64}), 1),
+    ("timestamped pkg matching the receipt sha passes", run("tswidget", "1.2+tsabc", "all", sha, {("tswidget", "1.2+tsabc", "all"): sha}), 0),
+    ("timestamped pkg whose VERSION misses the regex FAILS (unknown origin)", run("tswidget", "9.9", "all", sha, {("tswidget", "9.9", "all"): sha}), 1),
+    ("a non-listed name with a timestamped-looking version FAILS", run("evilwidget", "1.2+tsabc", "all", sha, {("evilwidget", "1.2+tsabc", "all"): sha}), 1),
+]
+bad = 0
+for label, got, want in cases:
+    print(("PASS " if got == want else "MISMATCH ") + label)
+    if got != want: bad += 1
+sys.exit(1 if bad else 0)
+PY
+expect_rc "build-timestamped NCZ rule (receipt-pinned, both directions)" 0 \
+  python3 -I "$T/ts_probe.py" "$T/repo/build/forky-provenance.py" "$IDX"
+# strict schema: the timestamped ledger must carry a non-empty source revision.
+cp -a "$T/repo" "$T/repo-badts"
+python3 - "$T/repo-badts/manifests/ncz-timestamped.tsv" <<'PY'
+import sys
+p = sys.argv[1]; out = []
+for line in open(p):
+    if line.startswith("#") or not line.strip():
+        out.append(line); continue
+    f = line.rstrip("\n").split("\t")
+    if len(f) >= 6: f[4] = ""
+    out.append("\t".join(f) + "\n")
+open(p, "w").writelines(out)
+PY
+expect_rc "timestamped ledger with EMPTY source_revision FAILS (strict schema)" 2 \
+  python3 -I "$T/repo-badts/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/debian-pool"
+
+echo "=== 2e. one-kernel policy (only OUR kernel; exactly one version) ==="
+cat > "$T/kernel_probe.py" <<'PY'
+import importlib.util, sys
+ver, idx = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("fp", ver)
+fp = importlib.util.module_from_spec(spec); spec.loader.exec_module(fp)
+class A:
+    ubuntu_only = False; index_dir = idx; fetch_index = False; verify_mirror = None
+ref = fp.Ref(A())
+def run(seen):
+    fp.FAILS.clear(); ref.seen_kernel.clear(); ref.seen_kernel.update(seen)
+    fp.audit_kernel_purity(ref, "t")
+    return 1 if fp.FAILS else 0
+cases = [
+    ("one NCZ kernel (image+headers, same version) passes",
+     run([("linux-image-test", "1.0", "amd64"), ("linux-headers-test", "1.0", "amd64")]), 0),
+    ("a Debian linux-image FAILS (non-NCZ kernel)",
+     run([("linux-image-test", "1.0", "amd64"), ("linux-image-6.12.0-1-amd64", "6.12.0-1", "amd64")]), 1),
+    ("a d-i *-modules-*-di kernel udeb FAILS",
+     run([("linux-image-test", "1.0", "amd64"), ("base-modules-7.2.9+deb14-amd64-di", "7.2.9-1", "amd64")]), 1),
+    ("two NCZ kernel VERSIONS FAIL (one-kernel policy)",
+     run([("linux-image-test", "1.0", "amd64"), ("linux-image-other", "2.0", "amd64")]), 1),
+    ("no kernel artifact at all passes", run([]), 0),
+]
+bad = 0
+for label, got, want in cases:
+    print(("PASS " if got == want else "MISMATCH ") + label)
+    if got != want: bad += 1
+sys.exit(1 if bad else 0)
+PY
+expect_rc "one-kernel policy (both directions)" 0 \
+  python3 -I "$T/kernel_probe.py" "$T/repo/build/forky-provenance.py" "$IDX"
+
+echo "=== 2f. di_suite: the same snapshot's d-i suite (positive AND negative) ==="
+# A d-i udeb present ONLY in sid's debian-installer index is authorized (the
+# substrate's d-i content is built from sid, at the SAME pinned timestamp).
+expect_rc "sid debian-installer udeb (d-i, same snapshot) passes" 0 prov --debs "$T/sid-di-pool"
+# A runtime (non-d-i) package is NEVER authorized from the di_suite: only the
+# suite's main/debian-installer indexes are requested, its binary-* indexes are
+# not (code-level assertion), so a runtime deb fails closed.
+expect_rc "sid RUNTIME package (not d-i) FAILS (narrow allowance)" 1 prov --debs "$T/sid-rt-pool"
+echo "$LAST" | grep -q 'unknown origin' && ok "  failure says unknown origin (sid runtime not authorized)" || bad "wrong reason" "$LAST"
+cat > "$T/index_need_probe.py" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("fp", sys.argv[1])
+fp = importlib.util.module_from_spec(spec); spec.loader.exec_module(fp)
+t = {"codename": "forky", "components": "main contrib non-free non-free-firmware",
+     "architectures": "amd64 arm64 all", "inrelease_path": "dists/forky/InRelease",
+     "inrelease_sha256": "a" * 64, "inrelease_size": "1",
+     "di_suite": "sid", "di_inrelease_path": "dists/sid/InRelease",
+     "di_inrelease_sha256": "b" * 64, "di_inrelease_size": "2"}
+need = fp.index_need(t)
+sid = [n for n in need if n[0] == "sid"]
+sid_comps = sorted({n[1] for n in sid})
+sid_archs = sorted(n[2] for n in sid)
+only_di = sid_comps == ["main/debian-installer"]
+ok = only_di and sid_archs == ["all", "amd64", "arm64"]
+print("sid need comps:", sid_comps, "archs:", sid_archs)
+print("ONLY debian-installer from sid:", only_di)
+sys.exit(0 if ok else 1)
+PY
+expect_rc "index_need requests ONLY sid debian-installer (never sid runtime)" 0 \
+  python3 -I "$T/index_need_probe.py" "$T/repo/build/forky-provenance.py"
+# Same identity as the sid d-i index but DIFFERENT bytes: fail closed.
+expect_rc "sid d-i udeb with different bytes FAILS (sha enforced)" 1 prov --debs "$T/sid-di-badpool"
+# The allowance is exactly the declared di_suite: without it, the same udeb fails.
+cp -a "$T/repo" "$T/repo-nodisuite"
+python3 - "$T/repo-nodisuite/manifests/forky-snapshot.tsv" <<'PY'
+import sys
+p = sys.argv[1]
+lines = list(open(p))
+with open(p, "w") as out:
+    out.writelines(l for l in lines
+                   if not (l.startswith("di_suite\t") or l.startswith("di_inrelease_")))
+PY
+expect_rc "without di_suite declared, the sid d-i udeb FAILS" 1 \
+  python3 -I "$T/repo-nodisuite/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
+# A wrong sid InRelease digest fails closed (fetch disabled => no silent pass).
+cp -a "$T/repo" "$T/repo-baddi"
+python3 - "$T/repo-baddi/manifests/forky-snapshot.tsv" <<'PY'
+import sys
+p = sys.argv[1]; out = []
+for line in open(p):
+    if line.startswith("di_inrelease_sha256\t"):
+        line = "di_inrelease_sha256\t" + "0" * 64 + "\n"
+    out.append(line)
+open(p, "w").writelines(out)
+PY
+expect_rc "wrong di_inrelease_sha256 FAILS closed (fetch disabled)" 1 \
+  python3 -I "$T/repo-baddi/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
+expect_rc "--verify-mirror still passes with both suites (rc 0)" 0 \
+  python3 -I "$T/repo/build/forky-provenance.py" --verify-mirror "$IDX" --index-dir "$IDX"
+
+echo "=== 2g. check-substrate-pin preflight (freshness + coverage + consistency) ==="
+SUBBASE="$T/subrepo"; mkdir -p "$SUBBASE/build/lib" "$SUBBASE/manifests"
+cp "$ROOT/build/check-substrate-pin.sh" "$SUBBASE/build/"
+cp "$ROOT/build/lib/mirror-apt-opts.sh" "$SUBBASE/build/lib/"
+cp "$ROOT/manifests/base.pin" "$SUBBASE/manifests/base.pin"
+cp "$ROOT/release.conf" "$SUBBASE/"
+expect_rc "check-substrate-pin: fresh + covered + consistent passes" 0 \
+  bash "$SUBBASE/build/check-substrate-pin.sh" amd64
+OLD_DATE="$(python3 -c 'import datetime; print((datetime.datetime.utcnow()-datetime.timedelta(days=30)).strftime("%a, %d %b %Y %H:%M:%S UTC"))')"
+mk_sub() { cp -a "$SUBBASE" "$1"; }
+mk_sub "$T/sub-stale"
+python3 - "$T/sub-stale/manifests/base.pin" "$OLD_DATE" <<'PY'
+import sys
+p, d = sys.argv[1], sys.argv[2]
+out = []
+for l in open(p):
+    f = l.rstrip("\n").split("\t")
+    if f and f[0] == "amd64" and len(f) >= 5:
+        f[2] = d; l = "\t".join(f) + "\n"
+    out.append(l)
+open(p, "w").writelines(out)
+PY
+expect_rc "check-substrate-pin: STALE substrate (>8d) FAILS" 1 \
+  bash "$T/sub-stale/build/check-substrate-pin.sh" amd64
+mk_sub "$T/sub-cov"
+python3 - "$T/sub-cov/manifests/base.pin" <<'PY'
+import sys
+p = sys.argv[1]
+out = []
+for l in open(p):
+    f = l.rstrip("\n").split("\t")
+    if f and f[0] == "amd64" and len(f) >= 5:
+        f[4] = "90.0"; l = "\t".join(f) + "\n"
+    out.append(l)
+open(p, "w").writelines(out)
+PY
+expect_rc "check-substrate-pin: coverage <99% FAILS" 1 \
+  bash "$T/sub-cov/build/check-substrate-pin.sh" amd64
+mk_sub "$T/sub-mism"
+python3 - "$T/sub-mism/release.conf" <<'PY'
+import sys
+p = sys.argv[1]
+out = []
+for l in open(p):
+    if l.startswith("NCZ_BASE_MIRROR_SNAPSHOT="):
+        l = 'NCZ_BASE_MIRROR_SNAPSHOT="20260101T000000Z"\n'
+    out.append(l)
+open(p, "w").writelines(out)
+PY
+expect_rc "check-substrate-pin: snapshot != release.conf FAILS" 1 \
+  bash "$T/sub-mism/build/check-substrate-pin.sh" amd64
 
 echo "=== 3. dpkg status / Packages inputs (fail closed) ==="
 printf 'Package: fonts-liberation\nStatus: install ok installed\nVersion: 1:2.1.5-3build1\nArchitecture: all\nMaintainer: %s\n\n' "$UBU_MAINT" > "$T/status.bad"
@@ -246,6 +523,7 @@ rootcase osrel-ubucodename 1 "printf 'ID=ncz\nID_LIKE=debian\nUBUNTU_CODENAME=fo
 rootcase ubuntu-ports 1 "echo 'deb http://ports.ubuntu.com/ubuntu-ports resolute main universe' > etc/apt/sources.list"
 rootcase ubuntu-deb822 1 "printf 'Types: deb\nURIs: http://archive.ubuntu.com/ubuntu\nSuites: noble\nComponents: main\n' > etc/apt/sources.list.d/u.sources"
 rootcase other-snapshot 1 "echo 'deb https://snapshot.debian.org/archive/debian/20200101T000000Z forky main' > etc/apt/sources.list"
+rootcase pin-trailing-slash 0 "echo 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260101T000000Z/ forky main' > etc/apt/sources.list"
 rootcase live-forky 0 "echo 'deb https://deb.debian.org/debian forky main' > etc/apt/sources.list"
 rootcase live-trixie 1 "echo 'deb https://deb.debian.org/debian trixie main' > etc/apt/sources.list"
 rootcase ncz-wrong-suite 1 "echo 'deb https://packages.buildkite.com/ncz-os/ncz/any/ resolute main' > etc/apt/sources.list.d/x.list"
@@ -263,6 +541,8 @@ rootcase pin-trixie 1 "printf 'Package: *\nPin: release n=trixie\nPin-Priority: 
 rootcase pin-ubuntu-origin 1 "printf 'Package: *\nPin: release o=Ubuntu\nPin-Priority: 500\n' > etc/apt/preferences.d/01.pref"
 rootcase pin-noblank-noble 1 "printf 'Package: *\nPin: release n=forky\nPin-Priority: -1\nPackage: *\nPin: release n=noble\nPin-Priority: 900\n' > etc/apt/preferences.d/01.pref"
 rootcase pin-ncz-origin 0 "printf 'Package: *\nPin: origin packages.buildkite.com\nPin-Priority: 990\n' > etc/apt/preferences.d/01.pref"
+rootcase aptdir-symlink 1 "rm -rf etc/apt/sources.list.d && ln -s /tmp etc/apt/sources.list.d"
+rootcase osrelease-symlink 1 "rm -f etc/os-release && ln -s /etc/os-release etc/os-release"
 rootcase installed-ubuntu-pkg 1 "printf 'Package: fonts-liberation\nStatus: install ok installed\nVersion: 1:2.1.5-3build1\nArchitecture: all\nMaintainer: %s\n\n' '$UBU_MAINT' > var/lib/dpkg/status"
 rootcase disabled-source-ignored 0 "echo 'deb http://ports.ubuntu.com/ubuntu-ports resolute main' > etc/apt/sources.list.d/old.list.disabled"
 rootcase no-status 1 "rm -f var/lib/dpkg/status"
@@ -290,6 +570,36 @@ expect_rc "truncated squashfs FAILS closed" 1 "${PROV[@]}" --squashfs "$T/trunc.
 printf 'Package: fonts-liberation\nStatus: install ok unpacked\nVersion: 1:2.1.5-3build1\nArchitecture: all\nMaintainer: %s\n\n' "$UBU_MAINT" > "$SQ/var/lib/dpkg/status"
 mksquashfs "$SQ" "$T/ubuntu.squashfs" -noappend -quiet -processors 1 >/dev/null 2>&1
 expect_rc "squashfs carrying an unpacked Ubuntu package FAILS" 1 "${PROV[@]}" --squashfs "$T/ubuntu.squashfs"
+
+echo "=== 4b2. reviewed partial overlay allow-list (bug c) ==="
+# A status-less layer listed in manifests/overlay-layers.tsv (fixture:
+# tinyoverlay.squashfs -> opt/tiny) whose declared root is present passes; any
+# other status-less layer still fails closed; a listed name with a missing
+# declared root fails too (a stale/mislabelled layer is not waved through).
+OV="$T/ov"; rm -rf "$OV"; mkdir -p "$OV/opt/tiny"; echo x > "$OV/opt/tiny/f"
+mksquashfs "$OV" "$T/tinyoverlay.squashfs" -noappend -quiet -processors 1 >/dev/null 2>&1
+expect_rc "listed status-less overlay (declared root present) passes" 0 prov --squashfs "$T/tinyoverlay.squashfs"
+NOV="$T/nov"; rm -rf "$NOV"; mkdir -p "$NOV/opt/other"; echo x > "$NOV/opt/other/f"
+mksquashfs "$NOV" "$T/unlisted.squashfs" -noappend -quiet -processors 1 >/dev/null 2>&1
+expect_rc "UNLISTED status-less layer FAILS closed" 1 prov --squashfs "$T/unlisted.squashfs"
+WOV="$T/wov"; rm -rf "$WOV"; mkdir -p "$WOV/opt/elsewhere"; echo x > "$WOV/opt/elsewhere/f"
+mkdir -p "$T/ovbad"; mksquashfs "$WOV" "$T/ovbad/tinyoverlay.squashfs" -noappend -quiet -processors 1 >/dev/null 2>&1
+expect_rc "listed overlay with a MISSING declared root FAILS" 1 prov --squashfs "$T/ovbad/tinyoverlay.squashfs"
+# schema: the reviewed overlay ledger must carry a non-empty source revision.
+cp -a "$T/repo" "$T/repo-badov"
+python3 - "$T/repo-badov/manifests/overlay-layers.tsv" <<'PY'
+import sys
+p = sys.argv[1]; out = []
+for line in open(p):
+    if line.startswith("#") or not line.strip():
+        out.append(line); continue
+    f = line.rstrip("\n").split("\t")
+    if len(f) >= 5: f[3] = ""      # blank source_revision
+    out.append("\t".join(f) + "\n")
+open(p, "w").writelines(out)
+PY
+expect_rc "overlay ledger with EMPTY source_revision FAILS (strict schema)" 2 \
+  python3 -I "$T/repo-badov/build/forky-provenance.py" --index-dir "$IDX" --squashfs "$T/tinyoverlay.squashfs"
 
 echo "=== 4c. real initrd (magic sniff + concatenated newc + escapes) ==="
 IRD="$T/ird"; rm -rf "$IRD"; mkdir -p "$IRD"
@@ -358,7 +668,15 @@ open(os.path.join(outdir, "abs"), "wb").write(esc.replace(b"aaaaaa\x00", b"/etc/
 
 r5 = mkroot("sym"); os.symlink("aaaaaa", os.path.join(r5, "link"))
 sy = cpio(r5, "newc")
+# absolute symlink TARGET: legitimate (etc/mtab -> /proc/mounts); must be allowed
 open(os.path.join(outdir, "symlink"), "wb").write(sy.replace(b"aaaaaa", b"/etc/p", 1))
+# relative symlink target that resolves OUTSIDE the root: must fail
+r5b = mkroot("symrel"); os.symlink("../../etc/passwd", os.path.join(r5b, "link"))
+open(os.path.join(outdir, "symrel_escape"), "wb").write(cpio(r5b, "newc"))
+# relative symlink target that stays INSIDE the root (usr/link -> ../lib/x): must pass
+r5c = mkroot("symin"); os.makedirs(os.path.join(r5c, "usr"))
+os.symlink("../lib/x", os.path.join(r5c, "usr", "link"))
+open(os.path.join(outdir, "symrel_inside"), "wb").write(cpio(r5c, "newc"))
 
 r6 = mkroot("ubu"); add(r6, "boot/ubuntu.deb", ubu_b)
 open(os.path.join(outdir, "ubuntu"), "wb").write(cpio(r6, "newc"))
@@ -388,8 +706,11 @@ PY
 expect_rc "initrd: concatenated newc/gz/xz/zst scanned; escapes/unknown/CRC/Ubuntu FAIL" 0 \
   python3 -I "$T/initrd_probe.py" "$T/repo/build/forky-provenance.py" "$IDX" "$IRD" \
   initrd=0 nc.gz=0 nc.xz=0 nc.zst=0 concat=0 mixed=0 crc=0 \
-  escape=1 abs=1 symlink=1 unknown.bin=1 crc_bad=1 ubuntu=1
+  escape=1 abs=1 symlink=0 symrel_escape=1 symrel_inside=0 unknown.bin=1 crc_bad=1 ubuntu=1
 echo "$LAST" | grep -q MISMATCH && bad "initrd fixture mismatch" "$LAST" || ok "  initrd fixtures all matched expectation"
+echo "$LAST" | grep -q 'symlink=0' && ok "  absolute symlink target allowed (bug b)" || true
+echo "$LAST" | grep -q 'symrel_escape=1' && ok "  relative escaping symlink still FAILS (bug b)" || true
+echo "$LAST" | grep -q 'abs=1' && ok "  absolute MEMBER path still FAILS (bug b)" || true
 
 
 echo "=== 4c2. cpio trailer completeness + hard links (GNU-produced) ==="
@@ -437,6 +758,15 @@ c2 = cpio(r4, ["y", "y2"])
 ino = c1[6:14]
 c2m = c2.replace(b"070701" + c2[6:14], b"070701" + ino).replace(b"070702" + c2[6:14], b"070702" + ino)
 case("concat_inode_reuse", c1 + c2m, False, {"x": "AAA", "x2": "AAA", "y": "BBB", "y2": "BBB"})
+# duplicate pathname WITHIN one archive is malformed and must FAIL
+r6 = mkroot("dupwithin"); add(r6, "p", b"DUPDATA")
+case("dup_within", cpio(r6, ["p", "p"]), True)
+# the SAME pathname in two CONCATENATED archives is normal initramfs override
+# semantics: allowed, and both copies are still scanned (a later archive must
+# not be able to hide an earlier file)
+r7 = mkroot("dupacross"); add(r7, "g.deb", b"G" * 48)
+g1 = cpio(r7, ["g.deb"])
+case("dup_across", g1 + g1, False, {"g.deb": "G" * 48})
 json.dump(cases, open(os.path.join(outdir, "cases.json"), "w"))
 PY
 python3 -I "$T/mkcpio_fixtures.py" "$T/cpio"
@@ -468,6 +798,70 @@ expect_rc "cpio trailer/hardlink/inode-reuse fixtures" 0 \
   python3 -I "$T/cpio_check.py" "$T/repo/build/forky-provenance.py" "$T/cpio/cases.json"
 expect_rc "compressed-tail staging ignores unusable TMPDIR (owned scratch)" 0 \
   env TMPDIR=/nonexistent-ncz-tmp python3 -I "$T/initrd_probe.py" "$T/repo/build/forky-provenance.py" "$IDX" "$IRD" mixed=0
+
+echo "=== 4c3. rootfs tar.zst: absolute symlinks OK, traversal/abs-member/hardlink FAIL (bug b) ==="
+TARD="$T/tardir"; rm -rf "$TARD"; mkdir -p "$TARD"
+cat > "$T/mktar.py" <<'PY'
+import os, subprocess, sys, shutil
+out = os.path.abspath(sys.argv[1])
+def mk(n):
+    d = os.path.join(out, "r_" + n); shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d); return d
+def w(r, rel, data):
+    p = os.path.join(r, rel); os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w") as f: f.write(data)
+def gtar(root, args, outname, transform=None):
+    a = ["tar", "-cf", os.path.join(out, outname + ".tar")]
+    if transform: a += ["-P", "--transform", transform]
+    a += args
+    subprocess.run(a, cwd=root, check=True, capture_output=True)
+# POSITIVE: a real rootfs with legitimate absolute symlinks (var/run -> /run,
+# var/lock -> /run/lock).  GNU tar output, never hand-serialized.
+r = mk("good")
+os.makedirs(r + "/var/lib/dpkg", exist_ok=True)
+w(r, "var/lib/dpkg/status", "Package: x\n")
+os.symlink("/run", r + "/var/run")
+os.symlink("/run/lock", r + "/var/lock")
+gtar(r, ["var"], "good")
+# NEGATIVE: absolute MEMBER path (real GNU tar --transform; -P keeps the slash)
+r2 = mk("abs"); w(r2, "etc/x", "y")
+gtar(r2, ["etc/x"], "abs", "s|^etc/x$|/etc/x|")
+# NEGATIVE: '..' MEMBER traversal
+r3 = mk("dd"); w(r3, "etc/x", "y")
+gtar(r3, ["etc/x"], "dd", "s|^etc/x$|../x|")
+# NEGATIVE: relative symlink TARGET that escapes the root
+r4 = mk("symesc"); os.makedirs(r4 + "/usr")
+os.symlink("../../etc/passwd", r4 + "/usr/link")
+gtar(r4, ["usr"], "symesc")
+# NEGATIVE: write-through escape (symlink then a member under it)
+wt = os.path.join(out, "wt-target"); os.makedirs(wt, exist_ok=True)
+w(wt, "evil", "pwn")
+r5 = mk("wt"); os.makedirs(r5 + "/sub"); os.symlink(wt, r5 + "/sub/link")
+gtar(r5, ["sub/link", "sub/link/evil"], "wt")
+PY
+python3 -I "$T/mktar.py" "$TARD"
+for t in "$TARD"/*.tar; do zstd -q -f -o "$t.zst" "$t"; done
+cat > "$T/tar_probe.py" <<'PY'
+import importlib.util, os, shutil, sys
+ver, d = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("fp", ver)
+fp = importlib.util.module_from_spec(spec); spec.loader.exec_module(fp)
+bad = 0
+for case in sys.argv[3:]:
+    name, want = case.split("="); want = int(want)
+    fp.FAILS.clear()
+    out = os.path.join(d, "o_" + name); shutil.rmtree(out, ignore_errors=True)
+    os.makedirs(out)
+    fp.safe_extract_zst(os.path.join(d, name + ".tar.zst"), out, name)
+    got = 1 if fp.FAILS else 0
+    print(("PASS " if got == want else "MISMATCH ") + f"{name} want={want} got={got}")
+    if got != want: bad += 1
+sys.exit(1 if bad else 0)
+PY
+expect_rc "rootfs tar.zst: abs symlink OK; abs-member/..-member/rel-escape/write-through FAIL" 0 \
+  python3 -I "$T/tar_probe.py" "$T/repo/build/forky-provenance.py" "$TARD" \
+  good=0 abs=1 dd=1 symesc=1 wt=1
+echo "$LAST" | grep -q MISMATCH && bad "tar fixture mismatch" "$LAST" || ok "  tar fixtures all matched expectation"
 
 echo "=== 4d. real subset offline mirror (build-forky-mirror style) ==="
 MDIR="$T/candmir"; rm -rf "$MDIR"; mkdir -p "$MDIR/dists/forky/main/binary-amd64" "$MDIR/pool/main/f/fonts-liberation"
@@ -524,7 +918,16 @@ SFD
         mkdir -p "$1/dists/forky/main/binary-amd64" "$1/pool/main/f/fonts-liberation" \
                  "$1/pool/main/libt/libtss2-rc0t64" "$1/ncz-payload/assets/cix-debs" \
                  "$1/ncz-payload/apt-repo"
-        cp "$IDX/dists/forky/main/binary-amd64/Packages.xz" "$1/dists/forky/main/binary-amd64/Packages.xz"
+        # /cdrom offline index: the snapshot records plus a reviewed NCZ deb, so
+        # the pool-binding path exercises the NCZ-ledger authorization (a bug in
+        # which regressed the /cdrom binding for every NCZ pool deb).
+        xz -dc "$IDX/dists/forky/main/binary-amd64/Packages.xz" > "$1/dists/forky/main/binary-amd64/Packages"
+        printf 'Package: ncz-widget\nVersion: 1.0\nArchitecture: all\nFilename: pool/main/n/ncz-widget/ncz-widget_1.0_all.deb\nSize: %s\nSHA256: %s\n\n' \
+          "$(wc -c < "$T/ncz-pool/ncz-widget_1.0_all.deb")" "$(sha "$T/ncz-pool/ncz-widget_1.0_all.deb")" \
+          >> "$1/dists/forky/main/binary-amd64/Packages"
+        xz -f "$1/dists/forky/main/binary-amd64/Packages"
+        mkdir -p "$1/pool/main/n/ncz-widget"
+        cp "$T/ncz-pool/ncz-widget_1.0_all.deb" "$1/pool/main/n/ncz-widget/"
         cp "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb" "$1/pool/main/f/fonts-liberation/"
         cp "$T/tpm-pool/libtss2-rc0t64_4.1.3-7_amd64.deb" "$1/pool/main/libt/libtss2-rc0t64/"
         cp "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb" "$1/ncz-payload/apt-repo/fonts-liberation_1%3a2.1.5-3_all.deb"
@@ -534,6 +937,11 @@ SFD
         mksquashfs "$T/ilayer" "$1/ncz-payload/base.squashfs" -noappend -quiet -processors 1 >/dev/null 2>&1
         for r in rescue mgmt; do
             rm -rf "$T/irf-$r"; mk_layer "$T/irf-$r"
+            # real rootfs layout: legitimate absolute symlinks must not be
+            # treated as escapes (gate bug (b)); the tarball must still extract.
+            mkdir -p "$T/irf-$r/var"
+            ln -sf /run/lock "$T/irf-$r/var/lock"
+            ln -sf /run "$T/irf-$r/var/run"
             tar -C "$T/irf-$r" -cf - . | zstd -q -o "$1/ncz-payload/$r-rootfs.tar.zst"
         done
     }
@@ -570,6 +978,15 @@ PY
     expect_rc "real GPT image with authorized file:///cdrom + flat media passes --image" 0 \
       "${PROV[@]}" --image "$T/tiny.img" --work "$T/imgwork"
     echo "$LAST" | grep -q "packages checked" && ok "  image scan reported counts" || bad "no image scan summary" "$LAST"
+
+    # the image receipt (ncz_timestamped_debs) is read and validated fail-closed
+    printf '{"ncz_timestamped_debs":[{"name":"x","version":"1","arch":"all","sha256":"NOTHEX"}]}' \
+      > "$T/tiny.img.receipt.json"
+    expect_rc "malformed receipt timestamped entry FAILS the image scan" 1 \
+      "${PROV[@]}" --image "$T/tiny.img" --work "$T/imgwork"
+    rm -f "$T/tiny.img.receipt.json"
+    expect_rc "image without a receipt still scans (no timestamped pkg present)" 0 \
+      "${PROV[@]}" --image "$T/tiny.img" --work "$T/imgwork"
 
     # negative: tampered pool deb -> /cdrom not authorized -> file:///cdrom fails
     cp -a "$T/imgroot" "$T/imgbad"; printf 'x' >> "$T/imgbad/pool/main/f/fonts-liberation/fonts-liberation_1%3a2.1.5-3_all.deb"
@@ -653,13 +1070,13 @@ expect_rc "builders refuse non-Debian/unpinned mirrors" 0 bash -c '
   . "'"$ROOT"'/build/lib/mirror-apt-opts.sh"
   ! ncz_require_debian_forky forky https://deb.debian.org/debian Debian 2>/dev/null &&
   ! ncz_require_debian_forky forky /nonexistent-local-mirror Debian 2>/dev/null &&
-  ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20261007T202437Z Debian &&
+  ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20261005T120000Z Debian &&
   ! ncz_require_debian_forky resolute http://ports.ubuntu.com/ubuntu-ports Ubuntu 2>/dev/null &&
   ! ncz_require_debian_forky forky http://ports.ubuntu.com/ubuntu-ports Debian 2>/dev/null &&
   ! ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20200101T000000Z Debian 2>/dev/null'
 expect_rc "ncz_pin_snapshot parses the released pin exactly" 0 bash -c '
   . "'"$ROOT"'/build/lib/mirror-apt-opts.sh"
-  [ "$(ncz_pin_snapshot "'"$ROOT"'")" = "20261007T202437Z" ]'
+  [ "$(ncz_pin_snapshot "'"$ROOT"'")" = "20261005T120000Z" ]'
 mkdir -p "$T/badconf"
 printf 'NCZ_BASE_MIRROR_SNAPSHOT="20260101T000000Zjunk"\n' > "$T/badconf/release.conf"
 expect_rc "ncz_pin_snapshot rejects a malformed/oversized pin" 0 bash -c '

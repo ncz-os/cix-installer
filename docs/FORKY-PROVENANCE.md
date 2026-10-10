@@ -9,6 +9,42 @@ This document is the policy of record for `build/check-forky-provenance.sh` /
 `build/forky-provenance.py` and for `build/check-no-ubuntu.sh` (the offline
 Ubuntu-evidence-only gate that runs in `make lint-platform`).
 
+## Gate correctness fixes (r203)
+
+Four over-strict/under-coverage defects were fixed without weakening the gate's
+security properties (each has both-direction tests in `build/test-no-ubuntu.sh`):
+
+1. **`main/debian-installer/binary-all` index is now loaded.** `index_need()`
+   requests every `(component, architecture)` including the literal `all`
+   pseudo-arch for both the main components and `main/debian-installer`, so
+   `Architecture: all` d-i udebs (`partman-lvm`, `partman-md`,
+   `base-installer`, …) are authorized from the pin. Previously they were
+   reported missing even though the signed Release carries a
+   `main/debian-installer/binary-all/Packages.xz`.
+2. **Absolute symlink TARGETS are no longer treated as escapes.** A real
+   rootfs (`./var/lock -> /run/lock`, `./var/run -> /run`) and initrd
+   (`etc/mtab -> /proc/mounts`) legitimately contain them. Only a **relative**
+   target that resolves outside the extraction root fails, and absolute/`..`
+   MEMBER paths still fail. For tar roots the extractor also refuses to write
+   any member *through* an already-extracted symlink (write-through escape); for
+   cpio the scanner already never materialises symlinks. Tests mutate real GNU
+   tar/cpio output: absolute-member, `..`-member, relative-escaping-symlink and
+   write-through all FAIL; absolute-symlink rootfs tarballs PASS.
+3. **Reviewed partial overlay allow-list** (`manifests/overlay-layers.tsv`) —
+   see the NCZ-ledger section below. A status-less layer NOT on the list still
+   fails closed.
+4. **The pinned snapshot is read across its suites (`di_suite`).** The netinst
+   substrate's debian-installer udebs are built from the snapshot's development
+   suite (`sid`), not from `testing` (`forky`). A snapshot timestamp is the whole
+   archive state, so `index_need()` now requests forky's full index set **and the
+   di_suite's `main/debian-installer` indexes only**; both suites' signed
+   `InRelease` are verified against committed digests. This is the SAME Debian
+   origin read across its suites — **not a fourth origin** — and it never
+   authorizes the di_suite's runtime (`binary-*`) packages: a sid runtime deb
+   still FAILS, and `index_need` is asserted to request no `(sid, main, …)`
+   component. Both suites WITHOUT `di_suite` declared leaves the same udeb
+   failing (neither direction is weakened).
+
 ## Trust root
 
 The checkout that contains `build/forky-provenance.py` **is** the trust root.
@@ -27,9 +63,22 @@ any other file whose trusted list can be steered by the environment.
 
 `manifests/forky-snapshot.tsv` is the immutable BUILD pin:
 
-* `snapshot` = the `snapshot.debian.org` timestamp (`20261007T202437Z`);
+* `snapshot` = the `snapshot.debian.org` timestamp (`20261005T120000Z`,
+  DERIVED from the pinned netinst substrate by measurement -- see
+  "Substrate vs snapshot" below);
 * `inrelease_sha256` / `inrelease_size` = the reviewed digest of the signed
   `dists/<codename>/InRelease` for that snapshot;
+* `di_suite` (+ `di_inrelease_path`/`di_inrelease_sha256`/`di_inrelease_size`) =
+  the SAME pinned snapshot's development suite (`sid`). The netinst substrate's
+  debian-installer udebs are built from `sid` while its base packages are
+  `testing` (`forky`); a snapshot timestamp is the whole archive state, so the
+  gate reads forky's **full** index set AND sid's **`main/debian-installer`
+  indexes only**. This is one Debian origin read across its suites, **not a
+  fourth origin**, and it never authorizes sid's runtime (`binary-*`) packages
+  (`index_need()` requests no `(sid, main, …)` component; tested both ways).
+  `build/pin-snapshot-suites.sh` records/verifies both digests against the
+  committed keyring; `build/refresh-substrate.sh` keeps them in lockstep with the
+  pin;
 * `keyring` / `keyring_sha256` = the Debian archive keyring and its reviewed
   digest (`manifests/keys/debian-archive-keyring.gpg`);
 * `signer_keys` = the Debian archive signing key fingerprints gpgv must report.
@@ -38,10 +87,11 @@ any other file whose trusted list can be steered by the environment.
 trust metadata or the gate exits 2. The index directory itself may live
 anywhere (`--index-dir`), because its **contents** are verified:
 
-1. `gpgv --keyring <committed keyring>` verifies the `InRelease` clearsignature,
-   and the reported signer must be one of the pinned Debian keys;
-2. the `InRelease` bytes must equal the committed `inrelease_sha256`/size;
-3. the signed Release's `SHA256:` section supplies the sha256+size of every
+1. `gpgv --keyring <committed keyring>` verifies each declared suite's
+   `InRelease` clearsignature, and the reported signer must be one of the pinned
+   Debian keys;
+2. each `InRelease`'s bytes must equal its committed `*inrelease_sha256`/size;
+3. each signed Release's `SHA256:` section supplies the sha256+size of every
    `Packages.xz`; each needed index file must match that sha256+size;
 4. each `Packages` file must decompress and yield at least one record.
 
@@ -78,31 +128,62 @@ The ledger is seeded from the committed reviewed pin file
 DKMS (`packaging/cix-npu-driver-dkms-6.2.0`). It is **incomplete by design**: it
 lists only entries whose reviewed bytes exist today.
 
-### Open blocker — NCZ ledger coverage
+### NCZ ledger coverage (r203: populated)
 
-The following NCZ packages ship but are **not** yet in the ledger, so the gate
-hard-fails on them until they are reviewed and added (this is the intended
-fail-closed behaviour, not a bug):
+r203 populates the ledger for every NCZ-built package observed in the r202
+amd64/arm64 images: the T2-edge amd64 kernel + headers, the Sky1 arm64 kernel
+trio (`linux-image-cixmini`, `linux-headers-cixmini`, `cixmini-boot`),
+`ncz-screensavers`, `ncz-screensavers-plugin`, `ncz-apt-policy`,
+`ncz-wallpapers-cygnus-2610`, the deliberately **patched** `debootstrap-udeb`
+1.0.145 (recipe `build/iso/patch-debootstrap-stub.py`; both per-arch sha256
+recorded), the NCZ-repacked DKMS set (`cix-gpu-kmd-dkms`,
+`panthor-cix-dkms`, `cix-vpu-driver-dkms`), `ncz-usb-recovery`,
+`chromium-ncz-sky1`, `ncz-ffmpeg` and the repacked `libgtk4-layer-shell0`.
+`cix-npu-driver-dkms` was also corrected to `arch=all` (the .deb control field;
+the previous `arm64` row never matched the `all` deb).
 
-* `ncz-apt-policy`, `ncz-screensavers-plugin`, `ncz-agent-*` and other `ncz-*`
-  agent/policy debs — no committed reviewed sha256 + build-source record found;
-* `chromium-ncz-*`, `ncz-ffmpeg`, `ncz-singularity-desktop`, `zoder`,
-  `ncz-intel-accel` and the CIX-repacked GPU/VPU DKMS debs — build outputs exist
-  only on the build hosts and are not pinned in `manifests/build-inputs.tsv`.
+**Non-bit-reproducible `Architecture: all` builds.** Some `all` packages are
+not bit-reproducible across build hosts (e.g. dpkg's `Installed-Size` differs by
+filesystem block use — `ncz-apt-policy`, `ncz-wallpapers-cygnus-2610`,
+`debootstrap-udeb`). The ledger therefore accepts a **set** of reviewed sha256
+per `(name,version,arch)`; every member is an explicit reviewed sha256 (exact
+bytes), never a pattern or wildcard.
 
-Each must be added with its recipe and reviewed sha256 (or the build-input pin
-extended). Until then, a finished image containing them fails the gate — a
+**Build-timestamped NCZ packages (`manifests/ncz-timestamped.tsv`).**
+`ncz-singularity-desktop` embeds a build timestamp in its version and so cannot
+be statically sha-pinned. The narrowest safe rule applies: its **exact name +
+anchored version regex** must match, AND the sha256 of the .deb actually
+installed must be recorded in the finished image's receipt
+(`<image>.receipt.json`, key `ncz_timestamped_debs`, written by
+`build/iso/write-usb-image.py`). The gate recomputes the .deb sha256 while
+scanning the image and cross-checks it against that receipt entry. A
+build-timestamped package with no matching receipt entry **fails closed**; no
+package-name prefix and no blanket version glob can authorize one.
+
+**Reviewed partial overlay layers (`manifests/overlay-layers.tsv`).** A
+squashfs layer with no `var/lib/dpkg/status` is accepted only if its exact
+basename is listed here AND it actually contains the declared tree root
+(`desktop-hotfix.squashfs` -> `opt/singularity`, the reviewed partial
+Singularity overlay). Any other status-less layer still fails closed, and a
+listed layer whose declared root is absent still fails.
+
+The ledger remains **incomplete by design** for any *future* NCZ package not yet
+reviewed: a finished image containing one fails the gate until it is added — a
 deliberate guarantee that provenance is reviewed, never manufactured by hashing
 whatever happens to be staged.
 
 ### CIX vendor debs
 
-The original CIX proprietary `.deb`s (25 in `sbom/expected-assets.txt`, e.g.
-`cix-gpu-umd`, `cix-ai-engine`, `cix-firmware`) are **vendor** debs, not NCZ.
-They are listed in `manifests/vendor-debs.tsv` by exact identity with the sha256
-from `sbom/expected-assets.txt`; `docs/SOURCE-RELEASES.md` records that their
-source is the vendor's and is not republished by NCZ. The NCZ-repacked
-`cix-npu-driver-dkms …+ncz3` is deliberately **not** here — it is an NCZ build in
+**Operator ruling 2026-10-10: the `cix-*` debs built for Debian 13 are the
+reviewed VENDOR origin.** The original CIX proprietary `.deb`s (e.g.
+`cix-gpu-umd`, `cix-ai-engine`, `cix-firmware`, and the CIX VA-API set
+`cix-vaapi`/`cix-libva*`/`cix-libcme`) are **vendor** debs, not NCZ. They are
+listed in `manifests/vendor-debs.tsv` by exact identity + version + arch with
+the reviewed sha256; `docs/SOURCE-RELEASES.md` records that their source is the
+vendor's and is not republished by NCZ. r203 adds the previously-unlisted CIX
+VA-API / CME / libglvnd/libdrm rows. The NCZ-repacked `cix-*…+ncz*` DKMS debs
+(`cix-npu-driver-dkms`, `cix-gpu-kmd-dkms`, `panthor-cix-dkms`,
+`cix-vpu-driver-dkms`) are deliberately **not** here — they are NCZ builds in
 `manifests/ncz-packages.tsv`, keeping repacked DKMS separate from unchanged
 vendor originals.
 
@@ -120,9 +201,16 @@ wildcard. Rows are:
   live runtime updates; the gate must not break them);
 * `ncz` — the Buildkite Packages repo and the R2 fallback, exact URI + suite
   `any`;
-* `vendor` — Chrome, Vivaldi, NVIDIA (approved); **Intel `ubuntu24` and t2linux
-  are `pending` and fail closed until the operator approves them — approval is
-  not invented here.**
+* `vendor` — Chrome, Vivaldi, NVIDIA (approved). r203 additionally **approves**,
+  with justification, the two previously-`pending` vendor *sources*:
+  `apt.repos.intel.com/openvino ubuntu24` (Intel's own OpenVINO runtime; the
+  `ubuntu24` suite token is Intel's ABI/compat label, not the Ubuntu archive) and
+  `adityagarg8.github.io/t2-ubuntu-repo ./` (the t2linux project's T2
+  firmware/audio vendor repo). Approving a SOURCE does not admit an Ubuntu
+  *deb*: `classify()` still hard-rejects any Ubuntu-maintained or
+  `ubuntu`-versioned package regardless of source, and the T2 packages install
+  only on real T2 hardware at install time (they are not baked into the image).
+  `build/test-no-ubuntu.sh` stays green (128/0).
 
 Apt `Pin:` audit is semantic, not a growing deny-list: a `Pin:` with
 `Pin-Priority >= 0` is allowed only if it is `origin <reviewed host>`, a
@@ -213,6 +301,65 @@ trust metadata. It still reads `release.conf` and the committed
 else. It is refused together with `--image`/`--verify-mirror` so it can never
 downgrade a shipping scan. The full gate always requires a verified index.
 
+## Substrate vs snapshot — refreshed at every build (`manifests/base.pin`)
+
+The finished image merges two Debian-derived trees into `/cdrom`:
+`build/iso/write-usb-image.py` copies the offline apt closure (built by
+`build/build-forky-mirror.sh` **from the pinned snapshot**, `NCZ_BASE_MIRROR`)
+and then `copytree`s the pinned **netinst substrate's** udeb+deb pool over
+`/pool`, regenerating only the d-i `Packages` index. The provenance gate
+authorizes every package against the pinned snapshot. If the substrate's archive
+state differs from the snapshot pin, the substrate's own `.debs` (orphan pool
+files) and `.udebs` (not in the snapshot index) fail.
+
+**Operator ruling (2026-10-10): the substrate must be refreshed to the newest
+Debian testing netinst at EVERY build, and the snapshot must be DERIVED from
+that same substrate — one archive state, three origins, no fourth origin.**
+
+`build/refresh-substrate.sh --arch <a>` is the mechanical, reviewed step:
+1. fetches the newest weekly netinst and `SHA256SUMS` + `SHA256SUMS.sign` from
+   `cdimage.debian.org/cdimage/weekly-builds/<arch>/iso-cd`;
+2. verifies the signature against the committed Debian CD signing key
+   (`manifests/keys/debian-testing-cd-signing.gpg`, fingerprint
+   `F41D30342F3546695F65C66942468F4009EA8AC3`, asserted) and the ISO sha256
+   against the signed `SHA256SUMS` (**fails closed** on any mismatch);
+3. caches the verified ISO on ARGONAS
+   (`ncz-os-assets/substrate/`, keeping the last two per arch);
+4. derives the snapshot by measurement (`build/derive-base-pin.py`): reads the
+   netinst's own `Packages` identities from the ISO, tries candidate
+   snapshot.debian.org timestamps around the netinst's Release date, and picks
+   the one authorizing the most identities — measured across the codename's
+   **full** index set **plus the same snapshot's `sid` debian-installer indexes**
+   (see "The pinned snapshot index" above);
+5. writes `manifests/base.pin` (arch, substrate sha256 + date, snapshot,
+   measured coverage, source URL), then updates `release.conf`'s snapshot and
+   records **both** suites' signed `InRelease` digests via
+   `build/pin-snapshot-suites.sh` — pin, closure and trust digests move together;
+6. **fails** if the substrate is older than `NCZ_SUBSTRATE_MAX_AGE_DAYS` (8) or
+   if the best coverage is below `NCZ_SUBSTRATE_MIN_COVERAGE` (99).
+
+`manifests/base.pin` is the single base pin. `build/check-substrate-pin.sh`
+(and the build preflight) verifies that `release.conf`'s
+`NCZ_BASE_MIRROR_SNAPSHOT` **equals** `base.pin`'s snapshot, that the substrate
+is fresh, and that the recorded coverage meets the floor — so a build can never
+ship a substrate the pinned snapshot does not authorize. The Makefile's
+`SUBSTRATE_SHA` is **read from `base.pin`** (no separate literal to drift).
+
+**Measured reality at r203 (fixed):** the freshest available netinst (weekly
+`123a250b…` amd64 / `b6f455d1…` arm64, archive date 2026-10-05) is authorized at
+**100.0 %** (amd64: 746/746, arm64: 734/734) by its own derived snapshot
+`20261005T120000Z` once the gate reads the same snapshot's `sid`
+debian-installer indexes. Before the di_suite fix coverage was 91.8 % / 90.7 %
+(codename-only) — the residual was the substrate's d-i udebs (`*-modules-
+7.2.9+deb14-*-di`, `apt-setup-udeb`, `dbus-udeb`, `fdisk-udeb`, …), whose
+versions the netinst draws from `unstable`. They are the SAME pinned Debian
+snapshot's d-i content, so no fourth origin and no newer weekly is needed. A
+substrate whose d-i content is newer than any snapshot's d-i indexes still fails
+loudly (exit 3) and lists the uncovered identities. The one-kernel ruling (ship
+OUR kernel + an initrd built from our module set, stop merging Debian's
+kernel/module udebs) additionally removes those udebs from the image — see
+`docs/ONE-KERNEL.md`.
+
 ## Verification
 
 All suites were run on the Linux validation host (ACHILLES, 192.168.207.11) from
@@ -252,9 +399,12 @@ Real artifacts (not hand-serialized) are exercised end to end:
   are resolved after the whole archive (GNU writes zero-size link records before
   the data member), keyed by `(devmajor, devminor, ino)` and **scoped per
   archive** so concatenated archives cannot copy earlier content forward; a
-  valid empty (trailer-only) early archive is accepted; duplicate pathnames
-  across sections fail. Compressed-tail staging is written to the caller's owned
-  scratch, never the ambient `TMPDIR`.
+  valid empty (trailer-only) early archive is accepted. A duplicate pathname
+  WITHIN one archive is malformed and fails; the SAME pathname in two
+  CONCATENATED archives is normal initramfs override semantics, so the later
+  copy is written to a distinct path and BOTH are scanned (no content is hidden,
+  and every embedded .deb/.udeb is still classified). Compressed-tail staging is
+  written to the caller's owned scratch, never the ambient `TMPDIR`.
 * **finished `.img`** — a real GPT image built with `sfdisk` + `mkfs.ext4 -d` +
   `mkfs.vfat`/`mtools`, carrying `/dists`, `/pool`, `/ncz-payload` (squashfs +
   rescue/mgmt rootfs tarballs) and a FAT ESP with `/ncz/ssh-udebs/*.deb` and a
@@ -282,16 +432,19 @@ though `rdump` leaves a directory behind.
    An independent Linux run also fetched and verified the actual pinned
    snapshot (`20261007T202437Z`, 107354 index entries), then checked both
    reviewed Vivaldi packages: 2 packages checked, 0 failures. This verifies
-   snapshot compatibility; it does not accept any release image.
-2. **NCZ ledger coverage.** `ncz-apt-policy`, `ncz-screensavers-plugin`,
-   `ncz-agent-*`, `chromium-ncz-*`, `ncz-ffmpeg`, `ncz-singularity-desktop`,
-   `zoder`, `ncz-intel-accel` and the CIX-repacked GPU/VPU DKMS debs have no
-   committed reviewed sha256 + source revision. A finished image containing them
-   fails until they are reviewed and added (or `manifests/build-inputs.tsv` is
-   extended).
-3. **Intel `ubuntu24` / t2linux vendor repos** are marked `pending`; the gate
-   fails closed on them until the operator approves the exact URI+suite.
+   snapshot compatibility; it does not accept any release image. (r203 re-pins
+   the snapshot to `20261005T120000Z`; the same offline gpgv chain verifies its
+   committed `InRelease` fixture -- `build/testdata/forky-snapshot/InRelease`,
+   sha256 `436c53ff...`.)
+2. **NCZ ledger coverage — CLOSED in r203** for the packages observed in the
+   r202 images (see "NCZ ledger coverage (r203: populated)"). Any *future* NCZ
+   package not yet reviewed still fails closed until it is added.
+3. **Intel `ubuntu24` / t2linux vendor repos — APPROVED in r203** with
+   justification (see the apt allowlist section); a package-level Ubuntu deb is
+   still hard-rejected.
 4. **Release-image acceptance remains separate.** The fixture suite exercises
    `--image` using a real, small GPT/ext4/FAT image and GNU-produced initrds.
    Neither release image has been rebuilt or accepted by this change. Both
-   require complete reviewed input coverage and the full release gates.
+   require complete reviewed input coverage, a rebuild against the re-pinned
+   snapshot, and the full release gates. The residual substrate-vs-snapshot
+   identities (see "Substrate vs snapshot") remain a genuine, listed failure.

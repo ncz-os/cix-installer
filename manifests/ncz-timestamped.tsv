@@ -1,0 +1,18 @@
+# manifests/ncz-timestamped.tsv -- reviewed NCZ packages whose VERSION embeds a
+# build timestamp, so their .deb bytes cannot be statically sha-pinned in
+# manifests/ncz-packages.tsv.  The NARROWEST safe rule applies (no wildcard
+# package-name prefix, no blanket version glob):
+#
+#   * the package NAME must match exactly and the ARCH exactly;
+#   * the VERSION must match the anchored regex below;
+#   * the sha256 of the .deb actually installed MUST be recorded in the finished
+#     image's receipt (`<image>.receipt.json`, key `ncz_timestamped_debs`, written
+#     by build/iso/write-usb-image.py).  The gate recomputes the .deb sha256 while
+#     scanning the image and cross-checks it against that receipt entry; a
+#     timestamped package with no matching receipt entry FAILS CLOSED.
+#
+# A row here is a reviewed act: the recipe and source_revision (upstream pins)
+# must be non-empty, exactly like manifests/ncz-packages.tsv.
+# name	version_regex	arch	recipe	source_revision	note
+ncz-singularity-desktop	^[0-9]{14}\+bk0\+tgz[0-9a-f]+$	amd64	build/build-singularity-deb.sh (run by build/build-squashfs-layers.sh build_singularity_payload)	assets/singularity/upstream-pins.tsv (singularityos-lab/singularity + labwc/wlroots pinned commits)	Singularity Desktop payload; version = YYYYMMDDhhmmss+bk0+tgz<sha-prefix>; sha256 only via the image receipt
+ncz-singularity-desktop	^[0-9]{14}\+bk0\+tgz[0-9a-f]+$	arm64	build/build-singularity-deb.sh (run by build/build-squashfs-layers.sh build_singularity_payload)	assets/singularity/upstream-pins.tsv (singularityos-lab/singularity + labwc/wlroots pinned commits)	Singularity Desktop payload; version = YYYYMMDDhhmmss+bk0+tgz<sha-prefix>; sha256 only via the image receipt

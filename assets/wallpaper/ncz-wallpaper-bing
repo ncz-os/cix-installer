@@ -15,6 +15,8 @@
 #                   downloaded again. --if-stale is a no-op when the last
 #                   successful fetch is under 20 hours old. Exit 75 when the
 #                   network is unreachable (retry later); metered links skip.
+#                   --preferred-only bounds it to the preferred market's first
+#                   batch (used by the first-boot smoke; see 97-firstboot-report).
 #   pick|latest|info  print one archived image / its attribution
 #   list [--all|--consolidated|<market>...] [--prefer M]
 #                   archive entries as JSON; --consolidated is one row per
@@ -104,6 +106,7 @@ DEFAULT_MARKETS = tuple(code for code, _ in MARKET_NAMES)
 
 PREFER = None
 IF_STALE = False
+PREFERRED_ONLY = False
 REACHED = False
 LIST_CALLS = 0
 LIST_FAILURES = 0
@@ -718,8 +721,24 @@ def cmd_fetch(_args):
         if not REACHED:
             log("network unreachable")
             return EX_TEMPFAIL
-        consolidate_locked(preferred)
+        consolidated_ok = consolidate_locked(preferred)
         thumbs_for([row[3] for row in view_rows(preferred)])
+        if PREFERRED_ONLY:
+            # Bounded smoke path: the preferred market's newest batch is the
+            # unit the --if-stale contract calls "usable within seconds". Stop
+            # before the full multi-market backfill so a bounded caller cannot
+            # kill a legitimate backfill and read 124 instead of the 0/75 the
+            # gate accepts. Never report success on an empty consolidated view
+            # (consolidate_locked returns 0 on success, non-zero on failure).
+            if consolidated_ok != 0:
+                log("preferred market produced no usable image")
+                return EX_TEMPFAIL
+            try:
+                STAMP.parent.mkdir(parents=True, exist_ok=True)
+                STAMP.touch()
+            except OSError:
+                pass
+            return 0
         calls, failures = LIST_CALLS, LIST_FAILURES
         sync(order, BACKFILL, index)
         consolidate_locked(preferred)
@@ -849,7 +868,7 @@ def cmd_consolidate(_args):
 
 
 def take_options(args):
-    global PREFER, IF_STALE
+    global PREFER, IF_STALE, PREFERRED_ONLY
     rest = []
     it = iter(args)
     for arg in it:
@@ -859,6 +878,8 @@ def take_options(args):
             PREFER = arg.split("=", 1)[1]
         elif arg == "--if-stale":
             IF_STALE = True
+        elif arg == "--preferred-only":
+            PREFERRED_ONLY = True
         else:
             rest.append(arg)
     return rest
