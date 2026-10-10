@@ -61,6 +61,27 @@ KERNEL_ARTIFACT_RE = re.compile(
     r"|(^.+-(modules|binary)-.*-di$)")
 
 
+def _load_gate():
+    """Load build/forky-provenance.py for its Debian version comparator (the
+    canonical implementation) -- never hand-roll version ordering."""
+    import importlib.util
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "forky-provenance.py")
+    spec = importlib.util.spec_from_file_location("forky_provenance", p)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def max_version(versions, vercmp):
+    """The greatest version under Debian ordering (NOT lexicographic)."""
+    best = None
+    for v in versions:
+        if best is None or vercmp(v, best) > 0:
+            best = v
+    return best
+
+
 def die(msg: str) -> "NoReturn":  # noqa: F821
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(2)
@@ -224,6 +245,7 @@ def main() -> int:
     if not os.path.isfile(a.iso):
         die(f"iso not found: {a.iso}")
     os.makedirs(a.scratch, exist_ok=True)
+    vercmp = _load_gate().deb_vercmp
 
     # --- forky (the codename suite) full index set + its own d-i index ---
     forky: dict = {}
@@ -261,9 +283,9 @@ def main() -> int:
             vers = forky_by_name.get(name)
             forky_ver = ""
             if vers:
-                # The closest forky version by upstream proximity (lower-or-equal
-                # preferred; fall back to the highest).
-                forky_ver = sorted(vers)[-1]
+                # The closest forky version by Debian ordering (max), never a
+                # lexicographic sort ("1.9" > "1.10" lexicographically).
+                forky_ver = max_version(vers, vercmp)
             if key not in siddi:
                 unauth.append(key)
                 cls, action = "?", "REVIEW"

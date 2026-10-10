@@ -98,7 +98,8 @@ def load_index(base, suite, cache, tag, offline):
     """{name: [(version, arch)]} for the suite under base (snapshot or live)."""
     out = {}
     for comp, arch in NEED:
-        delivered = False
+        # Try each format; the first that reads wins.  Every (comp, arch) in
+        # NEED is attempted -- the break exits only the inner format loop.
         for ext in ("Packages.xz", "Packages.gz", "Packages"):
             rel = f"{comp}/binary-{arch}/{ext}"
             if offline:
@@ -113,14 +114,11 @@ def load_index(base, suite, cache, tag, offline):
             try:
                 text = read_maybe(f)
             except Exception:  # noqa: BLE001
-                delivered = True
-                break
+                # A corrupt first format must not skip the remaining formats.
+                continue
             for name, vers in parse_versions(text).items():
                 out.setdefault(name, []).extend(vers)
-            delivered = True
             break
-        if not delivered and not offline:
-            continue
     return out
 
 
