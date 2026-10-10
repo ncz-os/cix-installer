@@ -434,6 +434,58 @@ expect_rc "wrong di_inrelease_sha256 FAILS closed (fetch disabled)" 1 \
 expect_rc "--verify-mirror still passes with both suites (rc 0)" 0 \
   python3 -I "$T/repo/build/forky-provenance.py" --verify-mirror "$IDX" --index-dir "$IDX"
 
+echo "=== 2g. check-substrate-pin preflight (freshness + coverage + consistency) ==="
+SUBBASE="$T/subrepo"; mkdir -p "$SUBBASE/build/lib" "$SUBBASE/manifests"
+cp "$ROOT/build/check-substrate-pin.sh" "$SUBBASE/build/"
+cp "$ROOT/build/lib/mirror-apt-opts.sh" "$SUBBASE/build/lib/"
+cp "$ROOT/manifests/base.pin" "$SUBBASE/manifests/base.pin"
+cp "$ROOT/release.conf" "$SUBBASE/"
+expect_rc "check-substrate-pin: fresh + covered + consistent passes" 0 \
+  bash "$SUBBASE/build/check-substrate-pin.sh" amd64
+OLD_DATE="$(python3 -c 'import datetime; print((datetime.datetime.utcnow()-datetime.timedelta(days=30)).strftime("%a, %d %b %Y %H:%M:%S UTC"))')"
+mk_sub() { cp -a "$SUBBASE" "$1"; }
+mk_sub "$T/sub-stale"
+python3 - "$T/sub-stale/manifests/base.pin" "$OLD_DATE" <<'PY'
+import sys
+p, d = sys.argv[1], sys.argv[2]
+out = []
+for l in open(p):
+    f = l.rstrip("\n").split("\t")
+    if f and f[0] == "amd64" and len(f) >= 5:
+        f[2] = d; l = "\t".join(f) + "\n"
+    out.append(l)
+open(p, "w").writelines(out)
+PY
+expect_rc "check-substrate-pin: STALE substrate (>8d) FAILS" 1 \
+  bash "$T/sub-stale/build/check-substrate-pin.sh" amd64
+mk_sub "$T/sub-cov"
+python3 - "$T/sub-cov/manifests/base.pin" <<'PY'
+import sys
+p = sys.argv[1]
+out = []
+for l in open(p):
+    f = l.rstrip("\n").split("\t")
+    if f and f[0] == "amd64" and len(f) >= 5:
+        f[4] = "90.0"; l = "\t".join(f) + "\n"
+    out.append(l)
+open(p, "w").writelines(out)
+PY
+expect_rc "check-substrate-pin: coverage <99% FAILS" 1 \
+  bash "$T/sub-cov/build/check-substrate-pin.sh" amd64
+mk_sub "$T/sub-mism"
+python3 - "$T/sub-mism/release.conf" <<'PY'
+import sys
+p = sys.argv[1]
+out = []
+for l in open(p):
+    if l.startswith("NCZ_BASE_MIRROR_SNAPSHOT="):
+        l = 'NCZ_BASE_MIRROR_SNAPSHOT="20260101T000000Z"\n'
+    out.append(l)
+open(p, "w").writelines(out)
+PY
+expect_rc "check-substrate-pin: snapshot != release.conf FAILS" 1 \
+  bash "$T/sub-mism/build/check-substrate-pin.sh" amd64
+
 echo "=== 3. dpkg status / Packages inputs (fail closed) ==="
 printf 'Package: fonts-liberation\nStatus: install ok installed\nVersion: 1:2.1.5-3build1\nArchitecture: all\nMaintainer: %s\n\n' "$UBU_MAINT" > "$T/status.bad"
 printf 'Package: fonts-liberation\nStatus: install ok installed\nVersion: 1:2.1.5-3\nArchitecture: all\nMaintainer: %s\n\n' "$DEB_MAINT" > "$T/status.good"
