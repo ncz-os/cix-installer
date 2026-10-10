@@ -1,144 +1,69 @@
-# Building the arm64 (Sky1 / Orion O6N) install image on ULTRA
+# Building the arm64 (Sky1 / Orion O6N) install image
 
-This is the exact sequence that produced `ncz-os-arm64-20260929-185c2f6.img`,
-plus the short path for re-building with a new `ncz-screensavers` package.
-Heavy builds never run on STUDIO. ULTRA (192.168.207.88, Fedora Asahi, SELinux
-enforcing, pubkey-only ssh) is the arm64 image host; scratch stays local to
-ULTRA, only downloads/sstate/kernel staging are on ARGONAS.
+> **Superseded.** The authoritative, single-source process — the one command,
+> the inputs/pins, the stages, the determinism contract and every gate — is
+> [IMAGE-BUILD-PROCESS.md](IMAGE-BUILD-PROCESS.md). This file keeps only the
+> arm64 host specifics.
 
-## 0. Preconditions (each was a real failure)
+## Host
 
-1. Worktree under `~/Projects` (not `$HOME`, not `/tmp`):
-   `git worktree add -b <branch> ~/Projects/cix-installer-<tag> origin/main`,
-   then merge the fix branches you need.
-2. Git-ignored inputs MUST be staged; `build/verify-arm64-inputs.sh` now fails
-   the build if they are not:
-   - `assets/sky1-firmware/`: the 29-file canonical set (16 `.fwb`,
-     `dsp_fw.bin`, `arm/mali/arch12.8/mali_csffw.bin`, `mediatek/`, `rtw89/`),
-     from `/mnt/argonas-projects/cix-installer/assets/sky1-firmware` on ULTRA.
-   - `assets/cix-debs/*.deb`: at least 22, including `cix-gpu-umd`,
-     `cix-libglvnd`, `cix-mesa`, `cix-noe-umd`, `cix-npu-driver-dkms`
-     (aipu 6.2.0), `cix-vpu-driver-dkms`, `cix-gpu-kmd-dkms`,
-     `panthor-cix-dkms`, `cix-firmware`. Source used on 2026-09-29:
-     `~/Projects/cix-installer-arm64-build-2026-09-25/assets/cix-debs` plus
-     `cix-vpu-driver-dkms` from `~/Projects/cix-iso-build-fresh`.
-   - VA-API: `cix-vaapi`, `cix-libva2`, `cix-libva-drm2`, `cix-libva-wayland2`, `cix-libva-x11-2`,
-     `cix-libva-glx2`, `cix-libcme` (versions 1.0.0 / 2.22.1-1). They are NOT in the older
-     checkouts; they come from the cix-mm SDK archive on ARGONAS
-     (`/mnt/argonas-projects/nclawzero-yocto/sdk/cix-mm-1.0.0.tar.gz`, `cix-mm/debian12/`,
-     built for Debian 12, `Depends: libc6 (>= 2.34)`, `libyuv0`). `verify-arm64-inputs.sh` requires
-     them; `25-cix-proprietary.sh` installs them and `84-vpu-vaapi.sh` wires the driver.
-   - `assets/rescue/rescue-rootfs-arm64.tar.zst`, `assets/python311/`,
-     `assets/npu/`, `assets/sinty-nm/`, `assets/wallpaper-debs/`.
-   The 2026-09-27/28 images were built from a worktree that had 1 Cix deb and
-   2 firmware files; every gate passed. That cannot happen again.
-3. `assets/kernel/mainline` symlink points at a kernel-staging directory named
-   `r<N>-<kver>-sky1-ncz-<date>` (today r285: provenance in that staging
-   dir's PROVENANCE.txt and in assets/kernel/sky1-manifest.json; the pin
-   procedure itself is in `docs/reports/2026-10-06-sky1-r284-pin.md`), and it must be the newest unified
-   7.3 build in the pool. There is no `assets/kernel/edge` any more. Directories with any other prefix inside
-   `/mnt/argonas-yocto-shared/kernel-staging` fail preflight gate [3]
-   (move them to `kernel-staging-archive/`, do not delete).
-4. The d-i substrate is **refreshed as the MANDATORY first stage**:
-   `make refresh-substrate ARCH=arm64` fetches the newest Debian testing arm64
-   netinst, verifies `SHA256SUMS.sign` against the committed Debian CD signing
-   key, caches it on ARGONAS (`ncz-os-assets/substrate/`, keeping the last two),
-   derives the snapshot pin, and writes `manifests/base.pin`. The Makefile's
-   `SUBSTRATE_SHA` is read from `base.pin` (currently `b6f455d1...`; the arm64
-   ISO is kept at `.../debian-testing-arm64-netinst-20261010-b6f455d1.iso`,
-   ULTRA: `/mnt/argonas-projects/ncz-os-assets/substrate`). An empty
-   `downloads/` restores it from there; if it cannot, the build refuses instead
-   of floating, and `make image` re-verifies the file. `make check-substrate-pin
-   ARCH=arm64` fails closed if the pin is stale (>8 days) or the substrate is not
-   authorized by the pinned snapshot. Debian republishes the filename weekly and
-   drops old builds, so the refresh+cache step is what keeps the pin stable.
-5. `ncz-imagebuild:trixie` in BOTH podman stores (rootless build, rootful run):
-   `podman save localhost/ncz-imagebuild:trixie | sudo podman load`.
-   A prune deletes it; rebuild from `build/containers/Containerfile.ncz-imagebuild`.
+ULTRA (`192.168.207.88`, aarch64, SELinux enforcing, pubkey-only ssh).
+`--arch both` reaches it as `NCZ_ARM64_HOST`. Heavy builds never run on STUDIO.
 
-## 1. Stages
-
-```
-cd ~/Projects/cix-installer-<tag>
-SHA=$(git rev-parse --short HEAD)          # compute on the HOST (SELinux hides .git in the container)
-KS=/mnt/argonas-yocto-shared/kernel-staging
-
-# MANDATORY first stage: refresh the substrate + derive the snapshot pin (host)
-make refresh-substrate ARCH=arm64
-make check-substrate-pin ARCH=arm64
-
-# stage 0: offline mirrors (rootful container)
-sudo podman run --rm --privileged --net=host -v "$PWD":/work/cix-installer -v /dev:/dev -v $KS:$KS \
-  -w /work/cix-installer -e NCZ_TARGET_ARCH=arm64 -e HOME=/root localhost/ncz-imagebuild:trixie \
-  bash -lc 'git config --global --add safe.directory "*"; make offline-mirror BUILD_SHA='$SHA
-
-# stage 0 leaves root-owned build/ dirs; stage 1 runs as your user
-sudo chown -R "$USER": build/sinty-out build/kernel-debs build/libdrm-debs build/usb-recovery-deb build/chrome-deb-cache
-
-# stage 1: layers, on the BARE host (drives mkosi/podman itself)
-NCZ_TARGET_ARCH=arm64 build/build-squashfs-layers.sh all
-
-# stage 2: assemble (rootful container); refuses if verify-arm64-inputs.sh fails
-sudo podman run --rm --privileged --net=host -v "$PWD":/work/cix-installer -v /dev:/dev -v $KS:$KS \
-  -w /work/cix-installer -e NCZ_TARGET_ARCH=arm64 -e HOME=/root -e NCZ_ONE_KERNEL=1 localhost/ncz-imagebuild:trixie \
-  bash -lc 'git config --global --add safe.directory "*"; make image BUILD_SHA='$SHA
+```sh
+build/build-image.sh --arch arm64 --full
+# plan first: build/build-image.sh --arch arm64 --full --dry-run
 ```
 
-The image name is `build/ncz-os-arm64-<YYYYMMDD>-<sha>.img`. `make` now
-refuses to run image goals with an empty `BUILD_SHA`.
+The entrypoint's mandatory `refresh-substrate` stage runs
+`build/refresh-substrate.sh --arch arm64`: it fetches the newest Debian testing
+arm64 netinst, verifies `SHA256SUMS.sign` against the committed Debian CD signing
+key, caches it on ARGONAS (`ncz-os-assets/substrate/`, keeping the last two),
+derives the snapshot pin, and rewrites `manifests/base.pin`. The Makefile's
+`SUBSTRATE_SHA` is read from `base.pin` (currently `b6f455d1...`; the arm64 ISO
+is kept at `.../debian-testing-arm64-netinst-20261010-b6f455d1.iso`, ULTRA:
+`/mnt/argonas-projects/ncz-os-assets/substrate`). An empty `downloads/` restores
+it from there; if it cannot, the build refuses instead of floating. `make
+check-substrate-pin ARCH=arm64` fails closed if the pin is stale (>8 days) or the
+substrate is not authorized by the pinned snapshot. Debian republishes the
+filename weekly, so the refresh+cache step is what keeps the pin stable.
 
-## 2. Gate
+## arm64-specific notes
 
-```
-bash build/kvm-install-gate-gpt.sh "$PWD/build/ncz-os-arm64-<date>-<sha>.img" "$HOME/kvm-install-arm64-<sha>"
-```
+* **Stage 1 runs on the bare host** (`build/build-squashfs-layers.sh all`), not
+  in the container: it drives `mount`/`chroot` and podman for `mmdebstrap`
+  itself. Stages 0/2 run in the rootful `localhost/ncz-imagebuild:trixie`
+  container. The entrypoint encodes this.
+* Kernel pin: `assets/kernel/mainline` → a staging dir named
+  `r<N>-<kver>-sky1-ncz-<date>` (today r285, unified 7.3); provenance in the
+  staging dir's `PROVENANCE.txt` and `assets/kernel/sky1-manifest.json`. There is
+  no `assets/kernel/edge` any more; a directory with any other prefix inside
+  `/mnt/argonas-yocto-shared/kernel-staging` fails preflight gate [3] (move it to
+  `kernel-staging-archive/`, do not delete).
+* Substrate: the pinned Debian testing netinst (arm64) kept on ARGONAS at
+  `ncz-os-assets/substrate/`; verified against the committed SHA256SUMS/GPG on
+  refresh. An empty `downloads/` restores it; the build refuses to float.
+* `NCZ_ONE_KERNEL=1` (the `--full` default) enables the one-kernel filter
+  (operator ruling 2026-10-10; only OUR kernel ships) — see
+  [ONE-KERNEL.md](ONE-KERNEL.md).
+* `verify-arm64-inputs.sh` fails the image stage if the git-ignored inputs are
+  not staged:
+  - `assets/sky1-firmware/`: the 29-file canonical set (16 `.fwb`,
+    `dsp_fw.bin`, `arm/mali/arch12.8/mali_csffw.bin`, `mediatek/`, `rtw89/`),
+    from `/mnt/argonas-projects/cix-installer/assets/sky1-firmware` on ULTRA.
+  - `assets/cix-debs/*.deb`: at least 22, including `cix-gpu-umd`,
+    `cix-libglvnd`, `cix-mesa`, `cix-noe-umd`, `cix-npu-driver-dkms` (aipu
+    6.2.0), `cix-vpu-driver-dkms`, `cix-gpu-kmd-dkms`, `panthor-cix-dkms`,
+    `cix-firmware`, plus the VA-API set (`cix-vaapi`, `cix-libva2`,
+    `cix-libva-drm2`, `cix-libva-wayland2`, `cix-libva-x11-2`,
+    `cix-libva-glx2`, `cix-libcme`; from the cix-mm SDK archive on ARGONAS).
+  - `assets/rescue/rescue-rootfs-arm64.tar.zst`, `assets/python311/`,
+    `assets/npu/`, `assets/sinty-nm/`, `assets/wallpaper-debs/`.
+* Scratch `TMPDIR` **must** be under the tree; `/tmp` on ULTRA is a tmpfs.
+* The arm64 KVM install gate is **UNPROVEN** as of r203 (the installaudit
+  branch did not rebuild/re-gate arm64); the Mali payload must be validated on
+  hardware before an arm64 image is accepted.
 
-Pass a workdir explicitly (the default reaps nothing of a wrapper's own
-naming). Expected: phase 1 installs and reaches the finish stage, then the
-arm64-only installed-target check (`build/verify-installed-target-arm64.sh`)
-reads the installed root with debugfs and asserts firmware, aipu 6.2.0 built
-for the Sky1 kernel (not 5.11.0), amvx, the `/dev/video-cixdec0` helper, an
-ffmpeg with `*_v4l2m2m`, and both browsers; phase 2 exits `rc=124` with an
-EMPTY boot.log, which is the PASS signal (the guest booted and stayed up).
-Reap `iso-patch/` under old gate workdirs afterwards.
-
-Both verifiers have negative tests: `build/test-arm64-gates.sh` and
-`build/test-installed-target-verifier.sh`.
-
-## 3. Shipping `ncz-screensavers`
-
-Merged on branch `release/arm64-final-2026-09-29` (from `feat/ncz-screensavers-pkg-wiring-2026-09-29`).
-The package is staged from `/mnt/argonas-projects/ncz-screensavers-debs/<highest version>/`
-(check `ls` for the highest `x.y.z` directory and its `SHA256SUMS` first), installed at install
-time by `post-install/59-ncz-screensavers-pkg.sh` (simulates first, refuses removals, no-op when
-the mirror has no candidate) and seeded into the offline mirror by `manifests/install-extra.pkgs`,
-so the layers do not change and stage 1 is not repeated. The package's postinst disables the
-older `ncz-idle-manager` user service; 59 runs after 58, so the old unit exists to be disabled.
-
-```
-V=0.3.2                                                     # highest dir under ncz-screensavers-debs
-mkdir -p build/ncz-screensavers-out && rm -f build/ncz-screensavers-out/*.deb
-cp /mnt/argonas-projects/ncz-screensavers-debs/$V/ncz-screensavers_${V}_arm64.deb build/ncz-screensavers-out/
-grep -qx ncz-screensavers manifests/install-extra.pkgs || echo ncz-screensavers >> manifests/install-extra.pkgs
-sudo rm -rf build/desktop-mirror build/forky-mirror          # re-add the local deb to the pool AND re-resolve the install mirror
-                                                            # (the seed check compares package NAMES, so a new VERSION of the same package would not trigger a rebuild)
-# stage 0 (about 8 minutes), stage 2, gate: exactly as in sections 1 and 2.
-```
-
-`verify-arm64-inputs.sh` refuses stage 2 if the deb is unstaged or missing from `forky-mirror`;
-the installed-target check asserts the package is installed with launcher, settings app, idled
-unit (enabled), `ncz-screensaver-run`, the compiled `dev.ncz.screensaver` schema and 84 hack
-binaries, and that `ncz-idle-manager` is not enabled next to it.
-
-## 5. Two build-breaking limits found on 2026-09-29 (both now guarded)
-
-- `preseed/early_command`, joined, must stay under 13,000 bytes
-  (`build/check-early-command-size.sh`, run by `build-iso-di.sh`). At 15,634 bytes
-  `/bin/preseed_command` dies in confmodule (`return: line 88: Illegal number`),
-  early_command never mounts the ext4 medium and d-i stops at "Incorrect
-  installation media detected". Put logic in a helper under `preseed/` and add it
-  to `BAKED_HELPERS` in `build/iso/patch-initrd-t2-kernel.py` (see
-  `hostname-suggest.sh`).
-- `late.sh` asset union-sync must survive a dangling baked symlink where the media
-  has a directory (`assets/kernel/edge` in `base.squashfs`); regression test
-  `build/test-late-union-sync.sh`.
+Everything else (stages, gates, determinism, publish rules) is in
+[IMAGE-BUILD-PROCESS.md](IMAGE-BUILD-PROCESS.md). Post-pass operator steps:
+[IMAGE-RELEASE-RUNBOOK.md](IMAGE-RELEASE-RUNBOOK.md).

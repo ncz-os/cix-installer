@@ -107,6 +107,15 @@ if [ "$rc" = 0 ]; then
     python3 -I "$HERE/pin-snapshot-suites.py" --snapshot "$pin_snap" \
       || { echo "refresh-substrate: ERROR: could not record the snapshot's suite digests" >&2; exit 2; }
   fi
+  # The local determinism aggregate (manifests/determinism.pin) records the
+  # substrate sha per arch, so it must be regenerated in lockstep with base.pin.
+  # `make gen-base-pin` is safe here: it reads the sha from Makefile
+  # print-substrate-sha, which reads the base.pin we just wrote.
+  if [ -x "$HERE/gen-base-pin.sh" ]; then
+    echo "[substrate] regenerating manifests/determinism.pin (substrate sha changed)"
+    bash "$HERE/gen-base-pin.sh" || \
+      echo "[substrate] WARN: gen-base-pin.sh failed; determinism.pin may be stale" >&2
+  fi
 fi
 
 # --- 5. staleness gate ------------------------------------------------------
