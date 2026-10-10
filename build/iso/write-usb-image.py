@@ -638,18 +638,30 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
                     log(f"    pruned {channel}: {pruned}")
             copied_assets.append(name)
             continue
-        if name == "cix-debs" and arch != "arm64":
-            continue
         if name == "cix-debs":
             dst.mkdir(parents=True, exist_ok=True)
-            excluded = ("cix-unit-test_", "cix-ltp_", "cix-gpu-test_",
-                        "cix-vpu-test_", "cix-npu-onnxruntime_",
-                        "cix-noe-umd_1.1.1_")
-            for child in src.iterdir():
-                if child.name.startswith(excluded):
-                    continue
-                if child.is_file():
-                    shutil.copy2(child, dst / child.name)
+            if arch == "arm64":
+                excluded = ("cix-unit-test_", "cix-ltp_", "cix-gpu-test_",
+                            "cix-vpu-test_", "cix-npu-onnxruntime_",
+                            "cix-noe-umd_1.1.1_")
+                for child in src.iterdir():
+                    if child.name.startswith(excluded):
+                        continue
+                    if child.is_file():
+                        shutil.copy2(child, dst / child.name)
+            else:
+                # amd64: the CIX *-vendor debs are arm64-only, but the
+                # build-timestamped Singularity payload deb MUST reach the
+                # medium: post-install/20-desktop.sh installs it from
+                # /cdrom/ncz-payload/assets/cix-debs, and the ncz-timestamped
+                # receipt (below) must record its exact sha256.  Copying the
+                # whole dir on amd64 would ship the arm64 vendor debs, so copy
+                # only the amd64 singularity payload.
+                for child in src.iterdir():
+                    if child.is_file() and child.name.startswith(
+                            "ncz-singularity-desktop_") and \
+                            child.name.endswith(f"_{arch}.deb"):
+                        shutil.copy2(child, dst / child.name)
             copied_assets.append(name)
             continue
         shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
