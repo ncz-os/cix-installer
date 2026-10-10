@@ -30,6 +30,19 @@ OUT="${NCZ_USB_RECOVERY_OUT:-$REPO/build/usb-recovery-deb}"
 PKG=ncz-usb-recovery
 # Reproducible modes: the file modes come from the umask, which differs per host and shell.
 umask 022
+
+# ---------------------------------------------------------------------------
+# Reproducible .deb (r203 arm64 provenance finding, 2026-10-10): two builds of
+# the same payload produced different sha256s because the staged files kept
+# their wall-clock mtimes and Installed-Size came from `du -sk` (allocated
+# blocks, filesystem-dependent).  Anchor SOURCE_DATE_EPOCH to the last commit
+# that touched the packaging script or the packaged hook -- NOT the build's
+# global git-commit epoch -- clamp every staged mtime to it before dpkg-deb,
+# and compute Installed-Size from the actual file sizes, so the bytes are
+# stable and the reviewed manifests/ncz-packages.tsv row can match.
+SOURCE_DATE_EPOCH="$(git -C "$REPO" log -1 --format=%ct -- build/build-usb-recovery-deb.sh post-install/41-usb2-rescan.sh 2>/dev/null || true)"
+: "${SOURCE_DATE_EPOCH:=1790000000}"
+export SOURCE_DATE_EPOCH
 # 1.2 (r201): the PUBLISHED ncz-usb-recovery 1.1 is a different package from what this script builds
 # (Architecture: all, an older unit and README; this builder emits Architecture: arm64 since item RS).
 # Same version + different content is what makes apt show "1.1 -> 1.1", so the version moved.
@@ -91,7 +104,8 @@ for cond in 'ConditionArchitecture=arm64' \
 done
 echo "  payload verified: 3 recovery stages, unit parses, script parses, both arch conditions present"
 
-SIZE_KB=$(du -sk "$WORK/usr" "$WORK/etc" | awk '{s+=$1} END {print s}')
+SIZE_KB=$(find "$WORK/usr" "$WORK/etc" -type f -printf '%s\n' 2>/dev/null \
+    | awk '{s+=$1} END{printf "%d", (s+1023)/1024}')
 
 cat > "$WORK/DEBIAN/control" <<CONTROL
 Package: $PKG
@@ -144,6 +158,8 @@ install -d "$OUT"
 # therefore ends _arm64.deb; every glob that stages this package must match
 # that (build/build-desktop-mirror.sh, gated to arm64).
 DEB="$OUT/${PKG}_${VERSION}_arm64.deb"
+find "$WORK" -type d -exec chmod 0755 {} + 2>/dev/null || true
+find "$WORK" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
 dpkg-deb --build --root-owner-group "$WORK" "$DEB" >/dev/null
 # r201 version discipline: refuse to rebuild an already-published version with
 # different content (apt would show "X -> X"); see build/lib/deb-version-gate.sh.
