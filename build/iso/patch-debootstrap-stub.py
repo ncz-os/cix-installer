@@ -920,8 +920,16 @@ def _repack_udeb(ar_dir: Path, control_member: str,
             else:
                 shutil.copy2(str(entry), str(dest))
         data_tar_gz = tmpdir / "data.tar.gz"
+        # Byte-reproducible repack.  Without this the patched udeb's sha256
+        # changed on every invocation (the extracted members carry the build
+        # host's mtimes), so no static NCZ ledger row could ever match it and
+        # the provenance gate failed on debootstrap-udeb every run.  Clamp
+        # every member mtime to SOURCE_DATE_EPOCH, sort members by name, and
+        # let `ar -D` zero the ar member metadata.
+        sde = os.environ.get("SOURCE_DATE_EPOCH", "0")
         tar_proc = subprocess.run(
-            ["tar", "--numeric-owner", "--owner=0", "--group=0",
+            ["tar", "--sort=name", "--numeric-owner", "--owner=0",
+             "--group=0", f"--mtime=@{sde}",
              "-cf", "-", "-C", str(staged_data), "."],
             capture_output=True,
         )
@@ -936,18 +944,18 @@ def _repack_udeb(ar_dir: Path, control_member: str,
         data_tar_gz.write_bytes(gzip_proc.stdout)
 
         output_udeb.parent.mkdir(parents=True, exist_ok=True)
-        # Stage data.tar.gz in ar_dir for `ar rc` (which operates from cwd).
+        # Stage data.tar.gz in ar_dir for `ar rcD` (which operates from cwd).
         shutil.copy2(str(data_tar_gz), str(ar_dir / "data.tar.gz"))
         try:
             ar_proc = subprocess.run(
-                ["ar", "rc", str(output_udeb),
+                ["ar", "rcD", str(output_udeb),
                  "debian-binary", control_member, "data.tar.gz"],
                 cwd=str(ar_dir),
                 capture_output=True, text=True,
             )
             if ar_proc.returncode != 0:
                 raise RuntimeError(
-                    f"ar rc {output_udeb} failed: {ar_proc.stderr.strip()}"
+                    f"ar rcD {output_udeb} failed: {ar_proc.stderr.strip()}"
                 )
         finally:
             try:
