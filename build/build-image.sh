@@ -12,17 +12,20 @@
 # pin) is either automated here or a checked precondition with an actionable
 # error.  See docs/IMAGE-BUILD-PROCESS.md.
 #
-# STAGES (fixed order)
+# STAGES (fixed order; operator ruling 2026-10-10: provenance comes BEFORE the
+# long stages -- a bad input must fail in minutes, not after hours of layers)
 #   00 preflight          host, disk, tmpfs, tools, privilege, pins, substrate age
 #   10 refresh-substrate  refresh/verify the pinned substrate (pin file)
 #   20 stage-inputs       stage the checksum-pinned gitignored build inputs
-#   30 offline-mirror     build the offline apt closure (stage 0)
-#   40 layers             build the squashfs layers (stage 1)
-#   50 image              assemble the raw GPT image + receipt (stage 2)
-#   60 kvm-gate           install + boot the image in KVM + installer UI check
-#   70 provenance-gate    forky provenance + one-kernel over the finished image
-#   80 receipt            write the run metadata (NOT hashed) + gate summary
-#   90 archive            copy to ARGONAS images ONLY if every gate PASSed
+#   30 refresh-sources    resolve+freeze the singularity payload sources, build its deb
+#   40 offline-mirror     build the offline apt closure (stage 0)
+#   50 provenance-inputs  PROVENANCE + one-kernel check on the INPUTS (fail fast)
+#   60 layers             build the squashfs layers (stage 1)
+#   70 image              assemble the raw GPT image + receipt (stage 2)
+#   80 provenance-gate    forky provenance + one-kernel over the finished image
+#   90 kvm-gate           install + boot the image in KVM + installer UI check
+#   95 receipt            write the run metadata (NOT hashed) + gate summary
+#   99 archive            copy to ARGONAS images ONLY if every gate PASSed
 #
 # SCOPE (choose ONE; default --full)
 #   --full                 substrate refresh + every layer + image + all gates
@@ -109,9 +112,10 @@ build-image.sh -- the single entrypoint for a repeatable, deterministic NCZ-OS i
   build/build-image.sh --arch amd64|arm64|both [SCOPE] [OPTIONS]
   make release-image ARCH=amd64 RELEASE_IMAGE_ARGS="--full"
 
-STAGES (fixed order)
+STAGES (fixed order; provenance runs on the INPUTS before layers, and again on
+the finished image BEFORE the KVM gate -- never waste hours on a doomed build)
   preflight  refresh-substrate  stage-inputs  refresh-sources  offline-mirror
-  layers  image  kvm-gate  provenance-gate  receipt  archive
+  provenance-inputs  layers  image  provenance-gate  kvm-gate  receipt  archive
 
 SCOPE (choose ONE; default --full)
   --full                    substrate refresh + every layer + image + all gates
@@ -357,8 +361,7 @@ ncz_kernel_staging_dir() {
 # Stages
 # ---------------------------------------------------------------------------
 STAGES=(preflight refresh-substrate stage-inputs refresh-sources offline-mirror \
-        layers image \
-        kvm-gate provenance-gate receipt archive)
+        provenance-inputs layers image provenance-gate kvm-gate receipt archive)
 stage_index() {
     local want="$1" i=0 s
     for s in "${STAGES[@]}"; do [ "$s" = "$want" ] && { echo "$i"; return 0; }; i=$((i+1)); done
@@ -492,7 +495,15 @@ run_stage() {
     local t0; t0="$(date -u +%s)"
     ncz_log "BEGIN [$name] log=$log"
     local rc=0
-    ( set -o pipefail; "$fn" "$log" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
+    if [ -n "${NCZ_TEST_STAGE_CMD:-}" ]; then
+        # Test-only hook (build/test-build-image.sh): run a fake stage command so
+        # the stage ORDER and the abort-on-failure behaviour can be asserted
+        # without a real build.  ${stage} expands to the stage name.
+        local line="${NCZ_TEST_STAGE_CMD//\{stage\}/$name}"
+        ( set -o pipefail; eval "$line" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
+    else
+        ( set -o pipefail; "$fn" "$log" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
+    fi
     local t1; t1="$(date -u +%s)"
     printf '%02d\t%s\t%s\t%s\n' "$idx" "$name" \
         "$([ "$rc" = 0 ] && echo PASS || echo "FAIL:$rc")" "$((t1 - t0))" >> "$STAGE_TIMES"
@@ -715,6 +726,126 @@ stage_offline_mirror() {
 }
 
 # ---------------------------------------------------------------------------
+# Stage 45 -- provenance-inputs (PROVENANCE GATE ON THE INPUTS, fail fast)
+# ---------------------------------------------------------------------------
+# OPERATOR RULING 2026-10-10: "Why does provenance come after KVM, that is
+# backwards, it should occur before build starts."  Verify every package that
+# WILL enter the image, from the INPUTS, BEFORE the hours-long layers/image work
+# (and long before the KVM gate).  Anything the later image scan could find that
+# comes from the inputs is caught here, with an actionable list.
+stage_provenance_inputs() {
+    local log="$1"
+    local fail=0
+    say() { printf '[provenance-inputs] %s\n' "$*" | tee -a "$log"; }
+    bad() { printf '[provenance-inputs] FAIL: %s\n' "$*" | tee -a "$log" >&2; fail=1; }
+
+    local idx="$RUN_DIR/prov-input-index"
+    mkdir -p "$idx"
+    local mirror="$ROOT/build/forky-mirror"
+    # The freshly-built singularity payload deb is a build-timestamped NCZ
+    # package: it is authorized by the run receipt refresh-sources wrote (the
+    # same shape as a finished-image <img>.receipt.json ncz_timestamped_debs),
+    # never by a static ledger.
+    local receipt="$RUN_DIR/singularity-sources/payload-receipt.json"
+    local -a fetch=(); [ "$OFFLINE" = 1 ] || fetch=(--fetch-index)
+
+    # 1. the offline mirror bytes vs the pinned signed snapshot + the ledgers
+    if [ -d "$mirror/dists" ]; then
+        if ( cd "$ROOT" && bash build/check-forky-provenance.sh \
+                 --verify-mirror "$mirror" --index-dir "$idx" "${fetch[@]}" ) >>"$log" 2>&1; then
+            say "offline mirror verifies against the pinned snapshot + ledgers: $mirror"
+        else
+            bad "offline mirror $mirror has a package with an unreviewed origin (see the log)"
+        fi
+    else
+        bad "offline mirror missing: $mirror/dists (the offline-mirror stage did not run)"
+    fi
+
+    # 2. every staged local/vendor deb directory
+    local -a dargs=()
+    local d
+    for d in "$ROOT/assets/cix-debs" "$ROOT/assets/vendor-debs" "$ROOT/assets/ncz-debs" \
+             "$ROOT/downloads/vendor-debs"; do
+        [ -d "$d" ] || continue
+        ls "$d"/*.deb "$d"/*.udeb >/dev/null 2>&1 || continue
+        dargs+=(--debs "$d")
+    done
+    if [ "${#dargs[@]}" -gt 0 ]; then
+        local -a rargs=()
+        [ -f "$receipt" ] && rargs=(--receipt "$receipt")
+        if ( cd "$ROOT" && bash build/check-forky-provenance.sh "${dargs[@]}" "${rargs[@]}" \
+                 --index-dir "$idx" "${fetch[@]}" ) >>"$log" 2>&1; then
+            say "staged deb dirs verify against the ledger/receipt (${#dargs[@]} dir(s))"
+        else
+            bad "a staged .deb has an unreviewed origin (see the log)"
+        fi
+    else
+        bad "no staged .deb directory found (refresh-sources/offline-mirror did not stage inputs)"
+    fi
+
+    # 3. one-kernel INPUT rule: no Debian kernel/modules package in the pool,
+    #    exactly one staged NCZ kernel version for this arch
+    if [ -x "$ROOT/build/verify-no-debian-kernel.sh" ] && [ -d "$mirror/pool" ]; then
+        if bash "$ROOT/build/verify-no-debian-kernel.sh" --root "$mirror/pool" \
+                 --arch "$ARCH" --quiet >>"$log" 2>&1; then
+            say "one-kernel input rule: no Debian kernel in the offline pool"
+        else
+            bad "a Debian kernel/modules package is present in the offline pool (one-kernel policy)"
+        fi
+    fi
+    local kv; kv="$(ncz_resolve_kver "$ARCH" || true)"
+    if [ -n "$kv" ] && [ -n "$KVER" ] && [ "$kv" = "$KVER" ]; then
+        say "one-kernel input rule: one staged NCZ kernel version ($kv)"
+    else
+        bad "could not resolve exactly one NCZ kernel version for $ARCH (kver='${kv:-}' expected='${KVER:-}')"
+    fi
+
+    # 4. SceneFX static shader gate on the staged payload deb (the O6N black
+    #    screen must be caught before the payload ever reaches a KVM/layers run)
+    local deb; deb="$(ls -1 "$ROOT/assets/cix-debs/ncz-singularity-desktop_"*_"$ARCH".deb 2>/dev/null | sort -V | tail -1)"
+    if [ -n "$deb" ]; then
+        if ! command -v dpkg-deb >/dev/null 2>&1; then
+            bad "dpkg-deb is required to inspect the payload deb ($deb)"
+        else
+            local xdir; xdir="$(mktemp -d "$RUN_DIR/tmp/prov-shader.XXXXXX")"
+            if dpkg-deb -x "$deb" "$xdir" 2>/dev/null && [ -f "$xdir/opt/singularity/bin/labwc" ]; then
+                if bash "$ROOT/build/check-singularity-shaders.sh" "$xdir/opt/singularity/bin/labwc" >>"$log" 2>&1; then
+                    say "SceneFX static shader gate PASS on $(basename "$deb")"
+                else
+                    bad "SceneFX static shader gate FAILED on $(basename "$deb") (quoted #error -> O6N black screen)"
+                fi
+            else
+                bad "could not extract the payload deb for the shader gate: $deb"
+            fi
+            rm -rf "$xdir"
+        fi
+    else
+        bad "no ncz-singularity-desktop_${ARCH}.deb staged in assets/cix-debs/"
+    fi
+
+    # 5. pin freshness: base.pin (substrate/snapshot + coverage) and determinism.pin
+    if bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" >>"$log" 2>&1; then
+        say "substrate pin fresh + snapshot coverage OK (check-substrate-pin.sh)"
+    else
+        bad "substrate pin stale or coverage < required (run build/refresh-substrate.sh)"
+    fi
+    if bash "$ROOT/build/gen-base-pin.sh" --check >>"$log" 2>&1; then
+        say "determinism.pin fresh"
+    else
+        bad "manifests/determinism.pin is stale; run build/gen-base-pin.sh and commit it"
+    fi
+
+    if [ "$fail" != 0 ]; then
+        ncz_err "[provenance-inputs] FAILED -- an input has an unreviewed origin (see the FAIL lines). Fix the input (ledger entry / rebuild) BEFORE the layers stage."
+        return 1
+    fi
+    { printf 'gate=provenance-inputs\nresult=PASS\narch=%s\nat=%s\n' "$ARCH" "$(date -u +%s)"; } \
+        > "$RUN_DIR/provenance-inputs.result"
+    say "every input verified -- safe to run the layers/image stages"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Stage 30 -- refresh sources (singularity payload pins + deb)
 # (runs BEFORE offline-mirror: the payload deb is consumed by
 #  vendor-mirror -> sinty-out-sync -> verify-local-package-versions)
@@ -815,6 +946,28 @@ stage_refresh_sources() {
         printf 'NCZ_SINGULARITY_PINS=%s\n' "$up"
         printf 'NCZ_SINGULARITY_SOURCES=%s\n' "$SOURCES"
     } > "$sdir/result.env"
+    # Pre-build provenance receipt: pins the build-timestamped payload deb so the
+    # provenance-inputs stage can authorize it (identical shape to a finished
+    # image's <img>.receipt.json ncz_timestamped_debs).
+    local receipt="$sdir/payload-receipt.json"
+    python3 -I - "$receipt" "$deb" "$sha" "$ARCH" <<'PYEOF' | tee -a "$log"
+import json, os, sys
+out, deb, sha, arch = sys.argv[1:5]
+base = os.path.basename(deb)
+stem = base[:-4] if base.endswith(".deb") else base
+try:
+    name_ver, _farch = stem.rsplit("_", 1)
+    name, ver = name_ver.split("_", 1)
+except ValueError:
+    print("refresh-sources: cannot parse the payload deb name %r" % base, file=sys.stderr)
+    sys.exit(1)
+rec = {"schema": "ncz-payload-receipt/v1",
+       "ncz_timestamped_debs": [{"name": name, "version": ver, "arch": arch, "sha256": sha}]}
+with open(out, "w") as fh:
+    json.dump(rec, fh, indent=2, sort_keys=True)
+    fh.write("\n")
+print("[refresh-sources] wrote payload receipt %s (%s %s %s)" % (out, name, ver, arch))
+PYEOF
     echo "[refresh-sources] payload deb: $(basename "$deb") sha256=$sha (sources=$SOURCES)" | tee -a "$log"
     return 0
 }
@@ -862,25 +1015,37 @@ stage_layers() {
 }
 
 # ---------------------------------------------------------------------------
-# Stage 60 -- image
+# Stage 70 -- image
 # ---------------------------------------------------------------------------
 stage_image() {
     local log="$1"
-    ncz_container_run "make image ARCH=$ARCH BUILD_SHA=$GIT_SHA" "$log"
-    return $?
-}
-
-# ---------------------------------------------------------------------------
-# Stage 70 -- KVM gate (includes the installer UI/screens check)
-# ---------------------------------------------------------------------------
-stage_kvm_gate() {
-    local log="$1"
+    ncz_container_run "make image ARCH=$ARCH BUILD_SHA=$GIT_SHA" "$log" || return $?
+    # Resolve and record the image path HERE: the provenance gate now runs BEFORE
+    # kvm-gate and needs the path, so it can no longer be written by the KVM gate.
     local img="${IMAGE_ARG:-}"
     if [ -z "$img" ]; then
         img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA".img 2>/dev/null | tail -1)"
     fi
-    [ -n "$img" ] && [ -f "$img" ] || { echo "[kvm-gate] FAIL: no image found for $ARCH $GIT_SHA (pass --image)" | tee -a "$log" >&2; return 1; }
+    if [ -z "$img" ] || [ ! -f "$img" ]; then
+        echo "[image] FAIL: no image found for $ARCH $GIT_SHA" | tee -a "$log" >&2
+        return 1
+    fi
     printf '%s\n' "$img" > "$RUN_DIR/image.path"
+    echo "[image] $img" | tee -a "$log"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Stage 90 -- KVM gate (includes the installer UI/screens check)
+# ---------------------------------------------------------------------------
+stage_kvm_gate() {
+    local log="$1"
+    local img; img="$(cat "$RUN_DIR/image.path" 2>/dev/null || true)"
+    [ -n "$img" ] || img="${IMAGE_ARG:-}"
+    if [ -z "$img" ]; then
+        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA".img 2>/dev/null | tail -1)"
+    fi
+    [ -n "$img" ] && [ -f "$img" ] || { echo "[kvm-gate] FAIL: no image found for $ARCH $GIT_SHA (pass --image)" | tee -a "$log" >&2; return 1; }
     local pyvenv="/root/ncz-pyte-venv"
     if ! [ -x "$pyvenv/bin/python" ]; then
         if [ "$OFFLINE" = "1" ]; then
@@ -985,6 +1150,7 @@ meta = {
     "layers": {lyr: {"fingerprint": fp, "decision": plan.get("layers", {}).get(lyr, "?")}
                for lyr, fp in plan.get("fingerprints", {}).items()},
     "gates": {"kvm": gate("kvm", "kvm-gate.result"),
+              "provenance_inputs": gate("provenance-inputs", "provenance-inputs.result"),
               "provenance": gate("provenance", "provenance.result")},
     "required_gates": sorted(required),
     "host": socket.gethostname(),
@@ -1055,6 +1221,7 @@ stage_enabled() {
                 full|rebuild-desktop|components) return 0 ;;
                 *) return 1 ;;
             esac ;;
+        provenance-inputs) gate_selected provenance ;;
         layers) [ "$SCOPE" = only-image ] && return 1 || return 0 ;;
         image) return 0 ;;
         kvm-gate) gate_selected kvm ;;
