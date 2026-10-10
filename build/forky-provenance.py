@@ -1712,6 +1712,7 @@ def _extract_newc(data, dest, src, allow_tail=False, written=None):
 
     if written is None:
         written = {}
+    archives = 0  # bound before `write` closes over it
 
     def write(path, content):
         # `written` maps an extracted path -> the archive index that wrote it.
@@ -1740,7 +1741,6 @@ def _extract_newc(data, dest, src, allow_tail=False, written=None):
     n = len(data)
     groups = {}
     archive_open = False
-    archives = 0
 
     def flush_hardlinks():
         for key, g in groups.items():
