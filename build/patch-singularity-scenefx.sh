@@ -60,17 +60,45 @@ rev="$(ini_field "$WRAP" revision)"
 [ -n "$rev" ] || { echo "scenefx: no revision in $WRAP" >&2; exit 1; }
 echo "scenefx: wrap $url @ $rev"
 
+# Resolve the wrap revision to the exact commit we will build. A raw sha in
+# NCZ_SCENEFX_SHA (set by the compositor-pins resolver) wins; otherwise resolve
+# the branch/tag the wrap names. Fail closed if neither yields a commit -- never
+# build "whatever is checked out".
+want="${NCZ_SCENEFX_SHA:-}"
+if [ -z "$want" ]; then
+	want="$(git ls-remote "$url" "$rev" 2>/dev/null | awk '{print $1}' | head -1)"
+	[ -n "$want" ] || want="$(git ls-remote "$url" "refs/tags/$rev" 2>/dev/null | awk '{print $1}' | head -1)"
+fi
+case "$want" in
+	[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+	*) echo "ERROR: scenefx: cannot resolve $url $rev to a commit (set NCZ_SCENEFX_SHA)" >&2; exit 1 ;;
+esac
+echo "scenefx: expected commit $want"
+
 if [ ! -d "$DEST/.git" ]; then
 	rm -rf "$DEST"
 	git init -q "$DEST"
 	git -C "$DEST" remote add origin "$url"
-	# revision may be a branch, a tag or a raw sha; try the direct ref, then a tag.
-	if ! git -C "$DEST" fetch -q --depth 1 origin "$rev" 2>/dev/null; then
-		git -C "$DEST" fetch -q --depth 1 origin "refs/tags/$rev" 2>/dev/null || {
-			echo "scenefx: cannot fetch $url $rev" >&2; exit 1; }
-	fi
-	git -C "$DEST" checkout -q --detach FETCH_HEAD
 fi
+
+# Make exactly $want present, then check it out -- whether $DEST is a fresh
+# clone or a pre-seeded checkout from a previous step. This is the immutable
+# check: we never trust the working tree's current HEAD.
+if ! git -C "$DEST" cat-file -e "$want^{commit}" 2>/dev/null; then
+	# Prefer the named ref (branch/tag: what the wrap actually points at), then
+	# the exact sha (works when the mirror allows an advertised-commit fetch).
+	git -C "$DEST" fetch -q origin "$rev" 2>/dev/null \
+		|| git -C "$DEST" fetch -q --tags origin 2>/dev/null || true
+	if ! git -C "$DEST" cat-file -e "$want^{commit}" 2>/dev/null; then
+		git -C "$DEST" fetch -q origin "$want" 2>/dev/null || true
+	fi
+fi
+git -C "$DEST" cat-file -e "$want^{commit}" 2>/dev/null \
+	|| { echo "ERROR: scenefx: commit $want is not present in $DEST" >&2; exit 1; }
+git -C "$DEST" checkout -q --detach "$want"
+head_sha="$(git -C "$DEST" rev-parse HEAD)"
+[ "$head_sha" = "$want" ] \
+	|| { echo "ERROR: scenefx: HEAD $head_sha != expected $want" >&2; exit 1; }
 echo "scenefx: checked out $(git -C "$DEST" rev-parse --short HEAD)"
 
 for p in "${patch_files[@]}"; do
