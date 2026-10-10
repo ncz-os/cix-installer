@@ -285,9 +285,13 @@ def main():
             "snapshot": snap,
             "generated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
-        with open(a.receipt, "w") as o:
+        # Write the receipt atomically (temp in the same dir + os.replace) so an
+        # interrupted run can never leave a truncated receipt.
+        tmp = a.receipt + ".tmp"
+        with open(tmp, "w") as o:
             json.dump(rec, o, indent=2, sort_keys=True)
             o.write("\n")
+        os.replace(tmp, a.receipt)
         print(f"recorded sid_exceptions in {a.receipt}")
 
     if a.strict and findings:
