@@ -110,7 +110,7 @@ build-image.sh -- the single entrypoint for a repeatable, deterministic NCZ-OS i
   make release-image ARCH=amd64 RELEASE_IMAGE_ARGS="--full"
 
 STAGES (fixed order)
-  preflight  refresh-substrate  stage-inputs  offline-mirror  refresh-sources
+  preflight  refresh-substrate  stage-inputs  refresh-sources  offline-mirror
   layers  image  kvm-gate  provenance-gate  receipt  archive
 
 SCOPE (choose ONE; default --full)
@@ -356,7 +356,7 @@ ncz_kernel_staging_dir() {
 # ---------------------------------------------------------------------------
 # Stages
 # ---------------------------------------------------------------------------
-STAGES=(preflight refresh-substrate stage-inputs offline-mirror refresh-sources \
+STAGES=(preflight refresh-substrate stage-inputs refresh-sources offline-mirror \
         layers image \
         kvm-gate provenance-gate receipt archive)
 stage_index() {
@@ -700,7 +700,7 @@ stage_stage_inputs() {
 }
 
 # ---------------------------------------------------------------------------
-# Stage 30 -- offline mirror
+# Stage 40 -- offline mirror
 # ---------------------------------------------------------------------------
 stage_offline_mirror() {
     local log="$1"
@@ -715,7 +715,9 @@ stage_offline_mirror() {
 }
 
 # ---------------------------------------------------------------------------
-# Stage 35 -- refresh sources (singularity payload pins + deb)
+# Stage 30 -- refresh sources (singularity payload pins + deb)
+# (runs BEFORE offline-mirror: the payload deb is consumed by
+#  vendor-mirror -> sinty-out-sync -> verify-local-package-versions)
 # ---------------------------------------------------------------------------
 # OPERATOR RULING 2026-10-10: "I want latest singularity, latest build sources."
 # Resolve the current upstream heads for the Singularity desktop payload (every
@@ -797,16 +799,20 @@ stage_refresh_sources() {
         echo "[refresh-sources] WARN: could not extract $deb for the static shader gate" | tee -a "$log" >&2
     fi
 
-    # 4. hand the frozen deb to the layers stage.
+    # 4. hand the frozen deb to the layers stage AND stage it into
+    #    assets/cix-debs/ so the offline-mirror stage (vendor-mirror ->
+    #    sinty-out-sync -> verify-local-package-versions) finds it.
     export NCZ_SINGULARITY_PREBUILT_DEB="$deb"
     export NCZ_SINGULARITY_PREBUILT_SHA256="$sha"
+    rm -f "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb
+    install -m 0644 "$deb" "$ROOT/assets/cix-debs/"
     printf 'deb=%s\nsha256=%s\nsources=%s\nupstream_pins=%s\n' "$deb" "$sha" "$SOURCES" "$up" > "$sdir/result.env"
     echo "[refresh-sources] payload deb: $(basename "$deb") sha256=$sha (sources=$SOURCES)" | tee -a "$log"
     return 0
 }
 
 # ---------------------------------------------------------------------------
-# Stage 40 -- layers
+# Stage 50 -- layers
 # ---------------------------------------------------------------------------
 stage_layers() {
     local log="$1"
@@ -820,7 +826,7 @@ stage_layers() {
 }
 
 # ---------------------------------------------------------------------------
-# Stage 50 -- image
+# Stage 60 -- image
 # ---------------------------------------------------------------------------
 stage_image() {
     local log="$1"
@@ -829,7 +835,7 @@ stage_image() {
 }
 
 # ---------------------------------------------------------------------------
-# Stage 60 -- KVM gate (includes the installer UI/screens check)
+# Stage 70 -- KVM gate (includes the installer UI/screens check)
 # ---------------------------------------------------------------------------
 stage_kvm_gate() {
     local log="$1"
@@ -863,7 +869,7 @@ stage_kvm_gate() {
 }
 
 # ---------------------------------------------------------------------------
-# Stage 70 -- provenance gate (includes the one-kernel rule)
+# Stage 80 -- provenance gate (includes the one-kernel rule)
 # ---------------------------------------------------------------------------
 stage_provenance_gate() {
     local log="$1"
