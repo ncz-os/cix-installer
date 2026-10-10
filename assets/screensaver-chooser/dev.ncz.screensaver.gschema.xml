@@ -1,13 +1,82 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
   <schema id="dev.ncz.screensaver" path="/dev/ncz/screensaver/">
-    <key name="mode" type="s"><default>'off'</default><summary>Screensaver mode</summary></key>
-    <key name="hack-id" type="s"><default>'hyprsaver_aurora_gles3'</default><summary>Selected screensaver</summary></key>
-    <key name="random-hacks" type="as"><default>[]</default><summary>Random rotation set</summary></key>
-    <key name="hack-idle-delay" type="i"><range min="60" max="86400"/><default>300</default><summary>Idle delay</summary></key>
-    <key name="cycle-delay" type="i"><range min="60" max="86400"/><default>600</default><summary>Rotation interval</summary></key>
-    <key name="lock-enabled" type="b"><default>true</default><summary>Lock after screensaver</summary></key>
-    <key name="lock-delay" type="i"><range min="0" max="86400"/><default>60</default><summary>Lock delay after screensaver</summary></key>
-    <key name="lock-on-suspend" type="b"><default>true</default><summary>Lock on suspend</summary></key>
+    <key name="mode" type="s">
+      <default>'one'</default>
+      <summary>Screensaver mode</summary>
+      <description>
+        Controls how the screensaver runs.
+        "off" disables the screensaver.
+        "one" runs a single selected hack continuously.
+        "random" picks a different hack every cycle.
+        CYGNUS 26.10 default: 'one' (Black Hole on by default, operator decision 2026-10-03).
+      </description>
+    </key>
+
+    <key name="hack-id" type="s">
+      <default>'blackhole_gles3'</default>
+      <summary>The currently selected screensaver hack ID</summary>
+      <description>
+        The xscreensaver-dmengine hack ID to run when mode is "one".
+        CYGNUS 26.10 default: blackhole_gles3 (Black Hole, wired to the Cygnus palette preset via the chooser's option override layer).
+      </description>
+    </key>
+
+    <key name="random-hacks" type="as">
+      <default>[]</default>
+      <summary>Random rotation set</summary>
+      <description>
+        A list of hack IDs to rotate through when mode is "random".
+        An empty list means "all installed hacks".
+      </description>
+    </key>
+
+    <key name="hack-idle-delay" type="i">
+      <range min="60" max="86400"/>
+      <default>300</default>
+      <summary>Idle delay before screensaver starts (seconds)</summary>
+      <description>
+        How many seconds of inactivity before the screensaver engages.
+        Default is 300 (5 minutes).
+      </description>
+    </key>
+
+    <key name="cycle-delay" type="i">
+      <range min="60" max="86400"/>
+      <default>600</default>
+      <summary>Rotation interval between hacks (seconds)</summary>
+      <description>
+        How many seconds each hack runs before rotating to the next one
+        when mode is "random". Default is 600 (10 minutes).
+      </description>
+    </key>
+
+    <key name="lock-enabled" type="b">
+      <default>true</default>
+      <summary>Lock the screen when the screensaver starts</summary>
+      <description>
+        When true, the screen is locked as soon as the screensaver
+        engages, requiring a password to resume.
+      </description>
+    </key>
+
+    <key name="lock-delay" type="i">
+      <range min="0" max="86400"/>
+      <default>60</default>
+      <summary>Delay before locking after screensaver starts (seconds)</summary>
+      <description>
+        Seconds after the screensaver starts before the lock engages.
+        Zero means lock immediately. Default is 60.
+      </description>
+    </key>
+
+    <key name="lock-on-suspend" type="b">
+      <default>true</default>
+      <summary>Lock the screen on suspend</summary>
+      <description>
+        When true, the screen is locked on resume from suspend, even if
+        the screensaver did not run.
+      </description>
+    </key>
   </schema>
 </schemalist>
