@@ -697,6 +697,7 @@ parity:
 	python3 build/test_wallpaper_fit.py
 	python3 -m unittest build/iso/tests/test_stage_payload_desktop_guard.py
 	python3 -m unittest build/iso/tests/test_patch_initrd_firmware.py
+	python3 -m unittest build/iso/tests/test_patch_initrd.py
 	bash build/iso/tests/test-single-preseed.sh
 	python3 -m unittest build/iso/tests/test_initrd_preseed_verify.py
 	build/test-boot-speed.sh
