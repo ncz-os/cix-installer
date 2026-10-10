@@ -650,6 +650,8 @@ class Ref:
         # Per-image receipt shas, populated by scan_image from <img>.receipt.json;
         # never inherited across scans (cleared/restored in scan_image).
         self.receipt_ts = {}
+        # Kernel-artifact packages seen in THIS scan, for the one-kernel audit.
+        self.seen_kernel = set()
 
         self.sources = []
         for n, r in load_tsv(os.path.join(ROOT, "manifests/vendor-repos.tsv"), 8,
@@ -684,16 +686,34 @@ class Ref:
                 sys.exit(1)
             self.idx = got
 
+    def note_kernel(self, name, ver, arch):
+        """Record a kernel-artifact package seen in this scan (one-kernel audit)."""
+        if KERNEL_ARTIFACT_RE.search(name or ""):
+            self.seen_kernel.add((name, ver, arch))
+
 
 # ---------------------------------------------------------------- classification
 UBU_RE = re.compile(r"ubuntu", re.IGNORECASE)
 UBU_CANONICAL = re.compile(r"Ubuntu Developers|lists\.ubuntu\.com")
+
+# One-kernel policy (operator ruling 2026-10-10: "ship only OUR kernel").
+# A "kernel artifact" package: an image/headers/modules/binary kernel package,
+# any linux-base-* helper, or a d-i kernel-module/binary udeb.  Note linux-base
+# (exactly, the Debian helper) is NOT a kernel; linux-base-<x> is.
+KERNEL_ARTIFACT_RE = re.compile(
+    r"^(linux-image|linux-headers|linux-modules|linux-binary|kernel-image)"
+    r"|^linux-base-"
+    r"|(^.+-(modules|binary)-.*-di$)")
+# Packages excluded from the "one kernel version string" set (boot payload, not
+# the kernel itself).
+KERNEL_VERSION_EXEMPT_RE = re.compile(r"^(cixmini-boot)$")
 
 
 def classify(ref, src, name, ver, arch, maint, sha=None):
     """Return origin string or None after emitting a FAIL."""
     what = f"{name} {ver} {arch}"
     key = (name, ver, arch)
+    ref.note_kernel(name, ver, arch)
 
     # Hard Ubuntu rejection first: never exonerated by anything.
     if UBU_CANONICAL.search(maint or ""):
@@ -799,6 +819,7 @@ def classify_noarch(ref, src, name, ver, maint):
     snapshot for SOME architecture or in a reviewed ledger; it is never
     exonerated from the hard Ubuntu checks.  Anything else FAILS (genuine)."""
     what = f"{name} {ver} (no Architecture in dpkg status)"
+    ref.note_kernel(name, ver, "")
     if UBU_CANONICAL.search(maint or ""):
         fail(src, what, f"Ubuntu-built ({maint}) -- never allowed")
         return None
@@ -1313,6 +1334,28 @@ def safe_extract_zst(tar_path, dest, src):
             os.remove(tmp)
 
 
+def audit_kernel_purity(ref, src):
+    """One-kernel policy (operator ruling 2026-10-10): every kernel artifact the
+    gate saw in the image must be a reviewed NCZ kernel, and there must be
+    exactly ONE kernel version string across all of them.  A Debian
+    linux-image/-modules/-headers package or a `*-modules-*-di` d-i kernel-module
+    udeb FAILS.  Returns the number of kernel artifacts audited."""
+    ncz_vers = set()
+    for (name, ver, arch) in sorted(ref.seen_kernel):
+        in_ncz = ((name, ver, arch) in ref.ncz
+                  or (arch == "" and any(k[0] == name and k[1] == ver for k in ref.ncz)))
+        if not in_ncz:
+            fail(src, f"{name} {ver} {arch}".strip(),
+                 "non-NCZ kernel artifact present (one-kernel policy: ship only OUR kernel)")
+        elif not KERNEL_VERSION_EXEMPT_RE.match(name):
+            ncz_vers.add(ver)
+    if len(ncz_vers) > 1:
+        fail(src, "kernel versions",
+             f"more than one kernel version string present: {sorted(ncz_vers)} "
+             f"(one-kernel policy)")
+    return len(ref.seen_kernel)
+
+
 def scan_image(ref, img, work):
     """Scan a finished GPT .img: the offline apt pool + indexes, every squashfs
     layer, the rescue/mgmt rootfs tarballs, every present asset/vendor pool, the
@@ -1342,6 +1385,8 @@ def scan_image(ref, img, work):
     ref.bound_offline.clear()
     saved_receipt = dict(ref.receipt_ts)
     ref.receipt_ts.clear()
+    saved_kernel = set(ref.seen_kernel)
+    ref.seen_kernel.clear()
     # The finished-image receipt records the sha256 of every build-timestamped
     # NCZ payload deb actually installed (write-usb-image.py).  Register it for
     # THIS image only; a timestamped package with no matching receipt entry
@@ -1548,6 +1593,7 @@ def scan_image(ref, img, work):
             total += scan_debs(ref, adir, "image:" + os.path.relpath(adir, pl))
 
         total += _scan_esp(ref, img, parts, sector, owned)
+        total += audit_kernel_purity(ref, img)
 
         if not found_any:
             fail("image", img, "no inspectable package tree found in the image")
@@ -1558,6 +1604,8 @@ def scan_image(ref, img, work):
         ref.bound_offline.update(saved_bound)
         ref.receipt_ts.clear()
         ref.receipt_ts.update(saved_receipt)
+        ref.seen_kernel.clear()
+        ref.seen_kernel.update(saved_kernel)
 
 
 def _scan_esp(ref, img, parts, sector, owned):

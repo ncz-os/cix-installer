@@ -427,7 +427,21 @@ desktop-mirror: vendor-mirror libdrm-debs apt-policy-deb
 		echo "[desktop-mirror] using existing mirror from $(BUILD)/desktop-mirror"; \
 	fi
 
-offline-mirror: desktop-mirror
+# --- base pin: substrate refresh + derived snapshot -----------------------
+# The substrate (Debian testing netinst) must be refreshed to the newest weekly
+# at every build, and the snapshot (/cdrom offline closure) must be derived from
+# that same substrate.  `make refresh-substrate` fetches + verifies the newest
+# netinst (SHA256SUMS.sign against the committed Debian CD signing key) and
+# rewrites manifests/base.pin.  The build preflight below fails closed if the
+# pin is stale (> NCZ_SUBSTRATE_MAX_AGE_DAYS) or the pinned snapshot does not
+# authorize the substrate.
+refresh-substrate:
+	@bash $(ROOT)/build/refresh-substrate.sh --arch $(ARCH)
+
+check-substrate-pin:
+	@bash $(ROOT)/build/check-substrate-pin.sh $(ARCH)
+
+offline-mirror: desktop-mirror check-substrate-pin
 	@if [ ! -d $(BUILD)/forky-mirror/pool ] || \
 	    ! { [ "$(ARCH)" != "arm64" ] || \
 	      bash $(ROOT)/build/verify-local-package-versions.sh \

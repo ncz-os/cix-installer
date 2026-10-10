@@ -87,6 +87,7 @@ import argparse
 import gzip
 import hashlib
 import json
+import re
 import shutil
 import socket
 import struct
@@ -698,6 +699,29 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     return receipt
 
 
+KERNEL_ARTIFACT_NAME_RE = re.compile(
+    r"^(linux-image|linux-headers|linux-modules|linux-binary|kernel-image)"
+    r"|^linux-base-"
+    r"|.+-modules-.+-di$|.+-binary-.+-di$")
+
+
+def filter_substrate_kernel_artifacts(pool_dir: Path) -> int:
+    """One-kernel policy: remove Debian kernel/module/binary udebs+debs from a
+    merged /cdrom pool copy.  NCZ kernels (names containing cixmini/ncz) are
+    kept.  UNPROVEN until the KVM install gate passes on a rebuilt image."""
+    removed = 0
+    for p in sorted(pool_dir.rglob("*")):
+        if not p.is_file() or p.suffix not in (".deb", ".udeb"):
+            continue
+        pkg = p.name.split("_", 1)[0]
+        if "cixmini" in pkg or "ncz" in pkg:
+            continue
+        if KERNEL_ARTIFACT_NAME_RE.search(pkg):
+            p.unlink()
+            removed += 1
+    return removed
+
+
 def stage_offline_mirror(stage_dir: Path, arch: str,
                          installer_pool: Path) -> None:
     """Copy the offline apt closure to the medium root as dists/ + pool/.
@@ -755,6 +779,17 @@ def stage_offline_mirror(stage_dir: Path, arch: str,
         raise RuntimeError(f"FATAL: installer udeb pool missing: {installer_pool}")
     shutil.copytree(installer_pool, stage_dir / "pool", dirs_exist_ok=True,
                     symlinks=True)
+    # One-kernel policy (docs/ONE-KERNEL.md).  When NCZ_ONE_KERNEL=1, drop the
+    # substrate's Debian kernel/module/binary udebs from the merged /cdrom pool
+    # so the image carries only OUR kernel.  UNPROVEN until
+    # build/kvm-install-gate-gpt.sh reaches "finish the installation" on a
+    # rebuilt image (the installer still needs its own kernel+initrd -- see
+    # docs/ONE-KERNEL.md step 2); default-OFF so the unverified path is
+    # unchanged.
+    if os.environ.get("NCZ_ONE_KERNEL") == "1":
+        removed = filter_substrate_kernel_artifacts(stage_dir / "pool")
+        log(f"    one-kernel: removed {removed} Debian kernel/module artifact(s) "
+            f"from the merged /cdrom pool")
     installer_index = (stage_dir / "dists" / suite / "main" /
                        "debian-installer" / f"binary-{arch}")
     installer_index.mkdir(parents=True, exist_ok=True)

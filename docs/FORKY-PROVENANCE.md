@@ -52,8 +52,8 @@ any other file whose trusted list can be steered by the environment.
 
 `manifests/forky-snapshot.tsv` is the immutable BUILD pin:
 
-* `snapshot` = the `snapshot.debian.org` timestamp (`20260926T000000Z`; re-pinned
-  2026-10-10 to the pinned netinst substrate's own archive state -- see
+* `snapshot` = the `snapshot.debian.org` timestamp (`20261005T120000Z`,
+  DERIVED from the pinned netinst substrate by measurement -- see
   "Substrate vs snapshot" below);
 * `inrelease_sha256` / `inrelease_size` = the reviewed digest of the signed
   `dists/<codename>/InRelease` for that snapshot;
@@ -278,43 +278,60 @@ trust metadata. It still reads `release.conf` and the committed
 else. It is refused together with `--image`/`--verify-mirror` so it can never
 downgrade a shipping scan. The full gate always requires a verified index.
 
-## Substrate vs snapshot (r203 pin alignment)
+## Substrate vs snapshot — refreshed at every build (`manifests/base.pin`)
 
 The finished image merges two Debian-derived trees into `/cdrom`:
 `build/iso/write-usb-image.py` copies the offline apt closure (built by
 `build/build-forky-mirror.sh` **from the pinned snapshot**, `NCZ_BASE_MIRROR`)
 and then `copytree`s the pinned **netinst substrate's** udeb+deb pool over
 `/pool`, regenerating only the d-i `Packages` index. The provenance gate
-authorizes every package against the pinned snapshot. If the substrate's
-archive state differs from the snapshot pin, the substrate's own `.debs`
-(orphan pool files) and `.udebs` (not in the snapshot index) fail.
+authorizes every package against the pinned snapshot. If the substrate's archive
+state differs from the snapshot pin, the substrate's own `.debs` (orphan pool
+files) and `.udebs` (not in the snapshot index) fail.
 
-r203 **re-pins the snapshot to the pinned substrate's own archive state**
-(`20260926T000000Z`, the amd64 netinst `c517f8ff…` weekly; the arm64 netinst
-`bcdea126…` tracks 2026-09-21). This is the lowest-risk of the two pin
-realignments: it changes only the base archive (no d-i/installer behaviour), so
-the validated netinst stays the validated netinst; the offline closure is
-rebuilt mechanically from the new snapshot. Re-pinning the *substrate* forward
-instead would change the installer itself and, per the Makefile's own rule
-("adopt a newer installer: build on it, run the KVM gate"), require a fresh KVM
-install gate before shipping.
+**Operator ruling (2026-10-10): the substrate must be refreshed to the newest
+Debian testing netinst at EVERY build, and the snapshot must be DERIVED from
+that same substrate — one archive state, three origins, no fourth origin.**
 
-Measured offline (the pinned amd64 netinst's 769 package identities vs each
-candidate snapshot's indexes, including `binary-all`):
+`build/refresh-substrate.sh --arch <a>` is the mechanical, reviewed step:
+1. fetches the newest weekly netinst and `SHA256SUMS` + `SHA256SUMS.sign` from
+   `cdimage.debian.org/cdimage/weekly-builds/<arch>/iso-cd`;
+2. verifies the signature against the committed Debian CD signing key
+   (`manifests/keys/debian-testing-cd-signing.gpg`, fingerprint
+   `F41D30342F3546695F65C66942468F4009EA8AC3`, asserted) and the ISO sha256
+   against the signed `SHA256SUMS` (**fails closed** on any mismatch);
+3. caches the verified ISO on ARGONAS
+   (`ncz-os-assets/substrate/`, keeping the last two per arch);
+4. derives the snapshot by measurement (`build/derive-base-pin.py`): reads the
+   netinst's own `Packages` identities from the ISO, tries candidate
+   snapshot.debian.org timestamps around the netinst's Release date, and picks
+   the one authorizing the most identities;
+5. writes `manifests/base.pin` (arch, substrate sha256 + date, snapshot,
+   measured coverage, source URL);
+6. **fails** if the substrate is older than `NCZ_SUBSTRATE_MAX_AGE_DAYS` (8) or
+   if the best coverage is below `NCZ_SUBSTRATE_MIN_COVERAGE` (99).
 
-| snapshot pin | substrate identities authorized |
-|---|---|
-| `20261007T202437Z` (previous) | 553/769 (71.9%) |
-| `20260926T000000Z` (chosen) | 692/769 (90.0%) |
-| `20260923T202437Z` | 718/769 (93.4%; not the netinst's declared date) |
+`manifests/base.pin` is the single base pin. `build/check-substrate-pin.sh`
+(and the build preflight) verifies that `release.conf`'s
+`NCZ_BASE_MIRROR_SNAPSHOT` **equals** `base.pin`'s snapshot, that the substrate
+is fresh, and that the recorded coverage meets the floor — so a build can never
+ship a substrate the pinned snapshot does not authorize.
 
-**Residual (~77 identities) is structural and genuine**, not a gate bug: the
-netinst deliberately ships d-i kernel-module udebs for **two** kernel ABIs
-(`*-modules-7.1.8+deb14.1-*-di` as the fallback plus `*-modules-7.2.6+deb14-*`),
-and no single `testing` snapshot contains both — the fallback ABI has left
-testing. Clearing the residual requires either a reviewed **substrate** origin
-(an explicit 4th origin — proposed, not implemented) or a build-side change to
-stop carrying the uncovered fallback udebs in `/cdrom/pool`.
+**Measured reality at r203 (honest):** the freshest available netinst (weekly
+`123a250b…` amd64 / `b6f455d1…` arm64, archive date 2026-10-05) is authorized at
+only **91.8 %** (amd64) / **90.7 %** (arm64) by its own best-matching snapshot —
+below the 99 % floor. The residual is **not** only the two-kernel-ABI d-i modules
+(`*-modules-7.2.9+deb14-*-di`) but also ~30 base/d-i udebs (`apt-setup-udeb`,
+`dbus-udeb`, `fdisk-udeb`, `grub-mount-udeb`, `exim4-*`, `util-linux-udeb`, …)
+whose versions the netinst carries are **newer than the `testing` snapshot** —
+the d-i build draws them from `unstable`. So: **the three-origin policy cannot be
+satisfied for the netinst's Debian d-i content from a single `testing` snapshot**;
+`refresh-substrate.sh` therefore fails loudly (exit 3) and prints the missing
+identities rather than admitting a fourth origin. The structural fix is the
+one-kernel ruling (ship OUR kernel + an initrd built from our module set, and stop
+merging Debian's kernel/module udebs) — see `docs/ONE-KERNEL.md` — which removes
+the kernel-module residual entirely; the non-kernel d-i udebs remain a
+documented, genuine gap that a newer netinst snapshot must close.
 
 ## Verification
 
@@ -389,7 +406,7 @@ though `rdump` leaves a directory behind.
    snapshot (`20261007T202437Z`, 107354 index entries), then checked both
    reviewed Vivaldi packages: 2 packages checked, 0 failures. This verifies
    snapshot compatibility; it does not accept any release image. (r203 re-pins
-   the snapshot to `20260926T000000Z`; the same offline gpgv chain verifies its
+   the snapshot to `20261005T120000Z`; the same offline gpgv chain verifies its
    committed `InRelease` fixture -- `build/testdata/forky-snapshot/InRelease`,
    sha256 `436c53ff...`.)
 2. **NCZ ledger coverage — CLOSED in r203** for the packages observed in the
