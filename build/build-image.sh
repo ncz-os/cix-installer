@@ -812,8 +812,10 @@ stage_provenance_inputs() {
 
     # 1. the offline mirror bytes vs the pinned signed snapshot + the ledgers
     if [ -d "$mirror/dists" ]; then
+        local -a mrec=()
+        [ -f "$receipt" ] && mrec=(--receipt "$receipt")
         if ( cd "$ROOT" && bash build/check-forky-provenance.sh \
-                 --verify-mirror "$mirror" --index-dir "$idx" "${fetch[@]}" ) >>"$log" 2>&1; then
+                 --verify-mirror "$mirror" --index-dir "$idx" "${mrec[@]}" "${fetch[@]}" ) >>"$log" 2>&1; then
             say "offline mirror verifies against the pinned snapshot + ledgers: $mirror"
         else
             bad "offline mirror $mirror has a package with an unreviewed origin (see the log)"
