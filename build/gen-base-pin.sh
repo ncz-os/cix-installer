@@ -35,9 +35,15 @@ case "${1:-}" in
 esac
 
 PY="$ROOT/build/lib/reproducible.py"
-sha_of() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
-# sha256 of a file's canonical (comment/order-normalised) form, or of raw bytes
 raw_sha_of() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
+# A missing core manifest is a hard error: a pin that silently omits an
+# authoritative source would look valid but not pin it.
+pin_manifest_sha() {
+    local f="$1" s
+    s="$(raw_sha_of "$ROOT/$f" || true)"
+    [ -n "$s" ] || { echo "gen-base-pin.sh: required manifest missing: $f" >&2; exit 1; }
+    printf '%s\n' "$s"
+}
 
 # --- snapshot -------------------------------------------------------------
 # shellcheck disable=SC1091
@@ -69,10 +75,10 @@ if [ -f "$ROOT/assets/singularity/upstream-pins.tsv" ]; then
 fi
 
 # --- manifest content pins ------------------------------------------------
-BUILD_INPUTS_SHA="$(raw_sha_of "$ROOT/manifests/build-inputs.tsv" || true)"
-VENDOR_DEBS_SHA="$(raw_sha_of "$ROOT/manifests/vendor-debs.tsv" || true)"
-NCZ_PACKAGES_SHA="$(raw_sha_of "$ROOT/manifests/ncz-packages.tsv" || true)"
-VENDOR_REPOS_SHA="$(raw_sha_of "$ROOT/manifests/vendor-repos.tsv" || true)"
+BUILD_INPUTS_SHA="$(pin_manifest_sha manifests/build-inputs.tsv)"
+VENDOR_DEBS_SHA="$(pin_manifest_sha manifests/vendor-debs.tsv)"
+NCZ_PACKAGES_SHA="$(pin_manifest_sha manifests/ncz-packages.tsv)"
+VENDOR_REPOS_SHA="$(pin_manifest_sha manifests/vendor-repos.tsv)"
 
 # optional prebuilt singularity payload rows:
 #   arch<TAB>sha256<TAB>source_revision

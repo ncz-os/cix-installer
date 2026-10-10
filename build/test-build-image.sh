@@ -198,4 +198,4 @@ grep -q 'preflight' <<<"$pf" && ok "plan includes preflight" || bad "plan omits 
 grep -qi 'substrate' <<<"$pf" && ok "plan reports substrate policy" || bad "plan omits substrate policy"
 
 printf '\n== build-image tests: %d passed, %d failed ==\n' "$PASS" "$FAIL"
-[ "$FAIL" = 0 ]
+if [ "$FAIL" = 0 ]; then exit 0; else exit 1; fi

@@ -62,11 +62,11 @@ compare_file() {
     local ha hb
     ha="$(sha_of "$fa")"; hb="$(sha_of "$fb")"
     if [ -z "$ha" ] || [ -z "$hb" ]; then
-        note "  $name: MISSING ($fa / $fb)"; RESULTS+=("{\"asset\":\"$name\",\"result\":\"missing\"}"); FAILS=1; return
+        note "  $name: MISSING ($fa / $fb)"; RESULTS+=("$name	missing			"); FAILS=1; return
     fi
     if [ "$ha" = "$hb" ]; then
         note "  $name: IDENTICAL ($ha)"
-        RESULTS+=("{\"asset\":\"$name\",\"result\":\"identical\",\"sha256\":\"$ha\"}")
+        RESULTS+=("$name	identical		$ha	$ha")
         return
     fi
     note "  $name: DIFF  a=$ha b=$hb"
@@ -104,14 +104,14 @@ compare_file() {
     fi
     if [ -n "$reason" ] && expects_rule "$name" "$reason"; then
         note "    ACCEPTED as $reason ($detail)"
-        RESULTS+=("{\"asset\":\"$name\",\"result\":\"$reason\",\"detail\":\"$detail\"}")
+        RESULTS+=("$name	$reason	$detail	$ha	$hb")
     elif expects_rule "$name" "documented-exception"; then
         note "    ACCEPTED as documented-exception ($detail)"
-        RESULTS+=("{\"asset\":\"$name\",\"result\":\"documented-exception\",\"detail\":\"$detail\"}")
+        RESULTS+=("$name	documented-exception	$detail	$ha	$hb")
     else
         note "    UNEXPLAINED DIFFERENCE ($detail)"
         FAILS=1
-        RESULTS+=("{\"asset\":\"$name\",\"result\":\"diff\",\"detail\":\"$detail\",\"sha_a\":\"$ha\",\"sha_b\":\"$hb\"}")
+        RESULTS+=("$name	diff	$detail	$ha	$hb")
     fi
 }
 
@@ -138,15 +138,32 @@ if [ -n "$LAYERS_A" ] && [ -n "$LAYERS_B" ]; then
     done
 fi
 
-# JSON report
+# JSON report -- emitted by python so paths/names are properly escaped (a raw
+# printf of a name containing a quote would produce invalid JSON).
 if [ -n "$REPORT" ]; then
     {
-      printf '{\n  "a": "%s",\n  "b": "%s",\n  "arch": "%s",\n  "verdict": "%s",\n  "assets": [\n' \
+      printf 'META\tA\t%s\nMETA\tB\t%s\nMETA\tARCH\t%s\nMETA\tVERDICT\t%s\n' \
         "$A" "$B" "$ARCH" "$([ "$FAILS" = 0 ] && echo deterministic || echo differing)"
-      sep="    "
-      for r in "${RESULTS[@]}"; do printf '%s%s' "$sep" "$r"; sep=$',\n    '; done
-      printf '\n  ]\n}\n'
-    } > "$REPORT" 2>/dev/null || true
+      for r in "${RESULTS[@]}"; do printf 'ROW\t%s\n' "$r"; done
+    } | python3 -I -c '
+import json, sys
+meta = {}; rows = []
+for line in sys.stdin:
+    line = line.rstrip("\n")
+    if not line:
+        continue
+    kind, _, rest = line.partition("\t")
+    if kind == "META":
+        k, _, v = rest.partition("\t"); meta[k] = v
+    elif kind == "ROW":
+        f = (rest.split("\t") + ["", "", "", "", ""])[:5]
+        rows.append({"asset": f[0], "result": f[1], "detail": f[2],
+                     "sha_a": f[3], "sha_b": f[4]})
+out = {"a": meta.get("A", ""), "b": meta.get("B", ""),
+       "arch": meta.get("ARCH", ""), "verdict": meta.get("VERDICT", ""),
+       "assets": rows}
+print(json.dumps(out, indent=2, sort_keys=True))
+' > "$REPORT" 2>/dev/null || true
     note "report: $REPORT"
 fi
 

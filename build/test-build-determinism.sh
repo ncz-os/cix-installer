@@ -239,4 +239,4 @@ else
 fi
 
 printf '\n== determinism tests: %d passed, %d failed, %d skipped ==\n' "$PASS" "$FAIL" "$SKIP"
-[ "$FAIL" = 0 ]
+if [ "$FAIL" = 0 ]; then exit 0; else exit 1; fi

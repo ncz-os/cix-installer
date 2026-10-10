@@ -10,9 +10,10 @@
 #
 #   build/stage-to-argonas.sh <arch> <image> <run-dir> [archive-dir]
 #
-# Copies: <image>, <image>.receipt.json (if present), <image>.sha256 (created),
-# and the run's build-image.log if a run dir is given.  Fails closed on any
-# sha mismatch or missing image.
+# Copies: <image>, <image>.receipt.json and <image>.gates.json (if present),
+# and <image>.sha256 (created).  When a run dir is given, the run's
+# <image>.sha256 sidecar is also written there.  Fails closed on any sha
+# mismatch or missing image.
 set -euo pipefail
 
 ARCH="${1:?usage: stage-to-argonas.sh <arch> <image> <run-dir> [archive-dir]}"
@@ -50,14 +51,19 @@ if [ -f "$DEST" ] && [ "$(sha_of "$DEST")" != "$IMG_SHA" ]; then
     exit 1
 fi
 
-echo "[stage] $IMG_SHA  $BASE" > "$RUN_DIR/$BASE.sha256" 2>/dev/null || true
+# Write the run-dir sidecar only when a real run dir was given (never /NAME).
+if [ -n "$RUN_DIR" ] && [ -d "$RUN_DIR" ]; then
+    echo "[stage] $IMG_SHA  $BASE" > "$RUN_DIR/$BASE.sha256" 2>/dev/null || true
+fi
 tmp="$ARCHIVE/.$BASE.part.$$"
 cp -f "$IMG" "$tmp" 2>/dev/null || { echo "[stage] FAIL: cannot write to $ARCHIVE" >&2; exit 1; }
 [ "$(sha_of "$tmp")" = "$IMG_SHA" ] || { rm -f "$tmp"; echo "[stage] FAIL: copy corrupted in transit" >&2; exit 1; }
 mv -f "$tmp" "$DEST"
 
 SIDE=0
-for s in "$IMG.receipt.json" "$RUN_DIR/$BASE.sha256"; do
+sidecars=("$IMG.receipt.json" "$IMG.gates.json")
+if [ -n "$RUN_DIR" ] && [ -d "$RUN_DIR" ]; then sidecars+=("$RUN_DIR/$BASE.sha256"); fi
+for s in "${sidecars[@]}"; do
     [ -f "$s" ] || continue
     cp -f "$s" "$ARCHIVE/$(basename "$s")" && SIDE=$((SIDE + 1))
 done
