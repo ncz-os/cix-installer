@@ -57,10 +57,13 @@ def _load_gate(path):
 
 def read_maybe(path):
     if path.endswith(".xz"):
-        return lzma.open(path, "rt", errors="replace").read()
+        with lzma.open(path, "rt", errors="replace") as f:
+            return f.read()
     if path.endswith(".gz"):
-        return gzip.open(path, "rt", errors="replace").read()
-    return open(path, errors="replace").read()
+        with gzip.open(path, "rt", errors="replace") as f:
+            return f.read()
+    with open(path, errors="replace") as f:
+        return f.read()
 
 
 def parse_versions(text):
@@ -140,6 +143,21 @@ def _cmp(a, b):
     return _CMP(a, b)
 
 
+def _load_index_dir(d):
+    """{name: [(version, arch)]} from every Packages index under a directory
+    (an offline --index-dir/--latest-dir cache)."""
+    import glob
+    out = {}
+    for f in glob.glob(os.path.join(d, "**", "Packages*"), recursive=True):
+        try:
+            text = read_maybe(f)
+        except Exception:  # noqa: BLE001
+            continue
+        for name, vers in parse_versions(text).items():
+            out.setdefault(name, []).extend(vers)
+    return out
+
+
 def main():
     global _CMP
     ap = argparse.ArgumentParser()
@@ -160,21 +178,23 @@ def main():
 
     # trust: pinned snapshot
     snap = ""
-    for line in open(a.trust, errors="replace"):
-        if line.startswith("snapshot\t"):
-            snap = line.split("\t", 1)[1].strip()
+    with open(a.trust, errors="replace") as fh:
+        for line in fh:
+            if line.startswith("snapshot\t"):
+                snap = line.split("\t", 1)[1].strip()
     rows = []
-    for n, line in enumerate(open(a.ledger, errors="replace"), 1):
-        if line.startswith("#") or not line.strip():
-            continue
-        f = line.rstrip("\n").split("\t")
-        if len(f) < 13:
-            print(f"ERROR: {a.ledger}:{n} needs 13 columns", file=sys.stderr)
-            return 2
-        rows.append({"name": f[0], "version": f[1], "arch": f[2], "sha256": f[3],
-                     "class": f[4], "forky_version": f[5], "gap": f[6],
-                     "reason": f[7], "first_seen": f[8], "snapshot": f[9],
-                     "owner_action": f[10], "review_by": f[11], "tracking": f[12]})
+    with open(a.ledger, errors="replace") as fh:
+        for n, line in enumerate(fh, 1):
+            if line.startswith("#") or not line.strip():
+                continue
+            f = line.rstrip("\n").split("\t")
+            if len(f) < 13:
+                print(f"ERROR: {a.ledger}:{n} needs 13 columns", file=sys.stderr)
+                return 2
+            rows.append({"name": f[0], "version": f[1], "arch": f[2], "sha256": f[3],
+                         "class": f[4], "forky_version": f[5], "gap": f[6],
+                         "reason": f[7], "first_seen": f[8], "snapshot": f[9],
+                         "owner_action": f[10], "review_by": f[11], "tracking": f[12]})
 
     work = a.work or os.path.join(os.path.expanduser("~"), ".cache", "ncz-sid-exceptions")
     os.makedirs(work, exist_ok=True)
@@ -249,16 +269,19 @@ def main():
         rec = {}
         if os.path.isfile(a.receipt):
             try:
-                rec = json.loads(open(a.receipt).read())
+                with open(a.receipt) as fh:
+                    rec = json.load(fh)
             except Exception:  # noqa: BLE001
                 rec = {}
         if not isinstance(rec, dict):
             rec = {}
+        with open(a.ledger, "rb") as fh:
+            ledger_sha = hashlib.sha256(fh.read()).hexdigest()
         rec["sid_exceptions"] = {
             "count_per_arch": {k: counts.get(k, 0) for k in ("amd64", "arm64")},
             "total_rows": len(rows),
             "trend": trend,
-            "ledger_sha256": hashlib.sha256(open(a.ledger, "rb").read()).hexdigest(),
+            "ledger_sha256": ledger_sha,
             "snapshot": snap,
             "generated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
@@ -272,19 +295,6 @@ def main():
               f"required", file=sys.stderr)
         return 1
     return 0
-
-
-def _load_index_dir(d):
-    out = {}
-    import glob
-    for f in glob.glob(os.path.join(d, "**", "Packages*"), recursive=True):
-        try:
-            text = read_maybe(f)
-        except Exception:  # noqa: BLE001
-            continue
-        for name, vers in parse_versions(text).items():
-            out.setdefault(name, []).extend(vers)
-    return out
 
 
 if __name__ == "__main__":
