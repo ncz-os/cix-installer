@@ -490,3 +490,8 @@ manifests/forky-snapshot.tsv	common	-	immutable trust metadata for the BUILD pin
 manifests/keys/debian-archive-keyring.gpg	common	-	official Debian archive signing keyring used by gpgv to verify the pinned snapshot Release
 docs/FORKY-PROVENANCE.md	common	-	policy + design for the forky-provenance gate: trust root, signed-index chain, NCZ ledger, apt allowlist, blockers
 build/testdata/forky-snapshot/InRelease	common	-	the real pinned snapshot.debian.org InRelease (20261007T202437Z) fixture used to prove production keyring/digest compatibility offline
+build/preseed-known-keys.txt	common	-	allow-list of debconf keys preseed/preseed.cfg may set; a new key must be added here with a reason; enforced by build/test-preseed-consistency.sh
+build/preseed-runtime-overrides.txt	common	-	debconf keys intentionally set by both preseed.cfg and a runtime helper (db_set); unlisted double-sets fail build/test-preseed-consistency.sh
+build/test-preseed-consistency.sh	common	-	guards the one-authoritative-preseed contract: conflicting/duplicate keys, unknown keys, unlisted runtime double-sets, per-arch variants; --self-test proves the guard by mutation
+build/test-install-feedback.sh	common	-	acceptance test: milestone INFO feedback from post-install/lib/progress-msg.sh, ASCII, bounded, in hook order (run-all end to end)
+post-install/lib/progress-msg.sh	common	-	ncz_msg(): one-line milestone feedback into run-all progress.tsv/progress.state + the d-i log VT, for long user-visible post-install steps (never FAIL/WARN)
