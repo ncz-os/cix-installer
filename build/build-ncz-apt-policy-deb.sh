@@ -92,10 +92,17 @@ exit 0
 POSTRM
 chmod 0755 "$WORK/DEBIAN/postinst" "$WORK/DEBIAN/postrm"
 
-if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
-    SOURCE_DATE_EPOCH="$(git -C "$ROOT" log -1 --format=%ct -- post-install/lib/apt-separation.sh build/build-ncz-apt-policy-deb.sh 2>/dev/null || true)"
-    : "${SOURCE_DATE_EPOCH:=1790000000}"
-fi
+# mtime epoch: scoped to THIS package's own inputs, NOT the build's global
+# SOURCE_DATE_EPOCH.  build-image.sh exports SOURCE_DATE_EPOCH = the git commit
+# time of HEAD, which changes on every -- even unrelated -- commit; that made
+# this Architecture:all deb's bytes (and so its reviewed ledger row in
+# manifests/ncz-packages.tsv) change on unrelated commits, which cannot be a
+# stable reviewed pin.  Anchor the epoch to the last commit that touched the
+# packaging script or the packaged library, so the sha only moves when the
+# package itself moves.  (r203 provenance finding; pairs with the host-independent
+# Installed-Size above.)
+SOURCE_DATE_EPOCH="$(git -C "$ROOT" log -1 --format=%ct -- post-install/lib/apt-separation.sh build/build-ncz-apt-policy-deb.sh 2>/dev/null || true)"
+: "${SOURCE_DATE_EPOCH:=1790000000}"
 export SOURCE_DATE_EPOCH
 find "$WORK" -type d -exec chmod 0755 {} +
 chmod 0644 "$WORK/usr/share/doc/$PKG/README"
