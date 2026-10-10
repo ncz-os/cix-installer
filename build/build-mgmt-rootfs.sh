@@ -46,7 +46,15 @@ MIRROR="${5:-${NCZ_BASE_MIRROR:-https://deb.debian.org/debian}}"
 
 ncz_require_debian_forky "$SUITE" "$MIRROR" "${NCZ_BASE_NAME:-}" || exit 1
 COMPONENTS="${NCZ_BASE_COMPONENTS:-main contrib non-free non-free-firmware}"
-DEBOOTSTRAP_KEYRING="/usr/share/keyrings/debian-archive-keyring.gpg"
+# debootstrap must verify the Release signature.  Prefer the host keyring; on
+# a non-Debian build host (e.g. Ubuntu ACHILLES) it is absent, so fall back to
+# the repo's COMMITTED Debian archive keyring (manifests/keys/, the same one the
+# provenance gate gpgv-checks against) rather than building unverified.
+DEBOOTSTRAP_KEYRING="${NCZ_DEBOOTSTRAP_KEYRING:-/usr/share/keyrings/debian-archive-keyring.gpg}"
+if [ ! -f "$DEBOOTSTRAP_KEYRING" ] && [ -f "$ROOT/manifests/keys/debian-archive-keyring.gpg" ]; then
+    DEBOOTSTRAP_KEYRING="$ROOT/manifests/keys/debian-archive-keyring.gpg"
+fi
+[ -f "$DEBOOTSTRAP_KEYRING" ] || { echo "FATAL: no debootstrap keyring (set NCZ_DEBOOTSTRAP_KEYRING)" >&2; exit 1; }
 
 PKG_MANIFEST="$ROOT/manifests/mgmt.pkgs"
 
