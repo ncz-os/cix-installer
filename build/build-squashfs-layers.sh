@@ -391,6 +391,20 @@ apt_offline(){ local c="$1"
     sudo mkdir -p "$c/mnt/$m"; sudo mount -o bind "$ROOT/build/$m" "$c/mnt/$m"
     echo "deb [trusted=yes] file:///mnt/$m $APT_SUITE $APT_COMPONENTS" | sudo tee -a "$c$NCZ_OFFLINE_SRC" >/dev/null
   done
+  # r202: reproducibility. The pinned offline mirror is a file:// repo, which
+  # apt weights at priority 100 -- LOWER than any remote archive (500). Once a
+  # base hook (24-apt-sources.sh) rewrites the runtime sources, apt therefore
+  # prefers the live moving testing archive and the layer drifts off the pin.
+  # Observed 2026-10-10: a live libpng16-16t64 1.6.59-1 landed in base while the
+  # pinned mirrors and the desktop layer carried 1.6.58-1, and the desktop delta
+  # then became unsatisfiable. Pin the offline mirror (empty origin == local
+  # file://) above every remote source for the build only; packages absent from
+  # the offline set still resolve remotely, but a package present in both can
+  # never be taken from the moving archive.
+  if [ "$_mirror_found" = 1 ]; then
+    sudo install -d -m 0755 "$c/etc/apt/preferences.d"
+    printf "Package: *\nPin: origin \"\"\nPin-Priority: 1001\n" | sudo tee "$c/etc/apt/preferences.d/00-ncz-build-offline-priority.pref" >/dev/null
+  fi
   # No local mirror on this host: apt_offline() previously left the chroot
   # with ZERO apt sources in this case (every pre-existing one disabled
   # above, nothing re-added), which is fine for the reproducibility
@@ -443,6 +457,7 @@ apt_unmount(){ local c="$1"
   sudo rm -f "$c/etc/apt/sources.list.d/ncz-os-apt-buildkite-live.list" \
              "$c/etc/apt/sources.list.d/ncz-os-apt-r2-live.list" \
              "$c/etc/apt/sources.list.d/ncz-base-live.list" 2>/dev/null || true
+  sudo rm -f "$c/etc/apt/preferences.d/00-ncz-build-offline-priority.pref" 2>/dev/null || true
   # Restore the sources we moved aside, so the installed system keeps its own
   # apt configuration. Leaving them disabled would ship an image that cannot
   # update itself.

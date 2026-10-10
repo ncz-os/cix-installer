@@ -87,6 +87,8 @@ import argparse
 import gzip
 import hashlib
 import json
+import os
+import re
 import shutil
 import socket
 import struct
@@ -616,6 +618,49 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     receipt["architecture_assets_staged"] = copied_assets
     log(f"    architecture assets staged ({arch}): {copied_assets}")
 
+    # Build-timestamped NCZ payload debs: record the exact identity+sha256 of the
+    # bytes staged for THIS image.  The version embeds a build timestamp so the
+    # deb cannot be statically sha-pinned; the provenance gate authorizes it only
+    # via exact name + version regex (manifests/ncz-timestamped.tsv) + this
+    # receipt entry.  A declared package that is not staged, or whose staged
+    # version misses the reviewed regex, fails the build here.
+    ts_tsv = REPO_ROOT / "manifests" / "ncz-timestamped.tsv"
+    if ts_tsv.is_file():
+        decl = {}
+        for line in ts_tsv.read_text(encoding="utf-8").splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            f = line.split("\t")
+            if len(f) >= 6:
+                decl[(f[0], f[2])] = re.compile(f[1])
+        required = {k for k in decl if k[1] in (arch, "all")}
+        ts_rec = []
+        seen = set()
+        for deb in sorted(ncz_payload_dst.rglob("*.deb")):
+            r = subprocess.run(
+                ["dpkg-deb", "-f", str(deb), "Package", "Version", "Architecture"],
+                capture_output=True, text=True)
+            if r.returncode != 0:
+                continue
+            d = dict(ln.split(": ", 1) for ln in r.stdout.splitlines() if ": " in ln)
+            name, ver, darch = (d.get("Package", ""), d.get("Version", ""),
+                                d.get("Architecture", ""))
+            rx = decl.get((name, darch))
+            if rx is None or not rx.match(ver):
+                continue
+            ts_rec.append({"filename": deb.name, "name": name, "version": ver,
+                           "arch": darch, "sha256": sha256_file(deb)})
+            seen.add((name, darch))
+        missing = sorted(required - seen)
+        if missing:
+            raise RuntimeError(
+                "FATAL: build-timestamped NCZ package(s) declared in "
+                f"manifests/ncz-timestamped.tsv but not staged for {arch}: {missing}")
+        receipt["ncz_timestamped_debs"] = ts_rec
+        if ts_rec:
+            log("    build-timestamped NCZ debs recorded in receipt: "
+                f"{[e['filename'] for e in ts_rec]}")
+
     # Media identity/metadata. late.sh copies BUILD_VERSION / BUILD_DATE /
     # BUILD_HOST / BUILD_ARCH / RELEASE off the medium into
     # /target/{etc,usr/local/lib}/cix-installer, where 50-brand.sh reads the
@@ -652,6 +697,29 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         log(f"    preseed/ staged: {preseed_staged}")
 
     return receipt
+
+
+KERNEL_ARTIFACT_NAME_RE = re.compile(
+    r"^(linux-image|linux-headers|linux-modules|linux-binary|kernel-image)"
+    r"|^linux-base-"
+    r"|.+-modules-.+-di$|.+-binary-.+-di$")
+
+
+def filter_substrate_kernel_artifacts(pool_dir: Path) -> int:
+    """One-kernel policy: remove Debian kernel/module/binary udebs+debs from a
+    merged /cdrom pool copy.  NCZ kernels (names containing cixmini/ncz) are
+    kept.  UNPROVEN until the KVM install gate passes on a rebuilt image."""
+    removed = 0
+    for p in sorted(pool_dir.rglob("*")):
+        if not p.is_file() or p.suffix not in (".deb", ".udeb"):
+            continue
+        pkg = p.name.split("_", 1)[0]
+        if "cixmini" in pkg or "ncz" in pkg:
+            continue
+        if KERNEL_ARTIFACT_NAME_RE.search(pkg):
+            p.unlink()
+            removed += 1
+    return removed
 
 
 def stage_offline_mirror(stage_dir: Path, arch: str,
@@ -711,6 +779,17 @@ def stage_offline_mirror(stage_dir: Path, arch: str,
         raise RuntimeError(f"FATAL: installer udeb pool missing: {installer_pool}")
     shutil.copytree(installer_pool, stage_dir / "pool", dirs_exist_ok=True,
                     symlinks=True)
+    # One-kernel policy (docs/ONE-KERNEL.md).  When NCZ_ONE_KERNEL=1, drop the
+    # substrate's Debian kernel/module/binary udebs from the merged /cdrom pool
+    # so the image carries only OUR kernel.  UNPROVEN until
+    # build/kvm-install-gate-gpt.sh reaches "finish the installation" on a
+    # rebuilt image (the installer still needs its own kernel+initrd -- see
+    # docs/ONE-KERNEL.md step 2); default-OFF so the unverified path is
+    # unchanged.
+    if os.environ.get("NCZ_ONE_KERNEL") == "1":
+        removed = filter_substrate_kernel_artifacts(stage_dir / "pool")
+        log(f"    one-kernel: removed {removed} Debian kernel/module artifact(s) "
+            f"from the merged /cdrom pool")
     installer_index = (stage_dir / "dists" / suite / "main" /
                        "debian-installer" / f"binary-{arch}")
     installer_index.mkdir(parents=True, exist_ok=True)
@@ -1191,6 +1270,11 @@ def main() -> int:
             "data_img_size": data_size,
             "partitions": part_info,
             "ncz_payload": payload_receipt,
+            # Top-level convenience copy: the sha256 of every build-timestamped
+            # NCZ payload deb actually staged (manifests/ncz-timestamped.tsv).
+            # build/forky-provenance.py cross-checks the bytes it scans against
+            # this map; a timestamped package absent here fails closed.
+            "ncz_timestamped_debs": payload_receipt.get("ncz_timestamped_debs", []),
         }
         receipt_path = args.out.with_suffix(args.out.suffix + ".receipt.json")
         receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))

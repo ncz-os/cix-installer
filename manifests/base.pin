@@ -1,0 +1,10 @@
+# manifests/base.pin -- the single BUILD+provenance base pin.
+# Substrate (Debian testing netinst) sha256 + its archive date, and the
+# snapshot.debian.org timestamp DERIVED from it (the snapshot that
+# authorizes the most of the netinst's own package identities).  Written
+# by build/refresh-substrate.sh; the provenance gate fails if the pinned
+# snapshot does not authorize the substrate, or if the substrate is
+# older than NCZ_SUBSTRATE_MAX_AGE_DAYS at build time.
+# arch	substrate_sha256	substrate_date	snapshot	coverage_pct	source_url
+amd64	123a250b716f09854ff47de44fa420660b9aaa425745adb66f24cf8cc2de4408	Mon, 05 Oct 2026 02:11:49 UTC	20261005T120000Z	100.0	https://cdimage.debian.org/cdimage/weekly-builds/amd64/iso-cd/debian-testing-amd64-netinst.iso
+arm64	b6f455d129f97e81a7fa50c881684102bff2a053a2235172707811049481f54e	Mon, 05 Oct 2026 02:11:49 UTC	20261005T120000Z	100.0	https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/debian-testing-arm64-netinst.iso
