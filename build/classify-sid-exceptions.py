@@ -164,6 +164,40 @@ def iso_di_identities(iso: str, arch: str, scratch: str) -> dict:
     return out
 
 
+def initrd_identities(initrd: str, scratch: str) -> list:
+    """The (name, version) identities carried in the substrate's d-i initrd.
+
+    The netinst's installer initrd unpacks a d-i/udpkg dpkg status that lists
+    udebs the ISO's own `/dists` indexes do NOT always list (the initrd is a
+    superset: e.g. `cdrom-detect`, `libssl3-udeb`, `libcrypto3-udeb`,
+    `libexpat1-udeb` at their sid versions).  Those records are still shipped
+    into the image and must be classified, or the gate flags them as
+    sid d-i packages with no reviewed row.
+    """
+    dest = os.path.join(scratch, "substrate_initrd_status")
+    if not (os.path.isfile(dest) and os.path.getsize(dest) > 0):
+        try:
+            with open(dest, "wb") as o:
+                p1 = subprocess.Popen(["gzip", "-dc", initrd],
+                                      stdout=subprocess.PIPE,
+                                      stderr=subprocess.DEVNULL)
+                subprocess.run(["cpio", "-i", "--to-stdout",
+                                "var/lib/dpkg/status"],
+                               stdin=p1.stdout, stdout=o,
+                               stderr=subprocess.DEVNULL)
+                p1.stdout.close()
+                p1.wait()
+        except OSError:
+            return []
+        if not (os.path.isfile(dest) and os.path.getsize(dest) > 0):
+            return []
+    ids = []
+    for d in parse_stanzas(open(dest, errors="replace").read()):
+        if d.get("Package") and d.get("Version"):
+            ids.append((d["Package"], d["Version"]))
+    return ids
+
+
 def dparse(v: str) -> tuple[int, str, str]:
     epoch = 0
     rest = v or ""
@@ -212,6 +246,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--arch", required=True, choices=["amd64", "arm64"])
     ap.add_argument("--iso", required=True)
+    ap.add_argument("--initrd", default="",
+                    help="the substrate's d-i initrd.gz; its dpkg status adds "
+                         "identities the ISO's /dists indexes omit (classified "
+                         "against the same pinned snapshot + sid d-i index)")
     ap.add_argument("--snapshot", required=True)
     ap.add_argument("--scratch", required=True)
     ap.add_argument("--ledger", default="")
@@ -247,6 +285,21 @@ def main() -> int:
     sub = iso_di_identities(a.iso, a.arch, a.scratch)
     if not sub:
         die("no substrate identities extracted from the iso")
+
+    if a.initrd:
+        if not os.path.isfile(a.initrd):
+            die(f"initrd not found: {a.initrd}")
+        merged = 0
+        for (nm, vr) in initrd_identities(a.initrd, a.scratch):
+            for (sn, sv, sa), rec in siddi.items():
+                if sn == nm and sv == vr and (sn, sv, sa) not in sub:
+                    sub[(sn, sv, sa)] = {
+                        "filename": rec.get("filename", ""),
+                        "sha256": rec.get("sha256", ""),
+                        "size": rec.get("size", ""), "index": "initrd"}
+                    merged += 1
+        print(f"initrd: merged {merged} substrate d-i identity(ies) from "
+              f"{a.initrd}")
 
     rows = []
     unauth = []
