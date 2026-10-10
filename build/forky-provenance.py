@@ -732,6 +732,15 @@ def classify(ref, src, name, ver, arch, maint, sha=None):
     n = ref.ncz.get(key)
     if n is not None:
         if sha and sha not in n:
+            # An NCZ identity whose BYTES are not a reviewed NCZ build may
+            # still be authorized by the pinned snapshot when those exact bytes
+            # are the upstream build the NCZ package derives from (e.g. the
+            # UNPATCHED debootstrap-udeb that build/iso/patch-debootstrap-stub.py
+            # patches).  Only the snapshot's exact bytes qualify; anything else
+            # still fails.
+            esha = ref.idx.get(key, (None,))[0]
+            if esha and sha == esha:
+                return "forky"
             fail(src, what,
                  f"NCZ ledger sha256 mismatch: {sha[:16]}.. not a reviewed sha256 "
                  f"for this identity")
@@ -1013,8 +1022,10 @@ def source_ok(ref, uri, suite):
         if r["scheme"] != scheme or r["host"] != host:
             continue
         if r["kind"] == "debian-pin":
+            # A trailing slash is semantically identical (a real rootfs writes
+            # `.../archive/debian/<pin>/`); compare with it normalised.
             want = r["path"].replace("<pin>", ref.pin)
-            if path == want and suite == ref.codename:
+            if path.rstrip("/") == want.rstrip("/") and suite == ref.codename:
                 return None
             continue
         if path != r["path"]:
