@@ -816,11 +816,17 @@ stage_refresh_sources() {
 # ---------------------------------------------------------------------------
 stage_layers() {
     local log="$1"
+    # The layer build regenerates the forky base rootfs in a container and
+    # requires TMPDIR to be BENEATH the repo root (build-base-rootfs.sh) so the
+    # scratch dir can be bind-mounted into the container.  The run-dir TMPDIR
+    # (outside the tree) is fine for every other stage; override it here.
+    local ltmp="$ROOT/build/.ncz-tmp"
+    mkdir -p "$ltmp"
     # stage 1 drives host mount/chroot/mksquashfs (r202 workaround #1/#2: it is
     # not rootless; ncz_sudo provides the documented privilege model).  It must
     # run on the host, never nested in the container (arm64 report #4).  The
     # layer plan (NCZ_LAYER_PLAN) tells it which layers to reuse vs rebuild.
-    ( cd "$ROOT" && NCZ_TARGET_ARCH="$ARCH" NCZ_LAYER_PLAN="$NCZ_LAYER_PLAN" \
+    ( cd "$ROOT" && TMPDIR="$ltmp" NCZ_TARGET_ARCH="$ARCH" NCZ_LAYER_PLAN="$NCZ_LAYER_PLAN" \
         bash build/build-squashfs-layers.sh all ) 2>&1 | tee -a "$log"
     return "${PIPESTATUS[0]}"
 }
