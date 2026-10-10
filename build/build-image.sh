@@ -1113,7 +1113,16 @@ stage_layers() {
                      --chain "$chain" --layer "$l" --append)
         case "$l" in
             base)  [ -f "$ROOT/manifests/installer-base-${ARCH}.pkgs" ] && ca+=(--manifest "$ROOT/manifests/installer-base-${ARCH}.pkgs") ;;
-            desktop) [ -f "$manf" ] && ca+=(--manifest "$manf") ;;
+            desktop)
+                # Use the ARCH-SPECIFIC seed list: the generic desktop.pkgs also
+                # carries the other arch's / build-only packages which must not
+                # ship in this layer.
+                if [ -f "$ROOT/manifests/desktop-${ARCH}.pkgs" ]; then
+                    ca+=(--manifest "$ROOT/manifests/desktop-${ARCH}.pkgs")
+                elif [ -f "$manf" ]; then
+                    ca+=(--manifest "$manf")
+                fi
+                ;;
         esac
         [ -n "${NCZ_SINGULARITY_PREBUILT_DEB:-}" ] && ca+=(--payload-deb "$NCZ_SINGULARITY_PREBUILT_DEB")
         [ -n "$prev" ] && ca+=(--prev "$prev")
