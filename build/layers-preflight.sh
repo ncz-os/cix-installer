@@ -61,6 +61,7 @@ STRICT=0
 JSON=0
 FREE_GB_MIN="${NCZ_LAYERS_MIN_FREE_GB:-60}"
 LOCK_FILE="${NCZ_BUILD_LOCK:-}"
+LOCK_OWNER="${NCZ_BUILD_LOCK_OWNER:-}"
 DRY_DF=""
 DEB_DIRS=()
 SCRATCH_ROOTS=()      # override the run-owned scratch roots (tests)
@@ -85,6 +86,7 @@ while [ "$#" -gt 0 ]; do
         --strict)      STRICT=1; shift ;;
         --json)        JSON=1; shift ;;
         --lock-file)   LOCK_FILE="${2:-}"; shift 2 ;;
+        --lock-owner)  LOCK_OWNER="${2:-}"; shift 2 ;;
         --df-fixture)  DRY_DF="${2:-}"; shift 2 ;;   # test hook: file with `df -Pk` output
         --deb-dir)     DEB_DIRS+=("${2:-}"); shift 2 ;;      # override scanned deb dirs (tests)
         --scratch)     SCRATCH_ROOTS+=("${2:-}"); shift 2 ;;  # override scratch roots (tests)
@@ -130,6 +132,18 @@ warn() { _rec "$1" WARN "$2"; printf '[layers-preflight] WARN %-16s %s\n' "$1" "
 
 # helper: sha256 of a file (portable)
 _sha() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
+
+# Is pid $1 an ancestor of this process (i.e. our own build tree)?
+_is_ancestor() {
+    local want="$1" p=$$ pp
+    while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null; do
+        [ "$p" = "$want" ] && return 0
+        pp="$(sed 's/.*) //' "/proc/$p/stat" 2>/dev/null | awk '{print $2}')"
+        [ -z "$pp" ] && break
+        p="$pp"
+    done
+    return 1
+}
 # helper: dpkg-deb field
 _dfield() { dpkg-deb -f "$1" "$2" 2>/dev/null || true; }
 
@@ -417,13 +431,17 @@ check_resources() {
         ok resources "privilege model: $pm"
     fi
 
-    # no other build holding the lock
+    # no OTHER build holding the lock (our own build's lock is expected here)
     if [ -n "$LOCK_FILE" ] && [ -f "$LOCK_FILE" ]; then
         local holder; holder="$(cat "$LOCK_FILE" 2>/dev/null | tr -dc '0-9' | head -c 12)"
-        if [ -n "$holder" ] && [ "$holder" != "$$" ] && kill -0 "$holder" 2>/dev/null; then
+        if [ -z "$holder" ]; then
+            ok resources "build lock present but empty/stale"
+        elif [ "$holder" = "$$" ] || { [ -n "$LOCK_OWNER" ] && [ "$holder" = "$LOCK_OWNER" ]; } || _is_ancestor "$holder"; then
+            ok resources "this build holds the lock (pid $holder)"
+        elif kill -0 "$holder" 2>/dev/null; then
             bad resources "another build holds the lock ($LOCK_FILE, pid $holder)"
         else
-            ok resources "build lock present but stale (pid ${holder:-?} not alive)"
+            ok resources "build lock present but stale (pid $holder not alive)"
         fi
     else
         ok resources "no other build holding the lock"

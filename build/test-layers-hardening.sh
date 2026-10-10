@@ -161,6 +161,17 @@ out="$(PF --run-dir "$T/r1" --no-payload --df-fixture "$dfok" --scratch "$T/scra
 grep -q 'SOURCE_DATE_EPOCH is not set' <<<"$out" && ok "SOURCE_DATE_EPOCH unset -> resources FAIL" \
     || bad "SOURCE_DATE_EPOCH unset not detected"
 
+# (6b) build-lock ownership: our own build's lock is expected (PASS), a foreign
+# live holder FAILS
+lockf="$T/r1-lock"; printf '%s\n' "$$" > "$lockf"
+out="$(PF --run-dir "$T/r1" --no-payload --df-fixture "$dfok" --scratch "$T/scratch-clean" --lock-file "$lockf" --lock-owner "$$" 2>&1)"
+grep -q 'this build holds the lock' <<<"$out" && ok "own build lock recognized (--lock-owner)" || bad "own build lock flagged as foreign"
+sleep 300 & extpid=$!
+printf '%s\n' "$extpid" > "$lockf"
+out="$(PF --run-dir "$T/r1" --no-payload --df-fixture "$dfok" --scratch "$T/scratch-clean" --lock-file "$lockf" 2>&1)"
+grep -q 'another build holds the lock' <<<"$out" && ok "a foreign live lock FAILS" || bad "foreign lock not detected"
+kill "$extpid" 2>/dev/null
+
 # (7) inputs: duplicate versions -> FAIL; prov tool rejecting -> inputs-unique FAIL
 mk_debdir() {  # dir, name, version
     local d="$1" n="$2" v="$3"; mkdir -p "$d"
