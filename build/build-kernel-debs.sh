@@ -35,13 +35,18 @@ OUT="$REPO/build/kernel-debs"
 # builds of the SAME staged kernel 20 s apart produced four different sha256s
 # because every staged file kept its wall-clock mtime and Installed-Size came
 # from `du -sk` (allocated blocks, filesystem-dependent -- the same defect the
-# peer fixed for ncz-apt-policy 1.0.1).  Anchor SOURCE_DATE_EPOCH to the last
-# commit that touched THIS packaging script, NOT the build's global git-commit
-# epoch (which moves on every unrelated commit), then clamp every staged mtime
-# to it before dpkg-deb and compute Installed-Size from the actual file sizes.
-# The bytes then change only when the package itself changes.
-SOURCE_DATE_EPOCH="$(git -C "$REPO" log -1 --format=%ct -- build/build-kernel-debs.sh 2>/dev/null || true)"
-: "${SOURCE_DATE_EPOCH:=1790000000}"
+# peer fixed for ncz-apt-policy 1.0.1).  Anchor SOURCE_DATE_EPOCH to the PINNED
+# substrate snapshot epoch (manifests/base.pin), NOT the packaging script's own
+# commit time and NOT the build's global git-commit epoch: a commit anchor moves
+# on every rebase (the arm64 "pinned reproduction" is a rebased branch) and
+# forces a ledger re-derivation each time; the snapshot column is the stable
+# build-wide temporal anchor.  Then clamp every staged mtime to it before
+# dpkg-deb and compute Installed-Size from the actual file sizes.  The bytes
+# change only when the package content changes.
+_kernel_sde_stamp="$(awk -F'\t' '$1=="arm64"{print $4}' "$REPO/manifests/base.pin" 2>/dev/null | head -1)"
+SOURCE_DATE_EPOCH="$(python3 -I "$REPO/build/lib/reproducible.py" snapshot-epoch \
+    "${_kernel_sde_stamp:-20261005T120000Z}" 2>/dev/null || true)"
+: "${SOURCE_DATE_EPOCH:=1791201600}"   # 20261005T120000Z fallback
 export SOURCE_DATE_EPOCH
 # host-independent Installed-Size (KiB, rounded up): sum real file sizes
 installed_size_kb() {
