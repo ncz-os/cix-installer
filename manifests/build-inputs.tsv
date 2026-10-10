@@ -4,8 +4,8 @@
 # Update a pin ONLY with `build/stage-build-inputs.sh --arch <a> --publish` from the tree that
 # holds the new file, then commit this file.
 # arch	dest	sha256	size	note
-amd64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	ca90d5c2d797a650d207669a5223bf57085f6d4455f0ae905fee3147f98568b1	55430762	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky amd64)
-amd64	assets/rescue/rescue-rootfs-amd64.tar.zst	3e981e440fd2726f4eddadaeaa6874958884afd3351e4b707fafcac6d443289f	212914480	rescue partition rootfs (build/build-rescue-rootfs.sh)
+amd64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	99ad267e46d35db18aec31e316ed120609173a9b55ae753f3a7e1564a6c4589f	55398080	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky amd64; rebuilt at pinned snapshot 20261005T120000Z)
+amd64	assets/rescue/rescue-rootfs-amd64.tar.zst	9898c1975c1ef2f58a525439b1ae343c77273597167fa1835fc68dfc8284c02f	213861137	rescue partition rootfs (build/build-rescue-rootfs.sh; rebuilt at pinned snapshot 20261005T120000Z)
 arm64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	2203812256d269da51c59c407d8e554ca2f860c2cda34ed544c19eee6e1b520b	52917232	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky arm64)
 arm64	assets/rescue/rescue-rootfs-arm64.tar.zst	0581eebf8c3f3b9a891785b899a703920de665a8108667e56a9e27007a04816f	200419355	rescue partition rootfs (build/build-rescue-rootfs.sh)
 amd64	assets/python311/cpython-3.11.17+20261003-x86_64-unknown-linux-gnu-install_only.tar.gz	c624af93ad62a596806bbd2404e1fb80744a407ca7279854445ede16d93858b8	48919491	relocatable CPython 3.11 (build/build-python311-assets.sh)
