@@ -6,14 +6,16 @@ The netinst's own signed `dists/<codename>/*/Packages` indexes name every
 package identity (name, version, arch) the substrate ships.  This tool reads
 them from the ISO (xorriso), then tries candidate snapshot.debian.org timestamps
 around the substrate's own Release date, fetches the same component indexes from
-each, and picks the snapshot that authorizes the LARGEST number of the netinst's
+each -- the codename's full set PLUS the same snapshot's development suite's
+debian-installer indexes (the netinst's d-i udebs are built from sid) -- and
+picks the snapshot that authorizes the LARGEST number of the netinst's
 identities.
 
 The result is written to manifests/base.pin (substrate sha256 + date + the
 chosen snapshot + measured coverage).  Exit 0 only when the best coverage meets
 --min-coverage (default 99); otherwise exit 3 and print the unauthorized
-identities -- the substrate is then stale relative to testing (a newer weekly is
-needed), NOT a reason to add a fourth origin.
+identities -- the substrate is then stale (a newer weekly is needed), NOT a
+reason to add a fourth origin.
 """
 from __future__ import annotations
 
@@ -29,6 +31,10 @@ import sys
 import urllib.request
 
 COMPONENTS = ("main", "contrib", "non-free-firmware")
+# The pinned snapshot's development suite: the netinst substrate's d-i udebs are
+# built from it, so its debian-installer indexes take part in the measurement
+# (its runtime packages do not).  Mirrors manifests/forky-snapshot.tsv di_suite.
+DI_SUITE = "sid"
 SNAP = "https://snapshot.debian.org/archive/debian"
 KERNEL_RE = None  # set in main
 
@@ -100,29 +106,35 @@ def netinst_identities(iso: str, arch: str, scratch: str) -> tuple[set, str]:
 def snapshot_identities(ts: str, arch: str, cache: str) -> set:
     os.makedirs(cache, exist_ok=True)
     ident = set()
-    paths = []
-    for comp in COMPONENTS:
-        for x in (arch, "all"):
-            paths.append((comp, x, f"{comp}/binary-{x}/Packages.xz"))
-    for x in (arch, "all"):
-        paths.append(("main", x, f"main/debian-installer/binary-{x}/Packages.xz"))
-    for _comp, _x, relpath in paths:
-        f = os.path.join(cache, ts + "_" + relpath.replace("/", "_"))
+
+    def load(suite: str, relpath: str) -> None:
+        f = os.path.join(cache, f"{ts}_{suite}_" + relpath.replace("/", "_"))
         if not os.path.isfile(f) or os.path.getsize(f) == 0:
-            url = f"{SNAP}/{ts}/dists/forky/{relpath}"
+            url = f"{SNAP}/{ts}/dists/{suite}/{relpath}"
             try:
                 with urllib.request.urlopen(url, timeout=120) as r, open(f, "wb") as o:
                     o.write(r.read())
             except Exception:  # noqa: BLE001 - a missing component index is fine
                 open(f, "wb").close()
-                continue
+                return
         try:
             text = read_maybe(f)
         except Exception:  # noqa: BLE001
-            continue
+            return
         for d in parse_stanzas(text):
             if d.get("Package") and d.get("Version") and d.get("Architecture"):
                 ident.add((d["Package"], d["Version"], d["Architecture"]))
+
+    # The codename's (testing/forky) full index set -- the image base closure.
+    for comp in COMPONENTS:
+        for x in (arch, "all"):
+            load("forky", f"{comp}/binary-{x}/Packages.xz")
+    for x in (arch, "all"):
+        load("forky", f"main/debian-installer/binary-{x}/Packages.xz")
+        # The SAME snapshot's development suite (sid) debian-installer indexes
+        # only: the netinst substrate's d-i udebs are built from sid.  Its
+        # runtime (binary-*) packages are deliberately NOT loaded.
+        load(DI_SUITE, f"main/debian-installer/binary-{x}/Packages.xz")
     return ident
 
 

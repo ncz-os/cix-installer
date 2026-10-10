@@ -39,15 +39,19 @@ ULTRA, only downloads/sstate/kernel staging are on ARGONAS.
    7.3 build in the pool. There is no `assets/kernel/edge` any more. Directories with any other prefix inside
    `/mnt/argonas-yocto-shared/kernel-staging` fail preflight gate [3]
    (move them to `kernel-staging-archive/`, do not delete).
-4. The d-i substrate is pinned (Makefile `SUBSTRATE_SHA`, arm64): Debian weekly netinst,
-   installer build 20260921, sha256 `bcdea12698a4c643fbbc68c69fb8be96a3f292bdfa1b5c41c8fdaeaae6944f67`.
-   Debian republishes the filename weekly and drops old builds, so the pinned ISO is kept on
-   ARGONAS at `ncz-os-assets/substrate/debian-testing-arm64-netinst-20260921-bcdea126.iso`
-   (ULTRA: `/mnt/argonas-projects/ncz-os-assets/substrate`). An empty `downloads/` restores it
-   from there; if it cannot, the build refuses instead of floating, and `make image`
-   re-verifies the file. Adopting a newer installer is deliberate: build on it, run the KVM
-   gate, store the ISO in that directory as `<name>-<yyyymmdd>-<sha8>.iso`, change the pin.
-   amd64 has no pin yet and only warns.
+4. The d-i substrate is **refreshed as the MANDATORY first stage**:
+   `make refresh-substrate ARCH=arm64` fetches the newest Debian testing arm64
+   netinst, verifies `SHA256SUMS.sign` against the committed Debian CD signing
+   key, caches it on ARGONAS (`ncz-os-assets/substrate/`, keeping the last two),
+   derives the snapshot pin, and writes `manifests/base.pin`. The Makefile's
+   `SUBSTRATE_SHA` is read from `base.pin` (currently `b6f455d1...`; the arm64
+   ISO is kept at `.../debian-testing-arm64-netinst-20261010-b6f455d1.iso`,
+   ULTRA: `/mnt/argonas-projects/ncz-os-assets/substrate`). An empty
+   `downloads/` restores it from there; if it cannot, the build refuses instead
+   of floating, and `make image` re-verifies the file. `make check-substrate-pin
+   ARCH=arm64` fails closed if the pin is stale (>8 days) or the substrate is not
+   authorized by the pinned snapshot. Debian republishes the filename weekly and
+   drops old builds, so the refresh+cache step is what keeps the pin stable.
 5. `ncz-imagebuild:trixie` in BOTH podman stores (rootless build, rootful run):
    `podman save localhost/ncz-imagebuild:trixie | sudo podman load`.
    A prune deletes it; rebuild from `build/containers/Containerfile.ncz-imagebuild`.
@@ -58,6 +62,10 @@ ULTRA, only downloads/sstate/kernel staging are on ARGONAS.
 cd ~/Projects/cix-installer-<tag>
 SHA=$(git rev-parse --short HEAD)          # compute on the HOST (SELinux hides .git in the container)
 KS=/mnt/argonas-yocto-shared/kernel-staging
+
+# MANDATORY first stage: refresh the substrate + derive the snapshot pin (host)
+make refresh-substrate ARCH=arm64
+make check-substrate-pin ARCH=arm64
 
 # stage 0: offline mirrors (rootful container)
 sudo podman run --rm --privileged --net=host -v "$PWD":/work/cix-installer -v /dev:/dev -v $KS:$KS \
@@ -72,7 +80,7 @@ NCZ_TARGET_ARCH=arm64 build/build-squashfs-layers.sh all
 
 # stage 2: assemble (rootful container); refuses if verify-arm64-inputs.sh fails
 sudo podman run --rm --privileged --net=host -v "$PWD":/work/cix-installer -v /dev:/dev -v $KS:$KS \
-  -w /work/cix-installer -e NCZ_TARGET_ARCH=arm64 -e HOME=/root localhost/ncz-imagebuild:trixie \
+  -w /work/cix-installer -e NCZ_TARGET_ARCH=arm64 -e HOME=/root -e NCZ_ONE_KERNEL=1 localhost/ncz-imagebuild:trixie \
   bash -lc 'git config --global --add safe.directory "*"; make image BUILD_SHA='$SHA
 ```
 

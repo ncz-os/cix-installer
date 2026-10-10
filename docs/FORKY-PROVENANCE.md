@@ -11,7 +11,7 @@ Ubuntu-evidence-only gate that runs in `make lint-platform`).
 
 ## Gate correctness fixes (r203)
 
-Three over-strict/under-coverage defects were fixed without weakening the gate's
+Four over-strict/under-coverage defects were fixed without weakening the gate's
 security properties (each has both-direction tests in `build/test-no-ubuntu.sh`):
 
 1. **`main/debian-installer/binary-all` index is now loaded.** `index_need()`
@@ -29,10 +29,21 @@ security properties (each has both-direction tests in `build/test-no-ubuntu.sh`)
    any member *through* an already-extracted symlink (write-through escape); for
    cpio the scanner already never materialises symlinks. Tests mutate real GNU
    tar/cpio output: absolute-member, `..`-member, relative-escaping-symlink and
-   write-through all FAIL; absolute-symlink rootfs tars PASS.
+   write-through all FAIL; absolute-symlink rootfs tarballs PASS.
 3. **Reviewed partial overlay allow-list** (`manifests/overlay-layers.tsv`) —
    see the NCZ-ledger section below. A status-less layer NOT on the list still
    fails closed.
+4. **The pinned snapshot is read across its suites (`di_suite`).** The netinst
+   substrate's debian-installer udebs are built from the snapshot's development
+   suite (`sid`), not from `testing` (`forky`). A snapshot timestamp is the whole
+   archive state, so `index_need()` now requests forky's full index set **and the
+   di_suite's `main/debian-installer` indexes only**; both suites' signed
+   `InRelease` are verified against committed digests. This is the SAME Debian
+   origin read across its suites — **not a fourth origin** — and it never
+   authorizes the di_suite's runtime (`binary-*`) packages: a sid runtime deb
+   still FAILS, and `index_need` is asserted to request no `(sid, main, …)`
+   component. Both suites WITHOUT `di_suite` declared leaves the same udeb
+   failing (neither direction is weakened).
 
 ## Trust root
 
@@ -57,6 +68,17 @@ any other file whose trusted list can be steered by the environment.
   "Substrate vs snapshot" below);
 * `inrelease_sha256` / `inrelease_size` = the reviewed digest of the signed
   `dists/<codename>/InRelease` for that snapshot;
+* `di_suite` (+ `di_inrelease_path`/`di_inrelease_sha256`/`di_inrelease_size`) =
+  the SAME pinned snapshot's development suite (`sid`). The netinst substrate's
+  debian-installer udebs are built from `sid` while its base packages are
+  `testing` (`forky`); a snapshot timestamp is the whole archive state, so the
+  gate reads forky's **full** index set AND sid's **`main/debian-installer`
+  indexes only**. This is one Debian origin read across its suites, **not a
+  fourth origin**, and it never authorizes sid's runtime (`binary-*`) packages
+  (`index_need()` requests no `(sid, main, …)` component; tested both ways).
+  `build/pin-snapshot-suites.sh` records/verifies both digests against the
+  committed keyring; `build/refresh-substrate.sh` keeps them in lockstep with the
+  pin;
 * `keyring` / `keyring_sha256` = the Debian archive keyring and its reviewed
   digest (`manifests/keys/debian-archive-keyring.gpg`);
 * `signer_keys` = the Debian archive signing key fingerprints gpgv must report.
@@ -65,10 +87,11 @@ any other file whose trusted list can be steered by the environment.
 trust metadata or the gate exits 2. The index directory itself may live
 anywhere (`--index-dir`), because its **contents** are verified:
 
-1. `gpgv --keyring <committed keyring>` verifies the `InRelease` clearsignature,
-   and the reported signer must be one of the pinned Debian keys;
-2. the `InRelease` bytes must equal the committed `inrelease_sha256`/size;
-3. the signed Release's `SHA256:` section supplies the sha256+size of every
+1. `gpgv --keyring <committed keyring>` verifies each declared suite's
+   `InRelease` clearsignature, and the reported signer must be one of the pinned
+   Debian keys;
+2. each `InRelease`'s bytes must equal its committed `*inrelease_sha256`/size;
+3. each signed Release's `SHA256:` section supplies the sha256+size of every
    `Packages.xz`; each needed index file must match that sha256+size;
 4. each `Packages` file must decompress and yield at least one record.
 
@@ -305,9 +328,13 @@ that same substrate — one archive state, three origins, no fourth origin.**
 4. derives the snapshot by measurement (`build/derive-base-pin.py`): reads the
    netinst's own `Packages` identities from the ISO, tries candidate
    snapshot.debian.org timestamps around the netinst's Release date, and picks
-   the one authorizing the most identities;
+   the one authorizing the most identities — measured across the codename's
+   **full** index set **plus the same snapshot's `sid` debian-installer indexes**
+   (see "The pinned snapshot index" above);
 5. writes `manifests/base.pin` (arch, substrate sha256 + date, snapshot,
-   measured coverage, source URL);
+   measured coverage, source URL), then updates `release.conf`'s snapshot and
+   records **both** suites' signed `InRelease` digests via
+   `build/pin-snapshot-suites.sh` — pin, closure and trust digests move together;
 6. **fails** if the substrate is older than `NCZ_SUBSTRATE_MAX_AGE_DAYS` (8) or
    if the best coverage is below `NCZ_SUBSTRATE_MIN_COVERAGE` (99).
 
@@ -315,23 +342,23 @@ that same substrate — one archive state, three origins, no fourth origin.**
 (and the build preflight) verifies that `release.conf`'s
 `NCZ_BASE_MIRROR_SNAPSHOT` **equals** `base.pin`'s snapshot, that the substrate
 is fresh, and that the recorded coverage meets the floor — so a build can never
-ship a substrate the pinned snapshot does not authorize.
+ship a substrate the pinned snapshot does not authorize. The Makefile's
+`SUBSTRATE_SHA` is **read from `base.pin`** (no separate literal to drift).
 
-**Measured reality at r203 (honest):** the freshest available netinst (weekly
+**Measured reality at r203 (fixed):** the freshest available netinst (weekly
 `123a250b…` amd64 / `b6f455d1…` arm64, archive date 2026-10-05) is authorized at
-only **91.8 %** (amd64) / **90.7 %** (arm64) by its own best-matching snapshot —
-below the 99 % floor. The residual is **not** only the two-kernel-ABI d-i modules
-(`*-modules-7.2.9+deb14-*-di`) but also ~30 base/d-i udebs (`apt-setup-udeb`,
-`dbus-udeb`, `fdisk-udeb`, `grub-mount-udeb`, `exim4-*`, `util-linux-udeb`, …)
-whose versions the netinst carries are **newer than the `testing` snapshot** —
-the d-i build draws them from `unstable`. So: **the three-origin policy cannot be
-satisfied for the netinst's Debian d-i content from a single `testing` snapshot**;
-`refresh-substrate.sh` therefore fails loudly (exit 3) and prints the missing
-identities rather than admitting a fourth origin. The structural fix is the
-one-kernel ruling (ship OUR kernel + an initrd built from our module set, and stop
-merging Debian's kernel/module udebs) — see `docs/ONE-KERNEL.md` — which removes
-the kernel-module residual entirely; the non-kernel d-i udebs remain a
-documented, genuine gap that a newer netinst snapshot must close.
+**100.0 %** (amd64: 746/746, arm64: 734/734) by its own derived snapshot
+`20261005T120000Z` once the gate reads the same snapshot's `sid`
+debian-installer indexes. Before the di_suite fix coverage was 91.8 % / 90.7 %
+(codename-only) — the residual was the substrate's d-i udebs (`*-modules-
+7.2.9+deb14-*-di`, `apt-setup-udeb`, `dbus-udeb`, `fdisk-udeb`, …), whose
+versions the netinst draws from `unstable`. They are the SAME pinned Debian
+snapshot's d-i content, so no fourth origin and no newer weekly is needed. A
+substrate whose d-i content is newer than any snapshot's d-i indexes still fails
+loudly (exit 3) and lists the uncovered identities. The one-kernel ruling (ship
+OUR kernel + an initrd built from our module set, stop merging Debian's
+kernel/module udebs) additionally removes those udebs from the image — see
+`docs/ONE-KERNEL.md`.
 
 ## Verification
 

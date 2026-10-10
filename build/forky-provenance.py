@@ -8,11 +8,17 @@
   VENDOR  a third-party vendor's own deb, listed in manifests/vendor-debs.tsv
           (name, version, arch, vendor, source, sha256, note); sha enforced when
           the deb bytes are available.
-  FORKY   (name, version, arch) present in the PINNED Debian forky snapshot,
+  FORKY   (name, version, arch) present in the PINNED Debian snapshot,
           whose signed Release is verified against the committed keyring and
           InRelease digest in manifests/forky-snapshot.tsv, with a sha256+size
           chain to every Packages index.  When the deb itself is available it
-          must be byte-identical.
+          must be byte-identical.  The pinned snapshot is read across its suites:
+          the codename's (forky/testing) full index set, plus -- when the trust
+          metadata declares ``di_suite`` -- that suite's (sid/unstable)
+          debian-installer indexes only, because the netinst substrate's d-i
+          udebs are built from sid.  That is the SAME snapshot timestamp and
+          keyring, not a fourth origin; the d-i suite's RUNTIME packages are not
+          authorized.
 
 Anything else -- Ubuntu, another Debian suite, an older snapshot, unknown --
 is a hard failure.  There is deliberately NO allow-by-reason mechanism.
@@ -164,7 +170,7 @@ def load_trust():
             die(f"duplicate trust metadata key: {k}")
         kv[k.strip()] = v.strip()
     for k in ("snapshot", "codename", "inrelease_sha256", "inrelease_size",
-              "keyring", "keyring_sha256"):
+              "inrelease_path", "keyring", "keyring_sha256"):
         if not kv.get(k):
             die(f"trust metadata {p} lacks '{k}'")
     if not PIN_RE.match(kv["snapshot"]):
@@ -173,6 +179,21 @@ def load_trust():
         die("trust metadata inrelease_sha256 is not a sha256")
     if not SHA256_RE.match(kv["keyring_sha256"]):
         die("trust metadata keyring_sha256 is not a sha256")
+    # Optional d-i suite: the netinst substrate's debian-installer content is
+    # built from the pinned snapshot's development suite (sid), not from the
+    # codename's testing suite.  When declared, its signed InRelease digest is
+    # committed here and its main/debian-installer indexes are loaded alongside
+    # the codename's -- the SAME snapshot timestamp, read across its suites, so
+    # this is not a fourth origin.  A malformed declaration is a hard error, not
+    # a silently-ignored key.
+    if kv.get("di_suite"):
+        for k in ("di_inrelease_path", "di_inrelease_sha256", "di_inrelease_size"):
+            if not kv.get(k):
+                die(f"trust metadata {p} declares di_suite but lacks '{k}'")
+        if not SHA256_RE.match(kv["di_inrelease_sha256"]):
+            die("trust metadata di_inrelease_sha256 is not a sha256")
+        if kv["di_suite"] == kv["codename"]:
+            die("trust metadata di_suite must differ from codename")
     return kv
 
 
@@ -297,13 +318,34 @@ def atomic_fetch(url, dest, sha, size):
             os.remove(tmp)
 
 
+def suite_releases(trust):
+    """{suite: (inrelease_path, sha256, size)} for every suite of the pinned
+    snapshot whose indexes may authorize content.
+
+    The codename suite (forky/testing) is always present.  When the trust
+    metadata declares ``di_suite`` (the substrate's own development suite,
+    sid/unstable) its debian-installer suite is present too.  Both are the SAME
+    snapshot timestamp, signed by the same archive keys, so reading both is not
+    a second trust root -- it is the pinned snapshot read across its suites."""
+    out = {trust["codename"]: (trust["inrelease_path"], trust["inrelease_sha256"],
+                               int(trust["inrelease_size"]))}
+    ds = trust.get("di_suite", "")
+    if ds and ds != trust["codename"]:
+        out[ds] = (trust["di_inrelease_path"], trust["di_inrelease_sha256"],
+                   int(trust["di_inrelease_size"]))
+    return out
+
+
 def verify_index(d, trust, need, fetch, verify_pool=False, src="index"):
     """Verify the signed Release for the pinned snapshot and every needed
-    Packages index against it.  Returns {key: (sha, filename, size)} or None.
-    ANY failure (missing/corrupt/forged index, partial pool) fails the whole
-    call; callers must not proceed on a partial result."""
+    Packages index against it.  ``need`` is a list of (suite, component, arch):
+    each suite's InRelease is verified against its own committed digest in the
+    trust metadata (all suites share one snapshot timestamp and one keyring)
+    BEFORE any of that suite's indexes are trusted.  Returns
+    {key: (sha, filename, size)} or None.  ANY failure (missing/corrupt/forged
+    index, partial pool) fails the whole call; callers must not proceed on a
+    partial result."""
     before = len(FAILS)
-    codename = trust["codename"]
     pin = trust["snapshot"]
     keyring = trust["keyring"]
     if not d:
@@ -318,78 +360,87 @@ def verify_index(d, trust, need, fetch, verify_pool=False, src="index"):
         fail(src, keyring, "trust keyring sha256 does not match forky-snapshot.tsv")
         return None
 
-    ir = os.path.join(d, "dists", codename, "InRelease")
-    want_sha = trust["inrelease_sha256"]
-    want_size = int(trust["inrelease_size"])
-
-    def inrelease_valid(p):
-        return (os.path.isfile(p) and os.path.getsize(p) == want_size
-                and sha256_file(p) == want_sha
-                and gpgv_ok(keyring, p, trust.get("signer_keys", "")))
-
-    if not inrelease_valid(ir):
-        if not fetch:
-            fail(src, ir, "no valid signed InRelease for the pinned snapshot")
-            return None
-        url = f"https://snapshot.debian.org/archive/debian/{pin}/{trust['inrelease_path']}"
-        try:
-            atomic_fetch(url, ir, want_sha, want_size)
-        except Exception as e:  # noqa: BLE001
-            fail(src, ir, f"could not fetch/verify signed InRelease: {e}")
-            return None
-        if not inrelease_valid(ir):
-            fail(src, ir, "downloaded InRelease did not verify against the committed pin")
-            return None
-
-    body = strip_clearsign(slurp(ir, encoding="utf-8", errors="replace"))
-    if body is None:
-        fail(src, ir, "InRelease is not a clearsigned document")
-        return None
-    rel = parse_release_sha256(body)
-    if not rel:
-        fail(src, ir, "signed Release has no SHA256 index section")
-        return None
+    suites = suite_releases(trust)
+    by_suite = {}
+    for suite, comp, arch in need:
+        by_suite.setdefault(suite, []).append((comp, arch))
 
     idx = {}
-    for comp, arch in need:
-        relpath = f"{comp}/binary-{arch}/Packages.xz"
-        if relpath not in rel:
-            fail(src, relpath, "not present in the signed Release (unexpected index shape)")
+    for suite, pairs in by_suite.items():
+        if suite not in suites:
+            fail(src, suite, "requested index suite is not a declared snapshot suite")
             continue
-        esha, esize = rel[relpath]
-        dest = os.path.join(d, "dists", codename, comp, f"binary-{arch}", "Packages.xz")
+        ipath, want_sha, want_size = suites[suite]
+        ir = os.path.join(d, ipath)
 
-        def pkg_valid(p, esha=esha, esize=esize):
-            return (os.path.isfile(p) and os.path.getsize(p) == esize
-                    and sha256_file(p) == esha)
+        def inrelease_valid(p, want_sha=want_sha, want_size=want_size):
+            return (os.path.isfile(p) and os.path.getsize(p) == want_size
+                    and sha256_file(p) == want_sha
+                    and gpgv_ok(keyring, p, trust.get("signer_keys", "")))
 
-        if not pkg_valid(dest):
+        if not inrelease_valid(ir):
             if not fetch:
-                fail(src, dest, "Packages index missing/corrupt (fetch disabled)")
+                fail(src, ir, f"no valid signed InRelease for snapshot suite {suite}")
                 continue
-            url = f"https://snapshot.debian.org/archive/debian/{pin}/dists/{codename}/{relpath}"
+            url = f"https://snapshot.debian.org/archive/debian/{pin}/{ipath}"
             try:
-                atomic_fetch(url, dest, esha, esize)
+                atomic_fetch(url, ir, want_sha, want_size)
             except Exception as e:  # noqa: BLE001
-                fail(src, relpath, f"could not fetch/verify Packages index: {e}")
+                fail(src, ir, f"could not fetch/verify signed InRelease: {e}")
                 continue
+            if not inrelease_valid(ir):
+                fail(src, ir, "downloaded InRelease did not verify against the committed pin")
+                continue
+
+        body = strip_clearsign(slurp(ir, encoding="utf-8", errors="replace"))
+        if body is None:
+            fail(src, ir, "InRelease is not a clearsigned document")
+            continue
+        rel = parse_release_sha256(body)
+        if not rel:
+            fail(src, ir, "signed Release has no SHA256 index section")
+            continue
+
+        for comp, arch in pairs:
+            relpath = f"{comp}/binary-{arch}/Packages.xz"
+            if relpath not in rel:
+                fail(src, relpath,
+                     f"not present in the signed Release for {suite} (unexpected index shape)")
+                continue
+            esha, esize = rel[relpath]
+            dest = os.path.join(d, "dists", suite, comp, f"binary-{arch}", "Packages.xz")
+
+            def pkg_valid(p, esha=esha, esize=esize):
+                return (os.path.isfile(p) and os.path.getsize(p) == esize
+                        and sha256_file(p) == esha)
+
             if not pkg_valid(dest):
-                fail(src, dest, "Packages index did not match the signed Release")
+                if not fetch:
+                    fail(src, dest, "Packages index missing/corrupt (fetch disabled)")
+                    continue
+                url = f"https://snapshot.debian.org/archive/debian/{pin}/dists/{suite}/{relpath}"
+                try:
+                    atomic_fetch(url, dest, esha, esize)
+                except Exception as e:  # noqa: BLE001
+                    fail(src, relpath, f"could not fetch/verify Packages index: {e}")
+                    continue
+                if not pkg_valid(dest):
+                    fail(src, dest, "Packages index did not match the signed Release")
+                    continue
+            try:
+                text = read_maybe_compressed(dest)
+            except Exception as e:  # noqa: BLE001
+                fail(src, dest, f"Packages index could not be decompressed: {e}")
                 continue
-        try:
-            text = read_maybe_compressed(dest)
-        except Exception as e:  # noqa: BLE001
-            fail(src, dest, f"Packages index could not be decompressed: {e}")
-            continue
-        stanzas = list(parse_stanzas(text))
-        if not stanzas:
-            fail(src, dest, "Packages index has no records")
-            continue
-        for s in stanzas:
-            if not stanza_ok(s, f"{src}:{os.path.basename(dest)}", "Packages"):
+            stanzas = list(parse_stanzas(text))
+            if not stanzas:
+                fail(src, dest, "Packages index has no records")
                 continue
-            key = (s["Package"], s["Version"], s["Architecture"])
-            idx[key] = (s.get("SHA256", ""), s.get("Filename", ""), s.get("Size", ""))
+            for s in stanzas:
+                if not stanza_ok(s, f"{src}:{os.path.basename(dest)}", "Packages"):
+                    continue
+                key = (s["Package"], s["Version"], s["Architecture"])
+                idx[key] = (s.get("SHA256", ""), s.get("Filename", ""), s.get("Size", ""))
 
     if verify_pool:
         # Before a BUILD uses a local mirror, verify the actual referenced pool
@@ -418,22 +469,35 @@ def verify_index(d, trust, need, fetch, verify_pool=False, src="index"):
 
 
 def index_need(trust):
-    """Every (component, arch) index the verified snapshot must supply.
+    """Every (suite, component, arch) index the verified snapshot must supply.
 
-    Covers every component x architecture in the trust metadata (which includes
-    the literal ``all`` pseudo-architecture for Architecture:all packages) AND
-    the debian-installer indexes for every architecture, including
-    ``main/debian-installer/binary-all`` -- Architecture:all udebs live only
-    there.  Omitting binary-all made every Arch:all d-i udeb report as
-    unauthorized even though the pinned snapshot carries it (gate bug (a)).
+    The codename suite covers every component x architecture in the trust
+    metadata (which includes the literal ``all`` pseudo-architecture for
+    Architecture:all packages) AND its debian-installer indexes for every
+    architecture, including ``main/debian-installer/binary-all`` --
+    Architecture:all udebs live only there.  Omitting binary-all made every
+    Arch:all d-i udeb report as unauthorized even though the pinned snapshot
+    carries it (gate bug (a)).
+
+    When the trust metadata declares ``di_suite`` (the netinst substrate's own
+    development suite -- its d-i udebs are built from there), that suite's
+    debian-installer indexes for every architecture are supplied as well.  Only
+    the d-i component of that suite is loaded: its runtime (binary-*) packages
+    are NOT authorized, so this is a narrow, substrate-specific allowance on the
+    SAME pinned snapshot, not a second Debian origin.
     """
     need = []
     archs = trust["architectures"].split()
+    codename = trust["codename"]
     for comp in trust["components"].split():
         for arch in archs:
-            need.append((comp, arch))
+            need.append((codename, comp, arch))
     for arch in archs:
-        need.append(("main/debian-installer", arch))
+        need.append((codename, "main/debian-installer", arch))
+    di = trust.get("di_suite", "")
+    if di and di != codename:
+        for arch in archs:
+            need.append((di, "main/debian-installer", arch))
     return list(dict.fromkeys(need))
 
 
@@ -796,17 +860,17 @@ def classify(ref, src, name, ver, arch, maint, sha=None):
         esha = ref.idx[key][0]
         if sha and esha and sha != esha:
             fail(src, what,
-                 f"same name/version as the forky snapshot but sha256 differs "
+                 f"same name/version as the pinned snapshot but sha256 differs "
                  f"(rebuilt/foreign bytes): {sha[:16]}.. vs {esha[:16]}..")
             return None
         return "forky"
 
     if UBU_RE.search(maint or ""):
         fail(src, what, f"@ubuntu.com maintainer ({maint}) and not in the pinned "
-                        f"forky snapshot")
+                        f"snapshot")
         return None
     fail(src, what, "not in the reviewed NCZ ledger, not a reviewed vendor deb, "
-                    "and not in the pinned forky snapshot (unknown origin)")
+                    "and not in the pinned snapshot (unknown origin)")
     return None
 
 
@@ -840,7 +904,7 @@ def classify_noarch(ref, src, name, ver, maint):
     archs = ref.trust.get("architectures", "").split() if ref.trust else []
     for a in archs:
         if (name, ver, a) in ref.idx:
-            print(f"NOTE  [{src}] {what} :: present in the pinned forky snapshot ({a})")
+            print(f"NOTE  [{src}] {what} :: present in the pinned snapshot ({a})")
             return "forky"
     fail(src, what, "dpkg status record has no Architecture and its "
                     "(name,version) is not in the pinned snapshot or a reviewed ledger")

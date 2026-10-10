@@ -109,22 +109,20 @@ UPSTREAM_SHA_NAME := $(UPSTREAM_ISO)
 # change the pin below. Override on the command line for an experiment:
 #   make image SUBSTRATE_SHA=<sha256-of-the-new-iso>
 #
-# amd64 pin added 2026-10-06 (KNOWN-ISSUES #11). The hash is the
-# debian-testing-amd64-netinst.iso that the r199 KVM gate actually validated,
-# re-measured on the shared cache rather than copied from the backlog:
-#   /mnt/argonas/datapool/projects/ncz-os-assets/substrate/
-#     debian-testing-amd64-netinst-20260926-c517f8ff.iso
-# Three independent checks agree on c517f8ff...: the sha256 of that file, the
-# 8-char tag in its own cached filename, and the value already recorded in
-# KNOWN-ISSUES-r199.md. Its Packages snapshot stamp is 20260921, matching the
-# forky mirror the r199 amd64 gate consumed (the other ISO on PROTEUS is the
-# older 20260914 weekly). NOTE: the substrate ISO does NOT float weekly for a
-# pinned arch any more -- the download rule fetches the pinned sha and fails if
-# the cache cannot supply it.
+# The pin is SINGLE-SOURCED from manifests/base.pin: build/refresh-substrate.sh
+# fetches the newest Debian testing netinst, verifies its sha256 + SHA256SUMS GPG
+# signature against the committed CD key, measures the substrate against the
+# snapshot's indexes, and rewrites base.pin (substrate sha256 + archive date +
+# derived snapshot + coverage).  The substrate must be refreshed for EVERY build
+# (`make refresh-substrate ARCH=<a>`; `check-substrate-pin` fails a stale pin or
+# an uncovered substrate).  The literal fallback below is the last
+# operator-validated ISO, used only if base.pin has no row for ARCH.  Override
+# for an experiment with `make image SUBSTRATE_SHA=<sha256-of-the-new-iso>`.
+SUBSTRATE_FROM_PIN := $(shell awk -F'\t' -v a="$(ARCH)" '$$1==a{print $$2; exit}' $(ROOT)/manifests/base.pin 2>/dev/null)
 ifeq ($(ARCH),arm64)
-SUBSTRATE_SHA ?= bcdea12698a4c643fbbc68c69fb8be96a3f292bdfa1b5c41c8fdaeaae6944f67
+SUBSTRATE_SHA ?= $(if $(SUBSTRATE_FROM_PIN),$(SUBSTRATE_FROM_PIN),bcdea12698a4c643fbbc68c69fb8be96a3f292bdfa1b5c41c8fdaeaae6944f67)
 else ifeq ($(ARCH),amd64)
-SUBSTRATE_SHA ?= c517f8fffadbaca4d3b07a4268591f4250fd35034988d3113623dc340ed635db
+SUBSTRATE_SHA ?= $(if $(SUBSTRATE_FROM_PIN),$(SUBSTRATE_FROM_PIN),c517f8fffadbaca4d3b07a4268591f4250fd35034988d3113623dc340ed635db)
 endif
 SUBSTRATE_SHA ?=
 SUBSTRATE_CACHE_DIRS ?= /mnt/argonas-projects/ncz-os-assets/substrate \
