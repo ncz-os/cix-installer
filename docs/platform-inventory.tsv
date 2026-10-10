@@ -111,6 +111,8 @@ build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
 build/singularity-pins.sh	common	-	Singularity upstream pin reader: validate, pinned clone/checkout, patch-queue check against pins
 build/stage-accel-overlays.sh	sky1	-	builds and stages the mali/panthor/vpu/npu overlays for a kernel; fails on compile error or CRC/source mismatch
 build/test-singularity-pins.sh	common	-	offline test for the Singularity upstream pins and their build/preflight wiring
+build/patch-singularity-scenefx.sh	common	-	resolves labwc's SceneFX meson wrap, checks out the pinned revision, applies assets/singularity/scenefx-patches/ (idempotent); fail-closed if a quoted #error survives the patch
+build/check-singularity-shaders.sh	common	-	static gate: fails a payload build if the staged labwc embeds a quoted-`#error` SceneFX shader (the CIX libmali regression)
 build/test-verify-dkms-deb-sources.sh	sky1	-	verify-dkms-deb-sources test (stale-deb gate, overlay stamps)
 build/verify-dkms-deb-sources.py	sky1	-	fails when a staged accelerator DKMS deb payload differs from the assets source (stale debs)
 build/verify-kernel-default-policy.sh	common	-	enforces the unified kernel policy (one 7.3 default per arch; rescue = same kernel + accelerator blacklist; no edge; rc default only while allowed)
