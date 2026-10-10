@@ -1094,8 +1094,12 @@ for s in "${STAGES[@]}"; do
         printf '%02d\t%s\tOFF\t0\n' "$(stage_index "$s")" "$s" >> "$STAGE_TIMES"
         continue
     fi
-    if ! run_stage "$s" "stage_${s//-/_}"; then
-        rc=$?
+    # Capture the REAL exit status.  `if ! run_stage ...; then rc=$?` would read
+    # the status of the `!` negation (always 0 on failure) and mask every stage
+    # failure as success.
+    run_stage "$s" "stage_${s//-/_}"
+    rc=$?
+    if [ "$rc" != 0 ]; then
         ncz_err "build aborted at stage '$s' (rc=$rc). Resuming: $0 --arch $ARCH --resume-from $s --run-dir $RUN_DIR $*"
         break
     fi
