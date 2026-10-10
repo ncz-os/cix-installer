@@ -850,8 +850,20 @@ def stage_offline_mirror(stage_dir: Path, arch: str,
     # with no next component; this must be a real installer repository.
     if not installer_pool.is_dir():
         raise RuntimeError(f"FATAL: installer udeb pool missing: {installer_pool}")
-    shutil.copytree(installer_pool, stage_dir / "pool", dirs_exist_ok=True,
-                    symlinks=True)
+    # Carry ONLY the substrate's debian-installer UDEBs (cdrom-retriever reads
+    # them).  The substrate extract also contains a small regular-deb mini-mirror
+    # (~500 debs) under the standard lettered pool layout; merging those left
+    # pool files the offline Packages index (the mirror's flat layout) does not
+    # list, which the provenance gate correctly flagged as ~550 "orphan pool
+    # file" failures.  The offline closure already provides those regular debs.
+    n_udebs = 0
+    for p in installer_pool.rglob("*.udeb"):
+        rel = os.path.relpath(p, installer_pool)
+        dstp = stage_dir / "pool" / rel
+        dstp.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, dstp)
+        n_udebs += 1
+    log(f"    installer pool: staged {n_udebs} substrate udeb(s) into /cdrom/pool")
     # One-kernel policy (docs/ONE-KERNEL.md).  When NCZ_ONE_KERNEL=1, drop the
     # substrate's Debian kernel/module/binary udebs from the merged /cdrom pool
     # so the image carries only OUR kernel.  UNPROVEN until

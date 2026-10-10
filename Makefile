@@ -215,6 +215,14 @@ $(DOWNLOADS)/$(UPSTREAM_ISO):
 # -----------------------------------------------------------------------
 # Step 2 — build the customized ISO via the staged build script.
 # -----------------------------------------------------------------------
+# One-kernel policy (docs/ONE-KERNEL.md, operator ruling 2026-10-10): drop the
+# substrate's Debian kernel/module/binary udebs from the merged /cdrom pool so
+# the image carries only OUR kernel (provenance one-kernel flag 0).  Step 1 of
+# the documented mechanism; step 2 (installer initrd on our kernel) is validated
+# by the KVM install gate.
+NCZ_ONE_KERNEL ?= 1
+export NCZ_ONE_KERNEL
+
 image: $(OUTPUT_IMAGE)
 
 # There is no ISO target. The deliverable is the raw GPT disk image above;
