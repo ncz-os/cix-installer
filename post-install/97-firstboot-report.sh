@@ -14,13 +14,18 @@ cat > /usr/local/sbin/ncz-firstboot-report <<'REPORT'
 #!/bin/sh
 # Evidence for the KVM gate, written once ~30 s after the first multi-user boot:
 #   - systemctl --failed
-#   - a smoke run of the Bing wallpaper helper (`fetch --if-stale` must exit 0, or 75 when offline)
+#   - a smoke run of the Bing wallpaper helper (`fetch --if-stale --preferred-only`
+#     must exit 0, or 75 when offline). --preferred-only bounds the run to the
+#     preferred market's first batch: a full multi-market backfill legitimately
+#     runs for minutes and would be killed by the 90 s cap, surfacing as exit
+#     124 (which the gate does not accept) on any host whose guest network is
+#     merely slow, not broken.
 sleep 30
 {
     date -u +"# first boot report %FT%TZ"
     systemctl --failed --no-legend --plain --no-pager
     if [ -x /usr/local/bin/ncz-wallpaper-bing ]; then
-        timeout 90 /usr/local/bin/ncz-wallpaper-bing fetch --if-stale > /var/log/ncz-wallpaper-smoke.log 2>&1
+        timeout 90 /usr/local/bin/ncz-wallpaper-bing fetch --if-stale --preferred-only > /var/log/ncz-wallpaper-smoke.log 2>&1
         echo "# wallpaper-bing-rc=$?"
     fi
     echo "# end"
