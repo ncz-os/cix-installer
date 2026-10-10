@@ -183,12 +183,13 @@ aborts with the stage name and a ready-to-paste resume command.
 | 20 | `stage-inputs` | `manifests/build-inputs.tsv` | staged `assets/…` | refuses a missing/mismatched git-ignored input |
 | 30 | `refresh-sources` | `build/refresh-singularity-sources.sh` (`--sources latest\|pinned`) | frozen `upstream-pins.tsv` + `compositor-pins.tsv` + `source-resolution.json`, the payload `.deb` (also into `assets/cix-debs/`) | resolves the singularity upstream heads (latest) or the committed pins (pinned); builds the payload deb and fails closed on upstream drift (never silently falls back to stale pins) |
 | 40 | `offline-mirror` | the forky/vendor/desktop mirror sources + package manifests | `build/{forky,desktop,vendor}-mirror`; `mirror.build-fingerprint` | every image `.deb` resolves from the pinned snapshot |
-| 50 | `layers` | the offline mirror + staged assets + the layer plan | `assets/squashfs/{base,desktop,desktop-hotfix}.squashfs` (+ `.build-fingerprint`) | reuse/rebuild per fingerprint; a stale layer is rotated aside, never clobbered |
-| 50 | `image` | layers + mirror + ESP/initrd content | `build/ncz-os-*.img` + `.receipt.json` | refuses a partial layer set |
-| 60 | `kvm-gate` | the image | `kvm-gate.result`, gate log | install + boot + installer-UI check; must end `GATE PASS` |
-| 70 | `provenance-gate` | the image + snapshot index | `provenance.result` | three-origin + one-kernel rule; must PASS |
-| 80 | `receipt` | the run | `run-metadata.json`, `<image>.gates.json` | records mode, flags, per-layer fingerprint + decision, gate results |
-| 90 | `archive` | the image + gate results | copy in the ARGONAS images dir + sidecars | **refuses unless kvm AND provenance PASSed this run**; never `ship-image` |
+| 50 | `provenance-inputs` | the **inputs**: the offline mirror, the staged deb dirs, the staged payload `.deb`, `manifests/*.tsv`, `base.pin`, `determinism.pin` | `provenance-inputs.result`, gate log | **PROVENANCE + one-kernel ON THE INPUTS** (operator ruling 2026-10-10): every package that will enter the image is checked *before* hours of layer work -- `--verify-mirror` (bytes vs the pinned signed snapshot + ledgers), `--debs` (ledger/receipt-authorized), the one-kernel input rule, the SceneFX static shader gate on the staged payload deb, and pin freshness. A failure here stops the build before `layers`. |
+| 60 | `layers` | the offline mirror + staged assets + the layer plan | `assets/squashfs/{base,desktop,desktop-hotfix}.squashfs` (+ `.build-fingerprint`) | reuse/rebuild per fingerprint; a stale layer is rotated aside, never clobbered |
+| 70 | `image` | layers + mirror + ESP/initrd content | `build/ncz-os-*.img` + `.receipt.json`, `image.path` | refuses a partial layer set |
+| 80 | `provenance-gate` | the **finished image** + snapshot index | `provenance.result` | three-origin + one-kernel rule over what actually landed (rootfs, squashfs layers, initrd, `/cdrom` pool); must PASS. Runs **BEFORE** `kvm-gate` so a bad image never costs hours of KVM time |
+| 90 | `kvm-gate` | the image | `kvm-gate.result`, gate log | install + boot + installer-UI check; must end `GATE PASS` |
+| 95 | `receipt` | the run | `run-metadata.json`, `<image>.gates.json` | records mode, flags, per-layer fingerprint + decision, gate results (incl. `provenance_inputs`) |
+| 99 | `archive` | the image + gate results | copy in the ARGONAS images dir + sidecars | **refuses unless kvm AND provenance PASSed this run**; never `ship-image` |
 
 Resume: `build/build-image.sh --arch <a> --resume-from <stage> --run-dir <dir>`.
 `--resume-from kvm-gate` onwards accepts `--image <path>` to gate an image that

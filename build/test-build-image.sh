@@ -91,12 +91,53 @@ case "$(plan_layer --arch amd64 --full)" in
 esac
 # dry-run names the stages and the never-do list
 p="$(bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null)"
-for s in preflight refresh-substrate stage-inputs offline-mirror layers image kvm-gate provenance-gate receipt archive; do
+for s in preflight refresh-substrate stage-inputs refresh-sources offline-mirror provenance-inputs layers image provenance-gate kvm-gate receipt archive; do
     grep -q "$s" <<<"$p" && ok "plan names stage $s" || bad "plan missing stage $s"
 done
 grep -q 'NEVER (operator-only)' <<<"$p" && ok "plan states the never-do list" || bad "plan omits never-do list"
 grep -q 'SOURCE_DATE_EPOCH' <<<"$p" && ok "plan shows SOURCE_DATE_EPOCH" || bad "plan omits SOURCE_DATE_EPOCH"
 grep -q 'NCZ_REPRO_UUID_EXT4' <<<"$p" && ok "plan shows pin-derived UUIDs" || bad "plan omits UUIDs"
+
+# --- 2b. stage ORDER (operator gate-order ruling 2026-10-10) ----------------
+echo "== 2b. stage order =="
+plan_stages() { # -> "NN stage" per line, in plan order
+    bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null \
+        | awk '/^  stages:/{f=1;next} f&&/^    \[/{print $3, $4}'
+}
+spos() { plan_stages | awk -v s="$1" '$2==s{print $1; exit}'; }
+pi="$(spos provenance-inputs)"; lr="$(spos layers)"; om="$(spos offline-mirror)"
+pg="$(spos provenance-gate)"; kg="$(spos kvm-gate)"; im="$(spos image)"
+rs="$(spos refresh-sources)"
+[ -n "$pi" ] && [ -n "$lr" ] && [ "$pi" -lt "$lr" ] && ok "provenance-inputs (#$pi) runs BEFORE layers (#$lr)" || bad "provenance-inputs must run before layers (pi=$pi lr=$lr)"
+[ -n "$om" ] && [ -n "$pi" ] && [ "$om" -lt "$pi" ] && ok "provenance-inputs runs AFTER offline-mirror (#$om)" || bad "provenance-inputs must run after offline-mirror (om=$om pi=$pi)"
+[ -n "$rs" ] && [ -n "$om" ] && [ "$rs" -lt "$om" ] && ok "refresh-sources runs before offline-mirror (it supplies the payload deb)" || bad "refresh-sources must run before offline-mirror (rs=$rs om=$om)"
+[ -n "$pg" ] && [ -n "$kg" ] && [ "$pg" -lt "$kg" ] && ok "provenance-gate (#$pg) runs BEFORE kvm-gate (#$kg)" || bad "provenance-gate must run before kvm-gate (pg=$pg kg=$kg)"
+[ -n "$im" ] && [ -n "$pg" ] && [ "$im" -lt "$pg" ] && ok "provenance-gate runs AFTER image (#$im)" || bad "provenance-gate must run after image (im=$im pg=$pg)"
+
+# --- 2c. fail-fast: a failing provenance stage stops the long stage -------
+# (uses the entrypoint's test-only NCZ_TEST_STAGE_CMD hook so no real stage runs)
+echo "== 2c. fail-fast ordering =="
+T1="$SCRATCH/ff-inputs"; T2="$SCRATCH/ff-gate"
+NCZ_TEST_STAGE_CMD='case "{stage}" in provenance-inputs) echo "[fake] provenance-inputs failure"; exit 1;; *) exit 0;; esac' \
+    bash "$BIN" --arch amd64 --full --no-publish --run-dir "$T1" >/dev/null 2>&1
+rc=$?
+[ "$rc" != 0 ] && ok "a failing provenance-inputs fails the build (rc=$rc)" || bad "provenance-inputs failure was ignored"
+awk -F'\t' '$2=="provenance-inputs" && $3 ~ /^FAIL/{f=1} END{exit !f}' "$T1/stages.tsv" \
+    && ok "stages.tsv records provenance-inputs FAIL" || bad "stages.tsv missing provenance-inputs FAIL"
+if awk -F'\t' '$2=="layers"{f=1} END{exit !f}' "$T1/stages.tsv"; then
+    bad "layers ran after a failing provenance-inputs"
+else
+    ok "layers did NOT run after a failing provenance-inputs"
+fi
+NCZ_TEST_STAGE_CMD='case "{stage}" in provenance-gate) echo "[fake] provenance-gate failure"; exit 1;; *) exit 0;; esac' \
+    bash "$BIN" --arch amd64 --full --no-publish --run-dir "$T2" >/dev/null 2>&1
+rc=$?
+[ "$rc" != 0 ] && ok "a failing provenance-gate fails the build (rc=$rc)" || bad "provenance-gate failure was ignored"
+if awk -F'\t' '$2=="kvm-gate"{f=1} END{exit !f}' "$T2/stages.tsv"; then
+    bad "kvm-gate ran after a failing provenance-gate"
+else
+    ok "kvm-gate did NOT run after a failing provenance-gate"
+fi
 
 # --- 3. fingerprint invalidation (both directions) -------------------------
 echo "== 3. fingerprint invalidation =="

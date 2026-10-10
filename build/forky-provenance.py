@@ -1649,6 +1649,39 @@ def audit_kernel_purity(ref, src):
     return len(ref.seen_kernel)
 
 
+def load_receipt_ts(ref, receipt, src="receipt"):
+    """Register the build-timestamped NCZ debs a JSON receipt pins.
+
+    The finished-image receipt (write-usb-image.py) records the sha256 of every
+    build-timestamped NCZ payload deb actually installed, under
+    `ncz_timestamped_debs`; a pre-build payload receipt written by the
+    `refresh-sources` stage has the SAME shape, so the input-level provenance
+    check can authorize the freshly-built payload deb before an image exists.
+    classify() fails closed when a timestamped deb has no matching entry here.
+    """
+    try:
+        rec = json.loads(slurp(receipt, encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        fail(src, receipt, f"receipt is unreadable: {e}")
+        return
+    if not isinstance(rec, dict):
+        rec = {}
+    entries = (rec or {}).get("ncz_timestamped_debs")
+    if not entries:
+        nested = (rec or {}).get("ncz_payload")
+        if isinstance(nested, dict):
+            entries = nested.get("ncz_timestamped_debs", [])
+    if not isinstance(entries, list):
+        fail(src, receipt, "receipt ncz_timestamped_debs is not a list")
+        return
+    for e in entries:
+        key = (e.get("name"), e.get("version"), e.get("arch"))
+        if not all(key) or not SHA256_RE.match(e.get("sha256", "")):
+            fail(src, receipt, f"malformed ncz_timestamped_debs entry: {e!r}")
+            continue
+        ref.receipt_ts[key] = e["sha256"]
+
+
 def scan_image(ref, img, work):
     """Scan a finished GPT .img: the offline apt pool + indexes, every squashfs
     layer, the rescue/mgmt rootfs tarballs, every present asset/vendor pool, the
@@ -1686,27 +1719,7 @@ def scan_image(ref, img, work):
     # fails closed in classify().
     receipt = img + ".receipt.json"
     if os.path.isfile(receipt):
-        try:
-            rec = json.loads(slurp(receipt, encoding="utf-8"))
-        except Exception as e:  # noqa: BLE001
-            fail("image", receipt, f"image receipt is unreadable: {e}")
-            rec = None
-        if not isinstance(rec, dict):
-            rec = {}
-        entries = (rec or {}).get("ncz_timestamped_debs")
-        if not entries:
-            nested = (rec or {}).get("ncz_payload")
-            if isinstance(nested, dict):
-                entries = nested.get("ncz_timestamped_debs", [])
-        if not isinstance(entries, list):
-            fail("image", receipt, "image receipt ncz_timestamped_debs is not a list")
-            entries = []
-        for e in entries:
-            key = (e.get("name"), e.get("version"), e.get("arch"))
-            if not all(key) or not SHA256_RE.match(e.get("sha256", "")):
-                fail("image", receipt, f"malformed ncz_timestamped_debs entry: {e!r}")
-                continue
-            ref.receipt_ts[key] = e["sha256"]
+        load_receipt_ts(ref, receipt, "image")
     owned = tempfile.mkdtemp(prefix="ncz-imgscan-", dir=work)
     try:
         j = json.loads(run(["sfdisk", "-J", img], capture_output=True, text=True,
@@ -2273,6 +2286,13 @@ def main():
     ap.add_argument("--rootfs", action="append", default=[])
     ap.add_argument("--squashfs", action="append", default=[])
     ap.add_argument("--image", action="append", default=[])
+    ap.add_argument("--receipt", action="append", default=[],
+                    help="JSON receipt pinning build-timestamped NCZ debs "
+                         "(ncz_timestamped_debs), same shape as a finished-image "
+                         "<img>.receipt.json. Authorizes those debs for --debs / "
+                         "--packages scans (the pre-build provenance-inputs stage "
+                         "uses it for the freshly-built singularity payload deb). "
+                         "The --image scan's own receipt takes precedence.")
     ap.add_argument("--work", help="scratch dir for --image (not tmpfs)")
     a = ap.parse_args()
 
@@ -2296,6 +2316,14 @@ def main():
         die("no verified snapshot index (use --index-dir DIR, --fetch-index); failing closed")
 
     ref = Ref(a)
+    # Pre-build receipts (--receipt) authorize build-timestamped NCZ debs for the
+    # input-level scan.  The --image path clears/restores receipt_ts around its
+    # own <img>.receipt.json, so an image scan is never authorized by these.
+    for r in a.receipt:
+        if os.path.isfile(r):
+            load_receipt_ts(ref, r, "receipt")
+        else:
+            fail("receipt", r, "requested receipt is missing")
     total = 0
     for d in a.debs:
         total += scan_debs(ref, d, d)
