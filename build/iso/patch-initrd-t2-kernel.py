@@ -63,6 +63,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -78,6 +79,30 @@ DEFAULT_CACHE_ROOT = REPO_ROOT / "build" / "iso-cache" / "v1"
 # appended, not baked into a firmware-size-limited image the way Sky1's
 # is, so there is no real size pressure forcing aggressive pruning here.
 PRUNE_MOD_DIRS = ["sound"]
+
+# One-kernel policy (docs/ONE-KERNEL.md, operator ruling 2026-10-10: "ship
+# only OUR kernel").  A Debian d-i kernel-module/binary/helper udeb carries
+# the substrate's own kernel modules; once we swap the running kernel for ours
+# and bake our module tree into the overlay those udebs are dead weight AND a
+# provenance failure (`*-modules-<kver>-*-di` is a non-NCZ kernel artifact).
+# The base d-i initrd is not ours to rebuild, so we prune these records from
+# its dpkg status (and drop the dead /lib/modules/<debian-kver> tree and the
+# status file itself, replacing it with the pruned copy in the overlay).
+# Must mirror build/forky-provenance.py:KERNEL_ARTIFACT_RE /
+# build/classify-sid-exceptions.py:KERNEL_ARTIFACT_RE.
+_KERNEL_ARTIFACT_RE = re.compile(
+    r"^(linux-image|linux-headers|linux-modules|linux-binary|kernel-image)"
+    r"|^linux-base-"
+    r"|(^.+-(modules|binary)-.*-di$)"
+)
+# The netinst's own build marker (`Package: debian-installer`,
+# `Version: cdrom-isolinux-<date>`, deliberately Architecture-less).  It is not
+# a real udeb and cannot be authorized by the pin/ledger; drop it.
+_DI_MARKER_PACKAGE = "debian-installer"
+_STATUS_REL = "var/lib/dpkg/status"
+_MODULES_DIR_RE = re.compile(
+    r"^(?:\./)?(?:usr/)?lib/modules/(?P<kver>[^/]+)(?P<child>/.*)?$"
+)
 
 
 def patch_check_missing_firmware(source: str) -> str:
@@ -190,14 +215,19 @@ def _parse_newc_entries(data: bytes):
         payload = data[data_start : data_start + filesize]
         if magic == b"070702" and (sum(payload) & 0xFFFFFFFF) != check:
             raise CpioError(f"cpio 070702 CRC mismatch at offset {pos}")
-        yield {"name": name, "mode": mode, "payload": payload}
+        entry_start = pos
+        pos = data_start + filesize
+        pos += (-pos) % 4
+        # `start`/`end` are the byte span of the whole entry (header + name +
+        # padding + body + padding) in `data`, so a caller can filter the
+        # stream by copying verbatim slices instead of re-serialising.
+        yield {"name": name, "mode": mode, "payload": payload,
+               "start": entry_start, "end": pos}
         if name == _CPIO_TRAILER:
             archive_open = False
             archives += 1
         else:
             archive_open = True
-        pos = data_start + filesize
-        pos += (-pos) % 4
     if archive_open:
         raise CpioError("cpio archive ended without TRAILER!!!")
     if archives == 0:
@@ -247,6 +277,69 @@ def _decompress_single_gzip(initrd: Path) -> bytes:
             f"kernel stops after the first member and drops the overlay"
         )
     return stream
+
+
+def filter_base_cpio(data: bytes, our_kver: str) -> tuple[bytes, set, int]:
+    """Prune a Debian d-i initrd cpio stream for the one-kernel policy.
+
+    Drops, byte-verbatim, every member under ``[usr/]lib/modules/<kver>`` for
+    any kernel version other than ours, plus the base's own
+    ``var/lib/dpkg/status`` (the overlay bakes a pruned copy which, as the
+    later archive, is the one the kernel/initrd actually uses and the one the
+    provenance scanner reads).
+
+    Returns ``(pruned_bytes, dropped_kvers, n_dropped_members)``.  Byte-exact
+    copies of the kept members preserve every header field (inode, uid/gid,
+    mode, mtime, nlink, rdev) so the pruned archive is deterministic and the
+    kernel's unpacker sees exactly the entries it saw before minus the dead
+    kernel.  Raises CpioError on a malformed stream (fail closed).
+    """
+    out = bytearray()
+    dropped_kvers: set = set()
+    dropped = 0
+    for entry in _parse_newc_entries(data):
+        name = entry["name"]
+        n = name.removeprefix("./")
+        m = _MODULES_DIR_RE.match(n)
+        if m is not None and m.group("kver") != our_kver:
+            dropped_kvers.add(m.group("kver"))
+            dropped += 1
+            continue
+        if n in (_STATUS_REL, "usr/" + _STATUS_REL):
+            dropped += 1
+            continue
+        out += data[entry["start"]:entry["end"]]
+    return bytes(out), dropped_kvers, dropped
+
+
+def prune_initrd_status(text: str) -> tuple[str, list]:
+    """Return (pruned dpkg-status text, [dropped package names]).
+
+    Removes every Debian kernel-artifact udeb stanza (the one-kernel policy)
+    and the netinst's Architecture-less ``debian-installer`` build marker,
+    which can be authorized by neither the pin nor the review ledger.  Stanzas
+    are kept byte-for-byte otherwise; a malformed/empty result is not silently
+    accepted by the caller.
+    """
+    dropped: list = []
+    kept: list = []
+    for stanza in re.split(r"\n[ \t]*\n", text.strip("\n")):
+        if not stanza.strip():
+            continue
+        pkg = ""
+        has_arch = False
+        for line in stanza.split("\n"):
+            if line.startswith("Package: "):
+                pkg = line[len("Package: "):].strip()
+            elif line.startswith("Architecture: "):
+                has_arch = True
+        if _KERNEL_ARTIFACT_RE.search(pkg) or (
+            pkg == _DI_MARKER_PACKAGE and not has_arch
+        ):
+            dropped.append(pkg)
+            continue
+        kept.append(stanza)
+    return "\n\n".join(kept) + "\n", dropped
 
 
 def verify_baked_preseed(
@@ -318,6 +411,50 @@ def verify_baked_preseed(
         "hook_member": hook_rel,
         "hook_mode": "0755",
     }
+
+
+def verify_one_kernel_initrd(initrd: Path, our_kver: str) -> dict:
+    """Fail the build if the FINAL initrd still carries a Debian kernel.
+
+    The one-kernel policy (docs/ONE-KERNEL.md) forbids any second kernel; after
+    `filter_base_cpio` + the pruned status this must hold for both the raw
+    module trees and the dpkg status records.  Uses the same strict walk as the
+    provenance scanner (every concatenated archive), so a hidden `/usr/lib`
+    alias or a stale second copy cannot slip through.
+    """
+    if not initrd.is_file():
+        raise RuntimeError(f"FATAL: patched initrd missing: {initrd}")
+    stream = _decompress_single_gzip(initrd)
+    bad_paths: list = []
+    bad_pkgs: list = []
+    try:
+        for entry in _parse_newc_entries(stream):
+            n = entry["name"].removeprefix("./")
+            m = _MODULES_DIR_RE.match(n)
+            if m is not None and m.group("kver") != our_kver:
+                bad_paths.append(n)
+            if n in (_STATUS_REL, "usr/" + _STATUS_REL):
+                _, dropped = prune_initrd_status(
+                    entry["payload"].decode("utf-8", "surrogateescape")
+                )
+                # Anything prune_initrd_status WOULD drop must already be gone.
+                if dropped:
+                    bad_pkgs.extend(dropped)
+    except CpioError as exc:
+        raise RuntimeError(f"FATAL: malformed initrd cpio {initrd}: {exc}")
+    if bad_paths:
+        raise RuntimeError(
+            f"FATAL: one-kernel policy violated: {initrd} still carries "
+            f"{len(bad_paths)} Debian kernel module path(s) (e.g. "
+            f"{sorted(set(bad_paths))[:5]})"
+        )
+    if bad_pkgs:
+        raise RuntimeError(
+            f"FATAL: one-kernel policy violated: {initrd} dpkg status still "
+            f"lists Debian kernel-artifact package(s): {sorted(set(bad_pkgs))}"
+        )
+    return {"our_kver": our_kver, "debian_kernel_paths": 0,
+            "debian_kernel_status_pkgs": 0}
 
 
 def _verify_node_outputs(
@@ -707,7 +844,7 @@ def patch_t2_kernel(
 
     canonical = canonical_encode(
         {
-            "schema_version": "ncz-initrd-t2kernel/v6",
+            "schema_version": "ncz-initrd-t2kernel/v7",
             "arch": arch,
             "startup_hook": {
                 "name": NCZ_STARTUP_HOOK_NAME,
@@ -965,6 +1102,33 @@ def patch_t2_kernel(
             branded.append(component)
         log(f"    baked persistent NCZ d-i template branding: {branded}")
 
+        # --- one-kernel: prune the substrate's Debian kernel-module udebs --
+        # The base d-i initrd carries the substrate's OWN kernel module udebs
+        # (`ata-modules-<kver>-<arch>-di`, `linux-base-<kver>-<arch>-di`, ...).
+        # We boot OUR kernel and bake OUR module tree, so those are dead weight
+        # AND a hard one-kernel provenance failure.  We cannot rebuild the
+        # substrate's initrd, but we can (a) drop the dead
+        # `[usr/]lib/modules/<debian-kver>` members and the base's own dpkg
+        # status in filter_base_cpio, and (b) bake a pruned status (Debian
+        # kernel-artifact records + the Architecture-less `debian-installer`
+        # marker removed) as the overlay's later-archive copy, which both the
+        # kernel and the provenance scanner read.
+        base_status = initrd_extract / "var" / "lib" / "dpkg" / "status"
+        if not base_status.is_file():
+            raise RuntimeError(
+                f"FATAL: base d-i initrd has no {_STATUS_REL}; cannot prune the "
+                f"substrate's Debian kernel-module udebs (one-kernel policy)"
+            )
+        pruned_status, pruned_status_pkgs = prune_initrd_status(
+            base_status.read_text(errors="surrogateescape")
+        )
+        overlay_status = overlay_root / "var" / "lib" / "dpkg" / "status"
+        overlay_status.parent.mkdir(parents=True, exist_ok=True)
+        overlay_status.write_text(pruned_status, errors="surrogateescape")
+        log(f"    pruned {len(pruned_status_pkgs)} Debian kernel-artifact / d-i "
+            f"marker dpkg records from the installer status "
+            f"(one-kernel policy)")
+
         # --- bake the single-preseed startup hook -------------------------
         # Runs after S60auto-install to reopen the locale/keyboard window that
         # file-preseed.postinst used to (it no longer runs: preseed/file is not
@@ -1024,14 +1188,33 @@ def patch_t2_kernel(
             raise RuntimeError("FATAL: overlay cpio pack failed")
         log(f"    overlay cpio: {overlay_cpio_gz.stat().st_size} bytes")
 
+        # Prune the base archive: drop the substrate's Debian kernel module
+        # tree(s) and the base dpkg status (replaced by the overlay's pruned
+        # copy).  Byte-verbatim otherwise, so the archive stays deterministic.
+        base_pruned = tmp / "base-pruned.cpio.gz"
+        base_stream = _decompress_single_gzip(base_initrd)
+        filtered, dropped_kvers, dropped_members = filter_base_cpio(base_stream, kver)
+        with gzip.GzipFile(fileobj=base_pruned.open("wb"), mode="wb",
+                           compresslevel=9, mtime=0) as gz_out:
+            gz_out.write(filtered)
+        if not dropped_kvers:
+            log("    WARNING: base d-i initrd carried no Debian kernel module "
+                "tree -- nothing to prune (unexpected for a Debian netinst)")
+        log(f"    pruned base initrd: dropped {dropped_members} members of the "
+            f"substrate kernel module tree(s) {sorted(dropped_kvers)} "
+            f"(one-kernel policy); kept ours ({kver})")
+
         # Keep both CPIO archives in one gzip member. Concatenating the two
         # .gz files worked on amd64 but the Sky1 arm64 kernel stopped after
         # the first member, dropping /preseed.cfg and /ncz completely.
         out_initrd = build_dir / "initrd.gz"
-        write_single_member_initrd(base_initrd, overlay_cpio_gz, out_initrd)
+        write_single_member_initrd(base_pruned, overlay_cpio_gz, out_initrd)
         # Read the FINAL cpio back: a missing/mismatched /preseed.cfg or a hook
         # that did not make it in fails the build here, not at KVM.
         initrd_verify = verify_baked_preseed(out_initrd, preseed_cfg)
+        # Fail closed HERE if a Debian kernel artifact survived the prune
+        # (the very failure the r203 provenance gate reported).
+        verify_one_kernel_initrd(out_initrd, kver)
         log(
             f"    verified initrd carries /{initrd_verify['preseed_member']} "
             f"({initrd_verify['preseed_sha256'][:12]}) and "
@@ -1057,6 +1240,9 @@ def patch_t2_kernel(
             "modules_tar": str(modules_tar) if modules_tar else None,
             "prune_mod_dirs": PRUNE_MOD_DIRS,
             "pruned_unsatisfiable_modules": orphans,
+            "one_kernel_pruned_base_kvers": sorted(dropped_kvers),
+            "one_kernel_pruned_base_members": dropped_members,
+            "one_kernel_pruned_status_packages": pruned_status_pkgs,
             "baked_preseed_cfg": str(preseed_cfg),
             "baked_preseed_verified": initrd_verify,
             "baked_startup_hook": NCZ_STARTUP_HOOK_NAME,
