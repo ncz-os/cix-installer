@@ -841,6 +841,14 @@ stage_layers() {
         say_layers() { printf '[layers] %s\n' "$*" | tee -a "$log"; }
         say_layers "refresh-sources outputs: deb=$(basename "$NCZ_SINGULARITY_PREBUILT_DEB") sources=${NCZ_SINGULARITY_SOURCES:-?}"
     fi
+    # `sudo` resets the environment, so the resolved-payload vars must be
+    # inlined into the command string (otherwise the layer build silently
+    # rebuilds the payload from the committed pins).
+    local envs="" v val
+    for v in NCZ_SINGULARITY_PREBUILT_DEB NCZ_SINGULARITY_PREBUILT_SHA256 NCZ_SINGULARITY_PINS NCZ_SINGULARITY_SOURCES; do
+        val="${!v:-}"
+        [ -n "$val" ] && envs="$envs $v='$val'"
+    done
     # Run the layer build through the documented privilege model (ncz_sudo_bash
     # -> one `sudo -S` with the fleet password on stdin).  The script calls bare
     # `sudo` internally (mmdebstrap/chroot/mount); as root those are no-ops, and
@@ -849,7 +857,7 @@ stage_layers() {
     # stage 1 drives host mount/chroot/mksquashfs (r202 workaround #1/#2: it is
     # not rootless). It must run on the host, never nested in the container
     # (arm64 report #4). The layer plan (NCZ_LAYER_PLAN) decides reuse/rebuild.
-    ncz_sudo_bash "cd '$ROOT' && TMPDIR='$ltmp' NCZ_TARGET_ARCH='$ARCH' NCZ_LAYER_PLAN='$NCZ_LAYER_PLAN' bash build/build-squashfs-layers.sh all" 2>&1 | tee -a "$log"
+    ncz_sudo_bash "cd '$ROOT' && TMPDIR='$ltmp' NCZ_TARGET_ARCH='$ARCH' NCZ_LAYER_PLAN='$NCZ_LAYER_PLAN'$envs bash build/build-squashfs-layers.sh all" 2>&1 | tee -a "$log"
     return "${PIPESTATUS[0]}"
 }
 
