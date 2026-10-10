@@ -439,15 +439,24 @@ export TMPDIR="$RUN_DIR/tmp"
 NCZ_BUILD_LOCK="${NCZ_BUILD_LOCK:-$(dirname "$RUN_DIR")/.ncz-build.lock}"
 export NCZ_BUILD_LOCK NCZ_BUILD_LOCK_OWNER="$$"
 if [ "$DRY_RUN" != 1 ]; then
-    if [ -f "$NCZ_BUILD_LOCK" ]; then
+    # Atomic acquisition via noclobber (O_EXCL): the redirect fails if the file
+    # already exists, so two concurrent builds cannot both win (zoder review
+    # 2026-10-10: the previous check-then-write was racy).
+    _ncz_lock_acquire() { ( set -o noclobber; printf '%s\n' "$$" > "$NCZ_BUILD_LOCK" ) 2>/dev/null; }
+    if ! _ncz_lock_acquire; then
         _lock_holder="$(tr -dc '0-9' <"$NCZ_BUILD_LOCK" 2>/dev/null | head -c 12)"
         if [ -n "$_lock_holder" ] && [ "$_lock_holder" != "$$" ] && kill -0 "$_lock_holder" 2>/dev/null; then
             echo "build-image.sh: another build (pid $_lock_holder) holds $NCZ_BUILD_LOCK" >&2
             echo "build-image.sh: refusing to run two builds on one host (layers/image/kvm all contend)" >&2
             exit 3
         fi
+        # Stale (dead holder): drop it and retry atomically.
+        rm -f "$NCZ_BUILD_LOCK" 2>/dev/null || true
+        if ! _ncz_lock_acquire; then
+            echo "build-image.sh: lost the race for $NCZ_BUILD_LOCK (another build started)" >&2
+            exit 3
+        fi
     fi
-    printf '%s\n' "$$" > "$NCZ_BUILD_LOCK" 2>/dev/null || true
     trap 'rm -f "$NCZ_BUILD_LOCK" 2>/dev/null || true' EXIT
 fi
 
