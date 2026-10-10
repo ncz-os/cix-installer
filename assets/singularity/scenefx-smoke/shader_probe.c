@@ -87,6 +87,10 @@ static EGLDisplay try_gbm(void) {
 
 static GLuint compile_stage(GLenum type, const char *src, const char *label) {
 	GLuint sh = glCreateShader(type);
+	if (sh == 0) {
+		printf("  %-8s %-5s (glCreateShader=0)\n", label, "FAIL");
+		return 0;
+	}
 	glShaderSource(sh, 1, &src, NULL);
 	glCompileShader(sh);
 	GLint ok = GL_FALSE;
