@@ -54,8 +54,8 @@ ncz_canon_squashfs_list() {
     unsquashfs -ll "$1" 2>/dev/null | awk '
         NF >= 4 && $1 ~ /^[-dlbcps]/ {
             mode=$1; size=$3; path=$NF;
-            # collapse the type-major mode bits to the 9 permission bits + type
-            print substr(mode,1,1) substr(mode,2,10), size, path;
+            # mode string as-is (type char + 9 permission bits) + size + path
+            print mode, size, path;
         }' | sort
 }
 

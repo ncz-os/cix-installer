@@ -72,15 +72,16 @@ ncz_sudo() {
     if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
         sudo -- "$@"; return $?
     fi
-    local pw
     if ! _ncz_read_fleet_pass; then
         echo "priv.sh: no passwordless sudo and cannot read $NCZ_FLEET_PASS_KEY from $NCZ_FLEET_PASS_FILE" >&2
         echo "priv.sh: grant passwordless sudo for this account, run as root, or provide the master key file" >&2
         return 1
     fi
-    printf '%s\n' "$pw" | sudo -S -p '' -- "$@"
+    # _ncz_read_fleet_pass populates NCZ_FLEET_PASS; feed THAT to sudo -S (a
+    # separate local alias was never assigned here -- zoder caught it).
+    printf '%s\n' "$NCZ_FLEET_PASS" | sudo -S -p '' -- "$@"
     local rc=$?
-    unset pw NCZ_FLEET_PASS
+    unset NCZ_FLEET_PASS
     return $rc
 }
 

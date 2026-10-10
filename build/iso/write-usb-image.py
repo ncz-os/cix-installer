@@ -131,7 +131,9 @@ def repro_uuid(kind: str) -> str | None:
     if not pin:
         return None
     try:
-        sys.path.insert(0, str(REPO_ROOT / "build" / "lib"))
+        _libdir = str(REPO_ROOT / "build" / "lib")
+        if _libdir not in sys.path:
+            sys.path.insert(0, _libdir)
         import reproducible  # noqa: WPS433 (deliberate local import)
         digest = reproducible.pin_digest(Path(pin))
         return reproducible.derive_uuid(kind, digest, os.environ.get("NCZ_REPRO_ARCH", ""))
