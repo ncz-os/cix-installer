@@ -686,6 +686,9 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None,
         elif (key in ref.sid and ref.sid[key]["sha256"] == sha
               and sid_idx.get(key, (None,))[0] == sha):
             auth = "sid-exception"
+        elif ref.receipt_ts.get(key) == sha:
+            # build-timestamped NCZ deb authorized by a run/pre-build receipt
+            auth = "ncz-receipt"
         if auth is None:
             fail(src, what, "not authorized by the verified snapshot index or a "
                             "reviewed vendor/NCZ/sid-exceptions ledger")
@@ -2308,6 +2311,15 @@ def main():
             die("--verify-mirror needs --index-dir for the verified upstream "
                 "snapshot index that authorizes the candidate packages")
         ref = Ref(a)
+        # A candidate mirror may legitimately carry a build-timestamped NCZ deb
+        # (the freshly built singularity payload): authorize it from the
+        # pre-build receipt before any finished image exists.  The --image scan's
+        # own <img>.receipt.json is separate and takes precedence there.
+        for _r in a.receipt:
+            if os.path.isfile(_r):
+                load_receipt_ts(ref, _r, "receipt")
+            else:
+                fail("receipt", _r, "requested receipt is missing")
         ok = verify_candidate_mirror(ref, a.verify_mirror, a.index_dir, a.fetch_index)
         print(f"== verify-mirror {a.verify_mirror}: {'OK' if ok else 'FAIL'}")
         sys.exit(0 if ok else 1)
