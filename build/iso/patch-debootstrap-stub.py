@@ -923,10 +923,15 @@ def _repack_udeb(ar_dir: Path, control_member: str,
         # Byte-reproducible repack.  Without this the patched udeb's sha256
         # changed on every invocation (the extracted members carry the build
         # host's mtimes), so no static NCZ ledger row could ever match it and
-        # the provenance gate failed on debootstrap-udeb every run.  Clamp
-        # every member mtime to SOURCE_DATE_EPOCH, sort members by name, and
-        # let `ar -D` zero the ar member metadata.
-        sde = os.environ.get("SOURCE_DATE_EPOCH", "0")
+        # the provenance gate failed on debootstrap-udeb every run.
+        #
+        # Use a FIXED mtime, NOT $SOURCE_DATE_EPOCH: the image build sets
+        # SOURCE_DATE_EPOCH to the HEAD commit time (build/lib/reproducible.sh),
+        # which changes with every commit, so keying this artifact off it made
+        # the verified sha move on every push (observed: 092128b6 -> 975fd87b
+        # across two commits).  A constant epoch keeps the patched udeb's bytes
+        # a pure function of its inputs, so one reviewed ledger row holds.
+        sde = "0"
         tar_proc = subprocess.run(
             ["tar", "--sort=name", "--numeric-owner", "--owner=0",
              "--group=0", f"--mtime=@{sde}",
