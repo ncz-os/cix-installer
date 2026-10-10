@@ -49,16 +49,35 @@ fi
 unset LIBGL_ALWAYS_SOFTWARE || true
 
 echo "== building shader_probe =="
-cc -O1 -o "$OUT/shader_probe" "$HERE/shader_probe.c" \
-    -I/usr/include -L/opt/cixgpu-pro/lib/aarch64-linux-gnu \
-    -lEGL -lGLESv2 -lgbm 2>&1 | tee "$OUT/build.log"
+# Resolve a usable link line on hosts that ship only the versioned sonames
+# (O6N has libgbm.so.1 but no libgbm.so dev symlink).  Prefer the plain -l
+# flags, fall back to -l:<soname>.  The CIX vendor lib dir is used only if it
+# exists.
+LIBS=()
+libdirs=(-L/opt/cixgpu-pro/lib/aarch64-linux-gnu -L/opt/cixgpu-pro/lib)
+for d in /usr/lib/aarch64-linux-gnu /usr/lib; do [ -d "$d" ] && libdirs+=(-L"$d"); done
+for spec in "EGL:libEGL.so.1" "GLESv2:libGLESv2.so.2" "gbm:libgbm.so.1"; do
+    name="${spec%%:*}"; soname="${spec#*:}"
+    probe_so="$(for d in "${libdirs[@]}"; do d="${d#-L}"; [ -e "$d/lib$name.so" ] && { echo "$d/lib$name.so"; break; }; done)"
+    if [ -n "$probe_so" ]; then LIBS+=("-l$name"); else LIBS+=("-l:$soname"); fi
+done
+cc -O1 -o "$OUT/shader_probe" "$HERE/shader_probe.c" -I/usr/include "${libdirs[@]}" "${LIBS[@]}" 2>&1 | tee "$OUT/build.log"
+[ -x "$OUT/shader_probe" ] || { echo "run_probe: shader_probe did not build" >&2; exit 2; }
 
-echo "== generating formatted shaders =="
-python3 "$HERE/make_shaders.py" "$ROOT" "$OUT/shaders"
+# Shaders: reuse a pre-generated dir (NCZ_SMOKE_SHADERS_DIR) or generate from
+# the scenefx source root.
+if [ -n "${NCZ_SMOKE_SHADERS_DIR:-}" ] && [ -f "$NCZ_SMOKE_SHADERS_DIR/manifest.tsv" ]; then
+    SH="$NCZ_SMOKE_SHADERS_DIR"
+    echo "== using pre-generated shaders in $SH =="
+else
+    echo "== generating formatted shaders =="
+    python3 "$HERE/make_shaders.py" "$ROOT" "$OUT/shaders"
+    SH="$OUT/shaders"
+fi
 
 echo "== compiling every program through the target driver =="
 set +e
-"$OUT/shader_probe" "$OUT/shaders/manifest.tsv" 2>&1 | tee "$OUT/probe.log"
+"$OUT/shader_probe" "$SH/manifest.tsv" 2>&1 | tee "$OUT/probe.log"
 rc="${PIPESTATUS[0]}"
 set -e
 echo "probe rc=$rc  (logs: $OUT)"
