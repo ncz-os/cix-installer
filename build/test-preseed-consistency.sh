@@ -176,7 +176,7 @@ shopt -s nullglob
 _pres_sh=(preseed/*.sh)
 shopt -u nullglob
 if [ "${#_pres_sh[@]}" -gt 0 ]; then
-    grep -rhoE '^[[:space:]]*db_set[[:space:]]+[A-Za-z0-9_./-]+' "${_pres_sh[@]}" 2>/dev/null \
+    grep -rhoE '^[[:space:]]*db_set[[:space:]]+[A-Za-z0-9_./:+-]+' "${_pres_sh[@]}" 2>/dev/null \
         | awk '{print $2}' | sort -u > "$rtset"
 else
     : > "$rtset"
@@ -187,8 +187,8 @@ while read -r rk; do
     [ -n "$rk" ] || continue
     # is it also a static key? exact field match (no regex metachars in a key)
     awk -v k="$rk" '$1=="d-i" && $2==k { f=1; exit } END { exit !f }' "$PRESEED" || continue
-    # intentional override?
-    grep -qE "^$rk([[:space:]]|$)" "$OVER" && continue
+    # intentional override? exact first-field match (strip the inline reason)
+    awk -v k="$rk" '{ sub(/#.*/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); if ($1==k) { f=1; exit } } END { exit !f }' "$OVER" && continue
     double=1
     fail "DOUBLE-SET: $rk is set in $PRESEED AND by a preseed/*.sh db_set; add it to $OVER if intentional"
 done < "$rtset"
