@@ -200,3 +200,9 @@ build/iso-cache/v1/*/
 # Bare mirrors of the pinned Singularity upstream repos (build/singularity-pins.sh fetch-cache)
 build/.singularity-pin-cache/
 build/ncz-apt-policy-deb/
+
+# Build mirrors rotated aside by make when stale (Makefile mv desktop-mirror ->
+# desktop-mirror.stale-<ts>, kernel-debs -> kernel-debs.stale-<ts>, kept for inspection).
+# These are build outputs; without this rule lint-platform LINT-COVER rejects the
+# rotated tree and the image target fails on a clean stage0/1/2 run.
+build/*.stale-*
