@@ -25,7 +25,10 @@ def rd(p):
         return f.read()
 
 def fmt(src, *vals):
-    # emulate C snprintf: first %d occurrences are replaced, left to right
+    # emulate C snprintf: first %d occurrences are replaced, left to right.
+    # FAIL CLOSED on upstream drift: if a %d is left unreplaced, or a supplied
+    # value is not used, the generated shader would not match SceneFX's runtime
+    # string -- a silent false pass. Raise instead.
     out, vals = [], list(vals)
     i = 0
     while i < len(src):
@@ -35,7 +38,14 @@ def fmt(src, *vals):
         else:
             out.append(src[i])
             i += 1
-    return "".join(out)
+    result = "".join(out)
+    if vals:
+        raise SystemExit("make_shaders: %d format value(s) unused after substitution "
+                         "(upstream shader changed)" % len(vals))
+    if '%d' in result:
+        raise SystemExit("make_shaders: an unmatched %d remains after substitution "
+                         "(upstream shader changed)")
+    return result
 
 def main():
     root, outdir = sys.argv[1], sys.argv[2]

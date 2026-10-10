@@ -154,12 +154,16 @@ int main(int argc, char **argv) {
 	FILE *m = fopen(argv[1], "r");
 	if (!m) { perror(argv[1]); return 2; }
 	char line[4096];
-	int fails = 0, total = 0;
+	int fails = 0, total = 0, malformed = 0;
 	while (fgets(line, sizeof(line), m)) {
 		char *nl = strchr(line, '\n'); if (nl) *nl = '\0';
 		if (line[0] == '\0' || line[0] == '#') continue;
-		char *tab1 = strchr(line, '\t'); if (!tab1) continue; *tab1 = '\0';
-		char *tab2 = strchr(tab1 + 1, '\t'); if (!tab2) continue; *tab2 = '\0';
+		char *tab1 = strchr(line, '\t');
+		if (!tab1) { fprintf(stderr, "[manifest] malformed line (no tab): %s\n", line); malformed++; continue; }
+		*tab1 = '\0';
+		char *tab2 = strchr(tab1 + 1, '\t');
+		if (!tab2) { fprintf(stderr, "[manifest] malformed line (one tab): %s\n", line); malformed++; continue; }
+		*tab2 = '\0';
 		const char *label = line;
 		const char *vpath = tab1 + 1;
 		const char *fpath = tab2 + 1;
@@ -172,6 +176,10 @@ int main(int argc, char **argv) {
 		    (fpath[0] && strcmp(fpath, "-") != 0 && !fsrc)) {
 			printf("  file read failed (v=%s f=%s)\n", vpath, fpath);
 			fails++; free(vsrc); free(fsrc); continue;
+		}
+		if (!vsrc && !fsrc) {
+			printf("  both stages missing (v=%s f=%s) -- malformed manifest\n", vpath, fpath);
+			fails++; continue;
 		}
 		GLuint vsh = vsrc ? compile_stage(GL_VERTEX_SHADER, vsrc, "VERT") : 0;
 		GLuint fsh = fsrc ? compile_stage(GL_FRAGMENT_SHADER, fsrc, "FRAG") : 0;
@@ -203,9 +211,16 @@ int main(int argc, char **argv) {
 		free(vsrc); free(fsrc);
 	}
 	fclose(m);
-	printf("\n[summary] programs=%d failures=%d\n", total, fails);
 	eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 	eglDestroyContext(dpy, ctx);
 	eglTerminate(dpy);
+	/* FAIL CLOSED: an empty or malformed manifest must never look like a pass
+	 * (total=0, failures=0).  A real SceneFX manifest has 15 programs. */
+	if (total == 0 || malformed > 0) {
+		fprintf(stderr, "\n[probe] FAIL CLOSED: no usable programs (total=%d malformed=%d)\n",
+			total, malformed);
+		return 2;
+	}
+	printf("\n[summary] programs=%d failures=%d\n", total, fails);
 	return fails ? 1 : 0;
 }
