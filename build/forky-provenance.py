@@ -927,6 +927,8 @@ class Ref:
                      f"ledger row pinned to snapshot {r['snapshot']} != current pin "
                      f"{self.trust['snapshot']}; regenerate the ledger on re-pin")
             rby = dt.date.fromisoformat(r["review_by"])
+            # review_by is a FORWARD deadline (first_seen + review window, e.g.
+            # +30d), not the last-reviewed date: a deadline before today is EXPIRED.
             if rby < today:
                 fail("sid-exceptions", f"{name} {ver} {arch}",
                      f"review_by {r['review_by']} has EXPIRED; re-review "
