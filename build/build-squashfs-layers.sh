@@ -119,6 +119,40 @@ case "$NCZ_TARGET_ARCH" in
   *) echo "ERROR: unsupported NCZ_TARGET_ARCH=$NCZ_TARGET_ARCH (expected arm64 or amd64)" >&2; exit 1 ;;
 esac
 
+# --- Layer plan (build/build-image.sh) -------------------------------------
+# build/lib/layerplan.py is the single implementation of a layer's input
+# FINGERPRINT (every pin, package list, hook, asset tree and kernel/payload sha
+# that feeds the layer, plus the layers below it).  build-image.sh passes
+# NCZ_LAYER_PLAN="base=rebuild,desktop=reuse,..." so a quick respin rebuilds
+# only what changed.  Absent (standalone invocation) behaviour is unchanged:
+# base reuses on a matching in-layer stamp, desktop/hotfix always rebuild.
+NCZ_LAYERPLAN_PY="$ROOT/build/lib/layerplan.py"
+ncz_layer_fingerprint() {
+  python3 -I "$NCZ_LAYERPLAN_PY" fingerprint --layer "$1" --arch "$NCZ_TARGET_ARCH" \
+    --root "$ROOT" --pin "${NCZ_PIN_FILE:-$ROOT/manifests/base.pin}" 2>/dev/null
+}
+ncz_layer_decision() {   # layer -> rebuild|reuse|"" (default)
+  [ -n "${NCZ_LAYER_PLAN:-}" ] || return 0
+  printf '%s' "$NCZ_LAYER_PLAN" | tr ',' '\n' \
+    | awk -F= -v L="$1" '$1==L{print $2; found=1} END{if(!found) print ""}'
+}
+ncz_layer_artifact() {   # layer -> squashfs path
+  case "$1" in
+    base)    printf '%s\n' "$OUT/base.squashfs" ;;
+    desktop) printf '%s\n' "$OUT/desktop.squashfs" ;;
+    hotfix)  printf '%s\n' "$OUT/desktop-hotfix.squashfs" ;;
+    *)       printf '\n' ;;
+  esac
+}
+ncz_layer_reuse_ok() {   # layer -> 0 when the artifact + matching stamp exist
+  local l="$1" art stamp
+  art="$(ncz_layer_artifact "$l")"; stamp="$OUT/$l.build-fingerprint"
+  [ -n "$art" ] && [ -s "$art" ] || return 1
+  [ -s "$stamp" ] || return 1
+  [ "$(cat "$stamp")" = "$(ncz_layer_fingerprint "$l")" ]
+}
+ncz_layer_stamp_write() { ncz_layer_fingerprint "$1" > "$OUT/$1.build-fingerprint"; }
+
 # Pinned, gitignored inputs (recovery rootfs, rescue rootfs, python311, wallpaper debs): staged from
 # the ARGONAS store and checksum-verified before anything is built (r201: a missing
 # ncz-mgmt-rootfs.tar.zst made post-install/38-recovery-container.sh fail on every image).
@@ -300,24 +334,16 @@ mkdir -p "$OUT" "$WORK"
 # ncz-gpu-hw-present because base.squashfs pre-dated both. The stamp is written into the layer and compared on reuse.
 BASE_STAMP_REL=usr/local/lib/cix-installer/BASE-ASSETS.sha256
 base_assets_stamp() {
-  ( cd "$ROOT" || exit 1
-    for a in gpu audio display refind grub branding dracut regreet diag keys dev docs embedkit intel; do
-      # assets/dracut is Sky1-only and is not staged into an amd64 base (see the
-      # staging loop below). Excluding it from the amd64 fingerprint changes the
-      # stamp, so an amd64 base.squashfs that still carries the leaked Sky1
-      # dracut config is rebuilt instead of reused.
-      case "$a" in
-        dracut) [ "${NCZ_TARGET_ARCH:-}" = amd64 ] && continue ;;
-      esac
-      [ -d "assets/$a" ] && find "assets/$a" \( -type f -o -type l \) -print
-    done
-    ls release.conf manifests/installer-base*.pkgs 2>/dev/null   # what the base layer installs; other manifests are not base inputs
-  ) | LC_ALL=C sort | ( cd "$ROOT" && while IFS= read -r f; do [ -f "$f" ] && sha256sum "$f"; done
-      # kernel channel LAYOUT (directory names and symlink targets, not the multi-GB contents): a rename such as
-      # edge -> mainline must not be masked by a reused base layer that still carries the old names
-      echo "kernel-layout"
-      find assets/kernel -maxdepth 2 \( -type d -o -type l \) -printf '%p -> %l\n' 2>/dev/null | LC_ALL=C sort
-    ) | sha256sum | cut -d' ' -f1
+  # Fingerprint of EVERY input of the base layer, computed by the one shared
+  # implementation (build/lib/layerplan.py).  This is a strict SUPERSET of the
+  # old hand-rolled find-over-asset-dirs: the r202 report found the old stamp
+  # missed assets/wallpaper/ and post-install/ (two fixes lived exactly there
+  # and never reached a reused base.squashfs).  The registry now covers the
+  # asset dirs, the wallpaper packs, the installer hooks, the base package
+  # lists, the kernel channel LAYOUT + KVER, the pinned kernel-deb manifest and
+  # the upstream/substrate pins -- and, through its `mirror` dependency, the
+  # pinned apt closure.  A missing python3 fails loud (never silently reuses).
+  ncz_layer_fingerprint base || { echo "ERROR: base_assets_stamp: layerplan fingerprint failed" >&2; exit 1; }
 }
 base_stamp_in_layer() {   # layer -> stamp or empty
   { unsquashfs -cat "$1" "$BASE_STAMP_REL" 2>/dev/null || true; } | tr -d '[:space:]'   # absent stamp (old layer) => empty => rebuild; must not trip set -e/pipefail
@@ -892,7 +918,9 @@ PYOVERLAY
   #                          Other xattrs are NOT stripped wholesale:
   #                          security.capability (file caps, e.g. on /bin/ping)
   #                          is legitimate Debian content and must survive.
-  sudo mksquashfs "$U" "$OUT/$role.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 \
+  # env -u SOURCE_DATE_EPOCH: mksquashfs >= 4.7 refuses SOURCE_DATE_EPOCH +
+  # explicit -all-time/-fstime together; we keep the explicit epoch-0 form.
+  sudo env -u SOURCE_DATE_EPOCH mksquashfs "$U" "$OUT/$role.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 \
     -xattrs-exclude '^trusted\.overlay\.' -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -2
   verify_squashfs "$OUT/$role.squashfs" "$role"
   log "$role DONE: delta $(du -h "$OUT/$role.squashfs"|cut -f1)"
@@ -1336,7 +1364,8 @@ ExecStartPre=/usr/sbin/sshd -t
   # security.capability (file caps, e.g. on /bin/ping) is legitimate Debian
   # content and is preserved -- this is NOT a blanket -no-xattrs.
   log "BASE: mksquashfs -> $OUT/base.squashfs"
-  sudo mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -3
+  # env -u SOURCE_DATE_EPOCH: see the desktop-layer call above (mksquashfs>=4.7).
+  sudo env -u SOURCE_DATE_EPOCH mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -3
   verify_squashfs "$OUT/base.squashfs" "base"
   log "BASE DONE: $(du -h "$OUT/base.squashfs"|cut -f1)"
 }
@@ -1594,7 +1623,8 @@ build_hotfix(){
   # security.capability (file caps, e.g. on /bin/ping) is legitimate Debian
   # content and is preserved -- this is NOT a blanket -no-xattrs.
   log "HOTFIX: mksquashfs $WORK/hotfix -> $OUT/desktop-hotfix.squashfs"
-  sudo mksquashfs "$WORK/hotfix" "$OUT/desktop-hotfix.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -2
+  # env -u SOURCE_DATE_EPOCH: see the desktop-layer call above (mksquashfs>=4.7).
+  sudo env -u SOURCE_DATE_EPOCH mksquashfs "$WORK/hotfix" "$OUT/desktop-hotfix.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -2
   verify_squashfs "$OUT/desktop-hotfix.squashfs" "desktop-hotfix"
   # Write the overlay manifest. The install-time stub applies the manifest
   # BEFORE unsquashfs extraction (see preseed/extract-rootfs.sh's
@@ -1620,6 +1650,91 @@ HOTFIX_MANIFEST
   sudo rm -rf "$WORK/hotfix"
 }
 
+# ---------------------------------------------------------------------------
+# Plan-aware wrappers used by `all` (build-image.sh always drives `all`).
+# Standalone `base`/`desktop`/`hotfix` keep their historical unconditional
+# behaviour so existing callers and docs are unchanged.
+# ---------------------------------------------------------------------------
+rotate_stale_base() {
+  local ts; ts="$(date -u +%Y%m%d-%H%M%S)"
+  sudo mv -f "$OUT/base.squashfs" "$OUT/base.squashfs.stale-${ts}" 2>/dev/null \
+    || mv -f "$OUT/base.squashfs" "$OUT/base.squashfs.stale-${ts}" 2>/dev/null \
+    || { log "ERROR: could not rotate $OUT/base.squashfs aside -- refusing to clobber it" >&2; exit 1; }
+  log "  kept for inspection: $OUT/base.squashfs.stale-${ts}"
+}
+
+run_base_layer() {
+  # `all` used to ask only "does base.squashfs exist", then "does it carry the
+  # staged kernel".  It never noticed a change to assets/... or, before the
+  # r202 fix, to wallpaper/post-install.  The stamp now fingerprints every base
+  # input (build/lib/layerplan.py); NCZ_LAYER_PLAN=base=rebuild forces a fresh
+  # build when the caller already knows the inputs changed.
+  local d; d="$(ncz_layer_decision base)"
+  if [ "$d" = rebuild ]; then
+    [ -s "$OUT/base.squashfs" ] && { log "BASE: forced rebuild (plan)"; rotate_stale_base; }
+    build_base || return 1
+    ncz_layer_stamp_write base
+    return 0
+  fi
+  if [ -s "$OUT/base.squashfs" ]; then
+    local _want_stamp _have_stamp _kernel_ok=1
+    _want_stamp="$(base_assets_stamp)"; _have_stamp="$(base_stamp_in_layer "$OUT/base.squashfs")"
+    if [ "$_want_stamp" != "$_have_stamp" ]; then
+      log "BASE: asset inputs changed since base.squashfs was built (layer stamp '${_have_stamp:-none}' vs current '$_want_stamp'); rebuilding"
+      _kernel_ok=0
+    elif NCZ_TARGET_ARCH="$NCZ_TARGET_ARCH" bash "$ROOT/build/verify-base-kernel-assets.sh" \
+         --layer "$OUT/base.squashfs" --label base.squashfs; then
+      _kernel_ok=1
+    else
+      _kernel_ok=0
+    fi
+    if [ "$_kernel_ok" = 1 ]; then
+      log "BASE: reusing existing $OUT/base.squashfs ($(du -h "$OUT/base.squashfs" | cut -f1))"
+      ncz_layer_stamp_write base
+      return 0
+    fi
+    log "BASE: STALE (asset stamp or staged kernel assets); rotating aside and rebuilding"
+    rotate_stale_base
+  fi
+  build_base || return 1
+  ncz_layer_stamp_write base
+}
+
+run_desktop_layer() {
+  local d; d="$(ncz_layer_decision desktop)"
+  # No plan (standalone caller): historical behaviour is to rebuild.
+  if [ -z "${NCZ_LAYER_PLAN:-}" ]; then
+    build_singularity_payload; ensure_wallpaper_packs; build_layer desktop "$DESKTOP_MANIFEST"
+    return $?
+  fi
+  if [ "$d" = reuse ] && ncz_layer_reuse_ok desktop; then
+    log "DESKTOP: reusing existing $OUT/desktop.squashfs (fingerprint unchanged)"
+    return 0
+  fi
+  if [ "$d" = auto ] && ncz_layer_reuse_ok desktop; then
+    log "DESKTOP: reusing existing $OUT/desktop.squashfs (fingerprint unchanged)"
+    return 0
+  fi
+  build_singularity_payload || return 1
+  ensure_wallpaper_packs
+  build_layer desktop "$DESKTOP_MANIFEST" || return 1
+  ncz_layer_stamp_write desktop
+}
+
+run_hotfix_layer() {
+  local d; d="$(ncz_layer_decision hotfix)"
+  if [ -z "${NCZ_LAYER_PLAN:-}" ]; then
+    build_singularity_payload; build_hotfix
+    return $?
+  fi
+  if { [ "$d" = reuse ] || [ "$d" = auto ]; } && ncz_layer_reuse_ok hotfix; then
+    log "HOTFIX: reusing existing $OUT/desktop-hotfix.squashfs (fingerprint unchanged)"
+    return 0
+  fi
+  build_hotfix || return 1
+  ncz_layer_stamp_write hotfix
+}
+
 case "$STAGE" in
   base)    build_base ;;
   desktop) build_singularity_payload; ensure_wallpaper_packs; build_layer desktop "$DESKTOP_MANIFEST" ;;
@@ -1627,60 +1742,8 @@ case "$STAGE" in
   server)  echo "ERROR: the server layer is gone; NCZ-OS ships ONE build." >&2
            echo "       Boot the console entry (multi-user.target) instead." >&2
            exit 1 ;;
-  all)     # BASE was rebuilt unconditionally until a moment ago, then quietly
-           # switched to "reuse if exists" to skip ~25min rebuilds on
-           # desktop-only iteration. The reuse check only asked "does the
-           # file exist" -- it could not notice a kernel bump in
-           # assets/kernel/ because base.squashfs had already cached the
-           # previous kernel's basenames. Combined with the install hook
-           # reading its expected KVER from a side-car file that the kernel
-           # bump commit (c291de2) also updated, the two files could agree
-           # while the IMAGE still shipped the old kernel -- the install
-           # gate then reported a false "no AMD64 kernel installed" because
-           # the side-car's KVER did not match what /boot actually held
-           # (2026-09-28, base.squashfs mtime 2026-09-26 vs c291de2 from
-           # 2026-09-27).
-           #
-           # Same defect class closed in 3fc79c3 for desktop-mirror: a
-           # layer cached on inputs that exclude what changed. The fix
-           # there is the same fix here -- a verifier that compares the
-           # layer's contents against the staged source, and a rebuild
-           # that rotates the stale layer aside when it fails. Exactly one
-           # pair-per-line invariant (enforced by stage-amd64-kernel.sh,
-           # also fixed in this commit) makes that comparison meaningful:
-           # "staged source has 1 image + 1 headers per line AND base
-           # embeds the same basenames" is a sharp predicate, not a
-           # "staged 2, layer 2, off-by-one" ambiguity.
-           if [ -s "$OUT/base.squashfs" ]; then
-             _want_stamp="$(base_assets_stamp)"; _have_stamp="$(base_stamp_in_layer "$OUT/base.squashfs")"
-             if [ "$_want_stamp" != "$_have_stamp" ]; then
-               log "BASE: asset inputs changed since base.squashfs was built (layer stamp '${_have_stamp:-none}' vs current '$_want_stamp'); rebuilding"
-               _kernel_ok=0
-             elif NCZ_TARGET_ARCH="$NCZ_TARGET_ARCH" bash "$ROOT/build/verify-base-kernel-assets.sh" \
-                  --layer "$OUT/base.squashfs" --label base.squashfs; then
-               _kernel_ok=1
-             else
-               _kernel_ok=0
-             fi
-             if [ "$_kernel_ok" = 1 ]; then
-               log "BASE: reusing existing $OUT/base.squashfs ($(du -h "$OUT/base.squashfs" | cut -f1))"
-             else
-               log "BASE: STALE (asset stamp or staged kernel assets); rotating aside and rebuilding"
-               _stale_ts="$(date -u +%Y%m%d-%H%M%S)"
-               if sudo mv -f "$OUT/base.squashfs" "$OUT/base.squashfs.stale-${_stale_ts}" 2>/dev/null; then
-                 :
-               elif mv -f "$OUT/base.squashfs" "$OUT/base.squashfs.stale-${_stale_ts}" 2>/dev/null; then
-                 :
-               else
-                 log "ERROR: could not rotate stale $OUT/base.squashfs aside -- refusing to clobber it" >&2
-                 exit 1
-               fi
-               log "  kept for inspection: $OUT/base.squashfs.stale-${_stale_ts}"
-               build_base
-             fi
-           else
-             build_base
-           fi
-           build_singularity_payload; ensure_wallpaper_packs; build_layer desktop "$DESKTOP_MANIFEST"; build_hotfix ;;
+  all)     run_base_layer || exit 1
+           run_desktop_layer || exit 1
+           run_hotfix_layer || exit 1 ;;
   *) echo "usage: $0 base|desktop|hotfix|server|all"; exit 2 ;;
 esac
