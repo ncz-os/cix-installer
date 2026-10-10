@@ -115,7 +115,7 @@ if [ ! -f "$T2_KEYRING" ] || [ ! -s "$T2_KEYRING" ]; then
     rm -f "$T2_KEYRING"
     # Same key-material validation discipline as 54-gpu-accel.sh's AMD/Intel
     # blocks — don't trust a bare curl exit code, confirm real key bytes.
-    if curl -fsSL --compressed "https://adityagarg8.github.io/t2-ubuntu-repo/KEY.gpg" 2>/dev/null | gpg --dearmor -o "$T2_KEYRING" 2>/dev/null && \
+    if curl -fsSL --compressed --connect-timeout 5 --max-time 30 "https://adityagarg8.github.io/t2-ubuntu-repo/KEY.gpg" 2>/dev/null | gpg --dearmor -o "$T2_KEYRING" 2>/dev/null && \
        [ -s "$T2_KEYRING" ] && [ "$(stat -c%s "$T2_KEYRING" 2>/dev/null || echo 0)" -gt 100 ]; then
         echo "[55] fetched t2-ubuntu-repo signing key ($(stat -c%s "$T2_KEYRING") bytes)"
     else

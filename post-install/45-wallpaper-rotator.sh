@@ -3,6 +3,9 @@
 # every 10 minutes. r55: instant apply on login (was 30s) + xrandr-driven monitor
 # discovery so wallpaper sticks across xfconf monitor-name shifts.
 set -euo pipefail
+_pm="$(dirname "$0")/lib/progress-msg.sh"; [ -r "$_pm" ] || _pm=/usr/local/lib/cix-installer/post-install/lib/progress-msg.sh
+[ -r "$_pm" ] && . "$_pm"
+command -v ncz_msg >/dev/null 2>&1 && ncz_msg "Wallpapers: installing the wallpaper packs and the 10-minute autoswitcher (about a minute)"
 
 echo "[45] installing 7 NCZ wallpapers + 10-minute autoswitcher"
 

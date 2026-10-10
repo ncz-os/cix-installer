@@ -18,6 +18,9 @@
 # that's the actual fork this file needs: which rEFInd binary + kernel-line
 # model applies to this hardware family, not which board within a family.
 set -euo pipefail
+_pm="$(dirname "$0")/lib/progress-msg.sh"; [ -r "$_pm" ] || _pm=/usr/local/lib/cix-installer/post-install/lib/progress-msg.sh
+[ -r "$_pm" ] && . "$_pm"
+command -v ncz_msg >/dev/null 2>&1 && ncz_msg "Bootloader: writing rEFInd boot entries and syncing the ESP (about a minute; log: /var/log/cix-install/70-bootloader.log)"
 
 echo "[70] bootloader — install-time setup"
 

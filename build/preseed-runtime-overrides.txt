@@ -1,0 +1,22 @@
+# preseed-runtime-overrides.txt — debconf questions that preseed.cfg sets AND a
+# runtime helper (preseed/*.sh, via db_set) legitimately re-sets. Each is an
+# intentional OVERRIDE, not a conflict: the helper runs later and wins.
+# build/test-preseed-consistency.sh requires every key set in both places to be
+# listed here; an unlisted one is treated as an accidental double-set.
+#
+# Format: <key> <reason>
+netcfg/choose_interface  # net-pick.sh picks the carrier-up NIC over cfg's "auto"
+netcfg/get_hostname      # hostname-suggest.sh derives ncz-<mac6>
+netcfg/hostname          # hostname-suggest.sh derives ncz-<mac6>
+netcfg/link_wait_timeout # net-pick.sh shortens the wait once carrier is known
+time/zone                # region-chooser.sh sets the operator's zone
+partman-auto/expert_recipe  # disk-fs-chooser.sh builds the recipe for the chosen fs
+partman-auto/choose_recipe  # disk-fs-chooser.sh re-asserts the cixmini recipe
+debian-installer/exit/reboot   # late.sh finalizes the exit action
+debian-installer/exit/poweroff # late.sh finalizes the exit action
+clock-setup/utc                # region-chooser.sh sets it as part of the region
+passwd/make-user               # user-chooser.sh re-seeds so user-setup-udeb does not ask
+passwd/root-login              # user-chooser.sh re-seeds so user-setup-udeb does not ask
+passwd/user-default-groups     # user-chooser.sh re-seeds the group list
+user-setup/allow-password-weak # user-chooser.sh re-seeds weak-password allowance
+user-setup/encrypt-home        # user-chooser.sh re-seeds home-encryption answer
