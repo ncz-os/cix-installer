@@ -156,7 +156,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage release-image print-substrate-sha test-build-determinism test-build-image test-build compare-images gen-base-pin
 
 all: image
 
@@ -729,3 +729,41 @@ parity:
 	bash build/test-npu-dkms-deferral.sh
 	bash build/test-hooks-fail-loudly.sh
 	$(MAKE) --no-print-directory test-cygnus-branding
+
+# -----------------------------------------------------------------------
+# Determinism + single entrypoint (docs/IMAGE-BUILD-PROCESS.md)
+# -----------------------------------------------------------------------
+# The substrate pin for ARCH, printed with no side effects.  Consumed by
+# build/gen-base-pin.sh and build/build-image.sh so the Makefile stays the one
+# place the substrate SHA is defined.  (SUBSTRATE_SHA is selected by the ARCH
+# conditionals above and can still be overridden on the command line.)
+print-substrate-sha:
+	@printf '%s\n' '$(SUBSTRATE_SHA)'
+
+# One-command whole-pipeline build (preflight -> refresh substrate -> stage
+# inputs -> offline mirror -> layers -> image -> KVM gate -> provenance gate ->
+# receipt -> archive copy).  Extra flags go in RELEASE_IMAGE_ARGS, e.g.
+#   make release-image ARCH=amd64 RELEASE_IMAGE_ARGS="--dry-run"
+release-image:
+	@bash $(ROOT)/build/build-image.sh --arch $(ARCH) $(RELEASE_IMAGE_ARGS)
+
+# Regenerate manifests/base.pin from the authoritative pins (review + commit).
+gen-base-pin:
+	@bash $(ROOT)/build/gen-base-pin.sh
+
+# Unit-level determinism tests (derivation + wrapper byte-stability).
+test-build-determinism:
+	@bash $(ROOT)/build/test-build-determinism.sh
+
+# CLI / plan / fingerprint / both-arch tests for the single entrypoint.
+test-build-image:
+	@bash $(ROOT)/build/test-build-image.sh
+
+# Everything about the build process itself (no image is built).
+test-build: test-build-determinism test-build-image
+	@echo "[test-build] OK: determinism + entrypoint tests passed"
+
+# Compare two built artifacts with the documented normalisation rules.
+#   make compare-images COMPARE_IMAGE_ARGS="--arch amd64 A.img B.img"
+compare-images:
+	@bash $(ROOT)/build/compare-images.sh $(COMPARE_IMAGE_ARGS)

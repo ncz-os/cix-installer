@@ -490,3 +490,15 @@ manifests/forky-snapshot.tsv	common	-	immutable trust metadata for the BUILD pin
 manifests/keys/debian-archive-keyring.gpg	common	-	official Debian archive signing keyring used by gpgv to verify the pinned snapshot Release
 docs/FORKY-PROVENANCE.md	common	-	policy + design for the forky-provenance gate: trust root, signed-index chain, NCZ ledger, apt allowlist, blockers
 build/testdata/forky-snapshot/InRelease	common	-	the real pinned snapshot.debian.org InRelease (20261007T202437Z) fixture used to prove production keyring/digest compatibility offline
+build/build-image.sh	common	-	single build entrypoint: stages, scopes (full/respin/rebuild-*/components/only-image), gates, both-arch orchestration, publish rule
+build/compare-images.sh	common	-	determinism proof: whole-file sha256 per artifact, normalised decomposition, --expect rules
+build/gen-base-pin.sh	common	-	generates manifests/base.pin from the authoritative pins; --check fails a stale pin
+build/stage-to-argonas.sh	common	-	copies a GATED image + sidecars to the ARGONAS images store with sha256 verification (never ship-image)
+build/lib/layerplan.py	common	-	per-layer input fingerprints + component->layer map + reuse/rebuild plan (single implementation)
+build/lib/reproducible.py	common	-	deterministic primitives: pin canonicalisation, SOURCE_DATE_EPOCH, pin-derived UUIDs
+build/lib/reproducible.sh	common	-	shell surface of the determinism contract (env, tar/mksquashfs/mke2fs/mformat wrappers)
+build/lib/compare-lib.sh	common	-	normalising helpers for compare-images (squashfs/fat/tar/json/tree)
+build/lib/priv.sh	common	-	the ONE privilege model: root / passwordless sudo / sudo -S with the fleet key on stdin (no FIFO)
+build/test-build-determinism.sh	common	-	unit proof of the determinism primitives (+ negative controls) and compare-images both directions
+build/test-build-image.sh	common	-	CLI/plan/fingerprint/both-arch orchestration tests for the single entrypoint
+manifests/base.pin	common	-	the single build input pin (substrate/snapshot/deb-ledger digests); the determinism root (generated)
