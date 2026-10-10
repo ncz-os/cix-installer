@@ -514,7 +514,7 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None):
         v = ref.vendor.get(key)
         if v is not None and sha in v:
             auth = "vendor"
-        elif ref.ncz.get(key) == sha:
+        elif sha in ref.ncz.get(key, ()):
             auth = "ncz"
         elif key in auth_idx and auth_idx[key][0] == sha:
             auth = "verified"
@@ -1332,11 +1332,17 @@ def scan_image(ref, img, work):
         except Exception as e:  # noqa: BLE001
             fail("image", receipt, f"image receipt is unreadable: {e}")
             rec = None
+        if not isinstance(rec, dict):
+            rec = {}
         entries = (rec or {}).get("ncz_timestamped_debs")
         if not entries:
-            entries = (rec or {}).get("ncz_payload", {}).get(
-                "ncz_timestamped_debs", [])
-        for e in entries or []:
+            nested = (rec or {}).get("ncz_payload")
+            if isinstance(nested, dict):
+                entries = nested.get("ncz_timestamped_debs", [])
+        if not isinstance(entries, list):
+            fail("image", receipt, "image receipt ncz_timestamped_debs is not a list")
+            entries = []
+        for e in entries:
             key = (e.get("name"), e.get("version"), e.get("arch"))
             if not all(key) or not SHA256_RE.match(e.get("sha256", "")):
                 fail("image", receipt, f"malformed ncz_timestamped_debs entry: {e!r}")
