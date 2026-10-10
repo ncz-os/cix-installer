@@ -1669,7 +1669,7 @@ rotate_stale_base() {
 # exports NCZ_LAYERS_CHECK=1; the authoritative run happens again at the stage
 # level with the manifest + chain.  Never falls back silently.
 ncz_layer_postcheck() {  # <layer>  (base|desktop|hotfix)
-  local l="$1" sq="$OUT/$1.squashfs"
+  local l="$1" sq; sq="$(ncz_layer_artifact "$l")"
   [ "${NCZ_LAYERS_CHECK:-0}" = 1 ] || return 0
   [ -s "$sq" ] || { log "POSTCHECK: $sq missing"; return 1; }
   local -a a=(--arch "$NCZ_TARGET_ARCH" --stage layers-postcheck --layer "$l" --append)
