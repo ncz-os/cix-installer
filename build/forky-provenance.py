@@ -1125,12 +1125,33 @@ def scan_rootfs(ref, root, src):
             audit_osrelease(src, slurp(p, errors="replace"))
             break
     files = {}
-    for pat in ("etc/apt/sources.list", "etc/apt/sources.list.d/*",
-                "etc/apt/preferences", "etc/apt/preferences.d/*"):
-        for p in glob.glob(os.path.join(root, pat)):
-            sp = _safe_open(root, os.path.relpath(p, root))
-            if sp:
-                files[os.path.relpath(p, root)] = slurp(sp, errors="replace")
+    # Never traverse a symlinked directory: a real rootfs can legitimately
+    # contain an absolute symlink (now allowed by the tar extractor), and
+    # globbing it would follow the link out of the root (hang / read a host
+    # tree).  Walk etc/apt WITHOUT following symlinks and match the apt files.
+    apt_rel = ("etc/apt/sources.list", "etc/apt/preferences")
+    apt_dir_re = re.compile(
+        r"^etc/apt/(sources\.list\.d|preferences\.d)/[^/]+$")
+    aptdir = os.path.join(root, "etc/apt")
+    for _d in (aptdir, os.path.join(aptdir, "sources.list.d"),
+               os.path.join(aptdir, "preferences.d")):
+        if os.path.islink(_d):
+            fail(src, os.path.relpath(_d, root),
+                 "apt directory is a symlink (refusing to traverse out of the root)")
+    if os.path.isdir(aptdir) and not os.path.islink(aptdir):
+        for rel in apt_rel:
+            p = _safe_open(root, rel)
+            if p:
+                files[rel] = slurp(p, errors="replace")
+        for dp, dns, fns in os.walk(aptdir, followlinks=False):
+            dns[:] = [d for d in dns if not os.path.islink(os.path.join(dp, d))]
+            for fn in fns:
+                rel = os.path.relpath(os.path.join(dp, fn), root)
+                if not apt_dir_re.match(rel):
+                    continue
+                sp = _safe_open(root, rel)
+                if sp:
+                    files[rel] = slurp(sp, errors="replace")
     audit_apt_files(ref, src, files)
     return n
 

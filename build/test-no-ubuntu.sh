@@ -328,6 +328,8 @@ rootcase pin-trixie 1 "printf 'Package: *\nPin: release n=trixie\nPin-Priority: 
 rootcase pin-ubuntu-origin 1 "printf 'Package: *\nPin: release o=Ubuntu\nPin-Priority: 500\n' > etc/apt/preferences.d/01.pref"
 rootcase pin-noblank-noble 1 "printf 'Package: *\nPin: release n=forky\nPin-Priority: -1\nPackage: *\nPin: release n=noble\nPin-Priority: 900\n' > etc/apt/preferences.d/01.pref"
 rootcase pin-ncz-origin 0 "printf 'Package: *\nPin: origin packages.buildkite.com\nPin-Priority: 990\n' > etc/apt/preferences.d/01.pref"
+rootcase aptdir-symlink 1 "rm -rf etc/apt/sources.list.d && ln -s /tmp etc/apt/sources.list.d"
+rootcase osrelease-symlink 1 "rm -f etc/os-release && ln -s /etc/os-release etc/os-release"
 rootcase installed-ubuntu-pkg 1 "printf 'Package: fonts-liberation\nStatus: install ok installed\nVersion: 1:2.1.5-3build1\nArchitecture: all\nMaintainer: %s\n\n' '$UBU_MAINT' > var/lib/dpkg/status"
 rootcase disabled-source-ignored 0 "echo 'deb http://ports.ubuntu.com/ubuntu-ports resolute main' > etc/apt/sources.list.d/old.list.disabled"
 rootcase no-status 1 "rm -f var/lib/dpkg/status"
@@ -703,7 +705,16 @@ SFD
         mkdir -p "$1/dists/forky/main/binary-amd64" "$1/pool/main/f/fonts-liberation" \
                  "$1/pool/main/libt/libtss2-rc0t64" "$1/ncz-payload/assets/cix-debs" \
                  "$1/ncz-payload/apt-repo"
-        cp "$IDX/dists/forky/main/binary-amd64/Packages.xz" "$1/dists/forky/main/binary-amd64/Packages.xz"
+        # /cdrom offline index: the snapshot records plus a reviewed NCZ deb, so
+        # the pool-binding path exercises the NCZ-ledger authorization (a bug in
+        # which regressed the /cdrom binding for every NCZ pool deb).
+        xz -dc "$IDX/dists/forky/main/binary-amd64/Packages.xz" > "$1/dists/forky/main/binary-amd64/Packages"
+        printf 'Package: ncz-widget\nVersion: 1.0\nArchitecture: all\nFilename: pool/main/n/ncz-widget/ncz-widget_1.0_all.deb\nSize: %s\nSHA256: %s\n\n' \
+          "$(wc -c < "$T/ncz-pool/ncz-widget_1.0_all.deb")" "$(sha "$T/ncz-pool/ncz-widget_1.0_all.deb")" \
+          >> "$1/dists/forky/main/binary-amd64/Packages"
+        xz -f "$1/dists/forky/main/binary-amd64/Packages"
+        mkdir -p "$1/pool/main/n/ncz-widget"
+        cp "$T/ncz-pool/ncz-widget_1.0_all.deb" "$1/pool/main/n/ncz-widget/"
         cp "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb" "$1/pool/main/f/fonts-liberation/"
         cp "$T/tpm-pool/libtss2-rc0t64_4.1.3-7_amd64.deb" "$1/pool/main/libt/libtss2-rc0t64/"
         cp "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb" "$1/ncz-payload/apt-repo/fonts-liberation_1%3a2.1.5-3_all.deb"
