@@ -129,7 +129,7 @@ conflict=0
 while IFS=$'\t' read -r key ndistinct first; do
     conflict=1
     fail "CONFLICT: $key set to $ndistinct different values in $PRESEED (first: '$first')"
-    grep -n "^d-i[ \t]\+$key[ \t]" "$PRESEED" | sed 's/^/        /' >&2
+    awk -v k="$key" '$1=="d-i" && $2==k { printf "        %d: %s\n", NR, $0 }' "$PRESEED" >&2
 done < <(awk -F'\t' '
     {
         if (!(($1 SUBSEP $2) in vseen)) {
@@ -157,7 +157,8 @@ unknown=0
 # allow-list lines: strip #-comments and surrounding blanks before matching
 KNOWN_KEYS="$(mktemp -t preseed-known.XXXXXX)"; CLEANUP_PATHS+=("$KNOWN_KEYS")
 awk '{ sub(/#.*/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); if ($0!="") print }' "$KNOWN" > "$KNOWN_KEYS"
-while IFS=$'\t' read -r key _; do
+while IFS= read -r line; do
+    key="${line%%$'\t'*}"          # first tab-delimited field = the debconf question
     [ -n "$key" ] || continue
     if ! grep -qxF "$key" "$KNOWN_KEYS"; then
         unknown=1
@@ -184,8 +185,8 @@ fi
 double=0
 while read -r rk; do
     [ -n "$rk" ] || continue
-    # is it also a static key?
-    grep -qE "^d-i[ \t]+$rk[ \t]" "$PRESEED" || continue
+    # is it also a static key? exact field match (no regex metachars in a key)
+    awk -v k="$rk" '$1=="d-i" && $2==k { f=1; exit } END { exit !f }' "$PRESEED" || continue
     # intentional override?
     grep -qE "^$rk([[:space:]]|$)" "$OVER" && continue
     double=1
