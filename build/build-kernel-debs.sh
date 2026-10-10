@@ -26,6 +26,35 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"   # cix-installer/
 ASSETS="$REPO/assets/kernel"
 NPU="$REPO/assets/npu"
 OUT="$REPO/build/kernel-debs"
+
+# ---------------------------------------------------------------------------
+# Reproducible .debs (r203 arm64 provenance finding, 2026-10-10).
+#
+# The kernel packages must be byte-identical across runs and hosts or their
+# reviewed ledger rows in manifests/ncz-packages.tsv can never match: two
+# builds of the SAME staged kernel 20 s apart produced four different sha256s
+# because every staged file kept its wall-clock mtime and Installed-Size came
+# from `du -sk` (allocated blocks, filesystem-dependent -- the same defect the
+# peer fixed for ncz-apt-policy 1.0.1).  Anchor SOURCE_DATE_EPOCH to the last
+# commit that touched THIS packaging script, NOT the build's global git-commit
+# epoch (which moves on every unrelated commit), then clamp every staged mtime
+# to it before dpkg-deb and compute Installed-Size from the actual file sizes.
+# The bytes then change only when the package itself changes.
+SOURCE_DATE_EPOCH="$(git -C "$REPO" log -1 --format=%ct -- build/build-kernel-debs.sh 2>/dev/null || true)"
+: "${SOURCE_DATE_EPOCH:=1790000000}"
+export SOURCE_DATE_EPOCH
+# host-independent Installed-Size (KiB, rounded up): sum real file sizes
+installed_size_kb() {
+    find "$1" -type f -printf '%s\n' 2>/dev/null \
+        | awk '{s+=$1} END{printf "%d", (s+1023)/1024}'
+}
+# normalise modes + clamp every member mtime to SOURCE_DATE_EPOCH so dpkg-deb
+# emits a deterministic control.tar + data.tar
+repro_finalize_root() {
+    local r="$1"
+    find "$r" -type d -exec chmod 0755 {} + 2>/dev/null || true
+    find "$r" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
+}
 # Default revision must never be older than what is already published, or the
 # "new" kernel is a DOWNGRADE and apt silently keeps the installed one. r211 is
 # the published rc7 build (2026-08-11); bump this when the kernel is rebuilt.
@@ -468,7 +497,7 @@ EOF
     chmod 0755 "$root/DEBIAN/postinst"
 
     local isize
-    isize=$(du -sk "$root" | cut -f1)
+    isize=$(installed_size_kb "$root")
     # NOTE (initramfs alternation): dracut is listed FIRST, matching the form
     # Debian adopts in bug #1114857. dracut is the primary builder as of 26.7
     # (metal-validated on O6N 2026-08-16) and initramfs-tools is no longer
@@ -494,6 +523,7 @@ Description: NCZ cixmini systemd-boot entry generator (OTA-safe)
  and writes systemd-boot loader entries (lts/next/rescue) without ever wiping
  the ESP. Invoked automatically on kernel install/upgrade/removal.
 EOF
+    repro_finalize_root "$root"
     dpkg-deb --root-owner-group --build "$root" \
         "$OUT/cixmini-boot_${ver}_arm64.deb"
 }
@@ -640,7 +670,7 @@ EOF
     chmod 0755 "$root/DEBIAN/postinst" "$root/DEBIAN/postrm"
 
     local isize
-    isize=$(du -sk "$root" | cut -f1)
+    isize=$(installed_size_kb "$root")
     cat > "$root/DEBIAN/control" <<EOF
 Package: $pkg
 Version: $ver
@@ -690,6 +720,7 @@ EOF
     printf 'Replaces: %s\n' "$_OLD_NAMES" >> "$root/DEBIAN/control"
     printf 'Conflicts: %s\n' "$_OLD_NAMES" >> "$root/DEBIAN/control"
     printf 'Provides: %s\n' "$_OLD_NAMES" >> "$root/DEBIAN/control"
+    repro_finalize_root "$root"
     dpkg-deb --root-owner-group --build "$root" "$OUT/${pkg}_${ver}_arm64.deb"
 }
 
@@ -1179,7 +1210,7 @@ POSTRM_EOF
     chmod 0755 "$root/DEBIAN/postrm"
 
     local isize
-    isize=$(du -sk "$root" | cut -f1)
+    isize=$(installed_size_kb "$root")
     # Control: unquoted heredoc is fine here (no backticks in the body), and
     # we WANT the build-side values ($pkg, $ver, $isize, $kver, ...) substituted.
     cat > "$root/DEBIAN/control" <<EOF
@@ -1201,6 +1232,7 @@ Description: NCZ cixmini kernel headers ($kver) with OTA-DKMS rebuild
   vermagic on every DKMS-built accelerator module -- confirmed on O6N
   against r246 and r247. See docs/OTA-DKMS-HEADER-FIX-2026-08-21.md.
 EOF
+    repro_finalize_root "$root"
     dpkg-deb --root-owner-group --build "$root" "$OUT/${pkg}_${ver}_arm64.deb"
 }
 
