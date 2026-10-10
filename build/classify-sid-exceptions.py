@@ -127,7 +127,8 @@ def load_snapshot_index(ts: str, suite: str, comp: str, arch: str,
         try:
             text = read_maybe(f)
         except Exception:  # noqa: BLE001
-            return {}
+            # A corrupt/unreadable first format must not abort the others.
+            continue
         for d in parse_stanzas(text):
             if d.get("Package") and d.get("Version") and d.get("Architecture"):
                 out[(d["Package"], d["Version"], d["Architecture"])] = {
@@ -274,8 +275,6 @@ def main() -> int:
                     cls, action = "B", "rebuild"
                 else:
                     cls, action = "C", "wait"
-            if forky_ver:
-                pass
         gap = gap_of(ver, forky_ver) if forky_ver else "none"
         siddi_rec = siddi.get(key, {})
         rows.append({
