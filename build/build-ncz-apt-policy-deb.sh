@@ -26,7 +26,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG=ncz-apt-policy
 # 1.0.1: 1.0.0 shipped a /bin/sh postinst that sourced the bash-only library
 # and died under dash. 1.0.0 must never be published.
-VERSION="${NCZ_APT_POLICY_VERSION:-1.0.1}"
+# 1.0.2: control-data change (deterministic Installed-Size, see below) so the same
+# Architecture:all package is byte-identical on every host and needs ONE reviewed
+# ledger row instead of one per host.
+VERSION="${NCZ_APT_POLICY_VERSION:-1.0.2}"
 OUT="${NCZ_APT_POLICY_OUT:-$ROOT/build/ncz-apt-policy-deb}"
 LIB="$ROOT/post-install/lib/apt-separation.sh"
 [ -r "$LIB" ] || { echo "ERROR: $LIB missing" >&2; exit 1; }
@@ -40,7 +43,15 @@ install -m 0644 "$LIB" "$WORK/usr/share/ncz-apt-policy/apt-separation.sh"
 ncz_apt_install_source_helper "$WORK"
 printf 'NCZ-OS apt policy: keeps NCZ-OS package updates separate from Debian ones.\nSee docs/APT-SEPARATION.md in cix-installer.\n' > "$WORK/usr/share/doc/$PKG/README"
 
-SIZE_KB=$(du -sk "$WORK/usr" | cut -f1)
+# Installed-Size MUST be a host-independent value: `du -sk` counts allocated
+# blocks, which differ by filesystem (ACHILLES ext4, arm64 btrfs/tmpfs ...), so
+# the SAME package produced different bytes on different hosts -- the r203 input
+# finding that forced two reviewed ledger rows for one Architecture:all package.
+# Sum the actual file sizes instead (KiB, rounded up): deterministic everywhere,
+# so one deb byte-identity exists for both arches.
+SIZE_KB=$(find "$WORK/usr" -type f -printf '%s\n' 2>/dev/null \
+    | awk '{s+=$1} END{printf "%d", (s+1023)/1024}')
+case "$SIZE_KB" in ''|*[!0-9]*) SIZE_KB=0 ;; esac
 cat > "$WORK/DEBIAN/control" <<CONTROL
 Package: $PKG
 Version: $VERSION

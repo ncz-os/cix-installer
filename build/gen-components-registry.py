@@ -809,7 +809,7 @@ def main(argv=None):
                 "arch": arch,
                 "variant": variant,
                 "required": required,
-                "version_floor": ss_floor if pkg == "ncz-screensavers" else ("1.0.1" if pkg == "ncz-apt-policy" else ""),
+                "version_floor": ss_floor if pkg == "ncz-screensavers" else ("1.0.2" if pkg == "ncz-apt-policy" else ""),
                 "installed_by": "manifest",
                 "verified_by": verified_by,
                 "provenance": f"manifests/{fname}" + ("; NCZ apt repo" if kind == "ncz-apt" else ""),
