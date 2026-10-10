@@ -27,13 +27,24 @@ else
 fi
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-OUT="${2:-$(mktemp -d "${TMPDIR:-/tmp}/scenefx-smoke.XXXXXX")}"
+# Scratch NEVER on tmpfs (policy, ~/.claude/rules/scratch-and-cleanup.md).  If
+# no outdir is given, default under ~/Projects and REFUSE a tmpfs target.
+OUT="${2:-$HOME/Projects/scenefx-smoke-$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "$OUT"
+fstype="$(findmnt -no FSTYPE -T "$OUT" 2>/dev/null || stat -f -c %T "$OUT" 2>/dev/null || echo unknown)"
+case "$fstype" in
+    tmpfs|ramfs) echo "run_probe: refusing to use a $fstype scratch dir ($OUT); pass an outdir on real disk" >&2; exit 2 ;;
+esac
+mkdir -p "$OUT/tmp"
+export TMPDIR="$OUT/tmp"
 
-# Vendor GPU env (Mali) if this board ships the NCZ selector. Harmless elsewhere.
+# Vendor GPU env (Mali) if this board ships the NCZ selector.  NCZ_GPU_ENV_NO_IMPORT
+# stops ncz-gpu-env from mutating the shell/dbus environment; a source failure is
+# fatal (a silent failure would smoke-test the wrong driver).
 if [ -r /usr/local/bin/ncz-gpu-env ]; then
+    export NCZ_GPU_ENV_NO_IMPORT=1
     # shellcheck disable=SC1091
-    . /usr/local/bin/ncz-gpu-env || true
+    . /usr/local/bin/ncz-gpu-env || { echo "run_probe: sourcing ncz-gpu-env failed" >&2; exit 2; }
 fi
 unset LIBGL_ALWAYS_SOFTWARE || true
 
