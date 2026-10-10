@@ -63,6 +63,8 @@ mkdeb "$T/nameonly-pool/cix-gpu-umd_2.0.0_arm64.deb" cix-gpu-umd 2.0.0 arm64 'CI
 mkdeb "$T/nameonly-pool/ncz-apt-policy_1.0_all.deb" ncz-apt-policy 1.0 all 'Jason Perlow <jperlow@gmail.com>'
 mkdeb "$T/plusncz-pool/mystery_1.0+ncz1_amd64.deb" mystery 1.0+ncz1 amd64 'Nobody <n@example.invalid>'
 mkdeb "$T/unknown/mystery_1.0_all.deb" mystery 1.0 all 'Someone <s@example.invalid>'
+mkdir -p "$T/shadow-bad"
+mkdeb "$T/shadow-bad/fonts-liberation_1%3a2.1.5-3_all.deb" fonts-liberation 1:2.1.5-3 all "$DEB_MAINT" DIFFERENT-BYTES
 
 DEBSHA="$(sha "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb")"
 TPMSHA="$(sha "$T/tpm-pool/libtss2-rc0t64_4.1.3-7_amd64.deb")"
@@ -202,6 +204,15 @@ PY
 expect_rc "NCZ ledger with EMPTY source_revision FAILS (strict schema)" 2 \
   python3 -I "$T/repo-badledger/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/debian-pool"
 expect_rc "unchanged reviewed NCZ ledger still passes" 0 prov --debs "$T/ncz-pool"
+# An NCZ identity whose bytes are NOT a reviewed NCZ sha may still be the pinned
+# snapshot's upstream build (the base of a patched package, e.g. debootstrap-udeb).
+cp -a "$T/repo" "$T/repo-nczshadow"
+printf 'fonts-liberation\t1:2.1.5-3\tall\t%s\tbuild/x\trev\tpatch-base shadow\n' "$(printf '0%.0s' {1..64})" \
+  >> "$T/repo-nczshadow/manifests/ncz-packages.tsv"
+expect_rc "NCZ identity whose bytes ARE the pinned snapshot passes (patch base)" 0 \
+  python3 -I "$T/repo-nczshadow/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/debian-pool"
+expect_rc "NCZ identity whose bytes are neither NCZ nor the snapshot FAILS" 1 \
+  python3 -I "$T/repo-nczshadow/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/shadow-bad"
 
 echo "=== 2c. index integrity / env steering ==="
 BADIDX="$T/badidx"; cp -a "$IDX" "$BADIDX"; printf 'tampered\n' >> "$BADIDX/dists/forky/InRelease"
@@ -299,6 +310,7 @@ rootcase osrel-ubucodename 1 "printf 'ID=ncz\nID_LIKE=debian\nUBUNTU_CODENAME=fo
 rootcase ubuntu-ports 1 "echo 'deb http://ports.ubuntu.com/ubuntu-ports resolute main universe' > etc/apt/sources.list"
 rootcase ubuntu-deb822 1 "printf 'Types: deb\nURIs: http://archive.ubuntu.com/ubuntu\nSuites: noble\nComponents: main\n' > etc/apt/sources.list.d/u.sources"
 rootcase other-snapshot 1 "echo 'deb https://snapshot.debian.org/archive/debian/20200101T000000Z forky main' > etc/apt/sources.list"
+rootcase pin-trailing-slash 0 "echo 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260101T000000Z/ forky main' > etc/apt/sources.list"
 rootcase live-forky 0 "echo 'deb https://deb.debian.org/debian forky main' > etc/apt/sources.list"
 rootcase live-trixie 1 "echo 'deb https://deb.debian.org/debian trixie main' > etc/apt/sources.list"
 rootcase ncz-wrong-suite 1 "echo 'deb https://packages.buildkite.com/ncz-os/ncz/any/ resolute main' > etc/apt/sources.list.d/x.list"
