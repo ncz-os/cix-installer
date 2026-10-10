@@ -8,20 +8,30 @@
   VENDOR  a third-party vendor's own deb, listed in manifests/vendor-debs.tsv
           (name, version, arch, vendor, source, sha256, note); sha enforced when
           the deb bytes are available.
-  FORKY   (name, version, arch) present in the PINNED Debian snapshot,
-          whose signed Release is verified against the committed keyring and
-          InRelease digest in manifests/forky-snapshot.tsv, with a sha256+size
-          chain to every Packages index.  When the deb itself is available it
-          must be byte-identical.  The pinned snapshot is read across its suites:
-          the codename's (forky/testing) full index set, plus -- when the trust
-          metadata declares ``di_suite`` -- that suite's (sid/unstable)
-          debian-installer indexes only, because the netinst substrate's d-i
-          udebs are built from sid.  That is the SAME snapshot timestamp and
-          keyring, not a fourth origin; the d-i suite's RUNTIME packages are not
-          authorized.
+  FORKY   (name, version, arch) present in the PINNED Debian snapshot's
+          codename (forky/testing) index set, whose signed Release is verified
+          against the committed keyring and InRelease digest in
+          manifests/forky-snapshot.tsv, with a sha256+size chain to every
+          Packages index.  When the deb itself is available it must be
+          byte-identical.
+  SID-EXC a debian-installer udeb from the pinned snapshot's development suite
+          (sid/unstable), authorized ONLY by an EXACT (name, version, arch,
+          sha256) row in the reviewed manifests/sid-exceptions.tsv ledger.  The
+          substrate's d-i udebs are built from sid, so a small, reviewed and
+          SHRINKING set of them is unavoidable at any moment; the ledger names
+          them one by one (reason, forky gap, owner action, review-by date,
+          tracking URL).  Each row's sha256 is chained to the signed sid index at
+          the SAME pinned snapshot (the sid InRelease digest is committed in
+          manifests/forky-snapshot.tsv as di_suite/di_inrelease_sha256), so a
+          SID-EXC package still has exactly one reviewed, signed-archive origin
+          -- this is NOT a fourth origin and NOT a blanket suite grant: a sid
+          d-i package with no ledger row FAILS, and a ledger row whose package
+          forky now provides at the same-or-newer version FAILS ("use forky").
 
-Anything else -- Ubuntu, another Debian suite, an older snapshot, unknown --
-is a hard failure.  There is deliberately NO allow-by-reason mechanism.
+Anything else -- Ubuntu, another Debian suite, an older snapshot, an
+unreviewed sid d-i package, unknown -- is a hard failure.  There is
+deliberately NO allow-by-reason mechanism and NO allow-by-suite mechanism: the
+only sid allowance is the per-package reviewed ledger.
 
 Trust root: the checkout that contains this file.  No environment variable and
 no command-line flag relocates the trust metadata (manifests/, release.conf).
@@ -36,6 +46,7 @@ closed).
 """
 
 import argparse
+import datetime as dt
 import glob
 import gzip
 import hashlib
@@ -65,6 +76,73 @@ TOOL_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 PIN_RE = re.compile(r"^[0-9]{8}T[0-9]{6}Z$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _verrevcmp(a, b):
+    """dpkg's version-part comparison for one (epoch stripped) revision/upstream
+    string.  Returns <0, 0, >0.  Faithful port of dpkg's verrevcmp()."""
+    def order(c):
+        if c is None:
+            return 0
+        if c.isdigit():
+            return 0
+        if c.isalpha():
+            return ord(c)
+        if c == "~":
+            return -1
+        return ord(c) + 256
+
+    i = j = 0
+    while i < len(a) or j < len(b):
+        first_diff = 0
+        while (i < len(a) and not a[i].isdigit()) or (j < len(b) and not b[j].isdigit()):
+            ac = a[i] if i < len(a) else None
+            bc = b[j] if j < len(b) else None
+            if order(ac) != order(bc):
+                return order(ac) - order(bc)
+            i += 1
+            j += 1
+        while i < len(a) and a[i] == "0":
+            i += 1
+        while j < len(b) and b[j] == "0":
+            j += 1
+        while i < len(a) and a[i].isdigit() and j < len(b) and b[j].isdigit():
+            if not first_diff:
+                first_diff = int(a[i]) - int(b[j])
+            i += 1
+            j += 1
+        if i < len(a) and a[i].isdigit():
+            return 1
+        if j < len(b) and b[j].isdigit():
+            return -1
+        if first_diff:
+            return first_diff
+    return 0
+
+
+def deb_vercmp(v1, v2):
+    """Debian version comparison (epoch:upstream-revision).  <0, 0, >0."""
+    def split(v):
+        v = v or ""
+        epoch = 0
+        if ":" in v:
+            e, v = v.split(":", 1)
+            epoch = int(e) if e.strip().isdigit() else 0
+        if "-" in v:
+            up, rev = v.rsplit("-", 1)
+        else:
+            up, rev = v, ""
+        return epoch, up, rev
+
+    e1, u1, r1 = split(v1)
+    e2, u2, r2 = split(v2)
+    if e1 != e2:
+        return -1 if e1 < e2 else 1
+    c = _verrevcmp(u1, u2)
+    if c:
+        return -1 if c < 0 else 1
+    c = _verrevcmp(r1, r2)
+    return 0 if c == 0 else (-1 if c < 0 else 1)
 
 FAILS = []
 
@@ -468,24 +546,13 @@ def verify_index(d, trust, need, fetch, verify_pool=False, src="index"):
     return idx
 
 
-def index_need(trust):
-    """Every (suite, component, arch) index the verified snapshot must supply.
-
-    The codename suite covers every component x architecture in the trust
-    metadata (which includes the literal ``all`` pseudo-architecture for
-    Architecture:all packages) AND its debian-installer indexes for every
-    architecture, including ``main/debian-installer/binary-all`` --
-    Architecture:all udebs live only there.  Omitting binary-all made every
-    Arch:all d-i udeb report as unauthorized even though the pinned snapshot
-    carries it (gate bug (a)).
-
-    When the trust metadata declares ``di_suite`` (the netinst substrate's own
-    development suite -- its d-i udebs are built from there), that suite's
-    debian-installer indexes for every architecture are supplied as well.  Only
-    the d-i component of that suite is loaded: its runtime (binary-*) packages
-    are NOT authorized, so this is a narrow, substrate-specific allowance on the
-    SAME pinned snapshot, not a second Debian origin.
-    """
+def codename_need(trust):
+    """Every (suite, component, arch) index of the CODENAME (forky/testing)
+    suite the verified snapshot must supply: every component x architecture in
+    the trust metadata (including the literal ``all`` pseudo-architecture for
+    Architecture:all packages) AND the codename's debian-installer indexes for
+    every architecture, including ``main/debian-installer/binary-all`` --
+    Architecture:all udebs live only there."""
     need = []
     archs = trust["architectures"].split()
     codename = trust["codename"]
@@ -494,15 +561,36 @@ def index_need(trust):
             need.append((codename, comp, arch))
     for arch in archs:
         need.append((codename, "main/debian-installer", arch))
+    return need
+
+
+def di_need(trust):
+    """The pinned snapshot's development suite (side/unstable) debian-installer
+    indexes, when the trust metadata declares ``di_suite``.  Only that suite's
+    d-i component is requested -- never its runtime (binary-*) packages.  The
+    snapshot's sid index is loaded so a reviewed sid-exceptions row can be
+    chained to the SIGNED archive state; it does NOT authorize anything by
+    itself (classify() authorizes only exact ledger rows)."""
+    archs = trust["architectures"].split()
     di = trust.get("di_suite", "")
-    if di and di != codename:
-        for arch in archs:
-            need.append((di, "main/debian-installer", arch))
-    return list(dict.fromkeys(need))
+    codename = trust["codename"]
+    if not di or di == codename:
+        return []
+    return [(di, "main/debian-installer", arch) for arch in archs]
+
+
+def index_need(trust):
+    """The full verified snapshot index set (codename + d-i suite).  Kept as the
+    union for offline mirror authorization and index_need assertions; the Ref
+    loads the two parts SEPARATELY so the d-i suite never authorizes by itself."""
+    return list(dict.fromkeys(codename_need(trust) + di_need(trust)))
 
 
 def all_need(trust):
-    return index_need(trust)
+    """Indexes the offline-closure mirror may be authorized against.  The
+    installed-system closure is forky only; sid d-i content arrives via the
+    installer /cdrom pool (the sid-exceptions ledger), never the mirror."""
+    return codename_need(trust)
 
 
 def read_candidate_packages(mirror):
@@ -534,24 +622,37 @@ def verify_candidate_mirror(ref, mirror, up_dir, fetch):
     if not os.path.isdir(mirror):
         fail("mirror", mirror, "candidate mirror directory does not exist")
         return False
-    up = verify_index(up_dir, ref.trust, all_need(ref.trust), fetch, src="upstream")
+    up = verify_index(up_dir, ref.trust, codename_need(ref.trust), fetch, src="upstream")
     if up is None:
         fail("mirror", mirror, "upstream snapshot index could not be verified")
         return False
+    up_di = {}
+    dneed = di_need(ref.trust)
+    if dneed:
+        up_di = verify_index(up_dir, ref.trust, dneed, fetch, src="upstream")
+        if up_di is None:
+            fail("mirror", mirror, "upstream sid debian-installer index could not "
+                                   "be verified")
+            return False
     records = read_candidate_packages(mirror)
     return authorize_records(ref, records, mirror, up, "mirror",
-                             orphan_root=os.path.join(mirror, "pool")) is not None
+                             orphan_root=os.path.join(mirror, "pool"),
+                             sid_idx=up_di) is not None
 
 
-def authorize_records(ref, records, root, auth_idx, src, orphan_root=None):
+def authorize_records(ref, records, root, auth_idx, src, orphan_root=None,
+                      sid_idx=None):
     """Authorize candidate Packages records AND their referenced pool bytes
     against auth_idx (an already-authenticated identity -> (sha, filename, size)
-    map) plus the reviewed vendor/NCZ ledgers.  The candidate's own metadata can
-    never authorize a package.  Returns the set of referenced relative Filenames
-    on success, or None if any record/pool/orphan check failed; on failure the
-    required FAILs have already been emitted."""
+    map) plus the reviewed vendor/NCZ ledgers and -- only for an exact reviewed
+    row -- the sid-exceptions ledger (chained to the signed sid index in
+    ``sid_idx``).  The candidate's own metadata can never authorize a package.
+    Returns the set of referenced relative Filenames on success, or None if any
+    record/pool/orphan check failed; on failure the required FAILs have already
+    been emitted."""
     before = len(FAILS)
     referenced = set()
+    sid_idx = sid_idx or {}
     rootr = os.path.realpath(root)
     for s in records:
         key = (s["Package"], s["Version"], s["Architecture"])
@@ -582,9 +683,12 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None):
             auth = "ncz"
         elif key in auth_idx and auth_idx[key][0] == sha:
             auth = "verified"
+        elif (key in ref.sid and ref.sid[key]["sha256"] == sha
+              and sid_idx.get(key, (None,))[0] == sha):
+            auth = "sid-exception"
         if auth is None:
             fail(src, what, "not authorized by the verified snapshot index or a "
-                            "reviewed vendor/NCZ ledger")
+                            "reviewed vendor/NCZ/sid-exceptions ledger")
             continue
         referenced.add(rel)
         if not os.path.isfile(fp):
@@ -611,7 +715,8 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None):
     return referenced
 
 
-def authorize_pool(ref, root, auth_idx, src, flat=False, orphan_root=None):
+def authorize_pool(ref, root, auth_idx, src, flat=False, orphan_root=None,
+                   sid_idx=None):
     """Find a pool's own Packages index (flat at root, or under dists/) and
     authorize it against the ALREADY-authenticated auth_idx + ledgers.  Returns
     the authorized Filename set or None (missing/empty/partial/foreign/unapproved
@@ -635,7 +740,8 @@ def authorize_pool(ref, root, auth_idx, src, flat=False, orphan_root=None):
     if not records:
         fail(src, root, "offline pool has no readable Packages records")
         return None
-    return authorize_records(ref, records, root, auth_idx, src, orphan_root=orphan_root)
+    return authorize_records(ref, records, root, auth_idx, src,
+                             orphan_root=orphan_root, sid_idx=sid_idx)
 
 
 # ---------------------------------------------------------------- reference data
@@ -742,18 +848,89 @@ class Ref:
         # approval of a pool nobody scanned.
         self.bound_offline = set()
 
+        # Reviewed installer-substrate sid exceptions:
+        # {(name, version, arch): {sha256, class, forky_version, owner_action,
+        #  review_by, snapshot, ...}}.  This REPLACES the former blanket sid d-i
+        # suite grant: the ONLY sid content authorized is an exact row here.
+        self.sid = {}
+        path = os.path.join(ROOT, "manifests/sid-exceptions.tsv")
+        if os.path.isfile(path):
+            for n, r in load_tsv(path, 13, "manifests/sid-exceptions.tsv"):
+                if not SHA256_RE.match(r[3]):
+                    die(f"sid-exceptions.tsv:{n} sha256 is not 64 hex")
+                if r[4] not in ("B", "C"):
+                    die(f"sid-exceptions.tsv:{n} class must be B or C (got {r[4]!r}); "
+                        f"Class A is forky-provided and must not be listed")
+                if r[10] not in ("rebuild", "wait", "replace"):
+                    die(f"sid-exceptions.tsv:{n} owner_action must be "
+                        f"rebuild|wait|replace (got {r[10]!r})")
+                try:
+                    dt.date.fromisoformat(r[11])
+                except ValueError:
+                    die(f"sid-exceptions.tsv:{n} review_by is not YYYY-MM-DD: {r[11]!r}")
+                key = (r[0], r[1], r[2])
+                if key in self.sid:
+                    die(f"sid-exceptions.tsv:{n} duplicate entry for {key[0]} "
+                        f"{key[1]} {key[2]}")
+                self.sid[key] = {
+                    "sha256": r[3], "class": r[4], "forky_version": r[5],
+                    "gap": r[6], "reason": r[7], "first_seen": r[8],
+                    "snapshot": r[9], "owner_action": r[10], "review_by": r[11],
+                    "tracking_url": r[12],
+                }
+        # sid d-i index (signed, same pinned snapshot): used ONLY to chain a
+        # ledger row to the archive and to reject a sid d-i package with no row.
+        self.sid_idx = {}
+
         self.idx = {}
         if not a.ubuntu_only and not self.verify_mirror:
-            need = index_need(self.trust)
-            got = verify_index(a.index_dir, self.trust, need, a.fetch_index)
+            got = verify_index(a.index_dir, self.trust, codename_need(self.trust),
+                               a.fetch_index)
             if got is None:
                 sys.exit(1)
             self.idx = got
+            dneed = di_need(self.trust)
+            if dneed:
+                got2 = verify_index(a.index_dir, self.trust, dneed, a.fetch_index)
+                if got2 is None:
+                    sys.exit(1)
+                self.sid_idx = got2
+            self._audit_sid_exceptions()
 
     def note_kernel(self, name, ver, arch):
         """Record a kernel-artifact package seen in this scan (one-kernel audit)."""
         if KERNEL_ARTIFACT_RE.search(name or ""):
             self.seen_kernel.add((name, ver, arch))
+
+    def _audit_sid_exceptions(self):
+        """The ledger may only SHRINK.  For every row, fail if forky now provides
+        the package at the same-or-newer version (GRADUATED -> "use forky"), if
+        the row is pinned to a snapshot other than the current pin (a re-pin
+        requires a fresh review), or if review_by has expired.  These are hard
+        failures, not warnings: a stale exception must not keep shipping."""
+        today = dt.date.today()
+        for (name, ver, arch), r in sorted(self.sid.items()):
+            # Version-lookup archs: an Architecture:all row covers every arch.
+            look = [arch, "all"] if arch != "all" else ["all"]
+            fvers = [v for (n, v, a) in self.idx if n == name and a in look]
+            if fvers:
+                fbest = fvers[0]
+                for v in fvers[1:]:
+                    if deb_vercmp(v, fbest) > 0:
+                        fbest = v
+                if deb_vercmp(fbest, ver) >= 0:
+                    fail("sid-exceptions", f"{name} {ver} {arch}",
+                         f"GRADUATED: forky now provides {fbest} (>= {ver}); "
+                         f"remove the ledger row and use forky")
+            if r["snapshot"] and r["snapshot"] != self.trust["snapshot"]:
+                fail("sid-exceptions", f"{name} {ver} {arch}",
+                     f"ledger row pinned to snapshot {r['snapshot']} != current pin "
+                     f"{self.trust['snapshot']}; regenerate the ledger on re-pin")
+            rby = dt.date.fromisoformat(r["review_by"])
+            if rby < today:
+                fail("sid-exceptions", f"{name} {ver} {arch}",
+                     f"review_by {r['review_by']} has EXPIRED; re-review "
+                     f"(remove if forky provides it, else bump review_by)")
 
 
 # ---------------------------------------------------------------- classification
@@ -865,6 +1042,37 @@ def classify(ref, src, name, ver, arch, maint, sha=None):
             return None
         return "forky"
 
+    # Reviewed SID exception (installer substrate d-i udeb built from sid).
+    # Authorized ONLY by an exact (name, version, arch, sha256) row in
+    # manifests/sid-exceptions.tsv, chained to the signed sid index at the same
+    # pinned snapshot.  No row -> the sid d-i index below rejects it.
+    if key in ref.sid:
+        led = ref.sid[key]
+        sid = ref.sid_idx.get(key)
+        if sid is None:
+            fail(src, what, "in the sid-exceptions ledger but NOT present in the "
+                            "pinned snapshot's signed sid debian-installer index")
+            return None
+        if sid[0] != led["sha256"]:
+            fail(src, what, "sid-exceptions ledger sha256 does not match the "
+                            "signed sid index at the pinned snapshot")
+            return None
+        if sha and sha != led["sha256"]:
+            fail(src, what,
+                 f"sid-exception sha256 {sha[:16]}.. does not match the reviewed "
+                 f"ledger {led['sha256'][:16]}..")
+            return None
+        if not sha:
+            print(f"NOTE  [{src}] {what} :: reviewed sid-exception identity "
+                  f"(class {led['class']}, action {led['owner_action']}; no bytes)")
+            return "sid-exception-identity"
+        return "sid-exception"
+    if key in ref.sid_idx:
+        fail(src, what, "present in the pinned snapshot's sid debian-installer "
+                        "index but NOT in manifests/sid-exceptions.tsv (no "
+                        "blanket sid grant: add a reviewed row or use forky)")
+        return None
+
     if UBU_RE.search(maint or ""):
         fail(src, what, f"@ubuntu.com maintainer ({maint}) and not in the pinned "
                         f"snapshot")
@@ -906,6 +1114,27 @@ def classify_noarch(ref, src, name, ver, maint):
         if (name, ver, a) in ref.idx:
             print(f"NOTE  [{src}] {what} :: present in the pinned snapshot ({a})")
             return "forky"
+    # Reviewed sid exception (d-i udeb; the udpkg status format has no arch).
+    for a in archs:
+        if (name, ver, a) in ref.sid:
+            led = ref.sid[(name, ver, a)]
+            if (name, ver, a) not in ref.sid_idx:
+                fail(src, what, "in the sid-exceptions ledger but NOT present in the "
+                                "pinned snapshot's signed sid debian-installer index")
+                return None
+            if ref.sid_idx[(name, ver, a)][0] != led["sha256"]:
+                fail(src, what, "sid-exceptions ledger sha256 does not match the "
+                                "signed sid index at the pinned snapshot")
+                return None
+            print(f"NOTE  [{src}] {what} :: reviewed sid-exception identity ({a}, "
+                  f"class {led['class']}; no bytes/arch)")
+            return "sid-exception-identity"
+    for a in archs:
+        if (name, ver, a) in ref.sid_idx:
+            fail(src, what, "present in the pinned snapshot's sid debian-installer "
+                            "index but NOT in manifests/sid-exceptions.tsv (no "
+                            "blanket sid grant)")
+            return None
     fail(src, what, "dpkg status record has no Architecture and its "
                     "(name,version) is not in the pinned snapshot or a reviewed ledger")
     return None
@@ -1619,7 +1848,8 @@ def scan_image(ref, img, work):
         # candidate pool.  Only a fully authenticated pool binds; a missing,
         # empty, partial, foreign or unapproved pool does not.
         if authorize_pool(ref, base, ref.idx, "image:/cdrom", flat=False,
-                          orphan_root=os.path.join(base, "pool")) is not None:
+                          orphan_root=os.path.join(base, "pool"),
+                          sid_idx=ref.sid_idx) is not None:
             ref.bound_offline.add("/cdrom")
         else:
             fail("image", img, "/cdrom pool is not fully authorized; file:///cdrom "
@@ -1627,7 +1857,7 @@ def scan_image(ref, img, work):
         aptrepo = os.path.join(pl, "apt-repo")
         if os.path.isdir(aptrepo):
             if authorize_pool(ref, aptrepo, ref.idx, "image:/ncz-payload/apt-repo",
-                              flat=True) is not None:
+                              flat=True, sid_idx=ref.sid_idx) is not None:
                 ref.bound_offline.add("/cdrom/ncz-payload/apt-repo")
             else:
                 fail("image", img, "/ncz-payload/apt-repo present but not fully "
@@ -2091,7 +2321,8 @@ def main():
         total += scan_image(ref, im, a.work)
 
     mode = ("ubuntu-only" if a.ubuntu_only
-            else f"forky-provenance (snapshot {ref.pin}, {len(ref.idx)} index entries)")
+            else f"forky-provenance (snapshot {ref.pin}, {len(ref.idx)} forky "
+                 f"index entries, {len(ref.sid)} reviewed sid exceptions)")
     print(f"== {mode}: {total} packages checked, {len(FAILS)} failure(s)")
     sys.exit(1 if FAILS else 0)
 

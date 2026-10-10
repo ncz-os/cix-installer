@@ -499,3 +499,10 @@ manifests/keys/debian-archive-keyring.gpg	common	-	official Debian archive signi
 docs/FORKY-PROVENANCE.md	common	-	policy + design for the forky-provenance gate: trust root, signed-index chain, NCZ ledger, apt allowlist, substrate pin, blockers
 docs/ONE-KERNEL.md	common	-	one-kernel policy: audit of every kernel artifact in the r202 images by place, the correct mechanism (installer initrd from OUR kernel), the gate rule, and the residual; KVM-UNPROVEN
 build/testdata/forky-snapshot/InRelease	common	-	the real pinned snapshot.debian.org InRelease (20261005T120000Z) fixture used to prove production keyring/digest compatibility offline
+manifests/sid-exceptions.tsv	common	-	the reviewed per-package ledger of installer-substrate sid d-i exceptions the forky-provenance gate authorizes (exact name/version/arch/sha256, chained to the signed sid index); replaces the blanket sid suite grant
+build/classify-sid-exceptions.py	common	-	classify every netinst substrate d-i identity A/B/C/K against the pinned snapshot (forky full + sid d-i); regenerate manifests/sid-exceptions.tsv
+build/check-sid-exceptions.sh	common	-	track every sid exception vs the pinned + latest forky (GRADUATED/SHRINKING/STABLE/EXPIRED); write docs/SID-EXCEPTIONS.md; drive the gradual forky replacement loop
+build/check-sid-exceptions.py	common	-	implementation of check-sid-exceptions.sh (pinned + live forky comparison, version gap, receipt recording)
+build/rebuild-sid-udeb.sh	common	-	rebuild a small-gap (class B) installer udeb from sid source in a clean forky container as an NCZ udeb
+docs/SID-EXCEPTIONS.md	common	-	GENERATED sid-exceptions tracker report (per-package status + per-arch count + trend); do not hand-edit
+docs/IMAGE-BUILD-PROCESS.sid-exceptions.md	common	-	build-process integration of the sid-exceptions ledger (separate file to avoid conflict with the build-process branch doc)

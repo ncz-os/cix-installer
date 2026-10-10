@@ -226,6 +226,16 @@ keyring_sha256	$(sha "$T/repo/manifests/keys/test-keyring.gpg")
 signer_keys	$KFPR
 EOF
 
+# The reviewed sid-exceptions LEDGER: the ONLY sid d-i content the gate
+# authorizes.  Exact (name,version,arch,sha256) rows, chained to the signed sid
+# index above.  A sid d-i package with no row FAILS (no blanket suite grant).
+cat > "$T/repo/manifests/sid-exceptions.tsv" <<EOF
+# name	version	arch	sha256	class	forky_version	gap	reason	first_seen	snapshot	owner_action	review_by	tracking_url
+base-modules-7.2.9+deb14-amd64-di	7.2.9-1	amd64	$SIDDI_SHA	B	7.2.8-1	upstream-minor	fixture small gap	2026-01-01	20260101T000000Z	rebuild	2099-01-01	https://tracker.debian.org/pkg/base-modules
+base-modules-7.2.9+deb14-arm64-di	7.2.9-1	arm64	$SIDDI_A64_SHA	B	7.2.8-1	upstream-minor	fixture small gap	2026-01-01	20260101T000000Z	rebuild	2099-01-01	https://tracker.debian.org/pkg/base-modules
+mdcfg-utils	1.87	all	$SIDDI_ALL_SHA	B	1.86	upstream-minor	fixture small gap	2026-01-01	20260101T000000Z	rebuild	2099-01-01	https://tracker.debian.org/pkg/mdcfg-utils
+EOF
+
 PROV=("python3" "-I" "$T/repo/build/forky-provenance.py" "--index-dir" "$IDX")
 prov() { "${PROV[@]}" "$@"; }
 
@@ -374,10 +384,16 @@ PY
 expect_rc "one-kernel policy (both directions)" 0 \
   python3 -I "$T/kernel_probe.py" "$T/repo/build/forky-provenance.py" "$IDX"
 
-echo "=== 2f. di_suite: the same snapshot's d-i suite (positive AND negative) ==="
-# A d-i udeb present ONLY in sid's debian-installer index is authorized (the
-# substrate's d-i content is built from sid, at the SAME pinned timestamp).
-expect_rc "sid debian-installer udeb (d-i, same snapshot) passes" 0 prov --debs "$T/sid-di-pool"
+echo "=== 2f. sid-exceptions ledger: per-package, no blanket suite grant ==="
+# A d-i udeb the LEDGER names, from sid's debian-installer index at the SAME
+# pinned timestamp, is authorized (chained to the signed sid index).
+expect_rc "ledgered sid d-i udeb (same snapshot) passes" 0 prov --debs "$T/sid-di-pool"
+# NO blanket suite grant: a sid d-i package with no ledger row FAILS.
+cp -a "$T/repo" "$T/repo-noledger"
+printf '# empty ledger -- no rows\n' > "$T/repo-noledger/manifests/sid-exceptions.tsv"
+expect_rc "sid d-i udeb NOT in the ledger FAILS (no blanket grant)" 1 \
+  python3 -I "$T/repo-noledger/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
+echo "$LAST" | grep -q 'no blanket sid grant' && ok "  failure says no blanket sid grant" || bad "wrong reason" "$LAST"
 # A runtime (non-d-i) package is NEVER authorized from the di_suite: only the
 # suite's main/debian-installer indexes are requested, its binary-* indexes are
 # not (code-level assertion), so a runtime deb fails closed.
@@ -404,9 +420,73 @@ sys.exit(0 if ok else 1)
 PY
 expect_rc "index_need requests ONLY sid debian-installer (never sid runtime)" 0 \
   python3 -I "$T/index_need_probe.py" "$T/repo/build/forky-provenance.py"
-# Same identity as the sid d-i index but DIFFERENT bytes: fail closed.
-expect_rc "sid d-i udeb with different bytes FAILS (sha enforced)" 1 prov --debs "$T/sid-di-badpool"
-# The allowance is exactly the declared di_suite: without it, the same udeb fails.
+# Same identity as the sid d-i index but DIFFERENT bytes: the ledger sha chain
+# fails closed (the ledger pins the signed sid bytes).
+expect_rc "ledgered sid d-i udeb with different bytes FAILS (sha enforced)" 1 prov --debs "$T/sid-di-badpool"
+# A ledger row whose package forky NOW provides at >= version is GRADUATED: the
+# gate fails with "use forky" (the ledger may only shrink).
+cp -a "$T/repo" "$T/repo-graduated"
+printf 'fonts-liberation\t1:2.1.5-3\tall\t%s\tB\t1:2.1.5-3\trevision\tgraduated fixture\t2026-01-01\t20260101T000000Z\treplace\t2099-01-01\thttps://tracker.debian.org/pkg/fonts-liberation\n' "$DEBSHA" \
+  >> "$T/repo-graduated/manifests/sid-exceptions.tsv"
+expect_rc "GRADUATED ledger row (forky now provides it) FAILS (use forky)" 1 \
+  python3 -I "$T/repo-graduated/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
+echo "$LAST" | grep -q 'GRADUATED' && ok "  failure says GRADUATED (use forky)" || bad "wrong reason" "$LAST"
+# A ledger row pinned to a different snapshot must be regenerated on re-pin.
+cp -a "$T/repo" "$T/repo-wrongsnap"
+python3 - "$T/repo-wrongsnap/manifests/sid-exceptions.tsv" <<'PY'
+import sys
+p = sys.argv[1]; out = []
+for line in open(p):
+    if line.startswith("mdcfg-utils\t"):
+        f = line.rstrip("\n").split("\t"); f[9] = "20990101T000000Z"
+        line = "\t".join(f) + "\n"
+    out.append(line)
+open(p, "w").writelines(out)
+PY
+expect_rc "ledger row pinned to another snapshot FAILS" 1 \
+  python3 -I "$T/repo-wrongsnap/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
+# An EXPIRED review_by is a hard failure (re-review required).
+cp -a "$T/repo" "$T/repo-expired"
+python3 - "$T/repo-expired/manifests/sid-exceptions.tsv" <<'PY'
+import sys
+p = sys.argv[1]; out = []
+for line in open(p):
+    if line.startswith("mdcfg-utils\t"):
+        f = line.rstrip("\n").split("\t"); f[11] = "2000-01-01"
+        line = "\t".join(f) + "\n"
+    out.append(line)
+open(p, "w").writelines(out)
+PY
+expect_rc "EXPIRED review_by FAILS (re-review required)" 1 \
+  python3 -I "$T/repo-expired/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
+# Strict schema: Class A must not be listed (it is forky-provided).
+cp -a "$T/repo" "$T/repo-badclass"
+python3 - "$T/repo-badclass/manifests/sid-exceptions.tsv" <<'PY'
+import sys
+p = sys.argv[1]; out = []
+for line in open(p):
+    if line.startswith("mdcfg-utils\t"):
+        f = line.rstrip("\n").split("\t"); f[4] = "A"
+        line = "\t".join(f) + "\n"
+    out.append(line)
+open(p, "w").writelines(out)
+PY
+expect_rc "ledger entry with class A FAILS (strict schema)" 2 \
+  python3 -I "$T/repo-badclass/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
+cp -a "$T/repo" "$T/repo-badaction"
+python3 - "$T/repo-badaction/manifests/sid-exceptions.tsv" <<'PY'
+import sys
+p = sys.argv[1]; out = []
+for line in open(p):
+    if line.startswith("mdcfg-utils\t"):
+        f = line.rstrip("\n").split("\t"); f[10] = "ignore-forever"
+        line = "\t".join(f) + "\n"
+    out.append(line)
+open(p, "w").writelines(out)
+PY
+expect_rc "ledger entry with a bad owner_action FAILS (strict schema)" 2 \
+  python3 -I "$T/repo-badaction/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
+# Without di_suite declared there is no signed sid index to chain to: FAIL.
 cp -a "$T/repo" "$T/repo-nodisuite"
 python3 - "$T/repo-nodisuite/manifests/forky-snapshot.tsv" <<'PY'
 import sys
@@ -431,8 +511,12 @@ open(p, "w").writelines(out)
 PY
 expect_rc "wrong di_inrelease_sha256 FAILS closed (fetch disabled)" 1 \
   python3 -I "$T/repo-baddi/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
-expect_rc "--verify-mirror still passes with both suites (rc 0)" 0 \
+# A mirror whose sid d-i content IS ledgered is authorized (same chain).
+expect_rc "--verify-mirror passes with the ledgered d-i content (rc 0)" 0 \
   python3 -I "$T/repo/build/forky-provenance.py" --verify-mirror "$IDX" --index-dir "$IDX"
+# A mirror with sid d-i content but an empty ledger fails closed.
+expect_rc "--verify-mirror with sid d-i content and NO ledger FAILS" 1 \
+  python3 -I "$T/repo-noledger/build/forky-provenance.py" --verify-mirror "$IDX" --index-dir "$IDX"
 
 echo "=== 2g. check-substrate-pin preflight (freshness + coverage + consistency) ==="
 SUBBASE="$T/subrepo"; mkdir -p "$SUBBASE/build/lib" "$SUBBASE/manifests"

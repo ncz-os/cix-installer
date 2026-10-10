@@ -33,19 +33,97 @@ security properties (each has both-direction tests in `build/test-no-ubuntu.sh`)
 3. **Reviewed partial overlay allow-list** (`manifests/overlay-layers.tsv`) —
    see the NCZ-ledger section below. A status-less layer NOT on the list still
    fails closed.
-4. **The pinned snapshot is read across its suites (`di_suite`).** The netinst
-   substrate's debian-installer udebs are built from the snapshot's development
-   suite (`sid`), not from `testing` (`forky`). A snapshot timestamp is the whole
-   archive state, so `index_need()` now requests forky's full index set **and the
-   di_suite's `main/debian-installer` indexes only**; both suites' signed
-   `InRelease` are verified against committed digests. This is the SAME Debian
-   origin read across its suites — **not a fourth origin** — and it never
-   authorizes the di_suite's runtime (`binary-*`) packages: a sid runtime deb
-   still FAILS, and `index_need` is asserted to request no `(sid, main, …)`
-   component. Both suites WITHOUT `di_suite` declared leaves the same udeb
-   failing (neither direction is weakened).
+4. **The substrate's sid d-i content is authorized per package, not by suite
+   (`manifests/sid-exceptions.tsv`).** The netinst substrate's debian-installer
+   udebs are built from the snapshot's development suite (`sid`), not from
+   `testing` (`forky`). An earlier cut of this fix authorized the WHOLE
+   `main/debian-installer` index of the pinned snapshot's `sid` suite -- a
+   blanket suite grant. That is **replaced** by a reviewed per-package ledger:
+   the gate still verifies the `sid` `InRelease` digest (committed in
+   `manifests/forky-snapshot.tsv` as `di_suite`/`di_inrelease_sha256`) and loads
+   sid's `main/debian-installer` indexes, but a sid d-i package is authorized
+   **only** by an exact `(name, version, arch, sha256)` row in
+   `manifests/sid-exceptions.tsv` whose `sha256` equals the SIGNED sid index's.
+   A sid d-i package with no row **FAILS** ("no blanket sid grant"); a row whose
+   package forky now provides at the same-or-newer version **FAILS**
+   ("GRADUATED, use forky"); an expired `review_by` **FAILS**. The `sid` runtime
+   (`binary-*`) packages were never authorized and still are not. See
+   "sid exceptions" below.
 
-## Trust root
+## sid exceptions — the reviewed, shrinking per-package ledger
+
+Operator ruling (2026-10-10): *"I would use Sid only for those packages with no
+forky versions. If we can rebuild them ourselves we should rebuild them if the
+gap is small. If it is a large gap, keep track of the Sid specific components and
+gradually replace with forky as it is provided by the upstream."*
+
+`manifests/sid-exceptions.tsv` is that ledger. Every installer-substrate d-i
+package the pinned snapshot authorizes only from `sid` gets **one reviewed row**;
+nothing else from `sid` is authorized. Columns (TAB):
+
+```
+name version arch sha256 class forky_version gap reason first_seen snapshot
+owner_action review_by tracking_url
+```
+
+* `class` — **B** (small gap: forky has the same source at a close version ->
+  plan to rebuild the needed version from the forky source in a clean forky
+  container as an NCZ udeb) or **C** (large gap / forky lacks it -> wait for
+  upstream or replace). **Class A** (forky already provides the exact version)
+  must NOT be listed: it is forky's and `class=A` is a schema error (exit 2).
+* `sha256` — the SIGNED sid index's sha256 for that exact identity at the pinned
+  snapshot. The gate chains every row to the archived, signed bytes; a row whose
+  sha does not match the current pin's signed sid index fails closed.
+* `owner_action` — `rebuild` | `wait` | `replace` (how the row will be removed).
+* `review_by` — a review deadline (default +30 days). Past it the gate FAILS:
+  re-review (remove if forky provides it, else re-date).
+* `snapshot` — the pin the row was measured at. A row pinned to a different
+  snapshot than the current pin FAILS: a re-pin requires regenerating the ledger.
+* `tracking_url` — a Debian tracker/PTS link.
+
+The gate (`build/forky-provenance.py`) enforces, with both-direction tests in
+`build/test-no-ubuntu.sh` (§2f):
+
+| situation | result |
+|---|---|
+| sid d-i package with an exact ledger row (sha == signed sid index) | authorized (`SID-EXC`) |
+| sid d-i package with **no** ledger row | **FAIL** (no blanket grant) |
+| ledger row sha != the signed sid index sha | **FAIL** |
+| ledger row sha == signed sid index sha but the deb bytes differ | **FAIL** |
+| no `di_suite` declared (no signed sid index to chain to) | **FAIL** |
+| ledger row whose package forky now provides at >= version | **FAIL** (`GRADUATED: use forky`) |
+| ledger row pinned to another snapshot | **FAIL** |
+| expired `review_by` | **FAIL** |
+| `class=A` or a bad `owner_action` | exit 2 (schema) |
+
+The gate's graduation check is against the **BUILD pin** (the pinned snapshot's
+forky index), so a shipped image is internally consistent. The *forward* signal
+-- forky's live archive (deb.debian.org / `rmadison`) -- is reported by
+`build/check-sid-exceptions.sh`, which writes the generated `docs/SID-EXCEPTIONS.md`
+and records the per-arch count in the image receipt (`sid_exceptions` in
+`<img>.receipt.json`).
+
+**The gradual-replacement loop.** Run `make sid-exceptions` at the refresh/pin
+stage (`make refresh-substrate` calls it):
+
+1. It compares every row with the pinned forky index and the latest forky.
+2. `GRADUATED` (forky now provides it) -> remove the row and use forky; if the
+   substrate still carries the sid version, re-pin/refresh so the substrate's
+   d-i matches testing (`build/classify-sid-exceptions.py` regenerates the
+   ledger from the refreshed substrate).
+3. `SHRINKING` -> upstream is catching up; keep the row, re-check next build.
+4. `EXPIRED` -> re-review the row now.
+5. Class B rows also disappear when the NCZ rebuild lands (an `+ncz` udeb in
+   `manifests/ncz-packages.tsv`) or when the build stops merging the sid udeb.
+
+`build/classify-sid-exceptions.py --arch <a> --iso <netinst>` regenerates the
+ledger from a substrate: it extracts the netinst's own d-i identities (xorriso),
+compares them with the pinned snapshot's forky full index and sid d-i index, and
+classifies each A/B/C/K (K = Debian kernel artifact, removed by the one-kernel
+policy and never listed). The ledger is reviewed and committed like any other
+manifest; it may only ever shrink.
+
+
 
 The checkout that contains `build/forky-provenance.py` **is** the trust root.
 `ROOT` is derived from the file location; there is no `NCZ_PROVENANCE_ROOT` or
@@ -73,9 +151,12 @@ any other file whose trusted list can be steered by the environment.
   debian-installer udebs are built from `sid` while its base packages are
   `testing` (`forky`); a snapshot timestamp is the whole archive state, so the
   gate reads forky's **full** index set AND sid's **`main/debian-installer`
-  indexes only**. This is one Debian origin read across its suites, **not a
-  fourth origin**, and it never authorizes sid's runtime (`binary-*`) packages
+  indexes**. This is one Debian origin read across its suites, **not a fourth
+  origin**, and it never authorizes sid's runtime (`binary-*`) packages
   (`index_need()` requests no `(sid, main, …)` component; tested both ways).
+  The sid d-i indexes are used **only** to chain a reviewed
+  `manifests/sid-exceptions.tsv` row to the signed archive -- they do not
+  authorize anything by themselves (see "sid exceptions" above).
   `build/pin-snapshot-suites.sh` records/verifies both digests against the
   committed keyring; `build/refresh-substrate.sh` keeps them in lockstep with the
   pin;
