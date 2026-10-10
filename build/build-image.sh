@@ -998,8 +998,18 @@ stage_refresh_sources() {
     #    sinty-out-sync -> verify-local-package-versions) finds it.
     export NCZ_SINGULARITY_PREBUILT_DEB="$deb"
     export NCZ_SINGULARITY_PREBUILT_SHA256="$sha"
-    rm -f "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb
-    install -m 0644 "$deb" "$ROOT/assets/cix-debs/"
+    # Keep exactly this deb in assets/cix-debs/ (the offline-mirror stage reads
+    # it).  Do NOT `rm -f` the glob and then `install` from the removed path:
+    # with --sources pinned the source-of-truth deb ALREADY lives in
+    # assets/cix-debs/, so the old shape deleted it and copied nothing,
+    # leaving the medium with no payload (caught by the r203 re-run).  Prune
+    # only SUPERSEDED versions, and copy only when the chosen deb is elsewhere.
+    local keep; keep="$(basename "$deb")"
+    find "$ROOT/assets/cix-debs" -maxdepth 1 \
+        -name 'ncz-singularity-desktop_*.deb' ! -name "$keep" -delete 2>/dev/null || true
+    if [ ! -f "$ROOT/assets/cix-debs/$keep" ]; then
+        install -m 0644 "$deb" "$ROOT/assets/cix-debs/"
+    fi
     # Persist as shell assignments so the layers stage can pick them up on a
     # --resume-from layers run (which skips this stage).  The receipt reads the
     # same file (key=value).

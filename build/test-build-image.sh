@@ -139,6 +139,21 @@ else
     ok "kvm-gate did NOT run after a failing provenance-gate"
 fi
 
+# --- 2d. refresh-sources must not delete the source-of-truth payload deb ----
+# --sources pinned reuses the deb that already lives in assets/cix-debs/; the
+# old stage ran `rm -f assets/cix-debs/ncz-singularity-desktop_*.deb` and then
+# `install` from that removed path, so the medium silently lost its payload.
+# Guard the safe shape (prune only superseded versions) and reject the old one.
+if grep -qF "rm -f \"\$ROOT/assets/cix-debs/\"ncz-singularity-desktop_*.deb" "$BIN"; then
+    bad "refresh-sources deletes the assets/cix-debs payload glob before install"
+else
+    ok "refresh-sources does not delete the source-of-truth payload deb"
+fi
+grep -qF "find \"\$ROOT/assets/cix-debs\" -maxdepth 1" "$BIN" \
+    && grep -qF '! -name "$keep" -delete' "$BIN" \
+    && ok "refresh-sources prunes only superseded payload debs" \
+    || bad "refresh-sources does not prune superseded payload debs safely"
+
 # --- 3. fingerprint invalidation (both directions) -------------------------
 echo "== 3. fingerprint invalidation =="
 FIX="$SCRATCH/fix"; mkdir -p "$FIX"
