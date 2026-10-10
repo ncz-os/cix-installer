@@ -806,7 +806,15 @@ stage_refresh_sources() {
     export NCZ_SINGULARITY_PREBUILT_SHA256="$sha"
     rm -f "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb
     install -m 0644 "$deb" "$ROOT/assets/cix-debs/"
-    printf 'deb=%s\nsha256=%s\nsources=%s\nupstream_pins=%s\n' "$deb" "$sha" "$SOURCES" "$up" > "$sdir/result.env"
+    # Persist as shell assignments so the layers stage can pick them up on a
+    # --resume-from layers run (which skips this stage).  The receipt reads the
+    # same file (key=value).
+    {
+        printf 'NCZ_SINGULARITY_PREBUILT_DEB=%s\n' "$deb"
+        printf 'NCZ_SINGULARITY_PREBUILT_SHA256=%s\n' "$sha"
+        printf 'NCZ_SINGULARITY_PINS=%s\n' "$up"
+        printf 'NCZ_SINGULARITY_SOURCES=%s\n' "$SOURCES"
+    } > "$sdir/result.env"
     echo "[refresh-sources] payload deb: $(basename "$deb") sha256=$sha (sources=$SOURCES)" | tee -a "$log"
     return 0
 }
@@ -822,6 +830,17 @@ stage_layers() {
     # (outside the tree) is fine for every other stage; override it here.
     local ltmp="$ROOT/build/.ncz-tmp"
     mkdir -p "$ltmp"
+    # Pick up the refresh-sources outputs.  On a normal run they are already in
+    # the environment; on a --resume-from layers run the exporting stage was
+    # skipped, so source the persisted file (otherwise the payload would be
+    # rebuilt from the committed pins instead of the resolved ones).
+    if [ -f "$RUN_DIR/singularity-sources/result.env" ]; then
+        # shellcheck disable=SC1091
+        . "$RUN_DIR/singularity-sources/result.env"
+        export NCZ_SINGULARITY_PREBUILT_DEB NCZ_SINGULARITY_PREBUILT_SHA256 NCZ_SINGULARITY_PINS
+        say_layers() { printf '[layers] %s\n' "$*" | tee -a "$log"; }
+        say_layers "refresh-sources outputs: deb=$(basename "$NCZ_SINGULARITY_PREBUILT_DEB") sources=${NCZ_SINGULARITY_SOURCES:-?}"
+    fi
     # Run the layer build through the documented privilege model (ncz_sudo_bash
     # -> one `sudo -S` with the fleet password on stdin).  The script calls bare
     # `sudo` internally (mmdebstrap/chroot/mount); as root those are no-ops, and
