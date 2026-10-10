@@ -38,8 +38,14 @@ fi
 unset LIBGL_ALWAYS_SOFTWARE || true
 
 echo "== building shader_probe =="
+[ -f "$HERE/shader_probe.c" ] || { echo "missing $HERE/shader_probe.c" >&2; exit 2; }
+# CIX vendor libdir is only on Mali boards; -L it when present, else let the
+# linker search the default paths (the probe falls back to the system driver).
+LFLAG=""
+[ -d /opt/cixgpu-pro/lib/aarch64-linux-gnu ] && LFLAG="-L/opt/cixgpu-pro/lib/aarch64-linux-gnu"
+# shellcheck disable=SC2086
 cc -O1 -o "$OUT/shader_probe" "$HERE/shader_probe.c" \
-    -I/usr/include -L/opt/cixgpu-pro/lib/aarch64-linux-gnu \
+    -I/usr/include $LFLAG \
     -lEGL -lGLESv2 -lgbm 2>&1 | tee "$OUT/build.log"
 
 echo "== generating formatted shaders =="
