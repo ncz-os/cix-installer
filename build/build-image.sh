@@ -1205,8 +1205,13 @@ stage_provenance_gate() {
     [ -n "$img" ] && [ -f "$img" ] || { echo "[provenance-gate] FAIL: no image path" | tee -a "$log" >&2; return 1; }
     local work="$RUN_DIR/prov-work" idx="$RUN_DIR/prov-index"
     mkdir -p "$work" "$idx"
-    ( cd "$ROOT" && bash build/check-forky-provenance.sh --image "$img" \
-        --work "$work" --index-dir "$idx" --fetch-index ) 2>&1 | tee -a "$log"
+    # Run as root: the --image scan extracts partitions with `debugfs rdump`,
+    # which needs root to chown the dumped tree; as a normal user it fails
+    # ("Operation not permitted while changing ownership"), the /dists index is
+    # never extracted, and every /cdrom pool deb then looks like an orphan
+    # (a false 1000+ failure).  Same documented privilege model as the KVM gate.
+    ncz_sudo_bash "cd '$ROOT' && bash build/check-forky-provenance.sh --image '$img' \
+        --work '$work' --index-dir '$idx' --fetch-index" 2>&1 | tee -a "$log"
     local rc="${PIPESTATUS[0]}"
     if [ "$rc" = 0 ]; then
         { printf 'gate=provenance\nresult=PASS\none_kernel=PASS\nimage=%s\nat=%s\n' "$img" "$(date -u +%s)"; } > "$RUN_DIR/provenance.result"
