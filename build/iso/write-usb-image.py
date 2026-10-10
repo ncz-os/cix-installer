@@ -142,6 +142,36 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def count_sid_exceptions(arch: str) -> dict:
+    """Record the reviewed sid-exception count for this arch in the receipt.
+
+    Every installer-substrate sid d-i package must have an exact row in
+    manifests/sid-exceptions.tsv (build/forky-provenance.py authorizes sid d-i
+    ONLY from that ledger).  This records the count + ledger digest so the image
+    receipt documents how much sid content the build carries, and lets
+    build/check-sid-exceptions.sh track the trend.  arch:all rows count for both
+    arches."""
+    ledger = REPO_ROOT / "manifests" / "sid-exceptions.tsv"
+    out = {"ledger": str(ledger), "count": 0, "by_class": {}, "by_action": {},
+           "sha256": "", "snapshot": ""}
+    if not ledger.is_file():
+        return out
+    out["sha256"] = sha256_file(ledger)
+    for line in ledger.read_text(errors="replace").splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        f = line.split("\t")
+        if len(f) < 13:
+            continue
+        if f[2] not in (arch, "all"):
+            continue
+        out["count"] += 1
+        out["by_class"][f[4]] = out["by_class"].get(f[4], 0) + 1
+        out["by_action"][f[10]] = out["by_action"].get(f[10], 0) + 1
+        out["snapshot"] = f[9]
+    return out
+
+
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     log(f"    $ {' '.join(str(c) for c in cmd)}")
     return subprocess.run(cmd, check=True, **kw)
@@ -1275,6 +1305,9 @@ def main() -> int:
             # build/forky-provenance.py cross-checks the bytes it scans against
             # this map; a timestamped package absent here fails closed.
             "ncz_timestamped_debs": payload_receipt.get("ncz_timestamped_debs", []),
+            # The reviewed sid-exceptions count for this arch: how many
+            # installer-substrate sid d-i packages the image still carries.
+            "sid_exceptions": count_sid_exceptions(args.arch),
         }
         receipt_path = args.out.with_suffix(args.out.suffix + ".receipt.json")
         receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))

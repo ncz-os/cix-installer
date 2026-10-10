@@ -154,7 +154,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage refresh-substrate check-substrate-pin sid-exceptions
 
 all: image
 
@@ -435,9 +435,18 @@ desktop-mirror: vendor-mirror libdrm-debs apt-policy-deb
 # authorize the substrate.
 refresh-substrate:
 	@bash $(ROOT)/build/refresh-substrate.sh --arch $(ARCH)
+	@bash $(ROOT)/build/check-sid-exceptions.sh || true
 
 check-substrate-pin:
 	@bash $(ROOT)/build/check-substrate-pin.sh $(ARCH)
+
+# The reviewed sid-exceptions ledger: track every sid d-i exception against the
+# pinned + latest forky and drive the "gradually replace with forky" loop.  A
+# row forky now provides at >= the recorded version is GRADUATED (remove it,
+# "use forky"); an expired review_by must be re-reviewed.  Generated report:
+# docs/SID-EXCEPTIONS.md.  Set SID_EXC_FLAGS=--strict to make findings fatal.
+sid-exceptions:
+	@bash $(ROOT)/build/check-sid-exceptions.sh $(SID_EXC_FLAGS)
 
 offline-mirror: desktop-mirror check-substrate-pin
 	@if [ ! -d $(BUILD)/forky-mirror/pool ] || \
