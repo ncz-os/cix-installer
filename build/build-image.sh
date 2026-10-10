@@ -822,12 +822,15 @@ stage_layers() {
     # (outside the tree) is fine for every other stage; override it here.
     local ltmp="$ROOT/build/.ncz-tmp"
     mkdir -p "$ltmp"
+    # Run the layer build through the documented privilege model (ncz_sudo_bash
+    # -> one `sudo -S` with the fleet password on stdin).  The script calls bare
+    # `sudo` internally (mmdebstrap/chroot/mount); as root those are no-ops, and
+    # a non-interactive bare sudo would otherwise fail with "a terminal is
+    # required to authenticate" on a host without passwordless sudo.
     # stage 1 drives host mount/chroot/mksquashfs (r202 workaround #1/#2: it is
-    # not rootless; ncz_sudo provides the documented privilege model).  It must
-    # run on the host, never nested in the container (arm64 report #4).  The
-    # layer plan (NCZ_LAYER_PLAN) tells it which layers to reuse vs rebuild.
-    ( cd "$ROOT" && TMPDIR="$ltmp" NCZ_TARGET_ARCH="$ARCH" NCZ_LAYER_PLAN="$NCZ_LAYER_PLAN" \
-        bash build/build-squashfs-layers.sh all ) 2>&1 | tee -a "$log"
+    # not rootless). It must run on the host, never nested in the container
+    # (arm64 report #4). The layer plan (NCZ_LAYER_PLAN) decides reuse/rebuild.
+    ncz_sudo_bash "cd '$ROOT' && TMPDIR='$ltmp' NCZ_TARGET_ARCH='$ARCH' NCZ_LAYER_PLAN='$NCZ_LAYER_PLAN' bash build/build-squashfs-layers.sh all" 2>&1 | tee -a "$log"
     return "${PIPESTATUS[0]}"
 }
 
