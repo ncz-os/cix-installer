@@ -489,6 +489,12 @@ manifests/ncz-packages.tsv	common	-	reviewed NCZ build ledger: exact (name,versi
 manifests/forky-snapshot.tsv	common	-	immutable trust metadata for the BUILD pin: signed InRelease sha256+size and Debian keyring sha256; the root of the forky-provenance index verification
 manifests/ncz-timestamped.tsv	common	-	reviewed NCZ packages whose version embeds a build timestamp: exact name+arch + anchored version regex + the image receipt's recorded sha256 (ncz_timestamped_debs); the narrowest rule for non-statically-pinnable NCZ builds
 manifests/overlay-layers.tsv	common	-	reviewed PARTIAL squashfs overlay layers (name + tree_root + recipe); a status-less layer listed here must still contain its declared tree root, and any status-less layer NOT listed fails closed
+manifests/base.pin	common	-	single BUILD+provenance base pin: the netinst substrate sha256+date and the snapshot.debian.org timestamp DERIVED from it (measured coverage); written by build/refresh-substrate.sh; the build preflight fails if stale or inconsistent with release.conf
+manifests/keys/debian-testing-cd-signing.gpg	common	-	committed Debian CD signing key (fpr F41D30342F3546695F65C66942468F4009EA8AC3) used to verify a netinst's SHA256SUMS.sign
+build/refresh-substrate.sh	common	-	fetch + verify (SHA256SUMS.sign vs the committed CD key) the newest netinst, cache on ARGONAS (keep two), derive + write manifests/base.pin; fails closed
+build/derive-base-pin.py	common	-	measure a netinst's own package identities against candidate snapshot timestamps; write manifests/base.pin; exit 3 if coverage < floor
+build/check-substrate-pin.sh	common	-	build preflight: base.pin vs release.conf snapshot, substrate freshness (<= 8d), coverage floor (>= 99%)
 manifests/keys/debian-archive-keyring.gpg	common	-	official Debian archive signing keyring used by gpgv to verify the pinned snapshot Release
-docs/FORKY-PROVENANCE.md	common	-	policy + design for the forky-provenance gate: trust root, signed-index chain, NCZ ledger, apt allowlist, blockers
-build/testdata/forky-snapshot/InRelease	common	-	the real pinned snapshot.debian.org InRelease (20260926T000000Z) fixture used to prove production keyring/digest compatibility offline
+docs/FORKY-PROVENANCE.md	common	-	policy + design for the forky-provenance gate: trust root, signed-index chain, NCZ ledger, apt allowlist, substrate pin, blockers
+docs/ONE-KERNEL.md	common	-	one-kernel policy: audit of every kernel artifact in the r202 images by place, the correct mechanism (installer initrd from OUR kernel), the gate rule, and the residual; KVM-UNPROVEN
+build/testdata/forky-snapshot/InRelease	common	-	the real pinned snapshot.debian.org InRelease (20261005T120000Z) fixture used to prove production keyring/digest compatibility offline

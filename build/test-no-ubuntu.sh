@@ -86,6 +86,9 @@ cat > "$T/repo/manifests/ncz-packages.tsv" <<EOF
 # name	version	arch	sha256	recipe	source_revision	note
 ncz-widget	1.0	all	$NW_SHA	build/build-widget.sh	test revision 1	test NCZ build
 libdrm2	2.4.134-3+ncz2	amd64	$LD_SHA	build/build-libdrm-debs.sh	test revision 1	test NCZ repack
+linux-image-test	1.0	amd64	$(printf '1%.0s' {1..64})	build/build-kernel-debs.sh	test revision 1	test NCZ kernel
+linux-headers-test	1.0	amd64	$(printf '2%.0s' {1..64})	build/build-kernel-debs.sh	test revision 1	test NCZ kernel headers
+linux-image-other	2.0	amd64	$(printf '3%.0s' {1..64})	build/build-kernel-debs.sh	test revision 1	second NCZ kernel (different version)
 EOF
 cat > "$T/repo/manifests/vendor-repos.tsv" <<'EOF'
 # kind	scheme	host	path	suite	approved	vendor	note
@@ -272,6 +275,39 @@ open(p, "w").writelines(out)
 PY
 expect_rc "timestamped ledger with EMPTY source_revision FAILS (strict schema)" 2 \
   python3 -I "$T/repo-badts/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/debian-pool"
+
+echo "=== 2e. one-kernel policy (only OUR kernel; exactly one version) ==="
+cat > "$T/kernel_probe.py" <<'PY'
+import importlib.util, sys
+ver, idx = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("fp", ver)
+fp = importlib.util.module_from_spec(spec); spec.loader.exec_module(fp)
+class A:
+    ubuntu_only = False; index_dir = idx; fetch_index = False; verify_mirror = None
+ref = fp.Ref(A())
+def run(seen):
+    fp.FAILS.clear(); ref.seen_kernel.clear(); ref.seen_kernel.update(seen)
+    fp.audit_kernel_purity(ref, "t")
+    return 1 if fp.FAILS else 0
+cases = [
+    ("one NCZ kernel (image+headers, same version) passes",
+     run([("linux-image-test", "1.0", "amd64"), ("linux-headers-test", "1.0", "amd64")]), 0),
+    ("a Debian linux-image FAILS (non-NCZ kernel)",
+     run([("linux-image-test", "1.0", "amd64"), ("linux-image-6.12.0-1-amd64", "6.12.0-1", "amd64")]), 1),
+    ("a d-i *-modules-*-di kernel udeb FAILS",
+     run([("linux-image-test", "1.0", "amd64"), ("base-modules-7.2.9+deb14-amd64-di", "7.2.9-1", "amd64")]), 1),
+    ("two NCZ kernel VERSIONS FAIL (one-kernel policy)",
+     run([("linux-image-test", "1.0", "amd64"), ("linux-image-other", "2.0", "amd64")]), 1),
+    ("no kernel artifact at all passes", run([]), 0),
+]
+bad = 0
+for label, got, want in cases:
+    print(("PASS " if got == want else "MISMATCH ") + label)
+    if got != want: bad += 1
+sys.exit(1 if bad else 0)
+PY
+expect_rc "one-kernel policy (both directions)" 0 \
+  python3 -I "$T/kernel_probe.py" "$T/repo/build/forky-provenance.py" "$IDX"
 
 echo "=== 3. dpkg status / Packages inputs (fail closed) ==="
 printf 'Package: fonts-liberation\nStatus: install ok installed\nVersion: 1:2.1.5-3build1\nArchitecture: all\nMaintainer: %s\n\n' "$UBU_MAINT" > "$T/status.bad"
@@ -857,13 +893,13 @@ expect_rc "builders refuse non-Debian/unpinned mirrors" 0 bash -c '
   . "'"$ROOT"'/build/lib/mirror-apt-opts.sh"
   ! ncz_require_debian_forky forky https://deb.debian.org/debian Debian 2>/dev/null &&
   ! ncz_require_debian_forky forky /nonexistent-local-mirror Debian 2>/dev/null &&
-  ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20260926T000000Z Debian &&
+  ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20261005T120000Z Debian &&
   ! ncz_require_debian_forky resolute http://ports.ubuntu.com/ubuntu-ports Ubuntu 2>/dev/null &&
   ! ncz_require_debian_forky forky http://ports.ubuntu.com/ubuntu-ports Debian 2>/dev/null &&
   ! ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20200101T000000Z Debian 2>/dev/null'
 expect_rc "ncz_pin_snapshot parses the released pin exactly" 0 bash -c '
   . "'"$ROOT"'/build/lib/mirror-apt-opts.sh"
-  [ "$(ncz_pin_snapshot "'"$ROOT"'")" = "20260926T000000Z" ]'
+  [ "$(ncz_pin_snapshot "'"$ROOT"'")" = "20261005T120000Z" ]'
 mkdir -p "$T/badconf"
 printf 'NCZ_BASE_MIRROR_SNAPSHOT="20260101T000000Zjunk"\n' > "$T/badconf/release.conf"
 expect_rc "ncz_pin_snapshot rejects a malformed/oversized pin" 0 bash -c '
