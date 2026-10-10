@@ -1775,8 +1775,17 @@ def scan_image(ref, img, work):
             exit or an ext2 lookup failure is a hard error for required trees."""
             r = run(["debugfs", "-R", " ".join(args), dev], capture_output=True,
                     text=True)
+            # `rdump` extracts the bytes correctly as an unprivileged user but
+            # cannot restore the archive's uid/gid, so debugfs prints
+            # "Operation not permitted while changing ownership of ..." to stderr
+            # for every member.  That is benign here (we hash file CONTENTS, not
+            # ownership) and must NOT be treated as a failed dump -- treating it
+            # as a failure left /dists, /pool and /ncz-payload unread, which made
+            # every pool file look like an orphan and tanked the whole image
+            # gate on BOTH arches.
             err = [l for l in (r.stderr or "").splitlines()
-                   if l.strip() and not l.startswith("debugfs ")]
+                   if l.strip() and not l.startswith("debugfs ")
+                   and "while changing ownership" not in l]
             bad = r.returncode != 0 or bool(err) or "not found by ext2_lookup" in (r.stdout or "")
             if bad and required:
                 fail("image", img, f"debugfs {' '.join(args)} failed: "
