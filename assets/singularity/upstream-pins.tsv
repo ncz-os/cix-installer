@@ -37,6 +37,15 @@
 # Bump deliberately: build/singularity-pins.sh propose prints the current
 # upstream heads in this format; review, run build/singularity-pins.sh
 # check-patches, rebuild, then commit.
+#
+# VENDOR-MALI (SceneFX) RECEIPT -- see assets/singularity/MALI-VERIFIED.md.
+# subprojects/labwc at 2da90c41 bundles SceneFX 0.5, whose quad.frag/tex.frag
+# quoted `#error` breaks the CIX libmali GLES compiler even inside a disabled
+# branch -> O6N Mali boot black screen. Fixed by
+# assets/singularity/scenefx-patches/ + build/patch-singularity-scenefx.sh,
+# gated by build/check-singularity-shaders.sh. Last-known-good payload before
+# SceneFX: 20261007+bk0+tgzb69d3482 (labwc 6fe073cb); vendor-Mali smoke on
+# 2026-10-10: 15/15 programs compile (Mali-G720-Immortalis, libmali r53p0).
 .	https://github.com/singularityos-lab/singularity-desktop.git	master	020e4b7e206665633bc7264fe665a9a70e3501ac
 subprojects/libsingularity	https://github.com/singularityos-lab/libsingularity.git	main	23fb17092e8c8be27bfee5b546f42ee51f808604
 subprojects/singularity-files	https://github.com/singularityos-lab/singularity-files.git	main	95c70f53dc90f910117f23e33ce21d0fa1683e3a
