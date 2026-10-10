@@ -195,7 +195,11 @@ def count_sid_exceptions(arch: str) -> dict:
         out["count"] += 1
         out["by_class"][f[4]] = out["by_class"].get(f[4], 0) + 1
         out["by_action"][f[10]] = out["by_action"].get(f[10], 0) + 1
-        out["snapshot"] = f[9]
+        # The snapshot is a property of the whole ledger; take the first row's
+        # value (they must all agree -- the gate enforces that) rather than
+        # silently reporting the last row's.
+        if not out["snapshot"]:
+            out["snapshot"] = f[9]
     return out
 
 
