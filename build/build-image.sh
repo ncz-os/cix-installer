@@ -437,17 +437,19 @@ export TMPDIR="$RUN_DIR/tmp"
 # "no other build holding the lock").  One build per build-runs dir; a stale lock
 # (dead pid) is reclaimed; a live holder aborts this run before any work.
 NCZ_BUILD_LOCK="${NCZ_BUILD_LOCK:-$(dirname "$RUN_DIR")/.ncz-build.lock}"
-export NCZ_BUILD_LOCK
-if [ -f "$NCZ_BUILD_LOCK" ]; then
-    _lock_holder="$(tr -dc '0-9' <"$NCZ_BUILD_LOCK" 2>/dev/null | head -c 12)"
-    if [ -n "$_lock_holder" ] && [ "$_lock_holder" != "$$" ] && kill -0 "$_lock_holder" 2>/dev/null; then
-        echo "build-image.sh: another build (pid $_lock_holder) holds $NCZ_BUILD_LOCK" >&2
-        echo "build-image.sh: refusing to run two builds on one host (layers/image/kvm all contend)" >&2
-        exit 3
+export NCZ_BUILD_LOCK NCZ_BUILD_LOCK_OWNER="$$"
+if [ "$DRY_RUN" != 1 ]; then
+    if [ -f "$NCZ_BUILD_LOCK" ]; then
+        _lock_holder="$(tr -dc '0-9' <"$NCZ_BUILD_LOCK" 2>/dev/null | head -c 12)"
+        if [ -n "$_lock_holder" ] && [ "$_lock_holder" != "$$" ] && kill -0 "$_lock_holder" 2>/dev/null; then
+            echo "build-image.sh: another build (pid $_lock_holder) holds $NCZ_BUILD_LOCK" >&2
+            echo "build-image.sh: refusing to run two builds on one host (layers/image/kvm all contend)" >&2
+            exit 3
+        fi
     fi
+    printf '%s\n' "$$" > "$NCZ_BUILD_LOCK" 2>/dev/null || true
+    trap 'rm -f "$NCZ_BUILD_LOCK" 2>/dev/null || true' EXIT
 fi
-printf '%s\n' "$$" > "$NCZ_BUILD_LOCK" 2>/dev/null || true
-trap 'rm -f "$NCZ_BUILD_LOCK" 2>/dev/null || true' EXIT
 
 RUN_PIN="$RUN_DIR/run.pin"
 KVER="$(ncz_resolve_kver "$ARCH" || true)"
@@ -1055,7 +1057,7 @@ stage_layers() {
     if [ -n "${NCZ_SINGULARITY_PREBUILT_DEB:-}" ]; then
         say_layers "layers-preflight: frozen payload $(basename "$NCZ_SINGULARITY_PREBUILT_DEB") sha256=${NCZ_SINGULARITY_PREBUILT_SHA256:-?}"
     fi
-    local -a lp=(--arch "$ARCH" --root "$ROOT" --run-dir "$RUN_DIR" --layers-dir "$LAYERS_DIR" --quarantine)
+    local -a lp=(--arch "$ARCH" --root "$ROOT" --run-dir "$RUN_DIR" --layers-dir "$LAYERS_DIR" --quarantine --lock-owner "$$")
     if [ -x "$ROOT/build/layers-preflight.sh" ]; then
         ( cd "$ROOT" && NCZ_TARGET_ARCH="$ARCH" SCOPE="$SCOPE" COMPONENTS="$COMPONENTS" \
               bash build/layers-preflight.sh "${lp[@]}" ) 2>&1 | tee -a "$log"
