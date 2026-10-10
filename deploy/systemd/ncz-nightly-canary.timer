@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily NCZ-OS nightly canary (rebuild dependencies from HEAD)
+Documentation=file:/opt/ncz/cix-installer/docs/NIGHTLY-CANARY.md
+
+[Timer]
+# ~02:30 local, randomized up to 1h so the two arches never start together and
+# the box is idle.  Persistent=true runs a missed window after boot.
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=3600
+Persistent=true
+Unit=ncz-nightly-canary.service
+
+[Install]
+WantedBy=timers.target

@@ -63,6 +63,10 @@ expect_use "gates without --no-publish rejected" --arch amd64 --gates kvm --dry-
 expect_use "ui gate rejected" --arch amd64 --gates ui --no-publish --dry-run
 expect_use "bad gate rejected" --arch amd64 --gates nope --no-publish --dry-run
 expect_use "unknown component rejected" --arch amd64 --components frobnitz
+expect_use "nightly ledger without candidates rejected" --arch amd64 --ledger-mode nightly --dry-run
+expect_use "candidates without nightly rejected" --arch amd64 --ledger-candidates /x --dry-run
+expect_use "bad --ledger-mode rejected" --arch amd64 --ledger-mode sometimes --dry-run
+expect_ok  "nightly ledger accepted" --arch amd64 --ledger-mode nightly --ledger-candidates /x --no-publish --dry-run
 expect_use "bad --substrate rejected" --arch amd64 --substrate sometimes
 expect_use "bad --jobs rejected" --arch amd64 --jobs 0
 expect_use "unknown flag rejected" --arch amd64 --frobnicate
@@ -94,6 +98,17 @@ p="$(bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null)"
 for s in preflight refresh-substrate stage-inputs refresh-sources offline-mirror provenance-inputs layers image provenance-gate kvm-gate receipt archive; do
     grep -q "$s" <<<"$p" && ok "plan names stage $s" || bad "plan missing stage $s"
 done
+# gate order (operator ruling 2026-10-10): pre-build provenance before layers,
+# post-image provenance before the multi-hour KVM gate.
+order_ok=1
+prev=-1
+for s in preflight refresh-substrate stage-inputs refresh-sources offline-mirror provenance-inputs layers image provenance-gate kvm-gate receipt archive; do
+    i="$(printf '%s\n' "$p" | grep -n "] [0-9]* $s\$" | head -1 | cut -d: -f1)"
+    if [ -z "$i" ]; then order_ok=0; break; fi
+    [ "$i" -gt "$prev" ] || { order_ok=0; break; }
+    prev="$i"
+done
+[ "$order_ok" = 1 ] && ok "stage order is provenance-inputs < layers < image < provenance-gate < kvm-gate" || bad "stage order wrong"
 grep -q 'NEVER (operator-only)' <<<"$p" && ok "plan states the never-do list" || bad "plan omits never-do list"
 grep -q 'SOURCE_DATE_EPOCH' <<<"$p" && ok "plan shows SOURCE_DATE_EPOCH" || bad "plan omits SOURCE_DATE_EPOCH"
 grep -q 'NCZ_REPRO_UUID_EXT4' <<<"$p" && ok "plan shows pin-derived UUIDs" || bad "plan omits UUIDs"

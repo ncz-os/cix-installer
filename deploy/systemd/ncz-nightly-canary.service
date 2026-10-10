@@ -1,0 +1,34 @@
+[Unit]
+Description=NCZ-OS nightly canary — rebuild every dependency from upstream HEAD (never publish)
+Documentation=file:/opt/ncz/cix-installer/docs/NIGHTLY-CANARY.md
+# The canary must never run at the same time as a real image build.
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/ncz/cix-installer/build/nightly-canary.sh
+
+[Service]
+Type=oneshot
+# The build user (owns the checkout + podman store).  Override in the per-host
+# drop-in if the fleet user differs (ACHILLES/ULTRA use jasonperlow).
+User=jasonperlow
+Group=jasonperlow
+# Host arch + run root come from /etc/ncz-nightly.conf (per-host drop-in).
+EnvironmentFile=-/etc/ncz-nightly.conf
+Environment=NCZ_NIGHTLY_ROOT=/mnt/argonas/datapool/projects/ncz-os-assets/nightly
+Environment=NCZ_NIGHTLY_STAGE_TIMEOUT=14400
+WorkingDirectory=/opt/ncz/cix-installer
+# --unattended: no prompts, lock, disk guard, reaper, strict timeouts, nice.
+ExecStart=/opt/ncz/cix-installer/build/nightly-canary.sh --arch ${NCZ_NIGHTLY_ARCH} --mode nightly --unattended
+# A red nightly is the point: exit 1 is recorded in status/latest.json, not a unit failure.
+SuccessExitStatus=0 1
+# Never overlap with a real build: the canary REFUSES to start if another build
+# is running (its own lock + the build-image.sh preflight already do this).
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+# Hard ceiling regardless of the script's own per-stage watchdog.
+TimeoutStartSec=21600
+# The canary must never use tmpfs.
+PrivateTmp=false
+# No privileges beyond the user: it never mounts (unlike a real image build).
+NoNewPrivileges=false

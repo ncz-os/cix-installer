@@ -1,0 +1,14 @@
+[Unit]
+Description=Weekly NCZ-OS full build (Sunday evening local; aligned with the weekly netinst + the 8-day freshness guard)
+Documentation=file:/opt/ncz/cix-installer/docs/NIGHTLY-CANARY.md
+
+[Timer]
+# Sunday ~20:00 local, randomized up to 1h.  Weekly mode = build-image.sh
+# --arch both --full --sources latest --no-publish + determinism compare.
+OnCalendar=Sun *-*-* 20:00:00
+RandomizedDelaySec=3600
+Persistent=true
+Unit=ncz-nightly-weekly.service
+
+[Install]
+WantedBy=timers.target
