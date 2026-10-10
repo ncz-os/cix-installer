@@ -31,7 +31,9 @@ for bin in "$@"; do
 		continue
 	fi
 	# Must be an ELF binary; a stray text file / truncated artifact is a defect.
-	if ! head -c 4 "$bin" 2>/dev/null | od -An -tx1 | grep -q '7f 45 4c 46'; then
+	# `od` spacing differs between GNU and BSD, so compare the stripped hex.
+	magic="$(head -c 4 "$bin" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n')"
+	if [ "$magic" != "7f454c46" ]; then
 		echo "FAIL: $bin is not an ELF binary (or is unreadable)" >&2
 		rc=1
 		continue
