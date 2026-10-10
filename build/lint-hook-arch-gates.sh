@@ -21,7 +21,9 @@ for f in "$DIR"/*.sh; do
     [ -f "$f" ] || continue
     b="$(basename "$f")"; n=$((n+1))
     # 'cix-installer' is the project's own directory name, not a platform reference
-    body="$(grep -v '^[[:space:]]*#' "$f" | sed 's/cix-installer//g; s/cix-detect-display//g')"
+    # (the /var/log/cix-install log directory likewise matches the 'cix-' token but
+    # is the installer's own log path, added by the installer-ux feedback work).
+    body="$(grep -v '^[[:space:]]*#' "$f" | sed 's/cix-installer//g; s|/var/log/cix-install|\$LOGDIR|g; s/cix-detect-display//g')"
     sky="$(printf '%s\n' "$body" | grep -Eic "$SKY" || true)"
     x86="$(printf '%s\n' "$body" | grep -Eic "$X86" || true)"
     chk="$(printf '%s\n' "$body" | grep -Ec -- "$CHK" || true)"

@@ -112,6 +112,8 @@ build/singularity-pins.sh	common	-	Singularity upstream pin reader: validate, pi
 build/stage-accel-overlays.sh	sky1	-	builds and stages the mali/panthor/vpu/npu overlays for a kernel; fails on compile error or CRC/source mismatch
 build/test-singularity-pins.sh	common	-	offline test for the Singularity upstream pins and their build/preflight wiring
 build/patch-singularity-scenefx.sh	common	-	resolves labwc's SceneFX meson wrap, checks out the pinned revision, applies assets/singularity/scenefx-patches/ (idempotent); fail-closed if a quoted #error survives the patch
+build/refresh-singularity-sources.sh	common	-	`refresh-sources` stage resolver: --sources latest|pinned freezes the singularity upstream pins (+ labwc SceneFX/wlroots wraps) and records every SHA in source-resolution.json; latest is the --full/--rebuild-desktop default
+build/test-singularity-shaders-gate.sh	common	-	both-direction tests for check-singularity-shaders.sh: a quoted #error, a non-ELF, and a shader-less binary all FAIL closed
 build/check-singularity-shaders.sh	common	-	static gate: fails a payload build if the staged labwc embeds a quoted-`#error` SceneFX shader (the CIX libmali regression)
 build/test-verify-dkms-deb-sources.sh	sky1	-	verify-dkms-deb-sources test (stale-deb gate, overlay stamps)
 build/verify-dkms-deb-sources.py	sky1	-	fails when a staged accelerator DKMS deb payload differs from the assets source (stale debs)
