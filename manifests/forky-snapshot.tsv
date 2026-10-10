@@ -4,6 +4,14 @@
 # not verify against THIS file is rejected; a self-written stamp is not verification.
 # key<TAB>value.  Update ONLY with a reviewed re-pin (build/pin-forky-snapshot.sh) plus a
 # fresh keyring/signature check -- never to make a failing gate pass.
+#
+# di_suite: the SAME pinned snapshot's development suite (sid/unstable).  The Debian
+# netinst substrate ships debian-installer udebs built from sid, while its base packages
+# are testing (forky).  A snapshot.debian.org timestamp is the whole archive state, so
+# the gate reads forky's full index set AND sid's debian-installer indexes -- the same
+# snapshot, the same keyring, one Debian origin (NOT a fourth origin), and never sid's
+# runtime (binary-*) packages.  di_inrelease_* is the digest of dists/sid/InRelease at
+# the pinned timestamp; build/refresh-substrate.sh records/verifies it.
 snapshot	20261005T120000Z
 codename	forky
 components	main contrib non-free non-free-firmware
@@ -11,6 +19,10 @@ architectures	amd64 arm64 all
 inrelease_path	dists/forky/InRelease
 inrelease_sha256	d13923a3d324d0182a5140db3beef811113a2606ac3f7a23233a3fa0388d237c
 inrelease_size	150773
+di_suite	sid
+di_inrelease_path	dists/sid/InRelease
+di_inrelease_sha256	2cf3f9e9ff637dd50bbcda4366584e9c76b3757bf007c7ee07ccf9d3734150ea
+di_inrelease_size	192842
 keyring	manifests/keys/debian-archive-keyring.gpg
 keyring_sha256	506b815cbb32d9b6066b4a2aa524071e071761e7e7f68c3ac74f3061ba852017
 signer_keys	4CB50190207B4758A3F73A796ED0E7B82643E131 B8E5F13176D2A7A75220028078DBA3BC47EF2265

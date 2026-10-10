@@ -87,6 +87,28 @@ elif [ "$FETCH" = 1 ]; then
   echo "[substrate] WARN: cache dir $CACHE_DIR not writable; ISO not cached" >&2
 fi
 
+# --- 4b. sync the pin into release.conf AND the multi-suite trust digests ---
+# The snapshot is DERIVED from the substrate, and the substrate's d-i udebs are
+# built from the same snapshot's development suite (sid).  So a successful
+# refresh must move release.conf's snapshot AND record BOTH suites' signed
+# InRelease digests in manifests/forky-snapshot.tsv, in lockstep -- otherwise the
+# build fails closed in check-substrate-pin.sh / the provenance gate.  Never runs
+# when the measurement failed (rc != 0): a substrate the snapshot cannot
+# authorize must not be pinned.
+if [ "$rc" = 0 ]; then
+  pin_snap="$(awk -F'\t' -v a="$ARCH" '$1==a{print $4}' "$ROOT/manifests/base.pin" 2>/dev/null)"
+  if [ -n "$pin_snap" ]; then
+    if grep -q '^NCZ_BASE_MIRROR_SNAPSHOT=' "$ROOT/release.conf"; then
+      sed -i.ncz "s|^NCZ_BASE_MIRROR_SNAPSHOT=.*|NCZ_BASE_MIRROR_SNAPSHOT=\"$pin_snap\"|" "$ROOT/release.conf"
+      rm -f "$ROOT/release.conf.ncz"
+      echo "[substrate] release.conf NCZ_BASE_MIRROR_SNAPSHOT -> $pin_snap"
+    fi
+    echo "[substrate] recording signed InRelease digests for the pinned snapshot $pin_snap"
+    python3 -I "$HERE/pin-snapshot-suites.py" --snapshot "$pin_snap" \
+      || { echo "refresh-substrate: ERROR: could not record the snapshot's suite digests" >&2; exit 2; }
+  fi
+fi
+
 # --- 5. staleness gate ------------------------------------------------------
 sub_date="$(awk -F'\t' -v a="$ARCH" '$1==a{print $3}' "$ROOT/manifests/base.pin" 2>/dev/null)"
 if [ -n "$sub_date" ]; then

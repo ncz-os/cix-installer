@@ -66,11 +66,33 @@ mkdeb "$T/unknown/mystery_1.0_all.deb" mystery 1.0 all 'Someone <s@example.inval
 mkdir -p "$T/shadow-bad"
 mkdeb "$T/shadow-bad/fonts-liberation_1%3a2.1.5-3_all.deb" fonts-liberation 1:2.1.5-3 all "$DEB_MAINT" DIFFERENT-BYTES
 
+# di_suite fixtures: the netinst substrate's d-i udebs are built from the SAME
+# snapshot's development suite (sid).  A d-i udeb present ONLY in sid's
+# debian-installer index MUST be authorized; a runtime (non-d-i) package present
+# only in sid's main/binary-* MUST NOT be (the allowance is d-i only).
+mkdir -p "$T/sid-di-pool" "$T/sid-di-badpool" "$T/sid-rt-pool"
+mkdeb "$T/sid-di-pool/base-modules-7.2.9+deb14-amd64-di_7.2.9-1_amd64.udeb" \
+  base-modules-7.2.9+deb14-amd64-di 7.2.9-1 amd64 "$DEB_MAINT"
+mkdeb "$T/sid-di-pool/base-modules-7.2.9+deb14-arm64-di_7.2.9-1_arm64.udeb" \
+  base-modules-7.2.9+deb14-arm64-di 7.2.9-1 arm64 "$DEB_MAINT"
+mkdeb "$T/sid-di-pool/mdcfg-utils_1.87_all.udeb" mdcfg-utils 1.87 all "$DEB_MAINT"
+mkdeb "$T/sid-di-badpool/base-modules-7.2.9+deb14-amd64-di_7.2.9-1_amd64.udeb" \
+  base-modules-7.2.9+deb14-amd64-di 7.2.9-1 amd64 "$DEB_MAINT" DIFFERENT-BYTES
+mkdeb "$T/sid-rt-pool/libsidonly_9.9_amd64.deb" libsidonly 9.9 amd64 "$DEB_MAINT"
+
 DEBSHA="$(sha "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb")"
 TPMSHA="$(sha "$T/tpm-pool/libtss2-rc0t64_4.1.3-7_amd64.deb")"
 VSHA="$(sha "$T/vendor-pool/acme-browser_1.0-1_amd64.deb")"
 DEBSIZE="$(wc -c < "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb")"
 TPMSIZE="$(wc -c < "$T/tpm-pool/libtss2-rc0t64_4.1.3-7_amd64.deb")"
+SIDDI_SHA="$(sha "$T/sid-di-pool/base-modules-7.2.9+deb14-amd64-di_7.2.9-1_amd64.udeb")"
+SIDDI_SIZE="$(wc -c < "$T/sid-di-pool/base-modules-7.2.9+deb14-amd64-di_7.2.9-1_amd64.udeb")"
+SIDDI_A64_SHA="$(sha "$T/sid-di-pool/base-modules-7.2.9+deb14-arm64-di_7.2.9-1_arm64.udeb")"
+SIDDI_A64_SIZE="$(wc -c < "$T/sid-di-pool/base-modules-7.2.9+deb14-arm64-di_7.2.9-1_arm64.udeb")"
+SIDDI_ALL_SHA="$(sha "$T/sid-di-pool/mdcfg-utils_1.87_all.udeb")"
+SIDDI_ALL_SIZE="$(wc -c < "$T/sid-di-pool/mdcfg-utils_1.87_all.udeb")"
+SIDRT_SHA="$(sha "$T/sid-rt-pool/libsidonly_9.9_amd64.deb")"
+SIDRT_SIZE="$(wc -c < "$T/sid-rt-pool/libsidonly_9.9_amd64.deb")"
 
 # --- isolated trust root ---------------------------------------------------------------------
 mkdir -p "$T/repo/build" "$T/repo/manifests/keys"
@@ -148,6 +170,45 @@ cp "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb" "$IDX/pool/main/f/fonts
 cp "$T/tpm-pool/libtss2-rc0t64_4.1.3-7_amd64.deb" "$IDX/pool/main/libt/libtss2-rc0t64/"
 gpg --batch --yes --clearsign -o "$IDX/dists/forky/InRelease" "$REL" >/dev/null 2>&1
 IRSHA="$(sha "$IDX/dists/forky/InRelease")"; IRSIZE="$(wc -c < "$IDX/dists/forky/InRelease")"
+
+# The SAME snapshot's development suite (sid) -- only its debian-installer
+# indexes are loaded by the gate.  The runtime (main/binary-amd64) index is
+# present in the signed Release and names a fixture deb, to prove the gate does
+# NOT authorize sid runtime packages.
+SIDCOMPS="main/debian-installer/binary-amd64 main/debian-installer/binary-arm64 main/debian-installer/binary-all"
+mkdir -p "$IDX/dists/sid"
+REL2="$T/Release-sid.body"
+{
+  printf 'Origin: Debian\nLabel: Debian\nSuite: unstable\nCodename: sid\n'
+  printf 'Architectures: all amd64 arm64\nComponents: main contrib non-free non-free-firmware\n'
+  printf 'SHA256:\n'
+} > "$REL2"
+for rel in $SIDCOMPS; do
+  mkdir -p "$IDX/dists/sid/$rel"
+  pf="$IDX/dists/sid/$rel/Packages"
+  {
+    if [ "$rel" = "main/debian-installer/binary-amd64" ]; then
+      printf 'Package: base-modules-7.2.9+deb14-amd64-di\nVersion: 7.2.9-1\nArchitecture: amd64\nMaintainer: %s\nFilename: pool/main/b/base-modules-7.2.9+deb14-amd64-di/base-modules-7.2.9+deb14-amd64-di_7.2.9-1_amd64.udeb\nSize: %s\nSHA256: %s\n\n' "$DEB_MAINT" "$SIDDI_SIZE" "$SIDDI_SHA"
+    elif [ "$rel" = "main/debian-installer/binary-arm64" ]; then
+      printf 'Package: base-modules-7.2.9+deb14-arm64-di\nVersion: 7.2.9-1\nArchitecture: arm64\nMaintainer: %s\nFilename: pool/main/b/base-modules-7.2.9+deb14-arm64-di/base-modules-7.2.9+deb14-arm64-di_7.2.9-1_arm64.udeb\nSize: %s\nSHA256: %s\n\n' "$DEB_MAINT" "$SIDDI_A64_SIZE" "$SIDDI_A64_SHA"
+    elif [ "$rel" = "main/debian-installer/binary-all" ]; then
+      printf 'Package: mdcfg-utils\nVersion: 1.87\nArchitecture: all\nMaintainer: %s\nFilename: pool/main/m/mdcfg-utils/mdcfg-utils_1.87_all.udeb\nSize: %s\nSHA256: %s\n\n' "$DEB_MAINT" "$SIDDI_ALL_SIZE" "$SIDDI_ALL_SHA"
+    fi
+  } > "$pf"
+  xz -f -k "$pf"
+  printf ' %s %s %s\n' "$(sha "$pf.xz")" "$(wc -c < "$pf.xz")" "$rel/Packages.xz" >> "$REL2"
+done
+mkdir -p "$IDX/pool/main/b/base-modules-7.2.9+deb14-amd64-di" \
+         "$IDX/pool/main/b/base-modules-7.2.9+deb14-arm64-di" \
+         "$IDX/pool/main/m/mdcfg-utils"
+cp "$T/sid-di-pool/base-modules-7.2.9+deb14-amd64-di_7.2.9-1_amd64.udeb" \
+   "$IDX/pool/main/b/base-modules-7.2.9+deb14-amd64-di/"
+cp "$T/sid-di-pool/base-modules-7.2.9+deb14-arm64-di_7.2.9-1_arm64.udeb" \
+   "$IDX/pool/main/b/base-modules-7.2.9+deb14-arm64-di/"
+cp "$T/sid-di-pool/mdcfg-utils_1.87_all.udeb" "$IDX/pool/main/m/mdcfg-utils/"
+gpg --batch --yes --clearsign -o "$IDX/dists/sid/InRelease" "$REL2" >/dev/null 2>&1
+SIDIRSHA="$(sha "$IDX/dists/sid/InRelease")"; SIDIRSIZE="$(wc -c < "$IDX/dists/sid/InRelease")"
+
 cat > "$T/repo/manifests/forky-snapshot.tsv" <<EOF
 snapshot	20260101T000000Z
 codename	forky
@@ -156,6 +217,10 @@ architectures	amd64 arm64 all
 inrelease_path	dists/forky/InRelease
 inrelease_sha256	$IRSHA
 inrelease_size	$IRSIZE
+di_suite	sid
+di_inrelease_path	dists/sid/InRelease
+di_inrelease_sha256	$SIDIRSHA
+di_inrelease_size	$SIDIRSIZE
 keyring	manifests/keys/test-keyring.gpg
 keyring_sha256	$(sha "$T/repo/manifests/keys/test-keyring.gpg")
 signer_keys	$KFPR
@@ -308,6 +373,66 @@ sys.exit(1 if bad else 0)
 PY
 expect_rc "one-kernel policy (both directions)" 0 \
   python3 -I "$T/kernel_probe.py" "$T/repo/build/forky-provenance.py" "$IDX"
+
+echo "=== 2f. di_suite: the same snapshot's d-i suite (positive AND negative) ==="
+# A d-i udeb present ONLY in sid's debian-installer index is authorized (the
+# substrate's d-i content is built from sid, at the SAME pinned timestamp).
+expect_rc "sid debian-installer udeb (d-i, same snapshot) passes" 0 prov --debs "$T/sid-di-pool"
+# A runtime (non-d-i) package is NEVER authorized from the di_suite: only the
+# suite's main/debian-installer indexes are requested, its binary-* indexes are
+# not (code-level assertion), so a runtime deb fails closed.
+expect_rc "sid RUNTIME package (not d-i) FAILS (narrow allowance)" 1 prov --debs "$T/sid-rt-pool"
+echo "$LAST" | grep -q 'unknown origin' && ok "  failure says unknown origin (sid runtime not authorized)" || bad "wrong reason" "$LAST"
+cat > "$T/index_need_probe.py" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("fp", sys.argv[1])
+fp = importlib.util.module_from_spec(spec); spec.loader.exec_module(fp)
+t = {"codename": "forky", "components": "main contrib non-free non-free-firmware",
+     "architectures": "amd64 arm64 all", "inrelease_path": "dists/forky/InRelease",
+     "inrelease_sha256": "a" * 64, "inrelease_size": "1",
+     "di_suite": "sid", "di_inrelease_path": "dists/sid/InRelease",
+     "di_inrelease_sha256": "b" * 64, "di_inrelease_size": "2"}
+need = fp.index_need(t)
+sid = [n for n in need if n[0] == "sid"]
+sid_comps = sorted({n[1] for n in sid})
+sid_archs = sorted(n[2] for n in sid)
+only_di = sid_comps == ["main/debian-installer"]
+ok = only_di and sid_archs == ["all", "amd64", "arm64"]
+print("sid need comps:", sid_comps, "archs:", sid_archs)
+print("ONLY debian-installer from sid:", only_di)
+sys.exit(0 if ok else 1)
+PY
+expect_rc "index_need requests ONLY sid debian-installer (never sid runtime)" 0 \
+  python3 -I "$T/index_need_probe.py" "$T/repo/build/forky-provenance.py"
+# Same identity as the sid d-i index but DIFFERENT bytes: fail closed.
+expect_rc "sid d-i udeb with different bytes FAILS (sha enforced)" 1 prov --debs "$T/sid-di-badpool"
+# The allowance is exactly the declared di_suite: without it, the same udeb fails.
+cp -a "$T/repo" "$T/repo-nodisuite"
+python3 - "$T/repo-nodisuite/manifests/forky-snapshot.tsv" <<'PY'
+import sys
+p = sys.argv[1]
+lines = list(open(p))
+with open(p, "w") as out:
+    out.writelines(l for l in lines
+                   if not (l.startswith("di_suite\t") or l.startswith("di_inrelease_")))
+PY
+expect_rc "without di_suite declared, the sid d-i udeb FAILS" 1 \
+  python3 -I "$T/repo-nodisuite/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
+# A wrong sid InRelease digest fails closed (fetch disabled => no silent pass).
+cp -a "$T/repo" "$T/repo-baddi"
+python3 - "$T/repo-baddi/manifests/forky-snapshot.tsv" <<'PY'
+import sys
+p = sys.argv[1]; out = []
+for line in open(p):
+    if line.startswith("di_inrelease_sha256\t"):
+        line = "di_inrelease_sha256\t" + "0" * 64 + "\n"
+    out.append(line)
+open(p, "w").writelines(out)
+PY
+expect_rc "wrong di_inrelease_sha256 FAILS closed (fetch disabled)" 1 \
+  python3 -I "$T/repo-baddi/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
+expect_rc "--verify-mirror still passes with both suites (rc 0)" 0 \
+  python3 -I "$T/repo/build/forky-provenance.py" --verify-mirror "$IDX" --index-dir "$IDX"
 
 echo "=== 3. dpkg status / Packages inputs (fail closed) ==="
 printf 'Package: fonts-liberation\nStatus: install ok installed\nVersion: 1:2.1.5-3build1\nArchitecture: all\nMaintainer: %s\n\n' "$UBU_MAINT" > "$T/status.bad"
