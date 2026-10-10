@@ -182,6 +182,7 @@ aborts with the stage name and a ready-to-paste resume command.
 | 10 | `refresh-substrate` | `build/refresh-substrate.sh` (or the pinned ISO cache) | refreshed `base.pin`, pinned ISO into `downloads/` | fails closed on signature/sha mismatch; `--substrate pinned` only within the 8-day staleness guard |
 | 20 | `stage-inputs` | `manifests/build-inputs.tsv` | staged `assets/…` | refuses a missing/mismatched git-ignored input |
 | 30 | `offline-mirror` | the forky/vendor/desktop mirror sources + package manifests | `build/{forky,desktop,vendor}-mirror`; `mirror.build-fingerprint` | every image `.deb` resolves from the pinned snapshot |
+| 35 | `refresh-sources` | `build/refresh-singularity-sources.sh` (`--sources latest\|pinned`) | frozen `upstream-pins.tsv` + `compositor-pins.tsv` + `source-resolution.json`, the payload `.deb` | resolves the singularity upstream heads (latest) or the committed pins (pinned); builds the payload deb and fails closed on upstream drift (never silently falls back to stale pins) |
 | 40 | `layers` | the offline mirror + staged assets + the layer plan | `assets/squashfs/{base,desktop,desktop-hotfix}.squashfs` (+ `.build-fingerprint`) | reuse/rebuild per fingerprint; a stale layer is rotated aside, never clobbered |
 | 50 | `image` | layers + mirror + ESP/initrd content | `build/ncz-os-*.img` + `.receipt.json` | refuses a partial layer set |
 | 60 | `kvm-gate` | the image | `kvm-gate.result`, gate log | install + boot + installer-UI check; must end `GATE PASS` |

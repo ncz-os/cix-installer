@@ -82,6 +82,7 @@ COMPONENTS=""         # comma list (scope=components)
 GATES=""              # comma list; empty => all
 NO_PUBLISH=0
 SUBSTRATE=""          # refresh|pinned
+SOURCES=""            # latest|pinned (singularity payload source pins)
 HOST_OVERRIDE=""
 JOBS=""
 KEEP_WORK=0
@@ -109,8 +110,8 @@ build-image.sh -- the single entrypoint for a repeatable, deterministic NCZ-OS i
   make release-image ARCH=amd64 RELEASE_IMAGE_ARGS="--full"
 
 STAGES (fixed order)
-  preflight  refresh-substrate  stage-inputs  offline-mirror  layers  image
-  kvm-gate  provenance-gate  receipt  archive
+  preflight  refresh-substrate  stage-inputs  offline-mirror  refresh-sources
+  layers  image  kvm-gate  provenance-gate  receipt  archive
 
 SCOPE (choose ONE; default --full)
   --full                    substrate refresh + every layer + image + all gates
@@ -127,6 +128,12 @@ OPTIONS
   --no-publish              build + gates, never copy to ARGONAS images/
   --gates kvm,provenance    run only these gates (REQUIRES --no-publish)
   --substrate refresh|pinned  substrate policy (refresh is the --full default)
+  --sources latest|pinned   singularity payload source pins: 'latest' resolves
+                            the current upstream heads of every singularity
+                            subproject (+ the labwc SceneFX/wlroots wraps) and
+                            freezes them in the receipt; 'pinned' reproduces the
+                            committed pins.  latest is the --full / --rebuild-
+                            desktop default
   --resume-from STAGE       start at STAGE
   --run-dir DIR             run directory (logs, run metadata, tmp scratch)
   --image PATH              an already-built image (kvm-gate+ resume)
@@ -179,6 +186,7 @@ while [ $# -gt 0 ]; do
         --no-publish) NO_PUBLISH=1; FORWARD+=("--no-publish"); shift ;;
         --publish) NO_PUBLISH=0; shift ;;
         --substrate) SUBSTRATE="${2:?--substrate needs refresh|pinned}"; FORWARD+=("--substrate" "$2"); shift 2 ;;
+        --sources) SOURCES="${2:?--sources needs latest|pinned}"; FORWARD+=("--sources" "$2"); shift 2 ;;
         --resume-from) RESUME_FROM="${2:?--resume-from needs a stage}"; FORWARD+=("--resume-from" "$2"); shift 2 ;;
         --image) IMAGE_ARG="${2:?--image needs a path}"; FORWARD+=("--image" "$2"); shift 2 ;;
         --host) HOST_OVERRIDE="${2:?--host needs a host}"; shift 2 ;;
@@ -214,6 +222,17 @@ case "$SUBSTRATE" in
     "") [ "$SCOPE" = full ] && SUBSTRATE=refresh || SUBSTRATE=pinned ;;
     refresh|pinned) ;;
     *) die2 "bad --substrate '$SUBSTRATE' (expected refresh|pinned)" ;;
+esac
+# Singularity payload source pins: 'latest' resolves the current upstream heads
+# of every singularity subproject (+ the labwc compositor wraps) and freezes them
+# in the receipt; 'pinned' uses assets/singularity/upstream-pins.tsv unchanged.
+case "$SOURCES" in
+    "") case "$SCOPE" in
+            full|rebuild-desktop) SOURCES=latest ;;
+            *) SOURCES=pinned ;;
+        esac ;;
+    latest|pinned) ;;
+    *) die2 "bad --sources '$SOURCES' (expected latest|pinned)" ;;
 esac
 if [ -n "$GATES" ]; then
     [ "$NO_PUBLISH" = 1 ] || die2 "--gates may only be used together with --no-publish (a build that skips a gate can never be published)"
@@ -337,7 +356,8 @@ ncz_kernel_staging_dir() {
 # ---------------------------------------------------------------------------
 # Stages
 # ---------------------------------------------------------------------------
-STAGES=(preflight refresh-substrate stage-inputs offline-mirror layers image \
+STAGES=(preflight refresh-substrate stage-inputs offline-mirror refresh-sources \
+        layers image \
         kvm-gate provenance-gate receipt archive)
 stage_index() {
     local want="$1" i=0 s
@@ -695,6 +715,88 @@ stage_offline_mirror() {
 }
 
 # ---------------------------------------------------------------------------
+# Stage 35 -- refresh sources (singularity payload pins + deb)
+# ---------------------------------------------------------------------------
+# OPERATOR RULING 2026-10-10: "I want latest singularity, latest build sources."
+# Resolve the current upstream heads for the Singularity desktop payload (every
+# subproject + the labwc SceneFX/wlroots compositor wraps), freeze them in the
+# run receipt, build the payload deb from them, and hand the deb to the layers
+# stage.  --sources pinned reproduces the committed pins instead.
+stage_refresh_sources() {
+    local log="$1"
+    local sdir="$RUN_DIR/singularity-sources"
+    mkdir -p "$sdir"
+
+    # 1. resolve + freeze the source pins (never silent).
+    local rs=(--sources "$SOURCES" --output "$sdir" --arch "$ARCH")
+    [ "$OFFLINE" = 1 ] && rs+=(--offline)
+    ( cd "$ROOT" && TMPDIR="$RUN_DIR/tmp" bash build/refresh-singularity-sources.sh "${rs[@]}" ) 2>&1 | tee -a "$log"
+    local rc="${PIPESTATUS[0]}"
+    if [ "$rc" != 0 ]; then
+        echo "[refresh-sources] FAIL: source resolution failed (rc=$rc)" | tee -a "$log" >&2
+        return "$rc"
+    fi
+    local up="$sdir/upstream-pins.tsv"
+    [ -s "$up" ] || { echo "[refresh-sources] FAIL: no upstream-pins.tsv produced" | tee -a "$log" >&2; return 1; }
+    export NCZ_SINGULARITY_PINS="$up"
+
+    # 2. build the payload deb -- or, for --sources pinned with a committed
+    #    prebuilt deb present, reuse it (reproduces the committed build).
+    local deb="" sha="" sdir_out="$sdir/out"
+    if [ "$SOURCES" = pinned ]; then
+        deb="$(ls -1 "$ROOT/assets/cix-debs/ncz-singularity-desktop_"*_"$ARCH".deb 2>/dev/null | sort -V | tail -1)"
+    fi
+    if [ -n "$deb" ] && [ -f "$deb" ]; then
+        echo "[refresh-sources] pinned: using committed prebuilt $(basename "$deb")" | tee -a "$log"
+    else
+        echo "[refresh-sources] building ncz-singularity-desktop ($ARCH) from $SOURCES sources" | tee -a "$log"
+        mkdir -p "$sdir_out"
+        ( cd "$ROOT" && TMPDIR="$RUN_DIR/tmp" NCZ_SINGULARITY_PINS="$up" NCZ_SINGULARITY_TRACK_HEAD=0 \
+            OUT="$sdir_out" SINGULARITY_IMAGE="debian:${NCZ_BASE_CODENAME:-forky}" \
+            bash build/build-singularity.sh ) 2>&1 | tee -a "$log"
+        rc="${PIPESTATUS[0]}"
+        if [ "$rc" != 0 ]; then
+            echo "[refresh-sources] FAIL: payload build failed (rc=$rc) from $SOURCES sources." | tee -a "$log" >&2
+            echo "[refresh-sources]   NOT falling back to stale pins. Re-run with --sources pinned to reproduce the committed pins, or fix the upstream break." | tee -a "$log" >&2
+            return "$rc"
+        fi
+        local tgz="$sdir_out/singularity-opt.tgz"
+        [ -s "$tgz" ] || { echo "[refresh-sources] FAIL: build-singularity.sh produced no tarball" | tee -a "$log" >&2; return 1; }
+        deb="$( ( cd "$ROOT" && NCZ_SINGULARITY_ARCH="$ARCH" OUT="$sdir_out" bash build/build-singularity-deb.sh "$tgz" ) 2>&1 | tee -a "$log" | sed -n 's/^Final \.deb: //p' | tail -1 )"
+        if [ -z "$deb" ] || [ ! -s "$deb" ]; then
+            echo "[refresh-sources] FAIL: build-singularity-deb.sh produced no usable deb" | tee -a "$log" >&2
+            return 1
+        fi
+    fi
+    sha="$(sha256sum "$deb" | awk '{print $1}')"
+
+    # 3. static SceneFX shader gate on the deb's labwc (the payload build also
+    #    gates it in-container; this re-checks the exact artifact we will ship).
+    local xdir lw; xdir="$(mktemp -d "$RUN_DIR/tmp/shader.XXXXXX")"
+    if dpkg-deb -x "$deb" "$xdir" 2>/dev/null; then
+        lw="$xdir/opt/singularity/bin/labwc"
+        if [ -f "$lw" ]; then
+            bash "$ROOT/build/check-singularity-shaders.sh" "$lw" 2>&1 | tee -a "$log"
+            rc="${PIPESTATUS[0]}"
+            rm -rf "$xdir"
+            [ "$rc" = 0 ] || { echo "[refresh-sources] FAIL: static shader gate rejected the payload labwc" | tee -a "$log" >&2; return "$rc"; }
+        else
+            rm -rf "$xdir"
+        fi
+    else
+        rm -rf "$xdir"
+        echo "[refresh-sources] WARN: could not extract $deb for the static shader gate" | tee -a "$log" >&2
+    fi
+
+    # 4. hand the frozen deb to the layers stage.
+    export NCZ_SINGULARITY_PREBUILT_DEB="$deb"
+    export NCZ_SINGULARITY_PREBUILT_SHA256="$sha"
+    printf 'deb=%s\nsha256=%s\nsources=%s\nupstream_pins=%s\n' "$deb" "$sha" "$SOURCES" "$up" > "$sdir/result.env"
+    echo "[refresh-sources] payload deb: $(basename "$deb") sha256=$sha (sources=$SOURCES)" | tee -a "$log"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Stage 40 -- layers
 # ---------------------------------------------------------------------------
 stage_layers() {
@@ -779,11 +881,11 @@ stage_receipt() {
     local out="$RUN_DIR/run-metadata.json"
     NCZ_RUN_META_PLAN="$PLAN_JSON" python3 -I - "$out" "$ARCH" "$GIT_FULL" "$GIT_SHA" "$PIN_DIGEST" \
         "$SOURCE_DATE_EPOCH" "$KVER" "$SUBSTRATE_SHA" "$RUN_DIR" "$ROOT" "$img" \
-        "$SCOPE" "$COMPONENTS" "$GATES" "$NO_PUBLISH" "$SUBSTRATE" "$NCZ_LAYER_PLAN" <<'PYEOF' | tee -a "$log"
+        "$SCOPE" "$COMPONENTS" "$GATES" "$NO_PUBLISH" "$SUBSTRATE" "$NCZ_LAYER_PLAN" "$SOURCES" <<'PYEOF' | tee -a "$log"
 import json, os, socket, sys, time
 (out, arch, git_full, git_sha, pin_digest, sde, kver, substrate,
  run_dir, root, img, scope, components, gates, no_publish, substrate_policy,
- layer_plan) = sys.argv[1:18]
+ layer_plan, sources_policy) = sys.argv[1:19]
 plan = {}
 try:
     plan = json.loads(os.environ.get("NCZ_RUN_META_PLAN", "{}"))
@@ -795,6 +897,23 @@ def gate(name, path):
         return "PASS" if "result=PASS" in txt else "FAIL"
     except OSError:
         return "not-run"
+# singularity payload resolution receipt (source SHAs + deb sha256)
+sing = {}
+try:
+    with open(os.path.join(run_dir, "singularity-sources", "result.env")) as fh:
+        for ln in fh:
+            k, _, v = ln.strip().partition("=")
+            if k:
+                sing[k] = v
+except OSError:
+    pass
+try:
+    with open(os.path.join(run_dir, "singularity-sources", "source-resolution.json")) as fh:
+        sr = json.load(fh)
+    sing["pins_manifest_sha256"] = sr.get("pins_manifest_sha256")
+    sing["n_repos"] = sr.get("n_repos")
+except Exception:
+    pass
 required = {"kvm", "provenance", "one_kernel", "ui"}
 gates_sel = [g for g in (gates or "kvm,provenance").split(",") if g]
 meta = {
@@ -802,7 +921,8 @@ meta = {
     "arch": arch,
     "mode": scope,
     "components": [c for c in (components or "").split(",") if c],
-    "flags": {"substrate": substrate_policy, "no_publish": bool(int(no_publish)),
+    "flags": {"substrate": substrate_policy, "sources": sources_policy,
+              "no_publish": bool(int(no_publish)),
               "gates": gates_sel, "layer_plan": layer_plan},
     "git_commit": git_full,
     "git_sha_short": git_sha,
@@ -810,6 +930,7 @@ meta = {
     "source_date_epoch": int(sde),
     "kernel_kver": kver,
     "substrate_sha256": substrate,
+    "singularity_payload": sing,
     "layers": {lyr: {"fingerprint": fp, "decision": plan.get("layers", {}).get(lyr, "?")}
                for lyr, fp in plan.get("fingerprints", {}).items()},
     "gates": {"kvm": gate("kvm", "kvm-gate.result"),
@@ -875,6 +996,14 @@ stage_enabled() {
         offline-mirror)
             # reuse the mirror when the plan says reuse and it is present
             [ "$(LAYER_DECISION mirror)" = reuse ] && [ -d "$ROOT/build/forky-mirror" ] && return 1 || return 0 ;;
+        refresh-sources)
+            [ "$SCOPE" = only-image ] && return 1
+            if [ "$SOURCES" = latest ]; then return 0; fi
+            # pinned: only when the payload layer is actually in scope
+            case "$SCOPE" in
+                full|rebuild-desktop|components) return 0 ;;
+                *) return 1 ;;
+            esac ;;
         layers) [ "$SCOPE" = only-image ] && return 1 || return 0 ;;
         image) return 0 ;;
         kvm-gate) gate_selected kvm ;;
@@ -897,6 +1026,7 @@ print_plan() {
     echo "  base.pin digest  $PIN_DIGEST"
     echo "  SOURCE_DATE_EPOCH $SOURCE_DATE_EPOCH ($(date -u -d "@$SOURCE_DATE_EPOCH" 2>/dev/null || date -u -r "$SOURCE_DATE_EPOCH" 2>/dev/null))"
     echo "  substrate        $SUBSTRATE_SHA (policy: $SUBSTRATE)"
+    echo "  sources          $SOURCES (singularity payload pins)"
     echo "  kernel KVER      ${KVER:-<unresolved>}"
     echo "  privilege        $(ncz_priv_model || true)"
     echo "  container        $([ "$USE_CONTAINER" = 1 ] && echo "$NCZ_IMAGEBUILD_TAG" || echo disabled)"

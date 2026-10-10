@@ -438,12 +438,12 @@ fi
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
 # session launchers'"'"' fixed LD_LIBRARY_PATH=$PREFIX/lib resolves.
 meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
-# libmali / SceneFX (O6N black screen, 2026-10-10). labwc's bundled SceneFX is a
-# meson [wrap-git] subproject, invisible to singularity-pins.sh and /ncz-patches
-# (both key on superproject submodule paths). Resolve the wrap and apply
-# assets/singularity/scenefx-patches/ BEFORE `make compile` fetches it, so the
-# arms meson builds are already libmali-clean. See the helper's header for the
-# full root cause (libmali rejects a quoted `#error` even in a disabled branch).
+# libmali / SceneFX (O6N black screen, 2026-10-10). The bundled SceneFX in
+# labwc is a meson [wrap-git] subproject, invisible to singularity-pins.sh and
+# /ncz-patches (both key on superproject submodule paths). Resolve the wrap and
+# apply assets/singularity/scenefx-patches/ before the labwc build fetches it,
+# so the meson builds are already libmali-clean. See the helper header for the
+# full root cause (libmali rejects a quoted #error even in a disabled branch).
 if [ -f subprojects/labwc/subprojects/scenefx.wrap ]; then
     NCZ_SCENEFX_PATCHES=/ncz-scenefx-patches \
         bash /ncz-build/patch-singularity-scenefx.sh subprojects/labwc
