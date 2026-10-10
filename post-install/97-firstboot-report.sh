@@ -7,6 +7,9 @@
 # 18e8a14: "Renaming of /etc/ld.so.cache~ ... failed") is caught before an image ships.
 # Runs inside the target chroot; arch-neutral.
 set -uo pipefail
+_pm="$(dirname "$0")/lib/progress-msg.sh"; [ -r "$_pm" ] || _pm=/usr/local/lib/cix-installer/post-install/lib/progress-msg.sh
+[ -r "$_pm" ] && . "$_pm"
+command -v ncz_msg >/dev/null 2>&1 && ncz_msg "First boot: staging the failed-unit report and GPU health check (a few seconds)"
 echo "[97] installing the first-boot failed-unit report"
 install -d -m0755 /etc/systemd/system/multi-user.target.wants
 install -d -m0755 /usr/local/sbin

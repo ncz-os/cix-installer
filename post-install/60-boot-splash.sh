@@ -24,6 +24,9 @@
 #
 # RUNS INSIDE CHROOT (build-squashfs-layers.sh desktop loop).
 set +e
+_pm="$(dirname "$0")/lib/progress-msg.sh"; [ -r "$_pm" ] || _pm=/usr/local/lib/cix-installer/post-install/lib/progress-msg.sh
+[ -r "$_pm" ] && . "$_pm"
+command -v ncz_msg >/dev/null 2>&1 && ncz_msg "Boot splash: removing Plymouth and rebuilding the boot image (about a minute; log: /var/log/cix-install/60-boot-splash.log)"
 
 echo "[60] native KMS boot splash (singularity-boot-splash) — plymouth replacement"
 

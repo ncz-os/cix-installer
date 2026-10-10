@@ -30,6 +30,10 @@ case "$_ncz_pg_arch" in
 esac
 unset _ncz_pg_arch
 set -euo pipefail
+# Install feedback (lib/progress-msg.sh): one honest status line while this runs.
+_pm="$(dirname "$0")/lib/progress-msg.sh"; [ -r "$_pm" ] || _pm=/usr/local/lib/cix-installer/post-install/lib/progress-msg.sh
+[ -r "$_pm" ] && . "$_pm"
+command -v ncz_msg >/dev/null 2>&1 && ncz_msg "Kernel: installing the NCZ amd64 kernel and building its modules (a few minutes; log: /var/log/cix-install/10-amd64-kernel.log)"
 
 # Real root cause of a full-install abort on arm64 (2026-09-15): this hook
 # was REQUIRED (run-all.sh's MACHINE_HOOKS_RE has no arch axis -- filenames

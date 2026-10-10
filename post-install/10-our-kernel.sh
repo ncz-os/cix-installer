@@ -41,6 +41,10 @@ case "$_ncz_pg_arch" in
 esac
 unset _ncz_pg_arch
 set -euo pipefail
+# Install feedback (lib/progress-msg.sh): one honest status line while this runs.
+_pm="$(dirname "$0")/lib/progress-msg.sh"; [ -r "$_pm" ] || _pm=/usr/local/lib/cix-installer/post-install/lib/progress-msg.sh
+[ -r "$_pm" ] && . "$_pm"
+command -v ncz_msg >/dev/null 2>&1 && ncz_msg "Kernel: installing the NCZ kernel and building its modules (a few minutes; log: /var/log/cix-install/10-our-kernel.log)"
 
 INSTALLER_META=/usr/local/lib/cix-installer
 HERE="$(dirname "$0")"

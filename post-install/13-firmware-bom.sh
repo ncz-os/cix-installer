@@ -22,15 +22,22 @@
 # work on hardware we have not seen should not be guessing which blobs it will
 # need. Exclusions belong in firmware-bom.allow, not here.
 set -u
+# Optional install feedback + hard deadline (lib/progress-msg.sh, lib/bounded-run.sh).
+_pm="$(dirname "$0")/lib/progress-msg.sh"; [ -r "$_pm" ] || _pm=/usr/local/lib/cix-installer/post-install/lib/progress-msg.sh
+[ -r "$_pm" ] && . "$_pm"
+_bd="$(dirname "$0")/lib/bounded-run.sh"; [ -r "$_bd" ] || _bd=/usr/local/lib/cix-installer/post-install/lib/bounded-run.sh
+[ -r "$_bd" ] && . "$_bd"
 BOM=${NCZ_FW_BOM:-/usr/local/lib/cix-installer/manifests/firmware.pkgs}
 [ -f "$BOM" ] || BOM=/cdrom/manifests/firmware.pkgs
 if [ ! -f "$BOM" ]; then
     echo "[13] firmware BOM not found; skipping"
+    command -v ncz_msg >/dev/null 2>&1 && ncz_msg "Firmware: BOM not found on the medium, skipping (log: /var/log/cix-install/13-firmware-bom.log)"
     exit 0
 fi
 mapfile -t PKGS < <(grep -hvE '^[[:space:]]*(#|$)' "$BOM" | awk '{print $1}')
 [ "${#PKGS[@]}" -gt 0 ] || { echo "[13] firmware BOM empty; skipping"; exit 0; }
 echo "[13] installing ${#PKGS[@]} firmware packages from the BOM"
+command -v ncz_msg >/dev/null 2>&1 && ncz_msg "Firmware: installing ${#PKGS[@]} packages from the offline mirror (about 1 minute)"
 export DEBIAN_FRONTEND=noninteractive
 
 # LICENCE ACCEPTANCE (r201 defect). firmware-ipw2x00 and firmware-ivtv ask a
@@ -63,8 +70,21 @@ fw_installed() {
 }
 
 # --no-install-recommends: firmware packages must not drag in extras.
-if ! apt-get install -y --no-install-recommends "${PKGS[@]}"; then
-    echo "[13] WARNING: apt-get install of the firmware BOM failed; checking each package" >&2
+# BOUNDED (2026-10-10 wall-clock audit): this was the single longest post-install
+# step in the amd64 KVM gate (28s) and had no deadline, so a stuck mirror or dpkg
+# lock could stall the install indefinitely. Bound it; on timeout we fall through
+# to the per-package check, which reports exactly what is missing and fails.
+BOM_TIMEOUT=${NCZ_FW_BOM_TIMEOUT:-900}
+_apt_rc=0
+if command -v ncz_bounded_run >/dev/null 2>&1; then
+    ncz_bounded_run "$BOM_TIMEOUT" "13-firmware-bom" "${NCZ_LOGDIR:-/var/log/cix-install}/13-firmware-bom-apt.log" \
+        apt-get install -y --no-install-recommends "${PKGS[@]}" || _apt_rc=$?
+else
+    apt-get install -y --no-install-recommends "${PKGS[@]}" || _apt_rc=$?
+fi
+if [ "$_apt_rc" -ne 0 ]; then
+    echo "[13] WARNING: apt-get install of the firmware BOM failed (rc=$_apt_rc); checking each package" >&2
+    command -v ncz_msg >/dev/null 2>&1 && ncz_msg "Firmware: package install returned rc=$_apt_rc - verifying each package (log: /var/log/cix-install/13-firmware-bom.log)"
 fi
 MISSING=()
 for p in "${PKGS[@]}"; do

@@ -91,13 +91,13 @@ if [ -z "$TARBALL" ]; then
     META=https://raw.githubusercontent.com/astral-sh/python-build-standalone/latest-release/latest-release.json
     URL=""
     if command -v curl >/dev/null 2>&1; then
-        TAG=$(curl -fsSL "$META" 2>/dev/null \
+        TAG=$(curl -fsSL --connect-timeout 5 --max-time 20 "$META" 2>/dev/null \
             | grep -oE '"tag"[[:space:]]*:[[:space:]]*"[0-9]+"' | grep -oE '[0-9]+' | head -1)
         if [ -n "$TAG" ]; then
             URL="https://github.com/astral-sh/python-build-standalone/releases/download/${TAG}/cpython-3.11.15+${TAG}-aarch64-unknown-linux-gnu-install_only.tar.gz"
         fi
     fi
-    if [ -n "$URL" ] && curl -fsSL -o "$WORK/py311.tar.gz" "$URL" 2>/dev/null; then
+    if [ -n "$URL" ] && curl -fsSL --connect-timeout 5 --max-time 300 -o "$WORK/py311.tar.gz" "$URL" 2>/dev/null; then
         TARBALL="$WORK/py311.tar.gz"
         echo "[46] fetched $URL"
     fi
@@ -165,7 +165,7 @@ ensure_uv() {
     # Network fallback.
     if command -v curl >/dev/null 2>&1; then
         echo "[46] fetching uv via official installer"
-        if curl -LsSf https://astral.sh/uv/install.sh 2>/dev/null \
+        if curl -LsSf --connect-timeout 5 --max-time 60 https://astral.sh/uv/install.sh 2>/dev/null \
             | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh >/dev/null 2>&1 \
             && [ -x /usr/local/bin/uv ]; then
             echo "[46] installed uv → /usr/local/bin/uv ($(/usr/local/bin/uv --version 2>&1))"; return 0

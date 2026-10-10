@@ -73,8 +73,46 @@ ncz_gpu_pci_vendors() {
     fi
 }
 
-# Sets NCZ_GPU_HAS_NVIDIA / _AMD / _INTEL and NCZ_GPU_VENDORS ("NVIDIA",
-# "AMD + NVIDIA", "none", ...). Cached for the life of the shell.
+# --- device identity for user feedback ---------------------------------------
+# The installer ships no pci.ids, so ncz_gpu_name() names only the GPUs in the
+# curated assets/gpu/ncz-gpu-names.tsv and otherwise prints the always-truthful
+# "<Vendor> [vvvv:dddd]". It never invents a product name.
+NCZ_GPU_NAMES="${NCZ_GPU_NAMES:-$NCZ_GPU_META_DIR/assets/gpu/ncz-gpu-names.tsv}"
+
+ncz_gpu_vendor_name() {
+    case "$1" in
+        10de) printf 'NVIDIA' ;;
+        1002|1022) printf 'AMD' ;;
+        8086) printf 'Intel' ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+# ncz_gpu_name <vendor:device-hex>
+ncz_gpu_name() {
+    local id="$1" v="${1%%:*}" line
+    if [ -r "$NCZ_GPU_NAMES" ]; then
+        line=$(awk -F'\t' -v id="$id" '$1==id { print $2; exit }' "$NCZ_GPU_NAMES" 2>/dev/null)
+        [ -n "$line" ] && { printf '%s' "$line"; return 0; }
+    fi
+    printf '%s [%s]' "$(ncz_gpu_vendor_name "$v")" "$id"
+}
+
+# Print "vendor:device" (lowercase hex) for each display-class PCI device.
+ncz_gpu_pci_ids() {
+    local d c v dev
+    for d in "$NCZ_GPU_SYSFS_PCI"/*; do
+        [ -r "$d/class" ] && [ -r "$d/vendor" ] && [ -r "$d/device" ] || continue
+        c=$(cat "$d/class" 2>/dev/null)
+        case "$c" in 0x0300*|0x0302*|0x0380*) ;; *) continue ;; esac
+        v=$(cat "$d/vendor" 2>/dev/null); dev=$(cat "$d/device" 2>/dev/null)
+        printf '%s:%s\n' "${v#0x}" "${dev#0x}"
+    done | tr 'A-F' 'a-f'
+}
+
+# Sets NCZ_GPU_HAS_NVIDIA / _AMD / _INTEL, NCZ_GPU_VENDORS ("NVIDIA",
+# "AMD + NVIDIA", "none", ...) and NCZ_GPU_DETECTED (a human-readable list, e.g.
+# "AMD Radeon Pro 5500M (Navi14, ...) [1002:7340]"). Cached for the life of the shell.
 ncz_gpu_detect() {
     [ -n "${NCZ_GPU_VENDORS:-}" ] && return 0
     local ids id
@@ -95,7 +133,14 @@ ncz_gpu_detect() {
     [ "$NCZ_GPU_HAS_NVIDIA" = 1 ] && v="${v:+$v + }NVIDIA"
     [ "$NCZ_GPU_HAS_INTEL" = 1 ]  && v="${v:+$v + }Intel"
     NCZ_GPU_VENDORS="${v:-none}"
-    export NCZ_GPU_HAS_NVIDIA NCZ_GPU_HAS_AMD NCZ_GPU_HAS_INTEL NCZ_GPU_VENDORS
+    # Human-readable device list for the "Detected GPU(s)" feedback line.
+    local d sum=""
+    while IFS= read -r d; do
+        [ -n "$d" ] || continue
+        sum="${sum:+$sum; }$(ncz_gpu_name "$d")"
+    done < <(ncz_gpu_pci_ids)
+    NCZ_GPU_DETECTED="${sum:-none}"
+    export NCZ_GPU_HAS_NVIDIA NCZ_GPU_HAS_AMD NCZ_GPU_HAS_INTEL NCZ_GPU_VENDORS NCZ_GPU_DETECTED
 }
 
 # Mirrors 54-gpu-accel.sh's ncz_cuda_component_wanted: the NVIDIA driver is
@@ -147,18 +192,23 @@ ncz_gpu_step_profile() {
             NCZ_GPU_SHORT="GPU drivers ($NCZ_GPU_VENDORS)"
             if [ "$NCZ_GPU_HAS_NVIDIA" = 1 ] && ncz_gpu_nvidia_wanted; then
                 NCZ_GPU_WEIGHT=12; NCZ_GPU_EXPECT_BUILD=1
+                NCZ_GPU_DECISION="installing the NVIDIA driver via DKMS (this takes a few minutes)"
                 NCZ_GPU_LABEL="Installing GPU drivers: $NCZ_GPU_VENDORS - driver download + kernel module build (can take 10-20 min)"
             elif [ "$NCZ_GPU_HAS_AMD" = 1 ]; then
                 NCZ_GPU_WEIGHT=4
+                NCZ_GPU_DECISION="amdgpu is in the kernel, no extra driver needed; installing ROCm compute packages"
                 NCZ_GPU_LABEL="Installing GPU drivers: $NCZ_GPU_VENDORS - ROCm compute packages (amdgpu is in the kernel; a few min)"
             elif [ "$NCZ_GPU_HAS_INTEL" = 1 ]; then
                 NCZ_GPU_WEIGHT=2
+                NCZ_GPU_DECISION="i915/Xe is in the kernel, no extra driver needed; installing compute and media packages"
                 NCZ_GPU_LABEL="Installing GPU drivers: $NCZ_GPU_VENDORS - compute and media packages (no kernel module build)"
             elif [ "$NCZ_GPU_HAS_NVIDIA" = 1 ]; then
                 NCZ_GPU_WATCH=0
+                NCZ_GPU_DECISION="NVIDIA driver/CUDA component not selected; nothing installed"
                 NCZ_GPU_LABEL="GPU drivers: NVIDIA GPU found, driver/CUDA component not selected - skipping"
             else
                 NCZ_GPU_WATCH=0
+                NCZ_GPU_DECISION="no AMD, NVIDIA or Intel GPU found; nothing to install"
                 NCZ_GPU_LABEL="GPU drivers: no AMD, NVIDIA or Intel GPU found - nothing to install, skipping"
             fi
             return 0 ;;
@@ -178,21 +228,29 @@ ncz_gpu_step_profile() {
         80-npu.sh:arm64|80-npu.sh:aarch64)
             NCZ_GPU_WEIGHT=2; NCZ_GPU_EXPECT_BUILD=1
             NCZ_GPU_SHORT="NPU driver"
+            NCZ_GPU_DETECTED="CIX Sky1 NPU [SoC platform device]"
+            NCZ_GPU_DECISION="installing armchina_npu.ko (kernel module build)"
             NCZ_GPU_LABEL="Installing the NPU driver: kernel module build (a few min)"
             return 0 ;;
         82-mali-gpu.sh:arm64|82-mali-gpu.sh:aarch64)
             NCZ_GPU_WEIGHT=3; NCZ_GPU_EXPECT_BUILD=1
             NCZ_GPU_SHORT="GPU driver (Mali)"
+            NCZ_GPU_DETECTED="Mali GPU (CIX Sky1 SoC) [SoC platform device]"
+            NCZ_GPU_DECISION="building the Mali kernel module (Mesa/panfrost userspace)"
             NCZ_GPU_LABEL="Installing GPU drivers: Mali - kernel module build (several min)"
             return 0 ;;
         83-panthor-gpu.sh:arm64|83-panthor-gpu.sh:aarch64)
             NCZ_GPU_WEIGHT=3; NCZ_GPU_EXPECT_BUILD=1
             NCZ_GPU_SHORT="GPU driver (Panthor)"
+            NCZ_GPU_DETECTED="Mali GPU (CIX Sky1 SoC) [SoC platform device]"
+            NCZ_GPU_DECISION="building panthor.ko + Mesa panfrost userspace"
             NCZ_GPU_LABEL="Installing GPU drivers: Panthor - kernel module build (several min)"
             return 0 ;;
         86-cix-dkms-register.sh:arm64|86-cix-dkms-register.sh:aarch64)
             NCZ_GPU_WEIGHT=3; NCZ_GPU_EXPECT_BUILD=1
             NCZ_GPU_SHORT="VPU/NPU drivers"
+            NCZ_GPU_DETECTED="CIX Sky1 VPU + NPU [SoC platform devices]"
+            NCZ_GPU_DECISION="registering the mali/panthor/aipu/amvx kernel modules with DKMS"
             NCZ_GPU_LABEL="Building VPU and NPU drivers: kernel module builds (several min)"
             return 0 ;;
     esac
@@ -225,6 +283,7 @@ ncz_gpu_watch_begin() {
     NCZ_GPU_RESULTS="${NCZ_GPU_RESULTS:-$logdir/gpu-progress.results}" \
     NCZ_GPU_PARENT="$$" NCZ_GPU_LABEL="$NCZ_GPU_LABEL" NCZ_GPU_SHORT="$NCZ_GPU_SHORT" \
     NCZ_GPU_EXPECT_BUILD="$NCZ_GPU_EXPECT_BUILD" \
+    NCZ_GPU_DETECTED="${NCZ_GPU_DETECTED:-}" NCZ_GPU_DECISION="${NCZ_GPU_DECISION:-}" \
         bash "$self" watch </dev/null >/dev/null 2>&1 &
     NCZ_GPU_MON_PID=$!
 }
@@ -381,6 +440,12 @@ _g_build_finish() {  # report the build that just ended
     fi
     G_PCT=$(( G_PCT > G_B_HI ? G_PCT : G_B_HI ))
     _g_emit "$G_PCT" "$detail"
+    # On failure, a second, dedicated line with the hook log path (the operator
+    # asked for it 2026-10-10); kept separate so the compiler error above is not
+    # truncated by the 130-column emit cap.
+    if [ "${res:-}" = failed ]; then
+        _g_emit "$G_PCT" "GPU driver build failed - see /var/log/cix-install/${NCZ_PROGRESS_HOOK:-gpu}.log"
+    fi
     _g_log "RESULT $res $G_B_MOD $G_B_VER kernel $G_B_KVER in ${dur}s${err:+ -- $err}"
     printf '%s|%s|%s|%s|%s|%s\n' "${NCZ_PROGRESS_HOOK:-gpu}" "$G_B_MOD" "$G_B_VER" "$G_B_KVER" "$res" "$dur" \
         >> "$G_RESULTS" 2>/dev/null || true
@@ -427,6 +492,18 @@ ncz_gpu_watch() {
     _g_window 0 "$pkg_hi"
     trap '_g_stop=1' TERM INT
     _g_log "STEP ${NCZ_GPU_LABEL:-$G_SHORT} (gpu=${NCZ_GPU_VENDORS:-n/a})"
+    # "Detected GPU: <device> -> <driver decision>" first, then the step label.
+    # The detection line is what the operator asked for (2026-10-10); it stays
+    # in progress.tsv + gpu-progress.log so the gate can assert it in order,
+    # while the label remains the persistent on-screen status.
+    if [ -n "${NCZ_GPU_DETECTED:-}" ] && [ "${NCZ_GPU_DETECTED}" != none ]; then
+        _g_log "DETECTED ${NCZ_GPU_DETECTED}${NCZ_GPU_DECISION:+ -> $NCZ_GPU_DECISION}"
+        # Two short lines, not one long one: the emit field is capped at 130
+        # columns (same as every other status line), and name+decision together
+        # overflow it on real devices.
+        _g_emit 0 "Detected GPU: ${NCZ_GPU_DETECTED}"
+        [ -n "${NCZ_GPU_DECISION:-}" ] && _g_emit 0 "GPU driver: ${NCZ_GPU_DECISION}"
+    fi
     _g_emit 0 "${NCZ_GPU_LABEL:-$G_SHORT}"
     G_HOLD_UNTIL=$(( G_T0 + G_HOLD ))
     while :; do
