@@ -143,8 +143,8 @@ ALLOW="$ROOT/build/hermetic-network-allowlist.tsv"
 VERB_RE='\b(curl|wget)[[:space:]]|go (get|mod download|download)|git (clone|fetch|ls-remote|pull)|pip[0-9]?[[:space:]]+install|npm (install|ci|fetch)|pnpm (install|fetch)|cargo (fetch|install)|apt-get (update|install)|mmdebstrap|debootstrap'
 # files that legitimately fetch during the build (phase 1) -- by design
 PHASE1_RE='^(build-image|refresh-substrate|refresh-singularity-sources|singularity-pins|fetch-inputs|pin-forky-snapshot|build-forky-mirror|build-vendor-mirror|build-desktop-mirror|stage-build-inputs|stage-canonical-assets|check-ncz-repo-policy|build-libdrm-debs|rebuild-sid-udeb|singularity-deb-depends|singularity-nightly-track|ncz-yocto|preflight-freshness-gate|gen-env-pin)\.sh$'
-# gates/tests: not the shipped build path
-GATE_RE='^(test-|kvm-|check-|verify-)'
+# gates/tests: not the shipped build path (anchored to a .sh basename)
+GATE_RE='^(test-|kvm-|check-|verify-)[A-Za-z0-9._-]*\.sh$'
 flagged=0; classified=0; runtime=0
 declare -a flags=()
 while IFS= read -r f; do
@@ -153,7 +153,7 @@ while IFS= read -r f; do
     # documented separately (they are the installer's own network use).
     case "$f" in */post-install/*) runtime=$((runtime+1)); continue ;; esac
     base="$(basename "$f")"
-    if [ -f "$ALLOW" ] && grep -qE "^${base//./\.}[[:space:]]" "$ALLOW"; then
+    if [ -f "$ALLOW" ] && awk -F'\t' -v b="$base" '$1==b{found=1} END{exit !found}' "$ALLOW"; then
         classified=$((classified+1)); continue
     fi
     if printf '%s' "$base" | grep -qE "$PHASE1_RE"; then classified=$((classified+1)); continue; fi

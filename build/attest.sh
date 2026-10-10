@@ -84,7 +84,11 @@ PY
 )"
 
 # gates "kvm=PASS,provenance=PASS" -> {"kvm":"PASS",...}
-GATES_JSON="$(python3 -c 'import json,sys; d={}; [d.__setitem__(*kv.split("=",1)) for kv in sys.argv[1].replace(","," ").split() if "=" in kv]; print(json.dumps(d))' "$GATES" 2>/dev/null || echo '{}')"
+if [ -n "$GATES" ]; then
+    GATES_JSON="$(python3 -c 'import json,sys; d={}; [d.__setitem__(*kv.split("=",1)) for kv in sys.argv[1].replace(","," ").split() if "=" in kv]; print(json.dumps(d))' "$GATES" 2>/dev/null || echo '{}')"
+else
+    GATES_JSON='{}'
+fi
 
 # second-builder claim (D6): arm64 has one builder until cixmini is ready.
 SECOND="null"
@@ -105,9 +109,9 @@ python3 - "$OUT" "$SUBJ_JSON" "$GATES_JSON" "$GIT_FULL" "$GIT_SHA" "$BUILDER_ID"
         "$CPU" "$CPU_MODEL" "$KERNEL" "$CONT" "$CONT_DIGEST" "$BASE_DIGEST" "$DET_DIGEST" \
         "$ENV_DIGEST" "$LOCK_DIGEST" "$LOCKSHA" "$INPUTS_LOCK" "$ENV_PIN" "$SECOND" "$STARTED" "$FINISHED" <<'PY'
 import json, os, sys
-(argv, OUT, subj, gates, git_full, git_sha, builder_id, arch, cpu, cpu_model,
+(OUT, subj, gates, git_full, git_sha, builder_id, arch, cpu, cpu_model,
  kernel, cont, cont_digest, base_d, det_d, env_d, lock_d, lock_sha, lock_path,
- env_path, second, started, finished) = sys.argv
+ env_path, second, started, finished) = sys.argv[1:]
 st = {
   "_type": "https://in-toto.io/Statement/v1",
   "subject": json.loads(subj),

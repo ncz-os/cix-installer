@@ -20,6 +20,7 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 BUILDERS="$ROOT/build/config/builders.tsv"
 COMPARE="$ROOT/build/compare-images.sh"
+SSH_USER="${NCZ_SSH_USER:-jasonperlow}"   # fleet user; override with NCZ_SSH_USER
 
 ARCH=""; IMAGE=""; INPUTS_LOCK=""; RUN_DIR=""; PRIMARY=""; SECOND=""; DRY=0
 while [ $# -gt 0 ]; do
@@ -80,7 +81,7 @@ fi
 build_on() {  # build_on <builder_id> <host> <outdir>
     local id="$1" host="$2" out="$3"
     echo "[verify-reproducible] rebuild on $id ($host) -> $out"
-    ssh -o BatchMode=yes -o ConnectTimeout=10 "jasonperlow@$host" \
+    ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_USER@$host" \
         "cd \$HOME/Projects/cix-installer-hermetic-20261010 2>/dev/null || cd \$HOME/Projects/cix-installer; \
          TMPDIR=\$HOME/Projects/ncz-repro-$id bash build/build-image.sh --arch $ARCH --full --sources pinned \
             --offline --no-publish --gates provenance --run-dir $out" || return $?
@@ -107,7 +108,7 @@ fi
 # diffoscope the remaining differences if present
 if command -v diffoscope >/dev/null 2>&1; then
     echo "[verify-reproducible] diffoscope $IMG_A $IMG_B" >> "$REPORT"
-    diffoscope --text "$RUN_DIR/repro/diffoscope.txt" "$IMG_A" "$IMG_B" >>"$REPORT" 2>&1 || true
+    diffoscope --text="$RUN_DIR/repro/diffoscope.txt" "$IMG_A" "$IMG_B" >>"$REPORT" 2>&1 || true
     echo "  diffoscope -> $RUN_DIR/repro/diffoscope.txt" >> "$REPORT"
 else
     echo "  (diffoscope not installed; install in a venv under ~/Projects, not system pip)" >> "$REPORT"

@@ -974,6 +974,28 @@ stage_refresh_sources() {
     [ -s "$up" ] || { echo "[refresh-sources] FAIL: no upstream-pins.tsv produced" | tee -a "$log" >&2; return 1; }
     export NCZ_SINGULARITY_PINS="$up"
 
+    # Phase-1 cache availability: serve the payload build's git/go/meson fetches
+    # from the content-addressed caches (never a rolling upstream).  A reproduce
+    # build (--sources pinned + --offline) runs the payload build fully offline
+    # ONLY when the caches are complete; the apt build-dep closure is the tracked
+    # gap (see docs/IMAGE-BUILD-PROCESS.md 5.7) -- until it exists, a pinned build
+    # keeps the network for apt and says so loudly (never silently non-hermetic).
+    local cache="${NCZ_BUILD_INPUT_CACHE:-/mnt/datapool/projects/ncz-os-assets/build-inputs}"
+    if [ -d "$cache/git-mirrors" ]; then
+        export NCZ_SINGULARITY_PIN_CACHE="${NCZ_SINGULARITY_PIN_CACHE:-$cache/git-mirrors}"
+    fi
+    local gomod; gomod="$(ls -d "$cache"/go-modcache/* 2>/dev/null | head -1)"
+    [ -n "$gomod" ] && export NCZ_SINGULARITY_GOMODCACHE="${NCZ_SINGULARITY_GOMODCACHE:-$gomod}"
+    if [ "$OFFLINE" = 1 ] && [ "$SOURCES" = pinned ]; then
+        if [ -d "$cache/git-mirrors" ] && [ -n "$gomod" ] && [ -d "$cache/apt-payload" ]; then
+            export NCZ_OFFLINE=1
+            export NCZ_SINGULARITY_APT_CACHE="$cache/apt-payload"
+            echo "[refresh-sources] pinned+offline: payload build runs with --network none from the phase-1 caches" | tee -a "$log"
+        else
+            ncz_warn "[refresh-sources] --sources pinned: phase-1 payload caches incomplete (git-mirrors=${cache}/git-mirrors go-modcache apt-payload); the payload build is NOT yet fully offline (apt closure is the tracked gap)"
+        fi
+    fi
+
     # 2. build the payload deb -- or, for --sources pinned with a committed
     #    prebuilt deb present, reuse it (reproduces the committed build).
     local deb="" sha="" sdir_out="$sdir/out"

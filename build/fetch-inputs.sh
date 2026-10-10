@@ -48,6 +48,7 @@ while [ $# -gt 0 ]; do
 done
 case "$ARCH" in amd64|arm64) ;; *) echo "fetch-inputs: --arch amd64|arm64 required" >&2; exit 2 ;; esac
 [ -n "$OUTPUT" ] || { echo "fetch-inputs: --output DIR required" >&2; exit 2; }
+[ -n "$CACHE" ] || { echo "fetch-inputs: --cache DIR is required (never empty: rm -rf safety)" >&2; exit 2; }
 mkdir -p "$OUTPUT"
 
 LOCK="$OUTPUT/inputs.lock"
@@ -231,9 +232,10 @@ case "$ONLY" in
 esac
 
 if [ "$OFFLINE" = 1 ]; then
-    verify_lock
-    mv "$TSV.tmp" "$TSV" 2>/dev/null || true
-    log "offline: verified $LOCK ($(grep -c . "$TSV" 2>/dev/null || echo 0) input rows)"
+    verify_lock || exit 1
+    # offline never rewrites the lock/TSV; keep the committed one intact.
+    rm -f "$TSV.tmp"
+    log "offline: verified $LOCK (no fetch; caches consumed)"
     exit 0
 fi
 
@@ -250,6 +252,6 @@ with open(out, "w") as fh:
     json.dump(doc, fh, indent=2, sort_keys=True); fh.write("\n")
 print("inputs_lock_digest=%s (%d inputs)" % (doc["inputs_lock_digest"], len(items)))
 PY
-mv "$TSV.tmp" "$TSV"
+[ -s "$TSV.tmp" ] && mv -f "$TSV.tmp" "$TSV" || rm -f "$TSV.tmp"
 log "wrote $LOCK and $TSV"
 exit 0
