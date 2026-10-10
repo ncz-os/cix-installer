@@ -77,7 +77,8 @@ fi
 
 echo "== compiling every program through the target driver =="
 set +e
-"$OUT/shader_probe" "$SH/manifest.tsv" 2>&1 | tee "$OUT/probe.log"
+# Make_shaders emits manifest paths relative to the shaders dir, so run from it.
+( cd "$SH" && "$OUT/shader_probe" manifest.tsv ) 2>&1 | tee "$OUT/probe.log"
 rc="${PIPESTATUS[0]}"
 set -e
 echo "probe rc=$rc  (logs: $OUT)"

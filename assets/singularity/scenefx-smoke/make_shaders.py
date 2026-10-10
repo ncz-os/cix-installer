@@ -90,7 +90,9 @@ def main():
         p = os.path.join(outdir, label + ".frag")
         with open(p, "w") as f:
             f.write(frag)
-        manifest.append("%s\t%s\t%s" % (label, vert, p))
+        # Relative to outdir so the manifest is portable across hosts (the probe
+        # is run from the shaders dir by run_probe.sh).
+        manifest.append("%s\t%s\t%s" % (label, "common.vert", label + ".frag"))
 
     with open(os.path.join(outdir, "manifest.tsv"), "w") as f:
         f.write("\n".join(manifest) + "\n")
