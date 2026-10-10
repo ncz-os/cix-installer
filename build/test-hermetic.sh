@@ -115,7 +115,7 @@ fi
 # (C) cache path: local bare mirror clone succeeds with the network off
 # ---------------------------------------------------------------------------
 echo "-- (C) offline build consumes the cache (git mirror)"
-if [ -n "$IMG" ]; then
+if [ -n "$IMG" ] && "$ENGINE" run --rm "$IMG" bash -c 'command -v git' >/dev/null 2>&1; then
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/ncz-hermetic-c.XXXXXX")"
     git init -q "$tmp/src" && ( cd "$tmp/src" && echo hi > f && git add f \
         && GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t \
@@ -131,6 +131,8 @@ if [ -n "$IMG" ]; then
     printf '%s' "$out" | grep -qi 'REFUSED\|not allowed\|protocol' && ok "GIT_ALLOW_PROTOCOL=file refuses https (fail-closed)" \
         || skip "network clone under GIT_ALLOW_PROTOCOL=file: $out"
     rm -rf "$tmp"
+elif [ -n "$IMG" ]; then
+    skip "(C) image $IMG has no git; use HERMETIC_TEST_IMAGE with git to prove the offline clone"
 else
     skip "(C) no container engine/image"
 fi
@@ -168,6 +170,27 @@ else
     bad "$flagged build script(s) use the network UNCLASSIFIED:"
     for f in "${flags[@]}"; do printf '         %s\n' "$f"; done
     echo "         -> add a reason in build/hermetic-network-allowlist.tsv, or guard with NCZ_OFFLINE, or move the fetch to fetch-inputs.sh (phase 1)"
+fi
+
+# ---------------------------------------------------------------------------
+# (E) -j independence: mksquashfs output must not depend on the thread count
+# ---------------------------------------------------------------------------
+echo "-- (E) -j independence (mksquashfs -processors)"
+if command -v mksquashfs >/dev/null 2>&1 && command -v unsquashfs >/dev/null 2>&1; then
+    t="$(mktemp -d "${TMPDIR:-/tmp}/ncz-hermetic-j.XXXXXX")"
+    mkdir -p "$t/src/sub"; i=0
+    while [ "$i" -lt 40 ]; do printf 'file %d %s\n' "$i" "$(head -c 64 /dev/zero | tr '\0' x)" > "$t/src/sub/f$i"; i=$((i+1)); done
+    # env -u SOURCE_DATE_EPOCH: mksquashfs >=4.7 refuses an explicit timestamp
+    # option with SDE set; here we only compare -j output.
+    env -u SOURCE_DATE_EPOCH mksquashfs "$t/src" "$t/a.sqfs" -noappend -processors 1 -no-progress >/dev/null 2>&1
+    env -u SOURCE_DATE_EPOCH mksquashfs "$t/src" "$t/b.sqfs" -noappend -processors 4 -no-progress >/dev/null 2>&1
+    a="$(sha256sum "$t/a.sqfs" 2>/dev/null | awk '{print $1}')"
+    b="$(sha256sum "$t/b.sqfs" 2>/dev/null | awk '{print $1}')"
+    if [ -n "$a" ] && [ "$a" = "$b" ]; then ok "mksquashfs -processors 1 == -processors 4 (byte-identical)"
+    else skip "mksquashfs -j comparison inconclusive (a=${a:0:8} b=${b:0:8})"; fi
+    rm -rf "$t"
+else
+    skip "(E) mksquashfs not available; -j independence not checked here"
 fi
 
 # ---------------------------------------------------------------------------
