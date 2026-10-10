@@ -28,6 +28,9 @@
 # rescue.target KMS/display blacklist here (that earlier left the rescue
 # screen blank).
 set -uo pipefail
+_pm="$(dirname "$0")/lib/progress-msg.sh"; [ -r "$_pm" ] || _pm=/usr/local/lib/cix-installer/post-install/lib/progress-msg.sh
+[ -r "$_pm" ] && . "$_pm"
+command -v ncz_msg >/dev/null 2>&1 && ncz_msg "Rescue: populating the rescue partition with a recovery environment (about a minute; log: /var/log/cix-install/72-rescue-partition.log)"
 
 INSTALLER_META=/usr/local/lib/cix-installer
 ASSETS_KERNEL="$INSTALLER_META/assets/kernel"

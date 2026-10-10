@@ -115,6 +115,12 @@ labels_fit() {  # START frame is "Installing NCZ-OS: <hook> (NN/NN, NNNs) - <lab
 }
 check "step labels fit the 150-column info line behind the step prefix (<= 100 chars)" labels_fit
 
+# device identity for the "Detected GPU" feedback line (no pci.ids shipped)
+check "a curated GPU id renders its human name (RTX 4060)" \
+    sh -c '[ "$(env -i PATH="$PATH" NCZ_GPU_NAMES="$1/assets/gpu/ncz-gpu-names.tsv" bash -c ". \"$2\"; ncz_gpu_name 10de:2882" _)" = "NVIDIA GeForce RTX 4060 (Ada)" ]' _ "$ROOT" "$LIB"
+check "an unknown GPU id falls back to the truthful numeric form (no invented name)" \
+    sh -c '[ "$(env -i PATH="$PATH" NCZ_GPU_NAMES=/nonexistent bash -c ". \"$1\"; ncz_gpu_name 1234:5678")" = "1234 [1234:5678]" ]' _ "$LIB"
+
 # ------------------------------------------------------------ 2. monitor
 # fake_build <dkms-root> <proc-root> <module> <ver> <kernel> <files> <ok|fail> [delay]
 fake_build() {
@@ -157,6 +163,8 @@ STATE="$M/log/progress.state"; TSV="$M/log/progress.tsv"
     export NCZ_GPU_POLL=0.2 NCZ_GPU_HOLD=0 NCZ_GPU_STALE=1 NCZ_GPU_ETA_MIN_S=1
     export NCZ_GPU_EXPECT_BUILD=1 NCZ_GPU_SHORT="GPU drivers (NVIDIA)"
     export NCZ_GPU_LABEL="Installing GPU drivers: NVIDIA - test"
+    export NCZ_GPU_DETECTED="NVIDIA GeForce RTX 4060 (Ada) [10de:2882]"
+    export NCZ_GPU_DECISION="installing the NVIDIA driver via DKMS (this takes a few minutes)"
     exec bash "$LIB" watch
 ) &
 MON=$!; BGPIDS="$BGPIDS $MON"
@@ -170,6 +178,12 @@ GPU_ROWS="$M/gpu.rows"
 awk -F'|' '$3 == "GPU"' "$TSV" > "$GPU_ROWS"
 
 check "monitor wrote GPU status records" test -s "$GPU_ROWS"
+check "detection line names the GPU, then the driver decision, before the step label" \
+    sh -c 'head -1 "$1" | grep -q "|GPU|.*|Detected GPU: NVIDIA GeForce RTX 4060 (Ada) \[10de:2882\]" && \
+           sed -n 2p "$1" | grep -q "GPU driver: installing the NVIDIA driver via DKMS" && \
+           sed -n 3p "$1" | grep -q "Installing GPU drivers: NVIDIA - test"' _ "$GPU_ROWS"
+check "detection line is recorded in gpu-progress.log as DETECTED" \
+    grep -q 'DETECTED NVIDIA GeForce RTX 4060 (Ada) \[10de:2882\] -> installing the NVIDIA driver via DKMS' "$M/log/gpu-progress.log"
 check "status names module, version and kernel and counts compiles against the source total" \
     grep -q 'GPU drivers (NVIDIA): building nvidia 580.95.05 for kernel 7.3.0-ncz - compiling [0-9]*/40 files' "$GPU_ROWS"
 check "an ETA appears once the build rate is measurable" grep -q 'min left\|under a minute left' "$GPU_ROWS"
@@ -179,6 +193,8 @@ check "status text keeps changing while the build runs ($distinct distinct lines
 check "success line for the finished module" grep -q 'nvidia 580.95.05 for kernel 7.3.0-ncz - built OK in 0m0[0-9]s' "$GPU_ROWS"
 check "failure line for the broken module carries the compiler error" \
     grep -q 'nvidia 580.95.05 for kernel 7.3.0-ncz-rescue - BUILD FAILED after .*error: implicit declaration' "$GPU_ROWS"
+check "failure line carries the hook log path for the operator" \
+    grep -q 'GPU driver build failed - see /var/log/cix-install/54-gpu-accel.sh.log' "$GPU_ROWS"
 check "second build measures against the first build's compile count" \
     grep -q 'BEGIN build nvidia 580.95.05 for kernel 7.3.0-ncz-rescue (expect ~40 compiles, from previous build)' "$M/log/gpu-progress.log"
 monotonic() {
