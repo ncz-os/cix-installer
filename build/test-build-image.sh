@@ -153,6 +153,19 @@ grep -qF "find \"\$ROOT/assets/cix-debs\" -maxdepth 1" "$BIN" \
     && grep -qF '! -name "$keep" -delete' "$BIN" \
     && ok "refresh-sources prunes only superseded payload debs" \
     || bad "refresh-sources does not prune superseded payload debs safely"
+# The layer builder stages the same frozen deb; the same delete-then-copy
+# anti-pattern there wiped the payload during the base layer and broke the
+# hotfix layer.
+SL="$ROOT/build/build-squashfs-layers.sh"
+if grep -qF "rm -f \"\$ROOT/build/sinty-out/\"ncz-singularity-desktop_*.deb \"\$ROOT/assets/cix-debs/\"ncz-singularity-desktop_*.deb" "$SL"; then
+    bad "build-squashfs-layers deletes the assets/cix-debs payload glob before install"
+else
+    ok "build-squashfs-layers does not delete the source-of-truth payload deb"
+fi
+grep -qF "find \"\$ROOT/assets/cix-debs\" -maxdepth 1" "$SL" \
+    && grep -qF '! -name "$_keep" -delete' "$SL" \
+    && ok "build-squashfs-layers prunes only superseded payload debs" \
+    || bad "build-squashfs-layers does not prune payload debs safely"
 
 # --- 3. fingerprint invalidation (both directions) -------------------------
 echo "== 3. fingerprint invalidation =="

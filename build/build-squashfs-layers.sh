@@ -1490,11 +1490,19 @@ build_singularity_payload(){
       log "ERROR: $_pre has no usable opt/singularity tree (cannot regenerate singularity-opt.tgz)"; exit 1
     fi
     rm -rf "$_x"
-    rm -f "$ROOT/build/sinty-out/"ncz-singularity-desktop_*.deb "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb \
+    # Do NOT `rm -f "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb` and
+    # then `install "$_pre"` from it: with --sources pinned, $_pre IS that
+    # path, so the rm deleted the source-of-truth and the install failed,
+    # leaving the hotfix layer (and the medium) with no payload. Prune only
+    # SUPERSEDED versions; copy in only when the chosen deb lives elsewhere.
+    local _keep; _keep="$(basename "$_pre")"
+    find "$ROOT/assets/cix-debs" -maxdepth 1 \
+        -name 'ncz-singularity-desktop_*.deb' ! -name "$_keep" -delete 2>/dev/null || true
+    rm -f "$ROOT/build/sinty-out/"ncz-singularity-desktop_*.deb \
           "$ROOT/build/sinty-out/singularity-opt.tgz.depends" "$ROOT/build/sinty-out/singularity-opt.tgz.sources"
     mv -f "$_tgz_tmp" "$ROOT/build/sinty-out/singularity-opt.tgz"
     install -m 0644 "$_pre" "$ROOT/build/sinty-out/"
-    install -m 0644 "$_pre" "$ROOT/assets/cix-debs/"
+    [ -f "$ROOT/assets/cix-debs/$_keep" ] || install -m 0644 "$_pre" "$ROOT/assets/cix-debs/"
     log "SINGULARITY: staged the prebuilt $(basename "$_pre") (sha256 $_got) + regenerated singularity-opt.tgz from it; NOT rebuilding"
     return 0
   fi
