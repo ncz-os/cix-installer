@@ -7,15 +7,30 @@
 #     EGL vendor library and builds shader_probe against libmali.
 #   * any GLES board: the probe falls back to the system GLES driver.
 #
-# It is the hardware half of the O6N/Mali regression gate; the static half is
-# build/check-singularity-shaders.sh (runs in every payload build).
-#
-# usage: run_probe.sh <path-to-scenefx-source-root> [outdir]
+# usage: run_probe.sh <scenefx-source-root> [outdir] [--require-mali]
 #   <scenefx-source-root> is a sceneFX checkout, or a labwc build tree whose
 #   subprojects/scenefx holds one. Defaults to $PWD.
+#   --require-mali: fail unless the run used the vendor Mali stack
+#   (NCZ_GPU_BACKEND=mali AND the driver reports GL_VENDOR=ARM), so a Mesa run
+#   can never be recorded as a Mali-verified result.
+#
+# Scratch is never placed on tmpfs (fleet rule): the default outdir is under
+# $HOME/Projects, TMPDIR is redirected into it, and a tmpfs target is refused.
 set -euo pipefail
 
-ROOT="${1:-$PWD}"
+ROOT="$PWD"
+OUT=""
+REQUIRE_MALI=0
+pos=()
+for a in "$@"; do
+    case "$a" in
+        --require-mali) REQUIRE_MALI=1 ;;
+        *) pos+=("$a") ;;
+    esac
+done
+[ "${#pos[@]}" -ge 1 ] && ROOT="${pos[0]}"
+[ "${#pos[@]}" -ge 2 ] && OUT="${pos[1]}"
+
 if [ -f "$ROOT/common.vert" ]; then
     :
 elif [ -f "$ROOT/render/fx_renderer/shaders/common.vert" ]; then
@@ -29,7 +44,9 @@ fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # Scratch NEVER on tmpfs (policy, ~/.claude/rules/scratch-and-cleanup.md).  If
 # no outdir is given, default under ~/Projects and REFUSE a tmpfs target.
-OUT="${2:-$HOME/Projects/scenefx-smoke-$(date -u +%Y%m%dT%H%M%SZ)}"
+if [ -z "$OUT" ]; then
+    OUT="$HOME/Projects/scenefx-smoke-$(date -u +%Y%m%dT%H%M%SZ)"
+fi
 mkdir -p "$OUT"
 fstype="$(findmnt -no FSTYPE -T "$OUT" 2>/dev/null || stat -f -c %T "$OUT" 2>/dev/null || echo unknown)"
 case "$fstype" in
@@ -41,14 +58,16 @@ export TMPDIR="$OUT/tmp"
 # Vendor GPU env (Mali) if this board ships the NCZ selector.  NCZ_GPU_ENV_NO_IMPORT
 # stops ncz-gpu-env from mutating the shell/dbus environment; a source failure is
 # fatal (a silent failure would smoke-test the wrong driver).
+export NCZ_GPU_ENV_NO_IMPORT=1
 if [ -r /usr/local/bin/ncz-gpu-env ]; then
-    export NCZ_GPU_ENV_NO_IMPORT=1
     # shellcheck disable=SC1091
     . /usr/local/bin/ncz-gpu-env || { echo "run_probe: sourcing ncz-gpu-env failed" >&2; exit 2; }
 fi
 unset LIBGL_ALWAYS_SOFTWARE || true
+echo "NCZ_GPU_BACKEND=${NCZ_GPU_BACKEND:-<unset>}"
 
 echo "== building shader_probe =="
+[ -f "$HERE/shader_probe.c" ] || { echo "missing $HERE/shader_probe.c" >&2; exit 2; }
 # Resolve a usable link line on hosts that ship only the versioned sonames
 # (O6N has libgbm.so.1 but no libgbm.so dev symlink).  Prefer the plain -l
 # flags, fall back to -l:<soname>.  The CIX vendor lib dir is used only if it
@@ -81,5 +100,14 @@ set +e
 ( cd "$SH" && "$OUT/shader_probe" manifest.tsv ) 2>&1 | tee "$OUT/probe.log"
 rc="${PIPESTATUS[0]}"
 set -e
+
+if [ "$REQUIRE_MALI" = 1 ]; then
+    if [ "${NCZ_GPU_BACKEND:-}" != mali ] || ! grep -q 'GL_VENDOR * = ARM' "$OUT/probe.log"; then
+        echo "FAIL(--require-mali): run was not on the vendor Mali stack" >&2
+        echo "  NCZ_GPU_BACKEND=${NCZ_GPU_BACKEND:-<unset>}; $(grep -E 'GL_VENDOR|GL_RENDERER' "$OUT/probe.log" | sed 's/^/  /')" >&2
+        rc=1
+    fi
+fi
+
 echo "probe rc=$rc  (logs: $OUT)"
 exit "$rc"

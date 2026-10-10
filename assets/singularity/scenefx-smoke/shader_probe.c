@@ -30,6 +30,11 @@
 extern void *gbm_create_device(int fd);
 extern void gbm_device_destroy(void *gbm);
 
+/* Kept alive for the whole process: the EGL display created from the GBM device
+ * outlives try_gbm(), so both must be released only after eglTerminate(). */
+static void *g_gbm = NULL;
+static int g_drm_fd = -1;
+
 static char *read_file(const char *path) {
 	FILE *f = fopen(path, "rb");
 	if (!f) return NULL;
@@ -71,6 +76,8 @@ static EGLDisplay try_gbm(void) {
 	}
 	if (dpy != EGL_NO_DISPLAY) {
 		printf("[egl] using EGL_PLATFORM_GBM_KHR on renderD128\n");
+		g_gbm = gbm;
+		g_drm_fd = fd;
 		return dpy;
 	}
 	gbm_device_destroy(gbm);
@@ -80,6 +87,10 @@ static EGLDisplay try_gbm(void) {
 
 static GLuint compile_stage(GLenum type, const char *src, const char *label) {
 	GLuint sh = glCreateShader(type);
+	if (sh == 0) {
+		printf("  %-8s %-5s (glCreateShader=0)\n", label, "FAIL");
+		return 0;
+	}
 	glShaderSource(sh, 1, &src, NULL);
 	glCompileShader(sh);
 	GLint ok = GL_FALSE;
@@ -96,7 +107,7 @@ static GLuint compile_stage(GLenum type, const char *src, const char *label) {
 			putchar(log[i]);
 			if (log[i] == '\n' && i + 1 < len) printf("    | ");
 		}
-		if (log[len - 1] != '\n') putchar('\n');
+		if (len > 0 && log[len - 1] != '\n') putchar('\n');
 	}
 	if (ok != GL_TRUE) { glDeleteShader(sh); return 0; }
 	return sh;
@@ -118,8 +129,10 @@ int main(int argc, char **argv) {
 		return 2;
 	}
 	printf("[egl] EGL %d.%d\n", major, minor);
-	printf("[egl] EGL_VENDOR   = %s\n", eglQueryString(dpy, EGL_VENDOR));
-	printf("[egl] EGL_VERSION  = %s\n", eglQueryString(dpy, EGL_VERSION));
+	const char *egl_vendor = eglQueryString(dpy, EGL_VENDOR);
+	const char *egl_version = eglQueryString(dpy, EGL_VERSION);
+	printf("[egl] EGL_VENDOR   = %s\n", egl_vendor ? egl_vendor : "(null)");
+	printf("[egl] EGL_VERSION  = %s\n", egl_version ? egl_version : "(null)");
 	eglBindAPI(EGL_OPENGL_ES_API);
 	EGLint cfg_attr[] = {
 		EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
@@ -154,10 +167,18 @@ int main(int argc, char **argv) {
 	FILE *m = fopen(argv[1], "r");
 	if (!m) { perror(argv[1]); return 2; }
 	char line[4096];
-	int fails = 0, total = 0, malformed = 0;
+	int fails = 0, total = 0, expected = -1, empty_rows = 0, malformed = 0;
 	while (fgets(line, sizeof(line), m)) {
 		char *nl = strchr(line, '\n'); if (nl) *nl = '\0';
-		if (line[0] == '\0' || line[0] == '#') continue;
+		if (line[0] == '#') {
+			/* "# expected_programs=<n>" binds the run to the generator's
+			 * program set, so a truncated/empty manifest fails closed. */
+			if (strncmp(line, "# expected_programs=", 20) == 0) {
+				expected = atoi(line + 20);
+			}
+			continue;
+		}
+		if (line[0] == '\0') continue;
 		char *tab1 = strchr(line, '\t');
 		if (!tab1) { fprintf(stderr, "[manifest] malformed line (no tab): %s\n", line); malformed++; continue; }
 		*tab1 = '\0';
@@ -168,18 +189,22 @@ int main(int argc, char **argv) {
 		const char *vpath = tab1 + 1;
 		const char *fpath = tab2 + 1;
 
+		int has_v = vpath[0] && strcmp(vpath, "-") != 0;
+		int has_f = fpath[0] && strcmp(fpath, "-") != 0;
+		if (!has_v && !has_f) {
+			/* A row with no stages at all must not count as a pass. */
+			printf("=== %s ===\n  FAIL: no shader stages in row\n", label);
+			empty_rows++;
+			fails++;
+			continue;
+		}
 		total++;
 		printf("=== %s ===\n", label);
-		char *vsrc = (vpath[0] && strcmp(vpath, "-") != 0) ? read_file(vpath) : NULL;
-		char *fsrc = (fpath[0] && strcmp(fpath, "-") != 0) ? read_file(fpath) : NULL;
-		if ((vpath[0] && strcmp(vpath, "-") != 0 && !vsrc) ||
-		    (fpath[0] && strcmp(fpath, "-") != 0 && !fsrc)) {
+		char *vsrc = has_v ? read_file(vpath) : NULL;
+		char *fsrc = has_f ? read_file(fpath) : NULL;
+		if ((has_v && !vsrc) || (has_f && !fsrc)) {
 			printf("  file read failed (v=%s f=%s)\n", vpath, fpath);
 			fails++; free(vsrc); free(fsrc); continue;
-		}
-		if (!vsrc && !fsrc) {
-			printf("  both stages missing (v=%s f=%s) -- malformed manifest\n", vpath, fpath);
-			fails++; continue;
 		}
 		GLuint vsh = vsrc ? compile_stage(GL_VERTEX_SHADER, vsrc, "VERT") : 0;
 		GLuint fsh = fsrc ? compile_stage(GL_FRAGMENT_SHADER, fsrc, "FRAG") : 0;
@@ -211,16 +236,32 @@ int main(int argc, char **argv) {
 		free(vsrc); free(fsrc);
 	}
 	fclose(m);
+	printf("\n[summary] programs=%d failures=%d expected=%d empty_rows=%d\n",
+		total, fails, expected, empty_rows);
+	if (malformed > 0) {
+		fprintf(stderr, "[FAIL] %d malformed manifest line(s) -- refusing to pass\n", malformed);
+		fails++;
+	}
+	if (total == 0) {
+		fprintf(stderr, "[FAIL] manifest yielded no programs -- refusing to pass an empty run\n");
+		fails++;
+	}
+	if (expected >= 0 && total != expected) {
+		fprintf(stderr, "[FAIL] manifest had %d programs, generator expected %d (source drift or truncation)\n",
+			total, expected);
+		fails++;
+	}
 	eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 	eglDestroyContext(dpy, ctx);
 	eglTerminate(dpy);
-	/* FAIL CLOSED: an empty or malformed manifest must never look like a pass
-	 * (total=0, failures=0).  A real SceneFX manifest has 15 programs. */
-	if (total == 0 || malformed > 0) {
-		fprintf(stderr, "\n[probe] FAIL CLOSED: no usable programs (total=%d malformed=%d)\n",
-			total, malformed);
-		return 2;
+	/* release the GBM platform resources after EGL is done with them */
+	if (g_gbm) {
+		gbm_device_destroy(g_gbm);
+		g_gbm = NULL;
 	}
-	printf("\n[summary] programs=%d failures=%d\n", total, fails);
+	if (g_drm_fd >= 0) {
+		close(g_drm_fd);
+		g_drm_fd = -1;
+	}
 	return fails ? 1 : 0;
 }

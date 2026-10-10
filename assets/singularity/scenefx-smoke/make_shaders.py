@@ -25,10 +25,17 @@ def rd(p):
         return f.read()
 
 def fmt(src, *vals):
-    # emulate C snprintf: first %d occurrences are replaced, left to right.
-    # FAIL CLOSED on upstream drift: if a %d is left unreplaced, or a supplied
-    # value is not used, the generated shader would not match SceneFX's runtime
-    # string -- a silent false pass. Raise instead.
+    # emulate C snprintf: replace the first len(vals) %d occurrences, left to
+    # right.  FAIL CLOSED twice over (r203 integration: union of both branches):
+    # (1) an upstream shader gaining/losing a format specifier is refused up
+    # front, and (2) any leftover/unused value after substitution is refused
+    # too.  Either would silently produce a wrong (but "successful") runtime
+    # string and a false pass.
+    n = src.count("%d")
+    if n != len(vals):
+        raise SystemExit(
+            "make_shaders: %d format specifier(s) in source but %d value(s) "
+            "supplied -- upstream SceneFX shader layout changed" % (n, len(vals)))
     out, vals = [], list(vals)
     i = 0
     while i < len(src):
@@ -95,6 +102,8 @@ def main():
         manifest.append("%s\t%s\t%s" % (label, "common.vert", label + ".frag"))
 
     with open(os.path.join(outdir, "manifest.tsv"), "w") as f:
+        # The probe asserts this count so a truncated/empty manifest fails closed.
+        f.write("# expected_programs=%d\n" % len(programs))
         f.write("\n".join(manifest) + "\n")
     print("wrote %d programs to %s" % (len(programs), outdir))
 
