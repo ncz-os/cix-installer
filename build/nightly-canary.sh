@@ -281,16 +281,21 @@ build_component() { # arch component
         ncz-apt-policy)
             ( cd "$ROOT" && bash build/build-ncz-apt-policy-deb.sh ) || return 1
             local d; d="$(ls -1 "$ROOT"/assets/apt-policy/ncz-apt-policy_*.deb "$ROOT"/build/ncz-apt-policy_*.deb 2>/dev/null | sort -V | tail -1)"
-            [ -n "$d" ] || return 0
+            # a missing artifact is a FAILURE, not a silent success (zoder review)
+            [ -n "$d" ] || { warn "ncz-apt-policy built but produced no .deb"; return 1; }
             mkdir -p "$DEB_DIR/$a"; cp -f "$d" "$DEB_DIR/$a/"
             record_prov "$(basename "$d")" "build/build-ncz-apt-policy-deb.sh" "in-tree" "in-tree"
             ;;
         libdrm-ncz2)
             ( cd "$ROOT" && LIBDRM_REBUILD=1 bash build/build-libdrm-debs.sh ) || return 1
+            # the resolved source revision is the NCZ libdrm patch sha pinned in
+            # release.conf (never the literal variable name -- zoder review).
+            local lpatch
+            lpatch="$(sed -n 's/^NCZ_LIBDRM_PATCH_SHA256=\("\(.*\)"\|\(.*\)\)/\2\3/p' "$ROOT/release.conf" | head -1)"
             for d in "$ROOT"/build/libdrm-debs/*_"$a".deb "$ROOT"/build/libdrm-debs/*_all.deb; do
                 [ -f "$d" ] || continue
                 mkdir -p "$DEB_DIR/$a"; cp -f "$d" "$DEB_DIR/$a/"
-                record_prov "$(basename "$d")" "build/build-libdrm-debs.sh" "pinned snapshot source" "NCZ_LIBDRM_PATCH_SHA256"
+                record_prov "$(basename "$d")" "build/build-libdrm-debs.sh" "pinned snapshot source" "libdrm-patch-sha256:${lpatch:-unknown}"
             done
             ;;
         cix-gpu-kmd-dkms|panthor-cix-dkms|cix-vpu-driver-dkms)
@@ -374,8 +379,9 @@ stage_shader_gate() {
 }
 
 stage_unit_tests() {
-    # component unit suites (meson test etc.) where present; best-effort, a
-    # missing suite is not a nightly failure.
+    # Component unit suites (meson test etc.) where present.  A suite that is
+    # present and FAILS is a nightly failure (this is a canary: catching a broken
+    # component at HEAD is the point); a suite that is absent is simply not run.
     local rc=0
     for t in "$ROOT"/build/test-singularity-shaders-gate.sh "$ROOT"/build/test-singularity-pins.sh; do
         [ -x "$t" ] && { bash "$t" >> "$RUN_DIR/logs/unit_tests.log" 2>&1 || rc=1; }
@@ -580,7 +586,9 @@ run_stage ledger-candidates  stage_ledger_candidates    || RC=1
 run_stage provenance-inputs  stage_provenance_inputs    || RC=1
 run_stage shader-gate        stage_shader_gate          || RC=1
 run_stage unit-tests         stage_unit_tests           || RC=1
-run_stage hw-smoke           "bash" "$HERE/nightly/hw-smoke.sh" --out "$RUN_DIR/hw-smoke.json" ${NCZ_NIGHTLY_HW_EXECUTE:+--execute} || true
+# hw-smoke writes its per-host status into hw-smoke.json and exits 0 for a
+# SKIPPED host; a genuine tooling error (rc != 0) is NOT masked here.
+run_stage hw-smoke           "bash" "$HERE/nightly/hw-smoke.sh" --out "$RUN_DIR/hw-smoke.json" ${NCZ_NIGHTLY_HW_EXECUTE:+--execute} || RC=1
 if [ "$MODE" = weekly ]; then run_stage weekly-image stage_weekly_image || RC=1; fi
 
 # run-metadata.json (resolved shas + build env)

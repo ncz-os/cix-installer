@@ -81,7 +81,7 @@ smoke_host() { # fields... -> JSON fragment
         envvar="NCZ_SMOKE_HARNESS_$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')"
         hpath="${!envvar:-}"
         if [ -z "$hpath" ]; then
-            probe="SKIPPED(no NCZ_SMOKE_HARNESS_${name} configured)"
+            probe="SKIPPED(no $envvar configured)"
         elif ! ssh_run "$ip" "$ssh_user" "test -x '$hpath'"; then
             probe="SKIPPED(harness not present: $hpath)"
         else

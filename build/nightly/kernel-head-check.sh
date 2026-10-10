@@ -10,7 +10,7 @@
 #   build/nightly/kernel-head-check.sh --arch amd64|arm64|both --out DIR \
 #       [--tree-amd64 DIR] [--tree-arm64 DIR] \
 #       [--patches-amd64 DIR] [--patches-arm64 DIR] \
-#       [--remote-amd64 URL] [--remote-arm64 URL] [--base-ref REF]
+#       [--remote-amd64 URL] [--remote-arm64 URL]
 #
 # Tree resolution (first that applies):
 #   --tree-<arch> DIR, else $NCZ_<ARCH>_KERNEL_TREE, else SKIPPED(reason).
@@ -42,7 +42,7 @@ while [ $# -gt 0 ]; do
         --patches-arm64) PATCHES_ARM64="${2:?}"; shift 2 ;;
         --remote-amd64) REMOTE_AMD64="${2:?}"; shift 2 ;;
         --remote-arm64) REMOTE_ARM64="${2:?}"; shift 2 ;;
-        --base-ref) BASE_REF="${2:?}"; shift 2 ;;
+
         -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "kernel-head-check: unknown arg: $1" >&2; exit 2 ;;
     esac
@@ -51,6 +51,7 @@ case "$ARCH" in amd64|arm64|both) ;; *) echo "kernel-head-check: --arch amd64|ar
 [ -n "$OUT" ] || { echo "kernel-head-check: --out required" >&2; exit 2; }
 mkdir -p "$OUT"
 command -v git >/dev/null 2>&1 || { echo "kernel-head-check: git not found" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "kernel-head-check: python3 not found" >&2; exit 2; }
 
 # default patch dirs
 default_patches() {
@@ -73,7 +74,8 @@ check_one() { # arch tree patches remote outfile -> writes a JSON object, echoes
         head="$(git -C "$tree" rev-parse HEAD 2>/dev/null || true)"
         tag="$(git -C "$tree" describe --tags --abbrev=0 2>/dev/null || true)"
         if [ -n "$head" ]; then
-            [ -n "$BASE_REF" ] && { echo "  [$arch] patch check target: $head (base-ref $BASE_REF requested)"; }
+            # patch applicability is checked against the work tree's HEAD (the
+            # caller points --tree-<arch> at a clone already at the ref to test).
             if [ -n "$patches" ] && [ -d "$patches" ]; then
                 local p
                 while IFS= read -r p; do

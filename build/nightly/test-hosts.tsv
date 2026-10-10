@@ -4,7 +4,9 @@
 # Columns (TAB):
 #   host  ip  hostname  arch  gpu  kernel  ssh_user  cred_ref  role  smoke  forbidden
 #
-#   ssh_user   user the canary connects as (never root for the smoke)
+#   ssh_user   user the canary connects as.  Normally a non-root fleet user;
+#              O6N is a dev board whose only login account is root, and even
+#              there the smoke writes ONLY under that account's ~/Projects.
 #   cred_ref   where the password/creds come from when pubkey is unavailable
 #              (a key path into ~/.api_keys_master.json); "-" = pubkey only
 #   smoke      comma list of the smoke steps that apply on this host:
