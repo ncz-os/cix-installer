@@ -486,6 +486,10 @@ build/test-splash-brand-aspect.sh	common	-	renders the session splash through th
 build/test-hooks-fail-loudly.sh	common	-	proves hook 86 fails on an aipu build failure, hooks 36/55 read the apt status behind | tail, and the deb version gate fails closed when the index is unreachable (r201)
 build/check-no-ubuntu.sh	common	-	gate: no Ubuntu deb/archive/userland (offline; make lint-platform + image target): SRC scan of build sources + Ubuntu evidence in debs/rootfs
 build/check-forky-provenance.sh	common	-	gate: every package is NCZ, a sha-pinned vendor deb or byte-identical to the pinned Debian forky snapshot; apt sources/pins/os-release forky-only; run by ship-image.sh on the finished .img
+build/check-layers.sh	common	-	per-layer post-checks (harden-the-layer-checks ruling 2026-10-10): squashfs integrity/mtimes, dpkg consistency, package-set vs manifest, one-kernel, labwc static shader gate, content assertions, setuid/world-writable allow-list, layer-chain, member-list determinism
+build/layer-perms-allowlist.tsv	common	-	reviewed allow-list for build/check-layers.sh: a setuid/setgid file outside the list FAILS, a world-writable dir outside the list WARNs
+build/layers-preflight.sh	common	-	pre-layer fail-fast checks (harden-the-layer-checks ruling 2026-10-10): clean-tree, frozen-deb handshake, unique/ledgered staged debs, resources/placement, pin consistency
+build/test-layers-hardening.sh	common	-	both-direction tests for build/layers-preflight.sh + build/check-layers.sh (bad fixtures FAIL, good PASS)
 build/forky-provenance.py	common	-	implementation of check-no-ubuntu.sh / check-forky-provenance.sh (debs, Packages, dpkg status, rootfs, squashfs, finished .img via debugfs)
 build/test-no-ubuntu.sh	common	-	positive+negative fixtures for the no-Ubuntu and forky-provenance gates (fonts-liberation 1:2.1.5-3build1 must fail)
 manifests/vendor-repos.tsv	common	-	complete reviewed apt-SOURCE allowlist; every source/pin must match a row exactly on scheme/host/path/suite (Debian pin+runtime, NCZ, Chrome, Vivaldi, NVIDIA; Intel OpenVINO + t2linux approved in r203 with justification)
