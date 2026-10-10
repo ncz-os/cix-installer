@@ -78,17 +78,28 @@ set -x
         apt-get update -qq
         apt-get install -y -qq --no-install-recommends build-essential fakeroot dpkg-dev >/dev/null
         apt-get build-dep -y -qq "$PKG" >/dev/null 2>&1 || echo "WARN: build-dep incomplete; continuing"
+        # Reproducibility: pin SOURCE_DATE_EPOCH (and the changelog date) to the
+        # snapshot timestamp, so two runs of this recipe produce identical bytes.
+        sde=$(date -u -d "$(printf "%s" "$SNAP" | sed -E "s/^(....)(..)(..)T(..)(..)(..)Z/\1-\2-\3 \4:\5:\6/")" +%s)
+        export SOURCE_DATE_EPOCH="$sde"
+        CLDATE=$(date -u -R -d "@$sde")
         cd /work
         rm -rf src; mkdir src; cd src
-        apt-get source "$PKG=$VER" 2>/dev/null || apt-get source "$PKG"
-        d=$(ls -d "$PKG"-*/ | head -1); cd "$d"
-        # Append the NCZ revision to the source version so the rebuilt udeb is
-        # distinguishable and reviewer-visible (name_<upstream>+ncz<N>).
+        # Pin the EXACT source version -- never silently fall back to whatever
+        # the mirror has (a different version would defeat the rebuild).
+        apt-get source "$PKG=$VER"
+        shopt -s nullglob
+        matches=( "$PKG"-*/ )
+        [ "${#matches[@]}" -eq 1 ] || { echo "FATAL: expected exactly one source dir for $PKG $VER, found ${#matches[@]}: ${matches[*]}" >&2; exit 3; }
+        cd "${matches[0]}"
         base_ver=$(dpkg-parsechangelog -S Version)
+        [ "$base_ver" = "$VER" ] || { echo "FATAL: fetched source version $base_ver != requested $VER" >&2; exit 3; }
+        # Append the NCZ revision so the rebuilt udeb is distinguishable and
+        # reviewer-visible (name <version>+ncz<N>).
         dch_ver="${base_ver}+ncz${NCZ_REV}"
         # Prepend a changelog entry (no devscripts dependency) so the rebuilt
         # udeb carries the NCZ revision and is reviewer-visible.
-        { printf "%s (%s) forky; urgency=medium\n\n  * NCZ rebuild: forky-source backport of %s %s (sid-exceptions class B).\n\n -- Jason Perlow <jperlow@gmail.com>  %s\n\n" "$PKG" "$dch_ver" "$PKG" "$base_ver" "$(date -R)"; cat debian/changelog; } > debian/changelog.new
+        { printf "%s (%s) forky; urgency=medium\n\n  * NCZ rebuild: forky-source backport of %s %s (sid-exceptions class B).\n\n -- Jason Perlow <jperlow@gmail.com>  %s\n\n" "$PKG" "$dch_ver" "$PKG" "$base_ver" "$CLDATE"; cat debian/changelog; } > debian/changelog.new
         mv debian/changelog.new debian/changelog
         MAKEFLAGS="-j$(nproc)" dpkg-buildpackage -b -uc -us -d
         cd ..
