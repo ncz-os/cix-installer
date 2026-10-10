@@ -91,6 +91,7 @@ JOBS=""
 KEEP_WORK=0
 CLEAN=0
 CONTAINER_TAG=""
+LAYERS_CHECK_ONLY=""  # standalone: run the per-layer post-checks on existing layers
 ORIG_ARGS=("$@")      # for the both-arch re-dispatch
 FORWARD=()            # child args (everything except --arch/--run-dir)
 
@@ -148,6 +149,9 @@ OPTIONS
   --clean                   remove this run's scratch at the end (logs kept)
   --offline                 block all network; fail if anything must fetch
   --dry-run                 print the plan (stages + per-layer reuse) and exit
+  --layers-check-only DIR   run the per-layer post-checks (build/check-layers.sh)
+                            against EXISTING layers (a dir of *.squashfs or one
+                            layer) and exit; prove the checks without a rebuild
   -h | --help               this help
 
 WHICH FLAG DO I USE?
@@ -199,6 +203,7 @@ while [ $# -gt 0 ]; do
         --keep-work) KEEP_WORK=1; FORWARD+=("--keep-work"); shift ;;
         --clean) CLEAN=1; FORWARD+=("--clean"); shift ;;
         --dry-run) DRY_RUN=1; shift ;;
+        --layers-check-only) LAYERS_CHECK_ONLY="${2:?--layers-check-only needs a dir or layer path}"; shift 2 ;;
         --offline) OFFLINE=1; FORWARD+=("--offline"); shift ;;
         --no-container) USE_CONTAINER=0; FORWARD+=("--no-container"); shift ;;
         --no-archive) NO_ARCHIVE=1; FORWARD+=("--no-archive"); shift ;;
@@ -218,6 +223,35 @@ case "$ARCH" in
     "") die2 "--arch amd64|arm64|both is required" ;;
     *)  die2 "bad --arch '$ARCH' (expected amd64|arm64|both)" ;;
 esac
+
+# ---------------------------------------------------------------------------
+# --layers-check-only DIR : run the per-layer post-checks (build/check-layers.sh)
+# against EXISTING layers (a dir of *.squashfs, or a single layer), then exit.
+# OPERATOR RULING 2026-10-10: this is how the checks are proven on the r202
+# layers without rebuilding anything.
+# ---------------------------------------------------------------------------
+if [ -n "$LAYERS_CHECK_ONLY" ]; then
+    [ "$ARCH" = both ] && die2 "--layers-check-only needs a single --arch (amd64|arm64)"
+    _lc_targets=()
+    if [ -d "$LAYERS_CHECK_ONLY" ]; then
+        while IFS= read -r _f; do _lc_targets+=("$_f"); done \
+            < <(find "$LAYERS_CHECK_ONLY" -maxdepth 1 -name '*.squashfs' | sort)
+        [ "${#_lc_targets[@]}" -gt 0 ] || die2 "no *.squashfs found in $LAYERS_CHECK_ONLY"
+    elif [ -e "$LAYERS_CHECK_ONLY" ]; then
+        _lc_targets=("$LAYERS_CHECK_ONLY")
+    else
+        die2 "path not found: $LAYERS_CHECK_ONLY"
+    fi
+    _lc_rc=0
+    for _l in "${_lc_targets[@]}"; do
+        bash "$ROOT/build/check-layers.sh" "$_l" --arch "$ARCH" \
+            --stage layers-check-only \
+            ${RUN_DIR:+--run-dir "$RUN_DIR"} || _lc_rc=1
+    done
+    echo "[layers-check-only] arch=$ARCH targets=${#_lc_targets[@]} rc=$_lc_rc"
+    exit "$_lc_rc"
+fi
+
 : "${SCOPE:=full}"
 case "$SCOPE" in
     respin) SCOPE=respin ;;
@@ -398,6 +432,22 @@ LOGS="$RUN_DIR/logs"
 mkdir -p "$LOGS" "$RUN_DIR/tmp"
 # All scratch lives on the run dir's disk, never a tmpfs (policy).
 export TMPDIR="$RUN_DIR/tmp"
+
+# Host-level build lock (operator ruling 2026-10-10: layers-preflight checks
+# "no other build holding the lock").  One build per build-runs dir; a stale lock
+# (dead pid) is reclaimed; a live holder aborts this run before any work.
+NCZ_BUILD_LOCK="${NCZ_BUILD_LOCK:-$(dirname "$RUN_DIR")/.ncz-build.lock}"
+export NCZ_BUILD_LOCK
+if [ -f "$NCZ_BUILD_LOCK" ]; then
+    _lock_holder="$(tr -dc '0-9' <"$NCZ_BUILD_LOCK" 2>/dev/null | head -c 12)"
+    if [ -n "$_lock_holder" ] && [ "$_lock_holder" != "$$" ] && kill -0 "$_lock_holder" 2>/dev/null; then
+        echo "build-image.sh: another build (pid $_lock_holder) holds $NCZ_BUILD_LOCK" >&2
+        echo "build-image.sh: refusing to run two builds on one host (layers/image/kvm all contend)" >&2
+        exit 3
+    fi
+fi
+printf '%s\n' "$$" > "$NCZ_BUILD_LOCK" 2>/dev/null || true
+trap 'rm -f "$NCZ_BUILD_LOCK" 2>/dev/null || true' EXIT
 
 RUN_PIN="$RUN_DIR/run.pin"
 KVER="$(ncz_resolve_kver "$ARCH" || true)"
@@ -767,7 +817,9 @@ stage_provenance_inputs() {
     for d in "$ROOT/assets/cix-debs" "$ROOT/assets/vendor-debs" "$ROOT/assets/ncz-debs" \
              "$ROOT/downloads/vendor-debs"; do
         [ -d "$d" ] || continue
-        ls "$d"/*.deb "$d"/*.udeb >/dev/null 2>&1 || continue
+        # test each glob separately: `ls "$d"/*.deb "$d"/*.udeb` fails when
+        # either is empty, which would skip a dir that has only .deb
+        ls "$d"/*.deb >/dev/null 2>&1 || ls "$d"/*.udeb >/dev/null 2>&1 || continue
         dargs+=(--debs "$d")
     done
     if [ "${#dargs[@]}" -gt 0 ]; then
@@ -994,6 +1046,29 @@ stage_layers() {
         say_layers() { printf '[layers] %s\n' "$*" | tee -a "$log"; }
         say_layers "refresh-sources outputs: deb=$(basename "$NCZ_SINGULARITY_PREBUILT_DEB") sources=${NCZ_SINGULARITY_SOURCES:-?}"
     fi
+
+    # ------------------------------------------------------------------
+    # layers-preflight -- OPERATOR RULING 2026-10-10: validate everything
+    # BEFORE the expensive layer work; fail fast (before hours of work) with an
+    # actionable list.  Runs on a --resume-from layers too (so a fix is re-checked).
+    # ------------------------------------------------------------------
+    if [ -n "${NCZ_SINGULARITY_PREBUILT_DEB:-}" ]; then
+        say_layers "layers-preflight: frozen payload $(basename "$NCZ_SINGULARITY_PREBUILT_DEB") sha256=${NCZ_SINGULARITY_PREBUILT_SHA256:-?}"
+    fi
+    local -a lp=(--arch "$ARCH" --root "$ROOT" --run-dir "$RUN_DIR" --layers-dir "$LAYERS_DIR" --quarantine)
+    if [ -x "$ROOT/build/layers-preflight.sh" ]; then
+        ( cd "$ROOT" && NCZ_TARGET_ARCH="$ARCH" SCOPE="$SCOPE" COMPONENTS="$COMPONENTS" \
+              bash build/layers-preflight.sh "${lp[@]}" ) 2>&1 | tee -a "$log"
+        local lprc="${PIPESTATUS[0]}"
+        if [ "$lprc" != 0 ]; then
+            ncz_err "[layers] layers-preflight FAILED (rc=$lprc); stopping before any layer work."
+            ncz_err "[layers]   findings: $RUN_DIR/layer-checks.tsv (see the FAIL rows)"
+            return "$lprc"
+        fi
+    else
+        ncz_warn "[layers] build/layers-preflight.sh missing; skipping the pre-layer checks"
+    fi
+
     # `sudo` resets the environment, so the resolved-payload vars must be
     # inlined into the command string (otherwise the layer build silently
     # rebuilds the payload from the committed pins).
@@ -1002,6 +1077,11 @@ stage_layers() {
         val="${!v:-}"
         [ -n "$val" ] && envs="$envs $v='$val'"
     done
+    # Per-layer post-check hook (build-squashfs-layers.sh calls check-layers.sh
+    # after each layer; env inlined because sudo resets the environment).
+    local postcheck_env
+    postcheck_env=" NCZ_LAYERS_CHECK=1 NCZ_LAYERS_CHECK_RUN_DIR='$RUN_DIR'"
+    [ -n "${NCZ_SINGULARITY_PREBUILT_DEB:-}" ] && postcheck_env="$postcheck_env NCZ_LAYERS_CHECK_PAYLOAD='$NCZ_SINGULARITY_PREBUILT_DEB'"
     # Run the layer build through the documented privilege model (ncz_sudo_bash
     # -> one `sudo -S` with the fleet password on stdin).  The script calls bare
     # `sudo` internally (mmdebstrap/chroot/mount); as root those are no-ops, and
@@ -1010,8 +1090,43 @@ stage_layers() {
     # stage 1 drives host mount/chroot/mksquashfs (r202 workaround #1/#2: it is
     # not rootless). It must run on the host, never nested in the container
     # (arm64 report #4). The layer plan (NCZ_LAYER_PLAN) decides reuse/rebuild.
-    ncz_sudo_bash "cd '$ROOT' && TMPDIR='$ltmp' NCZ_TARGET_ARCH='$ARCH' NCZ_LAYER_PLAN='$NCZ_LAYER_PLAN'$envs bash build/build-squashfs-layers.sh all" 2>&1 | tee -a "$log"
-    return "${PIPESTATUS[0]}"
+    local layers_rc=0
+    ncz_sudo_bash "cd '$ROOT' && TMPDIR='$ltmp' NCZ_TARGET_ARCH='$ARCH' NCZ_LAYER_PLAN='$NCZ_LAYER_PLAN'$postcheck_env$envs bash build/build-squashfs-layers.sh all" 2>&1 | tee -a "$log"
+    layers_rc="${PIPESTATUS[0]}"
+    if [ "$layers_rc" != 0 ]; then
+        return "$layers_rc"
+    fi
+
+    # ---------------------------------------------------------------
+    # Per-layer post-checks (authoritative, with manifest + chain + payload).
+    # The image stage must never consume a layer that fails these.
+    # ---------------------------------------------------------------
+    local chain="$RUN_DIR/layer-chain.tsv"; : > "$chain"
+    local manf="$ROOT/manifests/desktop.pkgs"
+    local prev="" l
+    for l in base desktop desktop-hotfix; do
+        local sq="$LAYERS_DIR/$l.squashfs"
+        [ -e "$sq" ] || { ncz_warn "[layers] post-check: $sq absent (plan may have skipped it)"; continue; }
+        local -a ca=(--arch "$ARCH" --run-dir "$RUN_DIR" --stage layers-postcheck \
+                     --chain "$chain" --layer "$l" --append)
+        case "$l" in
+            base)  [ -f "$ROOT/manifests/installer-base-${ARCH}.pkgs" ] && ca+=(--manifest "$ROOT/manifests/installer-base-${ARCH}.pkgs") ;;
+            desktop) [ -f "$manf" ] && ca+=(--manifest "$manf") ;;
+        esac
+        [ -n "${NCZ_SINGULARITY_PREBUILT_DEB:-}" ] && ca+=(--payload-deb "$NCZ_SINGULARITY_PREBUILT_DEB")
+        [ -n "$prev" ] && ca+=(--prev "$prev")
+        ( cd "$ROOT" && bash build/check-layers.sh "$sq" "${ca[@]}" ) 2>&1 | tee -a "$log"
+        local crc="${PIPESTATUS[0]}"
+        if [ "$crc" != 0 ]; then
+            ncz_err "[layers] post-check FAILED for $l; not handing a bad layer to the image stage"
+            ncz_err "[layers]   findings: $RUN_DIR/layer-checks.tsv (layer=$l)"
+            return "$crc"
+        fi
+        prev="$sq"
+    done
+    { printf 'stage=layers-postcheck\nresult=PASS\narch=%s\nat=%s\nlayers=%s\n' \
+        "$ARCH" "$(date -u +%s)" "$(tr '\n' ',' < "$chain")"; } > "$RUN_DIR/layers-postcheck.result"
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -1151,7 +1266,9 @@ meta = {
                for lyr, fp in plan.get("fingerprints", {}).items()},
     "gates": {"kvm": gate("kvm", "kvm-gate.result"),
               "provenance_inputs": gate("provenance-inputs", "provenance-inputs.result"),
-              "provenance": gate("provenance", "provenance.result")},
+              "provenance": gate("provenance", "provenance.result"),
+              "layers_preflight": gate("layers-preflight", "layers-preflight.result"),
+              "layers_postcheck": gate("layers-postcheck", "layers-postcheck.result")},
     "required_gates": sorted(required),
     "host": socket.gethostname(),
     "finished_at": int(time.time()),
@@ -1260,6 +1377,13 @@ print_plan() {
     for lyr in mirror base desktop hotfix; do
         printf '    %-8s %-8s fp=%s\n' "$lyr" "$(LAYER_DECISION "$lyr")" "$(LAYER_FP "$lyr" | cut -c1-16)"
     done
+    echo
+    echo "  layers checks (harden-the-layer-checks ruling 2026-10-10):"
+    echo "    layers-preflight  clean-tree, frozen-deb handshake, unique inputs,"
+    echo "                      resources (>=${NCZ_LAYERS_MIN_FREE_GB:-60}GB, not tmpfs), pin consistency"
+    echo "    post-checks       structural, dpkg state, one-kernel, payload facts,"
+    echo "                      layer-chain, member-list determinism (build/check-layers.sh)"
+    echo "                      findings -> $RUN_DIR/layer-checks.tsv"
     echo
     echo "  fixed UUIDs (derived from the pin):"
     ncz_repro_env_assignments "$ARCH" | sed 's/^/    /'

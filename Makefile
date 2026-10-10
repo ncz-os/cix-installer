@@ -154,7 +154,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage refresh-substrate check-substrate-pin sid-exceptions release-image print-substrate-sha test-build-determinism test-build-image test-build compare-images gen-base-pin
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage refresh-substrate check-substrate-pin sid-exceptions release-image print-substrate-sha test-build-determinism test-build-image test-layers-hardening test-build compare-images gen-base-pin
 
 all: image
 
@@ -783,9 +783,14 @@ test-build-determinism:
 test-build-image:
 	@bash $(ROOT)/build/test-build-image.sh
 
+# Both-direction tests for the hardened layer checks
+# (build/layers-preflight.sh + build/check-layers.sh; operator ruling 2026-10-10).
+test-layers-hardening:
+	@bash $(ROOT)/build/test-layers-hardening.sh
+
 # Everything about the build process itself (no image is built).
-test-build: test-build-determinism test-build-image
-	@echo "[test-build] OK: determinism + entrypoint tests passed"
+test-build: test-build-determinism test-build-image test-layers-hardening
+	@echo "[test-build] OK: determinism + entrypoint + layer-hardening tests passed"
 
 # Compare two built artifacts with the documented normalisation rules.
 #   make compare-images COMPARE_IMAGE_ARGS="--arch amd64 A.img B.img"

@@ -1663,6 +1663,27 @@ rotate_stale_base() {
   log "  kept for inspection: $OUT/base.squashfs.stale-${ts}"
 }
 
+# Per-layer post-check hook (OPERATOR RULING 2026-10-10).  Called right after a
+# layer squashfs is finalized, BEFORE the next layer is built on top of it, so a
+# bad layer never gets consumed.  No-op unless the caller (build-image.sh)
+# exports NCZ_LAYERS_CHECK=1; the authoritative run happens again at the stage
+# level with the manifest + chain.  Never falls back silently.
+ncz_layer_postcheck() {  # <layer>  (base|desktop|hotfix)
+  local l="$1" sq="$OUT/$1.squashfs"
+  [ "${NCZ_LAYERS_CHECK:-0}" = 1 ] || return 0
+  [ -s "$sq" ] || { log "POSTCHECK: $sq missing"; return 1; }
+  local -a a=(--arch "$NCZ_TARGET_ARCH" --stage layers-postcheck --layer "$l" --append)
+  [ -n "${NCZ_LAYERS_CHECK_RUN_DIR:-}" ] && a+=(--run-dir "$NCZ_LAYERS_CHECK_RUN_DIR")
+  [ -n "${NCZ_LAYERS_CHECK_PAYLOAD:-}" ] && a+=(--payload-deb "$NCZ_LAYERS_CHECK_PAYLOAD")
+  [ -n "${NCZ_LAYERS_CHECK_CHAIN:-}" ] && a+=(--chain "$NCZ_LAYERS_CHECK_CHAIN")
+  log "POSTCHECK: build/check-layers.sh $l"
+  if bash "$ROOT/build/check-layers.sh" "$sq" "${a[@]}"; then
+    return 0
+  fi
+  log "POSTCHECK: FAILED for $l -- refusing to consume this layer"
+  return 1
+}
+
 run_base_layer() {
   # `all` used to ask only "does base.squashfs exist", then "does it carry the
   # staged kernel".  It never noticed a change to assets/... or, before the
@@ -1674,6 +1695,7 @@ run_base_layer() {
     [ -s "$OUT/base.squashfs" ] && { log "BASE: forced rebuild (plan)"; rotate_stale_base; }
     build_base || return 1
     ncz_layer_stamp_write base
+    ncz_layer_postcheck base || return 1
     return 0
   fi
   if [ -s "$OUT/base.squashfs" ]; then
@@ -1691,6 +1713,7 @@ run_base_layer() {
     if [ "$_kernel_ok" = 1 ]; then
       log "BASE: reusing existing $OUT/base.squashfs ($(du -h "$OUT/base.squashfs" | cut -f1))"
       ncz_layer_stamp_write base
+      ncz_layer_postcheck base || return 1
       return 0
     fi
     log "BASE: STALE (asset stamp or staged kernel assets); rotating aside and rebuilding"
@@ -1698,6 +1721,7 @@ run_base_layer() {
   fi
   build_base || return 1
   ncz_layer_stamp_write base
+  ncz_layer_postcheck base || return 1
 }
 
 run_desktop_layer() {
@@ -1709,16 +1733,19 @@ run_desktop_layer() {
   fi
   if [ "$d" = reuse ] && ncz_layer_reuse_ok desktop; then
     log "DESKTOP: reusing existing $OUT/desktop.squashfs (fingerprint unchanged)"
+    ncz_layer_postcheck desktop || return 1
     return 0
   fi
   if [ "$d" = auto ] && ncz_layer_reuse_ok desktop; then
     log "DESKTOP: reusing existing $OUT/desktop.squashfs (fingerprint unchanged)"
+    ncz_layer_postcheck desktop || return 1
     return 0
   fi
   build_singularity_payload || return 1
   ensure_wallpaper_packs
   build_layer desktop "$DESKTOP_MANIFEST" || return 1
   ncz_layer_stamp_write desktop
+  ncz_layer_postcheck desktop || return 1
 }
 
 run_hotfix_layer() {
@@ -1729,10 +1756,12 @@ run_hotfix_layer() {
   fi
   if { [ "$d" = reuse ] || [ "$d" = auto ]; } && ncz_layer_reuse_ok hotfix; then
     log "HOTFIX: reusing existing $OUT/desktop-hotfix.squashfs (fingerprint unchanged)"
+    ncz_layer_postcheck hotfix || return 1
     return 0
   fi
   build_hotfix || return 1
   ncz_layer_stamp_write hotfix
+  ncz_layer_postcheck hotfix || return 1
 }
 
 case "$STAGE" in

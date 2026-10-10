@@ -54,6 +54,7 @@ build/build-image.sh --arch arm64 --no-publish --gates kvm    # local build, no 
 | Both arches at once | `--arch both` |
 | Build but never copy to ARGONAS | `--no-publish` |
 | Run only some gates (local check) | `--gates kvm,provenance --no-publish` |
+| Prove the layer checks on existing layers (no rebuild) | `--layers-check-only <dir>` |
 
 ### Scope semantics
 
@@ -184,7 +185,7 @@ aborts with the stage name and a ready-to-paste resume command.
 | 30 | `refresh-sources` | `build/refresh-singularity-sources.sh` (`--sources latest\|pinned`) | frozen `upstream-pins.tsv` + `compositor-pins.tsv` + `source-resolution.json`, the payload `.deb` (also into `assets/cix-debs/`) | resolves the singularity upstream heads (latest) or the committed pins (pinned); builds the payload deb and fails closed on upstream drift (never silently falls back to stale pins) |
 | 40 | `offline-mirror` | the forky/vendor/desktop mirror sources + package manifests | `build/{forky,desktop,vendor}-mirror`; `mirror.build-fingerprint` | every image `.deb` resolves from the pinned snapshot |
 | 50 | `provenance-inputs` | the **inputs**: the offline mirror, the staged deb dirs, the staged payload `.deb`, `manifests/*.tsv`, `base.pin`, `determinism.pin` | `provenance-inputs.result`, gate log | **PROVENANCE + one-kernel ON THE INPUTS** (operator ruling 2026-10-10): every package that will enter the image is checked *before* hours of layer work -- `--verify-mirror` (bytes vs the pinned signed snapshot + ledgers), `--debs` (ledger/receipt-authorized), the one-kernel input rule, the SceneFX static shader gate on the staged payload deb, and pin freshness. A failure here stops the build before `layers`. |
-| 60 | `layers` | the offline mirror + staged assets + the layer plan | `assets/squashfs/{base,desktop,desktop-hotfix}.squashfs` (+ `.build-fingerprint`) | reuse/rebuild per fingerprint; a stale layer is rotated aside, never clobbered |
+| 60 | `layers` | the offline mirror + staged assets + the layer plan | `assets/squashfs/{base,desktop,desktop-hotfix}.squashfs` (+ `.build-fingerprint`) | **hardened (operator ruling 2026-10-10)**: `build/layers-preflight.sh` runs FIRST (clean-tree, frozen-deb handshake, unique/ledgered inputs, resources, pin consistency; fail fast, before any expensive work), then every layer is post-checked by `build/check-layers.sh` (structural, dpkg state, one-kernel, payload facts, layer-chain, determinism). Findings -> `$RUN_DIR/layer-checks.tsv`. A FAIL stops the stage; a stale layer is rotated aside, never clobbered |
 | 70 | `image` | layers + mirror + ESP/initrd content | `build/ncz-os-*.img` + `.receipt.json`, `image.path` | refuses a partial layer set |
 | 80 | `provenance-gate` | the **finished image** + snapshot index | `provenance.result` | three-origin + one-kernel rule over what actually landed (rootfs, squashfs layers, initrd, `/cdrom` pool); must PASS. Runs **BEFORE** `kvm-gate` so a bad image never costs hours of KVM time |
 | 90 | `kvm-gate` | the image | `kvm-gate.result`, gate log | install + boot + installer-UI check; must end `GATE PASS` |
@@ -321,6 +322,34 @@ mechanics; the host-side proof is recorded under `reports/r203-determinism/`.
   snapshot). It also enforces the **one-kernel rule**: exactly one kernel
   version across every layer, the ESP/boot files, the `/cdrom` pool, the
   installer initrd and refind entries — the NCZ kernel only, no Debian kernels.
+* **Layer checks** (operator ruling 2026-10-10, "harden the layer checks") —
+  the `layers` stage is the longest, most expensive part of the pipeline, so it
+  validates *before*, *during* and *after*:
+  * **pre-flight** (`build/layers-preflight.sh`, at the start of `layers`):
+    clean run-owned scratch (stale singularity trees / half-checkouts; quarantine
+    only exact run-owned paths), the **frozen-deb handshake** (the layer build
+    MUST consume the `refresh-sources` payload deb by sha256 + arch + version +
+    receipt row, and MUST NOT rebuild singularity or fall back to a stale deb),
+    no duplicate/wrong-arch/un-ledgered staged debs (same tool as
+    `provenance-inputs`), resources (≥`NCZ_LAYERS_MIN_FREE_GB` free, not tmpfs,
+    toolchain, kernel-staging mount, usable privilege model, no other build
+    holding the lock, `SOURCE_DATE_EPOCH` set), and pin consistency with
+    fingerprints **recomputed, never trusted**. Every finding is reported at
+    once; a FAIL stops the build before any layer work.
+  * **post-check** (`build/check-layers.sh`, after each layer is produced and
+    before the next consumes it): squashfs integrity + mtimes, no build
+    leftovers, `dpkg` status consistent (no half-installed/unpacked), package
+    set == manifest (both ways), zero Ubuntu packages, exactly one (our) kernel,
+    `/opt/singularity/bin/labwc` present + passes the static SceneFX shader gate,
+    embedded singularity version == the frozen deb, greeter/rEFInd/apt-policy
+    content assertions, setuid/world-writable allow-list, the layer-chain
+    (lower-layer sha256), and a member-list determinism compare against the
+    previous green layer.
+  * `build/build-image.sh --layers-check-only <dir>` runs the post-checks
+    against EXISTING layers (no rebuild) so they can be proven on any image.
+  * Every check has an id + result; a FAIL writes a `$RUN_DIR/layer-checks.tsv`
+    row and stops the pipeline with a one-screen explanation. Nothing falls back
+    silently (no stale `.deb`, no stale layer reuse without fingerprint proof).
 * **Substrate refresh rule** — the substrate must be refreshed **every build**
   and its snapshot derived from it; the gate fails if the pinned snapshot does
   not authorize the substrate or if the substrate is older than

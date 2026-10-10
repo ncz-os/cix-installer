@@ -1,0 +1,484 @@
+#!/bin/bash
+# check-layers.sh -- verify a produced squashfs/dir layer BEFORE it is accepted
+# or consumed by the next stage.  OPERATOR RULING 2026-10-10 ("harden the layer
+# checks"): structural integrity, package state, the payload facts that bit us,
+# the layer chain, and determinism hooks -- every check has an id, a severity,
+# and a structured row in the layer-checks TSV; a FAIL stops the pipeline.
+#
+# Never falls back silently: a layer that fails a check is not "reused anyway".
+#
+# Usage:
+#   build/check-layers.sh LAYER [LAYER...] --arch amd64 [OPTIONS]
+#     LAYER is a .squashfs file, an unpacked directory, or an image file.
+# Options:
+#   --arch A                amd64|arm64 (default $NCZ_TARGET_ARCH)
+#   --layer NAME            label (default: basename without extension)
+#   --manifest FILE         expected package set+versions (TAB/space: name version)
+#   --prev FILE             previous green layer of the same role (size bounds +
+#                           determinism member-list compare)
+#   --partial-root REL      this is a partial overlay layer whose content must
+#                           live under REL (e.g. opt/singularity)
+#   --payload-deb FILE      frozen payload deb (singularity version + shader gate)
+#   --run-dir DIR           run dir (layer-checks.tsv lives here)
+#   --checks-out FILE       explicit TSV path
+#   --stage NAME            TSV stage column (default layers-postcheck)
+#   --root DIR              repo root
+#   --chain FILE            layer-chain file (reads/writes the lower-layer sha256)
+#   --expect-parent NAME:SHA  assert LAYER records this parent sha (chain)
+#   --json --strict -h
+# Exit: 0 PASS (WARN allowed unless --strict), 1 FAIL, 2 usage.
+set -uo pipefail
+export LC_ALL=C
+
+SELF_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+ROOT="$(cd "$SELF_DIR/.." && pwd)"
+# shellcheck source=/dev/null
+. "$ROOT/build/lib/priv.sh"
+# shellcheck source=/dev/null
+. "$ROOT/build/lib/reproducible.sh"
+
+ARCH="${NCZ_TARGET_ARCH:-}"
+LAYER_LABEL=""
+MANIFEST=""
+PREV=""
+PARTIAL_ROOT=""
+PAYLOAD_DEB=""
+RUN_DIR="${RUN_DIR:-}"
+CHECKS_OUT=""
+STAGE="layers-postcheck"
+CHAIN=""
+EXPECT_PARENT=""
+JSON=0
+STRICT=0
+APPEND=0
+LAYERS=()
+
+usage() { sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --arch)          ARCH="${2:-}"; shift 2 ;;
+        --layer)         LAYER_LABEL="${2:-}"; shift 2 ;;
+        --manifest)      MANIFEST="${2:-}"; shift 2 ;;
+        --prev)          PREV="${2:-}"; shift 2 ;;
+        --partial-root)  PARTIAL_ROOT="${2:-}"; shift 2 ;;
+        --payload-deb)   PAYLOAD_DEB="${2:-}"; shift 2 ;;
+        --run-dir)       RUN_DIR="${2:-}"; shift 2 ;;
+        --checks-out)    CHECKS_OUT="${2:-}"; shift 2 ;;
+        --stage)         STAGE="${2:-}"; shift 2 ;;
+        --chain)         CHAIN="${2:-}"; shift 2 ;;
+        --expect-parent) EXPECT_PARENT="${2:-}"; shift 2 ;;
+        --root)          ROOT="${2:-}"; shift 2 ;;
+        --json)          JSON=1; shift ;;
+        --strict)        STRICT=1; shift ;;
+        --append)        APPEND=1; shift ;;
+        -h|--help)       usage 0 ;;
+        -*)              echo "check-layers.sh: unknown option '$1'" >&2; usage 2 ;;
+        *)               LAYERS+=("$1"); shift ;;
+    esac
+done
+[ "${#LAYERS[@]}" -gt 0 ] || { echo "check-layers.sh: at least one LAYER is required" >&2; usage 2; }
+case "$ARCH" in amd64|arm64) ;; *) echo "check-layers.sh: bad/absent --arch '$ARCH'" >&2; exit 2 ;; esac
+[ -n "$ROOT" ] && ncz_repro_init "$ROOT" >/dev/null 2>&1 || true
+[ -n "$CHECKS_OUT" ] || CHECKS_OUT="${RUN_DIR:+$RUN_DIR/layer-checks.tsv}"
+
+FAILS=0; WARNS=0
+_rec() {
+    local layer="$1" check="$2" result="$3" ev="$4"
+    local line="${STAGE}\t${layer}\t${check}\t${result}\t${ev}"
+    if [ -n "$CHECKS_OUT" ]; then printf '%b\n' "$line" >> "$CHECKS_OUT"; else printf '%b\n' "$line"; fi
+    case "$result" in FAIL) FAILS=$((FAILS+1));; WARN) WARNS=$((WARNS+1));; esac
+}
+
+# ---------------------------------------------------------------------------
+# layer access abstraction (squashfs file | directory | image)
+# ---------------------------------------------------------------------------
+_layer_kind() {
+    local l="$1"
+    if [ -d "$l" ]; then echo dir; return; fi
+    case "$l" in
+        *.squashfs|*.sqfs) echo sqfs ;;
+        *) echo file ;;
+    esac
+}
+_listing() {  # normalized member paths, one per line (no leading ./ or squashfs-root/)
+    local l="$1" k; k="$(_layer_kind "$l")"
+    case "$k" in
+        dir)  ( cd "$l" && find . -mindepth 1 -print 2>/dev/null | sed 's#^\./##' ) ;;
+        sqfs) unsquashfs -no-progress -l "$l" 2>/dev/null | awk 'f{print} /^[[:space:]]*$/{f=1}' | sed 's#^squashfs-root/##; s#^/##' ;;
+        *)    return 1 ;;
+    esac
+}
+_GNU_STAT=0; stat -c '%a' /dev/null >/dev/null 2>&1 && _GNU_STAT=1
+_meta() {  # mode owner size path  (best effort; empty when unsupported)
+    local l="$1" k; k="$(_layer_kind "$l")"
+    case "$k" in
+        dir)
+            ( cd "$l" && find . -mindepth 1 -print0 2>/dev/null | \
+              while IFS= read -r -d '' p; do
+                  rp="${p#./}"
+                  if [ "$_GNU_STAT" = 1 ]; then
+                      set -- $(stat -c '%a %U/%G %s' "$p" 2>/dev/null)
+                      [ -n "${1:-}" ] && printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$rp"
+                  else
+                      printf '%s\t%s\t%s\t%s\n' "$(stat -f '%Lp' "$p" 2>/dev/null)" \
+                          "$(stat -f '%Su/%Sg' "$p" 2>/dev/null)" \
+                          "$(stat -f '%z' "$p" 2>/dev/null)" "$rp"
+                  fi
+              done ) ;;
+        sqfs) unsquashfs -no-progress -ll "$l" 2>/dev/null | sed 's#^squashfs-root/##' \
+                  | awk '{mode=$1; og=$2; size=$3; $1="";$2="";$3=""; sub(/^[ \t]+/,""); print mode"\t"og"\t"size"\t"$0}' ;;
+    esac
+}
+_has() { local l="$1" p="$2"; _listing "$l" | grep -qx "$p"; }
+_cat() {  # cat a member (best effort)
+    local l="$1" p="$2" k; k="$(_layer_kind "$l")"
+    case "$k" in
+        dir)  cat "$l/$p" 2>/dev/null ;;
+        sqfs) unsquashfs -no-progress -cat "$l" "$p" 2>/dev/null ;;
+        *)    return 1 ;;
+    esac
+}
+_sha_file() { local l="$1" k; k="$(_layer_kind "$l")"; [ "$k" = sqfs ] || [ "$k" = file ] || return 1; sha256sum "$l" 2>/dev/null | awk '{print $1}'; }
+
+# ---------------------------------------------------------------------------
+# checks
+# ---------------------------------------------------------------------------
+chk_integrity() {  # LAYER, label
+    local l="$1" lbl="$2" k; k="$(_layer_kind "$l")"
+    if [ "$k" != sqfs ]; then
+        _rec "$lbl" sqfs-integrity SKIP "not a squashfs ($k)"; return
+    fi
+    if ! unsquashfs -no-progress -s "$l" >/dev/null 2>&1; then
+        _rec "$lbl" sqfs-integrity FAIL "unsquashfs -s rejected $l (corrupt/truncated)"
+        return
+    fi
+    local n; n="$(_listing "$l" | wc -l | tr -d ' ')"
+    if [ "${n:-0}" -lt 10 ]; then
+        _rec "$lbl" sqfs-integrity FAIL "squashfs member count suspiciously low ($n)"
+        return
+    fi
+    _rec "$lbl" sqfs-integrity PASS "unsquashfs -s OK, $n members"
+}
+
+chk_size_bounds() {  # LAYER, label, prev
+    local l="$1" lbl="$2" prev="$3"
+    [ -n "$prev" ] && [ -e "$prev" ] || { _rec "$lbl" sqfs-size-bounds SKIP "no previous green layer"; return; }
+    local a b; a="$(stat -c %s "$l" 2>/dev/null)"; b="$(stat -c %s "$prev" 2>/dev/null)"
+    [ -n "$a" ] && [ -n "$b" ] && [ "$b" -gt 0 ] || { _rec "$lbl" sqfs-size-bounds SKIP "size unreadable"; return; }
+    # allow +/-25%
+    local lo=$(( b * 75 / 100 )) hi=$(( b * 125 / 100 ))
+    if [ "$a" -lt "$lo" ] || [ "$a" -gt "$hi" ]; then
+        _rec "$lbl" sqfs-size-bounds WARN "size $a outside +/-25% of prev $b (lo=$lo hi=$hi) -- review"
+    else
+        _rec "$lbl" sqfs-size-bounds PASS "size $a within +/-25% of prev $b"
+    fi
+}
+
+chk_mtimes() {  # LAYER, label
+    local l="$1" lbl="$2" k; k="$(_layer_kind "$l")"
+    if [ "$k" != sqfs ]; then _rec "$lbl" sqfs-mtimes SKIP "not squashfs"; return; fi
+    # mksquashfs is invoked with -all-time 0 -fstime 0 -> every member epoch 0.
+    local bad; bad="$(unsquashfs -no-progress -ll "$l" 2>/dev/null \
+        | awk '{print $(NF-2)}' | grep -vE '^1970-01-01$' | head -3)"
+    if [ -n "$bad" ]; then
+        _rec "$lbl" sqfs-mtimes WARN "member mtimes not clamped to epoch 0 (sample: $(printf '%s' "$bad" | tr '\n' ' '))"
+    else
+        _rec "$lbl" sqfs-mtimes PASS "all member mtimes clamped (1970-01-01 / epoch 0)"
+    fi
+}
+
+chk_leftovers() {  # LAYER, label
+    local l="$1" lbl="$2"
+    local hits
+    hits="$(_listing "$l" | sed 's#^\./##' | grep -E \
+        '^(work|tmp|\.git|root/\.bash_history|etc/machine-id|etc/resolv\.conf)$|(^|/)\.git/|\.o$|^var/cache/apt/archives/.*\.deb$|^etc/ssh/ssh_host_[a-z0-9_]+(_key)?(\.pub)?$' | head -20)"
+    if [ -n "$hits" ]; then
+        _rec "$lbl" no-build-leftovers FAIL "build leftovers present: $(printf '%s' "$hits" | tr '\n' ' ')"
+    else
+        _rec "$lbl" no-build-leftovers PASS "no /work, /tmp, .git, .o, apt cache, machine-id, ssh host keys, bash history"
+    fi
+}
+
+chk_dpkg_status() {  # LAYER, label
+    local l="$1" lbl="$2"
+    if ! _has "$l" "var/lib/dpkg/status"; then
+        _rec "$lbl" dpkg-status SKIP "no var/lib/dpkg/status (partial/overlay layer)"
+        return
+    fi
+    local st; st="$(_cat "$l" var/lib/dpkg/status 2>/dev/null)"
+    local bad
+    bad="$(printf '%s' "$st" | awk '/^Status:/{s=$0; sub(/^Status:[ \t]*/,"",s); if (s ~ /(half-installed|half-configured|unpacked|half-)/) print s}' | sort -u | head -10)"
+    if [ -n "$bad" ]; then
+        _rec "$lbl" dpkg-status FAIL "half-installed/unpacked packages: $(printf '%s' "$bad" | tr '\n' ';')"
+    else
+        local cfg
+        cfg="$(printf '%s' "$st" | grep -c '^Status: deinstall ok config-files' || true)"
+        if [ "${cfg:-0}" -gt 0 ]; then
+            _rec "$lbl" dpkg-status WARN "$cfg package(s) in config-files state (removed, config kept)"
+        else
+            _rec "$lbl" dpkg-status PASS "var/lib/dpkg/status consistent (no half-installed/unpacked/config-files)"
+        fi
+    fi
+}
+
+chk_manifest() {  # LAYER, label, manifest
+    local l="$1" lbl="$2" mf="$3"
+    [ -n "$mf" ] && [ -f "$mf" ] || { _rec "$lbl" pkg-set-manifest SKIP "no --manifest given"; return; }
+    if ! _has "$l" "var/lib/dpkg/status"; then _rec "$lbl" pkg-set-manifest SKIP "no dpkg status"; return; fi
+    local want have
+    want="$(grep -vE '^\s*#|^\s*$' "$mf" | awk '{print $1"\t"$2}' | sort -u)"
+    have="$(_cat "$l" var/lib/dpkg/status 2>/dev/null | awk '
+        /^Package:/{p=$2} /^Version:/{v=$2; if(p!=""){print p"\t"v}}' | sort -u)"
+    local missing extra
+    missing="$(comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "$have") | head -20)"
+    extra="$(comm -13 <(printf '%s\n' "$want") <(printf '%s\n' "$have") | head -20)"
+    if [ -n "$missing" ] || [ -n "$extra" ]; then
+        _rec "$lbl" pkg-set-manifest FAIL "manifest diff (missing: $(printf '%s' "$missing" | tr '\n' ' '); extra: $(printf '%s' "$extra" | tr '\n' ' '))"
+    else
+        _rec "$lbl" pkg-set-manifest PASS "dpkg set+versions == manifest ($(printf '%s\n' "$want" | wc -l | tr -d ' ') pkgs)"
+    fi
+}
+
+chk_no_ubuntu() {  # LAYER, label
+    local l="$1" lbl="$2"
+    _has "$l" "var/lib/dpkg/status" || { _rec "$lbl" no-ubuntu SKIP "no dpkg status"; return; }
+    local st; st="$(_cat "$l" var/lib/dpkg/status 2>/dev/null)"
+    if printf '%s' "$st" | grep -qiE '^(Origin|Maintainer|Homepage):.*(ubuntu|canonical)'; then
+        _rec "$lbl" no-ubuntu FAIL "a package names Ubuntu/Canonical in Origin/Maintainer/Homepage"
+    elif _has "$l" "etc/apt/sources.list" && _cat "$l" etc/apt/sources.list 2>/dev/null | grep -qi ubuntu; then
+        _rec "$lbl" no-ubuntu FAIL "etc/apt/sources.list references ubuntu"
+    else
+        _rec "$lbl" no-ubuntu PASS "no Ubuntu/Canonical evidence in dpkg status or apt sources"
+    fi
+}
+
+chk_one_kernel() {  # LAYER, label
+    local l="$1" lbl="$2"
+    local kver=""
+    if [ -f "$ROOT/assets/kernel/mainline/KVER" ]; then kver="$(tr -d '[:space:]' < "$ROOT/assets/kernel/mainline/KVER")"; fi
+    if [ "$ARCH" = amd64 ] && [ -f "$ROOT/assets/kernel/amd64-stable/KVER" ]; then
+        kver="$(tr -d '[:space:]' < "$ROOT/assets/kernel/amd64-stable/KVER")"
+    fi
+    local vmlinuz modinit
+    vmlinuz="$(_listing "$l" | grep -E '(^|/)boot/vmlinuz' | head -5)"
+    modinit="$(_listing "$l" | grep -E '(^|/)lib/modules/[0-9]' | sed -E 's#.*lib/modules/([^/]+).*#\1#' | sort -u | head -5)"
+    local debk
+    debk="$(_listing "$l" | grep -E '(^|/)var/lib/dpkg/info/linux-image-7\.1' | head -3)"
+    if [ -n "$debk" ]; then
+        _rec "$lbl" one-kernel FAIL "Debian kernel dpkg info present (linux-image-7.1*)"
+    elif [ -n "$modinit" ] && [ "$(printf '%s\n' "$modinit" | grep -c .)" -gt 1 ]; then
+        _rec "$lbl" one-kernel FAIL "multiple kernel module trees: $(printf '%s' "$modinit" | tr '\n' ' ')"
+    elif [ -n "$kver" ] && [ -n "$modinit" ] && ! printf '%s\n' "$modinit" | grep -qx "$kver"; then
+        _rec "$lbl" one-kernel FAIL "kernel modules '$modinit' != expected NCZ KVER '$kver'"
+    else
+        _rec "$lbl" one-kernel PASS "one kernel tree (${modinit:-none}), no Debian 7.1 kernel"
+    fi
+}
+
+chk_labwc_shader() {  # LAYER, label
+    local l="$1" lbl="$2"
+    if ! _has "$l" "opt/singularity/bin/labwc"; then
+        _rec "$lbl" labwc-shader-gate SKIP "no opt/singularity/bin/labwc in this layer"
+        return
+    fi
+    local tmp; tmp="$(mktemp -d "${RUN_DIR:-/tmp}/.cl.XXXXXX" 2>/dev/null || mktemp -d)"
+    _cat "$l" opt/singularity/bin/labwc > "$tmp/labwc" 2>/dev/null
+    if [ ! -s "$tmp/labwc" ]; then rm -rf "$tmp"; _rec "$lbl" labwc-shader-gate FAIL "could not extract opt/singularity/bin/labwc"; return; fi
+    if bash "$ROOT/build/check-singularity-shaders.sh" "$tmp/labwc" >/dev/null 2>&1; then
+        _rec "$lbl" labwc-shader-gate PASS "labwc passes the static SceneFX shader gate (no quoted #error)"
+    else
+        _rec "$lbl" labwc-shader-gate FAIL "labwc FAILS the static SceneFX shader gate (quoted #error -> O6N black screen)"
+    fi
+    rm -rf "$tmp"
+}
+
+chk_singularity_version() {  # LAYER, label, payload_deb
+    local l="$1" lbl="$2" deb="$3"
+    local has_sing; has_sing=0
+    _has "$l" "opt/singularity/bin/labwc" && has_sing=1
+    [ "$has_sing" = 1 ] || { _rec "$lbl" singularity-version SKIP "no singularity payload in this layer"; return; }
+    [ -n "$deb" ] && [ -f "$deb" ] || { _rec "$lbl" singularity-version SKIP "no --payload-deb"; return; }
+    local dver lver
+    dver="$(dpkg-deb -f "$deb" Version 2>/dev/null || true)"
+    lver="$(_cat "$l" opt/singularity/share/ncz-singularity-version 2>/dev/null | tr -d '[:space:]')"
+    if [ -z "$dver" ]; then _rec "$lbl" singularity-version SKIP "payload deb has no Version"; return; fi
+    if [ -z "$lver" ]; then
+        _rec "$lbl" singularity-version WARN "no embedded version stamp to compare against deb Version=$dver"
+    elif [ "$lver" = "$dver" ]; then
+        _rec "$lbl" singularity-version PASS "embedded singularity version == payload deb ($dver)"
+    else
+        _rec "$lbl" singularity-version FAIL "embedded '$lver' != payload deb '$dver'"
+    fi
+}
+
+chk_content_assertions() {  # LAYER, label
+    local l="$1" lbl="$2"
+    # only meaningful on a layer that carries the desktop payload/rootfs
+    local checks=0 fails=""
+    local -a need=(
+        "opt/singularity/bin/singularity-desktop:synthetic desktop binary"
+    )
+    if _has "$l" "opt/singularity/bin/singularity-desktop"; then
+        checks=$((checks+1))
+        _has "$l" "usr/share/wayland-sessions/singularity-labwc-session.desktop" || fails="$fails greeter-session-desktop"
+    fi
+    # greeter / gpu switcher / modprobe blacklists are base+desktop facts
+    if _has "$l" "etc/modprobe.d" || _has "$l" "opt/singularity/bin/labwc"; then
+        checks=$((checks+1))
+        # both drivers blacklisted (design) is asserted only when the tree exists
+        if _has "$l" "etc/modprobe.d/ncz-gpu.conf"; then
+            local c; c="$(_cat "$l" etc/modprobe.d/ncz-gpu.conf 2>/dev/null)"
+            printf '%s' "$c" | grep -qi 'blacklist.*mali' || fails="$fails mali-blacklist"
+            printf '%s' "$c" | grep -qi 'blacklist.*panthor' || fails="$fails panthor-blacklist"
+        fi
+    fi
+    # rEFInd default Mali entry (base layer)
+    if _has "$l" "boot/efi/EFI/BOOT/refind.conf" || _has "$l" "EFI/BOOT/refind.conf"; then
+        checks=$((checks+1))
+        local rc; rc="$(_cat "$l" boot/efi/EFI/BOOT/refind.conf 2>/dev/null || _cat "$l" EFI/BOOT/refind.conf 2>/dev/null)"
+        printf '%s' "$rc" | grep -qiE 'default_selection.*(mali|sky1)' || fails="$fails refind-default-mali"
+    fi
+    # apt policy + forky-only rule
+    if _has "$l" "etc/apt/apt.conf.d" || _has "$l" "etc/apt/sources.list.d"; then
+        checks=$((checks+1))
+        _has "$l" "usr/bin/ncz-apt-policy" || _has "$l" "etc/apt/apt.conf.d/99ncz-policy" || fails="$fails ncz-apt-policy"
+    fi
+    if [ "$checks" = 0 ]; then _rec "$lbl" content-assertions SKIP "layer carries none of the checked desktop/base facts"; return; fi
+    if [ -n "$fails" ]; then
+        _rec "$lbl" content-assertions FAIL "missing/mismatched:$fails"
+    else
+        _rec "$lbl" content-assertions PASS "$checks content assertion group(s) OK"
+    fi
+}
+
+chk_setuid_worldwritable() {  # LAYER, label
+    local l="$1" lbl="$2"
+    local meta; meta="$(_meta "$l")"
+    [ -n "$meta" ] || { _rec "$lbl" perms-allowlist SKIP "no mode listing available"; return; }
+    local allow="$ROOT/build/layer-perms-allowlist.tsv"
+    local suid ww
+    suid="$(printf '%s\n' "$meta" | awk -F'\t' '$1 !~ /^d/ && $1 ~ /[sS]/ {print $4}')"
+    ww="$(printf '%s\n' "$meta" | awk -F'\t' '$1 ~ /^d......w.$/ {print $4}')"
+    _allowed() {  # kind path -> 0 allowed
+        local kind="$1" path="$2" pat
+        [ -f "$allow" ] || return 1
+        while IFS=$'\t' read -r k pat _reason; do
+            case "$k" in ''|\#*) continue ;; esac
+            [ "$k" = "$kind" ] || continue
+            printf '%s' "$path" | grep -Eq "$pat" && return 0
+        done < "$allow"
+        return 1
+    }
+    local suid_bad="" ww_bad=""
+    local mode path
+    while read -r path; do
+        [ -n "$path" ] || continue
+        _allowed suid "$path" || suid_bad="$suid_bad $path"
+    done <<< "$suid"
+    while read -r path; do
+        [ -n "$path" ] || continue
+        _allowed ww "$path" || ww_bad="$ww_bad $path"
+    done <<< "$ww"
+    if [ -n "$suid_bad" ]; then
+        _rec "$lbl" setuid-allowlist FAIL "setuid/setgid outside allow-list:$suid_bad"
+    else
+        _rec "$lbl" setuid-allowlist PASS "no unexpected setuid/setgid files"
+    fi
+    if [ -n "$ww_bad" ]; then
+        _rec "$lbl" world-writable-allowlist WARN "world-writable dirs outside allow-list:$ww_bad"
+    else
+        _rec "$lbl" world-writable-allowlist PASS "no world-writable dirs outside allow-list"
+    fi
+}
+
+chk_services() {  # LAYER, label
+    local l="$1" lbl="$2"
+    _has "$l" "etc/systemd/system" || { _rec "$lbl" systemd-services SKIP "no /etc/systemd/system (partial layer)"; return; }
+    local enabled; enabled="$(_listing "$l" | grep -E '^etc/systemd/system/[^/]+\.(service|socket|target)$' | head -50)"
+    _rec "$lbl" systemd-services PASS "$(printf '%s\n' "$enabled" | grep -c . ) enabled unit file(s) present"
+}
+
+chk_firstboot_exec() {  # LAYER, label
+    local l="$1" lbl="$2"
+    local hits; hits="$(_listing "$l" | grep -E '(^|/)first-?boot[^/]*\.sh$|/ncz-firstboot' | head -10)"
+    [ -n "$hits" ] || { _rec "$lbl" firstboot-exec SKIP "no first-boot script in this layer"; return; }
+    local meta; meta="$(_meta "$l")"
+    local nexec=""
+    while read -r p; do
+        [ -n "$p" ] || continue
+        local m; m="$(printf '%s\n' "$meta" | awk -F'\t' -v p="$p" '$4==p{print $1; exit}')"
+        [ -n "$m" ] || continue
+        case "$m" in ??????x*|????x?????|??x???????) : ;; *) nexec="$nexec $p" ;; esac
+    done <<< "$hits"
+    if [ -n "$nexec" ]; then _rec "$lbl" firstboot-exec FAIL "first-boot script not executable:$nexec"
+    else _rec "$lbl" firstboot-exec PASS "first-boot scripts executable"; fi
+}
+
+chk_chain() {  # LAYER, label, chain_file, expect_parent
+    local l="$1" lbl="$2" chain="$3" expect="$4"
+    [ -n "$chain" ] || { _rec "$lbl" layer-chain SKIP "no --chain file"; return; }
+    local sha; sha="$(_sha_file "$l" || true)"
+    [ -n "$sha" ] || { _rec "$lbl" layer-chain SKIP "layer has no whole-file sha (dir layer)"; return; }
+    if [ -n "$expect" ]; then
+        local want_sha="${expect##*:}"
+        if [ "$sha" != "$want_sha" ]; then
+            _rec "$lbl" layer-chain FAIL "layer sha $sha != expected parent $expect"
+            return
+        fi
+    fi
+    _rec "$lbl" layer-chain PASS "layer sha256=$sha recorded${expect:+ (parent $expect verified)}"
+}
+
+chk_determinism_members() {  # LAYER, label, prev
+    local l="$1" lbl="$2" prev="$3"
+    [ -n "$prev" ] && [ -e "$prev" ] || { _rec "$lbl" member-list-determinism SKIP "no --prev"; return; }
+    local a b
+    a="$(_meta "$l" | sort)"
+    b="$(_meta "$prev" | sort)"
+    if [ -z "$a" ] || [ -z "$b" ]; then _rec "$lbl" member-list-determinism SKIP "no meta listing"; return; fi
+    if [ "$a" = "$b" ]; then
+        _rec "$lbl" member-list-determinism PASS "member list/mode/size identical to previous green layer"
+    else
+        local d; d="$(diff <(printf '%s\n' "$a") <(printf '%s\n' "$b") | head -5 | tr '\n' '|')"
+        _rec "$lbl" member-list-determinism WARN "member list differs from prev (diff head: $d)"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+main() {
+    if [ -n "$CHECKS_OUT" ] && [ "$APPEND" != 1 ]; then : > "$CHECKS_OUT" 2>/dev/null || true; fi
+    local l lbl
+    for l in "${LAYERS[@]}"; do
+        [ -e "$l" ] || { _rec "${l##*/}" layer-exists FAIL "layer not found: $l"; continue; }
+        lbl="$LAYER_LABEL"; [ -n "$lbl" ] || lbl="$(basename "$l")"; lbl="${lbl%.squashfs}"; lbl="${lbl%.sqfs}"
+        chk_integrity "$l" "$lbl"
+        chk_size_bounds "$l" "$lbl" "$PREV"
+        chk_mtimes "$l" "$lbl"
+        chk_leftovers "$l" "$lbl"
+        chk_dpkg_status "$l" "$lbl"
+        chk_manifest "$l" "$lbl" "$MANIFEST"
+        chk_no_ubuntu "$l" "$lbl"
+        chk_one_kernel "$l" "$lbl"
+        chk_labwc_shader "$l" "$lbl"
+        chk_singularity_version "$l" "$lbl" "$PAYLOAD_DEB"
+        chk_content_assertions "$l" "$lbl"
+        chk_setuid_worldwritable "$l" "$lbl"
+        chk_services "$l" "$lbl"
+        chk_firstboot_exec "$l" "$lbl"
+        chk_chain "$l" "$lbl" "$CHAIN" "$EXPECT_PARENT"
+        chk_determinism_members "$l" "$lbl" "$PREV"
+        if [ -n "$CHAIN" ] && [ -n "$( _sha_file "$l" || true )" ]; then
+            printf '%s\t%s\n' "$lbl" "$(_sha_file "$l")" >> "$CHAIN"
+        fi
+    done
+    printf '[check-layers] %s: fails=%d warns=%d\n' \
+        "$([ "$FAILS" = 0 ] && echo PASS || echo FAIL)" "$FAILS" "$WARNS"
+    [ "$JSON" = 1 ] && printf '{"stage":"%s","fails":%d,"warns":%d,"result":"%s"}\n' \
+        "$STAGE" "$FAILS" "$WARNS" "$([ "$FAILS" = 0 ] && echo PASS || echo FAIL)"
+    local rc=0
+    [ "$FAILS" != 0 ] && rc=1
+    [ "$STRICT" = 1 ] && [ "$WARNS" != 0 ] && rc=1
+    return "$rc"
+}
+main
