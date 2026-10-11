@@ -10,6 +10,8 @@
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOOK="$ROOT/post-install/64-ncz-lock-saver-plan.sh"
+# Never let a host's GLib debug output pollute the gsettings read-back below.
+export G_MESSAGES_DEBUG=
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 pass=0
@@ -59,11 +61,17 @@ mkfallback() { printf '[dev.sinty.lockscreen]\nidle-delay=360\n' > "$1/99-ncz-id
 # a renderer conf naming a command
 mkconf() { printf 'SINGULARITY_LOCK_RENDERER=%s\n' "${1:-/usr/libexec/ncz-screensaver-feed}" > "$2"; }
 # run DIR CONF [ENABLE] -> run the hook against the fixtures
+# TST_LOCK / TST_FEED (optional, exported on the call line) stand in for the
+# installed patched lock binary and the feed; by default both are absent so the
+# env-file auto-creation path stays out of the plan tests above.
 run() {
     NCZ_LOCKSAVER_SCHEMA_DIR="$1" \
     NCZ_LOCKSAVER_SAVER_SCHEMA="$1/dev.ncz.screensaver.gschema.xml" \
     NCZ_LOCKSAVER_CONF="$2" \
     NCZ_LOCKSAVER_ENABLE="${3:-0}" \
+    NCZ_LOCKSAVER_LOCK_BIN="${TST_LOCK:-$T/no-lock}" \
+    NCZ_LOCKSAVER_FEED="${TST_FEED:-$T/no-feed}" \
+    NCZ_LOCKSAVER_ENVDIR="$T/envd" \
     bash "$HOOK" >"$T/out" 2>&1
 }
 plan_at() { sed -n 's/^idle-delay=//p' "$1/99-ncz-lock-saver-plan.gschema.override" 2>/dev/null | tail -1 | tr -dc '0-9'; }
@@ -127,6 +135,31 @@ for p in sky1-arm64 amd64; do
     if grep -qx '64-ncz-lock-saver-plan.sh' "$ROOT/post-install/hooks.list.$p"; then ok "hook listed for $p"; else bad "hook not listed for $p"; fi
 done
 if grep -q '64-ncz-lock-saver-plan' "$ROOT/post-install/run-all.sh"; then ok "hook in the run-all.sh machine allowlist"; else bad "hook missing from run-all.sh MACHINE_HOOKS_RE"; fi
+
+# 9. patched lock + feed present -> the hook writes the renderer env file and
+#    exports it via environment.d, then installs the plan.
+mkdir -p "$T/patched"
+printf '#!/bin/sh\necho SINGULARITY_LOCK_RENDERER\n' > "$T/patched/lock"; chmod +x "$T/patched/lock"
+printf '#!/bin/sh\nexit 0\n' > "$T/patched/feed"; chmod +x "$T/patched/feed"
+mkschemas "$T/f" 300
+rm -f "$T/f.conf"
+TST_LOCK="$T/patched/lock" TST_FEED="$T/patched/feed" run "$T/f" "$T/f.conf"; rc=$?
+if [ "$rc" = 0 ] && grep -qF "SINGULARITY_LOCK_RENDERER=$T/patched/feed" "$T/f.conf"; then ok "wrote the renderer env file when the patched lock and feed are present"; else bad "renderer env file not written (rc=$rc)"; fi
+if grep -qF "SINGULARITY_LOCK_RENDERER=$T/patched/feed" "$T/envd/61-ncz-lock-renderer.conf" 2>/dev/null; then ok "exported the renderer via environment.d"; else bad "environment.d export missing"; fi
+if [ "$(plan_at "$T/f")" = 300 ]; then ok "auto-configured renderer also installs the plan"; else bad "auto-configured renderer did not install the plan"; fi
+
+# 10. lock present but NOT patched (no frame-source marker) -> no env file
+printf '#!/bin/sh\necho nothing\n' > "$T/plainlock"; chmod +x "$T/plainlock"
+mkschemas "$T/g" 300
+rm -f "$T/g.conf"
+TST_LOCK="$T/plainlock" TST_FEED="$T/patched/feed" run "$T/g" "$T/g.conf"; rc=$?
+if [ "$rc" = 0 ] && [ ! -e "$T/g.conf" ]; then ok "no renderer env file for an unpatched lock"; else bad "wrote an env file for an unpatched lock"; fi
+
+# 11. patched lock but no feed installed -> no env file
+mkschemas "$T/h" 300
+rm -f "$T/h.conf"
+TST_LOCK="$T/patched/lock" TST_FEED="$T/no-feed" run "$T/h" "$T/h.conf"; rc=$?
+if [ "$rc" = 0 ] && [ ! -e "$T/h.conf" ]; then ok "no renderer env file when the feed is absent"; else bad "wrote an env file without the feed"; fi
 
 echo "lock-saver-plan tests: $pass passed, $fail failed"
 [ "$fail" = 0 ]

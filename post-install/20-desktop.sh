@@ -871,6 +871,16 @@ else
     export LD_LIBRARY_PATH="/opt/cixgpu-pro/lib/aarch64-linux-gnu:/opt/cixgpu-compat/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     export WLR_DRM_NO_MODIFIERS=1
 fi
+# Lock-hosted saver: if the image configured an out-of-process lock renderer,
+# export it so the session's lock client uses ncz-screensaver-feed instead of a
+# static prompt. post-install/64-ncz-lock-saver-plan.sh writes this file only
+# when the patched lock (built with -Dlock_framesrc=enabled) and the feed are
+# both installed; absent, the shipped prompt-only lock is unchanged.
+if [ -r /etc/ncz/lock-renderer.env ]; then
+    set -a
+    . /etc/ncz/lock-renderer.env
+    set +a
+fi
 # The desktop starts a new, user-owned Labwc after greetd exits.  Apply the
 # same dynamic connected-output policy used by the greeter before that Labwc
 # is exec'd; otherwise it reopens every (including disconnected) Sky1 DP card.
