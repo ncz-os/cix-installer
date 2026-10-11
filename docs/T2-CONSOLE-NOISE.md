@@ -58,18 +58,41 @@ floor**; the benign noise is fixed at its source instead (below).
    and ALSA `snd_pcsp` modules both register a platform driver named `pcspkr`
    (`MODULE_ALIAS platform:pcspkr`), so udev autoloads both and one fails with
    *"Error: Driver 'pcspkr' is already registered, aborting..."*.
-3. **Bluetooth firmware reporting** — `55-t2-firmware.sh` now verifies BT
-   firmware by chip class: BCM4377 models (MacBookPro15,4 / 16,3 / Air9,1) must
-   have `brcmbt*.bin`; every other T2 model is a UART chip on ROM firmware where
-   the absent `brcm/BCM.hcd` is expected, so it is reported as such instead of
-   as a fixable gap. (No Apple firmware is shipped.)
-4. **Console-loglevel floor guard** — `58-boot-hygiene.sh` documents the floor
+3. **hid_sensor_rotation probe failure** — `blacklist hid_sensor_rotation`
+   (plus `install hid_sensor_rotation /bin/true`). Apple's T2 HID sensor hub
+   (05AC:8104) declares an orientation collection (usage 0x20008a) but omits the
+   generic sensor common-attributes report, so `hid_sensor_parse_common_attributes()`
+   asks for report id `0xffffffff`, gets nothing and fails the probe. The sensor
+   is non-functional and unused; not binding the driver removes the failed probe
+   *and* the `No report with id 0xffffffff found` warning together. This is a
+   driver blacklist rather than a kernel patch on purpose: a kernel quirk would
+   either leave a broken IIO device registered or merely relocate the messages.
+4. **Bluetooth firmware reporting** — `55-t2-firmware.sh` verifies BT firmware
+   by chip class: BCM4377 models (MacBookPro15,4 / 16,3 / Air9,1) must have
+   `brcmbt*.bin`; every other T2 model is a UART chip on ROM firmware where the
+   absent `brcm/BCM.hcd` is expected, so it is reported as such instead of as a
+   fixable gap. (No Apple firmware is shipped.)
+5. **Console-loglevel floor guard** — `58-boot-hygiene.sh` documents the floor
    and warns if a drop-in leaves the console below 3.
 
-Two remaining items are mainline/t2linux candidates, not installer work: the
-dpc `-524` spurious-probe line (kernel patch, see the `amd64-kernel-t2` branch
-`fix/t2-dpc-spurious-probe-20261011`) and the T2 `Secure Boot Certs` `pr_err`
-in `load_uefi.c` (t2linux series; demote to `pr_info`).
+## What was fixed in the kernel (companion branch)
+
+The two lines that cannot be fixed from userspace are handled by patches in
+`amd64-kernel-t2` branch `fix/t2-quiet-benign-20261011` (see that repo's
+`docs/T2-QUIET-BENIGN.md`), not by anything in the installer:
+
+* T2 `Secure Boot Certs` `pr_err` → `pr_info` (`security/integrity/.../load_uefi.c`,
+  patch `9101`): taking the T2 cert-skip quirk is the designed path, not a fault.
+* BT BCM4364B3 UART chip → identify LMP subver `0x3032` and, on the Apple-T2 DMI
+  set, demote the expected missing-patchram report to info (patch `9102`): the
+  controller runs on ROM firmware and Apple's patchram is not redistributable.
+* dpc `-524` spurious-probe line — patch `9013` on
+  `fix/t2-dpc-spurious-probe-20261011`.
+
+Left untouched, confirmed benign: `SGX disabled` (`pr_err_once`, mainline, also
+on non-T2), the amdgpu `Fence fallback timer` / `CG_TACH` warns (missed-IRQ
+recovery path / no dGPU tach on this chassis), and the BT baudrate/A-CPI-GPIO
+warns (Apple ACPI describes no reset GPIO).
 
 ## Level buckets (MEDUSA, boot 09:58, `7.3.0-rc6-4-t2-edge-aer9010`)
 

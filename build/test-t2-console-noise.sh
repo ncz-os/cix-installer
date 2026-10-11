@@ -5,8 +5,10 @@
 # silently (a) drop the two root-cause modprobe.d fixes, (b) lower the console
 # loglevel below the safe floor of 3 (which would hide KERN_CRIT, i.e. real
 # MCE "[Hardware Error]" records), or (c) lose the chip-class-aware Bluetooth
-# firmware check. These are content contracts; behaviour is exercised by the
-# live-host triage recorded in the mission report.
+# firmware check. Also pins the hid_sensor_rotation blacklist added by the
+# 2026-10-11 t2-fixall pass (same class of root-cause fix). These are content
+# contracts; behaviour is exercised by the live-host triage recorded in the
+# mission report.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FW="$ROOT/post-install/55-t2-firmware.sh"
@@ -36,6 +38,17 @@ grep -q "ncz-t2-pcspkr.conf" "$FW" \
 has "$FW" "blacklist snd_pcsp" \
   && ok "55: blacklists snd_pcsp (the losing duplicate)" \
   || bad "55: snd_pcsp blacklist missing"
+
+# --- (2b) hid_sensor_rotation is not bound (T2 hub has no common-attr report)
+grep -q "ncz-t2-hid-sensor-rotation.conf" "$FW" \
+  && ok "55: writes /etc/modprobe.d/ncz-t2-hid-sensor-rotation.conf" \
+  || bad "55: hid_sensor_rotation modprobe.d file not written"
+has "$FW" "blacklist hid_sensor_rotation" \
+  && ok "55: blacklists hid_sensor_rotation (unusable on T2 hub)" \
+  || bad "55: hid_sensor_rotation blacklist missing"
+has "$FW" "install hid_sensor_rotation /bin/true" \
+  && ok "55: makes any explicit load of hid_sensor_rotation a no-op" \
+  || bad "55: hid_sensor_rotation install override missing"
 
 # --- (3) Bluetooth verification is chip-class aware --------------------------
 has "$FW" "T2_BT_FW_MODELS" \
