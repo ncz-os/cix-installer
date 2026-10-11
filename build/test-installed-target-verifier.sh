@@ -14,6 +14,13 @@ MKE2FS="$(command -v mke2fs || echo /usr/sbin/mke2fs)"
 DEBUGFS="$(command -v debugfs || echo /sbin/debugfs)"
 for t in "$MKE2FS" "$DEBUGFS"; do [ -x "$t" ] || { echo "SKIP: $t not available"; exit 0; }; done
 command -v xz >/dev/null || { echo "SKIP: xz not available"; exit 0; }
+# The healthy fixture installs the CURRENT ncz-screensavers floor from
+# build/screensavers-version.env, so a floor bump does not leave this fixture
+# stale (it did once: 0.8.9 installed but the floor required 0.8.11). SS_TOOOLD
+# is one patch below the floor, for the below-floor case.
+SS_FLOOR="$(sed -n 's/^NCZ_SCREENSAVERS_MIN_VERSION=//p' "$ROOT/build/screensavers-version.env" | tr -d '"' | tr -d '[:space:]')"
+SS_FLOOR="${SS_FLOOR:-0.8.11}"
+SS_TOOOLD="$(printf '%s' "$SS_FLOOR" | awk -F. '{ $NF = $NF - 1; print }' OFS=.)"
 
 W="$(mktemp -d -t verifier-test.XXXXXX)"
 trap 'rm -rf "$W"' EXIT
@@ -160,7 +167,7 @@ GSCHEMA
     printf '[dev.sinty.lockscreen]\nidle-delay=360\n' \
         > "$r/opt/singularity/share/glib-2.0/schemas/99-ncz-idle-lock-order.gschema.override"
     ln -s /usr/lib/systemd/user/ncz-screensaver-idled.service "$r/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"
-    printf 'Package: ncz-screensavers\nStatus: install ok installed\nVersion: 0.8.9\n\n' >> "$r/var/lib/dpkg/status"
+    printf 'Package: ncz-screensavers\nStatus: install ok installed\nVersion: %s\n\n' "$SS_FLOOR" >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/var/lib/dpkg/info"
     printf '/usr/bin/ncz-screensaver\n/usr/libexec/ncz-screensaver-idled\n' > "$r/var/lib/dpkg/info/ncz-screensavers.list"
 }
@@ -218,7 +225,7 @@ m_ss_unrequested() { : > "$1/usr/local/lib/cix-installer/manifests/install-extra
 # catalogue rows below the 74-title floor
 m_ss_short_catalogue() { : > "$1/usr/share/ncz-screensavers/hacks.tsv"; for n in 1 2 3 4 5; do printf 'hack%s_gles3\tTitle %s\tshort\n' "$n" "$n" >> "$1/usr/share/ncz-screensavers/hacks.tsv"; done; }
 # installed version below the floor in build/screensavers-version.env
-m_ss_tooold()      { sed -i 's/^Version: 0.8.9$/Version: 0.8.8/' "$1/var/lib/dpkg/status"; }
+m_ss_tooold()      { sed -i "s/^Version: ${SS_FLOOR}\$/Version: ${SS_TOOOLD}/" "$1/var/lib/dpkg/status"; }
 # 62-cygnus-screensaver-default did not write the effective-default override
 m_ss_no_override() { rm -f "$1/usr/share/glib-2.0/schemas/99-ncz-cygnus-screensaver.gschema.override"; }
 # hack-id default != blackhole_gles3 (operator rule "default saver = blackhole")
