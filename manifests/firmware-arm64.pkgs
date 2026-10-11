@@ -1,0 +1,37 @@
+# Sky1 (arm64) firmware package set -- the subset of manifests/firmware.pkgs
+# that a CIX Sky1 system (Radxa Orion O6N, Minisforums MS-R1 / fleet "cixmini")
+# can actually load, plus a deliberately small hotplug allowance.  Selection
+# rationale, per-package evidence and restore instructions:
+# docs/ARM64-FIRMWARE-TRIM-2026-10-11.md.
+#
+# manifests/firmware.pkgs stays the complete, architecture-neutral published
+# set and is unchanged for amd64 (T2 Macs need brcm/intel/amd).  build/
+# build-forky-mirror.sh, build/verify-firmware-bom.sh, build/verify-offline-
+# mirror-seeds.sh, build/verify-installed-target.sh and post-install/
+# 13-firmware-bom.sh all prefer manifests/firmware-$ARCH.pkgs when it exists,
+# so this file is the arm64 install + mirror seed and the arm64 half of the
+# closure gate.  The complement (packages deliberately NOT shipped on arm64)
+# is manifests/firmware-bom-arm64.allow; verify-firmware-bom.sh fails unless
+# published == declared U declared-in-allow for the target arch.
+#
+# KEEP set:
+#   on-board Sky1 SoC /
+#   MS-R1 M.2 WiFi+BT:  realtek (RTL8125/8127 rtl_nic, RTW89 Sky1 M.2,
+#                       r8152 USB-ETH, rtw88/rtl_bt), mediatek (MT7922/Mt7961/
+#                       MT7925 -- MS-R1 M.2 module)
+#   hotplug allowance:  atheros (ath9k/ath10k/ath11k/ath12k QCNFA M.2/PCIe and
+#                       USB dongles), ath9k-htc (tiny USB), amd-graphics
+#                       (amdgpu works on arm64; the O6N has a real PCIe slot)
+#   metapackages/deps:  firmware-linux{,-free,-nonfree} (firmware-linux-nonfree
+#                       Depends: firmware-misc-nonfree, firmware-amd-graphics)
+#   catch-all:          misc-nonfree (dependency of firmware-linux-nonfree;
+#                       carries kernel-wide misc blobs)
+firmware-amd-graphics
+firmware-ath9k-htc
+firmware-atheros
+firmware-linux
+firmware-linux-free
+firmware-linux-nonfree
+firmware-mediatek
+firmware-misc-nonfree
+firmware-realtek

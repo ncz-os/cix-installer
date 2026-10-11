@@ -45,6 +45,13 @@ trap 'rm -rf "$TMP"' EXIT
 FAIL=0
 gate_miss() { echo "GATE: missing [$1]: $2" >&2; FAIL=1; }
 
+# Arch-scoped firmware BOM, resolved ONCE here for BOTH of the checks below
+# ((net-fw) network firmware and (fw-bom) the whole firmware BOM):
+# manifests/firmware-$ARCH.pkgs when present (the trimmed sky1-arm64 set), else
+# the complete architecture-neutral manifests/firmware.pkgs (amd64).
+BOM_PKGS="$HERE_VT/../manifests/firmware-$ARCH.pkgs"
+[ -f "$BOM_PKGS" ] || BOM_PKGS="$HERE_VT/../manifests/firmware.pkgs"
+
 # debugfs prints "<path>: File not found by ext2_lookup" (rc stays 0) for a
 # missing path and an "Inode:" line for a present one. Key on the positive
 # marker; never on the absence of an error string.
@@ -128,16 +135,22 @@ else
     gate_miss apt-separation "ncz-apt-policy is not installed (nothing keeps the pin current)"
 fi
 
-# --- (net-fw) NIC / WiFi / Bluetooth firmware packages, same on both architectures ---------------------
+# --- (net-fw) NIC / WiFi / Bluetooth firmware packages, arch-scoped ----------
 # manifests/net-firmware.tsv maps each network driver we ship to the firmware
-# package that carries its blobs; post-install/13-firmware-bom.sh installs the
-# whole BOM. Assert every package in that map really landed: a missing one is a
-# dead NIC/WiFi/BT radio on the installed system (MS-R1 MT7922, O6N RTL8125B,
-# T2/PEGASUS iwlwifi), which nothing else on this list would notice.
+# package that carries its blobs. post-install/13-firmware-bom.sh installs the
+# arch-scoped BOM (manifests/firmware-$ARCH.pkgs when present, else the complete
+# manifests/firmware.pkgs). Assert every package in that map the TARGET ARCH
+# actually ships really landed: a missing one is a dead NIC/WiFi/BT radio on
+# the installed system (MS-R1 MT7922, O6N RTL8125B, T2/PEGASUS iwlwifi).
+# Rows whose package is deliberately not in the arch BOM (firmware-iwlwifi /
+# firmware-brcm80211 / firmware-intel-graphics on arm64) are not required.
 echo "[verify-target] (net-fw) network firmware packages"
 NETFW_TSV="$HERE_VT/../manifests/net-firmware.tsv"
+# BOM_PKGS is resolved once near the top of this script (shared with (fw-bom)).
 if [ ! -f "$NETFW_TSV" ]; then
     gate_miss net-firmware "verifier checkout has no manifests/net-firmware.tsv"
+elif [ ! -f "$BOM_PKGS" ]; then
+    gate_miss net-firmware "verifier checkout has no manifests/firmware-$ARCH.pkgs nor firmware.pkgs"
 elif ! fetch /var/lib/dpkg/status "$TMP/netfw-status"; then
     gate_miss net-firmware "/var/lib/dpkg/status"
 else
@@ -145,7 +158,10 @@ else
     # whatever order the fields of its stanza are in.
     awk '/^Package:/ {p=$2} /^Status:/ {s=$0} /^$/ {if (s ~ /install ok installed/) print p; p=""; s=""}
          END {if (s ~ /install ok installed/) print p}' "$TMP/netfw-status" | sort -u > "$TMP/netfw-installed"
+    grep -hvE '^[[:space:]]*(#|$)' "$BOM_PKGS" | awk '{print $1}' | sort -u > "$TMP/bom-pkgs"
     while IFS= read -r _p; do
+        # Only firmware the target arch's BOM ships is required.
+        grep -qxF -- "$_p" "$TMP/bom-pkgs" || continue
         if grep -qxF -- "$_p" "$TMP/netfw-installed"; then
             echo "[fact] net_firmware_${_p}=installed"
         else
@@ -154,20 +170,19 @@ else
     done < <(awk -F'\t' '!/^[[:space:]]*(#|$)/ && NF==5 {print $3}' "$NETFW_TSV" | sort -u)
 fi
 
-# --- (fw-bom) the WHOLE firmware BOM, plus systemd-coredump, must be really installed ------------------
+# --- (fw-bom) the arch firmware BOM, plus systemd-coredump, must be really installed ------------------
 # r201: 13-firmware-bom.sh's `dpkg -s` check counted "install ok not-installed" (licence preinst
 # failed: firmware-ipw2x00, firmware-ivtv) as present, and 20-desktop.sh printed "systemd-coredump
 # installed" after `E: Unable to locate package`. Both hooks now fail themselves; this is the
 # independent check on the installed dpkg database.
 echo "[verify-target] (fw-bom) firmware BOM + diagnostics packages"
-BOM_PKGS="$HERE_VT/../manifests/firmware.pkgs"
 if [ ! -f "$BOM_PKGS" ]; then
-    gate_miss fw-bom "verifier checkout has no manifests/firmware.pkgs"
+    gate_miss fw-bom "verifier checkout has no manifests/firmware-$ARCH.pkgs nor firmware.pkgs"
 elif [ -s "$TMP/netfw-installed" ]; then
     _bom_n=0
     while IFS= read -r _p; do
         _bom_n=$((_bom_n + 1))
-        grep -qxF -- "$_p" "$TMP/netfw-installed" || gate_miss fw-bom "$_p is not 'install ok installed' (manifests/firmware.pkgs; post-install/13-firmware-bom.sh)"
+        grep -qxF -- "$_p" "$TMP/netfw-installed" || gate_miss fw-bom "$_p is not 'install ok installed' (manifests/firmware-$ARCH.pkgs; post-install/13-firmware-bom.sh)"
     done < <(grep -hvE '^[[:space:]]*(#|$)' "$BOM_PKGS" | awk '{print $1}' | sort -u)
     echo "[fact] firmware_bom_checked=$_bom_n"
     grep -qxF -- systemd-coredump "$TMP/netfw-installed" || gate_miss diagnostics "systemd-coredump is not installed (post-install/20-desktop.sh)"

@@ -1,0 +1,52 @@
+# Deliberate arm64 (sky1) firmware BOM exclusions: packages published for the
+# suite that the Sky1 platform must NOT install or seed into its offline
+# mirror.  One binary package name per line; "# reason" is documentation and
+# is ignored by the parser.
+#
+# build/verify-firmware-bom.sh requires, for ARCH=arm64,
+#     published == manifests/firmware-arm64.pkgs U this file
+# so a published firmware package that appears in neither is a hard failure,
+# and a name here that is not published for arm64 is a hard failure too.
+# The amd64 half keeps manifests/firmware.pkgs and the (empty) default
+# manifests/firmware-bom.allow, so amd64 is unaffected.
+#
+# Full rationale + measured sizes: docs/ARM64-FIRMWARE-TRIM-2026-10-11.md.
+# To restore a dropped set: delete its line(s) from this file and add the
+# package name(s) to manifests/firmware-arm64.pkgs.
+#
+# --- Qualcomm: Sky1 is CIX, never Qualcomm; SoC/DSP/DragonBoard/RB dev boards.
+firmware-qcom-dsp	# 415 MB installed: Hexagon DSP firmware for Qualcomm SoCs
+firmware-qcom-soc	# 107 MB: Qualcomm SoC blobs (WLAN/BT/VPU/GPU), QCM/QCS
+firmware-qcom-rb5	# 73 MB: Qualcomm Robotics RB5 (SM8250)
+firmware-qcom-dragonboard845c	# 41 MB: DragonBoard 845c (SDM845)
+firmware-qcom-rb3gen2	# 14 MB: Qualcomm Robotics RB3 Gen 2 (QCS6490)
+# --- Server / smart-NIC firmware for PCIe cards no arm64 mini-PC integrates.
+firmware-netronome	# 141 MB: Netronome Agilio SmartNIC
+firmware-marvell-prestera	# 59 MB: Marvell OcteonTX/TX2 (Prestera) NIC
+firmware-cavium	# 5 MB: Cavium LiquidIO
+firmware-myricom	# 4 MB: Myricom 10-GbE
+firmware-qlogic	# 7 MB: QLogic Fibre Channel / NetXen
+firmware-bnx2x	# 2.4 MB: Broadcom NetXtreme II 10-GbE
+firmware-bnx2	# 0.7 MB: Broadcom NetXtreme
+firmware-netxen	# 2.2 MB: NetXen/QLogic 10-GbE
+# --- NVIDIA discrete-GPU firmware (see report for the operator-decision note).
+firmware-nvidia-graphics	# 153 MB: nouveau/tegra GPU blobs
+firmware-nvidia-gsp	# 59 MB: NVIDIA GSP (Turing+ proprietary)
+# --- Intel silicon the Sky1 platform does not contain.
+firmware-intel-graphics	# 32 MB: i915/xe iGPU + Arc
+firmware-intel-misc	# 23 MB: Intel server/SoC misc (QAT, HFI1, e100)
+firmware-intel-sound	# 5 MB: Intel HDMI/display audio DSP
+firmware-sof-signed	# 55 MB: Intel Sound Open Firmware
+firmware-iwlwifi	# 189 MB: Intel WiFi; net-firmware.tsv labels it "amd64 laptops"
+# --- Other-SoC / legacy / vendor-specific firmware with no Sky1 device.
+firmware-brcm80211	# 18 MB: Broadcom brcmfmac upstream boards; T2 uses its own tarball
+firmware-cirrus	# 9 MB: Cirrus CS42L43/sdca laptop audio amps
+firmware-libertas	# 11 MB: Marvell Libertas (old WiFi)
+firmware-ti-connectivity	# 5 MB: TI WL18xx (BeagleBone class)
+firmware-samsung	# 3 MB: Samsung Exynos MFC
+firmware-siano	# 1.4 MB: Siano DVB tuners
+firmware-ivtv	# 1.3 MB: Conexant ivtv/pvrusb2 TV capture
+firmware-ipw2x00	# 1.6 MB: Intel PRO/Wireless 2100/2200 (pre-2006)
+firmware-zd1211	# 0.06 MB: ZyDAS ZD1211 USB WiFi (pre-2006)
+firmware-carl9170	# 0.04 MB: Atheros AR9170 USB WiFi (pre-2010)
+firmware-ast	# 0.04 MB: ASPEED BMC display (servers)

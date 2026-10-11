@@ -163,6 +163,13 @@ FW_SUITE=$(sed -n 's/^NCZ_BASE_CODENAME=//p' "$ROOT/release.conf" | tr -d "\"' "
 FW_POOL="$ROOT/build/${FW_SUITE:-forky}-mirror/pool"
 [ -d "$FW_POOL" ] || { echo "FATAL: offline mirror pool $FW_POOL missing (run make offline-mirror); the installer initrd needs its firmware-*.deb" >&2; exit 1; }
 INITRD_ARGS+=(--firmware-pool "$FW_POOL" --net-firmware-table "$ROOT/manifests/net-firmware.tsv")
+# Arch-scoped firmware BOM: the initrd stages only net-firmware rows whose
+# package the target arch ships. arm64 uses manifests/firmware-arm64.pkgs
+# (drops the amd64-only i915 row); amd64 falls through to the script default
+# (manifests/firmware.pkgs).
+if [ -f "$ROOT/manifests/firmware-$ARCH.pkgs" ]; then
+  INITRD_ARGS+=(--firmware-bom "$ROOT/manifests/firmware-$ARCH.pkgs")
+fi
 if [ "$ARCH" = arm64 ]; then
   INITRD_ARGS+=(--kernel-image "$ROOT/assets/kernel/mainline/Image-cixmini.bin"
                 --modules-tar "$ROOT/assets/kernel/mainline/modules-cixmini.tgz")

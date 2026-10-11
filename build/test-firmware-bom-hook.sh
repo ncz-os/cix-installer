@@ -29,6 +29,8 @@ mkbox() {
     local b="$T/$1" mode="$2"
     mkdir -p "$b/bin" "$b/state"
     printf '# BOM\nfirmware-linux\nfirmware-ipw2x00\nfirmware-ivtv\n\nfirmware-realtek extra-col\n' > "$b/firmware.pkgs"
+    # Arch-scoped BOM fixture: the arm64 selection must prefer this file.
+    printf '# arm64 BOM fixture\nfirmware-realtek extra-col\n' > "$b/firmware-arm64.pkgs"
     : > "$b/state/preseed"
     cat > "$b/bin/debconf-set-selections" <<SH
 #!/bin/sh
@@ -68,6 +70,9 @@ SH
     chmod +x "$b/bin/"*
 }
 run() { env -i PATH="$T/$1/bin:/usr/bin:/bin" NCZ_FW_BOM="$T/$1/firmware.pkgs" bash "$HOOK" >"$T/$1/out" 2>&1; echo $? > "$T/$1/rc"; }
+# Run without NCZ_FW_BOM so the hook's own arch-scoped selection happens, with
+# the fixture directory as the manifest search dir (NCZ_FW_MANIFEST_DIR).
+run_arch() { env -i PATH="$T/$1/bin:/usr/bin:/bin" NCZ_TARGET_ARCH="$2" NCZ_FW_MANIFEST_DIR="$T/$1" bash "$HOOK" >"$T/$1/out" 2>&1; echo $? > "$T/$1/rc"; }
 
 # 1. licence preseeded, all install -> rc 0 and both questions seeded
 mkbox a honour-preseed; run a
@@ -97,6 +102,23 @@ rm -f "$T/c/state/"firmware-*
 run c
 if [ "$(cat "$T/c/rc")" != 0 ] && grep -q 'FAILED: 4 of 4' "$T/c/out"; then ok "absent packages fail the hook"
 else bad "absent packages not caught"; cat "$T/c/out"; fi
+
+# 4. arch-scoped selection: NCZ_TARGET_ARCH=arm64 must pick firmware-arm64.pkgs
+#    (1 package) from the manifest dir, not the fuller firmware.pkgs (4).
+mkbox d honour-preseed; run_arch d arm64
+if [ "$(cat "$T/d/rc")" = 0 ] \
+   && grep -q 'firmware-arm64.pkgs' "$T/d/out" \
+   && grep -q 'installing 1 firmware packages' "$T/d/out" \
+   && grep -q 'all 1 packages' "$T/d/out"; then ok "arm64 selects firmware-arm64.pkgs"
+else bad "arm64 arch-scoped BOM selection (rc=$(cat "$T/d/rc"))"; cat "$T/d/out"; fi
+
+# 5. amd64 has no firmware-amd64.pkgs, so the complete firmware.pkgs is selected.
+mkbox e honour-preseed; run_arch e amd64
+if [ "$(cat "$T/e/rc")" = 0 ] \
+   && grep -q 'firmware BOM: .*/firmware.pkgs' "$T/e/out" \
+   && grep -q 'installing 4 firmware packages' "$T/e/out" \
+   && grep -q 'all 4 packages' "$T/e/out"; then ok "amd64 falls back to firmware.pkgs"
+else bad "amd64 BOM fallback (rc=$(cat "$T/e/rc"))"; cat "$T/e/out"; fi
 
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
