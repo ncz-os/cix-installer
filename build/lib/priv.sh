@@ -143,12 +143,14 @@ ncz_trap_chown_back() {
     # (zoder review 2026-10-11).  `trap -p EXIT` prints: trap -- 'CMD' EXIT
     NCZ_CHOWN_BACK_PREV_CMD=""
     local prev; prev="$(trap -p EXIT 2>/dev/null || true)"
-    if [ -n "$prev" ]; then
-        NCZ_CHOWN_BACK_PREV_CMD="${prev#trap -- }"
-        NCZ_CHOWN_BACK_PREV_CMD="${NCZ_CHOWN_BACK_PREV_CMD% EXIT}"
-        NCZ_CHOWN_BACK_PREV_CMD="${NCZ_CHOWN_BACK_PREV_CMD#\'}"
-        NCZ_CHOWN_BACK_PREV_CMD="${NCZ_CHOWN_BACK_PREV_CMD%\'}"
-    fi
+    # Only accept bash's canonical `trap -- 'CMD' EXIT` form; any other shape is
+    # left unchained, so eval never sees an unrecognised string.  All three
+    # callers set no EXIT trap of their own, so this is purely defensive.
+    case "$prev" in
+        "trap -- '"*"' EXIT")
+            NCZ_CHOWN_BACK_PREV_CMD="${prev#trap -- \'}"
+            NCZ_CHOWN_BACK_PREV_CMD="${NCZ_CHOWN_BACK_PREV_CMD%\' EXIT}" ;;
+    esac
     _ncz_chown_back_trap() {
         local rc=$?
         [ -n "$NCZ_CHOWN_BACK_PREV_CMD" ] && { eval "$NCZ_CHOWN_BACK_PREV_CMD" || true; }
