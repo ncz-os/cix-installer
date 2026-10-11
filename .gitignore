@@ -58,6 +58,8 @@ assets/singularity-boot-splash/singularity-boot-splash
 assets/singularity/*.tgz
 assets/sinty-nm/sinty-nmd
 assets/sky1-firmware/
+assets/sky1-firmware.tar.zst
+assets/cix-debs.tar.zst
 assets/squashfs/
 assets/vivaldi/*.deb
 assets/vivaldi/*.gpg

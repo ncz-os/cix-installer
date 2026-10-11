@@ -12,19 +12,22 @@
 #      which the pipeline never ran -> the image stage aborted with
 #      "set KERNEL_DEB to the amd64 installer kernel package".
 #   #3 the arm64 assets/sky1-firmware/ + assets/cix-debs/*.deb were gitignored
-#      and unpinned -> the image stage aborted in verify-arm64-inputs.
+#      and unpinned -> the image stage aborted in verify-arm64-inputs.  They are
+#      now two pinned tarballs (manifests/build-inputs.tsv) materialized by
+#      build/stage-arm64-assets.sh.
 #
-# These are data/pinning invariants; the store itself is checked only when the
-# ARGONAS build-inputs store is mounted (a fresh clone without it still passes).
+# The store checks run only when the ARGONAS build-inputs store is mounted
+# (a fresh clone without it still passes); the extraction test runs unless
+# zstd/GNU-tar are unavailable.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TSV="$ROOT/manifests/build-inputs.tsv"
 NCZ="$ROOT/manifests/ncz-packages.tsv"
+T="$(mktemp -d "${TMPDIR:-/var/tmp}/freshclone.XXXXXX")"; trap 'rm -rf "$T"' EXIT
 pass=0; fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 
-# pin <arch> <dest> -> prints the sha256 (empty if absent)
 pin_sha() { awk -F'\t' -v a="$1" -v d="$2" '$1==a && $2==d {print $3}' "$TSV" | head -1; }
 pin_size() { awk -F'\t' -v a="$1" -v d="$2" '$1==a && $2==d {print $4}' "$TSV" | head -1; }
 is_sha() { printf '%s' "$1" | grep -Eq '^[0-9a-f]{64}$'; }
@@ -67,33 +70,43 @@ grep -q 'build/stage-screensaver-plugin.sh' "$ROOT/build/build-image.sh" \
     && ok "build-image.sh stage-inputs stages the pinned screensaver settings plugin" \
     || bad "build-image.sh does not stage the screensaver settings plugin"
 
-# --- #3 arm64 sky1-firmware + cix-debs are pinned (so a fresh clone stages them) ---
-missing=""
-for f in av1dec avs2dec avsdec h264dec h264enc hevcdec hevcenc jpegdec jpegenc \
-         mpeg2dec mpeg4dec vc1dec vp8dec vp8enc vp9dec vp9enc; do
-    is_sha "$(pin_sha arm64 "assets/sky1-firmware/$f.fwb")" || missing="$missing $f.fwb"
+# --- #3 the arm64 asset groups are two pinned tarballs, materialized by the pipeline ---
+for dest in assets/sky1-firmware.tar.zst assets/cix-debs.tar.zst; do
+    sha="$(pin_sha arm64 "$dest")"; size="$(pin_size arm64 "$dest")"
+    if is_sha "$sha" && [ "${size:-0}" -gt 0 ]; then
+        ok "build-inputs.tsv pins the arm64 asset tarball $dest ($size B)"
+    else bad "no valid arm64 tarball pin for $dest (sha='$sha' size='$size')"; fi
+    if [ -n "$STORE" ]; then
+        if [ -f "$STORE/arm64/$dest" ] && [ "$(sha256sum "$STORE/arm64/$dest" | awk '{print $1}')" = "$sha" ]; then
+            ok "the store holds $dest (sha256 matches)"
+        else bad "store $STORE/arm64/$dest missing or differs from the pin"; fi
+    fi
 done
-is_sha "$(pin_sha arm64 "assets/sky1-firmware/dsp_fw.bin")" || missing="$missing dsp_fw.bin"
-is_sha "$(pin_sha arm64 "assets/sky1-firmware/arm/mali/arch12.8/mali_csffw.bin")" || missing="$missing mali_csffw.bin"
-[ -z "$missing" ] && ok "build-inputs.tsv pins every required arm64 sky1-firmware blob" || bad "sky1-firmware pins missing:$missing"
+grep -q 'bash build/stage-arm64-assets.sh' "$ROOT/build/build-image.sh" \
+    && ok "build-image.sh stage-inputs runs build/stage-arm64-assets.sh for arm64" \
+    || bad "build-image.sh does not materialize the arm64 asset groups"
+grep -q 'bash $(ROOT)/build/stage-arm64-assets.sh' "$ROOT/Makefile" \
+    && ok "make image materializes the arm64 asset groups standalone too" \
+    || bad "Makefile image rule does not materialize the arm64 assets"
 
-cmiss=""
-for p in cix-gpu-umd_ cix-libglvnd_ cix-mesa_ cix-noe-umd_ cix-npu-driver-dkms_ \
-         cix-vpu-driver-dkms_ cix-gpu-kmd-dkms_ panthor-cix-dkms_ cix-firmware_; do
-    awk -F'\t' -v a=arm64 -v p="$p" '$1==a && index($2,"assets/cix-debs/"p)==1 && $3 ~ /^[0-9a-f]{64}$/ {f=1} END{exit !f}' "$TSV" || cmiss="$cmiss $p"
-done
-[ -z "$cmiss" ] && ok "build-inputs.tsv pins an arm64 cix-deb for every required prefix" || bad "arm64 cix-deb pins missing:$cmiss"
-
-# the store, when mounted, must hold every sky1-firmware + cix-debs arm64 pin byte-for-byte
-if [ -n "$STORE" ]; then
-    n_bad=0
-    while IFS=$'\t' read -r a dest sha size note; do
-        case "$dest" in assets/sky1-firmware/*|assets/cix-debs/*) ;; *) continue ;; esac
-        if [ ! -f "$STORE/$a/$dest" ] || [ "$(sha256sum "$STORE/$a/$dest" | awk '{print $1}')" != "$sha" ]; then
-            n_bad=$((n_bad+1)); [ "$n_bad" -le 5 ] && echo "     store miss/differs: $STORE/$a/$dest"
-        fi
-    done < <(awk -F'\t' '$1=="arm64" && ($2 ~ /^assets\/sky1-firmware\// || $2 ~ /^assets\/cix-debs\//)' "$TSV" | grep -v 'cix-npu-driver-dkms')
-    [ "$n_bad" = 0 ] && ok "the store holds every arm64 sky1-firmware/cix-debs pin byte-for-byte" || bad "$n_bad arm64 store pin(s) missing or differing"
+# functional: stage-arm64-assets.sh verifies the pin and extracts, refusing a tampered tarball
+if command -v zstd >/dev/null 2>&1 && tar --zstd -tf /dev/null >/dev/null 2>&1; then
+    A="$T/tree"; mkdir -p "$A/build" "$A/manifests" "$A/assets" "$T/src/sky1-firmware" "$T/src/cix-debs"
+    cp "$ROOT/build/stage-arm64-assets.sh" "$A/build/"
+    echo fw > "$T/src/sky1-firmware/dsp_fw.bin"; echo deb > "$T/src/cix-debs/x_arm64.deb"
+    ( cd "$T/src" && tar --zstd -cf "$A/assets/sky1-firmware.tar.zst" sky1-firmware && tar --zstd -cf "$A/assets/cix-debs.tar.zst" cix-debs )
+    s1="$(sha256sum "$A/assets/sky1-firmware.tar.zst" | awk '{print $1}')"
+    s2="$(sha256sum "$A/assets/cix-debs.tar.zst" | awk '{print $1}')"
+    printf 'arm64\tassets/sky1-firmware.tar.zst\t%s\t10\tt\narm64\tassets/cix-debs.tar.zst\t%s\t10\tt\n' "$s1" "$s2" > "$A/manifests/build-inputs.tsv"
+    if bash "$A/build/stage-arm64-assets.sh" >"$T/o1" 2>&1 && [ -f "$A/assets/sky1-firmware/dsp_fw.bin" ] && [ -f "$A/assets/cix-debs/x_arm64.deb" ]; then
+        ok "stage-arm64-assets.sh extracts both pinned archives"
+    else bad "stage-arm64-assets.sh did not extract the fixtures"; cat "$T/o1"; fi
+    rm -rf "$A/assets/sky1-firmware"; echo x >> "$A/assets/sky1-firmware.tar.zst"
+    if bash "$A/build/stage-arm64-assets.sh" >"$T/o2" 2>&1; then
+        bad "stage-arm64-assets.sh accepted a tampered tarball"
+    else ok "stage-arm64-assets.sh refuses a tampered tarball"; fi
+else
+    echo "SKIP extraction test: zstd/GNU-tar --zstd unavailable on this host"
 fi
 
 # every pin in the manifest is a real sha256 (guards against a bad append)

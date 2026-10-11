@@ -175,6 +175,7 @@ build/singularity-runtime-extra-deps.txt	common	-	non-ELF runtime Depends of ncz
 build/sqtools-amd64/	amd64	-	x86_64 unsquashfs toolchain
 build/sqtools/	sky1	-	aarch64 unsquashfs toolchain
 build/stage-amd64-kernel.sh	amd64	-	stages amd64 kernels from ARGONAS
+build/stage-arm64-assets.sh	sky1	-	materializes the pinned arm64 sky1-firmware + cix-debs tarballs (manifests/build-inputs.tsv) so a fresh clone builds with no hand-staging (r203 failure #3)
 build/stage-canonical-assets.sh	sky1	-	restages CIX-NCZ gitignored blobs (183 arm64/cix refs)
 build/stage-kernel.sh	sky1	-	stages a Sky1 kernel
 build/stage-screensaver-plugin.sh	common	-	copies the pinned ncz-screensavers-plugin deb from ARGONAS into build/ncz-screensavers-out (sha256 + control fields checked); make ssplugin-stage

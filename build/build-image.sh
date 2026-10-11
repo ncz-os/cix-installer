@@ -780,6 +780,14 @@ stage_stage_inputs() {
         rc="${PIPESTATUS[0]}"
         [ "$rc" = 0 ] || return "$rc"
     fi
+    # arm64: materialize the pinned sky1-firmware + cix-debs groups from the two
+    # tarballs stage-build-inputs just fetched (they are gitignored and were not
+    # pinned before; r203 failure #3).
+    if [ "$ARCH" = arm64 ] && [ -x "$ROOT/build/stage-arm64-assets.sh" ]; then
+        ( cd "$ROOT" && bash build/stage-arm64-assets.sh ) 2>&1 | tee -a "$log"
+        rc="${PIPESTATUS[0]}"
+        [ "$rc" = 0 ] || return "$rc"
+    fi
     # Singularity screensaver settings plugin: pinned in
     # post-install/lib/ncz-screensavers-plugin.lock and staged from the ARGONAS
     # ncz-screensavers-debs pool. The pipeline never ran
