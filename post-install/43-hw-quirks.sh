@@ -162,5 +162,62 @@ SUBSYSTEM=="dma_heap", GROUP="render", MODE="0660"
 DMAEOF
 echo "[43] dma_heap udev rule installed (render:0660)"
 
+# --- Sky1 media/audio stability: restored fixes (2026-10-11) ---------------
+# These three were verified live on O6N in 2026-09 but never merged to main, so
+# the 26.10 / 6351e0b3 image shipped without them and audio underruns returned
+# under streaming load: pw-top showed the ALSA sink ERR counter climbing (79 in
+# one session) at quantum 1024, and PipeWire's data-loop.0 running SCHED_OTHER
+# (prio 0) instead of realtime.
+#
+# (4) RT scheduling: CONFIG_RT_GROUP_SCHED + cgroups-v2 delegation leaves the
+#     cpu controller enabled in user slices, so rtkit-daemon cannot obtain RT
+#     runtime and PipeWire's data loop runs at SCHED_OTHER. Disabling the cpu
+#     controller for the top-level user slice restores RT to the root cgroup.
+install -d /etc/systemd/system/-.slice.d
+cat > /etc/systemd/system/-.slice.d/10-ncz-rt-sched.conf <<'SLICEEOF'
+# Keep the cpu controller out of delegated user slices so rtkit/PipeWire can
+# get realtime scheduling (fixes Sky1 audio XRUNs). See post-install/43-hw-quirks.sh.
+[Slice]
+DisableControllers=cpu
+SLICEEOF
+echo "[43] RT-scheduling slice drop-in installed (DisableControllers=cpu)"
+
+# (5) PipeWire quantum floor: the default min-quantum (32) lets the quantum
+#     collapse under decode load; raise the floor so the ALSA sink has headroom.
+install -d /etc/pipewire/pipewire.conf.d
+cat > /etc/pipewire/pipewire.conf.d/99-ncz-audio-headroom.conf <<'PWEOF'
+# Sky1 audio underrun headroom (see post-install/43-hw-quirks.sh).
+context.properties = {
+    default.clock.min-quantum = 2048
+}
+PWEOF
+echo "[43] PipeWire min-quantum=2048 installed"
+
+# (6) VPU (amvx/MVX) devfreq governor: simple_ondemand parks the decoder clock
+#     at 72-216 MHz during AV1/VP9 decode and the decoder underruns. Pin it to
+#     performance. Sky1 only (CIXH3010:00 = amvx_dev).
+if [ -e /sys/class/devfreq/CIXH3010:00/governor ]; then
+    cat > /usr/local/sbin/ncz-vpu-governor-performance <<'VPUEOF'
+#!/bin/sh
+# Pin the Sky1 VPU devfreq governor to performance. Retries while the devfreq
+# node is still appearing at early boot.
+for _i in 1 2 3 4 5 6 7 8 9 10; do
+    [ -e /sys/class/devfreq/CIXH3010:00/governor ] && break
+    sleep 1
+done
+[ -w /sys/class/devfreq/CIXH3010:00/governor ] && \
+    echo performance > /sys/class/devfreq/CIXH3010:00/governor 2>/dev/null || true
+VPUEOF
+    chmod 0755 /usr/local/sbin/ncz-vpu-governor-performance
+    cat > /etc/udev/rules.d/71-ncz-vpu-governor.rules <<'VPUR'
+# Sky1 VPU devfreq -> performance (avoids decoder underrun). See post-install/43-hw-quirks.sh.
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="CIXH3010:00", RUN+="/usr/local/sbin/ncz-vpu-governor-performance"
+VPUR
+    /usr/local/sbin/ncz-vpu-governor-performance 2>/dev/null || true
+    echo "[43] VPU governor pinned to performance"
+else
+    echo "[43] no CIXH3010 devfreq (non-Sky1); VPU governor step skipped"
+fi
+
 echo "[43] hw quirks done"
 exit 0
