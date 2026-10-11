@@ -148,7 +148,6 @@ is_our_kernel_pkg() {
         linux-image-cixmini|linux-headers-cixmini|cixmini-boot) return 0 ;;
         "linux-image-$EXPECT_KVER"|"linux-headers-$EXPECT_KVER") return 0 ;;
         *-sky1-ncz|*-sky1-ncz-r[0-9]*) return 0 ;;
-        linux-image-*-t2-trixie|linux-headers-*-t2-trixie) return 0 ;;
         linux-image-*-t2-ncz|linux-headers-*-t2-ncz) return 0 ;;
     esac
     return 1

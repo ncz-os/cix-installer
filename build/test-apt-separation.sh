@@ -75,7 +75,7 @@ entry "$NCZ" libdrm-common 2.4.134-3+ncz1
 entry "$NCZ" ncz-wallpapers-ncz 1.1
 entry "$NCZ" ncz-evil 1.0
 entry "$NCZ" zoder 0.2.1 "$ARCH"
-entry "$NCZ" linux-image-7.3.0-t2-trixie 7.3.0-1 "$ARCH"
+entry "$NCZ" linux-image-7.3.0-t2-ncz 7.3.0-1 "$ARCH"
 entry "$NCZ" libfoo 2.0
 # T2
 entry "$T2" t2fanrd 0.1.0-4 "$ARCH"
@@ -160,7 +160,7 @@ echo "=== NEW: NCZ names come from NCZ ==="
 eq "ncz-wallpapers-ncz candidate" "$(cand "$NEW" ncz-wallpapers-ncz)" "1.1"
 eq "zoder candidate" "$(cand "$NEW" zoder)" "0.2.1"
 eq "ncz-evil candidate (Debian cannot hijack)" "$(cand "$NEW" ncz-evil)" "1.0"
-eq "linux-image-7.3.0-t2-trixie (NCZ kernel) installable" "$(cand "$NEW" linux-image-7.3.0-t2-trixie)" "7.3.0-1"
+eq "linux-image-7.3.0-t2-ncz (NCZ kernel) installable" "$(cand "$NEW" linux-image-7.3.0-t2-ncz)" "7.3.0-1"
 
 echo "=== NEW: allowlisted intentional Debian-name override wins ==="
 eq "libdrm-common stays on the NCZ +ncz1 patch build" "$(cand "$NEW" libdrm-common)" "2.4.134-3+ncz1"

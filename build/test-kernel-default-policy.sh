@@ -110,7 +110,7 @@ echo "=== Negative: retired 7.2.x ==="
 r="$WORK/n1"; mkroot "$r" "7.2.9-sky1-ncz" "7.2.9-sky1-ncz"
 printf 'DEFAULT_BASE=7.3\nRC_DEFAULT_ALLOWED=1\nRC_DEFAULT_EXPIRY_NOTE=replace by 7.3.0 final\nRESCUE_SAME_KERNEL=1\nRESCUE_ARM64_BLACKLIST=panthor\nEDGE_ENABLED=0\n' > "$r/assets/kernel/KERNEL-POLICY"
 run "arm64: 7.2.9 default refused" 1 --root "$r" --arch arm64
-r="$WORK/n2"; mkamd64 "$r" "7.2.9-2-t2-trixie" "7.2.9-2-t2-trixie"; pin "$r"
+r="$WORK/n2"; mkamd64 "$r" "7.2.9-2-t2-ncz" "7.2.9-2-t2-ncz"; pin "$r"
 run "amd64: 7.2.9 default refused" 1 --root "$r" --arch amd64
 r="$WORK/n2b"; mkamd64 "$r" "7.3.0-rc6-1-t2-edge-aerfix" "7.3.0-rc6-1-t2-edge-aerfix"; pin "$r"
 run "amd64: retired ambiguous 'aerfix' (9010 revert) pin refused" 1 --root "$r" --arch amd64

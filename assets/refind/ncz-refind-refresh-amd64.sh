@@ -342,7 +342,7 @@ echo "  wiping stale ESP entries + kernel images..."
 # took the first non-rescue ESP kernel whose kver was neither KVER_STABLE nor
 # KVER_EDGE, with NO prerelease classification. After purging the old stable
 # linux-image-7.2.8-3 the hook ran with KVER_EDGE=7.3.0-rc5-9; the ESP still
-# held a staged stock-Edge kernel 7.3.0-rc5-10-t2-trixie-revhid (not equal to
+# held a staged stock-Edge kernel 7.3.0-rc5-10-t2-ncz-revhid (not equal to
 # KVER_EDGE), so IT was promoted to RESCUE after the known-good 7.2.8-3 rescue
 # pair had already been deleted -- a RESCUE entry booting an -rc kernel that
 # power-cuts. Three invariants now hold:
@@ -359,13 +359,12 @@ is_prerelease() {
     case "$1" in *-rc[0-9]*) return 0 ;; *) return 1 ;; esac
 }
 
-# amd64 stable-class: the NCZ T2 stable line (<ver>-N-t2-trixie, or <ver>-t2-ncz from the
-# 7.3.0-final rebuild on), release only.
+# amd64 stable-class: the NCZ T2 stable line (<ver>-t2-ncz), release only.
 # A stock/Debian/edge kernel is never eligible for the rescue slot.
 is_stable_class() {
     is_prerelease "$1" && return 1
     case "$1" in
-        *-t2-trixie*|*-t2-ncz*) return 0 ;;
+        *-t2-ncz*) return 0 ;;
         *)            return 1 ;;
     esac
 }

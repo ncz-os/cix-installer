@@ -43,17 +43,17 @@ check() { # check <label> <expect_default>
 
 echo "=== unified 7.3: newest 7.3 kernel is the default; 7.2.x is not ==="
 export BOOTDIR=/tmp/b1
-mkboot $BOOTDIR 7.2.7-2-t2-trixie 7.2.9-2-t2-trixie 7.3.0-rc5-1-t2-trixie 7.3.0-rc6-4-t2-edge-aer9010 7.2.4-2-t2-trixie-rescue
+mkboot $BOOTDIR 7.2.7-2-t2-ncz 7.2.9-2-t2-ncz 7.3.0-rc5-1-t2-ncz 7.3.0-rc6-4-t2-edge-aer9010 7.2.4-2-t2-ncz-rescue
 check "amd64: newest 7.3 wins over the retired 7.2.9" 7.3.0-rc6-4-t2-edge-aer9010
 
 echo "=== a 7.2.x-only /boot is not surfaced (retired) ==="
 export BOOTDIR=/tmp/b2
-mkboot $BOOTDIR 7.2.8-1-t2-trixie 7.2.9-2-t2-trixie
+mkboot $BOOTDIR 7.2.8-1-t2-ncz 7.2.9-2-t2-ncz
 check "amd64: pure-7.2.x /boot has no default" ""
 
 echo "=== unpinned 7.3 rc variants are still 7.3 (build gate pins the exact one) ==="
 export BOOTDIR=/tmp/b3
-mkboot $BOOTDIR 7.2.9-2-t2-trixie 7.3.0-rc6-1-t2-edge-plain
+mkboot $BOOTDIR 7.2.9-2-t2-ncz 7.3.0-rc6-1-t2-edge-plain
 check "amd64: a 7.3 rc6 variant classifies as default" 7.3.0-rc6-1-t2-edge-plain
 
 echo "=== Debian-archive kernels are never surfaced ==="
@@ -68,9 +68,9 @@ check "amd64: the rescue image is skipped, the live 7.3 kernel is default" 7.3.0
 
 echo "=== missing initrd: newest 7.3 without an initrd is skipped ==="
 export BOOTDIR=/tmp/b6
-mkboot $BOOTDIR 7.3.0-rc5-1-t2-trixie 7.3.0-rc6-4-t2-edge-aer9010
+mkboot $BOOTDIR 7.3.0-rc5-1-t2-ncz 7.3.0-rc6-4-t2-edge-aer9010
 rm -f $BOOTDIR/initrd.img-7.3.0-rc6-4-t2-edge-aer9010
-check "amd64: the incomplete newer 7.3 kernel is skipped" 7.3.0-rc5-1-t2-trixie
+check "amd64: the incomplete newer 7.3 kernel is skipped" 7.3.0-rc5-1-t2-ncz
 
 echo "=== negative: no 7.3 at all -> empty ==="
 export BOOTDIR=/tmp/b7
