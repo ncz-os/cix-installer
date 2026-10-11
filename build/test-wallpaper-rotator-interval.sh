@@ -155,10 +155,11 @@ fi
 # Immediate restart: the record now shows a rotation "just now", so no rotation.
 run_daemon "$home" "$cfg" "$st" "$run" "$counter"
 second=$(count "$counter")
-if [ "$second" = 1 ]; then
-    ok "persist: immediate restart rotates 0 more times (total stays 1)"
+delta=$((second - first))
+if [ "$delta" = 0 ]; then
+    ok "persist: immediate restart rotates 0 more times (total stays $second)"
 else
-    bad "persist: immediate restart rotated again" "total=$second want 1"
+    bad "persist: immediate restart rotated again" "it added $delta rotation(s); total=$second want $first"
 fi
 
 # ---- negative self-check: the pre-fix daemon rotates inside the interval ----
