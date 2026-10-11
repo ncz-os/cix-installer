@@ -520,6 +520,8 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(wildcard $(ASSETS)/sky1-firmware/*)
 	@echo "[image] pinned build inputs (recovery rootfs, rescue rootfs, python311, wallpaper debs)"
 	@bash $(ROOT)/build/stage-build-inputs.sh --arch $(ARCH)
+	@echo "[image] amd64 installer kernel: stage the pinned image+headers pair from the ARGONAS kernel-staging pool"
+	@if [ "$(ARCH)" = amd64 ]; then bash $(ROOT)/build/stage-amd64-kernel.sh; else echo "[image] ($(ARCH): the Sky1 kernel is built during offline-mirror)"; fi
 	@echo "[image] platform-split lint (inventory, hooks.list, deny patterns, guards, manifest divergence)"
 	@bash $(ROOT)/build/lint-platform.sh
 	@bash $(ROOT)/build/check-no-ubuntu.sh
@@ -757,6 +759,8 @@ parity:
 	bash build/test-firmware-bom-hook.sh
 	bash build/test-desktop-apt-require.sh
 	bash build/test-build-inputs.sh
+	bash build/test-gate-chown-back.sh
+	bash build/test-fresh-clone-inputs.sh
 	bash build/test-deb-rev-defaults.sh
 	bash build/test-panthor-hook-overlay-fallback.sh
 	bash build/test-panthor-fallback-real-overlay.sh
