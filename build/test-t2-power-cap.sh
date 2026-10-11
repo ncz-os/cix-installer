@@ -84,8 +84,8 @@ grep -q 'ExecStartPre=.*ncz-t2-power-cap apply' "$TROOT/etc/systemd/system/therm
     && ok "thermald drop-in runs the cap before thermald starts" || bad "thermald drop-in missing ExecStartPre"
 
 # --- helper against the fake tree ----------------------------------------
-RH() { # run installed helper with fake paths
-    env NCZ_POWERCAP_CONF="$CONF" \
+RH() { # run installed helper with fake paths (RCONF overrides the config path)
+    env NCZ_POWERCAP_CONF="${RCONF:-$CONF}" \
         NCZ_POWERCAP_SYS_CPU="$SYS/cpu" \
         NCZ_POWERCAP_SYS_RAPL="$SYS/powercap" \
         NCZ_POWERCAP_SYS_PSU="$SYS/psu" \
@@ -137,7 +137,8 @@ RH apply --wait 2; a2="$(get constraint_0_power_limit_uw)"
 
 # performance mode: AC uncapped (firmware), battery still capped
 mk_sysfs MacBookPro16,1 1; rm -rf "$T/run"; mkdir -p "$T/run"
-printf '\nNCZ_T2_POWER_MODE=performance\n' >> "$CONF"
+RCONF="$T/conf.performance"; cp "$CONF" "$RCONF"
+printf '\nNCZ_T2_POWER_MODE=performance\n' >> "$RCONF"
 RH apply --wait 2
 if [ "$(get constraint_0_power_limit_uw)" = 100000000 ] && [ "$(get constraint_1_power_limit_uw)" = 125000000 ]; then
     ok "performance mode leaves AC uncapped (firmware 100/125 W)"
@@ -146,17 +147,16 @@ ac_off; RH apply --wait 2
 if [ "$(get constraint_0_power_limit_uw)" = 25000000 ] && [ "$(cat "$SYS/cpu/intel_pstate/no_turbo")" = 1 ]; then
     ok "performance mode keeps the battery cap (safety)"
 else bad "performance battery not capped"; fi
-# undo the mode line for later tests
-grep -v '^NCZ_T2_POWER_MODE=performance$' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+unset RCONF
 
 # NCZ_T2_POWER_CAP=0 -> no writes at all
 mk_sysfs MacBookPro16,1 0; rm -rf "$T/run"; mkdir -p "$T/run"
-printf '\nNCZ_T2_POWER_CAP=0\n' >> "$CONF"
+RCONF="$T/conf.off"; cp "$CONF" "$RCONF"; printf '\nNCZ_T2_POWER_CAP=0\n' >> "$RCONF"
 RH apply --wait 2
 if [ "$(get constraint_0_power_limit_uw)" = 100000000 ] && [ "$(cat "$SYS/cpu/intel_pstate/no_turbo")" = 0 ]; then
     ok "NCZ_T2_POWER_CAP=0 disables every write"
 else bad "cap=0 still wrote"; fi
-grep -v '^NCZ_T2_POWER_CAP=0$' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+unset RCONF
 
 # product gate: a non-MacBookPro16 T2 Mac is untouched by default
 mk_sysfs MacBookPro15,1 0; rm -rf "$T/run"; mkdir -p "$T/run"
@@ -165,16 +165,19 @@ if [ "$rc" = 0 ] && [ "$(get constraint_0_power_limit_uw)" = 100000000 ] && [ "$
     ok "non-enforce product is left untouched (exit 0)"
 else bad "product gate failed (rc=$rc)"; fi
 # ... but FORCE=1 enables it
-printf '\nNCZ_T2_POWER_FORCE=1\n' >> "$CONF"
+RCONF="$T/conf.force"; cp "$CONF" "$RCONF"; printf '\nNCZ_T2_POWER_FORCE=1\n' >> "$RCONF"
 RH apply --wait 2
 if [ "$(get constraint_0_power_limit_uw)" = 25000000 ]; then ok "NCZ_T2_POWER_FORCE=1 enforces on other T2 Macs"; else bad "FORCE did not enforce"; fi
-grep -v '^NCZ_T2_POWER_FORCE=1$' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+unset RCONF
 
 # late zone: helper waits (bounded) for intel-rapl:0 to appear
 mk_sysfs MacBookPro16,1 0; rm -rf "$T/run"; mkdir -p "$T/run"
 mv "$SYS/powercap/intel-rapl:0" "$SYS/powercap/intel-rapl:0.late"
 ( sleep 1; mv "$SYS/powercap/intel-rapl:0.late" "$SYS/powercap/intel-rapl:0" ) &
-RH apply --wait 5; rc=$?; wait
+lz_pid=$!
+RH apply --wait 5; rc=$?
+wait "$lz_pid"
+[ -e "$SYS/powercap/intel-rapl:0.late" ] && mv "$SYS/powercap/intel-rapl:0.late" "$SYS/powercap/intel-rapl:0"
 if [ "$rc" = 0 ] && [ "$(get constraint_0_power_limit_uw)" = 25000000 ]; then
     ok "waits (bounded) for a late intel-rapl:0 and then caps"
 else bad "late-zone wait failed (rc=$rc)"; fi
@@ -216,4 +219,4 @@ grep -q '64-t2-power-cap' "$ROOT/post-install/run-all.sh" \
     && ok "hook is on run-all.sh MACHINE_HOOKS_RE (baked allowlist)" || bad "hook not on MACHINE_HOOKS_RE"
 
 echo "t2-power-cap tests: $pass passed, $fail failed"
-[ "$fail" = 0 ]
+[ "$fail" = 0 ] || exit 1
