@@ -70,6 +70,9 @@ autoinstall/
 # below (npu_embed_v2.py was ignored and untracked despite the ! rule).
 # staged ncz-screensavers .debs consumed by build-desktop-mirror.sh (binaries, never committed)
 build/ncz-screensavers-out/
+# staged chromium-ncz-sky1 .deb consumed by build-desktop-mirror.sh (the NCZ_LOCAL_DEBS
+# required row; staged from the ARGONAS build-inputs store, never committed)
+build/chromium-ncz-sky1-out/
 build/wallpaper-debs/
 # Build outputs written by build-vendor-mirror.sh (Chrome .deb cache): lint-platform
 # enumerates untracked, non-ignored files, so leaving this out made make image fail
