@@ -22,6 +22,16 @@ Subcommands:
       the SAME aspect ratio as the panel so a 16:10 panel is not letterboxed
       by a forced 16:9 mode, then apply the policy scale for that mode.
 
+      The greeter labwc runs with <core><autoEnableOutputs>no</core>, so this
+      is the ONE commit that lights each connected output -- the desired mode
+      is chosen before the compositor ever scans out, instead of a wlr-randr
+      mode change racing a live greeter surface. An output the compositor has
+      already enabled at a capped (<=1920x1200) mode is left untouched: the
+      disable->enable cycle of a redundant mode set is exactly the DP AUX
+      wedge trigger this avoids (see docs/BOOT-SEQUENCE.md, fix/greeter-dp-
+      handoff-20261011). Any output with no capped mode is simply enabled at
+      its own (native) mode rather than left dark.
+
   session [--settle SECONDS] [--dry-run]
       Desktop session, first login only. The Singularity shell already
       derives a default scale for an output with no saved setting; this is
@@ -180,23 +190,49 @@ def run_wlr(args: list[str], dry_run: bool, runner=subprocess.run) -> bool:
         return False
 
 
+def capped(mode: dict) -> bool:
+    """True when @mode scans out at or below the greeter cap (never 4K)."""
+    return mode["width"] <= GREETER_MAX_W and mode["height"] <= GREETER_MAX_H
+
+
 def cmd_greeter(dry_run: bool, runner=subprocess.run) -> int:
     outputs = read_outputs(runner)
     if not outputs:
         return 1  # let the greeter autostart fall back to its fixed 1080p loop
     for out in outputs:
-        if out.get("enabled") is False:
-            continue
         name = out["name"]
+        enabled = out.get("enabled") is not False
+        cur = mode_flag(out, "current")
+        # The compositor already lit this output at an acceptable mode: do
+        # nothing. Re-setting the mode would make labwc disable and re-enable
+        # the output (one disable->enable cycle), which is the DP AUX-engine
+        # wedge trigger on trilin Sky1 boards (MS-R1, Orange Pi 6 Plus).
+        if enabled and cur and capped(cur):
+            log(
+                f"{name}: already {cur['width']}x{cur['height']}; leaving it alone"
+            )
+            continue
         mode = greeter_mode(out)
         if mode is None:
-            log(f"{name}: no usable mode; leaving it alone")
+            # No capped mode on this output. Never leave it dark: if it is
+            # still off, enable it at whatever mode its own config carries.
+            if not enabled:
+                done = run_wlr(["--output", name, "--on"], dry_run, runner)
+                log(
+                    f"{name}: no capped mode; enabled at native mode"
+                    f"{'' if done else ' FAILED'}"
+                )
+            else:
+                log(f"{name}: no usable capped mode; leaving it alone")
             continue
         mm_w, mm_h = phys_mm(out)
         scale, why = policy_scale(mode["width"], mode["height"], mm_w, mm_h)
         size = f"{mode['width']}x{mode['height']}"
         refresh = mode.get("refresh")
-        tail = ["--scale", f"{scale:g}"]
+        # --on: with greeter autoEnableOutputs=no this call is the single
+        # commit that turns the output on; on a compositor that already
+        # enabled it, --on is a no-op and only the (capped) mode is applied.
+        tail = ["--scale", f"{scale:g}", "--on"]
         done = False
         if refresh:
             done = run_wlr(
