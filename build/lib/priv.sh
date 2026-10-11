@@ -90,3 +90,74 @@ ncz_sudo_bash() {
     local line="$1"; shift
     ncz_sudo bash -c "$line" "$@"
 }
+
+# ---------------------------------------------------------------------------
+# Hand privileged build artifacts back to the invoking (non-root) user.
+#
+# WHY (operator 2026-10-11 "fix open items").  The KVM install gate and the
+# provenance gate run through ncz_sudo (as root).  Everything they write under
+# the run dir -- kvm-gate/ui-check/, kvm-gate/target-logs/, prov-index/ -- is
+# then owned by root, so the build user cannot `rm -rf` a finished run dir
+# (36G stranded on ACHILLES; same class as the arm64 .kdebs-tmp stray logs).
+# Each privileged script installs an exit trap that chowns its OWN work output
+# back to the invoker on EVERY exit path (normal, error, signal).  This is
+# cleanup only: it runs after the gate decision and never changes it -- the
+# EXIT trap preserves the exit status.
+#
+# Target uid:gid, in order of preference:
+#   * NCZ_CHOWN_BACK     -- set explicitly by build-image.sh while it builds the
+#                           sudo command line, so it works when the whole build
+#                           runs as the root login too (sudo's env_reset would
+#                           otherwise drop a plain environment variable);
+#   * SUDO_UID/SUDO_GID  -- sudo always exports these to the command it runs;
+#   * otherwise nothing  -- we ARE the root login, root-owned is already right.
+# ---------------------------------------------------------------------------
+ncz_chown_target() {
+    if [ -n "${NCZ_CHOWN_BACK:-}" ]; then printf '%s\n' "$NCZ_CHOWN_BACK"; return 0; fi
+    if [ -n "${SUDO_UID:-}" ]; then printf '%s:%s\n' "$SUDO_UID" "${SUDO_GID:-$SUDO_UID}"; return 0; fi
+    return 1
+}
+
+# chown DIR... back to the invoking user. Root-only; never fails the caller and
+# never reads a gate verdict.  NCZ_CHOWN_BACK_FORCE=1 lets the regression test
+# drive it as a normal user (with a stub chown); it only affects cleanup.
+ncz_chown_back() {
+    if [ "${NCZ_CHOWN_BACK_FORCE:-0}" != "1" ] && [ "$(id -u)" != "0" ]; then return 0; fi
+    local target; target="$(ncz_chown_target)" || return 0
+    [ -n "$target" ] || return 0
+    local d
+    for d in "$@"; do
+        [ -e "$d" ] || continue
+        chown -R "$target" "$d" 2>/dev/null || true
+    done
+    return 0
+}
+
+# Install the chown-back trap for DIR... (call once, early, BEFORE the script
+# creates anything as root).  Chowns on normal exit, `exit N`, errexit, and the
+# usual signals; the EXIT handler restores the original status so a gate verdict
+# is never altered by cleanup.
+ncz_trap_chown_back() {
+    NCZ_CHOWN_BACK_DIRS=("$@")
+    # Chain any pre-existing EXIT trap instead of silently dropping its cleanup
+    # (zoder review 2026-10-11).  `trap -p EXIT` prints: trap -- 'CMD' EXIT
+    NCZ_CHOWN_BACK_PREV_CMD=""
+    local prev; prev="$(trap -p EXIT 2>/dev/null || true)"
+    # Only accept bash's canonical `trap -- 'CMD' EXIT` form; any other shape is
+    # left unchained, so eval never sees an unrecognised string.  All three
+    # callers set no EXIT trap of their own, so this is purely defensive.
+    case "$prev" in
+        "trap -- '"*"' EXIT")
+            NCZ_CHOWN_BACK_PREV_CMD="${prev#trap -- \'}"
+            NCZ_CHOWN_BACK_PREV_CMD="${NCZ_CHOWN_BACK_PREV_CMD%\' EXIT}" ;;
+    esac
+    _ncz_chown_back_trap() {
+        local rc=$?
+        [ -n "$NCZ_CHOWN_BACK_PREV_CMD" ] && { eval "$NCZ_CHOWN_BACK_PREV_CMD" || true; }
+        ncz_chown_back "${NCZ_CHOWN_BACK_DIRS[@]}"
+        return "$rc"
+    }
+    trap '_ncz_chown_back_trap' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM HUP
+}

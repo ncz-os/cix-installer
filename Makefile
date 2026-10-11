@@ -757,6 +757,8 @@ parity:
 	bash build/test-firmware-bom-hook.sh
 	bash build/test-desktop-apt-require.sh
 	bash build/test-build-inputs.sh
+	bash build/test-gate-chown-back.sh
+	bash build/test-fresh-clone-inputs.sh
 	bash build/test-deb-rev-defaults.sh
 	bash build/test-panthor-hook-overlay-fallback.sh
 	bash build/test-panthor-fallback-real-overlay.sh

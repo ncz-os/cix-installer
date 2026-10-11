@@ -189,7 +189,7 @@ case "$BUILD_VARIANT" in
                 if compgen -G "$DEB_DIR/${prefix}*.deb" > /dev/null; then
                     :
                 else
-                    mark_miss "cix-debs.prefix" "$DEB_DIR/${prefix}*.deb$([ "$prefix" = cix-npu-driver-dkms_ ] && echo " (pinned input: run build/stage-build-inputs.sh --arch arm64)")"
+                    mark_miss "cix-debs.prefix" "$DEB_DIR/${prefix}*.deb (pinned input: run build/stage-build-inputs.sh --arch arm64)"
                 fi
             done
             # The DKMS debs must carry today's assets/kernel/<drv> source.
@@ -259,7 +259,7 @@ fi
 EXTRA_MANIFEST="$ROOT/manifests/install-extra.pkgs"
 if [ -s "$EXTRA_MANIFEST" ] && sed 's/#.*//' "$EXTRA_MANIFEST" | awk 'NF {print $1}' | grep -qx ncz-screensavers; then
     if ! ls "$ROOT"/build/ncz-screensavers-out/ncz-screensavers_*_arm64.deb >/dev/null 2>&1; then
-        mark_miss "ncz-screensavers.deb" "$ROOT/build/ncz-screensavers-out/ncz-screensavers_*_arm64.deb (install-extra.pkgs requests it)"
+        mark_miss "ncz-screensavers.deb" "$ROOT/build/ncz-screensavers-out/ncz-screensavers_*_arm64.deb (install-extra.pkgs requests it; pinned input: build/stage-build-inputs.sh --arch arm64)"
     fi
     if [ "$CHECK_MIRROR" = 1 ]; then
         FM="${BUILD_DIR:-$ROOT/build}/forky-mirror"
@@ -313,15 +313,16 @@ if [ "$FAIL" -ne 0 ]; then
 verify-arm64-inputs: one or more required inputs are absent.
 
   How to restore each missing class:
-    - sky1-firmware/    : copy from the canonical set at
-                           /mnt/argonas-projects/cix-installer/assets/sky1-firmware
-                           on ULTRA, or
-                           root@192.168.207.101:/mnt/datapool/projects/cix-installer/assets/sky1-firmware
-                           on argonas.
-    - cix-debs/         : copy from a checkout that already has them, e.g.
-                           ~/Projects/cix-installer-arm64-build-2026-09-25/assets/cix-debs/
-                           (the .gitignore excludes both sky1-firmware/ and
-                           *.deb under cix-debs/ -- a fresh clone is empty).
+    - sky1-firmware/ and cix-debs/ : both are checksum-pinned build inputs now
+                           (manifests/build-inputs.tsv) published in the ARGONAS
+                           build-inputs store as two tarballs, so a fresh clone
+                           stages them with
+                               build/stage-build-inputs.sh --arch arm64   (fetch)
+                               build/stage-arm64-assets.sh               (extract)
+                           (the pipeline's stage-inputs stage runs both). No
+                           host-specific pool paths any more -- the .gitignore
+                           excludes sky1-firmware/ and cix-debs/*.deb, so a fresh
+                           clone is empty until those two commands run.
     - desktop-mirror/   : run `make offline-mirror` (this repo) to rebuild
                            it from the refreshed vendor mirror + libdrm-debs.
     - overlay-modversions: copy the pinned staging dir's overlays/<dir>/<kver>/

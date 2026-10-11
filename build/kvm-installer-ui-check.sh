@@ -9,6 +9,11 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 IMG="${1:?image}"; ARCH="${2:?arch}"; WORK="${3:?workdir}"
+# The KVM gate invokes this under ncz_sudo (as root); $WORK/ui-check/* would be
+# root-owned and undeletable by the build user. Hand it back on every exit path
+# (cleanup only -- install the trap before the first mkdir below). 2026-10-11.
+. "$HERE/lib/priv.sh" 2>/dev/null || true
+if declare -F ncz_trap_chown_back >/dev/null 2>&1; then ncz_trap_chown_back "$WORK"; fi
 PY="${NCZ_PYTE_PYTHON:-$HOME/pyte-venv/bin/python}"; [ -x "$PY" ] || PY=python3
 "$PY" -c 'import pyte' 2>/dev/null || { echo "UI CHECK FAIL: pyte is not installed for $PY (python3 -m venv ~/pyte-venv && ~/pyte-venv/bin/pip install pyte)" >&2; exit 1; }
 SECS="${NCZ_UI_CHECK_SECS:-200}"
