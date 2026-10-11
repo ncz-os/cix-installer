@@ -1,18 +1,18 @@
 {
-  "generated_utc": "2026-10-06T18:39:48Z",
+  "generated_utc": "2026-10-11T17:30:45Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
-      "file": "build/kernel-debs/cixmini-boot_1.2+r285_arm64.deb",
-      "sha256": "968a7527b0c7348c0d4ea89b18397ddff9a7c94223f304d7d0e963eeb5423be9"
+      "file": "build/kernel-debs/cixmini-boot_1.2+r286_arm64.deb",
+      "sha256": "13baa7513a07963804b9d3e9c725ca6134117eb93513073f00ac0d47f9e060cf"
     },
     {
-      "file": "build/kernel-debs/linux-headers-cixmini_7.3.0-rc6-sky1-ncz+r285_arm64.deb",
-      "sha256": "ff929b5da0fea6d88eaf3846ecdfff33844f4d9650b9a0f27ff297f5bf75ab51"
+      "file": "build/kernel-debs/linux-headers-cixmini_7.3.0-rc6-sky1-ncz+r286_arm64.deb",
+      "sha256": "76694a20251dfd8a562ed895e7557479ad598fc05b1b42abd5f3135777b581da"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini_7.3.0-rc6-sky1-ncz+r285_arm64.deb",
-      "sha256": "5bd62bb561bdbe54b249a4906ffd3f0301076435560264ac3dfd5db626f25e53"
+      "file": "build/kernel-debs/linux-image-cixmini_7.3.0-rc6-sky1-ncz+r286_arm64.deb",
+      "sha256": "176befb40e1c9d38b6303e9a45d116c60ec5a74a69b25de40146a979456130b0"
     }
   ],
   "schema": 1,
@@ -25,14 +25,14 @@
       "dir": "assets/kernel/mainline",
       "image": {
         "file": "assets/kernel/mainline/Image-cixmini.bin",
-        "sha256": "d2dc71fea41fdd031d66aaf43a9f7c6a658886fdbd86909760666215b9e30433",
+        "sha256": "e4439d6b517bff47f650591e3a0d98011e690c62a9e3c0c0134ebe6d270f2f61",
         "size": 57719296
       },
       "kver": "7.3.0-rc6-sky1-ncz",
       "modules": {
         "file": "assets/kernel/mainline/modules-cixmini.tgz",
-        "sha256": "cd3cf7b6f7750438329cf14aa9d23dac0774c454f49bd8eb5d6da8392c8394d4",
-        "size": 15391818
+        "sha256": "f4cc93b5a7c811d451261c4acbd4f8c34224c3f13d4d7080e08c8e0e59765bca",
+        "size": 15382286
       },
       "npu": null
     }

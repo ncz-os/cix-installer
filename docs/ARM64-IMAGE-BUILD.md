@@ -35,7 +35,10 @@ filename weekly, so the refresh+cache step is what keeps the pin stable.
   itself. Stages 0/2 run in the rootful `localhost/ncz-imagebuild:trixie`
   container. The entrypoint encodes this.
 * Kernel pin: `assets/kernel/mainline` → a staging dir named
-  `r<N>-<kver>-sky1-ncz-<date>` (today r285, unified 7.3); provenance in the
+  `r<N>-<kver>-sky1-ncz-<date>` (today r286: the DP-AUX wedge recovery MS-R1
+  DisplayPort fix, unified 7.3; the pin procedure is in
+  `docs/reports/2026-10-11-sky1-r286-pin.md` and the r284->r285 predecessor in
+  `docs/reports/2026-10-06-sky1-r284-pin.md`); provenance in the
   staging dir's `PROVENANCE.txt` and `assets/kernel/sky1-manifest.json`. There is
   no `assets/kernel/edge` any more; a directory with any other prefix inside
   `/mnt/argonas-yocto-shared/kernel-staging` fails preflight gate [3] (move it to
