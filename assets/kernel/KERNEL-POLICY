@@ -42,3 +42,17 @@ RESCUE_ARM64_BLACKLIST=panthor,panfrost,mali_kbase,memory_group_manager,protecte
 
 # No EDGE channel any more (operator 2026-10-05).
 EDGE_ENABLED=0
+
+# FRESHNESS ACKNOWLEDGEMENT (operator 2026-10-11). build/preflight-freshness-
+# gate.sh refuses to build while assets/kernel/mainline is not the pool's newest
+# unified 7.3 build -- unless the operator has explicitly declined that newer
+# build. Value = "<pinned-build>:<declined-newer-build>": BOTH names must match
+# the resolved mainline pin AND the pool's newest build, so repointing mainline
+# or any even-newer build still FAILs closed. Set only with explicit operator
+# direction for this build.
+#   pinned  = r285-7.3.0-rc6-sky1-ncz-20261006 (assets/kernel/mainline)
+#   declined= r286-7.3.0-rc6-sky1-ncz-20261011 = dpfix MS-R1 DP-AUX wedge
+#             recovery (fix/dptx-aux-wedge-recovery-v2-20261011 @ 36758f9382515):
+#             a supervised-test kernel staged as a NON-default .66 boot entry,
+#             NOT shipped by the r203 integration image (mission 2026-10-11).
+MAINLINE_FRESHNESS_ACK=r285-7.3.0-rc6-sky1-ncz-20261006:r286-7.3.0-rc6-sky1-ncz-20261011
