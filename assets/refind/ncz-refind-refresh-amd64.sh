@@ -359,12 +359,13 @@ is_prerelease() {
     case "$1" in *-rc[0-9]*) return 0 ;; *) return 1 ;; esac
 }
 
-# amd64 stable-class: the NCZ T2 stable line (<ver>-N-t2-trixie), release only.
+# amd64 stable-class: the NCZ T2 stable line (<ver>-N-t2-trixie, or <ver>-t2-ncz from the
+# 7.3.0-final rebuild on), release only.
 # A stock/Debian/edge kernel is never eligible for the rescue slot.
 is_stable_class() {
     is_prerelease "$1" && return 1
     case "$1" in
-        *-t2-trixie*) return 0 ;;
+        *-t2-trixie*|*-t2-ncz*) return 0 ;;
         *)            return 1 ;;
     esac
 }
