@@ -438,6 +438,7 @@ build/test-sibling-mirror-apt-opts.sh	common	-	hermetic fixture test that siblin
 build/test-sibling-empty-index.sh	common	-	hermetic fixture test that an empty package manifest or Packages index exits with an explicit error
 build/test-refind-rescue-promotion.sh	common	-	rEFInd rescue auto-promotion guard: rc/edge kernels are never promoted; existing rescue survives a failed copy (item RRH)
 build/test-wallpaper-rotator-relogin.sh	common	-	ncz-wallpaper-rotator.service is wanted by the per-login session target (item RRH)
+build/test-wallpaper-rotator-interval.sh	common	-	the wallpaper daemon rotates only when the configured interval has elapsed, not on (re)start
 build/test_wallpaper_fit.py	common	-	wallpaper aspect variants: selection, rotator refit, deb layout, safe-area pixel test
 build/test-t2-dkms-provenance.sh	amd64	t2	proves every vendored T2 DKMS module has a PROVENANCE file pinned to a 40-hex upstream commit and a licence line
 build/test-t2smc-range.sh	amd64	t2	userspace unit test of the t2smc range checks (fan min/target, charge limit, RTC offset) and the patch applying cleanly
