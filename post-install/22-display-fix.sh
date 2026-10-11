@@ -60,7 +60,7 @@ echo "  connected: $CONN_CARD ($CONN_OUTPUT)"
 # stripping master-of-seat from every other card (on PEGASUS that is the NVIDIA GPU, which drives
 # the HDMI port) plus an Xorg kmsdev pin. The rule is written after coldplug, so it applies at the
 # NEXT boot to whatever card numbering that boot gets. On PC hardware keep only the bounded wait
-# above: greetd's ExecCondition (ncz-has-drm-output) checks once, and amdgpu on CHIMERA publishes
+# above: greetd's ExecCondition (ncz-has-drm-output, which itself polls up to 30 s since 2026-10-10) and amdgpu on CHIMERA publishes
 # its eDP connector ~7 s into userspace, so this wait is what keeps the greeter from being skipped.
 case "$(uname -m)" in
     aarch64|arm64) ;;
