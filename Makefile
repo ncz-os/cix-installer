@@ -694,6 +694,7 @@ parity:
 	branding/cygnus/tests/test-refind-theme-config.sh
 	build/test-refind-rescue-promotion.sh
 	build/test-wallpaper-rotator-relogin.sh
+	build/test-wallpaper-rotator-interval.sh
 	python3 build/test_wallpaper_fit.py
 	python3 -m unittest build/iso/tests/test_stage_payload_desktop_guard.py
 	python3 -m unittest build/iso/tests/test_patch_initrd_firmware.py

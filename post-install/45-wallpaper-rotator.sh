@@ -592,7 +592,25 @@ printf '%s\n' "$COLLECTION" > "$STATE_COLLECTION_FILE" 2>/dev/null
 ROT
 chmod 0755 /usr/local/bin/ncz-wallpaper-rotate
 
-# Daemon: 2s warm-up (was 30s), then rotate every 10 min
+# Daemon: 2s warm-up, then rotate only when the configured interval has elapsed.
+#
+# RESTART MUST NOT ROTATE (fix 2026-10-11). This daemon is restarted on EVERY
+# login: ncz-wallpaper-session-ready restarts the user unit once the live
+# session environment is exported (post-install/20-desktop.sh), and both the
+# systemd --user unit and the XDG autostart fallback start it. The old daemon
+# ran `ncz-wallpaper-rotate` as its very first action, so a login, a session
+# restart, or a crash loop (e.g. the O6N shell crash loop) changed the
+# wallpaper every single time. Rotation is now gated on a persisted timestamp:
+#
+#   $XDG_STATE_HOME/ncz-wallpaper/last-rotate   (default ~/.local/state/...)
+#
+# On start the daemon rotates only when there is no recorded rotation (a
+# brand-new user, who gets one wallpaper) or the configured interval has
+# genuinely elapsed. A recorded timestamp in the future (clock stepped back) or
+# otherwise unreadable state is treated as elapsed so rotation is never blocked
+# forever. rotate-enabled=0 suppresses the start-up rotation. The aspect re-fit
+# still runs on start and every tick (below): it keeps the CURRENT image fitted
+# to the panel and is a no-op when nothing changed.
 cat > /usr/local/bin/ncz-wallpaper-daemon <<'DAEMON'
 #!/bin/sh
 # r110: single-instance guard so session restarts don't stack daemons
@@ -600,8 +618,10 @@ LOCK="${XDG_RUNTIME_DIR:-/tmp}/ncz-wallpaper-daemon.lock"
 if [ -e "$LOCK" ] && kill -0 "$(cat "$LOCK" 2>/dev/null)" 2>/dev/null; then exit 0; fi
 echo $$ > "$LOCK"
 trap 'rm -f "$LOCK"' EXIT
-sleep 2
-/usr/local/bin/ncz-wallpaper-rotate
+
+# The rotate binary is overridable for build/test-wallpaper-rotator-interval.sh
+# only; the default is the shipped path.
+ROTATE=${NCZ_WALLPAPER_ROTATE:-/usr/local/bin/ncz-wallpaper-rotate}
 
 # ROTATION IS CONFIGURABLE, and can be switched off.
 #
@@ -617,6 +637,79 @@ CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
 CONF_DIR="$CONFIG_HOME/singularity/wallpaper-rotation"
 LEGACY_CONF_DIR="$CONFIG_HOME/ncz-wallpaper"
 
+# PERSISTED ROTATION CLOCK. The daemon's rotation schedule must survive a
+# restart, so the time of the last rotation is written to disk (atomically:
+# write a sibling temp file, then rename) instead of living only in a shell
+# variable that a restart forgets. XDG_STATE_HOME is the right home for
+# machine state; the old runtime-dir state file (ncz-wallpaper-state) is the
+# PIC record and is unrelated.
+STATE_HOME=${XDG_STATE_HOME:-$HOME/.local/state}
+STATE_DIR="$STATE_HOME/ncz-wallpaper"
+LAST_FILE="$STATE_DIR/last-rotate"
+
+read_conf() {  # <basename> [default when absent or empty]
+    _f="$CONF_DIR/$1"
+    [ ! -r "$_f" ] && _f="$LEGACY_CONF_DIR/$1"
+    _v=""
+    [ -r "$_f" ] && _v=$(tr -d " \t\r\n" < "$_f" 2>/dev/null)
+    printf '%s\n' "${_v:-${2:-}}"
+}
+
+read_interval() {
+    interval=$(read_conf rotate-interval 600)
+    case "$interval" in
+        ''|*[!0-9]*) interval=600 ;;
+    esac
+    # Refuse a pathological interval rather than spinning: a 0 or 1 second
+    # rotation would hammer gsettings and, for the Bing collection, the network.
+    [ "$interval" -lt 30 ] && interval=30
+    printf '%s\n' "$interval"
+}
+
+# Seconds since the last recorded rotation, or empty when none is recorded or
+# the record is unusable. A future timestamp is reported empty too, so the
+# caller rotates instead of waiting for the clock to catch up (clamp).
+seconds_since_rotate() {
+    [ -r "$LAST_FILE" ] || return 0
+    _last=$(tr -d " \t\r\n" < "$LAST_FILE" 2>/dev/null)
+    # Reject empty, non-numeric, and any leading-zero value: a real epoch is 10
+    # digits and never starts with 0, and this also avoids octal arithmetic.
+    case "$_last" in
+        ''|0*|*[!0-9]*) return 0 ;;
+    esac
+    _now=$(date +%s)
+    [ "$_last" -gt "$_now" ] && return 0
+    printf '%s\n' "$((_now - _last))"
+}
+
+record_rotate() {  # persist the rotation time, atomically
+    mkdir -p "$STATE_DIR" 2>/dev/null || true
+    _tmp="$LAST_FILE.$$"
+    if printf '%s\n' "$(date +%s)" > "$_tmp" 2>/dev/null; then
+        mv -f "$_tmp" "$LAST_FILE" 2>/dev/null || rm -f "$_tmp"
+    else
+        rm -f "$_tmp"
+    fi
+}
+
+rotate_now() {
+    "$ROTATE"
+    record_rotate
+}
+
+# ---- start-up decision -----------------------------------------------------
+# Rotate on start only when nothing is recorded (a brand-new user, who gets a
+# wallpaper) or when the interval has genuinely elapsed. A restart inside the
+# interval leaves the current wallpaper alone -- this is the whole fix.
+sleep 2
+"$ROTATE" --refit
+if [ "$(read_conf rotate-enabled 1)" != "0" ]; then
+    elapsed=$(seconds_since_rotate)
+    if [ -z "$elapsed" ] || [ "$elapsed" -ge "$(read_interval)" ]; then
+        rotate_now
+    fi
+fi
+
 # ASPECT RE-FIT (docs/WALLPAPER-SAFE-AREA.md). The loop wakes every TICK
 # seconds and runs `ncz-wallpaper-rotate --refit`, which swaps the current
 # wallpaper for the aspect variant that fits the primary output and is a no-op
@@ -629,33 +722,16 @@ LEGACY_CONF_DIR="$CONFIG_HOME/ncz-wallpaper"
 # interval lowered below the time already elapsed rotates on the next tick,
 # the same as the old loop picking up a new interval after its sleep.
 TICK=15
-last_rotate=$(date +%s)
 while true; do
-    interval=""
-    INTERVAL_CONF="$CONF_DIR/rotate-interval"
-    [ ! -r "$INTERVAL_CONF" ] && INTERVAL_CONF="$LEGACY_CONF_DIR/rotate-interval"
-    [ -r "$INTERVAL_CONF" ] && interval=$(tr -d " \t\r\n" < "$INTERVAL_CONF" 2>/dev/null)
-    case "$interval" in
-        ''|*[!0-9]*) interval=600 ;;
-    esac
-    # Refuse a pathological interval rather than spinning: a 0 or 1 second
-    # rotation would hammer gsettings and, for the Bing collection, the network.
-    [ "$interval" -lt 30 ] && interval=30
-
+    interval=$(read_interval)
     sleep "$TICK"
-    /usr/local/bin/ncz-wallpaper-rotate --refit
+    "$ROTATE" --refit
     # Wall-clock time since the last rotation, so the refit's own run time
-    # does not stretch the interval.
-    now=$(date +%s)
-    [ $((now - last_rotate)) -lt "$interval" ] && continue
-    last_rotate=$now
-
-    enabled=""
-    ENABLED_CONF="$CONF_DIR/rotate-enabled"
-    [ ! -r "$ENABLED_CONF" ] && ENABLED_CONF="$LEGACY_CONF_DIR/rotate-enabled"
-    [ -r "$ENABLED_CONF" ] && enabled=$(tr -d " \t\r\n" < "$ENABLED_CONF" 2>/dev/null)
-    [ "$enabled" = "0" ] && continue
-    /usr/local/bin/ncz-wallpaper-rotate
+    # does not stretch the interval. Empty means "no usable record" -> rotate.
+    elapsed=$(seconds_since_rotate)
+    [ -n "$elapsed" ] && [ "$elapsed" -lt "$interval" ] && continue
+    [ "$(read_conf rotate-enabled 1)" = "0" ] && continue
+    rotate_now
 done
 DAEMON
 chmod 0755 /usr/local/bin/ncz-wallpaper-daemon

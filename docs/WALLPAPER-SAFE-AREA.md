@@ -91,6 +91,30 @@ can carry pre-composed variants for other aspect ratios:
   The shell is upstream code and is not changed. While a 16:9 file it chose
   is on screen, it can stay cropped for up to one tick.
 
+## Rotation is not a login action (2026-10-11)
+
+`ncz-wallpaper-daemon` is (re)started on every login: the systemd `--user` unit
+is pulled in by `singularity-session.target`, `ncz-wallpaper-session-ready`
+restarts it once the live session environment is exported, and the XDG
+autostart fallback starts it too. Before 2026-10-11 it ran
+`ncz-wallpaper-rotate` as its very first action, so every login, every session
+restart and every spin of a crash loop (the O6N shell crash loop) changed the
+wallpaper.
+
+It now persists the time of the last rotation, atomically, to
+
+    $XDG_STATE_HOME/ncz-wallpaper/last-rotate
+    (default ~/.local/state/ncz-wallpaper/last-rotate)
+
+and on start rotates only when that record is absent (a brand-new user still
+gets one wallpaper) or the configured interval has genuinely elapsed. A record
+in the future (the clock stepped back), a non-numeric or leading-zero record,
+and a missing record all count as "elapsed", so bad state can never block
+rotation forever. `rotate-enabled=0` still suppresses the start-up rotation,
+and the start-up `--refit` above is unchanged (it fits the *current* image and
+is a no-op when nothing changed). Nothing changes once the interval has
+elapsed while the daemon is running.
+
 ## Checks
 
 `python3 build/test_wallpaper_fit.py` (part of `make parity`) checks:
@@ -104,6 +128,13 @@ can carry pre-composed variants for other aspect ratios:
 * with Pillow, a pixel test that finds each variant's mark and requires all
   of it inside the 16:10, 16:9 and 1366x768 cover views, 64 px clear of every
   edge.
+
+`bash build/test-wallpaper-rotator-interval.sh` (part of `make parity`) runs
+the real daemon heredoc against a fake clock and a counting fake rotator: a
+restart inside the interval rotates 0 times, after the interval 1, missing /
+corrupt / future state 1, and `rotate-enabled=0` 0. A negative self-check runs
+the pre-fix start action and shows it rotates inside the interval, so the test
+would have caught the login-time regression.
 
 ## Known limits
 

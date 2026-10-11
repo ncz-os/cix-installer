@@ -229,6 +229,10 @@ on the missing sidecar convention.
   * cache is per market, because the rotator picks newest-by-name and a shared
     cache would keep serving the old feed's image
   * `rotate-enabled` / `rotate-interval`, re-read every cycle, clamped at 30s
+  * `rotate-interval` is honoured across a restart (2026-10-11): the daemon
+    remembers its last rotation in `$XDG_STATE_HOME/ncz-wallpaper/last-rotate`,
+    so a login or session restart no longer rotates the wallpaper merely
+    because the daemon started
 
 ## 6b. Bing is an ARCHIVE, not just today
 
