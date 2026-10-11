@@ -57,6 +57,45 @@ the timer fires. This is the image-blocking arm64 crash-loop fix.
 
 Delete this patch once PR #37 merges.
 
+**Not yet filed upstream** (2026-10-11). Patches
+`0013-lockscreen-honour-output-scale.patch` and
+`0014-lockscreen-host-an-out-of-process-frame-source.patch`, applied in that order
+(0014 depends on the `struct lock_output.scale` field that 0013 adds).
+
+- `0013` makes the session-lock client render at the output's scale instead of
+  letting the compositor upscale (the lock screen and its prompt were blurry on a
+  HiDPI output), and logs the configured surface geometry. Generic; the
+  scale-only part is the upstreamable change.
+- `0014` adds an optional, build-flagged (`-Dlock_framesrc=enabled`) host that
+  lets a **separate process** render a screensaver off-screen and hand the lock
+  client a buffer fd over an AF_UNIX socket, which the lock imports and presents
+  on its lock surface. While a session is locked, `ext-session-lock-v1` presents
+  only the lock surface, so a second process cannot draw underneath it; this is
+  how a screensaver can be shown over the lock. The lock never executes
+  frame-source code, so a crash/hang/GPU error/bad fd degrades to the lock's own
+  Cairo prompt (fail-closed). Default off: the upstream locker is unchanged.
+
+Neither has a `**Upstream PR:**` link on purpose (nothing is filed; the mirkoprs
+task owns the upstream offer). Delete them if/when the corresponding change lands
+upstream.
+
+## singularity-greeter — active
+
+**Not yet filed upstream** (2026-10-11). Patches
+`0001-greeter-cancel-session-before-recreate.patch` and
+`0002-greeter-answer-info-error-messages.patch`, applied in order.
+
+- `0001` fixes "a session is already being configured": after a rejected password
+  the greeter called `create_session` again while greetd still held the session
+  under configuration. It now cancels first and re-creates only once greetd
+  acknowledges the cancel.
+- `0002` fixes a stuck "Authenticating…": greetd's PAM conversation blocks on
+  every `auth_message` including the `info`/`error` kinds, and the greeter
+  displayed them without replying. It now replies with a null response.
+
+No `**Upstream PR:**` link on purpose (nothing is filed). Real-greetd
+confirmation is an operator ask (`lockhost/NEED-OPERATOR.md`).
+
 ## singularity-desktop — active
 
 **Upstream PR:** [singularityos-lab/singularity-desktop#262](https://github.com/singularityos-lab/singularity-desktop/pull/262)

@@ -329,6 +329,7 @@ post-install/60-boot-splash.sh	common	-	KMS boot splash; DRM-generic (panthor in
 post-install/61-chromium-icon.sh	sky1	-	Cygnus-coloured NCZ Chromium icon (diverts the chromium-ncz-sky1 package icons); Sky1 only
 post-install/62-cygnus-screensaver-default.sh	common	-	default screensaver = black hole in the Cygnus palette; override validated against the installed schema before install
 post-install/63-ncz-idle-lock-order.sh	common	-	desktop auto-lock ordered AFTER the ncz screensaver: GSETTINGS default override dev.sinty.lockscreen idle-delay = hack-idle-delay + lock-delay (300+60=360), validated before install (operator 2026-10-11)
+post-install/64-ncz-lock-saver-plan.sh	common	-	NCZ lock renderer: one idle/lock/blank owner -- when the lock client hosts the saver the session lock is held from the saver start (dev.sinty.lockscreen idle-delay = dev.ncz.screensaver hack-idle-delay, interim 360 override removed), else the hook-63 fallback stands; validated before install (operator 2026-10-11)
 post-install/64-t2-power-cap.sh	amd64	t2	Apple T2 CPU package power cap (MacBookPro16,x): battery PL1=25 W/PL2=35 W + no-turbo + max_perf=50, AC PL1=45 W/PL2=60 W; helper + intel-rapl:0 udev (boot race) + Mains-change (plug/unplug) + systemd-sleep (resume) + thermald ExecStartPre drop-in; /etc/ncz/power-cap.conf override with a performance opt-out; reversible (post-install/64-t2-power-cap.sh)
 post-install/70-bootloader.sh	mixed	-	rEFInd on both arches via run_refind_arm64 and run_refind_amd64; TODO split into per-platform bodies
 post-install/72-rescue-partition.sh	mixed	-	rescue partition; arm64 stages assets/kernel/mainline, amd64 copies the installed amd64-stable kernel; TODO split
@@ -428,6 +429,7 @@ build/test-boot-splash-select.sh	common	-	regression test: 60-boot-splash.sh sel
 build/test-chromium-icon.sh	common	-	chromium icon assets (Cygnus colours, crisp) and the 61 hook (divert + install + idempotent, package before/after/upgrade)
 build/test-run-all-baked-allowlist.sh	common	-	run-all.sh in baked mode against every hook on both hooks.list files: no ORPHAN, every listed hook runs
 build/test-idle-lock-order.sh	common	-	regression test for the idle-lock ordering hook (lock default strictly after the saver, tracks the schema, idempotent, skips without the lockscreen schema)
+build/test-lock-saver-plan.sh	common	-	regression test for the lock/saver idle-plan hook (lock from saver start when the renderer is configured, superseded interim override removed, fallback untouched otherwise, tracks the schema, idempotent)
 build/test-screensaver-default.sh	common	-	regression test for the Cygnus black hole screensaver default hook (validated override, idempotent, skips old schemas)
 build/test-screensavers-mandatory-install.sh	common	-	fail-before/pass-after for the screensaver deb being apt-installed on every desktop image: mirror pre-flight and install hook (operator 2026-10-05; item S4; sources the builders sibling)
 build/test-ssplugin-supply-chain.sh	common	-	fail-before/pass-after for the screensaver settings plugin supply chain (pin, staging, ABI gate, medium, offline install, registry, baked allowlist)
