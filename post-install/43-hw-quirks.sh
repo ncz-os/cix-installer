@@ -194,29 +194,71 @@ PWEOF
 echo "[43] PipeWire min-quantum=2048 installed"
 
 # (6) VPU (amvx/MVX) devfreq governor: simple_ondemand parks the decoder clock
-#     at 72-216 MHz during AV1/VP9 decode and the decoder underruns. Pin it to
-#     performance. Sky1 only (CIXH3010:00 = amvx_dev).
-if [ -e /sys/class/devfreq/CIXH3010:00/governor ]; then
+#     at 72-216 MHz at the start of AV1/VP9 decode and the decoder's first
+#     frames underrun (cold-clock startup stutter). Pin it to performance.
+#     Sky1 only (CIXH3010:00 = amvx_dev).
+#
+#     Deliberately NOT a udev RUN+=/sleep loop: udev processes RUN synchronously
+#     within the event's timeout, so a retry-with-sleep there blocks the udev
+#     worker and can stall unrelated device events at boot (zoder review
+#     2026-10-11). Pin it from a boot-time oneshot instead -- the pattern this
+#     tree already uses for devfreq/power policy (see 85-power-perf-mode.sh and
+#     the chroot-safe enable in 83-panthor-gpu.sh).
+#
+#     NOTE the hazard recorded in 85-power-perf-mode.sh: writing a non-default
+#     governor to a CIX devfreq node is the same clk_round_rate NULL-deref class
+#     that panic-looped the board when aimed at CIXH4000 (NPU). CIXH3010 (VPU)
+#     is a different driver, and a `performance` write to it was applied live on
+#     O6N and held 1000 MHz with no fault, so it is enabled here -- but only
+#     from a single boot oneshot, never a hotplug loop, so a fault would be a
+#     one-shot boot event rather than a per-event crash.
+#
+#     Gate on the TARGET ARCH, not on /sys (the devfreq node does not exist in
+#     the build chroot, so a node test here would silently never install the
+#     unit on the target -- zoder review 2026-10-11). Same arm64 idiom as
+#     81-vpu.sh. The helper repeats the node check at boot and no-ops elsewhere.
+if [ "$(dpkg --print-architecture 2>/dev/null)" = "arm64" ]; then
     cat > /usr/local/sbin/ncz-vpu-governor-performance <<'VPUEOF'
 #!/bin/sh
-# Pin the Sky1 VPU devfreq governor to performance. Retries while the devfreq
-# node is still appearing at early boot.
-for _i in 1 2 3 4 5 6 7 8 9 10; do
-    [ -e /sys/class/devfreq/CIXH3010:00/governor ] && break
-    sleep 1
-done
-[ -w /sys/class/devfreq/CIXH3010:00/governor ] && \
-    echo performance > /sys/class/devfreq/CIXH3010:00/governor 2>/dev/null || true
+# Pin the Sky1 VPU (amvx/mvx) devfreq governor to performance. Started by
+# ncz-vpu-governor.service at boot; no polling loop here (zoder review
+# 2026-10-11 -- systemd/udev handle the wait). No-ops and exits 0 if the node is
+# absent (e.g. non-Sky1 hardware).
+set -u
+G=/sys/class/devfreq/CIXH3010:00/governor
+[ -w "$G" ] && echo performance > "$G" 2>/dev/null || true
+exit 0
 VPUEOF
     chmod 0755 /usr/local/sbin/ncz-vpu-governor-performance
+    cat > /etc/systemd/system/ncz-vpu-governor.service <<'VPUS'
+[Unit]
+Description=Pin Sky1 VPU devfreq governor to performance (avoids decode startup stutter)
+After=systemd-udev-settle.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ncz-vpu-governor-performance
+RemainAfterExit=yes
+[Install]
+WantedBy=graphical.target
+VPUS
+    # Non-blocking udev -> systemd bridge: tag the VPU platform device and let
+    # systemd start the oneshot when it appears. No RUN+= program, so udev never
+    # blocks (zoder review 2026-10-11). This also covers amvx being modprobed
+    # after coldplug (the node may not exist at systemd-udev-settle).
     cat > /etc/udev/rules.d/71-ncz-vpu-governor.rules <<'VPUR'
-# Sky1 VPU devfreq -> performance (avoids decoder underrun). See post-install/43-hw-quirks.sh.
-ACTION=="add", SUBSYSTEM=="platform", KERNEL=="CIXH3010:00", RUN+="/usr/local/sbin/ncz-vpu-governor-performance"
+# Sky1 VPU devfreq -> performance. Non-blocking: tag the device, let systemd
+# start ncz-vpu-governor.service. See post-install/43-hw-quirks.sh.
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="CIXH3010:00", TAG+="systemd", ENV{SYSTEMD_WANTS}+="ncz-vpu-governor.service"
 VPUR
-    /usr/local/sbin/ncz-vpu-governor-performance 2>/dev/null || true
-    echo "[43] VPU governor pinned to performance"
+    # Enable by hand rather than via systemctl: this hook runs in a chroot with
+    # no running systemd, where `systemctl enable` can fail on the D-Bus probe
+    # (same reason as 83-panthor-gpu.sh).
+    install -d -m 0755 /etc/systemd/system/graphical.target.wants
+    ln -sf ../ncz-vpu-governor.service \
+        /etc/systemd/system/graphical.target.wants/ncz-vpu-governor.service
+    echo "[43] VPU governor -> performance (ncz-vpu-governor.service + udev tag)"
 else
-    echo "[43] no CIXH3010 devfreq (non-Sky1); VPU governor step skipped"
+    echo "[43] not arm64 (Sky1 VPU only); VPU governor step skipped"
 fi
 
 echo "[43] hw quirks done"
