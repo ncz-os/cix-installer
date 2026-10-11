@@ -61,3 +61,4 @@ Broadcom/AMPAK WiFi (ARM SBC modules)	brcmfmac	firmware-brcm80211	brcm/brcmfmac*
 Qualcomm Atheros QCA6174/QCA9377	ath10k	firmware-atheros	ath10k/**/*	target
 Qualcomm WCN6855/QCN9074	ath11k	firmware-atheros	ath11k/**/*	target
 Qualcomm WCN7850	ath12k	firmware-atheros	ath12k/**/*	target
+Intel integrated display DMC (Meteor/Arrow Lake etc.; PROTEUS i915 ran the installer with "Direct firmware load for i915/mtl_dmc.bin failed -2")	i915	firmware-intel-graphics	i915/*_dmc*.bin	initrd+target
