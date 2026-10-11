@@ -1,0 +1,85 @@
+# T2 boot "hardware error" noise — classification and policy
+
+Date: 2026-10-11. Operator question: *can we suppress the multiple T2 kernel
+initial "hardware errors" on the console, or look into them?*
+
+Scope of the evidence: MEDUSA (192.168.207.38, MacBookPro16,1, T2) and CHIMERA
+(192.168.207.6, MacBookPro16,1, T2), both on the shipping kernel
+`7.3.0-rc6-4-t2-edge-aer9010`; PEGASUS (192.168.207.85, ASUS ROG Zephyrus M15,
+**non-T2**) as the control. Read-only (`dmesg`, `journalctl -k`, `/proc`,
+`/sys`). Full per-message table with source files/commits lives in the mission
+report: `~/Projects/oc-mission-20261010/t2noise/REPORT.md`.
+
+## The console rule (why most "errors" never reach the console)
+
+`Documentation/core-api/printk-basics`: a message is printed to the console only
+when its level is **numerically less than** `console_loglevel`:
+
+| console_loglevel | reaches the console |
+|---|---|
+| 3 (our Default entry / `99-ncz-quiet-console.conf`) | 0 EMERG, 1 ALERT, 2 CRIT |
+| 2 | 0 EMERG, 1 ALERT (**hides CRIT**) |
+
+Every observed benign T2 line is `KERN_ERR` (level 3) — see the level buckets
+below — so at `loglevel=3` it is **already off the console** and exists only in
+`dmesg` / `journalctl -k` (the ring buffer always keeps everything). The rEFInd
+**"…Console"** entry deliberately carries no `loglevel=`, which is why it shows
+ERR/WARN.
+
+```
+MEDUSA  /proc/sys/kernel/printk = 3 4 1 3   -> dmesg --level=crit  = (empty)
+CHIMERA /proc/sys/kernel/printk = 3 4 1 3   -> dmesg --level=crit  = mce [Hardware Error] x2
+PEGASUS /proc/sys/kernel/printk = 3 4 1 3   -> dmesg --level=crit  = (empty)
+```
+
+## Why we do NOT lower the console to 2
+
+The only way to hide a `KERN_ERR` line from the console with the printk knobs is
+to drop `console_loglevel` below 3. That also hides `KERN_CRIT` (2). Real
+machine-check records are logged at CRIT: CHIMERA logged, on this exact kernel,
+
+```
+mce: [Hardware Error]: CPU 0: Machine Check: 0 Bank 12: ee0000000040110a
+mce: [Hardware Error]: CPU 0: Machine Check: 0 Bank 13: ee0000000040110a
+```
+
+and those lines are level `crit` (they do not appear in `dmesg --level=err`,
+only in `--level=crit`). Lowering to 2 would silence them from the console,
+violating the mission rule *never hide MCE/AER/EDAC/panic/oops*. So **3 is the
+floor**; the benign noise is fixed at its source instead (below).
+
+## What actually was changed here (root-cause fixes, level 3 kept)
+
+1. **brcmfmac P2P -52** — `options brcmfmac feature_disable=0x10` (clear bit 4,
+   `BRCMF_FEAT_P2P`); the BCM4364 firmware rejects `p2p_da_override` so the P2P
+   Device interface can never be created. Removes the 3-line `brcmf_p2p_*`
+   error cluster every boot and stops advertising a feature that does not work.
+2. **pcspkr duplicate registration** — `blacklist snd_pcsp`; the input `pcspkr`
+   and ALSA `snd_pcsp` modules both register a platform driver named `pcspkr`
+   (`MODULE_ALIAS platform:pcspkr`), so udev autoloads both and one fails with
+   *"Error: Driver 'pcspkr' is already registered, aborting..."*.
+3. **Bluetooth firmware reporting** — `55-t2-firmware.sh` now verifies BT
+   firmware by chip class: BCM4377 models (MacBookPro15,4 / 16,3 / Air9,1) must
+   have `brcmbt*.bin`; every other T2 model is a UART chip on ROM firmware where
+   the absent `brcm/BCM.hcd` is expected, so it is reported as such instead of
+   as a fixable gap. (No Apple firmware is shipped.)
+4. **Console-loglevel floor guard** — `58-boot-hygiene.sh` documents the floor
+   and warns if a drop-in leaves the console below 3.
+
+Two remaining items are mainline/t2linux candidates, not installer work: the
+dpc `-524` spurious-probe line (kernel patch, see the `amd64-kernel-t2` branch
+`fix/t2-dpc-spurious-probe-20261011`) and the T2 `Secure Boot Certs` `pr_err`
+in `load_uefi.c` (t2linux series; demote to `pr_info`).
+
+## Level buckets (MEDUSA, boot 09:58, `7.3.0-rc6-4-t2-edge-aer9010`)
+
+* `KERN_ERR` (dmesg-only; **not** on the console at `loglevel=3`):
+  `ACPI Error: AE_ALREADY_EXISTS` (+8 `Aborting method`), `Unable to locate
+  IOAPIC for GSI 34`, `dpc … failed with error -524` (x2), `integrity: Reading
+  UEFI Secure Boot Certs…`, `intel-lpss INT34BA:00 … -22`, `Driver 'pcspkr' is
+  already registered`, `Bluetooth: … baudrate (-16)` / `Failed to set baudrate`
+  / `Patch file not found brcm/BCM.hcd`, `hid_sensor_rotation … -22`,
+  `brcmf_p2p_* -52` (x3), `SGX disabled or unsupported by BIOS`.
+* `KERN_WARNING` (dmesg-only): `thunderbolt device links…`, `intel_pch_thermal
+  … INT A`, `t2smc`/`t2bce` taint notices, `amdgpu Fence fallback…`.
+* `KERN_CRIT` (console): CHIMERA `mce: [Hardware Error]` only.

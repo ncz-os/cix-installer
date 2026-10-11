@@ -109,6 +109,50 @@ fi
 
 echo "[55] Apple T2 hardware confirmed — wiring real t2-ubuntu-repo apt source"
 
+# --- T2 boot-noise quirks (modprobe.d) -------------------------------------
+# Written here, immediately after T2 is confirmed and BEFORE any apt/CDN step,
+# so a later network failure cannot skip them (this hook exits early on those).
+# These remove two recurring error-level boot-log lines at their root cause on
+# T2 Macs; both are benign-but-noisy and are fixed by not loading/announcing
+# something the hardware cannot do.
+#
+# (1) brcmfmac P2P: the BCM4364 firmware rejects the "p2p_da_override" iovar
+#     with -EBADE (-52), so creating the P2P Device interface always fails and
+#     logs three error lines every boot:
+#       brcmf_p2p_set_firmware: failed to update device address ret -52
+#       brcmf_p2p_create_p2pdev: set p2p_disc error
+#       brcmf_cfg80211_add_iface: add iface p2p-dev-wlan0 ... err=-52
+#     Wi-Fi Direct is unusable on this firmware, so clear the P2P feature and
+#     never advertise the interface; wpa_supplicant/NM then stop trying.
+#     feature_disable is a bitmask indexed by enum brcmf_feat_id (see
+#     drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.h): MBSS=0,
+#     MCHAN=1, PNO=2, WOWL=3, P2P=4 -> 0x10. If upstream ever reorders the
+#     enum this bit must be re-derive; the debugfs "features" list shows it.
+install -d -m0755 /etc/modprobe.d
+cat > /etc/modprobe.d/ncz-t2-brcmfmac-p2p.conf <<'MODEOF'
+# T2 (BCM4364): the firmware has no working P2P; do not advertise a P2P Device
+# interface, so userspace stops trying and logging -52. Bit 4 = BRCMF_FEAT_P2P.
+options brcmfmac feature_disable=0x10
+MODEOF
+echo "  [55] brcmfmac P2P disabled (T2 firmware rejects p2p_da_override, -52)"
+
+# (2) pcspkr / snd_pcsp duplicate platform-driver registration: both modules
+#     register a platform driver named "pcspkr" and carry
+#     MODULE_ALIAS("platform:pcspkr"), so udev autoloads BOTH for the single PC
+#     Speaker platform device. Whichever loses the race fails its probe with:
+#       Error: Driver 'pcspkr' is already registered, aborting...
+#     (the loser's module init returns the error, so it is not even listed in
+#     lsmod). Blacklist the ALSA one; the input pcspkr driver keeps the terminal
+#     bell working and the error line disappears.
+cat > /etc/modprobe.d/ncz-t2-pcspkr.conf <<'MODEOF'
+# pcspkr (input) and snd_pcsp (ALSA) both register platform driver "pcspkr"
+# (MODULE_ALIAS platform:pcspkr) -> duplicate-registration error every boot.
+# Keep the input driver; block the ALSA one.
+blacklist snd_pcsp
+install snd_pcsp /bin/true
+MODEOF
+echo "  [55] snd_pcsp blacklisted (duplicate 'pcspkr' platform-driver registration)"
+
 install -d -m0755 /etc/apt/trusted.gpg.d
 T2_KEYRING=/etc/apt/trusted.gpg.d/t2-ubuntu-repo.gpg
 if [ ! -f "$T2_KEYRING" ] || [ ! -s "$T2_KEYRING" ]; then
@@ -189,6 +233,46 @@ if ls /lib/firmware/brcm/brcmfmac*.apple,*.bin >/dev/null 2>&1; then
 else
     echo "[55] WARN: no Apple-specific brcmfmac*.apple,*.bin firmware appeared in /lib/firmware/brcm/ -- check the tail above for the real failure"
 fi
+
+# --- Bluetooth firmware verification (chip-class aware) --------------------
+# The Wi-Fi check above intentionally says nothing about Bluetooth. Per the
+# t2linux wiki (Device Support / state), Bluetooth on T2 Macs needs macOS
+# firmware *only* on devices whose combo chip is a BCM4377 (PCIe driver
+# hci_bcm4377; files brcmbt<chip>-apple,<board>.bin + .ptb). Those are exactly
+# MacBookPro15,4 / MacBookPro16,3 / MacBookAir9,1.
+#
+# Every other T2 Mac (e.g. MacBookPro16,1) has a UART Broadcom chip --
+# BCM4364B3 here -- driven by hci_uart + btbcm. Because mainline btbcm has no
+# LMP-subver entry for this chip and no Open Firmware board name exists on
+# x86/ACPI, the kernel's only candidate is the generic "brcm/BCM.hcd", which
+# does not exist and cannot be shipped (Apple's patchram is not
+# redistributable). Those machines run on ROM firmware and the boot line
+#   "Bluetooth: hci0: BCM: firmware Patch file not found, tried: 'brcm/BCM.hcd'"
+# is expected, not a staging failure. Reporting it as if it were a fixable gap
+# is the defect this block removes.
+#
+# See amd64-kernel-t2 docs/T2-BLUETOOTH-FIRMWARE.md for the full analysis, and
+# that repo's patches/9002 for the ROM-firmware advertising workaround this
+# kernel already carries.
+T2_BT_FW_MODELS="MacBookPro15,4 MacBookPro16,3 MacBookAir9,1"
+t2_model="$(cat /sys/class/dmi/id/product_name 2>/dev/null \
+    || dmidecode -s system-product-name 2>/dev/null)"
+case " ${T2_BT_FW_MODELS} " in
+    *" ${t2_model} "*)
+        if ls /lib/firmware/brcm/brcmbt*.bin >/dev/null 2>&1; then
+            echo "[55] Apple Bluetooth firmware present (BCM4377-class ${t2_model}; $(ls /lib/firmware/brcm/brcmbt*.bin 2>/dev/null | wc -l) file(s))"
+        else
+            echo "[55] WARN: ${t2_model} needs BCM4377 Bluetooth firmware but no brcmbt*.bin appeared in /lib/firmware/brcm/ -- check the tail above"
+        fi
+        ;;
+    *)
+        if [ -e /lib/firmware/brcm/BCM.hcd ]; then
+            echo "[55] Bluetooth: user-supplied brcm/BCM.hcd present for UART chip on ${t2_model:-unknown model}"
+        else
+            echo "[55] Bluetooth: ${t2_model:-this T2 model} uses a UART Broadcom chip on ROM firmware; brcm/BCM.hcd is intentionally absent (no redistributable patchram; see amd64-kernel-t2 docs/T2-BLUETOOTH-FIRMWARE.md)"
+        fi
+        ;;
+esac
 
 if [ "$T2_PKG_FAIL" = 1 ]; then
     echo "[55] FAILED: the T2 audio/firmware packages did not install" >&2
