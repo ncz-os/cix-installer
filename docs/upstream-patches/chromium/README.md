@@ -209,3 +209,45 @@ describes -- that doc is scoped to the VA-API route (cix-vaapi), where AV1
 genuinely remains blocked on a vendor-side gap (see that doc). The V4L2
 stateful decoder (this patch set, 0001 + the 154 NXP regression fixes) is a
 separate pipeline, and it is the one that works for AV1 today.
+
+## 0006 -- software fallback for non-16-aligned V4L2 decode width (2026-10-11)
+
+`0006-media-gpu-v4l2-decode-non16-aligned-width-software-fallback.patch`
+
+The V4L2 stateful decoder has no size constraint of its own, but the vendor
+Mali EGL (libmali, closed) cannot import the VPU's NV12 dma-buf as a GL texture
+when the decoded buffer width is not a multiple of 16 px: `eglCreateImage`
+returns `EGL_BAD_PARAMETER` (0x3000), so Chromium cannot build a GL/Skia
+representation of the video layer and playback renders **black/garbled** even
+though the decode is byte-correct. The CIX `mvx` driver exposes the stream width
+verbatim as the capture coded width (a 854x480 stream is reported as
+`coded_size 854x488`), so any non-16-aligned stream width reaches the decoder.
+
+This patch rejects such a config in `V4L2StatefulVideoDecoder::Initialize` (when
+either the coded or the visible width is not 16-aligned). A failed decoder
+initialisation is an ordinary decoder-selection outcome, so the renderer's
+`DecoderSelector` falls back to software decode -- which is clean. 720p/1080p
+(16-aligned) keep hardware decode; only the offending resolutions move to CPU.
+
+Measured on O6N (192.168.207.3), chromium-ncz-sky1 154.0.8037.0, local clips
+over `http://127.0.0.1`, one GPU client at a time:
+
+| case | VPU node held | eglCreateImage failures | result |
+|---|---|---|---|
+| before, 720p HW | yes | 0 | clean (HW) |
+| before, 1080p HW | yes | 0 | clean (HW) |
+| before, 854x480 VP9 HW | yes | 752 | black/garbled |
+| before, 854x480 H.264 HW | yes | 758 | black/garbled |
+| after, 720p HW | yes | 0 | clean (HW kept) |
+| after, 1080p HW | yes | 0 | clean (HW kept) |
+| after, 854x480 VP9 HW | no (software) | 0 | clean |
+| after, 854x480 H.264 HW | no (software) | 0 | clean |
+
+Trade-off and follow-up: the fix is a fallback, not a stride fix. The real fix
+is to make the VPU export a 16-aligned (or otherwise Mali-acceptable) capture
+stride, or to teach the Mali UMD to import the existing stride. Neither is
+reachable from Chromium without vendor source (the UMD is a closed blob,
+`cix-gpu-umd` 2.0.0 / `libmali.so.0.53.0`); the kernel-side option (pad the
+capture width in the `amvx`/`mvx` driver, `ncz-os/linux-cix`) is the other
+candidate and is not implemented here. See the mission report under
+`~/Projects/oc-mission-20261010/o6nchromefix/REPORT.md` for the full numbers.
