@@ -112,8 +112,8 @@ echo "[55] Apple T2 hardware confirmed — wiring real t2-ubuntu-repo apt source
 # --- T2 boot-noise quirks (modprobe.d) -------------------------------------
 # Written here, immediately after T2 is confirmed and BEFORE any apt/CDN step,
 # so a later network failure cannot skip them (this hook exits early on those).
-# These remove two recurring error-level boot-log lines at their root cause on
-# T2 Macs; both are benign-but-noisy and are fixed by not loading/announcing
+# These remove recurring error-level boot-log lines at their root cause on
+# T2 Macs; all are benign-but-noisy and are fixed by not loading/announcing
 # something the hardware cannot do.
 #
 # (1) brcmfmac P2P: the BCM4364 firmware rejects the "p2p_da_override" iovar
@@ -152,6 +152,31 @@ blacklist snd_pcsp
 install snd_pcsp /bin/true
 MODEOF
 echo "  [55] snd_pcsp blacklisted (duplicate 'pcspkr' platform-driver registration)"
+
+# (3) hid_sensor_rotation on the T2 sensor hub (device 05AC:8104, usage
+#     0x20008a): Apple's HID report descriptor declares the orientation
+#     collection but omits the standard sensor "common attributes" report, so
+#     hid_sensor_parse_common_attributes() asks the hub for report id
+#     0xffffffff, gets nothing, and the probe fails. Three lines per boot:
+#       hid-sensor-hub ...: No report with id 0xffffffff found        (WARN)
+#       hid_sensor_rotation HID-SENSOR-20008a...: failed to setup common attributes
+#       hid_sensor_rotation HID-SENSOR-20008a...: probe with driver hid_sensor_rotation failed with error -22
+#     The sensor is unusable (auto-rotation is simply unavailable) and nothing
+#     depends on it, so do not bind the driver at all. Not binding is the
+#     correct model here: the device has no usable interface, and skipping it
+#     removes the failed probe AND the "No report" warning together. This is
+#     deliberately a driver blacklist rather than a kernel patch -- a kernel
+#     quirk would either leave a broken IIO device registered or only relocate
+#     the same messages.
+cat > /etc/modprobe.d/ncz-t2-hid-sensor-rotation.conf <<'MODEOF'
+# Apple T2 HID sensor hub (05AC:8104) exposes an orientation collection whose
+# descriptor lacks the generic common-attributes report, so hid_sensor_rotation
+# cannot parse it and fails probe (-22). The sensor is non-functional, so do not
+# bind the driver; this removes the failed-probe error and the hub warning.
+blacklist hid_sensor_rotation
+install hid_sensor_rotation /bin/true
+MODEOF
+echo "  [55] hid_sensor_rotation blacklisted (T2 hub descriptor lacks the common-attributes report)"
 
 install -d -m0755 /etc/apt/trusted.gpg.d
 T2_KEYRING=/etc/apt/trusted.gpg.d/t2-ubuntu-repo.gpg
