@@ -85,6 +85,10 @@ lock_has_framesrc() {
     fi
 }
 
+# Auto-creation is the DEFAULT install path (runs when NCZ_LOCKSAVER_ENABLE is
+# unset). It is skipped ONLY under the test/gate force (NCZ_LOCKSAVER_ENABLE=1),
+# where the caller supplies its own plan and does not want a real
+# /etc/ncz/lock-renderer.env written to the gate host.
 if [ "${NCZ_LOCKSAVER_ENABLE:-0}" != "1" ]; then
     if lock_has_framesrc && [ -x "$FEED_BIN" ]; then
         if ! renderer_configured; then
