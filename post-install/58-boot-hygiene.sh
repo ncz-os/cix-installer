@@ -191,6 +191,23 @@ fi
 # `kernel.printk = 4 4 1 7`, and sysctl.d applies in lexical order (last wins),
 # so a lower number than 55 would be overridden and the console would sit at 4
 # (KERN_ERR prints) at runtime.
+#
+# FLOOR = 3, DO NOT LOWER IT (operator question 2026-10-11: "can we suppress
+# the T2 boot 'hardware errors'?"). The kernel prints a message to the console
+# only when its level is numerically less than console_loglevel
+# (Documentation/core-api/printk-basics), so:
+#   console_loglevel=3 -> levels 0,1,2 (EMERG/ALERT/CRIT) reach the console;
+#                         KERN_ERR (3) and KERN_WARNING (4) do NOT.
+#   console_loglevel=2 -> only 0,1 (EMERG/ALERT); KERN_CRIT is hidden too.
+# The benign T2 boot lines (ACPI duplicate-SSDT, IOAPIC GSI, dpc -524,
+# intel-lpss, pcspkr, BCM.hcd, hid_sensor_rotation, brcmf_p2p -52) are all
+# KERN_ERR, so they are already off the console at 3 and remain in
+# dmesg/journalctl -k. Going to 2 would additionally hide every KERN_CRIT
+# report, and real machine-check records are logged at KERN_CRIT (measured:
+# "mce: [Hardware Error]: CPU 0: Machine Check" on CHIMERA is level crit, the
+# only crit line on any T2 host). Per the mission rule "never hide
+# MCE/AER/EDAC/panic/oops", 3 is the safe floor; the remaining log noise is
+# fixed at its source instead (see 55-t2-firmware.sh and the kernel DPC fix).
 install -d -m0755 /etc/sysctl.d
 rm -f /etc/sysctl.d/10-ncz-quiet-console.conf   # drop the old (losing) name
 cat > /etc/sysctl.d/99-ncz-quiet-console.conf <<'SYS'
@@ -198,10 +215,19 @@ cat > /etc/sysctl.d/99-ncz-quiet-console.conf <<'SYS'
 # runtime so a stray driver/module message can't paint on the greetd<->session
 # handoff VT. (boot uses loglevel=3; 55-console-messages.conf would raise it to
 # 4 — this file, sorting after 55, keeps it at 3.)
+# DO NOT lower this to 2: KERN_CRIT (level 2) still prints at 3, and real
+# MCE "[Hardware Error]" records are logged at KERN_CRIT. 3 is the floor that
+# keeps MCE/AER/EDAC visible while hiding benign KERN_ERR firmware noise.
 kernel.printk = 3 4 1 3
 SYS
 if [ -w /proc/sys/kernel/printk ] 2>/dev/null; then
     sysctl -q -w kernel.printk="3 4 1 3" 2>/dev/null || true
+fi
+# Guard: if an operator drop-in (or a distro default) left the console below
+# the safe floor, say so loudly rather than silently hiding KERN_CRIT.
+_cur_console_loglevel=$(awk '{print $1}' /proc/sys/kernel/printk 2>/dev/null)
+if [ -n "${_cur_console_loglevel:-}" ] && [ "$_cur_console_loglevel" -lt 3 ] 2>/dev/null; then
+    echo "  WARN: console_loglevel=$_cur_console_loglevel is below the safe floor 3 (would hide KERN_CRIT/MCE); re-check /etc/sysctl.d ordering" >&2
 fi
 echo "  console loglevel pinned to 3 (/etc/sysctl.d/99-ncz-quiet-console.conf)"
 
