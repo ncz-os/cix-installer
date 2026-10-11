@@ -331,10 +331,30 @@ EOF
     if [ "$pin_name" = "$newest" ]; then
         echo "[3] OK: arm64 $label -- $local_pointer -> $pin_name (newest $want_class build)"
     else
-        echo "[3] FAIL: arm64 $label -- $local_pointer -> $pin_name ($want_class class) but the pool's newest $want_class build is $newest"
-        echo "          Newer builds of the SAME class exist; the operator's pin is stale."
-        echo "          Repoint to $newest, or confirm the operator explicitly wants $pin_name."
-        FAIL=$((FAIL + 1))
+        # The gate's own contract offers one resolution besides repointing:
+        # "confirm the operator explicitly wants $pin_name". Honor the
+        # machine-checkable form of that confirmation in
+        # assets/kernel/KERNEL-POLICY (MAINLINE_FRESHNESS_ACK). Its value is a
+        # pair, "<pinned-build>:<declined-newer-build>": BOTH must match the
+        # resolved pin AND the pool's newest build, so the acknowledgement is
+        # valid only for that exact pair. Repointing assets/kernel/mainline
+        # invalidates it, and a future even-newer build still FAILs closed --
+        # this declines one supervised, non-shipping candidate (e.g. dpfix's
+        # r286 DP-AUX test kernel staged beside the shipping build) without
+        # weakening the default "newest wins" posture.
+        local ack ack_pin ack_new
+        ack="$(sed -n 's/^MAINLINE_FRESHNESS_ACK=//p' "${REPO_ROOT:-.}/assets/kernel/KERNEL-POLICY" 2>/dev/null | head -1)"
+        ack_pin="${ack%%:*}"; ack_new="${ack##*:}"
+        if [ -n "$ack" ] && [ -n "${ack_pin:-}" ] && [ -n "${ack_new:-}" ] \
+           && [ "$ack_pin" = "$pin_name" ] && [ "$ack_new" = "$newest" ]; then
+            echo "[3] WARN: arm64 $label -- $local_pointer -> $pin_name; pool has newer $want_class build $newest, acknowledged as non-shipping (MAINLINE_FRESHNESS_ACK=$ack)"
+            WARN=$((WARN + 1))
+        else
+            echo "[3] FAIL: arm64 $label -- $local_pointer -> $pin_name ($want_class class) but the pool's newest $want_class build is $newest"
+            echo "          Newer builds of the SAME class exist; the operator's pin is stale."
+            echo "          Repoint to $newest, or confirm the operator explicitly wants $pin_name."
+            FAIL=$((FAIL + 1))
+        fi
     fi
 }
 
