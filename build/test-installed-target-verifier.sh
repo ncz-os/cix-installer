@@ -132,6 +132,12 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     <key name="hack-id" type="s">
       <default>'blackhole_gles3'</default>
     </key>
+    <key name="hack-idle-delay" type="i">
+      <default>300</default>
+    </key>
+    <key name="lock-delay" type="i">
+      <default>60</default>
+    </key>
   </schema>
 </schemalist>
 GSCHEMA
@@ -146,6 +152,13 @@ GSCHEMA
     # saver -- so this is what makes "default saver = blackhole" true).
     printf "[dev.ncz.screensaver]\nmode='one'\nhack-id='blackhole_gles3'\nblackhole-color-mode='cygnus'\n" \
         > "$r/usr/share/glib-2.0/schemas/99-ncz-cygnus-screensaver.gschema.override"
+    # The idle-lock ordering override 63-ncz-idle-lock-order.sh writes at install
+    # time (operator 2026-10-11): the desktop lock (dev.sinty.lockscreen) must
+    # fire strictly after the saver (hack-idle-delay 300 = lock 360), because
+    # ext-session-lock-v1 is exclusive and a lock at/before the saver hides it.
+    mkdir -p "$r/opt/singularity/share/glib-2.0/schemas"
+    printf '[dev.sinty.lockscreen]\nidle-delay=360\n' \
+        > "$r/opt/singularity/share/glib-2.0/schemas/99-ncz-idle-lock-order.gschema.override"
     ln -s /usr/lib/systemd/user/ncz-screensaver-idled.service "$r/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"
     printf 'Package: ncz-screensavers\nStatus: install ok installed\nVersion: 0.8.9\n\n' >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/var/lib/dpkg/info"
