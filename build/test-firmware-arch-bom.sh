@@ -87,13 +87,16 @@ neg "allow-list naming an unpublished package fails" "not published" \
 neg "declared and allowed overlap fails" "also present in" \
     --mirror "$W/mirror" --arch arm64 --bom "$W/pub/overlap.pkgs"
 
-# 3d. a required package absent from the mirror pool
-mkdir -p "$W/short"
-cp -a "$W/mirror/.ncz-published-packages" "$W/short/"
-mkdir -p "$W/short/pool/main"
-for p in $(list "$AKEEP"); do cp "$W/mirror/pool/main/${p}_"*_all.deb "$W/short/pool/main/"; done
-neg "required package missing from the pool fails" "missing published firmware" \
-    --mirror "$W/short" --arch amd64
+# 3d. one KEPT package absent from the mirror pool, tested on its own arch:
+# required = arm64 keep set; present = keep set minus firmware-realtek.
+mkdir -p "$W/short/pool/main" "$W/short/.ncz-published-packages"
+cp -a "$W/mirror/.ncz-published-packages/." "$W/short/.ncz-published-packages/"
+for p in $(list "$AKEEP"); do
+    [ "$p" = firmware-realtek ] && continue
+    cp "$W/mirror/pool/main/${p}_"*_all.deb "$W/short/pool/main/"
+done
+neg "arm64 kept package missing from the pool fails" "missing published firmware" \
+    --mirror "$W/short" --arch arm64
 
 # --- 4. wiring: every builder/verifier honours the arch-scoped BOM ----------
 grep -q '_seed_for firmware' "$ROOT/build/build-forky-mirror.sh" \
