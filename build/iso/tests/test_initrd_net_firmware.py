@@ -61,8 +61,12 @@ def build_deb(root: Path, package: str, version: str, files: dict) -> Path:
 INTEL_GFX_FILES = {
     "i915/mtl_dmc.bin": b"mtl-dmc",  # PROTEUS Arrow Lake (7d67), 2026-10-10
     "i915/tgl_dmc_ver2_12.bin": b"tgl-dmc",
-    "i915/mtl_guc_70.bin": b"guc-stays-target-only",
-    "i915/mtl_huc_gsc.bin": b"huc-stays-target-only",
+    # Meteor/Arrow Lake also need GuC/HuC/GSC for a clean GT init: without them
+    # i915 "declares it wedged" during the installer (PROTEUS 2026-10-10) and the
+    # display is degraded, so they belong in the initrd too.
+    "i915/mtl_guc_70.bin": b"guc-in-initrd",
+    "i915/mtl_huc_gsc.bin": b"huc-in-initrd",
+    "i915/mtl_gsc_1.bin": b"gsc-in-initrd",
 }
 
 REALTEK_FILES = {
@@ -186,6 +190,9 @@ class StageInitrdFirmwareTest(unittest.TestCase):
             "mediatek/BT_RAM_CODE_MT7961_1_2_hdr.bin",
             "i915/mtl_dmc.bin",
             "i915/tgl_dmc_ver2_12.bin",
+            "i915/mtl_guc_70.bin",
+            "i915/mtl_huc_gsc.bin",
+            "i915/mtl_gsc_1.bin",
         }
         self.assertEqual(paths, want)
         for p in LOGGED_MISSING:
