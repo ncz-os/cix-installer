@@ -45,7 +45,7 @@ assets/kernel/	sky1	-	Sky1 kernel staging, mali/panthor/vpu/npu overlays, patche
 assets/kernel/.gitkeep	common	-	placeholder
 assets/kernel/amd64-stable/	amd64	-	amd64 unified 7.3 default kernel KVER stamp
 assets/kernel/amd64-stable-manifest.json	amd64	-	amd64 default 7.3 kernel artifact manifest (sha256, provenance)
-assets/kernel/sky1-manifest.json	sky1	-	Sky1 r286 7.3 default kernel artifact manifest (sha256, provenance)
+assets/kernel/sky1-manifest.json	sky1	-	Sky1 r287 7.3 default kernel artifact manifest (sha256, provenance)
 assets/kernel/t2gmux/	amd64	t2	T2 gmux DKMS source
 assets/kernel/t2gmux/patches/	amd64	t2	local hardening patches applied by DKMS (t2gmux G2/G3/G4)
 assets/kernel/t2smc/	amd64	t2	T2 SMC DKMS source

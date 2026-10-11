@@ -3,12 +3,12 @@
   "channel": "default",
   "arch": "arm64",
   "kver": "7.3.0-rc6-sky1-ncz",
-  "build_rev": "r286",
+  "build_rev": "r287",
   "staged_utc": "2026-10-11",
   "channel_pointer": "assets/kernel/mainline",
-  "staging_dir": "/mnt/argonas-yocto-shared/kernel-staging/r286-7.3.0-rc6-sky1-ncz-20261011",
+  "staging_dir": "/mnt/argonas-yocto-shared/kernel-staging/r287-7.3.0-rc6-sky1-ncz-20261011",
   "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
-  "note": "This is the Sky1 arm64 DEFAULT and installer boot kernel under the unified 7.3 policy (operator 2026-10-05): there is no edge channel and assets/kernel/mainline points at this r286 build. r286 = r285 + 0012 (sky1-ncz-dptx-aux-wedge-recovery: on trilin DP AUX -EBUSY exhaustion the driver resets the AUX/PHY and retries, bounded by aux_recover_max, and recovers on the core_on [already ready] path). This is the MS-R1 DisplayPort black-screen fix the operator accepted on .66 (2026-10-11). The change touches only drivers/gpu/drm/cix/dptx/trilin_dptx.c and adds only static functions: KVER is unchanged and every exported-symbol CRC is unchanged, so the committed r285 accelerator overlays remain ABI-compatible (verified: verify-overlay-modversions against r286 Module.symvers = 0 CRC mismatches) and are NOT re-mirrored. The PCIe default is unchanged (sky1_pcie_native=off pcie_pnp_en). The rescue entry boots this same kernel with the arm64 accelerator blacklist. Replaced by 7.3.0 final later.",
+  "note": "This is the Sky1 arm64 DEFAULT and installer boot kernel under the unified 7.3 policy (operator 2026-10-05): there is no edge channel and assets/kernel/mainline points at this r287 build. r287 = r286 + (a) CONFIG_RT_GROUP_SCHED is no longer set (the kernel root fix for the O6N audio cutouts: with the cgroup v2 cpu controller enabled a RT_GROUP_SCHED kernel gives every child cgroup zero RT runtime, cgroup v2 exposes no per-cgroup rt_runtime knob, so rtkit cannot grant PipeWire's data-loop SCHED_RR and it silently stays SCHED_OTHER) and (b) recipe patches 0013-0021, the still-missing cixtech/cix_opensource__linux cix_k6.6.89_2026q2..q3 fixes (ASoC i2s_mc global-interrupt mask; cdns3/cdnsp RCU-stall, DISABLE_SLOT skip, comp_desc NULL guards; dptx out-of-bound HPD, physical dp->status/MST HPD, eDP-only PSR caps, GOP-plug-after-HDCP; typec rts5453 portX/orientation). CONFIG_RT_GROUP_SCHED changes struct task_struct/sched_rt_entity layout, so the exported-symbol CRCs MOVED (535 across the accelerator imports): unlike r285->r286, ALL SIX committed accelerator overlays are REBUILT against the r287 Module.symvers and re-mirrored (verify-overlay-modversions: 0 CRC mismatches). The PCIe default is unchanged (sky1_pcie_native=off pcie_pnp_en). The rescue entry boots this same kernel with the arm64 accelerator blacklist. Replaced by 7.3.0 final later.",
   "source": {
     "base_tag": "v7.3-rc6",
     "base_peel": "a90ee4305c4a5df72c11b31dacfdc76e00fcf78a",
@@ -16,7 +16,7 @@
     "port_branch_tip": "c3e054c7d4ea349a2c2872dafa7df9bd38b24c39",
     "port_patch": "sky1-ncz-v7.3-rc6-port.patch",
     "port_patch_sha256": "9be6f5f31cad73144afbc488e7cd2ceaef0708fdff60e97838ca31e1958c6594",
-    "r286_patches": {
+    "r287_patches": {
       "0001-drm-cix-trilin-dp-drop-fwnode_drm_find_panel-use-cou.patch": {
         "sha256": "3cfec76ceaf5ab642b4d6474bad8a1132b0c0e4a29265d210b3cd18707443dff",
         "summary": "drm/cix: trilin-dp: counted OF panel lookup (r284)"
@@ -64,6 +64,42 @@
       "sky1-ncz-dptx-aux-wedge-recovery.patch": {
         "sha256": "d5668a3cc447c1437df4c0e72a50f2a8beba9059665f874d213e53ec5fa2f4ce",
         "summary": "drm/cix: trilin-dp: recover the DP AUX engine after an -EBUSY wedge (MS-R1 DP black screen); linux-cix fix/dptx-aux-wedge-recovery-v2-20261011 @ 36758f9382515c29e70f868959368194438a24e6"
+      },
+      "0013-ASoC-cix-i2s_mc-mask-all-interrupts-CIX.patch": {
+        "sha256": "ca4ed8c88a8407a91bee014ba26dbf68f114609fcca842931beffd065bc651c7",
+        "summary": "ASoC: cix: i2s_mc: disable the global interrupt mask (cannot be cleared); cixtech/cix_opensource__linux 34cfd63f88be (cix_k6.6.89_2026q3)"
+      },
+      "0014-usb-usb-cdns3-Fix-RCU-stall-in-cdnsp_thread_irq_hand.patch": {
+        "sha256": "cc3079a147bf4f8cebaf69aefb92fe4b42296122bf7386438c57606b8b9ef32a",
+        "summary": "usb: cdns3: bound the cdnsp event loop + need_resched() to fix an RCU stall; cixtech 2026q3 db868d622d96"
+      },
+      "0015-usb-cdnsp-skip-DISABLE_SLOT-command-if-slot-is-alrea.patch": {
+        "sha256": "7029cec201a0fbe2044a37e701cf9770a59e997de07e0a6c2547bb0b4b7339ba",
+        "summary": "usb: cdnsp: skip DISABLE_SLOT when the slot is already disabled; cixtech 2026q3 bb297895107e (TRB_FLUSH_ENDPOINT case dropped: not defined in this tree)"
+      },
+      "0016-dptx-cix-Add-support-for-out-of-bound-hotplug-events.patch": {
+        "sha256": "f54564856050b6b7eb8a44d8d9647c27f2be778154a4f06580940e5932da45c9",
+        "summary": "dptx: cix: out-of-bound hotplug events (force_hpd); cixtech 2026q3 09cd6a2f9d11"
+      },
+      "0017-DRM-cix-dptx-physical-dp-status-and-MST-HPD-handling.patch": {
+        "sha256": "cd1c7775fe4b069d62b1d7af14479a797ca294f23a7c2c0b08b8c65faf74cce4",
+        "summary": "DRM/cix: dptx: physical dp->status vs MST HPD handling; cixtech 2026q3 f48d8481d682"
+      },
+      "0018-restrict-psr-caps-update-conditions-CIX.patch": {
+        "sha256": "8dfd8d5109432d184c3f6137e845b17c90bc4ebf34313d1b37114027061dbac1",
+        "summary": "drm/cix: dptx: only initialise PSR on an eDP-capable sink; cixtech 2026q3 37670a50fd86"
+      },
+      "0019-DRM-cix-dptx-notify-GOP-plug-after-HDCP-init-CIX.patch": {
+        "sha256": "0e1adc9d81010f78cc2eec97220cb98eda58a8d6307122b2eb751cc006edf100",
+        "summary": "DRM/cix: dptx: notify GOP plug after HDCP init; cixtech 2026q3 9b36cddb6fbb"
+      },
+      "0020-usb-cdns3-Fix-NULL-pointer-dereference-when-comp_des.patch": {
+        "sha256": "4b9e1e342b5c74a4327e180570082ce3f8a6b687f5c671601303457083da1300",
+        "summary": "usb: cdns3: guard every pep->endpoint.comp_desc dereference (NULL deref); cixtech 2026q3 4bc1816a111d"
+      },
+      "0021-typec-rts5453-expose-portX-orientation-node-CIX.patch": {
+        "sha256": "2a0348dcc62743966aed492827ef27393bc7ef2155fff216a40f2f32205d95b8",
+        "summary": "typec: rts5453: publish port->orientation via typec_set_orientation() and set orientation_aware; cixtech 2026q3 3ce9f347bf20"
       }
     },
     "applied_patches": [
@@ -79,31 +115,42 @@
       "0009-backlight-pwm-restore-CIX-Sky1-ACPI-backlight-suppor.patch",
       "0010-drm-cix-linlondp-don-t-warn-about-DPUs-the-firmware-.patch",
       "0011-arm64-cpufeature-treat-ID_AA64MMFR1_EL1.SpecSEI-as-n.patch",
-      "sky1-ncz-dptx-aux-wedge-recovery.patch"
+      "sky1-ncz-dptx-aux-wedge-recovery.patch",
+      "0013-ASoC-cix-i2s_mc-mask-all-interrupts-CIX.patch",
+      "0014-usb-usb-cdns3-Fix-RCU-stall-in-cdnsp_thread_irq_hand.patch",
+      "0015-usb-cdnsp-skip-DISABLE_SLOT-command-if-slot-is-alrea.patch",
+      "0016-dptx-cix-Add-support-for-out-of-bound-hotplug-events.patch",
+      "0017-DRM-cix-dptx-physical-dp-status-and-MST-HPD-handling.patch",
+      "0018-restrict-psr-caps-update-conditions-CIX.patch",
+      "0019-DRM-cix-dptx-notify-GOP-plug-after-HDCP-init-CIX.patch",
+      "0020-usb-cdns3-Fix-NULL-pointer-dereference-when-comp_des.patch",
+      "0021-typec-rts5453-expose-portX-orientation-node-CIX.patch"
     ],
-    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc6.bb (PR r5), commit a8726df1dbd0bd209c25c0c5dd30a4b31d250775, branch fix/sky1-dptx-aux-r286-20261011",
-    "recipe_commit": "a8726df1dbd0bd209c25c0c5dd30a4b31d250775",
-    "recipe_parent": "b73f55d49dd574621edfea38ea6c561dc271d66b",
-    "defconfig_sha256": "a3ed0abf0bfc47101927e65a150de2a9056877e5f23027c6b353ae0cdc820908",
-    "vmlinux_gnu_build_id": "3bf56ced06b61d309ec37f23b51b491e9b577c48",
-    "config_sha256": "12a0507dbb6b01becfb4dba3d9c9a0c0909151d6a3a289b11f6cb25cc6ebe0e7",
-    "image_sha256": "e4439d6b517bff47f650591e3a0d98011e690c62a9e3c0c0134ebe6d270f2f61",
-    "config_changes_vs_r285": [],
-    "build_host": "ULTRA (Fedora Asahi aarch64), ncz-yocto-y6 container, TMPDIR /ybuild/tmp-rc6 (~/yocto-work/build-cix-nczrc6), clean rebuild",
-    "staging_tools": "cix-installer fix/sky1-kernel-r286-pin-20261011 (base fix/r203-integration-20261010 e33b3771); meta-cix fix/sky1-dptx-aux-r286-20261011 a8726df1"
+    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc6.bb (PR r6), commit f6a82e9241b0aa9672fb859d7cb9003b97530e65, branch fix/sky1-r287-20261011",
+    "recipe_commit": "f6a82e9241b0aa9672fb859d7cb9003b97530e65",
+    "recipe_parent": "a8726df1dbd0bd209c25c0c5dd30a4b31d250775",
+    "defconfig_sha256": "f11f24693736d57770a4335f1f66a7f7bd9aae94a1a086e2336667ce029e34b3",
+    "vmlinux_gnu_build_id": "02032afac3484e2faf37452e5985efd6eb600765",
+    "config_sha256": "ccc243db092101cdb815d913ce016b9b458745b1a82cf98bc8907a5c2159d1d6",
+    "image_sha256": "2c82e94a994eea6e314bf4d6fa10186a4822a803c7858505fd87df3e55f8d253",
+    "config_changes_vs_r286": [
+      "# CONFIG_RT_GROUP_SCHED is not set"
+    ],
+    "build_host": "ULTRA (Fedora Asahi aarch64), ncz-yocto-y6 container, TMPDIR /ybuild/tmp-rc6 (~/yocto-work/build-cix-nczrc6), incremental rebuild (do_patch/do_configure/do_compile/do_package_write_deb)",
+    "staging_tools": "cix-installer fix/sky1-kernel-r287-pin-20261011 (base fix/r203-integration-20261010 32827fbb); meta-cix fix/sky1-r287-20261011 f6a82e9"
   },
   "artifacts": {
     "Image-cixmini.bin": {
-      "sha256": "e4439d6b517bff47f650591e3a0d98011e690c62a9e3c0c0134ebe6d270f2f61"
+      "sha256": "2c82e94a994eea6e314bf4d6fa10186a4822a803c7858505fd87df3e55f8d253"
     },
     "modules-cixmini.tgz": {
-      "sha256": "f4cc93b5a7c811d451261c4acbd4f8c34224c3f13d4d7080e08c8e0e59765bca"
+      "sha256": "c9529140e0c73a6ebb9961c97cc685e23041dee4db6c31449d9edad5ab2c2b48"
     },
     "headers-cixmini.tar.zst": {
-      "sha256": "ecf08be2e7529af090dea720b9c48a8882e7c76abbd3b8b56ea4e7ae35a8c5ab"
+      "sha256": "d03cae4a1d2ee893efde54a24cc8282f4e27b8340c54b2de201bdb6465a7f3de"
     },
     "config-7.3.0-rc6-sky1-ncz": {
-      "sha256": "12a0507dbb6b01becfb4dba3d9c9a0c0909151d6a3a289b11f6cb25cc6ebe0e7"
+      "sha256": "ccc243db092101cdb815d913ce016b9b458745b1a82cf98bc8907a5c2159d1d6"
     },
     "sky1-orion-o6.dtb": {
       "sha256": "1aa102e7d699fc2cbdfc4cfdf44f88155e71972402eec4f4abe7d4e3d651873e"
@@ -112,43 +159,43 @@
       "sha256": "e106c3fba8b2e0b5e53a44540d493f1b09018d729f8e048c99aa93629497ed36"
     },
     "PROVENANCE.txt": {
-      "sha256": "e237a770aaaa14639ebf640a7d4a3c2d35c06753b8456bcd03315bf5148c3be1"
+      "sha256": "988f54251a74ae4d9f5bb4ea3983a34cb84cf772e86813f5781b34dd1ee501cd"
     },
     "SHA256SUMS": {
-      "sha256": "c2864248328e03c075d5457247129acf40d82d745a1dd431707d8ae99773f281"
+      "sha256": "ce99735b7f19b116171987479bd078af577bb7c636a787a386783029807b406d"
     },
     "kvm-gate.log": {
-      "sha256": "7bf1d1247e065ff3538101094011ba9e53110723b6da3f8a14230f3105fc2b18"
+      "sha256": "da21d741ab5293bcaf996b448aabf646c98b96ea4efb15dc58b20aa99bbbbf91"
     },
     "dkms-abi-gate.log": {
       "sha256": "051b71da2cdd8d75ef7b418d0b2914d036c249b43e8cc55f95065db43165dace"
     },
     "config-audit.log": {
-      "sha256": "abced850dbc79f0bd6fdfa0b73e3da33c69484e6e0c7b3a85ed2765740ab29db"
+      "sha256": "41e36fbed4d143f2141c2c963dfdd8293a5d9344a57fe7d135efe0ec4e9da43b"
     },
-    "debs/cixmini-boot_1.2+r286_arm64.deb": {
-      "sha256": "ab42aa10a29b0fcd2b152b81360622291db0d2a54cb4be5dda3220288666db34"
+    "debs/cixmini-boot_1.2+r287_arm64.deb": {
+      "sha256": "645054b2b6c7692b802c551bf1804cbd76ae6ec97eef4fd003f091f64ad17806"
     },
-    "debs/linux-headers-cixmini_7.3.0-rc6-sky1-ncz+r286_arm64.deb": {
-      "sha256": "b6a0f32c2ac242e724593d01adbbc76d2ac8d207a733e88bc0754abd2078215b"
+    "debs/linux-headers-cixmini_7.3.0-rc6-sky1-ncz+r287_arm64.deb": {
+      "sha256": "8f14b960cb68473865345e0af546798c2833240b053a08a16a19a7d57df4fbe0"
     },
-    "debs/linux-image-cixmini_7.3.0-rc6-sky1-ncz+r286_arm64.deb": {
-      "sha256": "391541c75de7d8dfffae1e0f8d5706334fe39789fd22e6d76ae4201c923ad480"
+    "debs/linux-image-cixmini_7.3.0-rc6-sky1-ncz+r287_arm64.deb": {
+      "sha256": "e237c1a6841b49de880e2037b52ec505e28f30c4571e50f825c686f30ec2773e"
     }
   },
   "overlays_mirrored": {
-    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/mali_kbase.ko": "d82f50fb35390584f37cafd9a208d75aac1c46597b8227908ed00551a28e26ea",
-    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/memory_group_manager.ko": "06d16143679458ccabd6063b5976fcdffc2bb22440b08415c82f6aebfc91e4e7",
-    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/protected_memory_allocator.ko": "e537f5fb345f07b7f9becb6839772335c525925b1b39b5e34056eb3a32da7a22",
-    "assets/kernel/npu/7.3.0-rc6-sky1-ncz/aipu.ko": "d1c7d9ea6fd99cccbe435686f643b6ab9f53d051184dc28af20c87b24c64f886",
-    "assets/kernel/panthor/7.3.0-rc6-sky1-ncz/panthor.ko": "445e158a4a4b2103197523263e11cd66939000efc2d626a205420744b712c191",
-    "assets/kernel/vpu/7.3.0-rc6-sky1-ncz/amvx.ko": "6c55659c8e74862a5d7cd48cdde543321f6865b3b81819469cb0b0d57313ae92"
+    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/mali_kbase.ko": "ba07097fb20d570453a13a6e8c57522c2d665eb7ace0c9fc0e964a163c7ec4ff",
+    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/memory_group_manager.ko": "37293cdfecedf73b842d175a5020512346da752ccecdaffb70128700cf01a516",
+    "assets/kernel/mali/7.3.0-rc6-sky1-ncz/protected_memory_allocator.ko": "5aff4d0b7dc25044e4f21a994ca02676370f83842b04db78a765d49c1ded3efb",
+    "assets/kernel/npu/7.3.0-rc6-sky1-ncz/aipu.ko": "4cf94ac9ecb1d33df966aa08ccd85ac44b310ecabb858512b53fd20c58ab070a",
+    "assets/kernel/panthor/7.3.0-rc6-sky1-ncz/panthor.ko": "ea17fb5eac528ab84413410775b5ca618d3ed33c785b6aac67380c270d25eb31",
+    "assets/kernel/vpu/7.3.0-rc6-sky1-ncz/amvx.ko": "1cbc5c3bc32bbcf2b615c337dbf9952994d090d8ff88b51a1ae7a1e79d2f5266"
   },
   "gates": {
     "kvm_kernel_gate": "PASS (build/kvm-kernel-gate.sh; PCI 17cd:0100 collision lint; reached root-mount under qemu kvm, host KVM + container TCG; log kvm-gate.log)",
     "dkms_abi_gate": "PASS (builder identity oe-user@oe-host; binutils 2.46.1; CONFIG_MODVERSIONS=y; log dkms-abi-gate.log)",
-    "overlay_modversions": "PASS (build/verify-overlay-modversions.py: the six committed r285 overlays vs the r286 Module.symvers — 0 CRC mismatches, 0 unresolved; the change adds only static functions, so no exported-symbol CRC moved and the overlays are NOT re-mirrored)",
-    "config_audit": "delta vs r285 = none; MODULE_COMPRESS off; MODVERSIONS=y; 377 .ko; 0 .ko.xz",
-    "debs": "build-kernel-debs.sh BUILD_REV=r286; vmlinuz in linux-image deb byte-identical to Image-cixmini.bin"
+    "overlay_modversions": "PASS (build/verify-overlay-modversions.py: all six r287-rebuilt overlays vs the r287 Module.symvers — 0 CRC mismatches, 0 unresolved). CONFIG_RT_GROUP_SCHED changes struct task_struct/sched_rt_entity layout, which moved 535 imported-symbol CRCs, so the overlays WERE re-mirrored this revision (contrast r285->r286, where they were unchanged).",
+    "config_audit": "delta vs r286 = CONFIG_RT_GROUP_SCHED (y -> not set); CGROUP_SCHED=y, FAIR_GROUP_SCHED=y, CFS_BANDWIDTH=y, SCHED_AUTOGROUP=y unchanged; MODULE_COMPRESS off; MODVERSIONS=y; 377 .ko; 0 .ko.xz",
+    "debs": "build-kernel-debs.sh BUILD_REV=r287, byte-reproducible x2 on ULTRA; vmlinuz in linux-image deb byte-identical to Image-cixmini.bin"
   }
 }

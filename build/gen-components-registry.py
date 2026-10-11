@@ -425,7 +425,7 @@ def parse_overlay_rows(kernel_root, sky1_manifest):
     Keys are 'assets/kernel/<drv>/<kver>/<ko>'. (The artifacts section also
     holds 'overlays/<drv>/<kver>/<ko>' sha256 entries; those are the same
     files under a different prefix and must not be double-counted.) These
-    are the pinned default-kernel overlays (S7, r286), not an EDGE channel.
+    are the pinned default-kernel overlays (S7, r287), not an EDGE channel.
     """
     rows = []
     rev = sky1_manifest.get("build_rev", "")
@@ -1001,7 +1001,7 @@ def main(argv=None):
         f.write("#   notes           free-form, single line, no tabs\n")
         f.write("#\n")
         f.write("# Phases: phase 1 seeded this registry; phase 2 enforces required/floor/arch\n")
-        f.write("# (K2 aer9011, T1 DKMS policy, S4 screensaver floor, S7 r286 overlays);\n")
+        f.write("# (K2 aer9011, T1 DKMS policy, S4 screensaver floor, S7 r287 overlays);\n")
         f.write("# phase 3 generates seed files and mirror rows from this registry.\n")
         f.write(HEADER + "\n")
         for r in final:

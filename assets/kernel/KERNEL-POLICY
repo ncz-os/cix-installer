@@ -51,11 +51,11 @@ EDGE_ENABLED=0
 # or any even-newer build still FAILs closed. Set only with explicit operator
 # direction for this build.
 #
-# 2026-10-11 (operator "I'm calling your fix a fix, integrate into the new
-# image"): the DP-AUX kernel r286-7.3.0-rc6-sky1-ncz-20261011 that had been
-# staged as a supervised-test, NON-default .66 boot entry is now the SHIPPING
-# pin (assets/kernel/mainline -> r286). It is the pool's newest unified 7.3
-# build, so no acknowledgement is needed and the former r285:r286 ACK is
-# CLEARED. Re-add a MAINLINE_FRESHNESS_ACK=<pin>:<declined-newer> line only to
-# decline a genuinely newer non-shipping build, with explicit operator
-# direction.
+# 2026-10-11: r286 (the DP-AUX wedge recovery MS-R1 DisplayPort fix) is
+# succeeded by r287-7.3.0-rc6-sky1-ncz-20261011 -- CONFIG_RT_GROUP_SCHED off
+# (the O6N audio-cutout kernel root fix) plus the CIX q3 vendor sync -- which is
+# now the SHIPPING pin (assets/kernel/mainline -> r287). It is the pool's newest
+# unified 7.3 build, so no acknowledgement is needed (the r285:r286 ACK was
+# cleared when r286 shipped and stays cleared). Re-add a
+# MAINLINE_FRESHNESS_ACK=<pin>:<declined-newer> line only to decline a genuinely
+# newer non-shipping build, with explicit operator direction.
