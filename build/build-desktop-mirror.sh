@@ -382,6 +382,15 @@ fi
 # libpciaccess-dev dependency is not in the pool). The amd64 pins for freedreno1/dev exist but are deliberately not
 # carried; if an amd64 closure ever pulls one, the verifier fails on the unpinned stock deb and a row must be added.
 #
+# chromium-ncz-sky1 (arm64rc3, 2026-10-11): the Sky1 default browser. It was
+# previously resolved only from the live Buildkite registry (an ncz-apt row);
+# it is now a *required* local row staged from the pinned ARGONAS build-inputs
+# asset, so the offline mirror carries exactly one Chromium (the pinned NCZ
+# build, with the non-16-aligned V4L2 decode software fallback) with no live
+# registry dependency. arm64-only (the package is Architecture: arm64). Source
+# of truth: gitlab.com/ncz-os/chromium-ncz-sky1. The ncz-apt row in the
+# components registry is kept as the published-name record.
+#
 # Each row: <package name>|<glob of candidate .debs>|<required?>
 NCZ_LOCAL_DEBS="
 ncz-singularity-desktop|$REPO/build/sinty-out/ncz-singularity-desktop_*_${ARCH}.deb|optional
@@ -397,6 +406,7 @@ libdrm-radeon1|$REPO/build/libdrm-debs/libdrm-radeon1_2.4.134-3+ncz*_${ARCH}.deb
 "
 if [ "$ARCH" = arm64 ]; then
 NCZ_LOCAL_DEBS+="
+chromium-ncz-sky1|$REPO/build/chromium-ncz-sky1-out/chromium-ncz-sky1_*_arm64.deb|required
 ncz-usb-recovery|$REPO/build/usb-recovery-deb/ncz-usb-recovery_*_arm64.deb|optional
 libdrm-freedreno1|$REPO/build/libdrm-debs/libdrm-freedreno1_2.4.134-3+ncz*_arm64.deb|required
 libdrm-dev|$REPO/build/libdrm-debs/libdrm-dev_2.4.134-3+ncz*_arm64.deb|required
@@ -420,6 +430,10 @@ printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
                 echo "  ERROR:   ($NCZ_SCREENSAVERS_MISSING_MSG)" >&2
                 echo "  ERROR:   stage the pinned deb: build/stage-build-inputs.sh --arch ${ARCH}" >&2
                 echo "  ERROR:   (build/ncz-screensavers-out/ncz-screensavers_<ver>_${ARCH}.deb is pinned in manifests/build-inputs.tsv; the pipeline's stage-inputs stage runs it)" >&2
+            elif [ "$pkg" = chromium-ncz-sky1 ]; then
+                echo "  ERROR: $pkg is the Sky1 default browser; the offline mirror MUST carry it." >&2
+                echo "  ERROR:   stage the pinned deb: build/stage-build-inputs.sh --arch ${ARCH}" >&2
+                echo "  ERROR:   (build/chromium-ncz-sky1-out/chromium-ncz-sky1_<ver>_${ARCH}.deb is pinned in manifests/build-inputs.tsv; the pipeline's stage-inputs stage runs it; source: gitlab.com/ncz-os/chromium-ncz-sky1)" >&2
             else
                 echo "  ERROR: required local package missing; build the artifact first." >&2
                 echo "  ERROR: for patched libdrm, run: build/build-libdrm-debs.sh" >&2
