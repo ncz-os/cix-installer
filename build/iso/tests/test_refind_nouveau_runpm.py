@@ -44,10 +44,18 @@ def build_conf(arch: str) -> str:
 
 
 def entry_options(conf: str) -> dict:
-    """menuentry title -> options string, for entries that have options."""
+    """menuentry title -> options string, for entries that load /linux.
+
+    The amd64 "safe video mode" entry is a re-launch of rEFInd itself
+    (loader /EFI/BOOT/BOOTX64.EFI, options "-c refind-safe.conf"), not a kernel
+    entry, so it is intentionally excluded from the nouveau/runpm contract.
+    """
     out = {}
     for m in re.finditer(r'menuentry "([^"]+)" \{(.*?)\n\}', conf, re.DOTALL):
-        opt = re.search(r'options "([^"]*)"', m.group(2))
+        body = m.group(2)
+        if "loader /linux" not in body:
+            continue
+        opt = re.search(r'options "([^"]*)"', body)
         if opt:
             out[m.group(1)] = opt.group(1)
     return out
