@@ -200,6 +200,8 @@ build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier t
 build/test-dkms-status-parse.sh	sky1	-	dkms status parser test for the kernel-debs headers postinst
 build/test-dkms-btf-toolchain.sh	common	-	base manifests ship dwarves (pahole) next to dkms
 build/test-fwupd-i2c-mask.sh	sky1	-	fwupd-i2c.conf mask test (25-cix-proprietary)
+build/test-fresh-clone-inputs.sh	common	-	a fresh clone stages every build input: the ncz-screensavers engine deb + arm64 sky1-firmware/cix-debs are pinned in build-inputs.tsv / the ARGONAS store, and the pipeline stages the amd64 installer kernel (r203 open items)
+build/test-gate-chown-back.sh	common	-	the privileged KVM/provenance gates chown their run-dir scratch back to the invoking user on every exit path, preserving the exit status (r203 open items)
 build/test-apt-sources-offline-canary.sh	common	-	24-apt-sources offline live-update canary test
 build/test-dkms-prep-keep-going.sh	sky1	-	79-dkms-prep modules_prepare keep-going test
 build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
