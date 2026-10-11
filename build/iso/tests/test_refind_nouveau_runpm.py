@@ -77,10 +77,12 @@ class NouveauRunpmEntries(unittest.TestCase):
             self.assertNotIn("nouveau", getattr(MODULE, name), name)
         # the amd64 strings are the shared strings plus the suffix, nothing else
         self.assertEqual(
-            MODULE.AMD64_INSTALL_OPTIONS, MODULE._PC_INSTALL_OPTIONS + " " + TOKEN
+            MODULE.AMD64_INSTALL_OPTIONS,
+            MODULE._PC_INSTALL_OPTIONS + " " + TOKEN + " nomodeset",
         )
         self.assertEqual(
-            MODULE.AMD64_EXPERT_OPTIONS, MODULE._PC_EXPERT_OPTIONS + " " + TOKEN
+            MODULE.AMD64_EXPERT_OPTIONS,
+            MODULE._PC_EXPERT_OPTIONS + " " + TOKEN + " nomodeset",
         )
         self.assertEqual(
             MODULE.AMD64_RESCUE_OPTIONS, MODULE._PC_RESCUE_OPTIONS + " " + TOKEN

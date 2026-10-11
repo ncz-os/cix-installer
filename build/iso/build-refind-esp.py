@@ -188,8 +188,19 @@ _PC_RESCUE_OPTIONS = (
 # Appended after the shared strings so the arm64 entries, which are derived
 # from the shared strings below, never carry it.
 AMD64_NOUVEAU_OPTIONS = "nouveau.runpm=0"
-AMD64_INSTALL_OPTIONS = f"{_PC_INSTALL_OPTIONS} {AMD64_NOUVEAU_OPTIONS}"
-AMD64_EXPERT_OPTIONS = f"{_PC_EXPERT_OPTIONS} {AMD64_NOUVEAU_OPTIONS}"
+# amd64 Install/Expert only: nomodeset (2026-10-11). d-i is a text installer, so
+# keep it on the firmware framebuffer instead of letting i915/amdgpu/nouveau
+# modeset: on PROTEUS (HP, Arrow Lake i915 7d67, 4K HDMI) the installer ran
+# without i915/mtl_dmc.bin, wedged the GT, and drew its dialogs in only the left
+# third of the panel. The installed system is unaffected (its entries come from
+# the refresh scripts, not from here). Rescue keeps full modeset for diagnosis.
+AMD64_DI_DISPLAY_OPTIONS = "nomodeset"
+AMD64_INSTALL_OPTIONS = (
+    f"{_PC_INSTALL_OPTIONS} {AMD64_NOUVEAU_OPTIONS} {AMD64_DI_DISPLAY_OPTIONS}"
+)
+AMD64_EXPERT_OPTIONS = (
+    f"{_PC_EXPERT_OPTIONS} {AMD64_NOUVEAU_OPTIONS} {AMD64_DI_DISPLAY_OPTIONS}"
+)
 AMD64_RESCUE_OPTIONS = f"{_PC_RESCUE_OPTIONS} {AMD64_NOUVEAU_OPTIONS}"
 
 # The on-screen arm64 entries offer NO serial console at all.  Root-caused
