@@ -156,6 +156,27 @@ run_case "mainline outside the pool is FAIL" 0 0 1 '
     mksymlink "$ASSETS/kernel/mainline" "$TMPROOT/outside/r285-7.3.0-rc6-sky1-ncz-20261006"
     one'
 
+echo; echo "=== Case 6b: ACK -- pinned:declined pair matching pin + newest -> WARN ==="
+run_case "acknowledged newer build is WARN, not FAIL" 0 1 0 '
+    set -e; std_pool
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r284-7.3.0-rc6-sky1-ncz-20261006"
+    printf "MAINLINE_FRESHNESS_ACK=r284-7.3.0-rc6-sky1-ncz-20261006:r285-7.3.0-rc6-sky1-ncz-20261006\n" > assets/kernel/KERNEL-POLICY
+    one'
+
+echo; echo "=== Case 6c: ACK scoped -- ack whose pinned field does not match the pin -> FAIL ==="
+run_case "ack naming the wrong pinned build still FAILs" 0 0 1 '
+    set -e; std_pool
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r284-7.3.0-rc6-sky1-ncz-20261006"
+    printf "MAINLINE_FRESHNESS_ACK=r282-7.3.0-rc6-sky1-ncz-20261004:r285-7.3.0-rc6-sky1-ncz-20261006\n" > assets/kernel/KERNEL-POLICY
+    one'
+
+echo; echo "=== Case 6d: ACK scoped -- ack whose declined field is not the newest -> FAIL ==="
+run_case "ack naming the wrong newest build still FAILs" 0 0 1 '
+    set -e; std_pool
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r284-7.3.0-rc6-sky1-ncz-20261006"
+    printf "MAINLINE_FRESHNESS_ACK=r284-7.3.0-rc6-sky1-ncz-20261006:r282-7.3.0-rc6-sky1-ncz-20261004\n" > assets/kernel/KERNEL-POLICY
+    one'
+
 # --- Case 7: the FULL gate, orphan check + the one pointer. Drives the real
 #     script (not the extracted function), so it also proves the dispatch.
 echo; echo "=== Case 7: full gate -- orphan flagged, unified channel OK ==="
