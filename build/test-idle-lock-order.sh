@@ -11,6 +11,8 @@
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOOK="$ROOT/post-install/63-ncz-idle-lock-order.sh"
+# Never let a host's GLib debug output pollute the gsettings read-back below.
+export G_MESSAGES_DEBUG=
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 pass=0
