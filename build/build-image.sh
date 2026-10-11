@@ -768,7 +768,40 @@ stage_refresh_substrate() {
 stage_stage_inputs() {
     local log="$1"
     ( cd "$ROOT" && bash build/stage-build-inputs.sh --arch "$ARCH" ) 2>&1 | tee -a "$log"
-    return "${PIPESTATUS[0]}"
+    local rc="${PIPESTATUS[0]}"
+    [ "$rc" = 0 ] || return "$rc"
+    # amd64 installer kernel: staged from the shared ARGONAS kernel-staging pool
+    # by build/stage-amd64-kernel.sh (pin: assets/kernel/amd64-stable/KVER). The
+    # pipeline never ran it, so a fresh clone aborted at the image stage with
+    # "set KERNEL_DEB to the amd64 installer kernel package" (r203 failure #2).
+    # arm64 builds its Sky1 kernel during offline-mirror, so this is amd64-only.
+    if [ "$ARCH" = amd64 ]; then
+        ( cd "$ROOT" && bash build/stage-amd64-kernel.sh ) 2>&1 | tee -a "$log"
+        rc="${PIPESTATUS[0]}"
+        [ "$rc" = 0 ] || return "$rc"
+    fi
+    # arm64: materialize the pinned sky1-firmware + cix-debs groups from the two
+    # tarballs stage-build-inputs just fetched (they are gitignored and were not
+    # pinned before; r203 failure #3).
+    if [ "$ARCH" = arm64 ] && [ -x "$ROOT/build/stage-arm64-assets.sh" ]; then
+        ( cd "$ROOT" && bash build/stage-arm64-assets.sh ) 2>&1 | tee -a "$log"
+        rc="${PIPESTATUS[0]}"
+        [ "$rc" = 0 ] || return "$rc"
+    fi
+    # Singularity screensaver settings plugin: pinned in
+    # post-install/lib/ncz-screensavers-plugin.lock and staged from the ARGONAS
+    # ncz-screensavers-debs pool. The pipeline never ran
+    # stage-screensaver-plugin.sh, so make image's check-ssplugin-abi would fail
+    # on a fresh clone -- the same hand-staging gap as the engine deb (r203
+    # failure #1). Idempotent + sha256-verified against the lock.
+    if [ -x "$ROOT/build/stage-screensaver-plugin.sh" ]; then
+        ( cd "$ROOT" && bash build/stage-screensaver-plugin.sh "$ARCH" ) 2>&1 | tee -a "$log"
+        rc="${PIPESTATUS[0]}"
+        [ "$rc" = 0 ] || return "$rc"
+    fi
+    # rc is 0 here (every guard above returned on failure), but return it rather
+    # than a literal so a future step cannot silently report success.
+    return "$rc"
 }
 
 # ---------------------------------------------------------------------------
@@ -1205,9 +1238,14 @@ stage_kvm_gate() {
     fi
     local work="${KVM_INSTALL_WORKDIR:-$RUN_DIR/kvm-gate}"
     mkdir -p "$work"
+    # NCZ_CHOWN_BACK is the invoking user for the chown-back trap inside the
+    # gate: passed on the sudo command line (not the environment) because sudo's
+    # env_reset would otherwise drop it.  It keeps the run dir deletable by the
+    # build user after the gate (operator 2026-10-11).
+    local invoker; invoker="$(id -u):$(id -g)"
     ( cd "$ROOT" && ARCH="$ARCH" TMPDIR="$RUN_DIR/tmp" \
         NCZ_PYTE_PYTHON="${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}" \
-        ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_PYTE_PYTHON='${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}' bash build/kvm-install-gate-gpt.sh '$img' '$work'" ) 2>&1 | tee -a "$log"
+        ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_PYTE_PYTHON='${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}' bash build/kvm-install-gate-gpt.sh '$img' '$work'" ) 2>&1 | tee -a "$log"
     local rc="${PIPESTATUS[0]}"
     if [ "$rc" = 0 ] && grep -q 'GATE PASS' "$log"; then
         { printf 'gate=kvm\nresult=PASS\nui=PASS\nimage=%s\nsha256=%s\nat=%s\n' \
@@ -1231,7 +1269,10 @@ stage_provenance_gate() {
     # ("Operation not permitted while changing ownership"), the /dists index is
     # never extracted, and every /cdrom pool deb then looks like an orphan
     # (a false 1000+ failure).  Same documented privilege model as the KVM gate.
-    ncz_sudo_bash "cd '$ROOT' && bash build/check-forky-provenance.sh --image '$img' \
+    # NCZ_CHOWN_BACK hands prov-work/ + prov-index/ back to the invoking user on
+    # the script's exit trap, so the run dir stays deletable (operator 2026-10-11).
+    local invoker; invoker="$(id -u):$(id -g)"
+    ncz_sudo_bash "cd '$ROOT' && NCZ_CHOWN_BACK='$invoker' bash build/check-forky-provenance.sh --image '$img' \
         --work '$work' --index-dir '$idx' --fetch-index" 2>&1 | tee -a "$log"
     local rc="${PIPESTATUS[0]}"
     if [ "$rc" = 0 ]; then
@@ -1483,6 +1524,10 @@ if [ "$KEEP_WORK" = 1 ]; then
 elif [ "$CLEAN" = 1 ] || [ "$rc" = 0 ]; then
     rm -rf "$RUN_DIR/tmp" 2>/dev/null || true
     [ -n "${KVM_INSTALL_WORKDIR:-}" ] || rm -rf "$RUN_DIR/kvm-gate" "$RUN_DIR/prov-work" 2>/dev/null || true
+    # prov-index/ and prov-input-index/ are the provenance scan's scratch too;
+    # once the chown-back trap has handed them to the build user they are
+    # removable and must not linger (operator 2026-10-11).
+    rm -rf "$RUN_DIR/prov-index" "$RUN_DIR/prov-input-index" 2>/dev/null || true
     ncz_info "cleaned scratch under $RUN_DIR (logs + run metadata kept; --keep-work to retain)"
 fi
 

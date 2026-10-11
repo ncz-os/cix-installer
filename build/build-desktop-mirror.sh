@@ -418,7 +418,8 @@ printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
             if [ "$pkg" = ncz-screensavers ]; then
                 echo "  ERROR: $pkg is mandatory on desktop variants; the offline mirror MUST carry it." >&2
                 echo "  ERROR:   ($NCZ_SCREENSAVERS_MISSING_MSG)" >&2
-                echo "  ERROR:   rebuild with build/build-screensavers-deb.sh and re-run." >&2
+                echo "  ERROR:   stage the pinned deb: build/stage-build-inputs.sh --arch ${ARCH}" >&2
+                echo "  ERROR:   (build/ncz-screensavers-out/ncz-screensavers_<ver>_${ARCH}.deb is pinned in manifests/build-inputs.tsv; the pipeline's stage-inputs stage runs it)" >&2
             else
                 echo "  ERROR: required local package missing; build the artifact first." >&2
                 echo "  ERROR: for patched libdrm, run: build/build-libdrm-debs.sh" >&2

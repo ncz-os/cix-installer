@@ -175,6 +175,7 @@ build/singularity-runtime-extra-deps.txt	common	-	non-ELF runtime Depends of ncz
 build/sqtools-amd64/	amd64	-	x86_64 unsquashfs toolchain
 build/sqtools/	sky1	-	aarch64 unsquashfs toolchain
 build/stage-amd64-kernel.sh	amd64	-	stages amd64 kernels from ARGONAS
+build/stage-arm64-assets.sh	sky1	-	materializes the pinned arm64 sky1-firmware + cix-debs tarballs (manifests/build-inputs.tsv) so a fresh clone builds with no hand-staging (r203 failure #3)
 build/stage-canonical-assets.sh	sky1	-	restages CIX-NCZ gitignored blobs (183 arm64/cix refs)
 build/stage-kernel.sh	sky1	-	stages a Sky1 kernel
 build/stage-screensaver-plugin.sh	common	-	copies the pinned ncz-screensavers-plugin deb from ARGONAS into build/ncz-screensavers-out (sha256 + control fields checked); make ssplugin-stage
@@ -200,6 +201,8 @@ build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier t
 build/test-dkms-status-parse.sh	sky1	-	dkms status parser test for the kernel-debs headers postinst
 build/test-dkms-btf-toolchain.sh	common	-	base manifests ship dwarves (pahole) next to dkms
 build/test-fwupd-i2c-mask.sh	sky1	-	fwupd-i2c.conf mask test (25-cix-proprietary)
+build/test-fresh-clone-inputs.sh	common	-	a fresh clone stages every build input: the ncz-screensavers engine deb + arm64 sky1-firmware/cix-debs are pinned in build-inputs.tsv / the ARGONAS store, and the pipeline stages the amd64 installer kernel (r203 open items)
+build/test-gate-chown-back.sh	common	-	the privileged KVM/provenance gates chown their run-dir scratch back to the invoking user on every exit path, preserving the exit status (r203 open items)
 build/test-apt-sources-offline-canary.sh	common	-	24-apt-sources offline live-update canary test
 build/test-dkms-prep-keep-going.sh	sky1	-	79-dkms-prep modules_prepare keep-going test
 build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
