@@ -67,6 +67,19 @@ for spec in "0:clean exit" "7:explicit failure"; do
     else bad "trap did not chown/preserve on $label (rc=$rc, want $rc_want)"; cat "$CHOWN_LOG"; fi
 done
 
+# 3b. a pre-existing EXIT trap is chained, not dropped, and the status survives
+mkdir -p "$T/d3"; : > "$CHOWN_LOG"
+NCZ_CHOWN_BACK_FORCE=1 NCZ_CHOWN_BACK=4242:4343 bash -c '
+    . "'"$PRIV"'"
+    trap "echo PREV_EXIT >> $CHOWN_LOG" EXIT
+    ncz_trap_chown_back "'"$T/d3"'"
+    mkdir -p "'"$T/d3"'"; : > "'"$T/d3"'/f"
+    exit 5
+' >/dev/null 2>&1; rc=$?
+if [ "$rc" = 5 ] && grep -q PREV_EXIT "$CHOWN_LOG" && grep -Fq -- "$T/d3" "$CHOWN_LOG"; then
+    ok "a pre-existing EXIT trap is chained (both run) and the status is preserved"
+else bad "pre-existing EXIT trap dropped or status lost (rc=$rc)"; cat "$CHOWN_LOG"; fi
+
 # 4. wiring: each privileged script sources the library and installs the trap
 for f in build/kvm-install-gate-gpt.sh build/kvm-installer-ui-check.sh build/check-forky-provenance.sh; do
     if grep -q 'lib/priv.sh' "$ROOT/$f" && grep -q 'ncz_trap_chown_back' "$ROOT/$f"; then

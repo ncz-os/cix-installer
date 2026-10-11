@@ -139,7 +139,22 @@ ncz_chown_back() {
 # is never altered by cleanup.
 ncz_trap_chown_back() {
     NCZ_CHOWN_BACK_DIRS=("$@")
-    _ncz_chown_back_trap() { local rc=$?; ncz_chown_back "${NCZ_CHOWN_BACK_DIRS[@]}"; return "$rc"; }
+    # Chain any pre-existing EXIT trap instead of silently dropping its cleanup
+    # (zoder review 2026-10-11).  `trap -p EXIT` prints: trap -- 'CMD' EXIT
+    NCZ_CHOWN_BACK_PREV_CMD=""
+    local prev; prev="$(trap -p EXIT 2>/dev/null || true)"
+    if [ -n "$prev" ]; then
+        NCZ_CHOWN_BACK_PREV_CMD="${prev#trap -- }"
+        NCZ_CHOWN_BACK_PREV_CMD="${NCZ_CHOWN_BACK_PREV_CMD% EXIT}"
+        NCZ_CHOWN_BACK_PREV_CMD="${NCZ_CHOWN_BACK_PREV_CMD#\'}"
+        NCZ_CHOWN_BACK_PREV_CMD="${NCZ_CHOWN_BACK_PREV_CMD%\'}"
+    fi
+    _ncz_chown_back_trap() {
+        local rc=$?
+        [ -n "$NCZ_CHOWN_BACK_PREV_CMD" ] && { eval "$NCZ_CHOWN_BACK_PREV_CMD" || true; }
+        ncz_chown_back "${NCZ_CHOWN_BACK_DIRS[@]}"
+        return "$rc"
+    }
     trap '_ncz_chown_back_trap' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM HUP

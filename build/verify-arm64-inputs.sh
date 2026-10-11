@@ -315,12 +315,14 @@ verify-arm64-inputs: one or more required inputs are absent.
   How to restore each missing class:
     - sky1-firmware/ and cix-debs/ : both are checksum-pinned build inputs now
                            (manifests/build-inputs.tsv) published in the ARGONAS
-                           build-inputs store, so a fresh clone stages them with
-                               build/stage-build-inputs.sh --arch arm64
-                           (the pipeline's stage-inputs stage runs it; make image
-                           runs it too). No host-specific pool paths any more --
-                           the .gitignore excludes sky1-firmware/ and cix-debs/*.deb,
-                           so a fresh clone is empty until the stager runs.
+                           build-inputs store as two tarballs, so a fresh clone
+                           stages them with
+                               build/stage-build-inputs.sh --arch arm64   (fetch)
+                               build/stage-arm64-assets.sh               (extract)
+                           (the pipeline's stage-inputs stage runs both). No
+                           host-specific pool paths any more -- the .gitignore
+                           excludes sky1-firmware/ and cix-debs/*.deb, so a fresh
+                           clone is empty until those two commands run.
     - desktop-mirror/   : run `make offline-mirror` (this repo) to rebuild
                            it from the refreshed vendor mirror + libdrm-debs.
     - overlay-modversions: copy the pinned staging dir's overlays/<dir>/<kver>/
