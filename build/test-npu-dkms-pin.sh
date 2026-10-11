@@ -44,8 +44,11 @@ run >"$T/o2" 2>&1; rc=$?
 
 grep -q 'stage-build-inputs.sh" --arch arm64 --only "assets/cix-debs/\$NPU_DKMS_DEB"' "$ROOT/build/stage-canonical-assets.sh" \
     && ok "stage-canonical-assets.sh stages the NPU deb from the pinned store" || bad "stage-canonical-assets.sh does not consume the pin"
-grep -q 'cix-npu-driver-dkms_.*stage-build-inputs' "$ROOT/build/verify-arm64-inputs.sh" \
-    && ok "verify-arm64-inputs.sh names the stager when the NPU deb is absent" || bad "verify-arm64-inputs.sh miss message does not name the stager"
+# Since every cix-deb is now a pinned build input (2026-10-11), the miss message
+# names the stager generically for every cix-deb prefix (not just the NPU one).
+grep -q 'cix-debs.prefix' "$ROOT/build/verify-arm64-inputs.sh" \
+    && grep -q 'stage-build-inputs.sh --arch arm64' "$ROOT/build/verify-arm64-inputs.sh" \
+    && ok "verify-arm64-inputs.sh names the stager in the cix-debs miss message" || bad "verify-arm64-inputs.sh miss message does not name the stager"
 grep -q 'stage-build-inputs.sh --arch \$(ARCH)$' "$ROOT/Makefile" && ok "make image runs the stager for every pinned row" || bad "Makefile image rule does not run the stager"
 
 grep -q 'NPU SDK tarball not needed: all SDK-derived debs are already staged' "$ROOT/build/stage-canonical-assets.sh" \
