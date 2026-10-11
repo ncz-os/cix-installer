@@ -191,8 +191,10 @@ def initrd_identities(initrd: str, scratch: str) -> list:
             return []
         if not (os.path.isfile(dest) and os.path.getsize(dest) > 0):
             return []
+    with open(dest, errors="replace") as fh:
+        text = fh.read()
     ids = []
-    for d in parse_stanzas(open(dest, errors="replace").read()):
+    for d in parse_stanzas(text):
         if d.get("Package") and d.get("Version"):
             ids.append((d["Package"], d["Version"]))
     return ids
