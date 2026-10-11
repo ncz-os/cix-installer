@@ -129,6 +129,11 @@ FAKE_APLAY_FAIL="hw:1,2" run_daemon "$r" 5
 [ "$(st 's["default"]')" = ncz_sky1_analog_0_0 ] && ok "daemon: pre-existing default DP sink on an EINVAL PCM is not trusted -> analog" || bad "daemon (a2): default=$(st 's["default"]')"
 [ "$(st 'sum(m["sink"]=="ncz_sky1_hdmi_1_2" for m in s["modules"])')" = 0 ] && ok "daemon: stale DP sink on the broken PCM unloaded" || bad "daemon (a2): stale DP sink still loaded"
 
+# every sink this daemon loads needs a non-zero ALSA ring underrun margin, or the
+# Sky1 DP/HDA sink XRUNs (audible dropouts) at a small graph quantum / under load
+n=$(st 'sum("api.alsa.headroom=" in c for c in s["calls"])')
+[ "${n:-0}" -ge 1 ] && ok "daemon: sink loaded with an api.alsa.headroom underrun margin" || bad "daemon: no api.alsa.headroom in any load-module call"
+
 # (b) probe passes but the sink dies at start (pipewire-pulse drops the module): park it, fall back to analog
 pa_init '[]'
 python3 - "$W/pa.json" <<'J'

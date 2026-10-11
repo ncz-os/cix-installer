@@ -108,6 +108,34 @@ the MS-R1 returns to DP audio by itself. Runtime needs: `pactl` (pulseaudio-util
 `build/test-sky1-audio-policy.sh` drives the real daemon loop against a stateful fake
 `pactl`/`aplay`/`pw-dump` (`build/testdata/sky1-audio/`).
 
+## ALSA ring headroom (under-run margin) — 2026-10-11
+
+The sink `module-alsa-sink` was loaded with no `api.alsa.*` tuning, i.e. the
+spa-alsa default `api.alsa.headroom=0`. With headroom 0 the DMA ring has no
+margin ahead of the read pointer: whenever the graph quantum is small (a
+low-latency client, or a scheduling stall while RT is unavailable) the ring
+drains to empty between write cycles and the node counts XRUNs -> audible
+dropouts. Measured on O6N (`hw:0,1`, DP, 48 kHz S32LE 2ch, VP2488-4K ELD) with
+a constant-tone monitor capture + CPU stressors:
+
+| graph quantum | headroom 0 | 512 | 1024 | 2048 | 4096 | 8192 |
+|---|---|---|---|---|---|---|
+| 256 (5.3 ms) | **2512 XRUNs** | 327 | **0** | 0 | - | - |
+| 512 (10.7 ms) | **2515** | - | **0** | 0 | 0 | 0 |
+| 2048 (42.7 ms) | 0 | - | 0 | 0 | 0 | 0 |
+| 32 (legacy, no floor) | **2667** | - | **0** | 0 | - | 0 |
+
+So the daemon now loads every sink with
+`api.alsa.headroom=1024` (21.3 ms at 48 kHz). That is the smallest value with
+a clean monitor capture (zero energy gaps) across all tested quanta; 512 is
+insufficient at quantum 256, and 2048/4096/8192 add latency for no further
+gain (each 1024 frames adds 21.3 ms). The measured total sink delay is ~85 ms
+at headroom 0 and grows by exactly the headroom, so 1024 keeps a media/A-V
+latency well inside lip-sync tolerance while removing the XRUNs even when the
+PipeWire `default.clock.min-quantum=2048` floor (see `43-hw-quirks.sh`) is not
+in force. The two fixes are complementary: the quantum floor prevents the graph
+from collapsing at start-up, and the headroom absorbs any residual stall.
+
 ## Validation Performed Off Target
 
 - Local PipeWire examples confirm the safe static factory syntax is `factory = adapter` with `factory.name = api.alsa.pcm.sink`; this is not used by the shipped fix.

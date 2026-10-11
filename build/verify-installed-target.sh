@@ -437,6 +437,8 @@ exists /usr/bin/pactl || gate_miss audio "/usr/bin/pactl (pulseaudio-utils; the 
 # the cix-ipbloq-hda card, e.g. MS-R1), not the DP-only first version
 if fetch /usr/local/bin/ncz-sky1-audio-autoswitch "$TMP/audsw.py"; then
     grep -q '^def analog_device(' "$TMP/audsw.py" && grep -q '^def hda_cards(' "$TMP/audsw.py" || gate_miss audio "installed ncz-sky1-audio-autoswitch lacks the HDA analog fallback (MS-R1 would have no sink)"
+    # the ALSA sink needs a non-zero ring headroom, or it XRUNs (audible dropouts)
+    grep -q 'api.alsa.headroom' "$TMP/audsw.py" || gate_miss audio "installed ncz-sky1-audio-autoswitch has no api.alsa.headroom ALSA ring margin (Sky1 audio XRUNs)"
 fi
 audsw=0
 for w in $(lsnames /etc/systemd/user | grep '\.wants$'); do

@@ -46,6 +46,21 @@ BACKOFF_START = 30.0
 BACKOFF_MAX = 600.0
 PROBE_TIMEOUT = 5.0
 
+# ALSA ring headroom (frames) kept in front of the sink reader. The spa-alsa
+# default is 0, which leaves no underrun margin: when the graph quantum is small
+# (a low-latency client, or a scheduling stall with RT unavailable) the DMA ring
+# drains to empty between write cycles and the sink counts XRUNs -> audible
+# dropouts. Measured on O6N (hw:0,1, DP, 48 kHz S32LE 2ch) under CPU load:
+#   headroom 0    -> startup/resume bursts of 2500+ XRUNs even at quantum 32/256
+#   headroom 512  -> 327 XRUNs at quantum 256 (still not clean)
+#   headroom 1024 -> 0 XRUNs at quantum 256/512 and at the production 2048
+#   headroom 2048/4096/8192 -> 0 (no further gain; +21 ms per 1024 frames)
+# 1024 frames @48 kHz = 21.3 ms of added sink latency: inaudible for A/V
+# streaming (the sink delay is already ~85 ms) and well inside lip-sync
+# tolerance; a per-client node.latency/buffer can still shorten the rest of the
+# chain. Applied to every sink this daemon loads (DP/HDMI and HDA analog).
+SINK_HEADROOM_FRAMES = 1024
+
 
 @dataclass(frozen=True)
 class EldState:
@@ -320,6 +335,8 @@ def load_sink(
             f"sink_name={sink_name}",
             f"device={device}",
             "namereg_fail=false",
+            # Keep a fixed underrun margin in the DMA ring (see SINK_HEADROOM_FRAMES).
+            f"api.alsa.headroom={SINK_HEADROOM_FRAMES}",
         ]
     )
     if result.returncode == 0:
