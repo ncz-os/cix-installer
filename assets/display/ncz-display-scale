@@ -22,15 +22,18 @@ Subcommands:
       the SAME aspect ratio as the panel so a 16:10 panel is not letterboxed
       by a forced 16:9 mode, then apply the policy scale for that mode.
 
-      The greeter labwc runs with <core><autoEnableOutputs>no</core>, so this
-      is the ONE commit that lights each connected output -- the desired mode
-      is chosen before the compositor ever scans out, instead of a wlr-randr
-      mode change racing a live greeter surface. An output the compositor has
-      already enabled at a capped (<=1920x1200) mode is left untouched: the
-      disable->enable cycle of a redundant mode set is exactly the DP AUX
-      wedge trigger this avoids (see docs/BOOT-SEQUENCE.md, fix/greeter-dp-
-      handoff-20261011). Any output with no capped mode is simply enabled at
-      its own (native) mode rather than left dark.
+      On Sky1/arm64 the greeter labwc runs with <core><autoEnableOutputs>no
+      </core>, so this is the ONE commit that lights each connected output --
+      the desired mode is chosen before the compositor ever scans out, instead
+      of a wlr-randr mode change racing a live greeter surface. On every other
+      arch the compositor keeps the labwc default (autoEnable yes) and this
+      only adjusts the mode of an output it already lit. An output the
+      compositor has already enabled at a capped (<=1920x1200) mode is left
+      untouched: the disable->enable cycle of a redundant mode set is exactly
+      the DP AUX wedge trigger this avoids (see docs/BOOT-SEQUENCE.md,
+      fix/greeter-dp-handoff-20261011). Any output with no capped mode -- a
+      single-mode 4K panel is the common case -- is enabled at its own (native)
+      mode with --on rather than left dark.
 
   session [--settle SECONDS] [--dry-run]
       Desktop session, first login only. The Singularity shell already
@@ -214,16 +217,21 @@ def cmd_greeter(dry_run: bool, runner=subprocess.run) -> int:
             continue
         mode = greeter_mode(out)
         if mode is None:
-            # No capped mode on this output. Never leave it dark: if it is
-            # still off, enable it at whatever mode its own config carries.
-            if not enabled:
-                done = run_wlr(["--output", name, "--on"], dry_run, runner)
-                log(
-                    f"{name}: no capped mode; enabled at native mode"
-                    f"{'' if done else ' FAILED'}"
-                )
-            else:
-                log(f"{name}: no usable capped mode; leaving it alone")
+            # No capped mode on this output (a single-mode 4K panel is the
+            # common case). A panel must NEVER be left dark: enable it at its
+            # own (native) mode in one commit with --on. This is deliberately
+            # unconditional -- under greeter autoEnableOutputs=no (Sky1/arm64)
+            # the compositor left the output off and this is the one commit
+            # that lights it; where the compositor already lit it (amd64 keeps
+            # the labwc default), --on with no --mode is a no-op, NOT a
+            # disable->enable cycle. An output reported enabled but black
+            # (e.g. labwc failed to disable an inherited CRTC) is re-asserted
+            # rather than abandoned.
+            done = run_wlr(["--output", name, "--on"], dry_run, runner)
+            log(
+                f"{name}: no capped mode; enabled at native mode"
+                f"{'' if done else ' FAILED'}"
+            )
             continue
         mm_w, mm_h = phys_mm(out)
         scale, why = policy_scale(mode["width"], mode["height"], mm_w, mm_h)

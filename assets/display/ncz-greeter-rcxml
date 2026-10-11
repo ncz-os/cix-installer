@@ -1,0 +1,118 @@
+#!/bin/sh
+# ncz-greeter-rcxml -- write the greeter labwc rc.xml with the correct
+# <autoEnableOutputs> policy for this machine. Single source of truth for the
+# policy; post-install/55-greeter.sh calls it at install time.
+#
+# WHY THE POLICY IS ARCH-GATED (regression fix, 2026-10-11):
+#
+#   <autoEnableOutputs>no</autoEnableOutputs> exists ONLY to dodge the trilin/
+#   linlon DP AUX-engine wedge on CIX Sky1 boards (MS-R1, Orange Pi 6 Plus). On
+#   that stack labwc's startup modeset of a console-inherited CRTC is a
+#   disable->enable cycle, and the trilin DP AUX engine can latch busy on it,
+#   stalling the greeter's first commit for tens of seconds (black screen with a
+#   live, trained link). The greeter autostart then becomes the single commit
+#   that lights each output at the capped mode chosen by ncz-display-scale.
+#
+#   On every OTHER stack (i915 / amdgpu / nvidia / nouveau, i.e. the amd64
+#   targets) the same key is actively HARMFUL: labwc tries to DISABLE the CRTC
+#   the console/KMS boot-splash left enabled, that disable fails on i915
+#   ("backend/drm/drm.c: Failed to disable CRTC"), and the greeter stays black
+#   even though greetd is up (PEGASUS amd64 RC2 325c9510, live-tested removing
+#   this key restores the greeter). There the compositor must keep the labwc
+#   default (autoEnable yes) and own the first modeset itself.
+#
+# The only arm64 target of this installer in the fleet is CIX Sky1, so the
+# target architecture is the stable, deterministic gate: arm64/aarch64 -> keep
+# the workaround; anything else -> compositor default. A driver probe is a
+# possible future refinement but cannot be evaluated in the chroot at install
+# time (the DRM modules are not loaded there), and a probe that missed the
+# trilin driver would silently reintroduce the Sky1 wedge -- a worse failure
+# than the arch proxy being coarse.
+#
+# Usage: ncz-greeter-rcxml [--arch ARCH] [--out PATH] [--dry-run]
+#   --arch ARCH   target architecture (arm64|aarch64 -> keep the workaround).
+#                 Defaults to $NCZ_TARGET_ARCH, then BUILD_ARCH, then
+#                 `dpkg --print-architecture`, then `uname -m`.
+#   --out PATH    where to write rc.xml (default
+#                 /etc/greetd/singularity-labwc/rc.xml)
+#   --dry-run     print the file to stdout; write nothing
+#
+# Always exits 0: a greeter config must never block a boot.
+
+set -eu
+
+out=/etc/greetd/singularity-labwc/rc.xml
+arch=""
+dry=0
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --arch) arch=${2:-}; shift 2 ;;
+        --arch=*) arch=${1#--arch=}; shift ;;
+        --out) out=${2:-}; shift 2 ;;
+        --out=*) out=${1#--out=}; shift ;;
+        --dry-run) dry=1; shift ;;
+        --help | -h) sed -n '2,/^$/p' "$0"; exit 0 ;;
+        *)
+            echo "ncz-greeter-rcxml: ignoring unknown argument '$1'" >&2
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$arch" ]; then
+    arch=${NCZ_TARGET_ARCH:-}
+fi
+if [ -z "$arch" ] && [ -r /usr/local/lib/cix-installer/BUILD_ARCH ]; then
+    arch=$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH)
+fi
+if [ -z "$arch" ]; then
+    arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+fi
+
+case "$arch" in
+    arm64 | aarch64) autoenable=no ;;
+    *) autoenable=yes ;;
+esac
+
+emit() {
+    if [ "$autoenable" = no ]; then
+        cat <<'RCXML'
+<?xml version="1.0"?>
+<labwc_config>
+  <core>
+    <gap>0</gap>
+    <!-- Sky1/arm64 only: the greeter autostart is the single commit that lights
+         each output at the capped mode chosen by ncz-display-scale; labwc must
+         not auto-modeset a console-inherited CRTC first. The disable->enable
+         cycle of that redundant modeset is the trilin DP AUX-engine wedge
+         trigger. See post-install/55-greeter.sh and docs/BOOT-SEQUENCE.md. -->
+    <autoEnableOutputs>no</autoEnableOutputs>
+  </core>
+</labwc_config>
+RCXML
+    else
+        cat <<'RCXML'
+<?xml version="1.0"?>
+<labwc_config>
+  <core>
+    <gap>0</gap>
+    <!-- Compositor default (autoEnable yes). This stack is not the trilin DP
+         Sky1 AUX-wedge platform, so labwc stays the single owner of the first
+         modeset. autoEnableOutputs=no here leaves the greeter black on i915
+         ("Failed to disable CRTC"); see post-install/55-greeter.sh. -->
+  </core>
+</labwc_config>
+RCXML
+    fi
+}
+
+if [ "$dry" = 1 ]; then
+    emit
+    exit 0
+fi
+
+install -d -m 0755 "$(dirname "$out")"
+emit > "$out.tmp.$$" && mv -f "$out.tmp.$$" "$out"
+echo "ncz-greeter-rcxml: arch=$arch autoEnableOutputs=$autoenable -> $out"
+exit 0
