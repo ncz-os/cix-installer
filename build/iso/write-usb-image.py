@@ -339,8 +339,15 @@ def _asset_kernel_ignore(base_dir: str, names: list[str]) -> list[str]:
     # legitimate file that merely contains ".bak" or ".pre-" mid-name survives.
     patterns = ("*.native-prepare-rejected", "*.stale-*", "*.stale",
                 "*.pre-*", "*.bak", "*.r57-bak")
+    # `debs/` is the shared kernel-staging pool's own prebuilt kernel packages
+    # (cixmini-boot / linux-image / linux-headers).  They are NOT the pin's
+    # reproducible set (a different, stale build), the medium does not need them
+    # (the installer installs from the /cdrom pool), and shipping them made the
+    # provenance gate fail their shas -- prune the directory by exact name.
+    exact = ("debs",)
     return [n for n in names
-            if any(fnmatch.fnmatchcase(n, pat) for pat in patterns)]
+            if n in exact
+            or any(fnmatch.fnmatchcase(n, pat) for pat in patterns)]
 
 
 def _copytree_dangling_symlink_safe(src: Path, dst: Path, *,
