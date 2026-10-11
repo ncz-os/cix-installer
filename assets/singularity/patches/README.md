@@ -45,6 +45,18 @@ a user-selected quadrant.
 
 Delete this patch once PR #30 merges.
 
+**Upstream PR:** [singularityos-lab/singularity-shell#37](https://github.com/singularityos-lab/singularity-shell/pull/37)
+— open, not yet merged. Patch `0006-dock-launch-feedback-owned-timer-captures.patch`.
+Fixes a use-after-free in `DockLaunchFeedback.stretch_dot()`: the 10 s give-up
+timer captured the dock-item wrapper and its dot with `unowned` (raw) pointers,
+so a dock rebuild/destroy inside that window made the callback call
+`g_object_get_data()` on freed memory — SIGSEGV in
+`g_type_check_instance_is_fundamentally_a` (O6N arm64, core pid 2613,
+2026-10-11). The patch makes the captures owned so the objects stay valid until
+the timer fires. This is the image-blocking arm64 crash-loop fix.
+
+Delete this patch once PR #37 merges.
+
 ## singularity-desktop — active
 
 **Upstream PR:** [singularityos-lab/singularity-desktop#262](https://github.com/singularityos-lab/singularity-desktop/pull/262)
