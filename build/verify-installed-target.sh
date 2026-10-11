@@ -45,6 +45,13 @@ trap 'rm -rf "$TMP"' EXIT
 FAIL=0
 gate_miss() { echo "GATE: missing [$1]: $2" >&2; FAIL=1; }
 
+# Arch-scoped firmware BOM, resolved ONCE here for BOTH of the checks below
+# ((net-fw) network firmware and (fw-bom) the whole firmware BOM):
+# manifests/firmware-$ARCH.pkgs when present (the trimmed sky1-arm64 set), else
+# the complete architecture-neutral manifests/firmware.pkgs (amd64).
+BOM_PKGS="$HERE_VT/../manifests/firmware-$ARCH.pkgs"
+[ -f "$BOM_PKGS" ] || BOM_PKGS="$HERE_VT/../manifests/firmware.pkgs"
+
 # debugfs prints "<path>: File not found by ext2_lookup" (rc stays 0) for a
 # missing path and an "Inode:" line for a present one. Key on the positive
 # marker; never on the absence of an error string.
@@ -139,8 +146,7 @@ fi
 # firmware-brcm80211 / firmware-intel-graphics on arm64) are not required.
 echo "[verify-target] (net-fw) network firmware packages"
 NETFW_TSV="$HERE_VT/../manifests/net-firmware.tsv"
-BOM_PKGS="$HERE_VT/../manifests/firmware-$ARCH.pkgs"
-[ -f "$BOM_PKGS" ] || BOM_PKGS="$HERE_VT/../manifests/firmware.pkgs"
+# BOM_PKGS is resolved once near the top of this script (shared with (fw-bom)).
 if [ ! -f "$NETFW_TSV" ]; then
     gate_miss net-firmware "verifier checkout has no manifests/net-firmware.tsv"
 elif [ ! -f "$BOM_PKGS" ]; then
