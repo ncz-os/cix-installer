@@ -322,6 +322,7 @@ post-install/59-ncz-screensavers-pkg.sh	common	-	mandatory install of the ncz-sc
 post-install/60-boot-splash.sh	common	-	KMS boot splash; DRM-generic (panthor initramfs strip is a harmless sed)
 post-install/61-chromium-icon.sh	sky1	-	Cygnus-coloured NCZ Chromium icon (diverts the chromium-ncz-sky1 package icons); Sky1 only
 post-install/62-cygnus-screensaver-default.sh	common	-	default screensaver = black hole in the Cygnus palette; override validated against the installed schema before install
+post-install/64-t2-power-cap.sh	amd64	t2	Apple T2 CPU package power cap (MacBookPro16,x): battery PL1=25 W/PL2=35 W + no-turbo + max_perf=50, AC PL1=45 W/PL2=60 W; helper + intel-rapl:0 udev (boot race) + Mains-change (plug/unplug) + systemd-sleep (resume) + thermald ExecStartPre drop-in; /etc/ncz/power-cap.conf override with a performance opt-out; reversible (post-install/64-t2-power-cap.sh)
 post-install/70-bootloader.sh	mixed	-	rEFInd on both arches via run_refind_arm64 and run_refind_amd64; TODO split into per-platform bodies
 post-install/72-rescue-partition.sh	mixed	-	rescue partition; arm64 stages assets/kernel/mainline, amd64 copies the installed amd64-stable kernel; TODO split
 post-install/79-dkms-prep.sh	sky1	-	makes Sky1 kernel headers DKMS-usable; installs aarch64 cross compiler
@@ -434,6 +435,7 @@ build/test_wallpaper_fit.py	common	-	wallpaper aspect variants: selection, rotat
 build/test-t2-dkms-provenance.sh	amd64	t2	proves every vendored T2 DKMS module has a PROVENANCE file pinned to a 40-hex upstream commit and a licence line
 build/test-t2smc-range.sh	amd64	t2	userspace unit test of the t2smc range checks (fan min/target, charge limit, RTC offset) and the patch applying cleanly
 build/test-t2-dkms-hook.sh	amd64	t2	proves 56-t2-dkms.sh builds t2smc/t2gmux only (t2smp dropped), blacklists t2smp + apple_gmux on T2 DMI only, leaves t2gmux alone on non-T2 hardware, removes stale DKMS registrations on upgrade, honours NCZ_T2_DKMS_EXTRA=t2thunderbolt opt-in, fails loudly on missing KVER_LIST_AMD64 on T2, builds against -rc KVERs (7.3.0-rc6-1-t2-edge-aerfix), and is idempotent
+build/test-t2-power-cap.sh	amd64	t2	regression test for the T2 package power cap hook + helper: battery 25/35 W + no-turbo + max_perf 50, AC 45/60 W, never writes constraint_N_max_power_uw, restore, performance opt-out, product DMI gate, bounded wait for a late intel-rapl:0, --strict, registration
 assets/display/	common	-	NCZ output-scale policy helper (ncz-display-scale): greeter mode/scale and first-login HiDPI safety net (docs/HIDPI-SCALING.md)
 build/test_display_scale.py	common	-	unit tests for ncz-display-scale: density policy, greeter mode choice, first-login session rules
 build/test-splash-logo-fit.sh	common	-	manual harness: renders the loginui splash at several resolutions and checks the logo is uncropped and <= 60% wide
