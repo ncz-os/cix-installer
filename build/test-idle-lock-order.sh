@@ -65,13 +65,18 @@ XML
 </schemalist>
 XML
 }
-run() { NCZ_IDLELOCK_SCHEMA_DIR="$1" NCZ_IDLELOCK_SAVER_SCHEMA="$1/dev.ncz.screensaver.gschema.xml" bash "$HOOK" >"$T/out" 2>&1; echo $?; }
+# run DIR -> runs the hook against the fixture dir. The caller reads $? (the
+# hook's exit status); the hook's own output is captured to $T/out so nothing
+# leaks onto this script's stdout.
+run() { NCZ_IDLELOCK_SCHEMA_DIR="$1" NCZ_IDLELOCK_SAVER_SCHEMA="$1/dev.ncz.screensaver.gschema.xml" bash "$HOOK" >"$T/out" 2>&1; }
 # lock_at DIR -> print the override's idle-delay
 lock_at() { sed -n 's/^idle-delay=//p' "$1/99-ncz-idle-lock-order.gschema.override" 2>/dev/null | tail -1 | tr -dc '0-9'; }
+# is_uint STR -> true when STR is a non-empty run of digits
+is_uint() { case "${1:-}" in (''|*[!0-9]*) return 1 ;; (*) return 0 ;; esac; }
 
 # 1. defaults 300 + 60 -> lock at 360, and the dir still compiles --strict
 mkschemas "$T/a" 300 60
-rc=$(run "$T/a")
+run "$T/a"; rc=$?
 if [ "$rc" = 0 ] && [ -f "$T/a/99-ncz-idle-lock-order.gschema.override" ]; then ok "override installed"; else bad "no override (rc=$rc): $(tail -3 "$T/out")"; fi
 if [ "$(lock_at "$T/a")" = 360 ]; then ok "lock default = saver(300) + lock-delay(60) = 360"; else bad "lock default is '$(lock_at "$T/a")', expected 360"; fi
 if glib-compile-schemas --strict --dry-run "$T/a" >/dev/null 2>&1; then ok "schema dir compiles --strict with the override"; else bad "schema dir does not compile with the override"; fi
@@ -84,30 +89,38 @@ if [ "$got" = "300" ]; then ok "saver schema hack-idle-delay left untouched (300
 
 # 2. the value tracks the installed saver schema, not a hard-coded 360
 mkschemas "$T/b" 120 30
-rc=$(run "$T/b")
+run "$T/b"; rc=$?
 if [ "$rc" = 0 ] && [ "$(lock_at "$T/b")" = 150 ]; then ok "lock default follows the schema (120 + 30 = 150)"; else bad "value did not follow the schema: $(lock_at "$T/b")"; fi
 
 # 3. lock-delay 0 must not put the lock at the same time as the saver
 mkschemas "$T/c" 300 0
-rc=$(run "$T/c")
+run "$T/c"; rc=$?
 la="$(lock_at "$T/c")"
-if [ "$rc" = 0 ] && [ -n "$la" ] && [ "$la" -gt 300 ]; then ok "lock-delay 0 keeps lock strictly after the saver ($la > 300)"; else bad "lock-delay 0 gave lock at '$la'"; fi
+if [ "$rc" != 0 ]; then
+    bad "lock-delay 0 run failed (rc=$rc)"
+elif ! is_uint "$la"; then
+    bad "lock-delay 0 gave a non-numeric lock time ('$la')"
+elif [ "$la" -gt 300 ]; then
+    ok "lock-delay 0 keeps lock strictly after the saver ($la > 300)"
+else
+    bad "lock-delay 0 gave lock at '$la' (not > 300)"
+fi
 
 # 4. idempotent
 before=$(cksum < "$T/a/99-ncz-idle-lock-order.gschema.override")
-rc=$(run "$T/a")
+run "$T/a"; rc=$?
 after=$(cksum < "$T/a/99-ncz-idle-lock-order.gschema.override")
 if [ "$rc" = 0 ] && [ "$before" = "$after" ]; then ok "second run is idempotent"; else bad "second run changed the override"; fi
 
 # 5. no lockscreen schema -> skip cleanly, nothing written
 mkdir -p "$T/empty"
-rc=$(run "$T/empty")
+run "$T/empty"; rc=$?
 if [ "$rc" = 0 ] && [ ! -e "$T/empty/99-ncz-idle-lock-order.gschema.override" ]; then ok "skips cleanly without the lockscreen schema"; else bad "wrote an override without the lockscreen schema (rc=$rc)"; fi
 
 # 6. missing saver schema -> fallback 360, still installed
 mkschemas "$T/d"
 rm -f "$T/d/dev.ncz.screensaver.gschema.xml"
-rc=$(run "$T/d")
+run "$T/d"; rc=$?
 if [ "$rc" = 0 ] && [ "$(lock_at "$T/d")" = 360 ]; then ok "fallback 360 when the saver schema is absent"; else bad "fallback wrong (rc=$rc, lock=$(lock_at "$T/d"))"; fi
 
 # 7. registered for both platforms and ordered after the saver default hook
