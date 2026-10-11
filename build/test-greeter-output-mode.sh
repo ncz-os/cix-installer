@@ -47,15 +47,15 @@ run() { : > "$T/calls"; CALLS="$T/calls" BEHAVIOUR="$1" NCZ_DISPLAY_SCALE_HELPER
 
 rc=$(run ok)
 if [ "$rc" = 0 ]; then ok "exit 0 when modes apply"; else bad "exit $rc when modes apply"; fi
-if grep -q -- "--output DP-2 --mode 1920x1080@60Hz" "$T/calls" && grep -q -- "--output HDMI-A-1 --mode 1920x1080@60Hz" "$T/calls"; then
-    ok "1920x1080@60Hz requested on every connected output"
+if grep -q -- "--output DP-2 --mode 1920x1080@60Hz --on" "$T/calls" && grep -q -- "--output HDMI-A-1 --mode 1920x1080@60Hz --on" "$T/calls"; then
+    ok "1920x1080@60Hz + --on requested on every connected output"
 else
-    bad "missing per-output 1080p request"
+    bad "missing per-output 1080p/--on request"
 fi
 if grep -q -E "3840|4096|2160" "$T/calls"; then bad "a 4K mode was requested"; else ok "no 4K mode ever requested"; fi
 
 rc=$(run first-fails)
-if [ "$rc" = 0 ] && grep -q -- "--output DP-2 --mode 1920x1080$" "$T/calls"; then
+if [ "$rc" = 0 ] && grep -q -- "--output DP-2 --mode 1920x1080 --on" "$T/calls"; then
     ok "falls back to the plain 1920x1080 spelling"
 else
     bad "no fallback spelling (rc=$rc)"
@@ -85,12 +85,43 @@ J
 runh() { : > "$T/calls"; JSON="$2" CALLS="$T/calls" BEHAVIOUR="$1" NCZ_DISPLAY_SCALE_HELPER="$HELPER" PATH="$T/bin:/usr/bin:/bin" sh "$T/autostart" >/dev/null 2>&1; echo $?; }
 
 rc=$(runh ok "$T/chimera.json")
-if [ "$rc" = 0 ] && grep -qx -- "--output eDP-1 --mode 1920x1200@60.000000Hz --scale 1" "$T/calls"; then
+if [ "$rc" = 0 ] && grep -qx -- "--output eDP-1 --mode 1920x1200@60.000000Hz --scale 1 --on" "$T/calls"; then
     ok "16:10 panel: helper picks same-aspect 1920x1200, not a letterboxed 1080p"
 else
     bad "16:10 panel helper request wrong (rc=$rc): $(tr '\n' ';' < "$T/calls")"
 fi
 if grep -q -- "1920x1080" "$T/calls"; then bad "legacy 1080p loop also ran after the helper succeeded"; else ok "legacy loop skipped when the helper succeeds"; fi
+
+# An output the compositor already lit at a capped mode must be left untouched:
+# a redundant mode set is the disable->enable cycle that wedges the trilin AUX
+# engine (fix/greeter-dp-handoff-20261011).
+cat > "$T/already_capped.json" <<'J'
+[{"name": "DP-2", "make": "ViewSonic", "model": "VX2776", "serial": "X",
+  "physical_size": {"width": 597, "height": 336}, "enabled": true, "scale": 1.0,
+  "modes": [{"width": 3840, "height": 2160, "refresh": 59.997, "preferred": true, "current": false},
+            {"width": 1920, "height": 1080, "refresh": 60.0, "preferred": false, "current": true}]}]
+J
+rc=$(runh ok "$T/already_capped.json")
+if [ "$rc" = 0 ] && [ ! -s "$T/calls" ]; then
+    ok "already-lit capped output: no mode change (no disable->enable trigger)"
+else
+    bad "already-lit capped output was re-moded (rc=$rc): $(tr '\n' ';' < "$T/calls")"
+fi
+
+# A disabled output (greeter labwc runs autoEnableOutputs=no) must be enabled in
+# one commit at the capped mode, not left dark.
+cat > "$T/disabled.json" <<'J'
+[{"name": "DP-2", "make": "ViewSonic", "model": "VX2776", "serial": "X",
+  "physical_size": {"width": 597, "height": 336}, "enabled": false, "scale": 1.0,
+  "modes": [{"width": 3840, "height": 2160, "refresh": 59.997, "preferred": true, "current": false},
+            {"width": 1920, "height": 1080, "refresh": 60.0, "preferred": false, "current": false}]}]
+J
+rc=$(runh ok "$T/disabled.json")
+if [ "$rc" = 0 ] && grep -qx -- "--output DP-2 --mode 1920x1080@60.000000Hz --scale 1 --on" "$T/calls"; then
+    ok "disabled output is enabled once at the capped mode (--on)"
+else
+    bad "disabled output not enabled at capped mode (rc=$rc): $(tr '\n' ';' < "$T/calls")"
+fi
 
 rc=$(runh ok "$T/fourk.json")
 if [ "$rc" = 0 ] && grep -q -- "--output DP-2 --mode 1920x1080@60.000000Hz --scale 1" "$T/calls" && ! grep -q -E "3840|2160" "$T/calls"; then
