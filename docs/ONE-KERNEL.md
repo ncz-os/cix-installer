@@ -37,42 +37,40 @@ entirely the **installer's** Debian d-i kernel + its module udebs, merged from
 the netinst substrate, plus five Debian kernel debs that the offline closure
 pulled in.
 
-## The mechanism (decided; KVM gate UNPROVEN in this session)
+## The mechanism (IMPLEMENTED and KVM-PROVEN in r203)
 
-The installer boots the netinst's **Debian d-i kernel + initrd** (ESP `/linux` +
-`/initrd.gz`, built by `build/iso/build-refind-esp.py` from the imported
-substrate), and loads Debian's `*-modules-<kver>-*-di` udebs at install time.
-To satisfy the one-kernel policy the correct mechanism is:
+The installer boots OUR kernel. There are two halves, both live since r203:
 
-1. **Do not merge the substrate's Debian kernel/module udebs** into the image's
-   `/cdrom/pool` (`write-usb-image.py`'s `copytree(installer_pool, …)`), and
-   stop seeding Debian kernel debs into the offline closure
-   (`manifests/installer-base*.pkgs`); and
-2. **build the installer initrd from OUR kernel + our module set** so d-i runs
-   our kernel (the ESP `/linux` and the initrd), keeping the Debian d-i
-   *userland* udebs (partman/apt-setup/etc.) which are arch-independent.
+1. **Step 1 — do not merge the substrate's Debian kernel/module udebs.**
+   `build/iso/write-usb-image.py:filter_substrate_kernel_artifacts()` removes the
+   Debian kernel/module/binary udebs from the copied substrate pool; `NCZ_ONE_KERNEL=1`
+   (the `make image` default) enables it, and the offline closure seed drops
+   Debian kernel debs.
+2. **Step 2 — build the installer initrd from OUR kernel + our module set.**
+   `build/iso/patch-initrd-t2-kernel.py` swaps the ESP `/linux` for our vmlinuz
+   and appends our `lib/modules/<our-kver>` overlay onto the d-i initrd. Since
+   r203 it ALSO prunes the substrate's own kernel from the base initrd:
+   `filter_base_cpio()` drops, byte-verbatim, every `[usr/]lib/modules/<kver>`
+   whose kver is not ours (591 members on the amd64 netinst) and the base
+   `var/lib/dpkg/status`; `prune_initrd_status()` removes the Debian
+   `*-modules-*-di` / `linux-base-*-di` / `linux-binary-*-di` records and the
+   Architecture-less `debian-installer` marker, and bakes the pruned status into
+   the overlay (the later archive wins); `verify_one_kernel_initrd()` fails the
+   build closed if any Debian kernel path or record survives. The Debian d-i
+   *userland* udebs (partman/apt-setup/anna/…) stay.
 
-Step 1 alone removes the kernel-module residual from provenance but would leave
-the installer without its running kernel modules — so it must ship with step 2
-(the initrd). Because the change touches the installer's boot path, it is
-**UNPROVEN until the KVM install gate (`build/kvm-install-gate-gpt.sh`) reaches
-"finish the installation" on a rebuilt image**. No image was rebuilt in this
-session.
-
-Implementation surface for step 1 (staged, gated, ready to enable after the
-gate): `build/iso/write-usb-image.py:filter_substrate_kernel_artifacts()` removes
-Debian kernel/module/binary udebs from the copied substrate pool when
-`NCZ_ONE_KERNEL=1` (`make image` passes it), and the offline closure seed drops
-Debian kernel packages. Left **default-off** so the current (unverified) build
-path is unchanged.
+**Evidence (amd64, `b48ba99d`).** The r203 amd64 gate reported 25+25 initrd
+kernel items before this work and **0 after** (`provenance-gate`: 8602 packages,
+0 failures), and the KVM install gate **PASSed phase 1 + phase 2 + UI check** —
+the installer booted OUR kernel, reached the finish stage with no ship-critical
+hook failure, and the installed system booted.
+`build/iso/tests/test_patch_initrd.py` unit-tests the prune both directions
+(wired into `make parity`).
 
 ## Residual after the one-kernel fix
 
-With the Debian kernel-module udebs no longer in the image, the substrate
-provenance residual drops by the kernel counts (64 amd64 / 79 arm64 above); the
-remaining non-kernel d-i/base udebs (`apt-setup-udeb`, `dbus-udeb`,
-`fdisk-udeb`, `grub-mount-udeb`, `exim4-*`, …) still cannot be authorized by a
-single `testing` snapshot (`manifests/base.pin` records 91.8 % / 90.7 %) — see
-`docs/FORKY-PROVENANCE.md` §"Substrate vs snapshot". That is a genuine,
-documented gap that a newer netinst must close; it is **not** addressed by
-adding a fourth origin.
+With the Debian kernel modules gone from the image, the kernel residual is
+**zero**. The remaining installer d-i/base packages are authorized by the pinned
+snapshot (forky) plus the reviewed per-package `manifests/sid-exceptions.tsv`
+ledger — see `docs/FORKY-PROVENANCE.md` §"sid exceptions". No fourth origin is
+added.
