@@ -63,6 +63,9 @@ grep -q 'bash build/stage-amd64-kernel.sh' "$ROOT/build/build-image.sh" \
 grep -q 'bash $(ROOT)/build/stage-amd64-kernel.sh' "$ROOT/Makefile" \
     && ok "make image stages the amd64 installer kernel standalone too" \
     || bad "Makefile image rule does not stage the amd64 kernel"
+grep -q 'build/stage-screensaver-plugin.sh' "$ROOT/build/build-image.sh" \
+    && ok "build-image.sh stage-inputs stages the pinned screensaver settings plugin" \
+    || bad "build-image.sh does not stage the screensaver settings plugin"
 
 # --- #3 arm64 sky1-firmware + cix-debs are pinned (so a fresh clone stages them) ---
 missing=""

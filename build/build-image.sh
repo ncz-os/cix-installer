@@ -780,6 +780,17 @@ stage_stage_inputs() {
         rc="${PIPESTATUS[0]}"
         [ "$rc" = 0 ] || return "$rc"
     fi
+    # Singularity screensaver settings plugin: pinned in
+    # post-install/lib/ncz-screensavers-plugin.lock and staged from the ARGONAS
+    # ncz-screensavers-debs pool. The pipeline never ran
+    # stage-screensaver-plugin.sh, so make image's check-ssplugin-abi would fail
+    # on a fresh clone -- the same hand-staging gap as the engine deb (r203
+    # failure #1). Idempotent + sha256-verified against the lock.
+    if [ -x "$ROOT/build/stage-screensaver-plugin.sh" ]; then
+        ( cd "$ROOT" && bash build/stage-screensaver-plugin.sh "$ARCH" ) 2>&1 | tee -a "$log"
+        rc="${PIPESTATUS[0]}"
+        [ "$rc" = 0 ] || return "$rc"
+    fi
     return 0
 }
 
