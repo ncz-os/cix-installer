@@ -50,29 +50,18 @@ esac
 #       that paints after greeter login). It has NO KMS path: at early boot it
 #       prints "splash: cannot connect to Wayland display" (no compositor yet)
 #       and exits, which is exactly the MS-R1 black screen: nothing paints and
-#       the wrapper's timeout then logs "DRM already owned; skipping".
+#       the wrapper then logs a timeout/"handoff" line.
 #
 # The old preference "singularity-splash first" (a since-disproved reading of a
-# payload rename) therefore selected the Wayland client for the KMS slot. Pick
-# the binary by CAPABILITY -- only one that speaks the KMS flags may own DRM --
-# and fall back to the canonical name so the staged-asset path below still runs
-# on a payload that has neither.
-ncz_splash_is_kms() {
-    [ -x "$1" ] || return 1
-    grep -qa -- '--wait-seconds' "$1" 2>/dev/null
-}
-BSP=""
-for _ncz_cand in /opt/singularity/bin/singularity-boot-splash \
-                 /opt/singularity/bin/singularity-splash; do
-    if ncz_splash_is_kms "$_ncz_cand"; then
-        BSP="$_ncz_cand"
-        break
-    fi
-done
-if [ -z "$BSP" ]; then
-    BSP=/opt/singularity/bin/singularity-boot-splash
-fi
-unset _ncz_cand
+# payload rename) therefore selected the Wayland client for the KMS slot.
+# Select the KMS splash by its canonical name, which the build system
+# guarantees: build/build-singularity.sh asserts the boot-splash repo installs
+# as /opt/singularity/bin/singularity-boot-splash (a rename would fail that
+# assertion loudly). NEVER fall back to singularity-splash -- it cannot own
+# early-boot DRM. If the canonical binary is absent, the staged-asset path
+# below installs one; if that is absent too, the unit is disabled (never
+# enabled with a Wayland ExecStart).
+BSP=/opt/singularity/bin/singularity-boot-splash
 echo "[60] KMS boot splash: $BSP"
 
 # --- (1) ensure the binary is present ----------------------------------------
@@ -116,25 +105,10 @@ echo "[60] verified: singularity-boot-splash dynamic-link closure complete"
 cat > /usr/local/bin/ncz-boot-splash <<'WRAPPER'
 #!/bin/sh
 set -eu
-# Pick the KMS-capable splash by capability: only a binary that speaks the KMS
-# flags (--wait-seconds) may own DRM here. singularity-splash is the Wayland
-# SESSION splash and cannot paint at early boot (no compositor) -- see the
-# header of 60-boot-splash.sh.
-ncz_splash_is_kms() {
-    [ -x "$1" ] || return 1
-    grep -qa -- '--wait-seconds' "$1" 2>/dev/null
-}
-BSP=""
-for _cand in /opt/singularity/bin/singularity-boot-splash \
-             /opt/singularity/bin/singularity-splash; do
-    if ncz_splash_is_kms "$_cand"; then
-        BSP="$_cand"
-        break
-    fi
-done
-if [ -z "$BSP" ]; then
-    BSP=/opt/singularity/bin/singularity-boot-splash
-fi
+# The KMS boot splash. build-singularity.sh asserts this canonical name; we
+# never fall back to singularity-splash (the Wayland SESSION splash, which
+# cannot paint before a compositor exists). See the header of 60-boot-splash.sh.
+BSP=/opt/singularity/bin/singularity-boot-splash
 install -d -m 1777 /run/singularity
 rm -f /run/singularity/greeter-ready
 card=""
