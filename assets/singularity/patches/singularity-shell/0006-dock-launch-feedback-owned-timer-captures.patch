@@ -1,0 +1,66 @@
+From c034460fb94bb61a1bf8802055e65fafe9575fa1 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 11 Oct 2026 12:12:12 -0400
+Subject: [PATCH] fix(dock): hold owned refs in the launch-feedback give-up
+ timer
+
+stretch_dot() arms a GIVE_UP_SECONDS (10 s) GLib.Timeout whose callback
+calls wrapper.get_data("launch_dot"). The wrapper and the dot were
+captured with `unowned` -- raw, non-owning pointers. When the dock item is
+rebuilt or destroyed inside that window (dock rebuild, app-grid change,
+session teardown) the timer fires on freed memory and the shell dies with
+SIGSEGV in g_object_get_data ->
+g_type_check_instance_is_fundamentally_a.
+
+Confirmed live on O6N (arm64, NCZ-OS 26.10): the core of singularity-desktop
+pid 2613 has main-thread frame singularity-desktop+0x152644 called from the
+main-loop source dispatch; disassembling the shipped (stripped) binary at
+that offset against the pinned sources maps it exactly to this lambda.
+
+Fix: capture owned references instead of unowned so the objects stay valid
+until the timer fires; the closure releases them when the source is
+removed. Behavior is otherwise unchanged (the dot is still cleaned up on
+the same condition).
+
+Assisted-by: opencode:deepseek-flash
+AI-Scope: Root-caused the SIGSEGV from the coredumpctl backtrace plus objdump of the stripped binary, and wrote the owned-capture fix.
+---
+ src/components/dock/dock_launch_feedback.vala | 21 +++++++++++++------
+ 1 file changed, 15 insertions(+), 6 deletions(-)
+
+diff --git a/src/components/dock/dock_launch_feedback.vala b/src/components/dock/dock_launch_feedback.vala
+index 74b0837..196033a 100644
+--- a/src/components/dock/dock_launch_feedback.vala
++++ b/src/components/dock/dock_launch_feedback.vala
+@@ -148,13 +148,22 @@ namespace Singularity {
+                 bin.scale_x = 1.0;
+                 Singularity.Motion.spring_to(bin, "scale-x", STRETCH, Singularity.Motion.Spring.SNAPPY);
+             }
+-            unowned Gtk.Widget wrapper_weak = wrapper;
+-            unowned Singularity.Animation.MotionBin bin_weak = bin;
++            // The give-up timer can outlive the dock item it was armed for: a
++            // dock rebuild, an app-grid change or session teardown frees
++            // `wrapper` well inside GIVE_UP_SECONDS (10 s). The captures MUST
++            // therefore be owned references. With `unowned` captures the
++            // callback later called g_object_get_data() on a freed GtkWidget
++            // and the shell died with SIGSEGV in
++            // g_type_check_instance_is_fundamentally_a (O6N, 2026-10-11).
++            // Owning both objects keeps them valid until the source is
++            // removed; the closure drops the references when it is finalized.
++            Gtk.Widget wrapper_ref = wrapper;
++            Singularity.Animation.MotionBin bin_ref = bin;
+             GLib.Timeout.add_seconds(GIVE_UP_SECONDS, () => {
+-                if (wrapper_weak.get_data<Singularity.Animation.MotionBin>("launch_dot") == bin_weak) {
+-                    wrapper_weak.set_data<Singularity.Animation.MotionBin?>("launch_dot", null);
+-                    var parent = bin_weak.get_parent() as Gtk.Box;
+-                    if (parent != null) parent.remove(bin_weak);
++                if (wrapper_ref.get_data<Singularity.Animation.MotionBin>("launch_dot") == bin_ref) {
++                    wrapper_ref.set_data<Singularity.Animation.MotionBin?>("launch_dot", null);
++                    var parent = bin_ref.get_parent() as Gtk.Box;
++                    if (parent != null) parent.remove(bin_ref);
+                 }
+                 return GLib.Source.REMOVE;
+             });
+-- 
+2.50.1 (Apple Git-155)
+
