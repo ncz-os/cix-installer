@@ -32,6 +32,7 @@ LOGGED_MISSING = [
     "rtl_nic/rtl8125b-2.fw",  # O6N, r8169
     "rtl_nic/rtl8168h-2.fw",  # PEGASUS, r8169
     "mediatek/BT_RAM_CODE_MT7922_1_1_hdr.bin",  # MS-R1, btusb/btmtk
+    "i915/mtl_dmc.bin",  # PROTEUS Arrow Lake, i915 display
 ]
 
 
@@ -56,6 +57,13 @@ def build_deb(root: Path, package: str, version: str, files: dict) -> Path:
     )
     return deb
 
+
+INTEL_GFX_FILES = {
+    "i915/mtl_dmc.bin": b"mtl-dmc",  # PROTEUS Arrow Lake (7d67), 2026-10-10
+    "i915/tgl_dmc_ver2_12.bin": b"tgl-dmc",
+    "i915/mtl_guc_70.bin": b"guc-stays-target-only",
+    "i915/mtl_huc_gsc.bin": b"huc-stays-target-only",
+}
 
 REALTEK_FILES = {
     "rtl_nic/rtl8127a-1.fw": b"8127a",
@@ -157,6 +165,7 @@ class StageInitrdFirmwareTest(unittest.TestCase):
         self.root = Path(self._td.name)
         build_deb(self.root, "firmware-realtek", "20260810-1", REALTEK_FILES)
         build_deb(self.root, "firmware-mediatek", "20260810-1", MEDIATEK_FILES)
+        build_deb(self.root, "firmware-intel-graphics", "20260810-1", INTEL_GFX_FILES)
         self.pool = self.root / "pool"
         self.rows = MODULE.load_net_firmware_table(TABLE)
 
@@ -175,12 +184,14 @@ class StageInitrdFirmwareTest(unittest.TestCase):
         want = {p for p in REALTEK_FILES if p.startswith("rtl_nic/")} | {
             "mediatek/BT_RAM_CODE_MT7922_1_1_hdr.bin",
             "mediatek/BT_RAM_CODE_MT7961_1_2_hdr.bin",
+            "i915/mtl_dmc.bin",
+            "i915/tgl_dmc_ver2_12.bin",
         }
         self.assertEqual(paths, want)
         for p in LOGGED_MISSING:
             self.assertEqual(
                 (dest / "lib" / "firmware" / p).read_bytes(),
-                (REALTEK_FILES | MEDIATEK_FILES)[p],
+                (REALTEK_FILES | MEDIATEK_FILES | INTEL_GFX_FILES)[p],
             )
         # never a usr/ tree in the overlay: the base initrd owns /lib layout
         self.assertFalse((dest / "usr").exists())
