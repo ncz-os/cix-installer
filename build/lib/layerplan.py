@@ -112,7 +112,9 @@ REGISTRY: dict[str, list[tuple]] = {
         ("glob", "manifests/installer-base*.pkgs"),
         ("path", "manifests/build-inputs.tsv"),
         ("path", "manifests/firmware.pkgs"),
+        ("path", "manifests/firmware-arm64.pkgs"),
         ("path", "manifests/firmware-bom.allow"),
+        ("path", "manifests/firmware-bom-arm64.allow"),
         ("path", "manifests/net-firmware.tsv"),
         ("path", "post-install"),            # r202 gap #5 (post-install)
         ("path", "assets/wallpaper"),        # r202 gap #5 (wallpaper)

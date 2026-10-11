@@ -755,6 +755,7 @@ parity:
 	bash build/test-desktop-mirror-local-debs.sh
 	build/test-no-debian-kernel.sh
 	bash build/test-firmware-bom-hook.sh
+	bash build/test-firmware-arch-bom.sh
 	bash build/test-desktop-apt-require.sh
 	bash build/test-build-inputs.sh
 	bash build/test-deb-rev-defaults.sh

@@ -255,6 +255,9 @@ m_ssp_installed_old_category() { m_ssp_installed_no_shell_row "$1"; sed -i 's/^X
 m_no_fw_mediatek() { sed -i '/^Package: firmware-mediatek$/,/^$/d' "$1/var/lib/dpkg/status"; }
 m_half_fw_realtek() { sed -i '/^Package: firmware-realtek$/,/^$/s/install ok installed/deinstall ok config-files/' "$1/var/lib/dpkg/status"; }
 m_amd64_strip_no_iwlwifi() { m_amd64_strip "$1"; sed -i '/^Package: firmware-iwlwifi$/,/^$/d' "$1/var/lib/dpkg/status"; }
+# amd64 keeps the full firmware.pkgs BOM (firmware-ipw2x00 included), so a
+# licence-preinst "install ok not-installed" must still fail there.
+m_amd64_fw_notinst_ipw() { m_amd64_strip "$1"; sed -i '/^Package: firmware-ipw2x00$/,/^$/s/install ok installed/install ok not-installed/' "$1/var/lib/dpkg/status"; }
 m_fw_notinst_ipw() { sed -i '/^Package: firmware-ipw2x00$/,/^$/s/install ok installed/install ok not-installed/' "$1/var/lib/dpkg/status"; }
 m_no_coredump()    { sed -i '/^Package: systemd-coredump$/,/^$/d' "$1/var/lib/dpkg/status"; }
 m_no_installed_list() { sed -i 's/install ok installed/deinstall ok config-files/' "$1/var/lib/dpkg/status"; }
@@ -356,7 +359,7 @@ run_case "missing wallpapers-bing plugin fails" 1 m_wp_noplugin
 run_case "stale sensors plugin fails"           1 m_sens_stale
 run_case "missing sensors plugin fails"         1 m_sens_missing
 run_case "sudo not installed fails"             1 m_no_sudo
-run_case "firmware-ipw2x00 install ok not-installed fails" 1 m_fw_notinst_ipw
+run_case "arm64: dropped firmware-ipw2x00 is not required" 0 m_fw_notinst_ipw
 run_case "systemd-coredump absent fails"        1 m_no_coredump
 run_case "no installed packages at all fails the BOM check (not skipped)" 1 m_no_installed_list "no installed-package list to check"
 run_case "firmware-mediatek (MT7922 WiFi/BT) absent fails" 1 m_no_fw_mediatek
@@ -410,6 +413,7 @@ run_case "amd64: serial-getty@ttyAMA0 leak fails"                   1 m_amd64_st
 run_case "amd64: placeholder hostname fails"                        1 m_amd64_strip_nohost
 run_case "amd64: sudo missing fails"                                1 m_amd64_strip_nosudo
 run_case "amd64: firmware-iwlwifi missing fails"                    1 m_amd64_strip_no_iwlwifi
+run_case "amd64: firmware-ipw2x00 (licence-gated) not-installed fails" 1 m_amd64_fw_notinst_ipw
 run_case "amd64: google-chrome-stable missing fails"                1 m_amd64_strip_nochrome
 run_case "amd64: stale Bing plugin fails"                           1 m_amd64_strip_stale_bing
 run_case "amd64: no kernel module tree fails"                       1 m_amd64_strip_nokernel

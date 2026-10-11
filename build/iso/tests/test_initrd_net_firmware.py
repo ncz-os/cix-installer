@@ -18,6 +18,8 @@ REPO = Path(__file__).resolve().parents[3]
 SCRIPT = REPO / "build" / "iso" / "patch-initrd-t2-kernel.py"
 TABLE = REPO / "manifests" / "net-firmware.tsv"
 BOM = REPO / "manifests" / "firmware.pkgs"
+ARCH_BOM = REPO / "manifests" / "firmware-arm64.pkgs"
+ARCH_ALLOW = REPO / "manifests" / "firmware-bom-arm64.allow"
 BUILDER = REPO / "build" / "build-installer-image.sh"
 SPEC = importlib.util.spec_from_file_location("patch_initrd_t2_kernel", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -91,26 +93,49 @@ MEDIATEK_FILES = {
 }
 
 
-def bom_packages() -> set:
+def packagelist(path: Path) -> set:
     return {
         l.split()[0]
-        for l in BOM.read_text().splitlines()
+        for l in path.read_text().splitlines()
         if l.strip() and not l.lstrip().startswith("#")
     }
+
+
+def bom_packages() -> set:
+    return packagelist(BOM)
 
 
 class NetFirmwareTableTest(unittest.TestCase):
     def setUp(self):
         self.rows = MODULE.load_net_firmware_table(TABLE)
 
-    def test_every_package_is_seeded_and_installed_by_the_bom(self):
-        # firmware.pkgs seeds the offline mirror and 13-firmware-bom installs it.
+    def test_every_package_is_seeded_and_installed_by_the_amd64_bom(self):
+        # The full architecture-neutral firmware.pkgs is the amd64 BOM (and the
+        # offline-mirror seed for amd64); every net-firmware.tsv package must be
+        # in it.
         missing = sorted({r["package"] for r in self.rows} - bom_packages())
         self.assertEqual(
             missing,
             [],
             f"net-firmware.tsv packages absent from firmware.pkgs: {missing}",
         )
+
+    def test_arm64_keep_and_allow_exactly_partition_the_full_bom(self):
+        # The arm64 install set (firmware-arm64.pkgs) and its deliberate
+        # exclusions (firmware-bom-arm64.allow) must be disjoint and together
+        # equal the complete published set -- that is the invariant
+        # verify-firmware-bom.sh enforces against the published index.
+        keep, allow = packagelist(ARCH_BOM), packagelist(ARCH_ALLOW)
+        self.assertEqual(keep & allow, set(), "a package is both kept and dropped")
+        self.assertEqual(
+            keep | allow, bom_packages(), "arm64 keep U drop != firmware.pkgs"
+        )
+
+    def test_arm64_bom_keeps_the_onboard_and_msr1_radios(self):
+        # Dropping any of these is a dead NIC/WiFi/BT radio on a Sky1 board.
+        keep = packagelist(ARCH_BOM)
+        for pkg in ("firmware-realtek", "firmware-mediatek", "firmware-atheros"):
+            self.assertIn(pkg, keep, f"arm64 BOM dropped a required radio: {pkg}")
 
     def test_initrd_rows_cover_every_realtek_nic_blob_and_mt79_bt(self):
         initrd = {
@@ -149,6 +174,44 @@ class NetFirmwareTableTest(unittest.TestCase):
                 MODULE.load_net_firmware_table(bad)
 
 
+class ArchBomFilterTest(unittest.TestCase):
+    """The initrd stages only net-firmware rows the target arch's BOM ships."""
+
+    def setUp(self):
+        self.rows = MODULE.load_net_firmware_table(TABLE)
+
+    def test_bom_for_arch_prefers_the_arch_scoped_file(self):
+        self.assertEqual(
+            MODULE.firmware_bom_for_arch("arm64").name, "firmware-arm64.pkgs"
+        )
+        # No firmware-amd64.pkgs -> the complete architecture-neutral BOM.
+        self.assertEqual(MODULE.firmware_bom_for_arch("amd64").name, "firmware.pkgs")
+
+    def test_arm64_drops_amd64_only_rows_amd64_keeps_every_row(self):
+        arm_rows, dropped = MODULE.filter_net_firmware_rows(
+            self.rows, MODULE.firmware_bom_for_arch("arm64")
+        )
+        self.assertIn("firmware-intel-graphics", dropped)
+        self.assertNotIn(
+            "firmware-intel-graphics", {r["package"] for r in arm_rows}
+        )
+        amd_rows, dropped_amd = MODULE.filter_net_firmware_rows(
+            self.rows, MODULE.firmware_bom_for_arch("amd64")
+        )
+        self.assertEqual(dropped_amd, [])
+        self.assertIn(
+            "firmware-intel-graphics", {r["package"] for r in amd_rows}
+        )
+
+    def test_arm64_keeps_the_realtek_and_mediatek_rows(self):
+        arm_rows, _ = MODULE.filter_net_firmware_rows(
+            self.rows, MODULE.firmware_bom_for_arch("arm64")
+        )
+        packages = {r["package"] for r in arm_rows}
+        self.assertIn("firmware-realtek", packages)
+        self.assertIn("firmware-mediatek", packages)
+
+
 class BuilderWiringTest(unittest.TestCase):
     def test_installer_image_builder_passes_the_firmware_pool(self):
         text = BUILDER.read_text()
@@ -159,6 +222,10 @@ class BuilderWiringTest(unittest.TestCase):
         self.assertTrue(
             "manifests/net-firmware.tsv" in text,
             "build-installer-image.sh does not pass net-firmware.tsv",
+        )
+        self.assertTrue(
+            "--firmware-bom" in text and "firmware-$ARCH.pkgs" in text,
+            "build-installer-image.sh does not pass the arch-scoped --firmware-bom",
         )
 
 
