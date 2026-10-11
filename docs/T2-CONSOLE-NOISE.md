@@ -48,6 +48,16 @@ only in `--level=crit`). Lowering to 2 would silence them from the console,
 violating the mission rule *never hide MCE/AER/EDAC/panic/oops*. So **3 is the
 floor**; the benign noise is fixed at its source instead (below).
 
+> The boot-time CHIMERA record itself is a **left-over from before the kernel
+> booted** (TSC 0, EN=0 = polled, not delivered) and is now suppressed on the
+> everyday graphical (Default) rEFInd entry with a T2-gated `mce=nobootlog`,
+> while the Console/Rescue entries deliberately keep it visible. Evidence (the
+> same status is reported on unrelated Intel desktops), the exact v7.3-rc6
+> kernel behaviour, the installer-entry decision and the trade-off:
+> `docs/T2-BOOT-MCE-NOBOOTLOG.md`. (Note: `__print_mce()` emits these at
+> `KERN_EMERG`, level 0, so `loglevel=3` cannot hide them and `dmesg --level=crit`
+> lists them too.)
+
 ## What actually was changed here (root-cause fixes, level 3 kept)
 
 1. **brcmfmac P2P -52** — `options brcmfmac feature_disable=0x10` (clear bit 4,

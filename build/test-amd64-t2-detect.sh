@@ -18,10 +18,12 @@
 # Contract:
 #   * the known T2 models are detected; a pre-T2 Intel Mac, a non-Apple
 #     desktop, a QEMU/KVM VM, an Apple machine with an unlisted product and a
-#     tree with missing DMI files all fail closed (no parameter);
+#     tree with missing DMI files all fail closed;
 #   * the shipped detection block sources the helper, fails closed when the
-#     helper is absent, and sets no kernel parameter; no amd64 boot path
-#     carries pcie_ports=compat.
+#     helper is absent, and sets mce=nobootlog on a T2 Mac only (the option
+#     assembly and the Default-vs-Console/Rescue split are covered by
+#     build/test-t2-mce-nobootlog.sh);
+#   * no amd64 boot path carries pcie_ports=compat.
 #
 # Exit 0 = all checks pass; 1 = one or more failed; 2 = extraction failure.
 set -uo pipefail
@@ -115,18 +117,28 @@ eq "T2 bridge (bare form)"  "$(pci "$W/pci/bare")"   "yes"
 eq "other vendor -> no"     "$(pci "$W/pci/other")"  "no"
 eq "empty tree -> no"       "$(pci "$W/pci/empty")"  "no"
 
-echo "=== shipped detection block: helper sourced, no kernel parameter ==="
+echo "=== shipped detection block: helper sourced, T2-gated mce cmdline ==="
 block_is_t2() { # block_is_t2 <dmi-root> <installer-meta> -> yes|no
     ( NCZ_DMI_ROOT="$1"; INSTALLER_META="$2"
       # shellcheck disable=SC1090
       . "$W/cmdline.sh" >/dev/null
       if ncz_is_t2_hardware; then printf 'yes'; else printf 'no'; fi )
 }
+block_mce() { # block_mce <dmi-root> <installer-meta> -> NCZ_T2_MCE_CMDLINE
+    ( NCZ_DMI_ROOT="$1"; INSTALLER_META="$2"
+      # shellcheck disable=SC1090
+      . "$W/cmdline.sh" >/dev/null
+      printf '%s' "${NCZ_T2_MCE_CMDLINE:-}" )
+}
 eq "T2 Mac is detected through the shipped block" "$(block_is_t2 "$W/dmi/mbp16" "$REPO")" "yes"
 eq "generic PC is not"                            "$(block_is_t2 "$W/dmi/asus" "$REPO")"  "no"
 eq "absent helper fails closed"                   "$(block_is_t2 "$W/dmi/mbp16" "$W/no-such-meta")" "no"
-eq "the block assigns no extra-cmdline variable" \
-   "$(grep -cE '^[^#]*(EXTRA_CMDLINE|_OPTIONS)=' "$W/cmdline.sh" | tr -d ' ')" "0"
+# The block now supplies the Default-entry boot-MCE suppression on T2 only.
+# (Its assembly into STABLE_OPTIONS, and the deliberate omission from the
+# Console/Rescue entries, are asserted by build/test-t2-mce-nobootlog.sh.)
+eq "T2 Mac gets mce=nobootlog"      "$(block_mce "$W/dmi/mbp16" "$REPO")" "mce=nobootlog"
+eq "generic PC gets nothing"        "$(block_mce "$W/dmi/asus" "$REPO")"  ""
+eq "absent helper gets nothing"     "$(block_mce "$W/dmi/mbp16" "$W/no-such-meta")" ""
 
 echo "=== pcie_ports=compat stays removed (2026-10-06) ==="
 for f in "$SRC" "$REPO/assets/refind/ncz-refind-refresh.sh" "$REPO/build/iso/build-refind-esp.py" \
