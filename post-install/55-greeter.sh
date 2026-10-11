@@ -118,19 +118,45 @@ GREETD
 # assuming /dev/dri/card0.
 cat > /usr/local/bin/ncz-has-drm-output <<'DRMTEST'
 #!/bin/sh
-# Bounded wait: amdgpu on T2 Macs (CHIMERA) publishes its eDP connector ~7-9 s into
-# userspace, after greetd's one-shot ExecCondition would already have skipped the
-# greeter (measured 2026-10-10: condition 21:25:49, connector 21:25:50). The old
-# cix-detect-display wait is arm64-only, so wait here, on every arch, up to 30 s.
+# Gate greetd on a display that is not merely *connected* but *lit*: an output
+# whose status=connected AND enabled=enabled (a CRTC is actually scanning it
+# out). On Sky1/trilin the console (or the KMS boot splash) enables the
+# connector only after the DP link has trained; starting labwc before that is
+# what produced the greeter-vs-connector race. amdgpu on T2 Macs (CHIMERA)
+# publishes its eDP connector ~7-9 s into userspace, after greetd's one-shot
+# ExecCondition would already have skipped the greeter (measured 2026-10-10:
+# condition 21:25:49, connector 21:25:50). The old cix-detect-display wait is
+# arm64-only, so wait here, on every arch, up to 30 s.
+#
+# Fail-open: if some output is connected but never reported enabled within a
+# short grace window (a platform that does not light DRM from the console, or
+# KVM/headless), still start the greeter -- a missing login screen is worse
+# than the race, and the grace bound keeps the extra latency small.
 try=0
+conn_since=-1
 while [ "$try" -lt 120 ]; do
+    connected=0
     for status in /sys/class/drm/card*-*/status; do
         [ -f "$status" ] || continue
-        [ "$(cat "$status" 2>/dev/null || true)" = connected ] && exit 0
+        [ "$(cat "$status" 2>/dev/null || true)" = connected ] || continue
+        connected=1
+        en=${status%/status}/enabled
+        [ -f "$en" ] || continue
+        [ "$(cat "$en" 2>/dev/null || true)" = enabled ] && exit 0
     done
+    if [ "$connected" = 1 ]; then
+        [ "$conn_since" -lt 0 ] && conn_since=$try
+        if [ "$((try - conn_since))" -ge 32 ]; then
+            logger -t ncz-greetd-drm "connected output not enabled after 8s; starting greeter anyway"
+            exit 0
+        fi
+    else
+        conn_since=-1
+    fi
     try=$((try + 1))
     sleep 0.25
 done
+[ "$connected" = 1 ] && exit 0
 exit 1
 DRMTEST
 chmod 0755 /usr/local/bin/ncz-has-drm-output
@@ -218,23 +244,49 @@ cat > /etc/greetd/singularity-labwc/autostart <<'LABAUTO'
 # panel gets 1920x1200, not a letterboxed 1920x1080) and applies the NCZ density
 # policy scale for that mode. The fixed 1080p loop below is the fallback when the
 # helper is missing or fails.
-command -v wlr-randr >/dev/null 2>&1 || exit 0
+#
+# ORDERING (fix/greeter-dp-handoff-20261011): the greeter rc.xml sets
+# <core><autoEnableOutputs>no</core>, so this autostart is the FIRST and ONLY
+# commit that lights each output. The greeter therefore never scans out at 4K,
+# and the compositor never has to disable+re-enable a live output to apply a
+# mode — that disable->enable cycle is the DP AUX-engine wedge trigger on
+# trilin Sky1 boards (MS-R1, Orange Pi 6 Plus). Every wlr-randr call carries
+# --on so a still-disabled output is enabled in the same commit; the helper
+# skips any output already lit at a capped mode.
+command -v wlr-randr >/dev/null 2>&1 || {
+    echo "greeter: wlr-randr missing; outputs stay as autoEnableOutputs=no left them" >&2
+    exit 0
+}
 _scale=${NCZ_DISPLAY_SCALE_HELPER:-/usr/local/bin/ncz-display-scale}
 if [ -x "$_scale" ] && "$_scale" greeter; then
     exit 0
 fi
 for out in $(wlr-randr 2>/dev/null | awk '/^[A-Za-z]/ {print $1}'); do
-    wlr-randr --output "$out" --mode 1920x1080@60Hz >/dev/null 2>&1 \
-        || wlr-randr --output "$out" --mode 1920x1080 >/dev/null 2>&1 || true
+    wlr-randr --output "$out" --mode 1920x1080@60Hz --on >/dev/null 2>&1 \
+        || wlr-randr --output "$out" --mode 1920x1080 --on >/dev/null 2>&1 \
+        || wlr-randr --output "$out" --on >/dev/null 2>&1 || true
 done
 exit 0
 LABAUTO
 chmod 0755 /etc/greetd/singularity-labwc/autostart
 
+# <autoEnableOutputs>no</autoEnableOutputs> is load-bearing: with the default
+# (yes) labwc modesets every output to its preferred (4K) mode the moment it
+# starts, and the greeter's autostart then has to change that mode — one
+# disable->enable cycle on a live output. On trilin Sky1 (MS-R1, Orange Pi 6
+# Plus) that cycle can latch the DP AUX engine busy and stall the greeter's
+# first commit for tens of seconds. Letting the autostart be the single commit
+# that enables each output at the capped mode removes the trigger.
 cat > /etc/greetd/singularity-labwc/rc.xml <<'LABRC'
 <?xml version="1.0"?>
 <labwc_config>
-  <core><gap>0</gap></core>
+  <core>
+    <gap>0</gap>
+    <!-- Never auto-modeset: the greeter autostart enables each connected
+         output once, at the capped (<=1920x1200) mode chosen by
+         ncz-display-scale. See post-install/55-greeter.sh. -->
+    <autoEnableOutputs>no</autoEnableOutputs>
+  </core>
 </labwc_config>
 LABRC
 

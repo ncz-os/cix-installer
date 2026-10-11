@@ -40,20 +40,40 @@ case "$VARIANT" in
         ;;
 esac
 
-# The payload's own binary name changed from singularity-boot-splash to
-# singularity-splash at some point (confirmed 2026-09-14 against a real
-# freshly-built package) -- but build-singularity.sh's own install-time
-# assertion still checks for the OLD name, so older payload generations may
-# still ship it under that name. Check both, preferring the current one,
-# so this hook works across package generations instead of hard-failing on
-# whichever name a given build happens to produce.
-if [ -x /opt/singularity/bin/singularity-splash ]; then
-    BSP=/opt/singularity/bin/singularity-splash
-elif [ -x /opt/singularity/bin/singularity-boot-splash ]; then
+# The payload ships TWO different tools whose names both contain "splash":
+#
+#   singularity-boot-splash -> the toolkit-less KMS splash this unit runs. It
+#       opens DRM (drmSetMaster), paints the NCZ logo from early boot and drops
+#       master on the greeter-ready marker. Flags: --device --wait-seconds
+#       --handoff --max-life --greeter-ready.
+#   singularity-splash      -> the SESSION splash (a GTK4/glycin Wayland client
+#       that paints after greeter login). It has NO KMS path: at early boot it
+#       prints "splash: cannot connect to Wayland display" (no compositor yet)
+#       and exits, which is exactly the MS-R1 black screen: nothing paints and
+#       the wrapper's timeout then logs "DRM already owned; skipping".
+#
+# The old preference "singularity-splash first" (a since-disproved reading of a
+# payload rename) therefore selected the Wayland client for the KMS slot. Pick
+# the binary by CAPABILITY -- only one that speaks the KMS flags may own DRM --
+# and fall back to the canonical name so the staged-asset path below still runs
+# on a payload that has neither.
+ncz_splash_is_kms() {
+    [ -x "$1" ] || return 1
+    grep -qa -- '--wait-seconds' "$1" 2>/dev/null
+}
+BSP=""
+for _ncz_cand in /opt/singularity/bin/singularity-boot-splash \
+                 /opt/singularity/bin/singularity-splash; do
+    if ncz_splash_is_kms "$_ncz_cand"; then
+        BSP="$_ncz_cand"
+        break
+    fi
+done
+if [ -z "$BSP" ]; then
     BSP=/opt/singularity/bin/singularity-boot-splash
-else
-    BSP=/opt/singularity/bin/singularity-splash
 fi
+unset _ncz_cand
+echo "[60] KMS boot splash: $BSP"
 
 # --- (1) ensure the binary is present ----------------------------------------
 if [ ! -x "$BSP" ]; then
@@ -96,12 +116,24 @@ echo "[60] verified: singularity-boot-splash dynamic-link closure complete"
 cat > /usr/local/bin/ncz-boot-splash <<'WRAPPER'
 #!/bin/sh
 set -eu
-if [ -x /opt/singularity/bin/singularity-splash ]; then
-    BSP=/opt/singularity/bin/singularity-splash
-elif [ -x /opt/singularity/bin/singularity-boot-splash ]; then
+# Pick the KMS-capable splash by capability: only a binary that speaks the KMS
+# flags (--wait-seconds) may own DRM here. singularity-splash is the Wayland
+# SESSION splash and cannot paint at early boot (no compositor) -- see the
+# header of 60-boot-splash.sh.
+ncz_splash_is_kms() {
+    [ -x "$1" ] || return 1
+    grep -qa -- '--wait-seconds' "$1" 2>/dev/null
+}
+BSP=""
+for _cand in /opt/singularity/bin/singularity-boot-splash \
+             /opt/singularity/bin/singularity-splash; do
+    if ncz_splash_is_kms "$_cand"; then
+        BSP="$_cand"
+        break
+    fi
+done
+if [ -z "$BSP" ]; then
     BSP=/opt/singularity/bin/singularity-boot-splash
-else
-    BSP=/opt/singularity/bin/singularity-splash
 fi
 install -d -m 1777 /run/singularity
 rm -f /run/singularity/greeter-ready
@@ -120,13 +152,18 @@ if [ -z "$card" ]; then
 fi
 echo "boot-splash: using connected DRM device $card"
 set +e
-# The splash exits immediately when the greeter marker appears. Keep a safety
-# cap for headless/failed-greeter boots, but never use the cap as normal timing.
-timeout --kill-after=2s 22s "$BSP" --device "$card" --wait-seconds 2 --handoff 0.4 --max-life 20
+# The splash paints from this point, owns DRM master and exits immediately when
+# the greeter-ready marker appears (written by the greeter wrapper just before
+# labwc takes over). Keep a safety cap for headless/failed-greeter boots, but
+# never use the cap as normal timing.
+timeout --kill-after=2s 22s "$BSP" --device "$card" --wait-seconds 2 --handoff 0.4 \
+    --max-life 20 --greeter-ready /run/singularity/greeter-ready
 rc=$?
 set -e
+# rc=1 (could not open/own DRM), 124 (timeout cap) and 137 (kill-after) are all
+# benign hand-off/headless outcomes -- never fail the unit for them.
 if [ "$rc" -eq 1 ] || [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
-    echo "boot-splash: DRM already owned; skipping"
+    echo "boot-splash: handoff/headless (rc=$rc); releasing DRM"
     exit 0
 fi
 exit "$rc"
