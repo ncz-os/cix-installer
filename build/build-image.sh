@@ -799,7 +799,9 @@ stage_stage_inputs() {
         rc="${PIPESTATUS[0]}"
         [ "$rc" = 0 ] || return "$rc"
     fi
-    return 0
+    # rc is 0 here (every guard above returned on failure), but return it rather
+    # than a literal so a future step cannot silently report success.
+    return "$rc"
 }
 
 # ---------------------------------------------------------------------------
