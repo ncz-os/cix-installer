@@ -52,28 +52,43 @@
         done
         [ "$idled" = 1 ] || gate_miss screensavers "ncz-screensaver-idled.service is not enabled (no .wants symlink under /etc/systemd/user)"
         [ "$oldidle" = 0 ] || gate_miss screensavers "ncz-idle-manager.service is still enabled next to ncz-screensaver-idled (legacy hook 57 left running)"
-        # (f2) the desktop idle LOCK is ordered AFTER the saver (operator 2026-10-11).
-        #      The shell locks at dev.sinty.lockscreen:idle-delay; the saver starts at
-        #      dev.ncz.screensaver:hack-idle-delay. Because ext-session-lock-v1 is
-        #      EXCLUSIVE, a lock at or before the saver means the lock surface wins the
-        #      race and the layer-shell saver never shows (observed on PROTEUS: the shell
-        #      locked at 300s, the saver never ran). 63-ncz-idle-lock-order.sh writes the
-        #      override that keeps the lock strictly later.
-        if fetch /opt/singularity/share/glib-2.0/schemas/99-ncz-idle-lock-order.gschema.override "$TMP/ss.lockorder" \
-           && fetch /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml "$TMP/ss.lockorder-saver"; then
-            _lock_at="$(sed -n 's/^idle-delay=//p' "$TMP/ss.lockorder" | tail -1 | tr -dc '0-9')"
+        # (f2) the desktop idle LOCK and the saver obey ONE ordering (operator
+        #      2026-10-11). The shell locks at dev.sinty.lockscreen:idle-delay; the
+        #      saver starts at dev.ncz.screensaver:hack-idle-delay. Because
+        #      ext-session-lock-v1 is EXCLUSIVE the ordering must be exactly one of:
+        #        * NCZ lock renderer present -- the lock client hosts the saver, so
+        #          the lock is HELD FROM THE SAVER START (idle-delay == hack-idle-delay)
+        #          and the interim override is removed (one owner). Written by
+        #          64-ncz-lock-saver-plan.sh as 99-ncz-lock-saver-plan.gschema.override.
+        #        * renderer absent -- the shipped interim ordering stands: the lock
+        #          fires strictly AFTER the saver (63-ncz-idle-lock-order.sh). A lock
+        #          at or before the saver means the lock surface wins the race and the
+        #          layer-shell saver never shows (observed on PROTEUS: shell locked at
+        #          300s, saver never ran).
+        _saver_at=""
+        if fetch /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml "$TMP/ss.lockorder-saver"; then
             _saver_at="$(awk '
                 /<key name="hack-idle-delay"/ { found = 1 }
                 found && /<default>/ { v = $0; sub(/^.*<default>/, "", v); sub(/<\/default>.*$/, "", v); gsub(/[^0-9]/, "", v); if (v != "") { print v; exit } }
                 found && /<\/key>/ { found = 0 }
             ' "$TMP/ss.lockorder-saver" 2>/dev/null)"
+        fi
+        if fetch /opt/singularity/share/glib-2.0/schemas/99-ncz-lock-saver-plan.gschema.override "$TMP/ss.locksaverplan"; then
+            _lock_at="$(sed -n 's/^idle-delay=//p' "$TMP/ss.locksaverplan" | tail -1 | tr -dc '0-9')"
+            if [ -z "$_lock_at" ] || [ -z "$_saver_at" ] || [ "$_lock_at" != "$_saver_at" ]; then
+                gate_miss screensavers "NCZ lock/saver plan: 99-ncz-lock-saver-plan override idle-delay='${_lock_at:-none}' must equal the saver hack-idle-delay='${_saver_at:-unknown}' -- the lock is held from the saver start (post-install/64-ncz-lock-saver-plan.sh)"
+            else
+                echo "[verify-target]     lock held from the saver start (idle ${_lock_at}s == saver ${_saver_at}s; NCZ lock renderer)"
+            fi
+        elif fetch /opt/singularity/share/glib-2.0/schemas/99-ncz-idle-lock-order.gschema.override "$TMP/ss.lockorder"; then
+            _lock_at="$(sed -n 's/^idle-delay=//p' "$TMP/ss.lockorder" | tail -1 | tr -dc '0-9')"
             if [ -z "$_lock_at" ] || [ -z "$_saver_at" ] || [ "$_lock_at" -le "$_saver_at" ]; then
                 gate_miss screensavers "desktop idle lock is not ordered after the screensaver: 99-ncz-idle-lock-order override idle-delay='${_lock_at:-none}', saver hack-idle-delay='${_saver_at:-unknown}'; the lock must fire strictly after the saver or it hides it (post-install/63-ncz-idle-lock-order.sh)"
             else
                 echo "[verify-target]     idle lock ordered after the saver (lock ${_lock_at}s > saver ${_saver_at}s)"
             fi
         else
-            gate_miss screensavers "idle-lock-order override missing (/opt/singularity/share/glib-2.0/schemas/99-ncz-idle-lock-order.gschema.override): the desktop lock can fire with the screensaver and hide it (hook 63)"
+            gate_miss screensavers "no idle-lock/saver ordering override found (neither 99-ncz-lock-saver-plan nor 99-ncz-idle-lock-order): the desktop lock can race the screensaver and hide it"
         fi
         # (g) the GTK4 reference app is for OTHER distros
         grep -q '^Package: ncz-screensavers-gtk4-reference$' "$TMP/dpkg-status" 2>/dev/null && gate_miss screensavers "ncz-screensavers-gtk4-reference is installed on NCZ-OS (it must not be)"
