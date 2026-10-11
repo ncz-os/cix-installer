@@ -30,7 +30,10 @@ _seed_for() {
 }
 BASE_SEED="${BASE_SEED:-$(_seed_for installer-base)}"
 DESKTOP_SEED="${DESKTOP_SEED:-$(_seed_for desktop)}"
-FIRMWARE_SEED="${FIRMWARE_SEED:-$REPO/manifests/firmware.pkgs}"
+# manifests/firmware-arm64.pkgs (when present) is the trimmed Sky1 arm64 set;
+# amd64 has no firmware-amd64.pkgs, so _seed_for falls back to the complete
+# architecture-neutral manifests/firmware.pkgs -- amd64 closure unchanged.
+FIRMWARE_SEED="${FIRMWARE_SEED:-$(_seed_for firmware)}"
 
 [ "$SUITE" = "$NCZ_BASE_CODENAME" ] || {
     echo "ERROR: suite '$SUITE' does not match release profile '$NCZ_BASE_CODENAME'" >&2
