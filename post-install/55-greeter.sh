@@ -118,9 +118,18 @@ GREETD
 # assuming /dev/dri/card0.
 cat > /usr/local/bin/ncz-has-drm-output <<'DRMTEST'
 #!/bin/sh
-for status in /sys/class/drm/card*-*/status; do
-    [ -f "$status" ] || continue
-    [ "$(cat "$status" 2>/dev/null || true)" = connected ] && exit 0
+# Bounded wait: amdgpu on T2 Macs (CHIMERA) publishes its eDP connector ~7-9 s into
+# userspace, after greetd's one-shot ExecCondition would already have skipped the
+# greeter (measured 2026-10-10: condition 21:25:49, connector 21:25:50). The old
+# cix-detect-display wait is arm64-only, so wait here, on every arch, up to 30 s.
+try=0
+while [ "$try" -lt 120 ]; do
+    for status in /sys/class/drm/card*-*/status; do
+        [ -f "$status" ] || continue
+        [ "$(cat "$status" 2>/dev/null || true)" = connected ] && exit 0
+    done
+    try=$((try + 1))
+    sleep 0.25
 done
 exit 1
 DRMTEST
