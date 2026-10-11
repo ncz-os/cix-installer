@@ -48,13 +48,27 @@ REFIND_SRC="$INSTALLER_META/assets/refind/refind_x64.efi"
 
 # Target-machine Apple T2 detection (DMI, assets/refind/ncz-t2-detect.sh). The
 # x86 kernel is unified for T2 Macs and generic PCs, so anything T2-specific in
-# the boot menu is decided here, on the target. Today that is only the RESCUE
-# accelerator blacklist below (amdgpu kept on a T2 Mac). If the helper is
-# absent we fail closed to "not T2".
+# the boot menu is decided here, on the target. Today that is:
+#   * the RESCUE accelerator blacklist below (amdgpu kept on a T2 Mac); and
+#   * mce=nobootlog on the DEFAULT (graphical) entry only -- see below.
+# If the helper is absent we fail closed to "not T2".
 #
-# No T2-only kernel parameter is added to any entry. The earlier
-# pcie_ports=compat on the T2 default entry (2026-10-05, defence in depth
-# against the 7.3 T2 power cut) was removed on 2026-10-06: the kernel now
+# mce=nobootlog on the T2 default entry (2026-10-11). The Apple firmware on
+# these Coffee Lake-H T2 Macs (CHIMERA, MacBookPro16,1, i9-9980HK, cpu 906ed)
+# leaves a stale Machine Check record in MCA banks 12/13 that Linux logs at
+# boot ("mce: [Hardware Error]: CPU 0: Machine Check: 0 Bank 12 ..."). It is a
+# left-over from before the kernel booted, not a runtime fault, and the same
+# status/MISC signature is reported on unrelated Intel desktops (Arch forum
+# bbs.archlinux.org/viewtopic.php?id=266210). The kernel prints MCE records via
+# pr_emerg (arch/x86/kernel/cpu/mce/core.c __print_mce), so quiet loglevel=3
+# cannot hide them; mce=nobootlog makes __mcheck_cpu_init_prepare_banks() skip
+# the boot-time poll/log while STILL clearing every MCi_STATUS, and runtime
+# machine checks stay logged and handled. The Console and Rescue entries
+# deliberately do NOT carry it, so a technician still sees the raw record.
+# Rationale, evidence and trade-off: docs/T2-BOOT-MCE-NOBOOTLOG.md.
+#
+# The earlier pcie_ports=compat on the T2 default entry (2026-10-05, defence in
+# depth against the 7.3 T2 power cut) was removed on 2026-10-06: the kernel now
 # carries the plain upstream revert of eddba19b8b5f and nothing else for it
 # (docs/reports/2026-10-06-amd64-rc6-4-aer9010.md).
 #
@@ -69,8 +83,14 @@ else
     ncz_is_t2_hardware() { return 1; }
     ncz_t2_detect_detail() { printf 'T2 detection helper missing at %s (fail closed)' "$NCZ_T2_DETECT_LIB"; }
 fi
+# Default entry only: suppress the boot-time left-over MCE log on a T2 Mac
+# (a firmware artifact on these Coffee Lake-H parts; see
+# docs/T2-BOOT-MCE-NOBOOTLOG.md). The Console and Rescue entries keep the
+# record visible on purpose. Empty on non-T2 and when the helper is absent.
+NCZ_T2_MCE_CMDLINE=""
 if ncz_is_t2_hardware; then
-    echo "  T2 hardware detected ($(ncz_t2_detect_detail)); rescue entry keeps amdgpu"
+    NCZ_T2_MCE_CMDLINE="mce=nobootlog"
+    echo "  T2 hardware detected ($(ncz_t2_detect_detail)); rescue entry keeps amdgpu; default entry adds mce=nobootlog"
 else
     echo "  not T2 hardware ($(ncz_t2_detect_detail))"
 fi
@@ -514,6 +534,11 @@ STABLE_OPTIONS=""
 if [ "$STABLE_AVAILABLE" = "1" ]; then
     STABLE_OPTIONS="$ROOT_OPTS $STABLE_CMDLINE_BASE"
     [ -n "$SPLASH" ] && STABLE_OPTIONS="$STABLE_OPTIONS $SPLASH"
+    # T2 only: keep the boot-time left-over MCE record off THIS entry's console.
+    # Set by the NCZ-T2-CMDLINE block above; empty on non-T2 and when the
+    # detection helper is absent (fail closed). Never added to the Console or
+    # Rescue entries -- a technician must still see the raw record there.
+    [ -n "${NCZ_T2_MCE_CMDLINE:-}" ] && STABLE_OPTIONS="$STABLE_OPTIONS $NCZ_T2_MCE_CMDLINE"
 fi
 
 # Console entry — reach a networked multi-user shell on the SHIPPING kernel
