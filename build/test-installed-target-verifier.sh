@@ -290,7 +290,7 @@ m_amd64_strip() {   # what an x86 install does NOT have: everything Sky1
     rm -rf "$1/usr/lib/firmware" "$1/usr/src/aipu-6.2.0" "$1/usr/lib/aarch64-linux-gnu" "$1/usr/bin/load-modules.sh" \
            "$1/etc/mpv" "$1/usr/local/bin/ncz-sky1-audio-autoswitch" "$1/etc/systemd/user/ncz-sky1-audio-autoswitch.service"
     rm -f "$1/etc/systemd/user/graphical-session.target.wants/ncz-sky1-audio-autoswitch.service"
-    rm -rf "$1/usr/lib/modules/$KVER"; mkdir -p "$1/usr/lib/modules/7.2.8-1-t2-trixie"
+    rm -rf "$1/usr/lib/modules/$KVER"; mkdir -p "$1/usr/lib/modules/7.2.8-1-t2-ncz"
     sed -i '/^Package: chromium-ncz-sky1$/,+2d' "$1/var/lib/dpkg/status"
 }
 m_id_arch_amd64() { m_amd64_strip "$1"; echo arm64 > "$1/usr/local/lib/cix-installer/BUILD_ARCH"; }

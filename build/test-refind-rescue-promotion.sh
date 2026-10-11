@@ -8,7 +8,7 @@
 # whose kver was neither the primary nor the edge line, with NO prerelease
 # classification, and deleted the existing rescue pair BEFORE copying. Live on
 # MEDUSA (T2 Mac) after purging linux-image-7.2.8-3, a staged stock-Edge kernel
-# 7.3.0-rc5-10-t2-trixie-revhid (not equal to KVER_EDGE=7.3.0-rc5-9) was
+# 7.3.0-rc5-10-t2-ncz-revhid (not equal to KVER_EDGE=7.3.0-rc5-9) was
 # promoted to RESCUE and the known-good 7.2.8 rescue was deleted.
 #
 # These tests run the REAL promotion code (extracted verbatim from the shipped
@@ -89,9 +89,9 @@ mkesp()  # mkesp <dir> <vmlinuz-kver>... (each gets an initrd)
 }
 sha() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
 
-PRIMARY_AMD64="7.2.9-2-t2-trixie"   # incoming stable
-STABLE_A="7.2.8-3-t2-trixie"        # outgoing stable
-RC_KVER="7.3.0-rc5-10-t2-trixie-revhid"
+PRIMARY_AMD64="7.2.9-2-t2-ncz"   # incoming stable
+STABLE_A="7.2.8-3-t2-ncz"        # outgoing stable
+RC_KVER="7.3.0-rc5-10-t2-ncz-revhid"
 
 run_for_source() {
     local src="$1" impl_dir impl
@@ -130,12 +130,12 @@ run_for_source() {
 
     # ---- scenario 2: stable A -> stable B still promotes A ------------------
     local esp2="$impl_dir/s2"
-    mkesp "$esp2" "$STABLE_A" "7.2.7-1-t2-trixie-rescue"
+    mkesp "$esp2" "$STABLE_A" "7.2.7-1-t2-ncz-rescue"
     ( set +e; . "$impl"; ncz_promote_outgoing_rescue "$esp2" "$PRIMARY_AMD64" "" ) \
         >"$impl_dir/s2.log" 2>&1
     if [ -e "$esp2/vmlinuz-$STABLE_A-rescue" ] \
        && [ "$(sha "$esp2/vmlinuz-$STABLE_A-rescue")" = "$(sha "$esp2/vmlinuz-$STABLE_A")" ] \
-       && [ ! -e "$esp2/vmlinuz-7.2.7-1-t2-trixie-rescue" ]; then
+       && [ ! -e "$esp2/vmlinuz-7.2.7-1-t2-ncz-rescue" ]; then
         ok "2) normal upgrade promotes outgoing stable A to rescue"
     else
         bad "2) normal upgrade promotes outgoing stable A to rescue" \
@@ -156,12 +156,12 @@ run_for_source() {
 
     # ---- scenario 4: failed copy leaves the old rescue intact ---------------
     local esp4="$impl_dir/s4" r4_before r4_after
-    mkesp "$esp4" "$STABLE_A" "7.2.7-1-t2-trixie-rescue"
-    r4_before="$(sha "$esp4/vmlinuz-7.2.7-1-t2-trixie-rescue")"
+    mkesp "$esp4" "$STABLE_A" "7.2.7-1-t2-ncz-rescue"
+    r4_before="$(sha "$esp4/vmlinuz-7.2.7-1-t2-ncz-rescue")"
     ( set +e; . "$impl"; cp() { return 1; }; \
       ncz_promote_outgoing_rescue "$esp4" "$PRIMARY_AMD64" "" ) \
         >"$impl_dir/s4.log" 2>&1
-    r4_after="$(sha "$esp4/vmlinuz-7.2.7-1-t2-trixie-rescue")"
+    r4_after="$(sha "$esp4/vmlinuz-7.2.7-1-t2-ncz-rescue")"
     if [ -n "$r4_before" ] && [ "$r4_before" = "$r4_after" ] \
        && [ ! -e "$esp4/vmlinuz-$STABLE_A-rescue" ]; then
         ok "4) failed copy leaves the old rescue intact"
