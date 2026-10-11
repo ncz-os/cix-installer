@@ -16,24 +16,48 @@
 # deep display power states, so this is a real power and thermal cost, not
 # cosmetic.
 #
-# Installing the whole BOM is deliberate. It is described in its own header as
-# the COMPLETE architecture-neutral firmware set for the offline closure, every
-# package is already in the mirror by construction, and an installer that must
-# work on hardware we have not seen should not be guessing which blobs it will
-# need. Exclusions belong in firmware-bom.allow, not here.
+# The BOM we install is the arch-scoped one. amd64 installs the complete,
+# architecture-neutral manifests/firmware.pkgs (an installer that must work on
+# hardware we have not seen should not guess which blobs it needs). sky1-arm64
+# installs manifests/firmware-arm64.pkgs -- the subset a Sky1 system can load,
+# with the dropped published packages recorded in manifests/firmware-bom-arm64.allow
+# and justified in docs/ARM64-FIRMWARE-TRIM-2026-10-11.md. The mirror is seeded
+# from the same arch-scoped file, so every package named here is present by
+# construction. Exclusions belong in the allow-list, not here.
 set -u
 # Optional install feedback + hard deadline (lib/progress-msg.sh, lib/bounded-run.sh).
 _pm="$(dirname "$0")/lib/progress-msg.sh"; [ -r "$_pm" ] || _pm=/usr/local/lib/cix-installer/post-install/lib/progress-msg.sh
 [ -r "$_pm" ] && . "$_pm"
 _bd="$(dirname "$0")/lib/bounded-run.sh"; [ -r "$_bd" ] || _bd=/usr/local/lib/cix-installer/post-install/lib/bounded-run.sh
 [ -r "$_bd" ] && . "$_bd"
-BOM=${NCZ_FW_BOM:-/usr/local/lib/cix-installer/manifests/firmware.pkgs}
-[ -f "$BOM" ] || BOM=/cdrom/manifests/firmware.pkgs
-if [ ! -f "$BOM" ]; then
+# ARCH-SCOPED BOM. The staged medium carries both manifests/firmware.pkgs
+# (the complete, architecture-neutral published set) and, on sky1-arm64,
+# manifests/firmware-arm64.pkgs (the trimmed Sky1 subset). Select the
+# arch-scoped file when present and fall back to the complete one, the same
+# preference build/build-forky-mirror.sh and build/verify-firmware-bom.sh use.
+# NCZ_FW_BOM always wins (tests and operators set it explicitly). Arch
+# detection order matches post-install/12-sky1-firmware.sh: env, then the
+# late.sh-stamped BUILD_ARCH, then dpkg.
+_fw_arch="${NCZ_TARGET_ARCH:-}"
+[ -n "$_fw_arch" ] || _fw_arch=$(cat /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null | tr -d '[:space:]')
+[ -n "$_fw_arch" ] || _fw_arch=$(dpkg --print-architecture 2>/dev/null || true)
+BOM=${NCZ_FW_BOM:-}
+if [ -z "$BOM" ]; then
+    # NCZ_FW_MANIFEST_DIR overrides the search dirs (space-separated); it exists
+    # so the unit test can exercise the arch-scoped selection without root.
+    for _fw_dir in ${NCZ_FW_MANIFEST_DIR:-/usr/local/lib/cix-installer/manifests /cdrom/manifests}; do
+        if [ -n "$_fw_arch" ] && [ -f "$_fw_dir/firmware-$_fw_arch.pkgs" ]; then
+            BOM="$_fw_dir/firmware-$_fw_arch.pkgs"; break
+        fi
+        [ -f "$_fw_dir/firmware.pkgs" ] && { BOM="$_fw_dir/firmware.pkgs"; break; }
+    done
+fi
+if [ -z "$BOM" ] || [ ! -f "$BOM" ]; then
     echo "[13] firmware BOM not found; skipping"
     command -v ncz_msg >/dev/null 2>&1 && ncz_msg "Firmware: BOM not found on the medium, skipping (log: /var/log/cix-install/13-firmware-bom.log)"
     exit 0
 fi
+echo "[13] firmware BOM: $BOM (arch=${_fw_arch:-unknown})"
 mapfile -t PKGS < <(grep -hvE '^[[:space:]]*(#|$)' "$BOM" | awk '{print $1}')
 [ "${#PKGS[@]}" -gt 0 ] || { echo "[13] firmware BOM empty; skipping"; exit 0; }
 echo "[13] installing ${#PKGS[@]} firmware packages from the BOM"

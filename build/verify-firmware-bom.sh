@@ -11,8 +11,9 @@ SUITE="${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
 ARCH="${ARCH:-${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}}"
 MIRROR="$ROOT/build/$SUITE-mirror"
 PUBLISHED_INDEX=""
-ALLOW_LIST="$ROOT/manifests/firmware-bom.allow"
-BOM="$ROOT/manifests/firmware.pkgs"
+# Resolved below, after argument parsing, to the arch-scoped defaults.
+ALLOW_LIST=""
+BOM=""
 LABEL=""
 
 usage() {
@@ -40,6 +41,17 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+# Arch-scoped defaults, same manifests/<name>-$ARCH.pkgs preference as
+# build/build-forky-mirror.sh and build/verify-offline-mirror-seeds.sh.
+# arm64 has manifests/firmware-arm64.pkgs and manifests/firmware-bom-arm64.allow;
+# amd64 has neither, so it keeps the complete architecture-neutral
+# manifests/firmware.pkgs and the (empty) manifests/firmware-bom.allow.
+# An explicit --bom / --allow-list always wins.
+BOM="${BOM:-$ROOT/manifests/firmware-$ARCH.pkgs}"
+[ -f "$BOM" ] || BOM="$ROOT/manifests/firmware.pkgs"
+ALLOW_LIST="${ALLOW_LIST:-$ROOT/manifests/firmware-bom-$ARCH.allow}"
+[ -f "$ALLOW_LIST" ] || ALLOW_LIST="$ROOT/manifests/firmware-bom.allow"
+
 LABEL="${LABEL:-$(basename "$MIRROR")}" 
 PUBLISHED_INDEX="${PUBLISHED_INDEX:-$MIRROR/.ncz-published-packages/$ARCH/Packages}"
 [ -d "$MIRROR/pool" ] || { echo "verify-firmware-bom: ERROR: pool not found: $MIRROR/pool" >&2; exit 2; }
@@ -65,11 +77,19 @@ find "$MIRROR/pool" -type f -name '*.deb' -print0 | \
 comm -23 "$TMP/required" "$TMP/declared" > "$TMP/missing-bom"
 comm -23 "$TMP/required" "$TMP/present" > "$TMP/missing-pool"
 comm -13 "$TMP/published" "$TMP/allowed" > "$TMP/unknown-allowed"
+# A package cannot be both declared (a required install) and allowed (a
+# deliberate exclusion): that is a contradictory policy, not a pass.
+comm -12 "$TMP/declared" "$TMP/allowed" > "$TMP/declared-allowed"
 
 failed=0
 if [ -s "$TMP/unknown-allowed" ]; then
     echo "verify-firmware-bom: FAIL: allow-list names package(s) not published for $SUITE/$ARCH:" >&2
     sed 's/^/  /' "$TMP/unknown-allowed" >&2
+    failed=1
+fi
+if [ -s "$TMP/declared-allowed" ]; then
+    echo "verify-firmware-bom: FAIL: $(basename "$BOM") declares package(s) also present in $(basename "$ALLOW_LIST"):" >&2
+    sed 's/^/  /' "$TMP/declared-allowed" >&2
     failed=1
 fi
 if [ -s "$TMP/missing-bom" ]; then
@@ -84,4 +104,4 @@ if [ -s "$TMP/missing-pool" ]; then
 fi
 [ "$failed" -eq 0 ] || exit 1
 
-echo "verify-firmware-bom: PASS: suite=$SUITE arch=$ARCH published=$(wc -l < "$TMP/published") allowed=$(wc -l < "$TMP/allowed") required=$(wc -l < "$TMP/required") declared=$(wc -l < "$TMP/declared") closure=$(wc -l < "$TMP/present")"
+echo "verify-firmware-bom: PASS: suite=$SUITE arch=$ARCH bom=$(basename "$BOM") allow=$(basename "$ALLOW_LIST") published=$(wc -l < "$TMP/published") allowed=$(wc -l < "$TMP/allowed") required=$(wc -l < "$TMP/required") declared=$(wc -l < "$TMP/declared") closure=$(wc -l < "$TMP/present")"

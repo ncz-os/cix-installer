@@ -194,6 +194,7 @@ build/test-components-generate.sh	common	-	hermetic fail-before/pass-after for t
 build/test-dual-arch-parity.sh	common	-	fixture tests for the parity gates
 build/test-gpu-probe-no-hang.sh	amd64	-	PEGASUS hang regressions: sysfs PCI probing, 54-gpu-accel.sh completes with a hanging lspci/rocminfo, T2 detection without lspci
 build/test-net-firmware.sh	common	-	regression test: NIC/BT firmware baked into the d-i initrd and every net-firmware.tsv package seeded in the firmware BOM
+build/test-firmware-arch-bom.sh	common	-	arch-scoped firmware closure gate test: arm64 keep U exclude == firmware.pkgs, verify-firmware-bom.sh passes both arches and fails every drift, builders/verifiers select the arch BOM
 build/test-hook-watchdog.sh	common	-	bounded-run.sh deadline runner and the run-all.sh optional-hook watchdog (hung hook killed, install continues)
 build/test-hostname-suggest.sh	common	-	hostname algorithm tests
 build/test-installed-target-verifier.sh	sky1	-	installed-target arm64 verifier test
@@ -251,7 +252,9 @@ manifests/components.tsv	common	-	component registry (one row per package per in
 manifests/desktop-amd64.pkgs	amd64	t2,nvidia-cuda	full amd64 desktop closure (microcode, intel media, T2/GPU conditionals)
 manifests/desktop.pkgs	sky1	-	full arm64/Sky1 desktop closure (chromium-ncz-sky1, ncz-ffmpeg, singularity); phase C: split into common plus delta
 manifests/firmware-bom.allow	common	-	firmware BOM exclusions
-manifests/firmware.pkgs	common	-	architecture-neutral firmware BOM
+manifests/firmware-bom-arm64.allow	sky1	-	Sky1 arm64 deliberate firmware exclusions (drops qualcomm/intel/nvidia/server-NIC/other-SoC firmware the platform cannot load); complement of firmware-arm64.pkgs, enforced by verify-firmware-bom.sh
+manifests/firmware.pkgs	common	-	architecture-neutral firmware BOM (complete published set; the amd64 install seed and the default BOM)
+manifests/firmware-arm64.pkgs	sky1	-	Sky1 arm64 firmware BOM: the subset a Sky1 system can load plus a small hotplug allowance; preferred over firmware.pkgs on arm64 by the mirror builder, the install hook and the closure gate
 manifests/net-firmware.tsv	common	-	network device -> driver -> firmware package -> initrd/target map (d-i initrd firmware bake, net-fw verifier gate)
 manifests/install-extra.pkgs	common	-	extra installer packages; arch-neutral
 manifests/installer-base-amd64.pkgs	amd64	t2	amd64 installer base (bolt for T2 Thunderbolt docks)
@@ -268,7 +271,7 @@ post-install/10-amd64-kernel.sh	amd64	-	installs staged amd64 kernel debs with d
 post-install/10-our-kernel.sh	sky1	-	apt-installs linux-image-cixmini; own guard exits when arch != arm64 (line ~56)
 post-install/11-fix-cixmini-boot.sh	sky1	-	redirects cixmini-boot kernel postinst to rEFInd; picks the newest installed NCZ kernel (no edge bucket); no-op unless /usr/lib/cixmini exists
 post-install/12-sky1-firmware.sh	sky1	-	copies Sky1 SoC blobs (mali_csffw, dsp_fw, *.fwb) to /lib/firmware; own arch guard
-post-install/13-firmware-bom.sh	common	-	installs manifests/firmware.pkgs, an architecture-neutral BOM
+post-install/13-firmware-bom.sh	common	-	installs the arch-scoped firmware BOM (manifests/firmware-$arch.pkgs, else the architecture-neutral firmware.pkgs)
 post-install/15-mesa-sky1-pin.sh	sky1	-	apt pin for 1sky1 Mesa builds; only meaningful on Sky1 archive
 post-install/16-mesa-gpu-2613.sh	sky1	-	NCZ Mesa 26.1.3 panfrost/panvk stack under /opt; own arch guard
 post-install/19-sinty-nm.sh	common	-	native network owner for every variant and arch
@@ -532,3 +535,4 @@ build/check-sid-exceptions.py	common	-	implementation of check-sid-exceptions.sh
 build/rebuild-sid-udeb.sh	common	-	rebuild a small-gap (class B) installer udeb from sid source in a clean forky container as an NCZ udeb
 docs/SID-EXCEPTIONS.md	common	-	GENERATED sid-exceptions tracker report (per-package status + per-arch count + trend); do not hand-edit
 docs/IMAGE-BUILD-PROCESS.sid-exceptions.md	common	-	build-process integration of the sid-exceptions ledger (separate file to avoid conflict with the build-process branch doc)
+docs/ARM64-FIRMWARE-TRIM-2026-10-11.md	common	-	arm64 (Sky1) firmware BOM trim: per-package keep/drop with measured evidence, sizes before/after, risk notes and restore instructions

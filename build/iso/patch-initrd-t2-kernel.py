@@ -603,6 +603,39 @@ def load_net_firmware_table(path: Path) -> list[dict]:
     return rows
 
 
+def firmware_bom_for_arch(arch: str, root: Path = REPO_ROOT) -> Path | None:
+    """The arch-scoped firmware BOM: manifests/firmware-$arch.pkgs, else the
+    complete architecture-neutral manifests/firmware.pkgs, else None."""
+    for name in (f"firmware-{arch}.pkgs", "firmware.pkgs"):
+        p = root / "manifests" / name
+        if p.is_file():
+            return p
+    return None
+
+
+def bom_package_names(bom: Path) -> set[str]:
+    return {
+        line.split()[0]
+        for line in bom.read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+
+def filter_net_firmware_rows(rows: list[dict], bom: Path | None) -> tuple[list[dict], list[str]]:
+    """Drop net-firmware rows whose package is not in the arch BOM.
+
+    The initrd must carry only firmware the arch actually ships (an arm64
+    initrd has no use for the amd64-only i915 row). Returns the kept rows and
+    the sorted dropped package names for logging/receipts. No BOM -> no filter.
+    """
+    if bom is None:
+        return list(rows), []
+    packages = bom_package_names(bom)
+    kept = [r for r in rows if r["package"] in packages]
+    dropped = sorted({r["package"] for r in rows if r["package"] not in packages})
+    return kept, dropped
+
+
 def _deb_version_key(deb: Path) -> str:
     return deb.name.split("_")[1] if deb.name.count("_") >= 2 else ""
 
@@ -762,6 +795,7 @@ def patch_t2_kernel(
     modules_tar: Path | None = None,
     firmware_pool: Path | None = None,
     net_firmware_table: Path | None = DEFAULT_NET_FIRMWARE_TABLE,
+    firmware_bom: Path | None = None,
 ) -> tuple[Path, Path]:
     if not base_initrd.is_file():
         raise RuntimeError(f"FATAL: no base initrd at {base_initrd}")
@@ -829,6 +863,7 @@ def patch_t2_kernel(
 
     fw_rows: list[dict] = []
     fw_debs: dict[str, Path] = {}
+    fw_bom: Path | None = None
     if firmware_pool is not None:
         if net_firmware_table is None or not net_firmware_table.is_file():
             raise RuntimeError(
@@ -838,6 +873,16 @@ def patch_t2_kernel(
         if not firmware_pool.is_dir():
             raise RuntimeError(f"FATAL: firmware pool not found: {firmware_pool}")
         fw_rows = load_net_firmware_table(net_firmware_table)
+        # Arch-scoped: stage only rows whose package the target arch's BOM ships
+        # (manifests/firmware-$arch.pkgs, else the complete firmware.pkgs). The
+        # i915 row is amd64-only in practice, so an arm64 initrd no longer carries
+        # Intel display firmware.
+        fw_bom = firmware_bom if firmware_bom is not None else firmware_bom_for_arch(arch)
+        fw_rows, _fw_dropped = filter_net_firmware_rows(fw_rows, fw_bom)
+        if _fw_dropped:
+            log(f"    net firmware not shipped on {arch} "
+                f"({fw_bom.name if fw_bom else 'no BOM'}): "
+                f"{', '.join(_fw_dropped)} -- skipped")
         for row in fw_rows:
             if row["initrd"] and row["package"] not in fw_debs:
                 fw_debs[row["package"]] = find_pool_deb(firmware_pool, row["package"])
@@ -864,6 +909,7 @@ def patch_t2_kernel(
             "net_firmware_table": (
                 _stat(net_firmware_table) if fw_rows else {"present": False}
             ),
+            "firmware_bom": _stat(fw_bom) if fw_bom is not None else {"present": False},
             "net_firmware_debs": {k: _stat(v) for k, v in sorted(fw_debs.items())},
         }
     )
@@ -1317,6 +1363,11 @@ def main() -> int:
                      default=DEFAULT_NET_FIRMWARE_TABLE,
                      help="device -> driver -> package -> firmware map "
                           "(default manifests/net-firmware.tsv)")
+    ap.add_argument("--firmware-bom", type=Path, default=None,
+                     help="arch-scoped firmware BOM whose packages gate which "
+                          "net-firmware rows are staged (default: "
+                          "manifests/firmware-<arch>.pkgs, else firmware.pkgs). "
+                          "Rows whose package is not in the BOM are skipped.")
     args = ap.parse_args()
     if args.firmware_pool is None:
         log("WARNING: no --firmware-pool -- the installer initrd will carry NO "
@@ -1360,6 +1411,7 @@ def main() -> int:
             helper_dir, diag_busybox, ssh_udeb_dir,
             args.kernel_image, args.modules_tar,
             args.firmware_pool, args.net_firmware_table,
+            args.firmware_bom,
         )
     except RuntimeError as e:
         log(str(e))
