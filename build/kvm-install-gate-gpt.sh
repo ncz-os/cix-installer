@@ -76,6 +76,13 @@ DEBUGFS="$(command -v debugfs || echo /sbin/debugfs)"
 # NEVER /tmp: it is a RAM-backed tmpfs on several fleet build hosts and this
 # copies a multi-GiB image. Same rule as write-usb-image.py's --work-dir.
 mkdir -p "$WORK"
+# This gate runs as root (build-image.sh invokes it via ncz_sudo). Everything it
+# writes under $WORK (target-logs/, ui-check/, the qcow2, logs) would be root-
+# owned, so the build user could not `rm -rf` a finished run dir (operator
+# 2026-10-11). Hand the whole tree back to the invoking user on EVERY exit path;
+# cleanup only -- the trap preserves the gate's exit status.
+. "$SCRIPT_DIR/lib/priv.sh" 2>/dev/null || true
+if declare -F ncz_trap_chown_back >/dev/null 2>&1; then ncz_trap_chown_back "$WORK"; fi
 DISK="$WORK/target.qcow2"
 VARS="$WORK/OVMF_VARS.fd"
 if [ "$ARCH" = amd64 ]; then

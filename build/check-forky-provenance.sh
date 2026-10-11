@@ -19,4 +19,32 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 # No HOME-derived, environment-steerable cache and no trust-root override: the
 # Python verifier owns the trust root (this checkout) and cryptographically
 # verifies the index contents.  --ubuntu-only (offline lint) needs no index.
-exec python3 -I "$HERE/forky-provenance.py" "$@"
+#
+# build-image.sh invokes this as root (ncz_sudo): with --image it extracts the
+# /dists index via `debugfs rdump`, which chowns the dumped tree, so --work and
+# --index-dir fill with root-owned files that strand the run dir (operator
+# 2026-10-11). Collect both and hand them back to the invoking user on EVERY
+# exit path.  Cleanup only -- we run python in-process (not `exec`) so the trap
+# fires and the python exit status is still propagated verbatim.
+CHOWN_DIRS=()
+_prev=""
+for _a in "$@"; do
+    case "$_prev" in
+        --work)      CHOWN_DIRS+=("$_a"); _prev=""; continue ;;
+        --index-dir) CHOWN_DIRS+=("$_a"); _prev=""; continue ;;
+    esac
+    case "$_a" in
+        --work=*)      CHOWN_DIRS+=("${_a#--work=}") ;;
+        --index-dir=*) CHOWN_DIRS+=("${_a#--index-dir=}") ;;
+        --work|--index-dir) _prev="$_a" ;;
+    esac
+done
+# shellcheck source=lib/priv.sh
+. "$HERE/lib/priv.sh" 2>/dev/null || true
+if declare -F ncz_trap_chown_back >/dev/null 2>&1 && [ "${#CHOWN_DIRS[@]}" -gt 0 ]; then
+    ncz_trap_chown_back "${CHOWN_DIRS[@]}"
+fi
+
+python3 -I "$HERE/forky-provenance.py" "$@"
+rc=$?
+exit "$rc"
