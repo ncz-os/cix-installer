@@ -18,6 +18,18 @@
 #     order), and the /etc/skel and existing ~/Desktop launcher copies.
 # amd64 never sources this file: VA-API works there and Vivaldi stays default.
 #
+# 2026-10-11 (O6N, image 6351e0b3): launching Google Chrome rewrote the user's
+# ~/.config/mimeapps.list (text/html + x-scheme-handler/{http,https,about,
+# unknown} -> google-chrome.desktop), overriding the baked Sky1 default and
+# sending links to the software-decode Chrome instead of the V4L2-decoding
+# chromium-ncz-sky1. Two guards, both arm64-only (this file):
+#   * a Google Chrome enterprise policy, DefaultBrowserSettingEnabled=false, so
+#     Chrome never checks for or offers to take the default-browser role;
+#   * a session-start re-assert (/etc/xdg/autostart) that moves any stock-browser
+#     value back to chromium-ncz-sky1 in the user's mimeapps.list, healing drift
+#     already written before the policy was in place.
+# Chrome remains a usable explicit choice; its VA-API-off wrapper is unchanged.
+#
 # ncz_sky1_browser_policy
 #   Idempotent. Every path is under ${NCZ_BROWSER_ROOT:-} (test seam). Set
 #   NCZ_BROWSER_NO_ALTERNATIVES=1 to skip update-alternatives (tests).
@@ -26,6 +38,10 @@
 NCZ_NO_VAAPI_ENV="LIBVA_DRIVER_NAME=ncz-no-vaapi"
 NCZ_NO_VAAPI_FLAG="--disable-features=VaapiVideoDecoder,VaapiVideoEncoder"
 NCZ_BROWSER_MIME_KEYS="text/html x-scheme-handler/http x-scheme-handler/https x-scheme-handler/ftp x-scheme-handler/chrome x-scheme-handler/about x-scheme-handler/unknown application/x-extension-htm application/x-extension-html application/xhtml+xml"
+# The browser that MUST stay default on Sky1, and the stock browsers whose
+# default-browser registration the session re-assert reverts (see the header).
+NCZ_BROWSER_DEFAULT_ID="chromium-ncz-sky1.desktop"
+NCZ_BROWSER_STOCK_RE='^(vivaldi-stable|google-chrome|com\.google\.Chrome)\.desktop;?$'
 
 _ncz_bp_log() { echo "[sky1-browser] $*"; }
 
@@ -67,7 +83,7 @@ EOF
 _ncz_bp_mimeapps() {   # FILE DESKTOP_ID MODE
     _f="$1"
     [ -f "$_f" ] || { [ "$3" = system ] || return 0; printf '[Default Applications]\n' > "$_f"; }
-    awk -v id="$2" -v mode="$3" -v keys="$NCZ_BROWSER_MIME_KEYS" '
+    awk -v id="$2" -v mode="$3" -v keys="$NCZ_BROWSER_MIME_KEYS" -v stock="$NCZ_BROWSER_STOCK_RE" '
         BEGIN { nk = split(keys, K, " "); for (i = 1; i <= nk; i++) want[K[i]] = 1 }
         function flush_missing(   i) {
             if (mode != "system" || done) return
@@ -83,7 +99,7 @@ _ncz_bp_mimeapps() {   # FILE DESKTOP_ID MODE
             k = substr($0, 1, index($0, "=") - 1); v = substr($0, index($0, "=") + 1)
             if (k in want) {
                 seen[k] = 1
-                if (mode == "system" || v ~ /^(vivaldi-stable|google-chrome|com\.google\.Chrome)\.desktop;?$/) { print k "=" id; next }
+                if (mode == "system" || v ~ stock) { print k "=" id; next }
             }
         }
         { print }
@@ -153,6 +169,75 @@ ncz_sky1_browser_policy() {
     for _m in "$_r"/home/*/.config/mimeapps.list; do
         [ -f "$_m" ] && _ncz_bp_mimeapps "$_m" "$_cid" user
     done
+
+    # --- 3. Google Chrome must never take the default; re-assert at login ------
+    # (a) Chrome enterprise policy: stop Chrome checking for / offering the role.
+    #     O6N 2026-10-11 (6351e0b3): launching Chrome rewrote ~/.config/mimeapps.list
+    #     and stole the default -> links went to software-decode Chrome, not the
+    #     V4L2 VPU decoder.
+    _pol="$_r/etc/opt/chrome/policies/managed"
+    mkdir -p "$_pol"
+    cat > "$_pol/ncz-sky1-default-browser.json" <<'JSON'
+{
+  "_comment": [
+    "NCZ-OS Sky1: chromium-ncz-sky1 must remain the default browser because it",
+    "decodes on the VPU through V4L2; stock Chrome takes the session VA-API path,",
+    "which hangs on H.264/HEVC (docs/SKY1-MEDIA-STATUS.md). On O6N 2026-10-11",
+    "launching Chrome rewrote ~/.config/mimeapps.list and stole the default. This",
+    "policy makes Chrome stop checking for / offering the default-browser role.",
+    "Chrome stays a usable, VA-API-off explicit choice (see the wrappers above).",
+    "Written by post-install/lib/sky1-browser-policy.sh."
+  ],
+  "DefaultBrowserSettingEnabled": false
+}
+JSON
+    chmod 0644 "$_pol/ncz-sky1-default-browser.json"
+
+    # (b) session-start re-assert: heal a user mimeapps a browser already rewrote
+    #     before this policy existed (idempotent; moves only stock-browser values,
+    #     and only inside [Default Applications]).
+    cat > "$_r/usr/local/bin/ncz-sky1-browser-default" <<'REASSERT'
+#!/bin/sh
+# NCZ-OS Sky1 (post-install/lib/sky1-browser-policy.sh): re-assert the Sky1
+# default browser at session start. A browser can call
+# g_app_info_set_as_default_for_type, which rewrites ~/.config/mimeapps.list and
+# overrides the baked /etc/xdg default. On Sky1 the default MUST be
+# chromium-ncz-sky1 (V4L2 VPU decode); stock Chromium/Chrome take the session
+# VA-API path, which hangs on H.264/HEVC. Idempotent; only moves keys that name
+# a stock browser, and only within [Default Applications].
+set -u
+[ -x /usr/bin/chromium-ncz-sky1 ] || exit 0
+C="${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list"
+[ -f "$C" ] || exit 0
+awk -v id='chromium-ncz-sky1.desktop' \
+    -v keys='text/html x-scheme-handler/http x-scheme-handler/https x-scheme-handler/ftp x-scheme-handler/chrome x-scheme-handler/about x-scheme-handler/unknown application/x-extension-htm application/x-extension-html application/xhtml+xml' \
+    -v stock='^(vivaldi-stable|google-chrome|com\.google\.Chrome)\.desktop;?$' '
+  BEGIN { nk = split(keys, K, " "); for (i = 1; i <= nk; i++) want[K[i]] = 1 }
+  /^\[/ { insec = ($0 == "[Default Applications]"); print; next }
+  insec && index($0, "=") {
+      k = substr($0, 1, index($0, "=") - 1); v = substr($0, index($0, "=") + 1)
+      if ((k in want) && (v ~ stock)) { print k "=" id; next }
+  }
+  { print }
+' "$C" > "$C.ncz-tmp" 2>/dev/null && cat "$C.ncz-tmp" > "$C"
+rm -f "$C.ncz-tmp"
+exit 0
+REASSERT
+    chmod 0755 "$_r/usr/local/bin/ncz-sky1-browser-default"
+    mkdir -p "$_r/etc/xdg/autostart"
+    cat > "$_r/etc/xdg/autostart/ncz-sky1-browser-default.desktop" <<'AUTOSTART'
+[Desktop Entry]
+Type=Application
+Name=NCZ Sky1 default browser
+Comment=Re-assert chromium-ncz-sky1 as the default browser (hardware V4L2 decode)
+Exec=/usr/local/bin/ncz-sky1-browser-default
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+AUTOSTART
+    chmod 0644 "$_r/etc/xdg/autostart/ncz-sky1-browser-default.desktop"
+    _ncz_bp_log "Chrome default-browser guard + login re-assert installed"
+
     _ncz_bp_log "default browser: $_cid (x-www-browser, gnome-www-browser, mimeapps)"
     return 0
 }

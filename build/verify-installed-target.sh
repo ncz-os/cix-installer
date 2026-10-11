@@ -444,6 +444,73 @@ for w in $(lsnames /etc/systemd/user | grep '\.wants$'); do
 done
 [ "$audsw" = 1 ] || gate_miss audio "ncz-sky1-audio-autoswitch.service is not enabled (no .wants symlink under /etc/systemd/user)"
 
+# --- (v-d) Sky1 known-good audio/video env (O6N 2026-10-11, image 6351e0b3) ---------
+# The files that made the O6N audio/video state good must be in the installed
+# image exactly as post-install/43-hw-quirks.sh and lib/sky1-browser-policy.sh
+# write them, the VPU unit must be enabled (a mask or an empty unit silently
+# loses the decode-startup fix), and chromium-ncz-sky1 must be the default
+# browser while Google Chrome cannot steal it. Companion build test:
+# build/test-sky1-known-good-env.sh.
+echo "[verify-target] (v-d) Sky1 known-good env (RT / quantum / VPU / default browser)"
+if fetch /etc/systemd/system/-.slice.d/10-ncz-rt-sched.conf "$TMP/rt-slice" \
+   && grep -qx 'DisableControllers=cpu' "$TMP/rt-slice"; then
+    echo "[verify-target]     RT slice drop-in: DisableControllers=cpu"
+else
+    gate_miss known-good "/etc/systemd/system/-.slice.d/10-ncz-rt-sched.conf without DisableControllers=cpu (PipeWire data loop falls back to SCHED_OTHER)"
+fi
+if fetch /etc/pipewire/pipewire.conf.d/99-ncz-audio-headroom.conf "$TMP/pw-headroom" \
+   && grep -qE '^[[:space:]]*default\.clock\.min-quantum[[:space:]]*=[[:space:]]*2048' "$TMP/pw-headroom"; then
+    echo "[verify-target]     PipeWire min-quantum floor 2048"
+else
+    gate_miss known-good "/etc/pipewire/pipewire.conf.d/99-ncz-audio-headroom.conf without default.clock.min-quantum=2048"
+fi
+exists /usr/local/sbin/ncz-vpu-governor-performance || gate_miss known-good "/usr/local/sbin/ncz-vpu-governor-performance"
+if fetch /etc/systemd/system/ncz-vpu-governor.service "$TMP/vpusvc"; then
+    grep -q '^ExecStart=/usr/local/sbin/ncz-vpu-governor-performance' "$TMP/vpusvc" \
+        || gate_miss known-good "ncz-vpu-governor.service does not run the governor helper"
+else
+    gate_miss known-good "/etc/systemd/system/ncz-vpu-governor.service missing or empty"
+fi
+# A masked unit is a symlink to /dev/null (the shipped unit is a regular file).
+if dfs "stat /etc/systemd/system/ncz-vpu-governor.service" | grep -q 'Type: symlink'; then
+    gate_miss known-good "ncz-vpu-governor.service is a symlink (masked); it must stay a real, enabled unit"
+fi
+exists /etc/udev/rules.d/71-ncz-vpu-governor.rules || gate_miss known-good "/etc/udev/rules.d/71-ncz-vpu-governor.rules"
+exists /etc/systemd/system/graphical.target.wants/ncz-vpu-governor.service \
+    || gate_miss known-good "ncz-vpu-governor.service not enabled (no graphical.target.wants symlink)"
+# default browser: chromium-ncz-sky1 for http/https/html in system + skel mimeapps.
+for _m in /etc/xdg/mimeapps.list /etc/skel/.config/mimeapps.list; do
+    if fetch "$_m" "$TMP/mimeabs"; then
+        for _k in text/html x-scheme-handler/http x-scheme-handler/https; do
+            grep -qx "$_k=chromium-ncz-sky1.desktop" "$TMP/mimeabs" \
+                || gate_miss known-good "$_m: $_k is not chromium-ncz-sky1.desktop"
+        done
+    else
+        gate_miss known-good "$_m"
+    fi
+done
+if fetch /var/lib/dpkg/alternatives/x-www-browser "$TMP/xwbalt"; then
+    grep -q 'chromium-ncz-sky1' "$TMP/xwbalt" \
+        || gate_miss known-good "x-www-browser alternative does not list chromium-ncz-sky1"
+else
+    gate_miss known-good "/var/lib/dpkg/alternatives/x-www-browser (x-www-browser alternative missing)"
+fi
+# Google Chrome kept as an explicit choice (VA-API-off wrapper) but unable to steal
+# the default: enterprise policy + a session-start re-assert.
+if fetch /usr/local/bin/google-chrome-stable "$TMP/gcwrapper"; then
+    grep -q 'ncz-no-vaapi' "$TMP/gcwrapper" || gate_miss known-good "google-chrome-stable wrapper is not VA-API-off"
+else
+    gate_miss known-good "/usr/local/bin/google-chrome-stable (Chrome VA-API-off wrapper)"
+fi
+if fetch /etc/opt/chrome/policies/managed/ncz-sky1-default-browser.json "$TMP/chromepol"; then
+    grep -q '"DefaultBrowserSettingEnabled"[[:space:]]*:[[:space:]]*false' "$TMP/chromepol" \
+        || gate_miss known-good "Chrome policy does not set DefaultBrowserSettingEnabled=false"
+else
+    gate_miss known-good "/etc/opt/chrome/policies/managed/ncz-sky1-default-browser.json (Chrome could steal the Sky1 default)"
+fi
+exists /usr/local/bin/ncz-sky1-browser-default || gate_miss known-good "/usr/local/bin/ncz-sky1-browser-default (login re-assert)"
+exists /etc/xdg/autostart/ncz-sky1-browser-default.desktop || gate_miss known-good "/etc/xdg/autostart/ncz-sky1-browser-default.desktop"
+
 fi
 # --- (vii) Bing wallpaper prefetch (helper, user units, patched plugin) -----------------------
 # LEAD 4's fix: the helper prefetches at login (no jitter) and daily; the Settings plugin gained a

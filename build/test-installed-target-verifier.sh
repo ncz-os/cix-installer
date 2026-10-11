@@ -81,6 +81,27 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
         mkdir -p "$r/etc/systemd/system/getty.target.wants" "$r/usr/local/sbin"
         ln -s /usr/lib/systemd/system/serial-getty@.service "$r/etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service"
         cp "$ROOT/assets/refind/ncz-refind-refresh.sh" "$r/usr/local/sbin/ncz-refind-refresh"
+        # Sky1 known-good audio/video env (verify-installed-target (v-d)): RT slice
+        # drop-in, PipeWire quantum floor, VPU governor (helper+unit+enabled+rule),
+        # chromium-ncz-sky1 default browser + Chrome VA-API-off wrapper + Chrome
+        # default-browser policy + login re-assert.
+        mkdir -p "$r/etc/systemd/system/-.slice.d" "$r/etc/pipewire/pipewire.conf.d" \
+                 "$r/etc/systemd/system/graphical.target.wants" "$r/etc/udev/rules.d" \
+                 "$r/usr/local/bin" "$r/usr/local/sbin" "$r/etc/xdg" "$r/etc/skel/.config" \
+                 "$r/etc/opt/chrome/policies/managed" "$r/etc/xdg/autostart" "$r/var/lib/dpkg/alternatives"
+        printf '[Slice]\nDisableControllers=cpu\n' > "$r/etc/systemd/system/-.slice.d/10-ncz-rt-sched.conf"
+        printf 'context.properties = {\n    default.clock.min-quantum = 2048\n}\n' > "$r/etc/pipewire/pipewire.conf.d/99-ncz-audio-headroom.conf"
+        printf '#!/bin/sh\nG=/sys/class/devfreq/CIXH3010:00/governor\n[ -w "$G" ] && echo performance > "$G"\n' > "$r/usr/local/sbin/ncz-vpu-governor-performance"
+        printf '[Unit]\nDescription=x\n[Service]\nType=oneshot\nExecStart=/usr/local/sbin/ncz-vpu-governor-performance\n[Install]\nWantedBy=graphical.target\n' > "$r/etc/systemd/system/ncz-vpu-governor.service"
+        ln -s /etc/systemd/system/ncz-vpu-governor.service "$r/etc/systemd/system/graphical.target.wants/ncz-vpu-governor.service"
+        echo 'ACTION=="add", SUBSYSTEM=="platform", KERNEL=="CIXH3010:00", TAG+="systemd", ENV{SYSTEMD_WANTS}+="ncz-vpu-governor.service"' > "$r/etc/udev/rules.d/71-ncz-vpu-governor.rules"
+        printf '[Default Applications]\ntext/html=chromium-ncz-sky1.desktop\nx-scheme-handler/http=chromium-ncz-sky1.desktop\nx-scheme-handler/https=chromium-ncz-sky1.desktop\n' > "$r/etc/xdg/mimeapps.list"
+        cp "$r/etc/xdg/mimeapps.list" "$r/etc/skel/.config/mimeapps.list"
+        printf '/usr/bin/chromium-ncz-sky1\n/usr/bin/google-chrome-stable\n' > "$r/var/lib/dpkg/alternatives/x-www-browser"
+        printf '#!/bin/sh\nexport LIBVA_DRIVER_NAME=ncz-no-vaapi\nexec /usr/bin/google-chrome-stable --disable-features=VaapiVideoDecoder,VaapiVideoEncoder "$@"\n' > "$r/usr/local/bin/google-chrome-stable"
+        printf '{\n  "DefaultBrowserSettingEnabled": false\n}\n' > "$r/etc/opt/chrome/policies/managed/ncz-sky1-default-browser.json"
+        printf '#!/bin/sh\n' > "$r/usr/local/bin/ncz-sky1-browser-default"; chmod +x "$r/usr/local/bin/ncz-sky1-browser-default"
+        printf '[Desktop Entry]\nExec=/usr/local/bin/ncz-sky1-browser-default\nNoDisplay=true\n' > "$r/etc/xdg/autostart/ncz-sky1-browser-default.desktop"
     fi
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
@@ -197,6 +218,16 @@ m_va_and_mpv_vaapi() { echo x > "$1/usr/lib/aarch64-linux-gnu/dri/libcix_va_drv_
 m_no_encnode()  { echo 'ln -sf $_d /dev/video-cixdec0' > "$1/usr/bin/load-modules.sh"; }
 m_no_mpv()      { echo 'vo=gpu' > "$1/etc/mpv/mpv.conf"; }
 m_mpv_vaapi_no_driver() { echo 'hwdec=vaapi' > "$1/etc/mpv/mpv.conf"; }
+# known-good env (verify-installed-target (v-d))
+m_kg_no_rtslice()      { rm -f "$1/etc/systemd/system/-.slice.d/10-ncz-rt-sched.conf"; }
+m_kg_no_quantum()      { rm -f "$1/etc/pipewire/pipewire.conf.d/99-ncz-audio-headroom.conf"; }
+m_kg_no_vpuenabled()   { rm -f "$1/etc/systemd/system/graphical.target.wants/ncz-vpu-governor.service"; }
+m_kg_vpu_masked()      { rm -f "$1/etc/systemd/system/ncz-vpu-governor.service"; ln -s /dev/null "$1/etc/systemd/system/ncz-vpu-governor.service"; }
+m_kg_no_vpurule()      { rm -f "$1/etc/udev/rules.d/71-ncz-vpu-governor.rules"; }
+m_kg_browser_chrome()  { sed -i 's/text\/html=chromium-ncz-sky1.desktop/text\/html=google-chrome.desktop/' "$1/etc/xdg/mimeapps.list"; }
+m_kg_no_chromepol()    { rm -f "$1/etc/opt/chrome/policies/managed/ncz-sky1-default-browser.json"; }
+m_kg_no_reassert()     { rm -f "$1/usr/local/bin/ncz-sky1-browser-default"; }
+m_kg_gc_not_novaapi()  { printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable "$@"\n' > "$1/usr/local/bin/google-chrome-stable"; }
 m_ss_missing()  { sed -i '/^Package: ncz-screensavers$/,+3d' "$1/var/lib/dpkg/status"; }
 m_ss_hacks()    { rm -f "$1"/usr/lib/ncz-screensavers/hack1*_gles3; }
 m_ss_noidled()  { rm -f "$1/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"; }
@@ -382,6 +413,16 @@ run_case "VA driver present and mpv on vaapi fails" 1 m_va_and_mpv_vaapi
 run_case "no encode node helper fails"          1 m_no_encnode
 run_case "mpv vaapi without a VA driver fails"   1 m_mpv_vaapi_no_driver
 run_case "mpv without hwdec fails"              1 m_no_mpv
+# known-good env (v-d): the O6N audio/video good state must be present in the image
+run_case "known-good: RT slice drop-in absent fails"        1 m_kg_no_rtslice
+run_case "known-good: PipeWire quantum floor absent fails"  1 m_kg_no_quantum
+run_case "known-good: VPU unit not enabled fails"           1 m_kg_no_vpuenabled
+run_case "known-good: VPU unit masked fails"                1 m_kg_vpu_masked
+run_case "known-good: VPU udev rule absent fails"           1 m_kg_no_vpurule
+run_case "known-good: http default on google-chrome fails"  1 m_kg_browser_chrome
+run_case "known-good: Chrome default-browser policy absent fails" 1 m_kg_no_chromepol
+run_case "known-good: browser re-assert helper absent fails" 1 m_kg_no_reassert
+run_case "known-good: Chrome wrapper without VA-API-off fails" 1 m_kg_gc_not_novaapi
 run_case "screensavers requested but absent fails" 1 m_ss_missing
 run_case "screensavers with 74 of 84 hacks fails"  1 m_ss_hacks
 run_case "screensavers without launcher fails"  1 m_ss_launcher

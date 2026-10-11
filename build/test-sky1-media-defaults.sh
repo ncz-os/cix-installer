@@ -146,6 +146,51 @@ for d in "$B/etc/skel/Desktop/Vivaldi.desktop:vivaldi-stable.desktop" "$B/etc/sk
 done
 [ -x "$B/usr/bin/vivaldi-stable" ] && [ -f "$B/usr/share/applications/vivaldi-stable.desktop" ] && ok "browser: Vivaldi and Chrome stay installed with their packaged launchers" || bad "browser: packaged launcher removed"
 
+# --- 5. Google Chrome must not steal the Sky1 default (O6N 2026-10-11) -------------
+# On O6N/6351e0b3 launching Chrome rewrote ~/.config/mimeapps.list and stole the
+# default. The policy now writes two guards: a Chrome enterprise policy (stop
+# Chrome checking/offering) and a session-start re-assert (heal user drift).
+pol="$B/etc/opt/chrome/policies/managed/ncz-sky1-default-browser.json"
+if [ -f "$pol" ] && grep -q '"DefaultBrowserSettingEnabled"[[:space:]]*:[[:space:]]*false' "$pol"; then
+    ok "browser: Chrome enterprise policy disables DefaultBrowserSettingEnabled"
+else
+    bad "browser: Chrome DefaultBrowserSettingEnabled=false policy missing/mangled" "$(cat "$pol" 2>/dev/null)"
+fi
+rea="$B/usr/local/bin/ncz-sky1-browser-default"
+[ -x "$rea" ] && ok "browser: session re-assert helper installed (executable)" || bad "browser: $rea missing/not executable"
+ad="$B/etc/xdg/autostart/ncz-sky1-browser-default.desktop"
+if [ -f "$ad" ] && grep -qx 'Exec=/usr/local/bin/ncz-sky1-browser-default' "$ad" && grep -qx 'NoDisplay=true' "$ad"; then
+    ok "browser: session re-assert autostart entry wired"
+else
+    bad "browser: autostart entry wrong/missing" "$(cat "$ad" 2>/dev/null)"
+fi
+# Drive the helper against the exact drift seen on O6N.
+if [ -x "$rea" ]; then
+    sed "s#\[ -x /usr/bin/chromium-ncz-sky1 \]#[ -x \"$B/usr/bin/chromium-ncz-sky1\" ]#" "$rea" > "$W/reassert"
+    cat > "$W/mimeapps.list" <<'M'
+[Default Applications]
+text/html=google-chrome.desktop
+x-scheme-handler/http=google-chrome.desktop
+x-scheme-handler/https=google-chrome.desktop
+x-scheme-handler/ftp=chromium-ncz-sky1.desktop
+x-scheme-handler/about=google-chrome.desktop
+x-scheme-handler/unknown=google-chrome.desktop
+application/xhtml+xml=chromium-ncz-sky1.desktop
+inode/directory=thunar.desktop
+M
+    XDG_CONFIG_HOME="$W" sh "$W/reassert"
+    if grep -qx 'text/html=chromium-ncz-sky1.desktop' "$W/mimeapps.list" \
+       && grep -qx 'x-scheme-handler/https=chromium-ncz-sky1.desktop' "$W/mimeapps.list" \
+       && grep -qx 'inode/directory=thunar.desktop' "$W/mimeapps.list"; then
+        ok "browser: re-assert repairs a Chrome-stolen default and keeps other handlers"
+    else
+        bad "browser: re-assert did not repair the Chrome drift" "$(cat "$W/mimeapps.list")"
+    fi
+    XDG_CONFIG_HOME="$W" sh "$W/reassert"; before=$(cksum "$W/mimeapps.list")
+    XDG_CONFIG_HOME="$W" sh "$W/reassert"
+    [ "$before" = "$(cksum "$W/mimeapps.list")" ] && ok "browser: re-assert is idempotent" || bad "browser: re-assert not idempotent"
+fi
+
 # the hooks: policy applied on arm64 only, from an EXIT trap (runs on early exits too)
 for h in 52-vivaldi.sh 53-chrome.sh; do
     blk="$(awk 'index($0,"NCZ-SKY1-BROWSER-BEGIN"){f=1;next} index($0,"NCZ-SKY1-BROWSER-END"){f=0} f' "$ROOT/post-install/$h")"
