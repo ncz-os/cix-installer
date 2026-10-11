@@ -322,6 +322,7 @@ post-install/59-ncz-screensavers-pkg.sh	common	-	mandatory install of the ncz-sc
 post-install/60-boot-splash.sh	common	-	KMS boot splash; DRM-generic (panthor initramfs strip is a harmless sed)
 post-install/61-chromium-icon.sh	sky1	-	Cygnus-coloured NCZ Chromium icon (diverts the chromium-ncz-sky1 package icons); Sky1 only
 post-install/62-cygnus-screensaver-default.sh	common	-	default screensaver = black hole in the Cygnus palette; override validated against the installed schema before install
+post-install/63-ncz-idle-lock-order.sh	common	-	desktop auto-lock ordered AFTER the ncz screensaver: GSETTINGS default override dev.sinty.lockscreen idle-delay = hack-idle-delay + lock-delay (300+60=360), validated before install (operator 2026-10-11)
 post-install/70-bootloader.sh	mixed	-	rEFInd on both arches via run_refind_arm64 and run_refind_amd64; TODO split into per-platform bodies
 post-install/72-rescue-partition.sh	mixed	-	rescue partition; arm64 stages assets/kernel/mainline, amd64 copies the installed amd64-stable kernel; TODO split
 post-install/79-dkms-prep.sh	sky1	-	makes Sky1 kernel headers DKMS-usable; installs aarch64 cross compiler
@@ -417,6 +418,7 @@ build/test-boot-sequence.sh	common	-	regression tests for installer NIC-wait/clo
 build/test-greeter-output-mode.sh	common	-	regression test: greeter labwc autostart never scans out 4K, keeps the panel aspect via ncz-display-scale, falls back to the fixed 1080p loop
 build/test-chromium-icon.sh	common	-	chromium icon assets (Cygnus colours, crisp) and the 61 hook (divert + install + idempotent, package before/after/upgrade)
 build/test-run-all-baked-allowlist.sh	common	-	run-all.sh in baked mode against every hook on both hooks.list files: no ORPHAN, every listed hook runs
+build/test-idle-lock-order.sh	common	-	regression test for the idle-lock ordering hook (lock default strictly after the saver, tracks the schema, idempotent, skips without the lockscreen schema)
 build/test-screensaver-default.sh	common	-	regression test for the Cygnus black hole screensaver default hook (validated override, idempotent, skips old schemas)
 build/test-screensavers-mandatory-install.sh	common	-	fail-before/pass-after for the screensaver deb being apt-installed on every desktop image: mirror pre-flight and install hook (operator 2026-10-05; item S4; sources the builders sibling)
 build/test-ssplugin-supply-chain.sh	common	-	fail-before/pass-after for the screensaver settings plugin supply chain (pin, staging, ABI gate, medium, offline install, registry, baked allowlist)

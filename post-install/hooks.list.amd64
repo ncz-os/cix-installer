@@ -49,6 +49,7 @@
 59-ncz-screensavers-pkg.sh
 60-boot-splash.sh
 62-cygnus-screensaver-default.sh
+63-ncz-idle-lock-order.sh
 70-bootloader.sh
 72-rescue-partition.sh
 85-power-perf-mode.sh
