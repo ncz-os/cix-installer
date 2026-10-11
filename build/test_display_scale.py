@@ -167,7 +167,17 @@ class GreeterTest(unittest.TestCase):
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
         self.assertEqual(
             fake.calls,
-            [["--output", "eDP-1", "--mode", "1920x1200@60.000000Hz", "--scale", "1"]],
+            [
+                [
+                    "--output",
+                    "eDP-1",
+                    "--mode",
+                    "1920x1200@60.000000Hz",
+                    "--scale",
+                    "1",
+                    "--on",
+                ]
+            ],
         )
 
     def test_4k_monitor_never_scans_out_4k(self):
@@ -183,6 +193,19 @@ class GreeterTest(unittest.TestCase):
     def test_native_1200p_monitor_keeps_its_mode(self):
         self.assertEqual(nds.greeter_mode(MONITOR_1200P)["height"], 1200)
 
+    def test_already_lit_capped_output_is_not_re_moded(self):
+        # The compositor already enabled an output at a capped mode: setting the
+        # mode again is the disable->enable cycle that wedges the trilin AUX
+        # engine, so cmd_greeter must be a no-op (fix/greeter-dp-handoff-20261011).
+        lit = output(
+            "DP-1",
+            (518, 324),
+            [mode(1920, 1200, preferred=True, current=True), mode(1920, 1080)],
+        )
+        fake = FakeRandr([lit])
+        self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
+        self.assertEqual(fake.calls, [])
+
     def test_falls_back_to_plain_mode_spelling(self):
         class FirstFails(FakeRandr):
             def __call__(self, argv, **kw):
@@ -194,17 +217,34 @@ class GreeterTest(unittest.TestCase):
         fake = FirstFails([CHIMERA])
         nds.cmd_greeter(False, runner=fake)
         self.assertEqual(
-            fake.calls[-1], ["--output", "eDP-1", "--mode", "1920x1200", "--scale", "1"]
+            fake.calls[-1],
+            ["--output", "eDP-1", "--mode", "1920x1200", "--scale", "1", "--on"],
         )
 
     def test_unreadable_outputs_return_1_so_the_autostart_falls_back(self):
         self.assertEqual(nds.cmd_greeter(False, runner=FakeRandr([], json_rc=1)), 1)
 
-    def test_disabled_outputs_are_left_alone(self):
+    def test_disabled_output_is_enabled_once_at_the_capped_mode(self):
+        # The greeter labwc runs autoEnableOutputs=no, so an output the
+        # compositor left off must be turned on here -- at the capped mode,
+        # never at native 4K.
         off = dict(CHIMERA, enabled=False)
         fake = FakeRandr([off])
-        nds.cmd_greeter(False, runner=fake)
-        self.assertEqual(fake.calls, [])
+        self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
+        self.assertEqual(
+            fake.calls,
+            [
+                [
+                    "--output",
+                    "eDP-1",
+                    "--mode",
+                    "1920x1200@60.000000Hz",
+                    "--scale",
+                    "1",
+                    "--on",
+                ]
+            ],
+        )
 
 
 class SessionTest(unittest.TestCase):
