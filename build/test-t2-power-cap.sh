@@ -55,7 +55,10 @@ ac_on()  { printf '1\n' > "$SYS/psu/ADP1/online"; }
 # the real /sys or, under the test root, $ROOT/sys. Stage it so the hook runs.
 mkdir -p "$TROOT/sys/devices/system/cpu/intel_pstate"
 HOOKRUN() { # run the hook against the test root
-    env NCZ_T2_POWER_CAP_ROOT="$TROOT" NCZ_T2_POWER_CAP_ASSUME_T2=1 \
+    # NCZ_TARGET_ARCH=amd64 pins the hook's platform guard so the amd64/T2 hook
+    # actually runs on any host (same pattern as test-t2-dkms-hook.sh); the
+    # guard otherwise self-skips on a non-amd64 build host (e.g. an arm64 CI box).
+    env NCZ_TARGET_ARCH=amd64 NCZ_T2_POWER_CAP_ROOT="$TROOT" NCZ_T2_POWER_CAP_ASSUME_T2=1 \
         bash "$HOOK" >"$T/hook.out" 2>&1
 }
 HOOKRUN
