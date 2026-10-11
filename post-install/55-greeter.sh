@@ -118,20 +118,34 @@ GREETD
 # assuming /dev/dri/card0.
 cat > /usr/local/bin/ncz-has-drm-output <<'DRMTEST'
 #!/bin/sh
-# Gate greetd on a display that is not merely *connected* but *lit*: an output
-# whose status=connected AND enabled=enabled (a CRTC is actually scanning it
-# out). On Sky1/trilin the console (or the KMS boot splash) enables the
-# connector only after the DP link has trained; starting labwc before that is
-# what produced the greeter-vs-connector race. amdgpu on T2 Macs (CHIMERA)
-# publishes its eDP connector ~7-9 s into userspace, after greetd's one-shot
-# ExecCondition would already have skipped the greeter (measured 2026-10-10:
-# condition 21:25:49, connector 21:25:50). The old cix-detect-display wait is
-# arm64-only, so wait here, on every arch, up to 30 s.
+# Gate greetd on a display being present -- and, on Sky1/arm64 ONLY, LIT (an
+# output whose status=connected AND enabled=enabled, i.e. a CRTC is actually
+# scanning it out).
 #
-# Fail-open: if some output is connected but never reported enabled within a
-# short grace window (a platform that does not light DRM from the console, or
-# KVM/headless), still start the greeter -- a missing login screen is worse
-# than the race, and the grace bound keeps the extra latency small.
+# On Sky1/trilin the console (or the KMS boot splash) enables the connector
+# only after the DP link has trained; starting labwc before that is what
+# produced the greeter-vs-connector race, so there the gate waits for the LIT
+# state. On every other arch (i915/amdgpu/nvidia) the compositor keeps the
+# labwc default and lights the output itself, so requiring a CRTC to already be
+# scanning buys nothing and only risks a needless greetd delay on a console that
+# never leaves a CRTC enabled -- the amd64 regression that arrived with the
+# autoEnableOutputs=no change (2026-10-11). There a CONNECTED output is enough,
+# the pre-2026-10-11 behaviour.
+#
+# amdgpu on T2 Macs (CHIMERA) publishes its eDP connector ~7-9 s into
+# userspace, after greetd's one-shot ExecCondition would already have skipped
+# the greeter (measured 2026-10-10: condition 21:25:49, connector 21:25:50).
+# The old cix-detect-display wait is arm64-only, so wait here, on every arch,
+# up to 30 s.
+#
+# Fail-open: on arm64, if some output is connected but never reported enabled
+# within a short grace window (a platform that does not light DRM from the
+# console, or KVM/headless), still start the greeter -- a missing login screen
+# is worse than the race, and the grace bound keeps the extra latency small.
+case "$(uname -m)" in
+    aarch64 | arm64) require_lit=1 ;;
+    *) require_lit=0 ;;
+esac
 try=0
 conn_since=-1
 while [ "$try" -lt 120 ]; do
@@ -140,18 +154,17 @@ while [ "$try" -lt 120 ]; do
         [ -f "$status" ] || continue
         [ "$(cat "$status" 2>/dev/null || true)" = connected ] || continue
         connected=1
+        [ "$require_lit" = 1 ] || exit 0
         en=${status%/status}/enabled
         [ -f "$en" ] || continue
         [ "$(cat "$en" 2>/dev/null || true)" = enabled ] && exit 0
     done
-    if [ "$connected" = 1 ]; then
+    if [ "$require_lit" = 1 ] && [ "$connected" = 1 ]; then
         [ "$conn_since" -lt 0 ] && conn_since=$try
         if [ "$((try - conn_since))" -ge 32 ]; then
             logger -t ncz-greetd-drm "connected output not enabled after 8s; starting greeter anyway"
             exit 0
         fi
-    else
-        conn_since=-1
     fi
     try=$((try + 1))
     sleep 0.25
@@ -245,16 +258,18 @@ cat > /etc/greetd/singularity-labwc/autostart <<'LABAUTO'
 # policy scale for that mode. The fixed 1080p loop below is the fallback when the
 # helper is missing or fails.
 #
-# ORDERING (fix/greeter-dp-handoff-20261011): the greeter rc.xml sets
-# <core><autoEnableOutputs>no</core>, so this autostart is the FIRST and ONLY
-# commit that lights each output. The greeter therefore never scans out at 4K,
-# and the compositor never has to disable+re-enable a live output to apply a
-# mode — that disable->enable cycle is the DP AUX-engine wedge trigger on
-# trilin Sky1 boards (MS-R1, Orange Pi 6 Plus). Every wlr-randr call carries
-# --on so a still-disabled output is enabled in the same commit; the helper
-# skips any output already lit at a capped mode.
+# ORDERING (fix/greeter-dp-handoff-20261011): on Sky1/arm64 ONLY the greeter
+# rc.xml sets <core><autoEnableOutputs>no</core>, making this autostart the
+# FIRST and ONLY commit that lights each output — labwc must not modeset a
+# console-inherited CRTC first, because that disable->enable cycle is the DP
+# AUX-engine wedge trigger on trilin Sky1 boards (MS-R1, Orange Pi 6 Plus). On
+# every other architecture the rc.xml keeps the labwc default (autoEnable yes):
+# there the compositor owns the first modeset and this autostart only adjusts an
+# already-lit output's mode. Every wlr-randr call carries --on so a
+# still-disabled output is enabled in the same commit; the helper skips any
+# output already lit at a capped mode.
 command -v wlr-randr >/dev/null 2>&1 || {
-    echo "greeter: wlr-randr missing; outputs stay as autoEnableOutputs=no left them" >&2
+    echo "greeter: wlr-randr missing; outputs stay as the compositor left them" >&2
     exit 0
 }
 _scale=${NCZ_DISPLAY_SCALE_HELPER:-/usr/local/bin/ncz-display-scale}
@@ -270,25 +285,46 @@ exit 0
 LABAUTO
 chmod 0755 /etc/greetd/singularity-labwc/autostart
 
-# <autoEnableOutputs>no</autoEnableOutputs> is load-bearing: with the default
-# (yes) labwc modesets every output to its preferred (4K) mode the moment it
-# starts, and the greeter's autostart then has to change that mode — one
-# disable->enable cycle on a live output. On trilin Sky1 (MS-R1, Orange Pi 6
-# Plus) that cycle can latch the DP AUX engine busy and stall the greeter's
-# first commit for tens of seconds. Letting the autostart be the single commit
-# that enables each output at the capped mode removes the trigger.
-cat > /etc/greetd/singularity-labwc/rc.xml <<'LABRC'
+# <autoEnableOutputs>no</autoEnableOutputs> is a Sky1/arm64-ONLY workaround and
+# must not be written on any other arch. With the labwc default (yes) on amd64,
+# labwc modesets each output to its preferred (4K) mode at startup and the
+# autostart only adjusts the mode — harmless there. With =no on amd64, labwc
+# instead tries to DISABLE the CRTC the console/KMS splash left enabled; that
+# disable fails on i915 ("Failed to disable CRTC") and the greeter stays black
+# (PEGASUS RC2 325c9510, reported and live-tested 2026-10-11). On trilin Sky1
+# (MS-R1, Orange Pi 6 Plus) the redundant disable+enable cycle is exactly what
+# latches the DP AUX engine busy, so only there is =no written and the autostart
+# becomes the single commit that lights each output at the capped mode.
+# assets/display/ncz-greeter-rcxml is the single source of truth for the policy.
+_ncz_rcxml_src=""
+for _r in /cdrom/ncz-payload /usr/local/lib/cix-installer; do
+    if [ -f "$_r/assets/display/ncz-greeter-rcxml" ]; then
+        _ncz_rcxml_src="$_r/assets/display/ncz-greeter-rcxml"
+        break
+    fi
+done
+if [ -n "$_ncz_rcxml_src" ]; then
+    # The helper derives the target arch itself (BUILD_ARCH / dpkg / uname).
+    sh "$_ncz_rcxml_src" --out /etc/greetd/singularity-labwc/rc.xml ||
+        echo "[55] WARN: ncz-greeter-rcxml failed" >&2
+else
+    # Defensive fallback (the asset ships in the same payload): the compositor
+    # default is the universally safe choice — it can never black-screen a
+    # greeter, whereas =no can on i915. Sky1 would lose its workaround, so log
+    # loudly.
+    echo "[55] WARN: assets/display/ncz-greeter-rcxml absent — writing compositor-default rc.xml" >&2
+    cat > /etc/greetd/singularity-labwc/rc.xml <<'LABRC'
 <?xml version="1.0"?>
 <labwc_config>
   <core>
     <gap>0</gap>
-    <!-- Never auto-modeset: the greeter autostart enables each connected
-         output once, at the capped (<=1920x1200) mode chosen by
-         ncz-display-scale. See post-install/55-greeter.sh. -->
-    <autoEnableOutputs>no</autoEnableOutputs>
+    <!-- Labwc default: the compositor owns the first modeset. See
+         post-install/55-greeter.sh. -->
   </core>
 </labwc_config>
 LABRC
+fi
+unset _ncz_rcxml_src
 
 cat > /etc/greetd/singularity-labwc/environment <<'LABENV'
 XCURSOR_THEME=Adwaita

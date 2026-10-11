@@ -84,6 +84,15 @@ MONITOR_1200P = output(
     (518, 324),
     [mode(1920, 1200, preferred=True, current=True), mode(1920, 1080)],
 )
+# PEGASUS: eDP AU Optronics 0x31EB, a single-mode 3840x2160@60 panel. No capped
+# mode exists, so the greeter helper has nothing to downscale to.
+MONITOR_SINGLE_MODE_4K = output(
+    "eDP-1",
+    (344, 194),
+    [mode(3840, 2160, 59.997, preferred=True, current=True)],
+    make="AU Optronics",
+    model="0x31EB",
+)
 
 
 class FakeRandr:
@@ -225,9 +234,9 @@ class GreeterTest(unittest.TestCase):
         self.assertEqual(nds.cmd_greeter(False, runner=FakeRandr([], json_rc=1)), 1)
 
     def test_disabled_output_is_enabled_once_at_the_capped_mode(self):
-        # The greeter labwc runs autoEnableOutputs=no, so an output the
-        # compositor left off must be turned on here -- at the capped mode,
-        # never at native 4K.
+        # On Sky1/arm64 the greeter labwc runs autoEnableOutputs=no, so an
+        # output the compositor left off must be turned on here -- at the capped
+        # mode, never at native 4K.
         off = dict(CHIMERA, enabled=False)
         fake = FakeRandr([off])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
@@ -245,6 +254,33 @@ class GreeterTest(unittest.TestCase):
                 ]
             ],
         )
+
+    def test_single_mode_4k_panel_has_no_capped_mode(self):
+        self.assertIsNone(nds.greeter_mode(MONITOR_SINGLE_MODE_4K))
+
+    def test_single_mode_4k_panel_is_enabled_at_native_never_left_dark(self):
+        # Regression 2026-10-11 (PEGASUS eDP AU Optronics 0x31EB): a single-mode
+        # 4K panel has no capped mode, and under autoEnableOutputs=no the
+        # compositor leaves it off. The helper must light it at its own native
+        # mode with --on -- never "leave it alone" -- and never request a 4K
+        # --mode.
+        off = dict(MONITOR_SINGLE_MODE_4K, enabled=False)
+        fake = FakeRandr([off])
+        self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
+        self.assertEqual(fake.calls, [["--output", "eDP-1", "--on"]])
+        self.assertFalse(
+            any("3840" in " ".join(c) or "2160" in " ".join(c) for c in fake.calls),
+            fake.calls,
+        )
+
+    def test_single_mode_4k_panel_already_lit_is_re_asserted_with_on(self):
+        # amd64 keeps the labwc default, so labwc may have already lit the
+        # panel. --on with no --mode is a no-op there (not a disable->enable
+        # cycle) but still guarantees the panel is never left dark.
+        lit = dict(MONITOR_SINGLE_MODE_4K, enabled=True)
+        fake = FakeRandr([lit])
+        self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
+        self.assertEqual(fake.calls, [["--output", "eDP-1", "--on"]])
 
 
 class SessionTest(unittest.TestCase):

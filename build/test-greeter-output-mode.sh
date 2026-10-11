@@ -144,5 +144,150 @@ else
     bad "no legacy fallback without the helper (rc=$rc)"
 fi
 
+# A single-mode 3840x2160 panel (PEGASUS eDP AU Optronics 0x31EB) has no capped
+# mode. Under autoEnableOutputs=no it is left off by the compositor, so the
+# helper must enable it at its own native mode with --on (never "leave it
+# alone", never a 4K --mode). Regression 2026-10-11.
+cat > "$T/single_mode_4k.json" <<'J'
+[{"name": "eDP-1", "make": "AU Optronics", "model": "0x31EB", "serial": null,
+  "physical_size": {"width": 344, "height": 194}, "enabled": false, "scale": 1.0,
+  "modes": [{"width": 3840, "height": 2160, "refresh": 59.997, "preferred": true, "current": true}]}]
+J
+rc=$(runh ok "$T/single_mode_4k.json")
+if [ "$rc" = 0 ] && grep -qx -- "--output eDP-1 --on" "$T/calls" && ! grep -q -E "3840|4096|2160" "$T/calls"; then
+    ok "single-mode 4K panel: helper enables at native (--on), never dark, never 4K"
+else
+    bad "single-mode 4K panel helper wrong (rc=$rc): $(tr '\n' ';' < "$T/calls")"
+fi
+
+# Same panel already lit (amd64 keeps the labwc default): --on with no --mode
+# is still issued, so a panel can never be left dark; no 4K mode is requested.
+cat > "$T/single_mode_4k_lit.json" <<'J'
+[{"name": "eDP-1", "make": "AU Optronics", "model": "0x31EB", "serial": null,
+  "physical_size": {"width": 344, "height": 194}, "enabled": true, "scale": 1.0,
+  "modes": [{"width": 3840, "height": 2160, "refresh": 59.997, "preferred": true, "current": true}]}]
+J
+rc=$(runh ok "$T/single_mode_4k_lit.json")
+if [ "$rc" = 0 ] && grep -qx -- "--output eDP-1 --on" "$T/calls" && ! grep -q -E "3840|4096|2160" "$T/calls"; then
+    ok "single-mode 4K panel already lit: re-asserted with --on, no 4K mode"
+else
+    bad "already-lit single-mode 4K panel wrong (rc=$rc): $(tr '\n' ';' < "$T/calls")"
+fi
+
+# --- rc.xml <autoEnableOutputs> policy is arch-gated ---------------------------
+# The Sky1 DP AUX wedge is a trilin/arm64 problem; on amd64 the key makes labwc
+# try to disable the console-inherited CRTC, which fails on i915 and leaves the
+# greeter black (PEGASUS RC2 325c9510). assets/display/ncz-greeter-rcxml owns it.
+RCXML="$ROOT/assets/display/ncz-greeter-rcxml"
+if [ -f "$RCXML" ]; then ok "ncz-greeter-rcxml asset present"; else bad "ncz-greeter-rcxml asset missing"; fi
+if sh -n "$RCXML"; then ok "ncz-greeter-rcxml is valid shell"; else bad "ncz-greeter-rcxml syntax"; fi
+
+amd=$(sh "$RCXML" --arch amd64 --dry-run 2>/dev/null)
+if printf '%s\n' "$amd" | grep -q '<labwc_config>' && \
+   ! printf '%s\n' "$amd" | grep -q '<autoEnableOutputs>'; then
+    ok "amd64 rc.xml keeps the labwc default (no autoEnableOutputs element)"
+else
+    bad "amd64 rc.xml still disables output auto-enable: $amd"
+fi
+
+for a in arm64 aarch64; do
+    sky=$(sh "$RCXML" --arch "$a" --dry-run 2>/dev/null)
+    if printf '%s\n' "$sky" | grep -q '<autoEnableOutputs>no</autoEnableOutputs>'; then
+        ok "$a rc.xml keeps the Sky1 autoEnableOutputs=no workaround"
+    else
+        bad "$a rc.xml lost the Sky1 workaround: $sky"
+    fi
+done
+
+TMPRC="$T/rc-amd64.xml"
+if sh "$RCXML" --arch amd64 --out "$TMPRC" >/dev/null 2>&1 && [ -s "$TMPRC" ] && \
+   ! grep -q '<autoEnableOutputs>' "$TMPRC"; then
+    ok "ncz-greeter-rcxml writes the amd64 rc.xml to --out"
+else
+    bad "ncz-greeter-rcxml --out did not write the expected amd64 file"
+fi
+
+if grep -q 'ncz-greeter-rcxml' "$HOOK"; then
+    ok "55-greeter.sh delegates the rc.xml policy to ncz-greeter-rcxml"
+else
+    bad "55-greeter.sh does not call ncz-greeter-rcxml"
+fi
+# No ACTIVE line may write the element; a comment naming it is fine.
+if grep -vE '^[[:space:]]*#' "$HOOK" | grep -q '<autoEnableOutputs>'; then
+    bad "55-greeter.sh still hard-codes the autoEnableOutputs element (would ship on amd64)"
+else
+    ok "55-greeter.sh does not hard-code the autoEnableOutputs element"
+fi
+
+# --- ncz-has-drm-output lit-gate is arm64-only --------------------------------
+# Requiring a CONNECTED *and enabled* output exists for the Sky1 trilin race.
+# On amd64 the compositor lights the output itself, so that requirement only
+# risks a needless (bounded) greetd delay -- the amd64 half of the same
+# 2026-10-11 regression. Run the REAL generated gate against a faked DRM tree
+# and stubbed uname/sleep/logger.
+DRMRAW="$T/drmtest.raw"
+awk '/<<.DRMTEST.$/ {on=1; next} /^DRMTEST$/ {on=0} on' "$HOOK" > "$DRMRAW"
+if [ -s "$DRMRAW" ] && sh -n "$DRMRAW"; then
+    ok "ncz-has-drm-output heredoc extracted and is valid shell"
+else
+    bad "no valid DRMTEST heredoc"
+fi
+sed "s#/sys/class/drm#$T/sys/class/drm#g" "$DRMRAW" > "$T/drmtest"
+
+mkdir -p "$T/drmbin"
+cat > "$T/drmbin/uname" <<'U'
+#!/bin/sh
+echo "${FAKE_UNAME_M:-x86_64}"
+U
+cat > "$T/drmbin/sleep" <<'S'
+#!/bin/sh
+echo x >> "$SLEEP_LOG"
+S
+cat > "$T/drmbin/logger" <<'L'
+#!/bin/sh
+echo "$*" >> "$LOGGER_LOG"
+L
+chmod +x "$T/drmbin/uname" "$T/drmbin/sleep" "$T/drmbin/logger"
+
+# run_gate ARCH STATUS ENABLED -> "rc sleeps logs" (ENABLED=none omits the file)
+run_gate() {
+    _arch=$1; _status=$2; _en=$3
+    rm -rf "$T/sys"; mkdir -p "$T/sys/class/drm/card1-eDP-1"
+    printf '%s\n' "$_status" > "$T/sys/class/drm/card1-eDP-1/status"
+    [ "$_en" = none ] || printf '%s\n' "$_en" > "$T/sys/class/drm/card1-eDP-1/enabled"
+    : > "$T/sleeps"; : > "$T/logs"
+    FAKE_UNAME_M="$_arch" SLEEP_LOG="$T/sleeps" LOGGER_LOG="$T/logs" \
+        PATH="$T/drmbin:/usr/bin:/bin" sh "$T/drmtest" >/dev/null 2>&1
+    printf '%s %s %s\n' "$?" "$(grep -c . "$T/sleeps")" "$(grep -c . "$T/logs")"
+}
+# shellcheck disable=SC2046
+set -- $(run_gate x86_64 connected disabled)
+if [ "$1" = 0 ] && [ "$2" = 0 ]; then
+    ok "amd64 gate: a connected output passes at once (no LIT wait)"
+else
+    bad "amd64 gate still waits for a lit CRTC (rc/sleeps/logs=$1/$2/$3)"
+fi
+# shellcheck disable=SC2046
+set -- $(run_gate aarch64 connected enabled)
+if [ "$1" = 0 ] && [ "$2" = 0 ]; then
+    ok "arm64 gate: a lit output passes at once"
+else
+    bad "arm64 lit path wrong (rc/sleeps/logs=$1/$2/$3)"
+fi
+# shellcheck disable=SC2046
+set -- $(run_gate aarch64 connected disabled)
+if [ "$1" = 0 ] && [ "$2" -ge 32 ] && [ "$3" -ge 1 ]; then
+    ok "arm64 gate: connected-but-unlit fails open after the bounded grace"
+else
+    bad "arm64 fail-open grace wrong (rc/sleeps/logs=$1/$2/$3)"
+fi
+# shellcheck disable=SC2046
+set -- $(run_gate x86_64 disconnected none)
+if [ "$1" = 1 ]; then
+    ok "gate: no connected output exits 1 (greetd skipped on a headless boot)"
+else
+    bad "headless gate did not exit 1 (rc/sleeps/logs=$1/$2/$3)"
+fi
+
 echo "greeter-output-mode tests: $pass passed, $fail failed"
 [ "$fail" = 0 ]
