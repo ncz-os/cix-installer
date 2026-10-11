@@ -141,5 +141,37 @@ SUBSYSTEM=="dma_heap", GROUP="render", MODE="0660"
 DMAEOF
 echo "[43] dma_heap udev rule installed (render:0660)"
 
+# --- Sky1 VPU devfreq governor: pin to performance (startup-jitter fix) -----
+# The VPU (amvx/mvx) devfreq device CIXH3010:00 defaults to simple_ondemand,
+# which parks the decoder clock at 72 MHz and only spikes briefly under load.
+# Measured on O6N (6351e0b3) starting a YouTube stream in an isolated instance:
+#   simple_ondemand: VPU 72 MHz through startup, dropped frames 12->17 over 15 s,
+#                    first motion 2.52 s
+#   performance:     VPU 1000 MHz throughout, dropped frames 7, first motion 2.43 s
+# The cold clock is a real contributor to the first-seconds stutter. Pin the
+# governor at boot. Sky1 only (CIXH3010:00 = amvx_dev).
+if [ -e /sys/class/devfreq/CIXH3010:00/governor ]; then
+    cat > /usr/local/sbin/ncz-vpu-governor-performance <<'VPUEOF'
+#!/bin/sh
+# Pin the Sky1 VPU devfreq governor to performance. Retries while the devfreq
+# node is still appearing at early boot.
+for _i in 1 2 3 4 5 6 7 8 9 10; do
+    [ -e /sys/class/devfreq/CIXH3010:00/governor ] && break
+    sleep 1
+done
+[ -w /sys/class/devfreq/CIXH3010:00/governor ] && \
+    echo performance > /sys/class/devfreq/CIXH3010:00/governor 2>/dev/null || true
+VPUEOF
+    chmod 0755 /usr/local/sbin/ncz-vpu-governor-performance
+    cat > /etc/udev/rules.d/71-ncz-vpu-governor.rules <<'VPUR'
+# Sky1 VPU devfreq -> performance (avoids cold-clock startup stutter). See post-install/43-hw-quirks.sh.
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="CIXH3010:00", RUN+="/usr/local/sbin/ncz-vpu-governor-performance"
+VPUR
+    /usr/local/sbin/ncz-vpu-governor-performance 2>/dev/null || true
+    echo "[43] VPU governor pinned to performance"
+else
+    echo "[43] no CIXH3010 devfreq (non-Sky1); VPU governor step skipped"
+fi
+
 echo "[43] hw quirks done"
 exit 0
