@@ -520,10 +520,6 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	               $(wildcard $(ASSETS)/sky1-firmware/*)
 	@echo "[image] pinned build inputs (recovery rootfs, rescue rootfs, python311, wallpaper debs)"
 	@bash $(ROOT)/build/stage-build-inputs.sh --arch $(ARCH)
-	@echo "[image] amd64 installer kernel: stage the pinned image+headers pair from the ARGONAS kernel-staging pool"
-	@if [ "$(ARCH)" = amd64 ]; then bash $(ROOT)/build/stage-amd64-kernel.sh; else echo "[image] ($(ARCH): the Sky1 kernel is built during offline-mirror)"; fi
-	@echo "[image] arm64 assets: materialize the pinned sky1-firmware + cix-debs tarballs"
-	@if [ "$(ARCH)" = arm64 ]; then bash $(ROOT)/build/stage-arm64-assets.sh; else echo "[image] ($(ARCH): no arm64 asset tarballs)"; fi
 	@echo "[image] platform-split lint (inventory, hooks.list, deny patterns, guards, manifest divergence)"
 	@bash $(ROOT)/build/lint-platform.sh
 	@bash $(ROOT)/build/check-no-ubuntu.sh

@@ -30,6 +30,7 @@ TARBALLS="assets/sky1-firmware.tar.zst assets/cix-debs.tar.zst"
 
 sha_of() { sha256sum "$1" | awk '{print $1}'; }
 fail=0
+mkdir -p "$ROOT/assets"   # a fresh clone has it, but never rely on that
 for dest in $TARBALLS; do
     pin="$(awk -F'\t' -v d="$dest" '$1=="arm64" && $2==d {print $3; exit}' "$TSV")"
     tarball="$ROOT/$dest"

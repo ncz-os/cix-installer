@@ -63,9 +63,10 @@ grep -q 'bash build/stage-amd64-kernel.sh' "$ROOT/build/build-image.sh" \
     && grep -q '\[ "$ARCH" = amd64 \]' "$ROOT/build/build-image.sh" \
     && ok "build/build-image.sh stage-inputs runs build/stage-amd64-kernel.sh for amd64" \
     || bad "build-image.sh does not stage the amd64 installer kernel"
-grep -q 'bash $(ROOT)/build/stage-amd64-kernel.sh' "$ROOT/Makefile" \
-    && ok "make image stages the amd64 installer kernel standalone too" \
-    || bad "Makefile image rule does not stage the amd64 kernel"
+# The image target deliberately does NOT stage the kernel (its own comment:
+# "...staged via build/stage-amd64-kernel.sh, never via this target"); the
+# pipeline's stage-inputs stage owns all raw-input staging, so there is exactly
+# one site and no duplicated work.
 grep -q 'build/stage-screensaver-plugin.sh' "$ROOT/build/build-image.sh" \
     && ok "build-image.sh stage-inputs stages the pinned screensaver settings plugin" \
     || bad "build-image.sh does not stage the screensaver settings plugin"
@@ -85,9 +86,6 @@ done
 grep -q 'bash build/stage-arm64-assets.sh' "$ROOT/build/build-image.sh" \
     && ok "build-image.sh stage-inputs runs build/stage-arm64-assets.sh for arm64" \
     || bad "build-image.sh does not materialize the arm64 asset groups"
-grep -q 'bash $(ROOT)/build/stage-arm64-assets.sh' "$ROOT/Makefile" \
-    && ok "make image materializes the arm64 asset groups standalone too" \
-    || bad "Makefile image rule does not materialize the arm64 assets"
 
 # functional: stage-arm64-assets.sh verifies the pin and extracts, refusing a tampered tarball
 if command -v zstd >/dev/null 2>&1 && tar --zstd -tf /dev/null >/dev/null 2>&1; then
