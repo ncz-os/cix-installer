@@ -97,7 +97,7 @@ module_param(wait_pending_timeout, int, 0660);
 static bool wait_pending_retry = true;
 module_param(wait_pending_retry, bool, 0644);
 MODULE_PARM_DESC(wait_pending_retry,
-    "Retry wait_pending once with a soft IRQ poke after the first timeout (default 1).");
+    "Retry wait_pending once with a soft IRQ poke after the first timeout (default true).");
 
 #ifndef MVX_ANDROID_KERNEL
 static bool enable_buffer_dump = 0;

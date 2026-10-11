@@ -189,12 +189,12 @@
     "assets/kernel/mali/7.3.0-rc6-sky1-ncz/protected_memory_allocator.ko": "5aff4d0b7dc25044e4f21a994ca02676370f83842b04db78a765d49c1ded3efb",
     "assets/kernel/npu/7.3.0-rc6-sky1-ncz/aipu.ko": "4cf94ac9ecb1d33df966aa08ccd85ac44b310ecabb858512b53fd20c58ab070a",
     "assets/kernel/panthor/7.3.0-rc6-sky1-ncz/panthor.ko": "ea17fb5eac528ab84413410775b5ca618d3ed33c785b6aac67380c270d25eb31",
-    "assets/kernel/vpu/7.3.0-rc6-sky1-ncz/amvx.ko": "1cbc5c3bc32bbcf2b615c337dbf9952994d090d8ff88b51a1ae7a1e79d2f5266"
+    "assets/kernel/vpu/7.3.0-rc6-sky1-ncz/amvx.ko": "47ba3519ad4adbe1605890173bbac6fc007a61171e19e15d8ce0d0d3d786e95a"
   },
   "gates": {
     "kvm_kernel_gate": "PASS (build/kvm-kernel-gate.sh; PCI 17cd:0100 collision lint; reached root-mount under qemu kvm, host KVM + container TCG; log kvm-gate.log)",
     "dkms_abi_gate": "PASS (builder identity oe-user@oe-host; binutils 2.46.1; CONFIG_MODVERSIONS=y; log dkms-abi-gate.log)",
-    "overlay_modversions": "PASS (build/verify-overlay-modversions.py: all six r287-rebuilt overlays vs the r287 Module.symvers — 0 CRC mismatches, 0 unresolved). CONFIG_RT_GROUP_SCHED changes struct task_struct/sched_rt_entity layout, which moved 535 imported-symbol CRCs, so the overlays WERE re-mirrored this revision (contrast r285->r286, where they were unchanged).",
+    "overlay_modversions": "PASS (build/verify-overlay-modversions.py: all six r287-rebuilt overlays vs the r287 Module.symvers \u2014 0 CRC mismatches, 0 unresolved). CONFIG_RT_GROUP_SCHED changes struct task_struct/sched_rt_entity layout, which moved 535 imported-symbol CRCs, so the overlays WERE re-mirrored this revision (contrast r285->r286, where they were unchanged).",
     "config_audit": "delta vs r286 = CONFIG_RT_GROUP_SCHED (y -> not set); CGROUP_SCHED=y, FAIR_GROUP_SCHED=y, CFS_BANDWIDTH=y, SCHED_AUTOGROUP=y unchanged; MODULE_COMPRESS off; MODVERSIONS=y; 377 .ko; 0 .ko.xz",
     "debs": "build-kernel-debs.sh BUILD_REV=r287, byte-reproducible x2 on ULTRA; vmlinuz in linux-image deb byte-identical to Image-cixmini.bin"
   }
