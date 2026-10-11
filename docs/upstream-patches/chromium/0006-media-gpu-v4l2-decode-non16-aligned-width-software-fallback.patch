@@ -1,0 +1,44 @@
+--- a/media/gpu/v4l2/v4l2_stateful_video_decoder.cc
++++ b/media/gpu/v4l2/v4l2_stateful_video_decoder.cc
+@@ -279,12 +279,41 @@
+ 
+   if (config.is_encrypted() || !!cdm_context) {
+     std::move(init_cb).Run(DecoderStatus::Codes::kUnsupportedEncryptionMode);
+     return;
+   }
+ 
++  // --- CIX Sky1 / Mali NV12 dma-buf import workaround ----------------------
++  // The vendor Mali EGL (libmali) cannot import the VPU's NV12 dma-bufs as GL
++  // textures when the decoded buffer's width is not a multiple of 16 px:
++  // eglCreateImage fails with EGL_BAD_PARAMETER (0x3000), so Chromium cannot
++  // create a GL/Skia representation of the video layer and playback renders
++  // black/garbled -- even though the decode itself is byte-correct. The CIX mvx
++  // driver exposes the stream width verbatim as the capture coded width (e.g.
++  // coded_size 854x488 for an 854x480 stream), so non-16-aligned stream widths
++  // really do reach this decoder.
++  //
++  // Refuse such configs here. A V4L2StatefulVideoDecoder::Initialize failure is
++  // an ordinary decoder-selection outcome: the renderer's DecoderSelector falls
++  // back to software decode, which is clean. 16-aligned widths (720p/1080p)
++  // keep hardware decode.
++  constexpr int kMaliDmaBufImportWidthAlignment = 16;
++  const gfx::Size coded_size = config.coded_size();
++  const gfx::Rect visible_rect = config.visible_rect();
++  if (coded_size.width() % kMaliDmaBufImportWidthAlignment != 0 ||
++      visible_rect.width() % kMaliDmaBufImportWidthAlignment != 0) {
++    MEDIA_LOG(INFO, media_log_)
++        << "Decoded width (coded " << coded_size.width() << ", visible "
++        << visible_rect.width() << ") is not a multiple of "
++        << kMaliDmaBufImportWidthAlignment
++        << " px; the Mali EGL cannot import the VPU dma-buf, so hardware V4L2 "
++           "decode is disabled for this stream (software decode is used).";
++    std::move(init_cb).Run(DecoderStatus::Codes::kUnsupportedConfig);
++    return;
++  }
++
+   // Verify there's still room for more decoders before querying whether
+   // |config| is supported because some drivers (e.g. Qualcomm Venus on SC7180)
+   // would not allow for opening the device fd and we'd think it an error.
+   static const auto decoder_instances_limit =
+       V4L2StatefulVideoDecoder::GetMaxNumDecoderInstances();
+   const bool can_create_decoder =
