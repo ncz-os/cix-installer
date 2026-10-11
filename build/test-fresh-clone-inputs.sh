@@ -39,7 +39,8 @@ done
 
 # --- #1 the screensavers ENGINE deb is pinned for both arches, sha == the ledger ---
 for a in amd64 arm64; do
-    dest="build/ncz-screensavers-out/ncz-screensavers_0.8.10_${a}.deb"
+    ver="$(awk -F'\t' -v a="$a" '$1=="ncz-screensavers" && $3==a {print $2}' "$NCZ" | head -1)"
+    dest="build/ncz-screensavers-out/ncz-screensavers_${ver}_${a}.deb"
     sha="$(pin_sha "$a" "$dest")"; size="$(pin_size "$a" "$dest")"
     led="$(awk -F'\t' -v a="$a" '$1=="ncz-screensavers" && $3==a {print $4}' "$NCZ" | head -1)"
     if is_sha "$sha" && [ "${size:-0}" -gt 1000 ] && [ "$sha" = "$led" ]; then
