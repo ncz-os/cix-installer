@@ -50,9 +50,12 @@ EDGE_ENABLED=0
 # the resolved mainline pin AND the pool's newest build, so repointing mainline
 # or any even-newer build still FAILs closed. Set only with explicit operator
 # direction for this build.
-#   pinned  = r285-7.3.0-rc6-sky1-ncz-20261006 (assets/kernel/mainline)
-#   declined= r286-7.3.0-rc6-sky1-ncz-20261011 = dpfix MS-R1 DP-AUX wedge
-#             recovery (fix/dptx-aux-wedge-recovery-v2-20261011 @ 36758f9382515):
-#             a supervised-test kernel staged as a NON-default .66 boot entry,
-#             NOT shipped by the r203 integration image (mission 2026-10-11).
-MAINLINE_FRESHNESS_ACK=r285-7.3.0-rc6-sky1-ncz-20261006:r286-7.3.0-rc6-sky1-ncz-20261011
+#
+# 2026-10-11 (operator "I'm calling your fix a fix, integrate into the new
+# image"): the DP-AUX kernel r286-7.3.0-rc6-sky1-ncz-20261011 that had been
+# staged as a supervised-test, NON-default .66 boot entry is now the SHIPPING
+# pin (assets/kernel/mainline -> r286). It is the pool's newest unified 7.3
+# build, so no acknowledgement is needed and the former r285:r286 ACK is
+# CLEARED. Re-add a MAINLINE_FRESHNESS_ACK=<pin>:<declined-newer> line only to
+# decline a genuinely newer non-shipping build, with explicit operator
+# direction.
