@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 11 Oct 2026 11:47:51 -0400
+Subject: [PATCH] greeter: answer informational and error auth messages
+
+greetd's PAM conversation blocks on every auth_message, including the
+"info" and "error" kinds, so a greeter that only displayed them without
+replying left the session showing "Authenticating..." forever. Reply to
+those messages with a null response, as the reference client does.
+
+Assisted-by: opencode:deepseek-flash
+AI-Scope: generated the null post_auth_message_response for info and error auth messages in greeter_main.c
+---
+ src/greeter_main.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/greeter_main.c b/src/greeter_main.c
+index b5a8c26..c8c8abc 100644
+--- a/src/greeter_main.c
++++ b/src/greeter_main.c
+@@ -622,6 +622,12 @@ static void greetd_handle(void) {
+                         ? json_object_get_string_member(root, "auth_message") : "";
+                     snprintf(status_text, sizeof status_text, "%s", m);
+                     status_error = (g_strcmp0(amt, "error") == 0);
++                    /* greetd's PAM conversation blocks until every auth_message
++                     * is answered, including informational and error messages
++                     * (its conv.info/conv.error wait for a response). Not
++                     * answering wedges the session with "Authenticating..."
++                     * showing forever. Reply with a null response. */
++                    greetd_post_response(NULL);
+                     render_all();
+                 } else {
+                     const char *m = json_object_has_member(root, "auth_message")
