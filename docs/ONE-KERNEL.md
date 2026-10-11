@@ -2,7 +2,7 @@
 
 Every NCZ-OS image must contain **exactly one kernel**: the NCZ kernel (amd64:
 `linux-image-7.3.0-rc6-4-t2-edge-aer9010`; arm64: `linux-image-cixmini`
-`7.3.0-rc6-sky1-ncz+r285`). There must be no Debian `linux-image-*`,
+`7.3.0-rc6-sky1-ncz+r286`). There must be no Debian `linux-image-*`,
 `linux-headers-*`, `linux-modules-*`, `*-modules-<kver>-*-di` kernel-module d-i
 udeb, or second kernel/initrd anywhere — installed rootfs (squashfs layers),
 `/cdrom` pool + offline mirror, ESP/boot files, d-i boot assets, installer
