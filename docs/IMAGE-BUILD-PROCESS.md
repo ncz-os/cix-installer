@@ -403,3 +403,15 @@ runs them and never copies a failing image to ARGONAS.
 | provenance gate sees two kernel ABIs | substrate d-i udebs from a Debian kernel | one-kernel rule: filter them in the image writer; see [ONE-KERNEL.md](ONE-KERNEL.md) |
 | `--respin` rebuilds everything | a global input (a `.sh`, `release.conf`, a manifest) changed, or no stamps present yet | expected on the first respin after a tooling change; inspect `--dry-run` layer plan |
 | `TMPDIR must point at build-host local-disk scratch` | tmpfs | set `--run-dir` on a real disk (the entrypoint does) |
+| one-kernel gate flags `*-modules-<kver>-*-di` in the initrd | the d-i initrd was built by the netinst with no prune | handled since r203: `patch-initrd-t2-kernel.py` prunes the substrate kernel tree + records (see [ONE-KERNEL.md](ONE-KERNEL.md)); if it still flags, the cache node is stale — bump/clear `build/iso-cache/v1/ncz-initrd-t2kernel/` |
+| `offline-mirror`/`hotfix` says `no ncz-singularity-desktop_*.deb` | a payload-deb staging step `rm`'d the deb it was about to copy | fixed in r203 in `build-image.sh` + `build-squashfs-layers.sh` (prune only superseded); guarded by `test-build-image.sh` §2d |
+| `debootstrap-udeb ... NCZ ledger sha256 mismatch` | the patched udeb was not byte-reproducible | fixed in r203: fixed mtime + `ar -D` in `patch-debootstrap-stub.py`; a stable sha is pinned in `ncz-packages.tsv` |
+
+## 10. `--sources pinned` and the frozen payload
+
+`--sources pinned` reproduces the committed singularity pins and reuses the
+already-built payload deb from `assets/cix-debs/` (never rebuilds it). Both the
+`refresh-sources` stage and `build_singularity_payload()` prune superseded
+`ncz-singularity-desktop_*.deb` versions but keep the chosen deb's own bytes —
+they must never delete the file they are about to copy (that bug left the medium
+with no payload; caught and fixed in r203).

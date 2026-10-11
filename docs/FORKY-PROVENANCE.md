@@ -116,12 +116,17 @@ stage (`make refresh-substrate` calls it):
 5. Class B rows also disappear when the NCZ rebuild lands (an `+ncz` udeb in
    `manifests/ncz-packages.tsv`) or when the build stops merging the sid udeb.
 
-`build/classify-sid-exceptions.py --arch <a> --iso <netinst>` regenerates the
-ledger from a substrate: it extracts the netinst's own d-i identities (xorriso),
-compares them with the pinned snapshot's forky full index and sid d-i index, and
-classifies each A/B/C/K (K = Debian kernel artifact, removed by the one-kernel
-policy and never listed). The ledger is reviewed and committed like any other
-manifest; it may only ever shrink.
+`build/classify-sid-exceptions.py --arch <a> --iso <netinst> [--initrd <d-i initrd>]`
+regenerates the ledger from a substrate: it extracts the netinst's own d-i
+identities (xorriso) **and, with `--initrd`, the identities in the installer
+initrd's `var/lib/dpkg/status`** (the initrd carries udebs the ISO `/dists`
+indexes omit — e.g. `cdrom-detect`, `libssl3-udeb`, `libcrypto3-udeb`,
+`libexpat1-udeb`), compares them with the pinned snapshot's forky full index and
+sid d-i index, and classifies each A/B/C/K (K = Debian kernel artifact, removed
+by the one-kernel policy and never listed). The ledger is reviewed and committed
+like any other manifest; it may only ever shrink. (r203: 55 rows after adding the
+4 initrd-only class-B udebs per arch, 0 rows dropped — the previously "live
+graduated" rows are still required at the pinned snapshot.)
 
 
 
@@ -523,9 +528,12 @@ though `rdump` leaves a directory behind.
 3. **Intel `ubuntu24` / t2linux vendor repos — APPROVED in r203** with
    justification (see the apt allowlist section); a package-level Ubuntu deb is
    still hard-rejected.
-4. **Release-image acceptance remains separate.** The fixture suite exercises
-   `--image` using a real, small GPT/ext4/FAT image and GNU-produced initrds.
-   Neither release image has been rebuilt or accepted by this change. Both
-   require complete reviewed input coverage, a rebuild against the re-pinned
-   snapshot, and the full release gates. The residual substrate-vs-snapshot
-   identities (see "Substrate vs snapshot") remain a genuine, listed failure.
+4. **Release-image acceptance — amd64 CLOSED in r203.** The fixture suite
+   exercises `--image` using a real, small GPT/ext4/FAT image and GNU-produced
+   initrds. The r203 amd64 image `ncz-os-amd64-20261010-b48ba99d.img` was rebuilt
+   against the re-pinned snapshot `20261005T120000Z` with the one-kernel initrd
+   prune, the 55-row sid ledger and the rebuilt rescue/mgmt rootfs, and the full
+   gate set PASSed (provenance `--image`: 8602 packages / 0 failures; KVM
+   install+boot+UI). It is published to ARGONAS images/. The arm64 image remains
+   in progress. There is no remaining residual substrate-vs-snapshot failure at
+   the pin once the one-kernel policy removes the Debian kernel modules.
