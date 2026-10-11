@@ -437,7 +437,19 @@ fi
 
 # Top project. --libdir=lib keeps libs at $PREFIX/lib (not lib/<triplet>) so the
 # session launchers'"'"' fixed LD_LIBRARY_PATH=$PREFIX/lib resolves.
-meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
+#
+# -Dsingularity-shell:lock_framesrc=enabled turns on the out-of-process
+# frame-source hook in the session lock client (ncz-patches
+# singularity-shell/0014). The lock client then imports saver frames from a
+# separate renderer (ncz-screensaver-feed) over a Unix socket instead of a
+# static prompt. It is inert unless SINGULARITY_LOCK_RENDERER is set, which the
+# image hook post-install/64-ncz-lock-saver-plan.sh does only when this patched
+# lock and the feed are both present. The option lives in the singularity-shell
+# subproject (see /ncz-patches/singularity-shell/0014), so it is passed as a
+# subproject option; if the patch did not apply the option would not exist and
+# meson would fail loudly here, which is the intended failure mode.
+meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release \
+    -Dsingularity-shell:lock_framesrc=enabled
 # libmali / SceneFX (O6N black screen, 2026-10-10). The bundled SceneFX in
 # labwc is a meson [wrap-git] subproject, invisible to singularity-pins.sh and
 # /ncz-patches (both key on superproject submodule paths). Resolve the wrap and

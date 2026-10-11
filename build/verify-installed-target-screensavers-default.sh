@@ -2,7 +2,8 @@
 # verify-installed-target-screensavers-default.sh -- continuation of section
 # (vi), sourced from inside the installed-package branch of
 # verify-installed-target-screensavers.sh. Checks (e) schema default,
-# (e2) Cygnus override, (f) idle timer, (g) gtk4-reference ban, (h) plugin.
+# (e2) Cygnus override, (f) idle timer, (f2) idle-lock/saver ordering,
+# (f3) NCZ lock renderer consistency, (g) gtk4-reference ban, (h) plugin.
 # Shares gate_miss, fetch, exists, lsnames, TMP, SS_PLUGIN, WANT_SSP, SSP_PIN_VER.
         # (e) operator rule "default saver = blackhole", part 1: the PACKAGE
         #     schema default. Multiline match: the key header on one line, the
@@ -89,6 +90,30 @@
             fi
         else
             gate_miss screensavers "no idle-lock/saver ordering override found (neither 99-ncz-lock-saver-plan nor 99-ncz-idle-lock-order): the desktop lock can race the screensaver and hide it"
+        fi
+        # (f3) if the NCZ lock renderer is configured (the lock hosts the
+        #      saver), the pieces it depends on must actually be installed: the
+        #      env file must name a command, that command must exist, and the
+        #      installed lock client must carry the out-of-process frame-source
+        #      hook (image built with -Dsingularity-shell:lock_framesrc=enabled).
+        #      Only enforced when the renderer is configured, so an image that
+        #      ships the prompt-only lock is unaffected.
+        if fetch /etc/ncz/lock-renderer.env "$TMP/ss.lockrenderer"; then
+            _rnd="$(sed -n 's/^SINGULARITY_LOCK_RENDERER=//p' "$TMP/ss.lockrenderer" | tail -1)"
+            if [ -z "$_rnd" ]; then
+                gate_miss screensavers "NCZ lock renderer env (/etc/ncz/lock-renderer.env) names no command"
+            else
+                _cmd="${_rnd%% *}"
+                if [ "${_cmd#/}" != "$_cmd" ] && ! exists "$_cmd"; then
+                    gate_miss screensavers "NCZ lock renderer names '$_rnd' but $_cmd is not installed"
+                fi
+                if ! fetch /opt/singularity/bin/singularity-lockscreen "$TMP/ss.lockbin" \
+                   || ! grep -aq 'SINGULARITY_LOCK_RENDERER' "$TMP/ss.lockbin"; then
+                    gate_miss screensavers "NCZ lock renderer is configured but /opt/singularity/bin/singularity-lockscreen has no frame-source hook (image built without -Dlock_framesrc=enabled)"
+                fi
+                rm -f "$TMP/ss.lockbin"
+                echo "[verify-target]     NCZ lock renderer configured: $_rnd"
+            fi
         fi
         # (g) the GTK4 reference app is for OTHER distros
         grep -q '^Package: ncz-screensavers-gtk4-reference$' "$TMP/dpkg-status" 2>/dev/null && gate_miss screensavers "ncz-screensavers-gtk4-reference is installed on NCZ-OS (it must not be)"

@@ -60,6 +60,56 @@ renderer_configured() {
     grep -qE '^[[:space:]]*SINGULARITY_LOCK_RENDERER[[:space:]]*=[[:space:]]*[^[:space:]]' "$CONF"
 }
 
+# --- Configure the lock renderer when the image can actually use it -----------
+# This hook is the single place that decides "the lock hosts the saver". It
+# writes $CONF (and exports it via /etc/environment.d for systemd user services)
+# ONLY when BOTH hold:
+#   (a) the installed lock client was built with the out-of-process frame-source
+#       hook (the build passes -Dsingularity-shell:lock_framesrc=enabled); the
+#       marker string is present in the binary, and
+#   (b) ncz-screensaver-feed is installed.
+# An unpatched image therefore never points the lock at a feed it cannot use,
+# and the hook-63 saver-before-lock fallback stands unchanged. This creation is
+# skipped under the test seams (NCZ_LOCKSAVER_CONF / NCZ_LOCKSAVER_ENABLE), which
+# supply their own configuration.
+LOCK_BIN="${NCZ_LOCKSAVER_LOCK_BIN:-/opt/singularity/bin/singularity-lockscreen}"
+FEED_BIN="${NCZ_LOCKSAVER_FEED:-/usr/libexec/ncz-screensaver-feed}"
+ENVDIR="${NCZ_LOCKSAVER_ENVDIR:-/etc/environment.d}"
+
+lock_has_framesrc() {
+    [ -x "$LOCK_BIN" ] || return 1
+    if command -v strings >/dev/null 2>&1; then
+        strings -a "$LOCK_BIN" 2>/dev/null | grep -qF "SINGULARITY_LOCK_RENDERER"
+    else
+        grep -aqF "SINGULARITY_LOCK_RENDERER" "$LOCK_BIN"
+    fi
+}
+
+# Auto-creation is the DEFAULT install path (runs when NCZ_LOCKSAVER_ENABLE is
+# unset). It is skipped ONLY under the test/gate force (NCZ_LOCKSAVER_ENABLE=1),
+# where the caller supplies its own plan and does not want a real
+# /etc/ncz/lock-renderer.env written to the gate host.
+if [ "${NCZ_LOCKSAVER_ENABLE:-0}" != "1" ]; then
+    if lock_has_framesrc && [ -x "$FEED_BIN" ]; then
+        if ! renderer_configured; then
+            install -d -m0755 "$(dirname "$CONF")" 2>/dev/null || mkdir -p "$(dirname "$CONF")"
+            printf 'SINGULARITY_LOCK_RENDERER=%s\n' "$FEED_BIN" > "$CONF"
+            chmod 0644 "$CONF" 2>/dev/null || true
+            echo "[64]   wrote $CONF (SINGULARITY_LOCK_RENDERER=$FEED_BIN)"
+        fi
+        # systemd user services (the idle daemon) read /etc/environment.d; session
+        # launchers source the env file directly.
+        install -d -m0755 "$ENVDIR" 2>/dev/null || mkdir -p "$ENVDIR"
+        printf 'SINGULARITY_LOCK_RENDERER=%s\n' "$FEED_BIN" \
+            > "$ENVDIR/61-ncz-lock-renderer.conf"
+        chmod 0644 "$ENVDIR/61-ncz-lock-renderer.conf" 2>/dev/null || true
+        echo "[64]   exported the lock renderer via $ENVDIR/61-ncz-lock-renderer.conf"
+    else
+        echo "[64]   patched lock ($LOCK_BIN) or feed ($FEED_BIN) not present;"
+        echo "[64]   not configuring a lock renderer"
+    fi
+fi
+
 if ! renderer_configured; then
     echo "[64]   NCZ lock renderer not configured (no command in $CONF);"
     echo "[64]   leaving the saver-before-lock fallback (hook 63) in place"
