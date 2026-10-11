@@ -61,7 +61,7 @@ assets/npu/	sky1	-	NPU embed server and SSDT source
 assets/nvidia/	amd64	nvidia-cuda	NVIDIA CUDA apt keyring
 assets/perf/	sky1	-	ncz-perf-activity for ncz-performance-mode
 assets/refind/	common	-	rEFInd theme art and icons
-assets/refind/ncz-refind-refresh-amd64.sh	amd64	-	rEFInd refresh for amd64 kernels
+assets/refind/ncz-refind-refresh-amd64.sh	amd64	-	rEFInd refresh for amd64 kernels (T2-gated: rescue accelerator blacklist keeps amdgpu on a T2 Mac; mce=nobootlog on the Default entry only -- docs/T2-BOOT-MCE-NOBOOTLOG.md)
 assets/refind/ncz-refind-refresh.sh	sky1	-	rEFInd refresh for Sky1 kernels (Image-cixmini, MS-R1 gating)
 assets/refind/refind_aa64.efi	sky1	-	rEFInd arm64 binary
 assets/refind/refind_x64.efi	amd64	-	rEFInd x86_64 binary
@@ -185,7 +185,7 @@ build/test-nvidia-dkms-patch-build.sh	amd64	nvidia-cuda	Build-level test (contai
 build/test-amd64-dracut-isolation.sh	amd64	-	amd64 base must not stage the Sky1 dracut config (static checks + the real staging loop)
 build/test-amd64-intel-vaapi.sh	amd64	-	amd64 desktop closure ships intel-media-va-driver (Intel VA-API gap, MEDUSA UHD 630)
 build/test-amd64-kernel-classifier.sh	amd64	-	amd64 unified-7.3 kernel classifier test
-build/test-amd64-t2-detect.sh	amd64	t2	T2 DMI detection test; guards that no amd64 boot path carries pcie_ports=compat (removed 2026-10-06)
+build/test-amd64-t2-detect.sh	amd64	t2	T2 DMI detection test; the shipped detection block sets mce=nobootlog on T2 only; guards that no amd64 boot path carries pcie_ports=compat (removed 2026-10-06)
 build/test-arm64-freshness-gate.sh	sky1	-	arm64 unified-7.3 freshness gate test
 build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test (incl. overlay MODVERSIONS wiring)
 build/test-boot-speed.sh	common	-	regression tests for boot-blocking systemd units (docs/BOOT-SPEED.md)
@@ -449,6 +449,7 @@ build/test-t2-dkms-provenance.sh	amd64	t2	proves every vendored T2 DKMS module h
 build/test-t2smc-range.sh	amd64	t2	userspace unit test of the t2smc range checks (fan min/target, charge limit, RTC offset) and the patch applying cleanly
 build/test-t2-dkms-hook.sh	amd64	t2	proves 56-t2-dkms.sh builds t2smc/t2gmux only (t2smp dropped), blacklists t2smp + apple_gmux on T2 DMI only, leaves t2gmux alone on non-T2 hardware, removes stale DKMS registrations on upgrade, honours NCZ_T2_DKMS_EXTRA=t2thunderbolt opt-in, fails loudly on missing KVER_LIST_AMD64 on T2, builds against -rc KVERs (7.3.0-rc6-1-t2-edge-aerfix), and is idempotent
 build/test-t2-console-noise.sh	amd64	t2	contract test that 55-t2-firmware.sh disables brcmfmac P2P (feature_disable=0x10), blacklists snd_pcsp, blacklists hid_sensor_rotation, and verifies BT chip-class firmware, and that 58-boot-hygiene.sh keeps the console loglevel floor at 3 (never hides KERN_CRIT/MCE)
+build/test-t2-mce-nobootlog.sh	amd64	t2	runs the shipped NCZ-T2-CMDLINE + NCZ-DEFAULT-OPTIONS blocks against fake DMI trees: the Default entry gains mce=nobootlog on every known T2 model and ONLY there -- never on the Console/Rescue/Rescue-Partition entries; empty on non-T2/VM/pre-T2 and when the helper is absent; installer media unchanged (docs/T2-BOOT-MCE-NOBOOTLOG.md)
 build/test-t2-power-cap.sh	amd64	t2	regression test for the T2 package power cap hook + helper: battery 25/35 W + no-turbo + max_perf 50, AC 45/60 W, never writes constraint_N_max_power_uw, restore, performance opt-out, product DMI gate, bounded wait for a late intel-rapl:0, --strict, registration
 assets/display/	common	-	NCZ output-scale policy helper (ncz-display-scale): greeter mode/scale and first-login HiDPI safety net (docs/HIDPI-SCALING.md)
 build/test_display_scale.py	common	-	unit tests for ncz-display-scale: density policy, greeter mode choice, first-login session rules
