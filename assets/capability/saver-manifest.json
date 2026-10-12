@@ -3,6 +3,15 @@
   "generated": "2026-10-12",
   "generator": "tools/generate-saver-manifest.py",
   "source": "seed: litebase/REPORT.md section 4 + tiers.tsv",
+  "notes": [
+    "Per-saver tier metadata. See ncz-screensavers/docs/SAVER-MANIFEST.md.",
+    "classes[<gpu>].scales is measured fps/p95_ms at render scale 1.0/0.5/0.25.",
+    "default_class is pool (native), scaled (use default_scale) or exclude.",
+    "source=measured has scales; source=declared has none and is derived from",
+    "the tiers.tsv cost class (reason says so); source=derived-from-hd4000 is",
+    "the unmeasured HD3000 class, one notch below the measured HD4000 entry.",
+    "min_gles is the GLES version the shaders need; a class below it is exclude."
+  ],
   "classes": [
     {
       "id": "hd3000",
@@ -53,7 +62,8 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {
@@ -105,7 +115,8 @@
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on AMD Radeon Navi14 (no scales)"
         },
         "rtx2060": {
           "scales": {
@@ -131,14 +142,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -201,14 +214,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -252,7 +267,8 @@
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on NVIDIA RTX 2060 (no scales)"
         }
       }
     },
@@ -267,14 +283,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -318,7 +336,8 @@
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on NVIDIA RTX 2060 (no scales)"
         }
       }
     },
@@ -333,14 +352,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -384,7 +405,8 @@
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on NVIDIA RTX 2060 (no scales)"
         }
       }
     },
@@ -399,7 +421,8 @@
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {
@@ -440,21 +463,24 @@
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Mali-G720 (CIX Sky1) (no scales)"
         },
         "navi14": {
           "scales": {},
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on AMD Radeon Navi14 (no scales)"
         },
         "rtx2060": {
           "scales": {},
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on NVIDIA RTX 2060 (no scales)"
         }
       }
     },
@@ -469,14 +495,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -520,7 +548,8 @@
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on NVIDIA RTX 2060 (no scales)"
         }
       }
     },
@@ -535,14 +564,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -605,7 +636,8 @@
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {
@@ -657,7 +689,8 @@
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on AMD Radeon Navi14 (no scales)"
         },
         "rtx2060": {
           "scales": {
@@ -2018,12 +2051,7 @@
           "source": "derived-from-hd4000"
         },
         "hd4000": {
-          "scales": {
-            "1.0": {
-              "fps": 0.0,
-              "p95_ms": null
-            }
-          },
+          "scales": {},
           "min_scale_for_30fps": null,
           "default_class": "exclude",
           "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
@@ -2789,14 +2817,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -2943,14 +2973,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -3013,14 +3045,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -3083,14 +3117,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -3153,14 +3189,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -3204,7 +3242,8 @@
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on NVIDIA RTX 2060 (no scales)"
         }
       }
     },
@@ -3219,14 +3258,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -3289,14 +3330,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -3631,14 +3674,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -3701,14 +3746,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -3840,14 +3887,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -3979,14 +4028,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -4049,14 +4100,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -4119,7 +4172,8 @@
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {
@@ -4201,14 +4255,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -4271,42 +4327,48 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel UHD Graphics 630 (no scales)"
         },
         "mali_g720": {
           "scales": {},
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Mali-G720 (CIX Sky1) (no scales)"
         },
         "navi14": {
           "scales": {},
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on AMD Radeon Navi14 (no scales)"
         },
         "rtx2060": {
           "scales": {},
           "min_scale_for_30fps": 1.0,
           "default_scale": 1.0,
           "default_class": "pool",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on NVIDIA RTX 2060 (no scales)"
         }
       }
     },
@@ -4321,14 +4383,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -4391,14 +4455,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -4599,14 +4665,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -4669,14 +4737,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -4877,14 +4947,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -4947,14 +5019,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -5017,14 +5091,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -5087,14 +5163,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
@@ -5157,14 +5235,16 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "source": "derived-from-hd4000"
+          "source": "derived-from-hd4000",
+          "reason": "declared weak class, not measured on Intel HD Graphics 3000 (no scales)"
         },
         "hd4000": {
           "scales": {},
           "min_scale_for_30fps": 0.5,
           "default_scale": 0.5,
           "default_class": "scaled",
-          "source": "declared"
+          "source": "declared",
+          "reason": "declared weak class, not measured on Intel HD Graphics 4000 (no scales)"
         },
         "uhd630": {
           "scales": {
