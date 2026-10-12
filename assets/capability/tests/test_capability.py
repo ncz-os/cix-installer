@@ -196,13 +196,176 @@ def test_signature_changes_with_hardware():
     check("GPU change changes signature", CAP.compute_signature(a) != CAP.compute_signature(b))
 
 
+# ---------------------------------------------------------------------------
+# First-boot measured saver pool (step 2)
+# ---------------------------------------------------------------------------
+
+def _saver_facts(renderer="Mesa Intel(R) HD Graphics 4000 (IVB GT2)", gl_version="OpenGL ES 3.0 Mesa 26.1.6",
+                 software=False, outputs=1, width=1366, height=768):
+    gpu = {"card": "card0", "vendor": "0x8086", "device": "0x0166", "driver": "i915",
+           "boot_vga": True, "renderer": renderer, "gl_version": gl_version,
+           "software": software, "class": "weak"}
+    return {
+        "gpus": [gpu], "display": {"outputs": outputs, "max_width": width, "max_height": height},
+        "calibration": {"gpu_renderer": renderer, "gpu_version": gl_version},
+        "platform": {"hostname": "test"}, "cpu": {}, "mem": {}, "storage": {}, "thermal": {},
+    }
+
+
+def test_saver_manifest_and_classes():
+    doc = CAP.load_saver_manifest()
+    check("saver manifest loads", bool(doc.get("savers")), "path=%s" % doc.get("_path"))
+    if not doc.get("savers"):
+        return
+    check("renderer maps to hd4000",
+          CAP.saver_reference_class("Mesa Intel(R) HD Graphics 4000 (IVB GT2)") == "hd4000")
+    check("unknown renderer uses coarse class",
+          CAP.saver_reference_class("Mystery GPU", "mid") == "mali_g720")
+    check("gles parse", CAP.gpu_gles_version(_saver_facts()) ==
+          (3, 0, "OpenGL ES 3.0 Mesa 26.1.6"))
+    check("gles compare 3.0 >= 3.0", CAP._gles_at_least((3, 0), "3.0"))
+    check("gles compare 3.0 < 3.2", not CAP._gles_at_least((3, 0), "3.2"))
+    pool, excluded = CAP.manifest_fallback_pool(doc, "hd4000")
+    pool_by = {p["id"]: p["scale"] for p in pool}
+    check("manifest fallback pools fractasia native", pool_by.get("fractasia_gles3") == 1.0)
+    check("manifest fallback scales blackhole 0.25", pool_by.get("blackhole_gles3") == 0.25)
+    check("manifest fallback excludes hyprsaver on hd4000",
+          any(e["id"] == "hyprsaver_aurora_gles3" for e in excluded))
+    # candidates honour min_gles
+    cands = CAP.saver_candidates(doc, (3, 0))
+    check("hyprsaver not a GLES3.0 candidate", "hyprsaver_aurora_gles3" not in cands)
+    check("fractasia is a GLES3.0 candidate", "fractasia_gles3" in cands)
+    cands32 = CAP.saver_candidates(doc, (3, 2))
+    check("hyprsaver is a GLES3.2 candidate", "hyprsaver_aurora_gles3" in cands32)
+
+
+def test_saver_pool_fallbacks():
+    doc = CAP.load_saver_manifest()
+    if not doc.get("savers"):
+        check("saver manifest present for fallback test", False)
+        return
+    # T3 (arm64 Mali): benchmark is skipped, manifest fallback is used
+    r = CAP.saver_bench(_saver_facts(), {"tier": "T3"}, manifest=doc)
+    check("T3 uses manifest fallback", r["saver_pool_source"] == "manifest-fallback", str(r)[:200])
+    # software GPU
+    r = CAP.saver_bench(_saver_facts(software=True), {"tier": "T2"}, manifest=doc)
+    check("software GPU skipped", r["saver_pool_source"] == "manifest-fallback")
+    # headless
+    r = CAP.saver_bench(_saver_facts(outputs=0), {"tier": "T2"}, manifest=doc)
+    check("headless skipped", r["saver_pool_source"] == "manifest-fallback")
+    # no manifest at all
+    r = CAP.saver_bench(_saver_facts(), {"tier": "T2"}, manifest={})
+    check("no manifest -> unavailable", r["saver_pool_source"] == "unavailable")
+
+
+def test_saver_pool_measured():
+    doc = CAP.load_saver_manifest()
+    if not doc.get("savers"):
+        return
+    facts = _saver_facts()
+    # synthetic measurement: every saver is 60 fps at native
+    orig_find, orig_bench = CAP.find_saver_binary, CAP.bench_saver_once
+    CAP.find_saver_binary = lambda hid, root="": "/tmp/%s" % hid
+    CAP.bench_saver_once = lambda hid, scale, display, binary, **kw: {
+        "hack": hid, "scale": scale, "fps": 60.0, "p95_ms": 16.6,
+        "frames": 120, "error": None, "renderer": "fake"}
+    try:
+        r = CAP.saver_bench(facts, {"tier": "T2"}, manifest=doc, budget=30.0)
+    finally:
+        CAP.find_saver_binary, CAP.bench_saver_once = orig_find, orig_bench
+    check("benchmark ran", r["saver_pool_source"] == "measured", str(r)[:200])
+    check("benchmark pooled something", len(r["saver_pool"]) >= 1)
+    check("benchmark scaled within budget", r["saver_pool_elapsed_s"] <= 30.0 + 1.0)
+    check("benchmark recorded reference class", r["saver_pool_reference_class"] == "hd4000")
+    check("every measured entry has a scale in {1.0,0.5,0.25}",
+          all(p["scale"] in (1.0, 0.5, 0.25) for p in r["saver_pool"]))
+
+
+def test_saver_bench_scale_fall():
+    doc = CAP.load_saver_manifest()
+    if not doc.get("savers"):
+        return
+    facts = _saver_facts()
+    orig_find, orig_bench = CAP.find_saver_binary, CAP.bench_saver_once
+    CAP.find_saver_binary = lambda hid, root="": "/tmp/%s" % hid
+    calls = []
+
+    def fake(hid, scale, display, binary, **kw):
+        calls.append(scale)
+        # native fails, 0.5 reaches 45 fps
+        fps = 12.0 if scale == 1.0 else 45.0
+        return {"hack": hid, "scale": scale, "fps": fps, "p95_ms": 20.0,
+                "frames": 100, "error": None}
+    CAP.bench_saver_once = fake
+    try:
+        r = CAP.saver_bench(facts, {"tier": "T2"}, manifest=doc, budget=30.0)
+    finally:
+        CAP.find_saver_binary, CAP.bench_saver_once = orig_find, orig_bench
+    check("fall to 0.5 when native is slow", 0.5 in calls, str(calls[:6]))
+    check("some entries use scale 0.5", any(p["scale"] == 0.5 for p in r["saver_pool"]))
+
+
+def test_bench_saver_protocol():
+    """Drive bench_saver_once with a fake off-screen child that speaks the
+    lock_framesrc protocol (skipped where AF_UNIX SOCK_SEQPACKET is absent)."""
+    import socket as _socket
+    try:
+        _socket.socket(_socket.AF_UNIX, _socket.SOCK_SEQPACKET).close()
+    except OSError:
+        check("saver bench protocol (skipped: no SOCK_SEQPACKET)", True)
+        return
+    import stat
+    import tempfile
+    import textwrap
+    child = tempfile.NamedTemporaryFile("w", suffix=".py", delete=False)
+    child.write(textwrap.dedent("""
+        #!/usr/bin/env python3
+        import os, socket, struct, sys, time
+        spath = os.environ["NCZ_FEED_SOCKET"]
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        s.connect(spath)
+        MAGIC = 0x4C465331
+        def send(mtype, payload=b"", fd=None):
+            data = struct.pack("<IHHI", MAGIC, mtype, 0, len(payload)) + payload
+            if fd is None:
+                s.sendall(data)
+            else:
+                s.sendmsg([data], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, struct.pack("i", fd))])
+        send(1, struct.pack("<III", 1, 1, 0))       # HELLO
+        s.recv(65535)                                # WELCOME
+        fd = os.open(sys.argv[1], os.O_RDONLY)
+        for i in range(420):
+            send(2, struct.pack("<IIIIIIIII", i, 0x5A5E5A5E, 2, 2, 8, 0, 1), fd=fd)
+            time.sleep(1.0 / 60.0)
+        send(3, b"")                                 # BYE
+    """).lstrip())
+    child.close()
+    os.chmod(child.name, os.stat(child.name).st_mode | stat.S_IEXEC)
+    framefile = tempfile.NamedTemporaryFile(delete=False)
+    framefile.write(b"\0" * 64)
+    framefile.close()
+    try:
+        r = CAP.bench_saver_once("fake_gles3", 1.0, (640, 480), child.name,
+                                 seconds=1.0, warmup=0.2)
+    finally:
+        os.unlink(child.name)
+        os.unlink(framefile.name)
+    check("bench protocol produced fps", r.get("fps") is not None, str(r)[:200])
+    check("bench protocol fps near 60", r.get("fps") and 40 <= r["fps"] <= 90,
+          "fps=%s" % r.get("fps"))
+    check("bench protocol recorded p95", r.get("p95_ms") is not None)
+
+
 def main():
     for fn in (test_rung_boundaries, test_tier_thresholds, test_fleet_regression,
                test_min_of_subsystem_caps, test_cap_cannot_exceed_score_tier,
                test_deterministic, test_empty_facts_do_not_crash,
                test_weights_are_documented_and_sum_sane,
                test_features_and_override, test_gsettings_override_format,
-               test_signature_changes_with_hardware):
+               test_signature_changes_with_hardware,
+               test_saver_manifest_and_classes, test_saver_pool_fallbacks,
+               test_saver_pool_measured, test_saver_bench_scale_fall,
+               test_bench_saver_protocol):
         fn()
     print("\n%d checks, %d failed" % (_run, _fail))
     return 1 if _fail else 0

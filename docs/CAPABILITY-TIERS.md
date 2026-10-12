@@ -205,3 +205,38 @@ Measured with `ncz-capability probe` on the test fleet (see
 Tiers are filled from the hardware run; the fixtures under
 `assets/capability/fixtures/` pin CYCLOPS and `.70` at T2 in the regression
 test so the "measured, not guessed" rule cannot silently regress.
+
+## 9. First-boot measured saver pool (operator 2026-10-12, step 2)
+
+Alongside the tier defaults, `probe` runs a short **saver pool** step and records
+it in `/etc/ncz/capability.json`:
+
+```json
+"saver_pool":        [{"id": "fractasia_gles3", "scale": 1.0}, ...],
+"excluded":          [{"id": "hyprsaver_aurora_gles3", "reason": "GLES 3.2 required"}, ...],
+"saver_pool_source": "measured" | "manifest-fallback" | "unavailable",
+"saver_pool_reference_class": "hd4000"
+```
+
+* The candidate list comes from the per-saver tier manifest
+  (`ncz-screensavers`' `/usr/share/ncz-screensavers/saver-manifest.json`,
+  searched after `/usr/share/ncz/capability/saver-manifest.json`), filtered by
+  `min_gles` against the GPU's reported GL/ES version.
+* Each candidate is measured **off-screen** through the same feed path the
+  lock-hosted saver uses (the hack renders into an FBO and streams frames over
+  a `SOCK_SEQPACKET` socket; `ncz-capability` plays the feed side). ~2 s at
+  native, then scale 0.5 then 0.25 if it is under 30 fps; keep `>=30 fps` with
+  `p95 <= 40 ms`.
+* The whole step is capped at **30 s** (`--budget`), runs **only on T0–T2**, and
+  is **skipped** when the GPU is software or the host is headless. Anything the
+  budget or a failure does not cover falls back to the manifest's
+  `default_class` for the detected class (`saver_pool_source: manifest-fallback`).
+* The launcher treats `saver_pool` as the **default** pool and per-saver Auto
+  render scale; `random-hacks`, an explicit `render-scale`, a per-saver option
+  and `/etc/ncz/capability.override` all still win. With no profile the launcher
+  behaves exactly as before.
+
+Run `ncz-capability saver-pool` to print the recorded pool, or
+`ncz-capability saver-pool --measure` to run the benchmark now (without
+recording it). See `ncz-screensavers`' `docs/SAVER-MANIFEST.md` for the manifest
+format.

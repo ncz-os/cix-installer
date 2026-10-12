@@ -53,6 +53,12 @@ inst -d -m0755 "$ROOT/usr/bin" "$ROOT/usr/share/ncz/capability" "$ROOT/usr/share
 inst -m0755 "$SRC/ncz-capability" "$ROOT/usr/bin/ncz-capability"
 [ -f "$SRC/capability-features.tsv" ] && \
     inst -m0644 "$SRC/capability-features.tsv" "$ROOT/usr/share/ncz/capability/capability-features.tsv"
+# The per-saver tier manifest normally ships with ncz-screensavers; install the
+# bundled copy here too so the first-boot saver benchmark works even when the
+# screensavers package is not on the medium. The package copy (if present) wins
+# at runtime (see assets/capability/ncz-capability: saver_manifest_paths).
+[ -f "$SRC/saver-manifest.json" ] && \
+    inst -m0644 "$SRC/saver-manifest.json" "$ROOT/usr/share/ncz/capability/saver-manifest.json"
 for d in "$SRC/../.." "$ROOT/usr/local/lib/cix-installer"; do
     if [ -f "$d/docs/CAPABILITY-TIERS.md" ]; then
         inst -m0644 "$d/docs/CAPABILITY-TIERS.md" "$ROOT/usr/share/doc/ncz-capability/CAPABILITY-TIERS.md"

@@ -1,0 +1,5216 @@
+{
+  "manifest_version": 1,
+  "generated": "2026-10-12",
+  "generator": "tools/generate-saver-manifest.py",
+  "source": "seed: litebase/REPORT.md section 4 + tiers.tsv",
+  "classes": [
+    {
+      "id": "hd3000",
+      "label": "Intel HD Graphics 3000",
+      "gles": "3.0",
+      "note": "Sandy Bridge (2011); CYCLOPS (Macmini5,1)"
+    },
+    {
+      "id": "hd4000",
+      "label": "Intel HD Graphics 4000",
+      "gles": "3.0",
+      "note": "Ivy Bridge (2013); Dell Inspiron 5521 (.70)"
+    },
+    {
+      "id": "uhd630",
+      "label": "Intel UHD Graphics 630",
+      "gles": "3.2",
+      "note": "Coffee Lake; the weak-class reference GPU"
+    },
+    {
+      "id": "mali_g720",
+      "label": "Mali-G720 (CIX Sky1)",
+      "gles": "3.2",
+      "note": "O6N / Sky1 arm64"
+    },
+    {
+      "id": "navi14",
+      "label": "AMD Radeon Navi14",
+      "gles": "3.2",
+      "note": "MacBook Pro dGPU"
+    },
+    {
+      "id": "rtx2060",
+      "label": "NVIDIA RTX 2060",
+      "gles": "3.2",
+      "note": "PEGASUS dGPU (PRIME offload)"
+    }
+  ],
+  "savers": {
+    "blackhole_gles3": {
+      "family": "blackhole",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {
+            "1.0": {
+              "fps": 3.5,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 46.8,
+              "p95_ms": 21.6
+            },
+            "0.25": {
+              "fps": 60.2,
+              "p95_ms": 16.6
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.25,
+          "default_class": "scaled"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 12.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 47.1,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "cityflow_gles3": {
+      "family": "classics",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "crackberg_gles3": {
+      "family": "classics",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        }
+      }
+    },
+    "cubestorm_gles3": {
+      "family": "classics",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        }
+      }
+    },
+    "datatowers_gles3": {
+      "family": "classics",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        }
+      }
+    },
+    "fractasia_gles3": {
+      "family": "fractasia",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {
+            "1.0": {
+              "fps": 60.2,
+              "p95_ms": 16.6
+            },
+            "0.5": {
+              "fps": 60.2,
+              "p95_ms": 16.6
+            },
+            "0.25": {
+              "fps": 60.2,
+              "p95_ms": 16.6
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        },
+        "navi14": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        },
+        "rtx2060": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        }
+      }
+    },
+    "geodesic_gles3": {
+      "family": "classics",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        }
+      }
+    },
+    "hexstrut_gles3": {
+      "family": "classics",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hypertorus_gles3": {
+      "family": "classics",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {
+            "1.0": {
+              "fps": 60.2,
+              "p95_ms": 16.6
+            },
+            "0.5": {
+              "fps": 60.2,
+              "p95_ms": 16.6
+            },
+            "0.25": {
+              "fps": 60.2,
+              "p95_ms": 16.6
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_arccoil_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_attitude_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_aurora_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 47.7,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_bezier_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 39.4,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_blob_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_caustics_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_circuit_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 35.1,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_clouds_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_digitalrain_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_donut_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_fireflies_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_flames_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_geometry_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 48.5,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 19.5,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "reason": "measured below 30 fps at scale 0.25"
+        }
+      }
+    },
+    "hyprsaver_hypercube_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_kaleidoscope_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_lissajous_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 10.4,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 41.1,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_marble_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 46.8,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_oscilloscope_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_planet_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_plasma_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {
+            "1.0": {
+              "fps": 0.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_snowfall_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_sonar_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_starfield_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 39.5,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_temple_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_terminal_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_ticker_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_tunnel_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_voronoi_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 47.8,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_waterfall_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 59.9,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "hyprsaver_wormhole_gles3": {
+      "family": "hyprsaver",
+      "min_gles": "3.2",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "derived (one notch below the measured HD4000)",
+          "default_scale": null,
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_class": "exclude",
+          "reason": "requires GLES 3.2; Intel HD Graphics 4000 caps 3.0"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "klein_gles3": {
+      "family": "classics",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "magmasimplex_gles3": {
+      "family": "magmasimplex",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000",
+          "reason": "declared mid class; Intel HD Graphics 3000 is below it"
+        },
+        "hd4000": {
+          "scales": {
+            "1.0": {
+              "fps": 0.5,
+              "p95_ms": 5863.0
+            },
+            "0.5": {
+              "fps": 104.3,
+              "p95_ms": 10.7
+            },
+            "0.25": {
+              "fps": 86.1,
+              "p95_ms": 15.5
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 24.5,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 28.4,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "reason": "measured below 30 fps at scale 0.25"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 58.8,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "noof_gles3": {
+      "family": "classics",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "projectiveplane_gles3": {
+      "family": "classics",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "voronoi_gles3": {
+      "family": "classics",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 35.4,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_alienbeacon_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 9.7,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 39.3,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 39.3,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        }
+      }
+    },
+    "xshadertoy_batteredplanet_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 13.5,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 52.1,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_bestill0-0_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "0.5": {
+              "fps": 31.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_bestill1-0_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000",
+          "reason": "derived (one notch below the measured HD4000)"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "declared",
+          "reason": "declared mid class; Intel HD Graphics 4000 is below it"
+        },
+        "uhd630": {
+          "scales": {
+            "0.5": {
+              "fps": 24.8,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "reason": "measured below 30 fps at scale 0.25"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 53.7,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 52.1,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_bestill2-0_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000",
+          "reason": "derived (one notch below the measured HD4000)"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "declared",
+          "reason": "declared mid class; Intel HD Graphics 4000 is below it"
+        },
+        "uhd630": {
+          "scales": {
+            "0.5": {
+              "fps": 18.9,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "reason": "measured below 30 fps at scale 0.25"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 45.3,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 42.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_bestill3-0_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000",
+          "reason": "derived (one notch below the measured HD4000)"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "declared",
+          "reason": "declared mid class; Intel HD Graphics 4000 is below it"
+        },
+        "uhd630": {
+          "scales": {
+            "0.5": {
+              "fps": 29.7,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "reason": "measured below 30 fps at scale 0.25"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_bestill4-0_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000",
+          "reason": "derived (one notch below the measured HD4000)"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "declared",
+          "reason": "declared mid class; Intel HD Graphics 4000 is below it"
+        },
+        "uhd630": {
+          "scales": {
+            "0.5": {
+              "fps": 18.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "reason": "measured below 30 fps at scale 0.25"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 45.1,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 41.7,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_bestill5-0_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 32.6,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_darktransit_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 51.6,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_downfall_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000",
+          "reason": "derived (one notch below the measured HD4000)"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "declared",
+          "reason": "declared mid class; Intel HD Graphics 4000 is below it"
+        },
+        "uhd630": {
+          "scales": {
+            "0.5": {
+              "fps": 19.1,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "reason": "measured below 30 fps at scale 0.25"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 52.1,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 49.4,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_elementalring_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 59.3,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_fluxcore_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000",
+          "reason": "derived (one notch below the measured HD4000)"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "declared",
+          "reason": "declared mid class; Intel HD Graphics 4000 is below it"
+        },
+        "uhd630": {
+          "scales": {
+            "0.5": {
+              "fps": 21.6,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "reason": "measured below 30 fps at scale 0.25"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 58.3,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 53.3,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_gimbalharmonics_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 15.1,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 57.2,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_goldenapollian_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 50.2,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_hexplasma_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {
+            "1.0": {
+              "fps": 60.2,
+              "p95_ms": 16.6
+            },
+            "0.5": {
+              "fps": 60.2,
+              "p95_ms": 16.6
+            },
+            "0.25": {
+              "fps": 60.2,
+              "p95_ms": 16.6
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_logarithmiccircles_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_neongravity_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "declared",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "mali_g720": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        },
+        "navi14": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        },
+        "rtx2060": {
+          "scales": {},
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool",
+          "source": "declared"
+        }
+      }
+    },
+    "xshadertoy_neonhorizon_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 43.4,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_neontriangulator_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 43.7,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_noxfire_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000",
+          "reason": "derived (one notch below the measured HD4000)"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "declared",
+          "reason": "declared mid class; Intel HD Graphics 4000 is below it"
+        },
+        "uhd630": {
+          "scales": {
+            "0.5": {
+              "fps": 28.5,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "reason": "measured below 30 fps at scale 0.25"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_polarnight_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000",
+          "reason": "derived (one notch below the measured HD4000)"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "declared",
+          "reason": "declared mid class; Intel HD Graphics 4000 is below it"
+        },
+        "uhd630": {
+          "scales": {
+            "0.5": {
+              "fps": 13.8,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "reason": "measured below 30 fps at scale 0.25"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 47.8,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 35.6,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 43.9,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_prococean_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 19.2,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_protophore_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 25.4,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_rigrekt_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000",
+          "reason": "derived (one notch below the measured HD4000)"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "declared",
+          "reason": "declared mid class; Intel HD Graphics 4000 is below it"
+        },
+        "uhd630": {
+          "scales": {
+            "0.5": {
+              "fps": 27.7,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "reason": "measured below 30 fps at scale 0.25"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_skyline_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000",
+          "reason": "derived (one notch below the measured HD4000)"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "declared",
+          "reason": "declared mid class; Intel HD Graphics 4000 is below it"
+        },
+        "uhd630": {
+          "scales": {
+            "0.5": {
+              "fps": 17.9,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "reason": "measured below 30 fps at scale 0.25"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 54.5,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 52.6,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 58.1,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_starnest_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 18.9,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_topologica_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 14.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 55.1,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_trainmandala_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_trizm_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "1.0": {
+              "fps": 27.5,
+              "p95_ms": null
+            },
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    },
+    "xshadertoy_truchetzoom_gles3": {
+      "family": "xshadertoy",
+      "min_gles": "3.0",
+      "needs_features": [],
+      "source": "measured",
+      "classes": {
+        "hd3000": {
+          "scales": {},
+          "min_scale_for_30fps": null,
+          "default_scale": null,
+          "default_class": "exclude",
+          "source": "derived-from-hd4000"
+        },
+        "hd4000": {
+          "scales": {},
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled",
+          "source": "declared"
+        },
+        "uhd630": {
+          "scales": {
+            "0.5": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 0.5,
+          "default_scale": 0.5,
+          "default_class": "scaled"
+        },
+        "mali_g720": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "navi14": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        },
+        "rtx2060": {
+          "scales": {
+            "1.0": {
+              "fps": 60.0,
+              "p95_ms": null
+            }
+          },
+          "min_scale_for_30fps": 1.0,
+          "default_scale": 1.0,
+          "default_class": "pool"
+        }
+      }
+    }
+  }
+}

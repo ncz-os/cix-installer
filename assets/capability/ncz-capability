@@ -41,6 +41,7 @@ defaults).  Standard library only.
 from __future__ import annotations
 
 import argparse
+import array
 import ctypes
 import ctypes.util
 import errno
@@ -50,6 +51,10 @@ import json
 import os
 import platform as _platform
 import re
+import select
+import signal
+import socket
+import struct
 import stat
 import subprocess
 import sys
@@ -1531,6 +1536,490 @@ def apply_defaults(facts, scored, cli_tier=None, override_path=GLOBAL_OVERRIDE,
 
 
 # ---------------------------------------------------------------------------
+# First-boot measured saver pool (operator design 2026-10-12, step 2)
+# ---------------------------------------------------------------------------
+# The per-saver tier manifest ships in the ncz-screensavers package
+# (/usr/share/ncz-screensavers/saver-manifest.json). This step benchmarks the
+# manifest's candidates OFF-SCREEN, through the same feed path the lock-hosted
+# saver uses (the hack renders into an FBO and streams frames over a
+# SOCK_SEQPACKET socket; here ncz-capability plays the feed/lock side), and
+# records a per-machine pool in /etc/ncz/capability.json:
+#
+#     "saver_pool": [{"id": "fractasia_gles3", "scale": 1.0}, ...]
+#     "excluded":   [{"id": "hyprsaver_aurora_gles3", "reason": "GLES 3.2 required"}, ...]
+#
+# The launcher reads that pool as its DEFAULT random/playlist set and per-saver
+# Auto render scale; a user setting and /etc/ncz/capability.override still win.
+#
+# Rules (operator): <=30 s total; only on the measured tiers T0-T2; skipped when
+# the GPU is software or the host is headless; for each candidate measure ~2 s
+# at native, fall to 0.5 then 0.25 if under 30 fps; keep >=30 fps with p95
+# <=40 ms. Any candidate the budget or a failure does not cover falls back to
+# the manifest's default_class for the detected GPU class (the safe fallback).
+SAVER_BENCH_BUDGET_S = 30.0     # hard cap for the whole step
+SAVER_BENCH_WINDOW_S = 2.0      # per-attempt measurement window
+SAVER_BENCH_WARMUP_S = 0.5      # frames ignored before timing starts
+SAVER_BENCH_MIN_S = 3.5         # budget a candidate needs (startup + window)
+SAVER_BENCH_FEED_FPS = 240      # the off-screen child's frame cap
+SAVER_MIN_FPS = 30.0
+SAVER_MAX_P95_MS = 40.0
+SAVER_SCALES = ((1.0, "native"), (0.5, "0.5"), (0.25, "0.25"))
+SAVER_DEFAULT_DISPLAY = (1920, 1080)
+
+# lock_framesrc_proto.h constants (base version; the saver side).
+_LFS_MAGIC = 0x4C465331
+_LFS_VERSION = 1
+_LFS_TRANSPORT_SHM = 0x1
+_LFS_HELLO, _LFS_FRAME, _LFS_BYE = 1, 2, 3
+_LFS_WELCOME, _LFS_STOP = 0x80, 0x82
+_LFS_MSG = struct.Struct("<IHHI")
+_LFS_HELLO_S = struct.Struct("<III")
+_LFS_WELCOME_S = struct.Struct("<III")
+_LFS_OUTPUT = struct.Struct("<IIII")
+_LFS_MAX_MSG = 4096
+
+# renderer string -> manifest reference class (mirrors the launcher).
+SAVER_CLASS_PATTERNS = (
+    (r"hd graphics 3000|\bhd 3000\b", "hd3000"),
+    (r"hd graphics 4000|\bhd 4000\b", "hd4000"),
+    (r"uhd graphics 630|\buhd 630\b", "uhd630"),
+    (r"mali-g720|mali g720|immortalis", "mali_g720"),
+    (r"navi ?14|5500 ?m|radeon pro 5500", "navi14"),
+    (r"rtx ?2060|geforce rtx 2060", "rtx2060"),
+)
+SAVER_CLASS_FOR_COARSE = {"weak": "uhd630", "mid": "mali_g720", "strong": "rtx2060"}
+
+
+def saver_manifest_paths(root=""):
+    here = os.path.dirname(os.path.realpath(__file__))
+    env = os.environ.get("NCZ_SAVER_MANIFEST")
+    return [p for p in [
+        env,
+        P(root, "usr/share/ncz-screensavers/saver-manifest.json") if root
+        else "/usr/share/ncz-screensavers/saver-manifest.json",
+        P(root, "usr/share/ncz-screensaver-chooser/saver-manifest.json") if root
+        else "/usr/share/ncz-screensaver-chooser/saver-manifest.json",
+        P(root, "usr/share/ncz/capability/saver-manifest.json") if root
+        else "/usr/share/ncz/capability/saver-manifest.json",
+        os.path.join(here, "saver-manifest.json"),
+    ] if p]
+
+
+def load_saver_manifest(root=""):
+    for path in saver_manifest_paths(root):
+        try:
+            with open(path) as fh:
+                doc = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if isinstance(doc, dict) and isinstance(doc.get("savers"), dict):
+            doc["_path"] = path
+            return doc
+    return {}
+
+
+def saver_reference_class(renderer, coarse=None):
+    text = (renderer or "").lower()
+    for pat, cls in SAVER_CLASS_PATTERNS:
+        if re.search(pat, text):
+            return cls
+    return SAVER_CLASS_FOR_COARSE.get(coarse or "", None)
+
+
+def gpu_gles_version(facts, gpu=None):
+    """(major, minor, raw) for the primary GPU's reported GL/ES version."""
+    gpus = facts.get("gpus") or []
+    gpu = gpu or next((g for g in gpus if g.get("boot_vga") or g.get("_primary")),
+                      gpus[0] if gpus else None)
+    raw = (gpu or {}).get("gl_version") or (facts.get("calibration") or {}).get("gpu_version")
+    if not raw:
+        return (0, 0, None)
+    m = re.search(r"(\d+)\s*\.\s*(\d+)", str(raw))
+    if not m:
+        return (0, 0, raw)
+    return (int(m.group(1)), int(m.group(2)), raw)
+
+
+def _gles_at_least(have, need):
+    def parse(v):
+        try:
+            parts = str(v).split(".")
+            return (int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+        except (ValueError, IndexError):
+            return (0, 0)
+    return have >= parse(need)
+
+
+def manifest_fallback_pool(doc, cls):
+    """([{id,scale}], [{id,reason}]) from the manifest default_class for `cls`."""
+    pool, excluded = [], []
+    for hid, saver in sorted((doc.get("savers") or {}).items()):
+        entry = ((saver.get("classes") or {}).get(cls)) if cls else None
+        if not isinstance(entry, dict):
+            excluded.append({"id": hid, "reason": "no reference class %s" % (cls or "?")})
+            continue
+        kind = entry.get("default_class")
+        if kind == "pool":
+            pool.append({"id": hid, "scale": 1.0})
+        elif kind == "scaled":
+            scale = entry.get("default_scale") or entry.get("min_scale_for_30fps") or 0.5
+            try:
+                pool.append({"id": hid, "scale": float(scale)})
+            except (TypeError, ValueError):
+                excluded.append({"id": hid, "reason": "no usable scale"})
+        else:
+            excluded.append({"id": hid,
+                             "reason": entry.get("reason") or
+                             ("requires GLES %s" % saver.get("min_gles", "3.0"))})
+    return pool, excluded
+
+
+def saver_candidates(doc, gles):
+    """Candidate ids whose min_gles the GPU meets, riskiest (scaled/unknown) first."""
+    out = []
+    for hid, saver in (doc.get("savers") or {}).items():
+        if not _gles_at_least(gles, saver.get("min_gles", "3.0")):
+            continue
+        out.append((hid, saver))
+    # scaled or unmeasured first: confirming those changes the outcome most.
+    def rank(item):
+        hid, saver = item
+        classes = saver.get("classes") or {}
+        kinds = {c.get("default_class") for c in classes.values() if isinstance(c, dict)}
+        return (0 if "scaled" in kinds else 1, hid)
+    return [hid for hid, _ in sorted(out, key=rank)]
+
+
+def _saver_binary_dirs(root=""):
+    env = os.environ.get("NCZ_SCREENSAVER_DIRS")
+    if env:
+        return [d for d in env.split(":") if d]
+    return [P(root, d) if root else d for d in (
+        "/usr/lib/ncz-screensavers", "/usr/libexec/ncz-screensavers",
+        "/opt/ncz-screensavers/bin")]
+
+
+def find_saver_binary(hid, root=""):
+    if not re.match(r"^[A-Za-z0-9_-]+$", hid or ""):
+        return None
+    for d in _saver_binary_dirs(root):
+        cand = os.path.join(d, hid)
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
+
+
+def _recv_packet(sock, maxlen=_LFS_MAX_MSG):
+    """Return (data, [fds]) or None when nothing is pending; raises EOFError."""
+    try:
+        data, ancdata, _flags, _addr = sock.recvmsg(maxlen, socket.CMSG_SPACE(4 * 4))
+    except (socket.timeout, BlockingIOError):
+        return None
+    except (ConnectionResetError, BrokenPipeError, OSError):
+        raise EOFError from None
+    if not data:
+        raise EOFError
+    fds = []
+    for level, ctype, cdata in ancdata:
+        if level == socket.SOL_SOCKET and ctype == socket.SCM_RIGHTS:
+            arr = array.array("i")
+            arr.frombytes(cdata[: len(cdata) - (len(cdata) % 4)])
+            fds.extend(arr.tolist())
+    return data, fds
+
+
+def _saver_log(binary, logpath):
+    try:
+        with open(logpath, "rb") as fh:
+            return fh.read().decode("utf-8", "replace")[-2000:]
+    except OSError:
+        return ""
+
+
+def bench_saver_once(hid, scale, display, binary, seconds=SAVER_BENCH_WINDOW_S,
+                     warmup=SAVER_BENCH_WARMUP_S, feed_fps=SAVER_BENCH_FEED_FPS,
+                     root=""):
+    """Run one saver off-screen at `scale` and measure fps + p95 frame time.
+
+    Mirrors the lock feed: the hack is a child given NCZ_FEED_SOCKET; we accept
+    its HELLO, send a one-output WELCOME at the scaled geometry, and time the
+    FRAME messages it streams. Returns a dict with fps/p95_ms/error/frames.
+    """
+    bw = max(2, int(display[0] * scale))
+    bh = max(2, int(display[1] * scale))
+    tmp = tempfile.mkdtemp(prefix="ncz-saverbench-")
+    spath = os.path.join(tmp, "bench.sock")
+    logpath = os.path.join(tmp, "child.log")
+    srv = None
+    proc = None
+    conn = None
+    result = {"hack": hid, "scale": scale, "fps": None, "p95_ms": None,
+              "frames": 0, "error": None, "renderer": None}
+    try:
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        srv.bind(spath)
+        srv.listen(1)
+        srv.settimeout(6.0)
+        env = dict(os.environ)
+        for k in ("WAYLAND_DISPLAY", "DISPLAY", "NCZ_ALLOW_SOFTWARE",
+                  "NCZ_ALLOW_SOFTWARE_FALLBACK"):
+            env.pop(k, None)
+        env["HOME"] = tmp
+        env["XDG_CACHE_HOME"] = os.path.join(tmp, "cache")
+        env["XDG_RUNTIME_DIR"] = tmp
+        env["NCZ_FEED_SOCKET"] = spath
+        env["NCZ_FEED_FPS"] = str(feed_fps)
+        env["NCZ_FEED_RENDER_DIV"] = "1"
+        env["NCZ_RENDER_SCALE_MODE"] = "fixed"
+        env["NCZ_RENDER_SCALE"] = "1.0"
+        logf = open(logpath, "wb")
+        try:
+            proc = subprocess.Popen(
+                [binary], env=env, stdin=subprocess.DEVNULL, stdout=logf,
+                stderr=logf, start_new_session=True,
+                preexec_fn=os.setsid if hasattr(os, "setsid") else None)
+        finally:
+            logf.close()
+        try:
+            conn, _ = srv.accept()
+        except socket.timeout:
+            result["error"] = "saver did not connect (no off-screen EGL?)"
+            return result
+        conn.settimeout(2.0)
+        # HELLO
+        got = None
+        for _ in range(20):
+            try:
+                got = _recv_packet(conn)
+            except EOFError:
+                result["error"] = "saver closed before HELLO"
+                return result
+            if got:
+                break
+            time.sleep(0.05)
+        if not got:
+            result["error"] = "no HELLO from saver"
+            return result
+        for fd in got[1]:
+            os.close(fd)
+        # WELCOME (one output at the scaled geometry)
+        payload = _LFS_WELCOME_S.pack(_LFS_VERSION, _LFS_TRANSPORT_SHM, 1) + \
+            _LFS_OUTPUT.pack(0x5A5E5A5E, bw, bh, 120)
+        conn.sendall(_LFS_MSG.pack(_LFS_MAGIC, _LFS_WELCOME, 0, len(payload)) + payload)
+
+        stamps = []
+        first = None
+        deadline = time.monotonic() + seconds + warmup + 3.0
+        while time.monotonic() < deadline:
+            r, _, _ = select.select([conn], [], [], 0.2)
+            if not r:
+                if proc.poll() is not None:
+                    break
+                continue
+            try:
+                got = _recv_packet(conn)
+            except EOFError:
+                break
+            if got is None:
+                continue
+            data, fds = got
+            now = time.monotonic()
+            for fd in fds:
+                os.close(fd)
+            if len(data) < _LFS_MSG.size:
+                continue
+            magic, mtype, _flags, _length = _LFS_MSG.unpack_from(data, 0)
+            if magic != _LFS_MAGIC:
+                continue
+            if mtype == _LFS_FRAME:
+                if first is None:
+                    first = now
+                if now - first >= warmup:
+                    stamps.append(now)
+            elif mtype == _LFS_BYE:
+                break
+            # (the child does not need ACKs; it never blocks on the socket)
+        result["frames"] = len(stamps) + 1 if first is not None else 0
+        if len(stamps) < 3:
+            result["error"] = "no frame progress"
+            log = _saver_log(binary, logpath)
+            if "GLSL" in log or "not supported" in log:
+                m = re.search(r"(GLSL[^\\n]*|not supported[^\\n]*)", log)
+                result["error"] = (m.group(1) if m else "shader/GL error").strip()
+            return result
+        elapsed = stamps[-1] - stamps[0]
+        if elapsed <= 0:
+            result["error"] = "zero elapsed"
+            return result
+        result["fps"] = round((len(stamps) - 1) / elapsed, 1)
+        gaps = sorted((b - a) * 1000.0 for a, b in zip(stamps, stamps[1:]))
+        idx = min(len(gaps) - 1, int(0.95 * len(gaps)))
+        result["p95_ms"] = round(gaps[idx], 1)
+        for m in re.finditer(r"GL_RENDERER=([^\n]+)", _saver_log(binary, logpath)):
+            result["renderer"] = m.group(1).strip()
+        return result
+    except OSError as e:
+        result["error"] = "bench error: %s" % e
+        return result
+    finally:
+        if conn is not None:
+            try:
+                conn.sendall(_LFS_MSG.pack(_LFS_MAGIC, _LFS_STOP, 0, 0))
+            except OSError:
+                pass
+            try:
+                conn.close()
+            except OSError:
+                pass
+        if proc is not None and proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except (OSError, ProcessLookupError):
+                pass
+            try:
+                proc.wait(timeout=1.0)
+            except Exception:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (OSError, ProcessLookupError):
+                    pass
+        if srv is not None:
+            try:
+                srv.close()
+            except OSError:
+                pass
+        try:
+            os.unlink(spath)
+        except OSError:
+            pass
+
+
+def _primary_gpu(facts):
+    gpus = facts.get("gpus") or []
+    return next((g for g in gpus if g.get("boot_vga") or g.get("_primary")),
+                gpus[0] if gpus else None)
+
+
+def _saver_bench_skip_reason(facts, scored):
+    tier = (scored or {}).get("tier")
+    if tier not in ("T0", "T1", "T2"):
+        return "tier %s (benchmark runs on T0-T2 only)" % tier
+    gpu = _primary_gpu(facts)
+    if gpu is None:
+        return "no GPU"
+    if gpu.get("software"):
+        return "software renderer"
+    if not (facts.get("display") or {}).get("outputs"):
+        return "headless (no connected display)"
+    return None
+
+
+def saver_bench(facts, scored, root="", budget=SAVER_BENCH_BUDGET_S,
+                window=SAVER_BENCH_WINDOW_S, manifest=None, log=None):
+    """Measure the saver pool for this machine. Returns the pool fields to record.
+
+    Never raises: any failure falls back to the manifest's default_class for the
+    detected GPU class so /etc/ncz/capability.json always carries a usable pool.
+    """
+    def _log(msg):
+        if log:
+            log("[capability] saver pool: %s" % msg)
+
+    doc = manifest if manifest is not None else load_saver_manifest(root)
+    gpu = _primary_gpu(facts)
+    coarse = (gpu or {}).get("class")
+    renderer = (gpu or {}).get("renderer") or (facts.get("calibration") or {}).get("gpu_renderer")
+    cls = saver_reference_class(renderer, coarse)
+    out = {"saver_pool": [], "excluded": [],
+           "saver_pool_source": "none", "saver_pool_reference_class": cls,
+           "saver_pool_measured": 0, "saver_pool_candidates": 0,
+           "saver_pool_elapsed_s": 0.0}
+    start = time.monotonic()
+
+    def _fallback(reason):
+        pool, excluded = manifest_fallback_pool(doc, cls) if doc.get("savers") else ([], [])
+        out["saver_pool"] = pool
+        out["excluded"] = excluded
+        out["saver_pool_source"] = "manifest-fallback"
+        out["saver_pool_skip"] = reason
+        out["saver_pool_elapsed_s"] = round(time.monotonic() - start, 2)
+        _log("fallback to manifest (%s): %d pool, %d excluded"
+             % (reason, len(pool), len(excluded)))
+        return out
+
+    if not doc.get("savers"):
+        out["saver_pool_source"] = "unavailable"
+        out["saver_pool_skip"] = "no saver manifest"
+        out["saver_pool_elapsed_s"] = round(time.monotonic() - start, 2)
+        return out
+    skip = _saver_bench_skip_reason(facts, scored)
+    if skip:
+        return _fallback(skip)
+
+    major, minor, _raw = gpu_gles_version(facts, gpu)
+    gles = (major, minor)
+    display = ((facts.get("display") or {}).get("max_width"),
+               (facts.get("display") or {}).get("max_height"))
+    if not display[0] or not display[1]:
+        display = SAVER_DEFAULT_DISPLAY
+    candidates = [h for h in saver_candidates(doc, gles)
+                  if find_saver_binary(h, root)]
+    out["saver_pool_candidates"] = len(candidates)
+    if not candidates:
+        return _fallback("no installed candidates for GLES %d.%d" % gles)
+    _log("%d candidate(s) for GLES %d.%d on %s (>=%gfps, budget %gs)"
+         % (len(candidates), major, minor, cls or coarse or "?", SAVER_MIN_FPS, budget))
+
+    pool, excluded = [], []
+    measured = 0
+    for hid in candidates:
+        remaining = budget - (time.monotonic() - start)
+        if remaining < SAVER_BENCH_MIN_S:
+            # out of budget: the manifest default_class is the safe fallback
+            entry = ((doc["savers"][hid].get("classes") or {}).get(cls)) or {}
+            kind = entry.get("default_class")
+            if kind == "pool":
+                pool.append({"id": hid, "scale": 1.0})
+            elif kind == "scaled":
+                pool.append({"id": hid, "scale": float(
+                    entry.get("default_scale") or entry.get("min_scale_for_30fps") or 0.5)})
+            else:
+                excluded.append({"id": hid,
+                                 "reason": "unmeasured (budget); manifest: %s" % (kind or "?")})
+            continue
+        binary = find_saver_binary(hid, root)
+        chosen = None
+        last_error = None
+        for scale, label in SAVER_SCALES:
+            if budget - (time.monotonic() - start) < SAVER_BENCH_MIN_S:
+                break
+            res = bench_saver_once(hid, scale, display, binary, seconds=window, root=root)
+            if res.get("error"):
+                last_error = res["error"]
+                break
+            if res["fps"] is not None and res["fps"] >= SAVER_MIN_FPS and \
+                    (res["p95_ms"] is None or res["p95_ms"] <= SAVER_MAX_P95_MS):
+                chosen = scale
+                break
+            last_error = "%s fps at %s" % (res.get("fps"), label)
+        if chosen is not None:
+            pool.append({"id": hid, "scale": chosen})
+            measured += 1
+            _log("%s -> pool scale %g" % (hid, chosen))
+        else:
+            excluded.append({"id": hid,
+                             "reason": "measured unhealthy (%s)" % (last_error or "no result")})
+    out["saver_pool"] = pool
+    out["excluded"] = excluded
+    out["saver_pool_source"] = "measured"
+    out["saver_pool_measured"] = measured
+    out["saver_pool_elapsed_s"] = round(time.monotonic() - start, 2)
+    _log("measured %d candidate(s), %d pooled, %d excluded in %.2fs"
+         % (measured, len(pool), len(excluded), out["saver_pool_elapsed_s"]))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1572,6 +2061,13 @@ def human_summary(doc):
     for c in s.get("caps", []):
         lines.append("  cap      : %s -> %s (%s)" % (c["subsystem"], c["tier"], c["reason"]))
     lines.append("  TIER     : %s" % s.get("tier", "?"))
+    if doc.get("saver_pool") is not None or doc.get("excluded") is not None:
+        lines.append("  saverpool: %s %d pooled, %d excluded (class %s, %.2fs)"
+                     % (doc.get("saver_pool_source", "?"),
+                        len(doc.get("saver_pool") or []),
+                        len(doc.get("excluded") or []),
+                        doc.get("saver_pool_reference_class", "?"),
+                        doc.get("saver_pool_elapsed_s", 0.0) or 0.0))
     return "\n".join(lines)
 
 
@@ -1588,7 +2084,7 @@ def compute_signature(facts):
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
-def build_doc(facts, args):
+def build_doc(facts, args, run_saver_bench=False):
     scored = score(facts)
     doc = {
         "version": VERSION,
@@ -1598,12 +2094,17 @@ def build_doc(facts, args):
         "scoring": scored,
         "signature": compute_signature(facts),
     }
+    if run_saver_bench:
+        # The measured pool is recorded in the profile the launcher reads; it is
+        # also written to the host file by cmd_probe (the doc is that file).
+        doc.update(saver_bench(facts, scored, root=getattr(args, "root", ""),
+                               log=None))
     return doc
 
 
 def cmd_probe(args):
     facts = collect_facts(root=args.root, calibrate=not args.no_calibrate)
-    doc = build_doc(facts, args)
+    doc = build_doc(facts, args, run_saver_bench=not getattr(args, "no_saver_bench", False))
     out = args.out
     if out:
         os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -1761,6 +2262,53 @@ def cmd_detect(args):
     return rc
 
 
+def cmd_saver_pool(args):
+    """Print the recorded per-machine saver pool, or measure one now.
+
+    `--measure` runs the same benchmark the first-boot service runs, without
+    writing /etc/ncz/capability.json (a dry inspection; use `probe` to record).
+    """
+    if args.measure:
+        facts = collect_facts(root=args.root, calibrate=not args.no_calibrate)
+        scored = score(facts)
+        res = saver_bench(facts, scored, root=args.root, budget=args.budget)
+        print(json.dumps(res, indent=2, sort_keys=True))
+        return 0
+    doc = {}
+    for path in ([args.json_path] if not args.root else
+                 [P(args.root, args.json_path.lstrip("/"))]):
+        try:
+            with open(path) as fh:
+                doc = json.load(fh)
+            break
+        except (OSError, ValueError):
+            doc = {}
+    pool = doc.get("saver_pool") or []
+    out = {
+        "reference_class": doc.get("saver_pool_reference_class"),
+        "source": doc.get("saver_pool_source"),
+        "measured": doc.get("saver_pool_measured"),
+        "candidates": doc.get("saver_pool_candidates"),
+        "elapsed_s": doc.get("saver_pool_elapsed_s"),
+        "pool": pool,
+        "excluded": doc.get("excluded") or [],
+    }
+    if args.json:
+        print(json.dumps(out, indent=2, sort_keys=True))
+    elif not pool and not out["excluded"]:
+        print("no saver pool recorded (run: ncz-capability probe)")
+        return 1
+    else:
+        print("saver pool [%s] class=%s: %d pooled, %d excluded in %ss"
+              % (out["source"], out["reference_class"], len(pool),
+                 len(out["excluded"]), out["elapsed_s"]))
+        for row in pool:
+            print("  %-40s scale %s" % (row.get("id"), row.get("scale")))
+        for row in out["excluded"]:
+            print("  out: %-36s %s" % (row.get("id"), row.get("reason")))
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="ncz-capability",
                                 description="NCZ-OS hardware capability profiler and tier default selector")
@@ -1775,6 +2323,8 @@ def main(argv=None):
     common(sp)
     sp.add_argument("--out", default=DEFAULT_JSON)
     sp.add_argument("--no-calibrate", action="store_true")
+    sp.add_argument("--no-saver-bench", action="store_true",
+                    help="skip the first-boot measured saver pool step")
     sp.set_defaults(fn=cmd_probe)
 
     sp = sub.add_parser("score", help="score an existing facts json (pure, no hardware)")
@@ -1807,7 +2357,18 @@ def main(argv=None):
     sp.add_argument("--override", default=GLOBAL_OVERRIDE)
     sp.add_argument("--no-apply", action="store_true")
     sp.add_argument("--no-calibrate", action="store_true")
+    sp.add_argument("--no-saver-bench", action="store_true")
     sp.set_defaults(fn=cmd_detect)
+
+    sp = sub.add_parser("saver-pool",
+                        help="show (or measure) the per-machine saver pool")
+    common(sp)
+    sp.add_argument("--measure", action="store_true",
+                    help="run the benchmark now instead of printing the recorded pool")
+    sp.add_argument("--budget", type=float, default=SAVER_BENCH_BUDGET_S)
+    sp.add_argument("--json-path", default=DEFAULT_JSON)
+    sp.add_argument("--no-calibrate", action="store_true")
+    sp.set_defaults(fn=cmd_saver_pool)
 
     args = p.parse_args(argv)
     if getattr(args, "tier", None):

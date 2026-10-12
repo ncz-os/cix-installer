@@ -78,6 +78,22 @@ rc=$(run_hook)
 [ "$rc" = 0 ] && ok "hook exits 0" || bad "hook exit $rc: $(tail -3 "$T/hook.out")"
 [ -x "$TROOT/usr/bin/ncz-capability" ] && ok "ncz-capability installed" || bad "ncz-capability missing"
 [ -f "$TROOT/usr/share/ncz/capability/capability-features.tsv" ] && ok "feature map installed" || bad "feature map missing"
+if [ -f "$TROOT/usr/share/ncz/capability/saver-manifest.json" ]; then
+    ok "saver manifest installed"
+    if python3 -c "import json,sys; d=json.load(open('$TROOT/usr/share/ncz/capability/saver-manifest.json')); sys.exit(0 if d.get('savers') else 1)"; then
+        ok "saver manifest parses with savers"
+    else
+        bad "saver manifest does not parse / has no savers"
+    fi
+else
+    bad "saver manifest not installed"
+fi
+# saver-pool reader is safe with no recorded profile
+if python3 "$TOOL" saver-pool --json-path "$T/no-capability.json" --json >"$T/sp.out" 2>&1; then
+    ok "saver-pool reader runs without a profile"
+else
+    bad "saver-pool reader failed: $(tail -2 "$T/sp.out")"
+fi
 [ -f "$TROOT/usr/lib/systemd/system/ncz-capability.service" ] && ok "first-boot service installed" || bad "first-boot service missing"
 [ -f "$TROOT/usr/lib/systemd/system/ncz-capability-recheck.service" ] && ok "recheck service installed" || bad "recheck service missing"
 [ -f "$TROOT/usr/lib/systemd/system/ncz-capability-recheck.timer" ] && ok "recheck timer installed" || bad "recheck timer missing"
