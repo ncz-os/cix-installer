@@ -1258,12 +1258,12 @@ def write_gsettings_override(root, overrides, dry_run=False, log=print):
         if not d:
             log("[capability] schema %s not installed; skipping override" % schema)
             continue
-        bydir.setdefault(d, []).append(body.rstrip("\n"))
+        bydir.setdefault(d, []).append((schema, body.rstrip("\n")))
     written = []
-    for d, bodies in bydir.items():
+    for d, items in bydir.items():
         target = os.path.join(d, "99-ncz-capability.gschema.override")
-        body = "\n".join(bodies) + "\n"
-        log("[capability] %s -> %s" % (", ".join(sorted(overrides)), target))
+        body = "\n".join(b for _, b in items) + "\n"
+        log("[capability] %s -> %s" % (", ".join(sorted(s for s, _ in items)), target))
         if dry_run:
             written.append(target)
             continue
@@ -1571,8 +1571,80 @@ def cmd_score(args):
     return 0
 
 
+def cmd_check(args):
+    """Validate that the tier's GSettings override compiles against the REAL
+    installed schemas -- without changing anything.  The point of this mode is a
+    safe dry validation on a live host (a bad override would break every schema):
+    it builds the body, drops it next to scratch symlinks of each schema dir and
+    runs `glib-compile-schemas --strict --dry-run`.
+    """
+    facts = collect_facts(root=args.root, calibrate=False)
+    scored = score(facts)
+    ov = parse_override(args.override)
+    tier = resolve_tier(facts, scored, ov, args.tier)
+    feats = features_for_tier(tier)
+    overrides = build_gsettings_overrides(feats)
+    if not which("glib-compile-schemas"):
+        print("check: glib-compile-schemas not installed; cannot validate")
+        return 2
+    rc_all = 0
+    checked = 0
+    dirs = sorted(set(d for d in (_schema_dir_for(args.root, s) for s in overrides) if d))
+    for d in dirs:
+        present = sorted(s for s in overrides if _schema_dir_for(args.root, s) == d)
+        body = "\n".join(overrides[s].rstrip("\n") for s in present) + "\n"
+        try:
+            with tempfile.TemporaryDirectory() as scratch:
+                for pat in ("*.gschema.xml", "*.enums.xml", "*.gschema.override"):
+                    for f in glob.glob(os.path.join(d, pat)):
+                        if os.path.basename(f) == "99-ncz-capability.gschema.override":
+                            continue
+                        os.symlink(f, os.path.join(scratch, os.path.basename(f)))
+                with open(os.path.join(scratch, "99-ncz-capability.gschema.override"), "w") as fh:
+                    fh.write(body)
+                rc, out = run(["glib-compile-schemas", "--strict", "--dry-run", scratch], timeout=60)
+        except OSError as e:
+            print("check: %s: %s" % (d, e))
+            rc_all = 1
+            continue
+        checked += 1
+        print("%s %s [%s] tier=%s" % ("PASS" if rc == 0 else "FAIL", d, ", ".join(present), tier))
+        if rc != 0:
+            rc_all = 1
+            print(out[:800])
+    if not checked:
+        print("check: no installed schema dirs for the tier's keys (nothing to validate)")
+    return rc_all
+
+
+def _facts_from_json(path):
+    try:
+        doc = json.load(open(path))
+    except (OSError, ValueError):
+        return None
+    if isinstance(doc, dict) and "facts" in doc:
+        return doc["facts"]
+    if isinstance(doc, dict) and "cpu" in doc:
+        return doc
+    return None
+
+
 def cmd_apply(args):
-    facts = collect_facts(root=args.root, calibrate=not args.no_calibrate)
+    # Reuse the recorded profile when it exists (the first-boot service runs
+    # probe then apply, and re-applying must not re-run the calibration); only
+    # measure when there is nothing recorded or --facts points nowhere.
+    facts = None
+    if args.facts:
+        facts = _facts_from_json(args.facts)
+        if facts is None:
+            print("apply: cannot read facts from %s" % args.facts, file=sys.stderr)
+            return 2
+    else:
+        # only consult the host's recorded profile on the real root; a test root
+        # must not pick up the developer machine's /etc/ncz/capability.json
+        facts = _facts_from_json(DEFAULT_JSON) if not args.root else None
+    if facts is None:
+        facts = collect_facts(root=args.root, calibrate=not args.no_calibrate)
     doc = build_doc(facts, args)
     result = apply_defaults(facts, doc["scoring"], cli_tier=args.tier,
                             override_path=args.override, root=args.root,
@@ -1597,6 +1669,7 @@ def cmd_detect(args):
     """Re-run the probe only when the hardware signature changed."""
     if not os.path.isfile(args.json_path):
         print("no profile; probing")
+        args.out = args.json_path
         return cmd_probe(args)
     old = json.load(open(args.json_path))
     facts = collect_facts(root=args.root, calibrate=True)
@@ -1609,7 +1682,7 @@ def cmd_detect(args):
     args.out = args.json_path
     rc = cmd_probe(args)
     if rc == 0 and not args.no_apply:
-        facts2 = collect_facts(root=args.root, calibrate=False)
+        facts2 = _facts_from_json(args.json_path) or facts
         doc = build_doc(facts2, args)
         apply_defaults(facts2, doc["scoring"], override_path=args.override, root=args.root)
     return rc
@@ -1640,6 +1713,7 @@ def main(argv=None):
     common(sp)
     sp.add_argument("--tier", default=None, choices=list(TIERS) + [t.lower() for t in TIERS])
     sp.add_argument("--override", default=GLOBAL_OVERRIDE)
+    sp.add_argument("--facts", default=None, help="facts JSON to use (default: %s if present)" % DEFAULT_JSON)
     sp.add_argument("--dry-run", action="store_true")
     sp.add_argument("--no-calibrate", action="store_true")
     sp.set_defaults(fn=cmd_apply)
@@ -1647,6 +1721,12 @@ def main(argv=None):
     sp = sub.add_parser("status", help="show the recorded profile")
     sp.add_argument("--json-path", default=DEFAULT_JSON)
     sp.set_defaults(fn=cmd_status)
+
+    sp = sub.add_parser("check", help="validate the tier override against the installed schemas (no writes)")
+    common(sp)
+    sp.add_argument("--tier", default=None, choices=list(TIERS) + [t.lower() for t in TIERS])
+    sp.add_argument("--override", default=GLOBAL_OVERRIDE)
+    sp.set_defaults(fn=cmd_check)
 
     sp = sub.add_parser("detect", help="re-probe only if the hardware changed, then apply")
     common(sp)

@@ -37,15 +37,39 @@ SCHEMA="$TROOT/usr/share/glib-2.0/schemas"
 mkdir -p "$SCHEMA"
 cat > "$SCHEMA/dev.ncz.screensaver.gschema.xml" <<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
-<schemalist><schema id="dev.ncz.screensaver" path="/dev/ncz/screensaver/">
-<key name="render-scale" type="d"><default>1.0</default><summary>x</summary></key>
-</schema></schemalist>
+<schemalist>
+  <enum id="dev.ncz.screensaver.PoolGpuClass">
+    <value nick="auto" value="0"/><value nick="weak" value="1"/>
+    <value nick="mid" value="2"/><value nick="all" value="3"/>
+  </enum>
+  <schema id="dev.ncz.screensaver" path="/dev/ncz/screensaver/">
+    <key name="render-scale" type="d"><default>1.0</default><summary>x</summary></key>
+    <key name="render-scale-mode" type="s"><default>'auto'</default><summary>x</summary></key>
+    <key name="max-render-height" type="i"><default>0</default><summary>x</summary></key>
+    <key name="gpu-offload" type="s"><default>'auto'</default><summary>x</summary></key>
+    <key name="show-all-hacks" type="b"><default>false</default><summary>x</summary></key>
+    <key name="pool-gpu-class" enum="dev.ncz.screensaver.PoolGpuClass"><default>'auto'</default><summary>x</summary></key>
+  </schema>
+</schemalist>
 XML
 cat > "$SCHEMA/dev.sinty.desktop.gschema.xml" <<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
-<schemalist><schema id="dev.sinty.desktop" path="/dev/sinty/desktop/">
-<key name="blur-strength" type="i"><default>60</default><summary>x</summary></key>
-</schema></schemalist>
+<schemalist>
+  <enum id="dev.sinty.desktop.BackgroundEffect">
+    <value nick="disabled" value="0"/><value nick="glass" value="1"/><value nick="blur" value="2"/>
+  </enum>
+  <schema id="dev.sinty.desktop" path="/dev/sinty/desktop/">
+    <key name="blur-strength" type="i"><default>60</default><summary>x</summary></key>
+    <key name="window-transparency" type="i"><default>12</default><summary>x</summary></key>
+    <key name="window-rounded-corners" type="b"><default>true</default><summary>x</summary></key>
+    <key name="reduce-motion" type="b"><default>false</default><summary>x</summary></key>
+    <key name="motion-duration-scale" type="d"><range min="0.1" max="10.0"/><default>1.0</default><summary>x</summary></key>
+    <key name="idle-dim-screen" type="b"><default>true</default><summary>x</summary></key>
+    <key name="allow-tearing" type="b"><default>false</default><summary>x</summary></key>
+    <key name="show-tour" type="b"><default>true</default><summary>x</summary></key>
+    <key name="background-effect" enum="dev.sinty.desktop.BackgroundEffect"><default>'disabled'</default><summary>x</summary></key>
+  </schema>
+</schemalist>
 XML
 
 run_hook() { NCZ_CAP_ASSET_SRC="$ROOT/assets/capability" NCZ_CAP_ROOT="$TROOT" \
@@ -108,6 +132,15 @@ if python3 "$TOOL" apply --root "$AROOT" --tier T3 --override "$T/ovr" --no-cali
     fi
 else
     bad "apply --tier failed: $(tail -3 "$T/apply2.out")"
+fi
+
+# --- 3b. check validates the override against the installed schemas ----------
+if command -v glib-compile-schemas >/dev/null 2>&1; then
+    if python3 "$TOOL" check --root "$AROOT" --tier T2 >"$T/check.out" 2>&1; then
+        ok "check validates the override against installed schemas"
+    else
+        bad "check failed: $(tail -3 "$T/check.out")"
+    fi
 fi
 
 # --- 4. registered for both platforms, ordered after 64 ----------------------

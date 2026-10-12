@@ -178,6 +178,9 @@ intent for a future Settings row.
 * **Validated before install.** The GSettings override is compiled with
   `glib-compile-schemas --strict --dry-run` on a scratch copy first, exactly
   like hooks 62/64; a body that cannot compile is not installed.
+  `ncz-capability check` performs the same validation against the **live**
+  installed schemas and changes nothing, so a host can be checked safely before
+  any default is written.
 * **Fail-safe.** Every probe is best-effort; missing tools fall back and the
   JSON records what was measured. `ncz-capability` never raises on a machine
   without a GPU output (headless / KVM / PROTEUS) and never reboots.
