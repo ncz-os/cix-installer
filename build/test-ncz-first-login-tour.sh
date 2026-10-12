@@ -12,6 +12,11 @@
 # Usage: bash build/test-ncz-first-login-tour.sh
 set -uo pipefail
 
+# SC2086 is intentional below: CASE_EXTRA is a whitespace-separated list of
+# VAR=VAL tokens that must word-split into separate arguments for env(1); it is
+# only ever set to plain assignments like "NCZ_TOUR_DRYRUN=1".
+# shellcheck disable=SC2086
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="${NCZ_FIRSTLOGIN_TOUR:-$ROOT/assets/branding/first-login-tour/ncz-first-login-tour}"
 DESKTOP="$ROOT/assets/branding/first-login-tour/ncz-first-login-tour.desktop"
@@ -101,7 +106,10 @@ mk_sandbox; CASE_WAYLAND=0 guard_expect "no graphical session -> skip" 1 "no gra
 
 mk_sandbox; CASE_DRM=disconnected guard_expect "no connected DRM output -> skip" 1 "no connected DRM"; CASE_DRM=
 
-mk_sandbox; CASE_DRM=disconnected,connected guard_expect "any connected output -> allow" 0 "allow"; CASE_DRM=
+# The guard parses NCZ_TOUR_DRM_STATUS as a comma-separated connector list and
+# allows when ANY entry is "connected" (has_connected_output's case match on
+# ",${...},*,"), so a mix of disconnected + connected outputs must allow.
+mk_sandbox; CASE_DRM=disconnected,connected guard_expect "comma-list with one connected output -> allow" 0 "allow"; CASE_DRM=
 
 # --- "show" side effects -----------------------------------------------------------------------
 # allowed: marker written BEFORE launch (DRYRUN keeps it offline and inert)
