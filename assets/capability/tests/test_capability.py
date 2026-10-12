@@ -333,26 +333,30 @@ def test_bench_saver_protocol():
                 s.sendmsg([data], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, struct.pack("i", fd))])
         send(1, struct.pack("<III", 1, 1, 0))       # HELLO
         s.recv(65535)                                # WELCOME
-        fd = os.open(sys.argv[1], os.O_RDONLY)
+        s.settimeout(2.0)
+        fd = os.open("/dev/null", os.O_RDONLY)
         for i in range(420):
-            send(2, struct.pack("<IIIIIIIII", i, 0x5A5E5A5E, 2, 2, 8, 0, 1), fd=fd)
+            send(2, struct.pack("<IIIIIIIII", i, 0x5A5E5A5E, 2, 2, 8, 0, 1, 0, 0), fd=fd)
+            # the real child waits for READY after every FRAME; require it here
+            # so a missing ACK in the peer shows up as a stalled frame count.
+            try:
+                if not s.recv(65535):
+                    break
+            except OSError:
+                break
             time.sleep(1.0 / 60.0)
         send(3, b"")                                 # BYE
     """).lstrip())
     child.close()
     os.chmod(child.name, os.stat(child.name).st_mode | stat.S_IEXEC)
-    framefile = tempfile.NamedTemporaryFile(delete=False)
-    framefile.write(b"\0" * 64)
-    framefile.close()
     try:
         r = CAP.bench_saver_once("fake_gles3", 1.0, (640, 480), child.name,
                                  seconds=1.0, warmup=0.2)
     finally:
         os.unlink(child.name)
-        os.unlink(framefile.name)
     check("bench protocol produced fps", r.get("fps") is not None, str(r)[:200])
-    check("bench protocol fps near 60", r.get("fps") and 40 <= r["fps"] <= 90,
-          "fps=%s" % r.get("fps"))
+    check("bench protocol fps near the child's rate",
+          r.get("fps") is not None and 40 <= r["fps"] <= 90, "fps=%s" % r.get("fps"))
     check("bench protocol recorded p95", r.get("p95_ms") is not None)
 
 

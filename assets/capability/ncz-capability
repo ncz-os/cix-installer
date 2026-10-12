@@ -1571,7 +1571,8 @@ _LFS_MAGIC = 0x4C465331
 _LFS_VERSION = 1
 _LFS_TRANSPORT_SHM = 0x1
 _LFS_HELLO, _LFS_FRAME, _LFS_BYE = 1, 2, 3
-_LFS_WELCOME, _LFS_STOP = 0x80, 0x82
+_LFS_WELCOME, _LFS_READY, _LFS_STOP = 0x80, 0x81, 0x82
+_LFS_ACK = struct.Struct("<I")
 _LFS_MSG = struct.Struct("<IHHI")
 _LFS_HELLO_S = struct.Struct("<III")
 _LFS_WELCOME_S = struct.Struct("<III")
@@ -1776,8 +1777,7 @@ def bench_saver_once(hid, scale, display, binary, seconds=SAVER_BENCH_WINDOW_S,
         try:
             proc = subprocess.Popen(
                 [binary], env=env, stdin=subprocess.DEVNULL, stdout=logf,
-                stderr=logf, start_new_session=True,
-                preexec_fn=os.setsid if hasattr(os, "setsid") else None)
+                stderr=logf, start_new_session=True)
         finally:
             logf.close()
         try:
@@ -1836,9 +1836,17 @@ def bench_saver_once(hid, scale, display, binary, seconds=SAVER_BENCH_WINDOW_S,
                     first = now
                 if now - first >= warmup:
                     stamps.append(now)
+                # one buffer in flight: the child waits for READY after every
+                # FRAME (up to 5 s), so ACK it to keep it rendering.
+                payload = data[_LFS_MSG.size:]
+                seq = struct.unpack_from("<I", payload, 0)[0] if len(payload) >= 4 else 0
+                try:
+                    conn.sendall(_LFS_MSG.pack(_LFS_MAGIC, _LFS_READY, 0, _LFS_ACK.size)
+                                 + _LFS_ACK.pack(seq))
+                except OSError:
+                    break
             elif mtype == _LFS_BYE:
                 break
-            # (the child does not need ACKs; it never blocks on the socket)
         result["frames"] = len(stamps) + 1 if first is not None else 0
         if len(stamps) < 3:
             result["error"] = "no frame progress"
