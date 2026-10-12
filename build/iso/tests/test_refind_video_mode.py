@@ -1,4 +1,4 @@
-"""Installer rEFInd video mode: amd64 programs an explicit GOP mode, arm64 untouched.
+"""Installer rEFInd video mode: amd64 programs the firmware's largest GOP mode, arm64 untouched.
 
 2026-10-11: the PROTEUS (HP Arrow Lake i915, ViewSonic VP2488-4K, HDMI) d-i
 video defect reappeared at the FIRMWARE/rEFInd level -- rEFInd and d-i both
@@ -7,10 +7,19 @@ painted only the left third of the panel. Root cause: the installer ESP used
 whatever mode the firmware happened to leave programmed (a value that varies
 boot to boot). Fix: the amd64 installer ESP drops `textonly`, ships icons/ (or
 rEFInd silently forces text mode anyway -- "Icons directory doesn't exist;
-setting textonly = TRUE!"), and programs an explicit lower-common-denominator
-GOP mode with `resolution 1920 1080` + `use_graphics_for linux,grub`. A second
-"safe video mode" entry re-launches rEFInd with refind-safe.conf (800x600),
-because rEFInd has no per-menuentry resolution on UEFI PCs.
+setting textonly = TRUE!"), and programs a GOP mode before the kernel.
+
+2026-10-12: that first fix pinned `resolution 1920 1080`, which on a single-mode
+T2 Mac GOP (one mode: 3584x2240) makes rEFInd print
+"Error setting graphics mode 1920 x 1080; using default mode!" and call
+`PauseForKey()` -- a mandatory key press that breaks unattended installs.
+`PauseForKey()` is unconditional in `libeg/screen.c egSetScreenSize()`, so the
+fix is to stop asking for a mode that may not exist: `resolution max` makes
+rEFInd QueryMode() the firmware GOP and SetMode() the largest mode it reports,
+which is guaranteed to exist and can never hit the error/pause branch. It still
+programs a real GOP mode, so the d-i framebuffer stays stride-consistent (the
+PROTEUS left-third fix). The old second "safe video mode" config is gone: any
+`resolution W H` pair reintroduces the defect.
 
 This builds the real ESP tree with build_esp_dir() for both arches (fake rEFInd
 binary, fake d-i payload) and reads what it writes. It does NOT need the real
@@ -30,8 +39,11 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
 REPO_ROOT = SCRIPT.parents[2]
-SAFE_TITLE = "NCZ-OS Installer -- Install - safe video mode (800x600)"
-SAFE_OPTS = "-c refind-safe.conf"
+
+# A fixed "resolution <width> <height>" pair: rEFInd reads it as a specific
+# mode and, if the firmware GOP does not offer exactly that mode, prints the
+# error screen and pauses. The installer config must never contain one.
+FIXED_RESOLUTION_PAIR = re.compile(r"(?m)^resolution\s+\d+\s+\d+\s*$")
 
 
 def _fake_refind(root: Path) -> Path:
@@ -58,10 +70,6 @@ def build_tree(arch: str) -> dict:
         return {
             "boot_conf": (esp / "EFI" / "BOOT" / "refind.conf").read_text(),
             "installed_conf": (esp / "EFI" / "REFIND" / "REFIND.CONF").read_text(),
-            "safe": (esp / "EFI" / "BOOT" / "refind-safe.conf").read_text()
-            if (esp / "EFI" / "BOOT" / "refind-safe.conf").is_file() else None,
-            "safe_installed": (esp / "EFI" / "REFIND" / "REFIND-SAFE.CONF").read_text()
-            if (esp / "EFI" / "REFIND" / "REFIND-SAFE.CONF").is_file() else None,
             "icons_boot": sorted(p.name for p in (esp / "EFI" / "BOOT" / "icons").glob("*.png"))
             if (esp / "EFI" / "BOOT" / "icons").is_dir() else [],
             "icons_refind": sorted(p.name for p in (esp / "EFI" / "REFIND" / "icons").glob("*.png"))
@@ -97,11 +105,23 @@ class Amd64GraphicsMode(unittest.TestCase):
         # directive line, not the raw string.)
         self.assertEqual(direct_lines(self.conf, "textonly"), [])
 
-    def test_explicit_resolution_is_space_separated_1080p(self):
-        lines = direct_lines(self.conf, "resolution")
-        self.assertEqual(lines, ["resolution 1920 1080"], lines)
-        # The x-form is parsed by rEFInd as ONE option and silently ignored.
-        self.assertNotRegex(self.conf, r"(?m)^resolution\s+\d+x\d+")
+    def test_resolution_is_max_never_a_fixed_pair(self):
+        # `resolution max` picks a mode that is guaranteed to exist, so rEFInd's
+        # egSetScreenSize() can never print the error screen and PauseForKey().
+        self.assertEqual(direct_lines(self.conf, "resolution"), ["resolution max"])
+        # A fixed "W H" pair is rejected by a single-mode GOP (T2 Mac) and pauses.
+        self.assertIsNone(FIXED_RESOLUTION_PAIR.search(self.conf), self.conf)
+
+    def test_no_generated_config_pins_a_fixed_resolution_pair(self):
+        # Invariant across every generated config (both SelfDir copies): nothing
+        # may contain `resolution <int> <int>`, which a single-mode GOP rejects.
+        for name, conf in (
+            ("boot", self.t["boot_conf"]),
+            ("installed", self.t["installed_conf"]),
+        ):
+            self.assertIsNone(FIXED_RESOLUTION_PAIR.search(conf), f"{name}:\n{conf}")
+            # The x-form is parsed by rEFInd as ONE option and silently ignored.
+            self.assertNotRegex(conf, r"(?m)^resolution\s+\d+x\d+")
 
     def test_use_graphics_for_keeps_the_gop_mode_at_handoff(self):
         self.assertIn("use_graphics_for linux,grub", direct_lines(self.conf, "use_graphics_for"))
@@ -122,12 +142,17 @@ class Amd64GraphicsMode(unittest.TestCase):
         rescue = options_of(entries["NCZ-OS Installer -- Rescue mode"]).split()
         self.assertEqual(rescue.count("nomodeset"), 0, rescue)
 
-    def test_safe_video_entry_relaunches_refind(self):
+    def test_no_safe_conf_and_no_refind_relaunch_entry(self):
+        # The old `resolution 800 600` safe config was itself a fixed pair that a
+        # single-mode GOP rejects, so it is gone: there is one robust installer
+        # config and no rEFInd re-launch entry.
+        inv = "\n".join(self.t["inventory"])
+        self.assertNotIn("refind-safe.conf", inv)
+        self.assertNotIn("REFIND-SAFE.CONF", inv)
         entries = menuentries(self.conf)
-        self.assertIn(SAFE_TITLE, entries)
-        body = entries[SAFE_TITLE]
-        self.assertIn("loader /EFI/BOOT/BOOTX64.EFI", body)
-        self.assertEqual(options_of(body), SAFE_OPTS)
+        for title, body in entries.items():
+            self.assertNotIn("-c refind-safe.conf", options_of(body), title)
+            self.assertNotIn("safe video", title)
 
     def test_icons_ship_next_to_both_binaries(self):
         self.assertIn("boot_linux.png", self.t["icons_boot"], self.t["icons_boot"])
@@ -138,19 +163,6 @@ class Amd64GraphicsMode(unittest.TestCase):
 
     def test_two_conf_copies_identical(self):
         self.assertEqual(self.t["boot_conf"], self.t["installed_conf"])
-
-    def test_safe_conf_is_800x600_graphics_without_recursion(self):
-        self.assertIsNotNone(self.t["safe"])
-        self.assertEqual(self.t["safe"], self.t["safe_installed"])
-        safe = self.t["safe"]
-        self.assertEqual(direct_lines(safe, "textonly"), [])
-        self.assertEqual(direct_lines(safe, "resolution"), ["resolution 800 600"])
-        self.assertIn("use_graphics_for linux,grub", direct_lines(safe, "use_graphics_for"))
-        # No safe entry in the safe config: that would recurse.
-        self.assertNotIn(SAFE_TITLE, safe)
-        entries = menuentries(safe)
-        self.assertIn("NCZ-OS Installer -- Install", entries)
-        self.assertEqual(options_of(entries["NCZ-OS Installer -- Install"]).split().count("nomodeset"), 1)
 
 
 class Arm64Unchanged(unittest.TestCase):
@@ -177,8 +189,6 @@ class Arm64Unchanged(unittest.TestCase):
     def test_arm64_ships_no_icons_and_no_safe_conf(self):
         self.assertEqual(self.t["icons_boot"], [])
         self.assertEqual(self.t["icons_refind"], [])
-        self.assertIsNone(self.t["safe"])
-        self.assertIsNone(self.t["safe_installed"])
         self.assertNotIn("icons/", "\n".join(self.t["inventory"]))
         self.assertNotIn("refind-safe.conf", "\n".join(self.t["inventory"]))
 
