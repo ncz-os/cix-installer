@@ -77,6 +77,28 @@ module_param(fw_watchdog_timeout, int, 0660);
 static int wait_pending_timeout = 3000; /* 3s should be enough in worst case - 32Kx32K decode */
 module_param(wait_pending_timeout, int, 0660);
 
+/*
+ * wait_pending_retry: when the firmware does not drain its pending-message
+ * counter within wait_pending_timeout, the driver pokes it (soft_irq) and
+ * waits one more full timeout before failing. That makes the worst-case
+ * synchronous stall 2 x wait_pending_timeout (~6 s at the default).
+ *
+ * At a video stream transition (STREAMOFF/STREAMON, resolution change, EOS)
+ * the firmware can be mid-teardown and never drain, so this path blocks the
+ * V4L2 decode ioctl -- and with it the client's shared media pipeline clock --
+ * for ~6 s, which is heard as a hard audio gap.
+ *
+ * Set this to 0 to fail the transition after a single timeout instead of
+ * doubling it; -ETIME is propagated so the client tears the session down and
+ * re-initialises. Default 1 preserves the historical behaviour: the exact
+ * firmware-side stall is not yet root-caused, so this is an opt-in knob, and
+ * the userspace side is unchanged unless it is explicitly disabled.
+ */
+static bool wait_pending_retry = true;
+module_param(wait_pending_retry, bool, 0644);
+MODULE_PARM_DESC(wait_pending_retry,
+    "Retry wait_pending once with a soft IRQ poke after the first timeout (default true).");
+
 #ifndef MVX_ANDROID_KERNEL
 static bool enable_buffer_dump = 0;
 module_param(enable_buffer_dump, bool, 0660);
@@ -954,6 +976,15 @@ static int wait_pending(struct mvx_session *session)
             MVX_SESSION_WARN(session,
                 "Wait pending returned timeout, msg_pending=%d. try again.",
                 session->fw.msg_pending);
+            if (!wait_pending_retry) {
+                /* Opt-in: bound the synchronous stall to a single timeout
+                 * (see the module_param comment above) and hand -ETIME back
+                 * to the client instead of doubling the block. */
+                switch_out_rsp(session);
+                send_event_error(session, -ETIME);
+                ret = -ETIME;
+                goto lock_mutex;
+            }
             session->client_ops->soft_irq(session->csession);
             ret = wait_event_timeout(
                 session->waitq,
