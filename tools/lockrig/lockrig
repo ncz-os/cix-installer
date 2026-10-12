@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+# tools/lockrig/lockrig -- repeatable multi-host lock/saver/greeter test rig.
+#
+#   lockrig run --hosts a,b,c [--candidate-dir DIR | --from-apt]
+#                [--allow-attended] [--skip-install] [--out DIR]
+#
+# Runs the controlled test cases (T1..T15) per host: preflight, optional install,
+# session restart if the shell changed, the controlled test, evidence collection,
+# RESTORE and lease release. Hosts run in PARALLEL with each other but SERIALLY
+# within a host. Attended hosts (a human is physically present) require
+# --allow-attended and are run LAST, one at a time.
+#
+# Safety: never reboots; never touches the bootloader (takes a refind.conf hash
+# before/after any apt op and restores on change); leaves every host unlocked and
+# logged in; acquires a per-host lease (tools/lockrig/lease.sh) before touching
+# the host and refuses if another owner holds it.
+#
+# Exit: 0 all hosts PASS/SKIP, 1 any FAIL, 2 usage/preflight error.
+set -u
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/../.." && pwd)"
+HOSTS_TSV="$HERE/hosts.tsv"
+LEASE="$HERE/lease.sh"
+AGENT="$HERE/agent"
+TESTFILE="$ROOT/tests/lockscreen-framesrc/test-framesrc.sh"
+SSHPW="${SSHPASS:-ncz}"; export SSHPASS="$SSHPW"
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=12 -o ServerAliveInterval=15 -o LogLevel=ERROR"
+OWNER="${LOCKRIG_OWNER:-lockrig-$(hostname -s)-$$}"
+PKGS="ncz-singularity-desktop ncz-screensavers"
+
+# headless harness binary dirs, per archived build (host path). Override with
+# LOCKRIG_HEADLESS_BINDIR. Used for headless hosts / dry-run.
+BINDIR_ACHILLES="${LOCKRIG_BINDIR_ACHILLES:-/home/jasonperlow/Projects/thermals-20261012/v16}"
+BINDIR_ULTRA="${LOCKRIG_BINDIR_ULTRA:-/home/jasonperlow/Projects/thermals-20261012/v16}"
+
+usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+
+# ---------------------------------------------------------------- arg parse
+CMD="${1:-}"; [ "$CMD" = run ] || { [ "$CMD" = help ] && usage; echo "lockrig: unknown command '${CMD:-}'" >&2; usage; }
+shift
+HOSTS=""; CAND_DIR=""; FROM_APT=0; ALLOW_ATTENDED=0; SKIP_INSTALL=0; OUT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --hosts) HOSTS="${2:-}"; shift 2;;
+    --candidate-dir) CAND_DIR="${2:-}"; shift 2;;
+    --from-apt) FROM_APT=1; shift;;
+    --allow-attended) ALLOW_ATTENDED=1; shift;;
+    --skip-install) SKIP_INSTALL=1; shift;;
+    --out) OUT="${2:-}"; shift 2;;
+    -h|--help) usage;;
+    *) echo "lockrig: unknown arg $1" >&2; usage;;
+  esac
+done
+[ -n "$HOSTS" ] || { echo "lockrig: --hosts required" >&2; usage; }
+OUT="${OUT:-$ROOT/build/lockrig-out}"; mkdir -p "$OUT"
+
+# ---------------------------------------------------------------- host table
+# fields: name ip arch user display geometry gpu attended headless notes(rest)
+host_field() { # $1 name $2 colnum(1-based)
+  awk -F'\t' -v n="$1" -v c="$2" '!/^#/ && NF>=9 { if ($1==n){print $c} }' "$HOSTS_TSV"
+}
+host_notes() { awk -F'\t' -v n="$1" '!/^#/ && NF>=9 { if ($1==n){ $1=$2=$3=$4=$5=$6=$7=$8=$9=""; sub(/^\t+/,""); print } }' "$HOSTS_TSV"; }
+all_host_names() { awk -F'\t' '!/^#/ && NF>=9 {print $1}' "$HOSTS_TSV"; }
+
+if [ "$HOSTS" = all ]; then HOSTS="$(all_host_names | paste -sd, -)"; fi
+IFS=',' read -r -a SEL <<< "$HOSTS"
+for h in "${SEL[@]}"; do
+  [ -n "$(host_field "$h" 2)" ] || { echo "lockrig: unknown host '$h' (see hosts.tsv)" >&2; exit 2; }
+done
+
+# ---------------------------------------------------------------- ssh helpers
+h_run() { # $1 ip $2 user $3 script-string
+  if [ "$2" = ncz ]; then sshpass -e ssh $SSH_OPTS "$2@$1" "$3"
+  else ssh $SSH_OPTS "$2@$1" "$3"; fi
+}
+h_push() { # $1 ip $2 user $3 localdir $4 remotedir
+  if [ "$2" = ncz ]; then sshpass -e rsync -az --delete -e "ssh $SSH_OPTS" "$3" "$2@$1:$4"
+  else rsync -az --delete -e "ssh $SSH_OPTS" "$3" "$2@$1:$4"; fi
+}
+h_pull() { # $1 ip $2 user $3 remotedir $4 localdir
+  mkdir -p "$4"
+  if [ "$2" = ncz ]; then sshpass -e rsync -az -e "ssh $SSH_OPTS" "$2@$1:$3" "$4/" 2>/dev/null
+  else rsync -az -e "ssh $SSH_OPTS" "$2@$1:$3" "$4/" 2>/dev/null; fi
+}
+# run an agent script as root on the host (ncz hosts use sudo -S; build hosts run as-is)
+h_root_agent() { # $1 ip $2 user $3 agent-script $4 env-assignments
+  local ip="$1" u="$2" script="$3" envs="$4"
+  local py="python3"; [ "$u" = ncz ] && py="python3"
+  if [ "$u" = ncz ]; then
+    h_run "$ip" "$u" "echo $SSHPW | sudo -S -p '' env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin $envs bash $script"
+  else
+    h_run "$ip" "$u" "env $envs bash $script"
+  fi
+}
+
+banner(){ echo; echo "################ $* ################"; }
+
+# ---------------------------------------------------------------- worker
+run_one() {
+  local name="$1" ip u arch attended headless disp
+  ip="$(host_field "$name" 2)"; arch="$(host_field "$name" 3)"; u="$(host_field "$name" 4)"
+  disp="$(host_field "$name" 5)"; attended="$(host_field "$name" 8)"; headless="$(host_field "$name" 9)"
+  local hout="$OUT/$name"; rm -rf "$hout"; mkdir -p "$hout"
+  local RLOG="$hout/driver.log"; : > "$RLOG"
+  log(){ echo "[$(date +%T)] $*" | tee -a "$RLOG"; }
+
+  log "=== host $name ($ip, $arch, user=$u, display=$disp, attended=$attended, headless=$headless) ==="
+
+  # attended gate
+  if [ "$attended" = 1 ] && [ "$ALLOW_ATTENDED" != 1 ]; then
+    echo -e "ATTENDED_GATE\tSKIP\tattended host: rerun with --allow-attended" > "$hout/cases.tsv"
+    echo "{\"host\":\"$name\",\"mode\":\"skipped\",\"summary\":{\"pass\":0,\"fail\":0,\"skip\":1},\"reason\":\"attended host; needs --allow-attended\"}" > "$hout/result.json"
+    log "SKIP: attended host without --allow-attended"
+    return 0
+  fi
+
+  # lease
+  if ! "$LEASE" acquire "$name" --owner "$OWNER" --purpose "lockrig run $(date -u +%H:%MZ)" >>"$RLOG" 2>&1; then
+    echo -e "LEASE\tFAIL\trefused: another owner holds a live lease on $name" > "$hout/cases.tsv"
+    echo "{\"host\":\"$name\",\"mode\":\"error\",\"summary\":{\"pass\":0,\"fail\":1,\"skip\":0},\"reason\":\"lease refused\"}" > "$hout/result.json"
+    log "FAIL: lease refused"
+    return 1
+  fi
+  trap '"$LEASE" release "'"$name"'" --owner "'"$OWNER"'" >/dev/null 2>&1' RETURN
+
+  # preflight (read-only)
+  h_run "$ip" "$u" 'bash -s' < "$AGENT/preflight.sh" > "$hout/preflight.txt" 2>"$hout/preflight.err"
+  if [ ! -s "$hout/preflight.txt" ]; then
+    echo -e "PREFLIGHT\tFAIL\tunreachable or preflight failed" > "$hout/cases.tsv"
+    echo "{\"host\":\"$name\",\"mode\":\"error\",\"summary\":{\"pass\":0,\"fail\":1,\"skip\":0},\"reason\":\"unreachable\"}" > "$hout/result.json"
+    log "FAIL: preflight unreachable"; "$LEASE" release "$name" --owner "$OWNER" >/dev/null 2>&1; return 1
+  fi
+  local pf_sha pf_feed pf_conn
+  pf_sha="$(sed -n 's/^lockbin_sha=//p' "$hout/preflight.txt")"
+  pf_feed="$(sed -n 's/^feed=//p' "$hout/preflight.txt")"
+  pf_conn="$(sed -n 's/^drm_connected=//p' "$hout/preflight.txt")"
+  log "preflight: lockbin=$pf_sha feed=$pf_feed drm_connected=$pf_conn"
+
+  # push the agent
+  h_run "$ip" "$u" "mkdir -p Projects/lockrig/agent Projects/lockrig/out" >>"$RLOG" 2>&1
+  h_push "$ip" "$u" "$AGENT/" "Projects/lockrig/agent/" >>"$RLOG" 2>&1 || { log "FAIL: agent push"; }
+
+  # install (optional)
+  local newsha="$pf_sha"
+  if [ "$SKIP_INSTALL" = 1 ]; then
+    log "install: skipped (--skip-install)"
+  elif [ -n "$CAND_DIR" ] || [ "$FROM_APT" = 1 ]; then
+    local envs="LU=$u D=/home/$u/Projects/lockrig/out CAND=/home/$u/Projects/lockrig/cand"
+    if [ -n "$CAND_DIR" ]; then
+      h_run "$ip" "$u" "mkdir -p Projects/lockrig/cand" >>"$RLOG" 2>&1
+      for d in "$CAND_DIR"/*.deb; do [ -e "$d" ] && { h_push "$ip" "$u" "$d" "Projects/lockrig/cand/" >>"$RLOG" 2>&1; }; done
+    fi
+    log "install: running agent/install.sh ($([ -n "$CAND_DIR" ] && echo candidate-dir || echo from-apt))"
+    h_root_agent "$ip" "$u" "Projects/lockrig/agent/install.sh" "$envs" > "$hout/install.txt" 2>&1
+    [ -s "$hout/install.txt" ] || h_pull "$ip" "$u" "Projects/lockrig/out/install.txt" "$hout" >>"$RLOG" 2>&1
+    newsha="$(h_run "$ip" "$u" "sha256sum /opt/singularity/bin/singularity-lockscreen 2>/dev/null | awk '{print \$1}'")"
+    log "install: lockbin now $newsha"
+    # restart the session iff the shell binary changed
+    if [ -n "$newsha" ] && [ "$newsha" != "$pf_sha" ]; then
+      log "shell changed -> restarting session"
+      h_run "$ip" "$u" "echo ncz | sudo -S -p '' bash -s" > "$hout/restart.txt" 2>&1 <<'EOS'
+SESS=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3=="ncz" && $4=="seat0"{print $1}' | head -1)
+[ -n "$SESS" ] && loginctl terminate-session "$SESS"
+for i in $(seq 1 40); do sleep 2; pgrep -f singularity-greeter >/dev/null && break; done
+sleep 4
+printf 'ncz\n' | python3 /home/ncz/Projects/lockrig/agent/lib/greetd_login.py ncz >/dev/null 2>&1
+for i in $(seq 1 20); do sleep 2; [ -n "$(loginctl list-sessions --no-legend | awk '$3=="ncz" && $4=="seat0"{print $1}')" ] && break; done
+loginctl list-sessions --no-legend | awk '$4=="seat0"'
+EOS
+    else
+      log "shell unchanged -> no session restart"
+    fi
+  fi
+
+  # run the controlled test
+  local mode="live"; [ "$headless" = 1 ] && mode="headless"
+  if [ "$mode" = headless ]; then
+    local bd=""
+    case "$name" in
+      achilles) bd="$BINDIR_ACHILLES";;
+      ultra) bd="$BINDIR_ULTRA";;
+      *) bd="${LOCKRIG_HEADLESS_BINDIR:-}";;
+    esac
+    if [ -z "$bd" ]; then
+      echo -e "TH\tSKIP\theaded host but no harness BINDIR staged (see README)" > "$hout/cases.tsv"
+      echo "{\"host\":\"$name\",\"mode\":\"headless\",\"summary\":{\"pass\":0,\"fail\":0,\"skip\":1},\"reason\":\"no BINDIR\"}" > "$hout/result.json"
+      log "headless: no BINDIR -> SKIP"
+    else
+      local envs="BINDIR=$bd TESTFILE=/home/$u/Projects/lockrig/agent/../test-framesrc.sh TAG=$name D=/home/$u/Projects/lockrig/out IMAGE=localhost/ncz-locktest:forky"
+      # push the committed harness for headless
+      h_run "$ip" "$u" "mkdir -p Projects/lockrig" >>"$RLOG" 2>&1
+      h_push "$ip" "$u" "$TESTFILE" "Projects/lockrig/test-framesrc.sh" >>"$RLOG" 2>&1
+      envs="BINDIR=$bd TESTFILE=/home/$u/Projects/lockrig/test-framesrc.sh TAG=$name D=/home/$u/Projects/lockrig/out IMAGE=localhost/ncz-locktest:forky"
+      h_run "$ip" "$u" "env $envs bash /home/$u/Projects/lockrig/agent/headless.sh" > "$hout/runner.out" 2>&1
+      for i in $(seq 1 40); do [ "$(h_run "$ip" "$u" "test -f Projects/lockrig/out/DONE && echo done" 2>/dev/null)" = done ] && break; sleep 3; done
+      h_pull "$ip" "$u" "Projects/lockrig/out" "$hout" >>"$RLOG" 2>&1
+    fi
+  else
+    local envs="LU=$u TAG=$name D=/home/$u/Projects/lockrig/out SKIP_GREETER=${LOCKRIG_SKIP_GREETER:-0}"
+    [ -n "${LOCKRIG_STAGE_FEED:-}" ] && envs="$envs STAGE_FEED=$LOCKRIG_STAGE_FEED"
+    h_run "$ip" "$u" "mkdir -p Projects/lockrig/out" >>"$RLOG" 2>&1
+    h_root_agent "$ip" "$u" "Projects/lockrig/agent/run_host.sh" "$envs" > "$hout/runner.out" 2>&1
+    for i in $(seq 1 60); do [ "$(h_run "$ip" "$u" "test -f Projects/lockrig/out/DONE && echo done" 2>/dev/null)" = done ] && break; sleep 3; done
+    h_pull "$ip" "$u" "Projects/lockrig/out" "$hout" >>"$RLOG" 2>&1
+  fi
+
+  # normalize result files (the agent writes into <remote>.../out/)
+  if [ -s "$hout/out/cases.tsv" ]; then cp -f "$hout/out/cases.tsv" "$hout/cases.tsv"; fi
+  if [ -s "$hout/out/result.json" ]; then cp -f "$hout/out/result.json" "$hout/result.json"; fi
+  [ -s "$hout/out/headless.out" ] && cp -f "$hout/out/headless.out" "$hout/headless.out" 2>/dev/null
+  [ -d "$hout/out/ev" ] && cp -a "$hout/out/ev/." "$hout/" 2>/dev/null
+  [ -s "$hout/cases.tsv" ] || echo -e "RUN\tFAIL\tno result captured (see runner.out)" > "$hout/cases.tsv"
+  [ -s "$hout/result.json" ] || echo "{\"host\":\"$name\",\"mode\":\"$mode\",\"summary\":{\"pass\":0,\"fail\":1,\"skip\":0},\"reason\":\"no result.json\"}" > "$hout/result.json"
+  log "done: $(awk -F'\t' '{c[$2]++} END{for(k in c) printf "%s=%d ",k,c[k]}' "$hout/cases.tsv")"
+
+  # RESTORE: remove host scratch run dir (evidence already pulled); keep agent deployed.
+  h_run "$ip" "$u" "rm -rf /home/$u/Projects/lockrig/out /home/$u/Projects/lockrig/cand 2>/dev/null; true" >>"$RLOG" 2>&1
+
+  "$LEASE" release "$name" --owner "$OWNER" >/dev/null 2>&1
+  trap - RETURN
+  return 0
+}
+
+# ---------------------------------------------------------------- orchestration
+NONATT=(); ATT=()
+for name in "${SEL[@]}"; do
+  if [ "$(host_field "$name" 8)" = 1 ]; then ATT+=("$name"); else NONATT+=("$name"); fi
+done
+if [ "${#ATT[@]}" -gt 0 ] && [ "$ALLOW_ATTENDED" != 1 ]; then
+  echo "lockrig: attended hosts requested ($(IFS=,; echo "${ATT[*]}")) but no --allow-attended; they will be SKIPPED" >&2
+fi
+
+banner "lockrig run: owner=$OWNER out=$OUT"
+echo "non-attended (parallel): ${NONATT[*]:-none}"
+echo "attended (serial, last):  ${ATT[*]:-none}"
+
+if [ "${#NONATT[@]}" -gt 0 ]; then
+  banner "non-attended hosts (parallel)"
+  pids=()
+  for name in "${NONATT[@]}"; do run_one "$name" & pids+=($!); done
+  for p in "${pids[@]}"; do wait "$p"; done
+fi
+for name in "${ATT[@]}"; do
+  banner "attended host $name (one at a time, short window)"
+  run_one "$name"
+done
+
+# ---------------------------------------------------------------- matrix
+"$HERE/report.sh" --out "$OUT" --hosts "$(IFS=,; echo "${SEL[*]}")" --repo "$ROOT" || true
+
+# exit code: non-zero if any FAIL
+fail=$(grep -rhE 'FAIL' "$OUT"/*/cases.tsv 2>/dev/null | wc -l | tr -d ' ')
+banner "lockrig run complete: $fail FAIL row(s)"
+[ "$fail" = 0 ] && exit 0 || exit 1
