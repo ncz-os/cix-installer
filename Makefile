@@ -693,6 +693,7 @@ parity:
 	build/test-usb2-rescan-greetd.sh
 	branding/cygnus/tests/test-refind-theme-config.sh
 	build/test-tour-slides.sh
+	build/test-ncz-first-login-tour.sh
 	build/test-refind-rescue-promotion.sh
 	build/test-wallpaper-rotator-relogin.sh
 	build/test-wallpaper-rotator-interval.sh
