@@ -432,8 +432,23 @@ check_amd64_line() {
         # though the newest kernel was already staged correctly. Check
         # whether the staged newest's checksum exists ANYWHERE locally,
         # matching what the build will actually pick.
+        # The pool dir holds the SHIPPING image alongside its debug build
+        # (linux-image-<kver>-dbg, ~1.1 GiB) and linux-libc-dev. A bare
+        # `find ... -iname 'linux-image-*.deb' | head -1` is at the mercy of
+        # readdir order: in the r2 pool (amd64-t2-rc7-r2-20261012) it returned
+        # the -dbg build and false-FAILed the gate against a correctly staged
+        # kernel (amd64 RC7, 2026-10-12); the r1 pool happened to return the
+        # image. Prefer the EXACT pinned package when the revision pin is
+        # known, otherwise take the non-dbg image. This only fixes WHICH pool
+        # artifact is compared -- the sha256 comparison and FAIL-closed
+        # behaviour below are unchanged.
         local staged_deb
-        staged_deb="$(find "$newest" -maxdepth 1 -iname 'linux-image-*.deb' 2>/dev/null | head -1)"
+        if [ -n "${_pin:-}" ] && [ -n "${_pkgver:-}" ] \
+           && [ -f "$newest/linux-image-${_pin}_${_pkgver}_amd64.deb" ]; then
+            staged_deb="$newest/linux-image-${_pin}_${_pkgver}_amd64.deb"
+        else
+            staged_deb="$(find "$newest" -maxdepth 1 -iname 'linux-image-*.deb' ! -iname '*-dbg_*' 2>/dev/null | head -1)"
+        fi
         local local_debs
         local_debs=("$local_kver_dir"/linux-image-*.deb)
         if [ -n "$staged_deb" ] && [ -e "${local_debs[0]}" ]; then
