@@ -135,8 +135,10 @@ def options_with_build_id(options: str, build_id: str) -> str:
     """
     bid = sanitize_build_id(build_id)
     if not bid:
-        return options
-    return f"{options} ncz_rev={bid}"
+        # Normalise anyway: a caller-supplied options string with a trailing
+        # space must never reach the EFI command line with a double space.
+        return " ".join(options.split())
+    return " ".join((options + " ncz_rev=" + bid).split())
 
 
 def _git_build_id() -> str:
@@ -231,20 +233,25 @@ NCZ_NO_BRLTTY = "ncz_no_brltty=1"
 # auto=true because d-i's single-console preseeding path can select a firmware
 # UART and make the installer disappear from the local display. Rescue is not
 # an automatic/preseeded install either.
-_PC_INSTALL_OPTIONS = (
-    "auto=true priority=critical "
-    "ipv6.disable=1 interface=auto "
-    "netcfg/dhcp_timeout=120 locale=en_US.UTF-8 "
-    "keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt "
-    + NCZ_NO_BRLTTY
-    + " quiet loglevel=3 vt.global_cursor_default=0 consoleblank=0 console=tty0"
-)
-_PC_EXPERT_OPTIONS = (
-    "priority=low ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
-    "DEBIAN_FRONTEND=newt "
-    + NCZ_NO_BRLTTY
-    + " loglevel=4 vt.global_cursor_default=0 consoleblank=0 console=tty0"
-)
+_PC_INSTALL_OPTIONS = " ".join((
+    "auto=true priority=critical",
+    "ipv6.disable=1 interface=auto",
+    "netcfg/dhcp_timeout=120",
+    "locale=en_US.UTF-8",
+    "keyboard-configuration/layoutcode=us",
+    "DEBIAN_FRONTEND=newt",
+    NCZ_NO_BRLTTY,
+    "quiet loglevel=3",
+    "vt.global_cursor_default=0 consoleblank=0 console=tty0",
+))
+_PC_EXPERT_OPTIONS = " ".join((
+    "priority=low ipv6.disable=1 interface=auto",
+    "netcfg/dhcp_timeout=120",
+    "DEBIAN_FRONTEND=newt",
+    NCZ_NO_BRLTTY,
+    "loglevel=4",
+    "vt.global_cursor_default=0 consoleblank=0 console=tty0",
+))
 _PC_RESCUE_OPTIONS = (
     "rescue/enable=true ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
     "DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
