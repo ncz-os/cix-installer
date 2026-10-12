@@ -211,17 +211,22 @@ expect_boot_progress_ttys() {
     return 0
 }
 expect "boot-progress.sh writes to /dev/tty1 + /dev/tty3 + /dev/console (operator's 'invisible boot' regression guard)" 0 expect_boot_progress_ttys "$ROOT/preseed/boot-progress.sh"
-# --- source-level regression: the ncz_rev banner is NOT only on /dev/tty4 ---
+# --- source-level regression: the ncz_rev banner is one-shot, on tty1+tty3+console ---
 # Operator feedback 2026-09-30 ("the earlier commit put messages only on VT4,
 # verify that is not invisible to the user"). The "==== NCZ-OS INSTALLER ${rev}
-# ====" banner runs in a 2-second heartbeat loop from early_command. The
+# ====" banner used to run in a 2-second heartbeat loop from early_command. The
 # historical version wrote it ONLY to /dev/tty4 -- a non-displayed console.
 # A regression that returns to the VT4-only routing makes the banner
 # invisible to the operator and breaks the install-grep "NCZ-OS INSTALLER"
-# marker on serial-only captures (the gate grep's at least 4 KVM install
-# gates rely on that marker being in $ILOG). The loop MUST iterate over at
-# least /dev/tty1 (operator framebuffer), /dev/tty3 (Alt-F3 diag console)
-# and /dev/console (serial capture); a bare `for V in /dev/tty4` fails.
+# marker on serial-only captures (at least 4 KVM install gates rely on that
+# marker being in $ILOG). It MUST iterate over at least /dev/tty1 (operator
+# framebuffer), /dev/tty3 (Alt-F3 diag console) and /dev/console (serial
+# capture); a bare `for V in /dev/tty4` fails.
+# 2026-10-12 (PROTEUS installer defect): the loop was ALSO a smear bug: it
+# kept painting the banner over the running newt dialogs for 120 s (the
+# operator's "[NCZ hh:mm:ss] ==== NCZ-OS INSTALLER unknown ====" every ~2 s).
+# The banner is now a ONE-SHOT print before newt starts: no sleep/while on its
+# line, and exactly one banner line in the file.
 expect_rev_banner_not_vt4_only() {
     local f="$1"
     # The "==== NCZ-OS INSTALLER ${rev} ====" banner must be present.
@@ -260,6 +265,14 @@ expect_rev_banner_not_vt4_only() {
     case "$targets" in
         "/dev/tty4"|"/dev/tty4 ") echo "$f: the NCZ-OS INSTALLER banner for-loop iterates ONLY /dev/tty4 (operator's 'invisible boot' regression, 2026-09-30)" >&2; return 1 ;;
     esac
+    # banner-ONCE (PROTEUS 2026-10-12): a repeating loop (sleep/while on the
+    # banner line, or more than one banner line) is the smear regression.
+    case "$banner_line" in
+        *sleep*|*while*|*"&"*) echo "$f: the NCZ-OS INSTALLER banner repeats / is backgrounded -- it must print ONCE at boot and never over the newt UI (PROTEUS 2026-10-12 smear regression)" >&2; return 1 ;;
+    esac
+    local n
+    n=$(grep -cE 'NCZ-OS INSTALLER' "$f")
+    [ "$n" = 1 ] || { echo "$f: expected exactly ONE NCZ-OS INSTALLER banner line, found $n (smear regression)" >&2; return 1; }
     return 0
 }
 expect "preseed.cfg NCZ-OS INSTALLER banner is visible on /dev/tty1 + /dev/tty3 + /dev/console (NOT VT4-only, operator's invisible-boot regression guard)" 0 expect_rev_banner_not_vt4_only "$ROOT/preseed/preseed.cfg"
