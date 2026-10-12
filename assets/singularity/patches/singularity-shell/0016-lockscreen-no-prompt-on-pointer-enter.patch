@@ -1,0 +1,72 @@
+From 893099ecd0ad3ef22c0de86d4fc51375730b6bf4 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 12 Oct 2026 09:42:47 -0400
+Subject: [PATCH] lockscreen: do not raise the unlock prompt on pointer enter
+
+The shipped idle path shows the unlock prompt at lock time, not on the first
+input. On a host where the lock surface maps under the (stationary) cursor, the
+compositor delivers a pointer ENTER with no user input; pt_enter() called
+raise_prompt(), which painted the password card over the saver frames. Observed
+on PROTEUS (RC5 payload): idle -> lock at 60s, and at lock+2s with zero input
+events the lock log already contained 'lock: prompt raised over saver'.
+
+The requirement is: idle -> lock with saver frames and NO prompt -> the first
+real input raises the prompt.
+
+Fix: do not raise the prompt from pt_enter(). Also guard pt_motion() so a
+motion delivered with the position the surface was entered at (an initial
+motion alongside the enter, on compositors that send one) does not raise
+either; only an actual position change raises. The prompt still raises on the
+first real key (kb_key), pointer button (pt_button) or pointer motion
+(pt_motion). Applies after 0015 (index fd64006 matches).
+
+Do not merge without hardware verification + a regression assertion.
+Author: Jason Perlow <jperlow@gmail.com>
+---
+ src/lockscreen/lock_main.c | 23 +++++++++++++++++++----
+ 1 file changed, 19 insertions(+), 4 deletions(-)
+
+diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
+index fd64006..8e030d6 100644
+--- a/src/lockscreen/lock_main.c
++++ b/src/lockscreen/lock_main.c
+@@ -1016,17 +1016,32 @@ static void pt_enter(void *d, struct wl_pointer *p, uint32_t serial,
+     ptr_x = wl_fixed_to_double(sx);
+     ptr_y = wl_fixed_to_double(sy);
+ #ifdef LOCK_FRAMESRC
+-    if (framesrc) raise_prompt();
++    /* Do NOT raise the unlock prompt on pointer ENTER. The full-screen lock
++     * surface is mapped under the (stationary) cursor, so the compositor
++     * delivers a pointer enter with no user input; raising the prompt here
++     * paints the password card at lock time instead of the raw saver frames.
++     * The prompt still raises on the first real key press (kb_key), pointer
++     * button (pt_button) or pointer motion (pt_motion). */
+ #endif
+ }
+ static void pt_leave(void *d, struct wl_pointer *p, uint32_t serial, struct wl_surface *sf) {
+     ptr_output = NULL;
+ }
+ static void pt_motion(void *d, struct wl_pointer *p, uint32_t t, wl_fixed_t sx, wl_fixed_t sy) {
+-    ptr_x = wl_fixed_to_double(sx);
+-    ptr_y = wl_fixed_to_double(sy);
++    double nx = wl_fixed_to_double(sx);
++    double ny = wl_fixed_to_double(sy);
++#ifdef LOCK_FRAMESRC
++    /* Only a REAL move raises the prompt. A compositor can deliver a motion
++     * with the position the surface was entered at as soon as the lock is
++     * mapped under a stationary cursor (an initial motion alongside the
++     * enter); raising on that would paint the password card at lock time --
++     * the same defect pt_enter had. Compare with the last known position. */
++    bool moved = (nx != ptr_x) || (ny != ptr_y);
++#endif
++    ptr_x = nx;
++    ptr_y = ny;
+ #ifdef LOCK_FRAMESRC
+-    if (framesrc) raise_prompt();
++    if (framesrc && moved) raise_prompt();
+ #endif
+ }
+ static void pt_button(void *d, struct wl_pointer *p, uint32_t serial, uint32_t time,
+-- 
+2.50.1 (Apple Git-155)
+
