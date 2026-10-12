@@ -99,10 +99,16 @@ print("info: X-Singularity-App=%r (app-shipped -> enabled independent of enabled
 # manifest that is not app-shipped, is caught here.
 if app is None:
     import subprocess
+    env = dict(os.environ)
+    # The shell reads schemas from /opt (GSETTINGS_SCHEMA_DIR), which replaces the
+    # default /usr/share path; mirror that so dev.sinty.desktop is found.
+    sdir = "/opt/singularity/share/glib-2.0/schemas"
+    if os.path.isdir(sdir):
+        env.setdefault("GSETTINGS_SCHEMA_DIR", sdir)
     try:
         out = subprocess.check_output(
             ["gsettings", "get", "dev.sinty.desktop", "enabled-plugins"],
-            stderr=subprocess.DEVNULL, text=True)
+            stderr=subprocess.DEVNULL, text=True, env=env)
     except Exception:
         out = None
     listed = out is not None and ("'%s'" % MODULE) in out
@@ -130,13 +136,18 @@ else:
     print("note: no display; skipping get_settings_widget() (needs GTK init)")
 
 if w:
-    g_class = ctypes.c_void_p.from_address(w).value
-    gtype = ctypes.c_size_t.from_address(g_class).value
-    name = libgobj.g_type_name(gtype)
-    name = name.decode() if name else "?"
-    print("get_settings_widget -> GType", name)
-    if name == "ScreensaverUnavailable":
+    # Identify the widget without poking at GObject internals: look the plugin's
+    # registered GTypes up by name and ask GObject whether the instance is-a them.
+    libgobj.g_type_from_name.restype = ctypes.c_size_t
+    libgobj.g_type_from_name.argtypes = [ctypes.c_char_p]
+    unavailable = libgobj.g_type_from_name(b"ScreensaverUnavailable")
+    settings_t = libgobj.g_type_from_name(b"ScreensaverSettings")
+    if unavailable and libgobj.g_type_check_instance_is_a(ctypes.c_void_p(w), unavailable):
         die("settings widget is ScreensaverUnavailable -> plugin reports not-installed")
+    if settings_t and libgobj.g_type_check_instance_is_a(ctypes.c_void_p(w), settings_t):
+        print("get_settings_widget -> ScreensaverSettings")
+    else:
+        print("get_settings_widget -> non-null widget (GType name lookup inconclusive)")
     print("PASS: plugin pane is non-empty (extension + settings widget present)")
 else:
     print("PASS(load-only): extension created and is a Singularity.Plugin; "
