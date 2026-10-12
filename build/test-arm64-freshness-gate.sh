@@ -82,8 +82,8 @@ std_pool() {
         "r285-7.3.0-rc6-sky1-ncz-20261006|2026-10-07" \
         "r286-7.3.0-rc6-sky1-ncz-20261011|2026-10-11" \
         "r287-7.3.0-rc6-sky1-ncz-20261011|2026-10-11" \
-        "r288-7.3.0-rc7-sky1-ncz-20261012|2026-10-12" \
-        "r289-7.3.0-rc7-sky1-ncz-20261012|2026-10-12"
+        "r288-7.3.0-rc7-sky1-ncz-20261012|2026-10-12 00:00:00" \
+        "r289-7.3.0-rc7-sky1-ncz-20261012|2026-10-12 12:00:00"
 }
 one() { check_arm64_channel assets/kernel/mainline unified required; }
 export -f mktime mksymlink mkpool std_pool one
