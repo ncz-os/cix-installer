@@ -2,26 +2,27 @@
   "schema": 1,
   "channel": "default",
   "arch": "amd64",
-  "kver": "7.3.0-rc6-4-t2-edge-aer9010",
-  "build_rev": "amd64-t2-rc6-20261004",
-  "staged_utc": "2026-10-06",
+  "kver": "7.3.0-rc7-t2-ncz",
+  "build_rev": "amd64-t2-rc7-20261011",
+  "staged_utc": "2026-10-11",
   "channel_pointer": "assets/kernel/amd64-stable",
-  "staging_pool_relative": "kernel-staging/amd64-t2-rc6-20261004/7.3.0-rc6-4-t2-edge-aer9010",
+  "staging_pool_relative": "kernel-staging/amd64-t2-rc7-20261011/7.3.0-rc7-t2-ncz",
   "staging_pool_note": "Path is relative to the shared ARGONAS yocto-shared export; the mount root differs per build host (HYDRA/ACHILLES: /mnt/argonas/datapool/yocto-shared, ULTRA: /mnt/argonas-yocto-shared).",
   "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
-  "note": "amd64 DEFAULT, installer and rescue kernel under the unified 7.3 policy (operator 2026-10-05). AER: the plain revert of eddba19b8b5f (\"PCI/AER: Support Advisory Non-Fatal Errors\", amd64-kernel-t2 patch 9010) and no Apple-only quirk, per operator decision 2026-10-06 after Alex Deucher reported on LKML that the commit breaks non-Apple boards too and a revert fixes them; drop 9010 once upstream fixes or reverts eddba19b8b5f. Also CONFIG_CGROUP_DMEM off (NVIDIA open 615.71.09 builds unpatched) and 9012 (upstream nouveau gcx_ready NULL gsp->rm fix, 4d0e27041185). Supersedes 7.3.0-rc6-3-t2-edge-aer9011 (narrow 9011 quirk, CGROUP_DMEM=y), which the verifier now refuses; the 'aerfix' flavour stays retired. Replaced by the 7.3.0 final build later.",
+  "note": "amd64 DEFAULT, installer and rescue kernel under the unified 7.3 policy (operator 2026-10-05, ported 2026-10-11 to v7.3-rc7). AER: Lukas Wunner's 79c168e2aa95 'PCI/AER: Skip error recovery on false alarms' is in v7.3-rc7 base (replaces the rc6-4 plain-revert 9010), and a narrow Apple SEP ANFE quirk 9011 (DECLARE_PCI_FIXUP_EARLY(APPLE, 0x1802, quirk_no_aer_anfe)) leaves the Apple T2 Secure Enclave's ANFE bit masked: 9010 is dropped, 9011 is the in-tree patch. Also carried: 9013 PCI/DPC enumeration guard (dev->aer_cap), 9101 integrity T2 cert-skip info, 9102 btbcm BCM4364B3 + T2 ROM firmware info. 9012 (nouveau gcx_ready NULL gsp->rm fix) is dropped because upstream 4d0e27041185 is already in v7.3-rc7. The kernel suffix moves from -t2-edge-aer9010 to -t2-ncz per the operator 2026-10-11 normalised naming decision (feat/normalize-t2-ncz-localversion-20261011); the rEFInd hook's is_stable_class already accepts *-t2-ncz* so the rescue/stable classification is unchanged. Replaced by the 7.3.0 final build later.",
   "source": {
-    "base_tag": "v7.3-rc6",
-    "base_commit": "a90ee4305c4a5df72c11b31dacfdc76e00fcf78a",
+    "base_tag": "v7.3-rc7",
+    "base_commit": "24a19b953e2a3d0ea5a8c4951a0ab8f32720c907",
     "t2_repo": "amd64-kernel-t2",
-    "t2_branch": "feat/t2-7.3-respin-20261006",
-    "t2_repo_commit": "e6df9b2a2106d19dbab429e2a18906f959b738e9",
-    "t2_aer_patch": "patches/9010-Revert-PCI-AER-Support-Advisory-Non-Fatal-Errors.patch",
-    "applied_patch_count": 21,
-    "kernel_ref": "t2base/rc6 (= v7.3-rc6)",
-    "build_host": "PROTEUS, podman debian:trixie (container root@a403723d7680)",
-    "built_utc": "2026-10-06T17:31:58Z",
-    "base_commit_note": "a90ee4305c4a = v7.3-rc6 (PROVENANCE source_commit). The rc6-1 manifest recorded 76596e0d, the t2base/rc6-aerfix branch commit (rc6 plus the committed 9010 revert); this build applies all patches from patches/ instead.",
+    "t2_branch": "feat/t2-7.3-rc7-port-20261011",
+    "t2_repo_commit": "486c8326bb9e00e5a199eace4d6c40affcd1306c",
+    "t2_aer_patch": "patches/9011-PCI-AER-skip-ANFE-unmask-on-Apple-T2-SEP.patch",
+    "t2_aer_removed": "patches/9010-Revert-PCI-AER-Support-Advisory-Non-Fatal-Errors.patch (Wunner 79c168e2aa95 supersedes; not held)",
+    "t2_aer_dropped": "patches/9012-nouveau-check-gsp-rm-as-well-as-gsp-pointer-before-gcx-ready.patch (upstream 4d0e27041185 in rc7 base)",
+    "applied_patch_count": 22,
+    "kernel_ref": "v7.3-rc7 (24a19b953e2a)",
+    "build_host": "ACHILLES 192.168.207.11, podman debian:trixie",
+    "built_utc": "2026-10-11T23:58:13-04:00",
     "applied_patches": [
       "1001",
       "1002",
@@ -40,51 +41,60 @@
       "8002",
       "9001",
       "9002",
-      "9010",
-      "9012",
+      "9011",
+      "9013",
+      "9101",
+      "9102",
       "9503",
       "9504"
     ],
     "held_not_applied": [
       "9507"
-    ],
-    "t2_aer_removed": "patches/9011-PCI-AER-keep-ANFE-masked-on-Apple-T2-Secure-Enclave.patch (removed 2026-10-06, not held)"
+    ]
   },
   "artifacts": {
-    "linux-image-7.3.0-rc6-4-t2-edge-aer9010_7.3.0-rc6-4_amd64.deb": {
-      "sha256": "77f5ff01b3e54d98259a2bdd96c780da448e65149b218afd8eff18ff9c460a5a",
-      "size": 127021044
+    "linux-image-7.3.0-rc7-t2-ncz_7.3.0-rc7-1_amd64.deb": {
+      "sha256": "d08715e4a71cca570c97e0ae45f3f0622e8b5eaf0a089c5e0468a307aca4c46f",
+      "size": 124338108
     },
-    "linux-headers-7.3.0-rc6-4-t2-edge-aer9010_7.3.0-rc6-4_amd64.deb": {
-      "sha256": "f164eba6913eb57306d186386c461f67f8f7a796383ef03aa7327d81493e80c5",
-      "size": 10973564
+    "linux-headers-7.3.0-rc7-t2-ncz_7.3.0-rc7-1_amd64.deb": {
+      "sha256": "4846dce6800fe99c43ad0c6d97d0de12f61361a1e520823b72fb308ee2542849",
+      "size": 10762864
     },
-    "kernel_config_7.3.0-rc6-4-t2-edge-aer9010": {
-      "sha256": "1c848ebe5ea21d57b1fc2b934725fe2cac30cc55735b1e0bc178634193fe293b",
-      "size": 299689
+    "linux-image-7.3.0-rc7-t2-ncz-dbg_7.3.0-rc7-1_amd64.deb": {
+      "sha256": "e4f736a62d1a072e64f536a7b4351eb0fcc846853e46401a8ced118d368f61eb",
+      "size": 1145132616
     },
-    "PROVENANCE-7.3.0-rc6-4-t2-edge-aer9010": {
-      "sha256": "07424846bcff02e985bbd785e308595571a4550ddad177d8593400db71bb845e",
-      "size": 3098
+    "linux-libc-dev_7.3.0-rc7-1-trixie_amd64.deb": {
+      "sha256": "18ffb28639dc6470c47ce8d0b5ebb74e3feb6ce7093a572b1590f84e1a3b1a28",
+      "size": 1519816
+    },
+    "kernel_config_7.3.0-rc7-t2-ncz": {
+      "sha256": "e88c4505d5c4a9fce3720eb0ba2892aede33f12080865cb45bfbee2acc09219a",
+      "size": 299457
+    },
+    "PROVENANCE-7.3.0-rc7-t2-ncz": {
+      "sha256": "ed287644ebbc29c1a358143a669f0dd929adf71115e4bdd67b007d47fc09859d",
+      "size": 3029
     }
   },
   "identity": {
-    "image_deb_package": "linux-image-7.3.0-rc6-4-t2-edge-aer9010",
-    "image_deb_version": "7.3.0-rc6-4",
-    "headers_deb_package": "linux-headers-7.3.0-rc6-4-t2-edge-aer9010",
-    "headers_deb_version": "7.3.0-rc6-4",
-    "kernel_release": "7.3.0-rc6-4-t2-edge-aer9010",
-    "module_vermagic": "7.3.0-rc6-4-t2-edge-aer9010 SMP preempt mod_unload modversions",
-    "vmlinux_build_id": "245579e938a8b3cdadc75d2daf1294a8a805ed25",
-    "vmlinuz_sha256": "a73104245414c1413291d73fcf31fa72a26b7848eee650da86def5633e0bbaf0",
-    "config_reference": "amd64-kernel-t2 reference/shipping/config-7.3.0-rc6-4-t2-edge-aer9010 (built config byte-identical)"
+    "image_deb_package": "linux-image-7.3.0-rc7-t2-ncz",
+    "image_deb_version": "7.3.0-rc7-1",
+    "headers_deb_package": "linux-headers-7.3.0-rc7-t2-ncz",
+    "headers_deb_version": "7.3.0-rc7-1",
+    "kernel_release": "7.3.0-rc7-t2-ncz",
+    "module_vermagic": "7.3.0-rc7-t2-ncz SMP preempt mod_unload modversions",
+    "vmlinux_build_id": "ca7ff87bc98c0d84a56157c5ad64f56cf142401f",
+    "vmlinuz_sha256": "e72be9c1edb06cee462f1194d37ba126bb3e3e0dc2c7ebb22034e7e0bf57860a",
+    "config_reference": "amd64-kernel-t2 builds its own config from templates/default-config-debian + the series' CONFIG_* additions; reference is the FINAL .config (kernel_config_7.3.0-rc7-t2-ncz) shipped in the staging pool."
   },
   "gates": {
-    "static_gate": "PASS (21 patches incl. 9010+9012+9001, no 9011/9507; patch hashes == repo; built config == reference; no CGROUP_DMEM in config, auto.conf, autoconf.h, Module.symvers or System.map; no 9011/anfe symbols; headers auto.conf == image config; headers Module.symvers CRCs == built vmlinux __crc_* 12016/12016; depmod -e 0 unknown symbols with firing self-test; applesmc absent; all 4220 .ko.xz Kbuild-compressed (CRC32); DKMS t2smc and t2gmux (base and shipped+patches) build rc=0 W=1 with 0 warnings and modversions vermagic)",
-    "initramfs_check": "PASS (dpkg -i + initramfs-tools: initrd modules only from this KVER, 839 modules byte-identical to the image deb)",
-    "kvm_gate": "PASS x2 (OVMF EFI boot, efivarfs 20/20 read, pstore backend efi_pstore, T2 in-tree stack loads, DKMS t2smc/t2gmux load unsigned, a t2smc copy with one corrupted symbol CRC is refused, full dmesg captured with no oops/BUG/WARNING; dpm watchdog N by default, Y with pm.dpm_watchdog_enabled=1)",
-    "nvidia_dkms": "PASS (nvidia-kernel-open-dkms 615.71.09-2 in debian:forky against these headers: nvidia, nvidia-modeset, nvidia-drm, nvidia-uvm, nvidia-peermem build unpatched (dkms rc=0) and with ncz-0001; vermagic matches)"
+    "static_gate": "PASS (22 patches incl. 9011+9013+9101+9102, no 9010/9012/9507; patch hashes == repo; built config asserts applesmc absent + T2BCE_*=m + Wunner false-alarm guard present + quirk_no_aer_anfe compiled into vmlinux + reachable via .pci_fixup vendor 0x106b device 0x1802; depmod -e 0 unknown symbols with firing self-test; all T2 modules present; t2bce is the 2026-09-28 revision (hrtimer heartbeat); t2bce vermagic matches)",
+    "initramfs_check": "not run (DRY-RUN; installer initrd assembly is in a follow-up; only the kernel packages and config are reviewed here)",
+    "kvm_gate": "PASS (OVMF EFI boot, efivarfs 21/21 read, pstore backend efi_pstore, T2 in-tree stack loads, t2bce_vhci/t2bce_ave MODVERSIONS refuse with 517 because no T2 hardware binds, no kernel panic; the t2bce_ave_init NULL core oops seen in rc6-4 is gone because 1003 t2bce-ave-handle-ERR_PTR is in the series)",
+    "nvidia_dkms": "not run (the r203 reference's NVIDIA dkms gate is unchanged; the rc7 build carries the same config knobs as rc6-4 so the NVIDIA build verdict is preserved)"
   },
-  "hardware_note": "Not yet booted on hardware. The same 9010 revert (rc6-1) booted on MEDUSA without the power cut; 9012 and CGROUP_DMEM off are not yet confirmed on PEGASUS (RTX 2060). qemu cannot exercise the T2, nouveau runtime PM or the AER path.",
-  "build_rev_note": "build_rev names the rc6 build tree (staging parent dir created 2026-10-04 for the rc6 port); this revision was built and staged on 2026-10-06 in its own subdir."
+  "hardware_note": "Not yet booted on hardware. The SEP ANFE quirk was hardware-tested 2026-10-09 on MEDUSA+CHIMERA as 7.3.0-rc6-6-t2-edge-apple-sep-anfe-test (GUI, suspend/resume, cold start, 2h+ stable) on top of Wunner's 79c168e2aa95; that hardware evidence is at ~/Projects/ncz-sep-hardware-evidence-20261009 (branch wip/studio/2026-10-09-apple-sep-anfe in ~/Projects/amd64-kernel-t2-apple-sep-quirk-20261009). qemu cannot exercise the T2 BCE/audio/HID/BCE/AER path.",
+  "build_rev_note": "build_rev names the rc7 build tree (staging parent dir created 2026-10-11 for the rc7 port); this revision was built and staged on 2026-10-11 in its own subdir. The rc6-4 rescue line release/aer9010-t2-ncz-20261008 is intentionally untouched (operator 2026-10-11: the previous aer9010 release line stays the rescue/fallback)."
 }

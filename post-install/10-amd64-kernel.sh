@@ -11,13 +11,14 @@
 # exists.
 #
 # POLICY (operator directive 2026-10-05, unified): amd64 ships ONE kernel,
-# 7.3 (7.3.0-rc6-4-t2-edge-aer9010, the T2 build with the plain revert of eddba19b8b5f, PCI/AER ANFE;
-# replaced by the 7.3.0 final build later). It is the default and the
-# installer boot kernel. The retired 7.2.9 default and the separate
-# amd64-edge channel are gone. This hook installs amd64-stable only, and
-# refuses a payload whose KVER is not the 7.3 series so the image fails
-# closed (run-all.sh treats a non-zero exit from any REQUIRED hook as
-# fatal).
+# 7.3 (7.3.0-rc7-t2-ncz for the rc7 port, the T2 build with the SEP ANFE
+# quirk 9011 + Wunner 79c168e2aa95 which is in v7.3-rc7 base; the plain
+# 9010 revert is dropped; replaced by the 7.3.0 final build later). It
+# is the default and the installer boot kernel. The retired 7.2.9
+# default and the separate amd64-edge channel are gone. This hook
+# installs amd64-stable only, and refuses a payload whose KVER is not
+# the 7.3 series so the image fails closed (run-all.sh treats a non-zero
+# exit from any REQUIRED hook as fatal).
 # NCZ-PLATFORM-GUARD: amd64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
 # run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
 # undetectable arch does NOT skip (legacy behavior).

@@ -59,21 +59,21 @@ echo "=== Positive: clean 7.3 trees and listings ==="
 R="$T/clean-arm64";  mkclean "$R" "7.3.0-rc6-sky1-ncz" "refind-clean-arm64.conf"
 run "arm64: clean 7.3 tree, default Mali (Default)" 0 \
     --root "$R" --arch arm64 --expect-kver 7.3.0-rc6-sky1-ncz
-R="$T/clean-amd64";  mkclean "$R" "7.3.0-rc6-4-t2-edge-aer9010" "refind-clean-amd64.conf"
+R="$T/clean-amd64";  mkclean "$R" "7.3.0-rc7-t2-ncz" "refind-clean-amd64.conf"
 run "amd64: clean 7.3 tree, default Stable (Default)" 0 \
-    --root "$R" --arch amd64 --expect-kver 7.3.0-rc6-4-t2-edge-aer9010
+    --root "$R" --arch amd64 --expect-kver 7.3.0-rc7-t2-ncz
 run "arm64: clean find listing" 0 \
     --listing "$FIX/find-listing-clean-arm64.txt" --arch arm64 --expect-kver 7.3.0-rc6-sky1-ncz
 run "amd64: our staged .deb listing passes" 0 \
-    --listing "$FIX/find-listing-ours-amd64.txt" --arch amd64 --expect-kver 7.3.0-rc6-4-t2-edge-aer9010
+    --listing "$FIX/find-listing-ours-amd64.txt" --arch amd64 --expect-kver 7.3.0-rc7-t2-ncz
 
 echo "=== Negative: Debian kernel artifacts and packages ==="
 run_grep "arm64: listing with vmlinuz-7.1* / modules-7.1*" 1 "Debian 7.1 boot artifact" \
     --listing "$FIX/find-listing-debian.txt" --arch arm64 --expect-kver 7.3.0-rc6-sky1-ncz
 run_grep "dpkg listing: Debian metapackage + versioned 7.1" 1 "Debian default kernel metapackage" \
-    --listing "$FIX/dpkg-listing-debian.txt" --arch amd64 --expect-kver 7.3.0-rc6-4-t2-edge-aer9010
+    --listing "$FIX/dpkg-listing-debian.txt" --arch amd64 --expect-kver 7.3.0-rc7-t2-ncz
 run_grep "amd64: Debian versioned package in a path" 1 "non-NCZ kernel package" \
-    --listing "$FIX/dpkg-listing-debian.txt" --arch amd64 --expect-kver 7.3.0-rc6-4-t2-edge-aer9010
+    --listing "$FIX/dpkg-listing-debian.txt" --arch amd64 --expect-kver 7.3.0-rc7-t2-ncz
 
 D="$T/dirty-arm64"
 mkdir -p "$D/boot/efi/EFI/BOOT" "$D/lib/modules/7.1.4-arm64"
