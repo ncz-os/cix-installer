@@ -229,7 +229,7 @@ re-classified here.
   wrapper `sweep_on.sh`. `offscreen.py` implements the lock protocol.
 * **Raw data (this directory):** `on70_all.jsonl` (HD4000, on-screen, 100 records
   / 74 hacks), `on70x.jsonl`, `on70.jsonl`, `off70.jsonl` (HD4000, off-screen),
-  `on89.jsonl` (HD3000, on-screen, 116 records / 74 hacks).
+  `on89.jsonl` (HD3000, on-screen, 120 records / 74 hacks).
 * **Per-host TSVs:** `savers-lite-pool-ivb-hd4000.tsv`,
   `savers-lite-pool-snb-hd3000.tsv`; **combined:** `savers-lite-pool.tsv`
   (columns: saver, family, hostclass, native_fps, p95, min_scale_for_30fps,

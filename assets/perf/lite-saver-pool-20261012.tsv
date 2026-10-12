@@ -143,3 +143,7 @@ hyprsaver_starfield_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or 
 hyprsaver_temple_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
 hyprsaver_terminal_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
 hyprsaver_ticker_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_tunnel_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_voronoi_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_waterfall_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_wormhole_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
