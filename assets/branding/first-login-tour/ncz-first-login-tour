@@ -1,0 +1,212 @@
+#!/bin/sh
+# ncz-first-login-tour -- open the Singularity tour (dev.sinty.tour) once, on a
+# user's first graphical login, with the NCZ-OS guards the upstream first-run
+# path does not have.
+#
+# WHY THIS EXISTS (and does not just use upstream's show-tour key)
+# -----------------------------------------------------------------
+# The Singularity shell ALREADY opens the tour once per user profile: at
+# session start it reads `dev.sinty.desktop: show-tour` (schema default true),
+# launches dev.sinty.tour and flips the key false (singularity-shell
+# src/core/main.vala, launch_first_run_tour()). That path is unconditional: it
+# has no opt-out, does not check for a real graphical/DRM output, a
+# live/installer/recovery session, root, another first-run flow, a lock screen,
+# and it keeps no user-state marker NCZ can audit. Honouring the operator's
+# once-only + skip policy would require a shell code change, which this change
+# is explicitly not allowed to make. NCZ-OS therefore configures the upstream
+# switch OFF (99-ncz-defaults.gschema.override: show-tour=false) and opens the
+# tour from THIS guarded, once-only launcher instead.
+#
+# WHAT IT GUARANTEES
+# -----------------------------------------------------------------
+#   * once only: the marker $XDG_STATE_HOME/ncz/tour-seen (default
+#     ~/.local/state/ncz/tour-seen) is written BEFORE the launch, so a crash
+#     can never loop the tour and it never reappears for that user;
+#   * opt-out: /etc/ncz/no-first-login-tour (admin) or
+#     $XDG_CONFIG_HOME/ncz/no-first-login-tour (user) disables it;
+#   * skip headless: no Wayland/X display, or no connected DRM output (a
+#     server such as PROTEUS, or a machine whose panel is dark);
+#   * skip live/installer/recovery sessions;
+#   * skip root (uid 0);
+#   * skip while another first-run flow is active;
+#   * never steal focus from a lock screen: if the session is locked the
+#     launcher does nothing AND does not consume the marker, so the tour still
+#     appears on a later unlocked login.
+#
+# HOW IT IS STARTED
+# -----------------------------------------------------------------
+# Installed as /etc/xdg/autostart/ncz-first-login-tour.desktop with
+# `OnlyShowIn=Singularity;`. The shipped shell's Singularity.AutostartManager
+# reads XDG system autostart dirs and launches a SYSTEM entry only when it
+# names Singularity in OnlyShowIn (libsingularity autostart_manager.vala),
+# ~1 s after the session settles -- after the compositor and shell are up,
+# which is exactly when the tour should be drawn.
+#
+# Subcommands
+#   guard   pure decision: exit 0 = may show (prints "allow"), 1 = skip
+#           (prints "skip: <reason>"). Writes nothing.
+#   show    the autostart entry point: guard, wait for the shell to settle,
+#           re-check the lock, write the marker and launch. (default)
+#
+# Test knobs (optional; see build/test-ncz-first-login-tour.sh)
+#   NCZ_TOUR_DRYRUN=1        do not launch; still write the marker
+#   NCZ_TOUR_STATE_HOME=DIR  override $XDG_STATE_HOME
+#   NCZ_TOUR_CONFIG_HOME=DIR override $XDG_CONFIG_HOME
+#   NCZ_TOUR_OPT_OUT=FILE    override the admin opt-out path
+#   NCZ_TOUR_UID=N           pretend this uid
+#   NCZ_TOUR_WAYLAND=0|1     override graphical-session detection
+#   NCZ_TOUR_DRM_STATUS=a,b  override connected-output detection
+#   NCZ_TOUR_LIVE=0|1        override live/installer/recovery detection
+#   NCZ_TOUR_FIRST_RUN=0|1   override another-first-run-flow detection
+#   NCZ_TOUR_LOCKED=0|1      override lock detection
+#   NCZ_TOUR_SETTLE=SECONDS  post-shell settle (default 3)
+#   NCZ_TOUR_SHELL_WAIT=SEC  max wait for the shell process (default 20)
+#   NCZ_TOUR_LAUNCH=CMD      command to open the tour (default gtk-launch)
+#   NCZ_TOUR_LOG=FILE        append decision lines here
+set -u
+
+log() { [ -n "${NCZ_TOUR_LOG:-}" ] && printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo now)" "$*" >>"$NCZ_TOUR_LOG"; return 0; }
+
+state_home() { printf '%s' "${NCZ_TOUR_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}}"; }
+config_home() { printf '%s' "${NCZ_TOUR_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}}"; }
+marker() { printf '%s/ncz/tour-seen' "$(state_home)"; }
+admin_opt_out() { printf '%s' "${NCZ_TOUR_OPT_OUT:-/etc/ncz/no-first-login-tour}"; }
+user_opt_out() { printf '%s/ncz/no-first-login-tour' "$(config_home)"; }
+
+is_root() { [ "${NCZ_TOUR_UID:-$(id -u 2>/dev/null || echo 1000)}" -eq 0 ] 2>/dev/null; }
+
+is_graphical() {
+    if [ -n "${NCZ_TOUR_WAYLAND:-}" ]; then [ "$NCZ_TOUR_WAYLAND" = 1 ]; return; fi
+    [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${DISPLAY:-}" ]
+}
+
+# A real output must be connected: a headless server (no DRM at all) and a
+# machine whose every connector is disconnected both get no tour.
+has_connected_output() {
+    if [ -n "${NCZ_TOUR_DRM_STATUS:-}" ]; then
+        case ",${NCZ_TOUR_DRM_STATUS}," in *,connected,*) return 0 ;; *) return 1 ;; esac
+    fi
+    set -- /sys/class/drm/card*-*/status
+    [ -e "$1" ] || return 1
+    for st in "$@"; do
+        [ -r "$st" ] || continue
+        [ "$(cat "$st" 2>/dev/null)" = connected ] && return 0
+    done
+    return 1
+}
+
+is_live() {
+    if [ -n "${NCZ_TOUR_LIVE:-}" ]; then [ "$NCZ_TOUR_LIVE" = 1 ]; return; fi
+    for m in /run/ncz-live /run/ncz-installer /run/ncz-payload /cdrom/ncz-payload; do
+        [ -e "$m" ] && return 0
+    done
+    if [ -r /proc/cmdline ]; then
+        case " $(cat /proc/cmdline) " in
+            *" boot=casper "*|*" boot=live "*|*" live "*|*" cdrom-detect/"*) return 0 ;;
+        esac
+    fi
+    return 1
+}
+
+first_run_active() {
+    if [ -n "${NCZ_TOUR_FIRST_RUN:-}" ]; then [ "$NCZ_TOUR_FIRST_RUN" = 1 ]; return; fi
+    for m in /run/ncz-first-run-active "$(state_home)/ncz/first-run-active"; do
+        [ -e "$m" ] && return 0
+    done
+    return 1
+}
+
+is_locked() {
+    if [ -n "${NCZ_TOUR_LOCKED:-}" ]; then [ "$NCZ_TOUR_LOCKED" = 1 ]; return; fi
+    [ -n "${XDG_SESSION_ID:-}" ] || return 1
+    command -v loginctl >/dev/null 2>&1 || return 1
+    [ "$(loginctl show-session "$XDG_SESSION_ID" -p LockedHint --value 2>/dev/null)" = yes ]
+}
+
+# guard: print the reason and exit 1 when the tour must not open, else 0.
+guard() {
+    if [ -e "$(marker)" ]; then echo "skip: already shown ($(marker))"; return 1; fi
+    if [ -e "$(admin_opt_out)" ]; then echo "skip: opt-out $(admin_opt_out)"; return 1; fi
+    if [ -e "$(user_opt_out)" ]; then echo "skip: opt-out $(user_opt_out)"; return 1; fi
+    if is_root; then echo "skip: root (uid 0)"; return 1; fi
+    if is_live; then echo "skip: live/installer/recovery session"; return 1; fi
+    if first_run_active; then echo "skip: another first-run flow is active"; return 1; fi
+    if ! is_graphical; then echo "skip: no graphical session"; return 1; fi
+    if ! has_connected_output; then echo "skip: no connected DRM output"; return 1; fi
+    echo "allow"
+    return 0
+}
+
+# Wait (bounded) for the shell process so the tour is not drawn before the
+# compositor/panel exist. The entry is already started ~1 s after the session
+# settles, so this is normally a no-op plus the settle delay.
+wait_for_shell() {
+    want="${NCZ_TOUR_SHELL_WAIT:-20}"
+    i=0
+    while [ "$i" -lt "$want" ]; do
+        pgrep -x singularity-desktop >/dev/null 2>&1 && break
+        if [ -n "${NCZ_TOUR_LAUNCH:-}" ] || [ -n "${NCZ_TOUR_DRYRUN:-}" ]; then break; fi
+        sleep 1; i=$((i + 1))
+    done
+    sleep "${NCZ_TOUR_SETTLE:-3}"
+}
+
+open_tour() {
+    if [ -n "${NCZ_TOUR_LAUNCH:-}" ]; then
+        # shellcheck disable=SC2086
+        $NCZ_TOUR_LAUNCH
+        return $?
+    fi
+    if command -v gtk-launch >/dev/null 2>&1; then
+        gtk-launch dev.sinty.tour && return 0
+    fi
+    if [ -x /opt/singularity/bin/singularity-tour ]; then
+        /opt/singularity/bin/singularity-tour & return 0
+    fi
+    command -v singularity-tour >/dev/null 2>&1 && { singularity-tour & return 0; }
+    return 1
+}
+
+show() {
+    reason="$(guard)" || { log "show: $reason"; echo "ncz-first-login-tour: $reason"; return 0; }
+    # Opt-out and hard skips also turn the upstream switch off, so the shell's
+    # own launch_first_run_tour() can never open the tour behind our guard.
+    command -v gsettings >/dev/null 2>&1 && \
+        gsettings set dev.sinty.desktop show-tour false >/dev/null 2>&1 || true
+
+    wait_for_shell
+    if is_locked; then
+        # Do not consume the marker: the tour should still appear on a later
+        # unlocked login, and must never steal focus from a lock screen.
+        log "show: session locked -- deferring, marker not written"
+        echo "ncz-first-login-tour: session locked, deferring"
+        return 0
+    fi
+
+    m="$(marker)"
+    mkdir -p "$(dirname "$m")" 2>/dev/null || return 0
+    # Marker written BEFORE the launch: a crash can never loop the tour.
+    : >"$m" 2>/dev/null || { log "show: cannot write marker $m"; return 0; }
+    command -v gsettings >/dev/null 2>&1 && \
+        gsettings set dev.sinty.desktop show-tour false >/dev/null 2>&1 || true
+
+    if [ -n "${NCZ_TOUR_DRYRUN:-}" ]; then
+        log "show: DRYRUN marker written, not launching"
+        echo "ncz-first-login-tour: dry-run, marker written"
+        return 0
+    fi
+    if open_tour; then
+        log "show: launched dev.sinty.tour, marker $m"
+        echo "ncz-first-login-tour: opened the tour"
+    else
+        log "show: could not launch dev.sinty.tour"
+        echo "ncz-first-login-tour: launch failed" >&2
+    fi
+    return 0
+}
+
+case "${1:-show}" in
+    guard) guard ;;
+    show)  show ;;
+    *)     echo "usage: ncz-first-login-tour [guard|show]" >&2; exit 2 ;;
+esac

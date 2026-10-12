@@ -18,6 +18,14 @@
 # first login, since dev.sinty.desktop:show-tour defaults to true (the shell
 # opens the tour once and clears the flag).
 #
+# The same hook also installs the first-login tour launcher. The shell's own
+# first-run path (dev.sinty.desktop:show-tour) is unconditional; NCZ opens the
+# tour from a guarded, once-only autostart entry instead and disables the
+# upstream switch in the NCZ gschema override (20-desktop.sh). See
+# assets/branding/first-login-tour/ncz-first-login-tour for the full rationale
+# and the guard list. The entry uses OnlyShowIn=Singularity, which the shipped
+# shell's AutostartManager requires for a SYSTEM /etc/xdg/autostart entry.
+#
 # Generic (both target architectures); desktop only. A Server/headless image has
 # no Singularity payload, so the hook exits without doing anything.
 #
@@ -26,6 +34,7 @@
 set -uo pipefail
 
 ASSETS="${NCZ_TOUR_SLIDES_ASSETS:-/usr/local/lib/cix-installer/assets/branding/tour-slides}"
+FIRSTLOGIN_ASSETS="${NCZ_TOUR_FIRSTLOGIN_ASSETS:-${ASSETS%/*}/first-login-tour}"
 TOURDIR="${NCZ_TOUR_SLIDES_DIR:-/opt/singularity/share/singularity/tour}"
 
 if [ ! -d "$TOURDIR" ]; then
@@ -48,4 +57,20 @@ for s in 55-ncz-wallpapers 56-ncz-online-wallpapers 65-ncz-screensavers 75-ncz-l
     installed=$((installed + 1))
 done
 echo "[51] installed $installed NCZ tour slide(s) into $TOURDIR"
+
+# --- first-login tour launcher (guarded, once-only) -----------------------------
+# /etc/ncz is the admin opt-out dir (/etc/ncz/no-first-login-tour); create it so
+# an operator can drop the opt-out file without inventing the directory.
+install -d -m 0755 /etc/ncz
+if [ -f "$FIRSTLOGIN_ASSETS/ncz-first-login-tour" ] && \
+   [ -f "$FIRSTLOGIN_ASSETS/ncz-first-login-tour.desktop" ]; then
+    install -m 0755 "$FIRSTLOGIN_ASSETS/ncz-first-login-tour" /usr/local/bin/ncz-first-login-tour
+    install -d -m 0755 /etc/xdg/autostart
+    install -m 0644 "$FIRSTLOGIN_ASSETS/ncz-first-login-tour.desktop" \
+        /etc/xdg/autostart/ncz-first-login-tour.desktop
+    echo "[51] first-login tour: /usr/local/bin/ncz-first-login-tour + /etc/xdg/autostart/ncz-first-login-tour.desktop"
+else
+    echo "[51] WARN: first-login tour assets missing at $FIRSTLOGIN_ASSETS — the tour will not auto-open" >&2
+fi
+
 exit 0

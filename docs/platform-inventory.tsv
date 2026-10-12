@@ -552,4 +552,5 @@ docs/SID-EXCEPTIONS.md	common	-	GENERATED sid-exceptions tracker report (per-pac
 docs/IMAGE-BUILD-PROCESS.sid-exceptions.md	common	-	build-process integration of the sid-exceptions ledger (separate file to avoid conflict with the build-process branch doc)
 docs/ARM64-FIRMWARE-TRIM-2026-10-11.md	common	-	arm64 (Sky1) firmware BOM trim: per-package keep/drop with measured evidence, sizes before/after, risk notes and restore instructions
 build/test-tour-slides.sh	common	-	tour slide data validation: keys, unique Order (NCZ + upstream), built-in Scene, {os} only brace, title length, Action prefix
+build/test-ncz-first-login-tour.sh	common	-	first-login tour guard logic: once-only marker, opt-out, headless/DRM, root, live, other-first-run, lock (stubbed environment)
 post-install/51-ncz-tour-slides.sh	common	-	NCZ tour slides for the desktop (wallpapers, online wallpapers, screensavers, lock screen); generic, variant-guarded

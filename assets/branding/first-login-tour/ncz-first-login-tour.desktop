@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Desktop Tour (first login)
+Comment=Open the Singularity desktop tour once, on a user's first graphical login
+Exec=/usr/local/bin/ncz-first-login-tour show
+Icon=dev.sinty.tour
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=0
+OnlyShowIn=Singularity;
+StartupNotify=false
