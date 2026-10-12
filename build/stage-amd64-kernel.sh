@@ -34,13 +34,22 @@ for candidate in /mnt/argonas/datapool/yocto-shared /mnt/argonas-yocto-shared /m
 done
 [ -n "${SHARED:-}" ] || { echo "ERROR: no ARGONAS yocto-shared/kernel-staging mount found on this host" >&2; exit 1; }
 
-# Prune the previous .deb pair from the line dir before copying the new one.
-# Same rationale as before: a fresh kernel version carries new .deb basenames,
-# so without pruning the old pair accumulates and a human/verifier can no
-# longer tell which one is shipping.
+# The staging dir ships EXACTLY ONE kernel: the pinned linux-image +
+# linux-headers .deb PAIR.  Two independent gates enforce that:
+#   * forky-provenance.py's one-kernel audit (KERNEL_ARTIFACT_RE matches
+#     linux-image*/linux-headers*) requires every kernel artifact present in
+#     the finished image to be a row in manifests/ncz-packages.tsv, which
+#     authorises only the pair; and
+#   * post-install/10-amd64-kernel.sh requires exactly one linux-image-*.deb
+#     and one linux-headers-*.deb in this dir.
+# A `make deb-pkg` pool build ALSO emits linux-image-<KVER>-dbg (debug
+# symbols, ~1.1 GiB) and linux-libc-dev; neither is a shipping artifact and
+# neither is in the ledger.  A wholesale `cp "$src"/*.deb` (the old shape)
+# leaked both into base.squashfs and failed the provenance gate on rc7
+# (the rc6-4 pool happened to carry only the pair, so the bug was latent).
+# Prune every .deb, then stage the pair by name.
 prune_debs() {
-    find "$1" -maxdepth 1 -type f \( -name 'linux-image-*_amd64.deb' \
-        -o -name 'linux-headers-*_amd64.deb' \) -delete
+    find "$1" -maxdepth 1 -type f -name '*.deb' -delete
 }
 
 stage_default() {
@@ -81,11 +90,23 @@ stage_default() {
         echo "ERROR: $src/KVER does not match the pinned amd64 KVER '$wanted' -- refusing to stage" >&2
         return 1
     fi
+    # Name the pinned pair explicitly.  `linux-image-${wanted}_*.deb` cannot
+    # match `linux-image-${wanted}-dbg_*.deb` (the suffix starts with '-', not
+    # '_'), so the -dbg build can never be selected here.  Fail closed if the
+    # pool does not hold exactly one of each.
+    local imgs hdrs
+    imgs=("$src"/linux-image-"$wanted"_*.deb)
+    hdrs=("$src"/linux-headers-"$wanted"_*.deb)
+    if [ ! -f "${imgs[0]}" ] || [ "${#imgs[@]}" -ne 1 ] \
+       || [ ! -f "${hdrs[0]}" ] || [ "${#hdrs[@]}" -ne 1 ]; then
+        echo "ERROR: $src must hold exactly one linux-image-${wanted}_*.deb and one linux-headers-${wanted}_*.deb (found ${#imgs[@]} image / ${#hdrs[@]} headers) -- refusing to stage" >&2
+        return 1
+    fi
     local dest="$ROOT/assets/kernel/amd64-stable"
     mkdir -p "$dest"
     prune_debs "$dest"
-    cp -f "$src"/*.deb "$src/KVER" "$dest/"
-    echo "[stage-amd64-kernel] amd64-stable <- $(basename "$src") (pinned KVER $wanted, pruned to $(ls "$dest"/linux-image-*_amd64.deb 2>/dev/null | wc -l) image + $(ls "$dest"/linux-headers-*_amd64.deb 2>/dev/null | wc -l) headers pair)"
+    cp -f "${imgs[0]}" "${hdrs[0]}" "$src/KVER" "$dest/"
+    echo "[stage-amd64-kernel] amd64-stable <- $(basename "$src") (pinned KVER $wanted, staged exactly $(ls "$dest"/*.deb 2>/dev/null | wc -l) debs: the image+headers pair)"
 }
 
 case "$WHAT" in
