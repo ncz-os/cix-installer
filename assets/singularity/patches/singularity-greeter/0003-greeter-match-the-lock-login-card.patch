@@ -1,0 +1,203 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 12 Oct 2026 12:30:00 -0400
+Subject: [PATCH] greeter: match the lock login card (shared field label + output scale)
+
+Remove the greeter-only second row so its login card is identical to the
+lock's: the greetd/PAM prompt and the synthetic "touch the sensor" banner no
+longer paint a status row under the field; the prompt is routed through the
+shared loginui_field_label() into the single credential field (still functional:
+it gates posting the typed secret). Also render at the output scale with
+wl_surface_set_buffer_scale() like the lock's own output-scale handler, so a
+HiDPI panel gets a native-density card instead of a compositor-upscaled one.
+Assisted-by: opencode:deepseek-flash
+AI-Scope: authored on the pinned upstream commit; measured red->green headless
+---
+diff --git a/src/greeter_main.c b/src/greeter_main.c
+--- a/src/greeter_main.c
++++ b/src/greeter_main.c
+@@ -57,6 +57,13 @@
+ static size_t password_len = 0;
+ static char pending_password[1024];
+ static char status_text[128] = "";
++/* The most recent greetd/PAM prompt (e.g. "Password: "). It is NOT drawn as a
++ * second row under the field -- it is resolved into the one shared credential
++ * field label by loginui_field_label() so the greeter card matches the lock
++ * card exactly. Kept functional: the prompt still gates when a typed secret is
++ * posted back to greetd (auth_prompt_waiting). */
++static char auth_prompt[160] = "";
++static char label_buf[64];
+ static bool auth_is_pin = false; /* SintyOS: the credential is a PIN, not a Unix password */
+ static bool recovery_mode = false; /* --recovery: forgotten-PIN escape hatch, launched as root by sinty-greetd-launch */
+ static int recovery_step = 0;      /* 0 = enter recovery code, 1 = enter new PIN */
+@@ -96,6 +103,8 @@
+     struct wl_surface *surface;
+     struct zwlr_layer_surface_v1 *layer_surface;
+     uint32_t width, height;
++    int32_t scale;          /* wl_output buffer scale; the lock renders natively at it, so do we */
++    int32_t pending_scale;
+     bool configured;
+     struct wl_callback *frame_cb;
+     struct wl_surface *handoff_surface;
+@@ -258,10 +267,18 @@
+ }
+ static const struct wl_callback_listener handoff_frame_listener = { .done = handoff_frame_done };
+ 
+-static void render_surface(struct wl_surface *surface, int w, int h) {
++static void render_surface(struct wl_surface *surface, int w, int h, int scale) {
++    if (scale < 1) scale = 1;
++    /* Draw at the output's scale: buffer in PHYSICAL pixels, cairo scaled so the
++     * code below keeps logical coordinates, and wl_surface_set_buffer_scale().
++     * The lock does exactly this (its own output-scale handler), so at 2x the
++     * greeter card is rendered at native density and matches the lock instead of
++     * being compositor-upscaled with a fractional 1px offset. */
+     cairo_t *cr;
+-    struct loginui_buffer *b = loginui_create_buffer(shm, w, h, &cr);
++    struct loginui_buffer *b = loginui_create_buffer(
++        shm, (uint32_t)w * (uint32_t)scale, (uint32_t)h * (uint32_t)scale, &cr);
+     if (!b) return;
++    if (scale != 1) cairo_scale(cr, (double)scale, (double)scale);
+ 
+     struct g_user *u = (n_users > 0) ? &users[sel_user] : NULL;
+ 
+@@ -285,7 +302,7 @@
+     if (recovery_mode)
+         st.auth_label = recovery_step == 0 ? "Recovery code" : "New PIN";
+     else
+-        st.auth_label = auth_is_pin ? "PIN" : "Password";
++        st.auth_label = loginui_field_label(label_buf, sizeof label_buf, auth_prompt, auth_is_pin);
+ 
+     double cx, cy, cw, ch;
+     loginui_render(cr, &st, &cx, &cy, &cw, &ch);
+@@ -374,14 +391,15 @@
+     }
+ 
+     cairo_destroy(cr);
++    if (surface) wl_surface_set_buffer_scale(surface, scale);
+     wl_surface_attach(surface, b->wl_buffer, 0, 0);
+-    wl_surface_damage_buffer(surface, 0, 0, w, h);
++    wl_surface_damage_buffer(surface, 0, 0, (int)((unsigned)w * (unsigned)scale), (int)((unsigned)h * (unsigned)scale));
+     wl_surface_commit(surface);
+ }
+ 
+ static void render_all(void) {
+     if (preview) {
+-        if (pv_configured) render_surface(pv_surface, pv_w, pv_h);
++        if (pv_configured) render_surface(pv_surface, pv_w, pv_h, 1);
+         return;
+     }
+     for (struct g_output *o = outputs; o; o = o->next) {
+@@ -391,7 +409,7 @@
+             o->frame_cb = wl_surface_frame(o->surface);
+             wl_callback_add_listener(o->frame_cb, &handoff_frame_listener, &o->frame_cb);
+         }
+-        render_surface(o->surface, (int)o->width, (int)o->height);
++        render_surface(o->surface, (int)o->width, (int)o->height, o->scale > 0 ? o->scale : 1);
+     }
+ }
+ 
+@@ -476,14 +494,17 @@
+     auth_prompt_waiting = false;
+     auth_restart_pending = false;
+     pending_password[0] = '\0';
+-    if (status_text[0] == '\0')
+-        snprintf(status_text, sizeof status_text, "%s", "Touch the fingerprint sensor or enter your password");
++    /* No synthetic "touch the sensor" banner: the greeter card must equal the
++     * lock card, and that banner was a second row the lock never shows. The
++     * credential field's own label communicates what to enter. */
++    auth_prompt[0] = '\0';
+     status_error = false;
+     greetd_create_session(users[sel_user].username);
+ }
+ 
+ static void restart_authentication(void) {
+     auth_prompt_waiting = false;
++    auth_prompt[0] = '\0';
+     pending_password[0] = '\0';
+     if (awaiting_auth) {
+         auth_restart_pending = true;
+@@ -639,7 +660,12 @@
+                         snprintf(status_text, sizeof status_text, "%s", "Authenticating...");
+                     } else {
+                         auth_prompt_waiting = true;
+-                        snprintf(status_text, sizeof status_text, "%s", m);
++                        /* Route the PAM prompt into the ONE shared field label
++                         * (via loginui_field_label at render time) instead of a
++                         * second status row, so the greeter card matches the
++                         * lock card; status_text stays empty here. */
++                        snprintf(auth_prompt, sizeof auth_prompt, "%s", m);
++                        status_text[0] = '\0';
+                     }
+                     status_error = false;
+                     render_all();
+@@ -671,6 +697,7 @@
+                 awaiting_auth = false;
+                 auth_prompt_waiting = false;
+                 auth_restart_pending = false;
++                auth_prompt[0] = '\0';
+                 memset(password, 0, sizeof password);
+                 memset(pending_password, 0, sizeof pending_password);
+                 password_len = 0;
+@@ -1134,7 +1161,7 @@
+     struct g_output *o = data;
+     o->width = w; o->height = h; o->configured = true;
+     zwlr_layer_surface_v1_ack_configure(ls, serial);
+-    render_surface(o->surface, (int)w, (int)h);
++    render_surface(o->surface, (int)w, (int)h, o->scale > 0 ? o->scale : 1);
+ }
+ static void layer_closed(void *data, struct zwlr_layer_surface_v1 *ls) { running = false; }
+ static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
+@@ -1207,7 +1234,7 @@
+ static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t serial) {
+     xdg_surface_ack_configure(xs, serial);
+     pv_configured = true;
+-    render_surface(pv_surface, pv_w, pv_h);
++    render_surface(pv_surface, pv_w, pv_h, 1);
+ }
+ static const struct xdg_surface_listener xdg_surface_listener = { .configure = xdg_surface_configure };
+ 
+@@ -1261,6 +1288,36 @@
+ 
+ static const struct wl_seat_listener seat_listener = { seat_capabilities, seat_name };
+ 
++/* wl_output scale: the greeter must render at the panel's scale like the lock,
++ * otherwise the compositor upscales a logical-size buffer and the shared card
++ * lands a fraction of a pixel off the lock's natively-rendered one. */
++static void output_geometry(void *d, struct wl_output *o, int32_t x, int32_t y,
++                            int32_t pw, int32_t ph, int32_t sp, const char *mk,
++                            const char *md, int32_t tr) {
++    (void)d;(void)o;(void)x;(void)y;(void)pw;(void)ph;(void)sp;(void)mk;(void)md;(void)tr;
++}
++static void output_mode(void *d, struct wl_output *wo, uint32_t f,
++                        int32_t w, int32_t h, int32_t r) {
++    (void)d;(void)wo;(void)f;(void)w;(void)h;(void)r;
++}
++static void output_scale(void *data, struct wl_output *wo, int32_t factor) {
++    (void)wo;
++    struct g_output *o = data;
++    if (factor > 0) o->pending_scale = factor;
++}
++static void output_done(void *data, struct wl_output *wo) {
++    (void)wo;
++    struct g_output *o = data;
++    if (o->pending_scale > 0 && o->pending_scale != o->scale) {
++        o->scale = o->pending_scale;
++        if (o->configured) render_surface(o->surface, (int)o->width, (int)o->height, o->scale);
++    }
++}
++static const struct wl_output_listener output_listener = {
++    .geometry = output_geometry, .mode = output_mode,
++    .done = output_done, .scale = output_scale,
++};
++
+ static void reg_global(void *data, struct wl_registry *reg, uint32_t name,
+                        const char *iface, uint32_t version) {
+     if (strcmp(iface, wl_compositor_interface.name) == 0) {
+@@ -1279,6 +1336,7 @@
+         struct g_output *o = calloc(1, sizeof(*o));
+         o->name = name;
+         o->wl_output = wl_registry_bind(reg, name, &wl_output_interface, version < 3 ? version : 3);
++        wl_output_add_listener(o->wl_output, &output_listener, o);
+         o->next = outputs;
+         outputs = o;
+     }
