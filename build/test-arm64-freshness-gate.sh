@@ -76,11 +76,11 @@ std_pool() {
         "r274-7.2.7-sky1-ncz-20260922|2026-09-22" \
         "r277-7.2.8-sky1-ncz-20260927|2026-09-27" \
         "r281-7.2.9-sky1-ncz-20261003|2026-10-03" \
-        "r282-7.3.0-rc6-sky1-ncz-20261004|2026-10-04" \
-        "r283-7.3.0-rc6-sky1-ncz-20261006|2026-10-05" \
-        "r284-7.3.0-rc6-sky1-ncz-20261006|2026-10-06" \
-        "r285-7.3.0-rc6-sky1-ncz-20261006|2026-10-07" \
-        "r286-7.3.0-rc6-sky1-ncz-20261011|2026-10-11"
+        "r282-7.3.0-rc7-sky1-ncz-20261004|2026-10-04" \
+        "r283-7.3.0-rc7-sky1-ncz-20261006|2026-10-05" \
+        "r284-7.3.0-rc7-sky1-ncz-20261006|2026-10-06" \
+        "r285-7.3.0-rc7-sky1-ncz-20261006|2026-10-07" \
+        "r286-7.3.0-rc7-sky1-ncz-20261011|2026-10-11", "r287-7.3.0-rc6-sky1-ncz-20261011|2026-10-11", "r288-7.3.0-rc7-sky1-ncz-20261012|2026-10-12"
 }
 one() { check_arm64_channel assets/kernel/mainline unified required; }
 export -f mktime mksymlink mkpool std_pool one
@@ -113,7 +113,7 @@ run_case() {   # label want_ok want_warn want_fail(exact) snippet
 echo "=== Case 1: POSITIVE -- mainline=r286 (newest 7.3 build) ==="
 run_case "mainline on the newest unified 7.3 build" 1 0 0 '
     set -e; std_pool
-    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r286-7.3.0-rc6-sky1-ncz-20261011"
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r286-7.3.0-rc7-sky1-ncz-20261011"
     one'
 
 echo; echo "=== Case 2: NEGATIVE -- mainline points at a retired 7.2.8 build ==="
@@ -131,25 +131,25 @@ run_case "stale unified 7.3 pin is FAIL" 0 0 1 '
 echo; echo "=== Case 3b: NEGATIVE -- mainline=r282 rc6 while newer 7.3 r286 exists ==="
 run_case "superseded r282 pin is FAIL" 0 0 1 '
     set -e; std_pool
-    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r282-7.3.0-rc6-sky1-ncz-20261004"
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r282-7.3.0-rc7-sky1-ncz-20261004"
     one'
 
 echo; echo "=== Case 3c: NEGATIVE -- mainline=r284 rc6 while newer 7.3 r286 exists ==="
 run_case "superseded r284 pin is FAIL" 0 0 1 '
     set -e; std_pool
-    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r284-7.3.0-rc6-sky1-ncz-20261006"
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r284-7.3.0-rc7-sky1-ncz-20261006"
     one'
 
 echo; echo "=== Case 3d: NEGATIVE -- mainline=r285 rc6 while newer 7.3 r286 exists ==="
 run_case "superseded r285 pin is FAIL" 0 0 1 '
     set -e; std_pool
-    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r285-7.3.0-rc6-sky1-ncz-20261006"
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r285-7.3.0-rc7-sky1-ncz-20261006"
     one'
 
 echo; echo "=== Case 4: NEGATIVE -- mainline dangling ==="
 run_case "dangling mainline is FAIL" 0 0 1 '
     set -e; std_pool
-    mksymlink "$ASSETS/kernel/mainline" "/nonexistent/pool/r286-7.3.0-rc6-sky1-ncz-20261011"
+    mksymlink "$ASSETS/kernel/mainline" "/nonexistent/pool/r286-7.3.0-rc7-sky1-ncz-20261011"
     one'
 
 echo; echo "=== Case 5: NEGATIVE -- no mainline pointer (required line) ==="
@@ -161,28 +161,28 @@ echo; echo "=== Case 6: NEGATIVE -- mainline outside the pool ==="
 run_case "mainline outside the pool is FAIL" 0 0 1 '
     set -e; std_pool
     mkdir -p "$TMPROOT/outside"
-    mksymlink "$ASSETS/kernel/mainline" "$TMPROOT/outside/r286-7.3.0-rc6-sky1-ncz-20261011"
+    mksymlink "$ASSETS/kernel/mainline" "$TMPROOT/outside/r286-7.3.0-rc7-sky1-ncz-20261011"
     one'
 
 echo; echo "=== Case 6b: ACK -- pinned:declined pair matching pin + newest -> WARN ==="
 run_case "acknowledged newer build is WARN, not FAIL" 0 1 0 '
     set -e; std_pool
-    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r285-7.3.0-rc6-sky1-ncz-20261006"
-    printf "MAINLINE_FRESHNESS_ACK=r285-7.3.0-rc6-sky1-ncz-20261006:r286-7.3.0-rc6-sky1-ncz-20261011\n" > assets/kernel/KERNEL-POLICY
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r285-7.3.0-rc7-sky1-ncz-20261006"
+    printf "MAINLINE_FRESHNESS_ACK=r285-7.3.0-rc7-sky1-ncz-20261006:r286-7.3.0-rc7-sky1-ncz-20261011\n" > assets/kernel/KERNEL-POLICY
     one'
 
 echo; echo "=== Case 6c: ACK scoped -- ack whose pinned field does not match the pin -> FAIL ==="
 run_case "ack naming the wrong pinned build still FAILs" 0 0 1 '
     set -e; std_pool
-    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r285-7.3.0-rc6-sky1-ncz-20261006"
-    printf "MAINLINE_FRESHNESS_ACK=r282-7.3.0-rc6-sky1-ncz-20261004:r286-7.3.0-rc6-sky1-ncz-20261011\n" > assets/kernel/KERNEL-POLICY
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r285-7.3.0-rc7-sky1-ncz-20261006"
+    printf "MAINLINE_FRESHNESS_ACK=r282-7.3.0-rc7-sky1-ncz-20261004:r286-7.3.0-rc7-sky1-ncz-20261011\n" > assets/kernel/KERNEL-POLICY
     one'
 
 echo; echo "=== Case 6d: ACK scoped -- ack whose declined field is not the newest -> FAIL ==="
 run_case "ack naming the wrong newest build still FAILs" 0 0 1 '
     set -e; std_pool
-    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r285-7.3.0-rc6-sky1-ncz-20261006"
-    printf "MAINLINE_FRESHNESS_ACK=r285-7.3.0-rc6-sky1-ncz-20261006:r284-7.3.0-rc6-sky1-ncz-20261006\n" > assets/kernel/KERNEL-POLICY
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r285-7.3.0-rc7-sky1-ncz-20261006"
+    printf "MAINLINE_FRESHNESS_ACK=r285-7.3.0-rc7-sky1-ncz-20261006:r284-7.3.0-rc7-sky1-ncz-20261006\n" > assets/kernel/KERNEL-POLICY
     one'
 
 # --- Case 7: the FULL gate, orphan check + the one pointer. Drives the real
@@ -194,17 +194,17 @@ mkdir -p "$SYN_REPO/build" "$SYN_REPO/assets/kernel"
 cp "$GATE" "$SYN_REPO/build/preflight-freshness-gate.sh"
 KERNEL_STAGING_DIR="$SYN_POOL" mkpool "$SYN_POOL" \
     "r281-7.2.9-sky1-ncz-20261003|2026-10-03" \
-    "r282-7.3.0-rc6-sky1-ncz-20261004|2026-10-04" \
-    "r284-7.3.0-rc6-sky1-ncz-20261006|2026-10-06" \
-    "r285-7.3.0-rc6-sky1-ncz-20261006|2026-10-07" \
-    "r286-7.3.0-rc6-sky1-ncz-20261011|2026-10-11" \
+    "r282-7.3.0-rc7-sky1-ncz-20261004|2026-10-04" \
+    "r284-7.3.0-rc7-sky1-ncz-20261006|2026-10-06" \
+    "r285-7.3.0-rc7-sky1-ncz-20261006|2026-10-07" \
+    "r286-7.3.0-rc7-sky1-ncz-20261011|2026-10-11", "r287-7.3.0-rc6-sky1-ncz-20261011|2026-10-11", "r288-7.3.0-rc7-sky1-ncz-20261012|2026-10-12" \
     "sky1-7.2.9-20261003|2026-10-03"
-mksymlink "$SYN_REPO/assets/kernel/mainline" "$SYN_POOL/r286-7.3.0-rc6-sky1-ncz-20261011"
+mksymlink "$SYN_REPO/assets/kernel/mainline" "$SYN_POOL/r286-7.3.0-rc7-sky1-ncz-20261011"
 GATE_OUT="$(NCZ_TARGET_ARCH=arm64 bash "$SYN_REPO/build/preflight-freshness-gate.sh" \
     --kernel-staging-dir "$SYN_POOL" 2>&1)"
 printf '%s\n' "$GATE_OUT" | grep -E '^\[3\]|          sky1-' | sed 's/^/    /'
 if printf '%s\n' "$GATE_OUT" | grep -q 'sky1-7.2.9-20261003' \
-   && printf '%s\n' "$GATE_OUT" | grep -q '^\[3\] OK: arm64 mainline -- assets/kernel/mainline -> r286-7.3.0-rc6-sky1-ncz-20261011'; then
+   && printf '%s\n' "$GATE_OUT" | grep -q '^\[3\] OK: arm64 mainline -- assets/kernel/mainline -> r286-7.3.0-rc7-sky1-ncz-20261011'; then
     echo "  PASS  full gate: orphan flagged, unified mainline OK"
     PASS=$((PASS+1))
 else
