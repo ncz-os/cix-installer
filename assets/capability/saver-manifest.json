@@ -1579,7 +1579,7 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "reason": "measured below 30 fps at scale 0.25"
+          "reason": "measured below 30 fps at the smallest measured scale (1.0)"
         }
       }
     },
@@ -2895,7 +2895,7 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "reason": "measured below 30 fps at scale 0.25"
+          "reason": "measured below 30 fps at the smallest measured scale (0.5)"
         },
         "mali_g720": {
           "scales": {
@@ -3376,7 +3376,7 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "reason": "measured below 30 fps at scale 0.25"
+          "reason": "measured below 30 fps at the smallest measured scale (0.5)"
         },
         "mali_g720": {
           "scales": {
@@ -3445,7 +3445,7 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "reason": "measured below 30 fps at scale 0.25"
+          "reason": "measured below 30 fps at the smallest measured scale (0.5)"
         },
         "mali_g720": {
           "scales": {
@@ -3514,7 +3514,7 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "reason": "measured below 30 fps at scale 0.25"
+          "reason": "measured below 30 fps at the smallest measured scale (0.5)"
         },
         "mali_g720": {
           "scales": {
@@ -3583,7 +3583,7 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "reason": "measured below 30 fps at scale 0.25"
+          "reason": "measured below 30 fps at the smallest measured scale (0.5)"
         },
         "mali_g720": {
           "scales": {
@@ -3792,7 +3792,7 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "reason": "measured below 30 fps at scale 0.25"
+          "reason": "measured below 30 fps at the smallest measured scale (0.5)"
         },
         "mali_g720": {
           "scales": {
@@ -3931,7 +3931,7 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "reason": "measured below 30 fps at scale 0.25"
+          "reason": "measured below 30 fps at the smallest measured scale (0.5)"
         },
         "mali_g720": {
           "scales": {
@@ -4482,7 +4482,7 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "reason": "measured below 30 fps at scale 0.25"
+          "reason": "measured below 30 fps at the smallest measured scale (0.5)"
         },
         "mali_g720": {
           "scales": {
@@ -4551,7 +4551,7 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "reason": "measured below 30 fps at scale 0.25"
+          "reason": "measured below 30 fps at the smallest measured scale (0.5)"
         },
         "mali_g720": {
           "scales": {
@@ -4760,7 +4760,7 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "reason": "measured below 30 fps at scale 0.25"
+          "reason": "measured below 30 fps at the smallest measured scale (0.5)"
         },
         "mali_g720": {
           "scales": {
@@ -4829,7 +4829,7 @@
           "min_scale_for_30fps": null,
           "default_scale": null,
           "default_class": "exclude",
-          "reason": "measured below 30 fps at scale 0.25"
+          "reason": "measured below 30 fps at the smallest measured scale (0.5)"
         },
         "mali_g720": {
           "scales": {
