@@ -33,7 +33,8 @@ Subcommands:
       the DP AUX wedge trigger this avoids (see docs/BOOT-SEQUENCE.md,
       fix/greeter-dp-handoff-20261011). Any output with no capped mode -- a
       single-mode 4K panel is the common case -- is enabled at its own (native)
-      mode with --on rather than left dark.
+      mode at its density-policy scale with --on rather than left dark, so
+      the greeter renders at the same scale as the desktop session.
 
   session [--settle SECONDS] [--dry-run]
       Desktop session, first login only. The Singularity shell already
@@ -227,10 +228,29 @@ def cmd_greeter(dry_run: bool, runner=subprocess.run) -> int:
             # disable->enable cycle. An output reported enabled but black
             # (e.g. labwc failed to disable an inherited CRTC) is re-asserted
             # rather than abandoned.
-            done = run_wlr(["--output", name, "--on"], dry_run, runner)
+            # Even with no capped mode the greeter must still render at the
+            # SAME density the desktop session uses, or its login card comes
+            # out half-size against the lock's on a HiDPI panel (PEGASUS eDP
+            # AU Optronics 0x31EB, 3840x2160 single-mode, 283 ppi: session
+            # 1920x1080@2x, greeter was 3840x2160@1x -> 300 px card vs 600).
+            # Derive the scale from the panel's own density exactly as the
+            # capped path does, and fold it into the same single --on commit
+            # (a scale-only set, like cmd_session, never a --mode change).
+            native = (mode_flag(out, "current") or mode_flag(out, "preferred")
+                      or (modes(out)[0] if modes(out) else None))
+            mm_w, mm_h = phys_mm(out)
+            if native:
+                scale, why = policy_scale(
+                    native["width"], native["height"], mm_w, mm_h)
+            else:
+                scale, why = 1.0, "no mode reported"
+            done = run_wlr(
+                ["--output", name, "--scale", f"{scale:g}", "--on"],
+                dry_run, runner,
+            )
             log(
-                f"{name}: no capped mode; enabled at native mode"
-                f"{'' if done else ' FAILED'}"
+                f"{name}: no capped mode; enabled at native mode "
+                f"scale {scale:g} ({why}){'' if done else ' FAILED'}"
             )
             continue
         mm_w, mm_h = phys_mm(out)
