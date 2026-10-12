@@ -153,6 +153,13 @@ if [ "$(gv dev.sinty.desktop rendering-mode)" != "'software'" ]; then ok "apply:
 prior_reduce=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["prior"].get("dev.sinty.desktop:reduce-motion"))' "$XDG_STATE_HOME/ncz/lite-profile/applied.json")
 [ "$prior_reduce" = "false" ] && ok "idempotent: stock prior (reduce-motion=false) preserved across re-apply" || bad "idempotent: prior corrupted ($prior_reduce)"
 
+# themerc rewrite is a fixed point: repeated applies must not accumulate
+# trailing blank lines (the reviewer-raised corruption path).
+th_before=$(cat "$HOME/.config/labwc/themerc-override")
+"$PROF" lite >/dev/null 2>&1
+"$PROF" lite >/dev/null 2>&1
+[ "$(cat "$HOME/.config/labwc/themerc-override")" = "$th_before" ] && ok "idempotent: themerc rewrite is a fixed point (no blank-line drift)" || bad "idempotent: themerc drifted across applies"
+
 "$PROF" default >/dev/null 2>&1
 [ "$(gv dev.sinty.desktop reduce-motion)" = "false" ] && ok "restore: reduce-motion back to false" || bad "restore: reduce-motion not restored"
 [ "$(gv dev.ncz.screensaver render-scale)" = "1.0" ] && ok "restore: render-scale back to 1.0" || bad "restore: render-scale not restored"
@@ -209,4 +216,5 @@ NCZ_TARGET_ARCH=amd64 NCZ_LITE_ROOT="$T/root" NCZ_LITE_ASSETS="$ROOT/assets/lite
 [ -f "$T/root/usr/share/glib-2.0/schemas/dev.ncz.profile.gschema.xml" ] && ok "hook: installs the dev.ncz.profile schema" || bad "hook: schema not installed"
 
 echo "lite-profile tests: $pass passed, $fail failed"
-[ "$fail" = 0 ]
+[ "$fail" = 0 ] || exit 1
+exit 0

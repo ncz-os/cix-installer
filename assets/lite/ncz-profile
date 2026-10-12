@@ -122,7 +122,7 @@ RENDERING_MODE_SOFTWARE: tuple[str, str, str, str] = (
 
 # Software GL: no hardware pipeline on the display path.
 SOFTWARE_RE = re.compile(
-    r"llvmpipe|softpipe|swrast|lavapipe|softpipe|zink|\bvirgl\b",
+    r"llvmpipe|softpipe|swrast|lavapipe|zink|\bvirgl\b",
     re.IGNORECASE,
 )
 
@@ -475,7 +475,12 @@ def _patch_themerc(path: Path, vals: dict) -> bool:
             changed = True
         else:
             out_lines.append(line)
-    path.write_text("\n".join(out_lines) + "\n")
+    # Preserve the original trailing-newline behaviour exactly, so repeated
+    # applies can never accumulate blank lines (a rewrite must be a fixed point).
+    body = "\n".join(out_lines)
+    if text.endswith("\n") or not text:
+        body += "\n"
+    path.write_text(body)
     return changed
 
 
