@@ -86,16 +86,17 @@ fi
 # session actually uses (GSETTINGS_SCHEMA_DIR=/opt/singularity/share/glib-2.0/
 # schemas), so `ncz-profile` sees the key inside and outside the session.
 SCHEMA_SRC="$ASSETS/dev.ncz.profile.gschema.xml"
+_schema_dirs=()
 if [ -n "${NCZ_LITE_SCHEMA_DIR:-}" ]; then
-    _schema_dirs="$NCZ_LITE_SCHEMA_DIR"
+    _schema_dirs=("$NCZ_LITE_SCHEMA_DIR")
 else
-    _schema_dirs="$(_dest /usr/share/glib-2.0/schemas)"
+    _schema_dirs=("$(_dest /usr/share/glib-2.0/schemas)")
     _share="$(_dest /opt/singularity/share/glib-2.0/schemas)"
-    [ -d "$_share" ] && _schema_dirs="$_schema_dirs $_share"
+    [ -d "$_share" ] && _schema_dirs+=("$_share")
 fi
 
 if [ -f "$SCHEMA_SRC" ]; then
-    for SCHEMA_DIR in $_schema_dirs; do
+    for SCHEMA_DIR in "${_schema_dirs[@]}"; do
         install -d -m0755 "$SCHEMA_DIR"
         if ! command -v glib-compile-schemas >/dev/null 2>&1; then
             install -m0644 "$SCHEMA_SRC" "$SCHEMA_DIR/dev.ncz.profile.gschema.xml"
