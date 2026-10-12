@@ -16,10 +16,10 @@ for t in "$MKE2FS" "$DEBUGFS"; do [ -x "$t" ] || { echo "SKIP: $t not available"
 command -v xz >/dev/null || { echo "SKIP: xz not available"; exit 0; }
 # The healthy fixture installs the CURRENT ncz-screensavers floor from
 # build/screensavers-version.env, so a floor bump does not leave this fixture
-# stale (it did once: 0.8.9 installed but the floor required 0.8.11). SS_TOOOLD
+# stale (it did once: 0.8.9 installed but the floor required 0.8.12). SS_TOOOLD
 # is one patch below the floor, for the below-floor case.
 SS_FLOOR="$(sed -n 's/^NCZ_SCREENSAVERS_MIN_VERSION=//p' "$ROOT/build/screensavers-version.env" | tr -d '"' | tr -d '[:space:]')"
-SS_FLOOR="${SS_FLOOR:-0.8.11}"
+SS_FLOOR="${SS_FLOOR:-0.8.12}"
 SS_TOOOLD="$(printf '%s' "$SS_FLOOR" | awk -F. '{ $NF = $NF - 1; print }' OFS=.)"
 
 W="$(mktemp -d -t verifier-test.XXXXXX)"
