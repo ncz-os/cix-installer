@@ -123,12 +123,14 @@ for f in "${files[@]}"; do
 done
 
 # The expected set (and the hook install list) must match what is on disk.
-disk_ids="$(printf '%s\n' "${files[@]}" | xargs -n1 basename | sed 's/\.slide$//' | LC_ALL=C sort | tr '\n' ' ')"
-want_ids="$(printf '%s\n' $EXPECTED | LC_ALL=C sort | tr '\n' ' ')"
+# Both sides are sorted and space-normalised (no trailing space) so the
+# comparison is a plain string equality with no whitespace ambiguity.
+disk_ids="$(printf '%s\n' "${files[@]}" | xargs -n1 basename | sed 's/\.slide$//' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+want_ids="$(printf '%s\n' $EXPECTED | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 if [ "$disk_ids" = "$want_ids" ]; then ok "shipped slide set == expected ($want_ids)"; else bad "shipped slide set is '$disk_ids', expected '$want_ids'"; fi
 
 if [ -f "$HOOK" ]; then
-    hook_ids="$(sed -n 's/^ *for s in \(.*\); do$/\1/p' "$HOOK" | tr -s ' ' '\n' | grep -v '^$' | LC_ALL=C sort | tr '\n' ' ')"
+    hook_ids="$(sed -n 's/^ *for s in \(.*\); do$/\1/p' "$HOOK" | tr -s ' ' '\n' | grep -v '^$' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
     if [ "$hook_ids" = "$want_ids" ]; then ok "hook install list matches the asset set"; else bad "hook install list '$hook_ids' != asset set '$want_ids'"; fi
 else
     bad "hook missing: $HOOK"
