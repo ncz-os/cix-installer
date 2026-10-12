@@ -1086,6 +1086,14 @@ if [ -f "$SCHEMADIR/dev.sinty.desktop.gschema.xml" ]; then
 icon-theme='Singularity'
 background-picture-uri='file:///usr/share/backgrounds/ncz/default.jpg'
 recent-wallpapers=['file:///usr/share/backgrounds/ncz/default.jpg']
+# The shell's own first-run tour (singularity-shell launch_first_run_tour)
+# reads show-tour at login and opens dev.sinty.tour once, unconditionally:
+# no opt-out, no headless/DRM, live/root/lock guard, no state marker. NCZ-OS
+# turns that switch OFF and opens the tour from the guarded, once-only autostart
+# entry installed by post-install/51-ncz-tour-slides.sh
+# (/etc/xdg/autostart/ncz-first-login-tour.desktop + /usr/local/bin/
+# ncz-first-login-tour). Re-enable upstream's path by dropping this line.
+show-tour=false
 # Which apt source(s) the Desktop settings' Artist Pack browser trusts (see
 # post-install/49-artist-pack-browser.sh and packaging/singularity's
 # artist-pack-manager patch). This is the ONE place that list is set for
