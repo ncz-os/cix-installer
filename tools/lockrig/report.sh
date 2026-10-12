@@ -112,3 +112,5 @@ done
 } > "$OUT/matrix.json"
 
 echo "report: $OUT/matrix.md  $OUT/matrix.json  (PASS $tp / FAIL $tf / SKIP $ts)"
+# exit non-zero if any FAIL (so `make matrix` / CI gates on the consolidated result)
+[ "$tf" = 0 ]
