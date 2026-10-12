@@ -273,9 +273,10 @@ re-classified here.
 * **Branch:** `fix/lite-saver-pool-20261012` off `fix/rc7-final-20261012`
   (`f64cba5c`) in `cix-installer` — adds the measured lite saver pool as a data
   file (`assets/perf/lite-saver-pool-20261012.tsv`) and this report
-  (`docs/SAVERBENCH-LITE-POOL.md`). **Commit `b0071f67`**, pushed **GitLab
-  ncz-os first, then ARGONAS**, all three SHAs verified equal (`git ls-remote`
-  → `b0071f6747d8aeb511a5b996047cdadecdd22365`). **Not merged.** No image
+  (`docs/SAVERBENCH-LITE-POOL.md`). Commits: `b0071f67` (data + report),
+  `43225ee2` (record SHA), `14fd2276` (complete the four remaining HD3000
+  hyprsaver rows). Pushed **GitLab ncz-os first, then ARGONAS**, SHAs verified
+  equal with `git ls-remote` (`14fd2276` on both). **Not merged.** No image
   build/tag/ship.
 
 ## 9. Risks / caveats
