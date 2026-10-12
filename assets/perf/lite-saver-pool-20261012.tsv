@@ -1,0 +1,145 @@
+saver	family	hostclass	native_fps	p95_ms	min_scale_for_30fps	verdict	reason
+blackhole_gles3	Black Hole	ivb-hd4000	12.0	83.2	0.5	scaled	native 12.0/83.2 fps; 0.5 >=30 fps, p95<=40 ms
+magmasimplex_gles3	Magmasimplex	ivb-hd4000	41.2	6112.4	-	exclude	p95 frame time ~5.9 s (GPU hang/stutter) at every scale
+fractasia_gles3	Fractasia	ivb-hd4000	60.2	17.1	native	pool	native >=30 fps, p95<=40 ms (partial: optional shaders need GLSL ES 3.20, disabled)
+cityflow_gles3	Classics	ivb-hd4000	60.2	16.8	native	pool	native >=30 fps, p95<=40 ms
+crackberg_gles3	Classics	ivb-hd4000	60.2	16.9	native	pool	native >=30 fps, p95<=40 ms
+cubestorm_gles3	Classics	ivb-hd4000	60.2	16.9	native	pool	native >=30 fps, p95<=40 ms
+datatowers_gles3	Classics	ivb-hd4000	60.2	16.8	native	pool	native >=30 fps, p95<=40 ms
+geodesic_gles3	Classics	ivb-hd4000	60.2	16.9	native	pool	native >=30 fps, p95<=40 ms
+hexstrut_gles3	Classics	ivb-hd4000	60.2	16.8	native	pool	native >=30 fps, p95<=40 ms
+hypertorus_gles3	Classics	ivb-hd4000	60.2	16.9	native	pool	native >=30 fps, p95<=40 ms
+klein_gles3	Classics	ivb-hd4000	60.2	17.0	native	pool	native >=30 fps, p95<=40 ms
+noof_gles3	Classics	ivb-hd4000	60.2	16.9	native	pool	native >=30 fps, p95<=40 ms
+projectiveplane_gles3	Classics	ivb-hd4000	60.2	16.8	native	pool	native >=30 fps, p95<=40 ms
+voronoi_gles3	Classics	ivb-hd4000	60.2	16.6	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_alienbeacon_gles3	xshadertoy	ivb-hd4000	30.1	49.9	0.5	scaled	native 30.1/49.9 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_batteredplanet_gles3	xshadertoy	ivb-hd4000	20.1	66.5	0.5	scaled	native 20.1/66.5 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_bestill0-0_gles3	xshadertoy	ivb-hd4000	12.0	99.7	0.5	scaled	native 12.0/99.7 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_bestill1-0_gles3	xshadertoy	ivb-hd4000	10.0	116.3	0.5	scaled	native 10.0/116.3 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_bestill2-0_gles3	xshadertoy	ivb-hd4000	7.5	149.5	0.25	scaled	native 7.5/149.5 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_bestill3-0_gles3	xshadertoy	ivb-hd4000	10.0	99.8	0.5	scaled	native 10.0/99.8 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_bestill4-0_gles3	xshadertoy	ivb-hd4000	6.7	149.6	0.25	scaled	native 6.7/149.6 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_bestill5-0_gles3	xshadertoy	ivb-hd4000	60.2	33.2	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_darktransit_gles3	xshadertoy	ivb-hd4000	60.2	16.6	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_downfall_gles3	xshadertoy	ivb-hd4000	6.7	166.1	-	exclude	below 30 fps at 0.25 (6.7/166.1 fps)
+xshadertoy_elementalring_gles3	xshadertoy	ivb-hd4000	60.2	16.7	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_fluxcore_gles3	xshadertoy	ivb-hd4000	12.0	166.1	0.25	scaled	native 12.0/166.1 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_gimbalharmonics_gles3	xshadertoy	ivb-hd4000	20.1	50.0	0.5	scaled	native 20.1/50.0 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_goldenapollian_gles3	xshadertoy	ivb-hd4000	60.2	16.7	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_hexplasma_gles3	xshadertoy	ivb-hd4000	60.2	16.7	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_logarithmiccircles_gles3	xshadertoy	ivb-hd4000	60.2	16.7	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_neongravity_gles3	xshadertoy	ivb-hd4000	60.2	16.6	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_neonhorizon_gles3	xshadertoy	ivb-hd4000	60.2	16.8	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_neontriangulator_gles3	xshadertoy	ivb-hd4000	60.2	33.2	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_noxfire_gles3	xshadertoy	ivb-hd4000	8.6	132.9	0.5	scaled	native 8.6/132.9 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_polarnight_gles3	xshadertoy	ivb-hd4000	4.3	249.2	0.25	scaled	native 4.3/249.2 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_prococean_gles3	xshadertoy	ivb-hd4000	30.1	49.8	0.5	scaled	native 30.1/49.8 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_protophore_gles3	xshadertoy	ivb-hd4000	31.9	32.4	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_rigrekt_gles3	xshadertoy	ivb-hd4000	10.0	99.8	0.5	scaled	native 10.0/99.8 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_skyline_gles3	xshadertoy	ivb-hd4000	6.0	216.0	0.25	scaled	native 6.0/216.0 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_starnest_gles3	xshadertoy	ivb-hd4000	30.1	49.9	0.5	scaled	native 30.1/49.9 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_topologica_gles3	xshadertoy	ivb-hd4000	20.1	50.0	0.5	scaled	native 20.1/50.0 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_trainmandala_gles3	xshadertoy	ivb-hd4000	60.2	16.9	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_trizm_gles3	xshadertoy	ivb-hd4000	30.1	33.3	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_truchetzoom_gles3	xshadertoy	ivb-hd4000	60.2	16.7	native	pool	native >=30 fps, p95<=40 ms
+hyprsaver_arccoil_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_attitude_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_aurora_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_bezier_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_blob_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_caustics_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_circuit_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_clouds_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_digitalrain_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_donut_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_fireflies_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_flames_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_geometry_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_hypercube_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_kaleidoscope_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_lissajous_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_marble_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_oscilloscope_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_planet_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_plasma_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_snowfall_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_sonar_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_starfield_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_temple_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_terminal_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_ticker_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_tunnel_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_voronoi_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_waterfall_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_wormhole_gles3	hyprsaver	ivb-hd4000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+blackhole_gles3	Black Hole	snb-hd3000	4.6	232.9	0.25	scaled	native 4.6/232.9 fps; 0.25 >=30 fps, p95<=40 ms
+magmasimplex_gles3	Magmasimplex	snb-hd3000	25.9	6098.2	-	exclude	p95 frame time ~6.1 s (GPU hang/stutter) at every scale
+fractasia_gles3	Fractasia	snb-hd3000	60.1	16.8	native	pool	native >=30 fps, p95<=40 ms (partial: optional shaders need GLSL ES 3.20, disabled)
+cityflow_gles3	Classics	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+crackberg_gles3	Classics	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+cubestorm_gles3	Classics	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+datatowers_gles3	Classics	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+geodesic_gles3	Classics	snb-hd3000	60.1	16.8	native	pool	native >=30 fps, p95<=40 ms
+hexstrut_gles3	Classics	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+hypertorus_gles3	Classics	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+klein_gles3	Classics	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+noof_gles3	Classics	snb-hd3000	60.2	16.6	native	pool	native >=30 fps, p95<=40 ms
+projectiveplane_gles3	Classics	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+voronoi_gles3	Classics	snb-hd3000	60.1	17.2	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_alienbeacon_gles3	xshadertoy	snb-hd3000	10.0	116.5	0.5	scaled	native 10.0/116.5 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_batteredplanet_gles3	xshadertoy	snb-hd3000	5.0	199.7	0.25	scaled	native 5.0/199.7 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_bestill0-0_gles3	xshadertoy	snb-hd3000	5.0	216.2	0.25	scaled	native 5.0/216.2 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_bestill1-0_gles3	xshadertoy	snb-hd3000	4.0	266.1	0.25	scaled	native 4.0/266.1 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_bestill2-0_gles3	xshadertoy	snb-hd3000	3.5	299.4	0.25	scaled	native 3.5/299.4 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_bestill3-0_gles3	xshadertoy	snb-hd3000	4.0	249.5	0.25	scaled	native 4.0/249.5 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_bestill4-0_gles3	xshadertoy	snb-hd3000	3.0	332.7	-	exclude	below 30 fps at 0.25 (3.0/332.7 fps)
+xshadertoy_bestill5-0_gles3	xshadertoy	snb-hd3000	20.0	66.5	0.5	scaled	native 20.0/66.5 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_darktransit_gles3	xshadertoy	snb-hd3000	30.1	49.9	0.5	scaled	native 30.1/49.9 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_downfall_gles3	xshadertoy	snb-hd3000	3.0	349.3	0.25	scaled	native 3.0/349.3 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_elementalring_gles3	xshadertoy	snb-hd3000	30.1	33.5	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_fluxcore_gles3	xshadertoy	snb-hd3000	3.3	582.1	-	exclude	below 30 fps at 0.25 (3.3/582.1 fps)
+xshadertoy_gimbalharmonics_gles3	xshadertoy	snb-hd3000	5.5	199.6	0.25	scaled	native 5.5/199.6 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_goldenapollian_gles3	xshadertoy	snb-hd3000	20.0	66.8	0.5	scaled	native 20.0/66.8 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_hexplasma_gles3	xshadertoy	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_logarithmiccircles_gles3	xshadertoy	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_neongravity_gles3	xshadertoy	snb-hd3000	30.1	33.3	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_neonhorizon_gles3	xshadertoy	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_neontriangulator_gles3	xshadertoy	snb-hd3000	-	-	-	exclude	no frame progress
+xshadertoy_noxfire_gles3	xshadertoy	snb-hd3000	3.2	332.6	0.25	scaled	native 3.2/332.6 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_polarnight_gles3	xshadertoy	snb-hd3000	1.1	1944.0	-	exclude	below 30 fps at 0.25 (1.1/1944.0 fps)
+xshadertoy_prococean_gles3	xshadertoy	snb-hd3000	8.6	116.5	0.5	scaled	native 8.6/116.5 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_protophore_gles3	xshadertoy	snb-hd3000	8.6	116.5	0.5	scaled	native 8.6/116.5 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_rigrekt_gles3	xshadertoy	snb-hd3000	4.0	266.2	0.25	scaled	native 4.0/266.2 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_skyline_gles3	xshadertoy	snb-hd3000	1.5	1519.7	-	exclude	below 30 fps at 0.25 (1.5/1519.7 fps)
+xshadertoy_starnest_gles3	xshadertoy	snb-hd3000	10.0	116.4	0.5	scaled	native 10.0/116.4 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_topologica_gles3	xshadertoy	snb-hd3000	6.7	149.8	0.25	scaled	native 6.7/149.8 fps; 0.25 >=30 fps, p95<=40 ms
+xshadertoy_trainmandala_gles3	xshadertoy	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+xshadertoy_trizm_gles3	xshadertoy	snb-hd3000	15.0	83.1	0.5	scaled	native 15.0/83.1 fps; 0.5 >=30 fps, p95<=40 ms
+xshadertoy_truchetzoom_gles3	xshadertoy	snb-hd3000	60.1	16.7	native	pool	native >=30 fps, p95<=40 ms
+hyprsaver_arccoil_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_attitude_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_aurora_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_bezier_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_blob_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_caustics_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_circuit_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_clouds_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_digitalrain_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_donut_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_fireflies_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_flames_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_geometry_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_hypercube_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_kaleidoscope_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_lissajous_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_marble_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_oscilloscope_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_planet_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_plasma_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_snowfall_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_sonar_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_starfield_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_temple_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_terminal_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
+hyprsaver_ticker_gles3	hyprsaver	snb-hd3000	-	-	-	exclude	GLSL/ES compile or link failure: hyprsaver: vertex compile failed (shader):
