@@ -11,6 +11,8 @@
 # manifests/ncz-timestamped.tsv); the reviewed-ledger row for the timestamped
 # form lives there, and this file records the concrete RC6 build.
 # Published to the NCZ apt repo: Buildkite Packages (primary) + R2 (backup).
-# RC6 carries singularity-shell patch 0016 (no unlock prompt on pointer enter).
-amd64	97f19d71239c2147e4214d8e27e3b9fd3ce760deba023fb450e3594fc4ce2b55	ncz-singularity-desktop_20261012142416+bk0+tgz7160a87e_amd64.deb
-arm64	b24e063e91b59d7bdd21874922f409f115f86cf9c8c9059fb3597ea8f6003ba1	ncz-singularity-desktop_20261012142416+bk0+tgz4d4c1d68_arm64.deb
+# RC6 payload carries the singularity-shell queue 0015/0016/0017
+# (lock-over-saver overlay, no-prompt-before-input, freeze/HOLD on input)
+# and the greeter/lock parity patches (loginui 0003, greeter 0003, shell 0018).
+amd64	8ca67e95f611a593f550a2864a31cb3a668d8feafad6c71db5defae196ede60c	ncz-singularity-desktop_20261012163109+bk0+tgz46804b13_amd64.deb
+arm64	90704bd31dea716b086d3828db75ebc499cfe2e32f67111732c2f91a0b0bbf54	ncz-singularity-desktop_20261012163109+bk0+tgz8ea8845e_arm64.deb
