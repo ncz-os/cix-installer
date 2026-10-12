@@ -62,7 +62,7 @@ class MissingFirmwarePatchTest(unittest.TestCase):
             MODULE.patch_check_missing_firmware("get_fresh_dmesg() { dmesg; }")
 
 
-OUR_KVER = "7.3.0-rc6-4-t2-edge-aer9010"
+OUR_KVER = "7.3.0-rc7-t2-ncz"
 DEB_KVER = "7.2.9+deb14-amd64"
 
 
