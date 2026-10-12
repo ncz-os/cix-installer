@@ -74,7 +74,7 @@
       "size": 299457
     },
     "PROVENANCE-7.3.0-rc7-t2-ncz": {
-      "sha256": "needs to be re-computed at staging time; see /tmp/artifacts/PROVENANCE-7.3.0-rc7-t2-ncz for the live file",
+      "sha256": "ed287644ebbc29c1a358143a669f0dd929adf71115e4bdd67b007d47fc09859d",
       "size": 3029
     }
   },
@@ -85,8 +85,8 @@
     "headers_deb_version": "7.3.0-rc7-1",
     "kernel_release": "7.3.0-rc7-t2-ncz",
     "module_vermagic": "7.3.0-rc7-t2-ncz SMP preempt mod_unload modversions",
-    "vmlinux_build_id": "TBD (KVM boot-validate path produces it on the first real run)",
-    "vmlinuz_sha256": "TBD (KVM boot-validate path produces it on the first real run)",
+    "vmlinux_build_id": "ca7ff87bc98c0d84a56157c5ad64f56cf142401f",
+    "vmlinuz_sha256": "e72be9c1edb06cee462f1194d37ba126bb3e3e0dc2c7ebb22034e7e0bf57860a",
     "config_reference": "amd64-kernel-t2 builds its own config from templates/default-config-debian + the series' CONFIG_* additions; reference is the FINAL .config (kernel_config_7.3.0-rc7-t2-ncz) shipped in the staging pool."
   },
   "gates": {
