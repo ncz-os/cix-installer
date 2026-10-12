@@ -115,6 +115,25 @@
                 echo "[verify-target]     NCZ lock renderer configured: $_rnd"
             fi
         fi
+        # (f4) the lock-hosted saver POLICY is compiled into the shipped feed
+        #      (operator policy v3, 2026-10-12): reduced frame rate, reduced
+        #      render resolution, and freeze-on-every-system after the intro.
+        #      An image whose feed lacks these defaults silently burns power on
+        #      the lock screen (measured 26 W package / 86 C GPU on the Macs),
+        #      so the gate reads the constants out of the installed feed. The
+        #      feed's `--print-policy` emits the same values as a marker line.
+        if fetch /usr/libexec/ncz-screensaver-feed "$TMP/ss.feed"; then
+            grep -q 'DEFAULT_LOCK_FPS = 8' "$TMP/ss.feed" \
+                || gate_miss screensavers "installed ncz-screensaver-feed lacks the NCZ_SAVER_LOCK_FPS=8 default (lock-screen power policy missing; policy v3)"
+            grep -q 'DEFAULT_RENDER_DIV = 2' "$TMP/ss.feed" \
+                || gate_miss screensavers "installed ncz-screensaver-feed lacks the reduced render-resolution default (policy v3)"
+            grep -q 'DEFAULT_FREEZE_MODE = "always"' "$TMP/ss.feed" \
+                || gate_miss screensavers "installed ncz-screensaver-feed does not default to freeze-on-every-system (policy v3: the saver must freeze on every arch/GPU, not only Apple T2)"
+            grep -q 'DEFAULT_FREEZE_AFTER_S = 15' "$TMP/ss.feed" \
+                || gate_miss screensavers "installed ncz-screensaver-feed lacks the 15 s freeze-timer default (policy v3)"
+            echo "[verify-target]     lock-saver policy defaults present (fps 8 / div 2 / freeze always / 15 s)"
+            rm -f "$TMP/ss.feed"
+        fi
         # (g) the GTK4 reference app is for OTHER distros
         grep -q '^Package: ncz-screensavers-gtk4-reference$' "$TMP/dpkg-status" 2>/dev/null && gate_miss screensavers "ncz-screensavers-gtk4-reference is installed on NCZ-OS (it must not be)"
         # (h) the Singularity "Screensaver and Lockscreen" settings plugin
