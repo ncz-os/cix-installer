@@ -1,0 +1,797 @@
+From 9dbb70bc019833abe47c234f1011f2911a12a240 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 11 Oct 2026 16:57:58 -0400
+Subject: [PATCH] lockscreen: overlay the unlock prompt on the running
+ screensaver
+
+While a session is locked the frame-source screensaver is shown on the
+lock surface, but on the first input the lock discarded it and painted
+the prompt over a flat background, so the saver vanished the moment the
+user touched the machine.
+
+Keep the frame source running for as long as the lock is held instead of
+stopping it on input. The lock client now holds a read-only view of the
+current frame and, when the prompt is raised, composites the clock and
+password card over that frame behind a light scrim; after the prompt has
+been idle the raw frames show again. The frame source is never stopped
+for input, and it hands the host the frame's pixels alongside the
+wl_buffer so a host can composite without a second copy.
+
+Failure containment is unchanged: a stopped or crashed source clears the
+frame and the prompt falls back to the lock's own dark background while
+the session stays locked. The feature stays behind -Dlock_framesrc
+(default off) and inert unless a renderer is configured.
+
+The headless labwc test now checks that input raises the prompt without
+stopping the source, that frames keep streaming behind it, that a real
+screen capture shows the backdrop is not the flat fill, and that the
+prompt returns to the frames after it has been idle.
+---
+ src/lockscreen/lock_framesrc.c             |  87 ++++++----
+ src/lockscreen/lock_framesrc.h             |  46 +++--
+ src/lockscreen/lock_main.c                 | 191 +++++++++++++++++++--
+ tests/lockscreen-framesrc/README.md        |  20 ++-
+ tests/lockscreen-framesrc/test-framesrc.sh |  93 +++++++---
+ 5 files changed, 341 insertions(+), 96 deletions(-)
+
+diff --git a/src/lockscreen/lock_framesrc.c b/src/lockscreen/lock_framesrc.c
+index a62c796..bb97c47 100644
+--- a/src/lockscreen/lock_framesrc.c
++++ b/src/lockscreen/lock_framesrc.c
+@@ -22,6 +22,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <sys/socket.h>
++#include <sys/mman.h>
+ #include <sys/stat.h>
+ #include <sys/types.h>
+ #include <sys/un.h>
+@@ -31,7 +32,6 @@
+ 
+ #include <wayland-client.h>
+ 
+-#define LFS_DEFAULT_RESUME_MS 300000u   /* 5 min: the default hack-idle-delay */
+ #define LFS_DEFAULT_STALL_MS    3000u
+ #define LFS_HELLO_TIMEOUT_MS    3000u
+ #define LFS_BACKOFF_MIN_MS       250u
+@@ -50,6 +50,8 @@ struct lfs_out {
+     uint32_t buf_w, buf_h;   /* buffer size = logical * scale */
+     int32_t scale;
+     struct wl_buffer *cur;   /* currently presented buffer (owned here) */
++    void *map;               /* read-only mapping of the current frame, or NULL */
++    size_t map_len;
+     bool has_frame;
+     uint32_t last_seq;
+ };
+@@ -73,10 +75,7 @@ struct lock_framesrc {
+     uint32_t transport;
+ 
+     uint64_t now_ms;          /* last value passed to tick() */
+-    uint64_t last_activity_ms;
+     uint64_t last_frame_ms;
+-    uint64_t resume_ms;       /* idle delay before the saver returns after input */
+-    bool want_start;          /* start immediately (lock engage), ignoring resume_ms */
+     uint64_t hello_deadline_ms;
+     uint64_t reopen_at_ms;
+     uint32_t backoff_ms;
+@@ -130,6 +129,9 @@ static void clear_output(struct lfs_out *o) {
+         o->has_frame = false;
+         if (o->h->ops && o->h->ops->clear) o->h->ops->clear(o->user);
+     }
++    /* Release the mapping only after the host has been told to forget the frame
++     * that referenced it. */
++    if (o->map) { munmap(o->map, o->map_len); o->map = NULL; o->map_len = 0; }
+ }
+ 
+ static void clear_all(struct lock_framesrc *h) {
+@@ -253,7 +255,6 @@ static void fail_and_backoff(struct lock_framesrc *h, const char *why) {
+     clear_all(h);
+     h->state = LFS_IDLE;
+     h->next_seq = 0;
+-    h->want_start = true;   /* retry as soon as the backoff window elapses */
+     if (h->backoff_ms == 0) h->backoff_ms = LFS_BACKOFF_MIN_MS;
+     else h->backoff_ms *= 2;
+     if (h->backoff_ms > LFS_BACKOFF_MAX_MS) h->backoff_ms = LFS_BACKOFF_MAX_MS;
+@@ -395,22 +396,55 @@ static void handle_frame(struct lock_framesrc *h, const void *payload, size_t le
+     if (f->width != o->buf_w || f->height != o->buf_h || f->stride < f->width * 4u || f->width == 0) {
+         close(fd); fail_and_backoff(h, "FRAME geometry mismatch"); return;
+     }
++    /* Map the frame read-only so the host can composite its own UI over it.
++     * Mapping failure is not fatal: the host still gets the wl_buffer. */
++    uint64_t need = (uint64_t)f->offset + (uint64_t)f->stride * f->height;
++    void *pix = NULL;
++    if (need > 0) {
++        void *m = mmap(NULL, (size_t)need, PROT_READ, MAP_SHARED, fd, 0);
++        if (m == MAP_FAILED) lfs_log(h, "mmap(frame) failed: %s", strerror(errno));
++        else pix = m;
++    }
+     struct wl_buffer *buf = import_shm(h, fd, f);
+     close(fd);
+-    if (!buf) { fail_and_backoff(h, "buffer import failed"); return; }
++    if (!buf) {
++        if (pix) munmap(pix, (size_t)need);
++        fail_and_backoff(h, "buffer import failed");
++        return;
++    }
+ 
+-    /* Replace any previous frame for this output. */
++    /* Replace any previous frame for this output. The old mapping is released
++     * only after present() has let the host move on from it. */
+     struct wl_buffer *old = o->cur;
++    void *old_map = o->map;
++    size_t old_len = o->map_len;
+     o->cur = buf;
++    o->map = pix;
++    o->map_len = pix ? (size_t)need : 0;
+     o->has_frame = true;
+     o->last_seq = f->seq;
+-    if (h->ops && h->ops->present)
+-        h->ops->present(o->user, buf, f->width, f->height, o->scale > 0 ? o->scale : 1);
+-    if (old) wl_buffer_destroy(old);
+ 
+     h->last_frame_ms = h->now_ms;
+     h->next_seq++;
++    /* Tell the source it may render the next frame before we spend time
++     * presenting this one, so compositing never stalls the frame stream. */
+     send_ready(h, f->seq);
++    if (h->ops && h->ops->present) {
++        struct lock_framesrc_frame fr = {
++            .buffer = buf,
++            .pixels = pix ? (const unsigned char *)pix + f->offset : NULL,
++            .width = f->width,
++            .height = f->height,
++            .stride = f->stride,
++            .format = (f->format == LFS_FMT_ARGB8888)
++                          ? LOCK_FRAMESRC_FORMAT_ARGB8888
++                          : LOCK_FRAMESRC_FORMAT_XRGB8888,
++            .scale = o->scale > 0 ? o->scale : 1,
++        };
++        h->ops->present(o->user, &fr);
++    }
++    if (old) wl_buffer_destroy(old);
++    if (old_map) munmap(old_map, old_len);
+ }
+ 
+ static void drain(struct lock_framesrc *h) {
+@@ -475,10 +509,6 @@ struct lock_framesrc *lock_framesrc_new(const char *socket_path,
+     const char *logp = getenv("SINGULARITY_LOCK_RENDERER_LOG");
+     if (logp && *logp) snprintf(h->log_path, sizeof h->log_path, "%s", logp);
+ 
+-    const char *rs = getenv("SINGULARITY_LOCK_RENDERER_DELAY_MS");
+-    if (rs && *rs) { unsigned long v = strtoul(rs, NULL, 10); if (v > 0) h->resume_ms = v; }
+-    if (!h->resume_ms) h->resume_ms = LFS_DEFAULT_RESUME_MS;
+-
+     char err[192];
+     h->listen_fd = make_listen_socket(h->sock_path, err, sizeof err);
+     if (h->listen_fd < 0) {
+@@ -529,7 +559,7 @@ void lock_framesrc_remove_output(struct lock_framesrc *h, void *user) {
+         struct lfs_out *o = *pp;
+         if (o->user == user) {
+             *pp = o->next;
+-            if (o->cur) wl_buffer_destroy(o->cur);
++            clear_output(o);
+             if (h->n_outs) h->n_outs--;
+             free(o);
+             return;
+@@ -543,29 +573,17 @@ void lock_framesrc_set_enabled(struct lock_framesrc *h, bool on) {
+     if (h->enabled == on) return;
+     h->enabled = on;
+     if (!on) {
+-        h->want_start = false;
+         stop_source(h, "disabled");
+     } else {
+-        /* On lock engage the saver shows immediately (operator ruling): mark
+-         * "start now" rather than starting the resume timer. */
+-        h->want_start = true;
+-        h->last_activity_ms = h->now_ms ? h->now_ms : lfs_now_ms();
++        /* On lock engage the saver shows immediately (operator ruling). The
++         * source then keeps running until the lock is released: the lock client
++         * draws its prompt over the frames rather than stopping them. */
+         h->reopen_at_ms = 0;
+         h->backoff_ms = 0;
+         lfs_log(h, "enabled");
+     }
+ }
+ 
+-void lock_framesrc_activity(struct lock_framesrc *h) {
+-    if (!h || !h->enabled) return;
+-    h->last_activity_ms = h->now_ms ? h->now_ms : lfs_now_ms();
+-    h->want_start = false;
+-    if (h->state != LFS_IDLE) stop_source(h, "user activity");
+-    h->next_seq = 0;
+-    h->backoff_ms = 0;
+-    h->reopen_at_ms = 0;
+-}
+-
+ void lock_framesrc_tick(struct lock_framesrc *h, uint64_t now_ms) {
+     if (!h) return;
+     h->now_ms = now_ms;
+@@ -583,12 +601,9 @@ void lock_framesrc_tick(struct lock_framesrc *h, uint64_t now_ms) {
+     }
+ 
+     if (h->state == LFS_IDLE) {
+-        uint64_t resume_ms = h->resume_ms ? h->resume_ms : LFS_DEFAULT_RESUME_MS;
+-        if (!h->want_start && now_ms < h->last_activity_ms + resume_ms)
+-            return;                                             /* still showing the prompt */
+-        if (now_ms < h->reopen_at_ms) return;                   /* backing off */
+-        /* Start (or restart) the source. */
+-        h->want_start = false;
++        if (now_ms < h->reopen_at_ms) return;   /* backing off */
++        /* Start (or restart) the source. It is never stopped for input; only a
++         * fault, disable or free ends it. */
+         spawn_source(h);
+         h->state = LFS_WAITING;
+         h->hello_deadline_ms = now_ms + LFS_HELLO_TIMEOUT_MS;
+diff --git a/src/lockscreen/lock_framesrc.h b/src/lockscreen/lock_framesrc.h
+index ef7a407..3f11cb8 100644
+--- a/src/lockscreen/lock_framesrc.h
++++ b/src/lockscreen/lock_framesrc.h
+@@ -31,15 +31,36 @@ struct wl_display;
+ struct wl_shm;
+ struct wl_buffer;
+ 
++/* Pixel format of a delivered frame. The values match the wire protocol so the
++ * two can be passed through unchanged. */
++enum lock_framesrc_format {
++    LOCK_FRAMESRC_FORMAT_ARGB8888 = 0,
++    LOCK_FRAMESRC_FORMAT_XRGB8888 = 1,
++};
++
++/* One frame handed to the host by present(). `buffer` is imported and owned by
++ * the frame-source host; it stays valid for this output until the next
++ * present()/clear() and the callee must not destroy it. `pixels` is a read-only
++ * mapping of the very same frame (stride bytes per row, `format` above) with the
++ * same lifetime; it is NULL if the frame could not be mapped in this process. A
++ * host that merely shows the frames can ignore `pixels` and attach `buffer`; a
++ * host that composites its own UI over them (an unlock prompt, say) draws from
++ * `pixels`. */
++struct lock_framesrc_frame {
++    struct wl_buffer *buffer;
++    const void *pixels;
++    uint32_t width, height, stride;
++    enum lock_framesrc_format format;
++    int32_t scale;
++};
++
+ /* Callbacks implemented by the lock client. `user` is the per-output pointer
+  * the caller registered with lock_framesrc_add_output(). */
+ struct lock_framesrc_ops {
+-    /* A frame is ready for this output. The callee attaches the buffer to its
+-     * lock surface and commits it. The buffer is owned by the host and stays
+-     * valid until the next present()/clear() for the same output or until the
+-     * host is freed; the callee must not destroy it. */
+-    void (*present)(void *user, struct wl_buffer *buf, uint32_t width,
+-                    uint32_t height, int32_t scale);
++    /* A frame is ready for this output. The callee presents it: either by
++     * attaching `frame->buffer` to its lock surface, or by compositing it with
++     * its own UI and attaching the result. */
++    void (*present)(void *user, const struct lock_framesrc_frame *frame);
+     /* Return this output to the lock's own UI (the prompt/wallpaper). Any frame
+      * previously presented for it must be forgotten. */
+     void (*clear)(void *user);
+@@ -79,16 +100,13 @@ void lock_framesrc_resize_output(struct lock_framesrc *h, void *user,
+  * frame presented for it is cleared first. */
+ void lock_framesrc_remove_output(struct lock_framesrc *h, void *user);
+ 
+-/* Enable/disable saver display. Enabling starts the frame source; disabling
+- * hides frames and stops the source. No-op if a frame source command is unset
+- * (external sources still work when enabled). */
++/* Enable/disable saver display. Enabling starts the frame source and keeps it
++ * running until disabled or freed, so frames keep arriving even while the lock
++ * client draws its own UI over them. Disabling hides frames and stops the
++ * source. No-op if a frame source command is unset (external sources still work
++ * when enabled). */
+ void lock_framesrc_set_enabled(struct lock_framesrc *h, bool on);
+ 
+-/* Report user activity (a key/pointer/touch event). Hides any frames, stops the
+- * current frame source, and re-arms the resume timer so frames return after the
+- * configured idle delay. Safe to call at any time. */
+-void lock_framesrc_activity(struct lock_framesrc *h);
+-
+ /* Periodic housekeeping: reaps the child, enforces the frame watchdog and the
+  * backoff, starts/resumes the source when due, and advances the connection
+  * state machine. Call once per main-loop iteration. */
+diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
+index 172d835..fd64006 100644
+--- a/src/lockscreen/lock_main.c
++++ b/src/lockscreen/lock_main.c
+@@ -79,7 +79,13 @@ struct lock_output {
+     struct wl_callback *frame_cb;
+     struct lock_output *next;
+ #ifdef LOCK_FRAMESRC
+-    bool saver_active;   /* an out-of-process frame source owns this surface */
++    bool saver_active;   /* raw frames from the source are on this surface */
++    bool prompt_visible; /* the unlock prompt is drawn over the saver frames */
++    /* Borrowed view of the current frame; valid only while the source is live. */
++    cairo_surface_t *frame_surface;
++    struct wl_buffer *frame_buffer;
++    /* Reusable frame+scrim surface the prompt is drawn over. */
++    cairo_surface_t *backdrop;
+ #endif
+ };
+ 
+@@ -115,6 +121,9 @@ static bool status_error = false;
+ static char username[256] = "";
+ 
+ static void render_output(struct lock_output *o);
++#ifdef LOCK_FRAMESRC
++static cairo_surface_t *build_backdrop(struct lock_output *o, int32_t sc);
++#endif
+ 
+ static void render_all(void) {
+     for (struct lock_output *o = outputs; o; o = o->next)
+@@ -447,9 +456,9 @@ static const struct wl_callback_listener frame_listener = { .done = frame_done }
+ static void render_output(struct lock_output *o) {
+     if (o->frame_cb) return;
+ #ifdef LOCK_FRAMESRC
+-    /* While an out-of-process frame source owns this surface we must not paint
+-     * the Cairo prompt over it. The prompt returns via framesrc_clear_output(). */
+-    if (o->saver_active) return;
++    /* The source owns the surface until the prompt is raised; while it owns it
++     * we must not paint the Cairo prompt over the raw frames. */
++    if (o->saver_active && !o->prompt_visible) return;
+ #endif
+     cairo_t *cr;
+     int32_t sc = o->scale > 0 ? o->scale : 1;
+@@ -483,6 +492,20 @@ static void render_output(struct lock_output *o) {
+     st.auth_label = (access("/run/sinty-recoverd.sock", F_OK) == 0) ? "PIN" : NULL;
+     bool animating = apply_motion(&st);
+ 
++#ifdef LOCK_FRAMESRC
++    /* Prompt over the live saver: use the current frame (with a scrim) as the
++     * background. With no frame -- a stopped source -- the lock's own
++     * background stands, which is the fail-closed dark scrim. */
++    if (o->prompt_visible && o->frame_surface) {
++        cairo_surface_t *bd = build_backdrop(o, sc);
++        if (bd) {
++            st.background = bd;
++            st.background_sharp = NULL;
++            st.sharpness = 0.0;
++        }
++    }
++#endif
++
+     double card_x, card_y, card_w, card_h;
+     loginui_render(cr, &st, &card_x, &card_y, &card_w, &card_h);
+ 
+@@ -524,28 +547,152 @@ static void render_output(struct lock_output *o) {
+  * off-screen and hands us a buffer fd over a Unix socket; we import it and
+  * present it on the lock surface. The renderer is never code in this process,
+  * so a fault there can only cost us the animation: on any error we simply paint
+- * the prompt again. These two callbacks are the whole presentation surface.
++ * the prompt again.
++ *
++ * The source keeps running for as long as the lock is held. The first input
++ * raises the unlock prompt OVER the live frames (the clock and password card
++ * are composited on top of the current frame) rather than dropping to a flat
++ * background, and after the prompt has been idle the raw frames show again.
++ * Presentation is therefore driven from two places: framesrc_present() for the
++ * frames themselves and render_output() for the prompt composited over them.
+  */
+-static void framesrc_present(void *user, struct wl_buffer *buf,
+-                             uint32_t w, uint32_t h, int32_t scale) {
++
++#define LOCK_PROMPT_DEFAULT_MS 300000u   /* how long the prompt stays up (5 min) */
++
++static uint64_t prompt_deadline_ms;   /* monotonic ms at which the prompt hides */
++static uint32_t prompt_delay_ms;      /* SINGULARITY_LOCK_RENDERER_DELAY_MS */
++
++/* Compose o->frame_surface (the latest saver frame) plus a translucent scrim
++ * into o->backdrop, at the surface's physical size. Returns NULL when there is
++ * no frame to draw -- the caller then falls back to the lock's own background,
++ * which is the fail-closed look. */
++static cairo_surface_t *build_backdrop(struct lock_output *o, int32_t sc) {
++    if (!o->frame_surface) return NULL;
++    int bw = (int)(o->width * (uint32_t)sc);
++    int bh = (int)(o->height * (uint32_t)sc);
++    if (bw <= 0 || bh <= 0) return NULL;
++    if (!o->backdrop ||
++        cairo_image_surface_get_width(o->backdrop) != bw ||
++        cairo_image_surface_get_height(o->backdrop) != bh) {
++        if (o->backdrop) cairo_surface_destroy(o->backdrop);
++        o->backdrop = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, bw, bh);
++        if (cairo_surface_status(o->backdrop) != CAIRO_STATUS_SUCCESS) {
++            cairo_surface_destroy(o->backdrop);
++            o->backdrop = NULL;
++            return NULL;
++        }
++    }
++    cairo_t *b = cairo_create(o->backdrop);
++    if (cairo_status(b) != CAIRO_STATUS_SUCCESS) { cairo_destroy(b); return NULL; }
++    cairo_set_operator(b, CAIRO_OPERATOR_SOURCE);
++    cairo_set_source_rgb(b, 0.10, 0.10, 0.11);
++    cairo_paint(b);
++    cairo_set_operator(b, CAIRO_OPERATOR_OVER);
++    int fw = cairo_image_surface_get_width(o->frame_surface);
++    int fh = cairo_image_surface_get_height(o->frame_surface);
++    if (fw > 0 && fh > 0) {
++        double s = (bw / (double)fw > bh / (double)fh) ? bw / (double)fw : bh / (double)fh;
++        cairo_save(b);
++        cairo_translate(b, (bw - fw * s) / 2.0, (bh - fh * s) / 2.0);
++        cairo_scale(b, s, s);
++        cairo_set_source_surface(b, o->frame_surface, 0, 0);
++        cairo_paint(b);
++        cairo_restore(b);
++    }
++    /* Keep the clock and the card legible over an arbitrary saver. */
++    cairo_set_source_rgba(b, 0, 0, 0, 0.35);
++    cairo_paint(b);
++    cairo_destroy(b);
++    return o->backdrop;
++}
++
++static void framesrc_present(void *user, const struct lock_framesrc_frame *fr) {
+     struct lock_output *o = user;
+-    if (!o || !o->surface) return;
+-    /* Stop the Cairo animation loop for this surface while frames are shown. */
++    if (!o || !o->surface || !fr) return;
++
++    /* Keep a view of the frame so the prompt can be composited over it, and so
++     * it can be shown again once the prompt hides. The mapping behind
++     * fr->pixels stays valid until the next present()/clear() for this output
++     * (the host releases it only after this callback returns), so the surface
++     * never outlives its pixels. */
++    if (o->frame_surface) { cairo_surface_destroy(o->frame_surface); o->frame_surface = NULL; }
++    if (fr->pixels && fr->width > 0 && fr->height > 0 && fr->stride > 0) {
++        cairo_format_t fmt = (fr->format == LOCK_FRAMESRC_FORMAT_ARGB8888)
++                                 ? CAIRO_FORMAT_ARGB32 : CAIRO_FORMAT_RGB24;
++        o->frame_surface = cairo_image_surface_create_for_data(
++            (unsigned char *)fr->pixels, fmt, (int)fr->width, (int)fr->height,
++            (int)fr->stride);
++        if (cairo_surface_status(o->frame_surface) != CAIRO_STATUS_SUCCESS) {
++            cairo_surface_destroy(o->frame_surface);
++            o->frame_surface = NULL;
++        }
++    }
++    o->frame_buffer = fr->buffer;
++
++    if (o->prompt_visible) {
++        /* The prompt owns the surface; redraw it over the fresh frame. */
++        render_output(o);
++        return;
++    }
++
++    /* No prompt: show the raw frames. Stop the Cairo animation loop for this
++     * surface while the source owns it. */
+     if (o->frame_cb) { wl_callback_destroy(o->frame_cb); o->frame_cb = NULL; }
+     o->saver_active = true;
+-    wl_surface_set_buffer_scale(o->surface, scale > 0 ? scale : 1);
+-    wl_surface_attach(o->surface, buf, 0, 0);
+-    wl_surface_damage_buffer(o->surface, 0, 0, (int)w, (int)h);
++    wl_surface_set_buffer_scale(o->surface, fr->scale > 0 ? fr->scale : 1);
++    wl_surface_attach(o->surface, fr->buffer, 0, 0);
++    wl_surface_damage_buffer(o->surface, 0, 0, (int)fr->width, (int)fr->height);
+     wl_surface_commit(o->surface);
+ }
+ 
+ static void framesrc_clear(void *user) {
+     struct lock_output *o = user;
+     if (!o) return;
++    if (o->frame_surface) { cairo_surface_destroy(o->frame_surface); o->frame_surface = NULL; }
++    o->frame_buffer = NULL;
+     o->saver_active = false;
+     if (o->configured) render_output(o);
+ }
+ 
++/* First input: raise the prompt over the running saver. The frame source is not
++ * stopped, so frames keep arriving behind the prompt. */
++static void raise_prompt(void) {
++    if (!framesrc) return;
++    prompt_deadline_ms = (uint64_t)(now_us() / 1000)
++        + (prompt_delay_ms ? prompt_delay_ms : LOCK_PROMPT_DEFAULT_MS);
++    bool changed = false;
++    for (struct lock_output *o = outputs; o; o = o->next) {
++        if (!o->configured) continue;
++        if (!o->prompt_visible) { o->prompt_visible = true; changed = true; }
++    }
++    if (changed) {
++        fprintf(stderr, "lock: prompt raised over saver\n");
++        render_all();
++    }
++}
++
++/* Idle after the prompt: hide it and show the raw saver frames again. A source
++ * that has stopped has no frames to return to, so it keeps the prompt. */
++static void lower_prompt(void) {
++    if (!framesrc) return;
++    bool lowered = false;
++    for (struct lock_output *o = outputs; o; o = o->next) {
++        if (!o->prompt_visible || !o->frame_buffer || !o->surface) continue;
++        o->prompt_visible = false;
++        lowered = true;
++        if (o->frame_cb) { wl_callback_destroy(o->frame_cb); o->frame_cb = NULL; }
++        o->saver_active = true;
++        int32_t sc = o->scale > 0 ? o->scale : 1;
++        wl_surface_set_buffer_scale(o->surface, sc);
++        wl_surface_attach(o->surface, o->frame_buffer, 0, 0);
++        wl_surface_damage_buffer(o->surface, 0, 0,
++                                 (int)(o->width * (uint32_t)sc),
++                                 (int)(o->height * (uint32_t)sc));
++        wl_surface_commit(o->surface);
++    }
++    if (lowered) fprintf(stderr, "lock: prompt lowered; saver frames resumed\n");
++}
++
+ static const struct lock_framesrc_ops framesrc_ops = {
+     .present = framesrc_present,
+     .clear = framesrc_clear,
+@@ -794,9 +941,9 @@ static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
+                    uint32_t time, uint32_t key, uint32_t state) {
+     (void)data; (void)kb; (void)serial; (void)time;
+ #ifdef LOCK_FRAMESRC
+-    /* Any key press dismisses the screensaver back to the unlock prompt. */
++    /* Any key press raises the unlock prompt over the still-running saver. */
+     if (state == WL_KEYBOARD_KEY_STATE_PRESSED && framesrc)
+-        lock_framesrc_activity(framesrc);
++        raise_prompt();
+ #endif
+     if (!xkb_state) {
+         /* Do not fail silently. Without a keymap this screen can never accept
+@@ -869,7 +1016,7 @@ static void pt_enter(void *d, struct wl_pointer *p, uint32_t serial,
+     ptr_x = wl_fixed_to_double(sx);
+     ptr_y = wl_fixed_to_double(sy);
+ #ifdef LOCK_FRAMESRC
+-    if (framesrc) lock_framesrc_activity(framesrc);
++    if (framesrc) raise_prompt();
+ #endif
+ }
+ static void pt_leave(void *d, struct wl_pointer *p, uint32_t serial, struct wl_surface *sf) {
+@@ -879,7 +1026,7 @@ static void pt_motion(void *d, struct wl_pointer *p, uint32_t t, wl_fixed_t sx,
+     ptr_x = wl_fixed_to_double(sx);
+     ptr_y = wl_fixed_to_double(sy);
+ #ifdef LOCK_FRAMESRC
+-    if (framesrc) lock_framesrc_activity(framesrc);
++    if (framesrc) raise_prompt();
+ #endif
+ }
+ static void pt_button(void *d, struct wl_pointer *p, uint32_t serial, uint32_t time,
+@@ -887,7 +1034,7 @@ static void pt_button(void *d, struct wl_pointer *p, uint32_t serial, uint32_t t
+     (void)d; (void)p; (void)serial; (void)time;
+ #ifdef LOCK_FRAMESRC
+     if (btn_state == WL_POINTER_BUTTON_STATE_PRESSED && framesrc)
+-        lock_framesrc_activity(framesrc);
++        raise_prompt();
+ #endif
+     if (button != BTN_LEFT || btn_state != WL_POINTER_BUTTON_STATE_PRESSED) return;
+     if (!ptr_output || !ptr_output->mb_valid) return;
+@@ -954,6 +1101,9 @@ static void reg_remove(void *data, struct wl_registry *reg, uint32_t name) {
+             if (framesrc) lock_framesrc_remove_output(framesrc, dead);
+ #endif
+             if (dead->frame_cb) wl_callback_destroy(dead->frame_cb);
++#ifdef LOCK_FRAMESRC
++            if (dead->backdrop) cairo_surface_destroy(dead->backdrop);
++#endif
+             if (dead->lock_surface) ext_session_lock_surface_v1_destroy(dead->lock_surface);
+             if (dead->surface) wl_surface_destroy(dead->surface);
+             if (dead->wl_output) wl_output_destroy(dead->wl_output);
+@@ -1037,6 +1187,8 @@ int main(int argc, char **argv) {
+      * already be able to enable the frame source when it does. */
+     if (getenv("SINGULARITY_LOCK_RENDERER") ||
+         getenv("SINGULARITY_LOCK_RENDERER_ENABLE")) {
++        const char *rs = getenv("SINGULARITY_LOCK_RENDERER_DELAY_MS");
++        if (rs && *rs) { unsigned long v = strtoul(rs, NULL, 10); if (v > 0) prompt_delay_ms = (uint32_t)v; }
+         framesrc = lock_framesrc_new(NULL, NULL, display, shm, &framesrc_ops);
+         if (framesrc) {
+             for (struct lock_output *o = outputs; o; o = o->next)
+@@ -1134,6 +1286,11 @@ int main(int argc, char **argv) {
+             if (fs_idx >= 0 && (pfds[fs_idx].revents & (POLLIN | POLLHUP | POLLERR)))
+                 lock_framesrc_dispatch(framesrc);
+             lock_framesrc_tick(framesrc, (uint64_t)(now_us() / 1000));
++            /* After the prompt has been idle, the saver returns. */
++            if (prompt_deadline_ms && (uint64_t)(now_us() / 1000) >= prompt_deadline_ms) {
++                prompt_deadline_ms = 0;
++                lower_prompt();
++            }
+         }
+ #endif
+ 
+diff --git a/tests/lockscreen-framesrc/README.md b/tests/lockscreen-framesrc/README.md
+index 576acb6..3fbf47d 100644
+--- a/tests/lockscreen-framesrc/README.md
++++ b/tests/lockscreen-framesrc/README.md
+@@ -3,8 +3,14 @@
+ The lock client can present buffers rendered by a **separate process** (a
+ screensaver) on its `ext-session-lock-v1` surfaces, so a screensaver is visible
+ while the session is locked. The lock never runs renderer code, so a renderer
+-fault can only make it fall back to its own prompt. This directory holds the
+-headless test.
++fault can only make it fall back to its own prompt.
++
++The frame source keeps running while the lock is held. The first input **raises
++the unlock prompt over the live saver** — the clock and password card are
++composited on top of the current frame with a translucent scrim, not dropped
++onto a flat background — and after the prompt has been idle the raw frames show
++again. If the source stops (crash, hang, GPU error), the prompt stays and is
++drawn over a dark scrim: the lock is still held.
+ 
+ Build with the feature on:
+ 
+@@ -16,9 +22,12 @@ ninja -C build
+ `test-framesrc.sh` needs a real compositor in a throwaway environment. It drives
+ `labwc` (headless), a lock client, and `singularity-lock-framesrc-testsrc` (a
+ deterministic frame source that renders a trivial pattern into a memfd — no GPU),
+-and asserts on the lock's stderr:
++and asserts on the lock's stderr and on real screen captures:
+ 
+-- frames from the source are presented, then a key press dismisses them;
++- frames from the source are presented; a key press raises the prompt **without
++  stopping the source**, frames keep streaming behind it, and a screen capture
++  shows the backdrop is the live saver rather than a flat fill;
++- after the prompt is idle the raw frames return;
+ - `kill -9` of the source, a hung source, a short buffer fd and a source that
+   dies on a GPU error each leave the **lock held** and the client alive;
+ - a build with the feature **off** is inert.
+@@ -32,4 +41,5 @@ Environment (defaults assume the binaries are in `$WORK`, e.g. a container):
+ | `LOCKOFF` | feature-off lock client (case 6) |
+ | `SRC` | `singularity-lock-framesrc-testsrc` |
+ 
+-Requirements in the test environment: `labwc`, `wtype`, `wayland-utils`.
++Requirements in the test environment: `labwc`, `wtype`, `wayland-utils`,
++`grim`, `python3` with `PIL`.
+diff --git a/tests/lockscreen-framesrc/test-framesrc.sh b/tests/lockscreen-framesrc/test-framesrc.sh
+index 60e0e25..2990e0b 100755
+--- a/tests/lockscreen-framesrc/test-framesrc.sh
++++ b/tests/lockscreen-framesrc/test-framesrc.sh
+@@ -1,11 +1,11 @@
+ #!/bin/bash
+ # Headless labwc test for the lock client's out-of-process frame source.
+ #
+-# Runs INSIDE a debian:forky container with: labwc, wtype, wayland-utils, and the
+-# three binaries built by build.sh, all under /work. It drives a real labwc
+-# (WLR_BACKENDS=headless) and a real lock client, and asserts on the lock's own
+-# stderr log. Restarts labwc per case so a lock left held never wedges the next
+-# case.
++# Runs INSIDE a debian:forky container with: labwc, wtype, wayland-utils, grim,
++# python3 + python3-pil, and the three binaries built by build.sh, all under
++# /work. It drives a real labwc (WLR_BACKENDS=headless) and a real lock client,
++# and asserts on the lock's own stderr log and on real screen captures. Restarts
++# labwc per case so a lock left held never wedges the next case.
+ set -u
+ 
+ WORK="${WORK:-/work}"
+@@ -48,12 +48,13 @@ stop_all() {
+ }
+ trap 'stop_all' EXIT
+ 
+-start_lock() { # $1 = env value for SINGULARITY_LOCK_RENDERER (may be empty), $2 log
+-    local cmd="$1" log="$2"
++start_lock() { # $1 = env value for SINGULARITY_LOCK_RENDERER (may be empty), $2 log, $3 delay ms
++    local cmd="$1" log="$2" delay="${3:-2500}"
+     : >"$log"; : >"${log}.lfs"
+     SINGULARITY_LOCK_RENDERER="$cmd" \
+     SINGULARITY_LOCK_RENDERER_SOCKET="$SOCK" \
+     SINGULARITY_LOCK_RENDERER_LOG="${log}.lfs" \
++    SINGULARITY_LOCK_RENDERER_DELAY_MS="$delay" \
+     "$LOCK" >>"$log" 2>&1 &
+     LOCK_PID=$!
+ }
+@@ -64,6 +65,30 @@ wait_for() { # $1 file, $2 string, $3 seconds
+     done
+     return 1
+ }
++frame_count() { grep -c "testsrc: frame seq=" "$1" 2>/dev/null || true; }
++alive() { kill -0 "$1" 2>/dev/null; }
++
++# Sample the corners of a screen capture and report whether the background is
++# anything but one flat colour. A live frame source paints a moving pattern; the
++# fail-closed prompt over no frames is a single flat fill.
++backdrop_is_live() { # $1 = png
++    python3 - "$1" <<'PY'
++import sys
++from PIL import Image
++im = Image.open(sys.argv[1]).convert("RGB")
++w, h = im.size
++regions = [(0, 0, w // 6, h // 6), (w - w // 6, 0, w, h // 6),
++           (0, h - h // 6, w // 6, h), (w - w // 6, h - h // 6, w, h)]
++mn, mx = 255, 0
++for (x0, y0, x1, y1) in regions:
++    for x in range(x0, x1, max(1, (x1 - x0) // 12)):
++        for y in range(y0, y1, max(1, (y1 - y0) // 12)):
++            for c in im.getpixel((x, y)):
++                mn = min(mn, c); mx = max(mx, c)
++print("corner_range=%d" % (mx - mn))
++sys.exit(0 if (mx - mn) > 20 else 1)
++PY
++}
+ 
+ echo "== probe: labwc globals =="
+ if ! start_labwc; then echo "FATAL: no headless labwc"; exit 1; fi
+@@ -72,36 +97,56 @@ wayland-info 2>/dev/null | grep -o "ext_session_lock_manager_v1" | head -1 \
+     || bad "labwc does NOT advertise ext_session_lock_manager_v1"
+ stop_all
+ 
+-echo "== case 1: frames render (happy path) =="
++echo "== case 1: frames render; input raises the prompt over the live saver =="
+ start_labwc || exit 1
+-start_lock "$SRC --frames 200" "$WORK/tmp/c1.log"
++start_lock "$SRC --frames 400" "$WORK/tmp/c1.log" 4000
+ if wait_for "$WORK/tmp/c1.log" "frame source accepted" 6; then ok "lock accepted the frame source"; else bad "lock did not accept the frame source"; fi
+ if wait_for "$WORK/tmp/c1.log" "testsrc: frame seq=" 4; then ok "frame source rendered frames"; else bad "no frames rendered"; fi
+ sleep 1
+-fcount=$(grep -c "testsrc: frame seq=" "$WORK/tmp/c1.log" || true)
+-if [ "${fcount:-0}" -ge 3 ]; then ok "multiple frames streamed ($fcount)"; else bad "too few frames ($fcount)"; fi
+-if kill -0 "$LOCK_PID" 2>/dev/null; then ok "lock client alive while presenting"; else bad "lock client died"; fi
+-# input: a key press must dismiss the saver back to the prompt. wtype creates a
+-# transient virtual keyboard, so the first key can race the seat gaining the
+-# keyboard capability; retry a few times.
++f0=$(frame_count "$WORK/tmp/c1.log")
++if [ "${f0:-0}" -ge 3 ]; then ok "multiple frames streamed ($f0)"; else bad "too few frames ($f0)"; fi
++if alive "$LOCK_PID"; then ok "lock client alive while presenting"; else bad "lock client died"; fi
++# input: a key press must RAISE THE PROMPT while the saver keeps running. wtype
++# creates a transient virtual keyboard, so the first key can race the seat
++# gaining the keyboard capability; retry a few times.
+ for _ in 1 2 3 4 5; do
+     wtype -d 300 -k a >/dev/null 2>&1
+-    have "$WORK/tmp/c1.log" "stopped (user activity)" && break
++    have "$WORK/tmp/c1.log" "prompt raised over saver" && break
+     sleep 0.3
+ done
+-if have "$WORK/tmp/c1.log" "stopped (user activity)"; then ok "input dismissed the saver"; else bad "input did not dismiss the saver"; fi
+-if kill -0 "$LOCK_PID" 2>/dev/null; then ok "lock client alive after input"; else bad "lock died on input"; fi
++if have "$WORK/tmp/c1.log" "prompt raised over saver"; then ok "input raised the prompt"; else bad "input did not raise the prompt"; fi
++if have "$WORK/tmp/c1.log" "frame source stopped"; then bad "input stopped the saver (prompt does not overlay)"; else ok "input did NOT stop the saver"; fi
++# The source must keep delivering frames behind the prompt.
++fa=$(frame_count "$WORK/tmp/c1.log"); sleep 1; fb=$(frame_count "$WORK/tmp/c1.log")
++if [ "${fb:-0}" -gt "${fa:-0}" ]; then ok "frames kept streaming behind the prompt ($fa -> $fb)"; else bad "frames stopped behind the prompt ($fa -> $fb)"; fi
++# Sample the real composited output: the backdrop under the prompt must be the
++# live saver, not the flat dark fill.
++if grim "$WORK/tmp/c1-prompt.png" >/dev/null 2>&1; then
++    if rng=$(backdrop_is_live "$WORK/tmp/c1-prompt.png"); then ok "prompt backdrop is not the flat fill ($rng)"; else bad "prompt backdrop is the flat fill ($rng)"; fi
++else
++    bad "grim could not capture the locked screen"
++fi
++if alive "$LOCK_PID"; then ok "lock client alive after input"; else bad "lock died on input"; fi
++# After the prompt has been idle, the raw saver returns.
++if wait_for "$WORK/tmp/c1.log" "prompt lowered; saver frames resumed" 8; then ok "prompt lowered and the saver resumed"; else bad "prompt did not lower"; fi
+ stop_all
+ 
+-echo "== case 2: saver kill -9 (fail-closed) =="
++echo "== case 2: feed kill -9 => lock held and the prompt still works =="
+ start_labwc || exit 1
+-start_lock "$SRC --frames 200" "$WORK/tmp/c2.log"
++start_lock "$SRC --frames 400" "$WORK/tmp/c2.log" 3000
+ wait_for "$WORK/tmp/c2.log" "frame source accepted" 6 || true
+ testsrc_pid=$(pgrep -f "lock-framesrc-testsrc" | head -1)
+ if [ -n "$testsrc_pid" ]; then kill -9 "$testsrc_pid"; ok "killed the frame source (-9)"; else bad "frame source pid not found"; fi
+ if wait_for "$WORK/tmp/c2.log" "frame source failed" 4 || wait_for "$WORK/tmp/c2.log" "exited status" 2; then ok "lock noticed the dead frame source"; else bad "lock did not notice the dead source"; fi
+ sleep 0.5
+-if kill -0 "$LOCK_PID" 2>/dev/null; then ok "lock client still alive after saver -9 (fail-closed)"; else bad "lock client died with the saver"; fi
++if alive "$LOCK_PID"; then ok "lock client still alive after saver -9 (fail-closed)"; else bad "lock client died with the saver"; fi
++for _ in 1 2 3 4 5; do
++    wtype -d 300 -k a >/dev/null 2>&1
++    have "$WORK/tmp/c2.log" "prompt raised over saver" && break
++    sleep 0.3
++done
++if have "$WORK/tmp/c2.log" "prompt raised over saver"; then ok "prompt works after the feed crash"; else bad "prompt did not work after the feed crash"; fi
++if alive "$LOCK_PID"; then ok "lock still held after input post-crash"; else bad "lock died on input post-crash"; fi
+ stop_all
+ 
+ echo "== case 3: hung saver -> frame watchdog =="
+@@ -109,21 +154,21 @@ start_labwc || exit 1
+ start_lock "$SRC --hang=2" "$WORK/tmp/c3.log"
+ wait_for "$WORK/tmp/c3.log" "testsrc: hanging" 6 || true
+ if wait_for "$WORK/tmp/c3.log" "frame watchdog" 6; then ok "frame watchdog fired on a hung saver"; else bad "frame watchdog did not fire"; fi
+-if kill -0 "$LOCK_PID" 2>/dev/null; then ok "lock client alive after a hung saver"; else bad "lock died on a hung saver"; fi
++if alive "$LOCK_PID"; then ok "lock client alive after a hung saver"; else bad "lock died on a hung saver"; fi
+ stop_all
+ 
+ echo "== case 4: bad fd / short buffer rejected =="
+ start_labwc || exit 1
+ start_lock "$SRC --bad-fd --frames 3" "$WORK/tmp/c4.log"
+ if wait_for "$WORK/tmp/c4.log" "shm too small" 6; then ok "short buffer rejected"; else bad "short buffer not rejected"; fi
+-if kill -0 "$LOCK_PID" 2>/dev/null; then ok "lock client alive after a bad fd"; else bad "lock died on a bad fd"; fi
++if alive "$LOCK_PID"; then ok "lock client alive after a bad fd"; else bad "lock died on a bad fd"; fi
+ stop_all
+ 
+ echo "== case 5: saver GPU error (exits after HELLO) =="
+ start_labwc || exit 1
+ start_lock "$SRC --gpu-error" "$WORK/tmp/c5.log"
+ if wait_for "$WORK/tmp/c5.log" "frame source failed" 6 || wait_for "$WORK/tmp/c5.log" "exited status" 3; then ok "GPU error handled"; else bad "GPU error not handled"; fi
+-if kill -0 "$LOCK_PID" 2>/dev/null; then ok "lock client alive after a GPU error"; else bad "lock died on a GPU error"; fi
++if alive "$LOCK_PID"; then ok "lock client alive after a GPU error"; else bad "lock died on a GPU error"; fi
+ stop_all
+ 
+ echo "== case 6: default build is inert (no frame source) =="
+-- 
+2.50.1 (Apple Git-155)
+
