@@ -1870,7 +1870,7 @@ def bench_saver_once(hid, scale, display, binary, seconds=SAVER_BENCH_WINDOW_S,
             result["error"] = "no frame progress"
             log = _saver_log(binary, logpath)
             if "GLSL" in log or "not supported" in log:
-                m = re.search(r"(GLSL[^\\n]*|not supported[^\\n]*)", log)
+                m = re.search(r"(GLSL[^\n]*|not supported[^\n]*)", log)
                 result["error"] = (m.group(1) if m else "shader/GL error").strip()
             return result
         elapsed = stamps[-1] - stamps[0]
