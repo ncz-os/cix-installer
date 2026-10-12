@@ -273,6 +273,22 @@ def detect(inputs: dict | None = None) -> dict:
 # gsettings plumbing (all external state goes through here so tests can shim)
 # ---------------------------------------------------------------------------
 
+# singularity-desktop's schema lives under /opt/singularity/share (NOT the
+# system schema dir) and the session wrapper points GSETTINGS_SCHEMA_DIR at it.
+# When ncz-profile runs outside that wrapper we must add the same dir or none
+# of the dev.sinty.desktop keys resolve. GSETTINGS_SCHEMA_DIR is additive, so
+# the system schemas (dev.ncz.screensaver, dev.ncz.profile) stay visible.
+SHARE_SCHEMA_DIR = "/opt/singularity/share/glib-2.0/schemas"
+
+
+def ensure_schema_dir() -> None:
+    if not os.path.isdir(SHARE_SCHEMA_DIR):
+        return
+    parts = [p for p in os.environ.get("GSETTINGS_SCHEMA_DIR", "").split(":") if p]
+    if SHARE_SCHEMA_DIR not in parts:
+        os.environ["GSETTINGS_SCHEMA_DIR"] = ":".join([SHARE_SCHEMA_DIR] + parts)
+
+
 def gsettings(*args: str) -> tuple[int, str, str]:
     try:
         res = subprocess.run(["gsettings", *args], capture_output=True, text=True)
@@ -625,6 +641,7 @@ def cmd_list(args) -> int:
 
 
 def main(argv=None) -> int:
+    ensure_schema_dir()
     ap = argparse.ArgumentParser(prog="ncz-profile", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("class")

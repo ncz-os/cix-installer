@@ -23,6 +23,9 @@ chimera	192.168.207.6	amd64	ncz	1	1920x1200	amdgpu+i915	1	0	ncz-azmidi-8940 MacB
 medusa	192.168.207.38	amd64	ncz	1	1920x1200	amdgpu+i915	1	0	ncz-alioth-3184 MacBookPro16,1; OPERATOR PRESENT; older payload, needs install
 cixmini	192.168.207.66	arm64	ncz	1	auto	Mali	0	0	ncz-megrez-8585 arm64; OLDER image (0.8.10, no renderer/launcher); needs install
 proteus	192.168.207.68	amd64	ncz	0	-	i915-ArrowLake	0	1	proteus HEADLESS: no DRM output connected; use headless labwc harness
+# --- lite-profile test hosts (operator 2026-10-12) -----------------------------------
+inspiron	192.168.207.70	amd64	ncz	1	auto	i915-HD4000	0	0	ncz-biham-1109 Dell Inspiron 5521 (2013) i7-3537U Ivy Bridge, HD 4000 (Gen7); lite-profile test host
+cyclops	192.168.207.89	amd64	ncz	1	1920x1080	i915-HD3000	0	0	Mac mini 5,1 (2011) i5-2415M Sandy Bridge, HD 3000 (Gen6, weakest); lite-profile test host
 # --- build hosts for the headless suite ---------------------------------------------
 achilles	192.168.207.11	amd64	jasonperlow	0	-	build-host	0	1	achilles; localhost/ncz-locktest:forky image; headless labwc suite
 ultra	192.168.207.88	arm64	jasonperlow	0	-	build-host	0	1	fedora arm64 build host; headless labwc suite
