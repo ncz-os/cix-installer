@@ -44,10 +44,11 @@ libpeas.peas_engine_rescan_plugins.argtypes = [ctypes.c_void_p]
 libpeas.peas_engine_get_plugin_info.restype = ctypes.c_void_p
 libpeas.peas_engine_get_plugin_info.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
 libpeas.peas_engine_load_plugin.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-libpeas.peas_engine_create_extension_with_properties.restype = ctypes.c_void_p
-libpeas.peas_engine_create_extension_with_properties.argtypes = [
-    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
-    ctypes.POINTER(ctypes.c_char_p), ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+# Canonical "no properties" form: the variadic constructor terminated with a
+# single NULL property name (equivalent to the shell's empty property arrays).
+libpeas.peas_engine_create_extension.restype = ctypes.c_void_p
+libpeas.peas_engine_create_extension.argtypes = [
+    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_char_p]
 libpeas.peas_plugin_info_get_external_data.restype = ctypes.c_char_p
 libpeas.peas_plugin_info_get_external_data.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
 libsing.singularity_plugin_get_type.restype = ctypes.c_size_t
@@ -74,9 +75,7 @@ if not info:
 if not libpeas.peas_engine_load_plugin(engine, info):
     die("peas_engine_load_plugin() failed for '%s'" % MODULE)
 
-err = ctypes.c_void_p(0)
-ext = libpeas.peas_engine_create_extension_with_properties(
-    engine, info, iface, ctypes.POINTER(ctypes.c_char_p)(), None, ctypes.byref(err))
+ext = libpeas.peas_engine_create_extension(engine, info, iface, None)
 if not ext:
     die("create_extension returned NULL -> shell shows 'No settings available'")
 if not libgobj.g_type_check_instance_is_a(ctypes.c_void_p(ext), iface):
