@@ -1,5 +1,5 @@
 boot/vmlinuz-7.3.0-rc7-t2-ncz
 boot/initrd.img-7.3.0-rc7-t2-ncz
 lib/modules/7.3.0-rc7-t2-ncz/modules.dep
-ncz-payload/assets/kernel/amd64-stable/linux-image-7.3.0-rc7-t2-ncz_7.3.0-rc7-1_amd64.deb
-ncz-payload/assets/kernel/amd64-stable/linux-headers-7.3.0-rc7-t2-ncz_7.3.0-rc7-1_amd64.deb
+ncz-payload/assets/kernel/amd64-stable/linux-image-7.3.0-rc7-t2-ncz_7.3.0-rc7-2_amd64.deb
+ncz-payload/assets/kernel/amd64-stable/linux-headers-7.3.0-rc7-t2-ncz_7.3.0-rc7-2_amd64.deb

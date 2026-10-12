@@ -376,16 +376,25 @@ check_amd64_line() {
     local _pinned=0
     if [ "$line" = "amd64-stable" ] && [ -s "assets/kernel/amd64-stable/KVER" ]; then
         _pinned=1
-        local _pin _d _cands
+        local _pin _pkgver _d _cands
         _pin="$(tr -d '[:space:]' < assets/kernel/amd64-stable/KVER)"
+        # Optional revision pin (assets/kernel/amd64-stable/PKGVERSION): the
+        # KVER is stable across the r1/r2 rebuilds of 7.3.0-rc7-t2-ncz, so a
+        # KVER-only search would pick whichever same-KVER pool dir find()
+        # returns first. When present, only a dir holding the pinned
+        # linux-image-<KVER>_<PKGVERSION>_amd64.deb is eligible.
+        _pkgver=""
+        [ -s assets/kernel/amd64-stable/PKGVERSION ] && _pkgver="$(tr -d '[:space:]' < assets/kernel/amd64-stable/PKGVERSION)"
         mapfile -t _cands < <(find "$KERNEL_STAGING_DIR" -maxdepth 3 -type d \( -name 'amd64-stable-*' -o -path '*/amd64-t2-*/*' \) 2>/dev/null)
         for _d in "${_cands[@]}"; do
             [ -d "$_d" ] || continue
             [ -s "$_d/KVER" ] || continue
-            if [ "$(tr -d '[:space:]' < "$_d/KVER")" = "$_pin" ]; then
-                newest="$_d"
-                break
+            [ "$(tr -d '[:space:]' < "$_d/KVER")" = "$_pin" ] || continue
+            if [ -n "$_pkgver" ] && [ ! -f "$_d/linux-image-${_pin}_${_pkgver}_amd64.deb" ]; then
+                continue
             fi
+            newest="$_d"
+            break
         done
         if [ -z "$newest" ]; then
             echo "[3] FAIL: amd64-stable is pinned to '$_pin' but no build with that KVER is staged under $KERNEL_STAGING_DIR"
