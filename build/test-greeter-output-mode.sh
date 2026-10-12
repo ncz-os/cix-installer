@@ -154,8 +154,8 @@ cat > "$T/single_mode_4k.json" <<'J'
   "modes": [{"width": 3840, "height": 2160, "refresh": 59.997, "preferred": true, "current": true}]}]
 J
 rc=$(runh ok "$T/single_mode_4k.json")
-if [ "$rc" = 0 ] && grep -qx -- "--output eDP-1 --on" "$T/calls" && ! grep -q -E "3840|4096|2160" "$T/calls"; then
-    ok "single-mode 4K panel: helper enables at native (--on), never dark, never 4K"
+if [ "$rc" = 0 ] && grep -qx -- "--output eDP-1 --scale 2 --on" "$T/calls" && ! grep -q -E "3840|4096|2160" "$T/calls"; then
+    ok "single-mode 4K panel: helper enables at native + density scale (--scale 2 --on)"
 else
     bad "single-mode 4K panel helper wrong (rc=$rc): $(tr '\n' ';' < "$T/calls")"
 fi
@@ -168,8 +168,8 @@ cat > "$T/single_mode_4k_lit.json" <<'J'
   "modes": [{"width": 3840, "height": 2160, "refresh": 59.997, "preferred": true, "current": true}]}]
 J
 rc=$(runh ok "$T/single_mode_4k_lit.json")
-if [ "$rc" = 0 ] && grep -qx -- "--output eDP-1 --on" "$T/calls" && ! grep -q -E "3840|4096|2160" "$T/calls"; then
-    ok "single-mode 4K panel already lit: re-asserted with --on, no 4K mode"
+if [ "$rc" = 0 ] && grep -qx -- "--output eDP-1 --scale 2 --on" "$T/calls" && ! grep -q -E "3840|4096|2160" "$T/calls"; then
+    ok "single-mode 4K panel already lit: re-asserted with --on + scale 2, no 4K mode"
 else
     bad "already-lit single-mode 4K panel wrong (rc=$rc): $(tr '\n' ';' < "$T/calls")"
 fi

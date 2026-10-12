@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 12 Oct 2026 12:30:00 -0400
+Subject: [PATCH] loginui: resolve the shared login-card field label in one place
+
+Add loginui_field_label(): the one derivation of the credential-field label,
+used by both the greeter and the session lock, so the shared login card cannot
+drift between them. A greetd/PAM prompt is normalised (trailing ':'/whitespace
+stripped) so a PAM "Password: " renders identically to the lock's own
+"Password"; an empty prompt falls back to the credential kind (PIN/Password).
+Assisted-by: opencode:deepseek-flash
+AI-Scope: authored on the pinned upstream commit; measured red->green headless
+---
+diff --git a/loginui.h b/loginui.h
+--- a/loginui.h
++++ b/loginui.h
+@@ -38,6 +38,18 @@
+     double content_fade;
+ } LoginUiState;
+ 
++/* Resolve the SINGLE shared credential-field label for the login card.
++ *
++ * Both login surfaces (the greeter and the session lock) derive the field label
++ * through this one function so the card cannot drift between them. `prompt` is
++ * the most recent greetd/PAM auth prompt (NULL when there is none): a trailing
++ * ':' and surrounding whitespace are stripped, so a greetd "Password: " renders
++ * identically to the lock's own "Password".  An empty result falls back to the
++ * credential kind ("PIN" for a PIN surface, else "Password").  The result is
++ * written into `out` (returned for convenience) or, when `out` is NULL/too
++ * small, a static default is returned. */
++const char *loginui_field_label(char *out, size_t n, const char *prompt, bool is_pin);
++
+ /* align: 0 left, 1 centre, 2 right. */
+ void loginui_render(cairo_t *cr, const LoginUiState *st,
+                     double *card_x, double *card_y, double *card_w, double *card_h);
+diff --git a/src/render.c b/src/render.c
+--- a/src/render.c
++++ b/src/render.c
+@@ -2,6 +2,28 @@
+ #include "internal.h"
+ 
+ #include <math.h>
++#include <string.h>
++
++/* See loginui.h.  One derivation of the field label for every login surface. */
++const char *loginui_field_label(char *out, size_t n, const char *prompt, bool is_pin) {
++    const char *fallback = is_pin ? "PIN" : "Password";
++    if (!out || n == 0) return fallback;
++    out[0] = '\0';
++    if (prompt) {
++        const char *s = prompt;
++        while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
++        size_t len = strlen(s);
++        while (len > 0) {
++            char c = s[len - 1];
++            if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ':') len--;
++            else break;
++        }
++        if (len >= n) len = n - 1;
++        memcpy(out, s, len);
++        out[len] = '\0';
++    }
++    return out[0] ? out : fallback;
++}
+ 
+ static void paint_cover(cairo_t *cr, cairo_surface_t *surface, double w, double h, double alpha) {
+     int bw = cairo_image_surface_get_width(surface);
