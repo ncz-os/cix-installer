@@ -51,15 +51,19 @@ shopt -u nullglob
 [ "${#files[@]}" -gt 0 ] || { bad "no *.slide files under $SLIDE_DIR"; exit 1; }
 
 # key <file> <Key> : print the first value of Key in the [Slide] group.
+# Whitespace around '=' and around the value is ignored, and a trailing CR is
+# dropped, matching GLib KeyFile semantics (the app reads these with
+# g_key_file_get_string / get_locale_string).
 key() {
     awk -v want="$2" '
         /^\[/ { grp = $0; next }
         grp == "[Slide]" {
             line = $0
+            sub(/\r$/, "", line)
             eq = index(line, "=")
             if (eq == 0) next
-            k = substr(line, 1, eq - 1)
-            if (k == want) { print substr(line, eq + 1); exit }
+            k = substr(line, 1, eq - 1); gsub(/^[ \t]+|[ \t]+$/, "", k)
+            if (k == want) { v = substr(line, eq + 1); gsub(/^[ \t]+|[ \t]+$/, "", v); print v; exit }
         }' "$1"
 }
 
