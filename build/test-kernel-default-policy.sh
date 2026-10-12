@@ -98,7 +98,7 @@ run() {
 }
 
 echo "=== Positive: unified 7.3 ship states ==="
-r="$WORK/p1"; mkroot "$r" "7.3.0-rc6-sky1-ncz" "7.3.0-rc6-sky1-ncz"; pin "$r"
+r="$WORK/p1"; mkroot "$r" "7.3.0-rc7-sky1-ncz" "7.3.0-rc7-sky1-ncz"; pin "$r"
 run "arm64: 7.3.0-rc6 mainline (rc default allowed)" 0 --root "$r" --arch arm64
 r="$WORK/p2"; mkroot "$r" "7.3.0-sky1-ncz" "7.3.0-sky1-ncz"
 printf 'DEFAULT_BASE=7.3\nRESCUE_SAME_KERNEL=1\nRESCUE_ARM64_BLACKLIST=panthor\nEDGE_ENABLED=0\n' > "$r/assets/kernel/KERNEL-POLICY"
@@ -120,7 +120,7 @@ r="$WORK/n2d"; mkamd64 "$r" "7.3.0-rc6-3-t2-edge-aer9011" "7.3.0-rc6-3-t2-edge-a
 run "amd64: removed 9011-quirk build (rc6-3) pin refused" 1 --root "$r" --arch amd64
 
 echo "=== Negative: rc allowance rules ==="
-r="$WORK/n3"; mkroot "$r" "7.3.0-rc6-sky1-ncz" "7.3.0-rc6-sky1-ncz"
+r="$WORK/n3"; mkroot "$r" "7.3.0-rc7-sky1-ncz" "7.3.0-rc7-sky1-ncz"
 printf 'DEFAULT_BASE=7.3\nRC_DEFAULT_ALLOWED=0\nRESCUE_SAME_KERNEL=1\nRESCUE_ARM64_BLACKLIST=panthor\nEDGE_ENABLED=0\n' > "$r/assets/kernel/KERNEL-POLICY"
 run "arm64: rc default without allowance refused" 1 --root "$r" --arch arm64
 r="$WORK/n4"; mkroot "$r" "7.3.0-sky1-ncz" "7.3.0-sky1-ncz"
@@ -128,31 +128,31 @@ printf 'DEFAULT_BASE=7.3\nRC_DEFAULT_ALLOWED=1\nRC_DEFAULT_EXPIRY_NOTE=replace b
 run "arm64: stale rc allowance (final default) refused" 1 --root "$r" --arch arm64
 
 echo "=== Negative: edge channel / retired assets ==="
-r="$WORK/n5"; mkroot "$r" "7.3.0-rc6-sky1-ncz" "7.3.0-rc6-sky1-ncz"
+r="$WORK/n5"; mkroot "$r" "7.3.0-rc7-sky1-ncz" "7.3.0-rc7-sky1-ncz"
 printf 'DEFAULT_BASE=7.3\nRC_DEFAULT_ALLOWED=1\nRC_DEFAULT_EXPIRY_NOTE=replace by 7.3.0 final\nRESCUE_SAME_KERNEL=1\nRESCUE_ARM64_BLACKLIST=panthor\nEDGE_ENABLED=1\n' > "$r/assets/kernel/KERNEL-POLICY"
 run "arm64: EDGE_ENABLED=1 refused" 1 --root "$r" --arch arm64
-r="$WORK/n6"; mkroot "$r" "7.3.0-rc6-sky1-ncz" "7.3.0-rc6-sky1-ncz"; pin "$r"
-mkdir -p "$r/assets/kernel/edge"; printf '7.3.0-rc6-sky1-ncz\n' > "$r/assets/kernel/edge/KVER"
+r="$WORK/n6"; mkroot "$r" "7.3.0-rc7-sky1-ncz" "7.3.0-rc7-sky1-ncz"; pin "$r"
+mkdir -p "$r/assets/kernel/edge"; printf '7.3.0-rc7-sky1-ncz\n' > "$r/assets/kernel/edge/KVER"
 run "arm64: assets/kernel/edge still present refused" 1 --root "$r" --arch arm64
 r="$WORK/n7"; mkamd64 "$r" "7.3.0-rc6-4-t2-edge-aer9010" "7.3.0-rc6-4-t2-edge-aer9010"; pin "$r"
 mkdir -p "$r/assets/kernel/amd64-edge"; printf '7.3.0-rc6-4-t2-edge-aer9010\n' > "$r/assets/kernel/amd64-edge/KVER"
 run "amd64: assets/kernel/amd64-edge still present refused" 1 --root "$r" --arch amd64
-r="$WORK/n8"; mkroot "$r" "7.3.0-rc6-sky1-ncz" "7.3.0-rc6-sky1-ncz"; pin "$r"
+r="$WORK/n8"; mkroot "$r" "7.3.0-rc7-sky1-ncz" "7.3.0-rc7-sky1-ncz"; pin "$r"
 mkdir -p "$r/assets/kernel/mali/7.2.9-sky1-ncz"; printf 'x\n' > "$r/assets/kernel/mali/7.2.9-sky1-ncz/mali_kbase.ko"
 run "arm64: retired 7.2.9 overlay mirror refused" 1 --root "$r" --arch arm64
 
 echo "=== Negative: manifest drift / dangling / missing payload ==="
-r="$WORK/n9"; mkroot "$r" "7.3.0-rc6-sky1-ncz" "7.3.0-rc5-sky1-ncz"; pin "$r"
+r="$WORK/n9"; mkroot "$r" "7.3.0-rc7-sky1-ncz" "7.3.0-rc5-sky1-ncz"; pin "$r"
 run "arm64: manifest drift refused" 1 --root "$r" --arch arm64
 r="$WORK/n10"; mkroot "$r" "DANGLING"
 run "arm64: dangling mainline symlink refused" 1 --root "$r" --arch arm64
-r="$WORK/n11"; mkroot "$r" "7.3.0-rc6-sky1-ncz" "7.3.0-rc6-sky1-ncz"; pin "$r"
+r="$WORK/n11"; mkroot "$r" "7.3.0-rc7-sky1-ncz" "7.3.0-rc7-sky1-ncz"; pin "$r"
 rm -f "$r/assets/kernel/mainline/Image-cixmini.bin"
 run "arm64: mainline payload incomplete refused" 1 --root "$r" --arch arm64
 
 echo "=== Negative: missing manifest / misuse ==="
 r="$WORK/n12"; mkdir -p "$r/assets/kernel/mainline"; : > "$r/release.conf"; echo "NCZ_TARGET_ARCH=arm64" >> "$r/release.conf"
-printf '7.3.0-rc6-sky1-ncz\n' > "$r/assets/kernel/mainline/KVER"
+printf '7.3.0-rc7-sky1-ncz\n' > "$r/assets/kernel/mainline/KVER"
 run "arm64: manifest missing refused" 1 --root "$r" --arch arm64
 "$VERIFIER" --root /this/path/does/not/exist 2>/dev/null; got=$?
 [ "$got" = 2 ] && { printf '  PASS  missing --root (exit=2 misuse)\n'; PASS=$((PASS+1)); } || { printf '  FAIL  missing --root (got=%d)\n' "$got"; FAIL=$((FAIL+1)); }
@@ -161,15 +161,15 @@ run "arm64: manifest missing refused" 1 --root "$r" --arch arm64
 
 echo "=== Positive: offline fallback -- local sibling tree matches manifest ==="
 r="$WORK/offline-ok"
-mkdir -p "$r/assets/kernel/r286-7.3.0-rc6-sky1-ncz-20261011"
-printf '7.3.0-rc6-sky1-ncz\n' > "$r/assets/kernel/r286-7.3.0-rc6-sky1-ncz-20261011/KVER"
-printf 'fake\n' > "$r/assets/kernel/r286-7.3.0-rc6-sky1-ncz-20261011/Image-cixmini.bin"
-printf 'fake\n' > "$r/assets/kernel/r286-7.3.0-rc6-sky1-ncz-20261011/modules-cixmini.tgz"
-printf 'cfg\n' > "$r/assets/kernel/r286-7.3.0-rc6-sky1-ncz-20261011/config-7.3.0-rc6-sky1-ncz"
-printf 'fake\n' > "$r/assets/kernel/r286-7.3.0-rc6-sky1-ncz-20261011/headers-cixmini.tar.zst"
-ln -s "/nonexistent/pool/r286-7.3.0-rc6-sky1-ncz-20261011" "$r/assets/kernel/mainline"
+mkdir -p "$r/assets/kernel/r286-7.3.0-rc7-sky1-ncz-20261011"
+printf '7.3.0-rc7-sky1-ncz\n' > "$r/assets/kernel/r286-7.3.0-rc7-sky1-ncz-20261011/KVER"
+printf 'fake\n' > "$r/assets/kernel/r286-7.3.0-rc7-sky1-ncz-20261011/Image-cixmini.bin"
+printf 'fake\n' > "$r/assets/kernel/r286-7.3.0-rc7-sky1-ncz-20261011/modules-cixmini.tgz"
+printf 'cfg\n' > "$r/assets/kernel/r286-7.3.0-rc7-sky1-ncz-20261011/config-7.3.0-rc7-sky1-ncz"
+printf 'fake\n' > "$r/assets/kernel/r286-7.3.0-rc7-sky1-ncz-20261011/headers-cixmini.tar.zst"
+ln -s "/nonexistent/pool/r286-7.3.0-rc7-sky1-ncz-20261011" "$r/assets/kernel/mainline"
 cat > "$r/assets/kernel-manifest.json" <<'JSON'
-{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/mainline","kver":"7.3.0-rc6-sky1-ncz"}}}
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/mainline","kver":"7.3.0-rc7-sky1-ncz"}}}
 JSON
 : > "$r/release.conf"; echo "NCZ_TARGET_ARCH=arm64" >> "$r/release.conf"
 pin "$r"
@@ -202,13 +202,13 @@ cp -a "$REPO_ROOT/assets/refind/ncz-refind-refresh.sh" "$_regression/root-fake/a
 cp -a "$REPO_ROOT/assets/refind/ncz-refind-refresh-amd64.sh" "$_regression/root-fake/assets/refind/ncz-refind-refresh-amd64.sh"
 perl -pi -e 's/\*-rescue/NO-RESCUE/g; s/NCZ-RESCUE-ACCEL-BEGIN/NCZ-RESCUE-ACCEL-GONE/g' \
     "$_regression/root-fake/assets/refind/ncz-refind-refresh.sh"
-printf '7.3.0-rc6-sky1-ncz\n' > "$_regression/root-fake/assets/kernel/mainline/KVER"
+printf '7.3.0-rc7-sky1-ncz\n' > "$_regression/root-fake/assets/kernel/mainline/KVER"
 printf 'fakecontent\n' > "$_regression/root-fake/assets/kernel/mainline/Image-cixmini.bin"
 printf 'fakecontent\n' > "$_regression/root-fake/assets/kernel/mainline/modules-cixmini.tgz"
-printf 'fake\n' > "$_regression/root-fake/assets/kernel/mainline/config-7.3.0-rc6-sky1-ncz"
+printf 'fake\n' > "$_regression/root-fake/assets/kernel/mainline/config-7.3.0-rc7-sky1-ncz"
 printf 'fake\n' > "$_regression/root-fake/assets/kernel/mainline/headers-cixmini.tar.zst"
 cat > "$_regression/root-fake/assets/kernel-manifest.json" <<'JSON'
-{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/mainline","kver":"7.3.0-rc6-sky1-ncz"}}}
+{"schema":1,"variants":{"mainline":{"dir":"assets/kernel/mainline","kver":"7.3.0-rc7-sky1-ncz"}}}
 JSON
 if "$VERIFIER" --root "$_regression/root-fake" --arch arm64 >/dev/null 2>&1; then
     printf '  FAIL  arm64: rescue marker deletion not detected\n'; FAIL=$((FAIL+1))

@@ -1,40 +1,46 @@
 {
-  "generated_utc": "2026-10-11T17:30:45Z",
-  "generator": "build/kernel-manifest.py",
+  "generated_utc": "2026-10-12T00:25:00Z",
+  "generator": "kport-sky1 (manual staging; kernel-manifest.py not run because no full image rebuild)",
   "kernel_debs": [
     {
-      "file": "build/kernel-debs/cixmini-boot_1.2+r286_arm64.deb",
-      "sha256": "13baa7513a07963804b9d3e9c725ca6134117eb93513073f00ac0d47f9e060cf"
+      "file": "/mnt/argonas-yocto-shared/kernel-staging/r288-7.3.0-rc7-sky1-ncz-20261012/debs/linux-meta-cixmini_7.3.0-rc7-sky1-ncz+r288_arm64.deb",
+      "sha256": "<pending build-kernel-debs.sh - see NEED-OPERATOR note about full cix-installer-style packaging>",
+      "note": "raw Yocto bitbake output: kernel-linux-cix-sky1-ncz-image-7.3.0-rc7-sky1-ncz_7.3-rc7+ncz0+ec8bf82802-r1_arm64.deb (renamed to cix-installer convention; full cix-installer build-kernel-debs.sh not run because no image build is in scope of this port - the binary rebuild for the cixmini-boot helper package needs an image build context)"
     },
     {
-      "file": "build/kernel-debs/linux-headers-cixmini_7.3.0-rc6-sky1-ncz+r286_arm64.deb",
-      "sha256": "76694a20251dfd8a562ed895e7557479ad598fc05b1b42abd5f3135777b581da"
-    },
-    {
-      "file": "build/kernel-debs/linux-image-cixmini_7.3.0-rc6-sky1-ncz+r286_arm64.deb",
-      "sha256": "176befb40e1c9d38b6303e9a45d116c60ec5a74a69b25de40146a979456130b0"
+      "file": "/mnt/argonas-yocto-shared/kernel-staging/r288-7.3.0-rc7-sky1-ncz-20261012/debs/linux-image-cixmini_7.3.0-rc7-sky1-ncz+r288_arm64.deb",
+      "sha256": "<pending build-kernel-debs.sh; see above>"
     }
   ],
   "schema": 1,
   "variants": {
     "mainline": {
       "config": {
-        "file": "assets/kernel/mainline/config-7.3.0-rc6-sky1-ncz",
-        "sha256": "12a0507dbb6b01becfb4dba3d9c9a0c0909151d6a3a289b11f6cb25cc6ebe0e7"
+        "file": "assets/kernel/mainline/config-7.3.0-rc7-sky1-ncz",
+        "sha256": "6913a419dc29bd4bc01f0f01dadd2d72f5a3b2f380e0771f80ee76493e4351f9"
       },
       "dir": "assets/kernel/mainline",
       "image": {
         "file": "assets/kernel/mainline/Image-cixmini.bin",
-        "sha256": "e4439d6b517bff47f650591e3a0d98011e690c62a9e3c0c0134ebe6d270f2f61",
-        "size": 57719296
+        "sha256": "e421364fdda1e5444909d089cceb629ece55fc324cd50dc564004875a98a44c9",
+        "size": 49986048
       },
-      "kver": "7.3.0-rc6-sky1-ncz",
+      "kver": "7.3.0-rc7-sky1-ncz",
       "modules": {
         "file": "assets/kernel/mainline/modules-cixmini.tgz",
-        "sha256": "f4cc93b5a7c811d451261c4acbd4f8c34224c3f13d4d7080e08c8e0e59765bca",
-        "size": 15382286
+        "sha256": "e329512141f5bb2f7097336e20c3030e41d9c01dd40921ddb94243ecbb679933"
       },
+      "headers_tar": {
+        "file": "assets/kernel/mainline/headers-cixmini.tar.zst",
+        "sha256": "3867b47c2fb966a1b19864ade0696edb044c330821243ecbd7efed9e2c58aa9e"
+      },
+      "dtb": {
+        "file": "assets/kernel/mainline/sky1-orion-o6.dtb",
+        "sha256": "1aa102e7d699fc2cbdfc4cfdf44f88155e71972402eec4f4abe7d4e3d651873e"
+      },
+      "vmlinux_build_id": "0a51b2523457e24e17aec279775cf91d77ec12e0",
       "npu": null
     }
-  }
+  },
+  "note": "r288 staging in ARGONAS is the FIRST v7.3-rc7 port (kernel-73rc7-port-20261011, 208 commits on v7.3-rc7). The accelerator overlays (mali / panthor / vpu / npu) are NOT re-mirrored in this branch because the r287 overlays were built against 7.3.0-rc6-sky1-ncz and will refuse to load against the new KVER. Image build is out of scope (operator brief 2026-10-11: no image builds); the cix-installer image pipeline must rebuild all six accelerator DKMS debs against the r288 headers before any image can ship r288. See docs/reports/2026-10-11-sky1-rc7-pin.md (operator-present steps)."
 }
