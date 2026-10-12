@@ -300,10 +300,32 @@ def gsettings(*args: str) -> tuple[int, str, str]:
 _SCHEMA_KEYS: dict[str, list[str]] = {}
 
 
+def _clean_gsettings_output(out: str) -> str:
+    """Return the last real GVariant value line, dropping GLib/dconf debug noise.
+
+    Some login shells (e.g. /etc/profile.d/flatpak.sh) export G_MESSAGES_DEBUG,
+    which makes `gsettings` print 'GLib-GIO-DEBUG:'/'dconf-DEBUG:' lines on
+    stdout before the value. Without this filter a polluted prior value would be
+    recorded and restored verbatim, breaking `ncz-profile default`.
+    """
+    for line in reversed(out.splitlines()):
+        s = line.strip()
+        if not s or "DEBUG:" in s or s.startswith(("(", "watch_", "unwatch_", "change_")):
+            continue
+        return s
+    return ""
+
+
 def schema_keys(schema: str) -> list[str]:
     if schema not in _SCHEMA_KEYS:
         rc, out, _ = gsettings("list-keys", schema)
-        _SCHEMA_KEYS[schema] = out.splitlines() if rc == 0 else []
+        if rc == 0:
+            _SCHEMA_KEYS[schema] = [
+                l.strip() for l in out.splitlines()
+                if l.strip() and "DEBUG:" not in l and not l.lstrip().startswith("(")
+            ]
+        else:
+            _SCHEMA_KEYS[schema] = []
     return _SCHEMA_KEYS[schema]
 
 
@@ -313,7 +335,7 @@ def key_exists(schema: str, key: str) -> bool:
 
 def gget(schema: str, key: str) -> str | None:
     rc, out, _ = gsettings("get", schema, key)
-    return out if rc == 0 else None
+    return _clean_gsettings_output(out) if rc == 0 else None
 
 
 def gset(schema: str, key: str, value: str) -> bool:

@@ -58,6 +58,19 @@ expect default "Radeon 1002:7340 by PCI"        --pci "1002:7340"
 # VRAM never promotes to lite on its own
 expect default "2 GB VRAM + strong renderer"    --renderer "NVIDIA GeForce GTX 1650 Ti" --vram-mb 2048
 
+# 1b. gsettings stdout noise filter (G_MESSAGES_DEBUG via /etc/profile.d/flatpak.sh)
+if python3 - "$PROF" <<'PY'
+import importlib.machinery, importlib.util, sys
+ld = importlib.machinery.SourceFileLoader("np", sys.argv[1])
+spec = importlib.util.spec_from_loader("np", ld)
+m = importlib.util.module_from_spec(spec); ld.exec_module(m)
+noisy = ("(process:1): GLib-GIO-DEBUG: x\n(process:1): dconf-DEBUG: watch_fast\n'auto'\n")
+assert m._clean_gsettings_output(noisy) == "'auto'", m._clean_gsettings_output(noisy)
+assert m._clean_gsettings_output("60\n") == "60"
+assert m._clean_gsettings_output("") == ""
+PY
+then ok "gsettings: debug noise is filtered from values"; else bad "gsettings: debug noise not filtered"; fi
+
 # ---------------------------------------------------------------------------
 # 2. fake gsettings + fake HOME: apply / restore / idempotence
 # ---------------------------------------------------------------------------
