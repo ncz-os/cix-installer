@@ -86,6 +86,23 @@ policy_marker() { env -i "$FEED_BIN" --print-policy 2>/dev/null | head -1; }
 PW="ncz"
 command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1 && HAVE_MAGICK=1 || HAVE_MAGICK=""
 say "=== lockrig live run host=$TAG user=$LU D=$D feed=$FEED_BIN ==="
+# RC6 images boot to the greeter. If there is no $LU seat0 session (we are at the
+# greeter), log in through greetd so the idle-lock path exists to test.
+ensure_session() {
+  local s i
+  s="$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3=="'"$LU"'" && $4=="seat0"{print $1}' | head -1)"
+  [ -n "$s" ] && { say "session present: $s"; return 0; }
+  say "no $LU seat0 session (at greeter?); logging in via greetd"
+  printf '%s\n' "$PW" | python3 "$LIB/greetd_login.py" "$LU" >/dev/null 2>&1
+  for i in $(seq 1 40); do
+    sleep 2
+    s="$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3=="'"$LU"'" && $4=="seat0"{print $1}' | head -1)"
+    [ -n "$s" ] && break
+  done
+  if [ -n "$s" ]; then say "session started: $s"; sleep 4; return 0; fi
+  say "WARN: could not establish a $LU seat0 session"; return 1
+}
+ensure_session || say "WARN: proceeding without a session (T1 will likely FAIL)"
 unlock_now || say "WARN: still locked at start"
 IDLE_BEFORE="$(gs get dev.sinty.lockscreen idle-delay)"
 HACK_BEFORE="$(gs get dev.ncz.screensaver hack-idle-delay)"
