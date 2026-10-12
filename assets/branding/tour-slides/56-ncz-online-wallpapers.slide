@@ -1,0 +1,7 @@
+[Slide]
+Order=56
+Title=Wallpapers from the web
+Body=Two more wallpaper sources are built in. Bing adds a fresh photograph from around the world every day, and the OCS networks (pling.com, opendesktop.org and kde-look.org) let you browse and download wallpapers. Both appear in Settings with the other wallpaper sets.
+Scene=settings
+Action=settings:desktop
+ActionLabel=Open Settings
