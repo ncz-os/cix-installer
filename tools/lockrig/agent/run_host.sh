@@ -328,6 +328,23 @@ else
   fi
 fi
 
+# ------------------------------------------------------------ TP plugin settings pane non-empty
+# Settings > Plugins > "Screensaver and Lockscreen" must render the plugin's
+# settings, not the shell's "No settings available" row. The headless check
+# loads the plugin exactly like the shell and asserts the extension exists and
+# get_settings_widget() is non-empty (and, with a display, is not the
+# Unavailable page). See ncz-screensavers tools/test-plugin-settings-pane.py.
+if [ -f "$LIB/test-plugin-settings-pane.py" ]; then
+  TP="$(run python3 "$LIB/test-plugin-settings-pane.py" 2>/dev/null | tail -1)"
+  case "$TP" in
+    PASS*) rec TP PASS "plugin settings pane non-empty ($TP)";;
+    "")    rec TP FAIL "plugin settings pane test produced no output";;
+    *)     rec TP FAIL "$TP";;
+  esac
+else
+  rec TP SKIP "no test-plugin-settings-pane.py staged in lib"
+fi
+
 # ---------------------------------------------------------------- restore
 say "=== RESTORE ==="
 renv_restore
