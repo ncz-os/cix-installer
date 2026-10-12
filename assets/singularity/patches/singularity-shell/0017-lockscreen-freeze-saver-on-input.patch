@@ -1,5 +1,5 @@
 diff --git a/src/lockscreen/lock_framesrc.c b/src/lockscreen/lock_framesrc.c
-index bb97c47..37b07bc 100644
+index bb97c47..dc0b607 100644
 --- a/src/lockscreen/lock_framesrc.c
 +++ b/src/lockscreen/lock_framesrc.c
 @@ -53,6 +53,7 @@ struct lfs_out {
@@ -59,6 +59,15 @@ index bb97c47..37b07bc 100644
      h->state = LFS_IDLE;
      h->next_seq = 0;
      if (h->backoff_ms == 0) h->backoff_ms = LFS_BACKOFF_MIN_MS;
+@@ -335,7 +356,7 @@ static void send_welcome(struct lock_framesrc *h) {
+     if (plen > LFS_MAX_MSG) return;
+     char buf[LFS_MAX_MSG];
+     struct lfs_msg *m = (struct lfs_msg *)buf;
+-    m->magic = LFS_MAGIC; m->type = LFS_WELCOME; m->flags = 0; m->len = (uint32_t)plen;
++    m->magic = LFS_MAGIC; m->type = LFS_WELCOME; m->flags = LFS_FLAG_HOLD; m->len = (uint32_t)plen;
+     struct lfs_welcome *w = (struct lfs_welcome *)(buf + sizeof *m);
+     w->abi = LFS_VERSION;
+     w->transport = LFS_TRANSPORT_SHM;
 @@ -453,7 +474,18 @@ static void drain(struct lock_framesrc *h) {
          int fd = -1;
          int n = recv_one(h, buf, sizeof buf, &fd);
@@ -171,10 +180,24 @@ index 3f11cb8..2942b01 100644
  
  #endif /* LOCK_FRAMESRC_H */
 diff --git a/src/lockscreen/lock_framesrc_proto.h b/src/lockscreen/lock_framesrc_proto.h
-index 89659e2..516f72f 100644
+index 89659e2..5ad0017 100644
 --- a/src/lockscreen/lock_framesrc_proto.h
 +++ b/src/lockscreen/lock_framesrc_proto.h
-@@ -39,6 +39,7 @@ enum lfs_type {
+@@ -35,10 +35,21 @@
+ #define LFS_TRANSPORT_SHM    0x1u      /* memfd / wl_shm buffer (always usable) */
+ #define LFS_TRANSPORT_DMABUF 0x2u      /* linux-dmabuf buffer (needs the global) */
+ 
++/* Capability bits carried in struct lfs_msg.flags. A lock that understands
++ * LFS_HOLD (and keeps the last frame when the source freezes) sets
++ * LFS_FLAG_HOLD in the WELCOME it sends. Locks built before HOLD existed send
++ * flags = 0. A frame source MUST NOT send LFS_HOLD unless the WELCOME it just
++ * received carried LFS_FLAG_HOLD: a new source then degrades safely (runs at
++ * the low lock frame rate under the thermal governor, never freezing) against
++ * an old lock instead of tripping its "unknown message type" fault loop on
++ * every restart. This bit is only meaningful on a lock -> saver message. */
++#define LFS_FLAG_HOLD   0x0001u
++
+ enum lfs_type {
      LFS_HELLO   = 1,   /* saver -> lock : who I am, what I can send */
      LFS_FRAME   = 2,   /* saver -> lock : one buffer + fd */
      LFS_BYE     = 3,   /* saver -> lock : I am done (clean) */
