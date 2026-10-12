@@ -76,15 +76,32 @@ fi
 
 # --- the profile gschema key ----------------------------------------------
 # An override cannot ADD a key to an existing schema, and the dev.sinty.desktop
-# schema is upstream-owned, so the key lives in a small cix-owned schema. It is
-# compiled together with every other schema in the directory, so a bad file
-# would break gsettings for the whole system: validate it --strict on a scratch
+# schema is upstream-owned (and lives under /opt/singularity/share, not the
+# system schema dir), so the key lives in a small cix-owned schema. It is
+# compiled together with every other schema in a directory, so a bad file would
+# break gsettings for that whole directory: validate it --strict on a scratch
 # copy first and install only when it compiles.
-SCHEMA_DIR="${NCZ_LITE_SCHEMA_DIR:-$(_dest /usr/share/glib-2.0/schemas)}"
+#
+# Install into BOTH the system schema dir and the singularity share dir the
+# session actually uses (GSETTINGS_SCHEMA_DIR=/opt/singularity/share/glib-2.0/
+# schemas), so `ncz-profile` sees the key inside and outside the session.
 SCHEMA_SRC="$ASSETS/dev.ncz.profile.gschema.xml"
+if [ -n "${NCZ_LITE_SCHEMA_DIR:-}" ]; then
+    _schema_dirs="$NCZ_LITE_SCHEMA_DIR"
+else
+    _schema_dirs="$(_dest /usr/share/glib-2.0/schemas)"
+    _share="$(_dest /opt/singularity/share/glib-2.0/schemas)"
+    [ -d "$_share" ] && _schema_dirs="$_schema_dirs $_share"
+fi
+
 if [ -f "$SCHEMA_SRC" ]; then
-    install -d -m0755 "$SCHEMA_DIR"
-    if command -v glib-compile-schemas >/dev/null 2>&1; then
+    for SCHEMA_DIR in $_schema_dirs; do
+        install -d -m0755 "$SCHEMA_DIR"
+        if ! command -v glib-compile-schemas >/dev/null 2>&1; then
+            install -m0644 "$SCHEMA_SRC" "$SCHEMA_DIR/dev.ncz.profile.gschema.xml"
+            echo "[66]   WARN: glib-compile-schemas missing; installed $SCHEMA_DIR/dev.ncz.profile.gschema.xml unvalidated" >&2
+            continue
+        fi
         SCRATCH=$(mktemp -d)
         cp "$SCHEMA_DIR"/*.gschema.xml "$SCRATCH"/ 2>/dev/null || true
         cp "$SCHEMA_DIR"/*.enums.xml "$SCRATCH"/ 2>/dev/null || true
@@ -95,16 +112,13 @@ if [ -f "$SCHEMA_SRC" ]; then
             if [ -z "${NCZ_LITE_SCHEMA_DIR:-}" ]; then
                 glib-compile-schemas "$SCHEMA_DIR" 2>&1 | sed 's/^/[66]   /' || true
             fi
-            echo "[66]   installed dev.ncz.profile schema (profile / lite-applied keys)"
+            echo "[66]   installed dev.ncz.profile schema in $SCHEMA_DIR"
         else
-            echo "[66]   WARN: dev.ncz.profile schema does not compile; not installing it:" >&2
+            echo "[66]   WARN: dev.ncz.profile schema does not compile against $SCHEMA_DIR; not installing it there:" >&2
             sed 's/^/[66]     /' "$SCRATCH/compile.log" >&2
         fi
         rm -rf "$SCRATCH"
-    else
-        install -m0644 "$SCHEMA_SRC" "$SCHEMA_DIR/dev.ncz.profile.gschema.xml"
-        echo "[66]   WARN: glib-compile-schemas missing; installed the schema unvalidated" >&2
-    fi
+    done
 else
     echo "[66]   WARN: dev.ncz.profile.gschema.xml missing; the marker file is the only preference store" >&2
 fi
