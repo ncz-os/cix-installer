@@ -239,6 +239,8 @@ timeout "$INSTALL_TIMEOUT" "$QEMU" \
   -drive file="$TEST_IMG",if=none,id=usbstick,format=raw \
   -device qemu-xhci,id=xhci \
   -device usb-storage,bus=xhci.0,drive=usbstick,bootindex=1 \
+  -chardev null,id=usbser \
+  -device usb-serial,bus=xhci.0,chardev=usbser \
   -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2225-:22,hostfwd=tcp:127.0.0.1:18080-:8080 -device virtio-net-pci,netdev=n0,romfile= \
   -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
   -serial "file:$S0" \
@@ -339,6 +341,22 @@ echo
 echo "[5/6] checking the install log"
 grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i |Linux version|Starting linux|Installing the base system|Starting NCZ-OS post-install plan" "$ILOG" \
   || fail "the installer never started (qemu rc=$irc) -- see $ILOG"
+
+# PROTEUS (.68) 2026-10-12: an emulated usb-serial adapter is attached to phase
+# 1 (see the -device usb-serial above) precisely so this gate would catch the
+# defect it did NOT catch before -- the gate used to attach no USB-serial
+# device at all, so the shipped image passed while real PROTEUS hardware wedged
+# on the brltty-udeb critical question "Is the USB serial device indeed a
+# braille device?" (a generic USB-serial id started brltty and set
+# /var/run/brltty-generic). QEMU's usb-serial emulates 0403:6001, one of the
+# generic ids in brltty-udeb's udev rules. The image fixes it two ways
+# (preseed/preseed.cfg brltty-udeb/generic=false + an ncz cmdline token that
+# makes /lib/udev/brltty.sh exit before starting brltty); if either regresses,
+# this question reappears on the serial console and the gate fails here.
+if grep -qai "indeed a braille device" "$ILOG"; then
+    grep -ai -B2 -A4 "braille device" "$ILOG" | head -20 >&2
+    fail "brltty asked the generic 'Is the USB serial device indeed a braille device?' question with a usb-serial device attached -- an emulated USB-UART must never be treated as a braille device (PROTEUS 2026-10-12)"
+fi
 
 # The gaps this session fixed, each with its own message, so a failure names
 # the finding rather than just "install failed".

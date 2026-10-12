@@ -186,7 +186,8 @@ INITRD=$(tail -1 "$WORK_DIR/initrd.log")
 echo "[5/6] building rEFInd ESP"
 rm -rf "$WORK_DIR/esp"
 python3 "$ROOT/build/iso/build-refind-esp.py" --arch "$ARCH" \
-  --out-dir "$WORK_DIR/esp" --size-mib 256 --d-i-kernel "$LINUX" --d-i-initrd "$INITRD"
+  --out-dir "$WORK_DIR/esp" --size-mib 256 --d-i-kernel "$LINUX" --d-i-initrd "$INITRD" \
+  --build-id "$BUILD_VERSION"
 
 echo "[6/6] writing and independently verifying raw GPT image"
 python3 "$ROOT/build/iso/write-usb-image.py" --arch "$ARCH" \
