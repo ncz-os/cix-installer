@@ -835,7 +835,12 @@ def display_info(root=""):
 def thermal_info(root=""):
     ac = None
     for p in glob.glob(P(root, "sys/class/power_supply/AC*/online")):
-        ac = read_text(p) == "1"
+        # OR the supplies: a machine with two adapters is on AC if EITHER is
+        # online, so a later "0" must not erase an earlier "1".
+        if read_text(p) == "1":
+            ac = True
+        elif ac is None:
+            ac = False
     battery = bool(glob.glob(P(root, "sys/class/power_supply/BAT*")))
     temps = []
     for p in glob.glob(P(root, "sys/class/thermal/thermal_zone*/temp")):
@@ -1171,11 +1176,13 @@ def features_for_tier(tier, path=None):
         # the TSV always carries T0..T3; if a future edit drops one, fall back
         # to the nearest LOWER tier present, never to a richer one.
         values = f["values"]
-        if tier in values:
-            value = values[tier]
-        else:
-            lower = [t for t in TIERS if t in values and TIER_INDEX[t] <= TIER_INDEX[tier]]
-            value = values[lower[-1]] if lower else values[min(values, key=lambda t: TIER_INDEX.get(t, 0))]
+        value = values.get(tier)
+        if value is None:
+            lower = [t for t in TIERS if t in values and TIER_INDEX[t] < TIER_INDEX[tier]]
+            if not lower:
+                raise ValueError("feature %s has no value at or below tier %s"
+                                 % (f["feature"], tier))
+            value = values[lower[-1]]
         out[f["feature"]] = {"kind": f["kind"], "target": f["target"], "value": value}
     return out
 
@@ -1421,11 +1428,17 @@ def apply_service_defaults(indexer_mode, root="", dry_run=False, log=print):
 
     def present(unit):
         try:
-            p = subprocess.run([systemctl, "list-unit-files", "--no-legend", unit],
+            p = subprocess.run([systemctl, "list-unit-files", "--no-legend", "--plain", unit],
                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20)
-            return unit in p.stdout.decode()
         except (OSError, subprocess.SubprocessError):
             return False
+        # compare the FIRST field of each row exactly: a substring test would let
+        # "tracker-miner-fs-3.service" match a longer unit name.
+        for line in p.stdout.decode().splitlines():
+            fields = line.split()
+            if fields and fields[0] == unit:
+                return True
+        return False
 
     if mode == "off":
         for unit in SERVICE_ALLOWLIST:
@@ -1628,7 +1641,9 @@ def cmd_check(args):
     it builds the body, drops it next to scratch symlinks of each schema dir and
     runs `glib-compile-schemas --strict --dry-run`.
     """
-    facts = collect_facts(root=args.root, calibrate=False)
+    facts = _facts_from_json(DEFAULT_JSON) if not args.root else None
+    if facts is None:
+        facts = collect_facts(root=args.root, calibrate=False)
     scored = score(facts)
     ov = parse_override(args.override)
     tier = resolve_tier(facts, scored, ov, args.tier)
@@ -1639,8 +1654,12 @@ def cmd_check(args):
         return 2
     rc_all = 0
     checked = 0
-    dirs = sorted(set(d for d in (_schema_dir_for(args.root, s) for s in overrides) if d))
-    for d in dirs:
+    dirs = set()
+    for s in overrides:
+        d = _schema_dir_for(args.root, s)
+        if d:
+            dirs.add(d)
+    for d in sorted(dirs):
         present = sorted(s for s in overrides if _schema_dir_for(args.root, s) == d)
         body = "\n".join(overrides[s].rstrip("\n") for s in present) + "\n"
         rc, out = 1, ""
