@@ -80,7 +80,10 @@ std_pool() {
         "r283-7.3.0-rc6-sky1-ncz-20261006|2026-10-05" \
         "r284-7.3.0-rc6-sky1-ncz-20261006|2026-10-06" \
         "r285-7.3.0-rc6-sky1-ncz-20261006|2026-10-07" \
-        "r286-7.3.0-rc6-sky1-ncz-20261011|2026-10-11"
+        "r286-7.3.0-rc6-sky1-ncz-20261011|2026-10-11" \
+        "r287-7.3.0-rc6-sky1-ncz-20261011|2026-10-11" \
+        "r288-7.3.0-rc7-sky1-ncz-20261012|2026-10-12" \
+        "r289-7.3.0-rc7-sky1-ncz-20261012|2026-10-12"
 }
 one() { check_arm64_channel assets/kernel/mainline unified required; }
 export -f mktime mksymlink mkpool std_pool one
@@ -110,10 +113,10 @@ run_case() {   # label want_ok want_warn want_fail(exact) snippet
     fi
 }
 
-echo "=== Case 1: POSITIVE -- mainline=r286 (newest 7.3 build) ==="
+echo "=== Case 1: POSITIVE -- mainline=r289 (newest 7.3 build) ==="
 run_case "mainline on the newest unified 7.3 build" 1 0 0 '
     set -e; std_pool
-    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r286-7.3.0-rc6-sky1-ncz-20261011"
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r289-7.3.0-rc7-sky1-ncz-20261012"
     one'
 
 echo; echo "=== Case 2: NEGATIVE -- mainline points at a retired 7.2.8 build ==="
@@ -168,7 +171,7 @@ echo; echo "=== Case 6b: ACK -- pinned:declined pair matching pin + newest -> WA
 run_case "acknowledged newer build is WARN, not FAIL" 0 1 0 '
     set -e; std_pool
     mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r285-7.3.0-rc6-sky1-ncz-20261006"
-    printf "MAINLINE_FRESHNESS_ACK=r285-7.3.0-rc6-sky1-ncz-20261006:r286-7.3.0-rc6-sky1-ncz-20261011\n" > assets/kernel/KERNEL-POLICY
+    printf "MAINLINE_FRESHNESS_ACK=r285-7.3.0-rc6-sky1-ncz-20261006:r289-7.3.0-rc7-sky1-ncz-20261012\n" > assets/kernel/KERNEL-POLICY
     one'
 
 echo; echo "=== Case 6c: ACK scoped -- ack whose pinned field does not match the pin -> FAIL ==="
