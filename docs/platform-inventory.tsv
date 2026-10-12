@@ -554,3 +554,7 @@ docs/IMAGE-BUILD-PROCESS.sid-exceptions.md	common	-	build-process integration of
 docs/ARM64-FIRMWARE-TRIM-2026-10-11.md	common	-	arm64 (Sky1) firmware BOM trim: per-package keep/drop with measured evidence, sizes before/after, risk notes and restore instructions
 build/test-tour-slides.sh	common	-	tour slide data validation: keys, unique Order (NCZ + upstream), built-in Scene, {os} only brace, title length, Action prefix
 post-install/51-ncz-tour-slides.sh	common	-	NCZ tour slides for the desktop (wallpapers, online wallpapers, screensavers, lock screen); generic, variant-guarded
+assets/lite/	amd64	-	NCZ-OS lite profile for weak GPUs / old PCs: ncz-profile CLI + first-login helper, labwc/compositor fragments, dev.ncz.profile schema key, first-login user service; amd64 only (guard exits when arch != amd64)
+post-install/66-ncz-lite-profile.sh	amd64	-	installs the lite profile (weak GPU / old PC): ncz-profile CLI, labwc + themerc fragments, dev.ncz.profile schema, first-login user service; guard exits when arch != amd64
+build/test-lite-profile.sh	common	-	regression test for the lite-profile rule table (fake renderer strings), apply/restore idempotence, and the install-hook verifier assertions
+docs/lite-profile.md	common	-	measured design of the NCZ-OS lite profile, the auto-select rule, the before/after ablation table and the user controls

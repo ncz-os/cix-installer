@@ -1,0 +1,649 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+"""ncz-profile -- the NCZ-OS "lite" performance profile for weak GPUs / old PCs.
+
+WHAT IT IS
+  A single, data-driven set of desktop + compositor + screensaver settings that
+  buys the biggest CPU/GPU win for the least visual loss on a machine whose GPU
+  is too old or too weak to run the stock desktop comfortably. It is the
+  operator's answer to "for particularly weak GPU and older systems (10 year
+  mark) are there Singularity features we can disable in the UX and the
+  compositor" (2026-10-12).
+
+WHO GETS IT (the auto rule)
+  `ncz-profile auto-apply` runs once per user at first login (systemd user unit
+  ncz-lite-profile.service). It detects the renderer and classifies it:
+
+    lite     software GL (llvmpipe / softpipe / swrast / lavapipe / zink), or
+             an Intel GPU of Gen <= 7.5 (Sandy Bridge SNB, Ivy Bridge IVB,
+             Haswell HSW, and older: ILK/BYT/CHT), including the "HD Graphics
+             2000/2500/3000/4000/4200/4400/4600" and "Iris 5100/5200" parts.
+    default  everything else -- UHD 630 (CFL), Iris Xe / Arc, Mali, Adreno,
+             Radeon, NVIDIA / RTX / GTX, Apple. This is the safe answer: an
+             unlisted renderer is never demoted.
+
+  The rule is a pure function of the inputs (vendor:device, renderer string,
+  software flag, VRAM) so it is unit-testable with fake renderer strings
+  (`ncz-profile class --renderer ...`), and it is monotone: it only ever moves a
+  machine from default to lite, never the other way.
+
+NEVER RE-APPLY
+  The first-login service writes `lite-applied=true` after its one decision
+  and never runs again. A user who then changes any setting keeps their change.
+  `ncz-profile lite|default|auto` is the manual control; `auto` re-arms the
+  selector for the next login.
+
+REVERSIBLE
+  Applying lite records the prior value of every key it changes (and backs up
+  the two labwc files it touches) under
+  $XDG_STATE_HOME/ncz/lite-profile/, so `ncz-profile default` restores exactly
+  what was there before. `gsettings reset` is used when no prior value was
+  recorded.
+
+ARCH
+  amd64 only. arm64 (Sky1/Mali) never gets this profile: the install hook is
+  gated on the target arch and this script refuses to apply lite when it is
+  running on an aarch64 kernel unless explicitly forced.
+
+USAGE
+  ncz-profile status                 what would happen / what is set now
+  ncz-profile class [--renderer S] [--pci VVVV:DDDD] [--software] [--vram-mb N]
+  ncz-profile lite                   apply the lite profile now
+  ncz-profile default                restore the stock profile
+  ncz-profile auto                   re-arm the automatic selector
+  ncz-profile auto-apply             first-login entry point (safe to run often)
+  ncz-profile list                   print the settings the lite profile sets
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import platform
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+DESKTOP = "dev.sinty.desktop"
+SAVER = "dev.ncz.screensaver"
+PROFILE = "dev.ncz.profile"
+
+# ---------------------------------------------------------------------------
+# The lite settings table. (schema, key, GVariant type, lite value)
+# Value is the exact GVariant text `gsettings set` accepts.
+#
+# Each row earns its place: the value is either free (a disabled effect whose
+# cost is only paid when enabled) or was measured to matter on the 2013 test
+# hardware (see docs/lite-profile.md, the ablation table). Rows whose key is
+# absent (older payload) are skipped silently.
+# ---------------------------------------------------------------------------
+LITE_SETTINGS: list[tuple[str, str, str, str]] = [
+    # --- background material / compositor blur: the single most expensive
+    #     desktop effect on a Gen6/Gen7 GPU. Stock default is already
+    #     'disabled'; pin it so nothing re-enables it.
+    (DESKTOP, "background-effect", "s", "'disabled'"),
+    (DESKTOP, "blur-strength", "i", "0"),
+    (DESKTOP, "window-transparency", "i", "0"),
+    # --- motion: the shell honours reduce-motion by writing
+    #     <windowAnimations>no</windowAnimations> and skipping its own
+    #     movement/scaling/bouncing transitions.
+    (DESKTOP, "reduce-motion", "b", "true"),
+    (DESKTOP, "motion-duration-scale", "d", "0.30"),
+    # --- decorations: square corners drop the per-window mask/alpha work.
+    (DESKTOP, "window-rounded-corners", "b", "false"),
+    # --- idle: no pre-blank dim animation.
+    (DESKTOP, "idle-dim-screen", "b", "false"),
+    # --- tearing for fullscreen windows: skips the vblank wait (lower latency,
+    #     less compositor work). Safe: only fullscreen clients that request it.
+    (DESKTOP, "allow-tearing", "b", "true"),
+    # --- screensaver pool + render scale: only run savers measured to run well
+    #     on weak graphics, at half resolution, capped to 720p.
+    (SAVER, "pool-gpu-class", "s", "'weak'"),
+    (SAVER, "render-scale-mode", "s", "'fixed'"),
+    (SAVER, "render-scale", "d", "0.5"),
+    (SAVER, "max-render-height", "i", "720"),
+    (SAVER, "gpu-offload", "s", "'off'"),
+]
+
+# Keys whose value is set to 'software' only on a software-GL machine (where a
+# hardware compositor renderer cannot work at all).
+RENDERING_MODE_SOFTWARE: tuple[str, str, str, str] = (
+    DESKTOP, "rendering-mode", "s", "'software'",
+)
+
+# ---------------------------------------------------------------------------
+# Classifier. Kept as plain (regex, note) so `ncz-profile class` can be driven
+# with fake renderer strings by build/test-lite-profile.sh.
+# ---------------------------------------------------------------------------
+
+# Software GL: no hardware pipeline on the display path.
+SOFTWARE_RE = re.compile(
+    r"llvmpipe|softpipe|swrast|lavapipe|softpipe|zink|\bvirgl\b",
+    re.IGNORECASE,
+)
+
+# Intel Gen <= 7.5 and older. Two independent ways to recognise them:
+#   * the codename token Mesa puts in the renderer string, e.g.
+#     "Mesa Intel(R) HD Graphics 4000 (IVB GT2)"
+#   * the marketing name, e.g. "Intel(R) HD Graphics 4000"
+# `\bhd graphics` deliberately does NOT match "UHD Graphics" (no word boundary
+# before the H), so UHD 630 and newer are never caught here.
+INTEL_OLD_RENDERER_RE = re.compile(
+    r"\b(?:snb|ivb|hsw|ilk|byt|cht)\b"          # Mesa codename tokens
+    r"|\bhd graphics\s+(?:2000|2500|3000|4000|4200|4400|4600)\b"
+    r"|\biris\s+(?:5100|5200)\b"
+    r"|\bgma\s*\d",
+    re.IGNORECASE,
+)
+
+# Intel PCI device IDs for Gen <= 7.5 (used only when no renderer string is
+# available). Vendor 8086. Sandy Bridge (Gen6), Ivy Bridge (Gen7),
+# Haswell (Gen7.5), Bay Trail/Cherry Trail (Gen7/8 value-class), Ironlake.
+INTEL_OLD_PCI = {
+    # Gen5 Ironlake
+    "0042", "0046",
+    # Gen6 Sandy Bridge
+    "0102", "0106", "010a", "0112", "0116", "0122", "0126",
+    # Gen7 Ivy Bridge
+    "0152", "0156", "015a", "0162", "0166", "016a", "016e",
+    # Gen7 Bay Trail / Valley View
+    "0f31", "0f32", "0f33",
+    # Gen7.5 Haswell / Haswell-ULT
+    "0402", "0406", "040a", "040e", "0412", "0416", "041a", "041e",
+    "0422", "0426", "042a", "042e",
+    "0a02", "0a06", "0a0a", "0a0e", "0a12", "0a16", "0a1a", "0a1e",
+    "0a22", "0a26", "0a2a", "0a2e",
+    "0d02", "0d06", "0d0a", "0d0e", "0d12", "0d16", "0d1a", "0d1e",
+    "0d22", "0d26", "0d2a", "0d2e",
+}
+
+VRAM_LITE_MB = 4096  # informational only; never a primary lite trigger
+
+
+def classify(renderer: str = "", pci: str = "", software: bool = False,
+             vram_mb: int | None = None) -> tuple[str, list[str]]:
+    """Return (class, reasons). class is 'lite' or 'default'."""
+    reasons: list[str] = []
+    renderer = (renderer or "").strip()
+    if software or (renderer and SOFTWARE_RE.search(renderer)):
+        reasons.append(f"software GL ({renderer or 'flagged'})")
+        return "lite", reasons
+
+    if renderer and INTEL_OLD_RENDERER_RE.search(renderer):
+        reasons.append(f"Intel Gen<=7.5 renderer ({renderer})")
+        return "lite", reasons
+
+    if not renderer and pci:
+        m = re.match(r"\s*([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\s*", pci)
+        if m and m.group(1).lower() == "8086" and m.group(2).lower() in INTEL_OLD_PCI:
+            reasons.append(f"Intel Gen<=7.5 PCI id ({pci})")
+            return "lite", reasons
+
+    reasons.append(renderer and f"renderer not in the weak set ({renderer})"
+                   or "no weak signal")
+    if vram_mb is not None and vram_mb and vram_mb <= VRAM_LITE_MB:
+        reasons.append(f"note: {vram_mb} MiB VRAM (informational, not a trigger)")
+    return "default", reasons
+
+
+# ---------------------------------------------------------------------------
+# Detection
+# ---------------------------------------------------------------------------
+
+def _run(cmd: list[str], timeout: float = 8.0) -> str:
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return res.stdout or ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _renderer_from_eglinfo() -> str:
+    out = _run(["eglinfo", "-B"]) or _run(["eglinfo"])
+    for line in out.splitlines():
+        m = re.search(r"renderer\s*[:=]\s*(.+)", line, re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+        m = re.search(r"OpenGL (?:core profile )?renderer\s*[:=]\s*(.+)", line,
+                      re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+def _renderer_from_glxinfo() -> str:
+    out = _run(["glxinfo", "-B"]) or _run(["glxinfo"])
+    for line in out.splitlines():
+        m = re.search(r"OpenGL renderer string\s*:\s*(.+)", line)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+def _pci_and_vram() -> tuple[str, int | None]:
+    """First render-capable card's vendor:device and VRAM, from sysfs."""
+    base = Path("/sys/class/drm")
+    if not base.is_dir():
+        return "", None
+    for card in sorted(base.glob("card[0-9]*")):
+        dev = card / "device"
+        try:
+            vid = (dev / "vendor").read_text().strip().replace("0x", "")
+            did = (dev / "device").read_text().strip().replace("0x", "")
+        except OSError:
+            continue
+        vram = None
+        for f in ("mem_info_vram_total", "mem_info_gtt_total"):
+            try:
+                vram = int((dev / f).read_text().strip())
+                vram = vram // (1024 * 1024)
+                break
+            except (OSError, ValueError):
+                continue
+        if vid and did:
+            return f"{vid}:{did}", vram
+    return "", None
+
+
+def detect(inputs: dict | None = None) -> dict:
+    """Collect the classifier inputs, honouring explicit overrides/test seams."""
+    inputs = dict(inputs or {})
+    renderer = inputs.get("renderer")
+    if renderer is None:
+        renderer = (os.environ.get("NCZ_LITE_RENDERER")
+                    or _renderer_from_eglinfo() or _renderer_from_glxinfo())
+    software = inputs.get("software")
+    if software is None:
+        software = os.environ.get("NCZ_LITE_SOFTWARE") == "1"
+    pci = inputs.get("pci")
+    if pci is None:
+        pci = os.environ.get("NCZ_LITE_PCI", "")
+    vram = inputs.get("vram_mb")
+    if vram is None and not pci:
+        pci, vram = _pci_and_vram()
+    return {"renderer": renderer or "", "pci": pci or "",
+            "software": bool(software), "vram_mb": vram}
+
+
+# ---------------------------------------------------------------------------
+# gsettings plumbing (all external state goes through here so tests can shim)
+# ---------------------------------------------------------------------------
+
+def gsettings(*args: str) -> tuple[int, str, str]:
+    try:
+        res = subprocess.run(["gsettings", *args], capture_output=True, text=True)
+        return res.returncode, res.stdout.strip(), res.stderr.strip()
+    except OSError:
+        return 127, "", "gsettings not found"
+
+
+_SCHEMA_KEYS: dict[str, list[str]] = {}
+
+
+def schema_keys(schema: str) -> list[str]:
+    if schema not in _SCHEMA_KEYS:
+        rc, out, _ = gsettings("list-keys", schema)
+        _SCHEMA_KEYS[schema] = out.splitlines() if rc == 0 else []
+    return _SCHEMA_KEYS[schema]
+
+
+def key_exists(schema: str, key: str) -> bool:
+    return key in schema_keys(schema)
+
+
+def gget(schema: str, key: str) -> str | None:
+    rc, out, _ = gsettings("get", schema, key)
+    return out if rc == 0 else None
+
+
+def gset(schema: str, key: str, value: str) -> bool:
+    rc, _, _ = gsettings("set", schema, key, value)
+    return rc == 0
+
+
+# ---------------------------------------------------------------------------
+# State
+# ---------------------------------------------------------------------------
+
+def state_dir() -> Path:
+    base = os.environ.get("XDG_STATE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".local", "state")
+    return Path(base) / "ncz" / "lite-profile"
+
+
+def config_dir() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config")
+    return Path(base) / "ncz" / "lite-profile"
+
+
+def labwc_dir() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config")
+    return Path(base) / "labwc"
+
+
+def frag_dir() -> Path:
+    for d in (os.environ.get("NCZ_LITE_FRAG_DIR"),
+              "/usr/share/ncz/lite", "/usr/local/share/ncz/lite"):
+        if d and Path(d, "rc-lite.fragment.xml").is_file():
+            return Path(d)
+    return Path("/usr/share/ncz/lite")
+
+
+def load_state(name: str, default):
+    p = state_dir() / name
+    try:
+        return json.loads(p.read_text())
+    except (OSError, ValueError):
+        return default
+
+
+def save_state(name: str, data) -> None:
+    d = state_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+
+def profile_value() -> str:
+    if key_exists(PROFILE, "profile"):
+        v = gget(PROFILE, "profile")
+        if v:
+            return v.strip("'\"")
+    return "auto"
+
+
+def lite_applied() -> bool:
+    if key_exists(PROFILE, "lite-applied"):
+        return (gget(PROFILE, "lite-applied") or "").strip() == "true"
+    return (state_dir() / "applied.json").is_file()
+
+
+def set_profile(value: str) -> None:
+    if key_exists(PROFILE, "profile"):
+        gset(PROFILE, "profile", f"'{value}'")
+    # marker fallback when the schema key is not installed (older images)
+    d = state_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "profile").write_text(value + "\n")
+
+
+def set_applied(flag: bool) -> None:
+    if key_exists(PROFILE, "lite-applied"):
+        gset(PROFILE, "lite-applied", "true" if flag else "false")
+    d = state_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "lite-applied").write_text(("true" if flag else "false") + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Apply / restore
+# ---------------------------------------------------------------------------
+
+def _fragment_values() -> dict:
+    """Values for the labwc fragments, read from the installed fragments with
+    an embedded fallback so the script is self-contained."""
+    vals = {"cornerRadius": "0", "windowAnimations": "no", "durationScale": "0.30",
+            "allowTearing": "fullscreen",
+            "shadow_active": "0", "shadow_inactive": "0"}
+    fd = frag_dir()
+    rc = fd / "rc-lite.fragment.xml"
+    if rc.is_file():
+        text = rc.read_text()
+        for name in ("cornerRadius", "windowAnimations", "durationScale",
+                     "allowTearing"):
+            m = re.search(rf"<{name}>([^<]+)</{name}>", text)
+            if m:
+                vals[name] = m.group(1).strip()
+    th = fd / "themerc-lite.fragment"
+    if th.is_file():
+        for line in th.read_text().splitlines():
+            m = re.match(r"\s*window[.\-](active|inactive)\.shadow\.size\s*:\s*(\d+)",
+                         line)
+            if m:
+                vals[f"shadow_{m.group(1)}"] = m.group(2)
+    return vals
+
+
+def _patch_xml(path: Path, tag: str, value: str) -> bool:
+    if not path.is_file():
+        return False
+    text = path.read_text()
+    new, n = re.subn(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{value}</{tag}>", text)
+    if n and new != text:
+        path.write_text(new)
+        return True
+    return False
+
+
+def _patch_themerc(path: Path, vals: dict) -> bool:
+    if not path.is_file():
+        return False
+    text = path.read_text()
+    changed = False
+    out_lines = []
+    seen = set()
+    for line in text.splitlines():
+        m = re.match(r"(\s*window[.\-](active|inactive)\.shadow\.size\s*:)\s*\d+",
+                     line)
+        if m:
+            key = m.group(2)
+            out_lines.append(f"{m.group(1)} {vals.get('shadow_' + key, '0')}")
+            seen.add(key)
+            changed = True
+        else:
+            out_lines.append(line)
+    path.write_text("\n".join(out_lines) + "\n")
+    return changed
+
+
+def apply_labwc(vals: dict, record: dict) -> list[str]:
+    ld = labwc_dir()
+    touched = []
+    rc = ld / "rc.xml"
+    if rc.is_file():
+        bak = ld / "rc.xml.ncz-lite-orig"
+        if not bak.exists():
+            shutil.copy2(rc, bak)
+            record.setdefault("labwc_backups", {})["rc.xml"] = str(bak)
+        if _patch_xml(rc, "cornerRadius", vals["cornerRadius"]):
+            touched.append("rc.xml:cornerRadius")
+        if _patch_xml(rc, "windowAnimations", vals["windowAnimations"]):
+            touched.append("rc.xml:windowAnimations")
+        if _patch_xml(rc, "durationScale", vals["durationScale"]):
+            touched.append("rc.xml:durationScale")
+        if _patch_xml(rc, "allowTearing", vals["allowTearing"]):
+            touched.append("rc.xml:allowTearing")
+    th = ld / "themerc-override"
+    if th.is_file():
+        bak = ld / "themerc-override.ncz-lite-orig"
+        if not bak.exists():
+            shutil.copy2(th, bak)
+            record.setdefault("labwc_backups", {})["themerc-override"] = str(bak)
+        if _patch_themerc(th, vals):
+            touched.append("themerc-override:shadow")
+    return touched
+
+
+def restore_labwc(record: dict) -> list[str]:
+    restored = []
+    for name, bak in (record.get("labwc_backups") or {}).items():
+        try:
+            if Path(bak).is_file():
+                shutil.copy2(bak, labwc_dir() / name)
+                Path(bak).unlink()
+                restored.append(name)
+        except OSError:
+            pass
+    return restored
+
+
+def apply_lite(record: dict, det: dict | None = None) -> list[str]:
+    changed = []
+    rows = list(LITE_SETTINGS)
+    # Software rendering mode only where the display GL really is software;
+    # on a Gen6/Gen7 Intel with a working i915/crocus pipeline we keep the
+    # (hardware) default -- software rendering would be a slow regression.
+    det = det or detect()
+    if SOFTWARE_RE.search(det.get("renderer", "")) or det.get("software"):
+        rows.append(RENDERING_MODE_SOFTWARE)
+    for schema, key, _type, value in rows:
+        if not key_exists(schema, key):
+            continue
+        prior = gget(schema, key)
+        if prior is None:
+            continue
+        priors = record.setdefault("prior", {})
+        # Record the ORIGINAL stock value once; a second `lite` must never
+        # overwrite it with the already-applied lite value, or `default`
+        # would "restore" lite.
+        priors.setdefault(f"{schema}:{key}", prior)
+        if gset(schema, key, value) and f"{schema}:{key}" not in changed:
+            changed.append(f"{schema}:{key}")
+    changed += apply_labwc(_fragment_values(), record)
+    set_profile("lite")
+    set_applied(True)
+    return changed
+
+
+def restore_default(record: dict) -> list[str]:
+    changed = []
+    for k, prior in (record.get("prior") or {}).items():
+        schema, _, key = k.partition(":")
+        if key_exists(schema, key):
+            if gset(schema, key, prior):
+                changed.append(k)
+    changed += restore_labwc(record)
+    set_profile("default")
+    set_applied(False)
+    return changed
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+def cmd_class(args) -> int:
+    inputs = {"renderer": args.renderer, "pci": args.pci,
+              "software": args.software, "vram_mb": args.vram_mb}
+    det = detect(inputs)
+    cls, reasons = classify(**det)
+    print(f"{cls}\t{'; '.join(reasons)}")
+    return 0
+
+
+def cmd_status(args) -> int:
+    det = detect()
+    cls, reasons = classify(**det)
+    rec = load_state("applied.json", {})
+    print(json.dumps({
+        "profile": profile_value(),
+        "lite_applied": lite_applied(),
+        "detected_class": cls,
+        "reasons": reasons,
+        "inputs": det,
+        "state_dir": str(state_dir()),
+        "last_applied": rec.get("when"),
+        "last_changed": rec.get("changed", []),
+    }, indent=2))
+    return 0
+
+
+def cmd_lite(args) -> int:
+    arch = os.environ.get("NCZ_LITE_ARCH") or platform.machine()
+    if arch in ("aarch64", "arm64") and not args.force:
+        print("ncz-profile: lite is amd64-only; refusing on arm64 "
+              "(use --force to override)", file=sys.stderr)
+        return 1
+    rec = load_state("applied.json", {})
+    det = detect()
+    changed = apply_lite(rec, det)
+    rec["when"] = int(time.time())
+    rec["changed"] = changed
+    rec["class"] = classify(**det)[0]
+    save_state("applied.json", rec)
+    print(f"ncz-profile: lite applied ({len(changed)} changes)")
+    for c in changed:
+        print(f"  {c}")
+    return 0
+
+
+def cmd_default(args) -> int:
+    rec = load_state("applied.json", {})
+    changed = restore_default(rec)
+    rec["when"] = int(time.time())
+    rec["changed"] = changed
+    save_state("applied.json", rec)
+    print(f"ncz-profile: default restored ({len(changed)} restores)")
+    return 0
+
+
+def cmd_auto(args) -> int:
+    set_profile("auto")
+    set_applied(False)
+    print("ncz-profile: automatic selection re-armed (next login)")
+    return 0
+
+
+def cmd_auto_apply(args) -> int:
+    # Never let a login end on a failure.
+    try:
+        pref = profile_value()
+        if pref in ("lite", "default"):
+            return 0  # the user pinned it
+        if lite_applied():
+            return 0  # already decided once; never re-apply
+        det = detect()
+        cls, reasons = classify(**det)
+        rec = load_state("applied.json", {})
+        rec["detected_class"] = cls
+        rec["reasons"] = reasons
+        rec["inputs"] = det
+        if cls == "lite":
+            rec["changed"] = apply_lite(rec, det)
+            print("ncz-profile: weak GPU detected -> lite profile applied")
+        else:
+            set_applied(True)  # decide once, do not re-evaluate
+            rec["changed"] = []
+            print("ncz-profile: GPU is default class -> stock settings kept")
+        rec["when"] = int(time.time())
+        save_state("applied.json", rec)
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(f"ncz-profile: auto-apply skipped ({exc})", file=sys.stderr)
+        return 0
+
+
+def cmd_list(args) -> int:
+    for schema, key, _t, value in LITE_SETTINGS:
+        print(f"{schema}:{key} = {value}")
+    return 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="ncz-profile", description=__doc__.split("\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    c = sub.add_parser("class")
+    c.add_argument("--renderer", default=None)
+    c.add_argument("--pci", default=None)
+    c.add_argument("--software", action="store_true")
+    c.add_argument("--vram-mb", type=int, default=None, dest="vram_mb")
+    c.set_defaults(func=cmd_class)
+    sub.add_parser("status").set_defaults(func=cmd_status)
+    l = sub.add_parser("lite")
+    l.add_argument("--force", action="store_true")
+    l.set_defaults(func=cmd_lite)
+    sub.add_parser("default").set_defaults(func=cmd_default)
+    sub.add_parser("auto").set_defaults(func=cmd_auto)
+    sub.add_parser("auto-apply").set_defaults(func=cmd_auto_apply)
+    sub.add_parser("list").set_defaults(func=cmd_list)
+    args = ap.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
