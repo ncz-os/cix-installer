@@ -493,13 +493,13 @@ def apply_labwc(vals: dict, record: dict) -> list[str]:
         if not bak.exists():
             shutil.copy2(rc, bak)
             record.setdefault("labwc_backups", {})["rc.xml"] = str(bak)
-        if _patch_xml(rc, "cornerRadius", vals["cornerRadius"]):
+        if _patch_xml(rc, "cornerRadius", vals.get("cornerRadius", "0")):
             touched.append("rc.xml:cornerRadius")
-        if _patch_xml(rc, "windowAnimations", vals["windowAnimations"]):
+        if _patch_xml(rc, "windowAnimations", vals.get("windowAnimations", "no")):
             touched.append("rc.xml:windowAnimations")
-        if _patch_xml(rc, "durationScale", vals["durationScale"]):
+        if _patch_xml(rc, "durationScale", vals.get("durationScale", "0.30")):
             touched.append("rc.xml:durationScale")
-        if _patch_xml(rc, "allowTearing", vals["allowTearing"]):
+        if _patch_xml(rc, "allowTearing", vals.get("allowTearing", "fullscreen")):
             touched.append("rc.xml:allowTearing")
     th = ld / "themerc-override"
     if th.is_file():
