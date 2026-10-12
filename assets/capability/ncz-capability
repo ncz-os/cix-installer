@@ -1559,7 +1559,8 @@ def apply_defaults(facts, scored, cli_tier=None, override_path=GLOBAL_OVERRIDE,
 SAVER_BENCH_BUDGET_S = 30.0     # hard cap for the whole step
 SAVER_BENCH_WINDOW_S = 2.0      # per-attempt measurement window
 SAVER_BENCH_WARMUP_S = 0.5      # frames ignored before timing starts
-SAVER_BENCH_MIN_S = 3.5         # budget a candidate needs (startup + window)
+SAVER_BENCH_MIN_REMAINING_S = 3.5   # least budget left to start a scale attempt
+                                    # (child startup ~1.5 s + one 2 s window)
 SAVER_BENCH_FEED_FPS = 240      # the off-screen child's frame cap
 SAVER_MIN_FPS = 30.0
 SAVER_MAX_P95_MS = 40.0
@@ -1663,7 +1664,7 @@ def manifest_fallback_pool(doc, cls):
         if kind == "pool":
             pool.append({"id": hid, "scale": 1.0})
         elif kind == "scaled":
-            scale = entry.get("default_scale") or entry.get("min_scale_for_30fps") or 0.5
+            scale = entry_default_scale(entry)
             try:
                 pool.append({"id": hid, "scale": float(scale)})
             except (TypeError, ValueError):
@@ -1673,6 +1674,23 @@ def manifest_fallback_pool(doc, cls):
                              "reason": entry.get("reason") or
                              ("requires GLES %s" % saver.get("min_gles", "3.0"))})
     return pool, excluded
+
+
+def entry_default_scale(entry, fallback=0.5):
+    """The render scale a manifest class entry should use by default.
+
+    default_scale is the solid-60 choice; min_scale_for_30fps is the floor.
+    Falls back to `fallback` (0.5, the weak-class default) when neither is a
+    usable scale.
+    """
+    for key in ("default_scale", "min_scale_for_30fps"):
+        try:
+            v = float(entry.get(key))
+        except (TypeError, ValueError):
+            continue
+        if 0.25 <= v <= 1.0:
+            return v
+    return fallback
 
 
 def saver_candidates(doc, gles):
@@ -1982,15 +2000,14 @@ def saver_bench(facts, scored, root="", budget=SAVER_BENCH_BUDGET_S,
     measured = 0
     for hid in candidates:
         remaining = budget - (time.monotonic() - start)
-        if remaining < SAVER_BENCH_MIN_S:
+        if remaining < SAVER_BENCH_MIN_REMAINING_S:
             # out of budget: the manifest default_class is the safe fallback
             entry = ((doc["savers"][hid].get("classes") or {}).get(cls)) or {}
             kind = entry.get("default_class")
             if kind == "pool":
                 pool.append({"id": hid, "scale": 1.0})
             elif kind == "scaled":
-                pool.append({"id": hid, "scale": float(
-                    entry.get("default_scale") or entry.get("min_scale_for_30fps") or 0.5)})
+                pool.append({"id": hid, "scale": entry_default_scale(entry)})
             else:
                 excluded.append({"id": hid,
                                  "reason": "unmeasured (budget); manifest: %s" % (kind or "?")})
@@ -1999,7 +2016,7 @@ def saver_bench(facts, scored, root="", budget=SAVER_BENCH_BUDGET_S,
         chosen = None
         last_error = None
         for scale, label in SAVER_SCALES:
-            if budget - (time.monotonic() - start) < SAVER_BENCH_MIN_S:
+            if budget - (time.monotonic() - start) < SAVER_BENCH_MIN_REMAINING_S:
                 break
             res = bench_saver_once(hid, scale, display, binary, seconds=window, root=root)
             if res.get("error"):
