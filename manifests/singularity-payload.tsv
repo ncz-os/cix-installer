@@ -1,0 +1,16 @@
+# manifests/singularity-payload.tsv -- reviewed PREBUILT Singularity Desktop
+# payload .deb pins.  One row per arch:
+#   <arch>\t<sha256>\t<version>
+# The sha256 (field 2) is read by build/gen-base-pin.sh and emitted as
+# singularity_payload_sha256_<arch> in manifests/determinism.pin; it seeds the
+# "hotfix" layer fingerprint (build/lib/layerplan.py).  The image layers stage
+# consumes exactly these bytes via NCZ_SINGULARITY_PREBUILT_DEB /
+# NCZ_SINGULARITY_PREBUILT_SHA256 (build/layers-preflight.sh check_frozen_deb).
+# The .deb version is a timestamped `YYYYMMDDhhmmss+bk0+tgz<hash>` string, so it
+# cannot be statically pinned in manifests/ncz-packages.tsv (see the header of
+# manifests/ncz-timestamped.tsv); the reviewed-ledger row for the timestamped
+# form lives there, and this file records the concrete RC6 build.
+# Published to the NCZ apt repo: Buildkite Packages (primary) + R2 (backup).
+# RC6 carries singularity-shell patch 0016 (no unlock prompt on pointer enter).
+amd64	97f19d71239c2147e4214d8e27e3b9fd3ce760deba023fb450e3594fc4ce2b55	ncz-singularity-desktop_20261012142416+bk0+tgz7160a87e_amd64.deb
+arm64	b24e063e91b59d7bdd21874922f409f115f86cf9c8c9059fb3597ea8f6003ba1	ncz-singularity-desktop_20261012142416+bk0+tgz4d4c1d68_arm64.deb
