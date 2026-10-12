@@ -1465,6 +1465,20 @@ def apply_defaults(facts, scored, cli_tier=None, override_path=GLOBAL_OVERRIDE,
     write_env_files(features, env_file, feature_env, dry_run=dry_run, log=log, root=root)
     idx = features.get("indexer.mode", {}).get("value", "full")
     apply_service_defaults(idx, root=root, dry_run=dry_run, log=log)
+    # Record what was applied so `status` can show it (only the real root; a test
+    # root must not touch the host's /etc/ncz/capability.json).
+    if root == "" and not dry_run and os.path.isfile(json_default):
+        try:
+            doc = json.load(open(json_default))
+            doc["applied_tier"] = tier
+            doc["applied_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            tmp = json_default + ".tmp"
+            with open(tmp, "w") as fh:
+                json.dump(doc, fh, indent=2, sort_keys=True)
+                fh.write("\n")
+            os.replace(tmp, json_default)
+        except (OSError, ValueError):
+            pass
     return {"tier": tier, "features": features, "gsettings_files": written}
 
 
