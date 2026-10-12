@@ -267,11 +267,18 @@ class GreeterTest(unittest.TestCase):
         off = dict(MONITOR_SINGLE_MODE_4K, enabled=False)
         fake = FakeRandr([off])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
-        self.assertEqual(fake.calls, [["--output", "eDP-1", "--on"]])
+        self.assertEqual(
+            fake.calls, [["--output", "eDP-1", "--scale", "2", "--on"]]
+        )
         self.assertFalse(
             any("3840" in " ".join(c) or "2160" in " ".join(c) for c in fake.calls),
             fake.calls,
         )
+        # And it MUST carry the density-policy scale: the greeter renders at
+        # this scale, so dropping it makes the greeter card half the lock's
+        # (greetmatch parity, 2026-10-12). A scale-only --scale+--on is not a
+        # disable->enable mode cycle.
+        self.assertIn("--scale", fake.calls[0])
 
     def test_single_mode_4k_panel_already_lit_is_re_asserted_with_on(self):
         # amd64 keeps the labwc default, so labwc may have already lit the
@@ -280,7 +287,9 @@ class GreeterTest(unittest.TestCase):
         lit = dict(MONITOR_SINGLE_MODE_4K, enabled=True)
         fake = FakeRandr([lit])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
-        self.assertEqual(fake.calls, [["--output", "eDP-1", "--on"]])
+        self.assertEqual(
+            fake.calls, [["--output", "eDP-1", "--scale", "2", "--on"]]
+        )
 
 
 class SessionTest(unittest.TestCase):

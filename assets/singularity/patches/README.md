@@ -60,8 +60,9 @@ Delete this patch once PR #37 merges.
 **Not yet filed upstream** (2026-10-11). Patches
 `0013-lockscreen-honour-output-scale.patch`,
 `0014-lockscreen-host-an-out-of-process-frame-source.patch`,
-`0015-lockscreen-overlay-unlock-prompt-on-screensaver.patch` and
-`0016-lockscreen-no-prompt-on-pointer-enter.patch`, applied in that order
+`0015-lockscreen-overlay-unlock-prompt-on-screensaver.patch`,
+`0016-lockscreen-no-prompt-on-pointer-enter.patch` and
+`0018-lockscreen-share-the-login-card-field-label.patch`, applied in that order
 (0014 depends on the `struct lock_output.scale` field that 0013 adds; 0015
 extends 0014's frame-source hook to also hold the source during input, so the
 unlock prompt composites over the live saver rather than a flat background;
@@ -95,7 +96,18 @@ unlock prompt composites over the live saver rather than a flat background;
   pinned by `tests/lockscreen-framesrc/test-framesrc.sh` cases 7-9
   (`idle -> lock, no prompt before input`).
 
-None of 0013-0016 has a `**Upstream PR:**` link on purpose (nothing is filed; the
+- `0018` derives the unlock card's credential-field label through the shared
+  `loginui_field_label()` helper added by `singularity-loginui/0003`, so the
+  lock's card and the greeter's card are built from ONE code path instead of
+  two hand-kept copies (the greeter had drifted: a duplicate status/prompt row
+  under the field and no output-scale render). No behaviour change on the lock
+  (still `Password`, or `PIN` when the `sock` broker is present). It edits
+  `src/lockscreen/lock_main.c` -- the SAME file the thermals `0017` patch
+  edits -- so `0017` must land first and the queue order must stay
+  `...0016, 0017, 0018`; the two changes are at different sites and were
+  verified to apply in that order (`0017` then `0018`).
+
+None of 0013-0016 nor 0018 has a `**Upstream PR:**` link on purpose (nothing is filed; the
 mirkoprs task owns the upstream offer). Delete them if/when the corresponding
 change lands
 upstream.
@@ -103,8 +115,9 @@ upstream.
 ## singularity-greeter — active
 
 **Not yet filed upstream** (2026-10-11). Patches
-`0001-greeter-cancel-session-before-recreate.patch` and
-`0002-greeter-answer-info-error-messages.patch`, applied in order.
+`0001-greeter-cancel-session-before-recreate.patch`,
+`0002-greeter-answer-info-error-messages.patch` and
+`0003-greeter-match-the-lock-login-card.patch`, applied in order.
 
 - `0001` fixes "a session is already being configured": after a rejected password
   the greeter called `create_session` again while greetd still held the session
@@ -113,6 +126,21 @@ upstream.
 - `0002` fixes a stuck "Authenticating…": greetd's PAM conversation blocks on
   every `auth_message` including the `info`/`error` kinds, and the greeter
   displayed them without replying. It now replies with a null response.
+
+- `0003` makes the greeter paint the SAME login card as the session lock
+  (operator 2026-10-12: "the greeter should match the lock visually"). Two
+  drifts were removed: (a) the greetd/PAM prompt was drawn as a SECOND row
+  under the field (so the greeter card showed both a placeholder and a
+  `Password:` row while the lock showed one field) -- the prompt is now
+  resolved into the single shared field label via `loginui_field_label()`
+  (`singularity-loginui/0003`) and the auth message is still handled and shown
+  in that one field; (b) the greeter rendered a logical-size buffer the
+  compositor upscaled, so on a HiDPI panel its card landed a fraction of a
+  pixel off the lock's natively-rendered one -- it now renders at the output's
+  `wl_output.scale` exactly as the lock does (0013). The greeter's own extras
+  (user dots, power button, brand footer, session pill) are kept and do not
+  move or restyle the shared card. Verified pixel-for-pixel against the lock
+  at 1920x1080@1x, 3840x2160@2x and 3072x1920@2x.
 
 No `**Upstream PR:**` link on purpose (nothing is filed). Real-greetd
 confirmation is an operator ask (`lockhost/NEED-OPERATOR.md`).
@@ -270,6 +298,20 @@ has no `brand.c`, so the build and `singularity-pins.sh check-patches` skip such
 Separate from 0001, which fixes `loginui_render_splash()` (the boot splash).
 Covered by `build/test-splash-brand-aspect.sh` (manual, like `test-splash-logo-fit.sh`, which
 is a known env-only failure on HYDRA). No `**Upstream PR:**` link on purpose.
+
+**Not yet filed upstream** (2026-10-12). Patch
+`0003-loginui-share-the-login-card-field-label-session-only.patch` adds
+`loginui_field_label()`: the one derivation of the login card's credential-field
+label, used by BOTH login surfaces (the greeter and the session lock) so the
+shared card cannot drift between them again. It normalises a greetd/PAM prompt
+(strips a trailing `:` and surrounding whitespace) so a PAM `Password: ` renders
+identically to the lock's own `Password`, and falls back to the credential kind
+(`PIN`/`Password`) when there is no prompt. The file name carries `session-only`:
+the boot splash's bundled loginui copy is a different commit and has no session
+surface, so `build-singularity.sh` and `singularity-pins.sh check-patches` skip
+it there (it is applied to the desktop `subprojects/singularity-loginui`).
+Parity evidence: `greetmatch` -- card-region pixel diff 0 px at all three target
+geometries. No `**Upstream PR:**` link on purpose.
 
 ## singularity-session — active
 

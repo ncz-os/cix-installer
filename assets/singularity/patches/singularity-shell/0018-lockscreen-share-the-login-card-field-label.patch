@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 12 Oct 2026 12:30:00 -0400
+Subject: [PATCH] lockscreen: derive the credential-field label through the shared helper
+
+Route the lock's field label through loginui_field_label() -- the same
+resolver the greeter now uses -- so the two login cards are built from one
+code path. No behaviour change (Password, or PIN when the recoverd broker
+socket is present); the first free number after the thermals 0017 queue entry.
+Assisted-by: opencode:deepseek-flash
+AI-Scope: authored on the pinned upstream commit; measured red->green headless
+---
+diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
+--- a/src/lockscreen/lock_main.c
++++ b/src/lockscreen/lock_main.c
+@@ -119,6 +119,7 @@
+ static char status_text[128] = "";
+ static bool status_error = false;
+ static char username[256] = "";
++static char label_buf[64];
+ 
+ static void render_output(struct lock_output *o);
+ #ifdef LOCK_FRAMESRC
+@@ -488,8 +489,11 @@
+     st.status_text = status_text[0] ? status_text : NULL;
+     st.status_error = status_error;
+     /* On Sinty OS the unlock field takes a PIN, not a password (the recoverd
+-     * broker socket is the tell that we authenticate via the PIN daemon). */
+-    st.auth_label = (access("/run/sinty-recoverd.sock", F_OK) == 0) ? "PIN" : NULL;
++     * broker socket is the tell that we authenticate via the PIN daemon). The
++     * label comes from the SAME shared resolver the greeter uses, so the two
++     * login cards are built from one code path and cannot drift. */
++    st.auth_label = loginui_field_label(label_buf, sizeof label_buf, NULL,
++                                        access("/run/sinty-recoverd.sock", F_OK) == 0);
+     bool animating = apply_motion(&st);
+ 
+ #ifdef LOCK_FRAMESRC
