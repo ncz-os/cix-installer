@@ -140,7 +140,20 @@ fi
 # Fix: publish upstream-mirror-ci = upstream tree + our .buildkite/ committed
 # on top, and validate against that. Still a true "does current upstream build"
 # signal -- only the CI recipe is ours, which it has to be.
-log "building upstream-mirror-ci (upstream tree + downstream .buildkite/)"
+#
+# An earlier version of this script also overlaid two unmerged fix branches
+# (fix/ci-session-patch-retire-20261012 and fix/ci-submodule-sigpipe-20261012)
+# so the daily sync would carry the SIGPIPE/patch-rot fix to upstream-mirror-ci
+# even before the integrated fix was merged to master. That hack has been
+# removed: the integrated fix now lives on fix/ci-green-20261012 (master +
+# cause C + safety gate), and the only branch this script overlays is the
+# fork's own master, exactly as the daily sync should. Pulling unmerged
+# feature branches into the daily mirror would (a) let a contributor
+# accidentally ship code that the operator has not reviewed onto a branch
+# the build pipeline exercises every day, and (b) be impossible to remove
+# cleanly once the branches are merged-and-deleted -- the script would
+# silently stop working at the next 07:16Z run.
+log "building upstream-mirror-ci (upstream tree + downstream .buildkite/ + scripts/ + patches/ from our master)"
 CI_WORK="$(mktemp -d /tmp/ncz-sync-ci.XXXXXX)"
 CI_BRANCH="upstream-mirror-ci"
 if git clone --quiet --no-checkout "$WORKDIR" "$CI_WORK/repo" 2>/dev/null \
@@ -155,40 +168,9 @@ if git clone --quiet --no-checkout "$WORKDIR" "$CI_WORK/repo" 2>/dev/null \
     # it is precisely what a daily upstream build is supposed to detect.
     if git -C "$CI_WORK/repo" fetch --quiet "$GITLAB_URL" "refs/heads/master:refs/remotes/ncz/master" 2>/dev/null \
        && git -C "$CI_WORK/repo" checkout --quiet "refs/remotes/ncz/master" -- .buildkite scripts patches 2>/dev/null; then
-        # Belt-and-suspenders: also overlay from any CI-fix branch that is still
-        # around. This guarantees the next 07:16Z daily sync carries the
-        # SIGPIPE-fix and the patch-rot-fix to upstream-mirror-ci even if
-        # the operator has not yet merged those branches into master. It
-        # is a no-op when the branches are gone (merged and deleted, or
-        # this cix-installer deploy predates them). Idempotent against
-        # master: overlaying the same content twice is a no-op, so the
-        # overlay is also safe AFTER the branches are merged into master.
-        #
-        # fix/ci-session-patch-retire-20261012  -- removes the now-defunct
-        #   singularity-session/0001-graphical-session-target-bridge.patch
-        #   so the apply-downstream-patches.sh step does not fail on drift.
-        # fix/ci-submodule-sigpipe-20261012      -- replaces `head -30` /
-        #   `grep -q` / `head -1` under `set -o pipefail` in
-        #   `.buildkite/pipeline.yml` with pipefail-safe equivalents so
-        #   the >30-submodule upstream-mirror-ci build no longer SIGPIPEs
-        #   into exit 141.
-        ci_fix_a_remote=""
-        ci_fix_b_remote=""
-        if git -C "$CI_WORK/repo" fetch --quiet "$GITLAB_URL" \
-            "refs/heads/fix/ci-session-patch-retire-20261012:refs/remotes/ncz/ci-fix-A" \
-            "refs/heads/fix/ci-submodule-sigpipe-20261012:refs/remotes/ncz/ci-fix-B" 2>/dev/null; then
-            git -C "$CI_WORK/repo" rev-parse --verify --quiet refs/remotes/ncz/ci-fix-A >/dev/null 2>&1 \
-                && ci_fix_a_remote="refs/remotes/ncz/ci-fix-A" || true
-            git -C "$CI_WORK/repo" rev-parse --verify --quiet refs/remotes/ncz/ci-fix-B >/dev/null 2>&1 \
-                && ci_fix_b_remote="refs/remotes/ncz/ci-fix-B" || true
-        fi
-        [ -n "$ci_fix_a_remote" ] && \
-            git -C "$CI_WORK/repo" checkout --quiet "$ci_fix_a_remote" -- scripts patches 2>/dev/null || true
-        [ -n "$ci_fix_b_remote" ] && \
-            git -C "$CI_WORK/repo" checkout --quiet "$ci_fix_b_remote" -- .buildkite 2>/dev/null || true
         git -C "$CI_WORK/repo" -c user.name="ncz-singularity-sync" \
             -c user.email="nczero@nclawzero.dev" \
-            commit --quiet -m "ci: overlay downstream .buildkite on upstream $UPSTREAM_SHA" 2>/dev/null || true
+            commit --quiet -m "ci: overlay downstream .buildkite/scripts/patches from our master on upstream $UPSTREAM_SHA" 2>/dev/null || true
         if git -C "$CI_WORK/repo" push --force --quiet "$GITLAB_URL" "$CI_BRANCH:$CI_BRANCH" 2>/dev/null; then
             BUILD_BRANCH="$CI_BRANCH"
             BUILD_COMMIT="$(git -C "$CI_WORK/repo" rev-parse HEAD)"
