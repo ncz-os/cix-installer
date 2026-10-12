@@ -144,7 +144,9 @@ wait_for_shell() {
     want="${NCZ_TOUR_SHELL_WAIT:-20}"
     i=0
     while [ "$i" -lt "$want" ]; do
-        pgrep -x singularity-desktop >/dev/null 2>&1 && break
+        # pgrep -f: the process comm is truncated at 15 chars, so -x would
+        # never match "singularity-desktop".
+        pgrep -f '/singularity-desktop$' >/dev/null 2>&1 && break
         if [ -n "${NCZ_TOUR_LAUNCH:-}" ] || [ -n "${NCZ_TOUR_DRYRUN:-}" ]; then break; fi
         sleep 1; i=$((i + 1))
     done
