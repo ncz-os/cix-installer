@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-10-12T05:58:24Z",
+  "generated_utc": "2026-10-12T06:49:27Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
@@ -12,7 +12,7 @@
     },
     {
       "file": "build/kernel-debs/linux-image-cixmini_7.3.0-rc7-sky1-ncz+r289_arm64.deb",
-      "sha256": "7832912888a59a8d3d14320257185204c99e80ed45db545fd5a559b73698886b"
+      "sha256": "20143493b637dbb48b7d8465011ee4237cec6b6512bdf79372e385a1e87554a9"
     }
   ],
   "schema": 1,
@@ -25,14 +25,14 @@
       "dir": "assets/kernel/mainline",
       "image": {
         "file": "assets/kernel/mainline/Image-cixmini.bin",
-        "sha256": "c0dd224c5ba0190e7c5ebda304e7ba6335f743974d32a2d87e76da313c639603",
+        "sha256": "839051cc2e77d1fd51661a28d12c08d5e6e783332ec825868a74f0a21e5e5f74",
         "size": 57719296
       },
       "kver": "7.3.0-rc7-sky1-ncz",
       "modules": {
         "file": "assets/kernel/mainline/modules-cixmini.tgz",
-        "sha256": "da1e9155af2c021cbc8342f08025b67a03ae50e3b05f2a59f5542597bcf808ee",
-        "size": 15389635
+        "sha256": "6157f93bb66804b90ed70ad169aadcbc579afbada2f36f95b06a170081f2d95d",
+        "size": 15383833
       },
       "npu": null
     }

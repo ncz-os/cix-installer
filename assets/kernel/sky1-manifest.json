@@ -30,10 +30,10 @@
       ]
     },
     "build": {
-      "vmlinux_build_id": "db68b795b955377c96353dd16c398d41ceb2c502",
-      "image_sha256": "c0dd224c5ba0190e7c5ebda304e7ba6335f743974d32a2d87e76da313c639603",
-      "modules_tgz_sha256": "da1e9155af2c021cbc8342f08025b67a03ae50e3b05f2a59f5542597bcf808ee",
-      "headers_tar_sha256": "1cc239390bcb85c933cb5c1996eeafaba06b786afaf1d7d9c5d42f9e09314dfa",
+      "vmlinux_build_id": "b36e30e44e5c1405e018d6d33773a6fcf96f3062",
+      "image_sha256": "839051cc2e77d1fd51661a28d12c08d5e6e783332ec825868a74f0a21e5e5f74",
+      "modules_tgz_sha256": "6157f93bb66804b90ed70ad169aadcbc579afbada2f36f95b06a170081f2d95d",
+      "headers_tar_sha256": "b25dbeb8b938b963412a0151e3fd9ae253812ba7e357513242c2f04c8e0d19df",
       "config_sha256": "67bb71093fb073cb3e9d64a5de42b2947df6ad9b7cc7c6f8b9c6105718b1aa97",
       "dtb_sha256": "1aa102e7d699fc2cbdfc4cfdf44f88155e71972402eec4f4abe7d4e3d651873e",
       "builder": "oe-user@oe-host (GCC 15.3.0, binutils 2.46.1)",
@@ -54,8 +54,8 @@
       "modules_count": 377,
       "modules_compressed": 0
     },
-    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc7.bb (PR r2), commit 11008998182624258553b96aa26111837cc83e8d, branch fix/sky1-r289-20261012",
-    "recipe_commit": "11008998182624258553b96aa26111837cc83e8d",
+    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc7.bb (PR r2), commit 6b6b55aa13a877ff8083592048f0a6043703c26a, branch fix/sky1-r289-20261012",
+    "recipe_commit": "6b6b55aa13a877ff8083592048f0a6043703c26a",
     "recipe_parent": "7ac28e30740c76fdf72f7cfdb8db79620ce6112e",
     "applied_patches": [
       "sky1-ncz-v7.3-rc7-port.patch",
@@ -84,7 +84,7 @@
   "debs": {
     "linux-image-cixmini": {
       "version": "7.3.0-rc7-sky1-ncz+r289",
-      "sha256": "7832912888a59a8d3d14320257185204c99e80ed45db545fd5a559b73698886b"
+      "sha256": "20143493b637dbb48b7d8465011ee4237cec6b6512bdf79372e385a1e87554a9"
     },
     "linux-headers-cixmini": {
       "version": "7.3.0-rc7-sky1-ncz+r289",
