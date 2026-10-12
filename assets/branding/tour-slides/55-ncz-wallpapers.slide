@@ -1,0 +1,7 @@
+[Slide]
+Order=55
+Title=Wallpapers by artists
+Body=NCZ-OS includes wallpaper sets from the artists behind it: NCZ, NCZ-OS 26.10 Cygnus, Alex Jay Brady and Brandon Perlow. Pick one in Settings, or let the desktop change it for you every ten minutes. The lock and login screens follow the same wallpaper.
+Scene=settings
+Action=settings:desktop
+ActionLabel=Open Settings
