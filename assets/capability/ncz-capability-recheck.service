@@ -1,0 +1,17 @@
+[Unit]
+Description=NCZ capability: re-profile after a hardware change (GPU/RAM/disk/display)
+Documentation=file:///usr/share/doc/ncz-capability/CAPABILITY-TIERS.md
+After=systemd-udev-settle.service local-fs.target
+# The last boot's first-boot service must have written the profile, else this is
+# just doing the same job twice; skip when there is nothing to compare against.
+ConditionPathExists=/etc/ncz/capability.json
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+# detect re-probes ONLY when the recorded signature differs (GPU ids/driver, RAM,
+# root disk, display, CPU model).  It is a no-op on an unchanged machine.
+ExecStart=/usr/bin/ncz-capability detect
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=120

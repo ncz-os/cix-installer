@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  dev.ncz.capability -- the NCZ-OS hardware capability tier preference.
+
+  OWNED BY cix-installer (data only). A separate schema id, not a new key in
+  dev.sinty.desktop, so no upstream Singularity file is touched and Settings can
+  grow a row later without a schema change.
+
+  The tier itself is MEASURED (ncz-capability writes /etc/ncz/capability.json at
+  first boot). This key only records the user's intent:
+
+    tier     auto | t0 | t1 | t2 | t3
+             auto (default) follows the measured tier.  t0..t3 pin it, so the
+             automatic selector never overrides a deliberate choice.
+    applied  b -- the first-boot service has run for this system.  The
+             selector still re-runs on a hardware change; applied only means
+             "a decision exists".
+
+  A system-wide /etc/ncz/capability.override file wins over both the measured
+  tier and this key.  See docs/CAPABILITY-TIERS.md.
+-->
+<schemalist>
+  <schema id="dev.ncz.capability" path="/dev/ncz/capability/">
+    <key name="tier" type="s">
+      <choices>
+        <choice value="auto"/>
+        <choice value="t0"/>
+        <choice value="t1"/>
+        <choice value="t2"/>
+        <choice value="t3"/>
+      </choices>
+      <default>'auto'</default>
+      <summary>Capability tier</summary>
+      <description>auto: follow the measured tier (pin nothing). t0: minimal, t1: low, t2: mid, t3: high. Pinning stops the automatic selector from changing the defaults. Change it from a terminal with `ncz-capability apply --tier T2`.</description>
+    </key>
+    <key name="applied" type="b">
+      <default>false</default>
+      <summary>Capability defaults have been applied</summary>
+      <description>Set by the first-boot capability service once a tier has been recorded. It does not freeze the tier: a hardware change re-runs the selector unless tier is pinned.</description>
+    </key>
+  </schema>
+</schemalist>

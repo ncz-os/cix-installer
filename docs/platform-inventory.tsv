@@ -38,6 +38,7 @@ assets/firmware/iwlwifi/	amd64	-	Intel WiFi firmware for x86 laptops
 assets/firmware/regdb/	common	-	wireless regulatory database
 assets/firmware/rtl_nic/	common	-	Realtek NIC firmware; used by x86 and Orion boards
 assets/gpu/	sky1	-	ncz-gpu-select/switcher for mali/panthor
+assets/capability/	common	-	hardware capability profiler ncz-capability (probe/score/apply), tier->defaults feature map, dev.ncz.capability schema, first-boot service and hardware-change recheck units (operator 2026-10-12)
 assets/hostnames/	common	-	hostname generator word list
 assets/install_ncz_agents.sh	common	-	agent stack installer
 assets/kernel-manifest.json	sky1	-	Sky1 kernel manifest (unified 7.3 mainline)
@@ -331,6 +332,7 @@ post-install/61-chromium-icon.sh	sky1	-	Cygnus-coloured NCZ Chromium icon (diver
 post-install/62-cygnus-screensaver-default.sh	common	-	default screensaver = black hole in the Cygnus palette; override validated against the installed schema before install
 post-install/63-ncz-idle-lock-order.sh	common	-	desktop auto-lock ordered AFTER the ncz screensaver: GSETTINGS default override dev.sinty.lockscreen idle-delay = hack-idle-delay + lock-delay (300+60=360), validated before install (operator 2026-10-11)
 post-install/64-ncz-lock-saver-plan.sh	common	-	NCZ lock renderer: one idle/lock/blank owner -- writes /etc/ncz/lock-renderer.env (SINGULARITY_LOCK_RENDERER=/usr/libexec/ncz-screensaver-feed) ONLY when the patched lock (built with -Dlock_framesrc=enabled) and the feed are installed, exports it via /etc/environment.d, and when the lock hosts the saver holds the session lock from the saver start (dev.sinty.lockscreen idle-delay = dev.ncz.screensaver hack-idle-delay, interim 360 override removed), else the hook-63 fallback stands; validated before install (operator 2026-10-11)
+post-install/65-capability-tier.sh	common	-	install the hardware capability profiler (ncz-capability) plus its first-boot probe/apply unit, the hardware-change recheck timer + udev rule and the dev.ncz.capability preference schema; measures at first boot and sets feature DEFAULTS by tier (operator 2026-10-12)
 post-install/64-t2-power-cap.sh	amd64	t2	Apple T2 CPU package power cap (MacBookPro16,x): battery PL1=25 W/PL2=35 W + no-turbo + max_perf=50, AC PL1=45 W/PL2=60 W; helper + intel-rapl:0 udev (boot race) + Mains-change (plug/unplug) + systemd-sleep (resume) + thermald ExecStartPre drop-in; /etc/ncz/power-cap.conf override with a performance opt-out; reversible (post-install/64-t2-power-cap.sh)
 post-install/70-bootloader.sh	mixed	-	rEFInd on both arches via run_refind_arm64 and run_refind_amd64; TODO split into per-platform bodies
 post-install/72-rescue-partition.sh	mixed	-	rescue partition; arm64 stages assets/kernel/mainline, amd64 copies the installed amd64-stable kernel; TODO split
@@ -432,6 +434,7 @@ build/test-run-all-baked-allowlist.sh	common	-	run-all.sh in baked mode against 
 build/test-idle-lock-order.sh	common	-	regression test for the idle-lock ordering hook (lock default strictly after the saver, tracks the schema, idempotent, skips without the lockscreen schema)
 build/test-lock-saver-plan.sh	common	-	regression test for the lock/saver idle-plan hook (lock from saver start when the renderer is configured, superseded interim override removed, fallback untouched otherwise, tracks the schema, idempotent)
 build/test-screensaver-default.sh	common	-	regression test for the Cygnus black hole screensaver default hook (validated override, idempotent, skips old schemas)
+build/test-capability-tier.sh	common	-	capability tier test: pure scoring unit tests + fleet fixtures (CYCLOPS HD3000 and the Dell .70 must land T2), min-of-subsystem caps, hook install into a temp root, override precedence
 build/test-screensavers-mandatory-install.sh	common	-	fail-before/pass-after for the screensaver deb being apt-installed on every desktop image: mirror pre-flight and install hook (operator 2026-10-05; item S4; sources the builders sibling)
 build/test-ssplugin-supply-chain.sh	common	-	fail-before/pass-after for the screensaver settings plugin supply chain (pin, staging, ABI gate, medium, offline install, registry, baked allowlist)
 build/test-screensavers-mandatory-install-builders.sh	common	-	sections 3-7 of the screensaver mandatory-install regression: mirror builder, layer pre-flights, live-update source, verifier contract, hook 57 retirement

@@ -1,0 +1,13 @@
+{
+  "note": "Fast CPU but a 5400rpm spinning disk: the disk caps the tier at T1 regardless of CPU/GPU.",
+  "cpu": {"model": "Intel(R) Core(TM) i7-9700K", "cores": 8, "threads": 8, "max_mhz": 3600, "microarch": "coffeelake", "arch": "x86_64"},
+  "mem": {"total_mb": 32768, "available_mb": 30000},
+  "storage": {"root_dev": "/dev/sda2", "root_mount": "/", "block": "sda", "rotational": true, "bus": "sata", "fourk_read_us": 9000.0, "disk_4k_p95_us": 18000.0},
+  "gpus": [{"card": "card0", "vendor": "0x10de", "device": "0x1f15", "driver": "nvidia", "boot_vga": true, "vram_mb": 6144,
+            "renderer": "NVIDIA GeForce RTX 2060/PCIe/SSE2", "gl_version": "4.6.0 NVIDIA", "vulkan": true,
+            "software": false, "class": "strong"}],
+  "display": {"outputs": 1, "connected": true, "max_width": 1920, "max_height": 1080, "total_pixels": 2073600, "scale": 1.0, "connectors": [{"connector": "card0-HDMI-A-1", "width": 1920, "height": 1080}]},
+  "thermal": {"ac_online": true, "battery": false, "max_temp_c": 55.0, "headroom_c": 40.0},
+  "platform": {"arch": "x86_64", "kernel": "7.3.0-rc7-t2-ncz", "dmi_product": "Desktop", "hostname": "hdd-desktop"},
+  "calibration": {"cpu_single_mibs": 800.0, "cpu_multi_mibs": 6400.0, "cpu_threads": 8, "gpu_ms": 2.0, "gpu_measured": true, "gpu_error": null, "gpu_renderer": "NVIDIA GeForce RTX 2060/PCIe/SSE2"}
+}

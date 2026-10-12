@@ -1,0 +1,13 @@
+{
+  "note": "Software-renderer VM (llvmpipe): the CPU is fine but a software GL must cap the tier at T1.",
+  "cpu": {"model": "Intel(R) Xeon(R) Gold 6248", "cores": 8, "threads": 16, "max_mhz": 2500, "microarch": "skylake", "arch": "x86_64"},
+  "mem": {"total_mb": 16384, "available_mb": 15000},
+  "storage": {"root_dev": "/dev/vda1", "root_mount": "/", "block": "vda", "rotational": false, "bus": "unknown", "fourk_read_us": 300.0},
+  "gpus": [{"card": "card0", "vendor": "0x1234", "device": "0x1111", "driver": "virtio_gpu", "boot_vga": true, "vram_mb": null,
+            "renderer": "llvmpipe (LLVM 21.1.8, 256 bits)", "gl_version": "4.5 (Core Profile) Mesa 26.1.6-1",
+            "vulkan": true, "software": true, "class": "software"}],
+  "display": {"outputs": 1, "connected": true, "max_width": 1920, "max_height": 1080, "total_pixels": 2073600, "scale": 1.0, "connectors": [{"connector": "card0-Virtual-1", "width": 1920, "height": 1080}]},
+  "thermal": {"ac_online": true, "battery": false, "max_temp_c": 45.0, "headroom_c": 50.0},
+  "platform": {"arch": "x86_64", "kernel": "7.3.0-rc7-t2-ncz", "dmi_product": "KVM", "hostname": "kvm-guest"},
+  "calibration": {"cpu_single_mibs": 600.0, "cpu_multi_mibs": 6000.0, "cpu_threads": 16, "gpu_ms": 40.0, "gpu_measured": true, "gpu_error": null, "gpu_renderer": "llvmpipe (LLVM 21.1.8, 256 bits)"}
+}

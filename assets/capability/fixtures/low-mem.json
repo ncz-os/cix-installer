@@ -1,0 +1,13 @@
+{
+  "note": "2 GB RAM netbook: the memory cap is the point; everything else is weak too.",
+  "cpu": {"model": "Intel(R) Atom(TM) CPU N450 @ 1.66GHz", "cores": 1, "threads": 2, "max_mhz": 1660, "microarch": "unknown", "arch": "x86_64"},
+  "mem": {"total_mb": 2000, "available_mb": 900},
+  "storage": {"root_dev": "/dev/mmcblk0p2", "root_mount": "/", "block": "mmcblk0", "rotational": false, "bus": "usb", "fourk_read_us": 2500.0},
+  "gpus": [{"card": "card0", "vendor": "0x8086", "device": "0xa011", "driver": "i915", "boot_vga": true, "vram_mb": null,
+            "renderer": "Mesa Intel(R) Graphics Media Accelerator 3150", "gl_version": "2.1 Mesa 26.1.6-1",
+            "vulkan": false, "software": false, "class": "weak"}],
+  "display": {"outputs": 1, "connected": true, "max_width": 1024, "max_height": 600, "total_pixels": 614400, "scale": 1.0, "connectors": [{"connector": "card0-LVDS-1", "width": 1024, "height": 600}]},
+  "thermal": {"ac_online": true, "battery": true, "max_temp_c": 50.0, "headroom_c": 45.0},
+  "platform": {"arch": "x86_64", "kernel": "7.3.0-rc7-t2-ncz", "dmi_product": "Netbook", "hostname": "tiny"},
+  "calibration": {"cpu_single_mibs": 90.0, "cpu_multi_mibs": 130.0, "cpu_threads": 2, "gpu_ms": 45.0, "gpu_measured": true, "gpu_error": null, "gpu_renderer": "Mesa Intel(R) Graphics Media Accelerator 3150"}
+}

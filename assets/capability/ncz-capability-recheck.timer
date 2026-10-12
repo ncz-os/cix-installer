@@ -1,0 +1,17 @@
+[Unit]
+Description=NCZ capability: periodic hardware-change check (backstop for hotplug)
+Documentation=file:///usr/share/doc/ncz-capability/CAPABILITY-TIERS.md
+
+[Timer]
+# The udev rule starts the service immediately when a DRM device appears; this
+# timer is the backstop for changes udev does not announce (RAM, CPU, disk swap
+# while powered off).  It runs once ~5 minutes after boot and then at most once
+# a day, so it never wakes a busy machine for its own sake.
+OnBootSec=300
+OnUnitInactiveSec=1d
+RandomizedDelaySec=120
+Persistent=false
+Unit=ncz-capability-recheck.service
+
+[Install]
+WantedBy=timers.target

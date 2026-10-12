@@ -1,0 +1,16 @@
+{
+  "note": "CHIMERA .6 -- MacBookPro16,1 i9-9980HK + Radeon 5500M, NVMe, 32 GB. Expected T3.",
+  "cpu": {"model": "Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz", "cores": 8, "threads": 16, "max_mhz": 2400, "microarch": "coffeelake", "arch": "x86_64"},
+  "mem": {"total_mb": 32768, "available_mb": 30000},
+  "storage": {"root_dev": "/dev/nvme0n1p5", "root_mount": "/", "block": "nvme0n1", "rotational": false, "bus": "nvme", "fourk_read_us": 200.0, "disk_4k_p95_us": 500.0},
+  "gpus": [{"card": "card0", "vendor": "0x8086", "device": "0x3e9b", "driver": "i915", "boot_vga": true,
+            "vram_mb": null, "renderer": "Mesa Intel(R) UHD Graphics 630 (CFL GT2)", "gl_version": "4.6 Mesa 26.1.6-1",
+            "vulkan": true, "software": false, "class": "weak"},
+           {"card": "card1", "vendor": "0x1002", "device": "0x7340", "driver": "amdgpu", "boot_vga": false,
+            "vram_mb": 4096, "renderer": "AMD Radeon RX 5500M (radeonsi, navi14)", "gl_version": "4.6 Mesa 26.1.6-1",
+            "vulkan": true, "software": false, "class": "strong"}],
+  "display": {"outputs": 1, "connected": true, "max_width": 1920, "max_height": 1200, "total_pixels": 2304000, "scale": 2.0, "connectors": [{"connector": "card0-eDP-1", "width": 1920, "height": 1200}]},
+  "thermal": {"ac_online": true, "battery": true, "max_temp_c": 62.0, "headroom_c": 33.0},
+  "platform": {"arch": "x86_64", "kernel": "7.3.0-rc7-t2-ncz", "dmi_product": "MacBookPro16,1", "hostname": "ncz-azmidi-8940"},
+  "calibration": {"cpu_single_mibs": 620.0, "cpu_multi_mibs": 8200.0, "cpu_threads": 16, "gpu_ms": 3.5, "gpu_measured": true, "gpu_error": null, "gpu_renderer": "AMD Radeon RX 5500M (radeonsi, navi14)"}
+}

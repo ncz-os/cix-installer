@@ -1,0 +1,4 @@
+# Re-profile when the display GPU appears or changes (eGPU, dGPU power-on).
+# Tag the device and let systemd start the oneshot; no RUN+= program, so udev
+# never blocks on the calibration (same non-blocking pattern as 43-hw-quirks.sh).
+ACTION=="add", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="ncz-capability-recheck.service"

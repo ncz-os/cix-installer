@@ -1,0 +1,16 @@
+{
+  "note": "PEGASUS .85 -- ASUS ROG GU502LV, i7 + RTX 2060, NVMe, expected T3.",
+  "cpu": {"model": "Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz", "cores": 6, "threads": 12, "max_mhz": 2600, "microarch": "coffeelake", "arch": "x86_64"},
+  "mem": {"total_mb": 32768, "available_mb": 30000},
+  "storage": {"root_dev": "/dev/nvme0n1p2", "root_mount": "/", "block": "nvme0n1", "rotational": false, "bus": "nvme", "fourk_read_us": 180.0, "disk_4k_p95_us": 450.0},
+  "gpus": [{"card": "card0", "vendor": "0x8086", "device": "0x9bc4", "driver": "i915", "boot_vga": true,
+            "vram_mb": null, "renderer": "Mesa Intel(R) UHD Graphics (CML GT2)", "gl_version": "4.6 Mesa 26.1.6-1",
+            "vulkan": true, "software": false, "class": "weak"},
+           {"card": "card1", "vendor": "0x10de", "device": "0x1f15", "driver": "nvidia", "boot_vga": false,
+            "vram_mb": 6144, "renderer": "NVIDIA GeForce RTX 2060/PCIe/SSE2", "gl_version": "4.6.0 NVIDIA",
+            "vulkan": true, "software": false, "class": "strong"}],
+  "display": {"outputs": 1, "connected": true, "max_width": 3840, "max_height": 1080, "total_pixels": 4147200, "scale": 1.0, "connectors": [{"connector": "card0-eDP-1", "width": 3840, "height": 1080}]},
+  "thermal": {"ac_online": true, "battery": true, "max_temp_c": 60.0, "headroom_c": 35.0},
+  "platform": {"arch": "x86_64", "kernel": "7.3.0-rc7-t2-ncz", "dmi_product": "ROG Zephyrus M15 GU502LV", "hostname": "ncz-rotanev-3605"},
+  "calibration": {"cpu_single_mibs": 700.0, "cpu_multi_mibs": 7000.0, "cpu_threads": 12, "gpu_ms": 2.2, "gpu_measured": true, "gpu_error": null, "gpu_renderer": "NVIDIA GeForce RTX 2060/PCIe/SSE2"}
+}

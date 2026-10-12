@@ -1,0 +1,16 @@
+{
+  "note": "O6N .3 -- CIX Sky1 P1, 12 cores, Mali-G720, NVMe, 48 GB, 4K panel. arm64: record the score only (no behaviour change).",
+  "cpu": {"model": "CIX P1 CD8180", "cores": 12, "threads": 12, "max_mhz": 2600, "microarch": "unknown", "arch": "aarch64"},
+  "mem": {"total_mb": 47916, "available_mb": 40000},
+  "storage": {"root_dev": "/dev/nvme0n1p3", "root_mount": "/", "block": "nvme0n1", "rotational": false, "bus": "nvme", "fourk_read_us": 45.0, "disk_4k_p95_us": 120.0},
+  "gpus": [{"card": "card0", "vendor": "", "device": "", "driver": "linlondp", "boot_vga": true, "vram_mb": null,
+            "renderer": "Mali-G720-Immortalis", "gl_version": "OpenGL ES 3.2 v1.r53p0", "vulkan": true,
+            "software": false, "class": "mid"},
+           {"card": "mali0", "vendor": "0x13b5", "device": "mali", "driver": "mali_kbase", "boot_vga": true, "vram_mb": null,
+            "renderer": "Mali-G720-Immortalis", "gl_version": "OpenGL ES 3.2 v1.r53p0", "vulkan": true,
+            "software": false, "class": "mid"}],
+  "display": {"outputs": 1, "connected": true, "max_width": 3840, "max_height": 2160, "total_pixels": 8294400, "scale": 1.0, "connectors": [{"connector": "card0-DP-1", "width": 3840, "height": 2160}]},
+  "thermal": {"ac_online": true, "battery": false, "max_temp_c": 60.0, "headroom_c": 35.0},
+  "platform": {"arch": "aarch64", "kernel": "7.3.0-rc6-sky1-ncz", "dmi_product": "Radxa Orion O6N", "hostname": "ncz-beemim-4060"},
+  "calibration": {"cpu_single_mibs": 1811.0, "cpu_multi_mibs": 16500.0, "cpu_threads": 12, "gpu_ms": 2.1, "gpu_measured": true, "gpu_error": null, "gpu_renderer": "Mali-G720-Immortalis"}
+}

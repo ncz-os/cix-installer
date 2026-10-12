@@ -1,0 +1,13 @@
+{
+  "note": "CYCLOPS .89 -- Macmini5,1 (2011) i5-2415M Sandy Bridge, HD3000, SSD root, 16 GB. Operator: subjectively SMOOTH; effects must stay ON.",
+  "cpu": {"model": "Intel(R) Core(TM) i5-2415M CPU @ 2.30GHz", "cores": 2, "threads": 4, "max_mhz": 2300, "microarch": "sandybridge", "arch": "x86_64"},
+  "mem": {"total_mb": 16118, "available_mb": 14500},
+  "storage": {"root_dev": "/dev/sdb2", "root_mount": "/", "block": "sdb", "rotational": false, "bus": "sata", "fourk_read_us": 320.0, "disk_4k_p95_us": 900.0},
+  "gpus": [{"card": "card0", "vendor": "0x8086", "device": "0x0126", "driver": "i915", "boot_vga": true,
+            "vram_mb": null, "renderer": "Mesa Intel(R) HD Graphics 3000 (SNB GT2)", "gl_version": "4.2 (Core Profile) Mesa 26.1.6-1",
+            "vulkan": true, "software": false, "class": "weak"}],
+  "display": {"outputs": 1, "connected": true, "max_width": 1600, "max_height": 900, "total_pixels": 1440000, "scale": 1.0, "connectors": [{"connector": "card0-HDMI-A-1", "width": 1600, "height": 900}]},
+  "thermal": {"ac_online": true, "battery": false, "max_temp_c": 58.0, "headroom_c": 37.0},
+  "platform": {"arch": "x86_64", "kernel": "7.3.0-rc7-t2-ncz", "dmi_product": "Macmini5,1", "hostname": "ncz-elnath-6067"},
+  "calibration": {"cpu_single_mibs": 190.0, "cpu_multi_mibs": 700.0, "cpu_threads": 4, "gpu_ms": 14.0, "gpu_measured": true, "gpu_error": null, "gpu_renderer": "Mesa Intel(R) HD Graphics 3000 (SNB GT2)"}
+}

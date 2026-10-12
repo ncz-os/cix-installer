@@ -1,0 +1,13 @@
+{
+  "note": ".70 -- Dell Inspiron 5521 (2013) i7-3537U Ivy Bridge, HD4000, Crucial SSD, 16 GB. amd64 weak-GPU reference host.",
+  "cpu": {"model": "Intel(R) Core(TM) i7-3537U CPU @ 2.00GHz", "cores": 2, "threads": 4, "max_mhz": 2000, "microarch": "ivybridge", "arch": "x86_64"},
+  "mem": {"total_mb": 15864, "available_mb": 14739},
+  "storage": {"root_dev": "/dev/sda3", "root_mount": "/", "block": "sda", "rotational": false, "bus": "sata", "fourk_read_us": 300.0, "disk_4k_p95_us": 700.0},
+  "gpus": [{"card": "card0", "vendor": "0x8086", "device": "0x0166", "driver": "i915", "boot_vga": true,
+            "vram_mb": null, "renderer": "Mesa Intel(R) HD Graphics 4000 (IVB GT2)", "gl_version": "4.2 (Core Profile) Mesa 26.1.6-1",
+            "vulkan": true, "software": false, "class": "weak"}],
+  "display": {"outputs": 1, "connected": true, "max_width": 1920, "max_height": 1080, "total_pixels": 2073600, "scale": 1.0, "connectors": [{"connector": "card0-LVDS-1", "width": 1920, "height": 1080}]},
+  "thermal": {"ac_online": true, "battery": true, "max_temp_c": 55.0, "headroom_c": 40.0},
+  "platform": {"arch": "x86_64", "kernel": "7.3.0-rc7-t2-ncz", "dmi_product": "Inspiron 5521", "hostname": "ncz-biham-1109"},
+  "calibration": {"cpu_single_mibs": 250.0, "cpu_multi_mibs": 950.0, "cpu_threads": 4, "gpu_ms": 11.0, "gpu_measured": true, "gpu_error": null, "gpu_renderer": "Mesa Intel(R) HD Graphics 4000 (IVB GT2)"}
+}

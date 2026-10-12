@@ -126,12 +126,22 @@ if [ -z "$card" ]; then
 fi
 echo "boot-splash: using connected DRM device $card"
 set +e
+# Capability tier (operator 2026-10-12): a T0/T1 machine gets no splash or a
+# short one, by DEFAULT only.  ncz-capability writes CAPABILITY_SPLASH=off|lite|
+# full to /etc/ncz/capability/features.env; the unit stays enabled, so a user can
+# override by editing that file (or `ncz-capability apply --tier T3`).
+_CAP_SPLASH=$(sed -n 's/^CAPABILITY_SPLASH=//p' /etc/ncz/capability/features.env 2>/dev/null | head -1)
+case "${_CAP_SPLASH:-full}" in
+    off)  echo "boot-splash: disabled by capability tier (CAPABILITY_SPLASH=off)"; exit 0 ;;
+    lite) _CAP_MAXLIFE=8;  _CAP_WAIT=1 ;;
+    *)    _CAP_MAXLIFE=20; _CAP_WAIT=2 ;;
+esac
 # The splash paints from this point, owns DRM master and exits immediately when
 # the greeter-ready marker appears (written by the greeter wrapper just before
 # labwc takes over). Keep a safety cap for headless/failed-greeter boots, but
 # never use the cap as normal timing.
-timeout --kill-after=2s 22s "$BSP" --device "$card" --wait-seconds 2 --handoff 0.4 \
-    --max-life 20 --greeter-ready /run/singularity/greeter-ready
+timeout --kill-after=2s "$((_CAP_MAXLIFE + 2))s" "$BSP" --device "$card" --wait-seconds "$_CAP_WAIT" --handoff 0.4 \
+    --max-life "$_CAP_MAXLIFE" --greeter-ready /run/singularity/greeter-ready
 rc=$?
 set -e
 # rc=1 (could not open/own DRM), 124 (timeout cap) and 137 (kill-after) are all

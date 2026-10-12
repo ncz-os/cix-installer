@@ -1,0 +1,1666 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+"""ncz-capability -- NCZ-OS hardware capability profiler, ranker and default selector.
+
+One small, dependency-free tool that answers the operator's question
+(2026-10-12): "hardware profile these machines and have an algorithm that ranks
+systems by capability and only enables what they can healthily do by default."
+
+It has three jobs:
+
+  1. PROBE   collect the hardware facts (CPU, RAM, storage, GPUs, display,
+             thermal/AC) and run a SHORT (<10 s) calibration: an offscreen GL
+             fill+shader microbench, a CPU single/multi-thread microbench and a
+             4k disk read-latency test.  Writes /etc/ncz/capability.json and a
+             human summary on stdout.
+  2. SCORE   turn the facts into per-subsystem subscores (0..100) and one tier
+             (T0..T3) with a documented, deterministic function and explicit
+             min-of-subsystem caps (a software renderer or a spinning disk caps
+             the tier no matter how fast the CPU is).
+  3. APPLY   write the tier's DEFAULTS (compositor effects, screensaver
+             resolution/eligible set/fps, thermal governor trip points, boot
+             splash mode, first-login tour, background indexer).  Defaults only:
+             a user `gsettings set` still wins, and /etc/ncz/capability.override
+             wins over the measured tier.
+
+Tiers (names are free, the numbers are the contract):
+  T0 minimal   T1 low   T2 mid   T3 high
+
+Design: docs/CAPABILITY-TIERS.md.  Scoring is a pure function of the facts so it
+is unit-testable (assets/capability/tests/test_capability.py) and the fleet
+fixtures (assets/capability/fixtures/*.json) pin the tiers we validated on real
+hardware.
+
+Nothing here is destructive: apply only writes default files (a GSettings
+override next to the installed schema, an /etc/environment.d file, a feature
+file) and never touches a user's dconf values, never uninstalls and never masks
+a unit for any tier above T0 (see the doc for the T0-only, reversible service
+defaults).  Standard library only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+import ctypes.util
+import errno
+import glob
+import hashlib
+import json
+import os
+import platform as _platform
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+VERSION = 1
+DEFAULT_JSON = "/etc/ncz/capability.json"
+DEFAULT_ENV_FILE = "/etc/environment.d/60-ncz-capability.conf"
+DEFAULT_FEATURE_ENV = "/etc/ncz/capability/features.env"
+GLOBAL_OVERRIDE = "/etc/ncz/capability.override"
+TIERS = ("T0", "T1", "T2", "T3")
+TIER_INDEX = {t: i for i, t in enumerate(TIERS)}
+
+# ---------------------------------------------------------------------------
+# Scoring constants.  Every number here is documented in docs/CAPABILITY-TIERS.md
+# and can be overridden by the fleet fixtures.  A metric is mapped to a 0..100
+# "rung" by piecewise-linear interpolation between the anchors below.
+# ---------------------------------------------------------------------------
+
+WEIGHTS = {
+    "cpu": 30,
+    "gpu": 30,
+    "mem": 10,
+    "storage": 15,
+    "display": 8,
+    "thermal": 7,
+}
+
+# score -> tier: T3 >= 72, T2 >= 48, T1 >= 24, else T0.
+TIER_THRESHOLDS = (("T3", 72.0), ("T2", 48.0), ("T1", 24.0), ("T0", 0.0))
+
+# Single-thread CPU bench (MiB/s of SHA-256 hashing, C-level, stable across
+# Python minor versions).  Sandy Bridge i5 ~ 180, Ivy i7 ~ 300, modern ~ 700+.
+CPU_SINGLE_ANCHORS = [(100.0, 0.0), (180.0, 20.0), (320.0, 45.0), (550.0, 70.0), (900.0, 100.0)]
+# Multi-thread rate as a multiple of the single rate (near 1.0 = single core).
+CPU_SCALE_ANCHORS = [(0.9, 0.0), (1.5, 35.0), (2.5, 60.0), (4.0, 85.0), (7.0, 100.0)]
+# GPU microbench: milliseconds per 1280x720 frame (lower is better).  Anchors
+# mirror the launcher's class thresholds (<=8 ms strong, <=20 ms mid).
+GPU_MS_ANCHORS = [(2.0, 100.0), (5.0, 88.0), (8.0, 75.0), (12.0, 60.0), (20.0, 42.0), (30.0, 26.0), (50.0, 12.0), (80.0, 3.0), (200.0, 0.0)]
+# Static GPU prior when the microbench cannot run (renderer class -> score).
+GPU_CLASS_SCORE = {"strong": 72.0, "mid": 55.0, "weak": 34.0, "software": 2.0, "unknown": 45.0}
+MEM_ANCHORS = [(1024.0, 0.0), (2048.0, 12.0), (4096.0, 28.0), (8192.0, 55.0), (16384.0, 78.0), (32768.0, 100.0)]
+# 4k random read latency in microseconds (lower is better).
+DISK_US_ANCHORS = [(150.0, 100.0), (400.0, 90.0), (900.0, 72.0), (2000.0, 52.0), (5000.0, 30.0), (12000.0, 12.0), (25000.0, 0.0)]
+# Total lit pixels (lower is a lighter compositor load = more headroom).
+DISPLAY_PIX_ANCHORS = [(900000.0, 100.0), (1440000.0, 92.0), (2073600.0, 84.0), (3686400.0, 66.0), (6144000.0, 48.0), (8847360.0, 34.0), (12000000.0, 22.0)]
+# Thermal headroom above ambient before the throttle point, in degrees C.
+THERMAL_ANCHORS = [(-5.0, 0.0), (0.0, 25.0), (12.0, 55.0), (25.0, 80.0), (45.0, 100.0)]
+
+# Hard caps from a weak subsystem (min-of-subsystem gating).
+CAP_SOFTWARE_TIER = "T1"
+CAP_SLOW_DISK_TIER = "T1"          # rotational or 4k read >= 4000 us
+CAP_SLOW_GPU_TIER = "T1"           # measured >= 50 ms/frame
+CAP_LOW_MEM_TIER = "T1"            # < 3072 MiB
+CAP_TINY_MEM_TIER = "T0"           # < 1536 MiB
+SLOW_DISK_US = 4000.0
+SLOW_GPU_MS = 50.0
+
+SOFTWARE_RE = re.compile(r"llvmpipe|softpipe|swrast|lavapipe|software rasterizer|swiftshader|zink", re.I)
+
+# Renderer fallback table, a port of ncz-screensavers' ncz_gpu_class().  First
+# match wins.  Used only when the microbench cannot run.
+_GPU_RENDERER_RULES = [
+    (r"mali-g[67]\d\d|immortalis|mali-g5[123]\d", "mid"),
+    (r"mali-t|mali-4\d\d|mali-g3\d", "weak"),
+    (r"adreno \(tm\) [67]\d\d|adreno 6\d\d|adreno 7\d\d", "mid"),
+    (r"adreno [345]", "weak"),
+    (r"intel.*arc.*a[57]\d\d", "strong"),
+    (r"intel.*iris xe|intel.*rtx|xe graphics", "strong"),
+    (r"iris", "mid"),
+    (r"intel.*uhd|intel.*hd graphics|mesa intel", "weak"),
+    (r"geforce|quadro|rtx|nvidia", "strong"),
+    (r"radeon|amd.*(rx|vega|navi)|gfx\d", "strong"),
+    (r"apple m\d|apple gpu", "strong"),
+]
+
+
+def rung(x, anchors):
+    """Piecewise-linear map of x onto 0..100 through ascending (value, score) anchors."""
+    if x is None:
+        return None
+    if x <= anchors[0][0]:
+        return anchors[0][1]
+    for (v0, s0), (v1, s1) in zip(anchors, anchors[1:]):
+        if x <= v1:
+            return s0 + (s1 - s0) * (x - v0) / (v1 - v0)
+    return anchors[-1][1]
+
+
+def classify_renderer(renderer):
+    """Renderer string -> strong|mid|weak|software|unknown (fallback only)."""
+    if not renderer:
+        return "unknown"
+    if SOFTWARE_RE.search(renderer):
+        return "software"
+    low = renderer.lower()
+    for pat, cls in _GPU_RENDERER_RULES:
+        if re.search(pat, low):
+            return cls
+    return "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Fact collection
+# ---------------------------------------------------------------------------
+
+def P(root, *parts):
+    """Join sysroot-relative paths so `root=""` means the real filesystem.
+
+    os.path.join("", "proc/cpuinfo") is the RELATIVE path "proc/cpuinfo", which
+    silently resolves against the caller's cwd.  Every probe path goes through
+    here so an empty root still yields the absolute path.
+    """
+    p = os.path.join(*parts).lstrip("/")
+    return (root.rstrip("/") + "/" + p) if root else "/" + p
+
+
+def read_text(path, default=""):
+    try:
+        with open(path, "r", errors="replace") as fh:
+            return fh.read().strip()
+    except OSError:
+        return default
+
+
+def read_int(path, default=0):
+    try:
+        return int(read_text(path).split()[0])
+    except (OSError, ValueError, IndexError):
+        return default
+
+
+def run(cmd, timeout=20):
+    """Run a command, return (rc, stdout). Never raises."""
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           timeout=timeout)
+        return p.returncode, p.stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.SubprocessError):
+        return 127, ""
+
+
+def cpu_info(root=""):
+    txt = read_text(P(root, "proc/cpuinfo"))
+    model = ""
+    m = re.search(r"^(?:model name|Model)\s*:\s*(.+)$", txt, re.M)
+    if m:
+        model = m.group(1).strip()
+    if not model:
+        m = re.search(r"^Hardware\s*:\s*(.+)$", txt, re.M)
+        if m:
+            model = m.group(1).strip()
+    cores = 0
+    for name in glob.glob(P(root, "sys/devices/system/cpu/cpu[0-9]*/topology/thread_siblings_list")):
+        try:
+            cores = max(cores, len(open(name).read().strip().split(",")))
+        except OSError:
+            pass
+    # physical cores = unique core_id * package
+    core_ids = set()
+    for base in glob.glob(P(root, "sys/devices/system/cpu/cpu[0-9]*/topology")):
+        core_ids.add((read_text(os.path.join(base, "physical_package_id")),
+                      read_text(os.path.join(base, "core_id"))))
+    phys = len([c for c in core_ids if c != ("", "")]) or 0
+    threads = len(glob.glob(P(root, "sys/devices/system/cpu/cpu[0-9]*")))
+    max_mhz = 0
+    for f in ("cpufreq/cpuinfo_max_freq", "cpufreq/scaling_max_freq"):
+        for p in glob.glob(P(root, "sys/devices/system/cpu/cpu[0-9]*", f)):
+            max_mhz = max(max_mhz, read_int(p) // 1000)
+    if not max_mhz:
+        # x86: cpu MHz in cpuinfo is the current clock, not the max; use the
+        # model-number table only as a coarse fallback (kept tiny on purpose).
+        m = re.search(r"@\s*([0-9.]+)\s*GHz", model)
+        if m:
+            max_mhz = int(float(m.group(1)) * 1000)
+    return {
+        "model": model or "unknown",
+        "cores": phys or cores or threads or 1,
+        "threads": threads or 1,
+        "max_mhz": max_mhz,
+        "microarch": microarch(model),
+        "arch": _platform.machine(),
+    }
+
+
+def microarch(model):
+    """Coarse x86/arm microarchitecture label (informational, not weighted)."""
+    m = model.lower()
+    for name, pat in (
+        ("sandybridge", r"i[357]-\d{4}m?\b|sandy bridge"),
+        ("ivybridge", r"i[357]-\d{4}u|i[357]-\d{4}qm|ivy bridge"),
+        ("haswell", r"i[357]-\d{4}(h|mq|hq)|haswell"),
+        ("skylake", r"i[357]-\d{4}(u|hq|h)\b.*(6|7)\d{3}|skylake"),
+        ("coffeelake", r"i[357]-\d{4}\d|coffee lake"),
+        ("tigerlake", r"i[357]-1\d{3}g|tiger lake"),
+        ("alderlake", r"i[357]-12\d{3}|alder lake"),
+        ("raptorlake", r"i[357]-13\d{3}|raptor"),
+        ("arrowlake", r"core ultra|arrow lake|arl"),
+    ):
+        if re.search(pat, m):
+            return name
+    return "unknown"
+
+
+def mem_info(root=""):
+    total = avail = 0
+    for line in read_text(P(root, "proc/meminfo")).splitlines():
+        if line.startswith("MemTotal:"):
+            total = read_int_str(line)
+        elif line.startswith("MemAvailable:"):
+            avail = read_int_str(line)
+    return {"total_mb": total, "available_mb": avail}
+
+
+def read_int_str(line):
+    parts = line.split()
+    if len(parts) >= 2 and parts[1].isdigit():
+        kb = int(parts[1])
+        return kb // 1024
+    return 0
+
+
+def _mount_lookup(root, path):
+    """Return (source_device, mountpoint) for the filesystem holding path."""
+    best = ("", "/")
+    rp = os.path.realpath(P(root, path.lstrip("/")))
+    try:
+        for line in read_text(P(root, "proc/mounts")).splitlines():
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            src, mnt = parts[0], parts[1]
+            if rp == mnt or rp.startswith(mnt.rstrip("/") + "/"):
+                if len(mnt) >= len(best[1]):
+                    best = (src, mnt)
+    except OSError:
+        pass
+    return best
+
+
+def _sys_block_for(root, dev):
+    if not dev.startswith("/dev/"):
+        return None
+    name = dev.split("/")[-1]
+    # resolve a partition to its parent block device
+    base = re.sub(r"\d+$", "", name).rstrip("p") if re.match(r"^[a-z]+\d", name) else name
+    for cand in (base, name):
+        if os.path.isdir(P(root, "sys/block", cand)):
+            return cand
+    return None
+
+
+def storage_info(root="", disk_us=None):
+    dev, mnt = _mount_lookup(root, "/")
+    blk = _sys_block_for(root, dev)
+    rotational = False
+    bus = "unknown"
+    if blk:
+        rotational = read_text(P(root, "sys/block", blk, "queue/rotational")) == "1"
+        if os.path.exists(P(root, "sys/block", blk, "device")) or True:
+            rp = os.path.realpath(P(root, "sys/block", blk))
+            if "/nvme" in rp:
+                bus = "nvme"
+            elif "usb" in rp.lower() or "usb" in os.path.realpath(P(root, "sys/block", blk, "device")).lower():
+                bus = "usb"
+            else:
+                bus = "sata"
+    return {"root_dev": dev or "unknown", "root_mount": mnt, "block": blk or "unknown",
+            "rotational": rotational, "bus": bus, "fourk_read_us": disk_us}
+
+
+def _drm_cards(root=""):
+    cards = []
+    for card in sorted(glob.glob(P(root, "sys/class/drm/card[0-9]*"))):
+        name = os.path.basename(card)
+        if "-" in name:
+            continue
+        dev = os.path.join(card, "device")
+        if not os.path.isdir(dev):
+            continue
+        driver = ""
+        try:
+            driver = os.path.basename(os.path.realpath(os.path.join(dev, "driver")))
+        except OSError:
+            pass
+        cards.append({
+            "card": name,
+            "vendor": read_text(os.path.join(dev, "vendor")),
+            "device": read_text(os.path.join(dev, "device")),
+            "driver": driver,
+            "boot_vga": read_text(os.path.join(dev, "boot_vga")) == "1",
+            "vram_mb": read_int(os.path.join(dev, "mem_info_vram_total")) // (1024 * 1024) or None,
+        })
+    return cards
+
+
+# ---------------------------------------------------------------------------
+# Calibration
+# ---------------------------------------------------------------------------
+
+def cpu_bench(seconds=1.2, threads=None):
+    """Single/multi-thread SHA-256 throughput in MiB/s (C-level, GIL released).
+
+    hashlib releases the GIL for buffers > 2047 bytes, so the multi-thread run
+    measures real core scaling rather than the interpreter lock.  Each worker
+    counts its own iterations until a shared deadline, so the result is
+    independent of Python minor-version loop speed.
+    """
+    import threading
+    buf = b"\xa5" * (1 << 20)
+
+    def worker(counts, idx, deadline):
+        h = hashlib.sha256()
+        n = 0
+        while time.perf_counter() < deadline:
+            h.update(buf)
+            n += 1
+        counts[idx] = n
+
+    # single thread
+    t0 = time.perf_counter()
+    one = [0]
+    worker(one, 0, t0 + seconds)
+    single = one[0] / max(time.perf_counter() - t0, 1e-6)
+
+    nthreads = threads or (os.cpu_count() or 1)
+    nthreads = max(1, min(nthreads, 32))
+    counts = [0] * nthreads
+    deadline = time.perf_counter() + seconds
+    ths = [threading.Thread(target=worker, args=(counts, i, deadline)) for i in range(nthreads)]
+    t0 = time.perf_counter()
+    for th in ths:
+        th.start()
+    for th in ths:
+        th.join()
+    dt = max(time.perf_counter() - t0, 1e-6)
+    multi = sum(counts) / dt
+    return {"cpu_single_mibs": round(single, 1), "cpu_multi_mibs": round(multi, 1),
+            "cpu_threads": nthreads}
+
+
+def disk_bench(root="", seconds=2.0, workdir=None):
+    """4k random-read latency (median microseconds) on the root filesystem.
+
+    Writes a scratch file (never /tmp unless that is the root fs), drops page
+    cache when it can (root), then reads 4k blocks at random offsets.  Returns
+    median p50 plus p95 as a robustness signal.
+    """
+    target_dir = workdir
+    if not target_dir:
+        # Prefer a writable dir on the SAME filesystem as root so the latency is
+        # the root disk's.  /var/tmp then /var/lib then HOME.  Never /tmp (rule).
+        for cand in (P(root, "var/tmp"), P(root, "var/lib"), P(root, "home"), os.path.expanduser("~")):
+            if cand and os.path.isdir(cand) and os.access(cand, os.W_OK):
+                target_dir = cand
+                break
+    if not target_dir or not os.path.isdir(target_dir):
+        target_dir = root or "."
+    path = None
+    try:
+        fd, path = tempfile.mkstemp(prefix=".ncz-cap-disk-", dir=target_dir)
+        size = 64 * 1024 * 1024
+        # Write every extent (not ftruncate): a sparse file reads as fast zeros
+        # and would score a spinning disk like an NVMe.
+        chunk = b"\xa5" * (1 << 20)
+        written = 0
+        while written < size:
+            os.write(fd, chunk)
+            written += len(chunk)
+        os.fsync(fd)
+        os.close(fd)
+        # best-effort cold cache: fadvise works unprivileged for our own file;
+        # drop_caches is the root fallback for the first-boot service.
+        try:
+            rfd = os.open(path, os.O_RDONLY)
+            os.posix_fadvise(rfd, 0, 0, os.POSIX_FADV_DONTNEED)
+            os.close(rfd)
+        except (AttributeError, OSError):
+            try:
+                with open(P(root, "proc/sys/vm/drop_caches"), "w") as fh:
+                    fh.write("3\n")
+            except OSError:
+                pass
+        samples = []
+        rfd = os.open(path, os.O_RDONLY)
+        try:
+            nblocks = size // 4096
+            rnd = __import__("random").Random(20261012)
+            t_end = time.perf_counter() + seconds
+            while time.perf_counter() < t_end and len(samples) < 8000:
+                off = rnd.randrange(nblocks) * 4096
+                t0 = time.perf_counter()
+                os.pread(rfd, 4096, off)
+                samples.append((time.perf_counter() - t0) * 1e6)
+        finally:
+            os.close(rfd)
+        if not samples:
+            return None
+        samples.sort()
+        return {"disk_4k_us": round(samples[len(samples) // 2], 1),
+                "disk_4k_p95_us": round(samples[int(len(samples) * 0.95)], 1),
+                "disk_samples": len(samples)}
+    except OSError:
+        return None
+    finally:
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
+# --- offscreen GL microbench (ctypes, no non-stdlib deps) ------------------
+
+def _load_gl():
+    egl = ctypes.util.find_library("EGL") or "libEGL.so.1"
+    gles = ctypes.util.find_library("GLESv2") or "libGLESv2.so.2"
+    gbm = ctypes.util.find_library("gbm") or "libgbm.so.1"
+    try:
+        libegl = ctypes.CDLL(egl)
+        libgles = ctypes.CDLL(gles)
+    except OSError:
+        return None
+    libgbm = None
+    try:
+        libgbm = ctypes.CDLL(gbm)
+    except OSError:
+        pass
+    return libegl, libgles, libgbm
+
+
+GL_VENDOR, GL_RENDERER, GL_VERSION = 0x1F00, 0x1F01, 0x1F02
+EGL_DEFAULT_DISPLAY = ctypes.c_void_p(0)
+EGL_NO_CONTEXT = ctypes.c_void_p(0)
+EGL_PLATFORM_GBM_KHR = 0x31D7
+EGL_PLATFORM_SURFACELESS_MESA = 0x31DD
+EGL_OPENGL_ES_API = 0x30A0
+EGL_PBUFFER_BIT = 0x0001
+EGL_OPENGL_ES3_BIT = 0x40
+EGL_NONE = 0x3038
+
+
+def _gl_bench_on(libegl, libgles, display, tag):
+    """Create a pbuffer GLES3 context on `display` and time a fill+shader frame.
+
+    Returns (renderer, version, ms, err).  Any failure returns err and None ms.
+    """
+    EGLint = ctypes.c_int
+    lE = libegl
+    lG = libgles
+
+    def proto(name, restype, argtypes):
+        fn = getattr(lE, name, None)
+        if fn is None:
+            return None
+        fn.restype = restype
+        fn.argtypes = argtypes
+        return fn
+
+    eglInitialize = proto("eglInitialize", ctypes.c_uint, [ctypes.c_void_p, ctypes.POINTER(EGLint), ctypes.POINTER(EGLint)])
+    eglBindAPI = proto("eglBindAPI", ctypes.c_uint, [ctypes.c_uint])
+    eglChooseConfig = proto("eglChooseConfig", ctypes.c_uint, [ctypes.c_void_p, ctypes.POINTER(EGLint), ctypes.POINTER(ctypes.c_void_p), EGLint, ctypes.POINTER(EGLint)])
+    eglCreatePbufferSurface = proto("eglCreatePbufferSurface", ctypes.c_void_p, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(EGLint)])
+    eglCreateContext = proto("eglCreateContext", ctypes.c_void_p, [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(EGLint)])
+    eglMakeCurrent = proto("eglMakeCurrent", ctypes.c_uint, [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p])
+    eglDestroyContext = proto("eglDestroyContext", ctypes.c_uint, [ctypes.c_void_p, ctypes.c_void_p])
+    eglDestroySurface = proto("eglDestroySurface", ctypes.c_uint, [ctypes.c_void_p, ctypes.c_void_p])
+    eglTerminate = proto("eglTerminate", ctypes.c_uint, [ctypes.c_void_p])
+    if not (eglInitialize and eglChooseConfig and eglCreatePbufferSurface and
+            eglCreateContext and eglMakeCurrent):
+        return None, None, None, "libEGL is missing required entry points"
+
+    major, minor = EGLint(0), EGLint(0)
+    if not eglInitialize(display, ctypes.byref(major), ctypes.byref(minor)):
+        return None, None, None, "eglInitialize failed"
+    if eglBindAPI:
+        eglBindAPI(EGL_OPENGL_ES_API)
+    cfg_attr = (EGLint * 17)(
+        0x3033, EGL_PBUFFER_BIT,       # EGL_SURFACE_TYPE
+        0x3040, EGL_OPENGL_ES3_BIT,    # EGL_RENDERABLE_TYPE
+        0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3021, 8,   # RGBA
+        0x3025, 0,                     # EGL_DEPTH_SIZE
+        0x3038,
+    )
+    cfg = ctypes.c_void_p(0)
+    ncfg = EGLint(0)
+    if not eglChooseConfig(display, cfg_attr, ctypes.byref(cfg), 1, ctypes.byref(ncfg)) or ncfg.value < 1:
+        eglTerminate(display)
+        return None, None, None, "eglChooseConfig found no ES3 pbuffer config"
+    W, H = 1280, 720
+    surf_attr = (EGLint * 5)(0x3057, W, 0x3056, H, EGL_NONE)
+    surface = eglCreatePbufferSurface(display, cfg, surf_attr)
+    if not surface:
+        eglTerminate(display)
+        return None, None, None, "eglCreatePbufferSurface failed"
+    ctx_attr = (EGLint * 3)(0x3098, 3, EGL_NONE)
+    ctx = eglCreateContext(display, cfg, EGL_NO_CONTEXT, ctx_attr)
+    if not ctx:
+        eglDestroySurface(display, surface)
+        eglTerminate(display)
+        return None, None, None, "eglCreateContext(ES3) failed"
+    if not eglMakeCurrent(display, surface, surface, ctx):
+        eglDestroyContext(display, ctx)
+        eglDestroySurface(display, surface)
+        eglTerminate(display)
+        return None, None, None, "eglMakeCurrent failed"
+
+    def glproto(name, restype, argtypes):
+        fn = getattr(lG, name, None)
+        if fn is not None:
+            fn.restype = restype
+            fn.argtypes = argtypes
+        return fn
+
+    glGetString = glproto("glGetString", ctypes.c_char_p, [ctypes.c_uint])
+    glCreateShader = glproto("glCreateShader", ctypes.c_uint, [ctypes.c_uint])
+    glShaderSource = glproto("glShaderSource", None, [ctypes.c_uint, ctypes.c_int, ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_int)])
+    glCompileShader = glproto("glCompileShader", None, [ctypes.c_uint])
+    glGetShaderiv = glproto("glGetShaderiv", None, [ctypes.c_uint, ctypes.c_uint, ctypes.POINTER(ctypes.c_int)])
+    glCreateProgram = glproto("glCreateProgram", ctypes.c_uint, [])
+    glAttachShader = glproto("glAttachShader", None, [ctypes.c_uint, ctypes.c_uint])
+    glLinkProgram = glproto("glLinkProgram", None, [ctypes.c_uint])
+    glGetProgramiv = glproto("glGetProgramiv", None, [ctypes.c_uint, ctypes.c_uint, ctypes.POINTER(ctypes.c_int)])
+    glUseProgram = glproto("glUseProgram", None, [ctypes.c_uint])
+    glGetUniformLocation = glproto("glGetUniformLocation", ctypes.c_int, [ctypes.c_uint, ctypes.c_char_p])
+    glUniform1f = glproto("glUniform1f", None, [ctypes.c_int, ctypes.c_float])
+    glGenVertexArrays = glproto("glGenVertexArrays", None, [ctypes.c_int, ctypes.POINTER(ctypes.c_uint)])
+    glBindVertexArray = glproto("glBindVertexArray", None, [ctypes.c_uint])
+    glViewport = glproto("glViewport", None, [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int])
+    glDrawArrays = glproto("glDrawArrays", None, [ctypes.c_uint, ctypes.c_int, ctypes.c_int])
+    glFinish = glproto("glFinish", None, [])
+    glReadPixels = glproto("glReadPixels", None, [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                                   ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p])
+    glClearColor = glproto("glClearColor", None, [ctypes.c_float] * 4)
+    glClear = glproto("glClear", None, [ctypes.c_uint])
+
+    def cstr(s):
+        return ctypes.c_char_p(s.encode())
+
+    renderer = (glGetString(GL_RENDERER) or b"?").decode("utf-8", "replace")
+    version = (glGetString(GL_VERSION) or b"?").decode("utf-8", "replace")
+
+    vs_src = cstr("#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));"
+                  "gl_Position=vec4(p*2.0-1.0,0.0,1.0);}\n")
+    fs_src = cstr("#version 300 es\nprecision highp float;\nout vec4 o;\nuniform float u;\n"
+                  "void main(){float a=gl_FragCoord.x*0.0001+gl_FragCoord.y*0.0001+u;\n"
+                  "for(int i=0;i<160;i++){a=sin(a)*1.0007+0.311;}o=vec4(a,a*0.7,a*0.4,1.0);}\n")
+
+    def compile_shader(kind, src):
+        sh = glCreateShader(kind)
+        arr = (ctypes.c_char_p * 1)(src)
+        glShaderSource(sh, 1, arr, None)
+        glCompileShader(sh)
+        ok = ctypes.c_int(0)
+        glGetShaderiv(sh, 0x8B81, ctypes.byref(ok))  # GL_COMPILE_STATUS
+        return sh if ok.value else None
+
+    vs = compile_shader(0x8B31, vs_src)   # GL_VERTEX_SHADER
+    fs = compile_shader(0x8B30, fs_src)   # GL_FRAGMENT_SHADER
+    if not vs or not fs:
+        renderer = renderer  # keep what we learned
+        eglMakeCurrent(display, ctypes.c_void_p(0), ctypes.c_void_p(0), ctypes.c_void_p(0))
+        eglDestroyContext(display, ctx); eglDestroySurface(display, surface); eglTerminate(display)
+        return renderer, version, None, "shader compile failed"
+    prog = glCreateProgram()
+    glAttachShader(prog, vs); glAttachShader(prog, fs); glLinkProgram(prog)
+    ok = ctypes.c_int(0)
+    glGetProgramiv(prog, 0x8B82, ctypes.byref(ok))  # GL_LINK_STATUS
+    if not ok.value:
+        eglMakeCurrent(display, ctypes.c_void_p(0), ctypes.c_void_p(0), ctypes.c_void_p(0))
+        eglDestroyContext(display, ctx); eglDestroySurface(display, surface); eglTerminate(display)
+        return renderer, version, None, "program link failed"
+    glUseProgram(prog)
+    loc = glGetUniformLocation(prog, b"u")
+    glViewport(0, 0, W, H)
+    glClearColor(0.0, 0.0, 0.0, 1.0)
+    vao = ctypes.c_uint(0)
+    glGenVertexArrays(1, ctypes.byref(vao))
+    glBindVertexArray(vao.value)
+    # warm up, then time N frames.  A 1x1 glReadPixels per frame is the sync
+    # point: on tile-based GPUs (Mali) glFinish alone can return before the
+    # pass is retired, which made a full-screen shader read as 0.1 ms.
+    sync = (ctypes.c_ubyte * 4)()
+    for _ in range(3):
+        glUniform1f(loc, 0.0)
+        glClear(0x4000)   # GL_COLOR_BUFFER_BIT
+        glDrawArrays(0x0004, 0, 3)   # GL_TRIANGLES
+        if glReadPixels:
+            glReadPixels(0, 0, 1, 1, 0x1908, 0x1401, ctypes.byref(sync))  # RGBA/UNSIGNED_BYTE
+        glFinish()
+    frames = 30
+    t0 = time.perf_counter()
+    for i in range(frames):
+        glUniform1f(loc, i * 0.01)
+        glClear(0x4000)
+        glDrawArrays(0x0004, 0, 3)
+        if glReadPixels:
+            glReadPixels(0, 0, 1, 1, 0x1908, 0x1401, ctypes.byref(sync))
+    glFinish()
+    ms = (time.perf_counter() - t0) * 1000.0 / frames
+
+    eglMakeCurrent(display, ctypes.c_void_p(0), ctypes.c_void_p(0), ctypes.c_void_p(0))
+    eglDestroyContext(display, ctx)
+    eglDestroySurface(display, surface)
+    eglTerminate(display)
+    return renderer, version, round(ms, 3), None
+
+
+def gl_bench(root=""):
+    """Best-effort offscreen GL microbench.  Returns dict with renderer/ms/err.
+
+    Order: a caller-supplied seam, then a GBM render node (real GPU on both
+    amd64 and arm64 Mali), then surfaceless EGL.  Never raises.
+    """
+    out = {"gpu_renderer": None, "gpu_version": None, "gpu_ms": None,
+           "gpu_measured": False, "gpu_error": None}
+    seam = os.environ.get("NCZ_CAPABILITY_GL_BENCH")
+    if seam:
+        rc, txt = run(["sh", "-c", seam], timeout=30)
+        m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*ms", txt)
+        if rc == 0 and m:
+            out.update(renderer=txt.strip().splitlines()[0][:200] if txt.strip() else None,
+                       gpu_ms=float(m.group(1)), gpu_measured=True)
+        else:
+            out["gpu_error"] = "seam failed rc=%d" % rc
+        return out
+    libs = _load_gl()
+    if not libs:
+        out["gpu_error"] = "libEGL/libGLESv2 not found"
+        return out
+    libegl, libgles, libgbm = libs
+
+    def platform_display(plat, native):
+        """Resolve an EGLDisplay for `plat`, trying core then EXT then legacy.
+
+        The CIX vendor libEGL (Sky1 / Mali) exports neither EGL 1.5's
+        eglGetPlatformDisplay nor the EXT form, so a legacy eglGetDisplay(gbm)
+        path has to stay live or the arm64 GPU never gets measured.
+        """
+        for fn_name in ("eglGetPlatformDisplay", "eglGetPlatformDisplayEXT"):
+            fn = getattr(libegl, fn_name, None)
+            if fn is None:
+                continue
+            fn.restype = ctypes.c_void_p
+            fn.argtypes = [ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
+            d = fn(plat, native, None)
+            if d:
+                return d
+        return None
+
+    # GBM render node first: the real GPU on amd64 and on arm64 Mali
+    if libgbm is not None:
+        libgbm.gbm_create_device.restype = ctypes.c_void_p
+        libgbm.gbm_create_device.argtypes = [ctypes.c_int]
+        libgbm.gbm_device_destroy.argtypes = [ctypes.c_void_p]
+        nodes = sorted(glob.glob(P(root, "dev/dri/renderD*")))
+        for node in nodes:
+            try:
+                fd = os.open(node, os.O_RDWR)
+            except OSError:
+                try:
+                    fd = os.open(node, os.O_RDONLY)
+                except OSError:
+                    continue
+            try:
+                gbm_dev = libgbm.gbm_create_device(fd)
+                if not gbm_dev:
+                    continue
+                disp = platform_display(EGL_PLATFORM_GBM_KHR, ctypes.c_void_p(gbm_dev))
+                if disp is None:
+                    # legacy EGL 1.4 path: eglGetDisplay(gbm device)
+                    eglGetDisplay = getattr(libegl, "eglGetDisplay", None)
+                    if eglGetDisplay is not None:
+                        eglGetDisplay.restype = ctypes.c_void_p
+                        eglGetDisplay.argtypes = [ctypes.c_void_p]
+                        disp = eglGetDisplay(ctypes.c_void_p(gbm_dev))
+                if disp:
+                    renderer, version, ms, err = _gl_bench_on(libegl, libgles, disp, node)
+                    if ms is not None:
+                        out.update(gpu_renderer=renderer, gpu_version=version,
+                                   gpu_ms=ms, gpu_measured=True)
+                        return out
+                    out["gpu_error"] = err or out["gpu_error"]
+                libgbm.gbm_device_destroy(ctypes.c_void_p(gbm_dev))
+            finally:
+                os.close(fd)
+    # surfaceless fallback (amd64 Mesa; on Mali this is llvmpipe, so it only
+    # ever runs when the GBM path found nothing)
+    disp = platform_display(EGL_PLATFORM_SURFACELESS_MESA, ctypes.c_void_p(0))
+    if disp:
+        renderer, version, ms, err = _gl_bench_on(libegl, libgles, disp, "surfaceless")
+        if ms is not None:
+            out.update(gpu_renderer=renderer, gpu_version=version, gpu_ms=ms, gpu_measured=True)
+            return out
+        out["gpu_error"] = err or out["gpu_error"]
+    # last resort: a plain EGL_DEFAULT_DISPLAY
+    renderer, version, ms, err = _gl_bench_on(libegl, libgles, EGL_DEFAULT_DISPLAY, "default")
+    if ms is not None:
+        out.update(gpu_renderer=renderer, gpu_version=version, gpu_ms=ms, gpu_measured=True)
+    else:
+        out["gpu_error"] = out["gpu_error"] or err
+    return out
+
+
+def renderer_from_eglinfo():
+    """Fallback renderer/version when the ctypes bench cannot run.
+
+    Reads the first GBM/Wayland block's renderer (the real GPU) before any
+    device/surfaceless block, falling back to any renderer line.
+    """
+    rc, txt = run(["eglinfo", "-B"], timeout=20)
+    if rc != 0 or not txt:
+        return None, None
+    blocks = re.split(r"([A-Za-z ]+platform:)", txt)
+    candidates = []
+    for i in range(1, len(blocks), 2):
+        plat = blocks[i].strip().lower()
+        body = blocks[i + 1] if i + 1 < len(blocks) else ""
+        for m in re.finditer(r"(?:OpenGL ES|OpenGL core|OpenGL compatibility) profile renderer:\s*(.+)", body):
+            candidates.append((plat, m.group(1).strip()))
+        for m in re.finditer(r"(?:OpenGL ES|OpenGL core) profile version:\s*(.+)", body):
+            candidates.append((plat, None, m.group(1).strip()))
+    renderer = None
+    version = None
+    for c in candidates:
+        plat = c[0]
+        if len(c) == 2 and c[1] and not SOFTWARE_RE.search(c[1]) and plat in ("gbm", "wayland", "x11"):
+            renderer = c[1]
+            break
+    if renderer is None:
+        for c in candidates:
+            if len(c) == 2 and c[1]:
+                renderer = c[1]
+                break
+    for c in candidates:
+        if len(c) == 3:
+            version = c[2]
+            break
+    return renderer, version
+
+
+def display_info(root=""):
+    conns = []
+    for status in glob.glob(P(root, "sys/class/drm/card[0-9]*-*/status")):
+        try:
+            if open(status).read().strip() != "connected":
+                continue
+        except OSError:
+            continue
+        name = os.path.basename(os.path.dirname(status))
+        w = h = 0
+        modes = os.path.join(os.path.dirname(status), "modes")
+        try:
+            first = open(modes).read().splitlines()[0]
+            m = re.match(r"(\d+)x(\d+)", first)
+            if m:
+                w, h = int(m.group(1)), int(m.group(2))
+        except (OSError, IndexError):
+            pass
+        conns.append({"connector": name, "width": w, "height": h})
+    outn = len(conns)
+    max_w = max([c["width"] for c in conns], default=0)
+    max_h = max([c["height"] for c in conns], default=0)
+    total = sum(c["width"] * c["height"] for c in conns)
+    scale = 1.0
+    # a coarse HiDPI hint: a portrait-orientation or very large logical panel
+    if max_h >= 2000:
+        scale = 2.0
+    return {"outputs": outn, "connected": outn > 0, "max_width": max_w, "max_height": max_h,
+            "total_pixels": total, "scale": scale, "connectors": conns}
+
+
+def thermal_info(root=""):
+    ac = None
+    for p in glob.glob(P(root, "sys/class/power_supply/AC*/online")):
+        ac = read_text(p) == "1"
+    battery = bool(glob.glob(P(root, "sys/class/power_supply/BAT*")))
+    temps = []
+    for p in glob.glob(P(root, "sys/class/thermal/thermal_zone*/temp")):
+        t = read_int(p)
+        if t > 0:
+            temps.append(t / 1000.0)
+    for p in glob.glob(P(root, "sys/class/hwmon/hwmon*/temp*_input")):
+        t = read_int(p)
+        if 0 < t < 200000:
+            temps.append(t / 1000.0)
+    max_c = max(temps) if temps else None
+    # throttle point guess: 85 C for T2 Macs / Intel mobile; leave None when unknown
+    throttle = 95.0 if max_c is not None else None
+    headroom = round(throttle - max_c, 1) if (throttle is not None and max_c is not None) else None
+    return {"ac_online": ac, "battery": battery, "max_temp_c": max_c, "headroom_c": headroom}
+
+
+def gpu_vram_shared(gpus, mem_mb, root=""):
+    """Fill renderer/vulkan/software fields into the sysfs GPU list (best effort)."""
+    vk_devices = []
+    rc, txt = run(["vulkaninfo", "--summary"], timeout=15)
+    if rc == 0:
+        for m in re.finditer(r"deviceName\s*=\s*(.+)", txt):
+            vk_devices.append(m.group(1).strip())
+    bench = gl_bench(root)
+    egl_renderer, egl_version = (None, None)
+    if not bench.get("gpu_measured"):
+        egl_renderer, egl_version = renderer_from_eglinfo()
+    renderer = bench.get("gpu_renderer") or egl_renderer
+    version = bench.get("gpu_version") or egl_version
+    # arm64 Mali / Sky1: the DRM card is the display controller (linlondp), so a
+    # real GPU entry has to be added from the Mali device node.
+    if (os.path.exists(P(root, "dev/mali0")) or
+            os.path.isdir(P(root, "sys/bus/platform/drivers/mali_kbase"))) and \
+            not any(g.get("driver") in ("mali_kbase", "panthor") for g in gpus):
+        gpus.append({"card": "mali0", "vendor": "0x13b5", "device": "mali",
+                     "driver": "mali_kbase", "boot_vga": True, "vram_mb": None,
+                     "_primary": True, "renderer": renderer,
+                     "gl_version": version, "platform": True})
+    if renderer:
+        target = None
+        for g in gpus:
+            if g.get("boot_vga") or g.get("_primary"):
+                target = g
+                break
+        if target is None and gpus:
+            target = gpus[0]
+        if target is not None:
+            target["renderer"] = renderer
+            target["gl_version"] = version
+    for g in gpus:
+        g.setdefault("renderer", None)
+        g.setdefault("gl_version", None)
+        g.setdefault("vulkan", bool(vk_devices))
+        g.setdefault("software", False)
+        if g.get("renderer") and SOFTWARE_RE.search(g["renderer"]):
+            g["software"] = True
+        g["class"] = classify_renderer(g.get("renderer") or "")
+        if g.get("vram_mb") is None:
+            g["vram_shared"] = True
+        g["vulkan_devices"] = vk_devices
+    bench["gpu_renderer"] = renderer
+    return bench
+
+
+def collect_facts(root="", calibrate=True):
+    cpu = cpu_info(root)
+    mem = mem_info(root)
+    disk = None
+    if calibrate:
+        db = disk_bench(root)
+        disk_us = db["disk_4k_us"] if db else None
+    else:
+        db = None
+        disk_us = None
+    st = storage_info(root, disk_us)
+    if db:
+        st.update({k: v for k, v in db.items() if k.startswith("disk_")})
+    gpus = _drm_cards(root)
+    if not any(g.get("boot_vga") for g in gpus) and gpus:
+        gpus[0]["_primary"] = True
+    disp = display_info(root)
+    therm = thermal_info(root)
+    bench = gpu_vram_shared(gpus, mem["total_mb"], root) if calibrate else {"gpu_measured": False, "gpu_error": None, "gpu_ms": None}
+    cpu_b = cpu_bench() if calibrate else {}
+    return {
+        "cpu": cpu,
+        "mem": mem,
+        "storage": st,
+        "gpus": gpus,
+        "display": disp,
+        "thermal": therm,
+        "platform": {"arch": _platform.machine(), "kernel": _platform.release(),
+                     "dmi_product": read_text(P(root, "sys/class/dmi/id/product_name")),
+                     "hostname": _platform.node()},
+        "calibration": {
+            "cpu_single_mibs": cpu_b.get("cpu_single_mibs"),
+            "cpu_multi_mibs": cpu_b.get("cpu_multi_mibs"),
+            "cpu_threads": cpu_b.get("cpu_threads"),
+            "gpu_ms": bench.get("gpu_ms"),
+            "gpu_measured": bench.get("gpu_measured", False),
+            "gpu_error": bench.get("gpu_error"),
+            "gpu_renderer": bench.get("gpu_renderer"),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Scoring (pure)
+# ---------------------------------------------------------------------------
+
+def _cpu_subscore(facts):
+    cal = facts.get("calibration", {}) or {}
+    single = cal.get("cpu_single_mibs")
+    if single is None:
+        # fall back to cores/max MHz so a --no-calibrate run still ranks roughly
+        cores = facts.get("cpu", {}).get("cores", 1)
+        mhz = facts.get("cpu", {}).get("max_mhz", 0) or 1500
+        single = 90.0 + 25.0 * cores + mhz * 0.12
+    s_single = rung(float(single), CPU_SINGLE_ANCHORS)
+    multi = cal.get("cpu_multi_mibs")
+    if multi is not None and single:
+        scale = float(multi) / float(single)
+        s_scale = rung(scale, CPU_SCALE_ANCHORS)
+    else:
+        cores = facts.get("cpu", {}).get("cores", 1)
+        s_scale = rung(min(cores, 8) * 1.0, [(1, 10), (2, 30), (4, 70), (6, 88), (8, 100)])
+    return round(0.6 * s_single + 0.4 * s_scale, 1)
+
+
+def _gpu_subscore(facts):
+    cal = facts.get("calibration", {}) or {}
+    gpus = facts.get("gpus", []) or []
+    ms = cal.get("gpu_ms")
+    if ms is not None and cal.get("gpu_measured"):
+        return round(rung(float(ms), GPU_MS_ANCHORS), 1)
+    # software anywhere in the display path is a hard low score
+    if any(g.get("software") for g in gpus):
+        return GPU_CLASS_SCORE["software"]
+    classes = [classify_renderer(g.get("renderer") or "") for g in gpus] or ["unknown"]
+    best = max(classes, key=lambda c: GPU_CLASS_SCORE.get(c, 45.0))
+    score = GPU_CLASS_SCORE.get(best, 45.0)
+    # a Vulkan device lifts the floor a little
+    if any(g.get("vulkan") for g in gpus):
+        score = min(100.0, score + 4.0)
+    return round(score, 1)
+
+
+def _mem_subscore(facts):
+    total = facts.get("mem", {}).get("total_mb", 0) or 0
+    return round(rung(float(total), MEM_ANCHORS), 1)
+
+
+def _storage_subscore(facts):
+    st = facts.get("storage", {}) or {}
+    us = st.get("fourk_read_us")
+    if us is not None:
+        score = rung(float(us), DISK_US_ANCHORS)
+    else:
+        score = 50.0
+    if st.get("rotational"):
+        score = min(score, 35.0)
+    bus = st.get("bus")
+    if bus == "nvme":
+        score = min(100.0, score + 8.0)
+    elif bus == "usb":
+        score = max(0.0, score - 15.0)
+    return round(score, 1)
+
+
+def _display_subscore(facts):
+    d = facts.get("display", {}) or {}
+    if not d.get("connected"):
+        return 65.0   # headless: not a penalty, not a bonus
+    pix = d.get("total_pixels") or (d.get("max_width", 0) * d.get("max_height", 0))
+    if not pix:
+        return 65.0
+    return round(rung(float(pix), DISPLAY_PIX_ANCHORS), 1)
+
+
+def _thermal_subscore(facts):
+    t = facts.get("thermal", {}) or {}
+    hr = t.get("headroom_c")
+    if hr is None:
+        base = 60.0
+    else:
+        base = rung(float(hr), THERMAL_ANCHORS)
+    ac = t.get("ac_online")
+    if ac is True:
+        base += 8.0
+    elif ac is False:
+        base -= 8.0
+    return round(max(0.0, min(100.0, base)), 1)
+
+
+def tier_by_score(total):
+    for name, thr in TIER_THRESHOLDS:
+        if total >= thr:
+            return name
+    return "T0"
+
+
+def score(facts, weights=None):
+    """Pure scoring function: facts -> subscores, total, tier and caps."""
+    w = dict(WEIGHTS)
+    if weights:
+        w.update(weights)
+    subs = {
+        "cpu": _cpu_subscore(facts),
+        "gpu": _gpu_subscore(facts),
+        "mem": _mem_subscore(facts),
+        "storage": _storage_subscore(facts),
+        "display": _display_subscore(facts),
+        "thermal": _thermal_subscore(facts),
+    }
+    wsum = sum(w.values()) or 1
+    total = sum(subs[k] * w[k] for k in subs) / wsum
+    total = round(total, 1)
+    tscore = tier_by_score(total)
+
+    caps = []
+    cal = facts.get("calibration", {}) or {}
+    st = facts.get("storage", {}) or {}
+    mem = facts.get("mem", {}) or {}
+    gpus = facts.get("gpus", []) or []
+    if any(g.get("software") for g in gpus):
+        caps.append({"subsystem": "gpu", "reason": "software renderer (llvmpipe/softpipe/swrast)",
+                     "tier": CAP_SOFTWARE_TIER})
+    if cal.get("gpu_ms") is not None and cal.get("gpu_ms") >= SLOW_GPU_MS:
+        caps.append({"subsystem": "gpu", "reason": "measured GPU %0.1f ms/frame" % cal["gpu_ms"],
+                     "tier": CAP_SLOW_GPU_TIER})
+    if st.get("rotational") or (st.get("fourk_read_us") is not None and st["fourk_read_us"] >= SLOW_DISK_US):
+        caps.append({"subsystem": "storage",
+                     "reason": "slow disk (rotational=%s, 4k=%s us)" % (bool(st.get("rotational")), st.get("fourk_read_us")),
+                     "tier": CAP_SLOW_DISK_TIER})
+    total_mb = mem.get("total_mb", 0) or 0
+    if total_mb and total_mb < 1536:
+        caps.append({"subsystem": "mem", "reason": "installed RAM %d MiB" % total_mb, "tier": CAP_TINY_MEM_TIER})
+    elif total_mb and total_mb < 3072:
+        caps.append({"subsystem": "mem", "reason": "installed RAM %d MiB" % total_mb, "tier": CAP_LOW_MEM_TIER})
+
+    final = tscore
+    for c in caps:
+        if TIER_INDEX[c["tier"]] < TIER_INDEX[final]:
+            final = c["tier"]
+    return {
+        "subscores": subs,
+        "weights": w,
+        "score": total,
+        "tier_by_score": tscore,
+        "caps": caps,
+        "tier": final,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Feature map + apply
+# ---------------------------------------------------------------------------
+
+FEATURES_FALLBACK = []  # filled from the TSV; kept empty so a missing file never crashes
+
+DEFAULT_FEATURES_TSV = """# feature\tkind\ttarget\tT0\tT1\tT2\tT3
+compositor.background-effect\tgsetting\tdev.sinty.desktop:background-effect\tdisabled\tdisabled\tdisabled\tblur
+compositor.blur-strength\tgsetting\tdev.sinty.desktop:blur-strength\t0\t0\t60\t60
+compositor.window-transparency\tgsetting\tdev.sinty.desktop:window-transparency\t0\t0\t12\t12
+compositor.window-rounded-corners\tgsetting\tdev.sinty.desktop:window-rounded-corners\tfalse\tfalse\ttrue\ttrue
+compositor.reduce-motion\tgsetting\tdev.sinty.desktop:reduce-motion\ttrue\ttrue\tfalse\tfalse
+compositor.motion-duration-scale\tgsetting\tdev.sinty.desktop:motion-duration-scale\t0.1\t0.5\t1.0\t1.0
+compositor.idle-dim-screen\tgsetting\tdev.sinty.desktop:idle-dim-screen\tfalse\tfalse\ttrue\ttrue
+compositor.allow-tearing\tgsetting\tdev.sinty.desktop:allow-tearing\ttrue\ttrue\tfalse\tfalse
+tour.first-login\tgsetting\tdev.sinty.desktop:show-tour\tfalse\tfalse\ttrue\ttrue
+screensaver.eligible-set\tgsetting\tdev.ncz.screensaver:pool-gpu-class\tweak\tweak\tmid\tall
+screensaver.render-scale-mode\tgsetting\tdev.ncz.screensaver:render-scale-mode\tfixed\tfixed\tauto\tauto
+screensaver.render-scale\tgsetting\tdev.ncz.screensaver:render-scale\t0.5\t0.5\t1.0\t1.0
+screensaver.max-render-height\tgsetting\tdev.ncz.screensaver:max-render-height\t480\t720\t1080\t0
+screensaver.gpu-offload\tgsetting\tdev.ncz.screensaver:gpu-offload\toff\toff\tauto\tauto
+screensaver.show-all-hacks\tgsetting\tdev.ncz.screensaver:show-all-hacks\tfalse\tfalse\tfalse\ttrue
+saver.lock-fps\tenv\tNCZ_SAVER_LOCK_FPS\t4\t6\t8\t12
+saver.render-div\tenv\tNCZ_SAVER_RENDER_DIV\t4\t2\t2\t1
+saver.freeze-intro\tenv\tNCZ_SAVER_FREEZE_AFTER_S\t8\t12\t15\t20
+thermal.warm-trip\tenv\tNCZ_FEED_TEMP_WARM_MC\t65000\t70000\t75000\t75000
+thermal.hot-trip\tenv\tNCZ_FEED_TEMP_HOT_MC\t75000\t80000\t85000\t85000
+splash.mode\tflag\tCAPABILITY_SPLASH\toff\tlite\tfull\tfull
+indexer.mode\tflag\tCAPABILITY_INDEXER\toff\tlite\tfull\tfull
+"""
+
+
+def features_path():
+    env = os.environ.get("NCZ_CAPABILITY_FEATURES")
+    if env and os.path.isfile(env):
+        return env
+    here = os.path.dirname(os.path.realpath(__file__))
+    for c in (os.path.join(here, "capability-features.tsv"),
+              "/usr/share/ncz/capability/capability-features.tsv",
+              "/usr/local/share/ncz/capability/capability-features.tsv"):
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def load_features(path=None):
+    path = path or features_path()
+    if path and os.path.isfile(path):
+        try:
+            with open(path) as fh:
+                text = fh.read()
+        except OSError:
+            text = DEFAULT_FEATURES_TSV
+    else:
+        text = DEFAULT_FEATURES_TSV
+    feats = []
+    for line in text.splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        cols = line.rstrip("\n").split("\t")
+        if len(cols) < 7:
+            continue
+        feats.append({"feature": cols[0], "kind": cols[1], "target": cols[2],
+                      "values": {"T0": cols[3], "T1": cols[4], "T2": cols[5], "T3": cols[6]}})
+    return feats
+
+
+def features_for_tier(tier, path=None):
+    out = {}
+    for f in load_features(path):
+        out[f["feature"]] = {"kind": f["kind"], "target": f["target"],
+                             "value": f["values"].get(tier, f["values"]["T2"])}
+    return out
+
+
+def parse_override(path):
+    """Parse a capability.override file into {tier: 'T2', overrides: {feature: value}}."""
+    res = {"tier": None, "overrides": {}, "gsettings": {}, "env": {}, "flags": {}}
+    if not path or not os.path.isfile(path):
+        return res
+    for raw in open(path):
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if "=" not in line:
+            continue
+        k, v = (s.strip() for s in line.split("=", 1))
+        v = v.strip().strip("'\"")
+        if k.lower() == "tier":
+            if v.upper() in TIER_INDEX:
+                res["tier"] = v.upper()
+        elif k.startswith("feature."):
+            res["overrides"][k[len("feature."):]] = v
+        elif k.startswith("gsetting."):
+            res["gsettings"][k[len("gsetting."):]] = v
+        elif k.startswith("env."):
+            res["env"][k[len("env."):]] = v
+        elif k.startswith("flag."):
+            res["flags"][k[len("flag."):]] = v
+        else:
+            res["overrides"][k] = v
+    return res
+
+
+def find_schema_dirs(root=""):
+    dirs = []
+    for c in ("/usr/share/glib-2.0/schemas", "/opt/singularity/share/glib-2.0/schemas",
+              "/usr/local/share/glib-2.0/schemas"):
+        p = P(root, c.lstrip("/")) if root else c
+        if os.path.isdir(p):
+            dirs.append(p)
+    return dirs
+
+
+def _gvariant(value):
+    """Render a config string as the gvariant literal an override file needs."""
+    if value.lower() in ("true", "false"):
+        return value.lower()
+    if re.match(r"^-?[0-9]+$", value):
+        return value
+    if re.match(r"^-?[0-9]*\.[0-9]+$", value):
+        return value
+    return "'%s'" % value
+
+
+def build_gsettings_overrides(features, extra=None):
+    """feature map -> {schema_id: "key=value\\n..."} grouped by schema."""
+    byschema = {}
+    for name, f in features.items():
+        if f.get("kind") != "gsetting":
+            continue
+        schema, _, key = f["target"].partition(":")
+        byschema.setdefault(schema, []).append((key, f["value"]))
+    if extra:
+        for target, val in extra.items():
+            schema, _, key = target.partition(":")
+            byschema.setdefault(schema, []).append((key, val))
+    out = {}
+    for schema, kvs in byschema.items():
+        body = ["[%s]" % schema]
+        for key, value in sorted(kvs):
+            body.append("%s=%s" % (key, _gvariant(str(value))))
+        out[schema] = "\n".join(body) + "\n"
+    return out
+
+
+def _schema_dir_for(root, schema_id):
+    for d in find_schema_dirs(root):
+        if glob.glob(os.path.join(d, "*.gschema.xml")):
+            try:
+                for f in glob.glob(os.path.join(d, "*.gschema.xml")):
+                    if ('id="%s"' % schema_id) in open(f, errors="replace").read():
+                        return d
+            except OSError:
+                continue
+    return None
+
+
+def write_gsettings_override(root, overrides, dry_run=False, log=print):
+    """Write ONE 99-ncz-capability.gschema.override per schema DIRECTORY.
+
+    glib-compile-schemas reads every *.gschema.override in a directory, and one
+    file may carry several `[schema]` sections.  Grouping by directory matters
+    because dev.sinty.desktop (the Singularity payload) and dev.ncz.screensaver
+    (the screensaver package) normally live in different directories, but when a
+    system keeps them in the same one a per-schema write would overwrite the
+    previous section.  Validated on a scratch copy with
+    `glib-compile-schemas --strict --dry-run` before anything is installed,
+    exactly like hooks 62/64.  Returns the list of written paths.
+    """
+    bydir = {}
+    for schema, body in overrides.items():
+        d = _schema_dir_for(root, schema)
+        if not d:
+            log("[capability] schema %s not installed; skipping override" % schema)
+            continue
+        bydir.setdefault(d, []).append(body.rstrip("\n"))
+    written = []
+    for d, bodies in bydir.items():
+        target = os.path.join(d, "99-ncz-capability.gschema.override")
+        body = "\n".join(bodies) + "\n"
+        log("[capability] %s -> %s" % (", ".join(sorted(overrides)), target))
+        if dry_run:
+            written.append(target)
+            continue
+        compiled = False
+        if root == "":
+            try:
+                with tempfile.TemporaryDirectory() as scratch:
+                    for pat in ("*.gschema.xml", "*.enums.xml"):
+                        for f in glob.glob(os.path.join(d, pat)):
+                            os.symlink(f, os.path.join(scratch, os.path.basename(f)))
+                    for f in glob.glob(os.path.join(d, "*.gschema.override")):
+                        if os.path.basename(f) == "99-ncz-capability.gschema.override":
+                            continue   # this file is being replaced; do not double up
+                        os.symlink(f, os.path.join(scratch, os.path.basename(f)))
+                    with open(os.path.join(scratch, "99-ncz-capability.gschema.override"), "w") as fh:
+                        fh.write(body)
+                    rc, out = run(["glib-compile-schemas", "--strict", "--dry-run", scratch], timeout=60)
+                    if rc == 0:
+                        compiled = True
+                    else:
+                        log("[capability] override failed validation for %s:\n%s" % (d, out[:800]))
+            except OSError as e:
+                log("[capability] validation error for %s: %s" % (d, e))
+        else:
+            compiled = True   # test root: no glib available, the test asserts the body
+        if not compiled:
+            log("[capability] NOT installing override in %s (validation failed)" % d)
+            continue
+        with open(target, "w") as fh:
+            fh.write(body)
+        os.chmod(target, 0o644)
+        if root == "":
+            run(["glib-compile-schemas", d], timeout=60)
+        written.append(target)
+    return written
+
+
+def write_env_files(features, env_file, feature_env, dry_run=False, log=print, root=""):
+    env_lines = ["# NCZ capability tier defaults (see docs/CAPABILITY-TIERS.md)",
+                 "# Generated by ncz-capability; edit /etc/ncz/capability.override instead."]
+    flag_lines = ["# NCZ capability feature flags (consumed by wrappers)",
+                  "# Generated by ncz-capability."]
+    for name, f in sorted(features.items()):
+        if f.get("kind") == "env":
+            env_lines.append("%s=%s" % (f["target"], f["value"]))
+        elif f.get("kind") == "flag":
+            flag_lines.append("%s=%s" % (f["target"], f["value"]))
+    if dry_run:
+        log("[capability] would write %s (%d env)" % (env_file, len(env_lines) - 2))
+        log("[capability] would write %s (%d flags)" % (feature_env, len(flag_lines) - 2))
+        return
+    for path, lines in ((env_file, env_lines), (feature_env, flag_lines)):
+        if root:
+            path = os.path.join(root, path.lstrip("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as fh:
+            fh.write("\n".join(lines) + "\n")
+        os.replace(tmp, path)
+        os.chmod(path, 0o644)
+    log("[capability] wrote %s and %s" % (env_file, feature_env))
+
+
+def resolve_tier(facts, scored, override=None, cli_tier=None):
+    """Precedence: CLI/tier override > capability.override file > measured."""
+    if cli_tier:
+        return cli_tier.upper()
+    if override and override.get("tier"):
+        return override["tier"]
+    return scored["tier"]
+
+
+def _systemd_running():
+    return os.path.isdir("/run/systemd/system") and bool(which("systemctl"))
+
+
+def which(name):
+    for d in (os.environ.get("PATH") or "/usr/sbin:/usr/bin:/sbin:/bin").split(":"):
+        p = os.path.join(d, name)
+        if os.access(p, os.X_OK):
+            return p
+    return None
+
+
+# Background indexers that cost CPU/IO without being ship-critical.  Any other
+# service is out of scope on purpose: this list is the whole contract.
+SERVICE_ALLOWLIST = (
+    "tracker-miner-fs-3.service",
+    "tracker-miner-fs-4.service",
+    "tracker-extract-3.service",
+    "tracker-extract-4.service",
+)
+SERVICE_STATE = "/etc/ncz/capability/service-state"
+
+
+def apply_service_defaults(indexer_mode, root="", dry_run=False, log=print):
+    """Change the DEFAULT enabled-state of a tiny background-load allowlist.
+
+    T0 off  -> disable the allowlist (systemctl enable reverses it; nothing is
+               masked, so this is a default, not a hard disable).
+    T1 lite -> leave enabled but drop CPUWeight/IOWeight so it yields.
+    T2/T3   -> remove our drop-in and re-enable anything WE disabled.
+
+    Only ever runs on a live systemd as root; a test root or a dry run is a
+    no-op, and NCZ_CAP_SKIP_SERVICES=1 disables it entirely.
+    """
+    mode = (indexer_mode or "full").lower()
+    if os.environ.get("NCZ_CAP_SKIP_SERVICES") == "1":
+        log("[capability] service defaults disabled by NCZ_CAP_SKIP_SERVICES")
+        return
+    if root or dry_run:
+        log("[capability] service defaults: indexer=%s (skipped under root/dry-run)" % mode)
+        return
+    if not _systemd_running():
+        log("[capability] service defaults: systemd not running; skipped")
+        return
+    systemctl = which("systemctl")
+    state = []
+    state_path = SERVICE_STATE
+    if os.path.isfile(state_path):
+        state = [l.strip() for l in open(state_path) if l.strip()]
+    dropin_dir = "/etc/systemd/system/tracker-miner-fs-3.service.d"
+
+    def run_systemctl(*args):
+        try:
+            subprocess.run([systemctl, *args], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    def present(unit):
+        try:
+            p = subprocess.run([systemctl, "list-unit-files", "--no-legend", unit],
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20)
+            return unit in p.stdout.decode()
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    if mode == "off":
+        for unit in SERVICE_ALLOWLIST:
+            if present(unit):
+                run_systemctl("disable", unit)
+                if unit not in state:
+                    state.append(unit)
+        os.makedirs(os.path.dirname(state_path), exist_ok=True)
+        with open(state_path, "w") as fh:
+            fh.write("\n".join(state) + "\n")
+        log("[capability] service defaults: T0 disabled %d background indexer(s)" % len(state))
+    elif mode == "lite":
+        os.makedirs(dropin_dir, exist_ok=True)
+        with open(os.path.join(dropin_dir, "10-ncz-capability-lite.conf"), "w") as fh:
+            fh.write("[Service]\nCPUWeight=20\nIOWeight=20\n")
+        run_systemctl("daemon-reload")
+        log("[capability] service defaults: T1 set indexer scheduling weight low")
+    else:
+        # restore: remove our drop-in, re-enable only the units we disabled
+        for d in ("/etc/systemd/system/tracker-miner-fs-3.service.d/10-ncz-capability-lite.conf",
+                  "/etc/systemd/system/tracker-miner-fs-4.service.d/10-ncz-capability-lite.conf"):
+            try:
+                os.unlink(d)
+            except OSError:
+                pass
+        for unit in state:
+            run_systemctl("enable", unit)
+        try:
+            os.unlink(state_path)
+        except OSError:
+            pass
+        run_systemctl("daemon-reload")
+        log("[capability] service defaults: restored indexer defaults for %s" % mode)
+
+
+def apply_defaults(facts, scored, cli_tier=None, override_path=GLOBAL_OVERRIDE,
+                   json_default=DEFAULT_JSON, env_file=DEFAULT_ENV_FILE,
+                   feature_env=DEFAULT_FEATURE_ENV, root="", dry_run=False, log=print):
+    ov = parse_override(override_path)
+    tier = resolve_tier(facts, scored, ov, cli_tier)
+    features = features_for_tier(tier)
+    for k, v in ov["overrides"].items():
+        if k in features:
+            features[k]["value"] = v
+    # Apply user gsettings/env/flag overrides from the file too.
+    overrides = build_gsettings_overrides(features, extra=ov["gsettings"])
+    for name, val in ov["env"].items():
+        features.setdefault(name, {"kind": "env", "target": name, "value": val})
+    for name, val in ov["flags"].items():
+        features.setdefault(name, {"kind": "flag", "target": name, "value": val})
+    # keep the env/flag overrides from the file in the written files
+    for k, v in ov["env"].items():
+        for f in features.values():
+            if f.get("kind") == "env" and f.get("target") == k:
+                f["value"] = v
+    for k, v in ov["flags"].items():
+        for f in features.values():
+            if f.get("kind") == "flag" and f.get("target") == k:
+                f["value"] = v
+    log("[capability] tier=%s (measured %s, score %s)" % (tier, scored["tier"], scored["score"]))
+    written = write_gsettings_override(root, overrides, dry_run=dry_run, log=log)
+    write_env_files(features, env_file, feature_env, dry_run=dry_run, log=log, root=root)
+    idx = features.get("indexer.mode", {}).get("value", "full")
+    apply_service_defaults(idx, root=root, dry_run=dry_run, log=log)
+    return {"tier": tier, "features": features, "gsettings_files": written}
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def human_summary(doc):
+    f = doc.get("facts", {})
+    s = doc.get("scoring", {})
+    cal = f.get("calibration", {})
+    lines = []
+    lines.append("NCZ capability profile: %s" % doc.get("hostname", "?"))
+    lines.append("  platform : %s %s  (%s)" % (f.get("platform", {}).get("arch", "?"),
+                                                f.get("cpu", {}).get("model", "?"),
+                                                f.get("platform", {}).get("dmi_product", "")))
+    lines.append("  cpu      : %s cores / %s threads @ %s MHz (%s)"
+                 % (f.get("cpu", {}).get("cores"), f.get("cpu", {}).get("threads"),
+                    f.get("cpu", {}).get("max_mhz"), f.get("cpu", {}).get("microarch")))
+    if cal.get("cpu_single_mibs"):
+        lines.append("  cpu bench: %s MiB/s single, %s MiB/s multi"
+                     % (cal.get("cpu_single_mibs"), cal.get("cpu_multi_mibs")))
+    lines.append("  memory   : %s MiB" % f.get("mem", {}).get("total_mb"))
+    st = f.get("storage", {})
+    lines.append("  storage  : %s (%s, rotational=%s, 4k=%s us)"
+                 % (st.get("root_dev"), st.get("bus"), st.get("rotational"), st.get("fourk_read_us")))
+    for g in f.get("gpus", []):
+        lines.append("  gpu      : %s %s/%s driver=%s class=%s%s"
+                     % (g.get("card"), g.get("vendor"), g.get("device"), g.get("driver"),
+                        g.get("class"), " SOFTWARE" if g.get("software") else ""))
+    if cal.get("gpu_ms") is not None:
+        lines.append("  gpu bench: %s ms/frame (%s)" % (cal.get("gpu_ms"), cal.get("gpu_renderer")))
+    elif cal.get("gpu_error"):
+        lines.append("  gpu bench: unavailable (%s)" % cal.get("gpu_error"))
+    d = f.get("display", {})
+    lines.append("  display  : %d output(s) %dx%d (%d px)"
+                 % (d.get("outputs", 0), d.get("max_width", 0), d.get("max_height", 0), d.get("total_pixels", 0)))
+    sub = s.get("subscores", {})
+    lines.append("  subscores: cpu=%.1f gpu=%.1f mem=%.1f storage=%.1f display=%.1f thermal=%.1f"
+                 % (sub.get("cpu", 0), sub.get("gpu", 0), sub.get("mem", 0),
+                    sub.get("storage", 0), sub.get("display", 0), sub.get("thermal", 0)))
+    lines.append("  score    : %.1f -> %s" % (s.get("score", 0), s.get("tier_by_score", "?")))
+    for c in s.get("caps", []):
+        lines.append("  cap      : %s -> %s (%s)" % (c["subsystem"], c["tier"], c["reason"]))
+    lines.append("  TIER     : %s" % s.get("tier", "?"))
+    return "\n".join(lines)
+
+
+def compute_signature(facts):
+    gpus = sorted((g.get("card", ""), g.get("vendor", ""), g.get("device", ""), g.get("driver", ""))
+                  for g in facts.get("gpus", []))
+    key = json.dumps({
+        "gpus": gpus,
+        "mem_mb": facts.get("mem", {}).get("total_mb"),
+        "disk": facts.get("storage", {}).get("block"),
+        "display": facts.get("display", {}).get("connectors"),
+        "cpu": facts.get("cpu", {}).get("model"),
+    }, sort_keys=True)
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def build_doc(facts, args):
+    scored = score(facts)
+    doc = {
+        "version": VERSION,
+        "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "hostname": facts.get("platform", {}).get("hostname", "?"),
+        "facts": facts,
+        "scoring": scored,
+        "signature": compute_signature(facts),
+    }
+    return doc
+
+
+def cmd_probe(args):
+    facts = collect_facts(root=args.root, calibrate=not args.no_calibrate)
+    doc = build_doc(facts, args)
+    out = args.out
+    if out:
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        tmp = out + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(doc, fh, indent=2, sort_keys=True)
+            fh.write("\n")
+        os.replace(tmp, out)
+    if args.json:
+        print(json.dumps(doc, indent=2, sort_keys=True))
+    else:
+        print(human_summary(doc))
+        if out:
+            print("  written  : %s" % out)
+    return 0
+
+
+def cmd_score(args):
+    facts = json.load(open(args.facts))
+    if "facts" in facts:
+        facts = facts["facts"]
+    doc = build_doc(facts, args)
+    if args.json:
+        print(json.dumps(doc["scoring"], indent=2, sort_keys=True))
+    else:
+        print(human_summary(doc))
+    return 0
+
+
+def cmd_apply(args):
+    facts = collect_facts(root=args.root, calibrate=not args.no_calibrate)
+    doc = build_doc(facts, args)
+    result = apply_defaults(facts, doc["scoring"], cli_tier=args.tier,
+                            override_path=args.override, root=args.root,
+                            dry_run=args.dry_run)
+    if args.json:
+        print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_status(args):
+    if os.path.isfile(args.json_path):
+        doc = json.load(open(args.json_path))
+        print(human_summary(doc))
+        print("  applied  : tier %s" % doc.get("applied_tier", "?"))
+    else:
+        print("no capability profile at %s (run: ncz-capability probe)" % args.json_path)
+        return 1
+    return 0
+
+
+def cmd_detect(args):
+    """Re-run the probe only when the hardware signature changed."""
+    if not os.path.isfile(args.json_path):
+        print("no profile; probing")
+        return cmd_probe(args)
+    old = json.load(open(args.json_path))
+    facts = collect_facts(root=args.root, calibrate=True)
+    new_sig = compute_signature(facts)
+    old_sig = old.get("signature")
+    if new_sig == old_sig:
+        print("hardware signature unchanged (%s); no re-run" % new_sig)
+        return 0
+    print("hardware signature changed: %s -> %s; re-probing" % (old_sig, new_sig))
+    args.out = args.json_path
+    rc = cmd_probe(args)
+    if rc == 0 and not args.no_apply:
+        facts2 = collect_facts(root=args.root, calibrate=False)
+        doc = build_doc(facts2, args)
+        apply_defaults(facts2, doc["scoring"], override_path=args.override, root=args.root)
+    return rc
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="ncz-capability",
+                                description="NCZ-OS hardware capability profiler and tier default selector")
+    p.add_argument("--version", action="version", version="ncz-capability %d" % VERSION)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    def common(sp):
+        sp.add_argument("--root", default="", help="sysroot prefix (test seam)")
+        sp.add_argument("--json", action="store_true", help="machine-readable output")
+
+    sp = sub.add_parser("probe", help="collect facts, calibrate and write capability.json")
+    common(sp)
+    sp.add_argument("--out", default=DEFAULT_JSON)
+    sp.add_argument("--no-calibrate", action="store_true")
+    sp.set_defaults(fn=cmd_probe)
+
+    sp = sub.add_parser("score", help="score an existing facts json (pure, no hardware)")
+    sp.add_argument("facts")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_score)
+
+    sp = sub.add_parser("apply", help="write the tier's default settings")
+    common(sp)
+    sp.add_argument("--tier", default=None, choices=list(TIERS) + [t.lower() for t in TIERS])
+    sp.add_argument("--override", default=GLOBAL_OVERRIDE)
+    sp.add_argument("--dry-run", action="store_true")
+    sp.add_argument("--no-calibrate", action="store_true")
+    sp.set_defaults(fn=cmd_apply)
+
+    sp = sub.add_parser("status", help="show the recorded profile")
+    sp.add_argument("--json-path", default=DEFAULT_JSON)
+    sp.set_defaults(fn=cmd_status)
+
+    sp = sub.add_parser("detect", help="re-probe only if the hardware changed, then apply")
+    common(sp)
+    sp.add_argument("--json-path", default=DEFAULT_JSON)
+    sp.add_argument("--override", default=GLOBAL_OVERRIDE)
+    sp.add_argument("--no-apply", action="store_true")
+    sp.add_argument("--no-calibrate", action="store_true")
+    sp.set_defaults(fn=cmd_detect)
+
+    args = p.parse_args(argv)
+    if getattr(args, "tier", None):
+        args.tier = args.tier.upper()
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

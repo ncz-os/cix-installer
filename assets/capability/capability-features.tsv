@@ -1,0 +1,41 @@
+# NCZ capability feature map: tier -> default value.
+# Source of truth for `ncz-capability apply` (docs/CAPABILITY-TIERS.md).
+#
+# Columns (tab separated):
+#   feature  kind      target                            T0         T1         T2          T3
+#
+# kind:
+#   gsetting  target is <schema-id>:<key>.  The tier value becomes a *system
+#             default* via 99-ncz-capability.gschema.override; a user's own
+#             `gsettings set` still wins, so this only changes DEFAULTS.
+#   env       target is an environment variable written to
+#             /etc/environment.d/60-ncz-capability.conf, read by the lock saver
+#             feed and the thermal governor (systemd user services + PAM).
+#   flag      target is a flag written to /etc/ncz/capability/features.env,
+#             consumed by wrappers (boot splash, indexer).
+#
+# The values were chosen so a measured-HEALTHY old machine keeps its effects:
+# T2 is the stock Singularity look (effects on); T3 adds the blur material;
+# T1/T0 are the deliberate reductions for machines that measure too slow.
+compositor.background-effect	gsetting	dev.sinty.desktop:background-effect	disabled	disabled	disabled	blur
+compositor.blur-strength	gsetting	dev.sinty.desktop:blur-strength	0	0	60	60
+compositor.window-transparency	gsetting	dev.sinty.desktop:window-transparency	0	0	12	12
+compositor.window-rounded-corners	gsetting	dev.sinty.desktop:window-rounded-corners	false	false	true	true
+compositor.reduce-motion	gsetting	dev.sinty.desktop:reduce-motion	true	true	false	false
+compositor.motion-duration-scale	gsetting	dev.sinty.desktop:motion-duration-scale	0.1	0.5	1.0	1.0
+compositor.idle-dim-screen	gsetting	dev.sinty.desktop:idle-dim-screen	false	false	true	true
+compositor.allow-tearing	gsetting	dev.sinty.desktop:allow-tearing	true	true	false	false
+tour.first-login	gsetting	dev.sinty.desktop:show-tour	false	false	true	true
+screensaver.eligible-set	gsetting	dev.ncz.screensaver:pool-gpu-class	weak	weak	mid	all
+screensaver.render-scale-mode	gsetting	dev.ncz.screensaver:render-scale-mode	fixed	fixed	auto	auto
+screensaver.render-scale	gsetting	dev.ncz.screensaver:render-scale	0.5	0.5	1.0	1.0
+screensaver.max-render-height	gsetting	dev.ncz.screensaver:max-render-height	480	720	1080	0
+screensaver.gpu-offload	gsetting	dev.ncz.screensaver:gpu-offload	off	off	auto	auto
+screensaver.show-all-hacks	gsetting	dev.ncz.screensaver:show-all-hacks	false	false	false	true
+saver.lock-fps	env	NCZ_SAVER_LOCK_FPS	4	6	8	12
+saver.render-div	env	NCZ_SAVER_RENDER_DIV	4	2	2	1
+saver.freeze-intro	env	NCZ_SAVER_FREEZE_AFTER_S	8	12	15	20
+thermal.warm-trip	env	NCZ_FEED_TEMP_WARM_MC	65000	70000	75000	75000
+thermal.hot-trip	env	NCZ_FEED_TEMP_HOT_MC	75000	80000	85000	85000
+splash.mode	flag	CAPABILITY_SPLASH	off	lite	full	full
+indexer.mode	flag	CAPABILITY_INDEXER	off	lite	full	full

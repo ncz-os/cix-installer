@@ -1,0 +1,25 @@
+[Unit]
+Description=NCZ capability: profile the hardware once and set default features by tier
+Documentation=file:///usr/share/doc/ncz-capability/CAPABILITY-TIERS.md
+# One decision per installed hardware configuration.  A hardware change is
+# handled by ncz-capability-recheck.service, not by re-running this unit.
+ConditionPathExists=!/etc/ncz/capability.json
+After=systemd-udev-settle.service local-fs.target
+# Never run before the desktop: the calibration wants the real GPU state, and a
+# first boot has plenty of time.  It is cheap (<10 s) but not free.
+Before=graphical.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+# Probe + apply.  Both are best-effort by design: a profiler failure must never
+# fail a boot.  ExecStartPre collects the facts; ExecStart writes the defaults.
+ExecStartPre=-/usr/bin/ncz-capability probe --out /etc/ncz/capability.json
+ExecStart=/usr/bin/ncz-capability apply
+# Keep the calibration off the critical path and quiet.
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
