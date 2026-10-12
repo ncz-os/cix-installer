@@ -1,0 +1,30 @@
+From 13d801b5e1a2cd87532ec7bc85ad4597959b2e0c Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 12 Oct 2026 09:07:13 -0400
+Subject: [PATCH] lockscreen: do not raise the unlock prompt on pointer enter
+
+---
+ src/lockscreen/lock_main.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
+index fd64006..c97a782 100644
+--- a/src/lockscreen/lock_main.c
++++ b/src/lockscreen/lock_main.c
+@@ -1016,7 +1016,12 @@ static void pt_enter(void *d, struct wl_pointer *p, uint32_t serial,
+     ptr_x = wl_fixed_to_double(sx);
+     ptr_y = wl_fixed_to_double(sy);
+ #ifdef LOCK_FRAMESRC
+-    if (framesrc) raise_prompt();
++    /* Do NOT raise the unlock prompt on pointer ENTER. The full-screen lock
++     * surface is mapped under the (stationary) cursor, so the compositor
++     * delivers a pointer enter with no user input; raising the prompt here
++     * paints the password card at lock time instead of the raw saver frames.
++     * The prompt still raises on the first real key press (kb_key), pointer
++     * button (pt_button) or pointer motion (pt_motion). */
+ #endif
+ }
+ static void pt_leave(void *d, struct wl_pointer *p, uint32_t serial, struct wl_surface *sf) {
+-- 
+2.50.1 (Apple Git-155)
+
