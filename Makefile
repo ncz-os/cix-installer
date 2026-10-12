@@ -731,6 +731,7 @@ parity:
 	build/test-ncz-first-login-tour.sh
 	build/test-login-notice-order.sh
 	build/test-xdg-autostart.sh
+	build/test-lite-profile.sh
 	build/test-refind-rescue-promotion.sh
 	build/test-installer-esp-theme.sh
 	build/test-wallpaper-rotator-relogin.sh

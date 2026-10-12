@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!--
+  rc-lite.fragment.xml -- the labwc (compositor) half of the NCZ-OS lite profile.
+
+  This is DATA, installed to /usr/share/ncz/lite/ by post-install/66-ncz-lite-profile.sh.
+  `ncz-profile lite` reads these values and patches the matching keys in the
+  user's ~/.config/labwc/rc.xml (backing it up to rc.xml.ncz-lite-orig first).
+
+  Note: singularity-desktop regenerates rc.xml from its own GSettings whenever
+  the shortcut set changes, so the durable part of the lite profile is the
+  GSettings (reduce-motion / motion-duration-scale / allow-tearing) that drive
+  these same values. This fragment is the explicit, inspectable statement of
+  what lite wants the compositor to do; it is applied on top whenever the shell
+  is not about to rewrite the file.
+
+  Values:
+    cornerRadius       0        -- square window corners (drops the per-window
+                                   rounded-corner mask; stock is 12)
+    windowAnimations   no       -- no open/close/iconify animations
+    durationScale      0.30     -- remaining animations run at 30% duration
+    allowTearing       fullscreen -- fullscreen clients that ask may tear
+                                   (skips the vblank wait; lower compositor load)
+-->
+<labwc_config>
+  <theme>
+    <cornerRadius>0</cornerRadius>
+  </theme>
+  <core>
+    <windowAnimations>no</windowAnimations>
+    <allowTearing>fullscreen</allowTearing>
+  </core>
+  <animations>
+    <durationScale>0.30</durationScale>
+  </animations>
+</labwc_config>

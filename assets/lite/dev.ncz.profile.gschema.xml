@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  dev.ncz.profile -- the NCZ-OS "lite profile" preference schema.
+
+  OWNED BY cix-installer (data only). This is deliberately a SEPARATE schema
+  id, not a new key in dev.sinty.desktop: the desktop schema is upstream
+  Singularity code and its Settings UI is upstream too. The operator's rule
+  (2026-10-12) is "do NOT patch the Settings UI -- just the key". A separate
+  cix-owned schema gives the key (readable/settable by `gsettings`, by the
+  Settings UI once it grows a row, and by `ncz-profile`) without touching any
+  upstream file.
+
+  Keys:
+    profile       auto | lite | default
+                  The user's explicit choice. 'auto' (the default) lets the
+                  first-login service pick lite when the GPU is weak;
+                  'lite'/'default' pin it and stop the auto select from ever
+                  changing it.
+    lite-applied  b  -- the first-login auto select has already decided for
+                  this user. Once true it is NEVER re-evaluated, so a user who
+                  changes any affected setting afterwards is never overridden
+                  (the "never re-apply after the user changes it" rule). The
+                  user can re-arm the auto select with `ncz-profile auto`.
+
+  The schema compiles standalone into /usr/share/glib-2.0/schemas and is
+  validated with `glib-compile-schemas --strict` by the install hook and the
+  verifier (build/test-lite-profile.sh) before it is trusted.
+-->
+<schemalist>
+  <schema id="dev.ncz.profile" path="/dev/ncz/profile/">
+    <key name="profile" type="s">
+      <choices>
+        <choice value="auto"/>
+        <choice value="lite"/>
+        <choice value="default"/>
+      </choices>
+      <default>'auto'</default>
+      <summary>Performance profile</summary>
+      <description>auto: pick the lite profile on weak graphics and the default profile elsewhere (chosen once, at first login). lite: keep the lite profile. default: keep the stock desktop settings. Change it from a terminal with `ncz-profile lite|default|auto`.</description>
+    </key>
+    <key name="lite-applied" type="b">
+      <default>false</default>
+      <summary>Lite profile has been applied</summary>
+      <description>Set once the first-login profile service has made its decision for this user. While true the automatic selector will not run again, so a manual change to any affected setting is never overwritten. `ncz-profile auto` clears it.</description>
+    </key>
+  </schema>
+</schemalist>

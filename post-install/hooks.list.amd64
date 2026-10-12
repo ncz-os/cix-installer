@@ -54,6 +54,7 @@
 64-ncz-lock-saver-plan.sh
 64-t2-power-cap.sh
 65-ncz-titlebar-buttons.sh
+66-ncz-lite-profile.sh
 70-bootloader.sh
 72-rescue-partition.sh
 85-power-perf-mode.sh
