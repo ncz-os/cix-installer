@@ -490,6 +490,18 @@ else
     gate_miss sensors "$SSO (plugin missing)"
 fi
 
+# --- (ix) NCZ-OS tour slides (post-install/51-ncz-tour-slides.sh) ------------------------------
+# The desktop tour (dev.sinty.tour) is data-driven: ten upstream slides in
+# /opt/singularity/share/singularity/tour/ plus four NCZ slides this project adds
+# (wallpapers, online wallpapers, screensavers, lock screen). Assert all four
+# landed, so a hook that silently skipped (no payload dir, missing asset) is
+# caught instead of shipping a tour that never mentions the new work.
+echo "[verify-target] (ix) NCZ tour slides"
+TOURDIR=/opt/singularity/share/singularity/tour
+for s in 55-ncz-wallpapers 56-ncz-online-wallpapers 65-ncz-screensavers 75-ncz-lock; do
+    exists "$TOURDIR/$s.slide" || gate_miss tour-slides "$TOURDIR/$s.slide (post-install/51-ncz-tour-slides.sh)"
+done
+
 # --- (vi) ncz-screensavers (mandatory on desktop images; operator 2026-10-05) ---------
 # The checks live in verify-installed-target-screensavers.sh (sourced so
 # SS_STATUS / SS_PLUGIN remain in this shell for the [fact] lines below).

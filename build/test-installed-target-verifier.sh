@@ -166,6 +166,11 @@ GSCHEMA
     mkdir -p "$r/opt/singularity/share/glib-2.0/schemas"
     printf '[dev.sinty.lockscreen]\nidle-delay=360\n' \
         > "$r/opt/singularity/share/glib-2.0/schemas/99-ncz-idle-lock-order.gschema.override"
+    # NCZ tour slides installed by 51-ncz-tour-slides.sh (verifier section (ix))
+    mkdir -p "$r/opt/singularity/share/singularity/tour"
+    for s in 55-ncz-wallpapers 56-ncz-online-wallpapers 65-ncz-screensavers 75-ncz-lock; do
+        printf '[Slide]\nOrder=1\nTitle=x\nBody=x\nScene=settings\n' > "$r/opt/singularity/share/singularity/tour/$s.slide"
+    done
     ln -s /usr/lib/systemd/user/ncz-screensaver-idled.service "$r/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"
     printf 'Package: ncz-screensavers\nStatus: install ok installed\nVersion: %s\n\n' "$SS_FLOOR" >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/var/lib/dpkg/info"
@@ -298,6 +303,7 @@ m_wp_stale()    { printf 'old plugin build' > "$1/opt/singularity/lib/singularit
 m_wp_noplugin() { rm -f "$1/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"; }
 m_sens_stale()  { printf 'old sensors build' > "$1/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"; }
 m_sens_missing() { rm -f "$1/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"; }
+m_tour_slides_missing() { rm -f "$1/opt/singularity/share/singularity/tour/75-ncz-lock.slide"; }
 m_id_arch()     { echo arm64 > "$1/usr/local/lib/cix-installer/BUILD_ARCH"; }
 m_id_release()  { echo 'NCZ_PRODUCT_NAME="Other"' > "$1/usr/local/lib/cix-installer/RELEASE"; }
 m_apt_nopin()    { rm -f "$1/etc/apt/preferences.d/10-ncz-origin-separation.pref"; }
@@ -378,6 +384,7 @@ run_case "stale unpatched plugin .so fails"     1 m_wp_stale
 run_case "missing wallpapers-bing plugin fails" 1 m_wp_noplugin
 run_case "stale sensors plugin fails"           1 m_sens_stale
 run_case "missing sensors plugin fails"         1 m_sens_missing
+run_case "NCZ tour slide missing fails"         1 m_tour_slides_missing
 run_case "sudo not installed fails"             1 m_no_sudo
 run_case "arm64: dropped firmware-ipw2x00 is not required" 0 m_fw_notinst_ipw
 run_case "systemd-coredump absent fails"        1 m_no_coredump

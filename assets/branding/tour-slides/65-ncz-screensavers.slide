@@ -1,0 +1,7 @@
+[Slide]
+Order=65
+Title=Screensavers
+Body=There are 74 screensavers, in eight categories such as Space & Cosmos and Neon & Synthwave. They come in four families: classic 3D hacks, shader art, the Hyprsaver set, and in-house savers made for NCZ-OS, including Black Hole, Fractasia and Magmasimplex. Black Hole and Fractasia run on any graphics; Magmasimplex looks best on a stronger GPU, and the chooser picks settings to suit your machine.
+Scene=settings
+Action=settings:lock
+ActionLabel=Open Settings

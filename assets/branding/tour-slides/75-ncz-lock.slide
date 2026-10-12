@@ -1,0 +1,5 @@
+[Slide]
+Order=75
+Title=Lock screen with a screensaver
+Body=When you lock the screen or step away, your screensaver plays for a few seconds, then holds still to keep the machine cool and quiet. Touch the keyboard or trackpad and the password prompt appears over it. Nothing is shown until you sign in.
+Scene=done
