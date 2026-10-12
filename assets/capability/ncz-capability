@@ -416,18 +416,22 @@ def disk_bench(root="", seconds=2.0, workdir=None):
         # Write every extent (not ftruncate): a sparse file reads as fast zeros
         # and would score a spinning disk like an NVMe.
         chunk = b"\xa5" * (1 << 20)
-        written = 0
-        while written < size:
-            os.write(fd, chunk)
-            written += len(chunk)
-        os.fsync(fd)
-        os.close(fd)
+        try:
+            written = 0
+            while written < size:
+                os.write(fd, chunk)
+                written += len(chunk)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
         # best-effort cold cache: fadvise works unprivileged for our own file;
         # drop_caches is the root fallback for the first-boot service.
         try:
             rfd = os.open(path, os.O_RDONLY)
-            os.posix_fadvise(rfd, 0, 0, os.POSIX_FADV_DONTNEED)
-            os.close(rfd)
+            try:
+                os.posix_fadvise(rfd, 0, 0, os.POSIX_FADV_DONTNEED)
+            finally:
+                os.close(rfd)
         except (AttributeError, OSError):
             try:
                 with open(P(root, "proc/sys/vm/drop_caches"), "w") as fh:
@@ -587,23 +591,27 @@ def _gl_bench_on(libegl, libgles, display, tag):
     glClearColor = glproto("glClearColor", None, [ctypes.c_float] * 4)
     glClear = glproto("glClear", None, [ctypes.c_uint])
 
-    def cstr(s):
-        return ctypes.c_char_p(s.encode())
-
     renderer = (glGetString(GL_RENDERER) or b"?").decode("utf-8", "replace")
     version = (glGetString(GL_VERSION) or b"?").decode("utf-8", "replace")
 
-    vs_src = cstr("#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));"
-                  "gl_Position=vec4(p*2.0-1.0,0.0,1.0);}\n")
-    fs_src = cstr("#version 300 es\nprecision highp float;\nout vec4 o;\nuniform float u;\n"
-                  "void main(){float a=gl_FragCoord.x*0.0001+gl_FragCoord.y*0.0001+u;\n"
-                  "for(int i=0;i<160;i++){a=sin(a)*1.0007+0.311;}o=vec4(a,a*0.7,a*0.4,1.0);}\n")
+    vs_src = ("#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));"
+              "gl_Position=vec4(p*2.0-1.0,0.0,1.0);}\n")
+    fs_src = ("#version 300 es\nprecision highp float;\nout vec4 o;\nuniform float u;\n"
+              "void main(){float a=gl_FragCoord.x*0.0001+gl_FragCoord.y*0.0001+u;\n"
+              "for(int i=0;i<160;i++){a=sin(a)*1.0007+0.311;}o=vec4(a,a*0.7,a*0.4,1.0);}\n")
 
-    def compile_shader(kind, src):
+    def compile_shader(kind, src_text):
+        # Build the C string array AND an explicit length array, and keep both
+        # alive for the duration of the glShaderSource call (passing a bare
+        # length of NULL relies on NUL-termination and is what a reviewer
+        # rightly flagged as fragile in ctypes).
+        data = src_text.encode()
+        arr = (ctypes.c_char_p * 1)(data)
+        lengths = (ctypes.c_int * 1)(len(data))
         sh = glCreateShader(kind)
-        arr = (ctypes.c_char_p * 1)(src)
-        glShaderSource(sh, 1, arr, None)
+        glShaderSource(sh, 1, arr, lengths)
         glCompileShader(sh)
+        del arr, lengths
         ok = ctypes.c_int(0)
         glGetShaderiv(sh, 0x8B81, ctypes.byref(ok))  # GL_COMPILE_STATUS
         return sh if ok.value else None
@@ -804,7 +812,8 @@ def display_info(root=""):
         w = h = 0
         modes = os.path.join(os.path.dirname(status), "modes")
         try:
-            first = open(modes).read().splitlines()[0]
+            with open(modes) as fh:
+                first = fh.read().splitlines()[0]
             m = re.match(r"(\d+)x(\d+)", first)
             if m:
                 w, h = int(m.group(1)), int(m.group(2))
@@ -1150,10 +1159,24 @@ def load_features(path=None):
 
 
 def features_for_tier(tier, path=None):
+    """Return {feature: {kind,target,value}} for a tier.
+
+    `tier` must be one of TIERS; an unknown tier is an error rather than a quiet
+    fall back to T2 (a silent richer default would be the wrong failure mode).
+    """
+    if tier not in TIER_INDEX:
+        raise ValueError("unknown capability tier %r" % (tier,))
     out = {}
     for f in load_features(path):
-        out[f["feature"]] = {"kind": f["kind"], "target": f["target"],
-                             "value": f["values"].get(tier, f["values"]["T2"])}
+        # the TSV always carries T0..T3; if a future edit drops one, fall back
+        # to the nearest LOWER tier present, never to a richer one.
+        values = f["values"]
+        if tier in values:
+            value = values[tier]
+        else:
+            lower = [t for t in TIERS if t in values and TIER_INDEX[t] <= TIER_INDEX[tier]]
+            value = values[lower[-1]] if lower else values[min(values, key=lambda t: TIER_INDEX.get(t, 0))]
+        out[f["feature"]] = {"kind": f["kind"], "target": f["target"], "value": value}
     return out
 
 
@@ -1162,27 +1185,28 @@ def parse_override(path):
     res = {"tier": None, "overrides": {}, "gsettings": {}, "env": {}, "flags": {}}
     if not path or not os.path.isfile(path):
         return res
-    for raw in open(path):
-        line = raw.split("#", 1)[0].strip()
-        if not line:
-            continue
-        if "=" not in line:
-            continue
-        k, v = (s.strip() for s in line.split("=", 1))
-        v = v.strip().strip("'\"")
-        if k.lower() == "tier":
-            if v.upper() in TIER_INDEX:
-                res["tier"] = v.upper()
-        elif k.startswith("feature."):
-            res["overrides"][k[len("feature."):]] = v
-        elif k.startswith("gsetting."):
-            res["gsettings"][k[len("gsetting."):]] = v
-        elif k.startswith("env."):
-            res["env"][k[len("env."):]] = v
-        elif k.startswith("flag."):
-            res["flags"][k[len("flag."):]] = v
-        else:
-            res["overrides"][k] = v
+    with open(path) as fh:
+        for raw in fh:
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            if "=" not in line:
+                continue
+            k, v = (s.strip() for s in line.split("=", 1))
+            v = v.strip().strip("'\"")
+            if k.lower() == "tier":
+                if v.upper() in TIER_INDEX:
+                    res["tier"] = v.upper()
+            elif k.startswith("feature."):
+                res["overrides"][k[len("feature."):]] = v
+            elif k.startswith("gsetting."):
+                res["gsettings"][k[len("gsetting."):]] = v
+            elif k.startswith("env."):
+                res["env"][k[len("env."):]] = v
+            elif k.startswith("flag."):
+                res["flags"][k[len("flag."):]] = v
+            else:
+                res["overrides"][k] = v
     return res
 
 
@@ -1233,8 +1257,9 @@ def _schema_dir_for(root, schema_id):
         if glob.glob(os.path.join(d, "*.gschema.xml")):
             try:
                 for f in glob.glob(os.path.join(d, "*.gschema.xml")):
-                    if ('id="%s"' % schema_id) in open(f, errors="replace").read():
-                        return d
+                    with open(f, errors="replace") as fh:
+                        if ('id="%s"' % schema_id) in fh.read():
+                            return d
             except OSError:
                 continue
     return None
@@ -1384,8 +1409,8 @@ def apply_service_defaults(indexer_mode, root="", dry_run=False, log=print):
     state = []
     state_path = SERVICE_STATE
     if os.path.isfile(state_path):
-        state = [l.strip() for l in open(state_path) if l.strip()]
-    dropin_dir = "/etc/systemd/system/tracker-miner-fs-3.service.d"
+        with open(state_path) as fh:
+            state = [l.strip() for l in fh if l.strip()]
 
     def run_systemctl(*args):
         try:
@@ -1413,17 +1438,25 @@ def apply_service_defaults(indexer_mode, root="", dry_run=False, log=print):
             fh.write("\n".join(state) + "\n")
         log("[capability] service defaults: T0 disabled %d background indexer(s)" % len(state))
     elif mode == "lite":
-        os.makedirs(dropin_dir, exist_ok=True)
-        with open(os.path.join(dropin_dir, "10-ncz-capability-lite.conf"), "w") as fh:
-            fh.write("[Service]\nCPUWeight=20\nIOWeight=20\n")
+        units = [u for u in SERVICE_ALLOWLIST if present(u)]
+        for unit in units:
+            d = "/etc/systemd/system/%s.d" % unit
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "10-ncz-capability-lite.conf"), "w") as fh:
+                fh.write("[Service]\nCPUWeight=20\nIOWeight=20\n")
         run_systemctl("daemon-reload")
-        log("[capability] service defaults: T1 set indexer scheduling weight low")
+        log("[capability] service defaults: T1 lowered scheduling weight for %d indexer(s)" % len(units))
     else:
-        # restore: remove our drop-in, re-enable only the units we disabled
-        for d in ("/etc/systemd/system/tracker-miner-fs-3.service.d/10-ncz-capability-lite.conf",
-                  "/etc/systemd/system/tracker-miner-fs-4.service.d/10-ncz-capability-lite.conf"):
+        # restore: remove our drop-in for every allowlist unit (present or not)
+        # and re-enable only the units WE disabled.
+        for unit in SERVICE_ALLOWLIST:
+            d = "/etc/systemd/system/%s.d" % unit
             try:
-                os.unlink(d)
+                os.unlink(os.path.join(d, "10-ncz-capability-lite.conf"))
+            except OSError:
+                pass
+            try:
+                os.rmdir(d)   # succeeds only when we left it empty
             except OSError:
                 pass
         for unit in state:
@@ -1442,24 +1475,25 @@ def apply_defaults(facts, scored, cli_tier=None, override_path=GLOBAL_OVERRIDE,
     ov = parse_override(override_path)
     tier = resolve_tier(facts, scored, ov, cli_tier)
     features = features_for_tier(tier)
+    # Apply the override file: a `feature.` entry rewrites a mapped feature; an
+    # `env.`/`flag.` entry rewrites the existing target or adds a new one; a
+    # `gsetting.` entry is merged into the generated override body.  Each source
+    # is applied exactly once.
     for k, v in ov["overrides"].items():
         if k in features:
             features[k]["value"] = v
-    # Apply user gsettings/env/flag overrides from the file too.
-    overrides = build_gsettings_overrides(features, extra=ov["gsettings"])
+    by_target = {f["target"]: f for f in features.values() if f.get("kind") in ("env", "flag")}
     for name, val in ov["env"].items():
-        features.setdefault(name, {"kind": "env", "target": name, "value": val})
+        if name in by_target:
+            by_target[name]["value"] = val
+        else:
+            features[name] = {"kind": "env", "target": name, "value": val}
     for name, val in ov["flags"].items():
-        features.setdefault(name, {"kind": "flag", "target": name, "value": val})
-    # keep the env/flag overrides from the file in the written files
-    for k, v in ov["env"].items():
-        for f in features.values():
-            if f.get("kind") == "env" and f.get("target") == k:
-                f["value"] = v
-    for k, v in ov["flags"].items():
-        for f in features.values():
-            if f.get("kind") == "flag" and f.get("target") == k:
-                f["value"] = v
+        if name in by_target:
+            by_target[name]["value"] = val
+        else:
+            features[name] = {"kind": "flag", "target": name, "value": val}
+    overrides = build_gsettings_overrides(features, extra=ov["gsettings"])
     log("[capability] tier=%s (measured %s, score %s)" % (tier, scored["tier"], scored["score"]))
     written = write_gsettings_override(root, overrides, dry_run=dry_run, log=log)
     write_env_files(features, env_file, feature_env, dry_run=dry_run, log=log, root=root)
@@ -1469,7 +1503,8 @@ def apply_defaults(facts, scored, cli_tier=None, override_path=GLOBAL_OVERRIDE,
     # root must not touch the host's /etc/ncz/capability.json).
     if root == "" and not dry_run and os.path.isfile(json_default):
         try:
-            doc = json.load(open(json_default))
+            with open(json_default) as fh:
+                doc = json.load(fh)
             doc["applied_tier"] = tier
             doc["applied_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             tmp = json_default + ".tmp"
@@ -1574,7 +1609,8 @@ def cmd_probe(args):
 
 
 def cmd_score(args):
-    facts = json.load(open(args.facts))
+    with open(args.facts) as fh:
+        facts = json.load(fh)
     if "facts" in facts:
         facts = facts["facts"]
     doc = build_doc(facts, args)
@@ -1607,6 +1643,7 @@ def cmd_check(args):
     for d in dirs:
         present = sorted(s for s in overrides if _schema_dir_for(args.root, s) == d)
         body = "\n".join(overrides[s].rstrip("\n") for s in present) + "\n"
+        rc, out = 1, ""
         try:
             with tempfile.TemporaryDirectory() as scratch:
                 for pat in ("*.gschema.xml", "*.enums.xml", "*.gschema.override"):
@@ -1633,7 +1670,8 @@ def cmd_check(args):
 
 def _facts_from_json(path):
     try:
-        doc = json.load(open(path))
+        with open(path) as fh:
+            doc = json.load(fh)
     except (OSError, ValueError):
         return None
     if isinstance(doc, dict) and "facts" in doc:
@@ -1670,7 +1708,8 @@ def cmd_apply(args):
 
 def cmd_status(args):
     if os.path.isfile(args.json_path):
-        doc = json.load(open(args.json_path))
+        with open(args.json_path) as fh:
+            doc = json.load(fh)
         print(human_summary(doc))
         print("  applied  : tier %s" % doc.get("applied_tier", "?"))
     else:
@@ -1685,7 +1724,8 @@ def cmd_detect(args):
         print("no profile; probing")
         args.out = args.json_path
         return cmd_probe(args)
-    old = json.load(open(args.json_path))
+    with open(args.json_path) as fh:
+        old = json.load(fh)
     facts = collect_facts(root=args.root, calibrate=True)
     new_sig = compute_signature(facts)
     old_sig = old.get("signature")

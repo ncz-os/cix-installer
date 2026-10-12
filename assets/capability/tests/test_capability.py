@@ -140,9 +140,15 @@ def test_features_and_override():
           all(k in feats for k in ("compositor.background-effect", "screensaver.render-scale",
                                    "saver.lock-fps", "splash.mode")))
     check("T0 blur off", feats["compositor.blur-strength"]["value"] == "0")
+    t0 = CAP.features_for_tier("T0")
     t3 = CAP.features_for_tier("T3")
-    check("T3 blur on", t3["compositor.blur-strength"]["value"] == "60")
-    check("T3 saver fps highest", int(t3["saver.lock-fps"]["value"]) >= int(t3["saver.render-div"]["value"]) or True)
+    # T3 must be strictly richer than T0 on both the saver frame rate and render
+    # resolution (guard against a copy/paste in the TSV collapsing two tiers).
+    check("T3 saver fps > T0 saver fps",
+          int(t3["saver.lock-fps"]["value"]) > int(t0["saver.lock-fps"]["value"]),
+          "T3=%s T0=%s" % (t3["saver.lock-fps"]["value"], t0["saver.lock-fps"]["value"]))
+    check("T3 render-div < T0 render-div (higher resolution)",
+          int(t3["saver.render-div"]["value"]) < int(t0["saver.render-div"]["value"]))
 
     ov = CAP.parse_override(None)
     check("empty override", ov["tier"] is None and not ov["overrides"])
@@ -153,8 +159,8 @@ def test_features_and_override():
     try:
         ov = CAP.parse_override(path)
         check("override tier parsed", ov["tier"] == "T1")
-        check("override feature parsed", ov["overrides"].get("feature.screensaver.render-scale") or
-              ov["overrides"].get("screensaver.render-scale") == "0.25" or True)
+        check("override feature parsed", ov["overrides"].get("screensaver.render-scale") == "0.25",
+              "got %r" % ov["overrides"])
         # the file uses the bare feature name
         check("override feature key", "screensaver.render-scale" in ov["overrides"])
         scored = CAP.score(fixture("chimera.json"))

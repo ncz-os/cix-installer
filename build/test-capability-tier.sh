@@ -113,7 +113,7 @@ else
 fi
 [ -f "$AROOT/etc/environment.d/60-ncz-capability.conf" ] && ok "env defaults written" || bad "env defaults missing"
 [ -f "$AROOT/etc/ncz/capability/features.env" ] && ok "feature flags written" || bad "feature flags missing"
-if grep -q '^NCZ_SAVER_LOCK_FPS=4$' "$AROOT/etc/environment.d/60-ncz-capability.conf" 2>/dev/null; then ok "T0 env value (saver fps 4) applied"; else bad "T0 env value wrong: $(grep SAver "$AROOT/etc/environment.d/60-ncz-capability.conf" 2>/dev/null)"; fi
+if grep -q '^NCZ_SAVER_LOCK_FPS=4$' "$AROOT/etc/environment.d/60-ncz-capability.conf" 2>/dev/null; then ok "T0 env value (saver fps 4) applied"; else bad "T0 env value wrong: $(grep LOCK_FPS "$AROOT/etc/environment.d/60-ncz-capability.conf" 2>/dev/null)"; fi
 if grep -q '^CAPABILITY_SPLASH=off$' "$AROOT/etc/ncz/capability/features.env" 2>/dev/null; then ok "T0 splash flag off"; else bad "T0 splash flag wrong"; fi
 OVR_FILE="$(find "$ASCH" -name '99-ncz-capability.gschema.override' 2>/dev/null | head -1)"
 if [ -n "$OVR_FILE" ]; then
