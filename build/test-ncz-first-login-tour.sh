@@ -51,8 +51,9 @@ else
 fi
 
 # --- environment stubs -------------------------------------------------------------------------
+SANDBOX_N=0
 mk_sandbox() {   # fresh state/home each case
-    S="$W/s-$RANDOM"; mkdir -p "$S/home" "$S/state" "$S/config"
+    SANDBOX_N=$((SANDBOX_N + 1)); S="$W/s-$SANDBOX_N"; mkdir -p "$S/home" "$S/state" "$S/config"
 }
 # base "everything fine" knobs; individual cases flip one.
 pretend() {
@@ -121,10 +122,15 @@ unset CASE_EXTRA
 mk_sandbox; CASE_LOCKED=1 out="$(CASE_EXTRA="NCZ_TOUR_DRYRUN=1" pretend show 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && [ ! -e "$S/state/ncz/tour-seen" ]; then ok "show (locked) defers and leaves the marker unwritten"; else bad "show (locked) wrote the marker or failed (rc=$rc, $out)"; fi
 
-# opt-out: show is a no-op and does not write the marker
+# opt-out (admin file): show is a no-op and does not write the marker
 mk_sandbox; : >"$S/optout"
 out="$(CASE_EXTRA="NCZ_TOUR_OPT_OUT=$S/optout NCZ_TOUR_DRYRUN=1" pretend show 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && [ ! -e "$S/state/ncz/tour-seen" ]; then ok "show (opt-out) does not write the marker"; else bad "show (opt-out) misbehaved (rc=$rc, $out)"; fi
+if [ "$rc" = 0 ] && [ ! -e "$S/state/ncz/tour-seen" ]; then ok "show (admin opt-out) does not write the marker"; else bad "show (admin opt-out) misbehaved (rc=$rc, $out)"; fi
+
+# opt-out (user file under the config dir): same
+mk_sandbox; mkdir -p "$S/config/ncz"; : >"$S/config/ncz/no-first-login-tour"
+out="$(CASE_EXTRA="NCZ_TOUR_DRYRUN=1" pretend show 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && [ ! -e "$S/state/ncz/tour-seen" ]; then ok "show (user opt-out) does not write the marker"; else bad "show (user opt-out) misbehaved (rc=$rc, $out)"; fi
 unset CASE_EXTRA
 
 # marker path is user-writable state, resolved under XDG_STATE_HOME

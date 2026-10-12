@@ -86,9 +86,8 @@ has_connected_output() {
     if [ -n "${NCZ_TOUR_DRM_STATUS:-}" ]; then
         case ",${NCZ_TOUR_DRM_STATUS}," in *,connected,*) return 0 ;; *) return 1 ;; esac
     fi
-    set -- /sys/class/drm/card*-*/status
-    [ -e "$1" ] || return 1
-    for st in "$@"; do
+    for st in /sys/class/drm/card*-*/status; do
+        [ -e "$st" ] || continue
         [ -r "$st" ] || continue
         [ "$(cat "$st" 2>/dev/null)" = connected ] && return 0
     done
@@ -155,8 +154,9 @@ wait_for_shell() {
 
 open_tour() {
     if [ -n "${NCZ_TOUR_LAUNCH:-}" ]; then
-        # shellcheck disable=SC2086
-        $NCZ_TOUR_LAUNCH
+        # Test hook: a single command path, executed without word-splitting so
+        # a value can never inject extra words or shell metacharacters.
+        "$NCZ_TOUR_LAUNCH"
         return $?
     fi
     if command -v gtk-launch >/dev/null 2>&1; then
