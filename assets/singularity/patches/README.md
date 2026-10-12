@@ -59,11 +59,13 @@ Delete this patch once PR #37 merges.
 
 **Not yet filed upstream** (2026-10-11). Patches
 `0013-lockscreen-honour-output-scale.patch`,
-`0014-lockscreen-host-an-out-of-process-frame-source.patch` and
-`0015-lockscreen-overlay-unlock-prompt-on-screensaver.patch`, applied in that order
+`0014-lockscreen-host-an-out-of-process-frame-source.patch`,
+`0015-lockscreen-overlay-unlock-prompt-on-screensaver.patch` and
+`0016-lockscreen-no-prompt-on-pointer-enter.patch`, applied in that order
 (0014 depends on the `struct lock_output.scale` field that 0013 adds; 0015
 extends 0014's frame-source hook to also hold the source during input, so the
-unlock prompt composites over the live saver rather than a flat background).
+unlock prompt composites over the live saver rather than a flat background;
+0016 fixes the raise-on-lock defect described below).
 
 - `0013` makes the session-lock client render at the output's scale instead of
   letting the compositor upscale (the lock screen and its prompt were blurry on a
@@ -82,9 +84,20 @@ unlock prompt composites over the live saver rather than a flat background).
   scrim (the prompt hides again after the idle delay and the raw frames return).
   Same build flag (`-Dlock_framesrc=enabled`); no upstream PR link on purpose;
   nothing filed upstream for this part either.
+- `0016` fixes a defect in `0015`: the prompt was raised from the pointer ENTER
+  handler, so on a host where the full-screen lock surface maps under the
+  (stationary) cursor the compositor's enter (no user action) painted the
+  password card at lock time instead of the raw saver frames. The prompt now
+  raises only on a real key press, pointer button or pointer movement; a motion
+  delivered at the entered position (an initial motion some compositors send)
+  is ignored because the position did not change. Same build flag; no upstream
+  PR link (nothing filed upstream for this part either). The regression is
+  pinned by `tests/lockscreen-framesrc/test-framesrc.sh` cases 7-9
+  (`idle -> lock, no prompt before input`).
 
-Neither has a `**Upstream PR:**` link on purpose (nothing is filed; the mirkoprs
-task owns the upstream offer). Delete them if/when the corresponding change lands
+None of 0013-0016 has a `**Upstream PR:**` link on purpose (nothing is filed; the
+mirkoprs task owns the upstream offer). Delete them if/when the corresponding
+change lands
 upstream.
 
 ## singularity-greeter — active
