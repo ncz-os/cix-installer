@@ -103,8 +103,8 @@ run "arm64: 7.3.0-rc6 mainline (rc default allowed)" 0 --root "$r" --arch arm64
 r="$WORK/p2"; mkroot "$r" "7.3.0-sky1-ncz" "7.3.0-sky1-ncz"
 printf 'DEFAULT_BASE=7.3\nRESCUE_SAME_KERNEL=1\nRESCUE_ARM64_BLACKLIST=panthor\nEDGE_ENABLED=0\n' > "$r/assets/kernel/KERNEL-POLICY"
 run "arm64: 7.3.0 final mainline (no rc allowance)" 0 --root "$r" --arch arm64
-r="$WORK/p3"; mkamd64 "$r" "7.3.0-rc6-4-t2-edge-aer9010" "7.3.0-rc6-4-t2-edge-aer9010"; pin "$r"
-run "amd64: 7.3.0-rc6 default (9010 revert build)" 0 --root "$r" --arch amd64
+r="$WORK/p3"; mkamd64 "$r" "7.3.0-rc7-t2-ncz" "7.3.0-rc7-t2-ncz"; pin "$r"
+run "amd64: 7.3.0-rc7 default (Wunner + SEP ANFE quirk)" 0 --root "$r" --arch amd64
 
 echo "=== Negative: retired 7.2.x ==="
 r="$WORK/n1"; mkroot "$r" "7.2.9-sky1-ncz" "7.2.9-sky1-ncz"
@@ -134,8 +134,8 @@ run "arm64: EDGE_ENABLED=1 refused" 1 --root "$r" --arch arm64
 r="$WORK/n6"; mkroot "$r" "7.3.0-rc6-sky1-ncz" "7.3.0-rc6-sky1-ncz"; pin "$r"
 mkdir -p "$r/assets/kernel/edge"; printf '7.3.0-rc6-sky1-ncz\n' > "$r/assets/kernel/edge/KVER"
 run "arm64: assets/kernel/edge still present refused" 1 --root "$r" --arch arm64
-r="$WORK/n7"; mkamd64 "$r" "7.3.0-rc6-4-t2-edge-aer9010" "7.3.0-rc6-4-t2-edge-aer9010"; pin "$r"
-mkdir -p "$r/assets/kernel/amd64-edge"; printf '7.3.0-rc6-4-t2-edge-aer9010\n' > "$r/assets/kernel/amd64-edge/KVER"
+r="$WORK/n7"; mkamd64 "$r" "7.3.0-rc7-t2-ncz" "7.3.0-rc7-t2-ncz"; pin "$r"
+mkdir -p "$r/assets/kernel/amd64-edge"; printf '7.3.0-rc7-t2-ncz\n' > "$r/assets/kernel/amd64-edge/KVER"
 run "amd64: assets/kernel/amd64-edge still present refused" 1 --root "$r" --arch amd64
 r="$WORK/n8"; mkroot "$r" "7.3.0-rc6-sky1-ncz" "7.3.0-rc6-sky1-ncz"; pin "$r"
 mkdir -p "$r/assets/kernel/mali/7.2.9-sky1-ncz"; printf 'x\n' > "$r/assets/kernel/mali/7.2.9-sky1-ncz/mali_kbase.ko"
