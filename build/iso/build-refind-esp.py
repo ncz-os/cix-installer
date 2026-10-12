@@ -369,7 +369,7 @@ REFIND_CONF_TEXT_AMD64_FULL_TEMPLATE = REFIND_CONF_TEXT_TEMPLATE
 
 
 # ---------------------------------------------------------------------------
-# amd64 installer ESP: GRAPHICS mode with an explicitly programmed GOP mode.
+# amd64 installer ESP: GRAPHICS mode, firmware-chosen GOP mode (`resolution max`).
 #
 # 2026-10-11 (PROTEUS d-i video regression). The amd64 installer ESP is
 # PC-only: its Install/Expert entries use console=tty0 with NO serial
@@ -380,20 +380,37 @@ REFIND_CONF_TEXT_AMD64_FULL_TEMPLATE = REFIND_CONF_TEXT_TEMPLATE
 # inherited whatever mode the HP/Insyde firmware happened to leave programmed
 # for the 4K HDMI sink -- a value that varies boot to boot. On PROTEUS
 # (Arrow Lake i915 8086:7d67, ViewSonic VP2488-4K, HDMI) that left BOTH
-# rEFInd and d-i painting only the left third of the panel, and the defect
-# reappeared even though the initrd now carries the full i915 firmware plus
-# `nomodeset` (fix/di-display-i915fw). It is a firmware/rEFInd-level defect,
-# not a kernel/i915 one -- it shows on the initial rEFInd screen.
+# rEFInd and d-i painting only the left third of the panel (a GOP-stride vs
+# efifb-linelength mismatch). It is a firmware/rEFInd-level defect, not a
+# kernel/i915 one -- it shows on the initial rEFInd screen.
 #
-# Fix: program a deterministic lower-common-denominator GOP mode BEFORE the
-# kernel:
-#   * resolution 1920 1080 -- 1080p is the mode the PROTEUS firmware GOP
-#     actually exposes (the failing installer's efifb was exactly
-#     1920x1080x32, linelength 7680). rEFInd's manual is explicit that the
-#     width and height must be TWO space-separated integers: `resolution
-#     1920x1080` is parsed as ONE option and silently falls back to the
-#     firmware default -- which is why the didisplay KVM A/B (E5-E8), which
-#     used the x-form, measured "resolution had no effect".
+# 2026-10-12 (T2 Mac unattended-install pause). The first PROTEUS fix pinned
+# `resolution 1920 1080`. On BOTH T2 MacBooks the firmware GOP exposes exactly
+# ONE mode (3584x2240), so `egSetScreenSize()` could not find the requested
+# mode and fell into its unconditional failure branch:
+#   "Error setting graphics mode 1920 x 1080; using default mode!
+#    Available modes are: Mode 0: 3584 x 2240"
+# followed by `PauseForKey()` -- a mandatory key press that breaks unattended
+# installs. There is NO rEFInd 0.14.1 config option to suppress that pause:
+# `libeg/screen.c egSetScreenSize()` calls `PauseForKey()` directly and no
+# `log_level`/`hideui`/`scan_delay`/`timeout` setting reaches it. A fixed
+# `W H` pair is therefore not acceptable -- not even "the PROTEUS mode", since
+# the firmware GOP's mode list is itself sink/EDID-dependent (on PROTEUS
+# 2026-10-12 the GOP listed only up to 1024x768, so `resolution 1920 1080`
+# would have paused there too).
+#
+# Fix: `resolution max`. rEFInd resolves "max" by QueryMode()-ing the modes the
+# firmware actually exposes, then SetMode()-ing the largest of them
+# (`libeg/screen.c egSetMaxResolution()`). That mode is guaranteed to exist, so
+# egSetScreenSize() can never fall into the error/pause branch -- on a T2 Mac
+# (single 3584x2240 mode) it selects that one mode; on a PC it selects the
+# largest mode the firmware GOP reports. It still explicitly programs a real
+# GOP mode before the kernel, which is what keeps the d-i framebuffer stride-
+# consistent (the PROTEUS left-third fix). This also matches the installed-
+# system generator (assets/refind/ncz-refind-refresh-amd64.sh) and
+# docs/REFIND-THEME.md, which already use `resolution max` and explicitly
+# reject pinning a resolution.
+#
 #   * use_graphics_for linux,grub -- keep the graphics GOP mode across the
 #     handoff to the EFI-stub d-i kernel; otherwise rEFInd clears the screen
 #     for its own boot-info display and the kernel can inherit a reset mode.
@@ -403,13 +420,6 @@ REFIND_CONF_TEXT_AMD64_FULL_TEMPLATE = REFIND_CONF_TEXT_TEMPLATE
 #     `textonly` line alone changes nothing. build_esp_dir() copies the
 #     tracked assets/refind/icons tree into EFI/BOOT/icons and
 #     EFI/REFIND/icons for amd64.
-#   * `Install - safe video mode` re-launches rEFInd with refind-safe.conf,
-#     which programs an 800x600 GOP. rEFInd has NO per-menuentry resolution
-#     on UEFI PCs (the stanza `graphics` token "has an effect only on
-#     Macintoshes"; resolution/textmode are global only), so a second rEFInd
-#     instance is the only way to offer a different GOP mode from the same
-#     menu without rebuilding the ESP. The same three modes are also staged
-#     as USB drop-in variants (see oc-mission-20261010/refindres/usb-variants).
 # ---------------------------------------------------------------------------
 REFIND_CONF_TEXT_AMD64_GRAPHICS_TEMPLATE = """\
 #
@@ -425,70 +435,24 @@ REFIND_CONF_TEXT_AMD64_GRAPHICS_TEMPLATE = """\
 # scanfor manual: ignore auto-scanned disks; use only the explicit entries.
 # use_graphics_for linux,grub: keep the graphics GOP mode across handoff to
 #   the EFI-stub d-i kernel so efifb inherits the mode set here.
-# resolution 1920 1080: deterministic lower-common-denominator GOP mode,
-#   programmed BEFORE the kernel. TWO space-separated integers -- NEVER
-#   "1920x1080" (rEFInd reads that as one option and ignores it). Do NOT add
-#   `textonly` here: textonly skips GOP SetMode and the kernel inherits the
-#   firmware's boot-default mode (the PROTEUS left-third bug). The icons/
-#   tree next to this file is required -- without it rEFInd forces text mode.
+# resolution max: rEFInd QueryMode()s the firmware GOP and SetMode()s the
+#   largest mode it reports. That mode always exists, so rEFInd can NEVER
+#   print "Error setting graphics mode ... Hit any key to continue" and PAUSE
+#   -- the T2 Mac defect with a pinned `resolution 1920 1080`. Do NOT pin a
+#   `resolution W H` pair: a firmware whose GOP lacks that exact mode (a T2
+#   Mac exposes only 3584x2240) fails the SetMode and pauses for a key,
+#   breaking unattended installs. Do NOT use a single mode number (firmware-
+#   specific index, same failure) or omit `resolution` (rEFInd then never
+#   calls SetMode; the kernel inherits the firmware's boot-default mode, the
+#   PROTEUS left-third bug). Do NOT add `textonly` here either -- same
+#   inherited-mode problem. The icons/ tree next to this file is required:
+#   without it rEFInd silently forces text mode ("Icons directory doesn't
+#   exist; setting textonly = TRUE!").
 #
 
 timeout 3
 use_graphics_for linux,grub
-resolution 1920 1080
-scanfor manual
-
-menuentry "{info_line}" {{
-    disabled
-}}
-
-menuentry "NCZ-OS Installer -- Install" {{
-    loader /linux
-    initrd /initrd.gz
-    options "{install_options}"
-}}
-
-menuentry "NCZ-OS Installer -- Install (expert)" {{
-    loader /linux
-    initrd /initrd.gz
-    options "{expert_options}"
-}}
-
-menuentry "NCZ-OS Installer -- Install - safe video mode (800x600)" {{
-    loader /EFI/BOOT/BOOTX64.EFI
-    options "-c refind-safe.conf"
-}}
-
-menuentry "NCZ-OS Installer -- Rescue mode" {{
-    loader /linux
-    initrd /initrd.gz
-    options "{rescue_options}"
-}}
-
-menuentry "NCZ-OS Installer -- Reinstall (preserve installed system)" {{
-    disabled
-}}
-"""
-
-# refind-safe.conf: entered by the "safe video mode" entry above, which
-# re-launches rEFInd with `-c refind-safe.conf`. Same explicit entries, but a
-# smaller GOP mode for firmware that mis-sizes the larger one. It deliberately
-# does NOT carry the safe entry itself (no recursion): picking it a second time
-# would just show the same menu.
-REFIND_CONF_TEXT_AMD64_SAFE_TEMPLATE = """\
-#
-# refind-safe.conf -- generated by build/iso/build-refind-esp.py
-#
-# Entered from the main menu's "safe video mode" entry, which re-launches
-# rEFInd with `-c refind-safe.conf` to program this GOP mode. Same explicit
-# entries as the main config; 800x600 is a conservative mode most firmware
-# GOPs expose. No `textonly`: rEFInd is in graphics mode so it actually calls
-# GOP SetMode before the kernel inherits the framebuffer.
-#
-
-timeout 3
-use_graphics_for linux,grub
-resolution 800 600
+resolution max
 scanfor manual
 
 menuentry "{info_line}" {{
@@ -572,12 +536,6 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
             expert_options=AMD64_EXPERT_OPTIONS,
             rescue_options=AMD64_RESCUE_OPTIONS,
         )
-        safe_conf_text = REFIND_CONF_TEXT_AMD64_SAFE_TEMPLATE.format(
-            info_line=info_line,
-            install_options=AMD64_INSTALL_OPTIONS,
-            expert_options=AMD64_EXPERT_OPTIONS,
-            rescue_options=AMD64_RESCUE_OPTIONS,
-        )
         conf_basename = "refind.conf"
     else:  # arm64
         efi_arch = "aa64"
@@ -641,12 +599,6 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
     (refind_dir / conf_basename.upper()).write_text(conf_text)
 
     if arch == "amd64":
-        # The "safe video mode" menu entry re-launches rEFInd with this second
-        # config (rEFInd has no per-menuentry resolution on UEFI PCs). Write it
-        # at both SelfDir candidates, exactly like the main config.
-        (boot_dir / "refind-safe.conf").write_text(safe_conf_text)
-        (refind_dir / "REFIND-SAFE.CONF").write_text(safe_conf_text)
-
         # rEFInd silently forces text-only mode when it cannot find an icons
         # directory next to its binary ("Icons directory doesn't exist; setting
         # textonly = TRUE!"), which would make the graphics config above inert.
