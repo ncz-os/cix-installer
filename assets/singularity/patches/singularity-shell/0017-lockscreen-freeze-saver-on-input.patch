@@ -1,0 +1,455 @@
+diff --git a/src/lockscreen/lock_framesrc.c b/src/lockscreen/lock_framesrc.c
+index bb97c47..dc0b607 100644
+--- a/src/lockscreen/lock_framesrc.c
++++ b/src/lockscreen/lock_framesrc.c
+@@ -53,6 +53,7 @@ struct lfs_out {
+     void *map;               /* read-only mapping of the current frame, or NULL */
+     size_t map_len;
+     bool has_frame;
++    bool held;               /* the source froze here; keep this frame */
+     uint32_t last_seq;
+ };
+ 
+@@ -72,6 +73,7 @@ struct lock_framesrc {
+ 
+     enum lfs_state state;
+     bool enabled;
++    bool held;                /* the source sent HOLD: keep frames on exit */
+     uint32_t transport;
+ 
+     uint64_t now_ms;          /* last value passed to tick() */
+@@ -138,6 +140,20 @@ static void clear_all(struct lock_framesrc *h) {
+     for (struct lfs_out *o = h->outs; o; o = o->next) clear_output(o);
+ }
+ 
++/* HOLD: the source has stopped rendering on purpose and the lock must keep the
++ * last frame it delivered. Unlike a crash, a HOLD is trusted: the frames stay
++ * presented, the frame watchdog is disabled, and a clean exit of the source
++ * (the socket closing) is expected rather than a fault. A later disable/free
++ * still clears, so the lock remains fail-closed. */
++static void enter_hold(struct lock_framesrc *h) {
++    h->held = true;
++    uint32_t n = 0;
++    for (struct lfs_out *o = h->outs; o; o = o->next) {
++        if (o->has_frame) { o->held = true; n++; }
++    }
++    lfs_log(h, "frame source HOLD: keeping the last frame (%u output(s))", n);
++}
++
+ static int connect_timeout_ms = 0; /* unused placeholder to keep -Wunused happy */
+ 
+ /* ---- socket setup -------------------------------------------------------- */
+@@ -241,6 +257,7 @@ static void stop_source(struct lock_framesrc *h, const char *why) {
+         h->child_kill_ms = h->now_ms ? h->now_ms : lfs_now_ms();
+     }
+     clear_all(h);
++    h->held = false;
+     if (h->state != LFS_IDLE)
+         lfs_log(h, "frame source stopped (%s)", why ? why : "");
+     h->state = LFS_IDLE;
+@@ -252,7 +269,11 @@ static void fail_and_backoff(struct lock_framesrc *h, const char *why) {
+         kill(h->child, SIGTERM);
+         h->child_kill_ms = h->now_ms ? h->now_ms : lfs_now_ms();
+     }
++    /* A fault is NOT a hold: the frames are dropped so the lock falls back to
++     * its own UI (fail-closed) before it retries. */
++    lfs_log(h, "cleared frames (fail-closed)");
+     clear_all(h);
++    h->held = false;
+     h->state = LFS_IDLE;
+     h->next_seq = 0;
+     if (h->backoff_ms == 0) h->backoff_ms = LFS_BACKOFF_MIN_MS;
+@@ -335,7 +356,7 @@ static void send_welcome(struct lock_framesrc *h) {
+     if (plen > LFS_MAX_MSG) return;
+     char buf[LFS_MAX_MSG];
+     struct lfs_msg *m = (struct lfs_msg *)buf;
+-    m->magic = LFS_MAGIC; m->type = LFS_WELCOME; m->flags = 0; m->len = (uint32_t)plen;
++    m->magic = LFS_MAGIC; m->type = LFS_WELCOME; m->flags = LFS_FLAG_HOLD; m->len = (uint32_t)plen;
+     struct lfs_welcome *w = (struct lfs_welcome *)(buf + sizeof *m);
+     w->abi = LFS_VERSION;
+     w->transport = LFS_TRANSPORT_SHM;
+@@ -453,7 +474,18 @@ static void drain(struct lock_framesrc *h) {
+         int fd = -1;
+         int n = recv_one(h, buf, sizeof buf, &fd);
+         if (n == 0) return;           /* nothing more right now */
+-        if (n < 0) { fail_and_backoff(h, "connection closed"); return; }
++        if (n < 0) {
++            if (h->held) {
++                /* Expected after a HOLD: the source leaves, the frame stays. */
++                close(h->conn_fd);
++                h->conn_fd = -1;
++                h->state = LFS_IDLE;
++                lfs_log(h, "frame source HOLD complete (source exited)");
++                return;
++            }
++            fail_and_backoff(h, "connection closed");
++            return;
++        }
+         if ((size_t)n < sizeof(struct lfs_msg)) { if (fd>=0) close(fd); fail_and_backoff(h, "short header"); return; }
+         const struct lfs_msg *m = (const struct lfs_msg *)buf;
+         if (m->magic != LFS_MAGIC) { if (fd>=0) close(fd); fail_and_backoff(h, "bad magic"); return; }
+@@ -472,6 +504,10 @@ static void drain(struct lock_framesrc *h) {
+             if (fd >= 0) close(fd);
+             fail_and_backoff(h, "source said BYE");
+             return;
++        case LFS_HOLD:
++            if (fd >= 0) close(fd);
++            enter_hold(h);
++            break;
+         default:
+             if (fd >= 0) close(fd);
+             fail_and_backoff(h, "unknown message type");
+@@ -572,6 +608,7 @@ void lock_framesrc_set_enabled(struct lock_framesrc *h, bool on) {
+     if (!h) return;
+     if (h->enabled == on) return;
+     h->enabled = on;
++    h->held = false;
+     if (!on) {
+         stop_source(h, "disabled");
+     } else {
+@@ -584,12 +621,37 @@ void lock_framesrc_set_enabled(struct lock_framesrc *h, bool on) {
+     }
+ }
+ 
++/* Freeze on demand: the user produced input before the source's own freeze
++ * timer fired, so the lock raises the prompt and wants the saver to stop at the
++ * CURRENT frame. Mark the frames held FIRST (so closing the socket is a clean
++ * HOLD, not a fault), then end the source. The frames are deliberately NOT
++ * cleared: the prompt composites over the held frame and the source never
++ * resumes while the lock is up. A disable/free still clears (fail-closed). */
++void lock_framesrc_freeze(struct lock_framesrc *h) {
++    if (!h || h->held) return;
++    bool any = false;
++    for (struct lfs_out *o = h->outs; o; o = o->next)
++        if (o->has_frame) { any = true; break; }
++    if (!any) return;   /* nothing on screen yet: let the freeze timer handle it */
++    enter_hold(h);
++    if (h->conn_fd >= 0) { close(h->conn_fd); h->conn_fd = -1; }
++    if (h->child > 0 && !h->child_kill_ms) {
++        kill(h->child, SIGTERM);
++        h->child_kill_ms = h->now_ms ? h->now_ms : lfs_now_ms();
++    }
++    h->state = LFS_IDLE;
++    lfs_log(h, "frame source frozen on demand (input raised the prompt)");
++}
++
+ void lock_framesrc_tick(struct lock_framesrc *h, uint64_t now_ms) {
+     if (!h) return;
+     h->now_ms = now_ms;
+     reap_child(h);
+     if (!h->enabled) return;
+ 
++    /* A held source is intentionally idle: no watchdog, no restart. */
++    if (h->held) return;
++
+     /* Frame watchdog: a stalled source is a dead source. */
+     if (h->state == LFS_ACTIVE && now_ms > h->last_frame_ms + LFS_DEFAULT_STALL_MS) {
+         fail_and_backoff(h, "frame watchdog");
+@@ -648,6 +710,10 @@ bool lock_framesrc_displaying(const struct lock_framesrc *h) {
+     return false;
+ }
+ 
++bool lock_framesrc_held(const struct lock_framesrc *h) {
++    return h && h->held;
++}
++
+ void lock_framesrc_free(struct lock_framesrc *h) {
+     if (!h) return;
+     stop_source(h, "free");
+diff --git a/src/lockscreen/lock_framesrc.h b/src/lockscreen/lock_framesrc.h
+index 3f11cb8..2942b01 100644
+--- a/src/lockscreen/lock_framesrc.h
++++ b/src/lockscreen/lock_framesrc.h
+@@ -123,6 +123,18 @@ void lock_framesrc_dispatch(struct lock_framesrc *h);
+  * an active frame). */
+ bool lock_framesrc_displaying(const struct lock_framesrc *h);
+ 
++/* True after the source sent LFS_HOLD: it has stopped rendering on purpose and
++ * the lock is keeping the last frame. The caller may relax its poll timeout --
++ * nothing more will arrive until the lock is disabled/freed. */
++bool lock_framesrc_held(const struct lock_framesrc *h);
++
++/* Freeze now: keep the frame currently on screen and end the source without
++ * clearing it. Called when the user raises the prompt before the source's own
++ * freeze timer fired, so the prompt composites over the held frame and the saver
++ * never resumes while the lock is up. No-op if nothing is displayed, or if the
++ * source already sent HOLD. A later disable/free still clears (fail-closed). */
++void lock_framesrc_freeze(struct lock_framesrc *h);
++
+ void lock_framesrc_free(struct lock_framesrc *h);
+ 
+ #endif /* LOCK_FRAMESRC_H */
+diff --git a/src/lockscreen/lock_framesrc_proto.h b/src/lockscreen/lock_framesrc_proto.h
+index 89659e2..5ad0017 100644
+--- a/src/lockscreen/lock_framesrc_proto.h
++++ b/src/lockscreen/lock_framesrc_proto.h
+@@ -35,10 +35,21 @@
+ #define LFS_TRANSPORT_SHM    0x1u      /* memfd / wl_shm buffer (always usable) */
+ #define LFS_TRANSPORT_DMABUF 0x2u      /* linux-dmabuf buffer (needs the global) */
+ 
++/* Capability bits carried in struct lfs_msg.flags. A lock that understands
++ * LFS_HOLD (and keeps the last frame when the source freezes) sets
++ * LFS_FLAG_HOLD in the WELCOME it sends. Locks built before HOLD existed send
++ * flags = 0. A frame source MUST NOT send LFS_HOLD unless the WELCOME it just
++ * received carried LFS_FLAG_HOLD: a new source then degrades safely (runs at
++ * the low lock frame rate under the thermal governor, never freezing) against
++ * an old lock instead of tripping its "unknown message type" fault loop on
++ * every restart. This bit is only meaningful on a lock -> saver message. */
++#define LFS_FLAG_HOLD   0x0001u
++
+ enum lfs_type {
+     LFS_HELLO   = 1,   /* saver -> lock : who I am, what I can send */
+     LFS_FRAME   = 2,   /* saver -> lock : one buffer + fd */
+     LFS_BYE     = 3,   /* saver -> lock : I am done (clean) */
++    LFS_HOLD    = 4,   /* saver -> lock : freeze here, keep the last frame */
+ 
+     LFS_WELCOME = 0x80,/* lock -> saver : accepted; here is the geometry to use */
+     LFS_READY   = 0x81,/* lock -> saver : previous frame consumed; send the next */
+diff --git a/src/lockscreen/lock_framesrc_testsrc.c b/src/lockscreen/lock_framesrc_testsrc.c
+index 8c67005..edd09da 100644
+--- a/src/lockscreen/lock_framesrc_testsrc.c
++++ b/src/lockscreen/lock_framesrc_testsrc.c
+@@ -12,6 +12,8 @@
+  *   (default)        stream frames, cycle the colour every frame
+  *   --frames N       exit cleanly after N frames
+  *   --hang[=N]       after N frames (default 0) stop sending, stay alive
++ *   --hold[=N]       after N frames (default 4) send HOLD, then exit cleanly:
++ *                    the lock must keep the last frame (freeze path)
+  *   --bad-fd         send a frame whose fd is too small (protocol-error path)
+  *   --bad-format     send a frame with an unknown pixel format
+  *   --gpu-error      fail right after HELLO, as a hack would on a GL error
+@@ -126,6 +128,7 @@ int main(int argc, char **argv) {
+     const char *path = getenv("SINGULARITY_LOCK_RENDERER_SOCKET");
+     int mode_frames = -1;      /* -1 = forever */
+     int hang_after = -1;       /* -1 = never */
++    int hold_after = -1;       /* -1 = never */
+     int bad_fd = 0, bad_format = 0, gpu_error = 0, use_bye = 0;
+     for (int i = 1; i < argc; i++) {
+         if (!strcmp(argv[i], "--socket") && i + 1 < argc) path = argv[++i];
+@@ -135,6 +138,11 @@ int main(int argc, char **argv) {
+             const char *eq = strchr(argv[i], '=');
+             if (eq) hang_after = atoi(eq + 1);
+         }
++        else if (!strncmp(argv[i], "--hold", 6)) {
++            hold_after = 4;
++            const char *eq = strchr(argv[i], '=');
++            if (eq) hold_after = atoi(eq + 1);
++        }
+         else if (!strcmp(argv[i], "--bad-fd")) bad_fd = 1;
+         else if (!strcmp(argv[i], "--bad-format")) bad_format = 1;
+         else if (!strcmp(argv[i], "--gpu-error")) gpu_error = 1;
+@@ -170,6 +178,14 @@ int main(int argc, char **argv) {
+             fprintf(stderr, "testsrc: hanging after %u frames\n", seq);
+             for (;;) pause();
+         }
++        if (hold_after >= 0 && (int)seq >= hold_after) {
++            /* Freeze: tell the lock to keep the last frame, then leave cleanly
++             * (no FRAME after the HOLD). */
++            fprintf(stderr, "testsrc: HOLD after %u frames\n", seq);
++            if (send_msg(fd, NULL, 0, LFS_HOLD, -1) < 0) die("send HOLD");
++            close(fd);
++            return 0;
++        }
+ 
+         struct lfs_output *o = &outs[oi % w->n_outputs];
+         oi++;
+diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
+index 8e030d6..cba8fa3 100644
+--- a/src/lockscreen/lock_main.c
++++ b/src/lockscreen/lock_main.c
+@@ -654,10 +654,12 @@ static void framesrc_clear(void *user) {
+     if (o->configured) render_output(o);
+ }
+ 
+-/* First input: raise the prompt over the running saver. The frame source is not
+- * stopped, so frames keep arriving behind the prompt. */
++/* First input: raise the prompt over the running saver. The saver freezes at
++ * this frame immediately (the source is ended, not cleared) so it never resumes
++ * while the lock is up; the prompt composites over the held frame. */
+ static void raise_prompt(void) {
+     if (!framesrc) return;
++    lock_framesrc_freeze(framesrc);
+     prompt_deadline_ms = (uint64_t)(now_us() / 1000)
+         + (prompt_delay_ms ? prompt_delay_ms : LOCK_PROMPT_DEFAULT_MS);
+     bool changed = false;
+@@ -672,9 +674,12 @@ static void raise_prompt(void) {
+ }
+ 
+ /* Idle after the prompt: hide it and show the raw saver frames again. A source
+- * that has stopped has no frames to return to, so it keeps the prompt. */
++ * that has stopped has no frames to return to, so it keeps the prompt. A frozen
++ * source (held) deliberately never resumes: the held frame stays behind the
++ * prompt for as long as the lock is up. */
+ static void lower_prompt(void) {
+     if (!framesrc) return;
++    if (lock_framesrc_held(framesrc)) return;   /* frozen: never resume */
+     bool lowered = false;
+     for (struct lock_output *o = outputs; o; o = o->next) {
+         if (!o->prompt_visible || !o->frame_buffer || !o->surface) continue;
+@@ -1276,8 +1281,9 @@ int main(int argc, char **argv) {
+         if (gl_timeout >= 0 && gl_timeout < timeout) timeout = gl_timeout;
+ #ifdef LOCK_FRAMESRC
+         /* Wake at most every 100 ms so the frame-source watchdog and timers run
+-         * even when the socket is quiet. */
+-        if (framesrc && timeout > 100) timeout = 100;
++         * even when the socket is quiet. A held (frozen) source has nothing to
++         * deliver, so the lock may sleep longer and burn no CPU. */
++        if (framesrc && !lock_framesrc_held(framesrc) && timeout > 100) timeout = 100;
+ #endif
+ 
+         int pr = poll(pfds, np, timeout);
+diff --git a/tests/lockscreen-framesrc/test-framesrc.sh b/tests/lockscreen-framesrc/test-framesrc.sh
+index 2990e0b..0049960 100755
+--- a/tests/lockscreen-framesrc/test-framesrc.sh
++++ b/tests/lockscreen-framesrc/test-framesrc.sh
+@@ -97,7 +97,7 @@ wayland-info 2>/dev/null | grep -o "ext_session_lock_manager_v1" | head -1 \
+     || bad "labwc does NOT advertise ext_session_lock_manager_v1"
+ stop_all
+ 
+-echo "== case 1: frames render; input raises the prompt over the live saver =="
++echo "== case 1: frames render; input raises the prompt and freezes the saver =="
+ start_labwc || exit 1
+ start_lock "$SRC --frames 400" "$WORK/tmp/c1.log" 4000
+ if wait_for "$WORK/tmp/c1.log" "frame source accepted" 6; then ok "lock accepted the frame source"; else bad "lock did not accept the frame source"; fi
+@@ -106,36 +106,39 @@ sleep 1
+ f0=$(frame_count "$WORK/tmp/c1.log")
+ if [ "${f0:-0}" -ge 3 ]; then ok "multiple frames streamed ($f0)"; else bad "too few frames ($f0)"; fi
+ if alive "$LOCK_PID"; then ok "lock client alive while presenting"; else bad "lock client died"; fi
+-# input: a key press must RAISE THE PROMPT while the saver keeps running. wtype
+-# creates a transient virtual keyboard, so the first key can race the seat
+-# gaining the keyboard capability; retry a few times.
++# input: a key press must RAISE THE PROMPT and FREEZE the saver at this frame
++# (operator policy: the saver never resumes while locked). wtype creates a
++# transient virtual keyboard, so the first key can race the seat gaining the
++# keyboard capability; retry a few times.
+ for _ in 1 2 3 4 5; do
+     wtype -d 300 -k a >/dev/null 2>&1
+     have "$WORK/tmp/c1.log" "prompt raised over saver" && break
+     sleep 0.3
+ done
+ if have "$WORK/tmp/c1.log" "prompt raised over saver"; then ok "input raised the prompt"; else bad "input did not raise the prompt"; fi
+-if have "$WORK/tmp/c1.log" "frame source stopped"; then bad "input stopped the saver (prompt does not overlay)"; else ok "input did NOT stop the saver"; fi
+-# The source must keep delivering frames behind the prompt.
++if wait_for "$WORK/tmp/c1.log" "frozen on demand" 4; then ok "input froze the saver at the current frame"; else bad "input did not freeze the saver"; fi
++if have "$WORK/tmp/c1.log" "frame source failed"; then bad "the freeze was treated as a fault"; else ok "the freeze was not treated as a fault"; fi
++# The saver must STOP rendering behind the prompt (freeze, not keep streaming).
+ fa=$(frame_count "$WORK/tmp/c1.log"); sleep 1; fb=$(frame_count "$WORK/tmp/c1.log")
+-if [ "${fb:-0}" -gt "${fa:-0}" ]; then ok "frames kept streaming behind the prompt ($fa -> $fb)"; else bad "frames stopped behind the prompt ($fa -> $fb)"; fi
++if [ "${fb:-0}" -le "${fa:-0}" ]; then ok "saver stopped rendering after the freeze ($fa -> $fb)"; else bad "frames kept streaming behind the prompt ($fa -> $fb)"; fi
+ # Sample the real composited output: the backdrop under the prompt must be the
+-# live saver, not the flat dark fill.
++# held saver frame, not the flat dark fill.
+ if grim "$WORK/tmp/c1-prompt.png" >/dev/null 2>&1; then
+-    if rng=$(backdrop_is_live "$WORK/tmp/c1-prompt.png"); then ok "prompt backdrop is not the flat fill ($rng)"; else bad "prompt backdrop is the flat fill ($rng)"; fi
++    if rng=$(backdrop_is_live "$WORK/tmp/c1-prompt.png"); then ok "prompt backdrop is the held frame ($rng)"; else bad "prompt backdrop is the flat fill ($rng)"; fi
+ else
+     bad "grim could not capture the locked screen"
+ fi
+ if alive "$LOCK_PID"; then ok "lock client alive after input"; else bad "lock died on input"; fi
+-# After the prompt has been idle, the raw saver returns.
+-if wait_for "$WORK/tmp/c1.log" "prompt lowered; saver frames resumed" 8; then ok "prompt lowered and the saver resumed"; else bad "prompt did not lower"; fi
++# Frozen: the prompt must NOT lower and the saver must NOT resume while locked.
++sleep 2
++if have "$WORK/tmp/c1.log" "prompt lowered; saver frames resumed"; then bad "the prompt lowered and the saver resumed while locked"; else ok "the frozen frame is held (the saver never resumes)"; fi
+ stop_all
+ 
+ echo "== case 2: feed kill -9 => lock held and the prompt still works =="
+ start_labwc || exit 1
+ start_lock "$SRC --frames 400" "$WORK/tmp/c2.log" 3000
+ wait_for "$WORK/tmp/c2.log" "frame source accepted" 6 || true
+-testsrc_pid=$(pgrep -f "lock-framesrc-testsrc" | head -1)
++testsrc_pid=$(pgrep -f "^${SRC}" | head -1)   # the binary, not the sh -c wrapper
+ if [ -n "$testsrc_pid" ]; then kill -9 "$testsrc_pid"; ok "killed the frame source (-9)"; else bad "frame source pid not found"; fi
+ if wait_for "$WORK/tmp/c2.log" "frame source failed" 4 || wait_for "$WORK/tmp/c2.log" "exited status" 2; then ok "lock noticed the dead frame source"; else bad "lock did not notice the dead source"; fi
+ sleep 0.5
+@@ -180,6 +183,90 @@ if wait_for "$WORK/tmp/c6.log" "lock: configure" 6; then ok "default build locks
+ if have "$WORK/tmp/c6.log" "framesrc" ; then bad "default build somehow used the frame source"; else ok "default build used no frame source"; fi
+ stop_all
+ 
++echo "== case 7: source HOLD => freeze; the lock keeps the last frame, then idles =="
++start_labwc || exit 1
++start_lock "$SRC --hold=4" "$WORK/tmp/c7.log" 3000
++wait_for "$WORK/tmp/c7.log" "frame source accepted" 6 || true
++wait_for "$WORK/tmp/c7.log" "testsrc: HOLD" 6 || true
++if wait_for "$WORK/tmp/c7.log" "frame source HOLD: keeping the last frame" 6; then ok "lock entered HOLD"; else bad "lock never entered HOLD"; fi
++# The source deliberately left; it must NOT be reported as a fault and the frame
++# must NOT be cleared.
++sleep 1
++if pgrep -f lock-framesrc-testsrc >/dev/null; then bad "source still rendering after HOLD"; else ok "source exited after HOLD (render work ended)"; fi
++if have "$WORK/tmp/c7.log" "frame source failed"; then bad "HOLD was treated as a fault"; else ok "HOLD was not treated as a fault"; fi
++if have "$WORK/tmp/c7.log" "frame source stopped"; then bad "the lock cleared the held frame"; else ok "the held frame was not cleared"; fi
++if have "$WORK/tmp/c7.log" "cleared frames (fail-closed)"; then bad "HOLD took the fail-closed clear path"; else ok "HOLD did not clear (freeze path)"; fi
++if alive "$LOCK_PID"; then ok "lock client alive after HOLD"; else bad "lock died on HOLD"; fi
++# The composited output must still be the held saver frame, not the flat fill.
++if grim "$WORK/tmp/c7-frozen.png" >/dev/null 2>&1; then
++    if rng=$(backdrop_is_live "$WORK/tmp/c7-frozen.png"); then ok "frozen backdrop is the held saver frame ($rng)"; else bad "frozen backdrop is the flat fill ($rng)"; fi
++else
++    bad "grim could not capture the frozen screen"
++fi
++# Input raises the prompt OVER the held frame (never the flat fill).
++for _ in 1 2 3 4 5; do
++    wtype -d 300 -k a >/dev/null 2>&1
++    have "$WORK/tmp/c7.log" "prompt raised over saver" && break
++    sleep 0.3
++done
++if have "$WORK/tmp/c7.log" "prompt raised over saver"; then ok "input raised the prompt over the held frame"; else bad "input did not raise the prompt over the held frame"; fi
++if grim "$WORK/tmp/c7-prompt.png" >/dev/null 2>&1; then
++    if rng=$(backdrop_is_live "$WORK/tmp/c7-prompt.png"); then ok "prompt overlays the held frame ($rng)"; else bad "prompt backdrop is the flat fill ($rng)"; fi
++else
++    bad "grim could not capture the frozen prompt"
++fi
++if alive "$LOCK_PID"; then ok "lock still held after input over a frozen frame"; else bad "lock died on input over a frozen frame"; fi
++stop_all
++
++echo "== case 8: crash WITHOUT HOLD => frame cleared (fail-closed flat) =="
++start_labwc || exit 1
++start_lock "$SRC --frames 400" "$WORK/tmp/c8.log" 3000
++wait_for "$WORK/tmp/c8.log" "frame source accepted" 6 || true
++wait_for "$WORK/tmp/c8.log" "testsrc: frame seq=" 4 || true
++testsrc_pid=$(pgrep -f "^${SRC}" | head -1)   # the binary, not the sh -c wrapper
++if [ -n "$testsrc_pid" ]; then kill -9 "$testsrc_pid"; ok "killed the frame source (-9)"; else bad "frame source pid not found"; fi
++if wait_for "$WORK/tmp/c8.log" "frame source failed" 4 || wait_for "$WORK/tmp/c8.log" "exited status" 2; then ok "lock noticed the dead frame source"; else bad "lock did not notice the dead source"; fi
++sleep 0.5
++# Without a HOLD a dead source must CLEAR (fail-closed) -- the lock drops the
++# frames and repaints its own UI, then retries. A crash must never look like a
++# freeze.
++if have "$WORK/tmp/c8.log" "frame source HOLD"; then bad "a crash produced a HOLD"; else ok "a crash did not produce a HOLD"; fi
++if have "$WORK/tmp/c8.log" "cleared frames (fail-closed)"; then ok "a crash cleared the frame (fail-closed)"; else bad "a crash did not clear the frame"; fi
++if alive "$LOCK_PID"; then ok "lock client alive after the crash (fail-closed)"; else bad "lock died on the crash"; fi
++stop_all
++
++echo "== case 9: input BEFORE the freeze timer => prompt over a held frame =="
++# Operator policy: if the saver is interrupted by input before the source's own
++# freeze timer, it freezes AT THAT FRAME, the prompt composites over it, and the
++# saver never resumes. The lock must end the source without clearing the frame.
++start_labwc || exit 1
++start_lock "$SRC --frames 400" "$WORK/tmp/c9.log" 3000
++wait_for "$WORK/tmp/c9.log" "frame source accepted" 6 || true
++wait_for "$WORK/tmp/c9.log" "testsrc: frame seq=" 4 || true
++src_before=$(pgrep -f "^${SRC}" | head -1)
++if [ -n "$src_before" ]; then ok "saver was streaming before input"; else bad "saver never produced a frame"; fi
++# A real key press raises the prompt -> the lock freezes the source on demand.
++for _ in 1 2 3 4 5; do
++    wtype -d 300 -k a >/dev/null 2>&1
++    have "$WORK/tmp/c9.log" "prompt raised over saver" && break
++    sleep 0.3
++done
++if have "$WORK/tmp/c9.log" "prompt raised over saver"; then ok "input raised the prompt"; else bad "input did not raise the prompt"; fi
++if wait_for "$WORK/tmp/c9.log" "frozen on demand" 4; then ok "source frozen on demand (input before the timer)"; else bad "source not frozen on demand"; fi
++sleep 1
++# The saver must have stopped (render work ended) and must NOT be treated as a
++# fault: the frame stays, so the lock keeps fail-closed without a flat repaint.
++if pgrep -f "^${SRC}" >/dev/null; then bad "saver still rendering after the freeze"; else ok "saver stopped after the freeze"; fi
++if have "$WORK/tmp/c9.log" "frame source failed"; then bad "the freeze was treated as a fault"; else ok "the freeze was not treated as a fault"; fi
++if have "$WORK/tmp/c9.log" "cleared frames (fail-closed)"; then bad "the freeze cleared the frame"; else ok "the held frame was not cleared"; fi
++if alive "$LOCK_PID"; then ok "lock alive after the freeze"; else bad "lock died on the freeze"; fi
++if grim "$WORK/tmp/c9.png" >/dev/null 2>&1; then
++    if rng=$(backdrop_is_live "$WORK/tmp/c9.png"); then ok "prompt backdrop is the held frame ($rng)"; else bad "prompt backdrop is the flat fill ($rng)"; fi
++else
++    bad "grim could not capture the frozen prompt"
++fi
++stop_all
++
+ echo ""
+ echo "== RESULT: $PASS passed, $FAIL failed =="
+ [ "$FAIL" -eq 0 ]
