@@ -65,20 +65,33 @@ stage_default() {
         *) echo "ERROR: pinned amd64 KVER '$wanted' is not the unified 7.3 series" >&2; return 1 ;;
     esac
     local src=""
+    # Optional package-REVISION pin: assets/kernel/amd64-stable/PKGVERSION.
+    # The KVER is deliberately stable across the r1/r2 rebuilds of the same
+    # 7.3.0-rc7-t2-ncz kernel, so a KVER-only pool search is ambiguous once
+    # two same-KVER staging dirs exist (amd64-t2-rc7-20261011 r1 vs
+    # amd64-t2-rc7-r2-20261012 r2). When PKGVERSION is present, only a pool
+    # dir holding linux-image-<KVER>_<PKGVERSION>_amd64.deb is eligible.
+    local pkgver=""
+    if [ -s "$ROOT/assets/kernel/amd64-stable/PKGVERSION" ]; then
+        pkgver=$(tr -d '[:space:]' < "$ROOT/assets/kernel/amd64-stable/PKGVERSION")
+    fi
     if [ -n "${AMD64_SRC:-}" ]; then
         src="$AMD64_SRC"
     else
         # Search the pool for a directory whose KVER sidecar matches the pin.
         # Covers the multi-variant amd64-t2-* build trees (e.g.
-        # amd64-t2-rc7-20261011/7.3.0-rc7-t2-ncz) and the generic
-        # amd64-stable-<date> namespace.
+        # amd64-t2-rc7-r2-20261012/7.3.0-rc7-t2-ncz) and the generic
+        # amd64-stable-<date> namespace. With PKGVERSION set, a dir must also
+        # carry the pinned package revision.
         for d in "$SHARED"/amd64-t2-*/*/ "$SHARED"/amd64-stable-*/; do
             [ -d "$d" ] || continue
             [ -s "$d/KVER" ] || continue
-            if [ "$(tr -d '[:space:]' < "$d/KVER")" = "$wanted" ]; then
-                src="${d%/}"
-                break
+            [ "$(tr -d '[:space:]' < "$d/KVER")" = "$wanted" ] || continue
+            if [ -n "$pkgver" ] && [ ! -f "$d/linux-image-${wanted}_${pkgver}_amd64.deb" ]; then
+                continue
             fi
+            src="${d%/}"
+            break
         done
     fi
     [ -n "$src" ] && [ -d "$src" ] || {
@@ -95,8 +108,13 @@ stage_default() {
     # '_'), so the -dbg build can never be selected here.  Fail closed if the
     # pool does not hold exactly one of each.
     local imgs hdrs
-    imgs=("$src"/linux-image-"$wanted"_*.deb)
-    hdrs=("$src"/linux-headers-"$wanted"_*.deb)
+    if [ -n "$pkgver" ]; then
+        imgs=("$src"/linux-image-"$wanted"_"$pkgver"_amd64.deb)
+        hdrs=("$src"/linux-headers-"$wanted"_"$pkgver"_amd64.deb)
+    else
+        imgs=("$src"/linux-image-"$wanted"_*.deb)
+        hdrs=("$src"/linux-headers-"$wanted"_*.deb)
+    fi
     if [ ! -f "${imgs[0]}" ] || [ "${#imgs[@]}" -ne 1 ] \
        || [ ! -f "${hdrs[0]}" ] || [ "${#hdrs[@]}" -ne 1 ]; then
         echo "ERROR: $src must hold exactly one linux-image-${wanted}_*.deb and one linux-headers-${wanted}_*.deb (found ${#imgs[@]} image / ${#hdrs[@]} headers) -- refusing to stage" >&2
