@@ -502,6 +502,30 @@ for s in 55-ncz-wallpapers 56-ncz-online-wallpapers 65-ncz-screensavers 75-ncz-l
     exists "$TOURDIR/$s.slide" || gate_miss tour-slides "$TOURDIR/$s.slide (post-install/51-ncz-tour-slides.sh)"
 done
 
+# --- (ixa) NCZ first-login tour (post-install/51-ncz-tour-slides.sh + 20-desktop.sh) ----------
+# The tour opens once from a guarded autostart entry the installer drops. Assert
+# the entry + guard are present, the entry names Singularity in OnlyShowIn (the
+# shipped shell's AutostartManager only launches a SYSTEM /etc/xdg/autostart
+# entry that does), the guard keeps its marker under a user-writable XDG state
+# dir, and the upstream unconditional switch is off (so the two never race).
+echo "[verify-target] (ixa) NCZ first-login tour"
+exists /usr/local/bin/ncz-first-login-tour || gate_miss first-login-tour "/usr/local/bin/ncz-first-login-tour (post-install/51-ncz-tour-slides.sh)"
+if fetch /etc/xdg/autostart/ncz-first-login-tour.desktop "$TMP/tour.desktop"; then
+    grep -q '^OnlyShowIn=Singularity;$' "$TMP/tour.desktop" || gate_miss first-login-tour "autostart entry lacks OnlyShowIn=Singularity (the shell would never launch it)"
+    grep -q '^Exec=/usr/local/bin/ncz-first-login-tour show$' "$TMP/tour.desktop" || gate_miss first-login-tour "autostart entry Exec does not run the guard"
+else
+    gate_miss first-login-tour "/etc/xdg/autostart/ncz-first-login-tour.desktop (post-install/51-ncz-tour-slides.sh)"
+fi
+if fetch /usr/local/bin/ncz-first-login-tour "$TMP/tourguard"; then
+    grep -q 'XDG_STATE_HOME' "$TMP/tourguard" || gate_miss first-login-tour "guard has no user XDG state marker path"
+    grep -q '\.local/state' "$TMP/tourguard" || gate_miss first-login-tour "guard marker is not under a user-writable state dir"
+else
+    gate_miss first-login-tour "/usr/local/bin/ncz-first-login-tour is unreadable"
+fi
+if fetch /opt/singularity/share/glib-2.0/schemas/99-ncz-defaults.gschema.override "$TMP/ncz.gschema.override"; then
+    grep -q '^show-tour=false$' "$TMP/ncz.gschema.override" || gate_miss first-login-tour "upstream first-run switch is not disabled (show-tour=false missing): the shell would open the tour unguarded"
+fi
+
 # --- (vi) ncz-screensavers (mandatory on desktop images; operator 2026-10-05) ---------
 # The checks live in verify-installed-target-screensavers.sh (sourced so
 # SS_STATUS / SS_PLUGIN remain in this shell for the [fact] lines below).

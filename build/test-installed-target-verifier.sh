@@ -171,6 +171,14 @@ GSCHEMA
     for s in 55-ncz-wallpapers 56-ncz-online-wallpapers 65-ncz-screensavers 75-ncz-lock; do
         printf '[Slide]\nOrder=1\nTitle=x\nBody=x\nScene=settings\n' > "$r/opt/singularity/share/singularity/tour/$s.slide"
     done
+    # NCZ first-login tour guard + autostart entry (verifier section (ixa))
+    mkdir -p "$r/etc/xdg/autostart"
+    printf '[Desktop Entry]\nType=Application\nExec=/usr/local/bin/ncz-first-login-tour show\nOnlyShowIn=Singularity;\n' \
+        > "$r/etc/xdg/autostart/ncz-first-login-tour.desktop"
+    printf '#!/bin/sh\n: "${XDG_STATE_HOME:-$HOME/.local/state}"\n' \
+        > "$r/usr/local/bin/ncz-first-login-tour"
+    printf '[dev.sinty.desktop]\nshow-tour=false\n' \
+        > "$r/opt/singularity/share/glib-2.0/schemas/99-ncz-defaults.gschema.override"
     ln -s /usr/lib/systemd/user/ncz-screensaver-idled.service "$r/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"
     printf 'Package: ncz-screensavers\nStatus: install ok installed\nVersion: %s\n\n' "$SS_FLOOR" >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/var/lib/dpkg/info"
@@ -304,6 +312,9 @@ m_wp_noplugin() { rm -f "$1/opt/singularity/lib/singularity/plugins/wallpapers-b
 m_sens_stale()  { printf 'old sensors build' > "$1/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"; }
 m_sens_missing() { rm -f "$1/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"; }
 m_tour_slides_missing() { rm -f "$1/opt/singularity/share/singularity/tour/75-ncz-lock.slide"; }
+m_tour_entry_missing() { rm -f "$1/etc/xdg/autostart/ncz-first-login-tour.desktop"; }
+m_tour_guard_missing() { rm -f "$1/usr/local/bin/ncz-first-login-tour"; }
+m_tour_switch_on() { printf '[dev.sinty.desktop]\nshow-tour=true\n' > "$1/opt/singularity/share/glib-2.0/schemas/99-ncz-defaults.gschema.override"; }
 m_id_arch()     { echo arm64 > "$1/usr/local/lib/cix-installer/BUILD_ARCH"; }
 m_id_release()  { echo 'NCZ_PRODUCT_NAME="Other"' > "$1/usr/local/lib/cix-installer/RELEASE"; }
 m_apt_nopin()    { rm -f "$1/etc/apt/preferences.d/10-ncz-origin-separation.pref"; }
@@ -385,6 +396,9 @@ run_case "missing wallpapers-bing plugin fails" 1 m_wp_noplugin
 run_case "stale sensors plugin fails"           1 m_sens_stale
 run_case "missing sensors plugin fails"         1 m_sens_missing
 run_case "NCZ tour slide missing fails"         1 m_tour_slides_missing
+run_case "first-login tour entry missing fails"  1 m_tour_entry_missing
+run_case "first-login tour guard missing fails"  1 m_tour_guard_missing
+run_case "upstream tour switch left on fails"    1 m_tour_switch_on
 run_case "sudo not installed fails"             1 m_no_sudo
 run_case "arm64: dropped firmware-ipw2x00 is not required" 0 m_fw_notinst_ipw
 run_case "systemd-coredump absent fails"        1 m_no_coredump
