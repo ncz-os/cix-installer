@@ -324,6 +324,42 @@ if [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Check 6b (amd64): the pinned kernel must record the cyclops boot-GPU fix
+# (patch 2010) so the image can never ship a kernel that starves the boot GPU
+# on a pre-T2 single-GPU Mac (Macmini5,1): without 2010, vga_switcheroo defers
+# i915 forever and greetd is skipped (headless, no error). The staged-kernel
+# manifest is the machine-readable assertion; PKGVERSION pins the package
+# revision so r2 cannot be confused with the first rc7 build.
+# ---------------------------------------------------------------------------
+if { [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; } && [ -n "${AMD64_STABLE_RESOLVED_DIR:-}" ]; then
+    _amdir="$AMD64_STABLE_RESOLVED_DIR"
+    _amman="$ROOT/assets/kernel/amd64-stable-manifest.json"
+    if [ ! -s "$_amman" ]; then
+        err "amd64: assets/kernel/amd64-stable-manifest.json missing (must record the applied patch set)"
+    elif ! command -v python3 >/dev/null 2>&1; then
+        log "amd64: python3 absent; skipping the manifest 2010 assertion"
+    else
+        _cyclops=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d.get("source",{}).get("t2_cyclops_patch",""))' "$_amman" 2>/dev/null || true)
+        case "$_cyclops" in
+            *2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch)
+                log "amd64: staged manifest records the 2010 cyclops fix ($_cyclops)" ;;
+            "")
+                err "amd64: staged manifest has no source.t2_cyclops_patch (the cyclops 2010 fix is not asserted)" ;;
+            *)
+                err "amd64: staged manifest t2_cyclops_patch='$_cyclops' is not the 2010 boot-GPU-guard patch" ;;
+        esac
+        _ammanpkg=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d.get("package_revision",""))' "$_amman" 2>/dev/null || true)
+        _amverv=""
+        [ -s "$_amdir/PKGVERSION" ] && _amverv=$(tr -d '[:space:]' < "$_amdir/PKGVERSION")
+        if [ -n "$_amverv" ] && [ "$_amverv" != "$_ammanpkg" ]; then
+            err "amd64: PKGVERSION '$_amverv' != manifest package_revision '$_ammanpkg'"
+        else
+            log "amd64: package revision pin '${_amverv:-<unset>}' matches the manifest"
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Check 8 (both arches): the runtime rEFInd pipeline was refactored to the
 # unified 7.3 policy. The old amd64 classifier hook/refresh pinned an "edge"
 # channel to 7.3.0-rc6; the new ones carry the unified marker and no edge pin.
