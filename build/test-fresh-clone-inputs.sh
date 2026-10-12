@@ -108,6 +108,42 @@ else
     echo "SKIP extraction test: zstd/GNU-tar --zstd unavailable on this host"
 fi
 
+# --- #4 the pinned substrate can be materialized into a fresh clone's downloads/ ---
+# r203/amd64 RC5 finding A: a fresh clone (empty downloads/) hit
+# "[download] SUBSTRATE ROTATED" because the 01 refresh-substrate stage verified
+# the pin under --substrate pinned and returned WITHOUT restoring the pinned ISO.
+# build/stage-substrate.sh now owns the restore and the pipeline calls it.
+[ -x "$ROOT/build/stage-substrate.sh" ] \
+    && ok "build/stage-substrate.sh present (fresh-clone substrate stager)" \
+    || bad "build/stage-substrate.sh missing (a fresh clone cannot stage the pinned substrate)"
+grep -q 'build/stage-substrate.sh' "$ROOT/build/build-image.sh" \
+    && ok "build-image.sh refresh-substrate restores the pinned substrate on a fresh clone" \
+    || bad "build-image.sh does not call build/stage-substrate.sh"
+# functional: copy the pinned ISO from a cache dir (sha256-verified), be idempotent,
+# and refuse a rotated/tampered ISO or an absent pin.
+SS="$T/ss"; mkdir -p "$SS/build" "$SS/manifests" "$SS/downloads" "$SS/cache"
+cp "$ROOT/build/stage-substrate.sh" "$SS/build/"
+printf 'FAKE-ISO-BYTES-123a250b' > "$SS/cache/fake.iso"
+iso_sha="$(sha256sum "$SS/cache/fake.iso" | awk '{print $1}')"
+cache_iso="$SS/cache/debian-testing-amd64-netinst-20261010-${iso_sha:0:8}.iso"
+mv "$SS/cache/fake.iso" "$cache_iso"
+printf '# arch\tsha\tdate\tsnapshot\tcov\tsrc\namd64\t%s\tMon, 05 Oct 2026 02:11:49 UTC\t20261005T120000Z\t100.0\thttps://x\n' "$iso_sha" > "$SS/manifests/base.pin"
+if NCZ_SUBSTRATE_CACHE_DIRS="$SS/cache" bash "$SS/build/stage-substrate.sh" --arch amd64 --check >/dev/null 2>&1; then
+    bad "stage-substrate --check passed with nothing staged"
+else ok "stage-substrate --check fails fast when the substrate is not staged"; fi
+if NCZ_SUBSTRATE_CACHE_DIRS="$SS/cache" bash "$SS/build/stage-substrate.sh" --arch amd64 >"$T/ss1" 2>&1 \
+   && [ "$(sha256sum "$SS/downloads/debian-testing-amd64-netinst.iso" | awk '{print $1}')" = "$iso_sha" ]; then
+    ok "stage-substrate.sh stages the pinned ISO from the cache (sha256 verified)"
+else bad "stage-substrate.sh did not stage the pinned ISO"; cat "$T/ss1"; fi
+if NCZ_SUBSTRATE_CACHE_DIRS="$SS/cache" bash "$SS/build/stage-substrate.sh" --arch amd64 >/dev/null 2>&1; then
+    ok "stage-substrate.sh is idempotent when already staged"
+else bad "stage-substrate.sh not idempotent"; fi
+echo x >> "$cache_iso"
+rm -f "$SS/downloads/debian-testing-amd64-netinst.iso"
+if NCZ_SUBSTRATE_CACHE_DIRS="$SS/cache" bash "$SS/build/stage-substrate.sh" --arch amd64 >/dev/null 2>&1; then
+    bad "stage-substrate.sh accepted a rotated/tampered ISO"
+else ok "stage-substrate.sh refuses a rotated/tampered ISO"; fi
+
 # every pin in the manifest is a real sha256 (guards against a bad append)
 badpins="$(awk -F'\t' '!/^[[:space:]]*(#|$)/ && $3 !~ /^[0-9a-f]{64}$/ {print $1" "$2}' "$TSV")"
 [ -z "$badpins" ] && ok "every pin in build-inputs.tsv is a sha256" || bad "unpinned rows: $badpins"

@@ -732,6 +732,28 @@ stage_preflight() {
 # ---------------------------------------------------------------------------
 stage_refresh_substrate() {
     local log="$1"
+    # A fresh clone has an empty downloads/, and the image container mounts only
+    # the clone (/work/cix-installer) -- never the host SUBSTRATE_CACHE_DIRS -- so
+    # the pinned substrate MUST be materialized here on the host before the image
+    # stage (r203/amd64 RC5 finding A: with --substrate pinned this stage verified
+    # the pin and returned WITHOUT restoring the ISO, and 07 image failed 12 s in
+    # with "[download] SUBSTRATE ROTATED ... pinned ISO not found").  This runs for
+    # every --substrate policy; build/stage-substrate.sh copies the pinned ISO from
+    # the ARGONAS cache and sha256-verifies it against base.pin, and FAILS rather
+    # than floating to whatever Debian serves today.
+    if [ ! -f "$DOWNLOADS/$UPSTREAM_ISO" ] || \
+       [ "$(sha256sum "$DOWNLOADS/$UPSTREAM_ISO" 2>/dev/null | awk '{print $1}')" != "$SUBSTRATE_SHA" ]; then
+        if [ "$OFFLINE" = "1" ]; then
+            echo "[refresh-substrate] FAIL: --offline and the pinned substrate is not staged in downloads/" | tee -a "$log" >&2
+            return 3
+        fi
+        if [ -x "$ROOT/build/stage-substrate.sh" ]; then
+            echo "[refresh-substrate] pinned substrate not staged; restoring from the ARGONAS cache (build/stage-substrate.sh --arch $ARCH)" | tee -a "$log"
+            ( cd "$ROOT" && bash build/stage-substrate.sh --arch "$ARCH" ) 2>&1 | tee -a "$log"
+            local rcs="${PIPESTATUS[0]}"
+            [ "$rcs" = 0 ] || return "$rcs"
+        fi
+    fi
     if [ "$SUBSTRATE" = pinned ]; then
         echo "[refresh-substrate] pinned policy: verifying the substrate pin (no fetch)" | tee -a "$log"
         if [ -x "$ROOT/build/check-substrate-pin.sh" ]; then
