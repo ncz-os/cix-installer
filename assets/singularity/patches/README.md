@@ -58,9 +58,12 @@ the timer fires. This is the image-blocking arm64 crash-loop fix.
 Delete this patch once PR #37 merges.
 
 **Not yet filed upstream** (2026-10-11). Patches
-`0013-lockscreen-honour-output-scale.patch` and
-`0014-lockscreen-host-an-out-of-process-frame-source.patch`, applied in that order
-(0014 depends on the `struct lock_output.scale` field that 0013 adds).
+`0013-lockscreen-honour-output-scale.patch`,
+`0014-lockscreen-host-an-out-of-process-frame-source.patch` and
+`0015-lockscreen-overlay-unlock-prompt-on-screensaver.patch`, applied in that order
+(0014 depends on the `struct lock_output.scale` field that 0013 adds; 0015
+extends 0014's frame-source hook to also hold the source during input, so the
+unlock prompt composites over the live saver rather than a flat background).
 
 - `0013` makes the session-lock client render at the output's scale instead of
   letting the compositor upscale (the lock screen and its prompt were blurry on a
@@ -74,6 +77,11 @@ Delete this patch once PR #37 merges.
   how a screensaver can be shown over the lock. The lock never executes
   frame-source code, so a crash/hang/GPU error/bad fd degrades to the lock's own
   Cairo prompt (fail-closed). Default off: the upstream locker is unchanged.
+- `0015` keeps the 0014 frame source running on input instead of stopping it,
+  and composites the clock and password card over the live saver behind a light
+  scrim (the prompt hides again after the idle delay and the raw frames return).
+  Same build flag (`-Dlock_framesrc=enabled`); no upstream PR link on purpose;
+  nothing filed upstream for this part either.
 
 Neither has a `**Upstream PR:**` link on purpose (nothing is filed; the mirkoprs
 task owns the upstream offer). Delete them if/when the corresponding change lands
