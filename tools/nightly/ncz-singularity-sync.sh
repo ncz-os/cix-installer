@@ -155,6 +155,37 @@ if git clone --quiet --no-checkout "$WORKDIR" "$CI_WORK/repo" 2>/dev/null \
     # it is precisely what a daily upstream build is supposed to detect.
     if git -C "$CI_WORK/repo" fetch --quiet "$GITLAB_URL" "refs/heads/master:refs/remotes/ncz/master" 2>/dev/null \
        && git -C "$CI_WORK/repo" checkout --quiet "refs/remotes/ncz/master" -- .buildkite scripts patches 2>/dev/null; then
+        # Belt-and-suspenders: also overlay from any CI-fix branch that is still
+        # around. This guarantees the next 07:16Z daily sync carries the
+        # SIGPIPE-fix and the patch-rot-fix to upstream-mirror-ci even if
+        # the operator has not yet merged those branches into master. It
+        # is a no-op when the branches are gone (merged and deleted, or
+        # this cix-installer deploy predates them). Idempotent against
+        # master: overlaying the same content twice is a no-op, so the
+        # overlay is also safe AFTER the branches are merged into master.
+        #
+        # fix/ci-session-patch-retire-20261012  -- removes the now-defunct
+        #   singularity-session/0001-graphical-session-target-bridge.patch
+        #   so the apply-downstream-patches.sh step does not fail on drift.
+        # fix/ci-submodule-sigpipe-20261012      -- replaces `head -30` /
+        #   `grep -q` / `head -1` under `set -o pipefail` in
+        #   `.buildkite/pipeline.yml` with pipefail-safe equivalents so
+        #   the >30-submodule upstream-mirror-ci build no longer SIGPIPEs
+        #   into exit 141.
+        ci_fix_a_remote=""
+        ci_fix_b_remote=""
+        if git -C "$CI_WORK/repo" fetch --quiet "$GITLAB_URL" \
+            "refs/heads/fix/ci-session-patch-retire-20261012:refs/remotes/ncz/ci-fix-A" \
+            "refs/heads/fix/ci-submodule-sigpipe-20261012:refs/remotes/ncz/ci-fix-B" 2>/dev/null; then
+            git -C "$CI_WORK/repo" rev-parse --verify --quiet refs/remotes/ncz/ci-fix-A >/dev/null 2>&1 \
+                && ci_fix_a_remote="refs/remotes/ncz/ci-fix-A" || true
+            git -C "$CI_WORK/repo" rev-parse --verify --quiet refs/remotes/ncz/ci-fix-B >/dev/null 2>&1 \
+                && ci_fix_b_remote="refs/remotes/ncz/ci-fix-B" || true
+        fi
+        [ -n "$ci_fix_a_remote" ] && \
+            git -C "$CI_WORK/repo" checkout --quiet "$ci_fix_a_remote" -- scripts patches 2>/dev/null || true
+        [ -n "$ci_fix_b_remote" ] && \
+            git -C "$CI_WORK/repo" checkout --quiet "$ci_fix_b_remote" -- .buildkite 2>/dev/null || true
         git -C "$CI_WORK/repo" -c user.name="ncz-singularity-sync" \
             -c user.email="nczero@nclawzero.dev" \
             commit --quiet -m "ci: overlay downstream .buildkite on upstream $UPSTREAM_SHA" 2>/dev/null || true
@@ -235,7 +266,7 @@ log "verifying the pipeline staged a NEW payload to ARGONAS (not just an old one
 # even triggered) proves that.
 STAGED_LS="$(sshpass -p "$ARGONAS_PASS" ssh -o PubkeyAuthentication=no \
     -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-    "root@${ARGONAS_HOST}" "ls -t ${ARGONAS_DST}/staged/singularity-opt-*.tgz 2>/dev/null | head -1")" || true
+    "root@${ARGONAS_HOST}" "ls -t ${ARGONAS_DST}/staged/singularity-opt-*.tgz 2>/dev/null | sed -n '1p'")" || true
 if [ -z "$STAGED_LS" ]; then
     fail "no staged payload found in ${ARGONAS_DST}/staged after a PASSING build #$BUILD_NUM -- the pipeline's staging step did not deliver"
 fi
