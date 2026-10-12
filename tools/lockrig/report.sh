@@ -26,6 +26,7 @@ detail_of() {
 mode_of() { sed -n 's/.*"mode":"\([^"]*\)".*/\1/p' "$1/result.json" 2>/dev/null | head -1; }
 
 # collect all cases seen
+jesc() { printf '%s' "${1:-}" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 ALL=""
 for name in "${SEL[@]}"; do
   d="$OUT/$name"; [ -d "$d" ] || continue
@@ -98,10 +99,10 @@ done
     d="$OUT/$name"; [ -d "$d" ] || continue
     [ "$first" = 1 ] || echo ","
     first=0
-    printf '    "%s": {"mode":"%s","cases": {' "$name" "$(mode_of "$d")"
+    printf '    "%s": {"mode":"%s","cases": {' "$(jesc "$name")" "$(jesc "$(mode_of "$d")")"
     sep=""
     while IFS=$'\t' read -r c s det; do [ -z "$c" ] && continue
-      printf '%s"%s":"%s"' "$sep" "$c" "$s"; sep=","
+      printf '%s"%s":"%s"' "$sep" "$(jesc "$c")" "$(jesc "$s")"; sep=","
     done < "$d/cases.tsv"
     printf '}}'
   done
