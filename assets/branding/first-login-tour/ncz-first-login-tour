@@ -169,12 +169,18 @@ open_tour() {
     return 1
 }
 
-show() {
-    reason="$(guard)" || { log "show: $reason"; echo "ncz-first-login-tour: $reason"; return 0; }
-    # Opt-out and hard skips also turn the upstream switch off, so the shell's
-    # own launch_first_run_tour() can never open the tour behind our guard.
+# Clear the upstream first-run switch. The build already makes show-tour=false
+# the schema default (20-desktop.sh), but a profile that re-enabled it would
+# let the shell's launch_first_run_tour() open the tour behind this guard, so
+# NCZ clears it on EVERY path (opt-out, deferral, first open). Idempotent.
+disable_upstream() {
     command -v gsettings >/dev/null 2>&1 && \
         gsettings set dev.sinty.desktop show-tour false >/dev/null 2>&1 || true
+}
+
+show() {
+    disable_upstream
+    reason="$(guard)" || { log "show: $reason"; echo "ncz-first-login-tour: $reason"; return 0; }
 
     wait_for_shell
     if is_locked; then
@@ -187,10 +193,10 @@ show() {
 
     m="$(marker)"
     mkdir -p "$(dirname "$m")" 2>/dev/null || return 0
-    # Marker written BEFORE the launch: a crash can never loop the tour.
+    # Marker written BEFORE the launch, and a failed launch is deliberately
+    # "fail-closed": a crash or a launch error can never loop the tour, and it
+    # never reappears for that user (the operator's once-only policy).
     : >"$m" 2>/dev/null || { log "show: cannot write marker $m"; return 0; }
-    command -v gsettings >/dev/null 2>&1 && \
-        gsettings set dev.sinty.desktop show-tour false >/dev/null 2>&1 || true
 
     if [ -n "${NCZ_TOUR_DRYRUN:-}" ]; then
         log "show: DRYRUN marker written, not launching"
