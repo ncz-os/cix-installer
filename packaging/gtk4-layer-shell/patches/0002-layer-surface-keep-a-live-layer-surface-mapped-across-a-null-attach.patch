@@ -1,4 +1,4 @@
-From aafaf9452474630ad4a983508dc4f347c3fbbde8 Mon Sep 17 00:00:00 2001
+From 8802d7b375adb8cf881bf26a79f98656b9273f10 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Tue, 13 Oct 2026 04:35:51 -0400
 Subject: [PATCH] layer-surface: keep a live layer surface mapped across a null
@@ -18,18 +18,18 @@ same way null buffers are already kept off session lock surfaces. The
 mock server now treats a null commit on a mapped layer surface as an
 unmap, and a new test covers the sequence.
 ---
- src/layer-surface.c                           | 72 +++++++++++++++++++
+ src/layer-surface.c                           | 78 +++++++++++++++++++
  test/layer-tests/meson.build                  |  1 +
- .../test-null-buffer-while-mapped.c           | 32 +++++++++
+ .../test-null-buffer-while-mapped.c           | 32 ++++++++
  test/mock-server/overrides.c                  |  5 ++
- 4 files changed, 110 insertions(+)
+ 4 files changed, 116 insertions(+)
  create mode 100644 test/layer-tests/test-null-buffer-while-mapped.c
 
 diff --git a/src/layer-surface.c b/src/layer-surface.c
-index 7efdbb5..3bbdb1a 100644
+index 7efdbb5..50e429e 100644
 --- a/src/layer-surface.c
 +++ b/src/layer-surface.c
-@@ -25,6 +25,33 @@ static inline bool edges_eq(struct geom_edges_t a, struct geom_edges_t b) {
+@@ -25,6 +25,39 @@ static inline bool edges_eq(struct geom_edges_t a, struct geom_edges_t b) {
             a.bottom == b.bottom;
  }
  
@@ -44,9 +44,15 @@ index 7efdbb5..3bbdb1a 100644
 +        if (live_layer_surfaces[i] == self) return;
 +    }
 +    if (live_layer_surface_count == live_layer_surface_capacity) {
-+        live_layer_surface_capacity = live_layer_surface_capacity ? live_layer_surface_capacity * 2 : 8;
-+        live_layer_surfaces = realloc(live_layer_surfaces, sizeof(live_layer_surfaces[0]) * live_layer_surface_capacity);
-+        assert(live_layer_surfaces);
++        int capacity = live_layer_surface_capacity ? live_layer_surface_capacity * 2 : 8;
++        struct layer_surface_t** grown = realloc(live_layer_surfaces, sizeof(grown[0]) * capacity);
++        if (!grown) {
++            // Out of memory: leave this surface untracked, so null attaches to it pass through as before
++            fprintf(stderr, "failed to track layer surface, out of memory\n");
++            return;
++        }
++        live_layer_surfaces = grown;
++        live_layer_surface_capacity = capacity;
 +    }
 +    live_layer_surfaces[live_layer_surface_count++] = self;
 +}
@@ -63,7 +69,7 @@ index 7efdbb5..3bbdb1a 100644
  static void layer_surface_send_set_size(struct layer_surface_t* self) {
      if (!self->layer_surface) return;
  
-@@ -316,6 +343,7 @@ static void layer_surface_create_surface_object(struct layer_surface_t* self, st
+@@ -316,6 +349,7 @@ static void layer_surface_create_surface_object(struct layer_surface_t* self, st
          self->layer,
          name_space);
      assert(self->layer_surface);
@@ -71,7 +77,7 @@ index 7efdbb5..3bbdb1a 100644
      zwlr_layer_surface_v1_add_listener(self->layer_surface, &layer_surface_listener, self);
      self->layer_surface_version = zwlr_layer_surface_v1_get_version(self->layer_surface);
  
-@@ -346,6 +374,7 @@ void layer_surface_configure_acked(struct xdg_surface_server_t* super, uint32_t
+@@ -346,6 +380,7 @@ void layer_surface_configure_acked(struct xdg_surface_server_t* super, uint32_t
  static void layer_surface_role_destroyed(struct xdg_surface_server_t* super) {
      struct layer_surface_t* self = (void*)super;
  
@@ -79,7 +85,7 @@ index 7efdbb5..3bbdb1a 100644
      if (self->layer_surface) {
          zwlr_layer_surface_v1_destroy(self->layer_surface);
          self->layer_surface = NULL;
-@@ -570,6 +599,43 @@ static bool xdg_surface_get_popup_hook(
+@@ -570,6 +605,43 @@ static bool xdg_surface_get_popup_hook(
      return false;
  }
  
@@ -123,7 +129,7 @@ index 7efdbb5..3bbdb1a 100644
  void layer_surface_install_hook(layer_surface_hook_callback_t callback) {
      libwayland_shim_install_request_hook(
          &xdg_wm_base_interface,
-@@ -587,5 +653,11 @@ void layer_surface_install_hook(layer_surface_hook_callback_t callback) {
+@@ -587,5 +659,11 @@ void layer_surface_install_hook(layer_surface_hook_callback_t callback) {
              xdg_surface_get_popup_hook,
              NULL
          );
