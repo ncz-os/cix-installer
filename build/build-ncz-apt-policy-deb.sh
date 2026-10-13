@@ -92,17 +92,21 @@ exit 0
 POSTRM
 chmod 0755 "$WORK/DEBIAN/postinst" "$WORK/DEBIAN/postrm"
 
-# mtime epoch: scoped to THIS package's own inputs, NOT the build's global
-# SOURCE_DATE_EPOCH.  build-image.sh exports SOURCE_DATE_EPOCH = the git commit
-# time of HEAD, which changes on every -- even unrelated -- commit; that made
-# this Architecture:all deb's bytes (and so its reviewed ledger row in
-# manifests/ncz-packages.tsv) change on unrelated commits, which cannot be a
-# stable reviewed pin.  Anchor the epoch to the last commit that touched the
-# packaging script or the packaged library, so the sha only moves when the
-# package itself moves.  (r203 provenance finding; pairs with the host-independent
-# Installed-Size above.)
-SOURCE_DATE_EPOCH="$(git -C "$ROOT" log -1 --format=%ct -- post-install/lib/apt-separation.sh build/build-ncz-apt-policy-deb.sh 2>/dev/null || true)"
-: "${SOURCE_DATE_EPOCH:=1790000000}"
+# mtime epoch: a fixed value per package VERSION, NOT the build's global
+# SOURCE_DATE_EPOCH (the git commit time of HEAD, which moves on every commit)
+# and NOT the time of the last commit that touched this script or the library
+# (a comment-only edit then moves every member mtime, so the bytes stop
+# matching the reviewed row in manifests/ncz-packages.tsv although the package
+# did not change).  The bytes now move only when the content moves; a content
+# change needs a VERSION bump, and a new VERSION needs its own epoch here.
+#   1.0.2 -> 1791662078 (the epoch its reviewed sha 41bd4b85 was built with)
+case "$VERSION" in
+    1.0.2) SOURCE_DATE_EPOCH=1791662078 ;;
+    *)  SOURCE_DATE_EPOCH="${NCZ_APT_POLICY_EPOCH:-}"
+        case "$SOURCE_DATE_EPOCH" in
+            ''|*[!0-9]*) echo "ERROR: no mtime epoch for $PKG $VERSION: add one next to 1.0.2 in $0 (or set NCZ_APT_POLICY_EPOCH)" >&2; exit 1 ;;
+        esac ;;
+esac
 export SOURCE_DATE_EPOCH
 find "$WORK" -type d -exec chmod 0755 {} +
 chmod 0644 "$WORK/usr/share/doc/$PKG/README"

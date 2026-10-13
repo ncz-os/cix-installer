@@ -34,6 +34,24 @@ VER="$(dpkg-deb -f "$DEB" Version)"
 [ "$VER" != 1.0.0 ] && ok "version is $VER (1.0.0 carried the broken postinst and must never ship)" || bad "version is the broken 1.0.0"
 dpkg-deb -f "$DEB" Depends | grep -qw bash && ok "Depends includes bash" || bad "Depends lacks bash"
 
+echo "=== 0. member mtimes are the fixed per-version epoch ==="
+# Regression: the epoch used to come from the last commit touching the packaging
+# script, so a comment-only edit changed the deb bytes and the reviewed
+# manifests/ncz-packages.tsv row no longer matched (provenance-inputs FAIL).
+WANT_EPOCH="$(sed -n "s/^ *$VER) SOURCE_DATE_EPOCH=\([0-9][0-9]*\) ;;.*/\1/p" "$HERE/build-ncz-apt-policy-deb.sh" | head -1)"
+if [ -z "$WANT_EPOCH" ]; then
+    bad "no fixed epoch row for $VER in build-ncz-apt-policy-deb.sh"
+else
+    want_ts="$(date -u -d "@$WANT_EPOCH" +%Y-%m-%dT%H:%M:%S)"
+    TZ=UTC dpkg-deb --fsys-tarfile "$DEB" | TZ=UTC tar -tv --full-time 2>/dev/null | awk '{print $4"T"$5}' | sort -u > "$T/mtimes"
+    [ "$(cat "$T/mtimes")" = "$want_ts" ] && ok "every member mtime is $want_ts (epoch $WANT_EPOCH for $VER)" \
+        || bad "member mtimes are not the fixed epoch $want_ts" "$(cat "$T/mtimes")"
+    git -C "$ROOT" log -1 --format=%ct -- build/build-ncz-apt-policy-deb.sh post-install/lib/apt-separation.sh > "$T/lastct" 2>/dev/null || :
+    if [ -s "$T/lastct" ] && [ "$(cat "$T/lastct")" != "$WANT_EPOCH" ]; then
+        ok "epoch does not follow the last commit to the packaging inputs ($(cat "$T/lastct") != $WANT_EPOCH)"
+    fi
+fi
+
 echo "=== 1. every packaged script parses under its own interpreter ==="
 dpkg-deb -R "$DEB" "$T/x"
 SHDASH="$(command -v dash || true)"
