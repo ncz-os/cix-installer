@@ -827,6 +827,10 @@ TRANSIENT = (
     "HTTP 502",
     "HTTP 503",
     "HTTP 504",
+    "HTTP 429",
+    "timed out",
+    "TLS",
+    "gnutls",
 )
 
 
