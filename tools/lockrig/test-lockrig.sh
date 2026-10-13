@@ -19,11 +19,13 @@ for p in "$HERE"/agent/lib/*.py; do
   if python3 -m py_compile "$p" 2>/dev/null; then ok "py_compile $(basename "$p")"; else bad "py_compile $(basename "$p")"; fi
 done
 
-echo "== hosts.tsv =="
-n=$(awk -F'\t' '!/^#/ && NF>=9' "$HERE/hosts.tsv" | wc -l | tr -d ' ')
-[ "$n" -ge 6 ] && ok "hosts.tsv has $n host rows" || bad "hosts.tsv only $n rows"
-awk -F'\t' '!/^#/ && NF>=9 { if ($8!="0" && $8!="1") { print "bad attended: "$0; exit 1 } if ($9!="0" && $9!="1") { print "bad headless: "$0; exit 1 } }' "$HERE/hosts.tsv" \
+echo "== hosts.example.tsv =="
+n=$(awk -F'\t' '!/^#/ && NF>=9' "$HERE/hosts.example.tsv" | wc -l | tr -d ' ')
+[ "$n" -ge 6 ] && ok "hosts.example.tsv has $n host rows" || bad "hosts.example.tsv only $n rows"
+awk -F'\t' '!/^#/ && NF>=9 { if ($8!="0" && $8!="1") { print "bad attended: "$0; exit 1 } if ($9!="0" && $9!="1") { print "bad headless: "$0; exit 1 } }' "$HERE/hosts.example.tsv" \
   && ok "attended/headless flags are 0/1" || bad "attended/headless flags malformed"
+awk -F'\t' '!/^#/ && NF>=9 && $2 !~ /^192\.0\.2\./ { print "non-documentation address: "$1; exit 1 }' "$HERE/hosts.example.tsv" \
+  && ok "example inventory uses documentation addresses only" || bad "example inventory carries a real address"
 
 echo "== lease semantics =="
 TMP="$(mktemp -d)"; export LOCKRIG_LEASE_DIR="$TMP"

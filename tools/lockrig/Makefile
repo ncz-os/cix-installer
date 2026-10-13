@@ -23,21 +23,23 @@ status:
 reap:
 	./lease.sh reap
 
-# Headless dry-run on the amd64 build host (validates the rig + the lock suite).
+# Headless dry-run on a build host from the inventory (validates the rig + the
+# lock suite). DRY_HOST names it (default: build-amd64 from hosts.example.tsv).
+DRY_HOST ?= build-amd64
 dry-run:
-	LOCKRIG_OWNER=$(OWNER) $(LOCKRIG) run --hosts achilles --skip-install --out $(OUT)
+	LOCKRIG_OWNER=$(OWNER) $(LOCKRIG) run --hosts $(DRY_HOST) --skip-install --out $(OUT)
 
-# Live run over the requested hosts, e.g. HOSTS=pegasus,o6n
+# Live run over the requested hosts, e.g. HOSTS=prime-laptop,sky1-board
 run:
 	@[ -n "$(HOSTS)" ] || { echo "set HOSTS=host,host"; exit 2; }
 	LOCKRIG_OWNER=$(OWNER) $(LOCKRIG) run --hosts $(HOSTS) \
 	  $(if $(ALLOW_ATTENDED),--allow-attended,) $(if $(FROM_APT),--from-apt,) \
 	  $(if $(CANDIDATE_DIR),--candidate-dir $(CANDIDATE_DIR),) --out $(OUT)
 
-# The full intended RC6-verification sweep (attended hosts last, one at a time).
+# The full verification sweep over every inventory host (attended hosts last,
+# one at a time).
 run-all:
-	LOCKRIG_OWNER=$(OWNER) $(LOCKRIG) run \
-	  --hosts pegasus,o6n,cixmini,proteus,achilles,ultra,chimera,medusa \
+	LOCKRIG_OWNER=$(OWNER) $(LOCKRIG) run --hosts all \
 	  --allow-attended --out $(OUT)
 
 matrix:
