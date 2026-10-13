@@ -92,10 +92,8 @@ SUDOERS_D=/etc/sudoers.d
 if [ -d "$SUDOERS_D" ]; then
     cat > "$SUDOERS_D/ncz-cli-secure-path" <<'SUDOERS'
 # NCZ-OS: add /usr/local/bin to sudo's secure_path so `sudo ncz ...` finds
-# the CLI staged at /usr/local/bin/ncz. Without this, the very first thing
-# an operator types after `apt install ncz-cli` fails with "sudo: ncz:
-# command not found" (verified on the amd64 test host / the Sky1 test board / the Sky1 test board on
-# 2026-10-13). Intentionally minimal: just the PATH, no NOPASSWD, no scope
+# the CLI staged at /usr/local/bin/ncz. Without this, `sudo ncz ...` fails
+# with "sudo: ncz: command not found". Intentionally minimal: just the PATH, no NOPASSWD, no scope
 # expansion. visudo-equivalent: this file is parsed by sudo only if owned by
 # root:root and mode 0440.
 Defaults secure_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -505,7 +503,7 @@ ncz_install_mnemos() {
         echo "ncz install mnemos: missing quadlet template: $template" >&2
         echo "  expected at: $template" >&2
         echo "  the post-install/46-ncz-cli.sh hook should have staged it from assets/agent-stack/." >&2
-        echo "  re-install the ncz-cli deb (or run 'sudo ncz agent install --all' once to populate /usr/share/ncz/quadlets/)." >&2
+        echo "  copy assets/agent-stack/mnemos.container from the installer media to $NCZ_QUADLET_TEMPLATES/ and re-run." >&2
         exit 1
     fi
 
