@@ -11,7 +11,7 @@
 #     private-libdir sshd would NOT survive, since glibc still dlopens
 #     libnss_*/PAM from the broken host /usr/lib.
 #   - Unlike the static telnet failsafe, it speaks ssh + SFTP/scp.
-#   - It gets its OWN macvlan LAN IP (reachable from other fleet hosts) and a
+#   - It gets its OWN macvlan LAN IP (reachable from other LAN hosts) and a
 #     READ-WRITE bind of the host root at /host so an operator can repair the
 #     host in place (helpers: ncz-fixlib, ncz-host-chroot inside the container).
 #
@@ -59,7 +59,7 @@ cat > /etc/systemd/nspawn/$MACHINE.nspawn <<'EOF'
 # NCZ Server recovery/management container.
 # MACVLAN= is rewritten at boot by ncz-recovery-netparent.service to the host's
 # real uplink NIC. Bind=/:/host gives the container READ-WRITE access to the
-# host root for in-place repair (LAN-only doctrine; key-gated + password).
+# host root for in-place repair (LAN-only doctrine; password, or the owner's own key).
 #
 # PrivateUsers=no is REQUIRED: the stock systemd-nspawn@.service template runs
 # with -U (private user namespace), which maps container root to a high host
@@ -85,20 +85,12 @@ EOF
 install -d -m 0755 /etc/modules-load.d
 echo macvlan > /etc/modules-load.d/ncz-recovery.conf
 
-# ---- 4. fleet authorized_keys into the container's root account ----
-# Reuse the fleet-canonical keys from 35-ssh.sh so the recovery container is
-# reachable from the operator's machines on first boot (key-first; password fallback).
+# ---- 4. no vendor authorized_keys in the container ----
+# The container is reached with its root password (documented break-glass
+# default, see docs/REMOTE-ACCESS.md) or with a key the owner installs. No
+# project-owned public key is trusted. Only create an empty, correctly-moded
+# ~/.ssh so ssh-copy-id works on first use.
 install -d -m 0700 "$MACHINE_ROOT/root/.ssh"
-cat > "$MACHINE_ROOT/root/.ssh/authorized_keys" <<'EOF'
-# === nclawzero fleet-default authorized_keys (ncz-recovery container) ===
-# jperlow-mlt (this Mac, primary operator workstation)
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBJ3z+8UX2oPt3cmN1X9XU8RWrgp7VvdHPd0vW+m/AoR jperlow@work-laptop
-# project build host (used for live diagnostics)
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKCDT5Busd1J+j4kpzkZ/jT/GtUQylaZCUCTftY2sYk argos-backup
-EOF
-chmod 0600 "$MACHINE_ROOT/root/.ssh/authorized_keys"
-# Container is not user-ns mapped by default, so uid 0 == host root; ownership
-# is already root:root from the chroot context.
 
 # ---- 5. per-box macvlan parent NIC resolver (name varies per box) ----
 cat > /usr/local/sbin/ncz-recovery-netparent <<'EOF'

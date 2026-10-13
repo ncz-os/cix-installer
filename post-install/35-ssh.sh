@@ -1,17 +1,16 @@
 #!/bin/bash
-# 35-ssh.sh - openssh-server + fleet-canonical authorized_keys.
+# 35-ssh.sh - openssh-server, enabled on boot and in rescue.target.
 #
-# Goal: a freshly-installed cixmini is reachable on port 22 from any
-# fleet host on day zero, without having to physically touch it. Both
-# root and the ncz operator account get the same authorized_keys so
-# operators can ssh in directly + use sudo, while diagnostics from
-# the operator's workstation and the project's build host work as root over the network.
+# Goal: a freshly-installed machine is reachable on port 22 on day zero,
+# without having to physically touch it, using the account passwords set
+# at install time. No vendor or project SSH public key is installed: the
+# image must not trust any key the machine's owner did not add themselves.
 #
 # Runs in the optional post-install phase after base services are present, so
 # sshd's startup ordering doesn't fight quadlet generation.
 set -euo pipefail
 
-echo "[35] openssh-server + fleet authorized_keys"
+echo "[35] openssh-server (no vendor authorized_keys)"
 
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     openssh-server sudo
@@ -66,76 +65,15 @@ systemctl reenable NetworkManager 2>/dev/null || true
 systemctl reenable systemd-networkd 2>/dev/null || true
 
 # ---- authorized_keys -------------------------------------------------
-# Fleet-canonical keys baked here so the device is reachable immediately
-# after first boot. Operators can rotate via sync-fleet-keys.sh later.
-read -r -d '' KEYS <<'EOF' || true
-# === nclawzero fleet-default authorized_keys (cixmini factory image) ===
-# jperlow-mlt (this Mac, primary operator workstation)
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBJ3z+8UX2oPt3cmN1X9XU8RWrgp7VvdHPd0vW+m/AoR jperlow@work-laptop
-# project build host (used for live diagnostics)
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKCDT5Busd1J+j4kpzkZ/jT/GtUQylaZCUCTftY2sYk argos-backup
-EOF
-
-# Root account - only seed if absent (review: don't clobber
-# operator-rotated keys).
-install_authorized_keys() {
-    local user=$1
-    local home=$2
-    local group=$3
-    local keyfile="$home/.ssh/authorized_keys"
-
-    install -d -m 0700 -o "$user" -g "$group" "$home/.ssh"
-    if [ ! -s "$keyfile" ]; then
-        echo "$KEYS" > "$keyfile"
-        chmod 0600 "$keyfile"
-        chown "$user:$group" "$keyfile"
-        echo "  $keyfile seeded (was empty)"
-    else
-        echo "  $keyfile exists ($(wc -l < "$keyfile") lines) - preserving"
-    fi
-}
-
-install_authorized_keys root /root root
-
-# Operator accounts - seed every normal local user, plus explicit fallbacks for
-# historical names. This covers the preseed-created operator and the temporary
-# magnetar diagnostic account without guessing which UID was created first.
-SEEDED_USERS=""
-seed_user_if_present() {
-    local user=$1
-    local home group
-
-    case " $SEEDED_USERS " in
-        *" $user "*) return 0 ;;
-    esac
-
-    if ! id "$user" >/dev/null 2>&1; then
-        return 0
-    fi
-
-    home=$(getent passwd "$user" | cut -d: -f6)
-    group=$(id -gn "$user")
-    if [ -z "$home" ] || [ "$home" = "/" ]; then
-        echo "  WARN: skipping $user authorized_keys; invalid home '$home'"
-        return 0
-    fi
-
-    install_authorized_keys "$user" "$home" "$group"
-    SEEDED_USERS="$SEEDED_USERS $user"
-}
-
-for user in $(awk -F: '$3 >= 1000 && $3 < 65000 {print $1}' /etc/passwd); do
-    seed_user_if_present "$user"
-done
-for user in ncz magnetar; do
-    seed_user_if_present "$user"
-done
+# Deliberately NONE. Earlier images seeded root and every local user with
+# project-owned public keys, which let those keys log in to any machine
+# installed from a public image. Owners add their own keys with
+# ssh-copy-id; existing authorized_keys files are left untouched.
 
 # ---- sshd_config tweaks ---------------------------------------------
-# Permit root login by key only (factory image needs root reachability for
-# fleet-auth bootstrap). Password logins stay disabled for SSH; the diagnostic
-# and operator accounts still have console passwords, but network access is
-# fleet-key only.
+# Root login and password authentication stay enabled (documented default
+# access model, see docs/REMOTE-ACCESS.md); key login works for any key the
+# owner installs.
 SSHD_DROPIN=/etc/ssh/sshd_config.d/10-nclawzero.conf
 install -d -m 0755 /etc/ssh/sshd_config.d
 cat > "$SSHD_DROPIN" <<'EOF'
@@ -147,14 +85,6 @@ ChallengeResponseAuthentication no
 PubkeyAuthentication yes
 EOF
 chmod 0644 "$SSHD_DROPIN"
-
-echo ""
-echo "Installed authorized_keys (count, files):"
-wc -l /root/.ssh/authorized_keys 2>&1 || true
-for user in $SEEDED_USERS; do
-    home=$(getent passwd "$user" | cut -d: -f6)
-    wc -l "$home/.ssh/authorized_keys" 2>&1 || true
-done
 
 echo ""
 echo "ssh service state:"
