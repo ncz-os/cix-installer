@@ -257,10 +257,10 @@ EOF
 # Drop apt lists/cache to shrink the tarball.
 rm -rf "$CHROOT/var/lib/apt/lists/"* "$CHROOT/var/cache/apt/archives/"*.deb 2>/dev/null || true
 # Per-device identity: no SSH host keys and no machine-id in the archive.
-# nspawn provisions the machine-id; hook 38 and the ssh drop-in create the keys.
+# nspawn provisions the machine-id; hook 38 and sshd-keygen.service create the keys.
 rm -f "$CHROOT"/etc/ssh/ssh_host_* "$CHROOT/var/lib/dbus/machine-id"
 : > "$CHROOT/etc/machine-id"
-if [ -s "$CHROOT/etc/machine-id" ] || [ -e "$CHROOT/var/lib/dbus/machine-id" ] || \
+if [ -e "$CHROOT/var/lib/dbus/machine-id" ] || \
    find "$CHROOT/etc/ssh" -maxdepth 1 -name 'ssh_host_*' | grep -q . || \
    find "$CHROOT/root" "$CHROOT/home" -name authorized_keys 2>/dev/null | grep -q .; then
     echo "[mgmt-rootfs] ERROR: rootfs carries SSH host keys, authorized_keys or a machine-id" >&2
