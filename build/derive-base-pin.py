@@ -26,6 +26,7 @@ import gzip
 import hashlib
 import lzma
 import os
+import re
 import subprocess
 import sys
 import urllib.request
@@ -138,18 +139,45 @@ def snapshot_identities(ts: str, arch: str, cache: str) -> set:
     return ident
 
 
-def candidate_timestamps(sub_date: str) -> list[str]:
+RUN_RE = re.compile(r"\b([0-9]{8}T[0-9]{6}Z)\b")
+
+
+def archive_runs(listing: str, days: set) -> list[str]:
+    """The snapshot.debian.org archive run timestamps in a month listing page
+    whose date (YYYYMMDD) is one of ``days``."""
+    return sorted({ts for ts in RUN_RE.findall(listing) if ts[:8] in days})
+
+
+def month_listing(year: int, month: int) -> str:
+    url = f"{SNAP}/?year={year}&month={month}"
+    try:
+        with urllib.request.urlopen(url, timeout=120) as r:
+            return r.read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - the fixed grid below still applies
+        return ""
+
+
+def candidate_timestamps(sub_date: str, listing=month_listing) -> list[str]:
+    """Candidate snapshot timestamps around the substrate date: a fixed grid
+    (00:00, 12:00, 23:59:59 per day) PLUS every real archive run that
+    snapshot.debian.org lists for those days.  A grid point resolves to the
+    latest run at or before it, so the runs between grid points (about every
+    six hours) are only measured when they are candidates themselves."""
     try:
         d = dt.datetime.strptime(sub_date.split()[1] + " " + sub_date.split()[2] + " "
                                  + sub_date.split()[3], "%d %b %Y")
     except Exception:  # noqa: BLE001
         d = dt.datetime.utcnow()
-    out = []
+    out = set()
+    days = set()
     for delta in (-2, -1, 0, 1):
         day = d + dt.timedelta(days=delta)
+        days.add(day.strftime("%Y%m%d"))
         for hh in ("000000", "120000", "235959"):
-            out.append(day.strftime("%Y%m%dT") + hh + "Z")
-    return out
+            out.add(day.strftime("%Y%m%dT") + hh + "Z")
+    for ym in sorted({(int(x[:4]), int(x[4:6])) for x in days}):
+        out.update(archive_runs(listing(*ym), days))
+    return sorted(out)
 
 
 def main() -> int:
