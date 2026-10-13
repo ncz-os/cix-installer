@@ -15,8 +15,9 @@ exactly what is enabled, why, and how to disable each part.
 > **Installer without a USB drive.** NCZ-OS installs from a USB drive only. If
 > the installer finds no USB installation drive it stops on a screen that says
 > so; the installer diagnostics console (Alt-F3, and SSH/telnet when the network
-> is up) stays available there, and **S** opens a local shell. See the README
-> section *Troubleshooting the install*.
+> is up) stays available there, and **S** opens a local shell; its login is in
+> [RECOVERY-LOGINS.md](RECOVERY-LOGINS.md). See the README section
+> *Troubleshooting the install*.
 
 ## What is enabled by default
 
