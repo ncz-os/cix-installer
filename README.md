@@ -27,8 +27,9 @@
 > | amd64 | `7f23dcde01bd1aac9aae4bd7cee2ec87392a94d782002e8abea7f28653886851` |
 >
 > Each image is a raw GPT disk image, split into parts on the release page
-> (GitHub limits files to 2 GiB). Put the parts, `SHA256SUMS`, `PARTS.sha256`
-> and [`ncz-join-image.sh`](tools/ncz-join-image.sh) in one folder and run
+> (GitHub limits files to 2 GiB). Put the parts of your architecture, its
+> `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>` (on older releases
+> `PARTS.sha256` and `SHA256SUMS`) and [`ncz-join-image.sh`](tools/ncz-join-image.sh) in one folder and run
 > `sh ncz-join-image.sh arm64` (or `amd64`): it checks every part, joins and
 > unpacks them and checks the finished `.img`. It never writes to a disk. Then
 > write the `.img` to a drive of at least 16 GB — see
@@ -717,13 +718,14 @@ it — there is no MS-R1 NPU on x86 hardware.
    ```
 
    [`tools/ncz-join-image.sh`](tools/ncz-join-image.sh) checks every part
-   against `PARTS.sha256`, joins and unpacks them, and checks the finished
-   `.img` against `SHA256SUMS`. It never writes to a disk, and it is safe to
+   against `PARTS-<arch>.sha256`, joins and unpacks them, and checks the finished
+   `.img` against `SHA256SUMS-<arch>` (older releases: `PARTS.sha256` and
+   `SHA256SUMS`). It never writes to a disk, and it is safe to
    re-run: it leaves the parts in place and will not overwrite an existing
    `.img` unless you pass `-f`. To do it by hand:
-   `sha256sum -c PARTS.sha256`, then
+   `sha256sum -c PARTS-<arch>.sha256`, then
    `cat ncz-os-<arch>-<date>-<sha>.img.zst.part-* | zstd -d -o ncz-os-<arch>-<date>-<sha>.img`,
-   then compare `sha256sum ncz-os-<arch>-<date>-<sha>.img` with `SHA256SUMS`.
+   then compare `sha256sum ncz-os-<arch>-<date>-<sha>.img` with `SHA256SUMS-<arch>`.
    An image you build yourself has a `.sha256` beside it instead.
 
 2. **Write it to a drive of at least 16 GB** (the image is 7.6 GB; writing

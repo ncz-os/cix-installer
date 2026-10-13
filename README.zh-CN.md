@@ -23,7 +23,8 @@
 > | amd64 | `7f23dcde01bd1aac9aae4bd7cee2ec87392a94d782002e8abea7f28653886851` |
 >
 > 每个镜像都是原始 GPT 磁盘镜像（`.img`），在发布页上被拆分为多个分片（GitHub 单个文件
-> 上限 2 GiB）。把所有分片、`SHA256SUMS`、`PARTS.sha256` 与
+> 上限 2 GiB）。把对应架构的所有分片、`PARTS-<架构>.sha256`、`SHA256SUMS-<架构>`
+> （旧版本为 `PARTS.sha256` 与 `SHA256SUMS`）与
 > [`ncz-join-image.sh`](tools/ncz-join-image.sh) 放在同一个文件夹里，运行
 > `sh ncz-join-image.sh arm64`（或 `amd64`）：脚本会校验每个分片、拼接并解压，再校验
 > 得到的 `.img`；它绝不会写入任何磁盘。然后把 `.img` 写入**至少 16 GB** 的驱动器
@@ -200,9 +201,9 @@ NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都�
    sh ncz-join-image.sh arm64        # 或 amd64
    ```
 
-   手动方式：`sha256sum -c PARTS.sha256`，然后
+   手动方式：`sha256sum -c PARTS-<架构>.sha256`，然后
    `cat ncz-os-<架构>-<日期>-<sha>.img.zst.part-* | zstd -d -o ncz-os-<架构>-<日期>-<sha>.img`，
-   再用 `sha256sum` 与 `SHA256SUMS` 对照。
+   再用 `sha256sum` 与 `SHA256SUMS-<架构>` 对照（旧版本为 `PARTS.sha256` 与 `SHA256SUMS`）。
 
 2. **写入至少 16 GB 的驱动器**（镜像 7.6 GB；写入会清空该驱动器）。任何系统上都可以用
    Balena Etcher。在 Linux 上，请把原始 GPT 镜像写入**整块设备**（`/dev/sdX`），而不是某个
