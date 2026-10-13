@@ -1,6 +1,6 @@
 # T2 Mac CPU package power cap (load-triggered hard power cut)
 
-**Status:** shipped (26.10 Preview 1) as post-install hook
+**Status:** shipped (26.10) as post-install hook
 `post-install/64-t2-power-cap.sh`. Goal: stop the T2 MacBookPro16,1 hard power
 cuts by capping CPU package power.
 

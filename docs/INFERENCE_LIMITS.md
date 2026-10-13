@@ -10,7 +10,7 @@
 
 **Box:** Minisforum MS-R1 — CIX Sky1 (CP8180): 12-core big.LITTLE (Cortex-A720 + Cortex-A520), Mali-G720
 (Immortalis) GPU, Zhouyi V3 NPU (~30 TOPS INT8), 64 GB unified LPDDR.
-**Kernel at time of measurement:** `7.0.12-cix-sky1-next`. That channel has since been removed; 26.10 Preview 1 ships only `7.3.0-rc7-sky1-ncz`.
+**Kernel at time of measurement:** `7.0.12-cix-sky1-next`. That channel has since been removed; 26.10 ships only `7.3.0-rc7-sky1-ncz`.
 **Measured:** 2026-05 → 2026-06 on an MS-R1.
 
 ---

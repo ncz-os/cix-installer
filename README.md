@@ -3,23 +3,28 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/00-hero.jpg" alt="NCZ-OS 26.10 Cygnus" width="900">
+  <img src="docs/screenshots/26.10/00-hero.jpg" alt="NCZ-OS 26.10 Cygnus" width="900">
 </p>
 
 <h1 align="center">NCZ-OS</h1>
 <p align="center"><em>Debian for Arm64 (CIX Sky1) and AMD64 (Intel/AMD PCs and Apple T2 Macs) — with working GPU, VPU and NPU drivers</em></p>
 
-> ### NCZ-OS 26.10 "Cygnus" — Preview 1 (2026-10-12)
+> ### NCZ-OS 26.10 "Cygnus" (images of 2026-10-13)
 >
-> **[Download from the release page](https://github.com/ncz-os/cix-installer/releases/tag/v26.10-preview1)**
-> · [Release notes](docs/releases/26.10-cygnus-preview1.md)
+> **[Download from the latest release](https://github.com/ncz-os/cix-installer/releases/latest)**
+> · [Release notes](docs/releases/26.10-cygnus-20261013.md)
 > · [Hardware tested](#hardware-support--testing-status)
 > · [Documentation index](docs/INDEX.md)
 >
 > | Image | For | Kernel |
 > |---|---|---|
-> | `ncz-os-arm64-20261012-f64cba5.img` | CIX Sky1 boards (Radxa Orion O6N, Minisforum MS-R1) | `7.3.0-rc7-sky1-ncz` |
-> | `ncz-os-amd64-20261012-07c0644.img` | Intel/AMD PCs and Apple T2 Macs | `7.3.0-rc7-t2-ncz` |
+> | `ncz-os-arm64-20261013-d395bb2d.img` | CIX Sky1 boards (Radxa Orion O6N, Minisforum MS-R1) | `7.3.0-rc7-sky1-ncz` |
+> | `ncz-os-amd64-20261013-d395bb2d.img` | Intel/AMD PCs and Apple T2 Macs | `7.3.0-rc7-t2-ncz` |
+>
+> | Image | sha256 of the `.img` |
+> |---|---|
+> | arm64 | `f6de9e4f830fd5d450b1e00654cc9341aae1a5ca070bc66f9a5a76b3ca3ba4a7` |
+> | amd64 | `7f23dcde01bd1aac9aae4bd7cee2ec87392a94d782002e8abea7f28653886851` |
 >
 > Each image is a raw GPT disk image, split into parts on the release page
 > (GitHub limits files to 2 GiB). Put the parts, `SHA256SUMS`, `PARTS.sha256`
@@ -29,9 +34,8 @@
 > write the `.img` to a drive of at least 16 GB — see
 > [Quick start (install on hardware)](#quick-start-install-on-hardware).
 >
-> **This is a preview**, built on a release-candidate kernel. Back up anything
-> you care about, and unplug USB-serial/debug cables during the install (see
-> [Known limitations](docs/releases/26.10-cygnus-preview1.md#known-limitations)).
+> Both images are built on a release-candidate kernel (7.3.0-rc7). Back up
+> anything you care about before you install.
 
 ## Why NCZ-OS exists
 
@@ -50,7 +54,7 @@ frozen-in-time legacy distro.
 
 > **🌐 Language:** English · [简体中文](README.zh-CN.md)
 >
-> **📚 Start here:** [Documentation index](docs/INDEX.md) · [26.10 Preview 1 release notes](docs/releases/26.10-cygnus-preview1.md) · [Design rationale — why it is built this way](docs/DESIGN-RATIONALE.md) · [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [Source releases](docs/SOURCE-RELEASES.md) · [Download the image](https://github.com/ncz-os/cix-installer/releases/tag/v26.10-preview1)
+> **📚 Start here:** [Documentation index](docs/INDEX.md) · [26.10 release notes](docs/releases/26.10-cygnus-20261013.md) · [Design rationale — why it is built this way](docs/DESIGN-RATIONALE.md) · [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [Source releases](docs/SOURCE-RELEASES.md) · [Download the image](https://github.com/ncz-os/cix-installer/releases/latest)
 
 **The installer and image build for the NCZ-OS Linux distribution.**
 
@@ -77,7 +81,7 @@ hand-patching d-i itself. The installer extracts a pre-built **Debian Testing
 userspace, the Singularity desktop and the opt-in NCZ agent stack, and brands
 it as NCZ-OS. See [Architecture](#architecture).
 
-> **Current release: NCZ-OS 26.10 "Cygnus" Preview 1** — the Singularity
+> **Current release: NCZ-OS 26.10 "Cygnus"** — the Singularity
 > desktop (labwc/wlroots) in the Cygnus theme, one kernel per image:
 >
 > | | Sky1 (Arm64) | Intel/AMD PCs and T2 Macs (AMD64) |
@@ -90,8 +94,8 @@ it as NCZ-OS. See [Architecture](#architecture).
 > are retired. 7.3.0-rc7 is a **release candidate**; it will be replaced by
 > 7.3.0 final.
 >
-> **Release notes:** [26.10 "Cygnus" Preview 1](docs/releases/26.10-cygnus-preview1.md) ·
-> [Download](https://github.com/ncz-os/cix-installer/releases/tag/v26.10-preview1)
+> **Release notes:** [26.10 "Cygnus"](docs/releases/26.10-cygnus-20261013.md) ·
+> [Download](https://github.com/ncz-os/cix-installer/releases/latest)
 
 > ### Remote access defaults
 >
@@ -113,25 +117,24 @@ it as NCZ-OS. See [Architecture](#architecture).
 
 - **Singularity desktop** (labwc/wlroots, native Wayland) in the **Cygnus
   theme** — magenta and cyan on violet-black (`branding/cygnus/`), with a
-  Cygnus wallpaper set and boot-menu theme. Windows have minimize, maximize
-  and close buttons by default.
+  Cygnus wallpaper set and boot-menu theme. Every window has minimize,
+  maximize and close buttons by default, system-wide.
 - **First-login tour** of the desktop, the wallpapers and artist packs, the
-  online wallpaper sources and the screensavers. It runs once per user; to see
-  it again, delete `~/.local/state/ncz/tour-seen` and log in again.
-- **Screensavers:** NCZ Screensavers 0.8.12 with 74 savers, including the Black
-  Hole (the default, in the Cygnus palette), Fractasia and Magmasimplex.
-  Choose and preview them in Settings → *Screensaver and Lock* (if that page
-  comes up empty, log out and back in; a fix is planned). Heavy savers are best
-  on a stronger GPU.
+  online wallpaper sources and the screensavers (plus, on Sky1, hardware video
+  decoding in Chromium). It starts 30 seconds after the first login and runs
+  once per user; to see it again, delete `~/.local/state/ncz/tour-seen` and log
+  in again.
+- **Screensavers:** NCZ Screensavers 0.8.13 (settings plugin 0.3.21) with 74
+  savers, including the Black Hole (the default, in the Cygnus palette),
+  Fractasia and Magmasimplex. Choose and preview them in Settings →
+  *Screensaver and Lock*. Heavy savers are best on a stronger GPU.
 - **Lock screen over a live screensaver.** The saver and the lock start
   together after 5 minutes idle; the password prompt appears only on the first
   key press, click or pointer movement. Behind the lock the saver runs at
   8 fps and half resolution by default and freezes after 15 seconds, to keep
-  the machine cool. Verified on the Sky1 boards and the ASUS laptop; on the T2
-  MacBooks lock, prompt and freeze were verified but the animation was not
-  confirmed (see known issues).
+  the machine cool.
 - **Login screen that matches the lock screen** (greetd with the native
-  Singularity greeter).
+  Singularity greeter), at the panel's native resolution on T2 MacBooks.
 - **Wallpapers:** Artist Packs (NCZ, Cygnus, Alex Jay Brady, Brandon Perlow,
   Singularity) rotating every 10 minutes, plus Bing and OCS online sources —
   see [Artist packs](#artist-packs) below.
@@ -146,8 +149,16 @@ it as NCZ-OS. See [Architecture](#architecture).
   ([docs/T2-POWER-CAP.md](docs/T2-POWER-CAP.md)), the T2 fan/SMC drivers, and Apple Wi-Fi/Bluetooth firmware and
   audio configuration fetched from the t2-ubuntu-repo at first boot.
 - **Updates and recovery:** an NCZ-OS update manager, a rescue boot entry on
-  the same kernel, a rescue partition and a live recovery container (see
-  [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)).
+  the same kernel, a rescue partition (wired ports use DHCP) and a live
+  recovery container with its own SSH host keys per device (see
+  [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)). No SSH keys are
+  preinstalled; `~/.ssh/authorized_keys` is left to you.
+- **Agent stack (opt-in):** `ncz install mnemos`, `ncz install zoder` and
+  `ncz agent install <name>` set up MNEMOS, zoder and the agent runtimes end
+  to end ([docs/NCZ-AGENT-STACK.md](docs/NCZ-AGENT-STACK.md)).
+
+What changed since Preview 1 (2026-10-12) is listed in the
+[release notes](docs/releases/26.10-cygnus-20261013.md#changes-since-preview-1).
 
 ### Artist packs
 
@@ -161,142 +172,116 @@ is contributed for distribution with NCZ-OS; separate reuse needs the artist's
 permission (the licence is not yet recorded). The screenshots in this README show it, with credit, only as
 it appears in the desktop.
 
-**Known issues in Preview 1** (the full list is in the
-[release notes](docs/releases/26.10-cygnus-preview1.md#known-limitations)):
-
-- Unplug USB-serial/debug cables during the install (the installer can mistake
-  one for a braille display).
-- Apple T2 MacBooks run warm right after the first login: the first-login tour
-  is a one-minute CPU burst and the discrete AMD GPU stays powered (about 60 °C
-  idle). A fix is planned for the next image.
-- The screensaver on the lock screen can fail to start at the default timing:
-  two idle-lock paths can race for the lock's saver connection, which leaves
-  the lock screen up with no saver behind it (seen on one desktop PC). The lock
-  itself always engages. A fix is planned for the next image.
-- The saver animation behind the lock could not be confirmed on the two T2
-  MacBooks (it was on the other machines; under investigation), and the lock
-  screen never blanks the display ("blank after N seconds" is not implemented
-  yet).
-- On the T2 MacBooks, each resume logs a kernel warning and the
-  Thunderbolt/USB4 ports briefly disconnect (resume itself works), and the login
-  screen runs at a different resolution from the session, so its match with
-  the lock screen is unverified there.
-- On the Radxa Orion O6N the GTK file-chooser portal service can fail to start,
-  so some apps may not open a file-chooser dialog.
-- Some savers are too heavy for older Intel graphics (Magmasimplex can hang an
-  HD 4000); HEVC is not hardware-decoded in Chromium on Sky1; `ncz desktop off`
-  takes effect only after a reboot.
-
 ## Screenshots
 
-All screenshots are from the released 26.10 Preview 1 images.
+All screenshots are from NCZ-OS 26.10 images.
 
 ### Artist packs
 
 <p align="center"><em>Artwork © the artists, contributed for distribution with NCZ-OS and shown here, with credit, as it appears on the desktop. Separate reuse needs the artist's permission (the licence is not yet recorded).</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/artist-showcase-brandon-perlow-nimbus.jpg" alt="Desktop with a wallpaper by Brandon Perlow" width="820">
+  <img src="docs/screenshots/26.10/artist-showcase-brandon-perlow-nimbus.jpg" alt="Desktop with a wallpaper by Brandon Perlow" width="820">
 </p>
 <p align="center"><em>A wallpaper by [Brandon Perlow](https://www.artstation.com/brandonperlow), from his Artist Pack, applied to the desktop (signature and links are part of the artwork).</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/artist-showcase-brandon-perlow-cthulhu.jpg" alt="Desktop with a wallpaper by Brandon Perlow" width="820">
+  <img src="docs/screenshots/26.10/artist-showcase-brandon-perlow-cthulhu.jpg" alt="Desktop with a wallpaper by Brandon Perlow" width="820">
 </p>
 <p align="center"><em>Another wallpaper by [Brandon Perlow](https://www.artstation.com/brandonperlow) from the same pack.</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/artist-showcase-alex-jay-brady-ringworld.jpg" alt="Desktop with a wallpaper by Alex Jay Brady" width="820">
+  <img src="docs/screenshots/26.10/artist-showcase-alex-jay-brady-ringworld.jpg" alt="Desktop with a wallpaper by Alex Jay Brady" width="820">
 </p>
 <p align="center"><em><i>Anti-stellar projectiles penetrate a braided ringworld</i> by [Alex Jay Brady](https://www.artstation.com/boac), from his Artist Pack.</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/artist-showcase-alex-jay-brady-galaxies.jpg" alt="Desktop with a wallpaper by Alex Jay Brady" width="820">
+  <img src="docs/screenshots/26.10/artist-showcase-alex-jay-brady-galaxies.jpg" alt="Desktop with a wallpaper by Alex Jay Brady" width="820">
 </p>
 <p align="center"><em><i>Galaxies exiting the Universe</i> by [Alex Jay Brady](https://www.artstation.com/boac).</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/08-tour-artists.jpg" alt="First-login tour slide about the artist wallpaper sets" width="820">
+  <img src="docs/screenshots/26.10/08-tour-artists.jpg" alt="First-login tour slide about the artist wallpaper sets" width="820">
 </p>
 <p align="center"><em>The first-login tour introduces the wallpaper sets: NCZ, Cygnus, Alex Jay Brady and Brandon Perlow.</em></p>
 
 ### Wallpaper sources
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/04-wallpaper-search.jpg" alt="Settings search for wallpaper" width="820">
+  <img src="docs/screenshots/26.10/04-wallpaper-search.jpg" alt="Settings search for wallpaper" width="820">
 </p>
 <p align="center"><em>Searching Settings for "wallpaper" lists every wallpaper page: Current Wallpaper, Explore Wallpaper Sources, Rotate Wallpapers, Dynamic Wallpaper, Artist Packs and the Wallpaper Manager.</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/05-wallpaper-sources.jpg" alt="Wallpapers page with Bing photographs" width="820">
+  <img src="docs/screenshots/26.10/05-wallpaper-sources.jpg" alt="Wallpapers page with Bing photographs" width="820">
 </p>
 <p align="center"><em>The Wallpapers page: Explore Wallpaper Sources shows the Bing daily photographs to browse and apply, with rotation, wallpaper info and Dynamic Wallpaper settings below.</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/09-tour-online-wallpapers.jpg" alt="First-login tour slide about online wallpapers" width="820">
+  <img src="docs/screenshots/26.10/09-tour-online-wallpapers.jpg" alt="First-login tour slide about online wallpapers" width="820">
 </p>
 <p align="center"><em>The two built-in online sources: Bing, and the OCS networks (pling.com, opendesktop.org, kde-look.org).</em></p>
 
 ### Screensavers
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/06-screensaver-and-lock.png" alt="Screensaver and Lock settings pane" width="820">
+  <img src="docs/screenshots/26.10/06-screensaver-and-lock.png" alt="Screensaver and Lock settings pane" width="820">
 </p>
 <p align="center"><em>Settings → Screensaver and Lock: the Screensaver and Lockscreen page chooses the screensaver, idle timers, screen lock and display power-off.</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/13-saver-blackhole.jpg" alt="Black Hole screensaver" width="820">
+  <img src="docs/screenshots/26.10/13-saver-blackhole.jpg" alt="Black Hole screensaver" width="820">
 </p>
 <p align="center"><em>Black Hole, the default saver, in the Cygnus palette.</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/14-saver-magmasimplex.jpg" alt="Magmasimplex screensaver" width="820">
+  <img src="docs/screenshots/26.10/14-saver-magmasimplex.jpg" alt="Magmasimplex screensaver" width="820">
 </p>
 <p align="center"><em>Magmasimplex (best on a stronger GPU).</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/15-saver-fractasia.jpg" alt="Fractasia screensaver" width="820">
+  <img src="docs/screenshots/26.10/15-saver-fractasia.jpg" alt="Fractasia screensaver" width="820">
 </p>
 <p align="center"><em>Fractasia.</em></p>
 
 ### Lock screen
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/12-lock-screen.png" alt="Lock screen with the password card" width="820">
+  <img src="docs/screenshots/26.10/12-lock-screen.png" alt="Lock screen with the password card" width="820">
 </p>
 <p align="center"><em>The lock screen after a key press: clock and password card over the blurred wallpaper. (`ncz` is the installer's default user name.)</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/11-tour-lock.jpg" alt="First-login tour slide about the lock screen" width="820">
+  <img src="docs/screenshots/26.10/11-tour-lock.jpg" alt="First-login tour slide about the lock screen" width="820">
 </p>
 <p align="center"><em>The tour explains the lock screen: the saver plays for a few seconds, then holds still; the password prompt appears on the first touch.</em></p>
 
 ### First-login tour
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/07-tour-welcome.png" alt="Welcome slide of the first-login tour" width="820">
+  <img src="docs/screenshots/26.10/07-tour-welcome.png" alt="Welcome slide of the first-login tour" width="820">
 </p>
 <p align="center"><em>The welcome slide of the 14-slide first-login tour.</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/10-tour-screensavers.jpg" alt="First-login tour slide about screensavers" width="820">
+  <img src="docs/screenshots/26.10/10-tour-screensavers.jpg" alt="First-login tour slide about screensavers" width="820">
 </p>
 <p align="center"><em>The screensaver slide: 74 savers in eight categories.</em></p>
 
 ### Desktop
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/01-desktop.png" alt="NCZ-OS desktop with the Cygnus wallpaper" width="820">
+  <img src="docs/screenshots/26.10/01-desktop.png" alt="NCZ-OS desktop with the Cygnus wallpaper" width="820">
 </p>
 <p align="center"><em>The desktop with the default Cygnus wallpaper, top panel and dock.</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/02-launcher.png" alt="Application launcher" width="820">
+  <img src="docs/screenshots/26.10/02-launcher.png" alt="Application launcher" width="820">
 </p>
 <p align="center"><em>The application launcher.</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/26.10-preview1/03-settings-main.png" alt="Settings app main page" width="820">
+  <img src="docs/screenshots/26.10/03-settings-main.png" alt="Settings app main page" width="820">
 </p>
 <p align="center"><em>Settings, with the build identification in the panel.</em></p>
 
@@ -395,15 +380,15 @@ source tree.
 
 > **Read this before you flash anything.** NCZ is vendor-neutral *by
 > design*, but "designed to support" is not the same as "tested on." This is
-> the honest state of hardware validation for **26.10 "Cygnus" Preview 1**
+> the honest state of hardware validation for **26.10 "Cygnus"**
 > (kernel `7.3.0-rc7`, a release candidate). Anything not listed as tested
 > below has not been booted by us on this release.
 
-### Supported GPUs and tested machines (26.10 Preview 1)
+### Supported GPUs and tested machines (26.10)
 
-NCZ-OS Preview 1 ships drivers for **AMD, NVIDIA and Intel GPUs on amd64**, **Arm Mali on CIX Sky1 (vendor Mali stack by default, open Panthor driver also available)**, and the **CIX Sky1 NPU and VPU**. Machines we ran it on:
+NCZ-OS 26.10 ships drivers for **AMD, NVIDIA and Intel GPUs on amd64**, **Arm Mali on CIX Sky1 (vendor Mali stack by default, open Panthor driver also available)**, and the **CIX Sky1 NPU and VPU**. Machines we ran it on:
 
-| Machine | CPU | GPU (driver) | Status on Preview 1 |
+| Machine | CPU | GPU (driver) | Tested |
 |---|---|---|---|
 | Radxa Orion O6N | CIX P1 (Sky1) | Arm Mali (vendor Mali; Panthor available) + NPU + VPU | Installed, desktop, video (VPU hardware decode) and audio playback |
 | Minisforum MS-R1 | CIX P1 (Sky1) | Arm Mali (vendor Mali; Panthor available) + NPU + VPU | Installed, desktop, video (VPU hardware decode) and audio playback |
@@ -417,16 +402,16 @@ Other GPUs and boards are untested. Video and audio playback and VPU hardware vi
 
 "Installed, boots to desktop" means the machine was installed from the
 release image and reached the desktop; it does not mean every device on it was
-exercised. Not tested on Preview 1: suspend on Sky1, audio and video playback
-on amd64, CUDA, and every machine not in the table.
+exercised. Not covered by these tests: suspend on Sky1, audio and video
+playback on amd64, CUDA, and every machine not in the table.
 
 ### Arm64 — CIX Sky1 boards
 
 | Board | SoC | Status |
 |---|---|---|
-| **Radxa Orion O6N** | Cix Sky1 / CP8180 | ✅ **Tested on Preview 1** — installed, desktop, video (VPU hardware decode) and audio playback. Our main development and test board. Realtek NICs (RTL8125/8126) work out of the box via the `rtl_nic` firmware shipped in the installer and the installed system. |
-| **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **Tested on Preview 1** — installed, desktop, video (VPU hardware decode) and audio playback. Its factory firmware omits the NPU `_HID`; the build adds an ACPI SSDT override (see below). |
-| **Radxa Orion O6** | Cix Sky1 | ⏳ **Not tested on Preview 1** (a different board from the Radxa Orion O6N). Same SoC and the same kernel and drivers, so it is expected to work; users reported earlier releases installing and booting on it. |
+| **Radxa Orion O6N** | Cix Sky1 / CP8180 | ✅ **Tested on 26.10** — installed, desktop, video (VPU hardware decode) and audio playback. Our main development and test board. Realtek NICs (RTL8125/8126) work out of the box via the `rtl_nic` firmware shipped in the installer and the installed system. |
+| **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **Tested on 26.10** — installed, desktop, video (VPU hardware decode) and audio playback. Its factory firmware omits the NPU `_HID`; the build adds an ACPI SSDT override (see below). |
+| **Radxa Orion O6** | Cix Sky1 | ⏳ **Not tested on 26.10** (a different board from the Radxa Orion O6N). Same SoC and the same kernel and drivers, so it is expected to work; users reported earlier releases installing and booting on it. |
 | **MetaComputing AI PC** — Arm mainboard for Framework Laptop 13 | Cix Sky1 / CP8180 | ⏳ **Untested, but the same SoC.** The kernel, GPU/VPU/NPU drivers and userspace should carry over; the unknowns are laptop-specific — panel/eDP, battery and thermals, lid/suspend, and the Framework EC. **No hardware in hand — testers welcome.** |
 | **Orange Pi 6** (Cix variant) | Cix Sky1 | ⏳ **Untested.** Same SoC; not yet booted by us. |
 
@@ -451,7 +436,7 @@ their own, tighter hardware floors:
 | Vendor | Compute stack | Realistic floor | Notes |
 |---|---|---|---|
 | **AMD** | ROCm (open `amdgpu` + Mesa RADV/RadeonSI — no proprietary alternative) | **~2016+** (GCN4/Polaris and newer) | `gfx1010`/`1011`/`1012` parts (Navi 1x, such as the Radeon Pro 5300M/5500M in the MacBookPro16,1) need `HSA_OVERRIDE_GFX_VERSION=10.3.0`; applied automatically by `post-install/54-gpu-accel.sh`. |
-| **NVIDIA** | Proprietary driver and CUDA installed per GPU family at install time ([docs/CUDA-DYNAMIC-INSTALL.md](docs/CUDA-DYNAMIC-INSTALL.md)) | **2012+ / solid 2014+** (Kepler and newer); pre-Kepler falls back to nouveau, no CUDA | The proprietary driver was installed on an ASUS ROG GU502LV (RTX 2060 Mobile) on Preview 1; CUDA itself was not tested. |
+| **NVIDIA** | Proprietary driver and CUDA installed per GPU family at install time ([docs/CUDA-DYNAMIC-INSTALL.md](docs/CUDA-DYNAMIC-INSTALL.md)) | **2012+ / solid 2014+** (Kepler and newer); pre-Kepler falls back to nouveau, no CUDA | The proprietary driver was installed on an ASUS ROG GU502LV (RTX 2060 Mobile) on 26.10; CUDA itself was not tested. |
 | **Intel** | oneAPI / Level-Zero (open `i915` + Mesa) | **~2015+** (Skylake-class iGPU and newer) | |
 
 **NPU support on x86 is bleeding-edge only (2023+)** — Intel AI Boost / AMD
@@ -470,7 +455,7 @@ way to change a ⏳ to a ✅.**
 
 ### Driver support matrix — Sky1 (ARM64)
 
-> **Which kernel is this table about?** NCZ-OS 26.10 Preview 1 ships **one**
+> **Which kernel is this table about?** NCZ-OS 26.10 ships **one**
 > Sky1 kernel, `7.3.0-rc7-sky1-ncz` (build r289;
 > the pin is `assets/kernel/sky1-manifest.json`). The default, installer and
 > rescue boot entries all boot it; the 7.2 line and the old "edge" channel are
@@ -727,13 +712,8 @@ it — there is no MS-R1 NPU on x86 hardware.
 > apt, and a few optional components (for example the NVIDIA driver) fetch from
 > the network. Those are the parts a bad link degrades — not the install itself.
 
-> **Unplug USB-serial / debug cables before you install.** The installer can
-> mistake a USB-serial adapter for a braille display: it shows a "braille
-> device?" prompt and squeezes the installer to the left of the screen. Answer
-> *No*, or install with the cable removed.
-
 1. **Get the image.** Download the parts for your architecture from the
-   [release page](https://github.com/ncz-os/cix-installer/releases/tag/v26.10-preview1),
+   [latest release](https://github.com/ncz-os/cix-installer/releases/latest) page,
    then join, unpack and check them (needs `zstd`):
 
    ```bash
@@ -1194,7 +1174,7 @@ front door for the things this image does that a stock Debian does not.
 | Command | What it does |
 |---|---|
 | `ncz status` | System summary: `ncz` version, build variant, kernel, default systemd target, NPU and GPU presence, and MNEMOS / embedder / zeroclaw / zoder rows. Start here. |
-| `ncz desktop on` \| `off` \| `status` | Switch between graphical and headless. `off` sets `multi-user.target`, so the next boot is headless; SSH and networking stay up. Reversible. In Preview 1 it does not stop the running greetd login screen (it only knows lightdm/gdm/sddm), so reboot after `off`. |
+| `ncz desktop on` \| `off` \| `status` | Switch between graphical and headless. `off` sets `multi-user.target`, so the next boot is headless; SSH and networking stay up. Reversible. Reboot after `off` to leave the graphical login screen. |
 | `ncz models` | List embedding models present in `/opt/ncz/models` — `.cix` graphs for the NPU, `.gguf` for CPU/GPU. |
 | `ncz models pull` | Download the host-side embedder model (nomic-embed-text-v1.5 Q8_0 GGUF, sha256-verified) to `/opt/ncz/models`. |
 | `ncz install mnemos` | Install and start the MNEMOS memory server (REST + OpenAI-compatible API on `:5002`, MCP on `:5004`). |
@@ -1319,16 +1299,17 @@ posture and how to harden it.
 ## Sister projects
 
 - [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
-- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the Sky1 kernel recipes (26.10 Preview 1: `linux-cix-sky1-ncz_7.3-rc7.bb`, build r289) and the CIX userspace recipes this installer consumes. Kernel source is fetched from the public `kernel.org` tree at a pinned commit; every Sky1-specific patch is tracked in this layer. The in-repo [`kernel-source/`](kernel-source/SOURCE.md) drop vendors the shipped r289 recipe, patches and as-built config, and [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix) tag `kernel-sky1-7.3.0-rc7-r289-src` holds the complete patched tree (see [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md)).
-- [`gitlab.com/ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz) — corresponding source of the amd64 kernel (`7.3.0-rc7-t2-ncz` in Preview 1, tag `v7.3.0-rc7-t2-ncz-2`): mainline v7.3-rc7 plus [`t2linux`](https://github.com/t2linux/linux-t2-patches)'s `linux-t2-patches` series (apple-bce, applesmc, HID, APFS, bcm5974) and our T2 fixes. One kernel serves T2 Macs and generic PCs. T2 firmware wiring lives upstream in [`AdityaGarg8/t2-ubuntu-repo`](https://adityagarg8.github.io/t2-ubuntu-repo/) (the apt source `55-t2-firmware.sh` wires at first boot). NCZ-OS does not vendor a fork of either; we consume the upstream series and ship the staged Debian-built `.deb`s.
+- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the Sky1 kernel recipes (26.10: `linux-cix-sky1-ncz_7.3-rc7.bb`, build r289) and the CIX userspace recipes this installer consumes. Kernel source is fetched from the public `kernel.org` tree at a pinned commit; every Sky1-specific patch is tracked in this layer. The in-repo [`kernel-source/`](kernel-source/SOURCE.md) drop vendors the shipped r289 recipe, patches and as-built config, and [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix) tag `kernel-sky1-7.3.0-rc7-r289-src` holds the complete patched tree (see [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md)).
+- [`gitlab.com/ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz) — corresponding source of the amd64 kernel (`7.3.0-rc7-t2-ncz` in 26.10, tag `v7.3.0-rc7-t2-ncz-2`): mainline v7.3-rc7 plus [`t2linux`](https://github.com/t2linux/linux-t2-patches)'s `linux-t2-patches` series (apple-bce, applesmc, HID, APFS, bcm5974) and our T2 fixes. One kernel serves T2 Macs and generic PCs. T2 firmware wiring lives upstream in [`AdityaGarg8/t2-ubuntu-repo`](https://adityagarg8.github.io/t2-ubuntu-repo/) (the apt source `55-t2-firmware.sh` wires at first boot). NCZ-OS does not vendor a fork of either; we consume the upstream series and ship the staged Debian-built `.deb`s.
 
 
 ## Releases
 
 Current and past release notes live in **[`docs/releases/`](docs/releases/)**.
-The latest is **[26.10 "Cygnus" Preview 1](docs/releases/26.10-cygnus-preview1.md)**
-(2026-10-12); images are on the
-[release page](https://github.com/ncz-os/cix-installer/releases/tag/v26.10-preview1).
+The latest is **[26.10 "Cygnus"](docs/releases/26.10-cygnus-20261013.md)** (images of 2026-10-13); they
+are published on the [latest release](https://github.com/ncz-os/cix-installer/releases/latest) page. The earlier
+[26.10 Preview 1](docs/releases/26.10-cygnus-preview1.md) notes (2026-10-12)
+are kept for reference.
 
 Earlier releases (26.7 "Maximilian" and before) are archived in
 [`docs/RELEASE-HISTORY.md`](docs/RELEASE-HISTORY.md). Every document in the

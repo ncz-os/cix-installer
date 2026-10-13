@@ -2,9 +2,9 @@
 # A human must paste this step into ncz-os/singularity-desktop's
 # .buildkite/pipeline.yml immediately after the existing build_arm64 step.
 # It depends on build/build-singularity-deb.sh from cix-installer; the agent
-# runs natively on cixmini and may not have a cix-installer working tree, so it
-# clones a shallow copy at runtime. The pre-provisioned build-host SSH key is the
-# only credential required for publication.
+# runs natively on an arm64 build host and may not have a cix-installer working
+# tree, so it clones a shallow copy at runtime. The pre-provisioned build-host
+# SSH key is the only credential required for publication.
 #
 # NOTE ON $$ ESCAPING: `buildkite-agent pipeline upload` interpolates $VAR /
 # ${VAR} in this YAML using the UPLOADING agent's environment BEFORE the

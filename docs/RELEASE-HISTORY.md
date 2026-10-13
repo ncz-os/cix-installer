@@ -12,6 +12,18 @@ are not maintained.
 
 ---
 
+## 26.10 "Cygnus" (images of 2026-10-13)
+
+Images `ncz-os-arm64-20261013-d395bb2d` and `ncz-os-amd64-20261013-d395bb2d`,
+built from commit `d395bb2d`, on the same 7.3.0-rc7 kernels as Preview 1. New
+since Preview 1: minimize and maximize buttons as the system-wide window
+default, NCZ Screensavers 0.8.13 with settings plugin 0.3.21, a steadier Sky1
+desktop session start with the Mali driver, the T2 MacBook login screen at the
+panel's native resolution, a cooler first login on T2 Macs, a Sky1 tour slide
+about hardware video decoding, DHCP on the rescue system's wired ports, and
+end-to-end `ncz` installs of MNEMOS, zoder and the agent runtimes. Full notes:
+[releases/26.10-cygnus-20261013.md](releases/26.10-cygnus-20261013.md).
+
 ## 26.10 "Cygnus" Preview 1 (2026-10-12)
 
 First public preview of 26.10, and the first release shipped as raw GPT `.img`

@@ -5,17 +5,22 @@
 <h1 align="center">NCZ-OS</h1>
 <p align="center"><em>面向 Arm64（CIX Sky1）与 AMD64（Intel/AMD PC 与 Apple T2 Mac）的 Debian —— 带有可用的 GPU、VPU 与 NPU 驱动</em></p>
 
-> ### NCZ-OS 26.10 "Cygnus" —— Preview 1（2026-10-12）
+> ### NCZ-OS 26.10 "Cygnus"（2026-10-13 镜像）
 >
-> **[前往发布页下载](https://github.com/ncz-os/cix-installer/releases/tag/v26.10-preview1)**
-> · [发布说明（英文）](docs/releases/26.10-cygnus-preview1.md)
+> **[从最新发布页下载](https://github.com/ncz-os/cix-installer/releases/latest)**
+> · [发布说明（英文）](docs/releases/26.10-cygnus-20261013.md)
 > · [已测试硬件](#hardware-support)
 > · [文档索引（英文）](docs/INDEX.md)
 >
 > | 镜像 | 适用于 | 内核 |
 > |---|---|---|
-> | `ncz-os-arm64-20261012-f64cba5.img` | CIX Sky1 主板（Radxa Orion O6N、Minisforum MS-R1） | `7.3.0-rc7-sky1-ncz` |
-> | `ncz-os-amd64-20261012-07c0644.img` | Intel/AMD PC 与 Apple T2 Mac | `7.3.0-rc7-t2-ncz` |
+> | `ncz-os-arm64-20261013-d395bb2d.img` | CIX Sky1 主板（Radxa Orion O6N、Minisforum MS-R1） | `7.3.0-rc7-sky1-ncz` |
+> | `ncz-os-amd64-20261013-d395bb2d.img` | Intel/AMD PC 与 Apple T2 Mac | `7.3.0-rc7-t2-ncz` |
+>
+> | 镜像 | `.img` 的 sha256 |
+> |---|---|
+> | arm64 | `f6de9e4f830fd5d450b1e00654cc9341aae1a5ca070bc66f9a5a76b3ca3ba4a7` |
+> | amd64 | `7f23dcde01bd1aac9aae4bd7cee2ec87392a94d782002e8abea7f28653886851` |
 >
 > 每个镜像都是原始 GPT 磁盘镜像（`.img`），在发布页上被拆分为多个分片（GitHub 单个文件
 > 上限 2 GiB）。把所有分片、`SHA256SUMS`、`PARTS.sha256` 与
@@ -24,10 +29,9 @@
 > 得到的 `.img`；它绝不会写入任何磁盘。然后把 `.img` 写入**至少 16 GB** 的驱动器
 > （会清空该驱动器），见下文"快速开始（在硬件上安装）"。
 >
-> **这是预览版**，基于候选版（release candidate）内核构建。请先备份重要数据；安装时请
-> 拔掉 USB 串口/调试线（安装程序可能把 USB 串口适配器误认为盲文显示器）。
+> 两个镜像都基于候选版（release candidate）内核 7.3.0-rc7 构建。安装前请先备份重要数据。
 
-> **说明：** 本中文版只同步了 26.10 Preview 1 的关键内容（上方横幅、硬件测试状态、
+> **说明：** 本中文版只同步了 26.10 的关键内容（上方横幅、硬件测试状态、
 > 安装步骤、内核）。其余章节保留了 26.7 时期的译文，可能已过时；**一切以英文
 > [README](README.md) 为准。**
 
@@ -35,7 +39,7 @@
 
 > **🌐 语言：** [English](README.md) · 简体中文
 >
-> **📚 从这里开始：** [文档索引](docs/INDEX.md) · [26.10 Preview 1 发布说明](docs/releases/26.10-cygnus-preview1.md) · [设计理据 —— 为什么这样构建](docs/DESIGN-RATIONALE.md) · [AI/ML 技术栈参考](docs/AI-ML-STACK.zh-CN.md) · [源码发布](docs/SOURCE-RELEASES.zh-CN.md) · [下载镜像](https://github.com/ncz-os/cix-installer/releases/tag/v26.10-preview1)
+> **📚 从这里开始：** [文档索引](docs/INDEX.md) · [26.10 发布说明](docs/releases/26.10-cygnus-20261013.md) · [设计理据 —— 为什么这样构建](docs/DESIGN-RATIONALE.md) · [AI/ML 技术栈参考](docs/AI-ML-STACK.zh-CN.md) · [源码发布](docs/SOURCE-RELEASES.zh-CN.md) · [下载镜像](https://github.com/ncz-os/cix-installer/releases/latest)
 
 **NCZ-OS Linux 发行版的安装程序与镜像构建。**
 
@@ -53,7 +57,7 @@
 内容哈希锁定，见 `manifests/base.pin`），并解压出预先构建好的 **Debian Testing（Forky）**
 系统，再叠加与硬件匹配的内核、厂商用户态、Singularity 桌面与（可选加入的）NCZ agent 栈。
 
-> **当前版本：NCZ-OS 26.10 "Cygnus" Preview 1** —— Cygnus 主题的 Singularity 桌面
+> **当前版本：NCZ-OS 26.10 "Cygnus"** —— Cygnus 主题的 Singularity 桌面
 > （labwc/wlroots），每个镜像只带一个内核：
 >
 > | | Sky1（Arm64） | Intel/AMD PC 与 T2 Mac（AMD64） |
@@ -63,7 +67,8 @@
 > 默认、安装程序与救援启动项都使用这同一个内核；救援项会屏蔽 GPU/加速器驱动。7.2 系列
 > 与旧的"前沿版"通道已退役。7.3.0-rc7 是**候选版**内核，之后会换成 7.3.0 正式版。
 >
-> 窗口默认带有最小化、最大化与关闭按钮。
+> 所有窗口默认（系统级）带有最小化、最大化与关闭按钮。屏保为 NCZ Screensavers 0.8.13
+> （设置插件 0.3.21）。自 Preview 1 以来的变化见[发布说明（英文）](docs/releases/26.10-cygnus-20261013.md#changes-since-preview-1)。
 
 > ### 远程访问默认项
 >
@@ -120,14 +125,14 @@ NCZ **在设计与意图上都是厂商中立的**。目标是：在能取得样
 ## 硬件支持与测试状态
 
 > **在你烧录任何东西之前请先读这一节。** NCZ 在**设计上**是厂商中立的，但"设计上
-> 支持"与"已经测试过"并不是一回事。以下是 **26.10 Preview 1**（内核 `7.3.0-rc7`，
+> 支持"与"已经测试过"并不是一回事。以下是 **26.10**（内核 `7.3.0-rc7`，
 > 候选版）的诚实测试状态。表中未列出的硬件，我们都没有在本版本上启动过。
 
-Preview 1 带有 **amd64 上的 AMD、NVIDIA 与 Intel GPU 驱动**、**CIX Sky1 上的 Arm Mali
+26.10 带有 **amd64 上的 AMD、NVIDIA 与 Intel GPU 驱动**、**CIX Sky1 上的 Arm Mali
 驱动（默认使用厂商 Mali 栈，也提供开源 Panthor 驱动）**，以及 **CIX Sky1 的 NPU 与 VPU**
 驱动。我们实际运行过的机器：
 
-| 机器 | CPU | GPU（驱动） | Preview 1 上的状态 |
+| 机器 | CPU | GPU（驱动） | 测试结果 |
 |---|---|---|---|
 | Radxa Orion O6N | CIX P1（Sky1） | Arm Mali（厂商 Mali；可选 Panthor）+ NPU + VPU | 已安装，桌面、视频（VPU 硬件解码）与音频播放正常 |
 | Minisforum MS-R1 | CIX P1（Sky1） | Arm Mali（厂商 Mali；可选 Panthor）+ NPU + VPU | 已安装，桌面、视频（VPU 硬件解码）与音频播放正常 |
@@ -140,19 +145,6 @@ Preview 1 带有 **amd64 上的 AMD、NVIDIA 与 Intel GPU 驱动**、**CIX Sky1
 其他 GPU 与主板均未测试。视频、音频播放以及 VPU 硬件视频解码已在 Sky1 主板上验证；
 其他 GPU 上的硬件视频解码取决于驱动。详细说明（Sky1 主板列表、T2 Mac 与通用 PC 的
 分类、GPU 计算的硬件下限）见英文 [README](README.md#hardware-support--testing-status)。
-
-**Preview 1 已知问题：**
-
-- 安装时请拔掉 USB 串口/调试线（安装程序可能把它误认为盲文显示器）。
-- Apple T2 MacBook 在首次登录后会发热：首次登录导览会带来约一分钟的 CPU 高负载，且独立
-  AMD GPU 始终通电（空闲约 60 °C）。修复计划在下一个镜像中提供。
-- 锁屏：在两台 T2 MacBook 上未能确认锁屏背后的屏保动画（其他机器上已确认，正在调查）；
-  锁屏不会关闭显示（"N 秒后黑屏"尚未实现）。
-- T2 MacBook 每次从休眠恢复都会记录一条内核警告，Thunderbolt/USB4 端口会短暂断开（恢复本身
-  正常）；登录界面与桌面会话的分辨率不同，因此在这些机器上登录界面与锁屏的一致性尚未验证。
-- 在 Radxa Orion O6N 上，GTK 文件选择门户服务可能无法启动，部分应用可能打不开文件选择对话框。
-- 锁屏上的屏保在默认时间点可能无法启动：两条空闲锁屏路径会争用锁屏的屏保连接，导致锁屏
-  背后没有屏保（在一台台式机上出现）。锁屏本身总会生效。修复计划在下一个镜像中提供。
 
 ## GPU 驱动与启动项
 
@@ -200,10 +192,7 @@ NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都�
 > **开机前请接好有线网络。** 安装程序中没有 Wi-Fi；若检测不到链路，安装程序会明确停在
 > "Network autoconfiguration failed"（接好网线后选 Retry），而不是无声地重试。
 
-> **安装前请拔掉 USB 串口/调试线。** 安装程序可能把 USB 串口适配器误认为盲文显示器：
-> 会弹出"braille device?"提示，并把安装界面挤到屏幕左侧。选择 *No*，或拔掉线再安装。
-
-1. **获取镜像。** 从[发布页](https://github.com/ncz-os/cix-installer/releases/tag/v26.10-preview1)
+1. **获取镜像。** 从[最新发布页](https://github.com/ncz-os/cix-installer/releases/latest)
    下载对应架构的分片，然后拼接、解压并校验（需要 `zstd`）：
 
    ```bash
@@ -258,7 +247,7 @@ sudo apt install ncz-model-nomic-embed   # 768 维，默认
 
 ## 内核
 
-26.10 Preview 1 每个镜像只带**一个**内核：Sky1 为 `7.3.0-rc7-sky1-ncz`（构建 r289，
+26.10 每个镜像只带**一个**内核：Sky1 为 `7.3.0-rc7-sky1-ncz`（构建 r289，
 软件包 `linux-image-cixmini`，锁定于 `assets/kernel/sky1-manifest.json`），AMD64 为
 `7.3.0-rc7-t2-ncz`（软件包版本 `7.3.0-rc7-2`，锁定于 `assets/kernel/amd64-stable/`）。
 默认、安装程序与救援启动项都使用它；7.2 系列与"前沿版"通道已退役。
@@ -390,8 +379,8 @@ Asahi 衍生的工具，T2 固件钩子在调用它；没有它 T2 路径根本�
 
 *本文档为英文 [README.md](README.md) 的中文版本。若两者出现分歧，以英文版为准。*
 
-*同步状态（2026-10-13）：顶部 Preview 1 横幅、引言、"硬件支持与测试状态"、"快速开始
-（在硬件上安装）"、"内核"与"构建镜像"已按 26.10 Preview 1 更新。其余章节仍是 26.7 时期的
+*同步状态（2026-10-13）：顶部横幅、引言、"硬件支持与测试状态"、"快速开始
+（在硬件上安装）"、"内核"与"构建镜像"已按 26.10（2026-10-13 镜像）更新。其余章节仍是 26.7 时期的
 译文，英文版中的"What's in 26.10"、"Architecture"、"OTA channel"、"The `ncz` utility"、
 "Live recovery"、"Releases"等小节尚未翻译——请直接查阅 [README.md](README.md)。英文版始终是
 规范版本。*

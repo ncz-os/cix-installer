@@ -13,7 +13,7 @@ SUBSTRATE_URL=${SUBSTRATE_URL:-file://$SUBSTRATE_ISO}
 OUTPUT=${OUTPUT:?set OUTPUT to the final .img path}
 WORK_DIR=${WORK_DIR:-$HOME/build-tmp/cix-installer-$ARCH}
 
-# BUILD_VERSION / BUILD_SHA -- directive 10 requires the commit SHA be
+# BUILD_VERSION / BUILD_SHA -- the release rule requires the commit SHA be
 # stamped into every produced artifact. The caller (Makefile, dispatch
 # host, CI) is the AUTHORITATIVE source: if it set BUILD_VERSION and/or
 # BUILD_SHA in its environment, use those verbatim. Only fall back to git

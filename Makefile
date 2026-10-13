@@ -138,8 +138,8 @@ BUILD_DATE    := $(shell date -u +%Y%m%d)
 # BUILD_SHA used to silently fall back to empty when git rev-parse failed
 # (dubious-ownership inside the rootful imagebuild container, missing git,
 # shallow clone with --depth=0, etc.), producing artifacts named
-# `ncz-os-<arch>-<date>-.img` -- the 2026-09-28 arm64 incident. Directive 10
-# requires the commit SHA be stamped into the artifact; an unstamped one is
+# `ncz-os-<arch>-<date>-.img` -- the 2026-09-28 arm64 incident. The release
+# rule requires the commit SHA be stamped into the artifact; an unstamped one is
 # not a real artifact. Fail LOUD here instead, and let the operator either
 # fix git ownership (`git config --global --add safe.directory '*'`) or pass
 # BUILD_SHA explicitly on the make command line. The check is a real shell

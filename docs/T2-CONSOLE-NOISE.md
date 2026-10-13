@@ -85,7 +85,7 @@ floor**; the benign noise is fixed at its source instead (below).
 ## What was fixed in the kernel (companion branch)
 
 The two lines that cannot be fixed from userspace are handled by kernel
-patches (`9101` and `9102` in the Preview 1 series, see
+patches (`9101` and `9102` in the 26.10 series, see
 [`ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz)), not by
 anything in the installer:
 
