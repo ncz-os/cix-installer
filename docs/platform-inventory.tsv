@@ -6,6 +6,7 @@ LICENSE	common	-	license
 Makefile	mixed	-	ARCH-selected build front end
 README.md	common	-	readme
 README.zh-CN.md	common	-	readme
+assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
 build/test-ncz-cli-basics.sh	common	-	shell-level test for the embedded ncz CLI (parses, help, exit codes, status on non-systemd hosts)
 build/test-ncz-cli-embedder.sh	common	-	embedder/model-pull/status wiring for ncz install mnemos (HuggingFace sha256, SQLite backfill, status labels)
