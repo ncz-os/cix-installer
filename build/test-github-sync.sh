@@ -229,6 +229,13 @@ echo "== identity guard"
 expect "$rc" 1 "identity mode refuses a blob over the limit"
 "$CHECK" "${COMMON[@]}" --workdir "$T/wd1" --repo id >/dev/null 2>&1; expect "$?" 1 "check flags the unsynced identity repo"
 
+echo "== scheduled pass keeps GitHub-side work"
+( cd "$T/g3" && git fetch -q origin && git checkout -q side && git reset -q --hard origin/side && echo h > h.txt && git add h.txt && git commit -qm "more direct GitHub work" && git push -q origin side )
+SIDE2="$(git --git-dir="$GH" rev-parse side)"
+NCZ_GHSYNC_WORKDIR="$T/wd1" "$REPO/tools/github-sync/run-hourly.sh" "${COMMON[@]}" --repo fx >/dev/null 2>&1
+expect "$(git --git-dir="$GH" rev-parse side)" "$SIDE2" "run-hourly.sh does not overwrite a GitHub-side commit"
+ls "$T/wd1/logs/"*-check-after.log >/dev/null 2>&1 && ok "run-hourly.sh writes its logs" || bad "run-hourly.sh writes its logs"
+
 echo
 echo "test-github-sync: $PASS PASS, $FAIL FAIL"
 [ "$FAIL" -eq 0 ]
