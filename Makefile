@@ -715,6 +715,7 @@ parity:
 	build/test-sky1-audio-policy.sh
 	build/test-sky1-media-defaults.sh
 	build/test-screensaver-default.sh
+	build/test-titlebar-buttons.sh
 	build/test-screensavers-mandatory-install.sh
 	build/test-ssplugin-supply-chain.sh
 	build/test-ncz-ui.sh
