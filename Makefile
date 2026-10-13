@@ -757,6 +757,7 @@ parity:
 	bash build/test-install-extra-local-debs.sh
 	bash build/test-desktop-mirror-local-debs.sh
 	build/test-no-debian-kernel.sh
+	bash build/test-image-assets.sh
 	bash build/test-firmware-bom-hook.sh
 	bash build/test-firmware-arch-bom.sh
 	bash build/test-desktop-apt-require.sh

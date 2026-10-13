@@ -10,7 +10,7 @@
 # sshd's startup ordering doesn't fight quadlet generation.
 set -euo pipefail
 
-echo "[35] openssh-server (no vendor authorized_keys)"
+echo "[35] openssh-server (no vendor SSH keys)"
 
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     openssh-server sudo
