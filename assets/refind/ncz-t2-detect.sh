@@ -34,7 +34,7 @@
 # ncz_t2_pci_bridge_present() is a belt-and-braces secondary probe: it scans
 # /sys/bus/pci/devices for the Apple T2 bridge [106b:1801] or the T2 NHI
 # [106b:2005] using pure sysfs reads (no lspci, no pciutils). Linux sysfs
-# reports these as "0x106b" / "0x1801" (verified on HYDRA 2026-10-05), but the
+# reports these as "0x106b" / "0x1801" (verified on an amd64 build host 2026-10-05), but the
 # function strips an optional 0x prefix so it is correct for either form. It is
 # ADVISORY only -- used in the human-readable detail log, never as a gate --
 # because a genuine DMI T2 identity must never be suppressed by an early-boot

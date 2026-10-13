@@ -85,7 +85,7 @@ class NPUEmbedder:
         #   2 = int8, 4 = uint8, 5 = int16, 7 = float32
         # Reject unknown values explicitly rather than defaulting to int8 —
         # a hidden mismatch would let noe_get_tensor write past the numpy
-        # buffer (Codex r75 review HIGH).
+        # buffer (r75 review HIGH).
         _DTYPE_MAP = {2: np.int8, 4: np.uint8, 5: np.int16, 7: np.float32}
         if d.data_type not in _DTYPE_MAP:
             raise ValueError(f"NPU descriptor data_type={d.data_type} not in known map {sorted(_DTYPE_MAP)}; refusing to embed")
@@ -153,7 +153,7 @@ class NPUEmbedder:
             self._chk(self.lib.noe_load_tensor(self.ctx, job_id, 2, ttype.ctypes.data), "load[2]")
             self._chk(self.lib.noe_job_infer_sync(self.ctx, job_id, 5000), "infer")
 
-            # r75 Codex review HIGH fix: compute element count from dtype
+            # r75 review HIGH fix: compute element count from dtype
             # itemsize, not hardcoded /2. The /2 was correct only for int16
             # outputs and would underallocate by half for int8 models, letting
             # noe_get_tensor write past the numpy buffer into adjacent memory.
@@ -175,7 +175,7 @@ class NPUEmbedder:
     def embed(self, text: str) -> np.ndarray:
         """Embed text. Cache hit returns immediately; miss runs NPU.
 
-        Cache contract (r75 Codex round-2 MED): cached vectors are stored
+        Cache contract (r75 review round-2 MED): cached vectors are stored
         with WRITEABLE=False. Callers that mutate the returned array in
         place (e.g. in-place L2-normalize, dtype cast on top of the
         buffer) will get a numpy ValueError instead of silently

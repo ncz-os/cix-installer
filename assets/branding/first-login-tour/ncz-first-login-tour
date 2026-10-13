@@ -25,7 +25,7 @@
 #   * opt-out: /etc/ncz/no-first-login-tour (admin) or
 #     $XDG_CONFIG_HOME/ncz/no-first-login-tour (user) disables it;
 #   * skip headless: no Wayland/X display, or no connected DRM output (a
-#     server such as PROTEUS, or a machine whose panel is dark);
+#     server such as the OmniDesk test desktop, or a machine whose panel is dark);
 #   * skip live/installer/recovery sessions;
 #   * skip root (uid 0);
 #   * skip while another first-run flow is active;

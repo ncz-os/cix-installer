@@ -3,7 +3,7 @@
 # .buildkite/pipeline.yml immediately after the existing build_arm64 step.
 # It depends on build/build-singularity-deb.sh from cix-installer; the agent
 # runs natively on cixmini and may not have a cix-installer working tree, so it
-# clones a shallow copy at runtime. The pre-provisioned ARGOS SSH key is the
+# clones a shallow copy at runtime. The pre-provisioned build-host SSH key is the
 # only credential required for publication.
 #
 # NOTE ON $$ ESCAPING: `buildkite-agent pipeline upload` interpolates $VAR /
@@ -13,7 +13,7 @@
 # written as $$ here, exactly like the existing build_arm64 step in this
 # pipeline does for $$PWD / $$? / $$(id -u). A single un-escaped $ silently
 # gets pre-substituted (usually to empty, since these aren't real upload-time
-# env vars) instead of reaching the shell -- caught in Codex review
+# env vars) instead of reaching the shell -- caught in review
 # 2026-07-26, this file originally used single $ throughout.
 
   - label: ":package: package and publish Singularity Desktop (.deb)"
@@ -45,6 +45,6 @@
       fi
 
       echo ":rocket: publishing $$DEB to the NCZ-OS apt repository"
-      ssh -i ~/.ssh/id_ed25519_argonas_apt \
-        jasonperlow@192.168.207.22 < "$$DEB"
+      ssh -i "$$APT_PUBLISH_KEY" \
+        "$$APT_PUBLISH_USER@$$APT_PUBLISH_HOST" < "$$DEB"
       echo ":rocket: Singularity Desktop .deb published"

@@ -24,7 +24,7 @@ Volume=zeroclaw-data:/zeroclaw-data:Z
 # veth/bridge support (CONFIG_VETH off), so netavark's default bridge — and
 # therefore any podman PublishPort= — fails to start on metal with
 # "netavark: create veth pair: Operation not supported (os error 95)"
-# (service status=126, verified on MS-R1 .66, 2026-07). Host networking binds
+# (service status=126, verified on MS-R1 test board, 2026-07). Host networking binds
 # the gateway directly on the host's :42617 and is the fleet-standard model for
 # a single-user LAN appliance. Exec keeps --host 0.0.0.0 so the gateway is
 # reachable on the LAN. The real fix is CONFIG_VETH in the kernel (future

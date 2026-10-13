@@ -18,7 +18,7 @@ Volume=mnemos-data:/data:Z
 # veth/bridge support, so netavark's default bridge — and therefore podman
 # PublishPort=5002:5002 — fails on metal with
 # "netavark: create veth pair: Operation not supported (os error 95)"
-# (verified on MS-R1 .66, 2026-07). Host networking binds uvicorn directly on
+# (verified on MS-R1 test board, 2026-07). Host networking binds uvicorn directly on
 # the host's :5002 and is the correct model for a single-port appliance server.
 Network=host
 # Stock image embeds in-process on CPU (nomic-embed-text-v1.5 Q8, 768-dim) —

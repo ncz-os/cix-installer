@@ -186,7 +186,7 @@ fi
 
 # ---------------------------------------------------------------------------------------------------------------
 # Not a Sky1 board: the Mali/Panthor switcher (sky1.gpu=, /etc/default/ncz-gpu) does not apply, so report the real
-# stack instead of "selected : mali (from built-in default)", which is what CHIMERA and PEGASUS printed (r201).
+# stack instead of "selected : mali (from built-in default)", which is what a T2 Mac and the GU502LV laptop printed (r201).
 # Sky1 = arm64 with the CIX GPU's ACPI device. Test seams: NCZ_GPU_STATUS_ARCH, NCZ_SYSROOT.
 # ---------------------------------------------------------------------------------------------------------------
 _sys="${NCZ_SYSROOT:-}/sys"
