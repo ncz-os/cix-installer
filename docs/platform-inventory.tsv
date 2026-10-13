@@ -565,4 +565,5 @@ build/rebuild-sid-udeb.sh	common	-	rebuild a small-gap (class B) installer udeb 
 docs/SID-EXCEPTIONS.md	common	-	GENERATED sid-exceptions tracker report (per-package status + per-arch count + trend); do not hand-edit
 build/test-tour-slides.sh	common	-	tour slide data validation: keys, unique Order (NCZ + upstream), built-in Scene, {os} only brace, title length, Action prefix
 build/test-ncz-first-login-tour.sh	common	-	first-login tour guard logic: once-only marker, opt-out, headless/DRM, root, live, other-first-run, lock (stubbed environment)
+build/test-xdg-autostart.sh	common	-	system XDG autostart entries vs the Singularity AutostartManager rule: session entries need OnlyShowIn=Singularity, systemd-unit fallbacks must not launch, every entry classified (control: OnlyShowIn=XFCE)
 post-install/51-ncz-tour-slides.sh	mixed	-	NCZ tour slides (wallpapers, online wallpapers, screensavers, lock screen) generic + first-login tour launcher; the arm64-only 85-ncz-chromium-vpu slide is gated on NCZ_TARGET_ARCH/BUILD_ARCH/dpkg (chromium-ncz-sky1 is Sky1-only); TODO split the Sky1 slide into a platform hook
