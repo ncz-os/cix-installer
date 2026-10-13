@@ -14,6 +14,7 @@ assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
 assets/audio/	sky1	-	Sky1 audio autoswitch (ncz-sky1-audio-autoswitch)
 assets/branding/	common	-	logos, icon theme, wallpapers, quotes
+assets/branding/tour-slides/85-ncz-chromium-vpu.slide	sky1	-	NCZ Chromium VPU tour slide; installed only on arm64/Sky1 (the platform that ships chromium-ncz-sky1); gated in post-install/51-ncz-tour-slides.sh
 assets/branding/singularity-theme/	common	-	installable Cygnus Singularity theme + generated gschema override (staged by both ISO build paths)
 # 2026-09-30: Cygnus 26.10 branding tree (merged from feat/cygnus-26-10-2026-09-30) --
 # theme assets + generators + generated consumer files (gtk/plymouth/newt/css/screensaver
@@ -554,4 +555,4 @@ docs/IMAGE-BUILD-PROCESS.sid-exceptions.md	common	-	build-process integration of
 docs/ARM64-FIRMWARE-TRIM-2026-10-11.md	common	-	arm64 (Sky1) firmware BOM trim: per-package keep/drop with measured evidence, sizes before/after, risk notes and restore instructions
 build/test-tour-slides.sh	common	-	tour slide data validation: keys, unique Order (NCZ + upstream), built-in Scene, {os} only brace, title length, Action prefix
 build/test-ncz-first-login-tour.sh	common	-	first-login tour guard logic: once-only marker, opt-out, headless/DRM, root, live, other-first-run, lock (stubbed environment)
-post-install/51-ncz-tour-slides.sh	common	-	NCZ tour slides for the desktop (wallpapers, online wallpapers, screensavers, lock screen); generic, variant-guarded
+post-install/51-ncz-tour-slides.sh	mixed	-	NCZ tour slides (wallpapers, online wallpapers, screensavers, lock screen) generic + first-login tour launcher; the arm64-only 85-ncz-chromium-vpu slide is gated on NCZ_TARGET_ARCH/BUILD_ARCH/dpkg (chromium-ncz-sky1 is Sky1-only); TODO split the Sky1 slide into a platform hook

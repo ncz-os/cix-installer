@@ -1,0 +1,5 @@
+[Slide]
+Order=85
+Title=Video on Radxa Orion O6
+Body=On Radxa Orion O6 / CIX Sky1 systems, NCZ-OS supplies its own Chromium and makes it the default browser. It plays H.264, VP9 and AV1 web video through the chip's video engine, so video stays smooth and light on the processor.
+Scene=launcher
