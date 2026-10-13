@@ -47,6 +47,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -173,17 +174,19 @@ def load_literals(path):
 
 
 def mailmap_old_emails(path):
+    """Emails the mailmap replaces: the commit email of every line that names
+    both a proper and a commit email (a one-email line only fixes the name)."""
     out = set()
     if not path:
         return out
     with open(path) as fh:
         for line in fh:
-            line = line.split("#", 1)[0]
-            parts = [p.split(">")[0] for p in line.split("<")[1:]]
-            if len(parts) >= 2:
-                out.add(parts[-1].strip().lower())
-            elif len(parts) == 1:
-                out.add(parts[0].strip().lower())
+            emails = re.findall(r"<([^<>]*)>", line.split("#", 1)[0])
+            if (
+                len(emails) >= 2
+                and emails[-1].strip().lower() != emails[0].strip().lower()
+            ):
+                out.add(emails[-1].strip().lower())
     return out
 
 
@@ -300,8 +303,9 @@ class BlobCache:
                 head = fh.readline().strip()
                 if head == "key " + self.key:
                     for line in fh:
-                        k, v = line.rstrip("\n").split("\t", 1)
-                        self.d[k] = v
+                        k, sep, v = line.rstrip("\n").partition("\t")
+                        if sep:
+                            self.d[k] = v
         except OSError:
             pass
         self.dirty = False
