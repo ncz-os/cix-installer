@@ -187,5 +187,28 @@ else
     bad "D3: launcher missing nice -n 19 fallback"
 fi
 
+# The IFS word-splitting path is under 'set -f' (noglob; no filename expansion
+# -- so a value of '*' becomes the literal token '*', not every file in cwd)
+# and the launcher asserts \$# == 1 so a future caller that passes multiple
+# arguments fails loud instead of silently losing them.
+if grep -B 1 -A 4 'set -- $1' "$SCRIPT" | grep -q 'set -f'; then
+    ok "D3: tokenisation under 'set -f' (noglob; audit-safe argv)"
+else
+    bad "D3: tokenisation not under 'set -f'"
+fi
+if grep -qE 'expected 1 argument, got' "$SCRIPT"; then
+    ok "D3: launch_under_scope defensive assert (\$# == 1)"
+else
+    bad "D3: launch_under_scope missing defensive assert"
+fi
+# systemd-run availability probe is cached one-shot, NOT re-run per launch
+# (re-creating + destroying a scope on every tour launch is the D3 review's
+# 'race condition' finding -- cached probe avoids it).
+if grep -q 'probe_systemd_run' "$SCRIPT" && grep -q 'NCZ_TOUR_SR_OK' "$SCRIPT"; then
+    ok "D3: systemd-run probe is cached (one-shot, not per-launch)"
+else
+    bad "D3: systemd-run probe is not cached"
+fi
+
 echo "$((PASS + FAIL)) checks, $PASS ok, $FAIL failed"
 [ "$FAIL" -eq 0 ]
