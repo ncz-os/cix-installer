@@ -57,5 +57,23 @@ echo '{"host":"h2","mode":"live","summary":{"pass":3,"fail":0,"skip":0}}' > "$RO
 [ -s "$RO/matrix.json" ] && have "$RO/matrix.json" '"T3":"FAIL"' && ok "matrix.json per-host" || bad "matrix.json per-host"
 rm -rf "$RO"
 
+echo "== greetd login retries a busy greeter =="
+GT="$(mktemp -d)"; GS="$GT/greetd.sock"
+python3 "$HERE/agent/lib/fake_greetd.py" "$GS" 2 rightpw & FG=$!
+for _i in 1 2 3 4 5 6 7 8 9 10; do [ -S "$GS" ] && break; sleep 0.2; done
+out=$(printf 'rightpw\n' | GREETD_SOCK="$GS" python3 "$HERE/agent/lib/greetd_login.py" rigtest 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q "session started" && ok "busy greeter: login succeeds after cancel+retry" || bad "busy greeter: rc=$rc out=$out"
+out=$(printf 'wrongpw\n' | GREETD_SOCK="$GS" python3 "$HERE/agent/lib/greetd_login.py" rigtest 2>&1); rc=$?
+[ "$rc" = 1 ] && echo "$out" | grep -q "login failed" && ok "wrong secret still fails (no retry on auth error)" || bad "wrong secret: rc=$rc out=$out"
+kill "$FG" 2>/dev/null; wait "$FG" 2>/dev/null; rm -rf "$GT"
+
+echo "== seams reach the session =="
+R="$HERE/agent/run_host.sh"
+grep -A3 'renv_add "NCZ_FEED_THERMAL_ROOT' "$R" | grep -q 'session_cycle' && ok "T13 re-logs in after staging the thermal seam" || bad "T13 stages the seam without a new session"
+grep -q "grep -q 'blank_after'" "$R" && ok "T14 runs only when the feed advertises blank_after" || bad "T14 not gated on the policy marker"
+grep -q 'PubkeyAuthentication=no' "$HERE/lockrig" && ok "password hosts skip agent keys" || bad "password hosts may exhaust MaxAuthTries"
+out=$(bash -c 'set -u; ATT=(); n=0; for x in ${ATT[@]+"${ATT[@]}"}; do n=1; done; echo ok' 2>&1)
+[ "$out" = ok ] && grep -q 'for name in ${ATT\[@\]+"${ATT\[@\]}"}' "$HERE/lockrig" && ok "no attended hosts: loop is safe under set -u" || bad "attended loop unsafe under set -u ($out)"
+
 echo "== LOCKRIG SUMMARY pass=$PASS fail=$FAIL =="
 [ "$FAIL" = 0 ]

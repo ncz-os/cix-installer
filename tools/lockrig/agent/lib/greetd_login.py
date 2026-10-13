@@ -13,6 +13,16 @@ import os
 import socket
 import struct
 import sys
+import time
+
+BUSY_RETRIES = 5
+BUSY_WAIT_S = 2
+
+
+def is_busy(reply):
+    return reply.get("type") == "error" and "already being configured" in reply.get(
+        "description", ""
+    )
 
 
 def call(sock, msg):
@@ -30,12 +40,21 @@ def main():
     user = sys.argv[1]
     cmd = sys.argv[2:] or ["/usr/local/bin/ncz-singularity"]
     secret = sys.stdin.readline().rstrip("\n")
-    sock = socket.socket(socket.AF_UNIX)
     path = os.environ.get("GREETD_SOCK") or next(
         iter(sorted(glob.glob("/run/greetd*.sock"))), "/run/greetd.sock"
     )
-    sock.connect(path)
-    reply = call(sock, {"type": "create_session", "username": user})
+    # The greeter pre-selects the last user and keeps that greetd session
+    # pending, so the first create_session can be refused as busy. Cancel the
+    # pending session and retry; an authentication failure is never retried.
+    for attempt in range(BUSY_RETRIES):
+        sock = socket.socket(socket.AF_UNIX)
+        sock.connect(path)
+        reply = call(sock, {"type": "create_session", "username": user})
+        if not is_busy(reply):
+            break
+        call(sock, {"type": "cancel_session"})
+        sock.close()
+        time.sleep(BUSY_WAIT_S)
     while reply.get("type") == "auth_message":
         answer = (
             secret if reply.get("auth_message_type") in ("secret", "visible") else ""
