@@ -66,7 +66,7 @@ mklock() {
 NCZ_SSPLUGIN_PKG=ncz-screensavers-plugin
 NCZ_SSPLUGIN_VERSION=0.3.16
 NCZ_SSPLUGIN_MAINTAINER="Jason Perlow <jperlow@gmail.com>"
-NCZ_SSPLUGIN_ARGONAS_DIR=ncz-screensavers-debs/plugin-test
+NCZ_SSPLUGIN_STORE_DIR=ncz-screensavers-debs/plugin-test
 NCZ_SSPLUGIN_SOURCE="ncz-screensavers test 0000000"
 NCZ_SSPLUGIN_SHA256_amd64=$(sha "$A/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_amd64.deb")
 NCZ_SSPLUGIN_SHA256_arm64=$(sha "$A/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_arm64.deb")

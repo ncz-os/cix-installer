@@ -24,7 +24,7 @@ ssp_err() { echo "[59-ncz-screensavers] plugin: $*" >&2; }
 ssp_sha256() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
 
 # ssplugin_load_lock LOCKFILE ARCH -> sets SSP_PKG SSP_VERSION SSP_SHA256
-# SSP_PAYLOAD SSP_LIBSHA SSP_ABI_LIB SSP_ARGONAS_DIR SSP_SOURCE SSP_MAINT.
+# SSP_PAYLOAD SSP_LIBSHA SSP_ABI_LIB SSP_STORE_DIR SSP_SOURCE SSP_MAINT.
 # Returns 1 (with a message) when the file is unreadable or a field is empty.
 ssplugin_load_lock() {
     local lock="$1" arch="$2" v
@@ -32,7 +32,7 @@ ssplugin_load_lock() {
     # Subshell-free parse: only KEY=VALUE lines, values may be double-quoted.
     # Sourcing would also work; parsing keeps a stray line from executing.
     local NCZ_SSPLUGIN_PKG="" NCZ_SSPLUGIN_VERSION="" NCZ_SSPLUGIN_MAINTAINER="" \
-          NCZ_SSPLUGIN_ARGONAS_DIR="" NCZ_SSPLUGIN_SOURCE="" NCZ_SSPLUGIN_ABI_LIB=""
+          NCZ_SSPLUGIN_STORE_DIR="" NCZ_SSPLUGIN_SOURCE="" NCZ_SSPLUGIN_ABI_LIB=""
     local sha="" payload="" libsha="" key val line
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in ''|'#'*) continue ;; esac
@@ -40,7 +40,7 @@ ssplugin_load_lock() {
         [ "$key" = "$line" ] && continue
         val="${val%\"}"; val="${val#\"}"
         case "$key" in
-            NCZ_SSPLUGIN_PKG|NCZ_SSPLUGIN_VERSION|NCZ_SSPLUGIN_MAINTAINER|NCZ_SSPLUGIN_ARGONAS_DIR|NCZ_SSPLUGIN_SOURCE|NCZ_SSPLUGIN_ABI_LIB)
+            NCZ_SSPLUGIN_PKG|NCZ_SSPLUGIN_VERSION|NCZ_SSPLUGIN_MAINTAINER|NCZ_SSPLUGIN_STORE_DIR|NCZ_SSPLUGIN_SOURCE|NCZ_SSPLUGIN_ABI_LIB)
                 printf -v "$key" '%s' "$val" ;;
             "NCZ_SSPLUGIN_SHA256_$arch") sha="$val" ;;
             "NCZ_SSPLUGIN_PAYLOAD_$arch") payload="$val" ;;
@@ -48,10 +48,10 @@ ssplugin_load_lock() {
         esac
     done < "$lock"
     SSP_PKG="$NCZ_SSPLUGIN_PKG"; SSP_VERSION="$NCZ_SSPLUGIN_VERSION"
-    SSP_MAINT="$NCZ_SSPLUGIN_MAINTAINER"; SSP_ARGONAS_DIR="$NCZ_SSPLUGIN_ARGONAS_DIR"
+    SSP_MAINT="$NCZ_SSPLUGIN_MAINTAINER"; SSP_STORE_DIR="$NCZ_SSPLUGIN_STORE_DIR"
     SSP_SOURCE="$NCZ_SSPLUGIN_SOURCE"; SSP_ABI_LIB="$NCZ_SSPLUGIN_ABI_LIB"
     SSP_SHA256="$sha"; SSP_PAYLOAD="$payload"; SSP_LIBSHA="$libsha"
-    for v in SSP_PKG SSP_VERSION SSP_MAINT SSP_ARGONAS_DIR SSP_SOURCE SSP_ABI_LIB SSP_SHA256 SSP_PAYLOAD SSP_LIBSHA; do
+    for v in SSP_PKG SSP_VERSION SSP_MAINT SSP_STORE_DIR SSP_SOURCE SSP_ABI_LIB SSP_SHA256 SSP_PAYLOAD SSP_LIBSHA; do
         if [ -z "${!v}" ]; then
             ssp_err "pin file $lock has no value for $v (arch $arch)"
             return 1

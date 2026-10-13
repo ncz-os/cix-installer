@@ -1,7 +1,6 @@
 # ncz-screensavers-plugin.lock -- the pinned Singularity "Screensaver and
-# Lockscreen" settings plugin that every desktop image ships (operator
-# 2026-10-06: "make sure the screensaver plugin UX is in the next set of image
-# builds"). Shell-sourceable KEY=VALUE, no command substitution.
+# Lockscreen" settings plugin that every desktop image ships (since
+# 2026-10-06). Shell-sourceable KEY=VALUE, no command substitution.
 #
 # One file, read by every consumer, so the pin cannot drift between them:
 #   build/stage-screensaver-plugin.sh   copies the deb from the artifact store into
@@ -28,7 +27,7 @@ NCZ_SSPLUGIN_VERSION=0.3.21
 NCZ_SSPLUGIN_MAINTAINER="Jason Perlow <jperlow@gmail.com>"
 # Directory under the artifact-store projects root (mount point differs per
 # build host; see build/stage-screensaver-plugin.sh).
-NCZ_SSPLUGIN_ARGONAS_DIR=ncz-screensavers-debs/plugin-0.3.21-20261013
+NCZ_SSPLUGIN_STORE_DIR=ncz-screensavers-debs/plugin-0.3.21-20261013
 NCZ_SSPLUGIN_SOURCE="ncz-screensavers fix/plugin-0.3.21-20261013 14d1a18c3bdda435dcccd8b9de9e0a11efb9e0c3"
 NCZ_SSPLUGIN_SHA256_amd64=402ab1d9d13be00156583a7a783a36f9366ecf0ab281033f87d8cd7207165f81
 NCZ_SSPLUGIN_SHA256_arm64=f4ce51e1ef6b9f0b9446fb5bc12f41fcf2cd89b3ad5408047c8f76842e014e14
