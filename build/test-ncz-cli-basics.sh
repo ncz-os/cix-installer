@@ -83,6 +83,12 @@ for sub in "desktop on" "desktop off" "desktop status" "install mnemos" "install
     echo "$out" | grep -q "$sub" && ok "help mentions subcommand '$sub'" || bad "help missing subcommand '$sub'"
 done
 
+# `ncz install help` must document that components are re-runnable and how to
+# stop/remove them (the brief's "uninstallable, or documented stop/disable").
+out=$("$T/ncz" install help 2>&1); rc=$?
+[ "$rc" = "0" ] && ok "install help exits 0" || bad "install help exit=$rc"
+echo "$out" | grep -q "systemctl disable" && ok "install help documents the stop/remove path" || bad "install help does not document stop/remove"
+
 out=$("$T/ncz" 2>&1); rc=$?
 [ "$rc" = "0" ] && ok "bare ncz (no args) exits 0 and shows help" || bad "bare ncz exit=$rc"
 echo "$out" | grep -q "ncz — nclawzero operator CLI" && ok "bare ncz shows help banner" || bad "bare ncz did not show help"

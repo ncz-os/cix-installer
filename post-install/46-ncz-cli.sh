@@ -1455,17 +1455,22 @@ ncz_install() {
 Usage: ncz install <component>
 
 Components:
-  mnemos     Install + start the MNEMOS memory server (REST + MCP +
-             OpenAI-compatible gateway on :5002, sqlite-backed). Pulls
-             the embedder model (nomic-embed-text-v1.5 Q8, 768-dim) to
+  mnemos     Install + start the MNEMOS memory server (REST on :5002, MCP
+             HTTP/SSE on :5004, OpenAI-compatible gateway, sqlite-backed).
+             Pulls the embedder model (nomic-embed-text-v1.5 Q8, 768-dim) to
              /opt/ncz/models if absent. Backfills memory_embeddings from
-             memories.embedding so semantic_search works on first install.
+             memories.embedding so search works on first install.
   zeroclaw   Convenience alias for 'ncz agent install zeroclaw'.
   zoder      Download + install zoder (ZeroClaw work-history CLI) from
              the public ncz-os/zoder nightly release. Pinned version +
              sha256. Idempotent. Config template at
              /etc/nclawzero/zoder.conf (no secrets, no fleet routes).
   nemoclaw   Pull + start NVIDIA NemoClaw OpenShell sandbox runtime.
+
+Every component is a systemd (quadlet) service and is safe to re-run. To stop
+or remove one: 'systemctl disable --now <name>.service', drop the quadlet under
+/etc/containers/systemd/ and (for MNEMOS) 'podman volume rm mnemos-data';
+agents: 'ncz agent uninstall <name>'. See docs/NCZ-AGENT-STACK.md.
 MSG
             ;;
         mnemos)
