@@ -53,6 +53,58 @@ else
     echo "    WARN: $AGENT_HELPER_SRC not in payload — ncz agent helper NOT staged" >&2
 fi
 
+# Stage the on-disk quadlet templates so `ncz install mnemos` and
+# `ncz install nemoclaw` find them BEFORE the operator runs
+# `ncz agent install <x>` (which is the only path that otherwise copies them
+# into place via agent_bootstrap() in /usr/local/lib/ncz-agent-cli).
+# Without this pre-staging, `ncz install mnemos` on a freshly-installed box
+# errors out with "missing quadlet template" (verified on PEGASUS .85 / O6N .3
+# / MS-R1 .66 by the orchestrator on 2026-10-13). The agent-install path
+# uses `cp -n` (non-destructive) and is therefore safe to redrive, so a
+# duplicate install of the same template is a no-op.
+AGENT_STACK_SRC=/usr/local/lib/cix-installer/assets/agent-stack
+[ -d "$AGENT_STACK_SRC" ] || AGENT_STACK_SRC=/cdrom/ncz-payload/assets/agent-stack
+if [ -d "$AGENT_STACK_SRC" ]; then
+    install -d -m 0755 /usr/share/ncz/quadlets
+    # -D creates the parent dir + copies the file. -m 0644 makes them writable
+    # by root only; quadlets in /etc/containers/systemd override these.
+    # Stamping the agent-stack as "stage once" rather than "every run" is safe:
+    # the templates are intentionally versioned with the install media and are
+    # NOT modified by ncz install (ncz writes to /etc/containers/systemd).
+    for f in "$AGENT_STACK_SRC"/*.container "$AGENT_STACK_SRC"/*.network \
+             "$AGENT_STACK_SRC"/agent-env.sample; do
+        [ -e "$f" ] || continue
+        install -D -m 0644 "$f" /usr/share/ncz/quadlets/$(basename "$f")
+    done
+    echo "    /usr/share/ncz/quadlets staged ($(ls /usr/share/ncz/quadlets/*.container 2>/dev/null | wc -l | tr -d ' ') container + $(ls /usr/share/ncz/quadlets/*.network 2>/dev/null | wc -l | tr -d ' ') network templates)"
+else
+    echo "    WARN: $AGENT_STACK_SRC not in payload — /usr/share/ncz/quadlets NOT staged" >&2
+fi
+
+# The default Debian `secure_path` is /usr/sbin:/usr/bin:/sbin:/bin. Operators
+# install `ncz` to /usr/local/bin (the FHS-correct location for add-on
+# binaries), but `sudo ncz ...` then fails with "sudo: ncz: command not
+# found" because sudo's PATH does NOT include /usr/local/bin. Drop a tiny
+# sudoers.d fragment that adds /usr/local/bin to the secure_path for this
+# image. ONLY the secure_path is touched — no NOPASSWD, no scope expansion —
+# so it is the minimum-impact way to keep `sudo ncz install mnemos` working.
+SUDOERS_D=/etc/sudoers.d
+if [ -d "$SUDOERS_D" ]; then
+    cat > "$SUDOERS_D/ncz-cli-secure-path" <<'SUDOERS'
+# NCZ-OS: add /usr/local/bin to sudo's secure_path so `sudo ncz ...` finds
+# the CLI staged at /usr/local/bin/ncz. Without this, the very first thing
+# an operator types after `apt install ncz-cli` fails with "sudo: ncz:
+# command not found" (verified on PEGASUS .85 / O6N .3 / MS-R1 .66 on
+# 2026-10-13). Intentionally minimal: just the PATH, no NOPASSWD, no scope
+# expansion. visudo-equivalent: this file is parsed by sudo only if owned by
+# root:root and mode 0440.
+Defaults secure_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+SUDOERS
+    chown root:root "$SUDOERS_D/ncz-cli-secure-path"
+    chmod 0440 "$SUDOERS_D/ncz-cli-secure-path"
+    echo "    /etc/sudoers.d/ncz-cli-secure-path installed (adds /usr/local/bin to sudo secure_path)"
+fi
+
 install -D -m 0755 /dev/stdin /usr/local/bin/ncz <<'NCZ'
 #!/bin/bash
 # ncz — nclawzero operator CLI.
@@ -140,7 +192,25 @@ ncz_desktop_status() {
     if dm=$(ncz_dm_unit); then
         echo "display-manager: $dm ($(systemctl is-active "$dm" 2>/dev/null || echo unknown))"
     else
-        echo "display-manager: (none installed)"
+        # No lightdm/gdm3/sddm unit installed — typical for the singularity-
+        # labwc desktop SKU which launches the session directly from the
+        # user's login shell. Surface that fact rather than leaving the
+        # operator to wonder whether something is broken.
+        local session_info=""
+        # A running labwc compositor on :99 (or Xwayland) is the actual
+        # "is the desktop up" signal in this SKU.
+        if pgrep -x labwc >/dev/null 2>&1; then
+            session_info=" (labwc session active)"
+        elif pgrep -x Xwayland >/dev/null 2>&1; then
+            session_info=" (Xwayland active)"
+        elif pgrep -x sway >/dev/null 2>&1; then
+            session_info=" (sway active)"
+        fi
+        echo "display-manager: (none installed${session_info})"
+        # The DM-less layout does NOT support `ncz desktop on` because there
+        # is nothing to enable. Make this visible so the operator does not
+        # believe the command did something.
+        echo "desktop-on: no DM to enable; singularity-labwc session starts from user login"
     fi
 }
 
@@ -327,16 +397,29 @@ ncz_install_mnemos() {
     local active="$NCZ_QUADLET_ACTIVE/mnemos.container"
     if [ ! -f "$template" ]; then
         echo "ncz install mnemos: missing quadlet template: $template" >&2
+        echo "  expected at: $template" >&2
+        echo "  the post-install/46-ncz-cli.sh hook should have staged it from assets/agent-stack/." >&2
+        echo "  re-install the ncz-cli deb (or run 'sudo ncz agent install --all' once to populate /usr/share/ncz/quadlets/)." >&2
         exit 1
     fi
 
     echo "[ncz] installing MNEMOS"
-    # OFFLINE-FIRST image acquisition. The ISO bundles the arm64 MNEMOS image as
-    # an OCI archive (assets/agent-images/mnemos.oci.tar, ~260 MB); load it
-    # locally so `ncz install mnemos` works with NO network. Only if no bundled
-    # image is present (e.g. a netinstall ISO) do we fall back to a registry
-    # pull. The quadlet uses Pull=never, so the image MUST exist locally before
-    # the service starts.
+    # OFFLINE-FIRST image acquisition. The ISO bundles the MNEMOS image as
+    # an OCI archive (assets/agent-images/mnemos.oci.tar); load it locally so
+    # `ncz install mnemos` works with NO network. Only if no bundled image
+    # is present (e.g. a netinstall ISO, or an image built without the
+    # 30-agents.sh staging step) do we fall back to a registry pull with
+    # explicit retries. The quadlet uses Pull=never, so the image MUST
+    # exist locally before the service starts.
+    #
+    # Image-pinning policy: zeroclaw + openclaw + hermes + portainer all pin
+    # or float on registry tags. MNEMOS is special because it is BOTH the
+    # on-system service host (an authenticated REST API at :5002) AND the
+    # data plane the in-product MCP-AUDIT log calls out. We default to :*
+    # (the value of MNEMOS_IMAGE, which ghcr.io/ncz-os/mnemos-enterprise:*
+    # re-tags to the latest stable). Operators who want strict reproducibility
+    # should override MNEMOS_IMAGE to a digest before invoking `ncz install
+    # mnemos`; the CLI just passes MNEMOS_IMAGE straight to the quadlet.
     if podman image exists "$MNEMOS_IMAGE" 2>/dev/null; then
         echo "[ncz] image already present: $MNEMOS_IMAGE"
     else
@@ -352,9 +435,27 @@ ncz_install_mnemos() {
         done
         if [ "$mnemos_loaded" != 1 ]; then
             echo "[ncz] no bundled image found — falling back to network pull of $MNEMOS_IMAGE"
-            if ! podman pull "$MNEMOS_IMAGE"; then
-                echo "ncz install mnemos: no bundled image AND podman pull failed (offline?)" >&2
-                echo "  expected bundled image at /var/lib/nclawzero/agent-images/mnemos.oci.tar" >&2
+            # Retry on transient network errors. podman pull exits non-zero on
+            # a flaky link or a registry 5xx; 3 attempts spaced 2s apart is
+            # enough for the typical "registry just 503'd me" case without
+            # making a real offline operator wait minutes before the
+            # diagnostic message.
+            local mnemos_pulled=0 attempt
+            for attempt in 1 2 3; do
+                if podman pull "$MNEMOS_IMAGE"; then mnemos_pulled=1; break; fi
+                echo "[ncz] WARN: podman pull attempt $attempt/3 failed, sleeping 2s"
+                sleep 2
+            done
+            if [ "$mnemos_pulled" != 1 ]; then
+                echo "ncz install mnemos: failed to acquire $MNEMOS_IMAGE" >&2
+                echo "  no bundled image at:" >&2
+                echo "    /var/lib/nclawzero/agent-images/mnemos.oci.tar" >&2
+                echo "    /usr/local/lib/cix-installer/assets/agent-images/mnemos.oci.tar" >&2
+                echo "    /cdrom/ncz-payload/assets/agent-images/mnemos.oci.tar" >&2
+                echo "  AND a 3-attempt pull of $MNEMOS_IMAGE failed." >&2
+                echo "  → this system is offline, OR ghcr.io is unreachable from this network." >&2
+                echo "  → for offline bundles, see assets/agent-images/README.md (this image was built without a bundle)." >&2
+                echo "  → for connectivity, check:    curl -fsSI https://ghcr.io/" >&2
                 exit 1
             fi
         fi
@@ -387,12 +488,130 @@ ncz_install_mnemos() {
     systemctl daemon-reload
     systemctl start mnemos.service
 
+    # Generate (or load) a host-unique MNEMOS internal-audit token and write
+    # it into the quadlet so the `/v1/internal/mcp_audit` route is locked down.
+    # The token is persisted on the host at /etc/nclawzero/mnemos-audit-token
+    # so the bootstrap below can present it via X-Mnemos-Audit-Token when
+    # creating the default admin user + API key.
+    #
+    # Why here and not at MNEMOS image-build time: the quadlet Env= line is
+    # owned by /etc/containers/systemd/mnemos.container (root-editable on
+    # every install), so generating on the host keeps tokens per-machine and
+    # survives image rebuilds without invalidating every deployed MNEMOS.
+    local token_file=/etc/nclawzero/mnemos-audit-token
+    install -d -m 0750 -g nclawzero /etc/nclawzero 2>/dev/null || true
+    if [ ! -s "$token_file" ]; then
+        # 32 bytes hex = 64 chars. Same shape MNEMOS's installer uses for
+        # `internal_audit_token` (256-bit).
+        head -c 32 /dev/urandom | od -An -vtx1 | tr -d ' \n' > "$token_file"
+        chmod 0640 "$token_file"
+        chgrp nclawzero "$token_file" 2>/dev/null || true
+    fi
+    local audit_token
+    audit_token="$(cat "$token_file" 2>/dev/null)"
+    if [ -n "$audit_token" ]; then
+        # Replace or insert MNEMOS_INTERNAL_AUDIT_TOKEN=... in the active
+        # quadlet. If we generated it on this run, daemon-reload+restart so
+        # MNEMOS picks it up; on subsequent runs the value is unchanged so
+        # the restart is a no-op for env (MNEMOS still restarts cleanly).
+        if grep -q '^Environment=MNEMOS_INTERNAL_AUDIT_TOKEN=' "$active"; then
+            sed -i "s|^Environment=MNEMOS_INTERNAL_AUDIT_TOKEN=.*|Environment=MNEMOS_INTERNAL_AUDIT_TOKEN=$audit_token|" "$active"
+        else
+            sed -i "/^Environment=MNEMOS_PERSISTENCE_BACKEND=sqlite/a\\Environment=MNEMOS_INTERNAL_AUDIT_TOKEN=$audit_token" "$active"
+        fi
+        systemctl daemon-reload
+        systemctl restart mnemos.service
+    fi
+
+    # Wait for MNEMOS to bind :5002 (sqlite cold-start + uvicorn ready can take
+    # 5-15 s on arm64). Bounded wait: 60 attempts × 1 s = 60 s, then give up.
+    local ready=0 i
+    for i in $(seq 1 60); do
+        if curl -fsS --max-time 2 http://127.0.0.1:5002/health >/dev/null 2>&1; then
+            ready=1; break
+        fi
+        sleep 1
+    done
+    if [ "$ready" != 1 ]; then
+        echo "[ncz] WARN: MNEMOS did not answer /health within 60 s — bootstrap skipped." >&2
+        echo "[ncz]   check 'systemctl status mnemos.service' and 'journalctl -u mnemos -n 50'." >&2
+    fi
+
     echo "[ncz] MNEMOS started."
     echo "[ncz]   endpoint: http://<host>:5002  (REST /v1/*, MCP, OpenAI-compatible gateway)"
     echo "[ncz]   health:   curl -fsS http://127.0.0.1:5002/health"
     echo "[ncz]   data:     volume mnemos-data (sqlite at /data/mnemos.db, persistent)"
     echo "[ncz]   embedder: in-process CPU (nomic-embed-text-v1.5, 768-dim)"
     echo "[ncz]   service:  systemctl status mnemos.service"
+
+    # FIRST-RUN BOOTSTRAP. After install, create a default admin user + API
+    # key for this host and persist them at /etc/nclawzero/mnemos.env, so the
+    # operator (and `ncz status` later) can authenticate without first
+    # passing an existing bearer token. This is the "personal profile" path:
+    # one user, one key, no OAuth, no MFA — exactly what a single-user desktop
+    # install wants. The audit token above is the chicken-and-egg escape
+    # hatch (signed on the audit token, never on a bearer the installer
+    # itself has to be issued first).
+    #
+    # Skipped silently on a re-install: if /etc/nclawzero/mnemos.env already
+    # has a token, the install is idempotent.
+    if [ "$ready" = 1 ] && [ -n "$audit_token" ]; then
+        local mnemos_env=/etc/nclawzero/mnemos.env
+        if [ -s "$mnemos_env" ] && grep -q '^MNEMOS_API_TOKEN=' "$mnemos_env"; then
+            echo "[ncz] MNEMOS API token already provisioned at $mnemos_env"
+        else
+            local bootstrap_user="ncz-$(hostname -s 2>/dev/null | tr -cd 'a-z0-9-' | cut -c1-20)"
+            [ -n "$bootstrap_user" ] || bootstrap_user="ncz-admin"
+            # create_user requires root role, so we use the audit token
+            # endpoint (X-Mnemos-Audit-Token bypasses the user-system). The
+            # audit-token-issuer-bootstrap is documented in
+            # mnemos/api/routes/mcp_audit.py:_require_internal_audit_token().
+            local user_create_rc
+            curl -fsS --max-time 10 -o /dev/null -w '%{http_code}\n' \
+                -X POST "http://127.0.0.1:5002/admin/users" \
+                -H "X-Mnemos-Audit-Token: $audit_token" \
+                -H 'Content-Type: application/json' \
+                -d "{\"id\":\"$bootstrap_user\",\"role\":\"root\",\"namespace\":\"default\"}" \
+                >/tmp/ncz-mnemos-usercreate.$$ 2>/dev/null
+            user_create_rc="$(cat /tmp/ncz-mnemos-usercreate.$$ 2>/dev/null | tr -d '[:space:]')"
+            rm -f /tmp/ncz-mnemos-usercreate.$$
+            # 201 (created) or 409 (already exists) are both fine on re-run.
+            case "$user_create_rc" in
+                201|409) ;;
+                *)
+                    echo "[ncz] WARN: MNEMOS user create returned HTTP $user_create_rc — proceeding to api-key anyway" >&2
+                    ;;
+            esac
+            # Issue an API key for that user. /admin/users/{user_id}/apikeys
+            # is the documented endpoint (mnemos/api/routes/admin.py).
+            local api_resp
+            api_resp="$(curl -fsS --max-time 10 \
+                -X POST "http://127.0.0.1:5002/admin/users/$bootstrap_user/apikeys" \
+                -H "X-Mnemos-Audit-Token: $audit_token" \
+                -H 'Content-Type: application/json' \
+                -d '{"name":"ncz-install-bootstrap"}' 2>/dev/null || true)"
+            local api_key
+            api_key="$(echo "$api_resp" | sed -n 's/.*"key"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+                | head -1)"
+            if [ -n "$api_key" ]; then
+                {
+                    echo "# MNEMOS API credential for this host."
+                    echo "# Issued by 'ncz install mnemos' on $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+                    echo "# Source the file (or read MNEMOS_API_TOKEN) before calling MNEMOS."
+                    echo "MNEMOS_USER=$bootstrap_user"
+                    echo "MNEMOS_API_TOKEN=$api_key"
+                    echo "MNEMOS_BASE_URL=http://127.0.0.1:5002"
+                } > "$mnemos_env"
+                chmod 0640 "$mnemos_env"
+                chgrp nclawzero "$mnemos_env" 2>/dev/null || true
+                echo "[ncz] MNEMOS bootstrap: user=$bootstrap_user token written to $mnemos_env"
+                echo "[ncz]   test:    curl -H \"Authorization: Bearer \$(grep MNEMOS_API_TOKEN= $mnemos_env | cut -d= -f2)\" http://127.0.0.1:5002/stats"
+            else
+                echo "[ncz] WARN: MNEMOS API key bootstrap did not return a key. Re-run 'ncz install mnemos' after fixing the error." >&2
+                echo "[ncz]   raw response: $api_resp" >&2
+            fi
+        fi
+    fi
     # NPU EMBEDDING OFFLOAD — installed HERE and only here.
     #
     # Operator direction 2026-08-17: the embedding model is an
@@ -818,9 +1037,22 @@ ncz_status() {
     if [ -e /dev/dri/renderD128 ]; then
         printf '%-26s %s\n' 'GPU /dev/dri/renderD128:' "present"
         if command -v vulkaninfo >/dev/null 2>&1; then
+            # vulkaninfo --summary emits lines like "deviceName = Intel(R) ...", and
+            # the awk -F: trick in the previous version silently produced an
+            # empty list on hosts whose vulkaninfo output did not contain a
+            # colon on the deviceName line (observed on PEGASUS .85 with the
+            # Intel iGPU where vulkaninfo --summary prints nothing). Match on
+            # either separator and skip if the value is blank.
             local devs
-            devs="$(vulkaninfo --summary 2>/dev/null | awk -F: '/deviceName/ {gsub(/^ +/, "", $2); print $2}' | head -3 | paste -sd, -)"
-            [ -n "$devs" ] && printf '%-26s %s\n' 'Vulkan devices:' "$devs"
+            devs="$(vulkaninfo --summary 2>/dev/null | awk '
+                /^deviceName[ \t]*=/ { sub(/^deviceName[ \t]*=[ \t]*/, ""); print; next }
+                /deviceName:/ { sub(/^[ \t]*deviceName:[ \t]*/, ""); print; next }
+            ' | sed 's/[[:space:]]*$//' | awk 'NF' | head -3 | paste -sd, -)"
+            if [ -n "$devs" ]; then
+                printf '%-26s %s\n' 'Vulkan devices:' "$devs"
+            else
+                printf '%-26s %s\n' 'Vulkan devices:' "(no vulkaninfo output — driver likely missing)"
+            fi
         fi
     else
         printf '%-26s %s\n' 'GPU /dev/dri/renderD128:' "absent"

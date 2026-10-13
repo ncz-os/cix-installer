@@ -12,6 +12,10 @@ README.zh-CN.md	common	-	readme
 assets/README.md	common	-	asset tree notes
 assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
+build/test-ncz-cli-basics.sh	common	-	shell-level test for the embedded ncz CLI (parses, help, exit codes, status on non-systemd hosts)
+build/test-ncz-agent-cli-basics.sh	common	-	shell-level test for the ncz-agent-cli helper (dispatcher, install/uninstall paths, asset references)
+build/test-ncz-agent-cli-idempotency.sh	common	-	idempotency contract for `ncz agent install/uninstall <name>` (sandbox + source-level assertions)
+build/test-ncz-cli-install-mnemos-deps.sh	common	-	manifest closure + post-install guards for `ncz install mnemos` (uidmap, sudoers, staged quadlets, audit-token bootstrap)
 assets/audio/	sky1	-	Sky1 audio autoswitch (ncz-sky1-audio-autoswitch)
 assets/branding/	common	-	logos, icon theme, wallpapers, quotes
 assets/branding/singularity-theme/	common	-	installable Cygnus Singularity theme + generated gschema override (staged by both ISO build paths)

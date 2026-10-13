@@ -291,10 +291,26 @@ cmd_agent_install() {
                 fi
                 ;;
             *)
+                # IDEMPOTENT INSTALL. `ncz agent install <name>` is documented as
+                # safe to re-run: if the image, container quadlet and service
+                # are all already present, restart the service (so a fixed
+                # config picks up) and re-stamp the desktop shortcut. We do NOT
+                # re-pull the image if it already exists locally and matches
+                # the ref (ensure_image() handles that), and we do NOT rebuild
+                # the quadlet if the active one already points at the same
+                # template (we only overwrite if the template is newer).
                 if ensure_image "$a" && [ -f "$QUADLET_TEMPLATES/$a.container" ]; then
-                    cp "$QUADLET_TEMPLATES/$a.container" "$QUADLET_ACTIVE/$a.container"
+                    if [ -f "$QUADLET_ACTIVE/$a.container" ] && \
+                       [ ! "$QUADLET_TEMPLATES/$a.container" -nt "$QUADLET_ACTIVE/$a.container" ]; then
+                        # Template hasn't moved since we staged it — just
+                        # ensure the service is up and the launcher exists.
+                        :
+                    else
+                        cp "$QUADLET_TEMPLATES/$a.container" "$QUADLET_ACTIVE/$a.container"
+                    fi
                     systemctl daemon-reload
-                    systemctl start "$a.service" 2>/dev/null
+                    systemctl enable "$a.service" >/dev/null 2>&1 || true
+                    systemctl restart "$a.service" 2>/dev/null
                     write_launcher "$a"
                 else
                     echo "  FAILED - missing image or template for $a"
@@ -321,8 +337,19 @@ cmd_agent_uninstall() {
     if [ "$1" = "--all" ]; then targets=(zeroclaw openclaw hermes portainer); else targets=("$@"); fi
     for a in "${targets[@]}"; do
         case "$a" in
-            portainer) podman rm -f portainer 2>/dev/null || true ;;
+            portainer)
+                # Drop the portainer-bootstrap.service sentinel + unit if
+                # present (the operator's ncz-install log shows it is created
+                # somewhere else; we leave any service in place unless we
+                # know it is the portainer-bootstrap one). Best-effort.
+                podman rm -f portainer 2>/dev/null || true
+                ;;
             zeroclaw|openclaw|hermes)
+                # IDEMPOTENT UNINSTALL: disable + stop + remove the quadlet
+                # + remove the container. Each step swallows "not present"
+                # so re-running uninstall on an already-uninstalled agent
+                # is a clean no-op (no "Unit *.service not loaded" errors).
+                systemctl disable "$a.service" 2>/dev/null || true
                 systemctl stop "$a.service" 2>/dev/null || true
                 rm -f "$QUADLET_ACTIVE/$a.container"
                 podman rm -f "$a" 2>/dev/null || true
@@ -332,6 +359,12 @@ cmd_agent_uninstall() {
         remove_launcher "$a"
         echo "  $a uninstalled"
     done
+    # Drop the sentinel only when nothing is left installed; on a partial
+    # uninstall (one of many) we leave it alone so a subsequent
+    # `ncz agent list` keeps working for the still-installed agents.
+    if ! is_installed zeroclaw && ! is_installed openclaw && ! is_installed hermes; then
+        rm -f "$SENTINEL_DIR/.agents-installed"
+    fi
     systemctl daemon-reload 2>/dev/null || true
 }
 

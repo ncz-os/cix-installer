@@ -334,6 +334,16 @@ conmon
 netavark
 aardvark-dns
 catatonit
+# uidmap / slirp4netns / fuse-overlayfs are required for rootless podman:
+# `podman info` as the `ncz` user invokes newuidmap/newgidmap and the slirp4netns
+# NAT helper, which fail with "executable file not found in $PATH" without these.
+# Rootful `sudo podman ...` (which `ncz install mnemos` and `ncz agent install`
+# use) does not need them, but `podman info` / `podman images` as the user is
+# expected to work and was the failure mode reported on PEGASUS .85 / O6N .3 /
+# MS-R1 .66 by the orchestrator on 2026-10-13.
+uidmap
+slirp4netns
+fuse-overlayfs
 
 # --- console fallback (telnet — fleet doctrine) -----------------------------
 inetutils-telnetd
@@ -400,6 +410,10 @@ crun
 conmon
 netavark
 catatonit
+# Rootless helpers — see the earlier comment block.
+uidmap
+slirp4netns
+fuse-overlayfs
 
 # --- r164: IceWM — ultra-light alternate WM (selectable at LightDM greeter)
 icewm

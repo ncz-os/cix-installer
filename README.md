@@ -1042,20 +1042,39 @@ on its own.
 
 ### `ncz install mnemos`
 
-Deploys [MNEMOS](https://gitlab.com/ncz-os/mnemos) as a rootless podman
+Deploys [MNEMOS](https://gitlab.com/ncz-os/mnemos) as a rootful podman
 **quadlet** with a persistent SQLite volume, listening on `:5002` and speaking
 REST, MCP and an OpenAI-compatible API.
 
-It installs **offline**. The image is bundled on the media and side-loaded with
-`podman load`; the quadlet is generated with `Pull=never` so a running system
-never silently reaches for a registry. A network pull of
-`ghcr.io/ncz-os/mnemos-enterprise:latest` happens only if no bundled image is found, and
-is announced when it does.
+It installs **offline-first**. The image is bundled on the media and
+side-loaded with `podman load`; the quadlet is generated with `Pull=never`
+so a running system never silently reaches for a registry. A network pull
+of `ghcr.io/ncz-os/mnemos-enterprise:latest` (or whatever `MNEMOS_IMAGE` is
+set to) happens only if no bundled image is found. Pulls are retried 3 times
+to ride out transient registry 5xx, and a clear "this system is offline, or
+ghcr.io is unreachable" diagnostic is printed if every attempt fails — an
+operator gets the answer in seconds, not minutes.
 
 ```bash
-ncz install mnemos
+sudo ncz install mnemos
 curl -s localhost:5002/health
 ```
+
+After the install, a per-install **MNEMOS audit token** is generated at
+`/etc/nclawzero/mnemos-audit-token` and pinned into the quadlet. The
+install then issues a default admin user + API key against MNEMOS, signed
+with that audit token, and writes both to `/etc/nclawzero/mnemos.env`:
+
+```bash
+. /etc/nclawzero/mnemos.env
+curl -H "Authorization: Bearer $MNEMOS_API_TOKEN" http://127.0.0.1:5002/stats
+```
+
+The install is **idempotent**: a second `sudo ncz install mnemos` on the
+same box detects the existing image, preserves the existing quadlet (any
+operator edits kept), and skips re-issuing the API key. The MNEMOS audit
+token survives reinstalls (the file at `/etc/nclawzero/mnemos-audit-token`
+is sticky) so the data plane identity is stable across `ncz` upgrades.
 
 ### Embeddings on the NPU
 
