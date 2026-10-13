@@ -177,25 +177,28 @@ wait_for_shell() {
 # SECURITY: the tour command is one we built into the codebase -- the three
 # callers in open_tour() all pass a static, hand-written string with no
 # shell metacharacters -- or, in the NCZ_TOUR_LAUNCH test seam, a value
-# chosen by the test. Either way we MUST NOT round-trip the string through
-# a shell: "sh -c \"$*\"" would re-interpret every metacharacter. We use
-# `exec` to replace this shell process with the wrapper so positional args
-# are passed verbatim to the wrapper's argv, and the wrapper itself runs
-# the tour via `exec -a` (systemd-run) or via `env` (the fallback).
+# chosen by the test. To preserve the original audit contract (\"the value
+# is exactly what would be launched, no extra words, no shell-meta\") we
+# tokenise the string with the shell's standard $IFS word split (which
+# does NOT do shell-metacharacter expansion) and exec the resulting tokens
+# as a real argv. systemd-run takes the tokens argv directly; nice runs the
+# first token (the interpreter) and forwards the rest as its argv.
 #
 # Returns the exit status of the *wrapper* (0 = launched in background), not
 # of the tour itself. The tour is launched into the BACKGROUND so the
 # autostart can return and the desktop session stays responsive.
 launch_under_scope() {
     want_quota="${NCZ_TOUR_CPUQUOTA:-40}"
+    # Tokenise the command line on $IFS into positional parameters. Standard
+    # IFS word-splitting does not perform shell-metacharacter expansion, so a
+    # value like "cmd ; rm -rf /" becomes the literal tokens "cmd", ";",
+    # "rm", "-rf", "/" (the wrapper sees the same argv the original test
+    # contract expected, never a re-eval).
+    # shellcheck disable=SC2086
+    set -- $1
     # NCZ_TOUR_NICE=0 disables the wrapper explicitly (test seam).
     if [ "${NCZ_TOUR_NICE:-auto}" = "0" ]; then
-        # Use exec with the wrapper's argv verbatim. The wrapper is `sh`
-        # here only so the tour's argv can contain spaces / multiple words
-        # without an additional shell; `sh -c "$1"` still gives the tour
-        # its argument vector without re-interpreting any metacharacter
-        # (the original audit contract is preserved for NCZ_TOUR_LAUNCH).
-        exec sh -c "$1" >/dev/null 2>&1 &
+        "$@" >/dev/null 2>&1 &
         return $?
     fi
     # Auto-detect: prefer systemd-run --user --scope (cgroups + nice + quota
@@ -207,19 +210,22 @@ launch_under_scope() {
         if command -v systemd-run >/dev/null 2>&1 \
            && [ "$(command -v systemd-run)" = "/usr/bin/systemd-run" ] \
            && systemd-run --user --scope --quiet true >/dev/null 2>&1; then
-            # systemd-run takes a command and its argv verbatim; same
-            # contract as exec above.
+            # systemd-run takes the command and tokens argv directly. No
+            # shell interpretation: the first token is the interpreter, the
+            # rest are its argv. (systemd-run does its own exec, NOT a
+            # sub-shell.)
             systemd-run --user --scope \
               --nice=19 \
               --property=CPUQuota="${want_quota}%" \
               --property=CPUWeight=50 \
-              sh -c "$1" >/dev/null 2>&1 &
+              "$@" >/dev/null 2>&1 &
             return $?
         fi
     fi
-    # Fallback: just nice -n 19. The shell handles priority only; nothing
-    # bounds CPU, but the desktop's idle governor will throttle the renderer.
-    nice -n 19 sh -c "$1" >/dev/null 2>&1 &
+    # Fallback: just nice -n 19. nice runs the first argv token (the
+    # interpreter); the rest is forwarded as that process's argv. No shell
+    # involvement.
+    nice -n 19 "$@" >/dev/null 2>&1 &
     return $?
 }
 
