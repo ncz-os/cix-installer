@@ -51,16 +51,39 @@ cat > /usr/local/bin/ncz-console-font-autosize <<'SCRIPT'
 # (physical width in inches). Falls back to the old resolution-only
 # heuristic when a display reports no physical size in EDID (0x0 -- seen
 # on some projectors/TVs that deliberately omit it) or has no EDID at all.
+#
+# Text mode: the kernel only accepts a font change while the VT is in KD_TEXT
+# mode. The KMS boot splash, Plymouth and the greeter compositor switch tty1
+# to KD_GRAPHICS, and the splash does not switch it back when it exits. The
+# unit is ordered before the splash; if the console is still found in
+# graphics mode (a unit restart under a running greeter, another splash),
+# there is no text console to size, so log that and exit 0 instead of
+# failing the boot.
 set -eu
 
-FB=/sys/class/graphics/fb0/virtual_size
+LOG=ncz-console-font-autosize
+CONSOLE=${NCZ_CONSOLE_TTY:-/dev/tty0}
+FB=${NCZ_FB_VIRTUAL_SIZE:-/sys/class/graphics/fb0/virtual_size}
+DRM_DIR=${NCZ_DRM_SYSFS:-/sys/class/drm}
+FONT_DIR=${NCZ_CONSOLEFONTS_DIR:-/usr/share/consolefonts}
+
+if [ ! -r "$FB" ]; then
+    echo "$LOG: no framebuffer console ($FB absent); nothing to size"
+    exit 0
+fi
 FB_WIDTH="" FB_HEIGHT=""
-if [ -r "$FB" ]; then
-    IFS=, read -r FB_WIDTH FB_HEIGHT < "$FB"
+IFS=, read -r FB_WIDTH FB_HEIGHT < "$FB" || true
+
+# kbdinfo prints "text" or "graphics"; when it cannot answer, fall through
+# to setfont, whose own error is classified below.
+mode=$(kbdinfo -C "$CONSOLE" getmode 2>/dev/null || true)
+if [ "$mode" = graphics ]; then
+    echo "$LOG: $CONSOLE is in graphics mode (splash or compositor owns it); console font left unchanged"
+    exit 0
 fi
 
 DPI=""
-for edid in /sys/class/drm/card*-*/edid; do
+for edid in "$DRM_DIR"/card*-*/edid; do
     conn_dir=$(dirname "$edid")
     [ -r "$conn_dir/status" ] || continue
     [ "$(cat "$conn_dir/status")" = "connected" ] || continue
@@ -88,12 +111,17 @@ if [ -n "${DPI:-}" ]; then
     elif [ "$DPI" -ge 90 ]; then
         FONT=Lat15-Terminus16          # standard desktop-monitor DPI (~96)
     else
-        exit 0                         # low-DPI large display: kernel default is fine
+        # low-DPI large display: kernel default is fine
+        echo "$LOG: ${DPI} DPI display; kernel default font kept"
+        exit 0
     fi
 else
     # No usable EDID physical size -- fall back to the old resolution-only
     # heuristic rather than leaving the console unscaled.
-    [ -n "${FB_HEIGHT:-}" ] || exit 0
+    if [ -z "${FB_HEIGHT:-}" ]; then
+        echo "$LOG: $FB reports no mode; nothing to size"
+        exit 0
+    fi
     if [ "$FB_HEIGHT" -ge 2000 ]; then
         FONT=Lat15-TerminusBold32x16
     elif [ "$FB_HEIGHT" -ge 1200 ]; then
@@ -101,34 +129,51 @@ else
     elif [ "$FB_HEIGHT" -ge 900 ]; then
         FONT=Lat15-Terminus16
     else
+        echo "$LOG: ${FB_WIDTH}x${FB_HEIGHT} display; kernel default font kept"
         exit 0
     fi
 fi
 
-if [ ! -f "/usr/share/consolefonts/$FONT.psf.gz" ]; then
-    echo "ncz-console-font-autosize: $FONT missing - is console-setup installed?" >&2
+if [ ! -f "$FONT_DIR/$FONT.psf.gz" ]; then
+    echo "$LOG: $FONT missing - is console-setup installed?" >&2
     exit 1
 fi
-if ! setfont "$FONT"; then
-    echo "ncz-console-font-autosize: setfont $FONT failed" >&2
-    exit 1
+if err=$(setfont -C "$CONSOLE" "$FONT" 2>&1); then
+    echo "$LOG: $CONSOLE font set to $FONT (${FB_WIDTH}x${FB_HEIGHT}${DPI:+, $DPI DPI})"
+    exit 0
 fi
+case "$err" in
+    *"not in text mode"*)
+        # Lost a race with a graphics owner between the check and setfont.
+        echo "$LOG: $CONSOLE switched to graphics mode; console font left unchanged"
+        exit 0
+        ;;
+esac
+[ -z "$err" ] || printf '%s\n' "$err" >&2
+echo "$LOG: setfont $FONT failed" >&2
+exit 1
 SCRIPT
 chmod 0755 /usr/local/bin/ncz-console-font-autosize
 
 cat > /etc/systemd/system/ncz-console-font-autosize.service <<'UNIT'
 [Unit]
 Description=Size the console font to the connected display
-# After vconsole-setup (keymap) and the point KMS has picked a mode, so
-# fb0/virtual_size reflects the real negotiated resolution, not a boot-stage
-# placeholder.
-After=systemd-vconsole-setup.service systemd-udev-settle.service
-Before=getty@tty1.service greetd.service
+# Early-boot unit: the font can only be changed while tty1 is in text mode.
+# The KMS boot splash (and later greetd's compositor) switch tty1 to graphics
+# mode, so run before them. Runs after vconsole-setup (keymap) and udev
+# coldplug, so the KMS driver has bound and fb0/virtual_size reflects the
+# negotiated mode. VTs opened later (getty on tty2..) start from this font.
+DefaultDependencies=no
+After=systemd-vconsole-setup.service systemd-udev-trigger.service systemd-udev-settle.service local-fs.target
+Before=singularity-boot-splash.service getty@tty1.service greetd.service shutdown.target
+Conflicts=shutdown.target
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/ncz-console-font-autosize
 RemainAfterExit=yes
+# Never hold the splash or greetd for long.
+TimeoutStartSec=10s
 
 [Install]
 WantedBy=sysinit.target
