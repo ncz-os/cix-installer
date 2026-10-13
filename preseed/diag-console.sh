@@ -62,7 +62,7 @@ PW=$(kv ncz_diag_pw);    PW_EXPLICIT=0; [ -n "$PW" ] && PW_EXPLICIT=1; PW=${PW:-
 # internal fleet address by default. Remote syslog forwarding is OPT-IN ONLY
 # via ncz_diag_log=<host[:port]> on the boot cmdline; unset means no forward
 # daemon is even started (see start_syslogd). This used to default to
-# 192.168.207.22:5514 (ARGOS), which meant every real-hardware install's
+# a fixed lab log host on port 5514, which meant every real-hardware install's
 # console banner printed our internal fleet IP whether or not anyone wanted
 # remote logging — operator directive 2026-09-17: never ship that.
 LOGDST=$(kv ncz_diag_log)
@@ -358,7 +358,7 @@ US
 chmod 0755 "$RUN/udhcpc.script"
 # r-net1: a default route is part of "network up". netcfg can leave an
 # interface addressed but routeless (observed on O6N 2026-09-26: IP
-# 192.168.207.3/24 on-link, no default, netcfg/confirm_static=true with an
+# a static /24 address on-link, no default, netcfg/confirm_static=true with an
 # empty netcfg/get_gateway). d-i's own udebs are fetched from the live
 # archive by anna, so a routeless install dies later at "Bad archive mirror"
 # with no hint that routing is the real problem. Treating an IP alone as

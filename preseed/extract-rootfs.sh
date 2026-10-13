@@ -319,7 +319,7 @@ if [ -n "$SQFS_DIR" ]; then
     # partman mounts the real root at /target. Its writes to
     # /target/etc/cix-installer/COMPONENTS and /target/var/lib/cix-components/
     # therefore landed in the installer RAMDISK and were destroyed the moment
-    # partman mounted the real filesystem over /target. Measured on .66
+    # partman mounted the real filesystem over /target. Measured on the MS-R1 test board
     # (2026-08-22): none of the three consumer paths existed on the installed
     # system, so post-install/run-all.sh and build/70-bootloader.sh both fell
     # back to their "file missing => all components enabled" default and ran
@@ -492,12 +492,12 @@ case "$_cur" in
         #
         # The MAC scheme names the box after whatever ethernet adapter happens
         # to be attached, so the name FOLLOWS THE HARDWARE. Measured 2026-09-29:
-        # a Thunderbolt dock moved from MEDUSA to CHIMERA took the name with it
+        # a Thunderbolt dock moved from one T2 Mac to the other took the name with it
         # and THREE LAN addresses answered to ncz-9b4fe9 across two machines at
         # once. Identifying either box by hostname was impossible.
         #
         # Surveyed what is actually unique AND present on every platform we
-        # ship (CHIMERA/MEDUSA/PEGASUS x86 + O6N Sky1):
+        # ship (the two T2 Macs and the GU502LV laptop x86 + O6N Sky1):
         #   product_serial  real on x86, but on O6N the literal string
         #                   "Radxa System Serial Number" -- every Radxa board
         #                   would get the SAME hostname. Also a real serial;

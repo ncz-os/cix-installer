@@ -12,8 +12,8 @@
 #   4. the onboard (non-USB) wireless MAC
 #   5. the lowest-numbered non-USB, non-virtual NIC MAC
 #   6. random                            last resort; callers persist the first answer
-# It never reads a USB or dock NIC, so swapping an adapter cannot rename a machine (CHIMERA and
-# MEDUSA both became ncz-9b4fe9 when one dock moved between them). The identity is hashed, never
+# It never reads a USB or dock NIC, so swapping an adapter cannot rename a machine (T2 Mac A and
+# T2 Mac B both became ncz-9b4fe9 when one dock moved between them). The identity is hashed, never
 # used raw: a hostname is broadcast over DHCP and mDNS.
 #
 # Usage: ncz-hostname-gen.sh            -> prints the hostname

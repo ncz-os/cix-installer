@@ -250,7 +250,7 @@ TPL
     #     file was never written. The 90s kill path would have done the
     #     same damage on any run that got that far.
     #
-    # Measured live on metal (.66, 2026-08-24, /proc + questions.dat
+    # Measured live on metal (MS-R1 test board, 2026-08-24, /proc + questions.dat
     # forensics) and reproduced + fd-traced under QEMU on the same
     # unattended cmdline. The KVM install gate never caught it because
     # the gate injects ncz_components= and so never walks this branch.

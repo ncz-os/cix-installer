@@ -11,7 +11,7 @@
 # install (only installer@<host> with the password) — operator can't
 # remote-diagnose a failing install.
 #
-# 2026-05-07 (Codex r78 audit): kept as separate file (not heredoc'd
+# 2026-05-07 (review r78 audit): kept as separate file (not heredoc'd
 # into preseed early_command) because d-i's preseed parser may
 # truncate multi-line values at the first non-continuation line, and
 # heredoc body lines don't end in backslash. Easier to ship + maintain
@@ -25,7 +25,7 @@ set +e
 exec >> /var/log/early_command.log 2>&1
 echo "[watcher] start $(date -u +%FT%TZ) pid=$$"
 
-# 2026-05-08 take19 (per Codex DNS deep dive in
+# 2026-05-08 take19 (per review DNS deep dive in
 # docs/R78-DNS-DEEP-DIVE-2026-05-08.md): the actual fix is to drop
 # scripts into d-i's documented hook directories so they run AT the
 # right moment in the install flow:
@@ -250,7 +250,7 @@ install_ncz_disable_popcon_hook
 # clobberer.
 #
 # Take11/take12 used a backgrounded `( while true ) &` watcher.
-# Operator-confirmed evidence on .66 (resolv.conf had only the LAN
+# Operator-confirmed evidence on the MS-R1 test board (resolv.conf had only the LAN
 # router IP after several minutes) suggests the subshell didn't
 # survive parent exit on busybox 1.35 ash. The udhcpc script approach
 # avoids the daemonization problem entirely.
@@ -311,7 +311,7 @@ echo "[watcher] installed custom /etc/udhcpc/default.script for resolv.conf fall
 } > /etc/resolv.conf
 echo "[watcher] pre-DHCP /etc/resolv.conf seeded with public fallbacks"
 
-# 2026-05-08 take18 (per .66 take17 install failure at 95% / pkgsel
+# 2026-05-08 take18 (per MS-R1 test-board take17 install failure at 95% / pkgsel
 # "Temporary failure resolving 'ports.ubuntu.com'"):
 #
 # Take15-take17 evolution:
@@ -354,11 +354,11 @@ ensure_resolv_conf() {
     # Pull current LAN gateway from default route. If there is no default
     # route yet there is no gateway to name, so emit none: the public
     # resolvers below still work. This used to fall back to a hardcoded
-    # 192.168.207.1, which is only correct on one LAN and is unreachable
+    # the lab gateway address, which is only correct on one LAN and is unreachable
     # everywhere else -- including inside qemu's 10.0.2.0/24. Because that
     # address was written FIRST, with options timeout:2 attempts:3, every
     # lookup burned ~6s on a dead resolver before reaching 8.8.8.8.
-    # Measured on ULTRA 2026-09-26: choose-mirror ran at 23:30:51 against
+    # Measured on the arm64 build host 2026-09-26: choose-mirror ran at 23:30:51 against
     # exactly that resolv.conf, every fetch failed, and it reported "mirror
     # does not have any suite symlinks" / "mirror does not support the
     # specified release (forky)". The corrected file landed at 23:30:53, two
@@ -396,7 +396,7 @@ sync_target_resolv() {
 
 SSHD_PATCHED=0
 i=0
-# Take19 per Codex audit: drop the 1800s ceiling — the d-i hooks are now
+# Take19 per review audit: drop the 1800s ceiling — the d-i hooks are now
 # the deterministic fix, but keep the watcher running for the full install
 # duration so belt-and-suspenders sync_target_resolv() never expires.
 while :; do
