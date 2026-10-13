@@ -7,7 +7,7 @@
 # edge boxes, between the day-to-day host sshd:22 and the crash-proof static
 # busybox telnet :2323 (post-install/37-failsafe-access.sh):
 #
-#   - It survives total host /usr/lib damage (the 2026-06-25 .66 incident) the
+#   - It survives total host /usr/lib damage (the 2026-06-25 test-board incident) the
 #     same way the static failsafe does, because it shares NOTHING with the host
 #     userland -- a private-libdir sshd would NOT, since glibc still dlopens
 #     libnss_*/PAM from the broken host /usr/lib.
@@ -18,7 +18,7 @@
 #
 # KERNEL-FREE on purpose: nspawn shares the host kernel.
 #
-# Runs on a Linux build host of the target arch (ARGOS/ULTRA arm64, HYDRA amd64), native debootstrap - no qemu.
+# Runs on a Linux build host of the target arch (an arm64 host for arm64, an amd64 host for amd64), native debootstrap - no qemu.
 # Usage:  sudo bash build/build-mgmt-rootfs.sh [chroot_dir] [out_tarball] [suite] [arch] [mirror]
 set -euo pipefail
 
@@ -47,7 +47,7 @@ MIRROR="${5:-${NCZ_BASE_MIRROR:-https://deb.debian.org/debian}}"
 ncz_require_debian_forky "$SUITE" "$MIRROR" "${NCZ_BASE_NAME:-}" || exit 1
 COMPONENTS="${NCZ_BASE_COMPONENTS:-main contrib non-free non-free-firmware}"
 # debootstrap must verify the Release signature.  Prefer the host keyring; on
-# a non-Debian build host (e.g. Ubuntu ACHILLES) it is absent, so fall back to
+# a non-Debian build host (e.g. an Ubuntu host) it is absent, so fall back to
 # the repo's COMMITTED Debian archive keyring (manifests/keys/, the same one the
 # provenance gate gpgv-checks against) rather than building unverified.
 DEBOOTSTRAP_KEYRING="${NCZ_DEBOOTSTRAP_KEYRING:-/usr/share/keyrings/debian-archive-keyring.gpg}"
@@ -58,7 +58,7 @@ fi
 
 PKG_MANIFEST="$ROOT/manifests/mgmt.pkgs"
 
-# Recovery container credentials. LAN-only (192.168.207.0/24, no public route)
+# Recovery container credentials. LAN-only (private subnet, no public route)
 # per fleet doctrine. Password is random per build; override by exporting
 # NCZ_MGMT_PASS. Day-to-day access is key-based (the post-install
 # hook injects fleet authorized_keys into the container's /root/.ssh).
@@ -200,7 +200,7 @@ chroot "$CHROOT" systemctl enable ssh.service 2>/dev/null || \
 
 # --- host-repair helpers (operate on the RW /host bind) ---
 # Repair the usrmerge /lib symlink a bad `tar -C /` of a modules tarball can
-# clobber (the 2026-06-25 .66 lockout). Defaults to /host.
+# clobber (the 2026-06-25 test-board lockout). Defaults to /host.
 cat > "$CHROOT/usr/local/sbin/ncz-fixlib" <<'EOF'
 #!/bin/sh
 # ncz-fixlib [root]   (default: /host) - restore the usrmerge /lib -> usr/lib

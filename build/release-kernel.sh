@@ -82,7 +82,7 @@ step() { printf '\n=== %s\n' "$*"; }
 die()  { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 bb()   { ( cd "$YOCTO" && "$RUNNER" "bitbake ${EXTRA_CONF:+-R $EXTRA_CONF }$*" ); }
 
-# Debian packaging needs a Debian userspace. ULTRA is Fedora Asahi and has no
+# Debian packaging needs a Debian userspace. The arm64 build host is Fedora Asahi and has no
 # dpkg-deb -- that is exactly how a kernel got "packaged" into nothing once,
 # with build-kernel-debs.sh dying on "dpkg-deb: command not found" AFTER the
 # gates had already passed. Run those steps in the image-build container
@@ -135,7 +135,7 @@ step "3/7 stage mali overlay + verify vermagic"
 # cix-gpu-kmd's bitbake-built .ko files into assets/kernel/mali/$KVER/, so
 # when we didn't bitbake-build cix-gpu-kmd there is nothing to copy. Without
 # this guard --skip-gpu-kmd still trips on the "[ -n "$GPUDIR" ] || die"
-# below -- verified 2026-09-22 on ULTRA (Fedora Asahi, native aarch64),
+# below -- verified 2026-09-22 on a Fedora Asahi native aarch64 host,
 # building 7.2.7-sky1-ncz overlays directly via dkms rather than the Yocto
 # recipe. (The DKMS-built modules then need to be copied into assets/ by
 # hand -- see the "d822a06-style" build path, not the canonical Yocto path.)

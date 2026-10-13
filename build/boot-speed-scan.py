@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """boot-speed-scan.py -- static detector for boot-blocking systemd units.
 
-Part of docs/BOOT-SPEED.md item F (2026-10-04). A systemd unit with
+Part of the boot-speed work, item F (2026-10-04). A systemd unit with
 ``Type=oneshot`` that is pulled into ``multi-user.target`` (or any target on
 the way to it, or ``graphical.target``) is NOT fire-and-forget: the target's
 start job does not complete until the oneshot process exits. If that process
 waits on the network, waits on NTP to synchronise, or polls with ``sleep``, the
 whole boot -- and the login screen behind ``graphical.target`` -- waits too.
-That is the measured O6N 37.3 s boot in docs/BOOT-SPEED.md: ``ncz-rtc-sync``
+That is the measured O6N 37.3 s boot: ``ncz-rtc-sync``
 sat behind ``systemd-time-wait-sync`` and held multi-user/graphical for ~30 s.
 
 The detector scans both standalone ``*.service`` files and service units
@@ -41,7 +41,7 @@ BOOT_TARGETS = (
 
 # The waits that make a boot-target oneshot a blocker. Keep this deliberately
 # narrow: bounded hardware ordering (After=systemd-udev-settle) is audited in
-# docs/BOOT-SPEED.md but is not what this gate fails on.
+# the boot-speed notes but is not what this gate fails on.
 RISK_PATTERNS = (
     (re.compile(r"(^|[^A-Za-z0-9_])sleep([^A-Za-z0-9_]|$)"), "sleep"),
     (re.compile(r"timedatectl"), "timedatectl"),

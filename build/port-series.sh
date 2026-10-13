@@ -19,7 +19,7 @@
 # Usage:
 #   port-series.sh <tag> [worktree-dir]
 #
-# Env overrides (defaults suit ULTRA, where kernel builds run as of 2026-08-29):
+# Env overrides (defaults suit the arm64 kernel build host, as of 2026-08-29):
 #   NCZ_KERNEL_CLONE   mainline clone to take the tag from   (~/linux-72)
 #   NCZ_RECIPE_DIR     dir holding linux-cix-sky1-ncz_7.2.bb
 set -uo pipefail

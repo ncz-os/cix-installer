@@ -4,7 +4,7 @@ stage-ncz-payload.py — Stage the real install-tree payload under
 ``build/iso-cache/v1/ncz-payload/`` for later verbatim copy into an
 ISO's ``/ncz-payload/`` top-level directory.
 
-Background (see ``docs/superpowers/specs/2026-09-21-incremental-di-iso-assembly-design.md``
+Background (the 2026-09-21 incremental d-i image assembly design
 and the brief for the 2026-09-22 port task):
 
   * The legacy monolithic ``build/build-iso-di.sh`` shipped a real
@@ -21,8 +21,7 @@ and the brief for the 2026-09-22 port task):
     warm) consumes ``build/iso-cache/v1/nodes/<arch>/substrate/<key>/extract``
     (a real xorriso-extracted Debian netboot ISO tree) plus the rEFInd
     ESP image. That tree is bootable and reaches the d-i preseed prompt
-    (proven on ACHILLES 2026-09-22, see
-    ``docs/superpowers/specs/evidence/2026-09-22-achilles-cold-fixed/``),
+    (proven on an amd64 build host 2026-09-22),
     but it has NO local install-tree payload — d-i would try a network
     install if driven further.
 
@@ -48,8 +47,8 @@ What this script does, line by line:
   2. Verifies the squashfs layer ROOT entries are mode ``drwxr-xr-x``
      (0755) using the host's ``unsquashfs -ll``. This is the
      ``assert_squashfs_root_mode`` gate ``build/build-iso-di.sh``
-     enforces at ~line 3438 (the 2026-08-26 root-mode gate,
-     documented in ``docs/ISO-BUILD-GUARDRAILS.md``) — without it,
+     enforces at ~line 3438 (the 2026-08-26 root-mode gate) —
+     without it,
      ``unsquashfs -f -d $TARGET`` would re-stamp ``$TARGET``'s OWN mode
      from each layer's root entry (last layer wins), and a layer built
      from a mktemp-0700 staging dir would ship ``/`` at 0700 and break
@@ -161,8 +160,7 @@ def tool_version(tool: str) -> str:
 def assert_squashfs_root_mode(squashfs_path: Path, label: str) -> None:
     """Gate lifted verbatim from ``build/build-iso-di.sh`` ~line 3438.
 
-    The 2026-08-26 root-mode gate (see
-    ``docs/ISO-BUILD-GUARDRAILS.md``): ``unsquashfs -f -d $TARGET``
+    The 2026-08-26 root-mode gate: ``unsquashfs -f -d $TARGET``
     re-stamps ``$TARGET``'s OWN mode from each layer's root entry at
     install time (last layer wins). A layer built from a mktemp -d
     staging dir (mode 0700) shipped ``/`` at 0700 and broke greetd /
@@ -291,7 +289,7 @@ def stage_payload(
             f"FATAL: required base layer missing: {base_layer}\n"
             f"  Build it with: NCZ_TARGET_ARCH={arch} "
             f"NCZ_SKIP_FRESHNESS_GATE=1 "
-            f"ARTISTPACK_SOURCE_ROOT=/home/jasonperlow/Projects/artistpack/packs "
+            f"ARTISTPACK_SOURCE_ROOT=<artistpack checkout>/packs "
             f"sudo -E bash build/build-squashfs-layers.sh base"
         )
     assert_squashfs_root_mode(base_layer, "base")

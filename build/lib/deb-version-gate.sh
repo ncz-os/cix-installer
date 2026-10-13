@@ -1,7 +1,7 @@
 #!/bin/bash
 # build/lib/deb-version-gate.sh -- a rebuilt .deb MUST bump its version when its CONTENT changed.
 #
-# Why (r201, measured on MEDUSA 2026-10-07): ncz-wallpapers-{ncz,singularity,
+# Why (r201, measured on a MacBookPro16,1 test unit 2026-10-07): ncz-wallpapers-{ncz,singularity,
 # alex-jay-brady,brandon-perlow} were rebuilt and re-published as 1.0 again.
 # apt identifies a version by (version string, package metadata hash), so the
 # installed 1.0 and the republished 1.0 are different versions that print the

@@ -147,7 +147,7 @@ echo "  systemd-bootaa64.efi present on ESP"
 # /boot/efi/loader/entries/ — leftover entries from r1/r2/r3 installs
 # show up alongside the new ones, defaulting to whichever has the
 # lowest sort name. This caused multiple "NCZ-OS (cixmini)"
-# entries on cixmini.66 (r6 era + earlier) and confused systemd-boot's
+# entries on a Sky1 test board (r6 era + earlier) and confused systemd-boot's
 # default selection.
 #
 # Wipe everything we own here. If the user has an out-of-band entry

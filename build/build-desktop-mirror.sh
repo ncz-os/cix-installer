@@ -362,7 +362,7 @@ fi
 # a row: it is unpublished and ABI-coupled to the Singularity payload that
 # stage 1 rebuilds AFTER this stage-0 mirror, so it travels on the install
 # medium next to the payload instead (pinned in
-# post-install/lib/ncz-screensavers-plugin.lock, docs/SCREENSAVER-PLUGIN.md).
+# post-install/lib/ncz-screensavers-plugin.lock).
 #
 # cixmini-boot Depends on ncz-usb-recovery, but the pool that has to satisfy
 # it offline is build/forky-vendor-mirror, not this one -- see the note above
@@ -384,7 +384,7 @@ fi
 #
 # chromium-ncz-sky1 (arm64rc3, 2026-10-11): the Sky1 default browser. It was
 # previously resolved only from the live Buildkite registry (an ncz-apt row);
-# it is now a *required* local row staged from the pinned ARGONAS build-inputs
+# it is now a *required* local row staged from the pinned build-inputs
 # asset, so the offline mirror carries exactly one Chromium (the pinned NCZ
 # build, with the non-16-aligned V4L2 decode software fallback) with no live
 # registry dependency. arm64-only (the package is Architecture: arm64). Source

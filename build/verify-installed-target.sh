@@ -141,7 +141,7 @@ fi
 # arch-scoped BOM (manifests/firmware-$ARCH.pkgs when present, else the complete
 # manifests/firmware.pkgs). Assert every package in that map the TARGET ARCH
 # actually ships really landed: a missing one is a dead NIC/WiFi/BT radio on
-# the installed system (MS-R1 MT7922, O6N RTL8125B, T2/PEGASUS iwlwifi).
+# the installed system (MS-R1 MT7922, O6N RTL8125B, T2/GU502LV iwlwifi).
 # Rows whose package is deliberately not in the arch BOM (firmware-iwlwifi /
 # firmware-brcm80211 / firmware-intel-graphics on arm64) are not required.
 echo "[verify-target] (net-fw) network firmware packages"
@@ -334,7 +334,7 @@ for leak in /etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service 
     exists "$leak" && gate_miss sky1-leak "$leak is enabled on amd64 (Sky1 policy leaked onto x86)"
 done
 # A greetd drop-in with Wants=/After=cix-detect-display.service pulls the disabled
-# unit in on every boot (7.4 s on CHIMERA, r201); 55-greeter writes it on arm64 only.
+# unit in on every boot (7.4 s on MacBookPro16,1, r201); 55-greeter writes it on arm64 only.
 for _gd in $(lsnames /etc/systemd/system/greetd.service.d); do
     case "$_gd" in *.conf) ;; *) continue ;; esac
     if fetch "/etc/systemd/system/greetd.service.d/$_gd" "$TMP/greetd-dropin" \
@@ -414,7 +414,7 @@ else
 fi
 if fetch /etc/mpv/mpv.conf "$TMP/mpv.conf" && grep -q '^hwdec=' "$TMP/mpv.conf"; then
     HW="$(grep -m1 '^hwdec=' "$TMP/mpv.conf")"
-    # 2026-10-06 (docs/SKY1-MEDIA-STATUS.md): VA-API decode fails or hangs on 7.3 with the CIX VA
+    # 2026-10-06: VA-API decode fails or hangs on 7.3 with the CIX VA
     # driver on both O6N and MS-R1, V4L2 M2M is healthy; mpv must use V4L2 whether or not the VA
     # driver is installed.
     echo "$HW" | grep -q 'v4l2m2m' || gate_miss vpu "mpv $HW (expect hwdec=v4l2m2m-copy: the VA-API decode route fails/hangs on Sky1, V4L2 M2M is the working VPU path)"
@@ -607,7 +607,7 @@ echo "[fact] sudo_ok=$([ -n "${SUDO_MEMBERS:-}" ] && echo 1 || echo 0)"
 echo "[fact] screensavers_version=${SS_STATUS:-none}"
 echo "[fact] screensaver_plugin_version=${SS_PLUGIN:-none}"
 # ncz-screensavers-plugin is a separate package (pinned deb on the install
-# medium, docs/SCREENSAVER-PLUGIN.md); the engine deb ships no plugin files.
+# medium); the engine deb ships no plugin files.
 # Report the plugin package's version when it is installed, "none" otherwise.
 # Emitted as a fact either way because build/verify-dual-arch-parity.sh
 # compares this line across arches.

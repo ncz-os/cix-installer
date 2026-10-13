@@ -5,8 +5,8 @@
 # Operator ruling (2026-10-10): a sid component with a SMALL forky gap should be
 # rebuilt by us (an NCZ udeb) rather than carried as a sid exception.  This is
 # the recipe: fetch the needed source version from the pinned snapshot's sid
-# archive, build it inside a clean forky container (amd64 on HYDRA/ACHILLES,
-# arm64 on ULTRA), apply an NCZ revision suffix, and emit a reproducible udeb.
+# archive, build it inside a clean forky container (amd64 on an amd64 host,
+# arm64 on an arm64 host), apply an NCZ revision suffix, and emit a reproducible udeb.
 #
 # The result is recorded in manifests/ncz-packages.tsv (NCZ ledger origin) and
 # its manifests/sid-exceptions.tsv row is REMOVED -- the image then carries an
@@ -54,7 +54,7 @@ case "$PKG" in
         if [ "$FORCE_CLOSURE" -ne 1 ]; then
             echo "refusing to rebuild ABI-coupled udeb '$PKG' in isolation;" >&2
             echo "rebuild the consistent closure (initrd libs + pool udebs) instead," >&2
-            echo "or pass --force-closure after reviewing the closure (docs/FORKY-PROVENANCE.md)." >&2
+            echo "or pass --force-closure after reviewing the closure." >&2
             exit 2
         fi;;
 esac

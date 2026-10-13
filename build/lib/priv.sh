@@ -78,7 +78,7 @@ ncz_sudo() {
         return 1
     fi
     # _ncz_read_fleet_pass populates NCZ_FLEET_PASS; feed THAT to sudo -S (a
-    # separate local alias was never assigned here -- zoder caught it).
+    # separate local alias was never assigned here -- review caught it).
     printf '%s\n' "$NCZ_FLEET_PASS" | sudo -S -p '' -- "$@"
     local rc=$?
     unset NCZ_FLEET_PASS
@@ -98,7 +98,7 @@ ncz_sudo_bash() {
 # provenance gate run through ncz_sudo (as root).  Everything they write under
 # the run dir -- kvm-gate/ui-check/, kvm-gate/target-logs/, prov-index/ -- is
 # then owned by root, so the build user cannot `rm -rf` a finished run dir
-# (36G stranded on ACHILLES; same class as the arm64 .kdebs-tmp stray logs).
+# (36G stranded on a build host; same class as the arm64 .kdebs-tmp stray logs).
 # Each privileged script installs an exit trap that chowns its OWN work output
 # back to the invoker on EVERY exit path (normal, error, signal).  This is
 # cleanup only: it runs after the gate decision and never changes it -- the
@@ -140,7 +140,7 @@ ncz_chown_back() {
 ncz_trap_chown_back() {
     NCZ_CHOWN_BACK_DIRS=("$@")
     # Chain any pre-existing EXIT trap instead of silently dropping its cleanup
-    # (zoder review 2026-10-11).  `trap -p EXIT` prints: trap -- 'CMD' EXIT
+    # (review 2026-10-11).  `trap -p EXIT` prints: trap -- 'CMD' EXIT
     NCZ_CHOWN_BACK_PREV_CMD=""
     local prev; prev="$(trap -p EXIT 2>/dev/null || true)"
     # Only accept bash's canonical `trap -- 'CMD' EXIT` form; any other shape is

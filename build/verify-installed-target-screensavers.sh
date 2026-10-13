@@ -24,7 +24,7 @@
 # screensaver.plugin), the GTK4 settings app, or a launcher .desktop entry.
 # The plugin is the SEPARATE package ncz-screensavers-plugin; the image ships a
 # pinned deb on its install medium (post-install/lib/ncz-screensavers-plugin.lock,
-# docs/SCREENSAVER-PLUGIN.md) and hook 59 installs it. Plugin intent:
+#) and hook 59 installs it. Plugin intent:
 # VERIFY_EXPECT_SS_PLUGIN=1|0 from the caller (the gate sets it from the
 # checkout's pin file); else auto = the target carries the pin in its installer
 # tree (late.sh copies the medium's post-install/ there) or the package is

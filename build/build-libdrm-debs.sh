@@ -23,7 +23,7 @@ PATCH="$ROOT/docs/upstream-patches/libdrm-xf86drm-acpi-platform-identity.patch"
 # REUSE, DON'T REBUILD. The version gate (build/lib/deb-version-gate.sh) compares file contents, and a
 # libdrm rebuilt on a different toolchain (another container, another snapshot) is not byte-identical:
 # that is how the first revision tripped it in r201, and the arm64 libdrm2 contains compiled objects. Once a
-# revision is built (in the pinned forky container) its binary debs are published to the ARGONAS build-inputs
+# revision is built (in the pinned forky container) its binary debs are published to the build-inputs
 # store, pinned by sha256 in manifests/build-inputs.tsv under build/libdrm-debs/. When the pinned set matches
 # THIS version (SRC_VER-DEB_REV+NCZ_REV, whose patch hash is pinned in release.conf) it is staged and used as
 # is, so every host and both arches ship the same bytes. LIBDRM_REBUILD=1 forces a build (then publish the

@@ -85,7 +85,7 @@ def rglob(root, pattern):
 
     A finished image legitimately contains absolute symlinks (e.g.
     ``usr/local/lib/cix-installer/assets/kernel/mainline ->
-    /mnt/argonas-yocto-shared/kernel-staging/...``).  Python's glob ``**``
+    <yocto-shared>/kernel-staging/...``).  Python's glob ``**``
     follows such a link, so the scanner walked the BUILD HOST's NFS trees
     (kernel sources, Yocto work dirs) -- millions of files that are not in the
     image -- and the gate never finished.  os.walk(followlinks=False) enumerates
@@ -840,7 +840,7 @@ class Ref:
         # cannot be statically sha-pinned: {(name, arch): version_regex}.  Such a
         # package is authorized ONLY by exact name + regex + a sha256 recorded in
         # the finished image's receipt (`ncz_timestamped_debs`).  See
-        # manifests/ncz-timestamped.tsv and docs/FORKY-PROVENANCE.md.
+        # manifests/ncz-timestamped.tsv.
         self.ncz_ts = {}
         for n, r in load_tsv(os.path.join(ROOT, "manifests/ncz-timestamped.tsv"), 6,
                              "manifests/ncz-timestamped.tsv"):

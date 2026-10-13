@@ -184,7 +184,7 @@ _PC_RESCUE_OPTIONS = (
 # installer kernel binds nouveau to Turing/Ampere dGPUs with no GSP-RM
 # firmware; its runtime suspend then oopses in nvkm_gsp_gcx_ready() (NULL
 # gsp->rm), the GPU stays in runtime_status "suspending", and any PCI config
-# read blocks forever -- measured 2026-10-06 on PEGASUS (ASUS GU502LV, RTX
+# read blocks forever -- measured 2026-10-06 on the ASUS GU502LV test laptop (RTX
 # 2060 Mobile 10de:1f15), where `lspci` in post-install/54-gpu-accel.sh hung
 # the install for 30+ minutes. Upstream fix: 4d0e27041185 (drm-misc-fixes).
 # Appended after the shared strings so the arm64 entries, which are derived
@@ -192,7 +192,7 @@ _PC_RESCUE_OPTIONS = (
 AMD64_NOUVEAU_OPTIONS = "nouveau.runpm=0"
 # amd64 Install/Expert only: nomodeset (2026-10-11). d-i is a text installer, so
 # keep it on the firmware framebuffer instead of letting i915/amdgpu/nouveau
-# modeset: on PROTEUS (HP, Arrow Lake i915 7d67, 4K HDMI) the installer ran
+# modeset: on the HP OmniDesk test desktop (Arrow Lake i915 7d67, 4K HDMI) the installer ran
 # without i915/mtl_dmc.bin, wedged the GT, and drew its dialogs in only the left
 # third of the panel. The installed system is unaffected (its entries come from
 # the refresh scripts, not from here). Rescue keeps full modeset for diagnosis.
@@ -237,7 +237,7 @@ AMD64_RESCUE_OPTIONS = f"{_PC_RESCUE_OPTIONS} {AMD64_NOUVEAU_OPTIONS}"
 # UART is the ARMH0011 SBSA device; no SPCR line appears in the captured logs).
 #
 # sky1_pcie_native=off pcie_pnp_en (2026-10-06, O6N r199 on 7.3.0-rc6-sky1-ncz,
-# serial capture saved from PROTEUS): only sky1-pcie-cix.1 (NVMe, bus 90)
+# serial capture saved from the HP OmniDesk test desktop): only sky1-pcie-cix.1 (NVMe, bus 90)
 # probed.  All twelve ACPI PRP0001 fixed regulators fail at ~0.2386s ("probe
 # with driver reg-fixed-voltage failed with error -12") because the 7.3 port
 # dropped CIX patch 0028 "regulator: add acpi support", so
@@ -371,20 +371,20 @@ REFIND_CONF_TEXT_AMD64_FULL_TEMPLATE = REFIND_CONF_TEXT_TEMPLATE
 # ---------------------------------------------------------------------------
 # amd64 installer ESP: GRAPHICS mode, firmware-chosen GOP mode (`resolution max`).
 #
-# 2026-10-11 (PROTEUS d-i video regression). The amd64 installer ESP is
+# 2026-10-11 (HP OmniDesk d-i video regression). The amd64 installer ESP is
 # PC-only: its Install/Expert entries use console=tty0 with NO serial
 # console, so the rEFInd UI never has to be serial-friendly here (the arm64
 # ESP keeps the text-only template above because its d-i UI runs on the
 # UART). With the old shared `textonly` config rEFInd never called GOP
 # SetMode and drew through the firmware's ConOut; the d-i kernel's efifb then
 # inherited whatever mode the HP/Insyde firmware happened to leave programmed
-# for the 4K HDMI sink -- a value that varies boot to boot. On PROTEUS
+# for the 4K HDMI sink -- a value that varies boot to boot. On the HP OmniDesk
 # (Arrow Lake i915 8086:7d67, ViewSonic VP2488-4K, HDMI) that left BOTH
 # rEFInd and d-i painting only the left third of the panel (a GOP-stride vs
 # efifb-linelength mismatch). It is a firmware/rEFInd-level defect, not a
 # kernel/i915 one -- it shows on the initial rEFInd screen.
 #
-# 2026-10-12 (T2 Mac unattended-install pause). The first PROTEUS fix pinned
+# 2026-10-12 (T2 Mac unattended-install pause). The first HP OmniDesk fix pinned
 # `resolution 1920 1080`. On BOTH T2 MacBooks the firmware GOP exposes exactly
 # ONE mode (3584x2240), so `egSetScreenSize()` could not find the requested
 # mode and fell into its unconditional failure branch:
@@ -394,8 +394,8 @@ REFIND_CONF_TEXT_AMD64_FULL_TEMPLATE = REFIND_CONF_TEXT_TEMPLATE
 # installs. There is NO rEFInd 0.14.1 config option to suppress that pause:
 # `libeg/screen.c egSetScreenSize()` calls `PauseForKey()` directly and no
 # `log_level`/`hideui`/`scan_delay`/`timeout` setting reaches it. A fixed
-# `W H` pair is therefore not acceptable -- not even "the PROTEUS mode", since
-# the firmware GOP's mode list is itself sink/EDID-dependent (on PROTEUS
+# `W H` pair is therefore not acceptable -- not even "the HP OmniDesk mode", since
+# the firmware GOP's mode list is itself sink/EDID-dependent (on the HP OmniDesk
 # 2026-10-12 the GOP listed only up to 1024x768, so `resolution 1920 1080`
 # would have paused there too).
 #
@@ -406,7 +406,7 @@ REFIND_CONF_TEXT_AMD64_FULL_TEMPLATE = REFIND_CONF_TEXT_TEMPLATE
 # (single 3584x2240 mode) it selects that one mode; on a PC it selects the
 # largest mode the firmware GOP reports. It still explicitly programs a real
 # GOP mode before the kernel, which is what keeps the d-i framebuffer stride-
-# consistent (the PROTEUS left-third fix). This also matches the installed-
+# consistent (the HP OmniDesk left-third fix). This also matches the installed-
 # system generator (assets/refind/ncz-refind-refresh-amd64.sh) and
 # docs/REFIND-THEME.md, which already use `resolution max` and explicitly
 # reject pinning a resolution.
@@ -444,7 +444,7 @@ REFIND_CONF_TEXT_AMD64_GRAPHICS_TEMPLATE = """\
 #   breaking unattended installs. Do NOT use a single mode number (firmware-
 #   specific index, same failure) or omit `resolution` (rEFInd then never
 #   calls SetMode; the kernel inherits the firmware's boot-default mode, the
-#   PROTEUS left-third bug). Do NOT add `textonly` here either -- same
+#   HP OmniDesk left-third bug). Do NOT add `textonly` here either -- same
 #   inherited-mode problem. The icons/ tree next to this file is required:
 #   without it rEFInd silently forces text mode ("Icons directory doesn't
 #   exist; setting textonly = TRUE!").
@@ -529,7 +529,7 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
         boot_loader = "bootx64.efi"
         refind_loader = "refind_x64.efi"
         # Graphics mode + an explicit lower-common-denominator GOP mode. See
-        # REFIND_CONF_TEXT_AMD64_GRAPHICS_TEMPLATE for the PROTEUS rationale.
+        # REFIND_CONF_TEXT_AMD64_GRAPHICS_TEMPLATE for the HP OmniDesk rationale.
         conf_text = REFIND_CONF_TEXT_AMD64_GRAPHICS_TEMPLATE.format(
             info_line=info_line,
             install_options=AMD64_INSTALL_OPTIONS,

@@ -6,7 +6,7 @@
 # pipeline, so a truly fresh clone aborted in verify-arm64-inputs at the image
 # stage ("one or more required inputs are absent"). They are now pinned as two
 # tarballs in manifests/build-inputs.tsv -- fetched by build/stage-build-inputs.sh
-# from the ARGONAS build-inputs store -- and this script verifies each tarball
+# from the build-inputs store -- and this script verifies each tarball
 # against its pin and extracts it into assets/.
 #
 #   build/stage-arm64-assets.sh          # verify + extract (idempotent)

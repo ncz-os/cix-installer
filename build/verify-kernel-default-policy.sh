@@ -20,7 +20,7 @@
 # Why this exists (real, live-defect, 2026-09-29 image
 # ncz-os-arm64-20260929-4bd67b5f.img): the shipped arm64 payload KVER_NEXT
 # sidecar resolved to the rc edge build, not the release mainline the symlink
-# nominally pointed at, and .66 booted it as the default. The same class of
+# nominally pointed at, and a Sky1 test board booted it as the default. The same class of
 # misdirection is still possible, so the gate stays: the default kernel must be
 # the pinned 7.3 build on both arches and nothing else may be staged.
 #
@@ -133,7 +133,7 @@ resolve_kver_file() {
 # matches <wanted-kver>. Echoes the resolved directory path on success, or
 # empty on no match. Used as a fallback when the committed symlink at
 # assets/kernel/mainline is dangling because the kernel-staging pool
-# (/mnt/argonas-yocto-shared) is not mounted on this build host.
+# (NCZ_YOCTO_SHARED_DIR) is not mounted on this build host.
 find_local_sibling() {
     local wanted_kver="$1" dir kver
     [ -n "$wanted_kver" ] || return 1
@@ -324,7 +324,7 @@ if [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Check 6b (amd64): the pinned kernel must record the cyclops boot-GPU fix
+# Check 6b (amd64): the pinned kernel must record the 2010 boot-GPU fix
 # (patch 2010) so the image can never ship a kernel that starves the boot GPU
 # on a pre-T2 single-GPU Mac (Macmini5,1): without 2010, vga_switcheroo defers
 # i915 forever and greetd is skipped (headless, no error). The staged-kernel
@@ -342,9 +342,9 @@ if { [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; } && [ -n "${AMD64_STABLE_RESO
         _cyclops=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d.get("source",{}).get("t2_cyclops_patch",""))' "$_amman" 2>/dev/null || true)
         case "$_cyclops" in
             *2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch)
-                log "amd64: staged manifest records the 2010 cyclops fix ($_cyclops)" ;;
+                log "amd64: staged manifest records the 2010 boot-GPU fix ($_cyclops)" ;;
             "")
-                err "amd64: staged manifest has no source.t2_cyclops_patch (the cyclops 2010 fix is not asserted)" ;;
+                err "amd64: staged manifest has no source.t2_cyclops_patch (the 2010 boot-GPU fix is not asserted)" ;;
             *)
                 err "amd64: staged manifest t2_cyclops_patch='$_cyclops' is not the 2010 boot-GPU-guard patch" ;;
         esac

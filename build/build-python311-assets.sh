@@ -37,12 +37,12 @@ FORCE=0
 
 # 2026-09-16 FIX: this script hardcoded aarch64 everywhere (uv download URL,
 # python-build-standalone asset name/glob) regardless of the actual build
-# host/target arch. Harmless on ULTRA (arm64) where it happened to match,
-# but on an amd64 build host (PROTEUS) it fetched the arm64 interpreter and
+# host/target arch. Harmless on the arm64 build host where it happened to match,
+# but on an amd64 build host it fetched the arm64 interpreter and
 # then failed its own self-check trying to EXECUTE it natively:
 #   aarch64-binfmt-P: Could not open '/lib/ld-linux-aarch64.so.1'
 # This project deliberately avoids qemu-binfmt cross-arch emulation
-# (arm64 builds -> ULTRA, amd64 builds -> PROTEUS, both native) -- same
+# (arm64 builds on an arm64 host, amd64 builds on an amd64 host, both native) -- same
 # reasoning as every other NCZ_TARGET_ARCH-derived default in this repo.
 # Derive the real target arch instead of assuming arm64, and translate to
 # the GNU triplet both astral-sh release channels (uv AND
