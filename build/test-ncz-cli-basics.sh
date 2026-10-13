@@ -33,8 +33,28 @@ if [ -z "$start_line" ] || [ -z "$end_line" ]; then
     echo "--- $pass passed, $fail failed"; exit 1
 fi
 # Body is start+1 .. end-1 (skip the heredoc start line and the closing tag).
+# IMPORTANT: the heredoc in the post-install hook is single-quoted (`<<'NCZ'`)
+# so backticks and dollars inside the body are LITERAL. Naive concatenation
+# would re-evaluate them when bash parses the extracted body. We round-trip
+# the body through a single-quoted heredoc to preserve its literal semantics
+# (observed 2026-10-13 after a waydroid comment containing "`curl | bash` as
+# root" landed in the post-install hook — bash then errored "unexpected EOF
+# while looking for matching ``'" because the unquoted backtick started a
+# command substitution).
 sed -n "$((start_line + 1)),$((end_line - 1))p" "$HOOK" | grep -v '^NCZ$' > "$T/ncz-body"
-{ printf '#!/bin/bash\n'; cat "$T/ncz-body"; } > "$T/ncz"
+{
+    printf '#!/bin/bash\n'
+    # Replay ncz-body verbatim through a single-quoted heredoc so its body
+    # stays literal — equivalent to a single-quoted heredoc fed into bash.
+    # Use `bash -s -- "$@" <<'HEREDOC'` (note the `-s`): that mode reads the
+    # script from stdin (the heredoc body) and treats the rest of the argv
+    # as the script's positional parameters. A bare `exec bash <<'INNER'`
+    # discards argv and the inner `main "$@"` then falls through to help on
+    # every invocation, including `--version` (observed 2026-10-13).
+    printf "exec bash -s -- \"\$@\" <<'__NCZ_BODY__'\n"
+    cat "$T/ncz-body"
+    printf "__NCZ_BODY__\n"
+} > "$T/ncz"
 chmod +x "$T/ncz"
 # bash -n on the WHOLE thing (post-install hook + ncz body)
 if bash -n "$HOOK" 2>"$T/hook-syntax"; then
