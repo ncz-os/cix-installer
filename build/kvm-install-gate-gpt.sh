@@ -154,7 +154,7 @@ if [ "$ARCH" = amd64 ]; then
   [ "$_got_vmlinuz" = "$_want_vmlinuz" ] || {
     echo "GATE FAIL: ESP installer kernel /linux sha256=$_got_vmlinuz != pinned r2 vmlinuz $_want_vmlinuz" >&2
     echo "           (the installer would boot a kernel WITHOUT the 2010 cyclops boot-GPU fix)" >&2
-    exit 1; }
+    exit 2; }
   echo "    installer kernel /linux is the pinned r2 build ($_want_kver, 2010 cyclops fix): $_want_vmlinuz"
   export VERIFY_EXPECT_KVER="${VERIFY_EXPECT_KVER:-$_want_kver}"
   export VERIFY_EXPECT_VMLINUZ_SHA256="${VERIFY_EXPECT_VMLINUZ_SHA256:-$_want_vmlinuz}"

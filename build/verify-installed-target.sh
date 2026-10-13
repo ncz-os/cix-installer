@@ -344,7 +344,7 @@ if [ -n "${VERIFY_EXPECT_KVER:-}" ] && [ -n "${VERIFY_EXPECT_VMLINUZ_SHA256:-}" 
         if [ "$_have_vmlinuz" = "$VERIFY_EXPECT_VMLINUZ_SHA256" ]; then
             echo "[verify-target]     /boot/vmlinuz-$VERIFY_EXPECT_KVER == pinned r2 vmlinuz (2010 cyclops fix)"
         else
-            gate_miss kernel "/boot/vmlinuz-$VERIFY_EXPECT_KVER sha256=$_have_vmlinuz != pinned $_VERIFY_EXPECT_VMLINUZ_SHA256 (not the 2010 cyclops-fixed kernel)"
+            gate_miss kernel "/boot/vmlinuz-$VERIFY_EXPECT_KVER sha256=$_have_vmlinuz != pinned $VERIFY_EXPECT_VMLINUZ_SHA256 (not the 2010 cyclops-fixed kernel)"
         fi
     else
         gate_miss kernel "/boot/vmlinuz-$VERIFY_EXPECT_KVER unreadable on the installed target"
