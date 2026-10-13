@@ -55,36 +55,39 @@ fi
 
 INSTALLER_META=/usr/local/lib/cix-installer
 
+# Kernels to act on (post-install/lib/sky1-kernels.sh): the KVER_NEXT sidecar
+# plus any other NCZ Sky1 kernel module tree on disk (*-sky1-ncz) it does not
+# name, so a kernel package installed by hand still gets a staged amvx
+# overlay. Overlays are staged per kver and vermagic-checked, so a kernel
+# without one keeps its own amvx.ko, and a kernel without any amvx module is
+# reported and skipped. Without the helper (an older medium) only the sidecar
+# is used.
 KERNEL_LABELS=()
 KERNEL_VERS=()
-if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
-    KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null | tr -d ' \t\r\n')
-    if [ -n "$KVER_NEXT" ]; then
-        KERNEL_LABELS+=("mainline")
-        KERNEL_VERS+=("$KVER_NEXT")
+HERE="$(dirname "$0")"
+if [ -r "$HERE/lib/sky1-kernels.sh" ]; then
+    # shellcheck source=lib/sky1-kernels.sh
+    . "$HERE/lib/sky1-kernels.sh"
+    _kernels=$(ncz_sky1_kernel_vers "$INSTALLER_META")
+else
+    _kernels=""
+    if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
+        _kv=$(tr -d ' \t\r\n' < "$INSTALLER_META/KVER_NEXT" 2>/dev/null)
+        [ -n "$_kv" ] && _kernels="sidecar $_kv"
     fi
 fi
-
-# --- Fallback: fold in an out-of-band NCZ edge (7.2) kernel ---
-# This only picks up a 7.2-class NCZ kernel present on disk but absent from the
-# KVER_NEXT sidecar, so a future amvx overlay would still reach it. De-duped
-# and idempotent (vermagic-guarded install to updates/). 7.2 ships no amvx
-# overlay today (the vb2 q->lock fix is in-tree), so on a normal system this
-# loop finds a match only via the sidecar and is otherwise a clean no-op
-# ("using in-tree amvx.ko").
-for _mk in /lib/modules/*7.2*-ncz /usr/lib/modules/*7.2*-ncz; do
-    [ -d "$_mk" ] || continue
-    _kv="${_mk##*/}"
-    _known=0
-    for _k in "${KERNEL_VERS[@]}"; do [ "$_k" = "$_kv" ] && { _known=1; break; }; done
-    [ "$_known" = "1" ] && continue
-    echo "[81] fallback: NCZ edge kernel $_kv present but not in KVER_NEXT sidecar — folding in for VPU overlay"
+while read -r _src _kv; do
+    [ -n "$_kv" ] || continue
+    if [ "$_src" = disk ]; then
+        echo "[81] NCZ Sky1 kernel $_kv present but not in KVER_NEXT sidecar — folding in for VPU overlay"
+    fi
     KERNEL_LABELS+=("mainline")
     KERNEL_VERS+=("$_kv")
-done
+done <<< "$_kernels"
+unset _kernels _src _kv
 
 if [ "${#KERNEL_VERS[@]}" -eq 0 ]; then
-    echo "[81] WARN: no KVER_NEXT sidecar found; skipping VPU overlay"
+    echo "[81] WARN: no Sky1 kernel found (no KVER_NEXT sidecar, no *-sky1-ncz module tree); skipping VPU overlay"
     exit 0
 fi
 
@@ -107,7 +110,11 @@ for i in "${!KERNEL_VERS[@]}"; do
     done
 
     if [ -z "$OVERLAY" ]; then
-        echo "[81] $LABEL/$KVER: no amvx overlay -> using in-tree amvx.ko"
+        if find "/usr/lib/modules/$KVER" -name 'amvx.ko*' 2>/dev/null | grep -q .; then
+            echo "[81] $LABEL/$KVER: no amvx overlay -> using the kernel's own amvx.ko"
+        else
+            echo "[81] $LABEL/$KVER: no amvx overlay and no amvx module for this kernel; VPU unavailable on $KVER"
+        fi
         continue
     fi
 
