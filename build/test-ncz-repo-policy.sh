@@ -227,8 +227,8 @@ done
 grep -q 'NCZ_WALLPAPER_PACK_VERSION:-1.0}' "$HERE/build-wallpaper-contrib-deb.sh" \
     && bad "wallpaper builder still defaults to the already-published 1.0" || ok "wallpaper builder default moved past 1.0"
 
-echo "=== 4. publisher policy: build/ops/argos/ncz-reprepro-publish.sh ==="
-PUB="$HERE/ops/argos/ncz-reprepro-publish.sh"
+echo "=== 4. publisher policy: build/ops/publish/ncz-reprepro-publish.sh ==="
+PUB="$HERE/ops/publish/ncz-reprepro-publish.sh"
 sed -n '/^# --- policy-begin/,/^# --- policy-end/p' "$PUB" > "$T/policy.sh"
 [ -s "$T/policy.sh" ] && ok "policy block present in the publisher" || bad "policy block missing from the publisher"
 grep -q '^ncz_publish_policy "\$TMPDEB" || exit' "$PUB" && ok "publisher calls the policy before includedeb" || bad "publisher does not call the policy"

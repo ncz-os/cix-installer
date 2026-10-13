@@ -31,7 +31,7 @@
 # packages.buildkite.com/ncz-os/ncz/any/ -- InRelease, Release, Packages, AND
 # an actual pool .deb blob -- all return real data with no resource-limit
 # wall. The registry was backfilled from the reprepro repo (stale since 07-06,
-# see build/ops/argos/backfill-buildkite-packages.sh) and build/ops/argos/
+# see build/ops/publish/backfill-buildkite-packages.sh) and build/ops/publish/
 # ncz-reprepro-publish.sh now dual-publishes every future package to BOTH
 # targets, so this is not just swapping which single point of failure we
 # have: Cloudflare R2 stays configured as a SECOND, independent apt source

@@ -1,5 +1,5 @@
 #!/bin/bash
-# test-reprepro-publish-pool-arch.sh -- end-to-end tests of build/ops/argos/ncz-reprepro-publish.sh
+# test-reprepro-publish-pool-arch.sh -- end-to-end tests of build/ops/publish/ncz-reprepro-publish.sh
 # against a mocked reprepro and a mocked Buildkite/R2 (curl stub). Nothing touches the network.
 #
 # Covers the arm64 pool-path defect: with ncz-usb-recovery 1.1 (Architecture: all) already in the
@@ -12,7 +12,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$HERE/.."
-PUB="${NCZ_TEST_PUBLISHER:-$HERE/ops/argos/ncz-reprepro-publish.sh}"
+PUB="${NCZ_TEST_PUBLISHER:-$HERE/ops/publish/ncz-reprepro-publish.sh}"
 command -v dpkg-deb >/dev/null || { echo "test-reprepro-publish-pool-arch: needs dpkg-deb" >&2; exit 2; }
 # Safety: the publisher must take every location from the environment, or a run here would write
 # into a real repository. Refuse a copy that does not, and confine the stubs to the sandbox.
