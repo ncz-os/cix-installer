@@ -92,6 +92,19 @@ echo macvlan > /etc/modules-load.d/ncz-recovery.conf
 # ~/.ssh so ssh-copy-id works on first use.
 install -d -m 0700 "$MACHINE_ROOT/root/.ssh"
 
+# ---- 4b. per-device container identity ----
+# The archive carries no SSH host keys and no machine-id; create this
+# device's own host keys now (older archives did carry keys: replace them).
+rm -f "$MACHINE_ROOT"/etc/ssh/ssh_host_* "$MACHINE_ROOT/var/lib/dbus/machine-id"
+: > "$MACHINE_ROOT/etc/machine-id"
+if command -v ssh-keygen >/dev/null 2>&1 && ssh-keygen -A -f "$MACHINE_ROOT" >/dev/null 2>&1 \
+   && [ -s "$MACHINE_ROOT/etc/ssh/ssh_host_ed25519_key" ]; then
+    echo "[38]   container SSH host keys generated for this device"
+else
+    # openssh's sshd-keygen.service in the container creates them before sshd.
+    echo "[38]   container SSH host keys will be generated on first container start"
+fi
+
 # ---- 5. per-box macvlan parent NIC resolver (name varies per box) ----
 cat > /usr/local/sbin/ncz-recovery-netparent <<'EOF'
 #!/bin/sh

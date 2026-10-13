@@ -88,6 +88,16 @@ grep -n 'ncz-mgmt-rootfs.tar.zst" "\$MG' -A1 "$ROOT/build/build-squashfs-layers.
     && bad "build-squashfs-layers.sh still swallows a failed mgmt rootfs copy" || ok "mgmt rootfs copy failure is fatal"
 grep -q 'install -d -m 0755 /etc/modules-load.d' "$ROOT/post-install/38-recovery-container.sh" \
     && ok "hook 38 creates /etc/modules-load.d (a real run died there)" || bad "hook 38 does not create /etc/modules-load.d"
+# --- recovery/rescue archives carry no per-device identity ------------------------------------
+grep -q 'rm -f "\$CHROOT"/etc/ssh/ssh_host_\* "\$CHROOT/var/lib/dbus/machine-id"' "$ROOT/build/build-mgmt-rootfs.sh" \
+    && grep -q 'rootfs carries SSH host keys, authorized_keys or a machine-id' "$ROOT/build/build-mgmt-rootfs.sh" \
+    && ok "mgmt rootfs drops SSH host keys + machine-id and fails if any remain" || bad "mgmt rootfs may pack SSH host keys or a machine-id"
+grep -q 'rm -f "\$CHROOT"/etc/ssh/ssh_host_\*' "$ROOT/build/build-rescue-rootfs.sh" \
+    && ok "rescue rootfs drops SSH host keys" || bad "rescue rootfs may pack SSH host keys"
+grep -q 'ssh-keygen -A -f "\$MACHINE_ROOT"' "$ROOT/post-install/38-recovery-container.sh" \
+    && ok "hook 38 generates per-device container host keys" || bad "hook 38 does not generate container host keys"
+if grep -q 'ncz-rescue-net-fallback' "$ROOT/build/build-rescue-rootfs.sh"; then
+    bad "rescue rootfs still builds a static-address fallback"; else ok "rescue rootfs networking is DHCP only"; fi
 
 # --- hook apt packages are seeded (rc=100 root causes) ---------------------------------------
 seeded() { grep -qx "$2" "$ROOT/manifests/$1"; }
