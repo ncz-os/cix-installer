@@ -118,6 +118,11 @@ REGISTRY: dict[str, list[tuple]] = {
         ("path", "manifests/net-firmware.tsv"),
         ("path", "post-install"),            # r202 gap #5 (post-install)
         ("path", "assets/wallpaper"),        # r202 gap #5 (wallpaper)
+        # The hand-edited asset dirs build_base copies verbatim.  _BASE_ASSET_DIRS
+        # was declared but never registered, so an edit to assets/gpu, audio,
+        # intel, ... left the base fingerprint unchanged and a respin reused a
+        # stale base.squashfs (the 2026-09-29 failure the stamp exists for).
+        *[("path", f"assets/{d}") for d in _BASE_ASSET_DIRS],
         ("path", "assets/npu"),
         ("path", "assets/firmware"),
         ("path", "assets/sky1-firmware"),
@@ -555,6 +560,9 @@ def selftest() -> int:
             if spec[0] == "dep":
                 check(spec[1] in REGISTRY, f"{lyr}: dep {spec[1]} exists")
     check(set(REGISTRY) == set(LAYERS), "registry covers every layer")
+    base_paths = {s[1] for s in REGISTRY["base"] if s[0] == "path"}
+    for d in _BASE_ASSET_DIRS:
+        check(f"assets/{d}" in base_paths, f"base fingerprint covers assets/{d}")
     check(IMAGE_INPUTS and IMAGE_INPUTS[0][0] == "dep", "image inputs declared")
     for c, ls in COMPONENTS.items():
         check(all(l in LAYERS for l in ls), f"component {c} maps to real layers")
