@@ -200,7 +200,10 @@ expect_rc "published .deb unfetchable: error by default (fail closed)" 1 env -u 
 if [ "$(dpkg --print-architecture 2>/dev/null)" != "" ]; then
     for i in 1 2; do NCZ_PUBLISHED_INDEX=/dev/null NCZ_USB_RECOVERY_OUT="$T/usb$i" bash "$HERE/build-usb-recovery-deb.sh" >/dev/null 2>&1; sleep 2; done
     if ls "$T"/usb1/*.deb >/dev/null 2>&1 && ls "$T"/usb2/*.deb >/dev/null 2>&1; then
-        cmp -s "$T"/usb1/*.deb "$T"/usb2/*.deb && bad "fixture: two usb-recovery builds are byte-identical (cannot exercise the gate)" || ok "two ncz-usb-recovery builds differ in bytes"
+        # Since 4a6506c5 the usb-recovery deb is byte-reproducible, so two
+        # builds may be identical; either way the identity must match and the
+        # gate must allow the rebuild.
+        cmp -s "$T"/usb1/*.deb "$T"/usb2/*.deb && ok "two ncz-usb-recovery builds are byte-identical (reproducible)" || ok "two ncz-usb-recovery builds differ in bytes"
         ( . "$HERE/lib/deb-version-gate.sh"; ncz_deb_identity "$T"/usb1/*.deb > "$T/id1"; ncz_deb_identity "$T"/usb2/*.deb > "$T/id2" )
         cmp -s "$T/id1" "$T/id2" && ok "  ...and have the same content identity" || bad "  usb-recovery identity differs between runs" "$(diff "$T/id1" "$T/id2")"
         U1="$(ls "$T"/usb1/*.deb)"; U2="$(ls "$T"/usb2/*.deb)"; mkdir -p "$T/upool"; cp "$U1" "$T/upool/u.deb"

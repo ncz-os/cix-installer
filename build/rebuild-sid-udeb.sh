@@ -24,6 +24,9 @@
 # Exit 0 on a built udeb, 2 usage, 3 build failure.
 
 set -uo pipefail
+# Normalise modes like every other deb/udeb builder (docs/APT-SEPARATION.md):
+# a group-writable umask would change the udeb's content identity.
+umask 022
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 PKG=""; VER=""; ARCH=""; SNAP=""; OUT=""; WORK=""; NCZ_REV="1"; SUITE="sid"
 FORCE_CLOSURE=0
@@ -67,6 +70,7 @@ set -x
     -e PKG="$PKG" -e VER="$VER" -e SNAP="$SNAP" -e SUITE="$SUITE" \
     -e NCZ_REV="$NCZ_REV" \
     -v "$WORK":/work -w /work "$CONTAINER" bash -euo pipefail -c '
+        umask 022
         export DEBIAN_FRONTEND=noninteractive
         # The base image may lack ca-certificates; install it from the image
         # default sources BEFORE adding the snapshot HTTPS sources.

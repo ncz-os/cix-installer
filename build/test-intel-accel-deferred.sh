@@ -136,7 +136,9 @@ echo "=== assets/intel reaches the image (key + deferred units) ==="
 # target had intel-accel.sh but neither the vendored key nor the service/timer it installs.
 SQ="$ROOT/build/build-squashfs-layers.sh"
 grep -E '^\s*for a in cix-debs kernel .*\bintel\b' "$SQ" >/dev/null && ok "base staging allowlist stages assets/intel" || bad "build-squashfs-layers.sh base staging loop omits assets/intel"
-grep -E '^\s*for a in gpu audio .*\bintel\b' "$SQ" >/dev/null && ok "base fingerprint covers assets/intel (a change rebuilds the base)" || bad "base_assets_stamp omits assets/intel"
+# The base fingerprint lives in build/lib/layerplan.py (4a22d6c7), not in a find loop in $SQ.
+python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import layerplan as lp; sys.exit(0 if ("path", "assets/intel") in lp.REGISTRY["base"] else 1)' "$ROOT/build/lib" \
+    && ok "base fingerprint covers assets/intel (a change rebuilds the base)" || bad "base_assets_stamp omits assets/intel"
 for f in GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB ncz-intel-accel-setup.service ncz-intel-accel-setup.timer; do
     [ -s "$ROOT/assets/intel/$f" ] || bad "assets/intel/$f missing from the tree"
 done
