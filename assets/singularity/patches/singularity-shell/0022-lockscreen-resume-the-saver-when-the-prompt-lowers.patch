@@ -1,0 +1,150 @@
+diff --git a/src/lockscreen/lock_framesrc.c b/src/lockscreen/lock_framesrc.c
+index a9846cc..e1f0ffe 100644
+--- a/src/lockscreen/lock_framesrc.c
++++ b/src/lockscreen/lock_framesrc.c
+@@ -712,8 +712,9 @@ void lock_framesrc_set_enabled(struct lock_framesrc *h, bool on) {
+  * timer fired, so the lock raises the prompt and wants the saver to stop at the
+  * CURRENT frame. Mark the frames held FIRST (so closing the socket is a clean
+  * HOLD, not a fault), then end the source. The frames are deliberately NOT
+- * cleared: the prompt composites over the held frame and the source never
+- * resumes while the lock is up. A disable/free still clears (fail-closed). */
++ * cleared: the prompt composites over the held frame. The source stays ended
++ * until lock_framesrc_resume() (the prompt lowered without an unlock). A
++ * disable/free still clears (fail-closed). */
+ void lock_framesrc_freeze(struct lock_framesrc *h) {
+     if (!h || h->held) return;
+     bool any = false;
+@@ -730,6 +731,26 @@ void lock_framesrc_freeze(struct lock_framesrc *h) {
+     lfs_log(h, "frame source frozen on demand (input raised the prompt)");
+ }
+ 
++/* Resume after a freeze: the prompt was left alone until it lowered, so the
++ * saver should animate again. Clear the hold and let tick() start a fresh
++ * source. The held frames are deliberately NOT cleared: they stay on screen
++ * until the new source delivers its first frame, so there is no flash of the
++ * lock's own background. If the new source fails, the normal fault path
++ * clears the frames (fail-closed). No-op unless the source is held. */
++void lock_framesrc_resume(struct lock_framesrc *h) {
++    if (!h || !h->held || !h->enabled) return;
++    h->held = false;
++    for (struct lfs_out *o = h->outs; o; o = o->next) o->held = false;
++    if (h->conn_fd >= 0) { close(h->conn_fd); h->conn_fd = -1; }
++    h->state = LFS_IDLE;
++    h->backoff_ms = 0;
++    uint64_t now = h->now_ms ? h->now_ms : lfs_now_ms();
++    /* A previous child still inside its SIGTERM grace would make spawn_source()
++     * a no-op; start after reap_child() has had the chance to escalate. */
++    h->reopen_at_ms = (h->child > 0) ? now + LFS_KILL_GRACE_MS + 100u : 0;
++    lfs_log(h, "frame source resumed (prompt lowered)");
++}
++
+ void lock_framesrc_tick(struct lock_framesrc *h, uint64_t now_ms) {
+     if (!h) return;
+     h->now_ms = now_ms;
+diff --git a/src/lockscreen/lock_framesrc.h b/src/lockscreen/lock_framesrc.h
+index 42c17fb..9823497 100644
+--- a/src/lockscreen/lock_framesrc.h
++++ b/src/lockscreen/lock_framesrc.h
+@@ -136,12 +136,18 @@ bool lock_framesrc_displaying(const struct lock_framesrc *h);
+ bool lock_framesrc_held(const struct lock_framesrc *h);
+ 
+ /* Freeze now: keep the frame currently on screen and end the source without
+- * clearing it. Called when the user raises the prompt before the source's own
+- * freeze timer fired, so the prompt composites over the held frame and the saver
+- * never resumes while the lock is up. No-op if nothing is displayed, or if the
+- * source already sent HOLD. A later disable/free still clears (fail-closed). */
++ * clearing it. Called when input raises the prompt, so the prompt composites
++ * over the held frame; lock_framesrc_resume() restarts the saver if the prompt
++ * lowers again. No-op if nothing is displayed, or if the source already sent
++ * HOLD. A later disable/free still clears (fail-closed). */
+ void lock_framesrc_freeze(struct lock_framesrc *h);
+ 
++/* Resume a frozen source: the prompt lowered without an unlock, so the saver
++ * animates again. Clears the hold and lets the next tick start a fresh source;
++ * the held frames stay presented until it delivers a frame. No-op unless the
++ * source is held. */
++void lock_framesrc_resume(struct lock_framesrc *h);
++
+ void lock_framesrc_free(struct lock_framesrc *h);
+ 
+ #endif /* LOCK_FRAMESRC_H */
+diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
+index 44b594a..a4ccf11 100644
+--- a/src/lockscreen/lock_main.c
++++ b/src/lockscreen/lock_main.c
+@@ -659,8 +659,9 @@ static void framesrc_clear(void *user) {
+ }
+ 
+ /* First input: raise the prompt over the running saver. The saver freezes at
+- * this frame immediately (the source is ended, not cleared) so it never resumes
+- * while the lock is up; the prompt composites over the held frame. */
++ * this frame immediately (the source is ended, not cleared) and the prompt
++ * composites over the held frame. This is the only point at which an
++ * unattended saver stops: until input arrives it keeps animating. */
+ static void raise_prompt(void) {
+     if (!framesrc) return;
+     lock_framesrc_freeze(framesrc);
+@@ -679,11 +680,19 @@ static void raise_prompt(void) {
+ 
+ /* Idle after the prompt: hide it and show the raw saver frames again. A source
+  * that has stopped has no frames to return to, so it keeps the prompt. A frozen
+- * source (held) deliberately never resumes: the held frame stays behind the
+- * prompt for as long as the lock is up. */
++ * source (held) resumes: the held frame stays on screen until the restarted
++ * saver delivers its first frame, then the saver animates again. */
+ static void lower_prompt(void) {
+     if (!framesrc) return;
+-    if (lock_framesrc_held(framesrc)) return;   /* frozen: never resume */
++    bool resumed = false;
++    if (lock_framesrc_held(framesrc)) {
++        bool shown = false;
++        for (struct lock_output *o = outputs; o; o = o->next)
++            if (o->prompt_visible && o->frame_buffer && o->surface) { shown = true; break; }
++        if (!shown) return;          /* nothing to lower: keep the prompt */
++        lock_framesrc_resume(framesrc);
++        resumed = true;
++    }
+     bool lowered = false;
+     for (struct lock_output *o = outputs; o; o = o->next) {
+         if (!o->prompt_visible || !o->frame_buffer || !o->surface) continue;
+@@ -699,7 +708,8 @@ static void lower_prompt(void) {
+                                  (int)(o->height * (uint32_t)sc));
+         wl_surface_commit(o->surface);
+     }
+-    if (lowered) fprintf(stderr, "lock: prompt lowered; saver frames resumed\n");
++    if (lowered) fprintf(stderr, "lock: prompt lowered; saver frames resumed%s\n",
++                         resumed ? " (frozen saver restarted)" : "");
+ }
+ 
+ static const struct lock_framesrc_ops framesrc_ops = {
+diff --git a/tests/lockscreen-framesrc/test-framesrc.sh b/tests/lockscreen-framesrc/test-framesrc.sh
+index 53e6ed3..33ae891 100755
+--- a/tests/lockscreen-framesrc/test-framesrc.sh
++++ b/tests/lockscreen-framesrc/test-framesrc.sh
+@@ -129,9 +129,23 @@ else
+     bad "grim could not capture the locked screen"
+ fi
+ if alive "$LOCK_PID"; then ok "lock client alive after input"; else bad "lock died on input"; fi
+-# Frozen: the prompt must NOT lower and the saver must NOT resume while locked.
+-sleep 2
+-if have "$WORK/tmp/c1.log" "prompt lowered; saver frames resumed"; then bad "the prompt lowered and the saver resumed while locked"; else ok "the frozen frame is held (the saver never resumes)"; fi
++# While the prompt is up the frame stays frozen. Once the prompt has been idle
++# for the delay (4 s here) it lowers and the saver resumes: a fresh source is
++# started and frames stream again; the lock stays held throughout.
++if wait_for "$WORK/tmp/c1.log" "frame source resumed (prompt lowered)" 8; then ok "prompt idle: the frozen saver was resumed"; else bad "the frozen saver was not resumed after the prompt lowered"; fi
++if wait_for "$WORK/tmp/c1.log" "prompt lowered; saver frames resumed" 4; then ok "prompt lowered over the resumed saver"; else bad "prompt did not lower"; fi
++fr0=$(frame_count "$WORK/tmp/c1.log")
++for _ in $(seq 1 40); do fr1=$(frame_count "$WORK/tmp/c1.log"); [ "${fr1:-0}" -gt $(( ${fr0:-0} + 3 )) ] && break; sleep 0.1; done
++if [ "${fr1:-0}" -gt $(( ${fr0:-0} + 3 )) ]; then ok "frames stream again after the resume ($fr0 -> $fr1)"; else bad "no new frames after the resume ($fr0 -> ${fr1:-0})"; fi
++if have "$WORK/tmp/c1.log" "cleared frames (fail-closed)"; then bad "the resume cleared the frame (fail-closed path)"; else ok "the resume did not clear the held frame"; fi
++if alive "$LOCK_PID"; then ok "lock client alive after the resume"; else bad "lock died on the resume"; fi
++# Input again freezes the resumed saver.
++for _ in 1 2 3 4 5; do
++    wtype -d 300 -k a >/dev/null 2>&1
++    [ "$(grep -c "frozen on demand" "$WORK/tmp/c1.log")" -ge 2 ] && break
++    sleep 0.3
++done
++if [ "$(grep -c "frozen on demand" "$WORK/tmp/c1.log")" -ge 2 ]; then ok "input froze the resumed saver again"; else bad "input did not freeze the resumed saver"; fi
+ stop_all
+ 
+ echo "== case 2: feed kill -9 => lock held and the prompt still works =="

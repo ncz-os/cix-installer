@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/lockrig/agent/run_host.sh -- runs ON the target NCZ host AS ROOT.
-# Executes the controlled lock/saver/greeter test cases (T1..T15), collects
+# Executes the controlled lock/saver/greeter test cases (T1..T17), collects
 # evidence, and writes a machine-readable result. It NEVER reboots, never
 # touches refind/bootloader, never reconfigures as root beyond the reversible
 # gsettings override + the transient uinput devices, and always attempts to
@@ -59,7 +59,10 @@ geom() { # probe full-output size and set CROP (centered card region, ~40%x30%)
   local cw ch cx cy
   cw=$((W*40/100)); ch=$((H*30/100)); cx=$(( (W-cw)/2 )); cy=$(( (H-ch)*65/100 ))
   CROP="${cw}x${ch}+${cx}+${cy}"
-  say "geometry ${W}x${H} crop=$CROP"
+  # grim -g takes LOGICAL coordinates; W/H are physical, so use a region that is
+  # inside the output at any scale <= 2 (central quarter of W/2 x H/2).
+  PROG_REGION="$((W/8)),$((H/8)) $((W/4))x$((H/4))"
+  say "geometry ${W}x${H} crop=$CROP progress-region=$PROG_REGION"
 }
 
 unlock_now() { # up to 4 attempts; returns 0 if unlocked
@@ -81,6 +84,21 @@ wait_lock() { # $1 timeout_s ; sets LOCKED
 }
 
 policy_marker() { env -i "$FEED_BIN" --print-policy 2>/dev/null | head -1; }
+FEEDLOG=/run/user/1000/ncz-screensaver/ncz-saver-feed/feed.log
+# Last thermal level the off-screen renderer logged (0/1/2, or "-"): level 2 is
+# the thermal pause, the one legitimate reason an unattended saver stands still.
+thermal_level() { grep -a -o 'thermal [0-9]* mC -> level [0-9]' "$FEEDLOG" 2>/dev/null | tail -1 | awk '{print $NF}' | grep . || echo -; }
+# progress_soak SECONDS STEP TAG -> sets PROG_N (grabs) PROG_T (transitions)
+progress_soak() {
+  local dur="$1" step="$2" tag="$3" t0 h prev="" i=0
+  PROG_N=0; PROG_T=0; : > "$E/$tag.frames"; t0=$(date +%s)
+  while [ $(( $(date +%s) - t0 )) -lt "$dur" ]; do
+    h=$(run grim -g "$PROG_REGION" -t ppm - 2>/dev/null | md5sum | cut -c1-12)
+    echo "$(( $(date +%s) - t0 )) $h" >> "$E/$tag.frames"
+    PROG_N=$((PROG_N+1)); [ -n "$prev" ] && [ "$h" != "$prev" ] && PROG_T=$((PROG_T+1)); prev="$h"
+    i=$((i+1)); sleep "$step"
+  done
+}
 
 # ---------------------------------------------------------------- setup
 PW="ncz"
@@ -125,11 +143,12 @@ gsset set dev.ncz.screensaver hack-idle-delay 60
 : > "$SLOG" 2>/dev/null || true
 
 # ---------------------------------------------------------------- T1 idle -> lock
+FL0=$(stat -c %s "$FEEDLOG" 2>/dev/null || echo 0)
 LOCKED=""; S0=$(shot m0-desktop)
 if wait_lock 120; then rec T1 PASS "idle->lock at 60s override (pid $LOCKED)"; else rec T1 FAIL "no lock within 120s"; fi
 
 if [ -z "$LOCKED" ]; then
-  for c in T2 T3 T4 T5 T6 T7 T8 T9 T10 T11 T12 T13 T14 T15; do rec $c SKIP "no lock acquired (T1 failed)"; done
+  for c in T2 T3 T4 T5 T16 T6 T6b T7 T8 T9 T10 T11 T17 T12 T13 T14 T15; do rec $c SKIP "no lock acquired (T1 failed)"; done
 else
   # ------------------------------------------------------------ T2 no prompt before input
   sleep 2
@@ -166,8 +185,10 @@ else
     else rec T3b SKIP "policy marker present but no lock_fps"; fi
   else rec T3b SKIP "no --print-policy marker (pre-0.8.12 feed): cannot verify fps policy"; fi
 
-  # ------------------------------------------------------------ T4 FREEZE after ~15s
-  # wait until > 18s since lock, then check frames constant + feed idle
+  # ------------------------------------------------------------ T4 no freeze without input
+  # Policy (freeze mode "prompt"): an unattended saver keeps animating; there is
+  # no time-based freeze. Past the old 15 s intro (we are ~20 s after the lock)
+  # the frames must still change and the lock must not have received a HOLD.
   PW_B=$(pwrrows); [ -n "$PW_B" ] || PW_B=0
   sleep 8
   f1=$(shot t4a); sleep 2; f2=$(shot t4b); sleep 2; f3=$(shot t4c)
@@ -175,22 +196,47 @@ else
   FCPU=$(feedcpu)
   PKG_I=$(pwavg 3 "$PW_A" "$PW_B"); GPU_I=$(pwavg 5 "$PW_A" "$PW_B"); TMP_I=$(pwavg 7 "$PW_A" "$PW_B")
   PKG_F=$(pwavg 3 "$PW_B" "$PW_C"); GPU_F=$(pwavg 5 "$PW_B" "$PW_C"); TMP_F=$(pwavg 7 "$PW_B" "$PW_C")
-  PWRTXT="power intro pkg=${PKG_I}W gpu=${GPU_I}W temp=${TMP_I}C -> freeze pkg=${PKG_F}W gpu=${GPU_F}W temp=${TMP_F}C"
-  if [ "$f1" = "$f2" ] && [ "$f2" = "$f3" ] && awk -v c="$FCPU" 'BEGIN{exit !(c<5)}'; then
-    rec T4 PASS "frozen: frame hash constant ($f1) and feed CPU ${FCPU}% (~0); $PWRTXT"
-  elif [ "$f1" = "$f2" ] && [ "$f2" = "$f3" ]; then
-    rec T4 FAIL "frame constant but feed still busy (CPU ${FCPU}%); $PWRTXT"
+  PWRTXT="power 0-10s pkg=${PKG_I}W gpu=${GPU_I}W temp=${TMP_I}C -> 20-30s pkg=${PKG_F}W gpu=${GPU_F}W temp=${TMP_F}C"
+  TL=$(thermal_level)
+  if grep -aq "frame source HOLD" "$SLOG"; then
+    rec T4 FAIL "the saver froze with no input (lock got a HOLD: timer freeze still active); feed CPU ${FCPU}%; $PWRTXT"
+  elif [ "$f1" != "$f2" ] || [ "$f2" != "$f3" ]; then
+    rec T4 PASS "no input, ~25 s after the lock: frames still change ($f1/$f2/$f3), no HOLD; feed CPU ${FCPU}%; $PWRTXT"
+  elif [ "$TL" = 2 ]; then
+    rec T4 SKIP "frames constant but the renderer is in its thermal pause (level 2): protection, not a freeze; $PWRTXT"
   else
-    rec T4 FAIL "not frozen: frames differ after intro (feed CPU ${FCPU}%); $PWRTXT"
+    rec T4 FAIL "frames constant with no input and no thermal pause ($f1); feed CPU ${FCPU}%; $PWRTXT"
   fi
 
-  # ------------------------------------------------------------ T5 held frame == last intro frame
-  LASTA=$(tail -1 "$E/t3.frames" 2>/dev/null)
-  if [ "$f1" = "$f2" ] && [ "$f2" = "$f3" ]; then
-    if [ "$LASTA" = "$f1" ]; then rec T5 PASS "held frame equals last intro frame ($f1)"
-    else rec T5 FAIL "held frame ($f1) != last intro frame ($LASTA)"; fi
+  # ------------------------------------------------------------ T5 no HOLD in the feed without input
+  if tail -c +$(( ${FL0:-0} + 1 )) "$FEEDLOG" 2>/dev/null | grep -aq "HOLD after"; then
+    rec T5 FAIL "feed logged a HOLD in this lock with no input (timer freeze)"
   else
-    rec T5 SKIP "no freeze (T4 fail): held-frame equality undefined"
+    rec T5 PASS "feed sent no HOLD without input (policy: $(policy_marker | grep -o 'freeze=[a-z]*'))"
+  fi
+
+  # ------------------------------------------------------------ T16 long frame-progress (no input)
+  # The idle saver must keep animating for minutes, not seconds: sample a central
+  # region every 10 s for LOCKRIG_PROGRESS_S (default 330 s) with no input and
+  # require motion in >= 90% of the intervals (thermal-pause intervals excused).
+  PS_S="${LOCKRIG_PROGRESS_S:-330}"
+  if [ "$PS_S" -gt 0 ] 2>/dev/null; then
+    progress_soak "$PS_S" 10 t16
+    NEED=$(( (PROG_N - 1) * 9 / 10 ))
+    TL=$(thermal_level)
+    if [ -z "$(lockpg)" ]; then
+      rec T16 FAIL "lock vanished during the ${PS_S}s no-input soak"
+    elif grep -aq "frame source HOLD" "$SLOG"; then
+      rec T16 FAIL "saver froze during the ${PS_S}s no-input soak (HOLD); transitions $PROG_T/$((PROG_N-1))"
+    elif [ "$PROG_T" -ge "$NEED" ]; then
+      rec T16 PASS "saver kept animating ${PS_S}s with no input: $PROG_T/$((PROG_N-1)) intervals changed (need $NEED)"
+    elif [ "$TL" = 2 ]; then
+      rec T16 SKIP "only $PROG_T/$((PROG_N-1)) intervals changed; renderer ended in its thermal pause (protection)"
+    else
+      rec T16 FAIL "saver stalled: only $PROG_T/$((PROG_N-1)) intervals changed in ${PS_S}s with no input (need $NEED)"
+    fi
+  else
+    rec T16 SKIP "LOCKRIG_PROGRESS_S=0"
   fi
 
   # ------------------------------------------------------------ T6 pointer raises prompt
@@ -204,18 +250,28 @@ else
     rec T6 FAIL "pointer did not raise prompt/surface"
   fi
 
+  # ------------------------------------------------------------ T6b the prompt freezes the saver
+  q1=$(shot t6b-a); sleep 2; q2=$(shot t6b-b); sleep 2; q3=$(shot t6b-c)
+  if [ "$q1" = "$q2" ] && [ "$q2" = "$q3" ] && grep -aq "frozen on demand" "$SLOG"; then
+    rec T6b PASS "the prompt froze the saver at the current frame ($q1 constant; lock: frozen on demand)"
+  elif [ "$q1" = "$q2" ] && [ "$q2" = "$q3" ]; then
+    rec T6b PASS "frames constant behind the prompt ($q1)"
+  else
+    rec T6b FAIL "frames still change behind the prompt ($q1/$q2/$q3)"
+  fi
+
   # ------------------------------------------------------------ T7 key raises / stays locked
   PA=$(shot t7); key shift; sleep 2; PB=$(shot t7b)
   [ -n "$(lockpg)" ] && rec T7 PASS "still locked after key; surface ${PA}->${PB}" || rec T7 FAIL "unlocked on key"
 
-  # ------------------------------------------------------------ T8 input before 15s freezes immediately
+  # ------------------------------------------------------------ T8 input freezes immediately
   # fresh lock cycle: unlock, re-lock, inject at t+5s, expect freeze
   unlock_now; sleep 2; : > "$SLOG"
   if wait_lock 120; then
     sleep 5; key shift; sleep 1
     g1=$(shot t8a); sleep 2; g2=$(shot t8b); sleep 2; g3=$(shot t8c)
-    if [ "$g1" = "$g2" ] && [ "$g2" = "$g3" ]; then rec T8 PASS "input before 15s froze immediately (hash $g1 constant)"
-    else rec T8 FAIL "input before 15s did NOT freeze (frames differ)"; fi
+    if [ "$g1" = "$g2" ] && [ "$g2" = "$g3" ]; then rec T8 PASS "input 5 s into the saver froze it immediately (hash $g1 constant)"
+    else rec T8 FAIL "input did NOT freeze the saver (frames differ)"; fi
   else rec T8 SKIP "could not re-lock for T8"; fi
   [ -n "$(lockpg)" ] || { unlock_now; }
 
@@ -246,6 +302,34 @@ else
     else rec T11 SKIP "no feed process found to kill (mode may be prompt-only)"; fi
   else rec T11 SKIP "could not re-lock for T11"; fi
   unlock_now
+
+  # ------------------------------------------------------------ T17 prompt lowers -> saver resumes
+  # Input froze the saver behind the prompt. If the prompt is left alone until
+  # it lowers (SINGULARITY_LOCK_RENDERER_DELAY_MS, staged at 8 s), the saver
+  # must animate again while the session stays locked.
+  if renv_backup; then
+    renv_add "SINGULARITY_LOCK_RENDERER_DELAY_MS=8000"
+    session_cycle; unlock_now; sleep 2; : > "$SLOG"
+    if wait_lock 120; then
+      sleep 5; ptr 80 40; sleep 2
+      r1=$(shot t17a); sleep 2; r2=$(shot t17b)
+      for i in $(seq 1 20); do grep -aq "prompt lowered" "$SLOG" && break; sleep 1; done
+      sleep 4
+      r3=$(shot t17c); sleep 2; r4=$(shot t17d); sleep 2; r5=$(shot t17e)
+      if [ -z "$(lockpg)" ]; then
+        rec T17 FAIL "unlocked while waiting for the prompt to lower (desktop exposed)"
+      elif [ "$r1" != "$r2" ]; then
+        rec T17 FAIL "saver not frozen behind the prompt ($r1/$r2)"
+      elif ! grep -aq "prompt lowered" "$SLOG"; then
+        rec T17 FAIL "the prompt never lowered (delay 8 s)"
+      elif [ "$r3" != "$r4" ] || [ "$r4" != "$r5" ]; then
+        rec T17 PASS "frozen behind the prompt ($r1), prompt lowered, saver animating again ($r3/$r4/$r5), still locked"
+      else
+        rec T17 FAIL "prompt lowered but the saver stayed frozen ($r3) (lock without the resume change?)"
+      fi
+    else rec T17 SKIP "could not re-lock for T17"; fi
+    unlock_now; renv_restore; session_cycle; unlock_now
+  else rec T17 SKIP "no $ENVFILE to stage SINGULARITY_LOCK_RENDERER_DELAY_MS"; fi
 
   # ------------------------------------------------------------ T13 thermal governor
   # The feed re-evaluates hwmon once/s and pauses above ~85C. Test seam:
@@ -304,11 +388,11 @@ else
 
   # ------------------------------------------------------------ T15 policy defaults present
   if [ -n "$MARK" ]; then
-    echo "$MARK" | grep -q 'lock_fps=8' && echo "$MARK" | grep -q 'freeze=always' && echo "$MARK" | grep -q 'freeze_after_s=15' \
+    echo "$MARK" | grep -q 'lock_fps=8' && echo "$MARK" | grep -q 'freeze=prompt' \
       && rec T15 PASS "installed feed carries policy defaults: $MARK" \
       || rec T15 FAIL "policy marker incomplete: $MARK"
   else
-    rec T15 FAIL "no policy defaults in installed feed (pre-0.8.12); expected lock_fps=8 render_div=2 freeze=always freeze_after_s=15"
+    rec T15 FAIL "no policy defaults in installed feed (pre-0.8.12); expected lock_fps=8 render_div=2 freeze=prompt"
   fi
 
   # ------------------------------------------------------------ T12 greeter (DISRUPTIVE, last)
