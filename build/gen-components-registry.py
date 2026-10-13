@@ -612,7 +612,7 @@ VENDOR_DEB_ROWS = [
         "required": "no", "version_floor": "",
         "installed_by": "post-install/52-vivaldi.sh (dpkg -i staged .deb)",
         "verified_by": "build/verify-installed-target.sh",
-        "provenance": "assets/vivaldi/ (vendor .debs, archived); post-install/52-vivaldi.sh",
+        "provenance": "assets/vivaldi/ (vendor .debs, staged by build/stage-build-inputs.sh, pinned in manifests/build-inputs.tsv); post-install/52-vivaldi.sh",
         "notes": "Default browser (x-www-browser + xdg mime). Skipped on server/headless variants.",
     },
     {
