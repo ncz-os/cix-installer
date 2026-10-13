@@ -8,6 +8,14 @@
 #   ~/.local/state/ncz/hostlease
 # Override to share state across machines (e.g. a shared NFS directory):
 #   export LOCKRIG_LEASE_DIR=/path/on/shared/nfs/hostlease
+# Additional lease directories (sessions that keep their own lease directory)
+# are named by $LOCKRIG_LEASE_DIRS (colon-separated) or, when that is unset, by
+# "${XDG_CONFIG_HOME:-~/.config}/ncz/lease-dirs" (one directory per line, '#'
+# comments). Every command treats the primary and the additional directories
+# as one lease store: acquire refuses when ANY of them holds a live lease by
+# another owner and then writes the lease to ALL of them; release removes it
+# from all of them (refusing if any copy belongs to another owner); status
+# merges them; reap drops expired leases in each.
 # The lease file records owner + purpose + timestamp + TTL so a stale lease
 # (crashed session) self-expires and never wedges a host.
 #
@@ -22,6 +30,26 @@ set -u
 
 LEASE_DIR="${LOCKRIG_LEASE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ncz/hostlease}"
 DEFAULT_TTL=2700   # 45 min: a lockrig host run must finish well inside this
+
+# extra_dirs: the additional lease directories, one per line, deduplicated,
+# without the primary.
+extra_dirs() {
+  local raw="" d cfg="${XDG_CONFIG_HOME:-$HOME/.config}/ncz/lease-dirs"
+  if [ -n "${LOCKRIG_LEASE_DIRS+x}" ]; then
+    raw="$(printf '%s' "$LOCKRIG_LEASE_DIRS" | tr ':' '\n')"
+  elif [ -r "$cfg" ]; then
+    raw="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' "$cfg")"
+  fi
+  printf '%s\n' "$raw" | while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    case "$d" in "~"/*) d="$HOME/${d#\~/}";; esac
+    d="${d%/}"
+    [ "$d" = "${LEASE_DIR%/}" ] && continue
+    printf '%s\n' "$d"
+  done | awk '!seen[$0]++'
+}
+# all_dirs: the primary directory first, then the additional ones.
+all_dirs() { printf '%s\n' "$LEASE_DIR"; extra_dirs; }
 
 die() { echo "lease: $*" >&2; exit 2; }
 
@@ -59,9 +87,8 @@ cmd_acquire() {
   [ -n "$owner" ] || die "acquire: --owner required"
   [ -n "$purpose" ] || die "acquire: --purpose required"
   mkdir -p "$LEASE_DIR" || die "cannot create $LEASE_DIR"
-  local f; f="$(lease_file "$host")"
 
-  # serialize with a mkdir mutex (portable; macOS has no flock)
+  # serialize with a mkdir mutex in the primary directory (portable; macOS has no flock)
   local mutex="$LEASE_DIR/$host.lock.d"
   local tries=0
   while ! mkdir "$mutex" 2>/dev/null; do
@@ -70,21 +97,25 @@ cmd_acquire() {
   done
   trap 'rmdir "$mutex" 2>/dev/null' EXIT
 
-  if lease_live "$f"; then
-    local held; held="$(lget "$f" OWNER)"
-    if [ "$held" = "$owner" ]; then
-      # idempotent re-acquire by same owner: refresh timestamp/ttl
-      :
-    else
-      echo "lease: REFUSED $host held by '$held' ($(lget "$f" PURPOSE)), acquired $(lget "$f" ACQUIRED_ISO) ttl=$(lget "$f" TTL)s" >&2
-      rmdir "$mutex" 2>/dev/null; trap - EXIT
-      return 3
+  # a live lease by another owner in ANY directory refuses
+  local d f held
+  while IFS= read -r d; do
+    f="$d/$host.lease"
+    if lease_live "$f"; then
+      held="$(lget "$f" OWNER)"
+      if [ "$held" != "$owner" ]; then
+        echo "lease: REFUSED $host held by '$held' ($(lget "$f" PURPOSE)), acquired $(lget "$f" ACQUIRED_ISO) ttl=$(lget "$f" TTL)s [$d]" >&2
+        rmdir "$mutex" 2>/dev/null; trap - EXIT
+        return 3
+      fi
+      # same owner: idempotent re-acquire refreshes timestamp/ttl
+    elif [ -f "$f" ]; then
+      echo "lease: taking over EXPIRED lease on $host (was owner=$(lget "$f" OWNER)) [$d]" >&2
     fi
-  elif [ -f "$f" ]; then
-    echo "lease: taking over EXPIRED lease on $host (was owner=$(lget "$f" OWNER))" >&2
-  fi
+  done < <(all_dirs)
 
-  {
+  local body
+  body="$(
     echo "HOST=$host"
     echo "OWNER=$owner"
     echo "PURPOSE=$purpose"
@@ -93,7 +124,14 @@ cmd_acquire() {
     echo "TTL=$ttl"
     echo "HOLDER_HOST=$(hostname -s 2>/dev/null || hostname)"
     echo "HOLDER_PID=$$"
-  } > "$f"
+  )"
+  printf '%s\n' "$body" > "$(lease_file "$host")" || {
+    rmdir "$mutex" 2>/dev/null; trap - EXIT; die "cannot write $(lease_file "$host")"; }
+  while IFS= read -r d; do
+    if mkdir -p "$d" 2>/dev/null && printf '%s\n' "$body" > "$d/$host.lease" 2>/dev/null; then :
+    else echo "lease: WARNING could not write the lease copy in $d" >&2
+    fi
+  done < <(extra_dirs)
   rmdir "$mutex" 2>/dev/null; trap - EXIT
   echo "lease: acquired $host by $owner (ttl ${ttl}s)"
   return 0
@@ -109,55 +147,77 @@ cmd_release() {
       *) die "release: unknown arg $1";;
     esac
   done
-  local f; f="$(lease_file "$host")"
-  [ -f "$f" ] || { echo "lease: $host not leased"; return 0; }
-  if [ -n "$owner" ] && [ "$(lget "$f" OWNER)" != "$owner" ]; then
-    echo "lease: NOT releasing $host -- owned by '$(lget "$f" OWNER)', not '$owner'" >&2
-    return 3
-  fi
-  rm -f "$f"
+  local d f found=0
+  # check every copy first, so a refusal leaves all of them in place
+  while IFS= read -r d; do
+    f="$d/$host.lease"
+    [ -f "$f" ] || continue
+    found=1
+    if [ -n "$owner" ] && [ "$(lget "$f" OWNER)" != "$owner" ]; then
+      echo "lease: NOT releasing $host -- owned by '$(lget "$f" OWNER)', not '$owner' [$d]" >&2
+      return 3
+    fi
+  done < <(all_dirs)
+  [ "$found" = 1 ] || { echo "lease: $host not leased"; return 0; }
+  while IFS= read -r d; do rm -f "$d/$host.lease"; done < <(all_dirs)
   echo "lease: released $host"
+}
+
+# status_line HOST: one line for HOST merged over all directories. A live copy
+# wins over an expired one; live copies with different owners are a CONFLICT.
+status_line() {
+  local host="$1" d f live="" expired="" owners=""
+  while IFS= read -r d; do
+    f="$d/$host.lease"
+    [ -f "$f" ] || continue
+    if lease_live "$f"; then
+      [ -n "$live" ] || live="$f"
+      case " $owners " in *" $(lget "$f" OWNER) "*) ;; *) owners="${owners:+$owners }$(lget "$f" OWNER)";; esac
+    else
+      [ -n "$expired" ] || expired="$f"
+    fi
+  done < <(all_dirs)
+  if [ -n "$live" ]; then
+    if [ "$owners" != "$(lget "$live" OWNER)" ]; then
+      echo "$host CONFLICT owners=$owners"
+    else
+      echo "$host HELD owner=$(lget "$live" OWNER) purpose=$(lget "$live" PURPOSE) since=$(lget "$live" ACQUIRED_ISO) ttl=$(lget "$live" TTL)"
+    fi
+  elif [ -n "$expired" ]; then
+    echo "$host EXPIRED owner=$(lget "$expired" OWNER) since=$(lget "$expired" ACQUIRED_ISO)"
+  else
+    echo "$host FREE"
+  fi
 }
 
 cmd_status() {
   mkdir -p "$LEASE_DIR"
   local host="${1:-}"
   if [ -n "$host" ]; then
-    local f; f="$(lease_file "$host")"
-    if lease_live "$f"; then
-      echo "$host HELD owner=$(lget "$f" OWNER) purpose=$(lget "$f" PURPOSE) since=$(lget "$f" ACQUIRED_ISO) ttl=$(lget "$f" TTL)"
-    elif [ -f "$f" ]; then
-      echo "$host EXPIRED owner=$(lget "$f" OWNER) since=$(lget "$f" ACQUIRED_ISO)"
-    else
-      echo "$host FREE"
-    fi
+    status_line "$host"
     return 0
   fi
-  # all
-  local found=0
-  for f in "$LEASE_DIR"/*.lease; do
-    [ -e "$f" ] || continue
-    found=1
-    local h; h="$(basename "$f" .lease)"
-    if lease_live "$f"; then
-      echo "$h HELD owner=$(lget "$f" OWNER) purpose=$(lget "$f" PURPOSE) since=$(lget "$f" ACQUIRED_ISO) ttl=$(lget "$f" TTL)"
-    else
-      echo "$h EXPIRED owner=$(lget "$f" OWNER) since=$(lget "$f" ACQUIRED_ISO)"
-    fi
-  done
-  [ "$found" = 1 ] || echo "(no leases)"
+  # all hosts in any directory
+  local d f hosts
+  hosts="$(while IFS= read -r d; do
+             for f in "$d"/*.lease; do [ -e "$f" ] && basename "$f" .lease; done
+           done < <(all_dirs) | sort -u)"
+  if [ -z "$hosts" ]; then echo "(no leases)"; return 0; fi
+  while IFS= read -r host; do status_line "$host"; done <<< "$hosts"
 }
 
 cmd_reap() {
   mkdir -p "$LEASE_DIR"
-  local f
-  for f in "$LEASE_DIR"/*.lease; do
-    [ -e "$f" ] || continue
-    if ! lease_live "$f"; then
-      echo "lease: reaping expired $(basename "$f" .lease) (owner=$(lget "$f" OWNER))"
-      rm -f "$f"
-    fi
-  done
+  local d f
+  while IFS= read -r d; do
+    for f in "$d"/*.lease; do
+      [ -e "$f" ] || continue
+      if ! lease_live "$f"; then
+        echo "lease: reaping expired $(basename "$f" .lease) (owner=$(lget "$f" OWNER)) [$d]"
+        rm -f "$f"
+      fi
+    done
+  done < <(all_dirs)
 }
 
 case "${1:-}" in
@@ -170,7 +230,9 @@ usage: lease.sh acquire <host> --owner OWNER --purpose PURPOSE [--ttl SEC]
        lease.sh release <host> --owner OWNER
        lease.sh status [<host>]
        lease.sh reap
-env:   LOCKRIG_LEASE_DIR (default ~/Projects/oc-mission-20261010/hostlease)
+env:   LOCKRIG_LEASE_DIR  primary lease directory (default ~/.local/state/ncz/hostlease)
+       LOCKRIG_LEASE_DIRS additional lease directories, colon-separated (default: the
+                          lines of ~/.config/ncz/lease-dirs; set empty for none)
 USAGE
      exit 2;;
 esac
