@@ -38,8 +38,7 @@ grep -q 'ncz_install_zeroclaw' "$HOOK" \
 # Root guard: like every other ncz_install_* path, it requires root. The
 # alias delegates to ncz agent install which has the same guard, but the
 # outer wrapper should fail-fast too in case the inner helper is renamed.
-grep -qE 'ncz_install_zeroclaw\(\) \{' "$HOOK" \
-    && grep -A3 'ncz_install_zeroclaw() {' "$HOOK" | grep -q 'id -u' \
+grep -A4 -E 'ncz_install_zeroclaw[[:space:]]*\(\)' "$HOOK" | grep -q 'id -u' \
     && ok "ncz_install_zeroclaw requires root (no privilege bypass)" \
     || bad "ncz_install_zeroclaw does NOT guard on root"
 
