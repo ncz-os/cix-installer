@@ -36,5 +36,5 @@ PR #15 landed.
 
 `packaging/gtk4-layer-shell/patches/0001-layer-surface-clear-stale-buffer-before-role-creation.patch`
 is the *decisive* half of the layer-shell crash fix and is NOT upstream. A metal
-A/B on Orion O6 settled it: same shell + stock library = instant crash; patched
+A/B on Radxa Orion O6N settled it: same shell + stock library = instant crash; patched
 library = no crash. Retiring the shell patch does not retire that one.

@@ -30,7 +30,7 @@ held 9502 (`drivers/platform/x86/apple-gmux.c`) covers only
   known T2 product_name) returns 0. Detection is the same helper
   `assets/refind/ncz-refind-refresh-amd64.sh` uses for the rescue
   blacklist at entry generation — `assets/refind/ncz-t2-detect.sh`. One model list, no duplication
-  (operator 2026-10-05).
+  (2026-10-05).
 - The blacklist file is NOT removed by a future non-T2 install — DMI does
   not change at runtime, so the only way to leave the blacklist is to
   physically move the drive to non-T2 hardware, which is not a supported

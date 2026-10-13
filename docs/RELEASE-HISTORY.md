@@ -37,7 +37,7 @@ primary 7.2 boot entry) rather than the open Mesa panvk/rusticl stack that
 earlier releases (r113–r194, summarized below) shipped — Mesa panvk/rusticl
 remains the GPU compute stack on the 7.0.12 secondary/fallback kernel only.
 Apt hosting is **Buildkite Packages primary, Cloudflare R2 backup** (not R2
-alone, as r194 below shipped). Tested and validated on **Radxa Orion O6** and **Minisforum MS-R1** — see
+alone, as r194 below shipped). Tested and validated on **Radxa Orion O6N** and **Minisforum MS-R1** — see
 **Hardware support & testing status** above. NCZ-OS ships **one build**; the
 former Reinhardt/Magnetar variant split is gone, and console-only operation is
 a boot entry (`systemd.unit=multi-user.target`) on the same image.
@@ -213,9 +213,9 @@ environment itself runs on the 7.0.12 ("legacy" slot) kernel.
 
 **Recovery:** NCZRESCUE partition with full repair toolset + automatic networking, reachable independent of the main rootfs; installer remote-diagnostics (network-console + telnet/http) on USB boot.
 
-**Orion O6 / MS-R1 driver support:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (`mali_kbase`/`libmali` on the primary 7.2 channel — GLES/EGL/OpenCL, no Vulkan yet; `panthor`/Mesa panvk+rusticl on the 7.0.12 fallback channel), VPU — all working. See the driver support matrix above for per-subsystem, per-board detail.
+**Radxa Orion O6N / MS-R1 driver support:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (`mali_kbase`/`libmali` on the primary 7.2 channel — GLES/EGL/OpenCL, no Vulkan yet; `panthor`/Mesa panvk+rusticl on the 7.0.12 fallback channel), VPU — all working. See the driver support matrix above for per-subsystem, per-board detail.
 
-**Reproduce:** kernels from kernel.org stable/mainline git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](KERNEL-BUILD-YOCTO.md), [kernel-source/SOURCE.md](../kernel-source/SOURCE.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](NEXT_ISO.md)).
+**Reproduce:** kernels from kernel.org stable/mainline git + meta-cix patch series under Yocto ([kernel-source/SOURCE.md](../kernel-source/SOURCE.md)); ISO via build/build-iso-di.sh (since removed).
 
 ## Previous ISO — r195 (NCZ-OS 26.6, historical)
 
@@ -258,4 +258,4 @@ files in meta-cix), including fixes that don't exist in any vendor drop yet.
 
 **MS-R1 driver support (r195) — 7.0.12 / 7.2:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (Mali-G720 panthor renderD128, Mesa 26.1.3 panvk+rusticl; compositing off), VPU — all working.
 
-**Reproduce (r195):** kernels from kernel.org stable git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](KERNEL-BUILD-YOCTO.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](NEXT_ISO.md)). No separate kernel-source repo needed — meta-cix carries every Sky1-specific patch as a tracked file.
+**Reproduce (r195):** kernels from kernel.org stable git + meta-cix patch series under Yocto; ISO via build/build-iso-di.sh (since removed). No separate kernel-source repo needed — meta-cix carries every Sky1-specific patch as a tracked file.

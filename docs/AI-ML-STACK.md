@@ -156,14 +156,14 @@ auto-tuned custom operators targeting Mali.
 
 ---
 
-## 4. The embedding stack (MNEMOS / agent memory)
+## 4. The embedding stack
 
-The agent memory system (`mnemos`) needs fast text embeddings. That path is
-prebuilt and runs on the **NPU**:
+Applications that need fast text embeddings (search, agent memory) get a path
+that is prebuilt and runs on the **NPU**:
 
 | Component | Path | Role |
 |---|---|---|
-| embedkit venv (Python 3.11) | `/opt/ncz/embed-venv` | `mnemos-embedkit` + `libnoe` + `llama-cpp-python` |
+| embedkit venv (Python 3.11) | `/opt/ncz/embed-venv` | `embedkit` + `libnoe` + `llama-cpp-python` |
 | `npu_embed_v2.py` | `/opt/cix/` | ctypes wrapper around `libnoe.so` (direct NPU embeddings) |
 | `bge-small-zh-v1.5_256.cix` | `/opt/ncz/models/` | ✅ NPU embedding model (INT8 AOT, 512-dim, 256-tok) |
 | `bge-small-zh-v1.5-q8_0.gguf` | `/opt/ncz/models/` | CPU/GPU fallback embedding model |

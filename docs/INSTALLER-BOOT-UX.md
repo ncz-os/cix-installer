@@ -5,7 +5,7 @@ the rEFInd entries differs. Evidence (before/after) is under `docs/installer-ux/
 
 ## What the operator saw and what caused it
 
-The photos from the MS-R1 and Radxa Orion O6 were of image 18e8a14 (and 7e1d9c2 for the em dash). Each row was reproduced in
+The photos from the MS-R1 and Radxa Orion O6N were of image 18e8a14 (and 7e1d9c2 for the em dash). Each row was reproduced in
 KVM with the console-capture harness before it was changed.
 
 | Symptom | Root cause (proved) | Fix | Gate |

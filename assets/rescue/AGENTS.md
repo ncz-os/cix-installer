@@ -16,10 +16,10 @@ what you did.
 ## 1. Hardware / platform
 
 - **SoC:** CIX Sky1 (CP8180), arm64. NPU ~30 TOPS, Arm Mali-G720 GPU, Arm Linlon VPU.
-- **Boards in fleet:**
-  - **Minisforum MS-R1** (test rig `cixmini`, e.g. `192.168.207.66`). Note: the
+- **Boards:**
+  - **Minisforum MS-R1**. Note: the
     MS-R1 has **more than one NVMe slot** — never assume a single fixed disk.
-  - **Radxa Orion O6** (Realtek RTL8125/8126 NIC via `r8169`).
+  - **Radxa Orion O6N** / **Radxa Orion O6** (Realtek RTL8125/8126 NIC via `r8169`).
 - **Boot firmware:** UEFI. Sky1/MS-R1 firmware often **cannot persist NVRAM EFI
   variables**, so boot relies on the removable-media fallback
   `EFI/BOOT/BOOTAA64.EFI` on the ESP.
@@ -123,7 +123,7 @@ sed -i 's/^default_selection .*/default_selection "stable"/' \
 
 ---
 
-## 5. Access (LAN-only, 192.168.207.0/24)
+## 5. Access (trusted LAN only)
 
 - **telnet:** TCP **23** (lockout-prevention backup console). Root login allowed.
 - **dropbear SSH:** TCP **2222**.
@@ -132,12 +132,12 @@ sed -i 's/^default_selection .*/default_selection "stable"/' \
   A device-driven udev rule also starts `serial-getty@ttyAMA2` when that UART
   exists on Sky1 metal; neither template instance is statically enabled, because
   doing so can leave boot waiting forever for an absent UART.
-- **Rescue root password:** `rescue` (this rescue rootfs only; change/disable
-  before any public distribution).
-- **Network:** DHCP on all wired NICs at boot; **static fallback
-  `192.168.207.66/24`, gateway `192.168.207.1`** if DHCP fails
+- **Rescue root login:** the published break-glass default set in
+  `build/build-rescue-rootfs.sh` (this rescue rootfs only); change it after
+  first use.
+- **Network:** DHCP on all wired NICs at boot; if DHCP fails, a static
+  private-address fallback derived from the MAC address
   (`ncz-rescue-net.service`).
-- **Loghost (main fleet):** `192.168.207.22` (ARGOS).
 
 ---
 
@@ -162,7 +162,7 @@ into `usr/lib`, and restores `/lib -> usr/lib`.
 ### Never re-cause it
 When installing kernel modules into a root, ALWAYS:
 ```sh
-tar xzf modules-cixmini.tgz -C <root>/usr --keep-directory-symlink   # lands in usr/lib/modules
+tar xzf <kernel-modules>.tgz -C <root>/usr --keep-directory-symlink   # lands in usr/lib/modules
 ```
 NEVER `tar -C <root>` (or `-C /`) for a tarball that contains a top-level `lib/`.
 
@@ -181,7 +181,7 @@ Editors/util: `vim`, `nano`, `mc`, `tmux`, `jq`, `lsof`, `strace`, `python3`.
 - `ncz-rescue-fixlib <root-mountpoint>` — repair the usrmerge `/lib` symlink.
 - `ncz-rescue-chroot <device>` — mount a target root (+ bind mounts) and drop
   into a chroot shell; auto-unmounts on exit.
-- `ncz-rescue-net` — DHCP all NICs, static `192.168.207.66/24` fallback.
+- `ncz-rescue-net` — DHCP all NICs, static private-address fallback.
 
 ---
 

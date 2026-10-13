@@ -83,7 +83,7 @@ git lfs pull --include="models/Generative_AI/Text_Image_Search/onnx_bge_small_zh
 
 The hub ships prebuilt `.cix` for YOLO, MobileNet/ResNet/EfficientNet, Whisper
 tiny/small/medium, CLIP/SigLIP, SDXL-Turbo, PP-OCRv4, pose/hand, and the
-`bge-small-zh-v1.5` 256-token embedding model used by MNEMOS.
+`bge-small-zh-v1.5` 256-token embedding model used by the NPU embedding stack.
 
 ---
 
@@ -93,7 +93,7 @@ tiny/small/medium, CLIP/SigLIP, SDXL-Turbo, PP-OCRv4, pose/hand, and the
    `bge-small-zh-v1.5_256.cix`. Add the tokenizer under
    `assets/models/<model>/` if the adapter tokenizes offline.
 2. Add a row to `assets/models/MODELS-README.md` (provenance + license).
-3. If the staging name differs from what embedkit/MNEMOS loads, add a compat
+3. If the staging name differs from what embedkit loads, add a compat
    symlink in `post-install/47-embedkit.sh` (see the bge example there).
 4. Commit the blob (the repo tracks model blobs directly — no LFS — so they can
    never be lost again). Large files: GitHub's hard limit is 100 MB.
@@ -126,4 +126,4 @@ prebuilt hub + the compiler container are the supported paths.
 - ModelScope hub: https://www.modelscope.cn/models/cix/ai_model_hub
 - GitHub recipes: https://github.com/cixtech/ai_model_hub
 - NOE SDK + compiler: https://developer.cixtech.com/
-- `docs/MNEMOS-NPU-EMBEDDINGS.md` — how MNEMOS uses the bge `.cix`.
+- `docs/NPU-USAGE-GUIDE.md` — using the NPU from Python.
