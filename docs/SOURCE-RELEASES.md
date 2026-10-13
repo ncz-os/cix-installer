@@ -132,7 +132,7 @@ Other inputs:
   testing netinst images came from `cdimage.debian.org/cdimage/weekly-builds/`,
   which replaces them every week. The pinned sha256 no longer matches what that
   URL serves, so the exact substrate cannot be fetched today.
-* **Debian packages**: the pinned snapshot `20261005T120000Z` on
+* **Debian packages**: the pinned snapshot `20261012T023456Z` on
   `snapshot.debian.org` is public.
 * **Kernels**: the amd64 kernel packages are in the public apt repository
   (same bytes). The Sky1 r289 packages are not published there; rebuild them
