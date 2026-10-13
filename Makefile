@@ -697,6 +697,7 @@ parity:
 	branding/cygnus/tests/test-refind-theme-config.sh
 	build/test-tour-slides.sh
 	build/test-ncz-first-login-tour.sh
+	build/test-xdg-autostart.sh
 	build/test-refind-rescue-promotion.sh
 	build/test-wallpaper-rotator-relogin.sh
 	build/test-wallpaper-rotator-interval.sh
@@ -743,6 +744,9 @@ parity:
 	build/test-kernel-default-policy.sh
 	build/test-rescue-kernel-channel.sh
 	build/test-late-npu-aipu.sh
+	build/test-sky1-kernel-discovery.sh
+	build/test-verify-drivers.sh
+	build/test-diag-busybox.sh
 	build/test-gpu-install-progress.sh
 	build/test-preseed-consistency.sh
 	build/test-install-feedback.sh

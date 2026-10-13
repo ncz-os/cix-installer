@@ -24,7 +24,7 @@ assets/kernel/*.tgz
 # .o, .cmd, .mod, Module.symvers, Makefile-local) are not. Rebuild from
 # any commit with `bash build/build-kernel-debs.sh`.
 # Keep this pattern narrow so it doesn't accidentally match the .ko files
-# in the kver-overlay directories (e.g. mali/7.2.0-sky1-ncz/mali_kbase.ko
+# in the kver-overlay directories (e.g. mali/7.3.0-rc7-sky1-ncz/mali_kbase.ko
 # which IS what we ship).
 assets/kernel/*/src/**/*.o
 assets/kernel/*/src/**/*.d

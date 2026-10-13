@@ -39,8 +39,10 @@
 
 **安装程序 initrd 与其他 GPL 二进制：** `debootstrap-udeb` 由 `build/iso/patch-debootstrap-stub.py`
 修改；`+ncz1` 的 udeb 是未改动的 Debian sid 源码（`snapshot.debian.org`，`20261005T120000Z`），
-由 `build/rebuild-sid-udeb.sh` 重新构建；`assets/diag/busybox-*` 是未改动的 Ubuntu
-`busybox-static` 二进制（amd64 `1:1.36.1-6ubuntu3.1`、arm64 `1:1.37.0-7ubuntu1`），源码见 Launchpad。
+由 `build/rebuild-sid-udeb.sh` 重新构建；`assets/diag/busybox-*` 是 Debian forky
+`busybox-static` `1:1.38.0-3+b1`（amd64、arm64，固定快照 `20261012T023456Z`）中未改动的
+`usr/bin/busybox`，deb 与二进制的 sha256 固定在 `manifests/diag-busybox.tsv`，由
+`build/stage-diag-busybox.sh` 校验；源码见 <https://snapshot.debian.org/package/busybox/1%3A1.38.0-3/>。
 
 **重建镜像：** 上述 GPL 源码是完整的，但逐字节重建镜像目前**无法**仅凭公开来源完成。
 `manifests/build-inputs.tsv` 中的 44 个预置输入里，只有 6 个（两种架构的 CPython 3.11 与 `uv`、

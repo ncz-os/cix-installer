@@ -108,11 +108,12 @@ record (`36ed84e7…`, `81f18202…`).
   version suffix by `build/rebuild-sid-udeb.sh`; their sources are on
   `snapshot.debian.org` at `20261005T120000Z`.
 * `assets/diag/busybox-amd64` and `busybox-arm64` (the installer's diagnostic
-  console fallback, staged by `build/iso/stage-ncz-payload.py`) are unmodified
-  `busybox-static` binaries from Ubuntu packages `1:1.36.1-6ubuntu3.1` (amd64)
-  and `1:1.37.0-7ubuntu1` (arm64); source:
-  <https://launchpad.net/ubuntu/+source/busybox/1:1.36.1-6ubuntu3.1> and
-  <https://launchpad.net/ubuntu/+source/busybox/1:1.37.0-7ubuntu1>.
+  console, staged by `build/iso/stage-ncz-payload.py` and, on amd64, baked into
+  the installer initrd) are the unmodified `usr/bin/busybox` of Debian forky
+  `busybox-static` `1:1.38.0-3+b1` (amd64 and arm64) from the pinned snapshot
+  `20261012T023456Z`; deb and binary sha256 are pinned in
+  `manifests/diag-busybox.tsv` and checked by `build/stage-diag-busybox.sh`.
+  Source: <https://snapshot.debian.org/package/busybox/1%3A1.38.0-3/>.
 
 ### Rebuilding an image: what you can fetch
 

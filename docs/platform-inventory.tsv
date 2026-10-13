@@ -36,6 +36,8 @@ assets/cix-py/	sky1	-	CIX NPU python glue
 assets/dev/	common	-	developer/diag helpers (disabled hook, art generator)
 assets/diag/busybox-amd64	amd64	-	static busybox for failsafe console (x86_64)
 assets/diag/busybox-arm64	sky1	-	static busybox for failsafe console (aarch64)
+manifests/diag-busybox.tsv	common	-	origin pin (Debian forky busybox-static deb + binary sha256) of assets/diag/busybox-<arch>
+build/stage-diag-busybox.sh	common	-	check / fetch / repin the diag busybox from the pinned Debian snapshot (sha256 + provenance-verified)
 assets/docs/	common	-	on-image documentation
 assets/dracut/	sky1	-	Sky1 dracut configuration
 assets/embedkit/	sky1	-	embedkit wheel for the NPU venv
@@ -224,6 +226,9 @@ build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kerne
 build/test-image-assets.sh	common	-	no SSH public key body, retired key comment, authorized_keys writer, private 192.168 address or rescue static fallback in any image-bound file (planted fixtures prove each rule fires)
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-late-npu-aipu.sh	common	-	late.sh NPU aipu overlay + modules-load test
+build/test-sky1-kernel-discovery.sh	sky1	-	Sky1 NPU/VPU hook kernel list: KVER_NEXT sidecar plus *-sky1-ncz module trees, dedup, shipped-name checks, control on the old *7.2*-ncz glob
+build/test-verify-drivers.sh	common	-	tools/verify-drivers.sh expected-kernel resolution per arch (override, sidecars, repository KVER, components.tsv) and stubbed full runs (aipu, mali_kbase/panthor, amvx)
+build/test-diag-busybox.sh	common	-	diag busybox pin check (+tamper/Ubuntu controls), required diag-console applets, ncz_diag_set_root_pw shadow/passwd cases verified with openssl
 build/test-firstboot-gpu.sh	common	-	first-boot/install-end DKMS notice: needed vs failed classification, ASCII notice text, long fake build never cut with live console/plymouth status, failed build not rerun before login, twin wiring, late.sh dialog choice
 build/test-gpu-install-progress.sh	common	-	GPU/DKMS install-step feedback: step profiles, simulated growing DKMS make.log monitor, apt window scaling, late.sh weighted bar math and GPU screen line, run-all end to end
 build/test-progress-bar-drive.sh	common	-	late.sh drives finish-install's progress bar at runtime: stub debconf records PROGRESS, cdebconf model asserts forward-only to 100%, GPU weight, flat-stretch creep, text-only fallbacks, no bad number under sh/busybox/bash
@@ -378,6 +383,7 @@ post-install/lib/hw-detect.sh	common	-	shared hardware detection helpers
 post-install/lib/ncz-t2-power-cap	amd64	t2	the T2 CPU package power cap helper copied to /usr/local/sbin by 64-t2-power-cap.sh (apply/restore/status; reads /etc/ncz/power-cap.conf; env-overridable sysfs roots for the fake-tree test)
 post-install/lib/kernel-purity.sh	common	-	shared Debian-kernel apt preferences pin sourced by both kernel install hooks
 post-install/lib/pci-sysfs.sh	common	-	PCI enumeration from sysfs vendor/device/class (no lspci, no config-space reads) for install-time hooks
+post-install/lib/sky1-kernels.sh	sky1	-	Sky1 kernel list (KVER_NEXT sidecar + *-sky1-ncz module trees) sourced by 80-npu.sh and 81-vpu.sh
 post-install/lib/ncz-screensavers-plugin.lock	common	-	pin of the Singularity screensaver settings plugin (version, the project build store dir, sha256 + payload + libsingularity sha256 per arch); read by the stage script, the stage-2 gate, the medium writer, hook 59, the verifier, parity and the registry
 post-install/lib/ncz-ssplugin-install.sh	common	-	pin loader, the plugin ABI rule and the offline plugin install sourced by 59-ncz-screensavers-pkg.sh (and by the build gate for the same rule)
 post-install/ncz-os-apt-keyring.asc	common	-	NCZ apt repo key
@@ -409,7 +415,7 @@ tools/check-release-parity.sh	common	-	read-only check that the GitHub and GitLa
 tools/publish-release-gitlab.sh	common	-	upload a staged per-architecture release to the GitLab generic package registry (one package per architecture plus a common package) with sha256 verification and link the files from the GitLab release in amd64/ and arm64/ folders; --dry-run, --prune-old per package
 tools/release-forge-lib.sh	common	-	shared GitHub/GitLab API, token, link-normalising helpers for the release page tools
 tools/sync-release-pages.sh	common	-	publish one staged release to both release pages and retire every other release page; dry run by default, --apply needs operator approval and image audit files
-tools/verify-drivers.sh	sky1	-	Sky1 driver fidelity check
+tools/verify-drivers.sh	mixed	-	driver fidelity check: installed-kernel check on both arches (KVER_NEXT sidecar, else repository kernel pins), Sky1 NPU/GPU/VPU/WiFi/BT/audio checks on arm64
 build/test-sky1-audio-policy.sh	sky1	-	Sky1 audio default-sink policy fixture tests
 build/testdata/sky1-audio/	sky1	-	fake pactl/aplay/pw-dump/amixer for the Sky1 audio autoswitch daemon-loop tests
 build/test-sky1-media-defaults.sh	sky1	-	Sky1 media defaults: chromium-ncz-sky1 wrapper flags, mpv V4L2 hwdec, audio/media runtime seeds
@@ -577,4 +583,5 @@ build/rebuild-sid-udeb.sh	common	-	rebuild a small-gap (class B) installer udeb 
 docs/SID-EXCEPTIONS.md	common	-	GENERATED sid-exceptions tracker report (per-package status + per-arch count + trend); do not hand-edit
 build/test-tour-slides.sh	common	-	tour slide data validation: keys, unique Order (NCZ + upstream), built-in Scene, {os} only brace, title length, Action prefix
 build/test-ncz-first-login-tour.sh	common	-	first-login tour guard logic: once-only marker, opt-out, headless/DRM, root, live, other-first-run, lock (stubbed environment)
+build/test-xdg-autostart.sh	common	-	system XDG autostart entries vs the Singularity AutostartManager rule: session entries need OnlyShowIn=Singularity, systemd-unit fallbacks must not launch, every entry classified (control: OnlyShowIn=XFCE)
 post-install/51-ncz-tour-slides.sh	mixed	-	NCZ tour slides (wallpapers, online wallpapers, screensavers, lock screen) generic + first-login tour launcher; the arm64-only 85-ncz-chromium-vpu slide is gated on NCZ_TARGET_ARCH/BUILD_ARCH/dpkg (chromium-ncz-sky1 is Sky1-only); TODO split the Sky1 slide into a platform hook
