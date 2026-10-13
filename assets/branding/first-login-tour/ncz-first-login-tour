@@ -234,8 +234,8 @@ launch_under_scope() {
         wait|bg) ;;
         *) printf 'launch_under_scope: mode must be wait or bg, got %s\n' "$_lus_mode" >&2; return 64 ;;
     esac
-    # shellcheck disable=SC2086
     set -f
+    # shellcheck disable=SC2086  # word splitting is the tokeniser (noglob on)
     set -- $2
     set +f
     [ "$#" -gt 0 ] || return 64
