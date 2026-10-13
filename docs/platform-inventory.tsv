@@ -558,3 +558,4 @@ docs/ARM64-FIRMWARE-TRIM-2026-10-11.md	common	-	arm64 (Sky1) firmware BOM trim: 
 build/test-tour-slides.sh	common	-	tour slide data validation: keys, unique Order (NCZ + upstream), built-in Scene, {os} only brace, title length, Action prefix
 build/test-ncz-first-login-tour.sh	common	-	first-login tour guard logic: once-only marker, opt-out, headless/DRM, root, live, other-first-run, lock (stubbed environment)
 post-install/51-ncz-tour-slides.sh	mixed	-	NCZ tour slides (wallpapers, online wallpapers, screensavers, lock screen) generic + first-login tour launcher; the arm64-only 85-ncz-chromium-vpu slide is gated on NCZ_TARGET_ARCH/BUILD_ARCH/dpkg (chromium-ncz-sky1 is Sky1-only); TODO split the Sky1 slide into a platform hook
+nextimage/	common	-	rc9 / next-image (2026-10-13) integration record (INTEGRATION.md: merged branches + shas + deterministic re-integration commands); not built into the image
