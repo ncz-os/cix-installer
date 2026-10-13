@@ -13,7 +13,7 @@
 # kernel command line carries interface=auto) and netcfg/link_wait_timeout back to 60, and the re-apply put
 # the scan's pick back. The 2026-10-08 fix loads preseed.cfg once (d-i S30initrd-preseed from the baked
 # /preseed.cfg), so no reload happens; the scan/apply split and $STATE are kept so the helper stays correct
-# if the command is ever evaluated twice, and they document the PEGASUS failure: 2026-10-06 logged
+# if the command is ever evaluated twice, and they document the GU502LV laptop failure: 2026-10-06 logged
 # "ALREADY RAN -- skipping duplicate invocation (no stored pick to re-apply)" with /tmp/.ncz-picked-if =
 # enx00e05c6701d5 present, then netcfg ran in auto mode, activated the cable-less onboard eno2 first and
 # waited the full 60 s link timeout before trying the USB NIC that had carrier all along.
@@ -29,7 +29,7 @@
 # ac:de:48:00:11:22 4; wireless 9 is never picked. A PCI NIC with carrier ends the scan at once. Otherwise:
 #   * a real wired candidate (PCI or USB, rank <= 2) already has carrier -> settle after $CARRIER_SETTLE s
 #     (5 s). Before 2026-10-06 this waited the full PCI settle (25 s) for a cable-less onboard NIC that never
-#     came up: PEGASUS (USB NIC with carrier at 6.6 s kernel time, cable-less eno2) sat in early_command from
+#     came up: the GU502LV laptop (USB NIC with carrier at 6.6 s kernel time, cable-less eno2) sat in early_command from
 #     14:17:59 to 14:18:26. Picking the USB NIC when the onboard NIC ALSO had a cable that was still
 #     negotiating costs nothing: both reach the same network.
 #   * only a weak candidate (rank 3/4, e.g. the T2 iBridge NCM link that always reports carrier) -> keep

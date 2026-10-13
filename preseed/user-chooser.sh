@@ -6,7 +6,7 @@
 #
 # WITHOUT --prompt (preseed/early_command, both runs) it only SEEDS d-i's own
 # passwd/* questions so user-setup-udeb -- a main-menu step that runs BEFORE
-# partitioning -- does not ask them: PEGASUS 2026-10-06 spent 14:20:05-14:20:31
+# partitioning -- does not ask them: the GU502LV laptop 2026-10-06 spent 14:20:05-14:20:31
 # in user-setup-udeb (full name, username, password, verify: user-setup-ask
 # asks all four at critical priority when they are unseen) and then this
 # script asked username and password again. The seed never replaces a value

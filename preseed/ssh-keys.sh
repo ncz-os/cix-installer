@@ -3,7 +3,7 @@
 #
 # Baked into the initrd at /ncz/ssh-keys.sh by build/iso/patch-initrd-t2-kernel.py
 # (see BAKED_HELPERS). Called from preseed/early_command so Jason + the
-# argonas-backup key can ssh in once sshd is running. Used to be inline in
+# backup key can ssh in once sshd is running. Used to be inline in
 # early_command; extracted to keep early_command under its hard 13 000-byte
 # budget (check-early-command-size.sh).
 #

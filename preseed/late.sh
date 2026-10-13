@@ -211,7 +211,7 @@ echo
 
 echo "--- copying $SRC → /target/usr/local/lib/cix-installer ---"
 mkdir -p /target/usr/local/lib
-# 2026-05-04 codex review: rm -rf + cp -a so reruns don't nest ncz-payload/
+# 2026-05-04 review: rm -rf + cp -a so reruns don't nest ncz-payload/
 # inside existing /target/usr/local/lib/cix-installer/.
 # r157: a BAKED rootfs already ships /usr/local/lib/cix-installer with the
 # generic-hook results + baked assets (refind_aa64.efi, rescue, kernel) +
@@ -260,7 +260,7 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
           find . -type d | while read -r d; do
               # A baked layer can carry an absolute symlink where the media
               # has a real directory: base.squashfs ships
-              # assets/kernel/mainline -> /mnt/argonas-yocto-shared/kernel-staging/...,
+              # assets/kernel/mainline -> <shared kernel-staging>/...,
               # which dangles on every installed system. mkdir -p cannot walk
               # through it ("can't create directory ...: No such file or
               # directory"), and because `find | while` reports the status of
@@ -372,7 +372,7 @@ unset _ncz_region_src
 # BEFORE run-all.sh so the first hook that touches the GPU, the initramfs that
 # 10-amd64-kernel.sh builds and the first boot all see it.
 #
-# Why (PEGASUS, ASUS GU502LV, RTX 2060 Mobile TU106 10de:1f15, 2026-10-06):
+# Why (the GU502LV laptop, ASUS GU502LV, RTX 2060 Mobile TU106 10de:1f15, 2026-10-06):
 # on 7.3-rc5+ nouveau_pmops_runtime_suspend() asks GSP-RM whether the GPU may
 # enter GCOFF (nvif_device_gcx_ready -> nvkm_udevice_gcx_ready ->
 # nvkm_gsp_gcx_ready). Without GSP-RM firmware the GSP subdev exists but
@@ -560,12 +560,12 @@ ln -sf /etc/machine-id /target/var/lib/dbus/machine-id 2>/dev/null || \
 # target machine-id is generated and linked above before the first boot.
 echo
 
-# Codex A2 CRITICAL #2 fix: Mount /cdrom inside /target so post-install
+# review A2 CRITICAL #2 fix: Mount /cdrom inside /target so post-install
 # hooks can `apt-get install` from our offline mirror via file:///cdrom.
 # Without this, FULL/THIN mode 10-our-kernel.sh + 70-bootloader.sh +
 # 20-desktop.sh fail because they need offline pkgs.
 #
-# 2026-05-07 take8 (per Codex R78-INVALID-RELEASE-AUDIT): minimal
+# 2026-05-07 take8 (per review R78-INVALID-RELEASE-AUDIT): minimal
 # NETINSTALL ships an EMPTY main/binary-arm64/Packages and removes
 # /cdrom/.disk/base_installable so base-installer uses the HTTP mirror.
 # 2026-05-08 netinstall-bootstrap keeps base_installable absent but adds a
@@ -683,7 +683,7 @@ CDROM_PREF
         # the desktop layer via manifests/desktop.pkgs, but stale prebuilt
         # layers can reach this late-install path. Install it from the offline
         # pool here as a no-op once the layer is fresh, and as a targeted fix
-        # for the live .66 ModuleNotFoundError: No module named 'dbus'.
+        # for the live MS-R1 test-board ModuleNotFoundError: No module named 'dbus'.
         if ! chroot /target /usr/bin/apt-get install -y --allow-unauthenticated python3-dbus; then
             _pydbus_deb=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'python3-dbus_*.deb' 2>/dev/null | sort -V | tail -1)
             if [ -n "$_pydbus_deb" ]; then
@@ -728,7 +728,7 @@ else
     CDROM_BIND_MOUNTED=0
 fi
 
-# 2026-05-07 take9 (per .66 take8 pkgsel cascade fail): pre-write apt
+# 2026-05-07 take9 (per MS-R1 test-board take8 pkgsel cascade fail): pre-write apt
 # retries config so post-install hooks 10-our-kernel.sh / 20-desktop.sh
 # / etc retry transient DNS/network blips when fetching packages from
 # the Debian archive. pkgsel itself runs BEFORE late.sh so this doesn't
@@ -750,7 +750,7 @@ echo "--- /target/etc/apt/apt.conf.d/99retries installed ---"
 # /run/systemd/resolve/stub-resolv.conf, but systemd-resolved isn't
 # running inside the chroot — and the host stub points at only the
 # DHCP-provided nameserver (one IP, often the LAN router). On flaky
-# LAN DNS this single source dropped queries on .66 take8.
+# LAN DNS this single source dropped queries on the MS-R1 test board take8.
 #
 # A real file with public resolvers (Google + Cloudflare) survives any one
 # being slow, and is network-neutral (no site-specific gateway baked in). Once
@@ -1306,7 +1306,7 @@ late_progress_state FINALIZE hardware npu-install-time "Applying install-time NP
 # mode run-all.sh does not re-run 80-npu at install. This d-i runtime, by
 # contrast, runs ON the MS-R1 — /sys/bus/acpi here reflects the real board — so
 # it is the correct place to apply the two hardware-visible NPU fixes. Both are
-# proven live on cixmini/.66 (persist across cold boot; /dev/aipu + 3 cores):
+# proven live on the MS-R1 test board (persist across cold boot; /dev/aipu + 3 cores):
 #
 #   FIX A — prepend the NPU-core SSDT (adds the CIXH4010:0[012] core _HIDs the
 #           MS-R1 BIOS omits; without it: probe -22, "failed to find NPU core
@@ -1338,7 +1338,7 @@ ncz_npu_install_time() {
     # Only lands what the baked base did not already ship; safe to re-run.
     #
     # r186.1: $SRC (the live ISO /ncz-payload mount) can be missing this file
-    # even when the repo + the baked rootfs both have it — observed on .66
+    # even when the repo + the baked rootfs both have it — observed on the MS-R1 test board
     # r186 (cix-installer-late.log: FIX A ran, FIX B silently never fired,
     # "no CIXH4010 cores" -> unidentified hardware version 5 at boot,
     # /dev/aipu absent). Root cause is upstream in the squashfs/ISO staging of
@@ -1461,7 +1461,7 @@ ncz_npu_install_time || echo "[npu] install-time NPU fixes returned nonzero (non
 # rEFInd is on the ESP and the system boots. The old `if [ "$RET" = "0" ]`
 # gates then SKIPPED the remove-media banner + blocking dialog entirely, so
 # d-i had nothing to consume the finish flow and dropped to the raw MAIN MENU
-# instead of rebooting (observed .66, 2026-07-03). By the time we get here
+# instead of rebooting (observed on the MS-R1 test board, 2026-07-03). By the time we get here
 # run-all.sh's EXIT trap has already installed the bootloader, so this ESP
 # check is authoritative. FINALIZE_OK = "install succeeded OR is bootable".
 # ncz_bootable: TRUE iff rEFInd is on the ESP — INDEPENDENT of efibootmgr /
@@ -1487,7 +1487,7 @@ ncz_bootable() {
 # ncz_force_reboot: drive the reboot OURSELVES rather than trusting
 # finish-install's menu loop. On Sky1 METAL the priority=critical finish-install
 # did NOT auto-reboot after our late_command returned 0 — it dropped to the d-i
-# MAIN MENU (operator report .66, 2026-07-03/04). r180 proved a direct reboot
+# MAIN MENU (operator report, MS-R1 test board, 2026-07-03/04). r180 proved a direct reboot
 # here is clean + deterministic on the unattended path; r181 uses the SAME path
 # for the interactive install (after the operator dismisses the remove-media
 # dialog). rEFInd is already synced to the FAT ESP and the root fs is journaled.
@@ -1600,7 +1600,7 @@ db_try db_subst nclawzero/install-step STEP "nclawzero post-install complete - f
 db_try db_progress INFO nclawzero/install-step
 ttymsg "post-install hooks finished (rc=$RUNALL_RET); finalizing apt sources + bootloader."
 
-# Codex A2 fix: don't leave bind-mount around after late_command finishes
+# review A2 fix: don't leave bind-mount around after late_command finishes
 if [ "${CDROM_BIND_MOUNTED:-0}" = "1" ]; then
     umount /target/cdrom 2>&1 || true
     rmdir /target/cdrom 2>&1 || true
@@ -1613,7 +1613,7 @@ echo "target run-all.sh exited: $RUNALL_RET"
 # `deb cdrom:[...]` line), but once the install media is ejected they make the
 # installed system's `apt-get update` fail. Remove them as the last apt action.
 echo "--- stripping CD-ROM apt sources from /target before reboot ---"
-# r130.2 fix (Codex analysis of .66 install red-error): this step runs in the
+# r130.2 fix (review of an MS-R1 test-board install red-error): this step runs in the
 # d-i runtime under BUSYBOX sed, NOT GNU sed. busybox sed has no `I`
 # case-insensitive address modifier (GNU-only); the old `/.../Id` aborted
 # late.sh with "sed: unsupported command I" AFTER an otherwise-successful
@@ -1747,11 +1747,11 @@ if [ "$FINALIZE_OK" = "1" ]; then
     # reboot. priority=critical (r134) means d-i may reboot without its own
     # final prompt, and the TTY banner above is only visible on Alt+F3. This
     # pops a note on the same frontend d-i uses and waits for Continue.
-    # r162 (codex review): skip the blocking remove-media dialog on unattended
+    # r162 (review): skip the blocking remove-media dialog on unattended
     # installs (qemu harness / automated runs pass ncz_unattended=1). Metal
     # USB installs keep the full stop — that dialog is the whole point there.
     #
-    # r180/r181 (.66 metal fix): d-i's priority=critical finish-install did NOT
+    # r180/r181 (MS-R1 test-board metal fix): d-i's priority=critical finish-install did NOT
     # auto-reboot after our late_command (finish-install.d/07preseed) returned —
     # it dropped to the d-i MAIN MENU on Sky1 metal, on BOTH the unattended and
     # the interactive path. The skipped/dismissed remove-media db_input used to be

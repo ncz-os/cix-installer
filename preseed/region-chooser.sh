@@ -76,7 +76,7 @@ log() {
 # ONE ENTRY PER LINE (real newlines). r199 joined the entries with
 # backslash-newline inside the double quotes, which the shell removes, so the
 # table was ONE line: the dialog listed only "us", ncz_region=<anything but us>
-# was rejected, and the "us" row's keymap field read "us ca" (PEGASUS
+# was rejected, and the "us" row's keymap field read "us ca" (the GU502LV laptop
 # 2026-10-06: "REGION = en_US.UTF-8 ... keymap=us ca" pushed into
 # keyboard-configuration/xkb-keymap). Labels must not contain a comma (cdebconf
 # splits Choices on ", ").

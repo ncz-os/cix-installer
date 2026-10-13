@@ -12,9 +12,9 @@
 #          four addresses        60.07 s   (the pool name resolves to four)
 #          no route at all        0.001 s  "Network is unreachable"
 #      So on any network that filters UDP/123 the menu froze for a minute behind a progress bar. On the
-#      measured installs it did not stall: CHIMERA's syslog shows 13:59:41 -> 13:59:55, but that 14 s is the
+#      measured installs it did not stall: T2 Mac A's syslog shows 13:59:41 -> 13:59:55, but that 14 s is the
 #      clock being STEPPED by +14.05 s ("rdate: adjust local clock by 14.046549 seconds"); rdate itself returned
-#      within the second (PEGASUS +0.40 s, O6N +0.59 s, same second).
+#      within the second (the GU502LV laptop +0.40 s, O6N +0.59 s, same second).
 #   2. the inline "refine from the mirror Date header" subshell early_command used to carry (moved here
 #      unchanged in behaviour: only when the clock is implausible, year < 2020, and SNTP did not answer).
 #
