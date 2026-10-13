@@ -76,7 +76,9 @@ MOTD
 chmod 0755 /etc/update-motd.d/40-ncz-firewall
 
 # Desktop signpost follows the existing NCZ XDG notification pattern. It is
-# intentionally shown on each login while protection remains off.
+# intentionally shown on each login while protection remains off. The
+# Singularity shell starts a system autostart entry only when OnlyShowIn names
+# Singularity (build/test-xdg-autostart.sh).
 install -d -m 0755 /usr/local/bin /etc/xdg/autostart
 cat > /usr/local/bin/ncz-firewall-notify <<'NOTIFY'
 #!/bin/sh
@@ -99,6 +101,7 @@ Icon=security-low
 Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
+OnlyShowIn=Singularity;
 DESKTOP
 chmod 0644 /etc/xdg/autostart/ncz-firewall-notice.desktop
 
