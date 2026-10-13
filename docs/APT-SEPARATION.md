@@ -34,8 +34,8 @@ package pool on the install media is used only during installation.
 
 ## Delivery
 
-New installs get the pin from `post-install/24-apt-sources.sh` before any other
-apt operation. Installed systems get it from the `ncz-apt-policy` package
+New installs get the pin from `post-install/24-apt-sources.sh` before any NCZ or
+T2 source is enabled. Installed systems get it from the `ncz-apt-policy` package
 (`build/build-ncz-apt-policy-deb.sh`), which rewrites the pin in its postinst
 and migrates a configuration that had both NCZ-OS repositories enabled. The
 update manager installs `ncz-apt-policy` after every index refresh, before an

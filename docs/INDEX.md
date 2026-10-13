@@ -31,7 +31,7 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | [APT-SEPARATION.md](APT-SEPARATION.md) | How NCZ-OS package updates are kept separate from Debian ones (apt pin, one repository, labelled updates) |
 | [CUDA-DYNAMIC-INSTALL.md](CUDA-DYNAMIC-INSTALL.md) | NVIDIA driver and CUDA installed per GPU family on amd64 |
 | [T2-GMUX.md](T2-GMUX.md), [T2-SMP.md](T2-SMP.md), [T2-THUNDERBOLT.md](T2-THUNDERBOLT.md) | Which Apple T2 driver owns what, and which T2 modules are not loaded |
-| [T2-POWER-CAP.md](T2-POWER-CAP.md) | CPU package power cap that stops load-triggered power cuts on MacBookPro16,1 |
+| [T2-POWER-CAP.md](T2-POWER-CAP.md) | CPU package power cap for MacBookPro16,1 under sustained load |
 | [T2-CONSOLE-NOISE.md](T2-CONSOLE-NOISE.md) | Why T2 boot "hardware error" lines appear, and the console policy |
 | [HW-VIDEO-DECODE-STATUS.md](HW-VIDEO-DECODE-STATUS.md) | Hardware video decode on Sky1 (VA-API route) |
 | [NCZ-SKY1-AUDIO-AUTOSWITCH.md](NCZ-SKY1-AUDIO-AUTOSWITCH.md) | Automatic HDMI/DP audio switching on Sky1 boards |
