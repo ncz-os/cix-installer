@@ -151,40 +151,19 @@ fi
 # Chrome is an independent release input: fetch it independently and fail the
 # mirror build rather than allowing a browser-enabled image to be assembled with
 # a known-incomplete pool.
-CHROME_DEB_CACHE="${CHROME_DEB_CACHE:-$REPO/build/chrome-deb-cache}"
-GOOGLE_CHROME_URL="${GOOGLE_CHROME_URL:-https://dl.google.com/linux/chrome/deb}"
+# 2026-10-13: the live fetch ("always the CURRENT stable release") is gone. It
+# made every Google stable release break the provenance gate, because
+# manifests/vendor-debs.tsv pins one exact version + sha256. The pinned deb is a
+# staged build input (assets/google-chrome/, manifests/build-inputs.tsv);
+# build/refresh-google-chrome.sh moves the pin after verifying Google's signed
+# InRelease -> Packages -> deb chain.
+# shellcheck source=lib/google-chrome-pin.sh
+. "$REPO/build/lib/google-chrome-pin.sh"
 if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "amd64" ]; then
-    echo "== publishing Google Chrome stable ($ARCH) =="
-    mkdir -p "$CHROME_DEB_CACHE"
-    if ! _chrome_pkgs="$(curl -fsSL -m 60 "$GOOGLE_CHROME_URL/dists/stable/main/binary-$ARCH/Packages")" \
-       || [ -z "$_chrome_pkgs" ]; then
-        echo "  ERROR: could not fetch Google's $ARCH Packages index; refusing an incomplete vendor mirror" >&2
-        exit 1
-    else
-        _chrome_entry="$(printf '%s\n' "$_chrome_pkgs" | awk '/^Package: google-chrome-stable$/{f=1} f{print} f&&/^$/{exit}')"
-        _chrome_file="$(printf '%s\n' "$_chrome_entry" | sed -n 's/^Filename: //p')"
-        _chrome_sha="$(printf '%s\n' "$_chrome_entry" | sed -n 's/^SHA256: //p')"
-        if [ -z "$_chrome_file" ] || [ -z "$_chrome_sha" ]; then
-            echo "  ERROR: google-chrome-stable/$ARCH is absent or incomplete in Google's Packages index" >&2
-            exit 1
-        else
-            _chrome_deb="$CHROME_DEB_CACHE/$(basename "$_chrome_file")"
-            if [ -f "$_chrome_deb" ] && [ "$(sha256sum "$_chrome_deb" | awk '{print $1}')" = "$_chrome_sha" ]; then
-                echo "  cached: $(basename "$_chrome_deb") already verified"
-            else
-                echo "  fetching $(basename "$_chrome_file") ..."
-                if curl -fsSL -m 300 "$GOOGLE_CHROME_URL/$_chrome_file" -o "$_chrome_deb.part" \
-                   && [ "$(sha256sum "$_chrome_deb.part" | awk '{print $1}')" = "$_chrome_sha" ]; then
-                    mv -f "$_chrome_deb.part" "$_chrome_deb"
-                else
-                    echo "  ERROR: download or SHA256 mismatch for $_chrome_file -- refusing to publish" >&2
-                    rm -f "$_chrome_deb.part"
-                    exit 1
-                fi
-            fi
-            publish_deb "$_chrome_deb"
-        fi
-    fi
+    echo "== publishing Google Chrome stable ($ARCH, pinned) =="
+    _chrome_deb="$(ncz_chrome_staged_deb "$REPO" "$ARCH")" || { echo "  ERROR: refusing an incomplete vendor mirror" >&2; exit 1; }
+    echo "  pinned: $(basename "$_chrome_deb") (sha256 matches manifests/vendor-debs.tsv)"
+    publish_deb "$_chrome_deb"
 fi
 
 # The pool can also hold a Sky1 kernel from an EARLIER run that this run
