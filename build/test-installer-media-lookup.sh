@@ -133,7 +133,7 @@ T_USB="$USBESP $USBIMG" T_PARTS="$USBESP $USBIMG" T_DISKS="$SB/dev/sda" T_MEDIA=
 run_helper mount; rc=$?
 check "USB: mount succeeds (rc=$rc)" [ "$rc" -eq 0 ]
 check "USB: /cdrom holds the USB image partition" [ "$(mounted)" = "$USBIMG" ]
-check "USB: every mount is ro,noload" sh -c '! grep -v -- "-o ro,noload " "$1" | grep -q .' _ "$SB/mounts.log"
+check "USB: every mount is ro,noload" sh -c '! grep -v -- "-o ro,noload " "$1" | grep >/dev/null .' _ "$SB/mounts.log"
 : > "$SB/proc-mounts"
 run_helper gate; rc=$?
 check "USB: gate continues without showing the screen (rc=$rc)" sh -c '[ "$1" -eq 0 ] && [ ! -s "$2" ]' _ "$rc" "$SB/console"
