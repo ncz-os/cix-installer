@@ -159,10 +159,12 @@ publish "$T/usb12.deb"
 [ "$RC" = 0 ] && ok "publish exits 0" || bad "publish rc=$RC" "$OUT"
 grep -qx "POST ncz-usb-recovery_1.2_arm64.deb $(sha "$T/usb12.deb")" "$MOCK/bk.log" 2>/dev/null \
     && ok "Buildkite received the new arm64 deb" || bad "Buildkite did not receive the new arm64 deb" "$(cat "$MOCK/bk.log" 2>/dev/null)"
-grep -q '1\.1_all' "$MOCK/bk.log" 2>/dev/null && bad "the old 1.1 file was posted to Buildkite" || ok "the old 1.1 file was not posted"
+grep -q "$(sha "$T/usb11.deb")" "$MOCK/bk.log" 2>/dev/null && bad "the old 1.1 file was posted to Buildkite" || ok "the old 1.1 file was not posted"
 grep -qx "PUT pool/main/n/ncz-usb-recovery/ncz-usb-recovery_1.2_arm64.deb $(sha "$T/usb12.deb")" "$MOCK/r2.log" 2>/dev/null \
     && ok "R2 received the new arm64 deb at its pool path" || bad "R2 did not receive the new arm64 deb" "$(cat "$MOCK/r2.log" 2>/dev/null)"
-grep -q 'pool/main/n/ncz-usb-recovery/ncz-usb-recovery_1.1_all.deb' "$MOCK/r2.log" 2>/dev/null \
+old_pool="$(awk -F'\t' '$2 == "ncz-usb-recovery" && $3 == "1.1" { print $4; exit }' "$C/repo/db.tsv")"
+[ -n "$old_pool" ] && ok "the older 1.1 build is still in the repo (amd64): $old_pool" || bad "fixture: no 1.1 row left in the repo"
+grep -qF " $old_pool " "$MOCK/r2.log" 2>/dev/null \
     && bad "the old 1.1 file was put to R2" || ok "the old 1.1 file was not put to R2"
 printf '%s\n' "$OUT" | grep -q 'ncz-usb-recovery 1.2 (arm64)' && ok "final line names 1.2 (arm64)" || bad "final line does not name 1.2 (arm64)" "$OUT"
 
