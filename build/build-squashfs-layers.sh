@@ -862,6 +862,7 @@ PYMETACOPY
   # xattrs; ordinary unsquashfs understands neither when merging into a base.
   # Strip overlay-internal xattrs from the payload after recording them so they
   # do not contaminate the installed filesystem.
+  strip_build_host_state "$U" "$role" || exit 1
   log "$role: generate overlay operation manifest"
   sudo python3 - "$U" "$OUT/$role.overlay-manifest" <<'PYOVERLAY'
 import os
@@ -1138,6 +1139,27 @@ build_base(){
     esac
     [ -d "$ROOT/assets/$a" ] && sudo cp -a "$ROOT/assets/$a" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
   done
+  # Only the pinned kernel's accelerator overlays belong in the image. The copy
+  # above takes whatever the build tree holds, and a long-lived build tree holds
+  # every overlay ever staged: the d395bb2d images shipped ~40 retired
+  # <drv>/<kver>/ directories (7.0.12 .. 7.3.0-rc6) and the retired
+  # modules-overlay/<kver> and r<NNN>-*/test-* kernel snapshots, whose modules carry the
+  # build paths of the machines that compiled them. Keep the pinned KVER only.
+  _pin_kver="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["variants"]["mainline"]["kver"])' "$ROOT/assets/kernel-manifest.json" 2>/dev/null || true)"
+  _ka="$WORK/base/usr/local/lib/cix-installer/assets/kernel"
+  if [ -n "$_pin_kver" ] && [ -d "$_ka" ]; then
+    for _drv in mali npu vpu panthor modules-overlay; do
+      for _kd in "$_ka/$_drv"/[0-9]*.*-*; do
+        [ -d "$_kd" ] || continue
+        [ "$(basename "$_kd")" = "$_pin_kver" ] || sudo rm -rf "$_kd"
+      done
+    done
+    sudo rm -rf "$_ka"/r[0-9]*-* "$_ka"/test-*
+    log "  kernel assets: accelerator overlays pruned to the pinned $_pin_kver"
+  else
+    log "ERROR: no pinned kernel version in assets/kernel-manifest.json; cannot prune staged overlays"
+    exit 1
+  fi
   # Standalone files at assets/ root -- same silent-drop bug, same fix.
   for f in install_ncz_agents.sh kernel-manifest.json README.md cix-deb-repo.gpg; do [ -f "$ROOT/assets/$f" ] && sudo cp -a "$ROOT/assets/$f" "$WORK/base/usr/local/lib/cix-installer/assets/" 2>/dev/null || true; done
   if [ -f "$ROOT/assets/sinty-nm/sinty-nmd" ]; then
@@ -1332,6 +1354,7 @@ ExecStartPre=/usr/sbin/sshd -t
   sudo chroot "$WORK/base" apt-get clean 2>/dev/null || true
   sudo rm -rf "$WORK/base/var/lib/apt/lists/"* "$WORK/base/tmp/"* 2>/dev/null || true
   apt_unmount "$WORK/base"; umount_chroot "$WORK/base"
+  strip_build_host_state "$WORK/base" base || exit 1
   # 2026-08-26: defensive chmod 0755 on the base root before mksquashfs.
   # Why: O6N install shipped with / mode 0700 (observed). mksquashfs
   # records the source-dir inode mode verbatim into the squashfs root entry,
@@ -1543,6 +1566,36 @@ build_singularity_payload(){
   rm -f "$ROOT/assets/cix-debs/"ncz-singularity-desktop_*.deb
   install -m 0644 "$_deb" "$ROOT/assets/cix-debs/"
   log "SINGULARITY: staged $(basename "$_deb") -> assets/cix-debs/ (fresh, from the pinned sources)"
+}
+
+# strip_build_host_state <root> <label> -- a layer must not describe the machine
+# that built it. Package scripts run inside the build chroot record the BUILD
+# HOST: mmdebstrap copies its /etc/hostname, lvm2's vgcfgbackup writes its volume
+# groups to /etc/lvm/backup, nvme-cli generates one NVMe host NQN/ID that every
+# install would share, and dpkg/apt/openssh logs carry its paths and host name
+# (ssh-keygen prints root@<host>). Measured in the d395bb2d images: the amd64 base
+# layer shipped /etc/hostname = the build host and term.log fingerprints naming
+# it. The target writes its own hostname, logs and ids at install/first boot.
+strip_build_host_state(){
+  local r="$1" label="$2" left
+  [ -d "$r" ] || return 0
+  sudo find "$r/var/log" -type f \( -name '*.log' -o -name '*.log.xz' -o -name '*.log.[0-9]*' \) -delete 2>/dev/null || true
+  sudo rm -f "$r/tmp/ncz-apt-update.log" "$r/etc/nvme/hostnqn" "$r/etc/nvme/hostid" 2>/dev/null || true
+  sudo find "$r/etc/lvm/backup" "$r/etc/lvm/archive" -mindepth 1 -delete 2>/dev/null || true
+  if [ "$label" = base ]; then
+    printf 'localhost\n' | sudo tee "$r/etc/hostname" >/dev/null
+  fi
+  left="$(sudo find "$r/var/log" -type f \( -name '*.log' -o -name '*.log.xz' \) 2>/dev/null; \
+          sudo find "$r/etc/lvm/backup" "$r/etc/lvm/archive" -mindepth 1 2>/dev/null; \
+          sudo find "$r/etc/nvme" -maxdepth 1 \( -name hostnqn -o -name hostid \) 2>/dev/null)"
+  if [ "$label" = base ] && [ "$(sudo cat "$r/etc/hostname" 2>/dev/null)" != localhost ]; then
+    left="$left /etc/hostname"
+  fi
+  if [ -n "$left" ]; then
+    log "ERROR: $label layer would carry build-host state: $left"
+    return 1
+  fi
+  log "$label: no build-host state (hostname, LVM backup, NVMe ids, build logs)"
 }
 
 ensure_wallpaper_packs(){
