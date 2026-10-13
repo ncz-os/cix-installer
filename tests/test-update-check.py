@@ -26,10 +26,17 @@ EOF
             fake.chmod(0o755)
             # The production checker pins PATH. Substitute its apt executable
             # in-memory so this test never touches or mutates system APT state.
-            source = CHECKER.read_text().replace(
-                '["apt", "list", "--upgradable"]',
-                f'["{fake}", "list", "--upgradable"]',
-            )
+            # apt-cache policy (origin lookup, 3da1f0c3) gets a silent stub.
+            fake_cache = pathlib.Path(temp) / "apt-cache"
+            fake_cache.write_text("#!/bin/sh\nexit 0\n")
+            fake_cache.chmod(0o755)
+            source = CHECKER.read_text()
+            for old, new in (
+                ('run_apt("apt", "list"', f'run_apt("{fake}", "list"'),
+                ('run_apt("apt-cache"', f'run_apt("{fake_cache}"'),
+            ):
+                self.assertIn(old, source)
+                source = source.replace(old, new)
             result = subprocess.run(
                 ["python3", "-c", source], text=True, capture_output=True, check=True
             )
