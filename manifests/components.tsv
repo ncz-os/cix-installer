@@ -264,7 +264,7 @@ gnome-weather	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packa
 gnome-weather	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 gnupg	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
 gnupg	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
-google-chrome-stable	staged-deb	staged:build/forky-vendor-mirror/google-chrome-stable_*_${ARCH}.deb	all	desktop	no		post-install/53-chrome.sh (apt from the offline forky-vendor-mirror)	build/verify-installed-target.sh	build/forky-vendor-mirror (pinned Google .deb, SHA256-verified); build/build-vendor-mirror.sh; manifests/desktop.pkgs; manifests/desktop-amd64.pkgs	Second browser; Vivaldi stays default. Real arm64 Linux Chrome landed Q2 2026.
+google-chrome-stable	staged-deb	staged:assets/google-chrome/google-chrome-stable_*_${ARCH}.deb	all	desktop	no		post-install/53-chrome.sh (apt from the offline forky-vendor-mirror)	build/verify-installed-target.sh	assets/google-chrome/ (pinned Google .deb, staged by build/stage-build-inputs.sh, refreshed by build/refresh-google-chrome.sh); build/build-vendor-mirror.sh; manifests/desktop.pkgs; manifests/desktop-amd64.pkgs	Second browser; Vivaldi stays default. Real arm64 Linux Chrome landed Q2 2026.
 greetd	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 greetd	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 grim	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	

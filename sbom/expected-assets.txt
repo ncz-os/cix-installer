@@ -18,7 +18,7 @@ assets/cix-debs/cix-isp-umd_1.0.0_arm64.deb|3349280|d8ca476339754c82aa021235a549
 assets/cix-debs/cix-libdrm_1.0.0_arm64.deb|325112|fa9133d52fb5b9500ea0fa2879c5c55a0aa7e17dde7e58f2f74c3c2de2792b15
 assets/cix-debs/cix-libglvnd_1.7.0_arm64.deb|341308|17f6290d02135d49050918024a5aa9532457f1580bebd9f005060f263bdb7cc2
 assets/cix-debs/cix-llama-cpp_1.0.0_arm64.deb|4413772|8ded3e24f72fed0c1b9756c1876ae98494bb6eec10f201c703fc3c60150b4c11
-assets/cix-debs/cix-mesa_24.0.4_arm64.deb|25889528|996a11f18d238398d36582eb10ec9da2429fe7cc6feaeec569df6a7510d11084
+assets/cix-debs/cix-mesa_24.0.4-ncz1_arm64.deb|30249974|bf4375f4b7b9d139a51e0f2dcdad6c2c5a6d0c1e432cd6b3211f1b76933fd00b
 assets/cix-debs/cix-mnn_1.0.0_arm64.deb|2084332|954bc31f597074d1a318964dee5ce1c575ff7656e4b8c97d5acaf954da3ab5bb
 assets/cix-debs/cix-noe-umd_3.1.4-cixdeb13-260714_arm64.deb|3043938|b6075dc63331849452b68d755f2940332a0851f7940770813be2480c0d51abf8
 assets/cix-debs/cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz3_arm64.deb|94684|33c50737daf469322666aca6e8b5a866465bdb86ee0bc92173e7e6f152d826b4

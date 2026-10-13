@@ -483,6 +483,14 @@ build/test-sibling-empty-index.sh	common	-	hermetic fixture test that an empty p
 build/test-refind-rescue-promotion.sh	common	-	rEFInd rescue auto-promotion guard: rc/edge kernels are never promoted; existing rescue survives a failed copy (item RRH)
 build/test-wallpaper-rotator-relogin.sh	common	-	ncz-wallpaper-rotator.service is wanted by the per-login session target (item RRH)
 build/test-wallpaper-rotator-interval.sh	common	-	the wallpaper daemon rotates only when the configured interval has elapsed, not on (re)start
+build/test-wallpaper-deb-repro.sh	common	-	the Artist Pack debs are byte-reproducible (umask, caller epoch, home checkout) and a pack.json that does not match the packaged images fails the build
+build/test-npu-embed-deb.sh	sky1	-	ncz-npu-embed is built from the tree (noe-venv unit from hook 89, versioned cix-noe-umd dependency) and is byte-reproducible
+build/test-cix-mesa-repack.sh	sky1	-	build/verify-cix-mesa-repack.py accepts exactly the cix-mesa -ncz1 change (compat loader path commented out, Version bumped) and nothing more
+build/verify-cix-mesa-repack.py	sky1	-	member-by-member proof that cix-mesa 24.0.4-ncz1 is the vendor 24.0.4 with only its compat loader path disabled
+build/refresh-google-chrome.sh	common	-	moves the pinned Google Chrome deb to the current stable after verifying the signed InRelease -> Packages -> deb chain; rewrites vendor-debs/build-inputs rows and publishes to the store
+build/lib/google-chrome-pin.sh	common	-	the pinned, staged Google Chrome deb both mirror builders use (exact version + sha256 from manifests/vendor-debs.tsv)
+build/test-google-chrome-pin.sh	common	-	both mirror builders take Google Chrome only from the staged pinned deb, and the vendor-debs pin equals the staged build input
+build/build-npu-embed-deb.sh	sky1	-	NPU embedding server package (ncz-npu-embed)
 build/test_wallpaper_fit.py	common	-	wallpaper aspect variants: selection, rotator refit, deb layout, safe-area pixel test
 build/test-t2-dkms-provenance.sh	amd64	t2	proves every vendored T2 DKMS module has a PROVENANCE file pinned to a 40-hex upstream commit and a licence line
 build/test-t2smc-range.sh	amd64	t2	userspace unit test of the t2smc range checks (fan min/target, charge limit, RTC offset) and the patch applying cleanly

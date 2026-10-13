@@ -4,6 +4,8 @@
 # CIX rows are the original vendor-proprietary binaries: identity/size/sha pinned in
 # sbom/expected-assets.txt and documented in docs/SOURCE-RELEASES.md ("CIX proprietary vendor .debs").
 # The NCZ-repacked +ncz3 NPU DKMS is NOT here -- it is an NCZ build (manifests/ncz-packages.tsv).
+# cix-mesa 24.0.4-ncz1 (the vendor 24.0.4 with 01-cixgpu-compat.conf commented out) is NOT here either:
+# it is an NCZ repack, ledgered in manifests/ncz-packages.tsv and checked by build/verify-cix-mesa-repack.py.
 # Columns (TAB): name, version, arch, vendor, source URL/ref, sha256, note
 cix-ai-engine	2.0.0-cixdeb13-260714	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	9221b503a4fc018fadc1803b80fc25f5c5365b1563f7a567b4016b4e8662d0ab	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
 cix-ai-test	1.0.1-cixdeb13-260714	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	21b5fd5e89918b2ea1113838de663f662d7696c9fdd4b13332c6ff05e5d2c3ee	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
@@ -22,7 +24,6 @@ cix-isp-umd	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.t
 cix-libdrm	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	fa9133d52fb5b9500ea0fa2879c5c55a0aa7e17dde7e58f2f74c3c2de2792b15	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
 cix-libglvnd	1.7.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	17f6290d02135d49050918024a5aa9532457f1580bebd9f005060f263bdb7cc2	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
 cix-llama-cpp	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	8ded3e24f72fed0c1b9756c1876ae98494bb6eec10f201c703fc3c60150b4c11	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
-cix-mesa	24.0.4	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	996a11f18d238398d36582eb10ec9da2429fe7cc6feaeec569df6a7510d11084	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
 cix-mnn	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	954bc31f597074d1a318964dee5ce1c575ff7656e4b8c97d5acaf954da3ab5bb	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
 cix-noe-umd	3.1.4-cixdeb13-260714	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	b6075dc63331849452b68d755f2940332a0851f7940770813be2480c0d51abf8	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
 cix-npu-umd	3.2.0-cixdeb13-260714	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	f851cb9996f8422d723da82a81a811b7da8f51af27af0326f69a0ab65e9b491a	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
@@ -30,8 +31,8 @@ cix-optee	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt
 cix-sd-demo	1.4.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	5e6d3aae482c8b2a8d99cef63bb1ba42c56a1670a446884ce23049e24f03d05c	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
 cix-tools	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	11a52be12c84f7dd4508f7a7814c87b66363403df8911af9281a56df51057c85	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
 cix-whisper-cpp	1.0.0	arm64	CIX Technology	vendor-proprietary;sbom/expected-assets.txt	47e3a01af9b78d2f541eac32364cbaf908e20551198a9ae61781343e2e475157	CIX proprietary vendor deb (docs/SOURCE-RELEASES.md); source not republished by NCZ
-google-chrome-stable	155.0.8059.39-1	amd64	Google LLC	https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_155.0.8059.39-1_amd64.deb	c58aa0f2cd66179c9f050e062c882d27aa9b9f8c2b7c73fee3498560b5ed0b38	vendor browser, staged in the offline pool
-google-chrome-stable	155.0.8059.39-1	arm64	Google LLC	https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_155.0.8059.39-1_arm64.deb	3556494580a71ecee15cbeb3b6ce23bf3af360bc053d90d3105241c2247da52b	vendor browser, staged in the offline pool
+google-chrome-stable	155.0.8059.79-1	amd64	Google LLC	https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_155.0.8059.79-1_amd64.deb	b7726070ca707965e9a17b38e4f15ba283bf6f65c339626c092862af7b19badc	vendor browser, staged in the offline pool
+google-chrome-stable	155.0.8059.79-1	arm64	Google LLC	https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_155.0.8059.79-1_arm64.deb	245fa8da4a52c15bee7811d3e17892792cabd6361ac5b7e9c78ba6482ad18315	vendor browser, staged in the offline pool
 vivaldi-stable	8.1.4087.55-1	amd64	Vivaldi Technologies	https://repo.vivaldi.com/archive/deb/pool/main/vivaldi-stable_8.1.4087.55-1_amd64.deb	1a27310d8649c5eac4103bb4f199727a02cb65292766db9166b094613f90d4dd	default browser, assets/vivaldi (staged by build/stage-build-inputs.sh)
 vivaldi-stable	8.1.4087.55-1	arm64	Vivaldi Technologies	https://repo.vivaldi.com/archive/deb/pool/main/vivaldi-stable_8.1.4087.55-1_arm64.deb	7120eed5c8df088927d305a6e9c59a06b7e01991f8faab372675d8c7e25f0bb9	default browser, assets/vivaldi (staged by build/stage-build-inputs.sh)
 cuda-keyring	1.1-1	all	NVIDIA	https://developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/cuda-keyring_1.1-1_all.deb	d0d4ef986a44400f9db33c600ef33a985175e7cc63d805a10e1839c7a1e78f5f	NVIDIA CUDA apt keyring, assets/nvidia
