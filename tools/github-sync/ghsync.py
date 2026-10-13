@@ -804,15 +804,43 @@ def chunk_steps(gitdir, ref, new, known, budget):
     return steps
 
 
-def push(ctx, gitdir, url, specs):
+TRANSIENT = (
+    "Connection timed out",
+    "Could not resolve host",
+    "Failed to connect",
+    "RPC failed",
+    "remote end hung up",
+    "HTTP 500",
+    "HTTP 502",
+    "HTTP 503",
+    "HTTP 504",
+)
+
+
+def push(ctx, gitdir, url, specs, tries=3):
+    """git push; a network failure is retried (every update is lease-pinned or
+    a plain fast-forward, so repeating a push is safe)."""
     if not specs:
         return
-    r = git(gitdir, "push", "--porcelain", url, *specs, check=False)
-    if r.returncode != 0:
-        raise Fatal(
-            "push failed: %s"
-            % (r.stderr.strip()[-600:] or r.stdout.strip()[-600:] or "<no output>")
+    for n in range(1, tries + 1):
+        r = git(
+            gitdir,
+            "-c",
+            "http.postBuffer=524288000",
+            "push",
+            "--porcelain",
+            url,
+            *specs,
+            check=False,
         )
+        if r.returncode == 0:
+            return
+        err = r.stderr.strip()[-600:] or r.stdout.strip()[-600:] or "<no output>"
+        if n < tries and any(t in err for t in TRANSIENT):
+            log(f"  push retry {n}/{tries - 1} after: {err.splitlines()[-1][:160]}")
+            time.sleep(15 * n)
+            continue
+        raise Fatal(f"push failed: {err}")
 
 
 def apply_repo(ctx, r, gitdir, rows, a):
