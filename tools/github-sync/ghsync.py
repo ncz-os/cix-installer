@@ -322,9 +322,9 @@ class BlobCache:
         os.replace(tmp, self.path)
 
 
-def scan_blobs(gitdir, shas, lits, cache, write_replaced):
-    """Classify blobs; returns dict sha -> verdict. write_replaced stores the
-    replaced content in gitdir so a tree can be rebuilt from it."""
+def scan_blobs(gitdir, shas, lits, cache):
+    """Classify blobs; returns dict sha -> verdict. A replaced blob is written
+    to gitdir (the check repository) so its tree can be rebuilt."""
     todo = [s for s in shas if s not in cache.d]
     if todo and lits:
         for s, data in iter_objects(gitdir, todo):
@@ -362,7 +362,7 @@ def expected_tree(gitdir, commit, ctx, cache, problems):
         mode, typ, sha, size = meta.split()
         entries.append((mode, typ, sha.decode(), size, path))
     blobs = [e[2] for e in entries if e[1] == b"blob"]
-    verdict = scan_blobs(gitdir, sorted(set(blobs)), ctx.literals, cache, True)
+    verdict = scan_blobs(gitdir, sorted(set(blobs)), ctx.literals, cache)
     changed = False
     keep = []
     for mode, typ, sha, size, path in entries:
@@ -1060,6 +1060,7 @@ def cmd_check(a):
                     ctx.workdir, "cache", name + ".git", "objects"
                 )
                 if os.path.isdir(cache_objs):
+                    os.makedirs(os.path.join(cg, "objects", "info"), exist_ok=True)
                     with open(
                         os.path.join(cg, "objects", "info", "alternates"), "w"
                     ) as fh:
