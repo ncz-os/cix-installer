@@ -88,7 +88,7 @@ expect "operator-required full 9-dialog sequence (6-step + 2x password + target/
 # Negative: out-of-order swap of root-fs and erase-confirm must FAIL.
 mk9 "$DIALOG_COMP" "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_HOST" "$DIALOG_DISK" "$DIALOG_ERASE" "$DIALOG_ROOTFS"
 expect "operator-required 9-step sequence fails when root-fs and ERASE are swapped" 1 chk --require-prompt-sequence "optional components" "select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "name this computer" "TARGET DISK" "root \\(/\\) filesystem" "ERASE"
-# 2026-10-06 operator flow (photos from PEGASUS): region FIRST, username, password, confirm, components, then the disk
+# 2026-10-06 operator flow (photos from GU502LV): region FIRST, username, password, confirm, components, then the disk
 # dialogs; no hostname dialog. The checker accepts that sequence and rejects the r199 order (components before region).
 SEQ_NEW=("select your REGION" "choose a USERNAME" "choose a PASSWORD" "type the same PASSWORD" "optional components" "TARGET DISK" "root \\(/\\) filesystem" "ERASE")
 mk8 "$DIALOG_REG" "$DIALOG_USR" "$DIALOG_PWD" "$DIALOG_PWDC" "$DIALOG_COMP" "$DIALOG_DISK" "$DIALOG_ROOTFS" "$DIALOG_ERASE"

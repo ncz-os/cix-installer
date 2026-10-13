@@ -1,6 +1,6 @@
 """Installer rEFInd entries: nouveau.runpm=0 on every amd64 entry, never on arm64.
 
-PEGASUS (ASUS GU502LV, RTX 2060 Mobile 10de:1f15), 2026-10-06: the installer
+The ASUS GU502LV test laptop (RTX 2060 Mobile 10de:1f15), 2026-10-06: the installer
 kernel's nouveau oopsed in nvkm_gsp_gcx_ready() during runtime suspend and the
 install hung in post-install/54-gpu-accel.sh. The installer entries must keep
 nouveau's runtime PM off on amd64; the Sky1 entries must not change.

@@ -1,9 +1,9 @@
 #!/bin/bash
 # test-boot-sequence.sh -- regression tests for the 2026-10-06 detection / boot-sequence fixes
-# (docs/BOOT-SEQUENCE.md). Each section runs the REAL script (or the real generated heredoc) against stubs:
+#. Each section runs the REAL script (or the real generated heredoc) against stubs:
 #
 #  A. preseed/net-pick.sh: the "Waiting for a wired network link" loop ends at 5 s when a PCI/USB link is up
-#     (was 25 s with a cable-less onboard NIC: PEGASUS), at 10 s with no wired adapter at all and says so with a
+#     (was 25 s with a cable-less onboard NIC: GU502LV), at 10 s with no wired adapter at all and says so with a
 #     diagnostics hint (was 45 s: O6N in DT PCIe mode saw only lo), and at 20 s with adapters but no carrier
 #     (was 45 s; netcfg still waits its own 60 s afterwards). Unchanged: PCI link wins at once, a weak iBridge
 #     candidate still gets the PCI settle.
@@ -61,8 +61,8 @@ after() { sed -n 's/.* after \([0-9][0-9]*\)s.*/\1/p' "$W/log.$1" | tail -1; }
 
 mksys "$W/s1" eno2:pci:0 enx00e05c6701d5:usb:1
 netpick a1 "$W/s1"
-check "PEGASUS shape: USB link up, cable-less onboard NIC -> picks the USB NIC" "$(cat "$W/picked.a1")" "enx00e05c6701d5"
-s=$(after a1); [ -n "$s" ] && [ "$s" -le 10 ] && ok "PEGASUS shape: settles in ${s}s (<= 10 s; was 25 s)" || bad "PEGASUS shape settled after '${s}'s, want <= 10 (log: $(tail -1 "$W/log.a1"))"
+check "GU502LV shape: USB link up, cable-less onboard NIC -> picks the USB NIC" "$(cat "$W/picked.a1")" "enx00e05c6701d5"
+s=$(after a1); [ -n "$s" ] && [ "$s" -le 10 ] && ok "GU502LV shape: settles in ${s}s (<= 10 s; was 25 s)" || bad "GU502LV shape settled after '${s}'s, want <= 10 (log: $(tail -1 "$W/log.a1"))"
 
 mksys "$W/s2" eno2:pci:1 enx00e05c6701d5:usb:1
 netpick a2 "$W/s2"
@@ -120,7 +120,7 @@ if [ -f "$PRE/clock-sync.sh" ]; then
     [ $((t1 - t0)) -le 2 ] && ok "no route: returns at once ($((t1 - t0)) s)" || bad "no route took $((t1 - t0)) s"
     grep -q 'no default route' "$W/clog.b1" && ok "no route: logged as offline" || bad "no route: not logged"
 
-    echo "default via 192.168.207.1 dev enp1s0" > "$W/route"
+    echo "default via 192.0.2.1 dev enp1s0" > "$W/route"
     t0=$(date +%s); clk b2 NCZ_CLOCK_BOUND=2 NCZ_RDATE="$W/cbin/rdate-hang" NCZ_CLOCK_YEAR=2026; rc=$?; t1=$(date +%s)
     check "silent NTP server: exits 0" "$rc" 0
     # 2 s bound + 1 s TERM grace = 3-4 s by the second clock; a helper that ignored the bound would take the stub's 30 s.
@@ -158,7 +158,7 @@ detrun() { local arch=$1 r="$W/root.$1"
     PATH="$r/bin:$PATH" timeout 60 sh "$r/det.sh"
 }
 detrun x86_64
-[ ! -e "$W/root.x86_64/etc/udev/rules.d/73-cixmini-primary-display.rules" ] && ok "x86_64: no master-of-seat udev pin written" || bad "x86_64: Sky1 udev master-of-seat pin written (CHIMERA/PEGASUS leak)"
+[ ! -e "$W/root.x86_64/etc/udev/rules.d/73-cixmini-primary-display.rules" ] && ok "x86_64: no master-of-seat udev pin written" || bad "x86_64: Sky1 udev master-of-seat pin written (MacBookPro16,1/GU502LV leak)"
 [ ! -e "$W/root.x86_64/etc/X11/xorg.conf.d/10-cixmini-primary-display.conf" ] && ok "x86_64: no Xorg kmsdev pin written" || bad "x86_64: Sky1 Xorg kmsdev pin written"
 grep -q 'connected: card1 (eDP-1)' "$W/root.x86_64/var/log/ncz-display-detect.log" 2>/dev/null && ok "x86_64: still waits for and logs the connected output" || bad "x86_64: connected output not detected/logged"
 detrun aarch64

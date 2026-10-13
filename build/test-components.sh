@@ -20,7 +20,7 @@
 #                             after a listed one             -> hook-never-runs
 #   3. report / diff-published smoke -> exit 0
 #
-# bash 3.2 compatible (STUDIO /bin/bash): no associative arrays, no
+# bash 3.2 compatible (macOS /bin/bash): no associative arrays, no
 # mapfile, no ${var,,}.
 set -u
 

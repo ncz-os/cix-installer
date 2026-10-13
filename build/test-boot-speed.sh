@@ -2,7 +2,7 @@
 # test-boot-speed.sh -- regression tests for boot-speed properties that are
 # provable statically from the generated systemd units.
 #
-# Why this exists (docs/BOOT-SPEED.md): a Type=oneshot service that is
+# Why this exists: a Type=oneshot service that is
 # WantedBy=multi-user.target is NOT "fire and forget" -- the multi-user.target
 # start job does not complete until the oneshot process exits, so a oneshot
 # that waits on the network (or polls for up to a minute) sits directly on the
@@ -105,7 +105,7 @@ fi
 # start job waits for the oneshot it Wants, so multi-user -- and therefore
 # graphical -- waited for the first NTP sync. MEASURED on O6N 2026-10-04 14:38Z:
 # `Startup finished ... 32.7s (userspace)` and `graphical.target @32.644s` while
-# the unit chain otherwise finished at 3.6s (docs/BOOT-SPEED.md). The ExecStart
+# the unit chain otherwise finished at 3.6s. The ExecStart
 # loop already polls NTPSynchronized itself, so Type=simple with no time-sync
 # ordering lets the target complete while the loop still writes the RTC after
 # the first sync. This checks the fix and that the RTC write-back survived.

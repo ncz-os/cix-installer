@@ -80,7 +80,7 @@ mkamd64() {
     : > "$root/release.conf"; echo "NCZ_TARGET_ARCH=amd64" >> "$root/release.conf"
     printf '%s\n' "$kver" > "$root/assets/kernel/amd64-stable/KVER"
     # The real tree also carries the package-revision pin and the staged
-    # kernel manifest; the verifier asserts the manifest records the cyclops
+    # kernel manifest; the verifier asserts the manifest records the
     # 2010 boot-GPU fix (Check 6b), so the fixture must model both.
     printf '%s\n' "test-2" > "$root/assets/kernel/amd64-stable/PKGVERSION"
     cat > "$root/assets/kernel/amd64-stable-manifest.json" <<JSON
@@ -127,7 +127,7 @@ r="$WORK/n2d"; mkamd64 "$r" "7.3.0-rc6-3-t2-edge-aer9011" "7.3.0-rc6-3-t2-edge-a
 run "amd64: removed 9011-quirk build (rc6-3) pin refused" 1 --root "$r" --arch amd64
 r="$WORK/n2e"; mkamd64 "$r" "7.3.0-rc7-t2-ncz" "7.3.0-rc7-t2-ncz"; pin "$r"
 sed -i.bak 's#"t2_cyclops_patch":"[^"]*"#"t2_cyclops_patch":""#' "$r/assets/kernel/amd64-stable-manifest.json"
-run "amd64: default without the 2010 cyclops manifest field refused" 1 --root "$r" --arch amd64
+run "amd64: default without the 2010 boot-GPU manifest field refused" 1 --root "$r" --arch amd64
 
 echo "=== Negative: rc allowance rules ==="
 r="$WORK/n3"; mkroot "$r" "7.3.0-rc7-sky1-ncz" "7.3.0-rc7-sky1-ncz"

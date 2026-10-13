@@ -108,7 +108,7 @@ OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 128 bits)
 EOF
 EGL_S="cat $T/egl_wayland_soft.txt" EGL_B="cat $T/egl_wayland_soft.txt" expect "status: llvmpipe on the Wayland platform FAILS (policy kept)" 1 st amd
 
-# ---- Enumerated-but-unused llvmpipe must not fail (regression: PEGASUS 2026-10-04,
+# ---- Enumerated-but-unused llvmpipe must not fail (regression: GU502LV 2026-10-04,
 #      Intel UHD + RTX 2060 + mesa-vulkan-drivers). Clients get the FIRST Vulkan
 #      device the loader lists and the GBM/Wayland/X11 EGL renderer; the Device
 #      platform enumeration is not a session platform. Fixtures (a)-(d) below.
@@ -153,10 +153,10 @@ VK_S="cat $T/vk_soft_only.txt" VK_B="cat $T/vk_soft_only.txt" \
     expect "status: (c) Vulkan llvmpipe only FAILS" 1 st amd
 EGL_S='echo "renderer: llvmpipe (LLVM 21.1.8, 256 bits)"' EGL_B='echo "renderer: llvmpipe (LLVM 21.1.8, 256 bits)"' \
     expect "status: (c) EGL llvmpipe only FAILS" 1 st amd
-#      (d) the PEGASUS enumeration captured 2026-10-04: GBM/Wayland on Mesa Intel,
+#      (d) the GU502LV enumeration captured 2026-10-04: GBM/Wayland on Mesa Intel,
 #          Surfaceless/Device on the RTX 2060, the Device #3 node on llvmpipe.
 #          Vulkan lists Intel first, then NVIDIA, then llvmpipe -> PASS.
-cat > "$T/egl_pegasus.txt" <<'EOF'
+cat > "$T/egl_gu502lv.txt" <<'EOF'
 GBM platform:
 EGL API version: 1.5
 EGL vendor string: Mesa Project
@@ -194,7 +194,7 @@ Platform Device platform:
 EGL vendor string: Mesa Project
 OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 256 bits)
 EOF
-cat > "$T/vk_pegasus.txt" <<'EOF'
+cat > "$T/vk_gu502lv.txt" <<'EOF'
 deviceName         = Intel(R) UHD Graphics (CML GT2)
 driverName         = Intel open-source Mesa driver
 deviceName         = NVIDIA GeForce RTX 2060
@@ -203,11 +203,11 @@ deviceName         = llvmpipe (LLVM 21.1.8, 256 bits)
 driverName         = llvmpipe
 EOF
 : > "$T/health.log"
-EGL_S="cat $T/egl_pegasus.txt" EGL_B="cat $T/egl_pegasus.txt" \
-    VK_S="cat $T/vk_pegasus.txt" VK_B="cat $T/vk_pegasus.txt" \
-    expect "status: (d) exact PEGASUS Intel+NVIDIA+llvmpipe enumeration PASSES" 0 st amd
-grep -q 'IGNORED platform device platform software renderer (no session/compositor uses it): OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 256 bits)' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: (d) PEGASUS Device #3 llvmpipe is ignored, not failed"; } || { FAILS=$((FAILS+1)); echo "FAIL status: (d) PEGASUS Device #3 llvmpipe not logged as ignored"; }
-grep -q 'OK hardware GPU' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: (d) PEGASUS run records an OK verdict"; } || { FAILS=$((FAILS+1)); echo "FAIL status: (d) PEGASUS run has no OK line"; }
+EGL_S="cat $T/egl_gu502lv.txt" EGL_B="cat $T/egl_gu502lv.txt" \
+    VK_S="cat $T/vk_gu502lv.txt" VK_B="cat $T/vk_gu502lv.txt" \
+    expect "status: (d) exact GU502LV Intel+NVIDIA+llvmpipe enumeration PASSES" 0 st amd
+grep -q 'IGNORED platform device platform software renderer (no session/compositor uses it): OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 256 bits)' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: (d) GU502LV Device #3 llvmpipe is ignored, not failed"; } || { FAILS=$((FAILS+1)); echo "FAIL status: (d) GU502LV Device #3 llvmpipe not logged as ignored"; }
+grep -q 'OK hardware GPU' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: (d) GU502LV run records an OK verdict"; } || { FAILS=$((FAILS+1)); echo "FAIL status: (d) GU502LV run has no OK line"; }
 #      forced software in the new variable forms still FAILS
 expect "status: GPU + LP_NUM_THREADS=4 (llvmpipe) FAILS"           1 st amd LP_NUM_THREADS=4
 expect "status: GPU + VK_ICD_FILENAMES=lvp ICD FAILS"              1 st amd VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json

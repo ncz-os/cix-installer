@@ -2,7 +2,7 @@
 # test-usb2-rescan-sky1-only.sh -- item RS: ncz-usb2-rescan is a Sky1 workaround
 # and must not be installed or run on an amd64/T2 Mac.
 #
-# Provenance (MEDUSA MacBookPro16,1, amd64 T2, 7.2.9-2, 2026-10-04): the unit ran
+# Provenance (MacBookPro16,1, amd64 T2, 7.2.9-2, 2026-10-04): the unit ran
 # every boot, 4.87 s start, "O6N USB-A chain not present (not an O6N?); widening
 # search", a full root-hub unbind/rebind including the T2 t2bce_vhci root hub,
 # keyboard only at ~12.5 s. Its fast path (CIXH2030:06/CIXH2031:06) and its

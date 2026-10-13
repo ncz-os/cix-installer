@@ -1,6 +1,6 @@
 #!/bin/bash
 # test-installer-flow.sh -- behaviour tests for the interactive installer flow (operator photos 2026-10-06,
-# PEGASUS / ASUS ROG, r199 amd64 build de5f9f06). Runs the REAL chooser scripts against a file-backed stand-in for
+# ASUS ROG GU502LV, r199 amd64 build de5f9f06). Runs the REAL chooser scripts against a file-backed stand-in for
 # cdebconf (values, seen flags, question existence, every db_input recorded) so a question that is asked twice, a
 # template that renders a literal "\n", or a seed that would let d-i's own user-setup ask again all fail here.
 #
@@ -156,18 +156,18 @@ check "seed: locked placeholder password" "$(val passwd/user-password-crypted)" 
 check "seed asks nothing itself" "$(wc -l < "$FDB/inputs" | tr -d ' ')" 0
 # the NCZ dialogs in partman/early_command (user-setup-udeb templates are loaded by then)
 mkq passwd/user-password; mkq passwd/user-password-again
-mkq ncz/username; ans ncz/username pegasus; mkq ncz/password; ans ncz/password 's3cret pw'; mkq ncz/password-confirm; ans ncz/password-confirm 's3cret pw'
+mkq ncz/username; ans ncz/username ncztest; mkq ncz/password; ans ncz/password 's3cret pw'; mkq ncz/password-confirm; ans ncz/password-confirm 's3cret pw'
 run ua user-chooser.sh --prompt
 check "username asked once" "$(asked ncz/username)" 1
 check "password asked once" "$(asked ncz/password)" 1
 check "password confirm asked once" "$(asked ncz/password-confirm)" 1
-check "username applied" "$(val passwd/username)" "pegasus"
+check "username applied" "$(val passwd/username)" "ncztest"
 check "password applied" "$(val passwd/user-password)" "s3cret pw"
 check "the locked placeholder no longer outranks the real password" "$(val passwd/user-password-crypted)" ""
 run ua user-chooser.sh --prompt
 run ua user-chooser.sh
 check "a re-run (--prompt and seed) asks nothing more" "$(wc -l < "$FDB/inputs" | tr -d ' ')" 3
-check "a re-run keeps the username" "$(val passwd/username)" "pegasus"
+check "a re-run keeps the username" "$(val passwd/username)" "ncztest"
 check "a re-run keeps the password" "$(val passwd/user-password)" "s3cret pw"
 check "a re-run does not bring the placeholder back" "$(val passwd/user-password-crypted)" ""
 
@@ -215,7 +215,7 @@ netrun() { local tag=$1 sys=$2; shift 2
 newdb na; mkq netcfg/choose_interface auto; mkq netcfg/link_wait_timeout 60
 mksys "$W/sys.na" 0 1
 netrun na "$W/sys.na" scan
-check "PEGASUS shape: the USB NIC with carrier is pinned, not the cable-less eno2" "$(val netcfg/choose_interface)" "enx00e05c6701d5"
+check "GU502LV shape: the USB NIC with carrier is pinned, not the cable-less eno2" "$(val netcfg/choose_interface)" "enx00e05c6701d5"
 check "the pin is seen (netcfg does not ask)" "$(seen netcfg/choose_interface)" true
 check "link wait for any other interface drops to 10 s" "$(val netcfg/link_wait_timeout)" "10"
 # a defensive second evaluation: choose_interface back to auto, link wait back to 60; the apply pass restores them

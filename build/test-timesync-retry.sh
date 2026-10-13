@@ -3,7 +3,7 @@
 # fast-retry drop-in must ship on both architectures, must not disturb the NTP
 # server lists, and time sync must never order the greeter/display-manager.
 #
-# Why this exists (docs/BOOT-SPEED.md section 8): systemd-timesyncd's default
+# Why this exists: systemd-timesyncd's default
 # ConnectionRetrySec= is 30 s. On O6N (2026-10-04) timesyncd started at 5.58 s,
 # the NIC link came up at 11.65 s, and the first "Contacted time server" landed
 # at 36.92 s -- the attempt that raced link-up was retried only 30 s later.

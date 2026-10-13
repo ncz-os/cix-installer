@@ -2,7 +2,7 @@
 # test-telnet-inetd.sh -- the LAN telnet recovery console on :23 must exec a
 # telnetd that exists (r201).
 #
-# Every reflashed r200 machine (CHIMERA, PEGASUS, MS-R1, O6N) accepted on :23
+# Every reflashed r200 machine (MacBookPro16,1, GU502LV, MS-R1, O6N) accepted on :23
 # and inetd then logged "execv /usr/sbin/in.telnetd: No such file or
 # directory": 36-telemetry.sh hardcoded in.telnetd while forky's
 # inetutils-telnetd ships /usr/sbin/telnetd only. This test runs the shared

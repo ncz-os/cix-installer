@@ -1,6 +1,6 @@
 #!/bin/bash
 # test-sky1-media-defaults.sh -- lock the Sky1 media defaults that were measured on
-# O6N and MS-R1 on 2026-10-06 (docs/SKY1-MEDIA-STATUS.md):
+# O6N and MS-R1 on 2026-10-06:
 #   1. the chromium-ncz-sky1 wrapper that 20-desktop.sh writes: run it with a stub
 #      chrome binary and check the exact flags it passes;
 #   2. the mpv.conf that 84-vpu-mpv.sh writes: V4L2 M2M copy decode, never VA-API

@@ -32,9 +32,9 @@ HAVE_DPKG = shutil.which("dpkg-deb") is not None and shutil.which("dpkg") is not
 LOGGED_MISSING = [
     "rtl_nic/rtl8127a-1.fw",  # MS-R1, r8169
     "rtl_nic/rtl8125b-2.fw",  # O6N, r8169
-    "rtl_nic/rtl8168h-2.fw",  # PEGASUS, r8169
+    "rtl_nic/rtl8168h-2.fw",  # ASUS GU502LV test laptop, r8169
     "mediatek/BT_RAM_CODE_MT7922_1_1_hdr.bin",  # MS-R1, btusb/btmtk
-    "i915/mtl_dmc.bin",  # PROTEUS Arrow Lake, i915 display
+    "i915/mtl_dmc.bin",  # HP OmniDesk Arrow Lake, i915 display
 ]
 
 
@@ -61,10 +61,10 @@ def build_deb(root: Path, package: str, version: str, files: dict) -> Path:
 
 
 INTEL_GFX_FILES = {
-    "i915/mtl_dmc.bin": b"mtl-dmc",  # PROTEUS Arrow Lake (7d67), 2026-10-10
+    "i915/mtl_dmc.bin": b"mtl-dmc",  # HP OmniDesk Arrow Lake (7d67), 2026-10-10
     "i915/tgl_dmc_ver2_12.bin": b"tgl-dmc",
     # Meteor/Arrow Lake also need GuC/HuC/GSC for a clean GT init: without them
-    # i915 "declares it wedged" during the installer (PROTEUS 2026-10-10) and the
+    # i915 "declares it wedged" during the installer (HP OmniDesk 2026-10-10) and the
     # display is degraded, so they belong in the initrd too.
     "i915/mtl_guc_70.bin": b"guc-in-initrd",
     "i915/mtl_huc_gsc.bin": b"huc-in-initrd",

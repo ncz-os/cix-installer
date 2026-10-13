@@ -1,6 +1,6 @@
 """Installer rEFInd video mode: amd64 programs the firmware's largest GOP mode, arm64 untouched.
 
-2026-10-11: the PROTEUS (HP Arrow Lake i915, ViewSonic VP2488-4K, HDMI) d-i
+2026-10-11: the HP OmniDesk test desktop (Arrow Lake i915, ViewSonic VP2488-4K, HDMI) d-i
 video defect reappeared at the FIRMWARE/rEFInd level -- rEFInd and d-i both
 painted only the left third of the panel. Root cause: the installer ESP used
 `textonly`, so rEFInd never called GOP SetMode and the kernel's efifb inherited
@@ -18,7 +18,7 @@ fix is to stop asking for a mode that may not exist: `resolution max` makes
 rEFInd QueryMode() the firmware GOP and SetMode() the largest mode it reports,
 which is guaranteed to exist and can never hit the error/pause branch. It still
 programs a real GOP mode, so the d-i framebuffer stays stride-consistent (the
-PROTEUS left-third fix). The old second "safe video mode" config is gone: any
+HP OmniDesk left-third fix). The old second "safe video mode" config is gone: any
 `resolution W H` pair reintroduces the defect.
 
 This builds the real ESP tree with build_esp_dir() for both arches (fake rEFInd

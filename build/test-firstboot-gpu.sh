@@ -68,7 +68,7 @@ mk_retry() {  # ncz-cuda-setup timer enabled + selection, not done
     : > "$1/etc/systemd/system/timers.target.wants/ncz-cuda-setup.timer"
     echo FAMILY=turing-plus > "$1/etc/ncz/cuda-selection.conf"
 }
-mk_failed_log() {  # the real PEGASUS failure, incl. gcc's UTF-8 quotes
+mk_failed_log() {  # the real GU502LV failure, incl. gcc's UTF-8 quotes
     local b="$1/var/lib/dkms/nvidia/615.71.09/build"
     mkdir -p "$b"
     {

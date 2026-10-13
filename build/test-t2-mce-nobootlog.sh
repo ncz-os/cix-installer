@@ -3,8 +3,8 @@
 # test-t2-mce-nobootlog.sh -- the installed amd64 rEFInd DEFAULT entry carries
 # mce=nobootlog on an Apple T2 Mac only, and the Console/Rescue entries never do.
 #
-# Why (docs/T2-BOOT-MCE-NOBOOTLOG.md): the Apple firmware on the Coffee Lake-H
-# T2 Macs (CHIMERA, MacBookPro16,1, i9-9980HK, cpu 906ed) leaves a stale Machine
+# Why: the Apple firmware on the Coffee Lake-H
+# T2 Macs (MacBookPro16,1, i9-9980HK, cpu 906ed) leaves a stale Machine
 # Check record in MCA banks 12/13 that Linux logs at boot via pr_emerg
 # ("mce: [Hardware Error]: ..."), which quiet loglevel=3 cannot hide. It is a
 # left-over from before the kernel booted, not a runtime fault. mce=nobootlog
@@ -72,7 +72,7 @@ gen() {
 }
 field() { printf '%s\n' "$1" | sed -n "s/^$2=//p"; }
 
-mkdmi mbp16   "Apple Inc." "MacBookPro16,1"     # CHIMERA
+mkdmi mbp16   "Apple Inc." "MacBookPro16,1"     # T2 test unit
 mkdmi mbp15   "Apple Inc." "MacBookPro15,4"
 mkdmi mba9    "Apple Inc." "MacBookAir9,1"
 mkdmi mini    "Apple Inc." "Macmini8,1"

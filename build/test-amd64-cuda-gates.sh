@@ -455,7 +455,7 @@ eq "setup: bad usage exits 2" "$(cs bogus)" 2
 
 # ------------------------- ncz-cuda-setup: DKMS build failure, back-off, local DKMS patches
 # STUB_APT=dkmsfail: the driver transaction runs the module postinst, whose DKMS
-# build writes a make.log with a compiler error (as on PEGASUS, 2026-10-06).
+# build writes a make.log with a compiler error (as on GU502LV, 2026-10-06).
 export NCZ_NV_DKMS_PATCHES="$CS/patches" NCZ_DKMS_ETC="$CS/etc/dkms" NCZ_DKMS_TREE="$CS/dkms" \
        NCZ_SRC_ROOT="$CS/usr/src" NCZ_MODULES_ROOT="$CS/modules"
 KV_A=7.3.0-rc6-3-t2-edge-aer9011; KV_B=7.3.0-rc6-4-t2-edge-aer9010

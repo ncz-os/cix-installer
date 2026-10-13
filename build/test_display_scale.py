@@ -4,7 +4,7 @@
 Run:  python3 -m pytest build/test_display_scale.py
   or: python3 build/test_display_scale.py
 
-The wlr-randr fixtures are real `wlr-randr --json` shapes; CHIMERA's is
+The wlr-randr fixtures are real `wlr-randr --json` shapes; MBP16's is
 copied from the MacBookPro16,1 panel (3072x1920, 340x220 mm) on 2026-10-06.
 """
 
@@ -53,7 +53,7 @@ def output(
     }
 
 
-CHIMERA = output(
+MBP16 = output(
     "eDP-1",
     (340, 220),
     [
@@ -84,7 +84,7 @@ MONITOR_1200P = output(
     (518, 324),
     [mode(1920, 1200, preferred=True, current=True), mode(1920, 1080)],
 )
-# PEGASUS: eDP AU Optronics 0x31EB, a single-mode 3840x2160@60 panel. No capped
+# GU502LV: eDP AU Optronics 0x31EB, a single-mode 3840x2160@60 panel. No capped
 # mode exists, so the greeter helper has nothing to downscale to.
 MONITOR_SINGLE_MODE_4K = output(
     "eDP-1",
@@ -171,8 +171,8 @@ class PolicyTest(unittest.TestCase):
 
 class GreeterTest(unittest.TestCase):
     def test_16_10_panel_gets_same_aspect_mode_not_letterboxed_1080p(self):
-        self.assertEqual(nds.greeter_mode(CHIMERA)["height"], 1200)
-        fake = FakeRandr([CHIMERA])
+        self.assertEqual(nds.greeter_mode(MBP16)["height"], 1200)
+        fake = FakeRandr([MBP16])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
         self.assertEqual(
             fake.calls,
@@ -223,7 +223,7 @@ class GreeterTest(unittest.TestCase):
                     return subprocess.CompletedProcess(argv, 1, "", "")
                 return res
 
-        fake = FirstFails([CHIMERA])
+        fake = FirstFails([MBP16])
         nds.cmd_greeter(False, runner=fake)
         self.assertEqual(
             fake.calls[-1],
@@ -237,7 +237,7 @@ class GreeterTest(unittest.TestCase):
         # On Sky1/arm64 the greeter labwc runs autoEnableOutputs=no, so an
         # output the compositor left off must be turned on here -- at the capped
         # mode, never at native 4K.
-        off = dict(CHIMERA, enabled=False)
+        off = dict(MBP16, enabled=False)
         fake = FakeRandr([off])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
         self.assertEqual(
@@ -259,7 +259,7 @@ class GreeterTest(unittest.TestCase):
         self.assertIsNone(nds.greeter_mode(MONITOR_SINGLE_MODE_4K))
 
     def test_single_mode_4k_panel_is_enabled_at_native_never_left_dark(self):
-        # Regression 2026-10-11 (PEGASUS eDP AU Optronics 0x31EB): a single-mode
+        # Regression 2026-10-11 (GU502LV eDP AU Optronics 0x31EB): a single-mode
         # 4K panel has no capped mode, and under autoEnableOutputs=no the
         # compositor leaves it off. The helper must light it at its own native
         # mode with --on -- never "leave it alone" -- and never request a 4K
@@ -322,18 +322,18 @@ class SessionTest(unittest.TestCase):
         return sorted(d.glob("*.json")) if d.exists() else []
 
     def test_raises_a_hidpi_panel_left_at_1x(self):
-        fake = self.run_session([CHIMERA])
+        fake = self.run_session([MBP16])
         self.assertEqual(fake.calls, [["--output", "eDP-1", "--scale", "2"]])
         self.assertEqual(len(self.stamps()), 1)
         self.assertEqual(json.loads(self.stamps()[0].read_text())["action"], "applied")
 
     def test_first_login_only(self):
-        self.run_session([CHIMERA])
-        again = self.run_session([CHIMERA])  # user lowered it back to 1.0 since
+        self.run_session([MBP16])
+        again = self.run_session([MBP16])  # user lowered it back to 1.0 since
         self.assertEqual(again.calls, [])
 
     def test_keeps_a_scale_the_shell_already_chose(self):
-        fake = self.run_session([dict(CHIMERA, scale=1.75)])
+        fake = self.run_session([dict(MBP16, scale=1.75)])
         self.assertEqual(fake.calls, [])
         self.assertEqual(json.loads(self.stamps()[0].read_text())["action"], "kept")
 
@@ -341,7 +341,7 @@ class SessionTest(unittest.TestCase):
         cfg = Path(self.env["XDG_CONFIG_HOME"]) / "singularity" / "displays.json"
         cfg.parent.mkdir(parents=True)
         cfg.write_text('{"monitors": []}')
-        fake = self.run_session([CHIMERA])
+        fake = self.run_session([MBP16])
         self.assertEqual(fake.calls, [])
         self.assertEqual(self.stamps(), [])
 
@@ -350,12 +350,12 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(fake.calls, [])
 
     def test_new_display_later_is_still_handled_once(self):
-        self.run_session([CHIMERA])
-        fake = self.run_session([dict(CHIMERA, scale=2.0), MONITOR_4K_27])
+        self.run_session([MBP16])
+        fake = self.run_session([dict(MBP16, scale=2.0), MONITOR_4K_27])
         self.assertEqual(fake.calls, [["--output", "DP-2", "--scale", "1.5"]])
 
     def test_failed_apply_is_not_recorded_so_it_retries_next_login(self):
-        fake = FakeRandr([CHIMERA], set_rc=1)
+        fake = FakeRandr([MBP16], set_rc=1)
         nds.cmd_session(0, False, runner=fake, sleep=lambda _s: None)
         self.assertEqual(self.stamps(), [])
 
