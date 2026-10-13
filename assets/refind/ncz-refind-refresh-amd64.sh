@@ -2,12 +2,12 @@
 
 # ncz-refind-refresh-amd64.sh — (re)generate the rEFInd ESP menu for the
 # AMD64/x86_64 target (T2 Macs + generic PC UEFI hardware). Unified 7.3
-# policy (operator 2026-10-05): ONE kernel, no edge line; the rescue entry
+# policy (2026-10-05): ONE kernel, no edge line; the rescue entry
 # boots that same kernel with the accelerators blacklisted.
 #
 # Standardized on rEFInd to match arm64/Sky1 rather than diverging on GRUB
-# (operator directive, 2026-09-16: "standardize on rEFInd on amd64, we
-# should not diverge" -- same boot menu shape, same branding/art, same
+# (design rule, 2026-09-16: standardize on rEFInd on amd64, do not
+# diverge -- same boot menu shape, same branding/art, same
 # preference-learning and rescue-promotion mechanics as
 # assets/refind/ncz-refind-refresh.sh). This is a SEPARATE file rather than
 # a parameterized shared one, matching that script's own stated philosophy
@@ -113,7 +113,7 @@ if [ -z "$KVER_STABLE" ]; then
     exit 1
 fi
 
-# Operator directive 2026-10-04 (Cygnus 26.10 kernel purity), updated
+# Kernel-purity rule 2026-10-04 (Cygnus 26.10), updated
 # 2026-10-05: the default rEFInd entry must load our NCZ 7.3 kernel, never a
 # Debian-archive kernel. An -rcN is permitted as the default while the unified
 # policy allows it (RC_DEFAULT_ALLOWED=1; 7.3.0 final removes it), so only the
@@ -125,7 +125,7 @@ fi
 case "$KVER_STABLE" in
     *-amd64|7.1.*|7.1-*)
         echo "ERROR: KVER_STABLE='$KVER_STABLE' names a Debian-archive kernel (amd64/7.1.x);" >&2
-        echo "       the default MUST be the NCZ 7.3 T2 kernel (directive 2026-10-05)." >&2
+        echo "       the default MUST be the NCZ 7.3 T2 kernel (unified 7.3 policy)." >&2
         echo "       Refusing to write an rEFInd menu that would boot Debian as the default." >&2
         exit 1
         ;;
@@ -135,7 +135,7 @@ esac
 # in (legacy hook data, an operator apt install) is ignored and never gets a
 # menu entry. Only the single default KVER is bootable here.
 if [ -n "${KVER_EDGE:-}" ]; then
-    echo "  WARN: KVER_EDGE='$KVER_EDGE' ignored -- the edge channel was retired (unified 7.3 policy, operator 2026-10-05)"
+    echo "  WARN: KVER_EDGE='$KVER_EDGE' ignored -- the edge channel was retired (unified 7.3 policy, 2026-10-05)"
     KVER_EDGE=""
 fi
 
@@ -549,7 +549,7 @@ if [ "$STABLE_AVAILABLE" = "1" ]; then
     STABLE_CONSOLE_OPTIONS="$ROOT_OPTS $STABLE_CMDLINE_BASE systemd.unit=multi-user.target"
 fi
 
-# RESCUE, redefined under the unified 7.3 policy (operator 2026-10-05): the
+# RESCUE, redefined under the unified 7.3 policy (2026-10-05): the
 # SAME default kernel with the accelerator drivers blacklisted, not an old
 # known-good kernel. The list is target-aware because the amd64 kernel is
 # unified for T2 Macs and generic PCs:
@@ -628,7 +628,7 @@ if [ -s "$CYGNUS_SRC/theme.conf" ] && [ -s "$CYGNUS_SRC/background-1920x1080.png
     echo "  rEFInd Cygnus theme installed → /boot/efi/EFI/BOOT/themes/cygnus"
 fi
 
-# Release policy (unified 7.3, operator 2026-10-05): the single 7.3 kernel is
+# Release policy (unified 7.3, 2026-10-05): the single 7.3 kernel is
 # the default graphical entry. There is no edge entry.
 if [ "$STABLE_AVAILABLE" = "1" ]; then
     # Must be UNIQUE across menu titles -- rEFInd matches default_selection
@@ -739,7 +739,7 @@ fi
         echo "}"
         echo
 
-        # REDEFINED RESCUE (operator 2026-10-05): the SAME 7.3 kernel with the
+        # REDEFINED RESCUE (2026-10-05): the SAME 7.3 kernel with the
         # accelerator drivers blacklisted. This replaces the old
         # "rescue = an older known-good kernel" definition.
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Rescue / No Accelerators (Console)\" {"

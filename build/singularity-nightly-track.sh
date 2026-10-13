@@ -9,7 +9,7 @@
 # build time and only WARNS/FAILS on a stale patch -- it never mutates the
 # tree. Auto-retiring needs to happen independent of whether a build is
 # about to run, so a merged PR's patch doesn't sit there stale for days
-# until the next real ISO build happens to notice.
+# until the next real image build happens to notice.
 #
 # Deploy as a systemd user timer (same cadence class as the existing
 # ncz-singularity-sync job @ 03:15):

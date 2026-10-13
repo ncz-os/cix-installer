@@ -5,7 +5,7 @@
 # (e2) Cygnus override, (f) idle timer, (f2) idle-lock/saver ordering,
 # (f3) NCZ lock renderer consistency, (g) gtk4-reference ban, (h) plugin.
 # Shares gate_miss, fetch, exists, lsnames, TMP, SS_PLUGIN, WANT_SSP, SSP_PIN_VER.
-        # (e) operator rule "default saver = blackhole", part 1: the PACKAGE
+        # (e) rule "default saver = blackhole", part 1: the PACKAGE
         #     schema default. Multiline match: the key header on one line, the
         #     <default> on a later line inside the same <key> block.
         if fetch /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml "$TMP/ss.schema.xml"; then
@@ -28,7 +28,7 @@
         else
             gate_miss screensavers "schema dev.ncz.screensaver.gschema.xml not present"
         fi
-        # (e2) operator rule, part 2: the EFFECTIVE default. The package schema
+        # (e2) rule, part 2: the EFFECTIVE default. The package schema
         #     ships mode='off' (no animated saver), so without the Cygnus
         #     override the system's default is "off", not blackhole. The
         #     override is written by 62-cygnus-screensaver-default.sh at
@@ -53,8 +53,8 @@
         done
         [ "$idled" = 1 ] || gate_miss screensavers "ncz-screensaver-idled.service is not enabled (no .wants symlink under /etc/systemd/user)"
         [ "$oldidle" = 0 ] || gate_miss screensavers "ncz-idle-manager.service is still enabled next to ncz-screensaver-idled (legacy hook 57 left running)"
-        # (f2) the desktop idle LOCK and the saver obey ONE ordering (operator
-        #      2026-10-11). The shell locks at dev.sinty.lockscreen:idle-delay; the
+        # (f2) the desktop idle LOCK and the saver obey ONE ordering
+        #      (2026-10-11). The shell locks at dev.sinty.lockscreen:idle-delay; the
         #      saver starts at dev.ncz.screensaver:hack-idle-delay. Because
         #      ext-session-lock-v1 is EXCLUSIVE the ordering must be exactly one of:
         #        * NCZ lock renderer present -- the lock client hosts the saver, so
@@ -116,7 +116,7 @@
             fi
         fi
         # (f4) the lock-hosted saver POLICY is compiled into the shipped feed
-        #      (operator policy v3, 2026-10-12): reduced frame rate, reduced
+        #      (policy v3, 2026-10-12): reduced frame rate, reduced
         #      render resolution, and freeze-on-every-system after the intro.
         #      An image whose feed lacks these defaults silently burns power on
         #      the lock screen (measured 26 W package / 86 C GPU on the Macs),

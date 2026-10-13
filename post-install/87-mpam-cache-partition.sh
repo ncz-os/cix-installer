@@ -116,7 +116,7 @@ echo "[87] L3 total=${TOTAL_BITS} ways, housekeeping=${HK_BITS} ways (0x${HK_CBM
 
 # Identify A520 (little/efficiency, CPU part 0xd80) vs A720 (big/performance,
 # CPU part 0xd81) cores dynamically -- core COUNT varies by SKU (O6N vs
-# cixmini vs Orange Pi 6 Plus are not all 8+4), never hardcode core numbers.
+# MS-R1 vs Orange Pi 6 Plus are not all 8+4), never hardcode core numbers.
 A520_CPUS=""
 for cpu_sysfs in /sys/devices/system/cpu/cpu[0-9]*; do
     n=$(basename "$cpu_sysfs" | sed 's/cpu//')

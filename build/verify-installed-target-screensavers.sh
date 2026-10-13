@@ -5,7 +5,7 @@
 # [fact] lines the caller emits. Split out so the review hunk stays under
 # 9000 bytes.
 #
-# --- (vi) ncz-screensavers (mandatory on desktop images; operator 2026-10-05) ---------
+# --- (vi) ncz-screensavers (mandatory on desktop images; 2026-10-05) ---------
 # Intent, in order: VERIFY_EXPECT_SCREENSAVERS=1|0 from the caller (the gate sets it
 # from the checkout's manifests/install-extra.pkgs); else auto = the target's own
 # manifest asks for it or the package is already present in its dpkg database. A
@@ -31,7 +31,7 @@
 # already in its dpkg database. When expected, the package (at the pinned
 # version), its two files and the default-enabled override are mandatory.
 #
-# The operator rule "default saver = blackhole" has TWO parts: the package
+# The rule "default saver = blackhole" has TWO parts: the package
 # schema default (hack-id='blackhole_gles3') and the Cygnus override that
 # 62-cygnus-screensaver-default.sh writes at install time (mode='one' +
 # blackhole-color-mode='cygnus'). The package schema default alone is

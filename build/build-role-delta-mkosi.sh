@@ -14,16 +14,12 @@
 # to replace that second mount, see "Integration" at the bottom for exactly
 # why and how build_layer() uses this script's output.
 #
-# BUILD HOST (operator directive, 2026-09-14): this pipeline builds Sky1
-# arm64 images and runs on a native aarch64 build host (Fedora
-# Asahi) -- NOT the x86_64 host, which is reserved for a future
-# amd64 variant of this pipeline. Building arm64 on x86_64 works (podman
-# + qemu-user-static/binfmt cross-arch emulation) and was used for the
-# initial integration proof (this branch, commits through d9b51fb and the
-# build_layer() wiring commit), but emulation is measurably slower than
-# native arm64 and should not be the standing path. Run arm64 builds/
-# verification on the aarch64 host going forward; reach for x86_64 again only when
-# the amd64 variant is the thing being built.
+# BUILD HOST (2026-09-14): build each arch on a native build host of that
+# arch -- arm64 on an aarch64 host, amd64 on an x86_64 host. Building arm64
+# on x86_64 works (podman + qemu-user-static/binfmt cross-arch emulation) and
+# was used for the initial integration proof (commits through d9b51fb and the
+# build_layer() wiring commit), but emulation is measurably slower than a
+# native build and should not be the standing path.
 #
 # WHY CONTAINERIZED (2026-09-14): the first version of this script ran
 # `sudo mkosi --force build` directly on the bare host. mkosi's Overlay=yes
@@ -120,7 +116,7 @@ if [ -z "${MIRROR_DIRS+x}" ]; then
     esac
 fi
 
-# Pre-flight (operator 2026-10-05 mandatory-install item): the desktop-mirror
+# Pre-flight (2026-10-05 mandatory-install item): the desktop-mirror
 # this script consumes MUST carry ncz-screensavers at the version floor in
 # build/screensavers-version.env. Run BEFORE we touch the mkosi sandbox so a
 # stale mirror produces a one-line "missing package" failure instead of a
@@ -146,7 +142,7 @@ case "$ROLE" in
       # shellcheck disable=SC2086
       if ! "$ROOT/build/assert-mirror-has-screensavers.sh" $_ss_mirrors --arch "$ARCH"; then
         echo "[role-delta] ABORT: offline mirror does not carry ncz-screensavers at the required version floor." >&2
-        echo "[role-delta]        (operator 2026-10-05: 'If we are distributing screensavers as Deb they need to be apt installed during installation.')" >&2
+        echo "[role-delta]        (policy 2026-10-05: 'If we are distributing screensavers as Deb they need to be apt installed during installation.')" >&2
         exit 1
       fi
     fi

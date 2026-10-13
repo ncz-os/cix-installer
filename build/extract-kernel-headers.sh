@@ -20,8 +20,8 @@
 #   - Smaller (zstd vs gzip; ~25% smaller for typical header trees)
 #
 # Usage:
-#   extract-kernel-headers.sh --kernel-src /path/to/cixmini-msr1-src/linux \
-#                              --kver 7.2.0-sky1-ncz \
+#   extract-kernel-headers.sh --kernel-src /path/to/linux \
+#                              --kver 7.3.0-rc7-sky1-ncz \
 #                              --output assets/kernel/mainline/headers-cixmini.tar.zst
 set -euo pipefail
 

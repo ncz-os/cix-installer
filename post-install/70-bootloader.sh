@@ -2,9 +2,8 @@
 # NCZ-MIXED-HOOK: rEFInd on both arches via run_refind_arm64 and run_refind_amd64; TODO split into per-platform bodies (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 70-bootloader.sh — bootloader install (install-time entry point).
 #
-# Both arm64/Sky1 and AMD64 use rEFInd (operator directive, 2026-09-16:
-# "standardize on rEFInd on amd64, we should not diverge" -- same boot
-# menu shape, same branding/art, same preference-learning and
+# Both arm64/Sky1 and AMD64 use rEFInd (since 2026-09-16, so the two
+# architectures do not diverge -- same boot menu shape, same branding/art, same preference-learning and
 # rescue-promotion mechanics on both architectures). AMD64 previously had a
 # separate GRUB path (run_grub_amd64(), removed); see
 # assets/refind/ncz-refind-refresh-amd64.sh's header for the concrete list
@@ -37,8 +36,8 @@ BUILD_VERSION="(unknown)"
 # ----------------------------------------------------------------------------
 # arm64/Sky1: rEFInd (26.6-r118 onward). Unchanged -- see original comments.
 #
-# 26.6-r118: switched from systemd-boot to rEFInd (operator preference --
-# "more resilient"). rEFInd ships as a binary (refind_aa64.efi) under
+# 26.6-r118: switched from systemd-boot to rEFInd (judged more
+# resilient). rEFInd ships as a binary (refind_aa64.efi) under
 # /usr/local/lib/cix-installer/assets/refind/ and is installed to the ESP at
 # the firmware removable-media fallback path /EFI/BOOT/BOOTAA64.EFI, so the
 # box boots even with an empty NVRAM BootOrder (confirmed on Sky1/MS-R1).
@@ -47,7 +46,7 @@ BUILD_VERSION="(unknown)"
 # refind.conf generation) moved into a shared script, ncz-refind-refresh.sh,
 # installed to /usr/local/sbin/ncz-refind-refresh so it stays callable AFTER
 # install too. Root cause: 10-our-kernel.sh used to raw-copy the kernel from
-# ISO assets, completely bypassing dpkg -- apt had zero record any kernel
+# medium assets, completely bypassing dpkg -- apt had zero record any kernel
 # package was installed, so `apt upgrade` could never pull a new kernel
 # (nothing to upgrade FROM). 10-our-kernel.sh now installs the kernel via
 # `apt-get install linux-image-cixmini-*`, which means the kernel can change
@@ -59,7 +58,7 @@ BUILD_VERSION="(unknown)"
 # -- NOT by /etc/kernel/postinst.d/run-parts, which an earlier version of
 # this fix assumed but which nothing on this system actually invokes
 # (confirmed live on the MS-R1 test board). This script is now just: read the static
-# KVER_NEXT sidecar baked into the ISO, install the shared script to its
+# KVER_NEXT sidecar baked into the image, install the shared script to its
 # permanent location, then run it once for the initial install.
 #
 # Menu (refind.conf manual entries), in order: Mali (default) / Panthor
@@ -68,7 +67,7 @@ BUILD_VERSION="(unknown)"
 # operator-staged RESCUE -tag rescue kernels.
 #
 # TRADEOFF vs systemd-boot (deliberate, r118): rEFInd has no boot-counting,
-# so there is NO automatic edge->stable rollback. The menu's `timeout`
+# so there is NO automatic rollback to another entry. The menu's `timeout`
 # always presents itself so the operator can pick rescue if a Mali or
 # Panthor boot misbehaves.
 run_refind_arm64() {
@@ -78,14 +77,14 @@ run_refind_arm64() {
         echo "ERROR: KVER_NEXT sidecar missing (the unified 7.3 kernel is the only supported channel)"
         exit 1
     fi
-    # Unified 7.3 (operator 2026-10-05): one kernel. There is no second
+    # Unified 7.3 (2026-10-05): one kernel. There is no second
     # experimental edge line; a stale KVER_EDGE sidecar is ignored by
     # ncz-refind-refresh.sh.
     KVER_EDGE=""
     [ -f "$INSTALLER_META/KVER_EDGE" ] && KVER_EDGE=$(cat "$INSTALLER_META/KVER_EDGE" 2>/dev/null || true)
 
-    # Install the shared refresh script to its permanent home. Staged as an
-    # ISO asset (assets/refind/ncz-refind-refresh.sh) so it's identical to
+    # Install the shared refresh script to its permanent home. Staged as a
+    # medium asset (assets/refind/ncz-refind-refresh.sh) so it's identical to
     # the version installed here, not regenerated -- one source of truth.
     SHARED_SRC="$INSTALLER_META/assets/refind/ncz-refind-refresh.sh"
     SHARED_DST=/usr/local/sbin/ncz-refind-refresh
@@ -108,7 +107,7 @@ run_refind_arm64() {
 
 # ----------------------------------------------------------------------------
 # AMD64: rEFInd, one kernel (amd64-stable). The edge line was retired with
-# the unified 7.3 policy (operator 2026-10-05). Was GRUB via
+# the unified 7.3 policy (2026-10-05). Was GRUB via
 # run_grub_amd64()/assets/grub/ncz-grub-refresh.sh until 2026-09-16.
 run_refind_amd64() {
     KVER_LIST="$INSTALLER_META/KVER_LIST_AMD64"
@@ -126,7 +125,7 @@ run_refind_amd64() {
         exit 1
     fi
 
-    # Staged as an ISO asset (assets/refind/ncz-refind-refresh-amd64.sh) so
+    # Staged as a medium asset (assets/refind/ncz-refind-refresh-amd64.sh) so
     # it's identical to the version installed here, not regenerated -- same
     # one-source-of-truth pattern as arm64's ncz-refind-refresh.sh.
     SHARED_SRC="$INSTALLER_META/assets/refind/ncz-refind-refresh-amd64.sh"

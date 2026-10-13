@@ -18,7 +18,7 @@
 # RUNS INSIDE CHROOT (via run-all.sh) — installs the font package, script and
 # systemd unit; the unit itself runs at each real boot to auto-detect and
 # adjust to whatever's connected, so a board moved between monitors does not
-# need the ISO rebuilt to get a legible console.
+# need the image rebuilt to get a legible console.
 set -euo pipefail
 
 echo "[95] installing console font auto-sizing"

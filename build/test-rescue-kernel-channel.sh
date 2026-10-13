@@ -3,7 +3,7 @@
 # stages the arm64 rescue kernel from the shipping channel, not the retired
 # edge channel.
 #
-# The unified 7.3 policy (operator 2026-10-05) retired assets/kernel/edge.
+# The unified 7.3 policy (2026-10-05) retired assets/kernel/edge.
 # build-squashfs-layers.sh deletes that directory from the installed payload
 # and writes KVER_NEXT from assets/kernel/mainline. A rescue hook that still
 # requires Image-cixmini.bin and modules-cixmini.tgz under assets/kernel/edge

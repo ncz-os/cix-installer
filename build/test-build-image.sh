@@ -98,7 +98,7 @@ grep -q 'NEVER (operator-only)' <<<"$p" && ok "plan states the never-do list" ||
 grep -q 'SOURCE_DATE_EPOCH' <<<"$p" && ok "plan shows SOURCE_DATE_EPOCH" || bad "plan omits SOURCE_DATE_EPOCH"
 grep -q 'NCZ_REPRO_UUID_EXT4' <<<"$p" && ok "plan shows pin-derived UUIDs" || bad "plan omits UUIDs"
 
-# --- 2b. stage ORDER (operator gate-order ruling 2026-10-10) ----------------
+# --- 2b. stage ORDER (gate-order rule 2026-10-10) ----------------
 echo "== 2b. stage order =="
 plan_stages() { # -> "NN stage" per line, in plan order
     bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null \

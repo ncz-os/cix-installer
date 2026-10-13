@@ -87,7 +87,7 @@ echo "[56] icon theme installed at /usr/share/icons/NCZ (Singularity uses dev.si
 cat > /usr/share/icons/NCZ/index.theme <<'INDEX'
 [Icon Theme]
 Name=NCZ
-Comment=NCZ 26.7 Maximilian black-hole trash + Adwaita fallback
+Comment=NCZ black-hole trash + Adwaita fallback
 Inherits=Adwaita-dark,Adwaita,hicolor
 Directories=places/scalable,places/256,places/128,places/96,places/64,places/48,places/32,places/24,places/22,places/16,scalable
 

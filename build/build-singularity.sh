@@ -41,7 +41,7 @@ if [ -r "$REPO_ROOT/release.conf" ]; then
     # shellcheck source=../release.conf
     . "$REPO_ROOT/release.conf"
 fi
-# RULE (operator, 2026-08-17): NCZ-OS packages are NEVER built on Ubuntu.
+# RULE (2026-08-17): NCZ-OS packages are NEVER built on Ubuntu.
 # The payload is linked against the base it will RUN on. Forky exposes
 # libsodium.so.26; an Ubuntu-built payload wants libsodium.so.23, so an
 # Ubuntu build produces a package that cannot load on the shipped system.

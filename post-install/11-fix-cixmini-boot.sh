@@ -77,7 +77,7 @@ for f in /boot/vmlinuz-*; do
             ;;
     esac
 done
-# mtime, not `sort -V`, to pick the newest of a set (operator 2026-08-21 /
+# mtime, not `sort -V`, to pick the newest of a set (2026-08-21 /
 # CORRECTED 2026-09-12 -- O6N boot-break root cause): `sort -V | tail -1`
 # assumes an upgrade (higher version == the one just installed), which is
 # FALSE for an explicit downgrade. This wrapper is invoked from
@@ -102,7 +102,7 @@ _newest_of() {
     printf '%s' "$_best"
 }
 
-# Unified 7.3 (operator 2026-10-05): one shipping kernel. The 2026-09-16
+# Unified 7.3 (2026-10-05): one shipping kernel. The 2026-09-16
 # fix bucketed *-rcN-* kernels into KVER_EDGE so an apt install of the
 # then-test edge line could not displace the 7.2 stable default. That
 # bucket is now wrong: the shipping kernel IS 7.3.0-rc6-sky1-ncz, and

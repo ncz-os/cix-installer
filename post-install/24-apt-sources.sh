@@ -8,7 +8,7 @@
 # (half-configured) on every fresh install because fonts-liberation couldn't
 # be resolved. The root cause was NOT a missing apt source --
 # /etc/apt/sources.list shipped full Ubuntu ports on the then Ubuntu-based
-# legacy base (r189, the MS-R1 test board); Ubuntu is gone (operator 2026-10-08) and the only
+# legacy base (r189, the MS-R1 test board); Ubuntu is gone (2026-10-08) and the only
 # base source is Debian forky (23-base-apt-sources.sh). The real problem was
 # two-fold: (1) nothing ever ran `apt-get update` before 52-vivaldi.sh needed
 # a resolved index, so apt had no package data to work with regardless of
@@ -25,12 +25,12 @@
 # as a full URL instead of a bare hostname) meant authenticated/private
 # access never worked either.
 #
-# 2026-07-26: REVERSED -- Buildkite Packages is primary again (operator
-# directive: the org now has full open-source Buildkite privileges). Verified
+# 2026-07-26: REVERSED -- Buildkite Packages is primary again (the org now
+# has full open-source Buildkite privileges). Verified
 # empirically same day: anonymous, unauthenticated access to
 # packages.buildkite.com/ncz-os/ncz/any/ -- InRelease, Release, Packages, AND
 # an actual pool .deb blob -- all return real data with no resource-limit
-# wall. The registry backfilled from ~/ncz-apt-repo (was stale since 07-06,
+# wall. The registry was backfilled from the reprepro repo (stale since 07-06,
 # see build/ops/argos/backfill-buildkite-packages.sh) and build/ops/argos/
 # ncz-reprepro-publish.sh now dual-publishes every future package to BOTH
 # targets, so this is not just swapping which single point of failure we
@@ -55,8 +55,8 @@
 # one-of-two missing is a warning, since that's still a functional, if
 # no-longer-redundant, apt setup.
 #
-# 2026-10-07 (r201, operator: "make sure our ncz-specific updates are separated
-# from the debian ones"): the dual-source arrangement above is REPLACED. Two
+# 2026-10-07 (r201, rule: NCZ-specific updates are kept separate from the
+# Debian ones): the dual-source arrangement above is REPLACED. Two
 # enabled NCZ repos that overlap made same-version rebuilds show up as
 # "1.0 -> 1.0" and let either one shadow Debian. Now exactly ONE NCZ repo is
 # enabled (Buildkite Packages: the superset, 19 packages vs R2's 13), R2 stays
@@ -124,7 +124,7 @@ else
     echo "[24] WARN: no candidate for ncz-apt-policy yet (publish it); the pin file written above stays in force"
 fi
 
-# --- live-update canary (operator 2026-10-05) ----------------------------------
+# --- live-update canary (2026-10-05) ----------------------------------
 # Offline install gets ncz-screensavers from the flat offline apt source
 # (file:///cdrom/ncz-payload/apt-repo, registered by late.sh; seeded by
 # build-forky-mirror.sh from this very manifest). Live `apt upgrade` on the
@@ -144,7 +144,7 @@ if command -v apt-cache >/dev/null 2>&1; then
     _ncz_ss_cand="$(printf '%s\n' "$_ncz_ss_pol" | sed -n 's/^  Candidate: //p')"
     if [ -z "$_ncz_ss_cand" ] || [ "$_ncz_ss_cand" = "(none)" ]; then
         echo "[24] FATAL: no apt source (NCZ-OS network or the offline /cdrom pool) offers ncz-screensavers -- the live image can install it offline but will NEVER receive updates via 'apt upgrade'" >&2
-        echo "[24]        (operator 2026-10-05: 'If we are distributing screensavers as Deb they need to be apt installed during installation.' Same logic applies to keeping them current.)" >&2
+        echo "[24]        (screensavers distributed as debs must be apt-installed during installation; the same applies to keeping them current.)" >&2
         echo "[24]        Check both repos serve the package; if the package was unpublished, run oc-apt-publish first." >&2
         exit 1
     fi

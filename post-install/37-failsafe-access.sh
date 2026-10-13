@@ -8,8 +8,8 @@
 #   then failed for ALL users incl. root — sshd (:22) and inetutils/busybox
 #   telnetd (:23) accepted connections but could not exec a login shell, so
 #   the box was fully locked out. The only recovery was the separate rescue
-#   PARTITION. Operator directive: "all critical services in their own
-#   library path — it cannot be wedged."
+#   PARTITION. Design rule: all critical services get their own
+#   library path, so a broken shared library cannot wedge them.
 #
 # THE FIX — its own library path == NO library path:
 #   We stage a STATICALLY-linked busybox under /opt/ncz-failsafe (extracted

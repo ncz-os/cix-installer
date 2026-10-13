@@ -1,6 +1,6 @@
 #!/bin/bash
 # 63-ncz-idle-lock-order.sh -- order the desktop's automatic screen-lock AFTER
-# the ncz screensaver instead of at the same instant (operator 2026-10-11).
+# the ncz screensaver instead of at the same instant (2026-10-11).
 #
 # THE BUG. Two independent idle consumers read the same idle clock and act:
 #   * the Singularity shell's IdleManager locks the session at
@@ -10,8 +10,8 @@
 #     dev.ncz.screensaver:hack-idle-delay (schema default 300s), on a
 #     wlr-layer-shell surface.
 # ext-session-lock-v1 is EXCLUSIVE: while the session is locked the compositor
-# presents the lock surface and nothing else (operator-approved architecture
-# decision 2026-08-17, "the lockscreen IS the screensaver"). A layer-shell
+# presents the lock surface and nothing else (architecture
+# decision 2026-08-17: the lockscreen IS the screensaver). A layer-shell
 # screensaver therefore cannot be seen behind the lock, and ncz-screensaver
 # refuses to start one at all while a locker is alive ("session is locked; not
 # starting", ncz-screensavers launcher/ncz-screensaver). With both defaults at

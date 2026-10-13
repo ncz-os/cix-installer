@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hard-fail preflight for declared ISO components.
+# Hard-fail preflight for declared image components.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"

@@ -112,8 +112,8 @@ Downloads zoder (ZeroClaw CLI for MNEMOS work history) from the public
   - Stages `/etc/zoder/manifest.json` (engine SHA + upstream SHA + run link
     for auditability).
   - Stages `/etc/nclawzero/zoder.conf` — a PUBLIC-SAFE sample documenting
-    `MNEMOS_URL` + `MNEMOS_TOKEN` placeholders. NO fleet model routes, NO
-    internal endpoints, NO Anthropic (project ban). Operators populate
+    `MNEMOS_URL` + `MNEMOS_TOKEN` placeholders. NO site-specific model
+    routes or endpoints, NO Anthropic (project ban). Operators populate
     `MNEMOS_TOKEN` from `/etc/nclawzero/mnemos.env`.
   - Smoke test: `zoder --version` must run; an install that silently leaves
     a non-runnable binary exits 1.
@@ -185,7 +185,7 @@ for it.
     makes the NPU path opt-in with `NCZ_MNEMOS_NPU=1`; until the gap is closed
     the NPU path cannot produce usable vectors.
   - We don't `podman exec` into the mnemos container to wire up custom
-    secrets, fleet model routes, or alternative MNEMOS backends. The
+    secrets, site-specific model routes, or alternative MNEMOS backends. The
     embedder is in-process llama-cpp-python; the network policy is whatever
     the operator's network is.
   - zoder has no apt package. It ships only as a GitHub release asset. On a

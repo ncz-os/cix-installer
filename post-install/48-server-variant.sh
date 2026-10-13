@@ -3,13 +3,13 @@
 #
 # r75 M1 (#102 #108) infrastructure: read /usr/local/lib/cix-installer/BUILD_VARIANT
 # and conditionally apply server defaults (multi-user.target + masked DM).
-# In r75, BUILD_VARIANT defaults to "desktop" so this hook is a no-op for
-# the desktop variant. The Server variant (M1) sets BUILD_VARIANT=server
-# during the build via a Makefile flag, at which point this hook converts
-# a built ISO into a headless boot.
+# BUILD_VARIANT defaults to "desktop" so this hook is a no-op for a
+# desktop install. When the desktop component is unticked in the installer,
+# preseed/late.sh writes BUILD_VARIANT=server and this hook converts the
+# install into a headless boot.
 #
-# (Operator directive 2026-07-27: retired the old "Reinhardt"/"Magnetar"
-# per-variant codename scheme — Maximilian is the release name for BOTH
+# (2026-07-27: the old "Reinhardt"/"Magnetar" per-variant codename scheme
+# was retired — the release codename from release.conf applies to BOTH
 # variants; "Desktop"/"Server" is just the qualifier. Renamed from
 # 48-magnetar-variant.sh to match.)
 #

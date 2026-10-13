@@ -18,7 +18,7 @@
 #   2. a supervised O6N metal boot, with the initramfs-tools initrd retained as
 #      a working rescue boot entry throughout.
 # initramfs-tools is NOT to be purged afterwards: it is a FALLBACK, not
-# redundancy (operator rule: remove legacy that is redundant, keep legacy that
+# redundancy (rule: remove legacy that is redundant, keep legacy that
 # is a fallback).
 #
 # What the config carries and why is documented in the file itself; the short

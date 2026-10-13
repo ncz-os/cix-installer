@@ -42,7 +42,7 @@ MARKER="$INSTALLER_META/RESCUE_READY"
 echo "[72] rescue partition population"
 
 # --- preconditions ---
-# arm64 stages a raw Image + modules archive and records KVER_NEXT on the ISO.
+# arm64 stages a raw Image + modules archive and records KVER_NEXT on the medium.
 # AMD64 installs its stable .deb in 10-amd64-kernel.sh and records
 # the successfully installed version in KVER_LIST_AMD64.  This hook used to
 # understand only the arm64 contract, so every AMD64 run failed here before it
@@ -242,7 +242,7 @@ if [ -e "$MNT/usr/local/sbin/ncz-rescue-net-fallback" ] || \
 fi
 echo "[72]   rescue networking: DHCP only (no static fallback)"
 
-# --- auto-network + remote recovery access (operator directive 2026-07-29) ---
+# --- auto-network + remote recovery access (since 2026-07-29) ---
 # A rescue partition that can't be reached over the network is useless when
 # the failure being recovered from is a bricked main-kernel boot -- physical
 # console access may not be available. The baked ncz-rescue-net unit provides
@@ -373,7 +373,7 @@ echo "[72] wrote marker $MARKER (PARTUUID=$RP_PARTUUID)"
 # --- hide the rescue partition from the desktop (udisks/gvfs/xfdesktop) ---
 # It is an internal volume (HintSystem=true), so its auto-shown desktop icon
 # cannot be mounted by an unprivileged click -- udisks polkit returns
-# NotAuthorized (operator-reported 2026-06-25). UDISKS_IGNORE removes it from
+# NotAuthorized (reported 2026-06-25). UDISKS_IGNORE removes it from
 # the volume list entirely; admins still sudo-mount it when needed.
 install -d -m 0755 /etc/udev/rules.d
 cat > /etc/udev/rules.d/99-ncz-rescue-hide.rules <<'UDEV'

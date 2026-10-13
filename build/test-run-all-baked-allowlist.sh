@@ -30,11 +30,11 @@ trap 'rm -rf "$T"' EXIT
 pass=0
 fail=0
 # 44-apple-vbt-spoof.sh is listed in hooks.list.amd64 but deliberately kept out
-# of MACHINE_HOOKS_RE so it never runs in baked mode. Operator decision
+# of MACHINE_HOOKS_RE so it never runs in baked mode. Design decision
 # 2026-10-06: on this hardware (MacBookPro16,1) the dGPU must drive
 # the internal panel, and the spoof exists to move it to the iGPU. See the
 # header of post-install/44-apple-vbt-spoof.sh for the measurement. Adding it
-# to the allowlist needs a supervised boot and a fresh operator decision.
+# to the allowlist needs a supervised boot and a fresh design decision.
 KNOWN_ORPHANS="44-apple-vbt-spoof.sh"
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }

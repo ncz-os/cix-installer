@@ -67,7 +67,7 @@ DIALOG_ROOTFS=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqq
 # regex for the root-fs prompt uses the unique substring "root" + "filesystem"
 # to avoid the metachar trap while still uniquely identifying the dialog.
 DIALOG_ERASE=$'  NCZ-OS 26.10 Cygnus | arm64 (Sky1) | build abc1234\n  lqqqqqqqqq [NCZ-OS install - ERASE /dev/sda and install? tqqqq k\n  x body x\n  mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj'
-# Orchestrator's required flow is 9 dialog states (step 4 = 2 password prompts,
+# The required flow is 9 dialog states (step 4 = 2 password prompts,
 # step 6 = target-disk + root-fs + erase confirmation = 3 dialogs). The first
 # 8 of 9 are checked by the existing mk8 helper; the full 9-state flow is
 # checked separately by mk9 below so a regression that reorders the disk-stage
@@ -135,7 +135,7 @@ DIALOG_BP_OOO=$'  [NCZ 14:22:30 +0s] Detecting hardware...\n  [NCZ 14:22:31 +1s]
 rm -rf "$T/s"; mkdir -p "$T/s"; printf '# t=20s\n%s\n' "$DIALOG_BP_OOO" > "$T/s/0000-0020s.txt"
 expect "boot-progress fails when phases are out of order" 1 chk --require-boot-progress "Loading installer" "Detecting hardware" "Detecting storage/USB devices" "Starting network" "Preparing installer dialogs" "Ready: installer UI is loading"
 # --- source-level regression: only ONE --prompt invocation per interactive chooser ---
-# The orchestrator's directive: "(5) machine name: ONE step showing the
+# The installer flow spec: "(5) machine name: ONE step showing the
 # auto-generated name that the user accepts or overrides; remove the redundant
 # second hostname prompt." A regression that re-invokes any chooser with
 # --prompt (e.g. a duplicate early_command block that calls hostnam_sudo twice)
@@ -176,7 +176,7 @@ expect "disk-fs-chooser.sh template shows the disk-select prompt"               
 expect "disk-fs-chooser.sh template shows the root-fs prompt"                     0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "root (/) filesystem"
 expect "disk-fs-chooser.sh template shows the erase-confirm prompt"              0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "ERASE"
 # --- source-level regression: the disk-select prompt is NOT skipped on a single candidate ---
-# The orchestrator's directive: "if exactly one non-media candidate disk, show it
+# The installer flow spec: "if exactly one non-media candidate disk, show it
 # plainly in the filesystem/confirmation step (single explicit confirm is fine);
 # if more than one, the user must choose." A regression that re-introduces an
 # `NDISK==1` auto-pick branch is caught here by scanning for the forbidden
@@ -222,7 +222,7 @@ expect_boot_progress_ttys() {
 }
 expect "boot-progress.sh writes to /dev/tty1 + /dev/tty3 + /dev/console (operator's 'invisible boot' regression guard)" 0 expect_boot_progress_ttys "$ROOT/preseed/boot-progress.sh"
 # --- source-level regression: the ncz_rev banner is one-shot, on tty1+tty3+console ---
-# Operator feedback 2026-09-30 ("the earlier commit put messages only on VT4,
+# Install testing 2026-09-30 ("the earlier commit put messages only on VT4,
 # verify that is not invisible to the user"). The "==== NCZ-OS INSTALLER ${rev}
 # ====" banner used to run in a 2-second heartbeat loop from early_command. The
 # historical version wrote it ONLY to /dev/tty4 -- a non-displayed console.
@@ -287,7 +287,7 @@ expect_rev_banner_not_vt4_only() {
 }
 expect "preseed.cfg NCZ-OS INSTALLER banner is visible on /dev/tty1 + /dev/tty3 + /dev/console (NOT VT4-only, operator's invisible-boot regression guard)" 0 expect_rev_banner_not_vt4_only "$ROOT/preseed/preseed.cfg"
 # --- source-level regression: the password-confirm mismatch leaves the password UNSET (operator UX requirement) ---
-# Operator directive: "(4) default password with confirm (2x)". The confirm
+# Design rule: "(4) default password with confirm (2x)". The confirm
 # mismatch is logged as a WARNING and the password is left UNSET (the operator
 # can set one from the live system). A regression that silently accepts a
 # mismatched confirm violates this contract.
@@ -305,7 +305,7 @@ expect_password_confirm_mismatch() {
 }
 expect "user-chooser.sh leaves password UNSET on a confirm mismatch (operator UX guard)" 0 expect_password_confirm_mismatch "$ROOT/preseed/user-chooser.sh"
 # --- source-level regression: disk-fs-chooser.sh verifies the partman pins are byte-identical before wiping ---
-# Operator safety directive: "keep partman pin byte-compare". The chooser
+# Safety rule: "keep partman pin byte-compare". The chooser
 # sets partman-auto/disk + partman-auto/expert_recipe + partman-auto/choose_recipe
 # via db_set, then db_get + exact-string compare the pinned recipe to the one
 # WE set. A regression that drops the byte-identical compare would let a
@@ -331,8 +331,8 @@ expect_partman_pin_byte_compare() {
     return 0
 }
 expect "disk-fs-chooser.sh verifies partman pins are byte-identical before wiping (operator safety guard)" 0 expect_partman_pin_byte_compare "$ROOT/preseed/disk-fs-chooser.sh"
-# --- source-level regression: disk-fs-chooser.sh refuses a media-disk target (operator safety directive) ---
-# Operator safety directive: "keep ... media-disk protection". The install
+# --- source-level regression: disk-fs-chooser.sh refuses a media-disk target (safety rule) ---
+# Safety rule: "keep ... media-disk protection". The install
 # media (Ventoy / dm / md / loop backing) must never be a candidate. The
 # guard resolves a candidate's parent via parent_disk_of_dev and rejects
 # any backing that does not resolve to a list-devices disk candidate.
@@ -352,7 +352,7 @@ expect_media_disk_protection() {
 }
 expect "disk-fs-chooser.sh enforces media-disk protection via parent_disk_of_dev + list-devices disk (operator safety guard)" 0 expect_media_disk_protection "$ROOT/preseed/disk-fs-chooser.sh"
 # --- source-level regression: the ncz_disk= / ncz_fs= cmdline overrides still work for unattended use ---
-# Operator safety directive: "ncz_disk=/ncz_fs= overrides stay for unattended
+# Safety rule: "ncz_disk=/ncz_fs= overrides stay for unattended
 # use". The override MUST canonicalize to one of the list-devices disk
 # whole-disk candidates (a misspelled / partition / install-medium value is
 # rejected).
@@ -364,15 +364,15 @@ expect_cmdline_overrides() {
     return 0
 }
 expect "disk-fs-chooser.sh honours ncz_disk= / ncz_fs= cmdline overrides with canonicalisation (unattended-use regression guard)" 0 expect_cmdline_overrides "$ROOT/preseed/disk-fs-chooser.sh"
-# --- source-level regression: the orchestrator-required 6-step sequence is the ONLY chooser order in preseed.cfg ---
+# --- source-level regression: the required 6-step sequence is the ONLY chooser order in preseed.cfg ---
 # A regression that re-orders the chooser invocations in preseed.cfg's
 # partman/early_command (e.g. swaps hostname with disk) violates the
-# orchestrator's directive. This test pins the EXACT order by joining the
+# installer flow spec. This test pins the EXACT order by joining the
 # line-continued early_command and asserting the chooser invocations appear
 # in the required sequence.
 expect_orchestrator_order() {
     local cfg="$1"
-    # Extract ONLY the partman/early_command block (the orchestrator-required
+    # Extract ONLY the partman/early_command block (the required
     # order check is for the chooser sequence IN partman/early_command, not
     # for every mention of those names anywhere in the file -- disk-fs-chooser.sh
     # appears earlier as a variable name in the debootstrap-stub guard).
@@ -387,7 +387,7 @@ expect_orchestrator_order() {
     # Join line-continued invocations
     local joined
     joined=$(printf '%s' "$payload" | tr -d '\n\\')
-    # Order (operator 2026-10-06): region -> user -> component -> disk. The
+    # Order (2026-10-06): region -> user -> component -> disk. The
     # password + password-confirm are inside user-chooser.sh; the hostname is
     # automatic (hostname-suggest.sh re-applied WITHOUT --prompt).
     local a b c d e
@@ -406,8 +406,8 @@ expect_orchestrator_order() {
     return 0
 }
 expect "preseed.cfg invokes region->user->hostname(auto)->component->disk in the operator-required order (partman/early_command)" 0 expect_orchestrator_order "$PRCFG"
-# --- source-level regression: the 6 choosers each set a debconf question with seen=true on the orchestrator-required d-i questions ---
-# The orchestrator's directive: the choosers REPLACE d-i's native locale/
+# --- source-level regression: the 6 choosers each set a debconf question with seen=true on the required d-i questions ---
+# The installer flow spec: the choosers REPLACE d-i's native locale/
 # country/keymap/user/password/hostname questions. If a chooser stops
 # marking its d-i question seen=true, d-i will raise the native prompt
 # AGAIN after the chooser, blowing the single-prompt-per-step contract.
@@ -442,11 +442,11 @@ expect "d-i template sources are ASCII" 0 tpl_ascii
 printf 'Template: x/y\nDescription: NCZ install \xe2\x80\x94 pick\n' > "$T/bad.sh"
 tpl_bad() { awk '/^Description/ { if ($0 ~ /[^\001-\177]/) bad=1 } END{exit !bad}' "$T/bad.sh"; }
 expect "a non-ASCII template line is detected" 0 tpl_bad
-# --- adversarial: each orchestrator-interactive chooser exposes the EXPECTED template TYPE ---
+# --- adversarial: each interactive chooser exposes the EXPECTED template TYPE ---
 # A regression that re-registers an interactive chooser as `Type: note` (which
 # auto-dismisses without operator input) would skip the operator's prompt for
 # that step. Pin the type so a regression is caught at this gate. The 5
-# orchestrator-interactive choosers each expose at least one interactive
+# interactive choosers each expose at least one interactive
 # template; the type MUST be one of: select (disk/fs/region/components),
 # string (username/hostname), password (password/password-confirm), boolean
 # (erase-confirm). Note/title/error/text are FORBIDDEN for the interactive
@@ -508,7 +508,7 @@ expect_user_chooser_3_templates() {
 expect "user-chooser.sh has exactly 3 interactive templates (string username + 2x password)" 0 expect_user_chooser_3_templates "$ROOT/preseed/user-chooser.sh"
 # --- adversarial: no chooser calls db_go which would silently advance past a step ---
 # db_go is d-i's "advance past the current question without operator input"
-# helper. The orchestrator's directive is that every chooser step MUST require
+# helper. The installer flow spec is that every chooser step MUST require
 # the operator's input (db_input + db_go is the ONLY safe combination; raw
 # db_go without a prior db_input is the dangerous pattern).
 expect_no_unguarded_db_go() {
@@ -527,7 +527,7 @@ expect "user-chooser.sh has no bare db_go"      0 expect_no_unguarded_db_go "$RO
 expect "hostname-suggest.sh has no bare db_go"  0 expect_no_unguarded_db_go "$ROOT/preseed/hostname-suggest.sh"
 expect "disk-fs-chooser.sh has no bare db_go"   0 expect_no_unguarded_db_go "$ROOT/preseed/disk-fs-chooser.sh"
 # --- adversarial: the partman/early_command block in preseed.cfg does NOT re-invoke hostname-suggest ---
-# The orchestrator's directive: "(5) machine name: ONE step showing the
+# The installer flow spec: "(5) machine name: ONE step showing the
 # auto-generated name". A regression that adds a SECOND /tmp/hostname-suggest.sh
 # --prompt invocation outside partman/early_command (e.g. in another
 # d-i early_command or in the late_command) would re-show the hostname dialog
@@ -580,7 +580,7 @@ expect_erase_names_chosen_disk() {
 }
 expect "disk-fs-chooser.sh ERASE confirmation names \${CHOSEN_DISK} (operator-safety guard against a templated placeholder)" 0 expect_erase_names_chosen_disk "$ROOT/preseed/disk-fs-chooser.sh"
 # --- adversarial: the filesystem step is NOT silently skipped (the earlier commit removed it) ---
-# The orchestrator's directive (2026-09-30): "(6) filesystem" is one of the
+# The installer flow spec (2026-09-30): "(6) filesystem" is one of the
 # EXACTLY 6 operator-visible steps, and "never auto-erase silently" is the
 # hard rule. A regression that comments out either `db_input critical ncz/root-fs`
 # or `db_input critical ncz/confirm-erase` would silently skip the operator's
@@ -628,7 +628,7 @@ expect_disk_db_input_order() {
 }
 expect "disk-fs-chooser.sh shows the 3 disk-stage prompts in order (target-disk < root-fs < confirm-erase)" 0 expect_disk_db_input_order "$ROOT/preseed/disk-fs-chooser.sh"
 # --- adversarial: the confirm-erase template MUST default to false (never auto-erase) ---
-# Operator safety directive: "never auto-erase silently". The confirm-erase
+# Safety rule: "never auto-erase silently". The confirm-erase
 # template's Default: line MUST be false (so the prompt opens with No selected
 # and the operator must explicitly move to Yes to confirm the wipe). A regression
 # that flips Default: to true (or removes the Default line) makes the dialog
@@ -699,7 +699,7 @@ expect_recipe_uses_chosen_fs() {
     return 0
 }
 expect "disk-fs-chooser.sh partman recipe interpolates \$CHOSEN_FS for the ROOT stanza (operator's root-fs pick is honoured)" 0 expect_recipe_uses_chosen_fs "$ROOT/preseed/disk-fs-chooser.sh"
-# --- adversarial: the orchestrator-required 5 choosers are baked into the initrd ---
+# --- adversarial: the required 5 choosers are baked into the initrd ---
 # Each chooser must appear in BAKED_HELPERS (build/iso/patch-initrd-t2-kernel.py),
 # otherwise the orchestrator's required prompt is missing at runtime (the chooser
 # would silently fall through `[ -f /tmp/X.sh ] && sh ...` with no fallback).
@@ -717,7 +717,7 @@ expect_baked_helpers_complete() {
 }
 expect "BAKED_HELPERS in patch-initrd-t2-kernel.py includes all 5 orchestrator-required choosers + ncz-hostname-gen" 0 expect_baked_helpers_complete "$ROOT/build/iso/patch-initrd-t2-kernel.py"
 # --- adversarial: only ONE hostname dialog at runtime (ncz/hostname is the prompt) ---
-# The orchestrator's directive is "machine name: ONE step showing the
+# The installer flow spec is "machine name: ONE step showing the
 # auto-generated name". A regression that re-introduces a second hostname
 # prompt -- e.g. by adding a `db_input critical netcfg/get_hostname` call --
 # would show two hostname dialogs. Pin that the ONLY db_input critical for a
@@ -741,7 +741,7 @@ expect_single_hostname_dialog() {
 }
 expect "hostname-suggest.sh shows exactly ONE hostname dialog (ncz/hostname only, no second netcfg prompt)" 0 expect_single_hostname_dialog "$ROOT/preseed/hostname-suggest.sh"
 # --- adversarial: user-chooser.sh writes CHOSEN_USER + CHOSEN_PASS to debconf ---
-# The orchestrator's directive: "(3) default username" + "(4) default password
+# The installer flow spec: "(3) default username" + "(4) default password
 # with confirm (2x)". A regression that RETURNS EARLY before db_set passwd/...
 # would leave the operator's answer stuck inside CHOSEN_USER/CHOSEN_PASS
 # locals (which the rest of d-i does not read). Pin the db_set calls so a
@@ -761,7 +761,7 @@ expect_user_chooser_writes_debconf() {
 }
 expect "user-chooser.sh writes the operator's username + password to debconf (d-i does not re-prompt)" 0 expect_user_chooser_writes_debconf "$ROOT/preseed/user-chooser.sh"
 # --- adversarial: region-chooser.sh writes ALL FOUR derived values to debconf ---
-# The orchestrator's directive: "region (locale/country/timezone from one
+# The installer flow spec: "region (locale/country/timezone from one
 # choice, keyboard derived)". A regression that drops one of the four
 # db_set calls would leave d-i's native localechooser / keyboard-configuration
 # / clock-setup chain to fire (4-7 extra dialogs).

@@ -95,7 +95,7 @@ fi
 # The comment further down used to claim that without kernel support "the
 # generator has no device to enumerate and does not instantiate
 # systemd-zram-setup@zram0.service, so nothing runs". That is false. Measured
-# on cixmini 2026-08-16 with a kernel carrying "# CONFIG_ZRAM is not set":
+# on an MS-R1 test board 2026-08-16 with a kernel carrying "# CONFIG_ZRAM is not set":
 #
 #   systemd-modules-load: Failed to find module 'zram'
 #   zram_generator::generator: modprobe "zram" failed, ignoring

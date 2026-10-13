@@ -93,7 +93,7 @@ def build_info_line(arch: str) -> str:
 
     kver_bits = []
     # The staged channel directory names are arch-specific. Unified 7.3
-    # (operator 2026-10-05) retired the edge channel on both arches: arm64
+    # (2026-10-05) retired the edge channel on both arches: arm64
     # carries assets/kernel/mainline only, amd64 carries
     # assets/kernel/amd64-stable only. The old f"{arch}-{line}" form looked
     # for arm64-stable/arm64-edge, which never exist.
@@ -297,8 +297,8 @@ AMD64_RESCUE_OPTIONS = f"{_PC_RESCUE_OPTIONS} {AMD64_NOUVEAU_OPTIONS}"
 # which does not exist on O6N, so no serial console ever registered.
 # Serial tracing remains available on the Rescue entry and via diag-console.
 #
-# 2026-10-06 (serial diagnostics without a serial console=): the operator asked
-# for kernel output and a root shell on ttyAMA0 during the on-screen install.
+# 2026-10-06 (serial diagnostics without a serial console=): the requirement
+# was kernel output and a root shell on ttyAMA0 during the on-screen install.
 # Re-adding console=ttyAMA0,115200 here is NOT the way to get it: both orders
 # were tried on real O6N hardware and both moved d-i onto the UART --
 # 0871d09f/65c91e3e had 'console=ttyAMA0,115200 console=tty0' (tty0 LAST) and

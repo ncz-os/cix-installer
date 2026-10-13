@@ -26,7 +26,7 @@
 # Exit 0 = every case passed; exit 1 = at least one failed; exit 2 = extraction
 # of the script under test failed (i.e. the script is missing or unreadable).
 #
-# What this test is NOT: it does not exec `make image` or `make iso`. The
+# What this test is NOT: it does not exec `make image`. The
 # gate is a single shell script that doesn't need QEMU, KVM, root, or the
 # real asset tree to validate; it only needs to read a tree it points at,
 # which is exactly what a fixture gives us.
@@ -283,7 +283,7 @@ run_gate "arm64 BUILD_VARIANT=server skips cix-debs check -> OK" \
     "NCZ_TARGET_ARCH=arm64 BUILD_VARIANT=server VERIFY_ROOT=$SERVER_ROOT"
 
 # Case B9: --verify-firmware-dir flag overrides the firmware root. This
-# is the per-flag path used by build-iso-di.sh to check a different
+# is the per-flag path (used by the retired ISO builder) to check a different
 # staged tree than $ROOT/assets/sky1-firmware. We populate VERIFY_ROOT
 # WITHOUT firmware but populate VERIFY_FIRMWARE_DIR WITH firmware, and
 # assert the gate reports OK.

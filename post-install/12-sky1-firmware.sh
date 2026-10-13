@@ -8,10 +8,10 @@
 #   rtw89 (Realtek WiFi, if used)  → rtw8852b*.bin
 #
 # Source: github.com/Sky1-Linux/sky1-firmware (git tracked) staged into
-# the ISO under /cdrom/ncz-payload/assets/sky1-firmware/ by the build pipeline
-# (build/build-squashfs-layers.sh + build/build-iso-di.sh + the new
-# build/iso/{import-substrate,stage-ncz-payload,write-image}.py
-# assembly writer), copied into
+# the install medium under /cdrom/ncz-payload/assets/sky1-firmware/ by the build
+# pipeline (build/build-squashfs-layers.sh + the
+# build/iso/{import-substrate,stage-ncz-payload,write-usb-image}.py
+# image writer), copied into
 # /usr/local/lib/cix-installer/assets/sky1-firmware by late.sh. This hook
 # drops it into /lib/firmware on the target.
 # NCZ-PLATFORM-GUARD: sky1-arm64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
@@ -102,7 +102,7 @@ REQUIRED_OTHER="dsp_fw.bin arm/mali/arch12.8/mali_csffw.bin"
 
 _missing=0
 if [ ! -d "$SRC" ] || [ -z "$(ls -A "$SRC" 2>/dev/null)" ]; then
-    echo "[12] FATAL: $SRC missing or empty — arm64 ISO requires Sky1 firmware (VPU codecs, DSP fw, Mali CSF)."
+    echo "[12] FATAL: $SRC missing or empty — arm64 image requires Sky1 firmware (VPU codecs, DSP fw, Mali CSF)."
     echo "[12] The build-side pre-flight (build/verify-arm64-inputs.sh) should have caught this;"
     echo "[12] if you got here, that gate was skipped — fix the build, not this hook."
     echo "[12] Required source-side items:"
@@ -182,7 +182,7 @@ if [ "$_dst_missing" -ne 0 ]; then
 fi
 
 # r49: a kernel may lack CONFIG_FW_LOADER_COMPRESS_ZSTD,
-# so .zst-compressed firmware blobs (Ubuntu resolute default for linux-firmware)
+# so .zst-compressed firmware blobs (the packaging default on the old Ubuntu base)
 # fail to load with -2 (ENOENT). MT7921e WiFi was bricked in r45-r48 because of
 # this. Decompress all .zst firmware in-place so the bare-name kernel requests
 # work.

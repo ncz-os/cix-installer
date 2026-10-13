@@ -27,7 +27,7 @@ enables `sinty-nm.service`.
 
 ## Rebuilding the binary (arm64, static)
 
-Build in a `debian:forky` container (never Ubuntu: operator rule 2026-10-08) with
+Build in a `debian:forky` container (never Ubuntu: Debian-only rule since 2026-10-08) with
 the official Go 1.25 toolchain (go.mod requires `go 1.25.0`). The result is a
 static, CGO-free Go binary with no libc/library dependency, so the container
 only supplies the toolchain; the shipped r201 binary (go1.25.0, `statically

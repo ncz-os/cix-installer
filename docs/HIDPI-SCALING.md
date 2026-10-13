@@ -53,7 +53,7 @@ shell leaves a high density output at 1:
 
 ## Login screen
 
-`post-install/55-greeter.sh` keeps the operator rule that the greeter never
+`post-install/55-greeter.sh` keeps the rule that the greeter never
 scans out above 1920x1200 (no 4K at the login screen). The greeter autostart
 now asks `ncz-display-scale greeter` for the mode: the largest mode within
 1920x1200 that has the panel's own aspect ratio, then the policy scale for that
