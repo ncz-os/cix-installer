@@ -118,7 +118,7 @@ record (`36ed84e7…`, `81f18202…`).
 ### Rebuilding an image: what you can fetch
 
 The GPL source above is complete. Rebuilding a byte-identical image is a
-different matter: `build/build-image.sh` also consumes 44 pre-staged inputs
+different matter: `build/build-image.sh` also consumes 48 pre-staged inputs
 pinned by sha256 in [`manifests/build-inputs.tsv`](../manifests/build-inputs.tsv),
 and most of them are not downloadable.
 
@@ -130,6 +130,7 @@ and most of them are not downloadable.
 | Artist Pack wallpaper packages | 8 | **Yes.** Version `1.2` is byte-reproducible (`build/build-wallpaper-contrib-deb.sh`, in-repo ArtistPack manifests) and is in the public NCZ apt repository; sha256 checked. |
 | Patched libdrm `2.4.134-3+ncz2` | 22 | **Partly.** The 14 runtime library packages the apt policy allows per architecture are in the public NCZ apt repository (sha256 checked). `libdrm-dev`, `libdrm-tests`, the amd64 `libdrm-freedreno1` and the two installer-only `libdrm2-udeb` files are not published: rebuild them with `build/build-libdrm-debs.sh` (Debian source plus the patch in this repository). |
 | `chromium-ncz-sky1` 154.0.8037.0-ncz20261011 | 1 | **Yes.** Public NCZ apt repository; sha256 checked. Source is public in [`ncz-os/chromium-ncz-sky1`](https://gitlab.com/ncz-os/chromium-ncz-sky1). |
+| Vivaldi (`vivaldi-stable`) and Google Chrome (`google-chrome-stable`), both arches | 4 | **While the vendor still serves that version.** The exact pool URL and sha256 are in [`manifests/vendor-debs.tsv`](../manifests/vendor-debs.tsv); vendors drop old versions from their pools, so these bytes are not available indefinitely. |
 | CIX vendor package bundle, Sky1 firmware tree, NPU DKMS package | 3 | No. Vendor-proprietary binaries and firmware we are not able to republish as a bundle; the NPU DKMS package's GPL source is inside the package. |
 
 Other inputs:
@@ -146,6 +147,24 @@ Other inputs:
 * **Desktop payload** (`manifests/singularity-payload.tsv`): both
   `ncz-singularity-desktop` packages are in the public apt repository with the
   pinned sha256.
+
+**Vendor browsers: alias for discovery, store for reproducibility.** Vivaldi and
+Google Chrome are found through their vendors' stable aliases, the package names
+`vivaldi-stable` and `google-chrome-stable` in each vendor's signed apt repository
+([`manifests/vendor-aliases.tsv`](../manifests/vendor-aliases.tsv)). A build never
+resolves an alias. `build/refresh-vendor-debs.sh` (or `build/refresh-vivaldi.sh` /
+`build/refresh-google-chrome.sh` for one browser) resolves the newest version per
+architecture, checks the index signature against the committed key
+(`build/vivaldi-apt-keyring.asc`, `build/google-chrome-apt-keyring.asc`; primary
+fingerprints pinned), then the `Packages` sha256 and size from the signed index, then
+the deb sha256 and size from `Packages`, and finally the deb's own package, version and
+architecture fields. It stages the deb in the build-inputs store and writes the resolved
+version, URL and sha256 into `manifests/vendor-debs.tsv`, `manifests/build-inputs.tsv`
+and `sbom/expected-assets.txt`. Builders then take only that staged file
+(`build/lib/vendor-deb-pin.sh`), so the same commit always installs the same browser
+bytes, even after the vendor has moved on or removed that version from its pool. Running
+the refresh again when nothing has changed upstream downloads nothing and leaves every
+file unchanged.
 
 `build/stage-build-inputs.sh --arch <arch> --public` downloads the six public
 inputs, checks them against the pins, and lists every input it cannot fetch as

@@ -45,10 +45,18 @@
 `build/stage-diag-busybox.sh` 校验；源码见 <https://snapshot.debian.org/package/busybox/1%3A1.38.0-3/>。
 
 **重建镜像：** 上述 GPL 源码是完整的，但逐字节重建镜像目前**无法**仅凭公开来源完成。
-`manifests/build-inputs.tsv` 中的 44 个预置输入里，只有 6 个（两种架构的 CPython 3.11 与 `uv`、
+`manifests/build-inputs.tsv` 中的 48 个预置输入里，只有 6 个（两种架构的 CPython 3.11 与 `uv`、
 `ncz-screensavers` 0.8.15）能从公开地址取得完全相同的字节，见
 `manifests/build-inputs-public.tsv` 与 `build/stage-build-inputs.sh --public`。其余输入的分类见英文版
 "Rebuilding an image: what you can fetch" 一节。
+
+**厂商浏览器：别名用于发现，存储用于可复现。** Vivaldi 与 Google Chrome 通过厂商签名 apt 仓库中的
+稳定别名（包名 `vivaldi-stable`、`google-chrome-stable`，见 `manifests/vendor-aliases.tsv`）发现新版本。
+构建本身从不解析别名：`build/refresh-vendor-debs.sh` 依次校验索引签名（固定的主密钥指纹）、`Packages`
+的 sha256、deb 的 sha256 与控制字段，把 deb 存入构建输入存储，并把解析出的版本、URL 和 sha256 记入
+`manifests/vendor-debs.tsv`、`manifests/build-inputs.tsv` 与 `sbom/expected-assets.txt`。构建只使用这个
+已存储、已固定的文件，因此同一提交总是安装相同字节的浏览器。上游无变化时重复运行不会下载任何内容，
+也不会改动任何文件。
 
 NCZ-OS 分发 GPL/LGPL 软件，并从修改过的源码构建若干组件。本页是**所发布镜像中一切
 由我们自行编译的内容**的权威索引，并给出各自的源码位置。

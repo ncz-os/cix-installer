@@ -1,0 +1,15 @@
+# manifests/vendor-aliases.tsv -- vendor apt aliases used to DISCOVER a browser deb.
+#
+# Alias for discovery, store for reproducibility: build/refresh-vendor-debs.sh resolves the
+# newest version of <package> in the vendor's signed apt index (signature checked against
+# <keyring>, whose primary key fingerprints must equal <key_fprs>), downloads it, checks the
+# sha256 and size listed in that index, stages it under <store_dir>/ and records the resolved
+# version, URL and sha256 in manifests/vendor-debs.tsv, manifests/build-inputs.tsv and
+# sbom/expected-assets.txt. Image builds never read the alias: they consume the staged store
+# file, whose sha256 is pinned in git.
+#
+# Columns (TAB): package, repo_url, suite, component, index (inrelease = signed InRelease,
+# release = Release + detached Release.gpg), keyring (repo path), key_fprs (comma-separated
+# primary fingerprints), store_dir, arches (comma-separated), vendor, role.
+google-chrome-stable	https://dl.google.com/linux/chrome/deb	stable	main	inrelease	build/google-chrome-apt-keyring.asc	EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796	assets/google-chrome	amd64,arm64	Google LLC	vendor browser, staged in the offline pool
+vivaldi-stable	https://repo.vivaldi.com/archive/deb	stable	main	release	build/vivaldi-apt-keyring.asc	8D1FA52AEF58A09D889DD4221256C34716BD9233	assets/vivaldi	amd64,arm64	Vivaldi Technologies	default browser, installed by post-install/52-vivaldi.sh

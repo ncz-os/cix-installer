@@ -659,10 +659,15 @@ build_layer(){ local role="$1" manifest="$2"
     # r181: stage the Vivaldi .deb so 52-vivaldi.sh installs the browser OFFLINE
     # (the MNEMOS + agent launchers Exec vivaldi-stable; epiphany can't play
     # YouTube on arm64). Self-contained .deb, no mirror/closure changes needed.
+    # Only the deb that manifests/vendor-debs.tsv pins (exact version + sha256) is staged,
+    # so a superseded deb left in the tree never reaches the image.
     if [ -d "$ROOT/assets/vivaldi" ]; then
+      # shellcheck source=lib/vendor-deb-pin.sh
+      . "$ROOT/build/lib/vendor-deb-pin.sh"
+      _viv_deb="$(ncz_vendor_staged_deb "$ROOT" vivaldi-stable "$NCZ_TARGET_ARCH" assets/vivaldi)" || exit 1
       sudo mkdir -p "$MG/usr/local/lib/cix-installer/assets/vivaldi"
-      sudo cp -a "$ROOT/assets/vivaldi/." "$MG/usr/local/lib/cix-installer/assets/vivaldi/" 2>/dev/null || true
-      log "  staged vivaldi assets ($(find "$ROOT/assets/vivaldi" -type f | wc -l | tr -d ' ') files)"
+      sudo cp -a "$_viv_deb" "$MG/usr/local/lib/cix-installer/assets/vivaldi/"
+      log "  staged $(basename "$_viv_deb") (pinned in manifests/vendor-debs.tsv)"
     fi
     # The OTA desktop update UI (KNOWN-ISSUES #2). 50-update-manager.sh looks
     # for /usr/local/lib/cix-installer/assets/update-manager and then
