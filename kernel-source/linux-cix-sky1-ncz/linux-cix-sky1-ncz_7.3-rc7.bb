@@ -23,8 +23,8 @@
 # The equivalent 207-commit review branch is kernel-73rc7-port-20261011.
 #
 # Patch decisions vs. the dry-run 205-patch replay (operator accepted the
-# orchestrator advisory 2026-09-29; each item re-verified against source, see
-# cix-installer docs/reports/2026-09-29-sky1-rc5-advisory-implementation.md).
+# review advisory 2026-09-29; each item re-verified against source, see
+# the 2026-09-29 Sky1 rc5 advisory implementation report).
 # The raw 7.2 patches below are superseded by the consolidated diff of the
 # kernel-73rc7-port-20261011 branch; this recipe ALSO applies the numbered
 # review/q3 patches 0001-0011 and 0013-0021 (see SRC_URI). "drop" below means

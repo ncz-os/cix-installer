@@ -276,7 +276,7 @@ fi
 # is expected, not a staging failure. Reporting it as if it were a fixable gap
 # is the defect this block removes.
 #
-# See amd64-kernel-t2 docs/T2-BLUETOOTH-FIRMWARE.md for the full analysis, and
+# The kernel side is patch 9102 in the linux-t2-ncz series, and
 # that repo's patches/9002 for the ROM-firmware advertising workaround this
 # kernel already carries.
 T2_BT_FW_MODELS="MacBookPro15,4 MacBookPro16,3 MacBookAir9,1"
@@ -294,7 +294,7 @@ case " ${T2_BT_FW_MODELS} " in
         if [ -e /lib/firmware/brcm/BCM.hcd ]; then
             echo "[55] Bluetooth: user-supplied brcm/BCM.hcd present for UART chip on ${t2_model:-unknown model}"
         else
-            echo "[55] Bluetooth: ${t2_model:-this T2 model} uses a UART Broadcom chip on ROM firmware; brcm/BCM.hcd is intentionally absent (no redistributable patchram; see amd64-kernel-t2 docs/T2-BLUETOOTH-FIRMWARE.md)"
+            echo "[55] Bluetooth: ${t2_model:-this T2 model} uses a UART Broadcom chip on ROM firmware; brcm/BCM.hcd is intentionally absent (no redistributable patchram; see linux-t2-ncz patch 9102)"
         fi
         ;;
 esac

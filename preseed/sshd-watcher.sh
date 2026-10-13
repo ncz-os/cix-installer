@@ -26,7 +26,7 @@ exec >> /var/log/early_command.log 2>&1
 echo "[watcher] start $(date -u +%FT%TZ) pid=$$"
 
 # 2026-05-08 take19 (per review DNS deep dive in
-# docs/R78-DNS-DEEP-DIVE-2026-05-08.md): the actual fix is to drop
+# the 2026-05-08 DNS investigation): the actual fix is to drop
 # scripts into d-i's documented hook directories so they run AT the
 # right moment in the install flow:
 #

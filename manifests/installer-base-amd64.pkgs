@@ -2,7 +2,7 @@
 #
 # Derived from manifests/installer-base.pkgs (Sky1/arm64). Every package
 # there is arch-portable EXCEPT the three called out below — see
-# docs/AMD64-PACKAGE-AUDIT.md for the full accounting. Consume the same way:
+# the 2026-09-14 AMD64 package audit for the full accounting. Consume the same way:
 # grep -vE '^\s*(#|$)'.
 
 # --- initramfs builder --------------------------------------------------
@@ -13,7 +13,7 @@ dracut-core
 # gcc-aarch64-linux-gnu DROPPED — that was the arm64 cross-compiler target
 # for Mali's gpu.mk invoking aarch64-linux-gnu-gcc explicitly. AMD64 has no
 # equivalent CIX accelerator DKMS stack (there is no CIX GPU/NPU/VPU on this
-# architecture at all — see docs/AMD64-PACKAGE-AUDIT.md "dropped" bucket).
+# architecture at all — see the 2026-09-14 AMD64 package audit "dropped" bucket).
 # Native `gcc` below is sufficient for any AMD64-native DKMS module.
 dkms
 build-essential
@@ -138,7 +138,7 @@ zstd
 # names. AMD64 real package names are TBD pending the two AMD64 kernel
 # builds currently in progress (v7.2.6+T2 unified stable on an amd64 build host, v7.3-rc3
 # edge on another build host) actually landing as packaged .debs — see
-# docs/AMD64-PACKAGE-AUDIT.md. Placeholder names, confirm against the real
+# the 2026-09-14 AMD64 package audit. Placeholder names, confirm against the real
 # built package names once available:
 #   linux-image-amd64-ncz-t2      (stable, unified T2+regular)
 #   linux-image-amd64-ncz-edge    (edge)

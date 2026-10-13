@@ -7,7 +7,7 @@
 # d-i package NOT in this ledger FAILS.  A row whose package forky now provides
 # at the same or newer version is GRADUATED and must be removed (the gate + the
 # check-sid-exceptions tracker fail on it: "use forky").  Keep it small and
-# shrinking; see docs/SID-EXCEPTIONS.md and docs/FORKY-PROVENANCE.md.
+# shrinking; see docs/SID-EXCEPTIONS.md and build/forky-provenance.py.
 #
 # columns (TAB): name version arch sha256 class forky_version gap reason
 #                first_seen snapshot owner_action review_by tracking_url
