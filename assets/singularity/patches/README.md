@@ -107,7 +107,30 @@ unlock prompt composites over the live saver rather than a flat background;
   `...0016, 0017, 0018`; the two changes are at different sites and were
   verified to apply in that order (`0017` then `0018`).
 
-None of 0013-0016 nor 0018 has a `**Upstream PR:**` link on purpose (nothing is filed; the
+- `0020` (D2 fix 2026-10-13, t2saver mission) attaches a fresh `wl_callback`
+  after every `framesrc_present` commit on the lock surface so the wlroots/
+  labwc compositor has a feedback path and never treats the surface as idle.
+  On the Apple T2 MacBooks (CHIMERA .6, MEDUSA .38, MacBookPro16,1) with the
+  amdgpu display driver (radeonsi / navi14) and eDP-1 owned by the dGPU,
+  the rig sees the screensaver as STATIC during the lock-held window -- 1
+  distinct frame in 21-25 grabs while `blackhole_gles3` is running at ~19%
+  CPU and `feed.log` shows `ncz-feed-render: streaming frames`. The most
+  likely path is the `wl_shm` buffer needing a frame feedback for wlroots'
+  direct-scanout path on amdgpu to commit the new buffer to the scanout
+  plane. The existing `frame_listener` is the callback handler; `saver_active`
+  / `prompt_visible` in `render_output` already gate the redraw, so this is
+  an idempotent enhancement that costs nothing on already-working stacks
+  (PEGASUS i915, O6N Mali) and unblocks the path that does not. Operator
+  confirmation gate: the rig's grim capture may itself be wrong on the amdgpu
+  lock surface (PRIME/SHM-screen-limit); the brief asks the operator to
+  LOOK at the physical screen. If the operator sees an animated saver the
+  rig's static-1-frame is a capture artifact and this patch is harmless; if
+  the operator sees a frozen frame this patch is the corrective change.
+  `tests/lockscreen-framesrc/test-framesrc.sh` case 11 (`present with frame
+  callbacks`) covers it. No upstream PR link on purpose; the mirkoprs task
+  owns the upstream offer.
+
+None of 0013-0016, 0020 nor 0018 has a `**Upstream PR:**` link on purpose (nothing is filed; the
 mirkoprs task owns the upstream offer). Delete them if/when the corresponding
 change lands
 upstream.

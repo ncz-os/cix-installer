@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Mon, 12 Oct 2026 22:00:00 -0400
+Subject: [PATCH] lockscreen: keep the frame-source surface alive in the
+ compositor after each commit (D2 amdgpu fix)
+
+While an out-of-process screensaver is streaming frames to the lock
+surface (patch 0014, refined in 0015), the present path destroys any
+prior wl_callback and never attaches a new one. On wlroots/labwc this
+is normally fine -- the compositor still scans out the new buffer on
+the next vsync.
+
+On the Apple T2 MacBooks (CHIMERA .6, MEDUSA .38, MacBookPro16,1)
+with the amdgpu display driver (radeonsi / navi14) and eDP-1 owned
+by the dGPU, the rig sees the screensaver as STATIC during the
+lock-held window -- 1 distinct frame in 21-25 grabs while
+blackhole_gles3 is running at ~19% CPU and feed.log shows
+"ncz-feed-render: streaming frames". The most likely path is the
+wl_shm buffer needing a frame feedback for wlroots' direct-scanout
+path on amdgpu to commit the new buffer to the scanout plane
+(without the callback the compositor can treat the surface as idle
+and keep showing the first imported buffer).
+
+The fix is to attach a fresh wl_callback AFTER every framesrc_present
+commit, so the compositor always has a feedback path and never
+treats the surface as idle. The frame_done handler just clears the
+callback; no Cairo redraw is scheduled (saver_active is still true
+when no prompt is visible, so the prompt is not painted), so this is
+an idempotent enhancement that costs nothing on the path that
+already works (PEGASUS i915, O6N Mali) and unblocks the path that
+does not (CHIMERA / MEDUSA amdgpu).
+
+Operator-confirmation gate: the rig's grim capture may itself be
+wrong on the amdgpu lock surface (PRIME/SHM-screen-limit; the brief
+asks the operator to LOOK at the physical screen). If the operator
+sees an animated saver the rig's static-1-frame is a capture
+artifact, not this bug, and this patch is harmless. If the operator
+sees a frozen frame this patch is the corrective change.
+
+Assisted-by: opencode:MiniMax-M3
+AI-Scope: added wl_surface_frame() after each framesrc_present commit on the lock surface, plus the existing frame_listener as the callback handler (idempotent: saver_active / prompt_visible gating in render_output prevents a prompt redraw while the source owns the surface); no behaviour change on already-working stacks (i915/Mali), unblocks the amdgpu direct-scanout path; tested via the existing framesrc harness (case 11: present with frame callbacks).
+---
+--- a/src/lockscreen/lock_main.c
++++ b/src/lockscreen/lock_main.c
+@@ -643,6 +643,17 @@
+     wl_surface_attach(o->surface, fr->buffer, 0, 0);
+     wl_surface_damage_buffer(o->surface, 0, 0, (int)fr->width, (int)fr->height);
+     wl_surface_commit(o->surface);
++    /* D2 fix 2026-10-13 (amdgpu T2-Macs, CHIMERA/MEDUSA): attach a frame
++     * callback so the wlroots/labwc compositor has a feedback path and
++     * never treats the lock surface as idle. Without this, the amdgpu
++     * direct-scanout path can latch on the first imported wl_shm buffer
++     * and ignore subsequent presents -- the screensaver appears static
++     * even though the source keeps streaming. Idempotent on i915/Mali
++     * (no behaviour change). The existing frame_listener clears the
++     * frame_cb in frame_done; saver_active / prompt_visible already gate
++     * the redraw, so the no-trigger handler is correct here. */
++    o->frame_cb = wl_surface_frame(o->surface);
++    if (o->frame_cb) wl_callback_add_listener(o->frame_cb, &frame_listener, o);
+ }
+ 
+ static void framesrc_clear(void *user) {
