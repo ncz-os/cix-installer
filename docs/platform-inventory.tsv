@@ -288,7 +288,7 @@ post-install/33-network.sh	mixed	t2	netplan/NetworkManager wiring is generic; al
 post-install/34-firewall.sh	common	-	nftables baseline; generic
 post-install/34-fstab.sh	common	-	writes /etc/fstab; generic
 post-install/35-fstrim-fix.sh	common	-	excludes vfat from fstrim; Sky1 motivated but harmless and correct on every arch
-post-install/35-ssh.sh	common	-	openssh plus fleet keys; generic
+post-install/35-ssh.sh	common	-	openssh server (no vendor keys); generic
 post-install/36-telemetry.sh	mixed	-	telnet/journald generic; serial-getty ttyAMA0 enable gated on arm64 (lines ~198-210); TODO split UART part
 post-install/37-failsafe-access.sh	common	-	static busybox break-glass console; arch selected from assets/diag
 post-install/37-ntp-hostname.sh	common	-	hostname and timesyncd; generic

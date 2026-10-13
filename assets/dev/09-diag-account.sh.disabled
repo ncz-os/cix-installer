@@ -57,21 +57,8 @@ EOF
 chmod 0440 "$SUDOERS"
 echo "[09] $SUDOERS written (NOPASSWD)"
 
-# Mirror fleet authorized_keys onto the diag account so SSH works without
-# password too. Same key set 35-ssh.sh uses.
-read -r -d '' DIAG_KEYS <<'EOF' || true
-# === nclawzero fleet-default authorized_keys (DIAG account — testing only) ===
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBJ3z+8UX2oPt3cmN1X9XU8RWrgp7VvdHPd0vW+m/AoR jperlow@work-laptop
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKCDT5Busd1J+j4kpzkZ/jT/GtUQylaZCUCTftY2sYk argos-backup
-EOF
-
-DIAG_HOME=$(getent passwd "$DIAG_USER" | cut -d: -f6)
-DIAG_GROUP=$(id -gn "$DIAG_USER")
-install -d -m 0700 -o "$DIAG_USER" -g "$DIAG_GROUP" "$DIAG_HOME/.ssh"
-echo "$DIAG_KEYS" > "$DIAG_HOME/.ssh/authorized_keys"
-chmod 0600 "$DIAG_HOME/.ssh/authorized_keys"
-chown "$DIAG_USER:$DIAG_GROUP" "$DIAG_HOME/.ssh/authorized_keys"
-echo "[09] $DIAG_HOME/.ssh/authorized_keys seeded"
+# No SSH public keys are seeded for this account (vendor keys were removed
+# from every image path); it logs in with its password.
 
 # Drop a marker file so it's obvious in /etc what this account is.
 cat > /etc/cix-diag-account.txt <<EOF

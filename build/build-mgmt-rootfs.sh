@@ -60,8 +60,8 @@ PKG_MANIFEST="$ROOT/manifests/mgmt.pkgs"
 
 # Recovery container credentials. LAN-only (private subnet, no public route)
 # per fleet doctrine. Password is random per build; override by exporting
-# NCZ_MGMT_PASS. Day-to-day access is key-based (the post-install
-# hook injects fleet authorized_keys into the container's /root/.ssh).
+# NCZ_MGMT_PASS. No vendor SSH key is installed; owners may add their own
+# key to the container's /root/.ssh/authorized_keys.
 # NCZ_MGMT_PASS=<pass> to pin one, =random for a unique per-build password.
 if [ -n "${NCZ_MGMT_PASS:-}" ] && [ "${NCZ_MGMT_PASS}" != "random" ]; then
     MGMT_ROOT_PW="$NCZ_MGMT_PASS"
@@ -157,7 +157,7 @@ echo "[mgmt-rootfs] applying recovery-container configuration"
 echo "$MGMT_HOSTNAME" > "$CHROOT/etc/hostname"
 printf '127.0.0.1\tlocalhost\n127.0.1.1\t%s\n' "$MGMT_HOSTNAME" > "$CHROOT/etc/hosts"
 
-# root password (LAN-only recovery; primary access is key-based).
+# root password (LAN-only recovery; no vendor key is installed).
 chroot "$CHROOT" /bin/sh -c "echo 'root:$MGMT_ROOT_PW' | chpasswd"
 
 # RW host-bind mountpoint (post-install hook binds host / here).
@@ -183,12 +183,11 @@ chroot "$CHROOT" systemctl enable systemd-resolved.service 2>/dev/null || true
 # resolved manages /etc/resolv.conf via the stub symlink.
 ln -sf /run/systemd/resolve/stub-resolv.conf "$CHROOT/etc/resolv.conf" 2>/dev/null || true
 
-# --- sshd: ssh + SFTP, key-first with password break-glass (LAN-only) ---
+# --- sshd: ssh + SFTP, password break-glass or owner key (LAN-only) ---
 mkdir -p "$CHROOT/etc/ssh/sshd_config.d"
 cat > "$CHROOT/etc/ssh/sshd_config.d/99-recovery.conf" <<'EOF'
-# NCZ Server recovery container - LAN-only break-glass. Primary access is
-# fleet key-based (authorized_keys injected by post-install/38); password is a
-# fallback. The SFTP subsystem is what this tier adds over the :2323 telnet
+# NCZ Server recovery container - LAN-only break-glass. Access is the root
+# password or a key the owner installs; no vendor key is trusted. The SFTP subsystem is what this tier adds over the :2323 telnet
 # failsafe.
 PermitRootLogin yes
 PasswordAuthentication yes
