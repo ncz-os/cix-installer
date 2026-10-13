@@ -36,7 +36,7 @@ squashfs-tools
 util-linux          # fdisk, sfdisk, cfdisk, lsblk, blkid, wipefs, lscpu
 parted
 gdisk
-nvme-cli            # .66/.O6 boot from NVMe
+nvme-cli            # MS-R1/O6 boards boot from NVMe
 smartmontools
 hdparm
 sdparm
