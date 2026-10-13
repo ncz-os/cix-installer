@@ -38,6 +38,9 @@ written and are kept for provenance; they are not updated.
 | [`assets/kernel/patches/PATCHES.md`](../assets/kernel/patches/PATCHES.md) | NCZ-authored Sky1 kernel patches |
 | [`assets/kernel/t2smc/README.upstream.md`](../assets/kernel/t2smc/README.upstream.md) | The t2smc SMC driver for T2 Macs (upstream README) |
 | [`assets/kernel/vpu/src/README.md`](../assets/kernel/vpu/src/README.md) | CIX VPU DKMS source |
+| [`assets/kernel/npu/README.md`](../assets/kernel/npu/README.md) | NPU kernel driver notes and how it was verified |
+| [`assets/sinty-nm/README.md`](../assets/sinty-nm/README.md) | The `sinty-nmd` network daemon staged into the base layer |
+| [`assets/regreet/README.md`](../assets/regreet/README.md) | The superseded regreet greeter (historical note) |
 
 ## Desktop, theme and screensavers
 

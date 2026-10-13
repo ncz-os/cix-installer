@@ -128,7 +128,7 @@ Preview 1 带有 **amd64 上的 AMD、NVIDIA 与 Intel GPU 驱动**、**CIX Sky1
 | Radxa Orion O6N | CIX P1（Sky1） | Arm Mali（厂商 Mali；可选 Panthor）+ NPU + VPU | 已安装，桌面、视频（VPU 硬件解码）与音频播放正常 |
 | Minisforum MS-R1 | CIX P1（Sky1） | Arm Mali（厂商 Mali；可选 Panthor）+ NPU + VPU | 已安装，桌面、视频（VPU 硬件解码）与音频播放正常 |
 | MacBookPro16,1（两台） | Core i9-9980HK、Core i7-9750H | AMD Radeon Pro 5300M/5500M 级（Navi 14，`amdgpu`）+ Intel UHD 630（`i915`） | 已安装，可启动到桌面 |
-| 带 NVIDIA 显卡的笔记本 | Core i7-10750H | NVIDIA GeForce RTX 2060 Mobile（专有 `nvidia`）+ Intel UHD 630（`i915`） | 已安装，可启动到桌面 |
+| ASUS ROG GU502LV 笔记本 | Core i7-10750H | NVIDIA GeForce RTX 2060 Mobile（专有 `nvidia`）+ Intel UHD 630（`i915`） | 已安装，可启动到桌面 |
 | HP OmniDesk 台式机 | Core Ultra 7 265 | Intel 集成显卡（Xe-LPG，`i915`） | 已安装，可启动到桌面 |
 | Dell Inspiron 5521（2013） | Core i7-3537U | Intel HD Graphics 4000（`i915`） | 已安装，可运行桌面 |
 | Mac mini 2011（Macmini5,1） | Core i5-2415M | Intel HD Graphics 3000（`i915`） | **已知问题：**显示可能无法初始化；修复计划在下一个镜像中提供 |
@@ -136,6 +136,15 @@ Preview 1 带有 **amd64 上的 AMD、NVIDIA 与 Intel GPU 驱动**、**CIX Sky1
 其他 GPU 与主板均未测试。视频、音频播放以及 VPU 硬件视频解码已在 Sky1 主板上验证；
 其他 GPU 上的硬件视频解码取决于驱动。详细说明（Sky1 主板列表、T2 Mac 与通用 PC 的
 分类、GPU 计算的硬件下限）见英文 [README](README.md#hardware-support--testing-status)。
+
+**Preview 1 已知问题：**
+
+- 安装时请拔掉 USB 串口/调试线（安装程序可能把它误认为盲文显示器）。
+- Apple T2 MacBook 在首次登录后会发热：首次登录导览会带来约一分钟的 CPU 高负载，且独立
+  AMD GPU 始终通电（空闲约 60 °C）。修复计划在下一个镜像中提供。
+- 锁屏：在两台 T2 MacBook 上未能确认锁屏背后的屏保动画（其他机器上已确认，正在调查）；
+  锁屏不会关闭显示（"N 秒后黑屏"尚未实现）。
+- 较老的单 GPU Mac（如 2011 款 Mac mini）可能无法点亮显示；修复计划在下一个镜像中提供。
 
 ## GPU 驱动与启动项
 
