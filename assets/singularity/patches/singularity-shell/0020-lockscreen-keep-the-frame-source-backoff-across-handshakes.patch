@@ -1,0 +1,105 @@
+From 9f54f637d23efde8da0b6b2c4715b4f4e1cc2ad7 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 13 Oct 2026 04:37:51 -0400
+Subject: [PATCH] lockscreen: keep the frame source backoff across handshakes
+
+The frame source host reset its retry delay as soon as a source said
+HELLO, so a source that handshakes and then exits (no output connected,
+GPU error) was respawned every 250 ms for as long as the lock was up.
+
+Reset the backoff only once a frame has been presented, so repeated
+failures back off 250 ms, 500 ms, ... up to 30 s. With no output the host
+does not start a source at all; adding an output starts it without a
+delay. Two headless cases cover both paths.
+---
+ src/lockscreen/lock_framesrc.c             | 19 ++++++++++++++++++-
+ tests/lockscreen-framesrc/test-framesrc.sh | 22 ++++++++++++++++++++++
+ 2 files changed, 40 insertions(+), 1 deletion(-)
+
+diff --git a/src/lockscreen/lock_framesrc.c b/src/lockscreen/lock_framesrc.c
+index d204337..a9846cc 100644
+--- a/src/lockscreen/lock_framesrc.c
++++ b/src/lockscreen/lock_framesrc.c
+@@ -474,7 +474,9 @@ static void handle_hello(struct lock_framesrc *h, const void *payload, size_t le
+     send_welcome(h);
+     h->state = LFS_ACTIVE;
+     h->last_frame_ms = h->now_ms;
+-    h->backoff_ms = 0;   /* healthy again */
++    /* The backoff is NOT reset here: a source that handshakes and then dies
++     * (no output, GPU error) would otherwise be respawned every 250 ms forever.
++     * The first presented frame resets it, see handle_frame(). */
+     lfs_log(h, "frame source accepted (abi=%u transports=0x%x outputs=%u)",
+             he->abi, he->transports, h->n_outs);
+ }
+@@ -523,6 +525,7 @@ static void handle_frame(struct lock_framesrc *h, const void *payload, size_t le
+ 
+     h->last_frame_ms = h->now_ms;
+     h->next_seq++;
++    h->backoff_ms = 0;   /* a presented frame proves the source healthy */
+     /* Tell the source it may render the next frame before we spend time
+      * presenting this one, so compositing never stalls the frame stream. */
+     send_ready(h, f->seq);
+@@ -652,6 +655,12 @@ void lock_framesrc_add_output(struct lock_framesrc *h, void *user, const char *n
+     o->next = h->outs;
+     h->outs = o;
+     h->n_outs++;
++    if (h->n_outs == 1) {
++        /* Failures while there was no output say nothing about the source:
++         * start it promptly now that it has somewhere to draw. */
++        h->backoff_ms = 0;
++        h->reopen_at_ms = 0;
++    }
+ }
+ 
+ void lock_framesrc_resize_output(struct lock_framesrc *h, void *user,
+@@ -740,6 +749,14 @@ void lock_framesrc_tick(struct lock_framesrc *h, uint64_t now_ms) {
+         return;
+     }
+ 
++    /* With no output there is nothing to draw on, and a source started now
++     * only reports zero outputs and exits. Stay idle until an output appears
++     * (lock_framesrc_add_output() restarts it without a backoff). */
++    if (h->n_outs == 0) {
++        if (h->state != LFS_IDLE) stop_source(h, "no outputs");
++        return;
++    }
++
+     if (h->state == LFS_IDLE) {
+         if (now_ms < h->reopen_at_ms) return;   /* backing off */
+         /* Start (or restart) the source. It is never stopped for input; only a
+diff --git a/tests/lockscreen-framesrc/test-framesrc.sh b/tests/lockscreen-framesrc/test-framesrc.sh
+index ec43c3e..53e6ed3 100755
+--- a/tests/lockscreen-framesrc/test-framesrc.sh
++++ b/tests/lockscreen-framesrc/test-framesrc.sh
+@@ -292,6 +292,28 @@ if kill -0 "$LOCK_PID" 2>/dev/null; then ok "first lock still alive"; else bad "
+ kill -9 "$LOCK2_PID" 2>/dev/null
+ stop_all
+ 
++echo "== case 11: a source that dies after every handshake backs off exponentially =="
++start_labwc || exit 1
++start_lock "$SRC --gpu-error" "$WORK/tmp/c11.log"
++sleep 6
++n=$(grep -c "spawned frame source" "$WORK/tmp/c11.log" 2>/dev/null || true)
++if have "$WORK/tmp/c11.log" "backoff 1000ms"; then ok "backoff grows across handshakes"; else bad "backoff did not grow (see c11.log)"; fi
++if [ "${n:-0}" -le 7 ]; then ok "source respawned $n times in 6 s"; else bad "source respawned $n times in 6 s"; fi
++if alive "$LOCK_PID"; then ok "lock alive while backing off"; else bad "lock died while backing off"; fi
++stop_all
++
++echo "== case 12: no output => the source is not started =="
++WLR_HEADLESS_OUTPUTS=0 start_labwc || exit 1
++start_lock "$SRC --frames 200" "$WORK/tmp/c12.log"
++if wait_for "$WORK/tmp/c12.log" "[framesrc] enabled" 6; then
++    sleep 3
++    if have "$WORK/tmp/c12.log" "spawned frame source"; then bad "source spawned with no output (see c12.log)"; else ok "no source spawned without an output"; fi
++    if alive "$LOCK_PID"; then ok "lock alive with no output"; else bad "lock died with no output"; fi
++else
++    echo "  SKIP: the lock was not engaged without an output on this compositor"
++fi
++stop_all
++
+ echo ""
+ echo "== RESULT: $PASS passed, $FAIL failed =="
+ [ "$FAIL" -eq 0 ]
+-- 
+2.56.0
+

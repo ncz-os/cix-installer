@@ -8,7 +8,7 @@
 # running O6N because its build tree had been cleaned. None of those three could
 # be rebuilt from the repo. This script + patches/ make this one reproducible.
 #
-# WHAT THE PATCH FIXES (the decisive half of the layer-shell crash):
+# WHAT PATCH 0001 FIXES (the decisive half of the layer-shell crash):
 # GTK keeps ONE wl_surface across hide/show and tears down only the role object,
 # so a frame queued by a closing animation can land AFTER unmap and leave a live
 # buffer attached. Creating a zwlr_layer_surface_v1 on a wl_surface that has a
@@ -20,6 +20,15 @@
 # crash; patched library = no crash. The library is the real fix; the shell-side
 # unrealize() work is the belt-and-braces half. Upstream: wmww/gtk4-layer-shell
 # PR #130 (and singularityos-lab/singularity-shell PR #15 for the client side).
+#
+# WHAT PATCH 0002 FIXES (2026-10-13): libmali's eglDestroySurface() attaches a
+# NULL buffer and commits. GTK calls it from gdk_gl_context_ensure_egl_surface()
+# whenever the window content needs a different buffer depth, while the window
+# and its zwlr_layer_surface_v1 stay alive. A null commit unmaps a layer surface,
+# so GTK's next frame was "layer_surface has never been configured" and labwc
+# disconnected the shell (three times in 15 s -> Safe Mode). The shim now drops a
+# null attach to a wl_surface whose layer surface still exists, as upstream
+# already does for session lock surfaces (727e460).
 #
 # Usage: make-deb.sh [--src /path/to/gtk4-layer-shell-checkout] [outdir]
 set -euo pipefail
@@ -100,6 +109,12 @@ Description: gtk4-layer-shell with the NCZ stale-buffer fix
  zwlr_layer_surface_v1 role. GTK reuses one wl_surface across hide/show, so a
  frame landing after unmap leaves a buffer attached, and creating a layer
  surface on such a wl_surface is a protocol error that gets the client killed.
+ .
+ Patch 0002 keeps a live layer surface mapped when a null buffer is attached
+ while its zwlr_layer_surface_v1 still exists. The Mali EGL driver does that in
+ eglDestroySurface(), which GTK calls when it rebuilds its EGL surface for a
+ different buffer depth; the next frame then hit "layer_surface has never been
+ configured" and the compositor disconnected the desktop.
  .
  Metal A/B on the Radxa Orion O6: same unpatched shell, stock library = instant
  crash; this library = no crash.
