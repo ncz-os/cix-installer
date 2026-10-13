@@ -5,11 +5,15 @@ SRC="$HERE/build-squashfs-layers.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 PASS=0; FAILS=0
 ok() { PASS=$((PASS+1)); echo "ok   $1"; }; no() { FAILS=$((FAILS+1)); echo "FAIL $1"; }
-awk '/^BASE_STAMP_REL=/{print} /^base_assets_stamp\(\) \{/{f=1} f{print} f&&/^}$/{f=0}' "$SRC" > "$T/fn.sh"
-grep -q base_assets_stamp "$T/fn.sh" && ok "stamp function extracted from build-squashfs-layers.sh" || no "stamp function missing"
-R="$T/root"; mkdir -p "$R/assets/gpu" "$R/assets/audio" "$R/manifests" "$R/assets/cix-debs"
+# base_assets_stamp delegates to ncz_layer_fingerprint (build/lib/layerplan.py,
+# 4a22d6c7), so extract that helper too and give the fixture root the real
+# layerplan.py.
+awk '/^BASE_STAMP_REL=/{print} /^NCZ_LAYERPLAN_PY=/{print} /^(base_assets_stamp|ncz_layer_fingerprint)\(\) \{/{f=1} f{print} f&&/^}$/{f=0}' "$SRC" > "$T/fn.sh"
+grep -q base_assets_stamp "$T/fn.sh" && grep -q ncz_layer_fingerprint "$T/fn.sh" && ok "stamp function extracted from build-squashfs-layers.sh" || no "stamp function missing"
+R="$T/root"; mkdir -p "$R/assets/gpu" "$R/assets/audio" "$R/manifests" "$R/assets/cix-debs" "$R/build/lib"
+cp "$HERE/lib/layerplan.py" "$R/build/lib/layerplan.py"
 echo a > "$R/assets/gpu/ncz-gpu-status"; echo b > "$R/assets/audio/x.py"; echo c > "$R/manifests/installer-base.pkgs"; echo r > "$R/release.conf"; echo big > "$R/assets/cix-debs/a.deb"
-stamp() { ROOT="$R" bash -c ". '$T/fn.sh'; base_assets_stamp"; }
+stamp() { NCZ_TARGET_ARCH="${NCZ_TARGET_ARCH:-arm64}" ROOT="$R" bash -c ". '$T/fn.sh'; base_assets_stamp"; }
 s0="$(stamp)"; [ -n "$s0" ] && [ "$s0" = "$(stamp)" ] && ok "stamp is stable for unchanged inputs" || no "stamp unstable/empty"
 echo a2 > "$R/assets/gpu/ncz-gpu-status"; s1="$(stamp)"; [ "$s1" != "$s0" ] && ok "editing assets/gpu changes the stamp" || no "gpu edit not noticed"
 echo n > "$R/assets/gpu/ncz-gpu-hw-present"; s2="$(stamp)"; [ "$s2" != "$s1" ] && ok "a NEW file in assets/gpu changes the stamp" || no "new file not noticed"
@@ -18,7 +22,10 @@ s3="$(stamp)"; echo bigger > "$R/assets/cix-debs/a.deb"; [ "$(stamp)" = "$s3" ] 
 echo c2 > "$R/manifests/installer-base.pkgs"; [ "$(stamp)" != "$s3" ] && ok "editing installer-base.pkgs changes the stamp" || no "manifest edit not noticed"
 grep -q 'base_assets_stamp | sudo tee' "$SRC" && ok "build_base writes the stamp into the layer" || no "build_base does not write the stamp"
 grep -q '_have_stamp="$(base_stamp_in_layer' "$SRC" && ok "the reuse check compares the layer's stamp" || no "reuse check does not compare"
-s4="$(stamp)"; echo x > "$R/manifests/nvidia-cuda-amd64.pkgs"; [ "$(stamp)" = "$s4" ] && ok "an unrelated manifest (cuda) does not force a base rebuild" || no "unrelated manifest changed the stamp"
+# layerplan's base fingerprint is a deliberate superset (4a22d6c7): through its
+# mirror dependency it covers every manifests/*.pkgs, so any package-list edit
+# rebuilds base (fail-safe direction).
+s4="$(stamp)"; echo x > "$R/manifests/nvidia-cuda-amd64.pkgs"; [ "$(stamp)" != "$s4" ] && ok "a package-list edit (cuda) reaches base through the mirror dependency" || no "package-list edit did not reach the base stamp"
 mkdir -p "$R/assets/kernel/edge"; k0="$(stamp)"; mv "$R/assets/kernel/edge" "$R/assets/kernel/mainline"; [ "$(stamp)" != "$k0" ] && ok "renaming a kernel channel directory changes the stamp" || no "kernel rename not noticed"
 # 2026-10-04 (item C.2): assets/dracut is Sky1-only and is not staged into an
 # amd64 base. The amd64 fingerprint must therefore exclude it (which also forces
