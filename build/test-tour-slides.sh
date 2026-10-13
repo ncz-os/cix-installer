@@ -23,8 +23,11 @@
 #   * Action and ActionLabel are both present or both absent, and Action is one
 #     of the prefixes the tour's run_action() understands:
 #       app:  settings:  help:  man:  http(s)://
-#   * the installed-target hook (post-install/51-ncz-tour-slides.sh) installs
-#     exactly the slides present in the asset directory.
+#   * the installed-target hook (post-install/51-ncz-tour-slides.sh) declares
+#     exactly the slides present in the asset directory (a COMMON list plus a
+#     Sky1-only list), and -- run for real in a sandbox -- installs the COMMON
+#     slides on amd64 and the COMMON + Sky1 slides on arm64, so 85-ncz-chromium-vpu
+#     (the NCZ Chromium VPU slide) can never appear on an amd64 install.
 #
 # Usage: bash build/test-tour-slides.sh
 set -uo pipefail
@@ -32,12 +35,18 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SLIDE_DIR="${NCZ_TOUR_SLIDE_DIR:-$ROOT/assets/branding/tour-slides}"
 HOOK="$ROOT/post-install/51-ncz-tour-slides.sh"
+# Scratch root: TMPDIR when set, else /tmp. Used only by the sandbox hook run.
+TMPD="${TMPDIR:-/tmp}"
 
 BUILTIN_SCENES=" welcome top-bar launcher dock windows workspaces store settings help done "
 # Upstream deck Orders (data/slides/*.slide at the pinned commit).
 UPSTREAM_ORDERS="10 20 30 40 50 60 70 80 90 990 "
-# The four slides this repo adds ("<order> <basename id>").
-EXPECTED="55-ncz-wallpapers 56-ncz-online-wallpapers 65-ncz-screensavers 75-ncz-lock"
+# The slides this repo adds, split by install scope ("<order> <basename id>").
+# COMMON: every desktop. SKY1: arm64/Sky1 only (the platform that ships the NCZ
+# Chromium with VPU video acceleration).
+COMMON="55-ncz-wallpapers 56-ncz-online-wallpapers 65-ncz-screensavers 75-ncz-lock"
+SKY1="85-ncz-chromium-vpu"
+EXPECTED="$COMMON $SKY1"
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
@@ -122,18 +131,60 @@ for f in "${files[@]}"; do
     seen_ids="$seen_ids $base"
 done
 
-# The expected set (and the hook install list) must match what is on disk.
+# norm LIST -> sorted, single-spaced, no trailing space. The argument is one
+# whitespace-separated list; split it on spaces explicitly (never via an
+# unquoted expansion) so the function is exact and shellcheck-clean.
+norm() { tr ' ' '\n' <<<"$1" | sed '/^$/d' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//'; }
+
+# The expected set (and the hook's declared lists) must match what is on disk.
 # Both sides are sorted and space-normalised (no trailing space) so the
 # comparison is a plain string equality with no whitespace ambiguity.
 disk_ids="$(printf '%s\n' "${files[@]}" | xargs -n1 basename | sed 's/\.slide$//' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
-want_ids="$(printf '%s\n' $EXPECTED | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+want_ids="$(norm "$EXPECTED")"
 if [ "$disk_ids" = "$want_ids" ]; then ok "shipped slide set == expected ($want_ids)"; else bad "shipped slide set is '$disk_ids', expected '$want_ids'"; fi
 
-if [ -f "$HOOK" ]; then
-    hook_ids="$(sed -n 's/^ *for s in \(.*\); do$/\1/p' "$HOOK" | tr -s ' ' '\n' | grep -v '^$' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
-    if [ "$hook_ids" = "$want_ids" ]; then ok "hook install list matches the asset set"; else bad "hook install list '$hook_ids' != asset set '$want_ids'"; fi
-else
+if [ ! -f "$HOOK" ]; then
     bad "hook missing: $HOOK"
+else
+    hook_common="$(sed -n 's/^NCZ_TOUR_SLIDES_COMMON="\(.*\)"$/\1/p' "$HOOK" | head -1)"
+    hook_sky1="$(sed -n 's/^NCZ_TOUR_SLIDES_SKY1="\(.*\)"$/\1/p' "$HOOK" | head -1)"
+    common_norm="$(norm "$COMMON")"
+    sky1_norm="$(norm "$SKY1")"
+    if [ "$(norm "$hook_common")" = "$common_norm" ]; then ok "hook COMMON list matches ($common_norm)"; else bad "hook COMMON list '$(norm "$hook_common")' != expected '$common_norm'"; fi
+    if [ "$(norm "$hook_sky1")" = "$sky1_norm" ]; then ok "hook SKY1 list matches ($sky1_norm)"; else bad "hook SKY1 list '$(norm "$hook_sky1")' != expected '$sky1_norm'"; fi
+    if [ "$(norm "$hook_common $hook_sky1")" = "$want_ids" ]; then ok "hook declared lists == asset set"; else bad "hook declared lists exceed/omit the asset set"; fi
+
+    # --- run the hook for real, once per architecture, in a sandbox -------------
+    # Proves the arch gate end-to-end: amd64 installs COMMON only; arm64 installs
+    # COMMON + SKY1. This is the authoritative gate check (no source grepping). It
+    # uses the hook's test seams so it never writes outside the sandbox
+    # (NCZ_TOUR_SLIDES_ROOT prefixes /etc and /usr/local).
+    SB="$(mktemp -d "$TMPD/ncz-tour-slides.XXXXXX")"
+    run_hook() {   # $1 = arch -> prints the installed slide basenames, sorted
+        local arch="$1" root="$SB/$1"
+        mkdir -p "$root/tour"
+        NCZ_TARGET_ARCH="$arch" \
+        NCZ_TOUR_SLIDES_ASSETS="$SLIDE_DIR" \
+        NCZ_TOUR_FIRSTLOGIN_ASSETS="$ROOT/assets/branding/first-login-tour" \
+        NCZ_TOUR_SLIDES_DIR="$root/tour" \
+        NCZ_TOUR_SLIDES_ROOT="$root" \
+            bash "$HOOK" >/dev/null 2>&1
+        # nullglob so an empty tour dir yields nothing (no literal '*.slide').
+        ( cd "$root/tour" && shopt -s nullglob && for f in *.slide; do basename "$f" .slide; done | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//' )
+    }
+    amd_ids="$(run_hook amd64)"
+    arm_ids="$(run_hook arm64)"
+    if [ "$amd_ids" = "$common_norm" ]; then ok "hook on amd64 installs COMMON only ($amd_ids)"; else bad "hook on amd64 installed '$amd_ids', expected '$common_norm'"; fi
+    if [ "$arm_ids" = "$want_ids" ]; then ok "hook on arm64 installs COMMON + SKY1 ($arm_ids)"; else bad "hook on arm64 installed '$arm_ids', expected '$want_ids'"; fi
+    # The first-login guard AND its autostart entry must land on every desktop
+    # arch (the launcher is generic; only slide 85 is arch-gated).
+    missing=""
+    for arch in amd64 arm64; do
+        [ -f "$SB/$arch/usr/local/bin/ncz-first-login-tour" ] || missing="$missing guard:$arch"
+        [ -f "$SB/$arch/etc/xdg/autostart/ncz-first-login-tour.desktop" ] || missing="$missing entry:$arch"
+    done
+    if [ -z "$missing" ]; then ok "hook installs the first-login tour launcher on both arches (sandboxed)"; else bad "first-login tour launcher missing:$missing"; fi
+    rm -rf "$SB"
 fi
 
 echo "$((PASS + FAIL)) checks, $PASS ok, $FAIL failed"
