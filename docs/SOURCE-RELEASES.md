@@ -40,7 +40,7 @@ Versions are taken from the reviewed NCZ build ledger,
 | Component | Shipped version | License | Source |
 |---|---|---|---|
 | **Linux kernel, Sky1 (arm64)** | `7.3.0-rc7-sky1-ncz` (package `linux-image-cixmini` `7.3.0-rc7-sky1-ncz+r289`) | GPL-2.0 | Yocto recipe `linux-cix-sky1-ncz_7.3-rc7.bb` (build r289) in [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix): mainline v7.3-rc7 plus the Sky1 port patch and 20 numbered patches. The in-repo [`kernel-source/`](../kernel-source/SOURCE.md) drop still describes the 7.2 kernel of 26.7; see the note below. |
-| **Linux kernel, amd64 (T2 Macs and PCs)** | `7.3.0-rc7-t2-ncz` (package `7.3.0-rc7-2`) | GPL-2.0 | [`ncz-os/amd64-kernel-t2`](https://gitlab.com/ncz-os/amd64-kernel-t2), branch `feat/t2-7.3-rc7-r2-20261012`: mainline v7.3-rc7 plus the t2linux patch series and our T2 fixes (including the Apple SEP AER quirk). |
+| **Linux kernel, amd64 (T2 Macs and PCs)** | `7.3.0-rc7-t2-ncz` (package `7.3.0-rc7-2`) | GPL-2.0 | [`ncz-os/amd64-kernel-t2`](https://gitlab.com/ncz-os/amd64-kernel-t2), branch `feat/t2-7.3-rc7-r2-20261012`: mainline v7.3-rc7 plus the t2linux patch series and our T2 fixes. |
 | **cix-installer** (installer, preseed, post-install hooks, build scripts) | `v26.10-preview1` | see repo | **This repository**, tag `v26.10-preview1`. |
 | **cixmini-boot** | `1.2+r289` | GPL-2.0 | Boot/firmware glue for Sky1 boards, built by `build/build-kernel-debs.sh`. |
 | **ncz-ffmpeg** (arm64) | `9.0.1-ncz3` | LGPL-2.1+/GPL-2+ | FFmpeg with Sky1 V4L2 M2M support; patches under [`docs/upstream-patches/ffmpeg/`](upstream-patches/ffmpeg/). |
