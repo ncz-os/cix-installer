@@ -71,7 +71,7 @@ while IFS= read -r hit; do
     echo "FAIL  [BIN] $hit"
     BAD=$((BAD + 1))
 done < <(list_assets | python3 -I -c '
-import os, re, sys
+import mmap, os, re, sys
 root = sys.argv[1]
 pat = re.compile(rb"\"os\":\"ubuntu\"|\(Ubuntu [0-9][^)\n]{0,80}ubuntu[^)\n]{0,40}\)")
 for rel in sys.stdin.buffer.read().split(b"\0"):
@@ -82,12 +82,13 @@ for rel in sys.stdin.buffer.read().split(b"\0"):
         with open(path, "rb") as f:
             if f.read(4) != b"\x7fELF":
                 continue
-            f.seek(0)
-            m = pat.search(f.read())
-    except OSError:
+            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                m = pat.search(mm)
+                m = m and (m.group(0),)
+    except (OSError, ValueError):
         continue
     if m:
-        print(rel.decode(errors="replace") + ": Ubuntu-built ELF (" + m.group(0).decode(errors="replace") + ")")
+        print(rel.decode(errors="replace") + ": Ubuntu-built ELF (" + m[0].decode(errors="replace") + ")")
 ' "$ROOT")
 
 # --- DEB / rootfs: delegate to the provenance tool in Ubuntu-only mode ---------
