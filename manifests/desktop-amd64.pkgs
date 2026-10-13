@@ -43,7 +43,7 @@
 # ============================================================================
 greetd
 glycin-loaders
-# BLOCKED (zoder review, 2026-09-14 — do not uncomment until fixed):
+# BLOCKED (review, 2026-09-14 — do not uncomment until fixed):
 # ncz-singularity-desktop's packaging script (build/build-singularity-
 # deb.sh) hardcodes Architecture: arm64. A real fix already exists
 # (commit 39058bc5, "derive package Architecture, don't hardcode arm64") but
@@ -162,7 +162,7 @@ intel-gpu-tools
 # Intel compute/Level Zero userspace, offline. The deferred installer
 # (post-install/lib/intel-accel.sh, ncz-intel-accel-setup.timer) installs these
 # three from Debian when an Intel GPU is present, but with no network at install
-# time (offline install, KVM gate, PROTEUS without a link) apt could not fetch
+# time (offline install, KVM gate, the OmniDesk test desktop without a link) apt could not fetch
 # them. Seeded so the mirror carries them and the installer finds them already
 # available. Verified present for amd64 in snapshot 20261006T143441Z:
 # intel-opencl-icd 26.27.39122.14-1, libze-intel-gpu1 26.27.39122.14-1,
@@ -312,7 +312,7 @@ v4l-utils
 # as a hardware-coverage argument, but the package can't actually build
 # through this pipeline). Its postinst needs to fetch the firmware from
 # Broadcom's site at package-configure time, which the mkosi sandboxed
-# apt install has no route to (real build failure, confirmed on ACHILLES
+# apt install has no route to (real build failure, confirmed on an amd64 build host
 # 2026-09-22: `dpkg` exit 1, "Errors were encountered while processing:
 # firmware-b43-installer / firmware-b43legacy-installer"). These are
 # pre-~2012 Intel Mac WiFi chips -- not an NCZ-OS target platform (Sky1,
@@ -345,7 +345,7 @@ amd64-microcode
 #     confirmed 2026-09-14: github.com/AdityaGarg8/Apple-Firmware ships an
 #     actual architecture-independent Debian package
 #     (apple-firmware_14.5-1_all.deb) carrying the T2/M1-era Broadcom
-#     WiFi/BT blobs. Independently cross-checked live on MEDUSA itself,
+#     WiFi/BT blobs. Independently cross-checked live on T2 Mac B itself,
 #     which already has the AUR equivalent (apple-bcm-firmware) installed —
 #     hundreds of real files at /usr/lib/firmware/brcm/*apple*, one per
 #     T2/M1 Broadcom chip variant, confirmed present on real hardware.
@@ -357,7 +357,7 @@ amd64-microcode
 # ============================================================================
 # MCE / RAS persistence — added 2026-10-11 (T2 power-cap mission, item 3)
 # ============================================================================
-# CHIMERA (MacBookPro16,1) logged a leftover UNCORRECTED machine check at boot
+# T2 Mac A (MacBookPro16,1) logged a leftover UNCORRECTED machine check at boot
 # (banks 12/13, status ee0000000040110a), consistent with a prior hard power
 # cut; nothing on the images persists machine-check records today, so the next
 # boot cannot say whether an error recurred. rasdaemon records MCE/RAS events
@@ -385,7 +385,7 @@ rasdaemon
 #                                  toolkit needs NVIDIA's own apt repo
 #                                  (developer.download.nvidia.com/compute/
 #                                  cuda/repos/debian13/x86_64/ — already
-#                                  precedented live on CERBERUS itself)
+#                                  precedented live on an amd64 build host)
 #   Intel (PCI vendor 8086)     → intel-media-va-driver (VAAPI, real Debian
 #                                  package). Full OpenVINO toolkit is NOT in
 #                                  Debian's archive (confirmed absent via
@@ -396,16 +396,16 @@ rasdaemon
 # INTERIM (2026-09-29), pending the vendor-probe hook described below.
 # Ship the Intel VAAPI driver unconditionally on amd64. Every amd64 machine
 # this project supports has an Intel iGPU -- the T2 Macs carry UHD 630
-# (8086:3e9b) and PEGASUS a CometLake UHD (8086:9bc4) -- so there is no
+# (8086:3e9b) and the GU502LV laptop a CometLake UHD (8086:9bc4) -- so there is no
 # machine where this is dead weight, and waiting for the probe framework
 # left real hardware with NO video acceleration at all.
 #
-# MEASURED on PEGASUS 2026-09-29:
+# MEASURED on the GU502LV laptop 2026-09-29:
 #     vainfo: va_openDriver() returns -1
 #       (tried iHD_drv_video.so, then i965_drv_video.so)
 #     VAAPI profiles: 0        va-driver packages installed: 0
 # versus 19 profiles on the T2 Macs, which get radeonsi VAAPI from mesa via
-# the dGPU. PEGASUS therefore decodes all video on the CPU -- the same class
+# the dGPU. the GU502LV laptop therefore decodes all video on the CPU -- the same class
 # of problem as the thermal complaint that started this, on a machine whose
 # RTX 2060 and iGPU can both do it in hardware.
 intel-media-va-driver

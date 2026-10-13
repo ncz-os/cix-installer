@@ -16,7 +16,7 @@
 #
 # Why the initrd rows exist (2026-10-06): d-i ships no non-free firmware, so
 # every Realtek NIC in the installer ran without its PHY/MCU patch
-# (O6N: "Unable to load firmware rtl_nic/rtl8125b-2.fw (-2)", PEGASUS:
+# (O6N: "Unable to load firmware rtl_nic/rtl8125b-2.fw (-2)", the GU502LV laptop:
 # rtl8168h-2.fw, MS-R1: rtl8127a-1.fw), and the MS-R1's MT7922 Bluetooth
 # (btusb/btmtk) failed BT_RAM_CODE_MT7922_1_1_hdr.bin every ~0.4 s for the
 # whole install, resetting the USB device each time and flooding the kernel
@@ -48,7 +48,7 @@
 # initrd half is that script's job, not this table's.
 #
 # device	driver	package	firmware	where
-Realtek RTL8111/8168/8125/8126/8127 PCIe 1-10GbE (O6N 8125B, MS-R1 8127A, PEGASUS 8168H)	r8169	firmware-realtek	rtl_nic/*	initrd+target
+Realtek RTL8111/8168/8125/8126/8127 PCIe 1-10GbE (O6N 8125B, MS-R1 8127A, GU502LV 8168H)	r8169	firmware-realtek	rtl_nic/*	initrd+target
 Realtek RTL8153/8156 USB 1-2.5GbE	r8152	firmware-realtek	rtl_nic/rtl8153* rtl_nic/rtl8156*	initrd+target
 MediaTek MT7922/MT7921(MT7961) Bluetooth (MS-R1 M.2)	btusb+btmtk	firmware-mediatek	mediatek/BT_RAM_CODE_MT7922_* mediatek/BT_RAM_CODE_MT7961_*	initrd+target
 MediaTek MT7922/MT7921(MT7961) WiFi (MS-R1 M.2)	mt7921e	firmware-mediatek	mediatek/WIFI_RAM_CODE_MT7922_* mediatek/WIFI_MT7922_patch_mcu_* mediatek/WIFI_RAM_CODE_MT7961_* mediatek/WIFI_MT7961_patch_mcu_*	target
@@ -61,4 +61,4 @@ Broadcom/AMPAK WiFi (ARM SBC modules)	brcmfmac	firmware-brcm80211	brcm/brcmfmac*
 Qualcomm Atheros QCA6174/QCA9377	ath10k	firmware-atheros	ath10k/**/*	target
 Qualcomm WCN6855/QCN9074	ath11k	firmware-atheros	ath11k/**/*	target
 Qualcomm WCN7850	ath12k	firmware-atheros	ath12k/**/*	target
-Intel integrated display + GT firmware (Meteor/Arrow Lake etc.; PROTEUS i915 ran the installer with NO i915 firmware: mtl_dmc.bin, mtl_guc_70.bin and mtl_huc_gsc.bin all failed -ENOENT, the GT wedged, and d-i drew on only part of the 4K panel; the installed system, which carries the full set, is correct)	i915	firmware-intel-graphics	i915/*_dmc*.bin i915/mtl_guc_70.bin i915/mtl_huc_gsc.bin i915/mtl_gsc_1.bin	initrd+target
+Intel integrated display + GT firmware (Meteor/Arrow Lake etc.; an Arrow Lake desktop's i915 ran the installer with NO i915 firmware: mtl_dmc.bin, mtl_guc_70.bin and mtl_huc_gsc.bin all failed -ENOENT, the GT wedged, and d-i drew on only part of the 4K panel; the installed system, which carries the full set, is correct)	i915	firmware-intel-graphics	i915/*_dmc*.bin i915/mtl_guc_70.bin i915/mtl_huc_gsc.bin i915/mtl_gsc_1.bin	initrd+target

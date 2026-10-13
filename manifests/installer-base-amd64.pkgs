@@ -64,8 +64,8 @@ efibootmgr
 # Known scope reduction, flagged rather than silently dropped: rEFInd is a
 # UEFI-only boot manager, so this removes support for real legacy-BIOS-only
 # x86 hardware (grub-pc-bin was the BIOS path). Every real AMD64 target
-# this project currently builds/tests against (T2 Macs, PROTEUS/CERBERUS/
-# HYDRA/ACHILLES) is UEFI, so this is not believed to affect any live
+# this project currently builds/tests against (T2 Macs, the test desktops and
+# build hosts) is UEFI, so this is not believed to affect any live
 # target -- revisit if a genuine BIOS-only target ever needs support.
 #
 # rescue-amd64.pkgs' OWN grub-efi-amd64/grub-pc-bios/memtest86+/ms-sys/
@@ -91,7 +91,7 @@ wget
 
 # bolt (boltd/boltctl) -- userspace Thunderbolt device authorization/
 # management. Was entirely absent from this manifest. Metal-confirmed
-# missing on MEDUSA (T2 MacBook, real Kensington AD4010T4 Thunderbolt 4
+# missing on T2 Mac B (T2 MacBook, real Kensington AD4010T4 Thunderbolt 4
 # Dock physically attached): the kernel's own thunderbolt subsystem and
 # firmware boot-time authorization already get a real device connected
 # and working at full USB4 40Gb/s (confirmed via `boltctl list` showing
@@ -136,8 +136,8 @@ zstd
 # --- NCZ kernel channels — AMD64 line -------------------------------------
 # linux-image-cixmini / cixmini-boot DROPPED — Sky1-only kernel package
 # names. AMD64 real package names are TBD pending the two AMD64 kernel
-# builds currently in progress (v7.2.6+T2 unified stable on PROTEUS, v7.3-rc3
-# edge on CERBERUS) actually landing as packaged .debs — see
+# builds currently in progress (v7.2.6+T2 unified stable on an amd64 build host, v7.3-rc3
+# edge on another build host) actually landing as packaged .debs — see
 # docs/AMD64-PACKAGE-AUDIT.md. Placeholder names, confirm against the real
 # built package names once available:
 #   linux-image-amd64-ncz-t2      (stable, unified T2+regular)
