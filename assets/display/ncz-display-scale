@@ -218,9 +218,7 @@ def cmd_greeter(dry_run: bool, runner=subprocess.run) -> int:
         # the output (one disable->enable cycle), which is the DP AUX-engine
         # wedge trigger on trilin Sky1 boards (MS-R1, Orange Pi 6 Plus).
         if enabled and cur and capped(cur):
-            log(
-                f"{name}: already {cur['width']}x{cur['height']}; leaving it alone"
-            )
+            log(f"{name}: already {cur['width']}x{cur['height']}; leaving it alone")
             continue
         mode = greeter_mode(out)
         if mode is None:
@@ -242,17 +240,20 @@ def cmd_greeter(dry_run: bool, runner=subprocess.run) -> int:
             # Derive the scale from the panel's own density exactly as the
             # capped path does, and fold it into the same single --on commit
             # (a scale-only set, like cmd_session, never a --mode change).
-            native = (mode_flag(out, "current") or mode_flag(out, "preferred")
-                      or (modes(out)[0] if modes(out) else None))
+            native = (
+                mode_flag(out, "current")
+                or mode_flag(out, "preferred")
+                or (modes(out)[0] if modes(out) else None)
+            )
             mm_w, mm_h = phys_mm(out)
             if native:
-                scale, why = policy_scale(
-                    native["width"], native["height"], mm_w, mm_h)
+                scale, why = policy_scale(native["width"], native["height"], mm_w, mm_h)
             else:
                 scale, why = 1.0, "no mode reported"
             done = run_wlr(
                 ["--output", name, "--scale", f"{scale:g}", "--on"],
-                dry_run, runner,
+                dry_run,
+                runner,
             )
             log(
                 f"{name}: no capped mode; enabled at native mode "

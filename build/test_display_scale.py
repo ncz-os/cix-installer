@@ -314,9 +314,7 @@ class GreeterTest(unittest.TestCase):
         off = dict(MONITOR_SINGLE_MODE_4K, enabled=False)
         fake = FakeRandr([off])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
-        self.assertEqual(
-            fake.calls, [["--output", "eDP-1", "--scale", "2", "--on"]]
-        )
+        self.assertEqual(fake.calls, [["--output", "eDP-1", "--scale", "2", "--on"]])
         # Explicit: no call carries --mode. (A substring search for "3840"
         # / "2160" would falsely fail on, say, a future log-line argument.)
         self.assertFalse(
@@ -336,9 +334,7 @@ class GreeterTest(unittest.TestCase):
         off = dict(MONITOR_SINGLE_MODE_4K, enabled=False)
         fake = FakeRandr([off])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
-        self.assertEqual(
-            fake.calls, [["--output", "eDP-1", "--scale", "2", "--on"]]
-        )
+        self.assertEqual(fake.calls, [["--output", "eDP-1", "--scale", "2", "--on"]])
         self.assertFalse(
             any("3840" in " ".join(c) or "2160" in " ".join(c) for c in fake.calls),
             fake.calls,
@@ -356,9 +352,7 @@ class GreeterTest(unittest.TestCase):
         lit = dict(MONITOR_SINGLE_MODE_4K, enabled=True)
         fake = FakeRandr([lit])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
-        self.assertEqual(
-            fake.calls, [["--output", "eDP-1", "--scale", "2", "--on"]]
-        )
+        self.assertEqual(fake.calls, [["--output", "eDP-1", "--scale", "2", "--on"]])
 
 
 class SessionTest(unittest.TestCase):

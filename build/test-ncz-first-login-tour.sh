@@ -191,7 +191,8 @@ fi
 # -- so a value of '*' becomes the literal token '*', not every file in cwd)
 # and the launcher asserts \$# == 1 so a future caller that passes multiple
 # arguments fails loud instead of silently losing them.
-if grep -B 1 -A 4 'set -- $2' "$SCRIPT" | grep -q 'set -f'; then
+# shellcheck disable=SC2016  # literal source text, not an expansion
+if grep -B 2 -A 4 'set -- $2' "$SCRIPT" | grep -q 'set -f'; then
     ok "tokenisation under 'set -f' (noglob; audit-safe argv)"
 else
     bad "tokenisation not under 'set -f'"
