@@ -62,7 +62,7 @@ Every part below was fetched anonymously (no account, no token) on
 | Component | Where | Revision | License |
 |---|---|---|---|
 | Upstream base | `https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git` | tag `v7.3-rc7`: commit `24a19b953e2a3d0ea5a8c4951a0ab8f32720c907` (tag object `ec8bf828…`, the value of the recipe's `SRCREV_kernel`) | GPL-2.0 |
-| Recipe, Sky1 port patch, patches 0001-0011 and 0013-0021, defconfig | [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) `recipes-kernel/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.3-rc7.bb` | tag `kernel-sky1-7.3.0-rc7-r289` (branch `fix/sky1-r289-20261012`), commit `6b6b55aa13a877ff8083592048f0a6043703c26a` | GPL-2.0 (patches), Apache-2.0 (recipe) |
+| Recipe, Sky1 port patch, patches 0001-0011 and 0013-0021, defconfig | [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) `recipes-kernel/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.3-rc7.bb` | tag `kernel-sky1-7.3.0-rc7-r289` (branch `fix/sky1-r289-20261012`), commit `7e8c821f8c7b79309af815ae0ee243bc36befa5b` | GPL-2.0 (patches), Apache-2.0 (recipe) |
 | The same, vendored, plus the as-built `.config` (sha256 `67bb7109…`) | [`kernel-source/`](../kernel-source/SOURCE.md) in this repository | this commit | GPL-2.0 |
 | Complete patched source tree as one commit | [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix) | tag `kernel-sky1-7.3.0-rc7-r289-src`, commit `b275222cfc5703fb5595398a216b495ca7d6ee7a` (branch `release/sky1-7.3.0-rc7-r289`) | GPL-2.0 |
 | Debian packaging (`linux-image-cixmini`, `linux-headers-cixmini`, `cixmini-boot`) | `build/build-kernel-debs.sh` in this repository | commit `d395bb2d` | see repo |
