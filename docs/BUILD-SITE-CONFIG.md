@@ -39,6 +39,8 @@ echo /srv/store/build-inputs > ~/.config/ncz/build-inputs-dir
 | `NCZ_MAC_DEST` | `ship-dest` | `build/ship-image.sh` | `[user@]host:dir` that receives a shipped image |
 | `NCZ_SINGULARITY_STAGE_DEST` | `singularity-stage-dest` | `build/build-singularity.sh --push` | `[user@]host:/dir` that receives the built desktop payload |
 | `NCZ_STORE_PASS` | (environment only) | `build/build-singularity.sh --push` | Optional password for that destination, passed to `sshpass -e`, never on the command line |
+| `NCZ_SUDO_PASS_FILE`, `NCZ_SUDO_PASS_KEY` | `sudo-pass-file`, `sudo-pass-key` | `build/lib/priv.sh` | JSON file and (dotted) key holding the sudo password, used only when the build is not root and has no passwordless sudo; fed to `sudo -S` on stdin. Key default `sudo_password` |
+| `NCZ_SHIP_PASS_FILE` | (environment only) | `build/ship-image.sh` | Password file (mode 0600) for the ship destination; default `~/.config/ncz/ship.pass` |
 
 ## Publishing and operations scripts
 
