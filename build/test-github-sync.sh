@@ -123,6 +123,18 @@ M1="$(sha256sum < "$T/wd1/maps/fx.tsv")"
 M2="$(sha256sum < "$T/wd2/maps/fx.tsv")"
 expect "$M1" "$M2" "commit map identical between runs"
 
+echo "== ref-set independence"
+( cd "$W" && git checkout -q main && git checkout -q -b tmpx && printf 'k=%s\n' "$LIT" > x.ini && git add x.ini && git commit -qm "x" &&
+  X="$(git rev-parse --short HEAD)" && git checkout -q main && git checkout -q -b refy && echo y > y.txt && git add y.txt &&
+  git commit -qm "Follow-up to $X" && git push -q origin tmpx refy && git checkout -q main )
+"$SYNC" "${COMMON[@]}" --workdir "$T/wd3" --repo fx --report "$T/plan-r1.json" >/dev/null 2>&1
+( cd "$W" && git push -q origin :tmpx )
+"$SYNC" "${COMMON[@]}" --workdir "$T/wd3" --repo fx --report "$T/plan-r2.json" >/dev/null 2>&1
+Y1="$(python3 -c "import json;d=json.load(open('$T/plan-r1.json'));print([x['target'] for x in d['repos'][0]['plan'] if x['ref']=='refs/heads/refy'][0])")"
+Y2="$(python3 -c "import json;d=json.load(open('$T/plan-r2.json'));print([x['target'] for x in d['repos'][0]['plan'] if x['ref']=='refs/heads/refy'][0])")"
+expect "$Y2" "$Y1" "a commit whose message cites a rewritten commit keeps its sha when that ref is deleted"
+( cd "$W" && git push -q origin :refy )
+
 echo "== incremental fast-forward"
 OLDMAIN="$(git --git-dir="$GH" rev-parse main)"
 ( cd "$W" && git checkout -q main && echo three >> a.txt && git commit -qam "Three" && git push -q origin main )
