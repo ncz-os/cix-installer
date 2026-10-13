@@ -37,6 +37,10 @@
 # gated by build/check-singularity-shaders.sh. Last-known-good payload before
 # SceneFX: 20261007+bk0+tgzb69d3482 (labwc 6fe073cb); vendor-Mali smoke on
 # 2026-10-10: 15/15 programs compile (Mali-G720-Immortalis, libmali r53p0).
+# labwc 2f17786c (2026-10-13) pins SceneFX by commit 37ccd723 (= the 0.5 tag)
+# and adds diff_files = scenefx-liquid.patch; the helper applies it before the
+# NCZ queue. Vendor-Mali smoke of that tree on 2026-10-13: 15/15 programs
+# compile and link (Mali-G720-Immortalis, libmali r53p0, EGL GBM).
 .	https://github.com/singularityos-lab/singularity-desktop.git	master	6d6bbc7f970ef7cc58705a1e523147ff84053410
 subprojects/libsingularity	https://github.com/singularityos-lab/libsingularity.git	main	62aa61c906661830f3b92d8d826eb8d00b9d4b79
 subprojects/singularity-files	https://github.com/singularityos-lab/singularity-files.git	main	95c70f53dc90f910117f23e33ce21d0fa1683e3a
