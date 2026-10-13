@@ -68,6 +68,8 @@ fi
 # any override already in DIR, minus a previous copy of ours) and install it.
 install_override() {
     local dir="$1" body="$2" scratch rc=0
+    # Never validate against an empty schema set.
+    ls "$dir"/*.gschema.xml >/dev/null 2>&1 || return 1
     scratch=$(mktemp -d) || return 1
     cp "$dir"/*.gschema.xml "$scratch"/ 2>/dev/null
     cp "$dir"/*.enums.xml "$scratch"/ 2>/dev/null
