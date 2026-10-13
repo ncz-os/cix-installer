@@ -1,0 +1,10 @@
+# manifests/diag-busybox.tsv -- origin pin of the installer's diagnostic static busybox.
+# assets/diag/busybox-<arch> is usr/bin/busybox from Debian forky busybox-static at the pinned
+# snapshot, unmodified (preseed/diag-console.sh, build/iso/stage-ncz-payload.py, and the amd64
+# installer initrd via build/iso/patch-initrd-t2-kernel.py). build/stage-diag-busybox.sh --check
+# verifies the committed binaries offline; --fetch rebuilds them from the deb (sha256-checked, and
+# provenance-checked against the signed snapshot index with --index-dir); --repin rewrites this
+# file from a verified snapshot index. Source: https://snapshot.debian.org/package/busybox/
+# Columns (TAB): arch, package, version, deb_sha256, deb_size, snapshot, dest, sha256, size
+amd64	busybox-static	1:1.38.0-3+b1	26801f17e6c88e813be104effc0ea3b43d912bd59ca6295fcd1260528ebb4d41	970908	20261012T023456Z	assets/diag/busybox-amd64	5626c86dfd2089351908253dda9263f06b87ce3a1a420499925302172f07ec85	2063232
+arm64	busybox-static	1:1.38.0-3+b1	968d1aa8f579fa1ac59c26afa365454369e13cf29848e6400b50028fed0ffda0	857920	20261012T023456Z	assets/diag/busybox-arm64	f10ec6f1c3b41b6015cc0f15c11a4ce4e06fff158e20bdbe9a527a3ed3ea752a	1980720

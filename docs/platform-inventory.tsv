@@ -34,6 +34,8 @@ assets/cix-py/	sky1	-	CIX NPU python glue
 assets/dev/	common	-	developer/diag helpers (disabled hook, art generator)
 assets/diag/busybox-amd64	amd64	-	static busybox for failsafe console (x86_64)
 assets/diag/busybox-arm64	sky1	-	static busybox for failsafe console (aarch64)
+manifests/diag-busybox.tsv	common	-	origin pin (Debian forky busybox-static deb + binary sha256) of assets/diag/busybox-<arch>
+build/stage-diag-busybox.sh	common	-	check / fetch / repin the diag busybox from the pinned Debian snapshot (sha256 + provenance-verified)
 assets/docs/	common	-	on-image documentation
 assets/dracut/	sky1	-	Sky1 dracut configuration
 assets/embedkit/	sky1	-	embedkit wheel for the NPU venv
@@ -225,6 +227,7 @@ build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-late-npu-aipu.sh	common	-	late.sh NPU aipu overlay + modules-load test
 build/test-sky1-kernel-discovery.sh	sky1	-	Sky1 NPU/VPU hook kernel list: KVER_NEXT sidecar plus *-sky1-ncz module trees, dedup, shipped-name checks, control on the old *7.2*-ncz glob
 build/test-verify-drivers.sh	common	-	tools/verify-drivers.sh expected-kernel resolution per arch (override, sidecars, repository KVER, components.tsv) and stubbed full runs (aipu, mali_kbase/panthor, amvx)
+build/test-diag-busybox.sh	common	-	diag busybox pin check (+tamper/Ubuntu controls), required diag-console applets, ncz_diag_set_root_pw shadow/passwd cases verified with openssl
 build/test-firstboot-gpu.sh	common	-	first-boot/install-end DKMS notice: needed vs failed classification, ASCII notice text, long fake build never cut with live console/plymouth status, failed build not rerun before login, twin wiring, late.sh dialog choice
 build/test-gpu-install-progress.sh	common	-	GPU/DKMS install-step feedback: step profiles, simulated growing DKMS make.log monitor, apt window scaling, late.sh weighted bar math and GPU screen line, run-all end to end
 build/test-progress-bar-drive.sh	common	-	late.sh drives finish-install's progress bar at runtime: stub debconf records PROGRESS, cdebconf model asserts forward-only to 100%, GPU weight, flat-stretch creep, text-only fallbacks, no bad number under sh/busybox/bash
