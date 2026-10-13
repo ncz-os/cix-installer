@@ -754,6 +754,7 @@ parity:
 	build/test-kernel-purity-guards.sh
 	bash build/test-apt-separation.sh
 	bash build/test-ncz-repo-policy.sh
+	bash build/test-reprepro-publish-pool-arch.sh
 	bash build/test-no-ubuntu.sh
 	bash build/test-ncz-apt-policy-deb.sh
 	bash build/test-apt-sources-hook-container.sh

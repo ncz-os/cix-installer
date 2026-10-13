@@ -489,6 +489,7 @@ build/lib/deb-version-gate.sh	common	-	version discipline: refuses a rebuilt .de
 build/build-ncz-apt-policy-deb.sh	common	-	builds the ncz-apt-policy package that delivers the apt separation pins to already-installed systems
 build/test-apt-separation.sh	common	-	real apt resolution against throwaway Debian/NCZ/T2 repos, old behaviour vs new, plus the single-source writer and ncz-apt-source helper
 build/test-ncz-repo-policy.sh	common	-	behavioural tests for the repo-content gate, installed-config audit, version gate, publisher policy and update classification
+build/test-reprepro-publish-pool-arch.sh	common	-	end-to-end tests of the apt publisher against a mocked reprepro and registry: uploads exactly the piped deb (arm64 next to an older all build) and fails unless the index serves it
 build/testdata/apt-separation/	common	-	recorded a MacBookPro16,1 r200 apt list/policy output and the r200 Buildkite amd64 package names used by test-ncz-repo-policy.sh
 build/ship-apt-gate.sh	common	-	ship-image.sh apt live-repo gate: always fail mode, ignores NCZ_APT_LIVE_GATE, unreachable index fails, loud explicit override only
 build/test-desktop-mirror-local-debs.sh	common	-	verify-desktop-mirror-seeds.sh must fail a desktop mirror that lacks, or carries an older/different build of, an NCZ_LOCAL_DEBS package (incl. the ncz-apt-policy pin)
