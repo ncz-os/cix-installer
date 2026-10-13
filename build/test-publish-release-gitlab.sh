@@ -272,6 +272,7 @@ out=$(bash "$TOOL" --dir "$REL" --tag v99-none 2>&1); rc=$?
 check "missing tag exits 2" '[ "$rc" -eq 2 ]'
 check "missing tag makes no change" '[ "$(mutations)" -eq 0 ]'
 check "missing tag makes no upload" '! grep -q "^PUT " "$MOCK_LOG"'
+check "missing tag message is clean" '[ "$(tail -1 <<<"$out")" = "ERROR: tag v99-none does not exist in ncz-os/cix-installer (HTTP 404); create and push the tag first" ]'
 
 # 13. file over the size limit is refused before any request
 reset_state
