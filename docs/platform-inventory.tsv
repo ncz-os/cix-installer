@@ -115,6 +115,7 @@ build/singularity-pins.sh	common	-	Singularity upstream pin reader: validate, pi
 build/stage-accel-overlays.sh	sky1	-	builds and stages the mali/panthor/vpu/npu overlays for a kernel; fails on compile error or CRC/source mismatch
 build/test-singularity-pins.sh	common	-	offline test for the Singularity upstream pins and their build/preflight wiring
 build/patch-singularity-scenefx.sh	common	-	resolves labwc's SceneFX meson wrap, checks out the pinned revision, applies assets/singularity/scenefx-patches/ (idempotent); fail-closed if a quoted #error survives the patch
+build/test-patch-singularity-scenefx.sh	common	-	local-fixture test of the SceneFX wrap helper: tag or raw-commit revision, wrap diff_files before the NCZ queue, fail-closed cases
 build/refresh-singularity-sources.sh	common	-	`refresh-sources` stage resolver: --sources latest|pinned freezes the singularity upstream pins (+ labwc SceneFX/wlroots wraps) and records every SHA in source-resolution.json; latest is the --full/--rebuild-desktop default
 build/test-singularity-shaders-gate.sh	common	-	both-direction tests for check-singularity-shaders.sh: a quoted #error, a non-ELF, and a shader-less binary all FAIL closed
 build/test-singularity-mali-shaders.sh	common	-	offline regression gate for the Radxa Orion O6N/Mali SceneFX black-screen: asserts check-singularity-shaders.sh fails closed (quoted #error, non-ELF, missing) and the scenefx patch de-quotes only the two #error lines
@@ -449,6 +450,8 @@ build/test-screensavers-mandatory-install-builders.sh	common	-	sections 3-7 of t
 build/verify-installed-target-screensavers.sh	common	-	section (vi) of verify-installed-target.sh: dpkg status, version floor, engine, catalogue (sourced; sets SS_STATUS)
 build/verify-installed-target-screensavers-default.sh	common	-	section (vi) continuation: schema default, Cygnus override, idle timer, gtk4-reference ban, plugin files when installed
 build/test-singularity-deb-depends.sh	common	-	hermetic fail-before/pass-after test for the derived Singularity deb Depends
+build/singularity-depends-floors.tsv	common	-	per-architecture version floors build-singularity-deb.sh applies to the derived Singularity deb Depends (arm64 libgtk4-layer-shell0)
+build/test-singularity-depends-floors.sh	common	-	hermetic test: Depends floors applied per architecture, kept when higher, added when absent; other relations refused
 build/test-singularity-deb-version.sh	common	-	hermetic fail-before/pass-after test that the Singularity deb version is monotonic (UTC timestamp before bk/hash)
 build/test-singularity-supervisor-forensics.sh	common	-	singularity supervisor per-run logs, signal names and core-limit regression
 build/test-sibling-mirror-apt-opts.sh	common	-	hermetic fixture test that sibling rootfs scripts put snapshot apt options on every sources.list line

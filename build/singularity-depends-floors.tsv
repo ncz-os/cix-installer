@@ -1,0 +1,12 @@
+# singularity-depends-floors.tsv -- minimum versions build/build-singularity-deb.sh
+# imposes on Depends entries of ncz-singularity-desktop, on top of what
+# build/singularity-deb-depends.sh derives from the payload ELF closure.
+#
+# dpkg-shlibdeps only knows the symbol versions the payload links against, so it
+# can never express "this library needs a runtime fix that changed no symbols".
+# A row here does: the entry for <package> becomes "<package> (>= <version>)" for
+# the listed architecture ("*" = every architecture). A package the derived
+# Depends does not name is added. A derived floor that is already higher is kept.
+#
+# Columns (TAB-separated): arch  package  version  reason
+arm64	libgtk4-layer-shell0	1.3.0-1+ncz20261013	patch 0002: a live layer surface stays mapped when the Mali EGL driver attaches a NULL buffer (eglDestroySurface); older builds disconnect the desktop on Sky1

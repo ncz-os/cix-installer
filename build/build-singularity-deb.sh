@@ -138,6 +138,46 @@ DEPENDS="$(deps_field Depends "$DEPS_SRC")"
 [ -n "$DEPENDS" ] || { echo "ERROR: $DEPS_SRC carries no Depends" >&2; exit 1; }
 echo "== Depends source: $DEPS_SRC ($(printf '%s\n' "$DEPENDS" | tr ',' '\n' | wc -l) entries) =="
 
+# Version floors (build/singularity-depends-floors.tsv): runtime fixes that the
+# ELF closure cannot see, e.g. the patched libgtk4-layer-shell0 on arm64. Applied
+# here, after the sidecar/container derivation, so every Depends source gets them.
+FLOORS_FILE="${NCZ_SINGULARITY_DEPENDS_FLOORS:-$REPO/build/singularity-depends-floors.tsv}"
+[ -r "$FLOORS_FILE" ] || { echo "ERROR: Depends floors file missing: $FLOORS_FILE" >&2; exit 1; }
+apply_depends_floors() {  # depends arch floors-file -> depends
+    local deps="$1" arch="$2" file="$3" a p v why e out found cur
+    while IFS=$'\t' read -r a p v why; do
+        case "$a" in ''|'#'*) continue ;; esac
+        [ "$a" = '*' ] || [ "$a" = "$arch" ] || continue
+        [ -n "$p" ] && [ -n "$v" ] || { echo "ERROR: malformed row in $file: $a $p $v" >&2; return 1; }
+        dpkg --validate-version "$v" 2>/dev/null || { echo "ERROR: $file: '$v' is not a Debian version" >&2; return 1; }
+        out=""; found=0
+        while IFS= read -r e; do
+            e="$(printf '%s' "$e" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            [ -n "$e" ] || continue
+            case "$e" in
+                *'|'*) ;;   # an alternative group is left alone
+                "$p"|"$p "*|"$p("*)
+                    found=1
+                    # Only an unversioned entry or a ">=" constraint may be raised; any
+                    # other relation (=, <<, <=, >>) is not ours to rewrite.
+                    case "$e" in
+                        "$p"|*'(>='*) ;;
+                        *) echo "ERROR: Depends entry '$e' has a relation other than >=; refusing to apply the $p floor" >&2; return 1 ;;
+                    esac
+                    cur="$(printf '%s' "$e" | sed -n 's/^[^(]*(>=[[:space:]]*\([^)]*\)).*/\1/p' | sed 's/[[:space:]]*$//')"
+                    if [ -n "$cur" ] && dpkg --compare-versions "$cur" ge "$v"; then :; else e="$p (>= $v)"; fi ;;
+            esac
+            out="${out:+$out, }$e"
+        done < <(printf '%s\n' "$deps" | tr ',' '\n')
+        [ "$found" = 1 ] || out="${out:+$out, }$p (>= $v)"
+        echo "== Depends floor ($arch): $p (>= $v) -- $why ==" >&2
+        deps="$out"
+    done < "$file"
+    printf '%s' "$deps"
+}
+DEPENDS="$(apply_depends_floors "$DEPENDS" "$ARCH" "$FLOORS_FILE")" || exit 1
+[ -n "$DEPENDS" ] || { echo "ERROR: Depends empty after applying floors" >&2; exit 1; }
+
 # Recommends: runtime modules the shell dlopens or reaches over D-Bus/GIO.
 # They are not DT_NEEDED, so they cannot be derived from the ELF closure; the
 # package installs without them but features degrade. Same set as the vetted
