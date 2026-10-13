@@ -1,0 +1,293 @@
+From 9e9f774af34004b1b8e7386b6697de785892f817 Mon Sep 17 00:00:00 2001
+From: t <a@b>
+Date: Mon, 12 Oct 2026 21:35:04 -0400
+Subject: [PATCH] lockscreen: yield to a concurrent lock instance instead of
+ clobbering its socket
+
+The lock client creates the out-of-process renderer socket by unlink()ing the
+path and then bind()ing. When two lock clients start at the same instant the
+second unlinks the first's listening socket, is then denied by
+ext-session-lock-v1 (the "finished" event) and exits, unlinking again. The
+surviving lock keeps the session but has no frame source: ncz-screensaver-feed
+cannot connect ("No such file or directory"), HELLO times out, and the screen
+never shows the screensaver. Measured on PROTEUS 2026-10-13: two concurrent lock
+clients at every default 300 s idle event and 80 consecutive connect failures
+while the lock was held.
+
+This happens on NCZ because two independent idle consumers both lock at
+hack-idle-delay: the shell's own IdleManager lock (dev.sinty.lockscreen
+idle-delay, set to hack-idle-delay by post-install/64-ncz-lock-saver-plan.sh)
+and ncz-screensaver-idled's delegated ScreenSaver.Lock.
+
+Make the socket claim atomic and non-destructive: bind() is the mutex. A live
+peer is left untouched and reported via lock_framesrc_socket_busy(), the caller
+yields BEFORE taking the session lock (so exactly one client owns both), a stale
+socket from a crashed instance is still reclaimed (connect() probe), and only
+the instance that bound the socket (reported by make_listen_socket()'s "owned"
+out-parameter) unlinks it on teardown. Cleanup uses a single fail path so both
+fds are always closed and only a socket this process created is unlinked. The
+probe/unlink/bind/listen sequence is serialized with a companion lock file
+(flock) so two instances cannot both reclaim a socket (a TOCTOU). The headless
+test gains case 10: two clients at once; the second yields and the first keeps
+streaming.
+
+Assisted-by: opencode:deepseek-flash
+AI-Scope: reproduced the two-lock renderer-socket race on PROTEUS, added the atomic-socket-claim/yield fix plus a setup-lock against TOCTOU to lock_framesrc and lock_main, and a headless regression case
+---
+ src/lockscreen/lock_framesrc.c             | 103 ++++++++++++++++++---
+ src/lockscreen/lock_framesrc.h             |   7 ++
+ src/lockscreen/lock_main.c                 |   9 ++
+ tests/lockscreen-framesrc/README.md        |   5 +-
+ tests/lockscreen-framesrc/test-framesrc.sh |  25 +++++
+ 5 files changed, 136 insertions(+), 13 deletions(-)
+
+diff --git a/src/lockscreen/lock_framesrc.c b/src/lockscreen/lock_framesrc.c
+index dc0b607..64ebe79 100644
+--- a/src/lockscreen/lock_framesrc.c
++++ b/src/lockscreen/lock_framesrc.c
+@@ -67,6 +67,7 @@ struct lock_framesrc {
+     char log_path[256];
+ 
+     int listen_fd;
++    bool sock_owned;          /* we bound sock_path; only then may we unlink it */
+     int conn_fd;
+     pid_t child;
+     uint64_t child_kill_ms;
+@@ -156,9 +157,50 @@ static void enter_hold(struct lock_framesrc *h) {
+ 
+ static int connect_timeout_ms = 0; /* unused placeholder to keep -Wunused happy */
+ 
++/* Set when make_listen_socket() finds a live listener already owning the
++ * renderer socket (another lock instance). lock_framesrc_socket_busy() reports
++ * it so the lock client can yield instead of racing. */
++static bool g_socket_busy = false;
++
++bool lock_framesrc_socket_busy(void) { return g_socket_busy; }
++
+ /* ---- socket setup -------------------------------------------------------- */
+ 
+-static int make_listen_socket(const char *path, char *err, size_t errlen) {
++/* Bind the renderer socket WITHOUT clobbering a live peer. The old code did
++ * unlink(path) unconditionally and then bind(), which corrupts a concurrent
++ * lock client: the second unlink()s the first's listening socket, so when the
++ * second is denied by ext-session-lock-v1 and exits (unlinking again) the
++ * surviving lock has no frame source and the saver never renders (measured on
++ * PROTEUS, 2026-10-13). Here bind() is the mutex: if the path is taken and a
++ * connect() probe shows a live listener, we report the socket busy and let the
++ * other instance own it; only a stale socket from a crashed instance is
++ * reclaimed.
++ *
++ * Serialize the probe/unlink/bind/listen sequence against a concurrent lock
++ * instance with a companion lock file. Without it, two clients that both judge
++ * a socket stale could both unlink() and bind() (a TOCTOU), reintroducing the
++ * clobber this fix removes, and the first client's bind()..listen() window
++ * could be mistaken for a stale socket. Returns an fd to close (releasing the
++ * lock), or -1 when the lock file is unavailable -- then we proceed best-effort
++ * rather than refuse to lock. */
++static int socket_setup_lock(const char *path) {
++    char lockpath[224];
++    int n = snprintf(lockpath, sizeof lockpath, "%s.lock", path);
++    if (n < 0 || n >= (int)sizeof lockpath)
++        return -1;
++    int lfd = open(lockpath, O_CREAT | O_RDWR | O_CLOEXEC, 0600);
++    if (lfd < 0) return -1;
++    struct flock fl;
++    memset(&fl, 0, sizeof fl);
++    fl.l_type = F_WRLCK;
++    fl.l_whence = SEEK_SET;
++    if (fcntl(lfd, F_SETLKW, &fl) != 0) { close(lfd); return -1; }
++    return lfd;
++}
++
++static int make_listen_socket(const char *path, char *err, size_t errlen,
++                              bool *owned) {
++    if (owned) *owned = false;
+     struct sockaddr_un addr;
+     memset(&addr, 0, sizeof addr);
+     addr.sun_family = AF_UNIX;
+@@ -168,21 +210,55 @@ static int make_listen_socket(const char *path, char *err, size_t errlen) {
+     }
+     strncpy(addr.sun_path, path, sizeof addr.sun_path - 1);
+ 
+-    int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+-    if (fd < 0) { snprintf(err, errlen, "socket: %s", strerror(errno)); return -1; }
+-    unlink(path);
+-    if (bind(fd, (struct sockaddr *)&addr, sizeof addr) != 0) {
++    int lfd = socket_setup_lock(path);   /* -1 => best effort, unserialized */
++    int fd = -1;
++    bool created = false;   /* we put a socket at `path`; only we may unlink it */
++
++    fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
++    if (fd < 0) {
++        snprintf(err, errlen, "socket: %s", strerror(errno));
++        goto fail;
++    }
++    if (bind(fd, (struct sockaddr *)&addr, sizeof addr) == 0) {
++        created = true;
++    } else if (errno == EADDRINUSE) {
++        /* Probe with a blocking socket on purpose: a live listener accepts
++         * immediately (connect()==0); a stale path returns ECONNREFUSED. */
++        int probe = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
++        bool live = false;
++        if (probe >= 0) {
++            live = connect(probe, (struct sockaddr *)&addr, sizeof addr) == 0;
++            close(probe);
++        }
++        if (live) {
++            g_socket_busy = true;
++            snprintf(err, errlen, "another lock instance owns %s", path);
++            goto fail;
++        }
++        /* Stale socket (no listener): reclaim it. */
++        unlink(path);
++        if (bind(fd, (struct sockaddr *)&addr, sizeof addr) != 0) {
++            snprintf(err, errlen, "bind(%s): %s", path, strerror(errno));
++            goto fail;
++        }
++        created = true;
++    } else {
+         snprintf(err, errlen, "bind(%s): %s", path, strerror(errno));
+-        close(fd);
+-        return -1;
++        goto fail;
+     }
+     if (listen(fd, 1) != 0) {
+         snprintf(err, errlen, "listen: %s", strerror(errno));
+-        close(fd);
+-        unlink(path);
+-        return -1;
++        goto fail;
+     }
++    if (lfd >= 0) close(lfd);   /* release the setup lock; the socket stays */
++    if (owned) *owned = true;
+     return fd;
++
++fail:
++    if (created) unlink(path);
++    if (fd >= 0) close(fd);
++    if (lfd >= 0) close(lfd);
++    return -1;
+ }
+ 
+ static void default_socket_path(char *out, size_t outlen) {
+@@ -546,7 +622,8 @@ struct lock_framesrc *lock_framesrc_new(const char *socket_path,
+     if (logp && *logp) snprintf(h->log_path, sizeof h->log_path, "%s", logp);
+ 
+     char err[192];
+-    h->listen_fd = make_listen_socket(h->sock_path, err, sizeof err);
++    bool owned = false;
++    h->listen_fd = make_listen_socket(h->sock_path, err, sizeof err, &owned);
+     if (h->listen_fd < 0) {
+         lfs_log(h, "cannot listen: %s", err);
+         free(h->spawn_cmd);
+@@ -554,6 +631,7 @@ struct lock_framesrc *lock_framesrc_new(const char *socket_path,
+         return NULL;
+     }
+     (void)connect_timeout_ms;
++    h->sock_owned = owned;
+     lfs_log(h, "listening on %s (cmd=%s)", h->sock_path,
+             h->spawn_cmd ? h->spawn_cmd : "<none>");
+     return h;
+@@ -733,7 +811,8 @@ void lock_framesrc_free(struct lock_framesrc *h) {
+         o = n;
+     }
+     if (h->listen_fd >= 0) close(h->listen_fd);
+-    if (h->sock_path[0]) unlink(h->sock_path);
++    /* Only unlink a socket we created; never remove another instance's. */
++    if (h->sock_owned && h->sock_path[0]) unlink(h->sock_path);
+     free(h->spawn_cmd);
+     free(h);
+ }
+diff --git a/src/lockscreen/lock_framesrc.h b/src/lockscreen/lock_framesrc.h
+index 2942b01..42c17fb 100644
+--- a/src/lockscreen/lock_framesrc.h
++++ b/src/lockscreen/lock_framesrc.h
+@@ -86,6 +86,13 @@ struct lock_framesrc *lock_framesrc_new(const char *socket_path,
+                                         struct wl_shm *shm,
+                                         const struct lock_framesrc_ops *ops);
+ 
++/* True when lock_framesrc_new() failed because ANOTHER live lock instance
++ * already owns the renderer socket. The caller should yield (exit without
++ * taking the session lock) so exactly one client owns both the lock and the
++ * frame-source socket; two concurrent lock clients otherwise race the socket
++ * and the survivor is left with no frame source. */
++bool lock_framesrc_socket_busy(void);
++
+ /* Register an output before enabling the host. `user` is the caller's opaque
+  * handle. name may be NULL. Logical size and integer output scale are used to
+  * derive the buffer size requested from the frame source. */
+diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
+index 018ab3e..6c49369 100644
+--- a/src/lockscreen/lock_main.c
++++ b/src/lockscreen/lock_main.c
+@@ -1217,6 +1217,15 @@ int main(int argc, char **argv) {
+         if (framesrc) {
+             for (struct lock_output *o = outputs; o; o = o->next)
+                 framesrc_register_output(o);
++        } else if (lock_framesrc_socket_busy()) {
++            /* Another lock instance already owns the renderer socket and is
++             * about to take the session lock. Yield BEFORE asking for the lock
++             * so exactly one client owns both the lock and the frame source;
++             * two concurrent lock clients otherwise race the socket and the
++             * survivor is left with no frame source (PROTEUS, 2026-10-13). */
++            fprintf(stderr, "lock: another lock instance owns the renderer "
++                            "socket; yielding\n");
++            return 0;
+         } else {
+             fprintf(stderr, "lock: frame source requested but could not be set up\n");
+         }
+diff --git a/tests/lockscreen-framesrc/README.md b/tests/lockscreen-framesrc/README.md
+index 3fbf47d..a42b28c 100644
+--- a/tests/lockscreen-framesrc/README.md
++++ b/tests/lockscreen-framesrc/README.md
+@@ -30,7 +30,10 @@ and asserts on the lock's stderr and on real screen captures:
+ - after the prompt is idle the raw frames return;
+ - `kill -9` of the source, a hung source, a short buffer fd and a source that
+   dies on a GPU error each leave the **lock held** and the client alive;
+-- a build with the feature **off** is inert.
++- a build with the feature **off** is inert;
++- two lock clients started at once do not corrupt the renderer socket: the
++  second yields (`another lock instance owns the renderer socket; yielding`)
++  instead of unlinking the live socket, and the first keeps streaming.
+ 
+ Environment (defaults assume the binaries are in `$WORK`, e.g. a container):
+ 
+diff --git a/tests/lockscreen-framesrc/test-framesrc.sh b/tests/lockscreen-framesrc/test-framesrc.sh
+index 0049960..ec43c3e 100755
+--- a/tests/lockscreen-framesrc/test-framesrc.sh
++++ b/tests/lockscreen-framesrc/test-framesrc.sh
+@@ -267,6 +267,31 @@ else
+ fi
+ stop_all
+ 
++echo "== case 10: two lock clients at once (second yields; first keeps its source) =="
++start_labwc || exit 1
++start_lock "$SRC --frames 200" "$WORK/tmp/c10a.log"
++if wait_for "$WORK/tmp/c10a.log" "frame source accepted" 6; then ok "first lock accepted the frame source"; else bad "first lock did not accept the frame source"; fi
++# A second lock client starts against the SAME renderer socket while the first
++# owns it. It must yield instead of unlinking the live socket (that is the
++# "screensaver never renders" regression: the survivor was left with no frame
++# source), and it must not disturb the first instance.
++: >"$WORK/tmp/c10b.log"
++SINGULARITY_LOCK_RENDERER="$SRC --frames 200" \
++SINGULARITY_LOCK_RENDERER_SOCKET="$SOCK" \
++    "$LOCK" >>"$WORK/tmp/c10b.log" 2>&1 &
++LOCK2_PID=$!
++if wait_for "$WORK/tmp/c10b.log" "another lock instance owns the renderer socket; yielding" 6; then
++    ok "second lock yielded instead of clobbering the socket"
++else
++    bad "second lock did not yield (see c10b.log)"
++fi
++sleep 1
++if [ -S "$SOCK" ]; then ok "renderer socket survived the second client"; else bad "renderer socket was removed by the second client"; fi
++if grep -q "testsrc: frame seq=" "$WORK/tmp/c10a.log"; then ok "first lock is still streaming after the race"; else bad "first lock stopped streaming"; fi
++if kill -0 "$LOCK_PID" 2>/dev/null; then ok "first lock still alive"; else bad "first lock died"; fi
++kill -9 "$LOCK2_PID" 2>/dev/null
++stop_all
++
+ echo ""
+ echo "== RESULT: $PASS passed, $FAIL failed =="
+ [ "$FAIL" -eq 0 ]
+-- 
+2.50.1 (Apple Git-155)
+
