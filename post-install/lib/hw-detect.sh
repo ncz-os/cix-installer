@@ -9,7 +9,7 @@
 # everything else lives as one function per numbered hook (e.g.
 # 54-gpu-accel.sh's inline PCI-class grep). This file exists
 # because T2 detection needed to be reused (and unit-testable on its own)
-# rather than re-copy-pasted, per operator directive 2026-09-15.
+# rather than re-copy-pasted (2026-09-15).
 #
 # ---------------------------------------------------------------------------
 # is_t2_hardware() -- Apple T2 Mac detection.

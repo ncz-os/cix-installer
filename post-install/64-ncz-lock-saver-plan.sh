@@ -1,7 +1,7 @@
 #!/bin/bash
 # 64-ncz-lock-saver-plan.sh -- single idle/lock/blank owner for the NCZ lock
-# renderer (operator 2026-10-11; REQUIREMENT 3, "the lock screen should only come
-# up if the screensaver is interrupted").
+# renderer (2026-10-11; REQUIREMENT 3: the lock screen only comes up if the
+# screensaver is interrupted).
 #
 # THE MOTION. While the NCZ session-lock client is present, it is the sole
 # ext-session-lock-v1 owner AND it hosts the screensaver: the screensaver

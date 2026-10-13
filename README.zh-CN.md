@@ -136,6 +136,7 @@ NCZ **在设计与意图上都是厂商中立的**。目标是：在能取得样
 | 机器 | CPU | GPU（驱动） | 测试结果 |
 |---|---|---|---|
 | Radxa Orion O6N | CIX P1（Sky1） | Arm Mali（厂商 Mali；可选 Panthor）+ NPU + VPU | 已安装，桌面、视频（VPU 硬件解码）与音频播放正常 |
+| Radxa Orion O6 | CIX P1（Sky1） | Arm Mali（厂商 Mali）+ NPU + VPU | 社区测试者确认：桌面、应用与显示模式切换正常（由早期版本升级并更新了修复后的桌面库） |
 | Minisforum MS-R1 | CIX P1（Sky1） | Arm Mali（厂商 Mali；可选 Panthor）+ NPU + VPU | 已安装，桌面、视频（VPU 硬件解码）与音频播放正常 |
 | MacBookPro16,1（两台） | Core i9-9980HK、Core i7-9750H | AMD Radeon Pro 5300M/5500M 级（Navi 14，`amdgpu`）+ Intel UHD 630（`i915`） | 已安装，可启动到桌面 |
 | ASUS ROG GU502LV 笔记本 | Core i7-10750H | NVIDIA GeForce RTX 2060 Mobile（专有 `nvidia`）+ Intel UHD 630（`i915`） | 已安装，可启动到桌面 |

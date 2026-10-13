@@ -11,7 +11,7 @@
 #
 # `models pull` remains a STUB (see task #99). `install mnemos` is
 # implemented + OFFLINE-CAPABLE: it `podman load`s the arm64 MNEMOS image
-# bundled on the ISO (assets/agent-images/mnemos.oci.tar), then starts it as
+# bundled on the install medium (assets/agent-images/mnemos.oci.tar), then starts it as
 # a quadlet service (Pull=never) with a persistent sqlite volume. Only if no
 # bundled image is present does it fall back to pulling ghcr.io/ncz-os/mnemos-enterprise
 # (overridable via MNEMOS_IMAGE). `models` lists the installed model library.
@@ -508,10 +508,10 @@ ncz_install_mnemos() {
     fi
 
     echo "[ncz] installing MNEMOS"
-    # OFFLINE-FIRST image acquisition. The ISO bundles the MNEMOS image as
+    # OFFLINE-FIRST image acquisition. The install medium can bundle the MNEMOS image as
     # an OCI archive (assets/agent-images/mnemos.oci.tar); load it locally so
     # `ncz install mnemos` works with NO network. Only if no bundled image
-    # is present (e.g. a netinstall ISO, or an image built without the
+    # is present (e.g. an image built without the
     # 30-agents.sh staging step) do we fall back to a registry pull with
     # explicit retries. The quadlet uses Pull=never, so the image MUST
     # exist locally before the service starts.
@@ -885,13 +885,12 @@ for r in rows:
 
     # NPU EMBEDDING OFFLOAD — installed HERE and only here.
     #
-    # Operator direction 2026-08-17: the embedding model is an
+    # Since 2026-08-17: the embedding model is an
     # application-layer artifact that ships from the NCZ apt repo and is
     # deployed ONLY with MNEMOS, its sole consumer. It is deliberately no
-    # longer baked into the ISO (see the models) exclusion in
-    # build/build-iso-di.sh), which keeps ~100-600MB off every desktop
+    # longer baked into the image, which keeps ~100-600MB off every desktop
     # install that will never run MNEMOS and lets the model version roll
-    # forward on apt's cadence rather than the ISO's.
+    # forward on apt's cadence rather than the image's.
     #
     # DIMENSION IS THE WHOLE POINT. MNEMOS's in-process embedder is
     # nomic-embed-text-v1.5 at 768 dimensions, so the NPU graph must be the
@@ -1314,7 +1313,7 @@ ncz_install_android() {
         echo "    /dev/binderfs, /dev/binder, and 'binder' in /proc/filesystems" >&2
         echo >&2
         echo "  Running kernel: $(uname -r)" >&2
-        echo "  Binder is enabled from the 7.2 kernel built after 2026-08-18." >&2
+        echo "  Binder is enabled in NCZ kernels built after 2026-08-18." >&2
         echo "  Update the kernel first:  sudo apt update && sudo apt install --only-upgrade linux-image-cixmini" >&2
         exit 1
     fi
@@ -1563,8 +1562,8 @@ ncz_status() {
         ngguf="$(find /opt/ncz/models -name '*.gguf' 2>/dev/null | wc -l | tr -d ' ')"
         printf '%-26s %s .cix / %s .gguf files in /opt/ncz/models\n' 'models:' "$ncix" "$ngguf"
     fi
-    # MNEMOS embedder — same shape as the orchestrator expects on every host
-    # (operator direction 2026-10-13, "embedder model + zoder + zeroclaw").
+    # MNEMOS embedder — reported alongside zoder and zeroclaw, the three
+    # components `ncz status` covers (2026-10-13).
     # Read state from the active quadlet + MNEMOS /health so the operator can
     # tell at a glance which backend is active and whether the container is up.
     ncz_status_mnemos

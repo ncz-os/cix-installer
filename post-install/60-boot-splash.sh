@@ -179,7 +179,7 @@ systemctl enable singularity-boot-splash.service 2>/dev/null || \
         /etc/systemd/system/graphical.target.wants/singularity-boot-splash.service
 echo "[60] singularity-boot-splash.service installed + enabled (adaptive greeter handoff, tty1)"
 
-# --- (3) PURGE plymouth entirely (operator: native KMS splash only) ----------
+# --- (3) PURGE plymouth entirely (design: native KMS splash only) ----------
 export PATH="/usr/sbin:/sbin:/usr/bin:/bin:${PATH:-}"
 # Record which initrds the package trigger rebuilds. The explicit pass below
 # updates only kernels that the purge did not already regenerate.

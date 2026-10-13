@@ -1,6 +1,6 @@
 #!/bin/bash
 # test-layers-hardening.sh -- both-direction tests for the hardened layer checks
-# (OPERATOR RULING 2026-10-10, "harden the layer checks"):
+# (DESIGN RULE 2026-10-10, "harden the layer checks"):
 #   build/layers-preflight.sh  (pre-layer, fail-fast)
 #   build/check-layers.sh      (per-layer post-checks)
 #

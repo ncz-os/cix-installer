@@ -17,5 +17,9 @@
 # renderer socket, frame source backoff kept across handshakes and no source
 # without an output) and the greeter/loginui parity patches (greeter 0003,
 # loginui 0003).
-amd64	fa70fceeab02aec63ae17fdc6d0a0265fb2c5c4c8d8e5c3dad711b0e3f8f1f30	ncz-singularity-desktop_20261013090000+bk0+tgz32d20c58_amd64.deb
-arm64	e04ac444f53a7e7b547aec42785081a83c9306804b81be70b400c528eeaa1adf	ncz-singularity-desktop_20261013090000+bk0+tgz38226071_arm64.deb
+# 20261013150000 is built from the 2026-10-13 upstream heads (superproject
+# 6d6bbc7f: Messages, SIT, liquid glass) with the same patch queue; the arm64
+# deb Depends on libgtk4-layer-shell0 (>= 1.3.0-1+ncz20261013)
+# (build/singularity-depends-floors.tsv).
+amd64	dabba8204cc861872dc01f89ad4343b8b38f051edc72e66c696f60df72adc02a	ncz-singularity-desktop_20261013150000+bk0+tgzd641828f_amd64.deb
+arm64	dabecf7f5b59f718ceb6ff5cb9709f08cd83ef441e543b575095638b4a8d2199	ncz-singularity-desktop_20261013150000+bk0+tgza7331201_arm64.deb

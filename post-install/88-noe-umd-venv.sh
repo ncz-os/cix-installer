@@ -41,8 +41,8 @@
 # not the older 2.0.x (asid_base[32]) stack. UMD 2.0.2 wedges at noe_init_context on
 # the r247+ KMD because of the asid_base[4] -> asid_base[32] ABI widening; see
 # packaging/cix-npu-driver-dkms-6.2.0/ ("the matched NPU stack, hardened").
-# 80-npu.sh still claims 2.0.2 (its MobileNet 640-inf/s measurement was on MS-R1
-# with the v0-compat ioctl layer + the OLDER KMD); on the r247+ NCZ edge kernel
+# The MobileNet 640-inf/s figure in 80-npu.sh was measured with 2.0.2 on MS-R1
+# with the v0-compat ioctl layer + the OLDER KMD; on the r247+ NCZ kernel
 # the 2.0.2 UMD cannot query capability and every NPU call dies before loading
 # a graph. The pin below stays at whatever the staged vendor deb installs (no
 # explicit Version= pin) and the staging-side fix in build/stage-canonical-assets.sh
@@ -50,9 +50,8 @@
 # mirror's 3.1.4-cixdeb13-260714 wins. The +ncz2 DKMS package preserves the
 # O6N-validated +ncz1 runtime-PM fix and adds the MS-R1 IRQ-probe fix.
 #
-# Per docs/post-install/80-npu.sh only cix-noe-umd 2.0.2 is confirmed
-# working with our v0-compat ioctl layer, so the hold is also the
-# documented policy.
+# The NPU-STATUS notes written by 80-npu.sh document the same matched UMD,
+# so the hold is also the documented policy.
 #
 # Never fatal: the NPU kernel driver and /dev/aipu do not depend on any of this.
 # Without it you lose Python inference, not the device.
@@ -168,7 +167,7 @@ fi
 # --- keep the venv in step with the deb, FOREVER, not just at install -------
 #
 # This hook is POST-INSTALL, so it runs once on a fresh image and never again.
-# That is not sufficient, and cixmini proved it: on 2026-08-18 that board had
+# That is not sufficient, and an MS-R1 test board proved it: on 2026-08-18 it had
 # kernel driver AIPU KMD v6.2.0 and cix-noe-umd 3.1.4 installed, while
 # /opt/ncz/noe-venv still held libnoe 2.0.0 / NOE-Engine 2.0.0 from an earlier
 # image. The old user-mode driver cannot query the newer kernel driver's

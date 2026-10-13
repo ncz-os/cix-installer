@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# npu-ssdt-gate.sh — refuse to build an ISO that lacks the MS-R1 NPU SSDT
+# npu-ssdt-gate.sh — refuse to build an image that lacks the MS-R1 NPU SSDT
 # override early-CPIO.
 #
 # WHY THIS EXISTS (measured 2026-08-22)
@@ -18,14 +18,15 @@
 # install-time pre-pending logic (post-install/80-npu.sh) are all correct.
 # The only thing that was missing was a LOUD FAILURE POINT so that a build
 # host without iasl, a build host where someone `rm`'d the blob, or any
-# build-npu-ssdt.sh failure couldn't ship an ISO without being noticed.
+# build-npu-ssdt.sh failure couldn't ship an image without being noticed.
 #
 # This gate is that loud failure point. It is a small, standalone script
 # (matches the pattern of build/dkms-abi-gate.sh and build/secret-scan-gate.sh)
 # so it can be:
-#   1. Called inline from build-iso-di.sh's full-mode preflight block
-#   2. Run standalone by a build host operator to validate the assets/ tree
-#      before kicking off `make iso`
+#   1. Run by `make npu-ssdt-check` (the retired ISO builder called it inline
+#      from its full-mode preflight block)
+#   2. Run standalone on a build host to validate the assets/ tree
+#      before kicking off an image build
 #   3. Invoked by CI / KVM gates if/when those grow to cover this asset
 #
 # CHECKS (all must pass for exit 0)
@@ -271,7 +272,7 @@ if [ ! -s "$CPIO" ]; then
     echo "" >&2
     echo "  Why this matters: assets/npu/ is gitignored. Without this gate," >&2
     echo "  a fresh clone of the repo will not produce a CPIO at all, and the" >&2
-    echo "  resulting ISO installs onto MS-R1 with NO working NPU — the" >&2
+    echo "  resulting image installs onto MS-R1 with NO working NPU — the" >&2
     echo "  CIXH4000:00 device shows up, but no CIXH4010:00..02 cores ever" >&2
     echo "  enumerate, so /dev/aipu is absent." >&2
     echo "  See build/build-npu-ssdt.sh + post-install/80-npu.sh." >&2

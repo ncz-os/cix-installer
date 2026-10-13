@@ -3,7 +3,7 @@
 write-usb-image.py -- raw GPT USB-disk-image writer, REPLACING
 write-image.py's ISO9660/El-Torito writer for this pipeline.
 
-Why (operator directive, 2026-09-24): every real install of this distro
+Why (2026-09-24): every real install of this distro
 is "dd the artifact to a USB stick" -- there is no genuine optical-media
 use case. The El-Torito + isohybrid-MBR/GPT-basdat + append_partition
 machinery in write-image.py exists to make ONE artifact bootable as both
@@ -455,7 +455,7 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         else:
             shutil.copy2(str(src), str(dst))
         staged.append(name)
-    log(f"    cixmini tree staged: {staged}")
+    log(f"    ncz-payload tree staged: {staged}")
 
     # The staging loop skips anything absent, so without this it accepts an
     # EMPTY payload directory without complaint and happily builds install
@@ -583,8 +583,8 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # is what carries Sky1's Image/modules/headers/config set, Mali/Panthor,
     # NPU/VPU DKMS sources and prebuilt overlays, MPAM/NPU data and firmware.
     # AMD64 uses the identical loop but naturally has the single
-    # amd64-stable 7.3 kernel package directory (operator directive
-    # 2026-10-05, unified; the amd64-edge channel is retired) instead of the
+    # amd64-stable 7.3 kernel package directory
+    # (2026-10-05, unified; the amd64-edge channel is retired) instead of the
     # Sky1 tarball shape.
     asset_names = (
         "agent-stack", "branding", "cix-debs", "diag", "firmware",

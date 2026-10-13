@@ -4,7 +4,7 @@
 #   exit 0 and print the driver names  : a hardware GPU is present
 #   exit 1                             : none (headless, or only a virtual / display-only device)
 #
-# NEVER-SOFTWARE-RENDER policy (operator, 2026-09-29): if a machine has a GPU it must not render in software, so
+# NEVER-SOFTWARE-RENDER policy (2026-09-29): if a machine has a GPU it must not render in software, so
 # every fallback needs one shared answer to "is there a GPU?". Virtual GPUs (KVM: virtio_gpu, bochs, simpledrm, ...)
 # and display-only controllers (Sky1 linlondp) do not count, so a GPU-less VM may still use software rendering.
 # Test seam: NCZ_SYSROOT prefixes /sys and /dev.

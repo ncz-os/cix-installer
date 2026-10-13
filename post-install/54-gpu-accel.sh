@@ -1,9 +1,8 @@
 #!/bin/bash
 # 54-gpu-accel.sh - AMD64 GPU/accelerator stack.
 #
-# NCZ-OS is not a free-software-only distro (operator directive 2026-09-14:
-# "We are not a free only distro like Debian, we install to make things
-# work."). Same posture as 53-chrome.sh (real Google apt repo, real signed
+# NCZ-OS is not a free-software-only distro (since 2026-09-14: unlike
+# Debian, it installs what is needed to make the hardware work). Same posture as 53-chrome.sh (real Google apt repo, real signed
 # package) and 24-apt-sources.sh (our own Buildkite repo) — this hook wires
 # each GPU vendor's appropriate package source. AMD uses Debian's native ROCm
 # packages because AMD does not publish a Debian suite.
@@ -55,7 +54,7 @@ if [ "$(dpkg --print-architecture 2>/dev/null)" != "amd64" ]; then
 fi
 
 # --- NVIDIA driver + CUDA: selected per GPU family, pulled dynamically --------
-# Operator directive 2026-09-29: do not bake CUDA into the ISO/offline mirror;
+# Since 2026-09-29: do not bake CUDA into the image/offline mirror;
 # pull it from NVIDIA's apt repo at install time when an NVIDIA GPU is present
 # and the network is up, with a first-boot retry (ncz-cuda-setup.timer) when it
 # is not. The GPU family decides the driver branch and toolkit (see

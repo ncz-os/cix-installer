@@ -1,6 +1,6 @@
 #!/bin/bash
 # test-install-feedback.sh -- long/visible post-install steps must say what they
-# are doing (operator 2026-10-10: "we need more installation feedback").
+# are doing (2026-10-10: "we need more installation feedback").
 #
 #   1. lib/progress-msg.sh writes a correct INFO record into run-all.sh's
 #      progress protocol (progress.state/progress.tsv) and mirrors the line to

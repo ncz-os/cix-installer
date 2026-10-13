@@ -1,7 +1,7 @@
 #!/bin/bash
 # stage-arm64-assets.sh [--check] -- materialize the pinned arm64 asset groups.
 #
-# WHY (operator 2026-10-11, r203 failure #3). assets/sky1-firmware/ and
+# WHY (2026-10-11, r203 failure #3). assets/sky1-firmware/ and
 # assets/cix-debs/*.deb are gitignored and were neither pinned nor staged by the
 # pipeline, so a truly fresh clone aborted in verify-arm64-inputs at the image
 # stage ("one or more required inputs are absent"). They are now pinned as two

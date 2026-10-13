@@ -4,9 +4,9 @@ Documentation=file:/usr/share/doc/ncz-sky1-audio-autoswitch.md
 ConditionPathExists=/proc/asound/cards
 # WantedBy=default.target (below) previously started this for EVERY
 # systemd --user instance, including a bare SSH admin login with no
-# graphical session -- confirmed live on cixmini 2026-09-13: an
-# `ssh jasonperlow@` login spawned a second instance that raced the real
-# desktop user (mini)'s copy for the same ALSA hardware and caused
+# graphical session -- confirmed live on an MS-R1 2026-09-13: an
+# SSH admin login spawned a second instance that raced the real
+# desktop user's copy for the same ALSA hardware and caused
 # intermittent audio failures. graphical-session.target only becomes
 # reachable via the singularity-session.target bridge that 20-desktop.sh
 # installs (see the "graphical-session.target is systemd-hardened against

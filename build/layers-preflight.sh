@@ -1,6 +1,6 @@
 #!/bin/bash
 # layers-preflight.sh -- cheap, fail-fast pre-checks for the (long, expensive)
-# `layers` stage.  OPERATOR RULING 2026-10-10: "We need to harden the layer
+# `layers` stage.  DESIGN RULE 2026-10-10: "We need to harden the layer
 # checks."  Run this at the START of the layers stage, BEFORE any expensive
 # work.  It validates everything the layer build needs, reports EVERY finding at
 # once (not one by one), and exits non-zero if anything is wrong so the pipeline

@@ -116,7 +116,7 @@ fi
 # Select the VPU nodes by DRIVER NAME, never by enumeration order.
 # The old code took the LAST /dev/video* after a version sort. On Sky1 the
 # nodes are video0=mvxdec (decoder) and video1=mvxenc (encoder), so "last"
-# pointed /dev/video-cixdec0 at the ENCODER. Measured on cixmini 2026-08-16:
+# pointed /dev/video-cixdec0 at the ENCODER. Measured on a Sky1 test board 2026-08-16:
 # h264_v4l2m2m encode failed with "VIDIOC_STREAMON failed on capture context"
 # / ENODEV, and mpeg4_v4l2m2m decode returned frame=0. Numbering is not
 # guaranteed, so match on /sys/class/video4linux/*/name instead.

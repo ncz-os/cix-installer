@@ -2,7 +2,7 @@
 # 38-recovery-container.sh - Server nspawn recovery/management container.
 #
 # Installs a systemd-nspawn container ("ncz-recovery") that is the MIDDLE
-# recovery tier on the Server edge SKU, between the day-to-day host sshd:22
+# recovery tier (mgmt-container component), between the day-to-day host sshd:22
 # (35-ssh.sh) and the crash-proof static busybox telnet :2323
 # (37-failsafe-access.sh):
 #

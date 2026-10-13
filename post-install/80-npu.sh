@@ -23,7 +23,7 @@
 #   4. prepend npu-acpi-override.cpio to /boot/initrd.img-$KVER
 #   5. configure modules-load.d
 # Then 70-bootloader.sh stages /boot/initrd.img-$KVER → /boot/efi/initrd.img-$KVER
-# and adds `initrd /initrd.img-$KVER` to the systemd-boot loader entries.
+# and adds `initrd /initrd.img-$KVER` to the rEFInd boot entries.
 
 # NCZ-PLATFORM-GUARD: sky1-arm64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
 # run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
@@ -105,13 +105,13 @@ echo "[80] installing NCZ NPU stack (FyrbyAdditive MS-R1 fixes)..."
 
 # --- Step 1: install kernel modules ---
 # Two supported sources, in priority order:
-#   1. In-tree module shipped inside modules-cixmini.tgz (CONFIG_ARMCHINA_NPU=m).
-#      This is the case for the NEXT kernel (7.0.x-cix-sky1-next) where the
-#      driver is built as part of the kernel and already carries the correct
+#   1. In-tree module shipped inside modules-cixmini.tgz, when the kernel was
+#      built with CONFIG_ARMCHINA_NPU=m: it already carries the correct
 #      vermagic. Nothing to copy — just confirm + depmod.
 #   2. Out-of-tree prebuilt $ASSETS/armchina_npu-${KVER}.ko, whose vermagic MUST
-#      exactly match $KVER. This is the case for the LTS kernel
-#      (6.18.26-ncz-lts), whose config does NOT enable CONFIG_ARMCHINA_NPU.
+#      exactly match $KVER, for a kernel whose config does NOT enable it.
+#   The shipping 7.3 defconfig leaves CONFIG_ARMCHINA_NPU unset; the NPU driver
+#   actually loaded is the vendor aipu.ko built by DKMS (see the end of this hook).
 for i in "${!KERNEL_VERS[@]}"; do
     LABEL="${KERNEL_LABELS[$i]}"
     KVER="${KERNEL_VERS[$i]}"
@@ -124,7 +124,7 @@ for i in "${!KERNEL_VERS[@]}"; do
     SRC="$ASSETS/armchina_npu-${KVER}.ko"
 
     if [ -n "$INTREE" ]; then
-        # In-tree build (NEXT): driver already present with matching vermagic.
+        # In-tree build: driver already present with matching vermagic.
         depmod -a "$KVER" 2>/dev/null
         echo "[80] $LABEL/$KVER: using in-tree armchina_npu.ko ($INTREE)"
     elif [ -f "$SRC" ]; then
@@ -396,7 +396,7 @@ elif [ ! -f "$SSDT_CPIO" ]; then
     if should_apply_npu_ssdt; then
         echo "[80] WARN: SSDT CPIO missing at $SSDT_CPIO — this board NEEDS the ACPI _HID"
         echo "[80]       override, so the NPU cores will NOT enumerate. Stage the override at"
-        echo "[80]       assets/npu/npu-acpi-override.cpio and rebuild the ISO."
+        echo "[80]       assets/npu/npu-acpi-override.cpio and rebuild the image."
     else
         echo "[80] SSDT CPIO not staged at $SSDT_CPIO — not needed on this board (native _HID)"
     fi
@@ -415,20 +415,19 @@ cat > /etc/modules-load.d/ncz-npu.conf << 'EOF'
 # driver's name, and the defconfig deliberately leaves CONFIG_ARMCHINA_NPU
 # unset so the in-tree copy cannot mask the vendor DKMS build. Naming it here
 # produced "systemd-modules-load: Failed to find module 'armchina_npu'" on
-# every boot (measured on cixmini 2026-08-16) while doing nothing useful.
+# every boot (measured on an MS-R1 test board 2026-08-16) while doing nothing useful.
 aipu
 EOF
 
 # --- Step 5: drop NPU-STATUS.md ---
 mkdir -p /usr/share/doc/ncz
 cat > /usr/share/doc/ncz/NPU-STATUS.md << 'EOF'
-# NCZ 26.7 "Maximilian" — Cix Sky1 / Zhouyi v3 NPU
+# NCZ-OS — Cix Sky1 / Zhouyi v3 NPU
 
 ## What works
 
-- **Kernel module** `armchina_npu.ko` probes clean on MS-R1 for the
-  shipped NCZ kernel:
-  - 7.2.0-sky1-ncz (edge; in-tree CONFIG_ARMCHINA_NPU=m)
+- **Kernel module**: the vendor `aipu.ko` (cix-npu-driver-dkms), built by
+  DKMS for the shipped NCZ 7.3 kernel, probes clean on MS-R1.
 - **ACPI SSDT override** corrects the missing `_HID="CIXH4010"` on NPU cores
   (CRE0/CRE1/CRE2) — a bug in Minisforum's shipped BIOS omitted by the OEM.
   Injected via initramfs CPIO prepend; fully reversible. **Board-gated (r123):**
@@ -453,9 +452,7 @@ cat > /usr/share/doc/ncz/NPU-STATUS.md << 'EOF'
 ## Installing the userspace runtime
 
 ```bash
-# Install cix-noe-umd 2.0.2 (compatible with our v0-compat ioctl layer)
-curl -LO https://github.com/radxa-pkg/cix-prebuilt/releases/download/rc3.3-2601/cix-noe-umd_2.0.2_arm64.deb
-sudo dpkg -i cix-noe-umd_2.0.2_arm64.deb
+# The image already installs the matched cix-noe-umd; only the models are needed.
 
 # Get pre-compiled .cix models
 sudo apt install -y python3-pip python3-numpy python3-pillow git git-lfs
@@ -481,7 +478,9 @@ SDXL-Turbo (see https://modelscope.cn/models/cix/ai_model_hub_25_Q3)
   transformer models with KV-cache / variable sequence length don't compile
   cleanly. This is unsolved by anyone (Cix included). Vision models, audio
   (Whisper), and image-gen all work via the Cix model hub.
-- **UMD 4.0.0 compat.** Only `cix-noe-umd 2.0.2` is confirmed working.
+- **UMD versions.** The image installs the vendor `cix-noe-umd` matched to
+  the shipped NPU driver (3.1.x). The older 2.0.2 UMD used for the MobileNet
+  figure above does not work on the current kernel; 4.0.0 is not validated.
 
 ## Credits
 

@@ -974,7 +974,7 @@ class Ref:
 UBU_RE = re.compile(r"ubuntu", re.IGNORECASE)
 UBU_CANONICAL = re.compile(r"Ubuntu Developers|lists\.ubuntu\.com")
 
-# One-kernel policy (operator ruling 2026-10-10: "ship only OUR kernel").
+# One-kernel policy (design rule 2026-10-10: "ship only OUR kernel").
 # A "kernel artifact" package: an image/headers/modules/binary kernel package,
 # any linux-base-* helper, or a d-i kernel-module/binary udeb.  Note linux-base
 # (exactly, the Debian helper) is NOT a kernel; linux-base-<x> is.
@@ -1664,7 +1664,7 @@ def safe_extract_zst(tar_path, dest, src):
 
 
 def audit_kernel_purity(ref, src):
-    """One-kernel policy (operator ruling 2026-10-10): every kernel artifact the
+    """One-kernel policy (2026-10-10): every kernel artifact the
     gate saw in the image must be a reviewed NCZ kernel, and there must be
     exactly ONE kernel version string across all of them.  A Debian
     linux-image/-modules/-headers package or a `*-modules-*-di` d-i kernel-module

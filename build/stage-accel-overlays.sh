@@ -4,7 +4,7 @@
 # them into assets/kernel/<drv>/<kver>/, and refuse to continue unless every
 # one of them matches that kernel and today's source.
 #
-# WHY (operator 2026-10-07): panthor is part of the regular per-kernel build,
+# WHY (2026-10-07): panthor is part of the regular per-kernel build,
 # every kernel, every time. Until now release-kernel.sh rebuilt panthor with
 # whatever panthor-cix happened to be registered in the build host's DKMS
 # and never staged the result, so the panthor.ko in assets/ was a hand step

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the one complete, profile-matched offline closure used by a Forky ISO.
+# Build the one complete, profile-matched offline closure used by a Forky install image.
 set -euo pipefail
 export LC_ALL=C
 
@@ -181,7 +181,7 @@ gzip -9n -c "$OUT/dists/$SUITE/main/binary-$ARCH/Packages" \
 COUNT="$(ncz_package_record_count "$OUT/dists/$SUITE/main/binary-$ARCH/Packages")"
 echo "  verified offline mirror: $COUNT package records, $(du -sh "$OUT/pool" | cut -f1) pool"
 
-# Provenance record for SBOM/audit -- which exact archive state this ISO's
+# Provenance record for SBOM/audit -- which exact archive state this image's
 # base packages came from, since MIRROR_URL alone in the build log scrolls
 # away and isn't attached to the artifact itself.
 {

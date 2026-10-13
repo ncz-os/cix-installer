@@ -1,6 +1,6 @@
 #!/bin/bash
-# check-no-ubuntu.sh -- hard gate: no Ubuntu deb, archive or userland (operator
-# rule 2026-10-08: "We shouldn't be using Ubuntu debs ever").
+# check-no-ubuntu.sh -- hard gate: no Ubuntu deb, archive or userland
+# (2026-10-08: "We shouldn't be using Ubuntu debs ever").
 #
 # Offline, fast, no snapshot index (run by `make lint-platform`). It fails on:
 #   SRC   a non-comment line in the build/install sources that names an Ubuntu

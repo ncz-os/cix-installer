@@ -1,6 +1,6 @@
 #!/bin/bash
 # NCZ-MIXED-HOOK: Singularity desktop install; arm64 chromium-ncz-sky1 wrapper plus amd64 branch (line ~961); TODO split arch branches (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
-# 20-desktop.sh — NCZ-OS 26.7 "Maximilian" Singularity Desktop installer.
+# 20-desktop.sh — NCZ-OS Singularity Desktop installer.
 #
 # Singularity Desktop (labwc/wlroots, GTK4/Vala, GLES on CIX libmali) is THE
 # desktop. XFCE/X11 is GONE — no Xorg display server, no XFCE session. Wayland
@@ -39,9 +39,9 @@ case "$VARIANT" in
 esac
 
 # ---------------------------------------------------------------------------
-# Offline package install from the bundled /cdrom pool (r130 fat-ISO doctrine).
+# Offline package install from the bundled /cdrom pool (r130 offline-medium rule).
 # The full Singularity runtime closure lives in manifests/desktop.pkgs, mirrored
-# by build-desktop-mirror.sh into the ISO pool.  The profile's signed base
+# by build-desktop-mirror.sh into the medium's pool.  The profile's signed base
 # source remains the only online fallback; never add a foreign Ubuntu source.
 # ---------------------------------------------------------------------------
 echo "[20] desktop packages install OFFLINE from bundled /cdrom pool"
@@ -79,7 +79,7 @@ ncz_ports_fallback() {
 # Pre-purge any inherited GNOME display manager — it would claim
 # display-manager.service and the loser black-screens.
 if dpkg -l gdm3 2>/dev/null | grep -q '^ii'; then
-    echo "[20] purging gdm3 (stale default DM, conflicts with lightdm)"
+    echo "[20] purging gdm3 (stale default DM, conflicts with greetd)"
     DEBIAN_FRONTEND=noninteractive apt-get purge -y gdm3 ubuntu-session 2>&1 | tail -3 || true
     rm -f /etc/systemd/system/display-manager.service
 fi
@@ -206,7 +206,7 @@ ncz_apt_require \
     pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol pulseaudio-utils alsa-utils || exit 1
 systemctl --global enable pipewire pipewire-pulse wireplumber 2>&1 | tail -2 || true
 
-# Asset lookup (2026-09-29 regression fix): the ISO installer exposes the payload
+# Asset lookup (2026-09-29 regression fix): the d-i installer exposes the payload
 # at /cdrom/ncz-payload, but the image install path has no /cdrom -- there the
 # same payload is already copied into the target at
 # /usr/local/lib/cix-installer. Looking only under /cdrom skipped this block on
@@ -379,8 +379,8 @@ ncz_apt_require --no-install-recommends \
 # Vivaldi (52-vivaldi, real arm64 .deb, default) and (26.7+) real official
 # Google Chrome (google-chrome-stable, post-install/53-chrome.sh) — both
 # folded into the offline desktop mirror by build-desktop-mirror.sh, neither
-# as a live runtime apt source. Ubuntu Resolute's own chromium-browser
-# package remains snap-only; NCZ-OS does not ship snapd. (An earlier
+# as a live runtime apt source. NCZ-OS does not ship snapd (the old
+# Ubuntu base's chromium-browser package was snap-only). (An earlier
 # ungoogled-chromium/XtraDeb stop-gap was dropped 2026-07-27 once real Chrome
 # became available for arm64 — superseded outright.)
 ncz_apt_require --no-install-recommends mpv || exit 1
@@ -422,7 +422,7 @@ echo "[20] installing Singularity Desktop payload"
 # class of bug fixed in post-install/10-our-kernel.sh's local_deb() the
 # same day. Under `set -euo pipefail` (active in this script), `find` on
 # a missing /cdrom/pool/main -- the normal case at squashfs-layer BUILD
-# time, since /cdrom only exists when running from the live installed ISO
+# time, since /cdrom only exists when running from the install medium
 # -- exits non-zero; pipefail then makes the whole `find | sort -V |
 # tail -1` pipeline non-zero, which `set -e` treats as fatal on the
 # `VAR=$(...)` assignment, silently killing this hook (the real find
@@ -767,7 +767,7 @@ else
     # NO usable GPU stack -- Mali (/dev/mali0 + mali_kbase) absent AND Panthor either absent or not bound to a DRM
     # card, and no Mesa hardware driver bound.
     #
-    # NEVER-SOFTWARE-RENDER policy (operator, 2026-09-29): if this machine HAS a GPU it must not render in software.
+    # NEVER-SOFTWARE-RENDER policy (2026-09-29): if this machine HAS a GPU it must not render in software.
     # This branch used to force wlroots(pixman) + llvmpipe unconditionally so a broken GPU stack still showed a
     # (slow) desktop; on a machine with a GPU that hid the fault. Now:
     #   * hardware GPU present (build/../assets/gpu/ncz-gpu-hw-present)  -> REFUSE: NCZ_GPU_BACKEND=failed, a loud
@@ -1451,7 +1451,7 @@ done
 echo "[20] Singularity Desktop installed: /opt/singularity + greetd/native singularity-greeter (Mali) + Wayland-only session"
 
 # Ship-critical dynamic-link closure. `seatd` only Recommends libseat1 on
-# resolute, and --no-install-recommends therefore produced a fully installed
+# the old base, and --no-install-recommends therefore produced a fully installed
 # desktop whose greeter immediately died on missing libseat.so.1. Validate the
 # actual binaries that own the boot-to-login path so this class of defect fails
 # the installer instead of becoming a metal-only surprise.
@@ -1477,7 +1477,7 @@ if [ "$_missing_runtime" -ne 0 ]; then
 fi
 echo "[20] verified: Singularity boot/login dynamic-link closure complete"
 
-# --- 26.7 Maximilian: VPU/VAAPI media production apps (video edit + transcode + audio) ---
+# --- VPU/VAAPI media production apps (video edit + transcode + audio) ---
 echo "[20] installing media production apps (Shotcut/HandBrake/Audacity + players)"
 # Install one at a time. A single apt transaction fails WHOLESALE when any
 # one name is unavailable, and a catch-all "|| echo WARN" then hides WHICH

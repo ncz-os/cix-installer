@@ -2,15 +2,15 @@
 # NCZ-MIXED-HOOK: telnet/journald generic; serial-getty ttyAMA0 enable gated on arm64 (lines ~198-210); TODO split UART part (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 36-telemetry.sh — maximum-telemetry + lockout-prevention console.
 #
-# Operator requirement (2026-06-01): telnetd enabled by default, optional
+# Requirement (2026-06-01): telnetd enabled by default, optional
 # off-box log forwarding, all possible telemetry for debug.
 #
-# This hook makes a freshly-installed cixmini observable + recoverable
-# from day zero, on BOTH the Desktop and Server SKUs — telemetry is
+# This hook makes a freshly-installed machine observable + recoverable
+# from day zero, with or without the desktop component — telemetry is
 # variant-agnostic, so there is no variant gate.
 #
 # It sets up four things:
-#   1. telnetd on TCP 23 (project directive — LAN-only lockout
+#   1. telnetd on TCP 23 (LAN-only lockout
 #      prevention; backup console when sshd hangs / has bad config).
 #   2. Persistent journald (Storage=persistent) so logs survive the
 #      reboot and can be read from rescue.target afterwards. Forwarding
@@ -32,8 +32,8 @@
 #
 # Failure-tolerant: this is a Phase 2 optional hook. Each step is
 # wrapped so a single missing package can't abort the install. Runs in
-# the chroot against the freshly-installed rootfs (Ubuntu questing /
-# Debian bookworm), so `apt-get` + `systemctl enable` are available.
+# the chroot against the freshly-installed rootfs (Debian forky), so
+# `apt-get` + `systemctl enable` are available.
 # Idempotent: re-runnable on a live system; matches the logging style
 # used across the rest of the post-install tree.
 set +e
@@ -43,7 +43,7 @@ echo "[36] telemetry + lockout-prevention console"
 LOGHOST="${NCZ_DEFAULT_LOGHOST:-}"   # host used when /etc/ncz-loghost says "default"; empty = forward nowhere
 
 # ----------------------------------------------------------------------
-# 1. telnetd on :23  (directive 9 — LAN-only backup console)
+# 1. telnetd on :23  (LAN-only backup console)
 # ----------------------------------------------------------------------
 # Preferred: inetutils-telnetd behind openbsd-inetd. Fallback: a
 # busybox-telnetd systemd socket unit (busybox is in every base rootfs).
@@ -95,10 +95,10 @@ EOF
 fi
 
 # Allow root login over telnet pts as a TRUE lockout fallback. LAN-only,
-# no internet route (directive 9: plain-text auth acceptable on LAN, and
-# lockout recovery beats theoretical plain-text concerns). The diag
-# account (09-diag-account.sh: magnetar) is the normal telnet login;
-# this just keeps root reachable if that account is gone.
+# no internet route (plain-text auth is accepted on the LAN, and
+# lockout recovery beats theoretical plain-text concerns). The normal
+# telnet login is the user account created at install; this only keeps
+# root reachable if root has a password and that account is gone.
 if [ -f /etc/securetty ]; then
     for d in ttyAMA0 pts/0 pts/1 pts/2 pts/3 pts/4 pts/5 pts/6 pts/7 pts/8 pts/9; do
         grep -qxF "$d" /etc/securetty || echo "$d" >> /etc/securetty
@@ -208,7 +208,7 @@ echo "[36] journald set persistent (Storage=persistent, ForwardToSyslog=${FWD_SY
 # getty.target -> multi-user.target -> graphical.target all queued behind it and
 # `systemd-analyze` reporting FinishTimestampMonotonic=0. That is exactly the
 # failure the r123 note above records for ttyAMA2 on Sky1, re-created on the
-# other architecture because nothing gated it. Telnet (:23, directive 8) and
+# other architecture because nothing gated it. Telnet (:23) and
 # tty1 remain the console fallback on x86; no serial getty is enabled there
 # speculatively, because enabling a getty for a device that may not enumerate
 # is the bug itself.

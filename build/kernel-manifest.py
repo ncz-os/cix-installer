@@ -17,7 +17,7 @@ NPU .ko is not rebuilt, the module silently fails to load on target. This
 manifest makes that drift a hard, visible build-time error instead of a field
 failure. Yocto should emit a file in this same schema; `gen` here bootstraps it
 and serves as the reference implementation, and `check` enforces it in CI / the
-ISO + kernel-deb builds.
+image + kernel-deb builds.
 
 Usage:
   kernel-manifest.py gen            # (re)write assets/kernel-manifest.json

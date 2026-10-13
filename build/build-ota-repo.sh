@@ -1,7 +1,7 @@
 #!/bin/bash
 # build-ota-repo.sh — assemble the NCZ OTA APT repo and pack it as a squashfs.
 #
-# Contents: the three kernel debs (cixmini-boot + linux-image-cixmini-{lts,edge})
+# Contents: the Sky1 kernel debs (cixmini-boot + linux-image-cixmini + linux-headers-cixmini)
 # plus the proprietary CIX driver/runtime debs from assets/cix-debs. The result
 # is a self-contained, GPG-signed APT repo (InRelease/Release.gpg signed by the
 # NCZ OTA archive key) squashed into cix-repo.squashfs, ready to be wrapped in an
@@ -31,7 +31,7 @@ n=0
 for d in "$KDEBS"/*.deb "$CIXDEBS"/*.deb; do
     [ -f "$d" ] || continue
     # Guard: never ship the stale vendor generic kernel/headers in the OTA repo.
-    # Our supported kernels are linux-image-cixmini-{lts,edge} + cixmini-boot;
+    # Our supported kernel is linux-image-cixmini (+ headers) + cixmini-boot;
     # the 6.6.10-cix-build-generic debs are vermagic-incompatible residue and
     # are already filtered out of on-target install (post-install/25-cix-proprietary.sh).
     case "$(basename "$d")" in

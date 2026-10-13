@@ -59,7 +59,7 @@ ROOT_FSTYPE=${ROOT_FSTYPE:-ext4}
 # btrfs subvol notation, NOT part of the device node -- blkid chokes on it and
 # (under set -e) the whole hook aborted, leaving /etc/fstab EMPTY on every
 # btrfs install (regression once root moved ext4 -> btrfs subvol=@rootfs,
-# operator-reported 2026-06-25 on r131). Strip the suffix for blkid + capture
+# reported 2026-06-25 on r131). Strip the suffix for blkid + capture
 # the subvol so the root line mounts the right subvolume.
 ROOT_SUBVOL=""
 case "$ROOT_DEV" in

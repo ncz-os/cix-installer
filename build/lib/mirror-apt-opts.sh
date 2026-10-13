@@ -137,7 +137,7 @@ ncz_verify_local_mirror() {
 }
 
 # ncz_require_debian_forky SUITE MIRROR [BASE_NAME]
-# Operator rule 2026-10-08: "We shouldn't be using Ubuntu debs ever" and "we
+# Rule 2026-10-08: "We shouldn't be using Ubuntu debs ever" and "we
 # should only use Debian versions from forky". Every rootfs/mirror builder calls
 # this before it touches a network or a chroot. Returns 1 (with a message) for
 # any non-forky suite or any non-Debian mirror; callers `|| exit 1`.

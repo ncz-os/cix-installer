@@ -106,7 +106,7 @@ NCZDNSHOOK
 }
 install_ncz_dns_hooks
 
-# Netinstall-bootstrap carries a small regular-deb pool on the ISO but keeps
+# Netinstall-bootstrap carries a small regular-deb pool on the medium but keeps
 # .disk/base_installable absent so base-installer still debootstraps from the
 # HTTP mirror. This pre-pkgsel hook activates only when that non-empty regular
 # Packages index exists, then makes file:///cdrom the pinned first source for
@@ -120,10 +120,10 @@ install_ncz_bootstrap_pool_hook() {
     rm -f "$hook_tmp"
     cat > "$hook_tmp" <<'NCZBOOTSTRAPPOOL'
 #!/bin/sh
-# 20ncz-bootstrap-pool - prefer the ISO pkgsel bootstrap pool when present.
+# 20ncz-bootstrap-pool - prefer the medium's pkgsel bootstrap pool when present.
 set +e
 LOG=/var/log/early_command.log
-# Follow the release profile for the on-media suite; the ISO ships
+# Follow the release profile for the on-media suite; the medium ships
 # dists/<NCZ_BASE_CODENAME>, so a hard-coded suite makes every apt-get update
 # against file:///cdrom fail with "File not found - /cdrom/dists/<suite>/...".
 NCZ_BASE_CODENAME=""
@@ -242,7 +242,7 @@ install_ncz_disable_popcon_hook
 
 # 2026-05-08 take15: install a custom /etc/udhcpc/default.script that
 # unconditionally writes /etc/resolv.conf with our 3-nameserver chain
-# (8.8.8.8 + 1.1.1.1 + DHCP-provided). udhcpc on bookworm d-i runs
+# (8.8.8.8 + 1.1.1.1 + DHCP-provided). udhcpc in d-i runs
 # this script on every DHCP bound|renew|deconfig event. By replacing
 # the script BEFORE DHCP runs (early_command fires before netcfg),
 # our resolv.conf survives every renewal natively — no backgrounded

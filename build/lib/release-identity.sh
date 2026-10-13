@@ -1,14 +1,13 @@
 #!/bin/bash
 # release-identity.sh — shared, side-effect-free derivation of the NCZ release
-# identity strings from release.conf, so no ISO-repack gate hardcodes a codename
+# identity strings from release.conf, so no build or gate hardcodes a codename
 # that release.conf has since changed.
 #
 # release.conf is the single source of truth for the product name, version and
-# codename (docs/releases/26.10-cygnus.md §2.1). The d-i build path already
-# derives its ISO volume label from it (build/build-iso-di.sh); the QEMU/KVM
-# gates that re-pack a copy of that ISO must derive the SAME label, or the
-# repacked medium carries a stale codename (the `NCZ_MAXIMILIAN` label left over
-# from 26.7 was exactly that bug).
+# codename (docs/releases/26.10-cygnus.md §2.1). The retired ISO builder derived
+# its volume label from it, and anything that labels a medium must derive the
+# SAME label, or the medium carries a stale codename (the `NCZ_MAXIMILIAN` label
+# left over from 26.7 was exactly that bug).
 #
 # Source it from a bash script (all callers are bash):
 #   # shellcheck source=lib/release-identity.sh

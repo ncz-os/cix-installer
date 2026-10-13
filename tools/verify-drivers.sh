@@ -1,6 +1,6 @@
 #!/bin/bash
 # verify-drivers.sh — full driver fidelity check for a freshly-installed
-# CIX Sky1 board running 7.0.12-cix-sky1-next. Run as root on the target.
+# CIX Sky1 board running the NCZ Sky1 kernel. Run as root on the target.
 # Prints PASS/FAIL per subsystem. Audio is expected FAIL (known-open).
 GRN=$'\e[32m'; RED=$'\e[31m'; YEL=$'\e[33m'; RST=$'\e[0m'
 pass(){ echo "${GRN}PASS${RST} $*"; }
@@ -8,7 +8,7 @@ fail(){ echo "${RED}FAIL${RST} $*"; }
 warn(){ echo "${YEL}WARN${RST} $*"; }
 hr(){ echo "------------------------------------------------------------"; }
 
-echo "=== cixmini driver fidelity check  $(date) ==="
+echo "=== Sky1 driver fidelity check  $(date) ==="
 echo "kernel: $(uname -r)   variant: $(cat /usr/local/lib/cix-installer/BUILD_VARIANT 2>/dev/null)   build: $(cat /etc/cix-installer/BUILD_VERSION 2>/dev/null)"
 hr
 # --- Kernel is the headline 7.0.12 ---

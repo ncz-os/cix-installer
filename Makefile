@@ -1,18 +1,19 @@
-# cix-installer Makefile — produces a customized Debian Installer ISO
-# for the nclawzero distro on Cix Sky1 / cixmini.
+# cix-installer Makefile — builds the NCZ-OS raw GPT install image (.img)
+# for arm64 (CIX Sky1) and amd64, on the stock Debian Installer.
 #
 # Targets:
-#   make download         — fetch upstream Debian netinst-arm64 ISO
-#   make iso              — build the cix-installer ISO (default target; fast for dev iteration)
-#   make iso-verified     — make iso, then run build/kvm-install-gate.sh against the result.
+#   make release-image    — the whole pipeline via build/build-image.sh (preflight, substrate,
+#                           inputs, mirrors, layers, image, provenance + KVM gates, receipt)
+#   make download         — fetch the pinned Debian Testing netinst substrate for ARCH
+#   make image            — assemble the raw GPT image (default target; fast for dev iteration)
+#   make image-verified   — make image, then run build/kvm-install-gate-gpt.sh against the result.
 #                           This is the "safe to ship to hardware" path: the gate installs the
-#                           ISO in KVM, boots what it installed, and asserts NCZ-ROOTMODE=755.
-#                           The plain `iso` target stays fast for iteration; anything intended
-#                           for real hardware should go through `iso-verified`.
-#   make verify           — sha256-check upstream ISO + final
+#                           image in KVM and boots what it installed. Anything intended for real
+#                           hardware should go through `image-verified` (or `release-image`).
+#   make verify           — write the sha256 of the built image
 #   make clean            — wipe build/
 #   make distclean        — wipe build/ + downloads/
-#   make qemu             — boot the built ISO in qemu-aarch64 + UEFI for testing
+#   make parity           — static dual-arch parity checks + installer/registry gates
 #   make secretscan       — scan built artifact for credentials
 #   make npu-ssdt-check   — verify NPU SSDT CPIO is present + well-formed
 #   make npu-ssdt-selftest — self-test the npu-ssdt-gate.sh (5 isolated cases)
@@ -23,7 +24,7 @@ ARCH          ?= $(shell dpkg --print-architecture 2>/dev/null || uname -m | sed
 MODE          ?= full
 VARIANT       ?= desktop
 
-# LATEST_SINGULARITY_DEB / desktop-hotfix.squashfs -- 2026-08-27. The ISO
+# LATEST_SINGULARITY_DEB / desktop-hotfix.squashfs -- 2026-08-27. The image
 # target used to have NO dependency link to assets/squashfs/desktop-hotfix
 # .squashfs or assets/cix-debs/*.deb at all: that squashfs layer was staged
 # by a completely separate, unlinked script (build/build-squashfs-layers.sh)
@@ -37,9 +38,9 @@ VARIANT       ?= desktop
 # remember.
 LATEST_SINGULARITY_DEB := $(shell ls -1 $(ROOT)/assets/cix-debs/ncz-singularity-desktop_*.deb 2>/dev/null | sort -V | tail -1)
 # SUBSTRATE ISO -- the debian-installer environment we build on top of. This
-# is NOT cosmetic: build-iso-di.sh harvests the substrate's udebs (kernel
-# module packages, fonts, GTK) and merges them into the image's own pool, so
-# the substrate decides which d-i runs the install.
+# is NOT cosmetic: build/iso/import-substrate.py harvests the substrate's udebs
+# (kernel module packages, fonts, GTK) and merges them into the image's own
+# pool, so the substrate decides which d-i runs the install.
 #
 # It MUST match NCZ_BASE_CODENAME in release.conf, which is forky. Measured
 # 2026-08-13, building the same tree both ways:
@@ -60,7 +61,7 @@ LATEST_SINGULARITY_DEB := $(shell ls -1 $(ROOT)/assets/cix-debs/ncz-singularity-
 # Bookworm glibc 2.36. That predates the FORKY migration; the shipped images
 # have been forky-based since, and the vendor .debs come from the CIX debian13
 # SDK. To build on a point release anyway, override on the command line:
-#   make iso UPSTREAM_ISO=debian-12.13.0-arm64-netinst.iso
+#   make image UPSTREAM_ISO=debian-12.13.0-arm64-netinst.iso
 # Substrate = the NETINST, not netboot/mini.iso. The netinst carries its own
 # /pool (285 udebs) and /dists/<codename>/Release, so anna and choose-mirror
 # are satisfied from the medium. mini.iso carries neither, which makes the
@@ -85,13 +86,13 @@ UPSTREAM_SHA_NAME := $(UPSTREAM_ISO)
 # was 07aa61fb3843..., i.e. the drift is not hypothetical.
 #
 # To adopt a newer substrate, do it deliberately: download it, run
-# build/e2e-install-test.sh against an ISO built on it, and only then update
+# the KVM install gate against an image built on it, and only then update
 # this hash in the same commit as the evidence.
 # Substrate rotated 2026-08-21: upstream serves
 # 4aae4d12acc0c71b7eaf2d03deae48098f84596e6806d3cf78ada53ba0c649a0
 # (last-modified 2026-08-17, +4 days since the prior pin 69c4f9fce0...).
-# Adopted in this commit because the operator requested a real ISO; the prior
-# pin was preventing `make download` outright. Validation: install-gate
+# Adopted in this commit because the prior pin was preventing
+# `make download` outright. Validation: install-gate
 # (build/kvm-install-gate.sh) PASS against the ISO built on this substrate —
 # (validated on an arm64 build host, 2026-08-21).
 # Substrate rotated again 2026-09-25. The replacement below passed the native
@@ -116,7 +117,7 @@ UPSTREAM_SHA_NAME := $(UPSTREAM_ISO)
 # derived snapshot + coverage).  The substrate must be refreshed for EVERY build
 # (`make refresh-substrate ARCH=<a>`; `check-substrate-pin` fails a stale pin or
 # an uncovered substrate).  The literal fallback below is the last
-# operator-validated ISO, used only if base.pin has no row for ARCH.  Override
+# validated substrate ISO, used only if base.pin has no row for ARCH.  Override
 # for an experiment with `make image SUBSTRATE_SHA=<sha256-of-the-new-iso>`.
 SUBSTRATE_FROM_PIN := $(shell awk -F'\t' -v a="$(ARCH)" '$$1==a{print $$2; exit}' $(ROOT)/manifests/base.pin 2>/dev/null)
 ifeq ($(ARCH),arm64)
@@ -160,7 +161,7 @@ help:
 	@grep -E '^# (Targets|  make )' $(MAKEFILE_LIST) | sed 's/^# //'
 
 # -----------------------------------------------------------------------
-# Step 1 — fetch upstream Debian Installer ISO
+# Step 1 — fetch the pinned Debian Installer substrate ISO
 # -----------------------------------------------------------------------
 download: $(DOWNLOADS)/$(UPSTREAM_ISO)
 
@@ -211,9 +212,9 @@ $(DOWNLOADS)/$(UPSTREAM_ISO):
 	@echo "[download] OK ($$(du -h $@ 2>/dev/null | cut -f1))"
 
 # -----------------------------------------------------------------------
-# Step 2 — build the customized ISO via the staged build script.
+# Step 2 — assemble the raw GPT install image.
 # -----------------------------------------------------------------------
-# One-kernel policy (docs/ONE-KERNEL.md, operator ruling 2026-10-10): drop the
+# One-kernel policy (docs/ONE-KERNEL.md, design rule 2026-10-10): drop the
 # substrate's Debian kernel/module/binary udebs from the merged /cdrom pool so
 # the image carries only OUR kernel (provenance one-kernel flag 0).  Step 1 of
 # the documented mechanism; step 2 (installer initrd on our kernel) is validated
@@ -254,9 +255,9 @@ iso iso-verified:
 # wrapper never silently publishes a stale set.
 #
 # arm64-only: this target is the Sky1 kernel package target. The amd64
-# kernel line(s) live under assets/kernel/amd64-{stable,edge} and are
+# kernel lives under assets/kernel/amd64-stable and is
 # staged via build/stage-amd64-kernel.sh, never via this target. $(ARCH)
-# is the build host's dpkg architecture, not the target ISO's --
+# is the build host's dpkg architecture, not the target image's --
 # NCZ_TARGET_ARCH on the build invocation distinguishes the two; the
 # existing arm64-only `using existing debs` path is preserved exactly
 # for ARCH=arm64 hosts. For ARCH!=arm64 (i.e. amd64 build hosts, the
@@ -297,8 +298,8 @@ iso iso-verified:
 #       layer with "no kernel installed (edge failed)" because the
 #       vendor mirror had published rc5 while KVER said 7.2.8.
 #
-# Operator directive 2026-09-30 (the Sky1 test-board incident), updated 2026-10-04: the 7.2.9
-# release kernel must be the default kernel on every arch. Gate the kernel-debs target with the kernel-default
+# Design rule 2026-09-30 (the Sky1 test-board incident), updated 2026-10-05: the
+# unified 7.3 kernel must be the default kernel on every arch. Gate the kernel-debs target with the kernel-default
 # policy verifier before doing anything else -- a misdirected
 # assets/kernel/mainline symlink (that incident's root cause) silently produces
 # wrong .debs here if this gate is skipped.
@@ -356,7 +357,7 @@ kernel-debs:
 # --debs-dir straight at assets/cix-debs/ (tried first, reverted) makes the
 # check FAIL PERMANENTLY: that directory also holds ~30 dpkg-i-direct-only
 # packages (cix-vaapi, cix-mesa, cix-gpu-umd, ...) that are staged onto the
-# ISO's /ncz-payload/assets/cix-debs/ via 25-cix-proprietary.sh and were never
+# install medium's /ncz-payload/assets/cix-debs/ via 25-cix-proprietary.sh and were never
 # meant to exist in the apt-mirror pool at all, so they always show
 # "missing" regardless of anything real changing.
 #
@@ -593,9 +594,9 @@ secretscan:
 test-net-firmware:
 	@bash $(ROOT)/build/test-net-firmware.sh
 
-# Fast NPU SSDT asset check — same gate `make iso` will run in full-mode
-# preflight. Useful as a build-host validation step before kicking off a
-# full ISO build (catches the silent-skip regression that shipped ISOs
+# Fast NPU SSDT asset check (the gate the retired ISO builder ran in full-mode
+# preflight). Useful as a build-host validation step before kicking off a
+# full image build (catches the silent-skip regression that shipped ISOs
 # without the MS-R1 NPU _HID override). Pass `regen=1` to allow the gate
 # to auto-rebuild the CPIO from the committed .asl if it is missing.
 npu-ssdt-check:
@@ -614,16 +615,15 @@ npu-ssdt-selftest:
 verify: $(OUTPUT_IMAGE)
 	@sha256sum $(OUTPUT_IMAGE) | tee $(OUTPUT_IMAGE).sha256
 
-# iso-verified: build the ISO and then run kvm-install-gate.sh against it. The
-# gate installs the just-built ISO in KVM (auto-falls back to TCG under qemu on
-# non-aarch64 hosts), boots what it installed, and asserts the
-# NCZ-ROOTMODE=755 marker from the boot serial. ANYTHING INTENDED FOR REAL
-# HARDWARE SHOULD GO THROUGH THIS TARGET, NOT THE PLAIN `iso` -- the 2026-08-26
+# image-verified: build the image and then run kvm-install-gate-gpt.sh against
+# it. The gate installs the just-built image in KVM, boots what it installed,
+# and checks the result. ANYTHING INTENDED FOR REAL HARDWARE SHOULD GO THROUGH
+# THIS TARGET (or release-image), NOT THE PLAIN `image` -- the 2026-08-26
 # 0700-root incident is exactly the class of regression this gate catches at
-# build time instead of on hardware. `iso` stays fast for dev iteration. The
-# gate's workdir defaults to /home/mini/.../kvm-install (its built-in default);
-# override with KVM_INSTALL_WORKDIR=/path on the make command line to relocate
-# (the gate creates it if missing). See build/kvm-install-gate.sh for full
+# build time instead of on hardware. `image` stays fast for dev iteration. The
+# gate's workdir defaults to build/kvm-install; override with
+# KVM_INSTALL_WORKDIR=/path on the make command line to relocate (the gate
+# creates it if missing). See build/kvm-install-gate-gpt.sh for full
 # timeout/accel/mem knobs.
 image-verified: $(OUTPUT_IMAGE)
 	@echo "[image-verified] running kvm-install-gate-gpt.sh against $(OUTPUT_IMAGE)"
@@ -647,8 +647,8 @@ image-verified: $(OUTPUT_IMAGE)
 	@echo "[image-verified] PASS: $(OUTPUT_IMAGE) is safe to ship to hardware"
 
 # -----------------------------------------------------------------------
-# Step 3 — boot test in qemu-aarch64 with edk2 UEFI firmware (faster
-# iteration than hardware). Requires a virtual disk to install onto.
+# Step 3 — boot test: points at the KVM install gate, which installs the raw
+# GPT image onto a virtual disk under edk2 UEFI firmware.
 # -----------------------------------------------------------------------
 qemu: $(OUTPUT_IMAGE)
 	@echo "Use build/kvm-install-gate-gpt.sh $(OUTPUT_IMAGE) for raw-GPT media"
@@ -729,6 +729,7 @@ parity:
 	REPO_ROOT=$(ROOT) bash build/test-amd64-kernel-classifier.sh
 	bash build/test-amd64-t2-detect.sh
 	bash build/test-t2-mce-nobootlog.sh
+	bash build/test-t2-power-cap.sh
 	bash build/test-nouveau-runpm.sh
 	bash build/test-gpu-probe-no-hang.sh
 	bash build/test-hook-watchdog.sh
@@ -757,6 +758,7 @@ parity:
 	build/test-kernel-purity-guards.sh
 	bash build/test-apt-separation.sh
 	bash build/test-ncz-repo-policy.sh
+	bash build/test-reprepro-publish-pool-arch.sh
 	bash build/test-no-ubuntu.sh
 	bash build/test-ncz-apt-policy-deb.sh
 	bash build/test-apt-sources-hook-container.sh
@@ -795,8 +797,8 @@ print-substrate-sha:
 	@printf '%s\n' '$(SUBSTRATE_SHA)'
 
 # One-command whole-pipeline build (preflight -> refresh substrate -> stage
-# inputs -> offline mirror -> layers -> image -> KVM gate -> provenance gate ->
-# receipt -> archive copy).  Extra flags go in RELEASE_IMAGE_ARGS, e.g.
+# inputs -> refresh sources -> offline mirror -> provenance on the inputs ->
+# layers -> image -> provenance gate -> KVM gate -> receipt -> archive copy).  Extra flags go in RELEASE_IMAGE_ARGS, e.g.
 #   make release-image ARCH=amd64 RELEASE_IMAGE_ARGS="--dry-run"
 release-image:
 	@bash $(ROOT)/build/build-image.sh --arch $(ARCH) $(RELEASE_IMAGE_ARGS)
@@ -814,7 +816,7 @@ test-build-image:
 	@bash $(ROOT)/build/test-build-image.sh
 
 # Both-direction tests for the hardened layer checks
-# (build/layers-preflight.sh + build/check-layers.sh; operator ruling 2026-10-10).
+# (build/layers-preflight.sh + build/check-layers.sh; design rule 2026-10-10).
 test-layers-hardening:
 	@bash $(ROOT)/build/test-layers-hardening.sh
 
