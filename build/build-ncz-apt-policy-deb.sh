@@ -44,7 +44,7 @@ ncz_apt_install_source_helper "$WORK"
 printf 'NCZ-OS apt policy: keeps NCZ-OS package updates separate from Debian ones.\nSee docs/APT-SEPARATION.md in cix-installer.\n' > "$WORK/usr/share/doc/$PKG/README"
 
 # Installed-Size MUST be a host-independent value: `du -sk` counts allocated
-# blocks, which differ by filesystem (ACHILLES ext4, arm64 btrfs/tmpfs ...), so
+# blocks, which differ by filesystem (amd64 build host ext4, arm64 btrfs/tmpfs ...), so
 # the SAME package produced different bytes on different hosts -- the r203 input
 # finding that forced two reviewed ledger rows for one Architecture:all package.
 # Sum the actual file sizes instead (KiB, rounded up): deterministic everywhere,

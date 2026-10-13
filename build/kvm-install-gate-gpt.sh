@@ -378,11 +378,11 @@ echo "[5/6] checking the install log"
 grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i |Linux version|Starting linux|Installing the base system|Starting NCZ-OS post-install plan" "$ILOG" \
   || fail "the installer never started (qemu rc=$irc) -- see $ILOG"
 
-# PROTEUS (.68) 2026-10-12: an emulated usb-serial adapter is attached to phase
+# 2026-10-12: an emulated usb-serial adapter is attached to phase
 # 1 (see the -usb / -device usb-serial above) precisely so this gate would
 # catch the defect it did NOT catch before -- the gate used to attach no
-# USB-serial device at all, so the shipped image passed while real PROTEUS
-# hardware wedged on the brltty-udeb critical question "Is the USB serial
+# USB-serial device at all, so the shipped image passed while the HP OmniDesk test desktop
+# wedged on the brltty-udeb critical question "Is the USB serial
 # device indeed a braille device?" (a generic USB-serial id started brltty and
 # set /var/run/brltty-generic). QEMU's usb-serial emulates 0403:6001, one of
 # the generic ids in brltty-udeb's udev rules. The image fixes it two ways
@@ -391,7 +391,7 @@ grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i |Lin
 # this question reappears on the serial console and the gate fails here.
 #
 # The device must be on the DEFAULT `-usb` bus with `always-plugged=on`:
-# measured on ACHILLES 2026-10-12, `-device usb-serial,bus=xhci.0` (without
+# measured on an amd64 build host 2026-10-12, `-device usb-serial,bus=xhci.0` (without
 # -usb) is NOT enumerated by the d-i guest at all (no 0403:6001 in the kernel
 # log, no udev event, no question), so a naive xhci attach makes this guard
 # silently vacuous. `-usb -device usb-serial,chardev=usbser,always-plugged=on`
@@ -399,7 +399,7 @@ grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i |Lin
 # and reliably raises the (pre-fix) question.
 if grep -qai "indeed a braille device" "$ILOG"; then
     grep -ai -B2 -A4 "braille device" "$ILOG" | head -20 >&2
-    fail "brltty asked the generic 'Is the USB serial device indeed a braille device?' question with a usb-serial device attached -- an emulated USB-UART must never be treated as a braille device (PROTEUS 2026-10-12)"
+    fail "brltty asked the generic 'Is the USB serial device indeed a braille device?' question with a usb-serial device attached -- an emulated USB-UART must never be treated as a braille device"
 fi
 
 # The gaps this session fixed, each with its own message, so a failure names

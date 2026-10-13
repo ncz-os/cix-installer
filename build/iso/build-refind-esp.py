@@ -125,7 +125,7 @@ def sanitize_build_id(build_id: str) -> str:
 def options_with_build_id(options: str, build_id: str) -> str:
     """Append `ncz_rev=<build id>` to an installer kernel cmdline.
 
-    2026-10-12 (PROTEUS installer defect): the shipped amd64 image booted with
+    2026-10-12 (unattended amd64 installer defect): the shipped amd64 image booted with
     no ncz_rev= on its installer cmdline, so preseed.cfg's
     ${NCZREV:-unknown} fell back to the literal "unknown" in the operator's
     boot banner. build/build-installer-image.sh now passes its BUILD_VERSION
@@ -199,7 +199,7 @@ def find_refind_extract(arch: str) -> Path:
     return base
 
 
-# 2026-10-12 (PROTEUS installer defect): every unattended installer entry
+# 2026-10-12 (unattended amd64 installer defect): every unattended installer entry
 # disables BRLTTY's d-i udev auto-start. brltty-udeb's /lib/udev/brltty.sh
 # begins with `grep -q brltty /proc/cmdline && exit 0`, so ANY cmdline token
 # containing the substring "brltty" suppresses the auto-detect that otherwise

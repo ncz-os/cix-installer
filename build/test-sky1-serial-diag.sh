@@ -96,7 +96,7 @@ check(all(all(t in l.split() or t + '"' in l.split() for t in TOKENS) for l in o
 #     on Install/Expert only -- Rescue deliberately keeps full modeset for
 #     diagnosis. The old baseline pinned the shared strings and stripped only
 #     nouveau.runpm=0, so it had been RED since 5a21d5cb added nomodeset.
-#   * ncz_no_brltty=1  (fix/proteus-installer-20261012) on Install/Expert only:
+#   * ncz_no_brltty=1  (2026-10-12 installer fix) on Install/Expert only:
 #     a USB-UART must never raise the brltty-udeb braille question on the
 #     unattended path (the token satisfies brltty-udeb's
 #     `grep -q brltty /proc/cmdline` autodetect guard).
