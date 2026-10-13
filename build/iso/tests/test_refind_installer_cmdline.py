@@ -1,6 +1,6 @@
 """Installer cmdline: every entry carries the build id, unattended entries stop brltty.
 
-PROTEUS (.68), 2026-10-12, unattended amd64 install:
+HP OmniDesk test desktop, 2026-10-12, unattended amd64 install:
 
   1. A Prolific PL2303 USB-serial adapter (067b:2303) was plugged in. BRLTTY's
      d-i udev rules start brltty for GENERIC USB-serial ids (FTDI 0403:6001,
@@ -91,7 +91,7 @@ class BuildIdOnEveryEntry(unittest.TestCase):
             toks = o.split()
             self.assertEqual(toks.count(f"ncz_rev={BUILD_ID}"), 1,
                              f"{arch} {title}: expected exactly one ncz_rev=, got {toks}")
-            # never the literal "unknown" (the PROTEUS banner defect)
+            # never the literal "unknown" (the "unknown" banner defect)
             self.assertNotIn("ncz_rev=unknown", toks, f"{arch} {title}: {toks}")
 
     def test_amd64_entries_carry_the_build_id(self):

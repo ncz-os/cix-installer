@@ -686,7 +686,7 @@ parity:
 	build/test-singularity-supervisor-forensics.sh
 	build/test-panthor-vulkan.sh
 	build/test-installer-screens.sh
-	build/test-proteus-installer-fixes.sh
+	build/test-installer-brltty-banner.sh
 	build/test-installer-flow.sh
 	build/test-component-selection.sh
 	build/test-usb2-rescan-sky1-only.sh

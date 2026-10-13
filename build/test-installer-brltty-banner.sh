@@ -1,5 +1,5 @@
 #!/bin/bash
-# test-proteus-installer-fixes.sh -- PROTEUS (.68) 2026-10-12 unattended-install
+# test-installer-brltty-banner.sh -- 2026-10-12 unattended amd64 install
 # defects, source-level regressions:
 #
 #   1. brltty: a USB-UART (Prolific PL2303 067b:2303, and every GENERIC
@@ -13,7 +13,7 @@
 #      it over the newt UI for 120 s) and still carry the build id: the
 #      installer cmdline now receives ncz_rev=<BUILD_VERSION>.
 #
-# Usage: build/test-proteus-installer-fixes.sh
+# Usage: build/test-installer-brltty-banner.sh
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
@@ -62,7 +62,7 @@ case "$banner_line" in
     *) bad "banner does not target /dev/console" ;;
 esac
 case "$banner_line" in
-    *sleep*|*while*|*"&"*) bad "banner is a repeating/backgrounded loop (the PROTEUS smear regression)" ;;
+    *sleep*|*while*|*"&"*) bad "banner is a repeating/backgrounded loop (the banner smear regression)" ;;
     *) ok "banner prints ONCE (no sleep/while/& on its line)" ;;
 esac
 
@@ -85,5 +85,5 @@ else
     bad "$PYTEST is missing"
 fi
 
-echo "proteus installer fix tests: $PASS passed, $FAIL failed"
+echo "installer brltty/banner tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
