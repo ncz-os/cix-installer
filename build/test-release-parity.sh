@@ -324,7 +324,7 @@ mkrel() { # $1 dir: amd64 (1 part) + arm64 (2 parts) + common files
   cat "$d/amd64/SHA256SUMS-amd64" "$d/arm64/SHA256SUMS-arm64" > "$d/SHA256SUMS"
   cp "$ROOT/tools/ncz-join-image.sh" "$d/"
   printf 'NCZ-OS 26.10 Cygnus — Preview 2\n' > "$d/TITLE"
-  echo no > "$d/PRERELEASE"
+  echo yes > "$d/PRERELEASE"   # a preview tag is a GitHub pre-release
   cat > "$d/NOTES.md" <<EOF
 # NCZ-OS 26.10 "Cygnus" — Preview 2
 
@@ -349,7 +349,9 @@ Download the amd64 files and run \`sh ncz-join-image.sh amd64\`.
 |---|---|
 | \`$ARM\` | \`$hb\` |
 
-Download the arm64 files and run \`sh ncz-join-image.sh arm64\`.
+Download the arm64 files and run \`sh ncz-join-image.sh arm64\`; the first part is
+[arm64/ncz-os-arm64.img.zst.part-00](https://gitlab.test/ncz-os/cix-installer/-/releases/permalink/latest/downloads/arm64/ncz-os-arm64.img.zst.part-00),
+its list [PARTS-arm64.sha256](https://gitlab.test/ncz-os/cix-installer/-/releases/permalink/latest/downloads/arm64/PARTS-arm64.sha256).
 
 ## Source
 
@@ -425,20 +427,32 @@ bash "$SYNC" --dir "$REL" --tag "$TAG" --apply --operator-approved "$APPROVE" --
 check "audit with a FAIL line is refused" '[ "$rc" -eq 2 ] && [ ! -s "$MOCK_LOG" ]'
 
 # 4. input refusals: missing screenshot, release-specific link, relative image, prerelease, missing tag
-for case in shot link relimg pre sections layout; do
+for case in shot link relimg pre sections layout badpart; do
   D="$T/bad-$case"; rm -rf "$D"; cp -r "$REL" "$D"
   case $case in
     shot) sed -i 's#01-desktop.png#09-missing.png#' "$D/NOTES.md" ;;
     link) echo "[old](https://github.test/ncz-os/cix-installer/releases/download/v26.10-preview1/SHA256SUMS)" >> "$D/NOTES.md" ;;
     relimg) echo "![x](../screenshots/26.10/01-desktop.png)" >> "$D/NOTES.md" ;;
-    pre) echo yes > "$D/PRERELEASE" ;;
+    pre) echo no > "$D/PRERELEASE" ;;
     sections) sed -i 's/^## arm64: CIX Sky1$/## Sky1/' "$D/NOTES.md" ;;
     layout) mv "$D/amd64/$AMD.img.zst.part-00" "$D/" ;;
+    badpart) echo "[p](https://gitlab.test/ncz-os/cix-installer/-/releases/permalink/latest/downloads/arm64/ncz-os-arm64.img.zst.part-07)" >> "$D/NOTES.md" ;;
   esac
   reset_state
   out=$(bash "$SYNC" --dir "$D" --tag "$TAG" --apply "${gated[@]}" 2>&1); rc=$?
-  check "refused input ($case) exits 2 with no request" '[ "$rc" -eq 2 ] && [ ! -s "$MOCK_LOG" ]' || echo "$out"
+  if [ "$case" = badpart ]; then
+    check "refused input ($case) exits 2 with no change" '[ "$rc" -eq 2 ] && [ "$(mutations)" -eq 0 ] && grep -q "ncz-os-arm64.img.zst.part-07" <<<"$out"' || echo "$out"
+  else
+    check "refused input ($case) exits 2 with no request" '[ "$rc" -eq 2 ] && [ ! -s "$MOCK_LOG" ]' || echo "$out"
+  fi
 done
+# a tag that is not a preview tag needs --allow-prerelease to be a pre-release
+reset_state
+out=$(bash "$SYNC" --dir "$REL" --tag v26.10.0 --apply "${gated[@]}" 2>&1); rc=$?
+check "pre-release of a non-preview tag refused without --allow-prerelease" '[ "$rc" -eq 2 ] && [ ! -s "$MOCK_LOG" ] && grep -q "not a preview tag" <<<"$out"'
+D="$T/bad-pre-absent"; rm -rf "$D"; cp -r "$REL" "$D"; rm "$D/PRERELEASE"
+out=$(bash "$SYNC" --dir "$D" --tag "$TAG" --repo-root "$REPOROOT" 2>&1); rc=$?
+check "preview tag without a PRERELEASE file is a pre-release" '[ "$rc" -eq 0 ] && grep -q "prerelease=yes (preview tag)" <<<"$out"'
 reset_state
 jq '.gh.tags -= ["'"$TAG"'"]' "$MOCK_STATE" > "$MOCK_STATE.n" && mv "$MOCK_STATE.n" "$MOCK_STATE"
 out=$(bash "$SYNC" --dir "$REL" --tag "$TAG" --apply "${gated[@]}" 2>&1); rc=$?
@@ -458,9 +472,11 @@ check "GitHub assets in canonical order (amd64, arm64, common)" '[ "$(st "[.gh.r
 check "GitLab links in the same order, in arch folders" '[ "$(st "[.gl.releases[\"$TAG\"].links[].name] | join(\" \")")" = "amd64/$AMD.img.zst.part-00 amd64/PARTS-amd64.sha256 amd64/SHA256SUMS-amd64 arm64/$ARM.img.zst.part-00 arm64/$ARM.img.zst.part-01 arm64/PARTS-arm64.sha256 arm64/SHA256SUMS-arm64 ncz-join-image.sh SHA256SUMS NOTES.md" ]'
 check "GitLab part link has stable folder path" '[ "$(st ".gl.releases[\"$TAG\"].links[] | select(.name==\"arm64/$ARM.img.zst.part-01\") | .direct_asset_path")" = /arm64/ncz-os-arm64.img.zst.part-01 ]'
 check "GitLab packages per architecture + common" '[ "$(st "[.gl.packages[] | select(.name | startswith(\"ncz-os-image\")) | .name] | sort | join(\",\")")" = "ncz-os-image-amd64,ncz-os-image-arm64,ncz-os-image-common" ]'
-check "GitHub body uses GitHub link forms" '[ "$(st ".gh.releases[0].body" | grep -c "https://raw.github.test/ncz-os/cix-installer/main/docs/screenshots")" -eq 2 ] && st ".gh.releases[0].body" | grep >/dev/null "https://github.test/ncz-os/cix-installer/releases/latest/download/SHA256SUMS"'
+check "GitHub body uses GitHub link forms" '[ "$(st ".gh.releases[0].body" | grep -c "https://raw.github.test/ncz-os/cix-installer/main/docs/screenshots")" -eq 2 ] && st ".gh.releases[0].body" | grep >/dev/null "https://github.test/ncz-os/cix-installer/releases/download/$TAG/SHA256SUMS" && st ".gh.releases[0].body" | grep >/dev/null "https://github.test/ncz-os/cix-installer/releases)" && st ".gh.releases[0].body" | grep >/dev/null "releases/download/$TAG/$ARM.img.zst.part-00)" && st ".gh.releases[0].body" | grep >/dev/null "releases/download/$TAG/PARTS-arm64.sha256)" && ! st ".gh.releases[0].body" | grep >/dev/null "releases/latest"'
 check "GitLab body is NOTES.md as staged" '[ "$(st ".gl.releases[\"$TAG\"].description")" = "$(cat "$REL/NOTES.md")" ]'
-check "GitHub release not prerelease and latest" '[ "$(st ".gh.releases[0].prerelease")" = false ] && [ "$(st ".gh.latest_id")" = "$(st ".gh.releases[0].id")" ]'
+check "GitHub release is a pre-release" '[ "$(st ".gh.releases[0].prerelease")" = true ]'
+check "release lists read back after retiring" 'grep -q "GitHub lists 1 release(s) ($TAG, prerelease=yes); GitLab release $TAG exists and is not upcoming" <<<"$out"'
+check "parity used the releases list, not /releases/latest" 'grep -q "GitHub releases page lists only $TAG (prerelease=yes)" <<<"$out" && ! grep -q "/releases/latest" "$MOCK_LOG"'
 check "kernel source package untouched" '[ "$(st "[.gl.packages[] | select(.name==\"linux-source-cix-sky1-ncz\")] | length")" -eq 1 ]'
 check "final parity reported" 'grep -q "Result: PARITY ($TAG)" <<<"$out" && grep -q "Done: $TAG is the one release page" <<<"$out"'
 check "no GitHub tokens in curl argv" '! grep -qF "$GH_TOK" "$MOCK_ARGV" && ! grep -qF "$GL_TOK" "$MOCK_ARGV"'
@@ -470,7 +486,7 @@ cp "$MOCK_STATE" "$T/good.json"
 
 # 6. parity on the good state, anonymous and quick
 : > "$MOCK_LOG"
-out=$(TEST_GH_TOKEN="" TEST_GL_TOKEN="" bash "$CHECK" --tag "$TAG" "${CK[@]}" --release-dir "$REL" --expect-prerelease no 2>&1); rc=$?
+out=$(TEST_GH_TOKEN="" TEST_GL_TOKEN="" bash "$CHECK" --tag "$TAG" "${CK[@]}" --release-dir "$REL" --expect-prerelease yes 2>&1); rc=$?
 check "anonymous full parity passes" '[ "$rc" -eq 0 ]' || echo "$out"
 check "parity read-only" '[ "$(mutations)" -eq 0 ]'
 out=$(bash "$CHECK" "${CK[@]}" 2>&1); rc=$?
@@ -500,11 +516,14 @@ mism body-diff-line "$GHR.body += \"\nextra line\n\"" "+extra line\|-extra line"
 mism asset-missing "$GHR.assets |= map(select(.name != \"SHA256SUMS\"))" "asset names differ"
 mism size "$GHR.assets |= map(if .name == \"ncz-os-amd64-20261014-abcdef12.img.zst.part-00\" then .size = 1 else . end)" "size of ncz-os-amd64-20261014-abcdef12.img.zst.part-00"
 mism sha "$GHR.assets |= map(if .name == \"ncz-os-arm64-20261014-abcdef12.img.zst.part-00\" then .digest = \"sha256:$(printf '1%.0s' {1..64})\" else . end)" "sha256 of ncz-os-arm64-20261014-abcdef12.img.zst.part-00"
+mism extra-gh-list ".gh.releases += [{\"id\": 98, \"tag_name\": \"v2026.08.27-v14\", \"name\": \"old\", \"body\": \"\", \"draft\": false, \"prerelease\": false, \"created_at\": \"2026-08-27T23:18:14Z\", \"assets\": []}]" "GitHub releases page lists 2 releases; it must list only $TAG"
 mism extra-gh-release ".gh.releases += [{\"id\": 99, \"tag_name\": \"v26.10-preview1\", \"name\": \"P1\", \"body\": \"\", \"draft\": false, \"prerelease\": true, \"created_at\": \"2026-08-27T23:40:38Z\", \"assets\": []}]" "github has another release: v26.10-preview1"
 mism extra-gl-release ".gl.releases[\"v2026.08.18-v12\"] = {\"name\": \"old\", \"description\": \"\", \"released_at\": \"2026-08-18T04:37:42Z\", \"links\": []}" "gitlab has another release: v2026.08.18-v12"
 mism gl-missing ".gl.releases = {}" "gitlab has no release for $TAG"
-mism prerelease "$GHR.prerelease = true" "a pre-release is never 'latest'"
-mism expect-pre "." "pre-release flag is no, expected yes" --expect-prerelease yes
+mism prerelease "$GHR.prerelease = false" "pre-release flag is no, expected yes" --expect-prerelease yes
+mism expect-pre "." "pre-release flag is yes, expected no" --expect-prerelease no
+mism other-tag-link "$GHR.body += \"\n[old](https://github.test/ncz-os/cix-installer/releases/download/v26.10-preview1/SHA256SUMS)\n\"" "github notes link to another release"
+mism gh-latest-link "$GHR.body += \"\n[latest](https://github.test/ncz-os/cix-installer/releases/latest)\n\"" "GitHub /releases/latest never reaches a pre-release"
 mism draft "$GHR.draft = true" "GitHub release is a draft"
 mism gl-latest ".gl.releases[\"$TAG\"].upcoming = true" "GitLab releases/permalink/latest -> 'none'"
 mism direct-path ".gl.releases[\"$TAG\"].links |= map(if .name == \"arm64/$ARM.img.zst.part-00\" then .direct_asset_path = \"/$ARM.img.zst.part-00\" else . end)" "expected stable alias '/arm64/ncz-os-arm64.img.zst.part-00'"
@@ -564,36 +583,70 @@ check "bad GitHub digest exits 1" '[ "$rc" -eq 1 ]'
 check "bad GitHub digest retried 3 times" '[ "$(grep -c "^POST https://uploads.*name=SHA256SUMS " "$MOCK_LOG")" -eq 3 ]'
 check "bad GitHub digest retires nothing" '[ "$(st ".gh.releases | length")" -eq 4 ] && [ "$(st ".gl.releases | length")" -eq 3 ]'
 
-# 11. check-release-links
-L="$T/links"; mkdir -p "$L/docs"
+# 11. check-release-links and refresh-release-links
+REFRESH="$ROOT/tools/refresh-release-links.sh"
+L="$T/links"; mkdir -p "$L/docs/releases"
 cat > "$L/README.md" <<'EOF'
-[ok](https://github.com/ncz-os/cix-installer/releases/latest)
-[ok](https://github.com/ncz-os/cix-installer/releases/latest/download/SHA256SUMS)
+[ok](https://github.com/ncz-os/cix-installer/releases)
+[ok](https://github.com/ncz-os/cix-installer/releases/tag/v26.10-preview2)
+[ok](https://github.com/ncz-os/cix-installer/releases/download/v26.10-preview2/SHA256SUMS)
+[ok](https://github.com/ncz-os/cix-installer/releases/download/v26.10-preview2/PARTS-arm64.sha256)
 [ok](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
 [ok](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/SHA256SUMS)
+[ok](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/amd64/ncz-os-amd64.img.zst.part-00)
+[ok](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/arm64/SHA256SUMS-arm64)
 [ok](https://gitlab.com/ncz-os/cix-installer/-/tree/v26.10-preview1)
 [ok](https://gitlab.com/ncz-os/cix-installer/-/releases)
 [ok](https://gitlab.com/api/v4/projects/81838641/packages/generic/linux-source-cix-sky1-ncz/7.0.12/x.tar.gz)
 placeholder https://gitlab.com/ncz-os/cix-installer/-/releases/<tag>/downloads/<file>
+placeholder https://github.com/ncz-os/cix-installer/releases/download/<tag>/<file>
 [ok](https://github.com/ncz-os/zoder/releases/download/nightly/zoder.tar.gz)
-[ok](https://github.com/ncz-os/cix-installer/releases/latest/download/PARTS-arm64.sha256)
-[ok](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/amd64/ncz-os-amd64.img.zst.part-00)
-[ok](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/arm64/SHA256SUMS-arm64)
 EOF
+out=$(NCZ_LINT_ROOT="$L" bash "$LINKS" --current-tag v26.10-preview2 2>&1); rc=$?
+check "links: clean files pass with the current tag" '[ "$rc" -eq 0 ]' || echo "$out"
+echo v26.10-preview2 > "$L/docs/releases/current-tag"
 out=$(NCZ_LINT_ROOT="$L" bash "$LINKS" 2>&1); rc=$?
-check "links: clean files pass" '[ "$rc" -eq 0 ]' || echo "$out"
+check "links: current tag read from docs/releases/current-tag" '[ "$rc" -eq 0 ] && grep -q "current tag v26.10-preview2" <<<"$out"' || echo "$out"
+rm "$L/docs/releases/current-tag"
+out=$(NCZ_LINT_ROOT="$L" bash "$LINKS" 2>&1); rc=$?
+check "links: without a current tag every tag link fails" '[ "$rc" -eq 1 ] && [ "$(grep -c "^RELEASE-LINK: README.md:" <<<"$out")" -eq 3 ]' || echo "$out"
 cat > "$L/docs/bad.md" <<'EOF'
+[x](https://github.com/ncz-os/cix-installer/releases/latest)
+[x](https://github.com/ncz-os/cix-installer/releases/latest/download/SHA256SUMS)
 <https://github.com/ncz-os/cix-installer/releases/tag/v26.10-preview1>
 [x](https://github.com/ncz-os/cix-installer/releases/download/v26.10-preview1/SHA256SUMS)
+[x](https://github.com/ncz-os/cix-installer/releases/download/v26.10-preview2/PARTS.sha256)
+[x](https://github.com/ncz-os/cix-installer/releases/download/v26.10-preview2/ncz-os-arm64-20261014-abcdef12.img.zst.part-00)
 [x](https://gitlab.com/ncz-os/cix-installer/-/releases/v2026.08.18-v12)
 [x](https://gitlab.com/api/v4/projects/81838641/packages/generic/ncz-iso/2026.08.27-v14/a.iso)
-[x](https://github.com/ncz-os/cix-installer/releases/latest/download/PARTS.sha256)
 [x](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/amd64/ncz-os-amd64-20261014-abcdef12.img.zst.part-00)
 EOF
-out=$(NCZ_LINT_ROOT="$L" bash "$LINKS" 2>&1); rc=$?
-check "links: release-specific links fail" '[ "$rc" -eq 1 ] && [ "$(grep -c "^RELEASE-LINK: docs/bad.md:" <<<"$out")" -eq 6 ]' || echo "$out"
-out=$(bash "$LINKS" --files "$L/README.md" 2>&1); rc=$?
+out=$(NCZ_LINT_ROOT="$L" bash "$LINKS" --current-tag v26.10-preview2 2>&1); rc=$?
+check "links: other tags, /releases/latest and changing names fail" '[ "$rc" -eq 1 ] && [ "$(grep -c "^RELEASE-LINK: docs/bad.md:" <<<"$out")" -eq 9 ]' || echo "$out"
+out=$(bash "$LINKS" --current-tag v26.10-preview2 --allow-part-names --files "$L/docs/bad.md" 2>&1); rc=$?
+check "links: --allow-part-names accepts a part of the current tag only" '[ "$(grep -c "^RELEASE-LINK" <<<"$out")" -eq 8 ]' || echo "$out"
+out=$(bash "$LINKS" --current-tag v26.10-preview2 --files "$L/README.md" 2>&1); rc=$?
 check "links: --files mode" '[ "$rc" -eq 0 ]'
+# refresh: dry run shows the change, --apply moves every GitHub tag link to the new tag
+R="$T/refresh"; mkdir -p "$R/docs/releases"
+cat > "$R/README.md" <<'EOF'
+[page](https://github.com/ncz-os/cix-installer/releases)
+[tag](https://github.com/ncz-os/cix-installer/releases/tag/v26.10-preview1).
+[sums](https://github.com/ncz-os/cix-installer/releases/download/v26.10-preview1/SHA256SUMS)
+placeholder https://github.com/ncz-os/cix-installer/releases/download/<tag>/<file>
+[gl](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest)
+[src](https://gitlab.com/ncz-os/cix-installer/-/tree/v26.10-preview1)
+EOF
+echo v26.10-preview1 > "$R/docs/releases/current-tag"
+cp "$R/README.md" "$R/README.before"
+out=$(NCZ_LINT_ROOT="$R" bash "$REFRESH" --tag v26.10-preview2 2>&1); rc=$?
+check "refresh dry run exits 0 and changes nothing" '[ "$rc" -eq 0 ] && cmp -s "$R/README.md" "$R/README.before" && grep -q "1 file(s) would change" <<<"$out" && grep -q "^+.*releases/download/v26.10-preview2/SHA256SUMS" <<<"$out"' || echo "$out"
+out=$(NCZ_LINT_ROOT="$R" bash "$REFRESH" --tag v26.10-preview2 --apply 2>&1); rc=$?
+check "refresh --apply rewrites GitHub tag links only" '[ "$rc" -eq 0 ] && [ "$(grep -c "v26.10-preview2" "$R/README.md")" -eq 2 ] && grep -q "releases/tag/v26.10-preview2)\." "$R/README.md" && grep -q -- "-/tree/v26.10-preview1" "$R/README.md" && grep -q "download/<tag>/<file>" "$R/README.md"' || { echo "$out"; cat "$R/README.md"; }
+check "refresh --apply records the current tag" '[ "$(cat "$R/docs/releases/current-tag")" = v26.10-preview2 ]'
+rm "$R/README.before"
+out=$(NCZ_LINT_ROOT="$R" bash "$LINKS" 2>&1); rc=$?
+check "links pass after the refresh" '[ "$rc" -eq 0 ]' || echo "$out"
 
 # 12. ncz-join-image.sh with per-architecture files (and the older combined files)
 if command -v zstd >/dev/null && [ "$(df -Pk "$T" | awk 'NR==2{print $4}')" -ge 8500000 ]; then

@@ -12,10 +12,15 @@
 #   NOTES.md        release notes (Markdown) in the GitLab link form; the
 #                   GitHub body is the same text with the GitLab links of
 #                   main / latest release replaced by their GitHub forms
-#                   (tools/release-forge-lib.sh). Also attached as a file.
+#                   (the GitHub release page is <github>/<repo>/releases,
+#                   its files /releases/download/TAG/<file>;
+#                   tools/release-forge-lib.sh). Also attached as a file.
 #   TITLE           one line: the release title on both forges
-#   PRERELEASE      "yes" or "no": the GitHub pre-release flag (GitLab has
-#                   no such flag; say "preview" in TITLE and NOTES.md)
+#   PRERELEASE      "yes" or "no": the GitHub pre-release flag. Optional for a
+#                   preview tag (TAG matching *-preview*), which is always a
+#                   pre-release. GitLab has no such flag: the GitLab release
+#                   is a normal release (never "upcoming", which
+#                   permalink/latest would skip); say "Preview" in TITLE.
 #   amd64/          ncz-os-amd64-<date>-<build>.img.zst.part-NN, PARTS-amd64.sha256,
 #                   SHA256SUMS-amd64
 #   arm64/          the same for arm64 (one or both architectures)
@@ -62,10 +67,8 @@
 #                             may start with FAIL. Also $NCZ_RELEASE_AUDIT_FILE.
 #   --no-retire               stop after step 5 (other releases stay; the
 #                             final full parity check then reports them)
-#   --allow-prerelease        allow PRERELEASE=yes; GitHub never treats a
-#                             pre-release as "latest", so the stable
-#                             releases/latest links will not reach it and the
-#                             latest check is skipped
+#   --allow-prerelease        allow PRERELEASE=yes for a tag that is not a
+#                             preview tag (preview tags need no flag)
 #   --github-repo OWNER/NAME  default ncz-os/cix-installer ($NCZ_GITHUB_REPO)
 #   --gitlab-project PATH     default ncz-os/cix-installer ($NCZ_GITLAB_PROJECT)
 #   --repo-root DIR           checkout holding the screenshots (default: this repository)
@@ -120,15 +123,23 @@ log "== sync-release-pages ($MODE): $TAG from $DIR"
 log "   GitHub $GH_REPO   GitLab $GL_PROJECT"
 
 # ---- 1. local checks ------------------------------------------------------------
-for f in NOTES.md TITLE PRERELEASE; do
+for f in NOTES.md TITLE; do
   [ -f "$DIR/$f" ] || udie "$f not found in $DIR"
 done
-TITLE=$(cat "$DIR/TITLE"); PRE=$(tr -d ' \r\n' < "$DIR/PRERELEASE")
+PREVIEW=0; case "$TAG" in *-preview*) PREVIEW=1 ;; esac
+TITLE=$(cat "$DIR/TITLE")
+if [ -f "$DIR/PRERELEASE" ]; then PRE=$(tr -d ' \r\n' < "$DIR/PRERELEASE")
+elif [ "$PREVIEW" -eq 1 ]; then PRE=yes
+else udie "PRERELEASE not found in $DIR (yes or no; optional only for a preview tag)"; fi
 [ -n "$TITLE" ] && [ "$(grep -c '' "$DIR/TITLE")" -eq 1 ] || udie "TITLE must be exactly one non-empty line"
 case "$PRE" in yes|no) ;; *) udie "PRERELEASE must be yes or no" ;; esac
-if [ "$PRE" = yes ] && [ "$ALLOW_PRE" -eq 0 ]; then
-  udie "PRERELEASE=yes: GitHub never makes a pre-release 'latest', so releases/latest links would not reach $TAG; set PRERELEASE=no (say 'preview' in TITLE/NOTES.md) or pass --allow-prerelease"
+if [ "$PREVIEW" -eq 1 ] && [ "$PRE" = no ]; then
+  udie "$TAG is a preview tag: it is published as a GitHub pre-release; PRERELEASE must be yes (or absent)"
 fi
+if [ "$PRE" = yes ] && [ "$PREVIEW" -eq 0 ] && [ "$ALLOW_PRE" -eq 0 ]; then
+  udie "PRERELEASE=yes for $TAG, which is not a preview tag: pass --allow-prerelease to publish it as a pre-release"
+fi
+log "ok    status: GitHub prerelease=$PRE$([ "$PREVIEW" -eq 1 ] && echo ' (preview tag)'); GitLab: a normal release"
 [ -s "$DIR/NOTES.md" ] || udie "NOTES.md is empty"
 [ "$(wc -c < "$DIR/NOTES.md")" -le 120000 ] || udie "NOTES.md is over the 120000 byte release body limit"
 
@@ -152,7 +163,7 @@ while IFS=$'\t' read -r st msg; do
 done < <(rf_check_sections "$DIR/NOTES.md" "${sargs[@]}")
 [ "$sec_bad" -eq 0 ] || udie "NOTES.md needs one section per architecture (amd64 first) with its image sha256 and join command"
 
-if ! links_out=$(bash "$HERE/check-release-links.sh" --files "$DIR/NOTES.md" 2>&1); then
+if ! links_out=$(bash "$HERE/check-release-links.sh" --current-tag "$TAG" --files "$DIR/NOTES.md" 2>&1); then
   echo "$links_out" >&2; udie "NOTES.md links to a specific release; use the permalink forms (docs/IMAGE-HOSTING.md)"
 fi
 raw_prefix="$RF_GITLAB_WEB/$GL_PROJECT/-/raw/main/"
@@ -210,7 +221,8 @@ c=$(rf_api gitlab GET "$RF_GITLAB_API/projects/$GL_PID/repository/tags/$(rf_uri 
 log "ok    tag $TAG exists on both forges"
 rf_get_all github "$RF_GITHUB_API/repos/$GH_REPO/releases" "$W/gh-rels.json" || die "cannot list GitHub releases"
 rf_get_all gitlab "$RF_GITLAB_API/projects/$GL_PID/releases" "$W/gl-rels.json" || die "cannot list GitLab releases"
-rf_render_github "$DIR/NOTES.md" "$GH_REPO" "$GL_PROJECT" > "$W/gh-body.md"
+for f in "${FILES[@]}"; do p=$(rf_gl_path "$f"); printf '%s\t%s\n' "${p#/}" "$f"; done > "$W/aliases.tsv"
+rf_render_github "$DIR/NOTES.md" "$GH_REPO" "$GL_PROJECT" "$TAG" "$W/aliases.tsv" > "$W/gh-body.md" || udie "NOTES.md links a release file that is not in the staged folder"
 
 # ---- 3. GitLab ------------------------------------------------------------------------
 log "== GitLab: tools/publish-release-gitlab.sh"
@@ -298,7 +310,6 @@ done
 
 # ---- 5. parity -----------------------------------------------------------------------------
 pargs=(--tag "$TAG" --github-repo "$GH_REPO" --gitlab-project "$GL_PROJECT" --release-dir "$DIR" --repo-root "$REPO_ROOT" --expect-prerelease "$PRE")
-[ "$PRE" = no ] || pargs+=(--no-latest-check)
 if [ "$APPLY" -eq 1 ]; then
   log "== parity (other releases ignored)"
   bash "$HERE/check-release-parity.sh" "${pargs[@]}" --ignore-other-releases 2>&1 | sed 's/^/   /'
@@ -338,6 +349,17 @@ if [ "$APPLY" -eq 0 ]; then
   log "Dry run: nothing was changed."
   exit 0
 fi
+# the one release page per forge, read back
+rf_get_all github "$RF_GITHUB_API/repos/$GH_REPO/releases" "$W/gh-after.json" || die "cannot list GitHub releases"
+rf_get_all gitlab "$RF_GITLAB_API/projects/$GL_PID/releases" "$W/gl-after.json" || die "cannot list GitLab releases"
+if [ "$RETIRE" -eq 1 ]; then
+  [ "$(jq -r '[.[].tag_name] | join(" ")' "$W/gh-after.json")" = "$TAG" ] || die "GitHub releases after retiring: $(jq -r '[.[].tag_name] | join(" ")' "$W/gh-after.json"), expected only $TAG"
+  [ "$(jq -r '[.[].tag_name] | join(" ")' "$W/gl-after.json")" = "$TAG" ] || die "GitLab releases after retiring: $(jq -r '[.[].tag_name] | join(" ")' "$W/gl-after.json"), expected only $TAG"
+fi
+[ "$(jq -r --arg t "$TAG" '[.[] | select(.tag_name==$t)][0].prerelease' "$W/gh-after.json")" = "$([ "$PRE" = yes ] && echo true || echo false)" ] || die "GitHub release $TAG does not have prerelease=$PRE"
+[ "$(jq -r --arg t "$TAG" '[.[] | select(.tag_name==$t)] | length' "$W/gl-after.json")" = 1 ] || die "GitLab release $TAG not found"
+[ "$(jq -r --arg t "$TAG" '[.[] | select(.tag_name==$t)][0].upcoming_release // false' "$W/gl-after.json")" = false ] || die "GitLab release $TAG is an upcoming release"
+log "ok    GitHub lists $(jq length "$W/gh-after.json") release(s) ($TAG, prerelease=$PRE); GitLab release $TAG exists and is not upcoming"
 log "== final parity"
 bash "$HERE/check-release-parity.sh" "${pargs[@]}" 2>&1 | sed 's/^/   /'
 rc=${PIPESTATUS[0]}
