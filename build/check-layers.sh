@@ -1,6 +1,6 @@
 #!/bin/bash
 # check-layers.sh -- verify a produced squashfs/dir layer BEFORE it is accepted
-# or consumed by the next stage.  OPERATOR RULING 2026-10-10 ("harden the layer
+# or consumed by the next stage.  DESIGN RULE 2026-10-10 ("harden the layer
 # checks"): structural integrity, package state, the payload facts that bit us,
 # the layer chain, and determinism hooks -- every check has an id, a severity,
 # and a structured row in the layer-checks TSV; a FAIL stops the pipeline.

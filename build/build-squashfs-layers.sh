@@ -1,26 +1,31 @@
 #!/bin/bash
-# Read the ISO build guardrails before changing this file —
-# these are ISO build MECHANICS, stable across builds by design.
-# build-squashfs-layers.sh — NCZ-OS layered squashfs installer images.
+# Read the image build guardrails before changing this file —
+# these are image build MECHANICS, stable across builds by design.
+# build-squashfs-layers.sh — NCZ-OS layered squashfs install-image layers.
 #
-# Produces (under assets/squashfs/):
-#   base.squashfs      debootstrap resolute + CIX kernel/firmware/mesa + sinty-nm/NM fallback
-#   desktop.squashfs   DELTA: complete desktop package set (overlay upperdir only)
+# Produces (under assets/squashfs/), for NCZ_TARGET_ARCH (arm64 or amd64):
+#   base.squashfs            the Debian forky base rootfs tarball
+#                            (assets/rootfs/rootfs-forky-<arch>.tar.zst, produced by
+#                            build/build-base-rootfs.sh with mmdebstrap) extracted,
+#                            plus the machine-agnostic hooks (NCZ kernel, firmware,
+#                            mesa, sinty-nm/NetworkManager) and installer-base*.pkgs
+#   desktop.squashfs         DELTA: complete desktop package set (overlay upperdir only)
+#   desktop-hotfix.squashfs  DELTA: the Singularity payload on top of desktop
 #
-# THERE IS NO SERVER LAYER (2026-08-11, operator). NCZ-OS ships ONE build. What
+# THERE IS NO SERVER LAYER (2026-08-11). NCZ-OS ships ONE build. What
 # used to be the "server"/Magnetar variant is now a CONSOLE BOOT ENTRY on the
 # same image (systemd.unit=multi-user.target, see build/70-bootloader.sh) --
-# same packages, GUI simply not started. build-iso-di.sh already enforced
-# `--variant desktop`, so the server layer was dead weight that still cost a
-# full apt closure and a squashfs on every `all` build.
+# same packages, GUI simply not started. The server layer was dead weight
+# that still cost a full apt closure and a squashfs on every `all` build.
 #
 # Deliberately runs ONLY machine-AGNOSTIC hooks (kernel/firmware/mesa/sinty-nm).
 # The NCZ desktop-config hooks (20-desktop/33-network/brand/plymouth) are NOT run here —
-# they corrupted net/BT/desktop in the chroot bake. Desktop/server content comes
-# from a CLEAN apt-install (Ubuntu-live model). Machine-specific + branding run at
+# they corrupted net/BT/desktop in the chroot bake. Desktop content comes
+# from a CLEAN apt-install. Machine-specific + branding run at
 # install / first-boot, not baked.
 #
-# Runs on an x86 build host via qemu-aarch64-static + binfmt (same mechanism as the bake).
+# Runs natively on a build host of the target arch (aarch64 for arm64,
+# x86_64 for amd64); a cross-arch host needs qemu-user-static + binfmt.
 #
 # ⚠ LAYER-COHERENCE RULE: the role deltas copy-up /var/lib/dpkg/status into
 # their upperdir. If you change the PACKAGE SET of base.squashfs, the merged
@@ -41,7 +46,7 @@ set -euo pipefail
 # rootfs-resolute-arm64.tar.zst.
 ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
-# --- Preflight freshness gate (2026-09-21, operator directive) -------------
+# --- Preflight freshness gate (2026-09-21, design rule) -------------
 # Refuse to start a build against a stale checkout, a stale kernel-staging
 # pool, or a downstream Singularity patch that no longer applies. See
 # preflight-freshness-gate.sh's own header for the three real incidents
@@ -109,9 +114,9 @@ else
 fi
 NCZ_BASE_CODENAME="${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
 # amd64 support added 2026-09-15 for the AMD64 pipeline (amd64 build hosts) --
-# mirrors the NCZ_TARGET_ARCH pattern already used by build-iso-di.sh/
-# build-baked-rootfs.sh. Defaults to the host's own arch so existing arm64
-# callers (the arm64 build host) are unaffected.
+# mirrors the NCZ_TARGET_ARCH pattern already used by
+# build-baked-rootfs.sh. Defaults to the host's own arch, so a native build
+# host builds its own arch with no extra setting.
 NCZ_TARGET_ARCH="${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}"
 case "$NCZ_TARGET_ARCH" in
   arm64) HOST_NATIVE_ARCH=aarch64; QEMU_BIN=qemu-aarch64-static ;;
@@ -171,7 +176,7 @@ else
 fi
 STAGE="${1:-base}"                            # base | desktop | server | all | hotfix
 
-# Pre-flight (operator 2026-10-05 mandatory-install item): the mirror the
+# Pre-flight (2026-10-05 mandatory-install item): the mirror the
 # desktop role delta actually installs from must carry ncz-screensavers at the
 # version floor in build/screensavers-version.env. Run this BEFORE we touch the
 # chroot, so a stale or misconfigured mirror produces a one-line "missing
@@ -214,7 +219,7 @@ case "$STAGE" in
       # shellcheck disable=SC2086
       if ! "$ROOT/build/assert-mirror-has-screensavers.sh" $_ss_mirrors --arch "$NCZ_TARGET_ARCH"; then
         echo "[sqfs] ABORT: offline mirror does not carry ncz-screensavers at the required version floor." >&2
-        echo "[sqfs]        (operator 2026-10-05: 'If we are distributing screensavers as Deb they need to be apt installed during installation.')" >&2
+        echo "[sqfs]        (policy 2026-10-05: 'If we are distributing screensavers as Deb they need to be apt installed during installation.')" >&2
         echo "[sqfs]        Rebuild the mirror with build/build-desktop-mirror.sh (now mandatory there too)." >&2
         exit 1
       fi
@@ -590,7 +595,7 @@ build_layer(){ local role="$1" manifest="$2"
   apt_offline "$MG"
   echo -e '#!/bin/sh\nexit 101' | sudo tee "$MG/usr/sbin/policy-rc.d" >/dev/null; sudo chmod +x "$MG/usr/sbin/policy-rc.d"
   # r190.2: disable needrestart kernel hints -- same fix already applied in
-  # build-baked-rootfs.sh and build-iso-di.sh, but never here. Without it,
+  # build-baked-rootfs.sh (and the retired ISO builder), but never here. Without it,
   # needrestart pops an interactive whiptail "Pending kernel upgrade" msgbox
   # mid apt-get-install (the chroot's kernel version differs from the host's
   # running kernel) with no tty reader available, hanging the build
@@ -968,7 +973,7 @@ ensure_base_tarball_fresh(){
 }
 
 build_base(){
-  # Kernel default policy gate (operator directive 2026-09-30). Refuses to
+  # Kernel default policy gate (design rule 2026-09-30). Refuses to
   # bake a base layer whose shipping kernel is -rcN, and refuses on amd64
   # if any amd64-edge payload remains staged (the amd64-edge directory
   # was removed from the repo; the check still fires if it is re-added).
@@ -1042,7 +1047,7 @@ build_base(){
   # interactive "Pending kernel upgrade" whiptail hang.
   sudo mkdir -p "$WORK/base/etc/needrestart/conf.d"
   printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$WORK/base/etc/needrestart/conf.d/99-squashfs-layer.conf" >/dev/null
-  # Kernel purity (operator directive 2026-10-04): pin Debian's kernels out of
+  # Kernel purity (design rule 2026-10-04): pin Debian's kernels out of
   # the base layer BEFORE any apt operation. The early installer-base.pkgs
   # install below runs long before post-install/10-our-kernel.sh would write
   # the pin, and a package that Depends/Recommends linux-image-* must not be
@@ -1171,7 +1176,7 @@ build_base(){
   # the shipped (mainline) kernel's KVER at install time. The sidecar keeps
   # its historical KVER_NEXT name because installed systems already carry it.
   [ -f "$ROOT/assets/kernel/mainline/KVER" ] && sudo cp "$ROOT/assets/kernel/mainline/KVER" "$WORK/base/usr/local/lib/cix-installer/KVER_NEXT"
-  # Unified 7.3 policy (operator 2026-10-05): the arm64 base bakes the SAME
+  # Unified 7.3 policy (2026-10-05): the arm64 base bakes the SAME
   # one 7.3 kernel as the default/installer kernel (KVER_NEXT above). The
   # retired second experimental "edge" line (assets/kernel/edge, KVER_EDGE)
   # is gone -- remove any stale edge asset/KVER_EDGE the cp -a above may have
@@ -1265,8 +1270,9 @@ build_base(){
       log "  BASE: no GNOME/Ubuntu desktop packages installed — nothing to purge"
   fi
   sudo chroot "$WORK/base" env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --purge 2>&1 | tail -4 || true
-  # r160: DE-CLOUD the Ubuntu cloud rootfs (belt; the r160 install-time STUB
-  # fixups are the braces — both are idempotent):
+  # r160: DE-CLOUD the base rootfs (written for the old Ubuntu cloud base, kept
+  # as a belt; the r160 install-time STUB fixups are the braces — both are
+  # idempotent):
   #  - systemd-networkd (+ wait-online + dispatcher) is enabled alongside NM
   #    but has no .network config on NCZ → every boot stalls ~120s in
   #    systemd-networkd-wait-online. NM is the NCZ network manager.
@@ -1274,7 +1280,7 @@ build_base(){
   #    is LAN-only and requires the password fallback (doctrine: lockout
   #    recovery beats plaintext-on-LAN concerns). First-value-wins → 10-.
   sudo chroot "$WORK/base" systemctl disable systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service networkd-dispatcher.service 2>/dev/null || true
-  # r164: make NetworkManager manage ETHERNET too. The Ubuntu desktop base ships
+  # r164: make NetworkManager manage ETHERNET too. The old Ubuntu desktop base shipped
   # /usr/lib/NetworkManager/conf.d/10-globally-managed-devices.conf =
   #   unmanaged-devices=*,except:type:wifi,except:type:gsm,except:type:cdma
   # i.e. NM handles ONLY wifi and leaves ethernet to systemd-networkd — which we
@@ -1327,7 +1333,7 @@ ExecStartPre=/usr/sbin/sshd -t
   sudo rm -rf "$WORK/base/var/lib/apt/lists/"* "$WORK/base/tmp/"* 2>/dev/null || true
   apt_unmount "$WORK/base"; umount_chroot "$WORK/base"
   # 2026-08-26: defensive chmod 0755 on the base root before mksquashfs.
-  # Why: O6N install shipped with / mode 0700 (operator fact). mksquashfs
+  # Why: O6N install shipped with / mode 0700 (observed). mksquashfs
   # records the source-dir inode mode verbatim into the squashfs root entry,
   # and unsquashfs -f -d then propagates that mode onto whatever /target
   # currently is — including a mounted btrfs subvolume root inode. A root
@@ -1424,7 +1430,7 @@ ExecStartPre=/usr/sbin/sshd -t
 # build_singularity_payload() — rebuild ncz-singularity-desktop from CURRENT
 # upstream head, unconditionally, before anything downstream consumes it.
 #
-# Real gap this closes (operator, 2026-09-16, after a shipped arm64 ISO
+# Real gap this closes (2026-09-16, after a shipped arm64 ISO
 # turned out to carry a singularity-desktop build 158 commits behind
 # upstream and missing a full set of already-merged/queued fixes): this
 # pipeline had a fully-working, reproducible build script for the payload
@@ -1580,7 +1586,7 @@ build_hotfix(){
   # records as the squashfs root entry -- which is what unsquashfs -f -d
   # re-stamps onto /target at install time. A user-owned or 0700 root here
   # would bake a 0700 layer root regardless of how the inner files are
-  # permissioned, and the gate in build-iso-di.sh's
+  # permissioned, and the gate in build/iso/stage-ncz-payload.py's
   # assert_squashfs_root_mode() would catch it -- but failing the BUILD is
   # worse than preventing the issue at the staging step, so set 0755 here
   # unconditionally. Same pattern as build_base()'s `install -d -m 0755`.
@@ -1671,7 +1677,7 @@ rotate_stale_base() {
   log "  kept for inspection: $OUT/base.squashfs.stale-${ts}"
 }
 
-# Per-layer post-check hook (OPERATOR RULING 2026-10-10).  Called right after a
+# Per-layer post-check hook (DESIGN RULE 2026-10-10).  Called right after a
 # layer squashfs is finalized, BEFORE the next layer is built on top of it, so a
 # bad layer never gets consumed.  No-op unless the caller (build-image.sh)
 # exports NCZ_LAYERS_CHECK=1; the authoritative run happens again at the stage

@@ -2,7 +2,7 @@
 """singularity-patch-reconcile.py -- auto-retire downstream Singularity
 patches once their tracked upstream PR merges.
 
-WHY THIS EXISTS (2026-09-20/21, operator directive): "As new merges occur,
+WHY THIS EXISTS (2026-09-20/21): "As new merges occur,
 no-op the patches." assets/singularity/patches/README.md's own convention
 already says a merged patch should be deleted "in the same commit that
 bumps past it" -- but that has always been a REMEMBERED manual step, same

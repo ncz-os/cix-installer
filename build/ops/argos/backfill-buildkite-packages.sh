@@ -13,7 +13,7 @@
 # sync after that — every package in it today dates from 2026-06-29 and is
 # now stale vs. the current reprepro repo (e.g. linux-image-cixmini-edge
 # is r98 there, r101 in ~/ncz-apt-repo). Cutting Buildkite back over to
-# PRIMARY (2026-07-26 operator directive, full OSS Buildkite privileges now
+# PRIMARY (design rule 2026-07-26, full OSS Buildkite privileges now
 # granted) without this backfill would mean primary serves OLD kernels on
 # day one. This does a one-time full push of every current pool .deb so
 # Buildkite starts in sync; ncz-reprepro-publish.sh keeps it in sync for

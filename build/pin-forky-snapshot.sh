@@ -4,7 +4,7 @@
 #
 # WHY THIS IS A DELIBERATE COMMAND, NOT AN AUTOMATIC NIGHTLY BUMP: forky
 # (testing) moves fast enough that auto-advancing the pin on a timer would
-# just reintroduce the exact problem pinning exists to prevent -- every ISO
+# just reintroduce the exact problem pinning exists to prevent -- every image
 # built between two auto-bumps would still be reproducible with itself, but
 # nobody would have decided "yes, this newer snapshot is what we want to
 # ship" the way they decide for a kernel promotion. Bump this by hand when

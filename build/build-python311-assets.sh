@@ -21,11 +21,11 @@
 #     [47]   WARN: no python3.11/3.12 found (system python3 is 3.14);
 #     [47]         NPU libnoe binding cannot be imported.
 # and the embedkit venv build then failed outright. This script is the missing
-# producer. Run it on a build host WITH network before building an ISO.
+# producer. Run it on a build host WITH network before building an image.
 #
 # Both payloads are fetched from their upstream release channels and verified
 # by unpacking + executing them on the build host, so a truncated or
-# wrong-arch download cannot reach an ISO.
+# wrong-arch download cannot reach an image.
 #
 # Usage:  build/build-python311-assets.sh [--force]
 set -euo pipefail

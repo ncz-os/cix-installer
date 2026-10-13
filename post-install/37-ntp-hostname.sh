@@ -1,10 +1,11 @@
 #!/bin/bash
-# 33-ntp-hostname.sh - hostname + /etc/hosts + systemd-timesyncd.
+# 37-ntp-hostname.sh - hostname + /etc/hosts + systemd-timesyncd.
 #
 # Discovered 2026-05-03 during r8 bringup:
 # 1. preseed didn't set the hostname -> installed system was "debian"
-#    instead of "cixmini". Sudo throws warnings on every invocation:
-#       sudo: unable to resolve host cixmini: Name or service not known
+#    instead of its own name, and /etc/hosts did not match. Sudo threw
+#    warnings on every invocation:
+#       sudo: unable to resolve host <hostname>: Name or service not known
 # 2. MS-R1 has no working RTC battery (RTC time = n/a). Without NTP,
 #    system clock starts at whatever Linux's default is (typically the
 #    build-time epoch of e2fsprogs / 1970), which broke timestamps in

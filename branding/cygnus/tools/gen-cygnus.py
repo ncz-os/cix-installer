@@ -22,10 +22,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "generated"
 # Installable copy of the Singularity theme/override. It lives under
-# assets/branding/ so both ISO build paths stage it wholesale into the
-# installer payload (build/build-squashfs-layers.sh and
-# build/build-iso-di.sh copy assets/branding/, directly or via their generic
-# assets loop) and post-install/20-desktop.sh installs it and writes the
+# assets/branding/ so the image build stages it wholesale into the
+# installer payload (build/build-squashfs-layers.sh copies assets/branding/,
+# directly or via its generic assets loop) and post-install/20-desktop.sh installs it and writes the
 # override from it.
 ASSETS_OUT = ROOT.parents[1] / "assets" / "branding" / "singularity-theme"
 HEADER = (

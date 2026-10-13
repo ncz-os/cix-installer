@@ -3,7 +3,7 @@
 
 Generate manifests/components.tsv from ground truth.
 
-Operator directive 2026-10-05 (Item C1, phase 1). Pure Python 3 stdlib;
+Component registry generator (2026-10-05, item C1, phase 1). Pure Python 3 stdlib;
 deterministic output (stable sort keys, no timestamps); safe to re-run.
 Phase 2 wires `build/components.py check --gate` into `make parity` and
 `build/lint-platform.sh`. Phase 3 (`--render-seeds`, `--render-local-debs`,
@@ -216,7 +216,7 @@ def parse_dkms_conf(path):
     return name, ver
 
 
-# T1 (operator 2026-10-05, post-install/56-t2-dkms.sh). required is the
+# T1 (2026-10-05, post-install/56-t2-dkms.sh). required is the
 # install policy, not "the source tree exists":
 #   t2smc, t2gmux   default DKMS set on T2 hardware
 #   t2thunderbolt   opt-in only (NCZ_T2_DKMS_EXTRA); blacklisted otherwise
@@ -308,7 +308,7 @@ def _load_json(path):
 def parse_kernel_entries(kernel_root):
     """Kernel rows from KERNEL-POLICY + the pinned per-arch manifests.
 
-    Unified 7.3 policy (operator 2026-10-05): one kernel per arch, no EDGE
+    Unified 7.3 policy (2026-10-05): one kernel per arch, no EDGE
     channel. amd64-edge-kernel and sky1-edge-kernel are not emitted. The
     floor is the pinned KVER, not a reconstructed EDGE_BASE string.
     """
@@ -388,7 +388,7 @@ def parse_kernel_entries(kernel_root):
 def parse_sky1_dkms_rows(kernel_root):
     """DKMS source row for the Sky1 panthor-cix GPU driver.
 
-    Operator 2026-10-07: panthor is built for every kernel, every time. The
+    2026-10-07: panthor is built for every kernel, every time. The
     same assets/kernel/panthor source feeds the per-kernel overlay
     (build/build-accel-overlays.sh, SOURCE.sha256 stamp) and the
     panthor-cix-dkms deb (build/build-dkms-debs.sh); both are gated against
@@ -809,7 +809,7 @@ def main(argv=None):
                 "arch": arch,
                 "variant": variant,
                 "required": required,
-                "version_floor": ss_floor if pkg == "ncz-screensavers" else ("1.0.2" if pkg == "ncz-apt-policy" else ""),
+                "version_floor": ss_floor if pkg == "ncz-screensavers" else ("1.0.3" if pkg == "ncz-apt-policy" else ""),
                 "installed_by": "manifest",
                 "verified_by": verified_by,
                 "provenance": f"manifests/{fname}" + ("; NCZ apt repo" if kind == "ncz-apt" else ""),

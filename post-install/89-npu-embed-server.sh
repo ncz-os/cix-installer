@@ -41,7 +41,7 @@ if [ ! -x "$VENV/bin/python" ]; then
     exit 0
 fi
 
-# The server binary is staged by the ISO; tolerate its absence on netinstall.
+# The server binary is staged on the medium; tolerate its absence.
 if [ -f "$ASSETS/npu/ncz-npu-embed-server.py" ]; then
     install -m0755 "$ASSETS/npu/ncz-npu-embed-server.py" "$SERVER"
     echo "[89]   installed $SERVER"

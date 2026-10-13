@@ -7,8 +7,8 @@
 #  2. ncz-cuda-setup and its systemd units are staged and well-formed (network-online
 #     ordering, SuccessExitStatus=75, idempotence condition, timer).
 #  3. NO driver or CUDA packages are seeded in any manifest (Debian's own
-#     firmware-nvidia-* blobs for nouveau are allowed): the operator decision
-#     is that CUDA is downloaded at install time, not baked into the ISO.
+#     firmware-nvidia-* blobs for nouveau are allowed): the design decision
+#     is that CUDA is downloaded at install time, not baked into the image.
 #  4. With --mirror DIR: the built offline mirror index carries no NVIDIA driver or
 #     CUDA package (cuda-*, nvidia-*, libnvidia-*, libcu*-N-M, libnpp-*, ...).
 #  5. Every toolkit family ships the -dev pieces (cuda-libraries-dev-*).

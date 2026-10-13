@@ -2,7 +2,7 @@
 # Extract the classifier functions from the real script and exercise them
 # against synthetic /boot trees matching the real hosts.
 #
-# Operator directive 2026-10-05 (unified 7.3): amd64 ships ONE kernel, 7.3.
+# Design rule 2026-10-05 (unified 7.3): amd64 ships ONE kernel, 7.3.
 # The classifier surfaces the newest 7.3 kernel in /boot as the DEFAULT; the
 # retired 7.2.x line and Debian-archive kernels are never surfaced. The exact
 # 7.3 pin is enforced at build time (build/verify-kernel-default-policy.sh),

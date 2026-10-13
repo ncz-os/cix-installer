@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hard-fail when locally built packages staged for the ISO do not match the
+# Hard-fail when locally built packages staged for the image do not match the
 # freshly built .debs in build/kernel-debs and other local build output dirs.
 set -euo pipefail
 export LC_ALL=C
@@ -15,7 +15,7 @@ Usage: build/verify-local-package-versions.sh --pool PATH [--kernel-debs PATH] [
 
 Compares locally built package versions in build/kernel-debs, plus any extra
 --debs-dir paths, against the
-actual .debs present in a vendor/offline/staged ISO pool. A mismatch, missing
+actual .debs present in a vendor/offline/staged image pool. A mismatch, missing
 package, or multiple versions of the same local package is a hard failure.
 EOF
 }
@@ -68,7 +68,7 @@ done
 
 # Collapse duplicates in build/kernel-debs to the highest Debian version for
 # each package/arch. This lets a developer keep older build outputs locally
-# while still pinning the ISO to the freshest package version.
+# while still pinning the image to the freshest package version.
 expected_best="$tmp/expected-best"
 awk -F '\t' '{print $1 "\t" $2}' "$expected" | sort -u | while IFS="$(printf '\t')" read -r pkg arch; do
     best=""

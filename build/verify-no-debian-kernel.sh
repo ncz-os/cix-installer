@@ -5,7 +5,7 @@
 # the ESP, or an initrd, or if the DEFAULT boot kernel is not the
 # expected unified 7.3 string for the architecture.
 #
-# Policy (operator directive 2026-10-05, unified 7.3; Cygnus 26.10 kernel purity):
+# Policy (design rule 2026-10-05, unified 7.3; Cygnus 26.10 kernel purity):
 #   - The kernel in the installer image AND the installed system is 7.3 on
 #     both arches, read from the per-arch sidecar:
 #         arm64  expected KVER = assets/kernel/mainline/KVER

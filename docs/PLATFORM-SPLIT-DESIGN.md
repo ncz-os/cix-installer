@@ -100,9 +100,9 @@ uses today, so late.sh, extract-rootfs.sh and every hook see identical paths.
   and platform-skipped hooks are not reported as ORPHAN.
 * Fallbacks that keep old payloads working: no list on disk, an unreadable list, an
   undetectable architecture, or `NCZ_HOOKS_LIST=none` all mean the previous
-  behavior (every hook is a candidate). The old ISO builder `build-iso.sh` copies
-  only `*.sh`, so it ships no list and behaves as before; `build-iso-di.sh` and
-  `build-installer-image.sh` copy the whole directory and get the lists.
+  behavior (every hook is a candidate). The old ISO builders (`build-iso.sh`,
+  `build-iso-di.sh`) have since been removed; `build-installer-image.sh` copies
+  the whole directory and gets the lists.
 * Defense in depth: every `sky1`/`amd64` hook also starts with an
   `NCZ-PLATFORM-GUARD` block (or the release branch's equivalent `ARCH GATE (dual-arch parity)` block; exits 0 on the other architecture, proceeds when the
   arch is undetectable). A list is the routing; the guard protects a hook run by
@@ -164,8 +164,8 @@ both on every push.
   `platforms/sky1-arm64/assets/`) and CI files. Compatibility symlinks at the old
   paths are kept for one release only where a caller cannot be rewritten (for
   example a site-specific host script); each is listed in `docs/platform-inventory.tsv`.
-* Both ISO/image builders (`build-iso-di.sh`, `build-installer-image.sh`) must keep
-  producing the same payload under the same names.
+* The image builder (`build-installer-image.sh`; at the time also the since-removed
+  `build-iso-di.sh`) must keep producing the same payload under the same names.
 * Proof that nothing changed: before the move, capture for each platform a payload
   manifest (sorted `path sha256` of every asset, hook and manifest the builders
   copy, plus `make -n` for both ARCH values); after the move, the normalized lists

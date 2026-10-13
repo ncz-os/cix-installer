@@ -2,7 +2,7 @@
 # test-fresh-clone-inputs.sh -- a fresh clone must be able to stage every input
 # the arms of the build need, with no hand-copying.
 #
-# operator 2026-10-11 "fix open items", the fresh-clone gaps from the r203
+# 2026-10-11 "fix open items", the fresh-clone gaps from the r203
 # nextbuild report:
 #   #1 the ncz-screensavers ENGINE deb is a required local row in
 #      build/build-desktop-mirror.sh but was neither pinned nor in the store, so

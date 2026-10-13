@@ -1,7 +1,7 @@
 #!/bin/bash
 # test-components.sh -- fixture test for build/components.py (phase 1).
 #
-# Operator directive 2026-10-05 (Item C1, phase 1). Runs the drift checker
+# Design rule 2026-10-05 (Item C1, phase 1). Runs the drift checker
 # against a HERMETIC mini repo (build/fixtures/components-fixtures/mini-repo)
 # that contains its own manifests, hooks, mirror script, allowlist, dkms
 # assets and a published-artifacts report. The real registry

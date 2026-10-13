@@ -4,8 +4,8 @@
 # functions (no side effects), so build/test-amd64-cuda-gates.sh can exercise
 # every row with fixtures.
 #
-# The matrix (decided 2026-09-29, operator: "fall back to older cuda on older
-# cards"):
+# The matrix (decided 2026-09-29: fall back to older CUDA on older
+# cards):
 #
 #  family        PCI device id     driver                       CUDA toolkit
 #  ------------  ----------------  ---------------------------  -------------

@@ -12,7 +12,7 @@
 # pin) is either automated here or a checked precondition with an actionable
 # error.
 #
-# STAGES (fixed order; operator ruling 2026-10-10: provenance comes BEFORE the
+# STAGES (fixed order; design rule 2026-10-10: provenance comes BEFORE the
 # long stages -- a bad input must fail in minutes, not after hours of layers)
 #   00 preflight          host, disk, tmpfs, tools, privilege, pins, substrate age
 #   10 refresh-substrate  refresh/verify the pinned substrate (pin file)
@@ -228,7 +228,7 @@ esac
 # ---------------------------------------------------------------------------
 # --layers-check-only DIR : run the per-layer post-checks (build/check-layers.sh)
 # against EXISTING layers (a dir of *.squashfs, or a single layer), then exit.
-# OPERATOR RULING 2026-10-10: this is how the checks are proven on the r202
+# DESIGN RULE 2026-10-10: this is how the checks are proven on the r202
 # layers without rebuilding anything.
 # ---------------------------------------------------------------------------
 if [ -n "$LAYERS_CHECK_ONLY" ]; then
@@ -441,7 +441,7 @@ mkdir -p "$LOGS" "$RUN_DIR/tmp"
 # All scratch lives on the run dir's disk, never a tmpfs (policy).
 export TMPDIR="$RUN_DIR/tmp"
 
-# Host-level build lock (operator ruling 2026-10-10: layers-preflight checks
+# Host-level build lock (design rule 2026-10-10: layers-preflight checks
 # "no other build holding the lock").  One build per build-runs dir; a stale lock
 # (dead pid) is reclaimed; a live holder aborts this run before any work.
 NCZ_BUILD_LOCK="${NCZ_BUILD_LOCK:-$(dirname "$RUN_DIR")/.ncz-build.lock}"
@@ -848,7 +848,7 @@ stage_offline_mirror() {
 # ---------------------------------------------------------------------------
 # Stage 45 -- provenance-inputs (PROVENANCE GATE ON THE INPUTS, fail fast)
 # ---------------------------------------------------------------------------
-# OPERATOR RULING 2026-10-10: "Why does provenance come after KVM, that is
+# DESIGN RULE 2026-10-10: "Why does provenance come after KVM, that is
 # backwards, it should occur before build starts."  Verify every package that
 # WILL enter the image, from the INPUTS, BEFORE the hours-long layers/image work
 # (and long before the KVM gate).  Anything the later image scan could find that
@@ -974,7 +974,7 @@ stage_provenance_inputs() {
 # (runs BEFORE offline-mirror: the payload deb is consumed by
 #  vendor-mirror -> sinty-out-sync -> verify-local-package-versions)
 # ---------------------------------------------------------------------------
-# OPERATOR RULING 2026-10-10: "I want latest singularity, latest build sources."
+# DESIGN RULE 2026-10-10: "I want latest singularity, latest build sources."
 # Resolve the current upstream heads for the Singularity desktop payload (every
 # subproject + the labwc SceneFX/wlroots compositor wraps), freeze them in the
 # run receipt, build the payload deb from them, and hand the deb to the layers
@@ -1146,7 +1146,7 @@ stage_layers() {
     fi
 
     # ------------------------------------------------------------------
-    # layers-preflight -- OPERATOR RULING 2026-10-10: validate everything
+    # layers-preflight -- DESIGN RULE 2026-10-10: validate everything
     # BEFORE the expensive layer work; fail fast (before hours of work) with an
     # actionable list.  Runs on a --resume-from layers too (so a fix is re-checked).
     # ------------------------------------------------------------------
@@ -1283,7 +1283,7 @@ stage_kvm_gate() {
     # NCZ_CHOWN_BACK is the invoking user for the chown-back trap inside the
     # gate: passed on the sudo command line (not the environment) because sudo's
     # env_reset would otherwise drop it.  It keeps the run dir deletable by the
-    # build user after the gate (operator 2026-10-11).
+    # build user after the gate (2026-10-11).
     local invoker; invoker="$(id -u):$(id -g)"
     ( cd "$ROOT" && ARCH="$ARCH" TMPDIR="$RUN_DIR/tmp" \
         NCZ_PYTE_PYTHON="${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}" \
@@ -1312,7 +1312,7 @@ stage_provenance_gate() {
     # never extracted, and every /cdrom pool deb then looks like an orphan
     # (a false 1000+ failure).  Same documented privilege model as the KVM gate.
     # NCZ_CHOWN_BACK hands prov-work/ + prov-index/ back to the invoking user on
-    # the script's exit trap, so the run dir stays deletable (operator 2026-10-11).
+    # the script's exit trap, so the run dir stays deletable (2026-10-11).
     local invoker; invoker="$(id -u):$(id -g)"
     ncz_sudo_bash "cd '$ROOT' && NCZ_CHOWN_BACK='$invoker' bash build/check-forky-provenance.sh --image '$img' \
         --work '$work' --index-dir '$idx' --fetch-index" 2>&1 | tee -a "$log"
@@ -1571,7 +1571,7 @@ elif [ "$CLEAN" = 1 ] || [ "$rc" = 0 ]; then
     [ -n "${KVM_INSTALL_WORKDIR:-}" ] || rm -rf "$RUN_DIR/kvm-gate" "$RUN_DIR/prov-work" 2>/dev/null || true
     # prov-index/ and prov-input-index/ are the provenance scan's scratch too;
     # once the chown-back trap has handed them to the build user they are
-    # removable and must not linger (operator 2026-10-11).
+    # removable and must not linger (2026-10-11).
     rm -rf "$RUN_DIR/prov-index" "$RUN_DIR/prov-input-index" 2>/dev/null || true
     ncz_info "cleaned scratch under $RUN_DIR (logs + run metadata kept; --keep-work to retain)"
 fi

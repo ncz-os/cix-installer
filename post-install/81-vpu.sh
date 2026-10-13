@@ -24,8 +24,8 @@
 # in-tree kernel/ copy, then depmod. amvx auto-loads at boot via the Sky1 ACPI
 # match (CIXH3010 -> amvx_dev), so no modules-load.d / initrd change is needed.
 #
-# Only the NEXT kernel (7.0.x-cix-sky1-next) ships an overlay; LTS is skipped
-# (no overlay present -> the working in-tree LTS amvx is used). A vermagic guard
+# Only a kernel with a staged overlay gets one; a kernel without one is skipped
+# (the DKMS amvx from 86-cix-dkms-register.sh is used). A vermagic guard
 # refuses a mismatched module.
 #
 # RUNS INSIDE CHROOT / on-target (via run-all.sh), after 80-npu.sh. Owns ONLY the

@@ -2,11 +2,10 @@
 # NCZ-MIXED-HOOK: netplan/NetworkManager wiring is generic; also installs udev/NM rules unmanaging the Apple T2 iBridge NIC; TODO move T2 rules to an amd64 t2 hook (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 33-network.sh — wire NetworkManager as the active netplan renderer.
 #
-# 2026-05-08 take23 (per MS-R1 test-board take22 install): resolute defaults to
-# systemd-networkd OR nothing if neither netplan config is present.
-# The XFCE dep chain on resolute does not pull network-manager the way
-# questing's did, so the previous build relied on an implicit pull
-# that no longer happens.
+# 2026-05-08 take23 (per MS-R1 test-board take22 install): the then-Ubuntu
+# base defaulted to systemd-networkd OR nothing if neither netplan config was
+# present, and its desktop dep chain did not pull network-manager, so the
+# previous build relied on an implicit pull that no longer happened.
 #
 # This hook (a) confirms network-manager is installed (preseed
 # pkgsel/include adds it; verify here in case operator/dpkg state
@@ -126,8 +125,8 @@ echo "[33-network] installed udev rule disabling USB autosuspend for r8152 ether
 # trying to prevent.
 # SELF-SKIP ON THE SINGULARITY SKU.
 #
-# This hook predates Singularity: its header is about the XFCE dep chain on
-# resolute. NCZ-OS 26.7 does not use NetworkManager when sinty-nm is staged:
+# This hook predates Singularity: its header is about the old Ubuntu-based
+# desktop. NCZ-OS since 26.7 does not use NetworkManager when sinty-nm is staged:
 # 19-sinty-nm.sh installs sinty-nmd and explicitly PURGES network-manager,
 # network-manager-gnome, network-manager-applet and nm-connection-editor, and
 # network-manager is not in manifests/desktop.pkgs.
@@ -322,7 +321,7 @@ done
 # /etc/NetworkManager/NetworkManager.conf ships `[ifupdown] managed=false`.
 # Together that makes NM HAND OFF any interface named in
 # /etc/network/interfaces to ifupdown (nmcli shows STATE=unmanaged, reason 76
-# "unmanaged by user decision via settings plugin"). On the XFCE/NM desktop
+# "unmanaged by user decision via settings plugin"). On the old NM desktop
 # ifupdown is not actively raising the link, so the wired port never gets DHCP
 # while wifi (absent from the file) works — exactly the "DHCP broke, wired
 # unmanaged" symptom. Fix BOTH halves so NM owns every real NIC:

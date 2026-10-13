@@ -493,7 +493,7 @@ ncz_gpu_watch() {
     trap '_g_stop=1' TERM INT
     _g_log "STEP ${NCZ_GPU_LABEL:-$G_SHORT} (gpu=${NCZ_GPU_VENDORS:-n/a})"
     # "Detected GPU: <device> -> <driver decision>" first, then the step label.
-    # The detection line is what the operator asked for (2026-10-10); it stays
+    # The detection line was a requirement (2026-10-10); it stays
     # in progress.tsv + gpu-progress.log so the gate can assert it in order,
     # while the label remains the persistent on-screen status.
     if [ -n "${NCZ_GPU_DETECTED:-}" ] && [ "${NCZ_GPU_DETECTED}" != none ]; then

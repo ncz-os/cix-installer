@@ -1,6 +1,6 @@
 #!/bin/bash
 # 32-quadlet-shim.sh — historically translated quadlet → .service for podman 4.3.
-# r61/r78: Ubuntu resolute ships Podman with native Quadlet support.
+# r61/r78: the base's Podman has native Quadlet support.
 # The shim's generated .service files now override the quadlet generator
 # at /run/systemd/generator/, breaking sed-applied quadlet fixes
 # (specifically hermes Network rename + --insecure flag).

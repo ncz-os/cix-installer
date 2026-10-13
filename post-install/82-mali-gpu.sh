@@ -1,22 +1,21 @@
 #!/bin/bash
-# 82-mali-gpu.sh — install the CIX mali_kbase GPU kernel driver for the 26.7
-# "Maximilian" MALI release. 26.7 ships mali (not the in-tree panthor) as the
-# GPU driver on the 7.2 edge kernel: the 7.2 (Mali) boot entry blacklists
-# panthor, so mali_kbase must be present + loaded for /dev/mali0 → the CIX
+# 82-mali-gpu.sh — install the CIX mali_kbase GPU kernel driver. Since 26.7
+# NCZ-OS ships mali (not panthor) as the default GPU driver on Sky1: the
+# default (Mali) boot entry blacklists panthor, so mali_kbase must be
+# present + loaded for /dev/mali0 → the CIX
 # hardware GL/GLES/OpenCL stack (26-gpu-default-mali.sh). Metal-validated on
-# O6N + cixmini 2026-07-23: DDK r54p1, /dev/mali0, devfreq + rate-limit fix,
+# O6N + MS-R1 test boards 2026-07-23: DDK r54p1, /dev/mali0, devfreq + rate-limit fix,
 # HW glamor on Mali-G720, no wedge.
 #
 # Two layers (belt + suspenders, doctrine "CIX drivers = DKMS"):
-#   1. PRE-BUILT overlay .ko for the shipped 7.2 kernel → updates/ (works
+#   1. PRE-BUILT overlay .ko for the shipped kernel → updates/ (works
 #      out-of-box, no build/headers/toolchain needed at install; vermagic-guarded).
 #   2. Register the cix-gpu-dkms SOURCE (+ the SCMI rate-limit patch) with DKMS
 #      so a FUTURE kernel upgrade rebuilds mali_kbase automatically. Best-effort:
 #      needs the cix-gpu-dkms deb + linux-headers; skipped cleanly if absent.
 #
-# mali_kbase is out-of-tree (no in-tree ACPI auto-load like amvx), so add a
-# modules-load.d entry for the 7.2 kernel. LTS (7.0.12) uses in-tree panthor —
-# NO mali there. RUNS INSIDE CHROOT via run-all.sh, after 81-vpu.sh.
+# mali_kbase is out-of-tree (no in-tree ACPI auto-load like amvx); loading it
+# is ncz-gpu-switcher's job (see below). RUNS INSIDE CHROOT via run-all.sh, after 81-vpu.sh.
 # NCZ-PLATFORM-GUARD: sky1-arm64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
 # run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
 # undetectable arch does NOT skip (legacy behavior).
@@ -49,11 +48,11 @@ DKMS_SRC="$ASSET_DIR/src"                          # DKMS source tree + dkms.con
 DKMS_VER="1.0"
 MODS=(mali_kbase memory_group_manager protected_memory_allocator)
 
-# --- only the 7.2/edge (NEXT) kernel gets mali; LTS keeps in-tree panthor ---
+# --- mali is built for the one shipping kernel (KVER_NEXT sidecar) ---
 KVER_NEXT=""
 [ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(tr -d ' \t\r\n' < "$INSTALLER_META/KVER_NEXT")
 if [ -z "$KVER_NEXT" ]; then
-    echo "[82] no KVER_NEXT — skipping mali (LTS-only install uses panthor)"; exit 0
+    echo "[82] no KVER_NEXT — skipping mali (no shipping kernel recorded)"; exit 0
 fi
 KDIR="/usr/lib/modules/$KVER_NEXT"
 if [ ! -d "$KDIR" ]; then
@@ -156,12 +155,9 @@ fi
 # ncz-gpu-switcher makes that decision now.
 
 
-# A global modules-load.d entry is evaluated by BOTH installed kernels. It
-# therefore makes the stable 7.0 fallback log a false module-load error even
-# though mali_kbase intentionally exists only for edge 7.2. Use a conditional
-# oneshot: modinfo is evaluated against the running kernel and exit 1 from an
-# ExecCondition is a clean skip, while a real modprobe failure on edge remains
-# visible as a failed unit.
+# History: a global modules-load.d entry was evaluated by every installed
+# kernel and logged a false module-load error on kernels without mali_kbase;
+# it was replaced by a conditional oneshot, itself now retired (below).
 # The mali_kbase autoloader that used to live here is retired: ncz-gpu-switcher
 # (83-panthor-gpu.sh) now loads the GPU driver, because loading it is not a
 # standalone decision -- it has to happen together with the matching userspace

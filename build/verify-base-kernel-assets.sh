@@ -91,7 +91,7 @@ EMBED_BASE="usr/local/lib/cix-installer/assets/kernel"
 # dpkg --print-architecture as a last-resort fallback. On arm64 it
 # skips cleanly; on amd64 it runs the existing comparison as before.
 #
-# Policy update (operator directive 2026-10-05, unified): amd64 ships ONE
+# Policy update (design rule 2026-10-05, unified): amd64 ships ONE
 # 7.3 kernel under assets/kernel/amd64-stable. The former second "edge"
 # channel (amd64-edge) was retired, so LINES covers amd64-stable only and the
 # embed filter matches that one line.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# reap-images.sh -- delete NCZ-OS install images that a newer, gated image supersedes (operator policy 2026-09-29).
+# reap-images.sh -- delete NCZ-OS install images that a newer, gated image supersedes (policy 2026-09-29).
 #
 #   reap-images.sh --arch arm64|amd64 --archive DIR --dir DIR [--dir DIR ...] [--remote HOST:DIR ...]
 #                  [--workdir GLOB ...] [--supersede NAME ...] [--apply]

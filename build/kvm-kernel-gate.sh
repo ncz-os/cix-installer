@@ -1,12 +1,12 @@
 #!/bin/bash
 # kvm-kernel-gate.sh — MANDATORY boot gate for every kernel before it is
-# packaged into a deb or an ISO.
+# packaged into a deb or an image.
 #
-# Why this exists (operator directive, 2026-08-14): r236 shipped a kernel that
+# Why this exists (design rule, 2026-08-14): r236 shipped a kernel that
 # panicked at 1.2s into every boot of the INSTALLED system —
 # cdns3_pci_probe+0x12c/0x360, NULL deref, PID 1, six reboot loops. The
 # installer itself booted fine, so nothing in the ISO-level tests caught it.
-# No kernel goes into a deb or an ISO again without being booted first.
+# No kernel goes into a deb or an image again without being booted first.
 #
 # TWO gates run here, because neither alone is sufficient:
 #

@@ -2,7 +2,7 @@
 # 10-our-kernel.sh — install the single unified 7.3 kernel via apt (dpkg-tracked).
 #
 # 26.6-r193: rewritten. Previously this hook raw-copied the kernel
-# (install -D + tar xzf) straight from ISO assets into /boot and
+# (install -D + tar xzf) straight from medium assets into /boot and
 # /usr/lib/modules -- completely bypassing dpkg. Result: apt/dpkg had
 # ZERO record any kernel package was installed (`apt-cache policy
 # linux-image-cixmini` showed "Installed: (none)" even on a running
@@ -21,8 +21,8 @@
 # (24-apt-sources.sh is idempotent -- safe to call twice; it still runs
 # again later in its normal position for the machine-gated hooks).
 #
-# Operator 2026-08-21: legacy kernel channel retired. Edge is the only
-# shipping kernel and the KVER_NEXT sidecar is the only one read here.
+# 2026-08-21: the legacy kernel channel was retired; since 2026-10-05 one
+# unified 7.3 kernel ships and the KVER_NEXT sidecar is the only one read here.
 #
 # Bootloader wiring for the newly-installed kernel (refind.conf) happens
 # via post-install/70-bootloader.sh later in this same run (install time)
@@ -49,7 +49,7 @@ command -v ncz_msg >/dev/null 2>&1 && ncz_msg "Kernel: installing the NCZ kernel
 INSTALLER_META=/usr/local/lib/cix-installer
 HERE="$(dirname "$0")"
 
-# Debian-kernel blocking policy (operator directive 2026-10-04). The apt
+# Debian-kernel blocking policy (since 2026-10-04). The apt
 # preferences pin MUST be installed before ANY apt operation -- including the
 # 24-apt-sources.sh call below, which runs `apt-get update` while the Debian
 # base repo is live. The `apt-get remove --purge` at the bottom stays as
@@ -103,7 +103,7 @@ local_deb() {
     # Guard the directory existence check OUTSIDE the pipeline. Under
     # `set -euo pipefail` (active in this script), `find` on a missing
     # /cdrom/pool/main (the normal case at squashfs-layer BUILD time --
-    # /cdrom only exists when running from the live installed ISO) exits
+    # /cdrom only exists when running from the install medium) exits
     # non-zero; pipefail then makes the whole `find | sort -V | tail -1`
     # pipeline non-zero, which `set -e` treats as a fatal error on the
     # `VAR=$(local_deb ...)` assignment -- silently killing the hook with
@@ -120,7 +120,7 @@ local_deb() {
 
 # Wire the Buildkite apt source + refresh the index. Idempotent (safe to
 # call again later at its normal position). Needed now because the
-# linux-image-cixmini package lives only on Buildkite, not the Ubuntu
+# linux-image-cixmini package lives only on Buildkite, not the Debian
 # archive.
 if [ -x "$HERE/24-apt-sources.sh" ]; then
     "$HERE/24-apt-sources.sh"
@@ -159,7 +159,7 @@ if [ -n "$KVER_NEXT" ]; then
     # the pool would otherwise beat 7.2.8 (2026-09-28 vendor-mirror incident).
     HEADERS_DEB=$(local_deb "linux-headers-cixmini_${KVER_NEXT}+*.deb")
     IMAGE_DEB=$(local_deb "linux-image-cixmini_${KVER_NEXT}+*.deb")
-    echo "  [edge] apt-get install linux-image-cixmini"
+    echo "  [kernel] apt-get install linux-image-cixmini"
     # r203: --force-overwrite. Edge kernel packages can transiently ship
     # the SAME versioned /boot files (e.g. a baked edge at 7.2.0-sky1-ncz+rN
     # and an incoming edge at 7.2.0-sky1-ncz+rN+1 both own
@@ -200,36 +200,36 @@ if [ -n "$KVER_NEXT" ]; then
         edge_ok=0
     else
         modcount=$(find "/usr/lib/modules/$KVER_NEXT" \( -name '*.ko' -o -name '*.ko.xz' \) 2>/dev/null | wc -l)
-        [ "$modcount" -lt 50 ] && { echo "WARN: [edge] modules dir suspiciously small (.ko=$modcount) — edge unusable"; edge_ok=0; }
+        [ "$modcount" -lt 50 ] && { echo "WARN: [kernel] modules dir suspiciously small (.ko=$modcount) — kernel unusable"; edge_ok=0; }
     fi
     if [ "$edge_ok" = 1 ]; then
         echo "    OK: /boot/vmlinuz-$KVER_NEXT + $modcount .ko modules"
         INSTALLED_KERNELS=$((INSTALLED_KERNELS + 1))
     else
-        # r201: EDGE is the only kernel. A drifted/broken edge package
+        # r201: this is the only kernel. A drifted/broken kernel package
         # must NOT abort Phase 1 (that would skip the bootloader + ALL
         # Phase-2 software and leave an unbootable install). Drop the
         # KVER_NEXT sidecar so 70-bootloader makes no entry pointing at a
         # missing kernel and the post-install fails the kernel guard below.
-        echo "WARN: edge kernel unavailable — Phase 1 cannot continue."
+        echo "WARN: kernel unavailable — Phase 1 cannot continue."
         rm -f "$INSTALLER_META/KVER_NEXT" /etc/cix-installer/KVER_NEXT 2>/dev/null || true
         KVER_NEXT=""
     fi
 else
-    echo "  [edge] not present in ISO — skipping"
+    echo "  [kernel] not present on the medium — skipping"
 fi
 
 # r201: Phase-1 kernel guard — the install needs AT LEAST ONE working kernel.
-# The edge kernel above may have failed (so a single drifted package
+# The kernel above may have failed (so a single drifted package
 # never bricks the whole install), but zero installed kernels IS fatal:
 # there is nothing to boot, and letting the bootloader write entries for a
 # kernel-less system would produce an unbootable install that looks
 # successful.
 if [ "$INSTALLED_KERNELS" -eq 0 ]; then
-    echo "ERROR: no kernel installed (edge failed) — Phase 1 cannot continue."
+    echo "ERROR: no kernel installed (kernel install failed) — Phase 1 cannot continue."
     exit 1
 fi
-echo "[10] kernel phase OK — edge='${KVER_NEXT:-none}'"
+echo "[10] kernel phase OK — kernel='${KVER_NEXT:-none}'"
 
 # r196c: prune orphaned /usr/lib/modules/<ver> trees that don't match
 # the kernel this hook actually installed. Confirmed 2026-07-18 on O6N:
@@ -302,7 +302,7 @@ fi
 # was written for r75 task #66 and then never wired to a caller, so every
 # install shipped with /lib/modules/$KVER/build absent and the hook only
 # warned. That is a real contradiction of the all-DKMS driver rule -- CIX
-# drivers are DKMS by directive, and DKMS cannot rebuild any of them against a
+# drivers are DKMS by design, and DKMS cannot rebuild any of them against a
 # kernel whose build tree is missing. Confirmed on O6N: WARN for
 # 7.2.0-sky1-ncz.
 install_kernel_headers() {
@@ -368,14 +368,14 @@ rebuild_host_tools() {
 
 install_kernel_headers "$KVER_NEXT" mainline || true
 
-# Unified 7.3 policy (operator 2026-10-05): only the 7.3 series may ship.
+# Unified 7.3 policy (2026-10-05): only the 7.3 series may ship.
 # A 7.2.x sidecar is refused here so the install fails closed rather than
 # silently booting a retired kernel. (The build-time verifier is the primary
 # gate; this is defence in depth on the target.)
 case "$KVER_NEXT" in
     7.3.*|7.3-*) ;;
     *)
-        echo "ERROR: KVER_NEXT='$KVER_NEXT' is not the unified 7.3 series (operator 2026-10-05)." >&2
+        echo "ERROR: KVER_NEXT='$KVER_NEXT' is not the unified 7.3 series (policy 2026-10-05)." >&2
         echo "       Refusing to install a retired kernel." >&2
         exit 1 ;;
 esac
@@ -388,7 +388,7 @@ for kver in $KVER_NEXT; do
         echo "    WARN: no kernel headers for $kver (/lib/modules/$kver/build/Makefile absent)" \
              "— DKMS rebuild blocked on target." >&2
         echo "          Remediation: build/extract-kernel-headers.sh --kernel-src <tree> --kver $kver" \
-             "--output assets/kernel/mainline/headers-cixmini.tar.zst, then rebuild the ISO." >&2
+             "--output assets/kernel/mainline/headers-cixmini.tar.zst, then rebuild the image." >&2
     fi
 done
 
@@ -402,4 +402,4 @@ echo "Kernel summary:"
 echo ""
 echo "Module trees:"
 [ -n "$KVER_NEXT" ] && [ -d "/lib/modules/$KVER_NEXT" ] && \
-    { echo "  --- edge ---"; ls "/lib/modules/$KVER_NEXT" | head -5; } || true
+    { echo "  --- $KVER_NEXT ---"; ls "/lib/modules/$KVER_NEXT" | head -5; } || true

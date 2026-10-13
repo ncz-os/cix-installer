@@ -2,10 +2,9 @@
 # 56-t2-dkms.sh — build+install the Apple T2 DKMS modules on T2 Mac hardware.
 #
 # WHY THIS EXISTS. We retired the in-tree applesmc driver in favour of t2smc
-# (operator directive 2026-09-28, "for starters I would remove applesmc in
-# favour of t2smc"), and built t2smc/t2gmux/t2smp/t2thunderbolt as DKMS
-# modules. t2thunderbolt is NO LONGER built or loaded by default (operator
-# 2026-10-05: "don't load t2thunderbolt"): it is a suspend/resume ordering
+# (2026-09-28), and built t2smc/t2gmux/t2smp/t2thunderbolt as DKMS
+# modules. t2thunderbolt is NO LONGER built or loaded by default (since
+# 2026-10-05): it is a suspend/resume ordering
 # quirk, and the T2 community considers the Thunderbolt-on-T2 area unsafe.
 # Opt in with NCZ_T2_DKMS_EXTRA=t2thunderbolt (and remove the modprobe.d file). The DKMS sources were committed to assets/kernel/<name>/ and the
 # bulk asset copy in build-squashfs-layers.sh does carry them into
@@ -53,7 +52,7 @@ MODPROBE_D="${NCZ_MODPROBE_D:-/etc/modprobe.d}"
 LIBMODULES="${NCZ_LIB_MODULES:-/lib/modules}"
 INSTALLER_META="${NCZ_INSTALLER_META:-/usr/local/lib/cix-installer}"
 # Source the shared DMI helper. NCZ_T2_DETECT lets the test override the
-# path without copying the file (operator 2026-10-05: do not duplicate the
+# path without copying the file (2026-10-05: do not duplicate the
 # model list).
 T2_DETECT="${NCZ_T2_DETECT:-$INSTALLER_META/assets/refind/ncz-t2-detect.sh}"
 if [ -r "$T2_DETECT" ]; then
@@ -65,7 +64,7 @@ else
 fi
 # Default set. t2thunderbolt is opt-in only (see header). t2smp is
 # permanently DROPPED: in-kernel patch 9001 owns Apple T2 CPU-hotplug
-# ordering on amd64 (operator 2026-10-05; the vendored t2smp DKMS is a
+# ordering on amd64 (2026-10-05; the vendored t2smp DKMS is a
 # byte-for-byte duplicate of 9001 -- same notifier priority, same
 # 106b:1801 gate, same uninitialised-mask defect under
 # CONFIG_CPUMASK_OFFSTACK=y). The vendored source stays under assets/kernel/t2smp/
@@ -114,7 +113,7 @@ if [ -s "$KVER_LIST" ]; then
     done < "$KVER_LIST"
 fi
 if [ "${#TARGET_KVERS[@]}" -eq 0 ]; then
-    echo "[56] ERROR: T2 hardware detected but no usable KVER found in $KVER_LIST (each entry must have $LIBMODULES/<kver>). Refusing to fall back to /lib/modules or uname -r (operator 2026-10-05)." >&2
+    echo "[56] ERROR: T2 hardware detected but no usable KVER found in $KVER_LIST (each entry must have $LIBMODULES/<kver>). Refusing to fall back to /lib/modules or uname -r (policy 2026-10-05)." >&2
     exit 1
 fi
 echo "[56] building t2smc/t2gmux against ${#TARGET_KVERS[@]} KVER(s) from $KVER_LIST"
@@ -126,7 +125,7 @@ echo "[56] building t2smc/t2gmux against ${#TARGET_KVERS[@]} KVER(s) from $KVER_
 mkdir -p "$MODPROBE_D"
 cat > "$MODPROBE_D/ncz-t2smp.conf" <<'EOC'
 # NCZ-OS: t2smp is not loaded. In-kernel patch 9001 (CPU offline) is the
-# canonical owner of Apple T2 CPU-hotplug ordering on amd64 (operator
+# canonical owner of Apple T2 CPU-hotplug ordering on amd64 (since
 # 2026-10-05). The vendored t2smp DKMS duplicates 9001 (same notifier
 # priority, same 106b:1801 gate, uninitialised-cpumask bug under
 # CONFIG_CPUMASK_OFFSTACK=y). To re-enable t2smp (NOT supported), remove
@@ -161,13 +160,13 @@ EOC
     rm -rf "$USRSRC"/t2thunderbolt-* 2>/dev/null || true
 fi
 
-# t2gmux owns APP000B on T2 hardware (operator 2026-10-05). Blacklist the
+# t2gmux owns APP000B on T2 hardware (since 2026-10-05). Blacklist the
 # in-kernel apple_gmux so the DKMS t2gmux is the sole owner. This file is
 # only ever written on T2 hardware (we already gated above); non-T2 Macs
 # and PCs are NEVER touched.
 cat > "$MODPROBE_D/ncz-t2-gmux.conf" <<'EOC'
 # NCZ-OS: apple_gmux (in-kernel) is not loaded on Apple T2 hardware.
-# t2gmux (DKMS) is the canonical owner of APP000B on T2 Macs (operator
+# t2gmux (DKMS) is the canonical owner of APP000B on T2 Macs (since
 # 2026-10-05). The in-kernel driver does not handle the T2 gmux. This
 # file is written by post-install/56-t2-dkms.sh on T2 hardware only --
 # it is NEVER installed on non-T2 Macs or non-Apple machines.

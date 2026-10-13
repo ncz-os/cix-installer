@@ -65,6 +65,11 @@ echo "scenefx: wrap $url @ $rev"
 # the branch/tag the wrap names. Fail closed if neither yields a commit -- never
 # build "whatever is checked out".
 want="${NCZ_SCENEFX_SHA:-}"
+# A wrap may name the exact commit (labwc 2f17786c: revision = 37ccd723...);
+# ls-remote only resolves refs, so a full sha is taken as is.
+if [ -z "$want" ] && printf '%s' "$rev" | grep -Eqx '[0-9a-f]{40}'; then
+	want="$rev"
+fi
 if [ -z "$want" ]; then
 	want="$(git ls-remote "$url" "$rev" 2>/dev/null | awk '{print $1}' | head -1)"
 	[ -n "$want" ] || want="$(git ls-remote "$url" "refs/tags/$rev" 2>/dev/null | awk '{print $1}' | head -1)"
@@ -100,6 +105,31 @@ head_sha="$(git -C "$DEST" rev-parse HEAD)"
 [ "$head_sha" = "$want" ] \
 	|| { echo "ERROR: scenefx: HEAD $head_sha != expected $want" >&2; exit 1; }
 echo "scenefx: checked out $(git -C "$DEST" rev-parse --short HEAD)"
+
+# The wrap's own diff_files (labwc subprojects/packagefiles/, e.g.
+# scenefx-liquid.patch). meson applies them only when IT downloads the
+# subproject; because this helper pre-seeds the checkout, meson skips the
+# download and would build SceneFX without them. Apply them here, in the order
+# the wrap lists them, before the NCZ queue.
+diff_files="$(ini_field "$WRAP" diff_files)"
+if [ -n "$diff_files" ]; then
+	IFS=',' read -r -a _dfs <<< "$diff_files"
+	for df in "${_dfs[@]}"; do
+		df="$(printf '%s' "$df" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+		[ -n "$df" ] || continue
+		dp="$(cd "$LABWC" && pwd)/subprojects/packagefiles/$df"   # absolute: git -C changes the cwd
+		[ -f "$dp" ] || { echo "ERROR: scenefx: wrap diff_files $df not found at $dp" >&2; exit 1; }
+		if git -C "$DEST" apply --check "$dp" 2>/dev/null; then
+			git -C "$DEST" apply "$dp"
+			echo "    scenefx wrap diff applied: $df"
+		elif git -C "$DEST" apply --reverse --check "$dp" 2>/dev/null; then
+			echo "    scenefx wrap diff already present: $df"
+		else
+			echo "ERROR: scenefx: wrap diff_files $df does not apply" >&2
+			exit 1
+		fi
+	done
+fi
 
 for p in "${patch_files[@]}"; do
 	base="$(basename "$p")"

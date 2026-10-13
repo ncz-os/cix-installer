@@ -1,11 +1,11 @@
 #!/bin/bash
 # test-kernel-purity-guards.sh -- regression test for the runtime/image-build
-# kernel-purity guards added by the Cygnus 26.10 directive (2026-10-04):
+# kernel-purity guards added by the Cygnus 26.10 kernel policy (2026-10-04):
 #
 #  1. assets/refind/ncz-refind-refresh.sh (arm64) and
 #     assets/refind/ncz-refind-refresh-amd64.sh must each REJECT a
 #     Debian-named (7.1.x / *-arm64 / *-amd64) kernel as the default. Under the
-#     unified 7.3 policy (operator 2026-10-05) an -rcN IS a permitted default
+#     unified 7.3 policy (2026-10-05) an -rcN IS a permitted default
 #     while KERNEL-POLICY RC_DEFAULT_ALLOWED=1, so the runtime guard no longer
 #     refuses -rcN; the series enforcement is the build-time verifier's job.
 #     The guard `case` block is extracted verbatim from the shipped script and
@@ -116,8 +116,8 @@ else
     bad "the pin is not written before the base apt install (pin=$pin_line apt=$apt_line)"
 fi
 
-echo "=== cyclops boot-GPU fix (2010): installer AND installed kernel are the pinned r2 build ==="
-# The amd64 image must BOOT and INSTALL the same cyclops-fixed r2 kernel (patch
+echo "=== boot-GPU fix (2010): installer AND installed kernel are the pinned r2 build ==="
+# The amd64 image must BOOT and INSTALL the same boot-GPU-fixed r2 kernel (patch
 # 2010). KVER is identical across r1/r2 (7.3.0-rc7-t2-ncz), so KVER-keyed checks
 # cannot tell them apart -- the pin is the manifest's identity.vmlinuz_sha256.
 # Three places enforce it and this test asserts all three exist:
@@ -132,7 +132,7 @@ p = d["source"]["t2_cyclops_patch"]
 assert p.endswith("2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch"), p
 assert d["identity"]["vmlinuz_sha256"], "no vmlinuz_sha256 pin"
 PY
-then ok "manifest pins the 2010 cyclops patch and a vmlinuz sha256"; else bad "manifest does not pin the 2010 cyclops patch"; fi
+then ok "manifest pins the 2010 boot-GPU patch and a vmlinuz sha256"; else bad "manifest does not pin the 2010 boot-GPU patch"; fi
 if grep -q 'vmlinuz_sha256' "$IMGBUILD" && grep -q 't2_cyclops_patch' "$IMGBUILD" \
    && grep -q 'installer kernel' "$IMGBUILD"; then
     ok "build-installer-image.sh asserts the installer kernel == the pinned r2 vmlinuz (2010)"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# KVM smoke test: boot a kernel Image under native aarch64 KVM on the cixmini.
+# KVM smoke test: boot a kernel Image under native aarch64 KVM on a Sky1 host.
 # Usage: kvm-smoke.sh <vmlinuz> <initrd> [seconds]
 # No root disk: kernel + initramfs boot, then we kill it. Proves KVM works.
 set -u

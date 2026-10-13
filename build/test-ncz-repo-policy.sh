@@ -42,6 +42,12 @@ expect_rc "leaked fonts-liberation fails" 1 "$ROOT/build/check-ncz-repo-policy.s
 case "$LAST" in *"fonts-liberation 1:2.1.5-3build1"*"not in the allowlist"*) ok "  message names the package" ;; *) bad "message lacks the package" "$LAST" ;; esac
 expect_rc "allowlisted arm64-only libdrm-etnaviv1 on amd64 fails" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$T/wrongarch.Packages"
 expect_rc "Debian kernel name in the NCZ suite fails" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$T/debkernel.Packages"
+{ stanza libgtk4-layer-shell0 1.3.0-1+ncz20261013 arm64; } > "$T/g4ls-arm64.Packages"
+{ stanza libgtk4-layer-shell0 1.3.0-1+ncz20261013 amd64; } > "$T/g4ls-amd64.Packages"
+expect_rc "allowlisted arm64 libgtk4-layer-shell0 (patched layer-shell) passes" 0 "$ROOT/build/check-ncz-repo-policy.sh" "$T/g4ls-arm64.Packages"
+expect_rc "libgtk4-layer-shell0 on amd64 fails (override is arm64 only)" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$T/g4ls-amd64.Packages"
+ncz_apt_separation_pin_text | awk '/^Package: /{p=$0} /^Pin-Priority: 990/{print p}' | grep -qw libgtk4-layer-shell0 \
+    && ok "pin text gives libgtk4-layer-shell0 from the NCZ hosts priority 990" || bad "libgtk4-layer-shell0 missing from the 990 stanza"
 gzip -kf "$T/leak.Packages"
 expect_rc "gz index is read" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$T/leak.Packages.gz"
 expect_rc "seed gate: manifests/components.tsv is clean" 0 "$ROOT/build/check-ncz-repo-policy.sh" --components

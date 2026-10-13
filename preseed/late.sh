@@ -1,6 +1,6 @@
 #!/bin/sh
 # Read build/check-extract-rootfs-consistency.sh before changing this file —
-# these are ISO build MECHANICS, stable across builds by design.
+# these are image build MECHANICS, stable across builds by design.
 # late.sh — run from preseed late_command in the d-i runtime context.
 #
 # d-i's late_command runs after base install + apt config + bootloader
@@ -16,7 +16,7 @@
 #   5. emits a clear, debuggable error if any step fails — including
 #      mountpoint state, dir contents, and exit codes
 #
-# This script lives at /cdrom/ncz-payload/late.sh in the ISO; preseed's
+# This script lives at /cdrom/ncz-payload/late.sh on the install medium; preseed's
 # late_command invokes it via `sh /cdrom/ncz-payload/late.sh` (with
 # multi-path fallback to find the script itself if /cdrom moved).
 
@@ -67,8 +67,8 @@ if command -v flock >/dev/null 2>&1; then
     flock 9 || echo "WARN: flock failed; proceeding without serialization"
 fi
 
-# Release identity is independent from BUILD_VERSION (the per-ISO build serial).
-# build-iso-di.sh stages release.conf as /ncz-payload/RELEASE; source it before any
+# Release identity is independent from BUILD_VERSION (the per-image build serial).
+# build/iso/write-usb-image.py stages release.conf as /ncz-payload/RELEASE; source it before any
 # installer-visible text and copy it into the installed system below.
 NCZ_PRODUCT_NAME="NCZ-OS"
 NCZ_RELEASE_VERSION="unknown"
@@ -218,7 +218,7 @@ mkdir -p /target/usr/local/lib
 # the BAKED marker. The old unconditional `rm -rf` wiped ALL of that (marker
 # -> run-all fell back to NON-baked mode + kernel hooks; refind -> gone ->
 # 70-bootloader could not install a bootloader). In baked mode, PRESERVE the
-# baked tree and only refresh the post-install scripts from the ISO.
+# baked tree and only refresh the post-install scripts from the medium.
 if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-baked ]; then
     echo "[late r157] baked rootfs detected — preserving baked assets + marker, refreshing post-install scripts only"
     # 2026-09-24: this used to `rm -rf` the baked post-install/ tree and THEN
@@ -243,7 +243,7 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
         echo "[late] FATAL: no post-install/ on the install media AND none baked into the image — nothing would configure this system" >&2
         exit 1
     fi
-    # r160: union-sync assets from the ISO. The layered-squashfs base stages
+    # r160: union-sync assets from the medium. The layered-squashfs base stages
     # only a SUBSET of assets (e.g. assets/refind/ holds just refind_aa64.efi
     # — no ncz.png / ncz-banner.png / icons/), so preserving the baked tree
     # alone left 70-bootloader without its banner + icons → rEFInd rendered
@@ -301,7 +301,7 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
 
         # The union above deliberately preserves large baked payloads, but
         # boot-control code must never be "baked wins": fixes to the rEFInd
-        # generator otherwise remain stale across every ISO that reuses the
+        # generator otherwise remain stale across every image that reuses the
         # base squashfs. Refresh this small executable from the current media
         # unconditionally and verify the copy before 70-bootloader runs it.
         REFIND_REFRESH=refind/ncz-refind-refresh.sh
@@ -474,7 +474,7 @@ echo "[late] component-selector state before BUILD_VARIANT decision: /tmp=[$(ls 
 _ncz_comp=$(ncz_recover_components 2>/dev/null || true)
 [ -n "$_ncz_comp" ] && echo "[late] recovered component selection before BUILD_VARIANT: $_ncz_comp"
 
-# The ISO has one unified installation target.  Keep the desktop layer marker
+# The medium has one unified installation target.  Keep the desktop layer marker
 # for compatibility with its existing hooks; console, recovery, Mali, and
 # experimental Panthor are installed-system rEFInd choices, not install-time
 # variants.
@@ -523,8 +523,8 @@ wc -c /target/usr/local/lib/cix-installer/post-install/10-our-kernel.sh 2>&1 || 
 echo
 
 # r196 CRITICAL: generate /etc/machine-id NOW, at install time, in the target.
-# The baked Ubuntu-cloud rootfs ships an EMPTY /etc/machine-id (regenerated
-# per-instance by cloud-init/systemd first boot). We de-cloud, and dbus.service
+# The baked rootfs ships an EMPTY /etc/machine-id (regenerated per-instance
+# by systemd on first boot), and dbus.service
 # starts EARLY at boot (sysinit/basic target) — well before ncz-firstboot's
 # multi-user machine-id fixup runs. With an empty machine-id, dbus.service
 # FAILS on the very first boot, and EVERYTHING that needs the system bus
@@ -616,7 +616,7 @@ if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
 deb [trusted=yes] file:///cdrom ${NCZ_BASE_CODENAME:-forky} main
 CDROM_LIST
     # During d-i the target clock can still be at the firmware default. APT
-    # rejects the freshly generated ISO Release file as "not valid yet" in
+    # rejects the freshly generated medium Release file as "not valid yet" in
     # that state, which leaves the local pool invisible to post-install hooks.
     # Keep this scoped to the install window and remove it before first boot.
     cat > /target/etc/apt/apt.conf.d/00ncz-install-time-clock <<'APT_CLOCK'
@@ -647,11 +647,11 @@ CDROM_PREF
         # r116: install ONLY linux-firmware here. The NPU userspace packages
         # cix-noe-umd / cix-ai-engine MUST NOT be apt-installed in late.sh.
         # Their postinsts pip-install libnoe / noe-engine, which refuse to run
-        # on resolute's Python 3.14 (they require <3.14,>=3.10) → postinst
+        # on the system Python 3.14 (they require <3.14,>=3.10) → postinst
         # exits 1 → dpkg leaves them HALF-CONFIGURED. That wedged dpkg state —
         # and, across red-dialog "Continue" retries, a still-running pip
         # postinst that keeps holding /var/lib/dpkg/lock-frontend — then makes
-        # the REQUIRED 70-bootloader.sh `apt-get install systemd-boot` fail
+        # the REQUIRED 70-bootloader.sh bootloader install fail
         # with exit 100. run-all.sh propagates that, late_command returns
         # non-zero, and d-i shows the red "installation step failed" dialog
         # with NO bootloader installed. 25-cix-proprietary.sh already lands the
@@ -746,7 +746,7 @@ APTRETRIES
 echo "--- /target/etc/apt/apt.conf.d/99retries installed ---"
 
 # 2026-05-07 take10: replace /target/etc/resolv.conf with a STATIC file
-# containing multiple nameservers. d-i + Ubuntu chains symlink it to
+# containing multiple nameservers. d-i + systemd chains symlink it to
 # /run/systemd/resolve/stub-resolv.conf, but systemd-resolved isn't
 # running inside the chroot — and the host stub points at only the
 # DHCP-provided nameserver (one IP, often the LAN router). On flaky
@@ -1337,17 +1337,17 @@ ncz_npu_install_time() {
     # --- FIX B: zhouyi_v3 armchina_npu.ko -> updates/ (machine-agnostic) ---
     # Only lands what the baked base did not already ship; safe to re-run.
     #
-    # r186.1: $SRC (the live ISO /ncz-payload mount) can be missing this file
+    # r186.1: $SRC (the install medium /ncz-payload mount) can be missing this file
     # even when the repo + the baked rootfs both have it — observed on the MS-R1 test board
     # r186 (cix-installer-late.log: FIX A ran, FIX B silently never fired,
     # "no CIXH4010 cores" -> unidentified hardware version 5 at boot,
-    # /dev/aipu absent). Root cause is upstream in the squashfs/ISO staging of
+    # /dev/aipu absent). Root cause is upstream in the squashfs/medium staging of
     # assets/kernel/modules-overlay into /ncz-payload; this fallback makes FIX B
     # resilient to that regardless: /target/usr/local/lib/cix-installer/assets
     # is populated from the BAKED image (confirmed present even when $SRC
     # lacked it) and is unioned from $SRC earlier in this script, so it is at
     # least as complete as $SRC. Mirrors the existing dual-candidate pattern
-    # in post-install/80-npu.sh and 81-vpu.sh (ISO path + already-staged path).
+    # in post-install/80-npu.sh and 81-vpu.sh (medium path + already-staged path).
     # 2026-10-06: the Sky1 NPU driver is the vendor aipu.ko (cix-npu-driver-dkms,
     # built by 80-npu.sh into updates/dkms/; prebuilt r284 overlay at
     # assets/kernel/npu/<KVER>/aipu.ko). armchina_npu is the in-tree name, which
@@ -1653,7 +1653,7 @@ grep -rhsE '^[[:space:]]*deb' \
 # forky, the only allowed base) is the signed deb822 file
 # /etc/apt/sources.list.d/ncz-base.sources written by
 # post-install/23-base-apt-sources.sh, so sources.list itself stays empty.
-# Operator rule 2026-10-08: no Ubuntu archive is ever written here.
+# Rule since 2026-10-08: no Ubuntu archive is ever written here.
 if [ "${NCZ_BASE_NAME:-}" != "Debian" ]; then
     echo "FATAL: NCZ_BASE_NAME='${NCZ_BASE_NAME:-unset}' -- only a Debian forky base is supported (no Ubuntu)" >&2
     ttymsg "FATAL: base is not Debian forky; installation refused (see late.log)."

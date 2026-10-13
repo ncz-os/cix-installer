@@ -124,10 +124,10 @@ stamp() { echo "=== $1 (collected at $(date -u +%FT%TZ)) ==="; }
 # Top-level summary pointing at every diagnostic. Read this first if
 # you're in rescue mode trying to figure out what went wrong.
 cat > /etc/cix-installer/DIAGNOSTICS.md <<'INDEX'
-# Post-install diagnostics — nclawzero cixmini
+# Post-install diagnostics — NCZ-OS
 
 If the system wedges during boot, mount this filesystem from rescue
-mode (USB SAFE rescue OR cixmini-rescue.conf systemd-boot entry) and
+mode (the Rescue boot entry OR a USB rescue boot) and
 read the per-stage logs below.
 
 ## Per-hook install logs
@@ -139,14 +139,14 @@ collected by run-all.sh as each hook ran.
 |---|---|
 | 10-our-kernel.log | kernel image install + modules extraction |
 | 12-sky1-firmware.log | firmware blob copy to /lib/firmware |
-| 20-desktop.log | XFCE / GNOME install |
+| 20-desktop.log | Singularity desktop install |
 | 25-cix-proprietary.log | Cix vendor debs (filtered for vermagic) |
 | 32-quadlet-shim.log | systemd quadlet shim |
-| 35-ssh.log | openssh-server + authorized_keys |
+| 35-ssh.log | openssh-server + rescue.target drop-ins |
 | 40-claude-code.log | Claude Code install |
 | 50-brand.log | branding assets |
 | 60-boot-splash.log | Native KMS boot splash |
-| 70-bootloader.log | systemd-boot install + loader entries |
+| 70-bootloader.log | rEFInd install + boot entries |
 | 99-diagnostics.log | this hook (its own output) |
 
 ## Captured runtime state
@@ -167,12 +167,12 @@ collected by run-all.sh as each hook ran.
 |---|---|
 | /etc/cix-installer/BUILD_VERSION | e.g. "2026.05.03-r8" |
 | /etc/cix-installer/BUILD_DATE | UTC build timestamp |
-| /etc/cix-installer/BUILD_HOST | host that built the ISO |
-| /etc/cix-installer/KVER_NEXT | edge kernel uname -r (the only shipping kernel) |
+| /etc/cix-installer/BUILD_HOST | host that built the image |
+| /etc/cix-installer/KVER_NEXT | kernel uname -r (the one shipping kernel) |
 
 ## How to read these from rescue mode
 
-### Option 1 — boot SAFE rescue (cixmini-rescue.conf)
+### Option 1 — boot the Rescue entry
 sshd starts in rescue.target via /etc/systemd/system/ssh.service.d/run-in-rescue.conf.
 Once at the rescue prompt or after ssh root@<ip>:
 
@@ -181,9 +181,10 @@ Once at the rescue prompt or after ssh root@<ip>:
   cat /etc/cix-installer/DIAGNOSTICS.md
 
 ### Option 2 — USB SAFE rescue (d-i rescue mode)
-At rescue menu, mount root partition (/dev/nvme0n1p2 typically) as /mnt:
+At rescue menu, mount the root partition as /mnt (typically /dev/nvme0n1p3,
+or /dev/nvme0n1p2 when the rescue partition was not installed):
 
-  mount /dev/nvme0n1p2 /mnt
+  mount /dev/nvme0n1p3 /mnt
   ls /mnt/var/log/cix-install/
 
 ### Option 3 — normal boot worked, just want diagnostics

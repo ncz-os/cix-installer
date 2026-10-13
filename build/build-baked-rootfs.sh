@@ -5,7 +5,8 @@
 # machine-specific hooks (fstab, bootloader, rescue, user). Replaces the fragile
 # 30-hook in-chroot-at-install model.
 #
-# Run on an x86 build host (qemu-aarch64-static + binfmt). Output: a baked rootfs.tar.zst.
+# Runs natively on a build host of the target arch (a cross-arch host needs
+# qemu-user-static + binfmt). Output: a baked rootfs.tar.zst.
 set -uo pipefail
 ROOT="${ROOT:-$HOME/cix-installer-build/cix-installer}"
 
@@ -28,7 +29,7 @@ OUT="${OUT:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-arm64-baked.tar.zst}"
 CHROOT="$WORK/chroot"
 LOGDIR="$WORK/logs"
 
-# Kernel default policy gate (operator directive 2026-09-30). Mirrors the
+# Kernel default policy gate (design rule 2026-09-30). Mirrors the
 # gate at the top of build/build-installer-image.sh and build_base() in
 # build/build-squashfs-layers.sh; this script also bakes the chroot that
 # later carries the default-kernel sidecar at $CHROOT/usr/local/lib/cix-
@@ -90,8 +91,8 @@ sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets/refind"
 [ -f "$ROOT/build/refind-bin/refind_aa64.efi" ] && sudo cp "$ROOT/build/refind-bin/refind_aa64.efi" "$CHROOT/usr/local/lib/cix-installer/assets/refind/" || true
 printf '%s' "$VARIANT" | sudo tee "$CHROOT/usr/local/lib/cix-installer/BUILD_VARIANT" >/dev/null
 printf '%s' "$NCZ_TARGET_ARCH" | sudo tee "$CHROOT/usr/local/lib/cix-installer/BUILD_ARCH" >/dev/null
-# stage kernel-version sidecar so 10-our-kernel finds it (build-iso-di.sh
-# stages this at ISO time; the bake must too).
+# stage kernel-version sidecar so 10-our-kernel finds it (the image build
+# stages this for the installer; the bake must too).
 KM="$CHROOT/usr/local/lib/cix-installer"
 [ -f "$KM/assets/kernel/mainline/KVER" ] && sudo cp "$KM/assets/kernel/mainline/KVER" "$KM/KVER_NEXT"
 

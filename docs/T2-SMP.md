@@ -48,5 +48,5 @@ piece of hardware cannot coexist — a real load-order race on a MacBookPro16,1
 ## See also
 - `docs/T2-THUNDERBOLT.md` — `t2thunderbolt` opt-out.
 - `docs/T2-GMUX.md` — `apple_gmux` blacklist on T2 in favour of `t2gmux`.
-- `assets/kernel/KERNEL-POLICY` — the amd64 stable/edge channel policy.
+- `assets/kernel/KERNEL-POLICY` — the unified kernel policy (one 7.3 kernel; no edge channel).
 - `assets/kernel/t2smp/PROVENANCE` — pinned upstream commit.

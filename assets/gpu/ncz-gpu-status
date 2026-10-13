@@ -15,7 +15,7 @@ for _a in "$@"; do
 done
 
 # ---------------------------------------------------------------------------------------------------------------
-# --require-hardware: NEVER-SOFTWARE-RENDER health check (operator policy 2026-09-29).
+# --require-hardware: NEVER-SOFTWARE-RENDER health check (policy since 2026-09-29).
 #
 # If this machine has a hardware GPU, every renderer a user process can get must be that GPU: not llvmpipe, softpipe,
 # swrast, lavapipe or SwiftShader, and no software-forcing variable may be set. Probes run TWICE, once in the session

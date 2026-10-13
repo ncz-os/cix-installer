@@ -1,5 +1,5 @@
 #!/bin/bash
-# preflight-freshness-gate.sh — refuse to start an ISO build against a stale
+# preflight-freshness-gate.sh — refuse to start an image build against a stale
 # checkout, a stale kernel-staging pool, or a downstream patch that no longer
 # applies (already merged upstream, or conflicts with a newer upstream tree).
 #
@@ -131,7 +131,7 @@ else
     # (IdentitiesOnly + MaxAuthTries): a plain fetch against the store's git
     # origin can still hang indefinitely with no error, no timeout, no
     # diagnostic (stderr was even redirected to /dev/null) -- it silently
-    # stalled an entire ISO build for 30+ minutes, twice, exactly the class
+    # stalled an entire image build for 30+ minutes, twice, exactly the class
     # of problem this gate exists to prevent. `timeout` bounds the hang;
     # the ssh command comes from NCZ_STORE_SSH_COMMAND or
     # ~/.config/ncz/store-ssh-command (e.g. a password-auth wrapper) so a site
@@ -200,7 +200,7 @@ fi
 #   amd64 has TWO live namespaces (amd64-stable-* and amd64-edge-*); each
 #   line's payload is a .deb pair (linux-image-*.deb + linux-headers-*.deb)
 #   the installer dpkg-installs. Comparison: sha256 of the .deb in the pool
-#   vs the .deb in assets/kernel/<line>/. Operator directive 2026-10-05
+#   vs the .deb in assets/kernel/<line>/. Design rule 2026-10-05
 #   reinstated amd64-edge as the pinned 7.3.0-rc6 AER-revert kernel
 #   (7.3.0-rc6-1-t2-edge-aerfix). That build has since been superseded by
 #   the unified default, now 7.3.0-rc6-4-t2-edge-aer9010 (the plain
@@ -287,7 +287,7 @@ check_arm64_channel() {
     local pin_name pin_class
     pin_name="$(basename "$abs_target")"
     if is_prerelease "$pin_name"; then pin_class="prerelease"; else pin_class="stable"; fi
-    # Unified 7.3 policy (operator 2026-10-05): there is ONE arm64 channel.
+    # Unified 7.3 policy (2026-10-05): there is ONE arm64 channel.
     # want_class=unified accepts either a 7.3 -rcN or a 7.3 final pin (rc is
     # allowed while KERNEL-POLICY RC_DEFAULT_ALLOWED=1) but refuses any other
     # series (7.2.x is retired).
@@ -296,7 +296,7 @@ check_arm64_channel() {
             *7.3.*|*7.3-*) ;;
             *)
                 echo "[3] FAIL: arm64 $label -- $local_pointer -> $pin_name is not the unified 7.3 kernel"
-                echo "          (7.2.x is retired; operator 2026-10-05). Repoint $local_pointer at the 7.3 build."
+                echo "          (7.2.x is retired; policy 2026-10-05). Repoint $local_pointer at the 7.3 build."
                 FAIL=$((FAIL + 1))
                 return
                 ;;
@@ -486,7 +486,7 @@ check_amd64_line() {
 if [ -d "$KERNEL_STAGING_DIR" ]; then
     case "$NCZ_SYSTEM_ARCH" in
         amd64)
-            # Operator directive 2026-10-05 (unified): amd64 ships ONE 7.3
+            # Design rule 2026-10-05 (unified): amd64 ships ONE 7.3
             # kernel as the default and installer kernel. The retired
             # 7.2.9 line and the separate amd64-edge channel are gone.
             check_amd64_line amd64-stable
@@ -524,8 +524,8 @@ if [ -d "$KERNEL_STAGING_DIR" ]; then
     while IFS= read -r d; do
         [ -n "$d" ] || continue
         case "$(basename "$d")" in
-            # amd64: the single unified 7.3 line (operator directive
-            # 2026-10-05). amd64-edge-* was retired.
+            # amd64: the single unified 7.3 line
+            # (2026-10-05). amd64-edge-* was retired.
             amd64-stable-*) ;;
             # arm64: the single live namespace -- r<N>-<kver>-sky1-ncz-<date>.
             # The trailing * lets a future suffix (e.g. -xhcifix) still

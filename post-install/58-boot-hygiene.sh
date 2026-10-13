@@ -192,8 +192,8 @@ fi
 # so a lower number than 55 would be overridden and the console would sit at 4
 # (KERN_ERR prints) at runtime.
 #
-# FLOOR = 3, DO NOT LOWER IT (operator question 2026-10-11: "can we suppress
-# the T2 boot 'hardware errors'?"). The kernel prints a message to the console
+# FLOOR = 3, DO NOT LOWER IT (asked 2026-10-11 whether the T2 boot
+# 'hardware errors' could be suppressed). The kernel prints a message to the console
 # only when its level is numerically less than console_loglevel
 # (Documentation/core-api/printk-basics), so:
 #   console_loglevel=3 -> levels 0,1,2 (EMERG/ALERT/CRIT) reach the console;

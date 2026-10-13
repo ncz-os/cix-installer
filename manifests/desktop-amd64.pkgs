@@ -17,7 +17,7 @@
 # DROPPED — Sky1/CIX-chip-specific, no AMD64 equivalent needed
 # ============================================================================
 # chromium-ncz-sky1  — our custom V4L2-M2M hardware-decode Chromium build for
-#                       the Linlon VPU. Operator decision 2026-09-14: do not
+#                       the Linlon VPU. Decision 2026-09-14: do not
 #                       build/ship a custom Chromium for AMD64 at all. Use
 #                       google-chrome-stable + Vivaldi only (both below).
 # ncz-ffmpeg         — Sky1 VPU-accelerated ffmpeg (see docs/AMD64-PACKAGE-

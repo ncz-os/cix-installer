@@ -3,13 +3,13 @@
 #
 # r75 K4: Mesa 26.0.0-1sky1.2 panvk + libdisplay-info3 + libllvm21 +
 # mesa-vulkan-drivers + mesa-libgallium are what made Mali-G720 Vulkan
-# work end-to-end on the MS-R1 test-board reference deploy. Resolute's stock Mesa is
-# already Mesa 26.0.3, but the Sky1-Linux builds remain the known-good
+# work end-to-end on the MS-R1 test-board reference deploy. The base archive's
+# stock Mesa may be numerically newer, but the Sky1-Linux builds remain the known-good
 # package origin for the current hardware validation.
 #
 # Pin scope: every Mesa-side package we know matters for Sky1 panvk.
 # Pin priority 1001 (above 990 'pinned default') so apt prefers the
-# Sky1-Linux origin over Ubuntu resolute even on point-version regress.
+# Sky1-Linux origin over the Debian base even on point-version regress.
 #
 # Idempotent — safe to run repeatedly; sed replaces the file in full
 # on each run.
@@ -41,12 +41,12 @@ fi
 echo "[15] pinning Sky1-Linux Mesa 26 stack"
 
 # 1001 = strictly higher than apt default (990) for any candidate, so it
-# wins even when resolute has a numerically-newer point version.
+# wins even when the Debian base has a numerically-newer point version.
 install -d -m 0755 /etc/apt/preferences.d
 
 cat > /etc/apt/preferences.d/99-sky1-mesa26.pref <<'PIN'
-# r75 K4 / r78 resolute: pin Sky1-Linux Mesa 26 packages when available.
-# Resolute stock Mesa is 26.0.3; Sky1 packages still carry the validated
+# r75 K4 / r78: pin Sky1-Linux Mesa 26 packages when available.
+# The base archive's stock Mesa may be newer; Sky1 packages still carry the validated
 # board-specific integration.
 # Source: https://github.com/Sky1-Linux/sky1-image-build (Sky1-Linux apt repo).
 

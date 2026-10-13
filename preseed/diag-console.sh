@@ -14,12 +14,12 @@
 #   * DEBCONF_DEBUG=5 verbose d-i logging (set on the kernel cmdline by the build)
 #
 # TOGGLE / REMOVAL (two independent switches):
-#   1. Build switch  : `DIAG_ENABLE=0 build/build-iso-di.sh ...` -> this module
-#      is NOT staged and `ncz_diag=1` is NOT added to the cmdline => ship-clean.
+#   1. Build         : build/iso/patch-initrd-t2-kernel.py bakes this module into
+#      the installer initrd; there is no build-time switch any more.
 #   2. Boot variable : `ncz_diag=0|off` on the kernel cmdline disables it even if
-#      staged; `ncz_diag=1` enables. Operators can flip it at the GRUB menu.
+#      staged; `ncz_diag=1` enables. Operators can flip it at the boot menu.
 #   Tunables (kernel cmdline): ncz_diag_pw=<pw>  ncz_diag_log=<host[:port]>
-#   Remote syslog is OPT-IN ONLY -- no default loghost is baked in (operator
+#   Remote syslog is OPT-IN ONLY -- no default loghost is baked in (since
 #   2026-09-17: a shipped installer must never phone home to an internal
 #   project address by default). Without ncz_diag_log, the forwarder simply
 #   never starts; the console banner tells the operator how to turn it on.
@@ -64,7 +64,7 @@ PW=$(kv ncz_diag_pw);    PW_EXPLICIT=0; [ -n "$PW" ] && PW_EXPLICIT=1; PW=${PW:-
 # daemon is even started (see start_syslogd). This used to default to
 # a fixed lab log host on port 5514, which meant every real-hardware install's
 # console banner printed our internal project IP whether or not anyone wanted
-# remote logging — operator directive 2026-09-17: never ship that.
+# remote logging. Since 2026-09-17 no default log host is shipped.
 LOGDST=$(kv ncz_diag_log)
 if [ -n "$LOGDST" ]; then
     case "$LOGDST" in *:*) LOGHOST=${LOGDST%:*}; LOGPORT=${LOGDST##*:};; *) LOGHOST=$LOGDST; LOGPORT=5514;; esac
