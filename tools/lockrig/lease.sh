@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # tools/lockrig/lease.sh -- per-host test lease. A lease is a small file under
 # $LEASE_DIR named <host>.lease. Because two operator sessions have collided on
-# PROTEUS/CHIMERA/PEGASUS, lockrig MUST acquire a lease before touching a host and
+# shared test machines, lockrig MUST acquire a lease before touching a host and
 # MUST refuse if another owner holds a live (unexpired) lease.
 #
 # Storage: $LOCKRIG_LEASE_DIR, defaulting to
-#   ~/Projects/oc-mission-20261010/hostlease   (STUDIO)
-# Override to share state across machines (e.g. the ARGONAS copy):
-#   export LOCKRIG_LEASE_DIR=/mnt/argonas/datapath/.../hostlease   # NFS, shared
+#   ~/.local/state/ncz/hostlease
+# Override to share state across machines (e.g. a shared NFS directory):
+#   export LOCKRIG_LEASE_DIR=/path/on/shared/nfs/hostlease
 # The lease file records owner + purpose + timestamp + TTL so a stale lease
 # (crashed session) self-expires and never wedges a host.
 #
@@ -20,7 +20,7 @@
 # Exit codes: 0 ok/free/released, 2 usage, 3 refused (live lease by another owner).
 set -u
 
-LEASE_DIR="${LOCKRIG_LEASE_DIR:-$HOME/Projects/oc-mission-20261010/hostlease}"
+LEASE_DIR="${LOCKRIG_LEASE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ncz/hostlease}"
 DEFAULT_TTL=2700   # 45 min: a lockrig host run must finish well inside this
 
 die() { echo "lease: $*" >&2; exit 2; }

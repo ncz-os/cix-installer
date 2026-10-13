@@ -2,8 +2,8 @@
 # tools/lockrig/agent/headless.sh -- runs ON a host (build host or a host with no
 # DRM/compositor). Drives the committed headless labwc lock suite
 # (tests/lockscreen-framesrc/test-framesrc.sh) inside a container against a set
-# of harness binaries. This is the fallback used for headless hosts (PROTEUS) and
-# the dry-run on the build hosts (ACHILLES/ULTRA), and it "says so": the result
+# of harness binaries. This is the fallback used for headless hosts and
+# the dry-run on the build hosts, and it "says so": the result
 # is tagged mode=headless and the ledger records which binaries were used.
 #
 # Env in:  BINDIR   abs path on the host with singularity-lockscreen-on,

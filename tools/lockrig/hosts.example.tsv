@@ -1,0 +1,30 @@
+# tools/lockrig/hosts.example.tsv -- EXAMPLE lock/saver/greeter test-rig host inventory.
+#
+# The real inventory is site-local and never committed: lockrig reads, in order,
+# $LOCKRIG_HOSTS, ~/.config/ncz/lockrig-hosts.tsv, tools/lockrig/hosts.tsv (git-ignored),
+# and only then this example (documentation addresses, RFC 5737). Copy it and edit.
+#
+# Tab-separated. Columns (order is load-bearing):
+#   name           short logical name used on the lockrig command line
+#   ip             management address (operator workstation -> host)
+#   arch           amd64 | arm64
+#   user           ssh login (test hosts: ncz / build hosts: your build user)
+#   display        1 = a DRM output is connected and a graphical session can run; 0 = none
+#   geometry       expected panel/logical size, or 'auto' to probe at runtime, or '-' if headless
+#   gpu            GPU description
+#   attended       1 = a human is physically at the machine -> needs --allow-attended,
+#                  and the host is run LAST, one at a time, with a short lock window
+#   headless       0 = run the live lock/saver/greeter cases; 1 = run the headless
+#                  labwc harness against installed binaries instead (no compositor/DRM)
+#   notes          free text
+#
+# The address/arch/user/attended/headless columns are load-bearing; geometry is a hint.
+# Add a host: append one line to your local inventory.
+# --- test machines running the candidate image ----------------------------------------
+prime-laptop	192.0.2.11	amd64	ncz	1	auto	i915+NVIDIA	0	0	Intel iGPU + NVIDIA dGPU laptop
+sky1-board	192.0.2.12	arm64	ncz	1	auto	Mali	0	0	CIX Sky1 board
+t2-mac	192.0.2.13	amd64	ncz	1	1920x1200	amdgpu+i915	1	0	Apple T2 MacBookPro16,1; operator present, run LAST with --allow-attended
+intel-desktop	192.0.2.14	amd64	ncz	0	-	i915	0	1	headless desktop: no DRM output connected; headless labwc harness
+# --- build hosts for the headless suite ---------------------------------------------
+build-amd64	192.0.2.21	amd64	builder	0	-	build-host	0	1	amd64 build host; headless labwc suite
+build-arm64	192.0.2.22	arm64	builder	0	-	build-host	0	1	arm64 build host; headless labwc suite
