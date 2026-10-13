@@ -411,6 +411,7 @@ preseed/ncz-ui.sh	common	-	shared d-i dialog look (brand, arch, build id)
 build/test-ncz-ui.sh	common	-	ncz-ui.sh tests
 build/check-installer-screens.py	common	-	console-screen content checker
 build/test-installer-brltty-banner.sh	common	-	installer checks: brltty-udeb generic USB-serial answer, brltty autodetect token on Install/Expert, one-shot boot banner, build id on installer entries
+build/test-installer-media-lookup.sh	common	-	installer checks: install media from USB drives only, USB-only screen without one, non-USB image disks never a target, d-i GRUB and systemd-boot steps skipped
 build/test-installer-screens.sh	common	-	console-screen checker tests
 build/test-installer-flow.sh	common	-	installer dialog flow tests (choosers once per boot, region template, NIC pick)
 build/test-component-selection.sh	common	-	component answer end to end: nothing-ticked is honoured by the selector re-runs and every consumer; dialog failures stop the install
