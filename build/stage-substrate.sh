@@ -45,7 +45,7 @@ esac
 PIN="$ROOT/manifests/base.pin"
 [ -f "$PIN" ] || { echo "stage-substrate: FAIL: missing $PIN" >&2; exit 1; }
 WANT="$(awk -F'\t' -v a="$ARCH" '$1==a{print $2; exit}' "$PIN")"
-printf '%s' "$WANT" | grep -Eq '^[0-9a-f]{64}$' \
+printf '%s' "$WANT" | grep >/dev/null -E '^[0-9a-f]{64}$' \
     || { echo "stage-substrate: FAIL: no sha256 substrate pin for '$ARCH' in $PIN" >&2; exit 1; }
 SHORT="${WANT:0:8}"
 ISO_NAME="${NCZ_SUBSTRATE_ISO_NAME:-debian-testing-$ARCH-netinst.iso}"

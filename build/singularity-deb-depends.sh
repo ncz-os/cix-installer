@@ -106,7 +106,7 @@ if [ "$MODE" = container ]; then
     CE_ARGS=(--rm --network="${SINGULARITY_CONTAINER_NETWORK:-host}" --platform "$PLATFORM"
              -v "$BUILD_DIR":/ncz-build:ro -v "$PAYLOAD_DIR":/payload:ro -v "$STAGE/out":/out
              -e NCZ_SINGULARITY_EXTRA_DEPS_FILE="/ncz-build/$(basename "$EXTRA_FILE")")
-    if "$CE" --version 2>/dev/null | grep -qi podman; then
+    if "$CE" --version 2>/dev/null | grep >/dev/null -i podman; then
         CE_ARGS+=(--security-opt label=disable)
     fi
     [ "$(dirname "$(readlink -f "$EXTRA_FILE")")" = "$BUILD_DIR" ] || \

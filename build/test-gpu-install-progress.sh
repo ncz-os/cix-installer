@@ -179,9 +179,9 @@ awk -F'|' '$3 == "GPU"' "$TSV" > "$GPU_ROWS"
 
 check "monitor wrote GPU status records" test -s "$GPU_ROWS"
 check "detection line names the GPU, then the driver decision, before the step label" \
-    sh -c 'head -1 "$1" | grep -q "|GPU|.*|Detected GPU: NVIDIA GeForce RTX 4060 (Ada) \[10de:2882\]" && \
-           sed -n 2p "$1" | grep -q "GPU driver: installing the NVIDIA driver via DKMS" && \
-           sed -n 3p "$1" | grep -q "Installing GPU drivers: NVIDIA - test"' _ "$GPU_ROWS"
+    sh -c 'head -1 "$1" | grep >/dev/null "|GPU|.*|Detected GPU: NVIDIA GeForce RTX 4060 (Ada) \[10de:2882\]" && \
+           sed -n 2p "$1" | grep >/dev/null "GPU driver: installing the NVIDIA driver via DKMS" && \
+           sed -n 3p "$1" | grep >/dev/null "Installing GPU drivers: NVIDIA - test"' _ "$GPU_ROWS"
 check "detection line is recorded in gpu-progress.log as DETECTED" \
     grep -q 'DETECTED NVIDIA GeForce RTX 4060 (Ada) \[10de:2882\] -> installing the NVIDIA driver via DKMS' "$M/log/gpu-progress.log"
 check "status names module, version and kernel and counts compiles against the source total" \
@@ -209,9 +209,9 @@ span() {
 }
 check "the build ticks through its reserved window (starts >= 25%, climbs > 20 points)" span
 check "monitor never emits FAIL or WARN rows (the KVM gate fails on FAIL)" \
-    sh -c '! awk -F"|" "\$3 == \"FAIL\" || \$3 == \"WARN\"" "$1" | grep -q .' _ "$TSV"
+    sh -c '! awk -F"|" "\$3 == \"FAIL\" || \$3 == \"WARN\"" "$1" | grep >/dev/null .' _ "$TSV"
 check "results file records one ok and one failed build" \
-    sh -c 'grep -c "|ok|" "$1" | grep -qx 1 && grep -c "|failed|" "$1" | grep -qx 1' _ "$M/log/gpu-progress.results"
+    sh -c 'grep -c "|ok|" "$1" | grep >/dev/null -x 1 && grep -c "|failed|" "$1" | grep >/dev/null -x 1' _ "$M/log/gpu-progress.results"
 check "install log keeps STEP, BEGIN, RESULT and END records" \
     sh -c 'for k in "STEP Installing GPU drivers" "RESULT ok nvidia" "RESULT failed nvidia" "END GPU drivers"; do grep -q "$k" "$1" || { echo "  missing: $k"; exit 1; }; done' _ "$M/log/gpu-progress.log"
 check "apt window file is removed when the step ends" test ! -e "$STATE.window"
@@ -334,9 +334,9 @@ check "run-all: progress.plan reserves weight 12 for the NVIDIA step" grep -qx '
 check "run-all: plan rows match the step count" \
     test "$(wc -l < "$R/log/progress.plan")" = "$(awk -F'|' '$3 == "PLAN" { print $6; exit }' "$RT")"
 check "run-all: completes without a FAIL row" \
-    sh -c '! awk -F"|" "\$3 == \"FAIL\"" "$1" | grep -q . && grep -q "|COMPLETE|.*Post-install completed successfully" "$1"' _ "$RT"
+    sh -c '! awk -F"|" "\$3 == \"FAIL\"" "$1" | grep >/dev/null . && grep -q "|COMPLETE|.*Post-install completed successfully" "$1"' _ "$RT"
 check "run-all: no monitor left running" \
-    sh -c '! ps -eo args | grep -v grep | grep -qF "$1 watch"' _ "$R/hooks/lib/gpu-progress.sh"
+    sh -c '! ps -eo args | grep -v grep | grep >/dev/null -F "$1 watch"' _ "$R/hooks/lib/gpu-progress.sh"
 [ "$FAILS" = 0 ] || { echo "--- run-all output ---"; tail -n 30 "$R/runall.out"; }
 
 echo

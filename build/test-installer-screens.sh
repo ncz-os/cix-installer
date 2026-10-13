@@ -548,9 +548,9 @@ expect_hostname_only_in_partman_early_command() {
     # The orchestrator's hostname invocation MUST be inside this block (it is the
     # one allowed invocation; expect_one_presource already pinned the global count
     # to 1, so this is just the location check).
-    printf '%s' "$payload" | tr -d '\n\\' | grep -qE '/tmp/hostname-suggest\.sh[[:space:]]+>>' \
+    printf '%s' "$payload" | tr -d '\n\\' | grep >/dev/null -E '/tmp/hostname-suggest\.sh[[:space:]]+>>' \
         || { echo "$cfg: hostname-suggest.sh is not re-applied inside partman/early_command" >&2; return 1; }
-    printf '%s' "$payload" | tr -d '\n\\' | grep -qE '/tmp/hostname-suggest\.sh[[:space:]]+--prompt' \
+    printf '%s' "$payload" | tr -d '\n\\' | grep >/dev/null -E '/tmp/hostname-suggest\.sh[[:space:]]+--prompt' \
         && { echo "$cfg: partman/early_command still PROMPTS for the hostname (operator 2026-10-06: hostname automatic)" >&2; return 1; }
     return 0
 }

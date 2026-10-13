@@ -98,7 +98,7 @@ check "vendor mirror refuses to ingest the newer rc" 1 env \
     KERNEL_DEBS="$W/c7-debs" VENDOR_MIRROR="$W/c7-mirror" SKY1_KVER_FILE="$W/KVER" \
     ARCH=arm64 USB_RECOVERY_DEBS="$W/none" SINTY_DEBS="$W/none" CHROME_DEB_CACHE="$W/chrome" \
     bash "$REPO/build/build-vendor-mirror.sh"
-if find "$W/c7-mirror" -name '*.deb' | grep -q .; then
+if find "$W/c7-mirror" -name '*.deb' | grep >/dev/null .; then
     echo "  FAIL  vendor mirror pool is not empty after the refused run"; FAIL=$((FAIL + 1))
 else
     echo "  PASS  nothing was published by the refused run"; PASS=$((PASS + 1))

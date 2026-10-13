@@ -52,7 +52,7 @@ extract_unit() {
 # treat any oneshot as blocking unless RemainAfterExit=yes is explicitly set).
 is_boot_blocking() {
     local body="$1"
-    printf '%s\n' "$body" | grep -qE '^[[:space:]]*Type=oneshot[[:space:]]*$' || return 1
+    printf '%s\n' "$body" | grep >/dev/null -E '^[[:space:]]*Type=oneshot[[:space:]]*$' || return 1
     return 0
 }
 
@@ -75,13 +75,13 @@ else
         ok "ncz-issue-refresh is not a boot-blocking oneshot (Type=simple)"
     fi
 
-    if printf '%s\n' "$UNIT" | grep -qE '^[[:space:]]*Type=simple[[:space:]]*$'; then
+    if printf '%s\n' "$UNIT" | grep >/dev/null -E '^[[:space:]]*Type=simple[[:space:]]*$'; then
         ok "ncz-issue-refresh.service is Type=simple"
     else
         bad "ncz-issue-refresh.service declares Type=simple" "$UNIT"
     fi
 
-    if printf '%s\n' "$UNIT" | grep -qE '^[[:space:]]*(After|Wants)=[[:space:]]*network-online\.target'; then
+    if printf '%s\n' "$UNIT" | grep >/dev/null -E '^[[:space:]]*(After|Wants)=[[:space:]]*network-online\.target'; then
         bad "ncz-issue-refresh has no redundant network-online dependency" \
             "$(printf '%s\n' "$UNIT" | grep -nE 'network-online')"
     else
@@ -124,14 +124,14 @@ else
         ok "ncz-rtc-sync is not a boot-blocking oneshot (Type=simple)"
     fi
 
-    if printf '%s\n' "$RTC_UNIT" | grep -qE '^[[:space:]]*Type=simple[[:space:]]*$'; then
+    if printf '%s\n' "$RTC_UNIT" | grep >/dev/null -E '^[[:space:]]*Type=simple[[:space:]]*$'; then
         ok "ncz-rtc-sync.service is Type=simple"
     else
         bad "ncz-rtc-sync.service declares Type=simple" "$RTC_UNIT"
     fi
 
     if printf '%s\n' "$RTC_UNIT" \
-        | grep -qE '^[[:space:]]*(After|Wants)=.*(systemd-time-wait-sync|time-sync\.target)'; then
+        | grep >/dev/null -E '^[[:space:]]*(After|Wants)=.*(systemd-time-wait-sync|time-sync\.target)'; then
         bad "ncz-rtc-sync does not order against time sync" \
             "$(printf '%s\n' "$RTC_UNIT" | grep -nE 'time-wait-sync|time-sync')"
     else
@@ -140,17 +140,17 @@ else
 
     # RTC write-back must survive: same synchronised-clock gate, same write,
     # same "never synchronised" log line.
-    if printf '%s\n' "$RTC_UNIT" | grep -q 'timedatectl show -p NTPSynchronized'; then
+    if printf '%s\n' "$RTC_UNIT" | grep >/dev/null 'timedatectl show -p NTPSynchronized'; then
         ok "ncz-rtc-sync still gates on NTPSynchronized=yes"
     else
         bad "ncz-rtc-sync still gates on NTPSynchronized=yes"
     fi
-    if printf '%s\n' "$RTC_UNIT" | grep -q 'hwclock --systohc --utc'; then
+    if printf '%s\n' "$RTC_UNIT" | grep >/dev/null 'hwclock --systohc --utc'; then
         ok "ncz-rtc-sync still writes the RTC after the first sync"
     else
         bad "ncz-rtc-sync still writes the RTC after the first sync"
     fi
-    if printf '%s\n' "$RTC_UNIT" | grep -q 'NTP never synchronised within 120s'; then
+    if printf '%s\n' "$RTC_UNIT" | grep >/dev/null 'NTP never synchronised within 120s'; then
         ok "ncz-rtc-sync keeps the 'never synchronised' log line"
     else
         bad "ncz-rtc-sync keeps the 'never synchronised' log line"
@@ -196,7 +196,7 @@ else
     else
         ok "ncz-noe-venv-sync is not a boot-blocking oneshot (Type=simple)"
     fi
-    if printf '%s\n' "$VENV_UNIT" | grep -q '/usr/local/lib/cix-installer/sync-noe-venv.sh'; then
+    if printf '%s\n' "$VENV_UNIT" | grep >/dev/null '/usr/local/lib/cix-installer/sync-noe-venv.sh'; then
         ok "ncz-noe-venv-sync still runs the venv re-sync script"
     else
         bad "ncz-noe-venv-sync still runs the venv re-sync script"

@@ -101,7 +101,7 @@ run_gate() {
     echo "--- $label (rc=$rc, want=$want_rc) ---"
     printf '%s\n' "$out" | sed 's/^/    /'
     if [ "$rc" = "$want_rc" ] \
-       && { [ -z "$want_pat" ] || printf '%s\n' "$out" | grep -qE "$want_pat"; }; then
+       && { [ -z "$want_pat" ] || printf '%s\n' "$out" | grep >/dev/null -E "$want_pat"; }; then
         echo "  PASS  $label"
         PASS=$((PASS+1))
     else
@@ -120,7 +120,7 @@ assert_no_missing() {
         NCZ_CIX_DEB_MIN=22 \
         $envstr \
         bash "$GATE" "$@" 2>&1) || true
-    if printf '%s\n' "$out" | grep -qE 'verify-arm64-inputs: MISSING'; then
+    if printf '%s\n' "$out" | grep >/dev/null -E 'verify-arm64-inputs: MISSING'; then
         echo "  FAIL  $label -- unexpected MISSING line:"
         printf '%s\n' "$out" | grep -E 'verify-arm64-inputs: MISSING' | sed 's/^/      /' >&2
         FAIL=$((FAIL+1))

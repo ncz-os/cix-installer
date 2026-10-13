@@ -49,8 +49,8 @@ extract_unit() {
 }
 unit_sky1_only() {
     local body="$1"
-    printf '%s\n' "$body" | grep -qxF -- "$COND_ARCH" || return 1
-    printf '%s\n' "$body" | grep -qxF -- "$COND_GLOB" || return 1
+    printf '%s\n' "$body" | grep >/dev/null -xF -- "$COND_ARCH" || return 1
+    printf '%s\n' "$body" | grep >/dev/null -xF -- "$COND_GLOB" || return 1
 }
 inv_class() { awk -F'\t' -v p="$1" '$1==p {print $2; exit}' "$INV"; }
 
@@ -79,7 +79,7 @@ fi
     && ok "platform-inventory classifies the package build sky1" \
     || bad "platform-inventory classifies the package build sky1" "$(grep -n '^build/build-usb-recovery-deb.sh' "$INV")"
 # Fail-before proof: the exact grep that guards the amd64 list detects the hook.
-printf '41-usb2-rescan.sh\n' | grep -qxF '41-usb2-rescan.sh' \
+printf '41-usb2-rescan.sh\n' | grep >/dev/null -xF '41-usb2-rescan.sh' \
     && ok "self-check: a bad amd64 list naming the hook is detected" \
     || bad "self-check: a bad amd64 list naming the hook is detected"
 

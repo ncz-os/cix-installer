@@ -46,7 +46,7 @@ expect_rc "Debian kernel name in the NCZ suite fails" 1 "$ROOT/build/check-ncz-r
 { stanza libgtk4-layer-shell0 1.3.0-1+ncz20261013 amd64; } > "$T/g4ls-amd64.Packages"
 expect_rc "allowlisted arm64 libgtk4-layer-shell0 (patched layer-shell) passes" 0 "$ROOT/build/check-ncz-repo-policy.sh" "$T/g4ls-arm64.Packages"
 expect_rc "libgtk4-layer-shell0 on amd64 fails (override is arm64 only)" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$T/g4ls-amd64.Packages"
-ncz_apt_separation_pin_text | awk '/^Package: /{p=$0} /^Pin-Priority: 990/{print p}' | grep -qw libgtk4-layer-shell0 \
+ncz_apt_separation_pin_text | awk '/^Package: /{p=$0} /^Pin-Priority: 990/{print p}' | grep >/dev/null -w libgtk4-layer-shell0 \
     && ok "pin text gives libgtk4-layer-shell0 from the NCZ hosts priority 990" || bad "libgtk4-layer-shell0 missing from the 990 stanza"
 gzip -kf "$T/leak.Packages"
 expect_rc "gz index is read" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$T/leak.Packages.gz"
@@ -121,7 +121,7 @@ echo 'deb [signed-by=/x] https://adityagarg8.github.io/t2-ubuntu-repo ./' > "$OL
 ( . "$ROOT/post-install/lib/kernel-purity.sh"; ncz_kernel_purity_pin_text > "$OLD/etc/apt/preferences.d/00-ncz-kernel-purity.pref" )
 expect_rc "r200-shaped config fails" 1 "$ROOT/build/check-installed-apt-config.sh" "$OLD"
 for want in "separation.*missing" "2 NCZ repos enabled" "t2.list present"; do
-    printf '%s\n' "$LAST" | grep -q "$want" && ok "  reports: $want" || bad "  did not report: $want" "$LAST"
+    printf '%s\n' "$LAST" | grep >/dev/null "$want" && ok "  reports: $want" || bad "  did not report: $want" "$LAST"
 done
 NEW="$T/new"; mkdir -p "$NEW/etc/apt/preferences.d"
 ( . "$ROOT/post-install/lib/kernel-purity.sh"; ncz_kernel_purity_pin_text > "$NEW/etc/apt/preferences.d/00-ncz-kernel-purity.pref" )

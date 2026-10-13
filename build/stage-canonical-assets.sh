@@ -255,7 +255,7 @@ fi
 # it fine through the system glvnd once cixgpu-compat is off the loader path.
 CIX_MESA_DEB=$(ls -1 "$ASSETS/cix-debs"/cix-mesa_*.deb 2>/dev/null | head -1)
 if [ -n "$CIX_MESA_DEB" ] && command -v dpkg-deb >/dev/null 2>&1; then
-    if dpkg-deb -c "$CIX_MESA_DEB" | grep -q '01-cixgpu-compat.conf'; then
+    if dpkg-deb -c "$CIX_MESA_DEB" | grep >/dev/null '01-cixgpu-compat.conf'; then
         T=$(mktemp -d)
         dpkg-deb -R "$CIX_MESA_DEB" "$T"
         rm -f "$T/etc/ld.so.conf.d/01-cixgpu-compat.conf"

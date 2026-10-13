@@ -159,7 +159,7 @@ run_fixture "tolerates whitespace and blank lines" "$want_e" "$fixture_e"
 # ---------------------------------------------------------------------------
 echo "=== regression guard: no ':' in any emitted line across fixtures (a), (b), (c), (e) ==="
 all_out="$(printf '%s\n%s\n%s\n%s\n' "$fixture_a" "$fixture_b" "$fixture_c" "$fixture_e" | ncz_dkms_registered_pkgvers)"
-if printf '%s\n' "$all_out" | grep -q ':'; then
+if printf '%s\n' "$all_out" | grep >/dev/null ':'; then
     echo "  FAIL  function emitted a colon-bearing line:"
     printf '%s\n' "$all_out" | sed 's/^/        | /'
     FAIL=$((FAIL + 1))
@@ -178,7 +178,7 @@ fi
 # ---------------------------------------------------------------------------
 echo '=== negative control: old `awk -F, ... | awk ... | sort -u` pipeline on fixture (a) ==='
 old_out="$(printf '%s\n' "$fixture_a" | awk -F',' '{print $1}' | awk '{print $1}' | sort -u)"
-if printf '%s\n' "$old_out" | grep -q ':'; then
+if printf '%s\n' "$old_out" | grep >/dev/null ':'; then
     echo "  PASS  old pipeline still reproduces the bug:"
     dump_lines "$old_out"
     PASS=$((PASS + 1))

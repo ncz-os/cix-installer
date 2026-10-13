@@ -232,7 +232,7 @@ if [ "$CHECK_MIRROR" = 1 ]; then
     # The build dir defaults to ROOT/build; honour it if set so the gate
     # works from anywhere the build is invoked.
     for debname in google-chrome-stable chromium-ncz-sky1; do
-        if find "$MIRROR_ROOT/pool" -type f -name "${debname}_*_arm64.deb" 2>/dev/null | grep -q .; then
+        if find "$MIRROR_ROOT/pool" -type f -name "${debname}_*_arm64.deb" 2>/dev/null | grep >/dev/null .; then
             N_MIRROR_DEBS=$((N_MIRROR_DEBS + 1))
         else
             mark_miss "mirror.deb" "$MIRROR_ROOT/pool (missing: ${debname}_*_arm64.deb)"
@@ -257,29 +257,29 @@ fi
 # (e) ncz-screensavers: when manifests/install-extra.pkgs asks for it, the .deb
 # must be staged (and, with --mirror, present in the offline mirror) --------
 EXTRA_MANIFEST="$ROOT/manifests/install-extra.pkgs"
-if [ -s "$EXTRA_MANIFEST" ] && sed 's/#.*//' "$EXTRA_MANIFEST" | awk 'NF {print $1}' | grep -qx ncz-screensavers; then
+if [ -s "$EXTRA_MANIFEST" ] && sed 's/#.*//' "$EXTRA_MANIFEST" | awk 'NF {print $1}' | grep >/dev/null -x ncz-screensavers; then
     if ! ls "$ROOT"/build/ncz-screensavers-out/ncz-screensavers_*_arm64.deb >/dev/null 2>&1; then
         mark_miss "ncz-screensavers.deb" "$ROOT/build/ncz-screensavers-out/ncz-screensavers_*_arm64.deb (install-extra.pkgs requests it; pinned input: build/stage-build-inputs.sh --arch arm64)"
     fi
     if [ "$CHECK_MIRROR" = 1 ]; then
         FM="${BUILD_DIR:-$ROOT/build}/forky-mirror"
-        if ! find "$FM/pool" -type f -name 'ncz-screensavers_*_arm64.deb' 2>/dev/null | grep -q . ; then
+        if ! find "$FM/pool" -type f -name 'ncz-screensavers_*_arm64.deb' 2>/dev/null | grep >/dev/null . ; then
             mark_miss "ncz-screensavers.mirror" "$FM/pool (no ncz-screensavers_*_arm64.deb; re-run stage 0)"
         fi
     fi
     # the Singularity plugin (chooser/settings UI) is a separate package, not
     # published yet; require its deb only when the manifest actually lists it
-    if sed 's/#.*//' "$EXTRA_MANIFEST" | awk 'NF {print $1}' | grep -qx ncz-screensavers-plugin; then
+    if sed 's/#.*//' "$EXTRA_MANIFEST" | awk 'NF {print $1}' | grep >/dev/null -x ncz-screensavers-plugin; then
         ls "$ROOT"/build/ncz-screensavers-out/ncz-screensavers-plugin_*_arm64.deb >/dev/null 2>&1 || mark_miss "ncz-screensavers-plugin.deb" "$ROOT/build/ncz-screensavers-out/ncz-screensavers-plugin_*_arm64.deb"
         if [ "$CHECK_MIRROR" = 1 ]; then
-            find "${BUILD_DIR:-$ROOT/build}/forky-mirror/pool" -type f -name 'ncz-screensavers-plugin_*_arm64.deb' 2>/dev/null | grep -q . || mark_miss "ncz-screensavers-plugin.mirror" "forky-mirror/pool (no ncz-screensavers-plugin_*_arm64.deb; re-run stage 0)"
+            find "${BUILD_DIR:-$ROOT/build}/forky-mirror/pool" -type f -name 'ncz-screensavers-plugin_*_arm64.deb' 2>/dev/null | grep >/dev/null . || mark_miss "ncz-screensavers-plugin.mirror" "forky-mirror/pool (no ncz-screensavers-plugin_*_arm64.deb; re-run stage 0)"
         fi
     fi
     # the GTK4 reference app is for other distros: never staged, never in the mirror
     if ls "$ROOT"/build/ncz-screensavers-out/ncz-screensavers-gtk4-reference* >/dev/null 2>&1; then
         mark_miss "ncz-screensavers-gtk4-reference" "staged in build/ncz-screensavers-out (it must not be shipped in NCZ-OS)"
     fi
-    if [ "$CHECK_MIRROR" = 1 ] && find "${BUILD_DIR:-$ROOT/build}/forky-mirror/pool" -type f -name 'ncz-screensavers-gtk4-reference*' 2>/dev/null | grep -q . ; then
+    if [ "$CHECK_MIRROR" = 1 ] && find "${BUILD_DIR:-$ROOT/build}/forky-mirror/pool" -type f -name 'ncz-screensavers-gtk4-reference*' 2>/dev/null | grep >/dev/null . ; then
         mark_miss "ncz-screensavers-gtk4-reference.mirror" "forky-mirror/pool carries the GTK4 reference app"
     fi
 fi

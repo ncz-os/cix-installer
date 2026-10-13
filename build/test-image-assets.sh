@@ -126,7 +126,7 @@ mkfix() {   # mkfix <name>: a minimal clean tree (no git) with a compliant rescu
 # expect_rule <label> <rule> <fixture-root>
 expect_rule() {
     local out; out=$(scan "$3")
-    if printf '%s\n' "$out" | grep -q "^$2	"; then ok "$1"; else bad "$1 (rule $2 did not fire)"; fi
+    if printf '%s\n' "$out" | grep >/dev/null "^$2	"; then ok "$1"; else bad "$1 (rule $2 did not fire)"; fi
 }
 
 d=$(mkfix clean)

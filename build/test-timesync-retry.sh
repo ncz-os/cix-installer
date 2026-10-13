@@ -148,13 +148,13 @@ if [ -n "$HOOK" ]; then
     else
         ok "drop-in written to $FAST_RETRY"
 
-        if printf '%s\n' "$body" | grep -qx '\[Time\]'; then
+        if printf '%s\n' "$body" | grep >/dev/null -x '\[Time\]'; then
             ok "drop-in has the [Time] section"
         else
             bad "drop-in has the [Time] section" "$body"
         fi
 
-        if printf '%s\n' "$body" | grep -qE '^[[:space:]]*#'; then
+        if printf '%s\n' "$body" | grep >/dev/null -E '^[[:space:]]*#'; then
             ok "drop-in has a short explanatory comment"
         else
             bad "drop-in has a short explanatory comment" "$body"
@@ -169,7 +169,7 @@ if [ -n "$HOOK" ]; then
             bad "ConnectionRetrySec is present and <= 10" "got '${retry:-<none>}'"
         fi
 
-        if printf '%s\n' "$body" | grep -qE '^[[:space:]]*(NTP|FallbackNTP)[[:space:]]*='; then
+        if printf '%s\n' "$body" | grep >/dev/null -E '^[[:space:]]*(NTP|FallbackNTP)[[:space:]]*='; then
             bad "fast-retry drop-in does not redefine NTP/FallbackNTP" "$body"
         else
             ok "fast-retry drop-in does not redefine NTP/FallbackNTP"
@@ -177,8 +177,8 @@ if [ -n "$HOOK" ]; then
     fi
 
     # ---- 2. installed idempotently, mode 0644 ---------------------------
-    if grep -E 'chmod[[:space:]]+0?644' "$HOOK" | grep -qF '10-ncz-fast-retry.conf' \
-       || grep -E 'install[[:space:]]+.*-m[[:space:]]*0?644' "$HOOK" | grep -qF '10-ncz-fast-retry.conf'; then
+    if grep -E 'chmod[[:space:]]+0?644' "$HOOK" | grep >/dev/null -F '10-ncz-fast-retry.conf' \
+       || grep -E 'install[[:space:]]+.*-m[[:space:]]*0?644' "$HOOK" | grep >/dev/null -F '10-ncz-fast-retry.conf'; then
         ok "drop-in is installed with mode 0644"
     else
         bad "drop-in is installed with mode 0644" \
@@ -194,8 +194,8 @@ if [ -n "$HOOK" ]; then
 
     # ---- 3. the NTP/FallbackNTP server lists are untouched --------------
     sbody="$(extract_target_body "$HOOK" "$SERVER_CONF")"
-    if printf '%s\n' "$sbody" | grep -qxF "$NTP_LIST" \
-       && printf '%s\n' "$sbody" | grep -qxF "$FALLBACK_LIST"; then
+    if printf '%s\n' "$sbody" | grep >/dev/null -xF "$NTP_LIST" \
+       && printf '%s\n' "$sbody" | grep >/dev/null -xF "$FALLBACK_LIST"; then
         ok "NTP/FallbackNTP server lists are untouched"
     else
         bad "NTP/FallbackNTP server lists are untouched" "$sbody"

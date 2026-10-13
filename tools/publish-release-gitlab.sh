@@ -109,8 +109,8 @@ case "$MAX_BYTES" in ''|*[!0-9]*) udie "NCZ_GITLAB_MAX_FILE_BYTES must be a numb
 [ -n "$NAME" ] || NAME=$TAG
 # Registry naming rules (generic packages): name and file [A-Za-z0-9._+~-],
 # version made of word characters, '.', '+' and '-'.
-printf '%s' "$PACKAGE" | grep -Eq '^[A-Za-z0-9._+~-]+$' || udie "invalid package name: $PACKAGE"
-printf '%s' "$VERSION" | grep -Eq '^[A-Za-z0-9_.+-]+$' || udie "invalid package version: $VERSION"
+printf '%s' "$PACKAGE" | grep >/dev/null -E '^[A-Za-z0-9._+~-]+$' || udie "invalid package name: $PACKAGE"
+printf '%s' "$VERSION" | grep >/dev/null -E '^[A-Za-z0-9_.+-]+$' || udie "invalid package version: $VERSION"
 API=${API%/}
 for t in jq curl; do command -v "$t" >/dev/null 2>&1 || udie "$t is required"; done
 if command -v sha256sum >/dev/null 2>&1; then sha() { sha256sum "$1" | cut -d' ' -f1; }
@@ -154,7 +154,7 @@ if [ -n "${NCZ_GITLAB_TOKEN_HELPER:-}" ]; then
   TOKEN=$("$NCZ_GITLAB_TOKEN_HELPER") || die "token helper failed"
 else
   tv=${NCZ_GITLAB_TOKEN_VAR:-GITLAB_TOKEN}
-  printf '%s' "$tv" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*$' || udie "NCZ_GITLAB_TOKEN_VAR is not a variable name"
+  printf '%s' "$tv" | grep >/dev/null -E '^[A-Za-z_][A-Za-z0-9_]*$' || udie "NCZ_GITLAB_TOKEN_VAR is not a variable name"
   TOKEN=${!tv:-}
 fi
 TOKEN=$(printf '%s' "$TOKEN" | tr -d '\r\n')
@@ -316,7 +316,7 @@ done
 # links of this release that are not part of the staged set
 while IFS=$'\t' read -r lid ln; do
   [ -n "$lid" ] || continue
-  printf '%s\n' "${WANT_LINKS[@]}" | grep -qxF -- "$ln" && continue
+  printf '%s\n' "${WANT_LINKS[@]}" | grep >/dev/null -xF -- "$ln" && continue
   mutate DELETE "$API/projects/$PID/releases/$TENC/assets/links/$lid"
   log "  link removed $ln (not in the staged release)"
 done < <(jq -r '.[] | "\(.id)\t\(.name)"' "$WORK/links.json")

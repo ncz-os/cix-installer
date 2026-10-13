@@ -469,7 +469,7 @@ apt_offline(){ local c="$1"
   # Scope the check to files apt ACTUALLY reads (*.list, *.sources). Scanning
   # the whole directory matched our own *.disabled-for-build copies, which are
   # inert but still on disk -- a false positive that aborted a correct build.
-  if sudo chroot "$c" sh -c 'cat /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null | grep -oE "https?://[^ ]+"' | grep -q .; then
+  if sudo chroot "$c" sh -c 'cat /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null | grep -oE "https?://[^ ]+"' | grep >/dev/null .; then
     echo "FATAL: a remote apt source is still enabled in the chroot; the build would not be pinned" >&2
     sudo chroot "$c" sh -c 'grep -rn "^deb\|^URIs" /etc/apt/sources.list.d/ 2>/dev/null' >&2
     exit 1
@@ -1222,7 +1222,7 @@ build_base(){
     sudo chroot "$WORK/base" systemctl enable sinty-nm.service 2>/dev/null || true
     sudo chroot "$WORK/base" systemctl enable bluetooth 2>/dev/null || true
   else
-    if ! sudo chroot "$WORK/base" dpkg-query -W -f='${Status}' network-manager 2>/dev/null | grep -q "^install ok installed"; then
+    if ! sudo chroot "$WORK/base" dpkg-query -W -f='${Status}' network-manager 2>/dev/null | grep >/dev/null "^install ok installed"; then
       log "ERROR: no sinty-nmd and network-manager is absent after base package install; console/base installs would have no network owner"
       apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
       return 1
@@ -1260,7 +1260,7 @@ build_base(){
   # goes back to a full desktop image.
   _purge=""
   for _p in gdm3 gnome-shell gnome-session ubuntu-session ubuntu-desktop ubuntu-desktop-minimal; do
-      sudo chroot "$WORK/base" dpkg-query -W -f='${Status}' "$_p" 2>/dev/null | grep -q "^install ok installed" \
+      sudo chroot "$WORK/base" dpkg-query -W -f='${Status}' "$_p" 2>/dev/null | grep >/dev/null "^install ok installed" \
           && _purge="$_purge $_p"
   done
   if [ -n "$_purge" ]; then

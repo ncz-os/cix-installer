@@ -68,7 +68,7 @@ neg() { # <label> <expected-regex> <args...>
     local label="$1" re="$2"; shift 2
     local out rc
     out="$(bash "$VERIFY" "$@" 2>&1)"; rc=$?
-    if [ "$rc" != 0 ] && printf '%s\n' "$out" | grep -q -- "$re"; then ok "$label"
+    if [ "$rc" != 0 ] && printf '%s\n' "$out" | grep >/dev/null -- "$re"; then ok "$label"
     else bad "$label (rc=$rc): $out"; fi
 }
 

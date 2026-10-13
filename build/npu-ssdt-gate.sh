@@ -300,7 +300,7 @@ fi
 # hand-edited the CPIO — all silent regression classes this gate exists to
 # catch.
 if [ "$FAILED" = "0" ]; then
-    if ! cpio -it < "$CPIO" 2>/dev/null | grep -qxF "$EXPECTED_ENTRY"; then
+    if ! cpio -it < "$CPIO" 2>/dev/null | grep >/dev/null -xF "$EXPECTED_ENTRY"; then
         entries=$(cpio -it < "$CPIO" 2>/dev/null | sed 's/^/      /')
         fail "CPIO does not contain expected entry: $EXPECTED_ENTRY"
         echo "  Contents:" >&2

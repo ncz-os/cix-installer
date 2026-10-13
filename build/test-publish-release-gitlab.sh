@@ -282,7 +282,7 @@ ONE="$T/one"; mkrel "$ONE"; rm -rf "$ONE/arm64"; cp "$ONE/amd64/SHA256SUMS-amd64
 reset_state
 bash "$TOOL" --dir "$ONE" --tag v26.10-test >/dev/null 2>&1; rc=$?
 check "amd64-only release exits 0" '[ "$rc" -eq 0 ]'
-check "amd64-only release has no arm64 package or links" '[ "$(st "[$PK | .name] | sort | join(\",\")")" = "ncz-os-image-amd64,ncz-os-image-common" ] && ! st "$LINKS[].name" | grep -q "^arm64/"'
+check "amd64-only release has no arm64 package or links" '[ "$(st "[$PK | .name] | sort | join(\",\")")" = "ncz-os-image-amd64,ncz-os-image-common" ] && ! st "$LINKS[].name" | grep >/dev/null "^arm64/"'
 
 # 11. tag that does not exist: no upload, no release (the tool never creates tags)
 reset_state
@@ -340,7 +340,7 @@ bash "$TOOL" --tag x >/dev/null 2>&1; rc=$?; check "missing --dir exits 2" '[ "$
 bash "$TOOL" --dir "$REL" >/dev/null 2>&1; rc=$?; check "missing --tag exits 2" '[ "$rc" -eq 2 ]'
 bash "$TOOL" --dir "$REL" --tag v26.10-test --keep 0 >/dev/null 2>&1; rc=$?; check "--keep 0 exits 2" '[ "$rc" -eq 2 ]'
 bash "$TOOL" --dir "$REL" --tag 'bad tag' --version 'bad ver' --dry-run >/dev/null 2>&1; rc=$?; check "invalid version exits 2" '[ "$rc" -eq 2 ]'
-bash "$TOOL" --help | grep -q -- "--prune-old"; rc=$?; check "--help documents --prune-old" '[ "$rc" -eq 0 ]'
+bash "$TOOL" --help | grep >/dev/null -- "--prune-old"; rc=$?; check "--help documents --prune-old" '[ "$rc" -eq 0 ]'
 
 echo "passed=$PASS failed=$FAILS"
 [ "$FAILS" -eq 0 ]

@@ -28,16 +28,16 @@ grep -qE '^[[:space:]]*mesa-opencl-icd([[:space:]]|$)' "$M" \
 # ---- the arm64 purge keeps mesa-vulkan-drivers
 purge_loop="$(sed -n '/^    for p in libvulkan-dev/,/^    done/p' "$L")"
 if [ -n "$purge_loop" ]; then
-    printf '%s\n' "$purge_loop" | grep -q 'mesa-vulkan-drivers' \
+    printf '%s\n' "$purge_loop" | grep >/dev/null 'mesa-vulkan-drivers' \
         && bad "arm64 purge still removes mesa-vulkan-drivers" \
         || ok "arm64 purge no longer removes mesa-vulkan-drivers"
-    printf '%s\n' "$purge_loop" | grep -q 'libvulkan-dev' \
+    printf '%s\n' "$purge_loop" | grep >/dev/null 'libvulkan-dev' \
         && ok "arm64 purge still removes the Vulkan dev headers" || bad "purge loop looks wrong"
 else
     bad "could not find the arm64 purge loop in 47-llm-stack.sh"
 fi
 arm64_block="$(awk '/^if \[ "\$TARGET_ARCH" = "arm64" \]; then/{f=1} f && /^else$/{exit} f{print}' "$L")"
-if printf '%s\n' "$arm64_block" | grep -q 'apt-get install -y --no-install-recommends mesa-vulkan-drivers'; then
+if printf '%s\n' "$arm64_block" | grep >/dev/null 'apt-get install -y --no-install-recommends mesa-vulkan-drivers'; then
     ok "arm64 branch installs mesa-vulkan-drivers (idempotent)"
 else
     bad "arm64 branch does not install mesa-vulkan-drivers"
@@ -49,7 +49,7 @@ grep -q 'vulkan ICDs   : ${_vk_icds:-(none)}' "$S" \
 grep -q 'no Vulkan on Panthor: install mesa-vulkan-drivers' "$S" \
     && ok "status names the Panthor/no-Vulkan case" || bad "status has no Panthor/no-Vulkan text"
 # the missing ICD must not be turned into a health failure
-if sed -n '/no Vulkan on Panthor/,+2p' "$S" | grep -q 'add '; then
+if sed -n '/no Vulkan on Panthor/,+2p' "$S" | grep >/dev/null 'add '; then
     bad "missing Vulkan ICD is treated as a health failure"
 else
     ok "missing Vulkan ICD never fails health"

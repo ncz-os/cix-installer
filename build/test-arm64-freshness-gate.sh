@@ -206,8 +206,8 @@ mksymlink "$SYN_REPO/assets/kernel/mainline" "$SYN_POOL/r286-7.3.0-rc6-sky1-ncz-
 GATE_OUT="$(NCZ_TARGET_ARCH=arm64 bash "$SYN_REPO/build/preflight-freshness-gate.sh" \
     --kernel-staging-dir "$SYN_POOL" 2>&1)"
 printf '%s\n' "$GATE_OUT" | grep -E '^\[3\]|          sky1-' | sed 's/^/    /'
-if printf '%s\n' "$GATE_OUT" | grep -q 'sky1-7.2.9-20261003' \
-   && printf '%s\n' "$GATE_OUT" | grep -q '^\[3\] OK: arm64 mainline -- assets/kernel/mainline -> r286-7.3.0-rc6-sky1-ncz-20261011'; then
+if printf '%s\n' "$GATE_OUT" | grep >/dev/null 'sky1-7.2.9-20261003' \
+   && printf '%s\n' "$GATE_OUT" | grep >/dev/null '^\[3\] OK: arm64 mainline -- assets/kernel/mainline -> r286-7.3.0-rc6-sky1-ncz-20261011'; then
     echo "  PASS  full gate: orphan flagged, unified mainline OK"
     PASS=$((PASS+1))
 else

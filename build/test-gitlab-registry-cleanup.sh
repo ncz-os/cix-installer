@@ -247,8 +247,8 @@ NCZ_GITLAB_TOKEN_VAR=UNSET_VAR NCZ_GITLAB_TOKEN_HELPER="$T/bin/tokhelper" "$BASH
 check "token helper run exits 0" '[ "$rc" -eq 0 ] && ! grep -q "auth=no" "$MOCK_LOG"'
 
 # 7. the shipped rules file parses and never names kernel source packages
-check "shipped rules name no linux-* package" '! grep -Ev "^[[:space:]]*(#|$)" "$ROOT/tools/registry-retention.conf" | grep -q " linux-"'
-"$BASH4" "$TOOL" --help | grep -q -- "--apply"; rc=$?
+check "shipped rules name no linux-* package" '! grep -Ev "^[[:space:]]*(#|$)" "$ROOT/tools/registry-retention.conf" | grep >/dev/null " linux-"'
+"$BASH4" "$TOOL" --help | grep >/dev/null -- "--apply"; rc=$?
 check "--help documents --apply" '[ "$rc" -eq 0 ]'
 
 echo "passed=$PASS failed=$FAILS"

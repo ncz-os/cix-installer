@@ -32,9 +32,9 @@ else ok "the retired installer login is gone from preseed/ and the docs"; fi
 
 echo "== shown while the installer runs"
 ec="$(sed -n '/^d-i preseed\/early_command string/,/^d-i preseed\/early_command seen/p' "$PRE")"
-printf '%s\n' "$ec" | grep -q 'NCZDL=$(ncz_ui_diag_login' && printf '%s\n' "$ec" | grep -q 'INSTALLER ${NCZREV:-unknown} ====${NCZDL:+ $NCZDL}' \
+printf '%s\n' "$ec" | grep >/dev/null 'NCZDL=$(ncz_ui_diag_login' && printf '%s\n' "$ec" | grep >/dev/null 'INSTALLER ${NCZREV:-unknown} ====${NCZDL:+ $NCZDL}' \
     && ok "early_command boot banner carries the login line" || bad "boot banner lacks the login line"
-printf '%s\n' "$ec" | grep -q 'for V in /dev/tty1 /dev/tty3 /dev/console' && ok "banner goes to tty1, tty3 and the console" || bad "banner TTY list changed"
+printf '%s\n' "$ec" | grep >/dev/null 'for V in /dev/tty1 /dev/tty3 /dev/console' && ok "banner goes to tty1, tty3 and the console" || bad "banner TTY list changed"
 grep -qE '^[[:space:]]*"ncz-ui\.sh",' "$ROOT/build/iso/patch-initrd-t2-kernel.py" && ok "ncz-ui.sh is baked into the initrd" || bad "ncz-ui.sh not baked"
 grep -q 'ncz_ui_diag_login' "$ROOT/preseed/late.sh" && grep -q 'NCZ_DIAG_LOGIN_LINE:+ Remote' "$ROOT/preseed/late.sh" \
     && ok "post-install progress screen repeats it" || bad "progress screen lacks it"

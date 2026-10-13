@@ -103,7 +103,7 @@ if grep -q '^apt-policy-deb:' "$ROOT/Makefile" && grep -Eq '^desktop-mirror:.*\b
 else
     bad "Makefile: desktop-mirror does not depend on an apt-policy-deb target"
 fi
-grep -A4 '^apt-policy-deb:' "$ROOT/Makefile" | grep -q 'build-ncz-apt-policy-deb.sh' && ok "apt-policy-deb runs build/build-ncz-apt-policy-deb.sh" || bad "apt-policy-deb does not run the builder"
+grep -A4 '^apt-policy-deb:' "$ROOT/Makefile" | grep >/dev/null 'build-ncz-apt-policy-deb.sh' && ok "apt-policy-deb runs build/build-ncz-apt-policy-deb.sh" || bad "apt-policy-deb does not run the builder"
 grep -q 'ncz-apt-policy|' "$ROOT/build/build-desktop-mirror.sh" && ok "build-desktop-mirror.sh carries the ncz-apt-policy NCZ_LOCAL_DEBS row" || bad "no ncz-apt-policy row in build-desktop-mirror.sh"
 
 echo "test-install-extra-local-debs: $PASS passed, $FAIL failed"

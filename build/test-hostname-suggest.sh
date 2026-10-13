@@ -50,7 +50,7 @@ for SH in $SHELLS; do
     echo "-- shell: $SH"
     mkfix a; dmi a product_uuid "3F2504E0-4F89-11D3-9A0C-0305E82C3301"; nic a wlan0 "aa:bb:cc:00:00:01" pci wifi; nic a eth0 "aa:bb:cc:00:00:02" pci eth
     r1=$(gen a $SH)
-    echo "$(name "$r1")" | grep -Eq "$RX" && ok "format matches $RX ($(name "$r1"))" || bad "format: $(name "$r1")"
+    echo "$(name "$r1")" | grep >/dev/null -E "$RX" && ok "format matches $RX ($(name "$r1"))" || bad "format: $(name "$r1")"
     _n1=$(name "$r1"); [ "${#_n1}" -le 17 ] && ok "at most 17 characters (ncz- + 8 + - + 4), far inside the 63-char DNS label limit" || bad "too long: $_n1"
     check "source is product_uuid" "$(srcof "$r1")" "dmi:product_uuid"
     check "deterministic" "$(name "$(gen a $SH)")" "$(name "$r1")"
@@ -75,7 +75,7 @@ for SH in $SHELLS; do
     a=$(gen f $SH); b=$(gen f $SH)
     check "nothing usable: random" "$(srcof "$a")" "random"
     [ "$(name "$a")" != "$(name "$b")" ] && ok "random names differ between runs" || bad "random names identical"
-    echo "$(name "$a")" | grep -Eq "$RX" && ok "random name still matches the format" || bad "random format: $(name "$a")"
+    echo "$(name "$a")" | grep >/dev/null -E "$RX" && ok "random name still matches the format" || bad "random format: $(name "$a")"
 done
 
 echo "== B. installer helper (stubbed debconf)"

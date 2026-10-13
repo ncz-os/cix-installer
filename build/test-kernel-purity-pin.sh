@@ -151,7 +151,7 @@ echo "=== NCZ's own kernel stays installable ==="
 [ "$(candidate "$OUR_PKG")" = "$OUR_VER" ] && ok "our $OUR_PKG candidate is $OUR_VER" \
     || bad "our $OUR_PKG candidate was '$(candidate "$OUR_PKG")', expected $OUR_VER"
 out="$(install_plan "$OUR_PKG")"; rc=$?
-if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q '0 to remove'; then
+if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep >/dev/null '0 to remove'; then
     ok "apt-get install -s $OUR_PKG succeeds with 0 removals under the pin"
 else
     bad "apt-get install -s $OUR_PKG failed or removed packages (rc=$rc)"
@@ -168,9 +168,9 @@ if [ "$rc" = 0 ]; then
     out="$(install_plan test-recommends-kernel)"
     # "Recommended packages:" may still LIST the Debian meta; what matters is
     # that apt does not schedule it (an `Inst <pkg>` plan line).
-    if printf '%s\n' "$out" | grep -qE "^Inst .*$DEB_META"; then
+    if printf '%s\n' "$out" | grep >/dev/null -E "^Inst .*$DEB_META"; then
         bad "test-recommends-kernel pulled $DEB_META in"
-    elif ! printf '%s\n' "$out" | grep -q '0 to remove'; then
+    elif ! printf '%s\n' "$out" | grep >/dev/null '0 to remove'; then
         bad "test-recommends-kernel install removed packages"
     else
         ok "test-recommends-kernel installs with 0 removals and without $DEB_META"

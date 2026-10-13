@@ -125,7 +125,7 @@ if [ "$MODE" = repin ]; then
     NEWPIN="$(mktemp "${TMPDIR:-$ROOT}/.diag-busybox-pin.XXXXXX")"
     grep '^#' "$PIN" > "$NEWPIN"
     for a in amd64 arm64; do
-        if ! printf '%s\n' $ARCHES | grep -qx "$a"; then pin_row "$a" >> "$NEWPIN"; continue; fi
+        if ! printf '%s\n' $ARCHES | grep >/dev/null -x "$a"; then pin_row "$a" >> "$NEWPIN"; continue; fi
         rec="$(xz -dc "$INDEX_DIR/dists/forky/main/binary-$a/Packages.xz" | python3 -I -c '
 import sys
 for st in sys.stdin.read().split("\n\n"):

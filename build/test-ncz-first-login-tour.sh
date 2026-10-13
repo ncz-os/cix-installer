@@ -192,7 +192,7 @@ fi
 # and the launcher asserts \$# == 2 (mode + command line) so a caller that passes extra
 # arguments fails loud instead of silently losing them.
 # shellcheck disable=SC2016  # literal source text, not an expansion
-if grep -B 2 -A 4 'set -- $2' "$SCRIPT" | grep -q 'set -f'; then
+if grep -B 2 -A 4 'set -- $2' "$SCRIPT" | grep >/dev/null 'set -f'; then
     ok "tokenisation under 'set -f' (noglob; audit-safe argv)"
 else
     bad "tokenisation not under 'set -f'"

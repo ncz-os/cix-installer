@@ -32,10 +32,10 @@ cp "$ROOT/manifests/diag-busybox.tsv" "$ROOT/manifests/forky-snapshot.tsv" "$W/r
 cp "$ROOT"/assets/diag/busybox-* "$W/repo/assets/diag/"
 printf 'x' >> "$W/repo/assets/diag/busybox-arm64"
 out="$(NCZ_DIAG_BB_ROOT="$W/repo" bash "$ROOT/build/stage-diag-busybox.sh" --check 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && echo "$out" | grep -q 'arm64: assets/diag/busybox-arm64 sha256'; then ok "control: a modified binary fails the pin check"; else bad "control: tampered binary not detected (rc=$rc)"; fi
+if [ "$rc" = 1 ] && echo "$out" | grep >/dev/null 'arm64: assets/diag/busybox-arm64 sha256'; then ok "control: a modified binary fails the pin check"; else bad "control: tampered binary not detected (rc=$rc)"; fi
 printf '\177ELF fake (Ubuntu 1:1.36.1-6ubuntu3.1)' > "$W/repo/assets/diag/busybox-amd64"
 out="$(NCZ_DIAG_BB_ROOT="$W/repo" bash "$ROOT/build/stage-diag-busybox.sh" --check --arch amd64 2>&1)"
-echo "$out" | grep -q 'amd64: binary carries an Ubuntu build identity' && ok "control: an Ubuntu banner is reported" || bad "control: Ubuntu banner not reported"
+echo "$out" | grep >/dev/null 'amd64: binary carries an Ubuntu build identity' && ok "control: an Ubuntu banner is reported" || bad "control: Ubuntu banner not reported"
 
 # --- applets diag-console.sh requires --------------------------------------------------------
 REQ="$(sed -n 's/^for _applet in \(.*\); do$/\1/p' "$DIAG" | tail -1)"
@@ -50,9 +50,9 @@ fi
 check_applets() {   # check_applets <label> <cmd...>
     local label="$1" list miss="" a; shift
     list="$("$@" --list 2>/dev/null)"
-    for a in $REQ; do printf '%s\n' "$list" | grep -qx "$a" || miss="$miss $a"; done
+    for a in $REQ; do printf '%s\n' "$list" | grep >/dev/null -x "$a" || miss="$miss $a"; done
     [ -z "$miss" ] && ok "$label provides every required applet" || bad "$label lacks:$miss"
-    if printf '%s\n' "$list" | grep -qx chpasswd; then
+    if printf '%s\n' "$list" | grep >/dev/null -x chpasswd; then
         echo "note $label has chpasswd"
     else
         ok "control: $label has no chpasswd applet (why the console hashes with mkpasswd)"

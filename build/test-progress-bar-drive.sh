@@ -258,14 +258,14 @@ for s in $SHELLS; do
     check "[$s] rescale: mode chosen at runtime, 760 units owned" \
         grep -q '^MODE rescale 920 137 897 760$' "$d/rec"
     check "[$s] rescale: START 0 920 keeps finish-install's own title, then SET 137 at once" \
-        sh -c 'grep "^PROGRESS" "$1" | sed -n "6,7p" | tr "\n" " " | grep -q "^PROGRESS START 0 920 finish-install/progress/title PROGRESS SET 137 $"' _ "$d/rec"
+        sh -c 'grep "^PROGRESS" "$1" | sed -n "6,7p" | tr "\n" " " | grep >/dev/null "^PROGRESS START 0 920 finish-install/progress/title PROGRESS SET 137 $"' _ "$d/rec"
     check "[$s] rescale: never STOPs inside late.sh" \
-        sh -c '! sed "/^LATE-END/q" "$1" | grep -q "^PROGRESS STOP"' _ "$d/rec"
+        sh -c '! sed "/^LATE-END/q" "$1" | grep >/dev/null "^PROGRESS STOP"' _ "$d/rec"
     check "[$s] rescale: the bar never settles lower, never overflows" model_clean "$d"
     check "[$s] rescale: finish-install's remaining STEPs end at exactly 100%" \
         test "$(awk '/^V /{v=$3} END{print v}' "$d/model")" = 100000
     check "[$s] rescale: late.sh ends at its range end (897/920) before finish-install resumes" \
-        sh -c 'sed "/^LATE-END/q" "$1" | grep "^PROGRESS SET" | tail -n 1 | grep -q "^PROGRESS SET 897$"' _ "$d/rec"
+        sh -c 'sed "/^LATE-END/q" "$1" | grep "^PROGRESS SET" | tail -n 1 | grep >/dev/null "^PROGRESS SET 897$"' _ "$d/rec"
     # GPU step weight: the step-40 span is 12x an ordinary step's span
     gpu_weight() {
         local f="$1/rec" s39 s40 e40 one
@@ -319,7 +319,7 @@ for s in $SHELLS; do
         sh -c '! grep -q "^ERR" "$1" && [ "$(awk "/^V /{v=\$3} END{print v}" "$1")" = 100000 ]' _ "$d/model"
     d=$(scenario "$s" norestart 1 DEBCONF_OK=1 "REJECT=finish-install/progress/title nclawzero/install-progress")
     check "[$s] every START refused: text-only, no SET/STEP from late.sh" \
-        sh -c 'grep -q "^MODE text" "$1" && ! sed -n "/^MODE/,/^LATE-END/p" "$1" | grep -q "^PROGRESS \(SET\|STEP\)"' _ "$d/rec"
+        sh -c 'grep -q "^MODE text" "$1" && ! sed -n "/^MODE/,/^LATE-END/p" "$1" | grep >/dev/null "^PROGRESS \(SET\|STEP\)"' _ "$d/rec"
 done
 
 # ------------------------------------------------------------ proc check direct

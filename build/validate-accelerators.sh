@@ -81,7 +81,7 @@ fi
 
 if [ "$GPU_BOUND" = "1" ]; then
     VULKAN_OUT=$(run "vulkaninfo --summary 2>&1" || true)
-    if echo "$VULKAN_OUT" | grep -qi "Mali\|CIXH\|Panthor\|GPU id"; then
+    if echo "$VULKAN_OUT" | grep >/dev/null -i "Mali\|CIXH\|Panthor\|GPU id"; then
         pass "GPU: vulkaninfo enumerates a real device"
         note "$(echo "$VULKAN_OUT" | grep -i "deviceName\|GPU id" | head -3)"
     else
@@ -89,7 +89,7 @@ if [ "$GPU_BOUND" = "1" ]; then
     fi
 
     CLINFO_OUT=$(run "clinfo 2>&1" || true)
-    if echo "$CLINFO_OUT" | grep -qi "Mali\|ARM\|Number of platforms.*[1-9]"; then
+    if echo "$CLINFO_OUT" | grep >/dev/null -i "Mali\|ARM\|Number of platforms.*[1-9]"; then
         pass "GPU: clinfo enumerates an OpenCL platform"
     else
         fail "GPU: clinfo found no OpenCL platform (check /etc/ld.so.conf.d/00-cixgpu-pro.conf, not just package presence)"
@@ -100,7 +100,7 @@ if [ "$GPU_BOUND" = "1" ]; then
     # tool is present rather than silently skipping the strongest check.
     if run "command -v vkmark >/dev/null 2>&1"; then
         VKMARK_OUT=$(run "timeout 30 vkmark --run-forever=false -b :duration=2.0:cube 2>&1" || true)
-        if echo "$VKMARK_OUT" | grep -qi "FPS\|glmark2 Score\|Score:"; then
+        if echo "$VKMARK_OUT" | grep >/dev/null -i "FPS\|glmark2 Score\|Score:"; then
             pass "GPU: vkmark submitted real draw work and reported a score"
         else
             fail "GPU: vkmark did not report a score -- device enumerates but real draw dispatch failed"
@@ -156,7 +156,7 @@ try:
 except Exception as e:
     print(\"NPU_OPEN_FAILED:\", e); sys.exit(1)
 ' 2>&1" || true)
-    if echo "$NOE_TEST" | grep -q "NPU_OPEN_FAILED"; then
+    if echo "$NOE_TEST" | grep >/dev/null "NPU_OPEN_FAILED"; then
         fail "NPU: libnoe imports but failed to open/init the device -- $NOE_TEST"
     else
         note "$NOE_TEST"
@@ -180,7 +180,7 @@ echo "--- VPU ---"
 
 if run "command -v vainfo >/dev/null 2>&1"; then
     VAINFO_OUT=$(run "vainfo 2>&1" || true)
-    if echo "$VAINFO_OUT" | grep -qi "VAProfile"; then
+    if echo "$VAINFO_OUT" | grep >/dev/null -i "VAProfile"; then
         pass "VPU: vainfo enumerates VA-API profiles"
         note "$(echo "$VAINFO_OUT" | grep -i "VAProfile" | head -5)"
     else
