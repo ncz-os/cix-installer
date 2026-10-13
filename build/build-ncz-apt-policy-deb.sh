@@ -92,17 +92,16 @@ exit 0
 POSTRM
 chmod 0755 "$WORK/DEBIAN/postinst" "$WORK/DEBIAN/postrm"
 
-# mtime epoch: scoped to THIS package's own inputs, NOT the build's global
-# SOURCE_DATE_EPOCH.  build-image.sh exports SOURCE_DATE_EPOCH = the git commit
-# time of HEAD, which changes on every -- even unrelated -- commit; that made
-# this Architecture:all deb's bytes (and so its reviewed ledger row in
-# manifests/ncz-packages.tsv) change on unrelated commits, which cannot be a
-# stable reviewed pin.  Anchor the epoch to the last commit that touched the
-# packaging script or the packaged library, so the sha only moves when the
-# package itself moves.  (r203 provenance finding; pairs with the host-independent
-# Installed-Size above.)
-SOURCE_DATE_EPOCH="$(git -C "$ROOT" log -1 --format=%ct -- post-install/lib/apt-separation.sh build/build-ncz-apt-policy-deb.sh 2>/dev/null || true)"
-: "${SOURCE_DATE_EPOCH:=1790000000}"
+# mtime epoch: a fixed value per package version, NOT the build's global
+# SOURCE_DATE_EPOCH (the commit time of HEAD, which moves on every commit) and
+# NOT the commit time of this script or the library (a comment-only edit here
+# moved the epoch and so the bytes of an unchanged 1.0.2 package, which then no
+# longer matched its reviewed row in manifests/ncz-packages.tsv).  The bytes now
+# depend only on the packaged content and this value.  When the content changes,
+# bump VERSION, set a new epoch here and update the ledger row
+# (build/test-ncz-apt-policy-deb.sh checks the built sha against that row).
+# 1791662078 is the epoch the reviewed 1.0.2 bytes were built with.
+SOURCE_DATE_EPOCH=1791662078
 export SOURCE_DATE_EPOCH
 find "$WORK" -type d -exec chmod 0755 {} +
 chmod 0644 "$WORK/usr/share/doc/$PKG/README"

@@ -34,6 +34,26 @@ VER="$(dpkg-deb -f "$DEB" Version)"
 [ "$VER" != 1.0.0 ] && ok "version is $VER (1.0.0 carried the broken postinst and must never ship)" || bad "version is the broken 1.0.0"
 dpkg-deb -f "$DEB" Depends | grep -qw bash && ok "Depends includes bash" || bad "Depends lacks bash"
 
+echo "=== 0. bytes match the reviewed ledger row and do not follow commit history ==="
+SHA="$(sha256sum "$DEB" | cut -d' ' -f1)"
+PIN="$(awk -F'\t' -v v="$VER" '$1=="ncz-apt-policy" && $2==v && $3=="all" {print $4; exit}' "$ROOT/manifests/ncz-packages.tsv")"
+if [ -z "$PIN" ]; then bad "manifests/ncz-packages.tsv has no ncz-apt-policy $VER all row"
+elif [ "$SHA" = "$PIN" ]; then ok "built sha256 $SHA == ledger row"
+else bad "built sha256 $SHA != ledger row $PIN (bump the version or update the row)"; fi
+# the same tree outside git, with a comment-only edit to the builder, must give the same bytes
+mkdir -p "$T/copy/build/lib" "$T/copy/post-install/lib"
+cp "$HERE/build-ncz-apt-policy-deb.sh" "$T/copy/build/"
+cp "$HERE/lib/deb-version-gate.sh" "$T/copy/build/lib/"
+cp "$ROOT/post-install/lib/apt-separation.sh" "$T/copy/post-install/lib/"
+echo '# comment-only edit' >> "$T/copy/build/build-ncz-apt-policy-deb.sh"
+if NCZ_PUBLISHED_INDEX="$T/empty-index" NCZ_APT_POLICY_OUT="$T/out-copy" bash "$T/copy/build/build-ncz-apt-policy-deb.sh" >"$T/build-copy.log" 2>&1; then
+    SHA2="$(sha256sum "$T"/out-copy/ncz-apt-policy_*_all.deb | cut -d' ' -f1)"
+    [ "$SHA2" = "$SHA" ] && ok "comment-only builder edit outside git: same bytes" \
+        || bad "comment-only builder edit outside git changed the bytes ($SHA2 != $SHA)"
+else
+    bad "builder failed from a copied tree" "$(cat "$T/build-copy.log")"
+fi
+
 echo "=== 1. every packaged script parses under its own interpreter ==="
 dpkg-deb -R "$DEB" "$T/x"
 SHDASH="$(command -v dash || true)"
