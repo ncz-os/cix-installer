@@ -262,14 +262,14 @@ rm -f "$CHROOT"/etc/ssh/ssh_host_* "$CHROOT/var/lib/dbus/machine-id"
 : > "$CHROOT/etc/machine-id"
 if [ -e "$CHROOT/var/lib/dbus/machine-id" ] || \
    find "$CHROOT/etc/ssh" -maxdepth 1 -name 'ssh_host_*' | grep -q . || \
-   find "$CHROOT/root" "$CHROOT/home" -name authorized_keys 2>/dev/null | grep -q .; then
-    echo "[mgmt-rootfs] ERROR: rootfs carries SSH host keys, authorized_keys or a machine-id" >&2
+   find "$CHROOT/root" "$CHROOT/home" -path "*/.ssh/*" -type f 2>/dev/null | grep -q .; then
+    echo "[mgmt-rootfs] ERROR: rootfs carries SSH host keys, files under a ~/.ssh or a machine-id" >&2
     exit 1
 fi
 [ -f "$CHROOT/usr/lib/systemd/system/sshd-keygen.service" ] && \
    [ -L "$CHROOT/etc/systemd/system/ssh.service.wants/sshd-keygen.service" ] || {
     echo "[mgmt-rootfs] ERROR: sshd-keygen.service is not wired to ssh.service" >&2; exit 1; }
-echo "[mgmt-rootfs] verified: no SSH host keys, authorized_keys or machine-id"
+echo "[mgmt-rootfs] verified: no SSH host keys, no files under ~/.ssh, no machine-id"
 
 # ----------------------------------------------------------------------
 # Stage 4 - pack the tarball (unmount binds first).

@@ -90,7 +90,7 @@ grep -q 'install -d -m 0755 /etc/modules-load.d' "$ROOT/post-install/38-recovery
     && ok "hook 38 creates /etc/modules-load.d (a real run died there)" || bad "hook 38 does not create /etc/modules-load.d"
 # --- recovery/rescue archives carry no per-device identity ------------------------------------
 grep -q 'rm -f "\$CHROOT"/etc/ssh/ssh_host_\* "\$CHROOT/var/lib/dbus/machine-id"' "$ROOT/build/build-mgmt-rootfs.sh" \
-    && grep -q 'rootfs carries SSH host keys, authorized_keys or a machine-id' "$ROOT/build/build-mgmt-rootfs.sh" \
+    && grep -q 'rootfs carries SSH host keys, files under a ~/.ssh or a machine-id' "$ROOT/build/build-mgmt-rootfs.sh" \
     && ok "mgmt rootfs drops SSH host keys + machine-id and fails if any remain" || bad "mgmt rootfs may pack SSH host keys or a machine-id"
 grep -q 'rm -f "\$CHROOT"/etc/ssh/ssh_host_\*' "$ROOT/build/build-rescue-rootfs.sh" \
     && ok "rescue rootfs drops SSH host keys" || bad "rescue rootfs may pack SSH host keys"
