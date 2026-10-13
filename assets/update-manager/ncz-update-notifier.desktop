@@ -7,3 +7,4 @@ Icon=system-software-update
 Terminal=false
 X-GNOME-Autostart-enabled=true
 NoDisplay=true
+OnlyShowIn=Singularity;

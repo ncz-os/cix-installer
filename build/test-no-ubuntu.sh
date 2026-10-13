@@ -246,6 +246,23 @@ echo "$LAST" | grep -q 'Ubuntu-built' && ok "  reason names the Ubuntu build" ||
 expect_rc "Debian fonts-liberation 1:2.1.5-3 passes" 0 bash "$NOUB" --debs "$T/debian-pool"
 expect_rc "NCZ debs pass" 0 bash "$NOUB" --debs "$T/ncz-pool"
 expect_rc "@ubuntu.com Debian maintainer is only a WARN offline" 0 bash "$NOUB" --debs "$T/tpm-pool"
+# BIN: committed ELF binaries under assets/ (non-git fixture roots; find mode)
+mkbin() {  # root relpath content...
+    local r="$1" p="$2"; shift 2
+    mkdir -p "$r/$(dirname "$p")"; { printf '\177ELF\002\001\001'; printf '%s\0' "$@"; } > "$r/$p"
+}
+mkbin "$T/bin-ubuntu" assets/diag/busybox-amd64 'BusyBox v1.36.1 (Ubuntu 1:1.36.1-6ubuntu3.1) multi-call binary.'
+mkbin "$T/bin-gcc" assets/kernel/x/7.2.0-sky1-ncz/x.ko 'GCC: (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0'
+mkbin "$T/bin-note" assets/diag/busybox-arm64 '{"type":"deb","os":"ubuntu","name":"busybox","version":"1:1.37.0-7ubuntu1","architecture":"arm64"}'
+mkbin "$T/bin-debian" assets/diag/busybox-amd64 'BusyBox v1.38.0 (Debian 1:1.38.0-3+b1) multi-call binary.'
+mkbin "$T/bin-debian" assets/kernel/x/7.3.0-rc7-sky1-ncz/x.ko 'GCC: (Debian 14.2.0-19) 14.2.0'
+mkdir -p "$T/bin-text/assets/docs"; printf 'built on (Ubuntu 1:1.36.1-6ubuntu3.1)\n' > "$T/bin-text/assets/docs/notes.txt"
+for c in ubuntu gcc note; do
+    expect_rc "Ubuntu-built ELF in assets ($c) FAILS" 1 env NCZ_NO_UBUNTU_ROOT="$T/bin-$c" bash "$NOUB" --debs "$T/debian-pool"
+    echo "$LAST" | grep -q '\[BIN\].*Ubuntu-built ELF' && ok "  reason is [BIN] Ubuntu-built ELF" || bad "[BIN] reason missing" "$LAST"
+done
+expect_rc "Debian-built ELF binaries in assets pass" 0 env NCZ_NO_UBUNTU_ROOT="$T/bin-debian" bash "$NOUB" --debs "$T/debian-pool"
+expect_rc "a non-ELF file naming Ubuntu is not a BIN finding" 0 env NCZ_NO_UBUNTU_ROOT="$T/bin-text" bash "$NOUB" --debs "$T/debian-pool"
 
 echo "=== 2. full gate: verified index (happy paths) ==="
 expect_rc "fonts-liberation 1:2.1.5-3build1 (Ubuntu maintainer) FAILS" 1 prov --debs "$T/ubuntu-pool"

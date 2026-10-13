@@ -56,39 +56,42 @@ if [ ! -d "$ASSETS" ] && [ -d /cdrom/ncz-payload/assets/npu ]; then
 fi
 SSDT_CPIO="$ASSETS/npu-acpi-override.cpio"
 
+# Kernels to act on (post-install/lib/sky1-kernels.sh): the KVER_NEXT sidecar
+# is authoritative and, on a normal install, names the one shipped kernel
+# (assets/kernel/mainline -> KVER_NEXT, 7.3.0-rc7-sky1-ncz for 26.10). Any
+# other NCZ Sky1 kernel module tree on disk (*-sky1-ncz) that the sidecar
+# does not name -- a kernel package installed by hand, or sidecar drift -- is
+# folded in too: without it that kernel's initrd would miss the CIXH4010 _HID
+# overlay and the NPU cores would hard-hang on first register read. Every
+# per-kernel step below tolerates a kernel without an NPU module (it warns and
+# moves on), and the SSDT prepend checks the newc magic first, so this is
+# idempotent. Without the helper (an older medium) only the sidecar is used.
 KERNEL_LABELS=()
 KERNEL_VERS=()
-if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
-    KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null | tr -d ' \t\r\n')
-    if [ -n "$KVER_NEXT" ]; then
-        KERNEL_LABELS+=("mainline")
-        KERNEL_VERS+=("$KVER_NEXT")
+HERE="$(dirname "$0")"
+if [ -r "$HERE/lib/sky1-kernels.sh" ]; then
+    # shellcheck source=lib/sky1-kernels.sh
+    . "$HERE/lib/sky1-kernels.sh"
+    _kernels=$(ncz_sky1_kernel_vers "$INSTALLER_META")
+else
+    _kernels=""
+    if [ -f "$INSTALLER_META/KVER_NEXT" ]; then
+        _kv=$(tr -d ' \t\r\n' < "$INSTALLER_META/KVER_NEXT" 2>/dev/null)
+        [ -n "$_kv" ] && _kernels="sidecar $_kv"
     fi
 fi
-
-# --- Fallback: fold in an out-of-band NCZ edge (7.2) kernel ---
-# The KVER_NEXT sidecar is authoritative and, on a normal install, carries
-# the mainline kernel (assets/kernel/mainline -> KVER_NEXT), so 7.2 gets the SSDT
-# overlay through the normal edge path below. This fallback only covers the
-# case where a 7.2-class NCZ kernel is present on disk but NOT represented by
-# the sidecar (e.g. a hand-deployed 7.2 .deb, or sidecar drift): without it
-# that kernel's initrd would miss the CIXH4010 _HID overlay and the NPU cores
-# would hard-hang on first register read. De-duped against the sidecar (adds
-# nothing on a normal install where 7.2==KVER_NEXT) and idempotent downstream
-# (the SSDT prepend checks newc-magic first).
-for _mk in /lib/modules/*7.2*-ncz /usr/lib/modules/*7.2*-ncz; do
-    [ -d "$_mk" ] || continue
-    _kv="${_mk##*/}"
-    _known=0
-    for _k in "${KERNEL_VERS[@]}"; do [ "$_k" = "$_kv" ] && { _known=1; break; }; done
-    [ "$_known" = "1" ] && continue
-    echo "[80] fallback: NCZ edge kernel $_kv present but not in KVER_NEXT sidecar — folding in for NPU SSDT"
+while read -r _src _kv; do
+    [ -n "$_kv" ] || continue
+    if [ "$_src" = disk ]; then
+        echo "[80] NCZ Sky1 kernel $_kv present but not in KVER_NEXT sidecar — folding in for NPU SSDT"
+    fi
     KERNEL_LABELS+=("mainline")
     KERNEL_VERS+=("$_kv")
-done
+done <<< "$_kernels"
+unset _kernels _src _kv
 
 if [ "${#KERNEL_VERS[@]}" -eq 0 ]; then
-    echo "[80] WARN: no KVER_NEXT sidecar found; skipping kernel-specific NPU setup"
+    echo "[80] WARN: no Sky1 kernel found (no KVER_NEXT sidecar, no *-sky1-ncz module tree); skipping kernel-specific NPU setup"
 fi
 if [ ! -d "$ASSETS" ]; then
     # assets/npu/ is a gitignored blob dir carrying two OPTIONAL payloads: the

@@ -1022,8 +1022,8 @@ entry at the rEFInd menu — to disable it for that boot.
 - `ncz_diag_log=<host[:port]>` — remote syslog collector (port defaults to
   `5514`). Unset means no forwarding at all.
 
-**How it works.** A static busybox (with `telnetd`/`httpd`/`syslogd`/`klogd`/
-`chpasswd` compiled in) ships in the installer; the preseed launches
+**How it works.** A static busybox (Debian forky `busybox-static`, with
+`telnetd`/`httpd`/`syslogd`/`klogd`/`mkpasswd`) ships in the installer; the preseed launches
 `preseed/diag-console.sh` in the background. The script self-gates on
 `ncz_diag`, installs a full applet farm for the rich shell, sets the root
 password, optionally forwards syslog to the collector, and starts telnetd +

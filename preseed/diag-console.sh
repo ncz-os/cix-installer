@@ -27,9 +27,10 @@
 # Idempotent: safe to run repeatedly; daemons are tracked by pidfiles and only
 # (re)started when missing. Spawned in background by preseed/early_command.
 #
-# Runs under the d-i busybox 1.35 ash; uses a shipped static arm64 busybox
-# (assets/diag/busybox-arm64) for the applets d-i lacks (telnetd/httpd/syslogd/
-# chpasswd/--install) and for the richer diagnostic shell.
+# Runs under the d-i busybox ash; uses the shipped static busybox
+# (assets/diag/busybox-<arch>, Debian forky busybox-static, pinned in
+# manifests/diag-busybox.tsv) for the applets d-i lacks (telnetd/httpd/syslogd/
+# mkpasswd/--install) and for the richer diagnostic shell.
 
 set +e
 LOG=/var/log/diag-console.log
@@ -122,14 +123,14 @@ fi
 "$BB" mkdir -p "$BIN"; "$BB" --install "$BIN" 2>/dev/null
 # Some d-i tmpfs builds accept BusyBox --install but create no links. Build
 # the applet farm explicitly in that case so diagnostics do not die silently.
-if [ ! -x "$BIN/chpasswd" ]; then
-    for _applet in chpasswd httpd ifconfig klogd login nc netstat route sh tail telnetd udhcpc; do
+if [ ! -x "$BIN/telnetd" ]; then
+    for _applet in awk chmod httpd ifconfig klogd login mkpasswd mv nc netstat route sh stat tail telnetd udhcpc; do
         "$BB" ln -sf "$BB" "$BIN/$_applet" 2>/dev/null || true
     done
 fi
 say "applet farm: $("$BB" ls "$BIN" 2>/dev/null | "$BB" wc -l) applets in $BIN"
 export PATH=$BIN:/usr/bin:/bin:/usr/sbin:/sbin
-for _applet in chpasswd httpd ifconfig klogd login nc netstat route sh tail telnetd udhcpc; do
+for _applet in awk chmod httpd ifconfig klogd login mkpasswd mv nc netstat route sh stat tail telnetd udhcpc; do
     if [ ! -x "$BIN/$_applet" ]; then
         say "FATAL: busybox applet $_applet missing from $BIN"
         exit 1
@@ -171,7 +172,34 @@ ensure_devpts() {
 
 # ---- root password so SSH password-auth + telnet login work -----------------
 # d-i root is otherwise locked, so set a known simple password here.
-printf 'root:%s\n' "$PW" | "$BB" chpasswd 2>/dev/null \
+# Debian's busybox-static has no chpasswd applet, so this does what chpasswd
+# does: hash with mkpasswd (sha512 crypt, password on stdin) and write root's
+# password field -- in /etc/shadow when it has a root entry (and mark the
+# /etc/passwd field "x"), otherwise in /etc/passwd. Each file is rewritten
+# through a temporary copy with the original mode and renamed into place.
+# NCZ_DIAG_ETC is a test seam (build/test-diag-busybox.sh).
+ncz_diag_set_root_pw() {
+    _etc="${NCZ_DIAG_ETC:-/etc}"
+    _hash=$(printf '%s\n' "$1" | "$BB" mkpasswd -m sha512 2>/dev/null)
+    case "$_hash" in '$6$'*) ;; *) return 1 ;; esac
+    if [ -f "$_etc/shadow" ] && "$BB" grep -q '^root:' "$_etc/shadow"; then
+        _files="shadow passwd"
+    else
+        _files="passwd"
+    fi
+    for _f in $_files; do
+        _new="$_hash"
+        [ "$_f" = passwd ] && [ "$_files" != passwd ] && _new=x
+        _mode=$("$BB" stat -c %a "$_etc/$_f" 2>/dev/null) || return 1
+        "$BB" awk -F: -v OFS=: -v h="$_new" '$1 == "root" { $2 = h; n++ } { print } END { exit n ? 0 : 1 }' \
+            "$_etc/$_f" > "$_etc/$_f.ncz-new" \
+            && "$BB" chmod "$_mode" "$_etc/$_f.ncz-new" \
+            && "$BB" mv -f "$_etc/$_f.ncz-new" "$_etc/$_f" \
+            || { "$BB" rm -f "$_etc/$_f.ncz-new"; return 1; }
+    done
+    return 0
+}
+ncz_diag_set_root_pw "$PW" \
     && say "root password set (ssh/telnet password auth enabled)" \
     || say "ERROR: failed to set root password; SSH password login will fail"
 
