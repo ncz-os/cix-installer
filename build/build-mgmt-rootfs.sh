@@ -3,8 +3,8 @@
 #
 # Produces assets/mgmt/ncz-mgmt-rootfs.tar.zst: a minimal Debian forky
 # rootfs (arm64 or amd64) that boots under systemd-nspawn (Boot=yes) with its OWN complete
-# userland (glibc/NSS/PAM/openssh). This is the MIDDLE recovery tier on Server
-# edge boxes, between the day-to-day host sshd:22 and the crash-proof static
+# userland (glibc/NSS/PAM/openssh). This is the MIDDLE recovery tier on server
+# installs, between the day-to-day host sshd:22 and the crash-proof static
 # busybox telnet :2323 (post-install/37-failsafe-access.sh):
 #
 #   - It survives total host /usr/lib damage (the 2026-06-25 test-board incident) the
@@ -111,8 +111,8 @@ debootstrap "${DEBOOTSTRAP_ARGS[@]}" "$SUITE" "$CHROOT" "$MIRROR"
 # debootstrap writes its own sources.list with no deb options. A pinned
 # snapshot Release is expired once Valid-Until passes, so rewrite every line
 # with NCZ_BASE_MIRROR_APT_OPTS (empty when unpinned: a live mirror keeps
-# normal expiry checks). ONLY the forky suite itself is written (operator
-# 2026-10-08: "only Debian versions from forky"): no forky-updates, no
+# normal expiry checks). ONLY the forky suite itself is written
+# (2026-10-08: "only Debian versions from forky"): no forky-updates, no
 # forky-security, so the rootfs matches the pinned snapshot exactly.
 ncz_mirror_sources_list "$MIRROR" "$SUITE" "$COMPONENTS" "" "" "" \
     > "$CHROOT/etc/apt/sources.list"
@@ -260,6 +260,10 @@ rm -rf "$CHROOT/var/lib/apt/lists/"* "$CHROOT/var/cache/apt/archives/"*.deb 2>/d
 # nspawn provisions the machine-id; hook 38 and sshd-keygen.service create the keys.
 rm -f "$CHROOT"/etc/ssh/ssh_host_* "$CHROOT/var/lib/dbus/machine-id"
 : > "$CHROOT/etc/machine-id"
+# Build-time logs describe the BUILD HOST (its paths, and the host name in the
+# ssh-keygen output of the openssh postinst); the target writes its own logs.
+find "$CHROOT/var/log" -type f \( -name '*.log' -o -name '*.log.xz' \) -delete 2>/dev/null || true
+rm -f "$CHROOT/tmp/ncz-apt-update.log"
 if [ -e "$CHROOT/var/lib/dbus/machine-id" ] || \
    find "$CHROOT/etc/ssh" -maxdepth 1 -name 'ssh_host_*' | grep -q . || \
    find "$CHROOT/root" "$CHROOT/home" -path "*/.ssh/*" -type f 2>/dev/null | grep -q .; then
@@ -269,7 +273,13 @@ fi
 [ -f "$CHROOT/usr/lib/systemd/system/sshd-keygen.service" ] && \
    [ -L "$CHROOT/etc/systemd/system/ssh.service.wants/sshd-keygen.service" ] || {
     echo "[mgmt-rootfs] ERROR: sshd-keygen.service is not wired to ssh.service" >&2; exit 1; }
-echo "[mgmt-rootfs] verified: no SSH host keys, no files under ~/.ssh, no machine-id"
+_build_logs="$(find "$CHROOT/var/log" -type f \( -name '*.log' -o -name '*.log.xz' \) 2>/dev/null; \
+    find "$CHROOT/tmp" -maxdepth 1 -type f -name 'ncz-apt-update.log' 2>/dev/null)"
+if [ -n "$_build_logs" ]; then
+    echo "[mgmt-rootfs] ERROR: archive would carry build-time logs: $_build_logs" >&2
+    exit 1
+fi
+echo "[mgmt-rootfs] verified: no SSH host keys, no files under ~/.ssh, no machine-id, no build logs"
 
 # ----------------------------------------------------------------------
 # Stage 4 - pack the tarball (unmount binds first).
