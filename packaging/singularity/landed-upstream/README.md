@@ -38,3 +38,10 @@ PR #15 landed.
 is the *decisive* half of the layer-shell crash fix and is NOT upstream. A metal
 A/B on Radxa Orion O6N settled it: same shell + stock library = instant crash; patched
 library = no crash. Retiring the shell patch does not retire that one.
+
+`packaging/gtk4-layer-shell/patches/0002-layer-surface-keep-a-live-layer-surface-mapped-across-a-null-attach.patch`
+is also NOT upstream. The Mali EGL driver attaches a null buffer in
+`eglDestroySurface()`, which GTK 4.24 calls when a window needs a different
+buffer depth; that unmapped the dock layer surface and the next frame was a
+protocol error (`layer_surface has never been configured`). The shell has no
+part in it: every shell close path destroys the role first (see above).

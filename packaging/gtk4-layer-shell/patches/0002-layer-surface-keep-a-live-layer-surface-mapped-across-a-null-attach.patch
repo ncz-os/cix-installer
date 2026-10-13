@@ -1,0 +1,206 @@
+From aafaf9452474630ad4a983508dc4f347c3fbbde8 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 13 Oct 2026 04:35:51 -0400
+Subject: [PATCH] layer-surface: keep a live layer surface mapped across a null
+ attach
+
+A null buffer committed to a layer surface unmaps it, and the next buffer
+then needs a new initial commit and configure. GTK never unmaps that way:
+it destroys the XDG toplevel, and with it the layer surface, before it
+clears the buffer. Some EGL implementations attach a null buffer in
+eglDestroySurface(), which GTK calls when it rebuilds its EGL surface for
+a different buffer depth. GTK still treats the window as mapped and
+commits its next frame at once, and the compositor disconnects the client
+with "layer_surface has never been configured".
+
+Drop a null attach to a wl_surface whose layer surface still exists, the
+same way null buffers are already kept off session lock surfaces. The
+mock server now treats a null commit on a mapped layer surface as an
+unmap, and a new test covers the sequence.
+---
+ src/layer-surface.c                           | 72 +++++++++++++++++++
+ test/layer-tests/meson.build                  |  1 +
+ .../test-null-buffer-while-mapped.c           | 32 +++++++++
+ test/mock-server/overrides.c                  |  5 ++
+ 4 files changed, 110 insertions(+)
+ create mode 100644 test/layer-tests/test-null-buffer-while-mapped.c
+
+diff --git a/src/layer-surface.c b/src/layer-surface.c
+index 7efdbb5..3bbdb1a 100644
+--- a/src/layer-surface.c
++++ b/src/layer-surface.c
+@@ -25,6 +25,33 @@ static inline bool edges_eq(struct geom_edges_t a, struct geom_edges_t b) {
+            a.bottom == b.bottom;
+ }
+ 
++// Layer surfaces whose zwlr_layer_surface_v1 currently exists. The wl_surface.attach hook below uses this to recognise
++// requests on a wl_surface that is the base of a live layer surface.
++static struct layer_surface_t** live_layer_surfaces = NULL;
++static int live_layer_surface_count = 0;
++static int live_layer_surface_capacity = 0;
++
++static void live_layer_surfaces_add(struct layer_surface_t* self) {
++    for (int i = 0; i < live_layer_surface_count; i++) {
++        if (live_layer_surfaces[i] == self) return;
++    }
++    if (live_layer_surface_count == live_layer_surface_capacity) {
++        live_layer_surface_capacity = live_layer_surface_capacity ? live_layer_surface_capacity * 2 : 8;
++        live_layer_surfaces = realloc(live_layer_surfaces, sizeof(live_layer_surfaces[0]) * live_layer_surface_capacity);
++        assert(live_layer_surfaces);
++    }
++    live_layer_surfaces[live_layer_surface_count++] = self;
++}
++
++static void live_layer_surfaces_remove(struct layer_surface_t* self) {
++    for (int i = 0; i < live_layer_surface_count; i++) {
++        if (live_layer_surfaces[i] == self) {
++            live_layer_surfaces[i] = live_layer_surfaces[--live_layer_surface_count];
++            return;
++        }
++    }
++}
++
+ static void layer_surface_send_set_size(struct layer_surface_t* self) {
+     if (!self->layer_surface) return;
+ 
+@@ -316,6 +343,7 @@ static void layer_surface_create_surface_object(struct layer_surface_t* self, st
+         self->layer,
+         name_space);
+     assert(self->layer_surface);
++    live_layer_surfaces_add(self);
+     zwlr_layer_surface_v1_add_listener(self->layer_surface, &layer_surface_listener, self);
+     self->layer_surface_version = zwlr_layer_surface_v1_get_version(self->layer_surface);
+ 
+@@ -346,6 +374,7 @@ void layer_surface_configure_acked(struct xdg_surface_server_t* super, uint32_t
+ static void layer_surface_role_destroyed(struct xdg_surface_server_t* super) {
+     struct layer_surface_t* self = (void*)super;
+ 
++    live_layer_surfaces_remove(self);
+     if (self->layer_surface) {
+         zwlr_layer_surface_v1_destroy(self->layer_surface);
+         self->layer_surface = NULL;
+@@ -570,6 +599,43 @@ static bool xdg_surface_get_popup_hook(
+     return false;
+ }
+ 
++static bool wl_surface_attach_hook(
++    void* data,
++    struct wl_proxy* proxy,
++    uint32_t opcode,
++    const struct wl_interface* create_interface,
++    uint32_t create_version,
++    uint32_t flags,
++    union wl_argument* args,
++    struct wl_proxy** ret_proxy
++) {
++    (void)data;
++    (void)opcode;
++    (void)create_interface;
++    (void)create_version;
++    (void)flags;
++    (void)ret_proxy;
++
++    if (args[0].o) return false;
++
++    // A null buffer committed to a layer surface unmaps it, and the protocol then requires a new initial commit and
++    // configure before the next buffer. The toolkit never unmaps this way: GTK destroys the XDG toplevel (and with it
++    // our layer surface, see layer_surface_role_destroyed()) before it clears the buffer. A null attach that arrives
++    // while the layer surface still exists therefore comes from somewhere else, for example an EGL implementation that
++    // clears the surface in eglDestroySurface() when GTK rebuilds its EGL surface for a different buffer depth. GTK
++    // still considers the window mapped and attaches its next frame straight away, which the compositor rejects with
++    // "layer_surface has never been configured". Drop the null attach so the surface stays mapped and the next frame
++    // replaces the old buffer.
++    struct wl_surface* wl_surface = (struct wl_surface*)proxy;
++    for (int i = 0; i < live_layer_surface_count; i++) {
++        struct layer_surface_t* self = live_layer_surfaces[i];
++        if (self->layer_surface && self->super.wl_surface == wl_surface) {
++            return true;
++        }
++    }
++    return false;
++}
++
+ void layer_surface_install_hook(layer_surface_hook_callback_t callback) {
+     libwayland_shim_install_request_hook(
+         &xdg_wm_base_interface,
+@@ -587,5 +653,11 @@ void layer_surface_install_hook(layer_surface_hook_callback_t callback) {
+             xdg_surface_get_popup_hook,
+             NULL
+         );
++        libwayland_shim_install_request_hook(
++            &wl_surface_interface,
++            WL_SURFACE_ATTACH,
++            wl_surface_attach_hook,
++            NULL
++        );
+     }
+ }
+diff --git a/test/layer-tests/meson.build b/test/layer-tests/meson.build
+index 71b9c0f..4d95574 100644
+--- a/test/layer-tests/meson.build
++++ b/test/layer-tests/meson.build
+@@ -39,6 +39,7 @@ layer_tests = [
+     'test-respect-close',
+     'test-create-xdg-toplevel',
+     'test-hide-and-show',
++    'test-null-buffer-while-mapped',
+     'test-init-after-window-created',
+     'test-configure-delay',
+     'test-popup-configure-delay',
+diff --git a/test/layer-tests/test-null-buffer-while-mapped.c b/test/layer-tests/test-null-buffer-while-mapped.c
+new file mode 100644
+index 0000000..80a9361
+--- /dev/null
++++ b/test/layer-tests/test-null-buffer-while-mapped.c
+@@ -0,0 +1,32 @@
++#include "integration-test-common.h"
++
++// A null buffer attached to a mapped layer surface that the toolkit did not unmap (as some EGL implementations do in
++// eglDestroySurface() when GTK rebuilds its EGL surface) must not unmap the layer surface, or GTK's next frame is a
++// protocol error.
++
++GtkWindow* window;
++
++static void callback_0() {
++    window = create_default_window();
++    gtk_layer_init_for_window(window);
++    gtk_window_present(window);
++}
++
++static void callback_1() {
++    UNEXPECT_MESSAGE(zwlr_layer_surface_v1 .destroy);
++    struct wl_surface* wl_surface = gdk_wayland_surface_get_wl_surface(gtk_native_get_surface(GTK_NATIVE(window)));
++    wl_surface_attach(wl_surface, NULL, 0, 0);
++    wl_surface_commit(wl_surface);
++    gtk_widget_queue_draw(GTK_WIDGET(window));
++}
++
++static void callback_2() {
++    EXPECT_MESSAGE(wl_surface .commit);
++    gtk_window_set_default_size(window, 300, 200);
++}
++
++TEST_CALLBACKS(
++    callback_0,
++    callback_1,
++    callback_2,
++)
+diff --git a/test/mock-server/overrides.c b/test/mock-server/overrides.c
+index 0869724..9536d38 100644
+--- a/test/mock-server/overrides.c
++++ b/test/mock-server/overrides.c
+@@ -253,6 +253,11 @@ REQUEST_OVERRIDE_IMPL(wl_surface, commit) {
+     }
+ 
+     if (data->buffer_cleared) {
++        if (data->role == SURFACE_ROLE_LAYER && data->layer_surface && data->has_committed_buffer) {
++            // A null buffer unmaps a layer surface. Like wlroots, require a new initial commit and configure before the
++            // next buffer, so a buffer committed straight after the unmap is an error.
++            data->initial_configure_acked = false;
++        }
+         data->has_committed_buffer = false;
+         data->buffer_cleared = false;
+     } else if (data->pending_buffer) {
+-- 
+2.56.0
+
