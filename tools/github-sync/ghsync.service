@@ -1,0 +1,13 @@
+# Example user unit: copy to ~/.config/systemd/user/ and point the paths at
+# a checkout of this repository and an EnvironmentFile with the NCZ_GHSYNC_*
+# settings, GIT_ASKPASS and PATH (git-filter-repo).
+[Unit]
+Description=Sync GitHub copies of the GitLab projects
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/ncz/ghsync.env
+ExecStart=%h/Projects/ghsync-service/cix-installer/tools/github-sync/run-hourly.sh
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=3h

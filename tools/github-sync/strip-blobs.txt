@@ -1,0 +1,7 @@
+# Blob ids left out of the GitHub copy (each is over the GitHub file limit).
+# Blobs over the limit are left out in any case; listing them keeps the record.
+5e34ebd2b4d80b5e12950e58f66b01e9b8e835ef  assets/squashfs/base.squashfs (history)
+299cce12ebb724c1b4ba91dc9c62964a7fe3436b  assets/squashfs/base.squashfs (history)
+3e36290c8d0c1c723b67f166eac98ab8a3e63c0b  assets/squashfs/desktop.squashfs (history)
+3dc01763e98ee94de7f7d1b42f1f8c0fda4d1d40  assets/vivaldi/vivaldi-stable_8.1.4087.55-1_amd64.deb
+a37f6aacd1ed3200e19ef86cb11e7c55470b2ded  assets/vivaldi/vivaldi-stable_8.1.4087.55-1_arm64.deb
