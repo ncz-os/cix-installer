@@ -24,7 +24,12 @@ umask 022   # reproducible file modes: the version gate compares content, modes 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PACK="${1:-cygnus-2610}"
 OUT="${WALLPAPER_DEB_OUT:-$ROOT/build/wallpaper-debs}"
-ARTISTPACK_SOURCE_ROOT="${ARTISTPACK_SOURCE_ROOT:-${HOME:?}/Projects/artistpack/packs}"
+# ArtistPack manifests (artist.json, pack.json) are vendored per pack under
+# assets/branding/wallpaper/artistpack/<pack>/ (ncz-os/artistpack 17196e2), so the
+# package bytes depend on this tree only. A build used to prefer a checkout in the
+# builder's home directory, so two hosts with different checkouts produced two
+# packages under one version. ARTISTPACK_SOURCE_ROOT overrides, for pack authors only.
+ARTISTPACK_SOURCE_ROOT="${ARTISTPACK_SOURCE_ROOT:-$ROOT/assets/branding/wallpaper/artistpack}"
 
 # Pack metadata, and where its source images and installed images live.
 # Add a case here when adding a pack; refusing to guess an author or a
@@ -71,12 +76,6 @@ $CREDITS
         PKG="ncz-wallpapers-cygnus-2610"
         SRC="$ROOT/assets/branding/wallpaper/contrib/$PACK"
         ARTISTPACK_SRC="$ARTISTPACK_SOURCE_ROOT/$PACK"
-        # NCZ's own release pack is not published in the ArtistPack repo, so
-        # a build host with only that checkout could not build it ("missing
-        # ArtistPack manifest"). Its manifest lives in-repo next to the art;
-        # an ArtistPack checkout that does carry the pack still wins.
-        [ -f "$ARTISTPACK_SRC/artist.json" ] \
-            || ARTISTPACK_SRC="$ROOT/assets/branding/wallpaper/artistpack/$PACK"
         ART_SUBPATH="/$PACK"
         AUTHOR="NCZ-OS Cygnus"
         YEAR="2026"
@@ -208,7 +207,22 @@ fi
 # system. ANY change to a pack's images, control data or this script's output
 # must bump this default (or set NCZ_WALLPAPER_PACK_VERSION); the version gate
 # below refuses a same-version rebuild with different content.
-VERSION="${NCZ_WALLPAPER_PACK_VERSION:-1.1}"
+# 1.2 (2026-10-13): byte-reproducible on every host. 1.0 and 1.1 were not: their
+# mtimes came from the caller's SOURCE_DATE_EPOCH or the last commit time,
+# Installed-Size from `du -sk` (allocated blocks, so ext4 and btrfs differ), the
+# root directory kept mktemp's 0700 and the manifests came from a home-directory
+# checkout. That is how one cygnus-2610 1.1 ended up with two hashes.
+VERSION="${NCZ_WALLPAPER_PACK_VERSION:-1.2}"
+# Fixed mtime epoch per VERSION (never the caller's SOURCE_DATE_EPOCH, which an
+# image build derives from its own pin): a new VERSION needs its own row here.
+case "${NCZ_WALLPAPER_EPOCH:-}" in
+    '') case "$VERSION" in
+            1.2) WALLPAPER_EPOCH=1791921600 ;;   # 2026-10-13T20:00:00Z
+            *) echo "ERROR: no mtime epoch for $VERSION: add one in $0 (or set NCZ_WALLPAPER_EPOCH)" >&2; exit 1 ;;
+        esac ;;
+    *[!0-9]*) echo "ERROR: NCZ_WALLPAPER_EPOCH must be an integer" >&2; exit 1 ;;
+    *) WALLPAPER_EPOCH="$NCZ_WALLPAPER_EPOCH" ;;
+esac
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK" ${SRC_TMP:+"$SRC_TMP"}' EXIT
 
@@ -298,8 +312,30 @@ sed -Ei 's#("file": ")https://gitlab\.com/[^"]*/([^"/]+)(")#\1\2\3#' \
     "$ARTISTPACK_DIR/pack.json"
 echo "  ArtistPack metadata: $PACK.artistpack/{artist.json,pack.json}"
 
-# Installed-Size is in KiB and dpkg expects it to be roughly honest.
-SIZE_KB=$(du -sk "$WORK/usr" | cut -f1)
+# The packaged manifest must describe the packaged images: every original listed
+# in pack.json is installed with exactly the recorded sha256.
+python3 -I - "$ARTISTPACK_DIR/pack.json" "$ART_DIR" <<'PYCHECK' || exit 1
+import json, hashlib, os, sys
+pack, art = json.load(open(sys.argv[1])), sys.argv[2]
+bad = 0
+arts = pack.get("artworks")
+if not arts:
+    print("ERROR: pack.json lists no artworks", file=sys.stderr); sys.exit(1)
+for w in arts:
+    o = w.get("original", {})
+    f = os.path.join(art, os.path.basename(o.get("file", "")))
+    if not os.path.isfile(f):
+        print(f"ERROR: pack.json lists {o.get('file')} but it is not packaged", file=sys.stderr); bad = 1; continue
+    if hashlib.sha256(open(f, "rb").read()).hexdigest() != o.get("sha256"):
+        print(f"ERROR: {os.path.basename(f)} does not match its pack.json sha256", file=sys.stderr); bad = 1
+sys.exit(bad)
+PYCHECK
+
+# Host-independent ownership-free tree: 0755 directories, 0644 files, and an
+# Installed-Size (KiB) from the real file sizes, not allocated blocks.
+find "$WORK" -type d -exec chmod 0755 {} +
+find "$WORK/usr" "$WORK/opt" -type f -exec chmod 0644 {} +
+SIZE_KB=$(find "$WORK/usr" "$WORK/opt" -type f -printf '%s\n' | awk '{s+=$1} END{printf "%d", (s+1023)/1024}')
 
 cat > "$WORK/DEBIAN/control" <<CONTROL
 Package: $PKG
@@ -332,12 +368,9 @@ install -d "$OUT"
 DEB="$OUT/${PKG}_${VERSION}_all.deb"
 # Reproducible bytes: an identical rebuild must hash identically, otherwise the
 # version gate (and apt, "1.0 -> 1.0") cannot tell a real change from a re-run.
-# The epoch is the last commit that touched the packaging script or the art.
-if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
-    SOURCE_DATE_EPOCH="$(git -C "$ROOT" log -1 --format=%ct -- build/build-wallpaper-contrib-deb.sh assets/branding/wallpaper 2>/dev/null || true)"
-    : "${SOURCE_DATE_EPOCH:=1790000000}"
-fi
+SOURCE_DATE_EPOCH="$WALLPAPER_EPOCH"
 export SOURCE_DATE_EPOCH
+chmod 0644 "$WORK/DEBIAN/control"
 find "$WORK" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
 dpkg-deb --build --root-owner-group "$WORK" "$DEB" >/dev/null
 # r201 version discipline: refuse to rebuild an already-published version with

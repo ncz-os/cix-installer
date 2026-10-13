@@ -1,0 +1,16 @@
+{
+  "artistpack": "0.1",
+  "artist": {
+    "id": "mirkobrombin",
+    "name": "Mirko Brombin",
+    "website": "https://bromb.in",
+    "socials": {
+      "github": "https://github.com/mirkobrombin",
+      "singularity_os": "https://github.com/singularityos-lab",
+      "source_repository": "https://github.com/singularityos-lab/singularity-wallpapers"
+    },
+    "packs": [
+      "pack.json"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "artistpack": "0.1",
+  "artist": {
+    "id": "ncz-os",
+    "name": "NCZ-OS",
+    "website": "https://github.com/ncz-os",
+    "socials": {
+      "gitlab": "https://gitlab.com/ncz-os/cix-installer"
+    },
+    "packs": [
+      "pack.json"
+    ]
+  }
+}

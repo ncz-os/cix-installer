@@ -1,0 +1,218 @@
+{
+  "artistpack": "0.1",
+  "pack": {
+    "id": "ncz-os.brandon-perlow",
+    "title": "Brandon Perlow",
+    "version": "1.0.0",
+    "description": "Artwork contributed by Brandon Perlow for distribution with NCZ-OS."
+  },
+  "artist": {
+    "id": "brandon-perlow",
+    "name": "Brandon Perlow",
+    "website": "https://www.artstation.com/brandonperlow",
+    "support_url": "https://www.newparadigmstudios.com",
+    "socials": {
+      "instagram": "https://www.instagram.com/newparadigmstudios"
+    }
+  },
+  "rights": {
+    "copyright": "Copyright Brandon Perlow, 2026",
+    "license": "Contributed to NCZ-OS for distribution with the operating system; no specific open license recorded -- contact the artist before reuse outside NCZ-OS",
+    "attribution_required": true
+  },
+  "artworks": [
+    {
+      "id": "nimbus-i",
+      "title": "Nimbus I",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-08-nimbus-i-4k.jpg",
+        "sha256": "cabad063fbb02093d219a92439ac360acdbe3189164defcb1cbadfcf29956d53",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-08-nimbus-i-4k.jpg",
+          "sha256": "cabad063fbb02093d219a92439ac360acdbe3189164defcb1cbadfcf29956d53",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Brandon Perlow",
+        "url": "https://www.artstation.com/brandonperlow"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "nimbus-ii",
+      "title": "Nimbus II",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-09-nimbus-ii-4k.jpg",
+        "sha256": "dc549aee21467b53f857c426a2b6710a7f10090aaf81d5aee67c8a7d463b353b",
+        "width": 3840,
+        "height": 2240,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-09-nimbus-ii-4k.jpg",
+          "sha256": "dc549aee21467b53f857c426a2b6710a7f10090aaf81d5aee67c8a7d463b353b",
+          "width": 3840,
+          "height": 2240,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Brandon Perlow",
+        "url": "https://www.artstation.com/brandonperlow"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "cthulhu-destruction-i",
+      "title": "Cthulhu Destruction I",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-10-cthulhu-destruction-i-4k.jpg",
+        "sha256": "7e6863e65b235fa68bb7d8736cd15d406595cb484d7548d53ecbd74b606eeecb",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-10-cthulhu-destruction-i-4k.jpg",
+          "sha256": "7e6863e65b235fa68bb7d8736cd15d406595cb484d7548d53ecbd74b606eeecb",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Brandon Perlow",
+        "url": "https://www.artstation.com/brandonperlow"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "cthulhu-destruction-ii",
+      "title": "Cthulhu Destruction II",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-11-cthulhu-destruction-ii-4k.jpg",
+        "sha256": "6064009dc8f7fdb635312c6c891ca5ab507e543b67ce9b5765ad7eae5cef5e09",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-11-cthulhu-destruction-ii-4k.jpg",
+          "sha256": "6064009dc8f7fdb635312c6c891ca5ab507e543b67ce9b5765ad7eae5cef5e09",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Brandon Perlow",
+        "url": "https://www.artstation.com/brandonperlow"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "cthulhu-destruction-iii",
+      "title": "Cthulhu Destruction III",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-12-cthulhu-destruction-iii-4k.jpg",
+        "sha256": "f946bf600c48f5313f9a7d312b3afa1cac7274bd33387acf6e1050dd8c93cd7b",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-12-cthulhu-destruction-iii-4k.jpg",
+          "sha256": "f946bf600c48f5313f9a7d312b3afa1cac7274bd33387acf6e1050dd8c93cd7b",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Brandon Perlow",
+        "url": "https://www.artstation.com/brandonperlow"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "cthulhu-flat",
+      "title": "Cthulhu Flat",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-13-cthulhu-flat-4k.jpg",
+        "sha256": "6a0cab01765072a8989ddd57db98cee99ab61a65ba8c24c7d89777786c7f7b0b",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-13-cthulhu-flat-4k.jpg",
+          "sha256": "6a0cab01765072a8989ddd57db98cee99ab61a65ba8c24c7d89777786c7f7b0b",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Brandon Perlow",
+        "url": "https://www.artstation.com/brandonperlow"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "cthulhu-spaceship",
+      "title": "Cthulhu Spaceship",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-14-cthulhu-spaceship-4k.jpg",
+        "sha256": "4ea456ec01be7cfa67b7fce4c71ddd38d590df1d205538eef66823220e3d8c94",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/brandon-perlow/ncz-wallpaper-14-cthulhu-spaceship-4k.jpg",
+          "sha256": "4ea456ec01be7cfa67b7fce4c71ddd38d590df1d205538eef66823220e3d8c94",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Brandon Perlow",
+        "url": "https://www.artstation.com/brandonperlow"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    }
+  ],
+  "compatibility": {
+    "wallpaper": true,
+    "lock_screen": true
+  }
+}

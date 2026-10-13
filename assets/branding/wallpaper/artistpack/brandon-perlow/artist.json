@@ -1,0 +1,17 @@
+{
+  "artistpack": "0.1",
+  "artist": {
+    "id": "brandon-perlow",
+    "name": "Brandon Perlow",
+    "website": "https://www.artstation.com/brandonperlow",
+    "support": {
+      "shop": "https://www.newparadigmstudios.com"
+    },
+    "socials": {
+      "instagram": "https://www.instagram.com/newparadigmstudios"
+    },
+    "packs": [
+      "pack.json"
+    ]
+  }
+}

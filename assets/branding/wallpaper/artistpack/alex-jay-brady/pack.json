@@ -1,0 +1,241 @@
+{
+  "artistpack": "0.1",
+  "pack": {
+    "id": "ncz-os.alex-jay-brady",
+    "title": "Alex Jay Brady",
+    "version": "1.0.0",
+    "description": "Artwork contributed by Alex Jay Brady for distribution with NCZ-OS."
+  },
+  "artist": {
+    "id": "alex-jay-brady",
+    "name": "Alex Jay Brady",
+    "website": "https://www.artstation.com/boac"
+  },
+  "rights": {
+    "copyright": "Copyright Alex Jay Brady, 2026",
+    "license": "Contributed to NCZ-OS for distribution with the operating system; no specific open license recorded -- contact the artist before reuse outside NCZ-OS",
+    "attribution_required": true
+  },
+  "artworks": [
+    {
+      "id": "heavy-hydrogen-mine",
+      "title": "Heavy hydrogen mine",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-15-heavy-hydrogen-mine-4k.jpg",
+        "sha256": "d6bd7c8b44e3dcc0b6479ff016c9c78dd11bb6dab03bbccdc1faa81c87775ad1",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-15-heavy-hydrogen-mine-4k.jpg",
+          "sha256": "d6bd7c8b44e3dcc0b6479ff016c9c78dd11bb6dab03bbccdc1faa81c87775ad1",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Alex Jay Brady",
+        "url": "https://www.artstation.com/boac"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "winnebago-singularity-drive-ship-i",
+      "title": "Winnebago singularity drive ship",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-16-winnebago-singularity-drive-ship-i-4k.jpg",
+        "sha256": "c74184f1dc11fcaf1c607373f349a2a89d670b12a8d70f4138992814afdc5ef3",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-16-winnebago-singularity-drive-ship-i-4k.jpg",
+          "sha256": "c74184f1dc11fcaf1c607373f349a2a89d670b12a8d70f4138992814afdc5ef3",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Alex Jay Brady",
+        "url": "https://www.artstation.com/boac"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "winnebago-singularity-drive-ship-ii",
+      "title": "Winnebago singularity drive ship",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-17-winnebago-singularity-drive-ship-ii-4k.jpg",
+        "sha256": "b3fba56cdb469af82c9e4f83ad585d655523c305f240bf3b2ea4345474fe5813",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-17-winnebago-singularity-drive-ship-ii-4k.jpg",
+          "sha256": "b3fba56cdb469af82c9e4f83ad585d655523c305f240bf3b2ea4345474fe5813",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Alex Jay Brady",
+        "url": "https://www.artstation.com/boac"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "killing-the-star",
+      "title": "Killing the star",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-18-killing-the-star-4k.jpg",
+        "sha256": "d8120b858999781046bcc6ba23f37fdeba6a947dc131604709a6f0521b1918af",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-18-killing-the-star-4k.jpg",
+          "sha256": "d8120b858999781046bcc6ba23f37fdeba6a947dc131604709a6f0521b1918af",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Alex Jay Brady",
+        "url": "https://www.artstation.com/boac"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "approaching-moebius-world",
+      "title": "Approaching Moebius world",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-19-approaching-moebius-world-4k.jpg",
+        "sha256": "2d12501cf0c7871816d67e0a446e046a597c73ad624c21c44c742a0cda99f3c9",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-19-approaching-moebius-world-4k.jpg",
+          "sha256": "2d12501cf0c7871816d67e0a446e046a597c73ad624c21c44c742a0cda99f3c9",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Alex Jay Brady",
+        "url": "https://www.artstation.com/boac"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "anti-stellar-projectile-gun",
+      "title": "Anti-stellar projectile gun",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-20-anti-stellar-projectile-gun-4k.jpg",
+        "sha256": "a1fff97b0b30e57d254d489c82e850319f96caa08a3e98e3fed7ed218c1ffda6",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-20-anti-stellar-projectile-gun-4k.jpg",
+          "sha256": "a1fff97b0b30e57d254d489c82e850319f96caa08a3e98e3fed7ed218c1ffda6",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Alex Jay Brady",
+        "url": "https://www.artstation.com/boac"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "destroying-the-braided-ringworld",
+      "title": "Anti-stellar projectiles penetrate a braided ringworld",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-21-destroying-the-braided-ringworld-4k.jpg",
+        "sha256": "124b997e191953afba8875322de9a4983390327239729bc4495778483bac6d24",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-21-destroying-the-braided-ringworld-4k.jpg",
+          "sha256": "124b997e191953afba8875322de9a4983390327239729bc4495778483bac6d24",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Alex Jay Brady",
+        "url": "https://www.artstation.com/boac"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "galaxies-exiting-this-doomed-universe",
+      "title": "Galaxies exiting the Universe",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-22-galaxies-exiting-this-doomed-universe-4k.jpg",
+        "sha256": "00c19a7af5c4cf22f324daa3ae1d63a6b380314ce1fb252066ba529f5ab164c1",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/alex-jay-brady/ncz-wallpaper-22-galaxies-exiting-this-doomed-universe-4k.jpg",
+          "sha256": "00c19a7af5c4cf22f324daa3ae1d63a6b380314ce1fb252066ba529f5ab164c1",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "Alex Jay Brady",
+        "url": "https://www.artstation.com/boac"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    }
+  ],
+  "compatibility": {
+    "wallpaper": true,
+    "lock_screen": true
+  }
+}
