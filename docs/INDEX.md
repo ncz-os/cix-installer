@@ -66,6 +66,7 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 
 | Document | What it covers |
 |---|---|
+| [REGISTRY-CLEANUP.md](REGISTRY-CLEANUP.md) | Package registry retention: what is kept, what is removed, the cleanup policy and the weekly cleanup run |
 | [BUILD-SITE-CONFIG.md](BUILD-SITE-CONFIG.md) | Per-build-host settings (store mount points, build hosts, publish targets) as environment variables or `~/.config/ncz/` files |
 | [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md) | Why the stack is built the way it is, with the measurements (26.7 era) |
 | [PLATFORM-SPLIT-DESIGN.md](PLATFORM-SPLIT-DESIGN.md) | What is common to both architectures and what is platform-specific |
