@@ -102,6 +102,16 @@ ensure_session() {
   if [ -n "$s" ]; then say "session started: $s"; sleep 4; return 0; fi
   say "WARN: could not establish a $LU seat0 session"; return 1
 }
+# The launcher sources /etc/ncz/lock-renderer.env once, when the session starts,
+# so a seam staged there reaches the lock and the feed only after a new login.
+session_cycle() {
+  local s i
+  s="$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3=="'"$LU"'" && $4=="seat0"{print $1}' | head -1)"
+  [ -n "$s" ] && loginctl terminate-session "$s" 2>/dev/null
+  for i in $(seq 1 30); do sleep 2; pgrep -f singularity-greeter >/dev/null && break; done
+  sleep 4
+  ensure_session && sleep 8
+}
 ensure_session || say "WARN: proceeding without a session (T1 will likely FAIL)"
 unlock_now || say "WARN: still locked at start"
 IDLE_BEFORE="$(gs get dev.sinty.lockscreen idle-delay)"
@@ -249,8 +259,9 @@ else
         echo "$nm" > "$D/hot/hwmon$i/name"
         echo 95000 > "$D/hot/hwmon$i/temp1_input"
       done
+      chmod -R a+rX "$D/hot"
       renv_add "NCZ_FEED_THERMAL_ROOT=$D/hot"
-      unlock_now; sleep 2; : > "$SLOG"
+      session_cycle; unlock_now; sleep 2; : > "$SLOG"
       if wait_lock 120; then
         sleep 4
         h1=$(shot t13a); sleep 2; h2=$(shot t13b); sleep 2; h3=$(shot t13c)
@@ -260,17 +271,20 @@ else
           rec T13 FAIL "thermal governor: feed did NOT pause at simulated 95C (frames differ: $h1/$h2/$h3)"
         fi
       else rec T13 SKIP "could not re-lock for T13"; fi
-      unlock_now; renv_restore
+      unlock_now; renv_restore; session_cycle; unlock_now
     else rec T13 SKIP "no $ENVFILE to stage the NCZ_FEED_THERMAL_ROOT seam"; fi
   else
     rec T13 SKIP "no --print-policy marker (pre-0.8.12 feed): no thermal seam to exercise"
   fi
 
   # ------------------------------------------------------------ T14 blank-after-N while locked
-  if [ -n "$MARK" ] && [ -n "$HAVE_MAGICK" ]; then
+  # Only a feed that advertises blank_after in --print-policy implements it.
+  if [ -n "$MARK" ] && ! echo "$MARK" | grep -q 'blank_after'; then
+    rec T14 SKIP "installed feed does not implement NCZ_SAVER_BLANK_AFTER_S (no blank_after in its policy marker)"
+  elif [ -n "$MARK" ] && [ -n "$HAVE_MAGICK" ]; then
     if renv_backup; then
       renv_add "NCZ_SAVER_BLANK_AFTER_S=8"
-      unlock_now; sleep 2; : > "$SLOG"
+      session_cycle; unlock_now; sleep 2; : > "$SLOG"
       if wait_lock 120; then
         sleep 14
         b=$(shot t14-blank)
@@ -282,7 +296,7 @@ else
           else rec T14 FAIL "blanked while locked but input did not wake the prompt (or desktop exposed)"; fi
         else rec T14 FAIL "output not blanked after 8s of lock (mean=$bmean)"; fi
       else rec T14 SKIP "could not re-lock for T14"; fi
-      unlock_now; renv_restore
+      unlock_now; renv_restore; session_cycle; unlock_now
     else rec T14 SKIP "no $ENVFILE to stage NCZ_SAVER_BLANK_AFTER_S"; fi
   else
     rec T14 SKIP "NCZ_SAVER_BLANK_AFTER_S (blank-after-N) absent in this payload (pre-0.8.12)"
