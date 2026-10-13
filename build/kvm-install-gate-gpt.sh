@@ -124,6 +124,42 @@ echo "    ESP at LBA $ESP_LBA (byte offset $ESP_OFF)"
 mdir -i "$TEST_IMG@@$ESP_OFF" ::/EFI/BOOT >/dev/null 2>&1 \
   || { echo "GATE FAIL: partition 1 is not a readable FAT ESP" >&2; exit 2; }
 
+# --- regression gate: the INSTALLER boot kernel must be the pinned r2 build --
+# Phase 1 boots the rEFInd "Install" entry, whose loader is /linux on this ESP
+# (all four installer entries share it). That file is the kernel d-i runs, and
+# it must be the SAME cyclops-fixed r2 build the installed system receives.
+# Without this, a stale r1 kernel left on the ESP would silently reintroduce
+# the Macmini5,1 i915 EPROBE_DEFER bug and the gate would still PASS: it only
+# ever sees KVER, and the r1/r2 release strings are identical. Assert the
+# installer kernel is byte-for-byte the pinned r2 vmlinuz whose manifest
+# records the 2010 boot-GPU fix, then hand the same pin to the phase-2
+# installed-target verifier so it asserts the INSTALLED kernel too.
+if [ "$ARCH" = amd64 ]; then
+  _amman="$SCRIPT_DIR/../assets/kernel/amd64-stable-manifest.json"
+  [ -f "$_amman" ] \
+    || { echo "GATE FAIL: $_amman missing; cannot assert the installer kernel is the pinned cyclops-fixed r2 build" >&2; exit 2; }
+  _want_vmlinuz=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["identity"]["vmlinuz_sha256"])' "$_amman")
+  _want_kver=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["kver"])' "$_amman")
+  _cyclops=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["source"]["t2_cyclops_patch"])' "$_amman")
+  case "$_cyclops" in
+    *2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch) : ;;
+    *) echo "GATE FAIL: amd64-stable-manifest t2_cyclops_patch='$_cyclops' is not the 2010 cyclops boot-GPU fix" >&2; exit 2 ;;
+  esac
+  _esp_linux="$WORK/esp-linux.image"
+  rm -f "$_esp_linux"
+  mcopy -o -i "$TEST_IMG@@$ESP_OFF" ::/linux "$_esp_linux" \
+    || { echo "GATE FAIL: no ::/linux (the installer kernel) on the ESP" >&2; exit 2; }
+  _got_vmlinuz=$(sha256sum "$_esp_linux" | awk '{print $1}')
+  rm -f "$_esp_linux"
+  [ "$_got_vmlinuz" = "$_want_vmlinuz" ] || {
+    echo "GATE FAIL: ESP installer kernel /linux sha256=$_got_vmlinuz != pinned r2 vmlinuz $_want_vmlinuz" >&2
+    echo "           (the installer would boot a kernel WITHOUT the 2010 cyclops boot-GPU fix)" >&2
+    exit 1; }
+  echo "    installer kernel /linux is the pinned r2 build ($_want_kver, 2010 cyclops fix): $_want_vmlinuz"
+  export VERIFY_EXPECT_KVER="${VERIFY_EXPECT_KVER:-$_want_kver}"
+  export VERIFY_EXPECT_VMLINUZ_SHA256="${VERIFY_EXPECT_VMLINUZ_SHA256:-$_want_vmlinuz}"
+fi
+
 echo "[3/6] patching the rEFInd Install entry for an unattended run"
 CFG="$WORK/refind.conf"
 rm -f "$CFG"

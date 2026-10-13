@@ -28,7 +28,10 @@ AMD64="$REPO/assets/refind/ncz-refind-refresh-amd64.sh"
 IMGBUILD="$REPO/build/build-installer-image.sh"
 INITRD_PATCHER="$REPO/build/iso/patch-initrd-t2-kernel.py"
 SQUASH="$REPO/build/build-squashfs-layers.sh"
-for f in "$ARM64" "$AMD64" "$IMGBUILD" "$INITRD_PATCHER" "$SQUASH"; do
+KVMGATE="$REPO/build/kvm-install-gate-gpt.sh"
+VERIFIER="$REPO/build/verify-installed-target.sh"
+AMMANIFEST="$REPO/assets/kernel/amd64-stable-manifest.json"
+for f in "$ARM64" "$AMD64" "$IMGBUILD" "$INITRD_PATCHER" "$SQUASH" "$KVMGATE" "$VERIFIER" "$AMMANIFEST"; do
     [ -r "$f" ] || { echo "EXTRACT FAILED: cannot read $f" >&2; exit 2; }
 done
 
@@ -112,6 +115,43 @@ if [ -n "$pin_line" ] && [ -n "$apt_line" ] && [ "$pin_line" -lt "$apt_line" ]; 
 else
     bad "the pin is not written before the base apt install (pin=$pin_line apt=$apt_line)"
 fi
+
+echo "=== cyclops boot-GPU fix (2010): installer AND installed kernel are the pinned r2 build ==="
+# The amd64 image must BOOT and INSTALL the same cyclops-fixed r2 kernel (patch
+# 2010). KVER is identical across r1/r2 (7.3.0-rc7-t2-ncz), so KVER-keyed checks
+# cannot tell them apart -- the pin is the manifest's identity.vmlinuz_sha256.
+# Three places enforce it and this test asserts all three exist:
+#   1. build-installer-image.sh  -- the installer kernel file is the pin
+#   2. kvm-install-gate-gpt.sh   -- the ESP /linux installer kernel is the pin,
+#                                   and the pin is exported to phase 2
+#   3. verify-installed-target.sh-- the INSTALLED /boot/vmlinuz-<kver> is the pin
+if python3 - "$AMMANIFEST" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+p = d["source"]["t2_cyclops_patch"]
+assert p.endswith("2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch"), p
+assert d["identity"]["vmlinuz_sha256"], "no vmlinuz_sha256 pin"
+PY
+then ok "manifest pins the 2010 cyclops patch and a vmlinuz sha256"; else bad "manifest does not pin the 2010 cyclops patch"; fi
+if grep -q 'vmlinuz_sha256' "$IMGBUILD" && grep -q 't2_cyclops_patch' "$IMGBUILD" \
+   && grep -q 'installer kernel' "$IMGBUILD"; then
+    ok "build-installer-image.sh asserts the installer kernel == the pinned r2 vmlinuz (2010)"
+else
+    bad "build-installer-image.sh does not assert the installer kernel is the pinned 2010 r2 build"
+fi
+if grep -q '::/linux' "$KVMGATE" && grep -q 'VERIFY_EXPECT_VMLINUZ_SHA256' "$KVMGATE" \
+   && grep -q '2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple' "$KVMGATE"; then
+    ok "kvm-install-gate-gpt.sh asserts the ESP installer kernel is the pinned 2010 r2 build"
+else
+    bad "kvm-install-gate-gpt.sh does not assert the ESP /linux installer kernel against the 2010 pin"
+fi
+if grep -q 'VERIFY_EXPECT_VMLINUZ_SHA256' "$VERIFIER" && grep -q '/boot/vmlinuz-' "$VERIFIER"; then
+    ok "verify-installed-target.sh asserts the installed kernel is the pinned r2 vmlinuz"
+else
+    bad "verify-installed-target.sh does not assert the installed kernel against the pinned r2 vmlinuz sha"
+fi
+bash -n "$KVMGATE" && ok "kvm-install-gate-gpt.sh parses" || bad "kvm-install-gate-gpt.sh has a syntax error"
+bash -n "$VERIFIER" && ok "verify-installed-target.sh parses" || bad "verify-installed-target.sh has a syntax error"
 
 echo
 echo "=== summary: PASS=$PASS FAIL=$FAIL ==="
