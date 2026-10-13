@@ -36,8 +36,8 @@ trap 'rm -rf "$W"' EXIT
 
 # --- desktop entry must be a SINGULARITY system autostart entry --------------------------------
 # The shipped shell's AutostartManager launches a SYSTEM /etc/xdg/autostart entry
-# only when OnlyShowIn names Singularity; without it the entry is silently dead
-# (which is exactly the bug the existing ncz-qotd/ncz-firewall-notice entries have).
+# only when OnlyShowIn names Singularity; without it the entry is silently dead.
+# build/test-xdg-autostart.sh applies the same rule to every system autostart entry.
 if grep -q '^OnlyShowIn=Singularity;$' "$DESKTOP"; then ok "autostart entry sets OnlyShowIn=Singularity"; else bad "autostart entry lacks OnlyShowIn=Singularity (never launched by the shell)"; fi
 if grep -q '^Exec=/usr/local/bin/ncz-first-login-tour show$' "$DESKTOP"; then ok "autostart entry Exec runs the guard 'show'"; else bad "autostart entry Exec is wrong"; fi
 if grep -q '^Type=Application' "$DESKTOP"; then ok "autostart entry Type=Application"; else bad "autostart entry Type wrong"; fi
@@ -192,7 +192,7 @@ fi
 # and the launcher asserts \$# == 2 (mode + command line) so a caller that passes extra
 # arguments fails loud instead of silently losing them.
 # shellcheck disable=SC2016  # literal source text, not an expansion
-if grep -B 2 -A 4 'set -- $2' "$SCRIPT" | grep -q 'set -f'; then
+if grep -B 2 -A 4 'set -- $2' "$SCRIPT" | grep >/dev/null 'set -f'; then
     ok "tokenisation under 'set -f' (noglob; audit-safe argv)"
 else
     bad "tokenisation not under 'set -f'"

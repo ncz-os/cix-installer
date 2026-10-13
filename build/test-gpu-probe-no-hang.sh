@@ -49,7 +49,7 @@ mkdev "$P" 0000:00:02.0 030000 8086 3e9b
 mkdev "$P" 0000:01:00.0 030000 10de 1f15
 mkdev "$P" 0000:01:00.1 040300 10de 10f9
 out=$(NCZ_PCI_DEVICES_ROOT="$P" bash -c ". '$ROOT/post-install/lib/pci-sysfs.sh'; ncz_pci_lspci_nn")
-printf '%s\n' "$out" | grep -qx '0000:01:00.0 Class \[0300\]: Device \[10de:1f15\]' \
+printf '%s\n' "$out" | grep >/dev/null -x '0000:01:00.0 Class \[0300\]: Device \[10de:1f15\]' \
     && ok "RTX 2060 line in lspci -nn shape" || nok "unexpected pci-sysfs output: $out"
 [ "$(printf '%s\n' "$out" | grep -cE '\[03(00|02|80)\]:')" = 2 ] && ok "two display-class devices found" || nok "display-class count wrong"
 mkdir -p "$W/nopci"
@@ -93,7 +93,7 @@ run54 "$W/nopci"
 grep -q 'skipped:no-pci-sysfs' "$SB/var/lib/ncz/cuda-toolkit.status" 2>/dev/null && [ "$RC54" = 0 ] \
     && ok "no sysfs PCI list -> clean skip recorded" || nok "no-sysfs case: rc=$RC54 status=$(cat "$SB/var/lib/ncz/cuda-toolkit.status" 2>/dev/null)"
 if grep -vE '^\s*#' "$ROOT/post-install/54-gpu-accel.sh" "$ROOT/post-install/lib/cuda-select.sh" "$ROOT/post-install/lib/hw-detect.sh" \
-   | grep -E '(^|[^_a-z])lspci([^_a-z]|$)' | grep -v 'ncz_pci_lspci_nn' | grep -q .; then
+   | grep -E '(^|[^_a-z])lspci([^_a-z]|$)' | grep -v 'ncz_pci_lspci_nn' | grep >/dev/null .; then
     nok "a hook/lib still calls lspci outside comments"
 else
     ok "54-gpu-accel.sh, cuda-select.sh and hw-detect.sh contain no lspci call"

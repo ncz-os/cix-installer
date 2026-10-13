@@ -34,13 +34,13 @@ are pure x86-tree additions gated by CONFIG_X86_CPU_RESCTRL and are
 fully inert on an arm64-only build; CONFIG_ARM64_MPAM is off in our
 tree, CONFIG_X86_CPU_RESCTRL is off (we're arm64 only), and CONFIG_RESCTRL_FS
 is also off, so none of the new resctrl/ code paths are reachable at
-runtime.  This is the dormant state the operator asked for: code built
+runtime.  This is the dormant state that was asked for: code built
 and reviewable, but inert on every board we currently support.
 
 Ported from srcshelton/gentoo-ebuilds:
   sys-kernel/cix-sources/files/7.2.x/20070-resctrl-mpam-expose-proportional-bandwidth.patch
 
-Review findings (full audit per the operator's three review items):
+Review findings (full audit per the three review items):
 
 * RESCTRL_SCHEMA_RANGE generic discriminator: applied to six sites in
   fs/resctrl (ctrlmondata.c pseudo-lock guard, rdtgroup.c exclusivity
@@ -76,9 +76,9 @@ Review findings (full audit per the operator's three review items):
   code on our build.  No shared code path between x86 and arm64 is
   affected.
 
-This is ported as a DORMANT feature per the operator decision
+This is ported as a DORMANT feature per the decision
 documented in docs/upstream-patches/srcshelton-tier2-examination-
-2026-08-20.md (section 2 OPERATOR DECISION).  On O6N (192.168.207.3)
+2026-08-20.md (section 2 DECISION).  On a Radxa Orion O6N
 the firmware's /sys/firmware/acpi/tables/ has no MPAM entry, so
 resctrl/MPAM cannot function here regardless of code-risk assessment.
 The port is kept ready for future MPAM-capable boards so we don't
@@ -104,7 +104,7 @@ Signed-off-by: Stuart Shelton <srcshelton@gmail.com>
   stat).  Verified by build + KVM boot gate:
   CONFIG_MODVERSIONS=y survives in the BUILT .config, the
   full kernel builds clean, and build/kvm-kernel-gate.sh
-  reports PASS.  See the operator-decision block in the cited
+  reports PASS.  See the decision block in the cited
   examination doc for why this is ported despite being
   functionally inert on current hardware.]
 Signed-off-by: Jason Perlow <jperlow@gmail.com>

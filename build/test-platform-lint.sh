@@ -62,7 +62,7 @@ expect_pass() {  # name [root]
 }
 expect_fail() {  # name root needle
     local out rc; out=$(run_lint "$2"); rc=$?
-    if [ "$rc" != 0 ] && printf '%s\n' "$out" | grep -qF -- "$3"; then ok "$1"
+    if [ "$rc" != 0 ] && printf '%s\n' "$out" | grep >/dev/null -F -- "$3"; then ok "$1"
     else bad "$1 (expected rc!=0 and '$3', rc=$rc)" "$out"; fi
 }
 
@@ -161,24 +161,24 @@ ran() { printf '%s\n' "$1" | grep -o 'RAN-[0-9a-z-]*' | sort -u | tr '\n' ' '; }
 R="$TMPROOT/ra"
 mkra "$R"; out=$(runra "$R" arm64)
 [ "$(ran "$out")" = "RAN-10-common RAN-20-sky RAN-40-mix RAN-70-bootloader RAN-99-diagnostics " ] \
-  && printf '%s\n' "$out" | grep -qF "PLATFORM-SKIP: 30-x86.sh" \
+  && printf '%s\n' "$out" | grep >/dev/null -F "PLATFORM-SKIP: 30-x86.sh" \
   && ok "run-all arm64: sky1 list runs common+sky+mixed, skips and logs the amd64 hook" \
   || bad "run-all arm64" "$(ran "$out")"$'\n'"$(printf '%s\n' "$out" | grep -E 'PLATFORM|hooks.list')"
-printf '%s\n' "$out" | grep -q ORPHAN && bad "run-all arm64 must not call a platform skip an ORPHAN" "$(printf '%s\n' "$out" | grep ORPHAN)" \
+printf '%s\n' "$out" | grep >/dev/null ORPHAN && bad "run-all arm64 must not call a platform skip an ORPHAN" "$(printf '%s\n' "$out" | grep ORPHAN)" \
   || ok "run-all arm64: platform skip is not reported as ORPHAN"
 
 mkra "$R"; out=$(runra "$R" amd64)
 [ "$(ran "$out")" = "RAN-10-common RAN-30-x86 RAN-40-mix RAN-70-bootloader RAN-99-diagnostics " ] \
-  && printf '%s\n' "$out" | grep -qF "PLATFORM-SKIP: 20-sky.sh" \
+  && printf '%s\n' "$out" | grep >/dev/null -F "PLATFORM-SKIP: 20-sky.sh" \
   && ok "run-all amd64: amd64 list skips and logs the sky1 hook" \
   || bad "run-all amd64" "$(ran "$out")"
 
 mkra "$R"; out=$(runra "$R" x86_64)
-printf '%s\n' "$out" | grep -q "platform=amd64" && ok "run-all maps x86_64 to platform amd64" || bad "run-all x86_64 mapping"
+printf '%s\n' "$out" | grep >/dev/null "platform=amd64" && ok "run-all maps x86_64 to platform amd64" || bad "run-all x86_64 mapping"
 
 mkra "$R"; rm "$R"/hooks.list.*; out=$(runra "$R" arm64)
 [ "$(ran "$out")" = "RAN-10-common RAN-20-sky RAN-30-x86 RAN-40-mix RAN-70-bootloader RAN-99-diagnostics " ] \
-  && printf '%s\n' "$out" | grep -q "legacy behavior" \
+  && printf '%s\n' "$out" | grep >/dev/null "legacy behavior" \
   && ok "run-all without any list runs every hook (legacy fallback)" || bad "run-all no-list fallback" "$(ran "$out")"
 
 mkra "$R"; out=$(runra "$R" riscv64)
@@ -190,11 +190,11 @@ mkra "$R"; out=$(runra "$R" arm64 NCZ_HOOKS_LIST=none)
   && ok "run-all NCZ_HOOKS_LIST=none disables the list" || bad "run-all NCZ_HOOKS_LIST=none" "$(ran "$out")"
 
 mkra "$R"; out=$(runra "$R" arm64 NCZ_PLATFORM=amd64)
-printf '%s\n' "$out" | grep -qF "RAN-30-x86" && ! printf '%s\n' "$out" | grep -qF "RAN-20-sky" \
+printf '%s\n' "$out" | grep >/dev/null -F "RAN-30-x86" && ! printf '%s\n' "$out" | grep >/dev/null -F "RAN-20-sky" \
   && ok "run-all NCZ_PLATFORM overrides detection" || bad "run-all NCZ_PLATFORM override" "$(ran "$out")"
 
 mkra "$R"; echo 99-ghost.sh >> "$R/hooks.list.amd64"; out=$(runra "$R" amd64)
-printf '%s\n' "$out" | grep -qF "WARNING: 99-ghost.sh is on" && ok "run-all warns about a listed hook missing from disk" || bad "run-all ghost warning"
+printf '%s\n' "$out" | grep >/dev/null -F "WARNING: 99-ghost.sh is on" && ok "run-all warns about a listed hook missing from disk" || bad "run-all ghost warning"
 
 mkra "$R"; rm "$R/20-sky.sh"; out=$(runra "$R" arm64)
 [ "$(ran "$out")" = "RAN-10-common RAN-40-mix RAN-70-bootloader RAN-99-diagnostics " ] \

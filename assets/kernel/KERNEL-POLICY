@@ -1,4 +1,4 @@
-# NCZ-OS unified kernel policy, machine-readable (operator 2026-10-05).
+# NCZ-OS unified kernel policy, machine-readable (2026-10-05).
 # Read by build/verify-kernel-default-policy.sh. KEY=value, no spaces.
 # Human text and rationale: docs/ONE-KERNEL.md
 #
@@ -40,10 +40,10 @@ RESCUE_AMD64_BLACKLIST_GENERIC=amdgpu,radeon,nouveau,nvidia,nvidia_drm,nvidia_mo
 # NPU and their aliases), never the display controller (linlondp).
 RESCUE_ARM64_BLACKLIST=panthor,panfrost,mali_kbase,memory_group_manager,protected_memory_allocator,amvx,aipu,armchina_npu,cix_vpu,linlon_vpu
 
-# No EDGE channel any more (operator 2026-10-05).
+# No EDGE channel any more (since 2026-10-05).
 EDGE_ENABLED=0
 
-# FRESHNESS ACKNOWLEDGEMENT (operator 2026-10-11). build/preflight-freshness-
+# FRESHNESS ACKNOWLEDGEMENT (2026-10-11). build/preflight-freshness-
 # gate.sh refuses to build while assets/kernel/mainline is not the pool's newest
 # unified 7.3 build -- unless the operator has explicitly declined that newer
 # build. Value = "<pinned-build>:<declined-newer-build>": BOTH names must match
@@ -51,8 +51,8 @@ EDGE_ENABLED=0
 # or any even-newer build still FAILs closed. Set only with explicit operator
 # direction for this build.
 #
-# 2026-10-11 (operator "I'm calling your fix a fix, integrate into the new
-# image"): the DP-AUX kernel r286-7.3.0-rc6-sky1-ncz-20261011 that had been
+# 2026-10-11 (fix accepted for the next
+# image): the DP-AUX kernel r286-7.3.0-rc6-sky1-ncz-20261011 that had been
 # staged as a supervised-test, NON-default MS-R1 boot entry is now the SHIPPING
 # pin (assets/kernel/mainline -> r286). It is the pool's newest unified 7.3
 # build, so no acknowledgement is needed and the former r285:r286 ACK is

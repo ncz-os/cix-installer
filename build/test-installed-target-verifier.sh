@@ -196,7 +196,7 @@ run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name 
     img="$W/img-$RANDOM"; truncate -s 16M "$img"
     "$MKE2FS" -q -t ext4 -d "$r" "$img" 2>/dev/null || { echo "FAIL  $name: mke2fs"; FAILS=$((FAILS+1)); return; }
     out="$("$VERIFIER" "$img" "$DEBUGFS" "${TEST_ARCH:-arm64}" 2>&1)"; rc=$?
-    if [ "$rc" = "$want" ] && [ -n "${4:-}" ] && ! printf '%s\n' "$out" | grep -q -- "$4"; then
+    if [ "$rc" = "$want" ] && [ -n "${4:-}" ] && ! printf '%s\n' "$out" | grep >/dev/null -- "$4"; then
         echo "FAIL  $name: rc=$rc but the output lacks /$4/"; printf '%s\n' "$out" | sed 's/^/      /'; FAILS=$((FAILS+1))
     elif [ "$rc" = "$want" ]; then echo "PASS  $name (rc=$rc)"; PASS=$((PASS+1));
     else echo "FAIL  $name: rc=$rc want=$want"; printf '%s\n' "$out" | sed 's/^/      /'; FAILS=$((FAILS+1)); fi

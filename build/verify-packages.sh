@@ -23,7 +23,7 @@ while IFS= read -r line || [ -n "$line" ]; do
         FAILED=1
         continue
     fi
-    if ! grep -vE '^[[:space:]]*(#|$)' "$file" | awk '{print $1}' | grep -qxF "$package"; then
+    if ! grep -vE '^[[:space:]]*(#|$)' "$file" | awk '{print $1}' | grep >/dev/null -xF "$package"; then
         echo "MISSING PACKAGE: $manifest_file:$package" >&2
         FAILED=1
     fi

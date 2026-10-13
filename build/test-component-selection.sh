@@ -230,7 +230,7 @@ rc=$(sel --prompt); [ "$rc" != 0 ] && ok "template cannot load: exits non-zero (
 # ------------------------------------------------------------- 4. wiring ---------------------------------------------
 echo "== 4. preseed wiring"
 PART=$(awk '/^d-i partman\/early_command string/{f=1} f{print} f && !/\\$/{exit}' "$ROOT/preseed/preseed.cfg" | tr -d '\n\\')
-printf '%s' "$PART" | grep -qE 'sh /tmp/component-selector\.sh --prompt [^;]*\|\| exit \$\?' \
+printf '%s' "$PART" | grep >/dev/null -E 'sh /tmp/component-selector\.sh --prompt [^;]*\|\| exit \$\?' \
     && ok "partman/early_command stops the install when the component dialog fails" \
     || bad "partman/early_command ignores the component-selector --prompt exit status"
 grep -q '|| CHOSEN="\$_DEFAULT"' "$PRE/component-selector.sh" && bad "component-selector.sh still maps an empty answer to the default" || ok "no empty -> default fallback left in component-selector.sh"

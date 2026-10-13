@@ -62,7 +62,7 @@ if [ -r "$ROOT/post-install/lib/cuda-select.sh" ]; then
     # shellcheck disable=SC1091
     . "$ROOT/post-install/lib/cuda-select.sh"
     for fam in turing-plus maxwell-volta; do
-        ncz_cuda_plan "$fam" | grep -q "^TOOLKIT_PKGS='.*cuda-libraries-dev-" || bad "$fam toolkit plan lacks cuda-libraries-dev (headers)"
+        ncz_cuda_plan "$fam" | grep >/dev/null "^TOOLKIT_PKGS='.*cuda-libraries-dev-" || bad "$fam toolkit plan lacks cuda-libraries-dev (headers)"
     done
 else
     bad "missing post-install/lib/cuda-select.sh"

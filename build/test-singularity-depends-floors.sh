@@ -74,9 +74,9 @@ d="$(build arm64 "$BASE" "$T/nofloors.tsv")" || bad "negative-control build fail
 printf 'arm64\tlibgtk4-layer-shell0\tnot a version!\twhy\n' > "$T/badfloors.tsv"
 build arm64 "$BASE" "$T/badfloors.tsv" >/dev/null 2>&1 && bad "a malformed floor version was accepted" || ok "a malformed floor version fails the build"
 
-awk -F'\t' '$1=="arm64" && $2=="libgtk4-layer-shell0" && $3=="1.3.0-1+ncz20261013"' "$HERE/singularity-depends-floors.tsv" | grep -q . \
+awk -F'\t' '$1=="arm64" && $2=="libgtk4-layer-shell0" && $3=="1.3.0-1+ncz20261013"' "$HERE/singularity-depends-floors.tsv" | grep >/dev/null . \
     && ok "committed floors file: arm64 libgtk4-layer-shell0 >= 1.3.0-1+ncz20261013" || bad "committed floors file lacks the arm64 row"
-awk -F'\t' '$2=="libgtk4-layer-shell0" && $1!="arm64"' "$HERE/singularity-depends-floors.tsv" | grep -q . \
+awk -F'\t' '$2=="libgtk4-layer-shell0" && $1!="arm64"' "$HERE/singularity-depends-floors.tsv" | grep >/dev/null . \
     && bad "libgtk4-layer-shell0 floor must stay arm64 only (amd64 ships Debian's build)" || ok "the libgtk4-layer-shell0 floor is arm64 only"
 
 echo "test-singularity-depends-floors: $PASS passed, $FAIL failed"

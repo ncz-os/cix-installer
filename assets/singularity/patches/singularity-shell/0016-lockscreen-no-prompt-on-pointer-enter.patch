@@ -7,7 +7,7 @@ The shipped idle path shows the unlock prompt at lock time, not on the first
 input. On a host where the lock surface maps under the (stationary) cursor, the
 compositor delivers a pointer ENTER with no user input; pt_enter() called
 raise_prompt(), which painted the password card over the saver frames. Observed
-on PROTEUS (RC5 payload): idle -> lock at 60s, and at lock+2s with zero input
+on an Intel desktop test machine (RC5 payload): idle -> lock at 60s, and at lock+2s with zero input
 events the lock log already contained 'lock: prompt raised over saver'.
 
 The requirement is: idle -> lock with saver frames and NO prompt -> the first

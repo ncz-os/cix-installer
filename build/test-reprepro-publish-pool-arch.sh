@@ -152,7 +152,7 @@ publish() {  # deb [env...] -> RC, OUT
         NCZ_PUBLISH_SCRATCH="$C/scratch" NCZ_POLICY_DIR="$T/poldir" NCZ_PUBLISHED_INDEX="$MOCK/gate-index" \
         NCZ_PUBLISH_VERIFY_TRIES=2 NCZ_PUBLISH_VERIFY_SLEEP=0 MOCK="$MOCK" "$@" bash "$PUB" < "$deb" 2>&1)" || RC=$?
 }
-claims_done() { printf '%s\n' "$OUT" | grep -q '^== done: '; }
+claims_done() { printf '%s\n' "$OUT" | grep >/dev/null '^== done: '; }
 
 echo "=== 1. arm64 1.2 next to an older Architecture: all 1.1 (the regression) ==="
 fresh arm64
@@ -167,14 +167,14 @@ old_pool="$(awk -F'\t' '$2 == "ncz-usb-recovery" && $3 == "1.1" { print $4; exit
 [ -n "$old_pool" ] && ok "the older 1.1 build is still in the repo (amd64): $old_pool" || bad "fixture: no 1.1 row left in the repo"
 grep -qF " $old_pool " "$MOCK/r2.log" 2>/dev/null \
     && bad "the old 1.1 file was put to R2" || ok "the old 1.1 file was not put to R2"
-printf '%s\n' "$OUT" | grep -q 'ncz-usb-recovery 1.2 (arm64)' && ok "final line names 1.2 (arm64)" || bad "final line does not name 1.2 (arm64)" "$OUT"
+printf '%s\n' "$OUT" | grep >/dev/null 'ncz-usb-recovery 1.2 (arm64)' && ok "final line names 1.2 (arm64)" || bad "final line does not name 1.2 (arm64)" "$OUT"
 
 echo "=== 2. Buildkite answers 409 but its index lacks the new deb ==="
 fresh bk409
 publish "$T/usb12.deb" MOCK_BK_CODE=409
 [ "$RC" = 2 ] && ok "publish fails (rc=2)" || bad "rc=$RC, wanted 2 (409 without the deb in the index)" "$OUT"
 claims_done && bad "still prints '== done:'" "$OUT" || ok "no '== done:' line"
-printf '%s\n' "$OUT" | grep -q 'FAILED' && ok "the error says FAILED" || bad "no FAILED message" "$OUT"
+printf '%s\n' "$OUT" | grep >/dev/null 'FAILED' && ok "the error says FAILED" || bad "no FAILED message" "$OUT"
 
 echo "=== 3. Buildkite answers 201 but the index never serves the deb ==="
 fresh bk201
@@ -188,7 +188,7 @@ printf 'Package: ncz-usb-recovery\nVersion: 1.2\nArchitecture: arm64\nFilename: 
 # (the version-gate index stays at 1.1, so the policy passes and only the registry check can refuse)
 publish "$T/usb12.deb" MOCK_BK_CODE=409
 [ "$RC" = 2 ] && ok "publish fails on a sha mismatch (rc=2)" || bad "rc=$RC, wanted 2 (a different-sha 1.2 must not count as published)" "$OUT"
-printf '%s\n' "$OUT" | grep -q "sha256 $(sha "$T/usb12.deb")" && ok "the error names the expected sha256" || bad "no sha256 in the error" "$OUT"
+printf '%s\n' "$OUT" | grep >/dev/null "sha256 $(sha "$T/usb12.deb")" && ok "the error names the expected sha256" || bad "no sha256 in the error" "$OUT"
 
 echo "=== 5. idempotent republish: 409 and the index already serves this exact deb ==="
 fresh bkidem

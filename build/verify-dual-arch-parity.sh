@@ -97,8 +97,8 @@ fi
 SSP_LOCK="$ROOT/post-install/lib/ncz-screensavers-plugin.lock"
 if [ -f "$SSP_LOCK" ]; then
     ssp_val() { sed -n "s/^$1=//p" "$SSP_LOCK" | tail -1 | tr -d '"'; }
-    SSP_PKG="$(ssp_val NCZ_SSPLUGIN_PKG)"; SSP_VER="$(ssp_val NCZ_SSPLUGIN_VERSION)"; SSP_DIR="$(ssp_val NCZ_SSPLUGIN_ARGONAS_DIR)"
-    [ -n "$SSP_PKG" ] && [ -n "$SSP_VER" ] && [ -n "$SSP_DIR" ] && [ -n "$(ssp_val NCZ_SSPLUGIN_SOURCE)" ] || bad "plugin pin $SSP_LOCK lacks PKG/VERSION/ARGONAS_DIR/SOURCE"
+    SSP_PKG="$(ssp_val NCZ_SSPLUGIN_PKG)"; SSP_VER="$(ssp_val NCZ_SSPLUGIN_VERSION)"; SSP_DIR="$(ssp_val NCZ_SSPLUGIN_STORE_DIR)"
+    [ -n "$SSP_PKG" ] && [ -n "$SSP_VER" ] && [ -n "$SSP_DIR" ] && [ -n "$(ssp_val NCZ_SSPLUGIN_SOURCE)" ] || bad "plugin pin $SSP_LOCK lacks PKG/VERSION/STORE_DIR/SOURCE"
     for arch in arm64 amd64; do
         for k in SHA256 PAYLOAD LIBSINGULARITY_SHA256; do
             [ -n "$(ssp_val "NCZ_SSPLUGIN_${k}_$arch")" ] || bad "plugin pin has no NCZ_SSPLUGIN_${k}_$arch"

@@ -103,13 +103,13 @@ newdb ra; mkdi
 run ra region-chooser.sh --prompt
 T=$(tpl ncz-region.templates)
 [ -n "$T" ] && ok "region template was loaded" || bad "region template was never loaded"
-printf '%s\n' "$T" | grep -q '\\n' && bad "region template contains a literal backslash-n: $(printf '%s\n' "$T" | grep '\\n')" || ok "region template has no literal backslash-n"
-printf '%s\n' "$T" | grep -q ' us - US' && bad "region template still lists 'us - US' in the description" || ok "no 'code - CODE' list in the description"
+printf '%s\n' "$T" | grep >/dev/null '\\n' && bad "region template contains a literal backslash-n: $(printf '%s\n' "$T" | grep '\\n')" || ok "region template has no literal backslash-n"
+printf '%s\n' "$T" | grep >/dev/null ' us - US' && bad "region template still lists 'us - US' in the description" || ok "no 'code - CODE' list in the description"
 nc=$(printf '%s\n' "$T" | sed -n 's/^Choices-C: //p' | tr ',' '\n' | grep -c .)
 nl=$(printf '%s\n' "$T" | sed -n 's/^Choices: //p' | tr ',' '\n' | grep -c .)
 [ "${nc:-0}" -ge 19 ] && ok "Choices-C offers every region ($nc codes)" || bad "Choices-C offers only ${nc:-0} region(s) (r199 offered 1: 'us')"
 check "Choices labels match Choices-C one to one" "${nl:-0}" "${nc:-0}"
-printf '%s\n' "$T" | sed -n 's/^Choices: //p' | grep -q 'United States' && ok "the list shows country names (United States)" || bad "the list does not show country names"
+printf '%s\n' "$T" | sed -n 's/^Choices: //p' | grep >/dev/null 'United States' && ok "the list shows country names (United States)" || bad "the list does not show country names"
 check "Default is us (Enter accepts United States)" "$(printf '%s\n' "$T" | sed -n 's/^Default: //p')" "us"
 check "region asked once" "$(asked ncz/region)" 1
 check "default pick: locale/country/tz/keymap" "$(tr '\n' ' ' < "$STMP/ncz-region")" "en_US.UTF-8 US America/New_York us "
@@ -259,7 +259,7 @@ c=$(pos '/tmp/component-selector\.sh[[:space:]]+--prompt'); d=$(pos 'sh[[:space:
 if [ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ] && [ -n "$d" ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ] && [ "$c" -lt "$d" ]; then
     ok "partman/early_command order: region, user, components, disk"
 else bad "partman/early_command order is not region < user < components < disk ($a $b $c $d)"; fi
-printf '%s' "$PART" | grep -qE 'hostname-suggest\.sh[[:space:]]+--prompt' && bad "the hostname is still prompted" || ok "the hostname is automatic (no --prompt)"
+printf '%s' "$PART" | grep >/dev/null -E 'hostname-suggest\.sh[[:space:]]+--prompt' && bad "the hostname is still prompted" || ok "the hostname is automatic (no --prompt)"
 grep -qE '^[[:space:]]*"net-pick\.sh",' "$ROOT/build/iso/patch-initrd-t2-kernel.py" && ok "net-pick.sh is baked into the initrd" || bad "net-pick.sh missing from BAKED_HELPERS"
 
 echo "installer flow tests ($SHX): $PASS passed, $FAILS failed"

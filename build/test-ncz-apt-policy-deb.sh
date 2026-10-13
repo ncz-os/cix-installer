@@ -32,7 +32,7 @@ fi
 DEB="$(ls "$T"/out/ncz-apt-policy_*_all.deb)"
 VER="$(dpkg-deb -f "$DEB" Version)"
 [ "$VER" != 1.0.0 ] && ok "version is $VER (1.0.0 carried the broken postinst and must never ship)" || bad "version is the broken 1.0.0"
-dpkg-deb -f "$DEB" Depends | grep -qw bash && ok "Depends includes bash" || bad "Depends lacks bash"
+dpkg-deb -f "$DEB" Depends | grep >/dev/null -w bash && ok "Depends includes bash" || bad "Depends lacks bash"
 
 echo "=== 0. member mtimes are the fixed per-version epoch ==="
 # Regression: the epoch used to come from the last commit touching the packaging
@@ -83,10 +83,10 @@ fi
 [ "$n" -ge 3 ] && ok "$n maintainer/helper scripts examined" || bad "only $n scripts examined"
 # ownership: the deb must not own the Intel deferred-install units/state, nor any foreign apt list or keyring
 owned="$(dpkg-deb -c "$DEB" | awk '{print $6}')"
-printf '%s\n' "$owned" | grep -Eq 'ncz-intel-accel|/var/lib/ncz/|intel-openvino|ncz-cuda|rocm|sources\.list\.d|/etc/apt/keyrings' \
+printf '%s\n' "$owned" | grep >/dev/null -E 'ncz-intel-accel|/var/lib/ncz/|intel-openvino|ncz-cuda|rocm|sources\.list\.d|/etc/apt/keyrings' \
     && bad "the package owns a path it must not (Intel units/state, foreign apt lists or keyrings)" "$owned" \
     || ok "the package owns no ncz-intel-accel-setup.*, /var/lib/ncz/intel-accel.*, foreign apt list or keyring"
-head -1 "$T/x/DEBIAN/postinst" | grep -q 'bash' && ok "postinst shebang is bash" || bad "postinst shebang is not bash: $(head -1 "$T/x/DEBIAN/postinst")"
+head -1 "$T/x/DEBIAN/postinst" | grep >/dev/null 'bash' && ok "postinst shebang is bash" || bad "postinst shebang is not bash: $(head -1 "$T/x/DEBIAN/postinst")"
 
 echo "=== 2. real maintainer scripts in debian:forky ==="
 RT=""
@@ -131,7 +131,7 @@ run_in() {  # deb -> output
     "$RT" run --rm --network none -v "$T/w:/w:ro" debian:forky bash /w/inside.sh 2>&1
 }
 OUT="$(run_in "$DEB")"
-want() { printf '%s\n' "$OUT" | grep -qx "$1" && ok "container: $1" || bad "container: expected $1" "$OUT"; }
+want() { printf '%s\n' "$OUT" | grep >/dev/null -x "$1" && ok "container: $1" || bad "container: expected $1" "$OUT"; }
 want RC_INSTALL=0; want STATUS=ii; want PIN=yes; want PINCONTENT=yes; want MIGRATED=yes; want BKKEPT=yes
 want HELPER=yes; want AUDIT=0; want RC_REINSTALL=0; want RC_PURGE=0; want PURGED=yes; want FOREIGN_UNTOUCHED=yes
 
@@ -140,9 +140,9 @@ mkdir -p "$T/old"; dpkg-deb -R "$DEB" "$T/old/tree"
 sed -i '1s|.*|#!/bin/sh|' "$T/old/tree/DEBIAN/postinst"
 dpkg-deb --root-owner-group -b "$T/old/tree" "$T/old/old.deb" >/dev/null 2>&1
 OUT="$(run_in "$T/old/old.deb")"
-printf '%s\n' "$OUT" | grep -qx 'PIN=yes' && bad "sh postinst unexpectedly wrote the pin" "$OUT" || ok "sh postinst: pin never written"
-printf '%s\n' "$OUT" | grep -q '^RC_INSTALL=0$' && bad "sh postinst unexpectedly installed cleanly" "$OUT" || ok "sh postinst: dpkg -i fails"
-printf '%s\n' "$OUT" | grep -qx 'STATUS=ii' && bad "sh postinst: package reached ii" || ok "sh postinst: package left half-configured, not ii"
+printf '%s\n' "$OUT" | grep >/dev/null -x 'PIN=yes' && bad "sh postinst unexpectedly wrote the pin" "$OUT" || ok "sh postinst: pin never written"
+printf '%s\n' "$OUT" | grep >/dev/null '^RC_INSTALL=0$' && bad "sh postinst unexpectedly installed cleanly" "$OUT" || ok "sh postinst: dpkg -i fails"
+printf '%s\n' "$OUT" | grep >/dev/null -x 'STATUS=ii' && bad "sh postinst: package reached ii" || ok "sh postinst: package left half-configured, not ii"
 
 echo "test-ncz-apt-policy-deb: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

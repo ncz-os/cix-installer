@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly GitHub sync
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

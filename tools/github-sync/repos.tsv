@@ -1,0 +1,49 @@
+# GitLab project -> GitHub repository copied by tools/sync-github-mirror.sh.
+# Columns (TAB): name, gitlab path, github path, mode, options (key=value ...).
+#   mode filter:   filtered copy (size limit, strip list, text list, mailmap).
+#   mode identity: GitLab refs pushed unchanged after a guard scan.
+#   trusted_base=<sha>[,...]  history imported unchanged from upstream, not re-read.
+#   gh_only=<glob>[,...]      GitHub-only refs that are expected and kept.
+#   prune_github_only=<glob>[,...]  GitHub-only refs approved for deletion by --prune.
+charon	ncz-os/charon	ncz-os/charon	filter
+chromium-ncz-sky1	ncz-os/chromium-ncz-sky1	ncz-os/chromium-ncz-sky1	filter
+cix-gen	ncz-os/cix-gen	ncz-os/cix-gen	filter
+cix-installer	ncz-os/cix-installer	ncz-os/cix-installer	filter	prune_github_only=refs/heads/ncz-o6-nic-readme,refs/heads/recovery/26.6-take1
+debs	ncz-os/debs	ncz-os/debs	filter
+distro-core	ncz-os/distro-core	ncz-os/distro-core	filter
+graeae	ncz-os/graeae	ncz-os/graeae	filter
+graeae-hive-mind	ncz-os/graeae-hive-mind	ncz-os/graeae-hive-mind	filter
+knemon	ncz-os/knemon	ncz-os/knemon	filter
+linux-cix	ncz-os/linux-cix	ncz-os/linux-cix	identity	trusted_base=8cd9520d35a6c38db6567e97dd93b1f11f185dc6,254f49634ee16a731174d2ae34bc50bd5f45e731,7fd2df204f342fc17d1a0bfcd474b24232fb0f32,5d6919055dec134de3c40167a490f33c74c12581,5200f5f493f79f14bbdc349e402a40dfb32f23c8,e7ae89a0c97ce2b68b0983cd01eda67cf373517d,e43ffb69e0438cddd72aaa30898b4dc446f664f8,4549871118cf616eecdd2d939f78e3b9e1dddc48,8d3ae59288f1e7d58d76558a6ee96d533bc5019f,dc59e4fea9d83f03bad6bddf3fa2e52491777482,8cdeaa50eae8dad34885515f62559ee83e7e8dda,a13c140cc289c0b7b3770bce5b3ad42ab35074aa,1590cf0329716306e948a8fc29f1d3ee87d3989f,f5098b6bae761e346ebcd9da7f95622c04733cff,075b74841bd0065a3bda3440873c747938e69b68,db2ddb87143519e20a95aa36c60b36107b736a58,5fce161649b4d779d1b76d9fcd52dc77779774b8,cee9395acd8043be0644b25c34bfa86623f2b935,df2908090cda368b01ff43709f51890076c56157,fd73f4a6659897191fa0d40695fe370925dd3780,93f51579e7df248780214094418f205253383cc5,72d3fcf802c45d00b300f25b848a93c3a2bd7c7e,a90ee4305c4a5df72c11b31dacfdc76e00fcf78a
+linux-rpi	ncz-os/linux-rpi	ncz-os/linux-rpi	identity
+linux-t2-ncz	ncz-os/linux-t2-ncz	ncz-os/linux-t2-ncz	filter
+mcp-contracts	ncz-os/mcp-contracts	ncz-os/mcp-contracts	filter
+mcp-stdio-rs	ncz-os/mcp-stdio-rs	ncz-os/mcp-stdio-rs	filter
+meta	ncz-os/meta	ncz-os/meta	filter
+meta-base	ncz-os/meta-base	ncz-os/meta-base	filter
+meta-cix	ncz-os/meta-cix	ncz-os/meta-cix	filter	prune_github_only=refs/heads/release/sky1-7.3.0-rc7-r289
+mnemos	ncz-os/mnemos	ncz-os/mnemos	identity
+mnemos-bridge-aider	ncz-os/mnemos-bridge-aider	ncz-os/mnemos-bridge-aider	filter
+mnemos-bridge-anthropic	ncz-os/mnemos-bridge-anthropic	ncz-os/mnemos-bridge-anthropic	filter
+mnemos-bridge-claude-connector	ncz-os/mnemos-bridge-claude-connector	ncz-os/mnemos-bridge-claude-connector	filter
+mnemos-bridge-core	ncz-os/mnemos-bridge-core	ncz-os/mnemos-bridge-core	filter
+mnemos-bridge-crewai	ncz-os/mnemos-bridge-crewai	ncz-os/mnemos-bridge-crewai	filter
+mnemos-bridge-gemini	ncz-os/mnemos-bridge-gemini	ncz-os/mnemos-bridge-gemini	filter
+mnemos-bridge-openai	ncz-os/mnemos-bridge-openai	ncz-os/mnemos-bridge-openai	filter
+mnemos-embedkit	ncz-os/mnemos-embedkit	ncz-os/mnemos-embedkit	filter
+mnemos-hot-rs	ncz-os/mnemos-hot-rs	ncz-os/mnemos-hot-rs	filter
+mnemos-rs	ncz-os/mnemos-rs	ncz-os/mnemos-rs	filter
+mnemos-stiphos	ncz-os/mnemos-stiphos	ncz-os/mnemos-stiphos	filter
+mnemosctl	ncz-os/mnemosctl	ncz-os/mnemosctl	filter
+mpf	ncz-os/mpf	ncz-os/mpf	identity
+ncz-ports	ncz-os/ncz-ports	ncz-os/ncz-ports	filter
+ncz-tools	ncz-os/ncz-tools	ncz-os/ncz-tools	filter
+ncz-wayland-screenhack	ncz-os/ncz-wayland-screenhack	ncz-os/ncz-wayland-screenhack	filter
+pantheon	ncz-os/pantheon	ncz-os/pantheon	filter
+pi-gen	ncz-os/pi-gen	ncz-os/pi-gen	filter
+singularity-wallpaper-rotator	ncz-os/singularity-wallpaper-rotator	ncz-os/singularity-wallpaper-rotator	filter
+tokenomics	ncz-os/tokenomics	ncz-os/tokenomics	filter
+wayshade	ncz-os/wayshade	ncz-os/wayshade	filter
+worker-hive-relay	ncz-os/worker-hive-relay	ncz-os/worker-hive-relay	filter
+zcon	ncz-os/zcon	ncz-os/zcon	filter
+zoder	ncz-os/zoder	ncz-os/zoder	filter

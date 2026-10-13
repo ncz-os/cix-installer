@@ -20,7 +20,7 @@
 | 组成部分 | 位置 | 版本 | 许可证 |
 |---|---|---|---|
 | 上游基线 | `https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git` | 标签 `v7.3-rc7`：提交 `24a19b953e2a3d0ea5a8c4951a0ab8f32720c907`（标签对象 `ec8bf828…`，即配方 `SRCREV_kernel` 的值） | GPL-2.0 |
-| 配方、Sky1 移植补丁、补丁 0001-0011 与 0013-0021、defconfig | [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) `recipes-kernel/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.3-rc7.bb` | 标签 `kernel-sky1-7.3.0-rc7-r289`（分支 `fix/sky1-r289-20261012`），提交 `6b6b55aa13a877ff8083592048f0a6043703c26a` | GPL-2.0（补丁），Apache-2.0（配方） |
+| 配方、Sky1 移植补丁、补丁 0001-0011 与 0013-0021、defconfig | [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) `recipes-kernel/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.3-rc7.bb` | 标签 `kernel-sky1-7.3.0-rc7-r289`（分支 `fix/sky1-r289-20261012`），提交 `7e8c821f8c7b79309af815ae0ee243bc36befa5b` | GPL-2.0（补丁），Apache-2.0（配方） |
 | 上述内容的仓库内副本，以及实际构建所用的 `.config`（sha256 `67bb7109…`） | 本仓库 [`kernel-source/`](../kernel-source/SOURCE.md) | 当前提交 | GPL-2.0 |
 | 打完全部补丁的完整源码树（单个提交） | [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix) | 标签 `kernel-sky1-7.3.0-rc7-r289-src`，提交 `b275222cfc5703fb5595398a216b495ca7d6ee7a`（分支 `release/sky1-7.3.0-rc7-r289`） | GPL-2.0 |
 | Debian 打包 | 本仓库 `build/build-kernel-debs.sh` | 提交 `d395bb2d` | 见仓库 |
@@ -39,8 +39,10 @@
 
 **安装程序 initrd 与其他 GPL 二进制：** `debootstrap-udeb` 由 `build/iso/patch-debootstrap-stub.py`
 修改；`+ncz1` 的 udeb 是未改动的 Debian sid 源码（`snapshot.debian.org`，`20261005T120000Z`），
-由 `build/rebuild-sid-udeb.sh` 重新构建；`assets/diag/busybox-*` 是未改动的 Ubuntu
-`busybox-static` 二进制（amd64 `1:1.36.1-6ubuntu3.1`、arm64 `1:1.37.0-7ubuntu1`），源码见 Launchpad。
+由 `build/rebuild-sid-udeb.sh` 重新构建；`assets/diag/busybox-*` 是 Debian forky
+`busybox-static` `1:1.38.0-3+b1`（amd64、arm64，固定快照 `20261012T023456Z`）中未改动的
+`usr/bin/busybox`，deb 与二进制的 sha256 固定在 `manifests/diag-busybox.tsv`，由
+`build/stage-diag-busybox.sh` 校验；源码见 <https://snapshot.debian.org/package/busybox/1%3A1.38.0-3/>。
 
 **重建镜像：** 上述 GPL 源码是完整的，但逐字节重建镜像目前**无法**仅凭公开来源完成。
 `manifests/build-inputs.tsv` 中的 44 个预置输入里，只有 6 个（两种架构的 CPython 3.11 与 `uv`、
@@ -53,9 +55,11 @@ NCZ-OS 分发 GPL/LGPL 软件，并从修改过的源码构建若干组件。本
 
 如果我们发布的某个组件是从源码构建的却未列于此，那是本文档的缺陷——请提交 issue。
 
-**源码以 GitLab 为准**（`gitlab.com/ncz-os/cix-installer`）。发布镜像作为 GitHub 镜像仓库的
-release 附件托管（`github.com/ncz-os/cix-installer/releases`），文档中的下载链接指向那里。
-最新版本也可以从同一标签的 GitLab release 下载，详见 [IMAGE-HOSTING.md](IMAGE-HOSTING.md)。
+**源码以 GitLab 为准**（`gitlab.com/ncz-os/cix-installer`）。发布镜像放在每个托管平台唯一的发布页上：
+GitHub 镜像仓库（<https://github.com/ncz-os/cix-installer/releases/latest>）和 GitLab
+（<https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest>），两处文件完全相同，详见 [IMAGE-HOSTING.md](IMAGE-HOSTING.md)。
+镜像中 GPL 代码的源码提供说明位于该版本的发布说明、本文档以及每个版本都会保留的 git 标签中，
+不依赖旧的发布页（发布新版本时旧发布页会被移除）。
 
 ---
 

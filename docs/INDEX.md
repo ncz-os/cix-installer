@@ -17,8 +17,12 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | [RELEASE-HISTORY.md](RELEASE-HISTORY.md) | Short release history; per-release archive up to 26.7 |
 | [SOURCE-RELEASES.md](SOURCE-RELEASES.md) · [简体中文](SOURCE-RELEASES.zh-CN.md) | Everything we compile ourselves, its version and where the source is |
 | [REMOTE-ACCESS.md](REMOTE-ACCESS.md) | Remote-access and recovery defaults (telnet, SSH, recovery container) and how to turn each off |
+| [RECOVERY-LOGINS.md](RECOVERY-LOGINS.md) | The installer diagnostics login (installer only, shown in the boot banner) and the rescue partition login: where each is shown, how to connect, change and reset it, troubleshooting |
 | [`tools/ncz-join-image.sh`](../tools/ncz-join-image.sh) | Joins, unpacks and checks the split release image parts (safe to re-run; never writes to a disk) |
-| [IMAGE-HOSTING.md](IMAGE-HOSTING.md) | Where release images are hosted (GitHub Releases, GitLab release + package registry, fallback storage) and how a release is published to GitLab |
+| [IMAGE-HOSTING.md](IMAGE-HOSTING.md) | Where release images are hosted (GitHub Releases, GitLab release + package registry, fallback storage), the one-release-page rule, stable latest-release links, release page parity and the release checklist |
+| [`tools/check-release-parity.sh`](../tools/check-release-parity.sh) | Read-only check that the GitHub and GitLab release pages show the same release |
+| [`tools/sync-release-pages.sh`](../tools/sync-release-pages.sh) | Publishes a staged release to both release pages and retires the old ones (dry run unless approved) |
+| [releases/release-page-template.md](releases/release-page-template.md) | Template for a release page's NOTES.md |
 
 ## Hardware, kernel and boot
 
@@ -66,6 +70,7 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 
 | Document | What it covers |
 |---|---|
+| [REGISTRY-CLEANUP.md](REGISTRY-CLEANUP.md) | Package registry retention: what is kept, what is removed, the cleanup policy and the weekly cleanup run |
 | [BUILD-SITE-CONFIG.md](BUILD-SITE-CONFIG.md) | Per-build-host settings (store mount points, build hosts, publish targets) as environment variables or `~/.config/ncz/` files |
 | [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md) | Why the stack is built the way it is, with the measurements (26.7 era) |
 | [PLATFORM-SPLIT-DESIGN.md](PLATFORM-SPLIT-DESIGN.md) | What is common to both architectures and what is platform-specific |

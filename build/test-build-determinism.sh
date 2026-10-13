@@ -39,8 +39,8 @@ cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT
 
 printf '== 1. reproducible.py + layerplan.py selftest ==\n'
-if python3 -I "$PY" selftest | tail -1 | grep -q 'PASS'; then ok "reproducible.py selftest PASS"; else bad "reproducible.py selftest"; fi
-if python3 -I "$ROOT/build/lib/layerplan.py" selftest | tail -1 | grep -q 'PASS'; then ok "layerplan.py selftest PASS"; else bad "layerplan.py selftest"; fi
+if python3 -I "$PY" selftest | tail -1 | grep >/dev/null 'PASS'; then ok "reproducible.py selftest PASS"; else bad "reproducible.py selftest"; fi
+if python3 -I "$ROOT/build/lib/layerplan.py" selftest | tail -1 | grep >/dev/null 'PASS'; then ok "layerplan.py selftest PASS"; else bad "layerplan.py selftest"; fi
 
 printf '== 2. SOURCE_DATE_EPOCH derivation ==\n'
 cat > "$SCRATCH/pin" <<'EOF'
@@ -102,7 +102,7 @@ printf 'world\n' > "$SCRATCH/tree/d/b"
 ncz_repro_env >/dev/null
 SDE="$SOURCE_DATE_EPOCH"
 sha() { [ -f "$1" ] && sha256sum "$1" | awk '{print $1}' || echo MISSING; }
-if tar --version 2>/dev/null | grep -qi 'GNU tar'; then
+if tar --version 2>/dev/null | grep >/dev/null -i 'GNU tar'; then
     ncz_tar_repro -cf "$SCRATCH/a.tar" -C "$SCRATCH/tree" .
     ncz_tar_repro -cf "$SCRATCH/b.tar" -C "$SCRATCH/tree" .
     [ "$(sha "$SCRATCH/a.tar")" != MISSING ] && [ "$(sha "$SCRATCH/a.tar")" = "$(sha "$SCRATCH/b.tar")" ]

@@ -9,7 +9,7 @@
 # namespace, the allowlist of intentional Debian-name overrides, the T2 set and
 # the pin text; nothing else in the tree may restate them.
 #
-# Why (operator 2026-10-07, measured on MEDUSA, r200):
+# Why (2026-10-07, measured on a T2 MacBook Pro test machine, r200):
 #   * `apt list --upgradable` mixed three populations: NCZ rebuilds, a leaked
 #     Ubuntu build of a Debian package (fonts-liberation 1:2.1.5-3build1
 #     shadowing Debian's 1:2.1.5-3 because it sorts higher), and genuine
@@ -234,7 +234,7 @@ ncz_apt_write_separation_pin() {
 # --- single NCZ repo + documented fallback -----------------------------------
 # Exactly ONE NCZ repo is enabled: Buildkite Packages (superset: 19 packages vs
 # R2's 13; carries zoder, libdrm, the NPU embed model that R2's 300 MB
-# single-PUT limit rejects; operator directive 2026-07-26). R2 stays installed
+# single-PUT limit rejects; since 2026-07-26). R2 stays installed
 # as a DISABLED fallback (<name>.list.disabled: apt ignores it silently) with
 # its keyring staged, and `ncz-apt-source r2` switches to it.
 #

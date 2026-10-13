@@ -333,7 +333,7 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
                 # The verifier cannot tell from the target alone whether this image was meant to ship
                 # ncz-screensavers (the payload does not carry the seed manifest); ask the checkout.
                 if [ -z "${VERIFY_EXPECT_SCREENSAVERS:-}" ]; then
-                    if [ -s "$SCRIPT_DIR/../manifests/install-extra.pkgs" ] && sed 's/#.*//' "$SCRIPT_DIR/../manifests/install-extra.pkgs" | awk 'NF {print $1}' | grep -qx ncz-screensavers; then
+                    if [ -s "$SCRIPT_DIR/../manifests/install-extra.pkgs" ] && sed 's/#.*//' "$SCRIPT_DIR/../manifests/install-extra.pkgs" | awk 'NF {print $1}' | grep >/dev/null -x ncz-screensavers; then
                         export VERIFY_EXPECT_SCREENSAVERS=1
                     else
                         export VERIFY_EXPECT_SCREENSAVERS=0
@@ -404,6 +404,13 @@ fi
 
 # The gaps this session fixed, each with its own message, so a failure names
 # the finding rather than just "install failed".
+# The installer diagnostics login (root / rescue, docs/RECOVERY-LOGINS.md) is in the
+# boot banner on every console (preseed/ncz-ui.sh ncz_ui_diag_login); the serial
+# console this gate reads is one of them. The value is the documented login, so
+# the saved logs carry nothing that needs redacting.
+grep -aqE "==== NCZ-OS INSTALLER [^ ]+ ==== diagnostics login: root / [^ ]{4,}" "$ILOG" \
+  || fail "the installer boot banner does not show the diagnostics login line (preseed/ncz-ui.sh ncz_ui_diag_login)"
+echo "  installer banner shows the diagnostics login line"
 if grep -q "is NOT the NCZ squashfs stub" "$ILOG"; then
     fail "the r159 debootstrap stub was not installed -- see /var/log/ncz-debootstrap-stub.log in the guest"
 fi
@@ -466,7 +473,7 @@ ncz_norm_log() {
 # run-all.sh emits this immediately before late.sh prints its completion
 # marker, and late.sh prints that marker unconditionally -- so checking the
 # marker alone reports success on a broken install.
-if ncz_norm_log "$ILOG" | grep -qai "Ship-critical post-install hooks failed"; then
+if ncz_norm_log "$ILOG" | grep >/dev/null -ai "Ship-critical post-install hooks failed"; then
     ncz_norm_log "$ILOG" | grep -ai -B2 -A2 "Ship-critical post-install hooks failed" | head -20 >&2
     fail "a ship-critical post-install hook failed -- the install is not shippable"
 fi
@@ -572,7 +579,7 @@ if true; then   # both architectures
     FAILED_UNITS="$(grep -vE '^#|^[[:space:]]*$' "$FBR" | awk '{print $1}' | sed 's/^[^A-Za-z0-9_@.-]*//' | sort -u || true)"  # grep exits 1 when NO unit failed; under pipefail+set -e that ended the gate silently on amd64
     BAD=""
     for u in $FAILED_UNITS; do
-        if [ -f "$ALLOW" ] && grep -vE '^#|^[[:space:]]*$' "$ALLOW" | awk '{print $1}' | grep -qxF "$u"; then
+        if [ -f "$ALLOW" ] && grep -vE '^#|^[[:space:]]*$' "$ALLOW" | awk '{print $1}' | grep >/dev/null -xF "$u"; then
             echo "    failed (allowed): $u"
         else
             BAD="$BAD $u"

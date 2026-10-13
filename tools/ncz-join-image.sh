@@ -1,11 +1,12 @@
 #!/bin/sh
 # ncz-join-image.sh - join, unpack and verify an NCZ-OS Preview image.
 #
-# Put this script, SHA256SUMS, PARTS.sha256 and the downloaded
-#   ncz-os-<arch>-<date>-<sha>.img.zst.part-NN files in one folder, then run:
+# Put this script and the downloaded files of one architecture in one folder:
+#   ncz-os-<arch>-<date>-<build>.img.zst.part-NN, PARTS-<arch>.sha256 and
+#   SHA256SUMS-<arch> (older releases: PARTS.sha256 and SHA256SUMS), then run:
 #   sh ncz-join-image.sh            (auto-detects the architecture if only one is present)
 #   sh ncz-join-image.sh arm64      (or amd64)
-# It checks every part, joins and unpacks them to ncz-os-<arch>-<date>-<sha>.img,
+# It checks every part, joins and unpacks them to ncz-os-<arch>-<date>-<build>.img,
 # and checks the finished image. It never writes to a disk device; writing the
 # image to a drive is a separate step you do yourself.
 #
@@ -21,7 +22,7 @@ while [ $# -gt 0 ]; do
     -f) force=1; shift ;;
     -k) shift ;;
     arm64|amd64) arch=$1; shift ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1 (try -h)" >&2; exit 2 ;;
   esac
 done
@@ -32,8 +33,6 @@ if command -v sha256sum >/dev/null 2>&1; then sha() { sha256sum "$1" | cut -d' '
 elif command -v shasum >/dev/null 2>&1; then sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
 else die "need sha256sum or shasum"; fi
 command -v zstd >/dev/null 2>&1 || die "zstd is required (Debian/Ubuntu: apt install zstd; macOS: brew install zstd; Fedora: dnf install zstd)"
-[ -f SHA256SUMS ] || die "SHA256SUMS not found in $(pwd)"
-[ -f PARTS.sha256 ] || die "PARTS.sha256 not found in $(pwd)"
 
 # pick the architecture
 if [ -z "$arch" ]; then
@@ -48,9 +47,15 @@ if [ -z "$arch" ]; then
   arch=$1
 fi
 
-# expected parts for this architecture come from PARTS.sha256
-expected=$(awk -v a="ncz-os-$arch-" 'index($2,a)==1 {print $2}' PARTS.sha256 | sort)
-[ -n "$expected" ] || die "PARTS.sha256 has no entries for $arch"
+# checksum files: per architecture, or the combined files of older releases
+parts=PARTS-$arch.sha256; [ -f "$parts" ] || parts=PARTS.sha256
+sums=SHA256SUMS-$arch; [ -f "$sums" ] || sums=SHA256SUMS
+[ -f "$parts" ] || die "PARTS-$arch.sha256 not found in $(pwd)"
+[ -f "$sums" ] || die "SHA256SUMS-$arch not found in $(pwd)"
+
+# expected parts for this architecture come from the PARTS file
+expected=$(awk -v a="ncz-os-$arch-" 'index($2,a)==1 {print $2}' "$parts" | sort)
+[ -n "$expected" ] || die "$parts has no entries for $arch"
 img=$(echo "$expected" | head -1 | sed 's/\.zst\.part-[0-9]*$//')
 echo "Architecture: $arch   Image: $img"
 
@@ -59,7 +64,7 @@ n=0; bad=0
 for p in $expected; do
   n=$((n+1))
   if [ ! -f "$p" ]; then echo "  MISSING  $p"; bad=1; continue; fi
-  want=$(awk -v f="$p" '$2==f {print $1}' PARTS.sha256)
+  want=$(awk -v f="$p" '$2==f {print $1}' "$parts")
   got=$(sha "$p")
   if [ "$want" = "$got" ]; then echo "  ok       $p"; else echo "  BAD      $p (checksum mismatch - download it again)"; bad=1; fi
 done
@@ -77,8 +82,8 @@ set --; for p in $expected; do set -- "$@" "$p"; done
 cat "$@" | zstd -d -q -o "$img.partial" || { rm -f "$img.partial"; die "unpack failed"; }
 
 # 4. verify the finished image
-want=$(awk -v f="$img" '$2==f {print $1}' SHA256SUMS)
-[ -n "$want" ] || { rm -f "$img.partial"; die "SHA256SUMS has no entry for $img"; }
+want=$(awk -v f="$img" '$2==f {print $1}' "$sums")
+[ -n "$want" ] || { rm -f "$img.partial"; die "$sums has no entry for $img"; }
 got=$(sha "$img.partial")
 if [ "$want" != "$got" ]; then rm -f "$img.partial"; die "image checksum mismatch (expected $want, got $got)"; fi
 mv -f "$img.partial" "$img"

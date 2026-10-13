@@ -95,12 +95,12 @@ run_case() { # <arch> -- prints the staged top-level asset names for that arch
 AMD_STAGED="$(run_case amd64)"
 ARM_STAGED="$(run_case arm64)"
 
-if printf '%s\n' "$ARM_STAGED" | grep -qxF 'dracut'; then
+if printf '%s\n' "$ARM_STAGED" | grep >/dev/null -xF 'dracut'; then
     ok "arm64 base stages assets/dracut (the test is not vacuous)"
 else
     bad "arm64 base did NOT stage assets/dracut -- the extraction/fixture is broken"
 fi
-if printf '%s\n' "$AMD_STAGED" | grep -qxF 'dracut'; then
+if printf '%s\n' "$AMD_STAGED" | grep >/dev/null -xF 'dracut'; then
     bad "amd64 base staged assets/dracut (Sky1 dracut config leaked onto x86)"
 else
     ok "amd64 base does NOT stage assets/dracut"

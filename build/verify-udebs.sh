@@ -21,7 +21,7 @@ REQUIRED_LINE="$(grep -E '^REQUIRED_UDEB_DI = \[' "$GATE" || true)"
 while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|\#*) continue ;; esac
     package="${line%%[[:space:]]*}"
-    if ! printf '%s\n' "$REQUIRED_LINE" | grep -qF "\"$package\""; then
+    if ! printf '%s\n' "$REQUIRED_LINE" | grep >/dev/null -F "\"$package\""; then
         echo "MISSING UDEB REQUIREMENT: build/iso/patch-debootstrap-stub.py REQUIRED_UDEB_DI:$package" >&2
         FAILED=1
     fi

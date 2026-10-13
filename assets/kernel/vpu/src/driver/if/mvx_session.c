@@ -3356,7 +3356,7 @@ static int try_format(struct mvx_session *session,
          * visible_rect whose bottom/right edge falls OUTSIDE coded_size by
          * exactly the crop amount.
          *
-         * Live-proven on cixmini/192.168.207.66 with a timestamped kernel
+         * Live-proven on an MS-R1 test board with a timestamped kernel
          * trace (MNEMOS mem_1789294723332_1c07f6 follow-up): for this
          * session port->format=13 (is_afbc=1), afbc_crop_top=4,
          * afbc_crop_left=0. Without this padding, VIDIOC_G_FMT reported

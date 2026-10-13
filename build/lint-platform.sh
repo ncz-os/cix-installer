@@ -128,7 +128,7 @@ for plat in sky1-arm64 amd64; do
         [ -n "$c" ] || continue
         want=0
         case "$c" in common|mixed) want=1 ;; "$own") want=1 ;; esac
-        have=0; printf '%s\n' "$listed" | grep -qxF -- "$h" && have=1
+        have=0; printf '%s\n' "$listed" | grep >/dev/null -xF -- "$h" && have=1
         if [ "$want" = 1 ] && [ "$have" = 0 ]; then fail HOOKS "$h ($c) must be on the $plat list but is not"; fi
         if [ "$want" = 0 ] && [ "$have" = 1 ]; then fail HOOKS "$h ($c) must NOT be on the $plat list"; fi
     done

@@ -608,7 +608,7 @@ index 0000000..a62c796
 +        h->want_start = false;
 +        stop_source(h, "disabled");
 +    } else {
-+        /* On lock engage the saver shows immediately (operator ruling): mark
++        /* On lock engage the saver shows immediately: mark
 +         * "start now" rather than starting the resume timer. */
 +        h->want_start = true;
 +        h->last_activity_ms = h->now_ms ? h->now_ms : lfs_now_ms();

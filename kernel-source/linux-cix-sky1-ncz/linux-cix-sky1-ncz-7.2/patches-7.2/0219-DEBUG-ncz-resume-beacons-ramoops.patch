@@ -28,9 +28,9 @@ would silently change 9021's semantics for anyone wiring it back up.
 This patch keeps its own NCZ_RESUME_BEACON Kconfig and its own
 ncz-resume-beacon.c; on the rare occasion both are applied the linker
 would see two ncz_beacon() symbols and refuse to link, which is the
-correct "do not combine these" outcome (the operator would pick one).
+correct "do not combine these" outcome (one of them would be picked).
 
-An independent Codex investigation of the existing patch series
+An independent investigation of the existing patch series
 identified the six points that bracket every plausible lock site along
 the resume path, and the present patch instruments each of them with a
 small, cheap ramoops write (the helper memremaps the firmware-reserved

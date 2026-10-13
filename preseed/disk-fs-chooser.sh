@@ -174,11 +174,24 @@ disk_size_h() {
 }
 disk_model() { cat "/sys/block/${1##*/}/device/model" 2>/dev/null | tr -d '\t\r\n' | sed 's/  */ /g; s/^ //; s/ $//; s/,/ /g' ; }
 
+# Disks holding an NCZ-OS image on a non-USB device (written by
+# media-usb-only.sh when no USB installation drive was found). Such a disk is
+# the disk the board may have booted from; it is never offered and never wiped.
+NONUSB_MEDIA_FILE="${NCZ_NONUSB_MEDIA:-/tmp/ncz-nonusb-media}"
+NONUSB_MEDIA_DISKS=""
+[ -s "$NONUSB_MEDIA_FILE" ] && NONUSB_MEDIA_DISKS=$(cat "$NONUSB_MEDIA_FILE" 2>/dev/null)
+is_nonusb_media_disk() {
+    for _nm in $NONUSB_MEDIA_DISKS; do [ "$_nm" = "$1" ] && return 0; done
+    return 1
+}
+[ -n "$NONUSB_MEDIA_DISKS" ] && log "disks holding an NCZ-OS image on a non-USB device (never a target): $NONUSB_MEDIA_DISKS"
+
 # Build the candidate list (whole disks, excluding the install medium).
 CANDIDATES=""
 NDISK=0
 for d in $DISK_LIST; do
     [ -n "$MEDIA_DISK" ] && [ "$d" = "$MEDIA_DISK" ] && continue
+    is_nonusb_media_disk "$d" && continue
     CANDIDATES="$CANDIDATES $d"
     NDISK=$((NDISK+1))
 done
@@ -257,6 +270,9 @@ fi
 # Hard safety: refuse if the install media lives on the chosen disk.
 if [ -n "$MEDIA_DISK" ] && [ "$MEDIA_DISK" = "$CHOSEN_DISK" ]; then
     abort "install media is on the target disk $CHOSEN_DISK"
+fi
+if is_nonusb_media_disk "$CHOSEN_DISK"; then
+    abort "the target disk $CHOSEN_DISK holds the NCZ-OS installer image; install from a USB drive instead"
 fi
 
 # --- choose the root filesystem --------------------------------------------

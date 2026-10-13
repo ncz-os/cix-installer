@@ -38,7 +38,7 @@ What's in this squash, in the order it was actually done:
        branch's rewrite of that driver); fall back to
        dev_pm_opp_get_opp_count() directly instead.
 
-3. Independent adversarial (Codex) review of (2) above requested two
+3. Independent adversarial review of (2) above requested two
    follow-ups, both applied: centralize the version-tuple check in
    mali_kbase_fence_ops.c through the one macro instead of re-deriving
    it inline in 3 places; add unique grep-able dmesg markers
@@ -54,7 +54,7 @@ What's in this squash, in the order it was actually done:
    Applied reactively, not proactively -- see item 5.
 
 5. Two real, reproducible NULL/garbage-pointer-deref kernel panics
-   found via LIVE HARDWARE TESTING on cixmini (.66, 2026-07-27), both
+   found via LIVE HARDWARE TESTING on an MS-R1 (2026-07-27), both
    root-caused from a pstore/ramoops-captured crash dump after the
    board auto-rebooted (panic=30):
 
@@ -90,7 +90,7 @@ What's in this squash, in the order it was actually done:
    power domain never binds on 7.0.12 (vs. 7.2, where it does) is
    follow-up work; see dkms.conf and docs/DRIVER_FIDELITY_7012.md.
 
-Build validated (cixmini, 7.0.12-cix-sky1-next headers):
+Build validated (MS-R1, 7.0.12-cix-sky1-next headers):
 mali_kbase.ko + memory_group_manager.ko + protected_memory_allocator.ko
 all build clean, vermagic "7.0.12-cix-sky1-next SMP preempt mod_unload
 aarch64".
@@ -810,7 +810,7 @@ index 75e3a92..ddda122 100644
 +		 * calls __pm_runtime_resume() on it and oopses on a bad
 +		 * pointer (observed: NULL/garbage deref at
 +		 * kbase_platform_sky1_init -> sky1_gpu_attach_pd ->
-+		 * device_link_add on cixmini, 7.0.12-cix-sky1-next -- this
++		 * device_link_add on an MS-R1, 7.0.12-cix-sky1-next -- this
 +		 * was the *first* device_link_add() call in this function,
 +		 * hit before the power-supply one further down). Defer so
 +		 * the driver core retries once the perf domain exists.
@@ -838,7 +838,7 @@ index 75e3a92..ddda122 100644
 +			 * device_link_add() below is not safe -- device_link_add()
 +			 * ends up calling __pm_runtime_resume() on it and oopses
 +			 * (observed: NULL/garbage deref in kbase_platform_sky1_init
-+			 * -> sky1_gpu_attach_pd -> device_link_add on cixmini,
++			 * -> sky1_gpu_attach_pd -> device_link_add on an MS-R1,
 +			 * 7.0.12-cix-sky1-next). Defer so the driver core retries
 +			 * this probe once the power-supply device exists.
 +			 */
@@ -894,7 +894,7 @@ index 75e3a92..ddda122 100644
 +			 "SKY1_7_0_12_OPP: OPP table already populated (%d entries); GPU DVFS scaling available.\n",
 +			 dev_pm_opp_get_opp_count(kbdev->sky1_perf_dev));
 +	} else {
-+		/* Codex review flagged (adversarial review, 2026-07-26): the
++		/* Review flagged (2026-07-26): the
 +		 * caller chain (kbase_devfreq_init() -> kbase_backend_devfreq_init())
 +		 * does NOT treat a non-zero return here as probe-fatal -- it logs
 +		 * "Continuing without devfreq" and the module still loads, GPU

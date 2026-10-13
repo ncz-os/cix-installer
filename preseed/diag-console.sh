@@ -19,6 +19,9 @@
 #   2. Boot variable : `ncz_diag=0|off` on the kernel cmdline disables it even if
 #      staged; `ncz_diag=1` enables. Operators can flip it at the boot menu.
 #   Tunables (kernel cmdline): ncz_diag_pw=<pw>  ncz_diag_log=<host[:port]>
+#   Login: root / rescue, the documented rescue-partition login
+#   (build/build-rescue-rootfs.sh, docs/RECOVERY-LOGINS.md); installer only, shown
+#   on every console while the installer runs. ncz_diag_pw=<pw> replaces it.
 #   Remote syslog is OPT-IN ONLY -- no default loghost is baked in (since
 #   2026-09-17: a shipped installer must never phone home to an internal
 #   project address by default). Without ncz_diag_log, the forwarder simply
@@ -27,9 +30,10 @@
 # Idempotent: safe to run repeatedly; daemons are tracked by pidfiles and only
 # (re)started when missing. Spawned in background by preseed/early_command.
 #
-# Runs under the d-i busybox 1.35 ash; uses a shipped static arm64 busybox
-# (assets/diag/busybox-arm64) for the applets d-i lacks (telnetd/httpd/syslogd/
-# chpasswd/--install) and for the richer diagnostic shell.
+# Runs under the d-i busybox ash; uses the shipped static busybox
+# (assets/diag/busybox-<arch>, Debian forky busybox-static, pinned in
+# manifests/diag-busybox.tsv) for the applets d-i lacks (telnetd/httpd/syslogd/
+# mkpasswd/--install) and for the richer diagnostic shell.
 
 set +e
 LOG=/var/log/diag-console.log
@@ -57,7 +61,7 @@ case "$DIAG" in
     0|off|no|false|disable|disabled)
         say "disabled via ncz_diag=$DIAG — exiting (no daemons started)"; exit 0;;
 esac
-PW=$(kv ncz_diag_pw);    PW_EXPLICIT=0; [ -n "$PW" ] && PW_EXPLICIT=1; PW=${PW:-diags}
+PW=$(kv ncz_diag_pw);    PW_EXPLICIT=0; [ -n "$PW" ] && PW_EXPLICIT=1; PW=${PW:-rescue}
 # No default loghost — a real, shipped installer must never phone home to an
 # internal project address by default. Remote syslog forwarding is OPT-IN ONLY
 # via ncz_diag_log=<host[:port]> on the boot cmdline; unset means no forward
@@ -122,14 +126,14 @@ fi
 "$BB" mkdir -p "$BIN"; "$BB" --install "$BIN" 2>/dev/null
 # Some d-i tmpfs builds accept BusyBox --install but create no links. Build
 # the applet farm explicitly in that case so diagnostics do not die silently.
-if [ ! -x "$BIN/chpasswd" ]; then
-    for _applet in chpasswd httpd ifconfig klogd login nc netstat route sh tail telnetd udhcpc; do
+if [ ! -x "$BIN/telnetd" ]; then
+    for _applet in awk chmod httpd ifconfig klogd login mkpasswd mv nc netstat route sh stat tail telnetd udhcpc; do
         "$BB" ln -sf "$BB" "$BIN/$_applet" 2>/dev/null || true
     done
 fi
 say "applet farm: $("$BB" ls "$BIN" 2>/dev/null | "$BB" wc -l) applets in $BIN"
 export PATH=$BIN:/usr/bin:/bin:/usr/sbin:/sbin
-for _applet in chpasswd httpd ifconfig klogd login nc netstat route sh tail telnetd udhcpc; do
+for _applet in awk chmod httpd ifconfig klogd login mkpasswd mv nc netstat route sh stat tail telnetd udhcpc; do
     if [ ! -x "$BIN/$_applet" ]; then
         say "FATAL: busybox applet $_applet missing from $BIN"
         exit 1
@@ -170,8 +174,35 @@ ensure_devpts() {
 }
 
 # ---- root password so SSH password-auth + telnet login work -----------------
-# d-i root is otherwise locked, so set a known simple password here.
-printf 'root:%s\n' "$PW" | "$BB" chpasswd 2>/dev/null \
+# d-i root is otherwise locked, so set the documented diagnostics login here.
+# Debian's busybox-static has no chpasswd applet, so this does what chpasswd
+# does: hash with mkpasswd (sha512 crypt, password on stdin) and write root's
+# password field -- in /etc/shadow when it has a root entry (and mark the
+# /etc/passwd field "x"), otherwise in /etc/passwd. Each file is rewritten
+# through a temporary copy with the original mode and renamed into place.
+# NCZ_DIAG_ETC is a test seam (build/test-diag-busybox.sh).
+ncz_diag_set_root_pw() {
+    _etc="${NCZ_DIAG_ETC:-/etc}"
+    _hash=$(printf '%s\n' "$1" | "$BB" mkpasswd -m sha512 2>/dev/null)
+    case "$_hash" in '$6$'*) ;; *) return 1 ;; esac
+    if [ -f "$_etc/shadow" ] && "$BB" grep -q '^root:' "$_etc/shadow"; then
+        _files="shadow passwd"
+    else
+        _files="passwd"
+    fi
+    for _f in $_files; do
+        _new="$_hash"
+        [ "$_f" = passwd ] && [ "$_files" != passwd ] && _new=x
+        _mode=$("$BB" stat -c %a "$_etc/$_f" 2>/dev/null) || return 1
+        "$BB" awk -F: -v OFS=: -v h="$_new" '$1 == "root" { $2 = h; n++ } { print } END { exit n ? 0 : 1 }' \
+            "$_etc/$_f" > "$_etc/$_f.ncz-new" \
+            && "$BB" chmod "$_mode" "$_etc/$_f.ncz-new" \
+            && "$BB" mv -f "$_etc/$_f.ncz-new" "$_etc/$_f" \
+            || { "$BB" rm -f "$_etc/$_f.ncz-new"; return 1; }
+    done
+    return 0
+}
+ncz_diag_set_root_pw "$PW" \
     && say "root password set (ssh/telnet password auth enabled)" \
     || say "ERROR: failed to set root password; SSH password login will fail"
 
@@ -187,7 +218,7 @@ printf 'root:%s\n' "$PW" | "$BB" chpasswd 2>/dev/null \
 #   1. kernel log: /dev/kmsg is replayed from the start of the ring buffer and
 #      followed onto ttyAMA0 at every log level (the Install entry's
 #      'quiet loglevel=3' only filters printk consoles, not /dev/kmsg readers);
-#   2. a busybox getty + login on ttyAMA0 (root / ncz_diag_pw, default "diags",
+#   2. a busybox getty + login on ttyAMA0 (root / ncz_diag_pw, default "rescue",
 #      the same credential as telnet), up before ethdetect/netcfg run;
 #   3. when the installer finds no network interface (only lo while netcfg or
 #      ethdetect runs, or after 120s of uptime), a one-shot summary of the PCI
@@ -575,10 +606,11 @@ IP="$(current_ip)"
 say "==================================================================="
 say "NCZ installer diagnostics READY  (ncz_diag=$DIAG)  IP=${IP:-<none>}"
 if [ "$PW_EXPLICIT" = 1 ]; then
-    say "  ssh:    ssh root@${IP:-<host>}            (password: set by ncz_diag_pw on the boot line)"
+    say "  diagnostics login: root / set by ncz_diag_pw on the boot line"
 else
-    say "  ssh:    ssh root@${IP:-<host>}            (default diagnostics password, see docs/REMOTE-ACCESS.md)"
+    say "  diagnostics login: root / $PW   (installer only, docs/RECOVERY-LOGINS.md)"
 fi
+say "  ssh:    ssh root@${IP:-<host>}"
 say "  telnet: telnet ${IP:-<host>} ${TELNET_PORT}             (rich shell)"
 say "  pull:   wget http://${IP:-<host>}:${HTTP_PORT}/var/log/syslog"
 if [ -n "$LOGHOST" ]; then
@@ -588,6 +620,14 @@ else
     say "          boot cmdline (e.g. at the rEFInd/GRUB menu) to enable it"
 fi
 say "==================================================================="
+# Sky1: repeat the login on the diagnostics UART when d-i does not own it.
+if serial_diag_enabled && ! serial_owned_by_installer; then
+    serial_setup_line
+    {
+        echo "NCZ installer diagnostics  IP=${IP:-<none>}"
+        if [ "$PW_EXPLICIT" = 1 ]; then echo "  diagnostics login: root / set by ncz_diag_pw on the boot line"; else echo "  diagnostics login: root / $PW"; fi
+    } | sed 's/$/\r/' >> "$NCZ_SERIAL_DEV" 2>/dev/null || true
+fi
 
 # ---- idempotent respawn for the life of the install -------------------------
 while :; do
