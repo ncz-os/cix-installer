@@ -50,7 +50,7 @@
 #      to the shared pool but a concurrently-running or freshly-started
 #      build hasn't picked it up, so the operator gets an explicit answer
 #      instead of silently shipping the older kernel. Measured 2026-09-28
-#      on ULTRA: an arm64 image shipped with the WRONG Sky1 kernel because
+#      on the arm64 build host: an arm64 image shipped with the WRONG Sky1 kernel because
 #      this check [3] had no arm64 arm -- a real rc5-vs-7.2.8 mismatch
 #      went all the way through the install, post-install/10-our-kernel.sh
 #      installed rc5, and the post-install then looked for /boot/vmlinuz-
@@ -67,22 +67,23 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
-# Mount spelling DIFFERS PER HOST (ARGONAS kernel-staging export):
-#   ULTRA:           /mnt/argonas-yocto-shared
-#   TYDEUS:          /nfs-shared
-#   PROTEUS/ARGOS/
-#   HYDRA/ACHILLES/
-#   CERBERUS:        /mnt/argonas/datapool/yocto-shared
-# build/stage-amd64-kernel.sh already probes three of these; copy the
-# pattern so a fresh build host never has to edit either script to find
-# the same shared pool. The override flag still wins, by design.
+# The kernel-staging pool's mount point DIFFERS PER HOST, so it is never
+# hardcoded: <yocto-shared root>/kernel-staging, the root coming from
+# NCZ_YOCTO_SHARED_DIR or the first line of ~/.config/ncz/yocto-shared-dir
+# (same lookup as build/lib/ncz-site.sh, inlined because tests run a copy of
+# this script outside the repo). The override flag still wins, by design.
+# site_value VAR NAME: $VAR, else the first line of ~/.config/ncz/NAME, else empty.
+site_value() {
+    local v="${!1:-}" f
+    if [ -z "$v" ]; then
+        f="${XDG_CONFIG_HOME:-${HOME:-}/.config}/ncz/$2"
+        if [ -r "$f" ]; then IFS= read -r v < "$f" || true; fi
+    fi
+    printf '%s' "$v"
+}
 KERNEL_STAGING_DIR=""
-for candidate in /mnt/argonas/datapool/yocto-shared/kernel-staging \
-                  /mnt/argonas-yocto-shared/kernel-staging \
-                  /nfs-shared/kernel-staging; do
-    [ -d "$candidate" ] && KERNEL_STAGING_DIR="$candidate" && break
-done
-KERNEL_STAGING_DIR="${KERNEL_STAGING_DIR:-/mnt/argonas/datapool/yocto-shared/kernel-staging}"
+_ysd="$(site_value NCZ_YOCTO_SHARED_DIR yocto-shared-dir)"
+[ -n "$_ysd" ] && KERNEL_STAGING_DIR="${_ysd%/}/kernel-staging"
 while [ $# -gt 0 ]; do
     case "$1" in
         --kernel-staging-dir) KERNEL_STAGING_DIR="$2"; shift 2 ;;
@@ -125,17 +126,18 @@ if [ -z "$BRANCH" ] || [ "$BRANCH" = HEAD ]; then
     echo "[1] WARN: detached HEAD or unknown branch -- cannot compare against a remote tracking branch"
     WARN=$((WARN + 1))
 else
-    # NEVER a bare, unbounded `git fetch` here. Confirmed live on HYDRA
-    # 2026-09-21, TWICE, even after fixing client ~/.ssh/config fleet-wide
-    # (IdentitiesOnly + MaxAuthTries): a plain fetch against the ARGONAS
+    # NEVER a bare, unbounded `git fetch` here. Confirmed live on a build host
+    # 2026-09-21, TWICE, even after fixing client ~/.ssh/config everywhere
+    # (IdentitiesOnly + MaxAuthTries): a plain fetch against the store's git
     # origin can still hang indefinitely with no error, no timeout, no
     # diagnostic (stderr was even redirected to /dev/null) -- it silently
     # stalled an entire ISO build for 30+ minutes, twice, exactly the class
     # of problem this gate exists to prevent. `timeout` bounds the hang;
-    # the sshpass password-auth wrapper is the same fleet-standard fallback
-    # every other network call in this repo already uses (kernel-build-
-    # checklist.md §0f) -- don't rely on client SSH config alone here.
-    if timeout 20 env GIT_SSH_COMMAND='sshpass -f "$HOME/.config/ncz/argonas.pass" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o ConnectTimeout=10' \
+    # the ssh command comes from NCZ_STORE_SSH_COMMAND or
+    # ~/.config/ncz/store-ssh-command (e.g. a password-auth wrapper) so a site
+    # can avoid client SSH config pitfalls; the default is plain batch ssh.
+    _store_ssh="$(site_value NCZ_STORE_SSH_COMMAND store-ssh-command)"
+    if timeout 20 env GIT_SSH_COMMAND="${_store_ssh:-ssh -o BatchMode=yes -o ConnectTimeout=10}" \
         git fetch origin "$BRANCH" --quiet 2>/dev/null; then
         LOCAL_SHA="$(git rev-parse HEAD)"
         REMOTE_SHA="$(git rev-parse "origin/$BRANCH" 2>/dev/null)"
@@ -193,7 +195,7 @@ fi
 # --- 3. Kernel-staging pool freshness ---------------------------------------
 #
 # Two parallel arms -- amd64 and arm64 (Sky1). Both consume the SAME
-# shared ARGONAS pool, but their packaging and naming differ:
+# shared kernel-staging pool, but their packaging and naming differ:
 #
 #   amd64 has TWO live namespaces (amd64-stable-* and amd64-edge-*); each
 #   line's payload is a .deb pair (linux-image-*.deb + linux-headers-*.deb)

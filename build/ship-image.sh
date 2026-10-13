@@ -1,5 +1,5 @@
 #!/bin/bash
-# ship-image.sh -- publish a GATED image: ARGONAS archive + the operator Mac (.4) ~/Downloads, verify sha256 at each
+# ship-image.sh -- publish a GATED image: the image archive + the operator's workstation ~/Downloads, verify sha256 at each
 # destination, record the gate marker, then show (or, with --reap-apply, perform) the reap of superseded images.
 #
 #   ship-image.sh IMAGE [--gate-log FILE] [--reap-apply] [--no-mac]
@@ -9,6 +9,7 @@
 # value is never printed or placed on a command line.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+. "$HERE/lib/ncz-site.sh"
 IMG=""; GATELOG=""; REAP_APPLY=0; MAC=1
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -19,8 +20,10 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -f "$IMG" ] || { echo "ship-image: no such image: $IMG" >&2; exit 2; }
-ARCHIVE="${NCZ_IMAGE_ARCHIVE:-/mnt/argonas-projects/ncz-os-assets/images}"
-MAC_DEST="${NCZ_MAC_DEST:-jperlow@192.168.207.4}"
+ARCHIVE="$(ncz_site_value NCZ_IMAGE_ARCHIVE image-archive-dir)"
+MAC_DEST="$(ncz_site_value NCZ_MAC_DEST ship-dest)"
+[ -n "$ARCHIVE" ] || { echo "ship-image: no image archive configured (NCZ_IMAGE_ARCHIVE or ~/.config/ncz/image-archive-dir)" >&2; exit 2; }
+[ "$MAC" = 0 ] || [ -n "$MAC_DEST" ] || { echo "ship-image: no workstation destination (NCZ_MAC_DEST or ~/.config/ncz/ship-dest, [user@]host), or pass --no-mac" >&2; exit 2; }
 PASSFILE="${NCZ_FLEET_PASS_FILE:-$HOME/.config/ncz/fleet.pass}"
 NAME="$(basename "$IMG")"; ARCH="$(echo "$NAME" | sed -n 's/^ncz-os-\([a-z0-9]*\)-.*/\1/p')"
 [ -n "$ARCH" ] || { echo "ship-image: cannot derive the architecture from $NAME" >&2; exit 2; }
@@ -45,10 +48,10 @@ SHA="$(sha256sum "$IMG" | cut -d' ' -f1)"
 echo "ship-image: $NAME sha256=$SHA"
 echo "$SHA  $NAME" > "$IMG.sha256"
 bash "$HERE/reap-images.sh" --mark-gated "$IMG" --note "KVM install gate PASS; log $(basename "$GATELOG")" >/dev/null
-# 1. ARGONAS archive
+# 1. image archive
 mkdir -p "$ARCHIVE" && cp "$IMG" "$IMG.sha256" "$IMG.gated" "$ARCHIVE/" && { [ -f "$IMG.receipt.json" ] && cp "$IMG.receipt.json" "$ARCHIVE/"; }
 got="$(sha256sum "$ARCHIVE/$NAME" | cut -d' ' -f1)"
-[ "$got" = "$SHA" ] && echo "  ARGONAS archive OK ($ARCHIVE)" || { echo "  ARGONAS copy sha256 MISMATCH" >&2; exit 4; }
+[ "$got" = "$SHA" ] && echo "  image archive OK ($ARCHIVE)" || { echo "  archive copy sha256 MISMATCH" >&2; exit 4; }
 # 2. the operator Mac
 if [ "$MAC" = 1 ]; then
     [ -r "$PASSFILE" ] || { echo "ship-image: no fleet password file at $PASSFILE (0600)" >&2; exit 5; }

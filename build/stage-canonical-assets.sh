@@ -15,8 +15,8 @@
 #      vp9dec, vp9enc.fwb), dsp_fw.bin, mediatek/ (BT_RAM_CODE_MT7922_*,
 #      WIFI_MT7922_patch_mcu_*, WIFI_RAM_CODE_MT7922_1.bin) and rtw89/ (8851b,
 #      8852a, 8852b, 8852bt, 8852c, 8922a firmware, 14 files) were missing.
-#      Source of the canonical set: /mnt/argonas-models/cix-installer-sky1-firmware-20260728/
-#      (21M, the 2026-07-28 .66 archive, world-readable NFS).
+#      Source of the canonical set: <vendor archive>/cix-installer-sky1-firmware-20260728/
+#      (21M, the 2026-07-28 test-board archive, on the project's NFS store).
 #      Net effect of the gap: no VPU codec acceleration and no WiFi/BT firmware
 #      on first boot -- a serious functional regression, not cosmetic.
 #
@@ -44,18 +44,18 @@
 #          version that uses asid_base[4], ABI-matched to cix-npu-driver-dkms
 #          6.2.0 with libnoe 3.1.1 -- see packaging/cix-npu-driver-dkms-6.2.0/
 #          README.md, "the matched NPU stack, hardened"). Build picked up 2.0.2
-#          because that is what /mnt/argonas-models/cix-installer-bake-assets-
-#          20260729/assets/cix-debs/ (the 2026-07-29 .66 archive the bake
+#          because that is what <vendor archive>/cix-installer-bake-assets-
+#          20260729/assets/cix-debs/ (the 2026-07-29 test-board archive the bake
 #          script conventionally reads from) shipped, and the 2026-07-28 sky1-
 #          firmware archive and the 2026-07-22 CIX-vendor-sdk 2026q2 drop have
 #          not been re-staged onto this host.
 #
 # The build script (build/build-iso-di.sh) silently relies on these assets
 # being present on the build host, and provides NO canonical-source pull. The
-# 22 cix-debs in /mnt/argonas-models/cix-installer-bake-assets-20260729/ are
-# the validated ARGOS .66 set from 2026-07-29, which is missing everything
+# 22 cix-debs in <vendor archive>/cix-installer-bake-assets-20260729/ are
+# the validated test-board set from 2026-07-29, which is missing everything
 # published after that date. This script does the pull from the canonical
-# ARGONAS NFS sources, so the next `make iso` bakes the right assets without
+# NFS sources (NCZ_VENDOR_ARCHIVE_DIR), so the next `make iso` bakes the right assets without
 # anyone having to remember where they live.
 #
 # WHAT IT DOES
@@ -68,7 +68,7 @@
 #     Copy the full 2026-07-28 archive (mediates: only files that exist on
 #     the host's arm/mali/ tree are kept; the canonical archive already
 #     matches the old ISO's inventory one-for-one, so this is a straight
-#     rsync). Source: ARGONAS NFS.
+#     rsync). Source: the vendor archive (NFS).
 #
 #   assets/mgmt/ncz-mgmt-rootfs.tar.zst
 #     Defer to build/build-mgmt-rootfs.sh; print a clear "skipping: no sudo"
@@ -78,7 +78,7 @@
 #     - Remove cix-noe-umd_2.0.2_arm64.deb (the pre-Q2 ABI version) so the
 #       matched-stack 3.1.4 is the only cix-noe-umd on the ISO.
 #     - Stage every cix-ai-*, cix-npu-* from the 2026Q2 SDK tarball
-#       (cix_noe_sdk_26_q2_release.tar.gz at /mnt/argonas-models/cix-vendor-sdk/2026q2/).
+#       (cix_noe_sdk_26_q2_release.tar.gz at <vendor archive>/cix-vendor-sdk/2026q2/).
 #     - For cix-npu-driver-dkms, take the upstream 6.2.0-cixdeb13-260714 from
 #       the SDK, apply the NCZ patch series from packaging/cix-npu-driver-dkms-6.2.0/patches/,
 #       and write out as 6.2.0-cixdeb13-260714+ncz3. The DKMS module identity
@@ -108,9 +108,14 @@ umask 022   # reproducible file modes: the version gate compares content, modes 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 ASSETS="$REPO/assets"
 STRICT=0
-SRC_NPU_SDK_TGZ="/mnt/argonas-models/cix-vendor-sdk/2026q2/cix_noe_sdk_26_q2_release.tar.gz"
+# The vendor archive root (vendor SDK drops + dated bake-asset archives) is a
+# site setting: NCZ_VENDOR_ARCHIVE_DIR or ~/.config/ncz/vendor-archive-dir
+# (build/lib/ncz-site.sh). Each source can also be overridden directly.
+. "$REPO/build/lib/ncz-site.sh"
+VENDOR_ARCHIVE="$(ncz_site_value NCZ_VENDOR_ARCHIVE_DIR vendor-archive-dir)"
+SRC_NPU_SDK_TGZ="${SRC_NPU_SDK_TGZ:-${VENDOR_ARCHIVE:+$VENDOR_ARCHIVE/cix-vendor-sdk/2026q2/cix_noe_sdk_26_q2_release.tar.gz}}"
 SRC_NPU_SDK_SHA="999cf475268d193bc2aa3afc59931c30f0a405baf0866978462bffa30b765c41"
-SRC_FIRMWARE_DIR="/mnt/argonas-models/cix-installer-sky1-firmware-20260728"
+SRC_FIRMWARE_DIR="${SRC_FIRMWARE_DIR:-${VENDOR_ARCHIVE:+$VENDOR_ARCHIVE/cix-installer-sky1-firmware-20260728}}"
 NPU_DKMS_PATCH_DIR="$REPO/packaging/cix-npu-driver-dkms-6.2.0/patches"
 
 while [ $# -gt 0 ]; do
@@ -179,7 +184,7 @@ else
     if [ "$(id -u)" -ne 0 ]; then
         warn "no sudo / not root -- build-mgmt-rootfs.sh requires root (mount/chroot/tar)"
         warn "  remediation: sudo bash build/build-mgmt-rootfs.sh, then re-run this script"
-        warn "  or set up passwordless sudo (see docs/ISO-REBAKE-TYDEUS-2026-08-21.md §6.1)"
+        warn "  or set up passwordless sudo for the build user"
         warn "  or copy ncz-mgmt-rootfs.tar.zst into $ASSETS/mgmt/ from a known-good build host"
         missing=$((missing+1))
     else
@@ -204,13 +209,13 @@ fi
 log "[3/3] cix-debs: dropping pre-Q2 cix-noe-umd_2.0.2, staging matched-stack Q2 set"
 mkdir -p "$ASSETS/cix-debs"
 
-# 3a. Stage the 22 base CIX proprietary .debs from the canonical ARGONAS
-# bake-assets archive (cix-installer-bake-assets-20260729, the 2026-07-29 .66
-# snapshot). The active ARGOS build's assets/cix-debs/ tree is filled from
+# 3a. Stage the 22 base CIX proprietary .debs from the canonical
+# bake-assets archive (cix-installer-bake-assets-20260729, the 2026-07-29 test-board
+# snapshot). The active build host's assets/cix-debs/ tree is filled from
 # exactly this archive; a fresh `git clone` ships nothing here (gitignored).
 # The matched-stack additions in 3b/3c/3d overwrite on top of the same name
 # where the validated set is newer.
-SRC_BAKE_ASSETS="${SRC_BAKE_ASSETS:-/mnt/argonas-models/cix-installer-bake-assets-20260729}"
+SRC_BAKE_ASSETS="${SRC_BAKE_ASSETS:-${VENDOR_ARCHIVE:+$VENDOR_ARCHIVE/cix-installer-bake-assets-20260729}}"
 if [ -d "$SRC_BAKE_ASSETS/assets/cix-debs" ]; then
     n_staged=0
     for d in "$SRC_BAKE_ASSETS/assets/cix-debs"/*.deb; do
@@ -224,7 +229,7 @@ if [ -d "$SRC_BAKE_ASSETS/assets/cix-debs" ]; then
     log "  base cix-debs staged from bake-assets-20260729: $n_staged packages"
 else
     warn "bake-assets archive not reachable: $SRC_BAKE_ASSETS"
-    warn "  manual remediation: copy the 22 base cix-debs/*.deb from any known-good ARGOS"
+    warn "  manual remediation: set NCZ_VENDOR_ARCHIVE_DIR, or copy the 22 base cix-debs/*.deb from any known-good build host"
     missing=$((missing+1))
 fi
 
@@ -283,7 +288,7 @@ fi
 
 # The vendor NPU/aipu KMD DKMS deb is built from the SDK + our patch series, but the SDK tarball is not always
 # reachable (r201: it was not, and the deb was copied by hand from the r200 tree). The built +ncz3 deb is therefore
-# checksum-pinned in manifests/build-inputs.tsv and held in the ARGONAS build-inputs store: stage it from there
+# checksum-pinned in manifests/build-inputs.tsv and held in the build-inputs store: stage it from there
 # first. Only for the real tree (--from points at a fixture/other tree, which has no store pins).
 NPU_DKMS_DEB="cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz3_arm64.deb"
 NPU_DKMS_PINNED=0
@@ -316,7 +321,7 @@ elif [ ! -f "$SRC_NPU_SDK_TGZ" ]; then
     missing=$((missing+1))
 else
     # Verify the tarball against the documented one. SHA recorded in
-    # /mnt/argonas-models/cix-vendor-sdk/2026q2/MANIFEST.md.
+    # <vendor archive>/cix-vendor-sdk/2026q2/MANIFEST.md.
     actual=$(sha256sum "$SRC_NPU_SDK_TGZ" | awk '{print $1}')
     if [ "$actual" != "$SRC_NPU_SDK_SHA" ]; then
         warn "NPU SDK SHA mismatch (got=$actual expected=$SRC_NPU_SDK_SHA)"
@@ -409,7 +414,7 @@ fi
 # BIOS omits _HID "CIXH4010" on the NPU CRE cores) that meant no NPU -- and,
 # before the +ncz3 aipu guard, a boot-time NULL-deref PANIC in sky1_npu_probe
 # (pm_runtime_enable(NULL) -> _raw_spin_lock_irqsave on 0xcc/0xec). See
-# build/build-npu-ssdt.sh and packaging/cix-npu-driver-dkms-6.2.0/README.md.
+# build/build-npu-ssdt.sh and packaging/cix-npu-driver-dkms-6.2.0/.
 if [ ! -s "$REPO/assets/npu/npu-acpi-override.cpio" ]; then
     if command -v iasl >/dev/null 2>&1; then
         log "generating assets/npu/npu-acpi-override.cpio (build-npu-ssdt.sh)"

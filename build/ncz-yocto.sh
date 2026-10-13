@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bootstrap pinned Yocto layers locally and run BitBake with shared ARGONAS
+# Bootstrap pinned Yocto layers locally and run BitBake with shared NFS
 # downloads/sstate. Usage: ncz-yocto.sh [--name NAME] [--bootstrap-only] [--] [bitbake arguments]
 set -euo pipefail
 
@@ -27,25 +27,28 @@ done
 [[ "$BUILD_NAME" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "ERROR: invalid build name: $BUILD_NAME" >&2; exit 2; }
 BITBAKE_ARGS=("${@:-coreutils-native}")
 
-for candidate in \
-    /mnt/argonas/datapool/yocto-shared \
-    /nfs-shared \
-    /mnt/argonas-yocto-shared; do
-    if mountpoint -q "$candidate" && [ -d "$candidate/downloads" ] && [ -d "$candidate/sstate-cache" ]; then
-        SHARED_ROOT="$candidate"
-        break
-    fi
-done
-[ -n "${SHARED_ROOT:-}" ] || {
-    echo "ERROR: ARGONAS yocto-shared is not mounted; tried /mnt/argonas/datapool/yocto-shared, /nfs-shared, /mnt/argonas-yocto-shared" >&2
+# Site settings (build/lib/ncz-site.sh): the shared Yocto export root
+# (downloads/ + sstate-cache/), and optional authenticated git fallbacks.
+. "$SCRIPT_DIR/lib/ncz-site.sh"
+SHARED_ROOT="$(ncz_site_value NCZ_YOCTO_SHARED_DIR yocto-shared-dir)"
+if [ -z "$SHARED_ROOT" ] || ! mountpoint -q "$SHARED_ROOT" || [ ! -d "$SHARED_ROOT/downloads" ] || [ ! -d "$SHARED_ROOT/sstate-cache" ]; then
+    echo "ERROR: shared Yocto export not available: set NCZ_YOCTO_SHARED_DIR (or ~/.config/ncz/yocto-shared-dir) to a mounted directory holding downloads/ and sstate-cache/ (got '${SHARED_ROOT:-<unset>}')" >&2
     exit 1
-}
+fi
+# Optional fallback git base for layers whose public URL is unreachable or lacks
+# the pinned commit: "<base>/<layer>.git"; NCZ_YOCTO_FALLBACK_BASE or
+# ~/.config/ncz/yocto-fallback-base. Its ssh command: NCZ_STORE_SSH_COMMAND or
+# ~/.config/ncz/store-ssh-command (default: plain ssh).
+FALLBACK_BASE="$(ncz_site_value NCZ_YOCTO_FALLBACK_BASE yocto-fallback-base)"
+STORE_SSH="$(ncz_site_value NCZ_STORE_SSH_COMMAND store-ssh-command)"
+STORE_SSH="${STORE_SSH:-ssh}"
 
 command -v git >/dev/null || { echo "ERROR: git is required" >&2; exit 1; }
 mkdir -p "$LAYERS_ROOT"
 
 fetch_layer() {
     local name="$1" url="$2" fallback="$3" revision="$4" dir="$LAYERS_ROOT/$name"
+    if [ -z "$fallback" ] && [ -n "$FALLBACK_BASE" ]; then fallback="${FALLBACK_BASE%/}/$name.git"; fi
     if [ -e "$dir" ] && [ ! -d "$dir/.git" ]; then
         echo "ERROR: $dir exists but is not a git checkout" >&2; return 1
     fi
@@ -53,8 +56,8 @@ fetch_layer() {
         echo "[ncz-yocto] clone $name"
         if ! git clone "$url" "$dir"; then
             [ -n "$fallback" ] || return 1
-            echo "[ncz-yocto] primary unavailable; trying fleet-auth fallback for $name"
-            GIT_SSH_COMMAND='sshpass -f "$HOME/.config/ncz/argonas.pass" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no' git clone "$fallback" "$dir"
+            echo "[ncz-yocto] primary unavailable; trying the configured fallback for $name"
+            GIT_SSH_COMMAND="$STORE_SSH" git clone "$fallback" "$dir"
         fi
     fi
     [ -w "$dir/.git/objects" ] || {
@@ -68,9 +71,9 @@ fetch_layer() {
         git -C "$dir" fetch --tags origin || true
     fi
     if ! git -C "$dir" cat-file -e "$revision^{commit}" 2>/dev/null && [ -n "$fallback" ]; then
-        echo "[ncz-yocto] pinned object absent from primary; fetching fleet-auth fallback for $name"
-        GIT_SSH_COMMAND='sshpass -f "$HOME/.config/ncz/argonas.pass" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no' \
-            git -C "$dir" fetch "$fallback" '+refs/heads/*:refs/remotes/fleet/*'
+        echo "[ncz-yocto] pinned object absent from primary; fetching the configured fallback for $name"
+        GIT_SSH_COMMAND="$STORE_SSH" \
+            git -C "$dir" fetch "$fallback" '+refs/heads/*:refs/remotes/fallback/*'
     fi
     git -C "$dir" cat-file -e "$revision^{commit}" 2>/dev/null || {
         echo "ERROR: pinned revision $revision not found for $name" >&2; return 1

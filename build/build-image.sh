@@ -10,7 +10,7 @@
 # (sudo password FIFO, /dev/kvm gid, kernel-staging bind mount, substrate
 # pre-staging, stale-layer forcing, scratch exclusions, singularity prebuilt
 # pin) is either automated here or a checked precondition with an actionable
-# error.  See docs/IMAGE-BUILD-PROCESS.md.
+# error.
 #
 # STAGES (fixed order; operator ruling 2026-10-10: provenance comes BEFORE the
 # long stages -- a bad input must fail in minutes, not after hours of layers)
@@ -25,7 +25,7 @@
 #   80 provenance-gate    forky provenance + one-kernel over the finished image
 #   90 kvm-gate           install + boot the image in KVM + installer UI check
 #   95 receipt            write the run metadata (NOT hashed) + gate summary
-#   99 archive            copy to ARGONAS images ONLY if every gate PASSed
+#   99 archive            copy to the image archive ONLY if every gate PASSed
 #
 # SCOPE (choose ONE; default --full)
 #   --full                 substrate refresh + every layer + image + all gates
@@ -37,7 +37,7 @@
 #   --only-image           re-assemble the image from the cached layers
 #
 # OPTIONS
-#   --no-publish           build + gates, never copy to ARGONAS images/
+#   --no-publish           build + gates, never copy to the image archive
 #   --gates kvm,provenance run only these gates (REQUIRES --no-publish)
 #   --substrate refresh|pinned   substrate policy (refresh default for --full)
 #   --resume-from STAGE    start at STAGE (skips earlier stages)
@@ -60,8 +60,8 @@
 #   1  a build/gate stage failed (see the stage log)
 #
 # WHAT IT NEVER DOES: tag, ship-image, flash/reboot, reap, or touch a live
-# repo/R2/Buildkite.  Those are operator-only (docs/IMAGE-RELEASE-RUNBOOK.md).
-# It refuses to copy a failing image to ARGONAS: the archive stage is gated on
+# repo/R2/Buildkite.  Those are operator-only.
+# It refuses to copy a failing image to the archive: the archive stage is gated on
 # the KVM + provenance gates having PASSed in this run.
 set -uo pipefail
 
@@ -70,6 +70,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/build/lib/reproducible.sh"
 # shellcheck source=/dev/null
 . "$ROOT/build/lib/priv.sh"
+. "$ROOT/build/lib/ncz-site.sh"
 LAYERPLAN_PY="$ROOT/build/lib/layerplan.py"
 
 # ---------------------------------------------------------------------------
@@ -130,7 +131,7 @@ SCOPE (choose ONE; default --full)
 OPTIONS
   --arch amd64|arm64|both   REQUIRED. 'both' builds the two arches in parallel on
                             their hosts (NCZ_AMD64_HOST, NCZ_ARM64_HOST)
-  --no-publish              build + gates, never copy to ARGONAS images/
+  --no-publish              build + gates, never copy to the image archive
   --gates kvm,provenance    run only these gates (REQUIRES --no-publish)
   --substrate refresh|pinned  substrate policy (refresh is the --full default)
   --sources latest|pinned   singularity payload source pins: 'latest' resolves
@@ -161,7 +162,7 @@ WHICH FLAG DO I USE?
   base change                       --rebuild-base
   both arches                       --arch both
   re-assemble from cached layers    --only-image
-  local build, no copy to ARGONAS   --no-publish
+  local build, no copy to the archive   --no-publish
 
 COMPONENTS
   kernel, base-assets, apt-policy, post-install, base, desktop, desktop-mirror,
@@ -172,8 +173,8 @@ EXIT CODES
   4 pin/determinism error; 1 a build/gate stage failed.
 
 WHAT IT NEVER DOES: tag, ship-image, flash/reboot, reap, or touch a live
-repo/R2/Buildkite.  Those are operator-only (docs/IMAGE-RELEASE-RUNBOOK.md).
-It refuses to copy a failing image to ARGONAS: the archive stage is gated on
+repo/R2/Buildkite.  Those are operator-only.
+It refuses to copy a failing image to the archive: the archive stage is gated on
 the KVM + provenance gates having PASSed in this run.
 USAGE
     exit "$rc"
@@ -322,15 +323,22 @@ run_arch_remote() {
     fi
     local remote_root="${NCZ_REMOTE_ROOT:-$ROOT}"
     local child="--arch $arch --run-dir '$run_dir' $*"
-    ssh -o BatchMode=yes -o ConnectTimeout=10 "jasonperlow@$host" \
+    ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" \
         "cd '$remote_root' && bash build/build-image.sh $child" >>"$log" 2>&1
     return $?
 }
 
 run_both() {
     local base_run="${RUN_DIR:-$HOME/Projects/ncz-build-runs/both-$(date -u +%Y%m%d)}"
-    local h64="${NCZ_AMD64_HOST:-192.168.207.11}"
-    local hA="${NCZ_ARM64_HOST:-192.168.207.88}"
+    # Hosts are [user@]host ssh targets: NCZ_AMD64_HOST / NCZ_ARM64_HOST or
+    # ~/.config/ncz/{amd64,arm64}-build-host (build/lib/ncz-site.sh).
+    local h64 hA
+    h64="$(ncz_site_value NCZ_AMD64_HOST amd64-build-host)"
+    hA="$(ncz_site_value NCZ_ARM64_HOST arm64-build-host)"
+    if [ -z "$h64" ] || [ -z "$hA" ]; then
+        ncz_err "--arch both needs the two build hosts: set NCZ_AMD64_HOST and NCZ_ARM64_HOST ([user@]host) or ~/.config/ncz/amd64-build-host and arm64-build-host"
+        return 2
+    fi
     mkdir -p "$base_run"
     ncz_info "both-arch build: amd64@$h64  arm64@$hA  run=$base_run"
     local p64 pA rc64 rcA
@@ -351,8 +359,8 @@ run_both() {
 if [ "$ARCH" = both ]; then
     if [ "$DRY_RUN" = 1 ]; then
         echo "NCZ-OS image build plan (both arches, parallel)"
-        echo "  amd64 host  ${NCZ_AMD64_HOST:-192.168.207.11}"
-        echo "  arm64 host  ${NCZ_ARM64_HOST:-192.168.207.88}"
+        _h="$(ncz_site_value NCZ_AMD64_HOST amd64-build-host)"; echo "  amd64 host  ${_h:-<unset: NCZ_AMD64_HOST>}"
+        _h="$(ncz_site_value NCZ_ARM64_HOST arm64-build-host)"; echo "  arm64 host  ${_h:-<unset: NCZ_ARM64_HOST>}"
         echo "  scope       $SCOPE${COMPONENTS:+ ($COMPONENTS)}"
         echo "  substrate   $SUBSTRATE"
         echo "  gates       ${GATES:-kvm,provenance}"
@@ -364,11 +372,11 @@ if [ "$ARCH" = both ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Kernel staging resolution (handles the ULTRA-vs-ARGONAS spelling)
+# Kernel staging resolution (handles per-host mount spellings)
 # ---------------------------------------------------------------------------
-# assets/kernel/mainline is a committed symlink using the ULTRA spelling
-# /mnt/argonas-yocto-shared/...; on ACHILLES/HYDRA the pool is at
-# /mnt/argonas/datapool/yocto-shared.  r202 needed a hand bind mount.  We
+# assets/kernel/mainline is a committed symlink using one build host's mount
+# spelling of the shared kernel-staging pool; other hosts mount the pool
+# elsewhere (NCZ_YOCTO_SHARED_DIR).  r202 needed a hand bind mount.  We
 # resolve the KVER from whichever spelling exists and automate the bind mount
 # in preflight.
 ncz_resolve_kver() {
@@ -440,7 +448,7 @@ NCZ_BUILD_LOCK="${NCZ_BUILD_LOCK:-$(dirname "$RUN_DIR")/.ncz-build.lock}"
 export NCZ_BUILD_LOCK NCZ_BUILD_LOCK_OWNER="$$"
 if [ "$DRY_RUN" != 1 ]; then
     # Atomic acquisition via noclobber (O_EXCL): the redirect fails if the file
-    # already exists, so two concurrent builds cannot both win (zoder review
+    # already exists, so two concurrent builds cannot both win (code review
     # 2026-10-10: the previous check-then-write was racy).
     _ncz_lock_acquire() { ( set -o noclobber; printf '%s\n' "$$" > "$NCZ_BUILD_LOCK" ) 2>/dev/null; }
     if ! _ncz_lock_acquire; then
@@ -512,9 +520,8 @@ ncz_container_run() {
     local ks; ks="$(ncz_kernel_staging_dir || true)"
     local -a mounts=(-v "$ROOT":/work/cix-installer -v /dev:/dev)
     [ -n "$ks" ] && [ -d "$(dirname "$ks")" ] && mounts+=(-v "$(dirname "$ks")":"$(dirname "$ks")")
-    for d in /mnt/argonas-yocto-shared /mnt/argonas/datapool/yocto-shared; do
-        [ -d "$d" ] && mounts+=(-v "$d":"$d")
-    done
+    local ysd; ysd="$(ncz_site_value NCZ_YOCTO_SHARED_DIR yocto-shared-dir)"
+    [ -n "$ysd" ] && [ -d "$ysd" ] && mounts+=(-v "$ysd":"$ysd")
     local -a renv=(
         -e NCZ_TARGET_ARCH="$ARCH" -e HOME=/root
         -e SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" -e LC_ALL=C -e LANG=C -e TZ=UTC
@@ -660,11 +667,7 @@ stage_preflight() {
     # -- kernel staging visible -------------------------------------------
     local ks; ks="$(ncz_kernel_staging_dir || true)"
     if [ -n "$ks" ] && [ ! -e "$ks" ]; then
-        local alt=""
-        case "$ks" in
-            /mnt/argonas-yocto-shared/*) alt="/mnt/argonas/datapool/yocto-shared/${ks#/mnt/argonas-yocto-shared/}" ;;
-            /mnt/argonas/datapool/yocto-shared/*) alt="/mnt/argonas-yocto-shared/${ks#/mnt/argonas/datapool/yocto-shared/}" ;;
-        esac
+        local alt; alt="$(ncz_kernel_pool_alt "$ks")"
         if [ -n "$alt" ] && [ -e "$alt" ]; then
             local rootspell; rootspell="$(dirname "$ks")"
             say "kernel staging $ks missing; bind-mounting $(dirname "$alt") -> $rootspell (automated r202 workaround #3)"
@@ -739,7 +742,7 @@ stage_refresh_substrate() {
     # the pin and returned WITHOUT restoring the ISO, and 07 image failed 12 s in
     # with "[download] SUBSTRATE ROTATED ... pinned ISO not found").  This runs for
     # every --substrate policy; build/stage-substrate.sh copies the pinned ISO from
-    # the ARGONAS cache and sha256-verifies it against base.pin, and FAILS rather
+    # the substrate cache and sha256-verifies it against base.pin, and FAILS rather
     # than floating to whatever Debian serves today.
     if [ ! -f "$DOWNLOADS/$UPSTREAM_ISO" ] || \
        [ "$(sha256sum "$DOWNLOADS/$UPSTREAM_ISO" 2>/dev/null | awk '{print $1}')" != "$SUBSTRATE_SHA" ]; then
@@ -748,7 +751,7 @@ stage_refresh_substrate() {
             return 3
         fi
         if [ -x "$ROOT/build/stage-substrate.sh" ]; then
-            echo "[refresh-substrate] pinned substrate not staged; restoring from the ARGONAS cache (build/stage-substrate.sh --arch $ARCH)" | tee -a "$log"
+            echo "[refresh-substrate] pinned substrate not staged; restoring from the substrate cache (build/stage-substrate.sh --arch $ARCH)" | tee -a "$log"
             ( cd "$ROOT" && bash build/stage-substrate.sh --arch "$ARCH" ) 2>&1 | tee -a "$log"
             local rcs="${PIPESTATUS[0]}"
             [ "$rcs" = 0 ] || return "$rcs"
@@ -779,7 +782,7 @@ stage_refresh_substrate() {
         echo "[refresh-substrate] FAIL: --offline and the pinned substrate is not staged" | tee -a "$log" >&2
         return 3
     fi
-    echo "[refresh-substrate] restoring the pinned substrate from the ARGONAS cache via make download" | tee -a "$log"
+    echo "[refresh-substrate] restoring the pinned substrate from the substrate cache via make download" | tee -a "$log"
     ( cd "$ROOT" && make download ARCH="$ARCH" ) 2>&1 | tee -a "$log"
     return "${PIPESTATUS[0]}"
 }
@@ -792,7 +795,7 @@ stage_stage_inputs() {
     ( cd "$ROOT" && bash build/stage-build-inputs.sh --arch "$ARCH" ) 2>&1 | tee -a "$log"
     local rc="${PIPESTATUS[0]}"
     [ "$rc" = 0 ] || return "$rc"
-    # amd64 installer kernel: staged from the shared ARGONAS kernel-staging pool
+    # amd64 installer kernel: staged from the shared kernel-staging pool
     # by build/stage-amd64-kernel.sh (pin: assets/kernel/amd64-stable/KVER). The
     # pipeline never ran it, so a fresh clone aborted at the image stage with
     # "set KERNEL_DEB to the amd64 installer kernel package" (r203 failure #2).
@@ -811,7 +814,7 @@ stage_stage_inputs() {
         [ "$rc" = 0 ] || return "$rc"
     fi
     # Singularity screensaver settings plugin: pinned in
-    # post-install/lib/ncz-screensavers-plugin.lock and staged from the ARGONAS
+    # post-install/lib/ncz-screensavers-plugin.lock and staged from the store's
     # ncz-screensavers-debs pool. The pipeline never ran
     # stage-screensaver-plugin.sh, so make image's check-ssplugin-abi would fail
     # on a fresh clone -- the same hand-staging gap as the engine deb (r203
