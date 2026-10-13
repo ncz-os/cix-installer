@@ -167,6 +167,25 @@ grep -qF "find \"\$ROOT/assets/cix-debs\" -maxdepth 1" "$SL" \
     && ok "build-squashfs-layers prunes only superseded payload debs" \
     || bad "build-squashfs-layers does not prune payload debs safely"
 
+# --- 2d. refresh-substrate runs under BOTH substrate policies ---------------
+# With --substrate pinned the stage restores the pinned ISO into downloads/ and
+# verifies the pin; if it were skipped, a fresh clone reaches the image stage
+# with no substrate staged.
+echo "== 2d. refresh-substrate runs for --substrate pinned and refresh =="
+for pol in pinned refresh; do
+    line="$(bash "$BIN" --arch amd64 --full --substrate "$pol" --dry-run 2>/dev/null | grep -E '^ +\[[a-z ]+\] +01 refresh-substrate')"
+    case "$line" in
+        *"[run ]"*) ok "plan runs refresh-substrate with --substrate $pol" ;;
+        *) bad "plan does not run refresh-substrate with --substrate $pol: '$line'" ;;
+    esac
+done
+T3="$SCRATCH/sub-pinned"
+NCZ_TEST_STAGE_CMD='exit 0' \
+    bash "$BIN" --arch amd64 --full --substrate pinned --no-publish --run-dir "$T3" >/dev/null 2>&1
+awk -F'\t' '$2=="refresh-substrate" && $3 ~ /^PASS/{f=1} END{exit !f}' "$T3/stages.tsv" 2>/dev/null \
+    && ok "stages.tsv records refresh-substrate PASS under --substrate pinned" \
+    || bad "refresh-substrate did not run under --substrate pinned"
+
 # --- 3. fingerprint invalidation (both directions) -------------------------
 echo "== 3. fingerprint invalidation =="
 FIX="$SCRATCH/fix"; mkdir -p "$FIX"
