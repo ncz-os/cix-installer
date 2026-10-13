@@ -113,6 +113,103 @@ if [ "${NCZ_T2_POWER_CAP_ASSUME_T2:-0}" != 1 ]; then
     echo "[64] T2 hardware: detected ($(t2_hardware_detail 2>/dev/null || echo unknown))"
 fi
 
+# --- lock-screen saver thermal cap ---------------------------------------
+# The lock-hosted saver renderer (ncz-screensavers src/ncz_feed_render.c)
+# pauses and holds the last frame when the hottest trusted hwmon sensor
+# (coretemp/amdgpu/t2smc/k10temp/acpitz) reaches its hot threshold, compiled-in
+# 85 C, and resumes 5 C below it. On MacBookPro16,1 the dGPU is always on and
+# the CPU idles warm, so 85 C is reached in ordinary use and the saver stays
+# still on the lock screen. Measured on both MacBookPro16,1 units (i9-9980HK,
+# i7-9750H; 2026-10-13): coretemp temp*_max == temp*_crit == 100 C (Tjmax,
+# TCC offset 0, so the CPU self-throttles at 100 C), amdgpu junction crit
+# 105 C (emergency 110 C), edge crit 110 C (emergency 115 C), PCH thermal
+# zone critical trip 120 C; the x86_pkg_temp zone has no enabled trip. Up to
+# 100 C is normal operation on these Macs: the CPU throttles itself at Tjmax
+# (package/core thermal_throttle counters advance in ordinary use). The cap is
+# 100 C, or 2 C under the lowest critical trip of the governor's sensors when
+# that trip is at or below 100 C. coretemp reports Tjmax itself as temp*_crit
+# (100 C), so MacBookPro16,1 gets 98 C, resume at 93 C. The governor samples
+# once a second and the package temperature moves 10-14 C in one second under
+# turbo bursts, so the reading that trips the pause can reach Tjmax; the CPU's
+# own throttling covers that.
+# The warm band (75 C .. hot) renders at NCZ_FEED_FPS_WARM, compiled-in 10 fps,
+# which is above the 8 fps lock policy; T2 Macs use 6 fps there so a warmer
+# machine renders less, not more.
+# Written into /etc/ncz/lock-renderer.env (sourced by the session launcher and
+# inherited by the lock and the feed) only when that file already names a lock
+# renderer (post-install/64-ncz-lock-saver-plan.sh); a value already present
+# there is kept. Remove the lines to return to the compiled-in defaults.
+# Test seams: NCZ_T2_SAVER_HWMON, NCZ_T2_SAVER_DMI.
+SAVER_ENV="$ROOT/etc/ncz/lock-renderer.env"
+SAVER_HWMON="${NCZ_T2_SAVER_HWMON:-/sys/class/hwmon}"
+SAVER_DMI="${NCZ_T2_SAVER_DMI:-/sys/class/dmi/id}"
+SAVER_HOT_MAX_MC=100000
+SAVER_HOT_MARGIN_MC=2000
+SAVER_HOT_DEFAULT_MC=85000
+SAVER_WARM_FPS=6
+
+# saver_min_crit_mc -> lowest tempN_crit (> 0) of the governor's sensors, or empty
+saver_min_crit_mc() {
+    local h n c best=""
+    for h in "$SAVER_HWMON"/hwmon*; do
+        [ -r "$h/name" ] || continue
+        n=$(cat "$h/name" 2>/dev/null)
+        case "$n" in *coretemp*|*amdgpu*|*t2smc*|*k10temp*|*acpitz*) ;; *) continue ;; esac
+        for c in "$h"/temp*_crit; do
+            [ -r "$c" ] || continue
+            c=$(cat "$c" 2>/dev/null)
+            case "$c" in ''|*[!0-9]*) continue ;; esac
+            [ "$c" -gt 0 ] || continue
+            if [ -z "$best" ] || [ "$c" -lt "$best" ]; then best=$c; fi
+        done
+    done
+    printf '%s' "$best"
+}
+
+saver_hot_mc() {
+    local crit cap product
+    crit=$(saver_min_crit_mc)
+    if [ -n "$crit" ]; then
+        if [ "$crit" -le "$SAVER_HOT_MAX_MC" ]; then
+            cap=$((crit - SAVER_HOT_MARGIN_MC))
+        else
+            cap=$SAVER_HOT_MAX_MC
+        fi
+        printf '%s' "$cap"
+        return 0
+    fi
+    # Sensors not loaded (e.g. installer kernel): use the measured model value.
+    product=$(cat "$SAVER_DMI/product_name" 2>/dev/null)
+    case "$product" in MacBookPro16,*) printf '%s' $((100000 - SAVER_HOT_MARGIN_MC)) ;; esac
+}
+
+SAVER_HOT=$(saver_hot_mc)
+if [ ! -f "$SAVER_ENV" ] || ! grep -qE '^[[:space:]]*SINGULARITY_LOCK_RENDERER[[:space:]]*=[[:space:]]*[^[:space:]]' "$SAVER_ENV"; then
+    echo "[64] lock renderer not configured; saver thermal cap left at the compiled-in default"
+elif [ -z "$SAVER_HOT" ] || [ "$SAVER_HOT" -le "$SAVER_HOT_DEFAULT_MC" ]; then
+    echo "[64] saver thermal cap: no value above the compiled-in 85 C (critical trips or model unknown); default kept"
+else
+    if grep -qE '^[[:space:]]*NCZ_FEED_TEMP_HOT_MC=' "$SAVER_ENV"; then
+        echo "[64] saver thermal cap: $SAVER_ENV already sets NCZ_FEED_TEMP_HOT_MC; kept"
+    else
+        if printf '# Apple T2: saver pauses at 100 C, or 2 C under a critical trip at or below 100 C; post-install/64-t2-power-cap.sh\nNCZ_FEED_TEMP_HOT_MC=%s\n' \
+            "$SAVER_HOT" >> "$SAVER_ENV" 2>/dev/null; then
+            echo "[64] saver thermal cap: NCZ_FEED_TEMP_HOT_MC=$SAVER_HOT in $SAVER_ENV"
+        else
+            echo "[64] WARN: could not write $SAVER_ENV; saver thermal cap not set" >&2
+        fi
+    fi
+    if grep -qE '^[[:space:]]*NCZ_FEED_FPS_WARM=' "$SAVER_ENV"; then
+        echo "[64] saver warm-band fps: $SAVER_ENV already sets NCZ_FEED_FPS_WARM; kept"
+    else
+        if printf 'NCZ_FEED_FPS_WARM=%s\n' "$SAVER_WARM_FPS" >> "$SAVER_ENV" 2>/dev/null; then
+            echo "[64] saver warm-band fps: NCZ_FEED_FPS_WARM=$SAVER_WARM_FPS in $SAVER_ENV"
+        else
+            echo "[64] WARN: could not write $SAVER_ENV; saver warm-band fps not set" >&2
+        fi
+    fi
+fi
+
 # T2 Macs are Intel (bridgeOS); require a RAPL package zone to be plausible.
 # Absent at install time is NOT fatal (the zone can register late); the helper
 # waits for it at runtime. We only refuse when there is a CPU cpufreq tree but
