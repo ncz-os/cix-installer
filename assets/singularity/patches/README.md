@@ -337,6 +337,23 @@ A shell without the row treats the unknown id as Other. Not filed upstream yet (
 link, so the reconcile script never retires it); the upstream draft is
 `upstream-drafts/singularity-shell/08-lock-category`.
 
+Patch `0021-overview-keep-the-app-grid-clear-of-the-dock.patch`: the app overview is a
+full-output layer surface with exclusive zone -1 and the dock stays above it (shown while
+the overview is open, also in autohide/intellihide), so the dock covered the bottom row of
+app icons. Adds `Dock.shown_extent()` (the dock's exclusive zone when always visible plus
+its layer margin) and insets the overview content stack by it on the dock edge; the grid
+viewport hint and column count use the remaining area. Not filed upstream yet (no PR link).
+Regression test: `build/test-overview-dock-clearance.sh`.
+
+## singularity-leafs — carried, not filed
+
+Patch `0001-window-keep-the-toolbar-in-classic-titlebar-and-ssd-modes.patch`: Leafs hid
+its window toolbar in every mode (each leaf has its own hover controls). With
+`legacy-titlebar` on, which NCZ sets by default (`post-install/65-ncz-titlebar-buttons.sh`),
+that toolbar is the static titlebar carrying minimize, maximize and close, so Leafs was the
+only app without window buttons. The patch hides the toolbar only in floating-bubbles mode.
+Not filed upstream yet (no PR link). Regression test: `build/test-titlebar-buttons.sh`.
+
 ## Previously landed
 
 **Currently no OTHER patches carried.** Everything else previously tracked
