@@ -12,11 +12,11 @@
 # among the buses exposed to Linux. CONFIG_RTC_DRV_EFI=y is built in, but
 # drivers/firmware/efi/efi.c registers the "rtc-efi" platform device only when
 # efi_rt_services_supported(EFI_RT_SUPPORTED_TIME_SERVICES) is true -- which
-# efi=noruntime makes false. Metal-verified on O6N under BOTH 7.2.0-rc6 and
-# 7.0.12: /dev/rtc0 appears, driver rtc-efi, hctosys=1, clean boot.
+# efi=noruntime makes false. Metal-verified on O6N (7.2.0-rc6 and 7.0.12 at
+# the time): /dev/rtc0 appears, driver rtc-efi, hctosys=1, clean boot.
 #
-# Gate on the board, not the kernel channel: every Sky1 board runs both 7.2
-# and 7.0.12, so a per-channel split is wrong in both directions.
+# Gate on the board, not the kernel version: the board firmware, not the
+# kernel, decides whether EFI runtime is safe.
 #
 # Fail-safe: if DMI is unreadable we cannot prove we are NOT on an MS-R1, so
 # emit the workaround and favour a bootable system over a working clock.

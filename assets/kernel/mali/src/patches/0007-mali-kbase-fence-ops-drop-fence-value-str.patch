@@ -11,7 +11,7 @@ function with a version check so the field/function is only present
 on kernels that still have it.
 
 Fixes the mali_kbase.ko build against kernel 7.2.0-rc4-sky1-ncz.
-Codex (gpt-5.5) adversarial-reviewed: APPROVE.
+Adversarially reviewed: approved.
 
 Upstream-Status: Pending
 Signed-off-by: Jason Perlow <jperlow@gmail.com>

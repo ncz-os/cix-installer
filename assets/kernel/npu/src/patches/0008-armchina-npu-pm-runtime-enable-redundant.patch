@@ -14,7 +14,7 @@ The warning is non-fatal; probe continues and /dev/aipu binds cleanly.
 But it pollutes the dmesg first-boot record + diagnostics dumps. Drop
 the line + add a comment explaining why.
 
-Validated on cixmini .66 (kernel 7.0.9-cix-sky1-next): probe still
+Validated on an MS-R1 (kernel 7.0.9-cix-sky1-next): probe still
 binds to ACPI CIXH4000:00, all 3 cores attach via dev_pm_domain_attach,
 no Unbalanced pm_runtime_enable warnings.
 

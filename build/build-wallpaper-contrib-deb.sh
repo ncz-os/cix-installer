@@ -6,7 +6,7 @@
 # so every Artist Pack -- ours or contributed -- goes through ONE mechanism:
 # a .deb with its own images plus one .collection file, staged into
 # assets/wallpaper-debs/ and installed by post-install/45-wallpaper-rotator.sh
-# (see build/build-squashfs-layers.sh for how that directory reaches the ISO).
+# (see build/build-squashfs-layers.sh for how that directory reaches the image).
 # Packaging is separate from the rotator script for two reasons:
 #
 #   1. Provenance. Each pack has its own author and its own copyright file, so
