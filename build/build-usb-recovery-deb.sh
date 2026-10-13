@@ -35,20 +35,29 @@ umask 022
 # Reproducible .deb (r203 arm64 provenance finding, 2026-10-10): two builds of
 # the same payload produced different sha256s because the staged files kept
 # their wall-clock mtimes and Installed-Size came from `du -sk` (allocated
-# blocks, filesystem-dependent).  Anchor SOURCE_DATE_EPOCH to the PINNED
-# substrate snapshot epoch (manifests/base.pin), NOT a commit time (which moves
-# on every rebase) -- clamp every staged mtime to it before dpkg-deb, and
-# compute Installed-Size from the actual file sizes, so the bytes are stable
-# and the reviewed manifests/ncz-packages.tsv row can match.
-_usb_sde_stamp="$(awk -F'\t' '$1=="arm64"{print $4}' "$REPO/manifests/base.pin" 2>/dev/null | head -1)"
-SOURCE_DATE_EPOCH="$(python3 -I "$REPO/build/lib/reproducible.py" snapshot-epoch \
-    "${_usb_sde_stamp:-20261005T120000Z}" 2>/dev/null || true)"
-: "${SOURCE_DATE_EPOCH:=1791201600}"   # 20261005T120000Z fallback
-export SOURCE_DATE_EPOCH
+# blocks, filesystem-dependent).  Clamp every staged mtime to a FIXED epoch per
+# package VERSION and compute Installed-Size from the actual file sizes, so the
+# bytes are stable and the reviewed manifests/ncz-packages.tsv row can match.
+#
+# The epoch used to be the pinned substrate snapshot (manifests/base.pin). That
+# moves on every snapshot refresh, so the 20261012 refresh changed the bytes of
+# an unchanged 1.2 (published bf33a708, built at the 20261005 snapshot) and the
+# reviewed row could no longer be reproduced. A fixed value per version moves
+# only when the version does; a new version needs its own row here.
 # 1.2 (r201): the PUBLISHED ncz-usb-recovery 1.1 is a different package from what this script builds
 # (Architecture: all, an older unit and README; this builder emits Architecture: arm64 since item RS).
 # Same version + different content is what makes apt show "1.1 -> 1.1", so the version moved.
-VERSION="${NCZ_USB_RECOVERY_VERSION:-1.2}"
+# 1.3: comment-only refresh of the extracted recovery script; behaviour unchanged.
+VERSION="${NCZ_USB_RECOVERY_VERSION:-1.3}"
+case "$VERSION" in
+    1.2) SOURCE_DATE_EPOCH=1791201600 ;;   # 2026-10-05T12:00:00Z, the epoch bf33a708 was built with
+    1.3) SOURCE_DATE_EPOCH=1791921600 ;;   # 2026-10-13T20:00:00Z, when 1.3 was cut
+    *)  SOURCE_DATE_EPOCH="${NCZ_USB_RECOVERY_EPOCH:-}"
+        case "$SOURCE_DATE_EPOCH" in
+            ''|*[!0-9]*) echo "ERROR: no mtime epoch for $PKG $VERSION: add one in $0 (or set NCZ_USB_RECOVERY_EPOCH)" >&2; exit 1 ;;
+        esac ;;
+esac
+export SOURCE_DATE_EPOCH
 
 [ -f "$SRC" ] || { echo "ERROR: $SRC not found" >&2; exit 1; }
 

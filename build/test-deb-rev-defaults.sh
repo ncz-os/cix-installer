@@ -14,7 +14,7 @@ bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 # shellcheck source=../release.conf
 . "$ROOT/release.conf"
 [ "$NCZ_LIBDRM_NCZ_REV" = ncz2 ] && ok "release.conf: libdrm default revision is ncz2" || bad "libdrm default revision is '$NCZ_LIBDRM_NCZ_REV'"
-[ "$NCZ_DKMS_DEB_REV" = 2 ] && ok "release.conf: DKMS default revision is 2" || bad "DKMS default revision is '$NCZ_DKMS_DEB_REV'"
+[ "$NCZ_DKMS_DEB_REV" = 3 ] && ok "release.conf: DKMS default revision is 3" || bad "DKMS default revision is '$NCZ_DKMS_DEB_REV'"
 PATCH="$ROOT/docs/upstream-patches/libdrm-xf86drm-acpi-platform-identity.patch"
 [ "$(sha256sum "$PATCH" | awk '{print $1}')" = "$NCZ_LIBDRM_PATCH_SHA256" ] \
     && ok "libdrm patch sha256 matches the pin in release.conf" || bad "libdrm patch changed without updating NCZ_LIBDRM_PATCH_SHA256 (and bumping NCZ_LIBDRM_NCZ_REV)"
@@ -105,7 +105,13 @@ if command -v dpkg-deb >/dev/null; then
     printf 'PACKAGE_NAME="cix-vpu-driver"\nPACKAGE_VERSION="1.0.2-ncz1"\nBUILT_MODULE_NAME[0]="amvx"\nDEST_MODULE_LOCATION[0]="/updates/dkms"\n' > "$T/droot/assets/kernel/vpu/dkms.conf"
     echo "int x;" > "$T/droot/assets/kernel/vpu/src/a.c"; : > "$T/index"
     ( cd "$T" && env -i PATH=/usr/bin:/bin HOME="$T" TMPDIR="$T" NCZ_PUBLISHED_INDEX="$T/index" bash "$T/droot/build/build-dkms-debs.sh" vpu ) >"$T/do" 2>&1
-    if [ -f "$T/droot/build/dkms-debs/cix-vpu-driver-dkms_1.0.2-ncz1+ncz2_all.deb" ]; then ok "DKMS builder emits +ncz2 with no environment"; else bad "DKMS default revision not applied"; cat "$T/do"; ls "$T/droot/build/dkms-debs" 2>&1; fi
+    if [ -f "$T/droot/build/dkms-debs/cix-vpu-driver-dkms_1.0.2-ncz1+ncz3_all.deb" ]; then ok "DKMS builder emits +ncz3 with no environment"; else bad "DKMS default revision not applied"; cat "$T/do"; ls "$T/droot/build/dkms-debs" 2>&1; fi
+    # +ncz3 is reproducible: a second build (other wall-clock time, other umask) gives the same bytes
+    _d3="$T/droot/build/dkms-debs/cix-vpu-driver-dkms_1.0.2-ncz1+ncz3_all.deb"
+    cp "$_d3" "$T/vpu-first.deb" 2>/dev/null; rm -f "$_d3"; sleep 1
+    ( cd "$T" && umask 002 && env -i PATH=/usr/bin:/bin HOME="$T" TMPDIR="$T" NCZ_PUBLISHED_INDEX="$T/index" bash "$T/droot/build/build-dkms-debs.sh" vpu ) >"$T/do3" 2>&1
+    if [ -f "$T/vpu-first.deb" ] && [ -f "$_d3" ] && cmp -s "$T/vpu-first.deb" "$_d3"; then ok "DKMS +ncz3 deb is byte-identical across rebuilds"
+    else bad "DKMS +ncz3 deb is not reproducible"; cat "$T/do3"; fi
     ( cd "$T" && env -i PATH=/usr/bin:/bin HOME="$T" TMPDIR="$T" NCZ_DKMS_DEB_REV=7 NCZ_PUBLISHED_INDEX="$T/index" bash "$T/droot/build/build-dkms-debs.sh" vpu ) >"$T/do2" 2>&1
     [ -f "$T/droot/build/dkms-debs/cix-vpu-driver-dkms_1.0.2-ncz1+ncz7_all.deb" ] && ok "NCZ_DKMS_DEB_REV still overrides" || { bad "NCZ_DKMS_DEB_REV override ignored"; cat "$T/do2"; }
 else
