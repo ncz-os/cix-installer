@@ -29,6 +29,7 @@
 set -u
 
 LEASE_DIR="${LOCKRIG_LEASE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ncz/hostlease}"
+LEASE_DIR="${LEASE_DIR%/}"
 DEFAULT_TTL=2700   # 45 min: a lockrig host run must finish well inside this
 
 # extra_dirs: the additional lease directories, one per line, deduplicated,
@@ -196,7 +197,8 @@ status_line() {
     fi
   done < <(all_dirs)
   if [ -n "$live" ]; then
-    if [ "$owners" != "$(lget "$live" OWNER)" ]; then
+    # owners holds each distinct live owner once, one per line
+    if [ "$(printf '%s\n' "$owners" | grep -c .)" -gt 1 ]; then
       echo "$host CONFLICT owners=$(printf '%s' "$owners" | tr '\n' ',')"
     else
       echo "$host HELD owner=$(lget "$live" OWNER) purpose=$(lget "$live" PURPOSE) since=$(lget "$live" ACQUIRED_ISO) ttl=$(lget "$live" TTL)"
