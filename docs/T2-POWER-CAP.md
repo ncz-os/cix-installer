@@ -140,10 +140,10 @@ Up to 100 C is normal on these Macs. Measured on both MacBookPro16,1 units
 
 The 85 C i9 run was an earlier one stopped at critical - 10 C after 168 s.
 
-With the default lock policy the saver animates for 15 s and then holds its
-frame. With the hook-written file on both units the intro frames changed and
-then held, as at 85 C on a cool machine; the cap decides whether those 15 s move
-at all on a warm one.
+The lock policy has no timer freeze: the saver keeps animating until input
+raises the unlock prompt, so this cap is what keeps an unattended saver moving
+on these Macs. At 85 C it pauses most of the time; at 98 C it animated for the
+whole 5-minute runs above.
 
 The lines are written only when `lock-renderer.env` already names a lock
 renderer (`post-install/64-ncz-lock-saver-plan.sh`). A value already in the file
