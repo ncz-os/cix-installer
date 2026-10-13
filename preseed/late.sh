@@ -111,13 +111,16 @@ ncz_dbg_gate
 
 if [ -n "$DEBIAN_HAS_FRONTEND" ] && [ -n "$DEBCONF_REDIR" ] \
    && [ -f /usr/share/debconf/confmodule ] && [ -x /usr/bin/debconf-loadtemplate ]; then
+    # The installer diagnostics login (root / rescue, docs/RECOVERY-LOGINS.md) stays on the
+    # progress screen for the whole post-install phase (preseed/ncz-ui.sh).
+    NCZ_DIAG_LOGIN_LINE=$( . /ncz/ncz-ui.sh 2>/dev/null && ncz_ui_diag_login 2>/dev/null )
     cat > /tmp/ncz-progress.templates <<NCZTPL
 Template: nclawzero/install-progress
 Type: text
 Description: Installing ${NCZ_RELEASE_LABEL} - please be patient (several minutes)
  The full desktop, GPU/NPU drivers, kernels and agents are being installed.
  The status line below the bar names the step running now.
- Press Alt+F3 at any time for live, per-step detail.
+ Press Alt+F3 at any time for live, per-step detail.${NCZ_DIAG_LOGIN_LINE:+ Remote $NCZ_DIAG_LOGIN_LINE.}
 
 Template: nclawzero/install-step
 Type: text

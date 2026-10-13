@@ -19,12 +19,19 @@ command -v dash >/dev/null && SHELLS+=("dash")
 BB="$HERE/../assets/diag/busybox-arm64"
 [ "$(uname -m)" = aarch64 ] && [ -x "$BB" ] && "$BB" ash -c true 2>/dev/null && SHELLS+=("$BB ash")
 for shl in "${SHELLS[@]}"; do
-    run() { NCZ_UI_PAYLOAD="$1" $shl -c ". '$UI'; $2"; }
+    echo "BOOT_IMAGE=/linux quiet" > "$T/cmdline"
+    run() { NCZ_UI_CMDLINE="$T/cmdline" NCZ_UI_PAYLOAD="$1" $shl -c ". '$UI'; $2"; }
     eq "$shl: brand"        "$(run "$T/p" ncz_ui_brand)" "$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
-    eq "$shl: id arm64"     "$(run "$T/p" ncz_ui_id)"    "arm64 (Sky1) | build 7e1d9c2"
+    eq "$shl: id arm64"     "$(run "$T/p" ncz_ui_id)"    "arm64 (Sky1) | build 7e1d9c2 | diagnostics login: root / rescue"
     echo amd64 > "$T/p/BUILD_ARCH"
-    eq "$shl: id amd64"     "$(run "$T/p" ncz_ui_id)"    "amd64 | build 7e1d9c2"
+    eq "$shl: id amd64"     "$(run "$T/p" ncz_ui_id)"    "amd64 | build 7e1d9c2 | diagnostics login: root / rescue"
     echo arm64 > "$T/p/BUILD_ARCH"
+    eq "$shl: diag login line" "$(run "$T/p" ncz_ui_diag_login)" "diagnostics login: root / rescue"
+    echo "quiet ncz_diag_pw=OperatorChoice" > "$T/cmdline"
+    eq "$shl: ncz_diag_pw hides the value" "$(run "$T/p" ncz_ui_diag_login)" "diagnostics login: root / set by ncz_diag_pw"
+    echo "quiet ncz_diag=0" > "$T/cmdline"
+    eq "$shl: ncz_diag=0 -> no login line" "$(run "$T/p" ncz_ui_id)" "arm64 (Sky1) | build 7e1d9c2"
+    echo "BOOT_IMAGE=/linux quiet" > "$T/cmdline"
     eq "$shl: no payload -> plain name" "$(run "$T/none" ncz_ui_brand)" "NCZ-OS"
     out="$(run "$T/p" ncz_ui_brand)$(run "$T/p" ncz_ui_id)"
     eq "$shl: ASCII only" "$(printf '%s' "$out" | LC_ALL=C tr -d '\001-\177' | wc -c | tr -d ' ')" "0"
