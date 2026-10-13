@@ -73,7 +73,6 @@ ALLOW = {
     # Rescue / offline images: guaranteed reachability is the whole point of
     # these units; they are TimeoutStartSec-bounded by design.
     "ncz-rescue-net.service": "rescue network bring-up; TimeoutStartSec=25 on purpose",
-    "ncz-rescue-net-fallback.service": "rescue static-IP fallback; TimeoutStartSec=15 on purpose",
     # Recovery-container parent-NIC resolver: must run Before= the container.
     "ncz-recovery-netparent.service": "recovery container bring-up; Before=systemd-nspawn@",
 }

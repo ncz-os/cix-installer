@@ -179,22 +179,13 @@ if ! chroot "$MNT" ssh-keygen -A >/dev/null 2>&1 || \
 fi
 echo "[72]   rescue identity and SSH host keys generated"
 
-# --- per-device rescue hostname + static-IP-fallback octet (fix 2026-09-13) ---
+# --- per-device rescue hostname (fix 2026-09-13) ---
 # The golden rescue-rootfs tarball (build/build-rescue-rootfs.sh) bakes ONE
-# constant RESCUE_HOSTNAME ("ncz-rescue") and ONE constant static-IP-fallback
-# address, identical across EVERY board that installs from this pipeline --
-# the same class of bug already fixed for the main OS by
-# post-install/37-ntp-hostname.sh (ncz-<MAC-derived-hex>), and the same class
-# of bug that already caused one real production collision on the static IP
-# (the old address collided with a lab build host, fixed 2026-07-20 by
-# moving to .199 -- see build/build-rescue-rootfs.sh). .199 is no longer a
-# PRODUCTION collision, but it is still shared by every board's rescue
-# partition, so two boards booting rescue with no DHCP on the same LAN would
-# still collide with EACH OTHER. build-rescue-rootfs.sh runs on the generic
-# generic build host and has no specific board to read a MAC from -- this hook
-# runs at install time ON the target board, same as 37-ntp-hostname.sh, so it
-# is the right place to make both values per-device.
-echo "[72] setting per-device rescue hostname + static-IP-fallback octet"
+# constant RESCUE_HOSTNAME ("ncz-rescue"), identical across every board that
+# installs from this pipeline -- the same class of bug already fixed for the
+# main OS by post-install/37-ntp-hostname.sh (ncz-<MAC-derived-hex>). This
+# hook runs at install time ON the target board, so it makes it per-device.
+echo "[72] setting per-device rescue hostname"
 RESCUE_MAC=""
 for ifpath in /sys/class/net/*; do
     [ -e "$ifpath" ] || continue
@@ -216,45 +207,9 @@ if [ -z "$RESCUE_MAC" ] && [ -r /etc/machine-id ]; then
 fi
 if [ -n "$RESCUE_MAC" ]; then
     RESCUE_HOSTNAME_INSTALLED="ncz-rescue-${RESCUE_MAC: -6}"
-    # Map the MAC into a per-device static-IP-fallback octet.
-    #
-    # CORRECTED 2026-09-13 (two independent adversarial
-    # review, both independently confirmed): the original 31-bucket range
-    # (220-250, "% 31") mathematically cannot meet this block's own stated
-    # goal of avoiding rescue-to-rescue collisions. Birthday-paradox collision
-    # probability P(collision) ~= 1 - exp(-k(k-1)/2n): for n=31, k=10 boards
-    # -> ~76%, k=20 -> ~99.8%, k=30 -> ~99.9998%. A SINGLE IP octet cannot fix
-    # this for a 20-30 board fleet -- even the full 0-255 range (n=256) is
-    # still ~86% collision at k=30; the birthday problem needs roughly n>=k^2
-    # for a low collision rate, which one octet never supplies. A COMPLETE
-    # fix needs either (a) a two-MAC-byte-derived address outside
-    # the lab /24 -- which defeats reachability, since this subnet is
-    # the fleet's only routed LAN segment (CLAUDE.md directive 8) -- or
-    # (b) an ARP-probe-and-retry claim added to ncz-rescue-net-fallback
-    # itself (a different file/service, out of scope for this hook). NEITHER
-    # is done here; this is a documented, accepted residual risk, not a
-    # closed one.
-    #
-    # What IS done: widen from 31 to 114 buckets (140-253). Verified clear
-    # 2026-09-13 against the LAN gateway's `show ip dhcp reservations`
-    # (15 static reservations, all <= .101) and `show ip neighbors` (only
-    # live host above .101 was .132/forge-worker-01, well below this
-    # window). This is a MEANINGFUL REDUCTION, not a fix: at k=10 boards
-    # P(collision) drops from ~76% to ~35% (n=114); it does not reach a low
-    # absolute probability for a large fleet. The real exposure is narrower
-    # than "the whole fleet collides" -- it requires two boards to be
-    # simultaneously rescue-booted AND both to have failed DHCP AND to land
-    # on the same derived octet -- but the residual risk is real and should
-    # be tracked as a follow-up, not assumed solved by this widening.
-    OCTET_DEC=$(( 16#${RESCUE_MAC: -2} % 114 + 140 ))
-    # Never let a MAC-derived value land exactly on the shared .199 baked
-    # default -- that would make a MAC-derived board indistinguishable from
-    # one that failed derivation and is still sitting on the baked fallback.
-    [ "$OCTET_DEC" = 199 ] && OCTET_DEC=198
 else
-    echo "[72] WARN: could not derive a MAC for rescue hostname/IP -- leaving baked defaults" >&2
+    echo "[72] WARN: could not derive a MAC for rescue hostname -- leaving baked default" >&2
     RESCUE_HOSTNAME_INSTALLED=""
-    OCTET_DEC=""
 fi
 if [ -n "$RESCUE_HOSTNAME_INSTALLED" ]; then
     echo "$RESCUE_HOSTNAME_INSTALLED" > "$MNT/etc/hostname"
@@ -265,31 +220,45 @@ if [ -n "$RESCUE_HOSTNAME_INSTALLED" ]; then
     fi
     echo "[72]   rescue hostname -> $RESCUE_HOSTNAME_INSTALLED (MAC-derived)"
 fi
-if [ -n "$OCTET_DEC" ] && [ -f "$MNT/usr/local/sbin/ncz-rescue-net-fallback" ]; then
-    sed -i -E "s|192\.168\.207\.[0-9]+/24|192.168.207.${OCTET_DEC}/24|g" \
-        "$MNT/usr/local/sbin/ncz-rescue-net-fallback"
-    echo "[72]   rescue static-IP-fallback -> 192.168.207.${OCTET_DEC}/24 (MAC-derived)"
+
+# --- DHCP only: remove the static-address fallback from older rescue images ---
+# Rescue networking is DHCP only (ncz-rescue-net). Rescue rootfs archives built
+# before that change also carry ncz-rescue-net-fallback, which assigned a fixed
+# private address, gateway and resolver when DHCP failed. A public image must
+# not invent an address on a network it knows nothing about, so strip the unit,
+# its script, its enablement and its motd line from whatever archive was used.
+rm -f "$MNT/etc/systemd/system/multi-user.target.wants/ncz-rescue-net-fallback.service" \
+      "$MNT/etc/systemd/system/ncz-rescue-net-fallback.service" \
+      "$MNT/usr/local/sbin/ncz-rescue-net-fallback"
+if [ -f "$MNT/etc/motd" ]; then
+    sed -i -E '/^[[:space:]]*Net fallback:/d' "$MNT/etc/motd"
 fi
+if [ -e "$MNT/usr/local/sbin/ncz-rescue-net-fallback" ] || \
+   [ -e "$MNT/etc/systemd/system/ncz-rescue-net-fallback.service" ] || \
+   [ -L "$MNT/etc/systemd/system/multi-user.target.wants/ncz-rescue-net-fallback.service" ]; then
+    echo "[72] ERROR: rescue static-address fallback could not be removed" >&2
+    umount "$MNT" 2>/dev/null || true
+    exit 1
+fi
+echo "[72]   rescue networking: DHCP only (no static fallback)"
 
 # --- auto-network + remote recovery access (operator directive 2026-07-29) ---
 # A rescue partition that can't be reached over the network is useless when
 # the failure being recovered from is a bricked main-kernel boot -- physical
-# console access may not be available. The baked ncz-rescue-net units provide
-# bounded DHCP plus a static fallback; ssh is also baked and enabled. This hook
+# console access may not be available. The baked ncz-rescue-net unit provides
+# bounded DHCP (no static fallback); ssh is also baked and enabled. This hook
 # validates that release contract and removes stale competing networkd wiring.
 echo "[72] verifying rescue rootfs auto-network + remote access"
 # The rescue image already ships one authoritative, time-bounded network owner:
-# ncz-rescue-net (dhclient/udhcpc) plus ncz-rescue-net-fallback. Do not also
+# ncz-rescue-net (dhcpcd/udhcpc, DHCP only). Do not also
 # enable systemd-networkd for the same NIC; v17 shipped both and produced a DHCP
 # ownership race. Remove any stale networkd wiring/config from an older image.
 rm -f "$MNT/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" \
       "$MNT/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service"
 rm -f "$MNT/etc/systemd/network/20-wired-dhcp.network"
 if [ ! -x "$MNT/usr/local/sbin/ncz-rescue-net" ] || \
-   [ ! -x "$MNT/usr/local/sbin/ncz-rescue-net-fallback" ] || \
-   [ ! -L "$MNT/etc/systemd/system/multi-user.target.wants/ncz-rescue-net.service" ] || \
-   [ ! -L "$MNT/etc/systemd/system/multi-user.target.wants/ncz-rescue-net-fallback.service" ]; then
-    echo "[72] ERROR: rescue rootfs lacks enabled ncz-rescue-net DHCP/fallback units" >&2
+   [ ! -L "$MNT/etc/systemd/system/multi-user.target.wants/ncz-rescue-net.service" ]; then
+    echo "[72] ERROR: rescue rootfs lacks the enabled ncz-rescue-net DHCP unit" >&2
     umount "$MNT" 2>/dev/null || true
     exit 1
 fi

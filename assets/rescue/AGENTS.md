@@ -135,9 +135,12 @@ sed -i 's/^default_selection .*/default_selection "stable"/' \
 - **Rescue root login:** the published break-glass default set in
   `build/build-rescue-rootfs.sh` (this rescue rootfs only); change it after
   first use.
-- **Network:** DHCP on all wired NICs at boot; if DHCP fails, a static
-  private-address fallback derived from the MAC address
-  (`ncz-rescue-net.service`).
+- **Network:** DHCP only, on every wired NIC that has carrier at boot
+  (`ncz-rescue-net.service`). There is no static-address fallback: if no DHCP
+  server answers, the rescue system has no IPv4 address; use the local or
+  serial console.
+- **SSH keys:** no vendor or project SSH key is installed. Log in with the
+  password, or add your own key to `/root/.ssh/authorized_keys`.
 
 ---
 
@@ -181,7 +184,7 @@ Editors/util: `vim`, `nano`, `mc`, `tmux`, `jq`, `lsof`, `strace`, `python3`.
 - `ncz-rescue-fixlib <root-mountpoint>` — repair the usrmerge `/lib` symlink.
 - `ncz-rescue-chroot <device>` — mount a target root (+ bind mounts) and drop
   into a chroot shell; auto-unmounts on exit.
-- `ncz-rescue-net` — DHCP all NICs, static private-address fallback.
+- `ncz-rescue-net` — DHCP on all wired NICs with carrier (no static fallback).
 
 ---
 
