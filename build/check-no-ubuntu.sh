@@ -5,6 +5,8 @@
 # Offline, fast, no snapshot index (run by `make lint-platform`). It fails on:
 #   SRC   a non-comment line in the build/install sources that names an Ubuntu
 #         archive, PPA, ubuntu:* container image or an Ubuntu default
+#   BIN   a tracked ELF under assets/ whose BusyBox banner, GCC .comment or
+#         package note names an Ubuntu build
 #   DEB   any .deb/.udeb under the scanned trees whose control data is
 #         Ubuntu-built (Maintainer "Ubuntu Developers" / lists.ubuntu.com, or a
 #         version containing "ubuntu"), and any rootfs/status/Packages given
@@ -49,6 +51,44 @@ while IFS= read -r f; do
                 | awk -F: '{ line=$0; sub(/^[0-9]+:/, "", line); if (line !~ /^[[:space:]]*#/) print $0 }' \
                 | cut -c1-200)
 done < <(list_files)
+
+# --- BIN: committed ELF binaries (static tools, kernel modules) built by Ubuntu --
+# A committed binary records where it was built: a distro BusyBox banner
+# ("BusyBox v1.36.1 (Ubuntu 1:1.36.1-6ubuntu3.1)"), the GCC .comment of a
+# module or program ("GCC: (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"), or an
+# ELF package note ({"type":"deb","os":"ubuntu",...}). Any of these in a
+# tracked ELF under assets/ is Ubuntu evidence. Debian builds read "(Debian ...)".
+list_assets() {
+    if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+       && [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$ROOT" && pwd -P)" ]; then
+        git -C "$ROOT" ls-files -z -- assets
+    else
+        (cd "$ROOT" && find assets -type f -print0 2>/dev/null)
+    fi
+}
+while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    echo "FAIL  [BIN] $hit"
+    BAD=$((BAD + 1))
+done < <(list_assets | python3 -I -c '
+import os, re, sys
+root = sys.argv[1]
+pat = re.compile(rb"\"os\":\"ubuntu\"|\(Ubuntu [0-9][^)\n]{0,80}ubuntu[^)\n]{0,40}\)")
+for rel in sys.stdin.buffer.read().split(b"\0"):
+    if not rel:
+        continue
+    path = os.path.join(root.encode(), rel)
+    try:
+        with open(path, "rb") as f:
+            if f.read(4) != b"\x7fELF":
+                continue
+            f.seek(0)
+            m = pat.search(f.read())
+    except OSError:
+        continue
+    if m:
+        print(rel.decode(errors="replace") + ": Ubuntu-built ELF (" + m.group(0).decode(errors="replace") + ")")
+' "$ROOT")
 
 # --- DEB / rootfs: delegate to the provenance tool in Ubuntu-only mode ---------
 ARGS=("$@")
