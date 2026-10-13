@@ -114,7 +114,6 @@ case "$m $url" in
     *) echo "curl stub: unexpected $m $url" >&2; exit 22 ;;
 esac
 [ -n "$w" ] && printf '%s' "$code"
-[ -n "$out" ] && [ "$out" != /dev/null ] && : > "$out"
 exit 0
 EOF
 chmod +x "$T/bin/reprepro" "$T/bin/curl"; mkdir -p "$T/home"

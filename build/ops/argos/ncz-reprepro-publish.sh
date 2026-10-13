@@ -131,7 +131,7 @@ POOL_CANDIDATES="$(reprepro -b "$REPO" --list-format '${$architecture}\t${versio
 case "$(printf '%s\n' "$POOL_CANDIDATES" | grep -c .)" in
     1) POOL_REL="$POOL_CANDIDATES" ;;
     0) echo "FATAL: reprepro lists no $PKG_NAME $DEB_VERSION ($DEB_ARCH) after includedeb" >&2; exit 5 ;;
-    *) echo "FATAL: ambiguous pool path for $PKG_NAME $DEB_VERSION ($DEB_ARCH): $(echo $POOL_CANDIDATES)" >&2; exit 5 ;;
+    *) echo "FATAL: ambiguous pool path for $PKG_NAME $DEB_VERSION ($DEB_ARCH): $(printf '%s ' "$POOL_CANDIDATES" | tr '\n' ' ')" >&2; exit 5 ;;
 esac
 # The pool file must be exactly the deb that was piped in.
 cmp -s "$TMPDEB" "$REPO/$POOL_REL" \
