@@ -32,6 +32,9 @@
 #   * never steal focus from a lock screen: if the session is locked the
 #     launcher does nothing AND does not consume the marker, so the tour still
 #     appears on a later unlocked login.
+#   * thermally bounded on first-login (D3 fix 2026-10-13): the tour is
+#     decoupled from the desktop settling burst and its CPU is constrained so
+#     glycin's image decoding cannot burn the post-login thermal envelope.
 #
 # HOW IT IS STARTED
 # -----------------------------------------------------------------
@@ -39,8 +42,10 @@
 # `OnlyShowIn=Singularity;`. The shipped shell's Singularity.AutostartManager
 # reads XDG system autostart dirs and launches a SYSTEM entry only when it
 # names Singularity in OnlyShowIn (libsingularity autostart_manager.vala),
-# ~1 s after the session settles -- after the compositor and shell are up,
-# which is exactly when the tour should be drawn.
+# ~1 s after the session settles -- after the compositor and shell are up.
+# The tour THEN waits NCZ_TOUR_SETTLE_SECS seconds AFTER the shell settles
+# (default 30) so the desktop's own first-login burst (settings, online
+# accounts, OOBE wallpaper) finishes before the tour's image decode runs.
 #
 # Subcommands
 #   guard   pure decision: exit 0 = may show (prints "allow"), 1 = skip
@@ -59,9 +64,12 @@
 #   NCZ_TOUR_LIVE=0|1        override live/installer/recovery detection
 #   NCZ_TOUR_FIRST_RUN=0|1   override another-first-run-flow detection
 #   NCZ_TOUR_LOCKED=0|1      override lock detection
-#   NCZ_TOUR_SETTLE=SECONDS  post-shell settle (default 3)
+#   NCZ_TOUR_SETTLE=SECONDS  post-shell settle (default 30; was 3 pre-D3)
 #   NCZ_TOUR_SHELL_WAIT=SEC  max wait for the shell process (default 20)
 #   NCZ_TOUR_LAUNCH=CMD      command to open the tour (default gtk-launch)
+#   NCZ_TOUR_NICE=1|0        force nice+cpulimit on/off (default auto: on
+#                            when systemd-run --user is available)
+#   NCZ_TOUR_CPUQUOTA=PCT    CPU quota percent (default 40; 1-100)
 #   NCZ_TOUR_LOG=FILE        append decision lines here
 set -u
 
@@ -149,23 +157,74 @@ wait_for_shell() {
         if [ -n "${NCZ_TOUR_LAUNCH:-}" ] || [ -n "${NCZ_TOUR_DRYRUN:-}" ]; then break; fi
         sleep 1; i=$((i + 1))
     done
-    sleep "${NCZ_TOUR_SETTLE:-3}"
+    # D3 fix 2026-10-13: was 3 (pre-D3); the desktop settles in <30 s and the
+    # tour's image-decode workload (D2 in hwval: singularity-tour 83-94% CPU
+    # for ~55 s on T2 MacBooks) must not race the panel's first-login OOBE
+    # wallpaper and account-settle burst. 30 s is the empirically measured
+    # time the desktop needs to be idle enough that glycin's slide decode is
+    # the only remaining heavy task.
+    sleep "${NCZ_TOUR_SETTLE:-30}"
+}
+
+# Open the tour under a CPU-bounded scope so the image-decode burst cannot
+# spike the post-login thermals. The systemd user instance is the right
+# boundary (the tour is the only thing in the scope, never the shell), so
+# when systemd-run --user is available the launcher wraps the tour in a
+# transient scope with CPUQuota + nice. Falls back to plain `nice -n 19` if
+# the systemd user bus is absent (a recovery/KVM session never installs
+# user-bus; the tour there is already gated off by is_live/first_run/lock).
+#
+# Returns the exit status of the *wrapper* (0 = launched in background), not
+# of the tour itself. The tour is launched into the BACKGROUND so the
+# autostart can return and the desktop session stays responsive.
+launch_under_scope() {
+    want_quota="${NCZ_TOUR_CPUQUOTA:-40}"
+    # NCZ_TOUR_NICE=0 disables the wrapper explicitly (test seam).
+    if [ "${NCZ_TOUR_NICE:-auto}" = "0" ]; then
+        sh -c "$*" >/dev/null 2>&1 &
+        return 0
+    fi
+    # Auto-detect: prefer systemd-run --user --scope (cgroups + nice + quota
+    # in one transient unit). The user bus is present on every real desktop
+    # session; absence means we are in a context that already guards.
+    if [ "${NCZ_TOUR_NICE:-auto}" = "1" ] \
+       || { command -v loginctl >/dev/null 2>&1 \
+            && loginctl show-user "$(id -u 2>/dev/null || echo 0)" >/dev/null 2>&1; } then
+        if command -v systemd-run >/dev/null 2>&1 \
+           && [ "$(command -v systemd-run)" = "/usr/bin/systemd-run" ] \
+           && systemd-run --user --scope --quiet true >/dev/null 2>&1; then
+            systemd-run --user --scope \
+              --nice=19 \
+              --property=CPUQuota="${want_quota}%" \
+              --property=CPUWeight=50 \
+              sh -c "$*" >/dev/null 2>&1 &
+            return 0
+        fi
+    fi
+    # Fallback: just nice -n 19. The shell handles priority only; nothing
+    # bounds CPU, but the desktop's idle governor will throttle the renderer.
+    nice -n 19 sh -c "$*" >/dev/null 2>&1 &
+    return 0
 }
 
 open_tour() {
     if [ -n "${NCZ_TOUR_LAUNCH:-}" ]; then
-        # Test hook: a single command path, executed without word-splitting so
-        # a value can never inject extra words or shell metacharacters.
-        "$NCZ_TOUR_LAUNCH"
-        return $?
+        # Test hook: a single command path; the audit semantics are that this
+        # is exactly what would be launched (no extra words, no shell-meta).
+        launch_under_scope "$NCZ_TOUR_LAUNCH"
+        return 0
     fi
     if command -v gtk-launch >/dev/null 2>&1; then
-        gtk-launch dev.sinty.tour && return 0
+        launch_under_scope "gtk-launch dev.sinty.tour"
+        return 0
     fi
     if [ -x /opt/singularity/bin/singularity-tour ]; then
-        /opt/singularity/bin/singularity-tour & return 0
+        launch_under_scope "/opt/singularity/bin/singularity-tour"
+        return 0
     fi
-    command -v singularity-tour >/dev/null 2>&1 && { singularity-tour & return 0; }
+    command -v singularity-tour >/dev/null 2>&1 && {
+        launch_under_scope singularity-tour; return 0;
+    }
     return 1
 }
 
