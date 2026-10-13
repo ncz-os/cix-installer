@@ -627,7 +627,7 @@ stage_preflight() {
     # Two committed pins: manifests/base.pin (substrate/snapshot provenance,
     # check-substrate-pin.sh) and manifests/determinism.pin (local input-ledger
     # aggregate, gen-base-pin.sh --check).
-    if [ -x "$ROOT/build/check-substrate-pin.sh" ]; then
+    if [ -f "$ROOT/build/check-substrate-pin.sh" ]; then
         if bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" >>"$log" 2>&1; then
             say "substrate pin OK (check-substrate-pin.sh)"
         else
@@ -638,7 +638,7 @@ stage_preflight() {
             fi
         fi
     else
-        say "check-substrate-pin.sh absent; the refresh-substrate stage owns base.pin"
+        bad "build/check-substrate-pin.sh is missing; the substrate pin cannot be verified"
     fi
     if ! bash "$ROOT/build/gen-base-pin.sh" --check >>"$log" 2>&1; then
         bad "manifests/determinism.pin is stale; run build/gen-base-pin.sh and commit it"
@@ -759,11 +759,12 @@ stage_refresh_substrate() {
     fi
     if [ "$SUBSTRATE" = pinned ]; then
         echo "[refresh-substrate] pinned policy: verifying the substrate pin (no fetch)" | tee -a "$log"
-        if [ -x "$ROOT/build/check-substrate-pin.sh" ]; then
-            bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" 2>&1 | tee -a "$log"
-            return "${PIPESTATUS[0]}"
+        if [ ! -f "$ROOT/build/check-substrate-pin.sh" ]; then
+            echo "[refresh-substrate] FAIL: build/check-substrate-pin.sh is missing" | tee -a "$log" >&2
+            return 1
         fi
-        return 0
+        bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" 2>&1 | tee -a "$log"
+        return "${PIPESTATUS[0]}"
     fi
     if [ -x "$ROOT/build/refresh-substrate.sh" ]; then
         ncz_info "using build/refresh-substrate.sh --arch $ARCH"
@@ -1003,7 +1004,23 @@ stage_refresh_sources() {
     local pins_sha marker="$sdir_out/.built-pins.sha256"
     pins_sha="$(sha256sum "$up" | awk '{print $1}')"
     if [ "$SOURCES" = pinned ]; then
-        deb="$(ls -1 "$ROOT/assets/cix-debs/ncz-singularity-desktop_"*_"$ARCH".deb 2>/dev/null | sort -V | tail -1)"
+        if [ -f "$ROOT/manifests/singularity-payload.tsv" ] && \
+           awk -F'\t' -v a="$ARCH" '!/^#/ && $1==a {f=1} END{exit !f}' "$ROOT/manifests/singularity-payload.tsv"; then
+            # Reproduce the committed pin exactly: stage the pinned deb into
+            # assets/cix-debs/ (sha256-verified against the pin). A rebuild from
+            # source carries a new timestamped version, so it is never used here.
+            local so=(--arch "$ARCH")
+            [ "$OFFLINE" = 1 ] && so+=(--offline)
+            ( cd "$ROOT" && bash build/stage-singularity-payload.sh "${so[@]}" ) 2>&1 | tee -a "$log"
+            rc="${PIPESTATUS[0]}"
+            if [ "$rc" != 0 ]; then
+                echo "[refresh-sources] FAIL: the pinned payload deb could not be staged (rc=$rc); --sources pinned does not rebuild it from source" | tee -a "$log" >&2
+                return "$rc"
+            fi
+            deb="$(bash "$ROOT/build/stage-singularity-payload.sh" --arch "$ARCH" --print-path)"
+        else
+            deb="$(ls -1 "$ROOT/assets/cix-debs/ncz-singularity-desktop_"*_"$ARCH".deb 2>/dev/null | sort -V | tail -1)"
+        fi
     fi
     if [ -n "$deb" ] && [ -f "$deb" ]; then
         echo "[refresh-sources] pinned: using committed prebuilt $(basename "$deb")" | tee -a "$log"
@@ -1428,7 +1445,10 @@ gate_selected() { [ -z "$GATES" ] && return 0; case ",$GATES," in *",$1,"*) retu
 stage_enabled() {
     case "$1" in
         preflight) return 0 ;;
-        refresh-substrate) [ "$SUBSTRATE" = refresh ] && return 0 || return 1 ;;
+        # Always runs: with --substrate pinned it restores the pinned ISO from
+        # the substrate cache into downloads/ and verifies the pin (no fetch);
+        # with --substrate refresh it fetches and re-pins.
+        refresh-substrate) return 0 ;;
         stage-inputs) return 0 ;;
         offline-mirror)
             # reuse the mirror when the plan says reuse and it is present

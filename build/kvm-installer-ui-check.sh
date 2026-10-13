@@ -39,8 +39,10 @@ fi
 CHK=("$PY" "$HERE/check-installer-screens.py")
 rc=0
 if [ "$ARCH" = amd64 ]; then
-    # the framebuffer never goes blank (the bootloader's text stays up until the installer draws)
-    "${CHK[@]}" "$WORK/fb-states" --no-blank-after "framebuffer" 2>&1 | tee "$WORK/fb-check.out"; [ "${PIPESTATUS[0]}" = 0 ] || rc=1
+    # Judged from the first frame (the bootloader menu). The framebuffer is blank once, right after it, while the
+    # kernel and the initrd load (5-9 s depending on the host); that state may last up to 20 s. Every later blank is a
+    # vanished UI unless it is a redraw shorter than --max-blank-secs.
+    "${CHK[@]}" "$WORK/fb-states" --no-blank-after "framebuffer" --boot-blank-max-secs 20 2>&1 | tee "$WORK/fb-check.out"; [ "${PIPESTATUS[0]}" = 0 ] || rc=1
     # proof the installer really progressed on the framebuffer (dialogs and progress bars): many distinct frames
     ndist=$(awk '{print $2}' "$WORK/fb-frames.txt" 2>/dev/null | sort -u | wc -l | tr -d ' ')
     [ "${ndist:-0}" -ge 8 ] || { echo "check-installer-screens: FAIL only ${ndist:-0} distinct framebuffer frames captured (dialogs and progress bars expected)" >&2; rc=1; }

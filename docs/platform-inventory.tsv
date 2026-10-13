@@ -179,6 +179,8 @@ build/sqtools-amd64/	amd64	-	x86_64 unsquashfs toolchain
 build/sqtools/	sky1	-	aarch64 unsquashfs toolchain
 build/stage-amd64-kernel.sh	amd64	-	stages amd64 kernels from the project build store
 build/stage-substrate.sh	common	-	materializes the pinned Debian testing netinst substrate into downloads/ from the project build store cache, sha256-verified against manifests/base.pin (fresh-clone fix, RC5 finding A)
+build/stage-singularity-payload.sh	common	-	stages the pinned ncz-singularity-desktop payload deb into assets/cix-debs/ for --sources pinned, sha256-verified against manifests/singularity-payload.tsv (store directory or the NCZ apt repository index)
+build/test-stage-singularity-payload.sh	common	-	tests for build/stage-singularity-payload.sh: pinned deb staged from a file:// repository fixture, sha256 mismatches in the index, bytes or destination refused, offline behaviour
 build/stage-arm64-assets.sh	sky1	-	materializes the pinned arm64 sky1-firmware + cix-debs tarballs (manifests/build-inputs.tsv) so a fresh clone builds with no hand-staging (r203 failure #3)
 build/stage-canonical-assets.sh	sky1	-	restages CIX-NCZ gitignored blobs (183 arm64/cix refs)
 build/stage-kernel.sh	sky1	-	stages a Sky1 kernel

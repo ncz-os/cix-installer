@@ -33,6 +33,16 @@ mk2 "$GOOD" "$BLANK";                                         expect "a trailing
 mk2 "$GOOD" "$GOOD";                                          expect "a dialog that stays up passes"            0 chk --no-blank-after "optional component"
 mk2 "$BLANK" "$BLANK";                                        expect "blank BEFORE the marker dialog is not judged" 0 chk --no-blank-after "optional component"
 rm -rf "$T/s"; mkdir "$T/s";                                  expect "empty capture fails"                     1 chk
+# --- the blank after the bootloader frame (amd64 framebuffer sampling, kernel + initrd load) ---
+FB=$'[framebuffer: dialog or progress on screen, 11.7% non-background pixels]'
+mkt() { rm -rf "$T/s"; mkdir -p "$T/s"; local i=0; while [ $# -ge 2 ]; do
+    printf '# t=%ss\n%s\n' "$1" "$2" > "$T/s/$(printf '%04d-%04ds' "$i" "$1").txt"; i=$((i+1)); shift 2; done; }
+mkt 0 "$FB" 6 "" 15 "$FB" 20 "$FB";  expect "a 9 s blank after the bootloader frame fails without --boot-blank-max-secs" 1 chk --no-blank-after "framebuffer"
+mkt 0 "$FB" 6 "" 15 "$FB" 20 "$FB";  expect "a 9 s blank after the bootloader frame passes with --boot-blank-max-secs 20" 0 chk --no-blank-after "framebuffer" --boot-blank-max-secs 20
+mkt 0 "$FB" 6 "" 31 "$FB" 40 "$FB";  expect "a 25 s blank after the bootloader frame fails with --boot-blank-max-secs 20" 1 chk --no-blank-after "framebuffer" --boot-blank-max-secs 20
+mkt 0 "$FB" 6 "" 10 "$FB" 30 "" 39 "$FB"; expect "a later 9 s blank still fails with --boot-blank-max-secs 20" 1 chk --no-blank-after "framebuffer" --boot-blank-max-secs 20
+mkt 0 "$FB" 6 "" 10 "$FB" 30 "" 39 "$FB"; expect "--allow-first-blank would hide that later blank (why it is not used)" 0 chk --no-blank-after "framebuffer" --allow-first-blank
+mkt 0 "$BLANK" 5 "$FB" 6 "" 15 "$FB";  expect "no boot allowance when judging starts after the first state" 1 chk --no-blank-after "framebuffer" --boot-blank-max-secs 20
 # --- state count is a floor + evidence, not an equality (r201: arm64 35 -> 33 -> 32, same dialogs) ---
 mk "$GOOD";                                                   expect "--min-states floor: 1 state < 5 fails"   1 chk --min-states 5
 mk "$GOOD";                                                   expect "--min-states floor met passes"           0 chk --min-states 1
