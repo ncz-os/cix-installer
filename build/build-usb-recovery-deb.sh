@@ -162,7 +162,10 @@ install -d "$OUT"
 DEB="$OUT/${PKG}_${VERSION}_arm64.deb"
 find "$WORK" -type d -exec chmod 0755 {} + 2>/dev/null || true
 find "$WORK" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + 2>/dev/null || true
-dpkg-deb --build --root-owner-group "$WORK" "$DEB" >/dev/null
+# -Zxz: the compressor is part of the pinned bytes. dpkg-deb's default differs
+# by distribution (xz on Debian, zstd on Ubuntu), so without it an Ubuntu build
+# host produced a different sha256 from the same payload.
+dpkg-deb --build -Zxz --root-owner-group "$WORK" "$DEB" >/dev/null
 # r201 version discipline: refuse to rebuild an already-published version with
 # different content (apt would show "X -> X"); see build/lib/deb-version-gate.sh.
 # shellcheck source=lib/deb-version-gate.sh
