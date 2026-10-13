@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/lockrig/agent/run_host.sh -- runs ON the target NCZ host AS ROOT.
-# Executes the controlled lock/saver/greeter test cases (T1..T15), collects
+# Executes the controlled lock/saver/greeter test cases (T1..T17), collects
 # evidence, and writes a machine-readable result. It NEVER reboots, never
 # touches refind/bootloader, never reconfigures as root beyond the reversible
 # gsettings override + the transient uinput devices, and always attempts to
@@ -339,6 +339,56 @@ else
         rec T12 FAIL "greeter did not appear after session terminate"
       fi
     else rec T12 SKIP "no $LU seat0 session to terminate"; fi
+  fi
+fi
+
+# ---------------------------------------------------------------- T16/T16b/T17 logind lock + sleep
+# T16  loginctl lock-session locks through the shell lock path; right password unlocks.
+# T16b a second lock-session while locked is a no-op (one lock client, same pid).
+# T17  the shell holds a logind "sleep" delay inhibitor (lock before suspend).
+# T17s opt-in real suspend (LOCKRIG_SUSPEND=1, needs an RTC wake alarm): the
+#      session is locked when the host comes back.
+unlock_now
+SID="$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3=="'"$LU"'" && $4=="seat0"{print $1}' | head -1)"
+if ! grep -aq "LogindLock: following" /opt/singularity/bin/singularity-desktop 2>/dev/null; then
+  for c in T16 T16b T17; do rec $c SKIP "payload has no logind lock listener (shell patch 0021 absent)"; done
+elif [ -z "$SID" ]; then
+  for c in T16 T16b T17; do rec $c SKIP "no $LU seat0 session"; done
+else
+  # A lock-session sent before the shell follows the session is lost (T12 just
+  # logged in again), so wait for the listener first.
+  for i in $(seq 1 30); do grep -aq "LogindLock: following /org/freedesktop/login1/session/$SID" "$SLOG" 2>/dev/null && break; sleep 1; done
+  n0=$(wc -l < "$SLOG" 2>/dev/null || echo 0)
+  loginctl lock-session "$SID"; got=""
+  for i in $(seq 1 10); do sleep 1; [ -n "$(lockpg)" ] && { got=$i; break; }; done
+  if [ -n "$got" ]; then
+    P16=$(lockpg); sleep 3; S16=$(shot t16-locked)
+    loginctl lock-session "$SID"; sleep 4
+    n16=$(pgrep -fc "/opt/singularity/bin/singularity-lockscreen")
+    if [ "$n16" = 1 ] && [ "$(lockpg)" = "$P16" ]; then rec T16b PASS "second lock-session while locked: one lock client (pid $P16)"
+    else rec T16b FAIL "second lock-session: $n16 lock clients (first pid $P16, now $(lockpg))"; fi
+    key shift; sleep 1; key type:$PW enter; sleep 6
+    if [ -z "$(lockpg)" ]; then rec T16 PASS "loginctl lock-session locked in ${got}s (shot $S16); right password unlocked"
+    else rec T16 FAIL "lock-session locked but the right password did not unlock"; fi
+  else
+    rec T16 FAIL "loginctl lock-session did not lock within 10s"; rec T16b SKIP "no lock from T16"
+  fi
+  tail -n +$((n0+1)) "$SLOG" 2>/dev/null | grep -a "LogindLock" > "$E/t16-shell.log"
+  unlock_now
+  if systemd-inhibit --list --no-pager 2>/dev/null | grep -a "Lock the screen before the system sleeps" | grep -aqw delay; then
+    rec T17 PASS "shell holds a sleep delay inhibitor"
+  else rec T17 FAIL "no Singularity sleep delay inhibitor in systemd-inhibit --list"; fi
+  systemd-inhibit --list --no-pager > "$E/t17-inhibitors.txt" 2>&1
+  if [ "${LOCKRIG_SUSPEND:-0}" = 1 ] && [ -w /sys/class/rtc/rtc0/wakealarm ] && command -v rtcwake >/dev/null 2>&1; then
+    los="$(gs get dev.sinty.lockscreen lock-on-suspend)"
+    n0=$(wc -l < "$SLOG" 2>/dev/null || echo 0)
+    rtcwake -m no -s 40 >>"$LOG" 2>&1 && systemctl suspend >>"$LOG" 2>&1
+    sleep 75
+    tail -n +$((n0+1)) "$SLOG" 2>/dev/null | grep -a "LogindLock" > "$E/t17s-shell.log"
+    if [ "$los" != true ]; then rec T17s SKIP "lock-on-suspend is $los"
+    elif [ -n "$(lockpg)" ] && grep -aq "going to sleep" "$E/t17s-shell.log"; then rec T17s PASS "locked across suspend (lock-on-suspend=$los)"
+    else rec T17s FAIL "not locked after suspend/resume (lock-on-suspend=$los)"; fi
+    unlock_now
   fi
 fi
 
