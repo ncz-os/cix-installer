@@ -66,6 +66,27 @@ CHIMERA = output(
     make="Apple Computer Inc",
     model="Color LCD",
 )
+# D8 fix 2026-10-13: CHIMERA_FRESH is the CHIMERA panel BEFORE the labwc
+# compositor has lit it (current unset). Use this in tests that exercise the
+# "set the mode" path; CHIMERA (= current=True 3072x1920) is the
+# "already lit" path and is a no-op after the D8 cap raise.
+CHIMERA_FRESH = output(
+    "eDP-1",
+    (340, 220),
+    [
+        mode(3072, 1920, preferred=True),
+        mode(1920, 1200),
+        mode(1920, 1080),
+        mode(1680, 1050),
+        mode(1024, 768),
+    ],
+    make="Apple Computer Inc",
+    model="Color LCD",
+)
+# D8 fix 2026-10-13: the greeter "never 4K" cap is now 3072x1920 (was 1920x1200)
+# so the MacBookPro16,1 eDP panel's PREFERRED 3072x1920 fits within the cap and
+# the greeter scans out at the SAME mode the session uses. PEGASUS's 4K
+# (3840x2160) is still > cap and stays at the 1920x1080 fallback.
 MONITOR_4K_27 = output(
     "DP-2",
     (597, 336),
@@ -171,8 +192,16 @@ class PolicyTest(unittest.TestCase):
 
 class GreeterTest(unittest.TestCase):
     def test_16_10_panel_gets_same_aspect_mode_not_letterboxed_1080p(self):
-        self.assertEqual(nds.greeter_mode(CHIMERA)["height"], 1200)
-        fake = FakeRandr([CHIMERA])
+        # D8 fix 2026-10-13: the cap was raised from 1920x1200 to 3072x1920 so
+        # CHIMERA's preferred 3072x1920 fits within the cap and the greeter
+        # scans out at the SAME mode the session uses (no more 1920x1200 vs
+        # 3072x1920 mismatch). The scale is the policy density (227 ppi ->
+        # 2.0x), so the greeter renders at the same effective size as the lock.
+        # Use CHIMERA_FRESH (current unset): with CHIMERA already at 3072x1920
+        # the helper's "already lit" path is a no-op (test_already_lit_...).
+        m = nds.greeter_mode(CHIMERA_FRESH)
+        self.assertEqual((m["width"], m["height"]), (3072, 1920))
+        fake = FakeRandr([CHIMERA_FRESH])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
         self.assertEqual(
             fake.calls,
@@ -181,17 +210,22 @@ class GreeterTest(unittest.TestCase):
                     "--output",
                     "eDP-1",
                     "--mode",
-                    "1920x1200@60.000000Hz",
+                    "3072x1920@60.000000Hz",
                     "--scale",
-                    "1",
+                    "2",
                     "--on",
                 ]
             ],
         )
 
     def test_4k_monitor_never_scans_out_4k(self):
+        # D8 fix 2026-10-13: with the cap raised to 3072x1920, the largest
+        # 16:9 mode that fits is 2560x1440 (was 1920x1080 under the old
+        # 1920x1200 cap). PEGASUS's single-mode 4K panel is unaffected
+        # (no 2560x1440 mode available, falls through to native with --scale 2x;
+        # see test_single_mode_4k_panel_is_enabled_at_native_never_left_dark).
         m = nds.greeter_mode(MONITOR_4K_27)
-        self.assertEqual((m["width"], m["height"], m["refresh"]), (1920, 1080, 60.0))
+        self.assertEqual((m["width"], m["height"]), (2560, 1440))
         fake = FakeRandr([MONITOR_4K_27])
         nds.cmd_greeter(False, runner=fake)
         self.assertFalse(
@@ -223,11 +257,11 @@ class GreeterTest(unittest.TestCase):
                     return subprocess.CompletedProcess(argv, 1, "", "")
                 return res
 
-        fake = FirstFails([CHIMERA])
+        fake = FirstFails([CHIMERA_FRESH])
         nds.cmd_greeter(False, runner=fake)
         self.assertEqual(
             fake.calls[-1],
-            ["--output", "eDP-1", "--mode", "1920x1200", "--scale", "1", "--on"],
+            ["--output", "eDP-1", "--mode", "3072x1920", "--scale", "2", "--on"],
         )
 
     def test_unreadable_outputs_return_1_so_the_autostart_falls_back(self):
@@ -237,7 +271,11 @@ class GreeterTest(unittest.TestCase):
         # On Sky1/arm64 the greeter labwc runs autoEnableOutputs=no, so an
         # output the compositor left off must be turned on here -- at the capped
         # mode, never at native 4K.
-        off = dict(CHIMERA, enabled=False)
+        # D8 fix 2026-10-13: cap is 3072x1920, so CHIMERA's preferred 3072x1920
+        # fits and the scale is the panel's density (227 ppi -> 2.0x).
+        # Use CHIMERA_FRESH (current unset) so the helper doesn't take the
+        # "already lit" branch.
+        off = dict(CHIMERA_FRESH, enabled=False)
         fake = FakeRandr([off])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
         self.assertEqual(
@@ -247,12 +285,42 @@ class GreeterTest(unittest.TestCase):
                     "--output",
                     "eDP-1",
                     "--mode",
-                    "1920x1200@60.000000Hz",
+                    "3072x1920@60.000000Hz",
                     "--scale",
-                    "1",
+                    "2",
                     "--on",
                 ]
             ],
+        )
+
+    def test_t2_macbook_panel_scans_out_at_session_mode_not_capped(self):
+        # D8 fix 2026-10-13: regression test. The CHIMERA/MEDUSA MacBookPro16,1
+        # panel has a PREFERRED 3072x1920 mode. Old behaviour capped the
+        # greeter to 1920x1200 (16:10, but half the panel), so greeter vs
+        # session differed. New behaviour: cap is 3072x1920, the preferred mode
+        # fits, and the greeter scans out at the SAME mode the session uses.
+        # (PEGASUS's 4K and Sky1's behaviour are unchanged: see the other
+        # tests in this class.)
+        m = nds.greeter_mode(CHIMERA)
+        self.assertEqual((m["width"], m["height"]), (3072, 1920))
+        self.assertEqual(nds.GREETER_MAX_W, 3072)
+        self.assertEqual(nds.GREETER_MAX_H, 1920)
+
+    def test_4k_panel_still_capped_after_d8_fix(self):
+        # D8 fix 2026-10-13: PEGASUS's 4K panel (3840x2160, AU Optronics
+        # 0x31EB) is still strictly > 3072x1920, so the single-mode 4K
+        # fallback still kicks in (cmd_greeter's no-capped-mode branch).
+        # The helper must NOT request 4K as a scanout -- it lights at the
+        # native mode with the density scale, which renders at 1920x1080@2x.
+        off = dict(MONITOR_SINGLE_MODE_4K, enabled=False)
+        fake = FakeRandr([off])
+        self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
+        self.assertEqual(
+            fake.calls, [["--output", "eDP-1", "--scale", "2", "--on"]]
+        )
+        self.assertFalse(
+            any("3840" in " ".join(c) or "2160" in " ".join(c) for c in fake.calls),
+            fake.calls,
         )
 
     def test_single_mode_4k_panel_has_no_capped_mode(self):
