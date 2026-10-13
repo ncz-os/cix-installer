@@ -19,7 +19,7 @@ set -uo pipefail
 # still work in the target root; if it does not, first boot will have no time
 # sync, so fail the hook loudly.
 
-# r75 P2: hostname fallback strategy. r74 used a fleet-wide 'mini'
+# r75 P2: hostname fallback strategy. r74 used a project-wide 'mini'
 # default which is bad debug UX (every NCZ box on a LAN is named the
 # same). r75 generates ncz-<MAC8hex> from the first ethernet MAC for
 # machines that arrived here with a blank/default hostname. Operators

@@ -230,7 +230,7 @@ driver_available() {
         panthor) _mod=panthor    ;;
         *)       return 1 ;;
     esac
-    # Fast path when kmod IS present (other fleet hosts have it).
+    # Fast path when kmod IS present (other hosts have it).
     if command -v modinfo >/dev/null 2>&1; then
         modinfo "$_mod" >/dev/null 2>&1 && return 0
     fi

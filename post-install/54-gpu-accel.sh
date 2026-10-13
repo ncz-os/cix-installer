@@ -319,7 +319,7 @@ fi
 # --- NPU (Intel / AMD) ------------------------------------------------------
 # Separate from the GPU vendor loop above -- a machine can have an NPU with
 # no matching-vendor discrete GPU (or vice versa). Real PCI signatures
-# confirmed live against fleet hardware, 2026-09-20:
+# confirmed live against test hardware, 2026-09-20:
 #   Intel: class [1200] "Processing accelerators", vendor 8086 (confirmed on
 #          the OmniDesk test desktop: "00:0b.0 Processing accelerators [1200]: Intel
 #          Corporation Arrow Lake NPU [8086:ad1d]"). Class 1200 is clean/

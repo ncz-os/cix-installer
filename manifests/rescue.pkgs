@@ -73,7 +73,7 @@ iperf3
 bind9-dnsutils      # dig, nslookup
 openssh-server
 dropbear-bin
-picocom             # lightweight serial-console client (talk to other fleet boxes)
+picocom             # lightweight serial-console client (talk to other machines)
 inetutils-telnetd
 openbsd-inetd
 busybox-static

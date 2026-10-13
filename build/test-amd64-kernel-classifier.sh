@@ -1,6 +1,6 @@
 #!/bin/bash
 # Extract the classifier functions from the real script and exercise them
-# against synthetic /boot trees matching the live fleet hosts.
+# against synthetic /boot trees matching the real hosts.
 #
 # Operator directive 2026-10-05 (unified 7.3): amd64 ships ONE kernel, 7.3.
 # The classifier surfaces the newest 7.3 kernel in /boot as the DEFAULT; the

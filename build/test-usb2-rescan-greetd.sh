@@ -77,7 +77,7 @@ GREETD_FIXTURE
             "$TMP/greetd/greetd.service" >"$TMP/greetd/out" 2>&1 || true
         # Only the install-time ExecStart binaries are absent on a dev host.
         # systemd-analyze also lints every unit already installed on the host
-        # (e.g. /etc/systemd/system/fleet-net-tune.service on the build hosts),
+        # (e.g. a site network-tuning unit on the build hosts),
         # which says nothing about the fixture; judge only diagnostics that name
         # the fixture units or its directory.
         nonbenign="$(grep -E "greetd\\.service|ncz-usb2-rescan\\.service|$TMP/greetd" "$TMP/greetd/out" \

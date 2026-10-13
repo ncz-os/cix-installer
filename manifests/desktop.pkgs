@@ -335,7 +335,7 @@ netavark
 aardvark-dns
 catatonit
 
-# --- console fallback (telnet — fleet doctrine) -----------------------------
+# --- console fallback (telnet — project policy) -----------------------------
 inetutils-telnetd
 openbsd-inetd
 
@@ -405,7 +405,7 @@ catatonit
 icewm
 icewm-common
 
-# --- r178: telnetd fleet lockout-prevention (doctrine #9). Baked here so
+# --- r178: telnetd lockout-prevention (doctrine #9). Baked here so
 # future desktop.squashfs includes it; until then late.sh installs it offline.
 inetutils-telnetd
 openbsd-inetd

@@ -20,7 +20,7 @@ WORK_DIR=${WORK_DIR:-$HOME/build-tmp/cix-installer-$ARCH}
 # if neither was given. Inside the rootful ncz-imagebuild container git
 # can't read the host checkout because of dubious-ownership (the host UID
 # is not the container UID), so add the canonical safe-directory escape
-# hatch BEFORE invoking git -- this is the same fleet-standard fix the
+# hatch BEFORE invoking git -- this is the same project-standard fix the
 # kernel-build checklist §0f and preflight-freshness-gate.sh already use,
 # just applied one step earlier so the in-container default works
 # without manual intervention. If git STILL fails after that, error out

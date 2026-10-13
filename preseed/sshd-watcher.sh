@@ -7,7 +7,7 @@
 # sshd process up to 600 seconds, then patch PermitRootLogin yes +
 # PubkeyAuthentication yes and HUP sshd to reload its config.
 #
-# Without this, root@<host> login via fleet pubkey doesn't work during
+# Without this, root@<host> login via project pubkey doesn't work during
 # install (only installer@<host> with the password) — operator can't
 # remote-diagnose a failing install.
 #

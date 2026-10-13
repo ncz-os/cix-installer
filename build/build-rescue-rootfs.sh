@@ -27,7 +27,7 @@ set -euo pipefail
 # here. O6N's rescue partition was found missing telnet entirely because it was
 # populated from a tarball built before telnet support was added to this script, and
 # nothing had refreshed it since. Real, still-open process question: should this build
-# on a schedule / CI trigger and get redeployed to fleet boards automatically, the way
+# on a schedule / CI trigger and get redeployed to boards automatically, the way
 # kernel images do? Not solved here -- flagging for the operator.
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

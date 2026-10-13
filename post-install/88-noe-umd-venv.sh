@@ -15,7 +15,7 @@
 # dpkg then leaves the package half-configured (state "iF"), which also blocks
 # later apt transactions. Debian forky ships no python3.11 or python3.12, so the
 # interpreter has to come from somewhere else: uv installs a standalone CPython
-# for aarch64, which is already the fleet-sanctioned way to get a Python that is
+# for aarch64, which is already the project-sanctioned way to get a Python that is
 # not the system one.
 #
 # Approach: build the venv, install the wheels into it, then rewrite the deb's

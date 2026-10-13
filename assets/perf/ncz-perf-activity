@@ -63,7 +63,7 @@ KEEP_STATE1_OFF = os.environ.get("NCZ_PERF_KEEP_STATE1", "0") == "1"
 # Counting any wakeup as activity meant the machine could never idle at all.
 REL_THRESHOLD = int(os.environ.get("NCZ_PERF_REL_THRESHOLD", "24"))
 
-# INPUT ALONE IS THE WRONG TRIGGER ON THIS FLEET, and the O6N board is the
+# INPUT ALONE IS THE WRONG TRIGGER HERE, and the O6N board is the
 # proof: it is the kernel boot-validation box, driven almost entirely over SSH.
 # A 40-minute kernel build there produces exactly ZERO /dev/input events, so an
 # input-only rule would drop it to schedutil and re-arm an idle state in the

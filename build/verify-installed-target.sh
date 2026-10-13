@@ -573,7 +573,7 @@ fi
 # --- (ssh) LAN password login stays possible (operator policy 2026-09-29: every host reachable by password) ------
 # sshd uses the FIRST value it sees for a keyword. Rebuild the effective config from /etc/ssh/sshd_config with its
 # Include lines expanded in place (drop-ins sort lexically), then require PasswordAuthentication yes. A key-only or
-# keyboard-interactive-only setup would lock out `sshpass` and the fleet scripts.
+# keyboard-interactive-only setup would lock out `sshpass` and remote scripts.
 echo "[verify-target] (ssh) sshd effective config"
 SSH_EFF=""
 if fetch /etc/ssh/sshd_config "$TMP/sshd_config"; then
@@ -593,7 +593,7 @@ $_l" ;;
     case "$_pa" in
         yes) echo "[verify-target]     PasswordAuthentication yes (kbd-interactive: ${_ki:-default})"; SSH_PW_OK=1 ;;
         "")  gate_miss ssh "sshd sets no PasswordAuthentication and the Debian default is not asserted; set it to yes (35-ssh.sh)"; SSH_PW_OK=0 ;;
-        *)   gate_miss ssh "effective PasswordAuthentication is '$_pa': the LAN fleet needs password login (sshpass)"; SSH_PW_OK=0 ;;
+        *)   gate_miss ssh "effective PasswordAuthentication is '$_pa': LAN tooling needs password login (sshpass)"; SSH_PW_OK=0 ;;
     esac
 else
     gate_miss ssh "/etc/ssh/sshd_config"; SSH_PW_OK=0

@@ -73,7 +73,7 @@ SGDISK="$(command -v sgdisk || echo /sbin/sgdisk)"
 DEBUGFS="$(command -v debugfs || echo /sbin/debugfs)"
 [ -x "$DEBUGFS" ] || { echo "GATE FAIL: debugfs not installed" >&2; exit 2; }
 
-# NEVER /tmp: it is a RAM-backed tmpfs on several fleet build hosts and this
+# NEVER /tmp: it is a RAM-backed tmpfs on several build hosts and this
 # copies a multi-GiB image. Same rule as write-usb-image.py's --work-dir.
 mkdir -p "$WORK"
 # This gate runs as root (build-image.sh invokes it via ncz_sudo). Everything it
