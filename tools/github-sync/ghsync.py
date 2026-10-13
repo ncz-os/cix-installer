@@ -541,7 +541,7 @@ def guard_scan(ctx, r, gitdir, refs, mode):
     # upstream (e.g. a mainline kernel release) is not re-read on the first run
     base += [
         s
-        for s in r["opts"].get("trusted_base", "").split(",")
+        for s in (x.strip() for x in r["opts"].get("trusted_base", "").split(","))
         if s and has_object(gitdir, s)
     ]
     revs = list(set(refs.values()))
@@ -805,7 +805,8 @@ def push(ctx, gitdir, url, specs):
     r = git(gitdir, "push", "--porcelain", url, *specs, check=False)
     if r.returncode != 0:
         raise Fatal(
-            "push failed: %s" % (r.stderr.strip()[-600:] or r.stdout.strip()[-600:])
+            "push failed: %s"
+            % (r.stderr.strip()[-600:] or r.stdout.strip()[-600:] or "<no output>")
         )
 
 
