@@ -2,7 +2,7 @@
 """Render the Cygnus Artist Pack wallpapers with a small corner mark.
 
 usage: brand-wallpapers.py SRC_DIR OUT_DIR [--aspect 16x10]
-  SRC_DIR holds <name>-3840x2160.png masters (cygnus-26.10 pack on ARGONAS).
+  SRC_DIR holds <name>-3840x2160.png masters (cygnus-26.10 pack in the project artifact store).
   OUT_DIR receives cygnus-<id>.jpg (4K, q95), the files committed under
   assets/branding/wallpaper/contrib/cygnus-2610.
 

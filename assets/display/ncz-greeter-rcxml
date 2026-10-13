@@ -17,7 +17,7 @@
 #   targets) the same key is actively HARMFUL: labwc tries to DISABLE the CRTC
 #   the console/KMS boot-splash left enabled, that disable fails on i915
 #   ("backend/drm/drm.c: Failed to disable CRTC"), and the greeter stays black
-#   even though greetd is up (PEGASUS amd64 RC2 325c9510, live-tested removing
+#   even though greetd is up (the GU502LV laptop amd64 RC2 325c9510, live-tested removing
 #   this key restores the greeter). There the compositor must keep the labwc
 #   default (autoEnable yes) and own the first modeset itself.
 #

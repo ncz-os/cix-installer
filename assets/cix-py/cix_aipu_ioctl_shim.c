@@ -4,7 +4,7 @@
  * KMD's older variant (0x81a84100, sizeof aipu_cap = 424), with explicit
  * struct transcoding.
  *
- * Diagnosis: see CODEX-ANALYSIS.md in this bundle.
+ * Diagnosis: see the analysis notes that accompanied this shim.
  *
  * Build:
  *   gcc -shared -fPIC -O2 -Wall -o libcix_aipu_shim.so cix_aipu_ioctl_shim.c -ldl

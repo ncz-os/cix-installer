@@ -230,7 +230,7 @@ def cmd_greeter(dry_run: bool, runner=subprocess.run) -> int:
             # rather than abandoned.
             # Even with no capped mode the greeter must still render at the
             # SAME density the desktop session uses, or its login card comes
-            # out half-size against the lock's on a HiDPI panel (PEGASUS eDP
+            # out half-size against the lock's on a HiDPI panel (the GU502LV laptop eDP
             # AU Optronics 0x31EB, 3840x2160 single-mode, 283 ppi: session
             # 1920x1080@2x, greeter was 3840x2160@1x -> 300 px card vs 600).
             # Derive the scale from the panel's own density exactly as the

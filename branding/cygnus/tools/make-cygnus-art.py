@@ -187,7 +187,7 @@ def ring(size: int, stroke: float, color: str, glow: str) -> Image.Image:
 
 # The shipped rEFInd theme is ONE 1920x1080 background drawn with
 # banner_scale fillscreen; rEFInd stretches it to the firmware GOP mode, so no
-# higher-resolution exports are shipped (the 2K/4K masters stay on ARGONAS).
+# higher-resolution exports are shipped (the 2K/4K masters stay in the project artifact store).
 REFIND_SIZES = ((1920, 1080),)
 BAND_MAX_Y, LEFT_P95_MAX_Y = 0.04, 0.06
 

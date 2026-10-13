@@ -15,7 +15,7 @@ EnvironmentFile=/etc/nclawzero/agent-env
 Volume=nemoclaw-data:/data:Z
 # HOST networking (NOT PublishPort). The Cix Sky1 kernel has no veth/bridge
 # (CONFIG_VETH off) so any PublishPort= fails on metal with
-# "create veth pair: Operation not supported" (status=126, verified .66 2026-07).
+# "create veth pair: Operation not supported" (status=126, verified on the MS-R1 test board 2026-07).
 # Network=host binds the runtime directly on the host's :4000. Real fix =
 # CONFIG_VETH in a future kernel; this is the workaround.
 Network=host

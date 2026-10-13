@@ -288,7 +288,7 @@ do_run() {
 
     # Driver first so a toolkit problem never costs the display driver.
     # attempt_log prints only what THIS apt transaction appended to the log: an older "Failed to fetch" line must not
-    # turn a hard failure (dpkg/dkms/resolver) into an endless "pending:download" retry (zoder review, verified).
+    # turn a hard failure (dpkg/dkms/resolver) into an endless "pending:download" retry (review, verified).
     local logoff
     attempt_log() { tail -c +"$((logoff + 1))" "$LOG" 2>/dev/null; }
     logoff=$(wc -c < "$LOG" 2>/dev/null || echo 0)

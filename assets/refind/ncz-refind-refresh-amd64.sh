@@ -54,7 +54,7 @@ REFIND_SRC="$INSTALLER_META/assets/refind/refind_x64.efi"
 # If the helper is absent we fail closed to "not T2".
 #
 # mce=nobootlog on the T2 default entry (2026-10-11). The Apple firmware on
-# these Coffee Lake-H T2 Macs (CHIMERA, MacBookPro16,1, i9-9980HK, cpu 906ed)
+# these Coffee Lake-H T2 Macs (T2 Mac A, MacBookPro16,1, i9-9980HK, cpu 906ed)
 # leaves a stale Machine Check record in MCA banks 12/13 that Linux logs at
 # boot ("mce: [Hardware Error]: CPU 0: Machine Check: 0 Bank 12 ..."). It is a
 # left-over from before the kernel booted, not a runtime fault, and the same
@@ -259,7 +259,7 @@ echo "  root source=$ROOT_SRC PARTUUID=$ROOT_PARTUUID fstype=$ROOT_FSTYPE subvol
 # placeholders on every PC, so /sys/class/tty/ttyS0 exists on machines with no
 # serial port at all; console=ttyS0 then makes systemd start serial-getty@ttyS0,
 # which fails "agetty: failed to get terminal attributes: Input/output error"
-# in a restart loop (28 per boot on PEGASUS, also CHIMERA/T2). The port type
+# in a restart loop (28 per boot on the GU502LV laptop, also on a T2 Mac). The port type
 # tells them apart: 0 (PORT_UNKNOWN) is a placeholder, anything else (4 =
 # 16550A, QEMU's ISA serial included, so the KVM gate keeps its console) is a
 # UART that answered the probe. The installer media entries are generated
@@ -302,7 +302,7 @@ STABLE_CMDLINE_BASE="${NCZ_SERIAL_CONSOLE_ARG:-}console=tty0 systemd.condition_f
 # nouveau.runpm=0 on the default and console entries (the rescue entries
 # blacklist nouveau outright). On 7.3-rc5+ nouveau's runtime suspend oopses in
 # nvkm_gsp_gcx_ready() on Turing/Ampere GPUs without GSP-RM firmware (NULL
-# gsp->rm; PEGASUS, RTX 2060 Mobile, 2026-10-06), leaving the dGPU stuck in
+# gsp->rm; the GU502LV laptop, RTX 2060 Mobile, 2026-10-06), leaving the dGPU stuck in
 # "suspending" so every later PCI config read (lspci, udev) hangs. Fixed
 # upstream by 4d0e27041185 (drm-misc-fixes), carried as amd64-kernel-t2 9012.
 # preseed/late.sh writes the same option to /etc/modprobe.d; this copy covers
@@ -358,7 +358,7 @@ echo "  wiping stale ESP entries + kernel images..."
 # must always be a real known-good fallback that this wipe cannot touch. Only
 # one rescue image is kept (previous one replaced).
 #
-# LIVE DEFECT this guard closes (MEDUSA, T2 Mac, 2026-10-04): the promotion loop
+# LIVE DEFECT this guard closes (T2 Mac B, T2 Mac, 2026-10-04): the promotion loop
 # took the first non-rescue ESP kernel whose kver was neither KVER_STABLE nor
 # KVER_EDGE, with NO prerelease classification. After purging the old stable
 # linux-image-7.2.8-3 the hook ran with KVER_EDGE=7.3.0-rc5-9; the ESP still
@@ -429,7 +429,7 @@ ncz_promote_outgoing_rescue() {
         esac
 
         # Never promote a pre-release (-rcN)/edge-class kernel: this is the
-        # 2026-10-04 MEDUSA incident.
+        # 2026-10-04 T2 Mac B incident.
         if is_prerelease "$_out_kver"; then
             echo "  NOT promoting $_out_kver to rescue -- prerelease (-rcN) kernel, not stable-class"
             continue

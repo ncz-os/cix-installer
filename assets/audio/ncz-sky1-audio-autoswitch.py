@@ -602,7 +602,7 @@ class Switcher:
         if target and current != target:
             if kind == "analog":
                 # clear the codec mute once, when the analog sink BECOMES the default; never on later polls, so a mute
-                # the user applies afterwards is respected (zoder review of d0e6066, finding 1)
+                # the user applies afterwards is respected (review of d0e6066, finding 1)
                 unmute_analog(card)
             if set_default_sink(target):
                 log(f"selected {target} ({label})")

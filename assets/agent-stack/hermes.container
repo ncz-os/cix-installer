@@ -2,7 +2,7 @@
 # The Cix Sky1 kernel has no veth/bridge (CONFIG_VETH off), so the previous
 # design — a dedicated hermes-isolated Podman bridge network + PublishPort —
 # cannot start on metal ("create veth pair: Operation not supported", status=126,
-# verified MS-R1 .66 2026-07). The SAME trust-boundary property is preserved a
+# verified MS-R1 test board 2026-07). The SAME trust-boundary property is preserved a
 # different way: Network=host + a 127.0.0.1 dashboard bind means the dashboard
 # is reachable ONLY from on-box clients, NEVER the LAN:
 #   - Host loopback (127.0.0.1) → hermes dashboard:  reachable
