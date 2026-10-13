@@ -517,15 +517,22 @@ fi
 
 # --- (ix) NCZ-OS tour slides (post-install/51-ncz-tour-slides.sh) ------------------------------
 # The desktop tour (dev.sinty.tour) is data-driven: ten upstream slides in
-# /opt/singularity/share/singularity/tour/ plus four NCZ slides this project adds
-# (wallpapers, online wallpapers, screensavers, lock screen). Assert all four
-# landed, so a hook that silently skipped (no payload dir, missing asset) is
-# caught instead of shipping a tour that never mentions the new work.
+# /opt/singularity/share/singularity/tour/ plus NCZ slides this project adds. Four
+# are on every desktop (wallpapers, online wallpapers, screensavers, lock screen);
+# 85-ncz-chromium-vpu.slide (the NCZ Chromium VPU slide) is arm64/Sky1 only, since
+# only arm64 ships chromium-ncz-sky1. Assert the four always, require the fifth on
+# arm64 and forbid it on amd64 -- so a hook that silently skipped is caught, and a
+# Sky1-only slide can never leak into an amd64 image.
 echo "[verify-target] (ix) NCZ tour slides"
 TOURDIR=/opt/singularity/share/singularity/tour
 for s in 55-ncz-wallpapers 56-ncz-online-wallpapers 65-ncz-screensavers 75-ncz-lock; do
     exists "$TOURDIR/$s.slide" || gate_miss tour-slides "$TOURDIR/$s.slide (post-install/51-ncz-tour-slides.sh)"
 done
+if [ "$ARCH" = arm64 ]; then
+    exists "$TOURDIR/85-ncz-chromium-vpu.slide" || gate_miss tour-slides "$TOURDIR/85-ncz-chromium-vpu.slide (arm64 NCZ Chromium VPU slide; post-install/51-ncz-tour-slides.sh)"
+else
+    exists "$TOURDIR/85-ncz-chromium-vpu.slide" && gate_miss tour-slides "$TOURDIR/85-ncz-chromium-vpu.slide leaked onto amd64 (the NCZ Chromium VPU slide is Sky1-only)"
+fi
 
 # --- (ixa) NCZ first-login tour (post-install/51-ncz-tour-slides.sh + 20-desktop.sh) ----------
 # The tour opens once from a guarded autostart entry the installer drops. Assert
