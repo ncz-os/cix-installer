@@ -227,6 +227,7 @@ build/test-firstboot-gpu.sh	common	-	first-boot/install-end DKMS notice: needed 
 build/test-gpu-install-progress.sh	common	-	GPU/DKMS install-step feedback: step profiles, simulated growing DKMS make.log monitor, apt window scaling, late.sh weighted bar math and GPU screen line, run-all end to end
 build/test-progress-bar-drive.sh	common	-	late.sh drives finish-install's progress bar at runtime: stub debconf records PROGRESS, cdebconf model asserts forward-only to 100%, GPU weight, flat-stretch creep, text-only fallbacks, no bad number under sh/busybox/bash
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
+build/test-gitlab-registry-cleanup.sh	common	-	mocked-curl regression test for tools/gitlab-registry-cleanup.sh (dry run, keep newest N, duplicate files, release-linked and unnamed packages kept, manifest before removal, token handling)
 build/test-overlay-modversions.sh	sky1	-	fixture tests for verify-overlay-modversions.py (stale CRC, unresolved, no __versions, vermagic, missing set fail)
 build/test-release-identity.sh	common	-	release identity/label + Cygnus logo wiring regression test
 build/validate-accelerators.sh	sky1	-	GPU/NPU/VPU binding validation
@@ -397,6 +398,8 @@ scripts/	common	-	helper scripts
 staging/	common	-	xwayland staging
 tests/	common	-	unit tests
 tools/	common	-	dev tools
+tools/gitlab-registry-cleanup.sh	common	-	apply retention rules to GitLab generic packages (keep newest N versions, one file per name); dry run by default, --apply, --manifest
+tools/registry-retention.conf	common	-	retention rules read by tools/gitlab-registry-cleanup.sh
 tools/kvm-smoke.sh	sky1	-	aarch64 KVM kernel smoke test on the MS-R1
 tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
 tools/ncz-join-image.sh	common	-	join, unpack and verify the split release image parts (never writes to a disk)
