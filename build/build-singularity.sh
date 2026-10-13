@@ -9,9 +9,9 @@
 # time. Without this the tarball is a one-off; with it, the payload is
 # reproducible from upstream sources.
 #
-# METHOD (matches the .66 bring-up build, docs/upstream/singularity/):
+# METHOD (matches the Sky1 bring-up build, docs/upstream/singularity/):
 #   1. debian:<codename> arm64 container, matching release.conf (native
-#      ULTRA, or any arm64 host with docker/podman).
+#      on any arm64 host with docker/podman).
 #   2. clone singularityos-lab/singularity-desktop --recursive.
 #   3. build the `vetro` Go host tool (UI transpiler) and put it on PATH.
 #   4. meson setup --prefix=/opt/singularity --libdir=lib ; ninja ; meson install
@@ -22,9 +22,11 @@
 # /opt/singularity (it touches ONLY /opt/singularity — never /lib — so it is
 # safe on a live rootfs, unlike a full rootfs/module tarball).
 #
-# USAGE (on an arm64 build host, e.g. .66):
+# USAGE (on an arm64 build host):
 #   ./build/build-singularity.sh
-#   ./build/build-singularity.sh --push-argonas   # also stage on ARGONAS
+#   ./build/build-singularity.sh --push   # also stage on the artifact store
+#     (destination [user@]host:/dir from NCZ_SINGULARITY_STAGE_DEST or
+#      ~/.config/ncz/singularity-stage-dest; optional password auth via NCZ_STORE_PASS)
 #
 # Outputs:
 #   $OUT/singularity-opt.tgz   (default: ./build/sinty-out/singularity-opt.tgz)
@@ -99,9 +101,14 @@ SRC_DIR="${SINGULARITY_SOURCE_DIR:-}"
 VETRO_REPO="${VETRO_REPO:-https://github.com/singularityos-lab/vetro}"
 PREFIX="/opt/singularity"
 OUT="${OUT:-$(cd "$(dirname "$0")/.." && pwd)/build/sinty-out}"
-ARGONAS_DST="/mnt/datapool/archives/ncz/singularity"
-PUSH_ARGONAS=0
-[ "${1:-}" = "--push-argonas" ] && PUSH_ARGONAS=1
+. "$(cd "$(dirname "$0")" && pwd)/lib/ncz-site.sh"
+PUSH_STORE=0
+case "${1:-}" in --push|--push-argonas) PUSH_STORE=1 ;; esac
+STAGE_DEST="$(ncz_site_value NCZ_SINGULARITY_STAGE_DEST singularity-stage-dest)"
+if [ "$PUSH_STORE" = 1 ] && [ -z "$STAGE_DEST" ]; then
+    echo "ERROR: --push needs NCZ_SINGULARITY_STAGE_DEST (or ~/.config/ncz/singularity-stage-dest) = [user@]host:/dir" >&2
+    exit 2
+fi
 
 # Container engine: prefer docker, fall back to podman.
 CE="$(command -v docker || command -v podman || true)"
@@ -629,7 +636,7 @@ grep "^Depends: " /out/singularity-opt.tgz.depends
 # in a session doing arm64 work) is reused as-is by both docker and podman --
 # no re-resolve, no warning -- and the whole build silently runs under qemu
 # emulation for the wrong target. Caught 2026-09-15 building this natively
-# on amd64 PROTEUS: "debian:forky" was still cached from an arm64 pipeline
+# on an amd64 build host: "debian:forky" was still cached from an arm64 pipeline
 # run earlier the same session, so uname -m inside the container reported
 # aarch64 despite the host being amd64, and apt pulled arm64 packages the
 # whole way through with no visible error.
@@ -701,23 +708,22 @@ echo "== done =="
 ls -lh "$OUT/singularity-opt.tgz"
 echo "  top entries:"; tar tzf "$OUT/singularity-opt.tgz" | awk 'NR <= 3 { print }'
 
-if [ "$PUSH_ARGONAS" = 1 ]; then
-    echo "== staging on ARGONAS ($ARGONAS_DST) =="
-    # Maintainer push path: ARGONAS_PASS from the environment, else SSH keys.
-    if [ -n "${ARGONAS_PASS:-}" ]; then
-        GIT_SSH="${GIT_SSH:-sshpass -p $ARGONAS_PASS ssh -o PubkeyAuthentication=no}"
+if [ "$PUSH_STORE" = 1 ]; then
+    STAGE_HOST="${STAGE_DEST%%:*}"; STAGE_DIR="${STAGE_DEST#*:}"
+    echo "== staging on the artifact store ($STAGE_DEST) =="
+    # Maintainer push path: NCZ_STORE_PASS from the environment (sshpass -e), else SSH keys.
+    if [ -n "${NCZ_STORE_PASS:-}" ]; then
+        export SSHPASS="$NCZ_STORE_PASS"
+        GIT_SSH="${GIT_SSH:-sshpass -e ssh -o PubkeyAuthentication=no}"
+        SCP_CMD="sshpass -e scp -o PubkeyAuthentication=no"
     else
         GIT_SSH="${GIT_SSH:-ssh}"
-    fi
-    $GIT_SSH root@192.168.207.101 "mkdir -p $ARGONAS_DST" || true
-    if [ -n "${ARGONAS_PASS:-}" ]; then
-        SCP_CMD="sshpass -p $ARGONAS_PASS scp -o PubkeyAuthentication=no"
-    else
         SCP_CMD="scp"
     fi
+    $GIT_SSH "$STAGE_HOST" "mkdir -p $STAGE_DIR" || true
     $SCP_CMD \
-        "$OUT/singularity-opt.tgz" "root@192.168.207.101:$ARGONAS_DST/" \
-        && echo "  pushed to ARGONAS:$ARGONAS_DST/singularity-opt.tgz"
+        "$OUT/singularity-opt.tgz" "$STAGE_DEST/" \
+        && echo "  pushed to $STAGE_DEST/singularity-opt.tgz"
 fi
 
 echo ""

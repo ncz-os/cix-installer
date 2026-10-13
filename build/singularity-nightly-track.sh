@@ -11,15 +11,15 @@
 # about to run, so a merged PR's patch doesn't sit there stale for days
 # until the next real ISO build happens to notice.
 #
-# Deploy as a systemd user timer (same cadence class as ULTRA's existing
-# ncz-singularity-sync @ 03:15, see build-cluster-distribution.md):
+# Deploy as a systemd user timer (same cadence class as the existing
+# ncz-singularity-sync job @ 03:15):
 #   ~/.config/systemd/user/ncz-singularity-patch-reconcile.service
 #   ~/.config/systemd/user/ncz-singularity-patch-reconcile.timer
 # `systemctl --user enable --now ncz-singularity-patch-reconcile.timer`
 #
-# Requires: gh authed as perlowja (read-only PR-state queries), sshpass
-# installed (this script forces password auth for every ARGONAS git op --
-# a plain pubkey ssh from inside a systemd user service hit real "Too many
+# Requires: gh authed (read-only PR-state queries). The ssh command used for
+# every git op against the store's origin comes from NCZ_STORE_SSH_COMMAND or
+# ~/.config/ncz/store-ssh-command (e.g. a password-auth sshpass wrapper) -- a plain pubkey ssh from inside a systemd user service hit real "Too many
 # authentication failures" on 2026-09-21 even though the same pubkey works
 # fine from an interactive shell on the same host, because the service has
 # no ssh-agent).
@@ -36,14 +36,16 @@ fi
 cd "$REPO"
 echo "=== singularity-nightly-track: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 
-# Pubkey exhaustion against ARGONAS (SSH offers too many keys before the
-# server's attempt limit, see kernel-build-checklist.md §0f) is a real,
+# Pubkey exhaustion against the store's git host (SSH offers too many keys
+# before the server's attempt limit) is a real,
 # recurring, per-host, session-context-dependent failure -- it hit a plain
 # `ssh` here even though the SAME pubkey works fine from an interactive
 # shell on this exact host, because systemd user services don't carry an
-# ssh-agent. Force password auth for every git operation against ARGONAS
-# in this script, not just the final gitlab push.
-export GIT_SSH_COMMAND='sshpass -f "$HOME/.config/ncz/argonas.pass" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no'
+# ssh-agent. Use the site's store ssh command for every git operation in this
+# script, not just the final gitlab push.
+. "$(cd "$(dirname "$0")" && pwd)/lib/ncz-site.sh"
+STORE_SSH="$(ncz_site_value NCZ_STORE_SSH_COMMAND store-ssh-command)"
+export GIT_SSH_COMMAND="${STORE_SSH:-ssh -o BatchMode=yes}"
 
 git fetch origin "$BRANCH" --quiet
 git checkout --quiet "$BRANCH"
@@ -66,11 +68,16 @@ EOF
 )"
 git push origin "$BRANCH"
 
-# Same ARGONAS-first-then-gitlab convention as every other push in this
-# repo. Push FROM the bare repo on ARGONAS, not from this working copy,
-# per kernel-build-checklist.md §0d.
-sshpass -f "$HOME/.config/ncz/argonas.pass" ssh -o PubkeyAuthentication=no -o StrictHostKeyChecking=no root@192.168.207.101 \
-    "git -C /mnt/datapool/git/cix-installer.git push gitlab $BRANCH" \
-    || echo "[nightly] WARN: gitlab push failed -- ARGONAS has the commit, retry gitlab push by hand"
+# Same store-first-then-gitlab convention as every other push in this
+# repo. Push FROM the bare repo behind origin (ssh://[user@]host/path),
+# not from this working copy.
+ORIGIN_URL="$(git remote get-url origin)"
+case "$ORIGIN_URL" in
+    ssh://*)
+        _hp="${ORIGIN_URL#ssh://}"; ORIGIN_HOST="${_hp%%/*}"; ORIGIN_PATH="/${_hp#*/}"
+        $GIT_SSH_COMMAND "$ORIGIN_HOST" "git -C '$ORIGIN_PATH' push gitlab $BRANCH" \
+            || echo "[nightly] WARN: gitlab push failed -- origin has the commit, retry gitlab push by hand" ;;
+    *) echo "[nightly] WARN: origin is not an ssh:// bare repo; push $BRANCH to gitlab by hand" ;;
+esac
 
 echo "[nightly] retired patch(es) committed and pushed"

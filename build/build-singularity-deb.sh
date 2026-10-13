@@ -14,7 +14,7 @@ umask 022   # reproducible file modes: the version gate compares content, modes 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TGZ="${1:-$REPO/build/sinty-out/singularity-opt.tgz}"
 PKG="ncz-singularity-desktop"
-# amd64/PEGASUS port: this was hardcoded arm64. build-singularity.sh builds
+# amd64 port: this was hardcoded arm64. build-singularity.sh builds
 # natively for whatever arch the container engine's default platform is (no
 # cross/emulation), so the produced singularity-opt.tgz binaries match the
 # BUILD HOST's arch, not necessarily arm64. Default to the host's dpkg arch;
@@ -61,7 +61,7 @@ STAGE=""
 
 # Guard against a bad externally-supplied NCZ_SINGULARITY_VERSION (the
 # computed default is always well-formed; an override is not validated
-# otherwise — Codex review 2026-07-26). dpkg itself is the source of truth
+# otherwise — review 2026-07-26). dpkg itself is the source of truth
 # for what a valid Debian version string is.
 if command -v dpkg >/dev/null 2>&1; then
     dpkg --validate-version "$VERSION" || {
@@ -263,6 +263,5 @@ dpkg-deb -c "$OUTDEB"
 echo ""
 echo "Final .deb: $OUTDEB"
 echo "Next: publish to the apt repo:"
-echo "  ssh -i ~/.ssh/id_ed25519_argonas_apt jasonperlow@192.168.207.22 < $OUTDEB"
-echo "  (or, on any host with jasonperlow SSH access to ARGOS: ssh jasonperlow@192.168.207.22 < $OUTDEB"
-echo "   — the includedeb+R2-publish logic lives in ARGOS:~/bin/ncz-reprepro-publish.sh)"
+echo "  ssh <publishing-host> < $OUTDEB"
+echo "  (the publishing host runs build/ops/argos/ncz-reprepro-publish.sh, which does includedeb + the R2 publish)"

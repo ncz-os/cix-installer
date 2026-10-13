@@ -1,5 +1,5 @@
 [Unit]
-Description=NCZ fleet backup to argonas2
+Description=NCZ per-host backup to the backup NAS
 After=network-online.target
 Wants=network-online.target
 

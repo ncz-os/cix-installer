@@ -26,13 +26,13 @@
 #      S3-compatible endpoint).
 #
 # Invoked ONLY via the forced `command=` in ~/.ssh/authorized_keys for the
-# buildkite-agent@cixmini deploy key added 2026-07-26 (singularity-desktop
+# buildkite agent deploy key added 2026-07-26 (singularity-desktop
 # .deb packaging pipeline). No shell access, no args — everything comes from
 # stdin (the .deb) and this script's own config.
 set -euo pipefail
 
-REPO=/home/jasonperlow/ncz-apt-repo
-ENVFILE=/home/jasonperlow/.config/ncz-r2-publish.env
+REPO="${NCZ_APT_REPO_DIR:-$HOME/ncz-apt-repo}"
+ENVFILE="${NCZ_R2_PUBLISH_ENV:-$HOME/.config/ncz-r2-publish.env}"
 # Set from the .deb itself below (once TMPDEB exists). The old default was a
 # hardcoded "ncz-singularity-desktop": piping ANY other package in still ran
 # includedeb correctly, then resolved the pool path of singularity-desktop and
@@ -47,13 +47,13 @@ PKG_NAME="${NCZ_PUBLISH_PKG_NAME:-}"
 : "${R2_ACCOUNT_ID:?}" "${R2_BUCKET:?}" "${R2_TOKEN:?}"
 : "${BUILDKITE_TOKEN:?}" "${BUILDKITE_ORG:?}" "${BUILDKITE_PKG_REGISTRY:?}"
 
-# NOTE: NOT /tmp — ARGOS /tmp is a tmpfs that is routinely full (observed
+# NOTE: NOT /tmp — the publishing host's /tmp is a tmpfs that is routinely full (observed
 # 31G/31G used 2026-07-26, unrelated batch jobs). Use a scratch dir on the
 # real (501G-avail) root filesystem instead.
-SCRATCH="/home/jasonperlow/.cache/ncz-publish-tmp"
+SCRATCH="${NCZ_PUBLISH_SCRATCH:-$HOME/.cache/ncz-publish-tmp}"
 mkdir -p "$SCRATCH"
 export TMPDIR="$SCRATCH"   # dpkg-deb/reprepro/tar all extract via $TMPDIR --
-                           # ARGOS system /tmp is a tmpfs observed full
+                           # the host's system /tmp is a tmpfs observed full
                            # (31G/31G, unrelated batch jobs), so redirect
                            # every tool that defaults to /tmp here instead.
 TMPDEB="$(mktemp "$SCRATCH/ncz-publish-XXXXXX.deb")"
@@ -76,7 +76,7 @@ PKG_NAME="${PKG_NAME:-$(dpkg-deb -f "$TMPDEB" Package)}"
 #      installed systems show "1.0 -> 1.0" for ever.
 # The two libraries are copies of post-install/lib/apt-separation.sh and
 # build/lib/deb-version-gate.sh from cix-installer; deploy them with this
-# script into $NCZ_POLICY_DIR (default ~/ncz-policy) -- see docs/APT-SEPARATION.md.
+# script into $NCZ_POLICY_DIR (default ~/ncz-policy) --
 NCZ_POLICY_DIR="${NCZ_POLICY_DIR:-${HOME:?HOME is unset: set NCZ_POLICY_DIR}/ncz-policy}"
 ncz_publish_policy() {  # deb
     local deb="$1" name arch cls
