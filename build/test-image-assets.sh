@@ -86,10 +86,14 @@ scan() {
     done < <(list_files "$root")
     # Rule 5: the rescue fallback must not be created, and must be stripped.
     local rr="$root/build/build-rescue-rootfs.sh" rp="$root/post-install/72-rescue-partition.sh"
-    if [ -f "$rr" ] && non_comment "$rr" | grep -q 'ncz-rescue-net-fallback'; then
+    # Capture first: with pipefail, `non_comment | grep -q` can fail on SIGPIPE when grep exits early.
+    local rr_text="" rp_text=""
+    [ -f "$rr" ] && rr_text=$(non_comment "$rr")
+    [ -f "$rp" ] && rp_text=$(non_comment "$rp")
+    if [ -f "$rr" ] && grep -q 'ncz-rescue-net-fallback' <<<"$rr_text"; then
         printf 'rescue-static-fallback\t%s\n' "build/build-rescue-rootfs.sh"
     fi
-    if [ -f "$rp" ] && ! non_comment "$rp" | grep -q 'rm -f .*ncz-rescue-net-fallback'; then
+    if [ -f "$rp" ] && ! grep -q 'rm -f .*ncz-rescue-net-fallback' <<<"$rp_text"; then
         printf 'rescue-fallback-not-stripped\t%s\n' "post-install/72-rescue-partition.sh"
     fi
     return 0
