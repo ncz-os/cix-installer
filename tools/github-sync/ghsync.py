@@ -259,14 +259,21 @@ class Ctx:
             )
             if self.token():
                 req.add_header("Authorization", "token " + self.token())
-            try:
-                with urllib.request.urlopen(req, timeout=60) as resp:
-                    data = json.load(resp)
-                    link = resp.headers.get("Link") or ""
-            except urllib.error.HTTPError as e:
-                if e.code == 404:
-                    return None
-                raise Fatal(f"GitHub API {path}: HTTP {e.code}")
+            for attempt in range(1, 4):
+                try:
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        data = json.load(resp)
+                        link = resp.headers.get("Link") or ""
+                    break
+                except urllib.error.HTTPError as e:
+                    if e.code == 404:
+                        return None
+                    if e.code < 500 or attempt == 3:
+                        raise Fatal(f"GitHub API {path}: HTTP {e.code}") from e
+                except (urllib.error.URLError, TimeoutError, OSError) as e:
+                    if attempt == 3:
+                        raise Fatal(f"GitHub API {path}: {e}") from e
+                time.sleep(10 * attempt)
             if isinstance(data, list):
                 out.extend(data)
             else:
