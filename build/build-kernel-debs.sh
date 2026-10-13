@@ -12,11 +12,10 @@
 # the ESP — it only adds/updates entries for currently-installed kernels,
 # matching the validated r97/r98 boot exactly.
 #
-# Operator 2026-08-21: legacy 7.0.12-cix-sky1-next channel retired.
-# Operator 2026-09-29: the shipping channel is named "mainline" (7.2.x,
-# assets/kernel/mainline); "edge" (assets/kernel/edge) is the TEST-ONLY 7.3.x
-# line and is never packaged here -- it is installed raw, non-default, by
-# post-install/10-our-kernel.sh. Only mainline is packaged. linux-image-cixmini-legacy and linux-image-cixmini-lts are gone
+# 2026-08-21: legacy 7.0.12-cix-sky1-next channel retired.
+# The shipping channel is named "mainline" (assets/kernel/mainline): the single
+# unified 7.3 Sky1 kernel (7.3.0-rc7-sky1-ncz, r289). There is no edge channel
+# (retired 2026-10-05). Only mainline is packaged. linux-image-cixmini-legacy and linux-image-cixmini-lts are gone
 # from the build; the empty-transitional-package trick that used to depend on
 # the legacy channel is also gone.
 set -euo pipefail
@@ -111,11 +110,11 @@ repro_finalize_root() {
 # r257 = display-cluster synthesis (patch 0225) + NFS client + vhost-net.
 # 0225 makes the driver synthesize the linlondp cluster when firmware omits
 # the CIXH50C0 ACPI device, so MS-R1 gets ONE DRM card instead of four.
-# Measured cause of Chromium losing gpu_compositing on .66 (its Ozone layer
+# Measured cause of Chromium losing gpu_compositing on MS-R1 (its Ozone layer
 # logs "Preferred drm_render_node not found, picking linlondp" and then
 # disables gpu compositing; O6N, which has a single card, shows neither).
 # Also adds CONFIG_NFS_FS/NFS_V4/SUNRPC -- absent entirely before, so no Sky1
-# board on this kernel could mount the ARGONAS shares -- and CONFIG_VHOST_NET
+# board on this kernel could mount the NFS artifact-store shares -- and CONFIG_VHOST_NET
 # for KVM hosts.
 # r258 = r257 (patch 0225 display-cluster synthesis + NFS client + vhost-net)
 # PLUS the restored desktop capability set. The defconfig was derived from a
@@ -160,11 +159,28 @@ fi
 #      1.1 generator, which deletes the rescue kernel on the next apt run.
 # 1.3: not needed for the OTA-DKMS-HEADER-FIX-2026-08-21 fix (the helper itself
 #      is unchanged). CIXMINI_BOOT_VER is bumped in lockstep with BUILD_REV
-#      only so the kernel's Depends: cixmini-boot (>= $CIXMINI_BOOT_VER) forces
+#      only so the kernel's Depends: cixmini-boot (>= $CIXMINI_BOOT_MIN_VER) forces
 #      a re-configure of cixmini-boot, and the helper runs in the same apt
 #      transaction; the bootloader entries are correct end-of-transaction
 #      without a follow-up invocation. Behaviourally identical to 1.2+r246.
-CIXMINI_BOOT_VER="1.2+$BUILD_REV"
+# 1.3: comment and log-text refresh of the helper and the generator; behaviour unchanged.
+CIXMINI_BOOT_VER="1.3+$BUILD_REV"
+# What the kernel packages require. Kept at 1.2 while the helper behaviour is unchanged, so
+# the r289 kernel debs keep their published bytes (their Depends field is part of them).
+CIXMINI_BOOT_MIN_VER="1.2+$BUILD_REV"
+
+# mtime epoch of every deb this script writes, fixed per kernel revision once its debs are
+# recorded in manifests/ncz-packages.tsv. The snapshot-derived value above moves with every
+# base.pin refresh: the r289 debs were built at the 20261005 snapshot, and after the 20261012
+# refresh the same inputs produced other bytes. NCZ_KERNEL_DEB_EPOCH overrides (one-off).
+case "${NCZ_KERNEL_DEB_EPOCH:-}" in
+    '') case "$BUILD_REV" in
+            r289) SOURCE_DATE_EPOCH=1791201600 ;;   # 2026-10-05T12:00:00Z (ledger rows for r289)
+        esac ;;
+    *[!0-9]*) echo "ERROR: NCZ_KERNEL_DEB_EPOCH must be an integer" >&2; exit 1 ;;
+    *) SOURCE_DATE_EPOCH="$NCZ_KERNEL_DEB_EPOCH" ;;
+esac
+export SOURCE_DATE_EPOCH
 MAINT="NCZ <nczero@nclawzero.dev>"
 
 # KVER comes from the ASSET WE ARE ABOUT TO PACKAGE, not from a previous
@@ -276,7 +292,7 @@ ROOT_SRC=$(findmnt -no SOURCE / 2>/dev/null)
 ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC" 2>/dev/null)
 [ -n "$ROOT_PARTUUID" ] || { echo "cixmini-boot: cannot determine root PARTUUID; aborting"; exit 0; }
 
-# MartJohnson 2026-04-30 working set for MS-R1 (identical LTS+NEXT), kept in
+# MartJohnson 2026-04-30 working set for MS-R1, kept in
 # lockstep with build/70-bootloader.sh.
 # ----------------------------------------------------------------------
 # efi=noruntime is an MS-R1 firmware workaround, NOT a Sky1-wide one.
@@ -290,11 +306,11 @@ ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC" 2>/dev/null)
 # among the buses exposed to Linux. CONFIG_RTC_DRV_EFI=y is built in, but
 # drivers/firmware/efi/efi.c registers the "rtc-efi" platform device only when
 # efi_rt_services_supported(EFI_RT_SUPPORTED_TIME_SERVICES) is true -- which
-# efi=noruntime makes false. Metal-verified on O6N under BOTH 7.2.0-rc6 and
-# 7.0.12: /dev/rtc0 appears, driver rtc-efi, hctosys=1, clean boot.
+# efi=noruntime makes false. Metal-verified on O6N (7.2.0-rc6 and 7.0.12 at
+# the time): /dev/rtc0 appears, driver rtc-efi, hctosys=1, clean boot.
 #
-# Gate on the board, not the kernel channel: every Sky1 board runs both 7.2
-# and 7.0.12, so a per-channel split is wrong in both directions.
+# Gate on the board, not the kernel version: the board firmware, not the
+# kernel, decides whether EFI runtime is safe.
 #
 # Fail-safe: if DMI is unreadable we cannot prove we are NOT on an MS-R1, so
 # emit the workaround and favour a bootable system over a working clock.
@@ -367,17 +383,17 @@ options $opts
 EOF
 }
 
-# Edge channel (the only shipping kernel)
+# The single shipping kernel
 if [ -n "$NEXT" ]; then
     rm -f "$ESP"/vmlinuz-*-cix-sky1-next 2>/dev/null || true
     install -m 0644 "/boot/vmlinuz-$NEXT" "$ESP/vmlinuz-$NEXT"
     write_entry cixmini-next 1-next "nclawzero (cixmini) — kernel $NEXT [edge, default] — $VER" "$NEXT" ""
-    echo "cixmini-boot: staged edge $NEXT"
+    echo "cixmini-boot: staged kernel $NEXT"
 else
     rm -f "$ESP/loader/entries/cixmini-next.conf" "$ESP"/vmlinuz-*-cix-sky1-next 2>/dev/null || true
 fi
 
-# Rescue entry reuses the edge kernel (single-kernel release).
+# Rescue entry reuses the same kernel (single-kernel release).
 RESCUE="${NEXT}"
 if [ -n "$RESCUE" ]; then
     write_entry cixmini-rescue 2-rescue "SAFE rescue (cixmini) — kernel $RESCUE rescue.target — $VER" "$RESCUE" "systemd.unit=rescue.target"
@@ -542,8 +558,8 @@ build_kernel_deb() {
     local label="$3"     # asset subdir (mainline)
     local with_npu="$4"  # path to OOT npu .ko, or ""
 
-    # ONE KERNEL, ONE NAME (operator 2026-08-11: "we do not use LTS or edge,
-    # we are 7.2 only now"). The channel suffix is gone: the package is simply
+    # ONE KERNEL, ONE NAME (2026-08-11: no LTS or edge channel; one kernel
+    # line, now the unified 7.3). The channel suffix is gone: the package is simply
     # linux-image-cixmini. The channel argument survives only to pick the asset
     # subdirectory and label the build log.
     local pkg="linux-image-cixmini"
@@ -684,7 +700,7 @@ Maintainer: $MAINT
 Section: kernel
 Priority: optional
 Installed-Size: $isize
-Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), linux-headers-cixmini (= $ver), kmod, dracut | initramfs-tools | linux-initramfs-tool, systemd
+Depends: cixmini-boot (>= $CIXMINI_BOOT_MIN_VER), linux-headers-cixmini (= $ver), kmod, dracut | initramfs-tools | linux-initramfs-tool, systemd
 Description: NCZ cixmini Linux kernel ($kver)
  Prebuilt linux-cix-sky1 kernel image + modules for the NCZ cixmini (MS-R1).
  Installs vmlinuz, the module tree$( [ -n "$with_npu" ] && echo " (incl. armchina_npu)") and config,
@@ -1226,7 +1242,7 @@ Maintainer: $MAINT
 Section: kernel
 Priority: optional
 Installed-Size: $isize
-Depends: cixmini-boot (>= $CIXMINI_BOOT_VER), kmod, make
+Depends: cixmini-boot (>= $CIXMINI_BOOT_MIN_VER), kmod, make
 Recommends: dkms, build-essential, flex, bison, bc, libelf-dev, dracut | initramfs-tools | linux-initramfs-tool
 Description: NCZ cixmini kernel headers ($kver) with OTA-DKMS rebuild
   Header tree for linux-image-cixmini-$kver, packaged as a separate .deb
@@ -1242,7 +1258,7 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# MANDATORY KERNEL BOOT GATE (operator directive, 2026-08-14).
+# MANDATORY KERNEL BOOT GATE (2026-08-14).
 #
 # No kernel gets packaged without being booted first. r236 shipped a kernel
 # that panicked at 1.2s into every boot of the installed system
@@ -1263,8 +1279,9 @@ fi
 
 build_cixmini_boot
 
-# ONE KERNEL TREE (operator, 2026-08-10): 26.7 ships 7.2.0-rc7-sky1-ncz and only
-# that; 7.0.12-cix-sky1-next ("legacy") is superseded and its assets are gone.
+# ONE KERNEL TREE (2026-08-10): one Sky1 kernel tree only (26.7 shipped
+# 7.2.0-rc7-sky1-ncz; 26.10 ships 7.3.0-rc7-sky1-ncz); 7.0.12-cix-sky1-next
+# ("legacy") is superseded and its assets are gone.
 #
 # Guard on the ASSETS, not on KVER: resolve_kver falls back to the ISO-staging
 # sidecar when assets/kernel/legacy/KVER is missing, so KVER_LEGACY still
@@ -1283,7 +1300,7 @@ build_headers_deb mainline "$KVER_NEXT" mainline
 # ----------------------------------------------------------------------
 # Transitional packages: linux-image-cixmini-{edge,lts,legacy}
 #
-# Operator 2026-08-21: legacy channel is gone, so a board holding one of
+# 2026-08-21: the legacy channel is gone, so a board holding one of
 # the old kernel package names (edge, lts, legacy) needs to upgrade to
 # the new unified name `linux-image-cixmini`. That replacement is handled
 # by the linux-image-cixmini control's Provides+Replaces+Conflicts list

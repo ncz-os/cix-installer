@@ -31,7 +31,10 @@ PKG=ncz-apt-policy
 # ledger row instead of one per host.
 # 1.0.3: the library adds libgtk4-layer-shell0 (arm64) to the Debian-name override list, so
 # the patched layer-shell build in the NCZ repo wins (990) on systems installed before it.
-VERSION="${NCZ_APT_POLICY_VERSION:-1.0.3}"
+# 1.0.4: comment-only refresh of the packaged library (dates instead of attributions); the
+# pins and the postinst are unchanged. The library is packaged verbatim, so the bytes moved,
+# and a published version is never rebuilt with other content: new version.
+VERSION="${NCZ_APT_POLICY_VERSION:-1.0.4}"
 OUT="${NCZ_APT_POLICY_OUT:-$ROOT/build/ncz-apt-policy-deb}"
 LIB="$ROOT/post-install/lib/apt-separation.sh"
 [ -r "$LIB" ] || { echo "ERROR: $LIB missing" >&2; exit 1; }
@@ -106,12 +109,16 @@ chmod 0755 "$WORK/DEBIAN/postinst" "$WORK/DEBIAN/postrm"
 #            works; it is a new value rather than 1.0.2's so a 1.0.3 build can never be
 #            mistaken for a 1.0.2 one by mtime, and it must not change once 1.0.3's
 #            reviewed sha is recorded in manifests/ncz-packages.tsv.
+#   1.0.4 -> 1791921600 (2026-10-13T20:00:00Z, when 1.0.4 was cut). A new value for the same
+#            reason as 1.0.3 (a 1.0.4 build can never pass for a 1.0.3 one by mtime); fixed
+#            from the moment its reviewed sha is recorded in manifests/ncz-packages.tsv.
 case "$VERSION" in
     1.0.2) SOURCE_DATE_EPOCH=1791662078 ;;
     1.0.3) SOURCE_DATE_EPOCH=1791902400 ;;
+    1.0.4) SOURCE_DATE_EPOCH=1791921600 ;;
     *)  SOURCE_DATE_EPOCH="${NCZ_APT_POLICY_EPOCH:-}"
         case "$SOURCE_DATE_EPOCH" in
-            ''|*[!0-9]*) echo "ERROR: no mtime epoch for $PKG $VERSION: add one next to 1.0.3 in $0 (or set NCZ_APT_POLICY_EPOCH)" >&2; exit 1 ;;
+            ''|*[!0-9]*) echo "ERROR: no mtime epoch for $PKG $VERSION: add one next to 1.0.4 in $0 (or set NCZ_APT_POLICY_EPOCH)" >&2; exit 1 ;;
         esac ;;
 esac
 export SOURCE_DATE_EPOCH
