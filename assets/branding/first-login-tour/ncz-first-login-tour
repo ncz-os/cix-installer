@@ -190,12 +190,18 @@ wait_for_shell() {
 launch_under_scope() {
     want_quota="${NCZ_TOUR_CPUQUOTA:-40}"
     # Tokenise the command line on $IFS into positional parameters. Standard
-    # IFS word-splitting does not perform shell-metacharacter expansion, so a
-    # value like "cmd ; rm -rf /" becomes the literal tokens "cmd", ";",
-    # "rm", "-rf", "/" (the wrapper sees the same argv the original test
-    # contract expected, never a re-eval).
+    # IFS word-splitting does not perform shell-metacharacter expansion
+    # (no command substitution, no quote removal), but the unquoted expansion
+    # DOES perform filename globbing -- so a value of "*" would otherwise
+    # expand to every file in cwd. `set -f` (noglob) disables globbing for
+    # the unquoted expansion, so a value like "cmd ; rm -rf /" becomes the
+    # literal tokens "cmd", ";", "rm", "-rf", "/" -- the wrapper sees the
+    # same argv the original test contract expected, never a re-eval and
+    # never a glob expansion.
     # shellcheck disable=SC2086
+    set -f
     set -- $1
+    set +f
     # NCZ_TOUR_NICE=0 disables the wrapper explicitly (test seam).
     if [ "${NCZ_TOUR_NICE:-auto}" = "0" ]; then
         "$@" >/dev/null 2>&1 &
@@ -207,14 +213,22 @@ launch_under_scope() {
     if [ "${NCZ_TOUR_NICE:-auto}" = "1" ] \
        || { command -v loginctl >/dev/null 2>&1 \
             && loginctl show-user "$(id -u 2>/dev/null || echo 0)" >/dev/null 2>&1; } then
-        if command -v systemd-run >/dev/null 2>&1 \
-           && [ "$(command -v systemd-run)" = "/usr/bin/systemd-run" ] \
-           && systemd-run --user --scope --quiet true >/dev/null 2>&1; then
+        # systemd-run must be the real binary, not a stub in PATH. The
+        # historical hardcoded /usr/bin/systemd-run path is wrong on distros
+        # that ship it in /bin (Debian-derived variants, some nix setups);
+        # an absolute system path is the contract we want.
+        _sr_bin=$(command -v systemd-run 2>/dev/null) || _sr_bin=""
+        case "$_sr_bin" in
+            /usr/bin/systemd-run|/bin/systemd-run|/sbin/systemd-run|/usr/sbin/systemd-run) ;;
+            *) _sr_bin="" ;;
+        esac
+        if [ -n "$_sr_bin" ] \
+           && $_sr_bin --user --scope --quiet true >/dev/null 2>&1; then
             # systemd-run takes the command and tokens argv directly. No
             # shell interpretation: the first token is the interpreter, the
             # rest are its argv. (systemd-run does its own exec, NOT a
             # sub-shell.)
-            systemd-run --user --scope \
+            "$_sr_bin" --user --scope \
               --nice=19 \
               --property=CPUQuota="${want_quota}%" \
               --property=CPUWeight=50 \
