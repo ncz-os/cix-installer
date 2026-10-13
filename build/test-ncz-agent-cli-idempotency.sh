@@ -103,6 +103,13 @@ grep -q 'QUADLET_TEMPLATES.*-nt.*QUADLET_ACTIVE' "$CLI" \
 grep -q 'is_installed zeroclaw && ! is_installed openclaw' "$CLI" \
     && ok "cmd_agent_uninstall drops .agents-installed only when nothing left" \
     || bad "cmd_agent_uninstall drops .agents-installed too eagerly"
+grep -q '&& ! is_installed portainer; then' "$CLI" \
+    && ok "cmd_agent_uninstall keeps .agents-installed while portainer remains" \
+    || bad "cmd_agent_uninstall ignores portainer when dropping .agents-installed"
+HOOK="$ROOT/post-install/46-ncz-cli.sh"
+grep -q 'bootstrap_user="ncz-admin"; fi' "$HOOK" \
+    && ok "MNEMOS bootstrap user falls back to ncz-admin when the hostname has no usable characters" \
+    || bad "MNEMOS bootstrap user has no working fallback"
 
 # is_installed() contract
 grep -q 'podman container exists portainer' "$CLI" \

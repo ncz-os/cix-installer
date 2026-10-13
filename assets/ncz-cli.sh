@@ -384,7 +384,8 @@ cmd_agent_uninstall() {
     # Drop the sentinel only when nothing is left installed; on a partial
     # uninstall (one of many) we leave it alone so a subsequent
     # `ncz agent list` keeps working for the still-installed agents.
-    if ! is_installed zeroclaw && ! is_installed openclaw && ! is_installed hermes; then
+    if ! is_installed zeroclaw && ! is_installed openclaw && ! is_installed hermes \
+       && ! is_installed portainer; then
         rm -f "$SENTINEL_DIR/.agents-installed"
     fi
     systemctl daemon-reload 2>/dev/null || true

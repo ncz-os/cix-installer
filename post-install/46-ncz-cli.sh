@@ -774,8 +774,9 @@ except Exception as e:
         if [ -s "$mnemos_env" ] && grep -q '^MNEMOS_API_TOKEN=' "$mnemos_env"; then
             echo "[ncz] MNEMOS API token already provisioned at $mnemos_env"
         else
-            local bootstrap_user="ncz-$(hostname -s 2>/dev/null | tr -cd 'a-z0-9-' | cut -c1-20)"
-            [ -n "$bootstrap_user" ] || bootstrap_user="ncz-admin"
+            local bootstrap_host bootstrap_user
+            bootstrap_host="$(hostname -s 2>/dev/null | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9-' | cut -c1-20)"
+            if [ -n "$bootstrap_host" ]; then bootstrap_user="ncz-$bootstrap_host"; else bootstrap_user="ncz-admin"; fi
             # Generate raw_key + key_hash INSIDE the MNEMOS container so we
             # never expose mnemos.db to the host (the volume is owned by
             # root inside the container; the bind-mount on the host is
