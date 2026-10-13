@@ -83,6 +83,10 @@
 >
 > **→ [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)** —— 究竟启用了什么、为什么，
 > 以及如何逐项关闭。
+>
+> **→ [docs/RECOVERY-LOGINS.md](docs/RECOVERY-LOGINS.md)**（英文）—— 安装程序诊断登录
+> （仅在安装程序运行期间存在，`root` / `rescue`，显示在每个控制台的启动横幅中）
+> 与救援分区登录。
 
 ### 这个项目为什么存在，又为什么这样构建
 

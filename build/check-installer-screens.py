@@ -40,6 +40,7 @@ ap.add_argument("--min-states", type=int, default=0, help="fail when fewer than 
 ap.add_argument("--require-prompt-sequence", nargs="+", default=[], help="assert every REGEX appears in the given order across the captured screens (operator's interactive sequence)")
 ap.add_argument("--require-boot-progress", nargs="+", default=[], help="assert every PHASE appears in the given order in the boot-time serial log (the [NCZ HH:MM:SS +Ns] lines from preseed/boot-progress.sh)")
 ap.add_argument("--min-dialogs", type=int, default=0, help="fail unless at least N distinct dialog titles were extracted from the captured states (proves the dialog order is real; a capture whose frames could not be parsed fails instead of printing 'none')")
+ap.add_argument("--require-login-line", default=None, help="assert at least one captured primary-console state shows the installer diagnostics login line matching REGEX (preseed/ncz-ui.sh ncz_ui_diag_login; docs/RECOVERY-LOGINS.md)")
 a = ap.parse_args()
 
 # The capture harness renders the d-i newt UI through pyte, which turns the terminal's ACS line-drawing set into
@@ -110,6 +111,14 @@ if a.no_blank_after:
             if a.allow_first_blank and blank_seen == 1: continue
             bad += 1
             print("check-installer-screens: FAIL %s: blank console after the %r dialog (the UI vanished; the operator sees an empty blue screen)" % (f, a.no_blank_after), file=sys.stderr)
+if a.require_login_line:
+    lrx = re.compile(a.require_login_line)
+    nlogin = sum(1 for f in files if lrx.search(rd(os.path.join(a.dir, f))))
+    if nlogin == 0:
+        bad += 1
+        print("check-installer-screens: FAIL no console state shows the diagnostics login line /%s/" % a.require_login_line, file=sys.stderr)
+    else:
+        print("check-installer-screens: diagnostics login line shown in %d of %d console states" % (nlogin, len(files)))
 for t, ok in seen.items():
     if not ok:
         bad += 1
