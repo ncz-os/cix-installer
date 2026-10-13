@@ -1,8 +1,8 @@
 # NCZ-OS Cygnus rEFInd theme: one 1080p background, `banner_scale fillscreen`
 
-## The bug (Radxa Orion O6, 2026-10-04)
+## The bug (Radxa Orion O6N, 2026-10-04)
 
-A photo of the installed rEFInd menu showed it cropped/zoomed. The Orion O6
+A photo of the installed rEFInd menu showed it cropped/zoomed. The Radxa Orion O6N
 was on a 4K panel: the DRM connector `card0-DP-2` reports a `3840x2160` mode. The old
 theme ran `pick-theme.sh`, which read *that* mode and installed
 `background-3840x2160.png` with `banner_scale noscale`, while `refind.conf` said

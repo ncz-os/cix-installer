@@ -61,7 +61,7 @@ Single-stream, MiniLM-L6 / bge-small class, seq 128–256. Higher = better.
 CPU/ONNX (fastembed) wins on absolute throughput (~700 emb/s) but at ~80 W;
 the NPU does ~51 emb/s at a fraction of that, ideal for a 24/7 always-on
 appliance. For bursty/offline reindex of a large corpus, CPU/ONNX is faster
-wall-clock. MNEMOS routes via `embedkit.Engine.auto()` — NPU tier wins by
+wall-clock. Applications route via `embedkit.Engine.auto()` — NPU tier wins by
 default on Sky1; force CPU with `prefer_tier="cpu"` for big batch reindex.
 
 Caching changes everything: on a real agentic mix (~50 % repeat) the box
@@ -121,7 +121,7 @@ for the memory/embedding lane.
   SDXL-Turbo, PP-OCRv4, pose/hand, and `bge-small-zh-v1.5` embeddings.
 - **Userspace pairing that works:** `cix-noe-umd 2.0.2` (libnoe 0.6.0) only.
   3.1.2 rejects the Z3 device; 1.1.1 fails job-submit (rc=20). See
-  `docs/MNEMOS-NPU-EMBEDDINGS.md`.
+  `docs/NPU-USAGE-GUIDE.md`.
 - **Python:** the libnoe wheel ships **cp311/cp312 only** — must run in the
   `/opt/ncz/embed-venv` Python 3.11 uv venv (system Python is 3.14).
 - **0x23 persistent-job bug:** `noe_job_infer_sync` times out on a reused job,
@@ -172,13 +172,13 @@ for the memory/embedding lane.
 
 - `embedkit.Engine.auto()` picks NPU > GPU > CPU by tier, micro-benchmarking
   within tier — no vendor preference. On Sky1 it selects the `npu-cix` adapter
-  automatically (`docs/MNEMOS-NPU-EMBEDDINGS.md`).
+  automatically `docs/NPU-USAGE-GUIDE.md`.
 - NPU runtime + the bge `.cix` + tokenizer are baked into the ISO; models layer
   via manual `git lfs` pull from the Cix hub (see `docs/MODELSCOPE-MODELS.md`) -- there is no `ncz model add`/working `ncz models pull` yet, that subcommand is a stub.
 - GPU is wired for display only; nothing routes ML compute to it.
 
 ## References
 
-- `docs/MNEMOS-NPU-EMBEDDINGS.md` — automatic embedding chain
+- `docs/NPU-USAGE-GUIDE.md` — automatic embedding chain
 - `docs/MODELSCOPE-MODELS.md` — pulling `.cix` models
 - cixtech/cix-linux-main#21 — libnoe / `.cix` / persistent-job upstream asks

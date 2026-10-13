@@ -138,13 +138,13 @@ rusticl 上运行 —— 已验证（VADD + GEMM 结果正确）。用于面向 
 
 ---
 
-## 4. 嵌入栈（MNEMOS / 智能体记忆）
+## 4. 嵌入栈
 
-智能体记忆系统（`mnemos`）需要快速的文本嵌入。该路径已预编译，运行在 **NPU** 上：
+需要快速文本嵌入的应用（检索、智能体记忆）可以使用一条预编译的路径。该路径已预编译，运行在 **NPU** 上：
 
 | 组件 | 路径 | 角色 |
 |---|---|---|
-| embedkit venv（Python 3.11） | `/opt/ncz/embed-venv` | `mnemos-embedkit` + `libnoe` + `llama-cpp-python` |
+| embedkit venv（Python 3.11） | `/opt/ncz/embed-venv` | `embedkit` + `libnoe` + `llama-cpp-python` |
 | `npu_embed_v2.py` | `/opt/cix/` | 围绕 `libnoe.so` 的 ctypes 封装（直接 NPU 嵌入） |
 | `bge-small-zh-v1.5_256.cix` | `/opt/ncz/models/` | ✅ NPU 嵌入模型（INT8 AOT，512 维，256 词元） |
 | `bge-small-zh-v1.5-q8_0.gguf` | `/opt/ncz/models/` | CPU/GPU 回退嵌入模型 |

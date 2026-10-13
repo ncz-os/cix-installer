@@ -18,7 +18,7 @@ recipe whenever the recipe changes.
 
 ## Status: builds, loads and probes — pending the config flip
 
-Verified on a Radxa Orion O6 against `7.2.0-rc6-sky1-ncz`, booted with
+Verified on a Radxa Orion O6N against `7.2.0-rc6-sky1-ncz`, booted with
 `module_blacklist=...,armchina_npu` so the in-tree driver never touched the
 hardware:
 
@@ -49,7 +49,7 @@ out-of-tree driver silently regresses to a non-probing state.
 
 ## Do NOT turn the in-tree driver off — it is the only one that works
 
-Probing is not the bar. Measured on a Radxa Orion O6, 7.2.0-rc6-sky1-ncz, same model
+Probing is not the bar. Measured on a Radxa Orion O6N, 7.2.0-rc6-sky1-ncz, same model
 (`/opt/ncz/models/bge-small-zh-v1.5_256.cix`) and same userspace:
 
 | driver | probe | memory regions | ASIDs | real inference |

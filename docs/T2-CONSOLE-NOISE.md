@@ -1,14 +1,11 @@
 # T2 boot "hardware error" noise — classification and policy
 
-Date: 2026-10-11. Operator question: *can we suppress the multiple T2 kernel
-initial "hardware errors" on the console, or look into them?*
+Date: 2026-10-11. Question: can the multiple T2 kernel "hardware errors" shown
+at boot be suppressed on the console, or explained?
 
-Scope of the evidence: MEDUSA (192.168.207.38, MacBookPro16,1, T2) and CHIMERA
-(192.168.207.6, MacBookPro16,1, T2), both on the shipping kernel
-`7.3.0-rc6-4-t2-edge-aer9010`; PEGASUS (192.168.207.85, ASUS ROG Zephyrus M15,
-**non-T2**) as the control. Read-only (`dmesg`, `journalctl -k`, `/proc`,
-`/sys`). Full per-message table with source files/commits lives in the mission
-report: `~/Projects/oc-mission-20261010/t2noise/REPORT.md`.
+Scope of the evidence: two MacBookPro16,1 (T2) units on the kernel of the time
+(`7.3.0-rc6-4-t2-edge-aer9010`), with a non-T2 ASUS ROG laptop as the control.
+Read-only (`dmesg`, `journalctl -k`, `/proc`, `/sys`).
 
 ## The console rule (why most "errors" never reach the console)
 
@@ -27,16 +24,16 @@ below — so at `loglevel=3` it is **already off the console** and exists only i
 ERR/WARN.
 
 ```
-MEDUSA  /proc/sys/kernel/printk = 3 4 1 3   -> dmesg --level=crit  = (empty)
-CHIMERA /proc/sys/kernel/printk = 3 4 1 3   -> dmesg --level=crit  = mce [Hardware Error] x2
-PEGASUS /proc/sys/kernel/printk = 3 4 1 3   -> dmesg --level=crit  = (empty)
+MacBookPro16,1 (A)  /proc/sys/kernel/printk = 3 4 1 3   -> dmesg --level=crit  = (empty)
+MacBookPro16,1 (B)  /proc/sys/kernel/printk = 3 4 1 3   -> dmesg --level=crit  = mce [Hardware Error] x2
+ASUS ROG (control)  /proc/sys/kernel/printk = 3 4 1 3   -> dmesg --level=crit  = (empty)
 ```
 
 ## Why we do NOT lower the console to 2
 
 The only way to hide a `KERN_ERR` line from the console with the printk knobs is
 to drop `console_loglevel` below 3. That also hides `KERN_CRIT` (2). Real
-machine-check records are logged at CRIT: CHIMERA logged, on this exact kernel,
+machine-check records are logged at CRIT: MacBookPro16,1 (B) logged, on this exact kernel,
 
 ```
 mce: [Hardware Error]: CPU 0: Machine Check: 0 Bank 12: ee0000000040110a
@@ -45,16 +42,16 @@ mce: [Hardware Error]: CPU 0: Machine Check: 0 Bank 13: ee0000000040110a
 
 and those lines are level `crit` (they do not appear in `dmesg --level=err`,
 only in `--level=crit`). Lowering to 2 would silence them from the console,
-violating the mission rule *never hide MCE/AER/EDAC/panic/oops*. So **3 is the
+violating the rule *never hide MCE/AER/EDAC/panic/oops*. So **3 is the
 floor**; the benign noise is fixed at its source instead (below).
 
-> The boot-time CHIMERA record itself is a **left-over from before the kernel
+> The boot-time record on MacBookPro16,1 (B) itself is a **left-over from before the kernel
 > booted** (TSC 0, EN=0 = polled, not delivered) and is now suppressed on the
 > everyday graphical (Default) rEFInd entry with a T2-gated `mce=nobootlog`,
 > while the Console/Rescue entries deliberately keep it visible. Evidence (the
 > same status is reported on unrelated Intel desktops), the exact v7.3-rc6
-> kernel behaviour, the installer-entry decision and the trade-off:
-> `docs/T2-BOOT-MCE-NOBOOTLOG.md`. (Note: `__print_mce()` emits these at
+> kernel behaviour and the trade-off are in the commit history of
+> `assets/refind/ncz-refind-refresh-amd64.sh`. (Note: `__print_mce()` emits these at
 > `KERN_EMERG`, level 0, so `loglevel=3` cannot hide them and `dmesg --level=crit`
 > lists them too.)
 
@@ -104,7 +101,7 @@ on non-T2), the amdgpu `Fence fallback timer` / `CG_TACH` warns (missed-IRQ
 recovery path / no dGPU tach on this chassis), and the BT baudrate/A-CPI-GPIO
 warns (Apple ACPI describes no reset GPIO).
 
-## Level buckets (MEDUSA, boot 09:58, `7.3.0-rc6-4-t2-edge-aer9010`)
+## Level buckets (MacBookPro16,1 (A), `7.3.0-rc6-4-t2-edge-aer9010`)
 
 * `KERN_ERR` (dmesg-only; **not** on the console at `loglevel=3`):
   `ACPI Error: AE_ALREADY_EXISTS` (+8 `Aborting method`), `Unable to locate
@@ -115,4 +112,4 @@ warns (Apple ACPI describes no reset GPIO).
   `brcmf_p2p_* -52` (x3), `SGX disabled or unsupported by BIOS`.
 * `KERN_WARNING` (dmesg-only): `thunderbolt device links…`, `intel_pch_thermal
   … INT A`, `t2smc`/`t2bce` taint notices, `amdgpu Fence fallback…`.
-* `KERN_CRIT` (console): CHIMERA `mce: [Hardware Error]` only.
+* `KERN_CRIT` (console): MacBookPro16,1 (B) `mce: [Hardware Error]` only.

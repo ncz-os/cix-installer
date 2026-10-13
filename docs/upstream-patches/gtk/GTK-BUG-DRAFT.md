@@ -107,14 +107,13 @@ driver. This report does not claim to have isolated which.
 - GTK 4.22.4+ds-1
 - wayland-client 1.26.0
 - labwc 0.9.5, wlroots 0.20.2
-- aarch64, CIX Sky1 (Radxa Orion O6), Mali G720, GLES
+- aarch64, CIX Sky1 (Radxa Orion O6N), Mali G720, GLES
 - Debian forky
 
 ## Prior art / links
 
 - wmww/gtk4-layer-shell#130 — closed unmerged; contains the three-case logs
-- Full unfiltered `WAYLAND_DEBUG=1` logs:
-  https://gist.github.com/perlowja/0105821635b35b938496cc33f67d9eed
+- `WAYLAND_DEBUG=1` logs: see the layer-shell issue above.
 - singularityos-lab/singularity-desktop#241 — downstream report
 - singularityos-lab/singularity-shell#15 — client-side workaround, MERGED
   (drops the `GdkSurface` after `hide()` so each open gets a fresh

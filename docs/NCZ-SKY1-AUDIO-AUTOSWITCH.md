@@ -10,7 +10,7 @@ UCM2 prior art exists for fixed PCM mappings and real jack controls:
 - `/usr/share/alsa/ucm2/Rockchip/max98090/HiFi.conf` combines analog devices and an HDMI device with a jack control.
 - `/usr/share/alsa/ucm2/Rockchip/rk3399-gru-sound/HiFi.conf` uses `JackControl "Headphones Jack"` for analog headphone routing.
 
-Sky1 DTS and ACPI support can create `HDMI/DP,pcm=N` jack objects, but the confirmed O6N failure is that WirePlumber ACP currently collapses the Sky1 card to one exposed sink bound to PCM device 0. A UCM profile alone is therefore not a safe complete fix until the running kernel and WirePlumber combination is proven to expose all UCM devices as ports. The fallback daemon directly covers the missing sink-exposure behavior while avoiding static PipeWire configuration.
+Sky1 DTS and ACPI support can create `HDMI/DP,pcm=N` jack objects, but the confirmed failure on the Radxa Orion O6N is that WirePlumber ACP currently collapses the Sky1 card to one exposed sink bound to PCM device 0. A UCM profile alone is therefore not a safe complete fix until the running kernel and WirePlumber combination is proven to expose all UCM devices as ports. The fallback daemon directly covers the missing sink-exposure behavior while avoiding static PipeWire configuration.
 
 ## Installed Pieces
 
@@ -45,7 +45,7 @@ The daemon is intentionally a user service. It talks to the active user's PipeWi
 - Radxa Orion O6: `meta-cix` contains a distinct `sky1-orion-o6.dts`; its sound node wires DP audio links with `jack-det,dpout`.
 - Radxa Orion O6 (real hardware, live evidence gathered 2026-08-26): confirms the
   ASoC `sky1-asoc-card` (`CIXH6070:00`) architecture is present on O6 too, same three
-  DP audio links (`dp[0]`/`dp[1]`/`dp[2]`) as O6N -- but on this specific unit the card
+  DP audio links (`dp[0]`/`dp[1]`/`dp[2]`) as Radxa Orion O6N -- but on the board tested the card
   never fully registers: `dp[2]`'s codec stays `codec[(null)]` through dozens of probe
   retries from boot (t=6s) through t=138s, and the deferred-probe loop never resolves.
   As a result `/proc/asound/cards` shows NO `cix,sky1`-named card on this board at
@@ -64,7 +64,7 @@ The daemon is intentionally a user service. It talks to the active user's PipeWi
   nonfunctional on O6.
 - Radxa Orion O6N: `meta-cix` contains a distinct `sky1-orion-o6n.dts`; its sound node separately wires DP audio links with `jack-det,dpout`.
 - Orange Pi 6 Plus: `meta-cix` contains a distinct `sky1-orangepi-6-plus.dts` in `0020-arm64-dts-cix-Add-Orange-Pi-6-Plus-device-tree.patch`; it wires DP audio links with `jack-det,dpout`, and an `alc269_codec` HDA node is present but the `hda` sound link is disabled.
-- MS-R1: `meta-cix/conf/machine/cixmini.conf` identifies the target as `ms-r1`, but no MS-R1 DTS/DSDT audio source was found in this tree. MS-R1 appears to be ACPI-described.
+- MS-R1: the meta-cix MS-R1 machine configuration identifies the target as `ms-r1`, but no MS-R1 DTS/DSDT audio source was found in this tree. MS-R1 appears to be ACPI-described.
 - Orange Pi 6 non-Plus: no separate non-Plus DTS was found in this tree. Do not infer Orange Pi 6 behavior from Orange Pi 6 Plus.
 
 ## Analog fallback (2026-09-29, MS-R1)
@@ -76,18 +76,18 @@ sink. When no display ELD reports audio, the daemon loads `ncz_sky1_analog_C_D`
 on the PCM whose name contains "Analog", clears the Master mute and makes it the
 default. A display with audio always wins over analog. An unplugged line-out is
 therefore a silent default rather than "no sink" (deliberate). The Digital PCM
-is never chosen. The O6N has no HDA card and keeps the DP-only behavior.
+is never chosen. The Radxa Orion O6N has no HDA card and keeps the DP-only behavior.
 `ncz-sky1-audio-autoswitch --decide [--proc-root DIR]` prints the decision
 without touching PipeWire; `build/test-sky1-audio-policy.sh` tests it against
 fixture layouts.
 
 ## hw_params guard, error-state sinks, silent fallback (2026-10-06)
 
-Measured on MS-R1 and O6N with 7.3.0-rc6 (details: `docs/SKY1-MEDIA-STATUS.md`): the
+Measured on MS-R1 and Radxa Orion O6N with 7.3.0-rc6: the
 I2S MCLK can read 0 Hz, so a DP/HDMI PCM with a perfectly good ELD answers
 `set_hw_params: Invalid argument`. The old daemon then reloaded the sink every 2 s
 forever (MS-R1), or left a default sink in PipeWire's `error` state that hangs every
-stream, Chromium's media clock included (O6N). Since this change:
+stream, Chromium's media clock included (Radxa Orion O6N). Since this change:
 
 1. A DP/HDMI candidate is opened once with `aplay -D hw:C,D` (48 kHz S16 stereo, 50 ms
    of silence) before a sink is made for it; "busy" counts as usable. A PCM this process
@@ -135,11 +135,11 @@ the MS-R1 returns to DP audio by itself. Runtime needs: `pactl` (pulseaudio-util
 
 There is no safe `pipewire --dry-run` equivalent used here because no static PipeWire configuration is installed.
 
-## Live O6N Deployment Procedure
+## Live deployment procedure (Radxa Orion O6N)
 
 Do not restart PipeWire, WirePlumber, or the desktop session as a first step.
 
-1. Copy or install the new files onto O6N through the normal package/image path.
+1. Copy or install the new files onto a Radxa Orion O6N through the normal package/image path.
 2. Confirm prerequisites:
 
    ```sh
@@ -166,7 +166,7 @@ Do not restart PipeWire, WirePlumber, or the desktop session as a first step.
    wpctl status
    ```
 
-   On the 2026-08-26 O6N setup with `eld#1` connected, expect a sink named `ncz_sky1_hdmi_0_1`.
+   On a 2026-08-26 Radxa Orion O6N setup with `eld#1` connected, expect a sink named `ncz_sky1_hdmi_0_1`.
 
 5. Run audible tests without restarting the audio stack:
 

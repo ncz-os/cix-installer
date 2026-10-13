@@ -1,6 +1,6 @@
 # t2thunderbolt is not loaded by default
 
-Decision (operator, 2026-10-05): the `t2thunderbolt` DKMS module is no longer built or loaded on T2 Macs.
+Decision (2026-10-05): the `t2thunderbolt` DKMS module is no longer built or loaded on T2 Macs.
 
 ## What the module is
 Not a Thunderbolt driver. It is a power-management ordering quirk (KaiT2en, `modules/t2thunderbolt`): it adds device links between the Thunderbolt controller (NHI) and the T2 bridge (PCI `106b:1801`) so they suspend and resume in a safe order. The in-tree quirk covers other Apple controllers but not the Titan Ridge (`8086:15e8`, `8086:15eb`) and Ice Lake (`8086:8a0d`, `8086:8a17`) NHIs, which is what this module adds.

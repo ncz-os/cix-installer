@@ -1,7 +1,7 @@
 # Models bundled in NCZ ISOs
 
 This directory ships at `/opt/ncz/models/` on the installed system (staged by
-`post-install/47-embedkit.sh`). Models here are loaded by mnemos-embedkit's
+`post-install/47-embedkit.sh`). Models here are loaded by embedkit's
 adapters at runtime: the NPU adapter (`npu-cix`) uses the `.cix` variant, the
 CPU/GPU fallback adapters (`cpu-llamacpp`, `gpu-vulkan`) use the GGUF. Both
 share the bundled tokenizer.
@@ -24,14 +24,14 @@ compile it locally. Pulled from ModelScope:
 
 Vendored here as `bge-small-zh-v1.5_256.cix` (the `npu-cix` adapter name);
 `47-embedkit.sh` also drops a `bge-small-zh_256.cix` compat symlink for older
-embedkit/MNEMOS revisions. See `docs/MODELSCOPE-MODELS.md` for how to pull
+embedkit revisions. See `docs/MODELSCOPE-MODELS.md` for how to pull
 other `.cix` models from the hub.
 
 This `.cix` was the production-blocker in cixtech/cix-linux-main#21 — it was
 compiled in an early session, cached, and lost on a reinstall with no way to
 regenerate. It is now committed to this repo so it can never be lost again.
 
-## Verified (2026-06-17, NCZ .66 / Zhouyi V3, 7.0.12-cix-sky1-next)
+## Verified (2026-06-17, Minisforum MS-R1 / Zhouyi V3, 7.0.12-cix-sky1-next)
 
 - Loads + runs on the NPU via `libnoe` 0.6.0 + `NOE_Engine` in the py3.11 venv.
 - Outputs: `out[0]` token hidden states `[1,256,512]`; `out[1]` the **512-dim**
@@ -41,15 +41,15 @@ regenerate. It is now committed to this repo so it can never be lost again.
 - Throughput ~51 emb/s single-text. (Per-call `noe_create_job` is the known
   0x23 persistent-job pattern from #21; persistent-job is fixed in newer libnoe.)
 
-## How embedding is automatic with MNEMOS
+## How embedding is automatic
 
-MNEMOS embeds every memory on ingest via `embedkit.Engine.auto()`, which:
+An embedding consumer calls `embedkit.Engine.auto()`, which:
 1. probes hardware, sees `libnoe` + `/dev/aipu`, selects the `npu-cix` adapter;
 2. loads `bge-small-zh-v1.5_256.cix` from this directory;
 3. tokenizes with the bundled `bge-small-zh-v1.5/` tokenizer (offline).
 
 No manual embedding step, no per-model wiring. See
-`docs/MNEMOS-NPU-EMBEDDINGS.md`.
+`docs/NPU-USAGE-GUIDE.md`.
 
 ## Adding models
 
@@ -65,7 +65,7 @@ Once a model is staged, `Engine.auto()` picks among installed models +
 adapters by capability tier (NPU > GPU > CPU) and measured throughput
 within tier. No vendor preference.
 
-## nomic-embed-text-v1.5 for the NPU (768-dim, MNEMOS-compatible)
+## nomic-embed-text-v1.5 for the NPU (768-dim)
 
 `nomic-embed-text-v1.5_256.cix` is **not committed** — it is ~500MB, past
 GitLab's 100MB per-file limit. Stage it onto the build host at
@@ -73,7 +73,7 @@ GitLab's 100MB per-file limit. Stage it onto the build host at
 `post-install/89-npu-embed-server.sh` installs it and enables the service only
 when the file is present.
 
-Why this model: MNEMOS embeds with `nomic-embed-text` on x86. Compiling the
+Why this model: `nomic-embed-text` is the common 768-dim embedding model on x86. Compiling the
 *same* model for the NPU keeps Sky1 vectors interchangeable with x86 ones —
 measured **cosine 0.995330** against the onnxruntime CPU reference — so
 federation needs no vector translation layer. A different 768-dim model would
@@ -83,11 +83,10 @@ re-embedding the whole corpus on every peer.
 ### Rebuilding it
 
 The compiler (`cixbuilder`) is **x86_64 + CPython 3.10 only**, so this runs on
-an x86 host (HYDRA), not on Sky1:
+an x86-64 host, not on Sky1:
 
 ```sh
-# wheel lives in the 2026Q2 NOE SDK on ARGONAS:
-#   /mnt/datapool/archives/cix-vendor-sdk/2026q2/cix_noe_sdk_26_q2_release.tar.gz
+# the wheel ships in the CIX 2026Q2 NOE SDK (cix_noe_sdk_26_q2_release.tar.gz)
 uv venv --python 3.10 .venv
 uv pip install --python .venv/bin/python ./cixbuilder-6.1.3753.3-cp310-none-linux_x86_64.whl     onnx onnxruntime numpy transformers tensorflow-cpu   # TF is imported even for ONNX input
 

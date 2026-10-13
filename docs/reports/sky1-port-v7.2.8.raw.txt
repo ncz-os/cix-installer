@@ -1,5 +1,0 @@
-=== target: v7.2.8 = 9a66fdc0d7fd55f54235524a73435af99051e46f
-=== series: 205 patches wired in SRC_URI
-
-=== RESULT for v7.2.8: 205 applied, 0 failed (of 205) ===
-clean replay -- worktree at /home/jasonperlow/sky1-final-v7.2.8

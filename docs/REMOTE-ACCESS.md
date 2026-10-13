@@ -18,14 +18,15 @@ exactly what is enabled, why, and how to disable each part.
 |---|---|---|---|
 | **OpenSSH** | 22 | password **and** key | `PermitRootLogin yes`, `PasswordAuthentication yes` |
 | **telnetd** | 23 | password | via `openbsd-inetd`, runs as root, **plaintext** |
-| **ncz-failsafe** | 2323 | password — default `failsafe`, **change it** | static busybox telnetd → root recovery shell |
-| **ncz-recovery** container | 22 *(its own IP)* | password — default `recovery`, **change it** | `systemd-nspawn`, MACVLAN — appears as a **separate host** on your LAN |
+| **ncz-failsafe** | 2323 | published break-glass default (set in `post-install/37-failsafe-access.sh`), **change it** | static busybox telnetd → root recovery shell |
+| **ncz-recovery** container | 22 *(its own IP)* | published break-glass default (set in `build/build-mgmt-rootfs.sh`), **change it** | `systemd-nspawn`, MACVLAN — appears as a **separate host** on your LAN |
 
-### About the default passwords
+### About the default logins
 
-`failsafe` and `recovery` are **published defaults**, documented here on
-purpose. That is the same choice already made for the installer diagnostics
-account (`diags`) and the rescue partition (`rescue`): a home-hobbyist image
+The failsafe console and the recovery container ship with **published
+break-glass defaults** — the values are in the source files named in the
+table, on purpose. The installer diagnostics account and the rescue partition
+make the same choice: a home-hobbyist image
 that cannot be recovered is worse than one with a known break-glass credential
 on a LAN with no public route.
 
