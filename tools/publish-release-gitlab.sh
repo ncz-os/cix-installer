@@ -56,7 +56,7 @@ PRUNE=0; KEEP=1; DRY=0
 MAX_BYTES="${NCZ_GITLAB_MAX_FILE_BYTES:-5368709120}"
 
 usage() { sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; }
-die() { echo "ERROR: $*" >&2; exit "${2:-1}"; }
+die() { echo "ERROR: $1" >&2; exit "${2:-1}"; }
 udie() { die "$*" 2; }
 log() { echo "$*"; }
 
