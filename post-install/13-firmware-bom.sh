@@ -5,7 +5,7 @@
 # THE GAP THIS CLOSES. firmware.pkgs was consumed only by build-forky-mirror.sh
 # and the two verifiers. Nothing ever INSTALLED from it, so a firmware package
 # reached the installed system only if some other package happened to depend on
-# it. Measured on MEDUSA (MacBookPro16,1) 2026-09-28: firmware-amd-graphics and
+# it. Measured on T2 Mac B (MacBookPro16,1) 2026-09-28: firmware-amd-graphics and
 # firmware-brcm80211 were present (pulled in as dependencies) while
 # firmware-intel-graphics was NOT, /lib/firmware/i915 was EMPTY, and i915
 # reported:

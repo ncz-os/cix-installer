@@ -2,14 +2,14 @@
 # 95-console-font-autosize.sh — size the virtual-console (VT) font to whatever
 # display is actually connected, instead of the kernel's default 8x16.
 #
-# Why: MEDUSA (a T2 MacBook, Arch, Retina panel) gets a large, legible console
+# Why: T2 Mac B (a T2 MacBook, Arch, Retina panel) gets a large, legible console
 # font with NO explicit config at all — its display is driven by classic EFI
 # GOP + legacy fbcon, and fbcon's own font_get_default() auto-scales its
 # built-in font by detected resolution. NCZ-OS's Sky1 boards drive the console
 # through the DRM fbdev emulation layer (drm_fbdev_generic, backing linlondp),
 # which has its own, less aggressive default-font heuristic and — measured on
 # O6N 2026-08-20 — did NOT pick a larger font at 3840x2160 the way fbcon does
-# on MEDUSA at 3072x1920, even though CONFIG_FONT_TER16x32=y is compiled in.
+# on T2 Mac B at 3072x1920, even though CONFIG_FONT_TER16x32=y is compiled in.
 # The kernel-compiled font is a fallback fbcon uses on its own; it is not
 # something userspace can select by name, so this does not try to force that
 # specific one — it selects a real Terminus .psf font from the console-setup
@@ -35,7 +35,7 @@ cat > /usr/local/bin/ncz-console-font-autosize <<'SCRIPT'
 # Raw-resolution thresholds are a poor proxy for "is this a HiDPI panel":
 # a 16" MacBook Retina panel at 3072x1920 (~229 DPI) and a 24" 1920x1200
 # desktop monitor (~94 DPI) can land in the same pixel-height bucket while
-# needing very different font sizes. Measured live on MEDUSA (T2 MacBook,
+# needing very different font sizes. Measured live on T2 Mac B (T2 MacBook,
 # 2026-09-20): its eDP-1 EDID reports a 340mm x 220mm physical panel at
 # 3072x1920, i.e. ~229 DPI -- a true Retina panel -- but the old
 # height>=2000 threshold put it in the 20x10 bucket (height=1920, just
@@ -78,7 +78,7 @@ done
 # Debian: console-setup ships Terminus as Lat15-Terminus<H>x<W>. Using the
 # upstream names made setfont exit 66 (font not found) on EVERY install, and
 # the old "2>/dev/null || true" swallowed it, so a 3840x2160 panel was left on
-# the 8x16 "Fixed" default and the console was unreadable (measured on .66,
+# the 8x16 "Fixed" default and the console was unreadable (measured on the MS-R1 test board,
 # 2026-08-22). Verify the font exists and report failure instead of hiding it.
 if [ -n "${DPI:-}" ]; then
     if [ "$DPI" -ge 180 ]; then

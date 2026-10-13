@@ -8,7 +8,7 @@
 # (half-configured) on every fresh install because fonts-liberation couldn't
 # be resolved. The root cause was NOT a missing apt source --
 # /etc/apt/sources.list shipped full Ubuntu ports on the then Ubuntu-based
-# legacy base (r189, .66); Ubuntu is gone (operator 2026-10-08) and the only
+# legacy base (r189, the MS-R1 test board); Ubuntu is gone (operator 2026-10-08) and the only
 # base source is Debian forky (23-base-apt-sources.sh). The real problem was
 # two-fold: (1) nothing ever ran `apt-get update` before 52-vivaldi.sh needed
 # a resolved index, so apt had no package data to work with regardless of
@@ -31,7 +31,7 @@
 # packages.buildkite.com/ncz-os/ncz/any/ -- InRelease, Release, Packages, AND
 # an actual pool .deb blob -- all return real data with no resource-limit
 # wall. The registry backfilled from ~/ncz-apt-repo (was stale since 07-06,
-# see ARGOS:~/bin/backfill-buildkite-packages.sh) and ARGOS:~/bin/
+# see build/ops/argos/backfill-buildkite-packages.sh) and build/ops/argos/
 # ncz-reprepro-publish.sh now dual-publishes every future package to BOTH
 # targets, so this is not just swapping which single point of failure we
 # have: Cloudflare R2 stays configured as a SECOND, independent apt source
@@ -46,7 +46,7 @@
 # reprepro key (ncz-os-apt-keyring.asc) that signs the R2 copy. Both keyrings
 # must be present.
 #
-# Codex review 2026-07-26: a source whose keyring failed to stage must NOT be
+# review 2026-07-26: a source whose keyring failed to stage must NOT be
 # written -- an earlier draft wrote the sources.list.d entry unconditionally,
 # which meant a missing/corrupt .asc file produced a source apt could never
 # actually update (silent failure deferred to whenever a later hook needed a

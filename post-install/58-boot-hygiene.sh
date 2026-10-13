@@ -204,7 +204,7 @@ fi
 # KERN_ERR, so they are already off the console at 3 and remain in
 # dmesg/journalctl -k. Going to 2 would additionally hide every KERN_CRIT
 # report, and real machine-check records are logged at KERN_CRIT (measured:
-# "mce: [Hardware Error]: CPU 0: Machine Check" on CHIMERA is level crit, the
+# "mce: [Hardware Error]: CPU 0: Machine Check" on T2 Mac A is level crit, the
 # only crit line on any T2 host). Per the mission rule "never hide
 # MCE/AER/EDAC/panic/oops", 3 is the safe floor; the remaining log noise is
 # fixed at its source instead (see 55-t2-firmware.sh and the kernel DPC fix).

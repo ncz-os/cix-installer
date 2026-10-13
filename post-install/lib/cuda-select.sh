@@ -29,7 +29,7 @@
 #    Maxwell / Pascal / Volta").
 #  - NVIDIA's debian13 repo carries drivers >= 590 and toolkits 13.1-13.4 only;
 #    the debian12 repo carries 580.x (up to 580.178.04) and toolkits 12.3-12.9.
-#  - Debian forky has no nvidia-legacy-* packages (apt-cache on PEGASUS, forky
+#  - Debian forky has no nvidia-legacy-* packages (apt-cache on the GU502LV laptop, forky
 #    main/contrib/non-free) and NVIDIA publishes no CUDA 11.x for debian12/13,
 #    so Kepler and older get nouveau only.
 #  - R580 proprietary nvidia.ko 580.178.04 compiles against kernel
@@ -58,7 +58,7 @@ ncz_cuda_family_of_id() {
 # display-class ([0300]/[0302]/[0380]) controller, from FILE (`lspci -nn`
 # line shape) or, by default, from sysfs via lib/pci-sysfs.sh. Never runs
 # lspci: a config-space read of a GPU stuck in runtime suspend blocks forever
-# (PEGASUS, 2026-10-06; see pci-sysfs.sh).
+# (the GU502LV laptop, 2026-10-06; see pci-sysfs.sh).
 ncz_cuda_nvidia_ids() {
     local out
     if [ -n "${1:-}" ]; then out=$(cat "$1" 2>/dev/null) || return 1
@@ -100,7 +100,7 @@ FAMILY=turing-plus
 DRIVER_BRANCH=615
 DRIVER_PIN='615.*'
 KMOD=open
-# PEGASUS RTX 2060 needed the ICD/library plus Wayland and GBM external
+# the GU502LV laptop RTX 2060 needed the ICD/library plus Wayland and GBM external
 # platforms before PRIME's GLES3 calibrator selected NVIDIA on Wayland.
 DRIVER_PKGS='cuda-drivers libnvidia-encode1 libnvcuvid1 nvidia-egl-icd libegl-nvidia0 libnvidia-egl-wayland1 libnvidia-egl-gbm1'
 TOOLKIT=13-4

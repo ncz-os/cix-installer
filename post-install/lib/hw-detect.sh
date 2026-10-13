@@ -30,7 +30,7 @@
 #   no T2 SMC regardless of what chassis the machine is in.
 #
 #   Verified against REAL T2 hardware 2026-09-15 (read-only oracle check on
-#   MEDUSA, a real MacBookPro16,1): `lspci -nn` shows
+#   T2 Mac B, a real MacBookPro16,1): `lspci -nn` shows
 #     04:00.1 Non-VGA unclassified device [0000]: Apple Inc. T2 Bridge
 #             Controller [106b:1801] (rev 01)
 #   i.e. the exact bracketed `[106b:1801]` this function greps for is what
@@ -55,7 +55,7 @@
 # assets/refind/ncz-t2-detect.sh, which is the same set the amd64 rescue
 # blacklist and the t2-dkms hook use; the previous list omitted them.
 #
-#   Verified against REAL T2 hardware 2026-09-15 (same MEDUSA oracle check):
+#   Verified against REAL T2 hardware 2026-09-15 (same T2 Mac B oracle check):
 #   /sys/class/dmi/id/sys_vendor = "Apple Inc.",
 #   /sys/class/dmi/id/product_name = "MacBookPro16,1" -- matches this
 #   function's DMI fallback pattern exactly.
@@ -68,7 +68,7 @@
 # regression, since it only ever adds a detection path, never removes one).
 #
 # 2026-10-06: the PCI probe reads sysfs (lib/pci-sysfs.sh), never lspci.
-# lspci reads every device's config space, and on PEGASUS (Optimus laptop,
+# lspci reads every device's config space, and on the GU502LV laptop (Optimus laptop,
 # nouveau runtime-suspend oops) that read blocked in D state forever and hung
 # the install. "lspci unavailable" in the text above now means "no sysfs PCI
 # device list" (e.g. a chroot without /sys mounted).

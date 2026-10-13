@@ -63,7 +63,7 @@ for u in lightdm.service gdm3.service gdm.service sddm.service; do
 done
 
 # r76 fix #2 — defensive SSH enable for the Server variant (broken-by-
-# definition without sshd). 35-ssh.sh already enables ssh, but on r75 .66
+# definition without sshd). 35-ssh.sh already enables ssh, but on r75 the MS-R1 test board
 # something silently failed and the box came up with port 22 closed. This
 # is a belt-and-suspenders re-enable so any transient failure in 35-ssh.sh
 # doesn't ship a headless box you can't reach. Loud on failure.

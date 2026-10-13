@@ -12,7 +12,7 @@
 # base.squashfs -- but NOTHING EVER INSTALLED THEM, so every install shipped
 # with no SMC driver at all.
 #
-# MEASURED on CHIMERA (MacBookPro16,1, i9-9980HK) 2026-09-29, installed from
+# MEASURED on T2 Mac A (MacBookPro16,1, i9-9980HK) 2026-09-29, installed from
 # 2026.09.29-a5eb3f3:
 #
 #     lsmod | grep -E 't2smc|applesmc'        -> nothing
@@ -25,14 +25,14 @@
 # how hot the machine gets. The operator measured 100C (the coretemp crit
 # threshold) playing YouTube; at idle it sat at 70C with the fans at 0 RPM.
 #
-# The same machine WITH these modules (MEDUSA, identical MacBookPro16,1):
+# The same machine WITH these modules (T2 Mac B, identical MacBookPro16,1):
 #     hwmon1 name=t2smc fans=2  ->  fan1 1885 RPM, fan2 1733 RPM
 #
 # So this is a thermal-safety hook, not a nicety.
 #
 # Gated on real Apple hardware: these modules poke Apple SMC/gmux registers
 # and have no meaning anywhere else. dkms itself is already in the image
-# (3.2.2-1, confirmed on CHIMERA) and the matching linux-headers package
+# (3.2.2-1, confirmed on T2 Mac A) and the matching linux-headers package
 # ships in assets/kernel/amd64-stable, so the build has what it needs.
 # NCZ-PLATFORM-GUARD: amd64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
 # run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An

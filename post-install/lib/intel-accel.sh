@@ -4,7 +4,7 @@
 # up at install time. Sourced by post-install/54-gpu-accel.sh; installed as
 # /usr/local/sbin/ncz-intel-accel-setup and run by ncz-intel-accel-setup.timer.
 #
-# r201 (PEGASUS has no OpenVINO / Level Zero userspace): the hook curled
+# r201 (the GU502LV laptop has no OpenVINO / Level Zero userspace): the hook curled
 #   https://apt.repos.intel.com/openvino/2026/GPG-PUB-KEY-INTEL-OPENVINO-2026
 # which answers HTTP 403, so the key fetch failed on EVERY install, network or
 # not, and the stack was skipped with no retry. It also asked for `openvino`,

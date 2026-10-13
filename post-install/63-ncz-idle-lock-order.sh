@@ -16,7 +16,7 @@
 # refuses to start one at all while a locker is alive ("session is locked; not
 # starting", ncz-screensavers launcher/ncz-screensaver). With both defaults at
 # 300s the two fire in the same instant and whichever wins the race decides
-# whether the screensaver ever appears. Measured on PROTEUS 2026-10-11: the
+# whether the screensaver ever appears. Measured on the OmniDesk test desktop 2026-10-11: the
 # shell lock won, the saver never ran, and the session stayed locked.
 #
 # THE FIX. Install a GSettings DEFAULT override for the shell lock so it fires

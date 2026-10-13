@@ -55,12 +55,12 @@ echo "  connected: $CONN_CARD ($CONN_OUTPUT)"
 
 # Sky1 only from here on (2026-10-06). The unit is disabled on amd64, but greetd's drop-in
 # (55-greeter.sh) Wants= it, so it still ran there every boot and pinned the Sky1 layout on PC
-# hardware: MEASURED on CHIMERA (MacBookPro16,1, i915 card0 + amdgpu card1) and PEGASUS (ASUS
+# hardware: MEASURED on T2 Mac A (MacBookPro16,1, i915 card0 + amdgpu card1) and the GU502LV laptop (ASUS
 # GU502, i915 card0 + NVIDIA) -- both had /etc/udev/rules.d/73-cixmini-primary-display.rules
-# stripping master-of-seat from every other card (on PEGASUS that is the NVIDIA GPU, which drives
+# stripping master-of-seat from every other card (on the GU502LV laptop that is the NVIDIA GPU, which drives
 # the HDMI port) plus an Xorg kmsdev pin. The rule is written after coldplug, so it applies at the
 # NEXT boot to whatever card numbering that boot gets. On PC hardware keep only the bounded wait
-# above: greetd's ExecCondition (ncz-has-drm-output, which itself polls up to 30 s since 2026-10-10) and amdgpu on CHIMERA publishes
+# above: greetd's ExecCondition (ncz-has-drm-output, which itself polls up to 30 s since 2026-10-10) and amdgpu on T2 Mac A publishes
 # its eDP connector ~7 s into userspace, so this wait is what keeps the greeter from being skipped.
 case "$(uname -m)" in
     aarch64|arm64) ;;
@@ -140,11 +140,11 @@ UNIT
 # hook's own header). Nothing gated it, so it also ran on amd64, where DRM
 # probing is synchronous and there is nothing to wait for.
 #
-# MEASURED on MEDUSA (MacBookPro16,1) 2026-09-29, systemd-analyze blame:
+# MEASURED on T2 Mac B (MacBookPro16,1) 2026-09-29, systemd-analyze blame:
 #     7.428s cix-detect-display.service
 # -- the second-largest unit on the boot, ~19% of a 39.7s userspace boot, on
 # a machine the service cannot help. It was also visible doing nothing useful
-# on CHIMERA's 7.3-rc5 debug boot.
+# on T2 Mac A's 7.3-rc5 debug boot.
 _ncz_arch="${NCZ_TARGET_ARCH:-}"
 [ -n "$_ncz_arch" ] || _ncz_arch=$(cat /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null | tr -d '[:space:]')
 [ -n "$_ncz_arch" ] || _ncz_arch=$(dpkg --print-architecture 2>/dev/null || true)

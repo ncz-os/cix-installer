@@ -84,13 +84,13 @@ fi
 # The validated set is 22 (archive MANIFEST, cix-installer-bake-assets-
 # 20260729). The "37 packages" in this file's header is stale.
 # Restore with:
-#   cp /mnt/argonas/datapool/archives/cix-installer-bake-assets-20260729/\
+#   cp <artifact-store>/archives/cix-installer-bake-assets-20260729/\
 #      assets/cix-debs/*.deb assets/cix-debs/
 NCZ_CIX_DEB_MIN=${NCZ_CIX_DEB_MIN:-22}
 if [ "$IS_SERVER" != "1" ] && [ "$DEB_COUNT" -lt "$NCZ_CIX_DEB_MIN" ]; then
     echo "[25] FATAL: only $DEB_COUNT proprietary Cix .debs present, expected >= $NCZ_CIX_DEB_MIN."
     echo "[25] assets/cix-debs/*.deb is gitignored - a fresh clone does NOT have them."
-    echo "[25] Restore from the ARGONAS bake-assets archive (see comment above),"
+    echo "[25] Restore from the bake-assets archive in your artifact store (see comment above),"
     echo "[25] or set NCZ_CIX_DEB_MIN=0 to build a deliberately GPU-less image."
     echo "[25] Shipping without cix-gpu-umd yields a BLACK SCREEN: no EGL, greetd crash-loop."
     exit 1
@@ -263,7 +263,7 @@ if [ -f "$CDM_ORIG" ]; then
         # Comment any mv touching /usr/share/initramfs-tools/{init,scripts/...,original/cix_*}
         sed -i -E '\#^[[:space:]]*mv[[:space:]]+/usr/share/initramfs-tools/(init|scripts/init-(top|premount)/(udev|plymouth)|original/cix_(init|udev|plymouth))#s|^|# [25-patched] |' \
             /tmp/cdm-patch/DEBIAN/postinst
-        # r130.4 (Codex review of .66 install): the cix-debian-misc postinst is
+        # r130.4 (review of an MS-R1 test-board install): the cix-debian-misc postinst is
         # written against a Cix factory image (GDM3 + PulseAudio reference paths +
         # /etc/rc.local). On our XFCE/LightDM target those files are absent, so:
         #   - the gdm3 daemon.conf sed errors "can't read /etc/gdm3/daemon.conf"
@@ -434,7 +434,7 @@ if [ "${#DEBS[@]}" -eq 0 ]; then
 fi
 
 echo "--- dpkg -i (collect failures, continue) ---"
-# r130.4 (Codex review): add --force-overwrite. cix-env ships
+# r130.4 (review): add --force-overwrite. cix-env ships
 # /etc/modprobe.d/blacklist.conf (a 13957-byte Sky1-specific blacklist, also
 # at /usr/lib/modprobe.d/blacklist.conf) but declares no Conflicts/Replaces, so
 # it collides with kmod's stock /etc/modprobe.d/blacklist.conf and dpkg aborts

@@ -2,7 +2,7 @@
 # 37-failsafe-access.sh — an UNWEDGEABLE break-glass recovery console that
 # survives total /usr/lib destruction.
 #
-# WHY THIS EXISTS (burned the .66 main rootfs 2026-06-25):
+# WHY THIS EXISTS (burned the MS-R1 test board's main rootfs 2026-06-25):
 #   A `tar -C /` of a Yocto modules tarball clobbered the usrmerge
 #   /lib -> usr/lib symlink and orphaned ld-linux. Every DYNAMIC binary
 #   then failed for ALL users incl. root — sshd (:22) and inetutils/busybox
@@ -20,7 +20,7 @@
 #   "private-libdir sshd" would NOT survive: glibc still dlopens libnss_*
 #   from the broken /usr/lib). A systemd unit runs `busybox telnetd` on a
 #   dedicated LAN port with a static, password-gated root shell as the login
-#   program. Transport is telnet by design: LAN-only (192.168.207.0/24, no
+#   program. Transport is telnet by design: LAN-only (the local subnet, no
 #   public route) per fleet doctrine, where lockout recovery beats the
 #   theoretical plaintext concern. Day-to-day encrypted access stays on
 #   sshd:22 — this channel is break-glass ONLY.

@@ -59,7 +59,7 @@ ACTION=="add", SUBSYSTEM=="net", DRIVERS=="r8169", RUN+="/usr/local/sbin/ncz-nic
 UDEOF
 
 # Aquantia/Marvell AQC113 (atlantic) shows the SAME 2.5G flap signature.
-# Measured on MEDUSA (MacBookPro16,1) 2026-09-28, AQC113 [1d6a:04c0] rev 03
+# Measured on T2 Mac B (MacBookPro16,1) 2026-09-28, AQC113 [1d6a:04c0] rev 03
 # in a Thunderbolt enclosure, firmware ATL2FW 105002a:
 #     [16.763] atlantic 0000:0c:00.0 enp12s0: atlantic: link change old 0 new 2500
 #     [55.675] atlantic 0000:0c:00.0 enp12s0: atlantic: link change old 2500 new 0
@@ -200,7 +200,7 @@ echo "[43] PipeWire min-quantum=2048 installed"
 #
 #     Deliberately NOT a udev RUN+=/sleep loop: udev processes RUN synchronously
 #     within the event's timeout, so a retry-with-sleep there blocks the udev
-#     worker and can stall unrelated device events at boot (zoder review
+#     worker and can stall unrelated device events at boot (review
 #     2026-10-11). Pin it from a boot-time oneshot instead -- the pattern this
 #     tree already uses for devfreq/power policy (see 85-power-perf-mode.sh and
 #     the chroot-safe enable in 83-panthor-gpu.sh).
@@ -215,13 +215,13 @@ echo "[43] PipeWire min-quantum=2048 installed"
 #
 #     Gate on the TARGET ARCH, not on /sys (the devfreq node does not exist in
 #     the build chroot, so a node test here would silently never install the
-#     unit on the target -- zoder review 2026-10-11). Same arm64 idiom as
+#     unit on the target -- review 2026-10-11). Same arm64 idiom as
 #     81-vpu.sh. The helper repeats the node check at boot and no-ops elsewhere.
 if [ "$(dpkg --print-architecture 2>/dev/null)" = "arm64" ]; then
     cat > /usr/local/sbin/ncz-vpu-governor-performance <<'VPUEOF'
 #!/bin/sh
 # Pin the Sky1 VPU (amvx/mvx) devfreq governor to performance. Started by
-# ncz-vpu-governor.service at boot; no polling loop here (zoder review
+# ncz-vpu-governor.service at boot; no polling loop here (review
 # 2026-10-11 -- systemd/udev handle the wait). No-ops and exits 0 if the node is
 # absent (e.g. non-Sky1 hardware).
 set -u
@@ -243,7 +243,7 @@ WantedBy=graphical.target
 VPUS
     # Non-blocking udev -> systemd bridge: tag the VPU platform device and let
     # systemd start the oneshot when it appears. No RUN+= program, so udev never
-    # blocks (zoder review 2026-10-11). This also covers amvx being modprobed
+    # blocks (review 2026-10-11). This also covers amvx being modprobed
     # after coldplug (the node may not exist at systemd-udev-settle).
     cat > /etc/udev/rules.d/71-ncz-vpu-governor.rules <<'VPUR'
 # Sky1 VPU devfreq -> performance. Non-blocking: tag the device, let systemd

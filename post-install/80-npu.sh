@@ -325,7 +325,7 @@ if [ -f "$SSDT_CPIO" ] && should_apply_npu_ssdt; then
     # CONFIG_ACPI_INITRD_TABLE_OVERRIDE in the kernel; this tree has
     # CONFIG_ACPI_TABLE_UPGRADE=y.
     #
-    # Verified on .66 across a real reboot: dracut-generated initrd starts
+    # Verified on the MS-R1 test board across a real reboot: dracut-generated initrd starts
     # with 070701 and contains kernel/firmware/acpi/ssdt-npucre.aml, /dev/aipu
     # is present, and sky1_npu_probe reports armchina_aipu_probe done.
     if command -v dracut >/dev/null 2>&1; then

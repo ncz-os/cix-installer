@@ -36,7 +36,7 @@ set +e
 # CIX Sky1/Mali-G720 hardware is arm64-only. Without this guard, run-all.sh
 # runs this hook unconditionally on every image (including amd64 T2 builds),
 # `dkms add`-registering panthor-cix there too -- confirmed 2026-09-22 on
-# real MEDUSA/PEGASUS hardware: panthor-cix has no Yocto-staged .deb
+# real T2 Mac and GU502LV laptop hardware: panthor-cix has no Yocto-staged .deb
 # alternative (unlike cix-gpu-kmd/mali, which ships prebuilt and only falls
 # back to dkms-add when a .deb is missing), so this dkms-add ALWAYS runs, and
 # the amd64 T2 linux-headers-cixmini postinst's "force rebuild every

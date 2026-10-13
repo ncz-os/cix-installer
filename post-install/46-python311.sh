@@ -16,7 +16,7 @@
 # built from the system 3.14 interpreter. That silently disables the NPU
 # from Python (the C lib libnoe.so.0.6.0 + /dev/aipu + KMD are all fine).
 #
-# Validated 2026-06-17 on .66 (7.0.12-cix-sky1-next, armchina_npu KMD):
+# Validated 2026-06-17 on the MS-R1 test board (7.0.12-cix-sky1-next, armchina_npu KMD):
 # a Python 3.11 venv + cix-noe-umd 2.0.2 (libnoe 2.0.0 wheel) runs
 # all-MiniLM minilm_128.cix at ~56 emb/s real-tokenized (vs CPU 13.3,
 # Mali/panvk 8.8). UMD 1.1.1 (libnoe 0.5.0) and 3.1.2 did NOT work with

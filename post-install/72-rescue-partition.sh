@@ -186,12 +186,12 @@ echo "[72]   rescue identity and SSH host keys generated"
 # the same class of bug already fixed for the main OS by
 # post-install/37-ntp-hostname.sh (ncz-<MAC-derived-hex>), and the same class
 # of bug that already caused one real production collision on the static IP
-# (192.168.207.66 collided with cixmini the build host, fixed 2026-07-20 by
+# (the old address collided with a lab build host, fixed 2026-07-20 by
 # moving to .199 -- see build/build-rescue-rootfs.sh). .199 is no longer a
 # PRODUCTION collision, but it is still shared by every board's rescue
 # partition, so two boards booting rescue with no DHCP on the same LAN would
 # still collide with EACH OTHER. build-rescue-rootfs.sh runs on the generic
-# ARGOS build host and has no specific board to read a MAC from -- this hook
+# generic build host and has no specific board to read a MAC from -- this hook
 # runs at install time ON the target board, same as 37-ntp-hostname.sh, so it
 # is the right place to make both values per-device.
 echo "[72] setting per-device rescue hostname + static-IP-fallback octet"
@@ -218,7 +218,7 @@ if [ -n "$RESCUE_MAC" ]; then
     RESCUE_HOSTNAME_INSTALLED="ncz-rescue-${RESCUE_MAC: -6}"
     # Map the MAC into a per-device static-IP-fallback octet.
     #
-    # CORRECTED 2026-09-13 (zoder/MiniMax-M3 + TYDEUS/nemotron35 adversarial
+    # CORRECTED 2026-09-13 (two independent adversarial
     # review, both independently confirmed): the original 31-bucket range
     # (220-250, "% 31") mathematically cannot meet this block's own stated
     # goal of avoiding rescue-to-rescue collisions. Birthday-paradox collision
@@ -228,7 +228,7 @@ if [ -n "$RESCUE_MAC" ]; then
     # still ~86% collision at k=30; the birthday problem needs roughly n>=k^2
     # for a low collision rate, which one octet never supplies. A COMPLETE
     # fix needs either (a) a two-MAC-byte-derived address outside
-    # 192.168.207.0/24 -- which defeats reachability, since this subnet is
+    # the lab /24 -- which defeats reachability, since this subnet is
     # the fleet's only routed LAN segment (CLAUDE.md directive 8) -- or
     # (b) an ARP-probe-and-retry claim added to ncz-rescue-net-fallback
     # itself (a different file/service, out of scope for this hook). NEITHER
@@ -236,7 +236,7 @@ if [ -n "$RESCUE_MAC" ]; then
     # closed one.
     #
     # What IS done: widen from 31 to 114 buckets (140-253). Verified clear
-    # 2026-09-13 against the Island gateway's `show ip dhcp reservations`
+    # 2026-09-13 against the LAN gateway's `show ip dhcp reservations`
     # (15 static reservations, all <= .101) and `show ip neighbors` (only
     # live host above .101 was .132/forge-worker-01, well below this
     # window). This is a MEANINGFUL REDUCTION, not a fix: at k=10 boards
