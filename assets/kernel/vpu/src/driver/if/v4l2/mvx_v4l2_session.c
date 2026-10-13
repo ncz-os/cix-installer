@@ -496,7 +496,7 @@ static void handle_event(struct mvx_session *session,
              * math independently here. The duplicated copy evaluated
              * mvx_is_afbc(port->format) at a DIFFERENT INSTANT than
              * try_format() does for the same resolution-change sequence, so
-             * it could (and, live-proven on cixmini/192.168.207.66 with a
+             * it could (and, live-proven on an MS-R1 test board with a
              * timestamped kernel trace, did) commit a height that disagreed
              * with what a subsequent VIDIOC_S_FMT computes moments later for
              * the identical session: VIDIOC_G_FMT returned 1920x1084 while

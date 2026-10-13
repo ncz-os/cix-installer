@@ -17,7 +17,7 @@
 #           superproject's own gitlink is authoritative and must match)
 #   sha     full 40-hex upstream commit
 #
-# Bump 2026-10-13 (operator: "Rebuild singularity from latest main"): the
+# Bump 2026-10-13 (rebuild Singularity from latest main): the
 # LATEST upstream heads from build/singularity-pins.sh propose at
 # 2026-10-13T14:35Z; superproject master 6d6bbc7f (Messages app, SIT, liquid
 # glass materials; new submodules subprojects/sit and

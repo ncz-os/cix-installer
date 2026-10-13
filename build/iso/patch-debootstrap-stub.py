@@ -2,7 +2,7 @@
 """
 patch-debootstrap-stub.py — Replace ``/usr/sbin/debootstrap`` inside
 ``debootstrap-udeb`` with the NCZ r159 stub shell script (the same heredoc
-that ``build/build-iso-di.sh`` writes verbatim into its staged udeb at
+that the retired ``build/build-iso-di.sh`` wrote verbatim into its staged udeb at
 ``build/build-iso-di.sh:1102-1671``).
 
 Why this is a separate script from ``stage-ncz-payload.py``:
@@ -15,7 +15,7 @@ Why this is a separate script from ``stage-ncz-payload.py``:
   would couple failure modes that should be diagnosable independently
   (a payload-staging bug is not a udeb-patching bug, and vice versa).
 
-The r159 stub (copied verbatim from ``build/build-iso-di.sh:1103-1671``,
+The r159 stub (copied verbatim from the retired ``build/build-iso-di.sh:1103-1671``,
 syntax-checked at build time):
 
   * looks for the first absolute-path arg, treats it as ``$TARGET``
@@ -48,12 +48,12 @@ Substrate layout the script handles:
 
   * ``install_dir`` (full Debian netinst ISO): ``/pool/main/d/debootstrap/
     debootstrap-udeb_*_all.udeb`` is patched in place inside the staged
-    substrate tree, exactly the way ``build-iso-di.sh`` does it. The
+    substrate tree, exactly the way the retired ``build-iso-di.sh`` did it. The
     3 shell-side udeb assertions (``debootstrap-udeb``,
     ``libzstd1-udeb``, ``liblzma5-udeb``) and the 3 d-i runtime udeb
     assertions (``cdebconf-udeb``, ``cdebconf-newt-udeb``, ``hw-detect``)
-    from ``build/build-iso-di.sh:1035-1062`` are made against this pool.
-  * ``netboot`` (mini.iso, the substrate this branch currently uses):
+    from the retired ``build/build-iso-di.sh:1035-1062`` are made against this pool.
+  * ``netboot`` (mini.iso):
     there is no ``/pool/`` in the extracted tree. The patched udeb is
     written to a dedicated path inside the staged ISO tree
     (``build/iso-cache/v1/ncz-udeb/<key>/debootstrap-udeb_<ver>_all.udeb``)
@@ -120,7 +120,7 @@ def _chmod_r(p: Path) -> None:
 # ----------------------------------------------------------------------------
 # The stub script.
 #
-# Copied VERBATIM from ``build/build-iso-di.sh:1103-1671``. POSIX shell,
+# Copied VERBATIM from the retired ``build/build-iso-di.sh:1103-1671``. POSIX shell,
 # version-agnostic (the original comments mention bookworm by name as a
 # historical record of which substrate the stub was first validated against;
 # the logic itself is generic and works on any d-i runtime that exec's
@@ -128,7 +128,7 @@ def _chmod_r(p: Path) -> None:
 # the post-mortem context each gate exists to communicate — genericizing
 # them would erase the bug stories the next operator needs to read.
 #
-# ``bash -n`` and ``sh -n`` both pass; the build-iso-di.sh heredoc author runs
+# ``bash -n`` and ``sh -n`` both pass; the retired build-iso-di.sh heredoc author ran
 # ``bash -n`` after writing the stub (line 1674 of build-iso-di.sh) so we
 # do the same.
 # ----------------------------------------------------------------------------
@@ -142,8 +142,8 @@ R159_STUB_SCRIPT = r"""#!/bin/sh
 #   3. Else: locates rootfs.tar.zst on cdrom, extracts it via zstd | tar -xpf
 #   4. Exits 0 so base-installer believes debootstrap succeeded
 #
-# After this, /target has the FULL Ubuntu desktop rootfs (from canonical's
-# minimal.squashfs + apt upgrade + server packages + remote desktop). Any
+# After this, /target has the Debian forky base rootfs from base.squashfs
+# (plus the desktop / desktop-hotfix deltas when selected). Any
 # subsequent base-installer step (debconf-copydb, debconf-set-selections,
 # mount /target/dev) finds the binaries/dirs it needs.
 
@@ -449,7 +449,7 @@ if [ -n "$SQDIR" ]; then
     # r172: PRESERVE falkon (the NCZ web browser). It can't finish configuring in
     # the d-i chroot (its postinst wants a display/dbus), so r159 purged it as
     # "non-configured" — which left the installed desktop with NO working browser
-    # (firefox on resolute is a snap stub that no-ops in an offline image; only
+    # (firefox on the old Ubuntu base was a snap stub that no-ops in an offline image; only
     # falkon + epiphany are real debs). Keep falkon (+ its parts) out of the purge
     # and let ncz-firstboot's `dpkg --configure -a` finish it on first boot where
     # X/dbus exist. Everything else non-ii is still purged so pkgsel's dpkg stays
@@ -492,7 +492,7 @@ $f"
     # installer kernel) that blocks "Select and install software".
     mkdir -p "$TARGET/etc/needrestart/conf.d"
     printf '$nrconf{kernelhints} = 0;\n' > "$TARGET/etc/needrestart/conf.d/99-baked.conf"
-    # r160: per-machine ssh host keys. The Ubuntu cloud rootfs ships
+    # r160: per-machine ssh host keys. The base rootfs ships
     # openssh-server but STRIPS the host keys (cloud-init would normally
     # regenerate them); without keys sshd refuses to start and the installed
     # system is unreachable on :22. Generate here, at install time, so every
@@ -793,7 +793,7 @@ def verify_udeb_required(substrate_pool: Path, required, label: str,
     (so a caller can both gate and report). Raises RuntimeError if any
     is missing.
 
-    This is the assertion from ``build/build-iso-di.sh:1035-1062``
+    This is the assertion from the retired ``build/build-iso-di.sh:1035-1062``
     lifted verbatim: 3 shell-side udebs (``debootstrap-udeb``,
     ``libzstd1-udeb``, ``liblzma5-udeb``) and 3 d-i runtime udebs
     (``cdebconf-udeb``, ``cdebconf-newt-udeb``, ``hw-detect``).
@@ -812,7 +812,7 @@ def verify_udeb_required(substrate_pool: Path, required, label: str,
         raise RuntimeError(
             f"ERROR: substrate pool missing required udeb(s): {missing} "
             f"(search: {substrate_pool}/**/<name>_*.udeb). "
-            f"See build-iso-di.sh line ~1035 for why each is required."
+            f"See the retired build-iso-di.sh line ~1035 for why each is required."
         )
     return found, missing
 
@@ -855,7 +855,7 @@ def _extract_data_tar(udeb_path: Path, dest_dir: Path):
     path to the extracted data root (``dest_dir/usr/sbin/debootstrap``
     lives here). The original ``data.tar.*`` filename and compression
     (gzip/xz/zst/none) are inspected but we ALWAYS repack as data.tar.gz
-    on the way out (the build-iso-di.sh repack uses gzip -9n at
+    on the way out (the retired build-iso-di.sh repack used gzip -9n at
     line ~1677; keeping gzip preserves dpkg's reading path).
     """
     proc = _run_ar(["x", str(udeb_path)], cwd=dest_dir)
@@ -970,7 +970,7 @@ def _repack_udeb(ar_dir: Path, control_member: str,
 
 
 def _syntax_check_stub(stub_text: str, label: str) -> None:
-    """The build-iso-di.sh author runs ``bash -n`` after writing the stub
+    """The retired build-iso-di.sh author ran ``bash -n`` after writing the stub
     (line 1674). We do the same — both ``sh -n`` (POSIX compliance) and
     ``bash -n`` (no bashisms, since the stub is supposed to be POSIX)."""
     with tempfile.NamedTemporaryFile("w", suffix=".sh",
@@ -1010,7 +1010,7 @@ def _find_substrate_pool(substrate_node_dir: Path):
 
 def _find_debootstrap_udeb(pool: Path):
     """Find the single ``debootstrap-udeb_*_all.udeb`` in the pool, the
-    same way build-iso-di.sh does at line 1067-1071.
+    same way the retired build-iso-di.sh did at line 1067-1071.
 
     Exactly one match is required.
     """
@@ -1089,7 +1089,7 @@ def patch_udeb(udeb_path: Path, output_path: Path, stub_text: str,
             )
 
         # Overwrite usr/sbin/debootstrap with the r159 stub verbatim.
-        # mode 0755 to match what build-iso-di.sh does on line 1673.
+        # mode 0755 to match what the retired build-iso-di.sh did on line 1673.
         target_debootstrap.write_text(stub_text)
         target_debootstrap.chmod(0o755)
 
@@ -1184,7 +1184,7 @@ def patch_substrate(
       * ``install_dir`` (full Debian netinst ISO) — pool exists under
         substrate_node_dir/extract/pool/. Patch in place, also assert
         the 3+3 required udebs.
-      * ``netboot`` (mini.iso, what this branch uses) — no pool. Patch
+      * ``netboot`` (mini.iso) — no pool. Patch
         an external --source-udeb and stage the result under
         cache_root/ncz-udeb/<key>/ so write-image.py can copy it
         into the ISO at /ncz-payload/debootstrap-udeb/.

@@ -40,7 +40,7 @@ change from the earlier two-kernel LTS/edge scheme — see below for what
 | primary / default | `7.2.0-rc5-sky1-ncz` (labeled "Mali" in the rEFInd menu) | default boot entry; CIX `mali_kbase` GPU driver |
 | legacy / fallback | `7.0.12-cix-sky1-next` (labeled "legacy" in the rEFInd menu) | EOL kernel carried only until 7.2 completes its release process; in-tree `panthor` GPU driver. This is also the kernel the **RESCUE PARTITION** rEFInd entry boots, against the rescue rootfs. |
 | rescue pin (main ESP) | `<stable>-rescue` | independent pinned copy of the "stable" (7.0.12) kernel for the rEFInd "rescue" menuentry, with NPU/GPU/VPU/KMS blacklisted |
-| ~~deep rescue~~ | *removed* | There is no third kernel channel. 6.18.26 was never shipped in 26.7; the NCZRESCUE partition boots the legacy 7.0.12 kernel staged on the main ESP. |
+| ~~deep rescue~~ | *removed* | There is no third kernel channel. 6.18.26 was never shipped in 26.7; the NCZRESCUE partition boots the same unified 7.3 kernel (with the accelerator blacklist). |
 
 - This rescue partition's own rootfs boots the **deep-rescue
   legacy `7.0.12-cix-sky1-next`** kernel with the NPU/GPU/VPU/KMS `module_blacklist`
@@ -83,8 +83,8 @@ partition) blacklists all of: `armchina_npu,panthor,mali,bifrost,cix_vpu,linlon_
 
 ## 4. Boot model (the installed/main system)
 
-- **Bootloader:** **rEFInd** (switched from systemd-boot at r118 by operator
-  preference; NOT GRUB). The `refind` package in this rescue toolset can repair
+- **Bootloader:** **rEFInd** (switched from systemd-boot at r118;
+  NOT GRUB). The `refind` package in this rescue toolset can repair
   the installed system's `refind.conf`.
 - rEFInd ships as a binary `refind_aa64.efi` installed to the firmware
   removable-media fallback path **`/boot/efi/EFI/BOOT/BOOTAA64.EFI`** (Sky1/MS-R1

@@ -255,8 +255,8 @@ DefaultDependencies=yes
 # DEFENSIVE ARCH GATE (item RS, 2026-10-04). This workaround exists only for
 # the CIX Sky1 7.2 platform-xhci USB2-companion bug. On an amd64/T2 Mac the
 # script's fast path matches nothing and its rebind loops touch the T2
-# t2bce_vhci root hub, holding greetd for ~7 s at every boot (MEDUSA
-# MacBookPro16,1 evidence). The hook is not run on amd64 and the package is
+# t2bce_vhci root hub, holding greetd for ~7 s at every boot (T2
+# MacBookPro16,1 test-machine evidence). The hook is not run on amd64 and the package is
 # arm64-only, but if either ever leaks onto an x86 image these Conditions make
 # the unit a no-op instead of a stressor. ConditionPathExistsGlob is the same
 # /sys/bus/platform/drivers/xhci-hcd/xhci-hcd.*.auto node set the script

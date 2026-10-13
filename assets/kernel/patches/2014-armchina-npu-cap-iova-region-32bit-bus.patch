@@ -1,4 +1,4 @@
-From: NCZ cixmini maintainers <cix@ncz-os>
+From: NCZ-OS maintainers <cix@ncz-os>
 Subject: [PATCH] armchina-npu: cap IOVA region count to fit 32-bit NPU bus
 
 Zhouyi V3 NPU on Sky1 has a 32-bit address bus (bus_dma_limit forced to
@@ -8,7 +8,7 @@ usable IOVA fits in the capped aperture, so region idx2 fails
 (dma_alloc_attrs idx 2) and spams the boot log. Cap region count to 2 for
 all large-memory tiers; 32-bit bus is the hard ceiling regardless of RAM.
 
-Signed-off-by: NCZ cixmini maintainers <cix@ncz-os>
+Signed-off-by: NCZ-OS maintainers <cix@ncz-os>
 ---
  drivers/misc/armchina-npu/aipu_mm.c | 4 ++--
  1 file changed, 2 insertions(+), 2 deletions(-)
