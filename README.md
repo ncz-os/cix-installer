@@ -113,7 +113,8 @@ it as NCZ-OS. See [Architecture](#architecture).
 
 - **Singularity desktop** (labwc/wlroots, native Wayland) in the **Cygnus
   theme** — magenta and cyan on violet-black (`branding/cygnus/`), with a
-  Cygnus wallpaper set and boot-menu theme.
+  Cygnus wallpaper set and boot-menu theme. Windows have minimize, maximize
+  and close buttons by default.
 - **First-login tour** of the desktop, the wallpapers and artist packs, the
   online wallpaper sources and the screensavers. It runs once per user; to see
   it again, delete `~/.local/state/ncz/tour-seen` and log in again.
