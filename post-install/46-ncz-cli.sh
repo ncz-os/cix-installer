@@ -143,17 +143,27 @@ Subcommands:
                         (.cix NPU + .gguf CPU/GPU). Docs:
                         $NCZ_MODELS_DIR/MODELS-README.md and
                         /usr/share/doc/ncz/MODELSCOPE-MODELS.md.
-  models pull           Fetch cixtech/ai_model_hub_25_Q3 LFS to $NCZ_MODELS_DIR
-                        (STUB in r75 — see task #99).
+  models pull           Download nomic-embed-text-v1.5.Q8_0.gguf
+                        (HuggingFace, pinned sha256) to $NCZ_MODELS_DIR.
+                        Idempotent + offline-safe.
   install mnemos        Install + start the MNEMOS memory server (REST + MCP +
                         OpenAI-compatible gateway on :5002, sqlite-backed).
-                        Loads the bundled image OFFLINE (no network); falls
-                        back to a ghcr pull only if no bundled image is found.
+                        Auto-pulls the embedder model + backfills
+                        memory_embeddings on first install. Loads the
+                        bundled image OFFLINE; falls back to a ghcr pull
+                        only if no bundled image is found.
+  install zeroclaw      Alias for 'ncz agent install zeroclaw' (gateway +
+                        agents container, ~109 MB).
+  install zoder         Download zoder (ZeroClaw CLI for MNEMOS work
+                        history) from ncz-os/zoder nightly release. Pinned
+                        version + sha256. Config template at
+                        /etc/nclawzero/zoder.conf (no secrets).
   install nemoclaw      Pull + start NVIDIA NemoClaw OpenShell sandbox runtime.
   agent install [name]  On-demand setup/install for optional agents.
   agent ...             Manage zeroclaw/openclaw/hermes/portainer agents.
   status                Print system summary: ncz version, BUILD_VARIANT,
-                        kernel, default-target, NPU + GPU presence.
+                        kernel, default-target, NPU + GPU presence, MNEMOS
+                        embedder backend + model.
   version               Print version.
   help                  Show this help.
 
@@ -296,39 +306,129 @@ ncz_models() {
             ;;
         help|--help|-h)
             cat <<MSG
-Usage: ncz models [list|pull]
+Usage: ncz models [list|pull|path]
 
   list   (default) Show embedding models installed in $NCZ_MODELS_DIR:
          .cix (NPU / Zhouyi) + .gguf (CPU/GPU llama.cpp) + tokenizers.
-  pull   Fetch the Cix ai_model_hub_25_Q3 LFS bundle (network; STUB, task #99).
+  pull   Download the embedder bundle that MNEMOS expects at runtime
+         (nomic-embed-text-v1.5.Q8_0.gguf from HuggingFace, pinned sha256).
+         Idempotent: skips when the file is already present and its
+         sha256 matches. Public source only; clear offline message when
+         the network is down.
+  path   Print the on-disk path that 'ncz install mnemos' will use
+         (or 'unset' if no host-side model is installed).
 
 Docs: $NCZ_MODELS_DIR/MODELS-README.md,
       /usr/share/doc/ncz/MODELSCOPE-MODELS.md
 MSG
             ;;
         pull)
-            cat >&2 <<MSG
-ncz models pull — STUB (r75)
-
-Will fetch the Cix .cix model bundle to:
-    $NCZ_MODELS_DIR/  (incl. bge-small-zh_256.cix and tokenizer)
-
-Source: cixtech/ai_model_hub on GitHub (Q3 2025 LFS bundle).
-Body deferred to r76. See task #99.
-
-For now, bootstrap manually:
-    sudo mkdir -p $NCZ_MODELS_DIR
-    cd $NCZ_MODELS_DIR
-    sudo git clone https://github.com/cixtech/ai_model_hub.git
-    cd ai_model_hub && sudo git lfs pull
-MSG
-            exit 2
+            ncz_models_pull
+            ;;
+        path)
+            # Surface the path 'ncz install mnemos' will hand to the MNEMOS
+            # container via the bind mount (/opt/ncz/models -> /opt/ncz/models:ro).
+            # The MNEMOS embedder runs INSIDE the container at
+            # /opt/mnemos/models/<file>.gguf (its own copy), but the host-side
+            # file is the audit-able, sha256-pinned artifact.
+            local p
+            p="$(find "$NCZ_MODELS_DIR" -maxdepth 2 -name 'nomic-embed-text-v1.5.Q8_0.gguf' 2>/dev/null | head -1)"
+            if [ -n "$p" ]; then
+                echo "$p"
+                return 0
+            fi
+            echo "(unset — run 'ncz models pull' to fetch)" >&2
+            return 1
             ;;
         *)
-            echo "ncz models: unknown action '$action' (expected list|pull)" >&2
+            echo "ncz models: unknown action '$action' (expected list|pull|path)" >&2
             exit 1
             ;;
     esac
+}
+
+# ncz_models_pull -- download nomic-embed-text-v1.5.Q8_0.gguf to $NCZ_MODELS_DIR
+# with a pinned hash + 3 retries + clear offline message. Idempotent: skips
+# when the file is already present with the correct hash. The same GGUF is
+# baked into the MNEMOS-enterprise image at /opt/mnemos/models/<file>, so
+# pulling it to the host is optional (only needed for host-side embedders
+# such as the zoder work-history path that doesn't run inside MNEMOS).
+ncz_models_pull() {
+    # Public source: HuggingFace nomic-ai/nomic-embed-text-v1.5-GGUF.
+    # The Q8_0 quantization is ~146 MB. Hash pinned below matches the file
+    # baked into ghcr.io/ncz-os/mnemos-enterprise:latest as of 2026-10-13.
+    local url='https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf'
+    local sha256='3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7'
+    local dest_dir="$NCZ_MODELS_DIR"
+    local dest="$dest_dir/nomic-embed-text-v1.5.Q8_0.gguf"
+    install -d -m 0755 "$dest_dir" 2>/dev/null || {
+        echo "ncz models pull: cannot create $dest_dir (mkdir failed)" >&2
+        return 1
+    }
+    # Idempotency: if the file is already present with the correct hash,
+    # skip the download. The META-INF/ directory is host-side metadata that
+    # we write after a successful download so the next 'ncz models list'
+    # surfaces provenance.
+    if [ -f "$dest" ]; then
+        local actual
+        actual="$(sha256sum "$dest" 2>/dev/null | awk '{print $1}')"
+        if [ "$actual" = "$sha256" ]; then
+            echo "[ncz] models pull: $dest already present, sha256 matches"
+            return 0
+        fi
+        echo "[ncz] models pull: $dest sha256 mismatch (have=$actual want=$sha256) — re-downloading"
+        rm -f "$dest"
+    fi
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "ncz models pull: curl is not installed" >&2
+        return 1
+    fi
+    # 3 attempts spaced 2s apart. Typical offline diagnostic = no message
+    # printed by curl other than 'Could not resolve host' or 'Connection
+    # timed out', so we also probe with -fsghw' ' before the download.
+    echo "[ncz] models pull: fetching $url"
+    echo "[ncz] models pull: target sha256 = $sha256"
+    local tmp; tmp="$(mktemp -t ncz-models.XXXXXX)"
+    local attempt got=0
+    for attempt in 1 2 3; do
+        if curl -fsS --connect-timeout 8 --max-time 600 -o "$tmp" "$url"; then
+            got=1
+            break
+        fi
+        echo "[ncz] models pull: attempt $attempt/3 failed, sleeping 2s"
+        sleep 2
+    done
+    if [ "$got" != "1" ]; then
+        rm -f "$tmp"
+        cat >&2 <<EOF
+ncz models pull: failed to fetch $url after 3 attempts.
+
+  This system is offline, or huggingface.co is unreachable from this network.
+  MNEMOS does not need this file to embed — the gguf is shipped inside the
+  mnemos-enterprise image at /opt/mnemos/models/<file>. This host-side copy
+  is only used by tools that embed outside the container (e.g. zoder's
+  work-history path). To come back online and retry:
+
+    sudo ncz models pull
+EOF
+        return 1
+    fi
+    # Verify the downloaded file's hash matches the pinned value.
+    local actual
+    actual="$(sha256sum "$tmp" | awk '{print $1}')"
+    if [ "$actual" != "$sha256" ]; then
+        rm -f "$tmp"
+        echo "ncz models pull: sha256 mismatch after download" >&2
+        echo "  expected: $sha256" >&2
+        echo "  got:      $actual" >&2
+        echo "  refusing to install — the source may have been tampered with or" >&2
+        echo "  the pinned version in this script is stale (re-roll ncz and bump" >&2
+        echo "  the sha256 in ncz_models_pull if HuggingFace rotated the artifact)." >&2
+        return 1
+    fi
+    install -m 0644 "$tmp" "$dest"
+    rm -f "$tmp"
+    echo "[ncz] models pull: installed $dest (sha256 verified)"
 }
 
 # --- install subcommand --------------------------------------------------
@@ -569,6 +669,58 @@ ncz_install_mnemos() {
     echo "[ncz]   data:     volume mnemos-data (sqlite at /data/mnemos.db, persistent)"
     echo "[ncz]   embedder: in-process CPU (nomic-embed-text-v1.5, 768-dim)"
     echo "[ncz]   service:  systemctl status mnemos.service"
+
+    # HOST-SIDE MODEL PULL. The MNEMOS image already ships the GGUF inside the
+    # container at /opt/mnemos/models/<file>.gguf so the embedder works on
+    # first install with no host-side artifact. But host-side tools (zoder's
+    # work-history path, future CLI embedders) want a host-side copy under
+    # /opt/ncz/models. We pull it here so `ncz install mnemos` is the canonical
+    # one-shot setup for the embedder stack. Best-effort: if the network is
+    # down the container still serves — we just don't have the host-side copy
+    # yet. The operator can `ncz models pull` later.
+    if ! ncz_models_pull 2>&1 | sed 's/^/[ncz]   /'; then
+        echo "[ncz] WARN: host-side embedder model pull failed; MNEMOS keeps its in-image copy." >&2
+        echo "[ncz]   retry later: sudo ncz models pull" >&2
+    fi
+
+    # SQLITE EMBEDDING BACKFILL. MNEMOS's SQLite persistence has two places
+    # where an embedding lives: the inline `memories.embedding` TEXT column
+    # (written by create_memory at write time) and the separate
+    # `memory_embeddings` table (read by semantic_search). On PG/MariaDB these
+    # collapse to one; on SQLite they are intentionally separate (a PG-style
+    # backfill worker keeps them in sync). For a small fresh install the
+    # backfill is a single INSERT OR IGNORE — copying every row that has an
+    # inline embedding into memory_embeddings so semantic_search returns it
+    # on the very next request. Idempotent: ON CONFLICT DO NOTHING means
+    # re-running this is safe. Best-effort: if podman exec fails (container
+    # not up yet, etc.) we don't fail the install — the embedder still
+    # produces vectors; the operator can re-run via a follow-up hook.
+    local backfill_out
+    backfill_out="$(podman exec mnemos python3 -c '
+import sqlite3, sys
+try:
+    c = sqlite3.connect("/data/mnemos.db")
+    c.execute("""
+        INSERT OR IGNORE INTO memory_embeddings(memory_id, embedding, updated_at)
+        SELECT m.id, m.embedding, strftime(\"%s\", \"now\")
+        FROM memories m
+        WHERE m.embedding IS NOT NULL AND m.embedding != \"\"
+    """)
+    c.commit()
+    n = c.execute("SELECT count(*) FROM memory_embeddings").fetchone()[0]
+    print(f"OK memory_embeddings={n}")
+except Exception as e:
+    print(f"FAIL {e}", file=sys.stderr)
+    sys.exit(1)
+' 2>&1)" || rc=$?
+    if [ "$rc" = "0" ] && echo "$backfill_out" | grep -q '^OK '; then
+        echo "[ncz]   backfill: $(echo "$backfill_out" | grep '^OK ' | head -1)"
+    else
+        echo "[ncz] WARN: SQLite memory_embeddings backfill failed (rc=$rc)" >&2
+        echo "[ncz]   semantic_search on new memories will fall back to FTS until the next backfill" >&2
+        echo "[ncz]   output: $backfill_out" >&2
+    fi
+    rc=0
 
 # FIRST-RUN BOOTSTRAP. After install, ensure a default admin user + API
     # key exist for this host and persist them at /etc/nclawzero/mnemos.env,
@@ -910,6 +1062,192 @@ LAUNCH
 #
 # Re-enable by restoring the `android|waydroid)` case in ncz_install() and its
 # line in the help text.
+
+# ncz_install_zoder -- install zoder (ZeroClaw CLI for MNEMOS work history)
+# from the public ncz-os/zoder GitHub release. The nightly tarball ships
+# `zoder`, `zerocode`, `zeroclaw` binaries; we only stage `zoder` to
+# /usr/local/bin/zoder (the others are agent runtimes that operators may
+# install separately via `ncz agent install`). Both arches have a
+# native build (x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu).
+# The pinned nightly also publishes a per-binary sha256 in manifest.json;
+# we re-verify the zoder binary after extraction and fail-loud on any
+# mismatch (defence against a tampered release artifact).
+#
+# Config: drop a sample at /etc/nclawzero/zoder.conf with documented
+# MNEMOS_URL/MNEMOS_TOKEN placeholders, NOT a populated value. Operators
+# fill in MNEMOS_TOKEN with `source /etc/nclawzero/mnemos.env`. No fleet
+# model routes, no internal endpoints, no secrets in the template.
+ncz_install_zoder() {
+    if ! [ "$(id -u)" = "0" ]; then
+        echo "ncz install zoder: requires root (use sudo)" >&2
+        exit 1
+    fi
+    if ! command -v curl >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1 || ! command -v sha256sum >/dev/null 2>&1; then
+        echo "ncz install zoder: curl, tar, and sha256sum are required" >&2
+        exit 1
+    fi
+    # Architecture dispatch. The nightly tarballs are named by the rustc
+    # target triple. Match the host arch against the known set. Anything
+    # else (musl, darwin, etc.) is unsupported on NCZ-OS today and we fail
+    # loud with the URL so the operator can roll their own.
+    local arch arch_url arch_sha256
+    case "$(uname -m)" in
+        x86_64)
+            arch='x86_64-unknown-linux-gnu'
+            arch_url='https://github.com/ncz-os/zoder/releases/download/nightly/zoder-x86_64-unknown-linux-gnu.tar.gz'
+            arch_sha256='b2ce794b0ee2dbd163672a4dfafc63582df48f41a288f1189ac26ccd6971e577'
+            ;;
+        aarch64)
+            arch='aarch64-unknown-linux-gnu'
+            arch_url='https://github.com/ncz-os/zoder/releases/download/nightly/zoder-aarch64-unknown-linux-gnu.tar.gz'
+            arch_sha256='bcec547fe1f29447fd71284cae4b14ae8b92459b5a5988692f38a53277decfd0'
+            ;;
+        *)
+            echo "ncz install zoder: unsupported arch '$(uname -m)' (NCZ-OS supports x86_64 / aarch64 linux-gnu)" >&2
+            exit 1
+            ;;
+    esac
+    local install_path=/usr/local/bin/zoder
+    local tmp_dir; tmp_dir="$(mktemp -d -t ncz-zoder.XXXXXX)"
+    local tarball="$tmp_dir/zoder.tar.gz"
+    # 3 attempts, 2s apart. Releases are anonymous on GitHub.
+    local got=0 attempt
+    for attempt in 1 2 3; do
+        if curl -fsSL --connect-timeout 8 --max-time 600 -o "$tarball" "$arch_url"; then
+            got=1
+            break
+        fi
+        echo "[ncz] zoder: download attempt $attempt/3 failed, sleeping 2s"
+        sleep 2
+    done
+    if [ "$got" != "1" ]; then
+        rm -rf "$tmp_dir"
+        cat >&2 <<EOF
+ncz install zoder: failed to fetch $arch_url after 3 attempts.
+
+  This system is offline, or github.com is unreachable. zoder has no apt
+  package — it ships only as a GitHub release asset. To come back online:
+
+    sudo ncz install zoder
+EOF
+        exit 1
+    fi
+    local actual_tarball_sha
+    actual_tarball_sha="$(sha256sum "$tarball" | awk '{print $1}')"
+    if [ "$actual_tarball_sha" != "$arch_sha256" ]; then
+        rm -rf "$tmp_dir"
+        cat >&2 <<EOF
+ncz install zoder: tarball sha256 mismatch (refusing to install).
+
+  expected: $arch_sha256
+  got:      $actual_tarball_sha
+
+  The upstream release has rotated; re-roll ncz (post-install/46-ncz-cli.sh,
+  function ncz_install_zoder, the arch_sha256 in each case arm) and re-run.
+EOF
+        exit 1
+    fi
+    # Extract just the zoder binary; the tarball ships zoder/ + zerocode/ +
+    # zeroclaw/ under a target-triple directory.
+    local extract_dir="$tmp_dir/extract"
+    mkdir -p "$extract_dir"
+    if ! tar -xzf "$tarball" -C "$extract_dir" "$arch/zoder" "$arch/manifest.json" 2>/dev/null; then
+        rm -rf "$tmp_dir"
+        echo "ncz install zoder: tar extraction failed" >&2
+        exit 1
+    fi
+    if [ ! -f "$extract_dir/$arch/zoder" ] || [ ! -f "$extract_dir/$arch/manifest.json" ]; then
+        rm -rf "$tmp_dir"
+        echo "ncz install zoder: tarball did not contain $arch/zoder (layout drift)" >&2
+        exit 1
+    fi
+    # Re-verify the inner binary against the per-binary sha256 in manifest.json
+    # (defence against a corrupted tarball or a partial download that passed
+    # the outer hash because curl also verified TLS).
+    local expected_zoder_sha
+    expected_zoder_sha="$(python3 -c "import json; print(json.load(open('$extract_dir/$arch/manifest.json'))['binaries']['zoder'])" 2>/dev/null || true)"
+    if [ -n "$expected_zoder_sha" ]; then
+        local actual_zoder_sha
+        actual_zoder_sha="$(sha256sum "$extract_dir/$arch/zoder" | awk '{print $1}')"
+        if [ "$actual_zoder_sha" != "$expected_zoder_sha" ]; then
+            rm -rf "$tmp_dir"
+            cat >&2 <<EOF
+ncz install zoder: inner zoder binary sha256 mismatch (refusing to install).
+
+  expected: $expected_zoder_sha
+  got:      $actual_zoder_sha
+
+  The tarball hash matches but the inner zoder binary does not — possible
+  tarball corruption, partial download, or upstream release re-tar.
+EOF
+            exit 1
+        fi
+    fi
+    install -D -m 0755 "$extract_dir/$arch/zoder" "$install_path"
+    # Stage the manifest alongside, NOT under /usr/local. Operators can
+    # inspect it for the engine SHA + upstream SHA + run link.
+    install -D -m 0644 "$extract_dir/$arch/manifest.json" /etc/zoder/manifest.json 2>/dev/null || \
+        install -d -m 0755 /etc/zoder && install -m 0644 "$extract_dir/$arch/manifest.json" /etc/zoder/manifest.json
+    rm -rf "$tmp_dir"
+    # Drop a sample at /etc/nclawzero/zoder.conf. PUBLIC-SAFE wording:
+    # documented placeholders, no fleet model routes, no internal endpoints.
+    local zoder_conf=/etc/nclawzero/zoder.conf
+    install -d -m 0750 -g nclawzero /etc/nclawzero 2>/dev/null || true
+    if [ ! -f "$zoder_conf" ]; then
+        cat > "$zoder_conf" <<'ZODER_CONF'
+# /etc/nclawzero/zoder.conf — environment overrides for `ncz install zoder`.
+#
+# zoder reads MNEMOS_URL + MNEMOS_TOKEN from the environment (it is a CLI, not
+# a daemon — no config file is parsed by zoder itself). Operators populate
+# this file via `set -a; source /etc/nclawzero/zoder.conf; set +a; zoder ...`
+# or by exporting the values inline. The host-installed MNEMOS token lives
+# at /etc/nclawzero/mnemos.env — the canonical way to wire zoder is:
+#
+#   set -a; source /etc/nclawzero/mnemos.env; set +a
+#   export MNEMOS_URL="$MNEMOS_BASE_URL"
+#   unset MNEMOS_USER  # zoder reads only MNEMOS_TOKEN + MNEMOS_URL
+#   zoder -h
+#
+# NO fleet model routes, NO internal endpoints, NO Anthropic (project ban).
+# To add provider credentials see /etc/nclawzero/agent-env.sample.
+ZODER_CONF
+        chmod 0640 "$zoder_conf" 2>/dev/null || true
+        chgrp nclawzero "$zoder_conf" 2>/dev/null || true
+    fi
+    # Smoke test: zoder must print its version.
+    local out
+    if ! out="$("$install_path" --version 2>&1)"; then
+        echo "[ncz] zoder: installed at $install_path but '--version' failed" >&2
+        echo "  output: $out" >&2
+        exit 1
+    fi
+    echo "[ncz] zoder installed: $install_path"
+    echo "  release:   nightly ($arch)"
+    echo "  tarball:   $arch_url"
+    echo "  sha256:    $arch_sha256 (verified)"
+    [ -f /etc/zoder/manifest.json ] && \
+        echo "  manifest:  /etc/zoder/manifest.json (engine + upstream SHAs)"
+    echo "  config:    $zoder_conf (MNEMOS_URL + MNEMOS_TOKEN placeholders)"
+    echo "  smoke:     zoder --version -> $(echo "$out" | head -1)"
+    echo
+    echo "Next: source the MNEMOS credentials and try a search:"
+    echo "  set -a; source /etc/nclawzero/mnemos.env; set +a"
+    echo "  export MNEMOS_URL=\"\$MNEMOS_BASE_URL\""
+    echo "  zoder search 'test query'"
+}
+
+# ncz_install_zeroclaw -- convenience alias for `ncz agent install zeroclaw`.
+# Keeps `ncz install <thing>` ergonomic for the three primary agents the
+# orchestrator uses (zeroclaw + mnemos + zoder). Everything else stays under
+# `ncz agent ...`.
+ncz_install_zeroclaw() {
+    if ! [ "$(id -u)" = "0" ]; then
+        echo "ncz install zeroclaw: requires root (use sudo)" >&2
+        exit 1
+    fi
+    echo "[ncz] install zeroclaw -> delegating to ncz agent install zeroclaw"
+    ncz_agent install zeroclaw
+}
 ncz_install_android() {
     if [ "$(id -u)" -ne 0 ]; then
         echo "ncz install android: run as root (sudo ncz install android)" >&2
@@ -1065,20 +1403,34 @@ ncz_install() {
 Usage: ncz install <component>
 
 Components:
-  mnemos     Pull + start the MNEMOS memory server (REST + MCP + OpenAI-compatible
-             gateway on :5002, sqlite-backed, in-process CPU embedder)
-  nemoclaw   Pull + start NVIDIA NemoClaw OpenShell sandbox runtime
+  mnemos     Install + start the MNEMOS memory server (REST + MCP +
+             OpenAI-compatible gateway on :5002, sqlite-backed). Pulls
+             the embedder model (nomic-embed-text-v1.5 Q8, 768-dim) to
+             /opt/ncz/models if absent. Backfills memory_embeddings from
+             memories.embedding so semantic_search works on first install.
+  zeroclaw   Convenience alias for 'ncz agent install zeroclaw'.
+  zoder      Download + install zoder (ZeroClaw work-history CLI) from
+             the public ncz-os/zoder nightly release. Pinned version +
+             sha256. Idempotent. Config template at
+             /etc/nclawzero/zoder.conf (no secrets, no fleet routes).
+  nemoclaw   Pull + start NVIDIA NemoClaw OpenShell sandbox runtime.
 MSG
             ;;
         mnemos)
             ncz_install_mnemos
+            ;;
+        zeroclaw)
+            ncz_install_zeroclaw
+            ;;
+        zoder)
+            ncz_install_zoder
             ;;
         nemoclaw)
             ncz_install_nemoclaw
             ;;
         # android|waydroid) INTENTIONALLY NOT WIRED UP -- see ncz_install_android.
         *)
-            echo "ncz install: unknown component '$component' (expected: mnemos | nemoclaw)" >&2
+            echo "ncz install: unknown component '$component' (expected: mnemos | zeroclaw | zoder | nemoclaw)" >&2
             exit 1
             ;;
     esac
@@ -1144,10 +1496,60 @@ ncz_status() {
         printf '%-26s %s\n' 'GPU /dev/dri/renderD128:' "absent"
     fi
     if [ -d /opt/ncz/models ]; then
-        local nmodels
-        nmodels="$(find /opt/ncz/models -name '*.cix' 2>/dev/null | wc -l | tr -d ' ')"
-        printf '%-26s %s .cix files in /opt/ncz/models\n' 'models:' "$nmodels"
+        local ncix ngguf
+        ncix="$(find /opt/ncz/models -name '*.cix' 2>/dev/null | wc -l | tr -d ' ')"
+        ngguf="$(find /opt/ncz/models -name '*.gguf' 2>/dev/null | wc -l | tr -d ' ')"
+        printf '%-26s %s .cix / %s .gguf files in /opt/ncz/models\n' 'models:' "$ncix" "$ngguf"
     fi
+    # MNEMOS embedder — same shape as the orchestrator expects on every host
+    # (operator direction 2026-10-13, "embedder model + zoder + zeroclaw").
+    # Read state from the active quadlet + MNEMOS /health so the operator can
+    # tell at a glance which backend is active and whether the container is up.
+    ncz_status_mnemos
+}
+
+# ncz_status_mnemos -- print MNEMOS embedder / service state. Reads the active
+# quadlet for MNEMOS_EMBED_BACKEND + MNEMOS_EMBED_MODEL_PATH (the knobs we
+# stage), and probes MNEMOS /health for the actual embedder the process picked.
+# Best-effort: every individual probe is a separate sentence, so a missing
+# container or no-auth path is reported, not fatal.
+ncz_status_mnemos() {
+    local active=/etc/containers/systemd/mnemos.container
+    local embed_backend='' embed_model='' embed_dim=''
+    if [ -f "$active" ]; then
+        embed_backend="$(grep -E '^Environment=MNEMOS_EMBED_BACKEND=' "$active" 2>/dev/null | head -1 | sed -E 's/^Environment=MNEMOS_EMBED_BACKEND=//')"
+        embed_model="$(grep -E '^Environment=MNEMOS_EMBED_MODEL_PATH=' "$active" 2>/dev/null | head -1 | sed -E 's/^Environment=MNEMOS_EMBED_MODEL_PATH=//')"
+        [ -z "$embed_model" ] && embed_model="$(grep -E '^Environment=MNEMOS_EMBED_CIX_MODEL_PATH=' "$active" 2>/dev/null | head -1 | sed -E 's/^Environment=MNEMOS_EMBED_CIX_MODEL_PATH=//')"
+        [ -z "$embed_backend" ] && embed_backend='llamacpp (default)'
+    else
+        embed_backend='(quadlet not staged — run ncz install mnemos)'
+    fi
+    # Service state — derive from systemctl without requiring root (systemctl
+    # is-active is queryable for non-root as long as the service is reachable
+    # via the user bus).
+    local svc='(not installed)'
+    if command -v systemctl >/dev/null 2>&1; then
+        svc="$(systemctl is-active mnemos.service 2>/dev/null || echo unknown)"
+    fi
+    # /health probes the live container. We do NOT need to authenticate to
+    # /health (MNEMOS exposes it anonymously) so this works as user ncz too.
+    local health='(not down)'
+    if [ "$svc" = "active" ] && command -v curl >/dev/null 2>&1; then
+        health="$(curl -fsS --max-time 2 http://127.0.0.1:5002/health 2>/dev/null | head -c 200 || echo '(unreachable)')"
+    fi
+    # Best-effort: derive dimension from the local model file (the GGUF
+    # advertises nomic-embed-text-v1.5 @ 768; the .cix advertises 256).
+    if [ -n "$embed_model" ] && [ -f "$embed_model" ]; then
+        case "$embed_model" in
+            *.gguf) embed_dim=768 ;;
+            *.cix)  embed_dim=256 ;;
+            *)      embed_dim='?' ;;
+        esac
+    fi
+    printf '%-26s %s\n' 'mnemos service:' "$svc"
+    printf '%-26s %s\n' 'mnemos embedder:' "${embed_backend:-unknown}${embed_dim:+ (dim=$embed_dim)}"
+    [ -n "$embed_model" ] && printf '%-26s %s\n' 'mnemos model:' "$embed_model"
+    printf '%-26s %s\n' 'mnemos health:' "$health"
 }
 
 # --- main dispatch -------------------------------------------------------
