@@ -256,9 +256,9 @@ for p in intel-opencl-icd libze1 libze-intel-gpu1; do eq "NEW: $p comes from Deb
 mapfile -t _o < <(aptopts "$NEW")
 PLAN="$(apt-get "${_o[@]}" -s install libopenvino-intel-npu-plugin intel-opencl-icd libze1 libze-intel-gpu1 2>&1)"; prc=$?
 [ "$prc" = 0 ] && ok "an unpinned apt-get install of the Intel set resolves (rc=0)" || bad "unpinned install plan failed rc=$prc" "$PLAN"
-printf '%s\n' "$PLAN" | grep -q '^Inst libopenvino-intel-npu-plugin (2026.1.0-intel' && printf '%s\n' "$PLAN" | grep -q '^Inst intel-opencl-icd (25.1-1' \
+printf '%s\n' "$PLAN" | grep >/dev/null '^Inst libopenvino-intel-npu-plugin (2026.1.0-intel' && printf '%s\n' "$PLAN" | grep >/dev/null '^Inst intel-opencl-icd (25.1-1' \
     && ok "the plan installs the Intel plugin and Debian's runtime" || bad "wrong sources in the install plan" "$PLAN"
-ncz_apt_separation_pin_text | grep -qi 'cdrom' && bad "the pin text mentions /cdrom" || ok "the pin text does not depend on /cdrom"
+ncz_apt_separation_pin_text | grep >/dev/null -i 'cdrom' && bad "the pin text mentions /cdrom" || ok "the pin text does not depend on /cdrom"
 
 echo "=== scenario E: hook 24's ncz-screensavers canary reads the same policy shape with the pin installed ==="
 # Extract the canary block from the real hook, run it against REAL apt-cache output (paths/hosts rewritten to what

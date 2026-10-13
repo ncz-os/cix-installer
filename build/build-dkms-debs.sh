@@ -48,6 +48,21 @@ conf_get() {  # conf_get <file> <key>
 install -d "$OUT"
 built=0
 
+# Reproducible bytes (2026-10-13): the published debs carried wall-clock mtimes, a 0700 root
+# directory from mktemp and an Installed-Size from `du -sk` (allocated blocks, so it differs per
+# filesystem), so no two builds matched. Every revision from 3 on clamps all member mtimes to a
+# fixed epoch per NCZ_DKMS_DEB_REV, sets directories to 0755 and sums real file sizes, so the same
+# source gives the same deb on every host. A new revision needs its own epoch here.
+case "${NCZ_DKMS_DEB_EPOCH:-}" in
+    '') case "$NCZ_DKMS_DEB_REV" in
+            3) DKMS_DEB_EPOCH=1791921600 ;;   # 2026-10-13T20:00:00Z, when +ncz3 was cut
+            *) DKMS_DEB_EPOCH="" ;;
+        esac ;;
+    *[!0-9]*) echo "ERROR: NCZ_DKMS_DEB_EPOCH must be an integer" >&2; exit 1 ;;
+    *) DKMS_DEB_EPOCH="$NCZ_DKMS_DEB_EPOCH" ;;
+esac
+[ -n "$DKMS_DEB_EPOCH" ] || echo "NOTE: no fixed epoch for +ncz$NCZ_DKMS_DEB_REV: member mtimes are the build time" >&2
+
 for drv in "${DRIVERS[@]}"; do
     ASSET="$ROOT/assets/kernel/$drv"
     CONF="$ASSET/dkms.conf"
@@ -99,7 +114,16 @@ for drv in "${DRIVERS[@]}"; do
     fi
     [ -f "$SRCDIR/dkms.conf" ] || { echo "SKIP $drv: no dkms.conf staged" >&2; rm -rf "$WORK"; continue; }
 
-    SIZE_KB=$(du -sk "$WORK/usr" | cut -f1)
+    find "$WORK" -type d -exec chmod 0755 {} +
+    # File modes come from the checkout umask (0664 on one host, 0644 on another): keep only
+    # the executable bit, which is what git records.
+    find "$WORK/usr" -type f -perm /111 -exec chmod 0755 {} +
+    find "$WORK/usr" -type f ! -perm /111 -exec chmod 0644 {} +
+    if [ -n "$DKMS_DEB_EPOCH" ]; then
+        SIZE_KB=$(find "$WORK/usr" -type f -printf '%s\n' | awk '{s+=$1} END{printf "%d", (s+1023)/1024}')
+    else
+        SIZE_KB=$(du -sk "$WORK/usr" | cut -f1)
+    fi
     DEB_VER="${VER}+ncz${NCZ_DKMS_DEB_REV:?release.conf must define NCZ_DKMS_DEB_REV}"
 
     cat > "$WORK/DEBIAN/control" <<CONTROL
@@ -195,7 +219,12 @@ PRERM
         "$NAME" "$VER" "$drv" > "$WORK/usr/share/doc/${NAME}/README.Debian"
 
     DEB="$OUT/${NAME}-dkms_${DEB_VER}_all.deb"
-    dpkg-deb --build --root-owner-group "$WORK" "$DEB" >/dev/null
+    if [ -n "$DKMS_DEB_EPOCH" ]; then
+        find "$WORK" -exec touch -h -d "@$DKMS_DEB_EPOCH" {} +
+        SOURCE_DATE_EPOCH="$DKMS_DEB_EPOCH" dpkg-deb -Zxz --build --root-owner-group "$WORK" "$DEB" >/dev/null
+    else
+        dpkg-deb --build --root-owner-group "$WORK" "$DEB" >/dev/null
+    fi
     # shellcheck source=lib/deb-version-gate.sh
     . "$ROOT/build/lib/deb-version-gate.sh"
     ncz_deb_version_gate "$DEB" || { rm -rf "$WORK"; exit 1; }

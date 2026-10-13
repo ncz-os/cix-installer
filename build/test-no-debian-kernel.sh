@@ -36,7 +36,7 @@ run_grep() {
     local label="$1" expect="$2" needle="$3"; shift 3
     local out rc
     out="$("$VERIFIER" "$@" 2>&1)"; rc=$?
-    if [ "$rc" = "$expect" ] && printf '%s\n' "$out" | grep -qF -- "$needle"; then
+    if [ "$rc" = "$expect" ] && printf '%s\n' "$out" | grep >/dev/null -F -- "$needle"; then
         printf '  PASS  %s (exit=%d)\n' "$label" "$rc"; PASS=$((PASS+1))
     else
         printf '  FAIL  %s (expected exit=%d + %q, got rc=%d)\n' "$label" "$expect" "$needle" "$rc"

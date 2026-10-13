@@ -37,7 +37,7 @@ grep -q '^-[[:space:]]*"\$_DESKTOP" >> "\$_LOG" 2>&1' "$PATCH" && ok "old single
 # crash-count/safe-mode body (lines 71-83 upstream) is not in the diff at all.
 removed="$(grep '^-' "$PATCH" | grep -vE '^---($| )|^-- $' || true)"
 removed_n="$(printf '%s\n' "$removed" | grep -c . || true)"
-if [ "$removed_n" = 2 ] && ! printf '%s\n' "$removed" | grep -q 'safe-mode-request'; then
+if [ "$removed_n" = 2 ] && ! printf '%s\n' "$removed" | grep >/dev/null 'safe-mode-request'; then
     ok "crash-count/safe-mode lines untouched"
 else
     bad "crash-count/safe-mode lines changed ($removed_n removed lines)"

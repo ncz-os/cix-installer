@@ -27,8 +27,9 @@
 > | amd64 | `7f23dcde01bd1aac9aae4bd7cee2ec87392a94d782002e8abea7f28653886851` |
 >
 > Each image is a raw GPT disk image, split into parts on the release page
-> (GitHub limits files to 2 GiB). Put the parts, `SHA256SUMS`, `PARTS.sha256`
-> and [`ncz-join-image.sh`](tools/ncz-join-image.sh) in one folder and run
+> (GitHub limits files to 2 GiB). Put the parts of your architecture, its
+> `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>` (on older releases
+> `PARTS.sha256` and `SHA256SUMS`) and [`ncz-join-image.sh`](tools/ncz-join-image.sh) in one folder and run
 > `sh ncz-join-image.sh arm64` (or `amd64`): it checks every part, joins and
 > unpacks them and checks the finished `.img`. It never writes to a disk. Then
 > write the `.img` to a drive of at least 16 GB — see
@@ -717,16 +718,17 @@ it — there is no MS-R1 NPU on x86 hardware.
    ```
 
    [`tools/ncz-join-image.sh`](tools/ncz-join-image.sh) checks every part
-   against `PARTS.sha256`, joins and unpacks them, and checks the finished
-   `.img` against `SHA256SUMS`. It never writes to a disk, and it is safe to
+   against `PARTS-<arch>.sha256`, joins and unpacks them, and checks the finished
+   `.img` against `SHA256SUMS-<arch>` (older releases: `PARTS.sha256` and
+   `SHA256SUMS`). It never writes to a disk, and it is safe to
    re-run: it leaves the parts in place and will not overwrite an existing
    `.img` unless you pass `-f`. To do it by hand:
-   `sha256sum -c PARTS.sha256`, then
+   `sha256sum -c PARTS-<arch>.sha256`, then
    `cat ncz-os-<arch>-<date>-<sha>.img.zst.part-* | zstd -d -o ncz-os-<arch>-<date>-<sha>.img`,
-   then compare `sha256sum ncz-os-<arch>-<date>-<sha>.img` with `SHA256SUMS`.
+   then compare `sha256sum ncz-os-<arch>-<date>-<sha>.img` with `SHA256SUMS-<arch>`.
    An image you build yourself has a `.sha256` beside it instead.
 
-2. **Write it to a drive of at least 16 GB** (the image is 7.6 GB; writing
+2. **Write it to a USB drive of at least 16 GB** (the image is 7.6 GB; writing
    erases the drive). Balena Etcher works on any OS. On Linux, copy the raw GPT
    image to the **whole device** (`/dev/sdX`), not a partition (`/dev/sdX1`):
 
@@ -746,7 +748,14 @@ it — there is no MS-R1 NPU on x86 hardware.
    > device destroys that disk. Repeating the write to the right drive is
    > harmless (it just rewrites the same image).
 
-3. **Boot it.** Plug the drive into the target — a Sky1 board
+   > **Install from a USB drive only.** Write the image to a USB stick or USB
+   > disk, boot from it, and choose the internal disk as the target. Writing
+   > the image to the internal NVMe, an SD card or eMMC and installing from
+   > there is not supported. Why: the installer only trusts USB for its
+   > installation media, which keeps media detection predictable, and it means
+   > the disk the board booted from is never the disk the installer erases.
+
+3. **Boot it.** Plug the USB drive into the target — a Sky1 board
    (Radxa Orion O6N or Minisforum MS-R1) for the arm64 image, or an Intel/AMD
    PC or T2 Mac for the amd64 image — power on, and pick the drive from the UEFI boot menu. On
    a Mac, hold Option (⌥) at power-on. The installer's own rEFInd menu offers
@@ -776,6 +785,26 @@ The installed disk gets a 2 GB ESP, a 4 GB rescue partition (optional) and
 the root filesystem. Realtek NICs, including the RTL8125/8126 on the Radxa Orion O6N, work out
 of the box; the `rtl_nic` firmware ships in both the installer and the
 installed system.
+
+### Troubleshooting the install
+
+- **"NCZ-OS installer: no USB installation drive found".** The installer did
+  not find the image on a USB drive. This is what you see when the image was
+  written to an internal NVMe, SD card or eMMC, or the stick is not detected.
+  The screen lists any image it found on an internal disk (that disk is never
+  offered as a target), picks up a USB drive plugged in within 10 seconds, and
+  offers **R** to rescan the USB ports, **S** for a shell and **B** to reboot. Write the image to a USB stick, plug it in (the install
+  continues on its own) or reboot from it.
+- **Collecting logs for a bug report.** Choose **Save debug logs** in the
+  installer main menu, or open a shell (Alt-F2) and copy `/var/log/syslog` to
+  a USB stick. Alt-F4 shows the installer log live; Alt-F3 shows the
+  diagnostics console with the remote login details
+  ([docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)). Please include the image
+  file name and its `sha256sum`, the step that failed, and on the installed
+  system the output of `lsblk -f` and `sudo efibootmgr -v`.
+- **The installer uses rEFInd, not GRUB.** d-i's own GRUB and systemd-boot
+  steps are skipped; the installer writes rEFInd to the ESP itself. A GRUB
+  prompt on the target machine comes from another OS or an older boot entry.
 
 ### Boot menu on the installed system
 
@@ -999,10 +1028,14 @@ A single, **removable, toggleable** diagnostics module gives a remote operator
 full access *while the d-i installer is running*, so an install can never wedge
 us out and failures are captured even with nobody watching.
 
-> **Default login (installer only):** user `installer` (or `root`) with the
-> published break-glass default defined in `preseed/diag-console.sh`. Set your
+> **Login (installer only):** `root` (or `installer` for the network-console
+> menu) / `rescue` — the same documented login as the rescue partition. The
+> installer shows it in its boot banner on every console
+> (`diagnostics login: root / rescue`), on the last line of every NCZ dialog and
+> on the progress screen; it is gone once the installed system boots. Set your
 > own with `ncz_diag_pw=<pw>` on the kernel command line, or turn the module off
-> with `ncz_diag=0`. For a trusted LAN only — see the security note below.
+> with `ncz_diag=0`. For a trusted LAN only — see the security note below and
+> **[docs/RECOVERY-LOGINS.md](docs/RECOVERY-LOGINS.md)**.
 
 | Channel | Port | Access |
 |---|---|---|
@@ -1016,12 +1049,12 @@ Put `ncz_diag=0` (or `off`) on the installer's kernel command line — edit the
 entry at the rEFInd menu — to disable it for that boot.
 
 **Tunables (kernel cmdline):**
-- `ncz_diag_pw=<pw>` — root/diag login (default: the published value in `preseed/diag-console.sh`).
+- `ncz_diag_pw=<pw>` — root/diag login (default: `rescue`, see [docs/RECOVERY-LOGINS.md](docs/RECOVERY-LOGINS.md)).
 - `ncz_diag_log=<host[:port]>` — remote syslog collector (port defaults to
   `5514`). Unset means no forwarding at all.
 
-**How it works.** A static busybox (with `telnetd`/`httpd`/`syslogd`/`klogd`/
-`chpasswd` compiled in) ships in the installer; the preseed launches
+**How it works.** A static busybox (Debian forky `busybox-static`, with
+`telnetd`/`httpd`/`syslogd`/`klogd`/`mkpasswd`) ships in the installer; the preseed launches
 `preseed/diag-console.sh` in the background. The script self-gates on
 `ncz_diag`, installs a full applet farm for the rich shell, sets the root
 password, optionally forwards syslog to the collector, and starts telnetd +
@@ -1040,7 +1073,7 @@ On the **installed system**, full SSH, telnet on :23
 [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md) take over; the installer-only
 consoles vanish with the d-i ramdisk.
 
-> **Security:** the published default login, the telnet root shell and the
+> **Security:** the published login (`root` / `rescue`), the telnet root shell and the
 > world-readable httpd are **for a trusted LAN only**. Boot the installer with
 > `ncz_diag=0` on any network you do not control.
 
@@ -1068,9 +1101,11 @@ menu entry ("Rescue Partition (Console)"), independent of the main root filesyst
 installed system's root (btrfs or ext4) won't boot, the rescue partition
 still will.
 
-**Login.** Root, with the published break-glass default defined in
+**Login.** `root` / `rescue`, the published break-glass default defined in
 `build/build-rescue-rootfs.sh` (LAN-only; the rescue environment is not meant
-to be internet-facing — change it after first use). Hostname `ncz-rescue`.
+to be internet-facing — change it with `passwd` after first use). Hostname
+`ncz-rescue-<mac suffix>`. How to connect, change and reset it:
+[docs/RECOVERY-LOGINS.md](docs/RECOVERY-LOGINS.md).
 
 **Access channels:**
 

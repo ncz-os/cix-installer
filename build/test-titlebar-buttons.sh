@@ -11,7 +11,9 @@
 #   * the effective default read back through GSettings lacks minimize or
 #     maximize (wm.preferences schema in /usr/share or in the Singularity dir);
 #   * the classic titlebar default (dev.sinty.desktop legacy-titlebar) is lost;
-#   * the hook is missing from either architecture's hook list or run-all.sh.
+#   * the hook is missing from either architecture's hook list or run-all.sh;
+#   * Leafs (singularity-leafs) loses the patch that keeps its toolbar, and
+#     so its window buttons, in classic titlebar mode.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOOK="$ROOT/post-install/65-ncz-titlebar-buttons.sh"
@@ -33,6 +35,19 @@ if grep -q '|65-ncz-titlebar-buttons|' "$ROOT/post-install/run-all.sh"; then ok 
 if grep -q "^BUTTON_LAYOUT=\"appmenu:minimize,maximize,close\"$" "$HOOK"; then ok "hook layout constant includes minimize and maximize"; else bad "hook layout constant changed"; fi
 if grep -qE '(^|[^#]*)(gsettings set|dconf write)' "$HOOK"; then bad "hook writes a per-user setting (must be a schema default)"; else ok "hook writes no per-user setting"; fi
 if grep -q '/usr/share/glib-2.0/schemas' "$HOOK"; then ok "hook targets the system schema dir"; else bad "hook does not target /usr/share/glib-2.0/schemas"; fi
+
+# Leafs hides its window toolbar (each leaf has its own hover controls). In the
+# classic titlebar mode that toolbar IS the titlebar with the window buttons, so
+# the carried patch must keep the hide limited to the floating-bubbles mode.
+LEAFS_PATCH="$ROOT/assets/singularity/patches/singularity-leafs/0001-window-keep-the-toolbar-in-classic-titlebar-and-ssd-modes.patch"
+if [ -f "$LEAFS_PATCH" ] \
+   && grep -q '^+ *if (floating_bubbles) {$' "$LEAFS_PATCH" \
+   && grep -q '^- *toolbar.visible = false;$' "$LEAFS_PATCH" \
+   && grep -q '^+ *toolbar.visible = false;$' "$LEAFS_PATCH"; then
+    ok "Leafs keeps its titlebar buttons in classic titlebar mode (carried patch)"
+else
+    bad "Leafs patch missing or no longer limits the toolbar hide to floating-bubbles mode"
+fi
 
 if ! command -v glib-compile-schemas >/dev/null 2>&1 || ! command -v gsettings >/dev/null 2>&1; then
     echo "titlebar-buttons tests: $pass passed, $fail failed (functional cases need glib-compile-schemas + gsettings)"

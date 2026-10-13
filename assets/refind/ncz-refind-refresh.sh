@@ -12,11 +12,11 @@
 # among the buses exposed to Linux. CONFIG_RTC_DRV_EFI=y is built in, but
 # drivers/firmware/efi/efi.c registers the "rtc-efi" platform device only when
 # efi_rt_services_supported(EFI_RT_SUPPORTED_TIME_SERVICES) is true -- which
-# efi=noruntime makes false. Metal-verified on O6N under BOTH 7.2.0-rc6 and
-# 7.0.12: /dev/rtc0 appears, driver rtc-efi, hctosys=1, clean boot.
+# efi=noruntime makes false. Metal-verified on O6N (7.2.0-rc6 and 7.0.12 at
+# the time): /dev/rtc0 appears, driver rtc-efi, hctosys=1, clean boot.
 #
-# Gate on the board, not the kernel channel: every Sky1 board runs both 7.2
-# and 7.0.12, so a per-channel split is wrong in both directions.
+# Gate on the board, not the kernel version: the board firmware, not the
+# kernel, decides whether EFI runtime is safe.
 #
 # Fail-safe: if DMI is unreadable we cannot prove we are NOT on an MS-R1, so
 # emit the workaround and favour a bootable system over a working clock.
@@ -60,7 +60,7 @@ ncz_efi_rt_workaround() {
     echo ""
 }
 EFI_RT_WORKAROUND="$(ncz_efi_rt_workaround)"
-# NCZ-UNIFIED-KERNEL-73 (operator 2026-10-05): ONE kernel, 7.3, is the default,
+# NCZ-UNIFIED-KERNEL-73 (2026-10-05): ONE kernel, 7.3, is the default,
 # the installer kernel and the rescue kernel. There is no edge channel any more
 # and no 7.2.x line. The rescue entry boots the SAME 7.3 kernel with the
 # accelerator drivers blacklisted.
@@ -108,7 +108,7 @@ if [ -z "$KVER_NEXT" ]; then
     exit 1
 fi
 
-# Operator directive 2026-10-05 (unified 7.3): an -rcN default IS permitted
+# Unified 7.3 (2026-10-05): an -rcN default IS permitted
 # while the build-time policy allows it (KERNEL-POLICY RC_DEFAULT_ALLOWED=1,
 # cleared when 7.3.0 final lands), so this runtime gate no longer refuses -rcN.
 # It still refuses a Debian-archive kernel: Debian's versioned arm64 kernels
@@ -118,7 +118,7 @@ fi
 case "$KVER_NEXT" in
     *-arm64|7.1.*|7.1-*)
         echo "ERROR: KVER_NEXT='$KVER_NEXT' names a Debian-archive kernel (arm64/7.1.x);" >&2
-        echo "       the default MUST be the NCZ 7.3 Sky1 kernel (directive 2026-10-05)." >&2
+        echo "       the default MUST be the NCZ 7.3 Sky1 kernel (unified 7.3 policy)." >&2
         echo "       Refusing to write an rEFInd menu that would boot Debian as the default." >&2
         exit 1
         ;;
@@ -479,10 +479,10 @@ elif [ -n "$KVER_NEXT" ]; then
     echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — default entry will be SKIPPED"
 fi
 
-# Unified 7.3 (operator 2026-10-05): the edge channel was retired, so any
+# Unified 7.3 (2026-10-05): the edge channel was retired, so any
 # KVER_EDGE passed in is ignored and never staged or given a menu entry.
 if [ -n "${KVER_EDGE:-}" ]; then
-    echo "  WARN: KVER_EDGE='$KVER_EDGE' ignored -- the edge channel was retired (unified 7.3 policy, operator 2026-10-05)"
+    echo "  WARN: KVER_EDGE='$KVER_EDGE' ignored -- the edge channel was retired (unified 7.3 policy, 2026-10-05)"
     KVER_EDGE=""
 fi
 
@@ -583,7 +583,7 @@ NEXT_CONSOLE_OPTIONS=""
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_CONSOLE_EXISTING_BL=$(printf '%s\n' "$NEXT_CMDLINE_BASE" | tr ' ' '\n' | sed -n 's/^module_blacklist=//p' | paste -sd, -)
     NEXT_CONSOLE_CMDLINE_NOBL=$(printf '%s\n' "$NEXT_CMDLINE_BASE" | tr ' ' '\n' | grep -vE '^(module_blacklist=|$)' | paste -sd' ' -)
-    # Operator 2026-08-16: the 7.2 console entry is a no-GUI entry, not a
+    # 2026-08-16: the 7.2 console entry is a no-GUI entry, not a
     # no-hardware entry. It keeps the vendor Mali, VPU and NPU usable for
     # headless work; accelerator-free recovery is the RESCUE entry's job.
     [ -n "$NEXT_CONSOLE_EXISTING_BL" ] && NEXT_CONSOLE_MERGED_BL="$CONSOLE_GPU_BLACKLIST,$NEXT_CONSOLE_EXISTING_BL" || NEXT_CONSOLE_MERGED_BL="$CONSOLE_GPU_BLACKLIST"
@@ -593,7 +593,7 @@ fi
 
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
 RESCUEPART_OPTIONS=""
-# Unified 7.3 (operator 2026-10-05): the rescue-partition entry boots the
+# Unified 7.3 (2026-10-05): the rescue-partition entry boots the
 # rescue rootfs with the SAME 7.3 kernel as the default (the only shipping
 # kernel), so the precondition is just the rescue marker + that kernel.
 if [ -f "$RESCUE_READY" ] && [ "$NEXT_AVAILABLE" = "1" ]; then
@@ -603,7 +603,7 @@ if [ -f "$RESCUE_READY" ] && [ "$NEXT_AVAILABLE" = "1" ]; then
         # actually appears, which is the correct mechanism and costs nothing
         # once it has; rootdelay=90 was an unconditional 90s sleep paid on
         # every rescue boot even when the disk was ready immediately.
-        # Operator 2026-08-16 / unified 2026-10-05: RESCUE runs with EVERY
+        # 2026-08-16 / unified 2026-10-05: RESCUE runs with EVERY
         # accelerator blacklisted -- GPU, VPU and NPU -- because it exists to
         # recover a board those very drivers may have wedged.
         #
@@ -689,7 +689,7 @@ if [ -s "$CYGNUS_SRC/theme.conf" ] && [ -s "$CYGNUS_SRC/background-1920x1080.png
     echo "  rEFInd Cygnus theme installed → /boot/efi/EFI/BOOT/themes/cygnus"
 fi
 
-# Release policy (unified 7.3, operator 2026-10-05): the single 7.3 kernel is
+# Release policy (unified 7.3, 2026-10-05): the single 7.3 kernel is
 # the default graphical entry (Mali is the validated shipping driver); Panthor
 # is an explicit experiment and the Rescue entries blacklist the accelerators.
 if [ "$NEXT_AVAILABLE" = "1" ]; then
@@ -800,7 +800,7 @@ fi
 } > "$NCZ_PREFS" 2>/dev/null || true
 
 {
-    echo "# rEFInd — NCZ cixmini $BUILD_VERSION (generated by ncz-refind-refresh)"
+    echo "# rEFInd — NCZ-OS $BUILD_VERSION (generated by ncz-refind-refresh)"
     echo "# Kernels live on the FAT ESP; each kernel's initramfs mounts the"
     echo "# $ROOT_FSTYPE root. No btrfs/ext4 EFI driver is required."
     echo "timeout $REFIND_TIMEOUT"
@@ -871,7 +871,7 @@ fi
         echo "}"
         echo
 
-        # REDEFINED RESCUE (operator 2026-10-05): the SAME 7.3 kernel with
+        # REDEFINED RESCUE (2026-10-05): the SAME 7.3 kernel with
         # every accelerator blacklisted, booting the normal root. This is the
         # arm64 counterpart of the amd64 same-kernel rescue entry.
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Rescue / No Accelerators (Console)\" {"
@@ -908,7 +908,7 @@ fi
         _rescue_file=${_rescue_img##*/}
         _rescue_tag=${_rescue_file#vmlinuz-}
         _rescue_tag=${_rescue_tag%-rescue}
-        # Same-kernel rescue semantics (operator 2026-10-05): use the rescue
+        # Same-kernel rescue semantics (2026-10-05): use the rescue
         # option string, which carries the accelerator blacklist.
         _rescue_options=$(printf '%s\n' "$NEXT_RESCUE_OPTIONS" | tr ' ' '\n' \
             | grep -vE '^(oops=panic|panic=[0-9]+|quiet|)$' | paste -sd' ' -)

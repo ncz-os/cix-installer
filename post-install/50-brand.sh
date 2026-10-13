@@ -15,6 +15,9 @@ set +e
 
 RELEASE_FILE=/usr/local/lib/cix-installer/RELEASE
 [ -s "$RELEASE_FILE" ] || RELEASE_FILE=/etc/cix-installer/RELEASE
+# Test seam (build/test-release-identity.sh): read this release file and
+# print the os-release identity strings instead of writing anything.
+[ -n "${NCZ_BRAND_PRINT_IDENTITY:-}" ] && RELEASE_FILE="$NCZ_BRAND_PRINT_IDENTITY"
 if [ ! -s "$RELEASE_FILE" ]; then
     echo "[50] ERROR: release identity missing; refusing to generate inconsistent branding" >&2
     exit 1
@@ -22,7 +25,11 @@ fi
 # shellcheck disable=SC1090
 . "$RELEASE_FILE"
 NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
-[ "$RELEASE_FILE" = /etc/cix-installer/RELEASE ] || \
+# The base system in one phrase. NCZ_BASE_LABEL already names the
+# distribution, suite and codename ("Debian Testing (Forky)"); only build
+# it from the parts when a release file has no label.
+NCZ_BASE_DESCRIPTION="${NCZ_BASE_LABEL:-$NCZ_BASE_NAME $NCZ_BASE_VERSION}"
+[ -n "${NCZ_BRAND_PRINT_IDENTITY:-}" ] || [ "$RELEASE_FILE" = /etc/cix-installer/RELEASE ] || \
     install -D -m 0644 "$RELEASE_FILE" /etc/cix-installer/RELEASE
 echo "[50] $NCZ_RELEASE_LABEL brand identity"
 
@@ -43,7 +50,9 @@ done
 
 VARIANT_FILE=/usr/local/lib/cix-installer/BUILD_VARIANT
 VARIANT="desktop"
-if [ -f "$VARIANT_FILE" ]; then
+if [ -n "${NCZ_BRAND_PRINT_IDENTITY:-}" ]; then
+    VARIANT="${NCZ_BRAND_VARIANT:-desktop}"
+elif [ -f "$VARIANT_FILE" ]; then
     VARIANT=$(tr -d ' \t\r\n' < "$VARIANT_FILE")
 fi
 
@@ -58,13 +67,21 @@ VARIANT_LABEL="Desktop"
 if [ "$VARIANT" = "server" ]; then
     VARIANT_LABEL="Server"
 fi
+# e.g. "NCZ-OS 26.10 Cygnus Desktop, based on Debian Testing (Forky)"
+OS_PRETTY_NAME="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}, based on ${NCZ_BASE_DESCRIPTION}"
+OS_VERSION="${NCZ_RELEASE_VERSION} (${SKU_NAME} ${VARIANT_LABEL}, based on ${NCZ_BASE_DESCRIPTION})"
+if [ -n "${NCZ_BRAND_PRINT_IDENTITY:-}" ]; then
+    printf 'PRETTY_NAME=%s\nVERSION=%s\nDISTRIB_DESCRIPTION=%s\n' \
+        "$OS_PRETTY_NAME" "$OS_VERSION" "$OS_PRETTY_NAME"
+    exit 0
+fi
 
 cat > /etc/os-release <<EOF_OS
-PRETTY_NAME="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL} (based on ${NCZ_BASE_NAME} ${NCZ_BASE_VERSION} ${NCZ_BASE_LABEL})"
+PRETTY_NAME="${OS_PRETTY_NAME}"
 NAME="${NCZ_PRODUCT_NAME}"
 VERSION_ID="${NCZ_RELEASE_VERSION}"
 BUILD_ID="${BUILD_ID_VALUE}"
-VERSION="${NCZ_RELEASE_VERSION} (${SKU_NAME} ${VARIANT_LABEL}; based on ${NCZ_BASE_NAME} ${NCZ_BASE_VERSION} ${NCZ_BASE_LABEL})"
+VERSION="${OS_VERSION}"
 VERSION_CODENAME=${SKU_LOWER}
 NCZ_VARIANT=${VARIANT}
 NCZ_RELEASE_VERSION="${NCZ_RELEASE_VERSION}"
@@ -84,7 +101,7 @@ cat > /etc/lsb-release <<EOF_LSB
 DISTRIB_ID=NCZ
 DISTRIB_RELEASE=${NCZ_RELEASE_VERSION}
 DISTRIB_CODENAME=${SKU_LOWER}
-DISTRIB_DESCRIPTION="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL} (based on ${NCZ_BASE_NAME} ${NCZ_BASE_VERSION} ${NCZ_BASE_LABEL})"
+DISTRIB_DESCRIPTION="${OS_PRETTY_NAME}"
 EOF_LSB
 
 cat > /etc/issue <<EOF_ISSUE

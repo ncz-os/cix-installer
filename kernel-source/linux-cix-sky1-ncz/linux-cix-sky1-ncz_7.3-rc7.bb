@@ -22,7 +22,7 @@
 # (which also carries the DP AUX-wedge recovery v2).
 # The equivalent 207-commit review branch is kernel-73rc7-port-20261011.
 #
-# Patch decisions vs. the dry-run 205-patch replay (operator accepted the
+# Patch decisions vs. the dry-run 205-patch replay (accepted the
 # review advisory 2026-09-29; each item re-verified against source, see
 # the 2026-09-29 Sky1 rc5 advisory implementation report).
 # The raw 7.2 patches below are superseded by the consolidated diff of the
@@ -38,7 +38,7 @@
 #        "sky1-pcie-cix" rename, ACPI vendor-id/device-id/no-inbound-bar)
 #        and 0029's CLKT-keyed clocks are re-ported for native mode in
 #        0002-PCI-cadence-sky1-cix-restore-ACPI-native-mode-on-v7.3.patch
-#        (operator decision 2026-09-29: native PCIe wanted on 7.3), plus the
+#        (decision 2026-09-29: native PCIe wanted on 7.3), plus the
 #        review fixes in 0004 (clock error paths, AER re-enable, pdev name,
 #        ECAM size). Default
 #        cmdline sky1_pcie_native=off is unchanged.

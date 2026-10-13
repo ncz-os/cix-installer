@@ -319,7 +319,7 @@ index 2990e0b..0049960 100755
 -# creates a transient virtual keyboard, so the first key can race the seat
 -# gaining the keyboard capability; retry a few times.
 +# input: a key press must RAISE THE PROMPT and FREEZE the saver at this frame
-+# (operator policy: the saver never resumes while locked). wtype creates a
++# (policy: the saver never resumes while locked). wtype creates a
 +# transient virtual keyboard, so the first key can race the seat gaining the
 +# keyboard capability; retry a few times.
  for _ in 1 2 3 4 5; do
@@ -419,7 +419,7 @@ index 2990e0b..0049960 100755
 +stop_all
 +
 +echo "== case 9: input BEFORE the freeze timer => prompt over a held frame =="
-+# Operator policy: if the saver is interrupted by input before the source's own
++# Policy: if the saver is interrupted by input before the source's own
 +# freeze timer, it freezes AT THAT FRAME, the prompt composites over it, and the
 +# saver never resumes. The lock must end the source without clearing the frame.
 +start_labwc || exit 1

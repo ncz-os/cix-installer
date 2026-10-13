@@ -67,7 +67,7 @@ shared.)
 
 No kernel source is touched by this fix.
 
-Codex (gpt-5.5) adversarial-reviewed this patch read-only against the
+An adversarial review checked this patch read-only against the
 live driver + kernel trees before it was applied: APPROVE, with the
 caveat that the maple-tree branch's fidelity to kbase's shader-code
 and 4GB-boundary constraints (not the ACK path's start_gap handling,

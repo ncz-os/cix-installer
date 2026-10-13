@@ -180,11 +180,11 @@ index a62c796..bb97c47 100644
 -        h->want_start = false;
          stop_source(h, "disabled");
      } else {
--        /* On lock engage the saver shows immediately (operator ruling): mark
+-        /* On lock engage the saver shows immediately: mark
 -         * "start now" rather than starting the resume timer. */
 -        h->want_start = true;
 -        h->last_activity_ms = h->now_ms ? h->now_ms : lfs_now_ms();
-+        /* On lock engage the saver shows immediately (operator ruling). The
++        /* On lock engage the saver shows immediately. The
 +         * source then keeps running until the lock is released: the lock client
 +         * draws its prompt over the frames rather than stopping them. */
          h->reopen_at_ms = 0;

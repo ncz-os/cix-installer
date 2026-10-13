@@ -142,7 +142,7 @@ assert_dkms_module_path() {
 
 is_loaded() {
     local mod="$1"
-    lsmod | awk '{print $1}' | grep -qxF "$mod"
+    lsmod | awk '{print $1}' | grep >/dev/null -xF "$mod"
 }
 
 cmdline_blacklists_module() {
@@ -200,7 +200,7 @@ runtime_check() {
         ver="${pkgver#*/}"
         mods="${line#*[[:space:]]}"
 
-        if ! dkms_status_for "$pkg" "$ver" | grep -F "$KVER" | grep -Eq 'installed|built'; then
+        if ! dkms_status_for "$pkg" "$ver" | grep -F "$KVER" | grep >/dev/null -E 'installed|built'; then
             fail "DKMS NOT BUILT FOR $KVER: $pkg/$ver"
         else
             ok "dkms has $pkg/$ver for $KVER"

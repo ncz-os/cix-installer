@@ -277,7 +277,7 @@ RTX='01:00.0 VGA compatible controller [0300]: NVIDIA Corporation TU106M [GeForc
 GTX='01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GP106 [GeForce GTX 1060] [10de:1c03]'
 GTX680='01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GK104 [GeForce GTX 680] [10de:1180]'
 got="$(run54w "$RTX" 0)";  eq "54: Turing GPU, install succeeds now" "$got" "installed:13.4.92-1"
-if grep -qF "$SB/usr/local/lib/ncz/nvidia-dkms" "$SB/nvfunc.sh" && ! grep -oE '[^ "=]*/usr/local/lib/ncz' "$SB/nvfunc.sh" | grep -qv "^$SB"; then
+if grep -qF "$SB/usr/local/lib/ncz/nvidia-dkms" "$SB/nvfunc.sh" && ! grep -oE '[^ "=]*/usr/local/lib/ncz' "$SB/nvfunc.sh" | grep >/dev/null -v "^$SB"; then
     ok "54: extracted block is sandboxed (/usr/local/lib/ncz)"
 else nok "54: extracted block writes the real /usr/local/lib/ncz (or does not install the DKMS patches at all)"; fi
 grep -q 'dkms not staged: no local NVIDIA DKMS patches' "$SB/log" && ok "54: missing DKMS patch assets are a note, not a failure" || nok "54: no note for missing DKMS patch assets"
@@ -504,7 +504,7 @@ want_line='PATCH[${#PATCH[@]}]="ncz-0001-dmem.patch"'
 grep -qxF -- "$want_line" "$CS/etc/dkms/nvidia-615.71.09.conf" \
     && ok "dkms: /etc/dkms/nvidia-615.71.09.conf lists the patch" || nok "dkms: conf lacks the PATCH entry: $(cat "$CS/etc/dkms/nvidia-615.71.09.conf" 2>/dev/null)"
 [ -f "$CS/usr/src/nvidia-615.71.09/patches/ncz-0001-dmem.patch" ] && ok "dkms: patch staged in the DKMS source dir" || nok "dkms: patch not staged"
-ls "$CS/etc/dkms/" | grep -v '^nvidia-615.71.09.conf$' | grep -q . && nok "dkms: a conf was written for another version" || ok "dkms: only the exact version gets a conf"
+ls "$CS/etc/dkms/" | grep -v '^nvidia-615.71.09.conf$' | grep >/dev/null . && nok "dkms: a conf was written for another version" || ok "dkms: only the exact version gets a conf"
 ( set +u; unset PATCH; . "$CS/etc/dkms/nvidia-615.71.09.conf"; [ "${PATCH[0]:-}" = ncz-0001-dmem.patch ] ) \
     && ok "dkms: the conf sources as bash and sets PATCH[0] when dkms.conf has no patches" || nok "dkms: conf does not source to PATCH[0]"
 # the index is evaluated by DKMS when it sources the conf (after dkms.conf): it must append, never overwrite

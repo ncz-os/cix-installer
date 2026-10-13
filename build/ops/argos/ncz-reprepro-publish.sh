@@ -1,10 +1,10 @@
 #!/bin/bash
 # ncz-reprepro-publish.sh — restricted-command target for the buildkite-agent
-# SSH deploy key (cixmini). Reads a single .deb on stdin, includes it into the
+# SSH deploy key. Reads a single .deb on stdin, includes it into the
 # NCZ-OS reprepro repo (~/ncz-apt-repo, codename "any"), then dual-publishes
 # it to BOTH apt-hosting backends:
 #   1. Buildkite Packages (org=ncz-os, registry=ncz) — PRIMARY as of
-#      2026-07-26 (operator directive: reverses the 2026-07-06 R2 migration
+#      2026-07-26 (reverses the 2026-07-06 R2 migration
 #      now that the org has full OSS/open-source Buildkite privileges —
 #      verified empirically same day that anonymous apt-style access
 #      (InRelease/Release/Packages + an actual .deb blob) all work with no

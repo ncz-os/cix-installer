@@ -743,6 +743,8 @@ BAKED_HELPERS = [
     "net-pick.sh",
     # 2026-10-06: bounded background SNTP / HTTP-Date clock correction (clock-setup/ntp=false).
     "clock-sync.sh",
+    # 2026-10-13: USB-only install media lookup and the screen shown without one.
+    "media-usb-only.sh",
 ]
 
 # NCZ startup hook. d-i runs its /usr/lib/debian-installer-startup.d/S* scripts

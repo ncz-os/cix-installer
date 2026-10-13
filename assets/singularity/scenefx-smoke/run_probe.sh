@@ -42,7 +42,7 @@ else
 fi
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-# Scratch NEVER on tmpfs (policy, ~/.claude/rules/scratch-and-cleanup.md).  If
+# Scratch NEVER on tmpfs (scratch-and-cleanup policy).  If
 # no outdir is given, default under ~/Projects and REFUSE a tmpfs target.
 if [ -z "$OUT" ]; then
     OUT="$HOME/Projects/scenefx-smoke-$(date -u +%Y%m%dT%H%M%SZ)"

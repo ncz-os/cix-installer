@@ -12,6 +12,13 @@ exactly what is enabled, why, and how to disable each part.
 
 ---
 
+> **Installer without a USB drive.** NCZ-OS installs from a USB drive only. If
+> the installer finds no USB installation drive it stops on a screen that says
+> so; the installer diagnostics console (Alt-F3, and SSH/telnet when the network
+> is up) stays available there, and **S** opens a local shell; its login is in
+> [RECOVERY-LOGINS.md](RECOVERY-LOGINS.md). See the README section
+> *Troubleshooting the install*.
+
 ## What is enabled by default
 
 | Service | Port | Auth | Notes |
@@ -22,6 +29,10 @@ exactly what is enabled, why, and how to disable each part.
 | **ncz-recovery** container | 22 *(its own IP)* | published break-glass default (set in `build/build-mgmt-rootfs.sh`), **change it** | `systemd-nspawn`, MACVLAN — appears as a **separate host** on your LAN |
 
 ### About the default logins
+
+The installer diagnostics login and the rescue partition login are listed,
+with how to connect, change and reset them, in
+[RECOVERY-LOGINS.md](RECOVERY-LOGINS.md).
 
 The failsafe console and the recovery container ship with **published
 break-glass defaults** — the values are in the source files named in the

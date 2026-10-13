@@ -27,15 +27,15 @@ else
     printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done\n' > "$W/chrome"; chmod +x "$W/chrome"
     sed "s|/opt/chromium-ncz-sky1/chrome|$W/chrome|" "$W/wrapper" > "$W/wrapper.sh"
     args="$(sh "$W/wrapper.sh" --user-arg 2>&1)"
-    has() { printf '%s\n' "$args" | grep -qx -- "$1"; }
+    has() { printf '%s\n' "$args" | grep >/dev/null -x -- "$1"; }
     has --ozone-platform=wayland && ok "wrapper: Wayland ozone platform" || bad "wrapper: --ozone-platform=wayland missing"
     feats="$(printf '%s\n' "$args" | sed -n 's/^--enable-features=//p' | tr ',' '\n')"
-    printf '%s\n' "$feats" | grep -qx AcceleratedVideoDecoder && ok "wrapper: AcceleratedVideoDecoder enabled (V4L2VideoDecoder on the VPU)" \
+    printf '%s\n' "$feats" | grep >/dev/null -x AcceleratedVideoDecoder && ok "wrapper: AcceleratedVideoDecoder enabled (V4L2VideoDecoder on the VPU)" \
         || bad "wrapper: AcceleratedVideoDecoder not enabled (Chromium would decode in software)"
-    printf '%s\n' "$feats" | grep -qiE 'vaapi' && bad "wrapper: enables a VA-API feature; this Chromium has no VA-API" || ok "wrapper: no dead VA-API feature flags"
-    printf '%s\n' "$args" | grep -qE -- '^--(disable-accelerated-video-decode|disable-gpu|use-gl=swiftshader|disable-features=.*AcceleratedVideoDecoder)' \
+    printf '%s\n' "$feats" | grep >/dev/null -iE 'vaapi' && bad "wrapper: enables a VA-API feature; this Chromium has no VA-API" || ok "wrapper: no dead VA-API feature flags"
+    printf '%s\n' "$args" | grep >/dev/null -E -- '^--(disable-accelerated-video-decode|disable-gpu|use-gl=swiftshader|disable-features=.*AcceleratedVideoDecoder)' \
         && bad "wrapper: disables hardware decode/GPU" || ok "wrapper: does not disable hardware decode or the GPU"
-    printf '%s\n' "$args" | grep -q -- '^--disable-features=.*AudioServiceOutOfProcess' && ok "wrapper: keeps the in-process audio service (silent-PCM fix)" \
+    printf '%s\n' "$args" | grep >/dev/null -- '^--disable-features=.*AudioServiceOutOfProcess' && ok "wrapper: keeps the in-process audio service (silent-PCM fix)" \
         || bad "wrapper: AudioServiceOutOfProcess no longer disabled"
     [ "$(printf '%s\n' "$args" | tail -1)" = --user-arg ] && ok "wrapper: user arguments are passed through last" || bad "wrapper: user arguments lost or reordered"
 fi
@@ -45,7 +45,7 @@ H="$ROOT/post-install/84-vpu-mpv.sh"
 conf="$(awk '/<<MPVCONF$/ {f=1; next} /^MPVCONF$/ {f=0} f' "$H")"
 hw="$(sed -n 's/^ *_HWDEC=//p' "$H" | tr -d '"' | sort -u)"
 vo="$(sed -n 's/^ *_VO=//p' "$H" | tr -d '"' | sort -u)"
-printf '%s\n' "$conf" | grep -qx 'hwdec=$_HWDEC' || bad "84-vpu-mpv: mpv.conf no longer takes hwdec from \$_HWDEC"
+printf '%s\n' "$conf" | grep >/dev/null -x 'hwdec=$_HWDEC' || bad "84-vpu-mpv: mpv.conf no longer takes hwdec from \$_HWDEC"
 [ "$hw" = v4l2m2m-copy ] && ok "mpv: hwdec=v4l2m2m-copy on every path" || bad "mpv: hwdec choices '$(echo $hw)' (want only v4l2m2m-copy; VA-API decode fails/hangs)"
 case "$vo" in dmabuf-wayland*) bad "mpv: vo starts with dmabuf-wayland (VA-API-only VO -> software decode)";; *) ok "mpv: first VO is not dmabuf-wayland ($vo)";; esac
 grep -qE '^[^#]*hwdec=vaapi|_HWDEC=vaapi' "$H" && bad "mpv: a VA-API hwdec path is still written" || ok "mpv: no VA-API hwdec path left"
@@ -59,9 +59,9 @@ done
 [ "$FAILS" = 0 ] && ok "seeds: audio/media runtime packages present in both desktop manifests"
 line="$(awk '/(apt-get install -y|ncz_apt_require) \\$/ {getline n; if (n ~ /pipewire-pulse/) print n}' "$ROOT/post-install/20-desktop.sh")"
 for p in pipewire pulseaudio-utils alsa-utils; do
-    printf '%s\n' "$line" | grep -qw -- "$p" || { bad "20-desktop audio install line lacks $p (autoswitch needs it)"; continue; }
+    printf '%s\n' "$line" | grep >/dev/null -w -- "$p" || { bad "20-desktop audio install line lacks $p (autoswitch needs it)"; continue; }
 done
-printf '%s\n' "$line" | grep -qw alsa-utils && ok "20-desktop: audio install line carries alsa-utils (aplay probe) and pipewire (pw-dump via pipewire-bin)"
+printf '%s\n' "$line" | grep >/dev/null -w alsa-utils && ok "20-desktop: audio install line carries alsa-utils (aplay probe) and pipewire (pw-dump via pipewire-bin)"
 
 # --- 4. browsers (r201): chromium-ncz-sky1 default on Sky1, VA-API off for Vivaldi/Chrome --
 # Session-wide LIBVA_DRIVER_NAME=libcix_va (84-vpu-vaapi) puts stock-Chromium browsers on

@@ -148,7 +148,7 @@ static int sky1_gpu_attach_pd(struct kbase_device *kbdev)
 		 * calls __pm_runtime_resume() on it and oopses on a bad
 		 * pointer (observed: NULL/garbage deref at
 		 * kbase_platform_sky1_init -> sky1_gpu_attach_pd ->
-		 * device_link_add on cixmini, 7.0.12-cix-sky1-next -- this
+		 * device_link_add on an MS-R1, 7.0.12-cix-sky1-next -- this
 		 * was the *first* device_link_add() call in this function,
 		 * hit before the power-supply one further down). Defer so
 		 * the driver core retries once the perf domain exists.
@@ -185,7 +185,7 @@ static int sky1_gpu_attach_pd(struct kbase_device *kbdev)
 			 * device_link_add() below is not safe -- device_link_add()
 			 * ends up calling __pm_runtime_resume() on it and oopses
 			 * (observed: NULL/garbage deref in kbase_platform_sky1_init
-			 * -> sky1_gpu_attach_pd -> device_link_add on cixmini,
+			 * -> sky1_gpu_attach_pd -> device_link_add on an MS-R1,
 			 * 7.0.12-cix-sky1-next). Defer so the driver core retries
 			 * this probe once the power-supply device exists.
 			 */
@@ -520,7 +520,7 @@ int sky1_gpu_init_perf_opp_table(struct kbase_device *kbdev, struct devfreq_dev_
 			 "SKY1_7_0_12_OPP: OPP table already populated (%d entries); GPU DVFS scaling available.\n",
 			 dev_pm_opp_get_opp_count(kbdev->sky1_perf_dev));
 	} else {
-		/* Codex review flagged (adversarial review, 2026-07-26): the
+		/* Review flagged (2026-07-26): the
 		 * caller chain (kbase_devfreq_init() -> kbase_backend_devfreq_init())
 		 * does NOT treat a non-zero return here as probe-fatal -- it logs
 		 * "Continuing without devfreq" and the module still loads, GPU

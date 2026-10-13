@@ -560,6 +560,7 @@ ssplugin-stage:
 lint-platform:
 	@bash $(ROOT)/build/lint-platform.sh
 	@bash $(ROOT)/build/check-no-ubuntu.sh
+	@bash $(ROOT)/tools/check-release-links.sh
 
 gen-hooks-lists:
 	@bash $(ROOT)/build/gen-hooks-lists.sh
@@ -680,6 +681,8 @@ parity:
 	python3 build/gen-components-registry.py --render-seeds --render-local-debs --render-allowlist --check
 	build/test-dual-arch-parity.sh
 	build/verify-dual-arch-parity.sh
+	build/test-release-parity.sh
+	build/test-publish-release-gitlab.sh
 	build/test-amd64-intel-vaapi.sh
 	build/test-no-software-render.sh
 	build/lint-no-software-render.sh
@@ -694,6 +697,7 @@ parity:
 	branding/cygnus/tests/test-refind-theme-config.sh
 	build/test-tour-slides.sh
 	build/test-ncz-first-login-tour.sh
+	build/test-xdg-autostart.sh
 	build/test-refind-rescue-promotion.sh
 	build/test-wallpaper-rotator-relogin.sh
 	build/test-wallpaper-rotator-interval.sh
@@ -717,6 +721,7 @@ parity:
 	build/test-sky1-media-defaults.sh
 	build/test-screensaver-default.sh
 	build/test-titlebar-buttons.sh
+	build/test-overview-dock-clearance.sh
 	build/test-screensavers-mandatory-install.sh
 	build/test-ssplugin-supply-chain.sh
 	build/test-ncz-ui.sh
@@ -740,6 +745,9 @@ parity:
 	build/test-kernel-default-policy.sh
 	build/test-rescue-kernel-channel.sh
 	build/test-late-npu-aipu.sh
+	build/test-sky1-kernel-discovery.sh
+	build/test-verify-drivers.sh
+	build/test-diag-busybox.sh
 	build/test-gpu-install-progress.sh
 	build/test-preseed-consistency.sh
 	build/test-install-feedback.sh

@@ -77,7 +77,7 @@ echo "=== raw GPT image build: amd64 installer boots our kernel, not Debian's ==
 # (amd64) branch; without the amd64 branch the substrate's Debian kernel
 # would boot the installer.
 if grep -qE '^if \[ "\$ARCH" = arm64 \]; then' "$IMGBUILD" \
-   && awk '/^if \[ "\$ARCH" = arm64 \]; then/{f=1} f&&/^else$/{print "else"; exit}' "$IMGBUILD" | grep -q else; then
+   && awk '/^if \[ "\$ARCH" = arm64 \]; then/{f=1} f&&/^else$/{print "else"; exit}' "$IMGBUILD" | grep >/dev/null else; then
     ok "build-installer-image.sh has an amd64 branch in the kernel/initrd step"
 else
     bad "no amd64 kernel/initrd branch in build-installer-image.sh (the substrate Debian kernel would boot the installer)"

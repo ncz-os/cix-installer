@@ -23,7 +23,8 @@
 > | amd64 | `7f23dcde01bd1aac9aae4bd7cee2ec87392a94d782002e8abea7f28653886851` |
 >
 > 每个镜像都是原始 GPT 磁盘镜像（`.img`），在发布页上被拆分为多个分片（GitHub 单个文件
-> 上限 2 GiB）。把所有分片、`SHA256SUMS`、`PARTS.sha256` 与
+> 上限 2 GiB）。把对应架构的所有分片、`PARTS-<架构>.sha256`、`SHA256SUMS-<架构>`
+> （旧版本为 `PARTS.sha256` 与 `SHA256SUMS`）与
 > [`ncz-join-image.sh`](tools/ncz-join-image.sh) 放在同一个文件夹里，运行
 > `sh ncz-join-image.sh arm64`（或 `amd64`）：脚本会校验每个分片、拼接并解压，再校验
 > 得到的 `.img`；它绝不会写入任何磁盘。然后把 `.img` 写入**至少 16 GB** 的驱动器
@@ -82,6 +83,10 @@
 >
 > **→ [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)** —— 究竟启用了什么、为什么，
 > 以及如何逐项关闭。
+>
+> **→ [docs/RECOVERY-LOGINS.md](docs/RECOVERY-LOGINS.md)**（英文）—— 安装程序诊断登录
+> （仅在安装程序运行期间存在，`root` / `rescue`，显示在每个控制台的启动横幅中）
+> 与救援分区登录。
 
 ### 这个项目为什么存在，又为什么这样构建
 
@@ -200,11 +205,11 @@ NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都�
    sh ncz-join-image.sh arm64        # 或 amd64
    ```
 
-   手动方式：`sha256sum -c PARTS.sha256`，然后
+   手动方式：`sha256sum -c PARTS-<架构>.sha256`，然后
    `cat ncz-os-<架构>-<日期>-<sha>.img.zst.part-* | zstd -d -o ncz-os-<架构>-<日期>-<sha>.img`，
-   再用 `sha256sum` 与 `SHA256SUMS` 对照。
+   再用 `sha256sum` 与 `SHA256SUMS-<架构>` 对照（旧版本为 `PARTS.sha256` 与 `SHA256SUMS`）。
 
-2. **写入至少 16 GB 的驱动器**（镜像 7.6 GB；写入会清空该驱动器）。任何系统上都可以用
+2. **写入至少 16 GB 的 USB 驱动器**（镜像 7.6 GB；写入会清空该驱动器）。任何系统上都可以用
    Balena Etcher。在 Linux 上，请把原始 GPT 镜像写入**整块设备**（`/dev/sdX`），而不是某个
    分区（`/dev/sdX1`）：
 
@@ -220,7 +225,12 @@ NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都�
    > **`dd` 会毫不询问地写入你所指定的任何设备。** 执行前请用 `lsblk`（Linux）或
    > `diskutil list`（macOS）再确认一次目标；写错设备会销毁那块磁盘上的数据。
 
-3. **启动。** 把驱动器插到目标机器上（arm64 镜像用于 Sky1 主板，amd64 镜像用于
+   > **只支持从 USB 驱动器安装。** 请把镜像写入 U 盘或 USB 硬盘，从它启动，再选择内置
+   > 磁盘作为安装目标。把镜像写入内置 NVMe、SD 卡或 eMMC 并从那里安装不受支持。原因：
+   > 安装程序只信任 USB 上的安装介质，这样介质检测更可靠，而且启动用的磁盘永远不会被
+   > 安装程序清空。
+
+3. **启动。** 把 USB 驱动器插到目标机器上（arm64 镜像用于 Sky1 主板，amd64 镜像用于
    Intel/AMD PC 或 T2 Mac），开机后从 UEFI 启动菜单选择该驱动器；Mac 上开机时按住
    Option（⌥）。安装程序在两种架构上都会启动 NCZ 内核（T2 Mac 上为 T2 内核）；若 Mac
    内置键盘在安装过程中没有响应，请准备一个 USB 键盘。
@@ -231,6 +241,20 @@ NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都�
 
 5. 安装程序在确认页之后清空磁盘、完成安装并重启。拔掉驱动器后，系统经 rEFInd 启动到
    Singularity 登录界面；首次登录会显示一段桌面导览。
+
+### 安装故障排查
+
+- **"NCZ-OS installer: no USB installation drive found"。** 安装程序没有在 USB 驱动器上
+  找到镜像。镜像被写入内置 NVMe、SD 卡或 eMMC，或 U 盘未被识别时会出现此界面。界面会
+  列出在内置磁盘上找到的镜像（该磁盘不会被列为安装目标），新插入的 U 盘会在 10 秒内
+  被识别；按 **R** 重新扫描 USB 端口，按 **S** 打开 shell，按 **B** 重启。把镜像写入 U 盘后插上即可继续安装，或从 U 盘重新启动。
+- **收集日志。** 在安装程序主菜单中选择 **Save debug logs**，或按 Alt-F2 打开 shell，把
+  `/var/log/syslog` 复制到 U 盘。Alt-F4 实时显示安装日志；Alt-F3 显示诊断控制台及远程
+  登录信息（[docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)，英文）。报告问题时请附上镜像
+  文件名及其 `sha256sum`、失败的步骤，以及已安装系统上 `lsblk -f` 与 `sudo efibootmgr -v`
+  的输出。
+- **安装程序使用 rEFInd，而不是 GRUB。** d-i 自带的 GRUB 与 systemd-boot 步骤会被跳过，
+  安装程序自己把 rEFInd 写入 ESP。目标机器上出现的 GRUB 提示来自其他系统或旧的启动项。
 
 ## 嵌入模型
 

@@ -2,7 +2,7 @@ From: Jason Perlow <jperlow@gmail.com>
 Date: Tue, 28 Jul 2026 00:00:00 +0000
 Subject: [PATCH] mali_kbase: guard against a NULL IPA model in kbase_get_real_power_locked
 
-Observed on O6N/cixmini across rc4, rc5 and 7.0.12-cix-sky1-next
+Observed on O6N/MS-R1 across rc4, rc5 and 7.0.12-cix-sky1-next
 (serial console capture 2026-07-28): the CIXH5000 (mali) platform
 probe calls into kbase_csf_protected_memory_init(), which can return
 -EPROBE_DEFER (-517) if the protected_memory_allocator device hasn't

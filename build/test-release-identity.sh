@@ -21,7 +21,7 @@ check_nogrep() { if grep -qF -- "$2" "$1" 2>/dev/null; then bad "$3" "'$2' still
 # Comment-aware variant: history prose may still name 26.7/Maximilian, only a
 # LIVE (non-comment) hardcode is the regression.
 strip_comments() { sed -E 's/^[[:space:]]*#.*$//' "$1"; }
-check_nolive() { if strip_comments "$1" | grep -qF -- "$2"; then bad "$3" "'$2' is still a live hardcode in $1"; else ok "$3"; fi; }
+check_nolive() { if strip_comments "$1" | grep >/dev/null -F -- "$2"; then bad "$3" "'$2' is still a live hardcode in $1"; else ok "$3"; fi; }
 
 ROOT_RC="$ROOT/release.conf"
 [ -r "$ROOT_RC" ] || { echo "FATAL: missing $ROOT_RC" >&2; exit 2; }
@@ -90,6 +90,34 @@ for f in build/test-ncz-ui.sh build/test-installed-target-verifier.sh build/test
     check_nolive "$ROOT/$f" "Maximilian" "$f: fixture no longer pins Maximilian"
     check_grep  "$ROOT/$f" "release.conf" "$f: fixture sources release.conf"
 done
+
+# ---- os-release names the base system once --------------------------------
+# PRETTY_NAME used to read "... (based on Debian testing Debian Testing (Forky))":
+# the hook printed NCZ_BASE_NAME and NCZ_BASE_VERSION in front of
+# NCZ_BASE_LABEL, which already carries both.
+brand_id() { # $1 release file, $2 variant, $3 key
+    NCZ_BRAND_PRINT_IDENTITY="$1" NCZ_BRAND_VARIANT="$2" \
+        bash "$ROOT/post-install/50-brand.sh" 2>/dev/null | sed -n "s/^$3=//p"
+}
+check_eq "50-brand.sh: desktop PRETTY_NAME" "$(brand_id "$ROOT_RC" desktop PRETTY_NAME)" \
+    "$EXPECT_LABEL Desktop, based on $NCZ_BASE_LABEL"
+check_eq "50-brand.sh: server PRETTY_NAME" "$(brand_id "$ROOT_RC" server PRETTY_NAME)" \
+    "$EXPECT_LABEL Server, based on $NCZ_BASE_LABEL"
+check_eq "50-brand.sh: VERSION" "$(brand_id "$ROOT_RC" desktop VERSION)" \
+    "$NCZ_RELEASE_VERSION ($NCZ_RELEASE_CODENAME Desktop, based on $NCZ_BASE_LABEL)"
+check_eq "50-brand.sh: lsb DISTRIB_DESCRIPTION matches PRETTY_NAME" \
+    "$(brand_id "$ROOT_RC" desktop DISTRIB_DESCRIPTION)" "$(brand_id "$ROOT_RC" desktop PRETTY_NAME)"
+_pn="$(brand_id "$ROOT_RC" desktop PRETTY_NAME)"
+_lc="$(printf '%s' "$_pn" | tr '[:upper:]' '[:lower:]')"
+_n="$(printf '%s' "$_lc" | grep -o "$(printf '%s' "$NCZ_BASE_NAME" | tr '[:upper:]' '[:lower:]')" | wc -l)"
+check_eq "50-brand.sh: PRETTY_NAME names the base distribution once" "$_n" "1"
+_n="$(printf '%s' "$_lc" | grep -o "$(printf '%s' "$NCZ_BASE_VERSION" | tr '[:upper:]' '[:lower:]')" | wc -l)"
+check_eq "50-brand.sh: PRETTY_NAME names the base suite once" "$_n" "1"
+printf 'NCZ_PRODUCT_NAME="NCZ-OS"\nNCZ_RELEASE_VERSION="99.1"\nNCZ_RELEASE_CODENAME="Testbird"\nNCZ_BASE_NAME="Debian"\nNCZ_BASE_VERSION="testing"\n' > "$T/nolabel.conf"
+check_eq "50-brand.sh: release file without NCZ_BASE_LABEL" "$(brand_id "$T/nolabel.conf" desktop PRETTY_NAME)" \
+    "NCZ-OS 99.1 Testbird Desktop, based on Debian testing"
+check_nogrep "$ROOT/post-install/50-brand.sh" '${NCZ_BASE_NAME} ${NCZ_BASE_VERSION} ${NCZ_BASE_LABEL}' \
+    "50-brand.sh: no identity string repeats the base name and suite before the label"
 
 echo "release-identity tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]

@@ -337,31 +337,43 @@ A shell without the row treats the unknown id as Other. Not filed upstream yet (
 link, so the reconcile script never retires it); the upstream draft is
 `upstream-drafts/singularity-shell/08-lock-category`.
 
+Patch `0021-overview-keep-the-app-grid-clear-of-the-dock.patch`: the app overview is a
+full-output layer surface with exclusive zone -1 and the dock stays above it (shown while
+the overview is open, also in autohide/intellihide), so the dock covered the bottom row of
+app icons. Adds `Dock.shown_extent()` (the dock's exclusive zone when always visible plus
+its layer margin) and insets the overview content stack by it on the dock edge; the grid
+viewport hint and column count use the remaining area. Not filed upstream yet (no PR link).
+Regression test: `build/test-overview-dock-clearance.sh`.
+
+## singularity-leafs — carried, not filed
+
+Patch `0001-window-keep-the-toolbar-in-classic-titlebar-and-ssd-modes.patch`: Leafs hid
+its window toolbar in every mode (each leaf has its own hover controls). With
+`legacy-titlebar` on, which NCZ sets by default (`post-install/65-ncz-titlebar-buttons.sh`),
+that toolbar is the static titlebar carrying minimize, maximize and close, so Leafs was the
+only app without window buttons. The patch hides the toolbar only in floating-bubbles mode.
+Not filed upstream yet (no PR link). Regression test: `build/test-titlebar-buttons.sh`.
+
 ## singularity-nearby — active
 
-**Not yet filed upstream** (2026-10-13). Patches
-`0001-fix-release-links-when-they-close.patch` and
-`0002-fix-keep-an-open-link-when-the-peer-announces-itself.patch`, applied in order
-to the pinned commit (7c13cacd).
+**Not yet filed upstream** (2026-10-13). Patch
+`0002-fix-keep-an-open-link-when-the-peer-announces-itself.patch`, stacked on
+0001 below: `LanProvider.discovered()` no longer opens a new connection for every
+announcement while a link to that device is open, so links are not torn down
+and re-handshaken every 30 seconds. Incoming connections still replace the old
+link. No `**Upstream PR:**` link on purpose; it must not be retired when #1
+merges.
 
-- `0001` fixes unbounded memory growth in the `singularity-nearby` service.
-  `Service.on_link()` connected two closures to the link's own `packet-received`
-  and `closed` signals and both captured the link, so each link held a closure
-  that held the link, and no closed or replaced link (with its TLS connection and
-  buffers) was ever freed. Every desktop on the network announces itself every
-  30 seconds and each announcement replaced the link, so on a network with
-  several desktops the service grew by about 10 MB a minute (3-4 GB after six
-  hours). The handlers are now disconnected when the link closes.
-  `tests/link_test.vala` (`meson test nearby-link`) checks that a closed link and
-  a replaced link are finalized; it fails on the pinned commit.
-- `0002` stops `LanProvider.discovered()` from opening a new connection for
-  every announcement while a link to that device is already open, so links are
-  no longer torn down and re-handshaken every 30 seconds. Incoming connections
-  still replace the old link; a dropped link is reopened on the next
-  announcement.
-
-No `**Upstream PR:**` link on purpose (nothing is filed). Delete both patches and
-this block when the change lands upstream.
+**Upstream PR:** [singularityos-lab/singularity-nearby#1](https://github.com/singularityos-lab/singularity-nearby/pull/1)
+— open, not yet merged. Patch `0001-fix-release-links-when-they-close.patch`
+(the PR head). `Service.on_link()` connected two closures to the link's own
+`packet-received` and `closed` signals and both captured the link, so no closed
+or replaced link (with its TLS connection) was ever freed. Every desktop on the
+network announces itself every 30 seconds and each announcement replaced the
+link, so with several desktops on one network the service grew by about 10 MB a
+minute. The handlers are now disconnected when the link closes;
+`tests/link_test.vala` (`meson test nearby-link`) fails on the pinned commit and
+passes with the patch. Delete this patch once PR #1 merges.
 
 ## Previously landed
 

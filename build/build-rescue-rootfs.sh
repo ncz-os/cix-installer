@@ -6,8 +6,8 @@
 # pre-configured for headless LAN recovery (serial + telnet + dropbear + sshd
 # + DHCP-only networking) with the /lib-usrmerge repair helper baked in.
 #
-# WAS UBUNTU (resolute) UNTIL 2026-08-11. That was wrong twice over: the
-# operator retired Ubuntu entirely, and a recovery environment built from a
+# WAS UBUNTU (resolute) UNTIL 2026-08-11. That was wrong twice over: Ubuntu
+# was retired entirely, and a recovery environment built from a
 # different distribution than the system it recovers cannot share the shipping
 # kernel's modules. Measured on O6N: the installed rescue partition was
 # "Ubuntu 26.04 LTS" carrying only 7.0.12 modules, so retiring the 7.0.12
@@ -400,12 +400,23 @@ rm -rf "$CHROOT/var/lib/apt/lists/"* "$CHROOT/var/cache/apt/archives/"*.deb 2>/d
 # creates fresh values after extracting this archive onto the target device.
 rm -f "$CHROOT"/etc/ssh/ssh_host_* "$CHROOT/var/lib/dbus/machine-id"
 : > "$CHROOT/etc/machine-id"
+# Package scripts that run in the build chroot describe the BUILD HOST, not the
+# target: lvm2's vgcfgbackup writes the host's volume groups (with its host
+# name and kernel) to /etc/lvm/backup, and nvme-cli generates one NVMe host
+# NQN/ID that every installed rescue partition would then share. Drop them; the
+# target regenerates what it needs.
+rm -rf "$CHROOT"/etc/lvm/backup/* "$CHROOT"/etc/lvm/archive/*
+rm -f "$CHROOT/etc/nvme/hostnqn" "$CHROOT/etc/nvme/hostid"
+# Build-time logs describe the BUILD HOST (its paths, and the host name in the
+# ssh-keygen output of the openssh postinst); the target writes its own logs.
+find "$CHROOT/var/log" -type f \( -name '*.log' -o -name '*.log.xz' \) -delete 2>/dev/null || true
+rm -f "$CHROOT/tmp/ncz-apt-update.log"
 
 # Ship gate: this is a bootable partition image, not merely a useful chroot.
 # Resolute minbase can install systemd without systemd-sysv, leaving no
 # /sbin/init; that produced a kernel-mounted rescue root with no PID 1, console,
 # or networking. Validate the exact boot and remote-recovery contract before
-# packing so an unusable rescue image cannot enter an ISO.
+# packing so an unusable rescue image cannot enter an image.
 for required in \
     /sbin/init \
     /bin/sh \
@@ -420,6 +431,18 @@ done
 if [ -s "$CHROOT/etc/machine-id" ] || \
    find "$CHROOT/etc/ssh" -maxdepth 1 -type f -name 'ssh_host_*_key' | grep -q .; then
     echo "[rescue-rootfs] ERROR: golden rescue image contains persistent identity or SSH private keys" >&2
+    exit 1
+fi
+_host_state="$(find "$CHROOT/etc/lvm/backup" "$CHROOT/etc/lvm/archive" -mindepth 1 2>/dev/null; \
+    find "$CHROOT/etc/nvme" -maxdepth 1 \( -name hostnqn -o -name hostid \) 2>/dev/null)"
+if [ -n "$_host_state" ]; then
+    echo "[rescue-rootfs] ERROR: golden rescue image carries build-host state: $_host_state" >&2
+    exit 1
+fi
+_build_logs="$(find "$CHROOT/var/log" -type f \( -name '*.log' -o -name '*.log.xz' \) 2>/dev/null; \
+    find "$CHROOT/tmp" -maxdepth 1 -type f -name 'ncz-apt-update.log' 2>/dev/null)"
+if [ -n "$_build_logs" ]; then
+    echo "[rescue-rootfs] ERROR: archive would carry build-time logs: $_build_logs" >&2
     exit 1
 fi
 for enabled in \
@@ -439,7 +462,7 @@ if ! grep -Fq 'KERNEL=="ttyAMA[02]"' "$CHROOT/etc/udev/rules.d/70-ncz-serial-get
     echo "[rescue-rootfs] ERROR: device-driven serial getty rule is missing" >&2
     exit 1
 fi
-echo "[rescue-rootfs] verified: PID 1, device-driven serial consoles, DHCP-only network, ssh runtime, and identity reset"
+echo "[rescue-rootfs] verified: PID 1, device-driven serial consoles, DHCP-only network, ssh runtime, identity reset, and no build-host state or build logs"
 
 # ----------------------------------------------------------------------
 # Stage 4 — pack the tarball (unmount binds first).

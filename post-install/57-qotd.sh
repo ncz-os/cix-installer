@@ -58,6 +58,10 @@ chmod 0755 /etc/update-motd.d/50-ncz-qotd
 # --- desktop login notification (GUI screen) --------------------------------
 # XDG autostart: on desktop login, pop the QOTD via notify-send (persists ~20s,
 # NCZ avatar icon). Skips cleanly on headless/server (no notify-send / no DBus).
+# The Singularity shell (libsingularity AutostartManager) starts a SYSTEM
+# /etc/xdg/autostart entry only when its OnlyShowIn names Singularity, and the
+# session exports XDG_CURRENT_DESKTOP=Singularity; an entry without it is never
+# launched (build/test-xdg-autostart.sh).
 cat > /usr/local/bin/ncz-qotd-notify <<'NOTIFY'
 #!/bin/sh
 command -v notify-send >/dev/null 2>&1 || exit 0
@@ -82,7 +86,7 @@ Icon=/usr/share/pixmaps/ncz-avatar-magenta.png
 Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
-OnlyShowIn=XFCE;
+OnlyShowIn=Singularity;
 DESK
 chmod 0644 /etc/xdg/autostart/ncz-qotd.desktop
 

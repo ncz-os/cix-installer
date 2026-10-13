@@ -5,15 +5,30 @@
 # Usage:
 #   tools/publish-release-gitlab.sh --dir DIR --tag TAG [options]
 #
-# DIR is a staged release folder holding the split image parts
-# (ncz-os-<arch>-<date>-<sha>.img.zst.part-NN), PARTS.sha256, SHA256SUMS and
-# ncz-join-image.sh. Every part is checked against PARTS.sha256 before
-# anything is sent. Each file is uploaded to
-#   <api>/projects/<id>/packages/generic/<package>/<version>/<file>
+# DIR is a staged release folder with one folder per architecture
+# (docs/IMAGE-HOSTING.md, "Release layout"):
+#   DIR/amd64/  ncz-os-amd64-<date>-<build>.img.zst.part-NN, PARTS-amd64.sha256, SHA256SUMS-amd64
+#   DIR/arm64/  the same for arm64
+#   DIR/        ncz-join-image.sh, SHA256SUMS (= SHA256SUMS-amd64 + SHA256SUMS-arm64),
+#               optionally NOTES.md (attached as a file too)
+# Every part is checked against its PARTS file before anything is sent.
+# Each architecture is one generic package, <package>-<arch> (its parts, its
+# PARTS and SHA256SUMS files and a copy of ncz-join-image.sh, so the package
+# alone is a complete download); the common files are the package
+# <package>-common. Files go to
+#   <api>/projects/<id>/packages/generic/<package>-<group>/<version>/<file>
 # and the sha256 the registry reports must equal the local one. A file that
 # is already in that package version with the same sha256 is not sent again.
 # The GitLab release for TAG is then created (or its name/notes updated) and
-# gets one asset link per file; existing links with the same name are updated.
+# gets one asset link per file, in the canonical order: the amd64 files as
+# "amd64/<file>", the arm64 files as "arm64/<file>" (both link type package,
+# so the page reads as one folder per architecture), then the common files
+# (link type other). Links of the release that are not in this set are
+# removed. Each link's direct path is a stable alias that does not change
+# between releases (/<arch>/ncz-os-<arch>.img.zst.part-NN,
+# /<arch>/PARTS-<arch>.sha256, /<arch>/SHA256SUMS-<arch>, /<common file>), so
+#   https://gitlab.com/<project>/-/releases/permalink/latest/downloads/<alias>
+# always reaches the latest release's file.
 # The tag must already exist: this tool never creates tags.
 #
 # Options:
@@ -21,16 +36,21 @@
 #   --tag TAG         existing git tag the release belongs to (required)
 #   --project PATH    project path or numeric id (default ncz-os/cix-installer,
 #                     or $NCZ_GITLAB_PROJECT)
-#   --package NAME    generic package name (default ncz-os-image)
+#   --package NAME    generic package name prefix (default ncz-os-image:
+#                     packages ncz-os-image-amd64, -arm64 and -common)
 #   --version VER     package version (default: TAG without a leading "v")
 #   --name TEXT       release title (default: TAG)
 #   --notes FILE      Markdown file used as the release description
 #   --api URL         API base (default https://gitlab.com/api/v4, or
 #                     $NCZ_GITLAB_API)
-#   --prune-old       after publishing, delete older versions of the package,
-#                     keeping the newest --keep versions (the one just
-#                     published always counts as kept), and remove the asset
-#                     links of other releases that point at a deleted version
+#   --prune-old       after publishing, delete older versions of each of the
+#                     three packages, keeping the newest --keep versions of
+#                     each (the one just published always counts as kept),
+#                     delete every version of the older single package
+#                     <package> (no suffix), and remove the asset links of
+#                     other releases that point at a deleted version. Other
+#                     packages (e.g. the kernel source packages) are never
+#                     touched.
 #   --keep N          versions kept by --prune-old (default 1)
 #   --dry-run         read-only: check the folder, query the API when a token
 #                     is available, print every change that would be made
@@ -55,7 +75,7 @@ DIR=""; TAG=""; VERSION=""; NAME=""; NOTES=""
 PRUNE=0; KEEP=1; DRY=0
 MAX_BYTES="${NCZ_GITLAB_MAX_FILE_BYTES:-5368709120}"
 
-usage() { sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 die() { echo "ERROR: $1" >&2; exit "${2:-1}"; }
 udie() { die "$*" 2; }
 log() { echo "$*"; }
@@ -89,8 +109,8 @@ case "$MAX_BYTES" in ''|*[!0-9]*) udie "NCZ_GITLAB_MAX_FILE_BYTES must be a numb
 [ -n "$NAME" ] || NAME=$TAG
 # Registry naming rules (generic packages): name and file [A-Za-z0-9._+~-],
 # version made of word characters, '.', '+' and '-'.
-printf '%s' "$PACKAGE" | grep -Eq '^[A-Za-z0-9._+~-]+$' || udie "invalid package name: $PACKAGE"
-printf '%s' "$VERSION" | grep -Eq '^[A-Za-z0-9_.+-]+$' || udie "invalid package version: $VERSION"
+printf '%s' "$PACKAGE" | grep >/dev/null -E '^[A-Za-z0-9._+~-]+$' || udie "invalid package name: $PACKAGE"
+printf '%s' "$VERSION" | grep >/dev/null -E '^[A-Za-z0-9_.+-]+$' || udie "invalid package version: $VERSION"
 API=${API%/}
 for t in jq curl; do command -v "$t" >/dev/null 2>&1 || udie "$t is required"; done
 if command -v sha256sum >/dev/null 2>&1; then sha() { sha256sum "$1" | cut -d' ' -f1; }
@@ -98,39 +118,35 @@ elif command -v shasum >/dev/null 2>&1; then sha() { shasum -a 256 "$1" | cut -d
 else udie "need sha256sum or shasum"; fi
 fsize() { wc -c < "$1" | tr -d ' '; }
 uri() { jq -rn --arg s "$1" '$s|@uri'; }
+WORK0=$(mktemp -d "${TMPDIR:-/tmp}/glpub0.XXXXXX")
+trap 'rm -rf "$WORK0"' EXIT
 
 # ---- the staged folder ------------------------------------------------------
-[ -f "$DIR/PARTS.sha256" ] || udie "PARTS.sha256 not found in $DIR"
-[ -f "$DIR/SHA256SUMS" ] || udie "SHA256SUMS not found in $DIR"
-[ -f "$DIR/ncz-join-image.sh" ] || udie "ncz-join-image.sh not found in $DIR"
+# shellcheck source=tools/release-forge-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-forge-lib.sh"
+rf_layout "$DIR" > "$WORK0/layout.tsv" || udie "the staged folder does not match the release layout (see above)"
 
-FILES=()
-while read -r want name; do
-  [ -n "${name:-}" ] || continue
-  name=${name#\*}
-  case "$name" in */*|'') udie "PARTS.sha256 entry is not a plain file name: $name" ;; esac
-  printf '%s' "$name" | grep -Eq '^[A-Za-z0-9._+~-]+$' || udie "file name not allowed by the registry: $name"
-  [ -f "$DIR/$name" ] || udie "part listed in PARTS.sha256 is missing: $name"
-  got=$(sha "$DIR/$name")
-  [ "$got" = "$want" ] || udie "checksum mismatch for $name (PARTS.sha256 $want, file $got)"
-  FILES+=("$name")
-done < "$DIR/PARTS.sha256"
-[ "${#FILES[@]}" -gt 0 ] || udie "PARTS.sha256 lists no parts"
-for p in "$DIR"/*.img.zst.part-*; do
-  [ -e "$p" ] || continue
-  b=${p##*/}
-  printf '%s\n' "${FILES[@]}" | grep -qxF -- "$b" || udie "part not listed in PARTS.sha256: $b"
-done
-FILES+=(PARTS.sha256 SHA256SUMS ncz-join-image.sh)
-
-declare -A LSHA=()
-for f in "${FILES[@]}"; do
-  s=$(fsize "$DIR/$f")
+FILES=(); declare -A FPATH=() FGROUP=() LSHA=()
+while IFS=$'\t' read -r g rel f; do
+  FILES+=("$f"); FPATH[$f]="$DIR/$rel"; FGROUP[$f]=$g
+  s=$(fsize "$DIR/$rel")
   [ "$s" -le "$MAX_BYTES" ] || udie "$f is $s bytes, over the $MAX_BYTES byte file limit"
-  LSHA[$f]=$(sha "$DIR/$f")
+  LSHA[$f]=$(sha "$DIR/$rel")
+done < "$WORK0/layout.tsv"
+declare -A ALIAS=()
+for f in "${FILES[@]}"; do
+  a=$(rf_gl_path "$f")
+  [ -z "${ALIAS[$a]:-}" ] || udie "$f and ${ALIAS[$a]} share the stable path $a (one image per architecture per release)"
+  ALIAS[$a]=$f
 done
-log "Release folder: $DIR (${#FILES[@]} files, parts verified against PARTS.sha256)"
-log "Package: $PACKAGE $VERSION   Tag: $TAG   Project: $PROJECT"
+GROUPS_USED=$(printf '%s\n' "${FGROUP[@]}" | sort -u | tr '\n' ' ')
+# what goes into which package: the architecture files, plus a copy of the
+# join script in each architecture package; the common files
+UPLOADS=()   # "<package>\t<file>"
+for f in "${FILES[@]}"; do UPLOADS+=("$PACKAGE-${FGROUP[$f]}"$'\t'"$f"); done
+for g in $GROUPS_USED; do [ "$g" = common ] || UPLOADS+=("$PACKAGE-$g"$'\t'"ncz-join-image.sh"); done
+log "Release folder: $DIR (${#FILES[@]} files: ${GROUPS_USED% }; parts verified against their PARTS files)"
+log "Packages: $(for g in $GROUPS_USED; do printf '%s ' "$PACKAGE-$g"; done)version $VERSION   Tag: $TAG   Project: $PROJECT"
 
 # ---- token and API helpers --------------------------------------------------
 TOKEN=""
@@ -138,7 +154,7 @@ if [ -n "${NCZ_GITLAB_TOKEN_HELPER:-}" ]; then
   TOKEN=$("$NCZ_GITLAB_TOKEN_HELPER") || die "token helper failed"
 else
   tv=${NCZ_GITLAB_TOKEN_VAR:-GITLAB_TOKEN}
-  printf '%s' "$tv" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*$' || udie "NCZ_GITLAB_TOKEN_VAR is not a variable name"
+  printf '%s' "$tv" | grep >/dev/null -E '^[A-Za-z_][A-Za-z0-9_]*$' || udie "NCZ_GITLAB_TOKEN_VAR is not a variable name"
   TOKEN=${!tv:-}
 fi
 TOKEN=$(printf '%s' "$TOKEN" | tr -d '\r\n')
@@ -149,7 +165,7 @@ if [ -z "$TOKEN" ]; then
 fi
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/glpub.XXXXXX")
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK" "$WORK0"' EXIT
 BODY="$WORK/body"
 
 # api METHOD URL [json-body-file | --upload FILE]  ->  response in $BODY, code on stdout
@@ -196,53 +212,61 @@ if [ "$ONLINE" -eq 1 ]; then
   c=$(api GET "$API/projects/$PID/repository/tags/$(uri "$TAG")")
   [ "$c" = 200 ] || die "tag $TAG does not exist in $PROJECT (HTTP $c); create and push the tag first" 2
 fi
-PKGBASE="$API/projects/$PID/packages/generic/$PACKAGE/$VERSION"
+pkgbase() { echo "$API/projects/$PID/packages/generic/$1/$VERSION"; }
 
 # ---- uploads ----------------------------------------------------------------
-# existing files of this package version: name -> sha256 (newest wins)
+# package_id PACKAGE -> id of its version $VERSION (empty if none)
+package_id() {
+  get_all "$API/projects/$PID/packages?package_type=generic&package_name=$(uri "$1")" > "$WORK/pkgs.json"
+  jq -r --arg n "$1" --arg v "$VERSION" '[.[] | select(.name==$n and .version==$v)][0].id // empty' "$WORK/pkgs.json"
+}
+# existing files: "<package>/<file>" -> sha256 (newest wins)
 declare -A RSHA=()
-PKGID=""
 if [ "$ONLINE" -eq 1 ]; then
-  get_all "$API/projects/$PID/packages?package_type=generic&package_name=$(uri "$PACKAGE")" > "$WORK/pkgs.json"
-  PKGID=$(jq -r --arg n "$PACKAGE" --arg v "$VERSION" '[.[] | select(.name==$n and .version==$v)][0].id // empty' "$WORK/pkgs.json")
-  if [ -n "$PKGID" ]; then
-    get_all "$API/projects/$PID/packages/$PKGID/package_files" > "$WORK/files.json"
-    while read -r n s; do RSHA[$n]=$s; done < <(jq -r 'sort_by(.id)[] | "\(.file_name) \(.file_sha256)"' "$WORK/files.json")
-  fi
+  for g in $GROUPS_USED; do
+    pk="$PACKAGE-$g"; id=$(package_id "$pk")
+    [ -n "$id" ] || continue
+    get_all "$API/projects/$PID/packages/$id/package_files" > "$WORK/files.json"
+    while read -r n s; do RSHA[$pk/$n]=$s; done < <(jq -r 'sort_by(.id)[] | "\(.file_name) \(.file_sha256)"' "$WORK/files.json")
+  done
 fi
 
-for f in "${FILES[@]}"; do
-  want=${LSHA[$f]}
-  if [ "${RSHA[$f]:-}" = "$want" ]; then log "  present  $f"; continue; fi
-  if [ "$DRY" -eq 1 ]; then log "  [dry-run] upload $f ($(fsize "$DIR/$f") bytes) -> $PKGBASE/$f"; continue; fi
+for u in "${UPLOADS[@]}"; do
+  pk=${u%%$'\t'*}; f=${u#*$'\t'}
+  want=${LSHA[$f]}; src=${FPATH[$f]}; base=$(pkgbase "$pk")
+  if [ "${RSHA[$pk/$f]:-}" = "$want" ]; then log "  present  $pk/$f"; continue; fi
+  if [ "$DRY" -eq 1 ]; then log "  [dry-run] upload $pk/$f ($(fsize "$src") bytes) -> $base/$f"; continue; fi
   ok=0
   for attempt in 1 2 3; do
-    c=$(api PUT "$PKGBASE/$(uri "$f")?select=package_file" --upload "$DIR/$f")
+    c=$(api PUT "$base/$(uri "$f")?select=package_file" --upload "$src")
     if [ "$c" = 200 ] || [ "$c" = 201 ]; then
       got=$(jq -r '.file_sha256 // empty' "$BODY")
       if [ "$got" = "$want" ]; then ok=1; break; fi
-      echo "  sha256 from the registry for $f is '$got', expected $want (attempt $attempt)" >&2
+      echo "  sha256 from the registry for $pk/$f is '$got', expected $want (attempt $attempt)" >&2
     else
-      echo "  upload of $f returned HTTP $c (attempt $attempt): $(head -c 200 "$BODY")" >&2
+      echo "  upload of $pk/$f returned HTTP $c (attempt $attempt): $(head -c 200 "$BODY")" >&2
     fi
   done
-  [ "$ok" -eq 1 ] || die "upload of $f failed verification"
-  log "  uploaded $f ($want)"
+  [ "$ok" -eq 1 ] || die "upload of $pk/$f failed verification"
+  log "  uploaded $pk/$f ($want)"
 done
 
-# Keep exactly one file per name in this version: drop older duplicates so a
-# download can only ever return the verified file.
+# Keep exactly one file per name in each package version: drop older
+# duplicates so a download can only ever return the verified file.
 if [ "$DRY" -eq 0 ]; then
-  get_all "$API/projects/$PID/packages?package_type=generic&package_name=$(uri "$PACKAGE")" > "$WORK/pkgs.json"
-  PKGID=$(jq -r --arg n "$PACKAGE" --arg v "$VERSION" '[.[] | select(.name==$n and .version==$v)][0].id // empty' "$WORK/pkgs.json")
-  [ -n "$PKGID" ] || die "package $PACKAGE $VERSION not found after upload"
-  get_all "$API/projects/$PID/packages/$PKGID/package_files" > "$WORK/files.json"
-  for f in "${FILES[@]}"; do
-    newest=$(jq -r --arg n "$f" --arg s "${LSHA[$f]}" '[.[] | select(.file_name==$n and .file_sha256==$s)] | max_by(.id) | .id // empty' "$WORK/files.json")
-    [ -n "$newest" ] || die "$f with sha256 ${LSHA[$f]} is not in $PACKAGE $VERSION"
-    for old in $(jq -r --arg n "$f" --argjson k "$newest" '.[] | select(.file_name==$n and .id!=$k) | .id' "$WORK/files.json"); do
-      mutate DELETE "$API/projects/$PID/packages/$PKGID/package_files/$old"
-      log "  removed older copy of $f (file id $old)"
+  for g in $GROUPS_USED; do
+    pk="$PACKAGE-$g"; id=$(package_id "$pk")
+    [ -n "$id" ] || die "package $pk $VERSION not found after upload"
+    get_all "$API/projects/$PID/packages/$id/package_files" > "$WORK/files.json"
+    for u in "${UPLOADS[@]}"; do
+      [ "${u%%$'\t'*}" = "$pk" ] || continue
+      f=${u#*$'\t'}
+      newest=$(jq -r --arg n "$f" --arg s "${LSHA[$f]}" '[.[] | select(.file_name==$n and .file_sha256==$s)] | max_by(.id) | .id // empty' "$WORK/files.json")
+      [ -n "$newest" ] || die "$f with sha256 ${LSHA[$f]} is not in $pk $VERSION"
+      for old in $(jq -r --arg n "$f" --argjson k "$newest" '.[] | select(.file_name==$n and .id!=$k) | .id' "$WORK/files.json"); do
+        mutate DELETE "$API/projects/$PID/packages/$id/package_files/$old"
+        log "  removed older copy of $pk/$f (file id $old)"
+      done
     done
   done
 fi
@@ -270,52 +294,67 @@ else
   mutate POST "$API/projects/$PID/releases" "$WORK/rel.json"
 fi
 
+WANT_LINKS=()
 for f in "${FILES[@]}"; do
-  url="$PKGBASE/$f"
-  case "$f" in *.part-*) lt=package ;; *) lt=other ;; esac
-  jq -n --arg n "$f" --arg u "$url" --arg p "/$f" --arg l "$lt" \
+  url="$(pkgbase "$PACKAGE-${FGROUP[$f]}")/$f"
+  ln=$(rf_gl_link_name "$f"); dp=$(rf_gl_path "$f")
+  WANT_LINKS+=("$ln")
+  if [ "${FGROUP[$f]}" = common ]; then lt=other; else lt=package; fi
+  jq -n --arg n "$ln" --arg u "$url" --arg p "$dp" --arg l "$lt" \
     '{name:$n, url:$u, direct_asset_path:$p, link_type:$l}' > "$WORK/link.json"
-  lid=$(jq -r --arg n "$f" '[.[] | select(.name==$n)][0].id // empty' "$WORK/links.json")
+  lid=$(jq -r --arg n "$ln" '[.[] | select(.name==$n)][0].id // empty' "$WORK/links.json")
   if [ -z "$lid" ]; then
     mutate POST "$API/projects/$PID/releases/$TENC/assets/links" "$WORK/link.json"
-    log "  link added   $f"
-  elif [ "$(jq -r --arg n "$f" '[.[] | select(.name==$n)][0].url' "$WORK/links.json")" != "$url" ]; then
+    log "  link added   $ln"
+  elif [ "$(jq -r --arg n "$ln" '[.[] | select(.name==$n)][0] | "\(.url) \(.direct_asset_path // "") \(.link_type // "")"' "$WORK/links.json")" != "$url $dp $lt" ]; then
     mutate PUT "$API/projects/$PID/releases/$TENC/assets/links/$lid" "$WORK/link.json"
-    log "  link updated $f"
+    log "  link updated $ln"
   else
-    log "  link ok      $f"
+    log "  link ok      $ln"
   fi
 done
+# links of this release that are not part of the staged set
+while IFS=$'\t' read -r lid ln; do
+  [ -n "$lid" ] || continue
+  printf '%s\n' "${WANT_LINKS[@]}" | grep >/dev/null -xF -- "$ln" && continue
+  mutate DELETE "$API/projects/$PID/releases/$TENC/assets/links/$lid"
+  log "  link removed $ln (not in the staged release)"
+done < <(jq -r '.[] | "\(.id)\t\(.name)"' "$WORK/links.json")
 
 # ---- retention ----------------------------------------------------------------
 if [ "$PRUNE" -eq 1 ]; then
   if [ "$ONLINE" -eq 0 ]; then
     log "Prune: skipped (no token)"
   else
-    get_all "$API/projects/$PID/packages?package_type=generic&package_name=$(uri "$PACKAGE")" > "$WORK/pkgs.json"
-    # newest first by creation; the version just published is always kept
-    jq -r --arg n "$PACKAGE" --arg v "$VERSION" --argjson k "$KEEP" '
-      [.[] | select(.name==$n)] | sort_by(.created_at) | reverse as $all
-      | ([$all[] | select(.version==$v)] + [$all[] | select(.version!=$v)])
-      | .[$k:][] | "\(.id) \(.version)"' "$WORK/pkgs.json" > "$WORK/prune.txt"
-    if [ ! -s "$WORK/prune.txt" ]; then
-      log "Prune: nothing older than the newest $KEEP version(s) of $PACKAGE"
-    else
-      get_all "$API/projects/$PID/releases" > "$WORK/rels.json"
+    get_all "$API/projects/$PID/releases" > "$WORK/rels.json"
+    # "<package> <keep>": the per-group packages keep the newest --keep
+    # versions; the older single package keeps none
+    for pk_keep in "$PACKAGE-amd64 $KEEP" "$PACKAGE-arm64 $KEEP" "$PACKAGE-common $KEEP" "$PACKAGE 0"; do
+      pk=${pk_keep% *}; k=${pk_keep#* }
+      get_all "$API/projects/$PID/packages?package_type=generic&package_name=$(uri "$pk")" > "$WORK/pkgs.json"
+      # newest first by creation; the version just published is always kept
+      jq -r --arg n "$pk" --arg v "$VERSION" --argjson k "$k" '
+        [.[] | select(.name==$n)] | sort_by(.created_at) | reverse as $all
+        | ([$all[] | select(.version==$v)] + [$all[] | select(.version!=$v)])
+        | .[$k:][] | "\(.id) \(.version)"' "$WORK/pkgs.json" > "$WORK/prune.txt"
+      if [ ! -s "$WORK/prune.txt" ]; then
+        log "Prune: nothing to remove from $pk"
+        continue
+      fi
       while read -r id ver; do
-        prefix="/packages/generic/$PACKAGE/$ver/"
+        prefix="/packages/generic/$pk/$ver/"
         jq -r --arg p "$prefix" --arg t "$TAG" '.[] | select(.tag_name != $t) | .tag_name as $tg
-          | .assets.links[] | select(.url | contains($p)) | "\($tg) \(.id) \(.name)"' "$WORK/rels.json" |
-        while read -r tg lid lname; do
+          | .assets.links[] | select(.url | contains($p)) | "\($tg)\t\(.id)\t\(.name)"' "$WORK/rels.json" |
+        while IFS=$'\t' read -r tg lid lname; do
           mutate DELETE "$API/projects/$PID/releases/$(uri "$tg")/assets/links/$lid"
           log "  link removed from $tg: $lname"
         done
         mutate DELETE "$API/projects/$PID/packages/$id"
-        log "  package version removed: $PACKAGE $ver (id $id)"
+        log "  package version removed: $pk $ver (id $id)"
       done < "$WORK/prune.txt"
-    fi
+    done
   fi
 fi
 
 if [ "$DRY" -eq 1 ]; then log "Dry run: nothing was changed."
-else log "Done: $PACKAGE $VERSION published for release $TAG."; fi
+else log "Done: $VERSION published for release $TAG ($(for g in $GROUPS_USED; do printf '%s ' "$PACKAGE-$g"; done | sed 's/ $//'))."; fi
