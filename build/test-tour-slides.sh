@@ -136,8 +136,10 @@ disk_ids="$(printf '%s\n' "${files[@]}" | xargs -n1 basename | sed 's/\.slide$//
 want_ids="$(printf '%s\n' $EXPECTED | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 if [ "$disk_ids" = "$want_ids" ]; then ok "shipped slide set == expected ($want_ids)"; else bad "shipped slide set is '$disk_ids', expected '$want_ids'"; fi
 
-# norm LIST -> sorted, single-spaced, no trailing space
-norm() { printf '%s\n' $1 | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//'; }
+# norm LIST -> sorted, single-spaced, no trailing space. The argument is one
+# whitespace-separated list; split it on spaces explicitly (never via an
+# unquoted expansion) so the function is exact and shellcheck-clean.
+norm() { tr ' ' '\n' <<<"$1" | sed '/^$/d' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//'; }
 
 if [ -f "$HOOK" ]; then
     hook_common="$(sed -n 's/^NCZ_TOUR_SLIDES_COMMON="\(.*\)"$/\1/p' "$HOOK" | head -1)"

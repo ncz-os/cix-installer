@@ -60,7 +60,12 @@ _ncz_pg_arch="${NCZ_TARGET_ARCH:-}"
 ASSETS="${NCZ_TOUR_SLIDES_ASSETS:-/usr/local/lib/cix-installer/assets/branding/tour-slides}"
 FIRSTLOGIN_ASSETS="${NCZ_TOUR_FIRSTLOGIN_ASSETS:-${ASSETS%/*}/first-login-tour}"
 TOURDIR="${NCZ_TOUR_SLIDES_DIR:-/opt/singularity/share/singularity/tour}"
+# ROOT is a TEST-ONLY prefix for the absolute /etc and /usr/local paths below.
+# Production leaves NCZ_TOUR_SLIDES_ROOT unset, so ROOT is empty and the paths
+# resolve to the real /etc/ncz, /etc/xdg/autostart and /usr/local/bin (that is
+# the intended install behavior, not an accident). Tests set it to a sandbox.
 ROOT="${NCZ_TOUR_SLIDES_ROOT:-}"
+ROOT="${ROOT%/}"
 
 # The slides every desktop shows, and the Sky1-only one. Split so the arch gate
 # and the tests can name them without re-parsing the loop.
