@@ -88,6 +88,10 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
         mkdir -p "$r/etc/systemd/system/getty.target.wants" "$r/usr/local/sbin"
         ln -s /usr/lib/systemd/system/serial-getty@.service "$r/etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service"
         cp "$ROOT/assets/refind/ncz-refind-refresh.sh" "$r/usr/local/sbin/ncz-refind-refresh"
+        # Sky1-only NCZ Chromium VPU tour slide (verifier section (ix)); the four
+        # common slides are created below for both architectures.
+        mkdir -p "$r/opt/singularity/share/singularity/tour"
+        printf '[Slide]\nOrder=85\nTitle=x\nBody=x\nScene=launcher\n' > "$r/opt/singularity/share/singularity/tour/85-ncz-chromium-vpu.slide"
     fi
     # sudo
     printf 'Package: sudo\nStatus: install ok installed\n\n' >> "$r/var/lib/dpkg/status"
@@ -312,6 +316,7 @@ m_wp_noplugin() { rm -f "$1/opt/singularity/lib/singularity/plugins/wallpapers-b
 m_sens_stale()  { printf 'old sensors build' > "$1/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"; }
 m_sens_missing() { rm -f "$1/opt/singularity/lib/singularity/plugins/sensors/libsensors.so"; }
 m_tour_slides_missing() { rm -f "$1/opt/singularity/share/singularity/tour/75-ncz-lock.slide"; }
+m_tour_vpu_missing() { rm -f "$1/opt/singularity/share/singularity/tour/85-ncz-chromium-vpu.slide"; }
 m_tour_entry_missing() { rm -f "$1/etc/xdg/autostart/ncz-first-login-tour.desktop"; }
 m_tour_guard_missing() { rm -f "$1/usr/local/bin/ncz-first-login-tour"; }
 m_tour_switch_on() { printf '[dev.sinty.desktop]\nshow-tour=true\n' > "$1/opt/singularity/share/glib-2.0/schemas/99-ncz-defaults.gschema.override"; }
@@ -353,6 +358,7 @@ m_amd64_strip_leak() { m_amd64_strip "$1"; m_leak_getty "$1"; }
 m_amd64_strip_nohost() { m_amd64_strip "$1"; echo ncz-setup > "$1/etc/hostname"; }
 m_amd64_strip_nosudo() { m_amd64_strip "$1"; sed -i '/^Package: sudo$/,+2d' "$1/var/lib/dpkg/status"; }
 m_amd64_strip_nochrome() { m_amd64_strip "$1"; sed -i '/^Package: google-chrome-stable$/,+2d' "$1/var/lib/dpkg/status"; }
+m_amd64_leak_tour_vpu() { m_amd64_strip "$1"; mkdir -p "$1/opt/singularity/share/singularity/tour"; printf '[Slide]\nOrder=85\nTitle=x\nBody=x\nScene=launcher\n' > "$1/opt/singularity/share/singularity/tour/85-ncz-chromium-vpu.slide"; }
 m_amd64_strip_stale_bing() { m_amd64_strip "$1"; printf 'old' > "$1/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"; }
 m_amd64_strip_nokernel() { m_amd64_strip "$1"; rm -rf "$1/usr/lib/modules"; }
 m_ssh_off()      { printf 'PasswordAuthentication no\n' > "$1/etc/ssh/sshd_config.d/10-ncz-fleet.conf"; }
@@ -396,6 +402,7 @@ run_case "missing wallpapers-bing plugin fails" 1 m_wp_noplugin
 run_case "stale sensors plugin fails"           1 m_sens_stale
 run_case "missing sensors plugin fails"         1 m_sens_missing
 run_case "NCZ tour slide missing fails"         1 m_tour_slides_missing
+run_case "arm64: NCZ Chromium VPU tour slide missing fails" 1 m_tour_vpu_missing
 run_case "first-login tour entry missing fails"  1 m_tour_entry_missing
 run_case "first-login tour guard missing fails"  1 m_tour_guard_missing
 run_case "upstream tour switch left on fails"    1 m_tour_switch_on
@@ -457,6 +464,7 @@ run_case "amd64: firmware-iwlwifi missing fails"                    1 m_amd64_st
 run_case "amd64: firmware-ipw2x00 (licence-gated) not-installed fails" 1 m_amd64_fw_notinst_ipw
 run_case "amd64: google-chrome-stable missing fails"                1 m_amd64_strip_nochrome
 run_case "amd64: stale Bing plugin fails"                           1 m_amd64_strip_stale_bing
+run_case "amd64: NCZ Chromium VPU tour slide leak fails"           1 m_amd64_leak_tour_vpu
 run_case "amd64: no kernel module tree fails"                       1 m_amd64_strip_nokernel
 run_case "amd64: BUILD_ARCH of the other architecture fails"        1 m_id_arch_amd64
 run_case "amd64: ncz-performance-mode leak fails"                   1 m_amd64_leak_perf

@@ -325,6 +325,31 @@ if [ -n "$(lsnames /usr/lib/modules)" ]; then
 else
     gate_miss kernel "no /usr/lib/modules/<kver> on the amd64 target"
 fi
+# --- (cyclops) the INSTALLED kernel must be the pinned r2 build -------------
+# The KVM gate pins the INSTALLER kernel to the manifest's r2 vmlinuz and
+# exports VERIFY_EXPECT_KVER / VERIFY_EXPECT_VMLINUZ_SHA256 here. Assert the
+# INSTALLED /boot/vmlinuz-<kver> is that same cyclops-fixed r2 build (patch
+# 2010). KVER alone is not enough: r1 and r2 share the release string
+# 7.3.0-rc7-t2-ncz, so a stale r1 kernel on the target would pass every
+# KVER-keyed check while silently bringing back the Macmini5,1 i915
+# EPROBE_DEFER bug (no /dev/dri, no greetd, no error). Skipped when the pin is
+# not provided (e.g. a legacy invocation), never treated as a pass.
+if [ -n "${VERIFY_EXPECT_KVER:-}" ] && [ -n "${VERIFY_EXPECT_VMLINUZ_SHA256:-}" ]; then
+    echo "[verify-target] (cyclops) installed kernel pin"
+    if [ -n "$(lsnames /usr/lib/modules)" ] && ! lsnames /usr/lib/modules | grep -qx "$VERIFY_EXPECT_KVER"; then
+        gate_miss kernel "installed module tree is not the pinned $VERIFY_EXPECT_KVER (have: $(lsnames /usr/lib/modules | tr '\n' ' '))"
+    fi
+    if fetch "/boot/vmlinuz-$VERIFY_EXPECT_KVER" "$TMP/vmlinuz"; then
+        _have_vmlinuz=$(sha256sum "$TMP/vmlinuz" | awk '{print $1}')
+        if [ "$_have_vmlinuz" = "$VERIFY_EXPECT_VMLINUZ_SHA256" ]; then
+            echo "[verify-target]     /boot/vmlinuz-$VERIFY_EXPECT_KVER == pinned r2 vmlinuz (2010 cyclops fix)"
+        else
+            gate_miss kernel "/boot/vmlinuz-$VERIFY_EXPECT_KVER sha256=$_have_vmlinuz != pinned $VERIFY_EXPECT_VMLINUZ_SHA256 (not the 2010 cyclops-fixed kernel)"
+        fi
+    else
+        gate_miss kernel "/boot/vmlinuz-$VERIFY_EXPECT_KVER unreadable on the installed target"
+    fi
+fi
 for leak in /etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service \
             /etc/systemd/system/multi-user.target.wants/serial-getty@ttyAMA0.service \
             /etc/systemd/system/graphical.target.wants/ncz-performance-mode.service \
@@ -492,15 +517,22 @@ fi
 
 # --- (ix) NCZ-OS tour slides (post-install/51-ncz-tour-slides.sh) ------------------------------
 # The desktop tour (dev.sinty.tour) is data-driven: ten upstream slides in
-# /opt/singularity/share/singularity/tour/ plus four NCZ slides this project adds
-# (wallpapers, online wallpapers, screensavers, lock screen). Assert all four
-# landed, so a hook that silently skipped (no payload dir, missing asset) is
-# caught instead of shipping a tour that never mentions the new work.
+# /opt/singularity/share/singularity/tour/ plus NCZ slides this project adds. Four
+# are on every desktop (wallpapers, online wallpapers, screensavers, lock screen);
+# 85-ncz-chromium-vpu.slide (the NCZ Chromium VPU slide) is arm64/Sky1 only, since
+# only arm64 ships chromium-ncz-sky1. Assert the four always, require the fifth on
+# arm64 and forbid it on amd64 -- so a hook that silently skipped is caught, and a
+# Sky1-only slide can never leak into an amd64 image.
 echo "[verify-target] (ix) NCZ tour slides"
 TOURDIR=/opt/singularity/share/singularity/tour
 for s in 55-ncz-wallpapers 56-ncz-online-wallpapers 65-ncz-screensavers 75-ncz-lock; do
     exists "$TOURDIR/$s.slide" || gate_miss tour-slides "$TOURDIR/$s.slide (post-install/51-ncz-tour-slides.sh)"
 done
+if [ "$ARCH" = arm64 ]; then
+    exists "$TOURDIR/85-ncz-chromium-vpu.slide" || gate_miss tour-slides "$TOURDIR/85-ncz-chromium-vpu.slide (arm64 NCZ Chromium VPU slide; post-install/51-ncz-tour-slides.sh)"
+else
+    exists "$TOURDIR/85-ncz-chromium-vpu.slide" && gate_miss tour-slides "$TOURDIR/85-ncz-chromium-vpu.slide leaked onto amd64 (the NCZ Chromium VPU slide is Sky1-only)"
+fi
 
 # --- (ixa) NCZ first-login tour (post-install/51-ncz-tour-slides.sh + 20-desktop.sh) ----------
 # The tour opens once from a guarded autostart entry the installer drops. Assert
