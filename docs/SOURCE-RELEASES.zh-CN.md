@@ -53,9 +53,11 @@ NCZ-OS 分发 GPL/LGPL 软件，并从修改过的源码构建若干组件。本
 
 如果我们发布的某个组件是从源码构建的却未列于此，那是本文档的缺陷——请提交 issue。
 
-**源码以 GitLab 为准**（`gitlab.com/ncz-os/cix-installer`）。发布镜像作为 GitHub 镜像仓库的
-release 附件托管（`github.com/ncz-os/cix-installer/releases`），文档中的下载链接指向那里。
-最新版本也可以从同一标签的 GitLab release 下载，详见 [IMAGE-HOSTING.md](IMAGE-HOSTING.md)。
+**源码以 GitLab 为准**（`gitlab.com/ncz-os/cix-installer`）。发布镜像放在每个托管平台唯一的发布页上：
+GitHub 镜像仓库（<https://github.com/ncz-os/cix-installer/releases/latest>）和 GitLab
+（<https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest>），两处文件完全相同，详见 [IMAGE-HOSTING.md](IMAGE-HOSTING.md)。
+镜像中 GPL 代码的源码提供说明位于该版本的发布说明、本文档以及每个版本都会保留的 git 标签中，
+不依赖旧的发布页（发布新版本时旧发布页会被移除）。
 
 ---
 

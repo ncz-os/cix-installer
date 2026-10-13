@@ -7,13 +7,18 @@
 #
 # DIR is a staged release folder holding the split image parts
 # (ncz-os-<arch>-<date>-<sha>.img.zst.part-NN), PARTS.sha256, SHA256SUMS and
-# ncz-join-image.sh. Every part is checked against PARTS.sha256 before
+# ncz-join-image.sh, and optionally NOTES.md (attached as a file too). Every part is checked against PARTS.sha256 before
 # anything is sent. Each file is uploaded to
 #   <api>/projects/<id>/packages/generic/<package>/<version>/<file>
 # and the sha256 the registry reports must equal the local one. A file that
 # is already in that package version with the same sha256 is not sent again.
 # The GitLab release for TAG is then created (or its name/notes updated) and
 # gets one asset link per file; existing links with the same name are updated.
+# A link keeps the file's name; its direct path is a stable alias that does
+# not change between releases (parts: /ncz-os-<arch>.img.zst.part-NN, other
+# files: /<name>), so
+#   https://gitlab.com/<project>/-/releases/permalink/latest/downloads/<alias>
+# always reaches the latest release's file.
 # The tag must already exist: this tool never creates tags.
 #
 # Options:
@@ -55,7 +60,7 @@ DIR=""; TAG=""; VERSION=""; NAME=""; NOTES=""
 PRUNE=0; KEEP=1; DRY=0
 MAX_BYTES="${NCZ_GITLAB_MAX_FILE_BYTES:-5368709120}"
 
-usage() { sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 die() { echo "ERROR: $1" >&2; exit "${2:-1}"; }
 udie() { die "$*" 2; }
 log() { echo "$*"; }
@@ -122,6 +127,16 @@ for p in "$DIR"/*.img.zst.part-*; do
   printf '%s\n' "${FILES[@]}" | grep -qxF -- "$b" || udie "part not listed in PARTS.sha256: $b"
 done
 FILES+=(PARTS.sha256 SHA256SUMS ncz-join-image.sh)
+[ ! -f "$DIR/NOTES.md" ] || FILES+=(NOTES.md)
+
+# stable alias of a part: drop the -<date>-<sha> build id
+stable_name() { printf '%s\n' "$1" | sed -E 's/^(ncz-os-[a-z0-9_]+)-[0-9]{8}-[0-9a-f]{6,40}(\.img\.zst\.part-[0-9]+)$/\1\2/'; }
+declare -A ALIAS=()
+for f in "${FILES[@]}"; do
+  a=$(stable_name "$f")
+  [ -z "${ALIAS[$a]:-}" ] || udie "$f and ${ALIAS[$a]} share the stable name $a (one image per architecture per release)"
+  ALIAS[$a]=$f
+done
 
 declare -A LSHA=()
 for f in "${FILES[@]}"; do
@@ -273,13 +288,13 @@ fi
 for f in "${FILES[@]}"; do
   url="$PKGBASE/$f"
   case "$f" in *.part-*) lt=package ;; *) lt=other ;; esac
-  jq -n --arg n "$f" --arg u "$url" --arg p "/$f" --arg l "$lt" \
+  jq -n --arg n "$f" --arg u "$url" --arg p "/$(stable_name "$f")" --arg l "$lt" \
     '{name:$n, url:$u, direct_asset_path:$p, link_type:$l}' > "$WORK/link.json"
   lid=$(jq -r --arg n "$f" '[.[] | select(.name==$n)][0].id // empty' "$WORK/links.json")
   if [ -z "$lid" ]; then
     mutate POST "$API/projects/$PID/releases/$TENC/assets/links" "$WORK/link.json"
     log "  link added   $f"
-  elif [ "$(jq -r --arg n "$f" '[.[] | select(.name==$n)][0].url' "$WORK/links.json")" != "$url" ]; then
+  elif [ "$(jq -r --arg n "$f" '[.[] | select(.name==$n)][0] | "\(.url) \(.direct_asset_path // "")"' "$WORK/links.json")" != "$url /$(stable_name "$f")" ]; then
     mutate PUT "$API/projects/$PID/releases/$TENC/assets/links/$lid" "$WORK/link.json"
     log "  link updated $f"
   else
