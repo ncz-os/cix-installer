@@ -139,7 +139,7 @@ if [ "$ARCH" = amd64 ]; then
   [ -f "$_amman" ] \
     || { echo "GATE FAIL: $_amman missing; cannot assert the installer kernel is the pinned cyclops-fixed r2 build" >&2; exit 2; }
   _want_vmlinuz=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["identity"]["vmlinuz_sha256"])' "$_amman")
-  _want_kver=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["kver"])' "$_amman")
+  _want_kver=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d.get("kver") or d["identity"]["kernel_release"])' "$_amman")
   _cyclops=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["source"]["t2_cyclops_patch"])' "$_amman")
   case "$_cyclops" in
     *2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch) : ;;
