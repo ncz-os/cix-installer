@@ -105,7 +105,7 @@ generation instead of calling out to a cloud API.
 
 - **Accuracy, measured** (`nomic-embed-text`): cosine similarity
   **0.995330** against the onnxruntime CPU reference implementation on
-  the same input — validated on a real Radxa Orion O6 board
+  the same input — validated on a real Radxa Orion O6N board
 - **Throughput, measured** (`nomic-embed-text`): **8.9 inferences/second**
   (112ms per call). Not fast in absolute terms, but every query runs
   entirely on-device with no network round-trip.

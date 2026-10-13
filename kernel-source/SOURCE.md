@@ -86,8 +86,10 @@ Packages `linux-image-7.3.0-rc7-t2-ncz` / `linux-headers-7.3.0-rc7-t2-ncz`
 The source tree from `linux-t2-ncz` (base plus `patches/series`) is git tree
 `451b5dfee3eb77e15dac561766000bc3ec2e4f41`. Its `config/` file has the same
 sha256 (`e88c4505d5c4a9fce3720eb0ba2892aede33f12080865cb45bfbee2acc09219a`) as
-`/boot/config-7.3.0-rc7-t2-ncz` in the shipped package. The repository's
-`verify.sh` checks the tree and config, and its README gives the build commands.
+`/boot/config-7.3.0-rc7-t2-ncz` in the shipped package. To reproduce that tree
+id, run the repository's `verify.sh`, which applies the series the way the build
+did; other ways of applying the patches (for example a plain `git apply` loop)
+can give a different tree id. The README gives the build commands.
 
 The amd64 kernel is not vendored in this directory; `linux-t2-ncz` is its
 corresponding-source repository.
@@ -142,9 +144,4 @@ the 7.2 and 7.0.12 lines.
 
 ## Written offer
 
-For three years from the date we distributed a binary, NCZ-OS will provide
-the complete corresponding machine-readable source for the GPL/LGPL
-components of the shipped kernels, at no charge beyond the cost of physical
-distribution. The source is this directory and the public repositories named
-above. Contact: Jason Perlow `<jperlow@gmail.com>`, or open an issue at
-<https://gitlab.com/ncz-os/cix-installer/-/issues>.
+This offer is valid for three years from the date of distribution, to any third party, for no more than the cost of physically performing source distribution: we will provide the complete corresponding machine-readable source of the GPL/LGPL components of any NCZ-OS binary we distributed. To ask, open an issue at <https://gitlab.com/ncz-os/cix-installer/-/issues> or email jperlow@gmail.com. The kernel source is this directory and the public repositories named above.

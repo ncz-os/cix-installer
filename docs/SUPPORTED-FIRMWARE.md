@@ -10,7 +10,7 @@ under-describes the SoC.
 
 ## The evidence behind the floor
 
-Measured on an Orion O6 on 2026-08-18, same board, two firmware versions:
+Measured on an Orion O6N on 2026-08-18, same board, two firmware versions:
 
 | EFI     | USB controllers enumerated                    |
 |---------|-----------------------------------------------|

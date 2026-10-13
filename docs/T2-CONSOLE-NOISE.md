@@ -4,7 +4,7 @@ Date: 2026-10-11. Question: can the multiple T2 kernel "hardware errors" shown
 at boot be suppressed on the console, or explained?
 
 Scope of the evidence: two MacBookPro16,1 (T2) units on the kernel of the time
-(`7.3.0-rc6-4-t2-edge-aer9010`), with a non-T2 ASUS ROG laptop as the control.
+(an earlier 7.3.0-rc6 T2 test build), with a non-T2 ASUS ROG laptop as the control.
 Read-only (`dmesg`, `journalctl -k`, `/proc`, `/sys`).
 
 ## The console rule (why most "errors" never reach the console)
@@ -101,7 +101,7 @@ on non-T2), the amdgpu `Fence fallback timer` / `CG_TACH` warns (missed-IRQ
 recovery path / no dGPU tach on this chassis), and the BT baudrate/A-CPI-GPIO
 warns (Apple ACPI describes no reset GPIO).
 
-## Level buckets (MacBookPro16,1 (A), `7.3.0-rc6-4-t2-edge-aer9010`)
+## Level buckets (MacBookPro16,1 (A), earlier 7.3.0-rc6 T2 test build)
 
 * `KERN_ERR` (dmesg-only; **not** on the console at `loglevel=3`):
   `ACPI Error: AE_ALREADY_EXISTS` (+8 `Aborting method`), `Unable to locate
