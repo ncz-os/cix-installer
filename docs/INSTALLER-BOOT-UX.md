@@ -44,6 +44,32 @@ Mockup (80x24; the real dialog also shows its own `<Go Back>` because partman ru
 Not built: a persistent stage list with per-stage marks, percentage bars for our own long steps beyond d-i's, and an
 auto-reboot countdown. d-i's own progress dialogs and its `Remove the USB stick` note are what ship.
 
+## Install media: USB drives only
+
+The installer accepts its installation media from a USB drive only.
+`preseed/media-usb-only.sh` (baked into the initrd at `/ncz`) mounts the image
+read-only at `/cdrom` from a USB partition or USB whole disk before d-i's
+`cdrom-detect` runs; `partman/early_command`'s fallback search also looks at
+USB disks only.
+
+Without a USB drive the installer does not fall into `cdrom-detect`'s generic
+"Retry mounting installation media?" loop. After the diagnostics console has
+started, `media-usb-only.sh gate` shows a screen that says NCZ-OS must be
+installed from a USB drive, lists every NCZ-OS image it finds on an internal
+NVMe, SD or eMMC disk (read from the ext4 superblock, never mounted), points to
+the diagnostics console (Alt-F3) and the installer log (Alt-F4), and picks up
+a USB drive plugged in within 10 seconds; **R** rescans the USB ports
+(`usb-rescan.sh`, which rebinds the hub driver, so it only runs on request),
+**S** opens a shell, **B** reboots. The disk holding such an
+image is written to `/tmp/ncz-nonusb-media`, and `disk-fs-chooser.sh` never
+offers or erases it.
+
+Why: d-i's own media detection only looks at USB partitions and whole disks,
+so an image on an internal disk was either not found or found unreliably; and
+the internal disk is the disk a user is about to install onto. USB-only keeps
+detection predictable and keeps the disk the board booted from out of the
+target list. Tests: `build/test-installer-media-lookup.sh`.
+
 ## How it is verified (and gated)
 
 `build/boot-screens.py` boots the raw image as shipped (no hostname/components presets) and records what the operator

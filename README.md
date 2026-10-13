@@ -728,7 +728,7 @@ it — there is no MS-R1 NPU on x86 hardware.
    then compare `sha256sum ncz-os-<arch>-<date>-<sha>.img` with `SHA256SUMS-<arch>`.
    An image you build yourself has a `.sha256` beside it instead.
 
-2. **Write it to a drive of at least 16 GB** (the image is 7.6 GB; writing
+2. **Write it to a USB drive of at least 16 GB** (the image is 7.6 GB; writing
    erases the drive). Balena Etcher works on any OS. On Linux, copy the raw GPT
    image to the **whole device** (`/dev/sdX`), not a partition (`/dev/sdX1`):
 
@@ -748,7 +748,14 @@ it — there is no MS-R1 NPU on x86 hardware.
    > device destroys that disk. Repeating the write to the right drive is
    > harmless (it just rewrites the same image).
 
-3. **Boot it.** Plug the drive into the target — a Sky1 board
+   > **Install from a USB drive only.** Write the image to a USB stick or USB
+   > disk, boot from it, and choose the internal disk as the target. Writing
+   > the image to the internal NVMe, an SD card or eMMC and installing from
+   > there is not supported. Why: the installer only trusts USB for its
+   > installation media, which keeps media detection predictable, and it means
+   > the disk the board booted from is never the disk the installer erases.
+
+3. **Boot it.** Plug the USB drive into the target — a Sky1 board
    (Radxa Orion O6N or Minisforum MS-R1) for the arm64 image, or an Intel/AMD
    PC or T2 Mac for the amd64 image — power on, and pick the drive from the UEFI boot menu. On
    a Mac, hold Option (⌥) at power-on. The installer's own rEFInd menu offers
@@ -778,6 +785,26 @@ The installed disk gets a 2 GB ESP, a 4 GB rescue partition (optional) and
 the root filesystem. Realtek NICs, including the RTL8125/8126 on the Radxa Orion O6N, work out
 of the box; the `rtl_nic` firmware ships in both the installer and the
 installed system.
+
+### Troubleshooting the install
+
+- **"NCZ-OS installer: no USB installation drive found".** The installer did
+  not find the image on a USB drive. This is what you see when the image was
+  written to an internal NVMe, SD card or eMMC, or the stick is not detected.
+  The screen lists any image it found on an internal disk (that disk is never
+  offered as a target), picks up a USB drive plugged in within 10 seconds, and
+  offers **R** to rescan the USB ports, **S** for a shell and **B** to reboot. Write the image to a USB stick, plug it in (the install
+  continues on its own) or reboot from it.
+- **Collecting logs for a bug report.** Choose **Save debug logs** in the
+  installer main menu, or open a shell (Alt-F2) and copy `/var/log/syslog` to
+  a USB stick. Alt-F4 shows the installer log live; Alt-F3 shows the
+  diagnostics console with the remote login details
+  ([docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)). Please include the image
+  file name and its `sha256sum`, the step that failed, and on the installed
+  system the output of `lsblk -f` and `sudo efibootmgr -v`.
+- **The installer uses rEFInd, not GRUB.** d-i's own GRUB and systemd-boot
+  steps are skipped; the installer writes rEFInd to the ESP itself. A GRUB
+  prompt on the target machine comes from another OS or an older boot entry.
 
 ### Boot menu on the installed system
 
