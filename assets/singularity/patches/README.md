@@ -384,7 +384,7 @@ merges.
 
 **Upstream PR:** [singularityos-lab/singularity-nearby#1](https://github.com/singularityos-lab/singularity-nearby/pull/1)
 — open, not yet merged. Patch `0001-fix-release-links-when-they-close.patch`
-(the PR head). `Service.on_link()` connected two closures to the link's own
+(the PR head, b2c61cf9). `Service.on_link()` connected two closures to the link's own
 `packet-received` and `closed` signals and both captured the link, so no closed
 or replaced link (with its TLS connection) was ever freed. Every desktop on the
 network announces itself every 30 seconds and each announcement replaced the

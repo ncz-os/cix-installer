@@ -125,7 +125,7 @@ it as NCZ-OS. See [Architecture](#architecture).
   decoding in Chromium). It starts 30 seconds after the first login and runs
   once per user; to see it again, delete `~/.local/state/ncz/tour-seen` and log
   in again.
-- **Screensavers:** NCZ Screensavers 0.8.15 (settings plugin 0.3.21) with 74
+- **Screensavers:** NCZ Screensavers 0.8.15 (settings plugin 0.3.22) with 74
   savers, including the Black Hole (the default, in the Cygnus palette),
   Fractasia and Magmasimplex. Choose and preview them in Settings →
   *Screensaver and Lock*. Heavy savers are best on a stronger GPU.
