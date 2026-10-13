@@ -337,6 +337,32 @@ A shell without the row treats the unknown id as Other. Not filed upstream yet (
 link, so the reconcile script never retires it); the upstream draft is
 `upstream-drafts/singularity-shell/08-lock-category`.
 
+## singularity-nearby — active
+
+**Not yet filed upstream** (2026-10-13). Patches
+`0001-fix-release-links-when-they-close.patch` and
+`0002-fix-keep-an-open-link-when-the-peer-announces-itself.patch`, applied in order
+to the pinned commit (7c13cacd).
+
+- `0001` fixes unbounded memory growth in the `singularity-nearby` service.
+  `Service.on_link()` connected two closures to the link's own `packet-received`
+  and `closed` signals and both captured the link, so each link held a closure
+  that held the link, and no closed or replaced link (with its TLS connection and
+  buffers) was ever freed. Every desktop on the network announces itself every
+  30 seconds and each announcement replaced the link, so on a network with
+  several desktops the service grew by about 10 MB a minute (3-4 GB after six
+  hours). The handlers are now disconnected when the link closes.
+  `tests/link_test.vala` (`meson test nearby-link`) checks that a closed link and
+  a replaced link are finalized; it fails on the pinned commit.
+- `0002` stops `LanProvider.discovered()` from opening a new connection for
+  every announcement while a link to that device is already open, so links are
+  no longer torn down and re-handshaken every 30 seconds. Incoming connections
+  still replace the old link; a dropped link is reopened on the next
+  announcement.
+
+No `**Upstream PR:**` link on purpose (nothing is filed). Delete both patches and
+this block when the change lands upstream.
+
 ## Previously landed
 
 **Currently no OTHER patches carried.** Everything else previously tracked

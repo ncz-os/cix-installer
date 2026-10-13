@@ -1,0 +1,66 @@
+From e7be08b55337bd7306da790e2537d689b6c6a6cd Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 13 Oct 2026 12:35:24 -0400
+Subject: [PATCH 2/2] fix: keep an open link when the peer announces itself
+ again
+
+discovered() opened a new connection for every UDP or mDNS
+announcement, even when a link to that device was already up. The new
+link replaced the old one, so every peer repeated the TLS handshake
+every 30 seconds and the device list changed each time.
+
+Track the open link per device and ignore announcements while it is
+open. Incoming connections are still accepted and still replace the
+old link, and a link that drops is reopened on the next announcement.
+
+Assisted-by: Claude Code:claude-opus-5-5
+AI-Scope: Wrote the open-link check in LanProvider; reviewed and measured on hardware by the author.
+---
+ src/lan.vala | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/src/lan.vala b/src/lan.vala
+index ca86d41..64be1a4 100644
+--- a/src/lan.vala
++++ b/src/lan.vala
+@@ -20,6 +20,7 @@ namespace Singularity.Nearby {
+         private TrustLookup trust;
+         private AcceptPolicy accept;
+         private Gee.HashSet<string> connecting = new Gee.HashSet<string>();
++        private Gee.HashMap<string, Link> links = new Gee.HashMap<string, Link>();
+ 
+         public signal void link_ready(Link link);
+ 
+@@ -166,6 +167,11 @@ namespace Singularity.Nearby {
+             if (port < system.tcp_port_min || port > system.tcp_port_max) return;
+             if (!accept(device_id)) return;
+             if (connecting.contains(device_id)) return;
++            // Every peer announces itself every 30 seconds. Answering each
++            // announcement while a link is up replaces a working link with a
++            // new one and repeats the TLS handshake for nothing.
++            var current = links[device_id];
++            if (current != null && current.open) return;
+             connect_to.begin(address, port, device_id, protocol);
+         }
+ 
+@@ -259,10 +265,17 @@ namespace Singularity.Nearby {
+             string cn = NearbyCerts.common_name(tls.peer_certificate.certificate_pem);
+             if (cn != device_id) throw new IOError.PERMISSION_DENIED("certificate is for %s", cn);
+             var link = new Link(device_id, tls, address, secure);
++            links[device_id] = link;
++            link.closed.connect(forget_link);
+             link.start(reader);
+             link_ready(link);
+         }
+ 
++        private void forget_link(Link link) {
++            link.closed.disconnect(forget_link);
++            if (links[link.device_id] == link) links.unset(link.device_id);
++        }
++
+         private static void set_keepalive(SocketConnection conn) {
+             conn.socket.keepalive = true;
+             try {
+-- 
+2.50.1 (Apple Git-155)
+
