@@ -191,3 +191,26 @@ for it.
   - zoder has no apt package. It ships only as a GitHub release asset. On a
     closed LAN, `ncz install zoder` fails loud; the operator retries when
     the network is up.
+---
+
+## Stopping and removing
+
+Every component installs as a systemd (quadlet) service, so stop/disable is the
+removal path — there is no hidden state:
+
+```bash
+# MNEMOS
+sudo systemctl disable --now mnemos.service
+sudo rm -f /etc/containers/systemd/mnemos.container && sudo systemctl daemon-reload
+sudo podman volume rm mnemos-data          # optional: drop stored memories
+
+# agent gateways (zeroclaw / openclaw / hermes / portainer)
+sudo ncz agent uninstall <name>            # or: --all
+
+# zoder (a single binary + a sample config)
+sudo rm -f /usr/local/bin/zoder /etc/zoder/manifest.json /etc/nclawzero/zoder.conf
+```
+
+`ncz install mnemos` and `ncz install <name>` are idempotent: re-running them on
+a working system re-stages the quadlet only when needed and restarts the
+service, without duplicating containers or volumes.
