@@ -9,7 +9,11 @@
 #                             first). Commits made on GitHub and GitHub-only refs
 #                             are never overwritten here (they need a manual
 #                             --allow-force / --prune-github-only run), and refs
-#                             with a GitHub release are never moved.
+#                             with a GitHub release are never moved. A GitHub
+#                             copy that is archived (with its GitLab project
+#                             archived too) is unarchived for the push and
+#                             archived again; if that fails the ALERT line is
+#                             printed and the run exits 3.
 #   4. check-github-sync.sh   state after; its exit code is the run's result
 #
 # Settings come from the NCZ_GHSYNC_* variables (see tools/github-sync/ghsync.py),
@@ -36,9 +40,11 @@ fi
 "$TOOLS/sync-github-mirror.sh" "$@" --apply --prune --report "$LOGS/$T-apply.json" \
     >"$LOGS/$T-apply.log" 2>&1
 apply_rc=$?
+grep -h "ALERT:" "$LOGS/$T-apply.log" || true
 "$TOOLS/check-github-sync.sh" "$@" --report "$LOGS/$T-check-after.tsv" >"$LOGS/$T-check-after.log" 2>&1
 check_rc=$?
 grep -h "(summary)" "$LOGS/$T-check-after.log" || true
 find "$LOGS" -type f -mtime +7 -delete 2>/dev/null || true
 echo "run-hourly: $T plan=$plan_rc apply=$apply_rc check=$check_rc"
+[ "$apply_rc" -eq 3 ] && exit 3
 [ "$apply_rc" -eq 0 ] && [ "$check_rc" -eq 0 ]

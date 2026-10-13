@@ -38,13 +38,24 @@ Settings (environment, or first line of ~/.config/ncz/<file>):
   NCZ_GHSYNC_GITHUB_BASE    ghsync-github-base    default https://github.com
   NCZ_GHSYNC_GITHUB_API     ghsync-github-api     default https://api.github.com
                                                   ("none" disables release lookups)
-  GIT_ASKPASS               credential helper; also asked for the GitHub API token
+  NCZ_GHSYNC_GITLAB_API     ghsync-gitlab-api     default <gitlab base>/api/v4
+                                                  ("none" disables archive lookups)
+  GIT_ASKPASS               credential helper; also asked for the GitHub and
+                            GitLab API tokens
 
-Exit codes: 0 ok / in sync, 1 drift or refused change, 2 usage or setup error.
+Archived repositories: a GitHub copy that is archived is read-only. When there
+is something to push and the GitLab project is archived as well, --apply lifts
+the GitHub archive for the push and archives the copy again afterwards (state
+read back before and after). If the GitLab project is not archived the push is
+refused. If the copy cannot be archived again the run stops with exit code 3.
+
+Exit codes: 0 ok / in sync, 1 drift or refused change, 2 usage or setup error,
+3 a GitHub copy could not be archived again (needs attention).
 """
 
 import argparse
 import fnmatch
+import functools
 import hashlib
 import json
 import os
@@ -55,6 +66,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -68,6 +80,10 @@ MAP_DATE = "1791849600 +0000"  # fixed date: the map commit is reproducible
 
 class Fatal(Exception):
     pass
+
+
+class ArchiveAlert(Exception):
+    """A GitHub copy was unarchived for a push and could not be archived again."""
 
 
 def log(msg):
@@ -192,6 +208,56 @@ def mailmap_old_emails(path):
     return out
 
 
+def http_json(req, what, tries=3):
+    """urlopen + JSON with retries on network errors and 5xx; None on 404."""
+    for attempt in range(1, tries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            if e.code < 500 or attempt == tries:
+                raise Fatal(f"{what}: HTTP {e.code}") from e
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            if attempt == tries:
+                raise Fatal(f"{what}: {e}") from e
+        time.sleep(10 * attempt)
+    return None
+
+
+# test fixtures for file:// API bases: <dir>/<path without query>.json holds the
+# object; a PATCH merges its body into that file. An empty file
+# <dir>/<path>.fail-<field>-<value> makes a PATCH setting that value fail.
+
+
+def _fixture_file(base, path):
+    return base + urllib.parse.unquote(path.split("?")[0]) + ".json"
+
+
+def fixture_get(base, path):
+    f = _fixture_file(base, path)
+    if not os.path.exists(f):
+        return None
+    with open(f) as fh:
+        return json.load(fh)
+
+
+def fixture_send(base, path, body):
+    f = _fixture_file(base, path)
+    if not os.path.exists(f):
+        raise Fatal(f"GitHub API {path}: HTTP 404")
+    for k, v in body.items():
+        if os.path.exists(f[: -len(".json")] + f".fail-{k}-{json.dumps(v)}"):
+            raise Fatal(f"GitHub API {path}: HTTP 403")
+    with open(f) as fh:
+        d = json.load(fh)
+    d.update(body)
+    with open(f, "w") as fh:
+        json.dump(d, fh)
+    return d
+
+
 class Ctx:
     def __init__(self, a):
         self.workdir = a.workdir or site("NCZ_GHSYNC_WORKDIR", "ghsync-workdir")
@@ -214,6 +280,9 @@ class Ctx:
         self.gh_api = site(
             "NCZ_GHSYNC_GITHUB_API", "ghsync-github-api", "https://api.github.com"
         ).rstrip("/")
+        self.gl_api = site(
+            "NCZ_GHSYNC_GITLAB_API", "ghsync-gitlab-api", self.gl_base + "/api/v4"
+        ).rstrip("/")
         self.strip_ids = load_strip_ids(a.strip_list)
         self.literals = load_literals(self.replace_file)
         self.limit = a.limit
@@ -221,6 +290,7 @@ class Ctx:
         for d in ("cache", "work", "check", "state", "maps", "backup"):
             os.makedirs(os.path.join(self.workdir, d), exist_ok=True)
         self._token = None
+        self._gl_token = None
 
     def gl_url(self, r):
         return "{}/{}.git".format(self.gl_base, r["gitlab"])
@@ -228,30 +298,65 @@ class Ctx:
     def gh_url(self, r):
         return "{}/{}.git".format(self.gh_base, r["github"])
 
+    @staticmethod
+    def _askpass(prompt):
+        ap = os.environ.get("GIT_ASKPASS")
+        if not ap:
+            return ""
+        r = subprocess.run([ap, prompt], capture_output=True, text=True, check=False)
+        return r.stdout.strip() if r.returncode == 0 else ""
+
     def token(self):
         if self._token is None:
-            ap = os.environ.get("GIT_ASKPASS")
-            self._token = ""
-            if ap:
-                r = subprocess.run(
-                    [ap, "Password for 'https://x-access-token@github.com': "],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                self._token = r.stdout.strip() if r.returncode == 0 else ""
+            self._token = self._askpass(
+                "Password for 'https://x-access-token@github.com': "
+            )
         return self._token
+
+    def gl_token(self):
+        if self._gl_token is None:
+            host = urllib.parse.urlsplit(self.gl_base).netloc or "gitlab.com"
+            self._gl_token = self._askpass(f"Password for 'https://oauth2@{host}': ")
+        return self._gl_token
+
+    def gl_api_get(self, path):
+        """One GitLab API object, or None (not found / lookups disabled)."""
+        if self.gl_api == "none":
+            return None
+        if self.gl_api.startswith("file://"):
+            return fixture_get(self.gl_api[len("file://") :], path)
+        req = urllib.request.Request(self.gl_api + path)
+        if self.gl_token():
+            req.add_header("PRIVATE-TOKEN", self.gl_token())
+        return http_json(req, "GitLab API " + path)
+
+    def gh_api_send(self, method, path, body):
+        """PATCH/POST one GitHub API object; returns the response object."""
+        if self.gh_api == "none":
+            raise Fatal(f"GitHub API {path}: lookups disabled")
+        if self.gh_api.startswith("file://"):
+            return fixture_send(self.gh_api[len("file://") :], path, body)
+        req = urllib.request.Request(
+            self.gh_api + path,
+            data=json.dumps(body).encode(),
+            method=method,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Content-Type": "application/json",
+            },
+        )
+        if self.token():
+            req.add_header("Authorization", "token " + self.token())
+        d = http_json(req, f"GitHub API {method} {path}")
+        if d is None:
+            raise Fatal(f"GitHub API {method} {path}: HTTP 404")
+        return d
 
     def gh_api_get(self, path):
         if self.gh_api == "none":
             return None
         if self.gh_api.startswith("file://"):
-            # test fixtures: <dir>/<path without query>.json
-            f = self.gh_api[len("file://") :] + path.split("?")[0] + ".json"
-            if not os.path.exists(f):
-                return None
-            with open(f) as fh:
-                return json.load(fh)
+            return fixture_get(self.gh_api[len("file://") :], path)
         out, url = [], self.gh_api + path
         while url:
             req = urllib.request.Request(
@@ -731,6 +836,133 @@ def plan_repo(ctx, r, gitdir, want, gh, rels, allow_gh_only):
     return rows
 
 
+# ---------------------------------------------------------------- archive
+
+
+def pending_pushes(rows, a):
+    """Refs that --apply with these options would push or delete."""
+    out = []
+    for ref, old, new, act in rows:
+        if any(fnmatch.fnmatch(ref, p) for p in a.skip_ref):
+            continue
+        if (
+            act in ("create", "fast-forward", "rewind")
+            or (act == "force" and a.allow_force)
+            or (act in ("remove", "delete-listed") and a.prune)
+            or (act == "delete" and a.prune_github_only)
+        ):
+            out.append(ref)
+    return out
+
+
+def github_repo(ctx, r, required=False):
+    """GitHub repository object; None when API lookups are disabled or the
+    repository is not visible (the push then reports its own error)."""
+    d = None if ctx.gh_api == "none" else ctx.gh_api_get("/repos/" + r["github"])
+    if not isinstance(d, dict):
+        if required:
+            raise Fatal("GitHub API: repository {} not readable".format(r["github"]))
+        return None
+    return d
+
+
+def gitlab_archived(ctx, r):
+    """True/False, or None when it cannot be read."""
+    d = ctx.gl_api_get("/projects/" + urllib.parse.quote(r["gitlab"], safe=""))
+    if not isinstance(d, dict) or "archived" not in d:
+        return None
+    return bool(d["archived"])
+
+
+def set_github_archived(ctx, r, value, tries=6):
+    """PATCH archived=value and read it back until GitHub reports it."""
+    path = "/repos/" + r["github"]
+    ctx.gh_api_send("PATCH", path, {"archived": value})
+    for n in range(tries):
+        d = github_repo(ctx, r, required=True)
+        if bool(d.get("archived")) == value:
+            return
+        time.sleep(2 * (n + 1))
+    raise Fatal(
+        "GitHub still reports archived={} for {}".format(not value, r["github"])
+    )
+
+
+def archive_plan(ctx, r):
+    """Whether a push to this copy needs the GitHub archive lifted. Returns
+    (lift, info); raises Fatal when the push must not happen."""
+    d = github_repo(ctx, r)
+    if d is None or not d.get("archived"):
+        return False, {"github_archived": False if d else None}
+    gl = gitlab_archived(ctx, r)
+    info = {"github_archived": True, "gitlab_archived": gl}
+    if gl is not True:
+        raise Fatal(
+            "GitHub copy {} is archived but the GitLab project {} is {}: "
+            "not pushing".format(
+                r["github"],
+                r["gitlab"],
+                "not archived" if gl is False else "of unknown archive state",
+            )
+        )
+    if not (d.get("permissions") or {}).get("admin"):
+        raise Fatal(
+            "GitHub copy {} is archived and the token cannot change that "
+            "(no admin permission)".format(r["github"])
+        )
+    return True, info
+
+
+def with_archive_lifted(ctx, r, info, fn):
+    """Run fn() with the GitHub archive lifted; archive again in all cases."""
+    log("  GitHub copy and GitLab project are archived: lifting the GitHub archive")
+    info["lifted"] = True
+    push_err = None
+    events = os.path.join(ctx.workdir, "archive-events.log")
+
+    def event(what):
+        with open(events, "a") as fh:
+            fh.write(
+                "{} {} {}\n".format(
+                    time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    r["github"],
+                    what,
+                )
+            )
+
+    event("archived on GitHub and GitLab; lifting the GitHub archive")
+    try:
+        set_github_archived(ctx, r, False)
+        log("  GitHub archive lifted (read back archived=false)")
+        if not ctx.gh_api.startswith("file://"):
+            time.sleep(5)
+        res = fn()
+        event("pushed")
+        return res
+    except Fatal as e:
+        push_err = e
+        event(f"push failed: {e}")
+        raise
+    finally:
+        try:
+            if not github_repo(ctx, r, required=True).get("archived"):
+                set_github_archived(ctx, r, True)
+            info["github_archived_after"] = True
+            log("  GitHub copy archived again (read back archived=true)")
+            event("archived again (read back archived=true)")
+        except Fatal as e:
+            info["github_archived_after"] = None
+            event(f"ALERT: could not archive again: {e}")
+            raise ArchiveAlert(
+                "ALERT: GitHub copy {} could not be archived again ({}); it is "
+                "left unarchived: archive it by hand{}".format(
+                    r["github"],
+                    e,
+                    f" (push error: {push_err})" if push_err else "",
+                )
+            ) from e
+
+
 # ---------------------------------------------------------------- push
 
 
@@ -934,8 +1166,16 @@ def apply_repo(ctx, r, gitdir, rows, a):
     return blocked
 
 
-def publish_map(ctx, r, gitdir, cmap, gh, a):
-    """GitHub-only branch history/gitlab-commit-map: one TSV, reproducible commit."""
+def push_repo(ctx, r, gitdir, rows, cmap, gh, a):
+    """Apply the planned ref changes and the commit map; returns blocked rows."""
+    blocked = apply_repo(ctx, r, gitdir, rows, a)
+    publish_map(ctx, r, gitdir, cmap, gh, a)
+    return blocked
+
+
+def publish_map(ctx, r, gitdir, cmap, gh, a, push_it=True):
+    """GitHub-only branch history/gitlab-commit-map: one TSV, reproducible commit.
+    Pushed when --apply and push_it are set and GitHub holds another commit."""
     if not cmap:
         return None
     body = "".join(f"{k}\t{cmap[k]}\n" for k in sorted(cmap))
@@ -967,7 +1207,7 @@ def publish_map(ctx, r, gitdir, cmap, gh, a):
         "GIT_COMMITTER_DATE": MAP_DATE,
     }
     c = git(gitdir, "commit-tree", tree, "-m", "Commit map", env=env).stdout.strip()
-    if a.apply and gh.get(MAP_REF) != c:
+    if a.apply and push_it and gh.get(MAP_REF) != c:
         lease = gh.get(MAP_REF) or ""
         push(
             ctx,
@@ -1040,11 +1280,27 @@ def cmd_sync(a):
                     log(
                         f"  {act:<28} {ref:<60} {(old or '-')[:12]} -> {(new or '-')[:12]}"
                     )
+            mapc = publish_map(ctx, r, gitdir, cmap, gh, a, push_it=False)
+            pending = pending_pushes(rows, a)
+            if mapc and gh.get(MAP_REF) != mapc:
+                pending.append(MAP_REF)
             if not a.apply:
                 rep["result"] = "dry-run"
-                if cmap:
-                    publish_map(ctx, r, gitdir, cmap, gh, a)
+                if pending:
+                    try:
+                        lift, info = archive_plan(ctx, r)
+                        if lift:
+                            log(
+                                "  note: archived on both forges; --apply lifts the GitHub archive for the push"
+                            )
+                    except Fatal as e:
+                        log(f"  note: {e}")
+                        info = {"refused": str(e)}
+                    rep["archive"] = info
                 continue
+            lift, info = archive_plan(ctx, r) if pending else (False, {})
+            if info:
+                rep["archive"] = info
             needs_backup = any(
                 x[3].split("-")[0] in ("force", "delete", "rewind", "remove")
                 for x in rows
@@ -1053,8 +1309,10 @@ def cmd_sync(a):
                 b = backup_github(ctx, r, stamp, rows, a.backup_bundle)
                 rep["backup"] = b
                 log("  backup " + str(b))
-            blocked = apply_repo(ctx, r, gitdir, rows, a)
-            publish_map(ctx, r, gitdir, cmap, gh, a)
+            push_all = functools.partial(push_repo, ctx, r, gitdir, rows, cmap, gh, a)
+            blocked = (
+                with_archive_lifted(ctx, r, info, push_all) if lift else push_all()
+            )
             after = ls_remote(ctx.gh_url(r))
             rep["after"] = after
             bad = [
@@ -1085,6 +1343,13 @@ def cmd_sync(a):
                 }
                 st = {"mode": mode, "verified": pushed, "stamp": stamp}
                 save_state(ctx, r, st)
+        except ArchiveAlert as e:
+            # stop: no further copy is unarchived while one is left open
+            log(str(e))
+            rep["result"] = f"error: {e}"
+            report.setdefault("alerts", []).append(str(e))
+            rc = 3
+            break
         except Fatal as e:
             log(f"  FATAL: {e}")
             rep["result"] = f"error: {e}"

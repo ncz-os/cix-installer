@@ -51,7 +51,7 @@ printf 'Dev One <dev@example.org> <dev@corp.example>\n' > "$T/site/mailmap"
 : > "$T/site/strip.txt"
 
 export NCZ_GHSYNC_GITLAB_BASE="file://$T/gl" NCZ_GHSYNC_GITHUB_BASE="file://$T/gh"
-export NCZ_GHSYNC_GITHUB_API="file://$T/api"
+export NCZ_GHSYNC_GITHUB_API="file://$T/api" NCZ_GHSYNC_GITLAB_API="file://$T/glapi"
 export NCZ_GHSYNC_REPLACE_FILE="$T/site/replace.txt" NCZ_GHSYNC_MAILMAP="$T/site/mailmap"
 export NCZ_GHSYNC_BACKUP_DIR="$T/bk"
 LIMIT=1048576
@@ -61,10 +61,11 @@ cat > "$T/repos.tsv" <<EOF
 fx	grp/fx	org/fx	filter
 id	grp/id	org/id	identity
 bin	grp/bin	org/bin	filter
+ar	grp/ar	org/ar	filter
 EOF
 
 mkrepo() { git init -q --bare "$T/gl/grp/$1.git"; git init -q --bare "$T/gh/org/$1.git"; }
-mkrepo fx; mkrepo id; mkrepo bin
+mkrepo fx; mkrepo id; mkrepo bin; mkrepo ar
 
 # ---- fixture history for fx
 W="$T/w"; git clone -q "$T/gl/grp/fx.git" "$W" 2>/dev/null
@@ -228,6 +229,63 @@ echo "== identity guard"
 "$SYNC" "${COMMON[@]}" --workdir "$T/wd1" --repo id --apply >/dev/null 2>&1; rc=$?
 expect "$rc" 1 "identity mode refuses a blob over the limit"
 "$CHECK" "${COMMON[@]}" --workdir "$T/wd1" --repo id >/dev/null 2>&1; expect "$?" 1 "check flags the unsynced identity repo"
+
+echo "== archived GitHub copy"
+# the fixture "GitHub" refuses pushes while its API object says archived
+ARJ="$T/api/repos/org/ar.json"; GLJ="$T/glapi/projects/grp/ar.json"; ARGH="$T/gh/org/ar.git"
+mkdir -p "$(dirname "$GLJ")"
+cat > "$ARGH/hooks/pre-receive" <<EOF
+#!/bin/sh
+python3 -c 'import json,sys; sys.exit(1 if json.load(open("$ARJ")).get("archived") else 0)' && exit 0
+echo "This repository was archived so it is read-only." >&2; exit 1
+EOF
+chmod +x "$ARGH/hooks/pre-receive"
+arj() { printf '{"archived": %s, "permissions": {"admin": %s}}' "$1" "${2:-true}" > "$ARJ"; }
+glj() { printf '{"archived": %s}' "$1" > "$GLJ"; }
+archived() { python3 -c "import json;print(json.load(open('$ARJ'))['archived'])"; }
+arcommit() { ( cd "$T/w5" && echo "$1" >> r.txt && git add r.txt && git commit -qm "$1" && git push -q origin main ); }
+git clone -q "$T/gl/grp/ar.git" "$T/w5" 2>/dev/null
+arcommit one; arj false; glj false
+"$SYNC" "${COMMON[@]}" --workdir "$T/wd1" --repo ar --apply >/dev/null 2>&1; expect "$?" 0 "unarchived copy: plain apply"
+AR1="$(git --git-dir="$ARGH" rev-parse main)"
+arj true
+"$SYNC" "${COMMON[@]}" --workdir "$T/wd1" --repo ar --apply --prune >/dev/null 2>"$T/log7"; rc=$?
+expect "$rc" 0 "archived copy with nothing to push: apply exits 0"
+expect "$(archived)" "True" "nothing to push: the archive is not touched"
+arcommit two
+"$SYNC" "${COMMON[@]}" --workdir "$T/wd1" --repo ar --apply >/dev/null 2>"$T/log8"; rc=$?
+expect "$rc" 1 "archived copy, GitLab project not archived: push refused"
+expect "$(git --git-dir="$ARGH" rev-parse main)" "$AR1" "refused: GitHub branch unchanged"
+expect "$(archived)" "True" "refused: the copy stays archived"
+grep -q "GitLab project grp/ar is not archived" "$T/log8" && ok "refusal names the GitLab state" || bad "refusal names the GitLab state"
+glj true; arj true false
+"$SYNC" "${COMMON[@]}" --workdir "$T/wd1" --repo ar --apply >/dev/null 2>"$T/log8b"; rc=$?
+expect "$rc" 1 "archived on both, token without admin: push refused"
+expect "$(archived)" "True" "no admin: the copy stays archived"
+arj true
+"$SYNC" "${COMMON[@]}" --workdir "$T/wd1" --repo ar --report "$T/plan9.json" >/dev/null 2>"$T/log9"
+grep -q "lifts the GitHub archive" "$T/log9" && ok "dry run notes the archive lift" || bad "dry run notes the archive lift"
+expect "$(archived)" "True" "dry run leaves the archive alone"
+"$SYNC" "${COMMON[@]}" --workdir "$T/wd1" --repo ar --apply --report "$T/plan10.json" >/dev/null 2>"$T/log10"; rc=$?
+expect "$rc" 0 "archived on both forges: apply exits 0"
+expect "$(archived)" "True" "copy archived again after the push"
+expect "$(git --git-dir="$ARGH" log -1 --format=%s main)" "two" "the push went through while the archive was lifted"
+expect "$(python3 -c "import json;d=json.load(open('$T/plan10.json'));a=d['repos'][0]['archive'];print(a['github_archived'],a['gitlab_archived'],a['lifted'],a['github_archived_after'])")" \
+       "True True True True" "report records the archive state before and after"
+grep -q "archived again" "$T/wd1/archive-events.log" && ok "archive events are logged" || bad "archive events are logged"
+"$CHECK" "${COMMON[@]}" --workdir "$T/wd1" --repo ar >/dev/null 2>&1; expect "$?" 0 "check: archived copy in sync"
+arcommit three
+: > "${ARJ%.json}.fail-archived-true"
+FXMAIN="$(git --git-dir="$GH" rev-parse main)"
+( cd "$W" && git checkout -q main && echo four >> a.txt && git commit -qam "Four" && git push -q origin main )
+NCZ_GHSYNC_WORKDIR="$T/wd1" "$REPO/tools/github-sync/run-hourly.sh" "${COMMON[@]}" --repo ar --repo fx >"$T/out11" 2>&1; rc=$?
+expect "$rc" 3 "copy that cannot be archived again: run exits 3"
+grep -q "ALERT: GitHub copy org/ar could not be archived again" "$T/out11" && ok "run-hourly prints the ALERT" || bad "run-hourly prints the ALERT"
+expect "$(archived)" "False" "the failure is real: the copy is left unarchived"
+expect "$(git --git-dir="$GH" rev-parse main)" "$FXMAIN" "the run stops after the alert (next repository untouched)"
+rm -f "${ARJ%.json}.fail-archived-true"
+"$SYNC" "${COMMON[@]}" --workdir "$T/wd1" --repo ar --apply >/dev/null 2>&1; expect "$?" 0 "unarchived again: plain apply"
+arj true
 
 echo "== scheduled pass keeps GitHub-side work"
 ( cd "$T/g3" && git fetch -q origin && git checkout -q side && git reset -q --hard origin/side && echo h > h.txt && git add h.txt && git commit -qm "more direct GitHub work" && git push -q origin side )

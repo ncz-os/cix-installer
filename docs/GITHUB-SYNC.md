@@ -63,6 +63,27 @@ on a ref with a GitHub release. Before any ref is moved or deleted its GitHub
 value is pinned in a local backup repository (`--backup-bundle` also writes a
 bundle of every GitHub ref).
 
+## Archived projects
+
+An archived GitHub repository is read-only, so a push to it fails. When an
+`--apply` run has something to push (a ref change or the commit map) and the
+GitHub copy is archived, the tool reads the archive state of both forges:
+
+- GitLab project archived too: the GitHub archive is lifted
+  (`PATCH /repos/OWNER/NAME archived=false`, read back), the changes are
+  pushed, and the copy is archived again (read back) whether or not the push
+  succeeded. Each step is logged and appended to `archive-events.log` in the
+  work directory; the plan report records the state before and after.
+- GitLab project not archived (or its state cannot be read), or the token has
+  no admin permission on the GitHub repository: nothing is pushed and the
+  repository is reported as an error.
+- The copy cannot be archived again: the tool prints an `ALERT:` line, stops
+  without touching further repositories and exits 3; `run-hourly.sh` repeats
+  the alert and exits 3. Archive the repository by hand.
+
+An archived copy with nothing to push is not touched. The GitLab project state
+is read with the GitLab token from the same `GIT_ASKPASS` helper.
+
 `check-github-sync.sh` exits 1 when a ref is missing, extra or has a different
 tree. Refs that differ only because a GitHub release holds them are listed as
 `RELEASE` and do not count as drift unless `--strict-releases` is given.
@@ -82,9 +103,11 @@ first line of `~/.config/ncz/<file>`.
 | `NCZ_GHSYNC_GITLAB_BASE` | `ghsync-gitlab-base` | default `https://gitlab.com` |
 | `NCZ_GHSYNC_GITHUB_BASE` | `ghsync-github-base` | default `https://github.com` |
 | `NCZ_GHSYNC_GITHUB_API` | `ghsync-github-api` | default `https://api.github.com` |
+| `NCZ_GHSYNC_GITLAB_API` | `ghsync-gitlab-api` | default `<GitLab base>/api/v4` (archive state lookups) |
 
 Push credentials come from `GIT_ASKPASS`; the same helper answers the GitHub
-API token prompt used for the release lookup. `git-filter-repo` must be on
+API token prompt (release lookup, archive state) and the GitLab API token
+prompt (archive state). `git-filter-repo` must be on
 `PATH`.
 
 `tools/github-sync/run-hourly.sh` is one scheduled pass (check, plan, apply
