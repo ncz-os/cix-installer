@@ -11,10 +11,11 @@
 # manifests/ncz-timestamped.tsv); the reviewed-ledger row for the timestamped
 # form lives there, and this file records the concrete 26.10 build.
 # Published to the NCZ apt repo: Buildkite Packages (primary) + R2 (backup).
-# The 26.10 payload carries the singularity-shell queue 0015-0019
+# The 26.10 payload carries the singularity-shell queue 0015-0020
 # (lock-over-saver overlay, no-prompt-before-input, freeze/HOLD on input,
 # login-card parity, a second lock instance yields instead of taking the
-# renderer socket) and the greeter/loginui parity patches (greeter 0003,
+# renderer socket, frame source backoff kept across handshakes and no source
+# without an output) and the greeter/loginui parity patches (greeter 0003,
 # loginui 0003).
-amd64	83250d071bda0753162821a81ad1b216132d4d00963ef93aaba12aad700d50a4	ncz-singularity-desktop_20261013052500+bk0+tgz7d410c05_amd64.deb
-arm64	1e29cae9a1ee36789ecce776ce4bbd49129cbe6492ce24fd46bfbffea6759a3d	ncz-singularity-desktop_20261013052500+bk0+tgz998c6c54_arm64.deb
+amd64	fa70fceeab02aec63ae17fdc6d0a0265fb2c5c4c8d8e5c3dad711b0e3f8f1f30	ncz-singularity-desktop_20261013090000+bk0+tgz32d20c58_amd64.deb
+arm64	e04ac444f53a7e7b547aec42785081a83c9306804b81be70b400c528eeaa1adf	ncz-singularity-desktop_20261013090000+bk0+tgz38226071_arm64.deb
