@@ -281,7 +281,8 @@ sudo apt install ncz-model-nomic-embed   # 768 维，默认
 
 - **[docs/HW-VIDEO-DECODE-STATUS.md](docs/HW-VIDEO-DECODE-STATUS.md)** —— 哪些能用，
   验证方式是**看渲染出来的画面**而不是看某个代理信号。Chromium 中 H.264 1080p 与
-  VP9 720p 走硬件解码（H.264 下渲染进程 CPU 由约 27% 降至约 3.5%）；AV1 受阻于上游。
+  VP9 720p 走硬件解码（H.264 下渲染进程 CPU 由约 27% 降至约 3.5%）。AV1 在 VA-API 路线上受阻，但通过
+  NCZ Chromium 版本中的 V4L2 解码器可以硬件解码。
 - **[docs/upstream-patches/cix-vaapi/](docs/upstream-patches/cix-vaapi/)** —— 六个
   VA-API 补丁。没有它们，浏览器硬件解码在本平台上**完全不工作**。
 - **[ffmpeg/](docs/upstream-patches/ffmpeg/)**、
