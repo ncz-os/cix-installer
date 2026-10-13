@@ -351,7 +351,7 @@ fi
 unlock_now
 SID="$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3=="'"$LU"'" && $4=="seat0"{print $1}' | head -1)"
 if ! grep -aq "LogindLock: following" /opt/singularity/bin/singularity-desktop 2>/dev/null; then
-  for c in T16 T16b T17; do rec $c SKIP "payload has no logind lock listener (shell patch 0021 absent)"; done
+  for c in T16 T16b T17; do rec $c SKIP "payload has no logind lock listener (shell patch 0022 absent)"; done
 elif [ -z "$SID" ]; then
   for c in T16 T16b T17; do rec $c SKIP "no $LU seat0 session"; done
 else
