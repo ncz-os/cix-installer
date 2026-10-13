@@ -1,6 +1,6 @@
 # Singularity payload — vendor-Mali SceneFX shader gate
 
-Regression fixed: **O6N default `7.3 Mali` boot black-screened** because the
+Regression fixed: **Orion O6 default `7.3 Mali` boot black-screened** because the
 pinned labwc bundle gained SceneFX 0.5, whose `quad.frag`/`tex.frag` quote a
 `#error` that the CIX/ARM libmali GLES compiler rejects even inside a disabled
 preprocessor branch. Full writeup: `assets/singularity/MALI-VERIFIED.md`.
@@ -21,7 +21,7 @@ Offline parity: `build/test-singularity-mali-shaders.sh` (in `make parity`)
 proves the static gate fails closed and that the carried patch de-quotes only
 the two `#error` lines.
 
-## Every release (hardware, on a Mali board — O6N is the test bed)
+## Every release (hardware, on a Mali board — Orion O6 is the test bed)
 
 ```sh
 # from a SceneFX checkout, or a labwc build tree with subprojects/scenefx

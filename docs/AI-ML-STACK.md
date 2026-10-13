@@ -33,7 +33,7 @@
 > MS-R1, 32 GB on the standard MS-R1.** (The GPU driver exposes ~46.85 GiB
 > of that as its allocatable pool after kernel/firmware reservations.)
 >
-> Status legend: ✅ validated on the `.66` reference board · ⚠️ works with
+> Status legend: ✅ validated on the MS-R1 reference board · ⚠️ works with
 > caveats · 🧪 dev/optional.
 
 ---
@@ -247,7 +247,7 @@ huggingface-cli download <repo> <file.gguf> --local-dir /opt/ncz/models
 
 ## 6. Performance & how to choose an engine
 
-All numbers measured on the `.66` board on the kernel line that preceded 7.2
+All numbers measured on the MS-R1 reference board on the kernel line that preceded 7.2
 (`7.0.12-cix-sky1-next`), which has since been removed from the image. They
 have not been re-measured on `7.2.0-sky1-ncz`;
 Mesa 26.1.3.
@@ -311,7 +311,7 @@ use it to free CPU/GPU during video transcode or camera pipelines.
 ### 6.4 CPU core allocation (big.LITTLE) & agent pinning
 
 Sky1's 12-core CPU is heterogeneous: **8× Cortex-A720 "big"** cores and
-**4× Cortex-A520 "little"/efficiency** cores. Logical CPU mapping on the `.66`
+**4× Cortex-A520 "little"/efficiency** cores. Logical CPU mapping on the MS-R1
 reference board:
 
 | Logical CPUs | Core | Max clock | Capacity | Role |

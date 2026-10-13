@@ -1,15 +1,15 @@
 # NCZ-OS Cygnus rEFInd theme: one 1080p background, `banner_scale fillscreen`
 
-## The bug (O6N, 2026-10-04)
+## The bug (Radxa Orion O6, 2026-10-04)
 
-The operator photo showed the installed rEFInd menu cropped/zoomed. O6N has a
-4K panel: the DRM connector `card0-DP-2` reports a `3840x2160` mode. The old
+A photo of the installed rEFInd menu showed it cropped/zoomed. The Orion O6
+was on a 4K panel: the DRM connector `card0-DP-2` reports a `3840x2160` mode. The old
 theme ran `pick-theme.sh`, which read *that* mode and installed
 `background-3840x2160.png` with `banner_scale noscale`, while `refind.conf` said
 `resolution max`.
 
 `resolution max` selects the highest **firmware GOP** mode, not the DRM mode.
-On O6N the GOP mode rEFInd actually gets is ~1920 wide. A 3840x2160 image drawn
+On that board the GOP mode rEFInd actually gets is ~1920 wide. A 3840x2160 image drawn
 `noscale` does not fit, so rEFInd keeps only part of it:
 
 - `refind/screen.c` `BltClearScreen()` calls `egCropImage(Banner, 0, 0, UGAWidth, UGAHeight)`
@@ -80,8 +80,8 @@ the configs) ships only what this design needs:
 | `os_ncz.png` | the NCZ entry icon (installed as `ncz.png`, unchanged) |
 
 `pick-theme.sh`, `theme-{1920x1080,2560x1440,3840x2160}.conf` and
-`background-{2560x1440,3840x2160}.png` were removed; the 2K/4K masters stay on
-ARGONAS. `branding/cygnus/tools/make-cygnus-art.py refind` now exports only
+`background-{2560x1440,3840x2160}.png` were removed; the 2K/4K masters are kept
+outside the repository. `branding/cygnus/tools/make-cygnus-art.py refind` now exports only
 1920x1080.
 
 Both `assets/refind/ncz-refind-refresh.sh` (arm64) and

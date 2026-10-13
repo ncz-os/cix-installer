@@ -393,6 +393,7 @@ tests/	common	-	unit tests
 tools/	common	-	dev tools
 tools/kvm-smoke.sh	sky1	-	aarch64 KVM kernel smoke test on cixmini
 tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
+tools/ncz-join-image.sh	common	-	join, unpack and verify the split release image parts (never writes to a disk)
 tools/verify-drivers.sh	sky1	-	Sky1 driver fidelity check
 build/test-sky1-audio-policy.sh	sky1	-	Sky1 audio default-sink policy fixture tests
 build/testdata/sky1-audio/	sky1	-	fake pactl/aplay/pw-dump/amixer for the Sky1 audio autoswitch daemon-loop tests

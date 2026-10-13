@@ -1,6 +1,7 @@
 # Release history (archive)
 
-Per-release detail for NCZ-OS ISOs up to and including 26.7 "Maximilian".
+Per-release detail for NCZ-OS releases: a short 26.10 entry, then the ISOs up to
+and including 26.7 "Maximilian".
 Retained for provenance. **Current release notes live in
 [`docs/releases/`](releases/); the current position on kernels, hardware and
 source is in the [README](../README.md), [DESIGN-RATIONALE](DESIGN-RATIONALE.md)
@@ -8,6 +9,22 @@ and [SOURCE-RELEASES](SOURCE-RELEASES.md).**
 
 Entries below describe what was true of that specific release at the time and
 are not maintained.
+
+---
+
+## 26.10 "Cygnus" Preview 1 (2026-10-12)
+
+First public preview of 26.10, and the first release shipped as raw GPT `.img`
+images for **both** architectures (arm64 `ncz-os-arm64-20261012-f64cba5`, amd64
+`ncz-os-amd64-20261012-07c0644`; source tag `v26.10-preview1`). One kernel per
+image, a release candidate: `7.3.0-rc7-sky1-ncz` (Sky1) and `7.3.0-rc7-t2-ncz`
+(amd64, T2 Macs and generic PCs); the default, installer and rescue boot entries
+all use it. New: the Cygnus theme, a first-login tour, the lock screen over a
+live screensaver, a login screen that matches the lock screen, NCZ Screensavers
+0.8.12 (74 savers) and the T2 MacBookPro16,1 power-off fix. Full notes:
+[releases/26.10-cygnus-preview1.md](releases/26.10-cygnus-preview1.md).
+
+Everything below is the 26.7 and earlier archive.
 
 ---
 
@@ -20,7 +37,7 @@ primary 7.2 boot entry) rather than the open Mesa panvk/rusticl stack that
 earlier releases (r113–r194, summarized below) shipped — Mesa panvk/rusticl
 remains the GPU compute stack on the 7.0.12 secondary/fallback kernel only.
 Apt hosting is **Buildkite Packages primary, Cloudflare R2 backup** (not R2
-alone, as r194 below shipped). Tested and validated on **Radxa Orion O6N** and **Minisforum MS-R1** — see
+alone, as r194 below shipped). Tested and validated on **Radxa Orion O6** and **Minisforum MS-R1** — see
 **Hardware support & testing status** above. NCZ-OS ships **one build**; the
 former Reinhardt/Magnetar variant split is gone, and console-only operation is
 a boot entry (`systemd.unit=multi-user.target`) on the same image.
@@ -42,7 +59,7 @@ What changed since the r147 baseline:
   dpkg. `apt-cache policy linux-image-cixmini-lts` showed `Installed:
   (none)` even on a box actively running that exact kernel, so `apt
   upgrade` had nothing it thought needed upgrading — confirmed live on
-  .66. Three-part fix, each verified against real apt transactions on real
+  an MS-R1. Three-part fix, each verified against real apt transactions on real
   hardware:
   1. The kernel now installs via `apt-get install
      linux-image-cixmini-{lts,edge}` from the signed apt repository, so
@@ -101,7 +118,7 @@ What changed since the r147 baseline:
   - **Kernel config gap**: the Sky1 NPU reports Zhouyi ISA version 5 (V3), but
     only `CONFIG_ARMCHINA_NPU_ARCH_V3_1` (version 6) was enabled — NPU was
     dark on a subset of installs. Both are now enabled.
-  - Assorted smaller fixes: a desktop icon (Zoder) that launched a bare
+  - Assorted smaller fixes: a desktop icon for a developer tool that launched a bare
     terminal instead of pointing at the project page; several install-time
     hooks (SSH, telnet console, NTP/hostname, failsafe recovery console,
     xrdp, the nspawn recovery container, the Magnetar headless
@@ -155,7 +172,7 @@ fully removed, not an option. The default GPU driver is the out-of-tree CIX
 **`mali_kbase`** blob DDK (hardware GLES/EGL/OpenCL via `libmali`); the
 in-tree `panthor` + Mesa/PanVK Vulkan path is staged as a non-default
 follow-up boot entry pending a GPU power-domain fix. See
-[Driver support matrix](../README.md#driver-support-matrix--ms-r1--o6--o6n) and
+[Driver support matrix](../README.md#driver-support-matrix--sky1-arm64) and
 [7.2 (Mali) GPU driver notes](../README.md#gpu-drivers-and-boot-options) above.
 
 **Upgrade kernels & drivers with apt — no reinstall**
@@ -196,7 +213,7 @@ environment itself runs on the 7.0.12 ("legacy" slot) kernel.
 
 **Recovery:** NCZRESCUE partition with full repair toolset + automatic networking, reachable independent of the main rootfs; installer remote-diagnostics (network-console + telnet/http) on USB boot.
 
-**O6N / MS-R1 driver support:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (`mali_kbase`/`libmali` on the primary 7.2 channel — GLES/EGL/OpenCL, no Vulkan yet; `panthor`/Mesa panvk+rusticl on the 7.0.12 fallback channel), VPU — all working. See the driver support matrix above for per-subsystem, per-board detail.
+**Orion O6 / MS-R1 driver support:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (`mali_kbase`/`libmali` on the primary 7.2 channel — GLES/EGL/OpenCL, no Vulkan yet; `panthor`/Mesa panvk+rusticl on the 7.0.12 fallback channel), VPU — all working. See the driver support matrix above for per-subsystem, per-board detail.
 
 **Reproduce:** kernels from kernel.org stable/mainline git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](KERNEL-BUILD-YOCTO.md), [kernel-source/SOURCE.md](../kernel-source/SOURCE.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](NEXT_ISO.md)).
 
@@ -239,6 +256,6 @@ files in meta-cix), including fixes that don't exist in any vendor drop yet.
 
 **Recovery (r195):** NCZRESCUE partition with full repair toolset + automatic networking, reachable independent of the main rootfs; installer remote-diagnostics (network-console + telnet/http) on USB boot.
 
-**MS-R1 (cixmini) driver support (r195) — 7.0.12 / 7.2:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (Mali-G720 panthor renderD128, Mesa 26.1.3 panvk+rusticl; compositing off), VPU — all working.
+**MS-R1 driver support (r195) — 7.0.12 / 7.2:** NVMe/PCIe, USB, Ethernet/Wi-Fi, Audio, NPU (Zhouyi V3 /dev/aipu), GPU (Mali-G720 panthor renderD128, Mesa 26.1.3 panvk+rusticl; compositing off), VPU — all working.
 
 **Reproduce (r195):** kernels from kernel.org stable git + meta-cix patch series under Yocto ([docs/KERNEL-BUILD-YOCTO.md](KERNEL-BUILD-YOCTO.md)); ISO via build/build-iso-di.sh ([docs/NEXT_ISO.md](NEXT_ISO.md)). No separate kernel-source repo needed — meta-cix carries every Sky1-specific patch as a tracked file.

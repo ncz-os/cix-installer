@@ -1,8 +1,6 @@
 # t2smp is not loaded
 
-Decision (operator, 2026-10-05, "I accept your kernel decisions", accepted
-after the U1 patch audit at `~/Projects/oc-patch-audit-73/report.md` and the
-Astra audits): the `t2smp` DKMS module is no longer built or loaded on T2
+Decision (2026-10-05, after an audit of the T2 patch set against 7.3): the `t2smp` DKMS module is no longer built or loaded on T2
 hardware. In-kernel patch 9001 is the sole owner of Apple T2 CPU-hotplug
 ordering on amd64.
 
@@ -20,12 +18,12 @@ The DKMS module is a byte-for-byte duplicate of in-kernel patch 9001
 - same notifier priority 1 / callback -1
 - same `106b:1801` PCI gate
 - same uninitialised `offlined-cpu` mask defect under
-  `CONFIG_CPUMASK_OFFSTACK=y` (confirmed on MEDUSA 7.2.9, both `t2smp` and
+  `CONFIG_CPUMASK_OFFSTACK=y` (confirmed on a MacBookPro16,1 with 7.2.9, both `t2smp` and
   9001 were present and `t2smp` was loaded)
 
 In-kernel wins by branching; the rule is "in-kernel over DKMS only when
 equivalent" and 9001 is strictly upstream. Two drivers claiming the same
-piece of hardware cannot coexist — a real load-order race on MEDUSA
+piece of hardware cannot coexist — a real load-order race on a MacBookPro16,1
 2026-09-29 produced the duplicated handler chain.
 
 ## What changes without it

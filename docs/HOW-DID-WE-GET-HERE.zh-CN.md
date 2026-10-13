@@ -194,7 +194,7 @@ NCZ-OS 不在厂商驱动与开源驱动之间选边站。它**两个都发布**
 值得。证据是三个加速器现在确实都能工作，而且是在硬件上**实测**得出的，不是从一次
 probe 推断出来的：
 
-| | 之前 | 之后（O6N 实测） |
+| | 之前 | 之后（Orion O6 实测） |
 |---|---|---|
 | **GPU** | 经 zink-over-panvk 的 GL 2.1 | **Mali-G720-Immortalis，GLES 3.2**，10 核，桌面真正获得加速——同时仍并行发布 panthor，见上文 |
 | **NPU** | 能枚举，但无法完成任何推理 | 每 256 token 分块 **95.5 ms**，多次运行结果一致，中断计数正常增长 |
@@ -221,7 +221,7 @@ probe 推断出来的：
 | NPU | — | Zhouyi V3，每 256 token 约 95 ms |
 | VPU | — | Linlon v5276，8 种解码格式，H.264/HEVC 编码 |
 
-已在 Radxa Orion O6N 与 Minisforum MS-R1 上验证。Orange Pi 6 验证进行中。
+已在 Radxa Orion Orion O6 与 Minisforum MS-R1 上验证。Orange Pi 6 验证进行中。
 
 各项决策背后的推理与实测数据，见 [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)。
 对应的内核源码，见 [`kernel-source/SOURCE.md`](../kernel-source/SOURCE.md)。

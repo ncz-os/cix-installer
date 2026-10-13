@@ -29,16 +29,27 @@ account (`diags`) and the rescue partition (`rescue`): a home-hobbyist image
 that cannot be recovered is worse than one with a known break-glass credential
 on a LAN with no public route.
 
-Change them on any network you do not control. To bake a different one:
+Change them on any network you do not control. If you build your own image,
+two variables set a different one:
+
+- `NCZ_FAILSAFE_PASS` is read by `post-install/37-failsafe-access.sh` when the
+  hook runs: a passphrase, or `random` for a unique value per install. With
+  `random` the generated value is written to `/etc/ncz/failsafe-password`
+  (0600) and printed in the install log. The image build (`make image`) does
+  not forward this variable on its own, so set it in the environment the
+  post-install hooks run in.
+- `NCZ_MGMT_PASS` is read by `build/build-mgmt-rootfs.sh` when the recovery
+  container rootfs is built: a passphrase, or `random` for a unique value per
+  build.
 
 ```bash
-NCZ_FAILSAFE_PASS='<your passphrase>' make iso     # fixed passphrase
-NCZ_FAILSAFE_PASS=random             make iso     # unique per install
-NCZ_MGMT_PASS='<your passphrase>'    make iso     # recovery container
+NCZ_MGMT_PASS='<your passphrase>' bash build/build-mgmt-rootfs.sh   # recovery container
 ```
 
-With `NCZ_FAILSAFE_PASS=random` the generated value is written to
-`/etc/ncz/failsafe-password` (0600) and printed in the install log.
+On an installed system, change the recovery container's password with `passwd`
+inside the container. The failsafe console's passphrase is stored in
+`/etc/ncz/failsafe-password`; if you do not need the console, disable it as
+shown below.
 
 ### What each one actually is
 

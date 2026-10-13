@@ -21,7 +21,7 @@
 > 为 32 GB。**（GPU 驱动在扣除内核/固件预留后，将其中约 46.85 GiB 暴露为
 > 可分配池。）
 >
-> 状态图例：✅ 已在 `.66` 参考主板上验证 · ⚠️ 可用但有注意事项 · 🧪 开发/可选。
+> 状态图例：✅ 已在 MS-R1 参考主板上验证 · ⚠️ 可用但有注意事项 · 🧪 开发/可选。
 
 ---
 
@@ -227,7 +227,7 @@ huggingface-cli download <repo> <file.gguf> --local-dir /opt/ncz/models
 
 ## 6. 性能 & 如何选择引擎
 
-所有数字均在 `.66` 主板、内核 `7.0.12-cix-sky1-next`、Mesa 26.1.3 上实测。
+所有数字均在 MS-R1 参考主板、内核 `7.0.12-cix-sky1-next`、Mesa 26.1.3 上实测。
 
 ### 6.1 实测性能
 
@@ -288,7 +288,7 @@ huggingface-cli download <repo> <file.gguf> --local-dir /opt/ncz/models
 ### 6.4 CPU 核心分配（big.LITTLE）与智能体绑定
 
 Sky1 的 12 核 CPU 是异构的：**8× Cortex-A720"大"核** + **4× Cortex-A520
-"小"/能效核**。`.66` 参考板上的逻辑 CPU 映射：
+"小"/能效核**。MS-R1 参考板上的逻辑 CPU 映射：
 
 | 逻辑 CPU | 核心 | 最高频率 | 容量 | 角色 |
 |---|---|---|---|---|
