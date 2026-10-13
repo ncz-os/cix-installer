@@ -1,0 +1,23 @@
+From 6eb0371bef369d8afa34c91d8e15ee9cf52c4e3b Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 11 Oct 2026 17:32:21 -0400
+Subject: [PATCH 6/9] restrict psr caps update conditions - CIX
+
+---
+ drivers/gpu/drm/cix/dptx/trilin_dptx.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/cix/dptx/trilin_dptx.c b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
+index d7d99be95535f..106ac3aa548ab 100644
+--- a/drivers/gpu/drm/cix/dptx/trilin_dptx.c
++++ b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
+@@ -2445,7 +2445,8 @@ static int trinlin_dp_panel_read_sink_caps(struct trilin_dp *dp)
+ 	if(dp->mst_default_on)
+ 		dp->caps.mst = drm_dp_read_mst_cap(&dp->aux, dp->dpcd);
+ 
+-	trilin_dp_psr_init_dpcd(dp);
++	if (dp->dpcd[DP_EDP_CONFIGURATION_CAP])
++		trilin_dp_psr_init_dpcd(dp);
+ 
+ 	rlen = drm_dp_dpcd_read(drm_aux, DP_DPRX_FEATURE_ENUMERATION_LIST,
+ 				&rx_feature, 1);

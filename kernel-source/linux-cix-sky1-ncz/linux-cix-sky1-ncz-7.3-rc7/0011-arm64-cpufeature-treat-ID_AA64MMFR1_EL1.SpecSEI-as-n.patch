@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 6 Oct 2026 13:40:06 -0400
+Subject: [PATCH] arm64: cpufeature: treat ID_AA64MMFR1_EL1.SpecSEI as
+ non-strict
+
+The CIX Sky1 (Radxa Orion O6N) combines Cortex-A720 (MIDR part 0xd81)
+and Cortex-A520 (0xd80) cores that disagree on
+ID_AA64MMFR1_EL1.SpecSEI. The boot CPU (A720) reports 0. The four A520s
+(CPU2-5) report 1:
+
+  CPU features: SANITY CHECK: Unexpected variation in SYS_ID_AA64MMFR1_EL1.
+                Boot CPU: 0x1001111010312122, CPU2: 0x1001111011312122
+  CPU features: Unsupported CPU feature variation detected.
+
+Each boot logs that once per A520 and sets TAINT_CPU_OUT_OF_SPEC. The
+O6N has run with that taint on every kernel since 7.2.
+
+SpecSEI only says whether the PE may raise an SError from a speculative
+read. The field is FTR_HIDDEN, and nothing in the kernel keys behaviour
+on it. FTR_HIGHER_SAFE already makes the sanitised system value 1, the
+conservative answer, which is also what KVM sees. A mismatch therefore
+has no functional consequence. FTR_NONSTRICT exists for this case:
+keep computing the safe value and stop reporting the variation as a
+sanity failure. TIDCP1 and E0PD are handled the same way.
+
+Upstream-Status: Pending [not yet posted]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ arch/arm64/kernel/cpufeature.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/kernel/cpufeature.c b/arch/arm64/kernel/cpufeature.c
+index 3ae3ad1a1cdf..188e815b4e2e 100644
+--- a/arch/arm64/kernel/cpufeature.c
++++ b/arch/arm64/kernel/cpufeature.c
+@@ -482,7 +482,14 @@ static const struct arm64_ftr_bits ftr_id_aa64mmfr1[] = {
+ 	ARM64_FTR_BITS(FTR_HIDDEN, FTR_STRICT, FTR_LOWER_SAFE, ID_AA64MMFR1_EL1_ETS_SHIFT, 4, 0),
+ 	ARM64_FTR_BITS(FTR_HIDDEN, FTR_STRICT, FTR_LOWER_SAFE, ID_AA64MMFR1_EL1_TWED_SHIFT, 4, 0),
+ 	ARM64_FTR_BITS(FTR_HIDDEN, FTR_STRICT, FTR_LOWER_SAFE, ID_AA64MMFR1_EL1_XNX_SHIFT, 4, 0),
+-	ARM64_FTR_BITS(FTR_HIDDEN, FTR_STRICT, FTR_HIGHER_SAFE, ID_AA64MMFR1_EL1_SpecSEI_SHIFT, 4, 0),
++	/*
++	 * SpecSEI differs between the cores of some big.LITTLE parts (CIX Sky1:
++	 * Cortex-A720 0, Cortex-A520 1). No kernel code acts on it, and
++	 * FTR_HIGHER_SAFE still gives KVM and the sanitised view the safe
++	 * value (1), so a mismatch does not warrant a SANITY CHECK warning
++	 * and a TAINT_CPU_OUT_OF_SPEC.
++	 */
++	ARM64_FTR_BITS(FTR_HIDDEN, FTR_NONSTRICT, FTR_HIGHER_SAFE, ID_AA64MMFR1_EL1_SpecSEI_SHIFT, 4, 0),
+ 	ARM64_FTR_BITS(FTR_HIDDEN, FTR_STRICT, FTR_LOWER_SAFE, ID_AA64MMFR1_EL1_PAN_SHIFT, 4, 0),
+ 	ARM64_FTR_BITS(FTR_HIDDEN, FTR_STRICT, FTR_LOWER_SAFE, ID_AA64MMFR1_EL1_LO_SHIFT, 4, 0),
+ 	ARM64_FTR_BITS(FTR_HIDDEN, FTR_STRICT, FTR_LOWER_SAFE, ID_AA64MMFR1_EL1_HPDS_SHIFT, 4, 0),

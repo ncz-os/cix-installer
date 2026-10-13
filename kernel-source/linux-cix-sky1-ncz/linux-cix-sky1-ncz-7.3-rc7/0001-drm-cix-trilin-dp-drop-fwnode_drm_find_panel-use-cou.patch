@@ -1,0 +1,216 @@
+From ac358595495ba154a6e5ba99b8952b115480f503 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 29 Sep 2026 16:01:21 -0400
+Subject: [PATCH 1/3] drm/cix: trilin-dp: drop fwnode_drm_find_panel(), use
+ counted OF lookup
+
+Drop the NCZ-only fwnode_drm_find_panel() export (7.2 patch 0058,
+forward-ported as 3d3bd1842516) and re-aim its only caller,
+trilin_dp_probe() from 0008, at the v7.3 panel API. After this change
+drivers/gpu/drm/drm_panel.c and include/drm/drm_panel.h are
+byte-identical to v7.3-rc5.
+
+v7.3-rc5 has no devm_drm_panel_attach(). drm_of_find_panel_or_bridge()
+exists, but it walks OF graph ports and endpoints rather than a
+phandle property, and it takes a device_node. The only exported lookup
+that matches the "edp-panel" reference is of_drm_find_panel(). Since
+b71a623598d3 it returns a counted reference. find_panel_by_fwnode()
+is static.
+
+The 0008 call site had three defects:
+ - the fwnode reference from fwnode_find_reference() was never put
+   (leaked on every path, including every -EPROBE_DEFER retry);
+ - the counted panel reference that the 3d3bd1842516 wrapper returns was
+   never released;
+ - with no "edp-panel" reference, edp_panel was left uninitialized
+   and then stored in dp->edp_panel.
+
+New helper trilin_dp_find_edp_panel():
+ - no reference: return NULL and probe as standard DP;
+ - OF reference: of_drm_find_panel(); -EPROBE_DEFER and -ENODEV are
+   passed through (dev_err_probe); on success the panel reference is
+   released by a devm action, so it stays balanced when
+   trilin_dp_edp_drop_panel() clears dp->edp_panel at runtime;
+ - ACPI (non-OF) reference: warn and probe as standard DP. No Sky1
+   ACPI panel provider is built (CONFIG_DRM_CIX_EDP_PANEL is not set in
+   the r278 config), so the old code could only defer that port
+   forever;
+ - the fwnode reference is put on every path.
+
+Behavior change: an ACPI "edp-panel" reference no longer defers the DP
+port. It now probes as standard DP and logs a warning. The supervised
+r278 boot sheet checks for that warning.
+
+Upstream-Status: Inappropriate [oe-specific]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/gpu/drm/cix/dptx/trilin_dptx.c | 77 ++++++++++++++++++++++----
+ drivers/gpu/drm/drm_panel.c            | 24 --------
+ include/drm/drm_panel.h                |  6 --
+ 3 files changed, 66 insertions(+), 41 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/dptx/trilin_dptx.c b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
+index fcce1dbedc8220a07fac74aaf509cf2dcfde87ad..690fa748d1570654f975c0da7cd7f09144cb172e 100644
+--- a/drivers/gpu/drm/cix/dptx/trilin_dptx.c
++++ b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
+@@ -36,6 +36,7 @@
+ #include <linux/delay.h>
+ #include <linux/device.h>
+ #include <linux/module.h>
++#include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/phy/phy.h>
+@@ -3438,13 +3439,70 @@ static void trilin_dp_gop_set(void)
+ 			dp_gop_bit << DP_GOP_SHIFT, 0, 0, 0, 0, 0, &res);
+ }
+ 
++static void trilin_dp_edp_panel_put(void *data)
++{
++	drm_panel_put(data);
++}
++
++/*
++ * Resolve the optional "edp-panel" firmware reference.
++ *
++ * v7.3 exports only the device-tree lookup, of_drm_find_panel(), and since
++ * b71a623598d3 it returns a counted reference that the caller must drop with
++ * drm_panel_put(). The fwnode-keyed lookup, find_panel_by_fwnode(), is
++ * static in drm_panel.c. The NCZ-only fwnode_drm_find_panel() export that
++ * used to wrap it (the 7.2 patch 0058) is gone, so there is no exported
++ * lookup for a panel that is described only by ACPI.
++ *
++ * Contract:
++ *  - no "edp-panel" reference: return NULL and probe as standard DP
++ *    (the 0008 code left edp_panel uninitialized on this path).
++ *  - reference on a non-OF (ACPI) fwnode: warn, return NULL, and probe
++ *    as standard DP. No Sky1 ACPI panel provider is built
++ *    (CONFIG_DRM_CIX_EDP_PANEL is not set), so the old code could only
++ *    defer this port forever.
++ *  - OF reference: of_drm_find_panel(), which returns -EPROBE_DEFER or
++ *    -ENODEV unchanged. On success the panel reference is dropped by a
++ *    devm action on @dev, so it stays balanced even after
++ *    trilin_dp_edp_drop_panel() clears dp->edp_panel.
++ *  - the fwnode reference from fwnode_find_reference() is always put.
++ *    The 0008 code leaked it on every path.
++ */
++static struct drm_panel *trilin_dp_find_edp_panel(struct device *dev)
++{
++	struct fwnode_handle *fwnode;
++	struct drm_panel *panel;
++	int ret;
++
++	fwnode = fwnode_find_reference(dev_fwnode(dev), "edp-panel", 0);
++	if (IS_ERR_OR_NULL(fwnode))
++		return NULL;
++
++	if (!is_of_node(fwnode)) {
++		dev_warn(dev,
++			 "edp-panel reference on a non-OF firmware node is not supported; probing as standard DP\n");
++		fwnode_handle_put(fwnode);
++		return NULL;
++	}
++
++	panel = of_drm_find_panel(to_of_node(fwnode));
++	fwnode_handle_put(fwnode);
++	if (IS_ERR(panel))
++		return panel;
++
++	ret = devm_add_action_or_reset(dev, trilin_dp_edp_panel_put, panel);
++	if (ret)
++		return ERR_PTR(ret);
++
++	return panel;
++}
++
+ int trilin_dp_probe(struct trilin_dpsub *dpsub, struct drm_device *drm)
+ {
+ 	struct platform_device *pdev = to_platform_device(dpsub->dev);
+ 	struct trilin_dp *dp;
+ 	struct resource *res_dp, *res_phy, *res_rcsu = NULL;
+ 	struct device *dev;
+-	struct fwnode_handle *fwnode_edp_panel;
+ 	struct drm_panel *edp_panel;
+ 	int ret;
+ 	const char *str_prop;
+@@ -3452,16 +3510,13 @@ int trilin_dp_probe(struct trilin_dpsub *dpsub, struct drm_device *drm)
+ 	u32 psr_default_on = 1;
+ 
+ 	dev = &pdev->dev;
+-	fwnode_edp_panel = fwnode_find_reference(dev->fwnode, "edp-panel", 0);
+-	if (!IS_ERR_OR_NULL(fwnode_edp_panel)) {
+-		edp_panel = fwnode_drm_find_panel(fwnode_edp_panel);
+-		if (IS_ERR(edp_panel)) {
+-			dev_err(dev, "%s, invalid drm_panel\n", __func__);
+-			return PTR_ERR(edp_panel);
+-		} else
+-			dev_info(dev, "%s, edp-panel %s is found\n", __func__,
+-				 dev_name(edp_panel->dev));
+-	}
++	edp_panel = trilin_dp_find_edp_panel(dev);
++	if (IS_ERR(edp_panel))
++		return dev_err_probe(dev, PTR_ERR(edp_panel),
++				     "%s, invalid edp-panel\n", __func__);
++	if (edp_panel)
++		dev_info(dev, "%s, edp-panel %s is found\n", __func__,
++			 dev_name(edp_panel->dev));
+ 
+ 	dp = devm_kzalloc(dpsub->dev, sizeof(*dp), GFP_KERNEL);
+ 	if (!dp)
+diff --git a/drivers/gpu/drm/drm_panel.c b/drivers/gpu/drm/drm_panel.c
+index 30cbea8a3c17cc12c7c844d345deda212f9fe83b..f8f6082e637fd8495f3bbfb8a405ff74ad2e19c9 100644
+--- a/drivers/gpu/drm/drm_panel.c
++++ b/drivers/gpu/drm/drm_panel.c
+@@ -529,30 +529,6 @@ static struct drm_panel *find_panel_by_fwnode(const struct fwnode_handle *fwnode
+ 	return ERR_PTR(-EPROBE_DEFER);
+ }
+ 
+-/**
+- * fwnode_drm_find_panel - look up and reference a panel by fwnode
+- * @fwnode: fwnode handle describing the panel
+- *
+- * Looks up the panel device whose fwnode matches @fwnode and returns
+- * a counted reference to it (the caller must release via drm_panel_put()).
+- *
+- * Behaves identically to of_drm_find_panel() but accepts any fwnode
+- * (ACPI or DT) instead of a struct device_node. Returns ERR_PTR(-ENODEV)
+- * if the panel is not available, ERR_PTR(-EPROBE_DEFER) if it has not
+- * registered yet, or a valid panel pointer on success.
+- *
+- * NCZ CIX Sky1: exposed as a public symbol so the in-tree CIX dptx
+- * driver (drivers/gpu/drm/cix/dptx/trilin_dptx.c) can look up an
+- * eDP panel described via ACPI _DSD reference under Sky1 BIOS v1.0,
+- * where the fwnode handle comes from fwnode_find_reference() rather
+- * than of_drm_find_panel()'s device_node.
+- */
+-struct drm_panel *fwnode_drm_find_panel(const struct fwnode_handle *fwnode)
+-{
+-	return find_panel_by_fwnode(fwnode);
+-}
+-EXPORT_SYMBOL(fwnode_drm_find_panel);
+-
+ /* Find panel by follower device */
+ static struct drm_panel *find_panel_by_dev(struct device *follower_dev)
+ {
+diff --git a/include/drm/drm_panel.h b/include/drm/drm_panel.h
+index 17f33caf7f57e8637279a1cb06a7a9be3a6c2452..b87323443f49c9aaa2f8f24526f327849801750a 100644
+--- a/include/drm/drm_panel.h
++++ b/include/drm/drm_panel.h
+@@ -337,17 +337,11 @@ int drm_panel_get_modes(struct drm_panel *panel, struct drm_connector *connector
+ 
+ #if defined(CONFIG_OF) && defined(CONFIG_DRM_PANEL)
+ struct drm_panel *of_drm_find_panel(const struct device_node *np);
+-struct drm_panel *fwnode_drm_find_panel(const struct fwnode_handle *fwnode);
+ #else
+ static inline struct drm_panel *of_drm_find_panel(const struct device_node *np)
+ {
+ 	return ERR_PTR(-ENODEV);
+ }
+-static inline struct drm_panel *
+-fwnode_drm_find_panel(const struct fwnode_handle *fwnode)
+-{
+-	return ERR_PTR(-ENODEV);
+-}
+ #endif
+ 
+ #if defined(CONFIG_DRM_PANEL)

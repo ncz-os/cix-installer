@@ -1,145 +1,150 @@
-# NCZ-OS 26.7 "Maximilian" — Kernel Source & Build Recipe
+# NCZ-OS kernel source and build recipes
 
-This directory provides the complete, corresponding source and build recipe for
-the Linux kernel shipped in NCZ-OS 26.7, in fulfilment of the GNU General Public
-License (v2). Everything needed to reproduce the exact shipping kernel is here or
-publicly available at the pinned upstream revisions below.
+This directory, together with the public repositories listed below, is the
+complete corresponding source for the Linux kernels shipped in NCZ-OS images,
+provided under the GNU General Public License, version 2. It is the in-repo
+record; every part listed here can also be fetched anonymously from a public
+URL (no account, no credentials).
 
+## 26.10 "Cygnus" Preview 1 (current)
 
-## Historical kernel trees in this directory
+Images `ncz-os-arm64-20261012-f64cba5` and `ncz-os-amd64-20261012-07c0644`
+each ship exactly **one** kernel. The default, installer and rescue boot
+entries all use it.
 
-Alongside the shipping 7.2 tree, this directory retains recipes and a patch
-tree for kernels that **earlier releases** shipped:
+### arm64: `7.3.0-rc7-sky1-ncz` (build r289)
+
+Packages `linux-image-cixmini` / `linux-headers-cixmini`
+`7.3.0-rc7-sky1-ncz+r289` (`uname -r` = `7.3.0-rc7-sky1-ncz`).
+
+| Part | Where | Exact revision |
+|---|---|---|
+| Upstream base | `https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git` | tag `v7.3-rc7`, commit `24a19b953e2a3d0ea5a8c4951a0ab8f32720c907` (tag object `ec8bf8280261294a9b9b4520414b42704c7f9f6b`, which is what the recipe's `SRCREV_kernel` names) |
+| Patch series, defconfig, recipe | **this directory**: `linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.3-rc7.bb` and `linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.3-rc7/` | copied from `https://gitlab.com/ncz-os/meta-cix`, tag `kernel-sky1-7.3.0-rc7-r289` = commit `6b6b55aa13a877ff8083592048f0a6043703c26a` |
+| As-built `.config` | `linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.3-rc7/config-7.3.0-rc7-sky1-ncz.as-built` | sha256 `67bb71093fb073cb3e9d64a5de42b2947df6ad9b7cc7c6f8b9c6105718b1aa97` (the `/boot/config-*` of the shipped binary) |
+| Complete patched tree, as one git commit | `https://gitlab.com/ncz-os/linux-cix`, branch `release/sky1-7.3.0-rc7-r289`, tag `kernel-sky1-7.3.0-rc7-r289-src` | commit `b275222cfc5703fb5595398a216b495ca7d6ee7a`, tree `73e5887e01f7cf9e9a9cd43453f8f098ea2a3cef` |
+| Port history (207 commits on the base) | `https://gitlab.com/ncz-os/linux-cix`, branch `kernel-73rc7-port-20261011` | commit `e53244fffc0bcea79e6d2ccd357cbb6d06a856d7` |
+| Debian packaging | `build/build-kernel-debs.sh` in this repository | the Preview 1 commit |
+| Out-of-tree accelerator modules (`mali_kbase`, `memory_group_manager`, `protected_memory_allocator`, `panthor`, `aipu`, `amvx`) | `assets/kernel/{mali,panthor,npu,vpu}/` in this repository; each `<kver>/SOURCE.sha256` binds the shipped `.ko` to its source | built by `build/build-accel-overlays.sh`, packaged by `build/build-dkms-debs.sh` |
+
+The patch series is the Sky1 port patch (`sky1-ncz-v7.3-rc7-port.patch`)
+followed by `0001`-`0011` and `0013`-`0021`, applied in the order of the
+recipe's `SRC_URI` (21 patches). Applying them to the base commit gives git tree
+`73e5887e01f7cf9e9a9cd43453f8f098ea2a3cef`, which is exactly the tree of the
+`linux-cix` commit above; the port patch alone gives exactly the tree of
+`kernel-73rc7-port-20261011`.
+
+The patch files and the as-built config are byte-identical copies.
+The recipe and the defconfig are copies whose **comment lines** were made
+generic (they mentioned internal build hosts); no functional line differs.
+`linux-cix-sky1-ncz-7.3-rc7/PROVENANCE.tsv` lists every file with its sha256
+and, for the two edited files, the sha256 of the meta-cix original.
+
+#### Rebuild without Yocto
+
+```sh
+git clone --branch release/sky1-7.3.0-rc7-r289 https://gitlab.com/ncz-os/linux-cix.git
+cd linux-cix
+cp /path/to/kernel-source/linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.3-rc7/config-7.3.0-rc7-sky1-ncz.as-built .config
+make ARCH=arm64 LOCALVERSION=-sky1-ncz olddefconfig
+make ARCH=arm64 LOCALVERSION=-sky1-ncz Image modules dtbs -j"$(nproc)"
+```
+
+`LOCALVERSION=-sky1-ncz` reproduces the shipped release string (the recipe's
+`KERNEL_LOCALVERSION`); the config itself leaves `CONFIG_LOCALVERSION` empty.
+On a non-arm64 host add `CROSS_COMPILE=aarch64-linux-gnu-`.
+
+Or start from mainline and apply the series yourself:
+
+```sh
+git clone --branch v7.3-rc7 --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+cd linux
+K=/path/to/kernel-source/linux-cix-sky1-ncz
+for p in $(grep -oE 'file://[^ ]+\.patch' "$K/linux-cix-sky1-ncz_7.3-rc7.bb" | sed 's,file://,,'); do
+    patch -p1 < "$K/linux-cix-sky1-ncz-7.3-rc7/$p"
+done
+```
+
+The shipped binary was built with GCC 15.3.0 and binutils 2.46.1 under Yocto
+(`MACHINE=cixmini`, recipe `linux-cix-sky1-ncz`). The recipe's `SRC_URI`
+fetches the kernel from a local mirror of the `linux-cix`
+`kernel-73rc7-port-20261011` branch; to build with Yocto from public sources,
+point that `git://` entry at `https://gitlab.com/ncz-os/linux-cix.git`
+(`protocol=https`) and keep `SRCREV_kernel`.
+
+### amd64: `7.3.0-rc7-t2-ncz` (package revision `7.3.0-rc7-2`)
+
+Packages `linux-image-7.3.0-rc7-t2-ncz` / `linux-headers-7.3.0-rc7-t2-ncz`
+`7.3.0-rc7-2`. The kernel serves Apple T2 Macs and generic PCs alike.
+
+| Part | Where | Exact revision |
+|---|---|---|
+| Upstream base | `https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git` | tag `v7.3-rc7`, commit `24a19b953e2a3d0ea5a8c4951a0ab8f32720c907` |
+| Patch series (24 patches, t2linux plus NCZ), resolved config, build and packaging script, verification script | `https://gitlab.com/ncz-os/linux-t2-ncz` | tag `v7.3.0-rc7-t2-ncz-2`, commit `35249a98c7ad2f07cf2d0055a3be3c0c40f5b506` |
+| T2 DKMS modules (`t2smc`, `t2gmux`, `t2thunderbolt`, `t2smp`) | `assets/kernel/t2smc/`, `t2gmux/`, `t2thunderbolt/`, `t2smp/` in this repository | the Preview 1 commit |
+
+The source tree from `linux-t2-ncz` (base plus `patches/series`) is git tree
+`451b5dfee3eb77e15dac561766000bc3ec2e4f41`. Its `config/` file has the same
+sha256 (`e88c4505d5c4a9fce3720eb0ba2892aede33f12080865cb45bfbee2acc09219a`) as
+`/boot/config-7.3.0-rc7-t2-ncz` in the shipped package. The repository's
+`verify.sh` checks the tree and config, and its README gives the build commands.
+
+The amd64 kernel is not vendored in this directory; `linux-t2-ncz` is its
+corresponding-source repository.
+
+## Older releases
+
+GPLv2 section 3 obliges us to keep source available for binaries distributed
+in earlier releases, so the trees below stay here. **None of them is shipped
+in 26.10.**
 
 | Path | Shipped in |
 |---|---|
-| `linux-cix-sky1-ncz-7.1.1/`, `linux-cix-sky1-ncz_7.1.1.bb` | superseded pre-26.7 line |
-| `linux-cix-sky1-ncz_7.1.2.bb` | superseded pre-26.7 line |
-| `linux-cix-sky1-ncz_6.18.26.bb` | superseded pre-26.7 line |
+| `linux-cix-sky1-ncz_7.2.bb`, `linux-cix-sky1-ncz-7.2/` | 26.7 "Maximilian" (`7.2.0-sky1-ncz`) |
+| `linux-cix-sky1-ncz-7.1.1/`, `linux-cix-sky1-ncz_7.1.1.bb` | pre-26.7 |
+| `linux-cix-sky1-ncz_7.1.2.bb` | pre-26.7 |
+| `linux-cix-sky1-ncz_6.18.26.bb` | pre-26.7 |
 
-**None of these is shipped in 26.7.** They are kept because GPLv2 §3(b)
-obliges us to keep corresponding source available to anyone who received a
-binary built from them. Do not treat their presence as evidence of a supported
-kernel channel — 26.7 ships exactly one kernel, `7.2.0-sky1-ncz`.
+### 26.7: `7.2.0-sky1-ncz`
 
-## Shipping kernel
-
-> **As-built configuration.** `linux-cix-sky1-ncz-7.2/config-7.2.0-sky1-ncz.as-built`
-> is the **expanded `.config` actually used to build the shipped binary**, not a
-> defconfig. It is included because a defconfig plus a kernel version does not
-> uniquely determine a `.config` — kconfig defaults change between revisions —
-> so shipping only the defconfig would leave a gap in the corresponding source.
-> `config-7.2-lean-msr1-o6n.defconfig` remains the human-maintained input.
-
-
-- **KERNELRELEASE (as shipped):** `7.2.0-sky1-ncz`
-  The upstream base is v7.2-rc7, but the shipped kernel carries the release
-  localversion, not an rc one. `uname -r` on an installed system reports
-  `7.2.0-sky1-ncz`; that is the string to match against this source drop.
-- **Base:** mainline Linux **v7.2-rc7**, from
-  `git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git`
-  at **SRCREV `db2ddb87143519e20a95aa36c60b36107b736a58`** (the v7.2-rc7 tag
-  commit -- the commit, not the annotated tag object).
-
-  Base history, retained for GPL corresponding-source continuity:
-  v7.2-rc4 `1590cf0329716306e948a8fc29f1d3ee87d3989f` ->
-  v7.2-rc5 `f5098b6bae761e346ebcd9da7f95622c04733cff` (2026-07-26) ->
-  v7.2-rc6 `075b74841bd0065a3bda3440873c747938e69b68` (2026-08-02) ->
-  v7.2-rc7 `db2ddb87143519e20a95aa36c60b36107b736a58` (2026-08-16).
-  All four shas verified against git.kernel.org on 2026-08-16.
-- **Delta:** the CIX Sky1 (CD8180) enablement — **176 patches** actually wired
-  into the recipe's `SRC_URI`, out of 197 files present (the `patches-7.2/`
-  directory also holds 21 superseded/experimental patches the recipe does not
-  reference) under
-  `linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.2/patches-7.2/` + the config
-  `config-7.2-lean-msr1-o6n.defconfig`. Applied on top of the mainline base in
-  the exact order listed in the recipe's `SRC_URI` (not plain numeric/alpha
-  filename order -- a handful of later fixups are interleaved earlier in the
-  series). 169 of the 170 applied byte-identical onto the rc5 base (the rc4->rc5
-  diff touches zero files this series modifies); one patch (0184) had a
-  pre-existing malformed hunk unrelated to the rebase and was corrected.
-
-> **Provenance.** This directory is a copy of the tree that actually builds the
-> shipping kernel: `meta-cix/recipes-kernel/linux-cix-sky1-ncz/` in the
-> `ncz-os/meta-cix` layer, as checked out on the build host. It was re-synced on
-> 2026-08-16 after an audit found it had drifted: the published recipe wired 171
-> patches while the build recipe wired 176, five patch FILES were absent
-> entirely (0190, 0191, 0192, 0193, 0200), and the published defconfig still had
-> `CONFIG_ARMCHINA_NPU=m` — which the build tree deliberately removed, because
-> an in-tree copy claims the driver symbols first and stops the vendor DKMS
-> module (`cix-npu-kmd`) from loading at all. Following the stale copy would
-> therefore have produced a kernel with a non-functional NPU, which is precisely
-> what a corresponding-source tree must not do. Re-verify this directory against
-> the build tree whenever the kernel is rebased.
-
-## Contents
-
-```
-linux-cix-sky1-ncz/
-  linux-cix-sky1-ncz_7.2.bb            # Yocto/OpenEmbedded recipe (the shipping kernel)
-  linux-cix-sky1-ncz_6.18.26.bb        # LTS recipe (7.0.12-cix-sky1-next base)
-  linux-cix-sky1-ncz_7.1.1.bb / _7.1.2.bb
-  linux-cix-sky1-ncz-7.2/
-    config-7.2-lean-msr1-o6n.defconfig # kernel config for the 7.2 ship
-    patches-7.2/00xx-*.patch           # CIX Sky1 enablement patches (176 of 197 wired into SRC_URI; see recipe)
-```
-
-## Reproduce (without Yocto)
+- **KERNELRELEASE (as shipped):** `7.2.0-sky1-ncz`. The upstream base is
+  v7.2-rc7, but the shipped kernel carries the release localversion.
+- **Base:** mainline Linux v7.2-rc7 from
+  `git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git` at
+  commit `db2ddb87143519e20a95aa36c60b36107b736a58`. Earlier bases, kept for
+  continuity: v7.2-rc4 `1590cf0329716306e948a8fc29f1d3ee87d3989f`, v7.2-rc5
+  `f5098b6bae761e346ebcd9da7f95622c04733cff`, v7.2-rc6
+  `075b74841bd0065a3bda3440873c747938e69b68`.
+- **Delta:** 176 patches wired into the recipe's `SRC_URI`, out of 197 files in
+  `linux-cix-sky1-ncz-7.2/patches-7.2/` (the other 21 are superseded or
+  experimental and are not applied), plus `config-7.2-lean-msr1-o6n.defconfig`.
+  Apply them in `SRC_URI` order, which is not plain filename order.
+- **As-built configuration:** `linux-cix-sky1-ncz-7.2/config-7.2.0-sky1-ncz.as-built`
+  is the expanded `.config` used for the shipped binary.
 
 ```sh
 git clone git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
 cd linux
 git checkout db2ddb87143519e20a95aa36c60b36107b736a58
-# Apply in the exact order listed in linux-cix-sky1-ncz_7.2.bb's SRC_URI --
-# NOT plain `for p in patches-7.2/*.patch`, the directory holds a few
-# superseded/experimental patches the recipe does not use, and the shipping
-# order is not pure filename order.
 for p in $(grep -oE 'patches-7\.2/[0-9]+-[^ \\]+\.patch' /path/to/kernel-source/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.2.bb); do
     git am -3 --keep-non-patch "/path/to/kernel-source/linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.2/${p}"
 done
-cp /path/to/kernel-source/.../config-7.2-lean-msr1-o6n.defconfig .config
+cp /path/to/kernel-source/linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.2/config-7.2.0-sky1-ncz.as-built .config
 make ARCH=arm64 olddefconfig
 make ARCH=arm64 Image modules -j"$(nproc)"
 ```
 
-## Reproduce (with Yocto)
-
-The `.bb` recipe is the authoritative build spec. It is also maintained in the
-`ncz-os/meta-cix` layer (GitLab). Build with the `ncz-yocto-y6` layer set,
-`MACHINE=cixmini`, target `linux-cix-sky1-ncz`.
-
-## Out-of-tree GPU driver (mali_kbase)
-
-26.7 ships the CIX **mali kbase** GPU driver as a DKMS/overlay module (not
-in-tree — panthor is the in-tree open driver, blacklisted on the Mali boot
-entry). Upstream source: **`cixtech/cix_opensource__gpu_kernel`** (GitHub, the
-CIX vendor org); **`Sky1-Linux/cix-gpu-kmd`** is the community DKMS repackage.
-NCZ-OS applies one local patch on top:
-
-- `../assets/kernel/mali/mali-kbase-scmi-ratelimit.patch` — rate-limits GPU
-  SCMI DVFS requests to prevent a shared-SCP-mailbox wedge (ports the panthor
-  rate-limit approach to mali kbase).
-
-## Notable NCZ patches (submitted / pending upstream)
-
-Upstream = the CIX vendor org **`github.com/cixtech`**:
-`cix-linux-main` (kernel: amvx/VPU, panthor Sky1 patches) and
-`cix_opensource__gpu_kernel` (mali kbase).
-
-- `patches-7.2/0173-amvx-vb2-queue-lock-7.2.patch` — CIX Linlon/amvx VPU: set a
-  per-port `vb2_queue.lock` before `vb2_queue_init()`. v6.x+
-  `vb2_core_queue_init()` enforces a non-NULL `q->lock`, without which REQBUFS
-  fails and the VPU codec is non-functional. → upstream: `cixtech/cix-linux-main`.
-- `patches-7.2/0086-...gpu_core...patch` — panthor Sky1 GPU clock con_id fix
-  (`gpu_core` → `gpu_clk_core`). Correct but held from panthor mode pending the
-  GPU power-domain fix (a follow-up). → upstream: `cixtech/cix-linux-main`.
-- The mali SCMI rate-limit patch (above). → upstream:
-  `cixtech/cix_opensource__gpu_kernel`.
+26.7 shipped the CIX `mali_kbase` GPU driver as a DKMS module (source in
+`assets/kernel/mali/src`, upstream `cixtech/cix_opensource__gpu_kernel`) with
+one local patch, `assets/kernel/mali/mali-kbase-scmi-ratelimit.patch`.
+`CORRESPONDING-SOURCE.md` records the self-mirrored pristine base archives for
+the 7.2 and 7.0.12 lines.
 
 ## Written offer
 
-For three years from distribution, NCZ-OS will provide the complete
-corresponding machine-readable source for the GPL/LGPL components of the shipped
-kernel, at no charge beyond the cost of physical distribution. The source is
-this directory plus the mainline base at the pinned SRCREV above. Contact:
-`Jason Perlow <jperlow@gmail.com>`.
+For three years from the date we distributed a binary, NCZ-OS will provide
+the complete corresponding machine-readable source for the GPL/LGPL
+components of the shipped kernels, at no charge beyond the cost of physical
+distribution. The source is this directory and the public repositories named
+above. Contact: Jason Perlow `<jperlow@gmail.com>`, or open an issue at
+<https://gitlab.com/ncz-os/cix-installer/-/issues>.

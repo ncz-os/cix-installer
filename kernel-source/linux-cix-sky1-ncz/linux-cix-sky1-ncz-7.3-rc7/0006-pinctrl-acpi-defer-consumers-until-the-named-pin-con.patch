@@ -1,0 +1,192 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 6 Oct 2026 13:37:32 -0400
+Subject: [PATCH] pinctrl: acpi: defer consumers until the named pin controller
+ registers
+
+On the Radxa Orion O6N every boot logs:
+
+  sbsa-uart ARMH0011:02: pctldev with ACPI name '\_SB.MUX0' not found
+
+ARMH0011:02 (\_SB.COM2, the ttyAMA0 console) lists PinGroupFunction
+resources that name \_SB.MUX0 (CIXHA016, sky1-pinctrl). ACPI enumerates
+COM2 before MUX0, so the UART reaches pinctrl_bind_pins() before
+sky1-pinctrl has registered the controller.
+get_pinctrl_dev_from_acpi_name() then returns NULL, the parser logs the
+error and returns -ENXIO, and pinctrl_bind_pins() ignores that errno.
+The UART probes without its default pin state, so the pinmux it runs
+with is whatever the firmware left. The same message appears on the
+v7.2.7 vendor kernel.
+
+The DT path defers in this situation: dt_to_map_one_config() returns
+-EPROBE_DEFER until the controller node has a registered pinctrl_dev.
+Make the ACPI path do the same.
+
+- Return ERR_PTR(-EPROBE_DEFER) from get_pinctrl_dev_from_acpi_name()
+  when the named device exists and is present but its driver has not
+  registered the controller yet. driver_deferred_probe_check_state()
+  makes the decision, so a controller that never binds stops blocking
+  its consumers at the deferred probe timeout.
+- Return ERR_PTR(-ENODEV) when the namespace has no such device or it is
+  not present. Also return it when the device is the controller's own
+  companion: those resources are hogs, which DT never defers either.
+- Report through dev_err_probe(). A deferral is recorded quietly in
+  devices_deferred. A missing controller still logs an error.
+- Drop the reference that acpi_get_acpi_dev() takes. The old code never
+  dropped it.
+- Free the maps already registered when pinctrl_acpi_to_map() fails.
+  create_pinctrl() frees the pinctrl on error, so a deferral would
+  otherwise leak those maps and register duplicates on every retry.
+  pinctrl_dt_to_map() already frees them on error.
+
+Upstream-Status: Inappropriate [vendor ACPI pinctrl support; not in mainline]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/pinctrl/pinctrl-acpi.c | 92 ++++++++++++++++++++++------------
+ 1 file changed, 61 insertions(+), 31 deletions(-)
+
+diff --git a/drivers/pinctrl/pinctrl-acpi.c b/drivers/pinctrl/pinctrl-acpi.c
+index 0e6444ca76e2..de5a61d28ced 100644
+--- a/drivers/pinctrl/pinctrl-acpi.c
++++ b/drivers/pinctrl/pinctrl-acpi.c
+@@ -145,26 +145,49 @@ static int acpi_remember_or_free_map(struct pinctrl *p, const char *statename,
+ 	return -ENOMEM;
+ }
+ 
+-static struct pinctrl_dev *get_pinctrl_dev_from_acpi_name(char *pinctrl_acpi)
++/*
++ * Look up the pin controller that an ACPI pin resource names.
++ *
++ * Returns the registered controller, or an ERR_PTR:
++ *  -ENODEV       the namespace has no such device, the device is not present,
++ *                or @dev is the controller itself (a controller's own
++ *                resources are hogs and are never deferred, as in the DT
++ *                path);
++ *  -EPROBE_DEFER the device exists but its driver has not registered the
++ *                controller yet. ACPI enumerates consumers such as the console
++ *                UART before the pin controller binds. Deferral ends at the
++ *                deferred probe timeout, as driver_deferred_probe_check_state()
++ *                decides.
++ */
++static struct pinctrl_dev *get_pinctrl_dev_from_acpi_name(struct device *dev,
++							  char *pinctrl_acpi)
+ {
++	struct pinctrl_dev *pctldev;
+ 	struct acpi_device *adev;
+-	const char *dev_name;
+-	acpi_status status;
+ 	acpi_handle handle;
++	bool self;
+ 
+-	status = acpi_get_handle(NULL, pinctrl_acpi, &handle);
+-	if (ACPI_FAILURE(status))
+-		return NULL;
++	if (ACPI_FAILURE(acpi_get_handle(NULL, pinctrl_acpi, &handle)))
++		return ERR_PTR(-ENODEV);
+ 
+ 	adev = acpi_get_acpi_dev(handle);
+ 	if (!adev)
+-		return NULL;
++		return ERR_PTR(-ENODEV);
+ 
+-	dev_name = acpi_dev_name(adev);
+-	if (!dev_name)
+-		return NULL;
++	if (!adev->status.present) {
++		acpi_put_acpi_dev(adev);
++		return ERR_PTR(-ENODEV);
++	}
++
++	self = ACPI_COMPANION(dev) == adev;
++	pctldev = get_pinctrl_dev_from_devname(acpi_dev_name(adev));
++	acpi_put_acpi_dev(adev);
++	if (pctldev)
++		return pctldev;
++	if (self)
++		return ERR_PTR(-ENODEV);
+ 
+-	return get_pinctrl_dev_from_devname(dev_name);
++	return ERR_PTR(driver_deferred_probe_check_state(dev));
+ }
+ 
+ static int acpi_to_generic_pin_config(unsigned int acpi_param,
+@@ -277,12 +300,11 @@ acpi_pin_resource_to_pinctrl_map(struct pinctrl *p, char *pinctrl_acpi,
+ #define MAX_NUM_PINTRTL_STATE	(5)
+ 	const char *pinctrl_name[MAX_NUM_PINTRTL_STATE];
+ 
+-	pctldev = get_pinctrl_dev_from_acpi_name(pinctrl_acpi);
+-	if (!pctldev) {
+-		dev_err(p->dev, "pctldev with ACPI name '%s' not found\n",
+-			pinctrl_acpi);
+-		return -ENXIO;
+-	}
++	pctldev = get_pinctrl_dev_from_acpi_name(p->dev, pinctrl_acpi);
++	if (IS_ERR(pctldev))
++		return dev_err_probe(p->dev, PTR_ERR(pctldev),
++				     "pctldev with ACPI name '%s' not found\n",
++				     pinctrl_acpi);
+ 
+ 	ops = pctldev->desc->pctlops;
+ 	if (!ops->acpi_node_to_map) {
+@@ -509,12 +531,11 @@ static int process_pin_group_config(struct pinctrl *p,
+ 		return ret;
+ 
+ 	pinctrl_acpi = ares->resource_source.string_ptr;
+-	pctl_dev = get_pinctrl_dev_from_acpi_name(pinctrl_acpi);
+-	if (!pctl_dev) {
+-		dev_err(p->dev, "pctldev with ACPI name '%s' not found\n",
+-			pinctrl_acpi);
+-		return -ENXIO;
+-	}
++	pctl_dev = get_pinctrl_dev_from_acpi_name(p->dev, pinctrl_acpi);
++	if (IS_ERR(pctl_dev))
++		return dev_err_probe(p->dev, PTR_ERR(pctl_dev),
++				     "pctldev with ACPI name '%s' not found\n",
++				     pinctrl_acpi);
+ 
+ 	adev = ACPI_COMPANION(pctl_dev->dev);
+ 	group = ares->resource_source_label.string_ptr;
+@@ -576,12 +597,11 @@ process_pin_group_function(struct pinctrl *p,
+ 	pinctrl_acpi = ares->resource_source.string_ptr;
+ 	group = ares->resource_source_label.string_ptr;
+ 
+-	pctl_dev = get_pinctrl_dev_from_acpi_name(pinctrl_acpi);
+-	if (!pctl_dev) {
+-		dev_err(p->dev, "pctldev with ACPI name '%s' not found\n",
+-			pinctrl_acpi);
+-		return -ENXIO;
+-	}
++	pctl_dev = get_pinctrl_dev_from_acpi_name(p->dev, pinctrl_acpi);
++	if (IS_ERR(pctl_dev))
++		return dev_err_probe(p->dev, PTR_ERR(pctl_dev),
++				     "pctldev with ACPI name '%s' not found\n",
++				     pinctrl_acpi);
+ 
+ 	adev = ACPI_COMPANION(pctl_dev->dev);
+ 	if (ares->vendor_length > 0)
+@@ -734,13 +754,23 @@ int pinctrl_acpi_to_map(struct pinctrl *p)
+ 
+ 	ret = parse_acpi_pin_functions(p);
+ 	if (ret < 0)
+-		return ret;
++		goto err;
+ 
+ 	ret = parse_acpi_pin_configs(p);
+ 	if (ret < 0)
+-		return ret;
++		goto err;
+ 
+ 	return 0;
++
++err:
++	/*
++	 * create_pinctrl() frees @p on error. Drop the maps already
++	 * registered for the resources parsed before the failure, or a
++	 * deferred probe leaks them and registers duplicates on each retry
++	 * (pinctrl_dt_to_map() does the same).
++	 */
++	pinctrl_acpi_free_maps(p);
++	return ret;
+ }
+ 
+ static int pinctrl_acpi_populate_group_desc(struct acpi_resource *ares,

@@ -1,0 +1,80 @@
+From 4e5d6c9e238625ffd7fd2ce9bf78ac255cb2ff11 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 11 Oct 2026 17:32:21 -0400
+Subject: [PATCH 5/9] DRM/cix: dptx: physical dp->status and MST HPD handling -
+ CIX
+
+---
+ drivers/gpu/drm/cix/dptx/trilin_dptx.c |  6 ++++--
+ drivers/gpu/drm/cix/dptx/trilin_drm.c  | 16 ++++++++--------
+ 2 files changed, 12 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/dptx/trilin_dptx.c b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
+index c240b8292fcf7..d7d99be95535f 100644
+--- a/drivers/gpu/drm/cix/dptx/trilin_dptx.c
++++ b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
+@@ -2922,10 +2922,12 @@ static void trilin_dp_hpd_event_work_func(struct work_struct *work)
+ 	old_status = dp->status;
+ 	drm_helper_probe_detect(&dp->connector.base, NULL, false);
+ 
+-	if(old_status == dp->status) {
+-		DP_INFO("dp status is same : %d", dp->status);
++	if (old_status == dp->status) {
++		DP_INFO("dp status is same : %d\n", dp->status);
+ 		return;
+ 	}
++
++	/* dp->status reflects physical sink presence (MST and SST). */
+ 	connected = (dp->status == connector_status_connected);
+ 
+ 	if (connected)
+diff --git a/drivers/gpu/drm/cix/dptx/trilin_drm.c b/drivers/gpu/drm/cix/dptx/trilin_drm.c
+index ad91b8366ede6..42a50503043e5 100644
+--- a/drivers/gpu/drm/cix/dptx/trilin_drm.c
++++ b/drivers/gpu/drm/cix/dptx/trilin_drm.c
+@@ -83,7 +83,7 @@ trilin_dp_connector_detect(struct drm_connector *connector, bool force)
+ {
+ 	struct trilin_dp *dp = connector_to_dp(connector);
+ 	int rc;
+-	enum drm_connector_status real_status;
++	enum drm_connector_status status = connector_status_disconnected;
+ 	bool vrr_capable = false;
+ 
+ 	DP_DEBUG("enter\n");
+@@ -102,29 +102,29 @@ trilin_dp_connector_detect(struct drm_connector *connector, bool force)
+ 
+ 	if (!trilin_dp_get_hpd_state(dp)) {
+ 		trilin_dp_handle_disconnect(dp, false);
+-		real_status = dp->status = connector_status_disconnected;
++		dp->status = connector_status_disconnected;
+ 	} else {
+ 		trilin_dp_handle_connect(dp, false);
+-		real_status = connector_status_connected;
++		dp->status = connector_status_connected;
+ 		if (dp->mst.mst_active) {
+ 			DP_DEBUG(
+ 				"mst device that base connector cannot be used.\n");
+-			dp->status = connector_status_disconnected;
++			status = connector_status_disconnected;
+ 		} else {
+-			dp->status = connector_status_connected;
++			status = connector_status_connected;
+ 		}
+ 		vrr_capable = trilin_dp_vrr_is_capable(dp, connector);
+ 		DP_DEBUG("[CONNECTOR:%d:%s] VRR capable: %d\n",
+ 			connector->base.id, connector->name, vrr_capable);
+ 		drm_connector_set_vrr_capable_property(connector, vrr_capable);
+ 	}
+-	drm_dp_set_subconnector_property(connector, real_status, dp->dpcd,
++	drm_dp_set_subconnector_property(connector, dp->status, dp->dpcd,
+ 					 dp->downstream_ports);
+-	return dp->status;
++	return status;
+ end:
+ 	mutex_unlock(&dp->session_lock);
+ 	dp->status = connector_status_disconnected;
+-	return dp->status;
++	return status;
+ }
+ 
+ bool trilin_dp_plugged_status(struct trilin_dp *dp)

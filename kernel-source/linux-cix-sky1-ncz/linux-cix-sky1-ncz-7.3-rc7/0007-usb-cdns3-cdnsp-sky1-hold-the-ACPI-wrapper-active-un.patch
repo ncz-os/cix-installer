@@ -1,0 +1,151 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 6 Oct 2026 13:40:05 -0400
+Subject: [PATCH] usb: cdns3: cdnsp-sky1: hold the ACPI wrapper active until
+ its children bind
+
+Every O6N boot on r284 logs, for all ten USB controllers:
+
+  cdns-usbssp CIXH2031:0N: runtime PM trying to activate child device
+                           CIXH2031:0N but parent (CIXH2030:0N) is not active
+  cdns-usbssp CIXH2031:0N: Enabling runtime PM for inactive device with
+                           active children
+
+v7.2.7 logs the same thing for 06-09.
+
+Under ACPI the CIXH2031 controllers are not populated by the wrapper.
+They are separate ACPI platform devices. The firmware DLKL table creates
+a managed device link from CIXH2030:0N (supplier) to CIXH2031:0N
+(consumer), so the child is probed from the deferred-probe work after the
+wrapper's probe returns. When that probe returns, the driver core calls
+pm_request_idle() on the wrapper. The wrapper has no active children yet,
+so it runtime-suspends. Before late_initcall the CIX early-boot
+runtime-PM gate (0003) skips the callback but still records
+RPM_SUSPENDED. The gate also makes __pm_runtime_resume() return 1 without
+resuming. So the pm_runtime_get_sync(dev->parent) in
+__driver_probe_device() does nothing and the wrapper is still suspended
+when cdnsp_probe() calls pm_runtime_set_active(). The PM core refuses
+that, and the child stays RPM_SUSPENDED with an active xhci-hcd below it.
+Everything reads "active" later only because pm_runtime_forbid() resumes
+it after the gate opens. Until then the parent/child accounting is wrong,
+and that accounting keeps the wrapper from servicing port changes.
+
+Take a runtime-PM usage reference in the ACPI probe path before enabling
+runtime PM, and drop it from ->sync_state(). The driver core calls
+->sync_state() once every managed consumer of the wrapper has bound,
+which is late_initcall at the earliest, when sync_state is resumed. By
+then each child set itself active against an active parent, and the
+children keep the wrapper active through the normal accounting. This
+also matches the 7.0.12 behaviour that the existing comment requires. The
+error and remove paths drop the reference if sync_state never ran. The DT
+path is unchanged: of_platform_populate() binds the children
+synchronously inside probe.
+
+The global gate is left alone. Making its resume short-circuit update
+runtime_status would mark devices active without running their resume
+callbacks, and that unbalances clock enables in other drivers.
+
+Upstream-Status: Inappropriate [vendor glue + vendor runtime-PM gate]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/usb/cdns3/cdnsp-sky1.c | 46 ++++++++++++++++++++++++++++++++++
+ drivers/usb/cdns3/cdnsp-sky1.h |  1 +
+ 2 files changed, 47 insertions(+)
+
+diff --git a/drivers/usb/cdns3/cdnsp-sky1.c b/drivers/usb/cdns3/cdnsp-sky1.c
+index ea2d032ec4e2..542ead57e473 100644
+--- a/drivers/usb/cdns3/cdnsp-sky1.c
++++ b/drivers/usb/cdns3/cdnsp-sky1.c
+@@ -784,6 +784,29 @@ static int cdnsp_sky1_probe(struct platform_device *pdev)
+ 	 * inactive device with active children" warning this had silenced.
+ 	 */
+ 	device_set_wakeup_capable(dev, true);
++
++	/*
++	 * Under ACPI the CIXH2031 children are separate ACPI platform devices.
++	 * They are not created here. The firmware DLKL table links each one
++	 * to its wrapper with a managed device link, so a child probes only
++	 * after this probe returns. In that window the driver core idles the
++	 * wrapper and runtime-suspends it. Before late_initcall the CIX
++	 * early-boot runtime-PM gate skips the callbacks and also makes the
++	 * driver core's pm_runtime_get_sync(parent) a no-op, so the wrapper is
++	 * still RPM_SUSPENDED when the child calls pm_runtime_set_active().
++	 * Each child then logs "runtime PM trying to activate child device
++	 * CIXH2031:0N but parent (CIXH2030:0N) is not active".
++	 *
++	 * Hold a usage reference until every consumer of the wrapper has
++	 * bound. The driver core reports that through ->sync_state(), which
++	 * drops the reference. By then the children are active and keep the
++	 * wrapper active through the normal parent/child accounting
++	 * described above.
++	 */
++	if (ACPI_COMPANION(dev)) {
++		pm_runtime_get_noresume(dev);
++		data->rpm_hold = true;
++	}
+ 	pm_runtime_set_active(dev);
+ 	pm_runtime_enable(dev);
+ 
+@@ -824,6 +847,10 @@ static int cdnsp_sky1_probe(struct platform_device *pdev)
+ err_pm:
+ 	pm_runtime_disable(dev);
+ 	pm_runtime_set_suspended(dev);
++	if (data->rpm_hold) {
++		data->rpm_hold = false;
++		pm_runtime_put_noidle(dev);
++	}
+ 	kfree(cdns_sky1_pdata);
+ 	return ret;
+ }
+@@ -834,6 +861,10 @@ static void cdnsp_sky1_remove(struct platform_device *pdev)
+ 	struct cdnsp_sky1 *data = dev_get_drvdata(dev);
+ 
+ 	pm_runtime_get_sync(dev);
++	if (data->rpm_hold) {
++		data->rpm_hold = false;
++		pm_runtime_put_noidle(dev);
++	}
+ 	of_platform_depopulate(dev);
+ 	sky1_put_addr(data->xhci_base);
+ 	sky1_put_addr(data->device_base);
+@@ -929,6 +960,20 @@ static void cdnsp_sky1_shutdown(struct platform_device *pdev)
+ 	}
+ }
+ 
++/*
++ * All consumers (the ACPI CIXH2031 children) have bound: drop the usage
++ * reference taken in probe and let normal runtime-PM accounting take over.
++ */
++static void cdnsp_sky1_sync_state(struct device *dev)
++{
++	struct cdnsp_sky1 *data = dev_get_drvdata(dev);
++
++	if (data && data->rpm_hold) {
++		data->rpm_hold = false;
++		pm_runtime_put(dev);
++	}
++}
++
+ static struct platform_driver cdnsp_sky1_driver = {
+ 	.probe		= cdnsp_sky1_probe,
+ 	.remove		= cdnsp_sky1_remove,
+@@ -937,6 +982,7 @@ static struct platform_driver cdnsp_sky1_driver = {
+ 		.of_match_table	= cdns_sky1_of_match,
+ 		.acpi_match_table = ACPI_PTR(cdnsp_sky1_acpi_match),
+ 		.pm	= &cdnsp_sky1_pm_ops,
++		.sync_state = cdnsp_sky1_sync_state,
+ 	},
+ 	.shutdown = cdnsp_sky1_shutdown,
+ };
+diff --git a/drivers/usb/cdns3/cdnsp-sky1.h b/drivers/usb/cdns3/cdnsp-sky1.h
+index 82563bd1000b..4c9a40a858c7 100644
+--- a/drivers/usb/cdns3/cdnsp-sky1.h
++++ b/drivers/usb/cdns3/cdnsp-sky1.h
+@@ -118,6 +118,7 @@ struct cdnsp_sky1 {
+ 	bool ssp_disable;
+ 	int axi_bmax_value;
+ 	struct gpio_desc *oc_gpio;
++	bool rpm_hold;	/* ACPI: usage ref held until children bind */
+ };
+ 
+ #endif /* __LINUX_CDNSP_SKY1_H */
