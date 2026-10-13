@@ -7,7 +7,7 @@
 
 > ### NCZ-OS 26.10 "Cygnus"（2026-10-13 镜像）
 >
-> **[从最新发布页下载](https://github.com/ncz-os/cix-installer/releases/latest)**
+> **[从 Releases 页面下载](https://github.com/ncz-os/cix-installer/releases)**（只有一个发布：当前镜像）
 > · [发布说明（英文）](docs/releases/26.10-cygnus-20261013.md)
 > · [已测试硬件](#hardware-support)
 > · [文档索引（英文）](docs/INDEX.md)
@@ -40,7 +40,7 @@
 
 > **🌐 语言：** [English](README.md) · 简体中文
 >
-> **📚 从这里开始：** [文档索引](docs/INDEX.md) · [26.10 发布说明](docs/releases/26.10-cygnus-20261013.md) · [设计理据 —— 为什么这样构建](docs/DESIGN-RATIONALE.md) · [AI/ML 技术栈参考](docs/AI-ML-STACK.zh-CN.md) · [源码发布](docs/SOURCE-RELEASES.zh-CN.md) · [下载镜像](https://github.com/ncz-os/cix-installer/releases/latest)
+> **📚 从这里开始：** [文档索引](docs/INDEX.md) · [26.10 发布说明](docs/releases/26.10-cygnus-20261013.md) · [设计理据 —— 为什么这样构建](docs/DESIGN-RATIONALE.md) · [AI/ML 技术栈参考](docs/AI-ML-STACK.zh-CN.md) · [源码发布](docs/SOURCE-RELEASES.zh-CN.md) · [下载镜像](https://github.com/ncz-os/cix-installer/releases)
 
 **NCZ-OS Linux 发行版的安装程序与镜像构建。**
 
@@ -198,7 +198,7 @@ NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都�
 > **开机前请接好有线网络。** 安装程序中没有 Wi-Fi；若检测不到链路，安装程序会明确停在
 > "Network autoconfiguration failed"（接好网线后选 Retry），而不是无声地重试。
 
-1. **获取镜像。** 从[最新发布页](https://github.com/ncz-os/cix-installer/releases/latest)
+1. **获取镜像。** 从 [Releases 页面](https://github.com/ncz-os/cix-installer/releases)
    下载对应架构的分片，然后拼接、解压并校验（需要 `zstd`）：
 
    ```bash

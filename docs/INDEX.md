@@ -21,6 +21,7 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | [`tools/ncz-join-image.sh`](../tools/ncz-join-image.sh) | Joins, unpacks and checks the split release image parts (safe to re-run; never writes to a disk) |
 | [IMAGE-HOSTING.md](IMAGE-HOSTING.md) | Where release images are hosted (GitHub Releases, GitLab release + package registry, fallback storage), the one-release-page rule, stable latest-release links, release page parity and the release checklist |
 | [`tools/check-release-parity.sh`](../tools/check-release-parity.sh) | Read-only check that the GitHub and GitLab release pages show the same release |
+| [`tools/refresh-release-links.sh`](../tools/refresh-release-links.sh) | Moves the GitHub release links in README/docs to a new release tag at release time |
 | [`tools/sync-release-pages.sh`](../tools/sync-release-pages.sh) | Publishes a staged release to both release pages and retires the old ones (dry run unless approved) |
 | [releases/release-page-template.md](releases/release-page-template.md) | Template for a release page's NOTES.md |
 

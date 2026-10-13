@@ -15,7 +15,7 @@ bug in this document — please open an issue.
 
 **GitLab is canonical for source** (`gitlab.com/ncz-os/cix-installer`).
 Release images are on the one release page of each forge: the GitHub
-mirror (<https://github.com/ncz-os/cix-installer/releases/latest>) and GitLab
+mirror (<https://github.com/ncz-os/cix-installer/releases>) and GitLab
 (<https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest>), with
 the same files on both; see [IMAGE-HOSTING.md](IMAGE-HOSTING.md).
 The source offer for the GPL code in an image lives in that release's notes,

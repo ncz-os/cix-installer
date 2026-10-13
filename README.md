@@ -11,7 +11,7 @@
 
 > ### NCZ-OS 26.10 "Cygnus" (images of 2026-10-13)
 >
-> **[Download from the latest release](https://github.com/ncz-os/cix-installer/releases/latest)**
+> **[Download from the Releases page](https://github.com/ncz-os/cix-installer/releases)** (one release: the current images)
 > · [Release notes](docs/releases/26.10-cygnus-20261013.md)
 > · [Hardware tested](#hardware-support--testing-status)
 > · [Documentation index](docs/INDEX.md)
@@ -55,7 +55,7 @@ frozen-in-time legacy distro.
 
 > **🌐 Language:** English · [简体中文](README.zh-CN.md)
 >
-> **📚 Start here:** [Documentation index](docs/INDEX.md) · [26.10 release notes](docs/releases/26.10-cygnus-20261013.md) · [Design rationale — why it is built this way](docs/DESIGN-RATIONALE.md) · [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [Source releases](docs/SOURCE-RELEASES.md) · [Download the image](https://github.com/ncz-os/cix-installer/releases/latest)
+> **📚 Start here:** [Documentation index](docs/INDEX.md) · [26.10 release notes](docs/releases/26.10-cygnus-20261013.md) · [Design rationale — why it is built this way](docs/DESIGN-RATIONALE.md) · [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [Source releases](docs/SOURCE-RELEASES.md) · [Download the image](https://github.com/ncz-os/cix-installer/releases)
 
 **The installer and image build for the NCZ-OS Linux distribution.**
 
@@ -96,7 +96,7 @@ it as NCZ-OS. See [Architecture](#architecture).
 > 7.3.0 final.
 >
 > **Release notes:** [26.10 "Cygnus"](docs/releases/26.10-cygnus-20261013.md) ·
-> [Download](https://github.com/ncz-os/cix-installer/releases/latest)
+> [Download from the Releases page](https://github.com/ncz-os/cix-installer/releases)
 
 > ### Remote access defaults
 >
@@ -712,7 +712,7 @@ it — there is no MS-R1 NPU on x86 hardware.
 > the network. Those are the parts a bad link degrades — not the install itself.
 
 1. **Get the image.** Download the parts for your architecture from the
-   [latest release](https://github.com/ncz-os/cix-installer/releases/latest) page,
+   [Releases page](https://github.com/ncz-os/cix-installer/releases),
    then join, unpack and check them (needs `zstd`):
 
    ```bash
@@ -1388,7 +1388,7 @@ posture and how to harden it.
 
 Current and past release notes live in **[`docs/releases/`](docs/releases/)**.
 The latest is **[26.10 "Cygnus"](docs/releases/26.10-cygnus-20261013.md)** (images of 2026-10-13); they
-are published on the [latest release](https://github.com/ncz-os/cix-installer/releases/latest) page. The earlier
+are published on the [Releases page](https://github.com/ncz-os/cix-installer/releases), which holds the one current release. The earlier
 [26.10 Preview 1](docs/releases/26.10-cygnus-preview1.md) notes (2026-10-12)
 are kept for reference.
 

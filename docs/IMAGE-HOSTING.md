@@ -5,7 +5,7 @@ never depends on a single host.
 
 | Where | Role | What is there |
 |---|---|---|
-| GitHub Releases (`github.com/ncz-os/cix-installer/releases/latest`) | Main download page; the README and release notes link here | The current release as release files: per architecture its split image parts, `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>`; then `ncz-join-image.sh`, `SHA256SUMS` and `NOTES.md` |
+| GitHub Releases (`github.com/ncz-os/cix-installer/releases`) | Main download page; the README and release notes link here | The current release as release files: per architecture its split image parts, `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>`; then `ncz-join-image.sh`, `SHA256SUMS` and `NOTES.md` |
 | GitLab release + generic package registry (`gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest`) | Second download location; GitLab is the canonical project | The same release: the same files, stored in one generic package per architecture plus a common package, and linked from the GitLab release of the same tag in an `amd64/` and an `arm64/` folder |
 | Object storage | Fallback for heavy download traffic | The same files, linked from the release notes when used |
 
@@ -27,10 +27,18 @@ as release assets; GitLab hosts them in the generic package registry and
 links them from the release. Apart from the release files, the GitHub
 repository is a mirror of GitLab.
 
-GitLab has no pre-release flag, so the status of a release ("preview") is
-said in its title and notes. GitHub never treats a pre-release as the
-"latest" release, so a release that the stable links below must reach is
-published with the GitHub pre-release flag off.
+A preview release (a tag matching `*-preview*`, such as `v26.10-preview2`)
+is a **pre-release on GitHub**. GitHub never treats a pre-release as the
+"latest" release: `/releases/latest` and `/releases/latest/download/<file>`
+skip it and reach the last full release, or nothing once that page is
+retired. So the GitHub links below do not use `/releases/latest`: the
+releases page itself (`/releases`) lists the one release, and file links name
+the current tag.
+
+GitLab has no pre-release flag. The GitLab release of a preview is a normal
+release with "Preview" in its title and notes. It is never published as an
+"upcoming" release (a `released_at` date in the future), because
+`-/releases/permalink/latest` skips upcoming releases.
 
 The source offer for the GPL code in an image lives in the release notes,
 in [SOURCE-RELEASES.md](SOURCE-RELEASES.md) and in the git tags; it does not
@@ -84,16 +92,24 @@ The staged release folder mirrors this layout:
 ### Stable addresses
 
 Documentation, the README, the website and release notes link only to
-these addresses, which always reach the current release:
+these addresses:
 
 | What | GitHub | GitLab |
 |---|---|---|
-| Release page | `https://github.com/ncz-os/cix-installer/releases/latest` | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest` |
-| A small file | `https://github.com/ncz-os/cix-installer/releases/latest/download/<file>` | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/<file>` |
-| An architecture's checksum files | `https://github.com/ncz-os/cix-installer/releases/latest/download/PARTS-<arch>.sha256` (and `SHA256SUMS-<arch>`) | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/<arch>/PARTS-<arch>.sha256` (and `<arch>/SHA256SUMS-<arch>`) |
+| Release page | `https://github.com/ncz-os/cix-installer/releases` (lists the one release) | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest` |
+| A small file | `https://github.com/ncz-os/cix-installer/releases/download/<current tag>/<file>` | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/<file>` |
+| An architecture's checksum files | `https://github.com/ncz-os/cix-installer/releases/download/<current tag>/PARTS-<arch>.sha256` (and `SHA256SUMS-<arch>`) | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/<arch>/PARTS-<arch>.sha256` (and `<arch>/SHA256SUMS-<arch>`) |
 | An image part | take the name from `PARTS-<arch>.sha256` or the page | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/<arch>/ncz-os-<arch>.img.zst.part-NN` |
 | Screenshots | `https://raw.githubusercontent.com/ncz-os/cix-installer/main/docs/screenshots/...` | `https://gitlab.com/ncz-os/cix-installer/-/raw/main/docs/screenshots/...` |
 | Source of a release | `https://github.com/ncz-os/cix-installer/tree/<tag>` | `https://gitlab.com/ncz-os/cix-installer/-/tree/<tag>` |
+
+The GitLab addresses never change. The GitHub file addresses carry the
+current tag, recorded in `docs/releases/current-tag`; at release time
+`tools/refresh-release-links.sh --tag <tag> --apply` rewrites every GitHub
+`/releases/tag/<tag>` and `/releases/download/<tag>/` link in `README*.md` and
+`docs/` to the new tag and updates that file, and the result is committed
+with the release. In the release notes the tag is filled in when the notes
+are published (below), so `NOTES.md` itself has no tag.
 
 `<file>` is one of `SHA256SUMS`, `ncz-join-image.sh` and `NOTES.md`; those
 names, and `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>`, never change. The
@@ -103,25 +119,29 @@ also has a stable direct path without the build
 (`<arch>/ncz-os-<arch>.img.zst.part-NN`), so the GitLab address above never
 changes. GitHub has no aliases for release files: a second, stable-named copy
 of every part would double the stored bytes, so on GitHub users take the
-part names from `PARTS-<arch>.sha256` (which the stable address above always
-serves) or from the page.
+part names from `PARTS-<arch>.sha256` or from the page.
 
-Links to a tag's release page (`/releases/tag/<tag>`, `/-/releases/<tag>`),
-to a tag's download (`/releases/download/<tag>/...`) or to a package file
-stop working when the next release replaces the page.
-`tools/check-release-links.sh` (run by `make lint-platform`) fails on them in
-`README*.md` and `docs/`, and on a latest-release file address whose name is
-not one of the stable names above; the kernel source packages linked from
-`kernel-source/` are not release files and are not affected.
+`tools/check-release-links.sh` (run by `make lint-platform`) fails, in
+`README*.md` and `docs/`, on:
+
+* GitHub `/releases/latest` and `/releases/latest/download/...`;
+* a GitHub `/releases/tag/<tag>` or `/releases/download/<tag>/...` link, or a
+  GitLab `/-/releases/<tag>` link, for any tag but the current one;
+* a release file address whose name is not one of the stable names above;
+* a package file link (the kernel source packages linked from
+  `kernel-source/` are not release files and are not affected).
 
 ### Release notes and screenshots
 
 The staged release folder holds the notes as `NOTES.md` (start from
 [releases/release-page-template.md](releases/release-page-template.md)),
 the title as `TITLE` (one line) and the GitHub pre-release flag as
-`PRERELEASE` (`yes` or `no`). `NOTES.md` uses the GitLab forms of the links
-above; the GitHub page gets the same text with those links in their GitHub
-form, and the parity check compares the two with the link forms normalised.
+`PRERELEASE` (`yes` or `no`; optional for a preview tag, which is always a
+pre-release). `NOTES.md` uses the GitLab forms of the links above; the
+GitHub page gets the same text with those links in their GitHub form (the
+release page as `/releases`, files as `/releases/download/<tag>/<file>` with
+the part aliases resolved to the real part names), and the parity check
+compares the two with the link forms normalised.
 `NOTES.md` is also attached as a release file.
 
 Screenshots shown on the release page are files in `docs/screenshots/<release>/`
@@ -167,7 +187,9 @@ than one release page or none for the tag; when the files are not in the
 release layout (per-architecture groups in the canonical order, the GitLab
 folder names, link types, packages and stable paths); when the title, the notes
 (link forms normalised), the GitHub draft/pre-release state or the stable
-"latest" addresses differ from what is expected; when the file lists, sizes
+addresses differ from what is expected (the GitHub releases list must hold
+only the tag; GitLab `permalink/latest` must resolve to it); when either
+body links to another release; when the file lists, sizes
 or sha256 differ (GitHub API digests, GitLab registry checksums; a file
 without an API digest is downloaded and hashed); when a GitLab link is not
 a package file of the project or its direct path is not the stable alias;
@@ -184,7 +206,12 @@ pages and retires every other release page. It is a dry run unless given
 naming the tag) and `--audit-ok <file>` (a `PASS <sha256>` line for every
 image in `SHA256SUMS`, no `FAIL` line), so it cannot publish unattended or
 publish an image that did not pass the image audit. It never creates, moves
-or deletes git tags; the tag must exist on both forges first.
+or deletes git tags; the tag must exist on both forges first. A preview tag
+is published as a GitHub pre-release (`PRERELEASE` may be omitted; `no` is
+refused); any other tag needs `--allow-prerelease` to be a pre-release.
+After retiring, it reads both release lists back and requires exactly one
+release, the tag, on each, the GitHub pre-release flag as staged and the
+GitLab release not "upcoming".
 
     tools/sync-release-pages.sh --dir <staged-folder> --tag v26.10-preview2
     tools/sync-release-pages.sh --dir <staged-folder> --tag v26.10-preview2 --apply \
@@ -210,7 +237,12 @@ image source commit before publishing. Then:
    their files on GitHub and their links on GitLab. Tags are kept, so
    `/tree/<tag>` source links keep working.
 4. Final parity: the tool checks again, now including "one release page per
-   forge" and the stable "latest" addresses.
+   forge" and the stable addresses (GitHub: the releases list holds only the
+   tag; GitLab: `permalink/latest` resolves to it).
+5. Refresh the documentation links:
+   `tools/refresh-release-links.sh --tag <tag> --apply`, check with
+   `make lint-platform`, and commit (GitLab first, then the GitHub mirror
+   sync).
 
 Run `check-release-parity.sh --tag <tag>` again afterwards from any machine.
 
@@ -228,11 +260,13 @@ Run `check-release-parity.sh --tag <tag>` again afterwards from any machine.
    parts, `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>`; `ncz-join-image.sh`,
    `SHA256SUMS`, `NOTES.md` (one section per architecture) (from the template, screenshots committed on `main` and
    checked against the privacy list), `TITLE`, `PRERELEASE`.
-4. `tools/check-release-links.sh --files <staged-folder>/NOTES.md`
+4. `tools/check-release-links.sh --current-tag <tag> --files <staged-folder>/NOTES.md`
 5. `tools/sync-release-pages.sh --dir <staged-folder> --tag <tag>` (dry run);
    read the plan, including the release pages it will retire.
 6. The operator writes the approval file; run again with `--apply`.
 7. `tools/check-release-parity.sh --tag <tag>` passes.
+8. `tools/refresh-release-links.sh --tag <tag> --apply`; commit the changed
+   README/docs links and `docs/releases/current-tag`.
 
 ## Downloading from GitLab
 
@@ -354,8 +388,12 @@ and GitLab (no network): matching pages pass; a different title, body,
 file, size, sha256, small-file content, file order, GitLab folder name,
 link type or package, combined `SHA256SUMS`, `PARTS-<arch>.sha256`
 contents, missing architecture section or join command, unexpected file,
-screenshot, extra release page, missing release, pre-release flag or
-"latest" address fails with a readable difference; the sync dry run changes
+screenshot, extra release page, missing release, pre-release flag, link to
+another release or stable address fails with a readable difference; the GitHub check reads the releases list (one release), never
+`/releases/latest`; links to another tag, GitHub `/releases/latest` and
+changing file names fail `check-release-links.sh`;
+`refresh-release-links.sh` moves every GitHub tag link to the new tag and
+records it; the sync dry run changes
 nothing and lists the releases it would retire; `--apply` without the
 approval or audit gate, with a missing screenshot, a release-specific link,
 notes without architecture sections, a folder outside the layout or a
