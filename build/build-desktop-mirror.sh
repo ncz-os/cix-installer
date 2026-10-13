@@ -172,26 +172,17 @@ deb [$DEBIAN_DEB_OPTS] $PORTS_URL $SUITE $NCZ_BASE_COMPONENTS
 EOF
 
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
-    [ -f "$GOOGLE_CHROME_KEY" ] || { echo "ERROR: $GOOGLE_CHROME_KEY missing"; exit 1; }
-    cp "$GOOGLE_CHROME_KEY" "$T/etc/apt/keyrings/google-chrome-apt-keyring.asc"
-    chmod 0644 "$T/etc/apt/keyrings/google-chrome-apt-keyring.asc"
-    cat >> "$T/etc/apt/sources.list" <<EOF
-deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/google-chrome-apt-keyring.asc] $GOOGLE_CHROME_URL stable main
-EOF
-    cat > "$T/etc/apt/preferences.d/google-chrome.pref" <<EOF
-Package: *
-Pin: release o=Google LLC
-Pin-Priority: -1
-
-Package: google-chrome-stable
-Pin: release o=Google LLC
-Pin-Priority: 990
-
-Package: google-chrome-beta google-chrome-unstable google-chrome-canary
-Pin: release o=Google LLC
-Pin-Priority: -1
-EOF
-    echo "  source: Google Chrome (${GOOGLE_CHROME_URL}) — tracking current stable, checksum-verified below"
+    # The pinned, staged Chrome deb (build/lib/google-chrome-pin.sh) is served to
+    # the resolver from a one-package local repository, so the closure still
+    # follows its Depends, but no other Chrome version can be selected.
+    # shellcheck source=lib/google-chrome-pin.sh
+    . "$REPO/build/lib/google-chrome-pin.sh"
+    _chrome_pinned="$(ncz_chrome_staged_deb "$REPO" "$ARCH")" || exit 1
+    mkdir -p "$T/chrome-local"
+    cp -f "$_chrome_pinned" "$T/chrome-local/"
+    ( cd "$T/chrome-local" && apt-ftparchive packages . > Packages )
+    printf 'deb [arch=%s trusted=yes] file:%s ./\n' "$ARCH" "$T/chrome-local" >> "$T/etc/apt/sources.list"
+    echo "  source: Google Chrome (pinned $(basename "$_chrome_pinned"), staged build input)"
 fi
 
 [ -f "$BUILDKITE_NCZ_KEY" ] || { echo "ERROR: $BUILDKITE_NCZ_KEY missing"; exit 1; }
@@ -231,46 +222,15 @@ if ! apt-get "${APTOPTS[@]}" update >"$T/apt-update.log" 2>&1; then
 fi
 
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
-    # Whatever Google currently ships as stable — no pin (2026-08-12).
+    # The only candidate is the pinned staged deb served above.
     _chrome_ver="$(apt-cache "${APTOPTS[@]}" policy google-chrome-stable \
                    | awk '/Candidate:/ {print $2}')"
-    if [ -z "$_chrome_ver" ] || [ "$_chrome_ver" = "(none)" ]; then
-        echo "ERROR: google-chrome-stable has no candidate from the signed Google apt repo" >&2
-        echo "       (repo reachable? key valid? arch $ARCH published?)" >&2
+    _chrome_pin_ver="$(dpkg-deb -f "$_chrome_pinned" Version)"
+    if [ "$_chrome_ver" != "$_chrome_pin_ver" ]; then
+        echo "ERROR: google-chrome-stable candidate is '$_chrome_ver', the pin is $_chrome_pin_ver" >&2
         exit 1
     fi
-    echo "  google-chrome-stable candidate: $_chrome_ver"
-
-    # Integrity anchor: the SHA256 published in Google's OWN Packages index.
-    # That index arrived under a signature apt already verified (signed-by= on
-    # the source line), so it is a trustworthy expectation for the .deb we are
-    # about to fold into an offline mirror — and unlike a hardcoded constant it
-    # tracks whatever version we just resolved.
-    _want_sha="$(apt-cache "${APTOPTS[@]}" show "google-chrome-stable=$_chrome_ver" 2>/dev/null \
-                 | awk '/^SHA256: / {print $2; exit}')"
-    if [ -z "$_want_sha" ]; then
-        echo "ERROR: no SHA256 in the signed Packages entry for google-chrome-stable=$_chrome_ver" >&2
-        exit 1
-    fi
-
-    # NB: --print-uris lists the whole dependency closure, not just this one
-    # package -- `head -1` on the piped output triggers a SIGPIPE in the
-    # upstream apt-get/awk once head closes the pipe, and pipefail turns
-    # that into a non-zero exit that kills this script under set -e even
-    # though $_deb_rel captures the right value. Grep for the exact package
-    # name instead of blindly taking the first line, and disable pipefail
-    # for just this one pipeline as a second layer of protection.
-    set +o pipefail
-    _deb_rel="$(apt-get "${APTOPTS[@]}" --print-uris -qq install --reinstall google-chrome-stable 2>/dev/null | awk -F"'" '{print $2}' | grep -m1 'google-chrome-stable_')"
-    set -o pipefail
-    if [ -n "$_deb_rel" ]; then
-        _deb_sha="$(curl -fsSL -m 120 "$_deb_rel" -o "$T/google-chrome-stable.deb" && sha256sum "$T/google-chrome-stable.deb" | awk '{print $1}')"
-        if [ "$_deb_sha" != "$_want_sha" ]; then
-            echo "ERROR: google-chrome-stable .deb SHA256 mismatch — signed index says $_want_sha, download is $_deb_sha" >&2
-            exit 1
-        fi
-        echo "  verified google-chrome-stable $_chrome_ver against the signed index SHA256"
-    fi
+    echo "  google-chrome-stable candidate: $_chrome_ver (pinned, sha256-verified against manifests/vendor-debs.tsv)"
 fi
 
 # all package names apt can see

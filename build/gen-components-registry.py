@@ -618,12 +618,12 @@ VENDOR_DEB_ROWS = [
     {
         "name": "google-chrome-stable",
         "kind": "staged-deb",
-        "source": "staged:build/forky-vendor-mirror/google-chrome-stable_*_${ARCH}.deb",
+        "source": "staged:assets/google-chrome/google-chrome-stable_*_${ARCH}.deb",
         "arch": "all", "variant": "desktop",
         "required": "no", "version_floor": "",
         "installed_by": "post-install/53-chrome.sh (apt from the offline forky-vendor-mirror)",
         "verified_by": "build/verify-installed-target.sh",
-        "provenance": "build/forky-vendor-mirror (pinned Google .deb, SHA256-verified); build/build-vendor-mirror.sh; manifests/desktop.pkgs; manifests/desktop-amd64.pkgs",
+        "provenance": "assets/google-chrome/ (pinned Google .deb, staged by build/stage-build-inputs.sh, refreshed by build/refresh-google-chrome.sh); build/build-vendor-mirror.sh; manifests/desktop.pkgs; manifests/desktop-amd64.pkgs",
         "notes": "Second browser; Vivaldi stays default. Real arm64 Linux Chrome landed Q2 2026.",
     },
     {
