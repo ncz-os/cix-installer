@@ -766,7 +766,13 @@ def backup_github(ctx, r, stamp, rows, bundle):
 
 def disk_usage(gitdir, tip, nots):
     r = git(
-        gitdir, "rev-list", "--objects", "--disk-usage", tip, *["^" + n for n in nots]
+        gitdir,
+        "rev-list",
+        "--objects",
+        "--use-bitmap-index",
+        "--disk-usage",
+        tip,
+        *["^" + n for n in nots],
     )
     return int(r.stdout.strip() or 0)
 
