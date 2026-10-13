@@ -88,24 +88,34 @@ cmd_acquire() {
   [ -n "$purpose" ] || die "acquire: --purpose required"
   mkdir -p "$LEASE_DIR" || die "cannot create $LEASE_DIR"
 
-  # serialize with a mkdir mutex in the primary directory (portable; macOS has no flock)
-  local mutex="$LEASE_DIR/$host.lock.d"
-  local tries=0
-  while ! mkdir "$mutex" 2>/dev/null; do
-    tries=$((tries+1)); [ "$tries" -gt 100 ] && die "could not acquire lease mutex for $host"
-    sleep 0.1
-  done
-  trap 'rmdir "$mutex" 2>/dev/null' EXIT
+  # serialize with a mkdir mutex in EVERY lease directory (portable; macOS has
+  # no flock), taken in sorted order so sessions that list the directories in
+  # a different order cannot deadlock each other
+  local d f held m
+  LOCKED=""
+  unlock_all() { local x; while IFS= read -r x; do [ -n "$x" ] && rmdir "$x" 2>/dev/null; done <<< "$LOCKED"; LOCKED=""; }
+  trap 'unlock_all' EXIT
+  while IFS= read -r d; do
+    mkdir -p "$d" 2>/dev/null || { unlock_all; trap - EXIT; die "cannot create $d"; }
+    m="$d/$host.lock.d"
+    local tries=0
+    while ! mkdir "$m" 2>/dev/null; do
+      tries=$((tries+1))
+      [ "$tries" -gt 100 ] && { unlock_all; trap - EXIT; die "could not acquire lease mutex for $host in $d"; }
+      sleep 0.1
+    done
+    LOCKED="${LOCKED:+$LOCKED
+}$m"
+  done < <(all_dirs | sort -u)
 
   # a live lease by another owner in ANY directory refuses
-  local d f held
   while IFS= read -r d; do
     f="$d/$host.lease"
     if lease_live "$f"; then
       held="$(lget "$f" OWNER)"
       if [ "$held" != "$owner" ]; then
         echo "lease: REFUSED $host held by '$held' ($(lget "$f" PURPOSE)), acquired $(lget "$f" ACQUIRED_ISO) ttl=$(lget "$f" TTL)s [$d]" >&2
-        rmdir "$mutex" 2>/dev/null; trap - EXIT
+        unlock_all; trap - EXIT
         return 3
       fi
       # same owner: idempotent re-acquire refreshes timestamp/ttl
@@ -125,14 +135,20 @@ cmd_acquire() {
     echo "HOLDER_HOST=$(hostname -s 2>/dev/null || hostname)"
     echo "HOLDER_PID=$$"
   )"
-  printf '%s\n' "$body" > "$(lease_file "$host")" || {
-    rmdir "$mutex" 2>/dev/null; trap - EXIT; die "cannot write $(lease_file "$host")"; }
+  # write every copy; if any write fails, remove the copies already written so
+  # the directories never disagree, and fail
+  local written=""
   while IFS= read -r d; do
-    if mkdir -p "$d" 2>/dev/null && printf '%s\n' "$body" > "$d/$host.lease" 2>/dev/null; then :
-    else echo "lease: WARNING could not write the lease copy in $d" >&2
+    if printf '%s\n' "$body" > "$d/$host.lease" 2>/dev/null; then
+      written="${written:+$written
+}$d/$host.lease"
+    else
+      while IFS= read -r f; do [ -n "$f" ] && rm -f "$f"; done <<< "$written"
+      unlock_all; trap - EXIT
+      die "cannot write the lease in $d; no lease taken"
     fi
-  done < <(extra_dirs)
-  rmdir "$mutex" 2>/dev/null; trap - EXIT
+  done < <(all_dirs)
+  unlock_all; trap - EXIT
   echo "lease: acquired $host by $owner (ttl ${ttl}s)"
   return 0
 }
@@ -166,20 +182,22 @@ cmd_release() {
 # status_line HOST: one line for HOST merged over all directories. A live copy
 # wins over an expired one; live copies with different owners are a CONFLICT.
 status_line() {
-  local host="$1" d f live="" expired="" owners=""
+  local host="$1" d f o live="" expired="" owners=""
   while IFS= read -r d; do
     f="$d/$host.lease"
     [ -f "$f" ] || continue
     if lease_live "$f"; then
       [ -n "$live" ] || live="$f"
-      case " $owners " in *" $(lget "$f" OWNER) "*) ;; *) owners="${owners:+$owners }$(lget "$f" OWNER)";; esac
+      o="$(lget "$f" OWNER)"
+      printf '%s\n' "$owners" | grep -qxF -- "$o" || owners="${owners:+$owners
+}$o"
     else
       [ -n "$expired" ] || expired="$f"
     fi
   done < <(all_dirs)
   if [ -n "$live" ]; then
     if [ "$owners" != "$(lget "$live" OWNER)" ]; then
-      echo "$host CONFLICT owners=$owners"
+      echo "$host CONFLICT owners=$(printf '%s' "$owners" | tr '\n' ',')"
     else
       echo "$host HELD owner=$(lget "$live" OWNER) purpose=$(lget "$live" PURPOSE) since=$(lget "$live" ACQUIRED_ISO) ttl=$(lget "$live" TTL)"
     fi

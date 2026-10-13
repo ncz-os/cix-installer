@@ -76,6 +76,15 @@ echo "$out" | grep -q '^old EXPIRED' && echo "$out" | grep -q '^live1 HELD' && o
 "$HERE/lease.sh" reap >/dev/null 2>&1
 [ ! -e "$L2/old.lease" ] && [ -f "$L1/live1.lease" ] && [ -f "$L2/live1.lease" ] && ok "reap drops expired leases in every directory, keeps live ones" || bad "reap"
 "$HERE/lease.sh" release live1 --owner frank >/dev/null 2>&1
+# a copy that cannot be written fails the acquire and leaves no copy anywhere
+chmod 555 "$L2"
+if [ "$(id -u)" != 0 ]; then
+  "$HERE/lease.sh" acquire ro --owner ivan --purpose "x" --ttl 60 >/dev/null 2>&1; rc=$?
+  [ "$rc" = 2 ] && [ ! -e "$L1/ro.lease" ] && [ ! -e "$L1/ro.lock.d" ] && ok "unwritable second directory: acquire fails, primary copy rolled back, mutexes freed" || bad "unwritable copy (rc=$rc)"
+else
+  ok "unwritable second directory: skipped as root"
+fi
+chmod 755 "$L2"
 # the config file names the additional directory when the variable is unset
 unset LOCKRIG_LEASE_DIRS
 mkdir -p "$LX/cfg/ncz"; printf '# extra\n%s\n%s\n' "$L2" "$L1" > "$LX/cfg/ncz/lease-dirs"
