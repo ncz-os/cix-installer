@@ -189,7 +189,7 @@ fi
 
 # The IFS word-splitting path is under 'set -f' (noglob; no filename expansion
 # -- so a value of '*' becomes the literal token '*', not every file in cwd)
-# and the launcher asserts \$# == 1 so a future caller that passes multiple
+# and the launcher asserts \$# == 2 (mode + command line) so a caller that passes extra
 # arguments fails loud instead of silently losing them.
 # shellcheck disable=SC2016  # literal source text, not an expansion
 if grep -B 2 -A 4 'set -- $2' "$SCRIPT" | grep -q 'set -f'; then
