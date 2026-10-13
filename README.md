@@ -1193,10 +1193,12 @@ front door for the things this image does that a stock Debian does not.
 
 | Command | What it does |
 |---|---|
-| `ncz status` | System summary: `ncz` version, build variant, kernel, default systemd target, NPU and GPU presence. Start here. |
+| `ncz status` | System summary: `ncz` version, build variant, kernel, default systemd target, NPU and GPU presence, and MNEMOS / embedder / zeroclaw / zoder rows. Start here. |
 | `ncz desktop on` \| `off` \| `status` | Switch between graphical and headless. `off` sets `multi-user.target`, so the next boot is headless; SSH and networking stay up. Reversible. In Preview 1 it does not stop the running greetd login screen (it only knows lightdm/gdm/sddm), so reboot after `off`. |
 | `ncz models` | List embedding models present in `/opt/ncz/models` — `.cix` graphs for the NPU, `.gguf` for CPU/GPU. |
-| `ncz models pull` | Placeholder in Preview 1: prints where models come from instead of fetching them. Install models with apt (`ncz-model-nomic-embed`). |
+| `ncz models pull` | Download the host-side embedder model (nomic-embed-text-v1.5 Q8_0 GGUF, sha256-verified) to `/opt/ncz/models`. |
+| `ncz install mnemos` | Install and start the MNEMOS memory server (REST + OpenAI-compatible API on `:5002`, MCP on `:5004`). |
+| `ncz install zeroclaw` \| `zoder` | Install the ZeroClaw agent gateway, or the zoder CLI. |
 | `ncz install nemoclaw` | Start the NVIDIA NemoClaw sandbox runtime. |
 | `ncz agent ...` | Manage the optional agent runtimes (zeroclaw, openclaw, hermes, portainer). |
 | `ncz version`, `ncz help` | Version and usage. |
@@ -1204,6 +1206,35 @@ front door for the things this image does that a stock Debian does not.
 Nothing under `ncz install` or `ncz agent` is installed or running by default.
 They are opt-in, and nothing agentic starts at boot or pulls from the network
 on its own.
+
+### `ncz install mnemos`, `ncz install zeroclaw`, `ncz install zoder`
+
+```bash
+sudo ncz install mnemos     # MNEMOS: REST + OpenAI-compatible API on :5002, MCP on :5004
+sudo ncz install zeroclaw   # ZeroClaw agent gateway on :42617
+sudo ncz install zoder      # zoder CLI, checksum-verified
+sudo ncz status             # service rows, embedder backend and model
+```
+
+`ncz install mnemos` deploys [MNEMOS](https://gitlab.com/ncz-os/mnemos) as a
+rootful podman **quadlet** with a persistent SQLite volume. It installs
+offline-first: a bundled OCI image is loaded with `podman load` when present,
+and the quadlet uses `Pull=never`; a pull of
+`ghcr.io/ncz-os/mnemos-enterprise:latest` (or `MNEMOS_IMAGE`) happens only when
+no bundled image is found, with 3 retries and a clear offline diagnostic.
+Embeddings are computed in-process on the CPU (nomic-embed-text-v1.5, 768
+dimensions) on both architectures; the Sky1 NPU embedder is opt-in
+(`NCZ_MNEMOS_NPU=1`). The install writes a per-install audit token, an MCP
+token and an API key for a default admin user to `/etc/nclawzero/`:
+
+```bash
+. /etc/nclawzero/mnemos.env
+curl -H "Authorization: Bearer $MNEMOS_API_TOKEN" http://127.0.0.1:5002/stats
+```
+
+Every install is **idempotent**: re-running it keeps the existing quadlet,
+tokens and data. Stop/remove steps and the MCP client setup are in
+[`docs/NCZ-AGENT-STACK.md`](docs/NCZ-AGENT-STACK.md).
 
 ### Embeddings on the NPU
 

@@ -756,6 +756,13 @@ parity:
 	bash build/test-no-ubuntu.sh
 	bash build/test-ncz-apt-policy-deb.sh
 	bash build/test-apt-sources-hook-container.sh
+	bash build/test-ncz-cli-basics.sh
+	bash build/test-ncz-cli-install-mnemos-deps.sh
+	bash build/test-ncz-cli-embedder.sh
+	bash build/test-ncz-cli-install-zoder.sh
+	bash build/test-ncz-cli-install-zeroclaw.sh
+	bash build/test-ncz-agent-cli-basics.sh
+	bash build/test-ncz-agent-cli-idempotency.sh
 	bash build/test-install-extra-local-debs.sh
 	bash build/test-desktop-mirror-local-debs.sh
 	build/test-no-debian-kernel.sh
