@@ -54,7 +54,7 @@ rf_load_token() {
     tok=$("${!helper}") || rf_die "$forge token helper failed"
   else
     local name=${!var:-${up}_TOKEN}
-    printf '%s' "$name" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*$' || rf_die "$var is not a variable name" 2
+    printf '%s' "$name" | grep >/dev/null -E '^[A-Za-z_][A-Za-z0-9_]*$' || rf_die "$var is not a variable name" 2
     tok=${!name:-}
   fi
   tok=$(printf '%s' "$tok" | tr -d '\r\n')
@@ -123,26 +123,37 @@ rf_stable_name() {
   printf '%s\n' "$1" | sed -E 's/^(ncz-os-[a-z0-9_]+)-[0-9]{8}-[0-9a-f]{6,40}(\.img\.zst\.part-[0-9]+)$/\1\2/'
 }
 
-# rf_normalise_body FILE GITHUB_REPO GITLAB_PROJECT  ->  stdout
+# rf_normalise_body FILE GITHUB_REPO GITLAB_PROJECT [TAG]  ->  stdout
 # Line endings and trailing blank lines are normalised, and the forge-specific
 # forms of the same link are replaced by one neutral form:
-#   release page:   <github>/<repo>/releases/latest          | <gitlab>/<p>/-/releases/permalink/latest
-#   latest file:    .../releases/latest/download/<f>          | .../-/releases/permalink/latest/downloads/<f>
+#   release page:   <github>/<repo>/releases                  | <gitlab>/<p>/-/releases/permalink/latest
+#   release file:   .../releases/download/<TAG>/<name>        | .../-/releases/permalink/latest/downloads/<path>
+#                   (GitHub has no folders and the part names carry the build;
+#                   <name> is compared through its GitLab path, see rf_gl_path)
 #   raw file:       <raw>/<repo>/main/<path>                  | <gitlab>/<p>/-/raw/main/<path>
 #   file view:      <github>/<repo>/blob/main/<path>          | <gitlab>/<p>/-/blob/main/<path>
 #   tree view:      <github>/<repo>/tree/<ref>                | <gitlab>/<p>/-/tree/<ref>
-# Nothing else is changed.
+# A GitHub download link for any other tag is left as it is (so it differs).
 rf_normalise_body() {
-  python3 -I - "$1" "$2" "$3" "$RF_GITHUB_WEB" "$RF_GITHUB_RAW" "$RF_GITLAB_WEB" <<'PY'
+  python3 -I - "$1" "$2" "$3" "${4:-}" "$RF_GITHUB_WEB" "$RF_GITHUB_RAW" "$RF_GITLAB_WEB" <<'PY'
 import re, sys
-path, repo, proj, ghw, ghr, glw = sys.argv[1:7]
+path, repo, proj, tag, ghw, ghr, glw = sys.argv[1:8]
 t = open(path, encoding="utf-8", errors="replace").read().replace("\r\n", "\n").replace("\r", "\n")
 t = "\n".join(l.rstrip() for l in t.split("\n")).strip("\n") + "\n"
 gh = re.escape(ghw + "/" + repo); gl = re.escape(glw + "/" + proj); raw = re.escape(ghr + "/" + repo)
+END = r"""[^\s)\]>"'`]+"""
+def gl_path(name):
+    m = re.match(r"^ncz-os-(amd64|arm64)-[0-9]{8}-[0-9a-f]{6,40}(\.img\.zst\.part-[0-9]+)$", name)
+    if m: return "/%s/ncz-os-%s%s" % (m.group(1), m.group(1), m.group(2))
+    m = re.match(r"^(?:PARTS-(amd64|arm64)\.sha256|SHA256SUMS-(amd64|arm64))$", name)
+    if m: return "/%s/%s" % (m.group(1) or m.group(2), name)
+    return "/" + name
+if tag:
+    t = re.sub(gh + r"/releases/download/" + re.escape(tag) + "/(" + END + ")",
+               lambda m: "<release-file>" + gl_path(m.group(1)), t)
+t = re.sub(gl + r"/-/releases/permalink/latest/downloads/(" + END + ")", lambda m: "<release-file>/" + m.group(1), t)
 subs = [
-    (gh + r"/releases/latest/download/", "<release-file>/"),
-    (gl + r"/-/releases/permalink/latest/downloads/", "<release-file>/"),
-    (gh + r"/releases/latest(?![\w/-])", "<release-page>"),
+    (gh + r"/releases(?![\w/-])", "<release-page>"),
     (gl + r"/-/releases/permalink/latest(?![\w/-])", "<release-page>"),
     (raw + r"/main/", "<raw-main>/"),
     (gl + r"/-/raw/main/", "<raw-main>/"),
@@ -157,24 +168,47 @@ sys.stdout.write(t)
 PY
 }
 
-# rf_render_github NOTES GITHUB_REPO GITLAB_PROJECT  ->  stdout
+# rf_render_github NOTES GITHUB_REPO GITLAB_PROJECT TAG [MAP]  ->  stdout
 # The GitHub form of the canonical (GitLab-form) notes: the same text with the
-# GitLab links of the table above replaced by their GitHub equivalents.
+# GitLab links of the table above replaced by their GitHub equivalents. The
+# GitHub release is reached as <github>/<repo>/releases (the one release page;
+# a pre-release is never "latest" on GitHub), its files by the tag:
+# <github>/<repo>/releases/download/<TAG>/<name>. MAP ("<gitlab path>\t<name>"
+# lines, e.g. "amd64/ncz-os-amd64.img.zst.part-00\tncz-os-amd64-...part-00")
+# resolves the stable part aliases; a link that cannot be resolved fails (2).
 rf_render_github() {
-  python3 -I - "$1" "$2" "$3" "$RF_GITHUB_WEB" "$RF_GITHUB_RAW" "$RF_GITLAB_WEB" <<'PY'
-import re, sys
-path, repo, proj, ghw, ghr, glw = sys.argv[1:7]
+  python3 -I - "$1" "$2" "$3" "$4" "${5:-}" "$RF_GITHUB_WEB" "$RF_GITHUB_RAW" "$RF_GITLAB_WEB" <<'PY'
+import os, re, sys
+path, repo, proj, tag, mapf, ghw, ghr, glw = sys.argv[1:9]
 t = open(path, encoding="utf-8").read()
 gl = re.escape(glw + "/" + proj); gh = ghw + "/" + repo; raw = ghr + "/" + repo
+END = r"""[^\s)\]>"'`]+"""
+amap = {}
+if mapf and os.path.exists(mapf):
+    for line in open(mapf, encoding="utf-8"):
+        k, _, v = line.rstrip("\n").partition("\t")
+        if k: amap[k] = v
+bad = []
+def dl(m):
+    p = m.group(1)
+    if p in amap: name = amap[p]
+    elif re.match(r"^(amd64|arm64)/(PARTS-\1\.sha256|SHA256SUMS-\1)$", p): name = p.split("/", 1)[1]
+    elif "/" not in p and not re.search(r"\.part-[0-9]+$", p): name = p
+    else:
+        bad.append(p); name = p
+    return gh + "/releases/download/" + tag + "/" + name
+t = re.sub(gl + r"/-/releases/permalink/latest/downloads/(" + END + ")", dl, t)
 subs = [
-    (gl + r"/-/releases/permalink/latest/downloads/", gh + "/releases/latest/download/"),
-    (gl + r"/-/releases/permalink/latest(?![\w/-])", gh + "/releases/latest"),
+    (gl + r"/-/releases/permalink/latest(?![\w/-])", gh + "/releases"),
     (gl + r"/-/raw/main/", raw + "/main/"),
     (gl + r"/-/blob/main/", gh + "/blob/main/"),
     (gl + r"/-/tree/", gh + "/tree/"),
 ]
 for pat, rep in subs:
     t = re.sub(pat, lambda m, r=rep: r, t)
+if bad:
+    sys.stderr.write("ERROR: no GitHub file for the release link(s): %s\n" % " ".join(sorted(set(bad))))
+    sys.exit(2)
 sys.stdout.write(t)
 PY
 }
@@ -235,7 +269,7 @@ rf_layout() {
     while read -r want name; do
       [ -n "${name:-}" ] || continue; name=${name#\*}
       case "$name" in */*) err "$a/PARTS-$a.sha256 entry is not a plain file name: $name"; continue ;; esac
-      printf '%s' "$name" | grep -Eq '^[A-Za-z0-9._+~-]+$' || { err "file name not allowed: $name"; continue; }
+      printf '%s' "$name" | grep >/dev/null -E '^[A-Za-z0-9._+~-]+$' || { err "file name not allowed: $name"; continue; }
       case "$name" in "ncz-os-$a-"*.img.zst.part-*) ;; *) err "$a/PARTS-$a.sha256 lists $name, which is not an $a image part"; continue ;; esac
       [ -f "$dir/$a/$name" ] || { err "part listed in $a/PARTS-$a.sha256 is missing: $name"; continue; }
       got=$(rf_sha "$dir/$a/$name")

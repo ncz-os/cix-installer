@@ -412,9 +412,10 @@ tools/registry-retention.conf	common	-	retention rules read by tools/gitlab-regi
 tools/kvm-smoke.sh	sky1	-	aarch64 KVM kernel smoke test on the MS-R1
 tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
 tools/ncz-join-image.sh	common	-	join, unpack and verify the split release image parts of one architecture from PARTS-<arch>.sha256 / SHA256SUMS-<arch> (never writes to a disk)
-tools/check-release-links.sh	common	-	fail on README/docs links to a specific release tag, tag download or package file instead of the latest-release permalinks (run by make lint-platform)
+tools/check-release-links.sh	common	-	fail on README/docs links to another release tag, GitHub /releases/latest, changing file names or package files (GitHub: /releases or the current tag; GitLab: permalink/latest; run by make lint-platform)
 tools/check-release-parity.sh	common	-	read-only check that the GitHub and GitLab release pages show the same release (one release per forge, title, notes, status, assets, checksum files, screenshots)
 tools/publish-release-gitlab.sh	common	-	upload a staged per-architecture release to the GitLab generic package registry (one package per architecture plus a common package) with sha256 verification and link the files from the GitLab release in amd64/ and arm64/ folders; --dry-run, --prune-old per package
+tools/refresh-release-links.sh	common	-	release-time refresh: move the GitHub /releases/tag and /releases/download links in README/docs to the new tag and record it in docs/releases/current-tag (dry run unless --apply)
 tools/release-forge-lib.sh	common	-	shared GitHub/GitLab API, token, link-normalising helpers for the release page tools
 tools/sync-release-pages.sh	common	-	publish one staged release to both release pages and retire every other release page; dry run by default, --apply needs operator approval and image audit files
 tools/verify-drivers.sh	mixed	-	driver fidelity check: installed-kernel check on both arches (KVER_NEXT sidecar, else repository kernel pins), Sky1 NPU/GPU/VPU/WiFi/BT/audio checks on arm64

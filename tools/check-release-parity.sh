@@ -12,14 +12,16 @@
 #   * the tag exists on both forges (the commits may differ: the GitHub
 #     repository is a mirror snapshot; both are printed).
 #   * title and notes body are equal. The body is compared after normalising
-#     line endings and the forge-specific forms of the same link (latest
-#     release page, latest release file, raw/blob/tree links on main); see
-#     tools/release-forge-lib.sh.
+#     line endings and the forge-specific forms of the same link (release
+#     page, release file of TAG, raw/blob/tree links on main); see
+#     tools/release-forge-lib.sh. Neither body may link to another release
+#     (tools/check-release-links.sh with TAG as the current tag).
 #   * status: the GitHub release is not a draft, its pre-release flag equals
 #     --expect-prerelease when given, the GitLab release is not "upcoming";
-#     and both stable "latest" addresses resolve to TAG
-#     (github.com/<repo>/releases/latest, gitlab.com/<p>/-/releases/permalink/latest).
-#     A GitHub pre-release is never "latest", so it fails this check.
+#     and the stable addresses reach TAG: on GitHub the releases page
+#     (github.com/<repo>/releases) lists TAG only (a pre-release is never
+#     "latest" on GitHub, so /releases/latest is not used), on GitLab
+#     gitlab.com/<p>/-/releases/permalink/latest resolves to TAG.
 #   * assets (release layout, docs/IMAGE-HOSTING.md): the same files in the
 #     same canonical order on both pages: every amd64 file (parts,
 #     PARTS-amd64.sha256, SHA256SUMS-amd64), every arm64 file, then
@@ -55,7 +57,7 @@
 #   --expect-prerelease yes|no  required state of the GitHub pre-release flag
 #   --ignore-other-releases     report other releases but do not fail on them
 #                               (used between publishing and retiring)
-#   --no-latest-check           skip the "latest" address check
+#   --no-latest-check           skip the stable address check
 #   -h, --help                  this text
 #
 # Tokens (optional; reads are anonymous without them): see
@@ -159,8 +161,16 @@ ght=$(jq -r '.name // ""' "$W/gh.json"); glt=$(jq -r '.name // ""' "$W/gl.json")
 if [ "$ght" = "$glt" ]; then ok "title: $ght"; else diff_ "title: GitHub '$ght' vs GitLab '$glt'"; fi
 jq -r '.body // ""' "$W/gh.json" > "$W/gh-body.md"
 jq -r '.description // ""' "$W/gl.json" > "$W/gl-body.md"
-rf_normalise_body "$W/gh-body.md" "$GH_REPO" "$GL_PROJECT" > "$W/gh-body.n"
-rf_normalise_body "$W/gl-body.md" "$GH_REPO" "$GL_PROJECT" > "$W/gl-body.n"
+rf_normalise_body "$W/gh-body.md" "$GH_REPO" "$GL_PROJECT" "$TAG" > "$W/gh-body.n"
+rf_normalise_body "$W/gl-body.md" "$GH_REPO" "$GL_PROJECT" "$TAG" > "$W/gl-body.n"
+# links to a release other than this one, in either body
+for forge in gh gl; do
+  if ! lk=$(bash "$HERE/check-release-links.sh" --current-tag "$TAG" --allow-part-names --files "$W/$forge-body.md" 2>&1); then
+    fn=github; [ "$forge" = gl ] && fn=gitlab
+    diff_ "$fn notes link to another release or use a link form that changes:"
+    printf '%s\n' "$lk" | grep '^RELEASE-LINK' | sed 's/^RELEASE-LINK: [^:]*:/      line /'
+  fi
+done
 if cmp -s "$W/gh-body.n" "$W/gl-body.n"; then ok "notes body ($(wc -l < "$W/gh-body.n" | tr -d ' ') lines, links normalised)"
 else
   diff_ "notes body differs (normalised; - GitHub, + GitLab):"
@@ -174,11 +184,12 @@ if [ -n "$EXPECT_PRE" ] && [ "$gh_pre" != "$EXPECT_PRE" ]; then diff_ "GitHub pr
 else info "GitHub pre-release flag: $gh_pre"; fi
 if [ "$(jq -r '.upcoming_release // false' "$W/gl.json")" = true ]; then diff_ "GitLab release is an upcoming release (released_at in the future)"; fi
 if [ "$LATEST" -eq 1 ]; then
-  c=$(rf_api github GET "$RF_GITHUB_API/repos/$GH_REPO/releases/latest" "$W/ghlatest.json")
-  lt=""; [ "$c" = 200 ] && lt=$(jq -r '.tag_name' "$W/ghlatest.json")
-  if [ "$lt" = "$TAG" ]; then ok "GitHub releases/latest -> $TAG"
-  elif [ "$gh_pre" = yes ]; then diff_ "GitHub releases/latest -> '${lt:-none}' (HTTP $c): a pre-release is never 'latest' on GitHub, so the stable latest links do not reach $TAG"
-  else diff_ "GitHub releases/latest -> '${lt:-none}' (HTTP $c), expected $TAG"; fi
+  # GitHub: a pre-release is never "latest", so the stable GitHub address is the
+  # releases page itself, which must list this release only.
+  nrel=$(jq length "$W/gh-rels.json")
+  if [ "$nrel" -eq 1 ]; then ok "GitHub releases page lists only $TAG (prerelease=$gh_pre)"
+  elif [ "$IGNORE_OTHERS" -eq 1 ]; then info "GitHub releases page lists $nrel releases (the others are retired next)"
+  else diff_ "GitHub releases page lists $nrel releases; it must list only $TAG"; fi
   c=$(rf_api gitlab GET "$RF_GITLAB_API/projects/$GL_PID/releases/permalink/latest" "$W/gllatest.json")
   loc=$(cat "$W/gllatest.json.loc"); lt=""
   if [ "$c" = 302 ] || [ "$c" = 301 ]; then lt=$(python3 -I -c 'import sys,urllib.parse as u;print(u.unquote(sys.argv[1].rstrip("/").rsplit("/",1)[-1]))' "$loc"); fi
@@ -329,7 +340,7 @@ check_images() { # forge body-file
       *) diff_ "$forge body image '$u' is a relative link (it does not render on a release page)"; continue ;;
     esac
     printf '%s\n' "$u" > "$W/u.txt"
-    abs=$(rf_normalise_body "$W/u.txt" "$GH_REPO" "$GL_PROJECT")
+    abs=$(rf_normalise_body "$W/u.txt" "$GH_REPO" "$GL_PROJECT" "$TAG")
     printf '%s\n' "$abs" >> "$W/img-$forge.n"
     case "$abs" in
       "<raw-main>/"*) rel=${abs#"<raw-main>/"} ;;
