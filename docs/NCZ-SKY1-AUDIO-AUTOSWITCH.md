@@ -43,7 +43,7 @@ The daemon is intentionally a user service. It talks to the active user's PipeWi
 
 - Radxa Orion O6N: live evidence from 2026-08-26 showed card 0 `cix,sky1` with `eld#1` connected to `VP2488-4K` and `eld#0`/`eld#2` disconnected. This is the only board with live ELD evidence for this issue.
 - Radxa Orion O6: `meta-cix` contains a distinct `sky1-orion-o6.dts`; its sound node wires DP audio links with `jack-det,dpout`.
-- Radxa Orion O6 (real hardware, live evidence gathered 2026-08-26): confirms the
+- Radxa Orion O6N (real hardware, live evidence gathered 2026-08-26): confirms the
   ASoC `sky1-asoc-card` (`CIXH6070:00`) architecture is present on O6 too, same three
   DP audio links (`dp[0]`/`dp[1]`/`dp[2]`) as Radxa Orion O6N -- but on the board tested the card
   never fully registers: `dp[2]`'s codec stays `codec[(null)]` through dozens of probe

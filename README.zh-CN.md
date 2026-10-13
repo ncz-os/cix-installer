@@ -9,7 +9,7 @@
 >
 > **[前往发布页下载](https://github.com/ncz-os/cix-installer/releases/tag/v26.10-preview1)**
 > · [发布说明（英文）](docs/releases/26.10-cygnus-preview1.md)
-> · [已测试硬件](#硬件支持与测试状态)
+> · [已测试硬件](#hardware-support)
 > · [文档索引（英文）](docs/INDEX.md)
 >
 > | 镜像 | 适用于 | 内核 |
@@ -112,6 +112,8 @@ NCZ **在设计与意图上都是厂商中立的**。目标是：在能取得样
   能在普通 Intel/AMD 台式机或服务器上启动；与具体硬件绑定的加速器仓库（NVIDIA CUDA、
   AMD ROCm、Intel OpenVINO）由 `post-install/54-gpu-accel.sh` 中的 `lspci -nn`
   PCI 类自动检测并接入。没有独立显卡的机器会静默跳过，这是正常行为。
+
+<a id="hardware-support"></a>
 
 ## 硬件支持与测试状态
 
@@ -276,6 +278,8 @@ sudo apt install ncz-model-nomic-embed   # 768 维，默认
 会下载它们，并把其余输入列为仅限内部）；锁定的 Debian netinst 周构建镜像也已被上游替换。
 所有 GPL 源码（包括两个内核）均已公开，详见 [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md)。
 
+<a id="upstream-work"></a>
+
 ## 上游贡献
 
 以下工作起源于本项目，已进入上游或正准备进入上游。它们都不是 NCZ 专有的：
@@ -362,7 +366,7 @@ to document their patches as such"*（真正在灌水的人，根本不会把补
 labwc/wlroots，能原生抵达 Mali GLES，而不必绕道 Xwayland。
 
 Mirko 也接纳了反向流动的改动。那些属于我们的工作，因此列在
-[上游贡献](#上游贡献)一节，而不是放在这里。
+[上游贡献](#upstream-work)一节，而不是放在这里。
 
 **此外**：**Radxa**（Radxa Orion O6N，我们的主力开发与验证平台）、**Minisforum**
 （MS-R1，本项目起步的那块板）、**Debian**（把 ARM 当作一等架构，这正是 26.7 建立在

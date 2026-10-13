@@ -631,6 +631,14 @@ pinned NCZ build: `assets/kernel/sky1-manifest.json` (Sky1) or
 `assets/kernel/amd64-stable/` (amd64). `make parity` runs the static
 dual-architecture checks.
 
+**Site settings.** The tooling hardcodes no store mount point or build host. Each
+build host sets them once through environment variables or one-line files under
+`~/.config/ncz/` (for example `NCZ_BUILD_INPUTS_DIR` or
+`~/.config/ncz/build-inputs-dir`); see
+[docs/BUILD-SITE-CONFIG.md](docs/BUILD-SITE-CONFIG.md) for the full list. Without
+them the build still runs from an already-staged tree, and
+`build/stage-build-inputs.sh --public` needs none of them.
+
 ### Build-host prerequisites
 
 - A Debian 13+ Linux host with `git`, `make`, `python3`, `mksquashfs` /

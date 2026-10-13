@@ -18,8 +18,8 @@ normal at the cut) and not a worn battery.
 
 This is the load-triggered cut, distinct from our T2 7.3 **boot-time** cut
 (16-27 s after `Booting OS`) investigated separately
-(in the kernel development notes). The AER revert decision and the iGPU/gmux hang
-(omacom/omarchy issue #9609) are separate hypotheses and are unaffected.
+(in the kernel development notes). The iGPU/gmux hang (omacom/omarchy issue
+#9609) is a separate issue and is unaffected.
 
 Prior art (the fix this is modelled on): omacom/omarchy issue **#13295**, PR
 **#14987** — same machine, same cut, field-confirmed fixed by capping the RAPL

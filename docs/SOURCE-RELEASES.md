@@ -221,7 +221,4 @@ you received an NCZ-OS binary and cannot find its corresponding source here,
 open an issue at <https://gitlab.com/ncz-os/cix-installer/-/issues> or write to
 Jason Perlow `<jperlow@gmail.com>`; we will publish it.
 
-**Written offer.** For three years from the date we distributed a binary,
-NCZ-OS will provide the complete corresponding machine-readable source of the
-GPL/LGPL components in it, at no charge beyond the cost of physical
-distribution. This offer is valid for anyone who received the binary.
+**Written offer.** This offer is valid for three years from the date of distribution, to any third party, for no more than the cost of physically performing source distribution: we will provide the complete corresponding machine-readable source of the GPL/LGPL components of any NCZ-OS binary we distributed. To ask, open an issue at <https://gitlab.com/ncz-os/cix-installer/-/issues> or email jperlow@gmail.com.

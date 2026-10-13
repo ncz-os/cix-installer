@@ -28,7 +28,7 @@ every kernel-artifact package recorded, by place:
 
 | place | amd64 | arm64 |
 |---|---|---|
-| NCZ kernel debs in the payload (`assets/kernel/*`) | `linux-image/headers-7.3.0-rc6-4-t2-edge-aer9010` | `linux-image/headers-cixmini`, `cixmini-boot` |
+| NCZ kernel debs in the payload (`assets/kernel/*`) | `linux-image/headers-7.3.0-rc7-t2-ncz` | `linux-image/headers-cixmini`, `cixmini-boot` |
 | installed rootfs (`base.squashfs`, `desktop.squashfs` dpkg status) | only the NCZ kernel+headers | only the NCZ kernel+headers+`cixmini-boot` |
 | offline `/cdrom` pool (closure) | **Debian** `linux-image-7.1.13+deb14-amd64`, `linux-image-amd64`, `linux-modules-7.1.13+deb14-amd64`, `linux-binary-7.1.13+deb14-amd64`, `linux-base-amd64` | **Debian** `linux-image-7.1.13+deb14-arm64`, `linux-image-arm64`, `linux-modules-7.1.13+deb14-arm64`, `linux-binary-7.1.13+deb14-arm64`, `linux-base-arm64` |
 | `/cdrom` d-i `Packages` index + pool (merged substrate) | **64 Debian d-i kernel-module udebs** (`{base,btrfs,crypto,ext4,nic,scsi,...}-modules-7.1.8+deb14.1-amd64-di` and `…-7.2.6+deb14-amd64-di`) + `linux-base/linux-binary-*-di` | **79 Debian d-i kernel-module udebs** (same set, `-7.1.8+deb14.1-arm64-di` / `-7.2.6+deb14-arm64-di`) |
