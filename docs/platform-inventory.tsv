@@ -531,7 +531,8 @@ manifests/overlay-layers.tsv	common	-	reviewed PARTIAL squashfs overlay layers (
 manifests/base.pin	common	-	single BUILD+provenance base pin: the netinst substrate sha256+date and the snapshot.debian.org timestamp DERIVED from it (measured coverage); written by build/refresh-substrate.sh; the build preflight fails if stale or inconsistent with release.conf
 manifests/keys/debian-testing-cd-signing.gpg	common	-	committed Debian CD signing key (fpr F41D30342F3546695F65C66942468F4009EA8AC3) used to verify a netinst's SHA256SUMS.sign
 build/refresh-substrate.sh	common	-	fetch + verify (SHA256SUMS.sign vs the committed CD key) the newest netinst, cache in the project build store (keep two), derive + write manifests/base.pin; fails closed
-build/derive-base-pin.py	common	-	measure a netinst's own package identities (codename full + di_suite debian-installer) against candidate snapshot timestamps; write manifests/base.pin; exit 3 if coverage < floor
+build/derive-base-pin.py	common	-	measure a netinst's own package identities (codename full + di_suite debian-installer) against candidate snapshot timestamps (fixed grid + real archive runs); write manifests/base.pin; exit 3 if coverage < floor
+build/test-derive-base-pin-candidates.sh	common	-	derive-base-pin candidates include every real snapshot archive run on the days around the substrate date (offline fixture)
 build/pin-snapshot-suites.py	common	-	fetch + gpgv-verify each declared snapshot suite's InRelease and record/verify its digest in manifests/forky-snapshot.tsv (forky full + di_suite d-i)
 build/check-substrate-pin.sh	common	-	build preflight: base.pin vs release.conf snapshot, substrate freshness (<= 8d), coverage floor (>= 99%)
 manifests/keys/debian-archive-keyring.gpg	common	-	official Debian archive signing keyring used by gpgv to verify the pinned snapshot Release
