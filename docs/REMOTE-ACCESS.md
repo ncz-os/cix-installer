@@ -16,7 +16,7 @@ exactly what is enabled, why, and how to disable each part.
 
 | Service | Port | Auth | Notes |
 |---|---|---|---|
-| **OpenSSH** | 22 | password **and** key | `PermitRootLogin yes`, `PasswordAuthentication yes` |
+| **OpenSSH** | 22 | password, or a key **you** install | `PermitRootLogin yes`, `PasswordAuthentication yes`; no vendor key installed |
 | **telnetd** | 23 | password | via `openbsd-inetd`, runs as root, **plaintext** |
 | **ncz-failsafe** | 2323 | published break-glass default (set in `post-install/37-failsafe-access.sh`), **change it** | static busybox telnetd → root recovery shell |
 | **ncz-recovery** container | 22 *(its own IP)* | published break-glass default (set in `build/build-mgmt-rootfs.sh`), **change it** | `systemd-nspawn`, MACVLAN — appears as a **separate host** on your LAN |
@@ -51,6 +51,25 @@ On an installed system, change the recovery container's password with `passwd`
 inside the container. The failsafe console's passphrase is stored in
 `/etc/ncz/failsafe-password`; if you do not need the console, disable it as
 shown below.
+
+### No vendor SSH keys
+
+The image installs **no SSH public key of ours** — not for root, not for the
+account you create, not in the recovery container, not in the installer, not
+in the rescue partition. Nobody but you can log in with a key. Every
+`authorized_keys` file starts absent; out of the box, SSH logins use the
+passwords set at install time.
+
+To log in with your own key, copy it from the machine you connect from:
+
+```bash
+ssh-copy-id you@<the-machine-ip>          # your account
+ssh-copy-id root@<the-machine-ip>         # root, if you want key login there too
+```
+
+or append your public key to `~/.ssh/authorized_keys` (directory `0700`,
+file `0600`) by hand. For the recovery container, add it to
+`/root/.ssh/authorized_keys` inside the container.
 
 ### What each one actually is
 
@@ -186,8 +205,23 @@ nmap -p 22,23,2323 <the-machine-ip>
 
 That is what the rescue partition is for, and it is independent of everything
 above. Select **NCZRESCUE** from the boot menu: it carries a full toolset and
-self-configuring networking, and it is validated as a release gate on every
-build. Mount the root filesystem from there and undo whatever went wrong.
+is validated as a release gate on every build. Mount the root filesystem from
+there and undo whatever went wrong.
+
+The rescue system offers telnet on 23, OpenSSH on 22 and dropbear on 2222,
+all with its own root password (the published break-glass default in
+`build/build-rescue-rootfs.sh`; change it after first use), plus the local and
+serial consoles. Like the installed system it trusts **no vendor SSH key**.
+
+**Rescue networking is DHCP only.** At boot it asks for a DHCP lease on every
+wired port that has a link. There is no static or fallback address of ours:
+if no DHCP server answers, the rescue system gets no routable IPv4 address,
+and you use the local screen and keyboard or the serial console instead. (The
+stock DHCP client, `dhcpcd`, may still self-assign a `169.254.x.x` link-local
+address, and the kernel always adds an IPv6 link-local address, plus an IPv6
+address if your router advertises one.) Find its
+address in your router's DHCP lease list; its hostname is
+`ncz-rescue-<last six hex digits of the MAC>`.
 
 ## See also
 
