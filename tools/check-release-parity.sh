@@ -20,14 +20,24 @@
 #     and both stable "latest" addresses resolve to TAG
 #     (github.com/<repo>/releases/latest, gitlab.com/<p>/-/releases/permalink/latest).
 #     A GitHub pre-release is never "latest", so it fails this check.
-#   * assets: the same names in the same order, with equal sizes and sha256.
-#     GitHub sizes and digests come from the API (a file without an API
-#     digest is downloaded and hashed). GitLab assets must be links to files
-#     of this project's generic package registry; sizes and sha256 come from
-#     the registry. Each GitLab link's direct path is the stable alias of its
-#     file (parts: ncz-os-<arch>.img.zst.part-NN; other files: their name).
-#   * PARTS.sha256, SHA256SUMS, ncz-join-image.sh and NOTES.md are downloaded
-#     anonymously from both release pages and must be byte-equal.
+#   * assets (release layout, docs/IMAGE-HOSTING.md): the same files in the
+#     same canonical order on both pages: every amd64 file (parts,
+#     PARTS-amd64.sha256, SHA256SUMS-amd64), every arm64 file, then
+#     ncz-join-image.sh, SHA256SUMS, NOTES.md; nothing else. Equal sizes and
+#     sha256: GitHub sizes and digests come from the API (a file without an
+#     API digest is downloaded and hashed); GitLab assets must be links into
+#     the project's generic packages <package>-amd64, -arm64 and -common,
+#     named <arch>/<file> for architecture files (link type package) and
+#     <file> for common files (link type other), with the stable direct path
+#     (/<arch>/ncz-os-<arch>.img.zst.part-NN, /<arch>/<file>, /<file>);
+#     sizes and sha256 come from the registry.
+#   * every file but the parts is downloaded anonymously from both pages and
+#     must be byte-equal; SHA256SUMS must be SHA256SUMS-amd64 followed by
+#     SHA256SUMS-arm64; each PARTS-<arch>.sha256 must list exactly the parts
+#     of that architecture on the page, with their sha256.
+#   * notes: one section heading (## or deeper) per architecture, amd64
+#     first, each containing the sha256 of its images and the
+#     "ncz-join-image.sh <arch>" command.
 #   * screenshots: both bodies reference the same images; every image is an
 #     absolute raw URL on main of the forge's own repository, answers HTTP 200
 #     and has the sha256 of the same file in --repo-root.
@@ -39,6 +49,7 @@
 #   --gitlab-project PATH       default ncz-os/cix-installer ($NCZ_GITLAB_PROJECT)
 #   --quick                     compare asset names and sizes only (no sha256,
 #                               no downloads of large files)
+#   --package NAME              GitLab package prefix (default ncz-os-image, $NCZ_GITLAB_PACKAGE)
 #   --release-dir DIR           also compare against a staged release folder
 #   --repo-root DIR             checkout holding the screenshots (default: this repository)
 #   --expect-prerelease yes|no  required state of the GitHub pre-release flag
@@ -60,6 +71,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 GH_REPO="${NCZ_GITHUB_REPO:-ncz-os/cix-installer}"
 GL_PROJECT="${NCZ_GITLAB_PROJECT:-ncz-os/cix-installer}"
+PACKAGE="${NCZ_GITLAB_PACKAGE:-ncz-os-image}"
 TAG=""; QUICK=0; RDIR=""; REPO_ROOT=""; EXPECT_PRE=""; IGNORE_OTHERS=0; LATEST=1
 
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
@@ -70,6 +82,7 @@ while [ $# -gt 0 ]; do
     --github-repo) GH_REPO=${2:?}; shift 2 ;;
     --gitlab-project) GL_PROJECT=${2:?}; shift 2 ;;
     --quick) QUICK=1; shift ;;
+    --package) PACKAGE=${2:?}; shift 2 ;;
     --release-dir) RDIR=${2:?}; shift 2 ;;
     --repo-root) REPO_ROOT=${2:?}; shift 2 ;;
     --expect-prerelease) EXPECT_PRE=${2:?}; shift 2 ;;
@@ -181,16 +194,23 @@ jq -r '.assets.links[] | [.name, .url, (.direct_asset_path // ""), (.link_type /
 : > "$W/gl-assets.tsv"
 declare -A PKGFILES=()
 pkg_prefix="$RF_GITLAB_API/projects/$GL_PID/packages/generic/"
-while IFS=$'\t' read -r name url dpath _; do
-  [ -n "$name" ] || continue
-  want_path="/$(rf_stable_name "$name")"
-  if [ "$dpath" != "$want_path" ]; then diff_ "GitLab link $name: direct path '$dpath', expected stable alias '$want_path'"; fi
+while IFS=$'\t' read -r lname url dpath ltype; do
+  [ -n "$lname" ] || continue
+  name=${lname#amd64/}; name=${name#arm64/}
+  grp=$(rf_file_group "$name")
+  if [ "$(rf_gl_link_name "$name")" != "$lname" ]; then diff_ "GitLab link '$lname': expected the name '$(rf_gl_link_name "$name")' (architecture files sit under <arch>/)"; fi
+  want_path=$(rf_gl_path "$name")
+  if [ "$dpath" != "$want_path" ]; then diff_ "GitLab link $lname: direct path '$dpath', expected stable alias '$want_path'"; fi
+  if [ "$grp" = common ]; then want_lt=other; else want_lt=package; fi
+  if [ "$ltype" != "$want_lt" ]; then diff_ "GitLab link $lname: link type '$ltype', expected $want_lt"; fi
   case "$url" in
     "$pkg_prefix"*) ;;
-    *) diff_ "GitLab link $name does not point at this project's generic package registry: $url"
+    *) diff_ "GitLab link $lname does not point at this project's generic package registry: $url"
        printf '%s\t-\t-\t%s\n' "$name" "$url" >> "$W/gl-assets.tsv"; continue ;;
   esac
   rest=${url#"$pkg_prefix"}; pkg=${rest%%/*}; rest=${rest#*/}; ver=${rest%%/*}; file=${rest#*/}
+  if [ "$pkg" != "$PACKAGE-$grp" ]; then diff_ "GitLab link $lname points into package '$pkg', expected $PACKAGE-$grp"; fi
+  if [ "$file" != "$name" ]; then diff_ "GitLab link $lname points at the package file '$file'"; fi
   key="$pkg/$ver"
   if [ -z "${PKGFILES[$key]:-}" ]; then
     rf_get_all gitlab "$RF_GITLAB_API/projects/$GL_PID/packages?package_type=generic&package_name=$(rf_uri "$pkg")" "$W/pk.json" || apierr "cannot list GitLab packages"
@@ -201,7 +221,7 @@ while IFS=$'\t' read -r name url dpath _; do
     PKGFILES[$key]=$out
   fi
   row=$(jq -r --arg f "$file" '[.[] | select(.file_name==$f)] | max_by(.id) // empty | "\(.size)\t\(.file_sha256)"' "${PKGFILES[$key]}")
-  if [ -z "$row" ]; then diff_ "GitLab link $name: package file $pkg $ver $file not found"; row=$'-\t-'; fi
+  if [ -z "$row" ]; then diff_ "GitLab link $lname: package file $pkg $ver $file not found"; row=$'-\t-'; fi
   printf '%s\t%s\t%s\n' "$name" "$row" "$url" >> "$W/gl-assets.tsv"
 done < "$W/gl-links.tsv"
 
@@ -212,6 +232,32 @@ else
   diff_ "asset names differ (- GitHub only, + GitLab only):"
   diff <(sort "$W/gh-names") <(sort "$W/gl-names") | grep -E '^[<>]' | sed 's/^</      -/; s/^>/      +/'
 fi
+
+# canonical order and file set: amd64 files, arm64 files, common files
+for forge in gh gl; do
+  fn=github; [ "$forge" = gl ] && fn=gitlab
+  if [ -s "$W/$forge-names" ] && ! cmp -s "$W/$forge-names" <(rf_canonical_sort < "$W/$forge-names"); then
+    diff_ "$fn files are not in the canonical order (amd64 files, arm64 files, then ncz-join-image.sh SHA256SUMS NOTES.md); expected:"
+    rf_canonical_sort < "$W/$forge-names" | sed 's/^/      /'
+  fi
+done
+ARCHES_ON=()
+for a in "${RF_ARCHES[@]}"; do
+  if grep -q "^ncz-os-$a-.*\.img\.zst\.part-" "$W/gh-names"; then
+    ARCHES_ON+=("$a")
+    for f in "PARTS-$a.sha256" "SHA256SUMS-$a"; do grep -qxF "$f" "$W/gh-names" || diff_ "$f is missing ($a parts are on the page)"; done
+  else
+    for f in "PARTS-$a.sha256" "SHA256SUMS-$a"; do grep -qxF "$f" "$W/gh-names" && diff_ "$f is on the page but there are no $a parts"; done
+  fi
+done
+[ "${#ARCHES_ON[@]}" -gt 0 ] || diff_ "no image parts on the GitHub page"
+for f in "${RF_COMMON_FILES[@]}"; do grep -qxF "$f" "$W/gh-names" || grep -qxF "$f" "$W/gl-names" || diff_ "$f is on neither release page"; done
+while IFS= read -r n; do
+  case "$n" in ncz-os-amd64-*.img.zst.part-*|ncz-os-arm64-*.img.zst.part-*|PARTS-amd64.sha256|PARTS-arm64.sha256|SHA256SUMS-amd64|SHA256SUMS-arm64|ncz-join-image.sh|SHA256SUMS|NOTES.md) ;;
+    *) diff_ "unexpected file on a release page: $n (not part of the release layout)" ;;
+  esac
+done < <(sort -u "$W/gh-names" "$W/gl-names")
+[ "${#ARCHES_ON[@]}" -eq 0 ] || ok "file set: ${ARCHES_ON[*]} with their PARTS and SHA256SUMS files, plus the common files"
 
 # sha of a GitHub asset with no API digest: download unless --quick
 gh_sha() { # name size sha url
@@ -233,20 +279,44 @@ while IFS= read -r n; do
 done < <(sort -u "$W/gh-names" "$W/gl-names")
 
 # ---- small files: byte-equal from both release pages ---------------------------------------
-for f in "${RF_FIXED_FILES[@]}"; do
-  in_gh=0; in_gl=0
-  [ -n "${GHZ[$f]:-}" ] && in_gh=1; [ -n "${GLZ[$f]:-}" ] && in_gl=1
-  if [ "$in_gh" -eq 0 ] && [ "$in_gl" -eq 0 ]; then diff_ "$f is on neither release page"; continue; fi
-  [ "$in_gh" -eq 1 ] && [ "$in_gl" -eq 1 ] || continue   # already reported as a name difference
+while IFS= read -r f; do
+  case "$f" in *.img.zst.part-*) continue ;; esac
+  [ -n "${GHZ[$f]:-}" ] && [ -n "${GLZ[$f]:-}" ] || continue   # already reported as a name difference
   c1=$(rf_download "${GHU[$f]}" "$W/gh-$f")
-  c2=$(rf_download "$RF_GITLAB_WEB/$GL_PROJECT/-/releases/$(rf_uri "$TAG")/downloads/$(rf_stable_name "$f")" "$W/gl-$f")
-  if [ "$c1" != 200 ] || [ "$c2" != 200 ]; then diff_ "$f download: GitHub HTTP $c1, GitLab HTTP $c2"; continue; fi
+  c2=$(rf_download "$RF_GITLAB_WEB/$GL_PROJECT/-/releases/$(rf_uri "$TAG")/downloads$(rf_gl_path "$f")" "$W/gl-$f")
+  if [ "$c1" != 200 ] || [ "$c2" != 200 ]; then diff_ "$f download: GitHub HTTP $c1, GitLab HTTP $c2 (GitLab path $(rf_gl_path "$f"))"; rm -f "$W/gh-$f"; continue; fi
   if cmp -s "$W/gh-$f" "$W/gl-$f"; then ok "$f byte-equal ($(rf_size "$W/gh-$f") bytes)"
   else
     diff_ "$f content differs (- GitHub, + GitLab):"
     diff -u --label github --label gitlab "$W/gh-$f" "$W/gl-$f" | sed 's/^/      /' | head -40
   fi
+done < "$W/gh-names"
+# the checksum files agree with each other and with the parts on the page
+if [ -f "$W/gh-SHA256SUMS" ] && [ "${#ARCHES_ON[@]}" -gt 0 ]; then
+  cat_f=(); for a in "${ARCHES_ON[@]}"; do [ -f "$W/gh-SHA256SUMS-$a" ] && cat_f+=("$W/gh-SHA256SUMS-$a"); done
+  if [ "${#cat_f[@]}" -eq "${#ARCHES_ON[@]}" ] && cmp -s "$W/gh-SHA256SUMS" <(cat "${cat_f[@]}"); then ok "SHA256SUMS = $(printf 'SHA256SUMS-%s ' "${ARCHES_ON[@]}")"
+  else diff_ "SHA256SUMS is not $(printf 'SHA256SUMS-%s ' "${ARCHES_ON[@]}")in that order"; fi
+fi
+for a in "${ARCHES_ON[@]}"; do
+  pf="$W/gh-PARTS-$a.sha256"; [ -f "$pf" ] || continue
+  listed=$(awk '{ n = $2; sub(/^\*/, "", n); print n }' "$pf")
+  onpage=$(grep "^ncz-os-$a-.*\.img\.zst\.part-" "$W/gh-names")
+  if [ "$listed" != "$onpage" ]; then diff_ "PARTS-$a.sha256 does not list exactly the $a parts on the page, in order"; continue; fi
+  bad=0
+  if [ "$QUICK" -eq 0 ]; then
+    while read -r want n; do n=${n#\*}; [ "${GHS[$n]:-}" = "$want" ] || { diff_ "PARTS-$a.sha256 has $want for $n, the page has ${GHS[$n]:-none}"; bad=1; }; done < "$pf"
+  fi
+  [ "$bad" -eq 1 ] || ok "PARTS-$a.sha256 lists the $a parts on the page"
 done
+
+# ---- notes: one section per architecture ------------------------------------------------------------
+sargs=(); for a in "${ARCHES_ON[@]}"; do sargs+=("$a=$W/gh-SHA256SUMS-$a"); done
+if [ "${#sargs[@]}" -gt 0 ]; then
+  while IFS=$'\t' read -r st msg; do
+    [ -n "$st" ] || continue
+    if [ "$st" = ok ]; then ok "$msg"; else diff_ "$msg"; fi
+  done < <(rf_check_sections "$W/gh-body.n" "${sargs[@]}")
+fi
 
 # ---- screenshots -------------------------------------------------------------------------------
 check_images() { # forge body-file
@@ -283,16 +353,19 @@ fi
 # ---- staged folder --------------------------------------------------------------------------------
 if [ -n "$RDIR" ]; then
   d0=$DIFFS
-  : > "$W/local.tsv"
-  while read -r s n; do n=${n#\*}; [ -n "$n" ] || continue; printf '%s\t%s\n' "$n" "$s" >> "$W/local.tsv"; done < "$RDIR/PARTS.sha256"
-  for f in "${RF_FIXED_FILES[@]}"; do [ -f "$RDIR/$f" ] && printf '%s\t%s\n' "$f" "$(rf_sha "$RDIR/$f")" >> "$W/local.tsv"; done
-  while IFS=$'\t' read -r n s; do
-    if [ -z "${GHZ[$n]:-}" ]; then diff_ "staged $n is not on the GitHub page"; continue; fi
-    if [ -f "$RDIR/$n" ] && [ "$(rf_size "$RDIR/$n")" != "${GHZ[$n]}" ]; then diff_ "staged $n size $(rf_size "$RDIR/$n") vs pages ${GHZ[$n]}"; continue; fi
-    if [ "$QUICK" -eq 0 ] && [ "${GHS[$n]:-}" != "$s" ]; then diff_ "staged $n sha256 $s vs GitHub ${GHS[$n]:-none}"; fi
-  done < "$W/local.tsv"
-  unstaged=$(cut -f1 "$W/local.tsv" | LC_ALL=C sort | LC_ALL=C comm -13 - <(LC_ALL=C sort "$W/gh-names"))
-  [ -z "$unstaged" ] || diff_ "on the pages but not staged: $(echo "$unstaged" | tr '\n' ' ')"
+  if ! rf_layout "$RDIR" > "$W/local-layout.tsv"; then diff_ "the staged folder $RDIR does not match the release layout"
+  else
+    : > "$W/local-names"
+    while IFS=$'\t' read -r _ rel n; do
+      echo "$n" >> "$W/local-names"
+      if [ -z "${GHZ[$n]:-}" ]; then diff_ "staged $n is not on the GitHub page"; continue; fi
+      if [ "$(rf_size "$RDIR/$rel")" != "${GHZ[$n]}" ]; then diff_ "staged $n size $(rf_size "$RDIR/$rel") vs pages ${GHZ[$n]}"; continue; fi
+      if [ "$QUICK" -eq 0 ] && [ "${GHS[$n]:-}" != "$(rf_sha "$RDIR/$rel")" ]; then diff_ "staged $n sha256 differs from the GitHub page"; fi
+    done < "$W/local-layout.tsv"
+    cmp -s "$W/local-names" "$W/gh-names" || [ "$DIFFS" -gt "$d0" ] || diff_ "the page order differs from the staged canonical order"
+    unstaged=$(LC_ALL=C sort "$W/local-names" | LC_ALL=C comm -13 - <(LC_ALL=C sort "$W/gh-names"))
+    [ -z "$unstaged" ] || diff_ "on the pages but not staged: $(echo "$unstaged" | tr '\n' ' ')"
+  fi
   [ "$DIFFS" -gt "$d0" ] || ok "pages equal the staged folder $RDIR"
 fi
 
