@@ -544,62 +544,75 @@ ncz_install_mnemos() {
     echo "[ncz]   embedder: in-process CPU (nomic-embed-text-v1.5, 768-dim)"
     echo "[ncz]   service:  systemctl status mnemos.service"
 
-    # FIRST-RUN BOOTSTRAP. After install, create a default admin user + API
-    # key for this host and persist them at /etc/nclawzero/mnemos.env, so the
-    # operator (and `ncz status` later) can authenticate without first
-    # passing an existing bearer token. This is the "personal profile" path:
-    # one user, one key, no OAuth, no MFA — exactly what a single-user desktop
-    # install wants. The audit token above is the chicken-and-egg escape
-    # hatch (signed on the audit token, never on a bearer the installer
-    # itself has to be issued first).
+# FIRST-RUN BOOTSTRAP. After install, ensure a default admin user + API
+    # key exist for this host and persist them at /etc/nclawzero/mnemos.env,
+    # so the operator (and `ncz status` later) can authenticate without
+    # first passing an existing bearer token. This is the "personal
+    # profile" path: one user, one key, no OAuth, no MFA — exactly what a
+    # single-user desktop install wants.
+    #
+    # Why sqlite instead of POST /admin/users? /admin/users requires bearer
+    # auth, and we don't have one yet on a fresh install. The audit-token
+    # endpoint (/v1/internal/mcp_audit) ALSO requires bearer auth (see
+    # mnemos/api/routes/mcp_audit.py:_require_internal_audit_token, which
+    # only checks the audit-token header, but the route ALSO depends on
+    # get_current_user). MNEMOS's only chicken-and-egg escape is the sqlite
+    # backend itself — insert a row directly. We do that via podman exec
+    # the MNEMOS container (it already has python + sqlite3, no need for the
+    # host to ship sqlite3-cli).
     #
     # Skipped silently on a re-install: if /etc/nclawzero/mnemos.env already
     # has a token, the install is idempotent.
-    if [ "$ready" = 1 ] && [ -n "$audit_token" ]; then
+    if [ "$ready" = 1 ]; then
         local mnemos_env=/etc/nclawzero/mnemos.env
         if [ -s "$mnemos_env" ] && grep -q '^MNEMOS_API_TOKEN=' "$mnemos_env"; then
             echo "[ncz] MNEMOS API token already provisioned at $mnemos_env"
         else
             local bootstrap_user="ncz-$(hostname -s 2>/dev/null | tr -cd 'a-z0-9-' | cut -c1-20)"
             [ -n "$bootstrap_user" ] || bootstrap_user="ncz-admin"
-            # create_user requires root role, so we use the audit token
-            # endpoint (X-Mnemos-Audit-Token bypasses the user-system). The
-            # audit-token-issuer-bootstrap is documented in
-            # mnemos/api/routes/mcp_audit.py:_require_internal_audit_token().
-            local user_create_rc
-            curl -fsS --max-time 10 -o /dev/null -w '%{http_code}\n' \
-                -X POST "http://127.0.0.1:5002/admin/users" \
-                -H "X-Mnemos-Audit-Token: $audit_token" \
-                -H 'Content-Type: application/json' \
-                -d "{\"id\":\"$bootstrap_user\",\"role\":\"root\",\"namespace\":\"default\"}" \
-                >/tmp/ncz-mnemos-usercreate.$$ 2>/dev/null
-            user_create_rc="$(cat /tmp/ncz-mnemos-usercreate.$$ 2>/dev/null | tr -d '[:space:]')"
-            rm -f /tmp/ncz-mnemos-usercreate.$$
-            # 201 (created) or 409 (already exists) are both fine on re-run.
-            case "$user_create_rc" in
-                201|409) ;;
-                *)
-                    echo "[ncz] WARN: MNEMOS user create returned HTTP $user_create_rc — proceeding to api-key anyway" >&2
-                    ;;
-            esac
-            # Issue an API key for that user. /admin/users/{user_id}/apikeys
-            # is the documented endpoint (mnemos/api/routes/admin.py).
-            local api_resp
-            api_resp="$(curl -fsS --max-time 10 \
-                -X POST "http://127.0.0.1:5002/admin/users/$bootstrap_user/apikeys" \
-                -H "X-Mnemos-Audit-Token: $audit_token" \
-                -H 'Content-Type: application/json' \
-                -d '{"name":"ncz-install-bootstrap"}' 2>/dev/null || true)"
-            local api_key
-            api_key="$(echo "$api_resp" | sed -n 's/.*"key"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-                | head -1)"
-            if [ -n "$api_key" ]; then
+            # Generate raw_key + key_hash INSIDE the MNEMOS container so we
+            # never expose mnemos.db to the host (the volume is owned by
+            # root inside the container; the bind-mount on the host is
+            # rootless vlog-style and we do NOT want to depend on that).
+            # The bootstrap script: insert the 'ncz-*' user as root if
+            # missing, then mint an api_key whose key_hash is sha256(raw_key).
+            local raw_key key_hash
+            raw_key="$(head -c 32 /dev/urandom | od -An -vtx1 | tr -d ' \n')"
+            key_hash="$(printf '%s' "$raw_key" | sha256sum | awk '{print $1}')"
+            local bootstrap_out
+            bootstrap_out="$(podman exec mnemos python3 -c "
+import sqlite3, secrets
+c = sqlite3.connect('/data/mnemos.db')
+c.row_factory = sqlite3.Row
+existing = c.execute('SELECT id FROM users WHERE id = ?', ('$bootstrap_user',)).fetchone()
+if not existing:
+    c.execute('INSERT INTO users (id, username, role, namespace) VALUES (?, ?, ?, ?)',
+              ('$bootstrap_user', '$bootstrap_user', 'root', 'default'))
+key_hash = '$key_hash'
+# Mint a fresh api_key for this user, keyed off the sha256 we computed on
+# the host. Revoke any pre-existing active keys for this user so we
+# never accumulate more than one. (MNEMOS caps at 10 per user; this is
+# the same cap the /admin/users/{user_id}/apikeys route enforces.)
+c.execute('UPDATE api_keys SET revoked = 1, revoked_at = CURRENT_TIMESTAMP '
+          'WHERE user_id = ? AND revoked = 0', ('$bootstrap_user',))
+c.execute('INSERT INTO api_keys (id, user_id, key_hash, label, key_prefix, revoked) '
+          'VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, 0)',
+          ('$bootstrap_user', key_hash, 'ncz-install-bootstrap', '${raw_key:0:8}'))
+c.commit()
+# Verify
+rows = c.execute('SELECT id, key_prefix, label, revoked FROM api_keys '
+                 'WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', ('$bootstrap_user',)).fetchall()
+print('OK ' + str(len(rows)) + ' key(s) for $bootstrap_user')
+for r in rows: print('KEY ' + r['key_prefix'] + ' ' + r['label'])
+" 2>&1)"
+            local bootstrap_rc=$?
+            if [ "$bootstrap_rc" = "0" ] && echo "$bootstrap_out" | grep -q "^OK "; then
                 {
                     echo "# MNEMOS API credential for this host."
                     echo "# Issued by 'ncz install mnemos' on $(date -u +%Y-%m-%dT%H:%M:%SZ)."
                     echo "# Source the file (or read MNEMOS_API_TOKEN) before calling MNEMOS."
                     echo "MNEMOS_USER=$bootstrap_user"
-                    echo "MNEMOS_API_TOKEN=$api_key"
+                    echo "MNEMOS_API_TOKEN=$raw_key"
                     echo "MNEMOS_BASE_URL=http://127.0.0.1:5002"
                 } > "$mnemos_env"
                 chmod 0640 "$mnemos_env"
@@ -607,11 +620,14 @@ ncz_install_mnemos() {
                 echo "[ncz] MNEMOS bootstrap: user=$bootstrap_user token written to $mnemos_env"
                 echo "[ncz]   test:    curl -H \"Authorization: Bearer \$(grep MNEMOS_API_TOKEN= $mnemos_env | cut -d= -f2)\" http://127.0.0.1:5002/stats"
             else
-                echo "[ncz] WARN: MNEMOS API key bootstrap did not return a key. Re-run 'ncz install mnemos' after fixing the error." >&2
-                echo "[ncz]   raw response: $api_resp" >&2
+                echo "[ncz] WARN: MNEMOS API key bootstrap did not succeed." >&2
+                echo "[ncz]   raw output: $bootstrap_out" >&2
+                echo "[ncz]   manual bootstrap:" >&2
+                echo "[ncz]     podman exec mnemos python3 -c 'import sqlite3; c=sqlite3.connect(\"/data/mnemos.db\"); ...'" >&2
             fi
         fi
     fi
+
     # NPU EMBEDDING OFFLOAD — installed HERE and only here.
     #
     # Operator direction 2026-08-17: the embedding model is an
