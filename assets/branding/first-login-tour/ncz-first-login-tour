@@ -187,6 +187,51 @@ wait_for_shell() {
 # Returns the exit status of the *wrapper* (0 = launched in background), not
 # of the tour itself. The tour is launched into the BACKGROUND so the
 # autostart can return and the desktop session stays responsive.
+# Cached "systemd-run is real and the user bus is up" probe. The launcher is
+# called at most once per session (the first-login tour), but the launch
+# path may re-enter on retry; we don't want to re-create and destroy a
+# systemd scope on every retry just to confirm systemd-run works.
+: "${NCZ_TOUR_SR_OK:=unset}"
+
+# Has systemd-run been verified in this process? Cheap probe: query the
+# version (no cgroup work, no user bus round-trip).
+probe_systemd_run() {
+    # systemd-run must be the real binary, not a stub in PATH. The
+    # historical hardcoded /usr/bin/systemd-run path is wrong on distros
+    # that ship it in /bin (Debian-derived variants, some nix setups);
+    # an absolute system path is the contract we want.
+    _sr_bin=$(command -v systemd-run 2>/dev/null) || _sr_bin=""
+    case "$_sr_bin" in
+        /usr/bin/systemd-run|/bin/systemd-run|/sbin/systemd-run|/usr/sbin/systemd-run) ;;
+        *) return 1 ;;
+    esac
+    # --user needs the user bus; verify it via loginctl (no scope creation,
+    # no measurable cost beyond a single D-Bus round-trip).
+    command -v loginctl >/dev/null 2>&1 \
+        && loginctl show-user "$(id -u 2>/dev/null || echo 0)" >/dev/null 2>&1
+}
+
+# Open the tour under a CPU-bounded scope so the image-decode burst cannot
+# spike the post-login thermals. The systemd user instance is the right
+# boundary (the tour is the only thing in the scope, never the shell), so
+# when systemd-run --user is available the launcher wraps the tour in a
+# transient scope with CPUQuota + nice. Falls back to plain `nice -n 19` if
+# the systemd user bus is absent (a recovery/KVM session never installs
+# user-bus; the tour there is already gated off by is_live/first_run/lock).
+#
+# SECURITY: the tour command is one we built into the codebase -- the three
+# callers in open_tour() all pass a single, hand-written string with no
+# shell metacharacters -- or, in the NCZ_TOUR_LAUNCH test seam, a value
+# chosen by the test. To preserve the original audit contract (\"the value
+# is exactly what would be launched, no extra words, no shell-meta\") we
+# tokenise the string with the shell's standard $IFS word split under
+# `set -f` (noglob; no filename expansion) and exec the resulting tokens
+# as a real argv. systemd-run takes the tokens argv directly; nice runs
+# the first token (the interpreter) and forwards the rest as its argv.
+#
+# Returns the exit status of the *wrapper* (0 = launched in background), not
+# of the tour itself. The tour is launched into the BACKGROUND so the
+# autostart can return and the desktop session stays responsive.
 launch_under_scope() {
     want_quota="${NCZ_TOUR_CPUQUOTA:-40}"
     # Tokenise the command line on $IFS into positional parameters. Standard
@@ -198,6 +243,13 @@ launch_under_scope() {
     # literal tokens "cmd", ";", "rm", "-rf", "/" -- the wrapper sees the
     # same argv the original test contract expected, never a re-eval and
     # never a glob expansion.
+    # Contract: exactly one argument (the command line). Defensive assert so
+    # a future caller that passes multiple args doesn't silently lose them.
+    if [ "$#" -ne 1 ]; then
+        # shellcheck disable=SC2317  # unreachable in this session; defence in depth
+        printf 'launch_under_scope: expected 1 argument, got %d\n' "$#" >&2
+        return 64
+    fi
     # shellcheck disable=SC2086
     set -f
     set -- $1
@@ -210,24 +262,27 @@ launch_under_scope() {
     # Auto-detect: prefer systemd-run --user --scope (cgroups + nice + quota
     # in one transient unit). The user bus is present on every real desktop
     # session; absence means we are in a context that already guards.
-    if [ "${NCZ_TOUR_NICE:-auto}" = "1" ] \
-       || { command -v loginctl >/dev/null 2>&1 \
-            && loginctl show-user "$(id -u 2>/dev/null || echo 0)" >/dev/null 2>&1; } then
-        # systemd-run must be the real binary, not a stub in PATH. The
-        # historical hardcoded /usr/bin/systemd-run path is wrong on distros
-        # that ship it in /bin (Debian-derived variants, some nix setups);
-        # an absolute system path is the contract we want.
+    if [ "${NCZ_TOUR_NICE:-auto}" = "1" ]; then
+        _sr_ok=1
+    elif [ "$NCZ_TOUR_SR_OK" = "unset" ]; then
+        if probe_systemd_run; then
+            NCZ_TOUR_SR_OK=1; _sr_ok=1
+        else
+            NCZ_TOUR_SR_OK=0; _sr_ok=0
+        fi
+    else
+        _sr_ok="$NCZ_TOUR_SR_OK"
+    fi
+    if [ "$_sr_ok" = "1" ]; then
+        # Resolve the binary once and exec it via its absolute path. Same
+        # contract: the first token is the interpreter, the rest is its
+        # argv. systemd-run does its own exec; no shell involved.
         _sr_bin=$(command -v systemd-run 2>/dev/null) || _sr_bin=""
         case "$_sr_bin" in
             /usr/bin/systemd-run|/bin/systemd-run|/sbin/systemd-run|/usr/sbin/systemd-run) ;;
             *) _sr_bin="" ;;
         esac
-        if [ -n "$_sr_bin" ] \
-           && $_sr_bin --user --scope --quiet true >/dev/null 2>&1; then
-            # systemd-run takes the command and tokens argv directly. No
-            # shell interpretation: the first token is the interpreter, the
-            # rest are its argv. (systemd-run does its own exec, NOT a
-            # sub-shell.)
+        if [ -n "$_sr_bin" ]; then
             "$_sr_bin" --user --scope \
               --nice=19 \
               --property=CPUQuota="${want_quota}%" \
