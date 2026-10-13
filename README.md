@@ -115,13 +115,16 @@ it as NCZ-OS. See [Architecture](#architecture).
   it again, delete `~/.local/state/ncz/tour-seen` and log in again.
 - **Screensavers:** NCZ Screensavers 0.8.12 with 74 savers, including the Black
   Hole (the default, in the Cygnus palette), Fractasia and Magmasimplex.
-  Choose and preview them in Settings → *Screensaver and Lock*. Heavy savers
-  are best on a stronger GPU.
+  Choose and preview them in Settings → *Screensaver and Lock* (if that page
+  comes up empty, log out and back in; a fix is planned). Heavy savers are best
+  on a stronger GPU.
 - **Lock screen over a live screensaver.** The saver and the lock start
   together after 5 minutes idle; the password prompt appears only on the first
-  key press, click or pointer movement. Behind the lock the saver drops to
-  8 fps at half resolution and freezes after 15 seconds, to keep the machine
-  cool.
+  key press, click or pointer movement. Behind the lock the saver runs at
+  8 fps and half resolution by default and freezes after 15 seconds, to keep
+  the machine cool. Verified on the Sky1 boards and the ASUS laptop; on the T2
+  MacBooks lock, prompt and freeze were verified but the animation was not
+  confirmed (see known issues).
 - **Login screen that matches the lock screen** (greetd with the native
   Singularity greeter).
 - **Wallpapers:** artist packs (NCZ, Cygnus, Alex Jay Brady, Brandon Perlow,
@@ -140,13 +143,23 @@ it as NCZ-OS. See [Architecture](#architecture).
   the same kernel, a rescue partition and a live recovery container (see
   [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)).
 
-**Known issues in Preview 1** (beyond those in the
+**Known issues in Preview 1** (the full list is in the
 [release notes](docs/releases/26.10-cygnus-preview1.md#known-limitations)):
-on the T2 Macs we tested, the lock screen shows a still frame of the saver
-rather than the animation; on older single-GPU Macs such as the 2011 Mac mini
-the display may not initialize (fix planned for the next image); some savers are too heavy for older Intel graphics
-(Magmasimplex can hang an HD 4000); HEVC is not hardware-decoded in Chromium on
-Sky1; `ncz desktop off` takes effect only after a reboot.
+
+- Unplug USB-serial/debug cables during the install (the installer can mistake
+  one for a braille display).
+- Apple T2 MacBooks run warm right after the first login: the first-login tour
+  is a one-minute CPU burst and the discrete AMD GPU stays powered (about 60 °C
+  idle). A fix is planned for the next image.
+- Lock screen: the saver animation behind the lock could not be confirmed on
+  the two T2 MacBooks (it was on the other machines; under investigation), and
+  the lock screen never blanks the display ("blank after N seconds" is not
+  implemented yet).
+- Older single-GPU Macs such as the 2011 Mac mini may not bring up the display;
+  a fix is planned for the next image.
+- Some savers are too heavy for older Intel graphics (Magmasimplex can hang an
+  HD 4000); HEVC is not hardware-decoded in Chromium on Sky1; `ncz desktop off`
+  takes effect only after a reboot.
 
 ## Screenshots
 
@@ -273,7 +286,7 @@ NCZ-OS Preview 1 ships drivers for **AMD, NVIDIA and Intel GPUs on amd64**, **Ar
 | Radxa Orion O6N | CIX P1 (Sky1) | Arm Mali (vendor Mali; Panthor available) + NPU + VPU | Installed, desktop, video (VPU hardware decode) and audio playback |
 | Minisforum MS-R1 | CIX P1 (Sky1) | Arm Mali (vendor Mali; Panthor available) + NPU + VPU | Installed, desktop, video (VPU hardware decode) and audio playback |
 | MacBookPro16,1 (two units) | Core i9-9980HK, Core i7-9750H | AMD Radeon Pro 5300M/5500M class (Navi 14, `amdgpu`) + Intel UHD 630 (`i915`) | Installed, boots to desktop |
-| Laptop with NVIDIA graphics | Core i7-10750H | NVIDIA GeForce RTX 2060 Mobile (proprietary `nvidia`) + Intel UHD 630 (`i915`) | Installed, boots to desktop |
+| ASUS ROG GU502LV laptop | Core i7-10750H | NVIDIA GeForce RTX 2060 Mobile (proprietary `nvidia`) + Intel UHD 630 (`i915`) | Installed, boots to desktop |
 | HP OmniDesk desktop | Core Ultra 7 265 | Intel integrated graphics (Xe-LPG, `i915`) | Installed, boots to desktop |
 | Dell Inspiron 5521 (2013) | Core i7-3537U | Intel HD Graphics 4000 (`i915`) | Installed, runs the desktop |
 | Mac mini 2011 (Macmini5,1) | Core i5-2415M | Intel HD Graphics 3000 (`i915`) | **Known issue:** the display may not initialize; fix is planned for the next image |
@@ -307,7 +320,7 @@ equivalent); see [docs/SUPPORTED-FIRMWARE.md](docs/SUPPORTED-FIRMWARE.md).
 |---|---|---|
 | **T2 Macs** | **2018 – 2020** (plus the 2017 iMac Pro) | ⚠️ **One model tested: MacBookPro16,1** (two units) — installed, boots to desktop. The installer boots the NCZ T2 kernel; keep a USB keyboard at hand in case the internal keyboard does not respond during the install. The kernel carries the fix that stops MacBookPro16,1 powering off shortly after boot, and a CPU power cap stops load-triggered power cuts ([docs/T2-POWER-CAP.md](docs/T2-POWER-CAP.md)). No other T2 model (iMac, Mac mini, MacBook Air, other MacBook Pro years) has been installed or booted. |
 | **Pre-T2 Intel Macs** | **~2011 – 2017** | ❌ **Known issue on Preview 1:** on older single-GPU Macs such as the 2011 Mac mini (Macmini5,1, Intel HD 3000) the display may not initialize. A fix is planned for the next image. |
-| **Generic PC (UEFI, Intel/AMD)** | solid confidence **2014+**, likely works **2012+** | ⚠️ **Lightly tested:** an HP OmniDesk desktop (Core Ultra 7 265, Intel Xe-LPG) and a laptop with an NVIDIA GeForce RTX 2060 Mobile (proprietary driver) were installed and boot to the desktop, and a 2013 Dell Inspiron 5521 (Intel HD 4000) was installed and runs the desktop. Debian Testing (Forky) itself supports this range; other boards have not been booted by us. |
+| **Generic PC (UEFI, Intel/AMD)** | solid confidence **2014+**, likely works **2012+** | ⚠️ **Lightly tested:** an HP OmniDesk desktop (Core Ultra 7 265, Intel Xe-LPG) and an ASUS ROG GU502LV laptop (NVIDIA GeForce RTX 2060 Mobile, proprietary driver) were installed and boot to the desktop, and a 2013 Dell Inspiron 5521 (Intel HD 4000) was installed and runs the desktop. Debian Testing (Forky) itself supports this range; other boards have not been booted by us. |
 
 **GPU compute is a narrower window than "the base OS boots."** A working
 install does not imply working ROCm/CUDA/oneAPI — the compute stacks have
@@ -316,7 +329,7 @@ their own, tighter hardware floors:
 | Vendor | Compute stack | Realistic floor | Notes |
 |---|---|---|---|
 | **AMD** | ROCm (open `amdgpu` + Mesa RADV/RadeonSI — no proprietary alternative) | **~2016+** (GCN4/Polaris and newer) | `gfx1010`/`1011`/`1012` parts (Navi 1x, such as the Radeon Pro 5300M/5500M in the MacBookPro16,1) need `HSA_OVERRIDE_GFX_VERSION=10.3.0`; applied automatically by `post-install/54-gpu-accel.sh`. |
-| **NVIDIA** | Proprietary driver and CUDA installed per GPU family at install time ([docs/CUDA-DYNAMIC-INSTALL.md](docs/CUDA-DYNAMIC-INSTALL.md)) | **2012+ / solid 2014+** (Kepler and newer); pre-Kepler falls back to nouveau, no CUDA | The proprietary driver was installed on one RTX 2060 laptop on Preview 1; CUDA itself was not tested. |
+| **NVIDIA** | Proprietary driver and CUDA installed per GPU family at install time ([docs/CUDA-DYNAMIC-INSTALL.md](docs/CUDA-DYNAMIC-INSTALL.md)) | **2012+ / solid 2014+** (Kepler and newer); pre-Kepler falls back to nouveau, no CUDA | The proprietary driver was installed on an ASUS ROG GU502LV (RTX 2060 Mobile) on Preview 1; CUDA itself was not tested. |
 | **Intel** | oneAPI / Level-Zero (open `i915` + Mesa) | **~2015+** (Skylake-class iGPU and newer) | |
 
 **NPU support on x86 is bleeding-edge only (2023+)** — Intel AI Boost / AMD
