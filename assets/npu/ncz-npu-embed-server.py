@@ -43,7 +43,17 @@ import numpy as np
 LOG = logging.getLogger("npu-embed")
 
 DEFAULT_MODEL = "/opt/ncz/models/nomic-embed-text-v1.5_256.cix"
-DEFAULT_TOKENIZER = "nomic-ai/nomic-embed-text-v1.5"
+# Tokenizer: prefer the copy ncz-model-nomic-embed ships next to the graph; the Hub
+# id is only a fallback. A bare Hub id makes startup depend on huggingface.co,
+# which an offline install does not have (measured on an MS-R1: the first start
+# fetched config/tokenizer/vocab before it could load the graph).
+LOCAL_NOMIC_TOKENIZER = "/opt/ncz/models/nomic-embed-text-v1.5"
+HUB_NOMIC_TOKENIZER = "nomic-ai/nomic-embed-text-v1.5"
+DEFAULT_TOKENIZER = (
+    LOCAL_NOMIC_TOKENIZER
+    if os.path.isfile(os.path.join(LOCAL_NOMIC_TOKENIZER, "tokenizer.json"))
+    else HUB_NOMIC_TOKENIZER
+)
 # Advertised name. MNEMOS/Ollama clients ask for "nomic-embed-text"; accept any
 # alias rather than 400-ing on a name mismatch, since the served weights are
 # what they are regardless of what the caller calls them.
@@ -73,7 +83,7 @@ EMBED_DIM = 768
 PROFILES = {
     "nomic-embed-text": {
         "graph": "/opt/ncz/models/nomic-embed-text-v1.5_256.cix",
-        "tokenizer": "nomic-ai/nomic-embed-text-v1.5",
+        "tokenizer": DEFAULT_TOKENIZER,
         "dim": 768, "inputs": 3, "pooling": "mean", "seq": 256,
     },
     "bge-m3": {
