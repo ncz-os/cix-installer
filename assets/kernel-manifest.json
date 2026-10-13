@@ -3,8 +3,8 @@
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
-      "file": "build/kernel-debs/cixmini-boot_1.2+r289_arm64.deb",
-      "sha256": "ff1082880155633878bfafa54ca4f5717421ea7fb8f588f1ba306c396366a8c2"
+      "file": "build/kernel-debs/cixmini-boot_1.3+r289_arm64.deb",
+      "sha256": "67530b1b4dce3b7699be56206290ad93fd7a0b86a6ccea7f05ca62bcdbbc9c46"
     },
     {
       "file": "build/kernel-debs/linux-headers-cixmini_7.3.0-rc7-sky1-ncz+r289_arm64.deb",
