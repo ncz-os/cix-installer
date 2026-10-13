@@ -687,6 +687,7 @@ parity:
 	build/test-panthor-vulkan.sh
 	build/test-installer-screens.sh
 	build/test-installer-flow.sh
+	build/test-component-selection.sh
 	build/test-usb2-rescan-sky1-only.sh
 	build/test-usb2-rescan-greetd.sh
 	branding/cygnus/tests/test-refind-theme-config.sh

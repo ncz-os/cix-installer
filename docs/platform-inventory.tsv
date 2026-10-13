@@ -9,6 +9,7 @@ README.zh-CN.md	common	-	readme
 assets/agent-stack/	common	-	quadlet container definitions
 assets/audio/	sky1	-	Sky1 audio autoswitch (ncz-sky1-audio-autoswitch)
 assets/branding/	common	-	logos, icon theme, wallpapers, quotes
+assets/branding/tour-slides/85-ncz-chromium-vpu.slide	sky1	-	NCZ Chromium VPU tour slide; installed only on arm64/Sky1 (the platform that ships chromium-ncz-sky1); gated in post-install/51-ncz-tour-slides.sh
 assets/branding/singularity-theme/	common	-	installable Cygnus Singularity theme + generated gschema override (staged by both ISO build paths)
 # 2026-09-30: Cygnus 26.10 branding tree (merged from feat/cygnus-26-10-2026-09-30) --
 # theme assets + generators + generated consumer files (gtk/plymouth/newt/css/screensaver
@@ -398,6 +399,7 @@ build/test-ncz-ui.sh	common	-	ncz-ui.sh tests
 build/check-installer-screens.py	common	-	console-screen content checker
 build/test-installer-screens.sh	common	-	console-screen checker tests
 build/test-installer-flow.sh	common	-	installer dialog flow tests (choosers once per boot, region template, NIC pick)
+build/test-component-selection.sh	common	-	component answer end to end: nothing-ticked is honoured by the selector re-runs and every consumer; dialog failures stop the install
 post-install/98-gpu-health.sh	common	-	never-software-render health check unit (both architectures)
 assets/gpu/ncz-gpu-hw-present	common	-	shared hardware-GPU-present probe
 build/lint-no-software-render.sh	common	-	grep-deny for software-rendering settings
@@ -548,4 +550,4 @@ build/rebuild-sid-udeb.sh	common	-	rebuild a small-gap (class B) installer udeb 
 docs/SID-EXCEPTIONS.md	common	-	GENERATED sid-exceptions tracker report (per-package status + per-arch count + trend); do not hand-edit
 build/test-tour-slides.sh	common	-	tour slide data validation: keys, unique Order (NCZ + upstream), built-in Scene, {os} only brace, title length, Action prefix
 build/test-ncz-first-login-tour.sh	common	-	first-login tour guard logic: once-only marker, opt-out, headless/DRM, root, live, other-first-run, lock (stubbed environment)
-post-install/51-ncz-tour-slides.sh	common	-	NCZ tour slides for the desktop (wallpapers, online wallpapers, screensavers, lock screen); generic, variant-guarded
+post-install/51-ncz-tour-slides.sh	mixed	-	NCZ tour slides (wallpapers, online wallpapers, screensavers, lock screen) generic + first-login tour launcher; the arm64-only 85-ncz-chromium-vpu slide is gated on NCZ_TARGET_ARCH/BUILD_ARCH/dpkg (chromium-ncz-sky1 is Sky1-only); TODO split the Sky1 slide into a platform hook

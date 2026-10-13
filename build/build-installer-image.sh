@@ -183,6 +183,34 @@ LINUX=$(tail -2 "$WORK_DIR/initrd.log" | head -1)
 INITRD=$(tail -1 "$WORK_DIR/initrd.log")
 [ -f "$LINUX" ] && [ -f "$INITRD" ] || { echo "FATAL: kernel patcher outputs not found" >&2; exit 1; }
 
+# --- regression gate: the INSTALLER kernel must be the pinned r2 build -------
+# patch-initrd-t2-kernel.py extracts boot/vmlinuz-<kver> from the staged
+# assets/kernel/amd64-stable .deb and build-refind-esp.py writes it as /linux
+# on the ESP: that file IS the kernel d-i boots, and it is the SAME kernel the
+# installed system receives. Under the unified 7.3 policy the amd64 installer
+# MUST boot the cyclops-fixed r2 build (patch 2010); a stale r1 kernel would
+# silently reintroduce the Macmini5,1 i915 EPROBE_DEFER bug (no /dev/dri, no
+# greetd, no error) and every KVER-keyed check would still pass because the
+# r1/r2 kernel RELEASE strings are identical. Assert the binary we are about to
+# ship is byte-for-byte the pinned r2 vmlinuz whose manifest records the 2010
+# fix (the same pin verify-kernel-default-policy.sh Check 6b enforces).
+if [ "$ARCH" = amd64 ]; then
+  _amman="$ROOT/assets/kernel/amd64-stable-manifest.json"
+  [ -f "$_amman" ] || { echo "FATAL: $_amman missing; cannot assert the installer kernel is the pinned cyclops-fixed r2 build" >&2; exit 1; }
+  _want_vmlinuz=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["identity"]["vmlinuz_sha256"])' "$_amman")
+  _cyclops=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["source"]["t2_cyclops_patch"])' "$_amman")
+  case "$_cyclops" in
+    *2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch) : ;;
+    *) echo "FATAL: amd64-stable-manifest t2_cyclops_patch='$_cyclops' is not the 2010 cyclops boot-GPU fix" >&2; exit 1 ;;
+  esac
+  _got_vmlinuz=$(sha256sum "$LINUX" | awk '{print $1}')
+  [ "$_got_vmlinuz" = "$_want_vmlinuz" ] || {
+    echo "FATAL: installer kernel $LINUX sha256=$_got_vmlinuz != pinned r2 vmlinuz $_want_vmlinuz" >&2
+    echo "       (the installer would boot a kernel WITHOUT the 2010 cyclops boot-GPU fix)" >&2
+    exit 1; }
+  echo "  installer kernel $LINUX is the pinned r2 vmlinuz (2010 cyclops fix): $_want_vmlinuz"
+fi
+
 echo "[5/6] building rEFInd ESP"
 rm -rf "$WORK_DIR/esp"
 python3 "$ROOT/build/iso/build-refind-esp.py" --arch "$ARCH" \

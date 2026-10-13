@@ -36,8 +36,15 @@
 #   disabled, so existing post-install hook gates can keep reading their
 #   COMPONENTS_<name> bits.
 #
-# Persistence: writes two locations:
-#   /tmp/ncz-components                 — consumed by disk-fs-chooser.sh
+# NOTHING SELECTED is an answer, not a missing one (2026-10-13, Macmini5,1 report:
+# the operator unticked every visible item and got the full install). The record
+# then holds the single token `none`, which matches no component in any
+# consumer's ",<list>," test. An empty record is never written.
+#
+# Persistence: one answer, written once per boot by this script, in this order:
+#   /var/lib/ncz-components/COMPONENTS  — the authoritative d-i record
+#                                         (ramdisk, outside /tmp, survives partman)
+#   /tmp/ncz-components                 — byte-identical mirror, consumed by disk-fs-chooser.sh
 #                                         (partman/early_command, d-i env)
 #                                         and extract-rootfs.sh
 #                                         (partman/late_command, d-i env).
@@ -49,15 +56,18 @@
 # ("all selected") is bit-identical to a pre-component-selector install.
 #
 # SAFETY DOCTRINE: this script is NOT destructive on its own — it only writes
-# two files. The destructive peers (disk-fs-chooser.sh for rescue-partition,
-# extract-rootfs.sh for desktop overlay, run-all.sh for the hooks) each re-read
-# the file and apply their own fail-closed checks. A blank / missing file is
-# treated as "all components enabled" (the legacy default) so a chooser crash
-# CANNOT silently degrade the install.
+# the record. The destructive peers (disk-fs-chooser.sh for rescue-partition,
+# the debootstrap stub for the desktop overlay, run-all.sh for the hooks) each
+# re-read it. On an INTERACTIVE install the --prompt run never substitutes the
+# default for the operator's answer: if the dialog cannot be shown or completed
+# it prints a FATAL line on the console and exits non-zero, and
+# partman/early_command stops the install before any disk is touched. Every
+# answer and every failure is also sent to syslog (tag ncz-components), which d-i
+# copies to /var/log/installer/syslog on the target.
 #
 # TEST/UNATTENDED override: kernel cmdline `ncz_components=desktop,mgmt-container,...`
 # (comma-separated, matching the multiselect answer format) skips the prompt
-# entirely. There is NO prompt timeout any more: the prompt is synchronous
+# entirely (`ncz_components=none` = no optional component). There is NO prompt timeout any more: the prompt is synchronous
 # (see the prompt block for why the old 90s poll-and-kill design corrupted
 # the cdebconf protocol stream and wedged every metal install); headless
 # runs MUST pass ncz_components=. Legacy explicit browsers/wallpaper-rotator tokens are accepted
@@ -71,6 +81,8 @@ set +e
 # early_command replayed) keeps the saved $NCZ_TMP/ncz-components answer and never shows the dialog again.
 NCZ_TMP="${NCZ_TMP:-/tmp}"
 DONE="$NCZ_TMP/.ncz-components-done"
+NCZ_COMP_STATE="${NCZ_COMP_STATE:-/var/lib/ncz-components}"
+NCZ_TARGET="${NCZ_TARGET:-/target}"
 # shared NCZ dialog look (brand in the frame title, arch + build on the last body line); optional, never fatal
 for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
     [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
@@ -79,6 +91,8 @@ command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; 
 
 log() {
     echo "[ncz components] $*"
+    # Audit trail: d-i's syslogd keeps this and copies it to /var/log/installer/syslog on the target.
+    command -v "${NCZ_LOGGER:-logger}" >/dev/null 2>&1 && "${NCZ_LOGGER:-logger}" -t ncz-components -- "$*" 2>/dev/null
     # Progress chatter goes to VT3 (and the serial diag console); VT1/console is the
     # newt UI and raw lines written over it corrupt the screen. Failures stay visible.
     case "$*" in
@@ -110,7 +124,7 @@ _HAS_NV=0
 # amd64 only: post-install/54-gpu-accel.sh (the only consumer) is amd64-only, so offering the option on an arm64
 # machine with an NVIDIA PCIe card would be a no-op the operator cannot see.
 case "${NCZ_UNAME_M:-$(uname -m 2>/dev/null)}" in x86_64|amd64) _NV_ARCH_OK=1 ;; *) _NV_ARCH_OK=0 ;; esac
-for _d in $([ "$_NV_ARCH_OK" = 1 ] && echo /sys/bus/pci/devices/*); do
+for _d in $([ "$_NV_ARCH_OK" = 1 ] && echo "${NCZ_PCI_DEVICES:-/sys/bus/pci/devices}"/*); do
     [ -r "$_d/vendor" ] && [ -r "$_d/class" ] || continue
     case "$(cat "$_d/vendor" 2>/dev/null)" in 0x10de) ;; *) continue ;; esac
     case "$(cat "$_d/class" 2>/dev/null)" in 0x03*) _HAS_NV=1; break ;; esac
@@ -184,7 +198,7 @@ if [ -n "$OVR" ]; then
     for _tok in $OVR; do
         _tok=$(echo "$_tok" | tr -d ' \t')
         [ -z "$_tok" ] && continue
-        if component_is_valid "$_tok"; then
+        if [ "$_tok" = none ] || component_is_valid "$_tok"; then
             [ -z "$_OVR_FILTERED" ] && _OVR_FILTERED="$_tok" || _OVR_FILTERED="$_OVR_FILTERED, $_tok"
         else
             log "WARNING: ncz_components=$_tok is not a known component — dropping"
@@ -195,7 +209,8 @@ fi
 
 CHOSEN=""
 _SAVED=""
-[ -e "$DONE" ] && _SAVED=$(cat "$NCZ_TMP/ncz-components" 2>/dev/null)
+[ -e "$DONE" ] && _SAVED=$(tr -d ' \t\r\n' < "$NCZ_COMP_STATE/COMPONENTS" 2>/dev/null)
+[ -e "$DONE" ] && [ -z "$_SAVED" ] && _SAVED=$(tr -d ' \t\r\n' < "$NCZ_TMP/ncz-components" 2>/dev/null)
 if [ -n "$_OVR_FILTERED" ]; then
     CHOSEN="$_OVR_FILTERED"
     log "cmdline override: components = $CHOSEN"
@@ -216,7 +231,7 @@ Choices-C: ${_OFFERED}
 Default: ${_DEFAULT}
 Description: $(ncz_ui_brand) - optional components
  Untick to skip an optional component. Enter accepts the defaults, which
- install everything.
+ install everything. Untick all of them for a minimal console system.
  .
  $(ncz_ui_id)
 TPL
@@ -267,44 +282,54 @@ TPL
     # The dialog is DEFERRED to just before partitioning (partman/early_command runs this script again with --prompt).
     # Shown here, in the first early_command, it was followed by 15-20 s of silent d-i steps (cdrom-detect, the media
     # preseed reload, localechooser, load-cdrom, ethdetect) with an empty blue console on both arches; now the
-    # questions come in one block right before the install progress bars start. Until then everything is enabled.
+    # questions come in one block right before the install progress bars start. Until then NOTHING is recorded: the
+    # old placeholder "everything" record looked exactly like an answer to every consumer.
     if [ "${1:-}" != "--prompt" ]; then
-        CHOSEN="$_DEFAULT"
-        log "interactive install: the component dialog is shown right before partitioning (all components enabled until then)"
-    else
-        log "showing component prompt (synchronous; unattended runs preseed ncz_components= on the cmdline)"
-        _prompt_rc=99
-        if debconf-loadtemplate ncz "$NCZ_TMP/ncz-components.templates" 2>/dev/null; then
-            db_set      ncz/components "$_DEFAULT" 2>/dev/null || true
-            db_fset     ncz/components seen false 2>/dev/null || true
-            db_settitle ncz/components 2>/dev/null || true
-            if db_input critical ncz/components && db_go; then
+        log "interactive install: the component dialog is shown right before partitioning (nothing recorded yet)"
+        exit 0
+    fi
+    log "showing component prompt (synchronous; unattended runs preseed ncz_components= on the cmdline)"
+    if ! debconf-loadtemplate ncz "$NCZ_TMP/ncz-components.templates" 2>/dev/null; then
+        log "FATAL: could not load the component dialog template; refusing to guess the operator's components"
+        exit 3
+    fi
+    _answered=0
+    _try=0
+    while [ "$_try" -lt 3 ] && [ "$_answered" = 0 ]; do
+        _try=$((_try + 1))
+        db_set      ncz/components "$_DEFAULT" 2>/dev/null || true
+        db_fset     ncz/components seen false 2>/dev/null || true
+        db_settitle ncz/components 2>/dev/null || true
+        if db_input critical ncz/components; then
+            if db_go; then
                 if db_get ncz/components; then
                     CHOSEN="$RET"
-                    _prompt_rc=0
+                    _raw="$RET"
+                    _answered=1
+                else
+                    log "WARNING: db_get ncz/components failed (attempt $_try)"
                 fi
             else
-                _prompt_rc=2
+                # Go Back / Escape: there is nothing to go back to here; ask again.
+                log "component dialog backed out (attempt $_try); asking again"
             fi
         else
-            _prompt_rc=3
+            log "WARNING: component dialog could not be shown (db_input attempt $_try)"
         fi
-        if [ "$_prompt_rc" = 0 ]; then
-            log "component prompt answered: $CHOSEN"
-        elif [ "$_prompt_rc" = 3 ]; then
-            log "WARNING: could not load component template — using default (all enabled)"
-            CHOSEN="$_DEFAULT"
-        else
-            log "WARNING: component prompt could not be shown/completed (rc=$_prompt_rc) — using default (all enabled)"
-            CHOSEN="$_DEFAULT"
-        fi
+    done
+    if [ "$_answered" != 1 ]; then
+        log "FATAL: the component dialog was not answered after $_try attempts; stopping before partitioning instead of installing every component"
+        exit 2
     fi
+    # Every box unticked is a real answer: no optional component.
+    [ -n "$(printf '%s' "$CHOSEN" | tr -d ' \t\r\n,')" ] || CHOSEN=none
+    log "component prompt answered: [$CHOSEN] (debconf value: [$_raw])"
 fi
 
 # Normalise: dedupe, drop blanks, drop unknowns (defence in depth — anyone
-# hand-setting the file bypasses the template). If everything got dropped,
-# fall back to the opt-OUT default of "everything enabled" so the legacy
-# install behaviour is never lost.
+# hand-setting the file bypasses the template). `none` and an all-dropped list
+# both mean no optional component; the 2026-10-13 Macmini5,1 install lost an
+# all-unticked answer to an "empty -> everything" fallback here.
 _normalise() {
     _in="$1"
     _out=""
@@ -324,7 +349,6 @@ _normalise() {
     echo "$_out"
 }
 CHOSEN=$( _normalise "$CHOSEN" )
-[ -n "$CHOSEN" ] || CHOSEN="$_DEFAULT"
 
 # Boolean presence helpers consumed by the post-install peers.
 has_component() {
@@ -348,17 +372,28 @@ CHOSEN=""
 [ "$WANT_MGMT" = 1 ]        && { [ -z "$CHOSEN" ] && CHOSEN="mgmt-container" || CHOSEN="$CHOSEN,mgmt-container"; }
 [ "$WANT_RESCUE_PART" = 1 ] && { [ -z "$CHOSEN" ] && CHOSEN="rescue-partition" || CHOSEN="$CHOSEN,rescue-partition"; }
 [ "$WANT_CUDA" = 1 ]        && { [ -z "$CHOSEN" ] && CHOSEN="cuda" || CHOSEN="$CHOSEN,cuda"; }
+[ -n "$CHOSEN" ] || CHOSEN=none
 
 log "SELECTED COMPONENTS: $CHOSEN"
 log "  desktop=$WANT_DESKTOP  browsers=$WANT_BROWSERS  mgmt-container=$WANT_MGMT  rescue-partition=$WANT_RESCUE_PART  wallpaper-rotator=$WANT_WALLPAPER  cuda=$WANT_CUDA"
 
-# --- persist for the two consumers -----------------------------------------
-# 1. d-i env (consumed by disk-fs-chooser.sh and extract-rootfs.sh, both
-#    run in the installer environment, not the chroot).
-echo "$CHOSEN" > "$NCZ_TMP/ncz-components" 2>/dev/null || true
+# --- persist ------------------------------------------------------------------
+# 1. d-i env. The authoritative record first, then the /tmp mirror that
+#    disk-fs-chooser.sh, the debootstrap stub and late.sh read first. Both carry
+#    the same value; the --prompt run marks the boot answered only after both
+#    were written, so a re-run reuses this answer and never asks or defaults.
+_ncz_write() {   # file value: write via a temp file + mv so a reader never sees a half-written record
+    printf '%s\n' "$2" > "$1.new" 2>/dev/null && mv -f "$1.new" "$1" 2>/dev/null
+}
+mkdir -p "$NCZ_COMP_STATE" 2>/dev/null || true
+_wrote=1
+_ncz_write "$NCZ_COMP_STATE/COMPONENTS" "$CHOSEN" || _wrote=0
+_ncz_write "$NCZ_TMP/ncz-components" "$CHOSEN" || _wrote=0
+if [ "$_wrote" != 1 ]; then
+    log "FATAL: could not record components=$CHOSEN in $NCZ_COMP_STATE/COMPONENTS and $NCZ_TMP/ncz-components"
+    exit 4
+fi
 [ "${1:-}" = "--prompt" ] && : > "$DONE"
-mkdir -p /var/lib/ncz-components 2>/dev/null || true
-echo "$CHOSEN" > /var/lib/ncz-components/COMPONENTS 2>/dev/null || true
 
 # 2. in-chroot (consumed by post-install/70-bootloader.sh and
 #    post-install/run-all.sh, both run inside the target). Both paths
@@ -370,9 +405,9 @@ echo "$CHOSEN" > /var/lib/ncz-components/COMPONENTS 2>/dev/null || true
 # The single source of truth is the COMMA-SEPARATED LIST; the per-toggle
 # COMPONENTS_<name> files are convenience copies for consumers that just
 # want one bit.
-COMP_DST_DIR=/target/etc/cix-installer
+COMP_DST_DIR="$NCZ_TARGET/etc/cix-installer"
 [ -d "$COMP_DST_DIR" ] || mkdir -p "$COMP_DST_DIR" 2>/dev/null || true
-ALT_DST_DIR=/target/var/lib/cix-components
+ALT_DST_DIR="$NCZ_TARGET/var/lib/cix-components"
 [ -d "$ALT_DST_DIR" ] || mkdir -p "$ALT_DST_DIR" 2>/dev/null || true
 if [ -d "$COMP_DST_DIR" ] || [ -d "$ALT_DST_DIR" ]; then
     if [ -d "$COMP_DST_DIR" ]; then
