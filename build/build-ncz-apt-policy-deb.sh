@@ -19,7 +19,7 @@
 # Version: bump NCZ_APT_POLICY_VERSION whenever lib/apt-separation.sh changes
 # (the version gate refuses a same-version rebuild with different content).
 # Output: build/ncz-apt-policy-deb/ncz-apt-policy_<ver>_all.deb
-# Publishing is an operator action (build/ops/argos/ncz-reprepro-publish.sh).
+# Publishing is an operator action (build/ops/publish/ncz-reprepro-publish.sh).
 set -euo pipefail
 umask 022   # reproducible file modes: the version gate compares content, modes included
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
