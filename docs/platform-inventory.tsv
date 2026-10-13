@@ -253,6 +253,7 @@ build/yocto/	sky1	-	Yocto config templates
 docker/	common	-	host build containers and notes
 docker/Containerfile.yocto	sky1	-	Yocto build container
 docs/	common	-	documentation
+docs/GITHUB-SYNC.md	common	-	how the GitHub copies of the GitLab projects are built and verified
 docs/NCZ-AGENT-STACK.md	common	-	operator guide for ncz install mnemos / zeroclaw / zoder / nemoclaw + models pull (embedder stack on amd64 + Sky1)
 docs/platform-deny-exceptions.tsv	common	-	reviewed exceptions to the deny patterns
 docs/platform-inventory.tsv	common	-	this inventory
@@ -397,9 +398,12 @@ scripts/	common	-	helper scripts
 staging/	common	-	xwayland staging
 tests/	common	-	unit tests
 tools/	common	-	dev tools
+tools/check-github-sync.sh	common	-	verify GitHub refs against GitLab trees after the copy rules
+tools/github-sync/	common	-	GitHub copy sync: ghsync.py, repos.tsv, strip-blobs.txt, run-hourly.sh, example systemd units
 tools/kvm-smoke.sh	sky1	-	aarch64 KVM kernel smoke test on the MS-R1
 tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
 tools/ncz-join-image.sh	common	-	join, unpack and verify the split release image parts (never writes to a disk)
+tools/sync-github-mirror.sh	common	-	build and push the filtered GitHub copies of the GitLab projects
 tools/verify-drivers.sh	sky1	-	Sky1 driver fidelity check
 build/test-sky1-audio-policy.sh	sky1	-	Sky1 audio default-sink policy fixture tests
 build/testdata/sky1-audio/	sky1	-	fake pactl/aplay/pw-dump/amixer for the Sky1 audio autoswitch daemon-loop tests
@@ -562,6 +566,7 @@ build/classify-sid-exceptions.py	common	-	classify every netinst substrate d-i i
 build/check-sid-exceptions.sh	common	-	track every sid exception vs the pinned + latest forky (GRADUATED/SHRINKING/STABLE/EXPIRED); write docs/SID-EXCEPTIONS.md; drive the gradual forky replacement loop
 build/check-sid-exceptions.py	common	-	implementation of check-sid-exceptions.sh (pinned + live forky comparison, version gap, receipt recording)
 build/rebuild-sid-udeb.sh	common	-	rebuild a small-gap (class B) installer udeb from sid source in a clean forky container as an NCZ udeb
+build/test-github-sync.sh	common	-	fixture tests for the GitHub copy sync (size limit, text list, mailmap, determinism, backups, release-held refs)
 docs/SID-EXCEPTIONS.md	common	-	GENERATED sid-exceptions tracker report (per-package status + per-arch count + trend); do not hand-edit
 build/test-tour-slides.sh	common	-	tour slide data validation: keys, unique Order (NCZ + upstream), built-in Scene, {os} only brace, title length, Action prefix
 build/test-ncz-first-login-tour.sh	common	-	first-login tour guard logic: once-only marker, opt-out, headless/DRM, root, live, other-first-run, lock (stubbed environment)
