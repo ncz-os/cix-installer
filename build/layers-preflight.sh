@@ -460,12 +460,14 @@ check_resources() {
 # ---------------------------------------------------------------------------
 check_pins() {
     # base.pin freshness/coverage
-    if [ -x "$ROOT/build/check-substrate-pin.sh" ]; then
+    if [ -f "$ROOT/build/check-substrate-pin.sh" ]; then
         if bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" >>"${RUN_DIR:+$RUN_DIR/layers-preflight-pins.log}" 2>&1; then
             ok pins "base.pin fresh + snapshot coverage OK ($ARCH)"
         else
             bad pins "base.pin stale or snapshot coverage < required; run build/refresh-substrate.sh --arch $ARCH"
         fi
+    else
+        bad pins "build/check-substrate-pin.sh is missing; base.pin cannot be verified"
     fi
     # determinism.pin freshness
     if [ -x "$ROOT/build/gen-base-pin.sh" ]; then

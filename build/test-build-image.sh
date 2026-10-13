@@ -186,6 +186,28 @@ awk -F'\t' '$2=="refresh-substrate" && $3 ~ /^PASS/{f=1} END{exit !f}' "$T3/stag
     && ok "stages.tsv records refresh-substrate PASS under --substrate pinned" \
     || bad "refresh-substrate did not run under --substrate pinned"
 
+# --- 2e. the substrate pin check is never skipped by a file mode -----------
+# build-image.sh and layers-preflight.sh run check-substrate-pin.sh with bash; a
+# `[ -x ]` guard skipped it silently while the file was mode 0644.
+echo "== 2e. substrate pin check is not mode-guarded =="
+[ -x "$ROOT/build/check-substrate-pin.sh" ] \
+    && ok "build/check-substrate-pin.sh is executable" \
+    || bad "build/check-substrate-pin.sh is not executable"
+for f in build/build-image.sh build/layers-preflight.sh; do
+    if grep -q '\[ -x "$ROOT/build/check-substrate-pin.sh" \]' "$ROOT/$f"; then
+        bad "$f skips check-substrate-pin.sh unless it is executable"
+    else
+        ok "$f does not gate check-substrate-pin.sh on the executable bit"
+    fi
+done
+# every script the entrypoint guards with [ -x ] must actually be executable,
+# otherwise the guarded step is skipped without a message
+for f in build/build-image.sh build/layers-preflight.sh; do
+    for g in $(grep -o '\[ -x "$ROOT/[^"]*" \]' "$ROOT/$f" | sed 's#.*"$ROOT/##; s#".*##' | sort -u); do
+        [ -x "$ROOT/$g" ] && ok "$f: guarded $g is executable" || bad "$f: guarded $g is not executable (the step would be skipped)"
+    done
+done
+
 # --- 3. fingerprint invalidation (both directions) -------------------------
 echo "== 3. fingerprint invalidation =="
 FIX="$SCRATCH/fix"; mkdir -p "$FIX"

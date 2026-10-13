@@ -627,7 +627,7 @@ stage_preflight() {
     # Two committed pins: manifests/base.pin (substrate/snapshot provenance,
     # check-substrate-pin.sh) and manifests/determinism.pin (local input-ledger
     # aggregate, gen-base-pin.sh --check).
-    if [ -x "$ROOT/build/check-substrate-pin.sh" ]; then
+    if [ -f "$ROOT/build/check-substrate-pin.sh" ]; then
         if bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" >>"$log" 2>&1; then
             say "substrate pin OK (check-substrate-pin.sh)"
         else
@@ -638,7 +638,7 @@ stage_preflight() {
             fi
         fi
     else
-        say "check-substrate-pin.sh absent; the refresh-substrate stage owns base.pin"
+        bad "build/check-substrate-pin.sh is missing; the substrate pin cannot be verified"
     fi
     if ! bash "$ROOT/build/gen-base-pin.sh" --check >>"$log" 2>&1; then
         bad "manifests/determinism.pin is stale; run build/gen-base-pin.sh and commit it"
@@ -759,11 +759,12 @@ stage_refresh_substrate() {
     fi
     if [ "$SUBSTRATE" = pinned ]; then
         echo "[refresh-substrate] pinned policy: verifying the substrate pin (no fetch)" | tee -a "$log"
-        if [ -x "$ROOT/build/check-substrate-pin.sh" ]; then
-            bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" 2>&1 | tee -a "$log"
-            return "${PIPESTATUS[0]}"
+        if [ ! -f "$ROOT/build/check-substrate-pin.sh" ]; then
+            echo "[refresh-substrate] FAIL: build/check-substrate-pin.sh is missing" | tee -a "$log" >&2
+            return 1
         fi
-        return 0
+        bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" 2>&1 | tee -a "$log"
+        return "${PIPESTATUS[0]}"
     fi
     if [ -x "$ROOT/build/refresh-substrate.sh" ]; then
         ncz_info "using build/refresh-substrate.sh --arch $ARCH"
