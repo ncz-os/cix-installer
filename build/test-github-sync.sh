@@ -158,7 +158,7 @@ NEWMAIN="$(git --git-dir="$GH" rev-parse main)"
 [ "$NEWMAIN" != "$GHMAIN" ] && ok "--allow-force replaces the diverged branch" || bad "--allow-force replaces the diverged branch"
 expect "$(git --git-dir="$GH" rev-parse main~1)" "$OLDMAIN" "replaced branch is the filtered GitLab history"
 B="$(ls "$T/bk"/fx-github-*.bundle 2>/dev/null | head -1)"
-[ -n "$B" ] && git bundle list-heads "$B" | grep -q "$GHMAIN" && ok "backup bundle holds the replaced GitHub commit" || bad "backup bundle holds the replaced GitHub commit"
+[ -n "$B" ] && git bundle list-heads "$B" | grep >/dev/null "$GHMAIN" && ok "backup bundle holds the replaced GitHub commit" || bad "backup bundle holds the replaced GitHub commit"
 expect "$(git --git-dir="$T/wd1/backup/fx.git" for-each-ref --format='%(objectname)' 'refs/backup/*/heads/main' | sort -u)" "$GHMAIN" "backup repository pins the replaced GitHub sha"
 expect "$(git --git-dir="$GH" rev-parse -q --verify refs/heads/gh-only >/dev/null && echo yes)" "yes" "GitHub-only branch kept without --prune"
 "$SYNC" "${COMMON[@]}" --workdir "$T/wd1" --repo fx --apply --prune >/dev/null 2>&1
