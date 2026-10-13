@@ -11,6 +11,9 @@
 #  * the real manifest: every public row matches a build-inputs.tsv pin exactly,
 #    uses https, and names no internal host
 set -u
+# The cases below choose the store themselves; a builder environment that sets
+# NCZ_BUILD_INPUTS_DIR must not leak into them.
+unset NCZ_BUILD_INPUTS_DIR
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAGER="$ROOT/build/stage-build-inputs.sh"
 T="$(mktemp -d "${TMPDIR:-/var/tmp}/bip.XXXXXX")"; trap 'rm -rf "$T"' EXIT
