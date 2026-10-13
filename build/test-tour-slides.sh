@@ -171,11 +171,14 @@ else
     arm_ids="$(run_hook arm64)"
     if [ "$amd_ids" = "$(norm "$COMMON")" ]; then ok "hook on amd64 installs COMMON only ($amd_ids)"; else bad "hook on amd64 installed '$amd_ids', expected '$(norm "$COMMON")'"; fi
     if [ "$arm_ids" = "$want_ids" ]; then ok "hook on arm64 installs COMMON + SKY1 ($arm_ids)"; else bad "hook on arm64 installed '$arm_ids', expected '$want_ids'"; fi
-    if [ -f "$SB/arm64/usr/local/bin/ncz-first-login-tour" ] && [ -f "$SB/amd64/etc/xdg/autostart/ncz-first-login-tour.desktop" ]; then
-        ok "hook installs the first-login tour launcher (sandboxed)"
-    else
-        bad "hook did not install the first-login tour launcher under the sandbox root"
-    fi
+    # The first-login guard AND its autostart entry must land on every desktop
+    # arch (the launcher is generic; only slide 85 is arch-gated).
+    missing=""
+    for arch in amd64 arm64; do
+        [ -f "$SB/$arch/usr/local/bin/ncz-first-login-tour" ] || missing="$missing guard:$arch"
+        [ -f "$SB/$arch/etc/xdg/autostart/ncz-first-login-tour.desktop" ] || missing="$missing entry:$arch"
+    done
+    if [ -z "$missing" ]; then ok "hook installs the first-login tour launcher on both arches (sandboxed)"; else bad "first-login tour launcher missing:$missing"; fi
     rm -rf "$SB"
 fi
 
