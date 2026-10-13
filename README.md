@@ -358,17 +358,11 @@ shared desktop, shared agent stack):**
 
 The build is a **staged pipeline** with one entrypoint,
 `build/build-image.sh` (see [Building an image](#quick-start-build-the-installer-image)):
-
-1. **Content (squashfs layers)** — `build/build-squashfs-layers.sh` builds
-   the `base` / `desktop` / `hotfix` squashfs layers (the package closure
-   from `manifests/*.pkgs` plus the post-install hooks for the target
-   architecture). Role-delta overlays go through
-   `build/build-role-delta-mkosi.sh`.
-2. **Assembly (raw GPT image)** — `make image` runs
-   `build/build-installer-image.sh` and `build/iso/write-usb-image.py`, which
-   combine those layers with the pinned Debian Installer substrate, our
-   kernel (`build/iso/patch-initrd-t2-kernel.py` swaps it into the installer
-   initrd) and a rEFInd ESP into the final `.img`.
+it builds the `base` / `desktop` / `desktop-hotfix` squashfs layers from the
+package lists in `manifests/*.pkgs`, assembles them with the pinned Debian
+Installer substrate, our kernel and a rEFInd ESP into the final `.img`, and
+gates the result on provenance and a KVM install. The stages are listed under
+[The build pipeline](#the-build-pipeline).
 
 d-i itself stays stock; the NCZ grafts are the targeted payload that has to
 ship in the initrd (the patched `debootstrap-udeb` stub that drives the
@@ -587,10 +581,11 @@ The corresponding source for every one of these is published — see
 > GPL source, including both kernels, is public; see
 > [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md) for the per-input table.
 
-**The one entrypoint** runs every stage in a fixed order — preflight, pinned
-substrate, staged inputs, offline apt mirror, provenance checks, squashfs
-layers, image assembly, then the provenance and KVM install gates — with a log
-per stage:
+**The one entrypoint** runs every stage in a fixed order — preflight,
+substrate, staged inputs, desktop sources, offline apt mirror, input
+provenance, squashfs layers, image assembly, image provenance, the KVM install
+gate, receipt and archive — with a log per stage (table:
+[The build pipeline](#the-build-pipeline)):
 
 ```bash
 build/build-image.sh --arch amd64 --full --no-publish   # or --arch arm64
@@ -776,8 +771,8 @@ it — there is no MS-R1 NPU on x86 hardware.
    the Singularity login screen. The first login starts a short tour of the
    desktop.
 
-The installed disk gets a 4 GiB ESP, a 4 GiB rescue partition and the root
-filesystem. Realtek NICs, including the RTL8125/8126 on the Radxa Orion O6N, work out
+The installed disk gets a 2 GB ESP, a 4 GB rescue partition (optional) and
+the root filesystem. Realtek NICs, including the RTL8125/8126 on the Radxa Orion O6N, work out
 of the box; the `rtl_nic` firmware ships in both the installer and the
 installed system.
 
@@ -797,44 +792,87 @@ kernel is upgraded.
 
 ## Architecture
 
-The installer was redesigned around **layered squashfs images** rather than a
-live debootstrap-and-apt-install at install time. The motivation was
-concrete, not architectural taste: install **speed** (unpacking a pre-built,
-pre-configured squashfs is far faster than debootstrap + hundreds of package
-postinst scripts running on-device) and **offline reliability** (a squashfs
-delta either extracts correctly or it doesn't — there's no network-dependent
-package resolution mid-install to fail on a flaky link or an unreachable
-mirror, which was a recurring source of install failures under the old
-apt-at-install-time model).
+NCZ-OS ships as a **raw GPT disk image** (`ncz-os-<arch>-<date>-<sha>.img`),
+one per architecture: **amd64** (Intel/AMD PCs and Apple T2 Macs) and
+**arm64** (CIX Sky1 boards). There is no ISO. The image carries a stock Debian
+Installer plus a pre-built, layered squashfs payload, so an install unpacks a
+finished system instead of running debootstrap and hundreds of package
+postinst scripts on the device. The reasons are install **speed** and
+**offline reliability**: the base system comes off the image, so there is no
+network-dependent package resolution mid-install to fail on a flaky link or an
+unreachable mirror.
 
 ![Architecture diagram](docs/architecture.svg)
 
-The build pipeline is split into **two distinct stages**:
+### What is on the image
 
-| Stage | Output | Where it lives |
-|---|---|---|
-| **Content producer** — squashfs layers | `base`, `desktop`, `hotfix` squashfs layers | `build/build-squashfs-layers.sh` (front-end and `mksquashfs`) + `build/build-role-delta-mkosi.sh` (mkosi role deltas). Manifest-driven: `manifests/installer-base.pkgs` (arm64) / `manifests/installer-base-amd64.pkgs` (amd64) + `manifests/desktop*.pkgs` name every package. |
-| **Assembly writer** — raw GPT image | `ncz-os-<arch>-<date>-<sha>.img`: rEFInd ESP (`NCZESP`) + ext4 payload partition (`NCZDATA`) | `build/build-installer-image.sh` and `build/iso/write-usb-image.py`, with `build/iso/{import-substrate,build-refind-esp,stage-ncz-payload,patch-debootstrap-stub,patch-initrd-t2-kernel,patch-initrd-firmware}.py`. |
+| Partition | Contents |
+|---|---|
+| 1 — `NCZESP` (EFI system partition, FAT) | rEFInd with the installer menu (**Install**, **Install (expert)**, **Rescue mode**), the NCZ kernel, and the Debian Installer initrd with the NCZ preseed and dialogs (`build/iso/build-refind-esp.py`, `build/iso/patch-initrd-t2-kernel.py`). |
+| 2 — `NCZDATA` (ext4) | `/ncz-payload/`: the `base`, `desktop` and `desktop-hotfix` squashfs layers with their overlay manifests, a static `unsquashfs`, and the install-time assets (kernel, firmware, packages for the post-install hooks, the rescue and recovery-container root filesystems, the screensaver plugin). `/dists` + `/pool`: the offline apt mirror the install uses. |
 
-The NCZ-specific installer customisations live at the **assembly layer**
-on top of a **stock Debian Installer** — there is no hand-patched d-i source
-tree in this repo. The substrate is the Debian Testing netinst for each
-architecture, pinned by content hash (`manifests/base.pin`). The NCZ delta
-ships as:
+The layers stack like an overlay: `base.squashfs` is a Debian Testing
+(`forky`) root filesystem with the NCZ kernel and firmware;
+`desktop.squashfs` is a delta holding the desktop package set; and
+`desktop-hotfix.squashfs` is a delta holding the Singularity desktop runtime
+(`/opt/singularity`).
 
-- the layered squashfs payload that the install-time stub extracts to
-  disk;
-- **our kernel** in place of Debian's installer kernel, with its modules in
-  the installer initrd (`build/iso/patch-initrd-t2-kernel.py`; the image
-  carries exactly one kernel, see [docs/ONE-KERNEL.md](docs/ONE-KERNEL.md));
-- a small set of **grafted** udebs and NCZ dialogs in the d-i initrd (the
-  `debootstrap-udeb` stub the install-time branch runs, region/user/component/
-  disk choosers under `preseed/`);
-- the payload partition and the rEFInd ESP that boots the installer.
+### How an install works
 
-This is intentionally **not** a d-i replacement: d-i's BusyBox init,
-its hardware-detection, its partman, and its udeb resolver are all the
-real, upstream ones. The assembly layer composes them with our payload.
+The installer is the **stock Debian Installer** from the Debian Testing netinst
+for each architecture, pinned by content hash (`manifests/base.pin`). There is
+no hand-patched d-i source tree in this repository; d-i's BusyBox init,
+hardware detection, partman and udeb resolver are the upstream ones. The NCZ
+delta is applied when the image is assembled:
+
+- **our kernel** replaces Debian's installer kernel, with its modules in the
+  installer initrd (`build/iso/patch-initrd-t2-kernel.py`). The image carries
+  exactly one kernel, see [docs/ONE-KERNEL.md](docs/ONE-KERNEL.md);
+- NCZ dialogs for region, user, optional components and disk + root filesystem
+  (`preseed/*.sh`), with the preseed baked into the initrd;
+- a `debootstrap` stub in `debootstrap-udeb`
+  (`build/iso/patch-debootstrap-stub.py`): when d-i runs debootstrap, the stub
+  extracts the squashfs layers onto the target disk instead;
+- the `NCZDATA` payload partition and the rEFInd ESP that boots the installer.
+
+After the layers are on disk, `post-install/run-all.sh` runs the numbered
+`post-install/*.sh` hooks inside the target chroot, with apt pointed at the
+offline mirror on the image. `post-install/hooks.list.amd64` and
+`post-install/hooks.list.sky1-arm64` list which hooks run on which
+architecture. A few optional components (for example the NVIDIA driver) fetch
+from the network; the base install does not.
+
+The installed disk gets an EFI system partition (2 GB), the optional
+`NCZRESCUE` rescue partition (4 GB, ext4) and the root filesystem: **btrfs**
+(default) or **ext4**.
+
+### The installed system
+
+- **One kernel**, Linux 7.3: `7.3.0-rc7-sky1-ncz` (Sky1 build r289) on arm64
+  and `7.3.0-rc7-t2-ncz` on amd64, which serves T2 Macs and generic PCs alike.
+  The default, console and rescue boot entries all use it (see
+  [Boot menu on the installed system](#boot-menu-on-the-installed-system)).
+- **Singularity desktop**, native Wayland on labwc, with the greetd-based
+  Singularity greeter and a KMS boot splash in place of Plymouth. There is no
+  X11 desktop session; Xwayland is kept for X applications.
+- **Screensavers and lock screen** from `ncz-screensavers`; the screensaver
+  starts first and the session locks after it (`post-install/59-ncz-screensavers-pkg.sh`,
+  `post-install/63-ncz-idle-lock-order.sh`).
+- **Minimize, maximize and close buttons** on every window by default, for
+  every user (`post-install/65-ncz-titlebar-buttons.sh`).
+- **Rescue partition**: a separate rescue system with its own boot entry that
+  still boots when the main root filesystem does not. It uses DHCP and offers
+  SSH and telnet by design (see [Rescue partition](#rescue-partition)).
+- **Recovery container** (`ncz-recovery`, optional): a systemd-nspawn
+  container with its own userland and SSH, built from the recovery root
+  filesystem (`post-install/38-recovery-container.sh`).
+- **The `ncz` utility** and staged agent quadlets: zeroclaw plus optional
+  OpenClaw, Hermes and NemoClaw templates, none active by default. Agents are
+  installed on demand with `ncz` (see [The `ncz` utility](#the-ncz-utility)).
+- **Updates** from the NCZ apt repository, including the CIX proprietary
+  userspace packages on arm64 (reviewed ledger `manifests/vendor-debs.tsv`,
+  installed by `post-install/25-cix-proprietary.sh`); see
+  [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources).
 
 **NCZ-OS ships ONE build.** There is no separate desktop and server image,
 and no variant picker. What used to be the "Magnetar" server variant is now
@@ -843,27 +881,33 @@ simply a **console boot entry** on the same image
 started. `ncz desktop off` does the same thing on a running system, and
 `ncz desktop on` reverses it.
 
-This replaced a two-variant model (Reinhardt/desktop, Magnetar/server) that
-cost a full apt closure and a second squashfs on every build for a difference
-that amounts to one systemd target.
+### The build pipeline
 
-The image also ships:
-- CIX proprietary userspace `.deb`s (reviewed ledger:
-  `manifests/vendor-debs.tsv`), dpkg-installed by
-  `post-install/25-cix-proprietary.sh`. The same packages are mirrored into
-  the NCZ apt repository so they can be updated without a reinstall — see
-  [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources).
-- The kernel — `7.3.0-rc7-sky1-ncz` (arm64) or `7.3.0-rc7-t2-ncz` (amd64) —
-  with its firmware, and nothing else: one kernel per image.
-- Quadlet definitions for zeroclaw plus optional OpenClaw, Hermes, and
-  NemoClaw templates (staged only — none active by default).
-- Native KMS boot splash (`singularity-boot-splash`, NCZ logo and loading
-  bar) — Plymouth is purged entirely; see
-  [DESIGN-RATIONALE.md](docs/DESIGN-RATIONALE.md) for why the desktop moved off X/XFCE.
+`build/build-image.sh --arch amd64|arm64` is the one entrypoint (`make
+release-image ARCH=<arch>` calls it). It runs these stages in a fixed order,
+with a log per stage in its run directory. Provenance runs on the inputs
+before the long stages, so a bad input fails in minutes rather than after the
+layer build.
 
-So the install is offline-capable for the CIX layers and **stages** the agent
-quadlets without activating any of them; every agent (including zeroclaw) and
-optional components are installed on demand with `ncz` after install.
+| # | Stage | What it does | Where it lives |
+|---|---|---|---|
+| 00 | `preflight` | Checks the host, free disk, tools and privileges, refuses to build on a tmpfs, and checks the substrate and determinism pins. | `build/build-image.sh`, `build/check-substrate-pin.sh`, `build/gen-base-pin.sh --check` (`manifests/determinism.pin`) |
+| 10 | `refresh-substrate` | `--substrate refresh`: fetches the newest Debian Testing netinst, verifies its signature and rewrites `manifests/base.pin`. `--substrate pinned`: restores and checks the pinned netinst. | `build/refresh-substrate.sh`, `build/stage-substrate.sh`, `build/check-substrate-pin.sh` |
+| 20 | `stage-inputs` | Stages the checksum-pinned build inputs, the kernel and the screensaver plugin. | `build/stage-build-inputs.sh` (`manifests/build-inputs.tsv`), `build/stage-amd64-kernel.sh`, `build/stage-arm64-assets.sh`, `build/stage-screensaver-plugin.sh` |
+| 30 | `refresh-sources` | Resolves the Singularity desktop sources (`--sources latest`) or reproduces the committed pins (`--sources pinned`), then builds or stages the desktop payload package. | `build/refresh-singularity-sources.sh`, `build/stage-singularity-payload.sh` (`manifests/singularity-payload.tsv`), `build/build-singularity.sh`, `build/build-singularity-deb.sh` |
+| 40 | `offline-mirror` | Builds the offline apt closure that goes on the image. | `make offline-mirror` |
+| 50 | `provenance-inputs` | Every package that will enter the image must have exactly one origin: the pinned Debian snapshot, an NCZ build, or a reviewed vendor package. No Debian kernel may be present. | `build/check-forky-provenance.sh`, `build/verify-no-debian-kernel.sh` |
+| 60 | `layers` | Builds and checks the `base`, `desktop` and `desktop-hotfix` squashfs layers. | `build/layers-preflight.sh`, `build/build-squashfs-layers.sh all` (desktop packages via `build/build-role-delta-mkosi.sh`), `build/check-layers.sh`; package lists in `manifests/*.pkgs` |
+| 70 | `image` | Assembles the raw GPT image from the substrate, the kernel, the layers and the offline mirror. | `make image` → `build/build-installer-image.sh`, `build/iso/{import-substrate,patch-initrd-t2-kernel,patch-debootstrap-stub,stage-ncz-payload,build-refind-esp,write-usb-image}.py` |
+| 80 | `provenance-gate` | The same origin and one-kernel checks over the finished image. | `build/check-forky-provenance.sh --image` |
+| 90 | `kvm-gate` | Phase 1 runs an unattended install from a throwaway copy of the image in KVM; phase 2 boots the installed disk and fails on unexpected failed units; then the installer console UI is checked. | `build/kvm-install-gate-gpt.sh`, `build/kvm-installer-ui-check.sh` |
+| 95 | `receipt` | Writes the run metadata and gate summary (not part of the image bytes). | `run-metadata.json` in the run directory |
+| 99 | `archive` | Copies the image to the archive set by `NCZ_IMAGE_ARCHIVE`, only when both gates passed in this run. Skipped with `--no-publish`. | [docs/BUILD-SITE-CONFIG.md](docs/BUILD-SITE-CONFIG.md) |
+
+Scopes such as `--respin`, `--rebuild-desktop`, `--components` and
+`--only-image` reuse cached layers whose inputs are unchanged; the header of
+`build/build-image.sh` documents them. The script never tags, publishes to an
+apt repository, flashes or reboots anything.
 
 ## On-device AI: NPU embeddings & inference
 
@@ -1014,7 +1058,7 @@ consoles vanish with the d-i ramdisk.
 
 ## Rescue partition
 
-Every install gets a dedicated 4 GiB ext4 **NCZRESCUE** partition (unless you
+Every install gets a dedicated 4 GB ext4 **NCZRESCUE** partition (unless you
 deselect it in the installer's component list), populated
 at install time by `post-install/72-rescue-partition.sh` from a prebuilt
 rescue rootfs (`build/build-rescue-rootfs.sh`, package list in
@@ -1036,10 +1080,9 @@ to be internet-facing — change it after first use). Hostname `ncz-rescue`.
 | Telnet | 23 | Full busybox applet shell |
 | Serial console (Sky1) | `ttyAMA0` / `ttyAMA2` @115200 | Direct hardware console, no network needed |
 
-**Networking.** DHCP by default. If DHCP fails it falls back to a static
-private address whose last octet is derived from the machine's MAC address
-(`build/build-rescue-rootfs.sh`, `post-install/72-rescue-partition.sh`); that
-fallback assumes a particular private subnet, so on most networks rely on DHCP.
+**Networking.** DHCP only, on every network port that has a link
+(`build/build-rescue-rootfs.sh`). There is no static-address fallback: if no
+DHCP server answers, use the local console (or the serial console on Sky1).
 
 **What's on it.** A genuinely comprehensive recovery toolset (not just a
 minimal shell) — cherry-picked from the SystemRescue package list and mapped

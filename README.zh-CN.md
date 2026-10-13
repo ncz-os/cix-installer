@@ -258,10 +258,74 @@ sudo apt install ncz-model-nomic-embed   # 768 维，默认
 `kernel-sky1-7.3.0-rc7-r289-src`；AMD64 内核源码在
 [`ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz)（标签 `v7.3.0-rc7-t2-ncz-2`）。
 
+## 架构
+
+NCZ-OS 以**原始 GPT 磁盘镜像**（`ncz-os-<架构>-<日期>-<sha>.img`）发布，每个架构一个：
+**amd64**（Intel/AMD PC 与 Apple T2 Mac）和 **arm64**（CIX Sky1 主板）。不提供 ISO。镜像
+内含原版 Debian Installer 以及预先构建好的分层 squashfs 载荷，安装时直接解开一个完整的系统，
+而不是在设备上运行 debootstrap 和数百个软件包的 postinst 脚本。这样做是为了安装**速度**和
+**离线可靠性**：基础系统来自镜像本身，安装过程中不需要联网解析软件包。
+
+![架构图](docs/architecture.svg)
+
+**镜像内容：**
+
+| 分区 | 内容 |
+|---|---|
+| 1 — `NCZESP`（EFI 系统分区，FAT） | rEFInd 安装菜单（**Install**、**Install (expert)**、**Rescue mode**）、NCZ 内核，以及带 NCZ 预置（preseed）与对话框的 Debian Installer initrd。 |
+| 2 — `NCZDATA`（ext4） | `/ncz-payload/`：`base`、`desktop`、`desktop-hotfix` 三个 squashfs 层及其叠加清单、静态 `unsquashfs`，以及安装时使用的资源（内核、固件、安装后钩子所需的软件包、救援与恢复容器的根文件系统、屏保插件）。`/dists` + `/pool`：安装使用的离线 apt 镜像。 |
+
+`base.squashfs` 是带 NCZ 内核与固件的 Debian Testing（`forky`）根文件系统；`desktop.squashfs`
+是桌面软件包的增量层；`desktop-hotfix.squashfs` 是 Singularity 桌面运行时（`/opt/singularity`）
+的增量层。
+
+**安装流程：**安装程序是各架构 Debian Testing netinst 中的**原版 Debian Installer**，按内容哈希锁定
+（`manifests/base.pin`），本仓库没有手工修改的 d-i 源码树。NCZ 的改动在组装镜像时加入：我们的内核
+替换 Debian 的安装程序内核（镜像中只有这一个内核，见 [docs/ONE-KERNEL.md](docs/ONE-KERNEL.md)）；
+地区、用户、可选组件、磁盘与根文件系统等 NCZ 对话框（`preseed/*.sh`）；以及一个 `debootstrap`
+替身（`build/iso/patch-debootstrap-stub.py`），d-i 调用 debootstrap 时由它把 squashfs 层解压到
+目标磁盘。随后 `post-install/run-all.sh` 在目标 chroot 中运行编号的 `post-install/*.sh` 钩子，
+apt 指向镜像上的离线镜像。少数可选组件（例如 NVIDIA 驱动）需要联网，基础安装不需要。
+
+安装后的磁盘包含 EFI 系统分区（2 GB）、可选的 `NCZRESCUE` 救援分区（4 GB，ext4）和根文件系统：
+**btrfs**（默认）或 **ext4**。
+
+**安装后的系统：**
+
+- **一个内核**，Linux 7.3：arm64 为 `7.3.0-rc7-sky1-ncz`（Sky1 构建 r289），amd64 为
+  `7.3.0-rc7-t2-ncz`（T2 Mac 与普通 PC 通用）。默认、控制台与救援启动项都使用它。
+- **Singularity 桌面**：基于 labwc 的原生 Wayland，greetd + Singularity 登录界面，KMS 启动画面
+  取代 Plymouth。没有 X11 桌面会话；保留 Xwayland 运行 X 应用。
+- **屏保与锁屏**（`ncz-screensavers`）：先启动屏保，之后再锁定会话。
+- 每个窗口默认都有**最小化、最大化和关闭按钮**，对所有用户生效。
+- **救援分区**：独立的救援系统，有自己的启动项，主根文件系统无法启动时仍可启动；按设计使用 DHCP，
+  并提供 SSH 与 telnet。
+- **恢复容器**（`ncz-recovery`，可选）：systemd-nspawn 容器，自带用户空间与 SSH。
+- **`ncz` 工具**与预置的智能体 quadlet（默认均不启用），智能体按需用 `ncz` 安装。
+- 从 NCZ apt 仓库获取**更新**。
+
+**构建流水线**：唯一入口 `build/build-image.sh --arch amd64|arm64` 按固定顺序运行以下阶段，每个
+阶段一份日志。来源检查在耗时阶段之前针对输入运行，坏的输入几分钟内就会失败。
+
+| # | 阶段 | 作用 | 位置 |
+|---|---|---|---|
+| 00 | `preflight` | 检查主机、磁盘空间、工具与权限，拒绝在 tmpfs 上构建，检查基底与确定性锁定。 | `build/build-image.sh`、`build/check-substrate-pin.sh`、`build/gen-base-pin.sh --check` |
+| 10 | `refresh-substrate` | `--substrate refresh` 获取最新的 Debian Testing netinst、校验签名并更新 `manifests/base.pin`；`--substrate pinned` 恢复并校验锁定的 netinst。 | `build/refresh-substrate.sh`、`build/stage-substrate.sh` |
+| 20 | `stage-inputs` | 暂存按校验和锁定的构建输入、内核与屏保插件。 | `build/stage-build-inputs.sh`（`manifests/build-inputs.tsv`）、`build/stage-amd64-kernel.sh`、`build/stage-arm64-assets.sh`、`build/stage-screensaver-plugin.sh` |
+| 30 | `refresh-sources` | 解析 Singularity 桌面源码（`--sources latest`）或复现已提交的锁定（`--sources pinned`），再构建或暂存桌面载荷软件包。 | `build/refresh-singularity-sources.sh`、`build/stage-singularity-payload.sh`、`build/build-singularity.sh`、`build/build-singularity-deb.sh` |
+| 40 | `offline-mirror` | 构建放入镜像的离线 apt 闭包。 | `make offline-mirror` |
+| 50 | `provenance-inputs` | 每个将进入镜像的软件包只能有一个来源：锁定的 Debian 快照、NCZ 构建或经审核的厂商软件包；不得出现 Debian 内核。 | `build/check-forky-provenance.sh`、`build/verify-no-debian-kernel.sh` |
+| 60 | `layers` | 构建并检查 `base`、`desktop`、`desktop-hotfix` 三个 squashfs 层。 | `build/layers-preflight.sh`、`build/build-squashfs-layers.sh all`（桌面软件包经 `build/build-role-delta-mkosi.sh`）、`build/check-layers.sh` |
+| 70 | `image` | 用基底、内核、各层与离线镜像组装原始 GPT 镜像。 | `make image` → `build/build-installer-image.sh`、`build/iso/*.py` |
+| 80 | `provenance-gate` | 对成品镜像再做一次来源与单内核检查。 | `build/check-forky-provenance.sh --image` |
+| 90 | `kvm-gate` | 第 1 阶段在 KVM 中用镜像的一次性副本无人值守安装；第 2 阶段启动安装好的磁盘，出现意外失败的单元即失败；最后检查安装程序控制台界面。 | `build/kvm-install-gate-gpt.sh`、`build/kvm-installer-ui-check.sh` |
+| 95 | `receipt` | 写入运行元数据与门禁摘要（不属于镜像内容）。 | 运行目录中的 `run-metadata.json` |
+| 99 | `archive` | 仅当两道门禁都在本次运行中通过时，把镜像复制到 `NCZ_IMAGE_ARCHIVE` 指定的归档；`--no-publish` 时跳过。 | [docs/BUILD-SITE-CONFIG.md](docs/BUILD-SITE-CONFIG.md) |
+
 ## 构建镜像
 
 构建步骤见英文 [README](README.md#quick-start-build-the-installer-image)。简要地说：
-唯一入口是 `build/build-image.sh --arch amd64|arm64 --full --no-publish`；只组装镜像时用
+唯一入口是 `build/build-image.sh --arch amd64|arm64 --full --no-publish`（各阶段见上方「架构」一节）；只组装镜像时用
 `make image ARCH=<arm64|amd64>`，结果为 `build/ncz-os-<架构>-<日期>-<sha>.img`。
 
 **如实说明：** 目前无法仅凭公开来源完成完整的镜像构建。`manifests/build-inputs.tsv` 锁定的 44 个

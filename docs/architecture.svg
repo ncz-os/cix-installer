@@ -1,9 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 480" font-family="Menlo, Consolas, monospace" font-size="14">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 790" font-family="Menlo, Consolas, monospace" font-size="14">
   <style>
+    .bg { fill: #ffffff; }
     .box { fill: #f6f8fa; stroke: #444; stroke-width: 1.5; }
     .layer { fill: #eef2ff; stroke: #3355aa; stroke-width: 1.5; }
+    .stage { fill: #eef2ff; stroke: #3355aa; stroke-width: 1.2; }
+    .gate { fill: #fff4e5; stroke: #b26a00; stroke-width: 1.2; }
     .lbl { font-weight: bold; fill: #111; }
     .sub { fill: #333; font-size: 12px; }
+    .stg { fill: #111; font-size: 11px; }
+    .note { fill: #555; font-size: 11px; font-style: italic; }
     .arrow { stroke: #444; stroke-width: 1.5; marker-end: url(#arrowhead); fill: none; }
     text { font-family: Menlo, Consolas, monospace; }
   </style>
@@ -13,44 +18,90 @@
     </marker>
   </defs>
 
-  <rect x="10" y="10" width="880" height="460" rx="8" class="box"/>
-  <text x="450" y="34" text-anchor="middle" class="lbl" font-size="16">ncz-installer-cixmini.iso</text>
+  <rect x="0" y="0" width="900" height="790" class="bg"/>
 
-  <!-- three squashfs layers -->
-  <rect x="30" y="55" width="270" height="120" rx="6" class="layer"/>
-  <text x="165" y="78" text-anchor="middle" class="lbl">base.squashfs</text>
-  <text x="165" y="98" text-anchor="middle" class="sub">(1.7 GB)</text>
-  <text x="165" y="118" text-anchor="middle" class="sub">debootstrapped resolute</text>
-  <text x="165" y="136" text-anchor="middle" class="sub">+ Sky1 kernel/firmware</text>
+  <!-- 1. build pipeline -->
+  <rect x="10" y="10" width="880" height="140" rx="8" class="box"/>
+  <text x="450" y="32" text-anchor="middle" class="lbl">build/build-image.sh --arch amd64|arm64  (one entrypoint, fixed order)</text>
 
-  <rect x="315" y="55" width="270" height="120" rx="6" class="layer"/>
-  <text x="450" y="78" text-anchor="middle" class="lbl">desktop.squashfs</text>
-  <text x="450" y="98" text-anchor="middle" class="sub">(~852 MB)</text>
-  <text x="450" y="118" text-anchor="middle" class="sub">XFCE + browser +</text>
-  <text x="450" y="136" text-anchor="middle" class="sub">full desktop package set</text>
+  <rect x="22"  y="44" width="136" height="32" rx="4" class="stage"/><text x="90"  y="64" text-anchor="middle" class="stg">00 preflight</text>
+  <rect x="166" y="44" width="136" height="32" rx="4" class="stage"/><text x="234" y="64" text-anchor="middle" class="stg">10 substrate pin</text>
+  <rect x="310" y="44" width="136" height="32" rx="4" class="stage"/><text x="378" y="64" text-anchor="middle" class="stg">20 stage inputs</text>
+  <rect x="454" y="44" width="136" height="32" rx="4" class="stage"/><text x="522" y="64" text-anchor="middle" class="stg">30 desktop sources</text>
+  <rect x="598" y="44" width="136" height="32" rx="4" class="stage"/><text x="666" y="64" text-anchor="middle" class="stg">40 offline mirror</text>
+  <rect x="742" y="44" width="136" height="32" rx="4" class="gate"/><text x="810" y="64" text-anchor="middle" class="stg">50 input provenance</text>
 
-  <rect x="600" y="55" width="270" height="120" rx="6" class="layer"/>
-  <text x="735" y="78" text-anchor="middle" class="lbl">server.squashfs</text>
-  <text x="735" y="98" text-anchor="middle" class="sub">(~40 MB)</text>
-  <text x="735" y="118" text-anchor="middle" class="sub">headless agent-appliance</text>
-  <text x="735" y="136" text-anchor="middle" class="sub">packages</text>
+  <rect x="22"  y="86" width="136" height="32" rx="4" class="stage"/><text x="90"  y="106" text-anchor="middle" class="stg">60 squashfs layers</text>
+  <rect x="166" y="86" width="136" height="32" rx="4" class="stage"/><text x="234" y="106" text-anchor="middle" class="stg">70 image assembly</text>
+  <rect x="310" y="86" width="136" height="32" rx="4" class="gate"/><text x="378" y="106" text-anchor="middle" class="stg">80 image provenance</text>
+  <rect x="454" y="86" width="136" height="32" rx="4" class="gate"/><text x="522" y="106" text-anchor="middle" class="stg">90 KVM install gate</text>
+  <rect x="598" y="86" width="136" height="32" rx="4" class="stage"/><text x="666" y="106" text-anchor="middle" class="stg">95 receipt</text>
+  <rect x="742" y="86" width="136" height="32" rx="4" class="stage"/><text x="810" y="106" text-anchor="middle" class="stg">99 archive</text>
 
-  <!-- merge lines -->
-  <line x1="165" y1="175" x2="450" y2="215" class="arrow" marker-end="none" stroke="#444" stroke-width="1.5"/>
-  <line x1="450" y1="175" x2="450" y2="215" class="arrow" marker-end="none" stroke="#444" stroke-width="1.5"/>
-  <line x1="735" y1="175" x2="450" y2="215" class="arrow" marker-end="none" stroke="#444" stroke-width="1.5"/>
-  <text x="450" y="205" text-anchor="middle" class="sub" font-style="italic">overlaid at boot, per rEFInd choice</text>
-  <line x1="450" y1="215" x2="450" y2="245" class="arrow"/>
+  <text x="450" y="138" text-anchor="middle" class="note">orange = gates: one origin per package, one kernel, KVM install + boot + installer UI check</text>
 
-  <!-- d-i box -->
-  <rect x="60" y="255" width="780" height="150" rx="6" class="box"/>
-  <text x="450" y="280" text-anchor="middle" class="lbl">Debian d-i base</text>
-  <text x="450" y="302" text-anchor="middle" class="sub">UEFI boot, kernel + initrd, preseed, partman</text>
-  <text x="450" y="326" text-anchor="middle" class="sub">extracts + overlays base + the selected variant (extract-rootfs.sh)</text>
-  <text x="450" y="350" text-anchor="middle" class="sub">then runs post-install/*.sh hooks</text>
-  <text x="450" y="380" text-anchor="middle" class="sub" font-style="italic">→ disk + filesystem chooser (btrfs default / ext4, no ZFS)</text>
+  <line x1="450" y1="150" x2="450" y2="172" class="arrow"/>
 
-  <line x1="450" y1="405" x2="450" y2="435" class="arrow"/>
-  <rect x="200" y="435" width="500" height="30" rx="6" class="box"/>
-  <text x="450" y="455" text-anchor="middle" class="sub">Installed system + NCZRESCUE recovery partition</text>
+  <!-- 2. the image -->
+  <rect x="10" y="176" width="880" height="236" rx="8" class="box"/>
+  <text x="450" y="198" text-anchor="middle" class="lbl" font-size="15">ncz-os-&lt;arch&gt;-&lt;date&gt;-&lt;sha&gt;.img  (raw GPT disk image, amd64 or arm64)</text>
+
+  <rect x="30" y="212" width="320" height="188" rx="6" class="layer"/>
+  <text x="190" y="234" text-anchor="middle" class="lbl">p1  NCZESP  (EFI, FAT)</text>
+  <text x="190" y="260" text-anchor="middle" class="sub">rEFInd boot menu:</text>
+  <text x="190" y="278" text-anchor="middle" class="sub">Install / Install (expert)</text>
+  <text x="190" y="296" text-anchor="middle" class="sub">/ Rescue mode</text>
+  <text x="190" y="326" text-anchor="middle" class="sub">NCZ Linux 7.3 kernel</text>
+  <text x="190" y="344" text-anchor="middle" class="sub">(the only kernel on the image)</text>
+  <text x="190" y="374" text-anchor="middle" class="sub">Debian Installer initrd</text>
+  <text x="190" y="392" text-anchor="middle" class="sub">+ preseed + NCZ dialogs</text>
+
+  <rect x="365" y="212" width="505" height="188" rx="6" class="layer"/>
+  <text x="617" y="234" text-anchor="middle" class="lbl">p2  NCZDATA  (ext4)</text>
+  <text x="385" y="260" class="sub" font-weight="bold">/ncz-payload/</text>
+  <text x="400" y="279" class="sub">base.squashfs</text><text x="600" y="279" class="sub">Debian Testing + NCZ kernel</text>
+  <text x="400" y="297" class="sub">desktop.squashfs</text><text x="600" y="297" class="sub">desktop packages (delta)</text>
+  <text x="400" y="315" class="sub">desktop-hotfix.squashfs</text><text x="600" y="315" class="sub">Singularity runtime (delta)</text>
+  <text x="400" y="333" class="sub">rescue + recovery root filesystems</text>
+  <text x="400" y="351" class="sub">kernel, firmware, vendor packages</text>
+  <text x="385" y="377" class="sub" font-weight="bold">/dists  /pool</text>
+  <text x="400" y="393" class="sub">offline apt mirror for the install</text>
+
+  <line x1="450" y1="412" x2="450" y2="434" class="arrow"/>
+
+  <!-- 3. the installer -->
+  <rect x="60" y="438" width="780" height="128" rx="6" class="box"/>
+  <text x="450" y="462" text-anchor="middle" class="lbl">Debian Installer (stock d-i from the pinned Debian Testing netinst)</text>
+  <text x="450" y="486" text-anchor="middle" class="sub">region, user, components, disk + root filesystem (btrfs default / ext4)</text>
+  <text x="450" y="508" text-anchor="middle" class="sub">a debootstrap stub extracts base + desktop + hotfix layers onto the disk</text>
+  <text x="450" y="530" text-anchor="middle" class="sub">post-install/*.sh hooks run in the target chroot, apt from the offline mirror</text>
+  <text x="450" y="552" text-anchor="middle" class="note">the base system comes off the image, not the network</text>
+
+  <line x1="450" y1="566" x2="450" y2="588" class="arrow"/>
+
+  <!-- 4. the installed disk -->
+  <rect x="10" y="592" width="880" height="188" rx="8" class="box"/>
+  <text x="450" y="614" text-anchor="middle" class="lbl">Installed disk</text>
+
+  <rect x="30" y="626" width="200" height="140" rx="6" class="layer"/>
+  <text x="130" y="648" text-anchor="middle" class="lbl">ESP</text>
+  <text x="130" y="674" text-anchor="middle" class="sub">rEFInd + 7.3 kernel</text>
+  <text x="130" y="694" text-anchor="middle" class="sub">Default, Console,</text>
+  <text x="130" y="712" text-anchor="middle" class="sub">Rescue and Rescue</text>
+  <text x="130" y="730" text-anchor="middle" class="sub">Partition entries</text>
+
+  <rect x="245" y="626" width="250" height="140" rx="6" class="layer"/>
+  <text x="370" y="648" text-anchor="middle" class="lbl">NCZRESCUE (ext4)</text>
+  <text x="370" y="674" text-anchor="middle" class="sub">separate rescue system</text>
+  <text x="370" y="694" text-anchor="middle" class="sub">boots without the root fs</text>
+  <text x="370" y="714" text-anchor="middle" class="sub">DHCP; SSH + telnet</text>
+  <text x="370" y="734" text-anchor="middle" class="sub">(optional component)</text>
+
+  <rect x="510" y="626" width="360" height="140" rx="6" class="layer"/>
+  <text x="690" y="648" text-anchor="middle" class="lbl">root  (btrfs or ext4)</text>
+  <text x="690" y="674" text-anchor="middle" class="sub">Singularity desktop (Wayland, labwc)</text>
+  <text x="690" y="694" text-anchor="middle" class="sub">screensavers + lock screen</text>
+  <text x="690" y="714" text-anchor="middle" class="sub">ncz utility; agents on demand</text>
+  <text x="690" y="734" text-anchor="middle" class="sub">ncz-recovery container (optional)</text>
+  <text x="690" y="754" text-anchor="middle" class="sub">updates from the NCZ apt repository</text>
 </svg>

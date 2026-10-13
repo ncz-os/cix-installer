@@ -82,7 +82,7 @@ release 附件托管（`github.com/ncz-os/cix-installer/releases`），文档中
 
 ### 内核源码
 
-内核是 GPL 义务最实质的组件，因为我们在每一张 ISO 上都分发一个修改过的二进制内核。
+内核是 GPL 义务最实质的组件，因为我们在每一个镜像中都分发一个修改过的二进制内核。
 
 **源码就在本仓库的 [`kernel-source/`](../kernel-source/SOURCE.md) 目录下。** 该目录
 是所发布内核的对应源码：300 个文件（9.3 MB）、286 个补丁文件（其中 **176 个接入配方
