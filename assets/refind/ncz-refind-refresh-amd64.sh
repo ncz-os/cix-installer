@@ -65,12 +65,12 @@ REFIND_SRC="$INSTALLER_META/assets/refind/refind_x64.efi"
 # the boot-time poll/log while STILL clearing every MCi_STATUS, and runtime
 # machine checks stay logged and handled. The Console and Rescue entries
 # deliberately do NOT carry it, so a technician still sees the raw record.
-# Rationale, evidence and trade-off: docs/T2-BOOT-MCE-NOBOOTLOG.md.
+# Rationale, evidence and trade-off: build/test-t2-mce-nobootlog.sh.
 #
 # The earlier pcie_ports=compat on the T2 default entry (2026-10-05, defence in
 # depth against the 7.3 T2 power cut) was removed on 2026-10-06: the kernel now
 # carries the plain upstream revert of eddba19b8b5f and nothing else for it
-# (docs/reports/2026-10-06-amd64-rc6-4-aer9010.md).
+# (amd64 rc6-4 AER 9010 notes, 2026-10-06).
 #
 # Markers below let build/test-amd64-t2-detect.sh extract this block
 # byte-exactly instead of pattern-matching its shape.
@@ -85,7 +85,7 @@ else
 fi
 # Default entry only: suppress the boot-time left-over MCE log on a T2 Mac
 # (a firmware artifact on these Coffee Lake-H parts; see
-# docs/T2-BOOT-MCE-NOBOOTLOG.md). The Console and Rescue entries keep the
+# build/test-t2-mce-nobootlog.sh). The Console and Rescue entries keep the
 # record visible on purpose. Empty on non-T2 and when the helper is absent.
 NCZ_T2_MCE_CMDLINE=""
 if ncz_is_t2_hardware; then

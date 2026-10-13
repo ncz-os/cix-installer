@@ -6,7 +6,7 @@
 # One package name per line. Leave empty for images that ship nothing extra.
 #
 # ncz-screensavers is added here when its .deb is staged in
-# build/ncz-screensavers-out/ (see docs/ARM64-IMAGE-BUILD.md). It is now
+# build/ncz-screensavers-out/ (see build/build-image.sh). It is now
 # MANDATORY on desktop variants (operator 2026-10-05: "If we are
 # distributing screensavers as Deb they need to be apt installed during
 # installation.") and the offline mirror MUST carry it at the version
@@ -18,7 +18,7 @@
 # ncz-screensavers-plugin is intentionally NOT listed: it is not published to
 # the NCZ apt repo and it is ABI-coupled to the Singularity payload, so the
 # image carries a pinned deb on the install medium and hook 59 installs it
-# (post-install/lib/ncz-screensavers-plugin.lock, docs/SCREENSAVER-PLUGIN.md).
+# (post-install/lib/ncz-screensavers-plugin.lock).
 ncz-screensavers
 #
 # ncz-apt-policy (r201 apt separation): the pin that keeps NCZ-OS packages and Debian

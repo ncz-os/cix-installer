@@ -29,7 +29,7 @@ aborts the build rather than producing a payload with the fix applied twice or
 not at all.
 
 **Do not re-add this to `patches/`.** Pin the ref instead — which is exactly
-what `packaging/singularity/README.md` said would become sufficient once
+what the former `packaging/singularity/README.md` said would become sufficient once
 PR #15 landed.
 
 ## STILL CARRIED DOWNSTREAM

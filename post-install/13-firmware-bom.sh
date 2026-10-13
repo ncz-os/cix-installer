@@ -21,7 +21,7 @@
 # hardware we have not seen should not guess which blobs it needs). sky1-arm64
 # installs manifests/firmware-arm64.pkgs -- the subset a Sky1 system can load,
 # with the dropped published packages recorded in manifests/firmware-bom-arm64.allow
-# and justified in docs/ARM64-FIRMWARE-TRIM-2026-10-11.md. The mirror is seeded
+# and justified in manifests/firmware-bom-arm64.allow. The mirror is seeded
 # from the same arch-scoped file, so every package named here is present by
 # construction. Exclusions belong in the allow-list, not here.
 set -u

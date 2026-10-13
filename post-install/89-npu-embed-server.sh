@@ -14,11 +14,11 @@
 # Why the NPU and not the GPU: measured on this hardware, the Mali GPU loses
 # to the CPU for inference even when Vulkan genuinely engages it (confirmed
 # via /dev/mali0 fd), and the community reports the same. See
-# docs/DRIVER_FIDELITY_72.md. The NPU is the only real offload here.
+# docs/INFERENCE_LIMITS.md. The NPU is the only real offload here.
 #
 # Runs AFTER 88-noe-umd-venv.sh (needs /opt/ncz/noe-venv + libnoe).
 # ARCH GATE (dual-arch parity): Sky1-only hook. run-all.sh runs every hook on every architecture, so
-# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this; docs/DUAL-ARCH-PARITY.md).
+# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this).
 _ncz_a="${NCZ_TARGET_ARCH:-$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)}"
 [ -n "$_ncz_a" ] || _ncz_a="$(dpkg --print-architecture 2>/dev/null || true)"
 if [ "$_ncz_a" != arm64 ]; then echo "[89] Sky1-only hook; target architecture is '${_ncz_a:-unknown}' -- skipping"; exit 0; fi
@@ -68,7 +68,7 @@ fi
 cat > /etc/systemd/system/ncz-npu-embed.service <<'UNIT'
 [Unit]
 Description=NCZ NPU embedding server (OpenAI /v1/embeddings on Zhouyi NPU)
-Documentation=file:///usr/share/doc/ncz/DRIVER_FIDELITY_72.md
+Documentation=https://gitlab.com/ncz-os/cix-installer/-/blob/main/docs/INFERENCE_LIMITS.md
 After=network.target
 # The NPU char device must exist; without it the graph load fails and the
 # service would restart-loop.

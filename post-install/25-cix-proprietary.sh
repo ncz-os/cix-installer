@@ -23,7 +23,7 @@
 # the install proceeds. Remaining postinst issues are logged for
 # follow-up but don't halt the installer.
 # ARCH GATE (dual-arch parity): Sky1-only hook. run-all.sh runs every hook on every architecture, so
-# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this; docs/DUAL-ARCH-PARITY.md).
+# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this).
 _ncz_a="${NCZ_TARGET_ARCH:-$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)}"
 [ -n "$_ncz_a" ] || _ncz_a="$(dpkg --print-architecture 2>/dev/null || true)"
 if [ "$_ncz_a" != arm64 ]; then echo "[25] Sky1-only hook; target architecture is '${_ncz_a:-unknown}' -- skipping"; exit 0; fi
@@ -160,7 +160,7 @@ for deb in ./*.deb; do
         # none of them match a skip rule, so staging them in assets/cix-debs
         # installs them via the normal path below.
         cix-gstreamer_*.deb|cix-ffmpeg_*.deb|cix-libav*_*.deb)
-            echo "    skipping $deb (shadows distro media libraries via ldconfig'd /usr/share/cix/lib — see DRIVER_FIDELITY_72.md addendum)"
+            echo "    skipping $deb (shadows distro media libraries via ldconfig'd /usr/share/cix/lib)"
             continue ;;
     esac
     DEBS+=("$deb")

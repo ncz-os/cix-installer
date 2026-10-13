@@ -2,7 +2,7 @@
 # the default browser, and Vivaldi / Google Chrome are launched with VA-API off.
 # POSIX sh; sourced by post-install/52-vivaldi.sh and 53-chrome.sh on arm64 only.
 #
-# Why (r201, docs/SKY1-MEDIA-STATUS.md): 84-vpu-vaapi.sh exports
+# Why (r201, docs/HW-VIDEO-DECODE-STATUS.md): 84-vpu-vaapi.sh exports
 # LIBVA_DRIVER_NAME=libcix_va session-wide, so stock-Chromium browsers (Vivaldi,
 # Google Chrome) take the VA-API decode path, and the CIX VA-API driver hangs or
 # spins on H.264/HEVC: playback freezes. chromium-ncz-sky1 decodes through the
@@ -54,7 +54,7 @@ _ncz_bp_wrapper() {   # NAME TARGET
     cat > "$_r/usr/local/bin/$1" <<EOF
 #!/bin/sh
 # NCZ-OS Sky1 (post-install/lib/sky1-browser-policy.sh): start $1 with VA-API
-# off. The CIX VA-API decoder hangs on H.264/HEVC (docs/SKY1-MEDIA-STATUS.md).
+# off. The CIX VA-API decoder hangs on H.264/HEVC (docs/HW-VIDEO-DECODE-STATUS.md).
 export $NCZ_NO_VAAPI_ENV
 exec $2 $NCZ_NO_VAAPI_FLAG "\$@"
 EOF

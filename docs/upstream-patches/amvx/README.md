@@ -1,7 +1,7 @@
 # amvx (cix-vpu-driver-dkms) candidate patches -- NOT shipped
 
 Written 2026-10-06 against `assets/kernel/vpu/src` (cix-vpu-driver 1.0.2-ncz1) from the
-Sky1 media investigation (`docs/SKY1-MEDIA-STATUS.md`). They are deliberately **not** in
+Sky1 media investigation (`docs/HW-VIDEO-DECODE-STATUS.md`). They are deliberately **not** in
 `assets/kernel/vpu/src/patches/series`: both are compile-checked with the r285
 7.3.0-rc6-sky1-ncz headers and kernel CFLAGS (no warnings) but neither has been loaded on
 hardware (the test boards were read-only for module loads). Hand-off for the orchestrator /

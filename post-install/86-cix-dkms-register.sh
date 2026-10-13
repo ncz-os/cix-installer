@@ -153,7 +153,7 @@ register() {
 # 2026-08-17 on O6N, its aipu.ko was the one that actually got built+loaded
 # (self-identifying as "AIPU KMD (v5.11.0)" in dmesg) while aipu/6.2.0 sat
 # unregistered -- and 5.11.0 is the same driver generation
-# docs/DRIVER_FIDELITY_72.md documents as failing (either cleanly, as
+# was measured failing (either cleanly, as
 # measured on O6N -- noe_init_context: Failed to initialize adapter,
 # query capability [fail] -- or with a kernel panic, as measured 2026-08-04
 # against a different 5.11.0 source tree). Leaving cix-npu-kmd/1.0 registered

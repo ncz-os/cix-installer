@@ -30,7 +30,7 @@ Subcommands:
       only adjusts the mode of an output it already lit. An output the
       compositor has already enabled at a capped (<=1920x1200) mode is left
       untouched: the disable->enable cycle of a redundant mode set is exactly
-      the DP AUX wedge trigger this avoids (see docs/BOOT-SEQUENCE.md,
+      the DP AUX wedge trigger this avoids (see build/test-boot-sequence.sh,
       fix/greeter-dp-handoff-20261011). Any output with no capped mode -- a
       single-mode 4K panel is the common case -- is enabled at its own (native)
       mode at its density-policy scale with --on rather than left dark, so

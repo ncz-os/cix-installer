@@ -15,7 +15,7 @@
 #   build/verify-installed-target-screensavers*.sh  installed-target gate
 #   build/verify-dual-arch-parity.sh    both arches pinned, one source commit
 #   build/gen-components-registry.py    the registry row
-# Supply chain, rebuild commands and hosts: docs/SCREENSAVER-PLUGIN.md.
+# Rebuild commands: ssplugin_rebuild_help in post-install/lib/ncz-ssplugin-install.sh.
 #
 # The plugin links libsingularity.so.0 from the Singularity payload
 # (ncz-singularity-desktop). A plugin is only installed on top of a payload

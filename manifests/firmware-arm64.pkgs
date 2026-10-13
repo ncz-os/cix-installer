@@ -2,7 +2,7 @@
 # that a CIX Sky1 system (Radxa Orion O6N, Minisforums MS-R1 / fleet "cixmini")
 # can actually load, plus a deliberately small hotplug allowance.  Selection
 # rationale, per-package evidence and restore instructions:
-# docs/ARM64-FIRMWARE-TRIM-2026-10-11.md.
+# manifests/firmware-bom-arm64.allow.
 #
 # manifests/firmware.pkgs stays the complete, architecture-neutral published
 # set and is unchanged for amd64 (T2 Macs need brcm/intel/amd).  build/

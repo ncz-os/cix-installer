@@ -30,7 +30,7 @@
 # simulate-first with no removals, then the .so/.plugin and the
 # default-enabled override asserted. A missing or mismatched plugin is a
 # FATAL (exit 1): the engine stays installed, the installed-target verifier
-# fails the image gate. Supply chain: docs/SCREENSAVER-PLUGIN.md.
+# fails the image gate. Supply chain: post-install/lib/ncz-screensavers-plugin.lock.
 # 62-cygnus-screensaver-default.sh (override validated against the compiled
 # schema) sits downstream of this hook and pins the default saver to
 # blackhole_gles3 / palette cygnus.

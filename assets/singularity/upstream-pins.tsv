@@ -33,7 +33,7 @@
 # upstream heads in this format; review, run build/singularity-pins.sh
 # check-patches, rebuild, then commit.
 #
-# VENDOR-MALI (SceneFX) RECEIPT -- see assets/singularity/MALI-VERIFIED.md.
+# VENDOR-MALI (SceneFX) RECEIPT.
 # subprojects/labwc at 8a3efc43 bundles SceneFX 0.5, whose quad.frag/tex.frag
 # quoted `#error` breaks the CIX libmali GLES compiler even inside a disabled
 # branch -> O6N Mali boot black screen. Fixed by
