@@ -339,8 +339,8 @@ catatonit
 # NAT helper, which fail with "executable file not found in $PATH" without these.
 # Rootful `sudo podman ...` (which `ncz install mnemos` and `ncz agent install`
 # use) does not need them, but `podman info` / `podman images` as the user is
-# expected to work and was the failure mode reported on PEGASUS .85 / O6N .3 /
-# MS-R1 .66 by the orchestrator on 2026-10-13.
+# expected to work and was the failure mode observed on the amd64 and arm64
+# test hosts.
 uidmap
 slirp4netns
 fuse-overlayfs
@@ -410,10 +410,6 @@ crun
 conmon
 netavark
 catatonit
-# Rootless helpers — see the earlier comment block.
-uidmap
-slirp4netns
-fuse-overlayfs
 
 # --- r164: IceWM — ultra-light alternate WM (selectable at LightDM greeter)
 icewm

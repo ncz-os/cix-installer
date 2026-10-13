@@ -1238,8 +1238,8 @@ EOF
     install -D -m 0755 "$extract_dir/$arch_dir/zoder" "$install_path"
     # Stage the manifest alongside, NOT under /usr/local. Operators can
     # inspect it for the engine SHA + upstream SHA + run link.
-    install -D -m 0644 "$extract_dir/$arch_dir/manifest.json" /etc/zoder/manifest.json 2>/dev/null || \
-        install -d -m 0755 /etc/zoder && install -m 0644 "$extract_dir/$arch_dir/manifest.json" /etc/zoder/manifest.json
+    install -d -m 0755 /etc/zoder
+    install -m 0644 "$extract_dir/$arch_dir/manifest.json" /etc/zoder/manifest.json
     rm -rf "$tmp_dir"
     # Drop a sample at /etc/nclawzero/zoder.conf. PUBLIC-SAFE wording:
     # documented placeholders, no fleet model routes, no internal endpoints.
@@ -1629,7 +1629,7 @@ ncz_status_mnemos() {
     fi
     # /health probes the live container. We do NOT need to authenticate to
     # /health (MNEMOS exposes it anonymously) so this works as user ncz too.
-    local health='(not down)'
+    local health='(service inactive)'
     if [ "$svc" = "active" ] && command -v curl >/dev/null 2>&1; then
         health="$(curl -fsS --max-time 2 http://127.0.0.1:5002/health 2>/dev/null | head -c 200 || echo '(unreachable)')"
     fi
