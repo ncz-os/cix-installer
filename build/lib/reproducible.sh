@@ -57,7 +57,8 @@ ncz_repro_env() {
 ncz_repro_sde() {
     [ -n "${NCZ_REPRO_ROOT:-}" ] || { echo "ncz_repro_env before ncz_repro_init" >&2; return 1; }
     local args=(sde --pin "$NCZ_PIN_FILE")
-    if [ -d "$NCZ_REPRO_ROOT/.git" ]; then args+=(--repo "$NCZ_REPRO_ROOT"); fi
+    # .git is a directory in a clone and a file in a git worktree: accept both.
+    if [ -e "$NCZ_REPRO_ROOT/.git" ]; then args+=(--repo "$NCZ_REPRO_ROOT"); fi
     local sde
     if ! sde="$(_ncz_repro_py "${args[@]}")"; then
         echo "reproducible.sh: cannot derive SOURCE_DATE_EPOCH from $NCZ_PIN_FILE" >&2
