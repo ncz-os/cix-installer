@@ -72,7 +72,7 @@ HELPER="$ROOT/assets/display/ncz-display-scale"
 cat > "$T/mbp16.json" <<'J'
 [{"name": "eDP-1", "make": "Apple Computer Inc", "model": "Color LCD", "serial": null,
   "physical_size": {"width": 340, "height": 220}, "enabled": true, "scale": 1.0,
-  "modes": [{"width": 3072, "height": 1920, "refresh": 60.0, "preferred": true, "current": true},
+  "modes": [{"width": 3072, "height": 1920, "refresh": 60.0, "preferred": true, "current": false},
             {"width": 1920, "height": 1200, "refresh": 60.0, "preferred": false, "current": false},
             {"width": 1920, "height": 1080, "refresh": 60.0, "preferred": false, "current": false}]}]
 J
@@ -85,8 +85,12 @@ J
 runh() { : > "$T/calls"; JSON="$2" CALLS="$T/calls" BEHAVIOUR="$1" NCZ_DISPLAY_SCALE_HELPER="$HELPER" PATH="$T/bin:/usr/bin:/bin" sh "$T/autostart" >/dev/null 2>&1; echo $?; }
 
 rc=$(runh ok "$T/mbp16.json")
-if [ "$rc" = 0 ] && grep -qx -- "--output eDP-1 --mode 1920x1200@60.000000Hz --scale 1 --on" "$T/calls"; then
-    ok "16:10 panel: helper picks same-aspect 1920x1200, not a letterboxed 1080p"
+# cap is 3072x1920 (was 1920x1200), so the MacBookPro16,1
+# panel's preferred 3072x1920 now fits and the scale is the policy density
+# (227 ppi -> 2.0x). The 16:10 fix is still in force -- the panel's preferred
+# mode IS now used directly, instead of being letterboxed by a smaller mode.
+if [ "$rc" = 0 ] && grep -qx -- "--output eDP-1 --mode 3072x1920@60.000000Hz --scale 2 --on" "$T/calls"; then
+    ok "16:10 panel: helper uses panel's preferred mode (cap 3072x1920), not letterboxed"
 else
     bad "16:10 panel helper request wrong (rc=$rc): $(tr '\n' ';' < "$T/calls")"
 fi

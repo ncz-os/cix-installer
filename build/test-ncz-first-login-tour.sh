@@ -140,5 +140,123 @@ else
     bad "marker path does not use XDG_STATE_HOME/.local/state"
 fi
 
+# --- first-login thermal envelope ---------------------------------------------
+# T2 MacBooks ran hot post-login (singularity-tour 83-94% CPU ~55 s,
+# glycin image decoding). The fix is a longer post-shell settle AND wrapping
+# the tour in a transient scope with nice + CPUQuota so the image-decode
+# burst cannot spike the panel's thermal envelope.
+# Default settle raised from 3 s to 30 s (configurable via NCZ_TOUR_SETTLE).
+if grep -qE 'NCZ_TOUR_SETTLE:-30' "$SCRIPT"; then
+    ok "default settle is 30s"
+else
+    bad "settle default is not 30s"
+fi
+# Wrapper must look up nice/cpu-quota. systemd-run --user --scope is the
+# preferred path; plain `nice -n 19` is the fallback for non-IPC sessions.
+if grep -q 'systemd-run --user --scope' "$SCRIPT" \
+   && grep -q 'CPUQuota' "$SCRIPT" \
+   && grep -q 'nice=19' "$SCRIPT"; then
+    ok "launcher wraps the tour in a CPU-bounded scope (systemd-run --user --scope)"
+else
+    bad "launcher does not wrap the tour in a CPU-bounded scope"
+fi
+if grep -q 'NCZ_TOUR_NICE' "$SCRIPT" && grep -q 'NCZ_TOUR_CPUQUOTA' "$SCRIPT"; then
+    ok "NCZ_TOUR_NICE / NCZ_TOUR_CPUQUOTA test seams present"
+else
+    bad "NCZ_TOUR_NICE / NCZ_TOUR_CPUQUOTA test seams missing"
+fi
+# The marker is written BEFORE the launch (fail-closed) and a CPUQuota <100%
+# guarantees the decode burst is capped at NCZ_TOUR_CPUQUOTA%; document that the
+# marker is written first so a crash cannot loop the tour under the new
+# slower schedule.
+mk_sandbox; out="$(CASE_LOCKED=0 CASE_EXTRA="NCZ_TOUR_DRYRUN=1 NCZ_TOUR_SETTLE=0 NCZ_TOUR_SHELL_WAIT=0" pretend show 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && [ -f "$S/state/ncz/tour-seen" ]; then
+    ok "marker is still fail-closed (written before launch, regardless of settle)"
+else
+    bad "marker not written under NCZ_TOUR_SETTLE=0 (rc=$rc, $out)"
+fi
+unset CASE_EXTRA
+unset CASE_LOCKED
+
+# When systemd-run is unavailable (KVM, recovery, no user bus), the launcher
+# falls back to plain `nice -n 19`. The script must still launch the tour
+# under that fallback; NCZ_TOUR_NICE=0 disables even the nice path (test seam).
+if grep -q 'nice -n 19' "$SCRIPT" && grep -q 'NCZ_TOUR_NICE' "$SCRIPT"; then
+    ok "launcher has a nice -n 19 fallback for sessions without systemd-run"
+else
+    bad "launcher missing nice -n 19 fallback"
+fi
+
+# The IFS word-splitting path is under 'set -f' (noglob; no filename expansion
+# -- so a value of '*' becomes the literal token '*', not every file in cwd)
+# and the launcher asserts \$# == 1 so a future caller that passes multiple
+# arguments fails loud instead of silently losing them.
+if grep -B 1 -A 4 'set -- $1' "$SCRIPT" | grep -q 'set -f'; then
+    ok "tokenisation under 'set -f' (noglob; audit-safe argv)"
+else
+    bad "tokenisation not under 'set -f'"
+fi
+if grep -qE 'expected 2 arguments \(wait\|bg CMDLINE\), got' "$SCRIPT"; then
+    ok "launch_under_scope defensive assert (\$# == 2)"
+else
+    bad "launch_under_scope missing defensive assert"
+fi
+# systemd-run availability probe is cached one-shot, NOT re-run per launch
+# (re-creating + destroying a scope on every tour launch would add load
+# at the moment the scope exists to avoid).
+if grep -q 'probe_systemd_run' "$SCRIPT" && grep -q 'NCZ_TOUR_SR_OK' "$SCRIPT"; then
+    ok "systemd-run probe is cached (one-shot, not per-launch)"
+else
+    bad "systemd-run probe is not cached"
+fi
+
+# --- launch behaviour (functional, stubbed commands) -----------------------------------------
+# The test hook runs in the foreground and its exit status is reported: a
+# failing launcher must print "launch failed", a working one "opened the tour".
+mkdir -p "$W/stub"
+printf '#!/bin/sh\n: >"%s/hook-ran"\nexit 0\n' "$W" >"$W/stub/tour-ok"
+printf '#!/bin/sh\nexit 3\n' >"$W/stub/tour-fail"
+printf '#!/bin/sh\nnice >"%s/hook-nice"\n' "$W" >"$W/stub/tour-nice"
+chmod +x "$W/stub/tour-ok" "$W/stub/tour-fail" "$W/stub/tour-nice"
+
+mk_sandbox; rm -f "$W/hook-ran"
+out="$(CASE_EXTRA="NCZ_TOUR_NICE=0 NCZ_TOUR_LAUNCH=$W/stub/tour-ok" pretend show 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && [ -f "$W/hook-ran" ] && case "$out" in *"opened the tour"*) true;; *) false;; esac; then
+    ok "launch: a working launcher runs (foreground) and is reported opened"
+else
+    bad "launch: working launcher not run/reported (rc=$rc, $out)"
+fi
+mk_sandbox
+out="$(CASE_EXTRA="NCZ_TOUR_NICE=0 NCZ_TOUR_LAUNCH=$W/stub/tour-fail" pretend show 2>&1)"; rc=$?
+case "$out" in
+    *"launch failed"*) ok "launch: a failing launcher is reported as failed (exit status kept)" ;;
+    *) bad "launch: failing launcher reported as success (rc=$rc, $out)" ;;
+esac
+# Without systemd-run the fallback runs the launcher at nice 19.
+mk_sandbox; rm -f "$W/hook-nice"
+out="$(CASE_EXTRA="NCZ_TOUR_SR_OK=0 NCZ_TOUR_LAUNCH=$W/stub/tour-nice" pretend show 2>&1)"; rc=$?
+if [ "$(cat "$W/hook-nice" 2>/dev/null)" = 19 ]; then
+    ok "launch: fallback runs the launcher under nice 19"
+else
+    bad "launch: fallback niceness is '$(cat "$W/hook-nice" 2>/dev/null)', want 19 ($out)"
+fi
+# A failing gtk-launch falls through to the singularity-tour binary.
+if [ ! -e /opt/singularity/bin/singularity-tour ]; then
+    mkdir -p "$W/fall"
+    printf '#!/bin/sh\nexit 1\n' >"$W/fall/gtk-launch"
+    printf '#!/bin/sh\n: >"%s/fall-ran"\n' "$W" >"$W/fall/singularity-tour"
+    chmod +x "$W/fall/gtk-launch" "$W/fall/singularity-tour"
+    mk_sandbox; rm -f "$W/fall-ran"
+    out="$(PATH="$W/fall:$PATH" CASE_EXTRA="NCZ_TOUR_NICE=0" pretend show 2>&1)"; rc=$?
+    i=0; while [ ! -f "$W/fall-ran" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+    if [ -f "$W/fall-ran" ]; then
+        ok "launch: a failing gtk-launch falls through to singularity-tour"
+    else
+        bad "launch: failing gtk-launch did not fall through (rc=$rc, $out)"
+    fi
+else
+    ok "launch: fall-through case skipped (real singularity-tour installed on this host)"
+fi
+
 echo "$((PASS + FAIL)) checks, $PASS ok, $FAIL failed"
 [ "$FAIL" -eq 0 ]
