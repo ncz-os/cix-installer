@@ -112,6 +112,23 @@ mirkoprs task owns the upstream offer). Delete them if/when the corresponding
 change lands
 upstream.
 
+**Not yet filed upstream** (2026-10-13). Patch `0020-titlebar-buttons-when-legacy.patch`.
+The labwc SSD layout (Chromium, foot, GTK apps with CSD off) is sourced from
+`org.gnome.desktop.wm.preferences.button-layout` (default `appmenu:close`,
+close-only). The `dev.sinty.desktop.legacy-titlebar` toggle ("Show a classic
+static titlebar with inline buttons instead of the floating hover window
+controls") currently controls only libsingularity CSD apps and is not wired
+to `write_labwc_rc_xml` or `apply_gtk_decoration_layout`, so even with the
+toggle on a user got close-only on every SSD window. The patch adds one
+helper `effective_button_layout()` that returns `appmenu:minimize,maximize,close`
+when `legacy-titlebar` is true and feeds it into both writers; it also wires
+`settings.changed["legacy-titlebar"]` to the same writers (matching the
+existing `button-layout` listener). Upstream default (legacy-titlebar=false)
+is unchanged. The patch is a generic helper, no NCZ paths/naming.
+
+No `**Upstream PR:**` link on purpose (nothing is filed). The mirkoprs task
+owns the upstream offer.
+
 ## singularity-greeter — active
 
 **Not yet filed upstream** (2026-10-11). Patches
