@@ -5,7 +5,7 @@
 # machine-specific hooks (fstab, bootloader, rescue, user). Replaces the fragile
 # 30-hook in-chroot-at-install model.
 #
-# Run on ARGOS (x86 + qemu-aarch64-static + binfmt). Output: a baked rootfs.tar.zst.
+# Run on an x86 build host (qemu-aarch64-static + binfmt). Output: a baked rootfs.tar.zst.
 set -uo pipefail
 ROOT="${ROOT:-$HOME/cix-installer-build/cix-installer}"
 
@@ -120,7 +120,7 @@ ncz_mirror_sources_list "$NCZ_BASE_MIRROR" "$NCZ_BASE_CODENAME" "$NCZ_BASE_COMPO
 ncz_apt_update_or_die "$LOGDIR/00-apt-setup.log" "bake chroot" \
     sudo chroot "$CHROOT" /usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get update
 
-# codex: block daemon starts during bake (postinst scripts try systemctl start)
+# review: block daemon starts during bake (postinst scripts try systemctl start)
 printf '#!/bin/sh\nexit 101\n' | sudo tee "$CHROOT/usr/sbin/policy-rc.d" >/dev/null
 sudo chmod 0755 "$CHROOT/usr/sbin/policy-rc.d"
 
@@ -137,18 +137,18 @@ for h in $BAKE_HOOKS; do
   if [ "$rc" -eq 0 ]; then log "     ok"; else log "     FAILED rc=$rc (see $LOGDIR/$h.log)"; FAILED="$FAILED $h"; fi
 done
 
-# codex: a failed REQUIRED hook must NOT produce a shippable image.
+# review: a failed REQUIRED hook must NOT produce a shippable image.
 for req in 10-our-kernel 12-sky1-firmware 33-network ; do
   case " $FAILED " in *" $req "*) log "ABORT: required hook $req failed; not packing"; exit 2 ;; esac
 done
-# codex: disable needrestart kernel hints so no apt/dpkg transaction prompts
+# review: disable needrestart kernel hints so no apt/dpkg transaction prompts
 # the pending-kernel-upgrade note (baked kernel != running kernel).
 sudo mkdir -p "$CHROOT/etc/needrestart/conf.d"
 printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$CHROOT/etc/needrestart/conf.d/99-baked-rootfs.conf" >/dev/null
 log "clean chroot (apt cache, qemu, staging, logs)"
 sudo chroot "$CHROOT" apt-get clean 2>/dev/null || true
 sudo rm -f "$CHROOT/usr/bin/qemu-aarch64-static" "$CHROOT/usr/sbin/policy-rc.d"
-# codex CRITICAL: reset cloned identity so every installed machine is unique.
+# review (critical): reset cloned identity so every installed machine is unique.
 sudo chroot "$CHROOT" /bin/sh -c '\
   rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub ; \
   : > /etc/machine-id ; rm -f /var/lib/dbus/machine-id ; \

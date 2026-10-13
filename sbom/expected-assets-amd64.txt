@@ -1,6 +1,6 @@
 # SBOM/SPDX-style expected gitignored build assets -- AMD64/forky line.
 # Format: path|size|sha256
-# Real hashes computed 2026-09-15 from staged build-host assets (PROTEUS/CERBERUS).
+# Real hashes computed 2026-09-15 from staged build-host assets (amd64 build hosts).
 # No Sky1-only entries here (no cix-debs, no sky1-firmware, no NPU ACPI
 # override, no arm64 kernel) -- see sbom/expected-assets.txt for the
 # arm64/Sky1 manifest, which this file intentionally does not replace.

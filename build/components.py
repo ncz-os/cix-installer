@@ -2,7 +2,7 @@
 """build/components.py — component drift check / inventory / publish-diff.
 
 Operator directive 2026-10-05 (Item C1). Pure Python 3 stdlib; runs on
-STUDIO (macOS) and on the Linux build hosts; deterministic output (no
+macOS workstations and on the Linux build hosts; deterministic output (no
 timestamps, stable sort order). Phase 2 wires `check` into `make parity`
 and `make lint-platform`. The two seed-published findings that are
 documented pre-AC gaps (chromium-ncz-sky1, ncz-ffmpeg) are waived until
@@ -93,7 +93,7 @@ VALID_REQUIRED = {"yes", "no"}
 #
 #   chromium-ncz-sky1, ncz-ffmpeg: seeded in desktop.pkgs, resolve from the
 #   live NCZ apt repo, absent from the item AC published-artifacts table
-#   (docs/components-registry.md open question 2). Proposed fix: add both
+#. Proposed fix: add both
 #   names to that table. Not done here.
 #
 # ncz-screensavers-plugin is a required staged-deb row (pinned medium deb,

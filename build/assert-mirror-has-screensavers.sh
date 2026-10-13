@@ -47,7 +47,7 @@ done
 # versions this package actually uses (0.7.x, 0.8.x, 0.9.x, 0.10+). It is
 # NOT a full dpkg replacement -- it does NOT debias -- but it is good enough
 # for the actual version set we expect. The test suite uses this fallback to
-# run on macOS hosts without dpkg; production callers on HYDRA / ULTRA always
+# run on macOS hosts without dpkg; production callers on the Linux build hosts always
 # have it.
 if command -v dpkg >/dev/null 2>&1; then
     _ss_ge() { dpkg --compare-versions "$1" ge "$2"; }

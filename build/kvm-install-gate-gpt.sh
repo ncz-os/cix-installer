@@ -97,7 +97,7 @@ if [ -r /dev/kvm ]; then
 elif [ -e /dev/kvm ]; then
   # /dev/kvm EXISTS but this user cannot read it. Falling through to TCG
   # silently is how a gate ends up 10-40x slower and then "fails" on the
-  # phase-1 timeout with no functional defect at all -- measured on HYDRA
+  # phase-1 timeout with no functional defect at all -- measured on an amd64 build host
   # 2026-09-27, where /dev/kvm carried gid 987 (which resolves to the
   # unrelated group "crontab") while the real kvm group is gid 992. The
   # user was correctly in group kvm and still had no access, so every gate

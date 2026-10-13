@@ -13,7 +13,7 @@ ISO9660 mastering step bought nothing and cost a real bug: d-i's early
 2026-10-08 -- the preseed is now loaded once from the initrd) depended on
 some d-i component classifying + mounting the medium as a CD-ROM before
 that fetch ran, and on a real USB-written hybrid medium that timing is
-not guaranteed (confirmed on real MEDUSA hardware 2026-09-24, not a QEMU
+not guaranteed (confirmed on a real MacBookPro16,1 2026-09-24, not a QEMU
 artifact -- see patch-initrd-t2-kernel.py's preseed.cfg bake-in, which
 fixed the EARLY fetch; this script removes the underlying
 ISO9660/El-Torito complexity class that caused it).
@@ -116,7 +116,7 @@ GPT_TYPE_GUID_LINUX = bytes.fromhex("af3dc60f838472478e793d69d8477de4")
 
 
 def repro_uuid(kind: str) -> str | None:
-    """A stable UUID/GUID derived from the build pin (docs/IMAGE-BUILD-PROCESS.md).
+    """A stable UUID/GUID derived from the build pin.
 
     Precedence: an explicit NCZ_REPRO_UUID_<KIND> from the environment (the
     entrypoint exports these), else derive from NCZ_PIN_FILE + NCZ_REPRO_ARCH.
@@ -224,7 +224,7 @@ def require_free_space(work_dir: Path, need_bytes: int, what: str) -> None:
     """Fail LOUDLY *before* building, never silently after.
 
     Real root cause of the empty-data-partition bug, measured 2026-09-24 on
-    PROTEUS: with the work dir on a 16 GiB tmpfs /tmp, the `cp -a` into the
+    An amd64 build host: with the work dir on a 16 GiB tmpfs /tmp, the `cp -a` into the
     loop-mounted ext4 exhausts the BACKING filesystem. The kernel logs
 
         critical space allocation error, dev loop0, sector ... op WRITE
@@ -311,7 +311,7 @@ def _asset_kernel_ignore(base_dir: str, names: list[str]) -> list[str]:
     """Prune dev-only / aborted / stale siblings from a staged asset tree.
 
     The kernel staging script (``build/stage-kernel.sh``) and the shared
-    kernel-staging pool on /mnt/argonas-yocto-shared regularly leave
+    kernel-staging pool on the NFS yocto-shared export regularly leave
     sibling directories or files alongside the real artifact, named:
 
       * ``*.native-prepare-rejected`` / ``*-rejected`` -- left behind by an
@@ -357,7 +357,7 @@ def _copytree_dangling_symlink_safe(src: Path, dst: Path, *,
     symlinks. Tolerates dangling symlinks inside ``src`` by construction
     (``symlinks=True``); refuses to swallow other errors.
 
-    Defect (measured ULTRA arm64 make image 2026-09-28 20:12):
+    Defect (measured arm64 build host make image 2026-09-28 20:12):
     ``shutil.copytree(src, dst, symlinks=False)`` -- the default --
     FOLLOWS symlinks. A staged headers tree contains
     ``scripts/kernel-doc`` whose target was removed by an upstream

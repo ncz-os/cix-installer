@@ -17,7 +17,7 @@
 # drops the shipping kernel Image + modules into it at install time (and the rescue
 # rEFInd "RESCUE PARTITION" menuentry written by 70-bootloader.sh boots it via root=PARTUUID.
 #
-# Runs on the Linux arm64 build host (ARGOS), native debootstrap — no qemu.
+# Runs on the Linux arm64 build host, native debootstrap — no qemu.
 # Usage:  sudo bash build/build-rescue-rootfs.sh [chroot_dir] [out_tarball] [suite] [arch] [mirror]
 set -euo pipefail
 
@@ -72,7 +72,7 @@ AGENTS_SRC="$ROOT/assets/rescue/AGENTS.md"
 # Rescue console credentials (documented in assets/rescue/AGENTS.md). LAN-only.
 RESCUE_ROOT_PW="${RESCUE_ROOT_PW:-rescue}"
 RESCUE_HOSTNAME="ncz-rescue"
-RESCUE_STATIC_IP="192.168.207.199/24"  # dedicated rescue fallback — NOT any production host (was .66/cixmini builder — collision fixed 2026-07-20)
+RESCUE_STATIC_IP="192.168.207.199/24"  # dedicated rescue fallback — NOT any production host (an earlier address collided with a build host — fixed 2026-07-20)
 RESCUE_STATIC_GW="192.168.207.1"
 
 for t in debootstrap chroot zstd tar awk sed grep mountpoint; do

@@ -1,15 +1,15 @@
 FROM debian:trixie
 
-# ncz-imagebuild:trixie -- the arm64 IMAGE build environment for ULTRA.
+# ncz-imagebuild:trixie -- the arm64 IMAGE build environment for a Fedora Asahi build host.
 #
-# ULTRA is Fedora Asahi, so `make image` cannot run on the bare host: the
+# That host is Fedora Asahi, so `make image` cannot run on the bare host: the
 # Makefile's libdrm-debs and mirror targets are dpkg-native. The pre-existing
 # ~/build-env/Containerfile.cix-installer covers the README's build-host
 # prerequisites but NOT the source-build dependencies the Makefile actually
 # reaches (libdrm-debs died on debhelper-compat/meson/libpciaccess-dev/...),
 # and ~/build-env/run.sh references an ncz-buildenv:trixie image that was
 # never built. This image is the union of both plus what the build really
-# needs, so ULTRA can serve its designated arm64 image-build role.
+# needs, so that host can serve its designated arm64 image-build role.
 ENV DEBIAN_FRONTEND=noninteractive
 
 # README build-host prerequisites (from Containerfile.cix-installer).

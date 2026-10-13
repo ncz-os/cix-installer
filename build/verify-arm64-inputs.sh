@@ -314,7 +314,7 @@ verify-arm64-inputs: one or more required inputs are absent.
 
   How to restore each missing class:
     - sky1-firmware/ and cix-debs/ : both are checksum-pinned build inputs now
-                           (manifests/build-inputs.tsv) published in the ARGONAS
+                           (manifests/build-inputs.tsv) published in the
                            build-inputs store as two tarballs, so a fresh clone
                            stages them with
                                build/stage-build-inputs.sh --arch arm64   (fetch)

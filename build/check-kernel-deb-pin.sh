@@ -7,7 +7,7 @@
 # build-vendor-mirror.sh publishes every .deb in that directory, and its
 # superseded-package cleanup keeps whichever same-named deb it copies LAST,
 # so the rc5 set replaced 7.2.8 in the vendor mirror
-# (build/forky-vendor-mirror.rc5-stale-20260928-234219 on ULTRA still holds
+# (build/forky-vendor-mirror.rc5-stale-20260928-234219 on the arm64 build host still holds
 # it). On the target, post-install/10-our-kernel.sh then took the sort -V
 # "newest" linux-image-cixmini from the pool. Nothing compared any of this to
 # the KVER the build was supposed to ship.

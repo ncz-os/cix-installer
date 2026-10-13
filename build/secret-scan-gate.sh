@@ -4,7 +4,7 @@
 # Operator constraint (2026-08-14): build hosts may hold credentials; the
 # DEPLOYED PRODUCT may not. This gate enforces exactly that boundary.
 #
-# It exists because ~/zoder-work/singularity-desktop has a GitLab PAT embedded
+# It exists because a build host's singularity-desktop checkout has a GitLab PAT embedded
 # in its remote URL in .git/config -- deliberate and fine on the build host, but
 # one stray `cp -r` of a source tree into a payload would put it in every ISO we
 # ship. The payload IS assembled from that checkout, so the distance between
@@ -49,7 +49,7 @@ PATTERNS='glpat-[A-Za-z0-9_.-]{20}|glrt-[A-Za-z0-9_-]{20}|gldt-[A-Za-z0-9_-]{20}
 #
 #   2. A hardcoded password assignment IS matched now. The gate's first run
 #      against tools/nightly flagged the harmless ${GITLAB_TOKEN} URI and said
-#      nothing about ARGONAS_PASS="<the fleet password>" three lines above it.
+#      nothing about a STORE_PASS="<password>" literal three lines above it.
 #      Catching the shape of "quoted literal assigned to a *PASS*/SECRET
 #      variable" costs nothing and covers the case that actually mattered.
 #      The literal itself is deliberately NOT written here; use

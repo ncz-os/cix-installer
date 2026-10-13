@@ -16,18 +16,18 @@
 #   tools/di-diag.sh <host> [command|diag]
 #
 # Examples:
-#   tools/di-diag.sh 192.168.207.66
+#   tools/di-diag.sh <installer-ip>
 #       (interactive shell)
 #
-#   tools/di-diag.sh 192.168.207.66 diag
+#   tools/di-diag.sh <installer-ip> diag
 #       (canned diagnostic dump — everything we usually want)
 #
-#   tools/di-diag.sh 192.168.207.66 'tail -50 /var/log/syslog'
+#   tools/di-diag.sh <installer-ip> 'tail -50 /var/log/syslog'
 #       (run a one-shot command)
 #
 # Operator workflow:
 #   When d-i shows install failure, run:
-#     tools/di-diag.sh 192.168.207.66 diag > /tmp/di-diag-$(date +%s).txt
+#     tools/di-diag.sh <installer-ip> diag > /tmp/di-diag-$(date +%s).txt
 #   Output captures syslog + /target state + early_command log + mounts.
 
 set -u

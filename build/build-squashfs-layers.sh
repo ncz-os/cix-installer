@@ -1,5 +1,5 @@
 #!/bin/bash
-# See docs/ISO-BUILD-GUARDRAILS.md before changing this file —
+# Read the ISO build guardrails before changing this file —
 # these are ISO build MECHANICS, stable across builds by design.
 # build-squashfs-layers.sh — NCZ-OS layered squashfs installer images.
 #
@@ -20,7 +20,7 @@
 # from a CLEAN apt-install (Ubuntu-live model). Machine-specific + branding run at
 # install / first-boot, not baked.
 #
-# Runs on x86 ARGOS via qemu-aarch64-static + binfmt (same mechanism as the bake).
+# Runs on an x86 build host via qemu-aarch64-static + binfmt (same mechanism as the bake).
 #
 # ⚠ LAYER-COHERENCE RULE: the role deltas copy-up /var/lib/dpkg/status into
 # their upperdir. If you change the PACKAGE SET of base.squashfs, the merged
@@ -108,10 +108,10 @@ else
   exit 1
 fi
 NCZ_BASE_CODENAME="${NCZ_BASE_CODENAME:?release.conf did not define NCZ_BASE_CODENAME}"
-# amd64 support added 2026-09-15 for the AMD64 pipeline (PROTEUS/CERBERUS) --
+# amd64 support added 2026-09-15 for the AMD64 pipeline (amd64 build hosts) --
 # mirrors the NCZ_TARGET_ARCH pattern already used by build-iso-di.sh/
 # build-baked-rootfs.sh. Defaults to the host's own arch so existing arm64
-# callers (ULTRA) are unaffected.
+# callers (the arm64 build host) are unaffected.
 NCZ_TARGET_ARCH="${NCZ_TARGET_ARCH:-$(dpkg --print-architecture)}"
 case "$NCZ_TARGET_ARCH" in
   arm64) HOST_NATIVE_ARCH=aarch64; QEMU_BIN=qemu-aarch64-static ;;
@@ -154,7 +154,7 @@ ncz_layer_reuse_ok() {   # layer -> 0 when the artifact + matching stamp exist
 ncz_layer_stamp_write() { ncz_layer_fingerprint "$1" > "$OUT/$1.build-fingerprint"; }
 
 # Pinned, gitignored inputs (recovery rootfs, rescue rootfs, python311, wallpaper debs): staged from
-# the ARGONAS store and checksum-verified before anything is built (r201: a missing
+# the build-inputs store and checksum-verified before anything is built (r201: a missing
 # ncz-mgmt-rootfs.tar.zst made post-install/38-recovery-container.sh fail on every image).
 bash "$ROOT/build/stage-build-inputs.sh" --arch "$NCZ_TARGET_ARCH" || exit 1
 BASE_TARBALL="${BASE_TARBALL:-$ROOT/assets/rootfs/rootfs-$NCZ_BASE_CODENAME-$NCZ_TARGET_ARCH.tar.zst}"
@@ -318,8 +318,8 @@ assert_rootfs_critical_owners(){
     return 1
   fi
 }
-# NATIVE: host arch matches the TARGET arch (e.g. arm64-target on ULTRA/bigpi,
-# or amd64-target on PROTEUS/CERBERUS) needs no qemu-user; a genuine
+# NATIVE: host arch matches the TARGET arch (e.g. arm64-target on an arm64 host,
+# or amd64-target on an amd64 host) needs no qemu-user; a genuine
 # cross-arch host does.
 NATIVE=0; [ "$(uname -m)" = "$HOST_NATIVE_ARCH" ] && NATIVE=1
 [ "$NATIVE" = 1 ] || { [ -x "$QEMU" ] || { echo "no $QEMU_BIN (cross-arch host needs it)"; exit 1; }; }
@@ -476,7 +476,7 @@ apt_unmount(){ local c="$1"
   # that does not exist on the installed system.
   sudo rm -f "$c$NCZ_OFFLINE_SRC" 2>/dev/null || true
   # Same build-time-only rule for apt_offline()'s no-mirror live fallback
-  # (Codex review finding, 2026-09-14): these are never meant to survive
+  # (review finding, 2026-09-14): these are never meant to survive
   # into the shipped image -- restoring the disabled-for-build originals
   # just below would otherwise leave BOTH the restored originals AND these
   # live copies active, a duplicate/inconsistent apt configuration.
@@ -709,7 +709,7 @@ build_layer(){ local role="$1" manifest="$2"
     # apt-get install. (build/build-singularity.sh still produces the
     # underlying singularity-opt.tgz, but that is now only an INPUT to
     # build/build-singularity-deb.sh, not something staged into a squashfs
-    # layer -- see assets/singularity/README.md.)
+    # layer --)
     # -print -quit returns whichever candidate find happens to reach first,
     # which is undefined ordering, not the newest version. That silently
     # matters the moment a pool holds two builds: on 2026-08-12 a rebuilt
@@ -1279,7 +1279,7 @@ build_base(){
   #   unmanaged-devices=*,except:type:wifi,except:type:gsm,except:type:cdma
   # i.e. NM handles ONLY wifi and leaves ethernet to systemd-networkd — which we
   # just disabled (de-cloud, above). Net result on real hardware: the wired NIC
-  # is 'unmanaged' and never gets DHCP (wifi works, ethernet dead — observed .66).
+  # is 'unmanaged' and never gets DHCP (wifi works, ethernet dead — observed on a Sky1 test board).
   # Override so NM also manages ethernet; NM-only model, no networkd needed.
   if [ ! -x "$WORK/base/usr/bin/sinty-nmd" ]; then
     sudo mkdir -p "$WORK/base/etc/NetworkManager/conf.d"
@@ -1382,9 +1382,9 @@ ExecStartPre=/usr/sbin/sshd -t
 # shipped to hardware. That mode of operation is exactly what this
 # function prevents: it stages into an explicit `install -d -m 0755`
 # root, mksquashfs packs it with -comp zstd, and verify_squashfs catches
-# silent archive corruption before publish. See docs/ISO-BUILD-GUARDRAILS.md
-# "desktop-hotfix.squashfs has no committed builder" for the original
-# audit finding.
+# silent archive corruption before publish. (ISO build guardrails:
+# "desktop-hotfix.squashfs has no committed builder" was the original
+# audit finding.)
 #
 # PROVENANCE OF THE HOTFIX CONTENT (honest, partial):
 #   - 588 of 589 files in /opt/singularity come from the latest
@@ -1446,7 +1446,7 @@ ExecStartPre=/usr/sbin/sshd -t
 # NOT arch-gated beyond what build-singularity.sh/build-singularity-deb.sh
 # already handle themselves (native container platform + dpkg
 # --print-architecture-derived ARCH) -- this runs identically on the
-# arm64 (ULTRA) and amd64 (PROTEUS) build hosts.
+# arm64 and amd64 build hosts.
 # PINNED SINCE 2026-10-06: "from source every run" still holds, but the
 # source is the exact upstream commits in assets/singularity/upstream-pins.tsv
 # (build-singularity.sh reads them through build/singularity-pins.sh), not the

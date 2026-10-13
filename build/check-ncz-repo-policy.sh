@@ -86,7 +86,7 @@ case "${1:-}" in
         if [ "$origin" = "$NCZ_APT_NCZ_RELEASE_ORIGIN" ]; then
             echo "OK: R2 Release Origin is $origin"
         else
-            echo "FAIL: R2 Release Origin is '$origin', expected '$NCZ_APT_NCZ_RELEASE_ORIGIN' (reprepro conf/distributions on ARGOS)"
+            echo "FAIL: R2 Release Origin is '$origin', expected '$NCZ_APT_NCZ_RELEASE_ORIGIN' (reprepro conf/distributions on the publishing host)"
             BAD=$((BAD + 1))
         fi
         ;;

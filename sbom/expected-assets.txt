@@ -1,6 +1,6 @@
 # SBOM/SPDX-style expected gitignored build assets.
 # Format: path|size|sha256
-# Generated from the staged build-host assets and ARGONAS canonical sources.
+# Generated from the staged build-host assets and the artifact store's canonical sources.
 assets/cix-debs/cix-ai-engine_2.0.0-cixdeb13-260714_arm64.deb|49262|9221b503a4fc018fadc1803b80fc25f5c5365b1563f7a567b4016b4e8662d0ab
 assets/cix-debs/cix-ai-test_1.0.1-cixdeb13-260714_arm64.deb|99216456|21b5fd5e89918b2ea1113838de663f662d7696c9fdd4b13332c6ff05e5d2c3ee
 assets/cix-debs/cix-audio-dsp_1.0.0_arm64.deb|1564080|74be55742cf1f1f21ed95774a645a117865ba92f2007e21ac9b0529567fe6d10

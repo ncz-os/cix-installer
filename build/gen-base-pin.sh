@@ -1,7 +1,7 @@
 #!/bin/bash
 # gen-base-pin.sh -- generate manifests/determinism.pin, the committed
-# determinism aggregate for the NCZ-OS image build (docs/IMAGE-BUILD-PROCESS.md,
-# "Inputs and pins").
+# determinism aggregate for the NCZ-OS image build ("Inputs and pins"
+# section of the build docs).
 #
 # NOTE (integration 2026-10-10): the SUBSTRATE/snapshot provenance pin is
 # `manifests/base.pin`, written by build/refresh-substrate.sh (arch-major rows:
@@ -70,7 +70,7 @@ SUB_ARM64="$(substrate_sha_of arm64)"
 [ -n "$SUB_ARM64" ] || { echo "gen-base-pin.sh: no vendor substrate pin for arm64" >&2; exit 1; }
 
 # NOTE: the substrate *filename* is deliberately NOT recorded here.  The pinned
-# ISO is identified by its sha256; the local file name depends on which ARGONAS
+# ISO is identified by its sha256; the local file name depends on which substrate cache
 # cache a host happens to mount, so recording it would make the pin differ
 # from host to host (found 2026-10-10: `gen-base-pin.sh --check` passed on a
 # dev box with no cache mounted and failed on a build host with it mounted).
@@ -107,7 +107,7 @@ emit() {
     printf '# reviewed change to a source pin, and commit it.  The build hashes this\n'
     printf '# file (build/lib/reproducible.py pin-digest); that digest is a determinism\n'
     printf '# root for every derived UUID and for SOURCE_DATE_EPOCH.  No wall-clock\n'
-    printf '# timestamps and no git commit of its own -- see docs/IMAGE-BUILD-PROCESS.md.\n'
+    printf '# timestamps and no git commit of its own.\n'
     printf '# The substrate/snapshot provenance pin is manifests/base.pin.\n'
     printf '#\n'
     printf '# Source of each row is named in the comment; the authority is the source,\n'

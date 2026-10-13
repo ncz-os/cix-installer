@@ -75,7 +75,7 @@ _seed_manifest_for() {
 #     comm: file 2 is not in sorted order
 #     comm: input is not in sorted order
 # and a missing-list built from a comparison comm had already given up on.
-# Measured 2026-09-28 on HYDRA: the same invocation with LC_ALL=C forced
+# Measured 2026-09-28 on an amd64 build host: the same invocation with LC_ALL=C forced
 # returns a clean, correct list instead of three errors.
 awk '/^Package: / {print $2}' "$PKG_INDEX" | LC_ALL=C sort -u > "$TMP/have"
 LC_ALL=C comm -23 "$TMP/seed" "$TMP/have" > "$TMP/missing"

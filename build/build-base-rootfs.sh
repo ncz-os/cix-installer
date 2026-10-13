@@ -7,14 +7,14 @@
 # (no hostname, no rescue services, no branding).
 #
 # BUILD HOST (operator directive, 2026-09-14): this pipeline builds Sky1
-# arm64 images and runs on ULTRA (192.168.207.88, native aarch64 Fedora
-# Asahi) -- NOT PROTEUS. PROTEUS is x86_64 and is reserved for a future
-# amd64 variant of this pipeline. Building arm64 on PROTEUS works (podman
+# arm64 images and runs on a native aarch64 build host (Fedora
+# Asahi) -- NOT the x86_64 host, which is reserved for a future
+# amd64 variant of this pipeline. Building arm64 on x86_64 works (podman
 # + qemu-user-static/binfmt cross-arch emulation) and was used for the
 # initial integration proof (this branch, commits through d9b51fb and the
 # build_layer() wiring commit), but emulation is measurably slower than
 # native arm64 and should not be the standing path. Run arm64 builds/
-# verification on ULTRA going forward; reach for PROTEUS again only when
+# verification on the aarch64 host going forward; reach for x86_64 again only when
 # the amd64 variant is the thing being built.
 #
 # METHOD
@@ -49,13 +49,13 @@
 #   silently exiting 127 with zero output when it made it into a commit
 #   without being re-verified against the committed content.
 #
-# Runs natively on aarch64 (e.g. ULTRA) with no qemu/binfmt needed, OR
-# cross-arch on x86_64 (e.g. ARGOS, PROTEUS) via qemu-user-static's
+# Runs natively on aarch64 with no qemu/binfmt needed, OR
+# cross-arch on x86_64 via qemu-user-static's
 # binfmt_misc registration for aarch64. The 2026-09-11 version of this
 # comment claimed cross-arch was unsupported because the host's binfmt flags
 # showed "POF, not FPOF" -- that claim was wrong on its own terms (POF
 # already includes F; there is no additional "FPOF" form) and was never
-# actually tested. VERIFIED 2026-09-14 on PROTEUS (x86_64, binfmt flags
+# actually tested. VERIFIED 2026-09-14 on an x86_64 build host (binfmt flags
 # `POF`): podman pulls the arm64 debian:$SUITE image, binfmt transparently
 # execs it ("chroot architecture arm64 is equal to the host's architecture"
 # per mmdebstrap's own log), and mmdebstrap completes cleanly (exit 0,

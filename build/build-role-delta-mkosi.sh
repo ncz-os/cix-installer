@@ -15,14 +15,14 @@
 # why and how build_layer() uses this script's output.
 #
 # BUILD HOST (operator directive, 2026-09-14): this pipeline builds Sky1
-# arm64 images and runs on ULTRA (192.168.207.88, native aarch64 Fedora
-# Asahi) -- NOT PROTEUS. PROTEUS is x86_64 and is reserved for a future
-# amd64 variant of this pipeline. Building arm64 on PROTEUS works (podman
+# arm64 images and runs on a native aarch64 build host (Fedora
+# Asahi) -- NOT the x86_64 host, which is reserved for a future
+# amd64 variant of this pipeline. Building arm64 on x86_64 works (podman
 # + qemu-user-static/binfmt cross-arch emulation) and was used for the
 # initial integration proof (this branch, commits through d9b51fb and the
 # build_layer() wiring commit), but emulation is measurably slower than
 # native arm64 and should not be the standing path. Run arm64 builds/
-# verification on ULTRA going forward; reach for PROTEUS again only when
+# verification on the aarch64 host going forward; reach for x86_64 again only when
 # the amd64 variant is the thing being built.
 #
 # WHY CONTAINERIZED (2026-09-14): the first version of this script ran
@@ -35,7 +35,7 @@
 # container closes that: if mkosi dies mid-build, the mount lives and dies
 # with the container, never touching the host's real filesystem tree.
 #
-# WHY --cap-add=SYS_ADMIN INSTEAD OF --privileged: tested both on PROTEUS.
+# WHY --cap-add=SYS_ADMIN INSTEAD OF --privileged: tested both on an x86_64 build host.
 # --privileged is not required; SYS_ADMIN (for mount()) plus disabling
 # apparmor/SELinux label confinement for this one container is sufficient
 # and is the smaller privilege grant.
@@ -47,7 +47,7 @@
 # overlayfs. mkosi's BaseTrees=+Overlay=yes needs to mount ANOTHER overlayfs
 # for its workspace/staging area. The kernel refuses to layer an overlayfs
 # mount on top of a lowerdir/upperdir that is itself already on an overlayfs
-# ("overlay on overlay") -- confirmed empirically on PROTEUS 2026-09-14:
+# ("overlay on overlay") -- confirmed empirically on an x86_64 build host 2026-09-14:
 #
 #     OSError: [Errno 22] Invalid argument: '/var/tmp/mkosi-workspace-.../root'
 #
@@ -154,7 +154,7 @@ case "$ROLE" in
   *) : ;;
 esac
 
-# Pinned exact mkosi package version, per GRAEAE consult hardening ask
+# Pinned exact mkosi package version, per a review hardening ask
 # (2026-09-14, winning synthesis openai/gpt-5.6-sol): a floating "latest"
 # mkosi is a live drift surface -- the container image's own apt snapshot
 # already pins the distro suite, but mkosi as a package inside it does not
@@ -249,7 +249,7 @@ sed 's/#.*//' "$MANIFEST" | sed -E 's/[[:space:]]+$//' | grep -vE '^[[:space:]]*
 # empty -- if this exclusion ever left nothing behind, `&&` would skip the
 # mv and silently ship the UNFILTERED list (Chrome included) instead of
 # failing loud. Accept only exit 0/1 from grep, then hard-fail if the
-# filtered list is empty (Codex review finding, 2026-09-14).
+# filtered list is empty (review finding, 2026-09-14).
 grep -vxF 'google-chrome-stable' "$PKG_LIST" > "$PKG_LIST.filtered" || {
     rc=$?
     [ "$rc" -eq 1 ] || exit "$rc"
@@ -293,7 +293,7 @@ if [ -n "$MIRROR_LIST_LINES" ]; then
         # therefore cannot configure them even though every .deb is present
         # in the pinned mirror. Keep apt pointed exclusively at the local
         # file:// source, but give these checksum-pinned postinst downloads
-        # the host network (HYDRA's rootful Podman bridge DNS is broken).
+        # the host network (one build host's rootful Podman bridge DNS is broken).
         NETWORK_ARGS=(--network=host)
         echo "[$ROLE] offline apt mirror: $(printf '%s' "$MIRROR_LIST_LINES" | grep -c deb) source(s); host network enabled only for checksum-pinned b43 firmware postinst downloads"
     else
@@ -370,7 +370,7 @@ chmod +x "$WORK/conf/save-dpkg-status.sh"
 # stash means save-dpkg-status.sh above never ran or mkosi's dedup pass ate it
 # before this hook could run, and shipping the base's stale dpkg status
 # instead of failing is exactly the 2026-08-11-class hazard this pair of
-# hooks exists to prevent (zoder cross-family review, 2026-09-14).
+# hooks exists to prevent (cross-model review, 2026-09-14).
 cat > "$WORK/conf/restore-dpkg-status.sh" <<'RESTORE'
 #!/bin/bash
 set -e
@@ -437,7 +437,7 @@ echo "[$ROLE] mkosi delta build (containerized): base=$BASE_DIR manifest=$MANIFE
 # also documented as directly callable standalone (see "Integration" at the
 # bottom), and a standalone caller reusing a path from a prior failed run
 # would otherwise let stale $OUT_DIR/image content silently pass the
-# dpkg-status existence check below and get shipped (zoder cross-family
+# dpkg-status existence check below and get shipped (cross-model
 # review, 2026-09-14). Refuse rather than build on top of it.
 if [ -d "$OUT_DIR" ] && [ -n "$(ls -A "$OUT_DIR" 2>/dev/null)" ]; then
     echo "ERROR: $OUT_DIR already exists and is non-empty (stale output from a" >&2
@@ -446,7 +446,7 @@ if [ -d "$OUT_DIR" ] && [ -n "$(ls -A "$OUT_DIR" 2>/dev/null)" ]; then
 fi
 mkdir -p "$OUT_DIR"
 
-# --cap-add=SYS_ADMIN (not --privileged): tested both on PROTEUS 2026-09-14,
+# --cap-add=SYS_ADMIN (not --privileged): tested both on an x86_64 build host 2026-09-14,
 # SYS_ADMIN plus the two security-opt below (mount() needs the capability;
 # apparmor/SELinux label confinement otherwise blocks the nested mount even
 # with the capability granted) is sufficient and is the smaller grant.
@@ -466,7 +466,7 @@ IMG="debian:$NCZ_BASE_CODENAME"
 BOOTSTRAP_TAG="localhost/ncz-mkosi-builder:$MKOSI_PKG_VERSION"
 if ! sudo podman image exists "$BOOTSTRAP_TAG" 2>/dev/null; then
     echo "[$ROLE] preparing mkosi builder image ($BOOTSTRAP_TAG, one-time per host+version)"
-    # HYDRA's rootful Podman bridge has no working DNS while the host network
+    # One build host's rootful Podman bridge has no working DNS while the host network
     # does. This container only installs build tooling and contributes no
     # filesystem content to the shipped delta, so use the host network for
     # this bootstrap step explicitly. The real mkosi build below remains

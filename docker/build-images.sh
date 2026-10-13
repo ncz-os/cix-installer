@@ -3,8 +3,8 @@
 # the Yocto kernel container (docker/Containerfile.yocto) and the raw GPT
 # image-build container (build/containers/Containerfile.ncz-imagebuild).
 #
-# Both hosts run podman (TYDEUS gained it 2026-08-28; ULTRA already had it), so
-# one script works everywhere. Previously TYDEUS used docker and ULTRA used
+# Both arm64 build hosts run podman (since 2026-08-28), so
+# one script works everywhere. Previously one used docker and the other used
 # podman, and each host built only the image for its own half of the pipeline
 # from a file that existed nowhere else -- which is how they drifted.
 #

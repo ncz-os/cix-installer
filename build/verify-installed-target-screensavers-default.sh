@@ -64,7 +64,7 @@
         #        * renderer absent -- the shipped interim ordering stands: the lock
         #          fires strictly AFTER the saver (63-ncz-idle-lock-order.sh). A lock
         #          at or before the saver means the lock surface wins the race and the
-        #          layer-shell saver never shows (observed on PROTEUS: shell locked at
+        #          layer-shell saver never shows (observed on HP OmniDesk: shell locked at
         #          300s, saver never ran).
         _saver_at=""
         if fetch /usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml "$TMP/ss.lockorder-saver"; then

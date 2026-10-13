@@ -20,14 +20,14 @@ set -euo pipefail
 # invocation behaves identically. Without this env var, release-kernel.sh
 # running against an installer at e.g. ~/kernel-port-v726 (the dispatch
 # host's actual checkout) would silently stage against ~/isobuild/cix-installer
-# instead -- measured 2026-09-22 on ULTRA: step 4 wrote the staged kernel to
+# instead -- measured 2026-09-22 on the arm64 build host: step 4 wrote the staged kernel to
 # ~/isobuild/cix-installer/assets/kernel/r275-7.3.0-rc3-... even though the
 # caller passed NCZ_INSTALLER_DIR=~/kernel-port-v726.
 REPO="${NCZ_INSTALLER_DIR:-$HOME/isobuild/cix-installer}"
 # Where dated release dirs actually get written. Defaults to the historical
 # local location (unchanged behavior). Set NCZ_KERNEL_STAGING_ROOT to a path
-# under the shared ARGONAS yocto-shared export (e.g. /nfs-shared/kernel-staging
-# on TYDEUS, /mnt/argonas-yocto-shared/kernel-staging on ULTRA -- same NFS
+# under the shared yocto-shared export (<NCZ_YOCTO_SHARED_DIR>/kernel-staging,
+# whose mount point differs per build host -- same NFS
 # export, both hosts also expose it at /nfs-shared via a compat symlink so a
 # checked-in edge symlink resolves identically regardless of which host built
 # it) so a kernel built on one host is immediately usable by mkosi/ISO work on
