@@ -481,10 +481,16 @@ class Rotator(unittest.TestCase):
     def test_daemon_refits_every_tick(self):
         daemon = extract_heredoc("DAEMON")
         loop = daemon[daemon.index("while true; do") :]
-        self.assertIn("/usr/local/bin/ncz-wallpaper-rotate --refit", loop)
+        # 5205a141: the daemon calls the rotator through $ROTATE and measures
+        # the interval from the last rotation record.
+        self.assertIn(
+            "\nROTATE=${NCZ_WALLPAPER_ROTATE:-/usr/local/bin/ncz-wallpaper-rotate}\n",
+            daemon,
+        )
+        self.assertIn('"$ROTATE" --refit', loop)
         self.assertLess(
             loop.index("--refit"),
-            loop.index('[ $((now - last_rotate)) -lt "$interval" ]'),
+            loop.index('[ "$elapsed" -lt "$interval" ]'),
         )
         self.assertRegex(daemon, r"\nTICK=\d+\n")
         self.assertIn('sleep "$TICK"', loop)
@@ -523,6 +529,9 @@ class DebPackaging(unittest.TestCase):
                 ARTISTPACK_SOURCE_ROOT=str(t / "artistpack"),
                 WALLPAPER_DEB_OUT=str(t / "out"),
                 TMPDIR=str(t),
+                # the stub dpkg-deb writes an empty .deb, which the
+                # fail-closed version gate (b490acb4) would reject
+                NCZ_VERSION_GATE_STRICT="0",
             )
             r = subprocess.run(
                 ["bash", str(DEB), "cygnus-2610"],
@@ -580,6 +589,9 @@ class DebPackaging(unittest.TestCase):
                 ARTISTPACK_SOURCE_ROOT=str(t / "artistpack"),
                 WALLPAPER_DEB_OUT=str(t / "out"),
                 TMPDIR=str(t),
+                # the stub dpkg-deb writes an empty .deb, which the
+                # fail-closed version gate (b490acb4) would reject
+                NCZ_VERSION_GATE_STRICT="0",
             )
             r = subprocess.run(
                 ["bash", str(DEB), "cygnus-2610"],
