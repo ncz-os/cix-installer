@@ -154,7 +154,11 @@ cp.append({"id": 701, "name": "linux-pristine-base-cix-sky1-ncz", "version": "7.
            "package_type": "generic", "created_at": "2026-08-03T00:00:00Z", "files": [f("base.tar.gz", "08-03")]})
 rel = [{"tag_name": "v26.07-a", "assets": {"links": [
     {"id": 1, "name": "part", "url": "https://gitlab.example/api/v4/projects/20/packages/generic/ncz-os-image/26.07-a/ncz.img.zst.part-00"}]}}]
-json.dump({"projects": [{"id": 10, "path": "ncz-os/zoder", "packages": zp, "releases": []},
+oldest = [k for k in zp if k.get("version") == "2026-06-01"][0]
+zrel = [{"tag_name": "pinned", "assets": {"links": [
+    {"id": 2, "name": "old master copy", "url": "https://gitlab.example/ncz-os/zoder/-/package_files/%d/download" % master["files"][0]["id"]},
+    {"id": 3, "name": "pinned day", "url": "https://gitlab.example/ncz-os/zoder/-/package_files/%d/download" % oldest["files"][0]["id"]}]}}]
+json.dump({"projects": [{"id": 10, "path": "ncz-os/zoder", "packages": zp, "releases": zrel},
                         {"id": 20, "path": "ncz-os/cix-installer", "packages": cp, "releases": rel}]},
           open(sys.argv[1], "w"))
 PY
@@ -176,11 +180,11 @@ reset_state
 out=$(run --manifest "$T/plan.json"); rc=$?
 check "dry run exits 0" '[ "$rc" -eq 0 ]' || echo "$out"
 check "dry run sends no DELETE" '[ "$(deletes)" -eq 0 ]'
-check "dry run plans 91 old dated versions + 1 image version" 'grep -q "plan: 92 versions and" <<<"$out"'
-check "dry run plans 4 master + 1 dated duplicate files" 'grep -q "and 5 duplicate files" <<<"$out"'
+check "dry run plans 90 old dated versions + 1 image version" 'grep -q "plan: 91 versions and" <<<"$out"'
+check "dry run plans 3 master + 1 dated duplicate files" 'grep -q "and 4 duplicate files" <<<"$out"'
 check "dry run says nothing changed" 'grep -q "Dry run: nothing was changed" <<<"$out"'
-check "dry-run manifest has the planned removals" '[ "$(jq ".removals | length" "$T/plan.json")" -eq 97 ] && [ "$(jq -r .mode "$T/plan.json")" = dry-run ]'
-check "manifest records sha256 of package files" '[ "$(jq "[.removals[] | select(.kind==\"package\") | .files[].sha256 | select(length==64)] | length" "$T/plan.json")" -ge 92 ]'
+check "dry-run manifest has the planned removals" '[ "$(jq ".removals | length" "$T/plan.json")" -eq 95 ] && [ "$(jq -r .mode "$T/plan.json")" = dry-run ]'
+check "manifest records sha256 of package files" '[ "$(jq "[.removals[] | select(.kind==\"package\") | .files[].sha256 | select(length==64)] | length" "$T/plan.json")" -ge 91 ]'
 check "linked image version reported as kept" 'grep -q "keep     ncz-os/cix-installer ncz-os-image 26.07-a (a release links to it)" <<<"$out"'
 check "listing pages past 100 packages" 'grep -q "packages?package_type=generic&per_page=100&page=2" "$MOCK_LOG"'
 
@@ -188,17 +192,17 @@ check "listing pages past 100 packages" 'grep -q "packages?package_type=generic&
 reset_state
 out=$(run --apply --manifest "$T/applied.json" --log "$T/run.log"); rc=$?
 check "apply exits 0" '[ "$rc" -eq 0 ]' || echo "$out"
-check "apply removes 92 versions and 5 files" '[ "$(deletes)" -eq 97 ]'
-check "newest 14 dated versions remain" '[ "$(st "[.projects[0].packages[] | select(.package_type==\"generic\" and .name==\"zoder-nightly\" and .version!=\"master\") | .version] | sort | join(\",\")")" = "$(python3 -c "import datetime as d;print(\",\".join((d.date(2026,6,1)+d.timedelta(days=i)).isoformat() for i in range(91,105)))")" ]'
-check "master stays with one file per name" '[ "$(st "[.projects[0].packages[] | select(.version==\"master\") | .files[].file_name] | sort | join(\",\")")" = "zoder-x86_64,zoder-x86_64.sha256" ]'
-check "master keeps the newest copy" '[ "$(st "[.projects[0].packages[] | select(.version==\"master\") | .files[] | select(.file_name==\"zoder-x86_64\") | .created_at][0]")" = "2026-07-03T02:00:00Z" ]'
+check "apply removes 91 versions and 4 files" '[ "$(deletes)" -eq 95 ]'
+check "newest 14 dated versions and the release-linked day remain" '[ "$(st "[.projects[0].packages[] | select(.package_type==\"generic\" and .name==\"zoder-nightly\" and .version!=\"master\") | .version] | sort | join(\",\")")" = "$(python3 -c "import datetime as d;print(\",\".join((d.date(2026,6,1)+d.timedelta(days=i)).isoformat() for i in [0]+list(range(91,105))))")" ]'
+check "master keeps one file per name plus the release-linked copy" '[ "$(st "[.projects[0].packages[] | select(.version==\"master\") | .files[].file_name] | sort | join(\",\")")" = "zoder-x86_64,zoder-x86_64,zoder-x86_64.sha256" ]'
+check "master keeps the newest copy and the linked old one" '[ "$(st "[.projects[0].packages[] | select(.version==\"master\") | .files[] | select(.file_name==\"zoder-x86_64\") | .created_at] | sort | join(\",\")")" = "2026-07-03T00:00:00Z,2026-07-03T02:00:00Z" ]'
 check "duplicate inside newest dated version removed" '[ "$(st "[.projects[0].packages[] | select(.version==\"2026-09-13\") | .files[]] | length")" -eq 2 ]'
 check "non-generic package untouched" '[ "$(st "[.projects[0].packages[] | select(.id==500)] | length")" -eq 1 ]'
 check "package no rule names untouched (even with duplicates)" '[ "$(st "[.projects[0].packages[] | select(.id==501) | .files[]] | length")" -eq 2 ]'
 check "image: newest 2 + release-linked remain" '[ "$(st "[.projects[1].packages[] | select(.name==\"ncz-os-image\") | .version] | sort | join(\",\")")" = "26.07-a,26.09-c,26.10-d" ]'
 check "kernel source packages untouched" '[ "$(st "[.projects[1].packages[] | select(.name|startswith(\"linux-\"))] | length")" -eq 2 ]'
-check "apply manifest written in apply mode" '[ "$(jq -r .mode "$T/applied.json")" = apply ] && [ "$(jq ".removals | length" "$T/applied.json")" -eq 97 ]'
-check "log line appended" 'grep -q "gitlab-registry-cleanup apply rules=rules.conf versions=92 files=5 bytes=[0-9]* result=ok" "$T/run.log"'
+check "apply manifest written in apply mode" '[ "$(jq -r .mode "$T/applied.json")" = apply ] && [ "$(jq ".removals | length" "$T/applied.json")" -eq 95 ]'
+check "log line appended" 'grep -q "gitlab-registry-cleanup apply rules=rules.conf versions=91 files=4 bytes=[0-9]* result=ok" "$T/run.log"'
 check "token never in curl argv" '! grep -qF "$TOKEN_VALUE" "$MOCK_ARGV"'
 check "token never in output" '! grep -qF "$TOKEN_VALUE" <<<"$out"'
 check "every request authenticated via stdin config" '! grep -q "auth=no" "$MOCK_LOG"'
@@ -218,8 +222,8 @@ PY
 out=$(run --apply --manifest "$T/fail.json"); rc=$?
 check "failed removal exits 1" '[ "$rc" -eq 1 ]'
 check "failed removal reported" 'grep -q "FAILED   ncz-os-image 26.08-b" <<<"$out"'
-check "manifest exists despite the failure" '[ "$(jq ".removals | length" "$T/fail.json")" -eq 97 ]'
-check "other removals still made" '[ "$(st "[.projects[0].packages[] | select(.name==\"zoder-nightly\" and .package_type==\"generic\")] | length")" -eq 15 ]'
+check "manifest exists despite the failure" '[ "$(jq ".removals | length" "$T/fail.json")" -eq 95 ]'
+check "other removals still made" '[ "$(st "[.projects[0].packages[] | select(.name==\"zoder-nightly\" and .package_type==\"generic\")] | length")" -eq 16 ]'
 
 # 5. token and rules errors make no request
 reset_state
