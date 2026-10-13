@@ -1001,10 +1001,14 @@ A single, **removable, toggleable** diagnostics module gives a remote operator
 full access *while the d-i installer is running*, so an install can never wedge
 us out and failures are captured even with nobody watching.
 
-> **Default login (installer only):** user `installer` (or `root`) with the
-> published break-glass default defined in `preseed/diag-console.sh`. Set your
+> **Login (installer only):** `root` (or `installer` for the network-console
+> menu) / `rescue` — the same documented login as the rescue partition. The
+> installer shows it in its boot banner on every console
+> (`diagnostics login: root / rescue`), on the last line of every NCZ dialog and
+> on the progress screen; it is gone once the installed system boots. Set your
 > own with `ncz_diag_pw=<pw>` on the kernel command line, or turn the module off
-> with `ncz_diag=0`. For a trusted LAN only — see the security note below.
+> with `ncz_diag=0`. For a trusted LAN only — see the security note below and
+> **[docs/RECOVERY-LOGINS.md](docs/RECOVERY-LOGINS.md)**.
 
 | Channel | Port | Access |
 |---|---|---|
@@ -1018,7 +1022,7 @@ Put `ncz_diag=0` (or `off`) on the installer's kernel command line — edit the
 entry at the rEFInd menu — to disable it for that boot.
 
 **Tunables (kernel cmdline):**
-- `ncz_diag_pw=<pw>` — root/diag login (default: the published value in `preseed/diag-console.sh`).
+- `ncz_diag_pw=<pw>` — root/diag login (default: `rescue`, see [docs/RECOVERY-LOGINS.md](docs/RECOVERY-LOGINS.md)).
 - `ncz_diag_log=<host[:port]>` — remote syslog collector (port defaults to
   `5514`). Unset means no forwarding at all.
 
@@ -1042,7 +1046,7 @@ On the **installed system**, full SSH, telnet on :23
 [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md) take over; the installer-only
 consoles vanish with the d-i ramdisk.
 
-> **Security:** the published default login, the telnet root shell and the
+> **Security:** the published login (`root` / `rescue`), the telnet root shell and the
 > world-readable httpd are **for a trusted LAN only**. Boot the installer with
 > `ncz_diag=0` on any network you do not control.
 
@@ -1070,9 +1074,11 @@ menu entry ("Rescue Partition (Console)"), independent of the main root filesyst
 installed system's root (btrfs or ext4) won't boot, the rescue partition
 still will.
 
-**Login.** Root, with the published break-glass default defined in
+**Login.** `root` / `rescue`, the published break-glass default defined in
 `build/build-rescue-rootfs.sh` (LAN-only; the rescue environment is not meant
-to be internet-facing — change it after first use). Hostname `ncz-rescue`.
+to be internet-facing — change it with `passwd` after first use). Hostname
+`ncz-rescue-<mac suffix>`. How to connect, change and reset it:
+[docs/RECOVERY-LOGINS.md](docs/RECOVERY-LOGINS.md).
 
 **Access channels:**
 

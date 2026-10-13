@@ -23,6 +23,10 @@ exactly what is enabled, why, and how to disable each part.
 
 ### About the default logins
 
+The installer diagnostics login and the rescue partition login are listed,
+with how to connect, change and reset them, in
+[RECOVERY-LOGINS.md](RECOVERY-LOGINS.md).
+
 The failsafe console and the recovery container ship with **published
 break-glass defaults** — the values are in the source files named in the
 table, on purpose. The installer diagnostics account and the rescue partition
