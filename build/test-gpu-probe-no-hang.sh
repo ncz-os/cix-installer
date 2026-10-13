@@ -1,8 +1,8 @@
 #!/bin/bash
 # test-gpu-probe-no-hang.sh -- install-time GPU probing never blocks on a
-# wedged device (PEGASUS install hang, 2026-10-06).
+# wedged device (GU502LV install hang, 2026-10-06).
 #
-# PEGASUS (ASUS GU502LV, RTX 2060 Mobile TU106 10de:1f15, Optimus) hung for
+# The ASUS GU502LV (RTX 2060 Mobile TU106 10de:1f15, Optimus) hung for
 # 30+ minutes in post-install/54-gpu-accel.sh: after nouveau's runtime
 # suspend oopsed, `lspci -nn` blocked in D state reading the GPU's config
 # space. Contract, each checked against the SHIPPED code:
@@ -79,7 +79,7 @@ P54="$W/pci54"
 mkdev "$P54" 0000:00:02.0 030000 8086 3e9b
 mkdev "$P54" 0000:01:00.0 030000 10de 1f15
 t0=$(date +%s); run54 "$P54"; dt=$(( $(date +%s) - t0 ))
-[ "$RC54" = 0 ] && ok "hook completed rc 0 in ${dt}s (PEGASUS GPU set)" || { nok "hook rc=$RC54 after ${dt}s (124 = hung on lspci)"; tail -5 "$SB/out" | sed 's/^/        /'; }
+[ "$RC54" = 0 ] && ok "hook completed rc 0 in ${dt}s (GU502LV GPU set)" || { nok "hook rc=$RC54 after ${dt}s (124 = hung on lspci)"; tail -5 "$SB/out" | sed 's/^/        /'; }
 [ ! -e "$SB/bin/lspci.called" ] && ok "lspci was never invoked" || nok "lspci was invoked"
 grep -q 'GPU/accelerator wiring done (NVIDIA=1 AMD=0 Intel=1)' "$SB/out" && ok "NVIDIA + Intel detected from sysfs" || nok "wrong detection: $(grep 'wiring done' "$SB/out")"
 mkhang "$SB/bin" rocminfo

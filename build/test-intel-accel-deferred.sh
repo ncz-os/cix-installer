@@ -2,7 +2,7 @@
 # test-intel-accel-deferred.sh -- Intel GPU/NPU userspace: vendored key, apt
 # simulation gate, and the deferred retry when the network is down (r201).
 #
-# PEGASUS had no OpenVINO / Level Zero userspace: 54-gpu-accel.sh fetched an
+# GU502LV had no OpenVINO / Level Zero userspace: 54-gpu-accel.sh fetched an
 # Intel key URL that answers 403, skipped the stack with no retry, and asked for
 # package names Intel's repo does not publish. This runs the real
 # post-install/lib/intel-accel.sh against a fixture root (NCZ_INTEL_ROOT) with

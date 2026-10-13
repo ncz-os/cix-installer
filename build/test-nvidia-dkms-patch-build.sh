@@ -12,7 +12,7 @@
 # Needs podman or docker, kernel headers and the NVIDIA DKMS source; SKIPs
 # (exit 0) when any of them is missing, so it is safe in `make test` on hosts
 # without a container runtime. Heavy (two full module builds): run it on a
-# build host, never on STUDIO.
+# build host, never on the macOS orchestration workstation.
 #
 #   NCZ_KHDR_DIR   directory holding linux-headers-$NCZ_KVER (required)
 #   NCZ_KVER       kernel release of those headers (required)

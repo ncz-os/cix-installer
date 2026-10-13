@@ -1,6 +1,6 @@
 #!/bin/bash
 # test-hook-watchdog.sh -- a hung command or hook cannot hang the install
-# (PEGASUS install hang, 2026-10-06).
+# (GU502LV install hang, 2026-10-06).
 #
 # A process in uninterruptible sleep survives SIGKILL, so `timeout cmd`
 # waits for it forever and `cmd | tee` never sees EOF. Contract, checked

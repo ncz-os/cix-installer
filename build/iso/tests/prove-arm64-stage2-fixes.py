@@ -3,8 +3,8 @@
 prove-arm64-stage2-fixes.py — in-isolation proof harness for the three
 arm64 ISO stage-2 defects fixed on 2026-09-29.
 
-The end-to-end arm64 build lives on ULTRA and runs in a rootful
-ncz-imagebuild container that is NOT available on cerberus. The brief
+The end-to-end arm64 build lives on the arm64 build host and runs in a rootful
+ncz-imagebuild container that is NOT available on other hosts. The brief
 explicitly forbids attempting the full arm64 build here. Each defect
 has a measured behavior in production; this script reproduces that
 behavior with synthetic fixtures and shows the fix in place.
@@ -75,7 +75,7 @@ def proof_a_dangling_symlink() -> None:
         # dangling symlink at scripts/kernel-doc, plus a real file so
         # the negative case has a baseline. kernel-doc is a symlink
         # whose target was removed by an upstream kernel-doc refactor;
-        # this is exactly what was on ULTRA 2026-09-28.
+        # this is exactly what was on the arm64 build host 2026-09-28.
         real_dir = tmpp / "src" / "lib" / "modules" / "7.2.8-sky1-ncz" / "build"
         scripts = real_dir / "scripts"
         scripts.mkdir(parents=True)
@@ -86,7 +86,7 @@ def proof_a_dangling_symlink() -> None:
         os.symlink("/nonexistent/upstream/scripts/kernel-doc.py", kernel_doc)
 
         # NEGATIVE: the broken default copy. This is what shutil.copytree
-        # with symlinks=False did on ULTRA 2026-09-28 -- raised on the
+        # with symlinks=False did on the arm64 build host 2026-09-28 -- raised on the
         # dangling symlink and aborted the whole copy.
         broken_dst = tmpp / "dst-broken"
         try:

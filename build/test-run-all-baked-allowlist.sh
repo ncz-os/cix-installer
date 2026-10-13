@@ -10,7 +10,7 @@
 # Sky1 (orange launcher icon, measured on O6N and MS-R1).
 #
 # KNOWN_ORPHANS is the one tolerated exception, printed on every run:
-#   44-apple-vbt-spoof.sh (amd64) is orphaned the same way (measured on CHIMERA, a
+#   44-apple-vbt-spoof.sh (amd64) is orphaned the same way (measured on a
 #   MacBookPro16,1: "ORPHAN: 44-apple-vbt-spoof.sh", no spoof_osx_version in refind.conf).
 #   Allowlisting it alone would not help: it appends to /boot/efi/EFI/BOOT/refind.conf at
 #   44, and ncz-refind-refresh-amd64.sh (run by 70-bootloader and on every kernel upgrade)
@@ -31,7 +31,7 @@ pass=0
 fail=0
 # 44-apple-vbt-spoof.sh is listed in hooks.list.amd64 but deliberately kept out
 # of MACHINE_HOOKS_RE so it never runs in baked mode. Operator decision
-# 2026-10-06: on this hardware (CHIMERA, MacBookPro16,1) the dGPU must drive
+# 2026-10-06: on this hardware (MacBookPro16,1) the dGPU must drive
 # the internal panel, and the spoof exists to move it to the iGPU. See the
 # header of post-install/44-apple-vbt-spoof.sh for the measurement. Adding it
 # to the allowlist needs a supervised boot and a fresh operator decision.

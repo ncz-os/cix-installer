@@ -3,10 +3,10 @@
 # console=ttyS0 only when ttyS0 is a real UART (r201).
 #
 # Every installed amd64 entry used to carry console=ttyS0,115200. On machines
-# without a UART (PEGASUS, CHIMERA/T2) the 8250 placeholder ttyS0 still exists,
+# without a UART (the GU502LV laptop, T2 Macs) the 8250 placeholder ttyS0 still exists,
 # systemd starts serial-getty@ttyS0 for the console= argument and agetty fails
 # "failed to get terminal attributes: Input/output error" in a loop (28 per
-# boot on PEGASUS). This test runs the real NCZ-SERIAL-CONSOLE block from
+# boot on GU502LV). This test runs the real NCZ-SERIAL-CONSOLE block from
 # assets/refind/ncz-refind-refresh-amd64.sh against fixture sysfs/proc trees and
 # checks that the installer media and arm64 keep their serial consoles.
 #

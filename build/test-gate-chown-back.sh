@@ -5,7 +5,7 @@
 # operator 2026-10-11 "fix open items": the KVM install gate and the provenance
 # gate run under ncz_sudo (as root). Everything they wrote under the run dir
 # (kvm-gate/ui-check/, kvm-gate/target-logs/, prov-index/) was root-owned, so
-# the build user could not `rm -rf` a finished run dir (36G stranded on ACHILLES;
+# the build user could not `rm -rf` a finished run dir (36G stranded on a build host;
 # same class as the arm64 .kdebs-tmp stray logs). build/lib/priv.sh now provides
 # ncz_chown_back / ncz_trap_chown_back and each privileged script installs the
 # trap. This test pins the behaviour and the wiring.

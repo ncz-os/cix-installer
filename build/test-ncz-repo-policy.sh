@@ -5,7 +5,7 @@
 #   2. check-installed-apt-config two enabled NCZ repos / missing pin FAILS (r200 shape), new shape passes
 #   3. deb-version-gate           same version + different bytes FAILS ("1.0 -> 1.0")
 #   4. publisher policy           ncz-reprepro-publish.sh refuses a leaked Debian-named deb
-#   5. ncz-update-check           classifies MEDUSA's real r200 `apt list --upgradable` into
+#   5. ncz-update-check           classifies a T2 Mac's real r200 `apt list --upgradable` into
 #                                 NCZ-OS / Debian groups (recorded fixtures)
 # Each gate is exercised in BOTH directions (bad input fails, good input passes).
 # Usage: build/test-ncz-repo-policy.sh
@@ -283,9 +283,9 @@ path, fx = sys.argv[1], sys.argv[2]
 loader = importlib.machinery.SourceFileLoader("nuc", path)
 spec = importlib.util.spec_from_loader("nuc", loader)
 m = importlib.util.module_from_spec(spec); loader.exec_module(m)
-listing = open(fx + "/medusa-apt-list-upgradable.txt").read()
-glob = open(fx + "/medusa-policy-global.txt").read()
-perpkg = open(fx + "/medusa-policy-upgradable.txt").read()
+listing = open(fx + "/t2mac-apt-list-upgradable.txt").read()
+glob = open(fx + "/t2mac-policy-global.txt").read()
+perpkg = open(fx + "/t2mac-policy-upgradable.txt").read()
 parsed = [mm.groupdict() for mm in (m.LINE_RE.match(l.strip()) for l in listing.splitlines()) if mm]
 origins = m.parse_source_origins(glob)
 cands = m.parse_candidate_hosts(perpkg)

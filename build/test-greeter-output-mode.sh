@@ -69,7 +69,7 @@ if [ "$rc" = 0 ]; then ok "exit 0 when wlr-randr is absent"; else bad "exit $rc 
 
 # --- HiDPI helper path (docs/HIDPI-SCALING.md) ---------------------------------
 HELPER="$ROOT/assets/display/ncz-display-scale"
-cat > "$T/chimera.json" <<'J'
+cat > "$T/mbp16.json" <<'J'
 [{"name": "eDP-1", "make": "Apple Computer Inc", "model": "Color LCD", "serial": null,
   "physical_size": {"width": 340, "height": 220}, "enabled": true, "scale": 1.0,
   "modes": [{"width": 3072, "height": 1920, "refresh": 60.0, "preferred": true, "current": true},
@@ -84,7 +84,7 @@ cat > "$T/fourk.json" <<'J'
 J
 runh() { : > "$T/calls"; JSON="$2" CALLS="$T/calls" BEHAVIOUR="$1" NCZ_DISPLAY_SCALE_HELPER="$HELPER" PATH="$T/bin:/usr/bin:/bin" sh "$T/autostart" >/dev/null 2>&1; echo $?; }
 
-rc=$(runh ok "$T/chimera.json")
+rc=$(runh ok "$T/mbp16.json")
 if [ "$rc" = 0 ] && grep -qx -- "--output eDP-1 --mode 1920x1200@60.000000Hz --scale 1 --on" "$T/calls"; then
     ok "16:10 panel: helper picks same-aspect 1920x1200, not a letterboxed 1080p"
 else
@@ -144,7 +144,7 @@ else
     bad "no legacy fallback without the helper (rc=$rc)"
 fi
 
-# A single-mode 3840x2160 panel (PEGASUS eDP AU Optronics 0x31EB) has no capped
+# A single-mode 3840x2160 panel (GU502LV eDP AU Optronics 0x31EB) has no capped
 # mode. Under autoEnableOutputs=no it is left off by the compositor, so the
 # helper must enable it at its own native mode with --on (never "leave it
 # alone", never a 4K --mode). Regression 2026-10-11.
@@ -177,7 +177,7 @@ fi
 # --- rc.xml <autoEnableOutputs> policy is arch-gated ---------------------------
 # The Sky1 DP AUX wedge is a trilin/arm64 problem; on amd64 the key makes labwc
 # try to disable the console-inherited CRTC, which fails on i915 and leaves the
-# greeter black (PEGASUS RC2 325c9510). assets/display/ncz-greeter-rcxml owns it.
+# greeter black (GU502LV RC2 325c9510). assets/display/ncz-greeter-rcxml owns it.
 RCXML="$ROOT/assets/display/ncz-greeter-rcxml"
 if [ -f "$RCXML" ]; then ok "ncz-greeter-rcxml asset present"; else bad "ncz-greeter-rcxml asset missing"; fi
 if sh -n "$RCXML"; then ok "ncz-greeter-rcxml is valid shell"; else bad "ncz-greeter-rcxml syntax"; fi

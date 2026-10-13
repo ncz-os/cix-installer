@@ -19,7 +19,7 @@ Covers:
     both a 16:10 and a 16:9 cover/zoom view (needs Pillow; skipped loudly
     without it).
 
-CHIMERA (MacBookPro16,1, 3072x1920 eDP-1, scale 2) is the panel that showed
+The MacBookPro16,1 test unit (3072x1920 eDP-1, scale 2) is the panel that showed
 the 16:9 originals cropping "NCZ-OS 26.10" to "NCZ-OS 26" on 2026-10-06.
 """
 
@@ -231,7 +231,7 @@ class OutputSize(unittest.TestCase):
     def test_displays_json_fallback(self):
         with Sandbox() as sb:
             sb.no_wlr()
-            # CHIMERA's real displays.json shape
+            # the MacBookPro16,1's real displays.json shape
             sb.displays(
                 {
                     "shell_monitor": "eDP-1",

@@ -7,7 +7,7 @@
 # before wiping the ESP. The pre-fix loop took the first non-rescue ESP kernel
 # whose kver was neither the primary nor the edge line, with NO prerelease
 # classification, and deleted the existing rescue pair BEFORE copying. Live on
-# MEDUSA (T2 Mac) after purging linux-image-7.2.8-3, a staged stock-Edge kernel
+# A MacBookPro16,1 (T2 Mac) after purging linux-image-7.2.8-3, a staged stock-Edge kernel
 # 7.3.0-rc5-10-t2-ncz-revhid (not equal to KVER_EDGE=7.3.0-rc5-9) was
 # promoted to RESCUE and the known-good 7.2.8 rescue was deleted.
 #

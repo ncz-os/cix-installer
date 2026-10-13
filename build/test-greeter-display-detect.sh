@@ -4,7 +4,7 @@
 #
 # 22-display-fix.sh leaves cix-detect-display.service disabled on amd64, but the
 # greetd drop-in from 55-greeter.sh carried After=/Wants=cix-detect-display, so
-# the unit ran on every amd64 boot anyway (7.4 s in CHIMERA's boot blame). The
+# the unit ran on every amd64 boot anyway (7.4 s in the MacBookPro16,1's boot blame). The
 # arch-neutral drop-in (10-ncz-drm.conf) now names only ncz-usb2-rescan, and the
 # display-detect ordering lives in 11-ncz-display-detect.conf, written on arm64
 # and removed on every other arch. This test runs the real arch block from

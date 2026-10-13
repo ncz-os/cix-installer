@@ -1,6 +1,6 @@
 #!/bin/bash
 # test-build-determinism.sh -- unit-level proof of the determinism contract
-# (docs/IMAGE-BUILD-PROCESS.md).  Both directions are asserted: a stable input
+#.  Both directions are asserted: a stable input
 # yields identical bytes, and a genuinely nondeterministic input is shown to
 # differ (so the test cannot pass by accident).
 #

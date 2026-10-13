@@ -10,7 +10,7 @@
 # extracted late.sh code in an emulation of finish-install.postinst
 # (START 0 N, STEP 1 per finish-install.d entry, 07preseed = late_command).
 #
-#   1. geometry from a real finish-install.d listing (r199 image, PEGASUS)
+#   1. geometry from a real finish-install.d listing (r199 image, GU502LV)
 #   2. rescale path: START with finish-install's title, SET to where it was,
 #      a weighted GPU step (weight 12) with real pct plus long flat stretches;
 #      the bar never settles lower, keeps moving in flat stretches without
@@ -69,7 +69,7 @@ check "no bare [ \"\$NCZ_PROGRESS_UNITS\" -gt ... ] left in late.sh" \
     sh -c '! grep -nE "\"\\\$NCZ_PROGRESS_UNITS\" -(gt|ge|lt|le|eq)" "$1" | grep -vE "^[0-9]+:[[:space:]]*#"' _ "$LATE"
 
 # ------------------------------------------------------------ fixtures
-# finish-install.d as listed on the r199 image (PEGASUS, 2026-10-06).
+# finish-install.d as listed on the r199 image (GU502LV, 2026-10-06).
 PARTS="$W/finish-install.d"; mkdir -p "$PARTS"
 for f in 01kickseed 05localechooser 06user-setup 07brltty 07preseed 07rootskel \
          07speakup 08hw-detect 10clock-setup 10open-iscsi 10update-initramfs \

@@ -77,7 +77,7 @@ NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_amd64=$(printf 'LIB-A' | sha256sum | awk '{pr
 NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_arm64=$(printf 'LIB-B' | sha256sum | awk '{print $1}')
 EOF
 }
-A="$T/argonas"; mkdir -p "$A/ncz-screensavers-debs/plugin-test"
+A="$T/store"; mkdir -p "$A/ncz-screensavers-debs/plugin-test"
 for a in amd64 arm64; do mkplugin "$A/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_$a.deb" "$a" 0.3.16; done
 FL="$T/lock"; mklock "$FL"
 
@@ -94,7 +94,7 @@ else
     FAILS=$((FAILS + 1)); echo "FAIL pin: $LOCK or $LIB missing (the plugin is not wired)"
 fi
 
-# --- 2. staging from ARGONAS ------------------------------------------------------------
+# --- 2. staging from the store ------------------------------------------------------------
 ST="$ROOT/build/stage-screensaver-plugin.sh"
 if [ -r "$ST" ]; then
     O="$T/out-stage"; mkdir -p "$O"
@@ -107,15 +107,15 @@ if [ -r "$ST" ]; then
     [ ! -e "$O/ncz-screensavers-plugin_0.3.15_arm64.deb" ] && ok "stage: a superseded arm64 plugin deb is removed" || bad "stage: superseded arm64 plugin deb left behind"
     [ -e "$O/ncz-screensavers-plugin_0.3.15_amd64.deb" ] && [ -e "$O/ncz-screensavers_0.8.10_arm64.deb" ] && ok "stage: the other arch and the engine deb are untouched" || bad "stage: removed something it does not own"
     expect "stage: a re-run is a no-op" 0 "identical" stage arm64
-    cp -a "$A" "$T/argonas-bad"; echo tampered >> "$T/argonas-bad/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_amd64.deb"
+    cp -a "$A" "$T/store-bad"; echo tampered >> "$T/store-bad/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_amd64.deb"
     O2="$T/out-bad"; mkdir -p "$O2"
-    expect "stage: a source that does not match the pin is refused" 1 "refusing to stage" env NCZ_SSPLUGIN_LOCK="$FL" NCZ_SSPLUGIN_SRC_ROOT="$T/argonas-bad" NCZ_SSPLUGIN_OUT="$O2" bash "$ST" amd64
+    expect "stage: a source that does not match the pin is refused" 1 "refusing to stage" env NCZ_SSPLUGIN_LOCK="$FL" NCZ_SSPLUGIN_SRC_ROOT="$T/store-bad" NCZ_SSPLUGIN_OUT="$O2" bash "$ST" amd64
     [ -z "$(ls "$O2")" ] && ok "stage: nothing staged after a refused source" || bad "stage: refused source left a file"
     # a deb whose sha matches a pin but whose control says another arch
     cp "$FL" "$T/lock.swap"
     sed -i "s/^NCZ_SSPLUGIN_SHA256_amd64=.*/NCZ_SSPLUGIN_SHA256_amd64=$(sed -n 's/^NCZ_SSPLUGIN_SHA256_arm64=//p' "$FL")/" "$T/lock.swap"
-    cp -a "$A" "$T/argonas-swap"; cp "$A/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_arm64.deb" "$T/argonas-swap/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_amd64.deb"
-    expect "stage: a pin-matching deb with the wrong Architecture is refused" 1 "Architecture is 'arm64'" env NCZ_SSPLUGIN_LOCK="$T/lock.swap" NCZ_SSPLUGIN_SRC_ROOT="$T/argonas-swap" NCZ_SSPLUGIN_OUT="$O2" bash "$ST" amd64
+    cp -a "$A" "$T/store-swap"; cp "$A/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_arm64.deb" "$T/store-swap/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_amd64.deb"
+    expect "stage: a pin-matching deb with the wrong Architecture is refused" 1 "Architecture is 'arm64'" env NCZ_SSPLUGIN_LOCK="$T/lock.swap" NCZ_SSPLUGIN_SRC_ROOT="$T/store-swap" NCZ_SSPLUGIN_OUT="$O2" bash "$ST" amd64
     expect "stage: a missing source is refused" 1 "missing" env NCZ_SSPLUGIN_LOCK="$FL" NCZ_SSPLUGIN_SRC_ROOT="$T" NCZ_SSPLUGIN_OUT="$O2" bash "$ST" amd64
 else
     FAILS=$((FAILS + 1)); echo "FAIL stage: $ST missing"
@@ -150,7 +150,7 @@ if [ -r "$CK" ]; then
     expect "abi: a rebuilt payload with a byte-identical libsingularity passes" 0 "ABI OK (lib-identical)" abi
     mkpayload "$C/ncz-singularity-desktop_20261008+bk0+tgzdddddddd_amd64.deb" amd64 20261008+bk0+tgzdddddddd LIB-CHANGED
     expect "abi: the newest payload with a changed libsingularity fails" 1 "ABI MISMATCH" abi
-    grep -q "PROTEUS 192.168.207.68" "$T/out" && grep -q "ULTRA   192.168.207.88" "$T/out" && grep -q "tools/make-plugin-deb.sh" "$T/out" \
+    grep -q "amd64: .*container debian:forky" "$T/out" && grep -q "arm64: .*container debian:testing" "$T/out" && grep -q "tools/make-plugin-deb.sh" "$T/out" \
         && ok "abi: the failure prints the rebuild hosts and commands" || bad "abi: the failure lacks rebuild instructions"
     expect "abi: --payload-deb selects an explicit payload" 0 "lib-identical" abi --payload-deb "$C/ncz-singularity-desktop_20261007+bk0+tgzcccccccc_amd64.deb"
     rm -f "$C/ncz-singularity-desktop_20261008"*

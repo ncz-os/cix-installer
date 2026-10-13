@@ -1,6 +1,6 @@
 #!/bin/bash
 # shellcheck disable=SC2015  # ok/bad return 0
-# Regression test for the amd64 Intel VA-API gap (MEDUSA UHD 630, 2026-10-05).
+# Regression test for the amd64 Intel VA-API gap (MacBookPro16,1 UHD 630, 2026-10-05).
 #
 # On an Intel machine libva probed .../dri/iHD_drv_video.so and
 # i965_drv_video.so and found neither: the amd64 desktop offline closure never

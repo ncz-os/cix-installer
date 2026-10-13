@@ -5,7 +5,7 @@
 #
 # Provenance (O6N, r199 installer, 7.3.0-rc6-sky1-ncz, 2026-10-06): d-i saw
 # only lo, and with console=tty0 on the on-screen entries nothing reached the
-# serial capture on PROTEUS, so the failure could not be read remotely. Serial
+# serial capture on HP OmniDesk, so the failure could not be read remotely. Serial
 # console= on those entries is not an option: both orders moved d-i's UI onto
 # the UART on real hardware (0871d09f/65c91e3e, 91060aca, root cause 4f262f4c).
 # The serial side therefore lives in preseed/diag-console.sh (kmsg mirror,

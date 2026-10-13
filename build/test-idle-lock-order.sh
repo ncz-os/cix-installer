@@ -7,7 +7,7 @@
 #
 # The bug it guards: both defaults are 300s, so the protocol-exclusive lock
 # surface races the layer-shell saver and can win, leaving the saver unseen
-# (PROTEUS 2026-10-11).
+# (HP OmniDesk 2026-10-11).
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOOK="$ROOT/post-install/63-ncz-idle-lock-order.sh"

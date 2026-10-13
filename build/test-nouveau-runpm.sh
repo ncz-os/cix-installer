@@ -1,8 +1,8 @@
 #!/bin/bash
 # test-nouveau-runpm.sh -- amd64 boots with nouveau.runpm=0, arm64 does not
-# (PEGASUS install hang, 2026-10-06).
+# (GU502LV install hang, 2026-10-06).
 #
-# PEGASUS (ASUS GU502LV, RTX 2060 Mobile TU106 10de:1f15, Optimus): on
+# The ASUS GU502LV (RTX 2060 Mobile TU106 10de:1f15, Optimus): on
 # 7.3-rc5+ nouveau's runtime suspend oopses in nvkm_gsp_gcx_ready() (NULL
 # gsp->rm, no GSP-RM firmware), the GPU stays in runtime_status "suspending"
 # and every later PCI config read hangs (it hung the installer for 30+ min).
