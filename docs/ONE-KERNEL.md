@@ -1,4 +1,4 @@
-# One-kernel policy (operator ruling 2026-10-10: "ship only OUR kernel")
+# One-kernel policy (project decision 2026-10-10: "ship only OUR kernel")
 
 Every NCZ-OS image must contain **exactly one kernel**: the NCZ kernel. In
 26.10 Preview 1 that is `7.3.0-rc7-t2-ncz` on amd64 (package

@@ -1,6 +1,6 @@
 # Supported platform firmware — CIX Sky1 boards
 
-**Policy (operator, 2026-08-22): NCZ-OS supports Radxa Orion EFI 1.3.1 and
+**Policy (2026-08-22): NCZ-OS supports Radxa Orion EFI 1.3.1 and
 higher. Older firmware is out of scope.**
 
 This is a support boundary, not a kernel limitation. It exists because platform
@@ -37,7 +37,7 @@ version. It says nothing about other Sky1 boards:
 
 | Board                     | Firmware string seen        | Status |
 |---------------------------|-----------------------------|--------|
-| Radxa Orion O6 family     | EFI 1.2.4 / 1.3.1           | floor = 1.3.1 |
+| Radxa Orion O6, Radxa Orion O6N | EFI 1.2.4 / 1.3.1           | floor = 1.3.1 |
 | Minisforum MS-R1 (P1WSB)  | `BIOS 1.0`, dated 03/12/2026 | vendor's own numbering — needs a Minisforum update, NOT "1.3.1" |
 | Orange Pi 6 / 6 Plus      | not yet measured            | measure on arrival |
 
@@ -46,7 +46,7 @@ controllers usable — and has two independent ACPI gaps traced to it:
 
 1. `CIXH2031:00` and `:01` bind `cdns-usbssp` but their
    `usb_role/.../role` never leaves `none`, so no xHCI host is created and both
-   USB-C ports are dead. The Orion O6 board we tested, by contrast, exposes one role switch reading
+   USB-C ports are dead. The Radxa Orion O6N we tested, by contrast, exposes one role switch reading
    `host` and gets all ten controllers.
 2. NPU cores `CRE0/1/2` exist in the ACPI namespace but the firmware omits
    `_HID "CIXH4010"`, so no platform devices are created. That is what made
@@ -79,11 +79,11 @@ connector mapping is not stable across firmware.
 `patches-7.2/0174-usb-cdns3-sky1-strap-host-only-controllers-as-host.patch`
 does exactly this (`data->id == U3_TYPEC_DRD_ID ? MODE_STRAP_OTG :
 MODE_STRAP_HOST`, with `U3_TYPEC_DRD_ID = 0`) and additionally assumes a single
-DRD port. That assumption holds only on the Orion O6 board we tested. MS-R1, Orange Pi 6 and Orange Pi 6
+DRD port. That assumption holds only on the Radxa Orion O6N we tested. MS-R1, Orange Pi 6 and Orange Pi 6
 Plus each have **two** USB-C ports. Prefer deriving host-vs-DRD from the
 firmware description — does this controller have a role-switch/typec companion?
 — over an index.
 
 Note also that `_UPC`/`_PLD` are absent on every Sky1 board measured so far:
-`connect_type` reads `unknown` for all ports on both MS-R1 and the Orion O6, so the OS
+`connect_type` reads `unknown` for all ports on both MS-R1 and the Radxa Orion O6N, so the OS
 cannot distinguish internal from case-accessible connectors on any of them.

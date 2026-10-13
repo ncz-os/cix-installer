@@ -52,4 +52,4 @@ on wired-only O6 systems where iwd is correctly skipped for lack of Wi-Fi hardwa
 
 - sinty-nm writes `/etc/resolv.conf` **directly**, so it must be a writable
   regular file (19-sinty-nm de-symlinks it).
-- iwd is installed even on ethernet-only boards (Orion O6) for consistency.
+- iwd is installed even on ethernet-only boards (Radxa Orion O6N) for consistency.

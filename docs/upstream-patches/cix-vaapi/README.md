@@ -61,7 +61,7 @@ Build/test attempts on 2026-08-26:
 
 - Local workspace build blocked at CMake configure: `pkg-config` cannot find
   `libva`.
-- The Orion O6 test board has `libva-dev`, `/dev/dri/renderD128`, `g++`, the
+- The Radxa Orion O6N test board has `libva-dev`, `/dev/dri/renderD128`, `g++`, the
   runtime `libcme.so.1`, and the VPU control header, but no `cmake` and no
   `cme.h`.
 - A manual board compile reached source compilation but could not complete

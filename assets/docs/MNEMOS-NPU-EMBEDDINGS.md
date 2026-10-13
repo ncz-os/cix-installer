@@ -1,1 +1,0 @@
-../../docs/MNEMOS-NPU-EMBEDDINGS.md

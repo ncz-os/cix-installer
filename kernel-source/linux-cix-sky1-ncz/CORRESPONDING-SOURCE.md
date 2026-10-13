@@ -16,7 +16,7 @@ up forever.
 ### Current: v7.2-rc6 (SRCREV bumped 2026-08-02)
 
 - Our patches: `linux-cix-sky1-ncz-7.2/patches-7.2/*.patch` (this repo, full
-  git history, all 3 remotes: ARGONAS canonical, GitLab, GitHub-source-stub-N/A).
+  git history, published on GitLab).
 - Pristine base recipe fetches: `git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git`
   pinned via `SRCREV_kernel = "075b74841bd0065a3bda3440873c747938e69b68"` (v7.2-rc6;
   the annotated tag object is `d7dd96eb916519208210bb4a0408fcf4f7fdce5d` -- SRCREV
@@ -47,7 +47,7 @@ up forever.
 ### Previous: v7.2-rc5 (superseded 2026-08-02; record retained per the GPL note below)
 
 - Our patches: `linux-cix-sky1-ncz-7.2/patches-7.2/*.patch` (this repo, full
-  git history, all 3 remotes: ARGONAS canonical, GitLab, GitHub-source-stub-N/A).
+  git history, published on GitLab).
 - Pristine base recipe fetches: `git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git`
   pinned via `SRCREV_kernel = "f5098b6bae761e346ebcd9da7f95622c04733cff"` (v7.2-rc5;
   the tag object itself is `a8e429896436e8c2d288181f875f92af8204bc58` -- SRCREV
@@ -71,7 +71,7 @@ up forever.
 ### Previous: v7.2-rc4 (superseded 2026-07-26; record retained per the GPL note below)
 
 - Our patches: `linux-cix-sky1-ncz-7.2/patches-7.2/*.patch` (this repo, full
-  git history, all 3 remotes: ARGONAS canonical, GitLab, GitHub-source-stub-N/A).
+  git history, published on GitLab).
 - Pristine base recipe fetches: `git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git`
   pinned via `SRCREV_kernel = "1590cf0329716306e948a8fc29f1d3ee87d3989f"` (v7.2-rc4).
 - **Self-mirrored pristine base** (single-commit archive of that exact SRCREV,
@@ -89,9 +89,8 @@ up forever.
 - **Self-mirrored pristine base**:
   <https://gitlab.com/api/v4/projects/81838641/packages/generic/linux-pristine-base-cix-sky1-next/7.0.12-f53879e2/linux-cix-sky1-next-7.0.12-pristine-base-f53879e2.tar.gz>
   sha256 `6adfd49db52de5324368501587681c4af96a9665a57c24a3a7bb07a3ded443dc`
-- **Self-mirrored complete (pristine+patched, as-built) tree**, recovered from an
-  ARGOS local archive that predated this index (`/home/jasonperlow/ARCHIVE-20260625/linux-7.0.12-cix-sky1-ncz-src.tar.gz`,
-  99,443 files) and had never been published anywhere reachable before now:
+- **Self-mirrored complete (pristine+patched, as-built) tree**, recovered from a
+  local archive that predated this index (99,443 files) and had never been published anywhere reachable before now:
   <https://gitlab.com/api/v4/projects/81838641/packages/generic/linux-source-cix-sky1-ncz/7.0.12/linux-7.0.12-cix-sky1-ncz-src.tar.gz>
   sha256 `2baa328c80259caf816cb55a3e715a2a506371a276f869769349152db53a534c`
 

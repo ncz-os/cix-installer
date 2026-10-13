@@ -131,7 +131,7 @@ Preview 1 带有 **amd64 上的 AMD、NVIDIA 与 Intel GPU 驱动**、**CIX Sky1
 | ASUS ROG GU502LV 笔记本 | Core i7-10750H | NVIDIA GeForce RTX 2060 Mobile（专有 `nvidia`）+ Intel UHD 630（`i915`） | 已安装，可启动到桌面 |
 | HP OmniDesk 台式机 | Core Ultra 7 265 | Intel 集成显卡（Xe-LPG，`i915`） | 已安装，可启动到桌面 |
 | Dell Inspiron 5521（2013） | Core i7-3537U | Intel HD Graphics 4000（`i915`） | 已安装，可运行桌面 |
-| Mac mini 2011（Macmini5,1） | Core i5-2415M | Intel HD Graphics 3000（`i915`） | **已知问题：**显示可能无法初始化；修复计划在下一个镜像中提供 |
+| Mac mini 2011（Macmini5,1） | Core i5-2415M | Intel HD Graphics 3000（`i915`） | 已安装，桌面正常（硬件加速图形） |
 
 其他 GPU 与主板均未测试。视频、音频播放以及 VPU 硬件视频解码已在 Sky1 主板上验证；
 其他 GPU 上的硬件视频解码取决于驱动。详细说明（Sky1 主板列表、T2 Mac 与通用 PC 的
@@ -144,7 +144,8 @@ Preview 1 带有 **amd64 上的 AMD、NVIDIA 与 Intel GPU 驱动**、**CIX Sky1
   AMD GPU 始终通电（空闲约 60 °C）。修复计划在下一个镜像中提供。
 - 锁屏：在两台 T2 MacBook 上未能确认锁屏背后的屏保动画（其他机器上已确认，正在调查）；
   锁屏不会关闭显示（"N 秒后黑屏"尚未实现）。
-- 较老的单 GPU Mac（如 2011 款 Mac mini）可能无法点亮显示；修复计划在下一个镜像中提供。
+- 锁屏上的屏保在默认时间点可能无法启动：两条空闲锁屏路径会争用锁屏的屏保连接，导致锁屏
+  背后没有屏保（在一台台式机上出现）。锁屏本身总会生效。修复计划在下一个镜像中提供。
 
 ## GPU 驱动与启动项
 
@@ -152,7 +153,7 @@ NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都�
 
 | 启动项 | 驱动 | 提供 | 状态 |
 |---|---|---|---|
-| **NCZ-OS**（默认） | `mali_kbase` —— CIX 厂商 DDK | OpenGL ES 3.2、EGL 1.5，经 `libmali` 提供 OpenCL | 已在 Orion O6N 与 MS-R1 真机验证。桌面就跑在它上面。 |
+| **NCZ-OS**（默认） | `mali_kbase` —— CIX 厂商 DDK | OpenGL ES 3.2、EGL 1.5，经 `libmali` 提供 OpenCL | 已在 Radxa Orion O6N 与 MS-R1 真机验证。桌面就跑在它上面。 |
 | **NCZ-OS (Panthor)** | `panthor` —— 主线开源驱动 | 经 Mesa PanVK / rusticl 提供 Vulkan 与 OpenCL | 在 Sky1 上仍属实验性。 |
 
 两个驱动会认领同一个设备，因此 `/etc/modprobe.d/ncz-gpu-drivers.conf` 将**两者都**
@@ -246,7 +247,7 @@ sudo apt install ncz-model-nomic-embed   # 768 维，默认
 ```
 
 在安装模型之前，NPU 推理会以 `noe_load_graph` 失败。**那是缺少模型，不是硬件或驱动
-问题。** 可用的档位见 [docs/EMBEDDING-MODELS.md](docs/EMBEDDING-MODELS.md)。
+问题。** 模型说明见 [docs/MODELSCOPE-MODELS.md](docs/MODELSCOPE-MODELS.md)（英文）。
 
 ## 内核
 
@@ -351,7 +352,7 @@ labwc/wlroots，能原生抵达 Mali GLES，而不必绕道 Xwayland。
 Mirko 也接纳了反向流动的改动。那些属于我们的工作，因此列在
 [上游贡献](#上游贡献)一节，而不是放在这里。
 
-**此外**：**Radxa**（Orion O6N，我们的主力开发与验证平台）、**Minisforum**
+**此外**：**Radxa**（Radxa Orion O6N，我们的主力开发与验证平台）、**Minisforum**
 （MS-R1，本项目起步的那块板）、**Debian**（把 ARM 当作一等架构，这正是 26.7 建立在
 Forky 上的原因），以及 **Mesa、wlroots 与 labwc**（Panthor 路径所依赖的开源图形与
 合成器栈）。
