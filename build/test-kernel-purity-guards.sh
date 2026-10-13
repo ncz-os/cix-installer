@@ -145,7 +145,9 @@ if grep -q '::/linux' "$KVMGATE" && grep -q 'VERIFY_EXPECT_VMLINUZ_SHA256' "$KVM
 else
     bad "kvm-install-gate-gpt.sh does not assert the ESP /linux installer kernel against the 2010 pin"
 fi
-if grep -q 'VERIFY_EXPECT_VMLINUZ_SHA256' "$VERIFIER" && grep -q '/boot/vmlinuz-' "$VERIFIER"; then
+if grep -q 'VERIFY_EXPECT_VMLINUZ_SHA256' "$VERIFIER" \
+   && grep -q '/boot/vmlinuz-' "$VERIFIER" \
+   && grep -q '_have_vmlinuz' "$VERIFIER"; then
     ok "verify-installed-target.sh asserts the installed kernel is the pinned r2 vmlinuz"
 else
     bad "verify-installed-target.sh does not assert the installed kernel against the pinned r2 vmlinuz sha"
