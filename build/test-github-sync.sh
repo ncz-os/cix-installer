@@ -103,7 +103,8 @@ expect "$(git --git-dir="$GH" for-each-ref --format='%(refname)' refs/heads refs
        "refs/heads/feature refs/heads/history/gitlab-commit-map refs/heads/main refs/tags/v1 " "GitHub has branches, tag and commit map"
 expect "$(git --git-dir="$GH" rev-list --objects --no-object-names --all | git --git-dir="$GH" cat-file --batch-check='%(objectsize)' | awk -v l=$LIMIT '$1>l' | wc -l)" 0 "no blob over the limit on GitHub"
 expect "$(git --git-dir="$GH" log --all --format=%B | grep -c -F "$LIT")" 0 "literal gone from messages"
-expect "$(git --git-dir="$GH" grep -c -F "$LIT" $(git --git-dir="$GH" rev-list --all) 2>/dev/null | wc -l)" 0 "literal gone from every file version"
+git --git-dir="$GH" grep -q -F "$LIT" $(git --git-dir="$GH" rev-list --all); rc=$?
+expect "$rc" 1 "literal gone from every file version (git grep finds no match)"
 expect "$(git --git-dir="$GH" show main:conf.ini | grep -c changeme)" 1 "literal replaced by placeholder"
 expect "$(git --git-dir="$GH" log --all --format='%ae %ce' | grep -c corp.example)" 0 "mailmapped identity gone from commits"
 expect "$(git --git-dir="$GH" for-each-ref --format='%(taggeremail)' refs/tags | grep -c corp.example)" 0 "mailmapped identity gone from tags"
