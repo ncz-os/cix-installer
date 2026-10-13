@@ -63,9 +63,17 @@ if [ "$MODE" = check ]; then
 fi
 
 # Substrate cache directories (space-separated): NCZ_SUBSTRATE_CACHE_DIRS or
-# ~/.config/ncz/substrate-cache-dir (build/lib/ncz-site.sh).
-. "$ROOT/build/lib/ncz-site.sh"
-CACHE_DIRS="$(ncz_site_value NCZ_SUBSTRATE_CACHE_DIRS substrate-cache-dir)"
+# ~/.config/ncz/substrate-cache-dir (same lookup as build/lib/ncz-site.sh,
+# inlined because tests run a copy of this script outside the repo).
+_site_value() {
+    local v="${!1:-}" f
+    if [ -z "$v" ]; then
+        f="${XDG_CONFIG_HOME:-${HOME:-}/.config}/ncz/$2"
+        if [ -r "$f" ]; then IFS= read -r v < "$f" || true; fi
+    fi
+    printf '%s' "$v"
+}
+CACHE_DIRS="$(_site_value NCZ_SUBSTRATE_CACHE_DIRS substrate-cache-dir)"
 found=""
 for d in $CACHE_DIRS; do
     [ -d "$d" ] || continue
