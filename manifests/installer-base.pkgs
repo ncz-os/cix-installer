@@ -175,7 +175,7 @@ locales
 # Lat15-TerminusBold32x16 on a 2160p panel). Seeded explicitly rather than
 # left to the hook's own apt-get: on a console-only install the text console
 # IS the user interface, and if the mirror lacks these the hook silently
-# leaves 8x16 "Fixed" on a 4K display (measured on .66, 2026-08-22 --
+# leaves 8x16 "Fixed" on a 4K display (measured on the MS-R1 test board, 2026-08-22 --
 # unreadable). kbd provides setfont itself.
 console-setup
 kbd
