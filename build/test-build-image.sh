@@ -94,6 +94,9 @@ p="$(bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null)"
 for s in preflight refresh-substrate stage-inputs refresh-sources offline-mirror provenance-inputs layers image provenance-gate kvm-gate receipt archive; do
     grep -q "$s" <<<"$p" && ok "plan names stage $s" || bad "plan missing stage $s"
 done
+# --substrate pinned still runs refresh-substrate (stage + verify the pinned ISO)
+pp="$(bash "$BIN" --arch amd64 --full --substrate pinned --dry-run 2>/dev/null)"
+grep -qE '\[run \] 01 refresh-substrate' <<<"$pp" && ok "pinned substrate policy runs refresh-substrate" || bad "pinned substrate policy skips refresh-substrate"
 grep -q 'NEVER (operator-only)' <<<"$p" && ok "plan states the never-do list" || bad "plan omits never-do list"
 grep -q 'SOURCE_DATE_EPOCH' <<<"$p" && ok "plan shows SOURCE_DATE_EPOCH" || bad "plan omits SOURCE_DATE_EPOCH"
 grep -q 'NCZ_REPRO_UUID_EXT4' <<<"$p" && ok "plan shows pin-derived UUIDs" || bad "plan omits UUIDs"

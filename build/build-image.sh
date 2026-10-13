@@ -1428,7 +1428,9 @@ gate_selected() { [ -z "$GATES" ] && return 0; case ",$GATES," in *",$1,"*) retu
 stage_enabled() {
     case "$1" in
         preflight) return 0 ;;
-        refresh-substrate) [ "$SUBSTRATE" = refresh ] && return 0 || return 1 ;;
+        # runs for every --substrate policy: pinned stages the pinned ISO from the
+        # substrate cache and verifies the pin; refresh fetches the newest weekly
+        refresh-substrate) return 0 ;;
         stage-inputs) return 0 ;;
         offline-mirror)
             # reuse the mirror when the plan says reuse and it is present
