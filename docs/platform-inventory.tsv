@@ -79,8 +79,6 @@ assets/sky1-firmware/	sky1	-	gitignored Sky1 firmware blob input
 assets/ssh-udebs/amd64/	amd64	-	amd64 d-i ssh udebs
 assets/ssh-udebs/arm64/	sky1	-	arm64 d-i ssh udebs
 assets/update-manager/	common	-	update manager
-assets/vivaldi/vivaldi-stable_8.1.4087.55-1_amd64.deb	amd64	-	Vivaldi amd64 deb
-assets/vivaldi/vivaldi-stable_8.1.4087.55-1_arm64.deb	sky1	-	Vivaldi arm64 deb
 assets/wallpaper/	common	-	wallpaper tooling
 build/70-bootloader.sh	sky1	-	legacy Sky1 bootloader copy with MS-R1 efi=noruntime gating
 build/arch-parity-allowlist.tsv	common	-	reviewed manifest divergence between platforms (canonical, dual-arch parity)
