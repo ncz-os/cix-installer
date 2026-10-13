@@ -30,7 +30,7 @@ release is published.
 | Category | Source obligation |
 |---|---|
 | Components **we** build from source (below) | **Ours.** Source published here. |
-| CIX proprietary vendor `.deb`s (current reviewed ledger: 25 vendor originals in `manifests/vendor-debs.tsv` plus 1 NCZ-repacked NPU DKMS in `manifests/ncz-packages.tsv`; older releases shipped a larger set) | **Not ours.** Vendor-proprietary binaries redistributed under vendor terms. We do not hold or republish their source. The NCZ-repacked NPU DKMS carries our packaging recipe. |
+| CIX proprietary vendor `.deb`s (current reviewed ledger: 24 vendor originals in `manifests/vendor-debs.tsv` plus 2 NCZ repacks in `manifests/ncz-packages.tsv`, the NPU DKMS and `cix-mesa 24.0.4-ncz1` (the vendor package with its second Mesa loader path commented out); older releases shipped a larger set) | **Not ours.** Vendor-proprietary binaries redistributed under vendor terms. We do not hold or republish their source. The NCZ repacks carry our packaging recipe or a member-by-member verifier (`build/verify-cix-mesa-repack.py`). |
 | Stock Debian forky packages | Debian's. Available from `deb.debian.org` per Debian's own terms. |
 
 ---
@@ -127,7 +127,7 @@ and most of them are not downloadable.
 | CPython 3.11 and `uv`, both arches | 4 | **Yes.** GitHub release URLs in [`manifests/build-inputs-public.tsv`](../manifests/build-inputs-public.tsv); sha256 checked. |
 | `ncz-screensavers` 0.8.15, both arches | 2 | **Yes.** Public NCZ apt repository; sha256 checked. |
 | Recovery and rescue root filesystems | 4 | No. Rebuild with `build/build-mgmt-rootfs.sh` / `build/build-rescue-rootfs.sh` at the pinned snapshot; the output is not byte-reproducible. |
-| Artist Pack wallpaper packages | 8 | No. The apt repository has `1.0` builds with different bytes; rebuild with `build/build-wallpaper-contrib-deb.sh`. |
+| Artist Pack wallpaper packages | 8 | **Yes.** Version `1.2` is byte-reproducible (`build/build-wallpaper-contrib-deb.sh`, in-repo ArtistPack manifests) and is in the public NCZ apt repository; sha256 checked. |
 | Patched libdrm `2.4.134-3+ncz2` | 22 | **Partly.** The 14 runtime library packages the apt policy allows per architecture are in the public NCZ apt repository (sha256 checked). `libdrm-dev`, `libdrm-tests`, the amd64 `libdrm-freedreno1` and the two installer-only `libdrm2-udeb` files are not published: rebuild them with `build/build-libdrm-debs.sh` (Debian source plus the patch in this repository). |
 | `chromium-ncz-sky1` 154.0.8037.0-ncz20261011 | 1 | **Yes.** Public NCZ apt repository; sha256 checked. Source is public in [`ncz-os/chromium-ncz-sky1`](https://gitlab.com/ncz-os/chromium-ncz-sky1). |
 | CIX vendor package bundle, Sky1 firmware tree, NPU DKMS package | 3 | No. Vendor-proprietary binaries and firmware we are not able to republish as a bundle; the NPU DKMS package's GPL source is inside the package. |

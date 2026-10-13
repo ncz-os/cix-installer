@@ -215,3 +215,5 @@ build/*.stale-*
 
 # site-local lockrig inventory (tools/lockrig/hosts.example.tsv is the committed template)
 tools/lockrig/hosts.tsv
+build/npu-embed-deb/
+assets/google-chrome/
