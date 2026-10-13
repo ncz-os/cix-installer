@@ -5,7 +5,7 @@
 # fleet host on day zero, without having to physically touch it. Both
 # root and the ncz operator account get the same authorized_keys so
 # operators can ssh in directly + use sudo, while diagnostics from
-# this Mac (jperlow-mlt) and ARGOS work as root over the network.
+# the operator's workstation and the project's build host work as root over the network.
 #
 # Runs in the optional post-install phase after base services are present, so
 # sshd's startup ordering doesn't fight quadlet generation.
@@ -21,7 +21,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 # this idempotent if either path is in use.
 #
 # r76: dropped `|| true` - silent failure here on r75 Magnetar smoke
-# left .66 unreachable on port 22. Fail loud so run-all.sh records the
+# left the MS-R1 test board unreachable on port 22. Fail loud so run-all.sh records the
 # hook failure in $LOGDIR and the operator sees it. Magnetar without
 # SSH is broken-by-definition; better to flag at install than to ship
 # headless boxes without remote access.
@@ -72,11 +72,11 @@ read -r -d '' KEYS <<'EOF' || true
 # === nclawzero fleet-default authorized_keys (cixmini factory image) ===
 # jperlow-mlt (this Mac, primary operator workstation)
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBJ3z+8UX2oPt3cmN1X9XU8RWrgp7VvdHPd0vW+m/AoR jperlow@work-laptop
-# ARGOS (192.168.207.22, fleet build host - used for live diagnostics)
+# project build host (used for live diagnostics)
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKCDT5Busd1J+j4kpzkZ/jT/GtUQylaZCUCTftY2sYk argos-backup
 EOF
 
-# Root account - only seed if absent (codex review: don't clobber
+# Root account - only seed if absent (review: don't clobber
 # operator-rotated keys).
 install_authorized_keys() {
     local user=$1

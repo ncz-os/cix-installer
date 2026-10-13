@@ -6,7 +6,7 @@
 # the kernel via apt, which pulls in the `cixmini-boot` package as a
 # dependency. The linux-image-cixmini package's own postinst scripts
 # directly call /usr/lib/cixmini/cixmini-update-bootloader on every install
-# or upgrade -- confirmed live on .66 (2026-07-06), this is the ONLY
+# or upgrade -- confirmed live on the MS-R1 test board (2026-07-06), this is the ONLY
 # mechanism that actually fires automatically; the conventional
 # /etc/kernel/postinst.d/ run-parts hook directory is NOT invoked by
 # anything on this system despite cixmini-boot shipping a file there too.

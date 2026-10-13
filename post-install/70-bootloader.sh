@@ -58,7 +58,7 @@ BUILD_VERSION="(unknown)"
 # to call ncz-refind-refresh instead of writing an inert systemd-boot entry)
 # -- NOT by /etc/kernel/postinst.d/run-parts, which an earlier version of
 # this fix assumed but which nothing on this system actually invokes
-# (confirmed live on .66). This script is now just: read the static
+# (confirmed live on the MS-R1 test board). This script is now just: read the static
 # KVER_NEXT sidecar baked into the ISO, install the shared script to its
 # permanent location, then run it once for the initial install.
 #

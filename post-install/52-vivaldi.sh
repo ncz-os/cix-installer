@@ -3,7 +3,7 @@
 # 52-vivaldi.sh — install Vivaldi (arm64) OFFLINE from a staged .deb + make it
 # the DEFAULT browser.
 #
-# r181 (operator, .66 metal): the MNEMOS + agent desktop launchers Exec
+# r181 (operator, MS-R1 test-board metal): the MNEMOS + agent desktop launchers Exec
 # /usr/bin/vivaldi-stable, but Vivaldi was never installed (only epiphany +
 # firefox; falkon was half-configured), so those launchers errored. And epiphany
 # (WebKitGTK) can't play YouTube on arm64. Vivaldi is Chromium-based and ships

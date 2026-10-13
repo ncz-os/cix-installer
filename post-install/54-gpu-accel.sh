@@ -33,7 +33,7 @@
 # invocation, NOT the build-squashfs-layers.sh chroot-baking pass) — GPU
 # hardware detection is inherently target-specific and cannot be meaningful
 # baked into a shared image the way 53-chrome.sh's unconditional install is.
-# zoder review (2026-09-14) correctly flagged an earlier draft of this
+# review (2026-09-14) correctly flagged an earlier draft of this
 # comment as copy-pasted from 53-chrome.sh without adjusting for that; fixed.
 # AMD64 only — never wired into the arm64 hook loops.
 # NCZ-PLATFORM-GUARD: amd64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
@@ -226,7 +226,7 @@ case "$VARIANT" in
         ;;
 esac
 
-# Hardware probing rules for this hook (2026-10-06, PEGASUS hang):
+# Hardware probing rules for this hook (2026-10-06, the GU502LV laptop hang):
 #   - NEVER run lspci or read a device's sysfs `config` here. Both read PCI
 #     config space; on an Optimus laptop whose dGPU runtime suspend oopsed in
 #     nouveau, that read blocked in D state forever and the whole install sat
@@ -260,14 +260,14 @@ ALL_PCI=$(ncz_pci_lspci_nn)
 # PCI display-class controllers only (0300=VGA, 0302=3D, 0380=other display).
 # ncz_pci_lspci_nn prints the `lspci -nn` line shape
 # ("0000:00:02.0 Class [0300]: Device [8086:3e9b]"), so match the bracketed
-# class code and IDs (zoder review 2026-09-14: `lspci -d "::0300"` never
+# class code and IDs (review 2026-09-14: `lspci -d "::0300"` never
 # filtered by class; grep the bracketed class instead).
 DISPLAY_PCI=$(printf '%s\n' "$ALL_PCI" | grep -E '\[03(00|02|80)\]:')
 
 HAS_NVIDIA=0; HAS_AMD=0; HAS_INTEL=0
 echo "$DISPLAY_PCI" | grep -qi '\[10de:' && HAS_NVIDIA=1
 # 1002 is AMD/ATI's real GPU vendor ID. 1022 is AMD's CPU/chipset vendor ID
-# and cannot appear on a display-class-filtered line — zoder review
+# and cannot appear on a display-class-filtered line — review
 # (2026-09-14) correctly flagged it as dead code; removed.
 echo "$DISPLAY_PCI" | grep -qi '\[1002:' && HAS_AMD=1
 echo "$DISPLAY_PCI" | grep -qi '\[8086:' && HAS_INTEL=1
@@ -321,14 +321,14 @@ fi
 # no matching-vendor discrete GPU (or vice versa). Real PCI signatures
 # confirmed live against fleet hardware, 2026-09-20:
 #   Intel: class [1200] "Processing accelerators", vendor 8086 (confirmed on
-#          PROTEUS: "00:0b.0 Processing accelerators [1200]: Intel
+#          the OmniDesk test desktop: "00:0b.0 Processing accelerators [1200]: Intel
 #          Corporation Arrow Lake NPU [8086:ad1d]"). Class 1200 is clean/
 #          NPU-specific for Intel -- do NOT match on class 1180 ("Signal
-#          processing controller") for Intel, PROTEUS also has two
+#          processing controller") for Intel, the OmniDesk test desktop also has two
 #          unrelated 1180-class telemetry/crash-log devices that would
 #          false-positive.
 #   AMD:   class [1180] "Signal processing controller", vendor 1022, device
-#          string containing "IPU" (confirmed on HYDRA and ACHILLES both:
+#          string containing "IPU" (confirmed on two AMD build hosts:
 #          "Signal processing controller [1180]: ... AMD IPU Device
 #          [1022:1502]"). Class 1180 alone is NOT vendor-specific (Intel
 #          also uses it for non-NPU devices), so AMD's NPU match requires
@@ -336,7 +336,7 @@ fi
 #          sysfs list has no names, so the old "IPU" name match became an ID
 #          list: exactly the IDs the upstream amdxdna driver binds in
 #          v7.3-rc6 (drivers/accel/amdxdna/amdxdna_pci_drv.c): 1502
-#          (Phoenix/Hawk Point, the HYDRA/ACHILLES device above), 17f0,
+#          (Phoenix/Hawk Point, the AMD build-host device above), 17f0,
 #          17f2, 17f3, 1b0b, 1b0c.
 NPU_PCI=$ALL_PCI
 HAS_INTEL_NPU=0; HAS_AMD_NPU=0

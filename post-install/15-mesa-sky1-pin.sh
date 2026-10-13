@@ -3,7 +3,7 @@
 #
 # r75 K4: Mesa 26.0.0-1sky1.2 panvk + libdisplay-info3 + libllvm21 +
 # mesa-vulkan-drivers + mesa-libgallium are what made Mali-G720 Vulkan
-# work end-to-end on the .66 reference deploy. Resolute's stock Mesa is
+# work end-to-end on the MS-R1 test-board reference deploy. Resolute's stock Mesa is
 # already Mesa 26.0.3, but the Sky1-Linux builds remain the known-good
 # package origin for the current hardware validation.
 #
@@ -80,7 +80,7 @@ Pin-Priority: 1001
 
 # libdisplay-info3 is needed by the Sky1-Linux Mesa 26 package set.
 # The Sky1-Linux apt repo provides libdisplay-info3 when stock Ubuntu does not.
-# r75 Codex MED fix — version-glob the sky1 suffix so random apt origins
+# r75 review MED fix — version-glob the sky1 suffix so random apt origins
 # offering the same package name cannot outrank this priority-1001 pin.
 Package: libdisplay-info3
 Pin: version *sky1*

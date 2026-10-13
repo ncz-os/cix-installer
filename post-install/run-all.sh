@@ -78,7 +78,7 @@ NCZ_BAKED=0
 # a fresh baked install — they're not in build-squashfs-layers.sh BASE_HOOKS (so
 # not baked into base.squashfs) and the baked-mode filter below only whitelisted
 # fstab/rescue. Result: no cix SDK, no /opt/python3.11, no /opt/ncz/embed-venv,
-# no libnoe → NPU dark from Python (confirmed absent on .66 r180). These hooks
+# no libnoe → NPU dark from Python (confirmed absent on the MS-R1 test board r180). These hooks
 # are machine-AGNOSTIC userspace that only need the staged ISO assets (not the
 # hardware), and running them at install-time (rather than baking) avoids the
 # base.squashfs rebuild + the LAYER-COHERENCE delta-rebuild trap (25 changes the
@@ -104,7 +104,7 @@ NCZ_BAKED=0
 # r187.1: 80-npu WAS deliberately excluded here (comment used to say adding it
 # would double-run the SSDT/KMD install already done by preseed/late.sh's
 # ncz_npu_install_time) — but that pre-chroot install-time path turned out to
-# be unreliable: on .66 r187, late.sh's FIX B silently failed to write
+# be unreliable: on the MS-R1 test board r187, late.sh's FIX B silently failed to write
 # armchina_npu.ko to /target/usr/lib/modules/$KVER/updates/ for the NEXT kernel
 # (no error, no log line — likely an environment quirk of running against
 # /target from OUTSIDE chroot during d-i, before the target filesystem is
@@ -125,7 +125,7 @@ NCZ_BAKED=0
 #                        broken CIX libgbm makes native Panfrost GL fail, so Mesa
 #                        falls back to zink-over-panvk reporting only GL 2.1.
 #                        26 demotes the CIX ld paths + dead Vulkan ICD/WSI layer,
-#                        restoring native Panfrost OpenGL 3.1 (verified .66 metal
+#                        restoring native Panfrost OpenGL 3.1 (verified on MS-R1 test-board metal
 #                        2026-07-04). WITHOUT this, baked installs shipped zink-2.1
 #                        and GL screensavers/apps mis-rendered. Runs right after 25.
 # r204: the DESKTOP + branding + session hooks below were MISSING from this
@@ -346,7 +346,7 @@ else
     # to /target during preseed/early_command, before partman had mounted the
     # real root there, so the record was destroyed and this branch ran on every
     # install -- silently re-enabling every component the operator had just
-    # deselected (measured on .66, 2026-08-22: full desktop installed after
+    # deselected (measured on the MS-R1 test board, 2026-08-22: full desktop installed after
     # desktop+browsers were explicitly unticked). Be loud: a missing record is
     # a defect in the install pipeline, not an operator choice.
     echo "  WARNING: no COMPONENTS record found (checked /usr/local/lib/cix-installer," >&2
@@ -580,7 +580,7 @@ finalize_bootloader() {
         echo "  bootloader + diagnostics still ran — system should boot"
         echo "  to default kernel; logs available at /var/log/cix-install/"
     fi
-    # Codex A2 CRITICAL #1 fix: propagate bootloader failure to late_command
+    # review A2 CRITICAL #1 fix: propagate bootloader failure to late_command
     # so d-i marks install as failed if bootloader didn't install. Without
     # this, late_command "succeeds" with no working bootloader and user
     # boots to nothing.
@@ -619,7 +619,7 @@ trap finalize_bootloader EXIT
 # touches /etc/passwd, regardless of whether 10-our-kernel.sh or any
 # subsequent hook crashes.
 #
-# Codex-found bug 2026-05-07: on r78-take2, magnetar was missing from
+# Review-found bug 2026-05-07: on r78-take2, magnetar was missing from
 # installed system because 09-diag-account.sh was in Phase 2 alphabetic
 # sort and the install never reached Phase 2 — 10-our-kernel.sh had
 # already aborted run-all.sh. Phase 0 fixes that.
@@ -634,7 +634,7 @@ for hook in $PHASE0_HOOKS; do
     echo "============================================================"
     echo "[cix-installer] [PHASE0] running $hook → $LOG"
     echo "============================================================"
-    # Codex r78 audit MEDIUM (2026-05-07): pipefail is not enabled
+    # review r78 audit MEDIUM (2026-05-07): pipefail is not enabled
     # until Phase 1, so `if bash | tee ...` checks tee's exit code, not
     # the hook's — hook syntax errors get reported as ✓ success on
     # tty3. Mirror Phase 2's PIPESTATUS pattern instead.
@@ -653,7 +653,7 @@ done
 
 # Phase 1: required hooks (set -e)
 set -euo pipefail
-# r193.1 (found on .66, 2026-07-06): a baked image used to skip Phase 1
+# r193.1 (found on the MS-R1 test board, 2026-07-06): a baked image used to skip Phase 1
 # ENTIRELY, on the assumption the kernel/firmware/network are all already
 # present from the bake. True for firmware/network, but the kernel-apt fix
 # (10-our-kernel.sh) needs to run even on a baked image -- otherwise dpkg
@@ -698,7 +698,7 @@ REQUIRED_PHASE_OK=1
 
 # Phase 2: optional hooks. Failures logged but don't abort.
 #
-# Watchdog (2026-10-06, PEGASUS): an optional hook that hangs must not hang
+# Watchdog (2026-10-06, the GU502LV laptop): an optional hook that hangs must not hang
 # the install. 54-gpu-accel.sh sat for 30+ minutes with `lspci` in D state
 # on a GPU whose runtime suspend had oopsed; with `bash hook | tee` nothing
 # could ever end it. Each optional hook now runs under ncz_bounded_run

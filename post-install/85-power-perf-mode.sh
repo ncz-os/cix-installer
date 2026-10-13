@@ -28,7 +28,7 @@
 # dev_pm_opp_set_rate() -> clk_round_rate() on a clock handle that's
 # NULL/not-ready in this platform config -> "Kernel panic - not syncing:
 # Oops: Fatal exception" -> panic=6 reboots the whole board 6s later
-# (confirmed via serial trace on MEDUSA, /var/log/o6n-serial.log). WORSE: this
+# (confirmed via serial trace on a MacBookPro16,1 test unit). WORSE: this
 # is not just a bad value to avoid — simple_ondemand (the "restore to
 # default" governor tried for the off action) is ALSO fatal, and not even at
 # write time: simple_ondemand is a *polling* governor, so once set it keeps
@@ -246,7 +246,7 @@ UNIT
 # devfreq, LPI-1/LPI-2, 2600 MHz, "44-50 C" -- and this hook had no arch or
 # hardware gate at all, so it also pinned the governor on amd64 T2 laptops.
 #
-# MEASURED on CHIMERA and MEDUSA (MacBookPro16,1, i9-9980HK / i7-9750H)
+# MEASURED on both MacBookPro16,1 test units (MacBookPro16,1, i9-9980HK / i7-9750H)
 # 2026-09-29: ncz-performance-mode enabled+active, governor=performance,
 # intel_pstate, cpu0 at 4650 MHz AT IDLE, package 65-70 C with both chassis
 # fans running. The operator measured 100 C -- the coretemp crit threshold --
@@ -285,7 +285,7 @@ systemctl daemon-reload >/dev/null 2>&1 || true
 #
 # ARCH GATE FOR THE DROP-IN TOO (2026-10-05). The enable/disable above only controls the
 # graphical.target unit; this ExecStartPre ran the script on every greetd start on EVERY
-# arch, so the gate above was defeated: MEDUSA and CHIMERA (MacBookPro16,1) still had
+# arch, so the gate above was defeated: both MacBookPro16,1 test units (MacBookPro16,1) still had
 # governor=performance, EPP=performance and 4.1-4.6 GHz at idle (package 65-75 C, fans at
 # 65-80%) with the service disabled. Sky1 only; on any other arch remove a leftover drop-in
 # so an in-place upgrade of an older amd64 install heals itself.

@@ -17,7 +17,7 @@
 #
 #   failed           the install-time build for THIS kernel stopped on a
 #                    compiler error. A rebuild from the same driver source,
-#                    kernel headers and compiler fails the same way (PEGASUS
+#                    kernel headers and compiler fails the same way (the GU502LV laptop
 #                    2026-10-06: ~60 s each time, identical error), so first
 #                    boot does NOT run it in front of the login screen: those
 #                    packages are left to their owner (NVIDIA: ncz-cuda-setup,

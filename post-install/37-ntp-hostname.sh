@@ -14,7 +14,7 @@
 # because the offline mirror did not carry it, and timesyncd is sufficient for
 # first-boot step correction on Sky1 systems without a reliable RTC.
 set -uo pipefail
-# r63 (codex review): don't use `systemctl enable --now` here - chroot-time
+# r63 (review): don't use `systemctl enable --now` here - chroot-time
 # starts are expected to fail when systemd is not PID 1. Plain enable should
 # still work in the target root; if it does not, first boot will have no time
 # sync, so fail the hook loudly.
@@ -53,7 +53,7 @@ ncz_default_hostname() {
         return 0
     fi
 
-    # r75 Codex LOW fix - uniqueness + collision space.
+    # r75 review LOW fix - uniqueness + collision space.
     # Strategy ladder:
     #   1. First wired-ethernet MAC, last 8 hex chars (32-bit space, ~4 B)
     #   2. First wireless MAC if no wired (still 8 hex; wireless rand is per
@@ -208,7 +208,7 @@ fi
 
 if [ -n "$NCZ_TIME_UNIT" ]; then
     systemctl enable "$NCZ_TIME_UNIT"
-    # r63: NEVER use --now in chroot context (codex finding); first boot starts it
+    # r63: NEVER use --now in chroot context (review finding); first boot starts it
 else
     echo "[33] ERROR: no NTP implementation available (systemd-timesyncd and chrony both" \
          "uninstallable). Sky1 boards have no usable RTC, so this system will boot with a" \

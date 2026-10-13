@@ -603,7 +603,7 @@ _ncz_panthor_live() {
 # check existed, EVERY amd64 box fell through to the unconditional software
 # branch below regardless of having a perfectly good discrete or integrated
 # GPU bound, because that branch only knows how to recognize Mali/Panthor.
-# Metal-confirmed on MEDUSA (T2 MacBook, AMD Navi14): with this branch,
+# Metal-confirmed on T2 Mac B (T2 MacBook, AMD Navi14): with this branch,
 # NCZ_GPU_BACKEND=amdgpu, radeonsi loads on all EGL platforms, no
 # software-render vars set. ncz-wlr-connected-drm (sourced separately by
 # every caller of this file) independently picks the DRM device that
@@ -626,8 +626,8 @@ if _ncz_hw_gpu_driver_name=$(_ncz_hw_gpu_driver); then
         # libEGL_mesa) segfaults singularity-desktop on Mesa 26.1.6/radeonsi
         # (Navi14) on a NULL __DRIimage handle -- a missing-null-check bug in
         # a caller upstream of Mesa (still under investigation as of
-        # 2026-09-20, see MNEMOS/cix-installer issue tracking).
-        # GSK_RENDERER=ngl does NOT fix this: metal-confirmed on MEDUSA the
+        # 2026-09-20, see cix-installer issue tracking).
+        # GSK_RENDERER=ngl does NOT fix this: metal-confirmed on T2 Mac B the
         # identical crash still happens under ngl, just later (37-94s
         # instead of immediately) -- the timing shift is real but this is
         # NOT a resolved fix, it only delays the same underlying bug. Kept
@@ -638,12 +638,12 @@ if _ncz_hw_gpu_driver_name=$(_ncz_hw_gpu_driver); then
         GSK_RENDERER=ngl
         export GSK_RENDERER
         # RDNA1 (Navi 10/12/14 -- the 5300/5500/5600/5700 series, including
-        # MEDUSA's Navi14 5300M) has NO AV1 decode fixed-function hardware
+        # T2 Mac B's Navi14 5300M) has NO AV1 decode fixed-function hardware
         # at all; AMD's first AV1 decode block shipped in RDNA2. Chrome
         # still offers AV1 playback via software dav1d and, per Chromium's
         # own driver bug list, correctly refuses VaapiVideoDecoder for AV1
         # on this hardware (status=kUnsupportedConfig) -- metal-confirmed on
-        # MEDUSA via a real media-internals.txt export: every AV1 clip used
+        # T2 Mac B via a real media-internals.txt export: every AV1 clip used
         # Dav1dVideoDecoder (kIsPlatformVideoDecoder: false), zero hardware
         # decodes. Disabling Chrome's AV1 decoder entirely makes AV1-capable
         # sites (e.g. YouTube) fall back to VP9 or H.264, both of which
@@ -1482,7 +1482,7 @@ echo "[20] installing media production apps (Shotcut/HandBrake/Audacity + player
 # Install one at a time. A single apt transaction fails WHOLESALE when any
 # one name is unavailable, and a catch-all "|| echo WARN" then hides WHICH
 # package was missing -- that combination silently defeated this whole step
-# from 2026-08-27 until it was caught on CHIMERA 2026-09-29 (see 5f04513).
+# from 2026-08-27 until it was caught on T2 Mac A 2026-09-29 (see 5f04513).
 # Every name below must also exist in manifests/desktop.pkgs, or it can
 # never resolve on an offline install.
 _ncz_media_ok=""; _ncz_media_missing=""

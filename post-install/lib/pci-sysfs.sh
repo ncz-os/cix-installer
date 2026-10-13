@@ -6,7 +6,7 @@
 # config-space read of a device whose runtime-PM transition never completed
 # blocks in uninterruptible sleep (D state) forever.
 #
-# Measured 2026-10-06 on PEGASUS (ASUS GU502LV, RTX 2060 Mobile TU106
+# Measured 2026-10-06 on the GU502LV laptop (ASUS GU502LV, RTX 2060 Mobile TU106
 # 10de:1f15, Optimus) with the r199 amd64 installer: nouveau's runtime
 # suspend oopsed in nvkm_gsp_gcx_ready() (NULL gsp->rm, no GSP-RM firmware),
 # the pm_runtime worker died with the device left in runtime_status

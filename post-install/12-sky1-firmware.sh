@@ -123,8 +123,8 @@ for f in $REQUIRED_OTHER; do
 done
 if [ "$_missing" -ne 0 ]; then
     echo "[12] one or more arm64 firmware blobs are absent from the staged source tree;"
-    echo "[12] restore from /mnt/argonas-projects/cix-installer/assets/sky1-firmware (ULTRA) or"
-    echo "[12] root@192.168.207.101:/mnt/datapool/projects/cix-installer/assets/sky1-firmware."
+    echo "[12] restore the assets/sky1-firmware tree from your build-inputs store"
+    echo "[12] (build/stage-arm64-assets.sh extracts it from the pinned assets/sky1-firmware.tar.zst)."
     exit 1
 fi
 

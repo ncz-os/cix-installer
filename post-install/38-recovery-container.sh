@@ -7,7 +7,7 @@
 # (37-failsafe-access.sh):
 #
 #   - It ships its OWN complete userland (glibc/NSS/PAM/openssh), so a wedged
-#     host /usr/lib (the 2026-06-25 .66 lockout) cannot break it -- a
+#     host /usr/lib (the 2026-06-25 MS-R1 test-board lockout) cannot break it -- a
 #     private-libdir sshd would NOT survive, since glibc still dlopens
 #     libnss_*/PAM from the broken host /usr/lib.
 #   - Unlike the static telnet failsafe, it speaks ssh + SFTP/scp.
@@ -42,7 +42,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 # ---- 2. extract the container rootfs ----
 if [ ! -f "$ROOTFS_TARBALL" ]; then
     echo "[38] ERROR: $ROOTFS_TARBALL missing: the image was built without the recovery rootfs." >&2
-    echo "[38] Stage it from the ARGONAS build-inputs store before building: build/stage-build-inputs.sh --arch <arch>" >&2
+    echo "[38] Stage it from the build-inputs store before building: build/stage-build-inputs.sh --arch <arch>" >&2
     echo "[38] (manifests/build-inputs.tsv pins it; build/build-mgmt-rootfs.sh produces it, then --publish)." >&2
     exit 1
 fi
@@ -87,13 +87,13 @@ echo macvlan > /etc/modules-load.d/ncz-recovery.conf
 
 # ---- 4. fleet authorized_keys into the container's root account ----
 # Reuse the fleet-canonical keys from 35-ssh.sh so the recovery container is
-# reachable from this Mac + ARGOS on first boot (key-first; password fallback).
+# reachable from the operator's machines on first boot (key-first; password fallback).
 install -d -m 0700 "$MACHINE_ROOT/root/.ssh"
 cat > "$MACHINE_ROOT/root/.ssh/authorized_keys" <<'EOF'
 # === nclawzero fleet-default authorized_keys (ncz-recovery container) ===
 # jperlow-mlt (this Mac, primary operator workstation)
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBJ3z+8UX2oPt3cmN1X9XU8RWrgp7VvdHPd0vW+m/AoR jperlow@work-laptop
-# ARGOS (192.168.207.22, fleet build host - used for live diagnostics)
+# project build host (used for live diagnostics)
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKCDT5Busd1J+j4kpzkZ/jT/GtUQylaZCUCTftY2sYk argos-backup
 EOF
 chmod 0600 "$MACHINE_ROOT/root/.ssh/authorized_keys"

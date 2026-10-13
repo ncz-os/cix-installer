@@ -25,7 +25,7 @@
 # cpython-311/312 .so extensions (no 3.14), so a venv built from r104's
 # system python3 (3.14) cannot `import libnoe` and the NPU adapter goes
 # dark. 46-python311.sh provisions /opt/python3.11 for exactly this; we
-# build the venv from it. Validated ~56 emb/s (all-MiniLM) on .66.
+# build the venv from it. Validated ~56 emb/s (all-MiniLM) on the MS-R1 test board.
 #
 # embedkit Engine.auto() picks at runtime: on Cix Sky1 it sees libnoe
 # + /dev/aipu and selects the npu-cix adapter; on a hypothetical x86

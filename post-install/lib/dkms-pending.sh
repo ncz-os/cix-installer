@@ -9,7 +9,7 @@
 # dpkg-query) against /target, and the first-boot helper
 # (lib/firstboot-gpu.sh) sources it on the installed system.
 #
-# Evidence this is built on (PEGASUS, r199 amd64, 2026-10-06): the NVIDIA DKMS
+# Evidence this is built on (the GU502LV laptop, r199 amd64, 2026-10-06): the NVIDIA DKMS
 # build already runs at install time (54-gpu-accel.sh -> ncz-cuda-setup ->
 # apt -> nvidia-kernel-open-dkms postinst -> dkms build). When it FAILS, dpkg
 # leaves the package half-configured, so the first-boot `dpkg --configure -a`

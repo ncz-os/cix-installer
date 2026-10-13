@@ -2,7 +2,7 @@
 # NCZ-MIXED-HOOK: netplan/NetworkManager wiring is generic; also installs udev/NM rules unmanaging the Apple T2 iBridge NIC; TODO move T2 rules to an amd64 t2 hook (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 33-network.sh — wire NetworkManager as the active netplan renderer.
 #
-# 2026-05-08 take23 (per .66 take22 install): resolute defaults to
+# 2026-05-08 take23 (per MS-R1 test-board take22 install): resolute defaults to
 # systemd-networkd OR nothing if neither netplan config is present.
 # The XFCE dep chain on resolute does not pull network-manager the way
 # questing's did, so the previous build relied on an implicit pull
@@ -28,7 +28,7 @@ echo "[33-network] verifying NetworkManager + writing netplan"
 # real LAN uplink; it never has anything on the other end and will never get
 # a DHCP lease.
 #
-# Root cause, measured live on MEDUSA (T2 MacBook, 2026-09-20): the netplan
+# Root cause, measured live on T2 Mac B (T2 MacBook, 2026-09-20): the netplan
 # wildcard `en*` match legitimately applies to BOTH this virtual interface
 # and the real dock/Thunderbolt ethernet NIC. NetworkManager's policy engine
 # auto-activated the phantom iBridge interface first, which timed out its
@@ -45,7 +45,7 @@ echo "[33-network] verifying NetworkManager + writing netplan"
 install -d -m 0755 /etc/udev/rules.d
 # NOTE ordering: netplan generates /run/udev/rules.d/90-netplan.rules, which
 # (for our `en*` wildcard match) EXPLICITLY sets ENV{NM_UNMANAGED}="0" to
-# force-manage anything matching the glob -- confirmed live on MEDUSA via
+# force-manage anything matching the glob -- confirmed live on T2 Mac B via
 # `udevadm test`, this clobbered an earlier attempt at this fix numbered
 # 71-*. Our rule must sort AFTER 90-netplan.rules (udev applies rule files
 # in filename order, later assignments win) to actually take effect -- 93-
@@ -69,7 +69,7 @@ echo "[33-network] installed udev rule to unmanage the Apple T2 iBridge virtual 
 # the netplan rule may not exist yet, so the ordering a later `udevadm test`
 # reproduces is not the ordering that actually ran.
 #
-# MEASURED on CHIMERA 2026-09-29 (installed from 2026.09.29-0d04e75):
+# MEASURED on T2 Mac A 2026-09-29 (installed from 2026.09.29-0d04e75):
 #     udevadm test /sys/class/net/enxacde48001122   -> NM_UNMANAGED=1   (rule wins)
 #     udevadm info  /sys/class/net/enxacde48001122   -> NM_UNMANAGED=0   (live value)
 # NetworkManager therefore bound the wildcard `en*` netplan profile to the
@@ -82,7 +82,7 @@ echo "[33-network] installed udev rule to unmanage the Apple T2 iBridge virtual 
 # A NetworkManager [device] section is evaluated by NM itself from its own
 # config, so it does not race udev rule-file generation at all. Match on the
 # MAC: ac:de:48:00:11:22 is a FIXED Apple placeholder, byte-identical on every
-# T2 Mac (verified on both CHIMERA and MEDUSA), not a per-unit address.
+# T2 Mac (verified on both MacBookPro16,1 test units), not a per-unit address.
 install -d /etc/NetworkManager/conf.d
 cat > /etc/NetworkManager/conf.d/95-ncz-unmanage-t2-ibridge.conf <<'NMCONF'
 # The Apple T2 iBridge virtual ethernet is never a real link. Keep
@@ -96,7 +96,7 @@ chmod 0644 /etc/NetworkManager/conf.d/95-ncz-unmanage-t2-ibridge.conf
 echo "[33-network] NetworkManager [device] rule: T2 iBridge NIC (mac ac:de:48:00:11:22) managed=0"
 
 # r8152 (Realtek USB 2.5G/1G ethernet, the chip inside most USB-C/Thunderbolt
-# docks -- confirmed on a Kensington dock on MEDUSA, 2026-09-21) drops off the
+# docks -- confirmed on a Kensington dock on T2 Mac B, 2026-09-21) drops off the
 # USB bus under Linux's default USB autosuspend policy and never resumes: it
 # enumerates fine right after boot, works for as long as there's continuous
 # traffic (autosuspend only fires on IDLE), then vanishes entirely from
@@ -197,7 +197,7 @@ fi
 # it exactly here rather than touching 19-sinty-nm.sh's sinty-nmd/iwd
 # path, which this hook must not touch.
 #
-# Metal-confirmed on MEDUSA (T2 MacBook, AMD Navi14, no sinty-nmd staged):
+# Metal-confirmed on T2 Mac B (T2 MacBook, AMD Navi14, no sinty-nmd staged):
 # wlan0 existed with a real driver-assigned MAC and real firmware loaded
 # (see post-install/55-t2-firmware.sh's Apple firmware fetch, a separate
 # fix), but NetworkManager logged
@@ -228,13 +228,13 @@ network:
   version: 2
   renderer: NetworkManager
   ethernets:
-    # r130.5 (Codex review): explicit wired DHCP profiles. Two reasons:
+    # r130.5 (review): explicit wired DHCP profiles. Two reasons:
     #   1. guarantees NM has an auto-connect profile for the wired NIC on
     #      first boot (don't rely solely on NM's implicit auto-default).
     #   2. optional:true keeps NetworkManager-wait-online.service (which
     #      33-network unmasks+enables below) from BLOCKING network-online
     #      at boot when the wired link has no carrier/lease — that stall,
-    #      behind the boot splash, looked like a hang on the .66 install.
+    #      behind the boot splash, looked like a hang on the MS-R1 test-board install.
     # Wildcard match survives enp1s0<->enp49s0 rename churn across boots.
     ncz-wired-en:
       match:
@@ -260,14 +260,14 @@ chmod 0600 "$NETPLAN_FILE"
 # re-raced from scratch. Carry the answer forward instead.
 #
 # MEASURED 2026-09-29, three machines on the same image (2026.09.29-0d04e75):
-#   PEGASUS  (ASUSTeK, no T2)        -> wildcard landed correctly, .85
-#   CHIMERA  (T2, adapter on a dock) -> NM bound enxacde48001122 (the T2
+#   GU502LV  (ASUSTeK, no T2)        -> wildcard landed correctly
+#   T2 Mac A (T2, adapter on a dock) -> NM bound enxacde48001122 (the T2
 #                                       iBridge decoy), real NIC left
 #                                       "disconnected", no lease
-#   MEDUSA   (T2, SAME adapter model, direct-attached, no dock)
+#   T2 Mac B (T2, SAME adapter model, direct-attached, no dock)
 #                                    -> same failure, machine unreachable
 # The installer got it right on all three. Only the installed system lost.
-# Same adapter model on CHIMERA and MEDUSA with different USB topology gave
+# Same adapter model on both MacBookPro16,1 test units with different USB topology gave
 # different outcomes, which is the signature of a race, not a config error.
 #
 # Pinning is by MAC, in a higher-numbered netplan file so it wins the merge
@@ -316,7 +316,7 @@ for stale in 50-cloud-init.yaml 99_cloud-init.yaml 00-installer-config.yaml; do
     fi
 done
 
-# (b2) r130.5 (CRITICAL — .27/.66 install: wired NIC never got DHCP):
+# (b2) r130.5 (CRITICAL — two test-board installs: wired NIC never got DHCP):
 # d-i's netcfg writes /etc/network/interfaces with the INSTALL-TIME wired NIC
 # as `allow-hotplug <if>` + `iface <if> inet dhcp`, and the stock
 # /etc/NetworkManager/NetworkManager.conf ships `[ifupdown] managed=false`.
@@ -383,8 +383,8 @@ systemctl enable NetworkManager-wait-online.service 2>&1 | tail -2 || true
 # NM_ONLINE_TIMEOUT=60 (the comment above used to claim ~30 s), and
 # `nm-online -s` waits for NetworkManager's "startup complete", which also
 # waits for cable-less NICs and the first Wi-Fi scan. MEASURED (systemd
-# blame): 8.08 s on CHIMERA, 5.55 s on PEGASUS, both on a healthy DHCP LAN;
-# CHIMERA had its lease at 8.33 s and "startup complete" only at 16.04 s.
+# blame): 8.08 s on T2 Mac A, 5.55 s on the GU502LV laptop, both on a healthy DHCP LAN;
+# T2 Mac A had its lease at 8.33 s and "startup complete" only at 16.04 s.
 # graphical.target waits for it through multi-user.target -> inetd.service
 # (After=network-online.target). The greeter does not, so this changes when
 # boot is "finished", not when the login screen appears. With no DHCP server

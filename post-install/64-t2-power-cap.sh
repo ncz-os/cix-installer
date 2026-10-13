@@ -3,7 +3,7 @@
 # all-core load cannot trip the SMC/BMS hard power cut that powers the whole
 # machine off with no journal entry.
 #
-# THE BUG. On the MacBookPro16,1 (CHIMERA = i9-9980HK, MEDUSA = i7-9750H) the
+# THE BUG. On the MacBookPro16,1 (unit A = i9-9980HK, unit B = i7-9750H) the
 # firmware ships Intel RAPL package limits of PL1 = 100 W / PL2 = 125 W with
 # turbo enabled and intel_pstate max_perf_pct = 100. Under a sustained all-core
 # load the package alone spikes past what the battery (or, on AC, the 96 W
@@ -16,7 +16,7 @@
 # the cap was actually applied.
 #
 # WHY A CAP, NOT A DRIVER FIX. Our own T2 7.3 power-cut investigation
-# (MNEMOS project_t2_73_powercut_handoff_2026_10_04, mem_1791153431205_d3fa8b;
+# (project T2 7.3 power-cut handoff notes, 2026-10-04;
 # amd64-kernel-t2 docs/) ran an extensive boot-time experiment matrix
 # (userspace off, DKMS blocked, BCE blocked, amdgpu blocked, C-states<=C1,
 # ASPM off, TB blocked, nosmp) and did NOT reproduce the boot cut with any of
@@ -41,7 +41,7 @@
 #             so AC is capped too - but conservatively, so a build host keeps
 #             usable throughput. 45 W is the firmware's own read-only PL1
 #             ceiling on these machines (constraint_0_max_power_uw = 45 W,
-#             read live on CHIMERA and MEDUSA 2026-10-11), so it is a value the
+#             read live on both MacBookPro16,1 test units 2026-10-11), so it is a value the
 #             firmware itself considers valid.
 #   The AC numbers, the battery numbers and the exact behaviour are all
 #   overridable in /etc/ncz/power-cap.conf (see below), including a clean

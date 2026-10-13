@@ -132,7 +132,7 @@ cat > /usr/local/bin/ncz-has-drm-output <<'DRMTEST'
 # autoEnableOutputs=no change (2026-10-11). There a CONNECTED output is enough,
 # the pre-2026-10-11 behaviour.
 #
-# amdgpu on T2 Macs (CHIMERA) publishes its eDP connector ~7-9 s into
+# amdgpu on T2 Macs (T2 Mac A) publishes its eDP connector ~7-9 s into
 # userspace, after greetd's one-shot ExecCondition would already have skipped
 # the greeter (measured 2026-10-10: condition 21:25:49, connector 21:25:50).
 # The old cix-detect-display wait is arm64-only, so wait here, on every arch,
@@ -217,7 +217,7 @@ GREETDDRM
 
 # The display-detect ordering is arm64 only. 22-display-fix.sh leaves
 # cix-detect-display.service disabled on amd64, but a Wants= here pulled it in
-# on every boot anyway (7.4 s in the boot blame on CHIMERA, r201). Its own
+# on every boot anyway (7.4 s in the boot blame on T2 Mac A, r201). Its own
 # drop-in so the arch-neutral file above stays identical on both platforms.
 _ncz_greeter_arch="${NCZ_TARGET_ARCH:-}"
 [ -n "$_ncz_greeter_arch" ] || _ncz_greeter_arch=$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)
@@ -291,7 +291,7 @@ chmod 0755 /etc/greetd/singularity-labwc/autostart
 # autostart only adjusts the mode — harmless there. With =no on amd64, labwc
 # instead tries to DISABLE the CRTC the console/KMS splash left enabled; that
 # disable fails on i915 ("Failed to disable CRTC") and the greeter stays black
-# (PEGASUS RC2 325c9510, reported and live-tested 2026-10-11). On trilin Sky1
+# (the GU502LV laptop RC2 325c9510, reported and live-tested 2026-10-11). On trilin Sky1
 # (MS-R1, Orange Pi 6 Plus) the redundant disable+enable cycle is exactly what
 # latches the DP AUX engine busy, so only there is =no written and the autostart
 # becomes the single commit that lights each output at the capped mode.

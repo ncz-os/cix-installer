@@ -3,7 +3,7 @@
 # Video BIOS Table.
 #
 # WHY. Apple firmware withholds the VBT from a non-macOS boot. Without it i915
-# reports, measured on MEDUSA (MacBookPro16,1) 2026-09-28:
+# reports, measured on T2 Mac B (MacBookPro16,1) 2026-09-28:
 #     i915: Failed to find VBIOS tables (VBT)
 #     i915: failed to retrieve link info, disabling eDP
 #     i915: Cannot find any crtc or sizes
@@ -26,7 +26,7 @@
 # and is logged as ORPHAN. That is the intended state on this hardware, and
 # build/test-run-all-baked-allowlist.sh carries it in KNOWN_ORPHANS on purpose.
 #
-# Measured on CHIMERA (MacBookPro16,1) on 7.3.0-rc6-4-t2-edge-aer9010, with
+# Measured on T2 Mac A (MacBookPro16,1) on 7.3.0-rc6-4-t2-edge-aer9010, with
 # this hook never having run and no spoof_osx_version line in refind.conf:
 #     i915: Failed to find VBIOS tables (VBT)
 #     i915: [ENCODER:113:DDI A/PHY A] failed to retrieve link info, disabling eDP

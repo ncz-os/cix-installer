@@ -30,10 +30,10 @@
 #
 # Why: get-apple-firmware's `get_from_online` path downloads a full ~753MB
 # macOS Sonoma Recovery Image just to extract ~3.6MB of real firmware
-# (confirmed live on MEDUSA, 2026-09-22) — a >99% waste ratio repeated on
+# (confirmed live on T2 Mac B, 2026-09-22) — a >99% waste ratio repeated on
 # EVERY T2 install. The extracted set (128 files: brcmfmac4355c1/4364b2/
 # 4364b3/4377b3 board variants) covers all real T2-era Mac WiFi chips, not
-# just MEDUSA's specific model — Apple ships every board's firmware in the
+# just T2 Mac B's specific model — Apple ships every board's firmware in the
 # same Recovery Image bundle, we just extracted the whole set once.
 #
 # CAVEAT: if a future T2 Mac model needs a chip variant NOT covered by this
@@ -51,7 +51,7 @@
 # it isn't a copy-paste-only fact living in one hook. Detection itself is
 # unchanged (same [106b:1801] signature, verified 2026-09-14 in t2linux's
 # own patch) and now ALSO verified against REAL T2 hardware 2026-09-15
-# (read-only oracle check on MEDUSA, a real MacBookPro16,1 — see
+# (read-only oracle check on T2 Mac B, a real MacBookPro16,1 — see
 # hw-detect.sh's header for the exact lspci/DMI output). A DMI fallback was
 # added for when lspci itself is unavailable — this is a strict addition,
 # not a behavior change, since the old code skipped ALL T2 work whenever

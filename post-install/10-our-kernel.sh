@@ -9,7 +9,7 @@
 # system using that exact kernel), so `apt upgrade` could never pull a
 # new kernel -- there was nothing dpkg thought needed upgrading. This
 # directly broke the documented "apt upgrade pulls new kernels, no
-# reinstall" OTA story (confirmed live on .66, 2026-07-06).
+# reinstall" OTA story (confirmed live on the MS-R1 test board, 2026-07-06).
 #
 # Fix: install via `apt-get install linux-image-cixmini` from
 # the same Buildkite repo (ncz-os/ncz) the OTA channel already uses, so
