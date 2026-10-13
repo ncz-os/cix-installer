@@ -28,9 +28,9 @@ Usage:
 Environment: VERIFY_ROOT (same as --root), OVERLAY_STAGING_DIR (--staging).
 
 The staging dir defaults to the target of the assets/kernel/mainline symlink;
-when that path is not mounted under its committed spelling the other ARGONAS
-yocto-shared mount spellings are tried (ULTRA /mnt/argonas-yocto-shared,
-HYDRA/ACHILLES/PROTEUS /mnt/argonas/datapool/yocto-shared, ...).
+when that path is not mounted under its committed spelling, the same
+kernel-staging entry is tried under this host's shared Yocto export root
+(NCZ_YOCTO_SHARED_DIR, or the first line of ~/.config/ncz/yocto-shared-dir).
 
 Exit: 0 pass, 1 gate failure (every failure printed), 2 inputs not found or bad
 invocation. Pure Python, no kmod/binutils needed, any host arch.
@@ -43,13 +43,23 @@ import struct
 import sys
 
 OVERLAY_DIRS = ("mali", "vpu", "npu", "panthor")
-MOUNT_SPELLINGS = (
-    "/mnt/argonas-yocto-shared",
-    "/mnt/argonas/datapool/yocto-shared",
-    "/mnt/datapool/yocto-shared",
-    "/nfs-shared",
-    "/mnt/yocto-shared",
-)
+
+
+def yocto_shared_root():
+    """NCZ_YOCTO_SHARED_DIR, else the first line of ~/.config/ncz/yocto-shared-dir."""
+    v = os.environ.get("NCZ_YOCTO_SHARED_DIR", "")
+    if not v:
+        cfg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+            os.path.expanduser("~"), ".config"
+        )
+        try:
+            with open(os.path.join(cfg, "ncz", "yocto-shared-dir")) as f:
+                v = f.readline().strip()
+        except OSError:
+            v = ""
+    return v.rstrip("/")
+
+
 MODVERSION_ENTRY = (
     64  # struct modversion_info on 64-bit: unsigned long crc + char name[56]
 )
@@ -141,12 +151,12 @@ def resolve_staging(root, explicit):
     if not os.path.islink(link):
         return None, link
     target = os.readlink(link)
-    for a in MOUNT_SPELLINGS:
-        if target.startswith(a + "/"):
-            rest = target[len(a) :]
-            for b in MOUNT_SPELLINGS:
-                if os.path.isdir(b + rest):
-                    return b + rest, target
+    root = yocto_shared_root()
+    marker = "/kernel-staging/"
+    if root and marker in target:
+        alt = root + marker + target.split(marker, 1)[1]
+        if os.path.isdir(alt):
+            return alt, target
     return None, target
 
 

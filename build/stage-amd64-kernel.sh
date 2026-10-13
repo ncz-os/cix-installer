@@ -1,10 +1,10 @@
 #!/bin/bash
 # stage-amd64-kernel.sh -- pull the single unified amd64 7.3 kernel from the
-# shared ARGONAS kernel-staging pool into assets/kernel/amd64-stable/.
+# shared kernel-staging pool into assets/kernel/amd64-stable/.
 #
 # Mirrors the arm64 side's stage-kernel.sh in spirit (kernel artifacts are
-# gitignored and live in a shared, dated staging area on ARGONAS, per
-# ~/.claude/rules/kernel-build-checklist.md's staging convention) but the
+# gitignored and live in a shared, dated staging area on the artifact store,
+# per the project's kernel staging convention) but the
 # amd64 payload is just a linux-image/linux-headers .deb pair, so this stays
 # a plain copy rather than stage-kernel.sh's Image/modules/headers/staleness-
 # check ceremony (that machinery is Sky1/Yocto-specific).
@@ -26,13 +26,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WHAT="${1:-default}"
 
-# Different hosts mount the same ARGONAS export at different local paths
-# (HYDRA/ACHILLES/PROTEUS: /mnt/argonas/datapool/yocto-shared via autofs;
-# ULTRA: /mnt/argonas-yocto-shared) -- try both rather than hardcoding one.
-for candidate in /mnt/argonas/datapool/yocto-shared /mnt/argonas-yocto-shared /mnt/yocto-shared; do
-    [ -d "$candidate/kernel-staging" ] && SHARED="$candidate/kernel-staging" && break
-done
-[ -n "${SHARED:-}" ] || { echo "ERROR: no ARGONAS yocto-shared/kernel-staging mount found on this host" >&2; exit 1; }
+# Different hosts mount the shared Yocto export at different local paths, so the
+# root comes from NCZ_YOCTO_SHARED_DIR or ~/.config/ncz/yocto-shared-dir
+# (build/lib/ncz-site.sh) rather than a hardcoded mount point.
+. "$ROOT/build/lib/ncz-site.sh"
+_ysd="$(ncz_site_value NCZ_YOCTO_SHARED_DIR yocto-shared-dir)"
+[ -n "$_ysd" ] && [ -d "$_ysd/kernel-staging" ] && SHARED="$_ysd/kernel-staging"
+[ -n "${SHARED:-}" ] || { echo "ERROR: kernel-staging pool not found: set NCZ_YOCTO_SHARED_DIR (or ~/.config/ncz/yocto-shared-dir) to the shared Yocto export root" >&2; exit 1; }
 
 # The staging dir ships EXACTLY ONE kernel: the pinned linux-image +
 # linux-headers .deb PAIR.  Two independent gates enforce that:

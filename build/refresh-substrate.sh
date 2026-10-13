@@ -1,7 +1,7 @@
 #!/bin/bash
 # refresh-substrate.sh -- fetch the NEWEST Debian testing netinst for an arch,
 # verify it (SHA256SUMS + the GPG signature of SHA256SUMS.sign against the
-# committed Debian CD signing key), cache it on ARGONAS (keeping the last two),
+# committed Debian CD signing key), cache it in the substrate cache (keeping the last two),
 # and (re)write manifests/base.pin: the substrate sha256 + archive date AND the
 # snapshot.debian.org timestamp DERIVED from it by measurement.
 #
@@ -35,8 +35,11 @@ CD_KEY_FPR="F41D30342F3546695F65C66942468F4009EA8AC3"
 MAX_AGE_DAYS="${NCZ_SUBSTRATE_MAX_AGE_DAYS:-8}"
 BASE_URL="https://cdimage.debian.org/cdimage/weekly-builds/$ARCH/iso-cd"
 ISO_NAME="debian-testing-$ARCH-netinst.iso"
-# ARGONAS substrate cache (first entry; matches the Makefile SUBSTRATE_CACHE_DIRS)
-CACHE_DIR="${NCZ_SUBSTRATE_CACHE_DIR:-/mnt/argonas/datapool/projects/ncz-os-assets/substrate}"
+# Substrate cache: NCZ_SUBSTRATE_CACHE_DIR, else the first entry of
+# NCZ_SUBSTRATE_CACHE_DIRS / ~/.config/ncz/substrate-cache-dir (build/lib/ncz-site.sh).
+. "$ROOT/build/lib/ncz-site.sh"
+CACHE_DIR="${NCZ_SUBSTRATE_CACHE_DIR:-}"
+[ -n "$CACHE_DIR" ] || { _cd="$(ncz_site_value NCZ_SUBSTRATE_CACHE_DIRS substrate-cache-dir)"; CACHE_DIR="${_cd%% *}"; }
 
 die() { echo "refresh-substrate: ERROR: $*" >&2; exit 2; }
 need() { command -v "$1" >/dev/null 2>&1 || die "required tool missing: $1"; }
@@ -73,8 +76,8 @@ python3 -I "$HERE/derive-base-pin.py" --arch "$ARCH" --iso "$ISO" \
   --scratch "$WORK/scratch" --min-coverage "${NCZ_SUBSTRATE_MIN_COVERAGE:-99}"
 rc=$?
 
-# --- 4. cache the verified ISO on ARGONAS (keep the last two per arch) ------
-if [ -d "$CACHE_DIR" ] && [ -w "$CACHE_DIR" ]; then
+# --- 4. cache the verified ISO in the substrate cache (keep the last two per arch)
+if [ -n "$CACHE_DIR" ] && [ -d "$CACHE_DIR" ] && [ -w "$CACHE_DIR" ]; then
   short="${have_sha:0:8}"
   date_tag="$(date -u +%Y%m%d)"
   dest="$CACHE_DIR/${ISO_NAME%.iso}-${date_tag}-${short}.iso"

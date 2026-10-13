@@ -1,6 +1,6 @@
 #!/bin/bash
 # stage-substrate.sh -- materialize the pinned Debian testing netinst substrate
-# into downloads/ from the ARGONAS cache, sha256-verified against
+# into downloads/ from the substrate cache, sha256-verified against
 # manifests/base.pin.
 #
 # WHY. The image build runs `make image` inside the ncz-imagebuild container,
@@ -16,8 +16,8 @@
 # pinned substrate is always restored here, sha256-checked, and never floated.
 #
 # The pin is SINGLE-SOURCED from manifests/base.pin (substrate sha256 per arch).
-# The ISO is looked up in the ARGONAS substrate cache as <name>-<yyyymmdd>-<sha8>.iso
-# (the same directories the Makefile uses); NCZ_SUBSTRATE_CACHE_DIRS overrides.
+# The ISO is looked up in the substrate cache as <name>-<yyyymmdd>-<sha8>.iso
+# (NCZ_SUBSTRATE_CACHE_DIRS or ~/.config/ncz/substrate-cache-dir; space-separated).
 #
 # USAGE
 #   build/stage-substrate.sh --arch amd64|arm64           # stage into downloads/
@@ -62,12 +62,10 @@ if [ "$MODE" = check ]; then
     exit 1
 fi
 
-# ARGONAS substrate cache (first entry mirrors the Makefile; NCZ_SUBSTRATE_CACHE_DIRS overrides)
-CACHE_DIRS="${NCZ_SUBSTRATE_CACHE_DIRS:-\
-/mnt/argonas/datapool/projects/ncz-os-assets/substrate \
-/mnt/argonas-projects/ncz-os-assets/substrate \
-/nfs-shared/ncz-os-assets/substrate \
-/mnt/datapool/projects/ncz-os-assets/substrate}"
+# Substrate cache directories (space-separated): NCZ_SUBSTRATE_CACHE_DIRS or
+# ~/.config/ncz/substrate-cache-dir (build/lib/ncz-site.sh).
+. "$ROOT/build/lib/ncz-site.sh"
+CACHE_DIRS="$(ncz_site_value NCZ_SUBSTRATE_CACHE_DIRS substrate-cache-dir)"
 found=""
 for d in $CACHE_DIRS; do
     [ -d "$d" ] || continue
@@ -81,8 +79,9 @@ if [ -z "$found" ]; then
     {
         echo "stage-substrate: FAIL: the pinned substrate ($SHORT, $WANT) was not found in:"
         for d in $CACHE_DIRS; do echo "  $d"; done
-        echo "Upstream republishes the netinst filename weekly; the pinned ISO is cached on"
-        echo "ARGONAS as <name>-<yyyymmdd>-$SHORT.iso. Restore it into one of the cache dirs"
+        [ -n "$CACHE_DIRS" ] || echo "  (none configured: set NCZ_SUBSTRATE_CACHE_DIRS or ~/.config/ncz/substrate-cache-dir)"
+        echo "Upstream republishes the netinst filename weekly; the pinned ISO is cached in"
+        echo "the substrate cache as <name>-<yyyymmdd>-$SHORT.iso. Restore it into one of the cache dirs"
         echo "(or set NCZ_SUBSTRATE_CACHE_DIRS), or adopt a new substrate deliberately: build"
         echo "an image on it, run the KVM gate, then update manifests/base.pin. This script"
         echo "never floats to whatever Debian serves today."

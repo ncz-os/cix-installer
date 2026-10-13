@@ -2,7 +2,7 @@
 # test-npu-dkms-pin.sh -- the vendor cix-npu-driver-dkms +ncz3 deb (aipu 6.2.0) is a checksum-pinned build input.
 #
 # r201 arm64 (d90ed961): the SDK tarball is unreachable and the deb was copied by hand from the r200 tree, so a
-# clean checkout could not build the image. It now lives in the ARGONAS build-inputs store, pinned in
+# clean checkout could not build the image. It now lives in the build-inputs store, pinned in
 # manifests/build-inputs.tsv, and is staged by build/stage-build-inputs.sh (make image runs it for every row).
 #   1. the tsv pins it for arm64 with a real sha256 + size, and for no other arch
 #   2. the store holds a file with exactly that sha256 (SKIP loudly if no store is mounted)
@@ -24,11 +24,10 @@ sha="$(printf '%s\n' "$row" | awk -F'\t' 'NR==1{print $3}')"; size="$(printf '%s
 [ "$(printf '%s\n' "$row" | grep -c .)" = 1 ] && printf '%s\n' "$row" | grep -q '^arm64' && printf '%s' "$sha" | grep -Eq '^[0-9a-f]{64}$' && [ "${size:-0}" -gt 1000 ] \
     && ok "build-inputs.tsv pins the NPU DKMS deb for arm64 (sha256 $sha, $size B)" || bad "no valid single arm64 pin for $D"
 
-STORE=""
-for d in "${NCZ_BUILD_INPUTS_DIR:-}" /mnt/argonas/datapool/projects/ncz-os-assets/build-inputs /mnt/datapool/projects/ncz-os-assets/build-inputs /mnt/argonas-projects/ncz-os-assets/build-inputs; do
-    [ -n "$d" ] && [ -d "$d" ] && { STORE="$d"; break; }
-done
-if [ -z "$STORE" ]; then echo "SKIP  store check: no ARGONAS build-inputs store mounted on this host (checks 2 NOT run)"
+# Store: NCZ_BUILD_INPUTS_DIR, else ~/.config/ncz/build-inputs-dir (build/lib/ncz-site.sh).
+STORE="$(. "$ROOT/build/lib/ncz-site.sh"; ncz_site_value NCZ_BUILD_INPUTS_DIR build-inputs-dir)"
+[ -n "$STORE" ] && [ -d "$STORE" ] || STORE=""
+if [ -z "$STORE" ]; then echo "SKIP  store check: no build-inputs store configured/mounted on this host (checks 2 NOT run)"
 elif [ -f "$STORE/arm64/$D" ] && [ "$(sha256sum "$STORE/arm64/$D" | awk '{print $1}')" = "$sha" ]; then ok "the store holds the pinned file (sha256 matches)"
 else bad "store $STORE/arm64/$D missing or differs from the pin"; fi
 

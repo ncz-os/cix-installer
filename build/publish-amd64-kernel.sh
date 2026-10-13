@@ -1,5 +1,5 @@
 #!/bin/bash
-# Publish a built amd64 kernel into the shared ARGONAS kernel-staging pool
+# Publish a built amd64 kernel into the shared kernel-staging pool
 # under the name build/stage-amd64-kernel.sh actually looks for.
 #
 # WHY THIS EXISTS (2026-09-28). There was no publisher: amd64 kernels were
@@ -41,11 +41,11 @@ case "$LINE" in
 esac
 [ -d "${DEBDIR:-}" ] || { echo "ERROR: deb-dir not found: ${DEBDIR:-<unset>}" >&2; usage; exit 2; }
 
+. "$ROOT/build/lib/ncz-site.sh"
 SHARED=""
-for candidate in /mnt/argonas/datapool/yocto-shared /mnt/argonas-yocto-shared /nfs-shared /mnt/yocto-shared; do
-    [ -d "$candidate/kernel-staging" ] && SHARED="$candidate/kernel-staging" && break
-done
-[ -n "$SHARED" ] || { echo "ERROR: no ARGONAS yocto-shared/kernel-staging mount found on this host" >&2; exit 1; }
+_ysd="$(ncz_site_value NCZ_YOCTO_SHARED_DIR yocto-shared-dir)"
+[ -n "$_ysd" ] && [ -d "$_ysd/kernel-staging" ] && SHARED="$_ysd/kernel-staging"
+[ -n "$SHARED" ] || { echo "ERROR: kernel-staging pool not found: set NCZ_YOCTO_SHARED_DIR (or ~/.config/ncz/yocto-shared-dir) to the shared Yocto export root" >&2; exit 1; }
 
 IMG="$(find "$DEBDIR" -maxdepth 1 -iname 'linux-image-*.deb' | sort -V | tail -1)"
 [ -n "$IMG" ] || { echo "ERROR: no linux-image-*.deb in $DEBDIR" >&2; exit 1; }

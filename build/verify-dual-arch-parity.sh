@@ -60,9 +60,9 @@ DEBS=""
 if [ -n "${NCZ_SCREENSAVERS_DEBS+x}" ]; then   # explicitly set (tests use a nonexistent path to skip the check)
     [ -d "$NCZ_SCREENSAVERS_DEBS" ] && DEBS="$NCZ_SCREENSAVERS_DEBS"
 else
-    for c in /mnt/argonas-projects/ncz-screensavers-debs /mnt/argonas/datapool/projects/ncz-screensavers-debs /nfs-shared/ncz-screensavers-debs; do
-        [ -d "$c" ] && { DEBS="$c"; break; }
-    done
+    . "$HERE/lib/ncz-site.sh"
+    _pr="$(ncz_site_value NCZ_SSPLUGIN_SRC_ROOT projects-dir)"
+    [ -n "$_pr" ] && [ -d "$_pr/ncz-screensavers-debs" ] && DEBS="$_pr/ncz-screensavers-debs"
 fi
 if [ -n "$DEBS" ]; then
     V="$(ls "$DEBS" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
@@ -89,9 +89,9 @@ else
     echo "parity: (skipped) ncz-screensavers staging directory not mounted here"
 fi
 
-# 2b. Singularity screensaver settings plugin (pinned medium deb, docs/SCREENSAVER-PLUGIN.md) -----------
+# 2b. Singularity screensaver settings plugin (pinned medium deb) -----------
 # The pin must name a deb + payload + libsingularity for BOTH arches from ONE source commit; when the
-# ARGONAS directory is mounted both debs must be there and match the pin; a deb staged in
+# store directory is mounted both debs must be there and match the pin; a deb staged in
 # build/ncz-screensavers-out/ for either arch must match the pin (a build host stages only its own
 # arch, so one staged arch is normal; the stage-2 gate requires the build's own arch).
 SSP_LOCK="$ROOT/post-install/lib/ncz-screensavers-plugin.lock"
@@ -112,7 +112,7 @@ if [ -f "$SSP_LOCK" ]; then
         [ -n "$(ls "$ROOT/build/ncz-screensavers-out/${SSP_PKG}_"*"_$arch.deb" 2>/dev/null | grep -v "_${SSP_VER}_$arch.deb\$")" ] && bad "build/ncz-screensavers-out holds a $SSP_PKG $arch deb other than the pinned $SSP_VER"
         if [ -n "$DEBS" ] && [ -d "$(dirname "$DEBS")/$SSP_DIR" ]; then
             src="$(dirname "$DEBS")/$SSP_DIR/${SSP_PKG}_${SSP_VER}_$arch.deb"
-            if [ ! -f "$src" ]; then bad "plugin pin: $src missing on ARGONAS"
+            if [ ! -f "$src" ]; then bad "plugin pin: $src missing in the store"
             elif [ "$(sha256sum "$src" | awk '{print $1}')" != "$want" ]; then bad "plugin pin: $src does not match the $arch sha256"; fi
         fi
     done

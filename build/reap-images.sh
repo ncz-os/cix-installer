@@ -52,7 +52,7 @@ if [ "$MODE" != reap ]; then
 fi
 
 case "$ARCH" in arm64|amd64) ;; *) die "--arch arm64|amd64 is required" ;; esac
-[ -n "$ARCHIVE" ] && [ -d "$ARCHIVE" ] || die "--archive DIR (the ARGONAS images directory) is required and must exist"
+[ -n "$ARCHIVE" ] && [ -d "$ARCHIVE" ] || die "--archive DIR (the image archive directory) is required and must exist"
 [ ${#DIRS[@]} -gt 0 ] || [ ${#REMOTES[@]} -gt 0 ] || die "give at least one --dir or --remote"
 
 # ---- inventory: one record per copy: LOC|NAME|HAS_GATED|HAS_VALIDATED|MTIME

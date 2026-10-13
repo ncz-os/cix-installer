@@ -16,7 +16,7 @@
 #      now two pinned tarballs (manifests/build-inputs.tsv) materialized by
 #      build/stage-arm64-assets.sh.
 #
-# The store checks run only when the ARGONAS build-inputs store is mounted
+# The store checks run only when the build-inputs store is configured and mounted
 # (a fresh clone without it still passes); the extraction test runs unless
 # zstd/GNU-tar are unavailable.
 set -u
@@ -32,10 +32,9 @@ pin_sha() { awk -F'\t' -v a="$1" -v d="$2" '$1==a && $2==d {print $3}' "$TSV" | 
 pin_size() { awk -F'\t' -v a="$1" -v d="$2" '$1==a && $2==d {print $4}' "$TSV" | head -1; }
 is_sha() { printf '%s' "$1" | grep -Eq '^[0-9a-f]{64}$'; }
 
-STORE=""
-for d in "${NCZ_BUILD_INPUTS_DIR:-}" /mnt/argonas/datapool/projects/ncz-os-assets/build-inputs /mnt/datapool/projects/ncz-os-assets/build-inputs /mnt/argonas-projects/ncz-os-assets/build-inputs; do
-    [ -n "$d" ] && [ -d "$d" ] && { STORE="$d"; break; }
-done
+# Store: NCZ_BUILD_INPUTS_DIR, else ~/.config/ncz/build-inputs-dir (build/lib/ncz-site.sh).
+STORE="$(. "$ROOT/build/lib/ncz-site.sh"; ncz_site_value NCZ_BUILD_INPUTS_DIR build-inputs-dir)"
+[ -n "$STORE" ] && [ -d "$STORE" ] || STORE=""
 
 # --- #1 the screensavers ENGINE deb is pinned for both arches, sha == the ledger ---
 for a in amd64 arm64; do

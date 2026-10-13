@@ -93,16 +93,16 @@ UPSTREAM_SHA_NAME := $(UPSTREAM_ISO)
 # Adopted in this commit because the operator requested a real ISO; the prior
 # pin was preventing `make download` outright. Validation: install-gate
 # (build/kvm-install-gate.sh) PASS against the ISO built on this substrate —
-# see docs/ISO-REBAKE-TYDEUS-2026-08-21.md §"Verification".
+# (validated on an arm64 build host, 2026-08-21).
 # Substrate rotated again 2026-09-25. The replacement below passed the native
-# arm64 build/kvm-install-gate.sh install-and-detached-boot gate on ULTRA.
+# arm64 build/kvm-install-gate.sh install-and-detached-boot gate on a native arm64 build host.
 # Validated substrate pins. arm64 is pinned to the Debian weekly netinst with
 # installer build 20260921 (sha256 below): the substrate every arm64 image that
 # passed the KVM install gate was built on, including ncz-os-arm64-20260929-18e8a14.
 # Debian republishes the filename weekly and drops the old build, so a fresh
 # worktree (empty downloads/) used to float silently to whatever was current.
-# The pinned file is kept on ARGONAS (SUBSTRATE_CACHE_DIRS, one directory per
-# host spelling) and the download rule copies it from there and verifies the
+# The pinned file is kept in the substrate cache (SUBSTRATE_CACHE_DIRS, from
+# NCZ_SUBSTRATE_CACHE_DIRS or ~/.config/ncz/substrate-cache-dir) and the download rule copies it from there and verifies the
 # sha256; if it cannot, it FAILS rather than floating.
 # Adopting a newer installer is a deliberate act: build on it, run the KVM gate,
 # store the ISO in the cache directory as <name>-<yyyymmdd>-<sha8>.iso, then
@@ -125,9 +125,7 @@ else ifeq ($(ARCH),amd64)
 SUBSTRATE_SHA ?= $(if $(SUBSTRATE_FROM_PIN),$(SUBSTRATE_FROM_PIN),c517f8fffadbaca4d3b07a4268591f4250fd35034988d3113623dc340ed635db)
 endif
 SUBSTRATE_SHA ?=
-SUBSTRATE_CACHE_DIRS ?= /mnt/argonas-projects/ncz-os-assets/substrate \
-                        /nfs-shared/ncz-os-assets/substrate \
-                        /mnt/argonas/datapool/projects/ncz-os-assets/substrate
+SUBSTRATE_CACHE_DIRS ?= $(or $(NCZ_SUBSTRATE_CACHE_DIRS),$(shell head -n1 "$${XDG_CONFIG_HOME:-$$HOME/.config}/ncz/substrate-cache-dir" 2>/dev/null))
 
 DOWNLOADS     := $(ROOT)/downloads
 BUILD         := $(ROOT)/build
@@ -299,10 +297,10 @@ iso iso-verified:
 #       layer with "no kernel installed (edge failed)" because the
 #       vendor mirror had published rc5 while KVER said 7.2.8.
 #
-# Operator directive 2026-09-30 (the .66 incident), updated 2026-10-04: the 7.2.9
+# Operator directive 2026-09-30 (the Sky1 test-board incident), updated 2026-10-04: the 7.2.9
 # release kernel must be the default kernel on every arch. Gate the kernel-debs target with the kernel-default
 # policy verifier before doing anything else -- a misdirected
-# assets/kernel/mainline symlink (the .66 root cause) silently produces
+# assets/kernel/mainline symlink (that incident's root cause) silently produces
 # wrong .debs here if this gate is skipped.
 kernel-debs:
 	@if [ ! -x "$(ROOT)/build/verify-kernel-default-policy.sh" ]; then \
@@ -479,7 +477,7 @@ offline-mirror: desktop-mirror check-substrate-pin
 
 
 # Pinned build inputs (rescue rootfs, python311, wallpaper debs, recovery rootfs) come from the
-# ARGONAS store, checksum-pinned in manifests/build-inputs.tsv; see build/stage-build-inputs.sh.
+# build-inputs store, checksum-pinned in manifests/build-inputs.tsv; see build/stage-build-inputs.sh.
 .PHONY: stage-build-inputs
 stage-build-inputs:
 	@bash $(ROOT)/build/stage-build-inputs.sh --arch $(ARCH)
@@ -548,9 +546,9 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	@bash $(ROOT)/build/secret-scan-gate.sh $@
 	@echo "[image] DONE — $@ ($$(du -h $@ 2>/dev/null | cut -f1))"
 
-# Singularity screensaver settings plugin (docs/SCREENSAVER-PLUGIN.md): copy
-# the pinned deb from ARGONAS into build/ncz-screensavers-out/. Run on the
-# build HOST (needs the ARGONAS mount) before `make image`; the image recipe
+# Singularity screensaver settings plugin: copy
+# the pinned deb from the store into build/ncz-screensavers-out/. Run on the
+# build HOST (needs the store mount) before `make image`; the image recipe
 # only verifies (build/check-ssplugin-abi.sh), it never fetches.
 ssplugin-stage:
 	@bash $(ROOT)/build/stage-screensaver-plugin.sh $(ARCH)
@@ -569,17 +567,17 @@ test-platform:
 	@bash $(ROOT)/build/test-platform-lint.sh
 	@$(MAKE) --no-print-directory test-cygnus-branding
 
-# boot-speed regression tests (docs/BOOT-SPEED.md): no Type=oneshot unit may
+# boot-speed regression tests: no Type=oneshot unit may
 # sit in multi-user.target's critical chain just to poll for the network.
 test-boot-speed:
 	@bash $(ROOT)/build/test-boot-speed.sh
 
-# item G (docs/BOOT-SPEED.md section 8): the systemd-timesyncd fast-retry
+# item G: the systemd-timesyncd fast-retry
 # drop-in must ship on both arches and time sync must never order the greeter.
 test-timesync-retry:
 	@bash $(ROOT)/build/test-timesync-retry.sh
 
-# docs/BOOT-SEQUENCE.md (2026-10-06): installer NIC-wait / clock bounds, Sky1-only
+# boot sequence (2026-10-06): installer NIC-wait / clock bounds, Sky1-only
 # display pin, bounded NetworkManager-wait-online, diag-console alive() order.
 test-boot-sequence:
 	@bash $(ROOT)/build/test-boot-sequence.sh
@@ -617,7 +615,7 @@ verify: $(OUTPUT_IMAGE)
 
 # iso-verified: build the ISO and then run kvm-install-gate.sh against it. The
 # gate installs the just-built ISO in KVM (auto-falls back to TCG under qemu on
-# non-aarch64 hosts like TYDEUS), boots what it installed, and asserts the
+# non-aarch64 hosts), boots what it installed, and asserts the
 # NCZ-ROOTMODE=755 marker from the boot serial. ANYTHING INTENDED FOR REAL
 # HARDWARE SHOULD GO THROUGH THIS TARGET, NOT THE PLAIN `iso` -- the 2026-08-26
 # 0700-root incident is exactly the class of regression this gate catches at
@@ -675,7 +673,7 @@ test-cygnus-branding:
 	@python3 $(ROOT)/branding/cygnus/tests/test_cygnus_contrast.py
 	@python3 $(ROOT)/branding/cygnus/tests/test_cygnus_singularity.py
 
-# static dual-architecture parity: manifest pairs, ncz-screensavers debs, hook arch-gate lint (docs/DUAL-ARCH-PARITY.md)
+# static dual-architecture parity: manifest pairs, ncz-screensavers debs, hook arch-gate lint
 # components.py check --gate is the phase 2 registry enforcement entry.
 parity:
 	python3 build/components.py check --gate
@@ -773,7 +771,7 @@ parity:
 	$(MAKE) --no-print-directory test-cygnus-branding
 
 # -----------------------------------------------------------------------
-# Determinism + single entrypoint (docs/IMAGE-BUILD-PROCESS.md)
+# Determinism + single entrypoint
 # -----------------------------------------------------------------------
 # The substrate pin for ARCH, printed with no side effects.  Consumed by
 # build/gen-base-pin.sh and build/build-image.sh so the Makefile stays the one

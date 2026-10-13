@@ -1,18 +1,17 @@
 #!/bin/bash
 # stage-screensaver-plugin.sh ARCH [ARCH...] -- copy the pinned Singularity
-# screensaver settings plugin deb (ncz-screensavers-plugin) from ARGONAS into
+# screensaver settings plugin deb (ncz-screensavers-plugin) from the store into
 # build/ncz-screensavers-out/, verified against
 # post-install/lib/ncz-screensavers-plugin.lock. Copies only; never touches the
 # network; idempotent (an identical destination is left in place).
 #
-# Run on the build HOST (it needs the ARGONAS NFS mount) before stage 2
+# Run on the build HOST (it needs the store's NFS mount) before stage 2
 # (`make image`), after stage-assets. `make ssplugin-stage` runs it for $(ARCH).
 # The stage-2 gate (build/check-ssplugin-abi.sh) refuses an image whose staged
 # deb is missing or differs from the pin.
 #
-#   NCZ_SSPLUGIN_SRC_ROOT=DIR   ARGONAS projects root (default: first existing of
-#                               /mnt/argonas-projects, /mnt/argonas/datapool/projects,
-#                               /nfs-shared, /mnt/datapool/projects)
+#   NCZ_SSPLUGIN_SRC_ROOT=DIR   the store's projects root (default: first line of
+#                               ~/.config/ncz/projects-dir; build/lib/ncz-site.sh)
 #   NCZ_SSPLUGIN_OUT=DIR        destination (default build/ncz-screensavers-out)
 #   NCZ_SSPLUGIN_LOCK=FILE      pin file (default post-install/lib/ncz-screensavers-plugin.lock)
 set -euo pipefail
@@ -26,14 +25,10 @@ ssp_err() { echo "[ssplugin-stage] $*" >&2; }
 LOCK="${NCZ_SSPLUGIN_LOCK:-$ROOT/post-install/lib/ncz-screensavers-plugin.lock}"
 OUT="${NCZ_SSPLUGIN_OUT:-$ROOT/build/ncz-screensavers-out}"
 
-SRC_ROOT="${NCZ_SSPLUGIN_SRC_ROOT:-}"
-if [ -z "$SRC_ROOT" ]; then
-    for c in /mnt/argonas-projects /mnt/argonas/datapool/projects /nfs-shared /mnt/datapool/projects; do
-        [ -d "$c/ncz-screensavers-debs" ] && { SRC_ROOT="$c"; break; }
-    done
-fi
+. "$ROOT/build/lib/ncz-site.sh"
+SRC_ROOT="$(ncz_site_value NCZ_SSPLUGIN_SRC_ROOT projects-dir)"
 [ -n "$SRC_ROOT" ] && [ -d "$SRC_ROOT" ] || {
-    ssp_err "FATAL: ARGONAS projects mount not found (looked for */ncz-screensavers-debs under /mnt/argonas-projects, /mnt/argonas/datapool/projects, /nfs-shared, /mnt/datapool/projects); set NCZ_SSPLUGIN_SRC_ROOT"
+    ssp_err "FATAL: the store's projects root is not configured or not mounted ('${SRC_ROOT:-<unset>}'); set NCZ_SSPLUGIN_SRC_ROOT or ~/.config/ncz/projects-dir"
     exit 1
 }
 

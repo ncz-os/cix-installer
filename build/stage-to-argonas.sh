@@ -1,12 +1,12 @@
 #!/bin/bash
-# stage-to-argonas.sh -- copy a GATED build artifact to the ARGONAS images
-# store, with sha256 verification.  Called by build/build-image.sh's archive
+# stage-to-argonas.sh -- copy a GATED build artifact to the project's image
+# archive, with sha256 verification.  Called by build/build-image.sh's archive
 # stage AFTER the KVM and provenance gates have PASSed this run.
 #
 # This is NOT ship-image.sh: it does not tag, it does not reap, it does not
 # touch a live repo/R2/Buildkite, and it deletes nothing.  Retention (only the
 # last operator-validated image per arch + the in-flight candidate) is enforced
-# by the operator/runbook, not here.  See docs/IMAGE-RELEASE-RUNBOOK.md.
+# by the operator/runbook, not here.
 #
 #   build/stage-to-argonas.sh <arch> <image> <run-dir> [archive-dir]
 #
@@ -15,6 +15,7 @@
 # <image>.sha256 sidecar is also written there.  Fails closed on any sha
 # mismatch or missing image.
 set -euo pipefail
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/ncz-site.sh"
 
 ARCH="${1:?usage: stage-to-argonas.sh <arch> <image> <run-dir> [archive-dir]}"
 IMG="${2:?image path required}"
@@ -30,15 +31,9 @@ case "$IMG" in
 esac
 
 if [ -z "$ARCHIVE" ]; then
-    for d in "${NCZ_IMAGE_ARCHIVE:-}" \
-             /mnt/argonas/datapool/projects/ncz-os-assets/images \
-             /mnt/argonas-projects/ncz-os-assets/images \
-             /mnt/argonas/projects/ncz-os-assets/images; do
-        [ -n "$d" ] || continue
-        [ -d "$d" ] && { ARCHIVE="$d"; break; }
-    done
+    ARCHIVE="$(ncz_site_value NCZ_IMAGE_ARCHIVE image-archive-dir)"
 fi
-[ -n "$ARCHIVE" ] || { echo "[stage] FAIL: no reachable ARGONAS images dir (set NCZ_IMAGE_ARCHIVE)" >&2; exit 1; }
+[ -n "$ARCHIVE" ] || { echo "[stage] FAIL: no image archive configured (set NCZ_IMAGE_ARCHIVE or ~/.config/ncz/image-archive-dir)" >&2; exit 1; }
 [ -d "$ARCHIVE" ] || { echo "[stage] FAIL: $ARCHIVE is not a directory" >&2; exit 1; }
 
 BASE="$(basename "$IMG")"
