@@ -54,9 +54,9 @@
       "modules_count": 377,
       "modules_compressed": 0
     },
-    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc7.bb (PR r2), commit 6b6b55aa13a877ff8083592048f0a6043703c26a, branch fix/sky1-r289-20261012",
-    "recipe_commit": "6b6b55aa13a877ff8083592048f0a6043703c26a",
-    "recipe_parent": "7ac28e30740c76fdf72f7cfdb8db79620ce6112e",
+    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc7.bb (PR r2), commit 7e8c821f8c7b79309af815ae0ee243bc36befa5b, branch fix/sky1-r289-20261012",
+    "recipe_commit": "7e8c821f8c7b79309af815ae0ee243bc36befa5b",
+    "recipe_parent": "935ede59bfd546de7d5c61bc0da7164e3d4d6f1f",
     "applied_patches": [
       "sky1-ncz-v7.3-rc7-port.patch",
       "0001-drm-cix-trilin-dp-drop-fwnode_drm_find_panel-use-cou.patch",

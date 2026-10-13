@@ -20,7 +20,7 @@ Packages `linux-image-cixmini` / `linux-headers-cixmini`
 | Part | Where | Exact revision |
 |---|---|---|
 | Upstream base | `https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git` | tag `v7.3-rc7`, commit `24a19b953e2a3d0ea5a8c4951a0ab8f32720c907` (tag object `ec8bf8280261294a9b9b4520414b42704c7f9f6b`, which is what the recipe's `SRCREV_kernel` names) |
-| Patch series, defconfig, recipe | **this directory**: `linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.3-rc7.bb` and `linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.3-rc7/` | copied from `https://gitlab.com/ncz-os/meta-cix`, tag `kernel-sky1-7.3.0-rc7-r289` = commit `6b6b55aa13a877ff8083592048f0a6043703c26a` |
+| Patch series, defconfig, recipe | **this directory**: `linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.3-rc7.bb` and `linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.3-rc7/` | copied from `https://gitlab.com/ncz-os/meta-cix`, tag `kernel-sky1-7.3.0-rc7-r289` = commit `7e8c821f8c7b79309af815ae0ee243bc36befa5b` |
 | As-built `.config` | `linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.3-rc7/config-7.3.0-rc7-sky1-ncz.as-built` | sha256 `67bb71093fb073cb3e9d64a5de42b2947df6ad9b7cc7c6f8b9c6105718b1aa97` (the `/boot/config-*` of the shipped binary) |
 | Complete patched tree, as one git commit | `https://gitlab.com/ncz-os/linux-cix`, branch `release/sky1-7.3.0-rc7-r289`, tag `kernel-sky1-7.3.0-rc7-r289-src` | commit `b275222cfc5703fb5595398a216b495ca7d6ee7a`, tree `73e5887e01f7cf9e9a9cd43453f8f098ea2a3cef` |
 | Port history (207 commits on the base) | `https://gitlab.com/ncz-os/linux-cix`, branch `kernel-73rc7-port-20261011` | commit `e53244fffc0bcea79e6d2ccd357cbb6d06a856d7` |
