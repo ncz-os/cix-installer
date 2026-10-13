@@ -21,5 +21,10 @@
 # 6d6bbc7f: Messages, SIT, liquid glass) with the same patch queue; the arm64
 # deb Depends on libgtk4-layer-shell0 (>= 1.3.0-1+ncz20261013)
 # (build/singularity-depends-floors.tsv).
-amd64	dabba8204cc861872dc01f89ad4343b8b38f051edc72e66c696f60df72adc02a	ncz-singularity-desktop_20261013150000+bk0+tgzd641828f_amd64.deb
-arm64	dabecf7f5b59f718ceb6ff5cb9709f08cd83ef441e543b575095638b4a8d2199	ncz-singularity-desktop_20261013150000+bk0+tgza7331201_arm64.deb
+# 20261013233000 is built from the same upstream commits with the full queue:
+# shell 0021 (overview clear of the dock), 0022 (logind Lock and
+# PrepareForSleep), 0023 (saver resumes when the prompt lowers), leafs 0001
+# (window buttons with the classic titlebar) and nearby 0001+0002 (links are
+# freed when they close; an open link is kept when the peer announces itself).
+amd64	1f2564d3d125ad1c8e2dc0ffbe64bc83b18eaa6ea6aafe5fc50b093dc37a8e1a	ncz-singularity-desktop_20261013233000+bk0+tgzef364e5b_amd64.deb
+arm64	4d16a21f024ca74bb9e40ab74251f37a0591d7d55078548948108d4bc8715e31	ncz-singularity-desktop_20261013233000+bk0+tgz03b581f4_arm64.deb
