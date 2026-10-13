@@ -58,8 +58,8 @@ fi
 # `ncz agent install <x>` (which is the only path that otherwise copies them
 # into place via agent_bootstrap() in /usr/local/lib/ncz-agent-cli).
 # Without this pre-staging, `ncz install mnemos` on a freshly-installed box
-# errors out with "missing quadlet template" (verified on PEGASUS .85 / O6N .3
-# / MS-R1 .66 by the orchestrator on 2026-10-13). The agent-install path
+# errors out with "missing quadlet template" (verified on the amd64 test host / the Sky1 test board
+# / the Sky1 test board by the orchestrator on 2026-10-13). The agent-install path
 # uses `cp -n` (non-destructive) and is therefore safe to redrive, so a
 # duplicate install of the same template is a no-op.
 AGENT_STACK_SRC=/usr/local/lib/cix-installer/assets/agent-stack
@@ -94,7 +94,7 @@ if [ -d "$SUDOERS_D" ]; then
 # NCZ-OS: add /usr/local/bin to sudo's secure_path so `sudo ncz ...` finds
 # the CLI staged at /usr/local/bin/ncz. Without this, the very first thing
 # an operator types after `apt install ncz-cli` fails with "sudo: ncz:
-# command not found" (verified on PEGASUS .85 / O6N .3 / MS-R1 .66 on
+# command not found" (verified on the amd64 test host / the Sky1 test board / the Sky1 test board on
 # 2026-10-13). Intentionally minimal: just the PATH, no NOPASSWD, no scope
 # expansion. visudo-equivalent: this file is parsed by sudo only if owned by
 # root:root and mode 0440.
@@ -390,7 +390,7 @@ ncz_models_pull() {
     # IMPORTANT: use -fsSL (follow redirects). HuggingFace serves the
     # gguf via an xet-bridge CDN that 302s to a signed URL — without -L
     # curl returns the 1108-byte redirector JSON, not the 146 MB file
-    # (verified on PEGASUS .85 2026-10-13; a sha256 mismatch was actually
+    # (verified on the amd64 test host 2026-10-13; a sha256 mismatch was actually
     # curl downloaded a wrong-but-valid HTML body).
     echo "[ncz] models pull: fetching $url"
     echo "[ncz] models pull: target sha256 = $sha256"
@@ -613,7 +613,7 @@ ncz_install_mnemos() {
         chmod 0640 "$token_file"
         chgrp nclawzero "$token_file" 2>/dev/null || true
     fi
-    local audit_token
+    local audit_token mcp_token mcp_token_file=/etc/nclawzero/mnemos-mcp-token
     audit_token="$(cat "$token_file" 2>/dev/null)"
     if [ -n "$audit_token" ]; then
         # Replace or insert MNEMOS_INTERNAL_AUDIT_TOKEN=... in the active
@@ -651,6 +651,30 @@ ncz_install_mnemos() {
             echo "[ncz] FATAL: MNEMOS_INTERNAL_AUDIT_TOKEN line did not land in $active after sed." >&2
             exit 1
         fi
+        # MCP HTTP/SSE auth token. The Exec=mnemos-serve-api-and-mcp supervisor
+        # will not start the MCP child without MNEMOS_MCP_TOKEN, so generate a
+        # per-host token and inject it the same way as the audit token.
+        if [ ! -s "$mcp_token_file" ]; then
+            head -c 32 /dev/urandom | od -An -vtx1 | tr -d ' \n' > "$mcp_token_file"
+            chmod 0640 "$mcp_token_file"
+            chgrp nclawzero "$mcp_token_file" 2>/dev/null || true
+        fi
+        mcp_token="$(cat "$mcp_token_file" 2>/dev/null)"
+        if [ -n "$mcp_token" ]; then
+            if grep -q '^Environment=MNEMOS_MCP_TOKEN=' "$active"; then
+                sed -i "s|^Environment=MNEMOS_MCP_TOKEN=.*|Environment=MNEMOS_MCP_TOKEN=$mcp_token|" "$active"
+            elif grep -q '^Environment=MNEMOS_MCP_PORT=' "$active"; then
+                sed -i "/^Environment=MNEMOS_MCP_PORT=/a\\Environment=MNEMOS_MCP_TOKEN=$mcp_token" "$active"
+            elif grep -q '^Environment=MNEMOS_PERSISTENCE_BACKEND=sqlite' "$active"; then
+                sed -i "/^Environment=MNEMOS_PERSISTENCE_BACKEND=sqlite/a\\Environment=MNEMOS_MCP_TOKEN=$mcp_token" "$active"
+            elif grep -q '^\[Container\]' "$active"; then
+                sed -i "/^\[Container\]/a\\Environment=MNEMOS_MCP_TOKEN=$mcp_token" "$active"
+            fi
+            if ! grep -q '^Environment=MNEMOS_MCP_TOKEN=' "$active"; then
+                echo "[ncz] FATAL: MNEMOS_MCP_TOKEN line did not land in $active after sed." >&2
+                exit 1
+            fi
+        fi
         systemctl daemon-reload
         systemctl restart mnemos.service
     fi
@@ -670,7 +694,8 @@ ncz_install_mnemos() {
     fi
 
     echo "[ncz] MNEMOS started."
-    echo "[ncz]   endpoint: http://<host>:5002  (REST /v1/*, MCP, OpenAI-compatible gateway)"
+    echo "[ncz]   REST/OpenAI endpoint: http://<host>:5002  (/v1/*, OpenAI-compatible gateway)"
+    echo "[ncz]   MCP endpoint:         http://<host>:5004/mcp  (HTTP/SSE, bearer token)"
     echo "[ncz]   health:   curl -fsS http://127.0.0.1:5002/health"
     echo "[ncz]   data:     volume mnemos-data (sqlite at /data/mnemos.db, persistent)"
     echo "[ncz]   embedder: in-process CPU (nomic-embed-text-v1.5, 768-dim)"
@@ -701,7 +726,7 @@ ncz_install_mnemos() {
     # re-running this is safe. Best-effort: if podman exec fails (container
     # not up yet, etc.) we don't fail the install — the embedder still
     # produces vectors; the operator can re-run via a follow-up hook.
-    local backfill_out
+    local backfill_out backfill_rc=0
     backfill_out="$(podman exec mnemos python3 -c '
 import sqlite3, sys
 try:
@@ -718,15 +743,14 @@ try:
 except Exception as e:
     print(f"FAIL {e}", file=sys.stderr)
     sys.exit(1)
-' 2>&1)" || rc=$?
-    if [ "$rc" = "0" ] && echo "$backfill_out" | grep -q '^OK '; then
+' 2>&1)" || backfill_rc=$?
+    if [ "$backfill_rc" = "0" ] && echo "$backfill_out" | grep -q '^OK '; then
         echo "[ncz]   backfill: $(echo "$backfill_out" | grep '^OK ' | head -1)"
     else
-        echo "[ncz] WARN: SQLite memory_embeddings backfill failed (rc=$rc)" >&2
+        echo "[ncz] WARN: SQLite memory_embeddings backfill failed (rc=$backfill_rc)" >&2
         echo "[ncz]   semantic_search on new memories will fall back to FTS until the next backfill" >&2
         echo "[ncz]   output: $backfill_out" >&2
     fi
-    rc=0
 
 # FIRST-RUN BOOTSTRAP. After install, ensure a default admin user + API
     # key exist for this host and persist them at /etc/nclawzero/mnemos.env,
@@ -837,6 +861,8 @@ for r in rows:
                     echo "MNEMOS_USER=$bootstrap_user"
                     echo "MNEMOS_API_TOKEN=$raw_key"
                     echo "MNEMOS_BASE_URL=http://127.0.0.1:5002"
+                    [ -n "$mcp_token" ] && echo "MNEMOS_MCP_TOKEN=$mcp_token"
+                    echo "MNEMOS_MCP_URL=http://127.0.0.1:5004"
                 } > "$mnemos_env"
                 chmod 0640 "$mnemos_env"
                 chgrp nclawzero "$mnemos_env" 2>/dev/null || true
@@ -848,6 +874,13 @@ for r in rows:
                 echo "[ncz]   manual bootstrap:" >&2
                 echo "[ncz]     podman exec mnemos python3 -c 'import sqlite3; c=sqlite3.connect(\"/data/mnemos.db\"); ...'" >&2
             fi
+        fi
+        # Backfill MCP creds into an already-provisioned mnemos.env so existing
+        # installs pick up the MCP endpoint without re-bootstrapping.
+        if [ -s "$mnemos_env" ] && [ -n "$mcp_token" ] && ! grep -q '^MNEMOS_MCP_TOKEN=' "$mnemos_env"; then
+            { echo "MNEMOS_MCP_TOKEN=$mcp_token"; echo "MNEMOS_MCP_URL=http://127.0.0.1:5004"; } >> "$mnemos_env"
+            chmod 0640 "$mnemos_env"
+            chgrp nclawzero "$mnemos_env" 2>/dev/null || true
         fi
     fi
 
@@ -874,23 +907,35 @@ for r in rows:
     # 2026-08-17 against both the buildkite and R2 indices), and 384 != 768
     # would have been a dimension mismatch even if it had.
     if [ -e /dev/aipu ]; then
-        echo "[ncz] NPU detected (/dev/aipu) — installing the 768-dim NPU embedder"
-        _npu_remv=$(apt-get install -y -s ncz-npu-embed ncz-model-nomic-embed 2>/dev/null | grep -c '^Remv' || true)
-        if [ "${_npu_remv:-1}" = "0" ]; then
-            if apt-get install -y ncz-npu-embed ncz-model-nomic-embed; then
-                echo "[ncz]   installed ncz-npu-embed + ncz-model-nomic-embed (768-dim)"
-                echo "[ncz]   point MNEMOS at it:  OPENAI_BASE_URL=http://localhost:8000/v1"
-                echo "[ncz]   (needs /dev/aipu passthrough + host networking on the quadlet)"
+        echo "[ncz] NPU detected (/dev/aipu)."
+        if [ "${NCZ_MNEMOS_NPU:-0}" = "1" ]; then
+            echo "[ncz]   NCZ_MNEMOS_NPU=1 — installing the 768-dim NPU embedder"
+            _npu_remv=$(apt-get install -y -s ncz-npu-embed ncz-model-nomic-embed 2>/dev/null | grep -c '^Remv' || true)
+            if [ "${_npu_remv:-1}" = "0" ]; then
+                if apt-get install -y ncz-npu-embed ncz-model-nomic-embed; then
+                    echo "[ncz]   installed ncz-npu-embed + ncz-model-nomic-embed (768-dim)"
+                else
+                    echo "[ncz]   WARN: NPU embedder install failed — MNEMOS keeps its in-process CPU embedder"
+                fi
             else
-                echo "[ncz]   WARN: NPU embedder install failed — MNEMOS keeps its in-process CPU embedder"
+                echo "[ncz]   WARN: skipping NPU embedder — apt wanted to REMOVE $_npu_remv package(s)"
             fi
         else
-            echo "[ncz]   WARN: skipping NPU embedder — apt wanted to REMOVE $_npu_remv package(s)"
+            # Default path. The shipped MNEMOS quadlet keeps the cix-npu block
+            # commented out because the NOE userspace engine fails every
+            # inference on the current kernel (noe_get_tensor), so passing
+            # /dev/aipu + a .cix model in would make MNEMOS select a backend
+            # that cannot embed. Report the device and stay on the embedder
+            # that actually works; keep the NPU stack opt-in.
+            echo "[ncz]   MNEMOS uses the in-process CPU embedder (nomic-embed-text-v1.5, 768-dim)."
+            echo "[ncz]   The cix-npu embedder is disabled in this release (NOE userspace"
+            echo "[ncz]   engine ABI gap: every cix-npu inference fails). The 768-dim NPU"
+            echo "[ncz]   model (ncz-model-nomic-embed) and runtime (ncz-npu-embed) are"
+            echo "[ncz]   available; opt in once the gap is fixed with:"
+            echo "[ncz]     sudo NCZ_MNEMOS_NPU=1 ncz install mnemos"
         fi
     else
-        echo "[ncz] no /dev/aipu — staying on the in-process CPU embedder (768-dim)."
-        echo "[ncz]   On Sky1 hardware, NPU offload is:"
-        echo "[ncz]     sudo apt install ncz-npu-embed ncz-model-nomic-embed"
+        echo "[ncz] no /dev/aipu — using the in-process CPU embedder (nomic-embed-text-v1.5, 768-dim)."
     fi
 }
 
@@ -912,7 +957,7 @@ for r in rows:
 # ~1 GB download.
 # Sky1 has NO render-capable DRM node, and Waydroid picks one anyway.
 #
-# ROOT CAUSE (measured on O6N 2026-08-18). /dev/dri/renderD128 belongs to
+# ROOT CAUSE (measured on the Sky1 test board 2026-08-18). /dev/dri/renderD128 belongs to
 # linlondp -- the Arm Mali-DP DISPLAY CONTROLLER on CIXH5010. It exposes a
 # renderD* node but has no render engine: its only children are card0-DP-1..3
 # and card0-Writeback-1..6. The actual GPU is Mali-G720-Immortalis behind the
@@ -985,7 +1030,7 @@ ncz_android_gpu_quirk() {
 }
 
 # The launcher the Waydroid package ships is NOT usable. Its Waydroid.desktop
-# carries `Exec=waydroid`, and bare `waydroid` takes no action: measured on O6N
+# carries `Exec=waydroid`, and bare `waydroid` takes no action: measured on the Sky1 test board
 # it printed nothing and had not exited after two minutes. Clicking the shipped
 # icon therefore hangs silently, which reads as "Android is broken".
 #
@@ -1282,7 +1327,7 @@ ncz_install_android() {
     # fallback.
     #
     # This used to go straight to repo.waydro.id. That broke outright on
-    # NCZ-OS (measured on O6N 2026-08-18):
+    # NCZ-OS (measured on the Sky1 test board 2026-08-18):
     #
     #     [!] Distribution "forky" is not supported
     #
@@ -1483,7 +1528,7 @@ ncz_status() {
             # don't (column 0). The earlier awk `/^deviceName.../` only
             # matched the un-indented flavour and silently produced an
             # empty device list on the indented flavour (verified on
-            # PEGASUS .85 with Mesa 21.x: 0 rows matched, status row
+            # the amd64 test host with Mesa 21.x: 0 rows matched, status row
             # then read "(no deviceName found in vulkaninfo --summary)"
             # which made `ncz status` look like the Vulkan driver was
             # missing even when `vulkaninfo --summary` clearly had rows
@@ -1519,6 +1564,18 @@ ncz_status() {
     # Read state from the active quadlet + MNEMOS /health so the operator can
     # tell at a glance which backend is active and whether the container is up.
     ncz_status_mnemos
+    # zeroclaw + zoder — the other two components `ncz install` manages, so
+    # `ncz status` reports all three managed components in one place.
+    local zc='not-installed'
+    if [ -f /etc/containers/systemd/zeroclaw.container ]; then
+        zc="$(systemctl is-active zeroclaw.service 2>/dev/null || echo unknown)"
+    fi
+    printf '%-26s %s\n' 'zeroclaw:' "$zc"
+    if command -v zoder >/dev/null 2>&1; then
+        printf '%-26s %s\n' 'zoder:' "$(zoder --version 2>/dev/null | head -1)"
+    else
+        printf '%-26s %s\n' 'zoder:' 'not-installed'
+    fi
 }
 
 # ncz_status_mnemos -- print MNEMOS embedder / service state. Reads the active
@@ -1553,14 +1610,21 @@ ncz_status_mnemos() {
         svc="$(systemctl is-active mnemos.service 2>/dev/null || echo unknown)"
     fi
     # If the quadlet doesn't set MNEMOS_EMBED_MODEL_PATH but the container is
-    # running, probe the live process env via /proc/<pid>/environ. This is
-    # how we discover the in-image model baked at
-    # /opt/mnemos/models/nomic-embed-text-v1.5.Q8_0.gguf today.
+    # running, probe the live process env via /proc/<pid>/environ. Rootful
+    # `podman inspect` sees the system container when status runs as root; a
+    # non-root shell uses the rootless store and cannot, so we fall back to the
+    # image's canonical in-process model path below rather than leaving the
+    # active backend anonymous.
     if [ -z "$embed_model" ] && [ "$svc" = "active" ] && command -v podman >/dev/null 2>&1; then
         local mnemos_pid
         mnemos_pid="$(podman inspect mnemos --format '{{.State.Pid}}' 2>/dev/null || true)"
         if [ -n "$mnemos_pid" ] && [ -r "/proc/$mnemos_pid/environ" ]; then
             embed_model="$(tr '\0' '\n' < "/proc/$mnemos_pid/environ" 2>/dev/null | grep -a '^MNEMOS_EMBED_MODEL_PATH=' | head -1 | sed 's/^MNEMOS_EMBED_MODEL_PATH=//' || true)"
+        fi
+        # mnemos-enterprise bakes the embedder model in-process at a fixed path;
+        # report that canonical path when the live env is not readable.
+        if [ -z "$embed_model" ]; then
+            embed_model='(in-image) /opt/mnemos/models/nomic-embed-text-v1.5.Q8_0.gguf'
         fi
     fi
     # /health probes the live container. We do NOT need to authenticate to
@@ -1569,22 +1633,30 @@ ncz_status_mnemos() {
     if [ "$svc" = "active" ] && command -v curl >/dev/null 2>&1; then
         health="$(curl -fsS --max-time 2 http://127.0.0.1:5002/health 2>/dev/null | head -c 200 || echo '(unreachable)')"
     fi
-    # Best-effort: derive dimension from the model filename. The file itself
-    # is in the container (not the host filesystem), so we can't stat it
-    # here — but the FILENAME reliably tells us which model the embedder
-    # will pick: the GGUF file is the 768-dim nomic-embed-text-v1.5 Q8
-    # build, the .cix file is the 256-dim CIX Zhouyi build (the bge-small
-    # graph the operator direction 2026-10-13 calls out for Sky1).
+    # Dimension comes from the MODEL identity, not the file suffix alone. The
+    # GGUF is nomic-embed-text-v1.5 Q8 (768-dim). The .cix NPU graph is the
+    # SAME model at 768 dimensions — its "256" is the fixed max_tokens
+    # (sequence length), NOT the embedding width, so it must not be reported
+    # as the dimension.
     if [ -n "$embed_model" ]; then
         case "$embed_model" in
             *.gguf) embed_dim=768 ;;
-            *.cix)  embed_dim=256 ;;
+            *.cix)  embed_dim=768 ;;
+            *nomic-embed-text*) embed_dim=768 ;;
             *)      embed_dim='?' ;;
         esac
     fi
     printf '%-26s %s\n' 'mnemos service:' "$svc"
     printf '%-26s %s\n' 'mnemos embedder:' "${embed_backend:-unknown}${embed_dim:+ (dim=$embed_dim)}"
     [ -n "$embed_model" ] && printf '%-26s %s\n' 'mnemos model:' "$embed_model"
+    # MCP transport. Served by the api+mcp supervisor on :5004 once the install
+    # has provisioned MNEMOS_MCP_TOKEN (written to the quadlet + mnemos.env).
+    local mcp_state='disabled (no MNEMOS_MCP_TOKEN)'
+    if [ -s /etc/nclawzero/mnemos-mcp-token ] || \
+       { [ -f "$active" ] && grep -q '^Environment=MNEMOS_MCP_TOKEN=' "$active" 2>/dev/null; }; then
+        mcp_state='enabled (:5004)'
+    fi
+    printf '%-26s %s\n' 'mnemos mcp:' "$mcp_state"
     printf '%-26s %s\n' 'mnemos health:' "$health"
 }
 
