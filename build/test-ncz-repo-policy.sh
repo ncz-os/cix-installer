@@ -267,7 +267,7 @@ grep -q '^ncz_policy_deb_lib_check()' "$T/poldir-old/deb-version-gate.sh" && bad
 expect_rc "publisher fails CLOSED for ncz-apt-policy when the deployed gate library predates the lib check" 1 env NCZ_POLICY_DIR="$T/poldir-old" bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/pol-ok.deb'"
 expect_rc "  ...while an ordinary package is unaffected by the old library" 0 env NCZ_POLICY_DIR="$T/poldir-old" bash -c ". '$T/policy.sh'; ncz_publish_policy '$T/ok1.deb'"
 # the policy directory default is $HOME-relative, never a fixed user's home
-grep -q '/home/jasonperlow' "$T/policy.sh" && bad "the policy block still hard-codes /home/jasonperlow" || ok "no hard-coded home directory in the policy block"
+grep -Eq '/home/[a-z][a-z0-9_-]*/' "$T/policy.sh" && bad "the policy block still hard-codes a home directory" || ok "no hard-coded home directory in the policy block"
 mkdir -p "$T/fakehome/ncz-policy"; cp "$T/poldir/"*.sh "$T/fakehome/ncz-policy/"
 expect_rc "default policy dir is \$HOME/ncz-policy" 0 env -u NCZ_POLICY_DIR HOME="$T/fakehome" NCZ_PUBLISHED_INDEX="$T/empty-index" bash -c ". '$T/policy.sh'; [ \"\$NCZ_POLICY_DIR\" = '$T/fakehome/ncz-policy' ] && ncz_publish_policy '$T/ok1.deb'"
 env -i PATH="$PATH" bash -c ". '$T/policy.sh'" >/dev/null 2>&1 && bad "no HOME and no NCZ_POLICY_DIR must fail closed" || ok "no HOME and no NCZ_POLICY_DIR fails closed"
