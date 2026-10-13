@@ -223,6 +223,14 @@ conmon
 netavark
 aardvark-dns
 catatonit
+# Rootless podman helpers (uidmap/slirp4netns/fuse-overlayfs) — required so
+# `podman info` / `podman images` as the unprivileged `ncz` user works after
+# install. Rootful `sudo podman` (the path `ncz install mnemos` and `ncz agent
+# install` take) does not need them, but the user-mode failure — uidmap
+# newuidmap: executable not found — was observed on the amd64 test host.
+uidmap
+slirp4netns
+fuse-overlayfs
 inetutils-telnetd
 openbsd-inetd
 nodejs
