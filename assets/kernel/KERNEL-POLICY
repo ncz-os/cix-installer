@@ -53,7 +53,7 @@ EDGE_ENABLED=0
 #
 # 2026-10-11 (operator "I'm calling your fix a fix, integrate into the new
 # image"): the DP-AUX kernel r286-7.3.0-rc6-sky1-ncz-20261011 that had been
-# staged as a supervised-test, NON-default .66 boot entry is now the SHIPPING
+# staged as a supervised-test, NON-default MS-R1 boot entry is now the SHIPPING
 # pin (assets/kernel/mainline -> r286). It is the pool's newest unified 7.3
 # build, so no acknowledgement is needed and the former r285:r286 ACK is
 # CLEARED. Re-add a MAINLINE_FRESHNESS_ACK=<pin>:<declined-newer> line only to
