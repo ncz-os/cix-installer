@@ -20,7 +20,7 @@
 | 组成部分 | 位置 | 版本 | 许可证 |
 |---|---|---|---|
 | 上游基线 | `https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git` | 标签 `v7.3-rc7`：提交 `24a19b953e2a3d0ea5a8c4951a0ab8f32720c907`（标签对象 `ec8bf828…`，即配方 `SRCREV_kernel` 的值） | GPL-2.0 |
-| 配方、Sky1 移植补丁、补丁 0001-0011 与 0013-0021、defconfig | [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) `recipes-kernel/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.3-rc7.bb` | 标签 `kernel-sky1-7.3.0-rc7-r289`（分支 `fix/sky1-r289-20261012`），提交 `6b6b55aa13a877ff8083592048f0a6043703c26a` | GPL-2.0（补丁），Apache-2.0（配方） |
+| 配方、Sky1 移植补丁、补丁 0001-0011 与 0013-0021、defconfig | [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) `recipes-kernel/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.3-rc7.bb` | 标签 `kernel-sky1-7.3.0-rc7-r289`（分支 `fix/sky1-r289-20261012`），提交 `7e8c821f8c7b79309af815ae0ee243bc36befa5b` | GPL-2.0（补丁），Apache-2.0（配方） |
 | 上述内容的仓库内副本，以及实际构建所用的 `.config`（sha256 `67bb7109…`） | 本仓库 [`kernel-source/`](../kernel-source/SOURCE.md) | 当前提交 | GPL-2.0 |
 | 打完全部补丁的完整源码树（单个提交） | [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix) | 标签 `kernel-sky1-7.3.0-rc7-r289-src`，提交 `b275222cfc5703fb5595398a216b495ca7d6ee7a`（分支 `release/sky1-7.3.0-rc7-r289`） | GPL-2.0 |
 | Debian 打包 | 本仓库 `build/build-kernel-debs.sh` | 提交 `d395bb2d` | 见仓库 |
