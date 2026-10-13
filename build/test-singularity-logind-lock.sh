@@ -1,7 +1,7 @@
 #!/bin/bash
 # test-singularity-logind-lock.sh -- the shell patch that makes
 # `loginctl lock-session` and a logind-initiated suspend lock the session
-# (assets/singularity/patches/singularity-shell/0021-*).
+# (assets/singularity/patches/singularity-shell/0022-core-follow-logind-lock-*).
 #
 # Static part (always): the patch is in the queue, wires the listener into the
 # shell build and startup, subscribes to Session.Lock/Unlock and
@@ -21,8 +21,8 @@ pass=0; fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 
-P="$(ls "$Q"/0021-*.patch 2>/dev/null | head -1)"
-if [ -z "$P" ]; then bad "shell patch 0021 (logind lock) is in the queue"; echo "test-singularity-logind-lock: $pass passed, $fail failed"; exit 1; fi
+P="$(ls "$Q"/0022-core-follow-logind-lock-*.patch 2>/dev/null | head -1)"
+if [ -z "$P" ]; then bad "shell patch 0022 (logind lock) is in the queue"; echo "test-singularity-logind-lock: $pass passed, $fail failed"; exit 1; fi
 ok "shell patch $(basename "$P") is in the queue"
 
 has() { grep -qF -- "$1" "$P"; }
