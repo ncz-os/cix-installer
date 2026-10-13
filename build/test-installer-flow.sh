@@ -90,6 +90,7 @@ asked(){ grep -cx "$1" "$FDB/inputs" 2>/dev/null || true; }
 run()  {   # tag script args...
     local tag=$1 s=$2; shift 2
     PATH="$W/bin:$PATH" NCZ_CONFMODULE="$W/confmodule" NCZ_CMDLINE="$W/cmdline.$tag" NCZ_TMP="$W/tmp.$tag" \
+        NCZ_COMP_STATE="$W/tmp.$tag/state" NCZ_TARGET="$W/tmp.$tag/target" \
         NCZ_UI_PAYLOAD=/nonexistent $SHX "$PRE/$s" "$@" >> "$W/log.$tag" 2>&1
 }
 tpl()  { cat "$FDB/tpl/$1" 2>/dev/null; }
