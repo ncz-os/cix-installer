@@ -612,7 +612,7 @@ VENDOR_DEB_ROWS = [
         "required": "no", "version_floor": "",
         "installed_by": "post-install/52-vivaldi.sh (dpkg -i staged .deb)",
         "verified_by": "build/verify-installed-target.sh",
-        "provenance": "assets/vivaldi/ (vendor .debs, staged by build/stage-build-inputs.sh, pinned in manifests/build-inputs.tsv); post-install/52-vivaldi.sh",
+        "provenance": "assets/vivaldi/ (vendor .debs, staged by build/stage-build-inputs.sh, pinned in manifests/build-inputs.tsv, refreshed from the vivaldi-stable alias by build/refresh-vivaldi.sh); post-install/52-vivaldi.sh",
         "notes": "Default browser (x-www-browser + xdg mime). Skipped on server/headless variants.",
     },
     {
@@ -623,7 +623,7 @@ VENDOR_DEB_ROWS = [
         "required": "no", "version_floor": "",
         "installed_by": "post-install/53-chrome.sh (apt from the offline forky-vendor-mirror)",
         "verified_by": "build/verify-installed-target.sh",
-        "provenance": "assets/google-chrome/ (pinned Google .deb, staged by build/stage-build-inputs.sh, refreshed by build/refresh-google-chrome.sh); build/build-vendor-mirror.sh; manifests/desktop.pkgs; manifests/desktop-amd64.pkgs",
+        "provenance": "assets/google-chrome/ (pinned Google .deb, staged by build/stage-build-inputs.sh, refreshed from the google-chrome-stable alias by build/refresh-google-chrome.sh); build/build-vendor-mirror.sh; manifests/desktop.pkgs; manifests/desktop-amd64.pkgs",
         "notes": "Second browser; Vivaldi stays default. Real arm64 Linux Chrome landed Q2 2026.",
     },
     {

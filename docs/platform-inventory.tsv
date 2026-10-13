@@ -487,7 +487,13 @@ build/test-wallpaper-deb-repro.sh	common	-	the Artist Pack debs are byte-reprodu
 build/test-npu-embed-deb.sh	sky1	-	ncz-npu-embed is built from the tree (noe-venv unit from hook 89, versioned cix-noe-umd dependency) and is byte-reproducible
 build/test-cix-mesa-repack.sh	sky1	-	build/verify-cix-mesa-repack.py accepts exactly the cix-mesa -ncz1 change (compat loader path commented out, Version bumped) and nothing more
 build/verify-cix-mesa-repack.py	sky1	-	member-by-member proof that cix-mesa 24.0.4-ncz1 is the vendor 24.0.4 with only its compat loader path disabled
-build/refresh-google-chrome.sh	common	-	moves the pinned Google Chrome deb to the current stable after verifying the signed InRelease -> Packages -> deb chain; rewrites vendor-debs/build-inputs rows and publishes to the store
+build/refresh-google-chrome.sh	common	-	moves Google Chrome to the newest google-chrome-stable (alias) through build/refresh-vendor-debs.sh
+build/refresh-vendor-debs.sh	common	-	one-command, idempotent refresh of the vendor browser debs: resolves each manifests/vendor-aliases.tsv alias through the signed index, stages the deb, rewrites vendor-debs/build-inputs/sbom rows, publishes to the store, regenerates determinism.pin
+build/refresh-vivaldi.sh	common	-	moves Vivaldi to the newest vivaldi-stable (alias) through build/refresh-vendor-debs.sh
+build/lib/vendor_alias.py	common	-	resolves a vendor apt alias: pinned key -> signed index -> Packages sha256 -> deb sha256 -> control fields; stages the deb and records it in the ledgers
+build/lib/vendor-deb-pin.sh	common	-	the pinned, staged vendor deb for a package/arch (exact version + sha256 from manifests/vendor-debs.tsv)
+build/test-vendor-alias.sh	common	-	hermetic signed-repo test of the alias resolver (newest version, ledgers, idempotence, refused chain breaks) plus the committed alias rows
+build/vivaldi-apt-keyring.asc	common	-	Vivaldi apt key
 build/lib/google-chrome-pin.sh	common	-	the pinned, staged Google Chrome deb both mirror builders use (exact version + sha256 from manifests/vendor-debs.tsv)
 build/test-google-chrome-pin.sh	common	-	both mirror builders take Google Chrome only from the staged pinned deb, and the vendor-debs pin equals the staged build input
 build/build-npu-embed-deb.sh	sky1	-	NPU embedding server package (ncz-npu-embed)
@@ -559,6 +565,7 @@ build/test-layers-hardening.sh	common	-	both-direction tests for build/layers-pr
 build/forky-provenance.py	common	-	implementation of check-no-ubuntu.sh / check-forky-provenance.sh (debs, Packages, dpkg status, rootfs, squashfs, finished .img via debugfs)
 build/test-no-ubuntu.sh	common	-	positive+negative fixtures for the no-Ubuntu and forky-provenance gates (fonts-liberation 1:2.1.5-3build1 must fail)
 manifests/vendor-repos.tsv	common	-	complete reviewed apt-SOURCE allowlist; every source/pin must match a row exactly on scheme/host/path/suite (Debian pin+runtime, NCZ, Chrome, Vivaldi, NVIDIA; Intel OpenVINO + t2linux approved in r203 with justification)
+manifests/vendor-aliases.tsv	common	-	vendor apt aliases (google-chrome-stable, vivaldi-stable): signed repo, key fingerprints, store dir; discovery only, builds use the staged pinned deb
 manifests/vendor-debs.tsv	common	-	reviewed third-party debs (original CIX vendor binaries from sbom/expected-assets.txt, plus Chrome, Vivaldi, NVIDIA keyring), identity+sha256 pinned; the only non-Debian non-NCZ debs allowed
 manifests/ncz-packages.tsv	common	-	reviewed NCZ build ledger: exact (name,version,arch)->sha256 + build recipe; the ONLY way a package is NCZ (no name-prefix or +ncz proof)
 manifests/forky-snapshot.tsv	common	-	immutable trust metadata for the BUILD pin: signed InRelease sha256+size and Debian keyring sha256; the root of the forky-provenance index verification
