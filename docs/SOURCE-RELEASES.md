@@ -14,11 +14,14 @@ If something we ship is built from source and is not listed here, that is a
 bug in this document — please open an issue.
 
 **GitLab is canonical for source** (`gitlab.com/ncz-os/cix-installer`).
-Release images are hosted as release assets on the GitHub mirror
-(`github.com/ncz-os/cix-installer/releases`), and the documentation points
-there for downloads.
-The latest release is also available from the GitLab release of the same
-tag; see [IMAGE-HOSTING.md](IMAGE-HOSTING.md).
+Release images are on the one release page of each forge: the GitHub
+mirror (<https://github.com/ncz-os/cix-installer/releases/latest>) and GitLab
+(<https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest>), with
+the same files on both; see [IMAGE-HOSTING.md](IMAGE-HOSTING.md).
+The source offer for the GPL code in an image lives in that release's notes,
+in this document and in the git tags, which are kept for every release; it
+does not depend on older release pages, which are removed when a new
+release is published.
 
 ---
 
