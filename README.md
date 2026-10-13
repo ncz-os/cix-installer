@@ -127,8 +127,9 @@ it as NCZ-OS. See [Architecture](#architecture).
   confirmed (see known issues).
 - **Login screen that matches the lock screen** (greetd with the native
   Singularity greeter).
-- **Wallpapers:** artist packs (NCZ, Cygnus, Alex Jay Brady, Brandon Perlow,
-  Singularity) rotating every 10 minutes, plus Bing and OCS online sources.
+- **Wallpapers:** Artist Packs (NCZ, Cygnus, Alex Jay Brady, Brandon Perlow,
+  Singularity) rotating every 10 minutes, plus Bing and OCS online sources —
+  see [Artist packs](#artist-packs) below.
 - **Browsers:** on Sky1, Chromium NCZ Sky1 Edition (default) with hardware
   video decode for H.264, VP9 and AV1, plus Google Chrome and Vivaldi; on
   amd64, Vivaldi (default) and Google Chrome.
@@ -142,6 +143,18 @@ it as NCZ-OS. See [Architecture](#architecture).
 - **Updates and recovery:** an NCZ-OS update manager, a rescue boot entry on
   the same kernel, a rescue partition and a live recovery container (see
   [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)).
+
+### Artist packs
+
+26.10 ships two Artist Packs of original work contributed to NCZ-OS by their
+artists: **[Brandon Perlow](https://www.artstation.com/brandonperlow)**
+(`ncz-wallpapers-brandon-perlow` 1.0, 7 images) and
+**[Alex Jay Brady](https://www.artstation.com/boac)**
+(`ncz-wallpapers-alex-jay-brady` 1.0, 8 images). Pick them in the desktop's
+Artist Packs chooser or let them rotate. The artwork belongs to the artists; it
+is contributed for distribution with NCZ-OS and is not separately
+redistributable. The screenshots in this README show it, with credit, only as
+it appears in the desktop.
 
 **Known issues in Preview 1** (the full list is in the
 [release notes](docs/releases/26.10-cygnus-preview1.md#known-limitations)):
