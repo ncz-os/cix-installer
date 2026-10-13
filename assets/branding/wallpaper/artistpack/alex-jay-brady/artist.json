@@ -1,0 +1,11 @@
+{
+  "artistpack": "0.1",
+  "artist": {
+    "id": "alex-jay-brady",
+    "name": "Alex Jay Brady",
+    "website": "https://www.artstation.com/boac",
+    "packs": [
+      "pack.json"
+    ]
+  }
+}

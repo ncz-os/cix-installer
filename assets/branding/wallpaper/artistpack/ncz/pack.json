@@ -1,0 +1,190 @@
+{
+  "artistpack": "0.1",
+  "pack": {
+    "id": "ncz-os.ncz",
+    "title": "NCZ",
+    "version": "1.0.0",
+    "description": "The default NCZ-OS wallpaper collection."
+  },
+  "artist": {
+    "id": "ncz-os",
+    "name": "NCZ-OS",
+    "website": "https://github.com/ncz-os",
+    "socials": {
+      "gitlab": "https://gitlab.com/ncz-os/cix-installer"
+    }
+  },
+  "rights": {
+    "copyright": "Copyright NCZ-OS contributors, 2026",
+    "license": "All rights reserved -- NCZ-OS project",
+    "attribution_required": true
+  },
+  "artworks": [
+    {
+      "id": "cinematic",
+      "title": "Cinematic",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/ncz-wallpaper-01-cinematic-2k.jpg",
+        "sha256": "74e039aa59bb547d067a5544550c041ead264954cd2e62d1fd8a48075c6ef981",
+        "width": 2560,
+        "height": 1440,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/ncz-wallpaper-01-cinematic-2k.jpg",
+          "sha256": "74e039aa59bb547d067a5544550c041ead264954cd2e62d1fd8a48075c6ef981",
+          "width": 2560,
+          "height": 1440,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "interstellar-gargantua",
+      "title": "Interstellar Gargantua",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/ncz-wallpaper-02-interstellar-gargantua-2k.jpg",
+        "sha256": "823b265581ae1e057f1251268f9318e35c97610521e934d1d7459cde4be78a13",
+        "width": 2560,
+        "height": 1440,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/ncz-wallpaper-02-interstellar-gargantua-2k.jpg",
+          "sha256": "823b265581ae1e057f1251268f9318e35c97610521e934d1d7459cde4be78a13",
+          "width": 2560,
+          "height": 1440,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "astrophotograph-m87",
+      "title": "Astrophotograph M87",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/ncz-wallpaper-03-astrophotograph-m87-2k.jpg",
+        "sha256": "d6f64c7640fad6012bed75c012fb68849d03d4bc364ffc2ea78a9848c90ac1cc",
+        "width": 2560,
+        "height": 1440,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/ncz-wallpaper-03-astrophotograph-m87-2k.jpg",
+          "sha256": "d6f64c7640fad6012bed75c012fb68849d03d4bc364ffc2ea78a9848c90ac1cc",
+          "width": 2560,
+          "height": 1440,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "retro-sci-fi-poster",
+      "title": "Retro Sci-Fi Poster",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/ncz-wallpaper-04-retro-sci-fi-poster-2k.jpg",
+        "sha256": "8a2ee60e312f9e0abb25ebf4c9450f6860c1a4ebfe8b8315b5c52b6837615ef9",
+        "width": 2560,
+        "height": 1440,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/ncz-wallpaper-04-retro-sci-fi-poster-2k.jpg",
+          "sha256": "8a2ee60e312f9e0abb25ebf4c9450f6860c1a4ebfe8b8315b5c52b6837615ef9",
+          "width": 2560,
+          "height": 1440,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "magnetar-jets",
+      "title": "Magnetar Jets",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/ncz-wallpaper-05-magnetar-jets-2k.jpg",
+        "sha256": "5e87216e78a01de0f83e89651d9f17533e0cc952371783c726835b1d9144731d",
+        "width": 2560,
+        "height": 1440,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/ncz-wallpaper-05-magnetar-jets-2k.jpg",
+          "sha256": "5e87216e78a01de0f83e89651d9f17533e0cc952371783c726835b1d9144731d",
+          "width": 2560,
+          "height": 1440,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "cygnus-vacuum-decay",
+      "title": "Cygnus Vacuum Decay",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/ncz-wallpaper-06-cygnus-vacuum-decay-2k.jpg",
+        "sha256": "be3e78242709cc9ccca450f1d7abad9200c01b0803afb3a5aaf84d4d9368429c",
+        "width": 2560,
+        "height": 1440,
+        "mime_type": "image/jpeg"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/ncz-wallpaper-06-cygnus-vacuum-decay-2k.jpg",
+          "sha256": "be3e78242709cc9ccca450f1d7abad9200c01b0803afb3a5aaf84d4d9368429c",
+          "width": 2560,
+          "height": 1440,
+          "mime_type": "image/jpeg"
+        }
+      ],
+      "attribution": {
+        "display_name": "NCZ-OS",
+        "url": "https://gitlab.com/ncz-os/cix-installer"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    }
+  ],
+  "compatibility": {
+    "wallpaper": true,
+    "lock_screen": true
+  }
+}

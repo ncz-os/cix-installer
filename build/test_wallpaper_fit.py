@@ -515,8 +515,11 @@ class DebPackaging(unittest.TestCase):
             t = Path(td)
             ap = t / "artistpack" / "cygnus-2610"
             ap.mkdir(parents=True)
-            (ap / "artist.json").write_text("{}\n")
-            (ap / "pack.json").write_text("{}\n")
+            # the builder checks that pack.json describes the packaged images,
+            # so the fixture carries the real in-repo manifests
+            repo_ap = DEB.parent.parent / "assets/branding/wallpaper/artistpack/cygnus-2610"
+            for name in ("artist.json", "pack.json"):
+                shutil.copy(repo_ap / name, ap / name)
             (t / "bin").mkdir()
             write_exe(
                 t / "bin" / "dpkg-deb",
@@ -569,14 +572,17 @@ class DebPackaging(unittest.TestCase):
             self.assertIn("Dir=/usr/share/backgrounds/ncz/cygnus-2610\n", coll)
 
     def test_cygnus_manifest_falls_back_to_in_repo_copy(self):
-        """An ArtistPack checkout without cygnus-2610 still builds the pack."""
+        """The default build uses the in-repo manifests and ignores a checkout in $HOME."""
         if not shutil.which("bash"):
             self.skipTest("bash missing")
         with tempfile.TemporaryDirectory(
             prefix="wallfit-deb-", dir=os.environ.get("TMPDIR")
         ) as td:
             t = Path(td)
-            (t / "artistpack").mkdir()
+            stray = t / "home" / "Projects" / "artistpack" / "packs" / "cygnus-2610"
+            stray.mkdir(parents=True)
+            (stray / "artist.json").write_text("{}\n")
+            (stray / "pack.json").write_text("{}\n")
             (t / "bin").mkdir()
             write_exe(
                 t / "bin" / "dpkg-deb",
@@ -586,13 +592,14 @@ class DebPackaging(unittest.TestCase):
             env = dict(
                 os.environ,
                 PATH=f"{t / 'bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
-                ARTISTPACK_SOURCE_ROOT=str(t / "artistpack"),
+                HOME=str(t / "home"),
                 WALLPAPER_DEB_OUT=str(t / "out"),
                 TMPDIR=str(t),
                 # the stub dpkg-deb writes an empty .deb, which the
                 # fail-closed version gate (b490acb4) would reject
                 NCZ_VERSION_GATE_STRICT="0",
             )
+            env.pop("ARTISTPACK_SOURCE_ROOT", None)
             r = subprocess.run(
                 ["bash", str(DEB), "cygnus-2610"],
                 env=env,

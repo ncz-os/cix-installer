@@ -1,0 +1,115 @@
+{
+  "artistpack": "0.1",
+  "pack": {
+    "id": "ncz-os.singularity",
+    "title": "Singularity",
+    "version": "1.0.0",
+    "description": "Singularity-OS wallpapers from singularityos-lab (https://github.com/singularityos-lab), sourced from https://github.com/singularityos-lab/singularity-wallpapers."
+  },
+  "artist": {
+    "id": "mirkobrombin",
+    "name": "Mirko Brombin",
+    "website": "https://bromb.in",
+    "socials": {
+      "github": "https://github.com/mirkobrombin"
+    },
+    "project": {
+      "name": "Singularity-OS",
+      "organization": "singularityos-lab",
+      "website": "https://github.com/singularityos-lab",
+      "source_repository": "https://github.com/singularityos-lab/singularity-wallpapers"
+    }
+  },
+  "rights": {
+    "copyright": "Copyright Mirko Brombin / Singularity-OS contributors, 2026",
+    "license": "GNU General Public License v3.0-only (GPL-3.0-only)",
+    "attribution_required": true
+  },
+  "artworks": [
+    {
+      "id": "default",
+      "title": "Default",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/singularity/default.png",
+        "sha256": "b2e392035c509cc39d15f62c800ffb522f1578c678537c84bb3b3cfb0afc71b6",
+        "width": 3840,
+        "height": 2160,
+        "mime_type": "image/png"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/singularity/default.png",
+          "sha256": "b2e392035c509cc39d15f62c800ffb522f1578c678537c84bb3b3cfb0afc71b6",
+          "width": 3840,
+          "height": 2160,
+          "mime_type": "image/png"
+        }
+      ],
+      "attribution": {
+        "display_name": "Mirko Brombin",
+        "url": "https://bromb.in"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "singularity-epic",
+      "title": "Singularity Epic",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/singularity/singularity-epic.png",
+        "sha256": "9ccac95825fa4215275748a60112a9f9e263d5d79aa00dcf1a12b28b4215ead0",
+        "width": 1672,
+        "height": 941,
+        "mime_type": "image/png"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/singularity/singularity-epic.png",
+          "sha256": "9ccac95825fa4215275748a60112a9f9e263d5d79aa00dcf1a12b28b4215ead0",
+          "width": 1672,
+          "height": 941,
+          "mime_type": "image/png"
+        }
+      ],
+      "attribution": {
+        "display_name": "Mirko Brombin",
+        "url": "https://bromb.in"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    },
+    {
+      "id": "singularity-prospective",
+      "title": "Singularity Prospective",
+      "original": {
+        "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/singularity/singularity-prospective.png",
+        "sha256": "735765ef2b0fdd7fc01b156fdcc10d9850abab442e4a83823c3273afdc0ab549",
+        "width": 1717,
+        "height": 916,
+        "mime_type": "image/png"
+      },
+      "variants": [
+        {
+          "file": "https://gitlab.com/ncz-os/cix-installer/-/raw/95291a8dcf25439c04d85971a1bff0ba324f38c1/assets/branding/wallpaper/contrib/singularity/singularity-prospective.png",
+          "sha256": "735765ef2b0fdd7fc01b156fdcc10d9850abab442e4a83823c3273afdc0ab549",
+          "width": 1717,
+          "height": 916,
+          "mime_type": "image/png"
+        }
+      ],
+      "attribution": {
+        "display_name": "Mirko Brombin",
+        "url": "https://bromb.in"
+      },
+      "provenance": {
+        "c2pa": false
+      }
+    }
+  ],
+  "compatibility": {
+    "wallpaper": true,
+    "lock_screen": true
+  }
+}
