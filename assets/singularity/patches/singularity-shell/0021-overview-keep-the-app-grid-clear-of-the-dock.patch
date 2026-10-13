@@ -1,0 +1,152 @@
+From 7c0bd28a9718399ce602314082945af738ae8623 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 13 Oct 2026 12:28:37 -0400
+Subject: [PATCH] overview: keep the app grid clear of the dock
+
+The overview is a full-output layer surface with exclusive zone -1, and
+the dock stays above it on the overlay layer, shown while the overview
+is open even in autohide and intellihide modes. The grid viewport
+therefore ran under the dock and the dock covered the bottom row of
+icons; a side dock was only accounted for when autohide was off.
+
+Add Dock.shown_extent(), the distance the shown dock reaches in from its
+edge (the exclusive zone it claims when always visible plus its layer
+margin), and inset the overview content stack by it on the dock edge.
+The grid viewport height hint and the column count use the remaining
+area. Search results get the same inset.
+---
+ src/components/dock/dock.vala         | 17 ++++++++++++++++-
+ src/components/overview/overview.vala | 27 +++++++++++++++++++++------
+ src/core/main.vala                    |  2 ++
+ 3 files changed, 39 insertions(+), 7 deletions(-)
+
+diff --git a/src/components/dock/dock.vala b/src/components/dock/dock.vala
+index 147edb0..4d0cb86 100644
+--- a/src/components/dock/dock.vala
++++ b/src/components/dock/dock.vala
+@@ -58,6 +58,7 @@ namespace Singularity {
+         private GtkLayerShell.Edge _reveal_barrier_edge = GtkLayerShell.Edge.BOTTOM;
+         private int _last_dimension = 0;
+         private int _current_margin = 0;
++        private int _rest_margin = 0;
+         private bool _menu_open = false;
+         private Gee.ArrayList<Singularity.DockContextMenuProvider> _menu_providers =
+             new Gee.ArrayList<Singularity.DockContextMenuProvider>();
+@@ -453,16 +454,19 @@ namespace Singularity {
+             set_margin(this, GtkLayerShell.Edge.LEFT, 0);
+             set_margin(this, GtkLayerShell.Edge.RIGHT, 0);
+             set_margin(this, GtkLayerShell.Edge.TOP, 0);
++            _rest_margin = 0;
+             if (dock_style == "panel") {
+                 _current_margin = 0;
+                 return;
+             }
+             if (pos == "left") {
+                 _current_margin = gap;
++                _rest_margin = gap;
+                 set_margin(this, GtkLayerShell.Edge.LEFT, gap);
+                 main_container.margin_end = gap + magnifier.headroom(true);
+             } else if (pos == "right") {
+                 _current_margin = gap;
++                _rest_margin = gap;
+                 set_margin(this, GtkLayerShell.Edge.RIGHT, gap);
+                 main_container.margin_start = gap + magnifier.headroom(true);
+             } else {
+@@ -471,7 +475,8 @@ namespace Singularity {
+                 // container's bottom margin. Pull the surface down by that
+                 // much so the shadow is not clipped at the surface edge,
+                 // while the dock stays at the same visual gap (#162).
+-                set_margin(this, GtkLayerShell.Edge.BOTTOM, int.max(0, gap - 21));
++                _rest_margin = int.max(0, gap - 21);
++                set_margin(this, GtkLayerShell.Edge.BOTTOM, _rest_margin);
+                 main_container.margin_top = gap + magnifier.headroom(true);
+             }
+         }
+@@ -870,6 +875,16 @@ namespace Singularity {
+             if (changed) app_system.config_changed("dock-reservation");
+         }
+ 
++        /** Distance the shown dock reaches in from its screen edge. */
++        public int shown_extent() {
++            if (!_enabled || hidden_by_scrolling_tiling()) return 0;
++            int headroom = dock_style == "panel" ? 0 : magnifier.headroom(true);
++            int body = _last_dimension > 10
++                ? _last_dimension - SHADOW_BOTTOM_PX - headroom
++                : _settings.get_int("dock-icon-size") + 20 + _settings.get_int("dock-gap");
++            return int.max(0, body) + _rest_margin;
++        }
++
+         private void update_autohide_state() {
+             if (hidden_by_scrolling_tiling()) {
+                 _set_reveal_barrier_active(false);
+diff --git a/src/components/overview/overview.vala b/src/components/overview/overview.vala
+index dad3602..551dbf2 100644
+--- a/src/components/overview/overview.vala
++++ b/src/components/overview/overview.vala
+@@ -29,6 +29,8 @@ namespace Singularity {
+ 
+         public bool showing { get; private set; default = false; }
+ 
++        public Singularity.Dock? dock { get; set; default = null; }
++
+         // True when the keyboard focus is on something the user is typing
+         // into (Entry, TextView, etc.) - used to suppress the
+         // "redirect to search bar" behavior so notes / calculator widgets
+@@ -385,15 +387,28 @@ namespace Singularity {
+             if (grid_mon == null) return;
+             Gdk.Rectangle gg = grid_mon.get_geometry();
+             int avail = gg.width - 48;
++            int avail_h = gg.height;
+             string dock_pos = desktop_settings.get_string("dock-position");
+-            if ((dock_pos == "left" || dock_pos == "right")
+-                    && !desktop_settings.get_boolean("dock-autohide")) {
+-                int isz = desktop_settings.get_int("dock-icon-size");
+-                if (isz <= 0) isz = 48;
+-                avail -= isz + desktop_settings.get_int("dock-gap") + 28;
++            // The dock stays above the overview, also in autohide.
++            int dock_extent = dock != null ? dock.shown_extent() : 0;
++            content_stack.margin_bottom = 0;
++            content_stack.margin_start = 0;
++            content_stack.margin_end = 0;
++            if (dock_pos == "left" || dock_pos == "right") {
++                if (dock == null && !desktop_settings.get_boolean("dock-autohide")) {
++                    int isz = desktop_settings.get_int("dock-icon-size");
++                    if (isz <= 0) isz = 48;
++                    dock_extent = isz + desktop_settings.get_int("dock-gap") + 28;
++                }
++                avail -= dock_extent;
++                if (dock_pos == "left") content_stack.margin_start = dock_extent;
++                else content_stack.margin_end = dock_extent;
++            } else {
++                content_stack.margin_bottom = dock_extent;
++                avail_h -= dock_extent;
+             }
+             launcher_grid.set_columns_for_width(avail);
+-            launcher_grid.viewport_hint = gg.height;
++            launcher_grid.viewport_hint = avail_h;
+         }
+ 
+         private void animate_stage(bool entering) {
+diff --git a/src/core/main.vala b/src/core/main.vala
+index 12113f0..bca0818 100644
+--- a/src/core/main.vala
++++ b/src/core/main.vala
+@@ -760,6 +760,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
+         } else {
+             dock = new Singularity.Dock(this);
+         }
++        if (overview != null) overview.dock = dock;
+         connect_shell_signals();
+         if (hot_corner_manager != null) {
+             if (panel != null) hot_corner_manager.attach_to_panel(panel);
+@@ -991,6 +992,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
+     private void ensure_overview() {
+         if (overview != null) return;
+         overview = new Singularity.Overview(this, panel);
++        overview.dock = dock;
+         overview.shown.connect(() => {
+             set_tiling_layout_hold(overview, true);
+             if (panel != null) panel.set_overview_mode(true);
+-- 
+2.53.0
+
