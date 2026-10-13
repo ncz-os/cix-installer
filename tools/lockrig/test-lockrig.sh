@@ -28,7 +28,7 @@ awk -F'\t' '!/^#/ && NF>=9 && $2 !~ /^192\.0\.2\./ { print "non-documentation ad
   && ok "example inventory uses documentation addresses only" || bad "example inventory carries a real address"
 
 echo "== lease semantics =="
-TMP="$(mktemp -d)"; export LOCKRIG_LEASE_DIR="$TMP"
+TMP="$(mktemp -d)"; export LOCKRIG_LEASE_DIR="$TMP" LOCKRIG_LEASE_DIRS=""
 "$HERE/lease.sh" acquire rigtest --owner alice --purpose "selftest" --ttl 60 >/dev/null 2>&1 && ok "alice acquired rigtest" || bad "alice acquire"
 "$HERE/lease.sh" acquire rigtest --owner bob --purpose "selftest" >/dev/null 2>&1; rc=$?
 [ "$rc" = 3 ] && ok "bob REFUSED while alice holds (rc=3)" || bad "bob not refused (rc=$rc)"
@@ -43,7 +43,50 @@ TMP="$(mktemp -d)"; export LOCKRIG_LEASE_DIR="$TMP"
 sleep 2
 "$HERE/lease.sh" acquire rigtest --owner dave --purpose "takeover" >/dev/null 2>&1 && ok "expired lease taken over" || bad "expired takeover"
 "$HERE/lease.sh" reap >/dev/null 2>&1; "$HERE/lease.sh" release rigtest --owner dave >/dev/null 2>&1
-rm -rf "$TMP"; unset LOCKRIG_LEASE_DIR
+rm -rf "$TMP"; unset LOCKRIG_LEASE_DIR LOCKRIG_LEASE_DIRS
+
+echo "== lease semantics across two lease directories =="
+L1="$(mktemp -d)"; L2="$(mktemp -d)"; LX="$(mktemp -d)"
+export LOCKRIG_LEASE_DIR="$L1" LOCKRIG_LEASE_DIRS="$L2"
+"$HERE/lease.sh" acquire rigtest --owner alice --purpose "two dirs" --ttl 60 >/dev/null 2>&1 \
+  && [ -f "$L1/rigtest.lease" ] && [ -f "$L2/rigtest.lease" ] && cmp -s "$L1/rigtest.lease" "$L2/rigtest.lease" \
+  && ok "acquire writes the same lease to both directories" || bad "acquire did not write both copies"
+rm -f "$L1/rigtest.lease"   # only the second directory still holds alice's lease
+"$HERE/lease.sh" acquire rigtest --owner bob --purpose "x" >/dev/null 2>&1; rc=$?
+[ "$rc" = 3 ] && ok "a live lease only in the second directory refuses another owner" || bad "second-directory lease ignored (rc=$rc)"
+out="$("$HERE/lease.sh" status rigtest)"
+case "$out" in "rigtest HELD owner=alice"*) ok "status reads the second directory";; *) bad "status: $out";; esac
+"$HERE/lease.sh" release rigtest --owner bob >/dev/null 2>&1; rc=$?
+[ "$rc" = 3 ] && [ -f "$L2/rigtest.lease" ] && ok "release by another owner is refused and keeps the copy" || bad "foreign release (rc=$rc)"
+"$HERE/lease.sh" acquire rigtest --owner alice --purpose "refresh" >/dev/null 2>&1
+"$HERE/lease.sh" release rigtest --owner alice >/dev/null 2>&1 && [ ! -e "$L1/rigtest.lease" ] && [ ! -e "$L2/rigtest.lease" ] \
+  && ok "release removes the lease from both directories" || bad "release left a copy behind"
+# a copy written by hand in the second directory by another owner blocks release of the first
+printf 'HOST=rigtest\nOWNER=carol\nPURPOSE=x\nACQUIRED_EPOCH=%s\nTTL=600\n' "$(date +%s)" > "$L2/rigtest.lease"
+printf 'HOST=rigtest\nOWNER=dave\nPURPOSE=y\nACQUIRED_EPOCH=%s\nTTL=600\n' "$(date +%s)" > "$L1/rigtest.lease"
+out="$("$HERE/lease.sh" status rigtest)"
+case "$out" in "rigtest CONFLICT"*) ok "different live owners are reported as a conflict";; *) bad "conflict not reported: $out";; esac
+"$HERE/lease.sh" release rigtest --owner dave >/dev/null 2>&1; rc=$?
+[ "$rc" = 3 ] && [ -f "$L1/rigtest.lease" ] && ok "release refuses while any copy has another owner, nothing removed" || bad "partial release (rc=$rc)"
+rm -f "$L1/rigtest.lease" "$L2/rigtest.lease"
+printf 'HOST=old\nOWNER=erin\nPURPOSE=x\nACQUIRED_EPOCH=1\nTTL=1\n' > "$L2/old.lease"
+"$HERE/lease.sh" acquire live1 --owner frank --purpose "x" --ttl 60 >/dev/null 2>&1
+out="$("$HERE/lease.sh" status)"
+echo "$out" | grep -q '^old EXPIRED' && echo "$out" | grep -q '^live1 HELD' && ok "status lists hosts from both directories" || bad "status all: $out"
+"$HERE/lease.sh" reap >/dev/null 2>&1
+[ ! -e "$L2/old.lease" ] && [ -f "$L1/live1.lease" ] && [ -f "$L2/live1.lease" ] && ok "reap drops expired leases in every directory, keeps live ones" || bad "reap"
+"$HERE/lease.sh" release live1 --owner frank >/dev/null 2>&1
+# the config file names the additional directory when the variable is unset
+unset LOCKRIG_LEASE_DIRS
+mkdir -p "$LX/cfg/ncz"; printf '# extra\n%s\n%s\n' "$L2" "$L1" > "$LX/cfg/ncz/lease-dirs"
+XDG_CONFIG_HOME="$LX/cfg" "$HERE/lease.sh" acquire cfgtest --owner gina --purpose "x" --ttl 60 >/dev/null 2>&1 \
+  && [ -f "$L1/cfgtest.lease" ] && [ -f "$L2/cfgtest.lease" ] && ok "lease-dirs config file adds the second directory" || bad "config file not honoured"
+XDG_CONFIG_HOME="$LX/cfg" "$HERE/lease.sh" release cfgtest --owner gina >/dev/null 2>&1
+[ ! -e "$L2/cfgtest.lease" ] && ok "config-file release removes both copies" || bad "config-file release"
+# an empty variable disables the config file
+LOCKRIG_LEASE_DIRS="" XDG_CONFIG_HOME="$LX/cfg" "$HERE/lease.sh" acquire one --owner hal --purpose "x" --ttl 60 >/dev/null 2>&1
+[ -f "$L1/one.lease" ] && [ ! -e "$L2/one.lease" ] && ok "LOCKRIG_LEASE_DIRS= (empty) uses only the primary" || bad "empty variable did not override the config"
+rm -rf "$L1" "$L2" "$LX"; unset LOCKRIG_LEASE_DIR
 
 echo "== report consolidation =="
 RO="$(mktemp -d)"
