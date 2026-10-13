@@ -889,7 +889,7 @@ def main(argv=None):
             "verified_by": "build/check-ssplugin-abi.sh,build/verify-installed-target-screensavers-default.sh",
             "provenance": (f"{SSPLUGIN_LOCK_REL} (ARGONAS "
                            f"{pin['NCZ_SSPLUGIN_ARGONAS_DIR']}); "
-                           "build/stage-screensaver-plugin.sh; docs/SCREENSAVER-PLUGIN.md"),
+                           "build/stage-screensaver-plugin.sh; post-install/lib/ncz-screensavers-plugin.lock"),
             "notes": (
                 "Singularity Screensaver and Lockscreen settings page. Not published "
                 "to the NCZ apt set (item AC open question 5); pinned sha256 per arch, "

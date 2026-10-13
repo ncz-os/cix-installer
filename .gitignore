@@ -2,7 +2,7 @@
 *~
 # 100MB per-file limit. Staged onto the build host like assets/cix-debs and
 # 26.7: retired kernel channels (build artifacts like stable/edge; pruned from base.squashfs)
-# 46-python311.sh consumes these offline-first. See docs/POST-CIX-NPU-EMBEDDINGS-DRAFT.md.
+# 46-python311.sh consumes these offline-first. See post-install/46-python311.sh.
 # a Sky1 build host's sinty-build/nm-build/out/sinty-nmd)
 # AI image-gen candidates (only canonical-promoted assets are committed)
 assets/agent-images/*.oci.tar

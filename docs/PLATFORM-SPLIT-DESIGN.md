@@ -163,7 +163,7 @@ both on every push.
   `.gitignore` (the `sky1-firmware` blob directory moves under
   `platforms/sky1-arm64/assets/`) and CI files. Compatibility symlinks at the old
   paths are kept for one release only where a caller cannot be rewritten (for
-  example a fleet host script); each is listed in `docs/PLATFORM-SPLIT.md`.
+  example a fleet host script); each is listed in `docs/platform-inventory.tsv`.
 * Both ISO/image builders (`build-iso-di.sh`, `build-installer-image.sh`) must keep
   producing the same payload under the same names.
 * Proof that nothing changed: before the move, capture for each platform a payload

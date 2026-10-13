@@ -3,7 +3,7 @@
 # Derived from manifests/rescue.pkgs (Sky1/arm64). That file's own header
 # explicitly documents x86 tooling as EXCLUDED "not applicable to a headless
 # arm64 box" — this file is exactly that exclusion list, restored, plus one
-# real arm64-only drop. See docs/AMD64-PACKAGE-AUDIT.md.
+# real arm64-only drop. See the 2026-09-14 AMD64 package audit.
 #
 # Everything else in rescue.pkgs is arch-portable and carried forward
 # unchanged (filesystems, block/partition/disk, imaging/data-recovery,

@@ -9,7 +9,7 @@ Vendored: 2026-09-28
 
 NOTE: upstream and t2linux both flag this module as not ready ("thunderbolt needs a
 lot of work. unsafe now"). It is vendored for provenance/completeness only; see the
-SMC fallback note in amd64-kernel-t2 docs/SMC-FALLBACK.md before enabling.
+SMC fallback notes in the kernel development records before enabling.
 
 Vendored layout:
   upstream modules/t2thunderbolt/t2thunderbolt.c -> src/t2thunderbolt.c

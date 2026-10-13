@@ -76,5 +76,5 @@ hook failure, and the installed system booted.
 With the Debian kernel modules gone from the image, the kernel residual is
 **zero**. The remaining installer d-i/base packages are authorized by the pinned
 snapshot (forky) plus the reviewed per-package `manifests/sid-exceptions.tsv`
-ledger — see `docs/FORKY-PROVENANCE.md` §"sid exceptions". No fourth origin is
+ledger — see [`docs/SID-EXCEPTIONS.md`](SID-EXCEPTIONS.md). No fourth origin is
 added.

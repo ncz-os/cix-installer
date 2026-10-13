@@ -6,7 +6,7 @@
 # NO xfce4-*; Wayland-native GTK4 runtime libs + Chromium + mpv + Xwayland).
 # (build-server-mirror.sh, formerly this file's Ubuntu-Server-closure
 # companion, was deleted 2026-08-21 as dead code — see
-# docs/UBUNTU-ERA-AUDIT-2026-08-21.md.)
+# the 2026-08-21 Ubuntu-era audit.)
 #
 # build-iso-di.sh merges build/desktop-mirror/pool into the ISO pool and
 # regenerates the single 'main' deb index from the combined pool, so

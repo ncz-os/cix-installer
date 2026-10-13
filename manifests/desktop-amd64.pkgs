@@ -3,7 +3,7 @@
 # package set) — NOT a diff-only/divergence-only file.
 #
 # Derived from manifests/desktop.pkgs (the Sky1/arm64 desktop closure) by the
-# 2026-09-14 AMD64-line package audit (see docs/AMD64-PACKAGE-AUDIT.md for
+# 2026-09-14 AMD64-line package audit (see the 2026-09-14 AMD64 package audit for
 # full per-package reasoning, and for the classification-count table this
 # file's sections correspond to: DROPPED / KEPT-AS-IS / GENERIC-FIRMWARE /
 # x86-microcode / T2-conditional / GPU-vendor-conditional). The DROPPED
@@ -50,7 +50,7 @@ glycin-loaders
 # was NEVER MERGED to master — orphaned. No AMD64 ncz-singularity-desktop
 # .deb can be built until that commit is cherry-picked/merged. Listing the
 # package name here uncommented would claim a closure this manifest cannot
-# actually produce yet — see docs/AMD64-PACKAGE-AUDIT.md follow-on #1.
+# actually produce yet — see the 2026-09-14 AMD64 package audit follow-on #1.
 # ncz-singularity-desktop
 libgtk-4-1
 gir1.2-gtk-4.0
@@ -340,7 +340,7 @@ intel-microcode
 amd64-microcode
 
 # --- T2-CONDITIONAL firmware — installed only when the hardware-detection
-#     hook (see docs/AMD64-PACKAGE-AUDIT.md) identifies a real Apple T2
+#     hook (see the 2026-09-14 AMD64 package audit) identifies a real Apple T2
 #     machine, NOT unconditionally on every AMD64 install. Real source
 #     confirmed 2026-09-14: github.com/AdityaGarg8/Apple-Firmware ships an
 #     actual architecture-independent Debian package
@@ -410,7 +410,7 @@ rasdaemon
 # RTX 2060 and iGPU can both do it in hardware.
 intel-media-va-driver
 
-# Design (NOT YET IMPLEMENTED — see docs/AMD64-PACKAGE-AUDIT.md follow-on
+# Design (NOT YET IMPLEMENTED — see the 2026-09-14 AMD64 package audit follow-on
 # work): an installer hook probes `lspci -nn` for PCI vendor IDs 10de/1002/
 # 1022/8086 and installs only the matching stack(s) — a machine can have more
 # than one (e.g. Intel iGPU + NVIDIA dGPU), so this is additive-per-vendor-

@@ -36,7 +36,7 @@
 # support pending in a future UMD release. Once libnoe ships a cpython-314
 # (or abi3/stable-ABI) wheel, delete this hook and the venv-interpreter
 # selection in 47-embedkit.sh and run the embedder on the system Python.
-# See docs/POST-CIX-NPU-EMBEDDINGS-DRAFT.md "We know this is messy".
+# (Known to be messy; kept until the NPU embedding stack settles.)
 #
 # Apt has no python3.11 on Resolute, so we vendor a relocatable
 # python-build-standalone (Astral) install_only tarball. Offline-first;

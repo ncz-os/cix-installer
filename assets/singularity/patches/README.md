@@ -196,7 +196,7 @@ imports find the provider. Delete this patch once PR #6 merges.
 **Not yet filed upstream.** Patch `0004-wallpapers-bing-prefetch.patch`, stacked on #3:
 runs the helper `fetch --if-stale` on activation, when the network returns and daily,
 skipping metered links, with backoff. It has no PR link on purpose: it must not be
-retired when #3 merges. See `docs/WALLPAPER-BING-PREFETCH.md`.
+retired when #3 merges.
 
 **Not yet filed upstream** (draft in the r200 upstream-drafts folder). Patch
 `0007-sensors-popover-tabs-per-category.patch`, on top of #2 and #5. The sensors popover
@@ -400,5 +400,5 @@ Contributed wallpaper art (currently Brandon Perlow and Alex Jay Brady,
 `assets/wallpaper-debs/*.deb` (gitignored, like `assets/cix-debs` — rebuild
 with that script rather than committing the blob), installed by
 `post-install/45-wallpaper-rotator.sh` alongside the built-in `ncz` and
-`bing` collections. See `docs/wallpaper-packs.md` (website repo) for the
+`bing` collections. See [`docs/WALLPAPER-PACKS.md`](../../../docs/WALLPAPER-PACKS.md) for the
 `.collection` format these packs, and any future third-party one, use.

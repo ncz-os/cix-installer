@@ -354,7 +354,7 @@ def main() -> int:
             "# d-i package NOT in this ledger FAILS.  A row whose package forky now provides\n"
             "# at the same or newer version is GRADUATED and must be removed (the gate + the\n"
             "# check-sid-exceptions tracker fail on it: \"use forky\").  Keep it small and\n"
-            "# shrinking; see docs/SID-EXCEPTIONS.md and docs/FORKY-PROVENANCE.md.\n"
+            "# shrinking; see docs/SID-EXCEPTIONS.md and build/forky-provenance.py.\n"
             "#\n"
             "# columns (TAB): name version arch sha256 class forky_version gap reason\n"
             "#                first_seen snapshot owner_action review_by tracking_url\n"

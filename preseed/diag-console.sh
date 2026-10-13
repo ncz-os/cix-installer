@@ -577,7 +577,7 @@ say "NCZ installer diagnostics READY  (ncz_diag=$DIAG)  IP=${IP:-<none>}"
 if [ "$PW_EXPLICIT" = 1 ]; then
     say "  ssh:    ssh root@${IP:-<host>}            (password: set by ncz_diag_pw on the boot line)"
 else
-    say "  ssh:    ssh root@${IP:-<host>}            (default diagnostics password, see docs/DIAG.md)"
+    say "  ssh:    ssh root@${IP:-<host>}            (default diagnostics password, see docs/REMOTE-ACCESS.md)"
 fi
 say "  telnet: telnet ${IP:-<host>} ${TELNET_PORT}             (rich shell)"
 say "  pull:   wget http://${IP:-<host>}:${HTTP_PORT}/var/log/syslog"
