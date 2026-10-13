@@ -248,5 +248,20 @@ else
     bad "ncz_canon_json did not normalise volatile keys"
 fi
 
+printf '== 10. SOURCE_DATE_EPOCH resolves in a git worktree ==\n'
+# .git is a FILE in a worktree; the helper used to test for a directory and then
+# failed outright ("cannot derive SOURCE_DATE_EPOCH") in any worktree checkout.
+if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 \
+   && git -C "$ROOT" worktree add -q --detach "$SCRATCH/wt" HEAD >/dev/null 2>&1; then
+    cp "$ROOT/build/lib/reproducible.sh" "$SCRATCH/wt/build/lib/reproducible.sh"
+    _wt_sde="$(cd "$SCRATCH/wt" && bash -c '. build/lib/reproducible.sh && ncz_repro_init && ncz_repro_sde' 2>/dev/null)"
+    _wt_ct="$(git -C "$SCRATCH/wt" log -1 --format=%ct)"
+    [ -n "$_wt_sde" ] && [ "$_wt_sde" = "$_wt_ct" ]
+    check $? "worktree checkout derives SOURCE_DATE_EPOCH from its commit ($_wt_sde)"
+    git -C "$ROOT" worktree remove --force "$SCRATCH/wt" >/dev/null 2>&1 || true
+else
+    skip "not a git checkout: worktree case not exercised"
+fi
+
 printf '\n== determinism tests: %d passed, %d failed, %d skipped ==\n' "$PASS" "$FAIL" "$SKIP"
 if [ "$FAIL" = 0 ]; then exit 0; else exit 1; fi

@@ -65,8 +65,11 @@ SRC="$WORK/src"
 DOCKER=docker; command -v docker >/dev/null 2>&1 || DOCKER=podman
 
 echo "[rebuild] $PKG $VER ($ARCH) from $SUITE, container $CONTAINER, work $WORK"
+# SELinux hosts (Fedora) refuse a container access to an unlabelled bind mount
+# ("cd: /work: Permission denied"); disabling the label is harmless elsewhere.
+LABEL_OPT=(); "$DOCKER" --version 2>/dev/null | grep >/dev/null -i podman && LABEL_OPT=(--security-opt label=disable)
 set -x
-"$DOCKER" run --rm -e DEBIAN_FRONTEND=noninteractive \
+"$DOCKER" run --rm "${LABEL_OPT[@]}" -e DEBIAN_FRONTEND=noninteractive \
     -e PKG="$PKG" -e VER="$VER" -e SNAP="$SNAP" -e SUITE="$SUITE" \
     -e NCZ_REV="$NCZ_REV" \
     -v "$WORK":/work -w /work "$CONTAINER" bash -euo pipefail -c '
