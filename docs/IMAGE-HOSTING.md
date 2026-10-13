@@ -218,8 +218,12 @@ Run `check-release-parity.sh --tag <tag>` again afterwards from any machine.
 
 1. Images built, gated and audited; the audit result is written as
    `PASS <sha256> <image>` lines.
-2. The operator names the tag; the tag is pushed to GitLab and to the
-   GitHub mirror at the image source commit.
+2. The operator names the tag; the tag is pushed to GitLab at the image
+   source commit. The filtered GitHub sync (`tools/sync-github-mirror.sh`,
+   [GITHUB-SYNC.md](GITHUB-SYNC.md)) then pushes the tag to GitHub, where it
+   points at the filtered copy of that commit. Check that the tag is on GitHub
+   before any GitHub release step: a release created for a tag GitHub does
+   not have yet makes GitHub create the tag itself, at the wrong commit.
 3. Staged folder in the release layout: `amd64/` and `arm64/` with their
    parts, `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>`; `ncz-join-image.sh`,
    `SHA256SUMS`, `NOTES.md` (one section per architecture) (from the template, screenshots committed on `main` and
