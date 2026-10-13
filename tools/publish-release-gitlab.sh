@@ -67,6 +67,10 @@
 #
 # Exit codes: 0 ok, 1 API or verification failure, 2 usage or input error.
 set -euo pipefail
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  echo "ERROR: bash 4 or newer is required (this is bash ${BASH_VERSION:-unknown}; on macOS install a current bash, e.g. brew install bash)" >&2
+  exit 2
+fi
 
 API="${NCZ_GITLAB_API:-https://gitlab.com/api/v4}"
 PROJECT="${NCZ_GITLAB_PROJECT:-ncz-os/cix-installer}"

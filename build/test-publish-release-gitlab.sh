@@ -14,6 +14,16 @@
 # The checks are eval'd strings, expanded when they run:
 # shellcheck disable=SC2016,SC2034
 set -uo pipefail
+# Needs bash >= 4 (associative arrays in the tools). Under an older bash
+# (macOS /bin/bash 3.2) re-run with a newer one if installed, else SKIP.
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    if [ -x "$b" ] && "$b" -c '[ "${BASH_VERSINFO[0]}" -ge 4 ]' 2>/dev/null; then exec "$b" "$0" "$@"; fi
+  done
+  echo "SKIP: bash >= 4 required (found ${BASH_VERSION:-unknown})"; exit 0
+fi
+# the tools are run as "bash TOOL": make that the same bash
+PATH="$(dirname "$BASH"):$PATH"; export PATH
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 TOOL="$ROOT/tools/publish-release-gitlab.sh"
@@ -154,7 +164,9 @@ chmod +x "$T/bin/curl"
 export PATH="$T/bin:$PATH"
 
 # ---- fixtures -----------------------------------------------------------------
-sha() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "$1" | cut -d' ' -f1; }
+if command -v sha256sum >/dev/null 2>&1; then sha() { sha256sum "$1" | cut -d' ' -f1; }; sha_str() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+else sha() { shasum -a 256 "$1" | cut -d' ' -f1; }; sha_str() { printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1; }; fi
+sedi() { sed "$1" "$2" > "$2.sedi" && mv "$2.sedi" "$2"; }   # in-place sed on GNU and BSD
 mkparts() { # $1 dir $2 arch: (re)write PARTS-<arch>.sha256 from the parts present
   ( cd "$1/$2" && for p in ncz-os-"$2"-*.part-*; do printf '%s  %s\n' "$(sha "$p")" "$p"; done > "PARTS-$2.sha256" )
 }
@@ -164,8 +176,8 @@ mkrel() { # $1 dir: amd64 (2 parts) + arm64 (1 part) + common files
   head -c 1000 /dev/urandom > "$d/amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-01"
   head -c 2000 /dev/urandom > "$d/arm64/ncz-os-arm64-20261013-abcdef12.img.zst.part-00"
   mkparts "$d" amd64; mkparts "$d" arm64
-  printf '%s  %s\n' "$(printf a | sha256sum | cut -d' ' -f1)" ncz-os-amd64-20261013-abcdef12.img > "$d/amd64/SHA256SUMS-amd64"
-  printf '%s  %s\n' "$(printf b | sha256sum | cut -d' ' -f1)" ncz-os-arm64-20261013-abcdef12.img > "$d/arm64/SHA256SUMS-arm64"
+  printf '%s  %s\n' "$(sha_str a)" ncz-os-amd64-20261013-abcdef12.img > "$d/amd64/SHA256SUMS-amd64"
+  printf '%s  %s\n' "$(sha_str b)" ncz-os-arm64-20261013-abcdef12.img > "$d/arm64/SHA256SUMS-arm64"
   cat "$d/amd64/SHA256SUMS-amd64" "$d/arm64/SHA256SUMS-arm64" > "$d/SHA256SUMS"
   cp "$ROOT/tools/ncz-join-image.sh" "$d/"
 }
@@ -274,7 +286,7 @@ layout_case nojoin "ncz-join-image.sh not found" 'rm ncz-join-image.sh'
 layout_case nosums "amd64/SHA256SUMS-amd64 not found" 'rm amd64/SHA256SUMS-amd64'
 layout_case combined "SHA256SUMS is not SHA256SUMS-amd64 followed by SHA256SUMS-arm64" 'cat arm64/SHA256SUMS-arm64 amd64/SHA256SUMS-amd64 > SHA256SUMS'
 layout_case toplevel "part outside an architecture folder" 'cp amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-00 .'
-layout_case wrongarch "which is not an arm64 image part" 'mv amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-01 arm64/ && cat amd64/PARTS-amd64.sha256 >> arm64/PARTS-arm64.sha256 && sed -i "/part-01/d" amd64/PARTS-amd64.sha256'
+layout_case wrongarch "which is not an arm64 image part" 'mv amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-01 arm64/ && cat amd64/PARTS-amd64.sha256 >> arm64/PARTS-arm64.sha256 && sedi "/part-01/d" amd64/PARTS-amd64.sha256'
 layout_case noarch "no architecture folder" 'rm -rf amd64 arm64'
 
 # 10. a single architecture is a valid release
@@ -342,5 +354,6 @@ bash "$TOOL" --dir "$REL" --tag v26.10-test --keep 0 >/dev/null 2>&1; rc=$?; che
 bash "$TOOL" --dir "$REL" --tag 'bad tag' --version 'bad ver' --dry-run >/dev/null 2>&1; rc=$?; check "invalid version exits 2" '[ "$rc" -eq 2 ]'
 bash "$TOOL" --help | grep >/dev/null -- "--prune-old"; rc=$?; check "--help documents --prune-old" '[ "$rc" -eq 0 ]'
 
+check "no request reached a real forge" '! grep -E "^[A-Z]+ https?://([a-z.]*\.)?gitlab\.com/" "$MOCK_LOG"'
 echo "passed=$PASS failed=$FAILS"
 [ "$FAILS" -eq 0 ]
