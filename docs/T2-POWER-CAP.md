@@ -97,12 +97,68 @@ Reversible: `sudo ncz-t2-power-cap restore` writes back the values captured
 before the first write this boot (`/run/ncz-t2-power-cap.baseline`), or the
 firmware values from the config when no baseline exists.
 
+## Lock-screen saver thermal cap
+
+The lock-hosted saver renderer (`ncz-feed-render`, ncz-screensavers) reads the
+hottest `coretemp`/`amdgpu`/`t2smc`/`k10temp`/`acpitz` hwmon sensor once a
+second. From 75 C it renders at the warm frame rate; at the hot threshold it
+pauses and holds the last frame, and it resumes 5 C below that threshold. The
+compiled-in hot threshold is 85 C. On MacBookPro16,1 the dGPU is always on and
+the CPU idles warm, so 85 C is reached in ordinary use and the lock-screen saver
+stays almost still.
+
+On T2 Macs the same hook (`post-install/64-t2-power-cap.sh`) raises it, in
+`/etc/ncz/lock-renderer.env`:
+
+| setting | value | compiled-in |
+|---|---|---|
+| `NCZ_FEED_TEMP_HOT_MC` | 100 C, or 2 C under the lowest critical trip of those sensors when it is at or below 100 C (98000 on MacBookPro16,1) | 85000 |
+| `NCZ_FEED_FPS_WARM` | 6 | 10 (above the 8 fps lock rate) |
+
+Up to 100 C is normal on these Macs. Measured on both MacBookPro16,1 units
+(i9-9980HK and i7-9750H):
+
+- `coretemp` `temp*_max` = `temp*_crit` = 100 C: Tjmax with TCC offset 0, so
+  the CPU throttles itself at 100 C. The package/core `thermal_throttle`
+  counters advance in ordinary use and advanced during the runs below (i9
+  package 1600 -> 3497, i7 76 -> 89).
+- Shutdown-class trips are all above 100 C: `amdgpu` junction crit 105 C
+  (emergency 110 C), edge crit 110 C (emergency 115 C), PCH thermal zone
+  critical trip 120 C. The `x86_pkg_temp` zone has no enabled trip.
+- coretemp reports Tjmax itself as its `crit`, which is at 100 C, so the cap
+  sits 2 C under it: 98 C, resume at 93 C.
+- The package temperature moves 10-14 C within one second under turbo bursts,
+  so the reading that trips the pause overshoots the threshold; at 98 C the
+  pause readings were 98-100 C. The CPU's own Tjmax throttling covers that.
+- Live lock runs, saver kept animating (freeze off), 5 minutes, test stopped if
+  any sensor reached its critical - 5 C (none did at 98 C):
+
+| hot threshold | i7: frames distinct | i9: frames distinct | i9: pause readings |
+|---|---|---|---|
+| 85 C | 33 / 75 | 27 / 42 | 85-99 C |
+| 98 C | 75 / 75 | 75 / 75 | 98-100 C |
+
+The 85 C i9 run was an earlier one stopped at critical - 10 C after 168 s.
+
+With the default lock policy the saver animates for 15 s and then holds its
+frame. With the hook-written file on both units the intro frames changed and
+then held, as at 85 C on a cool machine; the cap decides whether those 15 s move
+at all on a warm one.
+
+The lines are written only when `lock-renderer.env` already names a lock
+renderer (`post-install/64-ncz-lock-saver-plan.sh`). A value already in the file
+is kept. If no critical trip can be read at install time, the measured
+MacBookPro16,1 value is used on that model and other models keep the default.
+Delete the two lines (and log in again) to go back to the compiled-in values.
+
 ## Verification
 
-`build/test-t2-power-cap.sh` (31 assertions) runs the hook and helper against a
+`build/test-t2-power-cap.sh` (47 assertions) runs the hook and helper against a
 **fake sysfs tree**: battery/AC numbers, the read-only ceiling is never written,
 restore, idempotency, `performance` and `C=0` opt-outs, the product DMI gate,
-the bounded wait for a late `intel-rapl:0`, `--strict`, and registration.
+the bounded wait for a late `intel-rapl:0`, `--strict`, the saver thermal cap
+(100 C, 2 C under a critical trip at or below 100 C, operator value kept, no renderer = no
+change, model fallback, unwritable file reported), and registration.
 
 ## Adding `rasdaemon` (MCE persistence)
 

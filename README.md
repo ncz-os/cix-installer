@@ -386,6 +386,7 @@ NCZ-OS 26.10 ships drivers for **AMD, NVIDIA and Intel GPUs on amd64**, **Arm Ma
 |---|---|---|---|
 | Radxa Orion O6N | CIX P1 (Sky1) | Arm Mali (vendor Mali; Panthor available) + NPU + VPU | Installed, desktop, video (VPU hardware decode) and audio playback |
 | Minisforum MS-R1 | CIX P1 (Sky1) | Arm Mali (vendor Mali; Panthor available) + NPU + VPU | Installed, desktop, video (VPU hardware decode) and audio playback |
+| Radxa Orion O6 | CIX P1 (Sky1) | Arm Mali (vendor Mali) + NPU + VPU | Desktop, applications and display mode switching confirmed by a community tester (installed from an earlier release and updated with the fixed desktop library) |
 | MacBookPro16,1 (two units) | Core i9-9980HK, Core i7-9750H | AMD Radeon Pro 5300M/5500M class (Navi 14, `amdgpu`) + Intel UHD 630 (`i915`) | Installed, boots to desktop |
 | ASUS ROG GU502LV laptop | Core i7-10750H | NVIDIA GeForce RTX 2060 Mobile (proprietary `nvidia`) + Intel UHD 630 (`i915`) | Installed, boots to desktop |
 | HP OmniDesk desktop | Core Ultra 7 265 | Intel integrated graphics (Xe-LPG, `i915`) | Installed, boots to desktop |
@@ -405,7 +406,7 @@ playback on amd64, CUDA, and every machine not in the table.
 |---|---|---|
 | **Radxa Orion O6N** | Cix Sky1 / CP8180 | ✅ **Tested on 26.10** — installed, desktop, video (VPU hardware decode) and audio playback. Our main development and test board. Realtek NICs (RTL8125/8126) work out of the box via the `rtl_nic` firmware shipped in the installer and the installed system. |
 | **Minisforum MS-R1** (32 GB, and 64 GB "jumbo") | Cix Sky1 / CP8180 | ✅ **Tested on 26.10** — installed, desktop, video (VPU hardware decode) and audio playback. Its factory firmware omits the NPU `_HID`; the build adds an ACPI SSDT override (see below). |
-| **Radxa Orion O6** | Cix Sky1 | ⏳ **Not tested on 26.10** (a different board from the Radxa Orion O6N). Same SoC and the same kernel and drivers, so it is expected to work; users reported earlier releases installing and booting on it. |
+| **Radxa Orion O6** | Cix Sky1 | ✅ **Confirmed working** by a community tester on 26.10 — desktop, applications and display mode switching stable after updating the desktop library (`libgtk4-layer-shell0` 1.3.0-1+ncz20261013, delivered by `apt upgrade`). A different board from the Radxa Orion O6N with the same SoC, kernel and drivers. Not yet tested by us on a fresh install of the 26.10 image. |
 | **MetaComputing AI PC** — Arm mainboard for Framework Laptop 13 | Cix Sky1 / CP8180 | ⏳ **Untested, but the same SoC.** The kernel, GPU/VPU/NPU drivers and userspace should carry over; the unknowns are laptop-specific — panel/eDP, battery and thermals, lid/suspend, and the Framework EC. **No hardware in hand — testers welcome.** |
 | **Orange Pi 6** (Cix variant) | Cix Sky1 | ⏳ **Untested.** Same SoC; not yet booted by us. |
 
@@ -500,7 +501,7 @@ the marks as "confirmed at the system level" rather than independently
 re-verified driver-by-driver on every kernel.
 
 **Boot requirements.** Boot is ACPI-based; there is no DTB, and the same
-kernel and firmware set serves the MS-R1 and the Radxa Orion O6N alike (and is expected to serve the Radxa Orion O6). The firmware that
+kernel and firmware set serves the MS-R1 and the Radxa Orion O6N alike (and the Radxa Orion O6, confirmed by a community tester). The firmware that
 must be present is `rtl_nic` (RTL8125/8126), `mali_csffw.bin` (Mali-G720), the
 NPU firmware consumed by the `aipu` DKMS module, and the VPU firmware consumed
 by `amvx`. The installer writes the ACPI kernel command line into the rEFInd

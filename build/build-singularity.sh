@@ -149,6 +149,9 @@ BUILD_SCRIPT='
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
+# SIT (subprojects/sit, the toolkit the superproject builds since 615dba0) needs the
+# gstreamer-play, vulkan/glslc, colord and X11 extension headers in the block before
+# build-essential (meson setup with the superproject SIT_OPTIONS, measured 2026-10-13).
 # Build deps (Debian 13 / Ubuntu 26.04 names — see docs/upstream/singularity/
 # 20-pr-arm64-build.md). No arch guards needed; the tree builds clean on aarch64.
 apt-get install -y --no-install-recommends \
@@ -201,6 +204,10 @@ apt-get install -y --no-install-recommends \
     libzstd-dev nettle-dev \
     libevdev-dev libmtdev-dev libwacom-dev libtracker-sparql-3.0-dev \
     libsfdo-dev libudev-dev \
+    libgstreamer-plugins-bad1.0-dev libvulkan-dev glslc libcolord-dev \
+    libxcursor-dev libxdamage-dev libxi-dev libxinerama-dev libxrandr-dev \
+    libxrender-dev libxext-dev libxfixes-dev libepoxy-dev libgraphene-1.0-dev \
+    iso-codes libfribidi-dev libjpeg-dev \
     build-essential
 
 mkdir -p /work && cd /work
