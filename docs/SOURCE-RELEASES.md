@@ -47,14 +47,14 @@ Versions are taken from the reviewed NCZ build ledger,
 | **Linux kernel, Sky1 (arm64)** | `7.3.0-rc7-sky1-ncz` (package `linux-image-cixmini` `7.3.0-rc7-sky1-ncz+r289`) | GPL-2.0 | Mainline v7.3-rc7 plus the Sky1 port patch and 20 numbered patches. Vendored in [`kernel-source/`](../kernel-source/SOURCE.md); recipe tag `kernel-sky1-7.3.0-rc7-r289` in [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix); the complete patched tree is tag `kernel-sky1-7.3.0-rc7-r289-src` in [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix). See **Kernel corresponding source** below. |
 | **Linux kernel, amd64 (T2 Macs and PCs)** | `7.3.0-rc7-t2-ncz` (package `7.3.0-rc7-2`) | GPL-2.0 | Mainline v7.3-rc7 plus the t2linux patch series and our T2 fixes (24 patches), in [`ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz), tag `v7.3.0-rc7-t2-ncz-2`. See **Kernel corresponding source** below. |
 | **cix-installer** (installer, preseed, post-install hooks, build scripts) | commit `d395bb2d` | see repo | **This repository**, commit `d395bb2d`. |
-| **cixmini-boot** | `1.2+r289` | GPL-2.0 | Boot/firmware glue for Sky1 boards, built by `build/build-kernel-debs.sh`. |
+| **cixmini-boot** | `1.3+r289` | GPL-2.0 | Boot/firmware glue for Sky1 boards, built by `build/build-kernel-debs.sh`. |
 | **ncz-ffmpeg** (arm64) | `9.0.1-ncz3` | LGPL-2.1+/GPL-2+ | FFmpeg with Sky1 V4L2 M2M support; patches under [`docs/upstream-patches/ffmpeg/`](upstream-patches/ffmpeg/). |
 | **chromium-ncz-sky1** (arm64) | `154.0.8037.0-ncz20261011` | BSD-3-Clause + others | Chromium with Sky1 V4L2 decode fixes; patches under [`docs/upstream-patches/chromium/`](upstream-patches/chromium/). |
 | **ncz-singularity-desktop** | built per image from pinned upstream commits | see upstream | Singularity desktop (labwc/wlroots) from `singularityos-lab`, with our packaging and the patches under [`assets/singularity/patches/`](../assets/singularity/patches/). |
 | **ncz-screensavers**, **ncz-screensavers-plugin** | `0.8.13`, `0.3.21` | see upstream | NCZ screensaver engine and its Singularity settings page. |
 | **libgtk4-layer-shell0** (patched, arm64) | `1.3.0-1+ncz20261013` | MIT | gtk4-layer-shell 1.3.0 (`e8704f4`) plus the patches under [`packaging/gtk4-layer-shell/patches/`](../packaging/gtk4-layer-shell/patches/); built by `packaging/gtk4-layer-shell/make-deb.sh`. |
 | **libdrm** (patched) | `2.4.134-3+ncz2` | MIT | Debian libdrm plus `libdrm-xf86drm-acpi-platform-identity.patch` (in `docs/upstream-patches/`). |
-| **DKMS accelerator packages** | `cix-gpu-kmd-dkms 1.0+ncz2`, `panthor-cix-dkms 7.2.0+ncz2`, `cix-vpu-driver-dkms 1.0.2-ncz1+ncz2`, `cix-npu-driver-dkms 6.2.0-cixdeb13-260714+ncz3` | GPL-2.0 | DKMS packages ship their module source in the package itself (`/usr/src`); the same source is in `assets/kernel/{mali,panthor,vpu,npu}/` here. The prebuilt `.ko` overlays for the shipped kernel are bound to that source by `assets/kernel/*/7.3.0-rc7-sky1-ncz/SOURCE.sha256`. |
+| **DKMS accelerator packages** | `cix-gpu-kmd-dkms 1.0+ncz3`, `panthor-cix-dkms 7.2.0+ncz3`, `cix-vpu-driver-dkms 1.0.2-ncz1+ncz3`, `cix-npu-driver-dkms 6.2.0-cixdeb13-260714+ncz3` | GPL-2.0 | DKMS packages ship their module source in the package itself (`/usr/src`); the same source is in `assets/kernel/{mali,panthor,vpu,npu}/` here. The prebuilt `.ko` overlays for the shipped kernel are bound to that source by `assets/kernel/*/7.3.0-rc7-sky1-ncz/SOURCE.sha256`. |
 | **Patched d-i udebs** | `debootstrap-udeb 1.0.145`, `apt-setup`/`partman-*`/`mdcfg`/`nobootloader` `+ncz1` | GPL | Debian sources plus the patches recorded for each row in `manifests/ncz-packages.tsv`. |
 
 ### Kernel corresponding source
@@ -128,8 +128,8 @@ and most of them are not downloadable.
 | `ncz-screensavers` 0.8.13, both arches | 2 | **Yes.** Public NCZ apt repository; sha256 checked. |
 | Recovery and rescue root filesystems | 4 | No. Rebuild with `build/build-mgmt-rootfs.sh` / `build/build-rescue-rootfs.sh` at the pinned snapshot; the output is not byte-reproducible. |
 | Artist Pack wallpaper packages | 8 | No. The apt repository has `1.0` builds with different bytes; rebuild with `build/build-wallpaper-contrib-deb.sh`. |
-| Patched libdrm `2.4.134-3+ncz2` | 22 | No (the apt repository has only `+ncz1`). Rebuild with `build/build-libdrm-debs.sh` (Debian source plus the patch in this repository). |
-| `chromium-ncz-sky1` 154.0.8037.0-ncz20261011 | 1 | No. Source is public in [`ncz-os/chromium-ncz-sky1`](https://gitlab.com/ncz-os/chromium-ncz-sky1). |
+| Patched libdrm `2.4.134-3+ncz2` | 22 | **Partly.** The 14 runtime library packages the apt policy allows per architecture are in the public NCZ apt repository (sha256 checked). `libdrm-dev`, `libdrm-tests`, the amd64 `libdrm-freedreno1` and the two installer-only `libdrm2-udeb` files are not published: rebuild them with `build/build-libdrm-debs.sh` (Debian source plus the patch in this repository). |
+| `chromium-ncz-sky1` 154.0.8037.0-ncz20261011 | 1 | **Yes.** Public NCZ apt repository; sha256 checked. Source is public in [`ncz-os/chromium-ncz-sky1`](https://gitlab.com/ncz-os/chromium-ncz-sky1). |
 | CIX vendor package bundle, Sky1 firmware tree, NPU DKMS package | 3 | No. Vendor-proprietary binaries and firmware we are not able to republish as a bundle; the NPU DKMS package's GPL source is inside the package. |
 
 Other inputs:
