@@ -147,16 +147,15 @@ if [ -f "$HOOK" ]; then
     if [ "$(norm "$hook_common")" = "$(norm "$COMMON")" ]; then ok "hook COMMON list matches ($(norm "$COMMON"))"; else bad "hook COMMON list '$(norm "$hook_common")' != expected '$(norm "$COMMON")'"; fi
     if [ "$(norm "$hook_sky1")" = "$(norm "$SKY1")" ]; then ok "hook SKY1 list matches ($(norm "$SKY1"))"; else bad "hook SKY1 list '$(norm "$hook_sky1")' != expected '$(norm "$SKY1")'"; fi
     if [ "$(norm "$hook_common $hook_sky1")" = "$want_ids" ]; then ok "hook declared lists == asset set"; else bad "hook declared lists exceed/omit the asset set"; fi
-    # The Sky1 slide must be installed only under an arm64/aarch64 branch.
-    if grep -qF 'arm64|aarch64)' "$HOOK"; then ok "hook gates the Sky1 slide on an arm64 branch"; else bad "hook has no arm64/aarch64 branch for the Sky1 slide"; fi
 else
     bad "hook missing: $HOOK"
 fi
 
 # --- run the hook for real, once per architecture, in a sandbox -----------------
 # Proves the arch gate end-to-end: amd64 installs COMMON only; arm64 installs
-# COMMON + SKY1. Uses the hook's test seams so it never writes outside the
-# sandbox (NCZ_TOUR_SLIDES_ROOT prefixes /etc and /usr/local).
+# COMMON + SKY1. This is the authoritative gate check (no source grepping). It
+# uses the hook's test seams so it never writes outside the sandbox
+# (NCZ_TOUR_SLIDES_ROOT prefixes /etc and /usr/local).
 if [ -f "$HOOK" ]; then
     SB="$(mktemp -d "${TMPDIR:-/tmp}/ncz-tour-slides.XXXXXX")"
     run_hook() {   # $1 = arch -> prints the installed slide basenames, sorted
