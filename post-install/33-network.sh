@@ -394,7 +394,7 @@ systemctl enable NetworkManager-wait-online.service 2>&1 | tail -2 || true
 install -d -m0755 /etc/systemd/system/NetworkManager-wait-online.service.d
 cat > /etc/systemd/system/NetworkManager-wait-online.service.d/10-ncz-bounded.conf <<'NMWAIT'
 [Service]
-# NCZ-OS: cap network-online at 15 s (post-install/33-network.sh, docs/BOOT-SEQUENCE.md).
+# NCZ-OS: cap network-online at 15 s (post-install/33-network.sh, build/test-boot-sequence.sh).
 Environment=NM_ONLINE_TIMEOUT=15
 NMWAIT
 chmod 0644 /etc/systemd/system/NetworkManager-wait-online.service.d/10-ncz-bounded.conf

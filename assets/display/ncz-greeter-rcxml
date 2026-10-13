@@ -86,7 +86,7 @@ emit() {
          each output at the capped mode chosen by ncz-display-scale; labwc must
          not auto-modeset a console-inherited CRTC first. The disable->enable
          cycle of that redundant modeset is the trilin DP AUX-engine wedge
-         trigger. See post-install/55-greeter.sh and docs/BOOT-SEQUENCE.md. -->
+         trigger. See post-install/55-greeter.sh and build/test-boot-sequence.sh. -->
     <autoEnableOutputs>no</autoEnableOutputs>
   </core>
 </labwc_config>

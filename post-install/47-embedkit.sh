@@ -31,7 +31,7 @@
 # + /dev/aipu and selects the npu-cix adapter; on a hypothetical x86
 # variant of this image it would fall back to cpu-llamacpp.
 # ARCH GATE (dual-arch parity): Sky1-only hook. run-all.sh runs every hook on every architecture, so
-# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this; docs/DUAL-ARCH-PARITY.md).
+# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this).
 _ncz_a="${NCZ_TARGET_ARCH:-$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)}"
 [ -n "$_ncz_a" ] || _ncz_a="$(dpkg --print-architecture 2>/dev/null || true)"
 if [ "$_ncz_a" != arm64 ]; then echo "[47] Sky1-only hook; target architecture is '${_ncz_a:-unknown}' -- skipping"; exit 0; fi

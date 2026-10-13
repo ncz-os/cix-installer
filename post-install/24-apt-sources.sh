@@ -63,7 +63,7 @@
 # staged as a DISABLED fallback (`ncz-apt-source r2` switches), and a pin file
 # (/etc/apt/preferences.d/10-ncz-origin-separation.pref) keeps NCZ packages for
 # NCZ names and Debian packages for Debian names. All of it lives in
-# post-install/lib/apt-separation.sh; see docs/APT-SEPARATION.md.
+# post-install/lib/apt-separation.sh (see its header).
 set -euo pipefail
 echo "[24] wiring the NCZ apt source (Buildkite Packages; R2 kept as a disabled fallback) + origin-separation pin + refreshing package index"
 

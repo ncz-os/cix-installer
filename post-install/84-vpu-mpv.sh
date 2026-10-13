@@ -10,7 +10,7 @@
 #
 # RUNS INSIDE CHROOT (build-squashfs-layers.sh desktop loop / run-all.sh).
 # ARCH GATE (dual-arch parity): Sky1-only hook. run-all.sh runs every hook on every architecture, so
-# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this; docs/DUAL-ARCH-PARITY.md).
+# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this).
 _ncz_a="${NCZ_TARGET_ARCH:-$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)}"
 [ -n "$_ncz_a" ] || _ncz_a="$(dpkg --print-architecture 2>/dev/null || true)"
 if [ "$_ncz_a" != arm64 ]; then echo "[84] Sky1-only hook; target architecture is '${_ncz_a:-unknown}' -- skipping"; exit 0; fi
@@ -33,7 +33,7 @@ esac
 #
 # 2026-10-06, measured on BOTH the O6N and the MS-R1 (7.3.0-rc6-sky1-ncz,
 # cix-vpu-driver-dkms 1.0.2-ncz1, cix-vaapi 1.0.0, mpv 0.41, same clips and
-# commands, docs/SKY1-MEDIA-STATUS.md): the VA-API route is broken and the
+# commands, docs/HW-VIDEO-DECODE-STATUS.md): the VA-API route is broken and the
 # V4L2 stateful M2M route is healthy, identically on both boards.
 #   hwdec=vaapi (the previous default): H.264 1080p either exits with
 #     "Failed to send decoder command" (MS-R1) or silently drops to software
@@ -52,7 +52,7 @@ esac
 install -d -m0755 /etc/mpv
 _HWDEC=v4l2m2m-copy
 _VO="gpu-next,x11"
-_NOTE="V4L2 stateful M2M decode on the amvx VPU (VA-API route is broken, see docs/SKY1-MEDIA-STATUS.md)"
+_NOTE="V4L2 stateful M2M decode on the amvx VPU (VA-API route is broken, see docs/HW-VIDEO-DECODE-STATUS.md)"
 cat > /etc/mpv/mpv.conf <<MPVCONF
 # NCZ-OS -- HW video on CIX Sky1 (amvx VPU). $_NOTE.
 hwdec=$_HWDEC

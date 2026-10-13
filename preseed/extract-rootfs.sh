@@ -1,5 +1,5 @@
 #!/bin/sh
-# See docs/ISO-BUILD-GUARDRAILS.md before changing this file --
+# Read build/check-extract-rootfs-consistency.sh before changing this file --
 # these are ISO build MECHANICS, stable across builds by design.
 #
 # STATUS (2026-08-26): this file is the DEAD-CODE TWIN of the r159
@@ -22,7 +22,7 @@
 # THE LONG-PROMISED UNIFICATION (making this file the single source of
 # truth and embedding it into the stub heredoc at build time, so the two
 # copies become one) is deferred pending its own reviewed look -- see
-# docs/ISO-BUILD-GUARDRAILS.md's "dead-code twin" trap entry for the
+# build/check-extract-rootfs-consistency.sh ("dead-code twin" trap) for the
 # history and the reason this file still carries the same logic shape
 # as the stub.
 #
@@ -284,7 +284,7 @@ if [ -n "$SQFS_DIR" ]; then
         fi
     fi
     # 2026-08-26 ROOT-MODE GATE — post-full-layer-stack hard verification
-    # (docs/ISO-BUILD-GUARDRAILS.md). Root cause of the 0700-root incident,
+    # (see build/iso/patch-debootstrap-stub.py). Root cause of the 0700-root incident,
     # found+proven 2026-08-26: `unsquashfs -f -d /target` re-stamps /target's
     # OWN mode from EACH layer's root entry (verified with the bundled sqtools
     # unsquashfs AND squashfs-tools 4.6.1: an existing 755 dir became 700
@@ -568,7 +568,7 @@ case "$_cur" in
 esac
 
 # 2026-08-26 first-boot root-mode belt (0700-root incident; see
-# docs/ISO-BUILD-GUARDRAILS.md). Runs AFTER dpkg --configure -a above (package
+# build/iso/patch-debootstrap-stub.py). Runs AFTER dpkg --configure -a above (package
 # postinsts are the last code to run before a login screen) and before
 # display-manager.service (unit ordering), so a bad / mode is corrected before
 # greetd would hit EACCES traversing /. Always emits a NCZ-ROOTMODE marker to

@@ -294,7 +294,7 @@ for that pack the overlay is duplicative. A pack should be able to declare
 5. Artist Pack browser: list + install *not-yet-installed* curated packs
    (`ncz-wallpapers-*` debs) from apt, distinct from 1-4 above which are all
    about packs already on disk. Patched, not yet upstream — see
-   `packaging/singularity/README.md` ("Artist Pack browser"). The apt
+   the former `packaging/singularity/README.md` ("Artist Pack browser"). The apt
    source(s) it trusts are config (`dev.sinty.desktop`
    `artist-pack-apt-sources`), set by `post-install/20-desktop.sh`, not
    hardcoded in the browser.

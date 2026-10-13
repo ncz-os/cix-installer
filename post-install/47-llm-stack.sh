@@ -10,7 +10,7 @@
 # also removes the Vulkan dev/build packages (headers, glslang, spirv-tools,
 # validation layers), ~95MB. mesa-vulkan-drivers is KEPT on arm64: the Panthor
 # entry needs Mesa's PanVK, so only the Mali entry's VK_DRIVER_FILES pin keeps
-# the two ICDs apart. See docs/DRIVER_FIDELITY_72.md. Idempotent.
+# the two ICDs apart. See docs/INFERENCE_LIMITS.md. Idempotent.
 #
 # Removal verified on O6N live hardware: desktop session untouched (greetd,
 # labwc, shell all still up), GLES still Mali-G720 at glmark2 7532, and the
@@ -40,7 +40,7 @@ apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 -o Acqui
 # runtime. They were here as build substrate for "llama.cpp Vulkan, the NPU
 # embedder, and future Mali compute tools" — but llama.cpp now ships CPU-only
 # (a Vulkan-linked build costs 13.6x CPU throughput even with the GPU unused,
-# and loses to the CPU when the GPU does engage — see DRIVER_FIDELITY_72.md),
+# and loses to the CPU when the GPU does engage — see docs/INFERENCE_LIMITS.md),
 # and the NPU embedder runs on NOE/libnoe, not Vulkan. Dropping
 # libvulkan-dev + glslang + spirv-tools + validationlayers saves ~95MB.
 #

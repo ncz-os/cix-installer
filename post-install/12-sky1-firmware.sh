@@ -11,7 +11,7 @@
 # the ISO under /cdrom/ncz-payload/assets/sky1-firmware/ by the build pipeline
 # (build/build-squashfs-layers.sh + build/build-iso-di.sh + the new
 # build/iso/{import-substrate,stage-ncz-payload,write-image}.py
-# assembly writer; see docs/ISO-BUILD-GUARDRAILS.md), copied into
+# assembly writer), copied into
 # /usr/local/lib/cix-installer/assets/sky1-firmware by late.sh. This hook
 # drops it into /lib/firmware on the target.
 # NCZ-PLATFORM-GUARD: sky1-arm64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches

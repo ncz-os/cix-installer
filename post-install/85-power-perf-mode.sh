@@ -41,7 +41,7 @@
 # this platform/kernel combo at all; do not add ANY write to it here, on OR
 # off, until the armchina_npu driver's clk wiring is fixed upstream/DT-side.
 # Same clk_round_rate NULL-deref bug class already tracked (unresolved) as
-# "Crash #2" in assets/kernel/mali-70012/README.md on 7.0.12+mali_kbase's OWN
+# "Crash #2" of the mali-70012 port (assets/kernel/mali-70012/patches/) on 7.0.12+mali_kbase's OWN
 # devfreq path — different driver, same call site, same platform-level
 # clk-wiring gap, present across kernel versions.
 #
@@ -180,7 +180,7 @@ elif [ "$ACTION" = "off" ]; then
   #
   #   1. devfreq governor write -- the same clk_round_rate NULL-deref class
   #      documented above for CIXH4000 is also tracked in mali_kbase's OWN
-  #      devfreq path (assets/kernel/mali-70012/README.md, "Crash #2"). This
+  #      devfreq path (mali-70012 port, "Crash #2"). This
   #      ran on every logout, so a latent panic path shipped in the `off`
   #      action of the very script written to avoid that panic elsewhere.
   #   2. even when it does not crash, simple_ondemand is measurably broken on

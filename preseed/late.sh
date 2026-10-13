@@ -1,5 +1,5 @@
 #!/bin/sh
-# See docs/ISO-BUILD-GUARDRAILS.md before changing this file —
+# Read build/check-extract-rootfs-consistency.sh before changing this file —
 # these are ISO build MECHANICS, stable across builds by design.
 # late.sh — run from preseed late_command in the d-i runtime context.
 #

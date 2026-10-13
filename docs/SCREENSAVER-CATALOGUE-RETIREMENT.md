@@ -58,6 +58,6 @@ exercises those gates.
 
 ## Note
 
-`docs/ARM64-IMAGE-RESULTS-2026-09-29.md` still names `58-screensaver-chooser`
+The retired 2026-09-29 arm64 image results report still named `58-screensaver-chooser`
 in a dated 2026-09-29 image-log quote. It is historical evidence and was
 deliberately not rewritten.

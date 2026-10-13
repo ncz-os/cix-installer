@@ -1,6 +1,6 @@
 # NCZ-OS unified kernel policy, machine-readable (operator 2026-10-05).
 # Read by build/verify-kernel-default-policy.sh. KEY=value, no spaces.
-# Human text and rationale: docs/reports/2026-10-05-kernel-channel-policy.md
+# Human text and rationale: docs/ONE-KERNEL.md
 #
 # ONE kernel: 7.3, the SAME pinned build on every architecture. It is the
 # DEFAULT boot kernel, the installer boot kernel, and the kernel the RESCUE

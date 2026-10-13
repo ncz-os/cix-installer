@@ -40,7 +40,7 @@
 # 2026-08-21 update: the matched NPU stack is now KMD 6.2.0 + UMD 3.1.4 (asid_base[4]),
 # not the older 2.0.x (asid_base[32]) stack. UMD 2.0.2 wedges at noe_init_context on
 # the r247+ KMD because of the asid_base[4] -> asid_base[32] ABI widening; see
-# packaging/cix-npu-driver-dkms-6.2.0/README.md ("the matched NPU stack, hardened").
+# packaging/cix-npu-driver-dkms-6.2.0/ ("the matched NPU stack, hardened").
 # 80-npu.sh still claims 2.0.2 (its MobileNet 640-inf/s measurement was on MS-R1
 # with the v0-compat ioctl layer + the OLDER KMD); on the r247+ NCZ edge kernel
 # the 2.0.2 UMD cannot query capability and every NPU call dies before loading
@@ -57,7 +57,7 @@
 # Never fatal: the NPU kernel driver and /dev/aipu do not depend on any of this.
 # Without it you lose Python inference, not the device.
 # ARCH GATE (dual-arch parity): Sky1-only hook. run-all.sh runs every hook on every architecture, so
-# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this; docs/DUAL-ARCH-PARITY.md).
+# log and no-op anywhere else (build/lint-hook-arch-gates.sh enforces this).
 _ncz_a="${NCZ_TARGET_ARCH:-$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_ARCH 2>/dev/null)}"
 [ -n "$_ncz_a" ] || _ncz_a="$(dpkg --print-architecture 2>/dev/null || true)"
 if [ "$_ncz_a" != arm64 ]; then echo "[88] Sky1-only hook; target architecture is '${_ncz_a:-unknown}' -- skipping"; exit 0; fi

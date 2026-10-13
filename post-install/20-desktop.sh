@@ -172,7 +172,7 @@ for status in /sys/class/drm/card*-*/status; do
     [ -n "$render_node" ] && break
 done
 
-# Video decode (measured 2026-10-06 on O6N and MS-R1, docs/SKY1-MEDIA-STATUS.md):
+# Video decode (measured 2026-10-06 on O6N and MS-R1, docs/HW-VIDEO-DECODE-STATUS.md):
 # this build has the V4L2 stateful decoder and no VA-API (no libva in the
 # binary), so AcceleratedVideoDecoder is the one switch that matters; it puts
 # H.264, VP9 and AV1 (1080p and 2160p) on the VPU via V4L2VideoDecoder at
@@ -1407,7 +1407,7 @@ fi
 # (53-chrome.sh) secondary. Sky1/arm64: chromium-ncz-sky1 primary (r201) --
 # it decodes on the VPU through V4L2; Vivaldi and Chrome take the session's
 # VA-API path, and the CIX VA-API driver hangs on H.264/HEVC
-# (docs/SKY1-MEDIA-STATUS.md). /usr/local/bin/vivaldi-stable and
+# (docs/HW-VIDEO-DECODE-STATUS.md). /usr/local/bin/vivaldi-stable and
 # google-chrome-stable are the VA-API-off wrappers on arm64
 # (lib/sky1-browser-policy.sh, applied by 52/53), so they come before /usr/bin.
 _ncz_br_arch="${NCZ_TARGET_ARCH:-}"

@@ -89,7 +89,7 @@ ssplugin_rebuild_help() {
     cat >&2 <<EOF
   The plugin ($SSP_PKG $SSP_VERSION, $arch) was linked against Singularity payload
   $SSP_PAYLOAD (libsingularity sha256 $SSP_LIBSHA); this payload is
-  ${ver:-unknown}. Rebuild the plugin against THIS payload (docs/SCREENSAVER-PLUGIN.md):
+  ${ver:-unknown}. Rebuild the plugin against THIS payload:
     amd64: any amd64 build host, container debian:forky
     arm64: any arm64 build host, container debian:testing
     in that container, with an ncz-screensavers checkout (integration/cygnus-26.10-2026-10-03):

@@ -10,7 +10,7 @@
 # The amd64 half keeps manifests/firmware.pkgs and the (empty) default
 # manifests/firmware-bom.allow, so amd64 is unaffected.
 #
-# Full rationale + measured sizes: docs/ARM64-FIRMWARE-TRIM-2026-10-11.md.
+# The arm64 firmware trim of 2026-10-11 set this list.
 # To restore a dropped set: delete its line(s) from this file and add the
 # package name(s) to manifests/firmware-arm64.pkgs.
 #
