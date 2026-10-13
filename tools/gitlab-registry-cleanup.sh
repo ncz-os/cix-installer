@@ -13,7 +13,8 @@
 #   * with dedupe "yes": inside every version that stays, only the newest file
 #     of each file name is kept; older copies of the same name are removed
 # A version is never removed while an asset link of any release in the project
-# points at it (it is reported as kept). Packages that no rule names are never
+# points at it, by package path or by package file id (it is reported as
+# kept), and a file a release links to by id is never removed as a duplicate. Packages that no rule names are never
 # looked at. Package types other than generic are never touched.
 #
 # Without --apply nothing is changed: the plan is printed and, with
@@ -166,6 +167,9 @@ for rule in "${RULE_LINES[@]}"; do
   # release links that point at a version of this package
   jq -r --arg n "$pkg" '.[] | .assets.links[]?.url // empty | select(test("/packages/generic/" + $n + "/"))
       | capture("/packages/generic/[^/]+/(?<v>[^/]+)/").v' "$WORK/rel-$pid.json" | sort -u > "$WORK/linked.txt"
+  # release links of the form .../-/package_files/<id>/download, by file id
+  jq '[.[] | .assets.links[]?.url // empty | capture("/package_files/(?<f>[0-9]+)(/|$)").f | tonumber] | unique' \
+    "$WORK/rel-$pid.json" > "$WORK/linked-files.json"
   idx=0; kept=0
   while read -r id ver created; do
     key="$pid/$id"
@@ -173,14 +177,21 @@ for rule in "${RULE_LINES[@]}"; do
     SEEN[$key]=1
     idx=$((idx+1))
     get_all "$API/projects/$pid/packages/$id/package_files" > "$WORK/files.json"
-    if [ "$keep" = all ] || [ "$idx" -le "$keep" ] || grep -qxF -- "$ver" "$WORK/linked.txt"; then
+    linked=0
+    if grep -qxF -- "$ver" "$WORK/linked.txt" ||
+       [ "$(jq --slurpfile l "$WORK/linked-files.json" 'length as $n | ([.[].id] - $l[0] | length) < $n' "$WORK/files.json")" = true ]; then
+      linked=1
+    fi
+    if [ "$keep" = all ] || [ "$idx" -le "$keep" ] || [ "$linked" -eq 1 ]; then
       if [ "$keep" != all ] && [ "$idx" -gt "$keep" ]; then
         log "  keep     $proj $pkg $ver (a release links to it)"
       fi
       kept=$((kept+1))
       [ "$dedupe" = yes ] || continue
-      jq --arg p "$proj" --argjson pid "$pid" --arg n "$pkg" --arg v "$ver" --argjson id "$id" '
+      jq --arg p "$proj" --argjson pid "$pid" --arg n "$pkg" --arg v "$ver" --argjson id "$id" \
+         --slurpfile l "$WORK/linked-files.json" '
         group_by(.file_name) | map(sort_by(.created_at, .id) | reverse | .[1:]) | add // []
+        | map(select(.id as $f | ($l[0] | index($f)) == null))
         | map({kind:"file", project:$p, project_id:$pid, package:$n, version:$v, package_id:$id,
                file_id:.id, file_name, size, sha256:.file_sha256, created_at})' \
         "$WORK/files.json" > "$WORK/add.json"
