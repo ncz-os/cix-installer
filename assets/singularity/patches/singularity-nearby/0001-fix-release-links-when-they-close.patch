@@ -1,29 +1,27 @@
-From 4c53381514204689d244caeba776e5a2f8113410 Mon Sep 17 00:00:00 2001
+From b2c61cf96abc9ee0627d595fd2bd9c3d757a0ca0 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Tue, 13 Oct 2026 12:35:24 -0400
-Subject: [PATCH 1/2] fix: release links when they close
+Subject: [PATCH] fix: release links when they close
 
-on_link() connects two closures to the link's own signals, and both
-capture the link. The link keeps the closure, the closure keeps the
-link, and nothing disconnects them, so a closed or replaced link is
-never freed. Its TLS connection, buffers and the Device it served stay
-in memory for the life of the process.
+on_link() connects two closures to the link's own signals and both
+capture the link, so the link and its handlers keep each other alive.
+A closed or replaced link is never freed, together with its TLS
+connection.
 
-Peers that announce themselves every 30 seconds replace each link once
-per announcement, so with a few desktops on the same network the
-service grows by several megabytes a minute and reaches gigabytes
-after a few hours.
+Peers announce themselves every 30 seconds and each announcement
+replaces the link, so with a few desktops on the network the service
+grows by several megabytes a minute.
 
-Disconnect both handlers when the link closes. A new test checks that
-a closed link and a replaced link are both finalized.
+Disconnect both handlers when the link closes, and add a test that a
+closed and a replaced link are finalized.
 
 Assisted-by: Claude Code:claude-opus-5-5
-AI-Scope: Traced the growth to the on_link() closure cycle, wrote the disconnect fix and tests/link_test.vala; reviewed and measured on hardware by the author.
+AI-Scope: Traced the growth to the on_link() closure cycle and wrote the disconnect fix and tests/link_test.vala; reviewed and measured by the author.
 ---
  meson.build          |  12 +++
- src/service.vala     |  14 +++-
- tests/link_test.vala | 170 +++++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 193 insertions(+), 3 deletions(-)
+ src/service.vala     |  11 ++-
+ tests/link_test.vala | 181 +++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 201 insertions(+), 3 deletions(-)
  create mode 100644 tests/link_test.vala
 
 diff --git a/meson.build b/meson.build
@@ -47,28 +45,25 @@ index 5d66815..a556631 100644
 +  env: ['TMPDIR=' + meson.current_build_dir()],
 +)
 diff --git a/src/service.vala b/src/service.vala
-index 86b5da8..f8d2b2a 100644
+index 86b5da8..789fd21 100644
 --- a/src/service.vala
 +++ b/src/service.vala
-@@ -238,7 +238,8 @@ namespace Singularity.Nearby {
+@@ -238,7 +238,7 @@ namespace Singularity.Nearby {
              lan.broadcast(config.discoverable, unicast);
          }
  
 -        private void on_link(Link link) {
-+        [DBus (visible = false)]
 +        internal void on_link(Link link) {
              var d = devices[link.device_id];
              if (d == null) {
                  d = new Device(link.device_id);
-@@ -259,8 +260,15 @@ namespace Singularity.Nearby {
+@@ -259,8 +259,13 @@ namespace Singularity.Nearby {
                  d.record.last_address = d.address;
                  save();
              }
 -            link.packet_received.connect((p) => on_packet(d, p));
 -            link.closed.connect(() => {
-+            // Both handlers capture the link, so the link holds the closure that
-+            // holds the link. Disconnect them when the link closes, or every
-+            // replaced or dropped link (and its TLS session) stays alive.
++            // The handlers capture the link; disconnect them so it can be freed.
 +            ulong packet_handler = 0;
 +            ulong closed_handler = 0;
 +            packet_handler = link.packet_received.connect((p) => on_packet(d, p));
@@ -80,10 +75,10 @@ index 86b5da8..f8d2b2a 100644
                  if (d.pair_state == PairState.REQUESTED || d.pair_state == PairState.INCOMING) end_pairing(d, PairState.NONE);
 diff --git a/tests/link_test.vala b/tests/link_test.vala
 new file mode 100644
-index 0000000..b30bd9a
+index 0000000..8efbf19
 --- /dev/null
 +++ b/tests/link_test.vala
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,181 @@
 +using Singularity.Nearby;
 +
 +Service service;
@@ -168,6 +163,14 @@ index 0000000..b30bd9a
 +    return link;
 +}
 +
++void close_peer(TlsPair pair) {
++    try {
++        pair.client.close();
++    } catch (Error e) {
++    }
++    pair.client = null;
++}
++
 +void settle(int want) {
 +    int64 end = get_monotonic_time() + 5 * TimeSpan.SECOND;
 +    while (released < want && get_monotonic_time() < end) {
@@ -198,6 +201,7 @@ index 0000000..b30bd9a
 +        link.close();
 +        link = null;
 +        pair.server = null;
++        close_peer(pair);
 +        settle(1);
 +        assert(released == 1);
 +        assert(!device_known());
@@ -223,12 +227,14 @@ index 0000000..b30bd9a
 +        assert(b.open);
 +        a = null;
 +        first.server = null;
++        close_peer(first);
 +        settle(1);
 +        assert(released == 1);
 +        assert(device_known());
 +        b.close();
 +        b = null;
 +        second.server = null;
++        close_peer(second);
 +        settle(2);
 +        assert(released == 2);
 +        assert(!device_known());
@@ -254,6 +260,3 @@ index 0000000..b30bd9a
 +    Test.add_func("/link/replaced-link-is-released", test_replaced_link_is_released);
 +    return Test.run();
 +}
--- 
-2.50.1 (Apple Git-155)
-
