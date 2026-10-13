@@ -132,8 +132,10 @@ it as NCZ-OS. See [Architecture](#architecture).
 - **Lock screen over a live screensaver.** The saver and the lock start
   together after 5 minutes idle; the password prompt appears only on the first
   key press, click or pointer movement. Behind the lock the saver runs at
-  8 fps and half resolution by default and freezes after 15 seconds, to keep
-  the machine cool.
+  8 fps and half resolution and keeps animating until you touch the machine;
+  it freezes on its current frame only when the prompt appears, and starts
+  again if the prompt is left to time out. A thermal guard pauses it while the
+  machine is hot.
 - **Login screen that matches the lock screen** (greetd with the native
   Singularity greeter), at the panel's native resolution on T2 MacBooks.
 - **Wallpapers:** Artist Packs (NCZ, Cygnus, Alex Jay Brady, Brandon Perlow,
