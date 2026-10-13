@@ -169,5 +169,26 @@ done
     && ok "agent-env.sample present" \
     || bad "agent-env.sample missing"
 
+# Portainer install must (a) bring up the Podman API socket before mounting it
+# (a fresh install has no /run/podman/podman.sock, so the mount used to fail
+# with 'statfs ... no such file or directory') and (b) use host networking so
+# it also starts on the Cix Sky1 kernel, which is built without veth/bridge
+# support and cannot do podman port publishing (-p).
+CLI="$ROOT/assets/ncz-cli.sh"
+grep -q 'systemctl enable --now podman.socket' "$CLI" \
+    && ok "portainer install enables podman.socket before mounting it" \
+    || bad "portainer install does NOT ensure the podman socket"
+grep -q 'podman_sock:/var/run/docker.sock:Z' "$CLI" \
+    && ok "portainer mounts the resolved podman socket path" \
+    || bad "portainer does NOT mount the resolved podman socket path"
+if grep -q -- '-p 9000:9000' "$CLI"; then
+    bad "portainer still publishes ports with -p (fails on Sky1 no-veth)"
+else
+    ok "portainer no longer publishes ports with -p (Sky1-safe)"
+fi
+grep -q -- '--network host' "$CLI" \
+    && ok "portainer uses host networking" \
+    || bad "portainer does NOT use host networking"
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" = "0" ]

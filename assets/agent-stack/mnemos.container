@@ -6,19 +6,27 @@ After=network-online.target
 
 [Container]
 Image=ghcr.io/ncz-os/mnemos-enterprise:latest
+# Run the image's API+MCP supervisor so BOTH transports are served: the REST /
+# OpenAI-compatible API on :5002 and the MCP HTTP/SSE transport on :5004. The
+# image's bare default command runs `mnemos serve` (API only), which leaves MCP
+# unreachable; `mnemos-serve-api-and-mcp` starts the API, waits for /health, then
+# starts `mnemos serve mcp-http`. MCP refuses to start without an auth token,
+# which `ncz install mnemos` generates into MNEMOS_MCP_TOKEN below.
+Exec=mnemos-serve-api-and-mcp
+Environment=MNEMOS_MCP_PORT=5004
+ContainerName=mnemos
 # Loaded on demand by `ncz install mnemos` — OFFLINE from the ISO-bundled OCI
 # archive (assets/agent-images/mnemos.oci.tar via `podman load`), or a ghcr
 # pull only if no bundled image is present. Pull=never so systemd never reaches
 # for the network. (`ncz install mnemos` rewrites this line if MNEMOS_IMAGE is
 # overridden when the active quadlet is staged.)
-ContainerName=mnemos
 Pull=never
 Volume=mnemos-data:/data:Z
 # HOST networking (NOT PublishPort). The Cix Sky1 kernel does not build
 # veth/bridge support, so netavark's default bridge — and therefore podman
 # PublishPort=5002:5002 — fails on metal with
 # "netavark: create veth pair: Operation not supported (os error 95)"
-# (verified on MS-R1 .66, 2026-07). Host networking binds uvicorn directly on
+# (verified on the Sky1 test board, 2026-07). Host networking binds uvicorn directly on
 # the host's :5002 and is the correct model for a single-port appliance server.
 Network=host
 # Stock image embeds in-process on CPU (nomic-embed-text-v1.5 Q8, 768-dim) —

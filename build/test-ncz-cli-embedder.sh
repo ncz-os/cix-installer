@@ -79,5 +79,65 @@ grep -q "ncz_models_pull" "$HOOK" \
     && ok "ncz install mnemos triggers ncz_models_pull" \
     || bad "ncz install mnemos does NOT trigger ncz_models_pull"
 
+# Regression: the backfill exit-status variable MUST be pre-initialised.
+# The naive form `out="$(...)" || rc=$?` leaves `rc` unset on the SUCCESS
+# path, so the following `[ "$rc" = "0" ]` under `set -u` aborts the whole
+# install with `line N: rc: unbound variable` AFTER everything succeeded
+# (reproduced live 2026-10-13). The fixed form initialises the variable.
+grep -q 'local backfill_out backfill_rc=0' "$HOOK" \
+    && ok "backfill status var is initialised (no unbound-rc abort on success)" \
+    || bad "backfill status var is NOT initialised — install aborts with rc: unbound variable"
+grep -q '|| backfill_rc=\$?' "$HOOK" \
+    && ok "backfill captures its status into the local var" \
+    || bad "backfill does NOT capture status into the local var"
+if grep -q '|| rc=\$?' "$HOOK"; then
+    bad "backfill still assigns the uninitialised global rc"
+else
+    ok "no assignment to the uninitialised global rc remains"
+fi
+
+# ncz status must report the real embedding width. The .cix NPU graph is the
+# same nomic-embed-text-v1.5 model at 768 dims; its 256 is max_tokens, not the
+# embedding width, so status must not print dim=256 for .cix.
+grep -q '\*.cix)  embed_dim=768' "$HOOK" \
+    && ok "status reports 768-dim for the .cix embedder graph" \
+    || bad "status maps .cix to the wrong dimension"
+if grep -q 'embed_dim=256' "$HOOK"; then
+    bad "status still reports a 256-dim embedder (max_tokens != dim)"
+else
+    ok "status no longer conflates max_tokens with embedding dimension"
+fi
+
+# Sky1 NPU embedder is opt-in: the default path reports the CPU embedder and
+# does NOT apt-install the (currently non-functional) NPU stack.
+grep -q 'NCZ_MNEMOS_NPU' "$HOOK" \
+    && ok "ncz install mnemos exposes the NPU opt-in switch" \
+    || bad "ncz install mnemos has no NPU opt-in switch"
+grep -q 'cix-npu embedder is disabled' "$HOOK" \
+    && ok "default path states the cix-npu embedder is disabled" \
+    || bad "default path does not explain the cix-npu state"
+
+# MCP transport: the image's default command is API-only, so the quadlet must
+# run the api+mcp supervisor and the installer must provision its auth token.
+TPL="$ROOT/assets/agent-stack/mnemos.container"
+grep -q '^Exec=mnemos-serve-api-and-mcp' "$TPL" \
+    && ok "mnemos quadlet runs the API+MCP supervisor" \
+    || bad "mnemos quadlet does NOT run the API+MCP supervisor (MCP unreachable)"
+grep -q '^Environment=MNEMOS_MCP_PORT=' "$TPL" \
+    && ok "mnemos quadlet sets the MCP port" \
+    || bad "mnemos quadlet does NOT set the MCP port"
+grep -q '^ContainerName=mnemos' "$TPL" \
+    && ok "mnemos quadlet keeps ContainerName=mnemos" \
+    || bad "mnemos quadlet lost ContainerName"
+grep -q 'MNEMOS_MCP_TOKEN' "$HOOK" \
+    && ok "ncz install mnemos provisions the MCP auth token" \
+    || bad "ncz install mnemos does NOT provision the MCP auth token"
+grep -q 'MNEMOS_MCP_URL' "$HOOK" \
+    && ok "ncz install mnemos records the MCP URL in mnemos.env" \
+    || bad "ncz install mnemos does NOT record the MCP URL"
+grep -q 'mnemos mcp:' "$HOOK" \
+    && ok "ncz status surfaces the MCP transport state" \
+    || bad "ncz status does NOT surface the MCP transport state"
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" = "0" ]

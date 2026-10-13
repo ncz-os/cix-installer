@@ -106,6 +106,9 @@ echo "$out" | grep -q "BUILD_VARIANT:" && ok "status prints BUILD_VARIANT" || ba
 echo "$out" | grep -qE "NPU:[[:space:]]+(present|absent)" && ok "status prints NPU line" || bad "status missing NPU line"
 # Either GPU present or absent must be present
 echo "$out" | grep -qE "GPU /dev/dri/renderD128:[[:space:]]+(present|absent)" && ok "status prints GPU line" || bad "status missing GPU line"
+# `ncz status` must report all three managed components (mnemos + zeroclaw + zoder).
+echo "$out" | grep -q "zeroclaw:" && ok "status prints zeroclaw state" || bad "status missing zeroclaw state"
+echo "$out" | grep -q "zoder:" && ok "status prints zoder state" || bad "status missing zoder state"
 
 # exit-code contract on the unhappy paths we expect the orchestrator to hit
 out=$("$T/ncz" agent unknown 2>&1); rc=$?

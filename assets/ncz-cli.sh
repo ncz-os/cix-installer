@@ -278,12 +278,34 @@ cmd_agent_install() {
         case "$a" in
             portainer)
                 podman volume exists portainer_data 2>/dev/null || podman volume create portainer_data 2>/dev/null
+                # Portainer talks to the Podman API through the rootful
+                # podman.socket. Enable it first: on a fresh install the unit is
+                # inactive and /run/podman/podman.sock is absent, so the bind
+                # mount below fails with
+                #   Error: statfs /run/podman/podman.sock: no such file or directory
+                # and the container never starts (verified on the amd64 test host,
+                # 2026-10-13).
+                local podman_sock=/run/podman/podman.sock
+                if [ ! -S "$podman_sock" ]; then
+                    systemctl enable --now podman.socket >/dev/null 2>&1 || true
+                fi
+                if [ ! -S "$podman_sock" ]; then
+                    echo "  portainer needs the Podman API socket; none at $podman_sock."
+                    echo "  enable it and re-run: sudo systemctl enable --now podman.socket"
+                    failed+=("$a")
+                    continue
+                fi
                 if ensure_image portainer; then
                     podman rm -f portainer 2>/dev/null || true
+                    # Network=host: the Cix Sky1 kernel is built without
+                    # veth/bridge support, so podman port publishing (-p) fails
+                    # there with 'create veth pair: Operation not supported'.
+                    # Host networking binds 9000/9443 directly and works on both
+                    # arches.
                     podman run -d --name portainer --restart=always \
                         --label nclawzero=true \
-                        -p 9000:9000 -p 9443:9443 \
-                        -v /run/podman/podman.sock:/var/run/docker.sock:Z \
+                        --network host \
+                        -v "$podman_sock:/var/run/docker.sock:Z" \
                         -v portainer_data:/data:Z \
                         "${AGENT_IMAGE[portainer]}" && write_launcher portainer || failed+=("$a")
                 else
@@ -376,7 +398,15 @@ cmd_agent_list() {
         printf "%-12s %-15s http://127.0.0.1:%s/\n" "$a" "$state" "${AGENT_PORT[$a]}"
     done
     state=not-installed
-    podman container exists portainer 2>/dev/null && state=$(podman ps --filter name=portainer --format '{{.Status}}' 2>/dev/null | head -1)
+    # portainer is a plain `podman run` container, not a quadlet unit. A
+    # non-root `podman container exists` reads the rootless store and cannot
+    # see a rootful container, so fall back to a probe of the published port
+    # (host networking, so it is directly on 9000).
+    if podman container exists portainer 2>/dev/null; then
+        state=$(podman ps --filter name=portainer --format '{{.Status}}' 2>/dev/null | head -1)
+    elif curl -fsS --max-time 2 "http://127.0.0.1:${AGENT_PORT[portainer]}/" >/dev/null 2>&1; then
+        state="running (port ${AGENT_PORT[portainer]})"
+    fi
     [ -n "$state" ] || state=stopped
     printf "%-12s %-15s http://127.0.0.1:%s/\n" portainer "$state" "${AGENT_PORT[portainer]}"
 }
