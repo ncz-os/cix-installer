@@ -586,15 +586,20 @@ The corresponding source for every one of these is published — see
 > heavy (hours, tens of GB of scratch) and needs a native Linux build host per
 > architecture (x86-64 for amd64, aarch64 for arm64).
 >
-> **Honest limitation:** a full image build is **not yet reproducible from
+> **Honest limitation:** a full image build is **not reproducible from
 > public sources alone.** Besides this repository and the public Debian
-> archive, the build consumes pre-staged, gitignored inputs that are pinned by
-> sha256 in [`manifests/build-inputs.tsv`](manifests/build-inputs.tsv) — the
-> CIX vendor packages, the recovery and rescue root filesystems, the wallpaper
-> and screensaver packages, patched libdrm and Chromium builds — plus the
-> kernel build (`assets/kernel/`). These are not yet published as a
-> downloadable bundle; without them the build stops at its input checks. The kernel
-> sources are public (see [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md)).
+> snapshot archive, the build consumes 44 pre-staged, gitignored inputs pinned
+> by sha256 in [`manifests/build-inputs.tsv`](manifests/build-inputs.tsv) (the
+> CIX vendor packages and Sky1 firmware, the recovery and rescue root
+> filesystems, the wallpaper packages, patched libdrm and Chromium builds),
+> the pinned Debian netinst substrate (`manifests/base.pin`; the weekly image
+> it names has since been replaced upstream) and the kernel build
+> (`assets/kernel/`). Only 6 of the 44 inputs can be fetched publicly with the
+> exact pinned bytes: `build/stage-build-inputs.sh --arch <arch> --public`
+> downloads them (CPython 3.11, `uv`, `ncz-screensavers`) and lists the rest as
+> internal-only. Without the others the build stops at its input checks. All
+> GPL source, including both kernels, is public; see
+> [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md) for the per-input table.
 
 **The one entrypoint** runs every stage in a fixed order — preflight, pinned
 substrate, staged inputs, offline apt mirror, provenance checks, squashfs
@@ -934,9 +939,9 @@ library is for, how to route a workload across the four compute engines
 
 | Path | Source | Notes |
 |---|---|---|
-| `assets/cix-debs/` | Staged CIX proprietary and NCZ-built `.deb`s (gitignored), checked against `manifests/vendor-debs.tsv` and `manifests/ncz-packages.tsv` | Also published in the NCZ apt repository (see OTA channel section) |
+| `assets/cix-debs/` | Staged CIX proprietary and NCZ-built `.deb`s (gitignored), checked against `manifests/vendor-debs.tsv` and `manifests/ncz-packages.tsv` | Partly in the public NCZ apt repository (21 of the 37 vendor packages and 5 of the 58 NCZ-built rows have the pinned sha256 there; see docs/SOURCE-RELEASES.md) |
 | `assets/kernel/mainline` → Sky1 kernel | Yocto build of `meta-cix:linux-cix-sky1-ncz` (build r289, `7.3.0-rc7-sky1-ncz`), pinned in `assets/kernel/sky1-manifest.json`; a symlink to a locally staged kernel build — gitignored | the kernel `Image`, the modules tarball and `KVER`, plus a `modules-overlay/$KVER/` subdir for the rebuilt accelerator `.ko`s (see `post-install/80-npu.sh`, `81-vpu.sh`, `82-mali-gpu.sh`). Older dated kernel dirs in `assets/kernel/` are not used by the build. |
-| `assets/kernel/amd64-stable/` → amd64 kernel | `linux-image-7.3.0-rc7-t2-ncz` `7.3.0-rc7-2`, built from `amd64-kernel-t2`, pinned by `KVER` / `PKGVERSION` and `assets/kernel/amd64-stable-manifest.json` | Staged by `build/stage-amd64-kernel.sh`; there is no amd64 edge channel. |
+| `assets/kernel/amd64-stable/` → amd64 kernel | `linux-image-7.3.0-rc7-t2-ncz` `7.3.0-rc7-2`, built from [`linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz), pinned by `KVER` / `PKGVERSION` and `assets/kernel/amd64-stable-manifest.json` | Staged by `build/stage-amd64-kernel.sh`; there is no amd64 edge channel. |
 | `assets/agent-stack/*` | This repo | systemd quadlets for the optional agent runtimes (all opt-in) |
 | `assets/branding/*` | This repo | os-release, motd, wallpapers, rEFInd banner/icons |
 | `preseed/preseed.cfg`, `preseed/late.sh` | This repo | d-i unattended preseed + late_command (pre-chroot, install-time-only) |
@@ -1102,7 +1107,7 @@ a current index.
   reverse.
 - **Kernel source + Yocto recipes** → GitLab
   [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) (Sky1) and
-  [`ncz-os/amd64-kernel-t2`](https://gitlab.com/ncz-os/amd64-kernel-t2)
+  [`ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz)
   (amd64); see [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md).
 
 The NCZ source is GPG-signed (`signed-by`, never `trusted=yes`); the
@@ -1274,8 +1279,8 @@ posture and how to harden it.
 ## Sister projects
 
 - [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
-- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the Sky1 kernel recipes (26.10 Preview 1: `linux-cix-sky1-ncz_7.3-rc7.bb`, build r289) and the CIX userspace recipes this installer consumes. Kernel source is fetched from the public `kernel.org` tree at a pinned commit; every Sky1-specific patch is tracked in this layer. The in-repo [`kernel-source/`](kernel-source/SOURCE.md) drop covers the 7.2 kernel of 26.7 (see [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md)).
-- [`gitlab.com/ncz-os/amd64-kernel-t2`](https://gitlab.com/ncz-os/amd64-kernel-t2) — the amd64 kernel (`7.3.0-rc7-t2-ncz` in Preview 1): mainline v7.3-rc7 plus [`t2linux`](https://github.com/t2linux/linux-t2-patches)'s `linux-t2-patches` series (apple-bce, applesmc, HID, APFS, bcm5974) and our T2 fixes. One kernel serves T2 Macs and generic PCs. T2 firmware wiring lives upstream in [`AdityaGarg8/t2-ubuntu-repo`](https://adityagarg8.github.io/t2-ubuntu-repo/) (the apt source `55-t2-firmware.sh` wires at first boot). NCZ-OS does not vendor a fork of either; we consume the upstream series and ship the staged Debian-built `.deb`s.
+- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the Sky1 kernel recipes (26.10 Preview 1: `linux-cix-sky1-ncz_7.3-rc7.bb`, build r289) and the CIX userspace recipes this installer consumes. Kernel source is fetched from the public `kernel.org` tree at a pinned commit; every Sky1-specific patch is tracked in this layer. The in-repo [`kernel-source/`](kernel-source/SOURCE.md) drop vendors the shipped r289 recipe, patches and as-built config, and [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix) tag `kernel-sky1-7.3.0-rc7-r289-src` holds the complete patched tree (see [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md)).
+- [`gitlab.com/ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz) — corresponding source of the amd64 kernel (`7.3.0-rc7-t2-ncz` in Preview 1, tag `v7.3.0-rc7-t2-ncz-2`): mainline v7.3-rc7 plus [`t2linux`](https://github.com/t2linux/linux-t2-patches)'s `linux-t2-patches` series (apple-bce, applesmc, HID, APFS, bcm5974) and our T2 fixes. One kernel serves T2 Macs and generic PCs. T2 firmware wiring lives upstream in [`AdityaGarg8/t2-ubuntu-repo`](https://adityagarg8.github.io/t2-ubuntu-repo/) (the apt source `55-t2-firmware.sh` wires at first boot). NCZ-OS does not vendor a fork of either; we consume the upstream series and ship the staged Debian-built `.deb`s.
 
 
 ## Releases

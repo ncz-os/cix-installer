@@ -259,14 +259,22 @@ sudo apt install ncz-model-nomic-embed   # 768 维，默认
 `7.3.0-rc7-t2-ncz`（软件包版本 `7.3.0-rc7-2`，锁定于 `assets/kernel/amd64-stable/`）。
 默认、安装程序与救援启动项都使用它；7.2 系列与"前沿版"通道已退役。
 
-对应源码见 [docs/SOURCE-RELEASES.zh-CN.md](docs/SOURCE-RELEASES.zh-CN.md)（以英文版为准）。
-仓库内的 [`kernel-source/`](kernel-source/SOURCE.md) 目前仍对应 26.7 的 7.2 内核。
+对应源码见 [docs/SOURCE-RELEASES.zh-CN.md](docs/SOURCE-RELEASES.zh-CN.md)。Sky1 内核的配方、补丁与
+实际构建所用的 config 已收录于仓库内的 [`kernel-source/`](kernel-source/SOURCE.md)，打完补丁的完整
+源码树为 [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix) 的标签
+`kernel-sky1-7.3.0-rc7-r289-src`；AMD64 内核源码在
+[`ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz)（标签 `v7.3.0-rc7-t2-ncz-2`）。
 
 ## 构建镜像
 
 构建步骤见英文 [README](README.md#quick-start-build-the-installer-image)。简要地说：
 唯一入口是 `build/build-image.sh --arch amd64|arm64 --full --no-publish`；只组装镜像时用
 `make image ARCH=<arm64|amd64>`，结果为 `build/ncz-os-<架构>-<日期>-<sha>.img`。
+
+**如实说明：** 目前无法仅凭公开来源完成完整的镜像构建。`manifests/build-inputs.tsv` 锁定的 44 个
+预置输入中只有 6 个能从公开地址取得完全相同的字节（`build/stage-build-inputs.sh --arch <架构> --public`
+会下载它们，并把其余输入列为仅限内部）；锁定的 Debian netinst 周构建镜像也已被上游替换。
+所有 GPL 源码（包括两个内核）均已公开，详见 [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md)。
 
 ## 上游贡献
 
