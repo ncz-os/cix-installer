@@ -1375,7 +1375,7 @@ meta = {
     "image": img,
     "note": "Build-time metadata ONLY. Not an input to any artifact hash; carries "
             "the wall-clock/timestamp values excluded from the deterministic "
-            "artifacts (docs/IMAGE-BUILD-PROCESS.md).",
+            "artifacts (see the stage list in the header of build/build-image.sh).",
 }
 with open(out, "w") as fh:
     json.dump(meta, fh, indent=2, sort_keys=True)

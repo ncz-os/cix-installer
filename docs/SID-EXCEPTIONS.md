@@ -4,7 +4,7 @@ Pinned snapshot: `20261005T120000Z`.  Ledger rows: **55**.  Generated 2026-10-10
 
 This file is GENERATED (do not hand-edit).  It tracks the reviewed
 installer-substrate sid exceptions and whether forky has caught up yet.
-See docs/FORKY-PROVENANCE.md for the policy.
+The policy is implemented in build/forky-provenance.py and manifests/sid-exceptions.tsv.
 
 | package | arch | substrate ver | forky (pinned) | forky (latest) | recorded forky | class | status | review_by | action |
 |---|---|---|---|---|---|---|---|---|---|

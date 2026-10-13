@@ -21,7 +21,7 @@ image, a release candidate: `7.3.0-rc7-sky1-ncz` (Sky1) and `7.3.0-rc7-t2-ncz`
 (amd64, T2 Macs and generic PCs); the default, installer and rescue boot entries
 all use it. New: the Cygnus theme, a first-login tour, the lock screen over a
 live screensaver, a login screen that matches the lock screen, NCZ Screensavers
-0.8.12 (74 savers) and the T2 MacBookPro16,1 power-off fix. Full notes:
+0.8.12 (74 savers) and a kernel with Apple T2 support. Full notes:
 [releases/26.10-cygnus-preview1.md](releases/26.10-cygnus-preview1.md).
 
 Everything below is the 26.7 and earlier archive.
