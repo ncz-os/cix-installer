@@ -84,17 +84,17 @@ floor**; the benign noise is fixed at its source instead (below).
 
 ## What was fixed in the kernel (companion branch)
 
-The two lines that cannot be fixed from userspace are handled by patches in
-`amd64-kernel-t2` branch `fix/t2-quiet-benign-20261011` (see that repo's
-`docs/T2-QUIET-BENIGN.md`), not by anything in the installer:
+The two lines that cannot be fixed from userspace are handled by kernel
+patches (`9101` and `9102` in the Preview 1 series, see
+[`ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz)), not by
+anything in the installer:
 
 * T2 `Secure Boot Certs` `pr_err` → `pr_info` (`security/integrity/.../load_uefi.c`,
   patch `9101`): taking the T2 cert-skip quirk is the designed path, not a fault.
 * BT BCM4364B3 UART chip → identify LMP subver `0x3032` and, on the Apple-T2 DMI
   set, demote the expected missing-patchram report to info (patch `9102`): the
   controller runs on ROM firmware and Apple's patchram is not redistributable.
-* dpc `-524` spurious-probe line — patch `9013` on
-  `fix/t2-dpc-spurious-probe-20261011`.
+* dpc `-524` spurious-probe line — patch `9013`.
 
 Left untouched, confirmed benign: `SGX disabled` (`pr_err_once`, mainline, also
 on non-T2), the amdgpu `Fence fallback timer` / `CG_TACH` warns (missed-IRQ

@@ -13,7 +13,8 @@ upstream Linux as `arch/x86/kernel/cpu.c`'s Apple T2 patches.
 
 ## Why drop it
 The DKMS module is a byte-for-byte duplicate of in-kernel patch 9001
-(`amd64-kernel-t2` carries it under `9010-cpu-offline-t2-bridge.patch`):
+(the shipped kernel series carries it as `9001-ACPI-x86-Apple-T2-systems-need-early-CPU-offlining.patch`;
+see [`ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz)):
 
 - same notifier priority 1 / callback -1
 - same `106b:1801` PCI gate
