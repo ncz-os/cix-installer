@@ -8,6 +8,7 @@ README.md	common	-	readme
 README.zh-CN.md	common	-	readme
 assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
+build/test-publish-release-gitlab.sh	common	-	mocked-curl regression test for tools/publish-release-gitlab.sh (dry run, sha256 verification, refusals, idempotent re-run, retention, token handling)
 build/test-ncz-cli-basics.sh	common	-	shell-level test for the embedded ncz CLI (parses, help, exit codes, status on non-systemd hosts)
 build/test-ncz-cli-embedder.sh	common	-	embedder/model-pull/status wiring for ncz install mnemos (HuggingFace sha256, SQLite backfill, status labels)
 build/test-ncz-cli-install-zoder.sh	common	-	ncz install zoder guards (arch dispatch, pinned sha256, smoke test, offline diagnostic, public-safe config template)
@@ -80,8 +81,6 @@ assets/sky1-firmware/	sky1	-	gitignored Sky1 firmware blob input
 assets/ssh-udebs/amd64/	amd64	-	amd64 d-i ssh udebs
 assets/ssh-udebs/arm64/	sky1	-	arm64 d-i ssh udebs
 assets/update-manager/	common	-	update manager
-assets/vivaldi/vivaldi-stable_8.1.4087.55-1_amd64.deb	amd64	-	Vivaldi amd64 deb
-assets/vivaldi/vivaldi-stable_8.1.4087.55-1_arm64.deb	sky1	-	Vivaldi arm64 deb
 assets/wallpaper/	common	-	wallpaper tooling
 build/70-bootloader.sh	sky1	-	legacy Sky1 bootloader copy with MS-R1 efi=noruntime gating
 build/arch-parity-allowlist.tsv	common	-	reviewed manifest divergence between platforms (canonical, dual-arch parity)
@@ -117,6 +116,7 @@ build/singularity-pins.sh	common	-	Singularity upstream pin reader: validate, pi
 build/stage-accel-overlays.sh	sky1	-	builds and stages the mali/panthor/vpu/npu overlays for a kernel; fails on compile error or CRC/source mismatch
 build/test-singularity-pins.sh	common	-	offline test for the Singularity upstream pins and their build/preflight wiring
 build/patch-singularity-scenefx.sh	common	-	resolves labwc's SceneFX meson wrap, checks out the pinned revision, applies assets/singularity/scenefx-patches/ (idempotent); fail-closed if a quoted #error survives the patch
+build/test-patch-singularity-scenefx.sh	common	-	local-fixture test of the SceneFX wrap helper: tag or raw-commit revision, wrap diff_files before the NCZ queue, fail-closed cases
 build/refresh-singularity-sources.sh	common	-	`refresh-sources` stage resolver: --sources latest|pinned freezes the singularity upstream pins (+ labwc SceneFX/wlroots wraps) and records every SHA in source-resolution.json; latest is the --full/--rebuild-desktop default
 build/test-singularity-shaders-gate.sh	common	-	both-direction tests for check-singularity-shaders.sh: a quoted #error, a non-ELF, and a shader-less binary all FAIL closed
 build/test-singularity-mali-shaders.sh	common	-	offline regression gate for the Radxa Orion O6N/Mali SceneFX black-screen: asserts check-singularity-shaders.sh fails closed (quoted #error, non-ELF, missing) and the scenefx patch de-quotes only the two #error lines
@@ -342,7 +342,7 @@ post-install/61-chromium-icon.sh	sky1	-	Cygnus-coloured NCZ Chromium icon (diver
 post-install/62-cygnus-screensaver-default.sh	common	-	default screensaver = black hole in the Cygnus palette; override validated against the installed schema before install
 post-install/63-ncz-idle-lock-order.sh	common	-	desktop auto-lock ordered AFTER the ncz screensaver: GSETTINGS default override dev.sinty.lockscreen idle-delay = hack-idle-delay + lock-delay (300+60=360), validated before install (2026-10-11)
 post-install/64-ncz-lock-saver-plan.sh	common	-	NCZ lock renderer: one idle/lock/blank owner -- writes /etc/ncz/lock-renderer.env (SINGULARITY_LOCK_RENDERER=/usr/libexec/ncz-screensaver-feed) ONLY when the patched lock (built with -Dlock_framesrc=enabled) and the feed are installed, exports it via /etc/environment.d, and when the lock hosts the saver holds the session lock from the saver start (dev.sinty.lockscreen idle-delay = dev.ncz.screensaver hack-idle-delay, interim 360 override removed), else the hook-63 fallback stands; validated before install (2026-10-11)
-post-install/64-t2-power-cap.sh	amd64	t2	Apple T2 CPU package power cap (MacBookPro16,x): battery PL1=25 W/PL2=35 W + no-turbo + max_perf=50, AC PL1=45 W/PL2=60 W; helper + intel-rapl:0 udev (boot race) + Mains-change (plug/unplug) + systemd-sleep (resume) + thermald ExecStartPre drop-in; /etc/ncz/power-cap.conf override with a performance opt-out; reversible (post-install/64-t2-power-cap.sh)
+post-install/64-t2-power-cap.sh	amd64	t2	Apple T2 CPU package power cap (MacBookPro16,x): battery PL1=25 W/PL2=35 W + no-turbo + max_perf=50, AC PL1=45 W/PL2=60 W; helper + intel-rapl:0 udev (boot race) + Mains-change (plug/unplug) + systemd-sleep (resume) + thermald ExecStartPre drop-in; /etc/ncz/power-cap.conf override with a performance opt-out; reversible; lock-screen saver thermal cap NCZ_FEED_TEMP_HOT_MC = 100 C, or 2 C under a critical trip at or below 100 C (98 C on MacBookPro16,1) + NCZ_FEED_FPS_WARM=6 in /etc/ncz/lock-renderer.env (post-install/64-t2-power-cap.sh)
 post-install/65-ncz-titlebar-buttons.sh	common	-	minimize, maximize and close on every window by default: system-wide GSettings default overrides org.gnome.desktop.wm.preferences button-layout=appmenu:minimize,maximize,close (every schema dir carrying that schema) and dev.sinty.desktop legacy-titlebar=true; unowned override files, validated before install, recompiled on upgrade by the glib trigger and the payload postinst
 post-install/70-bootloader.sh	mixed	-	rEFInd on both arches via run_refind_arm64 and run_refind_amd64; TODO split into per-platform bodies
 post-install/72-rescue-partition.sh	mixed	-	rescue partition; arm64 stages assets/kernel/mainline, amd64 copies the installed amd64-stable kernel; TODO split
@@ -406,6 +406,7 @@ tools/	common	-	dev tools
 tools/kvm-smoke.sh	sky1	-	aarch64 KVM kernel smoke test on the MS-R1
 tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
 tools/ncz-join-image.sh	common	-	join, unpack and verify the split release image parts (never writes to a disk)
+tools/publish-release-gitlab.sh	common	-	upload a staged release (parts, checksums, join script) to the GitLab generic package registry with sha256 verification and link the files from the GitLab release; --dry-run, --prune-old
 tools/verify-drivers.sh	mixed	-	driver fidelity check: installed-kernel check on both arches (KVER_NEXT sidecar, else repository kernel pins), Sky1 NPU/GPU/VPU/WiFi/BT/audio checks on arm64
 build/test-sky1-audio-policy.sh	sky1	-	Sky1 audio default-sink policy fixture tests
 build/testdata/sky1-audio/	sky1	-	fake pactl/aplay/pw-dump/amixer for the Sky1 audio autoswitch daemon-loop tests
@@ -455,6 +456,8 @@ build/test-screensavers-mandatory-install-builders.sh	common	-	sections 3-7 of t
 build/verify-installed-target-screensavers.sh	common	-	section (vi) of verify-installed-target.sh: dpkg status, version floor, engine, catalogue (sourced; sets SS_STATUS)
 build/verify-installed-target-screensavers-default.sh	common	-	section (vi) continuation: schema default, Cygnus override, idle timer, gtk4-reference ban, plugin files when installed
 build/test-singularity-deb-depends.sh	common	-	hermetic fail-before/pass-after test for the derived Singularity deb Depends
+build/singularity-depends-floors.tsv	common	-	per-architecture version floors build-singularity-deb.sh applies to the derived Singularity deb Depends (arm64 libgtk4-layer-shell0)
+build/test-singularity-depends-floors.sh	common	-	hermetic test: Depends floors applied per architecture, kept when higher, added when absent; other relations refused
 build/test-singularity-deb-version.sh	common	-	hermetic fail-before/pass-after test that the Singularity deb version is monotonic (UTC timestamp before bk/hash)
 build/test-singularity-supervisor-forensics.sh	common	-	singularity supervisor per-run logs, signal names and core-limit regression
 build/test-sibling-mirror-apt-opts.sh	common	-	hermetic fixture test that sibling rootfs scripts put snapshot apt options on every sources.list line
@@ -495,6 +498,7 @@ build/lib/deb-version-gate.sh	common	-	version discipline: refuses a rebuilt .de
 build/build-ncz-apt-policy-deb.sh	common	-	builds the ncz-apt-policy package that delivers the apt separation pins to already-installed systems
 build/test-apt-separation.sh	common	-	real apt resolution against throwaway Debian/NCZ/T2 repos, old behaviour vs new, plus the single-source writer and ncz-apt-source helper
 build/test-ncz-repo-policy.sh	common	-	behavioural tests for the repo-content gate, installed-config audit, version gate, publisher policy and update classification
+build/test-reprepro-publish-pool-arch.sh	common	-	end-to-end tests of the apt publisher against a mocked reprepro and registry: uploads exactly the piped deb (arm64 next to an older all build) and fails unless the index serves it
 build/testdata/apt-separation/	common	-	recorded a MacBookPro16,1 r200 apt list/policy output and the r200 Buildkite amd64 package names used by test-ncz-repo-policy.sh
 build/ship-apt-gate.sh	common	-	ship-image.sh apt live-repo gate: always fail mode, ignores NCZ_APT_LIVE_GATE, unreachable index fails, loud explicit override only
 build/test-desktop-mirror-local-debs.sh	common	-	verify-desktop-mirror-seeds.sh must fail a desktop mirror that lacks, or carries an older/different build of, an NCZ_LOCAL_DEBS package (incl. the ncz-apt-policy pin)

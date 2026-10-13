@@ -612,7 +612,7 @@ VENDOR_DEB_ROWS = [
         "required": "no", "version_floor": "",
         "installed_by": "post-install/52-vivaldi.sh (dpkg -i staged .deb)",
         "verified_by": "build/verify-installed-target.sh",
-        "provenance": "assets/vivaldi/ (vendor .debs, archived); post-install/52-vivaldi.sh",
+        "provenance": "assets/vivaldi/ (vendor .debs, staged by build/stage-build-inputs.sh, pinned in manifests/build-inputs.tsv); post-install/52-vivaldi.sh",
         "notes": "Default browser (x-www-browser + xdg mime). Skipped on server/headless variants.",
     },
     {
@@ -809,7 +809,7 @@ def main(argv=None):
                 "arch": arch,
                 "variant": variant,
                 "required": required,
-                "version_floor": ss_floor if pkg == "ncz-screensavers" else ("1.0.2" if pkg == "ncz-apt-policy" else ""),
+                "version_floor": ss_floor if pkg == "ncz-screensavers" else ("1.0.3" if pkg == "ncz-apt-policy" else ""),
                 "installed_by": "manifest",
                 "verified_by": verified_by,
                 "provenance": f"manifests/{fname}" + ("; NCZ apt repo" if kind == "ncz-apt" else ""),

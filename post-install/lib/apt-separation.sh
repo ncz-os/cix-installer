@@ -79,6 +79,11 @@ ncz_apt_debian_overrides() {
     for n in libdrm-dev libdrm-freedreno1 libdrm-etnaviv1 libdrm-tegra0; do
         printf '%s\t%s\t%s\n' "$n" arm64 "$why"
     done
+    # arm64 only: the Mali EGL driver attaches a NULL buffer in eglDestroySurface(), which
+    # unmaps a live layer surface; Debian's build disconnects the desktop on Sky1. The patched
+    # build must also reach systems installed before it existed, through `apt upgrade`.
+    printf '%s\t%s\t%s\n' libgtk4-layer-shell0 arm64 \
+        'gtk4-layer-shell 1.3.0 + patches 0001-0002 (packaging/gtk4-layer-shell/make-deb.sh; 1.3.0-1+ncz20261013)'
 }
 
 # Known-bad builds that leaked into the NCZ repo and must never be offered or

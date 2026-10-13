@@ -17,6 +17,8 @@ bug in this document — please open an issue.
 Release images are hosted as release assets on the GitHub mirror
 (`github.com/ncz-os/cix-installer/releases`), and the documentation points
 there for downloads.
+The latest release is also available from the GitLab release of the same
+tag; see [IMAGE-HOSTING.md](IMAGE-HOSTING.md).
 
 ---
 
