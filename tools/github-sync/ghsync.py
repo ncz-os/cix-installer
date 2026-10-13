@@ -151,7 +151,8 @@ def load_strip_ids(path):
 
 def load_literals(path):
     """filter-repo replace-text format: 'literal==>replacement' or bare literal.
-    regex:/glob: lines are not supported here (the checker must model them)."""
+    regex:/glob: lines are not supported here (the checker must model them).
+    Returns a list of (bytes, bytes) pairs: the file is read in binary mode."""
     lits = []
     if not path:
         return lits
@@ -290,7 +291,8 @@ def apply_literals(data, lits):
 
 
 class BlobCache:
-    """Per-repo verdict cache: blob sha -> 'c' clean | 'r' replaced:<newsha> | 'b' binary hit."""
+    """Per-repo verdict cache: blob sha -> 'c' clean | 'r' replaced:<newsha> | 'b' binary hit.
+    lits is the load_literals() list: (bytes, bytes) pairs."""
 
     def __init__(self, path, lits):
         self.path = path
@@ -787,6 +789,10 @@ def chunk_steps(gitdir, ref, new, known, budget):
                 best, a = m, m + 1
             else:
                 b = m - 1
+        if best == lo and disk_usage(gitdir, fp[best], have) > budget:
+            # one first-parent step (a merge with its side history) cannot be
+            # split further; it is pushed as is and may hit the remote limit
+            log(f"  warn: {ref} step {fp[best][:12]} alone exceeds the push budget")
         steps.append(fp[best])
         have = have + [fp[best]]
         lo = best + 1
