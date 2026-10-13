@@ -57,5 +57,15 @@ echo '{"host":"h2","mode":"live","summary":{"pass":3,"fail":0,"skip":0}}' > "$RO
 [ -s "$RO/matrix.json" ] && have "$RO/matrix.json" '"T3":"FAIL"' && ok "matrix.json per-host" || bad "matrix.json per-host"
 rm -rf "$RO"
 
+echo "== greetd login retries a busy greeter =="
+GT="$(mktemp -d)"; GS="$GT/greetd.sock"
+python3 "$HERE/agent/lib/fake_greetd.py" "$GS" 2 rightpw & FG=$!
+for _i in 1 2 3 4 5 6 7 8 9 10; do [ -S "$GS" ] && break; sleep 0.2; done
+out=$(printf 'rightpw\n' | GREETD_SOCK="$GS" python3 "$HERE/agent/lib/greetd_login.py" rigtest 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q "session started" && ok "busy greeter: login succeeds after cancel+retry" || bad "busy greeter: rc=$rc out=$out"
+out=$(printf 'wrongpw\n' | GREETD_SOCK="$GS" python3 "$HERE/agent/lib/greetd_login.py" rigtest 2>&1); rc=$?
+[ "$rc" = 1 ] && echo "$out" | grep -q "login failed" && ok "wrong secret still fails (no retry on auth error)" || bad "wrong secret: rc=$rc out=$out"
+kill "$FG" 2>/dev/null; wait "$FG" 2>/dev/null; rm -rf "$GT"
+
 echo "== LOCKRIG SUMMARY pass=$PASS fail=$FAIL =="
 [ "$FAIL" = 0 ]
