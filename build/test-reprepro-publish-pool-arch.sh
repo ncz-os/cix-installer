@@ -73,7 +73,8 @@ case "$1" in
             [ -z "$A" ] || [ "$A" = "$a" ] || continue
             awk -F'\t' -v a="$a" -v n="$n" '$1 == a && $2 == n' "$DB" | while IFS=$'\t' read -r ar pn v f; do
                 o="$FMT"; o="${o//\$\{\$architecture\}/$ar}"; o="${o//\$\{package\}/$pn}"
-                o="${o//\$\{version\}/$v}"; o="${o//\$\{Filename\}/$f}"; printf "$o"
+                o="${o//\$\{version\}/$v}"; o="${o//\$\{Filename\}/$f}"
+                o="${o//\\t/$'\t'}"; o="${o//\\n/$'\n'}"; printf '%s' "$o"
             done
         done ;;
     export) export_indexes ;;
