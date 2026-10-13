@@ -135,8 +135,8 @@ check "run-all: the milestone rows appear in hook order" \
            c=$(grep -n "Boot splash" "$1" | head -1 | cut -d: -f1); \
            [ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ]' _ "$RT"
 check "run-all: milestone rows are INFO (never FAIL/WARN from a hook)" \
-    sh -c 'awk -F"|" "\$3==\"INFO\" && (\$10 ~ /Desktop: installing/ || \$10 ~ /Wallpapers: installing/ || \$10 ~ /Boot splash/)" "$1" | grep -q . && \
-           ! awk -F"|" "\$3==\"FAIL\"" "$1" | grep -q .' _ "$RT"
+    sh -c 'awk -F"|" "\$3==\"INFO\" && (\$10 ~ /Desktop: installing/ || \$10 ~ /Wallpapers: installing/ || \$10 ~ /Boot splash/)" "$1" | grep >/dev/null . && \
+           ! awk -F"|" "\$3==\"FAIL\"" "$1" | grep >/dev/null .' _ "$RT"
 
 echo
 echo "test-install-feedback: $PASS passed, $FAILS failed"

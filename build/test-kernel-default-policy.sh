@@ -184,7 +184,7 @@ JSON
 : > "$r/release.conf"; echo "NCZ_TARGET_ARCH=arm64" >> "$r/release.conf"
 pin "$r"
 out=$(SKIP_RESCUE_CHECK=1 "$VERIFIER" --root "$r" --arch arm64 2>&1); got=$?
-if [ "$got" = 0 ] && printf '%s' "$out" | grep -q "using it (build farm uses the pool-mounted symlink)"; then
+if [ "$got" = 0 ] && printf '%s' "$out" | grep >/dev/null "using it (build farm uses the pool-mounted symlink)"; then
     printf '  PASS  arm64: offline fallback finds local sibling tree\n'; PASS=$((PASS+1))
 else
     printf '  FAIL  arm64: offline fallback (exit=%d)\n%s\n' "$got" "$out"; FAIL=$((FAIL+1))
@@ -195,8 +195,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 rescue_check() {
     local out
     out="$("$VERIFIER" --root "$REPO_ROOT" --arch "$1" 2>&1 || true)"
-    if printf '%s\n' "$out" | grep -q 'rescue preservation: both arches keep' \
-        && ! printf '%s\n' "$out" | grep -q 'FAIL: rescue preservation'; then
+    if printf '%s\n' "$out" | grep >/dev/null 'rescue preservation: both arches keep' \
+        && ! printf '%s\n' "$out" | grep >/dev/null 'FAIL: rescue preservation'; then
         printf '  PASS  %s: real repo preserves the rescue markers\n' "$1"; PASS=$((PASS+1))
     else
         printf '  FAIL  %s: real repo lost its rescue-preservation markers\n' "$1"; FAIL=$((FAIL+1))

@@ -53,14 +53,14 @@ extract_unit() {
 #     (default.target stays active across a logout, so its Wants never re-fire).
 has_relogin_anchor() {
     local body="$1"
-    printf '%s\n' "$body" | grep -qE '^[[:space:]]*WantedBy=.*singularity-session\.target' || return 1
-    printf '%s\n' "$body" | grep -qE '^[[:space:]]*WantedBy=[[:space:]]*default\.target[[:space:]]*$' && return 1
+    printf '%s\n' "$body" | grep >/dev/null -E '^[[:space:]]*WantedBy=.*singularity-session\.target' || return 1
+    printf '%s\n' "$body" | grep >/dev/null -E '^[[:space:]]*WantedBy=[[:space:]]*default\.target[[:space:]]*$' && return 1
     return 0
 }
 
 # Stops-on-logout: PartOf= the per-login target so the logout stop propagates.
 has_logout_stop() {
-    printf '%s\n' "$1" | grep -qE '^[[:space:]]*PartOf=.*singularity-session\.target'
+    printf '%s\n' "$1" | grep >/dev/null -E '^[[:space:]]*PartOf=.*singularity-session\.target'
 }
 
 # systemd-analyze verify, tolerating the one expected diagnostic for a unit
@@ -95,7 +95,7 @@ else
             "$(printf '%s\n' "$UNIT" | grep -nE 'WantedBy=|PartOf=')"
     fi
 
-    if printf '%s\n' "$UNIT" | grep -qE '^[[:space:]]*WantedBy=.*graphical-session\.target'; then
+    if printf '%s\n' "$UNIT" | grep >/dev/null -E '^[[:space:]]*WantedBy=.*graphical-session\.target'; then
         ok "unit also WantedBy=graphical-session.target (other compositors)"
     else
         bad "unit also WantedBy=graphical-session.target (other compositors)"
@@ -108,14 +108,14 @@ else
             "$(printf '%s\n' "$UNIT" | grep -nE 'PartOf=')"
     fi
 
-    if printf '%s\n' "$UNIT" | grep -qE '^[[:space:]]*WantedBy=[[:space:]]*default\.target[[:space:]]*$'; then
+    if printf '%s\n' "$UNIT" | grep >/dev/null -E '^[[:space:]]*WantedBy=[[:space:]]*default\.target[[:space:]]*$'; then
         bad "unit does not rely on WantedBy=default.target" \
             "$(printf '%s\n' "$UNIT" | grep -nE 'WantedBy=')"
     else
         ok "unit does not rely on WantedBy=default.target"
     fi
 
-    if printf '%s\n' "$UNIT" | grep -qE '^[[:space:]]*ExecStartPre[[:space:]]*='; then
+    if printf '%s\n' "$UNIT" | grep >/dev/null -E '^[[:space:]]*ExecStartPre[[:space:]]*='; then
         bad "unit has no ExecStartPre (no login-time polling)"
     else
         ok "unit has no ExecStartPre (no login-time polling)"

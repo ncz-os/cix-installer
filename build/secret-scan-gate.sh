@@ -100,7 +100,7 @@ scan_tree() {    # <dir> <label>
     [ -d "$d" ] || return 0
     local found
     found=$(sudo -n grep -rlE "$PATTERNS" "$d" 2>/dev/null | while read -r _f; do
-        LC_ALL=C grep -aoE "$PATTERNS" "$_f" 2>/dev/null | grep -qavE "$ALLOW" && echo "$_f"
+        LC_ALL=C grep -aoE "$PATTERNS" "$_f" 2>/dev/null | grep >/dev/null -avE "$ALLOW" && echo "$_f"
     done | head -5)
     if [ -n "$found" ]; then
         hit "$label — files: $(echo "$found" | tr '\n' ' ')"

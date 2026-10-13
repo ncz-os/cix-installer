@@ -59,7 +59,7 @@ TRIPLET="$(dpkg-architecture -qDEB_HOST_MULTIARCH)"
 SYS_ELF=""
 for cand in /usr/bin/dpkg-deb /usr/bin/ls /usr/bin/tar; do
     [ -x "$cand" ] || continue
-    if readelf -d "$cand" 2>/dev/null | grep '(NEEDED)' | grep -vq 'libc\.so'; then
+    if readelf -d "$cand" 2>/dev/null | grep '(NEEDED)' | grep >/dev/null -v 'libc\.so'; then
         SYS_ELF="$cand"; break
     fi
 done
@@ -109,13 +109,13 @@ DEP_BARE="$(bare_list "$DEPENDS")"
 
 # 1. every expected package present, no private lib leak
 miss=()
-for p in "${expected[@]}"; do printf '%s\n' "$DEP_BARE" | grep -qxF "$p" || miss+=("$p"); done
+for p in "${expected[@]}"; do printf '%s\n' "$DEP_BARE" | grep >/dev/null -xF "$p" || miss+=("$p"); done
 if [ "${#miss[@]}" -eq 0 ]; then
     pass "Depends covers all ${#expected[@]} expected packages (${SYS_ELF##*/} closure + runtime extras)"
 else
     fail "Depends is missing: ${miss[*]} (Depends: $DEPENDS)"
 fi
-if printf '%s\n' "$DEPENDS" | grep -q 'ncz-fixture\|ncz-singularity-desktop'; then
+if printf '%s\n' "$DEPENDS" | grep >/dev/null 'ncz-fixture\|ncz-singularity-desktop'; then
     fail "payload-private library or self leaked into Depends: $DEPENDS"
 else
     pass "no payload-private library or self-dependency in Depends"

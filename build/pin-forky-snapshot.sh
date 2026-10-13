@@ -99,7 +99,7 @@ NEWEST="$(curl -sf "https://snapshot.debian.org/archive/debian/?year=${YEAR}&mon
 
 echo "[pin] newest available: $NEWEST -- verifying it serves suite '$NCZ_BASE_CODENAME'..."
 if ! curl -sfI "https://snapshot.debian.org/archive/debian/${NEWEST}/dists/${NCZ_BASE_CODENAME}/Release" \
-        -o /dev/null -w '%{http_code}' | grep -qE '^(200|302)$'; then
+        -o /dev/null -w '%{http_code}' | grep >/dev/null -E '^(200|302)$'; then
     echo "[pin] ERROR: $NEWEST does not serve dists/$NCZ_BASE_CODENAME/Release -- refusing to pin a broken snapshot" >&2
     exit 1
 fi

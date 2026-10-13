@@ -51,7 +51,7 @@ mkdeb() {
 expect() {
     local label="$1" want_rc="$2" pat="$3" root="$4" out rc=0
     out=$(python3 "$GATE" --root "$root" --driver panthor 2>&1) || rc=$?
-    if [ "$rc" = "$want_rc" ] && printf '%s\n' "$out" | grep -Eq "$pat"; then
+    if [ "$rc" = "$want_rc" ] && printf '%s\n' "$out" | grep >/dev/null -E "$pat"; then
         echo "PASS: $label"
         PASS=$((PASS + 1))
     else
@@ -106,7 +106,7 @@ expect_ovl() {
     else
         out=$(python3 "$GATE" --root "$root" --driver panthor --overlays 2>&1) || rc=$?
     fi
-    if [ "$rc" = "$want_rc" ] && printf '%s\n' "$out" | grep -Eq "$pat"; then
+    if [ "$rc" = "$want_rc" ] && printf '%s\n' "$out" | grep >/dev/null -E "$pat"; then
         echo "PASS: $label"
         PASS=$((PASS + 1))
     else

@@ -242,7 +242,7 @@ prov() { "${PROV[@]}" "$@"; }
 # =============================================================================================
 echo "=== 1. check-no-ubuntu.sh (offline, Ubuntu evidence only) ==="
 expect_rc "Ubuntu-maintained fonts-liberation 1:2.1.5-3build1 FAILS" 1 bash "$NOUB" --debs "$T/ubuntu-pool"
-echo "$LAST" | grep -q 'Ubuntu-built' && ok "  reason names the Ubuntu build" || bad "reason missing" "$LAST"
+echo "$LAST" | grep >/dev/null 'Ubuntu-built' && ok "  reason names the Ubuntu build" || bad "reason missing" "$LAST"
 expect_rc "Debian fonts-liberation 1:2.1.5-3 passes" 0 bash "$NOUB" --debs "$T/debian-pool"
 expect_rc "NCZ debs pass" 0 bash "$NOUB" --debs "$T/ncz-pool"
 expect_rc "@ubuntu.com Debian maintainer is only a WARN offline" 0 bash "$NOUB" --debs "$T/tpm-pool"
@@ -259,7 +259,7 @@ mkbin "$T/bin-debian" assets/kernel/x/7.3.0-rc7-sky1-ncz/x.ko 'GCC: (Debian 14.2
 mkdir -p "$T/bin-text/assets/docs"; printf 'built on (Ubuntu 1:1.36.1-6ubuntu3.1)\n' > "$T/bin-text/assets/docs/notes.txt"
 for c in ubuntu gcc note; do
     expect_rc "Ubuntu-built ELF in assets ($c) FAILS" 1 env NCZ_NO_UBUNTU_ROOT="$T/bin-$c" bash "$NOUB" --debs "$T/debian-pool"
-    echo "$LAST" | grep -q '\[BIN\].*Ubuntu-built ELF' && ok "  reason is [BIN] Ubuntu-built ELF" || bad "[BIN] reason missing" "$LAST"
+    echo "$LAST" | grep >/dev/null '\[BIN\].*Ubuntu-built ELF' && ok "  reason is [BIN] Ubuntu-built ELF" || bad "[BIN] reason missing" "$LAST"
 done
 expect_rc "Debian-built ELF binaries in assets pass" 0 env NCZ_NO_UBUNTU_ROOT="$T/bin-debian" bash "$NOUB" --debs "$T/debian-pool"
 expect_rc "a non-ELF file naming Ubuntu is not a BIN finding" 0 env NCZ_NO_UBUNTU_ROOT="$T/bin-text" bash "$NOUB" --debs "$T/debian-pool"
@@ -267,7 +267,7 @@ expect_rc "a non-ELF file naming Ubuntu is not a BIN finding" 0 env NCZ_NO_UBUNT
 echo "=== 2. full gate: verified index (happy paths) ==="
 expect_rc "fonts-liberation 1:2.1.5-3build1 (Ubuntu maintainer) FAILS" 1 prov --debs "$T/ubuntu-pool"
 expect_rc "fonts-liberation 1:2.1.5-3build1 Debian-looking maintainer FAILS (not in snapshot)" 1 prov --debs "$T/ubuntu-ver-pool"
-echo "$LAST" | grep -q 'ubuntu' && ok "  failure names Ubuntu" || bad "no Ubuntu mention" "$LAST"
+echo "$LAST" | grep >/dev/null 'ubuntu' && ok "  failure names Ubuntu" || bad "no Ubuntu mention" "$LAST"
 expect_rc "fonts-liberation 1:2.1.5-3 byte-identical to the snapshot passes" 0 prov --debs "$T/debian-pool"
 expect_rc "reviewed NCZ ledger entries pass" 0 prov --debs "$T/ncz-pool"
 expect_rc "@ubuntu.com maintainer passes when byte-identical to the snapshot" 0 prov --debs "$T/tpm-pool"
@@ -279,7 +279,7 @@ expect_rc "no --index-dir => fails closed (rc 2)" 2 python3 -I "$T/repo/build/fo
 
 echo "=== 2b. name/prefix is NOT proof of NCZ (regression) ==="
 expect_rc "cix-* / ncz-* named debs with no ledger entry FAIL" 1 prov --debs "$T/nameonly-pool"
-echo "$LAST" | grep -q 'unknown origin' && ok "  failure says unknown origin (not NCZ)" || bad "wrong reason" "$LAST"
+echo "$LAST" | grep >/dev/null 'unknown origin' && ok "  failure says unknown origin (not NCZ)" || bad "wrong reason" "$LAST"
 expect_rc "a '+ncz' version with no ledger entry FAILS" 1 prov --debs "$T/plusncz-pool"
 # schema: the reviewed NCZ ledger must carry a non-empty source revision (col 6),
 # regardless of a non-empty free-text note (col 7).
@@ -410,12 +410,12 @@ cp -a "$T/repo" "$T/repo-noledger"
 printf '# empty ledger -- no rows\n' > "$T/repo-noledger/manifests/sid-exceptions.tsv"
 expect_rc "sid d-i udeb NOT in the ledger FAILS (no blanket grant)" 1 \
   python3 -I "$T/repo-noledger/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
-echo "$LAST" | grep -q 'no blanket sid grant' && ok "  failure says no blanket sid grant" || bad "wrong reason" "$LAST"
+echo "$LAST" | grep >/dev/null 'no blanket sid grant' && ok "  failure says no blanket sid grant" || bad "wrong reason" "$LAST"
 # A runtime (non-d-i) package is NEVER authorized from the di_suite: only the
 # suite's main/debian-installer indexes are requested, its binary-* indexes are
 # not (code-level assertion), so a runtime deb fails closed.
 expect_rc "sid RUNTIME package (not d-i) FAILS (narrow allowance)" 1 prov --debs "$T/sid-rt-pool"
-echo "$LAST" | grep -q 'unknown origin' && ok "  failure says unknown origin (sid runtime not authorized)" || bad "wrong reason" "$LAST"
+echo "$LAST" | grep >/dev/null 'unknown origin' && ok "  failure says unknown origin (sid runtime not authorized)" || bad "wrong reason" "$LAST"
 cat > "$T/index_need_probe.py" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("fp", sys.argv[1])
@@ -447,7 +447,7 @@ printf 'fonts-liberation\t1:2.1.5-3\tall\t%s\tB\t1:2.1.5-3\trevision\tgraduated 
   >> "$T/repo-graduated/manifests/sid-exceptions.tsv"
 expect_rc "GRADUATED ledger row (forky now provides it) FAILS (use forky)" 1 \
   python3 -I "$T/repo-graduated/build/forky-provenance.py" --index-dir "$IDX" --debs "$T/sid-di-pool"
-echo "$LAST" | grep -q 'GRADUATED' && ok "  failure says GRADUATED (use forky)" || bad "wrong reason" "$LAST"
+echo "$LAST" | grep >/dev/null 'GRADUATED' && ok "  failure says GRADUATED (use forky)" || bad "wrong reason" "$LAST"
 # A ledger row pinned to a different snapshot must be regenerated on re-pin.
 cp -a "$T/repo" "$T/repo-wrongsnap"
 python3 - "$T/repo-wrongsnap/manifests/sid-exceptions.tsv" <<'PY'
@@ -808,10 +808,10 @@ expect_rc "initrd: concatenated newc/gz/xz/zst scanned; escapes/unknown/CRC/Ubun
   python3 -I "$T/initrd_probe.py" "$T/repo/build/forky-provenance.py" "$IDX" "$IRD" \
   initrd=0 nc.gz=0 nc.xz=0 nc.zst=0 concat=0 mixed=0 crc=0 \
   escape=1 abs=1 symlink=0 symrel_escape=1 symrel_inside=0 unknown.bin=1 crc_bad=1 ubuntu=1
-echo "$LAST" | grep -q MISMATCH && bad "initrd fixture mismatch" "$LAST" || ok "  initrd fixtures all matched expectation"
-echo "$LAST" | grep -q 'symlink=0' && ok "  absolute symlink target allowed (bug b)" || true
-echo "$LAST" | grep -q 'symrel_escape=1' && ok "  relative escaping symlink still FAILS (bug b)" || true
-echo "$LAST" | grep -q 'abs=1' && ok "  absolute MEMBER path still FAILS (bug b)" || true
+echo "$LAST" | grep >/dev/null MISMATCH && bad "initrd fixture mismatch" "$LAST" || ok "  initrd fixtures all matched expectation"
+echo "$LAST" | grep >/dev/null 'symlink=0' && ok "  absolute symlink target allowed (bug b)" || true
+echo "$LAST" | grep >/dev/null 'symrel_escape=1' && ok "  relative escaping symlink still FAILS (bug b)" || true
+echo "$LAST" | grep >/dev/null 'abs=1' && ok "  absolute MEMBER path still FAILS (bug b)" || true
 
 
 echo "=== 4c2. cpio trailer completeness + hard links (GNU-produced) ==="
@@ -962,7 +962,7 @@ PY
 expect_rc "rootfs tar.zst: abs symlink OK; abs-member/..-member/rel-escape/write-through FAIL" 0 \
   python3 -I "$T/tar_probe.py" "$T/repo/build/forky-provenance.py" "$TARD" \
   good=0 abs=1 dd=1 symesc=1 wt=1
-echo "$LAST" | grep -q MISMATCH && bad "tar fixture mismatch" "$LAST" || ok "  tar fixtures all matched expectation"
+echo "$LAST" | grep >/dev/null MISMATCH && bad "tar fixture mismatch" "$LAST" || ok "  tar fixtures all matched expectation"
 
 echo "=== 4d. real subset offline mirror (build-forky-mirror style) ==="
 MDIR="$T/candmir"; rm -rf "$MDIR"; mkdir -p "$MDIR/dists/forky/main/binary-amd64" "$MDIR/pool/main/f/fonts-liberation"
@@ -1078,7 +1078,7 @@ PY
     build_root "$T/imgroot"; mkimg "$T/imgroot" "$T/tiny.img"
     expect_rc "real GPT image with authorized file:///cdrom + flat media passes --image" 0 \
       "${PROV[@]}" --image "$T/tiny.img" --work "$T/imgwork"
-    echo "$LAST" | grep -q "packages checked" && ok "  image scan reported counts" || bad "no image scan summary" "$LAST"
+    echo "$LAST" | grep >/dev/null "packages checked" && ok "  image scan reported counts" || bad "no image scan summary" "$LAST"
 
     # the image receipt (ncz_timestamped_debs) is read and validated fail-closed
     printf '{"ncz_timestamped_debs":[{"name":"x","version":"1","arch":"all","sha256":"NOTHEX"}]}' \
@@ -1120,7 +1120,7 @@ PY
     mkimg "$T/imgunscanned" "$T/unscanned.img"
     expect_rc "unscanned /cdrom child source FAILS closed (exact-path binding)" 1 \
       "${PROV[@]}" --image "$T/unscanned.img" --work "$T/imgwork"
-    echo "$LAST" | grep -q 'unknown offline source root' && ok "  reason: unknown offline root" || bad "wrong reason" "$LAST"
+    echo "$LAST" | grep >/dev/null 'unknown offline source root' && ok "  reason: unknown offline root" || bad "wrong reason" "$LAST"
 
     # leak test: binding must be restored per image, so the SAME ref scanning a
     # standalone rootfs with file:///cdrom afterwards must still fail.
@@ -1158,7 +1158,7 @@ export NCZ_NO_UBUNTU_ROOT="$T/srcrepo"
 expect_rc "comment-only mention passes" 0 bash "$T/srcrepo/build/check-no-ubuntu.sh" --debs "$T/debian-pool"
 echo 'MIRROR="${5:-http://ports.ubuntu.com/ubuntu-ports}"' > "$T/srcrepo/build/bad.sh"
 expect_rc "Ubuntu ports mirror default FAILS" 1 bash "$T/srcrepo/build/check-no-ubuntu.sh" --debs "$T/debian-pool"
-echo "$LAST" | grep -q 'bad.sh' && ok "  finding names the file" || bad "file not named" "$LAST"
+echo "$LAST" | grep >/dev/null 'bad.sh' && ok "  finding names the file" || bad "file not named" "$LAST"
 echo 'SUITE="${3:-resolute}"' > "$T/srcrepo/build/bad.sh"
 expect_rc "'resolute' default suite FAILS" 1 bash "$T/srcrepo/build/check-no-ubuntu.sh" --debs "$T/debian-pool"
 printf 'FROM ubuntu:26.04\n' > "$T/srcrepo/build/bad.sh"
@@ -1192,7 +1192,7 @@ expect_rc "trust metadata pin matches release.conf" 0 bash -c '
   [ "$(sed -n "s/^snapshot\t//p" "'"$ROOT"'/manifests/forky-snapshot.tsv")" = "$(sed -n "s/^NCZ_BASE_MIRROR_SNAPSHOT=\"\{0,1\}\([0-9TZ]*\)\"\{0,1\}.*/\1/p" "'"$ROOT"'/release.conf")" ]'
 expect_rc "production keyring verifies the real pinned InRelease" 0 \
   gpgv --status-fd 1 --keyring "$ROOT/manifests/keys/debian-archive-keyring.gpg" "$ROOT/build/testdata/forky-snapshot/InRelease"
-echo "$LAST" | grep -q 'VALIDSIG' && ok "  gpgv emitted machine-readable VALIDSIG" || bad "no VALIDSIG" "$LAST"
+echo "$LAST" | grep >/dev/null 'VALIDSIG' && ok "  gpgv emitted machine-readable VALIDSIG" || bad "no VALIDSIG" "$LAST"
 expect_rc "pinned InRelease sha256+size match trust metadata" 0 bash -c '
   f="'"$ROOT"'/build/testdata/forky-snapshot/InRelease"
   [ "$(sha256sum "$f" | cut -d" " -f1)" = "$(sed -n "s/^inrelease_sha256\t//p" "'"$ROOT"'/manifests/forky-snapshot.tsv")" ] &&

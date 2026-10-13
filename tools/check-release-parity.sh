@@ -93,7 +93,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$EXPECT_PRE" in ''|yes|no) ;; *) udie "--expect-prerelease takes yes or no" ;; esac
-printf '%s' "$GH_REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || udie "invalid --github-repo: $GH_REPO"
+printf '%s' "$GH_REPO" | grep >/dev/null -E '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || udie "invalid --github-repo: $GH_REPO"
 [ -z "$RDIR" ] || [ -d "$RDIR" ] || udie "not a folder: $RDIR"
 for t in jq curl python3; do command -v "$t" >/dev/null 2>&1 || udie "$t is required"; done
 [ -n "$REPO_ROOT" ] || REPO_ROOT=$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || (cd "$HERE/.." && pwd))
@@ -251,7 +251,7 @@ for a in "${RF_ARCHES[@]}"; do
   fi
 done
 [ "${#ARCHES_ON[@]}" -gt 0 ] || diff_ "no image parts on the GitHub page"
-for f in "${RF_COMMON_FILES[@]}"; do grep -qxF "$f" "$W/gh-names" || grep -qxF "$f" "$W/gl-names" || diff_ "$f is on neither release page"; done
+for f in "${RF_COMMON_FILES[@]}"; do grep -qxF "$f" "$W/gh-names" || grep >/dev/null -xF "$f" "$W/gl-names" || diff_ "$f is on neither release page"; done
 while IFS= read -r n; do
   case "$n" in ncz-os-amd64-*.img.zst.part-*|ncz-os-arm64-*.img.zst.part-*|PARTS-amd64.sha256|PARTS-arm64.sha256|SHA256SUMS-amd64|SHA256SUMS-arm64|ncz-join-image.sh|SHA256SUMS|NOTES.md) ;;
     *) diff_ "unexpected file on a release page: $n (not part of the release layout)" ;;

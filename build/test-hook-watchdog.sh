@@ -67,7 +67,7 @@ rc=$?
 t0=$(date +%s)
 out=$(NCZ_BOUNDED_STREAM=1 ncz_bounded_run 2 "t" "$W/b4.out" bash -c 'echo streamed; sleep 302 & sleep 302' 2>/dev/null)
 dt=$(( $(date +%s) - t0 ))
-printf '%s\n' "$out" | grep -q streamed && ok "stream mode copies output to stdout" || nok "stream mode lost output"
+printf '%s\n' "$out" | grep >/dev/null streamed && ok "stream mode copies output to stdout" || nok "stream mode lost output"
 [ "$dt" -le 6 ] && ok "stream mode returns on the deadline too (${dt}s)" || nok "stream mode took ${dt}s"
 # no-setsid path: the started PID shares the caller's process group, so a
 # group kill would hit the caller; only the PID and its descendants may die

@@ -333,7 +333,7 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
                 # The verifier cannot tell from the target alone whether this image was meant to ship
                 # ncz-screensavers (the payload does not carry the seed manifest); ask the checkout.
                 if [ -z "${VERIFY_EXPECT_SCREENSAVERS:-}" ]; then
-                    if [ -s "$SCRIPT_DIR/../manifests/install-extra.pkgs" ] && sed 's/#.*//' "$SCRIPT_DIR/../manifests/install-extra.pkgs" | awk 'NF {print $1}' | grep -qx ncz-screensavers; then
+                    if [ -s "$SCRIPT_DIR/../manifests/install-extra.pkgs" ] && sed 's/#.*//' "$SCRIPT_DIR/../manifests/install-extra.pkgs" | awk 'NF {print $1}' | grep >/dev/null -x ncz-screensavers; then
                         export VERIFY_EXPECT_SCREENSAVERS=1
                     else
                         export VERIFY_EXPECT_SCREENSAVERS=0
@@ -473,7 +473,7 @@ ncz_norm_log() {
 # run-all.sh emits this immediately before late.sh prints its completion
 # marker, and late.sh prints that marker unconditionally -- so checking the
 # marker alone reports success on a broken install.
-if ncz_norm_log "$ILOG" | grep -qai "Ship-critical post-install hooks failed"; then
+if ncz_norm_log "$ILOG" | grep >/dev/null -ai "Ship-critical post-install hooks failed"; then
     ncz_norm_log "$ILOG" | grep -ai -B2 -A2 "Ship-critical post-install hooks failed" | head -20 >&2
     fail "a ship-critical post-install hook failed -- the install is not shippable"
 fi
@@ -579,7 +579,7 @@ if true; then   # both architectures
     FAILED_UNITS="$(grep -vE '^#|^[[:space:]]*$' "$FBR" | awk '{print $1}' | sed 's/^[^A-Za-z0-9_@.-]*//' | sort -u || true)"  # grep exits 1 when NO unit failed; under pipefail+set -e that ended the gate silently on amd64
     BAD=""
     for u in $FAILED_UNITS; do
-        if [ -f "$ALLOW" ] && grep -vE '^#|^[[:space:]]*$' "$ALLOW" | awk '{print $1}' | grep -qxF "$u"; then
+        if [ -f "$ALLOW" ] && grep -vE '^#|^[[:space:]]*$' "$ALLOW" | awk '{print $1}' | grep >/dev/null -xF "$u"; then
             echo "    failed (allowed): $u"
         else
             BAD="$BAD $u"

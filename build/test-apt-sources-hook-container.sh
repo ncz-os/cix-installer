@@ -71,7 +71,7 @@ grep -v "^\[23\]" /tmp/h1.log | head -30 | sed 's/^/LOG: /'
 INSIDE
 cp "$T/inside.sh" "$T/i.sh"
 OUT="$("$RT" run --rm --network none -v "$ROOT:/src:ro" -v "$T/i.sh:/i.sh:ro" debian:forky bash /i.sh 2>&1)"
-want() { printf '%s\n' "$OUT" | grep -qx "$1" && ok "$1" || bad "expected $1" "$OUT"; }
+want() { printf '%s\n' "$OUT" | grep >/dev/null -x "$1" && ok "$1" || bad "expected $1" "$OUT"; }
 echo "=== real hook 24 with the pin, no network, offline pool at /cdrom ==="
 want RC_HOOK=0; want PIN=yes; want NCZ_ENABLED=1; want R2_DISABLED=yes; want OFFLINE_LIST_KEPT=yes
 want CANARY=offline-warn; want CDROM_VISIBLE=yes; want RC_RERUN=0; want NCZ_ENABLED_AFTER_RERUN=1

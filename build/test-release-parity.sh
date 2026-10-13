@@ -458,14 +458,14 @@ check "GitHub assets in canonical order (amd64, arm64, common)" '[ "$(st "[.gh.r
 check "GitLab links in the same order, in arch folders" '[ "$(st "[.gl.releases[\"$TAG\"].links[].name] | join(\" \")")" = "amd64/$AMD.img.zst.part-00 amd64/PARTS-amd64.sha256 amd64/SHA256SUMS-amd64 arm64/$ARM.img.zst.part-00 arm64/$ARM.img.zst.part-01 arm64/PARTS-arm64.sha256 arm64/SHA256SUMS-arm64 ncz-join-image.sh SHA256SUMS NOTES.md" ]'
 check "GitLab part link has stable folder path" '[ "$(st ".gl.releases[\"$TAG\"].links[] | select(.name==\"arm64/$ARM.img.zst.part-01\") | .direct_asset_path")" = /arm64/ncz-os-arm64.img.zst.part-01 ]'
 check "GitLab packages per architecture + common" '[ "$(st "[.gl.packages[] | select(.name | startswith(\"ncz-os-image\")) | .name] | sort | join(\",\")")" = "ncz-os-image-amd64,ncz-os-image-arm64,ncz-os-image-common" ]'
-check "GitHub body uses GitHub link forms" '[ "$(st ".gh.releases[0].body" | grep -c "https://raw.github.test/ncz-os/cix-installer/main/docs/screenshots")" -eq 2 ] && st ".gh.releases[0].body" | grep -q "https://github.test/ncz-os/cix-installer/releases/latest/download/SHA256SUMS"'
+check "GitHub body uses GitHub link forms" '[ "$(st ".gh.releases[0].body" | grep -c "https://raw.github.test/ncz-os/cix-installer/main/docs/screenshots")" -eq 2 ] && st ".gh.releases[0].body" | grep >/dev/null "https://github.test/ncz-os/cix-installer/releases/latest/download/SHA256SUMS"'
 check "GitLab body is NOTES.md as staged" '[ "$(st ".gl.releases[\"$TAG\"].description")" = "$(cat "$REL/NOTES.md")" ]'
 check "GitHub release not prerelease and latest" '[ "$(st ".gh.releases[0].prerelease")" = false ] && [ "$(st ".gh.latest_id")" = "$(st ".gh.releases[0].id")" ]'
 check "kernel source package untouched" '[ "$(st "[.gl.packages[] | select(.name==\"linux-source-cix-sky1-ncz\")] | length")" -eq 1 ]'
 check "final parity reported" 'grep -q "Result: PARITY ($TAG)" <<<"$out" && grep -q "Done: $TAG is the one release page" <<<"$out"'
 check "no GitHub tokens in curl argv" '! grep -qF "$GH_TOK" "$MOCK_ARGV" && ! grep -qF "$GL_TOK" "$MOCK_ARGV"'
 check "no tokens in output" '! grep -qF "$GH_TOK" <<<"$out" && ! grep -qF "$GL_TOK" <<<"$out"'
-check "downloads are anonymous" '! grep -E "^GET https://(github.test|gitlab.test/ncz-os|raw.github.test)" "$MOCK_LOG" | grep -qv "auth=anon"'
+check "downloads are anonymous" '! grep -E "^GET https://(github.test|gitlab.test/ncz-os|raw.github.test)" "$MOCK_LOG" | grep >/dev/null -v "auth=anon"'
 cp "$MOCK_STATE" "$T/good.json"
 
 # 6. parity on the good state, anonymous and quick
@@ -618,8 +618,8 @@ fi
 # 13. usage
 bash "$SYNC" --dir "$REL" >/dev/null 2>&1; rc=$?; check "sync without --tag exits 2" '[ "$rc" -eq 2 ]'
 bash "$CHECK" --expect-prerelease maybe >/dev/null 2>&1; rc=$?; check "bad --expect-prerelease exits 2" '[ "$rc" -eq 2 ]'
-bash "$SYNC" --help | grep -q -- "--operator-approved"; rc=$?; check "sync --help documents the gate" '[ "$rc" -eq 0 ]'
-bash "$CHECK" --help | grep -q -- "--quick"; rc=$?; check "check --help documents --quick" '[ "$rc" -eq 0 ]'
+bash "$SYNC" --help | grep >/dev/null -- "--operator-approved"; rc=$?; check "sync --help documents the gate" '[ "$rc" -eq 0 ]'
+bash "$CHECK" --help | grep >/dev/null -- "--quick"; rc=$?; check "check --help documents --quick" '[ "$rc" -eq 0 ]'
 
 echo "passed=$PASS failed=$FAILS"
 [ "$FAILS" -eq 0 ]

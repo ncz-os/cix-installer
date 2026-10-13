@@ -67,7 +67,7 @@ ARCH="$(dpkg --print-architecture)"
 SYS_ELF=""
 for cand in /usr/bin/dpkg-deb /usr/bin/ls /usr/bin/tar; do
     [ -x "$cand" ] || continue
-    if readelf -d "$cand" 2>/dev/null | grep '(NEEDED)' | grep -vq 'libc\.so'; then SYS_ELF="$cand"; break; fi
+    if readelf -d "$cand" 2>/dev/null | grep '(NEEDED)' | grep >/dev/null -v 'libc\.so'; then SYS_ELF="$cand"; break; fi
 done
 [ -n "$SYS_ELF" ] || skip "no system ELF with a non-libc DT_NEEDED found"
 P="$T/payload/opt/singularity"

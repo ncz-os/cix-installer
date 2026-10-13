@@ -111,8 +111,8 @@ done
 [ -n "$TAG" ] || udie "--tag is required (the operator names the release tag)"
 [ -d "$DIR" ] || udie "not a folder: $DIR"
 DIR=$(cd "$DIR" && pwd)
-printf '%s' "$TAG" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$' || udie "invalid tag: $TAG"
-printf '%s' "$GH_REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || udie "invalid --github-repo: $GH_REPO"
+printf '%s' "$TAG" | grep >/dev/null -E '^[A-Za-z0-9][A-Za-z0-9._-]*$' || udie "invalid tag: $TAG"
+printf '%s' "$GH_REPO" | grep >/dev/null -E '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || udie "invalid --github-repo: $GH_REPO"
 for t in jq curl python3; do command -v "$t" >/dev/null 2>&1 || udie "$t is required"; done
 [ -n "$REPO_ROOT" ] || REPO_ROOT=$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || (cd "$HERE/.." && pwd))
 MODE="dry run"; [ "$APPLY" -eq 1 ] && MODE="apply"
@@ -138,7 +138,7 @@ FILES=(); ARCHES=()
 declare -A LSHA=() LSIZE=() FPATH=()
 while IFS=$'\t' read -r g rel f; do
   FILES+=("$f"); FPATH[$f]="$DIR/$rel"
-  if [ "$g" != common ] && ! printf '%s\n' "${ARCHES[@]}" | grep -qxF "$g"; then ARCHES+=("$g"); fi
+  if [ "$g" != common ] && ! printf '%s\n' "${ARCHES[@]}" | grep >/dev/null -xF "$g"; then ARCHES+=("$g"); fi
   LSIZE[$f]=$(rf_size "$DIR/$rel")
   [ "${LSIZE[$f]}" -lt "$GH_MAX_BYTES" ] || udie "$f is ${LSIZE[$f]} bytes; GitHub release files must be under $GH_MAX_BYTES"
   LSHA[$f]=$(rf_sha "$DIR/$rel")

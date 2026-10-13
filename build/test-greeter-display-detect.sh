@@ -22,9 +22,9 @@ bad() { echo "  FAIL  $1"; FAIL=$((FAIL + 1)); [ -n "${2:-}" ] && printf '%s\n' 
 
 drm=$(awk '/^cat > \/etc\/systemd\/system\/greetd\.service\.d\/10-ncz-drm\.conf <<.GREETDDRM.$/ {f=1; next} f && $0 == "GREETDDRM" {exit} f' "$G")
 [ -n "$drm" ] || { echo "FATAL: 10-ncz-drm.conf heredoc not found in $G" >&2; exit 2; }
-printf '%s\n' "$drm" | grep -q 'cix-detect-display' && bad "arch-neutral 10-ncz-drm.conf still names cix-detect-display" "$drm" \
+printf '%s\n' "$drm" | grep >/dev/null 'cix-detect-display' && bad "arch-neutral 10-ncz-drm.conf still names cix-detect-display" "$drm" \
     || ok "10-ncz-drm.conf (both arches) does not name cix-detect-display"
-printf '%s\n' "$drm" | grep -qE '^Wants=.*ncz-usb2-rescan\.service' && ok "10-ncz-drm.conf keeps Wants=ncz-usb2-rescan.service" \
+printf '%s\n' "$drm" | grep >/dev/null -E '^Wants=.*ncz-usb2-rescan\.service' && ok "10-ncz-drm.conf keeps Wants=ncz-usb2-rescan.service" \
     || bad "ncz-usb2-rescan ordering lost" "$drm"
 
 awk '/^_ncz_greeter_arch="\$\{NCZ_TARGET_ARCH:-\}"$/ {f=1} f {print} f && /^unset _ncz_greeter_arch$/ {exit}' "$G" > "$W/block.sh"

@@ -21,7 +21,7 @@ check_nogrep() { if grep -qF -- "$2" "$1" 2>/dev/null; then bad "$3" "'$2' still
 # Comment-aware variant: history prose may still name 26.7/Maximilian, only a
 # LIVE (non-comment) hardcode is the regression.
 strip_comments() { sed -E 's/^[[:space:]]*#.*$//' "$1"; }
-check_nolive() { if strip_comments "$1" | grep -qF -- "$2"; then bad "$3" "'$2' is still a live hardcode in $1"; else ok "$3"; fi; }
+check_nolive() { if strip_comments "$1" | grep >/dev/null -F -- "$2"; then bad "$3" "'$2' is still a live hardcode in $1"; else ok "$3"; fi; }
 
 ROOT_RC="$ROOT/release.conf"
 [ -r "$ROOT_RC" ] || { echo "FATAL: missing $ROOT_RC" >&2; exit 2; }

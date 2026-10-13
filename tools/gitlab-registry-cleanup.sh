@@ -88,8 +88,8 @@ while read -r proj pkg vre keep dedupe extra; do
   n=$((n+1))
   case "${proj:-}" in ''|'#'*) continue ;; esac
   [ -n "${dedupe:-}" ] && [ -z "${extra:-}" ] || udie "$RULES:$n: need exactly 5 fields"
-  printf '%s' "$proj" | grep -Eq '^[A-Za-z0-9._/-]+$' || udie "$RULES:$n: bad project: $proj"
-  printf '%s' "$pkg" | grep -Eq '^[A-Za-z0-9._+~-]+$' || udie "$RULES:$n: bad package name: $pkg"
+  printf '%s' "$proj" | grep >/dev/null -E '^[A-Za-z0-9._/-]+$' || udie "$RULES:$n: bad project: $proj"
+  printf '%s' "$pkg" | grep >/dev/null -E '^[A-Za-z0-9._+~-]+$' || udie "$RULES:$n: bad package name: $pkg"
   case "$keep" in all) ;; ''|*[!0-9]*) udie "$RULES:$n: KEEP must be a number or all" ;; esac
   [ "$keep" = all ] || [ "$keep" -ge 1 ] || udie "$RULES:$n: KEEP must be at least 1"
   case "$dedupe" in yes|no) ;; *) udie "$RULES:$n: DEDUPE must be yes or no" ;; esac
@@ -104,7 +104,7 @@ if [ -n "${NCZ_GITLAB_TOKEN_HELPER:-}" ]; then
   TOKEN=$("$NCZ_GITLAB_TOKEN_HELPER") || die "token helper failed"
 else
   tv=${NCZ_GITLAB_TOKEN_VAR:-GITLAB_TOKEN}
-  printf '%s' "$tv" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*$' || udie "NCZ_GITLAB_TOKEN_VAR is not a variable name"
+  printf '%s' "$tv" | grep >/dev/null -E '^[A-Za-z_][A-Za-z0-9_]*$' || udie "NCZ_GITLAB_TOKEN_VAR is not a variable name"
   TOKEN=${!tv:-}
 fi
 TOKEN=$(printf '%s' "$TOKEN" | tr -d '\r\n')

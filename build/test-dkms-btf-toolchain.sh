@@ -18,8 +18,8 @@ pass=0; fail=0
 pkgs() { sed 's/#.*//' "$1" | awk 'NF {print $1}'; }
 
 check_manifest() {   # $1 manifest -> 0 ok, 1 dkms without dwarves
-    pkgs "$1" | grep -qx dkms || return 0
-    pkgs "$1" | grep -qx dwarves
+    pkgs "$1" | grep >/dev/null -x dkms || return 0
+    pkgs "$1" | grep >/dev/null -x dwarves
 }
 
 expect() {   # $1 name  $2 wanted rc  $3 manifest

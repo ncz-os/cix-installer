@@ -32,8 +32,8 @@ for arch in amd64 arm64; do
     [ "$arch" = amd64 ] && pinned="$(echo "$pinned" | grep -v -e '^libdrm-dev$' -e '^libdrm-freedreno1$')"
     miss="$(LC_ALL=C comm -23 <(echo "$pinned") <(echo "$rows"))"
     [ -z "$miss" ] && ok "$arch: every pinned libdrm runtime/dev package has a mirror row" || bad "$arch: pinned libdrm package(s) without a mirror row (taken from the published index instead)" "$miss"
-    if [ "$arch" = amd64 ]; then echo "$rows" | grep -q -e '^libdrm-dev$' -e '^libdrm-freedreno1$' && bad "amd64 carries libdrm-dev/freedreno1 rows" || ok "amd64 does not carry libdrm-dev/freedreno1 (arm64-only)"; fi
-    echo "$rows" | grep -qx libdrm-common && ok "$arch: libdrm-common has a row" || bad "$arch: no libdrm-common row"
+    if [ "$arch" = amd64 ]; then echo "$rows" | grep >/dev/null -e '^libdrm-dev$' -e '^libdrm-freedreno1$' && bad "amd64 carries libdrm-dev/freedreno1 rows" || ok "amd64 does not carry libdrm-dev/freedreno1 (arm64-only)"; fi
+    echo "$rows" | grep >/dev/null -x libdrm-common && ok "$arch: libdrm-common has a row" || bad "$arch: no libdrm-common row"
 done
 a="$(awk -F'\t' '$1=="amd64" && $2 ~ /libdrm-common/ {print $3}' "$TSV")"; b="$(awk -F'\t' '$1=="arm64" && $2 ~ /libdrm-common/ {print $3}' "$TSV")"
 [ -n "$a" ] && [ "$a" = "$b" ] && ok "libdrm-common (arch:all) pin is identical across arches" || bad "libdrm-common pins differ across arches ($a vs $b)"

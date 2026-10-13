@@ -136,8 +136,8 @@ base=$(sed -n 's/^NEXT_CMDLINE_BASE="\(console=[^"]*\)"$/\1/p' "$REFRESH" | head
 extra=$(sed -n 's/^NEXT_CMDLINE_EXTRA="\([^"]*\)"$/\1/p' "$REFRESH" | head -1)
 cons=$(printf '%s\n' $base | grep '^console=' | paste -sd' ' -)
 if [ "$cons" = "console=ttyAMA0,115200 console=tty0" ] \
-    && printf '%s\n' $extra | grep -qx 'sky1_pcie_native=off' \
-    && printf '%s\n' $extra | grep -qx 'pcie_pnp_en' \
+    && printf '%s\n' $extra | grep >/dev/null -x 'sky1_pcie_native=off' \
+    && printf '%s\n' $extra | grep >/dev/null -x 'pcie_pnp_en' \
     && grep -q '^NEXT_CMDLINE_BASE="\$NEXT_CMDLINE_BASE \$NEXT_CMDLINE_EXTRA"$' "$REFRESH"; then
     ok "installed arm64 cmdline: serial console with tty0 last, ACPI PCIe mode on every entry"
 else
@@ -147,7 +147,7 @@ if grep -qE 'fw_devlink|sky1_pcie_native|pcie_pnp_en' "$REFRESH_AMD64"; then bad
 else ok "amd64 installed cmdline carries no Sky1 PCIe token"; fi
 
 # ---- 4: installed serial getty --------------------------------------------------
-if awk '/^if \[ "\$_ncz_arch" = "arm64" \]; then/{a=1} a&&/systemctl enable serial-getty@ttyAMA0.service/{print "y"; exit} /^else/{a=0}' "$TELEMETRY" | grep -q y; then
+if awk '/^if \[ "\$_ncz_arch" = "arm64" \]; then/{a=1} a&&/systemctl enable serial-getty@ttyAMA0.service/{print "y"; exit} /^else/{a=0}' "$TELEMETRY" | grep >/dev/null y; then
     ok "36-telemetry enables serial-getty@ttyAMA0 inside the arm64 branch"
 else
     bad "36-telemetry: serial-getty@ttyAMA0 is not enabled in the arm64 branch"
@@ -155,7 +155,7 @@ fi
 
 # ---- 5: diag-console serial block in a sandbox ---------------------------------
 BLOCK_SRC=$(sed -n '/^# >>> ncz-serial-diag/,/^# <<< ncz-serial-diag/p' "$DIAG")
-if [ -z "$BLOCK_SRC" ] || ! printf '%s\n' "$BLOCK_SRC" | grep -q '^serial_tick()'; then
+if [ -z "$BLOCK_SRC" ] || ! printf '%s\n' "$BLOCK_SRC" | grep >/dev/null '^serial_tick()'; then
     bad "diag-console.sh has no ncz-serial-diag block with serial_tick()"
     echo; echo "RESULT: $PASS passed, $FAIL failed"; exit 1
 fi
@@ -278,7 +278,7 @@ first_tick=$(grep -n '^serial_tick$' "$DIAG" | head -1 | cut -d: -f1)
 first_dhcp=$(grep -n '^diag_net_up || say' "$DIAG" | head -1 | cut -d: -f1)
 if [ -n "$first_tick" ] && [ -n "$first_dhcp" ] && [ "$first_tick" -lt "$first_dhcp" ] \
     && grep -q 'do serial_tick; diag_net_up' "$DIAG" \
-    && awk '/^while :; do$/{w=1;next} w&&/serial_tick/{print "y";exit} w&&/^done/{exit}' "$DIAG" | grep -q y; then
+    && awk '/^while :; do$/{w=1;next} w&&/serial_tick/{print "y";exit} w&&/^done/{exit}' "$DIAG" | grep >/dev/null y; then
     ok "diag-console runs the serial block before the first DHCP attempt and in both loops"
 else bad "diag-console serial_tick call sites" "tick=$first_tick dhcp=$first_dhcp"; fi
 

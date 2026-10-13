@@ -38,7 +38,7 @@ case " $* " in
     *" -s "*) echo "Inst libze1"; [ "${REMV:-0}" = 1 ] && echo "Remv mesa-opencl-icd [1]"; exit 0 ;;
     *" install "*) [ "$NET" = up ] && exit 0
                    # network down: only the Debian set can come (offline mirror, MIRROR=1)
-                   [ "${MIRROR:-0}" = 1 ] && ! echo " $* " | grep -q libopenvino && exit 0
+                   [ "${MIRROR:-0}" = 1 ] && ! echo " $* " | grep >/dev/null libopenvino && exit 0
                    exit 100 ;;
 esac
 EOF
@@ -74,7 +74,7 @@ mkroot; NET=down run ncz_intel_accel_install 1 1
 [ -f "$P" ] && grep -qx GPU=1 "$P" && grep -qx NPU=1 "$P" && ok "retry marker records GPU=1 NPU=1" || bad "no retry marker" "$(cat "$W/out")"
 [ -L "$T" ] && [ -f "$W/r/etc/systemd/system/ncz-intel-accel-setup.service" ] && [ -x "$W/r/usr/local/sbin/ncz-intel-accel-setup" ] \
     && ok "timer enabled, service + ncz-intel-accel-setup installed" || bad "deferred units not installed"
-grep ' install -y' "$LOG" | grep -q libopenvino && bad "attempted an OpenVINO install without the repo index" || ok "no OpenVINO install attempted without the index"
+grep ' install -y' "$LOG" | grep >/dev/null libopenvino && bad "attempted an OpenVINO install without the repo index" || ok "no OpenVINO install attempted without the index"
 
 echo "=== deferred run, still down -> stays pending ==="
 NET=down run ncz_intel_accel_run; rc=$?
@@ -85,9 +85,9 @@ echo "=== deferred run, network up -> installed, marker + timer gone ==="
 [ ! -f "$P" ] && [ ! -e "$T" ] && grep -qx done "$W/r/var/lib/ncz/intel-accel.status" && ok "done: marker removed, timer disabled" || bad "network-up run" "$(cat "$W/out")"
 inst=$(grep ' install -y' "$LOG")
 for p in intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1 libopenvino-intel-gpu-plugin-2026.4.1 libopenvino-intel-npu-plugin-2026.4.1; do
-    printf '%s\n' "$inst" | grep -qw -- "$p" || bad "install lacks $p" "$inst"
+    printf '%s\n' "$inst" | grep >/dev/null -w -- "$p" || bad "install lacks $p" "$inst"
 done
-printf '%s\n' "$inst" | grep -qwE 'openvino|level-zero|intel-driver-compiler-npu' && bad "asks for packages no repo publishes" "$inst" || ok "installs the newest OpenVINO plugins + Debian Level Zero/OpenCL/VA; no phantom package names"
+printf '%s\n' "$inst" | grep >/dev/null -wE 'openvino|level-zero|intel-driver-compiler-npu' && bad "asks for packages no repo publishes" "$inst" || ok "installs the newest OpenVINO plugins + Debian Level Zero/OpenCL/VA; no phantom package names"
 grep -q ' -s ' "$LOG" && [ "$(grep -n ' -s ' "$LOG" | head -1 | cut -d: -f1)" -lt "$(grep -n ' install -y' "$LOG" | head -1 | cut -d: -f1)" ] \
     && ok "simulated before installing" || bad "no simulation before install"
 
@@ -95,16 +95,16 @@ echo "=== offline mirror: Debian set installs with no Intel index, OpenVINO stay
 mkroot; NET=down MIRROR=1 run ncz_intel_accel_install 1 0; rc=$?
 inst=$(grep ' install -y' "$LOG")
 for p in intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1; do
-    printf '%s\n' "$inst" | grep -qw -- "$p" || bad "offline install lacks $p" "$inst"
+    printf '%s\n' "$inst" | grep >/dev/null -w -- "$p" || bad "offline install lacks $p" "$inst"
 done
-printf '%s\n' "$inst" | grep -q libopenvino && bad "offline install pulled an Intel-repo package" "$inst" || ok "Debian GPU set installed from the mirror with the network down"
+printf '%s\n' "$inst" | grep >/dev/null libopenvino && bad "offline install pulled an Intel-repo package" "$inst" || ok "Debian GPU set installed from the mirror with the network down"
 [ -f "$P" ] && ok "OpenVINO plugins still deferred (marker kept, timer armed)" || bad "marker lost although the plugins are not installed" "$(cat "$W/out")"
 
 echo "=== no Intel signing key at all: the Debian set still installs, the plugins wait (r201 re-review) ==="
 mkroot; mkdir -p "$W/nokey"; NET=down MIRROR=1 KEYASSETS="$W/nokey" NCZ_INTEL_KEY_URL=file:///nonexistent run ncz_intel_accel_install 1 0
 inst=$(grep ' install -y' "$LOG")
 for p in intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1; do
-    printf '%s\n' "$inst" | grep -qw -- "$p" || bad "no key: Debian package $p was not installed" "$inst$(cat "$W/out")"
+    printf '%s\n' "$inst" | grep >/dev/null -w -- "$p" || bad "no key: Debian package $p was not installed" "$inst$(cat "$W/out")"
 done
 [ ! -s "$W/r/etc/apt/keyrings/intel-openvino.gpg" ] && [ ! -e "$W/r/etc/apt/sources.list.d/intel-openvino.list" ] && ok "no key: no Intel keyring and no Intel repo list written" || bad "no key: Intel repo wired without a key"
 [ -f "$P" ] && ok "no key: retry armed for the OpenVINO plugins" || bad "no key: retry not armed" "$(cat "$W/out")"
@@ -112,8 +112,8 @@ done
 echo "=== already installed from the mirror: skipped without touching apt install ==="
 mkroot; NET=up INSTALLED="intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1" run ncz_intel_accel_install 1 0
 inst=$(grep ' install -y' "$LOG")
-printf '%s\n' "$inst" | grep -qwE 'intel-opencl-icd|intel-media-va-driver|libze1|libze-intel-gpu1' && bad "reinstalled packages that are already present" "$inst" || ok "present packages are not passed to apt again"
-printf '%s\n' "$inst" | grep -q libopenvino-intel-gpu-plugin && ok "only the Intel-repo plugin is installed" || bad "plugin install missing" "$inst"
+printf '%s\n' "$inst" | grep >/dev/null -wE 'intel-opencl-icd|intel-media-va-driver|libze1|libze-intel-gpu1' && bad "reinstalled packages that are already present" "$inst" || ok "present packages are not passed to apt again"
+printf '%s\n' "$inst" | grep >/dev/null libopenvino-intel-gpu-plugin && ok "only the Intel-repo plugin is installed" || bad "plugin install missing" "$inst"
 grep -qx done "$W/r/var/lib/ncz/intel-accel.status" && ok "status done" || bad "status not done" "$(cat "$W/out")"
 
 echo "=== everything present, network down: nothing to do except the plugin index ==="

@@ -47,8 +47,8 @@ trap 'rm -rf "$TMP"' EXIT
 
 echo "== greetd drop-in + bounded input probe =="
 DRM="$(extract_greetd_dropin "$GREETER")"
-if printf '%s\n' "$DRM" | grep -qE '^After=.*ncz-usb2-rescan\.service' \
-   && printf '%s\n' "$DRM" | grep -qE '^Wants=.*ncz-usb2-rescan\.service'; then
+if printf '%s\n' "$DRM" | grep >/dev/null -E '^After=.*ncz-usb2-rescan\.service' \
+   && printf '%s\n' "$DRM" | grep >/dev/null -E '^Wants=.*ncz-usb2-rescan\.service'; then
     ok "greetd drop-in still orders After=/Wants= ncz-usb2-rescan.service (harmless when skipped)"
 else
     bad "greetd drop-in no longer orders After=/Wants= ncz-usb2-rescan.service" "$DRM"

@@ -160,7 +160,7 @@ _meta_raw() {  # mode<TAB>owner/group<TAB>size<TAB>path<TAB>mtime  (best effort)
 }
 _listing() { _cached listing "$1" _listing_raw "$1"; }
 _meta()    { _cached meta    "$1" _meta_raw    "$1"; }
-_has() { local l="$1" p="$2"; _listing "$l" | grep -qx "$p"; }
+_has() { local l="$1" p="$2"; _listing "$l" | grep >/dev/null -x "$p"; }
 _cat() {  # cat a member (best effort)
     local l="$1" p="$2" k; k="$(_layer_kind "$l")"
     case "$k" in
@@ -235,14 +235,14 @@ chk_leftovers() {  # LAYER, label
     h="$(printf '%s\n' "$listing" | grep -E '^(work|tmp|root|build|var/tmp)/.*\.o$' | head -10)"
     [ -n "$h" ] && hits="$hits $(printf '%s' "$h" | tr '\n' ' ')"
     # /etc/machine-id must be empty (truncated) or absent; a populated one leaks identity
-    if printf '%s\n' "$listing" | grep -qx 'etc/machine-id'; then
+    if printf '%s\n' "$listing" | grep >/dev/null -x 'etc/machine-id'; then
         local mid; mid="$(_cat "$l" etc/machine-id 2>/dev/null | tr -d '[:space:]')"
         [ -n "$mid" ] && hits="$hits etc/machine-id(non-empty)"
     fi
     # /etc/resolv.conf: a builder nameserver/search is a leak; empty/localhost is fine
-    if printf '%s\n' "$listing" | grep -qx 'etc/resolv.conf'; then
+    if printf '%s\n' "$listing" | grep >/dev/null -x 'etc/resolv.conf'; then
         local rc; rc="$(_cat "$l" etc/resolv.conf 2>/dev/null)"
-        if printf '%s' "$rc" | grep -qE '^[[:space:]]*(nameserver|search|domain)[[:space:]]'; then
+        if printf '%s' "$rc" | grep >/dev/null -E '^[[:space:]]*(nameserver|search|domain)[[:space:]]'; then
             hits="$hits etc/resolv.conf(builder)"
         fi
     fi
@@ -313,9 +313,9 @@ chk_no_ubuntu() {  # LAYER, label
     local l="$1" lbl="$2"
     _has "$l" "var/lib/dpkg/status" || { _rec "$lbl" no-ubuntu SKIP "no dpkg status"; return; }
     local st; st="$(_cat "$l" var/lib/dpkg/status 2>/dev/null)"
-    if printf '%s' "$st" | grep -qiE '^(Origin|Maintainer|Homepage):.*(ubuntu|canonical)'; then
+    if printf '%s' "$st" | grep >/dev/null -iE '^(Origin|Maintainer|Homepage):.*(ubuntu|canonical)'; then
         _rec "$lbl" no-ubuntu FAIL "a package names Ubuntu/Canonical in Origin/Maintainer/Homepage"
-    elif _has "$l" "etc/apt/sources.list" && _cat "$l" etc/apt/sources.list 2>/dev/null | grep -qi ubuntu; then
+    elif _has "$l" "etc/apt/sources.list" && _cat "$l" etc/apt/sources.list 2>/dev/null | grep >/dev/null -i ubuntu; then
         _rec "$lbl" no-ubuntu FAIL "etc/apt/sources.list references ubuntu"
     else
         _rec "$lbl" no-ubuntu PASS "no Ubuntu/Canonical evidence in dpkg status or apt sources"
@@ -338,7 +338,7 @@ chk_one_kernel() {  # LAYER, label
         _rec "$lbl" one-kernel FAIL "Debian kernel dpkg info present (linux-image-7.1*)"
     elif [ -n "$modinit" ] && [ "$(printf '%s\n' "$modinit" | grep -c .)" -gt 1 ]; then
         _rec "$lbl" one-kernel FAIL "multiple kernel module trees: $(printf '%s' "$modinit" | tr '\n' ' ')"
-    elif [ -n "$kver" ] && [ -n "$modinit" ] && ! printf '%s\n' "$modinit" | grep -qx "$kver"; then
+    elif [ -n "$kver" ] && [ -n "$modinit" ] && ! printf '%s\n' "$modinit" | grep >/dev/null -x "$kver"; then
         _rec "$lbl" one-kernel FAIL "kernel modules '$modinit' != expected NCZ KVER '$kver'"
     else
         _rec "$lbl" one-kernel PASS "one kernel tree (${modinit:-none}), no Debian 7.1 kernel"
@@ -404,15 +404,15 @@ chk_content_assertions() {  # LAYER, label
         # both drivers blacklisted (design) is asserted only when the tree exists
         if _has "$l" "etc/modprobe.d/ncz-gpu.conf"; then
             local c; c="$(_cat "$l" etc/modprobe.d/ncz-gpu.conf 2>/dev/null)"
-            printf '%s' "$c" | grep -qi 'blacklist.*mali' || fails="$fails mali-blacklist"
-            printf '%s' "$c" | grep -qi 'blacklist.*panthor' || fails="$fails panthor-blacklist"
+            printf '%s' "$c" | grep >/dev/null -i 'blacklist.*mali' || fails="$fails mali-blacklist"
+            printf '%s' "$c" | grep >/dev/null -i 'blacklist.*panthor' || fails="$fails panthor-blacklist"
         fi
     fi
     # rEFInd default Mali entry (base layer)
     if _has "$l" "boot/efi/EFI/BOOT/refind.conf" || _has "$l" "EFI/BOOT/refind.conf"; then
         checks=$((checks+1))
         local rc; rc="$(_cat "$l" boot/efi/EFI/BOOT/refind.conf 2>/dev/null || _cat "$l" EFI/BOOT/refind.conf 2>/dev/null)"
-        printf '%s' "$rc" | grep -qiE 'default_selection.*(mali|sky1)' || fails="$fails refind-default-mali"
+        printf '%s' "$rc" | grep >/dev/null -iE 'default_selection.*(mali|sky1)' || fails="$fails refind-default-mali"
     fi
     # apt policy + forky-only rule
     if _has "$l" "etc/apt/apt.conf.d" || _has "$l" "etc/apt/sources.list.d"; then
@@ -441,7 +441,7 @@ chk_setuid_worldwritable() {  # LAYER, label
         while IFS=$'\t' read -r k pat _reason; do
             case "$k" in ''|\#*) continue ;; esac
             [ "$k" = "$kind" ] || continue
-            printf '%s' "$path" | grep -Eq "$pat" && return 0
+            printf '%s' "$path" | grep >/dev/null -E "$pat" && return 0
         done < "$allow"
         return 1
     }

@@ -42,7 +42,7 @@ SB="$SB"; K="$K"
 if [ "\$1" = -r ]; then shift; grep -v "^\$1 " "\$SB/lsmod" > "\$SB/lsmod.n"; mv "\$SB/lsmod.n" "\$SB/lsmod"; [ "\$1" = mali_kbase ] && rm -f "\$SB/dev/mali0"; exit 0; fi
 m=\$1
 bl=\$(sed -n 's/.*module_blacklist=\\([^ ]*\\).*/\\1/p' "\$SB/proc/cmdline" | tr ',' '\\n')
-printf '%s\\n' "\$bl" | grep -qx "\$m" && { echo "modprobe: Module \$m is blacklisted" >&2; exit 1; }
+printf '%s\\n' "\$bl" | grep >/dev/null -x "\$m" && { echo "modprobe: Module \$m is blacklisted" >&2; exit 1; }
 [ -e "\$SB/lib/modules/\$K/updates/dkms/\$m.ko" ] || { echo "modprobe: FATAL: Module \$m not found" >&2; exit 1; }
 grep -q "^\$m " "\$SB/lsmod" || echo "\$m 1 0" >> "\$SB/lsmod"
 [ "\$m" = mali_kbase ] && [ ! -e "\$SB/mali-nobind" ] && : > "\$SB/dev/mali0"

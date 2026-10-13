@@ -307,9 +307,9 @@ helper_block() { fb_body "$1" | awk '/^_fbg=/{f=1} f{print} f && /^fi$/{exit}'; 
 for t in "$EXT" "$STUB"; do
     b=$(basename "$t")
     check "$b: ncz-firstboot runs lib/firstboot-gpu.sh configure, bare dpkg --configure -a as fallback" \
-        sh -c 'printf "%s\n" "$1" | grep -q "bash \"\$_fbg\" configure || dpkg --configure -a" && printf "%s\n" "$1" | grep -q "^    dpkg --configure -a 2>/dev/null || true$"' _ "$(helper_block "$t")"
-    check "$b: ncz-firstboot.service has TimeoutStartSec=infinity" sh -c 'printf "%s\n" "$1" | grep -qx "TimeoutStartSec=infinity"' _ "$(unit_body "$t")"
-    check "$b: ncz-firstboot still ordered before the display manager" sh -c 'printf "%s\n" "$1" | grep -q "^Before=display-manager.service"' _ "$(unit_body "$t")"
+        sh -c 'printf "%s\n" "$1" | grep >/dev/null "bash \"\$_fbg\" configure || dpkg --configure -a" && printf "%s\n" "$1" | grep >/dev/null "^    dpkg --configure -a 2>/dev/null || true$"' _ "$(helper_block "$t")"
+    check "$b: ncz-firstboot.service has TimeoutStartSec=infinity" sh -c 'printf "%s\n" "$1" | grep >/dev/null -x "TimeoutStartSec=infinity"' _ "$(unit_body "$t")"
+    check "$b: ncz-firstboot still ordered before the display manager" sh -c 'printf "%s\n" "$1" | grep >/dev/null "^Before=display-manager.service"' _ "$(unit_body "$t")"
     check "$b: the generated ncz-firstboot is valid sh" sh -c 'printf "%s\n" "$1" | sh -n' _ "$(fb_body "$t")"
 done
 check "both twins carry the identical helper block" test "$(helper_block "$EXT")" = "$(helper_block "$STUB")"
@@ -318,11 +318,11 @@ check "the helper never wraps the build in a timeout" sh -c '! grep -nE "(^|[^_a
 
 tpl() { awk -v t="$2" '/^Template: /{f=($2==t)} /^NCZTPL$/{f=0} f' "$1"; }
 check "late.sh: the GPU variant of the last dialog carries the \${GPUNOTE} paragraph" \
-    sh -c 'printf "%s\n" "$1" | grep -qx " \\\\\${GPUNOTE}"' _ "$(tpl "$LATE" nclawzero/remove-media-gpu)"
+    sh -c 'printf "%s\n" "$1" | grep >/dev/null -x " \\\\\${GPUNOTE}"' _ "$(tpl "$LATE" nclawzero/remove-media-gpu)"
 check "late.sh: the plain remove-media dialog is unchanged (no GPU text)" \
-    sh -c '! printf "%s\n" "$1" | grep -qi "gpu"' _ "$(tpl "$LATE" nclawzero/remove-media)"
+    sh -c '! printf "%s\n" "$1" | grep >/dev/null -i "gpu"' _ "$(tpl "$LATE" nclawzero/remove-media)"
 check "late.sh: the GPU dialog is chosen only when there is a notice" \
-    grep -A3 'if \[ -n "\$NCZ_GPU_NOTE" \]; then' "$LATE" | grep -q '_ncz_rm_tpl=nclawzero/remove-media-gpu'
+    grep -A3 'if \[ -n "\$NCZ_GPU_NOTE" \]; then' "$LATE" | grep >/dev/null '_ncz_rm_tpl=nclawzero/remove-media-gpu'
 check "late.sh: the notice comes from lib/dkms-pending.sh against /target" \
     grep -q 'ncz_firstboot_gpu_notice /target' "$LATE"
 check "late.sh: GPUNOTE is substituted before the dialog is shown" \

@@ -56,7 +56,7 @@ BOM_PKGS="$HERE_VT/../manifests/firmware-$ARCH.pkgs"
 # missing path and an "Inode:" line for a present one. Key on the positive
 # marker; never on the absence of an error string.
 dfs() { "$DEBUGFS" -R "$1" "$EVIDENCE_ROOT" 2>&1; }
-exists() { dfs "stat $1" | grep -q '^Inode:'; }
+exists() { dfs "stat $1" | grep >/dev/null '^Inode:'; }
 # dump <path-in-image> <local-file>; success only if a non-empty file landed.
 fetch() {
     rm -f "$2"
@@ -254,9 +254,9 @@ else
         # as a standalone string immediately before the format string, so the
         # old generation reads "5.11.0" there and the matched one "6.2.0".
         strs="$(grep -aoE '[[:print:]]{3,}' "$ko")"
-        if printf '%s\n' "$strs" | grep -A1 -xE '6\.2\.0' | grep -q 'AIPU KMD (v%s)'; then
+        if printf '%s\n' "$strs" | grep -A1 -xE '6\.2\.0' | grep >/dev/null 'AIPU KMD (v%s)'; then
             echo "[verify-target]     aipu $AIPU_REL KMD version 6.2.0"
-        elif printf '%s\n' "$strs" | grep -qxE '5\.11\.0'; then
+        elif printf '%s\n' "$strs" | grep >/dev/null -xE '5\.11\.0'; then
             gate_miss npu "aipu $AIPU_REL is KMD 5.11.0 (old generation)"
         else
             gate_miss npu "aipu $AIPU_REL does not carry KMD version 6.2.0 before its probe banner"
@@ -336,7 +336,7 @@ fi
 # not provided (e.g. a legacy invocation), never treated as a pass.
 if [ -n "${VERIFY_EXPECT_KVER:-}" ] && [ -n "${VERIFY_EXPECT_VMLINUZ_SHA256:-}" ]; then
     echo "[verify-target] (boot-GPU) installed kernel pin"
-    if [ -n "$(lsnames /usr/lib/modules)" ] && ! lsnames /usr/lib/modules | grep -qx "$VERIFY_EXPECT_KVER"; then
+    if [ -n "$(lsnames /usr/lib/modules)" ] && ! lsnames /usr/lib/modules | grep >/dev/null -x "$VERIFY_EXPECT_KVER"; then
         gate_miss kernel "installed module tree is not the pinned $VERIFY_EXPECT_KVER (have: $(lsnames /usr/lib/modules | tr '\n' ' '))"
     fi
     if fetch "/boot/vmlinuz-$VERIFY_EXPECT_KVER" "$TMP/vmlinuz"; then
@@ -417,7 +417,7 @@ echo "[verify-target] (iv-c) hostname"
 if [ "${VERIFY_EXPECT_GENERATED_HOSTNAME:-1}" = 1 ]; then
     if fetch /etc/hostname "$TMP/hostname"; then
         HN="$(tr -d '[:space:]' < "$TMP/hostname")"
-        if printf '%s' "$HN" | grep -Eq '^ncz-[a-z]{1,8}-[0-9]{4}$'; then
+        if printf '%s' "$HN" | grep >/dev/null -E '^ncz-[a-z]{1,8}-[0-9]{4}$'; then
             echo "[verify-target]     hostname $HN"
         else
             gate_miss hostname "/etc/hostname is '$HN', expected ncz-<star>-<4 digits> (the installer's suggestion was lost)"
@@ -442,7 +442,7 @@ if fetch /etc/mpv/mpv.conf "$TMP/mpv.conf" && grep -q '^hwdec=' "$TMP/mpv.conf";
     # 2026-10-06: VA-API decode fails or hangs on 7.3 with the CIX VA
     # driver on both O6N and MS-R1, V4L2 M2M is healthy; mpv must use V4L2 whether or not the VA
     # driver is installed.
-    echo "$HW" | grep -q 'v4l2m2m' || gate_miss vpu "mpv $HW (expect hwdec=v4l2m2m-copy: the VA-API decode route fails/hangs on Sky1, V4L2 M2M is the working VPU path)"
+    echo "$HW" | grep >/dev/null 'v4l2m2m' || gate_miss vpu "mpv $HW (expect hwdec=v4l2m2m-copy: the VA-API decode route fails/hangs on Sky1, V4L2 M2M is the working VPU path)"
     echo "[verify-target]     mpv: $HW"
 else
     gate_miss vpu "/etc/mpv/mpv.conf with a hwdec= line (84-vpu-mpv)"
@@ -465,7 +465,7 @@ if fetch /usr/local/bin/ncz-sky1-audio-autoswitch "$TMP/audsw.py"; then
 fi
 audsw=0
 for w in $(lsnames /etc/systemd/user | grep '\.wants$'); do
-    lsnames "/etc/systemd/user/$w" | grep -qx 'ncz-sky1-audio-autoswitch.service' && audsw=1
+    lsnames "/etc/systemd/user/$w" | grep >/dev/null -x 'ncz-sky1-audio-autoswitch.service' && audsw=1
 done
 [ "$audsw" = 1 ] || gate_miss audio "ncz-sky1-audio-autoswitch.service is not enabled (no .wants symlink under /etc/systemd/user)"
 
@@ -483,7 +483,7 @@ done
 for t in ncz-wallpaper-bing.timer ncz-wallpaper-bing-daily.timer; do
     en=0
     for w in $(lsnames /etc/systemd/user | grep '\.wants$'); do
-        lsnames "/etc/systemd/user/$w" | grep -qx "$t" && en=1
+        lsnames "/etc/systemd/user/$w" | grep >/dev/null -x "$t" && en=1
     done
     [ "$en" = 1 ] || gate_miss wallpaper "$t is not enabled for users (no .wants symlink under /etc/systemd/user)"
 done
@@ -634,7 +634,7 @@ fi
 echo "[fact] arch=$ARCH"
 echo "[fact] gpu_policy_ok=${GPU_OK:-0}"
 echo "[fact] ssh_password_ok=${SSH_PW_OK:-0}"
-echo "[fact] hostname_format_ok=$([ -n "${HN:-}" ] && printf '%s' "$HN" | grep -Eq '^ncz-[a-z]{1,8}-[0-9]{4}$' && echo 1 || echo 0)"
+echo "[fact] hostname_format_ok=$([ -n "${HN:-}" ] && printf '%s' "$HN" | grep >/dev/null -E '^ncz-[a-z]{1,8}-[0-9]{4}$' && echo 1 || echo 0)"
 echo "[fact] sudo_ok=$([ -n "${SUDO_MEMBERS:-}" ] && echo 1 || echo 0)"
 echo "[fact] screensavers_version=${SS_STATUS:-none}"
 echo "[fact] screensaver_plugin_version=${SS_PLUGIN:-none}"
