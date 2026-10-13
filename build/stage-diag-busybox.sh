@@ -57,8 +57,11 @@ pin_row() { awk -F'\t' -v a="$1" '!/^#/ && $1 == a' "$PIN"; }
 elf_machine() {   # x86-64 / aarch64 from the ELF header, no file(1) needed
     python3 -I - "$1" <<'PY'
 import sys
-with open(sys.argv[1], "rb") as f:
-    h = f.read(20)
+try:
+    with open(sys.argv[1], "rb") as f:
+        h = f.read(20)
+except OSError:
+    print("unreadable"); sys.exit(0)
 if h[:4] != b"\x7fELF":
     print("not-elf"); sys.exit(0)
 m = int.from_bytes(h[18:20], "little" if h[5] == 1 else "big")

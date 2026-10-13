@@ -124,13 +124,13 @@ fi
 # Some d-i tmpfs builds accept BusyBox --install but create no links. Build
 # the applet farm explicitly in that case so diagnostics do not die silently.
 if [ ! -x "$BIN/telnetd" ]; then
-    for _applet in awk httpd ifconfig klogd login mkpasswd nc netstat route sh tail telnetd udhcpc; do
+    for _applet in awk chmod httpd ifconfig klogd login mkpasswd mv nc netstat route sh stat tail telnetd udhcpc; do
         "$BB" ln -sf "$BB" "$BIN/$_applet" 2>/dev/null || true
     done
 fi
 say "applet farm: $("$BB" ls "$BIN" 2>/dev/null | "$BB" wc -l) applets in $BIN"
 export PATH=$BIN:/usr/bin:/bin:/usr/sbin:/sbin
-for _applet in awk httpd ifconfig klogd login mkpasswd nc netstat route sh tail telnetd udhcpc; do
+for _applet in awk chmod httpd ifconfig klogd login mkpasswd mv nc netstat route sh stat tail telnetd udhcpc; do
     if [ ! -x "$BIN/$_applet" ]; then
         say "FATAL: busybox applet $_applet missing from $BIN"
         exit 1
@@ -175,8 +175,9 @@ ensure_devpts() {
 # Debian's busybox-static has no chpasswd applet, so this does what chpasswd
 # does: hash with mkpasswd (sha512 crypt, password on stdin) and write root's
 # password field -- in /etc/shadow when it has a root entry (and mark the
-# /etc/passwd field "x"), otherwise in /etc/passwd. NCZ_DIAG_ETC is a test
-# seam (build/test-diag-busybox.sh).
+# /etc/passwd field "x"), otherwise in /etc/passwd. Each file is rewritten
+# through a temporary copy with the original mode and renamed into place.
+# NCZ_DIAG_ETC is a test seam (build/test-diag-busybox.sh).
 ncz_diag_set_root_pw() {
     _etc="${NCZ_DIAG_ETC:-/etc}"
     _hash=$(printf '%s\n' "$1" | "$BB" mkpasswd -m sha512 2>/dev/null)
@@ -189,11 +190,12 @@ ncz_diag_set_root_pw() {
     for _f in $_files; do
         _new="$_hash"
         [ "$_f" = passwd ] && [ "$_files" != passwd ] && _new=x
+        _mode=$("$BB" stat -c %a "$_etc/$_f" 2>/dev/null) || return 1
         "$BB" awk -F: -v OFS=: -v h="$_new" '$1 == "root" { $2 = h; n++ } { print } END { exit n ? 0 : 1 }' \
             "$_etc/$_f" > "$_etc/$_f.ncz-new" \
-            && "$BB" cat "$_etc/$_f.ncz-new" > "$_etc/$_f" \
+            && "$BB" chmod "$_mode" "$_etc/$_f.ncz-new" \
+            && "$BB" mv -f "$_etc/$_f.ncz-new" "$_etc/$_f" \
             || { "$BB" rm -f "$_etc/$_f.ncz-new"; return 1; }
-        "$BB" rm -f "$_etc/$_f.ncz-new"
     done
     return 0
 }

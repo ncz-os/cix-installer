@@ -130,7 +130,7 @@ for name in sorted(os.listdir(hooks_dir)):
 for name, path in STATIC.items():
     full = os.path.join(root, path)
     if os.path.isfile(full):
-        entries[name] = open(full, encoding="utf-8").read()
+        entries[name] = open(full, encoding="utf-8", errors="replace").read()
     else:
         bad(f"{name}: source file {path} missing")
 
@@ -156,7 +156,7 @@ for name, hook in sorted(SESSION.items()):
     else:
         bad(f"{name}: never started by the Singularity shell: {why}")
     exe = entry.get("Exec", "").split()[0] if entry.get("Exec") else ""
-    hook_text = open(os.path.join(root, hook), encoding="utf-8").read()
+    hook_text = open(os.path.join(root, hook), encoding="utf-8", errors="replace").read()
     if exe and exe in hook_text:
         ok(f"{name}: Exec {exe} is installed by {hook}")
     else:
