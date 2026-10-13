@@ -9,10 +9,12 @@
 # The .deb version is a timestamped `YYYYMMDDhhmmss+bk0+tgz<hash>` string, so it
 # cannot be statically pinned in manifests/ncz-packages.tsv (see the header of
 # manifests/ncz-timestamped.tsv); the reviewed-ledger row for the timestamped
-# form lives there, and this file records the concrete RC6 build.
+# form lives there, and this file records the concrete 26.10 build.
 # Published to the NCZ apt repo: Buildkite Packages (primary) + R2 (backup).
-# RC6 payload carries the singularity-shell queue 0015/0016/0017
-# (lock-over-saver overlay, no-prompt-before-input, freeze/HOLD on input)
-# and the greeter/lock parity patches (loginui 0003, greeter 0003, shell 0018).
-amd64	8ca67e95f611a593f550a2864a31cb3a668d8feafad6c71db5defae196ede60c	ncz-singularity-desktop_20261012163109+bk0+tgz46804b13_amd64.deb
-arm64	90704bd31dea716b086d3828db75ebc499cfe2e32f67111732c2f91a0b0bbf54	ncz-singularity-desktop_20261012163109+bk0+tgz8ea8845e_arm64.deb
+# The 26.10 payload carries the singularity-shell queue 0015-0019
+# (lock-over-saver overlay, no-prompt-before-input, freeze/HOLD on input,
+# login-card parity, a second lock instance yields instead of taking the
+# renderer socket) and the greeter/loginui parity patches (greeter 0003,
+# loginui 0003).
+amd64	83250d071bda0753162821a81ad1b216132d4d00963ef93aaba12aad700d50a4	ncz-singularity-desktop_20261013052500+bk0+tgz7d410c05_amd64.deb
+arm64	1e29cae9a1ee36789ecce776ce4bbd49129cbe6492ce24fd46bfbffea6759a3d	ncz-singularity-desktop_20261013052500+bk0+tgz998c6c54_arm64.deb
