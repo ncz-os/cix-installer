@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/lockrig/agent/run_host.sh -- runs ON the target NCZ host AS ROOT.
-# Executes the controlled lock/saver/greeter test cases (T1..T17), collects
+# Executes the controlled lock/saver/greeter test cases (T1..T19), collects
 # evidence, and writes a machine-readable result. It NEVER reboots, never
 # touches refind/bootloader, never reconfigures as root beyond the reversible
 # gsettings override + the transient uinput devices, and always attempts to
@@ -148,7 +148,7 @@ LOCKED=""; S0=$(shot m0-desktop)
 if wait_lock 120; then rec T1 PASS "idle->lock at 60s override (pid $LOCKED)"; else rec T1 FAIL "no lock within 120s"; fi
 
 if [ -z "$LOCKED" ]; then
-  for c in T2 T3 T4 T5 T16 T6 T6b T7 T8 T9 T10 T11 T17 T12 T13 T14 T15; do rec $c SKIP "no lock acquired (T1 failed)"; done
+  for c in T2 T3 T4 T5 T18 T6 T6b T7 T8 T9 T10 T11 T19 T12 T13 T14 T15; do rec $c SKIP "no lock acquired (T1 failed)"; done
 else
   # ------------------------------------------------------------ T2 no prompt before input
   sleep 2
@@ -215,28 +215,28 @@ else
     rec T5 PASS "feed sent no HOLD without input (policy: $(policy_marker | grep -o 'freeze=[a-z]*'))"
   fi
 
-  # ------------------------------------------------------------ T16 long frame-progress (no input)
+  # ------------------------------------------------------------ T18 long frame-progress (no input)
   # The idle saver must keep animating for minutes, not seconds: sample a central
   # region every 10 s for LOCKRIG_PROGRESS_S (default 330 s) with no input and
   # require motion in >= 90% of the intervals (thermal-pause intervals excused).
   PS_S="${LOCKRIG_PROGRESS_S:-330}"
   if [ "$PS_S" -gt 0 ] 2>/dev/null; then
-    progress_soak "$PS_S" 10 t16
+    progress_soak "$PS_S" 10 t18
     NEED=$(( (PROG_N - 1) * 9 / 10 ))
     TL=$(thermal_level)
     if [ -z "$(lockpg)" ]; then
-      rec T16 FAIL "lock vanished during the ${PS_S}s no-input soak"
+      rec T18 FAIL "lock vanished during the ${PS_S}s no-input soak"
     elif grep -aq "frame source HOLD" "$SLOG"; then
-      rec T16 FAIL "saver froze during the ${PS_S}s no-input soak (HOLD); transitions $PROG_T/$((PROG_N-1))"
+      rec T18 FAIL "saver froze during the ${PS_S}s no-input soak (HOLD); transitions $PROG_T/$((PROG_N-1))"
     elif [ "$PROG_T" -ge "$NEED" ]; then
-      rec T16 PASS "saver kept animating ${PS_S}s with no input: $PROG_T/$((PROG_N-1)) intervals changed (need $NEED)"
+      rec T18 PASS "saver kept animating ${PS_S}s with no input: $PROG_T/$((PROG_N-1)) intervals changed (need $NEED)"
     elif [ "$TL" = 2 ]; then
-      rec T16 SKIP "only $PROG_T/$((PROG_N-1)) intervals changed; renderer ended in its thermal pause (protection)"
+      rec T18 SKIP "only $PROG_T/$((PROG_N-1)) intervals changed; renderer ended in its thermal pause (protection)"
     else
-      rec T16 FAIL "saver stalled: only $PROG_T/$((PROG_N-1)) intervals changed in ${PS_S}s with no input (need $NEED)"
+      rec T18 FAIL "saver stalled: only $PROG_T/$((PROG_N-1)) intervals changed in ${PS_S}s with no input (need $NEED)"
     fi
   else
-    rec T16 SKIP "LOCKRIG_PROGRESS_S=0"
+    rec T18 SKIP "LOCKRIG_PROGRESS_S=0"
   fi
 
   # ------------------------------------------------------------ T6 pointer raises prompt
@@ -303,7 +303,7 @@ else
   else rec T11 SKIP "could not re-lock for T11"; fi
   unlock_now
 
-  # ------------------------------------------------------------ T17 prompt lowers -> saver resumes
+  # ------------------------------------------------------------ T19 prompt lowers -> saver resumes
   # Input froze the saver behind the prompt. If the prompt is left alone until
   # it lowers (SINGULARITY_LOCK_RENDERER_DELAY_MS, staged at 8 s), the saver
   # must animate again while the session stays locked.
@@ -312,24 +312,24 @@ else
     session_cycle; unlock_now; sleep 2; : > "$SLOG"
     if wait_lock 120; then
       sleep 5; ptr 80 40; sleep 2
-      r1=$(shot t17a); sleep 2; r2=$(shot t17b)
+      r1=$(shot t19a); sleep 2; r2=$(shot t19b)
       for i in $(seq 1 20); do grep -aq "prompt lowered" "$SLOG" && break; sleep 1; done
       sleep 4
-      r3=$(shot t17c); sleep 2; r4=$(shot t17d); sleep 2; r5=$(shot t17e)
+      r3=$(shot t19c); sleep 2; r4=$(shot t19d); sleep 2; r5=$(shot t19e)
       if [ -z "$(lockpg)" ]; then
-        rec T17 FAIL "unlocked while waiting for the prompt to lower (desktop exposed)"
+        rec T19 FAIL "unlocked while waiting for the prompt to lower (desktop exposed)"
       elif [ "$r1" != "$r2" ]; then
-        rec T17 FAIL "saver not frozen behind the prompt ($r1/$r2)"
+        rec T19 FAIL "saver not frozen behind the prompt ($r1/$r2)"
       elif ! grep -aq "prompt lowered" "$SLOG"; then
-        rec T17 FAIL "the prompt never lowered (delay 8 s)"
+        rec T19 FAIL "the prompt never lowered (delay 8 s)"
       elif [ "$r3" != "$r4" ] || [ "$r4" != "$r5" ]; then
-        rec T17 PASS "frozen behind the prompt ($r1), prompt lowered, saver animating again ($r3/$r4/$r5), still locked"
+        rec T19 PASS "frozen behind the prompt ($r1), prompt lowered, saver animating again ($r3/$r4/$r5), still locked"
       else
-        rec T17 FAIL "prompt lowered but the saver stayed frozen ($r3) (lock without the resume change?)"
+        rec T19 FAIL "prompt lowered but the saver stayed frozen ($r3) (lock without the resume change?)"
       fi
-    else rec T17 SKIP "could not re-lock for T17"; fi
+    else rec T19 SKIP "could not re-lock for T19"; fi
     unlock_now; renv_restore; session_cycle; unlock_now
-  else rec T17 SKIP "no $ENVFILE to stage SINGULARITY_LOCK_RENDERER_DELAY_MS"; fi
+  else rec T19 SKIP "no $ENVFILE to stage SINGULARITY_LOCK_RENDERER_DELAY_MS"; fi
 
   # ------------------------------------------------------------ T13 thermal governor
   # The feed re-evaluates hwmon once/s and pauses above ~85C. Test seam:

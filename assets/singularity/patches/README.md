@@ -345,6 +345,24 @@ its layer margin) and insets the overview content stack by it on the dock edge; 
 viewport hint and column count use the remaining area. Not filed upstream yet (no PR link).
 Regression test: `build/test-overview-dock-clearance.sh`.
 
+Patch `0022-core-follow-logind-lock-and-prepareforsleep.patch`: `loginctl lock-session`
+(logind `Session.Lock`) was ignored and a suspend started outside the shell slept
+unlocked. The shell now follows its logind session's `Lock` signal through the same lock
+path as the shortcut and the idle lock. It also holds a logind "sleep" delay inhibitor
+(who `Singularity`) and, when `dev.sinty.lockscreen lock-on-suspend` is on, locks before
+the system sleeps. `ncz-screensaver-idled` 0.8.15 sees that inhibitor and leaves the sleep
+lock to the shell. Not filed upstream yet (no PR link). Regression tests:
+`build/test-singularity-logind-lock.sh` and lockrig T16/T16b/T17/T17s.
+
+Patch `0023-lockscreen-resume-the-saver-when-the-prompt-lowers.patch`: with 0017 the
+saver froze when input raised the prompt and never resumed while locked. On NCZ-OS the
+lock is also the idle screensaver, so after an unanswered prompt the screen stayed on a
+still frame. When the prompt lowers again (`SINGULARITY_LOCK_RENDERER_DELAY_MS`, 5 min by
+default) without an unlock, the lock restarts the frozen frame source. The frozen frame
+stays on screen until the new source sends a frame, and a failing source still clears
+(fail-closed). Applies after 0017. Not filed upstream yet (no PR link). Regression tests:
+`tests/lockscreen-framesrc/test-framesrc.sh` case 1 (inside the patch) and lockrig T19.
+
 ## singularity-leafs — carried, not filed
 
 Patch `0001-window-keep-the-toolbar-in-classic-titlebar-and-ssd-modes.patch`: Leafs hid
