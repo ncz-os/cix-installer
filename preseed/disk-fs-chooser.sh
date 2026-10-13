@@ -298,7 +298,13 @@ log "TARGET DISK = $CHOSEN_DISK   ROOT FS = $CHOSEN_FS"
 # KVM gate) skip this and only log.
 if [ -z "$OVR_DISK" ] || [ -z "$OVR_FS" ]; then
     _ncz_sel=$(tr -d ' \t\r\n' < /tmp/ncz-components 2>/dev/null || true)
-    case ",$_ncz_sel," in *",rescue-partition,"*|",,") _ncz_resc=yes ;; *) _ncz_resc=no ;; esac
+    # Same rule as the recipe below (a readable record decides; only a missing one means "yes"), so this screen never
+    # promises a rescue partition the recipe drops, or the reverse.
+    if [ -r /tmp/ncz-components ]; then
+        case ",$_ncz_sel," in *",rescue-partition,"*) _ncz_resc=yes ;; *) _ncz_resc=no ;; esac
+    else
+        _ncz_resc=yes
+    fi
     cat > /tmp/ncz-confirm.templates <<TPL
 Template: ncz/confirm-erase
 Type: boolean

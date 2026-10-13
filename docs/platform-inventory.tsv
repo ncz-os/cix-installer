@@ -404,6 +404,7 @@ build/test-ncz-ui.sh	common	-	ncz-ui.sh tests
 build/check-installer-screens.py	common	-	console-screen content checker
 build/test-installer-screens.sh	common	-	console-screen checker tests
 build/test-installer-flow.sh	common	-	installer dialog flow tests (choosers once per boot, region template, NIC pick)
+build/test-component-selection.sh	common	-	component answer end to end: nothing-ticked is honoured by the selector re-runs and every consumer; dialog failures stop the install
 post-install/98-gpu-health.sh	common	-	never-software-render health check unit (both architectures)
 assets/gpu/ncz-gpu-hw-present	common	-	shared hardware-GPU-present probe
 build/lint-no-software-render.sh	common	-	grep-deny for software-rendering settings
