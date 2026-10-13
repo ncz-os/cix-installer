@@ -107,7 +107,7 @@ driver. This report does not claim to have isolated which.
 - GTK 4.22.4+ds-1
 - wayland-client 1.26.0
 - labwc 0.9.5, wlroots 0.20.2
-- aarch64, CIX Sky1 (Radxa Orion O6N), Mali G720, GLES
+- aarch64, CIX Sky1 (Radxa Orion O6), Mali G720, GLES
 - Debian forky
 
 ## Prior art / links

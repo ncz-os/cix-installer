@@ -6,7 +6,7 @@ release branch. Machine-readable source of truth: `docs/platform-inventory.tsv`.
 
 ## 1. Why
 
-The installer builds two products from one tree: `sky1-arm64` (Radxa Orion O6N /
+The installer builds two products from one tree: `sky1-arm64` (Radxa Orion O6 /
 CIX Sky1, Debian forky arm64) and `amd64` (Apple T2 MacBooks, ASUS/NVIDIA, generic
 x86; feature tags `t2` and `nvidia-cuda` live inside this platform). Nothing in the
 tree says which file belongs to which. Consequences seen in production:

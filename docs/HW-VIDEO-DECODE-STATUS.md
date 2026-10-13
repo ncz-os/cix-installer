@@ -6,7 +6,7 @@
 > decode and offers no VP9/AV1. mpv now defaults to V4L2 M2M, and Chromium NCZ Sky1
 > Edition decodes H.264/VP9/AV1 through V4L2 (it has no VA-API).
 
-**Board:** O6N (Radxa Orion O6 / CIX Sky1), NCZ-OS.
+**Board:** Radxa Orion O6 (CIX Sky1), NCZ-OS.
 **Measured:** 2026-08-05, Chromium/Chrome 151, `cix-vaapi` 1.1.0 sources.
 **Applies to:** the six patches in `docs/upstream-patches/cix-vaapi/`. Without
 them, browser hardware video decode does not work at all on this platform.
@@ -16,7 +16,7 @@ work", vendor-side gap) is accurate for VA-API specifically and remains true.
 There is a SEPARATE, working decode path — the V4L2 stateful decoder
 (`docs/upstream-patches/chromium/README.md`, patch 0001 + the 154-era NXP
 regression fixes) — that DOES decode AV1 (and VP9) correctly today, confirmed
-live 2026-09-22 on O6N with real playback and Chromium's own
+live 2026-09-22 on a Radxa Orion O6 with real playback and Chromium's own
 media-internals log. See that doc for the real, current AV1 status; treat
 this doc's AV1 row as "blocked via VA-API," not "blocked, period."
 

@@ -230,7 +230,7 @@ did not finish: dpkg then leaves it `half-configured`, and the first-boot
 `dpkg --configure -a` in `ncz-firstboot` (ordered before the display
 manager) runs its postinst, and so the build, again.
 
-Measured on PEGASUS (r199, RTX 2060, kernel 7.3.0-rc6, 2026-10-06): the
+Measured on an ASUS laptop with an RTX 2060 (r199, kernel 7.3.0-rc6, 2026-10-06): the
 build failed at install with a compiler error after about 60 s
 (`os-interface.c:3031: error: passing argument 1 of
 'dmem_cgroup_register_region' makes pointer from integer without a cast`,

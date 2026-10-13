@@ -1,7 +1,6 @@
 # t2gmux owns APP000B on T2 hardware
 
-Decision (operator, 2026-10-05, accepted after the U1 patch audit at
-`~/Projects/oc-patch-audit-73/report.md`): the in-kernel `apple_gmux` driver
+Decision (2026-10-05, after an audit of the T2 patch set against 7.3): the in-kernel `apple_gmux` driver
 is blacklisted on Apple T2 hardware. The DKMS `t2gmux` is the sole owner of
 the APP000B function (dGPU mux power control). On non-T2 Macs and PCs the
 in-kernel driver is untouched.
@@ -13,7 +12,7 @@ Two drivers cannot both claim the `APP000B` function on a T2 Mac:
   x86/apple-gmux.c`): supports pre-T2 Apple hardware only. On T2 it loads,
   binds, and never registers a handler for the T2 gmux — leaving the mux
   without an owner until something else (DKMS `t2gmux`, via a load-order
-  race) takes over. On MEDUSA the in-kernel driver was loaded but unbound;
+  race) takes over. On a MacBookPro16,1 the in-kernel driver was loaded but unbound;
   a real boot order flip would surface a duplicate handler.
 - The DKMS `t2gmux` (KaiT2en, `modules/t2gmux`): supports the T2 gmux. Same
   class as t2smp vs in-kernel 9001, but with the opposite outcome — here the

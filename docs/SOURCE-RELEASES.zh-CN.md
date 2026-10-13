@@ -6,6 +6,12 @@
 
 > **🌐 语言：** [English](SOURCE-RELEASES.md) · 简体中文
 
+> **26.10 "Cygnus" Preview 1 说明：** 本中文页面尚未随 26.10 完整更新，以
+> [英文版](SOURCE-RELEASES.md)为准。Preview 1 每个镜像只带一个内核：arm64 为
+> `7.3.0-rc7-sky1-ncz`，amd64 为 `7.3.0-rc7-t2-ncz`（默认、安装程序与救援启动项共用）。
+> 各组件的版本与源码位置见英文版的 "Components built from source in 26.10
+> "Cygnus" Preview 1" 一节。下文描述的是 26.7（2026.08.18-v12）。
+
 NCZ-OS 分发 GPL/LGPL 软件，并从修改过的源码构建若干组件。本页是**所发布镜像中一切
 由我们自行编译的内容**的权威索引，并给出各自的源码位置。
 
@@ -44,7 +50,7 @@ NCZ-OS 分发 GPL/LGPL 软件，并从修改过的源码构建若干组件。本
 
 **源码就在本仓库的 [`kernel-source/`](../kernel-source/SOURCE.md) 目录下。** 该目录
 是所发布内核的对应源码：300 个文件（9.3 MB）、286 个补丁文件（其中 **176 个接入配方
-的 `SRC_URI`**）、`config-7.2-lean-msr1-o6n.defconfig`，以及锁定的上游基线版本及其
+的 `SRC_URI`**）、7.2 精简 defconfig（`config-7.2-lean-*.defconfig`），以及锁定的上游基线版本及其
 kernel.org 提交哈希。它不依赖 GitLab 软件包注册表。
 
 补丁按 **`SRC_URI` 顺序**应用——**而非文件名顺序**。`build/port-series.sh` 会校验

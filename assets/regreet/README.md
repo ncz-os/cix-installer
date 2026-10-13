@@ -25,7 +25,7 @@ greeter is no longer wired in) onto the build host:
 
 ```bash
 # from .66:
-scp jasonperlow@192.168.207.66:/tmp/regreet assets/regreet/regreet
+scp <user>@<sky1-build-board>:/tmp/regreet assets/regreet/regreet
 chmod 0755 assets/regreet/regreet
 # sha256: 62da36964f4a9dd3bb2653fdb2c90425b9c883a88400016687e8772ca40cd5e5
 ```
