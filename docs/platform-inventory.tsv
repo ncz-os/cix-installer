@@ -8,6 +8,7 @@ README.md	common	-	readme
 README.zh-CN.md	common	-	readme
 assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
+build/test-publish-release-gitlab.sh	common	-	mocked-curl regression test for tools/publish-release-gitlab.sh (dry run, sha256 verification, refusals, idempotent re-run, retention, token handling)
 build/test-ncz-cli-basics.sh	common	-	shell-level test for the embedded ncz CLI (parses, help, exit codes, status on non-systemd hosts)
 build/test-ncz-cli-embedder.sh	common	-	embedder/model-pull/status wiring for ncz install mnemos (HuggingFace sha256, SQLite backfill, status labels)
 build/test-ncz-cli-install-zoder.sh	common	-	ncz install zoder guards (arch dispatch, pinned sha256, smoke test, offline diagnostic, public-safe config template)
@@ -401,6 +402,7 @@ tools/	common	-	dev tools
 tools/kvm-smoke.sh	sky1	-	aarch64 KVM kernel smoke test on the MS-R1
 tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
 tools/ncz-join-image.sh	common	-	join, unpack and verify the split release image parts (never writes to a disk)
+tools/publish-release-gitlab.sh	common	-	upload a staged release (parts, checksums, join script) to the GitLab generic package registry with sha256 verification and link the files from the GitLab release; --dry-run, --prune-old
 tools/verify-drivers.sh	sky1	-	Sky1 driver fidelity check
 build/test-sky1-audio-policy.sh	sky1	-	Sky1 audio default-sink policy fixture tests
 build/testdata/sky1-audio/	sky1	-	fake pactl/aplay/pw-dump/amixer for the Sky1 audio autoswitch daemon-loop tests

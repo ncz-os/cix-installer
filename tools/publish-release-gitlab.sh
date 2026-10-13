@@ -1,0 +1,321 @@
+#!/bin/bash
+# publish-release-gitlab.sh - host a staged release on the GitLab generic
+# package registry and attach the files to the GitLab release of a tag.
+#
+# Usage:
+#   tools/publish-release-gitlab.sh --dir DIR --tag TAG [options]
+#
+# DIR is a staged release folder holding the split image parts
+# (ncz-os-<arch>-<date>-<sha>.img.zst.part-NN), PARTS.sha256, SHA256SUMS and
+# ncz-join-image.sh. Every part is checked against PARTS.sha256 before
+# anything is sent. Each file is uploaded to
+#   <api>/projects/<id>/packages/generic/<package>/<version>/<file>
+# and the sha256 the registry reports must equal the local one. A file that
+# is already in that package version with the same sha256 is not sent again.
+# The GitLab release for TAG is then created (or its name/notes updated) and
+# gets one asset link per file; existing links with the same name are updated.
+# The tag must already exist: this tool never creates tags.
+#
+# Options:
+#   --dir DIR         staged release folder (required)
+#   --tag TAG         existing git tag the release belongs to (required)
+#   --project PATH    project path or numeric id (default ncz-os/cix-installer,
+#                     or $NCZ_GITLAB_PROJECT)
+#   --package NAME    generic package name (default ncz-os-image)
+#   --version VER     package version (default: TAG without a leading "v")
+#   --name TEXT       release title (default: TAG)
+#   --notes FILE      Markdown file used as the release description
+#   --api URL         API base (default https://gitlab.com/api/v4, or
+#                     $NCZ_GITLAB_API)
+#   --prune-old       after publishing, delete older versions of the package,
+#                     keeping the newest --keep versions (the one just
+#                     published always counts as kept), and remove the asset
+#                     links of other releases that point at a deleted version
+#   --keep N          versions kept by --prune-old (default 1)
+#   --dry-run         read-only: check the folder, query the API when a token
+#                     is available, print every change that would be made
+#   -h, --help        this text
+#
+# Token: never passed on a command line or printed. It is read from the
+# command named by $NCZ_GITLAB_TOKEN_HELPER (run with no arguments, like
+# GIT_ASKPASS; its stdout is the token), otherwise from the environment
+# variable whose NAME is in $NCZ_GITLAB_TOKEN_VAR (default GITLAB_TOKEN).
+# It reaches curl on stdin as a config file. The token needs the api scope.
+#
+# Limits: $NCZ_GITLAB_MAX_FILE_BYTES (default 5 GiB, the GitLab.com generic
+# package file limit) is checked per file before upload.
+#
+# Exit codes: 0 ok, 1 API or verification failure, 2 usage or input error.
+set -euo pipefail
+
+API="${NCZ_GITLAB_API:-https://gitlab.com/api/v4}"
+PROJECT="${NCZ_GITLAB_PROJECT:-ncz-os/cix-installer}"
+PACKAGE="ncz-os-image"
+DIR=""; TAG=""; VERSION=""; NAME=""; NOTES=""
+PRUNE=0; KEEP=1; DRY=0
+MAX_BYTES="${NCZ_GITLAB_MAX_FILE_BYTES:-5368709120}"
+
+usage() { sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; }
+die() { echo "ERROR: $1" >&2; exit "${2:-1}"; }
+udie() { die "$*" 2; }
+log() { echo "$*"; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dir) DIR=${2:?--dir needs a folder}; shift 2 ;;
+    --tag) TAG=${2:?--tag needs a tag}; shift 2 ;;
+    --project) PROJECT=${2:?}; shift 2 ;;
+    --package) PACKAGE=${2:?}; shift 2 ;;
+    --version) VERSION=${2:?}; shift 2 ;;
+    --name) NAME=${2:?}; shift 2 ;;
+    --notes) NOTES=${2:?}; shift 2 ;;
+    --api) API=${2:?}; shift 2 ;;
+    --prune-old) PRUNE=1; shift ;;
+    --keep) KEEP=${2:?}; shift 2 ;;
+    --dry-run) DRY=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) udie "unknown argument: $1 (try --help)" ;;
+  esac
+done
+
+[ -n "$DIR" ] || udie "--dir is required"
+[ -n "$TAG" ] || udie "--tag is required"
+[ -d "$DIR" ] || udie "not a folder: $DIR"
+[ -z "$NOTES" ] || [ -r "$NOTES" ] || udie "cannot read notes file: $NOTES"
+case "$KEEP" in ''|*[!0-9]*) udie "--keep needs a number" ;; esac
+[ "$KEEP" -ge 1 ] || udie "--keep must be at least 1"
+case "$MAX_BYTES" in ''|*[!0-9]*) udie "NCZ_GITLAB_MAX_FILE_BYTES must be a number" ;; esac
+[ -n "$VERSION" ] || VERSION=${TAG#v}
+[ -n "$NAME" ] || NAME=$TAG
+# Registry naming rules (generic packages): name and file [A-Za-z0-9._+~-],
+# version made of word characters, '.', '+' and '-'.
+printf '%s' "$PACKAGE" | grep -Eq '^[A-Za-z0-9._+~-]+$' || udie "invalid package name: $PACKAGE"
+printf '%s' "$VERSION" | grep -Eq '^[A-Za-z0-9_.+-]+$' || udie "invalid package version: $VERSION"
+API=${API%/}
+for t in jq curl; do command -v "$t" >/dev/null 2>&1 || udie "$t is required"; done
+if command -v sha256sum >/dev/null 2>&1; then sha() { sha256sum "$1" | cut -d' ' -f1; }
+elif command -v shasum >/dev/null 2>&1; then sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
+else udie "need sha256sum or shasum"; fi
+fsize() { wc -c < "$1" | tr -d ' '; }
+uri() { jq -rn --arg s "$1" '$s|@uri'; }
+
+# ---- the staged folder ------------------------------------------------------
+[ -f "$DIR/PARTS.sha256" ] || udie "PARTS.sha256 not found in $DIR"
+[ -f "$DIR/SHA256SUMS" ] || udie "SHA256SUMS not found in $DIR"
+[ -f "$DIR/ncz-join-image.sh" ] || udie "ncz-join-image.sh not found in $DIR"
+
+FILES=()
+while read -r want name; do
+  [ -n "${name:-}" ] || continue
+  name=${name#\*}
+  case "$name" in */*|'') udie "PARTS.sha256 entry is not a plain file name: $name" ;; esac
+  printf '%s' "$name" | grep -Eq '^[A-Za-z0-9._+~-]+$' || udie "file name not allowed by the registry: $name"
+  [ -f "$DIR/$name" ] || udie "part listed in PARTS.sha256 is missing: $name"
+  got=$(sha "$DIR/$name")
+  [ "$got" = "$want" ] || udie "checksum mismatch for $name (PARTS.sha256 $want, file $got)"
+  FILES+=("$name")
+done < "$DIR/PARTS.sha256"
+[ "${#FILES[@]}" -gt 0 ] || udie "PARTS.sha256 lists no parts"
+for p in "$DIR"/*.img.zst.part-*; do
+  [ -e "$p" ] || continue
+  b=${p##*/}
+  printf '%s\n' "${FILES[@]}" | grep -qxF -- "$b" || udie "part not listed in PARTS.sha256: $b"
+done
+FILES+=(PARTS.sha256 SHA256SUMS ncz-join-image.sh)
+
+declare -A LSHA=()
+for f in "${FILES[@]}"; do
+  s=$(fsize "$DIR/$f")
+  [ "$s" -le "$MAX_BYTES" ] || udie "$f is $s bytes, over the $MAX_BYTES byte file limit"
+  LSHA[$f]=$(sha "$DIR/$f")
+done
+log "Release folder: $DIR (${#FILES[@]} files, parts verified against PARTS.sha256)"
+log "Package: $PACKAGE $VERSION   Tag: $TAG   Project: $PROJECT"
+
+# ---- token and API helpers --------------------------------------------------
+TOKEN=""
+if [ -n "${NCZ_GITLAB_TOKEN_HELPER:-}" ]; then
+  TOKEN=$("$NCZ_GITLAB_TOKEN_HELPER") || die "token helper failed"
+else
+  tv=${NCZ_GITLAB_TOKEN_VAR:-GITLAB_TOKEN}
+  printf '%s' "$tv" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*$' || udie "NCZ_GITLAB_TOKEN_VAR is not a variable name"
+  TOKEN=${!tv:-}
+fi
+TOKEN=$(printf '%s' "$TOKEN" | tr -d '\r\n')
+case "$TOKEN" in *'"'*|*\\*) die "token contains characters that cannot be passed safely" ;; esac
+if [ -z "$TOKEN" ]; then
+  [ "$DRY" -eq 1 ] || die "no token (set NCZ_GITLAB_TOKEN_HELPER or NCZ_GITLAB_TOKEN_VAR)" 2
+  log "No token: dry run without API lookups."
+fi
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/glpub.XXXXXX")
+trap 'rm -rf "$WORK"' EXIT
+BODY="$WORK/body"
+
+# api METHOD URL [json-body-file | --upload FILE]  ->  response in $BODY, code on stdout
+api() {
+  local m=$1 url=$2; shift 2
+  local extra=()
+  if [ $# -gt 0 ]; then
+    if [ "$1" = --upload ]; then extra=(-T "$2"); else extra=(-H 'Content-Type: application/json' --data-binary "@$1"); fi
+  fi
+  printf 'header = "PRIVATE-TOKEN: %s"\n' "$TOKEN" |
+    curl -sS -K - -X "$m" -o "$BODY" -w '%{http_code}' "${extra[@]}" "$url" || echo 000
+}
+# get URL  ->  fails unless 200
+get() { local c; c=$(api GET "$1"); [ "$c" = 200 ] || die "GET $1 returned HTTP $c: $(head -c 300 "$BODY")"; }
+# mutate METHOD URL [body]: obeys --dry-run
+mutate() {
+  local m=$1 url=$2 c; shift 2
+  if [ "$DRY" -eq 1 ]; then log "  [dry-run] $m $url"; return 0; fi
+  c=$(api "$m" "$url" "$@")
+  case "$c" in 2??) return 0 ;; esac
+  die "$m $url returned HTTP $c: $(head -c 300 "$BODY")"
+}
+# all pages of a list endpoint as one JSON array
+get_all() {
+  local url=$1 page=1 sep acc="$WORK/acc.json"
+  echo '[]' > "$acc"
+  case "$url" in *\?*) sep='&' ;; *) sep='?' ;; esac
+  while :; do
+    get "${url}${sep}per_page=100&page=$page"
+    jq -s '.[0] + .[1]' "$acc" "$BODY" > "$acc.n" && mv "$acc.n" "$acc"
+    [ "$(jq 'length' "$BODY")" -ge 100 ] || break
+    page=$((page+1))
+  done
+  cat "$acc"
+}
+
+ONLINE=0; [ -n "$TOKEN" ] && ONLINE=1
+PENC=$(uri "$PROJECT")
+PID=$PENC
+if [ "$ONLINE" -eq 1 ]; then
+  get "$API/projects/$PENC"
+  PID=$(jq -r '.id' "$BODY")
+  case "$PID" in ''|null|*[!0-9]*) die "could not resolve project $PROJECT" ;; esac
+  c=$(api GET "$API/projects/$PID/repository/tags/$(uri "$TAG")")
+  [ "$c" = 200 ] || die "tag $TAG does not exist in $PROJECT (HTTP $c); create and push the tag first" 2
+fi
+PKGBASE="$API/projects/$PID/packages/generic/$PACKAGE/$VERSION"
+
+# ---- uploads ----------------------------------------------------------------
+# existing files of this package version: name -> sha256 (newest wins)
+declare -A RSHA=()
+PKGID=""
+if [ "$ONLINE" -eq 1 ]; then
+  get_all "$API/projects/$PID/packages?package_type=generic&package_name=$(uri "$PACKAGE")" > "$WORK/pkgs.json"
+  PKGID=$(jq -r --arg n "$PACKAGE" --arg v "$VERSION" '[.[] | select(.name==$n and .version==$v)][0].id // empty' "$WORK/pkgs.json")
+  if [ -n "$PKGID" ]; then
+    get_all "$API/projects/$PID/packages/$PKGID/package_files" > "$WORK/files.json"
+    while read -r n s; do RSHA[$n]=$s; done < <(jq -r 'sort_by(.id)[] | "\(.file_name) \(.file_sha256)"' "$WORK/files.json")
+  fi
+fi
+
+for f in "${FILES[@]}"; do
+  want=${LSHA[$f]}
+  if [ "${RSHA[$f]:-}" = "$want" ]; then log "  present  $f"; continue; fi
+  if [ "$DRY" -eq 1 ]; then log "  [dry-run] upload $f ($(fsize "$DIR/$f") bytes) -> $PKGBASE/$f"; continue; fi
+  ok=0
+  for attempt in 1 2 3; do
+    c=$(api PUT "$PKGBASE/$(uri "$f")?select=package_file" --upload "$DIR/$f")
+    if [ "$c" = 200 ] || [ "$c" = 201 ]; then
+      got=$(jq -r '.file_sha256 // empty' "$BODY")
+      if [ "$got" = "$want" ]; then ok=1; break; fi
+      echo "  sha256 from the registry for $f is '$got', expected $want (attempt $attempt)" >&2
+    else
+      echo "  upload of $f returned HTTP $c (attempt $attempt): $(head -c 200 "$BODY")" >&2
+    fi
+  done
+  [ "$ok" -eq 1 ] || die "upload of $f failed verification"
+  log "  uploaded $f ($want)"
+done
+
+# Keep exactly one file per name in this version: drop older duplicates so a
+# download can only ever return the verified file.
+if [ "$DRY" -eq 0 ]; then
+  get_all "$API/projects/$PID/packages?package_type=generic&package_name=$(uri "$PACKAGE")" > "$WORK/pkgs.json"
+  PKGID=$(jq -r --arg n "$PACKAGE" --arg v "$VERSION" '[.[] | select(.name==$n and .version==$v)][0].id // empty' "$WORK/pkgs.json")
+  [ -n "$PKGID" ] || die "package $PACKAGE $VERSION not found after upload"
+  get_all "$API/projects/$PID/packages/$PKGID/package_files" > "$WORK/files.json"
+  for f in "${FILES[@]}"; do
+    newest=$(jq -r --arg n "$f" --arg s "${LSHA[$f]}" '[.[] | select(.file_name==$n and .file_sha256==$s)] | max_by(.id) | .id // empty' "$WORK/files.json")
+    [ -n "$newest" ] || die "$f with sha256 ${LSHA[$f]} is not in $PACKAGE $VERSION"
+    for old in $(jq -r --arg n "$f" --argjson k "$newest" '.[] | select(.file_name==$n and .id!=$k) | .id' "$WORK/files.json"); do
+      mutate DELETE "$API/projects/$PID/packages/$PKGID/package_files/$old"
+      log "  removed older copy of $f (file id $old)"
+    done
+  done
+fi
+
+# ---- release and links ------------------------------------------------------
+TENC=$(uri "$TAG")
+jq -n --arg t "$TAG" --arg n "$NAME" --rawfile d "${NOTES:-/dev/null}" \
+  '{tag_name:$t, name:$n} + (if $d == "" then {} else {description:$d} end)' > "$WORK/rel.json"
+HAVE_REL=0
+if [ "$ONLINE" -eq 1 ]; then
+  c=$(api GET "$API/projects/$PID/releases/$TENC")
+  case "$c" in
+    200) HAVE_REL=1; jq '.assets.links' "$BODY" > "$WORK/links.json" ;;
+    404) echo '[]' > "$WORK/links.json" ;;
+    *) die "GET release $TAG returned HTTP $c" ;;
+  esac
+else
+  echo '[]' > "$WORK/links.json"
+fi
+if [ "$HAVE_REL" -eq 1 ]; then
+  log "Release $TAG exists: updating title${NOTES:+ and notes}"
+  mutate PUT "$API/projects/$PID/releases/$TENC" "$WORK/rel.json"
+else
+  log "Creating release $TAG"
+  mutate POST "$API/projects/$PID/releases" "$WORK/rel.json"
+fi
+
+for f in "${FILES[@]}"; do
+  url="$PKGBASE/$f"
+  case "$f" in *.part-*) lt=package ;; *) lt=other ;; esac
+  jq -n --arg n "$f" --arg u "$url" --arg p "/$f" --arg l "$lt" \
+    '{name:$n, url:$u, direct_asset_path:$p, link_type:$l}' > "$WORK/link.json"
+  lid=$(jq -r --arg n "$f" '[.[] | select(.name==$n)][0].id // empty' "$WORK/links.json")
+  if [ -z "$lid" ]; then
+    mutate POST "$API/projects/$PID/releases/$TENC/assets/links" "$WORK/link.json"
+    log "  link added   $f"
+  elif [ "$(jq -r --arg n "$f" '[.[] | select(.name==$n)][0].url' "$WORK/links.json")" != "$url" ]; then
+    mutate PUT "$API/projects/$PID/releases/$TENC/assets/links/$lid" "$WORK/link.json"
+    log "  link updated $f"
+  else
+    log "  link ok      $f"
+  fi
+done
+
+# ---- retention ----------------------------------------------------------------
+if [ "$PRUNE" -eq 1 ]; then
+  if [ "$ONLINE" -eq 0 ]; then
+    log "Prune: skipped (no token)"
+  else
+    get_all "$API/projects/$PID/packages?package_type=generic&package_name=$(uri "$PACKAGE")" > "$WORK/pkgs.json"
+    # newest first by creation; the version just published is always kept
+    jq -r --arg n "$PACKAGE" --arg v "$VERSION" --argjson k "$KEEP" '
+      [.[] | select(.name==$n)] | sort_by(.created_at) | reverse as $all
+      | ([$all[] | select(.version==$v)] + [$all[] | select(.version!=$v)])
+      | .[$k:][] | "\(.id) \(.version)"' "$WORK/pkgs.json" > "$WORK/prune.txt"
+    if [ ! -s "$WORK/prune.txt" ]; then
+      log "Prune: nothing older than the newest $KEEP version(s) of $PACKAGE"
+    else
+      get_all "$API/projects/$PID/releases" > "$WORK/rels.json"
+      while read -r id ver; do
+        prefix="/packages/generic/$PACKAGE/$ver/"
+        jq -r --arg p "$prefix" --arg t "$TAG" '.[] | select(.tag_name != $t) | .tag_name as $tg
+          | .assets.links[] | select(.url | contains($p)) | "\($tg) \(.id) \(.name)"' "$WORK/rels.json" |
+        while read -r tg lid lname; do
+          mutate DELETE "$API/projects/$PID/releases/$(uri "$tg")/assets/links/$lid"
+          log "  link removed from $tg: $lname"
+        done
+        mutate DELETE "$API/projects/$PID/packages/$id"
+        log "  package version removed: $PACKAGE $ver (id $id)"
+      done < "$WORK/prune.txt"
+    fi
+  fi
+fi
+
+if [ "$DRY" -eq 1 ]; then log "Dry run: nothing was changed."
+else log "Done: $PACKAGE $VERSION published for release $TAG."; fi
