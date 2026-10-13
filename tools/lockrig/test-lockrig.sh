@@ -137,5 +137,13 @@ grep -q 'PubkeyAuthentication=no' "$HERE/lockrig" && ok "password hosts skip age
 out=$(bash -c 'set -u; ATT=(); n=0; for x in ${ATT[@]+"${ATT[@]}"}; do n=1; done; echo ok' 2>&1)
 [ "$out" = ok ] && grep -q 'for name in ${ATT\[@\]+"${ATT\[@\]}"}' "$HERE/lockrig" && ok "no attended hosts: loop is safe under set -u" || bad "attended loop unsafe under set -u ($out)"
 
+echo "== logind lock cases =="
+grep -q 'loginctl lock-session "$SID"' "$R" && ok "T16 drives loginctl lock-session on the seat0 session" || bad "T16 missing"
+grep -q 'LogindLock: following /org/freedesktop/login1/session/$SID' "$R" && ok "T16 waits for the shell to follow the session" || bad "T16 does not wait for the listener"
+grep -q 'rec T16b PASS' "$R" && grep -q 'pgrep -fc "/opt/singularity/bin/singularity-lockscreen"' "$R" && ok "T16b counts lock clients after a repeated lock-session" || bad "T16b missing"
+grep -q 'Lock the screen before the system sleeps' "$R" && ok "T17 looks for the shell sleep delay inhibitor" || bad "T17 missing"
+grep -q 'LOCKRIG_SUSPEND:-0}" = 1' "$R" && grep -q 'rtcwake -m no' "$R" && ok "real suspend (T17s) is opt-in and needs an RTC wake alarm" || bad "T17s not gated"
+grep -q 'T16 T16b T17 T17s' "$HERE/report.sh" && ok "report orders the logind cases" || bad "report.sh order lacks T16..T17s"
+
 echo "== LOCKRIG SUMMARY pass=$PASS fail=$FAIL =="
 [ "$FAIL" = 0 ]

@@ -4,7 +4,7 @@
 #   lockrig run --hosts a,b,c [--candidate-dir DIR | --from-apt]
 #                [--allow-attended] [--skip-install] [--out DIR]
 #
-# Runs the controlled test cases (T1..T15) per host: preflight, optional install,
+# Runs the controlled test cases (T1..T17) per host: preflight, optional install,
 # session restart if the shell changed, the controlled test, evidence collection,
 # RESTORE and lease release. Hosts run in PARALLEL with each other but SERIALLY
 # within a host. Attended hosts (a human is physically present) require
