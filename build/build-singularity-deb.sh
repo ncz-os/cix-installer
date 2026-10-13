@@ -158,6 +158,12 @@ apply_depends_floors() {  # depends arch floors-file -> depends
                 *'|'*) ;;   # an alternative group is left alone
                 "$p"|"$p "*|"$p("*)
                     found=1
+                    # Only an unversioned entry or a ">=" constraint may be raised; any
+                    # other relation (=, <<, <=, >>) is not ours to rewrite.
+                    case "$e" in
+                        "$p"|*'(>='*) ;;
+                        *) echo "ERROR: Depends entry '$e' has a relation other than >=; refusing to apply the $p floor" >&2; return 1 ;;
+                    esac
                     cur="$(printf '%s' "$e" | sed -n 's/^[^(]*(>=[[:space:]]*\([^)]*\)).*/\1/p' | sed 's/[[:space:]]*$//')"
                     if [ -n "$cur" ] && dpkg --compare-versions "$cur" ge "$v"; then :; else e="$p (>= $v)"; fi ;;
             esac

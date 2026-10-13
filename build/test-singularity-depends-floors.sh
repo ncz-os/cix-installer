@@ -61,6 +61,12 @@ d="$(build arm64 'libc6, libgtk-4-1')" || bad "missing-entry build failed"
 d="$(build arm64 'libc6, libgtk4-layer-shell0 | libfoo, libgtk-4-1')" || bad "alternative build failed"
 case "$d" in "libc6, libgtk4-layer-shell0 | libfoo, libgtk-4-1, $FLOOR") ok "an alternative group is left alone (floor added separately)" ;; *) bad "alternative group handling" "$d" ;; esac
 
+for rel in '= 1.3.0-1' '<< 2.0' '<= 1.3.0-1+b1' '>> 1.0'; do
+    build arm64 "libc6, libgtk4-layer-shell0 ($rel)" >/dev/null 2>&1 \
+        && bad "a ($rel) constraint was silently rewritten" || ok "a ($rel) constraint on the floored package fails the build"
+done
+grep -q "relation other than >=" "$T/build.log" && ok "  message names the relation" || bad "  message" "$(cat "$T/build.log")"
+
 printf '# empty\n' > "$T/nofloors.tsv"
 d="$(build arm64 "$BASE" "$T/nofloors.tsv")" || bad "negative-control build failed"
 [ "$d" = "$BASE" ] && ok "negative control: without the floor row arm64 keeps (>= 1.0.2) (the Preview 1 gap)" || bad "negative control changed Depends" "$d"
