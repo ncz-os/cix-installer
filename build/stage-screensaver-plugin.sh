@@ -37,7 +37,7 @@ for arch in "$@"; do
     case "$arch" in amd64|arm64) ;; *) ssp_err "FATAL: unknown arch '$arch'"; exit 2 ;; esac
     ssplugin_load_lock "$LOCK" "$arch" || exit 1
     name="${SSP_PKG}_${SSP_VERSION}_${arch}.deb"
-    src="$SRC_ROOT/$SSP_ARGONAS_DIR/$name"
+    src="$SRC_ROOT/$SSP_STORE_DIR/$name"
     if [ ! -s "$src" ]; then ssp_err "FATAL: $src missing (pin: $LOCK)"; rc=1; continue; fi
     got="$(ssp_sha256 "$src")"
     if [ "$got" != "$SSP_SHA256" ]; then
