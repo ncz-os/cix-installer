@@ -2,15 +2,15 @@
 # NCZ-MIXED-HOOK: telnet/journald generic; serial-getty ttyAMA0 enable gated on arm64 (lines ~198-210); TODO split UART part (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
 # 36-telemetry.sh — maximum-telemetry + lockout-prevention console.
 #
-# Operator requirement (2026-06-01): "telnetd enabled by default with
-# loghost to .22, I want all possible telemetry for debug."
+# Operator requirement (2026-06-01): telnetd enabled by default, optional
+# off-box log forwarding, all possible telemetry for debug.
 #
 # This hook makes a freshly-installed cixmini observable + recoverable
 # from day zero, on BOTH the Desktop and Server SKUs — telemetry is
 # variant-agnostic, so there is no variant gate.
 #
 # It sets up four things:
-#   1. telnetd on TCP 23 (CLAUDE.md directive 9 — LAN-only lockout
+#   1. telnetd on TCP 23 (project directive — LAN-only lockout
 #      prevention; backup console when sshd hangs / has bad config).
 #   2. Persistent journald (Storage=persistent) so logs survive the
 #      reboot and can be read from rescue.target afterwards. Forwarding
@@ -26,6 +26,9 @@
 # drop-in, 4=serial getty. The header "four things" intentionally lists only
 # the three persistent-state changes (telnet, journald, getty); the rsyslog
 # opt-in is a conditional fifth, only relevant when /etc/ncz-loghost is set.
+# /etc/ncz-loghost holds a log host address; the literal "default" means
+# NCZ_DEFAULT_LOGHOST (empty unless set in the hook environment), and an
+# empty value forwards nowhere.
 #
 # Failure-tolerant: this is a Phase 2 optional hook. Each step is
 # wrapped so a single missing package can't abort the install. Runs in
@@ -37,7 +40,7 @@ set +e
 
 echo "[36] telemetry + lockout-prevention console"
 
-LOGHOST="192.168.207.22"   # ARGOS — fleet loghost (stays up while a target wedges)
+LOGHOST="${NCZ_DEFAULT_LOGHOST:-}"   # host used when /etc/ncz-loghost says "default"; empty = forward nowhere
 
 # ----------------------------------------------------------------------
 # 1. telnetd on :23  (directive 9 — LAN-only backup console)
@@ -46,7 +49,7 @@ LOGHOST="192.168.207.22"   # ARGOS — fleet loghost (stays up while a target we
 # busybox-telnetd systemd socket unit (busybox is in every base rootfs).
 echo "[36] installing telnetd (backup console on :23)"
 # timeout-wrapped: a hung/slow mirror must not stall the whole install.
-# set +e is active, so a timeout just skips this optional step (Codex nit).
+# set +e is active, so a timeout just skips this optional step (review nit).
 timeout 300 env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     inetutils-telnetd openbsd-inetd 2>&1 | tail -3
 
@@ -109,7 +112,7 @@ fi
 # The installed system is JOURNALD-ONLY: rsyslog is apt-purged in
 # 58-boot-hygiene.sh because we have nothing that needs its legacy
 # /var/log/{syslog,messages} files. When the operator wants to ship logs
-# off-box (doctrine: forward to ARGOS @ 192.168.207.22 for the fleet),
+# off-box (e.g. a lab log host),
 # they drop /etc/ncz-loghost with the loghost IP (or "default"); this
 # hook then installs rsyslog, sets journald ForwardToSyslog=yes so
 # journald feeds the legacy unix socket, and writes the omfwd action.
@@ -125,7 +128,10 @@ rm -f /etc/rsyslog.d/90-loghost.conf
 FWD_HOST=""
 if [ -r /etc/ncz-loghost ]; then
     FWD_HOST=$(tr -d ' \t\r\n' < /etc/ncz-loghost)
-    [ "$FWD_HOST" = "default" ] && FWD_HOST="$LOGHOST"
+    if [ "$FWD_HOST" = "default" ]; then
+        FWD_HOST="$LOGHOST"
+        [ -n "$FWD_HOST" ] || echo "[36] /etc/ncz-loghost says 'default' but NCZ_DEFAULT_LOGHOST is empty: not forwarding (write the log host address into /etc/ncz-loghost instead)"
+    fi
 fi
 if [ -n "$FWD_HOST" ]; then
     # BEGIN rsyslog-status
@@ -196,7 +202,7 @@ echo "[36] journald set persistent (Storage=persistent, ForwardToSyslog=${FWD_SY
 # instantly and a serial login is still available for debugging.
 # ----------------------------------------------------------------------
 # ARCH GATE (2026-09-28). ttyAMA* is the ARM PL011 UART and does not exist on
-# x86. Measured on CHIMERA (MacBookPro16,1, amd64): this hook enabled
+# x86. Measured on T2 Mac A (MacBookPro16,1, amd64): this hook enabled
 # serial-getty@ttyAMA0, whose BindsTo dev-ttyAMA0.device never resolves, so
 # `systemctl list-jobs` showed dev-ttyAMA0.device start running with
 # getty.target -> multi-user.target -> graphical.target all queued behind it and
