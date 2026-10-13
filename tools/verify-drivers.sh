@@ -1,6 +1,6 @@
 #!/bin/bash
 # verify-drivers.sh — full driver fidelity check for a freshly-installed
-# cixmini (CIX Sky1) running 7.0.12-cix-sky1-next. Run as root on the target.
+# CIX Sky1 board running 7.0.12-cix-sky1-next. Run as root on the target.
 # Prints PASS/FAIL per subsystem. Audio is expected FAIL (known-open).
 GRN=$'\e[32m'; RED=$'\e[31m'; YEL=$'\e[33m'; RST=$'\e[0m'
 pass(){ echo "${GRN}PASS${RST} $*"; }

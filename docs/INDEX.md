@@ -2,7 +2,7 @@
 
 Every Markdown document in this repository, for NCZ-OS 26.10 "Cygnus". The
 [README](../README.md) is the starting point; the current release notes are
-[26.10 "Cygnus" Preview 1](releases/26.10-cygnus-preview1.md). Documents from
+[26.10 "Cygnus"](releases/26.10-cygnus-20261013.md) (images of 2026-10-13). Documents from
 earlier releases (dated reports, plans and evidence) were removed from the tree
 for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 
@@ -11,7 +11,8 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | Document | What it covers |
 |---|---|
 | [README](../README.md) · [简体中文](../README.zh-CN.md) | What NCZ-OS is, hardware tested, installing an image, building, architecture, screenshots |
-| [releases/26.10-cygnus-preview1.md](releases/26.10-cygnus-preview1.md) | Release notes for 26.10 Preview 1: images, kernels, what is new, tested hardware, known limitations |
+| [releases/26.10-cygnus-20261013.md](releases/26.10-cygnus-20261013.md) | Release notes for 26.10 (images of 2026-10-13): images and checksums, kernels, what is in the release, changes since Preview 1, tested hardware |
+| [releases/26.10-cygnus-preview1.md](releases/26.10-cygnus-preview1.md) | Release notes for 26.10 Preview 1 (2026-10-12), kept for reference |
 | [releases/26.10-cygnus.md](releases/26.10-cygnus.md) | Where the name "Cygnus" comes from, and the 26.10 identity and theme |
 | [RELEASE-HISTORY.md](RELEASE-HISTORY.md) | Short release history; per-release archive up to 26.7 |
 | [SOURCE-RELEASES.md](SOURCE-RELEASES.md) · [简体中文](SOURCE-RELEASES.zh-CN.md) | Everything we compile ourselves, its version and where the source is |

@@ -32,7 +32,7 @@ ENV = {**os.environ, "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
        "LC_ALL": "C", "LANG": "C"}
 # A distro-wide G_MESSAGES_DEBUG setting makes gsettings write diagnostic
 # lines to stdout ahead of the GVariant value, corrupting this machine-readable
-# subprocess boundary (observed on cixmini).
+# subprocess boundary (observed on a Sky1 board).
 ENV.pop("G_MESSAGES_DEBUG", None)
 
 

@@ -1,6 +1,6 @@
 # installer-base.pkgs — always-on core toolset for the INSTALLED system + installer env
 #
-# Target: Debian Testing (Forky) arm64 / cixmini MS-R1 + Orion O6/O6N.
+# Target: Debian Testing (Forky) arm64 / Minisforum MS-R1 + Radxa Orion O6/O6N.
 # Scope:  packages that must be present on every installed NCZ-OS box AND in the
 #         installer runtime (esp. the new r130 choose-disk flow needs reliable
 #         lsblk/blkid/parted/nvme-cli to enumerate and label targets).
@@ -10,8 +10,8 @@
 # Consume with:  grep -vE '^\s*(#|$)' manifests/installer-base.pkgs
 #
 # NOTE: remote-access (openssh-server, inetutils-telnetd/openbsd-inetd, busybox)
-#       is already provisioned by post-install/36-telemetry.sh + 35-ssh.sh per
-#       CLAUDE.md directive 9; listed here only to document the contract.
+#       is already provisioned by post-install/36-telemetry.sh + 35-ssh.sh
+#       (see docs/REMOTE-ACCESS.md); listed here only to document the contract.
 
 # --- initramfs builder ---------------------------------------------------
 # dracut is the PRIMARY initramfs builder as of 26.7 (metal-validated on O6N,

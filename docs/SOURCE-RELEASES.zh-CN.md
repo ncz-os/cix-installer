@@ -6,12 +6,13 @@
 
 > **🌐 语言：** [English](SOURCE-RELEASES.md) · 简体中文
 
-> **说明：** 本页 26.10 "Cygnus" Preview 1 的内核源码部分已与[英文版](SOURCE-RELEASES.md)
+> **说明：** 本页 26.10 "Cygnus" 的内核源码部分已与[英文版](SOURCE-RELEASES.md)
 > 同步；其余各节仍描述 26.7（2026.08.18-v12），以英文版为准。
 
-## 26.10 "Cygnus" Preview 1：内核对应源码
+## 26.10 "Cygnus"：内核对应源码
 
-Preview 1 每个镜像只带一个内核（默认、安装程序与救援启动项共用）。以下各部分均已于
+镜像 `ncz-os-arm64-20261013-d395bb2d` 与 `ncz-os-amd64-20261013-d395bb2d` 由提交 `d395bb2d` 构建。
+每个镜像只带一个内核（默认、安装程序与救援启动项共用）。以下各部分均已于
 2026-10-13 在无账号、无令牌的情况下用 `git ls-remote` 或 `curl` 匿名获取验证。
 
 **arm64：`7.3.0-rc7-sky1-ncz`（构建 r289，软件包 `linux-image-cixmini` `7.3.0-rc7-sky1-ncz+r289`）**
@@ -22,8 +23,8 @@ Preview 1 每个镜像只带一个内核（默认、安装程序与救援启动�
 | 配方、Sky1 移植补丁、补丁 0001-0011 与 0013-0021、defconfig | [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) `recipes-kernel/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.3-rc7.bb` | 标签 `kernel-sky1-7.3.0-rc7-r289`（分支 `fix/sky1-r289-20261012`），提交 `6b6b55aa13a877ff8083592048f0a6043703c26a` | GPL-2.0（补丁），Apache-2.0（配方） |
 | 上述内容的仓库内副本，以及实际构建所用的 `.config`（sha256 `67bb7109…`） | 本仓库 [`kernel-source/`](../kernel-source/SOURCE.md) | 当前提交 | GPL-2.0 |
 | 打完全部补丁的完整源码树（单个提交） | [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix) | 标签 `kernel-sky1-7.3.0-rc7-r289-src`，提交 `b275222cfc5703fb5595398a216b495ca7d6ee7a`（分支 `release/sky1-7.3.0-rc7-r289`） | GPL-2.0 |
-| Debian 打包 | 本仓库 `build/build-kernel-debs.sh` | 标签 `v26.10-preview1` | 见仓库 |
-| 树外模块 `mali_kbase` 等、`panthor`、`amvx`（VPU）、`aipu`（NPU） | 本仓库 `assets/kernel/{mali,panthor,vpu,npu}/`；`assets/kernel/*/7.3.0-rc7-sky1-ncz/SOURCE.sha256` 将发布的 `.ko` 与源码绑定 | 标签 `v26.10-preview1` | GPL-2.0（`panthor` 为 GPL-2.0 OR MIT） |
+| Debian 打包 | 本仓库 `build/build-kernel-debs.sh` | 提交 `d395bb2d` | 见仓库 |
+| 树外模块 `mali_kbase` 等、`panthor`、`amvx`（VPU）、`aipu`（NPU） | 本仓库 `assets/kernel/{mali,panthor,vpu,npu}/`；`assets/kernel/*/7.3.0-rc7-sky1-ncz/SOURCE.sha256` 将发布的 `.ko` 与源码绑定 | 提交 `d395bb2d` | GPL-2.0（`panthor` 为 GPL-2.0 OR MIT） |
 
 **amd64：`7.3.0-rc7-t2-ncz`（软件包版本 `7.3.0-rc7-2`）**
 
@@ -31,7 +32,7 @@ Preview 1 每个镜像只带一个内核（默认、安装程序与救援启动�
 |---|---|---|---|
 | 上游基线 | `https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git` | 标签 `v7.3-rc7`：提交 `24a19b953e2a3d0ea5a8c4951a0ab8f32720c907` | GPL-2.0 |
 | 补丁系列（24 个：t2linux 补丁与我们的 T2 修复）、最终 config、构建与打包脚本、`verify.sh` | [`ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz) | 标签 `v7.3.0-rc7-t2-ncz-2`，提交 `35249a98c7ad2f07cf2d0055a3be3c0c40f5b506` | GPL-2.0 |
-| T2 DKMS 模块 `t2smc`、`t2gmux`、`t2thunderbolt`、`t2smp` | 本仓库 `assets/kernel/t2*/` | 标签 `v26.10-preview1` | GPL-2.0 |
+| T2 DKMS 模块 `t2smc`、`t2gmux`、`t2thunderbolt`、`t2smp` | 本仓库 `assets/kernel/t2*/` | 提交 `d395bb2d` | GPL-2.0 |
 
 `linux-t2-ncz` 中的 config 与所发布软件包里的 `/boot/config-7.3.0-rc7-t2-ncz` 逐字节相同
 （sha256 `e88c4505…`）。amd64 内核软件包同时在公开的 NCZ apt 仓库中，sha256 与构建记录一致。
@@ -43,7 +44,7 @@ Preview 1 每个镜像只带一个内核（默认、安装程序与救援启动�
 
 **重建镜像：** 上述 GPL 源码是完整的，但逐字节重建镜像目前**无法**仅凭公开来源完成。
 `manifests/build-inputs.tsv` 中的 44 个预置输入里，只有 6 个（两种架构的 CPython 3.11 与 `uv`、
-`ncz-screensavers` 0.8.12）能从公开地址取得完全相同的字节，见
+`ncz-screensavers` 0.8.13）能从公开地址取得完全相同的字节，见
 `manifests/build-inputs-public.tsv` 与 `build/stage-build-inputs.sh --public`。其余输入的分类见英文版
 "Rebuilding an image: what you can fetch" 一节。
 

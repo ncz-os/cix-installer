@@ -1,0 +1,123 @@
+/* Generated from branding/cygnus/tokens.json by tools/gen-cygnus.py. Do not edit. */
+/* NCZ-OS 26.10 Cygnus: CSS custom properties (web, docs, showcase). */
+
+:root {
+  --cygnus-violet-950: #0B0714;
+  --cygnus-violet-900: #150D24;
+  --cygnus-violet-850: #1E1433;
+  --cygnus-violet-800: #2A1D45;
+  --cygnus-violet-700: #3D2B5E;
+  --cygnus-violet-600: #5A4585;
+  --cygnus-violet-500: #7A68A3;
+  --cygnus-violet-400: #A596C2;
+  --cygnus-violet-300: #CFC3E6;
+  --cygnus-violet-200: #E7DEF6;
+  --cygnus-violet-100: #F2ECFB;
+  --cygnus-violet-50: #FBF8FF;
+  --cygnus-magenta-300: #FF9BD0;
+  --cygnus-magenta-400: #FF5CB4;
+  --cygnus-magenta-500: #E8339A;
+  --cygnus-magenta-600: #C2177E;
+  --cygnus-magenta-700: #A0106A;
+  --cygnus-magenta-800: #730B4C;
+  --cygnus-cyan-300: #8BEBF8;
+  --cygnus-cyan-400: #2ED8F0;
+  --cygnus-cyan-500: #13B6D1;
+  --cygnus-cyan-600: #0E8FA8;
+  --cygnus-cyan-700: #0A6477;
+  --cygnus-cyan-800: #074452;
+  --cygnus-status-success-dark: #3DDC97;
+  --cygnus-status-warning-dark: #FFC24B;
+  --cygnus-status-error-dark: #FF6A80;
+  --cygnus-status-success-light: #0B6E46;
+  --cygnus-status-warning-light: #7F5200;
+  --cygnus-status-error-light: #B3203A;
+  --cygnus-neutral-white: #FFFFFF;
+  --cygnus-neutral-ink: #1A1029;
+}
+:root, :root[data-theme="dark"] {
+  color-scheme: dark;
+  --cy-bg: #0B0714;
+  --cy-surface-1: #150D24;
+  --cy-surface-2: #1E1433;
+  --cy-surface-3: #2A1D45;
+  --cy-border: #3D2B5E;
+  --cy-border-strong: #7A68A3;
+  --cy-text: #F4EEFC;
+  --cy-text-secondary: #CFC3E6;
+  --cy-text-muted: #A596C2;
+  --cy-text-disabled: #6E6090;
+  --cy-accent: #FF5CB4;
+  --cy-accent-bg: #D6208C;
+  --cy-accent-fg: #FFFFFF;
+  --cy-secondary: #2ED8F0;
+  --cy-secondary-bg: #2ED8F0;
+  --cy-secondary-fg: #0B0714;
+  --cy-focus-ring: #2ED8F0;
+  --cy-selection-bg: #4A1742;
+  --cy-selection-fg: #FFFFFF;
+  --cy-link: #8BEBF8;
+  --cy-success: #3DDC97;
+  --cy-warning: #FFC24B;
+  --cy-error: #FF6A80;
+  --cy-on-status: #0B0714;
+  --cy-shadow: #000000;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --cy-bg: #FBF8FF;
+  --cy-surface-1: #FFFFFF;
+  --cy-surface-2: #F2ECFB;
+  --cy-surface-3: #E7DEF6;
+  --cy-border: #CDBFE6;
+  --cy-border-strong: #7A68A3;
+  --cy-text: #1A1029;
+  --cy-text-secondary: #463A5E;
+  --cy-text-muted: #5F5378;
+  --cy-text-disabled: #9A8DB3;
+  --cy-accent: #A0106A;
+  --cy-accent-bg: #B8157A;
+  --cy-accent-fg: #FFFFFF;
+  --cy-secondary: #0A6477;
+  --cy-secondary-bg: #0A6477;
+  --cy-secondary-fg: #FFFFFF;
+  --cy-focus-ring: #0E8FA8;
+  --cy-selection-bg: #F6C9E4;
+  --cy-selection-fg: #1A1029;
+  --cy-link: #0A6477;
+  --cy-success: #0B6E46;
+  --cy-warning: #7F5200;
+  --cy-error: #B3203A;
+  --cy-on-status: #FFFFFF;
+  --cy-shadow: #1A1029;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --cy-bg: #FBF8FF;
+    --cy-surface-1: #FFFFFF;
+    --cy-surface-2: #F2ECFB;
+    --cy-surface-3: #E7DEF6;
+    --cy-border: #CDBFE6;
+    --cy-border-strong: #7A68A3;
+    --cy-text: #1A1029;
+    --cy-text-secondary: #463A5E;
+    --cy-text-muted: #5F5378;
+    --cy-text-disabled: #9A8DB3;
+    --cy-accent: #A0106A;
+    --cy-accent-bg: #B8157A;
+    --cy-accent-fg: #FFFFFF;
+    --cy-secondary: #0A6477;
+    --cy-secondary-bg: #0A6477;
+    --cy-secondary-fg: #FFFFFF;
+    --cy-focus-ring: #0E8FA8;
+    --cy-selection-bg: #F6C9E4;
+    --cy-selection-fg: #1A1029;
+    --cy-link: #0A6477;
+    --cy-success: #0B6E46;
+    --cy-warning: #7F5200;
+    --cy-error: #B3203A;
+    --cy-on-status: #FFFFFF;
+    --cy-shadow: #1A1029;
+  }
+}

@@ -1,7 +1,7 @@
 # One-kernel policy (project decision 2026-10-10: "ship only OUR kernel")
 
 Every NCZ-OS image must contain **exactly one kernel**: the NCZ kernel. In
-26.10 Preview 1 that is `7.3.0-rc7-t2-ncz` on amd64 (package
+26.10 that is `7.3.0-rc7-t2-ncz` on amd64 (package
 `linux-image-7.3.0-rc7-t2-ncz`, version `7.3.0-rc7-2`) and
 `7.3.0-rc7-sky1-ncz` on arm64 (package `linux-image-cixmini`, build r289);
 the pins live in `assets/kernel/amd64-stable/` and

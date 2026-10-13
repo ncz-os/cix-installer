@@ -46,7 +46,7 @@ Network=host
 # ncz-model-nomic-embed, installed to /opt/ncz/models. If that package is
 # absent the path check fails and MNEMOS falls back to CPU cleanly.
 # MEASURED BROKEN on 7.2 -- DO NOT ENABLE until NPU inference is proven.
-# 2026-08-17 on cixmini (7.2.0-sky1-ncz): the model LOADS and the server
+# 2026-08-17 on a Sky1 board (7.2.0-sky1-ncz): the model LOADS and the server
 # reports 'serving nomic-embed-text (dim=768, max_tokens=256)', but every
 # inference fails:
 #     NOE_Engine.py:221 in forward -> RuntimeError: npu: noe_get_tensor failed

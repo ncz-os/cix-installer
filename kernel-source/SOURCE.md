@@ -6,9 +6,9 @@ provided under the GNU General Public License, version 2. It is the in-repo
 record; every part listed here can also be fetched anonymously from a public
 URL (no account, no credentials).
 
-## 26.10 "Cygnus" Preview 1 (current)
+## 26.10 "Cygnus" (current)
 
-Images `ncz-os-arm64-20261012-f64cba5` and `ncz-os-amd64-20261012-07c0644`
+Images `ncz-os-arm64-20261013-d395bb2d` and `ncz-os-amd64-20261013-d395bb2d`
 each ship exactly **one** kernel. The default, installer and rescue boot
 entries all use it.
 
@@ -24,7 +24,7 @@ Packages `linux-image-cixmini` / `linux-headers-cixmini`
 | As-built `.config` | `linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.3-rc7/config-7.3.0-rc7-sky1-ncz.as-built` | sha256 `67bb71093fb073cb3e9d64a5de42b2947df6ad9b7cc7c6f8b9c6105718b1aa97` (the `/boot/config-*` of the shipped binary) |
 | Complete patched tree, as one git commit | `https://gitlab.com/ncz-os/linux-cix`, branch `release/sky1-7.3.0-rc7-r289`, tag `kernel-sky1-7.3.0-rc7-r289-src` | commit `b275222cfc5703fb5595398a216b495ca7d6ee7a`, tree `73e5887e01f7cf9e9a9cd43453f8f098ea2a3cef` |
 | Port history (207 commits on the base) | `https://gitlab.com/ncz-os/linux-cix`, branch `kernel-73rc7-port-20261011` | commit `e53244fffc0bcea79e6d2ccd357cbb6d06a856d7` |
-| Debian packaging | `build/build-kernel-debs.sh` in this repository | the Preview 1 commit |
+| Debian packaging | `build/build-kernel-debs.sh` in this repository | commit `d395bb2d` |
 | Out-of-tree accelerator modules (`mali_kbase`, `memory_group_manager`, `protected_memory_allocator`, `panthor`, `aipu`, `amvx`) | `assets/kernel/{mali,panthor,npu,vpu}/` in this repository; each `<kver>/SOURCE.sha256` binds the shipped `.ko` to its source | built by `build/build-accel-overlays.sh`, packaged by `build/build-dkms-debs.sh` |
 
 The patch series is the Sky1 port patch (`sky1-ncz-v7.3-rc7-port.patch`)
@@ -81,7 +81,7 @@ Packages `linux-image-7.3.0-rc7-t2-ncz` / `linux-headers-7.3.0-rc7-t2-ncz`
 |---|---|---|
 | Upstream base | `https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git` | tag `v7.3-rc7`, commit `24a19b953e2a3d0ea5a8c4951a0ab8f32720c907` |
 | Patch series (24 patches, t2linux plus NCZ), resolved config, build and packaging script, verification script | `https://gitlab.com/ncz-os/linux-t2-ncz` | tag `v7.3.0-rc7-t2-ncz-2`, commit `35249a98c7ad2f07cf2d0055a3be3c0c40f5b506` |
-| T2 DKMS modules (`t2smc`, `t2gmux`, `t2thunderbolt`, `t2smp`) | `assets/kernel/t2smc/`, `t2gmux/`, `t2thunderbolt/`, `t2smp/` in this repository | the Preview 1 commit |
+| T2 DKMS modules (`t2smc`, `t2gmux`, `t2thunderbolt`, `t2smp`) | `assets/kernel/t2smc/`, `t2gmux/`, `t2thunderbolt/`, `t2smp/` in this repository | commit `d395bb2d` |
 
 The source tree from `linux-t2-ncz` (base plus `patches/series`) is git tree
 `451b5dfee3eb77e15dac561766000bc3ec2e4f41`. Its `config/` file has the same
