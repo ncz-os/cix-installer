@@ -213,6 +213,115 @@ HOOKRUN; rc=$?
 if grep -q 'keep me' "$CONF"; then ok "second hook run preserves the operator config"; else bad "hook overwrote the config"; fi
 [ "$rc" = 0 ] && ok "hook is idempotent (exit 0)" || bad "second hook run failed"
 
+# --- lock-screen saver thermal cap ----------------------------------------
+# The hook raises the saver feed's hot pause (compiled-in 85 C) on T2 Macs to
+# 100 C, or 2 C under the lowest critical trip of the governor's sensors when
+# that trip is at or below 100 C, and
+# sets the warm-band fps to 6, in /etc/ncz/lock-renderer.env only.
+HW="$T/hwmon"; DMIF="$T/dmi"
+mk_hwmon() { # mk_hwmon "name:crit[,crit...]" ...   (crit "-" = no crit file)
+    rm -rf "$HW"; mkdir -p "$HW"
+    local i=0 spec n crits c j
+    for spec in "$@"; do
+        n=${spec%%:*}; crits=${spec#*:}
+        mkdir -p "$HW/hwmon$i"; printf '%s\n' "$n" > "$HW/hwmon$i/name"
+        j=1
+        for c in $(printf '%s' "$crits" | tr ',' ' '); do
+            printf '50000\n' > "$HW/hwmon$i/temp${j}_input"
+            [ "$c" = - ] || printf '%s\n' "$c" > "$HW/hwmon$i/temp${j}_crit"
+            j=$((j + 1))
+        done
+        i=$((i + 1))
+    done
+}
+mk_dmi() { rm -rf "$DMIF"; mkdir -p "$DMIF"; printf '%s\n' "$1" > "$DMIF/product_name"; }
+LENV="$TROOT/etc/ncz/lock-renderer.env"
+renderer_env() { printf 'SINGULARITY_LOCK_RENDERER=/usr/libexec/ncz-screensaver-feed\n' > "$LENV"; }
+SAVERRUN() {
+    env NCZ_TARGET_ARCH=amd64 NCZ_T2_POWER_CAP_ROOT="$TROOT" NCZ_T2_POWER_CAP_ASSUME_T2=1 \
+        NCZ_T2_SAVER_HWMON="$HW" NCZ_T2_SAVER_DMI="$DMIF" \
+        bash "$HOOK" >"$T/saver.out" 2>&1
+}
+hot()  { sed -n 's/^NCZ_FEED_TEMP_HOT_MC=//p' "$LENV" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
+warm() { sed -n 's/^NCZ_FEED_FPS_WARM=//p' "$LENV" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
+
+# MacBookPro16,1 as measured: coretemp crit 100 C, amdgpu edge/junction/mem
+# 110/105/150 C, t2smc without crit files, nvme (not a governor sensor) lower.
+mk_hwmon "coretemp:100000,100000,100000" "amdgpu:110000,105000,150000" "t2smc:-,-" "nvme:84850"
+mk_dmi MacBookPro16,1
+renderer_env
+SAVERRUN; rc=$?
+if [ "$rc" = 0 ] && [ "$(hot)" = 98000 ]; then ok "saver cap: MacBookPro16,1 sensors -> NCZ_FEED_TEMP_HOT_MC=98000 (coretemp crit = Tjmax 100 C, - 2 C)"
+else bad "saver cap: expected 98000, got '$(hot)' (rc=$rc): $(tail -3 "$T/saver.out")"; fi
+[ "$(warm)" = 6 ] && ok "saver cap: warm-band fps set to 6" || bad "saver cap: warm fps '$(warm)'"
+grep -q '^SINGULARITY_LOCK_RENDERER=/usr/libexec/ncz-screensaver-feed$' "$LENV" \
+    && ok "saver cap: renderer line preserved" || bad "saver cap: renderer line changed"
+# shellcheck source=/dev/null
+if (set -a; . "$LENV"; [ "$NCZ_FEED_TEMP_HOT_MC" = 98000 ] && [ "$NCZ_FEED_FPS_WARM" = 6 ]); then
+    ok "saver cap: env file sources cleanly the way the session launcher reads it"
+else bad "saver cap: env file does not source"; fi
+SAVERRUN
+if [ "$(hot)" = 98000 ] && [ "$(warm)" = 6 ]; then ok "saver cap: second run is idempotent (one line each)"
+else bad "saver cap: duplicate lines after second run: hot='$(hot)' warm='$(warm)'"; fi
+
+# an operator value is kept
+renderer_env; printf 'NCZ_FEED_TEMP_HOT_MC=88000\n' >> "$LENV"
+SAVERRUN
+[ "$(hot)" = 88000 ] && ok "saver cap: existing NCZ_FEED_TEMP_HOT_MC kept" || bad "saver cap: operator value replaced: '$(hot)'"
+
+# a lower critical trip lowers the cap (crit - 2 C)
+renderer_env; mk_hwmon "coretemp:97000" "amdgpu:105000"
+SAVERRUN
+[ "$(hot)" = 95000 ] && ok "saver cap: crit 97 C -> 95 C" || bad "saver cap: crit 97 C gave '$(hot)'"
+
+# 100 C when every critical trip is above 100 C
+renderer_env; mk_hwmon "coretemp:105000" "amdgpu:110000"
+SAVERRUN
+[ "$(hot)" = 100000 ] && ok "saver cap: trips 105/110 C -> 100 C" || bad "saver cap: not clamped: '$(hot)'"
+
+# a trip just above 100 C does not lower the cap
+renderer_env; mk_hwmon "coretemp:101000" "amdgpu:105000"
+SAVERRUN
+[ "$(hot)" = 100000 ] && ok "saver cap: lowest trip 101 C -> 100 C" || bad "saver cap: trip 101 C gave '$(hot)'"
+
+# a cap that would not raise the default is not written
+renderer_env; mk_hwmon "coretemp:87000"
+SAVERRUN
+if [ -z "$(hot)" ] && [ -z "$(warm)" ]; then ok "saver cap: crit 87 C -> nothing written (crit - 2 C is not above 85 C)"
+else bad "saver cap: wrote '$(hot)'/'$(warm)' for crit 87 C"; fi
+
+# sensors absent (installer kernel): measured model value, other models untouched
+renderer_env; mk_hwmon "nvme:84850"
+SAVERRUN
+[ "$(hot)" = 98000 ] && ok "saver cap: no sensors + MacBookPro16,1 -> 98 C" || bad "saver cap: no sensors MBP16,1 gave '$(hot)'"
+renderer_env; mk_dmi MacBookAir9,1
+SAVERRUN
+[ -z "$(hot)" ] && ok "saver cap: no sensors + other T2 model -> default kept" || bad "saver cap: unmeasured model got '$(hot)'"
+
+# no renderer configured: the env file is neither created nor changed
+mk_dmi MacBookPro16,1; mk_hwmon "coretemp:100000"
+rm -f "$LENV"
+SAVERRUN
+[ ! -e "$LENV" ] && ok "saver cap: no lock-renderer.env -> not created" || bad "saver cap: created $LENV"
+printf '# no renderer\n' > "$LENV"
+SAVERRUN
+[ "$(cat "$LENV")" = "# no renderer" ] && ok "saver cap: env without a renderer -> unchanged" || bad "saver cap: changed an env without a renderer"
+rm -f "$LENV"
+
+# an unwritable env file is reported, not claimed as written
+renderer_env; chmod 0444 "$LENV"
+if [ "$(id -u)" != 0 ]; then
+    SAVERRUN
+    if grep -q 'WARN: could not write' "$T/saver.out" && ! grep -q 'NCZ_FEED_TEMP_HOT_MC=98000 in' "$T/saver.out"; then
+        ok "saver cap: unwritable env file -> WARN, no success claim"
+    else bad "saver cap: unwritable env file not reported: $(grep saver "$T/saver.out")"; fi
+fi
+chmod 0644 "$LENV"; rm -f "$LENV"
+
+# the hook and the renderer agree on the variable names
+grep -q 'NCZ_FEED_TEMP_HOT_MC' "$HOOK" && grep -q 'NCZ_FEED_FPS_WARM' "$HOOK" \
+    && ok "saver cap: hook writes the feed's NCZ_FEED_TEMP_HOT_MC / NCZ_FEED_FPS_WARM" || bad "saver cap: variable names missing"
+
 # --- registration ---------------------------------------------------------
 grep -qx '64-t2-power-cap.sh' "$ROOT/post-install/hooks.list.amd64" \
     && ok "hook listed in hooks.list.amd64" || bad "hook not in hooks.list.amd64"
