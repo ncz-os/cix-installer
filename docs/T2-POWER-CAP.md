@@ -18,7 +18,7 @@ normal at the cut) and not a worn battery.
 
 This is the load-triggered cut, distinct from our T2 7.3 **boot-time** cut
 (16-27 s after `Booting OS`) investigated separately
-(amd64-kernel-t2 `docs/`). The AER revert decision and the iGPU/gmux hang
+(in the kernel development notes). The AER revert decision and the iGPU/gmux hang
 (omacom/omarchy issue #9609) are separate hypotheses and are unaffected.
 
 Prior art (the fix this is modelled on): omacom/omarchy issue **#13295**, PR
