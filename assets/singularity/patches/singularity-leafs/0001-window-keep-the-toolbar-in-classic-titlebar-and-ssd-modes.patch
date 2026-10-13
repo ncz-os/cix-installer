@@ -1,0 +1,37 @@
+From 5a82c13fc125806a84288374a1e28df6709ef1ae Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 13 Oct 2026 12:27:26 -0400
+Subject: [PATCH] window: keep the toolbar in classic titlebar and SSD modes
+
+The window hid its toolbar unconditionally because every leaf draws its
+own hover controls. With legacy-titlebar (or force-ssd) enabled the
+toolbar is the static titlebar that carries the minimize, maximize and
+close buttons, so Leafs was the only app with no window buttons in that
+mode.
+
+Hide the toolbar only in the floating-bubbles mode it was written for.
+---
+ src/window.vala | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/src/window.vala b/src/window.vala
+index f3b3da4..663ded2 100644
+--- a/src/window.vala
++++ b/src/window.vala
+@@ -21,8 +21,11 @@ namespace Singularity.Apps {
+             set_title (_("Leafs"));
+ #endif
+             set_default_size (600, 600);
+-            toolbar.is_static = false;
+-            toolbar.visible = false;
++            // The classic titlebar and SSD modes keep the window buttons here.
++            if (floating_bubbles) {
++                toolbar.is_static = false;
++                toolbar.visible = false;
++            }
+ 
+             bloom_overlay = new Gtk.Overlay ();
+             bloom_overlay.set_child (leaves_box);
+-- 
+2.53.0
+
