@@ -488,6 +488,8 @@ build/test-libpeas-plugin-icon.sh	common	-	proves the generic libpeas-plugin fal
 build/stage-build-inputs.sh	common	-	stages the gitignored rescue/mgmt rootfs, python311 and wallpaper debs from the project build store build-inputs store, sha256-pinned (r201)
 manifests/build-inputs.tsv	common	-	sha256 pins for the the project build store build inputs staged by build/stage-build-inputs.sh
 build/test-build-inputs.sh	common	-	proves stage-build-inputs publish/fetch/check/refusal and that hooks 20/25/38 packages are seeded (r201)
+manifests/build-inputs-public.tsv	common	-	public source URL (+ tar member) for the build inputs a stranger can fetch with stage-build-inputs.sh --public; sha256 must equal the build-inputs.tsv pin
+build/test-build-inputs-public.sh	common	-	proves stage-build-inputs --public: download/extract, pin verification, refusal of drift and tampering, INTERNAL-ONLY reporting, and the real manifest against the pins
 build/test-deb-rev-defaults.sh	common	-	proves libdrm and DKMS debs build at the release.conf +ncz2 revision with no env, and a libdrm patch edit without a bump fails (r201)
 build/test-desktop-apt-require.sh	common	-	proves 20-desktop.sh ncz_apt_require propagates apt failures and checks install ok installed (r201)
 build/test-firmware-bom-hook.sh	common	-	proves 13-firmware-bom.sh preseeds the firmware licence questions and fails on any not-installed package (r201)

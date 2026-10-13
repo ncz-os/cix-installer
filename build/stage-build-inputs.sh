@@ -5,7 +5,7 @@
 # WHY (r201). Several image inputs are not in git and not rebuilt by a clean
 # checkout: the rescue rootfs, the relocatable CPython 3.11 + uv, the Artist
 # Pack wallpaper debs and the recovery-container rootfs. r201 copied them from
-# PROTEUS's r200 tree by hand; the recovery rootfs was never produced anywhere,
+# another build host's r200 tree by hand; the recovery rootfs was never produced anywhere,
 # so post-install/38-recovery-container.sh failed on every image
 # ("assets/mgmt/ncz-mgmt-rootfs.tar.zst missing").
 #
