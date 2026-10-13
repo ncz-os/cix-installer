@@ -224,6 +224,7 @@ build/test-image-assets.sh	common	-	no SSH public key body, retired key comment,
 build/test-late-union-sync.sh	common	-	late.sh union sync test
 build/test-late-npu-aipu.sh	common	-	late.sh NPU aipu overlay + modules-load test
 build/test-sky1-kernel-discovery.sh	sky1	-	Sky1 NPU/VPU hook kernel list: KVER_NEXT sidecar plus *-sky1-ncz module trees, dedup, shipped-name checks, control on the old *7.2*-ncz glob
+build/test-verify-drivers.sh	common	-	tools/verify-drivers.sh expected-kernel resolution per arch (override, sidecars, repository KVER, components.tsv) and stubbed full runs (aipu, mali_kbase/panthor, amvx)
 build/test-firstboot-gpu.sh	common	-	first-boot/install-end DKMS notice: needed vs failed classification, ASCII notice text, long fake build never cut with live console/plymouth status, failed build not rerun before login, twin wiring, late.sh dialog choice
 build/test-gpu-install-progress.sh	common	-	GPU/DKMS install-step feedback: step profiles, simulated growing DKMS make.log monitor, apt window scaling, late.sh weighted bar math and GPU screen line, run-all end to end
 build/test-progress-bar-drive.sh	common	-	late.sh drives finish-install's progress bar at runtime: stub debconf records PROGRESS, cdebconf model asserts forward-only to 100%, GPU weight, flat-stretch creep, text-only fallbacks, no bad number under sh/busybox/bash
@@ -402,7 +403,7 @@ tools/	common	-	dev tools
 tools/kvm-smoke.sh	sky1	-	aarch64 KVM kernel smoke test on the MS-R1
 tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
 tools/ncz-join-image.sh	common	-	join, unpack and verify the split release image parts (never writes to a disk)
-tools/verify-drivers.sh	sky1	-	Sky1 driver fidelity check
+tools/verify-drivers.sh	mixed	-	driver fidelity check: installed-kernel check on both arches (KVER_NEXT sidecar, else repository kernel pins), Sky1 NPU/GPU/VPU/WiFi/BT/audio checks on arm64
 build/test-sky1-audio-policy.sh	sky1	-	Sky1 audio default-sink policy fixture tests
 build/testdata/sky1-audio/	sky1	-	fake pactl/aplay/pw-dump/amixer for the Sky1 audio autoswitch daemon-loop tests
 build/test-sky1-media-defaults.sh	sky1	-	Sky1 media defaults: chromium-ncz-sky1 wrapper flags, mpv V4L2 hwdec, audio/media runtime seeds

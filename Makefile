@@ -741,6 +741,7 @@ parity:
 	build/test-rescue-kernel-channel.sh
 	build/test-late-npu-aipu.sh
 	build/test-sky1-kernel-discovery.sh
+	build/test-verify-drivers.sh
 	build/test-gpu-install-progress.sh
 	build/test-preseed-consistency.sh
 	build/test-install-feedback.sh
