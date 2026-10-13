@@ -13,9 +13,10 @@ shipped image that we compiled ourselves**, with the source location for each.
 If something we ship is built from source and is not listed here, that is a
 bug in this document — please open an issue.
 
-**Distribution point is GitLab** (`gitlab.com/ncz-os/cix-installer`). The
-GitHub repository is a documentation mirror; its download links point back
-here.
+**GitLab is canonical for source** (`gitlab.com/ncz-os/cix-installer`).
+Release images are hosted as release assets on the GitHub mirror
+(`github.com/ncz-os/cix-installer/releases`), and the documentation points
+there for downloads.
 
 ---
 
@@ -74,7 +75,7 @@ Versions are taken from the reviewed NCZ build ledger,
 ### Kernel source
 
 The kernel is the component with the most substantive GPL obligation, because
-we ship a modified binary kernel on every ISO.
+we ship a modified binary kernel in every image.
 
 * Upstream pristine bases are published as generic packages
   (`linux-pristine-base-cix-sky1-ncz`), so the exact unmodified starting tree

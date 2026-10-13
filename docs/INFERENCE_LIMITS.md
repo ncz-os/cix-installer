@@ -52,7 +52,7 @@ Single-stream, MiniLM-L6 / bge-small class, seq 128–256. Higher = better.
 | Path | Engine / model | emb/s | Notes |
 |---|---:|---:|---|
 | **NPU** | `NOE_Engine` + `bge-small-zh-v1.5_256.cix` | **~51** | measured on an MS-R1 2026-06-17; 512-dim, retrieval correct |
-| **NPU** | `NOE_Engine` + `minilm_128.cix` (real tokenized) | ~56 | per-call job churn; batch/persistent-job target ~66-80. **Not part of the shipped ISO** -- `assets/models/` only ships `bge-small-zh-v1.5_256.cix`; `minilm_128.cix` was pulled ad hoc from the Cix hub for this benchmark. |
+| **NPU** | `NOE_Engine` + `minilm_128.cix` (real tokenized) | ~56 | per-call job churn; batch/persistent-job target ~66-80. **Not part of the shipped image** -- `assets/models/` only ships `bge-small-zh-v1.5_256.cix`; `minilm_128.cix` was pulled ad hoc from the Cix hub for this benchmark. |
 | **CPU** | fastembed / ONNX Runtime (optimized) | ~700 | #21 figure; ORT is *far* faster than llama.cpp for encoders |
 | **CPU** | `llama.cpp` (MiniLM-L6 Q8 GGUF) | 13.3 | GGUF path is not the fast CPU path for embeddings |
 | **GPU** | Mali-G720 panvk (`llama.cpp` Vulkan, MiniLM Q8) | 8.8 | slowest; readback + no coop-matrix |
@@ -83,7 +83,7 @@ loop_count=8, cooling_down=1. CPU = 4 threads.
 | vgg16 | 37.38 | 373.94 | 10× | — |
 | googlenet | 9.78 | 84.63 | 9× | — |
 | mobilenet_yolo | 23.16 | 168.57 | 7× | — |
-| yolov8n | — | — | — | **~14.5 (≈69/s)** (pulled ad hoc from the Cix hub for this benchmark -- not shipped on the ISO) |
+| yolov8n | — | — | — | **~14.5 (≈69/s)** (pulled ad hoc from the Cix hub for this benchmark -- not shipped in the image) |
 | vision_transformer | 215.70 | 10210.6 | **47×** | — |
 
 NPU vision numbers measured on an MS-R1 (mobilenet_v2 2026-05, yolov8n 2026-06-17).
@@ -172,8 +172,8 @@ for the memory/embedding lane.
 
 - `embedkit.Engine.auto()` picks NPU > GPU > CPU by tier, micro-benchmarking
   within tier — no vendor preference. On Sky1 it selects the `npu-cix` adapter
-  automatically `docs/NPU-USAGE-GUIDE.md`.
-- NPU runtime + the bge `.cix` + tokenizer are baked into the ISO; models layer
+  automatically (see `docs/NPU-USAGE-GUIDE.md`).
+- The NPU runtime is baked into the image; models (such as the bge `.cix` + tokenizer) layer
   via manual `git lfs` pull from the Cix hub (see `docs/MODELSCOPE-MODELS.md`) -- there is no `ncz model add`/working `ncz models pull` yet, that subcommand is a stub.
 - GPU is wired for display only; nothing routes ML compute to it.
 

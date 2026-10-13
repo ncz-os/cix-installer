@@ -1,9 +1,9 @@
 # NVIDIA driver + CUDA on AMD64: dynamic, per-GPU-family install
 
-Decision (2026-09-29): CUDA is NOT baked into the ISO or the offline
+Decision (2026-09-29): CUDA is NOT baked into the image or the offline
 mirror. It is downloaded from NVIDIA's apt repo during install when an NVIDIA GPU
 is present and the network is up, and finished by a first-boot timer otherwise.
-The ISO therefore carries only the two repo keys, `ncz-cuda-setup` and its units
+The image therefore carries only the two repo keys, `ncz-cuda-setup` and its units
 (about 100 KB). `build/verify-cuda-assets.sh --mirror DIR` fails if any NVIDIA or
 CUDA package ever lands in the offline pool.
 

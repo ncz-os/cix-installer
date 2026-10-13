@@ -27,7 +27,7 @@ real GitHub state (`gh pr view --json state`) and, for anything MERGED,
 deletes the patch file(s) and rewrites this section into a retired entry —
 same shape as the retired entries below. `build/singularity-nightly-track.sh`
 runs it nightly (systemd timer, `build/systemd/ncz-singularity-patch-*`,
-03:15, same cadence as ULTRA's existing `ncz-singularity-sync`) and
+03:15, the same cadence as the existing `ncz-singularity-sync`) and
 commits+pushes if anything changed. It retires a merged PR's patch only once
 the pinned upstream commit contains the merge; until the pin is bumped past
 it, the patch stays (the pinned build still needs it) and the script says so. A human editing this file by hand is
@@ -51,7 +51,7 @@ Fixes a use-after-free in `DockLaunchFeedback.stretch_dot()`: the 10 s give-up
 timer captured the dock-item wrapper and its dot with `unowned` (raw) pointers,
 so a dock rebuild/destroy inside that window made the callback call
 `g_object_get_data()` on freed memory — SIGSEGV in
-`g_type_check_instance_is_fundamentally_a` (O6N arm64, core pid 2613,
+`g_type_check_instance_is_fundamentally_a` (Radxa Orion O6N arm64, core pid 2613,
 2026-10-11). The patch makes the captures owned so the objects stay valid until
 the timer fires. This is the image-blocking arm64 crash-loop fix.
 
@@ -128,7 +128,7 @@ upstream.
   displayed them without replying. It now replies with a null response.
 
 - `0003` makes the greeter paint the SAME login card as the session lock
-  (operator 2026-10-12: "the greeter should match the lock visually"). Two
+  (2026-10-12: the greeter should match the lock visually). Two
   drifts were removed: (a) the greetd/PAM prompt was drawn as a SECOND row
   under the field (so the greeter card showed both a placeholder and a
   `Password:` row while the lock showed one field) -- the prompt is now
@@ -143,7 +143,7 @@ upstream.
   at 1920x1080@1x, 3840x2160@2x and 3072x1920@2x.
 
 No `**Upstream PR:**` link on purpose (nothing is filed). Real-greetd
-confirmation is an operator ask (`lockhost/NEED-OPERATOR.md`).
+confirmation on hardware is still to be done.
 
 ## singularity-desktop — active
 
@@ -210,7 +210,7 @@ No `**Upstream PR:**` link on purpose.
 ## libsingularity — active
 
 **Not yet filed upstream** (proposed to Mirko Brombin, the upstream
-maintainer, by this branch's operator brief; NOT filed by this task). Patch
+maintainer; not yet filed). Patch
 `0002-user-theme-loads-above-base.patch`. The theme template documents that
 a user theme's `singularity/style.css` "is loaded above the built-in
 libsingularity base", but at the current priorities it is loaded at
@@ -297,7 +297,7 @@ are unchanged. The file name carries `session-only`: the boot splash's bundled l
 has no `brand.c`, so the build and `singularity-pins.sh check-patches` skip such patches there.
 Separate from 0001, which fixes `loginui_render_splash()` (the boot splash).
 Covered by `build/test-splash-brand-aspect.sh` (manual, like `test-splash-logo-fit.sh`, which
-is a known env-only failure on HYDRA). No `**Upstream PR:**` link on purpose.
+is a known environment-only failure on some build hosts). No `**Upstream PR:**` link on purpose.
 
 **Not yet filed upstream** (2026-10-12). Patch
 `0003-loginui-share-the-login-card-field-label-session-only.patch` adds
@@ -356,7 +356,7 @@ Patch `0001-fix-schema-add-the-background-attribution-keys.patch` deleted.
 Fixed a real live bug: `g_settings_get_boolean()`/`g_settings_get_string()`
 on a key the schema does not declare **aborts the process** (GLib fail-fast
 on a schema mismatch) — this was a confirmed `singularity-desktop` SIGABRT
-crash loop on O6N (9 crashes in 35 seconds via `coredumpctl`) before the fix.
+crash loop on Radxa Orion O6N (9 crashes in 35 seconds via `coredumpctl`) before the fix.
 
 ## labwc — retired (date unclear, inherited from `master`'s `59b48a7`)
 
@@ -371,7 +371,7 @@ narrower — a 2-line change in `src/output.c` scheduling a frame on a fresh
 atomic commit that binds the CRTC on replug. The merge commit's own message
 states this was deliberately rescoped in review: "the unverified mode-test
 retry and its timer teardown are dropped entirely, leaving only the fix
-confirmed on hardware" (O6N + MS-R1, repeated unplug/replug). No patch file
+confirmed on hardware" (Radxa Orion O6N + MS-R1, repeated unplug/replug). No patch file
 exists in this tree to delete — it was already removed before this branch's
 history begins, per the note that used to live here. Recorded now so a
 future reader isn't confused by this doc having previously described
