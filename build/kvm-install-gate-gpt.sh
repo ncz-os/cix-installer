@@ -404,6 +404,13 @@ fi
 
 # The gaps this session fixed, each with its own message, so a failure names
 # the finding rather than just "install failed".
+# The installer diagnostics login (root / rescue, docs/RECOVERY-LOGINS.md) is in the
+# boot banner on every console (preseed/ncz-ui.sh ncz_ui_diag_login); the serial
+# console this gate reads is one of them. The value is the documented login, so
+# the saved logs carry nothing that needs redacting.
+grep -aqE "==== NCZ-OS INSTALLER [^ ]+ ==== diagnostics login: root / [^ ]{4,}" "$ILOG" \
+  || fail "the installer boot banner does not show the diagnostics login line (preseed/ncz-ui.sh ncz_ui_diag_login)"
+echo "  installer banner shows the diagnostics login line"
 if grep -q "is NOT the NCZ squashfs stub" "$ILOG"; then
     fail "the r159 debootstrap stub was not installed -- see /var/log/ncz-debootstrap-stub.log in the guest"
 fi
