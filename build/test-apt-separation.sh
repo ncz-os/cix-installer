@@ -69,6 +69,7 @@ entry "$DEB" terser 5.2.0
 entry "$DEB" libfoo 1.0
 entry "$DEB" ncz-evil 9.0
 entry "$DEB" "linux-image-$ARCH" 7.1.9-1
+entry "$DEB" libgtk4-layer-shell0 1.3.0-1+b1 "$ARCH"
 # NCZ
 entry "$NCZ" fonts-liberation 1:2.1.5-3build1
 entry "$NCZ" libdrm-common 2.4.134-3+ncz1
@@ -77,6 +78,7 @@ entry "$NCZ" ncz-evil 1.0
 entry "$NCZ" zoder 0.2.1 "$ARCH"
 entry "$NCZ" linux-image-7.3.0-t2-ncz 7.3.0-1 "$ARCH"
 entry "$NCZ" libfoo 2.0
+entry "$NCZ" libgtk4-layer-shell0 1.3.0-1+ncz20261013 "$ARCH"
 # T2
 entry "$T2" t2fanrd 0.1.0-4 "$ARCH"
 entry "$T2" libfoo 3.0 "$ARCH"
@@ -90,6 +92,8 @@ inst libdrm-common 2.4.134-3+ncz1
 inst terser 5.1.0
 inst ncz-wallpapers-ncz 1.0
 inst libfoo 1.0
+# Preview 1 (2026-10-12) shipped the patched layer-shell build that lacks patch 0002
+printf 'Package: libgtk4-layer-shell0\nStatus: install ok installed\nPriority: optional\nSection: libs\nInstalled-Size: 1\nMaintainer: T <t@example.invalid>\nArchitecture: %s\nVersion: 1.3.0-1+ncz20260925\nDescription: l\n\n' "$ARCH" >> "$T/status"
 
 # loopback http server for the two host-matched repos
 PORT=$((20000 + RANDOM % 20000))
@@ -113,6 +117,12 @@ cp "$T/sources" "$T/sources.A"
 ncz_kernel_purity_pin_text > "$T/prefs-old/00-ncz-kernel-purity.pref"
 ncz_kernel_purity_pin_text > "$T/prefs-new/00-ncz-kernel-purity.pref"
 ncz_apt_separation_pin_text > "$T/prefs-new/$NCZ_APT_PIN_NAME"
+# The 1.0.2 policy: the same pin without the libgtk4-layer-shell0 override row.
+mkdir -p "$T/prefs-102"
+ncz_kernel_purity_pin_text > "$T/prefs-102/00-ncz-kernel-purity.pref"
+( eval "_ov_$(declare -f ncz_apt_debian_overrides)"
+  ncz_apt_debian_overrides() { _ov_ncz_apt_debian_overrides | awk -F'\t' '$1!="libgtk4-layer-shell0"'; }
+  ncz_apt_separation_pin_text ) > "$T/prefs-102/$NCZ_APT_PIN_NAME"
 
 aptopts() {  # prefs-dir
     printf '%s\n' -o "Dir::Etc::sourcelist=$T/sources" -o "Dir::Etc::sourceparts=-" \
@@ -165,6 +175,17 @@ eq "linux-image-7.3.0-t2-ncz (NCZ kernel) installable" "$(cand "$NEW" linux-imag
 echo "=== NEW: allowlisted intentional Debian-name override wins ==="
 eq "libdrm-common stays on the NCZ +ncz1 patch build" "$(cand "$NEW" libdrm-common)" "2.4.134-3+ncz1"
 
+echo "=== NEW: the patched libgtk4-layer-shell0 reaches a Preview 1 install through apt upgrade ==="
+# Preview 1 installed 1.3.0-1+ncz20260925, which already sorts above Debian's 1.3.0-1+b1, so the
+# fixed NCZ build is the candidate under the 1.0.2 pin (100) as well as the new one (990): what
+# delivers the fix is the package being in the NCZ index. The 990 row matters once Debian ships a
+# HIGHER unpatched build (scenario F).
+grep -q 'libgtk4-layer-shell0' "$T/prefs-102/$NCZ_APT_PIN_NAME" && bad "1.0.2-shape pin fixture still names libgtk4-layer-shell0" || ok "1.0.2-shape pin fixture has no libgtk4-layer-shell0 row"
+eq "1.0.2 pin, Debian 1.3.0-1+b1: candidate is the fixed NCZ build" "$(cand "$T/prefs-102" libgtk4-layer-shell0)" "1.3.0-1+ncz20261013"
+eq "new pin, Debian 1.3.0-1+b1: candidate is the fixed NCZ build" "$(cand "$NEW" libgtk4-layer-shell0)" "1.3.0-1+ncz20261013"
+case "$(upgrade_plan "$NEW")" in *libgtk4-layer-shell0*) ok "new pin: dist-upgrade delivers the fixed build" ;; *) bad "new pin: libgtk4-layer-shell0 missing from plan: $(upgrade_plan "$NEW")" ;; esac
+case "$(src_of "$NEW" libgtk4-layer-shell0)" in "http://localhost:$PORT/ncz"*) ok "libgtk4-layer-shell0 is served by the NCZ host" ;; *) bad "libgtk4-layer-shell0 source: $(src_of "$NEW" libgtk4-layer-shell0)" ;; esac
+
 echo "=== NEW: third-party T2 repo ==="
 eq "t2fanrd (known T2 package) candidate" "$(cand "$NEW" t2fanrd)" "0.1.0-4"
 eq "linux-image-t2-fake from the T2 repo is blocked" "$(cand "$NEW" linux-image-t2-fake)" "(none)"
@@ -198,7 +219,9 @@ eq "offline-mirror-only package is installable" "$(cand "$NEW" offline-only)" "1
 case "$(src_of "$NEW" libfoo)" in "file:$NCZB"*) ok "libfoo is served by the offline mirror" ;; *) bad "libfoo source: $(src_of "$NEW" libfoo)" ;; esac
 eq "network leak still loses with the offline mirror present (fonts-liberation)" "$(cand "$NEW" fonts-liberation)" "1:2.1.5-3"
 eq "NCZ-host ncz-* package still wins" "$(cand "$NEW" ncz-wallpapers-ncz)" "1.1"
-apt-cache "${UPD[@]/prefs-old/prefs-new}" policy libfoo 2>/dev/null | grep -q ' 500 .*nczb' && ok "offline mirror stays at priority 500" || bad "offline mirror lost its priority 500"
+# Capture first: with pipefail, `apt-cache | grep -q` can fail on SIGPIPE when grep exits early.
+POL="$(apt-cache "${UPD[@]/prefs-old/prefs-new}" policy libfoo 2>/dev/null)"
+grep -q ' 500 .*nczb' <<<"$POL" && ok "offline mirror stays at priority 500" || bad "offline mirror lost its priority 500" "$POL"
 
 echo "=== scenario C: a machine that ALREADY installed the leaked build (the arm64 O6N case) ==="
 cp "$T/sources.A" "$T/sources"
@@ -284,6 +307,17 @@ deb [trusted=yes] file://$DEB ./
 EOF
 apt-get "${UPD[@]}" update >"$T/update7.log" 2>&1
 eq "canary with the pin, no ncz-screensavers anywhere -> rc 1 (still FATAL)" "$(canary "$NEW" nonepin)" "1"
+
+echo "=== scenario F: Debian ships a HIGHER unpatched libgtk4-layer-shell0 ==="
+DEBF="$T/debf"; mk_repo "$DEBF" Debian testing; entry "$DEBF" libgtk4-layer-shell0 1.3.1-1 "$ARCH"; gzip -kf "$DEBF/Packages"
+cat > "$T/sources" <<EOF
+deb [trusted=yes] file://$DEBF ./
+deb [trusted=yes] http://localhost:$PORT/ncz ./
+EOF
+apt-get "${UPD[@]}" update >"$T/updateF.log" 2>&1
+eq "1.0.2 pin: Debian's unpatched 1.3.1-1 replaces the fix (what the 990 row prevents)" "$(cand "$T/prefs-102" libgtk4-layer-shell0)" "1.3.1-1"
+eq "new pin: the patched NCZ build stays the candidate" "$(cand "$NEW" libgtk4-layer-shell0)" "1.3.0-1+ncz20261013"
+cp "$T/sources.A" "$T/sources"
 
 echo "=== source writer leaves exactly ONE enabled NCZ repo ==="
 FAKEBIN="$T/fakebin"; mkdir -p "$FAKEBIN" "$T/keys"

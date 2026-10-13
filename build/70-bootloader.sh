@@ -60,13 +60,15 @@ ncz_efi_rt_workaround() {
     echo ""
 }
 EFI_RT_WORKAROUND="$(ncz_efi_rt_workaround)"
-# 70-bootloader.sh — systemd-boot install + EDGE-only kernel loader entries.
+# 70-bootloader.sh — legacy Sky1 systemd-boot install + loader entries (the
+# shipped installer uses rEFInd via post-install/70-bootloader.sh; this copy is
+# kept in sync for its MS-R1 efi=noruntime gating).
 #
-# Loader entries (ONE kernel binary on the ESP — edge; the rescue entry
-# reuses the edge binary):
-#   1. cixmini-next.conf      (DEFAULT — 7.2.0-sky1-ncz edge)
+# Loader entries (ONE kernel binary on the ESP — the single NCZ kernel,
+# $KVER_NEXT; the rescue entry reuses the same binary):
+#   1. cixmini-next.conf      (DEFAULT — the NCZ 7.3 Sky1 kernel)
 #   2. cixmini-console.conf   (no GUI, multi-user.target)
-#   3. cixmini-rescue.conf    (rescue.target, edge kernel)
+#   3. cixmini-rescue.conf    (rescue.target, same kernel)
 #   4. cixmini-safe.conf      (boot with GPU/NPU/etc blacklisted)
 #
 # CRITICAL: systemd-boot's loader entry parser does NOT support
@@ -75,7 +77,7 @@ EFI_RT_WORKAROUND="$(ncz_efi_rt_workaround)"
 # half the cmdline.
 set -euo pipefail
 
-echo "[70] systemd-boot bootloader (EDGE kernel — 7.2.0-sky1-ncz)"
+echo "[70] systemd-boot bootloader (NCZ kernel)"
 
 INSTALLER_META=/usr/local/lib/cix-installer
 KVER_NEXT=""
@@ -158,7 +160,7 @@ rm -f /boot/efi/vmlinuz-*
 # Some installs put kernels in /boot/efi/EFI/Linux/ via systemd-boot's
 # automatic discovery. Wipe those too.
 rm -f /boot/efi/EFI/Linux/*.efi 2>/dev/null
-echo "  ESP wiped — about to write fresh edge-only kernel entries"
+echo "  ESP wiped — about to write fresh kernel entries"
 
 # ----------------------------------------------------------------------
 # loader.conf
@@ -178,7 +180,7 @@ ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$(findmnt -no SOURCE /)")
 echo "  root PARTUUID=$ROOT_PARTUUID"
 
 # ----------------------------------------------------------------------
-# Cmdline (MartJohnson 2026-04-30 working set for MS-R1, edge kernel)
+# Cmdline (MartJohnson 2026-04-30 working set for MS-R1)
 #
 #   loglevel=4                          — visible kernel msgs through boot
 #   console=tty0 console=ttyAMA2,115200 — HDMI primary + serial mirror
@@ -218,26 +220,26 @@ if [ -n "$KVER_NEXT" ] && [ -f "/boot/vmlinuz-$KVER_NEXT" ]; then
     echo "  staged /boot/efi/vmlinuz-$KVER_NEXT"
     NEXT_AVAILABLE=1
 elif [ -n "$KVER_NEXT" ]; then
-    echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — edge entry will be SKIPPED"
+    echo "  WARN: /boot/vmlinuz-$KVER_NEXT missing — default entry will be SKIPPED"
 fi
 
 if [ "$NEXT_AVAILABLE" = "0" ]; then
-    echo "ERROR: edge kernel not installed — system is unbootable."
+    echo "ERROR: NCZ kernel not installed — system is unbootable."
     echo "       Check 10-our-kernel.sh log for failures."
     exit 1
 fi
 
 # ----------------------------------------------------------------------
-# Entry — cixmini-next.conf (DEFAULT — edge kernel 7.2.0-sky1-ncz)
+# Entry — cixmini-next.conf (DEFAULT — the NCZ Sky1 kernel)
 #
-# 7.2.0-sky1-ncz is the shipped headline kernel with the full Sky1
-# stack in-tree (display/audio/NPU/etc.) and is the default boot target.
+# The single shipped kernel ($KVER_NEXT) carries the full Sky1 stack
+# (display/audio/NPU/etc.) and is the default boot target.
 # ----------------------------------------------------------------------
 if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_OPTIONS="$ROOT_OPTS $MARTJOHNSON_CMDLINE"
     [ -n "$SPLASH" ] && NEXT_OPTIONS="$NEXT_OPTIONS $SPLASH"
 
-    # sort-key 1-next keeps the default edge kernel at the top of the menu.
+    # sort-key 1-next keeps the default kernel entry at the top of the menu.
     cat > /boot/efi/loader/entries/cixmini-next.conf <<EOF
 title   NCZ-OS (cixmini) — kernel $KVER_NEXT [edge, default] — $BUILD_VERSION
 sort-key 1-next
@@ -251,12 +253,12 @@ fi
 # ----------------------------------------------------------------------
 # Entry — cixmini-safe.conf (boot with accelerators blacklisted)
 #
-# Boots the edge kernel but module_blacklists the heavy Sky1
+# Boots the same kernel but module_blacklists the heavy Sky1
 # accelerator / display / audio / codec drivers that are the usual culprits
 # for boot hangs (NPU, GPU, the Sky1 DPU/DP, VPUs, DSP, HDA/SOF audio).
 # With no KMS driver bound, video falls back to the UEFI framebuffer
 # (efifb/simplefb via SYSFB); networking, storage and filesystem drivers
-# load normally. Reuses the edge kernel binary — no extra ESP space. Use this
+# load normally. Reuses the same kernel binary — no extra ESP space. Use this
 # when a full boot wedges during GPU/display/NPU/DSP bring-up.
 # ----------------------------------------------------------------------
 if [ "$NEXT_AVAILABLE" = "1" ]; then
@@ -303,7 +305,7 @@ EOF
 fi
 
 # ----------------------------------------------------------------------
-# Entry — cixmini-rescue.conf (rescue shell on the edge kernel)
+# Entry — cixmini-rescue.conf (rescue shell on the same kernel)
 #
 # rescue.target boots multi-user services down (no graphical, no
 # auto-mount of network FS) but leaves the system bootable + login-able
@@ -325,8 +327,7 @@ EOF
     echo "  wrote cixmini-rescue.conf (sort-key 4-rescue)"
 fi
 
-# Default to the headline edge kernel (cixmini-next); fall back to the legacy
-# kernel only if the headline kernel isn't present. Re-write loader.conf to match
+# Default to the NCZ kernel entry (cixmini-next). Re-write loader.conf to match
 # what's actually installed.
 #
 # r303: install-time component toggle (see preseed/component-selector.sh). When

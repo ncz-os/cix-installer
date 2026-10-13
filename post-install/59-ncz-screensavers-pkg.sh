@@ -3,8 +3,8 @@
 # idle timer, shipped 74-title catalogue) on desktop images. Hard-fails when
 # no candidate is available or the install fails.
 #
-# Operator 2026-10-05: "If we are distributing screensavers as Deb they need to
-# be apt installed during installation." This hook IS that mechanism on desktop
+# Since 2026-10-05: screensavers distributed as debs are apt-installed
+# during installation. This hook IS that mechanism on desktop
 # variants. Headless / server variants skip the install (the lock surface and
 # the catalogue have no consumer without a compositor).
 #

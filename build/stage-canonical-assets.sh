@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # stage-canonical-assets.sh — restage the gitignored CIX-NCZ asset blobs the
-# build-iso-di.sh staging loop silently produces nothing for when the build
-# host's $REPO/assets/ tree is incomplete.
+# image staging silently produces nothing for when the build host's
+# $REPO/assets/ tree is incomplete.
 #
 # WHY THIS EXISTS (2026-08-21)
 # ----------------------------
@@ -50,12 +50,12 @@
 #          firmware archive and the 2026-07-22 CIX-vendor-sdk 2026q2 drop have
 #          not been re-staged onto this host.
 #
-# The build script (build/build-iso-di.sh) silently relies on these assets
-# being present on the build host, and provides NO canonical-source pull. The
+# The build script (then build/build-iso-di.sh) silently relied on these assets
+# being present on the build host, and provided NO canonical-source pull. The
 # 22 cix-debs in <vendor archive>/cix-installer-bake-assets-20260729/ are
 # the validated test-board set from 2026-07-29, which is missing everything
 # published after that date. This script does the pull from the canonical
-# NFS sources (NCZ_VENDOR_ARCHIVE_DIR), so the next `make iso` bakes the right assets without
+# NFS sources (NCZ_VENDOR_ARCHIVE_DIR), so the next `make image` bakes the right assets without
 # anyone having to remember where they live.
 #
 # WHAT IT DOES
@@ -331,7 +331,7 @@ else
         # Stage the inner cix-noe-sdk-1.6.0.tar.gz to a scratch dir and copy out
         # only the matched-stack debs. The tarball also ships cixbuilder-6.1.3753.3
         # (224M NOE compiler wheel, x86 host) and 5 dev-guide PDFs (5MB) which
-        # belong in a build-host cache, not the ISO assets/ tree.
+        # belong in a build-host cache, not the image assets/ tree.
         work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
         log "  extracting matched-stack debs from $(basename "$SRC_NPU_SDK_TGZ")"
         tar -C "$work" -xzf "$SRC_NPU_SDK_TGZ" \
@@ -580,7 +580,7 @@ log "  reached sources: $reached"
 log "  missing  sources: $missing"
 if [ "$missing" -gt 0 ]; then
     log "  result: PARTIAL -- some sources unreachable (see WARNs above)"
-    log "          the ISO build will still produce output, with gaps where"
+    log "          the image build will still produce output, with gaps where"
     log "          sources were missing. Re-run once those sources are reachable."
     if [ "$STRICT" = "1" ]; then
         exit 2

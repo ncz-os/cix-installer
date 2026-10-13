@@ -9,7 +9,7 @@
 # a plain copy rather than stage-kernel.sh's Image/modules/headers/staleness-
 # check ceremony (that machinery is Sky1/Yocto-specific).
 #
-# POLICY (operator directive 2026-10-05, unified): amd64 ships ONE kernel,
+# POLICY (design rule 2026-10-05, unified): amd64 ships ONE kernel,
 # 7.3, as the DEFAULT and the installer boot kernel (today
 # 7.3.0-rc7-t2-ncz, the T2 build with the SEP ANFE quirk 9011 + Wunner
 # 79c168e2aa95 which is in v7.3-rc7; the 7.3.0 final build later). The
@@ -130,6 +130,6 @@ stage_default() {
 case "$WHAT" in
     default|stable|"") stage_default ;;
     all)               stage_default ;;
-    edge)              echo "ERROR: the amd64 edge channel was retired (unified 7.3 policy, operator 2026-10-05)" >&2; exit 2 ;;
+    edge)              echo "ERROR: the amd64 edge channel was retired (unified 7.3 policy, 2026-10-05)" >&2; exit 2 ;;
     *) echo "usage: $0 [default|stable|all]" >&2; exit 2 ;;
 esac

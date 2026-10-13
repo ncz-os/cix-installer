@@ -1,6 +1,6 @@
 #!/bin/bash
 # 26-gpu-default-mali.sh — make the CIX proprietary mali stack the default GPU
-# stack (hardware GLES + EGL + OpenCL) for the 26.7 "Maximilian" MALI release.
+# stack (hardware GLES + EGL + OpenCL) on Sky1 (since 26.7).
 #
 # INVERTS the old 26-gpu-default-open.sh. That hook DEMOTED the CIX GPU userspace
 # to open Mesa/llvmpipe because the mali_kbase kernel driver was NOT present (the

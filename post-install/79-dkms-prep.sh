@@ -1,11 +1,11 @@
 #!/bin/bash
 # 79-dkms-prep.sh — make the shipped kernel headers usable for DKMS.
 #
-# Operator directive: all CIX accelerator drivers ship out-of-tree via DKMS.
+# Design rule: all CIX accelerator drivers ship out-of-tree via DKMS.
 # That is impossible on a stock install, because the kernel-headers tree we ship
 # is a Yocto BUILD-HOST artifact, not a target-usable one. Four separate defects,
 # each of which alone makes every DKMS build fail. All four were found the hard
-# way on O6N (.3) against 7.2.0-rc6-sky1-ncz:
+# way on an O6N test board against 7.2.0-rc6-sky1-ncz:
 #
 #   1. HOST TOOLS ARE FOREIGN BINARIES.
 #      scripts/basic/fixdep and scripts/mod/modpost are ELF aarch64 but linked

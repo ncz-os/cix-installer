@@ -102,11 +102,10 @@ cd "$ASSETS" || { echo "ERROR: cannot cd to $ASSETS"; exit 1; }
 #   2. Cix's kernel-module driver debs (post 2026-05-03 kernel jump
 #      from 6.6.10 → 6.18.14-cix-sky1, these prebuilt .ko's are
 #      vermagic-incompatible — they install into /lib/modules/6.6.10-
-#      cix-build-generic/extra but the kernel won't load them. Same
-#      hardware is now driven by in-tree drivers shipped with the new
-#      kernel: panthor (GPU, was mali_kbase), armchina-npu (NPU, was
-#      aipu), amvx in-tree (VPU, replaces vendor amvx blob), drm/cix
-#      (display, replaces trilin_dptx), cix_dsp_rproc with ACPI fix.
+#      cix-build-generic/extra but the kernel won't load them. The
+#      accelerator drivers (Mali/Panthor GPU, aipu NPU, amvx VPU) are
+#      now built per kernel by DKMS (79-dkms-prep.sh, 80-npu.sh,
+#      81-vpu.sh, 82/83 GPU hooks, 86-cix-dkms-register.sh).
 #      Installing the 6.6 .ko packages just pollutes the modules tree
 #      with files that fail vermagic check. Skip entirely.)
 DEBS=()
@@ -117,7 +116,7 @@ for deb in ./*.deb; do
     case "$deb" in
         linux-image-*-cix-build-generic_*.deb|linux-headers-*-cix-build-generic_*.deb) continue ;;
         cix-npu-driver_*.deb|cix-gpu-driver_*.deb|cix-vpu-driver_*.deb|cix-isp-driver_*.deb|cix-wlan_*.deb|cix-csi-driver_*.deb|cix-noe-kmd_*.deb) continue ;;
-        # Desktop payload ownership lives in 20-desktop.sh and the ISO
+        # Desktop payload ownership lives in 20-desktop.sh and the medium
         # /pool/main package. Some baked desktop roots still carry older
         # ncz-singularity-desktop debs in assets/cix-debs; installing them
         # here can downgrade the sensor-panel hotfix after it was applied.
@@ -265,7 +264,7 @@ if [ -f "$CDM_ORIG" ]; then
             /tmp/cdm-patch/DEBIAN/postinst
         # r130.4 (review of an MS-R1 test-board install): the cix-debian-misc postinst is
         # written against a Cix factory image (GDM3 + PulseAudio reference paths +
-        # /etc/rc.local). On our XFCE/LightDM target those files are absent, so:
+        # /etc/rc.local). On our greetd/Singularity target those files are absent, so:
         #   - the gdm3 daemon.conf sed errors "can't read /etc/gdm3/daemon.conf"
         #   - the two pulseaudio analog-output-headphones.conf mv's "cannot stat"
         #   - the FINAL line (cat /etc/rc.local | grep timedatectl … && sed … rc.local)
@@ -444,7 +443,7 @@ echo "--- dpkg -i (collect failures, continue) ---"
 # --force-depends posture); upstream fix is a proper Replaces:/Conflicts:.
 dpkg -i --force-depends --force-overwrite "${DEBS[@]}" 2>&1 | tee /var/log/cix-install/25-dpkg.log || true
 
-# r130.7 (CRITICAL boot fix — operator: NONE of the installed kernels boot,
+# r130.7 (CRITICAL boot fix — reported: NONE of the installed kernels boot,
 # stable + edge + rescue-partition all dead, no video). cix-env's
 # /etc/modprobe.d/blacklist.conf (+ /usr/lib copy) blacklists `btrfs` — but our
 # root filesystem is BTRFS and CONFIG_BTRFS_FS=m in both kernels, so the module
@@ -599,12 +598,11 @@ else
 fi
 
 # Bridge between vendor 6.6 .ko vermagic and our built kernel's KVER:
-# RETIRED 2026-05-03 with the Sky1-Linux 6.18.14 switch. The cix-*-
-# driver debs are now skipped entirely above (DEBS filter), and the
-# in-tree 6.18 drivers (panthor, armchina-npu, in-tree amvx, drm/cix,
-# cix_dsp_rproc with ACPI fix) take their place. No bridge needed.
+# RETIRED 2026-05-03. The prebuilt cix-*-driver debs are skipped
+# entirely above (DEBS filter); the accelerator drivers are built
+# against the installed kernel by DKMS instead. No bridge needed.
 RUNNING_KVER=$(uname -r)
-echo "    running kernel: $RUNNING_KVER (no OoT bridge — Sky1-Linux in-tree)"
+echo "    running kernel: $RUNNING_KVER (no vermagic bridge — drivers built by DKMS)"
 
 # cix-debian-misc ships cix-audio-switch.service with ExecStart=
 # deliberately blanked (a stub for a feature never finished) --

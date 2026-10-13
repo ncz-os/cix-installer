@@ -1,13 +1,13 @@
 #!/bin/sh
 # Read build/check-extract-rootfs-consistency.sh before changing this file --
-# these are ISO build MECHANICS, stable across builds by design.
+# these are image build MECHANICS, stable across builds by design.
 #
 # STATUS (2026-08-26): this file is the DEAD-CODE TWIN of the r159
 # layered-squashfs branch baked into the /usr/sbin/debootstrap stub by
-# build/build-iso-di.sh. partman/late_command is NOT a real d-i hook
+# build/iso/patch-debootstrap-stub.py. partman/late_command is NOT a real d-i hook
 # (only partman/early_command exists), so this script never runs in
 # production. The live install-time extraction happens via the stub
-# heredoc in build-iso-di.sh.
+# (R159_STUB_SCRIPT in build/iso/patch-debootstrap-stub.py).
 #
 # The trap this creates: a fix made here is forgotten in the stub (round 1
 # of the 2026-08-26 0700-root incident -- the gate landed here and shipped
@@ -28,7 +28,7 @@
 #
 # r40 partman/late_command — extract pre-built rootfs.tar.zst into /target
 # right after partman finishes (so /target is mounted) and before
-# bootstrap-base runs. The bookworm bootstrap-base.run-debootstrap will then
+# bootstrap-base runs. bootstrap-base's run-debootstrap will then
 # call /usr/sbin/debootstrap (our stub), which detects /target/etc/os-release
 # from this extraction and exits 0.
 #
@@ -67,7 +67,7 @@ mount | grep -E "cdrom|hd-media|media|target|run/live" || true
 # ============================================================================
 # r159: LAYERED SQUASHFS install via bundled unsquashfs (no kernel mount/overlay/loop
 # — those failed silently in the d-i env). The sqtools bundle (unsquashfs + libs +
-# loader) is staged to <media>/ncz-payload/sqtools by build-iso. Preferred over the
+# loader) is staged to <media>/ncz-payload/sqtools by the image build. Preferred over the
 # rootfs.tar.zst path; falls through to the tarball if no base.squashfs present.
 SQFS_DIR=""
 for d in /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
@@ -141,7 +141,7 @@ if [ -n "$SQFS_DIR" ]; then
         done
         return 1
     }
-    # The ISO installs one complete target.  The desktop layer is the internal
+    # The medium installs one complete target.  The desktop layer is the internal
     # name for that complete payload; rEFInd provides console/recovery choices
     # after installation instead of selecting an install-time server overlay.
     #
@@ -357,7 +357,7 @@ if [ -n "$SQFS_DIR" ]; then
     # r172: PRESERVE falkon (the NCZ web browser). It can't finish configuring in
     # the d-i chroot (its postinst wants a display/dbus), so r159 purged it as
     # "non-configured" — which left the installed desktop with NO working browser
-    # (firefox on resolute is a snap stub that no-ops in an offline image; only
+    # (firefox on the old Ubuntu base was a snap stub that no-ops offline; only
     # falkon + epiphany are real debs). Keep falkon (+ its parts) out of the purge
     # and let ncz-firstboot's `dpkg --configure -a` finish it on first boot where
     # X/dbus exist. Everything else non-ii is still purged so pkgsel's dpkg stays
@@ -400,7 +400,7 @@ $f"
     # installer kernel) that blocks "Select and install software".
     mkdir -p /target/etc/needrestart/conf.d
     printf '$nrconf{kernelhints} = 0;\n' > /target/etc/needrestart/conf.d/99-baked.conf
-    # r160: per-machine ssh host keys. The Ubuntu cloud rootfs ships
+    # r160: per-machine ssh host keys. The base rootfs ships
     # openssh-server but STRIPS the host keys (cloud-init would normally
     # regenerate them); without keys sshd refuses to start and the installed
     # system is unreachable on :22. Generate here, at install time, so every

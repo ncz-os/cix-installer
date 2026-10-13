@@ -11,7 +11,7 @@
 # Sky1 Mesa. Built from source on the MS-R1 reference board; A/B-validated
 # +20.6% prefill / +12.9% decode (llama.cpp Vulkan) and rusticl FP16 ~3.6 TFLOPS.
 #
-# Asset: assets/gpu/mesa-26.1.3-ncz-arm64.tar.gz → staged by build-iso to
+# Asset: assets/gpu/mesa-26.1.3-ncz-arm64.tar.gz → staged by the image build to
 # /cdrom/ncz-payload/assets/gpu/, copied by late.sh to
 # /usr/local/lib/cix-installer/assets/gpu/. Tarball extracts to /opt/mesa-26.1.3.
 # NCZ-PLATFORM-GUARD: sky1-arm64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches

@@ -31,7 +31,7 @@ if ! systemctl enable ssh.socket; then
     echo "  WARN: 'systemctl enable ssh.socket' returned non-zero (likely static-unit config - safe to ignore if ssh.service is enabled)"
 fi
 
-# Make sshd ALSO start in rescue.target - so cixmini-rescue.conf boots
+# Make sshd ALSO start in rescue.target - so rescue.target boots
 # get a remote shell for diagnostics. By default rescue.target only
 # runs emergency-grade services (no sshd). Drop-in pulls sshd in via
 # WantedBy=rescue.target alongside multi-user.target. Critical when
@@ -47,7 +47,7 @@ EOF
 # multi-user.target). Add a drop-in to NetworkManager so it joins
 # rescue.target - without this, sshd is up but has no IP, so SSH
 # from another host can't reach the box (discovered 2026-05-03
-# when cixmini wedged into rescue and we couldn't ssh in to inspect
+# when a Sky1 test board wedged into rescue and we couldn't ssh in to inspect
 # /var/log/cix-install/).
 mkdir -p /etc/systemd/system/NetworkManager.service.d
 cat > /etc/systemd/system/NetworkManager.service.d/run-in-rescue.conf <<'EOF'

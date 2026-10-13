@@ -1,7 +1,7 @@
 #!/bin/bash
 # test-kernel-default-policy.sh -- exercise verify-kernel-default-policy.sh
 # against synthetic KVER files matching every code path of the unified 7.3
-# kernel policy (operator 2026-10-05).
+# kernel policy (2026-10-05).
 #
 # Why a fixture test (and not just a smoke run on the live tree): the policy
 # verifier exists to fail closed on misconfigured staging. Every failure mode

@@ -1,10 +1,10 @@
 #!/bin/bash
 # NCZ-MIXED-HOOK: branding generic; issue SOC label detects Sky1 via uname/cpuinfo (line ~117) (docs/platform-inventory.tsv; runs on every platform, listed in both hooks.list files)
-# 50-brand.sh — NCZ 26.7 "Maximilian" identity.
+# 50-brand.sh — NCZ-OS release identity (product, version and codename
+# from release.conf, e.g. 26.10 "Cygnus").
 #
-# "Maximilian" is the RELEASE codename (26.7) — it applies to BOTH variants,
-# not just desktop. The variant qualifier is just "Desktop" or "Server"
-# (operator directive 2026-07-27: retired the old "Reinhardt"=desktop /
+# The RELEASE codename applies to BOTH variants, not just desktop. The
+# variant qualifier is just "Desktop" or "Server" (2026-07-27: retired the old "Reinhardt"=desktop /
 # "Magnetar"=server per-variant codename scheme — those competed with the
 # release name instead of qualifying it, and confused which name was "the"
 # product name).
@@ -47,8 +47,9 @@ if [ -f "$VARIANT_FILE" ]; then
     VARIANT=$(tr -d ' \t\r\n' < "$VARIANT_FILE")
 fi
 
-# Release codename is ALWAYS "Maximilian" — the variant is a qualifier, not
-# a competing name. VERSION_CODENAME stays "maximilian" for both so anything
+# The release codename (release.conf NCZ_RELEASE_CODENAME) is the same for both
+# variants — the variant is a qualifier, not a competing name. VERSION_CODENAME
+# is the lowercased codename for both so anything
 # that keys off it (update channels, the motd banner below) doesn't need to
 # know about variants at all.
 SKU_NAME="$NCZ_RELEASE_CODENAME"
@@ -232,8 +233,8 @@ systemctl enable ncz-issue-refresh.service >/dev/null 2>&1 || true
 # the Kernel line always shows the RUNNING kernel (uname -r), never a stale
 # hard-coded version. Release name + variant are read live from os-release
 # too. The box uses a width-aware row() (wc -m counts display chars, not
-# bytes) so every right-edge │ aligns regardless of "Maximilian Desktop" vs
-# "Maximilian Server" being different lengths, or the multi-byte ┌─│┐ / · /
+# bytes) so every right-edge │ aligns regardless of "<Codename> Desktop" vs
+# "<Codename> Server" being different lengths, or the multi-byte ┌─│┐ / · /
 # — / ✦ glyphs — an old static heredoc with hard-coded trailing spaces
 # skewed the title row whenever the label length changed.
 : > /etc/motd

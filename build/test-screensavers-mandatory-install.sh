@@ -1,7 +1,7 @@
 #!/bin/bash
 # test-screensavers-mandatory-install.sh -- fail-before/pass-after for the
-# screensaver deb being apt-installed on every desktop image (operator
-# 2026-10-05). Sections (1)-(2): mirror pre-flight and the install hook.
+# screensaver deb being apt-installed on every desktop image
+# (2026-10-05). Sections (1)-(2): mirror pre-flight and the install hook.
 # Sections (3)-(7) are sourced from the sibling script so neither review
 # hunk exceeds 9000 bytes. No real apt, no real chroot.
 set -uo pipefail

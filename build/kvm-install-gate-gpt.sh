@@ -78,8 +78,8 @@ DEBUGFS="$(command -v debugfs || echo /sbin/debugfs)"
 mkdir -p "$WORK"
 # This gate runs as root (build-image.sh invokes it via ncz_sudo). Everything it
 # writes under $WORK (target-logs/, ui-check/, the qcow2, logs) would be root-
-# owned, so the build user could not `rm -rf` a finished run dir (operator
-# 2026-10-11). Hand the whole tree back to the invoking user on EVERY exit path;
+# owned, so the build user could not `rm -rf` a finished run dir
+# (2026-10-11). Hand the whole tree back to the invoking user on EVERY exit path;
 # cleanup only -- the trap preserves the gate's exit status.
 . "$SCRIPT_DIR/lib/priv.sh" 2>/dev/null || true
 if declare -F ncz_trap_chown_back >/dev/null 2>&1; then ncz_trap_chown_back "$WORK"; fi
@@ -127,7 +127,7 @@ mdir -i "$TEST_IMG@@$ESP_OFF" ::/EFI/BOOT >/dev/null 2>&1 \
 # --- regression gate: the INSTALLER boot kernel must be the pinned r2 build --
 # Phase 1 boots the rEFInd "Install" entry, whose loader is /linux on this ESP
 # (all four installer entries share it). That file is the kernel d-i runs, and
-# it must be the SAME cyclops-fixed r2 build the installed system receives.
+# it must be the SAME boot-GPU-fixed r2 build the installed system receives.
 # Without this, a stale r1 kernel left on the ESP would silently reintroduce
 # the Macmini5,1 i915 EPROBE_DEFER bug and the gate would still PASS: it only
 # ever sees KVER, and the r1/r2 release strings are identical. Assert the
@@ -137,13 +137,13 @@ mdir -i "$TEST_IMG@@$ESP_OFF" ::/EFI/BOOT >/dev/null 2>&1 \
 if [ "$ARCH" = amd64 ]; then
   _amman="$SCRIPT_DIR/../assets/kernel/amd64-stable-manifest.json"
   [ -f "$_amman" ] \
-    || { echo "GATE FAIL: $_amman missing; cannot assert the installer kernel is the pinned cyclops-fixed r2 build" >&2; exit 2; }
+    || { echo "GATE FAIL: $_amman missing; cannot assert the installer kernel is the pinned boot-GPU-fixed r2 build" >&2; exit 2; }
   _want_vmlinuz=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["identity"]["vmlinuz_sha256"])' "$_amman")
   _want_kver=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d.get("kver") or d["identity"]["kernel_release"])' "$_amman")
   _cyclops=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["source"]["t2_cyclops_patch"])' "$_amman")
   case "$_cyclops" in
     *2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch) : ;;
-    *) echo "GATE FAIL: amd64-stable-manifest t2_cyclops_patch='$_cyclops' is not the 2010 cyclops boot-GPU fix" >&2; exit 2 ;;
+    *) echo "GATE FAIL: amd64-stable-manifest t2_cyclops_patch='$_cyclops' is not the 2010 boot-GPU fix" >&2; exit 2 ;;
   esac
   _esp_linux="$WORK/esp-linux.image"
   rm -f "$_esp_linux"
@@ -153,9 +153,9 @@ if [ "$ARCH" = amd64 ]; then
   rm -f "$_esp_linux"
   [ "$_got_vmlinuz" = "$_want_vmlinuz" ] || {
     echo "GATE FAIL: ESP installer kernel /linux sha256=$_got_vmlinuz != pinned r2 vmlinuz $_want_vmlinuz" >&2
-    echo "           (the installer would boot a kernel WITHOUT the 2010 cyclops boot-GPU fix)" >&2
+    echo "           (the installer would boot a kernel WITHOUT the 2010 boot-GPU fix)" >&2
     exit 2; }
-  echo "    installer kernel /linux is the pinned r2 build ($_want_kver, 2010 cyclops fix): $_want_vmlinuz"
+  echo "    installer kernel /linux is the pinned r2 build ($_want_kver, 2010 boot-GPU fix): $_want_vmlinuz"
   export VERIFY_EXPECT_KVER="${VERIFY_EXPECT_KVER:-$_want_kver}"
   export VERIFY_EXPECT_VMLINUZ_SHA256="${VERIFY_EXPECT_VMLINUZ_SHA256:-$_want_vmlinuz}"
 fi

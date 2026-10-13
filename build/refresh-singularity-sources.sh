@@ -3,7 +3,7 @@
 # source pins for one image build (the `refresh-sources` stage of
 # build/build-image.sh).
 #
-# OPERATOR RULING (2026-10-10): "I want latest singularity, latest build
+# DESIGN RULE (2026-10-10): "I want latest singularity, latest build
 # sources."  This tool resolves the LATEST upstream sources for the payload and
 # freezes them into a receipt so a build is reproducible from recorded pins.
 #

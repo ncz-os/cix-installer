@@ -10,6 +10,7 @@ assets/agent-images/*.tar
 assets/branding/_candidates/
 assets/cix-debs/*.deb
 assets/wallpaper-debs/*.deb
+assets/vivaldi/*.deb
 assets/gpu/*.tar.gz
 assets/gpu/*.tar.zst
 assets/kernel/*.bin

@@ -248,7 +248,7 @@ cat > /etc/greetd/singularity-labwc/autostart <<'LABAUTO'
 #!/bin/sh
 # Greeter output mode: never 4K. The login screen is a blurred 960 px backdrop and a
 # small card, so a 3840x2160 scanout buys nothing and is the heaviest path for the Mali
-# swapchain (operator decision 2026-10-04). Pick 1920x1080 at 60 Hz on every connected
+# swapchain (decision 2026-10-04). Pick 1920x1080 at 60 Hz on every connected
 # output that offers it; outputs without it keep their own mode. Best effort: a failure
 # here must never block the greeter, so every path exits 0.
 #

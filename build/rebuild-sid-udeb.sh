@@ -2,7 +2,7 @@
 # rebuild-sid-udeb.sh -- rebuild a small-gap (Class B) installer udeb as an NCZ
 # udeb, from source, in a clean forky container.
 #
-# Operator ruling (2026-10-10): a sid component with a SMALL forky gap should be
+# Design rule (2026-10-10): a sid component with a SMALL forky gap should be
 # rebuilt by us (an NCZ udeb) rather than carried as a sid exception.  This is
 # the recipe: fetch the needed source version from the pinned snapshot's sid
 # archive, build it inside a clean forky container (amd64 on an amd64 host,

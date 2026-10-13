@@ -1,7 +1,7 @@
 #!/bin/bash
 # test-preseed-consistency.sh — guard the "one authoritative preseed" contract.
 #
-# Operator 2026-10-10: "We had redundant preseeds before also." This test makes
+# 2026-10-10: "We had redundant preseeds before also." This test makes
 # the redundancy explicit and fails closed on the shapes that used to bite:
 #
 #   * the SAME debconf question set TWICE with DIFFERENT values (a real

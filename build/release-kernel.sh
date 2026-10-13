@@ -46,7 +46,7 @@
 set -uo pipefail
 
 # modinfo/dkms live in /usr/sbin, which is NOT on PATH for a non-interactive
-# ssh/script shell on this system (confirmed missing on both cixmini and O6N)
+# ssh/script shell on this system (confirmed missing on both an MS-R1 and an O6N)
 # -- a script meant to run identically everywhere cannot depend on the
 # caller's interactive PATH having it.
 export PATH="$PATH:/usr/sbin:/sbin"
@@ -168,7 +168,7 @@ step "4/7 stage kernel assets and run boot/ABI gates"
 NCZ_SKIP_PACKAGING=1 BUILD_REV="$REV" "$REPO/build/stage-kernel.sh" || die "staging or gates failed"
 
 # ------------------------------------------- 4b. accelerator overlays (all 4)
-# Every kernel, every time (operator 2026-10-07): mali, panthor, vpu and npu
+# Every kernel, every time (2026-10-07): mali, panthor, vpu and npu
 # are rebuilt from assets/kernel/<drv> against THIS build tree with the
 # kernel's own OE toolchain, staged into assets/kernel/<drv>/$KVER/ with a
 # SOURCE.sha256 stamp, and checked against this build's Module.symvers.

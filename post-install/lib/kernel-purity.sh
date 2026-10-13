@@ -4,7 +4,7 @@
 # Sourced by post-install/10-our-kernel.sh (arm64) and
 # post-install/10-amd64-kernel.sh (amd64) BEFORE either hook touches apt.
 #
-# Why this exists (operator directive 2026-10-04, Cygnus 26.10):
+# Why this exists (policy since 2026-10-04, Cygnus 26.10):
 #   NCZ-OS ships its own unified 7.3 kernel -- linux-image-cixmini (arm64) /
 #   linux-image-<ver>-t2-trixie (amd64). Until now the ONLY guarantee that
 #   Debian's default kernel (forky's 7.1.x linux-image-arm64 / linux-image-amd64
@@ -41,7 +41,7 @@ ncz_kernel_purity_pin_text() {
 # /etc/apt/preferences.d/00-ncz-kernel-purity.pref
 # Written by post-install/10-our-kernel.sh (arm64) and
 # post-install/10-amd64-kernel.sh (amd64). Do not edit by hand; see
-# post-install/lib/kernel-purity.sh for the rationale (operator directive
+# post-install/lib/kernel-purity.sh for the rationale (policy since
 # 2026-10-04: no Debian default kernel may enter or boot a Cygnus 26.10 image).
 #
 # A Debian-origin linux-image-*/linux-headers-* candidate is unavailable.

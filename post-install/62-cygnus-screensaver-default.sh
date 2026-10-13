@@ -1,6 +1,6 @@
 #!/bin/bash
 # 62-cygnus-screensaver-default.sh -- make the black hole saver in the Cygnus palette the
-# default screensaver (operator decision 2026-10-04).
+# default screensaver (decision 2026-10-04).
 #
 # The dev.ncz.screensaver schema is owned by the ncz-screensavers package. Its defaults are
 # mode='random' with the stylized palette; the `cygnus` palette exists from ncz-screensavers

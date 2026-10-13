@@ -86,7 +86,7 @@ fi
 # ---------------------------------------------------------------------------
 # 2) Drop stray / broken / duplicate launchers.
 # ---------------------------------------------------------------------------
-# Stray old-codename branding (should be "Maximilian", not "Reinhardt").
+# Stray old-codename branding ("Reinhardt" was retired in 26.7).
 rm -f "$APPDIR"/Rheinhardt-Through-and-Beyond.desktop \
       /etc/skel/Desktop/Rheinhardt-Through-and-Beyond.desktop 2>/dev/null || true
 # Dedupe Vivaldi: keep vivaldi-stable.desktop (canonical, matches mimeapps +

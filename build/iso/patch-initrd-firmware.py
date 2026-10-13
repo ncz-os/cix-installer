@@ -4,7 +4,7 @@ patch-initrd-firmware.py -- inject real device firmware into a Debian
 Installer initrd, content-addressed and cached the same way
 patch-debootstrap-stub.py and stage-ncz-payload.py already are.
 
-Why this exists (operator, 2026-09-24): T2 MacBooks need the real Apple/
+Why this exists (2026-09-24): T2 MacBooks need the real Apple/
 Broadcom WiFi firmware (brcmfmac4355c1/4364b2/4364b3/4377b3 board
 variants) to bring up wireless AT ALL -- the driver modules
 (brcmfmac.ko/brcmsmac.ko/brcmutil.ko) and wpa_supplicant + netcfg's own

@@ -2,7 +2,7 @@
 # disk-fs-chooser.sh — NCZ installer interactive TARGET-DISK + ROOT-FILESYSTEM
 # selection. Invoked from partman/early_command (see preseed.cfg).
 #
-# WHY a cdebconf menu (NOT whiptail): the ISO boots d-i at `priority=critical`
+# WHY a cdebconf menu (NOT whiptail): the install medium boots d-i at `priority=critical`
 # so finish-install auto-reboots cleanly (priority=high would drop back to the
 # d-i main menu at the end — the "Debian menu at the end" bug). At critical
 # priority d-i AUTO-answers its own disk-selection question (picks the first

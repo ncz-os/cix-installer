@@ -2,7 +2,7 @@
 # verify-kernel-default-policy.sh -- enforce the NCZ-OS kernel policy at
 # build time, BEFORE staging anything that becomes the default boot kernel.
 #
-# Policy (operator 2026-10-05, evening; supersedes the 2026-09-30 and the
+# Policy (2026-10-05, evening; supersedes the 2026-09-30 and the
 # 2026-10-05 morning rules):
 #   - ONE kernel: 7.3, the SAME pinned build on EVERY architecture. It is the
 #     DEFAULT boot kernel and the installer boot kernel.
@@ -55,7 +55,7 @@
 #   2  misuse (bad args, missing root, missing manifest, etc.)
 #
 # Designed to be invoked from:
-#   - build/build-iso-di.sh, before kernel staging starts
+#   - build/build-installer-image.sh, before kernel staging starts
 #   - build/build-squashfs-layers.sh, before KVER_NEXT is copied into the
 #     base payload
 #   - build/build-baked-rootfs.sh, before KVER_NEXT is copied into the
@@ -311,7 +311,7 @@ if [ "$ARCH" = amd64 ] || [ "$ARCH" = x86_64 ]; then
                 elif [[ "$AMD64_STABLE_KVER" == *aer9011* ]]; then
                     # '-aer9011' builds (rc6-3) carry the narrow Apple-only
                     # 9011 AER quirk, removed 2026-10-06 in favour of the
-                    # plain revert of eddba19b8b5f (operator, after Alex
+                    # plain revert of eddba19b8b5f (after Alex
                     # Deucher's LKML report that the commit breaks non-Apple
                     # boards too). They must not be pinned again.
                     err "amd64: default KVER '$AMD64_STABLE_KVER' is a 9011-quirk build (removed 2026-10-06); pin the 9010 revert build (*-aer9010)"
@@ -474,7 +474,7 @@ if [ -s "$POLICY_FILE" ]; then
     case "$MANIFEST_MAINLINE_KVER" in
         7.2.*|7.2-*) err "manifest variants.mainline.kver '$MANIFEST_MAINLINE_KVER' is from the retired 7.2.x series" ;;
     esac
-    # The 7.2.9 overlay mirrors are retired (operator 2026-10-05); older
+    # The 7.2.9 overlay mirrors are retired (2026-10-05); older
     # 7.2.x mirrors are historical and kept. Only 7.2.9 is a failure.
     for _ovr in mali panthor npu vpu; do
         for _d in "$ROOT/assets/kernel/$_ovr"/7.2.9-*/; do

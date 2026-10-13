@@ -6,15 +6,15 @@
 #
 # It exists because a build host's singularity-desktop checkout has a GitLab PAT embedded
 # in its remote URL in .git/config -- deliberate and fine on the build host, but
-# one stray `cp -r` of a source tree into a payload would put it in every ISO we
+# one stray `cp -r` of a source tree into a payload would put it in every image we
 # ship. The payload IS assembled from that checkout, so the distance between
 # "fine" and "shipped credential" is a single glob.
 #
 # Scans, in order of what actually ships:
 #   1. the ISO itself (uncompressed regions: ISO9660 stores pool debs, scripts
 #      and preseeds uncompressed, so a plain byte scan finds them)
-#   2. the ISO staging tree, before it is packed
-#   3. every .deb that goes into the mirrors or the ISO
+#   2. the image staging tree, before it is packed
+#   3. every .deb that goes into the mirrors or the image
 #   4. payload tarballs
 #   5. any .git directory that reached a staging or payload tree at all --
 #      a .git is a credential leak waiting to happen even if today's config

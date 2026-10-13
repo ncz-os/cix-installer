@@ -7,9 +7,8 @@
 #
 # ncz-screensavers is added here when its .deb is staged in
 # build/ncz-screensavers-out/ (see build/build-image.sh). It is now
-# MANDATORY on desktop variants (operator 2026-10-05: "If we are
-# distributing screensavers as Deb they need to be apt installed during
-# installation.") and the offline mirror MUST carry it at the version
+# MANDATORY on desktop variants (since 2026-10-05: screensavers distributed
+# as a .deb are apt-installed during installation) and the offline mirror MUST carry it at the version
 # floor in build/screensavers-version.env; build/build-desktop-mirror.sh
 # enforces that on pool rebuild and build/build-squashfs-layers.sh +
 # build/build-role-delta-mkosi.sh pre-flight it via build/assert-mirror-

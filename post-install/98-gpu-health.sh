@@ -1,5 +1,5 @@
 #!/bin/bash
-# 98-gpu-health.sh -- the never-software-render health check (operator policy, 2026-09-29).
+# 98-gpu-health.sh -- the never-software-render health check (policy, 2026-09-29).
 #
 # If a machine has a GPU it must not render in software. This hook installs:
 #   /usr/local/bin/ncz-gpu-hw-present      is there a hardware GPU? (shared answer for every fallback)

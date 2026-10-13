@@ -2,9 +2,9 @@
 # 47-embedkit.sh — install mnemos-embedkit + stage NPU runtime + ship
 # the canonical bench artifacts so MNEMOS embedding works out of the box.
 #
-# This is the kit's appliance install path. The NCZ Maximilian
-# ISO is the EXEMPLAR way to run MNEMOS (per operator doctrine 2026-05-07);
-# baking embedkit into the ISO means an `ncz install mnemos` post-flash
+# This is the kit's appliance install path. The NCZ-OS
+# image is the EXEMPLAR way to run MNEMOS (since 2026-05-07);
+# baking embedkit into the image means an `ncz install mnemos` post-flash
 # delivers a working MNEMOS appliance with the NPU adapter live by the
 # time the user's first agent comes up.
 #
@@ -166,7 +166,7 @@ fi
 # when the venv is 3.11/3.12 -- the wheels carry cp311/cp312 .so only, so
 # on a 3.13+ venv the import would fail at runtime.
 #
-# Track the LATEST cix-noe-umd, not a pinned version (operator directive
+# Track the LATEST cix-noe-umd, not a pinned version (rule since
 # 2026-08-27) -- so this discovers whatever version is actually installed
 # rather than a hardcoded one. Confirmed real: an ls glob here for
 # NOE_Engine-*.whl (mixed case) silently killed the WHOLE hook under
@@ -257,7 +257,7 @@ for m in bge-small-zh-v1.5_256.cix bge-small-zh-v1.5-q8_0.gguf; do
         echo "[47]   already present: $dst"
     else
         # Not an error since 2026-08-17: models are no longer baked into the
-        # ISO. They ship from the NCZ apt repo and are installed only with
+        # image. They ship from the NCZ apt repo and are installed only with
         # MNEMOS, which is their only consumer. embedkit itself is still
         # installed here so the adapter is ready the moment a model lands.
         echo "[47]   $m not in image - expected; apt-delivered on MNEMOS install"

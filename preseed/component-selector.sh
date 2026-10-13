@@ -4,8 +4,8 @@
 # disk-fs-chooser.sh, so the rescue-partition choice is available when
 # disk-fs-chooser.sh builds its partman recipe.
 #
-# WHY a custom chooser (same reasoning as the two existing choosers): the ISO
-# boots d-i at priority=critical so finish-install auto-reboots cleanly. At
+# WHY a custom chooser (same reasoning as the two existing choosers): the install
+# medium boots d-i at priority=critical so finish-install auto-reboots cleanly. At
 # critical priority EVERY d-i native question is auto-answered silently. The
 # only thing that IS shown is a question explicitly db_input'd at CRITICAL
 # priority. So we register our own cdebconf `multiselect` template and
@@ -23,7 +23,7 @@
 #                         entry retargeted at cixmini-console.
 #   mgmt-container      — ncz-recovery systemd-nspawn container (38-recovery-
 #                         container.sh). OFF = no recovery tier installed.
-#   rescue-partition    — 4 GiB NCZRESCUE ext4 partition (72-rescue-partition.sh).
+#   rescue-partition    — 4096 MB NCZRESCUE ext4 partition (72-rescue-partition.sh).
 #                         OFF = partman recipe drops the rescue stanza (root
 #                         partition becomes p2; total 2-partition recipe).
 #                         TOUCHES PARTITIONING — disk-fs-chooser.sh reads
@@ -118,7 +118,7 @@ desktop:Full Singularity desktop (GUI labwc + greetd + branding)\
 # sees an NVIDIA display controller (PCI vendor 0x10de, class 0x03xx) in sysfs;
 # default ON when shown. It downloads from NVIDIA's apt repo (network needed;
 # post-install/54-gpu-accel.sh defers to first boot when offline), so it is not
-# baked into the ISO. Skipping it only skips the NVIDIA driver/CUDA; the machine
+# baked into the image. Skipping it only skips the NVIDIA driver/CUDA; the machine
 # still boots and displays with nouveau.
 _HAS_NV=0
 # amd64 only: post-install/54-gpu-accel.sh (the only consumer) is amd64-only, so offering the option on an arm64

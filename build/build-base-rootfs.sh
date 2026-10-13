@@ -1,21 +1,17 @@
 #!/bin/bash
 # build-base-rootfs.sh — produce the RAW (un-baked) base rootfs tarball that
 # build-squashfs-layers.sh's build_base() extracts as BASE_TARBALL
-# (assets/rootfs/rootfs-$NCZ_BASE_CODENAME-arm64.tar.zst). build_base() then
+# (assets/rootfs/rootfs-$NCZ_BASE_CODENAME-<arch>.tar.zst). build_base() then
 # runs its own machine-agnostic hooks + installer-base.pkgs on top of this --
 # this script's only job is the plain base, nothing NCZ-specific baked in
 # (no hostname, no rescue services, no branding).
 #
-# BUILD HOST (operator directive, 2026-09-14): this pipeline builds Sky1
-# arm64 images and runs on a native aarch64 build host (Fedora
-# Asahi) -- NOT the x86_64 host, which is reserved for a future
-# amd64 variant of this pipeline. Building arm64 on x86_64 works (podman
-# + qemu-user-static/binfmt cross-arch emulation) and was used for the
-# initial integration proof (this branch, commits through d9b51fb and the
-# build_layer() wiring commit), but emulation is measurably slower than
-# native arm64 and should not be the standing path. Run arm64 builds/
-# verification on the aarch64 host going forward; reach for x86_64 again only when
-# the amd64 variant is the thing being built.
+# BUILD HOST (2026-09-14): build each arch on a native build host of that
+# arch -- arm64 on an aarch64 host, amd64 on an x86_64 host. Building arm64
+# on x86_64 works (podman + qemu-user-static/binfmt cross-arch emulation) and
+# was used for the initial integration proof (commits through d9b51fb and the
+# build_layer() wiring commit), but emulation is measurably slower than a
+# native build and should not be the standing path.
 #
 # METHOD
 #   Uses `podman` + `mmdebstrap --mode=root` inside a debian:<codename>
