@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">NCZ-OS</h1>
-<p align="center"><em>面向 Arm64（CIX Sky1）与 AMD64（Intel/AMD PC 与 Apple T2 Mac）的 Debian —— GPU、VPU、NPU 真正可用</em></p>
+<p align="center"><em>面向 Arm64（CIX Sky1）与 AMD64（Intel/AMD PC 与 Apple T2 Mac）的 Debian —— 带有可用的 GPU、VPU 与 NPU 驱动</em></p>
 
 > ### NCZ-OS 26.10 "Cygnus" —— Preview 1（2026-10-12）
 >
@@ -102,7 +102,7 @@ NCZ **在设计与意图上都是厂商中立的**。目标是：在能取得样
   DKMS 加速器模块（`mali_kbase`、`panthor`、`amvx`、`aipu`）接入之处。其他 Sky1 主板
   （Orange Pi 6 等）尚未测试。仓库名反映的是历史，不代表项目范围。
 - **AMD64 — Apple T2 Mac** —— 2018–2020 出货、搭载 T2 协处理器的 MacBookPro
-  （15,1 / 15,3 / 16,1 / 16,2 / 16,3 / 16,4）与 MacBookAir（8,1 / 8,2 / 9,1）。
+  （15,1 / 15,3 / 16,1 / 16,2 / 16,3 / 16,4）与 MacBookAir（8,1 / 8,2 / 9,1）等机型；其中只有 MacBookPro16,1 经过测试。
   硬件识别通过 PCI `106b:1801` —— Apple T2 桥接设备 ID，正是 `t2linux` 的
   `linux-t2-patches` 所依凭的同一标识（已直接核对
   `9001-ACPI-x86-Apple-T2-systems-need-early-CPU-offlining.patch` 源文件）。在 T2 Mac 上，
@@ -144,6 +144,9 @@ Preview 1 带有 **amd64 上的 AMD、NVIDIA 与 Intel GPU 驱动**、**CIX Sky1
   AMD GPU 始终通电（空闲约 60 °C）。修复计划在下一个镜像中提供。
 - 锁屏：在两台 T2 MacBook 上未能确认锁屏背后的屏保动画（其他机器上已确认，正在调查）；
   锁屏不会关闭显示（"N 秒后黑屏"尚未实现）。
+- T2 MacBook 每次从休眠恢复都会记录一条内核警告，Thunderbolt/USB4 端口会短暂断开（恢复本身
+  正常）；登录界面与桌面会话的分辨率不同，因此在这些机器上登录界面与锁屏的一致性尚未验证。
+- 在 Radxa Orion O6N 上，GTK 文件选择门户服务可能无法启动，部分应用可能打不开文件选择对话框。
 - 锁屏上的屏保在默认时间点可能无法启动：两条空闲锁屏路径会争用锁屏的屏保连接，导致锁屏
   背后没有屏保（在一台台式机上出现）。锁屏本身总会生效。修复计划在下一个镜像中提供。
 
@@ -307,7 +310,7 @@ sudo apt install ncz-model-nomic-embed   # 768 维，默认
 NCZ-OS 几乎完全建立在他人的工作之上。下面大致按这些工作自内核向上堆叠的顺序排列。
 
 **Linus Torvalds 与内核社区。** 先说最显而易见的一笔：没有内核，这一切都不存在。这里的
-Sky1 使能不过是 176 个补丁，叠在三十年间数千人的工作之上；而一组厂商补丁系列**能够**
+Sky1 使能（26.10 中为一个合并的移植补丁加 20 个编号补丁；26.7 中为 176 个补丁的系列）叠在三十年间数千人的工作之上；而一组厂商补丁系列**能够**
 被这样承载、变基与公开发布，本身就是那个项目治理方式的产物。
 
 还有一笔不那么显而易见、但值得直说的：本发行版是由一个人借助 AI 结对工具构建的。在业界
@@ -326,8 +329,8 @@ to document their patches as such"*（真正在灌水的人，根本不会把补
 
 **Yocto 项目与 Linux 基金会。** Sky1 内核使用
 **[Yocto 项目](https://www.yoctoproject.org/)** 构建——BitBake、OpenEmbedded 与
-`poky`，CIX 使能则以 `meta-cix` 层的形式承载。那 176 个补丁的系列、它们的 `SRC_URI`
-顺序、defconfig 以及可复现的部署产物，全都存在于这套模型之中。正是它让"一组 176 个
+`poky`，CIX 使能则以 `meta-cix` 层的形式承载。那组补丁系列、它们的 `SRC_URI`
+顺序、defconfig 以及可复现的部署产物，全都存在于这套模型之中。正是它让 26.7 时"一组 176 个
 补丁的厂商系列跨四个上游基线反复变基"成为一个人而非一个团队能做的事，也正是它让我们
 发布的对应源码**真的对应得上**。
 **[Linux 基金会](https://www.linuxfoundation.org/)** 托管并维系着 Yocto，以及本发行版

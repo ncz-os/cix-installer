@@ -7,7 +7,7 @@
 </p>
 
 <h1 align="center">NCZ-OS</h1>
-<p align="center"><em>Debian for Arm64 (CIX Sky1) and AMD64 (Intel/AMD PCs and Apple T2 Macs) — GPU, VPU and NPU that actually work</em></p>
+<p align="center"><em>Debian for Arm64 (CIX Sky1) and AMD64 (Intel/AMD PCs and Apple T2 Macs) — with working GPU, VPU and NPU drivers</em></p>
 
 > ### NCZ-OS 26.10 "Cygnus" — Preview 1 (2026-10-12)
 >
@@ -140,9 +140,9 @@ it as NCZ-OS. See [Architecture](#architecture).
 - **Sky1:** Mali GPU driver by default with Panthor as an experimental boot
   entry, VPU hardware video decode (verified on the Radxa Orion O6N and MS-R1), the
   NPU runtime, and automatic HDMI/DP audio switching.
-- **Apple T2 Macs:** T2 kernel support, the fix that stops MacBookPro16,1
-  powering off shortly after boot, a CPU power cap against load-triggered
-  power cuts, the T2 fan/SMC drivers, and Apple Wi-Fi/Bluetooth firmware and
+- **Apple T2 Macs:** a kernel with Apple T2 support (tested on
+  MacBookPro16,1), a CPU package power cap
+  ([docs/T2-POWER-CAP.md](docs/T2-POWER-CAP.md)), the T2 fan/SMC drivers, and Apple Wi-Fi/Bluetooth firmware and
   audio configuration fetched from the t2-ubuntu-repo at first boot.
 - **Updates and recovery:** an NCZ-OS update manager, a rescue boot entry on
   the same kernel, a rescue partition and a live recovery container (see
@@ -156,8 +156,8 @@ artists: **[Brandon Perlow](https://www.artstation.com/brandonperlow)**
 **[Alex Jay Brady](https://www.artstation.com/boac)**
 (`ncz-wallpapers-alex-jay-brady` 1.0, 8 images). Pick them in the desktop's
 Artist Packs chooser or let them rotate. The artwork belongs to the artists; it
-is contributed for distribution with NCZ-OS and is not separately
-redistributable. The screenshots in this README show it, with credit, only as
+is contributed for distribution with NCZ-OS; separate reuse needs the artist's
+permission (the licence is not yet recorded). The screenshots in this README show it, with credit, only as
 it appears in the desktop.
 
 **Known issues in Preview 1** (the full list is in the
@@ -176,6 +176,12 @@ it appears in the desktop.
   MacBooks (it was on the other machines; under investigation), and the lock
   screen never blanks the display ("blank after N seconds" is not implemented
   yet).
+- On the T2 MacBooks, each resume logs a kernel warning and the
+  Thunderbolt/USB4 ports briefly disconnect (resume itself works), and the login
+  screen runs at a different resolution from the session, so its match with
+  the lock screen is unverified there.
+- On the Radxa Orion O6N the GTK file-chooser portal service can fail to start,
+  so some apps may not open a file-chooser dialog.
 - Some savers are too heavy for older Intel graphics (Magmasimplex can hang an
   HD 4000); HEVC is not hardware-decoded in Chromium on Sky1; `ncz desktop off`
   takes effect only after a reboot.
@@ -186,7 +192,7 @@ All screenshots are from the released 26.10 Preview 1 images.
 
 ### Artist packs
 
-<p align="center"><em>Artwork © the artists, contributed for distribution with NCZ-OS and shown here, with credit, as it appears on the desktop. It is not separately redistributable.</em></p>
+<p align="center"><em>Artwork © the artists, contributed for distribution with NCZ-OS and shown here, with credit, as it appears on the desktop. Separate reuse needs the artist's permission (the licence is not yet recorded).</em></p>
 
 <p align="center">
   <img src="docs/screenshots/26.10-preview1/artist-showcase-brandon-perlow-nimbus.jpg" alt="Desktop with a wallpaper by Brandon Perlow" width="820">
@@ -433,7 +439,7 @@ equivalent); see [docs/SUPPORTED-FIRMWARE.md](docs/SUPPORTED-FIRMWARE.md).
 
 | Class | Window | Status |
 |---|---|---|
-| **T2 Macs** | **2018 – 2020** (plus the 2017 iMac Pro) | ⚠️ **One model tested: MacBookPro16,1** (two units) — installed, boots to desktop. The installer boots the NCZ T2 kernel; keep a USB keyboard at hand in case the internal keyboard does not respond during the install. The kernel carries the fix that stops MacBookPro16,1 powering off shortly after boot, and a CPU power cap stops load-triggered power cuts ([docs/T2-POWER-CAP.md](docs/T2-POWER-CAP.md)). No other T2 model (iMac, Mac mini, MacBook Air, other MacBook Pro years) has been installed or booted. |
+| **T2 Macs** | **2018 – 2020** (plus the 2017 iMac Pro) | ⚠️ **One model tested: MacBookPro16,1** (two units) — installed, boots to desktop. The installer boots the NCZ T2 kernel; keep a USB keyboard at hand in case the internal keyboard does not respond during the install. The image sets a CPU package power cap on these machines ([docs/T2-POWER-CAP.md](docs/T2-POWER-CAP.md)). No other T2 model (iMac, Mac mini, MacBook Air, other MacBook Pro years) has been installed or booted. |
 | **Pre-T2 Intel Macs** | **~2011 – 2017** | ⚠️ **One model tested: Mac mini (2011, Macmini5,1, Intel HD 3000)** — installed, desktop works with hardware-accelerated graphics. Other pre-T2 Macs are untested; older Broadcom Wi-Fi chips may need firmware that is not on the image. |
 | **Generic PC (UEFI, Intel/AMD)** | solid confidence **2014+**, likely works **2012+** | ⚠️ **Lightly tested:** an HP OmniDesk desktop (Core Ultra 7 265, Intel Xe-LPG) and an ASUS ROG GU502LV laptop (NVIDIA GeForce RTX 2060 Mobile, proprietary driver) were installed and boot to the desktop, and a 2013 Dell Inspiron 5521 (Intel HD 4000) was installed and runs the desktop. Debian Testing (Forky) itself supports this range; other boards have not been booted by us. |
 
@@ -493,14 +499,14 @@ is empty on both the MS-R1 and the Radxa Orion O6N. The kernel build also produc
 | **DSP** | `cix-dsp` + `cix-dsp-rproc` | `=m` | ✅ | ✅ | Remoteproc + rpmsg (patch `0019`); confirmed loaded (`cix_dsp_rproc`) on real Sky1 hardware (MS-R1). |
 | **Audio (HDA)** | `snd-hda-cix-ipbloq` + Realtek ALC codecs | `=m` | ✅ | ✅ | Patches `2015`–`2017`. Verified ALC269VC analog + digital + HDMI/DP on real hardware (MS-R1). |
 | **Audio (SoC)** | `snd-soc-sky1-sound-card` + Cadence I2S + `snd-soc-sof-cix` | `=m` | ✅ | ✅ | Patch `2014`. SOF (`CONFIG_SND_SOC_SOF_CIX_TOPLEVEL=y`, `CONFIG_SND_SOC_SOF_CIX_SKY1=m`) is built but not observed loaded on real hardware — the machine driver (`snd-soc-sky1-sound-card`) handles audio directly; SOF appears to be a dormant/fallback path, not confirmed active. |
-| **GPU (Mali-G720)** | `mali_kbase` (default) **and** `panthor`, both DKMS; `drm-cix` + `drm-trilin-dp-cix` (DisplayPort) | DKMS | ✅ | ✅ | **Both drivers ship**, both blacklisted, one selected via `ncz-gpu-select`. Default `mali_kbase` measured on the Orion O6: Mali-G720-Immortalis, 10 cores, **OpenGL ES 3.2 / EGL 1.5**, desktop accelerated. `panthor` is the mainline/Vulkan path. Display: `trilin_dpsub` + `linlon_dp` confirmed, DP up to 4K60. |
+| **GPU (Mali-G720)** | `mali_kbase` (default) **and** `panthor`, both DKMS; `drm-cix` + `drm-trilin-dp-cix` (DisplayPort) | DKMS | ✅ | ✅ | **Both drivers ship**, both blacklisted, one selected via `ncz-gpu-select`. Default `mali_kbase` measured on the Radxa Orion O6N: Mali-G720-Immortalis, 10 cores, **OpenGL ES 3.2 / EGL 1.5**, desktop accelerated. `panthor` is the mainline/Vulkan path. Display: `trilin_dpsub` + `linlon_dp` confirmed, DP up to 4K60. |
 | **VPU (Linlon MVX)** | `amvx` via `cix-vpu-driver` (DKMS) | DKMS | ✅ | ✅ | Measured on the Radxa Orion O6N: **Linlon v5276, 4 cores**. Decode H.263/H.264/HEVC/MPEG-2/MPEG-4/VP8/VP9/AV1; hardware encode H.264/HEVC/VP8/VP9 confirmed via `ffmpeg` V4L2 mem2mem. Requires the 16 `*.fwb` codec blobs staged by `post-install/12-sky1-firmware.sh`. |
-| **NPU (Zhouyi V3)** | `aipu` via `cix-npu-driver-dkms` 6.2.0 | DKMS (`CONFIG_ARMCHINA_NPU=n`) | ✅ | ✅ | Measured on **both** the Radxa Orion O6N and MS-R1: `nomic-embed-text-v1.5_256.cix` at **95.5 ms** per 256-token embed, deterministic across runs, `aipu` IRQ count advancing. The in-tree `armchina-npu` driver is superseded by the 26Q2-SDK DKMS driver. Requires a model package (`ncz-model-nomic-embed`); models are not on the ISO. |
+| **NPU (Zhouyi V3)** | `aipu` via `cix-npu-driver-dkms` 6.2.0 | DKMS (`CONFIG_ARMCHINA_NPU=n`) | ✅ | ✅ | Measured on **both** the Radxa Orion O6N and MS-R1: `nomic-embed-text-v1.5_256.cix` at **95.5 ms** per 256-token embed, deterministic across runs, `aipu` IRQ count advancing. The in-tree `armchina-npu` driver is superseded by the 26Q2-SDK DKMS driver. Requires a model package (`ncz-model-nomic-embed`); models are not in the image. |
 | **Ethernet** | `r8169` (RTL8125/8126/8169) | `=y` | ✅ | ✅ | `rtl_nic` firmware shipped in installer + installed system. `CONFIG_R8169=y` (built-in, not a module). |
 | **Wi-Fi** | `mt7921e` (MediaTek MT7921/MT7922) | `=m` | ✅ | ✅ | M.2 Key-E slot; confirmed loaded on real hardware (MS-R1). |
 | **Wi-Fi (alt)** | `rtw88`/`rtw89` firmware | `=m` | ✅ | ✅ | If equipped (`rtw8852b`, `rtw8822`, etc. firmware shipped). |
 | **PCIe / USB / PHY** | `pcie-cadence`, `usb-cdnsp`, `phy-cix-usbdp`, `phy-cix-pcie` | `=y` | ✅ | ✅ | Patches `0008`/`0009`/`0010`. |
-| **USB Type-C (data)** | `xhci-hcd`, `usb-cdnsp` | `=y` | ✅ | ✅ | **Works.** The Type-C ports carry USB data normally — a USB-C drive attached to an Orion O6 enumerates and works on 7.2. Data goes through the xHCI/Cadence USB controller, which is entirely independent of the PD driver in the row below. |
+| **USB Type-C (data)** | `xhci-hcd`, `usb-cdnsp` | `=y` | ✅ | ✅ | **Works.** The Type-C ports carry USB data normally — a USB-C drive attached to a Radxa Orion O6N enumerates and works on 7.2. Data goes through the xHCI/Cadence USB controller, which is entirely independent of the PD driver in the row below. |
 | **USB Type-C (Power Delivery)** | `rts5453` (built-in) | `CONFIG_TYPEC=y` | ✅ | ✅ | **Works.** Measured on the Radxa Orion O6N: the driver binds (`rts5453 i2c-CIXH200D:00: port 0: register partner`), `/sys/class/typec/port0` reports `usb_power_delivery_revision 3.0`, `usb_typec_revision 1.2`, `power_role [source]`, `vconn_source yes`. **Note:** `module_blacklist=typec_rts5453,rts5453` still appears on the boot cmdline and is **inert** — the driver is built in, and `module_blacklist` only affects loadable modules. It is a leftover from an earlier kernel where the driver reportedly hung boot on an IRQ-151 conflict; that does not reproduce on 7.2. |
 | **IOMMU/SMMU** | `arm-smmu-v3` | `=y` | ✅ | ✅ | Confirmed loaded on real hardware (MS-R1). |
 | **GPIO / I2C / DMA / PWM / Syscon / Regulator / Timer / IRQ** | Sky1 misc peripherals | mixed | ✅ | ✅ | Patch `0018` (misc peripherals) + `0021` (firmware/pinctrl ACPI gaps). |
@@ -514,7 +520,7 @@ the marks as "confirmed at the system level" rather than independently
 re-verified driver-by-driver on every kernel.
 
 **Boot requirements.** Boot is ACPI-based; there is no DTB, and the same
-kernel and firmware set serves MS-R1 and the Orion O6 family alike. The firmware that
+kernel and firmware set serves the MS-R1 and the Radxa Orion O6N alike (and is expected to serve the Radxa Orion O6). The firmware that
 must be present is `rtl_nic` (RTL8125/8126), `mali_csffw.bin` (Mali-G720), the
 NPU firmware consumed by the `aipu` DKMS module, and the VPU firmware consumed
 by `amvx`. The installer writes the ACPI kernel command line into the rEFInd
@@ -777,7 +783,7 @@ it — there is no MS-R1 NPU on x86 hardware.
    desktop.
 
 The installed disk gets a 4 GiB ESP, a 4 GiB rescue partition and the root
-filesystem. Realtek NICs, including the RTL8125/8126 on the Orion O6 family, work out
+filesystem. Realtek NICs, including the RTL8125/8126 on the Radxa Orion O6N, work out
 of the box; the `rtl_nic` firmware ships in both the installer and the
 installed system.
 
@@ -1135,7 +1141,8 @@ just the fix:
 - **[docs/HW-VIDEO-DECODE-STATUS.md](docs/HW-VIDEO-DECODE-STATUS.md)** — what
   works, measured by looking at the rendered picture rather than at a proxy
   signal. H.264 1080p and VP9 720p decode in hardware in Chromium (renderer
-  CPU ~27% → ~3.5% on H.264); AV1 is blocked upstream.
+  CPU ~27% → ~3.5% on H.264). AV1 is blocked on the VA-API route, but decodes in
+  hardware through the V4L2 decoder in the NCZ Chromium build.
 - **[docs/upstream-patches/cix-vaapi/](docs/upstream-patches/cix-vaapi/)** —
   the six VA-API patches. Without them browser hardware decode does not work
   on this platform at all.
@@ -1268,7 +1275,7 @@ posture and how to harden it.
 
 - [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
 - [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the Sky1 kernel recipes (26.10 Preview 1: `linux-cix-sky1-ncz_7.3-rc7.bb`, build r289) and the CIX userspace recipes this installer consumes. Kernel source is fetched from the public `kernel.org` tree at a pinned commit; every Sky1-specific patch is tracked in this layer. The in-repo [`kernel-source/`](kernel-source/SOURCE.md) drop covers the 7.2 kernel of 26.7 (see [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md)).
-- [`gitlab.com/ncz-os/amd64-kernel-t2`](https://gitlab.com/ncz-os/amd64-kernel-t2) — the amd64 kernel (`7.3.0-rc7-t2-ncz` in Preview 1): mainline v7.3-rc7 plus [`t2linux`](https://github.com/AdityaGarg8/t2linux)'s `linux-t2-patches` series (apple-bce, applesmc, HID, APFS, bcm5974) and our T2 fixes. One kernel serves T2 Macs and generic PCs. T2 firmware wiring lives upstream in [`AdityaGarg8/t2-ubuntu-repo`](https://adityagarg8.github.io/t2-ubuntu-repo/) (the apt source `55-t2-firmware.sh` wires at first boot). NCZ-OS does not vendor a fork of either; we consume the upstream series and ship the staged Debian-built `.deb`s.
+- [`gitlab.com/ncz-os/amd64-kernel-t2`](https://gitlab.com/ncz-os/amd64-kernel-t2) — the amd64 kernel (`7.3.0-rc7-t2-ncz` in Preview 1): mainline v7.3-rc7 plus [`t2linux`](https://github.com/t2linux/linux-t2-patches)'s `linux-t2-patches` series (apple-bce, applesmc, HID, APFS, bcm5974) and our T2 fixes. One kernel serves T2 Macs and generic PCs. T2 firmware wiring lives upstream in [`AdityaGarg8/t2-ubuntu-repo`](https://adityagarg8.github.io/t2-ubuntu-repo/) (the apt source `55-t2-firmware.sh` wires at first boot). NCZ-OS does not vendor a fork of either; we consume the upstream series and ship the staged Debian-built `.deb`s.
 
 
 ## Releases
@@ -1291,7 +1298,8 @@ upward.
 ### Linus Torvalds and the kernel community
 
 The obvious debt first: without the kernel, none of this exists. The Sky1
-enablement here is 176 patches sitting on top of work by thousands of people
+enablement here (in 26.10, one consolidated port patch plus 20 numbered
+patches; in 26.7, a 176-patch series) sits on top of work by thousands of people
 over three decades, and the fact that a vendor series *can* be carried,
 rebased and published this way is a property of how that project is run.
 
@@ -1316,9 +1324,9 @@ regardless of what produced it.
 
 The Sky1 kernel is built with **[the Yocto Project](https://www.yoctoproject.org/)**
 — BitBake, OpenEmbedded and `poky`, with the CIX enablement carried as a
-`meta-cix` layer. The 176-patch series, its `SRC_URI` ordering, the defconfig
-and the reproducible deploy artifacts all live in that model. It is what makes
-a 176-patch vendor series rebasable across four upstream bases by one person
+`meta-cix` layer. The patch series, its `SRC_URI` ordering, the defconfig
+and the reproducible deploy artifacts all live in that model. It is what made
+the 26.7 176-patch vendor series rebasable across four upstream bases by one person
 rather than a team, and what makes the corresponding source we publish actually
 correspond.
 

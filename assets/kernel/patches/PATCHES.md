@@ -16,5 +16,5 @@ Not a patch, but required alongside these: kernel config
 `CONFIG_ARMCHINA_NPU_ARCH_V3=y` (the shipped config only set `ARCH_V3_1`,
 giving `unidentified hardware version number: 5` and a probe failure).
 
-See `docs/DRIVER_FIDELITY_7012.md` and `docs/ENGINEERING-EFFORT.md` for the
-full bring-up history.
+The full bring-up history is in the git history of this repository (tag
+`v26.10-preview1` and earlier).

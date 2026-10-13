@@ -28,6 +28,7 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | [INSTALLER-BOOT-UX.md](INSTALLER-BOOT-UX.md) | What the installer console shows and why |
 | [GPU-INSTALL-PROGRESS.md](GPU-INSTALL-PROGRESS.md) | GPU driver install progress on the installer screen |
 | [HIDPI-SCALING.md](HIDPI-SCALING.md) | How the boot splash, login screen and desktop are scaled on high-density displays |
+| [APT-SEPARATION.md](APT-SEPARATION.md) | How NCZ-OS package updates are kept separate from Debian ones (apt pin, one repository, labelled updates) |
 | [CUDA-DYNAMIC-INSTALL.md](CUDA-DYNAMIC-INSTALL.md) | NVIDIA driver and CUDA installed per GPU family on amd64 |
 | [T2-GMUX.md](T2-GMUX.md), [T2-SMP.md](T2-SMP.md), [T2-THUNDERBOLT.md](T2-THUNDERBOLT.md) | Which Apple T2 driver owns what, and which T2 modules are not loaded |
 | [T2-POWER-CAP.md](T2-POWER-CAP.md) | CPU package power cap that stops load-triggered power cuts on MacBookPro16,1 |
@@ -56,6 +57,7 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | [WALLPAPER-SAFE-AREA.md](WALLPAPER-SAFE-AREA.md) | Wallpaper cover scaling, safe area and aspect variants |
 | [WALLPAPER-PACKS.md](WALLPAPER-PACKS.md) | Wallpaper packs, Artist Packs and providers (design; parts implemented) |
 | [OCS-WALLPAPER-BACKEND.md](OCS-WALLPAPER-BACKEND.md) | Backend for OCS wallpaper sources |
+| [`assets/singularity/patches/README.md`](../assets/singularity/patches/README.md) | The NCZ patch set applied to the Singularity desktop, per subproject, with upstream status |
 | [`packaging/singularity/landed-upstream/README.md`](../packaging/singularity/landed-upstream/README.md) | Singularity changes that have landed upstream |
 
 ## Design, AI/ML and building

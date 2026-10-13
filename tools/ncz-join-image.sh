@@ -41,6 +41,7 @@ if [ -z "$arch" ]; then
   for a in arm64 amd64; do
     ls ncz-os-"$a"-*.img.zst.part-* >/dev/null 2>&1 && have="$have $a"
   done
+  # shellcheck disable=SC2086
   set -- $have
   [ $# -ge 1 ] || die "no ncz-os-*.img.zst.part-* files found in $(pwd)"
   [ $# -eq 1 ] || die "both architectures are present; run: sh $0 arm64   (or amd64)"

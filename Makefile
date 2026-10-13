@@ -527,7 +527,7 @@ $(OUTPUT_IMAGE): $(DOWNLOADS)/$(UPSTREAM_ISO) \
 	@bash $(ROOT)/build/check-early-command-size.sh $(PRESEED)/preseed.cfg
 	@echo "[image] verifying arm64 inputs (sky1-firmware, cix-debs, rescue-rootfs, mirror)"
 	@NCZ_TARGET_ARCH=$(ARCH) bash $(ROOT)/build/verify-arm64-inputs.sh --mirror
-	@echo "[image] screensaver settings plugin: staged deb == pin, ABI == the Singularity payload (docs/SCREENSAVER-PLUGIN.md)"
+	@echo "[image] screensaver settings plugin: staged deb == pin, ABI == the Singularity payload (build/check-ssplugin-abi.sh)"
 	@bash $(ROOT)/build/check-ssplugin-abi.sh --arch $(ARCH)
 	@if [ -n "$(SUBSTRATE_SHA)" ]; then \
 	    actual=$$(sha256sum $(DOWNLOADS)/$(UPSTREAM_ISO) | awk '{print $$1}'); \

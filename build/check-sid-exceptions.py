@@ -216,7 +216,7 @@ def main():
           f"Generated {dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}.", "",
           "This file is GENERATED (do not hand-edit).  It tracks the reviewed",
           "installer-substrate sid exceptions and whether forky has caught up yet.",
-          "See docs/FORKY-PROVENANCE.md for the policy.", "",
+          "The policy is implemented in build/forky-provenance.py and manifests/sid-exceptions.tsv.", "",
           ("| package | arch | substrate ver | forky (pinned) | forky (latest) | "
            "recorded forky | class | status | review_by | action |"),
           ("|---|---|---|---|---|---|---|---|---|---|")]
