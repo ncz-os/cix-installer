@@ -742,6 +742,7 @@ parity:
 	build/test-late-npu-aipu.sh
 	build/test-sky1-kernel-discovery.sh
 	build/test-verify-drivers.sh
+	build/test-diag-busybox.sh
 	build/test-gpu-install-progress.sh
 	build/test-preseed-consistency.sh
 	build/test-install-feedback.sh
