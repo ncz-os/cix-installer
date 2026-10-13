@@ -407,8 +407,8 @@ $f"
     # machine gets unique keys — never bake host keys into the squashfs.
     chroot /target ssh-keygen -A 2>/dev/null || \
         msg "WARNING: ssh-keygen -A failed (openssh-server missing from image?)"
-    # r160: fleet remote-access policy. The cloud-image drop-in forces
-    # PasswordAuthentication no; the fleet is LAN-only and wants password
+    # r160: project remote-access policy. The cloud-image drop-in forces
+    # PasswordAuthentication no; the project is LAN-only and wants password
     # fallback when keys break. OpenSSH keyword resolution is first-value-wins
     # across lexically-sorted sshd_config.d, so 10- beats any later drop-in.
     rm -f /target/etc/ssh/sshd_config.d/60-cloudimg-settings.conf

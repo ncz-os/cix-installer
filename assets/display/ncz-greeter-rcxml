@@ -21,7 +21,7 @@
 #   this key restores the greeter). There the compositor must keep the labwc
 #   default (autoEnable yes) and own the first modeset itself.
 #
-# The only arm64 target of this installer in the fleet is CIX Sky1, so the
+# The only arm64 target of this installer is CIX Sky1, so the
 # target architecture is the stable, deterministic gate: arm64/aarch64 -> keep
 # the workaround; anything else -> compositor default. A driver probe is a
 # possible future refinement but cannot be evaluated in the chroot at install

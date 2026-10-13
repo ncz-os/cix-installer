@@ -5,7 +5,7 @@
 #
 # WHY A CURATED TABLE: the installer does not ship pci.ids, so a generic
 # vendor:device lookup cannot produce a product name. Rather than guess, this
-# table names only the GPUs we have actually seen/validated on the fleet, and
+# table names only the GPUs we have actually seen/validated on test machines, and
 # post-install/lib/gpu-progress.sh falls back to the always-truthful numeric
 # form "<Vendor> [vvvv:dddd]" for everything else. Never invent a name here.
 # The driver DECISION is emitted separately (ncz_gpu_step_profile), not here.

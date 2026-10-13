@@ -1270,7 +1270,7 @@ build_base(){
   #  - systemd-networkd (+ wait-online + dispatcher) is enabled alongside NM
   #    but has no .network config on NCZ → every boot stalls ~120s in
   #    systemd-networkd-wait-online. NM is the NCZ network manager.
-  #  - 60-cloudimg-settings.conf forces PasswordAuthentication no; the fleet
+  #  - 60-cloudimg-settings.conf forces PasswordAuthentication no; the project
   #    is LAN-only and requires the password fallback (doctrine: lockout
   #    recovery beats plaintext-on-LAN concerns). First-value-wins → 10-.
   sudo chroot "$WORK/base" systemctl disable systemd-networkd.service systemd-networkd.socket systemd-networkd-wait-online.service networkd-dispatcher.service 2>/dev/null || true

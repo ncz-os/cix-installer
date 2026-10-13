@@ -1,7 +1,7 @@
 #!/bin/bash
 # 40-claude-code.sh — install Claude Code CLI (Anthropic's agent dev tool).
 #
-# Per fleet directive, Claude is **NOT** wired in as an LLM provider for
+# Per project policy, Claude is **NOT** wired in as an LLM provider for
 # the nclawzero agents (against Anthropic ToS for agent-runtime use). It
 # IS available as an operator-side dev CLI — for the human at the keyboard
 # to write code, not for runtime inference. Different scope.

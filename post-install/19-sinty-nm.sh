@@ -20,7 +20,7 @@ ncz_ports_fallback() {
 }
 
 # Backends: iwd (WiFi) + wireguard-tools (VPN). Ethernet and DHCP are handled by
-# sinty-nmd itself, but these packages are part of the daemon's complete fleet
+# sinty-nmd itself, but these packages are part of the daemon's complete
 # contract and belong in the base package set.
 if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends iwd wireguard-tools; then
     ncz_ports_fallback

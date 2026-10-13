@@ -96,7 +96,7 @@ STORAGECONF
 
     groupadd -r nclawzero 2>/dev/null || true
     cat > /etc/nclawzero/agent-env.sample <<'ENV'
-# /etc/nclawzero/agent-env - fleet API keys for zeroclaw/openclaw/hermes/nemoclaw
+# /etc/nclawzero/agent-env - API keys for zeroclaw/openclaw/hermes/nemoclaw
 # Edit, then: sudo ncz agent restart <name>
 TOGETHER_API_KEY=
 GROQ_API_KEY=

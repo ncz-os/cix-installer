@@ -59,7 +59,7 @@ fi
 PKG_MANIFEST="$ROOT/manifests/mgmt.pkgs"
 
 # Recovery container credentials. LAN-only (private subnet, no public route)
-# per fleet doctrine. Password is random per build; override by exporting
+# per project policy. Password is random per build; override by exporting
 # NCZ_MGMT_PASS. No vendor SSH key is installed; owners may add their own
 # key to the container's /root/.ssh/authorized_keys.
 # NCZ_MGMT_PASS=<pass> to pin one, =random for a unique per-build password.

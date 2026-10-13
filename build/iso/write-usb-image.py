@@ -69,7 +69,7 @@ an install actually needs are really in it.
 
 SCRATCH SPACE (2026-09-24, real bug): the staged tree and the ext4 data
 image are built in --work-dir, which defaults to the OUTPUT image's own
-directory -- deliberately NOT $TMPDIR. On several fleet build hosts /tmp
+directory -- deliberately NOT $TMPDIR. On several build hosts /tmp
 is a RAM-backed tmpfs; filling it while populating the loop-mounted ext4
 does NOT fail the build, it silently loses the payload (cp never fsyncs,
 so ENOSPC lands at writeback after cp has already exited 0). See
@@ -1325,7 +1325,7 @@ def main() -> int:
         return 1
 
     # NOT tempfile.TemporaryDirectory(): its default $TMPDIR is /tmp, which is
-    # a RAM-backed tmpfs on several fleet build hosts. See require_free_space().
+    # a RAM-backed tmpfs on several build hosts. See require_free_space().
     args.out.parent.mkdir(parents=True, exist_ok=True)
     work_root = args.work_dir if args.work_dir is not None else args.out.resolve().parent
     work_root.mkdir(parents=True, exist_ok=True)

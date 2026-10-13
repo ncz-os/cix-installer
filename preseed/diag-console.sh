@@ -21,7 +21,7 @@
 #   Tunables (kernel cmdline): ncz_diag_pw=<pw>  ncz_diag_log=<host[:port]>
 #   Remote syslog is OPT-IN ONLY -- no default loghost is baked in (operator
 #   2026-09-17: a shipped installer must never phone home to an internal
-#   fleet address by default). Without ncz_diag_log, the forwarder simply
+#   project address by default). Without ncz_diag_log, the forwarder simply
 #   never starts; the console banner tells the operator how to turn it on.
 #
 # Idempotent: safe to run repeatedly; daemons are tracked by pidfiles and only
@@ -59,11 +59,11 @@ case "$DIAG" in
 esac
 PW=$(kv ncz_diag_pw);    PW_EXPLICIT=0; [ -n "$PW" ] && PW_EXPLICIT=1; PW=${PW:-diags}
 # No default loghost — a real, shipped installer must never phone home to an
-# internal fleet address by default. Remote syslog forwarding is OPT-IN ONLY
+# internal project address by default. Remote syslog forwarding is OPT-IN ONLY
 # via ncz_diag_log=<host[:port]> on the boot cmdline; unset means no forward
 # daemon is even started (see start_syslogd). This used to default to
 # a fixed lab log host on port 5514, which meant every real-hardware install's
-# console banner printed our internal fleet IP whether or not anyone wanted
+# console banner printed our internal project IP whether or not anyone wanted
 # remote logging — operator directive 2026-09-17: never ship that.
 LOGDST=$(kv ncz_diag_log)
 if [ -n "$LOGDST" ]; then

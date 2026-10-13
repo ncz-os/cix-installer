@@ -113,7 +113,7 @@ if [ "${sz_bytes:-0}" -lt 10485760 ]; then      # < 10 MiB is not a real backup
     rc=1
 fi
 
-# Heartbeat: lets anyone audit freshness across the fleet with a single ls.
+# Heartbeat: lets anyone audit freshness across hosts with a single ls.
 printf '%s\thost=%s\tbytes=%s\tsize=%s\trc=%s\n' \
     "$(date -u +%FT%TZ)" "$HOSTN" "${sz_bytes:-0}" "${sz_human:-0}" "$rc" \
     > "$DEST/.ncz-backup-heartbeat"

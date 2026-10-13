@@ -5,7 +5,7 @@
 # pointing here. Mode 0640, group nclawzero (read-only for the
 # nclawzero group, no world read).
 #
-# Populate with the fleet API keys for the LLM providers you've wired
+# Populate with the API keys for the LLM providers you've wired
 # up. nclawzero defaults: TOGETHER + OPENAI + GROQ + NVIDIA + PERPLEXITY
 # + XAI + GEMINI (7 providers). Anthropic is FORBIDDEN per
 # nclawzero project policy — do not add ANTHROPIC_API_KEY here.
@@ -13,7 +13,7 @@
 # This is a SAMPLE file shipped by the recipe. The deployed file at
 # /etc/nclawzero/agent-env is created (empty) at install time with
 # the correct mode/ownership; operators populate it post-deploy via
-# their fleet-secrets workflow (e.g. ansible-vault, fleet-auth, or
+# their secrets workflow (e.g. ansible-vault, or
 # ncz config secrets).
 
 TOGETHER_API_KEY=
@@ -25,7 +25,7 @@ XAI_API_KEY=
 GEMINI_API_KEY=
 
 # Default model for zeroclaw — Anthropic-forbidden compliant.
-# MiniMaxAI/MiniMax-M1-80k via Together is the fleet baseline (per
+# MiniMaxAI/MiniMax-M1-80k via Together is the default baseline (per
 # bigpi commission topology, 2026-04-29).
 ZEROCLAW_DEFAULT_MODEL=together/MiniMaxAI/MiniMax-M1-80k
 

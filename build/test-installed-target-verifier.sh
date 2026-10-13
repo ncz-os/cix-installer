@@ -69,7 +69,7 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     printf '%s %s %s Desktop\n' "$NCZ_PRODUCT_NAME" "$NCZ_RELEASE_VERSION" "$NCZ_RELEASE_CODENAME" > "$r/etc/issue"
     printf '[Service]\nSuccessExitStatus=1\n' > "$r/etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf"
     echo x > "$r/etc/ld.so.cache"; echo x > "$r/etc/.updated"
-    # sshd: Include first, password login in the fleet drop-in (as 35-ssh.sh / extract-rootfs.sh write it)
+    # sshd: Include first, password login in the NCZ drop-in (as 35-ssh.sh / extract-rootfs.sh write it)
     mkdir -p "$r/etc/ssh/sshd_config.d"
     printf 'Include /etc/ssh/sshd_config.d/*.conf\nKbdInteractiveAuthentication no\nUsePAM yes\n' > "$r/etc/ssh/sshd_config"
     printf 'PasswordAuthentication yes\n' > "$r/etc/ssh/sshd_config.d/10-ncz-fleet.conf"

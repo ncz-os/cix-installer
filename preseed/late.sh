@@ -670,7 +670,7 @@ CDROM_PREF
         fi
         FW_PKGS="firmware-linux-free firmware-realtek firmware-misc-nonfree"
         chroot /target /usr/bin/apt-get install -y --allow-unauthenticated $FW_PKGS || { echo "WARN: firmware install failed ($FW_PKGS)"; true; }
-        # r178: telnetd (doctrine #9 fleet lockout-prevention) from the OFFLINE
+        # r178: telnetd (doctrine #9 project lockout-prevention) from the OFFLINE
         # /cdrom pool. pkgsel/include is now EMPTY (the baked squashfs is the
         # complete system), but inetutils-telnetd + openbsd-inetd are the only
         # formerly-included packages not yet baked into base/desktop.squashfs.

@@ -6,7 +6,7 @@
 # Debian forky's inetutils-telnetd ships /usr/sbin/telnetd only. inetd accepted
 # the connection on :23 and the journal then logged
 #     execv /usr/sbin/in.telnetd: No such file or directory
-# so the LAN-only recovery console (fleet doctrine #9) was dead on every install.
+# so the LAN-only recovery console (project policy #9) was dead on every install.
 # A tcpd-wrapped line has the same failure when tcp-wrappers is absent.
 #
 # ncz_telnet_inetd_fix [ROOT]

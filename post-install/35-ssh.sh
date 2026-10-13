@@ -46,7 +46,7 @@ EOF
 # rescue.target doesn't pull NetworkManager (it's pulled by
 # multi-user.target). Add a drop-in to NetworkManager so it joins
 # rescue.target - without this, sshd is up but has no IP, so SSH
-# from another fleet host can't reach the box (discovered 2026-05-03
+# from another host can't reach the box (discovered 2026-05-03
 # when cixmini wedged into rescue and we couldn't ssh in to inspect
 # /var/log/cix-install/).
 mkdir -p /etc/systemd/system/NetworkManager.service.d

@@ -284,7 +284,7 @@ if [ -f "$MNT/usr/lib/systemd/system/inetd.service" ] || [ -x "$MNT/usr/sbin/tel
     if [ -f "$MNT/etc/inetd.conf" ] && [ -r "$_ncz_telnet_lib" ]; then
         ( . "$_ncz_telnet_lib" && ncz_telnet_inetd_fix "$MNT" ) || echo "[72]   WARN: rescue inetd telnet line could not be repaired"
     fi
-    echo "[72]   telnet available and enabled (console fallback, LAN-only per fleet doctrine)"
+    echo "[72]   telnet available and enabled (console fallback, LAN-only per project policy)"
 fi
 echo "[72] auto-network + remote access verified (single owner: ncz-rescue-net)"
 

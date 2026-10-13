@@ -14,7 +14,7 @@
 #   (NCZ_GPU_BACKEND=mali AND the driver reports GL_VENDOR=ARM), so a Mesa run
 #   can never be recorded as a Mali-verified result.
 #
-# Scratch is never placed on tmpfs (fleet rule): the default outdir is under
+# Scratch is never placed on tmpfs (project rule): the default outdir is under
 # $HOME/Projects, TMPDIR is redirected into it, and a tmpfs target is refused.
 set -euo pipefail
 

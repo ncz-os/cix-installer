@@ -23,7 +23,7 @@
 #
 #   Log spam:
 #     - rsyslog "omfwd: Network is unreachable" (~26x/boot): defensively drop
-#       any stale /etc/rsyslog.d/90-loghost.conf (the always-on fleet-IP forward
+#       any stale /etc/rsyslog.d/90-loghost.conf (the always-on fixed-IP forward
 #       is now opt-in — see 36-telemetry.sh). On a journald-only install
 #       (the new default), rsyslog is purged outright so the omfwd spam and
 #       the /var/log/{syslog,messages} files never appear at all.

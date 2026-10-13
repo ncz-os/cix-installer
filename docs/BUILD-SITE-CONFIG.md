@@ -49,7 +49,7 @@ These scripts read plain environment variables (no `~/.config/ncz` file):
 | `NCZ_APT_REPO_DIR` | `build/ops/argos/ncz-reprepro-publish.sh`, `backfill-buildkite-packages.sh` | Local reprepro tree (`$HOME/ncz-apt-repo`) |
 | `NCZ_R2_PUBLISH_ENV` | the same two scripts | Credentials file for the object-store publish (`$HOME/.config/ncz-r2-publish.env`) |
 | `NCZ_PUBLISH_SCRATCH` | `build/ops/argos/ncz-reprepro-publish.sh` | Scratch directory (`$HOME/.cache/ncz-publish-tmp`) |
-| `NAS_HOST`, `NAS_EXPORT`, `MNT` | `build/ops/fleet/ncz-backup.sh` | Backup NFS server and export (required; or the first line of `/etc/ncz/backup-nas-host` and `/etc/ncz/backup-nas-export`) and the local mount point. **The default mount point is now `/mnt/ncz-backups`.** |
+| `NAS_HOST`, `NAS_EXPORT`, `MNT` | `build/ops/backup/ncz-backup.sh` | Backup NFS server and export (required; or the first line of `/etc/ncz/backup-nas-host` and `/etc/ncz/backup-nas-export`) and the local mount point. **The default mount point is now `/mnt/ncz-backups`.** |
 | `NCZ_SYNC_WORKDIR` | `tools/nightly/ncz-singularity-sync.sh` | Bare mirror used by the nightly sync (`$HOME/sinty-build/sync/singularity-desktop-mirror.git`) |
 | `STORE_HOST`, `STORE_DST`, `STORE_PASS` | `tools/nightly/ncz-singularity-sync.sh` | Staging destination `[user@]host`, its directory, and its password; set in `/etc/ncz/singularity-sync.env` |
 | `NCZ_INSTALL_LOG_DIR` | `build/ncz-logd.sh` | Where install logs collected from a target are written. **The default is now `~/ncz-install-logs`.** |

@@ -662,7 +662,7 @@ NPM_ROWS = [
         "installed_by": "post-install/40-claude-code.sh (npm install -g after nodejs npm)",
         "verified_by": "post-install/40-claude-code.sh (claude --version)",
         "provenance": "post-install/40-claude-code.sh",
-        "notes": "Operator-side dev CLI; not wired into any NCZ agent runtime (fleet directive).",
+        "notes": "Operator-side dev CLI; not wired into any NCZ agent runtime (project policy).",
     },
 ]
 

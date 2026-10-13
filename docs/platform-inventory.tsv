@@ -150,7 +150,7 @@ build/logs/	sky1	-	Sky1 bitbake/KVM resume logs
 build/ncz-logd.sh	common	-	syslog collector
 build/ncz-yocto.sh	sky1	-	Yocto bootstrap for the CIX vendor stack
 build/npu-ssdt-gate.sh	sky1	-	NPU SSDT gate
-build/ops/	common	-	fleet and publishing ops
+build/ops/	common	-	operations and publishing scripts
 build/ota-image-digest.txt	sky1	-	OTA image digest record
 build/pin-forky-snapshot.sh	common	-	snapshot pin bump
 build/platform-deny-patterns.txt	common	-	tokens that must not appear in COMMON hooks
@@ -534,7 +534,7 @@ build/lib/layerplan.py	common	-	per-layer input fingerprints + component->layer 
 build/lib/reproducible.py	common	-	deterministic primitives: pin canonicalisation, SOURCE_DATE_EPOCH, pin-derived UUIDs
 build/lib/reproducible.sh	common	-	shell surface of the determinism contract (env, tar/mksquashfs/mke2fs/mformat wrappers)
 build/lib/compare-lib.sh	common	-	normalising helpers for compare-images (squashfs/fat/tar/json/tree)
-build/lib/priv.sh	common	-	the ONE privilege model: root / passwordless sudo / sudo -S with the fleet key on stdin (no FIFO)
+build/lib/priv.sh	common	-	the ONE privilege model: root / passwordless sudo / sudo -S with a sudo password on stdin (no FIFO)
 build/lib/ncz-site.sh	common	-	per-site settings lookup (env var, else ~/.config/ncz/<name>): store mount points, build hosts, push targets; nothing site-specific in code
 build/test-build-determinism.sh	common	-	unit proof of the determinism primitives (+ negative controls) and compare-images both directions
 build/test-build-image.sh	common	-	CLI/plan/fingerprint/both-arch orchestration tests for the single entrypoint

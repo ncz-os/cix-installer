@@ -30,7 +30,7 @@
 name	kind	source	arch	variant	required	version_floor	installed_by	verified_by	provenance	notes
 7zip	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 7zip	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-@anthropic-ai/claude-code	npm	npm:@anthropic-ai/claude-code	all	desktop,mgmt,rescue,server	no		post-install/40-claude-code.sh (npm install -g after nodejs npm)	post-install/40-claude-code.sh (claude --version)	post-install/40-claude-code.sh	Operator-side dev CLI; not wired into any NCZ agent runtime (fleet directive).
+@anthropic-ai/claude-code	npm	npm:@anthropic-ai/claude-code	all	desktop,mgmt,rescue,server	no		post-install/40-claude-code.sh (npm install -g after nodejs npm)	post-install/40-claude-code.sh (claude --version)	post-install/40-claude-code.sh	Operator-side dev CLI; not wired into any NCZ agent runtime (project policy).
 aarch64-linux-gnu-gcc	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	no		post-install/79-dkms-prep.sh (conditional, missing-toolchain only)	build/verify-dkms-modules.sh	post-install/79-dkms-prep.sh	Cross-compiler for Sky1 kernel module rebuilds; installed only when the toolchain probe fails.
 aardvark-dns	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 aardvark-dns	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	

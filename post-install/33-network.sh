@@ -189,7 +189,7 @@ fi
 # NM_DEVICE_STATE_UNAVAILABLE (state 20) forever, with no scan, no
 # connect, and no error surfaced anywhere obvious. 19-sinty-nm.sh already
 # installs `iwd` unconditionally (as sinty-nmd's own WiFi backend, "part
-# of the daemon's complete fleet contract"), but upstream NetworkManager
+# of the daemon's complete contract"), but upstream NetworkManager
 # does NOT use iwd unless explicitly told to -- it defaults to
 # wpa_supplicant, which is NOT in any package manifest and is genuinely
 # absent from this image. This branch only runs when sinty-nmd is absent

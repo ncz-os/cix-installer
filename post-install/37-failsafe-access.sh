@@ -21,7 +21,7 @@
 #   from the broken /usr/lib). A systemd unit runs `busybox telnetd` on a
 #   dedicated LAN port with a static, password-gated root shell as the login
 #   program. Transport is telnet by design: LAN-only (the local subnet, no
-#   public route) per fleet doctrine, where lockout recovery beats the
+#   public route) per project policy, where lockout recovery beats the
 #   theoretical plaintext concern. Day-to-day encrypted access stays on
 #   sshd:22 — this channel is break-glass ONLY.
 #
@@ -266,7 +266,7 @@ Purpose : break-glass root shell that survives total /usr/lib damage
           (e.g. a bad 'tar -C /' that orphans ld-linux). Independent of
           the main rootfs libraries: a single STATIC busybox + a
           password-gated static login shell.
-Reach   : telnet <box-ip> $FS_PORT   (LAN-only; fleet doctrine)
+Reach   : telnet <box-ip> $FS_PORT   (LAN-only; project policy)
 Auth    : recovery passphrase ($GATE gate). See docs/REMOTE-ACCESS.md;
           override at bake time via NCZ_FAILSAFE_PASS.
 Layout  : $FS_BIN/busybox   (static, no libs)

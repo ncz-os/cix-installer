@@ -32,7 +32,7 @@ fi
 
 pin_epoch() {
     # NCZ_BASE_MIRROR_SNAPSHOT is YYYYMMDDTHHMMSSZ. GNU date (-d) is what the
-    # fleet's Linux build hosts have; BSD date (-j -f) covers a Mac dev check.
+    # Linux build hosts have; BSD date (-j -f) covers a Mac dev check.
     # (`local a=$1 b=${a}` expands both RHS as command-line args to `local`
     # BEFORE either assignment happens, so `b` can't see `a` -- two statements.)
     local ts="$1"

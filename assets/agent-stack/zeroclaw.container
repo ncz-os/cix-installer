@@ -14,7 +14,7 @@ ContainerName=zeroclaw
 # Pull policy stays "never": the image is fetched by an EXPLICIT, operator-
 # initiated `podman pull` (nclawzero-load-agent-images.service on boot, or the
 # desktop install/remove launcher). AutoUpdate=registry is intentionally
-# OMITTED so unreviewed container code never runs with the fleet API keys in
+# OMITTED so unreviewed container code never runs with the API keys in
 # /etc/nclawzero/agent-env.
 Pull=never
 Exec=daemon --host 0.0.0.0 --port 42617
@@ -25,7 +25,7 @@ Volume=zeroclaw-data:/zeroclaw-data:Z
 # therefore any podman PublishPort= — fails to start on metal with
 # "netavark: create veth pair: Operation not supported (os error 95)"
 # (service status=126, verified on MS-R1 test board, 2026-07). Host networking binds
-# the gateway directly on the host's :42617 and is the fleet-standard model for
+# the gateway directly on the host's :42617 and is the project-standard model for
 # a single-user LAN appliance. Exec keeps --host 0.0.0.0 so the gateway is
 # reachable on the LAN. The real fix is CONFIG_VETH in the kernel (future
 # kernel-config task); Network=host is the workaround until then.
