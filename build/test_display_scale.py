@@ -66,6 +66,27 @@ MBP16 = output(
     make="Apple Computer Inc",
     model="Color LCD",
 )
+# MBP16_FRESH is the MacBookPro16,1 panel BEFORE the labwc
+# compositor has lit it (current unset). Use this in tests that exercise the
+# "set the mode" path; MBP16 (= current=True 3072x1920) is the
+# "already lit" path and is a no-op after the cap raise.
+MBP16_FRESH = output(
+    "eDP-1",
+    (340, 220),
+    [
+        mode(3072, 1920, preferred=True),
+        mode(1920, 1200),
+        mode(1920, 1080),
+        mode(1680, 1050),
+        mode(1024, 768),
+    ],
+    make="Apple Computer Inc",
+    model="Color LCD",
+)
+# the greeter "never 4K" cap is now 3072x1920 (was 1920x1200)
+# so the MacBookPro16,1 eDP panel's PREFERRED 3072x1920 fits within the cap and
+# the greeter scans out at the SAME mode the session uses. A 4K panel
+# (3840x2160) is still > cap and stays at the 1920x1080 fallback.
 MONITOR_4K_27 = output(
     "DP-2",
     (597, 336),
@@ -171,8 +192,16 @@ class PolicyTest(unittest.TestCase):
 
 class GreeterTest(unittest.TestCase):
     def test_16_10_panel_gets_same_aspect_mode_not_letterboxed_1080p(self):
-        self.assertEqual(nds.greeter_mode(MBP16)["height"], 1200)
-        fake = FakeRandr([MBP16])
+        # the cap was raised from 1920x1200 to 3072x1920 so
+        # the MacBookPro16,1 panel's preferred 3072x1920 fits within the cap and the greeter
+        # scans out at the SAME mode the session uses (no more 1920x1200 vs
+        # 3072x1920 mismatch). The scale is the policy density (227 ppi ->
+        # 2.0x), so the greeter renders at the same effective size as the lock.
+        # Use MBP16_FRESH (current unset): with MBP16 already at 3072x1920
+        # the helper's "already lit" path is a no-op (test_already_lit_...).
+        m = nds.greeter_mode(MBP16_FRESH)
+        self.assertEqual((m["width"], m["height"]), (3072, 1920))
+        fake = FakeRandr([MBP16_FRESH])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
         self.assertEqual(
             fake.calls,
@@ -181,17 +210,22 @@ class GreeterTest(unittest.TestCase):
                     "--output",
                     "eDP-1",
                     "--mode",
-                    "1920x1200@60.000000Hz",
+                    "3072x1920@60.000000Hz",
                     "--scale",
-                    "1",
+                    "2",
                     "--on",
                 ]
             ],
         )
 
     def test_4k_monitor_never_scans_out_4k(self):
+        # with the cap raised to 3072x1920, the largest
+        # 16:9 mode that fits is 2560x1440 (was 1920x1080 under the old
+        # 1920x1200 cap). A single-mode 4K panel is unaffected
+        # (no 2560x1440 mode available, falls through to native with --scale 2x;
+        # see test_single_mode_4k_panel_is_enabled_at_native_never_left_dark).
         m = nds.greeter_mode(MONITOR_4K_27)
-        self.assertEqual((m["width"], m["height"], m["refresh"]), (1920, 1080, 60.0))
+        self.assertEqual((m["width"], m["height"]), (2560, 1440))
         fake = FakeRandr([MONITOR_4K_27])
         nds.cmd_greeter(False, runner=fake)
         self.assertFalse(
@@ -223,11 +257,11 @@ class GreeterTest(unittest.TestCase):
                     return subprocess.CompletedProcess(argv, 1, "", "")
                 return res
 
-        fake = FirstFails([MBP16])
+        fake = FirstFails([MBP16_FRESH])
         nds.cmd_greeter(False, runner=fake)
         self.assertEqual(
             fake.calls[-1],
-            ["--output", "eDP-1", "--mode", "1920x1200", "--scale", "1", "--on"],
+            ["--output", "eDP-1", "--mode", "3072x1920", "--scale", "2", "--on"],
         )
 
     def test_unreadable_outputs_return_1_so_the_autostart_falls_back(self):
@@ -237,7 +271,11 @@ class GreeterTest(unittest.TestCase):
         # On Sky1/arm64 the greeter labwc runs autoEnableOutputs=no, so an
         # output the compositor left off must be turned on here -- at the capped
         # mode, never at native 4K.
-        off = dict(MBP16, enabled=False)
+        # cap is 3072x1920, so the MacBookPro16,1 panel's preferred 3072x1920
+        # fits and the scale is the panel's density (227 ppi -> 2.0x).
+        # Use MBP16_FRESH (current unset) so the helper doesn't take the
+        # "already lit" branch.
+        off = dict(MBP16_FRESH, enabled=False)
         fake = FakeRandr([off])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
         self.assertEqual(
@@ -247,12 +285,43 @@ class GreeterTest(unittest.TestCase):
                     "--output",
                     "eDP-1",
                     "--mode",
-                    "1920x1200@60.000000Hz",
+                    "3072x1920@60.000000Hz",
                     "--scale",
-                    "1",
+                    "2",
                     "--on",
                 ]
             ],
+        )
+
+    def test_t2_macbook_panel_scans_out_at_session_mode_not_capped(self):
+        # regression test. The MacBookPro16,1
+        # panel has a PREFERRED 3072x1920 mode. Old behaviour capped the
+        # greeter to 1920x1200 (16:10, but half the panel), so greeter vs
+        # session differed. New behaviour: cap is 3072x1920, the preferred mode
+        # fits, and the greeter scans out at the SAME mode the session uses.
+        # (4K panels and Sky1's behaviour are unchanged: see the other
+        # tests in this class.)
+        m = nds.greeter_mode(MBP16)
+        self.assertEqual((m["width"], m["height"]), (3072, 1920))
+        self.assertEqual(nds.GREETER_MAX_W, 3072)
+        self.assertEqual(nds.GREETER_MAX_H, 1920)
+
+    def test_4k_panel_still_capped_after_cap_raise(self):
+        # The 4K panel (3840x2160, AU Optronics
+        # 0x31EB) is still strictly > 3072x1920, so the single-mode 4K
+        # fallback still kicks in (cmd_greeter's no-capped-mode branch).
+        # The helper must NOT request a 4K --mode (--scale + --on only).
+        off = dict(MONITOR_SINGLE_MODE_4K, enabled=False)
+        fake = FakeRandr([off])
+        self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
+        self.assertEqual(
+            fake.calls, [["--output", "eDP-1", "--scale", "2", "--on"]]
+        )
+        # Explicit: no call carries --mode. (A substring search for "3840"
+        # / "2160" would falsely fail on, say, a future log-line argument.)
+        self.assertFalse(
+            any("--mode" in c for c in fake.calls),
+            f"no call should carry --mode: {fake.calls}",
         )
 
     def test_single_mode_4k_panel_has_no_capped_mode(self):

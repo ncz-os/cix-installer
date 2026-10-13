@@ -69,8 +69,14 @@ from pathlib import Path
 
 PPI_2X = 192.0
 PPI_1_5X = 144.0
-GREETER_MAX_W = 1920
-GREETER_MAX_H = 1200
+# Greeter "never 4K" cap: the login screen is a blurred 960 px backdrop and a
+# small card, so scan-out above 3072x1920 buys nothing and is the heaviest
+# path for the Mali swapchain. 3072x1920 lets a MacBookPro16,1 panel
+# (preferred 3072x1920) scan out at the session's mode instead of a smaller
+# 1920x1200 one, while 4K panels (3840x2160) stay capped and 1920x1080 panels
+# are unchanged.
+GREETER_MAX_W = 3072
+GREETER_MAX_H = 1920
 MIN_DIAG_MM = 150.0  # below ~6 in: no real desktop panel; EDID garbage
 MAX_ASPECT_SKEW = 1.20  # physical vs pixel aspect may differ this much
 
