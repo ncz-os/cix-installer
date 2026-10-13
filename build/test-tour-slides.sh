@@ -129,34 +129,32 @@ for f in "${files[@]}"; do
     seen_ids="$seen_ids $base"
 done
 
-# The expected set (and the hook's declared lists) must match what is on disk.
-# Both sides are sorted and space-normalised (no trailing space) so the
-# comparison is a plain string equality with no whitespace ambiguity.
-disk_ids="$(printf '%s\n' "${files[@]}" | xargs -n1 basename | sed 's/\.slide$//' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
-want_ids="$(printf '%s\n' $EXPECTED | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
-if [ "$disk_ids" = "$want_ids" ]; then ok "shipped slide set == expected ($want_ids)"; else bad "shipped slide set is '$disk_ids', expected '$want_ids'"; fi
-
 # norm LIST -> sorted, single-spaced, no trailing space. The argument is one
 # whitespace-separated list; split it on spaces explicitly (never via an
 # unquoted expansion) so the function is exact and shellcheck-clean.
 norm() { tr ' ' '\n' <<<"$1" | sed '/^$/d' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//'; }
 
-if [ -f "$HOOK" ]; then
+# The expected set (and the hook's declared lists) must match what is on disk.
+# Both sides are sorted and space-normalised (no trailing space) so the
+# comparison is a plain string equality with no whitespace ambiguity.
+disk_ids="$(printf '%s\n' "${files[@]}" | xargs -n1 basename | sed 's/\.slide$//' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+want_ids="$(norm "$EXPECTED")"
+if [ "$disk_ids" = "$want_ids" ]; then ok "shipped slide set == expected ($want_ids)"; else bad "shipped slide set is '$disk_ids', expected '$want_ids'"; fi
+
+if [ ! -f "$HOOK" ]; then
+    bad "hook missing: $HOOK"
+else
     hook_common="$(sed -n 's/^NCZ_TOUR_SLIDES_COMMON="\(.*\)"$/\1/p' "$HOOK" | head -1)"
     hook_sky1="$(sed -n 's/^NCZ_TOUR_SLIDES_SKY1="\(.*\)"$/\1/p' "$HOOK" | head -1)"
     if [ "$(norm "$hook_common")" = "$(norm "$COMMON")" ]; then ok "hook COMMON list matches ($(norm "$COMMON"))"; else bad "hook COMMON list '$(norm "$hook_common")' != expected '$(norm "$COMMON")'"; fi
     if [ "$(norm "$hook_sky1")" = "$(norm "$SKY1")" ]; then ok "hook SKY1 list matches ($(norm "$SKY1"))"; else bad "hook SKY1 list '$(norm "$hook_sky1")' != expected '$(norm "$SKY1")'"; fi
     if [ "$(norm "$hook_common $hook_sky1")" = "$want_ids" ]; then ok "hook declared lists == asset set"; else bad "hook declared lists exceed/omit the asset set"; fi
-else
-    bad "hook missing: $HOOK"
-fi
 
-# --- run the hook for real, once per architecture, in a sandbox -----------------
-# Proves the arch gate end-to-end: amd64 installs COMMON only; arm64 installs
-# COMMON + SKY1. This is the authoritative gate check (no source grepping). It
-# uses the hook's test seams so it never writes outside the sandbox
-# (NCZ_TOUR_SLIDES_ROOT prefixes /etc and /usr/local).
-if [ -f "$HOOK" ]; then
+    # --- run the hook for real, once per architecture, in a sandbox -------------
+    # Proves the arch gate end-to-end: amd64 installs COMMON only; arm64 installs
+    # COMMON + SKY1. This is the authoritative gate check (no source grepping). It
+    # uses the hook's test seams so it never writes outside the sandbox
+    # (NCZ_TOUR_SLIDES_ROOT prefixes /etc and /usr/local).
     SB="$(mktemp -d "${TMPDIR:-/tmp}/ncz-tour-slides.XXXXXX")"
     run_hook() {   # $1 = arch -> prints the installed slide basenames, sorted
         local arch="$1" root="$SB/$1"
@@ -179,8 +177,6 @@ if [ -f "$HOOK" ]; then
         bad "hook did not install the first-login tour launcher under the sandbox root"
     fi
     rm -rf "$SB"
-else
-    bad "hook missing: $HOOK"
 fi
 
 echo "$((PASS + FAIL)) checks, $PASS ok, $FAIL failed"
