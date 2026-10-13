@@ -46,7 +46,7 @@
 
 **重建镜像：** 上述 GPL 源码是完整的，但逐字节重建镜像目前**无法**仅凭公开来源完成。
 `manifests/build-inputs.tsv` 中的 44 个预置输入里，只有 6 个（两种架构的 CPython 3.11 与 `uv`、
-`ncz-screensavers` 0.8.13）能从公开地址取得完全相同的字节，见
+`ncz-screensavers` 0.8.15）能从公开地址取得完全相同的字节，见
 `manifests/build-inputs-public.tsv` 与 `build/stage-build-inputs.sh --public`。其余输入的分类见英文版
 "Rebuilding an image: what you can fetch" 一节。
 
