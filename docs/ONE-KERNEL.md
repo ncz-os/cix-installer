@@ -1,8 +1,12 @@
 # One-kernel policy (operator ruling 2026-10-10: "ship only OUR kernel")
 
-Every NCZ-OS image must contain **exactly one kernel**: the NCZ kernel (amd64:
-`linux-image-7.3.0-rc6-4-t2-edge-aer9010`; arm64: `linux-image-cixmini`
-`7.3.0-rc6-sky1-ncz+r286`). There must be no Debian `linux-image-*`,
+Every NCZ-OS image must contain **exactly one kernel**: the NCZ kernel. In
+26.10 Preview 1 that is `7.3.0-rc7-t2-ncz` on amd64 (package
+`linux-image-7.3.0-rc7-t2-ncz`, version `7.3.0-rc7-2`) and
+`7.3.0-rc7-sky1-ncz` on arm64 (package `linux-image-cixmini`, build r289);
+the pins live in `assets/kernel/amd64-stable/` and
+`assets/kernel/sky1-manifest.json`. (The audit below was written against the
+earlier r202 images, which carried 7.3.0-rc6 builds.) There must be no Debian `linux-image-*`,
 `linux-headers-*`, `linux-modules-*`, `*-modules-<kver>-*-di` kernel-module d-i
 udeb, or second kernel/initrd anywhere — installed rootfs (squashfs layers),
 `/cdrom` pool + offline mirror, ESP/boot files, d-i boot assets, installer

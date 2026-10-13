@@ -54,14 +54,14 @@ Source review:
 - Confirmed both CIX backends already implement `GetConfigAttributes()` for
   `VAConfigAttribRTFormat`.
 - Ran `git diff --check` on the upstream patch.
-- Ran zoder adversarial review twice. First pass raised only scope comments;
+- Ran an adversarial code review twice. First pass raised only scope comments;
   second pass approved the targeted RTFormat fix with no blocking defects.
 
 Build/test attempts on 2026-08-26:
 
 - Local workspace build blocked at CMake configure: `pkg-config` cannot find
   `libva`.
-- O6N board `192.168.207.3` has `libva-dev`, `/dev/dri/renderD128`, `g++`, the
+- The Orion O6 test board has `libva-dev`, `/dev/dri/renderD128`, `g++`, the
   runtime `libcme.so.1`, and the VPU control header, but no `cmake` and no
   `cme.h`.
 - A manual board compile reached source compilation but could not complete

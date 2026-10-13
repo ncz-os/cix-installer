@@ -19,7 +19,7 @@ This is the patch that makes AV1 hardware decode actually work on CIX Sky1.
 ## Verified
 
 Built on NCZ-OS forky against ffmpeg **8.1.2** (upstream release; Sky1 targeted
-8.0.1) and run on O6N:
+8.0.1) and run on Orion O6:
 
 ```
 ./ffmpeg -c:v av1_v4l2m2m -i av1-720p.mp4 -frames:v 20 -c:v rawvideo -f null -

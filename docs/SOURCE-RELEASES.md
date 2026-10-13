@@ -29,7 +29,37 @@ here.
 
 ---
 
-## Components built from source in 2026.08.18-v12
+## Components built from source in 26.10 "Cygnus" Preview 1
+
+Images `ncz-os-arm64-20261012-f64cba5` and `ncz-os-amd64-20261012-07c0644`.
+Versions are taken from the reviewed NCZ build ledger,
+[`manifests/ncz-packages.tsv`](../manifests/ncz-packages.tsv), at tag
+`v26.10-preview1`.
+
+| Component | Shipped version | License | Source |
+|---|---|---|---|
+| **Linux kernel, Sky1 (arm64)** | `7.3.0-rc7-sky1-ncz` (package `linux-image-cixmini` `7.3.0-rc7-sky1-ncz+r289`) | GPL-2.0 | Yocto recipe `linux-cix-sky1-ncz_7.3-rc7.bb` (build r289) in [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix): mainline v7.3-rc7 plus the Sky1 port patch and 20 numbered patches. The in-repo [`kernel-source/`](../kernel-source/SOURCE.md) drop still describes the 7.2 kernel of 26.7; see the note below. |
+| **Linux kernel, amd64 (T2 Macs and PCs)** | `7.3.0-rc7-t2-ncz` (package `7.3.0-rc7-2`) | GPL-2.0 | [`ncz-os/amd64-kernel-t2`](https://gitlab.com/ncz-os/amd64-kernel-t2), branch `feat/t2-7.3-rc7-r2-20261012`: mainline v7.3-rc7 plus the t2linux patch series and our T2 fixes (including the Apple SEP AER quirk). |
+| **cix-installer** (installer, preseed, post-install hooks, build scripts) | `v26.10-preview1` | see repo | **This repository**, tag `v26.10-preview1`. |
+| **cixmini-boot** | `1.2+r289` | GPL-2.0 | Boot/firmware glue for Sky1 boards, built by `build/build-kernel-debs.sh`. |
+| **ncz-ffmpeg** (arm64) | `9.0.1-ncz3` | LGPL-2.1+/GPL-2+ | FFmpeg with Sky1 V4L2 M2M support; patches under [`docs/upstream-patches/ffmpeg/`](upstream-patches/ffmpeg/). |
+| **chromium-ncz-sky1** (arm64) | `154.0.8037.0-ncz20261011` | BSD-3-Clause + others | Chromium with Sky1 V4L2 decode fixes; patches under [`docs/upstream-patches/chromium/`](upstream-patches/chromium/). |
+| **ncz-singularity-desktop** | built per image from pinned upstream commits | see upstream | Singularity desktop (labwc/wlroots) from `singularityos-lab`, with our packaging and the patches under [`assets/singularity/patches/`](../assets/singularity/patches/). |
+| **ncz-screensavers**, **ncz-screensavers-plugin** | `0.8.12`, `0.3.20` | see upstream | NCZ screensaver engine and its Singularity settings page. |
+| **libdrm** (patched) | `2.4.134-3+ncz2` | MIT | Debian libdrm plus `libdrm-xf86drm-acpi-platform-identity.patch` (in `docs/upstream-patches/`). |
+| **DKMS accelerator packages** | `cix-gpu-kmd-dkms 1.0+ncz2`, `panthor-cix-dkms 7.2.0+ncz2`, `cix-vpu-driver-dkms 1.0.2-ncz1+ncz2`, `cix-npu-driver-dkms 6.2.0-cixdeb13-260714+ncz3` | GPL-2.0 | DKMS packages ship their module source in the package itself (`/usr/src`). |
+| **Patched d-i udebs** | `debootstrap-udeb 1.0.145`, `apt-setup`/`partman-*`/`mdcfg`/`nobootloader` `+ncz1` | GPL | Debian sources plus the patches recorded for each row in `manifests/ncz-packages.tsv`. |
+
+> **Open item for Preview 1 — kernel source drop.** The in-repo
+> `kernel-source/` directory has not yet been refreshed from the 7.2 tree to
+> the 7.3-rc7 trees above, and the r289 Sky1 recipe is still being published to
+> `meta-cix` (its public branches stop at r284 as of 2026-10-13). Until then, the amd64 kernel source is in
+> `amd64-kernel-t2` (branch above) and the Sky1 source is available on request. If
+> you cannot find the exact source for a binary you received, open an issue and we
+> will publish it.
+
+## Components built from source in 2026.08.18-v12 (26.7, historical)
+
 
 | Component | Shipped version | License | Source |
 |---|---|---|---|
@@ -61,7 +91,7 @@ we ship a modified binary kernel on every ISO.
 **In this repository, under [`kernel-source/`](../kernel-source/SOURCE.md).**
 That directory is the corresponding source for the shipping kernel: 300 files
 (9.3 MB), 286 patch files of which **176 are wired into the recipe's
-`SRC_URI`**, the `config-7.2-lean-msr1-o6n.defconfig`, and the pinned upstream
+`SRC_URI`**, the 7.2 lean defconfig (`config-7.2-lean-*.defconfig`), and the pinned upstream
 base revisions with their kernel.org shas. It does not depend on the GitLab
 package registry.
 
@@ -81,7 +111,10 @@ they cover binaries distributed by earlier releases.
 
 ## Kernel channels — current reality
 
-NCZ-OS 26.7 ships **one** kernel: `7.2.0-sky1-ncz`.
+NCZ-OS 26.10 Preview 1 ships **one** kernel per image (`7.3.0-rc7-sky1-ncz` on
+arm64, `7.3.0-rc7-t2-ncz` on amd64); the default, installer and rescue boot
+entries all use it. There is no edge channel. The paragraphs below describe
+26.7, which shipped `7.2.0-sky1-ncz`.
 
 The older `7.0.12-cix-sky1-next` channel has been **removed from the ISO**. It
 is not a fallback, not a rescue kernel, and not selectable from the boot menu.

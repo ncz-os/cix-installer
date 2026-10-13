@@ -31,7 +31,7 @@ monitor (163 ppi) is 1.5; 24 in 4K (184 ppi) is 1.5; 27 in QHD (109 ppi),
 
 The Singularity shell already gives every output that has no saved setting a
 density-derived default (`DisplayManager.dpi_default_scale()` in upstream
-singularity-shell; on CHIMERA it logged
+singularity-shell; on a MacBookPro16,1 it logged
 `eDP-1 has no saved scale, defaulting to 2.00 (3072x1920 px, 340x220 mm)` on
 first login, 2026-10-06). NCZ does not replace that. The user unit
 `ncz-display-scale.service` (wanted by `singularity-session.target`) runs

@@ -1,4 +1,4 @@
-# Inference Limits & Capability Matrix — cixmini (CIX Sky1)
+# Inference Limits & Capability Matrix — Minisforum MS-R1 (CIX Sky1)
 
 > **Scope note (26.7):** all GPU figures and driver-stack descriptions below
 > **Note on the GPU figures.** These were measured on the **panthor + Mesa
@@ -10,9 +10,8 @@
 
 **Box:** Minisforum MS-R1 — CIX Sky1 (CP8180): 12-core big.LITTLE (Cortex-A720 + Cortex-A520), Mali-G720
 (Immortalis) GPU, Zhouyi V3 NPU (~30 TOPS INT8), 64 GB unified LPDDR.
-**Kernel at time of measurement:** `7.0.12-cix-sky1-next`. That channel has since been removed; 26.7 ships only `7.2.0-sky1-ncz`.
-**Measured:** 2026-05 → 2026-06 on `.66`.
-Raw logs: `/mnt/argonas_backups/cixmini-bench/<ts>/` (ncnn cpu/gpu, embeddings).
+**Kernel at time of measurement:** `7.0.12-cix-sky1-next`. That channel has since been removed; 26.10 Preview 1 ships only `7.3.0-rc7-sky1-ncz`.
+**Measured:** 2026-05 → 2026-06 on an MS-R1.
 
 ---
 
@@ -52,7 +51,7 @@ Single-stream, MiniLM-L6 / bge-small class, seq 128–256. Higher = better.
 
 | Path | Engine / model | emb/s | Notes |
 |---|---:|---:|---|
-| **NPU** | `NOE_Engine` + `bge-small-zh-v1.5_256.cix` | **~51** | measured .66 2026-06-17; 512-dim, retrieval correct |
+| **NPU** | `NOE_Engine` + `bge-small-zh-v1.5_256.cix` | **~51** | measured on an MS-R1 2026-06-17; 512-dim, retrieval correct |
 | **NPU** | `NOE_Engine` + `minilm_128.cix` (real tokenized) | ~56 | per-call job churn; batch/persistent-job target ~66-80. **Not part of the shipped ISO** -- `assets/models/` only ships `bge-small-zh-v1.5_256.cix`; `minilm_128.cix` was pulled ad hoc from the Cix hub for this benchmark. |
 | **CPU** | fastembed / ONNX Runtime (optimized) | ~700 | #21 figure; ORT is *far* faster than llama.cpp for encoders |
 | **CPU** | `llama.cpp` (MiniLM-L6 Q8 GGUF) | 13.3 | GGUF path is not the fast CPU path for embeddings |
@@ -87,7 +86,7 @@ loop_count=8, cooling_down=1. CPU = 4 threads.
 | yolov8n | — | — | — | **~14.5 (≈69/s)** (pulled ad hoc from the Cix hub for this benchmark -- not shipped on the ISO) |
 | vision_transformer | 215.70 | 10210.6 | **47×** | — |
 
-NPU vision numbers measured on `.66` (mobilenet_v2 2026-05, yolov8n 2026-06-17).
+NPU vision numbers measured on an MS-R1 (mobilenet_v2 2026-05, yolov8n 2026-06-17).
 For everything GEMM-heavy the panvk GPU pays full dispatch/readback overhead with
 no matmul acceleration → always slower than CPU, catastrophically so for ViT.
 
@@ -108,7 +107,7 @@ no matmul acceleration → always slower than CPU, catastrophically so for ViT.
   fine for small quantized models, modest tok/s. This is the fallback, not a
   showcase.
 
-If you need real LLM throughput, generate off-box (PYTHIA / dGPU) and use Sky1
+If you need real LLM throughput, generate off-box (a machine with a discrete GPU) and use Sky1
 for the memory/embedding lane.
 
 ---

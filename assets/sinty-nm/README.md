@@ -40,7 +40,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o sinty-nmd ./cmd/sinty-nmd
 ```
 
 Stage the resulting `sinty-nmd` here (or fetch from
-`.66:/home/jasonperlow/sinty-build/nm-build/out/sinty-nmd`).
+the `sinty-build/nm-build/out/sinty-nmd` output of a Sky1 build board).
 `build/build-squashfs-layers.sh` copies it into the base layer so console and
 desktop installs share the same network owner.
 
@@ -52,4 +52,4 @@ on wired-only O6 systems where iwd is correctly skipped for lack of Wi-Fi hardwa
 
 - sinty-nm writes `/etc/resolv.conf` **directly**, so it must be a writable
   regular file (19-sinty-nm de-symlinks it).
-- iwd is installed even on ethernet-only boards (O6N) for fleet completeness.
+- iwd is installed even on ethernet-only boards (Orion O6) for consistency.

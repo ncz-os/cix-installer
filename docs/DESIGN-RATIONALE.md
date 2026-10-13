@@ -4,6 +4,11 @@
 
 # NCZ-OS 26.7 — Design Rationale
 
+> **Reading this for 26.10?** Most decisions below still hold for 26.10 "Cygnus",
+> but details may have moved on and the measurements were taken on the 26.7 kernel line (7.2). 26.10 Preview 1
+> ships one 7.3.0-rc7 kernel per architecture; see
+> [releases/26.10-cygnus-preview1.md](releases/26.10-cygnus-preview1.md).
+
 Why this distribution is built the way it is: the GPU stack, the media and
 codec path, the desktop, networking, the base distribution, and the initramfs.
 
@@ -188,7 +193,7 @@ register until the level lands.
 
 Fixed in `assets/kernel/panthor/patches/0177-*`: attach `"perf"` by name, vote
 through the returned virtual device, and verify against the firmware response
-before caching success. Result on O6N: the clock now ramps and holds 1000 MHz
+before caching success. Result on Orion O6: the clock now ramps and holds 1000 MHz
 under load, and glmark2 at 1080p went **2030 -> 3641 (+79%)**.
 
 ---
@@ -247,7 +252,7 @@ It ships as a **self-contained bundle** at `/opt/cix-ffmpeg` with
 libraries, because the system carries ffmpeg 8.0 with different sonames. **The
 system ffmpeg is left untouched.**
 
-Metal-validated on O6N: hardware decode H.264 (89x realtime), hardware encode
+Metal-validated on Orion O6: hardware decode H.264 (89x realtime), hardware encode
 raw->H.264, and full hardware->hardware transcode H.264->HEVC including
 1920x1080. Decode: H264/HEVC/VP9/AV1/MPEG2/4/VC1/VP8/H263. Encode:
 H264/HEVC/MJPEG/VP8/MPEG4/H263.
@@ -292,7 +297,7 @@ NCZ-OS ships llama.cpp with the **Vulkan** backend, which works on both GPU
 stacks — the vendor Mali Vulkan (1.3) and PanVK (1.4). It is worth knowing that
 on this hardware **the GPU path is the slower one.**
 
-**MEASURED** (O6N, `gemma-4-E4B_q4_0-it.gguf`, 7.46 B params, 4.79 GiB Q4_0,
+**MEASURED** (Orion O6, `gemma-4-E4B_q4_0-it.gguf`, 7.46 B params, 4.79 GiB Q4_0,
 llama-bench):
 
 | backend | prompt processing | token generation |
@@ -380,7 +385,7 @@ ship, while creating the impression the question had been addressed.
 
 **DECIDED (operator, 2026-08-16): ship 26.7 without them.**
 
-**MEASURED on O6N**, so the cost is known rather than assumed:
+**MEASURED on Orion O6**, so the cost is known rather than assumed:
 
 ```
 firmware : SecureBoot = 0    SetupMode = 1     (no PK enrolled)
@@ -495,11 +500,11 @@ would rather arrive with a configuration we measured than inherit a default we
 did not.
 
 **MEASURED, and this is why the configuration is load-bearing.** A stock
-`dracut` run on O6N omits **26 modules** that initramfs-tools ships — while
+`dracut` run on Orion O6 omits **26 modules** that initramfs-tools ships — while
 producing a similar module count, so a superficial comparison reads as
 equivalent. The omissions include:
 
-- `linlon-dp` and `trilin-dpsub` — **the only video console on the O6N**. An
+- `linlon-dp` and `trilin-dpsub` — **the only video console on the Orion O6**. An
   initrd without them is a permanent black screen.
 - the entire USB-ethernet recovery set (`r8152`, `ax88179_178a`, `asix`,
   `cdc_ether`, `lan78xx`, `smsc95xx`, ...), which removes the network recovery
@@ -554,5 +559,5 @@ These cost real time and appear across several sections above.
 
 ---
 
-*Maintained in `docs/DESIGN-RATIONALE.md`. Measurements are from O6N (Radxa
-Orion O6N, CIX Sky1, kernel 7.2.0-rc7-sky1-ncz) unless stated otherwise.*
+*Maintained in `docs/DESIGN-RATIONALE.md`. Measurements are from a Radxa Orion O6 (CIX
+Sky1, kernel 7.2.0-rc7-sky1-ncz) unless stated otherwise.*

@@ -1,12 +1,12 @@
 # T2 Mac CPU package power cap (load-triggered hard power cut)
 
-**Status:** shipped as post-install hook `64-t2-power-cap.sh` (branch
-`fix/t2-power-cap-20261011`). Operator mission 2026-10-11 ("stop the T2
-MacBookPro16,1 hard power cuts by capping CPU package power").
+**Status:** shipped (26.10 Preview 1) as post-install hook
+`post-install/64-t2-power-cap.sh`. Goal: stop the T2 MacBookPro16,1 hard power
+cuts by capping CPU package power.
 
 ## The bug
 
-On the Apple T2 MacBookPro16,1 (CHIMERA = i9-9980HK, MEDUSA = i7-9750H) the
+On the Apple T2 MacBookPro16,1 (tested on an i9-9980HK and an i7-9750H unit) the
 firmware ships Intel RAPL package power limits of **PL1 = 100 W / PL2 = 125 W**
 with turbo enabled and `intel_pstate/max_perf_pct = 100`. Under a sustained
 all-core load the package alone draws more than the power delivery path can
@@ -17,9 +17,8 @@ journal; the prior boot ends mid-line. It is not a thermal trip (fans/temps are
 normal at the cut) and not a worn battery.
 
 This is the load-triggered cut, distinct from our T2 7.3 **boot-time** cut
-(16-27 s after `Booting OS`) investigated separately (MNEMOS
-`project_t2_73_powercut_handoff_2026_10_04`, mem_1791153431205_d3fa8b;
-amd64-kernel-t2 `docs/`). The AER revert decision and the iGPU/gmux hang
+(16-27 s after `Booting OS`) investigated separately
+(amd64-kernel-t2 `docs/`). The AER revert decision and the iGPU/gmux hang
 (omacom/omarchy issue #9609) are separate hypotheses and are unaffected.
 
 Prior art (the fix this is modelled on): omacom/omarchy issue **#13295**, PR
@@ -40,7 +39,7 @@ package limits.
   well below the ~15-18 W the always-on dGPU + platform already drain.
 * **AC** is capped too, because a cut was observed **on AC** at the firmware
   100/125 W limits. 45 W is the firmware's own read-only PL1 ceiling on these
-  machines (`constraint_0_max_power_uw = 45 W`, read live on CHIMERA and MEDUSA
+  machines (`constraint_0_max_power_uw = 45 W`, read live on both test machines
   2026-10-11), so it is a value the firmware itself accepts. Turbo and
   `max_perf_pct` are left at the firmware values so a build host keeps
   throughput.
@@ -107,10 +106,10 @@ the bounded wait for a late `intel-rapl:0`, `--strict`, and registration.
 
 ## Adding `rasdaemon` (MCE persistence)
 
-The CHIMERA boot log carried a leftover uncorrected machine check (banks 12/13,
+The i9 test machine's boot log carried a leftover uncorrected machine check (banks 12/13,
 status `ee0000000040110a`) consistent with a prior hard power cut; there is no
 MCE persistence package on the images today. `mcelog` is **not** in Debian
 forky (checked against the pinned snapshot index 2026-10-05); `rasdaemon`
 0.8.4-2 **is** (main/amd64, deps present). It is added to the amd64 closure
 (`manifests/desktop-amd64.pkgs`) so it is available offline and its provenance
-stays forkyd ([more in the mission report](../../oc-mission-20261010/t2powercap/REPORT.md)).
+stays traceable to forky.

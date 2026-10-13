@@ -234,7 +234,7 @@ shipping image, without a rebuild.
 Yes, and the evidence is that all three accelerators now do work, measured on
 hardware rather than inferred from a probe:
 
-| | Before | After (measured on O6N) |
+| | Before | After (measured on Orion O6) |
 |---|---|---|
 | **GPU** | GL 2.1 via zink-over-panvk | **Mali-G720-Immortalis, GLES 3.2**, 10 cores, desktop genuinely accelerated — with panthor still shipped alongside, see below |
 | **NPU** | enumerated, no working inference | **95.5 ms** per 256-token embed, deterministic across runs, IRQ count moves |
@@ -264,7 +264,7 @@ Every entry in the "after" column above is backed by a workload, not a banner.
 | NPU | — | Zhouyi V3, ~95 ms per 256-token embed |
 | VPU | — | Linlon v5276, 8 decode formats, H.264/HEVC encode |
 
-Validated on Radxa Orion O6N and Minisforum MS-R1. Orange Pi 6 is in progress.
+Validated on Radxa Orion O6 and Minisforum MS-R1. Orange Pi 6 is in progress.
 
 For the reasoning behind individual decisions, with measurements, see
 [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md). For the corresponding kernel

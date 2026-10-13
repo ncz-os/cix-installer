@@ -98,7 +98,7 @@ is pulled in by `singularity-session.target`, `ncz-wallpaper-session-ready`
 restarts it once the live session environment is exported, and the XDG
 autostart fallback starts it too. Before 2026-10-11 it ran
 `ncz-wallpaper-rotate` as its very first action, so every login, every session
-restart and every spin of a crash loop (the O6N shell crash loop) changed the
+restart and every spin of a crash loop (the Sky1 shell crash loop) changed the
 wallpaper.
 
 It now persists the time of the last rotation, atomically, to
