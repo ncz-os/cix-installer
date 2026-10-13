@@ -4,10 +4,10 @@
 # Update a pin ONLY with `build/stage-build-inputs.sh --arch <a> --publish` from the tree that
 # holds the new file, then commit this file.
 # arch	dest	sha256	size	note
-amd64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	c074b8c628ec87208120d39ac85988e4bcaa427cfe731923bb82e99edf02abc7	55400582	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky amd64; rebuilt 2026-10-13 at pinned snapshot 20261005T120000Z)
-amd64	assets/rescue/rescue-rootfs-amd64.tar.zst	48fcbf9a7137a65f33ff3fd87a4a33d607cfe30a744c2e71f003600d56dbb51c	212852510	rescue partition rootfs (build/build-rescue-rootfs.sh; rebuilt 2026-10-13 at pinned snapshot 20261005T120000Z)
-arm64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	e076eadc80aeecc7bc0b90dd3751fc1eee3ea625a97d03a3a2bd6912e9f353cc	52887297	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky arm64; rebuilt 2026-10-13 at pinned snapshot 20261005T120000Z)
-arm64	assets/rescue/rescue-rootfs-arm64.tar.zst	a969c2efa8852ff2c985e5fc0e4de7647515c4c5316814156b22b4faefba6aa1	200435774	rescue partition rootfs (build/build-rescue-rootfs.sh; rebuilt 2026-10-13 at pinned snapshot 20261005T120000Z)
+amd64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	0c1b080f548645680d103081bc73479d9686170f1c31e1ef514a2e005827e2f1	55461440	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky amd64; rebuilt 2026-10-13 at pinned snapshot 20261012T023456Z)
+amd64	assets/rescue/rescue-rootfs-amd64.tar.zst	b41bf1b241f882ddc2e116f76c895ea3607d2cc971b2d86618ed74a5522d1b1f	212640976	rescue partition rootfs (build/build-rescue-rootfs.sh; rebuilt 2026-10-13 at pinned snapshot 20261012T023456Z)
+arm64	assets/mgmt/ncz-mgmt-rootfs.tar.zst	06cde688ddf25b06cee23ee68bae96fd97915f5779774c033916d2c3df2c4c2b	52933751	server/recovery nspawn rootfs for post-install/38 (build/build-mgmt-rootfs.sh forky arm64; rebuilt 2026-10-13 at pinned snapshot 20261012T023456Z)
+arm64	assets/rescue/rescue-rootfs-arm64.tar.zst	067f4d5bd2542b758a5f835a41e65a74ae9a94524c2d2eee81e262f1cfab6f19	200284205	rescue partition rootfs (build/build-rescue-rootfs.sh; rebuilt 2026-10-13 at pinned snapshot 20261012T023456Z)
 amd64	assets/python311/cpython-3.11.17+20261003-x86_64-unknown-linux-gnu-install_only.tar.gz	c624af93ad62a596806bbd2404e1fb80744a407ca7279854445ede16d93858b8	48919491	relocatable CPython 3.11 (build/build-python311-assets.sh)
 amd64	assets/python311/uv	abdc39eab8b4ad341dca91f3823a23a343fae94bdb22ebdd9e91694415206f2f	47993144	uv toolchain (build/build-python311-assets.sh)
 arm64	assets/python311/cpython-3.11.16+20260924-aarch64-unknown-linux-gnu-install_only.tar.gz	96f6f6af710762a34507ba222435a8d58d0b2a97c48cb84c0a0c73cdff199bb0	48940326	relocatable CPython 3.11 (build/build-python311-assets.sh)
