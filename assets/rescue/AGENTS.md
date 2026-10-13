@@ -137,8 +137,9 @@ sed -i 's/^default_selection .*/default_selection "stable"/' \
   first use.
 - **Network:** DHCP only, on every wired NIC that has carrier at boot
   (`ncz-rescue-net.service`). There is no static-address fallback: if no DHCP
-  server answers, the rescue system has no IPv4 address; use the local or
-  serial console.
+  server answers, the rescue system has no routable IPv4 address (dhcpcd's
+  stock IPv4 link-local 169.254.x.x and the kernel's IPv6 link-local/SLAAC
+  still apply); use the local or serial console.
 - **SSH keys:** no vendor or project SSH key is installed. Log in with the
   password, or add your own key to `/root/.ssh/authorized_keys`.
 
