@@ -7,9 +7,10 @@
 #
 #   1. already root        -> run the command directly;
 #   2. passwordless sudo   -> `sudo <cmd>` (validate with `sudo -n true`);
-#   3. otherwise           -> read the fleet sudo password from the master key
-#                             file (~/.api_keys_master.json, key
-#                             fleet_credentials.sudo_password) with `python3 -I`
+#   3. otherwise           -> read the sudo password from a JSON file named by
+#                             NCZ_SUDO_PASS_FILE (or the first line of
+#                             ~/.config/ncz/sudo-pass-file), key NCZ_SUDO_PASS_KEY
+#                             (default sudo_password), with `python3 -I`
 #                             and feed it to `sudo -S` ON STDIN.  It is never
 #                             written to a file, never passed on a command line,
 #                             never echoed, and never logged.
@@ -18,15 +19,17 @@
 #   ncz_sudo mount --bind A B        # run as root by the model above
 #   ncz_priv_model                   # "root" | "sudo-nopasswd" | "sudo-stdin"
 #
-# The master key file location can be overridden with NCZ_FLEET_PASS_FILE; the
-# JSON key with NCZ_FLEET_PASS_KEY (default fleet_credentials.sudo_password).
+# NCZ_SUDO_PASS_KEY may be a dotted path into the JSON (also settable through
+# ~/.config/ncz/sudo-pass-key).
 # A helper that needs no password may export NCZ_SUDO=0 to force direct exec.
 #
 # CAVEAT: `sudo -S` consumes one line of the command's stdin for the password.
 # Use ncz_sudo only for commands that do not read their own stdin.
 
-NCZ_FLEET_PASS_FILE="${NCZ_FLEET_PASS_FILE:-$HOME/.api_keys_master.json}"
-NCZ_FLEET_PASS_KEY="${NCZ_FLEET_PASS_KEY:-fleet_credentials.sudo_password}"
+_ncz_priv_cfg() { local f="${XDG_CONFIG_HOME:-${HOME:-}/.config}/ncz/$1"; [ -r "$f" ] && head -n1 "$f" | tr -d "[:space:]"; return 0; }
+NCZ_SUDO_PASS_FILE="${NCZ_SUDO_PASS_FILE:-$(_ncz_priv_cfg sudo-pass-file)}"
+NCZ_SUDO_PASS_KEY="${NCZ_SUDO_PASS_KEY:-$(_ncz_priv_cfg sudo-pass-key)}"
+NCZ_SUDO_PASS_KEY="${NCZ_SUDO_PASS_KEY:-sudo_password}"
 
 # Print the model that ncz_sudo will use, without running anything privileged.
 ncz_priv_model() {
@@ -35,15 +38,15 @@ ncz_priv_model() {
     if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
         printf 'sudo-nopasswd\n'; return 0
     fi
-    if [ -f "$NCZ_FLEET_PASS_FILE" ]; then printf 'sudo-stdin\n'; return 0; fi
+    if [ -n "$NCZ_SUDO_PASS_FILE" ] && [ -f "$NCZ_SUDO_PASS_FILE" ]; then printf 'sudo-stdin\n'; return 0; fi
     printf 'none\n'; return 1
 }
 
-# Read the fleet sudo password into a variable without exposing it.  We use a
+# Read the sudo password into a variable without exposing it.  We use a
 # dedicated fd (3) so the value never touches argv or a file.  Prints nothing.
-_ncz_read_fleet_pass() {
-    [ -f "$NCZ_FLEET_PASS_FILE" ] || return 1
-    NCZ_FLEET_PASS="$(python3 -I - "$NCZ_FLEET_PASS_FILE" "$NCZ_FLEET_PASS_KEY" <<'PYEOF'
+_ncz_read_sudo_pass() {
+    [ -f "$NCZ_SUDO_PASS_FILE" ] || return 1
+    NCZ_SUDO_PASS="$(python3 -I - "$NCZ_SUDO_PASS_FILE" "$NCZ_SUDO_PASS_KEY" <<'PYEOF'
 import json, sys
 try:
     with open(sys.argv[1]) as fh:
@@ -61,7 +64,7 @@ if not isinstance(node, str) or not node:
 sys.stdout.write(node)
 PYEOF
 )" || return 1
-    [ -n "$NCZ_FLEET_PASS" ] || return 1
+    [ -n "$NCZ_SUDO_PASS" ] || return 1
     return 0
 }
 
@@ -72,16 +75,16 @@ ncz_sudo() {
     if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
         sudo -- "$@"; return $?
     fi
-    if ! _ncz_read_fleet_pass; then
-        echo "priv.sh: no passwordless sudo and cannot read $NCZ_FLEET_PASS_KEY from $NCZ_FLEET_PASS_FILE" >&2
+    if ! _ncz_read_sudo_pass; then
+        echo "priv.sh: no passwordless sudo and cannot read $NCZ_SUDO_PASS_KEY from $NCZ_SUDO_PASS_FILE" >&2
         echo "priv.sh: grant passwordless sudo for this account, run as root, or provide the master key file" >&2
         return 1
     fi
-    # _ncz_read_fleet_pass populates NCZ_FLEET_PASS; feed THAT to sudo -S (a
+    # _ncz_read_sudo_pass populates NCZ_SUDO_PASS; feed THAT to sudo -S (a
     # separate local alias was never assigned here -- review caught it).
-    printf '%s\n' "$NCZ_FLEET_PASS" | sudo -S -p '' -- "$@"
+    printf '%s\n' "$NCZ_SUDO_PASS" | sudo -S -p '' -- "$@"
     local rc=$?
-    unset NCZ_FLEET_PASS
+    unset NCZ_SUDO_PASS
     return $rc
 }
 

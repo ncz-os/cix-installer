@@ -5,7 +5,7 @@
 #   ship-image.sh IMAGE [--gate-log FILE] [--reap-apply] [--no-mac]
 #
 # Password auth (operator policy: every LAN host reachable by password, no key dependence): the .4 copy uses
-# `sshpass -e` with SSHPASS read from $NCZ_FLEET_PASS_FILE (default ~/.config/ncz/fleet.pass, mode 0600); the
+# `sshpass -e` with SSHPASS read from $NCZ_SHIP_PASS_FILE (default ~/.config/ncz/ship.pass, mode 0600); the
 # value is never printed or placed on a command line.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -24,7 +24,7 @@ ARCHIVE="$(ncz_site_value NCZ_IMAGE_ARCHIVE image-archive-dir)"
 MAC_DEST="$(ncz_site_value NCZ_MAC_DEST ship-dest)"
 [ -n "$ARCHIVE" ] || { echo "ship-image: no image archive configured (NCZ_IMAGE_ARCHIVE or ~/.config/ncz/image-archive-dir)" >&2; exit 2; }
 [ "$MAC" = 0 ] || [ -n "$MAC_DEST" ] || { echo "ship-image: no workstation destination (NCZ_MAC_DEST or ~/.config/ncz/ship-dest, [user@]host), or pass --no-mac" >&2; exit 2; }
-PASSFILE="${NCZ_FLEET_PASS_FILE:-$HOME/.config/ncz/fleet.pass}"
+PASSFILE="${NCZ_SHIP_PASS_FILE:-$HOME/.config/ncz/ship.pass}"
 NAME="$(basename "$IMG")"; ARCH="$(echo "$NAME" | sed -n 's/^ncz-os-\([a-z0-9]*\)-.*/\1/p')"
 [ -n "$ARCH" ] || { echo "ship-image: cannot derive the architecture from $NAME" >&2; exit 2; }
 [ -n "$GATELOG" ] && grep -q "GATE PASS (phase 1+2)" "$GATELOG" || { echo "ship-image: refusing: --gate-log must be a log containing 'GATE PASS (phase 1+2)'" >&2; exit 3; }
@@ -54,7 +54,7 @@ got="$(sha256sum "$ARCHIVE/$NAME" | cut -d' ' -f1)"
 [ "$got" = "$SHA" ] && echo "  image archive OK ($ARCHIVE)" || { echo "  archive copy sha256 MISMATCH" >&2; exit 4; }
 # 2. the operator Mac
 if [ "$MAC" = 1 ]; then
-    [ -r "$PASSFILE" ] || { echo "ship-image: no fleet password file at $PASSFILE (0600)" >&2; exit 5; }
+    [ -r "$PASSFILE" ] || { echo "ship-image: no password file at $PASSFILE (0600; set NCZ_SHIP_PASS_FILE)" >&2; exit 5; }
     export SSHPASS="$(cat "$PASSFILE")"
     OPTS=(-o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o ConnectTimeout=10)
     sshpass -e scp "${OPTS[@]}" "$IMG" "$IMG.sha256" "$IMG.receipt.json" "$MAC_DEST:Downloads/" || { echo "  scp to $MAC_DEST failed" >&2; exit 6; }

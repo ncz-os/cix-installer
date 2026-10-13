@@ -605,7 +605,7 @@ stage_preflight() {
     local model; model="$(ncz_priv_model || true)"
     case "$model" in
         root|sudo-nopasswd) say "privilege: $model" ;;
-        sudo-stdin) say "privilege: sudo-stdin (fleet password from $NCZ_FLEET_PASS_FILE, stdin only)" ;;
+        sudo-stdin) say "privilege: sudo-stdin (from $NCZ_SUDO_PASS_FILE, stdin only)" ;;
         *) bad "no usable privilege model (need root or sudo; see build/lib/priv.sh)" ;;
     esac
     printf '%s\n' "$model" > "$RUN_DIR/priv.model"
@@ -1164,7 +1164,7 @@ stage_layers() {
     postcheck_env=" NCZ_LAYERS_CHECK=1 NCZ_LAYERS_CHECK_RUN_DIR='$RUN_DIR'"
     [ -n "${NCZ_SINGULARITY_PREBUILT_DEB:-}" ] && postcheck_env="$postcheck_env NCZ_LAYERS_CHECK_PAYLOAD='$NCZ_SINGULARITY_PREBUILT_DEB'"
     # Run the layer build through the documented privilege model (ncz_sudo_bash
-    # -> one `sudo -S` with the fleet password on stdin).  The script calls bare
+    # -> one `sudo -S` with the sudo password on stdin).  The script calls bare
     # `sudo` internally (mmdebstrap/chroot/mount); as root those are no-ops, and
     # a non-interactive bare sudo would otherwise fail with "a terminal is
     # required to authenticate" on a host without passwordless sudo.

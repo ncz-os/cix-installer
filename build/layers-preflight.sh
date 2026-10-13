@@ -426,7 +426,7 @@ check_resources() {
     # privilege model usable
     local pm; pm="$(ncz_priv_model 2>/dev/null || echo none)"
     if [ "$pm" = none ]; then
-        bad resources "no usable privilege model (need root, passwordless sudo, or the fleet key)"
+        bad resources "no usable privilege model (need root, passwordless sudo, or NCZ_SUDO_PASS_FILE)"
     else
         ok resources "privilege model: $pm"
     fi
