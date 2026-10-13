@@ -254,6 +254,7 @@ build/yocto/	sky1	-	Yocto config templates
 docker/	common	-	host build containers and notes
 docker/Containerfile.yocto	sky1	-	Yocto build container
 docs/	common	-	documentation
+docs/NCZ-AGENT-STACK.md	common	-	operator guide for ncz install mnemos / zeroclaw / zoder / nemoclaw + models pull (embedder stack on amd64 + Sky1)
 docs/platform-deny-exceptions.tsv	common	-	reviewed exceptions to the deny patterns
 docs/platform-inventory.tsv	common	-	this inventory
 docs/reports/	sky1	-	Sky1 kernel port reports
