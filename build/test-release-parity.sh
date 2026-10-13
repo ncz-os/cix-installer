@@ -16,6 +16,16 @@
 # The checks are eval'd strings, expanded when they run:
 # shellcheck disable=SC2016,SC2034
 set -uo pipefail
+# Needs bash >= 4 (associative arrays in the tools). Under an older bash
+# (macOS /bin/bash 3.2) re-run with a newer one if installed, else SKIP.
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    if [ -x "$b" ] && "$b" -c '[ "${BASH_VERSINFO[0]}" -ge 4 ]' 2>/dev/null; then exec "$b" "$0" "$@"; fi
+  done
+  echo "SKIP: bash >= 4 required (found ${BASH_VERSION:-unknown})"; exit 0
+fi
+# the tools are run as "bash TOOL": make that the same bash
+PATH="$(dirname "$BASH"):$PATH"; export PATH
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 CHECK="$ROOT/tools/check-release-parity.sh"
@@ -304,7 +314,9 @@ chmod +x "$T/bin/curl"
 export PATH="$T/bin:$PATH"
 
 # ---- fixtures -------------------------------------------------------------------
-sha() { sha256sum "$1" | cut -d' ' -f1; }
+if command -v sha256sum >/dev/null 2>&1; then sha() { sha256sum "$1" | cut -d' ' -f1; }; sha_str() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+else sha() { shasum -a 256 "$1" | cut -d' ' -f1; }; sha_str() { printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1; }; fi
+sedi() { sed "$1" "$2" > "$2.sedi" && mv "$2.sedi" "$2"; }   # in-place sed on GNU and BSD
 REPOROOT="$T/rawroot"   # what main holds on both forges, and the --repo-root
 mkdir -p "$REPOROOT/docs/screenshots/26.10"
 head -c 700 /dev/urandom > "$REPOROOT/docs/screenshots/26.10/01-desktop.png"
@@ -318,7 +330,7 @@ mkrel() { # $1 dir: amd64 (1 part) + arm64 (2 parts) + common files
   head -c 3000 /dev/urandom > "$d/arm64/$ARM.img.zst.part-00"
   head -c 1000 /dev/urandom > "$d/arm64/$ARM.img.zst.part-01"
   mkparts "$d" amd64; mkparts "$d" arm64
-  local ha hb; ha=$(printf b | sha256sum | cut -d' ' -f1); hb=$(printf a | sha256sum | cut -d' ' -f1)
+  local ha hb; ha=$(sha_str b); hb=$(sha_str a)
   printf '%s  %s\n' "$ha" "$AMD.img" > "$d/amd64/SHA256SUMS-amd64"
   printf '%s  %s\n' "$hb" "$ARM.img" > "$d/arm64/SHA256SUMS-arm64"
   cat "$d/amd64/SHA256SUMS-amd64" "$d/arm64/SHA256SUMS-arm64" > "$d/SHA256SUMS"
@@ -390,7 +402,10 @@ AUDIT="$T/audit"; awk '{print "PASS", $1, $2}' "$REL/SHA256SUMS" > "$AUDIT"
 CK=(--repo-root "$REPOROOT")
 gated=(--operator-approved "$APPROVE" --audit-ok "$AUDIT" --repo-root "$REPOROOT")
 
-# 1. parity check on today's situation: fails, lists the extra releases
+# Every forge in this file is the mock above: no request reaches a real forge
+# (checked at the end), so no check depends on what GitHub or GitLab hold now.
+# 1. parity check on a mocked pre-cutover state (Preview 1 on GitHub only,
+#    older releases on both): fails and lists the extra releases
 reset_state
 out=$(bash "$CHECK" --tag v26.10-preview1 "${CK[@]}" 2>&1); rc=$?; keep check-today "$out"
 check "today: parity fails" '[ "$rc" -eq 1 ]'
@@ -430,11 +445,11 @@ check "audit with a FAIL line is refused" '[ "$rc" -eq 2 ] && [ ! -s "$MOCK_LOG"
 for case in shot link relimg pre sections layout badpart; do
   D="$T/bad-$case"; rm -rf "$D"; cp -r "$REL" "$D"
   case $case in
-    shot) sed -i 's#01-desktop.png#09-missing.png#' "$D/NOTES.md" ;;
+    shot) sedi 's#01-desktop.png#09-missing.png#' "$D/NOTES.md" ;;
     link) echo "[old](https://github.test/ncz-os/cix-installer/releases/download/v26.10-preview1/SHA256SUMS)" >> "$D/NOTES.md" ;;
     relimg) echo "![x](../screenshots/26.10/01-desktop.png)" >> "$D/NOTES.md" ;;
     pre) echo no > "$D/PRERELEASE" ;;
-    sections) sed -i 's/^## arm64: CIX Sky1$/## Sky1/' "$D/NOTES.md" ;;
+    sections) sedi 's/^## arm64: CIX Sky1$/## Sky1/' "$D/NOTES.md" ;;
     layout) mv "$D/amd64/$AMD.img.zst.part-00" "$D/" ;;
     badpart) echo "[p](https://gitlab.test/ncz-os/cix-installer/-/releases/permalink/latest/downloads/arm64/ncz-os-arm64.img.zst.part-07)" >> "$D/NOTES.md" ;;
   esac
@@ -536,7 +551,7 @@ mism section-missing "$GHR.body |= sub(\"## arm64: CIX Sky1\"; \"## Sky1\")" "th
 mism join-missing "$GHR.body |= sub(\"sh ncz-join-image.sh amd64\"; \"sh join amd64\")" "the amd64 section of the notes is missing: the 'ncz-join-image.sh amd64' command"
 mism foreign-link ".gl.releases[\"$TAG\"].links |= map(if .name == \"ncz-join-image.sh\" then .url = \"https://elsewhere.test/x\" else . end)" "does not point at this project's generic package registry"
 # small file served with other bytes on GitHub than its digest claims: the byte check catches it
-badblob=$(printf 'tampered\n' | tee "$T/tampered" | sha256sum | cut -d' ' -f1); cp "$T/tampered" "$MOCK_BLOBS/$badblob"
+printf 'tampered\n' > "$T/tampered"; badblob=$(sha "$T/tampered"); cp "$T/tampered" "$MOCK_BLOBS/$badblob"
 mism small-file "$GHR.assets |= map(if .name == \"SHA256SUMS\" then .serve = \"$badblob\" else . end)" "SHA256SUMS content differs"
 both_serve() { # file -> jq filter serving the tampered blob for it on both forges
   printf '%s' "$GHR.assets |= map(if .name == \"$1\" then .serve = \"$badblob\" else . end) | .gl.packages |= map(.files |= map(if .file_name == \"$1\" then .serve = \"$badblob\" else . end))"
@@ -652,7 +667,10 @@ check "links pass after the refresh" '[ "$rc" -eq 0 ]' || echo "$out"
 if command -v zstd >/dev/null && [ "$(df -Pk "$T" | awk 'NR==2{print $4}')" -ge 8500000 ]; then
   J="$T/join"; mkdir -p "$J"
   head -c 300000 /dev/urandom > "$J/img.raw"
-  zstd -q -c "$J/img.raw" | split -b 100000 -d -a 2 - "$J/ncz-os-amd64-20261014-abcdef12.img.zst.part-"
+  zstd -q -c "$J/img.raw" > "$J/img.zst"
+  python3 -I -c 'import sys; d = open(sys.argv[1], "rb").read()
+for i, o in enumerate(range(0, len(d), 100000)): open("%s%02d" % (sys.argv[2], i), "wb").write(d[o:o + 100000])' "$J/img.zst" "$J/ncz-os-amd64-20261014-abcdef12.img.zst.part-"
+  rm "$J/img.zst"
   ( cd "$J" && for p in ncz-os-amd64-*.part-*; do printf '%s  %s\n' "$(sha "$p")" "$p"; done > PARTS-amd64.sha256
     printf '%s  %s\n' "$(sha img.raw)" ncz-os-amd64-20261014-abcdef12.img > SHA256SUMS-amd64 )
   rm "$J/img.raw"
@@ -665,10 +683,13 @@ if command -v zstd >/dev/null && [ "$(df -Pk "$T" | awk 'NR==2{print $4}')" -ge 
   sh "$ROOT/tools/ncz-join-image.sh" -d "$J" -f >/dev/null 2>&1; rc=$?
   check "join script refuses a bad part" '[ "$rc" -ne 0 ]'
 else
-  echo "skip join-script checks (no zstd or under 8.5 GB free)"
+  echo "SKIP join-script checks: $(command -v zstd >/dev/null || echo 'zstd not installed')$(command -v zstd >/dev/null && echo 'under 8.5 GB free')"
 fi
 
-# 13. usage
+# 13. hermetic: every request went to the mocked forges
+check "no request reached a real forge" '! grep -E "^[A-Z]+ https?://([a-z.]*\.)?(github\.com|githubusercontent\.com|gitlab\.com)/" "$MOCK_LOG"'
+
+# 14. usage
 bash "$SYNC" --dir "$REL" >/dev/null 2>&1; rc=$?; check "sync without --tag exits 2" '[ "$rc" -eq 2 ]'
 bash "$CHECK" --expect-prerelease maybe >/dev/null 2>&1; rc=$?; check "bad --expect-prerelease exits 2" '[ "$rc" -eq 2 ]'
 bash "$SYNC" --help | grep >/dev/null -- "--operator-approved"; rc=$?; check "sync --help documents the gate" '[ "$rc" -eq 0 ]'

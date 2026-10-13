@@ -13,6 +13,12 @@
 # File downloads are always anonymous, so a token is never sent to a CDN or
 # a redirect target.
 
+# Associative arrays and mapfile: bash 4 or newer (macOS ships 3.2 as /bin/bash).
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  echo "ERROR: bash 4 or newer is required (this is bash ${BASH_VERSION:-unknown}; on macOS install a current bash, e.g. brew install bash)" >&2
+  exit 2
+fi
+
 RF_GITHUB_API="${NCZ_GITHUB_API:-https://api.github.com}"
 RF_GITHUB_UPLOADS="${NCZ_GITHUB_UPLOADS:-https://uploads.github.com}"
 RF_GITHUB_WEB="${NCZ_GITHUB_WEB:-https://github.com}"
