@@ -23,9 +23,18 @@ RF_GITHUB_API=${RF_GITHUB_API%/}; RF_GITHUB_UPLOADS=${RF_GITHUB_UPLOADS%/}
 RF_GITHUB_WEB=${RF_GITHUB_WEB%/}; RF_GITHUB_RAW=${RF_GITHUB_RAW%/}
 RF_GITLAB_API=${RF_GITLAB_API%/}; RF_GITLAB_WEB=${RF_GITLAB_WEB%/}
 
-# The small files every release carries under the same name.
+# Release layout. A staged release folder is
+#   <dir>/amd64/  ncz-os-amd64-<date>-<build>.img.zst.part-NN  PARTS-amd64.sha256  SHA256SUMS-amd64
+#   <dir>/arm64/  ncz-os-arm64-<date>-<build>.img.zst.part-NN  PARTS-arm64.sha256  SHA256SUMS-arm64
+#   <dir>/        ncz-join-image.sh  SHA256SUMS  NOTES.md  (TITLE  PRERELEASE)
+# (one or both architectures). SHA256SUMS is SHA256SUMS-amd64 followed by
+# SHA256SUMS-arm64. The canonical file order, used on both release pages, is
+# every amd64 file (parts, PARTS-amd64.sha256, SHA256SUMS-amd64), then every
+# arm64 file, then the common files (ncz-join-image.sh, SHA256SUMS, NOTES.md).
 # shellcheck disable=SC2034  # used by the scripts that source this file
-RF_FIXED_FILES=(PARTS.sha256 SHA256SUMS ncz-join-image.sh NOTES.md)
+RF_ARCHES=(amd64 arm64)
+# shellcheck disable=SC2034
+RF_COMMON_FILES=(ncz-join-image.sh SHA256SUMS NOTES.md)
 
 rf_die() { echo "ERROR: $1" >&2; exit "${2:-1}"; }
 
@@ -184,5 +193,118 @@ out = []
 for u in seen:
     if u not in out: out.append(u)
 print("\n".join(out))
+PY
+}
+
+# rf_file_group NAME  ->  amd64 | arm64 | common (by file name)
+rf_file_group() {
+  case "$1" in
+    ncz-os-amd64-*|PARTS-amd64.sha256|SHA256SUMS-amd64) echo amd64 ;;
+    ncz-os-arm64-*|PARTS-arm64.sha256|SHA256SUMS-arm64) echo arm64 ;;
+    *) echo common ;;
+  esac
+}
+# GitLab link name and direct path of a file: architecture files sit under
+# "<arch>/" so the release page reads as one folder per architecture.
+rf_gl_link_name() { local g; g=$(rf_file_group "$1"); if [ "$g" = common ]; then echo "$1"; else echo "$g/$1"; fi; }
+rf_gl_path() { local g; g=$(rf_file_group "$1"); if [ "$g" = common ]; then echo "/$1"; else echo "/$g/$(rf_stable_name "$1")"; fi; }
+# rf_canonical_sort  <names on stdin>  ->  names in the canonical order
+rf_canonical_sort() {
+  awk '{ n = $0; g = 2; k = 9
+         if (n ~ /^ncz-os-amd64-|^(PARTS|SHA256SUMS)-amd64/) g = 0
+         else if (n ~ /^ncz-os-arm64-|^(PARTS|SHA256SUMS)-arm64/) g = 1
+         if (g < 2) { k = (n ~ /^ncz-os-/) ? 0 : (n ~ /^PARTS-/ ? 1 : 2) }
+         else { k = (n == "ncz-join-image.sh") ? 0 : (n == "SHA256SUMS" ? 1 : (n == "NOTES.md" ? 2 : 3)) }
+         printf "%d\t%d\t%s\n", g, k, n }' | LC_ALL=C sort -t$'\t' -k1,1n -k2,2n -k3,3 | cut -f3
+}
+
+# rf_layout DIR [--need-notes]  ->  "<group>\t<path relative to DIR>\t<name>"
+# per file in the canonical order. Verifies every part against its PARTS
+# file and the folder against the layout above; prints ERROR lines to stderr
+# and returns 2 on any problem.
+rf_layout() {
+  local dir=$1 need_notes=${2:-} a pf sf want name n got arches=() bad=0 lines=()
+  err() { echo "ERROR: $*" >&2; bad=1; }
+  for p in "$dir"/*.img.zst.part-*; do [ -e "$p" ] && err "part outside an architecture folder: ${p##*/}"; done
+  for a in "${RF_ARCHES[@]}"; do
+    [ -d "$dir/$a" ] || continue
+    arches+=("$a"); pf="$dir/$a/PARTS-$a.sha256"; sf="$dir/$a/SHA256SUMS-$a"
+    [ -f "$pf" ] || { err "$a/PARTS-$a.sha256 not found"; continue; }
+    [ -f "$sf" ] || { err "$a/SHA256SUMS-$a not found"; continue; }
+    n=0
+    while read -r want name; do
+      [ -n "${name:-}" ] || continue; name=${name#\*}
+      case "$name" in */*) err "$a/PARTS-$a.sha256 entry is not a plain file name: $name"; continue ;; esac
+      printf '%s' "$name" | grep -Eq '^[A-Za-z0-9._+~-]+$' || { err "file name not allowed: $name"; continue; }
+      case "$name" in "ncz-os-$a-"*.img.zst.part-*) ;; *) err "$a/PARTS-$a.sha256 lists $name, which is not an $a image part"; continue ;; esac
+      [ -f "$dir/$a/$name" ] || { err "part listed in $a/PARTS-$a.sha256 is missing: $name"; continue; }
+      got=$(rf_sha "$dir/$a/$name")
+      [ "$got" = "$want" ] || { err "checksum mismatch for $a/$name"; continue; }
+      lines+=("$a"$'\t'"$a/$name"$'\t'"$name"); n=$((n+1))
+    done < "$pf"
+    [ "$n" -gt 0 ] || err "$a/PARTS-$a.sha256 lists no parts"
+    for p in "$dir/$a"/*; do
+      name=${p##*/}
+      case "$name" in "PARTS-$a.sha256"|"SHA256SUMS-$a") continue ;; esac
+      grep -qE "[[:space:]]\*?$(printf '%s' "$name" | sed 's/[.[\*^$+]/\\&/g')\$" "$pf" || err "$a/$name is not listed in $a/PARTS-$a.sha256"
+    done
+    while read -r want name; do
+      [ -n "${name:-}" ] || continue; name=${name#\*}
+      case "$name" in "ncz-os-$a-"*.img) ;; *) err "$a/SHA256SUMS-$a names $name, which is not an $a image"; continue ;; esac
+      grep -q "[[:space:]]\*\?$(printf '%s' "$name" | sed 's/[.[\*^$+]/\\&/g')\.zst\.part-" "$pf" || err "$a/SHA256SUMS-$a names $name but $a/PARTS-$a.sha256 has no part of it"
+    done < "$sf"
+    lines+=("$a"$'\t'"$a/PARTS-$a.sha256"$'\t'"PARTS-$a.sha256" "$a"$'\t'"$a/SHA256SUMS-$a"$'\t'"SHA256SUMS-$a")
+  done
+  [ "${#arches[@]}" -gt 0 ] || err "no architecture folder (amd64/ or arm64/) in $dir"
+  [ -f "$dir/ncz-join-image.sh" ] || err "ncz-join-image.sh not found"
+  if [ ! -f "$dir/SHA256SUMS" ]; then err "SHA256SUMS not found"
+  elif [ "${#arches[@]}" -gt 0 ]; then
+    local cat_f=() x
+    for x in "${arches[@]}"; do cat_f+=("$dir/$x/SHA256SUMS-$x"); done
+    cmp -s "$dir/SHA256SUMS" <(cat "${cat_f[@]}") || err "SHA256SUMS is not SHA256SUMS-amd64 followed by SHA256SUMS-arm64"
+  fi
+  lines+=("common"$'\t'"ncz-join-image.sh"$'\t'"ncz-join-image.sh" "common"$'\t'"SHA256SUMS"$'\t'"SHA256SUMS")
+  if [ -f "$dir/NOTES.md" ]; then lines+=("common"$'\t'"NOTES.md"$'\t'"NOTES.md")
+  elif [ -n "$need_notes" ]; then err "NOTES.md not found"; fi
+  [ "$bad" -eq 0 ] || return 2
+  printf '%s\n' "${lines[@]}"
+}
+
+# rf_check_sections BODY ARCH=SHA256SUMS-FILE...  ->  "ok<TAB>text" / "DIFF<TAB>text" lines
+# The notes need one section per architecture: a heading (## or deeper)
+# naming the architecture, in the order given, whose section contains the
+# sha256 of each image in that architecture's SHA256SUMS file and the
+# "ncz-join-image.sh <arch>" command.
+rf_check_sections() {
+  python3 -I - "$@" <<'PY'
+import re, sys
+body = open(sys.argv[1], encoding="utf-8", errors="replace").read().split("\n")
+pairs = [a.split("=", 1) for a in sys.argv[2:]]
+heads = []
+for i, l in enumerate(body):
+    m = re.match(r"^(#{2,6})\s+(.*)$", l)
+    if m: heads.append((i, len(m.group(1)), m.group(2)))
+pos = {}
+for a, sums in pairs:
+    for i, lvl, t in heads:
+        if re.search(r"(?<![\w-])" + re.escape(a) + r"(?![\w-])", t):
+            end = next((j for j, lv, _ in heads if j > i and lv <= lvl), len(body))
+            pos[a] = (i, "\n".join(body[i:end])); break
+    if a not in pos:
+        print("DIFF\tthe notes have no section heading naming %s" % a); continue
+    sec = pos[a][1]; miss = []
+    try:
+        for line in open(sums, encoding="utf-8"):
+            f = line.split()
+            if len(f) >= 2 and f[0] not in sec: miss.append("sha256 of " + f[1].lstrip("*"))
+    except OSError:
+        miss.append("(no SHA256SUMS-%s to compare)" % a)
+    if not re.search(r"ncz-join-image\.sh\b[^\n]*?(?<![\w-])" + re.escape(a) + r"(?![\w-])", sec):
+        miss.append("the 'ncz-join-image.sh %s' command" % a)
+    if miss: print("DIFF\tthe %s section of the notes is missing: %s" % (a, ", ".join(miss)))
+    else: print("ok\tnotes: %s section with its image sha256 and join command" % a)
+order = [a for a, _ in pairs if a in pos]
+if [pos[a][0] for a in order] != sorted(pos[a][0] for a in order):
+    print("DIFF\tthe architecture sections are not in the order %s" % " ".join(a for a, _ in pairs))
 PY
 }

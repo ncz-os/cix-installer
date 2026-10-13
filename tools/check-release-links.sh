@@ -17,6 +17,10 @@
 #   <gitlab>/<project>/-/releases/<anything but permalink/latest>
 #   <gitlab api>/projects/<project>/packages/generic/<package>/...  except the
 #     linux-* source packages (the kernel source offer; those are kept)
+#   a latest-release file whose name changes between releases: on GitHub
+#     only SHA256SUMS, ncz-join-image.sh, NOTES.md, PARTS-<arch>.sha256 and
+#     SHA256SUMS-<arch> are stable; on GitLab also <arch>/PARTS-<arch>.sha256,
+#     <arch>/SHA256SUMS-<arch> and <arch>/ncz-os-<arch>.img.zst.part-NN
 # A placeholder segment such as <tag> or <version> is not flagged.
 #
 # Usage:
@@ -63,6 +67,17 @@ pats = [
     ("tag release page", re.compile(GL + "/" + p + r"/-/releases/(?!permalink/latest(?:[/\s)\]>\"'`]|$))" + seg, re.I)),
     ("package file", re.compile(r"/api/v4/projects/(?:" + re.escape(pid) + "|" + penc + r")/packages/generic/(?!linux-)" + seg, re.I)),
 ]
+# files that keep their name from release to release (docs/IMAGE-HOSTING.md)
+GH_STABLE = {"SHA256SUMS", "ncz-join-image.sh", "NOTES.md"} | {
+    "%s-%s" % (k, a) for a in ("amd64", "arm64") for k in ("SHA256SUMS",)} | {
+    "PARTS-%s.sha256" % a for a in ("amd64", "arm64")}
+GL_STABLE = {"SHA256SUMS", "ncz-join-image.sh", "NOTES.md"} | {
+    "%s/%s" % (a, n) for a in ("amd64", "arm64") for n in ("PARTS-%s.sha256" % a, "SHA256SUMS-%s" % a)}
+GL_PART = re.compile(r"^(amd64|arm64)/ncz-os-\1\.img\.zst\.part-[0-9]+$")
+latest = [
+    ("github", re.compile(GH + "/" + r + r"/releases/latest/download/(" + seg + ")", re.I)),
+    ("gitlab", re.compile(GL + "/" + p + r"/-/releases/permalink/latest/downloads/(" + seg + ")", re.I)),
+]
 hits = 0
 for f in files:
     try:
@@ -75,6 +90,14 @@ for f in files:
             for m in rx.finditer(line):
                 hits += 1
                 print("RELEASE-LINK: %s:%d: %s: %s" % (rel, n, what, m.group(0)))
+        for forge, rx in latest:
+            for m in rx.finditer(line):
+                name = m.group(1).rstrip(".,;:")
+                if "<" in name: continue   # a documented placeholder such as PARTS-<arch>.sha256
+                if forge == "github" and name in GH_STABLE: continue
+                if forge == "gitlab" and (name in GL_STABLE or GL_PART.match(name)): continue
+                hits += 1
+                print("RELEASE-LINK: %s:%d: latest-release file without a stable name: %s" % (rel, n, m.group(0)))
 if hits:
     print("check-release-links: %d link(s) to a specific release; use the releases/latest "
           "(GitHub) or -/releases/permalink/latest (GitLab) forms, see docs/IMAGE-HOSTING.md" % hits)

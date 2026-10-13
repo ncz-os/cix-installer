@@ -8,8 +8,8 @@ README.md	common	-	readme
 README.zh-CN.md	common	-	readme
 assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
-build/test-publish-release-gitlab.sh	common	-	mocked-curl regression test for tools/publish-release-gitlab.sh (dry run, sha256 verification, refusals, idempotent re-run, stable link paths, retention, token handling)
-build/test-release-parity.sh	common	-	mocked GitHub+GitLab regression test for tools/check-release-parity.sh, tools/sync-release-pages.sh and tools/check-release-links.sh (parity diffs, one release page per forge, gates, retirement, stable links, token handling)
+build/test-publish-release-gitlab.sh	common	-	mocked-curl regression test for tools/publish-release-gitlab.sh (dry run, per-architecture packages and link folders, sha256 verification, layout refusals, idempotent re-run, stable link paths, per-package retention, token handling)
+build/test-release-parity.sh	common	-	mocked GitHub+GitLab regression test for tools/check-release-parity.sh, tools/sync-release-pages.sh and tools/check-release-links.sh (parity diffs, release layout and group order, one release page per forge, gates, retirement, stable links, join script, token handling)
 build/test-ncz-cli-basics.sh	common	-	shell-level test for the embedded ncz CLI (parses, help, exit codes, status on non-systemd hosts)
 build/test-ncz-cli-embedder.sh	common	-	embedder/model-pull/status wiring for ncz install mnemos (HuggingFace sha256, SQLite backfill, status labels)
 build/test-ncz-cli-install-zoder.sh	common	-	ncz install zoder guards (arch dispatch, pinned sha256, smoke test, offline diagnostic, public-safe config template)
@@ -401,10 +401,10 @@ tests/	common	-	unit tests
 tools/	common	-	dev tools
 tools/kvm-smoke.sh	sky1	-	aarch64 KVM kernel smoke test on the MS-R1
 tools/ncz-gpu-report.sh	sky1	-	Sky1 GPU stack report
-tools/ncz-join-image.sh	common	-	join, unpack and verify the split release image parts (never writes to a disk)
+tools/ncz-join-image.sh	common	-	join, unpack and verify the split release image parts of one architecture from PARTS-<arch>.sha256 / SHA256SUMS-<arch> (never writes to a disk)
 tools/check-release-links.sh	common	-	fail on README/docs links to a specific release tag, tag download or package file instead of the latest-release permalinks (run by make lint-platform)
 tools/check-release-parity.sh	common	-	read-only check that the GitHub and GitLab release pages show the same release (one release per forge, title, notes, status, assets, checksum files, screenshots)
-tools/publish-release-gitlab.sh	common	-	upload a staged release (parts, checksums, join script) to the GitLab generic package registry with sha256 verification and link the files from the GitLab release; --dry-run, --prune-old
+tools/publish-release-gitlab.sh	common	-	upload a staged per-architecture release to the GitLab generic package registry (one package per architecture plus a common package) with sha256 verification and link the files from the GitLab release in amd64/ and arm64/ folders; --dry-run, --prune-old per package
 tools/release-forge-lib.sh	common	-	shared GitHub/GitLab API, token, link-normalising helpers for the release page tools
 tools/sync-release-pages.sh	common	-	publish one staged release to both release pages and retire every other release page; dry run by default, --apply needs operator approval and image audit files
 tools/verify-drivers.sh	sky1	-	Sky1 driver fidelity check

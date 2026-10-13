@@ -16,26 +16,34 @@
 #   TITLE           one line: the release title on both forges
 #   PRERELEASE      "yes" or "no": the GitHub pre-release flag (GitLab has
 #                   no such flag; say "preview" in TITLE and NOTES.md)
-#   the split image parts, PARTS.sha256, SHA256SUMS and ncz-join-image.sh
+#   amd64/          ncz-os-amd64-<date>-<build>.img.zst.part-NN, PARTS-amd64.sha256,
+#                   SHA256SUMS-amd64
+#   arm64/          the same for arm64 (one or both architectures)
+#   ncz-join-image.sh, SHA256SUMS (= SHA256SUMS-amd64 followed by SHA256SUMS-arm64)
+# (the release layout, docs/IMAGE-HOSTING.md). NOTES.md has one section per
+# architecture, amd64 first, each with its images' sha256 and the
+# "ncz-join-image.sh <arch>" command.
 #
 # TAG is required and must already exist on both forges: this tool never
 # creates, moves or deletes git tags.
 #
 # Order of work (each step only runs when the previous one succeeded):
-#   1. local checks: parts against PARTS.sha256, file names and size limits,
-#      TITLE/PRERELEASE, NOTES.md has no links to a specific release
+#   1. local checks: the release layout (parts against their PARTS files),
+#      file names and size limits, TITLE/PRERELEASE, the architecture
+#      sections of NOTES.md, NOTES.md has no links to a specific release
 #      (tools/check-release-links.sh) and every screenshot it references is
 #      an absolute raw URL on main of the GitLab project whose file exists
 #      in --repo-root
 #   2. gates (--apply only): the approval file names TAG, the audit file
 #      passes every image in SHA256SUMS
-#   3. GitLab: tools/publish-release-gitlab.sh --prune-old (package files,
-#      release, links with stable direct paths; older ncz-os-image package
-#      versions removed)
+#   3. GitLab: tools/publish-release-gitlab.sh --prune-old (one package per
+#      architecture plus a common package, release, links in amd64/ and
+#      arm64/ folders with stable direct paths; older versions removed per
+#      package)
 #   4. GitHub: release created or its title/body/flag updated; assets
-#      uploaded in the canonical order (PARTS.sha256 order, then
-#      PARTS.sha256, SHA256SUMS, ncz-join-image.sh, NOTES.md), each verified
-#      by size and sha256; files not in DIR removed from this release
+#      uploaded in the canonical order (all amd64 files, all arm64 files,
+#      then ncz-join-image.sh, SHA256SUMS, NOTES.md), each verified by size
+#      and sha256; files not in DIR removed from this release
 #   5. tools/check-release-parity.sh --ignore-other-releases must pass
 #   6. retire: every other release object on both forges is deleted (their
 #      git tags are kept); a release already gone is a no-op
@@ -49,7 +57,7 @@
 #   --apply                   make the changes (default: dry run)
 #   --operator-approved FILE  approval file; a line must be TAG (or "tag=TAG"
 #                             or "approve TAG"). Also $NCZ_RELEASE_APPROVAL_FILE.
-#   --audit-ok FILE           image audit result; every sha256 in SHA256SUMS
+#   --audit-ok FILE           image audit result; every image sha256 in SHA256SUMS
 #                             needs a line "PASS <sha256> [name]" and no line
 #                             may start with FAIL. Also $NCZ_RELEASE_AUDIT_FILE.
 #   --no-retire               stop after step 5 (other releases stay; the
@@ -112,7 +120,7 @@ log "== sync-release-pages ($MODE): $TAG from $DIR"
 log "   GitHub $GH_REPO   GitLab $GL_PROJECT"
 
 # ---- 1. local checks ------------------------------------------------------------
-for f in NOTES.md TITLE PRERELEASE PARTS.sha256 SHA256SUMS ncz-join-image.sh; do
+for f in NOTES.md TITLE PRERELEASE; do
   [ -f "$DIR/$f" ] || udie "$f not found in $DIR"
 done
 TITLE=$(cat "$DIR/TITLE"); PRE=$(tr -d ' \r\n' < "$DIR/PRERELEASE")
@@ -124,33 +132,25 @@ fi
 [ -s "$DIR/NOTES.md" ] || udie "NOTES.md is empty"
 [ "$(wc -c < "$DIR/NOTES.md")" -le 120000 ] || udie "NOTES.md is over the 120000 byte release body limit"
 
-FILES=()
-while read -r want name; do
-  [ -n "${name:-}" ] || continue
-  name=${name#\*}
-  case "$name" in */*) udie "PARTS.sha256 entry is not a plain file name: $name" ;; esac
-  printf '%s' "$name" | grep -Eq '^[A-Za-z0-9._+~-]+$' || udie "file name not allowed: $name"
-  [ -f "$DIR/$name" ] || udie "part listed in PARTS.sha256 is missing: $name"
-  [ "$(rf_sha "$DIR/$name")" = "$want" ] || udie "checksum mismatch for $name"
-  FILES+=("$name")
-done < "$DIR/PARTS.sha256"
-[ "${#FILES[@]}" -gt 0 ] || udie "PARTS.sha256 lists no parts"
-for p in "$DIR"/*.img.zst.part-*; do
-  [ -e "$p" ] || continue
-  printf '%s\n' "${FILES[@]}" | grep -qxF -- "${p##*/}" || udie "part not listed in PARTS.sha256: ${p##*/}"
-done
-while read -r s img; do
-  [ -n "${img:-}" ] || continue; img=${img#\*}
-  printf '%s\n' "${FILES[@]}" | grep -q "^$(printf '%s' "$img" | sed 's/[.[\*^$]/\\&/g')\.zst\.part-" || udie "SHA256SUMS names $img but PARTS.sha256 lists no part of it"
-done < "$DIR/SHA256SUMS"
-FILES+=("${RF_FIXED_FILES[@]}")
-declare -A LSHA=() LSIZE=()
-for f in "${FILES[@]}"; do
-  LSIZE[$f]=$(rf_size "$DIR/$f")
+W0=$(mktemp -d "${TMPDIR:-/tmp}/relsync0.XXXXXX"); trap 'rm -rf "$W0"' EXIT
+rf_layout "$DIR" --need-notes > "$W0/layout.tsv" || udie "the staged folder does not match the release layout (see above)"
+FILES=(); ARCHES=()
+declare -A LSHA=() LSIZE=() FPATH=()
+while IFS=$'\t' read -r g rel f; do
+  FILES+=("$f"); FPATH[$f]="$DIR/$rel"
+  if [ "$g" != common ] && ! printf '%s\n' "${ARCHES[@]}" | grep -qxF "$g"; then ARCHES+=("$g"); fi
+  LSIZE[$f]=$(rf_size "$DIR/$rel")
   [ "${LSIZE[$f]}" -lt "$GH_MAX_BYTES" ] || udie "$f is ${LSIZE[$f]} bytes; GitHub release files must be under $GH_MAX_BYTES"
-  LSHA[$f]=$(rf_sha "$DIR/$f")
-done
-log "ok    staged folder: ${#FILES[@]} files, parts verified against PARTS.sha256"
+  LSHA[$f]=$(rf_sha "$DIR/$rel")
+done < "$W0/layout.tsv"
+log "ok    staged folder: ${#FILES[@]} files (${ARCHES[*]} + common), parts verified against their PARTS files"
+sargs=(); for a in "${ARCHES[@]}"; do sargs+=("$a=$DIR/$a/SHA256SUMS-$a"); done
+sec_bad=0
+while IFS=$'\t' read -r st msg; do
+  [ -n "$st" ] || continue
+  if [ "$st" = ok ]; then log "ok    $msg"; else echo "ERROR: $msg" >&2; sec_bad=1; fi
+done < <(rf_check_sections "$DIR/NOTES.md" "${sargs[@]}")
+[ "$sec_bad" -eq 0 ] || udie "NOTES.md needs one section per architecture (amd64 first) with its image sha256 and join command"
 
 if ! links_out=$(bash "$HERE/check-release-links.sh" --files "$DIR/NOTES.md" 2>&1); then
   echo "$links_out" >&2; udie "NOTES.md links to a specific release; use the permalink forms (docs/IMAGE-HOSTING.md)"
@@ -201,7 +201,7 @@ if [ "$APPLY" -eq 1 ]; then
   [ -n "${RF_TOKEN_GITHUB:-}" ] || udie "--apply needs a GitHub token"
   [ -n "${RF_TOKEN_GITLAB:-}" ] || udie "--apply needs a GitLab token"
 fi
-W=$(mktemp -d "${TMPDIR:-/tmp}/relsync.XXXXXX"); trap 'rm -rf "$W"' EXIT
+W=$(mktemp -d "${TMPDIR:-/tmp}/relsync.XXXXXX"); trap 'rm -rf "$W" "$W0"' EXIT
 GL_PID=$(rf_project_id "$GL_PROJECT" "$W") || die "cannot resolve GitLab project $GL_PROJECT"
 c=$(rf_api github GET "$RF_GITHUB_API/repos/$GH_REPO/git/ref/tags/$(rf_uri "$TAG")" "$W/t1")
 [ "$c" = 200 ] || udie "tag $TAG does not exist on GitHub $GH_REPO (HTTP $c); this tool never creates tags"
@@ -278,7 +278,7 @@ for f in "${FILES[@]}"; do
   if [ "$APPLY" -eq 0 ]; then log "   [dry-run] upload $f (${LSIZE[$f]} bytes)"; continue; fi
   ok=0
   for attempt in 1 2 3; do
-    c=$(rf_api github POST "$RF_GITHUB_UPLOADS/repos/$GH_REPO/releases/$GH_ID/assets?name=$(rf_uri "$f")" "$W/up.json" --upload "$DIR/$f" application/octet-stream)
+    c=$(rf_api github POST "$RF_GITHUB_UPLOADS/repos/$GH_REPO/releases/$GH_ID/assets?name=$(rf_uri "$f")" "$W/up.json" --upload "${FPATH[$f]}" application/octet-stream)
     if [ "$c" = 201 ]; then
       gsz=$(jq -r '.size' "$W/up.json"); gdg=$(jq -r '(.digest // "") | sub("^sha256:";"")' "$W/up.json")
       if [ "$gsz" = "${LSIZE[$f]}" ] && [ "$gdg" = "${LSHA[$f]}" ]; then ok=1; break; fi
