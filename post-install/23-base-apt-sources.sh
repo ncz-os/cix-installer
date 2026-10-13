@@ -15,7 +15,7 @@ case "${NCZ_BASE_NAME:-}" in
         : "${NCZ_RUNTIME_MIRROR:?Debian profile requires NCZ_RUNTIME_MIRROR}"
         : "${NCZ_BASE_CODENAME:?Debian profile requires NCZ_BASE_CODENAME}"
         : "${NCZ_BASE_COMPONENTS:?Debian profile requires NCZ_BASE_COMPONENTS}"
-        # Operator rule 2026-10-08: only Debian forky. No other suite, ever.
+        # Rule since 2026-10-08: only Debian forky. No other suite, ever.
         if [ "$NCZ_BASE_CODENAME" != "forky" ]; then
             echo "[23] FATAL: base suite is '${NCZ_BASE_CODENAME}', only Debian forky is allowed" >&2
             exit 1
@@ -94,7 +94,7 @@ EOF
         esac
         ;;
     Ubuntu)
-        echo "[23] FATAL: Ubuntu base profiles are not supported (operator rule 2026-10-08: no Ubuntu debs, ever)" >&2
+        echo "[23] FATAL: Ubuntu base profiles are not supported (rule since 2026-10-08: no Ubuntu debs, ever)" >&2
         exit 1
         ;;
     *)

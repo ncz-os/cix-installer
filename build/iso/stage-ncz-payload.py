@@ -2,7 +2,7 @@
 """
 stage-ncz-payload.py — Stage the real install-tree payload under
 ``build/iso-cache/v1/ncz-payload/`` for later verbatim copy into an
-ISO's ``/ncz-payload/`` top-level directory.
+install medium's ``/ncz-payload/`` top-level directory.
 
 Background (the 2026-09-21 incremental d-i image assembly design
 and the brief for the 2026-09-22 port task):
@@ -46,8 +46,8 @@ What this script does, line by line:
      assets only — no synthetic/toy layers (per the brief).
   2. Verifies the squashfs layer ROOT entries are mode ``drwxr-xr-x``
      (0755) using the host's ``unsquashfs -ll``. This is the
-     ``assert_squashfs_root_mode`` gate ``build/build-iso-di.sh``
-     enforces at ~line 3438 (the 2026-08-26 root-mode gate) —
+     ``assert_squashfs_root_mode`` gate the retired ``build/build-iso-di.sh``
+     enforced at ~line 3438 (the 2026-08-26 root-mode gate) —
      without it,
      ``unsquashfs -f -d $TARGET`` would re-stamp ``$TARGET``'s OWN mode
      from each layer's root entry (last layer wins), and a layer built
@@ -351,7 +351,7 @@ def stage_payload(
     # preseed/diag-console.sh looks for /cdrom/ncz-payload/busybox-$ARCH at
     # runtime (the diag console's static busybox + applet farm). It is a
     # committed binary at assets/diag/busybox-$ARCH, not something this
-    # pipeline builds -- just copy it onto the ISO top-level ncz-payload/ dir,
+    # pipeline builds -- just copy it onto the medium top-level ncz-payload/ dir,
     # matching where diag-console.sh actually looks.
     busybox_src = REPO_ROOT / "assets" / "diag" / f"busybox-{arch}"
     busybox_present = busybox_src.is_file()

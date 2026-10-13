@@ -80,7 +80,7 @@ DEFAULT_CACHE_ROOT = REPO_ROOT / "build" / "iso-cache" / "v1"
 # is, so there is no real size pressure forcing aggressive pruning here.
 PRUNE_MOD_DIRS = ["sound"]
 
-# One-kernel policy (docs/ONE-KERNEL.md, operator ruling 2026-10-10: "ship
+# One-kernel policy (docs/ONE-KERNEL.md, design rule 2026-10-10: "ship
 # only OUR kernel").  A Debian d-i kernel-module/binary/helper udeb carries
 # the substrate's own kernel modules; once we swap the running kernel for ours
 # and bake our module tree into the overlay those udebs are dead weight AND a

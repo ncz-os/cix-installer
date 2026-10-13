@@ -30,7 +30,7 @@ REPO="${NCZ_INSTALLER_DIR:-$HOME/isobuild/cix-installer}"
 # whose mount point differs per build host -- same NFS
 # export, both hosts also expose it at /nfs-shared via a compat symlink so a
 # checked-in edge symlink resolves identically regardless of which host built
-# it) so a kernel built on one host is immediately usable by mkosi/ISO work on
+# it) so a kernel built on one host is immediately usable by mkosi/image work on
 # another, without a manual copy step.
 STAGING_ROOT="${NCZ_KERNEL_STAGING_ROOT:-$REPO/assets/kernel}"
 # Which channel pointer this staging run repoints. The class is checked

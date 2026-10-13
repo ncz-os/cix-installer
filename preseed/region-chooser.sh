@@ -1,8 +1,8 @@
 #!/bin/sh
 # region-chooser.sh -- NCZ installer interactive REGION selection.
 # Invoked from partman/early_command (see preseed.cfg) as the FIRST NCZ dialog
-# the operator sees (operator 2026-10-06: "the region should be chosen along
-# with the first question asked"): region, then username + password, then
+# the operator sees (design rule 2026-10-06: the region is chosen with the
+# first question asked): region, then username + password, then
 # components, then disk + fs. The hostname is generated, never asked.
 #
 # ONCE PER BOOT: a completed run leaves $NCZ_TMP/.ncz-region-done; any later
@@ -17,7 +17,7 @@
 # separate dialogs) and replace it with one branded prompt.
 #
 # WHY A CUSTOM CHOOSER (same reasoning as the disk + hostname + components
-# choosers): the ISO boots d-i at priority=critical so finish-install auto-
+# choosers): the install medium boots d-i at priority=critical so finish-install auto-
 # reboots cleanly. At critical priority d-i AUTO-ANSWERS its own locale/
 # country/keymap questions from whatever is preseeded rather than showing them
 # to the operator, so without this script the install lands on en_US.UTF-8 / us

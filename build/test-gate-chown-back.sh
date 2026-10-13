@@ -2,7 +2,7 @@
 # test-gate-chown-back.sh -- the privileged build gates must hand their run-dir
 # scratch back to the invoking user on every exit path.
 #
-# operator 2026-10-11 "fix open items": the KVM install gate and the provenance
+# 2026-10-11 "fix open items": the KVM install gate and the provenance
 # gate run under ncz_sudo (as root). Everything they wrote under the run dir
 # (kvm-gate/ui-check/, kvm-gate/target-logs/, prov-index/) was root-owned, so
 # the build user could not `rm -rf` a finished run dir (36G stranded on a build host;

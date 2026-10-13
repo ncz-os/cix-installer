@@ -2,7 +2,7 @@
 # run-all.sh — orchestrate the numbered post-install hooks.
 #
 # Invoked from preseed late_command via in-target. Runs in chroot
-# context against the freshly-installed Debian Bookworm rootfs.
+# context against the freshly-installed Debian forky rootfs.
 #
 # 2026-05-03 — TWO-PHASE FAIL-TOLERANT PATTERN:
 #
@@ -79,25 +79,25 @@ NCZ_BAKED=0
 # not baked into base.squashfs) and the baked-mode filter below only whitelisted
 # fstab/rescue. Result: no cix SDK, no /opt/python3.11, no /opt/ncz/embed-venv,
 # no libnoe → NPU dark from Python (confirmed absent on the MS-R1 test board r180). These hooks
-# are machine-AGNOSTIC userspace that only need the staged ISO assets (not the
+# are machine-AGNOSTIC userspace that only need the staged medium assets (not the
 # hardware), and running them at install-time (rather than baking) avoids the
 # base.squashfs rebuild + the LAYER-COHERENCE delta-rebuild trap (25 changes the
 # dpkg package set; baking it would force rebuilding every role delta). The
-# assets they read are on the ISO and union-synced into /target by late.sh:
+# assets they read are on the medium and union-synced into /target by late.sh:
 #   25-cix-proprietary → cix userland + stages libnoe.so + libnoe/NOE_Engine
 #                        cp311/cp312 wheels to /usr/share/cix/{lib,pypi}
-#                        (assets/cix-debs/cix-noe-umd_2.0.2, on the ISO)
+#                        (assets/cix-debs/cix-noe-umd_*, on the medium)
 #   46-python311       → relocatable CPython 3.11 at /opt/python3.11 + uv
-#                        (assets/python311, on the ISO) — the libnoe wheel only
+#                        (assets/python311, on the medium) — the libnoe wheel only
 #                        ships cp311/cp312 .so, so a 3.11 venv is REQUIRED (the
-#                        resolute system python is 3.14 and cannot import libnoe)
+#                        system python is 3.14 and cannot import libnoe)
 #   47-embedkit        → /opt/ncz/embed-venv (py3.11) + installs the libnoe wheel;
 #                        ship-critical libnoe import smoke. Ordered AFTER 25+46.
 #   80-npu             → validated armchina_npu.ko (ARCH_V3 fix) → updates/ for
-#                        the 7.0.x-next kernel (assets/kernel/modules-overlay, on
-#                        ISO) + the MS-R1 ACPI SSDT (idempotent, see below).
-#   81-vpu             → validated amvx.ko (vb2 q->lock fix) → updates/ for the
-#                        7.0.x-next kernel (assets/kernel/modules-overlay, on ISO)
+#                        a kernel with a staged overlay (assets/kernel/modules-overlay,
+#                        on the medium) + the MS-R1 ACPI SSDT (idempotent, see below).
+#   81-vpu             → validated amvx.ko (vb2 q->lock fix) → updates/ for a
+#                        kernel with a staged overlay (assets/kernel/modules-overlay)
 # Hooks run in sorted order → 25, 34-fstab, 46, 47, 72-rescue, 80, 81 (deps
 # satisfied: 25+46 both precede 47).
 #

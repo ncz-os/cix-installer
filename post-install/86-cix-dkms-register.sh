@@ -1,7 +1,7 @@
 #!/bin/bash
 # 86-cix-dkms-register.sh — register the NPU and VPU DKMS sources.
 #
-# Operator directive: all CIX accelerator drivers ship out-of-tree via DKMS, so
+# Design rule: all CIX accelerator drivers ship out-of-tree via DKMS, so
 # a kernel upgrade rebuilds them instead of silently leaving stale, vermagic-
 # locked modules behind. The GPU drivers already do this in their own scripts
 # (82-mali-gpu.sh needs the SCMI rate-limit patch applied to its source, and
@@ -76,7 +76,7 @@ register() {
     #     "/var/lib/dkms/cix-vpu-driver/1.0.2-ncz1/build" does not exist.  Stop.
     #
     # The result was `cix-vpu-driver/1.0.2: added` and nothing else, so the
-    # board silently fell back to the OLDER IN-TREE amvx while cixmini -- whose
+    # board silently fell back to the OLDER IN-TREE amvx while the MS-R1 -- whose
     # dkms.conf still said plain "1.0.2" -- correctly ran the DKMS module from
     # updates/dkms/amvx.ko.xz. Two boards, two different VPU drivers, no error
     # anywhere. Take the version from the conf so the two can never diverge.

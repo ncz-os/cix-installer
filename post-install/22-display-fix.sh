@@ -157,13 +157,13 @@ fi
 
 # Mask the CIX factory display watchdog. cix-debian-misc ships
 # cix-check-display.service -> /usr/bin/restart-display, hardcoded to
-# GNOME/gdm3; on our lightdm+XFCE stack it fails every boot with
-# "Unit gdm3.service not found" (operator-reported 2026-06-25 on r131).
+# GNOME/gdm3; on our greetd/Singularity stack it fails every boot with
+# "Unit gdm3.service not found" (reported 2026-06-25 on r131).
 # Our cix-detect-display.service above handles display bring-up. Mask via a
 # /etc symlink to /dev/null so it wins even though cix-debian-misc installs
 # later (25-cix-proprietary.sh).
 ln -sf /dev/null /etc/systemd/system/cix-check-display.service
-echo "[22] masked vendor cix-check-display.service (GNOME-only; we use lightdm+XFCE)"
+echo "[22] masked vendor cix-check-display.service (GNOME-only; we use greetd+Singularity)"
 
 # Run once during install -- Sky1 only. On amd64 the install-time run saw the INSTALLER's DRM
 # devices through the bind-mounted /sys and wrote a card pin for the installed system.

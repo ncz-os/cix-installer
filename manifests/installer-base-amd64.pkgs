@@ -51,8 +51,8 @@ testdisk
 
 # --- boot management ---
 efibootmgr
-# 2026-09-16 (operator: "standardize on rEFInd on amd64, we should not
-# diverge"): grub-efi-amd64 + grub-pc-bin REMOVED. AMD64 now boots rEFInd,
+# 2026-09-16 (design rule: standardize on rEFInd on amd64, do not
+# diverge): grub-efi-amd64 + grub-pc-bin REMOVED. AMD64 now boots rEFInd,
 # same as arm64/Sky1 -- see post-install/70-bootloader.sh's
 # run_refind_amd64() and assets/refind/ncz-refind-refresh-amd64.sh. The
 # rEFInd binary (assets/refind/refind_x64.efi) is a vendored build-time

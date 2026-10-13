@@ -1,7 +1,7 @@
 #!/bin/bash
 # lint-no-software-render.sh -- grep-deny for anything that forces software rendering.
 #
-# NEVER-SOFTWARE-RENDER policy (operator, 2026-09-29): a machine with a GPU must not render in software. This lint
+# NEVER-SOFTWARE-RENDER policy (2026-09-29): a machine with a GPU must not render in software. This lint
 # fails on tracked shell/config/service files that set a software renderer or disable the GPU, unless the line's file
 # is listed in build/software-render-allowlist.tsv (file <TAB> reason). Each allowlisted use must be guarded by
 # ncz-gpu-hw-present / NCZ_ALLOW_SOFTWARE_FALLBACK, or be a machine with no GPU by construction.

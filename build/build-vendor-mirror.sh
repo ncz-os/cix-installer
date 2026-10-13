@@ -18,7 +18,7 @@
 # step silently found nothing new and the vendor-mirror kept re-indexing
 # whatever singularity-desktop version happened to already be in its pool
 # from days earlier -- while post-install/20-desktop.sh prefers dpkg -i from
-# that same pool (staged onto the ISO as /cdrom/pool/main/) OVER the
+# that same pool (staged onto the install medium as /cdrom/pool/main/) OVER the
 # apt-get fallback, and runs AFTER the hotfix-squashfs layer extracts during
 # d-i, so it silently overwrote a correctly-rebuilt hotfix layer with the
 # stale package every time. Two consumers, two different "canonical"
@@ -74,7 +74,7 @@ publish_deb() {
     fi
 
     # This mirror is a release input, not an archive. Keeping r251 beside r253
-    # lets stale local packages remain silently ship-able and bloats the ISO.
+    # lets stale local packages remain silently ship-able and bloats the image.
     while IFS= read -r -d '' old; do
         [ "$old" = "$dest" ] && continue
         if [ "$(dpkg-deb -f "$old" Package 2>/dev/null || true)" = "$pkg" ] \
@@ -149,7 +149,7 @@ fi
 # ncz-singularity-desktop package yet, so its vendor-mirror run skipped the
 # entire Chrome fetch without saying so and published an index with no Chrome.
 # Chrome is an independent release input: fetch it independently and fail the
-# mirror build rather than allowing a browser-enabled ISO to be assembled with
+# mirror build rather than allowing a browser-enabled image to be assembled with
 # a known-incomplete pool.
 CHROME_DEB_CACHE="${CHROME_DEB_CACHE:-$REPO/build/chrome-deb-cache}"
 GOOGLE_CHROME_URL="${GOOGLE_CHROME_URL:-https://dl.google.com/linux/chrome/deb}"

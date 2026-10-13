@@ -142,7 +142,7 @@ check_live build-mgmt-rootfs.sh "$T/build-mgmt-rootfs.sh.live"
 check_live build-rescue-rootfs.sh "$T/build-rescue-rootfs.sh.live"
 check_live build-baked-rootfs.sh "$T/build-baked-rootfs.sh.live"
 
-# operator 2026-10-08 ("only Debian versions from forky"): mgmt is the single base suite too --
+# 2026-10-08 ("only Debian versions from forky"): mgmt is the single base suite too --
 # no forky-updates, no forky-security, no security.debian.org.
 if grep -Eq 'updates|security' "$T/build-mgmt-rootfs.sh.pinned"; then
     no "mgmt pinned sources grew a suite beyond forky"

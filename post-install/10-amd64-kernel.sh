@@ -2,7 +2,7 @@
 # 10-amd64-kernel.sh — install the amd64 STABLE kernel line (dpkg-tracked).
 #
 # AMD64 analogue of 10-our-kernel.sh (arm64/Sky1). Differs in one
-# structural way: arm64 has exactly one shipping "edge" kernel, resolved
+# structural way: arm64 has exactly one shipping kernel, resolved
 # via apt from the Buildkite repo. AMD64 has no apt repo for its kernels
 # yet (the line was built on the amd64 build hosts) — so this hook installs
 # the single staged .deb set directly with dpkg, the same pattern
@@ -10,7 +10,7 @@
 # (local_deb()+dpkg -i), just without an apt-repo fallback because none
 # exists.
 #
-# POLICY (operator directive 2026-10-05, unified): amd64 ships ONE kernel,
+# POLICY (2026-10-05, unified): amd64 ships ONE kernel,
 # 7.3 (7.3.0-rc7-t2-ncz for the rc7 port, the T2 build with the SEP ANFE
 # quirk 9011 + Wunner 79c168e2aa95 which is in v7.3-rc7 base; the plain
 # 9010 revert is dropped; replaced by the 7.3.0 final build later). It
@@ -58,7 +58,7 @@ if [ "$NCZ_SYSTEM_ARCH" != "amd64" ]; then
     exit 0
 fi
 
-# Debian-kernel blocking policy (operator directive 2026-10-04). Installed
+# Debian-kernel blocking policy (since 2026-10-04). Installed
 # before ANY apt/dpkg dependency resolution so a package cannot drag the
 # Debian linux-image-amd64 meta back in. The `apt-get remove --purge` at the
 # bottom stays as belt-and-braces; this pin is the actual guarantee.
@@ -108,13 +108,13 @@ install_one(){
         echo "[10-amd64] WARN: $label incomplete (could not derive kver from '$(basename "$img" 2>/dev/null)') — skipping"
         return 0
     fi
-    # Unified 7.3 policy (operator 2026-10-05): only the 7.3 series may be
+    # Unified 7.3 policy (2026-10-05): only the 7.3 series may be
     # installed. A staged 7.2.x (or Debian) kernel is refused; with nothing
     # installed the hook's final guard exits non-zero.
     case "$kver" in
         7.3.*|7.3-*) ;;
         *)
-            echo "[10-amd64] ERROR: $label kernel '$kver' is not the unified 7.3 series (operator 2026-10-05). Refusing to install." >&2
+            echo "[10-amd64] ERROR: $label kernel '$kver' is not the unified 7.3 series (policy 2026-10-05). Refusing to install." >&2
             # Non-zero so `set -e` aborts the hook immediately; a rejected
             # series must not continue as if the line had installed.
             return 1 ;;

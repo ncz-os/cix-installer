@@ -164,7 +164,7 @@ GSCHEMA
     printf "[dev.ncz.screensaver]\nmode='one'\nhack-id='blackhole_gles3'\nblackhole-color-mode='cygnus'\n" \
         > "$r/usr/share/glib-2.0/schemas/99-ncz-cygnus-screensaver.gschema.override"
     # The idle-lock ordering override 63-ncz-idle-lock-order.sh writes at install
-    # time (operator 2026-10-11): the desktop lock (dev.sinty.lockscreen) must
+    # time (2026-10-11): the desktop lock (dev.sinty.lockscreen) must
     # fire strictly after the saver (hack-idle-delay 300 = lock 360), because
     # ext-session-lock-v1 is exclusive and a lock at/before the saver hides it.
     mkdir -p "$r/opt/singularity/share/glib-2.0/schemas"
@@ -245,7 +245,7 @@ m_ss_short_catalogue() { : > "$1/usr/share/ncz-screensavers/hacks.tsv"; for n in
 m_ss_tooold()      { sed -i "s/^Version: ${SS_FLOOR}\$/Version: ${SS_TOOOLD}/" "$1/var/lib/dpkg/status"; }
 # 62-cygnus-screensaver-default did not write the effective-default override
 m_ss_no_override() { rm -f "$1/usr/share/glib-2.0/schemas/99-ncz-cygnus-screensaver.gschema.override"; }
-# hack-id default != blackhole_gles3 (operator rule "default saver = blackhole")
+# hack-id default != blackhole_gles3 (rule "default saver = blackhole")
 m_ss_no_blackhole_default() {
     cat > "$1/usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml" <<'GSCHEMA'
 <?xml version="1.0" encoding="UTF-8"?>

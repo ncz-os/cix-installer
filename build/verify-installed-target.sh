@@ -325,26 +325,26 @@ if [ -n "$(lsnames /usr/lib/modules)" ]; then
 else
     gate_miss kernel "no /usr/lib/modules/<kver> on the amd64 target"
 fi
-# --- (cyclops) the INSTALLED kernel must be the pinned r2 build -------------
+# --- (boot-GPU) the INSTALLED kernel must be the pinned r2 build -------------
 # The KVM gate pins the INSTALLER kernel to the manifest's r2 vmlinuz and
 # exports VERIFY_EXPECT_KVER / VERIFY_EXPECT_VMLINUZ_SHA256 here. Assert the
-# INSTALLED /boot/vmlinuz-<kver> is that same cyclops-fixed r2 build (patch
+# INSTALLED /boot/vmlinuz-<kver> is that same boot-GPU-fixed r2 build (patch
 # 2010). KVER alone is not enough: r1 and r2 share the release string
 # 7.3.0-rc7-t2-ncz, so a stale r1 kernel on the target would pass every
 # KVER-keyed check while silently bringing back the Macmini5,1 i915
 # EPROBE_DEFER bug (no /dev/dri, no greetd, no error). Skipped when the pin is
 # not provided (e.g. a legacy invocation), never treated as a pass.
 if [ -n "${VERIFY_EXPECT_KVER:-}" ] && [ -n "${VERIFY_EXPECT_VMLINUZ_SHA256:-}" ]; then
-    echo "[verify-target] (cyclops) installed kernel pin"
+    echo "[verify-target] (boot-GPU) installed kernel pin"
     if [ -n "$(lsnames /usr/lib/modules)" ] && ! lsnames /usr/lib/modules | grep -qx "$VERIFY_EXPECT_KVER"; then
         gate_miss kernel "installed module tree is not the pinned $VERIFY_EXPECT_KVER (have: $(lsnames /usr/lib/modules | tr '\n' ' '))"
     fi
     if fetch "/boot/vmlinuz-$VERIFY_EXPECT_KVER" "$TMP/vmlinuz"; then
         _have_vmlinuz=$(sha256sum "$TMP/vmlinuz" | awk '{print $1}')
         if [ "$_have_vmlinuz" = "$VERIFY_EXPECT_VMLINUZ_SHA256" ]; then
-            echo "[verify-target]     /boot/vmlinuz-$VERIFY_EXPECT_KVER == pinned r2 vmlinuz (2010 cyclops fix)"
+            echo "[verify-target]     /boot/vmlinuz-$VERIFY_EXPECT_KVER == pinned r2 vmlinuz (2010 boot-GPU fix)"
         else
-            gate_miss kernel "/boot/vmlinuz-$VERIFY_EXPECT_KVER sha256=$_have_vmlinuz != pinned $VERIFY_EXPECT_VMLINUZ_SHA256 (not the 2010 cyclops-fixed kernel)"
+            gate_miss kernel "/boot/vmlinuz-$VERIFY_EXPECT_KVER sha256=$_have_vmlinuz != pinned $VERIFY_EXPECT_VMLINUZ_SHA256 (not the 2010 boot-GPU-fixed kernel)"
         fi
     else
         gate_miss kernel "/boot/vmlinuz-$VERIFY_EXPECT_KVER unreadable on the installed target"
@@ -558,7 +558,7 @@ if fetch /opt/singularity/share/glib-2.0/schemas/99-ncz-defaults.gschema.overrid
     grep -q '^show-tour=false$' "$TMP/ncz.gschema.override" || gate_miss first-login-tour "upstream first-run switch is not disabled (show-tour=false missing): the shell would open the tour unguarded"
 fi
 
-# --- (vi) ncz-screensavers (mandatory on desktop images; operator 2026-10-05) ---------
+# --- (vi) ncz-screensavers (mandatory on desktop images; 2026-10-05) ---------
 # The checks live in verify-installed-target-screensavers.sh (sourced so
 # SS_STATUS / SS_PLUGIN remain in this shell for the [fact] lines below).
 # Split out so this file's review hunk stays under 9000 bytes.
@@ -602,7 +602,7 @@ else
     exists /etc/glvnd/egl_vendor.d/10_cix.json && { gate_miss gpu "Mali EGL vendor entry leaked onto amd64"; GPU_OK=0; }
 fi
 
-# --- (ssh) LAN password login stays possible (operator policy 2026-09-29: every host reachable by password) ------
+# --- (ssh) LAN password login stays possible (policy 2026-09-29: every host reachable by password) ------
 # sshd uses the FIRST value it sees for a keyword. Rebuild the effective config from /etc/ssh/sshd_config with its
 # Include lines expanded in place (drop-ins sort lexically), then require PasswordAuthentication yes. A key-only or
 # keyboard-interactive-only setup would lock out `sshpass` and remote scripts.

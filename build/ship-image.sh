@@ -4,7 +4,7 @@
 #
 #   ship-image.sh IMAGE [--gate-log FILE] [--reap-apply] [--no-mac]
 #
-# Password auth (operator policy: every LAN host reachable by password, no key dependence): the .4 copy uses
+# Password auth (no key dependence): the workstation copy uses
 # `sshpass -e` with SSHPASS read from $NCZ_SHIP_PASS_FILE (default ~/.config/ncz/ship.pass, mode 0600); the
 # value is never printed or placed on a command line.
 set -uo pipefail
@@ -30,7 +30,7 @@ NAME="$(basename "$IMG")"; ARCH="$(echo "$NAME" | sed -n 's/^ncz-os-\([a-z0-9]*\
 [ -n "$GATELOG" ] && grep -q "GATE PASS (phase 1+2)" "$GATELOG" || { echo "ship-image: refusing: --gate-log must be a log containing 'GATE PASS (phase 1+2)'" >&2; exit 3; }
 # Final ship gate: the live NCZ repos must satisfy the apt separation policy. Always fail mode (the environment cannot
 # weaken it; only NCZ_SHIP_ALLOW_APT_GATE_OVERRIDE=1 + NCZ_APT_LIVE_GATE=warn|skip, loudly); unreachable index = failure.
-# Provenance gate (operator 2026-10-08: no Ubuntu debs ever; only Debian forky, NCZ-built or reviewed vendor debs): every package in
+# Provenance gate (2026-10-08: no Ubuntu debs ever; only Debian forky, NCZ-built or reviewed vendor debs): every package in
 # the FINISHED image (offline pool, base/desktop/hotfix layers, rescue + mgmt rootfs) must be NCZ, a sha-pinned vendor deb, or
 # byte-identical to the pinned forky snapshot, and the apt sources/pins/os-release must be forky-only. No override.
 # Owned, unique scratch; never rm a caller-supplied tree.  The verifier makes its

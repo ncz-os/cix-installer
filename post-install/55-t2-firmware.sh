@@ -2,9 +2,9 @@
 # 55-t2-firmware.sh — Apple T2 hardware: real WiFi/Bluetooth firmware +
 # audio config, from AdityaGarg8's real, verified t2-ubuntu-repo apt repo.
 #
-# Same posture as 53-chrome.sh / 54-gpu-accel.sh (operator directive
-# 2026-09-14: "We are not a free only distro like Debian, we install to
-# make things work.") — real official repo, real signed packages.
+# Same posture as 53-chrome.sh / 54-gpu-accel.sh (since 2026-09-14: not a
+# free-software-only distro; install what makes the hardware work) — real
+# official repo, real signed packages.
 #
 # Real repo verified 2026-09-14 (curl, not guessed): KEY.gpg and t2.list at
 # adityagarg8.github.io/t2-ubuntu-repo both return HTTP 200 with real
@@ -45,7 +45,7 @@
 # meaningfully baked into a shared image at chroot-build time).
 # AMD64 only — never wired into the arm64 hook loops.
 #
-# UPDATED 2026-09-15 (operator follow-up): the T2 PCI-bridge check that used
+# UPDATED 2026-09-15 (follow-up): the T2 PCI-bridge check that used
 # to live inline here moved to the shared, unit-testable
 # post-install/lib/hw-detect.sh (`is_t2_hardware` / `t2_hardware_detail`) so
 # it isn't a copy-paste-only fact living in one hook. Detection itself is
@@ -59,7 +59,7 @@
 #
 # This hook ALSO now unconditionally logs "T2 hardware: detected/not
 # detected" on every amd64 run (before the headless/server variant check),
-# per operator directive: the diagnostic should be visible in install logs
+# by design: the diagnostic should be visible in install logs
 # whether or not it ends up mattering for this SKU.
 # NCZ-PLATFORM-GUARD: amd64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
 # run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An

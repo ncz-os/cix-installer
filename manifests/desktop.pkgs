@@ -153,7 +153,7 @@ nftables
 systemd-zram-generator
 
 # --- native Wayland screensaver chooser / idle-lock --------------------------
-# LIFTED 2026-09-30 (operator): the screensaver subsystem now ships; the
+# LIFTED 2026-09-30: the screensaver subsystem now ships; the
 # package ships 84 native GLES3 hacks (Black Hole, hyprsaver, xshadertoy, the
 # twelve classics) with no OpenGL 1 or gl4es code left in the ncz-screensavers
 # package; 59-ncz-screensavers-pkg installs the shipped 74-title catalogue.
@@ -167,8 +167,8 @@ systemd-zram-generator
 # Description says it is "installed by the NCZ-OS image"). 57-screensaver.sh was already removed from
 # build-squashfs-layers.sh / build-baked-rootfs.sh hook loops and from
 # run-all.sh's MACHINE_HOOKS_RE regex; this item (fix/screensavers-mandatory
-# -install-20261006, operator 2026-10-05: "If we are distributing screensavers
-# as Deb they need to be apt installed during installation.") finally removes
+# -install-20261006; rule since 2026-10-05: screensavers distributed as a .deb
+# are apt-installed during installation) finally removes
 # the hook from the platform-inventory + both generated hook lists.
 # swayidle, swaylock, wlopm, and the GObject-introspection packages below
 # remain removed -- they have no other consumer (verified by grep against
@@ -253,7 +253,7 @@ fonts-liberation
 # fcitx5 has a compositor to talk to on Wayland.
 #
 # Closure measured against forky arm64: 25 packages, ~45 MB of .debs, 0
-# removals. Against a 3.4 GB ISO that is +1.3%.
+# removals. Against a 3.4 GB install image that is +1.3%.
 #
 # These are installed unconditionally; whether an IME AUTOSTARTS is decided at
 # install time by the language selection (see post-install/22-locale-gen.sh).
@@ -402,7 +402,7 @@ librsvg2-bin
 aardvark-dns
 
 # --- r181: full podman runtime so `ncz agent install` + `ncz install mnemos`
-#     (the MNEMOS desktop icon) work OFFLINE. All present in server/resolute
+#     (the MNEMOS desktop icon) work OFFLINE. All present in the forky
 #     mirrors (bound at build time), so this is a safe explicit pin — 30-agents.sh
 #     also apt-installs these, this just guarantees they land in the delta. ---
 podman
@@ -623,14 +623,14 @@ util-linux-extra
 # v4l-utils is the only way to interrogate the Linlon VPU nodes (/dev/video0
 # mvxdec, /dev/video1 mvxenc): v4l2-ctl reports the codec formats the firmware
 # actually registered, which is exactly the check that distinguishes "VPU
-# driver loaded" from "VPU driver loaded AND firmware present". cixmini
-# already had v4l2-ctl, which is why the missing .fwb set was caught there
+# driver loaded" from "VPU driver loaded AND firmware present". The MS-R1
+# test board already had v4l2-ctl, which is why the missing .fwb set was caught there
 # first and not here.
 alsa-utils
 v4l-utils
 
 # --- radio firmware: WiFi/Bluetooth for whatever is in the M.2 slot ---------
-# MEASURED 2026-08-18, and this was a real shipping defect: cixmini carries a
+# MEASURED 2026-08-18, and this was a real shipping defect: the MS-R1 test board carries a
 # MediaTek MT7922 (mt7921e) and its three firmware blobs were present in
 # /lib/firmware/mediatek/ -- but `dpkg -S` matched NO PACKAGE for any of them.
 # They had been hand-dropped on that box at some point. No manifest carried
@@ -643,7 +643,7 @@ v4l-utils
 # The Sky1 boards differ in what sits in the M.2 slot, and Orange Pi 6 is a
 # target too, so cover the four families that realistically appear on an ARM
 # SBC rather than only the one chip we happen to own:
-#   mediatek    MT7902/7921/7922/7925/7961 -- cixmini's MT7922
+#   mediatek    MT7902/7921/7922/7925/7961 -- the MS-R1's MT7922
 #   brcm80211   Broadcom/AMPAK AP6xxx -- the usual ARM SBC on-board module
 #   atheros     QCA6174/QCA9377 M.2 cards
 #   iwlwifi     Intel AX200/AX210 M.2 cards

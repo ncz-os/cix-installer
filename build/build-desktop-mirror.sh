@@ -1,5 +1,5 @@
 #!/bin/bash
-# build-desktop-mirror.sh — r130 fat/offline desktop closure mirror (arm64).
+# build-desktop-mirror.sh — r130 fat/offline desktop closure mirror (per ARCH).
 #
 # Builds the closure of the Sky1 SINGULARITY desktop runtime set listed in
 # manifests/desktop.pkgs (Singularity replaced XFCE in 26.7 — NO xubuntu-core,
@@ -8,18 +8,18 @@
 # companion, was deleted 2026-08-21 as dead code — see
 # the 2026-08-21 Ubuntu-era audit.)
 #
-# build-iso-di.sh merges build/desktop-mirror/pool into the ISO pool and
-# regenerates the single 'main' deb index from the combined pool, so
+# The desktop layer build installs from this pool, and build/build-forky-mirror.sh
+# folds it into the offline mirror the image carries, so
 # post-install/20-desktop.sh installs the desktop fully OFFLINE from
 # file:///cdrom (no live apt source dependency → no r129-style 20-desktop stall).
 #
 # Outputs:
 #   build/desktop-mirror/        apt repo (dists/<suite> + pool) — POOL is what
-#                                the ISO consumes; dists/ is for standalone use.
+#                                the image build consumes; dists/ is for standalone use.
 #   build/desktop-mirror.gaps    closure pkgs not in the local mirror
 #
 # Method: a self-contained apt root over Debian's own archive (release.conf
-# NCZ_BASE_MIRROR/NCZ_BASE_COMPONENTS), arm64, simulate-install the desktop
+# NCZ_BASE_MIRROR/NCZ_BASE_COMPONENTS) for ARCH, simulate-install the desktop
 # seed to compute the closure, apt-get download the exact closure versions
 # into the new pool, regenerate indexes. Chromium is the one exception: no
 # Debian/Ubuntu Chromium package is used at all, the browser seed uses
@@ -46,15 +46,15 @@ fi
 # default locale, two independent `sort -u` calls can disagree on ordering
 # (case/locale-sensitive collation) even though each individually looks
 # "sorted", and `comm` then fails with "not in sorted order" (found live
-# 2026-07-27 running this end-to-end on cixmini for the first time). Force
+# 2026-07-27 running this end-to-end on a Sky1 board for the first time). Force
 # the plain byte-order C locale everywhere in this script so every sort/comm
 # pair is guaranteed consistent.
 export LC_ALL=C
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Single source of truth for the ncz-screensavers version floor (operator
-# 2026-10-05 mandatory-install item). Sourced once here; the `required`
+# Single source of truth for the ncz-screensavers version floor
+# (2026-10-05 mandatory-install item). Sourced once here; the `required`
 # ncz-screensavers row in NCZ_LOCAL_DEBS below reads NCZ_SCREENSAVERS_MIN_VERSION
 # and the standard error messages from it.
 SCREENSAVERS_VERSION_ENV="$REPO/build/screensavers-version.env"
@@ -122,7 +122,7 @@ PORTS_URL="${PORTS_URL:-$NCZ_BASE_MIRROR}"
 # DRM/Google Pay and (per post-install/84-vpu-vaapi.sh) confirmed working
 # VA-API hardware video decode once that hook's fixes are applied.
 #
-# NOT VERSION-PINNED (operator, 2026-08-12): always mirror whatever Google
+# NOT VERSION-PINNED (2026-08-12): always mirror whatever Google
 # currently ships as stable. A hardcoded version is a build-time time bomb --
 # Google rotates the stable point release every couple of weeks and drops the
 # previous one from the index, so the pin fails the build rather than
@@ -200,9 +200,10 @@ chmod 0644 "$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc"
 cat >> "$T/etc/apt/sources.list" <<EOF
 deb [arch=$ARCH signed-by=$T/etc/apt/keyrings/buildkite-ncz-apt-keyring.asc] $BUILDKITE_NCZ_URL any main
 EOF
-# Buildkite also carries a historical Ubuntu build of fonts-liberation for
-# Chrome consumers.  NCZ-OS is Debian-only; force Debian's exact Forky build
-# even though the Ubuntu version string sorts higher.
+# Buildkite used to carry a historical Ubuntu build of fonts-liberation for
+# Chrome consumers (removed 2026-10-13).  NCZ-OS is Debian-only; the pin keeps
+# Debian's exact Forky build even if an Ubuntu version string that sorts higher
+# reappears.
 cat > "$T/etc/apt/preferences.d/debian-only-overrides.pref" <<'EOF'
 Package: fonts-liberation
 Pin: version 1:2.1.5-3
@@ -230,7 +231,7 @@ if ! apt-get "${APTOPTS[@]}" update >"$T/apt-update.log" 2>&1; then
 fi
 
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
-    # Whatever Google currently ships as stable — no pin (operator 2026-08-12).
+    # Whatever Google currently ships as stable — no pin (2026-08-12).
     _chrome_ver="$(apt-cache "${APTOPTS[@]}" policy google-chrome-stable \
                    | awk '/Candidate:/ {print $2}')"
     if [ -z "$_chrome_ver" ] || [ "$_chrome_ver" = "(none)" ]; then
@@ -334,7 +335,7 @@ fi
 # The incremental pool keeps older versions of packages that remain in the
 # closure. Chrome is large (~125 MiB) and Google rotates stable every couple of
 # weeks, so without this every rebuild leaves the previous point release behind
-# and silently bloats the ISO. Keep only the version resolved and verified above.
+# and silently bloats the image. Keep only the version resolved and verified above.
 if grep -Eq '^[[:space:]]*google-chrome-stable([[:space:]]|$)' "$SEEDFILE"; then
     chrome_keep="google-chrome-stable_${_chrome_ver}_${ARCH}.deb"
     for chrome_deb in "$OUT"/pool/main/google-chrome-stable_*_"${ARCH}.deb"; do
@@ -346,9 +347,9 @@ fi
 # NCZ-OS-local packages: not published in Debian, so add locally-built copies
 # directly in reprepro-style pool layout. Optional ones keep the mirror usable
 # as a standalone Debian closure builder; required ones do not, because
-# their absence produces an ISO that fails partway through an install.
+# their absence produces an image that fails partway through an install.
 #
-# The common rows here are optional EXCEPT ncz-screensavers: operator
+# The common rows here are optional EXCEPT ncz-screensavers:
 # 2026-10-05 ("If we are distributing screensavers as Deb they need to be apt
 # installed during installation.") makes ncz-screensavers a hard build-time
 # requirement on desktop variants. The hook (post-install/59-ncz-screensavers
@@ -488,7 +489,7 @@ printf '%s\n' "$NCZ_LOCAL_DEBS" | while IFS='|' read -r pkg glob req; do
 done
 # comm(1) below needs the closure sorted in the C locale; the loop above appended.
 LC_ALL=C sort -u -o "$CLOSURE" "$CLOSURE"
-# The desktop delta consumes this pool directly. The complete ISO closure also
+# The desktop delta consumes this pool directly. The complete image closure also
 # consumes it alongside the vendor pool, where cixmini-boot and its mandatory
 # ncz-usb-recovery dependency are published.
 
@@ -506,8 +507,8 @@ done
 DEBS=$(find "$OUT/pool" -name '*.deb' | wc -l)
 echo "  downloaded/kept $DEBS debs"
 
-# regenerate indexes (for standalone use; the ISO build regenerates from the
-# combined server+desktop pool, so the ISO does not consume these dists/).
+# regenerate indexes (for standalone use; the image build regenerates from the
+# combined offline pool, so the image does not consume these dists/).
 echo "  generating Packages/Release..."
 mkdir -p "$OUT/dists/$SUITE/main/binary-$ARCH"
 ( cd "$OUT" && apt-ftparchive packages pool/main > "dists/$SUITE/main/binary-$ARCH/Packages" )

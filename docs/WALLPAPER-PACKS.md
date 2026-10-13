@@ -167,7 +167,7 @@ do that. Every OCS import lands in ONE persistent user-side collection named
 image. The reason for the change: the picker shows imports as one scrollable
 pool, not as a stack of singleton packs, and a single shared collection
 matches that UX without losing any attribution/licensing fidelity. The change
-was operator-directed and the per-image attribution goal — real credit and
+was a deliberate design decision and the per-image attribution goal — real credit and
 licence state preserved per picture, never fabricated at the pack level — is
 unchanged. It just lives in per-image sidecars now, not in a per-pack
 manifest.

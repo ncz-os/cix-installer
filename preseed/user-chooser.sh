@@ -24,7 +24,7 @@
 # "default password with confirm (2x)").
 #
 # WHY A CUSTOM CHOOSER (same reasoning as disk-fs-chooser.sh /
-# hostname-suggest.sh / region-chooser.sh): the ISO boots d-i at
+# hostname-suggest.sh / region-chooser.sh): the install medium boots d-i at
 # priority=critical so finish-install auto-reboots cleanly. At critical
 # priority d-i AUTO-ANSWERS its own passwd/username + passwd/user-password +
 # passwd/user-password-again chain with whatever is preseeded rather than

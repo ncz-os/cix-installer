@@ -3,12 +3,12 @@
 # KEYBOARD LAYOUT selection.
 #
 # This script is intentionally no longer invoked by preseed.cfg or staged into
-# the ISO. Human installs now leave debian-installer/locale and
+# the install medium. Human installs now leave debian-installer/locale and
 # keyboard-configuration/* unanswered so Debian's native localechooser and
 # keyboard-configuration dialogs run. build/kvm-install-gate.sh applies
-# standard d-i locale/keymap answers only to its throwaway qemutest ISO.
+# standard d-i locale/keymap answers only to its throwaway qemutest image copy.
 #
-# WHY a custom chooser (same reasoning as disk-fs-chooser.sh): the ISO boots
+# WHY a custom chooser (same reasoning as disk-fs-chooser.sh): the install medium boots
 # d-i at priority=critical so finish-install auto-reboots cleanly. At critical
 # priority d-i's own native language/country/locale and keyboard-detection
 # steps are auto-answered from whatever is preseeded rather than shown, so a

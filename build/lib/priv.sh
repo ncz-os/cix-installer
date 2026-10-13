@@ -97,7 +97,7 @@ ncz_sudo_bash() {
 # ---------------------------------------------------------------------------
 # Hand privileged build artifacts back to the invoking (non-root) user.
 #
-# WHY (operator 2026-10-11 "fix open items").  The KVM install gate and the
+# WHY (2026-10-11 "fix open items").  The KVM install gate and the
 # provenance gate run through ncz_sudo (as root).  Everything they write under
 # the run dir -- kvm-gate/ui-check/, kvm-gate/target-logs/, prov-index/ -- is
 # then owned by root, so the build user cannot `rm -rf` a finished run dir

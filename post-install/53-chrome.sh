@@ -86,7 +86,7 @@ fi
 
 if [ ! -x /usr/bin/google-chrome-stable ]; then
     echo "[53] FATAL: google-chrome-stable is absent from a desktop/browser-enabled install" >&2
-    echo "[53]        expected it from the offline Forky mirror seed; check google-chrome-stable in manifests/desktop.pkgs and the ISO pool" >&2
+    echo "[53]        expected it from the offline Forky mirror seed; check google-chrome-stable in manifests/desktop.pkgs and the medium's pool" >&2
     exit 1
 fi
 
@@ -97,8 +97,8 @@ for duplicate in Google-Chrome.desktop com.google.Chrome.desktop; do
     rm -f "$APPDIR/$duplicate" "/etc/skel/Desktop/$duplicate" 2>/dev/null || true
 done
 
-# --- KEEP Google's apt repo ENABLED on the installed system (operator
-#     directive 2026-07-29) so Chrome auto-updates from dl.google.com. The
+# --- KEEP Google's apt repo ENABLED on the installed system (since
+#     2026-07-29) so Chrome auto-updates from dl.google.com. The
 #     r180 CDROM-only doctrine applies to the INSTALLER image, not the
 #     installed desktop.
 #

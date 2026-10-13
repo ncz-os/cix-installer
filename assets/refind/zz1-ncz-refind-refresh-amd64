@@ -3,7 +3,7 @@
 # the rEFInd menu whenever a linux-image-* package is installed/upgraded
 # via apt.
 #
-# NCZ-UNIFIED-KERNEL-73 (operator 2026-10-05): ONE kernel, 7.3, is the
+# NCZ-UNIFIED-KERNEL-73 (2026-10-05): ONE kernel, 7.3, is the
 # default on every arch. There is no edge channel any more and no 7.2.x
 # line. This hook derives the single default KVER from /boot and delegates
 # to ncz-refind-refresh-amd64, which owns the command line (the redefined

@@ -1,7 +1,7 @@
 #!/bin/bash
 # 31-remote-access.sh — graphical remote access.
 #
-# 26.7 "Maximilian": the desktop is Singularity (labwc/wlroots, WAYLAND). The
+# Since 26.7 the desktop is Singularity (labwc/wlroots, WAYLAND). The
 # old xrdp + startxfce4 path is X11-only and XFCE is gone, so it no longer
 # applies. Wayland remote desktop (wayvnc / labwc screencopy, or
 # gnome-remote-desktop RDP) is a RELEASE-TRACK item — not wired for the beta.

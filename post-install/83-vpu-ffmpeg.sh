@@ -2,8 +2,8 @@
 # 83-vpu-ffmpeg.sh — install the CIX Sky1 Linlon/amvx VPU-accelerated ffmpeg
 # (cix-ffmpeg 7.1.2) for hardware video decode/encode/transcode on 26.7.
 #
-# The kernel VPU driver (amvx, in-tree on 7.2 with the vb2 q->lock fix — patch
-# 0173) exposes V4L2 m2m nodes, but STOCK Ubuntu ffmpeg 8.0's h264_v4l2m2m
+# The kernel VPU driver (amvx, with the vb2 q->lock fix) exposes V4L2 m2m
+# nodes, but STOCK distribution ffmpeg 8.0's h264_v4l2m2m
 # FAILS at real resolutions (1080p) on the Linlon. The vendor debian13
 # cix-ffmpeg 7.1.2 has patched *_v4l2m2m codecs that actually drive the VPU;
 # it runs on Ubuntu 26.04 arm64 with its own bundled ffmpeg-7.1 runtime libs
@@ -50,5 +50,5 @@ WRAP
 done
 
 echo "[83] cix-ffmpeg installed. Usage: cix-ffmpeg -c:v h264_v4l2m2m -i in.mp4 -c:v hevc_v4l2m2m out.mp4"
-echo "[83] (needs amvx VPU driver + /dev/video-cixdec0 — in-tree on the 7.2 kernel w/ vb2 fix)"
+echo "[83] (needs amvx VPU driver + /dev/video-cixdec0)"
 exit 0

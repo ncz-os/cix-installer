@@ -1,8 +1,8 @@
 #!/bin/bash
 # progress-msg.sh -- one-line milestone feedback for long post-install hooks.
 #
-# Operator 2026-10-10: "We also need more installation feedback such as in the
-# GPU driver installs." The GPU/DKMS steps already have lib/gpu-progress.sh.
+# 2026-10-10: more installation feedback, as in the GPU driver
+# installs. The GPU/DKMS steps already have lib/gpu-progress.sh.
 # This gives the OTHER long, user-visible steps (firmware BOM, kernel, desktop,
 # wallpapers, boot splash, bootloader, first-boot prep) the same kind of honest
 # one-line status: what is being done and a rough time class.

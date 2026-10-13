@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """build/components.py — component drift check / inventory / publish-diff.
 
-Operator directive 2026-10-05 (Item C1). Pure Python 3 stdlib; runs on
+Component registry (2026-10-05, item C1). Pure Python 3 stdlib; runs on
 macOS workstations and on the Linux build hosts; deterministic output (no
 timestamps, stable sort order). Phase 2 wires `check` into `make parity`
 and `make lint-platform`. The two seed-published findings that are
@@ -630,7 +630,7 @@ def cmd_check(ctx, args):
     errors = [f for f in findings if f[0] == "error"]
     warnings = [f for f in findings if f[0] == "warn"]
     findings.sort(key=lambda f: (f[0], f[1], f[2]))
-    print("components.py check -- phases 1-3 (operator 2026-10-05)")
+    print("components.py check -- phases 1-3 (2026-10-05)")
     print(f"root: {ctx.root}")
     print(f"registry: {ctx.registry}")
     print(f"rows: {len(rows)}")

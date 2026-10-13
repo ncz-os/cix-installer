@@ -22,8 +22,8 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 #
 # build-image.sh invokes this as root (ncz_sudo): with --image it extracts the
 # /dists index via `debugfs rdump`, which chowns the dumped tree, so --work and
-# --index-dir fill with root-owned files that strand the run dir (operator
-# 2026-10-11). Collect both and hand them back to the invoking user on EVERY
+# --index-dir fill with root-owned files that strand the run dir
+# (2026-10-11). Collect both and hand them back to the invoking user on EVERY
 # exit path.  Cleanup only -- we run python in-process (not `exec`) so the trap
 # fires and the python exit status is still propagated verbatim.
 CHOWN_DIRS=()

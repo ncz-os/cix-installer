@@ -5,7 +5,7 @@
 # then drive it from script-controlled filesystem fixtures so the test has no
 # dependency on the live pool being in any particular state.
 #
-# Unified 7.3 policy (operator 2026-10-05): the Sky1 tree has ONE channel
+# Unified 7.3 policy (2026-10-05): the Sky1 tree has ONE channel
 # pointer, assets/kernel/mainline, which must resolve to the 7.3 kernel
 # (rc allowed while KERNEL-POLICY RC_DEFAULT_ALLOWED=1). The former
 # test-only edge pointer was retired.

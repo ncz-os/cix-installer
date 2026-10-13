@@ -9,12 +9,12 @@
 # shipped with missing accelerator inputs while every gate reported success,
 # because the inputs are git-ignored (.gitignore: assets/sky1-firmware/ and
 # assets/cix-debs/*.deb) and every consumer degrades to a WARN:
-#   - build/build-iso-di.sh ~3338: cp -rL "$ROOT/assets/sky1-firmware" \
+#   - the retired build/build-iso-di.sh ~3338: cp -rL "$ROOT/assets/sky1-firmware" \
 #     "$EXTRA/assets/" 2>/dev/null || true
 #   - post-install/12-sky1-firmware.sh: missing source dir -> WARN + exit 0
-# This gate closes that gap at the build side: it MUST run before the ISO
+# This gate closes that gap at the build side: it MUST run before the image
 # assembly picks up a half-empty asset tree, and it MUST be exit-1-loud so
-# "make image" / "make iso" fails visibly instead of producing a silently
+# "make image" fails visibly instead of producing a silently
 # broken image.
 #
 # Run:
@@ -209,7 +209,7 @@ esac
 
 # (c) Rescue rootfs ------------------------------------------------------
 # Either the arch-specific or the generic name is acceptable (the build
-# already symlinks one to the other, per build-iso-di.sh ~3227-3230).
+# symlinked one to the other, per the retired build-iso-di.sh ~3227-3230).
 RESCUE_DIR="$ROOT/assets/rescue"
 R1="$RESCUE_DIR/rescue-rootfs-arm64.tar.zst"
 R2="$RESCUE_DIR/rescue-rootfs.tar.zst"

@@ -1,5 +1,5 @@
 # Sky1 (arm64) firmware package set -- the subset of manifests/firmware.pkgs
-# that a CIX Sky1 system (Radxa Orion O6N, Minisforums MS-R1 / "cixmini")
+# that a CIX Sky1 system (Radxa Orion O6N, Minisforum MS-R1)
 # can actually load, plus a deliberately small hotplug allowance.  Selection
 # rationale, per-package evidence and restore instructions:
 # manifests/firmware-bom-arm64.allow.

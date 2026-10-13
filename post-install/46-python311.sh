@@ -5,7 +5,7 @@
 #
 # WHY THIS EXISTS
 # ---------------
-# r104 (Ubuntu Resolute) ships Python 3.14 as the system interpreter.
+# The system interpreter is Python 3.14 (since r104).
 # The Cix NPU userspace binding shipped in cix-noe-umd 2.0.2 is
 #   libnoe-2.0.0-py3-none-manylinux2014_aarch64.whl
 # whose archive — despite the "py3-none" tag — contains ONLY compiled
@@ -23,7 +23,7 @@
 # that in-tree KMD at the time.
 #
 # Re-validated 2026-08-27 on real O6N hardware (7.2.0-sky1-ncz) with the
-# LATEST cix-noe-umd (3.1.4, libnoe 3.1.3 wheel) -- operator directive is
+# LATEST cix-noe-umd (3.1.4, libnoe 3.1.3 wheel) -- the rule is
 # to track latest, not pin to 2.0.2. import libnoe AND import NOE_Engine
 # both succeed, and embedkit.Engine.list_adapters() reports the npu-cix
 # adapter available ("libnoe + /dev/aipu present"). The version pin below
@@ -38,7 +38,7 @@
 # selection in 47-embedkit.sh and run the embedder on the system Python.
 # (Known to be messy; kept until the NPU embedding stack settles.)
 #
-# Apt has no python3.11 on Resolute, so we vendor a relocatable
+# The base archive has no python3.11, so we vendor a relocatable
 # python-build-standalone (Astral) install_only tarball. Offline-first;
 # network fallback resolves the latest 3.11 aarch64-unknown-linux-gnu
 # build via latest-release.json.

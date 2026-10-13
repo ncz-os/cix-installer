@@ -7,7 +7,7 @@
 # glob. Use this instead of mkdir+cp; it cannot produce a name the consumer
 # will miss, because it builds the name from the same line identifier.
 #
-# POLICY UPDATE (operator directive 2026-10-05, unified): amd64 ships ONE
+# POLICY UPDATE (design rule 2026-10-05, unified): amd64 ships ONE
 # kernel, 7.3, as the default and the installer boot kernel. The retired
 # 7.2.x line and the separate edge channel are gone. The publisher accepts
 # `default` (alias `stable`) and validates the built KVER against the
@@ -36,7 +36,7 @@ EOF
 LINE="${1:-}"; DEBDIR="${2:-}"; STAMP="${3:-$(date -u +%Y%m%d)}"
 case "$LINE" in
     default|stable) LINE="stable" ;;
-    edge) echo "ERROR: the amd64 edge channel was retired (unified 7.3 policy, operator 2026-10-05)" >&2; usage; exit 2 ;;
+    edge) echo "ERROR: the amd64 edge channel was retired (unified 7.3 policy, 2026-10-05)" >&2; usage; exit 2 ;;
     *) usage; exit 2 ;;
 esac
 [ -d "${DEBDIR:-}" ] || { echo "ERROR: deb-dir not found: ${DEBDIR:-<unset>}" >&2; usage; exit 2; }
@@ -60,7 +60,7 @@ KVER="$(dpkg-deb -f "$IMG" Package 2>/dev/null | sed 's/^linux-image-//')"
 
 case "$KVER" in
     7.3.*|7.3-*) ;;
-    *) echo "ERROR: built KVER '$KVER' is not the unified 7.3 series (operator 2026-10-05)" >&2; exit 1 ;;
+    *) echo "ERROR: built KVER '$KVER' is not the unified 7.3 series (policy 2026-10-05)" >&2; exit 1 ;;
 esac
 
 # The publication is pinned: publishing something other than the committed
@@ -70,7 +70,7 @@ PIN_FILE="$ROOT/assets/kernel/amd64-stable/KVER"
 [ -s "$PIN_FILE" ] || { echo "ERROR: $PIN_FILE missing -- commit the pinned amd64 7.3 KVER before publishing" >&2; exit 1; }
 PINNED="$(tr -d '[:space:]' < "$PIN_FILE")"
 if [ "$KVER" != "$PINNED" ]; then
-    echo "ERROR: built KVER '$KVER' does not match the committed pin '$PINNED' (operator directive 2026-10-05)" >&2
+    echo "ERROR: built KVER '$KVER' does not match the committed pin '$PINNED' (policy 2026-10-05)" >&2
     exit 1
 fi
 
