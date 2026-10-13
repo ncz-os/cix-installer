@@ -1003,7 +1003,23 @@ stage_refresh_sources() {
     local pins_sha marker="$sdir_out/.built-pins.sha256"
     pins_sha="$(sha256sum "$up" | awk '{print $1}')"
     if [ "$SOURCES" = pinned ]; then
-        deb="$(ls -1 "$ROOT/assets/cix-debs/ncz-singularity-desktop_"*_"$ARCH".deb 2>/dev/null | sort -V | tail -1)"
+        if [ -f "$ROOT/manifests/singularity-payload.tsv" ] && \
+           awk -F'\t' -v a="$ARCH" '!/^#/ && $1==a {f=1} END{exit !f}' "$ROOT/manifests/singularity-payload.tsv"; then
+            # Reproduce the committed pin exactly: stage the pinned deb into
+            # assets/cix-debs/ (sha256-verified against the pin). A rebuild from
+            # source carries a new timestamped version, so it is never used here.
+            local so=(--arch "$ARCH")
+            [ "$OFFLINE" = 1 ] && so+=(--offline)
+            ( cd "$ROOT" && bash build/stage-singularity-payload.sh "${so[@]}" ) 2>&1 | tee -a "$log"
+            rc="${PIPESTATUS[0]}"
+            if [ "$rc" != 0 ]; then
+                echo "[refresh-sources] FAIL: the pinned payload deb could not be staged (rc=$rc); --sources pinned does not rebuild it from source" | tee -a "$log" >&2
+                return "$rc"
+            fi
+            deb="$(bash "$ROOT/build/stage-singularity-payload.sh" --arch "$ARCH" --print-path)"
+        else
+            deb="$(ls -1 "$ROOT/assets/cix-debs/ncz-singularity-desktop_"*_"$ARCH".deb 2>/dev/null | sort -V | tail -1)"
+        fi
     fi
     if [ -n "$deb" ] && [ -f "$deb" ]; then
         echo "[refresh-sources] pinned: using committed prebuilt $(basename "$deb")" | tee -a "$log"
