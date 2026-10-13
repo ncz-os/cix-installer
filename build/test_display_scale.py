@@ -310,17 +310,18 @@ class GreeterTest(unittest.TestCase):
         # D8 fix 2026-10-13: PEGASUS's 4K panel (3840x2160, AU Optronics
         # 0x31EB) is still strictly > 3072x1920, so the single-mode 4K
         # fallback still kicks in (cmd_greeter's no-capped-mode branch).
-        # The helper must NOT request 4K as a scanout -- it lights at the
-        # native mode with the density scale, which renders at 1920x1080@2x.
+        # The helper must NOT request a 4K --mode (--scale + --on only).
         off = dict(MONITOR_SINGLE_MODE_4K, enabled=False)
         fake = FakeRandr([off])
         self.assertEqual(nds.cmd_greeter(False, runner=fake), 0)
         self.assertEqual(
             fake.calls, [["--output", "eDP-1", "--scale", "2", "--on"]]
         )
+        # Explicit: no call carries --mode. (A substring search for "3840"
+        # / "2160" would falsely fail on, say, a future log-line argument.)
         self.assertFalse(
-            any("3840" in " ".join(c) or "2160" in " ".join(c) for c in fake.calls),
-            fake.calls,
+            any("--mode" in c for c in fake.calls),
+            f"no call should carry --mode: {fake.calls}",
         )
 
     def test_single_mode_4k_panel_has_no_capped_mode(self):

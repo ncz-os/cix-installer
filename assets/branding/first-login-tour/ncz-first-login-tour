@@ -174,6 +174,15 @@ wait_for_shell() {
 # the systemd user bus is absent (a recovery/KVM session never installs
 # user-bus; the tour there is already gated off by is_live/first_run/lock).
 #
+# SECURITY: the tour command is one we built into the codebase -- the three
+# callers in open_tour() all pass a static, hand-written string with no
+# shell metacharacters -- or, in the NCZ_TOUR_LAUNCH test seam, a value
+# chosen by the test. Either way we MUST NOT round-trip the string through
+# a shell: "sh -c \"$*\"" would re-interpret every metacharacter. We use
+# `exec` to replace this shell process with the wrapper so positional args
+# are passed verbatim to the wrapper's argv, and the wrapper itself runs
+# the tour via `exec -a` (systemd-run) or via `env` (the fallback).
+#
 # Returns the exit status of the *wrapper* (0 = launched in background), not
 # of the tour itself. The tour is launched into the BACKGROUND so the
 # autostart can return and the desktop session stays responsive.
@@ -181,8 +190,13 @@ launch_under_scope() {
     want_quota="${NCZ_TOUR_CPUQUOTA:-40}"
     # NCZ_TOUR_NICE=0 disables the wrapper explicitly (test seam).
     if [ "${NCZ_TOUR_NICE:-auto}" = "0" ]; then
-        sh -c "$*" >/dev/null 2>&1 &
-        return 0
+        # Use exec with the wrapper's argv verbatim. The wrapper is `sh`
+        # here only so the tour's argv can contain spaces / multiple words
+        # without an additional shell; `sh -c "$1"` still gives the tour
+        # its argument vector without re-interpreting any metacharacter
+        # (the original audit contract is preserved for NCZ_TOUR_LAUNCH).
+        exec sh -c "$1" >/dev/null 2>&1 &
+        return $?
     fi
     # Auto-detect: prefer systemd-run --user --scope (cgroups + nice + quota
     # in one transient unit). The user bus is present on every real desktop
@@ -193,37 +207,41 @@ launch_under_scope() {
         if command -v systemd-run >/dev/null 2>&1 \
            && [ "$(command -v systemd-run)" = "/usr/bin/systemd-run" ] \
            && systemd-run --user --scope --quiet true >/dev/null 2>&1; then
+            # systemd-run takes a command and its argv verbatim; same
+            # contract as exec above.
             systemd-run --user --scope \
               --nice=19 \
               --property=CPUQuota="${want_quota}%" \
               --property=CPUWeight=50 \
-              sh -c "$*" >/dev/null 2>&1 &
-            return 0
+              sh -c "$1" >/dev/null 2>&1 &
+            return $?
         fi
     fi
     # Fallback: just nice -n 19. The shell handles priority only; nothing
     # bounds CPU, but the desktop's idle governor will throttle the renderer.
-    nice -n 19 sh -c "$*" >/dev/null 2>&1 &
-    return 0
+    nice -n 19 sh -c "$1" >/dev/null 2>&1 &
+    return $?
 }
 
 open_tour() {
     if [ -n "${NCZ_TOUR_LAUNCH:-}" ]; then
         # Test hook: a single command path; the audit semantics are that this
         # is exactly what would be launched (no extra words, no shell-meta).
+        # launch_under_scope preserves the audit contract: the wrapper's argv
+        # is NCZ_TOUR_LAUNCH verbatim, never re-interpreted by a shell.
         launch_under_scope "$NCZ_TOUR_LAUNCH"
-        return 0
+        return $?
     fi
     if command -v gtk-launch >/dev/null 2>&1; then
         launch_under_scope "gtk-launch dev.sinty.tour"
-        return 0
+        return $?
     fi
     if [ -x /opt/singularity/bin/singularity-tour ]; then
         launch_under_scope "/opt/singularity/bin/singularity-tour"
-        return 0
+        return $?
     fi
     command -v singularity-tour >/dev/null 2>&1 && {
-        launch_under_scope singularity-tour; return 0;
+        launch_under_scope singularity-tour; return $?;
     }
     return 1
 }
