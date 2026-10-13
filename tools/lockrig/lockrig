@@ -33,6 +33,9 @@ AGENT="$HERE/agent"
 TESTFILE="$ROOT/tests/lockscreen-framesrc/test-framesrc.sh"
 SSHPW="${SSHPASS:-ncz}"; export SSHPASS="$SSHPW"
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=12 -o ServerAliveInterval=15 -o LogLevel=ERROR"
+# Password logins (test hosts): offer only the password, so agent keys cannot
+# use up the server's MaxAuthTries first ("Too many authentication failures").
+PW_OPTS="-o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive"
 OWNER="${LOCKRIG_OWNER:-lockrig-$(hostname -s)-$$}"
 PKGS="ncz-singularity-desktop ncz-screensavers"
 
@@ -77,16 +80,16 @@ done
 
 # ---------------------------------------------------------------- ssh helpers
 h_run() { # $1 ip $2 user $3 script-string
-  if [ "$2" = ncz ]; then sshpass -e ssh $SSH_OPTS "$2@$1" "$3"
+  if [ "$2" = ncz ]; then sshpass -e ssh $SSH_OPTS $PW_OPTS "$2@$1" "$3"
   else ssh $SSH_OPTS "$2@$1" "$3"; fi
 }
 h_push() { # $1 ip $2 user $3 localdir $4 remotedir
-  if [ "$2" = ncz ]; then sshpass -e rsync -az --delete -e "ssh $SSH_OPTS" "$3" "$2@$1:$4"
+  if [ "$2" = ncz ]; then sshpass -e rsync -az --delete -e "ssh $SSH_OPTS $PW_OPTS" "$3" "$2@$1:$4"
   else rsync -az --delete -e "ssh $SSH_OPTS" "$3" "$2@$1:$4"; fi
 }
 h_pull() { # $1 ip $2 user $3 remotedir $4 localdir
   mkdir -p "$4"
-  if [ "$2" = ncz ]; then sshpass -e rsync -az -e "ssh $SSH_OPTS" "$2@$1:$3" "$4/" 2>/dev/null
+  if [ "$2" = ncz ]; then sshpass -e rsync -az -e "ssh $SSH_OPTS $PW_OPTS" "$2@$1:$3" "$4/" 2>/dev/null
   else rsync -az -e "ssh $SSH_OPTS" "$2@$1:$3" "$4/" 2>/dev/null; fi
 }
 # run an agent script as root on the host (ncz hosts use sudo -S; build hosts run as-is)
@@ -244,7 +247,7 @@ if [ "${#NONATT[@]}" -gt 0 ]; then
   for name in "${NONATT[@]}"; do run_one "$name" & pids+=($!); done
   for p in "${pids[@]}"; do wait "$p"; done
 fi
-for name in "${ATT[@]}"; do
+for name in ${ATT[@]+"${ATT[@]}"}; do
   banner "attended host $name (one at a time, short window)"
   run_one "$name"
 done
