@@ -55,7 +55,7 @@ grep -q 'zoder --version' "$HOOK" && ok "install runs zoder --version smoke test
 # Idempotency: an over-write re-run should not fail just because the
 # destination exists. The pattern is install -D which overwrites — no
 # "refusing to overwrite" branch.
-grep -qE 'install -D -m 0755 "[$]extract_dir/[$]arch/zoder" "[$]install_path"' "$HOOK" \
+grep -qE 'install -D -m 0755 "[$]extract_dir/[$]arch_dir/zoder" "[$]install_path"' "$HOOK" \
     && ok "install path uses install -D (overwrite-safe)" \
     || bad "install path does NOT use install -D"
 

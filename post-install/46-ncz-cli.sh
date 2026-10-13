@@ -386,12 +386,18 @@ ncz_models_pull() {
     # 3 attempts spaced 2s apart. Typical offline diagnostic = no message
     # printed by curl other than 'Could not resolve host' or 'Connection
     # timed out', so we also probe with -fsghw' ' before the download.
+    #
+    # IMPORTANT: use -fsSL (follow redirects). HuggingFace serves the
+    # gguf via an xet-bridge CDN that 302s to a signed URL — without -L
+    # curl returns the 1108-byte redirector JSON, not the 146 MB file
+    # (verified on PEGASUS .85 2026-10-13; a sha256 mismatch was actually
+    # curl downloaded a wrong-but-valid HTML body).
     echo "[ncz] models pull: fetching $url"
     echo "[ncz] models pull: target sha256 = $sha256"
     local tmp; tmp="$(mktemp -t ncz-models.XXXXXX)"
     local attempt got=0
     for attempt in 1 2 3; do
-        if curl -fsS --connect-timeout 8 --max-time 600 -o "$tmp" "$url"; then
+        if curl -fsSL --connect-timeout 8 --max-time 600 -o "$tmp" "$url"; then
             got=1
             break
         fi
@@ -1148,27 +1154,28 @@ EOF
         exit 1
     fi
     # Extract just the zoder binary; the tarball ships zoder/ + zerocode/ +
-    # zeroclaw/ under a target-triple directory.
+    # zeroclaw/ under a zoder-<target-triple>/ directory.
+    local arch_dir="zoder-${arch}"
     local extract_dir="$tmp_dir/extract"
     mkdir -p "$extract_dir"
-    if ! tar -xzf "$tarball" -C "$extract_dir" "$arch/zoder" "$arch/manifest.json" 2>/dev/null; then
+    if ! tar -xzf "$tarball" -C "$extract_dir" "$arch_dir/zoder" "$arch_dir/manifest.json" 2>/dev/null; then
         rm -rf "$tmp_dir"
         echo "ncz install zoder: tar extraction failed" >&2
         exit 1
     fi
-    if [ ! -f "$extract_dir/$arch/zoder" ] || [ ! -f "$extract_dir/$arch/manifest.json" ]; then
+    if [ ! -f "$extract_dir/$arch_dir/zoder" ] || [ ! -f "$extract_dir/$arch_dir/manifest.json" ]; then
         rm -rf "$tmp_dir"
-        echo "ncz install zoder: tarball did not contain $arch/zoder (layout drift)" >&2
+        echo "ncz install zoder: tarball did not contain $arch_dir/zoder (layout drift)" >&2
         exit 1
     fi
     # Re-verify the inner binary against the per-binary sha256 in manifest.json
     # (defence against a corrupted tarball or a partial download that passed
     # the outer hash because curl also verified TLS).
     local expected_zoder_sha
-    expected_zoder_sha="$(python3 -c "import json; print(json.load(open('$extract_dir/$arch/manifest.json'))['binaries']['zoder'])" 2>/dev/null || true)"
+    expected_zoder_sha="$(python3 -c "import json; print(json.load(open('$extract_dir/$arch_dir/manifest.json'))['binaries']['zoder'])" 2>/dev/null || true)"
     if [ -n "$expected_zoder_sha" ]; then
         local actual_zoder_sha
-        actual_zoder_sha="$(sha256sum "$extract_dir/$arch/zoder" | awk '{print $1}')"
+        actual_zoder_sha="$(sha256sum "$extract_dir/$arch_dir/zoder" | awk '{print $1}')"
         if [ "$actual_zoder_sha" != "$expected_zoder_sha" ]; then
             rm -rf "$tmp_dir"
             cat >&2 <<EOF
@@ -1183,11 +1190,11 @@ EOF
             exit 1
         fi
     fi
-    install -D -m 0755 "$extract_dir/$arch/zoder" "$install_path"
+    install -D -m 0755 "$extract_dir/$arch_dir/zoder" "$install_path"
     # Stage the manifest alongside, NOT under /usr/local. Operators can
     # inspect it for the engine SHA + upstream SHA + run link.
-    install -D -m 0644 "$extract_dir/$arch/manifest.json" /etc/zoder/manifest.json 2>/dev/null || \
-        install -d -m 0755 /etc/zoder && install -m 0644 "$extract_dir/$arch/manifest.json" /etc/zoder/manifest.json
+    install -D -m 0644 "$extract_dir/$arch_dir/manifest.json" /etc/zoder/manifest.json 2>/dev/null || \
+        install -d -m 0755 /etc/zoder && install -m 0644 "$extract_dir/$arch_dir/manifest.json" /etc/zoder/manifest.json
     rm -rf "$tmp_dir"
     # Drop a sample at /etc/nclawzero/zoder.conf. PUBLIC-SAFE wording:
     # documented placeholders, no fleet model routes, no internal endpoints.
@@ -1470,16 +1477,22 @@ ncz_status() {
     if [ -e /dev/dri/renderD128 ]; then
         printf '%-26s %s\n' 'GPU /dev/dri/renderD128:' "present"
         if command -v vulkaninfo >/dev/null 2>&1; then
-            # vulkaninfo --summary emits lines like "deviceName = Intel(R) ...", and
-            # the awk -F: trick in the previous version silently produced an
-            # empty list on hosts whose vulkaninfo output did not contain a
-            # colon on the deviceName line (observed on PEGASUS .85 with the
-            # Intel iGPU where vulkaninfo --summary prints nothing). Match on
-            # either separator and skip if the value is blank.
+            # vulkaninfo --summary emits "deviceName = <vendor>..." lines,
+            # but the leading whitespace differs across versions: some
+            # builds indent with a tab ("\tdeviceName  = ..."), some
+            # don't (column 0). The earlier awk `/^deviceName.../` only
+            # matched the un-indented flavour and silently produced an
+            # empty device list on the indented flavour (verified on
+            # PEGASUS .85 with Mesa 21.x: 0 rows matched, status row
+            # then read "(no deviceName found in vulkaninfo --summary)"
+            # which made `ncz status` look like the Vulkan driver was
+            # missing even when `vulkaninfo --summary` clearly had rows
+            # in it). Anchor on either flavour + the older `deviceName:`
+            # form some pre-1.3 vulkaninfo shipped.
             local devs
             devs="$(vulkaninfo --summary 2>/dev/null | awk '
-                /^deviceName[ \t]*=/ { sub(/^deviceName[ \t]*=[ \t]*/, ""); print; next }
-                /deviceName:/ { sub(/^[ \t]*deviceName:[ \t]*/, ""); print; next }
+                /^[ \t]*deviceName[ \t]*=/ { sub(/^[ \t]*deviceName[ \t]*=[ \t]*/, ""); print; next }
+                /^[ \t]*deviceName:/ { sub(/^[ \t]*deviceName:[ \t]*/, ""); print; next }
             ' | sed 's/[[:space:]]*$//' | awk 'NF' | head -3 | paste -sd, -)"
             if [ -n "$devs" ]; then
                 printf '%-26s %s\n' 'Vulkan devices:' "$devs"
@@ -1516,10 +1529,18 @@ ncz_status() {
 ncz_status_mnemos() {
     local active=/etc/containers/systemd/mnemos.container
     local embed_backend='' embed_model='' embed_dim=''
+    # Important: each pipeline ends in `|| true` so a missing `Environment=`
+    # line in the quadlet (which makes grep exit 1) does NOT take down
+    # the whole status path under `set -euo pipefail`. grep -E alone is
+    # also wrapped in `|| true` so the assignment is unconditionally
+    # non-failing. Without this the function returns silently on every
+    # host whose quadlet hasn't been staged yet.
     if [ -f "$active" ]; then
-        embed_backend="$(grep -E '^Environment=MNEMOS_EMBED_BACKEND=' "$active" 2>/dev/null | head -1 | sed -E 's/^Environment=MNEMOS_EMBED_BACKEND=//')"
-        embed_model="$(grep -E '^Environment=MNEMOS_EMBED_MODEL_PATH=' "$active" 2>/dev/null | head -1 | sed -E 's/^Environment=MNEMOS_EMBED_MODEL_PATH=//')"
-        [ -z "$embed_model" ] && embed_model="$(grep -E '^Environment=MNEMOS_EMBED_CIX_MODEL_PATH=' "$active" 2>/dev/null | head -1 | sed -E 's/^Environment=MNEMOS_EMBED_CIX_MODEL_PATH=//')"
+        embed_backend="$(grep -E '^Environment=MNEMOS_EMBED_BACKEND=' "$active" 2>/dev/null | head -1 | sed -E 's/^Environment=MNEMOS_EMBED_BACKEND=//' || true)"
+        embed_model="$(grep -E '^Environment=MNEMOS_EMBED_MODEL_PATH=' "$active" 2>/dev/null | head -1 | sed -E 's/^Environment=MNEMOS_EMBED_MODEL_PATH=//' || true)"
+        if [ -z "$embed_model" ]; then
+            embed_model="$(grep -E '^Environment=MNEMOS_EMBED_CIX_MODEL_PATH=' "$active" 2>/dev/null | head -1 | sed -E 's/^Environment=MNEMOS_EMBED_CIX_MODEL_PATH=//' || true)"
+        fi
         [ -z "$embed_backend" ] && embed_backend='llamacpp (default)'
     else
         embed_backend='(quadlet not staged — run ncz install mnemos)'
@@ -1531,15 +1552,30 @@ ncz_status_mnemos() {
     if command -v systemctl >/dev/null 2>&1; then
         svc="$(systemctl is-active mnemos.service 2>/dev/null || echo unknown)"
     fi
+    # If the quadlet doesn't set MNEMOS_EMBED_MODEL_PATH but the container is
+    # running, probe the live process env via /proc/<pid>/environ. This is
+    # how we discover the in-image model baked at
+    # /opt/mnemos/models/nomic-embed-text-v1.5.Q8_0.gguf today.
+    if [ -z "$embed_model" ] && [ "$svc" = "active" ] && command -v podman >/dev/null 2>&1; then
+        local mnemos_pid
+        mnemos_pid="$(podman inspect mnemos --format '{{.State.Pid}}' 2>/dev/null || true)"
+        if [ -n "$mnemos_pid" ] && [ -r "/proc/$mnemos_pid/environ" ]; then
+            embed_model="$(tr '\0' '\n' < "/proc/$mnemos_pid/environ" 2>/dev/null | grep -a '^MNEMOS_EMBED_MODEL_PATH=' | head -1 | sed 's/^MNEMOS_EMBED_MODEL_PATH=//' || true)"
+        fi
+    fi
     # /health probes the live container. We do NOT need to authenticate to
     # /health (MNEMOS exposes it anonymously) so this works as user ncz too.
     local health='(not down)'
     if [ "$svc" = "active" ] && command -v curl >/dev/null 2>&1; then
         health="$(curl -fsS --max-time 2 http://127.0.0.1:5002/health 2>/dev/null | head -c 200 || echo '(unreachable)')"
     fi
-    # Best-effort: derive dimension from the local model file (the GGUF
-    # advertises nomic-embed-text-v1.5 @ 768; the .cix advertises 256).
-    if [ -n "$embed_model" ] && [ -f "$embed_model" ]; then
+    # Best-effort: derive dimension from the model filename. The file itself
+    # is in the container (not the host filesystem), so we can't stat it
+    # here — but the FILENAME reliably tells us which model the embedder
+    # will pick: the GGUF file is the 768-dim nomic-embed-text-v1.5 Q8
+    # build, the .cix file is the 256-dim CIX Zhouyi build (the bge-small
+    # graph the operator direction 2026-10-13 calls out for Sky1).
+    if [ -n "$embed_model" ]; then
         case "$embed_model" in
             *.gguf) embed_dim=768 ;;
             *.cix)  embed_dim=256 ;;
