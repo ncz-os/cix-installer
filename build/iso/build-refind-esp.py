@@ -111,6 +111,57 @@ def build_info_line(arch: str) -> str:
     return f"{ident} -- built {build_date} -- {kver_text}"
 
 
+def sanitize_build_id(build_id: str) -> str:
+    """Return a token-safe build id (no whitespace, no double quote).
+
+    The installer's early_command reads it back from /proc/cmdline with
+    `case $t in ncz_rev=*)` and shows it in the boot banner; a value with a
+    space or a quote would split the token or break the refind.conf options
+    string, so both are stripped here.
+    """
+    return build_id.strip().replace(" ", "-").replace('"', "")
+
+
+def options_with_build_id(options: str, build_id: str) -> str:
+    """Append `ncz_rev=<build id>` to an installer kernel cmdline.
+
+    2026-10-12 (PROTEUS installer defect): the shipped amd64 image booted with
+    no ncz_rev= on its installer cmdline, so preseed.cfg's
+    ${NCZREV:-unknown} fell back to the literal "unknown" in the operator's
+    boot banner. build/build-installer-image.sh now passes its BUILD_VERSION
+    (e.g. 2026.10.12-07c0644) as --build-id, and every Install/Expert/Rescue
+    entry carries it. When no id is supplied the token is omitted (a manual
+    build-refind-esp.py run) rather than shipping a misleading empty value.
+    """
+    bid = sanitize_build_id(build_id)
+    if not bid:
+        # Normalise anyway: a caller-supplied options string with a trailing
+        # space must never reach the EFI command line with a double space.
+        return " ".join(options.split())
+    return " ".join((options + " ncz_rev=" + bid).split())
+
+
+def _git_build_id() -> str:
+    """Fallback build id for a hand-run of this script: `<date>-<short sha>`.
+
+    Production always passes --build-id from build/build-installer-image.sh
+    (its BUILD_VERSION); this only keeps a manual run's banner meaningful.
+    Returns "" when git is unavailable, in which case the ncz_rev token is
+    omitted rather than shipped empty.
+    """
+    import datetime
+    try:
+        sha = subprocess.check_output(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        return ""
+    if not sha:
+        return ""
+    return f"{datetime.date.today().isoformat()}-{sha}"
+
+
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -148,6 +199,24 @@ def find_refind_extract(arch: str) -> Path:
     return base
 
 
+# 2026-10-12 (PROTEUS installer defect): every unattended installer entry
+# disables BRLTTY's d-i udev auto-start. brltty-udeb's /lib/udev/brltty.sh
+# begins with `grep -q brltty /proc/cmdline && exit 0`, so ANY cmdline token
+# containing the substring "brltty" suppresses the auto-detect that otherwise
+# starts brltty for GENERIC USB-serial ids -- FTDI 0403:6001/6010, CP210x
+# 10c4:ea60/ea80, CH341 1a86:55d3/7523, and the PL2303 067b:2303 family -- and
+# leaves /var/run/brltty-generic set. The brltty-udeb postinst then asks the
+# CRITICAL-priority question "Is the USB serial device indeed a braille
+# device?" and the unattended install (auto=true priority=critical) stops dead
+# on it. This token is deliberately NCZ-namespaced and self-documenting; it
+# satisfies the upstream substring test without passing a real `brltty=`
+# configuration (which upstream would read as "enable braille with defaults").
+# The second, d-i-level layer is the preseed answer in preseed/preseed.cfg
+# (`brltty-udeb/generic boolean false`). A genuinely braille device whose udev
+# rule is NOT the generic one never sets BRLTTY_GENERIC, so it is unaffected;
+# this entry is the unattended install path, where suppression is intended.
+NCZ_NO_BRLTTY = "ncz_no_brltty=1"
+
 # Match the old builder's unattended DI_OPTS for the normal Install entry.
 # auto=true makes d-i take its unattended path and apply the preseed early.
 # Since 2026-10-08 the Install entry does NOT pass preseed/file=: preseed.cfg
@@ -164,17 +233,25 @@ def find_refind_extract(arch: str) -> Path:
 # auto=true because d-i's single-console preseeding path can select a firmware
 # UART and make the installer disappear from the local display. Rescue is not
 # an automatic/preseeded install either.
-_PC_INSTALL_OPTIONS = (
-    "auto=true priority=critical "
-    "ipv6.disable=1 interface=auto "
-    "netcfg/dhcp_timeout=120 locale=en_US.UTF-8 "
-    "keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt "
-    "quiet loglevel=3 vt.global_cursor_default=0 consoleblank=0 console=tty0"
-)
-_PC_EXPERT_OPTIONS = (
-    "priority=low ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
-    "DEBIAN_FRONTEND=newt loglevel=4 vt.global_cursor_default=0 consoleblank=0 console=tty0"
-)
+_PC_INSTALL_OPTIONS = " ".join((
+    "auto=true priority=critical",
+    "ipv6.disable=1 interface=auto",
+    "netcfg/dhcp_timeout=120",
+    "locale=en_US.UTF-8",
+    "keyboard-configuration/layoutcode=us",
+    "DEBIAN_FRONTEND=newt",
+    NCZ_NO_BRLTTY,
+    "quiet loglevel=3",
+    "vt.global_cursor_default=0 consoleblank=0 console=tty0",
+))
+_PC_EXPERT_OPTIONS = " ".join((
+    "priority=low ipv6.disable=1 interface=auto",
+    "netcfg/dhcp_timeout=120",
+    "DEBIAN_FRONTEND=newt",
+    NCZ_NO_BRLTTY,
+    "loglevel=4",
+    "vt.global_cursor_default=0 consoleblank=0 console=tty0",
+))
 _PC_RESCUE_OPTIONS = (
     "rescue/enable=true ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
     "DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0"
@@ -497,7 +574,8 @@ STARTUP_NSH = """\\
 
 
 def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
-                   d_i_kernel: Path, d_i_initrd: Path, info_line: str) -> dict:
+                   d_i_kernel: Path, d_i_initrd: Path, info_line: str,
+                   build_id: str = "") -> dict:
     """Materialize the EFI/ tree inside esp_root/, with the d-i kernel +
     initrd embedded at the FAT image root (/linux, /initrd.gz). The kernel
     and initrd are REQUIRED: we never want a refind.conf pointing at files
@@ -532,9 +610,9 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
         # REFIND_CONF_TEXT_AMD64_GRAPHICS_TEMPLATE for the HP OmniDesk rationale.
         conf_text = REFIND_CONF_TEXT_AMD64_GRAPHICS_TEMPLATE.format(
             info_line=info_line,
-            install_options=AMD64_INSTALL_OPTIONS,
-            expert_options=AMD64_EXPERT_OPTIONS,
-            rescue_options=AMD64_RESCUE_OPTIONS,
+            install_options=options_with_build_id(AMD64_INSTALL_OPTIONS, build_id),
+            expert_options=options_with_build_id(AMD64_EXPERT_OPTIONS, build_id),
+            rescue_options=options_with_build_id(AMD64_RESCUE_OPTIONS, build_id),
         )
         conf_basename = "refind.conf"
     else:  # arm64
@@ -543,9 +621,9 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
         refind_loader = "refind_aa64.efi"
         conf_text = REFIND_CONF_TEXT_ARM64_TEMPLATE.format(
             info_line=info_line,
-            install_options=ARM64_INSTALL_OPTIONS,
-            expert_options=ARM64_EXPERT_OPTIONS,
-            rescue_options=ARM64_RESCUE_OPTIONS,
+            install_options=options_with_build_id(ARM64_INSTALL_OPTIONS, build_id),
+            expert_options=options_with_build_id(ARM64_EXPERT_OPTIONS, build_id),
+            rescue_options=options_with_build_id(ARM64_RESCUE_OPTIONS, build_id),
         )
         conf_basename = "refind.conf"
 
@@ -762,8 +840,16 @@ def main():
                     help="path to a d-i initrd (initrd.gz) image; REQUIRED "
                          "(embedded in the FAT ESP so rEFInd reads it via "
                          "its own SFS protocol)")
+    ap.add_argument("--build-id", default="",
+                    help="installer build id (e.g. 2026.10.12-07c0644) stamped "
+                         "into every menuentry's kernel cmdline as ncz_rev=, so "
+                         "the installer boot banner shows which build booted. "
+                         "build/build-installer-image.sh passes its "
+                         "BUILD_VERSION here. Empty -> derive from git, else "
+                         "omit the token (never ship a misleading empty value).")
     args = ap.parse_args()
 
+    build_id = args.build_id or _git_build_id()
     refind_src = find_refind_extract(args.arch)
     esp_root = args.out_dir / "esp-tree"
     info_line = build_info_line(args.arch)
@@ -774,6 +860,7 @@ def main():
         d_i_kernel=args.d_i_kernel,
         d_i_initrd=args.d_i_initrd,
         info_line=info_line,
+        build_id=build_id,
     )
 
     esp_img = args.out_dir / "esp.img"
@@ -794,6 +881,7 @@ def main():
     receipt = {
         "schema_version": "esp-receipt/v1",
         "arch": args.arch,
+        "build_id": build_id,
         "esp_image": str(esp_img.relative_to(args.out_dir)),
         "esp_image_sha256": esp_img_sha,
         "esp_image_size_bytes": esp_img_size,

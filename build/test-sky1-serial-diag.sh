@@ -89,22 +89,28 @@ opts_lines = [l for l in conf.splitlines() if l.strip().startswith("options ")]
 check(len(opts_lines) == 3, f"arm64 refind.conf has {len(opts_lines)} options lines, want 3")
 check(all(all(t in l.split() or t + '"' in l.split() for t in TOKENS) for l in opts_lines),
       "arm64 refind.conf: an entry lacks sky1_pcie_native=off pcie_pnp_en")
-# amd64: pinned to the EXACT shipped cmdlines. Two workarounds have landed
+# amd64: pinned to the EXACT shipped cmdlines. Workarounds that have landed
 # since this test's original baseline and are part of the contract now:
 #   * nouveau.runpm=0  (fix/nouveau-runpm-hang-20261006) on every entry;
 #   * nomodeset        (fix/di-lcd-display-20261010, AMD64_DI_DISPLAY_OPTIONS)
 #     on Install/Expert only -- Rescue deliberately keeps full modeset for
 #     diagnosis. The old baseline pinned the shared strings and stripped only
 #     nouveau.runpm=0, so it had been RED since 5a21d5cb added nomodeset.
+#   * ncz_no_brltty=1  (fix/proteus-installer-20261012) on Install/Expert only:
+#     a USB-UART must never raise the brltty-udeb braille question on the
+#     unattended path (the token satisfies brltty-udeb's
+#     `grep -q brltty /proc/cmdline` autodetect guard).
 # Any drift on any of the three, or any Sky1 token, is still a failure.
 AMD64 = {
     "install": "auto=true priority=critical "
                "ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 locale=en_US.UTF-8 "
                "keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt "
+               "ncz_no_brltty=1 "
                "quiet loglevel=3 vt.global_cursor_default=0 consoleblank=0 console=tty0 "
                "nouveau.runpm=0 nomodeset",
     "expert": "priority=low ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
-              "DEBIAN_FRONTEND=newt loglevel=4 vt.global_cursor_default=0 consoleblank=0 console=tty0 "
+              "DEBIAN_FRONTEND=newt ncz_no_brltty=1 "
+              "loglevel=4 vt.global_cursor_default=0 consoleblank=0 console=tty0 "
               "nouveau.runpm=0 nomodeset",
     "rescue": "rescue/enable=true ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
               "DEBIAN_FRONTEND=newt console=ttyS0,115200n8 console=tty0 nouveau.runpm=0",
