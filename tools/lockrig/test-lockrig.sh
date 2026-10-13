@@ -85,6 +85,16 @@ else
   ok "unwritable second directory: skipped as root"
 fi
 chmod 755 "$L2"
+# several additional directories: every one gets the copy, one owner is not a conflict
+L3="$(mktemp -d)"; L4="$(mktemp -d)"
+LOCKRIG_LEASE_DIRS="$L2:$L3:$L4:$L3" "$HERE/lease.sh" acquire multi --owner jo --purpose "x" --ttl 60 >/dev/null 2>&1
+[ -f "$L1/multi.lease" ] && [ -f "$L2/multi.lease" ] && [ -f "$L3/multi.lease" ] && [ -f "$L4/multi.lease" ] \
+  && ok "three additional directories (one listed twice) all get the copy" || bad "not every additional directory got the copy"
+out="$(LOCKRIG_LEASE_DIRS="$L2:$L3:$L4" "$HERE/lease.sh" status multi)"
+case "$out" in "multi HELD owner=jo"*) ok "the same owner in four directories is HELD, not a conflict";; *) bad "single owner: $out";; esac
+LOCKRIG_LEASE_DIRS="$L2:$L3:$L4" "$HERE/lease.sh" release multi --owner jo >/dev/null 2>&1
+[ ! -e "$L4/multi.lease" ] && [ ! -e "$L1/multi.lease" ] && ok "release clears all four copies" || bad "release left copies"
+rm -rf "$L3" "$L4"
 # the config file names the additional directory when the variable is unset
 unset LOCKRIG_LEASE_DIRS
 mkdir -p "$LX/cfg/ncz"; printf '# extra\n%s\n%s\n' "$L2" "$L1" > "$LX/cfg/ncz/lease-dirs"
