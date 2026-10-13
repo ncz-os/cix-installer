@@ -69,8 +69,17 @@ from pathlib import Path
 
 PPI_2X = 192.0
 PPI_1_5X = 144.0
-GREETER_MAX_W = 1920
-GREETER_MAX_H = 1200
+# Greeter "never 4K" cap (operator decision 2026-10-04): login screen is a
+# blurred 960 px backdrop and a small card, so scan-out above 3072x1920 buys
+# nothing and is the heaviest path for the Mali swapchain. The previous cap
+# was 1920x1200, which forced a non-preferred mode on Apple T2 MacBooks
+# (panel eDP-1 preferred 3072x1920 -> greeter capped 1920x1200 while the
+# session runs at 3072x1920, D8 in t2saver/REPORT.md 2026-10-13). Raising
+# the cap to 3072x1920 keeps PEGASUS 4K (3840x2160 -> still capped) and
+# Sky1 (1920x1080 -> unchanged) behaviour while letting the MacBook panel
+# scan out at the session's mode.
+GREETER_MAX_W = 3072
+GREETER_MAX_H = 1920
 MIN_DIAG_MM = 150.0  # below ~6 in: no real desktop panel; EDID garbage
 MAX_ASPECT_SKEW = 1.20  # physical vs pixel aspect may differ this much
 
