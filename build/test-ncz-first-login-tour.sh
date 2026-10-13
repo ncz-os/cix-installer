@@ -140,5 +140,52 @@ else
     bad "marker path does not use XDG_STATE_HOME/.local/state"
 fi
 
+# --- D3 fix 2026-10-13: thermal envelope --------------------------------------
+# T2 MacBooks ran hot post-login (singularity-tour 83-94% CPU ~55 s,
+# glycin image decoding). The fix is a longer post-shell settle AND wrapping
+# the tour in a transient scope with nice + CPUQuota so the image-decode
+# burst cannot spike the panel's thermal envelope.
+# Default settle raised from 3 s to 30 s (configurable via NCZ_TOUR_SETTLE).
+if grep -qE 'NCZ_TOUR_SETTLE:-30' "$SCRIPT"; then
+    ok "D3: default settle is 30s (was 3s pre-D3)"
+else
+    bad "D3: settle default is not 30s"
+fi
+# Wrapper must look up nice/cpu-quota. systemd-run --user --scope is the
+# preferred path; plain `nice -n 19` is the fallback for non-IPC sessions.
+if grep -q 'systemd-run --user --scope' "$SCRIPT" \
+   && grep -q 'CPUQuota' "$SCRIPT" \
+   && grep -q 'nice=19' "$SCRIPT"; then
+    ok "D3: launcher wraps the tour in a CPU-bounded scope (systemd-run --user --scope)"
+else
+    bad "D3: launcher does not wrap the tour in a CPU-bounded scope"
+fi
+if grep -q 'NCZ_TOUR_NICE' "$SCRIPT" && grep -q 'NCZ_TOUR_CPUQUOTA' "$SCRIPT"; then
+    ok "D3: NCZ_TOUR_NICE / NCZ_TOUR_CPUQUOTA test seams present"
+else
+    bad "D3: NCZ_TOUR_NICE / NCZ_TOUR_CPUQUOTA test seams missing"
+fi
+# The marker is written BEFORE the launch (fail-closed) and a CPUQuota <100%
+# guarantees the decode burst is capped at NCZ_TOUR_CPUQUOTA%; document that the
+# marker is written first so a crash cannot loop the tour under the new
+# slower schedule.
+mk_sandbox; out="$(CASE_LOCKED=0 CASE_EXTRA="NCZ_TOUR_DRYRUN=1 NCZ_TOUR_SETTLE=0 NCZ_TOUR_SHELL_WAIT=0" pretend show 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && [ -f "$S/state/ncz/tour-seen" ]; then
+    ok "D3: marker is still fail-closed (written before launch, regardless of settle)"
+else
+    bad "D3: marker not written under NCZ_TOUR_SETTLE=0 (rc=$rc, $out)"
+fi
+unset CASE_EXTRA
+unset CASE_LOCKED
+
+# When systemd-run is unavailable (KVM, recovery, no user bus), the launcher
+# falls back to plain `nice -n 19`. The script must still launch the tour
+# under that fallback; NCZ_TOUR_NICE=0 disables even the nice path (test seam).
+if grep -q 'nice -n 19' "$SCRIPT" && grep -q 'NCZ_TOUR_NICE' "$SCRIPT"; then
+    ok "D3: launcher has a nice -n 19 fallback for sessions without systemd-run"
+else
+    bad "D3: launcher missing nice -n 19 fallback"
+fi
+
 echo "$((PASS + FAIL)) checks, $PASS ok, $FAIL failed"
 [ "$FAIL" -eq 0 ]
