@@ -2,12 +2,12 @@
 # ncz-singularity-sync.sh — daily sync of singularityos-lab/singularity-desktop
 # (+ its submodule set) into our GitLab fork (ncz-os/singularity-desktop),
 # validated by a Buildkite arm64 build, with the resulting /opt/singularity
-# payload staged (never auto-promoted) to ARGONAS.
+# payload staged (never auto-promoted) to the artifact store.
 #
 # Design notes (see docs/upstream/singularity/ and cix-installer commit that
 # added this file for the full writeup):
 #  - Uses a dedicated BARE mirror clone under $WORKDIR, separate from the
-#    live build checkout at /home/jasonperlow/sinty-build/work/singularity-desktop
+#    live build checkout ($HOME/sinty-build/work/singularity-desktop)
 #    (that tree may carry local WIP patches and must never be touched by cron).
 #  - `upstream-mirror` branch on GitLab is ALWAYS force-updated to the exact
 #    upstream commit — it's a robot-owned tracking branch, safe to force.
@@ -18,32 +18,32 @@
 #  - The Buildkite validation build always runs against `upstream-mirror`
 #    (the true "does current upstream still build" signal), independent of
 #    whether master could be patched.
-#  - On a passing build, the artifact is staged to ARGONAS with a DATED
+#  - On a passing build, the artifact is staged to the artifact store with a DATED
 #    filename. The file the beta build actually consumes
 #    (singularity-opt.tgz) is NEVER overwritten here — promotion is a
 #    separate, explicit, human step.
 #  - On failure: log only. Never blocks/fails other jobs on this host.
 set -uo pipefail
 
-# Captured before anything else runs, so the ARGONAS staging check below can
+# Captured before anything else runs, so the store staging check below can
 # tell "a file from THIS run landed" apart from "some old file is still sitting
 # there" -- see the freshness check at step 6 for why this matters.
 SYNC_START_EPOCH="$(date +%s)"
 
 # ---- config ------------------------------------------------------------
 UPSTREAM_REPO="https://github.com/singularityos-lab/singularity-desktop.git"
-WORKDIR="/home/jasonperlow/sinty-build/sync/singularity-desktop-mirror.git"
+WORKDIR="${NCZ_SYNC_WORKDIR:-$HOME/sinty-build/sync/singularity-desktop-mirror.git}"
 GITLAB_PROJECT="ncz-os/singularity-desktop"
 GITLAB_HOST="gitlab.com"
 BUILDKITE_ORG="ncz-os"
 BUILDKITE_PIPELINE="singularity-desktop"
-ARGONAS_HOST="192.168.207.101"
-ARGONAS_DST="/mnt/datapool/archives/ncz/singularity"
-# ARGONAS_PASS comes from $CRED_FILE (/etc/ncz/singularity-sync.env),
+# The artifact store target and its password come from $CRED_FILE
+# (/etc/ncz/singularity-sync.env): STORE_HOST ([user@]host), STORE_DST (the
+# staging directory on it) and STORE_PASS,
 # alongside GITLAB_TOKEN and BUILDKITE_TOKEN. It used to be a hardcoded
 # literal here, which blocked this script from being committed to git at
 # all -- and a script that cannot live in git is a script nobody reviews.
-ARGONAS_PASS="${ARGONAS_PASS:-}"
+STORE_HOST="${STORE_HOST:-}"; STORE_DST="${STORE_DST:-}"; STORE_PASS="${STORE_PASS:-}"
 STATE_DIR="/var/lib/ncz-singularity-sync"
 CRED_FILE="/etc/ncz/singularity-sync.env"
 LOG_TAG="ncz-singularity-sync"
@@ -77,7 +77,8 @@ fail() {
 . "$CRED_FILE"
 [ -n "${GITLAB_TOKEN:-}" ] || fail "GITLAB_TOKEN not set in $CRED_FILE"
 [ -n "${BUILDKITE_TOKEN:-}" ] || fail "BUILDKITE_TOKEN not set in $CRED_FILE"
-[ -n "${ARGONAS_PASS:-}" ] || fail "ARGONAS_PASS not set in $CRED_FILE"
+[ -n "${STORE_PASS:-}" ] || fail "STORE_PASS not set in $CRED_FILE"
+[ -n "${STORE_HOST:-}" ] && [ -n "${STORE_DST:-}" ] || fail "STORE_HOST / STORE_DST not set in $CRED_FILE"
 
 mkdir -p "$(dirname "$WORKDIR")" "$STATE_DIR"
 
@@ -202,18 +203,18 @@ done
 log "buildkite build #$BUILD_NUM finished with state=$STATE (waited ${ELAPSED}s)"
 
 if [ "$STATE" != "passed" ]; then
-    fail "buildkite build #$BUILD_NUM did not pass (state=$STATE) — see https://buildkite.com/${BUILDKITE_ORG}/${BUILDKITE_PIPELINE}/builds/${BUILD_NUM} — NOT staging an artifact, NOT touching ARGONAS"
+    fail "buildkite build #$BUILD_NUM did not pass (state=$STATE) — see https://buildkite.com/${BUILDKITE_ORG}/${BUILDKITE_PIPELINE}/builds/${BUILD_NUM} — NOT staging an artifact, NOT touching the store"
 fi
 
 echo "$UPSTREAM_SHA" > "$STATE_DIR/last_upstream_sha"
 
-# ---- 6. stage the artifact to ARGONAS (dated, non-destructive) ---------
+# ---- 6. stage the artifact to the store (dated, non-destructive) ---------
 DATE_TAG="$(date -u +%Y%m%d-%H%M%S)"
 STAGE_NAME="singularity-opt-${DATE_TAG}-${UPSTREAM_SHA:0:12}.tgz"
 TMP_ART="/tmp/${STAGE_NAME}"
 
-# The PIPELINE now stages the payload to ARGONAS itself, straight from the
-# agent on TYDEUS. This script no longer downloads anything, because Buildkite's
+# The PIPELINE now stages the payload to the store itself, straight from the
+# arm64 build agent. This script no longer downloads anything, because Buildkite's
 # artifact download is unusable from our network: the API 302s to
 # buildkiteartifacts.com, which resolves to 0.0.0.0 even on public resolvers
 # (1.1.1.1), so curl dies in 2ms with "Could not connect to server". Verified
@@ -221,34 +222,34 @@ TMP_ART="/tmp/${STAGE_NAME}"
 #
 # What remains here is VERIFICATION: confirm a dated payload actually landed
 # for this build, rather than assuming the pipeline's staging step worked.
-log "verifying the pipeline staged a NEW payload to ARGONAS (not just an old one still sitting there)"
+log "verifying the pipeline staged a NEW payload to the store (not just an old one still sitting there)"
 # BUG FOUND 2026-09-14: this used to be `ls -t ... | head -1` -- the single
 # most-recently-modified file matching the glob, full stop. If the pipeline's
-# own scp step silently failed (it did, for over a week: ULTRA's buildkite
-# agent key was never authorized on ARGONAS after the arm64 queue moved off
-# TYDEUS), `ls -t` still happily returned whatever OLD file happened to be
+# own scp step silently failed (it did, for over a week: the new arm64 buildkite
+# agent key was never authorized on the store after the arm64 queue moved
+# hosts), `ls -t` still happily returned whatever OLD file happened to be
 # newest among the leftovers and this script logged "OK: ... payload staged"
 # every single run. The build kept reporting success, ncz-singularity-desktop
 # went 7+ days without a real rebuild, and nothing here ever said so. `ls -t`
 # proves recency relative to OTHER staged files, not relative to THIS run --
 # only a comparison against SYNC_START_EPOCH (captured before the build was
 # even triggered) proves that.
-STAGED_LS="$(sshpass -p "$ARGONAS_PASS" ssh -o PubkeyAuthentication=no \
+STAGED_LS="$(SSHPASS="$STORE_PASS" sshpass -e ssh -o PubkeyAuthentication=no \
     -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-    "root@${ARGONAS_HOST}" "ls -t ${ARGONAS_DST}/staged/singularity-opt-*.tgz 2>/dev/null | head -1")" || true
+    "${STORE_HOST}" "ls -t ${STORE_DST}/staged/singularity-opt-*.tgz 2>/dev/null | head -1")" || true
 if [ -z "$STAGED_LS" ]; then
-    fail "no staged payload found in ${ARGONAS_DST}/staged after a PASSING build #$BUILD_NUM -- the pipeline's staging step did not deliver"
+    fail "no staged payload found in ${STORE_DST}/staged after a PASSING build #$BUILD_NUM -- the pipeline's staging step did not deliver"
 fi
-STAGED_MTIME="$(sshpass -p "$ARGONAS_PASS" ssh -o PubkeyAuthentication=no \
+STAGED_MTIME="$(SSHPASS="$STORE_PASS" sshpass -e ssh -o PubkeyAuthentication=no \
     -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-    "root@${ARGONAS_HOST}" "stat -c %Y '$STAGED_LS' 2>/dev/null")" || STAGED_MTIME=0
+    "${STORE_HOST}" "stat -c %Y '$STAGED_LS' 2>/dev/null")" || STAGED_MTIME=0
 case "$STAGED_MTIME" in ''|*[!0-9]*) STAGED_MTIME=0 ;; esac
 if [ "$STAGED_MTIME" -le "$SYNC_START_EPOCH" ]; then
-    fail "newest staged payload $STAGED_LS predates this sync run (mtime=$STAGED_MTIME, run started=$SYNC_START_EPOCH) -- the pipeline's staging step did NOT deliver a new file this time, even though the build passed; check the buildkite job's own 'stage the payload to ARGONAS' step and ULTRA's SSH trust to ARGONAS (this exact failure mode: 2026-09-14, key never re-authorized after the arm64 queue moved off TYDEUS)"
+    fail "newest staged payload $STAGED_LS predates this sync run (mtime=$STAGED_MTIME, run started=$SYNC_START_EPOCH) -- the pipeline's staging step did NOT deliver a new file this time, even though the build passed; check the buildkite job's own 'stage the payload' step and the arm64 agent's SSH trust to the store (this exact failure mode: 2026-09-14, key never re-authorized after the arm64 queue moved hosts)"
 fi
-STAGED_SIZE="$(sshpass -p "$ARGONAS_PASS" ssh -o PubkeyAuthentication=no \
+STAGED_SIZE="$(SSHPASS="$STORE_PASS" sshpass -e ssh -o PubkeyAuthentication=no \
     -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-    "root@${ARGONAS_HOST}" "stat -c %s '$STAGED_LS' 2>/dev/null")" || STAGED_SIZE=0
+    "${STORE_HOST}" "stat -c %s '$STAGED_LS' 2>/dev/null")" || STAGED_SIZE=0
 case "$STAGED_SIZE" in ''|*[!0-9]*) STAGED_SIZE=0 ;; esac
 if [ "$STAGED_SIZE" -lt 1000000 ]; then
     fail "staged payload $STAGED_LS is only ${STAGED_SIZE} bytes -- refusing to call that a good build artifact"

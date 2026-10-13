@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily NCZ fleet backup to argonas2
+Description=Daily NCZ per-host backup to the backup NAS
 
 [Timer]
 OnCalendar=*-*-* 03:35:00

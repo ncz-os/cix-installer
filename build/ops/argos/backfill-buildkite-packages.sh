@@ -1,17 +1,17 @@
 #!/bin/bash
 # REFERENCE COPY — already run once (2026-07-26, see the sibling
-# ncz-reprepro-publish.sh header) against the live copy at
-# ARGOS:~/bin/backfill-buildkite-packages.sh. Kept here for the record /
+# ncz-reprepro-publish.sh header) against the live copy on the
+# package publishing host (~/bin/backfill-buildkite-packages.sh). Kept here for the record /
 # in case the Buildkite registry ever needs a full re-sync from the reprepro
 # pool again (e.g. after a registry reset). Not auto-deployed from this repo.
 #
-# backfill-buildkite-packages.sh — ONE-TIME script, run on ARGOS.
+# backfill-buildkite-packages.sh — ONE-TIME script, run on the package publishing host.
 #
 # Buildkite Packages (org=ncz-os, registry=ncz) was the apt-hosting primary
 # until 2026-07-06, then abandoned for Cloudflare R2 (auth bug + a
 # "Resource limit reached" wall on the plan tier). It was never kept in
 # sync after that — every package in it today dates from 2026-06-29 and is
-# now stale vs. the current ARGOS reprepro repo (e.g. linux-image-cixmini-edge
+# now stale vs. the current reprepro repo (e.g. linux-image-cixmini-edge
 # is r98 there, r101 in ~/ncz-apt-repo). Cutting Buildkite back over to
 # PRIMARY (2026-07-26 operator directive, full OSS Buildkite privileges now
 # granted) without this backfill would mean primary serves OLD kernels on
@@ -20,8 +20,8 @@
 # every publish going forward.
 set -euo pipefail
 
-REPO=/home/jasonperlow/ncz-apt-repo
-ENVFILE=/home/jasonperlow/.config/ncz-r2-publish.env
+REPO="${NCZ_APT_REPO_DIR:-$HOME/ncz-apt-repo}"
+ENVFILE="${NCZ_R2_PUBLISH_ENV:-$HOME/.config/ncz-r2-publish.env}"
 [ -r "$ENVFILE" ] || { echo "FATAL: missing $ENVFILE" >&2; exit 1; }
 # shellcheck disable=SC1090
 . "$ENVFILE"

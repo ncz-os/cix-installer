@@ -1,14 +1,16 @@
 #!/bin/bash
-# ncz-backup.sh — per-host fleet backup to argonas2 (192.168.207.41).
+# ncz-backup.sh — per-host backup to the backup NAS (NAS_HOST:NAS_EXPORT, NFSv4).
+# Site settings: NAS_HOST and NAS_EXPORT (required; or the first line of
+# /etc/ncz/backup-nas-host and /etc/ncz/backup-nas-export), MNT (mount point).
 #
-# WHY THIS EXISTS (2026-08-10): the fleet had NO working backup at all, while
+# WHY THIS EXISTS (2026-08-10): the build hosts had NO working backup at all, while
 # looking like it did. Three independent silent failures were found the same
-# day the ARGOS build tree was deleted and proved unrecoverable:
-#   * argonas2's per-host backup dirs were created 2026-07-03 and were still
+# day a build host's build tree was deleted and proved unrecoverable:
+#   * the backup NAS's per-host backup dirs were created 2026-07-03 and were still
 #     EMPTY five weeks later,
-#   * ARGONAS's argos tarballs stopped at 2026-07-05 because the "ARGONAS pulls
-#     now" job quietly died,
-#   * datapool/tydeus-backup snapshotted DAILY while holding 256K and one
+#   * the primary store's tarballs of that host stopped at 2026-07-05 because
+#     the "store pulls now" job quietly died,
+#   * another host's backup dataset snapshotted DAILY while holding 256K and one
 #     `config` file, so the snapshot list looked perfectly healthy.
 #
 # So this script's contract is not "run rsync" — it is "prove data landed".
@@ -16,9 +18,10 @@
 # is empty, because an empty backup that exits 0 is what caused the loss.
 set -uo pipefail
 
-NAS_HOST="${NAS_HOST:-192.168.207.41}"
-NAS_EXPORT="${NAS_EXPORT:-/mnt/datapool/backups}"
-MNT="${MNT:-/mnt/argonas2_backups}"
+_cfg() { [ -r "/etc/ncz/$1" ] && head -n1 "/etc/ncz/$1"; }
+NAS_HOST="${NAS_HOST:-$(_cfg backup-nas-host)}"
+NAS_EXPORT="${NAS_EXPORT:-$(_cfg backup-nas-export)}"
+MNT="${MNT:-/mnt/ncz-backups}"
 HOSTN="$(hostname -s)"
 DEST="$MNT/$HOSTN"
 LOG="/var/log/ncz-backup.log"
@@ -34,8 +37,8 @@ SOURCES=("/home" "/etc")
 # outputs, ISOs or mirrors -- "it can be rebuilt" is exactly the assumption that
 # cost us the chromium .deb, which then had to be dpkg-repack'd off a live box.
 # --timeout=1800: a stalled NFS transfer must FAIL, not hang forever.
-# MEASURED 2026-08-11: cixmini and TYDEUS each sat 16+ hours with the rsync
-# receiver in state D on argonas2, no log output, no completion -- and because
+# MEASURED 2026-08-11: two hosts each sat 16+ hours with the rsync
+# receiver in state D on the NAS, no log output, no completion -- and because
 # the run never exits, the daily timer never produces a clean backup either.
 # The mount is `hard`, so rsync blocks indefinitely by design; an explicit I/O
 # timeout is what converts that into a reportable failure. Silent forever is
@@ -54,7 +57,7 @@ EXCLUDES=(
     # subordinate UIDs with restrictive modes, and the NFS target squashes to a
     # single uid, so rsync cannot recreate those dirs and returns rc=23 -- which
     # failed the WHOLE backup even though every byte of real user data landed
-    # (ACHILLES 2026-08-11: 113 errors, all under containers/storage/overlay).
+    # (one build host 2026-08-11: 113 errors, all under containers/storage/overlay).
     # This content is reconstructible (podman/docker pull), so it is EXCLUDED
     # rather than the exit code being suppressed. Masking rc=23 would hide a
     # genuine failure of something that actually matters -- and silent backup
@@ -65,6 +68,7 @@ EXCLUDES=(
 )
 
 command -v rsync >/dev/null || die "rsync not installed"
+[ -n "$NAS_HOST" ] && [ -n "$NAS_EXPORT" ] || die "NAS_HOST / NAS_EXPORT not configured (environment or /etc/ncz/backup-nas-host, /etc/ncz/backup-nas-export)"
 
 # Mount the NAS export on demand; leave it mounted if it already was.
 WAS_MOUNTED=1
@@ -84,7 +88,7 @@ for src in "${SOURCES[@]}"; do
     [ -d "$src" ] || { log "skip $src (absent)"; continue; }
     log "  rsync $src"
     # NOT -aHAX --numeric-ids: the NAS export squashes ownership
-    # (all_squash/anonuid, the documented ARGONAS convention), so every single
+    # (all_squash/anonuid, the documented store convention), so every single
     # file failed `chown` with "Operation not permitted" -- thousands of errors
     # and a non-zero exit on an otherwise fine transfer. Preserve times, perms,
     # symlinks and hardlinks; let the server own the files, which is what a
