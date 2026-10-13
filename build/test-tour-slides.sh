@@ -35,6 +35,8 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SLIDE_DIR="${NCZ_TOUR_SLIDE_DIR:-$ROOT/assets/branding/tour-slides}"
 HOOK="$ROOT/post-install/51-ncz-tour-slides.sh"
+# Scratch root: TMPDIR when set, else /tmp. Used only by the sandbox hook run.
+TMPD="${TMPDIR:-/tmp}"
 
 BUILTIN_SCENES=" welcome top-bar launcher dock windows workspaces store settings help done "
 # Upstream deck Orders (data/slides/*.slide at the pinned commit).
@@ -146,8 +148,10 @@ if [ ! -f "$HOOK" ]; then
 else
     hook_common="$(sed -n 's/^NCZ_TOUR_SLIDES_COMMON="\(.*\)"$/\1/p' "$HOOK" | head -1)"
     hook_sky1="$(sed -n 's/^NCZ_TOUR_SLIDES_SKY1="\(.*\)"$/\1/p' "$HOOK" | head -1)"
-    if [ "$(norm "$hook_common")" = "$(norm "$COMMON")" ]; then ok "hook COMMON list matches ($(norm "$COMMON"))"; else bad "hook COMMON list '$(norm "$hook_common")' != expected '$(norm "$COMMON")'"; fi
-    if [ "$(norm "$hook_sky1")" = "$(norm "$SKY1")" ]; then ok "hook SKY1 list matches ($(norm "$SKY1"))"; else bad "hook SKY1 list '$(norm "$hook_sky1")' != expected '$(norm "$SKY1")'"; fi
+    common_norm="$(norm "$COMMON")"
+    sky1_norm="$(norm "$SKY1")"
+    if [ "$(norm "$hook_common")" = "$common_norm" ]; then ok "hook COMMON list matches ($common_norm)"; else bad "hook COMMON list '$(norm "$hook_common")' != expected '$common_norm'"; fi
+    if [ "$(norm "$hook_sky1")" = "$sky1_norm" ]; then ok "hook SKY1 list matches ($sky1_norm)"; else bad "hook SKY1 list '$(norm "$hook_sky1")' != expected '$sky1_norm'"; fi
     if [ "$(norm "$hook_common $hook_sky1")" = "$want_ids" ]; then ok "hook declared lists == asset set"; else bad "hook declared lists exceed/omit the asset set"; fi
 
     # --- run the hook for real, once per architecture, in a sandbox -------------
@@ -155,7 +159,7 @@ else
     # COMMON + SKY1. This is the authoritative gate check (no source grepping). It
     # uses the hook's test seams so it never writes outside the sandbox
     # (NCZ_TOUR_SLIDES_ROOT prefixes /etc and /usr/local).
-    SB="$(mktemp -d "${TMPDIR:-/tmp}/ncz-tour-slides.XXXXXX")"
+    SB="$(mktemp -d "$TMPD/ncz-tour-slides.XXXXXX")"
     run_hook() {   # $1 = arch -> prints the installed slide basenames, sorted
         local arch="$1" root="$SB/$1"
         mkdir -p "$root/tour"
@@ -165,11 +169,12 @@ else
         NCZ_TOUR_SLIDES_DIR="$root/tour" \
         NCZ_TOUR_SLIDES_ROOT="$root" \
             bash "$HOOK" >/dev/null 2>&1
-        ( cd "$root/tour" && for f in *.slide; do [ -e "$f" ] && basename "$f" .slide; done | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//' )
+        # nullglob so an empty tour dir yields nothing (no literal '*.slide').
+        ( cd "$root/tour" && shopt -s nullglob && for f in *.slide; do basename "$f" .slide; done | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//' )
     }
     amd_ids="$(run_hook amd64)"
     arm_ids="$(run_hook arm64)"
-    if [ "$amd_ids" = "$(norm "$COMMON")" ]; then ok "hook on amd64 installs COMMON only ($amd_ids)"; else bad "hook on amd64 installed '$amd_ids', expected '$(norm "$COMMON")'"; fi
+    if [ "$amd_ids" = "$common_norm" ]; then ok "hook on amd64 installs COMMON only ($amd_ids)"; else bad "hook on amd64 installed '$amd_ids', expected '$common_norm'"; fi
     if [ "$arm_ids" = "$want_ids" ]; then ok "hook on arm64 installs COMMON + SKY1 ($arm_ids)"; else bad "hook on arm64 installed '$arm_ids', expected '$want_ids'"; fi
     # The first-login guard AND its autostart entry must land on every desktop
     # arch (the launcher is generic; only slide 85 is arch-gated).
