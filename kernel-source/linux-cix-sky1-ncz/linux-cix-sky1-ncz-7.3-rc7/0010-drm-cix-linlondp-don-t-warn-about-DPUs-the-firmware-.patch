@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 6 Oct 2026 13:40:06 -0400
+Subject: [PATCH] drm/cix: linlondp: don't warn about DPUs the firmware
+ disabled
+
+Every O6N boot logs at warning level:
+
+  linlondp-cluster CIXH50C0:00: linlon-cluster: skip ACPI path "\_SB.DPU2", no physical node (trimmed?)
+  linlondp-cluster CIXH50C0:00: linlon-cluster: skip ACPI path "\_SB.DPU3", no physical node (trimmed?)
+
+The O6N firmware keeps all five CIXH5010 DPUs in the namespace and
+returns _STA = 0 for DPU2 and DPU3. The board does not wire those pipes.
+The ACPI core does not create a platform device for a device that is
+not present, so these two never have a physical node. That is the
+intended configuration, not a fault.
+
+When the ACPI device is not present, log the skip at debug level and
+call it "disabled by firmware". Keep the warning, without the guess, for
+the case that really is unexpected: a present DPU with no platform
+device. The child-walk variant of the same check gets the same
+treatment.
+
+Upstream-Status: Inappropriate [vendor driver]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ .../gpu/drm/cix/linlon-dp/linlondp_cluster.c  | 29 +++++++++++++++----
+ 1 file changed, 23 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c b/drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c
+index 053f592c92de..f68e81845afb 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c
++++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_cluster.c
+@@ -232,9 +232,15 @@ static int linlondp_cluster_acpi_child_cb(struct acpi_device *child, void *data)
+ 
+ 	phys = acpi_get_first_physical_node(child);
+ 	if (!phys) {
+-		dev_warn(ctx->cluster_dev,
+-			 "ACPI cluster: skip child %s, no physical node (trimmed?)\n",
+-			 dev_name(&child->dev));
++		/* A DPU the firmware disabled (_STA = 0) is expected. */
++		if (!child->status.present)
++			dev_dbg(ctx->cluster_dev,
++				"ACPI cluster: skip child %s, disabled by firmware\n",
++				dev_name(&child->dev));
++		else
++			dev_warn(ctx->cluster_dev,
++				 "ACPI cluster: skip child %s, no physical node\n",
++				 dev_name(&child->dev));
+ 		return 0;
+ 	}
+ 
+@@ -320,9 +326,20 @@ static int linlondp_cluster_collect_dpus_acpi_paths(struct device *dev,
+ 
+ 		phys = acpi_get_first_physical_node(adev);
+ 		if (!phys) {
+-			dev_warn(dev,
+-				 "linlon-cluster: skip ACPI path \"%s\", no physical node (trimmed?)\n",
+-				 path);
++			/*
++			 * Boards with fewer display pipes keep the DPU in the
++			 * namespace and disable it with _STA = 0 (O6N: DPU2 and
++			 * DPU3). Such a DPU never gets a platform device; that
++			 * is expected, not an error.
++			 */
++			if (!adev->status.present)
++				dev_dbg(dev,
++					"linlon-cluster: skip ACPI path \"%s\", disabled by firmware\n",
++					path);
++			else
++				dev_warn(dev,
++					 "linlon-cluster: skip ACPI path \"%s\", no physical node\n",
++					 path);
+ 			continue;
+ 		}
+ 

@@ -1,0 +1,28 @@
+From 9de5b6300251a2ca7342f16193cfb32688cc131a Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 11 Oct 2026 17:32:20 -0400
+Subject: [PATCH 1/9] ASoC: cix: i2s_mc: mask all interrupts - CIX
+
+---
+ sound/soc/cix/cdns_i2s_mc.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/sound/soc/cix/cdns_i2s_mc.c b/sound/soc/cix/cdns_i2s_mc.c
+index 2779222b346f8..dc5b53bfa7ff1 100644
+--- a/sound/soc/cix/cdns_i2s_mc.c
++++ b/sound/soc/cix/cdns_i2s_mc.c
+@@ -568,11 +568,11 @@ static int cdns_i2s_mc_prepare(struct snd_pcm_substream *substream,
+ 	}
+ 
+ 	/*
+-	 * Enable global interrupt mask, for both transmitter and recevider, use
+-	 * individual interrupt masks
++	 * Disable global interrupt mask, for both transmitter and recevider, since
++	 * it cannot be cleared.
+ 	 */
+ 	regmap_update_bits(i2s_mc_priv->regmap, I2S_CID_CTRL,
+-			   I2S_CID_CTRL_INTREQ_MASK, I2S_CID_CTRL_INTREQ_MASK);
++			   I2S_CID_CTRL_INTREQ_MASK, 0);
+ 
+ 	return 0;
+ }

@@ -1,0 +1,85 @@
+From 6af1719155bbba6f734ecb604416989e1c748cd4 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 11 Oct 2026 17:32:21 -0400
+Subject: [PATCH 4/9] dptx: cix: Add support for out-of-bound hotplug events -
+ CIX
+
+---
+ drivers/gpu/drm/cix/dptx/trilin_dptx.c |  6 +++---
+ drivers/gpu/drm/cix/dptx/trilin_dptx.h |  1 +
+ drivers/gpu/drm/cix/dptx/trilin_drm.c  | 19 +++++++++++++++++++
+ 3 files changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/dptx/trilin_dptx.c b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
+index aec06a1b3394e..c240b8292fcf7 100644
+--- a/drivers/gpu/drm/cix/dptx/trilin_dptx.c
++++ b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
+@@ -2782,9 +2782,8 @@ static void trilin_dp_display_mst_init(struct trilin_dp *dp)
+ 
+ bool trilin_dp_get_hpd_state(struct trilin_dp *dp)
+ {
+-	return (trilin_dp_read(dp, TRILIN_DPTX_HPD_INPUT_STATE) & 0x0001ul) ?
+-		       true :
+-		       false;
++	return (!!(trilin_dp_read(dp, TRILIN_DPTX_HPD_INPUT_STATE) & 0x0001ul) ||
++		(dp->force_hpd == connector_status_connected) ? true : false);
+ }
+ 
+ static bool trilin_dp_is_sink_count_zero(struct trilin_dp *dp)
+@@ -3622,6 +3621,7 @@ int trilin_dp_probe(struct trilin_dpsub *dpsub, struct drm_device *drm)
+ 
+ 	dpsub->drm = drm;
+ 	dp->drm = drm;
++	dp->force_hpd = connector_status_unknown;
+ 	dp->num_lanes = TRILIN_DPTX_MAX_LANES;
+ 	dp->max_rate = DP_HIGH_BIT_RATE3;
+ 	dp->max_streams = 2;
+diff --git a/drivers/gpu/drm/cix/dptx/trilin_dptx.h b/drivers/gpu/drm/cix/dptx/trilin_dptx.h
+index 3ad4659ffde39..ecc10911d1890 100644
+--- a/drivers/gpu/drm/cix/dptx/trilin_dptx.h
++++ b/drivers/gpu/drm/cix/dptx/trilin_dptx.h
+@@ -454,6 +454,7 @@ struct trilin_dp {
+ 	struct delayed_work hpd_event_work;
+ 	struct delayed_work hpd_irq_work;
+ 	enum drm_connector_status status;
++	enum drm_connector_status force_hpd;
+ 	bool enabled;
+ 	bool psr_default_on;
+ 	bool psr_config_on;
+diff --git a/drivers/gpu/drm/cix/dptx/trilin_drm.c b/drivers/gpu/drm/cix/dptx/trilin_drm.c
+index a3ed101478ddb..ad91b8366ede6 100644
+--- a/drivers/gpu/drm/cix/dptx/trilin_drm.c
++++ b/drivers/gpu/drm/cix/dptx/trilin_drm.c
+@@ -248,6 +248,24 @@ static int trilin_dp_connector_atomic_check(struct drm_connector *conn,
+ 	return 0;
+ }
+ 
++static void trilin_dp_oob_hotplug_event(struct drm_connector *connector, enum drm_connector_status hpd_state)
++{
++	struct trilin_dp *dp = connector_to_dp(connector);
++
++	DP_DEBUG("enter\n");
++	if (dp->state & DPTX_STATE_SUSPENDED) {
++		dp->force_hpd = connector_status_disconnected;
++		DP_INFO("hpd_state: %d", hpd_state);
++		return;
++	}
++
++	if(dp->force_hpd == hpd_state)
++		return;
++	dp->force_hpd = hpd_state;
++	DP_INFO("drm_connector_status: %d ", hpd_state);
++	schedule_delayed_work(&dp->hpd_event_work, 0);
++}
++
+ int trilin_connector_update_modes(struct drm_connector *connector,
+ 				  struct edid *edid)
+ {
+@@ -577,6 +595,7 @@ static const struct drm_connector_funcs trilin_dp_connector_funcs = {
+ 	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
+ 	.reset = trilin_dp_connector_reset,
+ 	.debugfs_init = trilin_dp_connector_debugfs_init,
++	.oob_hotplug_event = trilin_dp_oob_hotplug_event,
+ };
+ 
+ static const struct drm_connector_helper_funcs

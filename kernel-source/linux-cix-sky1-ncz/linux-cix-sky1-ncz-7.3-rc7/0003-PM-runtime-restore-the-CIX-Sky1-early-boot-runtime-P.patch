@@ -1,0 +1,105 @@
+From 24dc015b0c01895d2a757482e87d3eeb5420ca16 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 29 Sep 2026 17:30:58 -0400
+Subject: [PATCH 3/3] PM: runtime: restore the CIX Sky1 early-boot runtime-PM
+ gate (0089 / 9011 / 9012)
+
+The r277 7.2.8 kernel, validated on O6N hardware, carries this gate. The
+v7.3 port dropped it when runtime.c moved upstream. Until late_initcall,
+runtime-PM callbacks (resume and suspend) are skipped and
+__pm_runtime_resume() short-circuits to RPM_ACTIVE. This stops
+deferred-probe retries from running runtime_resume callbacks that touch
+syscon MMIO that is not ready yet, which raises an SError on Sky1.
+
+Ported verbatim from the r277 tree onto the v7.3 runtime.c. The rest of
+the r277/v7.3 difference in this file is upstream (runtime_error moved into
+rpm_suspend) and is left as v7.3 has it. The acpi_clk.c half of 0089 is
+already in this tree.
+
+Upstream-Status: Inappropriate [oe-specific]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/base/power/runtime.c | 56 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 56 insertions(+)
+
+diff --git a/drivers/base/power/runtime.c b/drivers/base/power/runtime.c
+index fab38bc981139cfac7a24ed361a05f8f3c624eff..dd5a1b9ec863016e0d282f103f9f0537f4ec7092 100644
+--- a/drivers/base/power/runtime.c
++++ b/drivers/base/power/runtime.c
+@@ -17,6 +17,26 @@
+ #include "../base.h"
+ #include "power.h"
+ 
++/*
++ * NCZ CIX Sky1 boot fix: gate __pm_runtime_resume until the system is
++ * fully initialized. During early boot, deferred probe retries call
++ * pm_runtime_resume which triggers driver runtime_resume callbacks that
++ * touch unready syscon MMIO (reset not deasserted, power domain not on),
++ * causing SError. We skip the actual resume; the device hardware state
++ * will be set up later when its driver properly resumes it. Set in
++ * late_initcall after all CIX drivers have had a chance to probe.
++ */
++static bool cix_system_ready __read_mostly;
++bool cix_pm_system_ready(void) { return cix_system_ready; }
++EXPORT_SYMBOL_GPL(cix_pm_system_ready);
++static int __init cix_system_ready_init(void)
++{
++	cix_system_ready = true;
++	pr_info("cix_pm: system ready - pm_runtime callbacks enabled\n");
++	return 0;
++}
++late_initcall(cix_system_ready_init);
++
+ typedef int (*pm_callback_t)(struct device *);
+ 
+ static inline pm_callback_t get_callback_ptr(const void *start, size_t offset)
+@@ -377,6 +397,25 @@ static int __rpm_callback(int (*cb)(struct device *), struct device *dev)
+ 	int retval = 0, idx;
+ 	bool use_links = dev->power.links_count > 0;
+ 
++	/*
++	 * NCZ CIX Sky1 boot fix (patch 9012): skip ALL runtime PM callbacks
++	 * (resume AND suspend) until late_initcall sets cix_system_ready.
++	 *
++	 * Patch 9011 only gated __pm_runtime_resume, but the crash also
++	 * occurs via rpm_suspend -> acpi_subsys_runtime_suspend ->
++	 * regmap_read/write on unready syscon MMIO during system idle.
++	 *
++	 * Return 0 (success) directly since __rpm_callback has no out
++	 * label (only fail:). The actual hardware state will be set up
++	 * later when the system is ready.
++	 */
++	if (!cix_system_ready && cb) {
++		/* lock is still held here; __rpm_callback must return with
++		 * power.lock HELD (it releases+reacquires around cb), so do
++		 * NOT unlock or the caller double-unlocks -> preempt underflow */
++		return 0;
++	}
++
+ 	if (dev->power.irq_safe) {
+ 		spin_unlock(&dev->power.lock);
+ 	} else {
+@@ -1190,6 +1229,23 @@ int __pm_runtime_resume(struct device *dev, int rpmflags)
+ 	might_sleep_if(!(rpmflags & RPM_ASYNC) && !dev->power.irq_safe &&
+ 			dev->power.runtime_status != RPM_ACTIVE);
+ 
++	/*
++	 * NCZ CIX Sky1 boot fix: skip the actual runtime resume until the
++	 * system is ready. During early boot (before late_initcall sets
++	 * cix_system_ready), deferred probe retries trigger this function,
++	 * which would call the driver runtime_resume callback. That
++	 * callback often touches syscon MMIO that is not yet powered/reset,
++	 * causing SError. We return 1 (RPM_ACTIVE short-circuit) so the
++	 * caller proceeds as if the device is already active. The device
++	 * actual hardware initialization happens later when the driver
++	 * properly resumes it.
++	 */
++	if (!cix_system_ready) {
++		if (rpmflags & RPM_GET_PUT)
++			atomic_inc(&dev->power.usage_count);
++		return 1;
++	}
++
+ 	if (rpmflags & RPM_GET_PUT)
+ 		atomic_inc(&dev->power.usage_count);
+ 

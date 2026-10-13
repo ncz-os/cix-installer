@@ -1,0 +1,81 @@
+From 1f3b427ff1f29647d6da5180dfc17061e63f5098 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sun, 11 Oct 2026 17:32:22 -0400
+Subject: [PATCH 7/9] DRM/cix: dptx: notify GOP plug after HDCP init - CIX
+
+---
+ drivers/gpu/drm/cix/dptx/trilin_dptx.c | 23 +++++++++++++++--------
+ drivers/gpu/drm/cix/dptx/trilin_dptx.h |  1 +
+ 2 files changed, 16 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/dptx/trilin_dptx.c b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
+index 106ac3aa548ab..18e554589f9c7 100644
+--- a/drivers/gpu/drm/cix/dptx/trilin_dptx.c
++++ b/drivers/gpu/drm/cix/dptx/trilin_dptx.c
+@@ -2696,13 +2696,10 @@ static int trilin_dp_host_init_from_bootloader(struct trilin_dp *dp)
+ 	dp->state |= DPTX_STATE_INITIALIZED;
+ 
+ 	dev_info(dp->dev, "%s reports a plug event\n", __func__);
++	dp->gop_plug_notify = 1;
+ 
+ 	/* add force to detect to sync call detect. */
+ 	drm_helper_probe_detect(&dp->connector.base, NULL, false);
+-	/* probe_detect updates dp->status; reset so hpd_event_work sees a change */
+-	dp->status = connector_status_unknown;
+-	schedule_delayed_work(&dp->hpd_event_work, msecs_to_jiffies(10));
+-	schedule_delayed_work(&dp->hpd_irq_work, msecs_to_jiffies(10));
+ 	return rc;
+ }
+ 
+@@ -3013,9 +3010,7 @@ static irqreturn_t trilin_dp_irq_handler(int irq, void *data)
+ 	}
+ 
+ 	if (status & TRILIN_DPTX_INTERRUPT_HPD_IRQ)
+-		//schedule_delayed_work(&dp->hpd_irq_work, 0);
+-		queue_delayed_work(system_freezable_wq, &dp->hpd_irq_work,
+-				      0);
++		queue_delayed_work(system_freezable_wq, &dp->hpd_irq_work, 0);
+ 
+ 	return IRQ_HANDLED;
+ }
+@@ -3486,8 +3481,19 @@ int trilin_dp_hdcp_init(struct trilin_dpsub *dpsub)
+ 	hdcp->timer_in_use = false;
+ 	hdcp->opened = false;
+ 	ret = cix_hdcp_init(hdcp);
++	if (ret)
++		return ret;
+ 
+-	return ret;
++	if (dp->gop_plug_notify && trilin_dp_get_hpd_state(dp)) {
++		dp->gop_plug_notify = 0;
++		dev_info(dp->dev, "GOP boot: plug notify after HDCP init\n");
++		if (dp->drm)
++			drm_helper_hpd_irq_event(dp->drm);
++		dptx_audio_handle_plugged_change(&dp->dp_audio, true);
++		cix_hdcp_hpd_event_process(&dp->hdcp, true);
++	}
++
++	return 0;
+ }
+ 
+ void trilin_dp_hdcp_uninit(struct trilin_dpsub *dpsub)
+@@ -3621,6 +3627,7 @@ int trilin_dp_probe(struct trilin_dpsub *dpsub, struct drm_device *drm)
+ 	dp->dev = dev;
+ 	dp->dpsub = dpsub;
+ 	dp->status = connector_status_unknown;
++	dp->gop_plug_notify = 0;
+ 
+ 	dpsub->drm = drm;
+ 	dp->drm = drm;
+diff --git a/drivers/gpu/drm/cix/dptx/trilin_dptx.h b/drivers/gpu/drm/cix/dptx/trilin_dptx.h
+index ecc10911d1890..7a4407015cfdf 100644
+--- a/drivers/gpu/drm/cix/dptx/trilin_dptx.h
++++ b/drivers/gpu/drm/cix/dptx/trilin_dptx.h
+@@ -451,6 +451,7 @@ struct trilin_dp {
+ 	u32 aux_clock_divider;
+ 	u32 delay_after_hpd;
+ 	u32 enabled_by_gop;
++	u32 gop_plug_notify;
+ 	struct delayed_work hpd_event_work;
+ 	struct delayed_work hpd_irq_work;
+ 	enum drm_connector_status status;

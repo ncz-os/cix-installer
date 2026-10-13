@@ -1,0 +1,209 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 6 Oct 2026 13:40:06 -0400
+Subject: [PATCH] clk: cix: sky1-audss: resolve ACPI parent clocks by
+ connection ID
+
+On r284 every Sky1 ACPI boot (O6N, MS-R1) logs:
+
+  sky1-audss-clk CIXH6061:00: clock x8k not ready (-2), continuing without it
+  sky1-audss-clk CIXH6061:00: clock x11k not ready (-2), continuing without it
+  sky1-audss-clk CIXH6061:00: clock sys not ready (-2), continuing without it
+  sky1-audss-clk CIXH6061:00: clock 48m not ready (-2), continuing without it
+
+On the MS-R1, once PipeWire opens the HDMI/DP sink, it also logs 242
+lines of
+
+  cdns-i2s-mc CIXH6011:02: clk freq 0 is too low, must greater then 48000 * 32 * 2 * 6 = 18432000
+  cdns-i2s-mc CIXH6011:02: ASoC error (-22): at snd_soc_dai_hw_params() on i2s-mc-aif1
+
+and playback fails ("spa.alsa: set_hw_params: Invalid argument").
+v7.2.7 logs neither.
+
+The v7.3 port moved to the mainline audss driver (3730fe6032d9), and it
+assumes DT in two places.
+
+1. It requests its parents by the DT binding's clock-names
+   x8k/x11k/sys/48m. The Sky1 DSDT does not provide those names. ACLK's
+   CLKT table registers the parents as clkdev entries with the vendor
+   connection IDs audio_clk0..audio_clk5 (ids 0x4C-0x4F, 0x46, 0x47),
+   identical on O6N and MS-R1. All four lookups fail, so the driver
+   never enables the parents and never applies the 294.912 / 270.9504 /
+   800 / 48 MHz default rates.
+
+2. It names the composite and fixed-factor parents ("audio_clk0",
+   "audio_clk2", "audio_clk4", "audio_clk5") by global clock name only.
+   Under ACPI those clocks are registered by the CIXHA010 provider
+   with global names "ACLK:00NN". So every I2S mux and both
+   audio_clk4/5 dividers stay orphaned, and clk_get_rate() on an I2S
+   clock returns 0. That is the "clk freq 0" above. The v7.2.7 vendor
+   driver avoided this by using parent_data.fw_name, which resolves
+   through clkdev on the provider device.
+
+Fix both, for ACPI, without changing DT behaviour:
+
+- If the DT name is not found under ACPI, retry with the matching
+  firmware connection ID. sky1.dtsi wires x8k/x11k/sys/48m to
+  CLK_TREE_AUDIO_CLK0/2/4/5, and their default rates match the v7.2.7
+  log for audio_clk0/2/4/5.
+- Give each composite parent both .fw_name and .name (with index -1). The
+  clk core tries the connection ID on this device first (it finds the
+  ACPI clkdev entry) and falls back to the global name. Under DT the
+  fw_name lookup misses and the global name is used as before.
+- Register the audio_clk4/5 fixed dividers against the parent clk that
+  was actually obtained. If there is none, fall back to the global name.
+
+The "continue without it" path for a clock that really is missing is
+unchanged.
+
+Upstream-Status: Inappropriate [ACPI boot of Sky1 is vendor-only]
+Signed-off-by: Jason Perlow <jperlow@gmail.com>
+---
+ drivers/clk/cix/clk-sky1-audss.c | 77 +++++++++++++++++++++++++-------
+ 1 file changed, 61 insertions(+), 16 deletions(-)
+
+diff --git a/drivers/clk/cix/clk-sky1-audss.c b/drivers/clk/cix/clk-sky1-audss.c
+index 45a61da97a28..465d88af5ae0 100644
+--- a/drivers/clk/cix/clk-sky1-audss.c
++++ b/drivers/clk/cix/clk-sky1-audss.c
+@@ -38,6 +38,16 @@ static const char * const sky1_audss_clk_names[SKY1_AUDSS_CLK_PARENTS_CNT] = {
+ 	"x8k", "x11k", "sys", "48m",
+ };
+ 
++/*
++ * Sky1 ACPI firmware does not use the DT clock-names. The ACLK (CIXH6061)
++ * CLKT table registers its parents with the vendor connection IDs
++ * audio_clk0..audio_clk5. These are the same SCMI clocks that sky1.dtsi
++ * wires to x8k/x11k/sys/48m (CLK_TREE_AUDIO_CLK0/2/4/5).
++ */
++static const char * const sky1_audss_acpi_clk_names[SKY1_AUDSS_CLK_PARENTS_CNT] = {
++	"audio_clk0", "audio_clk2", "audio_clk4", "audio_clk5",
++};
++
+ static const u32 sky1_clk_rate_default[SKY1_AUDSS_CLK_PARENTS_CNT] = {
+ 	294912000,
+ 	270950400,
+@@ -512,6 +522,7 @@ struct sky1_audss_clks_devtype_data {
+ 	u32 (*reg_save)[2];
+ 	size_t reg_save_size;
+ 	const char * const *clk_names;
++	const char * const *acpi_clk_names;
+ 	size_t clk_num;
+ 	const u32 *clk_rate_default;
+ 	const struct composite_clk_cfg *clk_cfg;
+@@ -825,8 +836,22 @@ static struct clk_hw *sky1_audss_clk_register(struct device *dev,
+ 	if (!parent_data)
+ 		return ERR_PTR(-ENOMEM);
+ 
+-	for (i = 0; i < num_parents; i++)
++	/*
++	 * Resolve each parent by connection ID on this device first, then by
++	 * global name. Under ACPI the external parents (audio_clk0..5) are
++	 * clkdev entries from the ACLK CLKT table whose clocks are globally
++	 * named "ACLK:00NN", so a global-name-only lookup leaves every mux
++	 * orphaned: clk_get_rate() on an I2S clock returns 0 and cdns-i2s-mc
++	 * rejects hw_params ("clk freq 0 is too low"). Under DT the fw_name
++	 * lookup finds nothing (the binding names are x8k/x11k/sys/48m) and
++	 * the global name is used as before. Internal parents
++	 * (audio_clk4_div2, ...) always resolve by global name.
++	 */
++	for (i = 0; i < num_parents; i++) {
++		parent_data[i].fw_name = parent_names[i];
+ 		parent_data[i].name = parent_names[i];
++		parent_data[i].index = -1;
++	}
+ 
+ 	if (mux_cfg->offset >= 0) {
+ 		sky1_mux = devm_kzalloc(dev, sizeof(*sky1_mux), GFP_KERNEL);
+@@ -906,6 +931,10 @@ static int sky1_audss_clks_get(struct sky1_audss_clks_priv *priv)
+ 	 */
+ 	for (i = 0; i < devtype_data->clk_num; i++) {
+ 		priv->clks[i] = devm_clk_get(priv->dev, devtype_data->clk_names[i]);
++		if (IS_ERR(priv->clks[i]) && has_acpi_companion(priv->dev) &&
++		    devtype_data->acpi_clk_names)
++			priv->clks[i] = devm_clk_get(priv->dev,
++						     devtype_data->acpi_clk_names[i]);
+ 		if (IS_ERR(priv->clks[i])) {
+ 			dev_warn(priv->dev, "clock %s not ready (%ld), continuing without it\n",
+ 				 devtype_data->clk_names[i], PTR_ERR(priv->clks[i]));
+@@ -965,6 +994,30 @@ static int sky1_audss_clks_set_rate(struct sky1_audss_clks_priv *priv)
+ 	return 0;
+ }
+ 
++/*
++ * Register a fixed divider of one of the external parents. Use the parent clk
++ * sky1_audss_clks_get() obtained when there is one: under ACPI that clock's
++ * global name is "ACLK:00NN", not @parent_name, so a name-based parent would
++ * stay orphaned. Fall back to the global name otherwise (unchanged DT path
++ * when the clock was not found).
++ */
++static struct clk_hw *sky1_audss_register_fixed_div(struct device *dev,
++						    struct sky1_audss_clks_priv *priv,
++						    const char *name,
++						    const char *parent_name,
++						    int parent_idx,
++						    unsigned int div)
++{
++	struct clk *parent = priv->clks[parent_idx];
++
++	if (!IS_ERR_OR_NULL(parent))
++		return devm_clk_hw_register_fixed_factor_parent_hw(dev, name,
++								   __clk_get_hw(parent),
++								   0, 1, div);
++
++	return devm_clk_hw_register_fixed_factor(dev, name, parent_name, 0, 1, div);
++}
++
+ static void sky1_audss_clk_rpm_cleanup(void *data)
+ {
+ 	pm_runtime_force_suspend(data);
+@@ -1094,11 +1147,8 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
+ 
+ 	/* audio_clk4 clock fixed divider */
+ 	clk_table[CLK_AUD_CLK4_DIV2] =
+-		devm_clk_hw_register_fixed_factor(dev,
+-						  "audio_clk4_div2",
+-						  "audio_clk4",
+-						  0,
+-						  1, 2);
++		sky1_audss_register_fixed_div(dev, priv, "audio_clk4_div2", "audio_clk4",
++					      2, 2);
+ 	if (IS_ERR(clk_table[CLK_AUD_CLK4_DIV2])) {
+ 		ret = PTR_ERR(clk_table[CLK_AUD_CLK4_DIV2]);
+ 		dev_err(dev, "failed to register clock %d, ret:%d\n", CLK_AUD_CLK4_DIV2, ret);
+@@ -1106,11 +1156,8 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
+ 	}
+ 
+ 	clk_table[CLK_AUD_CLK4_DIV4] =
+-		devm_clk_hw_register_fixed_factor(dev,
+-						  "audio_clk4_div4",
+-						  "audio_clk4",
+-						  0,
+-						  1, 4);
++		sky1_audss_register_fixed_div(dev, priv, "audio_clk4_div4", "audio_clk4",
++					      2, 4);
+ 	if (IS_ERR(clk_table[CLK_AUD_CLK4_DIV4])) {
+ 		ret = PTR_ERR(clk_table[CLK_AUD_CLK4_DIV4]);
+ 		dev_err(dev, "failed to register clock %d, ret:%d\n", CLK_AUD_CLK4_DIV4, ret);
+@@ -1119,11 +1166,8 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
+ 
+ 	/* audio_clk5 clock fixed divider */
+ 	clk_table[CLK_AUD_CLK5_DIV2] =
+-		devm_clk_hw_register_fixed_factor(dev,
+-						  "audio_clk5_div2",
+-						  "audio_clk5",
+-						  0,
+-						  1, 2);
++		sky1_audss_register_fixed_div(dev, priv, "audio_clk5_div2", "audio_clk5",
++					      3, 2);
+ 	if (IS_ERR(clk_table[CLK_AUD_CLK5_DIV2])) {
+ 		ret = PTR_ERR(clk_table[CLK_AUD_CLK5_DIV2]);
+ 		dev_err(dev, "failed to register clock %d, ret:%d\n", CLK_AUD_CLK5_DIV2, ret);
+@@ -1236,6 +1280,7 @@ static const struct sky1_audss_clks_devtype_data sky1_devtype_data = {
+ 	.reg_save = sky1_reg_save,
+ 	.reg_save_size = ARRAY_SIZE(sky1_reg_save),
+ 	.clk_names = sky1_audss_clk_names,
++	.acpi_clk_names = sky1_audss_acpi_clk_names,
+ 	.clk_num = ARRAY_SIZE(sky1_audss_clk_names),
+ 	.clk_rate_default = sky1_clk_rate_default,
+ 	.clk_cfg = sky1_audss_clks,
