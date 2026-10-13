@@ -30,8 +30,11 @@ Where a commit does differ, `history/gitlab-commit-map` on GitHub holds
 
 ## Determinism
 
-The filter is `git filter-repo` with `--prune-empty never`, so no commit is
-dropped and the result depends only on the GitLab history and the three lists.
+The filter is `git filter-repo` with `--prune-empty never` and
+`--preserve-commit-hashes`, so no commit is dropped, commit messages keep the
+GitLab shas they cite (look them up in the commit map), and a commit's copy
+depends only on its own content and its parents: not on which other branches
+exist.
 Two runs on the same input give the same shas (`build/test-github-sync.sh`
 checks this), so each hourly run is an incremental push. A non-fast-forward
 update is only needed when GitLab itself rewrote a ref; it is pinned with

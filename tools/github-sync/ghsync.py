@@ -12,9 +12,10 @@ filtered copy of the GitLab branches and tags:
     site file);
   * only refs/heads/* and refs/tags/* are copied (no merge-request refs).
 
-The filter is git-filter-repo with --prune-empty never, so a commit that the
-filter does not change keeps its sha, and a commit whose content and ancestry
-are unchanged gets the same filtered sha on every run. Each sync is therefore
+The filter is git-filter-repo with --prune-empty never and
+--preserve-commit-hashes, so a commit that the filter does not change keeps its
+sha, and a commit whose content and ancestry are unchanged gets the same
+filtered sha on every run, whatever other refs exist. Each sync is therefore
 an incremental push; a forced update is only needed for refs whose filtered
 history really changed, and it is always pinned with --force-with-lease.
 
@@ -485,6 +486,10 @@ def build_copy(ctx, r, cache, mode):
         "--prune-degenerate",
         "never",
         "--preserve-commit-encoding",
+        # keep commit-hash references in messages as written: a filtered commit
+        # then depends only on its own content and its parents, not on which
+        # other refs are present (the commit map resolves GitLab shas)
+        "--preserve-commit-hashes",
         "--no-gc",
         "--strip-blobs-bigger-than",
         str(ctx.limit + 1),
