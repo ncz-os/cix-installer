@@ -4,7 +4,7 @@
 # Produces assets/rescue/rescue-rootfs.tar.zst: a minimal Debian (forky) arm64
 # rootfs carrying the full rescue toolset from manifests/rescue.pkgs,
 # pre-configured for headless LAN recovery (serial + telnet + dropbear + sshd
-# + static-IP fallback) with the /lib-usrmerge repair helper baked in.
+# + DHCP-only networking) with the /lib-usrmerge repair helper baked in.
 #
 # WAS UBUNTU (resolute) UNTIL 2026-08-11. That was wrong twice over: the
 # operator retired Ubuntu entirely, and a recovery environment built from a
@@ -72,8 +72,6 @@ AGENTS_SRC="$ROOT/assets/rescue/AGENTS.md"
 # Rescue console credentials (documented in assets/rescue/AGENTS.md). LAN-only.
 RESCUE_ROOT_PW="${RESCUE_ROOT_PW:-rescue}"
 RESCUE_HOSTNAME="ncz-rescue"
-RESCUE_STATIC_IP="192.168.207.199/24"  # dedicated rescue fallback — NOT any production host (an earlier address collided with a build host — fixed 2026-07-20)
-RESCUE_STATIC_GW="192.168.207.1"
 
 for t in debootstrap chroot zstd tar awk sed grep mountpoint; do
     command -v "$t" >/dev/null 2>&1 || { echo "ERROR: missing build-host tool: $t" >&2; exit 1; }
@@ -263,25 +261,17 @@ EOF
 chroot "$CHROOT" systemctl enable ssh.service 2>/dev/null || \
     chroot "$CHROOT" systemctl enable sshd.service 2>/dev/null || true
 
-# --- network bring-up: DHCP (carriers-only) + DECOUPLED static fallback ---
-# Two independent units, by hard-won design:
-#   1. ncz-rescue-net          -> try DHCP (dhcpcd first, busybox udhcpc
-#                                 fallback) on carrier NICs only, in parallel,
-#                                 time-capped so a dead port can't hang boot.
-#   2. ncz-rescue-net-fallback -> if NOTHING got a v4 lease, assign the documented
-#                                 static rescue IP. This is a SEPARATE unit ordered
-#                                 After= the DHCP unit (NOT Requires=), so it still
-#                                 runs even when the DHCP unit hangs and systemd
-#                                 kills it on TimeoutStartSec. The old single-oneshot
-#                                 design trapped the static fallback behind a killable
-#                                 DHCP step -> a stuck port meant NO IP at all
-#                                 (operator-burned 2026-06-26: rescue partition came
-#                                 up with no address and no DHCP client to recover).
+# --- network bring-up: DHCP only (carriers-only, parallel, time-capped) ---
+# ncz-rescue-net tries DHCP (dhcpcd first, busybox udhcpc fallback) on carrier
+# NICs only, in parallel, time-capped so a dead port can't hang boot. There is
+# deliberately NO static-address fallback: a public image must not invent an
+# address on a network it knows nothing about. If no DHCP server answers, the
+# rescue system has no IPv4 address and is reached over the console or serial.
 cat > "$CHROOT/usr/local/sbin/ncz-rescue-net" <<EOF
 #!/bin/sh
 # DHCP bring-up only. Link-up all NICs, settle, then DHCP carriers in parallel
 # with short hard timeouts. dhcpcd is preferred; busybox udhcpc is fallback.
-# Static IP is intentionally handled by ncz-rescue-net-fallback (separate unit).
+# No static address is ever assigned.
 set +e
 NICS=\$(ls /sys/class/net 2>/dev/null | grep -v '^lo\$')
 for i in \$NICS; do ip link set "\$i" up 2>/dev/null; done
@@ -301,34 +291,6 @@ exit 0
 EOF
 chmod 0755 "$CHROOT/usr/local/sbin/ncz-rescue-net"
 
-cat > "$CHROOT/usr/local/sbin/ncz-rescue-net-fallback" <<EOF
-#!/bin/sh
-# Deterministic static-IP fallback. Runs AFTER the DHCP unit and even if that
-# unit was killed for hanging. If no global IPv4 address exists, assign the
-# documented rescue address ($RESCUE_STATIC_IP) so the box is ALWAYS reachable.
-# Idempotent.
-set +e
-if ip -4 -o addr show scope global 2>/dev/null | grep -q 'inet '; then
-    exit 0   # DHCP (or a prior run) already gave us an address
-fi
-NICS=\$(ls /sys/class/net 2>/dev/null | grep -v '^lo\$')
-iface=\$(for i in \$NICS; do [ "\$(cat /sys/class/net/\$i/carrier 2>/dev/null)" = "1" ] && { echo "\$i"; break; }; done)
-[ -z "\$iface" ] && iface=\$(echo "\$NICS" | head -1)
-[ -z "\$iface" ] && exit 0
-ip link set "\$iface" up 2>/dev/null
-ip -4 -o addr show dev "\$iface" 2>/dev/null | grep -q "$RESCUE_STATIC_IP" || \\
-    ip addr add $RESCUE_STATIC_IP dev "\$iface" 2>/dev/null
-ip route show default 2>/dev/null | grep -q default || \\
-    ip route add default via $RESCUE_STATIC_GW 2>/dev/null
-# dhclient normally writes resolver state. A static fallback must do so itself
-# or "networking works" only for literal IP addresses.
-if ! grep -q '^[[:space:]]*nameserver[[:space:]]' /etc/resolv.conf 2>/dev/null; then
-    printf 'nameserver %s\\nnameserver 1.1.1.1\\n' '$RESCUE_STATIC_GW' > /etc/resolv.conf
-fi
-exit 0
-EOF
-chmod 0755 "$CHROOT/usr/local/sbin/ncz-rescue-net-fallback"
-
 cat > "$CHROOT/etc/systemd/system/ncz-rescue-net.service" <<'EOF'
 [Unit]
 Description=NCZ rescue network DHCP bring-up (carriers-only, parallel, time-capped)
@@ -345,25 +307,7 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 EOF
 
-cat > "$CHROOT/etc/systemd/system/ncz-rescue-net-fallback.service" <<'EOF'
-[Unit]
-Description=NCZ rescue static-IP fallback (guaranteed LAN address, independent of DHCP)
-# Ordered after the DHCP attempt but NOT bound to it (no Requires=): must run
-# even if ncz-rescue-net.service failed or was killed on TimeoutStartSec.
-After=ncz-rescue-net.service
-Wants=network.target
-Before=network.target
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/ncz-rescue-net-fallback
-TimeoutStartSec=15
-RemainAfterExit=yes
-[Install]
-WantedBy=multi-user.target
-EOF
-
 chroot "$CHROOT" systemctl enable ncz-rescue-net.service 2>/dev/null || true
-chroot "$CHROOT" systemctl enable ncz-rescue-net-fallback.service 2>/dev/null || true
 # dhclient owns resolver updates in the rescue image. Keep this a regular,
 # writable file; a debootstrap systemd-resolved stub symlink is dead because
 # resolved is intentionally not part of the minimal rescue closure.
@@ -435,7 +379,7 @@ cat > "$CHROOT/etc/motd" <<EOF
   Read /AGENTS.md for system facts, drivers, boot model, and recovery steps.
   Helpers:  ncz-rescue-fixlib <root>   ncz-rescue-chroot <dev>
   Access:   telnet :23   ssh root@host   dropbear :2222   serial ttyAMA0/ttyAMA2@115200
-  Net fallback: $RESCUE_STATIC_IP (gw $RESCUE_STATIC_GW) if DHCP fails.
+  Network:  DHCP only; no address is assigned if no DHCP server answers.
 
 EOF
 
@@ -466,7 +410,6 @@ for required in \
     /sbin/init \
     /bin/sh \
     /usr/local/sbin/ncz-rescue-net \
-    /usr/local/sbin/ncz-rescue-net-fallback \
     /usr/lib/systemd/system/systemd-timesyncd.service \
     /usr/lib/systemd/system/ssh.service; do
     if [ ! -x "$CHROOT$required" ] && [ ! -f "$CHROOT$required" ]; then
@@ -480,8 +423,7 @@ if [ -s "$CHROOT/etc/machine-id" ] || \
     exit 1
 fi
 for enabled in \
-    /etc/systemd/system/multi-user.target.wants/ncz-rescue-net.service \
-    /etc/systemd/system/multi-user.target.wants/ncz-rescue-net-fallback.service; do
+    /etc/systemd/system/multi-user.target.wants/ncz-rescue-net.service; do
     if [ ! -L "$CHROOT$enabled" ]; then
         echo "[rescue-rootfs] ERROR: required rescue unit is not enabled: $enabled" >&2
         exit 1
@@ -497,7 +439,7 @@ if ! grep -Fq 'KERNEL=="ttyAMA[02]"' "$CHROOT/etc/udev/rules.d/70-ncz-serial-get
     echo "[rescue-rootfs] ERROR: device-driven serial getty rule is missing" >&2
     exit 1
 fi
-echo "[rescue-rootfs] verified: PID 1, device-driven serial consoles, DHCP/fallback, ssh runtime, and identity reset"
+echo "[rescue-rootfs] verified: PID 1, device-driven serial consoles, DHCP-only network, ssh runtime, and identity reset"
 
 # ----------------------------------------------------------------------
 # Stage 4 — pack the tarball (unmount binds first).
