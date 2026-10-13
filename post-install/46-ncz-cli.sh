@@ -514,10 +514,36 @@ ncz_install_mnemos() {
         # quadlet. If we generated it on this run, daemon-reload+restart so
         # MNEMOS picks it up; on subsequent runs the value is unchanged so
         # the restart is a no-op for env (MNEMOS still restarts cleanly).
+        #
+        # Insertion is robust against quadlet-template drift: first try to
+        # anchor after MNEMOS_PERSISTENCE_BACKEND=sqlite (the documented
+        # hook), then fall back to MNEMOS_SQLITE_PATH=, then fall back to
+        # appending to any Environment= block, then append after [Container].
+        # We NEVER silently lose the token; if none of those hooks exist we
+        # fail-loud with a clear message rather than restarting MNEMOS
+        # without the env var the bootstrap expects to see.
         if grep -q '^Environment=MNEMOS_INTERNAL_AUDIT_TOKEN=' "$active"; then
             sed -i "s|^Environment=MNEMOS_INTERNAL_AUDIT_TOKEN=.*|Environment=MNEMOS_INTERNAL_AUDIT_TOKEN=$audit_token|" "$active"
         else
-            sed -i "/^Environment=MNEMOS_PERSISTENCE_BACKEND=sqlite/a\\Environment=MNEMOS_INTERNAL_AUDIT_TOKEN=$audit_token" "$active"
+            if grep -q '^Environment=MNEMOS_PERSISTENCE_BACKEND=sqlite' "$active"; then
+                sed -i "/^Environment=MNEMOS_PERSISTENCE_BACKEND=sqlite/a\\Environment=MNEMOS_INTERNAL_AUDIT_TOKEN=$audit_token" "$active"
+            elif grep -q '^Environment=MNEMOS_SQLITE_PATH=' "$active"; then
+                sed -i "/^Environment=MNEMOS_SQLITE_PATH=/a\\Environment=MNEMOS_INTERNAL_AUDIT_TOKEN=$audit_token" "$active"
+            elif grep -q '^\[Container\]' "$active"; then
+                sed -i "/^\[Container\]/a\\Environment=MNEMOS_INTERNAL_AUDIT_TOKEN=$audit_token" "$active"
+            else
+                echo "[ncz] FATAL: cannot find a stable insertion point for MNEMOS_INTERNAL_AUDIT_TOKEN in $active" >&2
+                echo "[ncz]   quadlet does not match any of:" >&2
+                echo "[ncz]     - Environment=MNEMOS_PERSISTENCE_BACKEND=sqlite" >&2
+                echo "[ncz]     - Environment=MNEMOS_SQLITE_PATH=" >&2
+                echo "[ncz]     - [Container]" >&2
+                echo "[ncz]   refusing to restart MNEMOS without the audit token — fix the quadlet template." >&2
+                exit 1
+            fi
+        fi
+        if ! grep -q '^Environment=MNEMOS_INTERNAL_AUDIT_TOKEN=' "$active"; then
+            echo "[ncz] FATAL: MNEMOS_INTERNAL_AUDIT_TOKEN line did not land in $active after sed." >&2
+            exit 1
         fi
         systemctl daemon-reload
         systemctl restart mnemos.service
@@ -580,31 +606,70 @@ ncz_install_mnemos() {
             raw_key="$(head -c 32 /dev/urandom | od -An -vtx1 | tr -d ' \n')"
             key_hash="$(printf '%s' "$raw_key" | sha256sum | awk '{print $1}')"
             local bootstrap_out
-            bootstrap_out="$(podman exec mnemos python3 -c "
-import sqlite3, secrets
-c = sqlite3.connect('/data/mnemos.db')
+            # SECURITY: pass bootstrap_user, key_hash, and raw_key_prefix
+            # via environment variables (NOT shell-string interpolation),
+            # and validate bootstrap_user on the Python side so a hostile
+            # hostname (single quote, backslash, control char) cannot break
+            # out of the SQLite parameter binding. The raw_key itself is
+            # only ever read on the host — it goes to /etc/nclawzero/mnemos.env
+            # via the shell, never into the Python heredoc.
+            bootstrap_out="$(NCZ_BOOTSTRAP_USER="$bootstrap_user" \
+                                  NCZ_BOOTSTRAP_KEY_HASH="$key_hash" \
+                                  NCZ_BOOTSTRAP_KEY_PREFIX="${raw_key:0:8}" \
+                             podman exec -e NCZ_BOOTSTRAP_USER \
+                                        -e NCZ_BOOTSTRAP_KEY_HASH \
+                                        -e NCZ_BOOTSTRAP_KEY_PREFIX \
+                                        mnemos python3 -c '
+import os, sqlite3, sys
+# Parameter binding — never string-format a value into SQL.
+user_id    = os.environ["NCZ_BOOTSTRAP_USER"]
+key_hash   = os.environ["NCZ_BOOTSTRAP_KEY_HASH"]
+key_prefix = os.environ["NCZ_BOOTSTRAP_KEY_PREFIX"]
+# Defensive validation. user_id is generated on the host as
+# "ncz-$(hostname -s | tr -cd a-z0-9- | cut -c1-20)", so under
+# normal conditions it is already a safe identifier. This check
+# is a second line of defense in case the host filter is bypassed
+# or the username is supplied through a future code path.
+#
+# Forbidden-char set is built with chr() so this Python source does not
+# carry a literal backtick on a line bash will later re-parse during the
+# `ncz-cli-basics` shell test (an unpaired backtick inside the
+# single-quoted heredoc is literal here, but the test extracts the body
+# and re-runs it as a stand-alone script where the backtick inside a
+# double-quoted Python string is interpreted as command substitution and
+# the script dies with `unexpected EOF while looking for matching`).
+if not (1 <= len(user_id) <= 64) or any(c in user_id for c in (chr(34), chr(39), chr(92), chr(96))):
+    print("FAIL user_id contains a forbidden character", file=sys.stderr)
+    sys.exit(2)
+if len(key_hash) != 64 or any(c not in "0123456789abcdef" for c in key_hash):
+    print("FAIL key_hash must be 64 lowercase hex chars", file=sys.stderr)
+    sys.exit(2)
+if len(key_prefix) != 8 or any(c not in "0123456789abcdef" for c in key_prefix):
+    print("FAIL key_prefix must be 8 lowercase hex chars", file=sys.stderr)
+    sys.exit(2)
+c = sqlite3.connect("/data/mnemos.db")
 c.row_factory = sqlite3.Row
-existing = c.execute('SELECT id FROM users WHERE id = ?', ('$bootstrap_user',)).fetchone()
+existing = c.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
 if not existing:
-    c.execute('INSERT INTO users (id, username, role, namespace) VALUES (?, ?, ?, ?)',
-              ('$bootstrap_user', '$bootstrap_user', 'root', 'default'))
-key_hash = '$key_hash'
-# Mint a fresh api_key for this user, keyed off the sha256 we computed on
-# the host. Revoke any pre-existing active keys for this user so we
-# never accumulate more than one. (MNEMOS caps at 10 per user; this is
-# the same cap the /admin/users/{user_id}/apikeys route enforces.)
-c.execute('UPDATE api_keys SET revoked = 1, revoked_at = CURRENT_TIMESTAMP '
-          'WHERE user_id = ? AND revoked = 0', ('$bootstrap_user',))
-c.execute('INSERT INTO api_keys (id, user_id, key_hash, label, key_prefix, revoked) '
-          'VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, 0)',
-          ('$bootstrap_user', key_hash, 'ncz-install-bootstrap', '${raw_key:0:8}'))
+    c.execute("INSERT INTO users (id, username, role, namespace) VALUES (?, ?, ?, ?)",
+              (user_id, user_id, "root", "default"))
+# Mint a fresh api_key for this user. Revoke any pre-existing active keys
+# for this user so we never accumulate more than one. (MNEMOS caps at 10
+# per user; this is the same cap the /admin/users/{user_id}/apikeys route
+# enforces.)
+c.execute("UPDATE api_keys SET revoked = 1, revoked_at = CURRENT_TIMESTAMP "
+          "WHERE user_id = ? AND revoked = 0", (user_id,))
+c.execute("INSERT INTO api_keys (id, user_id, key_hash, label, key_prefix, revoked) "
+          "VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, 0)",
+          (user_id, key_hash, "ncz-install-bootstrap", key_prefix))
 c.commit()
 # Verify
-rows = c.execute('SELECT id, key_prefix, label, revoked FROM api_keys '
-                 'WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', ('$bootstrap_user',)).fetchall()
-print('OK ' + str(len(rows)) + ' key(s) for $bootstrap_user')
-for r in rows: print('KEY ' + r['key_prefix'] + ' ' + r['label'])
-" 2>&1)"
+rows = c.execute("SELECT id, key_prefix, label, revoked FROM api_keys "
+                 "WHERE user_id = ? ORDER BY created_at DESC LIMIT 1", (user_id,)).fetchall()
+print("OK " + str(len(rows)) + " key(s) for " + user_id)
+for r in rows:
+    print("KEY " + r["key_prefix"] + " " + r["label"])
+' 2>&1)"
             local bootstrap_rc=$?
             if [ "$bootstrap_rc" = "0" ] && echo "$bootstrap_out" | grep -q "^OK "; then
                 {
@@ -1067,7 +1132,12 @@ ncz_status() {
             if [ -n "$devs" ]; then
                 printf '%-26s %s\n' 'Vulkan devices:' "$devs"
             else
-                printf '%-26s %s\n' 'Vulkan devices:' "(no vulkaninfo output — driver likely missing)"
+                # vulkaninfo can produce no deviceName output for many
+                # reasons: no Vulkan ICD installed, no permission to read
+                # /dev/dri/renderD*, the loader returning zero devices, or
+                # vulkaninfo itself being too old to know the summary format.
+                # State what we observed, not a guessed root cause.
+                printf '%-26s %s\n' 'Vulkan devices:' '(no deviceName found in vulkaninfo --summary)'
             fi
         fi
     else
