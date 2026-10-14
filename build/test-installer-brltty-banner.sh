@@ -34,11 +34,11 @@ check() { local name="$1"; shift; if "$@"; then ok "$name"; else bad "$name"; fi
 
 # ------------------------------------------------------------------ no braille stack
 check "no preseed setting names brltty/braille (comments aside)" \
-    sh -c '! { for f in "$1"/preseed/*.cfg; do sed -e "s/#.*//" "$f"; done; } | grep -qiE "brltty|brlapi|braille"' _ "$ROOT"
+    sh -c '! { for f in "$1"/preseed/*.cfg; do sed -e "s/#.*//" "$f"; done; } | grep >/dev/null -iE "brltty|brlapi|braille"' _ "$ROOT"
 check "brltty-udeb/generic is not in the preseed known-keys list" \
     sh -c '! grep -qE "^[[:space:]]*brltty" "$1"' _ "$KNOWN"
 check "no package manifest lists a brltty/brlapi package" \
-    sh -c '! { for f in "$1"/manifests/*.pkgs "$1"/sbom/*.txt; do sed -e "s/#.*//" "$f"; done; } | grep -qiE "brltty|brlapi"' _ "$ROOT"
+    sh -c '! { for f in "$1"/manifests/*.pkgs "$1"/sbom/*.txt; do sed -e "s/#.*//" "$f"; done; } | grep >/dev/null -iE "brltty|brlapi"' _ "$ROOT"
 check "no post-install hook installs brltty" \
     sh -c '! grep -rqiE "(apt-get|apt|install)[^#]*(brltty|brlapi)" "$1/post-install"' _ "$ROOT"
 check "build-refind-esp.py no longer defines the ncz_no_brltty token" \
