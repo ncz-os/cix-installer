@@ -85,5 +85,28 @@ else
     bad "$PYTEST is missing"
 fi
 
+# --- the banner reaches every active console, once -------------------------------------
+# /dev/console is the console flagged C in /proc/consoles; the banner also goes to each
+# other active non-VT console (the serial port d-i runs on when console= names only tty0,
+# as on Sky1 hardware and arm64 QEMU virt). Run the shipped line against fixtures.
+BT="$(mktemp -d "${TMPDIR:-/tmp}/ncz-bt.XXXXXX")"
+bl="$(grep -E '^[[:space:]]*NCZBTA="" ; while read -r _n _l' "$ROOT/preseed/preseed.cfg" | head -1 | sed 's/[[:space:]]*;[[:space:]]*\\$//')"
+check "preseed.cfg builds the active-console list for the banner" test -n "$bl"
+check "the banner loop writes to that list" grep >/dev/null -E 'for V in /dev/tty1 /dev/tty3 /dev/console \$NCZBTA ; do echo "\[NCZ' "$ROOT/preseed/preseed.cfg"
+mkdir -p "$BT/dev"; : > "$BT/dev/ttyAMA0"; : > "$BT/dev/ttyS0"
+runbl() { # consoles-fixture -> NCZBTA
+    printf '%b' "$1" > "$BT/consoles"
+    sh -c "$(printf '%s' "$bl" | sed "s#< /proc/consoles#< '$BT/consoles'#; s#\[ -c \"/dev/\$_n\" \] && NCZBTA=\"\$NCZBTA /dev/\$_n\"#[ -e \"$BT/dev/\$_n\" ] \&\& NCZBTA=\"\$NCZBTA /dev/\$_n\"#") ; echo \"\$NCZBTA\"" 2>&1 | tr -s ' ' | sed 's/^ //'
+}
+o="$(runbl 'tty0                 -WU (E p)    4:7\nttyS0                -W- (EC p a) 4:64\n')"
+check "amd64 KVM (console=ttyS0 last): serial is /dev/console, no second copy ('$o')" test -z "$o"
+o="$(runbl 'tty0                 -WU (EC p)   4:1\nttyAMA0              -W- (E Np a) 204:64\n')"
+check "arm64 (console=tty0, d-i on ttyAMA0): banner also to /dev/ttyAMA0 ('$o')" test "$o" = /dev/ttyAMA0
+o="$(runbl 'tty0                 -WU (E p)    4:1\nttyAMA0              -W- (EC p a) 204:64\n')"
+check "arm64 KVM gate (console=ttyAMA0 last): no second copy ('$o')" test -z "$o"
+o="$(runbl 'ttyACM0              -W- (EC p a) 166:0\n')"
+check "a C in the device name is not the console flag ('$o')" test -z "$o"
+rm -rf "$BT"
+
 echo "installer brltty/banner tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
