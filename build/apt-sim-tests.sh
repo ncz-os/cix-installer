@@ -402,8 +402,8 @@ STUB
   chmod +x "$bin/findmnt"
   out="$case/out"
   log="$case/log"
-  env NCZ_WORK_DIR_GUARD_FINDMNT="$bin/findmnt" OUT="$out" NCZ_SINGULARITY_WORK_DIR="$WORK_DIR" PATH="$bin:$PATH" MOCK_CE_LOG="$MOCK_CE_LOG" TARGET_CACHE_PATH="$TARGET" bash "$BUILDER" >"$log" 2>&1
-  rc=$?
+  rc=0
+  env NCZ_WORK_DIR_GUARD_FINDMNT="$bin/findmnt" OUT="$out" NCZ_SINGULARITY_WORK_DIR="$WORK_DIR" PATH="$bin:$PATH" MOCK_CE_LOG="$MOCK_CE_LOG" TARGET_CACHE_PATH="$TARGET" bash "$BUILDER" >"$log" 2>&1 || rc=$?
   if [ "$rc" -ne 0 ] && grep -qF "$TARGET" "$log" && grep -qF "tmpfs" "$log" && [ ! -s "$MOCK_CE_LOG" ]; then
     pass "cache-guard $suffix"
   else
