@@ -1586,26 +1586,114 @@ build_singularity_payload(){
 # (ssh-keygen prints root@<host>). Measured in the d395bb2d images: the amd64 base
 # layer shipped /etc/hostname = the build host and term.log fingerprints naming
 # it. The target writes its own hostname, logs and ids at install/first boot.
+#
+# Full list (each item is removed or reset here and verified below):
+#   etc/hostname          base: localhost; any other layer: localhost if present
+#   etc/hosts             reset to the Debian default if it names another host
+#   etc/resolv.conf       mount_chroot copies the builder's resolver config into
+#                         the chroot for apt; a regular file is truncated (the
+#                         installer writes the target's own: preseed/extract-
+#                         rootfs.sh, preseed/late.sh). A symlink is left as is.
+#   etc/machine-id        truncated (empty = first boot generates it)
+#   var/lib/dbus/machine-id   removed when it is a regular file
+#   etc/mtab              a regular file becomes the ../proc/self/mounts link
+#   var/lib/systemd/random-seed, var/lib/systemd/credential.secret   removed
+#   etc/ssh/ssh_host_*    removed (generated per device at first boot)
+#   var/lib/dhcp, var/lib/dhclient, NetworkManager *.lease   leases removed
+#   var/cache/apt/*.bin, var/cache/apt/archives/*.deb, var/lib/apt/lists/*   removed
+#   var/log/*.log*, var/log/journal/*   removed
+#   root/ and home/*/ shell, editor and download histories   removed
+#   tmp/*, var/tmp/*      removed
+#   etc/lvm/backup, etc/lvm/archive, etc/nvme/hostnqn|hostid   removed
+#   file owners           the build tree is copied with cp -a, so files carry
+#                         the build user's uid/gid (1000): every owner or group
+#                         outside the system range (>= 1000, except nobody/
+#                         nogroup 65534) becomes root, and the project tree
+#                         loses the group/other write bits of the build umask.
+# etc/ld.so.cache is kept: ldconfig derives it from the layer's own libraries.
+NCZ_HOSTS_DEFAULT='127.0.0.1	localhost
+::1		localhost ip6-localhost ip6-loopback
+ff02::1		ip6-allnodes
+ff02::2		ip6-allrouters
+'
+# names a layer's etc/hosts may carry (anything else names a host)
+NCZ_HOSTS_NAMES_RE='^(localhost|localhost\.localdomain|ip6-localhost|ip6-loopback|ip6-allnodes|ip6-allrouters|ip6-localnet|ip6-mcastprefix)$'
+ncz_hosts_foreign_names(){  # file -> prints names that are not local ones
+  [ -f "$1" ] || return 0
+  sudo awk '!/^[[:space:]]*#/ && NF>1 { for (i=2; i<=NF; i++) { if ($i ~ /^#/) break; print $i } }' "$1" 2>/dev/null \
+    | grep -v -E "$NCZ_HOSTS_NAMES_RE" || true
+}
 strip_build_host_state(){
   local r="$1" label="$2" left
   [ -d "$r" ] || return 0
   sudo find "$r/var/log" -type f \( -name '*.log' -o -name '*.log.xz' -o -name '*.log.[0-9]*' \) -delete 2>/dev/null || true
+  sudo find "$r/var/log/journal" -mindepth 1 -delete 2>/dev/null || true
   sudo rm -f "$r/tmp/ncz-apt-update.log" "$r/etc/nvme/hostnqn" "$r/etc/nvme/hostid" 2>/dev/null || true
   sudo find "$r/etc/lvm/backup" "$r/etc/lvm/archive" -mindepth 1 -delete 2>/dev/null || true
-  if [ "$label" = base ]; then
+  if [ "$label" = base ] || [ -f "$r/etc/hostname" ]; then
     printf 'localhost\n' | sudo tee "$r/etc/hostname" >/dev/null
   fi
+  if [ -n "$(ncz_hosts_foreign_names "$r/etc/hosts")" ]; then
+    printf '%s' "$NCZ_HOSTS_DEFAULT" | sudo tee "$r/etc/hosts" >/dev/null
+  fi
+  if [ -f "$r/etc/resolv.conf" ] && [ ! -L "$r/etc/resolv.conf" ]; then
+    sudo truncate -s 0 "$r/etc/resolv.conf"
+  fi
+  if [ -f "$r/etc/machine-id" ] && [ ! -L "$r/etc/machine-id" ]; then
+    sudo truncate -s 0 "$r/etc/machine-id"
+  fi
+  if [ -f "$r/var/lib/dbus/machine-id" ] && [ ! -L "$r/var/lib/dbus/machine-id" ]; then
+    sudo rm -f "$r/var/lib/dbus/machine-id"
+  fi
+  if [ -f "$r/etc/mtab" ] && [ ! -L "$r/etc/mtab" ]; then
+    sudo rm -f "$r/etc/mtab"; sudo ln -s ../proc/self/mounts "$r/etc/mtab"
+  fi
+  sudo rm -f "$r/var/lib/systemd/random-seed" "$r/var/lib/systemd/credential.secret" 2>/dev/null || true
+  sudo find "$r/etc/ssh" -maxdepth 1 -name 'ssh_host_*' -delete 2>/dev/null || true
+  sudo find "$r/var/lib/dhcp" "$r/var/lib/dhclient" "$r/var/lib/NetworkManager" -maxdepth 1 -type f \
+    \( -name '*.lease' -o -name '*.leases' \) -delete 2>/dev/null || true
+  sudo find "$r/var/cache/apt" -maxdepth 1 -type f -name '*.bin' -delete 2>/dev/null || true
+  sudo find "$r/var/cache/apt/archives" -type f -name '*.deb' -delete 2>/dev/null || true
+  sudo find "$r/var/lib/apt/lists" -maxdepth 1 -type f ! -name lock ! -name '.*' -delete 2>/dev/null || true
+  sudo find "$r/var/lib/apt/lists/partial" -mindepth 1 -delete 2>/dev/null || true
+  local h
+  for h in "$r/root" "$r"/home/*; do
+    [ -d "$h" ] || continue
+    sudo rm -f "$h/.bash_history" "$h/.lesshst" "$h/.viminfo" "$h/.wget-hsts" "$h/.python_history" 2>/dev/null || true
+  done
+  sudo find "$r/tmp" "$r/var/tmp" -mindepth 1 -maxdepth 1 \
+    ! -name .X11-unix ! -name .ICE-unix ! -name .XIM-unix ! -name .font-unix -exec rm -rf {} + 2>/dev/null || true
+  # owners: build uid/gid -> root; project tree: no group/other write
+  sudo find "$r" -xdev \( \( -uid +999 ! -uid 65534 \) -o \( -gid +999 ! -gid 65534 \) \) -exec chown -h 0:0 {} + 2>/dev/null || true
+  if [ -d "$r/usr/local/lib/cix-installer" ]; then
+    sudo find "$r/usr/local/lib/cix-installer" ! -type l -perm /022 -exec chmod go-w {} + 2>/dev/null || true
+  fi
+
   left="$(sudo find "$r/var/log" -type f \( -name '*.log' -o -name '*.log.xz' \) 2>/dev/null; \
+          sudo find "$r/var/log/journal" -mindepth 1 -type f 2>/dev/null; \
           sudo find "$r/etc/lvm/backup" "$r/etc/lvm/archive" -mindepth 1 2>/dev/null; \
-          sudo find "$r/etc/nvme" -maxdepth 1 \( -name hostnqn -o -name hostid \) 2>/dev/null)"
+          sudo find "$r/etc/nvme" -maxdepth 1 \( -name hostnqn -o -name hostid \) 2>/dev/null; \
+          sudo find "$r/etc/ssh" -maxdepth 1 -name 'ssh_host_*' 2>/dev/null; \
+          sudo find "$r/var/lib/systemd" -maxdepth 1 \( -name random-seed -o -name credential.secret \) 2>/dev/null; \
+          sudo find "$r/var/lib/dhcp" "$r/var/lib/dhclient" "$r/var/lib/NetworkManager" -maxdepth 1 -type f \( -name '*.lease' -o -name '*.leases' \) 2>/dev/null; \
+          sudo find "$r/var/cache/apt/archives" -type f -name '*.deb' 2>/dev/null; \
+          sudo find "$r/var/lib/apt/lists" -maxdepth 1 -type f ! -name lock ! -name '.*' 2>/dev/null; \
+          sudo find "$r/root" "$r/home" -maxdepth 2 -type f \( -name .bash_history -o -name .lesshst -o -name .viminfo -o -name .wget-hsts -o -name .python_history \) 2>/dev/null; \
+          sudo find "$r" -xdev \( \( -uid +999 ! -uid 65534 \) -o \( -gid +999 ! -gid 65534 \) \) -print 2>/dev/null | head -5)"
   if [ "$label" = base ] && [ "$(sudo cat "$r/etc/hostname" 2>/dev/null)" != localhost ]; then
     left="$left /etc/hostname"
   fi
-  if [ -n "$left" ]; then
-    log "ERROR: $label layer would carry build-host state: $left"
+  [ -n "$(ncz_hosts_foreign_names "$r/etc/hosts")" ] && left="$left /etc/hosts"
+  if [ ! -L "$r/etc/resolv.conf" ] && sudo grep >/dev/null -sE '^[[:space:]]*(nameserver|search|domain)[[:space:]]' "$r/etc/resolv.conf"; then
+    left="$left /etc/resolv.conf"
+  fi
+  if [ ! -L "$r/etc/machine-id" ] && [ -s "$r/etc/machine-id" ]; then left="$left /etc/machine-id"; fi
+  if [ -f "$r/etc/mtab" ] && [ ! -L "$r/etc/mtab" ]; then left="$left /etc/mtab"; fi
+  if [ -n "$(printf '%s' "$left" | tr -d '[:space:]')" ]; then
+    log "ERROR: $label layer would carry build-host state: $(printf '%s' "$left" | tr '\n' ' ')"
     return 1
   fi
-  log "$label: no build-host state (hostname, LVM backup, NVMe ids, build logs)"
+  log "$label: no build-host state (hostname, hosts, resolv.conf, machine-id, mtab, random seed, ssh host keys, leases, apt caches, logs, journal, histories, tmp, LVM backup, NVMe ids, build-user owners)"
 }
 
 ensure_wallpaper_packs(){

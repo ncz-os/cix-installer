@@ -5,14 +5,22 @@
 #   build/check-layers.sh      (per-layer post-checks)
 #
 # Every check is exercised with a crafted BAD fixture (must FAIL) and, where a
-# positive case exists, a GOOD one (must PASS).  No root, no squashfs toolchain
-# required: the checks run against unpacked directory layers + stub tools.
+# positive case exists, a GOOD one (must PASS).  No squashfs toolchain required:
+# the checks run against unpacked directory layers + stub tools.  The
+# layer-ownership check reads file owners, so the fixtures must be root-owned:
+# the test re-runs itself under fakeroot (no real root needed).
 #
 #   build/test-layers-hardening.sh      exit 0 all pass, 1 any FAIL
 set -uo pipefail
 export LC_ALL=C
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
+if [ "$(id -u)" != 0 ]; then
+    if command -v fakeroot >/dev/null 2>&1 && [ -z "${NCZ_TLH_FAKEROOT:-}" ]; then
+        NCZ_TLH_FAKEROOT=1 exec fakeroot bash "$0" "$@"
+    fi
+    echo "SKIP: test-layers-hardening needs root or fakeroot (layer-ownership reads file owners)"; exit 0
+fi
 PRE="$HERE/layers-preflight.sh"
 CL="$HERE/check-layers.sh"
 

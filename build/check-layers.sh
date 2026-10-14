@@ -246,10 +246,29 @@ chk_leftovers() {  # LAYER, label
             hits="$hits etc/resolv.conf(builder)"
         fi
     fi
+    # the rest of the build-host state build/build-squashfs-layers.sh
+    # strip_build_host_state removes (keep the two lists in step)
+    if printf '%s\n' "$listing" | grep >/dev/null -x 'etc/hostname'; then
+        local hn; hn="$(_cat "$l" etc/hostname 2>/dev/null | tr -d '[:space:]')"
+        [ -z "$hn" ] || [ "$hn" = localhost ] || hits="$hits etc/hostname($hn)"
+    fi
+    if printf '%s\n' "$listing" | grep >/dev/null -x 'etc/hosts'; then
+        local hx; hx="$(_cat "$l" etc/hosts 2>/dev/null | awk '!/^[[:space:]]*#/ && NF>1 { for (i=2; i<=NF; i++) { if ($i ~ /^#/) break; print $i } }' \
+            | grep -v -E '^(localhost|localhost\.localdomain|ip6-localhost|ip6-loopback|ip6-allnodes|ip6-allrouters|ip6-localnet|ip6-mcastprefix)$' | head -3 | tr '\n' ',')"
+        [ -n "$hx" ] && hits="$hits etc/hosts(${hx%,})"
+    fi
+    if printf '%s\n' "$listing" | grep >/dev/null -x 'var/lib/dbus/machine-id'; then
+        local dm; dm="$(_cat "$l" var/lib/dbus/machine-id 2>/dev/null | tr -d '[:space:]')"
+        [ -n "$dm" ] && hits="$hits var/lib/dbus/machine-id(non-empty)"
+    fi
+    h="$(printf '%s\n' "$listing" | grep -E \
+        '^var/lib/systemd/(random-seed|credential\.secret)$|^var/lib/(dhcp|dhclient|NetworkManager)/[^/]+\.leases?$|^var/log/journal/.+/[^/]+\.journal~?$|^var/cache/apt/[^/]+\.bin$|^var/lib/apt/lists/[^./][^/]*$|^(root|home/[^/]+)/\.(bash_history|lesshst|viminfo|wget-hsts|python_history)$|^var/tmp/.' \
+        | grep -vx 'var/lib/apt/lists/lock' | grep -vx 'var/lib/apt/lists/partial' | grep -vx 'var/lib/apt/lists/auxfiles' | head -20)"
+    [ -n "$h" ] && hits="$hits $(printf '%s' "$h" | tr '\n' ' ')"
     if [ -n "$(printf '%s' "$hits" | tr -d ' ')" ]; then
         _rec "$lbl" no-build-leftovers FAIL "build leftovers present:$hits"
     else
-        _rec "$lbl" no-build-leftovers PASS "no /work, /tmp contents, .git, scratch .o, apt cache, non-empty machine-id, builder resolv.conf, ssh host keys, bash history"
+        _rec "$lbl" no-build-leftovers PASS "no /work, /tmp contents, .git, scratch .o, apt cache/lists, non-empty machine-id, builder resolv.conf/hostname/hosts, random seed, leases, journal, ssh host keys, shell histories"
     fi
 }
 
@@ -312,9 +331,19 @@ chk_manifest() {  # LAYER, label, manifest
 chk_no_ubuntu() {  # LAYER, label
     local l="$1" lbl="$2"
     _has "$l" "var/lib/dpkg/status" || { _rec "$lbl" no-ubuntu SKIP "no dpkg status"; return; }
-    local st; st="$(_cat "$l" var/lib/dpkg/status 2>/dev/null)"
-    if printf '%s' "$st" | grep >/dev/null -iE '^(Origin|Maintainer|Homepage):.*(ubuntu|canonical)'; then
-        _rec "$lbl" no-ubuntu FAIL "a package names Ubuntu/Canonical in Origin/Maintainer/Homepage"
+    local st hit; st="$(_cat "$l" var/lib/dpkg/status 2>/dev/null)"
+    # An Ubuntu build shows as Origin: Ubuntu/Canonical, the Ubuntu Developers or
+    # Canonical maintainer, or an Ubuntu version suffix (0ubuntu1, 3build1). A
+    # Debian package whose Debian maintainer has an ubuntu.com address
+    # (libeditorconfig0, libtss2-*) or whose name or homepage contains
+    # "canonical" (node-unicode-canonical-property-names-ecmascript) is not.
+    hit="$(printf '%s\n' "$st" | awk '
+        /^Package:/ { p = $2 }
+        /^Origin:[[:space:]]*(Ubuntu|Canonical)/ { print p; next }
+        /^Maintainer:[[:space:]]*(Ubuntu (Core )?Developers|Canonical)/ { print p; next }
+        /^Version:.*[0-9](ubuntu|build)[0-9]+/ { print p }' | sort -u | tr '\n' ' ')"
+    if [ -n "${hit// /}" ]; then
+        _rec "$lbl" no-ubuntu FAIL "Ubuntu-built package(s): $hit"
     elif _has "$l" "etc/apt/sources.list" && _cat "$l" etc/apt/sources.list 2>/dev/null | grep >/dev/null -i ubuntu; then
         _rec "$lbl" no-ubuntu FAIL "etc/apt/sources.list references ubuntu"
     else
@@ -396,7 +425,10 @@ chk_content_assertions() {  # LAYER, label
     )
     if _has "$l" "opt/singularity/bin/singularity-desktop"; then
         checks=$((checks+1))
-        _has "$l" "usr/share/wayland-sessions/singularity-labwc-session.desktop" || fails="$fails greeter-session-desktop"
+        # the session the greeter offers; post-install/20-desktop.sh writes both.
+        # (singularity-labwc-session.desktop, checked before, was never written.)
+        { _has "$l" "usr/share/wayland-sessions/singularity.desktop" && _has "$l" "usr/local/bin/ncz-singularity"; } \
+            || fails="$fails greeter-session-desktop"
     fi
     # greeter / gpu switcher / modprobe blacklists are base+desktop facts
     if _has "$l" "etc/modprobe.d" || _has "$l" "opt/singularity/bin/labwc"; then
@@ -417,7 +449,28 @@ chk_content_assertions() {  # LAYER, label
     # apt policy + forky-only rule
     if _has "$l" "etc/apt/apt.conf.d" || _has "$l" "etc/apt/sources.list.d"; then
         checks=$((checks+1))
-        _has "$l" "usr/bin/ncz-apt-policy" || _has "$l" "etc/apt/apt.conf.d/99ncz-policy" || fails="$fails ncz-apt-policy"
+        # usr/bin/ncz-apt-policy and etc/apt/apt.conf.d/99ncz-policy, checked
+        # before, are produced by nothing in the tree. What ships:
+        #   * a layer where the ncz-apt-policy package is installed carries its
+        #     helper, its library and the pin its postinst writes;
+        #   * otherwise the package is installed at install time (manifests/
+        #     install-extra.pkgs + hook 24), so the layer carries the installer's
+        #     hook, its library and that package list;
+        #   * the base layer also carries the Debian kernel-purity pin.
+        local _ip="usr/local/lib/cix-installer"
+        if _cat "$l" var/lib/dpkg/status 2>/dev/null | awk '/^Package:/{p=$2} /^Status:/{ if (p=="ncz-apt-policy" && $0 ~ /install ok installed/) f=1 } END{exit !f}'; then
+            { _has "$l" "usr/sbin/ncz-apt-source" && _has "$l" "usr/share/ncz-apt-policy/apt-separation.sh" \
+              && _has "$l" "etc/apt/preferences.d/10-ncz-origin-separation.pref"; } || fails="$fails ncz-apt-policy(package-files)"
+        elif _has "$l" "$_ip/post-install/24-apt-sources.sh" || _has "$l" "$_ip/post-install/lib/apt-separation.sh"; then
+            { _has "$l" "$_ip/post-install/24-apt-sources.sh" && _has "$l" "$_ip/post-install/lib/apt-separation.sh" \
+              && _cat "$l" "$_ip/manifests/install-extra.pkgs" 2>/dev/null | sed 's/#.*//' | grep >/dev/null -x '[[:space:]]*ncz-apt-policy[[:space:]]*'; } \
+              || fails="$fails ncz-apt-policy(install-time)"
+        else
+            fails="$fails ncz-apt-policy(absent)"
+        fi
+        if [ "$lbl" = base ]; then
+            _has "$l" "etc/apt/preferences.d/00-ncz-kernel-purity.pref" || fails="$fails ncz-kernel-purity-pin"
+        fi
     fi
     if [ "$checks" = 0 ]; then _rec "$lbl" content-assertions SKIP "layer carries none of the checked desktop/base facts"; return; fi
     if [ -n "$fails" ]; then
@@ -464,6 +517,43 @@ chk_setuid_worldwritable() {  # LAYER, label
         _rec "$lbl" world-writable-allowlist WARN "world-writable dirs outside allow-list:$ww_bad"
     else
         _rec "$lbl" world-writable-allowlist PASS "no world-writable dirs outside allow-list"
+    fi
+}
+
+# Owners: a layer is built as root from packages and from the project tree; no
+# account exists yet, so an owner or group >= 1000 (other than nobody/nogroup
+# 65534) is the build user leaking in through cp -a. Reviewed exceptions are
+# 'owner' rows in build/layer-perms-allowlist.tsv (path regex).
+_owners_raw() {  # uid<TAB>gid<TAB>path
+    local l="$1" k; k="$(_layer_kind "$l")"
+    case "$k" in
+        dir)  ( cd "$l" && find . -mindepth 1 -printf '%U\t%G\t%P\n' 2>/dev/null ) ;;
+        sqfs) unsquashfs -no-progress -lln "$l" 2>/dev/null | awk '
+                  { og=$2; split(og, o, "/");
+                    di=0; for (i=3; i<=NF; i++) if ($i ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) { di=i; break }
+                    if (di==0) next;
+                    path=""; for (i=di+2; i<=NF; i++) path = path (i>di+2?" ":"") $i;
+                    sub(/^squashfs-root\//,"",path); sub(/^squashfs-root$/,"",path); sub(/ -> .*$/,"",path);
+                    if (path != "") printf "%s\t%s\t%s\n", o[1], o[2], path }' ;;
+        *) return 1 ;;
+    esac
+}
+chk_ownership() {  # LAYER, label
+    local l="$1" lbl="$2" own
+    own="$(_cached owners "$l" _owners_raw "$l")"
+    [ -n "$own" ] || { _rec "$lbl" layer-ownership SKIP "no owner listing available"; return; }
+    local allow="$ROOT/build/layer-perms-allowlist.tsv" pats=""
+    [ -f "$allow" ] && pats="$(awk -F'\t' '$1=="owner"{print $2}' "$allow")"
+    local badl
+    badl="$(printf '%s\n' "$own" | awk -F'\t' '($1+0>=1000 && $1+0!=65534) || ($2+0>=1000 && $2+0!=65534) {print $1"/"$2" "$3}')"
+    if [ -n "$pats" ] && [ -n "$badl" ]; then
+        badl="$(printf '%s\n' "$badl" | while IFS= read -r line; do
+            path="${line#* }"; printf '%s\n' "$pats" | while IFS= read -r pat; do { printf "%s" "$path" | grep >/dev/null -E "$pat" && echo hit; } || true; done | grep >/dev/null hit || printf '%s\n' "$line"; done)"
+    fi
+    if [ -n "$badl" ]; then
+        _rec "$lbl" layer-ownership FAIL "$(printf '%s\n' "$badl" | grep -c .) member(s) owned by a non-system uid/gid (sample: $(printf '%s\n' "$badl" | head -3 | tr '\n' ';'))"
+    else
+        _rec "$lbl" layer-ownership PASS "no member owned by a non-system uid/gid"
     fi
 }
 
@@ -539,6 +629,7 @@ main() {
         chk_singularity_version "$l" "$lbl" "$PAYLOAD_DEB"
         chk_content_assertions "$l" "$lbl"
         chk_setuid_worldwritable "$l" "$lbl"
+        chk_ownership "$l" "$lbl"
         chk_services "$l" "$lbl"
         chk_firstboot_exec "$l" "$lbl"
         chk_chain "$l" "$lbl" "$CHAIN" "$EXPECT_PARENT"

@@ -2,6 +2,8 @@
 # Columns (TAB): kind, path-regex, reason
 #   kind = suid  -> a setuid/setgid FILE outside this list FAILS
 #   kind = ww    -> a world-writable DIRECTORY outside this list WARNs
+#   kind = owner -> a member owned by a uid/gid >= 1000 (not 65534) outside this list FAILS
+#                   (no rows: every layer member is owned by a system account)
 # The path regex is matched (grep -E) against the layer-relative member path.
 # Keep this list tight: it exists so an unexpected setuid binary fails loudly.
 suid	^usr/bin/(sudo|passwd|chsh|chfn|chage|gpasswd|newgrp|su|mount|umount|pkexec)$	coreutils/util-linux/shadow setuid helpers (Debian base)
@@ -15,9 +17,9 @@ suid	^usr/lib/openssh/ssh-keysign$	OpenSSH host-based auth helper
 suid	^usr/lib/dbus-1\.0/dbus-daemon-launch-helper$	D-Bus system bus helper
 suid	^usr/lib/polkit-1/polkit-agent-helper-1$	polkit auth helper
 suid	^usr/libexec/polkit-agent-helper-1$	polkit auth helper (merged-/usr)
-suid	^usr/lib/x86_64-linux-gnu/vte-\d+/vte-spawn-helper$	VTE terminal spawn helper (amd64)
-suid	^usr/lib/aarch64-linux-gnu/vte-\d+/vte-spawn-helper$	VTE terminal spawn helper (arm64)
-suid	^usr/lib/vte-\d+/vte-spawn-helper$	VTE terminal spawn helper
+suid	^usr/lib/x86_64-linux-gnu/vte-[0-9.]+/vte-spawn-helper$	VTE terminal spawn helper (amd64)
+suid	^usr/lib/aarch64-linux-gnu/vte-[0-9.]+/vte-spawn-helper$	VTE terminal spawn helper (arm64)
+suid	^usr/lib/vte-[0-9.]+/vte-spawn-helper$	VTE terminal spawn helper
 suid	^usr/lib/.*/snap-confine$	snap confinement helper
 suid	^usr/bin/ntfs-3g$	ntfs-3g setuid mount helper
 ww	^tmp$	tmp (mount point, contents are not a layer fact)
