@@ -51,6 +51,8 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     printf 'xx h264_v4l2m2m xx' > "$r/usr/lib/aarch64-linux-gnu/libavcodec.so.62.1.100"
     printf 'Package: google-chrome-stable\nStatus: install ok installed\n\nPackage: chromium-ncz-sky1\nStatus: install ok installed\n\n' > "$r/var/lib/dpkg/status"
     mkdir -p "$r/etc"; echo ncz-acrab-1717 > "$r/etc/hostname"
+    printf '127.0.0.1\tlocalhost\n127.0.1.1\tncz-acrab-1717\n::1\t\tlocalhost ip6-localhost ip6-loopback\n' > "$r/etc/hosts"
+    ln -sf ../run/systemd/resolve/stub-resolv.conf "$r/etc/resolv.conf"
     # bing wallpaper prefetch
     mkdir -p "$r/usr/local/bin" "$r/usr/lib/systemd/user" "$r/etc/systemd/user/timers.target.wants" "$r/opt/singularity/lib/singularity/plugins/wallpapers-bing"
     echo x > "$r/usr/local/bin/ncz-wallpaper-bing"
@@ -308,6 +310,12 @@ m_aud_nopactl()  { rm -f "$1/usr/bin/pactl"; }
 m_hn_setup()    { echo ncz-setup > "$1/etc/hostname"; }
 m_hn_machex()   { echo ncz-20e7bc > "$1/etc/hostname"; }
 m_hn_upper()    { echo NCZ-Acrab-1717 > "$1/etc/hostname"; }
+m_rc_stubcopy() { rm -f "$1/etc/resolv.conf"; printf '# This is /run/systemd/resolve/stub-resolv.conf managed by man:systemd-resolved(8).\nnameserver 127.0.0.53\nsearch builder.example\n' > "$1/etc/resolv.conf"; }
+m_rc_static()   { rm -f "$1/etc/resolv.conf"; printf '# install-time DNS\nnameserver 9.9.9.9\noptions timeout:2 attempts:3\n' > "$1/etc/resolv.conf"; }
+m_rc_empty()    { rm -f "$1/etc/resolv.conf"; : > "$1/etc/resolv.conf"; }
+m_rc_missing()  { rm -f "$1/etc/resolv.conf"; }
+m_hosts_other() { printf '127.0.1.1\tbuilder.example builder\n' >> "$1/etc/hosts"; }
+m_hosts_fqdn()  { printf '127.0.1.1\tncz-acrab-1717.localdomain ncz-acrab-1717\n' >> "$1/etc/hosts"; }
 m_wp_nohelper() { rm -f "$1/usr/local/bin/ncz-wallpaper-bing"; }
 m_wp_nounit()   { rm -f "$1/usr/lib/systemd/user/ncz-wallpaper-bing-daily.timer"; }
 m_wp_noenable() { rm -f "$1/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing.timer"; }
@@ -394,6 +402,13 @@ run_case "no cixdec0 loader fails"              1 m_no_loader
 run_case "placeholder hostname fails"           1 m_hn_setup
 run_case "MAC-hex fallback hostname fails"      1 m_hn_machex
 run_case "malformed generated hostname fails"   1 m_hn_upper
+run_case "resolv.conf: systemd-resolved stub link passes" 0 "" "resolv.conf -> ../run/systemd/resolve/stub-resolv.conf"
+run_case "resolv.conf: copied stub file fails"   1 m_rc_stubcopy "a copied file"
+run_case "resolv.conf: installer static file passes" 0 m_rc_static "written for this system"
+run_case "resolv.conf: empty file fails"         1 m_rc_empty
+run_case "resolv.conf: missing fails"            1 m_rc_missing
+run_case "hosts naming another host fails"       1 m_hosts_other "names other hosts"
+run_case "hosts with the own FQDN passes"        0 m_hosts_fqdn "local names and ncz-acrab-1717"
 run_case "no wallpaper helper fails"            1 m_wp_nohelper
 run_case "missing daily timer unit fails"       1 m_wp_nounit
 run_case "wallpaper timer not enabled fails"    1 m_wp_noenable
