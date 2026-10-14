@@ -26,5 +26,11 @@
 # PrepareForSleep), 0023 (saver resumes when the prompt lowers), leafs 0001
 # (window buttons with the classic titlebar) and nearby 0001+0002 (links are
 # freed when they close; an open link is kept when the peer announces itself).
-amd64	1f2564d3d125ad1c8e2dc0ffbe64bc83b18eaa6ea6aafe5fc50b093dc37a8e1a	ncz-singularity-desktop_20261013233000+bk0+tgzef364e5b_amd64.deb
-arm64	4d16a21f024ca74bb9e40ab74251f37a0591d7d55078548948108d4bc8715e31	ncz-singularity-desktop_20261013233000+bk0+tgz03b581f4_arm64.deb
+# 20261014180000 is built from the 2026-10-14 upstream heads (shell 5430ce14,
+# libsingularity cbf3d7e1, plugins 869d2afc, nearby 6b507295, session 2a1f4331,
+# superproject 13b79e78) after the upstream merge of the 2026-10-13 pull requests.
+# Queue: shell 0003 0005 0013-0023, libsingularity 0002-0004, plugins 0002 0004 0007,
+# leafs 0001, nearby 0002, greeter/loginui/session/write unchanged. Shell 0002 0004
+# 0006, desktop 0001 0002, plugins 0001 0003 0005 0006 and nearby 0001 merged upstream.
+amd64	63f3608e5263231a5d30fbf604281c871f78f965d47f1e34d0f03506041e72de	ncz-singularity-desktop_20261014180000+bk0+tgz864c3474_amd64.deb
+arm64	26cbb1fb82cb659d75565030967b40eba214a2332e582d1a9190558c7e94fa7e	ncz-singularity-desktop_20261014180000+bk0+tgz3e680985_arm64.deb
