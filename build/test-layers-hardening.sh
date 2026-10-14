@@ -92,6 +92,11 @@ bb2="$T/bad-brlapi-pkg"; cp -a "$good" "$bb2"
 printf '\nPackage: libbrlapi0.8\nStatus: install ok installed\nVersion: 6.9.1\n' >> "$bb2/var/lib/dpkg/status"
 tsv="$(lc "$bb2")"
 assert_check "$tsv" no-braille FAIL "libbrlapi package record: no-braille FAIL"
+for state in unpacked config-files; do
+    bb="$T/bad-brltty-$state"; cp -a "$good" "$bb"
+    printf '\nPackage: brltty\nStatus: install ok %s\nVersion: 6.9.1\n' "$state" >> "$bb/var/lib/dpkg/status"
+    assert_check "$(lc "$bb")" no-braille FAIL "brltty $state record: no-braille FAIL"
+done
 bb3="$T/ok-brltty-word"; cp -a "$good" "$bb3"; mkdir -p "$bb3/usr/share/doc/foo"
 : > "$bb3/usr/share/doc/foo/notes-about-brltty-support.txt"
 tsv="$(lc "$bb3")"
