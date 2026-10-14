@@ -367,7 +367,7 @@ else
     fail "Test9: SCRIPT_DIR did not resolve (cwd=$(pwd))"
 fi
 
-for suffix in caches/go caches/go-build caches/go/pkg/mod caches/xdg; do
+for suffix in caches/go caches/go-build caches/go/pkg/mod caches/xdg tmp; do
   case=$(mktemp -d "$TASK_TMP_DIR/cache-guard.XXXXXX")
   WORK_DIR="$case/work"
   TARGET="$case/work/$suffix"

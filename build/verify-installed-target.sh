@@ -567,6 +567,8 @@ if [ "$V_DESKTOP" = 1 ]; then
 echo "[verify-target] (vii) Bing wallpaper prefetch"
 exists /usr/local/bin/ncz-wallpaper-bing || gate_miss wallpaper "/usr/local/bin/ncz-wallpaper-bing"
 exists /usr/local/bin/singularity-wallpaper-bing || gate_miss wallpaper "/usr/local/bin/singularity-wallpaper-bing"
+exists /usr/local/bin/ncz-wallpaper-ocs || gate_miss wallpaper "/usr/local/bin/ncz-wallpaper-ocs"
+exists /usr/local/bin/singularity-wallpaper-ocs || gate_miss wallpaper "/usr/local/bin/singularity-wallpaper-ocs"
 for u in ncz-wallpaper-bing.service ncz-wallpaper-bing.timer ncz-wallpaper-bing-daily.timer; do
     exists "/usr/lib/systemd/user/$u" || gate_miss wallpaper "/usr/lib/systemd/user/$u"
 done

@@ -57,6 +57,8 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     mkdir -p "$r/usr/local/bin" "$r/usr/lib/systemd/user" "$r/etc/systemd/user/timers.target.wants" "$r/opt/singularity/lib/singularity/plugins/wallpapers-bing"
     echo x > "$r/usr/local/bin/ncz-wallpaper-bing"
     ln -s ncz-wallpaper-bing "$r/usr/local/bin/singularity-wallpaper-bing"
+    echo x > "$r/usr/local/bin/ncz-wallpaper-ocs"
+    ln -s ncz-wallpaper-ocs "$r/usr/local/bin/singularity-wallpaper-ocs"
     for u in ncz-wallpaper-bing.service ncz-wallpaper-bing.timer ncz-wallpaper-bing-daily.timer; do echo x > "$r/usr/lib/systemd/user/$u"; done
     ln -s /usr/lib/systemd/user/ncz-wallpaper-bing.timer "$r/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing.timer"
     ln -s /usr/lib/systemd/user/ncz-wallpaper-bing-daily.timer "$r/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing-daily.timer"
@@ -134,7 +136,7 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     # Real-shape 0.8.16 feed policy markers (verifier section (f4)). The test
     # never executes the feed; it only greps these text markers.
     cat > "$r/usr/libexec/ncz-screensaver-feed" <<'SSFEED'
-DEFAULT_SAVER_POLICY_REV = 2
+"weak_lock_fps": WEAK_LOCK_FPS,
 DEFAULT_LOCK_FPS = 30
 DEFAULT_RENDER_DIV = 1
 LFS_FLAG_PAUSE
@@ -266,6 +268,7 @@ m_ss_schema()   { printf 'nothing' > "$1/usr/share/glib-2.0/schemas/gschemas.com
 # (f4) lock-saver feed policy mutations
 m_ss_feed_missing() { rm -f "$1/usr/libexec/ncz-screensaver-feed"; }
 m_ss_feed_no_v2() { sed -i '/DEFAULT_SAVER_POLICY_REV = 2/d; /weak_lock_fps/d' "$1/usr/libexec/ncz-screensaver-feed"; }
+m_ss_feed_oldfeed() { sed -i 's/^DEFAULT_LOCK_FPS = 30$/DEFAULT_LOCK_FPS = 8/; s/^DEFAULT_RENDER_DIV = 1$/DEFAULT_RENDER_DIV = 2/' "$1/usr/libexec/ncz-screensaver-feed"; }
 m_ss_feed_wrong_fps() { sed -i 's/^DEFAULT_LOCK_FPS = 30$/DEFAULT_LOCK_FPS = 15/' "$1/usr/libexec/ncz-screensaver-feed"; }
 m_ss_feed_render_div2() { sed -i 's/^DEFAULT_RENDER_DIV = 1$/DEFAULT_RENDER_DIV = 2/' "$1/usr/libexec/ncz-screensaver-feed"; }
 m_ss_feed_no_pause() { sed -i '/LFS_FLAG_PAUSE/d' "$1/usr/libexec/ncz-screensaver-feed"; }
@@ -359,6 +362,8 @@ m_rc_missing()  { rm -f "$1/etc/resolv.conf"; }
 m_hosts_other() { printf '127.0.1.1\tbuilder.example builder\n' >> "$1/etc/hosts"; }
 m_hosts_fqdn()  { printf '127.0.1.1\tncz-acrab-1717.localdomain ncz-acrab-1717\n' >> "$1/etc/hosts"; }
 m_wp_nohelper() { rm -f "$1/usr/local/bin/ncz-wallpaper-bing"; }
+m_wp_ocs_nohelper() { rm -f "$1/usr/local/bin/ncz-wallpaper-ocs"; }
+m_wp_ocs_nolink() { rm -f "$1/usr/local/bin/singularity-wallpaper-ocs"; }
 m_wp_nolink()   { rm -f "$1/usr/local/bin/singularity-wallpaper-bing"; }
 m_wp_nounit()   { rm -f "$1/usr/lib/systemd/user/ncz-wallpaper-bing-daily.timer"; }
 m_wp_noenable() { rm -f "$1/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing.timer"; }
@@ -453,6 +458,8 @@ run_case "resolv.conf: missing fails"            1 m_rc_missing
 run_case "hosts naming another host fails"       1 m_hosts_other "names other hosts"
 run_case "hosts with the own FQDN passes"        0 m_hosts_fqdn "local names and ncz-acrab-1717"
 run_case "no wallpaper helper fails"            1 m_wp_nohelper
+run_case "ocs helper missing fails" 1 m_wp_ocs_nohelper
+run_case "ocs symlink missing fails" 1 m_wp_ocs_nolink
 run_case "no neutral-name wallpaper helper fails" 1 m_wp_nolink
 run_case "missing daily timer unit fails"       1 m_wp_nounit
 run_case "wallpaper timer not enabled fails"    1 m_wp_noenable
@@ -502,6 +509,7 @@ run_case "catalogue under 74 rows fails"        1 m_ss_short_catalogue
 run_case "default saver is not blackhole fails" 1 m_ss_no_blackhole_default
 run_case "screensaver feed missing fails"       1 m_ss_feed_missing
 run_case "screensaver feed without v2 policy markers fails" 1 m_ss_feed_no_v2
+run_case "screensaver feed with legacy weak marker but wrong fps/div fails" 1 m_ss_feed_oldfeed
 run_case "screensaver feed with wrong lock fps fails" 1 m_ss_feed_wrong_fps
 run_case "screensaver feed rendering at half resolution fails" 1 m_ss_feed_render_div2
 run_case "screensaver feed without LFS_FLAG_PAUSE fails" 1 m_ss_feed_no_pause
