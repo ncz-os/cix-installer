@@ -101,6 +101,27 @@ SRC_DIR="${SINGULARITY_SOURCE_DIR:-}"
 VETRO_REPO="${VETRO_REPO:-https://github.com/singularityos-lab/vetro}"
 PREFIX="/opt/singularity"
 OUT="${OUT:-$(cd "$(dirname "$0")/.." && pwd)/build/sinty-out}"
+# Host-owned container workspace. Inside the container /work holds the clone,
+# the meson build tree, and DESTDIR staging; nothing inside the container
+# must live on copy-on-write overlay scratch, because a hard kill of the
+# container would erase it and a slow host would deadlock on overlay churn.
+# NCZ_SINGULARITY_WORK_DIR overrides for build hosts that prefer a different
+# mount; the default sits inside ~/Projects so the build artefacts live on
+# the same disk-backed ext4 path root as the checkout (never tmpfs).
+WORK_DIR="${NCZ_SINGULARITY_WORK_DIR:-$HOME/Projects/work}"
+# Hard guard: refuse to start a build whose workspace would land on tmpfs
+# or any overlay/aufs scratch. findmnt exit non-zero (path not mounted /
+# no source) is fine; finding the literal tmpfs/overlay strings is a hard
+# failure with the offending mount, before any apt fetch.
+_findmnt_target="$(findmnt -T "$WORK_DIR" -o FSTYPE -n 2>/dev/null || true)"
+case "$_findmnt_target" in
+    tmpfs|overlay|aufs) echo "ERROR: WORK_DIR=$WORK_DIR is on $_findmnt_target; refusing to build on tmpfs/overlay scratch." >&2; exit 1 ;;
+esac
+mkdir -p "$WORK_DIR/tmp"
+# Container TMPDIR is on the host-owned bind (not overlay /tmp), so any
+# process the helper spawns that respawns apt or writes scratch state
+# sees the same backing store the rest of the build is using.
+export NCZ_SINGULARITY_TMPDIR="$WORK_DIR/tmp"
 . "$(cd "$(dirname "$0")" && pwd)/lib/ncz-site.sh"
 PUSH_STORE=0
 case "${1:-}" in --push|--push-argonas) PUSH_STORE=1 ;; esac
@@ -148,6 +169,19 @@ echo "           $OUT/singularity-opt.tgz.sources (upstream commit of every repo
 BUILD_SCRIPT='
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+# Keep apt scratch on the host-owned bind so the simulation and the real
+# install do not race against overlay /tmp churn.
+export TMPDIR=/work/tmp
+mkdir -p "$TMPDIR"
+# ZERO-REMOVALS GATE (NCZ-OS payload policy): simulate the exact install
+# first against the same package list, against the SAME base that the real
+# install will read. The simulation must finish cleanly (exit 0) AND must
+# not print any "Remv " line -- a Remv here means we are about to delete
+# a package the shipped system still needs (e.g. pulling libfoo-dev which
+# Conflicts/Replaces libfoo on the target). No bypass, no --allow-downgrades,
+# no --no-trusted; if the dependency resolution itself is wrong, the build
+# fails here with the exact Remv line, not silently later.
+bash /ncz-build/apt-sim-zero-removals.sh /work/tmp/apt-sim.log
 apt-get update -q
 # SIT (subprojects/sit, the toolkit the superproject builds since 615dba0) needs the
 # gstreamer-play, vulkan/glslc, colord and X11 extension headers in the block before
@@ -655,9 +689,11 @@ esac
 
 echo "== running build in $IMAGE ($CE)${NCZ_CONTAINER_PLATFORM:+ platform=$NCZ_CONTAINER_PLATFORM} =="
 CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
+         -v "$WORK_DIR":/work \
          -v "$REPO_ROOT/build":/ncz-build:ro \
          -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV" \
-         -e NCZ_SINGULARITY_TRACK_HEAD="$TRACK_HEAD")
+         -e NCZ_SINGULARITY_TRACK_HEAD="$TRACK_HEAD" \
+         -e NCZ_SINGULARITY_TMPDIR="$NCZ_SINGULARITY_TMPDIR")
 # Optional exact SceneFX commit for the wrap the compositor-pins resolver
 # freezes (build/patch-singularity-scenefx.sh honours it). Unset -> the helper
 # resolves labwc's scenefx.wrap revision itself.
