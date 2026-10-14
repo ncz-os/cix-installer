@@ -803,7 +803,7 @@ $_found"
       [ -f "$MG/usr/local/lib/cix-installer/post-install/$bh.sh" ] || { log "  skip $bh (absent)"; continue; }
       log "  desktop brand hook -> $bh"
       set +e
-      sudo chroot "$MG" bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3
+      sudo chroot "$MG" env NCZ_LAYER_BUILD=1 bash -c "cd /usr/local/lib/cix-installer/post-install && bash ./$bh.sh" 2>&1 | tail -3
       hook_rc=${PIPESTATUS[0]}
       set -e
       if [ "$hook_rc" -ne 0 ]; then
@@ -1602,7 +1602,12 @@ build_singularity_payload(){
 #   var/lib/dhcp, var/lib/dhclient, NetworkManager *.lease   leases removed
 #   var/cache/apt/*.bin, var/cache/apt/archives/*.deb, var/lib/apt/lists/*   removed
 #   var/log/*.log*, var/log/journal/*   removed
-#   root/ and home/*/ shell, editor and download histories   removed
+#   root/                 only Debian's .bashrc, .profile and an empty .ssh stay;
+#                         .config, .local, .cache ... written by programs the
+#                         build ran as root are removed
+#   home/*                removed (no account exists in a layer)
+#   var/opt/vivaldi/media-codecs-*   removed (fetched by Vivaldi's update-ffmpeg,
+#                         part of no package; 52-vivaldi.sh blocks the fetch)
 #   tmp/*, var/tmp/*      removed
 #   etc/lvm/backup, etc/lvm/archive, etc/nvme/hostnqn|hostid   removed
 #   file owners           the build tree is copied with cp -a, so files carry
@@ -1656,11 +1661,12 @@ strip_build_host_state(){
   sudo find "$r/var/cache/apt/archives" -type f -name '*.deb' -delete 2>/dev/null || true
   sudo find "$r/var/lib/apt/lists" -maxdepth 1 -type f ! -name lock ! -name '.*' -delete 2>/dev/null || true
   sudo find "$r/var/lib/apt/lists/partial" -mindepth 1 -delete 2>/dev/null || true
-  local h
-  for h in "$r/root" "$r"/home/*; do
-    [ -d "$h" ] || continue
-    sudo rm -f "$h/.bash_history" "$h/.lesshst" "$h/.viminfo" "$h/.wget-hsts" "$h/.python_history" 2>/dev/null || true
-  done
+  if [ -d "$r/root" ]; then
+    sudo find "$r/root" -mindepth 1 -maxdepth 1 ! -name .bashrc ! -name .profile ! -name .ssh -exec rm -rf {} + 2>/dev/null || true
+    sudo find "$r/root/.ssh" -mindepth 1 -exec rm -rf {} + 2>/dev/null || true
+  fi
+  sudo find "$r/home" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+  sudo rm -rf "$r"/var/opt/vivaldi/media-codecs-* 2>/dev/null || true
   sudo find "$r/tmp" "$r/var/tmp" -mindepth 1 -maxdepth 1 \
     ! -name .X11-unix ! -name .ICE-unix ! -name .XIM-unix ! -name .font-unix -exec rm -rf {} + 2>/dev/null || true
   # owners: build uid/gid -> root; project tree: no group/other write
@@ -1678,7 +1684,9 @@ strip_build_host_state(){
           sudo find "$r/var/lib/dhcp" "$r/var/lib/dhclient" "$r/var/lib/NetworkManager" -maxdepth 1 -type f \( -name '*.lease' -o -name '*.leases' \) 2>/dev/null; \
           sudo find "$r/var/cache/apt/archives" -type f -name '*.deb' 2>/dev/null; \
           sudo find "$r/var/lib/apt/lists" -maxdepth 1 -type f ! -name lock ! -name '.*' 2>/dev/null; \
-          sudo find "$r/root" "$r/home" -maxdepth 2 -type f \( -name .bash_history -o -name .lesshst -o -name .viminfo -o -name .wget-hsts -o -name .python_history \) 2>/dev/null; \
+          sudo find "$r/root" -mindepth 1 -maxdepth 1 ! -name .bashrc ! -name .profile ! -name .ssh 2>/dev/null; \
+          sudo find "$r/root/.ssh" "$r/home" -mindepth 1 2>/dev/null; \
+          sudo find "$r/var/opt/vivaldi" -maxdepth 1 -name 'media-codecs-*' 2>/dev/null; \
           sudo find "$r" -xdev \( \( -uid +999 ! -uid 65534 \) -o \( -gid +999 ! -gid 65534 \) \) -print 2>/dev/null | head -5)"
   if [ "$label" = base ] && [ "$(sudo cat "$r/etc/hostname" 2>/dev/null)" != localhost ]; then
     left="$left /etc/hostname"
@@ -1693,7 +1701,7 @@ strip_build_host_state(){
     log "ERROR: $label layer would carry build-host state: $(printf '%s' "$left" | tr '\n' ' ')"
     return 1
   fi
-  log "$label: no build-host state (hostname, hosts, resolv.conf, machine-id, mtab, random seed, ssh host keys, leases, apt caches, logs, journal, histories, tmp, LVM backup, NVMe ids, build-user owners)"
+  log "$label: no build-host state (hostname, hosts, resolv.conf, machine-id, mtab, random seed, ssh host keys, leases, apt caches, logs, journal, root and home contents, downloaded codecs, tmp, LVM backup, NVMe ids, build-user owners)"
 }
 
 ensure_wallpaper_packs(){

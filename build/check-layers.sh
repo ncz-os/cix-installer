@@ -231,6 +231,10 @@ chk_leftovers() {  # LAYER, label
         '^work(/|$)|^tmp/|(^|/)\.git(/|$)|^root/\.bash_history$|^var/cache/apt/archives/.*\.deb$|^etc/ssh/ssh_host_[a-z0-9_]+(_key)?(\.pub)?$' \
         | grep -vE '^tmp/\.(X11-unix|ICE-unix|XIM-unix|font-unix)(/|$)' | head -20)"
     [ -n "$h" ] && hits="$hits $(printf '%s' "$h" | tr '\n' ' ')"
+    # root's home: Debian's .bashrc/.profile and an empty .ssh only; anything
+    # else (.config, .local, .cache ...) was written by a program the build ran
+    h="$(printf '%s\n' "$listing" | grep -E '^root/[^/]+$' | grep -vxE 'root/\.(bashrc|profile|ssh)' | head -10)"
+    [ -n "$h" ] && hits="$hits $(printf '%s' "$h" | tr '\n' ' ')"
     # object files ONLY under build-scratch prefixes (usr/lib/gcc ships legit .o)
     h="$(printf '%s\n' "$listing" | grep -E '^(work|tmp|root|build|var/tmp)/.*\.o$' | head -10)"
     [ -n "$h" ] && hits="$hits $(printf '%s' "$h" | tr '\n' ' ')"
@@ -262,7 +266,7 @@ chk_leftovers() {  # LAYER, label
         [ -n "$dm" ] && hits="$hits var/lib/dbus/machine-id(non-empty)"
     fi
     h="$(printf '%s\n' "$listing" | grep -E \
-        '^var/lib/systemd/(random-seed|credential\.secret)$|^var/lib/(dhcp|dhclient|NetworkManager)/[^/]+\.leases?$|^var/log/journal/.+/[^/]+\.journal~?$|^var/cache/apt/[^/]+\.bin$|^var/lib/apt/lists/[^./][^/]*$|^(root|home/[^/]+)/\.(bash_history|lesshst|viminfo|wget-hsts|python_history)$|^var/tmp/.' \
+        '^var/lib/systemd/(random-seed|credential\.secret)$|^var/lib/(dhcp|dhclient|NetworkManager)/[^/]+\.leases?$|^var/log/journal/.+/[^/]+\.journal~?$|^var/cache/apt/[^/]+\.bin$|^var/lib/apt/lists/[^./][^/]*$|^root/\.ssh/.|^home/.|^var/opt/vivaldi/media-codecs-|^var/tmp/.' \
         | grep -vx 'var/lib/apt/lists/lock' | grep -vx 'var/lib/apt/lists/partial' | grep -vx 'var/lib/apt/lists/auxfiles' | head -20)"
     [ -n "$h" ] && hits="$hits $(printf '%s' "$h" | tr '\n' ' ')"
     if [ -n "$(printf '%s' "$hits" | tr -d ' ')" ]; then

@@ -6,9 +6,18 @@
 # r181 (MS-R1 test-board metal): the MNEMOS + agent desktop launchers Exec
 # /usr/bin/vivaldi-stable, but Vivaldi was never installed (only epiphany +
 # firefox; falkon was half-configured), so those launchers errored. And epiphany
-# (WebKitGTK) can't play YouTube on arm64. Vivaldi is Chromium-based and ships
-# /opt/vivaldi/libffmpeg.so proprietary codecs, so it plays YouTube (Widevine DRM
-# downloads on first run). Bundle the .deb in the image + install it here.
+# (WebKitGTK) can't play YouTube on arm64. Vivaldi is Chromium-based; the .deb
+# ships /opt/vivaldi/libffmpeg.so without the proprietary codecs (H.264/AAC).
+# Those come from /opt/vivaldi/update-ffmpeg, which fetches Chromium's libffmpeg
+# into /var/opt/vivaldi (--system) or ~/.local/lib/vivaldi (--user). The vivaldi
+# launcher runs it for each user at first start (VIVALDI_FFMPEG_AUTO, default
+# on); root can run `/opt/vivaldi/update-ffmpeg --system` once for all users.
+# Widevine DRM downloads on first run. Bundle the .deb in the image + install it.
+#
+# Layer build (NCZ_LAYER_BUILD=1, set by build-squashfs-layers.sh): nothing is
+# downloaded into the image. The .deb postinst starts update-ffmpeg in the
+# background, so for the install the script is diverted to a no-op and restored
+# afterwards, and the version probe runs with VIVALDI_FFMPEG_AUTO=0.
 #
 # Offline-clean: Vivaldi is self-contained (no dep closure issues), so we dpkg -i
 # the staged .deb rather than adding repo.vivaldi.com to the mirror. The .deb's
@@ -71,6 +80,18 @@ if [ -z "$DEB" ]; then
 fi
 
 echo "[52] installing $(basename "$DEB")"
+NCZ_VIV_DIVERT=""
+if [ "${NCZ_LAYER_BUILD:-0}" = 1 ]; then
+    if dpkg-divert --local --rename --divert /opt/vivaldi/update-ffmpeg.ncz-build --add /opt/vivaldi/update-ffmpeg >/dev/null; then
+        mkdir -p /opt/vivaldi
+        printf '#!/bin/sh\n# layer build: no codec download into the image\nexit 0\n' > /opt/vivaldi/update-ffmpeg
+        chmod 0755 /opt/vivaldi/update-ffmpeg
+        NCZ_VIV_DIVERT=1
+        echo "[52] layer build: update-ffmpeg diverted for the install"
+    else
+        echo "[52] ERROR: could not divert /opt/vivaldi/update-ffmpeg; the postinst would download codecs" >&2
+    fi
+fi
 DEBIAN_FRONTEND=noninteractive dpkg -i "$DEB" 2>&1 | tail -6
 # r189.1: was --no-download, relying on Vivaldi's own dependency closure being
 # fully pre-satisfied -- but fonts-liberation was never actually staged that way,
@@ -82,6 +103,19 @@ DEBIAN_FRONTEND=noninteractive dpkg -i "$DEB" 2>&1 | tail -6
 # Ubuntu build of fonts-liberation (1:2.1.5-3build1) leaked into the NCZ repo
 # on exactly this path in r189.
 DEBIAN_FRONTEND=noninteractive apt-get -y -f install 2>&1 | tail -6 || true
+if [ -n "$NCZ_VIV_DIVERT" ]; then
+    rm -f /opt/vivaldi/update-ffmpeg
+    if dpkg-divert --local --rename --remove /opt/vivaldi/update-ffmpeg >/dev/null && grep -q '^FFMPEG_VERSION=' /opt/vivaldi/update-ffmpeg 2>/dev/null; then
+        echo "[52] layer build: update-ffmpeg restored"
+    else
+        echo "[52] ERROR: /opt/vivaldi/update-ffmpeg not restored" >&2
+    fi
+    if ls /var/opt/vivaldi/media-codecs-* >/dev/null 2>&1 || ls /root/.local/lib/vivaldi/media-codecs-* >/dev/null 2>&1; then
+        echo "[52] ERROR: codecs were downloaded during the layer build" >&2
+    else
+        echo "[52] layer build: no codec download"
+    fi
+fi
 
 if [ ! -x /usr/bin/vivaldi-stable ]; then
     echo "[52] ERROR: vivaldi-stable not present after dpkg -i" >&2
@@ -134,4 +168,4 @@ rm -f /usr/share/applications/org.kde.falkon.desktop \
       /usr/share/applications/*[Ff]alkon*.desktop 2>/dev/null
 
 update-desktop-database 2>&1 | tail -1
-echo "[52] Vivaldi $( /usr/bin/vivaldi-stable --version 2>/dev/null ) installed + set default (x-www-browser + xdg mime); falkon launchers dropped"
+echo "[52] Vivaldi $( VIVALDI_FFMPEG_AUTO=0 /usr/bin/vivaldi-stable --version 2>/dev/null ) installed + set default (x-www-browser + xdg mime); falkon launchers dropped"
