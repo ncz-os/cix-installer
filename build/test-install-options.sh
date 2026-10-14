@@ -170,6 +170,7 @@ fi
 echo "=== 4. run-all.sh option skips ==="
 mg=$(sed -n "s/^_SKIP_MGMT_RE='\(.*\)'$/\1/p" "$RUNALL")
 rs=$(sed -n "s/^_SKIP_RESCUE_RE='\(.*\)'$/\1/p" "$RUNALL")
+[ -n "$mg" ] && [ -n "$rs" ] && ok "skip patterns read from run-all.sh" || nok "could not read _SKIP_MGMT_RE/_SKIP_RESCUE_RE from run-all.sh"
 for h in 37-failsafe-access.sh 38-recovery-container.sh; do
     printf '%s\n' "$h" | grep -qE "$mg" && ok "mgmt-container off skips $h" || nok "mgmt-container off does not skip $h"
 done
