@@ -1,0 +1,233 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 13 Oct 2026 19:47:30 -0400
+Subject: [PATCH 24/28] drm/cix: linlondp: recover from a flip timeout without
+ disturbing the other output
+
+On a flip timeout the driver set the unit software reset bit and went on
+at once: it did not wait for the reset to finish, it reset the whole
+display unit even when the second pipeline was driving another monitor,
+and nothing reprogrammed the pipeline afterwards, so the output stayed
+dark until the next modeset from user space.
+
+- The software reset now waits until the unit reports it done.
+- The unit reset is used only when no other output on the unit is
+  active; otherwise it is skipped and logged.
+- When the timeout happens on an active CRTC (not while it is being
+  switched off), a worker runs a full modeset of that CRTC alone with all
+  modeset locks held. That reprograms the pipeline and runs the encoder
+  disable/enable, which retrains the DP link. At most three recoveries
+  run per CRTC in a 30 s window, so a persistent fault cannot loop.
+- The comment on the wait now matches the code (3 frame periods).
+---
+ drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c     |   8 ++
+ drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c | 109 +++++++++++++++++-
+ drivers/gpu/drm/cix/linlon-dp/linlondp_kms.h  |   7 ++
+ 3 files changed, 122 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c b/drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c
+index 14968d9c4b5e..5813a17d8490 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c
++++ b/drivers/gpu/drm/cix/linlon-dp/hw/dp_dev.c
+@@ -307,12 +307,20 @@ static void dp_flush(struct linlondp_dev *mdev, int master_pipe,
+ 	linlondp_write32(dp->gcu_addr, reg_offset, GCU_CONFIG_CVAL);
+ }
+ 
++/* software reset of the display unit; returns once the unit reports done */
+ static void dpu_sw_reset(struct linlondp_dev *mdev)
+ {
+ 	struct dp_dev *dp = mdev->chip_data;
+ 	u32 __iomem *gcu = dp->gcu_addr;
++	int ret;
+ 
+ 	linlondp_write32_mask(gcu, BLK_CONTROL, GCU_CONTROL_SRST, GCU_CONTROL_SRST);
++
++	ret = dp_wait_cond(!(linlondp_read32(gcu, BLK_CONTROL) &
++			     GCU_CONTROL_SRST),
++			   100, 1000, 10000);
++	if (ret)
++		dev_err(mdev->dev, "unit software reset did not complete\n");
+ }
+ 
+ static int dp_reset(struct dp_dev *dp)
+diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c b/drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c
+index 2101d8389866..741b73ee78e8 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c
++++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c
+@@ -11,6 +11,8 @@
+ 
+ #include <drm/drm_atomic.h>
+ #include <drm/drm_atomic_helper.h>
++#include <drm/drm_drv.h>
++#include <drm/drm_modeset_lock.h>
+ #include <drm/drm_crtc_helper.h>
+ #include <drm/drm_print.h>
+ #include <drm/drm_vblank.h>
+@@ -498,6 +500,106 @@ static void linlondp_crtc_atomic_enable(struct drm_crtc *crtc,
+ 	dev_info(mdev->dev, "%s exit\n", __func__);
+ }
+ 
++#define LINLONDP_RECOVER_WINDOW_MS	30000
++#define LINLONDP_RECOVER_MAX		3
++
++/*
++ * Bring a CRTC back after a flip timeout: run a full modeset on it (pipeline
++ * disable and enable, encoder disable and enable, which retrains the DP link)
++ * from process context, with all modeset locks held.
++ */
++static void linlondp_crtc_recover_work(struct work_struct *work)
++{
++	struct linlondp_crtc *kcrtc =
++		container_of(work, struct linlondp_crtc, recover_work);
++	struct drm_crtc *crtc = &kcrtc->base;
++	struct drm_device *drm = crtc->dev;
++	struct drm_modeset_acquire_ctx ctx;
++	struct drm_atomic_commit *state;
++	struct drm_crtc_state *crtc_state;
++	int ret;
++
++	DRM_MODESET_LOCK_ALL_BEGIN(drm, ctx, 0, ret);
++
++	state = drm_atomic_commit_alloc(drm);
++	if (!state) {
++		ret = -ENOMEM;
++		goto unlock;
++	}
++	state->acquire_ctx = &ctx;
++
++	crtc_state = drm_atomic_get_crtc_state(state, crtc);
++	if (IS_ERR(crtc_state)) {
++		ret = PTR_ERR(crtc_state);
++		goto put;
++	}
++
++	if (!crtc_state->active) {
++		ret = 0;
++		goto put;
++	}
++
++	crtc_state->mode_changed = true;
++	ret = drm_atomic_add_affected_connectors(state, crtc);
++	if (!ret)
++		ret = drm_atomic_add_affected_planes(state, crtc);
++	if (!ret)
++		ret = drm_atomic_commit(state);
++put:
++	drm_atomic_commit_put(state);
++unlock:
++	DRM_MODESET_LOCK_ALL_END(drm, ctx, ret);
++
++	if (ret)
++		drm_err(drm, "pipe%d: recovery modeset failed: %d\n",
++			kcrtc->master->id, ret);
++	else
++		drm_info(drm, "pipe%d: recovered after flip timeout\n",
++			 kcrtc->master->id);
++}
++
++/*
++ * A unit reset restarts both pipelines of the display unit. Use it only when
++ * no other output on the unit is active; otherwise leave the other output
++ * alone and rely on the modeset of the affected CRTC alone.
++ */
++static void linlondp_crtc_recover_flip_timeout(struct linlondp_crtc *kcrtc,
++					       bool disabling)
++{
++	struct linlondp_dev *mdev = kcrtc->master->mdev;
++	u32 own = BIT(kcrtc->master->id);
++	u32 others;
++
++	if (kcrtc->slave)
++		own |= BIT(kcrtc->slave->id);
++	others = READ_ONCE(mdev->dpmode) & ~own;
++
++	if (others)
++		dev_warn(mdev->dev,
++			 "pipe%d: other output active (mode 0x%x), unit reset skipped\n",
++			 kcrtc->master->id, others);
++	else
++		mdev->funcs->dpu_reset(mdev);
++
++	/* a CRTC that is being switched off needs no modeset afterwards */
++	if (disabling)
++		return;
++
++	if (time_after(jiffies, kcrtc->recover_window +
++		       msecs_to_jiffies(LINLONDP_RECOVER_WINDOW_MS))) {
++		kcrtc->recover_window = jiffies;
++		kcrtc->recover_count = 0;
++	}
++	if (kcrtc->recover_count >= LINLONDP_RECOVER_MAX) {
++		dev_err_ratelimited(mdev->dev,
++				    "pipe%d: too many flip timeouts, no further recovery in this window\n",
++				    kcrtc->master->id);
++		return;
++	}
++	kcrtc->recover_count++;
++	schedule_work(&kcrtc->recover_work);
++}
++
+ void linlondp_crtc_flush_and_wait_for_flip_done(
+ 	struct linlondp_crtc *kcrtc, struct completion *input_flip_done,
+ 	bool disable_crtc)
+@@ -532,13 +634,13 @@ void linlondp_crtc_flush_and_wait_for_flip_done(
+ 	if (disable_crtc)
+ 		mdev->funcs->flush(mdev, kcrtc->master->id, 0);
+ 
+-	/* wait the flip take affect. wait for a maximum time of 60 frames*/
++	/* wait for the flip to take effect, for at most 3 frame periods */
+ 	timeout = 3 * vblank->framedur_ns / 1000000;
+ 	timeout = wait_for_completion_timeout(flip_done, msecs_to_jiffies(timeout));
+ 	if (timeout == 0) {
+ 		dev_err(mdev->dev, "wait pipe%d flip done timeout\n",
+ 			kcrtc->master->id);
+-		mdev->funcs->dpu_reset(mdev);
++		linlondp_crtc_recover_flip_timeout(kcrtc, disable_crtc);
+ 		if (!input_flip_done) {
+ 			spin_lock_irqsave(&drm->event_lock, flags);
+ 			kcrtc->disable_done = NULL;
+@@ -961,6 +1063,7 @@ static int linlondp_crtc_create_ctm_ext_property(struct linlondp_crtc *kcrtc)
+ 
+ static void linlondp_crtc_destroy(struct drm_crtc *crtc)
+ {
++	cancel_work_sync(&to_kcrtc(crtc)->recover_work);
+ 	drm_self_refresh_helper_cleanup(crtc);
+ 	drm_crtc_cleanup(crtc);
+ }
+@@ -1064,6 +1167,8 @@ static int linlondp_crtc_add(struct linlondp_kms_dev *kms,
+ 		return err;
+ 
+ 	drm_crtc_helper_add(crtc, &linlondp_crtc_helper_funcs);
++	INIT_WORK(&kcrtc->recover_work, linlondp_crtc_recover_work);
++	kcrtc->recover_window = jiffies;
+ 
+ 	if (has_acpi_companion(kms->base.dev)) {
+ 		/* Reuse this field to transfer port fwnode_handle for ACPI */
+diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_kms.h b/drivers/gpu/drm/cix/linlon-dp/linlondp_kms.h
+index dbe22989a2f9..8f629dc617b4 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/linlondp_kms.h
++++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_kms.h
+@@ -7,6 +7,7 @@
+ #ifndef _LINLONDP_KMS_H_
+ #define _LINLONDP_KMS_H_
+ 
++#include <linux/workqueue.h>
+ #include <linux/list.h>
+ #include <linux/mutex.h>
+ #include <drm/drm_atomic.h>
+@@ -223,6 +224,12 @@ struct linlondp_crtc {
+ 
+ 	/** @disable_done: this flip_done is for tracing the disable */
+ 	struct completion *disable_done;
++	/** @recover_work: forced modeset after a flip timeout */
++	struct work_struct recover_work;
++	/** @recover_window: start (jiffies) of the current recovery window */
++	unsigned long recover_window;
++	/** @recover_count: recoveries scheduled in the current window */
++	unsigned int recover_count;
+ 	/* protected mode property */
+ 	struct drm_property *protected_mode_property;
+ 	/* ctm ext properties */
+-- 
+2.56.0
+

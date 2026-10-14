@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 13 Oct 2026 19:49:52 -0400
+Subject: [PATCH 27/28] PCI: cadence: hpa: never program a zero root port ID
+
+cdns_pcie_hpa_host_setup() writes the root port vendor and device ID
+whenever the value differs from 0xffff. The IDs are read from the
+"vendor-id"/"device-id" properties only if the caller left them 0 or
+0xffff; when neither the caller nor the firmware provides them, a
+zero-initialised cdns_pcie_rc keeps 0 and the root port is reprogrammed
+to 0000:0000.
+
+Treat a still-zero ID after the property lookup as "not provided" and
+keep the value the controller reports.
+---
+ drivers/pci/controller/cadence/pcie-cadence-host-hpa.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/pci/controller/cadence/pcie-cadence-host-hpa.c b/drivers/pci/controller/cadence/pcie-cadence-host-hpa.c
+index fcd1361e0a71..2b40ece71364 100644
+--- a/drivers/pci/controller/cadence/pcie-cadence-host-hpa.c
++++ b/drivers/pci/controller/cadence/pcie-cadence-host-hpa.c
+@@ -477,6 +477,15 @@ int cdns_pcie_hpa_host_setup(struct cdns_pcie_rc *rc)
+ 		device_property_read_u32(dev, "vendor-id", &rc->vendor_id);
+ 	if (rc->device_id == 0 || rc->device_id == 0xffff)
+ 		device_property_read_u32(dev, "device-id", &rc->device_id);
++	/*
++	 * Nothing provided an ID: keep the value the controller reports. A
++	 * zero-initialised rc would otherwise program 0000:0000 into the root
++	 * port, because only 0xffff means "do not write".
++	 */
++	if (rc->vendor_id == 0)
++		rc->vendor_id = 0xffff;
++	if (rc->device_id == 0)
++		rc->device_id = 0xffff;
+ 
+ 	if (!pcie->reg_base) {
+ 		pcie->reg_base = devm_platform_ioremap_resource_byname(pdev, "reg");
+-- 
+2.56.0
+

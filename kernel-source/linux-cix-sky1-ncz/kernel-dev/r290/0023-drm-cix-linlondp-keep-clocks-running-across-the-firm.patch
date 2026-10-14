@@ -1,0 +1,296 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 13 Oct 2026 19:46:06 -0400
+Subject: [PATCH 23/28] drm/cix: linlondp: keep clocks running across the
+ firmware takeover
+
+When the mode requested at the first modeset differs from the one the
+firmware framebuffer left on the display unit, the driver tears down the
+firmware output and pulses the unit reset. Until now it stopped only
+pipeline 0, switched the pixel clock off before the reset and enabled
+the engine clock only after it, so the reset was released with clocks
+stopped and a second firmware output (pipeline 1) stayed configured.
+
+Now the takeover:
+- enables the engine clock and the pixel clock of every pipeline for the
+  duration of the teardown and the reset, and drops them again after,
+  so the clock enable counts are unchanged for the normal enable path;
+- stops every pipeline that is still scanning out, using the generic
+  component disable callbacks in the usual two phases, each latched with
+  the config-valid bit of that pipeline;
+- moves the unit to the inactive operating mode before the reset, and
+  skips the reset (with an error) if a clock cannot be started;
+- treats a firmware output on pipeline 1 as a mode change, so the full
+  takeover runs in that case too.
+
+The DP transmitter is re-initialised by the encoder enable that follows
+in the same commit (it drops its firmware state when the mode differs),
+so no change is needed there.
+---
+ .../gpu/drm/cix/linlon-dp/hw/dp_component.c   | 103 +++++++++++++-----
+ drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c | 101 +++++++++++++----
+ 2 files changed, 153 insertions(+), 51 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/linlon-dp/hw/dp_component.c b/drivers/gpu/drm/cix/linlon-dp/hw/dp_component.c
+index af9152bfb04d..8c783fb36323 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/hw/dp_component.c
++++ b/drivers/gpu/drm/cix/linlon-dp/hw/dp_component.c
+@@ -1625,49 +1625,83 @@ void dp_dump(struct linlondp_dev *mdev, struct seq_file *sf)
+ 	dp_gcu_dump(dp, sf);
+ }
+ 
+-static void dp_wait_flip_done(struct linlondp_dev *mdev)
++/* true while the pipeline's timing controller is generating a video signal */
++static bool dp_pipeline_scanning_out(struct linlondp_pipeline *pipe)
++{
++	if (!pipe || !pipe->ctrlr)
++		return false;
++
++	return linlondp_read32(pipe->ctrlr->base.reg, BLK_CONTROL) & BS_CTRL_EN;
++}
++
++static void dp_wait_pipe_config_done(struct linlondp_dev *mdev, int pipe_id)
+ {
+ 	struct dp_dev *dp = mdev->chip_data;
++	u32 reg = pipe_id ? GCU_CONFIG_VALID1 : GCU_CONFIG_VALID0;
+ 	int ret;
+ 
+-	ret = dp_wait_cond(((linlondp_read32(dp->gcu_addr, GCU_CONFIG_VALID0) &
+-			     0x1) == 0x0),
++	ret = dp_wait_cond(((linlondp_read32(dp->gcu_addr, reg) & 0x1) == 0x0),
+ 			   50, 1000, 10000);
+ 	if (ret)
+-		dev_err(mdev->dev, "%s timeout\n", __func__);
++		dev_err(mdev->dev, "pipe%d config update timeout\n", pipe_id);
++}
++
++/*
++ * Switch off every block of one pipeline that firmware left running. Same two
++ * phases as a normal pipeline disable: first everything except the output
++ * stage, then the output stage itself, each latched with that pipeline's own
++ * config-valid bit.
++ */
++static void dp_quiesce_pipeline(struct linlondp_dev *mdev,
++				struct linlondp_pipeline *pipe)
++{
++	struct dp_dev *dp = mdev->chip_data;
++	struct linlondp_component *c;
++	unsigned long comps;
++	u32 id;
++	int phase;
++
++	for (phase = 0; phase < 2; phase++) {
++		comps = pipe->avail_comps;
++		if (phase == 0)
++			comps &= ~pipe->standalone_disabled_comps;
++		else
++			comps &= pipe->standalone_disabled_comps;
++
++		for_each_set_bit(id, &comps, 32) {
++			c = linlondp_pipeline_get_component(pipe, id);
++			if (c && c->funcs && c->funcs->disable)
++				c->funcs->disable(c);
++		}
++
++		linlondp_write32(dp->gcu_addr,
++				 pipe->id ? GCU_CONFIG_VALID1 : GCU_CONFIG_VALID0,
++				 GCU_CONFIG_CVAL);
++		dp_wait_pipe_config_done(mdev, pipe->id);
++	}
+ }
+ 
++/*
++ * Take the display unit over from the firmware framebuffer. Firmware may have
++ * lit either pipeline (or both), so every pipeline that is still scanning out
++ * is shut down, not only pipeline 0.
++ */
+ void dp_close_gop(struct linlondp_dev *mdev)
+ {
+-	u32 __iomem *base = mdev->reg_base;
++	int i;
+ 
+ 	dev_info(mdev->dev, "%s enter\n", __func__);
+ 
+-	/* disable needs two phase, firstly do first phase */
+-	linlondp_write32(base, LPU0_LAYER0 + BLK_CONTROL,
+-			 0); // disbale lpu0_layer0
+-	linlondp_write32(base, LPU0_LAYER2 + BLK_CONTROL,
+-			 0); // disable lpu0_layer2
+-	linlondp_write32(base, CU0 + CU_INPUT_ID0, 0); // clear cu inputid0
+-	linlondp_write32(base, CU0 + CU_INPUT_ID1, 0); // clear cu inputid1
+-	linlondp_write32(base, CU0_SCALER0 + BLK_CONTROL,
+-			 0); // disable cu0_sclaer0
+-	linlondp_write32(base, CU0_SCALER1 + BLK_CONTROL,
+-			 0); // disable cu0_scaler1
+-	linlondp_write32(base, CU0_MERGER + BLK_CONTROL,
+-			 0); // disable cu0_merger
+-	linlondp_write32(base, GCU_CONFIG_VALID0, 1); // config valid
+-
+-	dp_wait_flip_done(mdev);
+-
+-	/* do second phase */
+-	linlondp_write32(base, DOU0_IPS + IPS_INPUT_ID0,
+-			 0); // clear dou0_ips inputid0
+-	linlondp_write32(base, DOU0_IPS + BLK_CONTROL, 0); // disable dou0_ips
+-	linlondp_write32(base, DOU0_BS + BLK_CONTROL, 0); // disable dou0_bs
+-	linlondp_write32(base, GCU_CONFIG_VALID0, 1); //config valid
+-
+-	dp_wait_flip_done(mdev);
++	for (i = 0; i < mdev->n_pipelines; i++) {
++		struct linlondp_pipeline *pipe = mdev->pipelines[i];
++
++		if (!dp_pipeline_scanning_out(pipe))
++			continue;
++
++		dev_info(mdev->dev, "%s: stopping firmware output on pipe%d\n",
++			 __func__, pipe->id);
++		dp_quiesce_pipeline(mdev, pipe);
++	}
+ }
+ 
+ bool dp_gop_mode_changed(struct linlondp_dev *mdev, struct drm_display_mode *mode)
+@@ -1683,6 +1717,15 @@ bool dp_gop_mode_changed(struct linlondp_dev *mdev, struct drm_display_mode *mod
+ 
+ 	dev_dbg(mdev->dev, "%s enter\n", __func__);
+ 
++	/*
++	 * Only pipeline 0 is compared against the requested mode. If firmware
++	 * also drives pipeline 1, the unit is not in a state the driver can
++	 * adopt as-is: report a change so the full takeover runs.
++	 */
++	if (mdev->n_pipelines > 1 &&
++	    dp_pipeline_scanning_out(mdev->pipelines[1]))
++		return true;
++
+ 	hv = linlondp_read32(base, DOU0_BS + BS_ACTIVESIZE);
+ 	hporch = linlondp_read32(base, DOU0_BS + BS_HINTERVALS);
+ 	vporch = linlondp_read32(base, DOU0_BS + BS_VINTERVALS);
+diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c b/drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c
+index 67912a25abcb..2101d8389866 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c
++++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_crtc.c
+@@ -354,6 +354,84 @@ static void linlondp_crtc_do_flush(struct drm_crtc *crtc,
+ 	mdev->funcs->flush(mdev, master->id, kcrtc_st->active_pipes);
+ }
+ 
++/*
++ * The engine clock and the pixel clock of every pipeline must be running
++ * while the firmware output is torn down and while the unit reset is
++ * released; a reset released with a stopped clock leaves the unit in an
++ * undefined state. The clocks are enabled only for the duration of the
++ * takeover, so the enable counts stay balanced and the normal enable path
++ * below is unchanged.
++ */
++static void linlondp_crtc_takeover_from_gop(struct linlondp_dev *mdev)
++{
++#if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
++	bool clk_on[LINLONDP_MAX_PIPELINES] = { false };
++	bool aclk_on = false;
++	int i;
++#endif
++	bool clocks_ok = true;
++	int err;
++
++	mdev->funcs->disable_irq(mdev);
++
++#if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
++	err = clk_prepare_enable(mdev->aclk);
++	if (err)
++		dev_err(mdev->dev, "%s: failed to enable aclk: %d\n", __func__, err);
++	else
++		aclk_on = true;
++
++	for (i = 0; i < mdev->n_pipelines; i++) {
++		struct linlondp_pipeline *pipe = mdev->pipelines[i];
++
++		if (!pipe || !pipe->pxlclk)
++			continue;
++		err = clk_prepare_enable(pipe->pxlclk);
++		if (err)
++			dev_err(mdev->dev, "%s: failed to enable pxlclk%d: %d\n",
++				__func__, pipe->id, err);
++		else
++			clk_on[i] = true;
++	}
++#endif
++
++	/* stop every pipeline the firmware left running */
++	mdev->funcs->close_gop(mdev);
++
++	/* leave the operating mode before the reset, so no unit is active */
++	err = mdev->funcs->change_opmode(mdev, LINLONDP_MODE_INACTIVE);
++	if (err)
++		dev_warn(mdev->dev, "%s: unit did not go inactive: %d\n",
++			 __func__, err);
++	mdev->dpmode = LINLONDP_MODE_INACTIVE;
++
++#if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
++	/* never release the reset with a clock that could not be started */
++	clocks_ok = aclk_on;
++	for (i = 0; i < mdev->n_pipelines; i++)
++		if (mdev->pipelines[i] && mdev->pipelines[i]->pxlclk && !clk_on[i])
++			clocks_ok = false;
++#endif
++	if (clocks_ok) {
++		reset_control_assert(mdev->ip_rst);
++		mdelay(1);
++		reset_control_deassert(mdev->ip_rst);
++		mdelay(1);
++	} else {
++		dev_err(mdev->dev, "%s: a display clock did not start, unit reset skipped\n",
++			__func__);
++	}
++
++#if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
++	for (i = 0; i < mdev->n_pipelines; i++)
++		if (clk_on[i])
++			clk_disable_unprepare(mdev->pipelines[i]->pxlclk);
++	if (aclk_on)
++		clk_disable_unprepare(mdev->aclk);
++#endif
++	dev_info(mdev->dev, "%s: firmware output released\n", __func__);
++}
++
+ static void linlondp_crtc_atomic_enable(struct drm_crtc *crtc,
+ 					struct drm_atomic_commit *state)
+ {
+@@ -361,7 +439,6 @@ static void linlondp_crtc_atomic_enable(struct drm_crtc *crtc,
+ 	struct drm_crtc_state *old = drm_atomic_get_old_crtc_state(state, crtc);
+ 	struct linlondp_crtc *kcrtc = to_kcrtc(crtc);
+ 	struct linlondp_dev *mdev = kcrtc->master->mdev;
+-	struct linlondp_pipeline *master = kcrtc->master;
+ 	struct drm_crtc_state *crtc_state = crtc->state;
+ 	struct drm_display_mode *mode = &crtc_state->adjusted_mode;
+ 
+@@ -376,26 +453,8 @@ static void linlondp_crtc_atomic_enable(struct drm_crtc *crtc,
+ 
+ 	if (mdev->enabled_by_gop) {
+ 		mdev->enabled_by_gop = 0;
+-		if (mdev->funcs->gop_mode_changed(mdev, mode)) {
+-			mdev->funcs->disable_irq(mdev);
+-			mdev->funcs->close_gop(mdev);
+-
+-			#if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
+-			err = clk_prepare_enable(master->pxlclk);
+-			if (err)
+-				dev_err(mdev->dev, "%s, failed to enable pxlclk.\n", __func__);
+-			#endif
+-
+-			if (__clk_is_enabled(master->pxlclk)) {
+-				clk_disable_unprepare(master->pxlclk);
+-				dev_info(mdev->dev, "%s, succeed to disable pxlclk.\n", __func__);
+-			}
+-
+-			reset_control_assert(mdev->ip_rst);
+-			mdelay(1);
+-			reset_control_deassert(mdev->ip_rst);
+-			mdelay(1);
+-		}
++		if (mdev->funcs->gop_mode_changed(mdev, mode))
++			linlondp_crtc_takeover_from_gop(mdev);
+ 	}
+ 
+ 	err = clk_prepare_enable(mdev->aclk);
+-- 
+2.56.0
+

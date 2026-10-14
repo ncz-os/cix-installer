@@ -1,0 +1,121 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 13 Oct 2026 19:48:44 -0400
+Subject: [PATCH 26/28] drm/cix: linlondp: spread overlay planes when layers
+ exceed the DRM limit
+
+One DRM device holds at most 32 planes. With five display units of two
+pipelines and four layers each, 40 planes are requested. Planes were
+created primaries first and then overlays in display-unit order until
+the limit was reached, so the last display units got no overlay plane
+at all.
+
+When the requested count is above the limit, overlays are now handed out
+round-robin over all pipelines, rich layers (which can scan out YUV
+video) before simple ones, so every output keeps at least one overlay.
+Below the limit the plane order is unchanged.
+---
+ .../gpu/drm/cix/linlon-dp/linlondp_plane.c    | 80 ++++++++++++++++++-
+ 1 file changed, 78 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/cix/linlon-dp/linlondp_plane.c b/drivers/gpu/drm/cix/linlon-dp/linlondp_plane.c
+index b555923bbd48..e13cd21aa270 100644
+--- a/drivers/gpu/drm/cix/linlon-dp/linlondp_plane.c
++++ b/drivers/gpu/drm/cix/linlon-dp/linlondp_plane.c
+@@ -711,6 +711,76 @@ static int linlondp_kms_add_planes_by_type(struct linlondp_kms_dev *kms,
+ 	return 0;
+ }
+ 
++/*
++ * Return the n-th overlay layer of a pipeline, rich layers (which can scan
++ * out YUV video) first, then the simple ones, each in hardware order.
++ */
++static struct linlondp_layer *
++linlondp_pipeline_nth_overlay(struct linlondp_kms_dev *kms,
++			      struct linlondp_pipeline *pipe, unsigned int n)
++{
++	int pass, j;
++
++	for (pass = 0; pass < 2; pass++) {
++		for (j = 0; j < pipe->n_layers; j++) {
++			struct linlondp_layer *layer = pipe->layers[j];
++			bool rich = layer->layer_type == LINLONDP_FMT_RICH_LAYER;
++
++			if (get_plane_type(kms, &layer->base) != DRM_PLANE_TYPE_OVERLAY)
++				continue;
++			if (rich != (pass == 0))
++				continue;
++			if (n-- == 0)
++				return layer;
++		}
++	}
++
++	return NULL;
++}
++
++/*
++ * More layers than DRM allows planes: hand out the overlays round-robin over
++ * all pipelines, so every output keeps at least one overlay instead of the
++ * last display units losing all of theirs.
++ */
++static int linlondp_kms_add_overlays_spread(struct linlondp_kms_dev *kms,
++					    struct linlondp_dev **mdevs,
++					    unsigned int n_mdevs,
++					    unsigned int *created)
++{
++	unsigned int di, round;
++	int i, err;
++	bool any;
++
++	for (round = 0; round < LINLONDP_PIPELINE_MAX_LAYERS; round++) {
++		any = false;
++		for (di = 0; di < n_mdevs; di++) {
++			struct linlondp_dev *mdev = mdevs[di];
++
++			for (i = 0; i < mdev->n_pipelines; i++) {
++				struct linlondp_layer *layer =
++					linlondp_pipeline_nth_overlay(kms,
++						mdev->pipelines[i], round);
++
++				if (!layer)
++					continue;
++				any = true;
++				if (*created >= LINLONDP_DRM_PLANE_LIMIT)
++					return 0;
++
++				err = linlondp_plane_add(kms, layer);
++				if (err)
++					return err;
++				(*created)++;
++			}
++		}
++		if (!any)
++			break;
++	}
++
++	return 0;
++}
++
+ int linlondp_kms_add_planes_multi(struct linlondp_kms_dev *kms,
+ 				  struct linlondp_dev **mdevs,
+ 				  unsigned int n_mdevs)
+@@ -731,8 +801,14 @@ int linlondp_kms_add_planes_multi(struct linlondp_kms_dev *kms,
+ 	if (err)
+ 		return err;
+ 
+-	err = linlondp_kms_add_planes_by_type(kms, mdevs, n_mdevs,
+-					       DRM_PLANE_TYPE_OVERLAY, &created);
++	/* within the limit keep the established plane order */
++	if (n_planes > LINLONDP_DRM_PLANE_LIMIT)
++		err = linlondp_kms_add_overlays_spread(kms, mdevs, n_mdevs,
++						       &created);
++	else
++		err = linlondp_kms_add_planes_by_type(kms, mdevs, n_mdevs,
++						       DRM_PLANE_TYPE_OVERLAY,
++						       &created);
+ 	if (err)
+ 		return err;
+ 
+-- 
+2.56.0
+

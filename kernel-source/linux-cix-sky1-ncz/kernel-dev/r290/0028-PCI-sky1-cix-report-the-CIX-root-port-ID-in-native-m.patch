@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 13 Oct 2026 19:49:52 -0400
+Subject: [PATCH 28/28] PCI: sky1-cix: report the CIX root port ID in native
+ mode
+
+In native mode the vendor Sky1 driver left the root port ID at the
+controller default, 17cd:0100. That device ID is also used by Cadence
+USB3 controllers, so the cdns3/cdnsp PCI glue drivers match the root
+ports by ID, and the USB PCI wrappers have to stay disabled in the
+kernel config to keep them off.
+
+Program 1f6c:0001 (PCI_VENDOR_ID_CIX / PCI_DEVICE_ID_CIX_SKY1), the
+same ID the mainline pci-sky1 driver sets. The I/O-window quirk for
+Sky1 root ports in probe.c now matches both IDs: 1f6c:0001 in native
+mode and the default 17cd:0100 when firmware owns the configuration
+(ECAM mode), where the kernel cannot change the ID.
+---
+ drivers/pci/controller/cadence/pci-sky1-cix.c | 15 +++++++++++++++
+ drivers/pci/probe.c                           | 12 ++++++++++--
+ 2 files changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pci/controller/cadence/pci-sky1-cix.c b/drivers/pci/controller/cadence/pci-sky1-cix.c
+index 6af9064d1e10..bf74b66a7c27 100644
+--- a/drivers/pci/controller/cadence/pci-sky1-cix.c
++++ b/drivers/pci/controller/cadence/pci-sky1-cix.c
+@@ -27,6 +27,13 @@
+ #include "pcie-cadence.h"
+ #include "pci-sky1-acpi.h"
+ #include "pci-sky1-cix.h"
++
++#ifndef PCI_VENDOR_ID_CIX
++#define PCI_VENDOR_ID_CIX		0x1f6c
++#endif
++#ifndef PCI_DEVICE_ID_CIX_SKY1
++#define PCI_DEVICE_ID_CIX_SKY1		0x0001
++#endif
+ #include "pci-sky1-debugfs.h"
+ #include <linux/platform_device.h>
+ 
+@@ -2430,6 +2437,14 @@ static int sky1_pcie_probe(struct platform_device *pdev)
+ 	rc->sky1_bsp_ecam_region = 1;
+ 	rc->cfg_base = pcie->cfg->win;
+ 	rc->cfg_res = &pcie->cfg->res;
++	/*
++	 * Report the CIX Sky1 root port ID, as the mainline pci-sky1 driver
++	 * does. The controller default is the Cadence vendor ID with a device
++	 * ID that is also used by Cadence USB3 controllers, so USB PCI glue
++	 * drivers would otherwise match the root ports.
++	 */
++	rc->vendor_id = PCI_VENDOR_ID_CIX;
++	rc->device_id = PCI_DEVICE_ID_CIX_SKY1;
+ 
+ 	cdns_pcie = &rc->pcie;
+ 	cdns_pcie->dev = dev;
+diff --git a/drivers/pci/probe.c b/drivers/pci/probe.c
+index 4d9f1d142563..3690c8f09399 100644
+--- a/drivers/pci/probe.c
++++ b/drivers/pci/probe.c
+@@ -429,10 +429,18 @@ static bool pci_bridge_has_parent_io_window(struct pci_dev *dev)
+ 	return false;
+ }
+ 
++/*
++ * Sky1 root ports report 1f6c:0001 when the kernel programs them (native
++ * mode) and the controller default 17cd:0100 when firmware owns the
++ * configuration (ECAM mode).
++ */
+ static bool pci_bridge_is_cix_sky1_root_port(struct pci_dev *dev)
+ {
+-	return pci_is_root_bus(dev->bus) &&
+-	       dev->vendor == 0x17cd && dev->device == 0x0100;
++	if (!pci_is_root_bus(dev->bus))
++		return false;
++
++	return (dev->vendor == 0x1f6c && dev->device == 0x0001) ||
++	       (dev->vendor == 0x17cd && dev->device == 0x0100);
+ }
+ 
+ static void pci_read_bridge_mmio(struct pci_dev *dev, struct resource *res,
+-- 
+2.56.0
+

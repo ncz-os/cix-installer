@@ -94,6 +94,42 @@ can give a different tree id. The README gives the build commands.
 The amd64 kernel is not vendored in this directory; `linux-t2-ncz` is its
 corresponding-source repository.
 
+## Kernel-dev track (not shipped)
+
+### arm64: `7.3.0-rc7-sky1-ncz` build r290
+
+r290 is a development build of the Sky1 kernel. It is not part of any image
+and not in the default package suite; 26.10 images ship r289 (above).
+
+| Part | Where | Exact revision |
+|---|---|---|
+| Recipe, defconfig, patches 0022-0028 | `linux-cix-sky1-ncz/kernel-dev/r290/` in this directory | copied from `https://gitlab.com/ncz-os/meta-cix`, branch `kernel-dev/sky1-7.3.0-rc7-r290` |
+| Patches 0001-0021 and the port patch | `linux-cix-sky1-ncz/linux-cix-sky1-ncz-7.3-rc7/` (unchanged from r289) | as for r289 |
+| Complete patched tree | `https://gitlab.com/ncz-os/linux-cix`, branch `kernel-dev/sky1-7.3.0-rc7-r290` | r289 tree plus one commit per patch 0022-0028 |
+
+Differences from r289:
+
+- `CONFIG_VIDEO_LINLON` is not set, and patch 0022 makes that effective (the
+  driver's Kbuild otherwise builds the module anyway). The VPU driver (`amvx`)
+  ships only as the `cix-vpu-driver` DKMS module; the kernel package no longer
+  carries an in-tree module of the same name that could load in its place. The recipe, the
+  manifest check (`build/kernel-manifest.py`), `build/build-kernel-debs.sh` and
+  `build/check-kernel-deb-pin.sh` fail on an in-tree VPU driver for every
+  revision after r289.
+- 0023-0026 (display): clocks run across the firmware takeover and every
+  firmware pipeline is stopped; flip-timeout recovery waits for the reset,
+  leaves the other output alone and runs a modeset of the affected output;
+  the engine clock is set while the display unit is inactive and raised for a
+  second output; overlay planes are spread over all outputs when the hardware
+  has more layers than DRM allows planes.
+- 0027-0028 (PCIe): no 0000:0000 root port ID; in native mode the root ports
+  report `1f6c:0001`, the ID the mainline Sky1 driver uses.
+
+The recipe and defconfig copies differ from meta-cix only in comment lines,
+like the r289 copies. To rebuild, put the r290 files next to the r289 patch
+directory (the recipe's `FILESEXTRAPATHS`), or apply the 28 patches in
+`SRC_URI` order to `v7.3-rc7` as shown for r289.
+
 ## Older releases
 
 GPLv2 section 3 obliges us to keep source available for binaries distributed

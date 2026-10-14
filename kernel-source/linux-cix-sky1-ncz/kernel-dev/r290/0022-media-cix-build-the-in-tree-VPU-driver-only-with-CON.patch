@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Tue, 13 Oct 2026 20:02:25 -0400
+Subject: [PATCH 22/28] media: cix: build the in-tree VPU driver only with
+ CONFIG_VIDEO_LINLON
+
+drivers/media/platform/Makefile always descended into cix/, and the
+cix/Kbuild falls back to obj-m when CONFIG_VIDEO_LINLON is empty, which
+is meant for the out-of-tree (DKMS) build of the same source. So a
+kernel configured without CONFIG_VIDEO_LINLON still built
+kernel/drivers/media/platform/cix/amvx.ko, and modpost failed because
+the videobuf2 helpers it needs are only selected by that option.
+
+Descend into cix/ only when CONFIG_VIDEO_LINLON is set. The DKMS build
+(make M=...) reads cix/Kbuild directly and is unaffected.
+
+Add CONFIG_VIDEO_LINLON_OOT, which selects the videobuf2 DMA-SG and
+memops helpers without building the driver, so a kernel that leaves the
+VPU driver to DKMS still provides the symbols that module imports
+(vb2_dma_sg_memops and friends).
+---
+ drivers/media/platform/Makefile    |  2 +-
+ drivers/media/platform/cix/Kconfig | 11 +++++++++++
+ 2 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/Makefile b/drivers/media/platform/Makefile
+index c29d47306e3b..1aa4e6aed9ea 100644
+--- a/drivers/media/platform/Makefile
++++ b/drivers/media/platform/Makefile
+@@ -14,7 +14,7 @@ obj-y += aspeed/
+ obj-y += atmel/
+ obj-y += broadcom/
+ obj-y += cadence/
+-obj-y += cix/
++obj-$(CONFIG_VIDEO_LINLON) += cix/
+ obj-y += chips-media/
+ obj-y += dreamchip/
+ obj-y += imagination/
+diff --git a/drivers/media/platform/cix/Kconfig b/drivers/media/platform/cix/Kconfig
+index dd3a6c2cd8ee..7209231f1297 100755
+--- a/drivers/media/platform/cix/Kconfig
++++ b/drivers/media/platform/cix/Kconfig
+@@ -21,3 +21,14 @@ config VIDEO_LINLON_PRINT_FILE
+ 	default y
+ 	help
+ 	  Append file and line number to kernel space log messages.
++
++config VIDEO_LINLON_OOT
++	tristate "Kernel support for the out-of-tree Linlon VPU driver"
++	depends on VIDEO_DEV
++	depends on !VIDEO_LINLON
++	select VIDEOBUF2_DMA_SG
++	select VIDEOBUF2_MEMOPS
++	help
++	  Build the videobuf2 helpers that the Linlon VPU driver (amvx) needs
++	  when it is built out of tree (for example by DKMS) instead of with
++	  VIDEO_LINLON. Does not build the driver itself.
+-- 
+2.56.0
+
