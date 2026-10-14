@@ -351,6 +351,8 @@ timeout "$INSTALL_TIMEOUT" "$QEMU" \
   -display none -no-reboot \
   > "$ILOG" 2>&1 &
 QEMU_PID=$!
+# An interrupted gate must not leave the guest running.
+trap 'kill "$QEMU_PID" 2>/dev/null; exit 130' INT TERM
 # A failed finish leaves d-i on its error dialog until the timeout (90 min).
 # Stop the guest as soon as the serial console shows a terminal failure; the
 # checks below then report it from the logs as usual.
@@ -366,6 +368,7 @@ while kill -0 "$QEMU_PID" 2>/dev/null; do
 done
 wait "$QEMU_PID"
 irc=$?
+trap - INT TERM
 set -e
 cat "$S0" >> "$ILOG" 2>/dev/null
 date -u +"  ended   %H:%M:%SZ  (qemu rc=$irc)"
