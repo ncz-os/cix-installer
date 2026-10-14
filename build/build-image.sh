@@ -1305,11 +1305,23 @@ stage_kvm_gate() {
         NCZ_PYTE_PYTHON="${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}" \
         ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_PYTE_PYTHON='${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}' bash build/kvm-install-gate-gpt.sh '$img' '$work'" ) 2>&1 | tee -a "$log"
     local rc="${PIPESTATUS[0]}"
-    if [ "$rc" = 0 ] && grep -q 'GATE PASS' "$log"; then
-        { printf 'gate=kvm\nresult=PASS\nui=PASS\nimage=%s\nsha256=%s\nat=%s\n' \
-            "$img" "$(sha256sum "$img" | awk '{print $1}')" "$(date -u +%s)"; } > "$RUN_DIR/kvm-gate.result"
+    [ "$rc" = 0 ] && grep -q 'GATE PASS' "$log" || return "$rc"
+    # Install-option sets: the gate above answers the component dialog with
+    # every option selected; these install and boot the image again with
+    # options unticked (rescue partition + management container off, then
+    # every option off), each in its own work dir. build/kvm-install-gate-matrix.sh
+    # names the sets; NCZ_KVM_GATE_VARIANTS overrides the list ("all" = every set).
+    local sets="${NCZ_KVM_GATE_VARIANTS:-norescue minimal}" mrc=0
+    echo "[kvm-gate] install-option sets: $sets" | tee -a "$log"
+    ( cd "$ROOT" && ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_KVM_GATE_VARIANTS='$sets' bash build/kvm-install-gate-matrix.sh '$img' '$work-options'" ) 2>&1 | tee -a "$log"
+    mrc="${PIPESTATUS[0]}"
+    if [ "$mrc" != 0 ] || ! grep -q '^MATRIX PASS' "$log"; then
+        echo "[kvm-gate] FAIL: an install-option set failed (see $work-options/matrix.tsv)" | tee -a "$log" >&2
+        return 1
     fi
-    return "$rc"
+    { printf 'gate=kvm\nresult=PASS\nui=PASS\noptions=%s\nimage=%s\nsha256=%s\nat=%s\n' \
+        "$(echo "$sets" | tr ' ' ',')" "$img" "$(sha256sum "$img" | awk '{print $1}')" "$(date -u +%s)"; } > "$RUN_DIR/kvm-gate.result"
+    return 0
 }
 
 # ---------------------------------------------------------------------------

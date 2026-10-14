@@ -20,6 +20,10 @@
 #   (info) VA-API driver files (reported, never a failure)
 #
 # Usage: verify-installed-target.sh <EVIDENCE_ROOT_RAW> <DEBUGFS> [arm64|amd64]
+# VERIFY_EXPECT_COMPONENTS=<record> (set by the KVM gate from its options answer)
+# must equal the target's /etc/cix-installer/COMPONENTS; the desktop-layer
+# sections run only when that record has the desktop, and the (opt) section
+# checks the recovery console/container and the rescue marker against it.
 # COMMON sections run for both architectures; Sky1 (arm64) sections only for arm64; the amd64
 # section also proves no Sky1 policy leaked onto x86 (the cause of the T2 boot hangs). Every run
 # prints machine-readable '[fact] key=value' lines that build/verify-dual-arch-parity.sh compares.
@@ -78,6 +82,42 @@ plain_module() {
     esac
 }
 
+
+# --- (opt) install options: the recorded selection and what it installs -------------------------------
+# The record is the comma list preseed/component-selector.sh wrote (`none` = no
+# option). Without a record the old behaviour holds: every component expected.
+echo "[verify-target] (opt) install options"
+V_RECORD=""
+if fetch /etc/cix-installer/COMPONENTS "$TMP/components"; then
+    V_RECORD="$(tr -d ' \t\r\n' < "$TMP/components")"
+fi
+if [ -n "${VERIFY_EXPECT_COMPONENTS:-}" ] && [ "$V_RECORD" != "$VERIFY_EXPECT_COMPONENTS" ]; then
+    gate_miss options "/etc/cix-installer/COMPONENTS is '${V_RECORD:-missing}', the installer was answered '$VERIFY_EXPECT_COMPONENTS'"
+fi
+V_DESKTOP=1; V_MGMT=1; V_RESCUE=1
+if [ -n "$V_RECORD" ]; then
+    case ",$V_RECORD," in *,desktop,*) : ;; *) V_DESKTOP=0 ;; esac
+    case ",$V_RECORD," in *,mgmt-container,*) : ;; *) V_MGMT=0 ;; esac
+    case ",$V_RECORD," in *,rescue-partition,*) : ;; *) V_RESCUE=0 ;; esac
+fi
+echo "[verify-target]     record '${V_RECORD:-none recorded}': desktop=$V_DESKTOP mgmt-container=$V_MGMT rescue-partition=$V_RESCUE"
+# mgmt-container carries both recovery tiers: the nspawn container (38) and the
+# static console on :2323 (37). Both present with it, both absent without it.
+for _o in /etc/systemd/nspawn/ncz-recovery.nspawn /etc/systemd/system/ncz-failsafe.service /opt/ncz-failsafe/bin/busybox; do
+    if exists "$_o"; then
+        [ "$V_MGMT" = 1 ] || gate_miss options "$_o is installed but mgmt-container was not selected"
+    else
+        [ "$V_MGMT" = 0 ] || gate_miss options "$_o is missing (mgmt-container selected; post-install/37-failsafe-access.sh, 38-recovery-container.sh)"
+    fi
+done
+# 72-rescue-partition.sh writes RESCUE_READY (PARTUUID=) only for a selected partition.
+if fetch /usr/local/lib/cix-installer/RESCUE_READY "$TMP/rescue_ready"; then
+    grep -q '^PARTUUID=..*' "$TMP/rescue_ready" || gate_miss options "RESCUE_READY has no PARTUUID"
+    [ "$V_RESCUE" = 1 ] || gate_miss options "RESCUE_READY exists but rescue-partition was not selected"
+else
+    [ "$V_RESCUE" = 0 ] || gate_miss options "/usr/local/lib/cix-installer/RESCUE_READY missing (rescue-partition selected; post-install/72-rescue-partition.sh)"
+fi
+echo "[fact] components=${V_RECORD:-unrecorded}"
 
 # --- (id) release identity, same on both architectures ------------------------------------------------
 echo "[verify-target] (id) release identity"
@@ -185,7 +225,9 @@ elif [ -s "$TMP/netfw-installed" ]; then
         grep -qxF -- "$_p" "$TMP/netfw-installed" || gate_miss fw-bom "$_p is not 'install ok installed' (manifests/firmware-$ARCH.pkgs; post-install/13-firmware-bom.sh)"
     done < <(grep -hvE '^[[:space:]]*(#|$)' "$BOM_PKGS" | awk '{print $1}' | sort -u)
     echo "[fact] firmware_bom_checked=$_bom_n"
-    grep -qxF -- systemd-coredump "$TMP/netfw-installed" || gate_miss diagnostics "systemd-coredump is not installed (post-install/20-desktop.sh)"
+    if [ "$V_DESKTOP" = 1 ]; then
+        grep -qxF -- systemd-coredump "$TMP/netfw-installed" || gate_miss diagnostics "systemd-coredump is not installed (post-install/20-desktop.sh)"
+    fi
 else
     # An empty or unreadable installed-package list must FAIL, never skip the BOM check.
     gate_miss fw-bom "no installed-package list to check (empty or missing /var/lib/dpkg/status)"
@@ -372,6 +414,8 @@ fi
 echo "[verify-target] (iv) browsers"
 if fetch /var/lib/dpkg/status "$TMP/dpkg-status"; then
     BROWSERS="google-chrome-stable"; [ "$ARCH" = arm64 ] && BROWSERS="$BROWSERS chromium-ncz-sky1"
+    # Browsers come with the desktop option only (post-install/run-all.sh skips 52/53 without it).
+    [ "$V_DESKTOP" = 1 ] || { BROWSERS=""; echo "[verify-target]     desktop not selected: no browsers expected"; }
     for pkg in $BROWSERS; do
         if awk -v p="$pkg" '
             BEGIN { RS=""; FS="\n" }
@@ -469,7 +513,8 @@ else
     gate_miss hosts "/etc/hosts unreadable"
 fi
 
-if [ "$ARCH" = arm64 ]; then
+# (v) and (v-b) are desktop-layer pieces (84-vpu-mpv, 20-desktop).
+if [ "$ARCH" = arm64 ] && [ "$V_DESKTOP" = 1 ]; then
 # --- (v) media stack: V4L2 on the amvx VPU (VA-API is optional) -------------------
 # VA-API is NOT the browser path: chromium-ncz-sky1 decodes and encodes through V4L2-M2M, and
 # stock Google Chrome on arm64 has no such patches. mpv follows what is installed.
@@ -512,6 +557,8 @@ done
 [ "$audsw" = 1 ] || gate_miss audio "ncz-sky1-audio-autoswitch.service is not enabled (no .wants symlink under /etc/systemd/user)"
 
 fi
+# (vii) .. (vi) check the desktop layer; they run only when the desktop was selected.
+if [ "$V_DESKTOP" = 1 ]; then
 # --- (vii) Bing wallpaper prefetch (helper, user units, patched plugin) -----------------------
 # LEAD 4's fix: the helper prefetches at login (no jitter) and daily; the Settings plugin gained a
 # "Preferred market" row. Assert the helper, the three units (enabled for users) and that the
@@ -607,6 +654,9 @@ fi
 SS_STATUS=""; SS_PLUGIN=""
 # shellcheck source=./verify-installed-target-screensavers.sh
 . "$HERE_VT/verify-installed-target-screensavers.sh"
+else
+    echo "[verify-target] (vii)-(vi) desktop not selected: wallpaper, sensors, tour and screensaver checks do not apply"
+fi
 
 if [ "$ARCH" = arm64 ]; then
 # --- (info) VA-API ---------------------------------------------------------
@@ -633,9 +683,11 @@ exists /etc/systemd/system/multi-user.target.wants/ncz-gpu-health.service || { g
 if fetch /usr/local/bin/ncz-gpu-env "$TMP/gpuenv"; then
     grep -q 'NCZ_ALLOW_SOFTWARE_FALLBACK' "$TMP/gpuenv" || { gate_miss gpu "ncz-gpu-env has no software-refusal guard"; GPU_OK=0; }
 else gate_miss gpu "/usr/local/bin/ncz-gpu-env"; GPU_OK=0; fi
+if [ "$V_DESKTOP" = 1 ]; then
 if fetch /opt/singularity/bin/singularity-labwc-session "$TMP/labwcsession"; then
     grep -q 'hw_render_device_present' "$TMP/labwcsession" || { gate_miss gpu "singularity-labwc-session still retries with software rendering on a GPU machine (overlay patch not applied)"; GPU_OK=0; }
 else gate_miss gpu "/opt/singularity/bin/singularity-labwc-session"; GPU_OK=0; fi
+fi
 if [ "$ARCH" = arm64 ]; then
     if exists /opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json; then
         exists /etc/glvnd/egl_vendor.d/10_cix.json || { gate_miss gpu "/etc/glvnd/egl_vendor.d/10_cix.json (Mali EGL vendor not registered system-wide: any process without the compositor environment renders in llvmpipe)"; GPU_OK=0; }

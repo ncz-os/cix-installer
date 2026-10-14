@@ -1,0 +1,103 @@
+#!/bin/bash
+# kvm-install-gate-matrix.sh -- run build/kvm-install-gate-gpt.sh once per
+# install-option set, so the options the installer's component dialog offers
+# are each installed and booted, not only the all-selected default.
+#
+# The single gate always answered the dialog with every option selected, so an
+# install with the rescue partition unticked was never exercised -- and that
+# install failed in 70-bootloader.sh on real hardware (the boot-menu refresh
+# required the rescue partition whether or not it had been selected). Each set
+# below is a separate gate run in its own work directory.
+#
+# Usage: build/kvm-install-gate-matrix.sh IMAGE [WORKROOT] [SET...]
+#   SET is a name from the table below, or `all`. Default: the sets in
+#   NCZ_KVM_GATE_VARIANTS, else "norescue minimal" (the two that build-image.sh
+#   runs after the full-option gate).
+#
+#   full           desktop,mgmt-container,rescue-partition   (every option)
+#   norescue       desktop                                   (rescue off + mgmt off)
+#   norescue-mgmt  desktop,mgmt-container                    (rescue off + mgmt on)
+#   nodesktop      mgmt-container,rescue-partition           (desktop off)
+#   minimal        none                                      (every option off: console system)
+#
+# Only `full` runs the installer UI check (it does not depend on the options).
+# A passing set's disk images are removed to keep the work root small
+# (NCZ_GATE_KEEP=1 keeps them); a failing set keeps everything for inspection.
+# Every set runs even after a failure; the summary is WORKROOT/matrix.tsv.
+# Exit 0 = every set passed, 1 = at least one failed, 2 = bad invocation.
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+IMG="${1:?usage: kvm-install-gate-matrix.sh IMAGE.img [WORKROOT] [SET...]}"
+shift
+WORKROOT="${1:-}"
+[ "$#" -gt 0 ] && shift
+[ -n "$WORKROOT" ] || WORKROOT="$HOME/kvm-install-matrix"
+[ -f "$IMG" ] || { echo "MATRIX FAIL: no such image: $IMG" >&2; exit 2; }
+
+# NCZ-GATE-SETS-BEGIN
+gate_set_components() {
+    case "$1" in
+        full)          echo "desktop,mgmt-container,rescue-partition" ;;
+        norescue)      echo "desktop" ;;
+        norescue-mgmt) echo "desktop,mgmt-container" ;;
+        nodesktop)     echo "mgmt-container,rescue-partition" ;;
+        minimal)       echo "none" ;;
+        *)             return 1 ;;
+    esac
+}
+GATE_ALL_SETS="full norescue norescue-mgmt nodesktop minimal"
+GATE_DEFAULT_SETS="norescue minimal"
+# NCZ-GATE-SETS-END
+
+SETS="$*"
+[ -n "$SETS" ] || SETS="${NCZ_KVM_GATE_VARIANTS:-$GATE_DEFAULT_SETS}"
+[ "$SETS" = all ] && SETS="$GATE_ALL_SETS"
+for _s in $SETS; do
+    gate_set_components "$_s" >/dev/null || { echo "MATRIX FAIL: unknown option set '$_s' (known: $GATE_ALL_SETS, all)" >&2; exit 2; }
+done
+
+# Never a tmpfs: each set copies the multi-GiB image and creates a target disk.
+mkdir -p "$WORKROOT"
+# Run as root by build-image.sh: hand the work root back to the invoking user on
+# every exit path (same as the gate itself), so the run dir stays deletable.
+. "$SCRIPT_DIR/lib/priv.sh" 2>/dev/null || true
+if declare -F ncz_trap_chown_back >/dev/null 2>&1; then ncz_trap_chown_back "$WORKROOT"; fi
+_fst=$(findmnt -no FSTYPE -T "$WORKROOT" 2>/dev/null || true)
+case "$_fst" in tmpfs|ramfs) echo "MATRIX FAIL: $WORKROOT is on $_fst; use a directory on disk" >&2; exit 2 ;; esac
+
+SUMMARY="$WORKROOT/matrix.tsv"
+printf 'set\tcomponents\tresult\tseconds\twork\n' > "$SUMMARY"
+FAILED=""
+for _s in $SETS; do
+    _c=$(gate_set_components "$_s")
+    _w="$WORKROOT/$_s"
+    _ui=0; [ "$_s" = full ] && _ui="${NCZ_GATE_UI_CHECK:-1}"
+    echo
+    echo "################ install-option set: $_s ($_c) ################"
+    _t0=$(date +%s)
+    _rc=0
+    NCZ_GATE_COMPONENTS="$_c" NCZ_GATE_UI_CHECK="$_ui" \
+        bash "$SCRIPT_DIR/kvm-install-gate-gpt.sh" "$IMG" "$_w" 2>&1 | tee "$WORKROOT/$_s.log"
+    _rc="${PIPESTATUS[0]}"
+    _dt=$(( $(date +%s) - _t0 ))
+    if [ "$_rc" = 0 ] && grep -q '^GATE PASS' "$WORKROOT/$_s.log"; then
+        printf '%s\t%s\tPASS\t%s\t%s\n' "$_s" "$_c" "$_dt" "$_w" >> "$SUMMARY"
+        if [ "${NCZ_GATE_KEEP:-0}" != 1 ]; then
+            rm -f "$_w"/*-qemutest.img "$_w/target.qcow2" "$_w/OVMF_VARS.fd"
+        fi
+    else
+        printf '%s\t%s\tFAIL(rc=%s)\t%s\t%s\n' "$_s" "$_c" "$_rc" "$_dt" "$_w" >> "$SUMMARY"
+        FAILED="$FAILED $_s"
+    fi
+done
+
+echo
+echo "=== install-option matrix ($(basename "$IMG")) ==="
+column -t -s "$(printf '\t')" "$SUMMARY" 2>/dev/null || cat "$SUMMARY"
+if [ -n "$FAILED" ]; then
+    echo "MATRIX FAIL:$FAILED (logs: $WORKROOT/<set>.log, work dirs kept)" >&2
+    exit 1
+fi
+echo "MATRIX PASS: $SETS"
+exit 0
