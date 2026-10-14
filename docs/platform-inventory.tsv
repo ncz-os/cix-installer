@@ -248,6 +248,7 @@ build/verify-desktop-mirror-seeds.sh	common	-	desktop seed verifier
 build/verify-dkms-modules.sh	sky1	-	DKMS coverage verifier (20 arm64/cix refs)
 build/verify-dual-arch-parity.sh	common	-	dual-arch parity gate: manifests, screensaver debs, hook lint
 build/verify-singularity-depends-seeded.sh	common	-	gate: every ncz-singularity-desktop Depends is in the desktop seed closure on the pinned snapshot
+build/verify-singularity-payload.sh	common	-	offline gate: built payload and settings plugin debs match the manifest, determinism pin, plugin lock and ABI, and every patch queue applies to its pinned upstream commit
 build/verify-firmware-bom.sh	common	-	firmware BOM verifier
 build/verify-installed-target-arm64.sh	sky1	-	installed-target accelerator verifier
 build/verify-installed-target.sh	common	-	shared installed-target verifier for both arches

@@ -343,8 +343,6 @@ and re-handshaken every 30 seconds. Incoming connections still replace the old
 link. **Upstream PR:** [singularityos-lab/singularity-nearby#2](https://github.com/singularityos-lab/singularity-nearby/pull/2)
 — open. Delete this patch once PR #2 merges.
 
-
-
 ## Previously landed
 
 **Currently no OTHER patches carried.** Everything else previously tracked
