@@ -452,7 +452,26 @@ ncz_step 0 "ERASING $CHOSEN_DISK: stopping swap and unmounting"
 D="$CHOSEN_DISK"; base="${D##*/}"
 awk 'NR>1{print $1}' /proc/swaps 2>/dev/null | grep "^${D}" | while read _s; do swapoff "$_s" 2>/dev/null || true; done
 awk -v dd="$D" '$1 ~ dd {print $2}' /proc/mounts 2>/dev/null | sort -r | while read _mp; do sync; umount "$_mp" 2>/dev/null || { sleep 1; umount "$_mp" 2>/dev/null || true; }; done
-ncz_step 1 "ERASING $CHOSEN_DISK: clearing the old partition table"
+ncz_step 1 "ERASING $CHOSEN_DISK: clearing old filesystem signatures and the partition table"
+# NCZ-WIPE-SIGNATURES-BEGIN
+# Old filesystem signatures inside the old partitions survive a new partition
+# table. When a new partition starts where an old one did, mkfs leaves e.g. an
+# old ext4 superblock (offset 1080) next to a new btrfs one (64 KiB): libblkid
+# then reports an ambivalent probe, udev creates no /dev/disk/by-partuuid link
+# and the installed system hangs in the initramfs (Macmini5,1 reinstall,
+# 2026-10-14). Zero the first 4 MiB and the last 1 MiB of every existing
+# partition (ext*, btrfs, xfs, swap, LUKS, md, bcache and ZFS labels live
+# there) before the table goes, then the table areas of the whole disk.
+for _pd in /sys/block/"$base"/"$base"*; do
+    [ -r "$_pd/start" ] && [ -r "$_pd/size" ] || continue
+    _pst=$(cat "$_pd/start" 2>/dev/null); _psz=$(cat "$_pd/size" 2>/dev/null)
+    case "$_pst$_psz" in ''|*[!0-9]*) continue ;; esac
+    _phead=8192; [ "$_psz" -lt 8192 ] && _phead=$_psz
+    dd if=/dev/zero of="$D" bs=512 seek="$_pst" count="$_phead" conv=notrunc 2>/dev/null || true
+    [ "$_psz" -gt 16384 ] && dd if=/dev/zero of="$D" bs=512 seek=$((_pst + _psz - 2048)) count=2048 conv=notrunc 2>/dev/null || true
+    log "cleared signatures of ${_pd##*/} (start $_pst, $_psz sectors)"
+done
+# NCZ-WIPE-SIGNATURES-END
 SZ=$(cat "/sys/block/$base/size" 2>/dev/null)
 dd if=/dev/zero of="$D" bs=1M count=16 2>/dev/null
 [ -n "$SZ" ] && dd if=/dev/zero of="$D" bs=512 seek=$((SZ-2048)) count=2048 2>/dev/null

@@ -17,7 +17,7 @@ ap.add_argument("--secs", type=int, default=240)
 ap.add_argument("--every", type=float, default=4.0)
 ap.add_argument("--interactive", action="store_true")
 ap.add_argument("--extra-opts", default="")
-ap.add_argument("--telnet-port", type=int, default=12323)
+ap.add_argument("--telnet-port", type=int, default=0, help="loopback port for the guest telnet forward (0 = a free one, so two checks on one host do not collide)")
 ap.add_argument("--probe", default="")
 ap.add_argument("--enter-every", type=float, default=0, help="vt mode: press Enter every S seconds after --enter-after (the amd64 dialogs are not readable from the VT once partman runs them)")
 ap.add_argument("--enter-after", type=int, default=20)
@@ -29,6 +29,9 @@ ap.add_argument("--rows", type=int, default=24); ap.add_argument("--cols", type=
 ap.add_argument("--mem", type=int, default=4096)
 ap.add_argument("--smp", type=int, default=4)
 a = ap.parse_args()
+if not a.telnet_port:
+    import socket as _s
+    _p = _s.socket(); _p.bind(("127.0.0.1", 0)); a.telnet_port = _p.getsockname()[1]; _p.close()
 
 W = os.path.abspath(a.workdir); os.makedirs(W, exist_ok=True)
 S = os.path.join(W, "screens"); shutil.rmtree(S, ignore_errors=True); os.makedirs(S)
