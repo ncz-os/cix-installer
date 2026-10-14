@@ -127,7 +127,7 @@ else
 fi
 for s in "$AMD" "$ARM"; do
     n=$(basename "$s")
-    awk '/^    if \[ -n "\$RESCUEPART_OPTIONS" \]; then$/ {g=1} g && /Rescue Partition/ {print "gated"; exit}' "$s" | grep -q gated \
+    awk '/^    if \[ -n "\$RESCUEPART_OPTIONS" \]; then$/ {g=1} g && /Rescue Partition/ {print "gated"; exit}' "$s" | grep >/dev/null gated \
         && ok "$n: the Rescue Partition menuentry is written only when its options exist" || nok "$n: Rescue Partition entry not gated on RESCUEPART_OPTIONS"
 done
 awk '/^RESCUEPART_OPTIONS=""$/ {f=1} f {print} /^# Same-kernel rescue entry/ {exit}' "$ARM" > "$W/arm-region.sh"
@@ -172,10 +172,10 @@ mg=$(sed -n "s/^_SKIP_MGMT_RE='\(.*\)'$/\1/p" "$RUNALL")
 rs=$(sed -n "s/^_SKIP_RESCUE_RE='\(.*\)'$/\1/p" "$RUNALL")
 [ -n "$mg" ] && [ -n "$rs" ] && ok "skip patterns read from run-all.sh" || nok "could not read _SKIP_MGMT_RE/_SKIP_RESCUE_RE from run-all.sh"
 for h in 37-failsafe-access.sh 38-recovery-container.sh; do
-    printf '%s\n' "$h" | grep -qE "$mg" && ok "mgmt-container off skips $h" || nok "mgmt-container off does not skip $h"
+    printf '%s\n' "$h" | grep >/dev/null -E "$mg" && ok "mgmt-container off skips $h" || nok "mgmt-container off does not skip $h"
 done
-printf '%s\n' 72-rescue-partition.sh | grep -qE "$rs" && ok "rescue-partition off skips 72-rescue-partition.sh" || nok "rescue skip"
-printf '%s\n' 36-telemetry.sh 70-bootloader.sh | grep -qE "$mg|$rs" && nok "an option skip drops 36-telemetry or 70-bootloader" || ok "telnet :23 (36) and the bootloader (70) are never option-skipped"
+printf '%s\n' 72-rescue-partition.sh | grep >/dev/null -E "$rs" && ok "rescue-partition off skips 72-rescue-partition.sh" || nok "rescue skip"
+printf '%s\n' 36-telemetry.sh 70-bootloader.sh | grep >/dev/null -E "$mg|$rs" && nok "an option skip drops 36-telemetry or 70-bootloader" || ok "telnet :23 (36) and the bootloader (70) are never option-skipped"
 
 ml=$(grep -n '^cat /proc/sys/kernel/random/boot_id > "\$NCZ_INSTALL_MARK"' "$RUNALL" | head -1 | cut -d: -f1)
 p0=$(grep -n '^# Phase 0: diagnostic affordance hooks' "$RUNALL" | head -1 | cut -d: -f1)
@@ -201,7 +201,7 @@ else
 fi
 grep -q 'ncz_components=\$GATE_COMPONENTS_ARG' "$GATE" && ok "the gate passes the answer on the Install cmdline" || nok "gate cmdline still fixed"
 grep -q 'VERIFY_EXPECT_COMPONENTS="\$EXPECT_RECORD"' "$GATE" && ok "the gate hands the expected record to the verifier" || nok "verifier not told the record"
-grep -q "grep -aqE 'Failed to run preseeded command|install is NOT bootable'" "$GATE" && grep -q 'wait "\$QEMU_PID"' "$GATE" \
+grep -q "grep -aE 'Failed to run preseeded command|install is NOT bootable' >/dev/null" "$GATE" && grep -q 'wait "\$QEMU_PID"' "$GATE" \
     && ok "a failed finish stops the install guest instead of waiting out the timeout" || nok "no early stop on a failed finish"
 grep -q -- '-i 3 ' "$GATE" && nok "the gate still assumes the root is partition 3" || ok "no fixed partition 3 in the gate"
 SGDISK="$(command -v sgdisk || echo /sbin/sgdisk)"
