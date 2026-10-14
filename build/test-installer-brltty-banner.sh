@@ -72,6 +72,9 @@ sample clamped yes none 80 128
 check "probe judge: tty1 clamped to 80 columns fails" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/clamped"
 sample files yes none 128 128 /usr/lib/udev/rules.d/brltty.rules
 check "probe judge: brltty files in the installer fail" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/files"
+sample ran yes none 128 128
+echo "syslog Jan  1 00:00:02 brltty[690]: BRLTTY 6.9.1" >> "$PT/ran"
+check "probe judge: brltty in the installer syslog fails (even after it exited)" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/ran"
 sample early no none 128 128
 check "probe judge: no sample while main-menu ran fails" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/early"
 : > "$PT/empty"
