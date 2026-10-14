@@ -1,49 +1,34 @@
-From 3626ff141f878072bba60a14e7b2a1e61273f340 Mon Sep 17 00:00:00 2001
+From 07b3293ffea35ab1a19c946111f1ae6734eb56fb Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Mon, 21 Sep 2026 16:30:31 -0400
-Subject: [PATCH] fix(background): plain auto-contrast attribution text, live
- quadrant move, 2-line wrap
+Date: Wed, 14 Oct 2026 12:47:37 -0400
+Subject: [PATCH] fix(background): plain attribution text, live corner move,
+ two-line wrap
 
-Three real, live-confirmed issues in the attribution overlay on top of
-0002's quadrant support:
+Draw the wallpaper attribution as plain text: no rounded scrim, only the
+luminance-based text colour with a soft shadow for legibility.
 
-1. attribution-label CSS drew a rounded, padded, filled scrim behind the
-   text -- a pill/badge shape, not simple text. Dropped border-radius/
-   padding/background-color; kept only auto-contrast text color + a
-   drop-shadow for legibility, driven by the same light-bg luminance
-   class as before.
+Gtk.Overlay places a child in its own size_allocate, which a child
+queue_allocate() with an unchanged size does not re-run. Queue the overlay
+too so a live change of the attribution corner takes effect at once.
 
-2. Changing wallpaper-attribution-position did not move the label until
-   the next wallpaper change. GtkOverlay computes each overlay child's
-   position from halign/valign inside its OWN size_allocate, which does
-   not re-run just because the child requests reallocation with an
-   unchanged measured size. queue_allocate() on the overlay itself (not
-   just the label) is what actually re-triggers it.
+A long title and author line could run under the dock or the panel
+controls. Wrap it to two lines, ellipsize past that, and justify it toward
+the side of the active corner.
 
-3. A long title+author line could run wide enough to pass under the
-   bottom-anchored, horizontally-centered dock. Wrap to 2 lines, capped
-   at 40 chars wide, ellipsized if still too long; justification follows
-   the active quadrant's side.
-
-Assisted-by: Claude Code:claude-sonnet-5
-AI-Scope: Root-caused and fixed all three against real operator reports on live hardware.
+Assisted-by: Claude Code:claude-sonnet-5-5
+AI-Scope: Found the three attribution defects on hardware and wrote the plain-text style, the overlay re-allocation and the two-line wrap.
 ---
- src/components/background/background.vala | 44 ++++++++++++++++-------
- 1 file changed, 31 insertions(+), 13 deletions(-)
+ src/components/background/background.vala | 43 ++++++++---------------
+ 1 file changed, 14 insertions(+), 29 deletions(-)
 
 diff --git a/src/components/background/background.vala b/src/components/background/background.vala
-index 3a867b8..070d459 100644
+index 8ea0c75..9f60877 100644
 --- a/src/components/background/background.vala
 +++ b/src/components/background/background.vala
-@@ -123,6 +123,16 @@ namespace Singularity {
+@@ -125,6 +125,11 @@ namespace Singularity {
              attribution_label.visible = false;
              attribution_label.can_focus = false;
              attribution_label.can_target = false;
-+            // A long title+author line can run wide enough to pass under
-+            // the bottom-anchored, horizontally-centered dock (or, in a
-+            // top quadrant, run under the panel's own controls). Wrap to
-+            // at most 2 lines instead of growing wider than the desktop
-+            // furniture can tolerate.
 +            attribution_label.wrap = true;
 +            attribution_label.wrap_mode = Pango.WrapMode.WORD_CHAR;
 +            attribution_label.lines = 2;
@@ -52,8 +37,29 @@ index 3a867b8..070d459 100644
              wp_overlay = new Gtk.Overlay();
              wp_motion = new Singularity.Animation.MotionBin(wp_stack);
              wp_overlay.set_child(wp_motion);
-@@ -224,22 +234,18 @@ namespace Singularity {
-         // and rationale unchanged, just relocated to the actual consumer.
+@@ -205,43 +210,18 @@ namespace Singularity {
+                 Singularity.Motion.Duration.SCENE, Singularity.Motion.Curve.EMPHASIZED);
+         }
+ 
+-        // Wallpaper attribution overlay (Background.vala).
+-        //
+-        // as a single Gtk.Label over the wallpaper cross-fade. The scrim
+-        // is a semi-transparent rounded rectangle so the text reads
+-        // against both bright and dark wallpapers without an aggressive
+-        // box, and the light-bg / non-light-bg pair matches the
+-        // convention panel.vala already uses for the top band -- same
+-        // colour tokens, same threshold (ATTRIBUTION_LUM_THRESHOLD = 0.72,
+-        // defined above).
+-        //
+-        // The luminance class selects an opposing scrim/text pair
+-        // independently of the active application theme, since wallpaper
+-        // contrast cannot be inferred from the theme's text colour.
+-        //
+-        // Moved here from libsingularity's style.css (review on
+-        // libsingularity#13: that stylesheet should stay limited to
+-        // reusable widget styling, and this rule only exists for the
+-        // wallpaper attribution overlay singularity-shell owns) -- rules
+-        // and rationale unchanged, just relocated to the actual consumer.
          private const string ATTRIBUTION_CSS = """
  .background-window .attribution-label {
 -    border-radius: 8px;
@@ -66,7 +72,6 @@ index 3a867b8..070d459 100644
 -    background-color: alpha(black, 0.65);
 -    color: white;
 -    text-shadow: 0 1px 2px alpha(black, 0.45);
-+    /* Bright wallpaper: plain dark text, no scrim/pill background. */
 +    color: black;
 +    text-shadow: 0 1px 3px alpha(white, 0.55), 0 1px 1px alpha(white, 0.75);
  }
@@ -75,13 +80,12 @@ index 3a867b8..070d459 100644
 -    background-color: alpha(white, 0.72);
 -    color: black;
 -    text-shadow: 0 1px 2px alpha(white, 0.35);
-+    /* Dark wallpaper: plain light text, no scrim/pill background. */
 +    color: white;
 +    text-shadow: 0 1px 3px alpha(black, 0.55), 0 1px 1px alpha(black, 0.75);
  }
  """;
  
-@@ -350,30 +356,42 @@ namespace Singularity {
+@@ -347,27 +327,32 @@ namespace Singularity {
                      attribution_label.valign = Align.START;
                      attribution_label.xalign = 0.0f;
                      attribution_label.yalign = 0.0f;
@@ -109,24 +113,11 @@ index 3a867b8..070d459 100644
 +                    attribution_label.justify = Justification.LEFT;
                      break;
              }
--            // Gtk.Overlay keeps its current child allocation when only the
--            // alignment changes, so explicitly request a fresh allocation
--            // for live GSettings changes to move the label immediately.
-+            // queue_allocate() on the LABEL alone is not enough: GtkOverlay
-+            // computes each overlay child's position from halign/valign
-+            // inside its OWN size_allocate, which does not re-run just
-+            // because a child requested reallocation with an unchanged
-+            // measured size (only the alignment changed, not the size).
-+            // Queuing the overlay itself forces that size_allocate to
-+            // re-run, which is what actually moves the label on a live
-+            // GSettings change -- confirmed live: the label was frozen at
-+            // whatever corner was active on the last wallpaper change
-+            // until this was added.
              attribution_label.queue_allocate();
 +            if (wp_overlay != null) wp_overlay.queue_allocate();
          }
  
          private void update_wallpaper(WallpaperManager manager) {
 -- 
-2.55.0
+2.53.0
 
