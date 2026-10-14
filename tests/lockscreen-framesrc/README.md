@@ -97,3 +97,32 @@ crash clears it fail-closed (8); input before the freeze timer holds the frame
 crash-looping source backs off exponentially (11); no output means no source
 (12); a pause-capable saver is suspended and resumed with no respawn (13); the
 prompt timeout is clamped to 60 s (14).
+
+### Owned-process engine
+
+Ownership discovery, fault injection, and cleanup live in **one** shared file,
+`tests/lockscreen-framesrc/owned-processes.sh`, sourced by both the harness and
+the tracked unit test below. Neither copies the logic.
+
+Ownership is recorded as `pid:pgid:generation:starttime`, where `starttime` is
+the leader's Linux `/proc/<pid>/stat` start time (field 22). Before targeting a
+group, `kill_owned_source`/`stop_all` verify the leader is **intact** (alive
+*and* the same start time), so a reused PID can never qualify.
+
+### Headless unit: `test-owned-cleanup.sh`
+
+`test-owned-cleanup.sh` exercises the real engine with **no GPU, compositor, or
+network**:
+
+```sh
+TMPDIR=/path/to/non-tmpfs/scratch bash tests/lockscreen-framesrc/test-owned-cleanup.sh
+```
+
+It requires an explicit `TMPDIR` (refuses a missing or `tmpfs` value rather than
+defaulting to `/tmp`) and creates scratch under `<TMPDIR>/task/tmp/`. It builds
+a real-src-named fixture in an owned `setsid` group plus an **unrelated canary
+with the exact same basename** in another directory/group, then calls the actual
+`owned_source_pid` / `kill_owned_source` / `stop_all` functions to assert owned
+discovery, that fault injection refuses the unrelated PID, that cleanup reaps
+the owned group while the canary survives, and that no owned orphan leaks. A
+PASS here proves the production helper, not a copy.
