@@ -61,7 +61,9 @@ chmod 0755 /etc/update-motd.d/50-ncz-qotd
 # The Singularity shell (libsingularity AutostartManager) starts a SYSTEM
 # /etc/xdg/autostart entry only when its OnlyShowIn names Singularity, and the
 # session exports XDG_CURRENT_DESKTOP=Singularity; an entry without it is never
-# launched (build/test-xdg-autostart.sh).
+# launched (build/test-xdg-autostart.sh). On a first login the notifier waits
+# for the desktop tour (`ncz-first-login-tour wait-done`) so the tour is the
+# first thing the user sees (build/test-login-notice-order.sh).
 cat > /usr/local/bin/ncz-qotd-notify <<'NOTIFY'
 #!/bin/sh
 command -v notify-send >/dev/null 2>&1 || exit 0
@@ -69,6 +71,9 @@ Q=$(/usr/local/bin/ncz-qotd 2>/dev/null)
 [ -n "$Q" ] || exit 0
 ICON=/usr/share/pixmaps/ncz-avatar-magenta.png
 [ -f "$ICON" ] || ICON=dialog-information
+# On a first login the desktop tour comes first: hold the quote until the
+# tour has closed (bounded; returns at once on later logins).
+[ -x /usr/local/bin/ncz-first-login-tour ] && /usr/local/bin/ncz-first-login-tour wait-done
 # wait for the notification daemon to be up after session start
 sleep 8
 notify-send -a "NCZ" -u low -t 20000 -i "$ICON" "Quote of the Day" "$Q"
