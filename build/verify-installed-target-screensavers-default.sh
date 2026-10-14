@@ -124,25 +124,26 @@
         #      the saver must freeze only when the lock raises its prompt
         #      (freeze mode "prompt"). The thermal governor is the protection.
         #      The feed's `--print-policy` emits the same values as a marker line.
-        #      These keys are ncz-screensavers 0.8.16+; on a staged 0.8.15 feed
-        #      (pending the unified payload rebuild) record a pending note, not
-        #      a gate_miss, so a pre-rebuild target is not read as a regression.
+        #      These keys are ncz-screensavers 0.8.16+; if the feed lacks v2 policy
+        #      markers or fetch fails, FAIL CLOSED via gate_miss.
         if fetch /usr/libexec/ncz-screensaver-feed "$TMP/ss.feed"; then
             if grep -q 'DEFAULT_SAVER_POLICY_REV = 2' "$TMP/ss.feed" \
                || grep -q 'weak_lock_fps' "$TMP/ss.feed"; then
-            grep -q 'DEFAULT_LOCK_FPS = 30' "$TMP/ss.feed" \
-                || gate_miss screensavers "installed ncz-screensaver-feed lacks the 30 fps Auto default (the saver would look nearly frozen)"
-            grep -q 'DEFAULT_RENDER_DIV = 1' "$TMP/ss.feed" \
-                || gate_miss screensavers "installed ncz-screensaver-feed does not render at full resolution by default"
-            grep -q 'LFS_FLAG_PAUSE' "$TMP/ss.feed" \
-                || gate_miss screensavers "installed ncz-screensaver-feed cannot be suspended behind the unlock prompt (no LFS_FLAG_PAUSE)"
-            grep -q 'DEFAULT_FREEZE_MODE = "prompt"' "$TMP/ss.feed" \
-                || gate_miss screensavers "installed ncz-screensaver-feed does not default to freeze mode prompt (a timer freeze stops the idle saver on a frame 15 s after it starts)"
-            echo "[verify-target]     lock-saver policy defaults present (30 fps / full resolution / suspend on prompt only)"
+                grep -q 'DEFAULT_LOCK_FPS = 30' "$TMP/ss.feed" \
+                    || gate_miss screensavers "installed ncz-screensaver-feed lacks the 30 fps Auto default (the saver would look nearly frozen)"
+                grep -q 'DEFAULT_RENDER_DIV = 1' "$TMP/ss.feed" \
+                    || gate_miss screensavers "installed ncz-screensaver-feed does not render at full resolution by default"
+                grep -q 'LFS_FLAG_PAUSE' "$TMP/ss.feed" \
+                    || gate_miss screensavers "installed ncz-screensaver-feed cannot be suspended behind the unlock prompt (no LFS_FLAG_PAUSE)"
+                grep -q 'DEFAULT_FREEZE_MODE = "prompt"' "$TMP/ss.feed" \
+                    || gate_miss screensavers "installed ncz-screensaver-feed does not default to freeze mode prompt (a timer freeze stops the idle saver on a frame 15 s after it starts)"
+                echo "[verify-target]     lock-saver policy defaults present (30 fps / full resolution / suspend on prompt only)"
             else
-                echo "[verify-target]     PENDING ncz-screensavers 0.8.16+: installed feed is the staged 0.8.15, which has no 30 fps/full-res/suspend policy keys; pending unified payload rebuild"
+                gate_miss screensavers "installed ncz-screensaver-feed lacks v2 policy markers (DEFAULT_SAVER_POLICY_REV=2 or weak_lock_fps); missing 30 fps/full-res/suspend/prompt-freeze policy"
             fi
             rm -f "$TMP/ss.feed"
+        else
+            gate_miss screensavers "failed to fetch ncz-screensaver-feed for policy verification"
         fi
         # (g) the GTK4 reference app is for OTHER distros
         grep -q '^Package: ncz-screensavers-gtk4-reference$' "$TMP/dpkg-status" 2>/dev/null && gate_miss screensavers "ncz-screensavers-gtk4-reference is installed on NCZ-OS (it must not be)"

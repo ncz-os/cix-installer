@@ -125,6 +125,10 @@ WORK_DIR="${NCZ_SINGULARITY_WORK_DIR:-$OUT/work}"
 # exercise the EXACT same policy without copying the case statement.
 . "$(cd "$(dirname "$0")" && pwd)/lib/ncz-work-dir-guard.sh"
 ncz_work_dir_guard "$WORK_DIR" || exit 1
+ncz_work_dir_guard "$WORK_DIR/caches/go" || exit 1
+ncz_work_dir_guard "$WORK_DIR/caches/go-build" || exit 1
+ncz_work_dir_guard "$WORK_DIR/caches/go/pkg/mod" || exit 1
+ncz_work_dir_guard "$WORK_DIR/caches/xdg" || exit 1
 mkdir -p "$WORK_DIR/tmp"
 # Container TMPDIR is on the host-owned bind (not overlay /tmp), so any
 # process the helper spawns that respawns apt or writes scratch state
@@ -177,6 +181,12 @@ echo "           $OUT/singularity-opt.tgz.sources (upstream commit of every repo
 BUILD_SCRIPT='
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+# Host-owned cache directories for Go toolchain (module cache, build cache,
+# XDG cache). Bound to /work/caches/* from the host before container launch.
+export GOPATH=/work/caches/go
+export GOCACHE=/work/caches/go-build
+export GOMODCACHE=/work/caches/go/pkg/mod
+export XDG_CACHE_HOME=/work/caches/xdg
 # Keep apt scratch on the host-owned bind so the simulation and the real
 # install do not race against overlay /tmp churn.
 export TMPDIR=/work/tmp
