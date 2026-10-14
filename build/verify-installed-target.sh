@@ -427,6 +427,48 @@ if [ "${VERIFY_EXPECT_GENERATED_HOSTNAME:-1}" = 1 ]; then
     fi
 fi
 
+# --- (iv-d) resolver config and hosts belong to this system ---------------------------
+# The image layers carry no resolver config (strip_build_host_state truncates the
+# copy the build chroot gets); the installer writes the target's own
+# (preseed/extract-rootfs.sh, preseed/late.sh) and systemd-resolved or the network
+# manager replaces it at boot. A REGULAR /etc/resolv.conf carrying the
+# systemd-resolved stub header is a copied file, not one written for this system
+# (resolved only ever writes that text under /run). /etc/hosts may name only the
+# local names and this system's hostname.
+echo "[verify-target] (iv-d) resolv.conf and hosts"
+RCT="$(dfs "stat /etc/resolv.conf" | sed -n 's/.*Type: \([a-z]*\).*/\1/p' | head -1)"
+case "$RCT" in
+    symlink)
+        echo "[verify-target]     /etc/resolv.conf -> $(dfs "stat /etc/resolv.conf" | sed -n 's/^Fast link dest: "\(.*\)"$/\1/p' | head -1)" ;;
+    regular)
+        if fetch /etc/resolv.conf "$TMP/resolv.conf"; then
+            if grep >/dev/null 'managed by man:systemd-resolved' "$TMP/resolv.conf"; then
+                gate_miss resolv "/etc/resolv.conf is a regular file with the systemd-resolved stub header (a copied file)"
+            elif grep >/dev/null -E '^[[:space:]]*nameserver[[:space:]]' "$TMP/resolv.conf"; then
+                echo "[verify-target]     /etc/resolv.conf written for this system ($(grep -c '^[[:space:]]*nameserver' "$TMP/resolv.conf") nameserver line(s); first line: $(head -1 "$TMP/resolv.conf" | cut -c1-60))"
+            else
+                gate_miss resolv "/etc/resolv.conf has no nameserver line"
+            fi
+        else
+            gate_miss resolv "/etc/resolv.conf is empty or unreadable"
+        fi ;;
+    *) gate_miss resolv "/etc/resolv.conf missing (type '${RCT:-none}')" ;;
+esac
+if fetch /etc/hosts "$TMP/hosts"; then
+    [ -s "$TMP/hostname" ] || fetch /etc/hostname "$TMP/hostname" || :
+    HNH="$(tr -d '[:space:]' < "$TMP/hostname" 2>/dev/null)"
+    HX="$(awk '!/^[[:space:]]*#/ && NF>1 { for (i=2; i<=NF; i++) { if ($i ~ /^#/) break; print $i } }' "$TMP/hosts" \
+        | grep -v -E '^(localhost|localhost\.localdomain|ip6-localhost|ip6-loopback|ip6-allnodes|ip6-allrouters|ip6-localnet|ip6-mcastprefix)$' \
+        | grep -v -x -F "${HNH:-//}" | grep -v -E "^${HNH:-//}\." | tr '\n' ' ')"
+    if [ -n "${HX// /}" ]; then
+        gate_miss hosts "/etc/hosts names other hosts: $HX"
+    else
+        echo "[verify-target]     /etc/hosts names only local names and ${HNH:-this system}"
+    fi
+else
+    gate_miss hosts "/etc/hosts unreadable"
+fi
+
 if [ "$ARCH" = arm64 ]; then
 # --- (v) media stack: V4L2 on the amvx VPU (VA-API is optional) -------------------
 # VA-API is NOT the browser path: chromium-ncz-sky1 decodes and encodes through V4L2-M2M, and
