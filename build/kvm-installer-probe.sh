@@ -93,11 +93,11 @@ judge)
         END {
             ok = 0; bad = 0; maxc = 0
             for (i = 1; i <= s; i++) {
-                if (mm[i] != "yes") continue
-                ok++
                 if (pid[i] != "") { printf "probe: sample %d: brltty is running (pid %s)\n", i, pid[i]; bad = 1 }
                 if (f[i] != "") { printf "probe: sample %d: brltty files present:%s\n", i, f[i]; bad = 1 }
                 if (started[i]) { printf "probe: sample %d: the installer syslog shows brltty ran\n", i; bad = 1 }
+                if (mm[i] != "yes") continue
+                ok++
                 if (t1c[i] ~ /^[0-9]+$/ && t2c[i] ~ /^[0-9]+$/ && t1c[i] + 0 < t2c[i] + 0) {
                     printf "probe: sample %d: tty1 clamped to %s columns (tty2 has %s)\n", i, t1c[i], t2c[i]; bad = 1
                 }
