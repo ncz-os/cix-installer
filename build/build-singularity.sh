@@ -106,16 +106,33 @@ OUT="${OUT:-$(cd "$(dirname "$0")/.." && pwd)/build/sinty-out}"
 # must live on copy-on-write overlay scratch, because a hard kill of the
 # container would erase it and a slow host would deadlock on overlay churn.
 # NCZ_SINGULARITY_WORK_DIR overrides for build hosts that prefer a different
-# mount; the default sits inside ~/Projects so the build artefacts live on
-# the same disk-backed ext4 path root as the checkout (never tmpfs).
-WORK_DIR="${NCZ_SINGULARITY_WORK_DIR:-$HOME/Projects/work}"
+# mount; the default sits inside $OUT so every build owns its workspace
+# (a shared $HOME/Projects/work can be written into by two parallel builds
+# racing on the same /work bind). Do NOT delete a pre-existing workspace
+# the caller did not ask us to create -- the actual native task uses
+# its own task/work, not this default.
+WORK_DIR="${NCZ_SINGULARITY_WORK_DIR:-$OUT/work}"
 # Hard guard: refuse to start a build whose workspace would land on tmpfs
-# or any overlay/aufs scratch. findmnt exit non-zero (path not mounted /
-# no source) is fine; finding the literal tmpfs/overlay strings is a hard
-# failure with the offending mount, before any apt fetch.
-_findmnt_target="$(findmnt -T "$WORK_DIR" -o FSTYPE -n 2>/dev/null || true)"
+# or any overlay/aufs scratch. The workspace MUST exist before findmnt is
+# consulted (otherwise findmnt walks up the parent path and reports the
+# nearest mounted ancestor -- which can silently be the host root or
+# something we never intended). Create the owned workspace FIRST, then
+# require a successful findmnt AND a known disk-backed fstype. A failed
+# findmnt or a tmpfs/overlay/aufs backing is a hard failure with the
+# offending mount, before any apt fetch. Real disk overlays are valid
+# (btrfs, ext4, xfs, zfs, f2fs, ...); only in-memory / copy-on-write
+# scratch filesystems are rejected here.
+mkdir -p "$WORK_DIR"
+_findmnt_target="$(findmnt -T "$WORK_DIR" -o FSTYPE -n 2>/dev/null)" || {
+    echo "ERROR: WORK_DIR=$WORK_DIR is not on any mounted filesystem (findmnt failed)." >&2
+    echo "       create the directory on a real disk-backed mount, or set NCZ_SINGULARITY_WORK_DIR." >&2
+    exit 1
+}
 case "$_findmnt_target" in
-    tmpfs|overlay|aufs) echo "ERROR: WORK_DIR=$WORK_DIR is on $_findmnt_target; refusing to build on tmpfs/overlay scratch." >&2; exit 1 ;;
+    tmpfs|overlay|aufs|fuse-overlayfs)
+        echo "ERROR: WORK_DIR=$WORK_DIR is on $_findmnt_target; refusing to build on tmpfs/overlay scratch." >&2
+        exit 1
+        ;;
 esac
 mkdir -p "$WORK_DIR/tmp"
 # Container TMPDIR is on the host-owned bind (not overlay /tmp), so any
@@ -173,22 +190,34 @@ export DEBIAN_FRONTEND=noninteractive
 # install do not race against overlay /tmp churn.
 export TMPDIR=/work/tmp
 mkdir -p "$TMPDIR"
-# ZERO-REMOVALS GATE (NCZ-OS payload policy): simulate the exact install
-# first against the same package list, against the SAME base that the real
-# install will read. The simulation must finish cleanly (exit 0) AND must
-# not print any "Remv " line -- a Remv here means we are about to delete
-# a package the shipped system still needs (e.g. pulling libfoo-dev which
-# Conflicts/Replaces libfoo on the target). No bypass, no --allow-downgrades,
-# no --no-trusted; if the dependency resolution itself is wrong, the build
-# fails here with the exact Remv line, not silently later.
-bash /ncz-build/apt-sim-zero-removals.sh /work/tmp/apt-sim.log
 apt-get update -q
+# ZERO-REMOVALS GATE (NCZ-OS payload policy): run the simulation through
+# the generic helper against the SAME package list and flag set as the
+# real transaction, against the SAME base the real install will read.
+# The helper takes the EXACT install arguments (already-expanded) and
+# runs `apt-get install -s` with them; the simulation and the install
+# use identical arguments by construction. The simulation must finish
+# cleanly (exit 0) AND must not print any "Remv " line -- a Remv here
+# means we are about to delete a package the shipped system still
+# needs (e.g. pulling libfoo-dev which Conflicts/Replaces libfoo on the
+# target). No bypass, no --allow-downgrades, no --no-trusted; if the
+# dependency resolution itself is wrong, the build fails here with the
+# exact Remv line, not silently later. On a clean simulation the
+# helper runs the actual `apt-get install` with the SAME arguments.
+# The install argument list is written ONCE below -- the helper
+# receives it as "$@" verbatim, so BUILD_SCRIPT cannot drift its
+# package list away from the gate.
 # SIT (subprojects/sit, the toolkit the superproject builds since 615dba0) needs the
 # gstreamer-play, vulkan/glslc, colord and X11 extension headers in the block before
 # build-essential (meson setup with the superproject SIT_OPTIONS, measured 2026-10-13).
 # Build deps (Debian 13 / Ubuntu 26.04 names — see docs/upstream/singularity/
 # 20-pr-arm64-build.md). No arch guards needed; the tree builds clean on aarch64.
-apt-get install -y --no-install-recommends \
+# $SINGULARITY_METADATA_SEARCH_DEV is set by the host build to the
+# metadata-search -dev package for the chosen base (e.g. libtinysparql-dev
+# on forky, libtracker-sparql-3.0-dev elsewhere); it appears exactly once
+# in the install argument list below -- the helper reuses the same args.
+bash /ncz-build/apt-sim-zero-removals.sh /work/tmp/apt-sim.log \
+    -y --no-install-recommends \
     ca-certificates git golang-go \
     libglib2.0-bin \
     valac meson ninja-build pkg-config gettext \
@@ -236,7 +265,7 @@ apt-get install -y --no-install-recommends \
     freerdp3-dev libarchive-dev libfido2-dev libfreetype-dev liblzma-dev \
     libsane-dev libxcb-render-util0-dev libxcb-xinput-dev libzbar-dev \
     libzstd-dev nettle-dev \
-    libevdev-dev libmtdev-dev libwacom-dev libtracker-sparql-3.0-dev \
+    libevdev-dev libmtdev-dev libwacom-dev \
     libsfdo-dev libudev-dev \
     libgstreamer-plugins-bad1.0-dev libvulkan-dev glslc libcolord-dev \
     libxcursor-dev libxdamage-dev libxi-dev libxinerama-dev libxrandr-dev \
