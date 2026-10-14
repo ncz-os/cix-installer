@@ -376,7 +376,11 @@ _SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|49-artist-pac
 # Desktop settings UI), so it is correctly skipped when desktop is OFF.
 # Per-toggle skips (work whether desktop is ON or OFF).
 _SKIP_BROWSERS_RE='^(52-vivaldi|53-chrome)\.sh$'
-_SKIP_MGMT_RE='^(38-recovery-container)\.sh$'
+# The ncz-recovery management container option carries both recovery-console
+# tiers: the nspawn container (38) and the static busybox console on :2323 (37).
+# Neither is installed when the option is unticked (operator decision
+# 2026-10-14: the failsafe console is part of that install option).
+_SKIP_MGMT_RE='^(37-failsafe-access|38-recovery-container)\.sh$'
 _SKIP_RESCUE_RE='^(72-rescue-partition)\.sh$'
 _SKIP_WALLPAPER_RE='^(45-wallpaper-rotator)\.sh$'
 # Audit every per-component skip so the install log records what was dropped
