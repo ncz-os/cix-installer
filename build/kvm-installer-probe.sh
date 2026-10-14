@@ -6,7 +6,9 @@
 #   kvm-installer-probe.sh sample PORT OUT [INTERVAL]
 #       loop until killed: every INTERVAL s (default 15) log in to
 #       root@127.0.0.1:PORT and append one sample block to OUT. Runs in the
-#       background of phase 1; the caller kills it by PID.
+#       background of phase 1; the caller kills it by PID. It also stops on
+#       its own once the process that started it is gone, so an interrupted
+#       gate never leaves it running.
 #   kvm-installer-probe.sh judge OUT
 #       exit 0 when at least one sample was taken while main-menu ran, no
 #       sample shows brltty (process, a brltty line in the installer syslog,
@@ -53,8 +55,9 @@ sample)
     PORT="${2:?port}"; OUT="${3:?out}"; INTERVAL="${4:-15}"
     command -v sshpass >/dev/null 2>&1 || { echo "probe: sshpass not installed" >> "$OUT"; exit 2; }
     export SSHPASS="${NCZ_GATE_DIAG_PW:-rescue}"
+    parent=$PPID
     n=0
-    while :; do
+    while kill -0 "$parent" 2>/dev/null; do
         n=$((n + 1))
         if blk="$(timeout 20 sshpass -e ssh -p "$PORT" -o StrictHostKeyChecking=no \
                 -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 \
