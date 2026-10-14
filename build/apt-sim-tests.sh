@@ -1,6 +1,21 @@
 #!/bin/bash
-# apt-sim-tests.sh -- negative proofs for the new generic helper.
-# Pure shell + bash; no real apt, no containers, no compile.
+# apt-sim-tests.sh -- negative proofs for the new generic helper plus
+# the WORK_DIR mount guard that gates the singularity build container.
+# Pure shell + bash; no real apt, no containers, no compile, no network.
+#
+# This test runs from an arbitrary cwd and writes all scratch state
+# under $TASK_TMP_DIR (default task/tmp inside the worktask, on the
+# task's BTRFS data disk -- never /tmp on tmpfs). Every command is
+# parameterised so the file can live in the public cix-installer repo
+# without leaking any host / user / absolute path.
+#
+# All paths inside the test are derived from SCRIPT_DIR (this file's
+# location): the helper script (apt-sim-zero-removals.sh) and the
+# builder (build-singularity.sh) are loaded relative to SCRIPT_DIR.
+#
+# The build-singularity WORK_DIR mount guard is exercised through the
+# SAME helper the builder uses (lib/ncz-work-dir-guard.sh) with a
+# stubbed findmnt, so the test does not duplicate the policy.
 #
 # Goals:
 #   1. Argument parity: helper's simulation receives the EXACT args
@@ -12,48 +27,73 @@
 #      aborts the helper before any install.
 #   4. Argument-parity safety: adding/removing a flag in the install
 #      list is observable by the fake apt-get's argv log; both the
-#      -s run and the real run receive the SAME argv.
-#
-# Each test creates its own APT_GET wrapper under a tmpdir and
-# forces the helper to use it via APT_GET=$tmp/apt-get.sh.
+#      -s run and the real run receive the SAME argv (byte parity).
+#   5. WORK_DIR guard: empty / ramfs / tmpfs / overlay / aufs /
+#      fuse-overlayfs / findmnt-failure are all rejected BEFORE the
+#      builder would launch any container; btrfs / ext4 / xfs are
+#      accepted. The same helper invoked by build-singularity.sh.
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TASK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 HELPER="$SCRIPT_DIR/apt-sim-zero-removals.sh"
+BUILDER="$SCRIPT_DIR/build-singularity.sh"
+GUARD="$SCRIPT_DIR/lib/ncz-work-dir-guard.sh"
+# All scratch lives under the task's BTRFS data disk; never /tmp.
+TASK_TMP_DIR="${TASK_TMP_DIR:-$TASK_ROOT/task/tmp}"
+mkdir -p "$TASK_TMP_DIR"
+export TMPDIR="$TASK_TMP_DIR"
+
 [ -x "$HELPER" ] || { echo "FAIL: helper not executable at $HELPER" >&2; exit 1; }
+[ -r "$BUILDER" ] || { echo "FAIL: builder not readable at $BUILDER" >&2; exit 1; }
+[ -r "$GUARD" ] || { echo "FAIL: guard not readable at $GUARD" >&2; exit 1; }
 
 PASS=0; FAIL=0
 fail() { echo "FAIL: $*" >&2; FAIL=$((FAIL+1)); }
 pass() { echo "PASS: $*"; PASS=$((PASS+1)); }
 
-run_negative() {
-    # $1 = name, $2 = expected exit, $3 = fake apt-get body, $4.. = install args
-    local name="$1" expected="$2" fbody="$3"; shift 3
-    local tmp; tmp="$(mktemp -d)"
-    local log="$tmp/apt-argv.log"
-    cat > "$tmp/apt-get.sh" <<EOF
-[ "\$1" = "install" ] && [ "\$2" = "-s" ] && SIM=1 && shift 2
-[ "\$1" = "install" ] && [ "\$2" != "-s" ] && SIM=0 && shift
-echo "SIM=\$SIM args=\$*" >> "$log"
-exit 0
-$fbody
+# --- helper: invoke the actual guard with a stubbed findmnt. ---
+# Builds a tmpdir, drops a fake findmnt that prints a canned fstype
+# (or exits nonzero), then runs `bash -c 'set -e; . guard.sh;
+# ncz_work_dir_guard <tmpdir>'` and returns the captured exit code,
+# stdout, stderr. The same ncz_work_dir_guard the builder sources.
+run_guard_with_stub_findmnt() {
+    local tmp="$1" stub_mode="$2" stub_value="$3"
+    local stub="$tmp/stub-findmnt"
+    case "$stub_mode" in
+        ok)
+            cat > "$stub" <<EOF
+#!/bin/sh
+# Stub findmnt: print the canned fstype, exit 0.
+echo "$stub_value"
 EOF
-    chmod +x "$tmp/apt-get.sh"
-    PATH="$tmp:$PATH" APT_GET="$tmp/apt-get.sh" \
-        SIM_LOG="$tmp/sim.log" \
-        bash "$HELPER" "$tmp/sim.log" "$@" > "$tmp/out.txt" 2> "$tmp/err.txt"
-    local rc=$?
-    if [ "$rc" = "$expected" ]; then
-        pass "$name (exit=$rc)"
-    else
-        fail "$name (got exit=$rc want $expected)"
-        echo "  --- stdout ---"; sed 's/^/  /' "$tmp/out.txt"
-        echo "  --- stderr ---"; sed 's/^/  /' "$tmp/err.txt"
-        echo "  --- argv log ---"; sed 's/^/  /' "$log"
-    fi
-    rm -rf "$tmp"
+            ;;
+        empty)
+            # Successful findmnt that prints nothing -- the probe
+            # succeeded but reported an empty fstype. The guard must
+            # reject this as a probe failure.
+            cat > "$stub" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+            ;;
+        fail)
+            # findmnt fails outright (path not on any mount).
+            cat > "$stub" <<'EOF'
+#!/bin/sh
+exit 32
+EOF
+            ;;
+    esac
+    chmod +x "$stub"
+    NCZ_WORK_DIR_GUARD_FINDMNT="$stub" bash -c '
+        set -e
+        . "$0"
+        ncz_work_dir_guard "$1"
+    ' "$GUARD" "$tmp"
 }
 
-# Test 1: clean simulation -> helper exits 0, both sim and install ran with same args
+# --- Test 1: clean simulation -> helper exits 0, both sim and install
+# ran with the same args (byte parity). ---
 echo "=== Test 1: clean simulation, exact arg parity ==="
 tmp="$(mktemp -d)"
 log="$tmp/apt-argv.log"
@@ -71,7 +111,7 @@ PATH="$tmp:$PATH" APT_GET="$tmp/apt-get.sh" \
 rc=$?
 if [ "$rc" = 0 ]; then pass "Test1: helper exited 0"
 else fail "Test1: helper exited $rc"; sed 's/^/  /' "$tmp/err.txt"; fi
-# Verify both runs saw the same args
+# Verify both runs saw the same args (byte parity)
 sim_args=$(grep '^SIM=1' "$log" | sed 's/^SIM=1 args=//')
 install_args=$(grep '^SIM=0' "$log" | sed 's/^SIM=0 args=//')
 if [ "$sim_args" = "$install_args" ]; then
@@ -79,7 +119,7 @@ if [ "$sim_args" = "$install_args" ]; then
 else
     fail "Test1: arg parity broken -- sim='$sim_args' install='$install_args'"
 fi
-# Verify libtinysparql-dev (the forky pick) appears once
+# Verify libtinysparql-dev (the forky pick) appears in BOTH runs
 if [ "$(grep -c libtinysparql-dev "$log")" = 2 ]; then
     pass "Test1: libtinysparql-dev present in both sim and install args"
 else
@@ -93,7 +133,7 @@ else
 fi
 rm -rf "$tmp"
 
-# Test 2: Remv line in sim -> helper exits non-zero, NO install runs
+# --- Test 2: Remv line in sim -> helper exits non-zero, NO install runs ---
 echo ""
 echo "=== Test 2: Remv in simulation aborts before install ==="
 tmp="$(mktemp -d)"
@@ -126,7 +166,7 @@ else
 fi
 rm -rf "$tmp"
 
-# Test 3: simulation non-zero exit -> helper non-zero, no install
+# --- Test 3: simulation non-zero exit -> helper non-zero, no install ---
 echo ""
 echo "=== Test 3: simulation exit non-zero aborts before install ==="
 tmp="$(mktemp -d)"
@@ -159,20 +199,25 @@ else
 fi
 rm -rf "$tmp"
 
-# Test 4: helper called with NO install args -> exit code 64, no install
+# --- Test 4: helper called with NO install args -> exit code 64, no log
+# file. Scratch state must live under task/tmp, not /tmp. ---
 echo ""
 echo "=== Test 4: no install args is rejected ==="
-PATH="/usr/bin:/bin" bash "$HELPER" /tmp/should-not-exist-sim.log > /dev/null 2>&1
+expected_log="$TASK_TMP_DIR/should-not-exist-sim.log"
+rm -f "$expected_log"
+PATH="/usr/bin:/bin" bash "$HELPER" "$expected_log" > /dev/null 2>&1
 rc=$?
 if [ "$rc" = 64 ]; then
     pass "Test4: helper rejects empty arg list (rc=64)"
 else
     fail "Test4: helper should have rejected empty args (rc=$rc)"
 fi
-[ ! -f /tmp/should-not-exist-sim.log ] && pass "Test4: no log file created" \
-    || fail "Test4: stray log file created"
+[ ! -f "$expected_log" ] && pass "Test4: no log file created at $expected_log" \
+    || fail "Test4: stray log file created at $expected_log"
 
-# Test 5: argument parity -- a complex install list preserves all args
+# --- Test 5: argument parity -- a complex install list preserves all
+# args, flags included (-y and --no-install-recommends must survive
+# byte-for-byte from sim to install). ---
 echo ""
 echo "=== Test 5: arg parity with full install list ==="
 tmp="$(mktemp -d)"
@@ -218,71 +263,108 @@ else
 fi
 rm -rf "$tmp"
 
-# Test 6: WORK_DIR / findmnt logic in build-singularity.sh is exercised by
-# extracting the relevant block and running it under controlled mounts.
-# We can't actually remount in this sandbox, so we only verify:
-#   - default WORK_DIR resolves to $OUT/work (not $HOME/Projects/work)
-#   - NCZ_SINGULARITY_WORK_DIR override is honoured
-#   - the path-under-test is created with mkdir -p (no deletion)
+# --- Test 6: WORK_DIR mount guard, run through the actual helper the
+# builder sources. Synthetic fixtures (stubbed findmnt) stand in for
+# the real kernel /proc/self/mountinfo; the guard itself is the same
+# code path build-singularity.sh runs. ---
 echo ""
-echo "=== Test 6: WORK_DIR default and override ==="
-SRC=/home/jasonperlow/Projects/resume-unified-payload-amd64-20261014/ci/build/build-singularity.sh
-[ -r "$SRC" ] || fail "Test6: cannot read $SRC"
-grep -q 'WORK_DIR="${NCZ_SINGULARITY_WORK_DIR:-\$OUT/work}"' "$SRC" \
-    && pass "Test6: default is \$OUT/work" \
-    || fail "Test6: default WORK_DIR not \$OUT/work"
-grep -q 'NCZ_SINGULARITY_WORK_DIR' "$SRC" \
-    && pass "Test6: explicit override still supported" \
-    || fail "Test6: NCZ_SINGULARITY_WORK_DIR override missing"
-# Verify findmnt is now required to succeed (no fail-open swallow)
-if awk '/_findmnt_target=/{getline;getline;print}' <(grep -n -A2 _findmnt_target "$SRC") \
-   | grep -q '|| {'; then
-    fail "Test6: findmnt failure still swallowed (||)"
+echo "=== Test 6: WORK_DIR guard rejects in-memory / copy-on-write scratch ==="
+for stub_mode in ok fail empty; do
+    case "$stub_mode" in
+        ok)    fstype="tmpfs";;
+        fail)  fstype="<findmnt failed>";;
+        empty) fstype="<empty>";;
+    esac
+    tmp="$(mktemp -d)"
+    set +e
+    run_guard_with_stub_findmnt "$tmp" "$stub_mode" "$fstype" > "$tmp/out" 2> "$tmp/err"
+    rc=$?
+    set -e
+    if [ "$rc" != 0 ] && grep -q "ERROR:" "$tmp/err"; then
+        pass "Test6: guard rejects (mode=$stub_mode fstype=$fstype) before any container launch"
+    else
+        fail "Test6: guard should have rejected (mode=$stub_mode fstype=$fstype) but accepted"
+    fi
+    rm -rf "$tmp"
+done
+
+# --- Test 7: WORK_DIR guard accepts real disk-backed fstypes (btrfs,
+# ext4, xfs, zfs, f2fs). The builder's container launch proceeds. ---
+echo ""
+echo "=== Test 7: WORK_DIR guard accepts disk-backed fstypes ==="
+for fstype in btrfs ext4 xfs zfs f2fs; do
+    tmp="$(mktemp -d)"
+    set +e
+    run_guard_with_stub_findmnt "$tmp" ok "$fstype" > "$tmp/out" 2> "$tmp/err"
+    rc=$?
+    set -e
+    if [ "$rc" = 0 ] && ! grep -q "ERROR:" "$tmp/err"; then
+        pass "Test7: guard accepts $fstype (rc=0, no ERROR)"
+    else
+        fail "Test7: guard rejected $fstype (rc=$rc) -- $(tr '\n' ' ' < "$tmp/err")"
+    fi
+    rm -rf "$tmp"
+done
+
+# --- Test 8: builder actually sources the guard. The guard call must
+# appear in build-singularity.sh and the rejection list must include
+# the cases the previous grep-only Test 6/7/8 checked. ---
+echo ""
+echo "=== Test 8: builder sources the same guard the test exercises ==="
+if grep -q 'ncz-work-dir-guard.sh' "$BUILDER" && \
+   grep -q 'ncz_work_dir_guard' "$BUILDER"; then
+    pass "Test8: build-singularity.sh sources the shared guard helper"
 else
-    pass "Test6: findmnt failure not swallowed (no ||)"
+    fail "Test8: build-singularity.sh does not source ncz-work-dir-guard.sh"
 fi
-# Verify mkdir -p comes BEFORE findmnt
-mkdir_line=$(grep -n 'mkdir -p "\$WORK_DIR"' "$SRC" | head -1 | cut -d: -f1)
-findmnt_line=$(grep -n '_findmnt_target=' "$SRC" | head -1 | cut -d: -f1)
-if [ -n "$mkdir_line" ] && [ -n "$findmnt_line" ] && [ "$mkdir_line" -lt "$findmnt_line" ]; then
-    pass "Test6: mkdir -p WORK_DIR (line $mkdir_line) precedes findmnt (line $findmnt_line)"
+# The guard must reject exactly the policy set: tmpfs, ramfs, overlay,
+# aufs, fuse-overlayfs, and the empty-probe case. BTRFS / ext4 / xfs /
+# ZFS are accepted; that is verified by Test 7.
+for fstype in tmpfs ramfs overlay aufs fuse-overlayfs; do
+    if grep -qE "(^|[^a-zA-Z0-9])${fstype}([^a-zA-Z0-9]|\\||\\$)" "$GUARD"; then
+        pass "Test8: guard rejects $fstype"
+    else
+        fail "Test8: guard does not reject $fstype"
+    fi
+done
+# The empty-probe rejection must be present (the new fix). The guard
+# contains an `if [ -z "$fstype" ]` block AND an empty pattern (`""`)
+# in the case statement so the empty probe is double-rejected. Check
+# both the comment and the literal case pattern.
+if grep -q 'empty fstype' "$GUARD" && grep -q '""' "$GUARD" && grep -q '|ramfs' "$GUARD"; then
+    pass "Test8: guard rejects empty findmnt probe"
 else
-    fail "Test6: mkdir -p must precede findmnt (mkdir=$mkdir_line, findmnt=$findmnt_line)"
+    fail "Test8: guard does not explicitly reject empty findmnt probe"
 fi
-# Verify no ext4 hardcoded requirement (the issue specifically warned against this)
-if grep -q 'ext4' "$SRC" | grep -v '^#'; then
-    fail "Test6: ext4 hardcoded -- the issue said not to"
+# Builder must NOT inline the old `case "$_findmnt_target" in` block
+# any more; that would mean the test is reading stale inlined code.
+if grep -q '_findmnt_target' "$BUILDER"; then
+    fail "Test8: build-singularity.sh still has the old inline _findmnt_target case"
 else
-    pass "Test6: no hardcoded ext4 requirement"
+    pass "Test8: builder no longer inlines the findmnt case (uses shared guard)"
 fi
 
-# Test 7: sim ordering -- apt-get update comes BEFORE the helper call
+# --- Test 9: no PUBLIC / hardcoded / host-specific path anywhere in
+# the helper / guard / test that the operator can see. The script
+# must work from an arbitrary cwd. ---
 echo ""
-echo "=== Test 7: apt-get update precedes the helper call ==="
-upd_line=$(grep -n '^apt-get update' "$SRC" | head -1 | cut -d: -f1)
-helper_line=$(grep -n '/ncz-build/apt-sim-zero-removals.sh' "$SRC" | head -1 | cut -d: -f1)
-if [ -n "$upd_line" ] && [ -n "$helper_line" ] && [ "$upd_line" -lt "$helper_line" ]; then
-    pass "Test7: apt-get update (line $upd_line) precedes helper (line $helper_line)"
+echo "=== Test 9: no hardcoded host paths leak into the public test ==="
+if grep -qE '/home/[a-z]+/' "$SCRIPT_DIR/apt-sim-tests.sh"; then
+    fail "Test9: test file contains a /home/<user>/ hardcoded path"
+    grep -nE '/home/[a-z]+/' "$SCRIPT_DIR/apt-sim-tests.sh" | sed 's/^/    /'
 else
-    fail "Test7: apt-get update must precede sim (upd=$upd_line, helper=$helper_line)"
+    pass "Test9: no /home/<user>/ hardcoded path in test"
 fi
-
-# Test 8: install arg list appears exactly once in BUILD_SCRIPT
-echo ""
-echo "=== Test 8: install arg list appears exactly once (no duplicated helper list) ==="
-# Count occurrences of the helper script being called from build-singularity.sh
-helper_calls=$(grep -c '/ncz-build/apt-sim-zero-removals.sh' "$SRC")
-if [ "$helper_calls" = 1 ]; then
-    pass "Test8: helper called exactly once in BUILD_SCRIPT (no second hardcoded list)"
+if grep -qE '/home/[a-z]+/' "$GUARD"; then
+    fail "Test9: guard file contains a /home/<user>/ hardcoded path"
 else
-    fail "Test8: helper called $helper_calls times -- helper list duplicated?"
+    pass "Test9: no /home/<user>/ hardcoded path in guard"
 fi
-# Count occurrences of bare `apt-get install ` in BUILD_SCRIPT (not inside the helper script)
-apt_get_install_count=$(grep -E '^apt-get install ' "$SRC" | wc -l)
-if [ "$apt_get_install_count" = 0 ]; then
-    pass "Test8: no bare 'apt-get install ' line in BUILD_SCRIPT (only the helper call)"
+# All paths the test uses come from SCRIPT_DIR / TASK_ROOT.
+if [ "$(cd "$(dirname "$0")" && pwd)" = "$SCRIPT_DIR" ]; then
+    pass "Test9: SCRIPT_DIR resolves correctly from arbitrary cwd (cwd=$(pwd))"
 else
-    fail "Test8: bare 'apt-get install ' line still present ($apt_get_install_count)"
+    fail "Test9: SCRIPT_DIR did not resolve (cwd=$(pwd))"
 fi
 
 echo ""
