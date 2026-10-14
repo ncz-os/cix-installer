@@ -7,14 +7,11 @@
 # and asserts on the lock's own stderr log and on real screen captures. Restarts
 # labwc per case so a lock left held never wedges the next case.
 #
-# OWNED-PROCESS CONTRACT (no broad pkill/pgrep -f anywhere):
-#   Every lock client is launched with `setsid`, so it and every frame-source
-#   descendant it spawns live in ONE fresh process group whose PGID == the lock
-#   PID (the group leader), recorded as the owned PGID. The renderer is
-#   discovered ONLY by walking /proc for members of that owned group and
-#   confirming /proc/<pid>/exe resolves to the real $SRC. Fault injection and
-#   cleanup signal only owned PIDs/PGIDs and wait for them; an unrelated process
-#   that merely shares the testsrc basename is never matched or killed.
+# OWNED-PROCESS CONTRACT: each lock root is launched with setsid and a recorded
+# PID/starttime. The renderer starts a separate session intentionally. Shared
+# helpers discover verified descendants by PPID ancestry while the root is
+# intact, then retain PID/starttime records across reparenting. No broad name
+# matching or group assumption is used to discover or signal a renderer.
 set -u
 
 WORK="${WORK:-/work}"
@@ -47,12 +44,27 @@ GEN=0
 . "$(dirname "$0")/owned-processes.sh"
 trap 'stop_all' EXIT
 
+start_labwc() {
+    rm -f "$RT"/wayland-* "$SOCK"
+    labwc >"$WORK/tmp/labwc.log" 2>&1 &
+    LABWC_PID=$!
+    for _ in $(seq 1 50); do
+        [ -S "$RT/wayland-0" ] && export WAYLAND_DISPLAY=wayland-0 && return 0
+        [ -S "$RT/wayland-1" ] && export WAYLAND_DISPLAY=wayland-1 && return 0
+        sleep 0.1
+    done
+    echo "labwc did not create a wayland socket"; return 1
+}
+
+# Launch an owned lock via setsid. $1=env renderer value, $2=log, $3=delay ms.
 # Launch an owned lock via setsid. $1=env renderer value, $2=log, $3=delay ms.
 # Records PID/PGID/generation; LOCK_PID mirrors the owned PID.
 start_lock() {
-    local cmd="$1" log="$2" delay="${3:-2500}"
+    local cmd="$1" log="$2" delay="${3:-2500}" owner_nonce
+    owner_nonce=$(cat /proc/sys/kernel/random/uuid)
     : >"$log"; : >"$log.lfs"
     GEN=$((GEN+1))
+    NCZ_LOCK_TEST_OWNER="$owner_nonce" \
     SINGULARITY_LOCK_RENDERER="$cmd" \
     SINGULARITY_LOCK_RENDERER_SOCKET="$SOCK" \
     SINGULARITY_LOCK_RENDERER_LOG="${log}.lfs" \
@@ -61,7 +73,7 @@ start_lock() {
     LOCK_PID=$!
     # setsid: leader PID == PGID. Record the leader's Linux start time so a
     # reused PID cannot later qualify as our owned leader.
-    owned_add "$LOCK_PID" "$LOCK_PID" "$GEN" "$(starttime_of "$LOCK_PID")"
+    owned_add "$LOCK_PID" "$LOCK_PID" "$GEN" "$(starttime_of "$LOCK_PID")" "$owner_nonce"
 }
 wait_for() { local f="$1" s="$2" secs="${3:-5}"
     for _ in $(seq 1 $(( secs * 10 ))); do have "$f" "$s" && return 0; sleep 0.1; done

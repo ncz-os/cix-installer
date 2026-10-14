@@ -72,6 +72,7 @@ _reap_pid() { # $1 = pid; kill -9 and wait so no orphan/zombie leaks
     wait "$p" 2>/dev/null
 }
 cleanup_fixture() {
+    stop_all
     # Reap each known child by exact PID, then its group, then wait.
     _reap_pid "$OWN_CHILD"
     _reap_pid "$CAN_PID"
@@ -301,5 +302,55 @@ LOCK_OWNED=()
 # 9) canary is still ours to clean up; reap it and the scratch dir
 kill -9 "$CAN_PID" 2>/dev/null; wait "$CAN_PID" 2>/dev/null
 CAN_PID=""
+# REAL topology: owned root -> new-session shell -> real SRC grandchild.
+# Register through command substitution before root exits; then kill recorded
+# detached descendants after reparenting. Canaries never enter the owned tree.
+ORPHAN_LEADER=""; ORPHAN_CHILD=""; ORPHAN_CANARY=""; STALE_PID=""
+BARRIER="$TD/detached.release"
+setsid bash -c '
+    setsid bash -c '\''"$1" 300 & echo $! >"$2"; wait'\'' _ "$1" "$2/source" &
+    echo $! >"$2/shell"
+    while [ ! -e "$2/release" ]; do sleep 0.02; done
+' _ "$SRC" "$TD" & ORPHAN_LEADER=$!
+for _ in $(seq 1 100); do [ -s "$TD/source" ] && [ -s "$TD/shell" ] && break; sleep 0.02; done
+ORPHAN_CHILD=$(cat "$TD/source")
+DETACHED_SHELL=$(cat "$TD/shell")
+"$CANARY" 300 & ORPHAN_CANARY=$!
+setsid "$SRC" 300 & STALE_PID=$!
+GEN=$((GEN+1)); owned_add "$ORPHAN_LEADER" "$ORPHAN_LEADER" "$GEN" "$(starttime_of "$ORPHAN_LEADER")"
+got=$(owned_source_pid)
+[ "$got" = "$ORPHAN_CHILD" ] && ok "real setsid descendant discovered by ancestry" || bad "real setsid descendant not found"
+[ "$(pgid_of "$ORPHAN_CHILD")" != "$ORPHAN_LEADER" ] && ok "renderer actually detached into a different PGID" || bad "fixture did not setsid"
+[ -s "$OWNED_SRC_REG" ] && ok "ancestry registry persists across command substitution" || bad "registry not persisted"
+: >"$TD/release"
+wait "$ORPHAN_LEADER" 2>/dev/null
+stop_all
+# A terminated adopted child can briefly remain a zombie: it cannot render.
+fixture_running() { local s; s=$(ps -o stat= -p "$1" 2>/dev/null); [ -n "$s" ] && [[ "$s" != Z* ]]; }
+if fixture_running "$ORPHAN_CHILD"; then bad "detached renderer leaked"; else ok "detached orphan renderer terminated"; fi
+if fixture_running "$DETACHED_SHELL"; then bad "detached wrapper leaked"; kill -9 "$DETACHED_SHELL" 2>/dev/null; else ok "detached wrapper terminated"; fi
+kill -0 "$ORPHAN_CANARY" 2>/dev/null && ok "same-basename detached canary survives" || bad "same-basename canary killed"
+kill -0 "$STALE_PID" 2>/dev/null && ok "exact-same-exe detached canary survives" || bad "exact-same-exe canary killed"
+# Retain failed child for the existing EXIT trap, otherwise clear known-dead PID.
+fixture_running "$ORPHAN_CHILD" || ORPHAN_CHILD=""
+
+# Reap the previous case's exact same-exe canary before reusing its variable.
+kill -9 "$STALE_PID" 2>/dev/null; wait "$STALE_PID" 2>/dev/null
+STALE_PID=""
+# Fast root exits BEFORE registration; no ancestry observation is possible.
+# Only its renderer inherits a unique owner nonce; same-exe canary does not.
+ORPHAN_CHILD=""; ORPHAN_LEADER=""
+owner_nonce=$(cat /proc/sys/kernel/random/uuid)
+NCZ_LOCK_TEST_OWNER="$owner_nonce" setsid bash -c '
+    setsid "$1" 300 & echo $! >"$2"
+' _ "$SRC" "$TD/fast-exit.child" & ORPHAN_LEADER=$!
+wait "$ORPHAN_LEADER" 2>/dev/null
+ORPHAN_CHILD=$(cat "$TD/fast-exit.child")
+setsid "$SRC" 300 & STALE_PID=$!
+GEN=$((GEN+1)); owned_add "$ORPHAN_LEADER" "$ORPHAN_LEADER" "$GEN" "" "$owner_nonce"
+stop_all
+if fixture_running "$ORPHAN_CHILD"; then bad "fast-root-exit renderer leaked without ancestry discovery"; else ok "nonce recovered detached renderer after root already exited"; ORPHAN_CHILD=""; fi
+kill -0 "$STALE_PID" 2>/dev/null && ok "same-exe untagged canary survives fast-root recovery" || bad "untagged canary killed"
+
 echo "== UNIT RESULT: $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]
