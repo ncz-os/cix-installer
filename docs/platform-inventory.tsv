@@ -53,6 +53,7 @@ assets/kernel/	sky1	-	Sky1 kernel staging, mali/panthor/vpu/npu overlays, patche
 assets/kernel/.gitkeep	common	-	placeholder
 assets/kernel/amd64-stable/	amd64	-	amd64 unified 7.3 default kernel KVER stamp
 assets/kernel/amd64-stable-manifest.json	amd64	-	amd64 default 7.3 kernel artifact manifest (sha256, provenance)
+assets/kernel/mainline.release	sky1	-	staged Sky1 kernel release name; build/link-kernel-mainline.sh links assets/kernel/mainline to it under the site kernel-staging pool
 assets/kernel/sky1-manifest.json	sky1	-	Sky1 r286 7.3 default kernel artifact manifest (sha256, provenance)
 assets/kernel/t2gmux/	amd64	t2	T2 gmux DKMS source
 assets/kernel/t2gmux/patches/	amd64	t2	local hardening patches applied by DKMS (t2gmux G2/G3/G4)
@@ -491,6 +492,7 @@ build/refresh-google-chrome.sh	common	-	moves Google Chrome to the newest google
 build/refresh-vendor-debs.sh	common	-	one-command, idempotent refresh of the vendor browser debs: resolves each manifests/vendor-aliases.tsv alias through the signed index, stages the deb, rewrites vendor-debs/build-inputs/sbom rows, publishes to the store, regenerates determinism.pin
 build/refresh-vivaldi.sh	common	-	moves Vivaldi to the newest vivaldi-stable (alias) through build/refresh-vendor-debs.sh
 build/lib/vendor_alias.py	common	-	resolves a vendor apt alias: pinned key -> signed index -> Packages sha256 -> deb sha256 -> control fields; stages the deb and records it in the ledgers
+build/link-kernel-mainline.sh	common	-	creates the untracked assets/kernel/mainline link from assets/kernel/mainline.release and NCZ_YOCTO_SHARED_DIR
 build/lib/vendor-deb-pin.sh	common	-	the pinned, staged vendor deb for a package/arch (exact version + sha256 from manifests/vendor-debs.tsv)
 build/test-vendor-alias.sh	common	-	hermetic signed-repo test of the alias resolver (newest version, ledgers, idempotence, refused chain breaks) plus the committed alias rows
 build/vivaldi-apt-keyring.asc	common	-	Vivaldi apt key
@@ -561,6 +563,7 @@ build/check-forky-provenance.sh	common	-	gate: every package is NCZ, a sha-pinne
 build/check-layers.sh	common	-	per-layer post-checks (harden-the-layer-checks ruling 2026-10-10): squashfs integrity/mtimes, dpkg consistency, package-set vs manifest, one-kernel, labwc static shader gate, content assertions, setuid/world-writable allow-list, layer-chain, member-list determinism
 build/layer-perms-allowlist.tsv	common	-	reviewed allow-list for build/check-layers.sh: a setuid/setgid file outside the list FAILS, a world-writable dir outside the list WARNs
 build/layers-preflight.sh	common	-	pre-layer fail-fast checks (harden-the-layer-checks ruling 2026-10-10): clean-tree, frozen-deb handshake, unique/ledgered staged debs, resources/placement, pin consistency
+build/test-layer-gates.sh	common	-	both-direction tests for strip_build_host_state, check-layers leftovers/ownership/content/no-ubuntu, allow-list regexes, tracked symlinks and the mainline link
 build/test-layers-hardening.sh	common	-	both-direction tests for build/layers-preflight.sh + build/check-layers.sh (bad fixtures FAIL, good PASS)
 build/forky-provenance.py	common	-	implementation of check-no-ubuntu.sh / check-forky-provenance.sh (debs, Packages, dpkg status, rootfs, squashfs, finished .img via debugfs)
 build/test-no-ubuntu.sh	common	-	positive+negative fixtures for the no-Ubuntu and forky-provenance gates (fonts-liberation 1:2.1.5-3build1 must fail)

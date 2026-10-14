@@ -136,8 +136,13 @@ repro_finalize_root() {
 # BUILD_REV override that is older than the staged directory.
 # Read the symlink TARGET STRING (no -f): resolving it needs the NFS staging tree mounted, and
 # an unreachable mount must not silently fall back to the stale constant.
-_MAINLINE_LINK="$(readlink "$REPO/assets/kernel/mainline" 2>/dev/null || true)"
-_MAINLINE_DIR_NAME="$(basename "${_MAINLINE_LINK:-mainline}")"
+# The staged release name is tracked in assets/kernel/mainline.release; the
+# link (build/link-kernel-mainline.sh) is read only when that file is absent.
+_MAINLINE_DIR_NAME="$(sed 's/#.*//' "$REPO/assets/kernel/mainline.release" 2>/dev/null | tr -d '[:space:]')"
+if [ -z "$_MAINLINE_DIR_NAME" ]; then
+    _MAINLINE_LINK="$(readlink "$REPO/assets/kernel/mainline" 2>/dev/null || true)"
+    _MAINLINE_DIR_NAME="$(basename "${_MAINLINE_LINK:-mainline}")"
+fi
 _MAINLINE_REV=""
 case "$_MAINLINE_DIR_NAME" in r[0-9]*-*) _MAINLINE_REV="${_MAINLINE_DIR_NAME%%-*}" ;; esac
 case "${_MAINLINE_REV#r}" in *[!0-9]*) _MAINLINE_REV="" ;; esac

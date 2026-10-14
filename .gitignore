@@ -15,6 +15,9 @@ assets/gpu/*.tar.gz
 assets/gpu/*.tar.zst
 assets/kernel/*.bin
 assets/kernel/mainline/
+# the build-local link (build/link-kernel-mainline.sh); the release is in
+# assets/kernel/mainline.release
+/assets/kernel/mainline
 assets/kernel/edge/
 assets/kernel/legacy/
 assets/kernel/retired-*/
