@@ -69,7 +69,7 @@
 > 与旧的"前沿版"通道已退役。7.3.0-rc7 是**候选版**内核，之后会换成 7.3.0 正式版。
 >
 > 所有窗口默认（系统级）带有最小化、最大化与关闭按钮。屏保为 NCZ Screensavers 0.8.15
-> （设置插件 0.3.22）。自 Preview 1 以来的变化见[发布说明（英文）](docs/releases/26.10-cygnus-20261013.md#changes-since-preview-1)。
+> （设置插件 0.3.23）。自 Preview 1 以来的变化见[发布说明（英文）](docs/releases/26.10-cygnus-20261013.md#changes-since-preview-1)。
 
 > ### 远程访问默认项
 >

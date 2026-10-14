@@ -1,32 +1,30 @@
-From e41b69648acc288c7caaefcc3fabe2418e16dcb9 Mon Sep 17 00:00:00 2001
+From 9e765500020f1d3319b5b69601f78022419d5c76 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Wed, 7 Oct 2026 13:54:35 -0400
-Subject: [PATCH 4/5] feat(wallpapers-bing): refresh the feed in the background
+Date: Wed, 14 Oct 2026 12:49:56 -0400
+Subject: [PATCH] feat(wallpapers-bing): refresh the feed in the background
 
-Run the helper's fetch --if-stale on activation, when the network returns, and daily. Skip metered links, back off from 30s to 1h on failure, and cancel on deactivation.
+Run the helper fetch --if-stale on activation, when the network returns, and daily. Skip metered links, back off from 30s to 1h on failure, and cancel on deactivation.
 
 Assisted-by: opencode:deepseek-flash
-
 AI-Scope: Wrote the prefetch scheduler and NetworkMonitor handling from a description of the behavior.
 ---
  wallpapers-bing/wallpapers_bing.vala | 55 ++++++++++++++++++++++++++++
  1 file changed, 55 insertions(+)
 
 diff --git a/wallpapers-bing/wallpapers_bing.vala b/wallpapers-bing/wallpapers_bing.vala
-index 1e005f5..391014c 100644
+index 65d5dbe..a7c472f 100644
 --- a/wallpapers-bing/wallpapers_bing.vala
 +++ b/wallpapers-bing/wallpapers_bing.vala
-@@ -13,6 +13,9 @@ public void peas_register_types(TypeModule module) {
+@@ -13,12 +13,20 @@ public void peas_register_types(TypeModule module) {
  
  namespace WallpapersBing {
  
 +    private const uint REFRESH_SECONDS = 86400;
 +    private const uint MAX_BACKOFF_SECONDS = 3600;
 +
-     /**
-      * Bing's daily wallpaper images, across every market. Requires the
-      * external `ncz-wallpaper-bing` helper, which is not shipped by plain
-@@ -24,6 +27,11 @@ namespace WallpapersBing {
+     public class Provider : WallpaperHelperProvider, WallpaperProvider {
+         // Set by choices() from the helper's own answer, never re-derived
+         // from the config file -- see WallpaperBing.CONSOLIDATED_ID. False
          // until the first choices() call, so the name starts as plain "Bing"
          // and the browser refreshes the label once the helper has replied.
          private bool combined = false;
@@ -38,10 +36,10 @@ index 1e005f5..391014c 100644
          public string id { get { return WallpaperBing.PROVIDER_ID; } }
          // Matches the collection label the rotator helper writes for the
          // same de-duplicated view, so the online browser and the wallpaper
-@@ -34,6 +42,51 @@ namespace WallpapersBing {
+@@ -29,6 +37,51 @@ namespace WallpapersBing {
          public bool requires_credentials { get { return false; } }
          public bool supports_search { get { return false; } }
-         public Provider() { base("/usr/local/bin/ncz-wallpaper-bing"); }
+         public Provider() { base("singularity-wallpaper-bing"); }
 +        public void start_prefetch() {
 +            cancel_all = new Cancellable();
 +            if (network_handler == 0)
@@ -90,7 +88,7 @@ index 1e005f5..391014c 100644
          public async string market_list(Cancellable? cancel) throws Error {
              return yield command({helper, "markets"}, cancel, 30);
          }
-@@ -80,10 +133,12 @@ public class WallpapersBingPlugin : Object, Singularity.Plugin {
+@@ -75,10 +128,12 @@ public class WallpapersBingPlugin : Object, Singularity.Plugin {
          this.context = ctx;
          provider = new WallpapersBing.Provider();
          context.add_wallpaper_provider(provider);
