@@ -79,7 +79,7 @@ wait_case "tour window open: waits to the bound" 3 5 NCZ_TOUR_RUNNING=1
 mk_sandbox; seen; state open; age 30
 wait_case "tour closed (open state, no window): returns at once" 0 1
 mk_sandbox; seen; state open
-WAIT_MAX=20 wait_case "just launched, no window yet: 5 s grace, then returns" 4 7
+WAIT_MAX=20 wait_case "just launched, no window yet: configured 5 s grace, then returns" 4 7 NCZ_TOUR_OPEN_GRACE=5
 mk_sandbox; state pending; age 120
 wait_case "stale pending state from an earlier launcher: returns at once" 0 1
 
@@ -103,6 +103,21 @@ env -i PATH="$W/run-stub:$PATH" HOME="$S/home" NCZ_TOUR_STATE_HOME="$S/state" NC
     NCZ_TOUR_RUNTIME_DIR="$S/run" NCZ_TOUR_WAIT_STEP=0.2 sh "$SCRIPT" wait-done 20 >/dev/null 2>&1
 el=$(( $(date +%s) - t0 ))
 if [ "$el" -ge 1 ] && [ "$el" -le 4 ]; then ok "tour window closes while waiting: returns (${el}s, pgrep path)"; else bad "window close not noticed: ${el}s"; fi
+
+# Asynchronous desktop activation may return before the tour process exists.
+mk_sandbox; seen; state open
+cat >"$W/run-stub/pgrep" <<STUB
+#!/bin/sh
+[ -e "$S/window" ]
+STUB
+chmod +x "$W/run-stub/pgrep"
+( sleep 6; : >"$S/window"; sleep 2; rm -f "$S/window" ) &
+producer=$!
+t0=$(date +%s)
+env -i PATH="$W/run-stub:$PATH" HOME="$S/home" NCZ_TOUR_STATE_HOME="$S/state" NCZ_TOUR_CONFIG_HOME="$S/config" \
+    NCZ_TOUR_RUNTIME_DIR="$S/run" NCZ_TOUR_WAIT_STEP=0.2 sh "$SCRIPT" wait-done 20 >/dev/null 2>&1
+el=$(( $(date +%s) - t0 )); wait "$producer"
+if [ "$el" -ge 7 ] && [ "$el" -le 11 ]; then ok "delayed tour start: notice waits through the tour (${el}s)"; else bad "delayed tour start: notice escaped before tour closed (${el}s)"; fi
 
 # A non-numeric bound falls back to the default instead of failing.
 mk_sandbox; seen

@@ -571,19 +571,24 @@ state_age() {
 #   pending: the launcher is settling: wait (a pending state older than
 #     NCZ_TOUR_PENDING_MAX, default 60 s, is left over from a launcher that
 #     never finished and counts as done).
-#   open: wait while a tour window runs; if none appears within 5 s of the
-#     launch, count it as closed.
+#   open: allow NCZ_TOUR_OPEN_GRACE (default 15 s) for asynchronous activation.
+#     Once a tour process has been observed, its exit releases the notice.
 wait_done() {
     _max=${1:-${NCZ_TOUR_WAIT_MAX:-90}}
     case "$_max" in ''|*[!0-9]*) _max=90 ;; esac
     _step=${NCZ_TOUR_WAIT_STEP:-1}
+    _open_grace=${NCZ_TOUR_OPEN_GRACE:-15}
+    case "$_open_grace" in ''|*[!0-9]*) _open_grace=15 ;; esac
+    _seen_tour=0
     _t0=$(date +%s)
     while :; do
         _st=$(get_state)
         case "$_st" in
             closed) log "wait-done: tour closed or not opened"; return 0 ;;
             open)
-                if ! tour_running && [ "$(state_age)" -ge 5 ]; then
+                if tour_running; then
+                    _seen_tour=1
+                elif [ "$_seen_tour" = 1 ] || [ "$(state_age)" -ge "$_open_grace" ]; then
                     log "wait-done: tour closed"; return 0
                 fi ;;
             pending)
