@@ -93,6 +93,7 @@ build/desktop-mirror.gaps
 build/*.fd
 build/*.img
 build/*.img.receipt.json
+build/*.img.gates.json
 build/*.img.gated
 build/kernel-debs/
 build/dkms-debs/
