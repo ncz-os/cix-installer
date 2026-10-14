@@ -386,7 +386,7 @@ chk_no_braille() {  # LAYER, label
     local l="$1" lbl="$2" files pk=""
     files="$(_listing "$l" | grep -E '(^|/)(usr/)?(s?bin/brltty|lib/brltty(/|$)|share/brltty(/|$))|(^|/)etc/brltty(/|$|\.conf$)|(^|/)(usr/)?lib/udev/rules\.d/[^/]*brltty|(^|/)(usr/)?lib/systemd/system/[^/]*brltty|(^|/)var/lib/dpkg/info/[^/]*(brltty|brlapi)[^/]*$' | head -5 | tr '\n' ' ')"
     if _has "$l" "var/lib/dpkg/status"; then
-        pk="$(_cat "$l" var/lib/dpkg/status 2>/dev/null | awk '/^Package:/ { p = $2 } /^Status:.* installed$/ && p ~ /brltty|brlapi/ { print p }' | sort -u | tr '\n' ' ')"
+        pk="$(_cat "$l" var/lib/dpkg/status 2>/dev/null | awk '/^Package:/ { p = $2 } /^Package:/ && p ~ /brltty|brlapi/ { print p }' | sort -u | tr '\n' ' ')"
     fi
     if [ -n "${files// /}" ] || [ -n "${pk// /}" ]; then
         _rec "$lbl" no-braille FAIL "braille stack in the image (users install it with apt): files: ${files:-none} packages: ${pk:-none}"
