@@ -50,7 +50,7 @@ for n in bing ocs; do
         && ok "hook 45 installs singularity-wallpaper-$n" || bad "hook 45 does not install singularity-wallpaper-$n"
 done
 # the payload must carry the helper-name lookup of the new plugin head
-if dpkg-deb --fsys-tarfile "$PAYLOAD_DEB" | tar -xO --wildcards './opt/singularity/lib/singularity/plugins/wallpapers-bing/*.so' 2>/dev/null | grep -aq 'singularity-wallpaper-bing'; then
+if dpkg-deb --fsys-tarfile "$PAYLOAD_DEB" | tar -xO --wildcards './opt/singularity/lib/singularity/plugins/wallpapers-bing/*.so' 2>/dev/null | grep -a >/dev/null 'singularity-wallpaper-bing'; then
     ok "wallpapers-bing plugin looks up singularity-wallpaper-bing"
 else
     bad "wallpapers-bing plugin in the payload does not name singularity-wallpaper-bing"
