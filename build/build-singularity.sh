@@ -129,6 +129,7 @@ ncz_work_dir_guard "$WORK_DIR/caches/go" || exit 1
 ncz_work_dir_guard "$WORK_DIR/caches/go-build" || exit 1
 ncz_work_dir_guard "$WORK_DIR/caches/go/pkg/mod" || exit 1
 ncz_work_dir_guard "$WORK_DIR/caches/xdg" || exit 1
+ncz_work_dir_guard "$WORK_DIR/tmp" || exit 1
 mkdir -p "$WORK_DIR/tmp"
 # Container TMPDIR is on the host-owned bind (not overlay /tmp), so any
 # process the helper spawns that respawns apt or writes scratch state
