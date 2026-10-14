@@ -41,6 +41,14 @@
 # (it does not depend on the options; build/kvm-install-gate-matrix.sh runs it
 # once, in the full-option run). build/kvm-install-gate-matrix.sh runs the
 # standard option sets one after another.
+#
+# NCZ_GATE_FS=ext4|btrfs picks the root filesystem (default ext4). The target
+# logs, the installed-target verifier and the first-boot report are read with
+# debugfs, so a btrfs run checks the installed ESP, the GPT and the boot instead.
+# NCZ_GATE_STALE_DISK=1 seeds the target disk before the install with an old
+# GPT whose partitions start where the installer's will and carry old ext4
+# filesystems (a reinstall over an earlier NCZ-OS install): the new root must
+# still get a non-empty, correct root=PARTUUID= and the system must boot.
 set -euo pipefail
 
 # Resolve the gate's own directory so we can locate sibling scripts
@@ -221,7 +229,9 @@ grep -q 'NCZ-OS Installer -- Install' "$CFG" \
 # on the cmdline, which does not change that interactive default.
 GATE_PARAMS="passwd/username=nczuser passwd/user-fullname=NCZTestUser"
 GATE_PARAMS="$GATE_PARAMS passwd/user-password=nczpassword123 passwd/user-password-again=nczpassword123"
-GATE_PARAMS="$GATE_PARAMS ncz_disk=/dev/vda ncz_fs=ext4 ncz_unattended=1"
+GATE_FS="${NCZ_GATE_FS:-ext4}"
+case "$GATE_FS" in ext4|btrfs) ;; *) echo "GATE FAIL: NCZ_GATE_FS must be ext4 or btrfs" >&2; exit 2 ;; esac
+GATE_PARAMS="$GATE_PARAMS ncz_disk=/dev/vda ncz_fs=$GATE_FS ncz_unattended=1"
 GATE_PARAMS="$GATE_PARAMS ncz_components=$GATE_COMPONENTS_ARG"
 GATE_PARAMS="$GATE_PARAMS debian-installer/locale=en_US.UTF-8 keyboard-configuration/xkb-keymap=us"
 GATE_PARAMS="$GATE_PARAMS clock-setup/ntp=false time/zone=UTC"
@@ -300,12 +310,28 @@ echo "    ESP readback confirms options, default_selection and timeout"
 
 echo "=== KVM INSTALL GATE ($ARCH raw GPT image) ==="
 echo "  image  : $TEST_IMG"
-echo "  options: $GATE_COMPONENTS (expected record: $EXPECT_RECORD)"
+echo "  options: $GATE_COMPONENTS (expected record: $EXPECT_RECORD), root fs $GATE_FS${NCZ_GATE_STALE_DISK:+, stale disk}"
 echo "  accel  : $ACCEL cpu=$CPU mem=${MEM}M smp=$SMP"
 echo "  target : $DISK (${DISK_GB}G)"
 
 rm -f "$DISK" "$VARS"
 qemu-img create -f qcow2 "$DISK" "${DISK_GB}G" >/dev/null || { echo "GATE FAIL: qemu-img" >&2; exit 2; }
+if [ "${NCZ_GATE_STALE_DISK:-0}" = 1 ]; then
+    # An earlier install's layout: ESP, a 4 GB partition and a root, all at the
+    # starts preseed/disk-fs-chooser.sh's recipes produce, with ext4 in the
+    # second and third (the old rescue and root).
+    _stale="$WORK/.stale-disk.raw"; rm -f "$_stale"
+    truncate -s "${DISK_GB}G" "$_stale"
+    "$SGDISK" -n 1:2048:3999743 -t 1:ef00 -n 2:3999744:11999231 -n 3:11999232:0 "$_stale" >/dev/null 2>&1 \
+        || { echo "GATE FAIL: could not write the stale GPT" >&2; exit 2; }
+    MKE2FS="$(command -v mke2fs || echo /sbin/mke2fs)"
+    for _off in 3999744 11999232; do
+        "$MKE2FS" -q -F -t ext4 -E offset=$((_off * 512)) "$_stale" 1048576 >/dev/null 2>&1 \
+            || { echo "GATE FAIL: could not write a stale ext4 at sector $_off" >&2; exit 2; }
+    done
+    qemu-img convert -O qcow2 "$_stale" "$DISK" && rm -f "$_stale" || { echo "GATE FAIL: stale disk conversion" >&2; exit 2; }
+    echo "  target disk seeded with an old GPT + ext4 at sectors 3999744 and 11999232"
+fi
 cp "$SRCVARS" "$VARS"
 
 S0="$WORK/serial0.log"; ILOG="$WORK/install.log"; BLOG="$WORK/boot.log"
@@ -406,15 +432,28 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
             if grep -q '^menuentry .*Rescue Partition' "$EVIDENCE/installed-refind.conf"; then _has_rp=1; else _has_rp=0; fi
             [ "$_has_rp" = "$WANT_RESCUE" ] || OPTION_FAIL="$OPTION_FAIL; installed rEFInd Rescue Partition entry present=$_has_rp, rescue-partition selected=$WANT_RESCUE"
             if [ "$WANT_DESKTOP" = 0 ]; then
-                grep -qE '^default_selection ".*Console"$' "$EVIDENCE/installed-refind.conf" \
+                grep -qE '^default_selection ".*Console[^"]*"$' "$EVIDENCE/installed-refind.conf" \
                     || OPTION_FAIL="$OPTION_FAIL; desktop not selected but the installed rEFInd default is not the Console entry"
             fi
             echo "  installed rEFInd menu: $(grep -c '^menuentry ' "$EVIDENCE/installed-refind.conf") entries, Rescue Partition entry=$_has_rp, $(grep -m1 '^default_selection' "$EVIDENCE/installed-refind.conf")"
+            # Every entry names its root, and the normal entries name THIS root partition.
+            if grep -nE 'root=(PARTUUID=|UUID=)?([" ]|$)' "$EVIDENCE/installed-refind.conf" >/dev/null; then
+                OPTION_FAIL="$OPTION_FAIL; an installed rEFInd entry has an empty root= ($(grep -cE 'root=(PARTUUID=|UUID=)?([" ]|$)' "$EVIDENCE/installed-refind.conf") lines)"
+            fi
+            _gpt_root=$("$SGDISK" -i "$ROOT_PART" "$EVIDENCE_DISK" | sed -n 's/^Partition unique GUID: //p' | tr 'A-F' 'a-f')
+            _cfg_root=$(awk '/^menuentry .*\(Default\)/ {f=1} f && /options/ {print; exit}' "$EVIDENCE/installed-refind.conf" | sed -n 's/.*root=PARTUUID=\([^ "]*\).*/\1/p' | tr 'A-F' 'a-f')
+            if [ -n "$_gpt_root" ] && [ "$_cfg_root" = "$_gpt_root" ]; then
+                echo "  default entry root=PARTUUID=$_cfg_root is the GPT GUID of partition $ROOT_PART"
+            else
+                OPTION_FAIL="$OPTION_FAIL; default entry root=PARTUUID='${_cfg_root}' is not the root partition's GPT GUID '${_gpt_root}'"
+            fi
         else
             OPTION_FAIL="$OPTION_FAIL; the installed ESP has no EFI/BOOT/refind.conf"
         fi
     fi
-    if [ -n "$ROOT_LBA" ] && [ -n "$ROOT_END_LBA" ]; then
+    if [ "$GATE_FS" != ext4 ]; then
+        echo "  root is $GATE_FS: target logs and the installed-target verifier need ext4 (debugfs); checked from the ESP, the GPT and the boot"
+    elif [ -n "$ROOT_LBA" ] && [ -n "$ROOT_END_LBA" ]; then
         ROOT_BYTES=$(((ROOT_END_LBA - ROOT_LBA + 1) * 512))
         if qemu-img convert --image-opts -S 4k -O raw \
             "driver=raw,file.driver=file,file.filename=$EVIDENCE_DISK,offset=$((ROOT_LBA * 512)),size=$ROOT_BYTES" \
@@ -657,7 +696,9 @@ echo "  default-boot kernel: ${DEFAULT_KVER:-<unknown>}"
 # First-boot health: the installed system writes `systemctl --failed` to
 # /var/log/ncz-first-boot-failed.txt 30 s after multi-user.target (97-firstboot-report.sh). Read it
 # off the disk phase 2 just booted; any failed unit that is not on the allow-list fails the gate.
-if true; then   # both architectures
+if [ "$GATE_FS" != ext4 ]; then
+    echo "  first-boot report not read (root is $GATE_FS; debugfs reads ext4 only): the login prompt above is the boot check"
+else
     echo
     echo "  first-boot failed-unit report"
     FBR="$WORK/first-boot-failed.txt"; rm -f "$FBR"
