@@ -327,6 +327,14 @@ if [ -s "$W/wipe.sh" ]; then
     printf '20 1 240:1 / /busy rw - ext4 /dev/alias rw\n' > "$W/wp/mountinfo"
     ( base=sdz; log() { :; }; . "$W/wipe-sb.sh" ) && nok "mounted partition allowed writes" \
         || { [ "$(cksum "$D")" = "$before" ] && ok "mounted partition by device number: refuses before writes" || nok "mounted partition was written"; }
+    # Prefix globs include the p separator used by NVMe/MMC and dm partitions.
+    for _testbase in nvme0n1 mmcblk0 dm-0; do
+        mkdir -p "$W/wp/sys/$_testbase/${_testbase}p1"
+        echo 240:0 > "$W/wp/sys/$_testbase/dev"
+        echo 240:1 > "$W/wp/sys/$_testbase/${_testbase}p1/dev"
+        ( base=$_testbase; log() { :; }; . "$W/wipe-sb.sh" ) && nok "$_testbase mounted partition allowed writes" \
+            || { [ "$(cksum "$D")" = "$before" ] && ok "$_testbase p1 partition: guard enumerates and refuses before writes" || nok "$_testbase partition was written"; }
+    done
     : > "$W/wp/mountinfo"
     printf '/dev/sdz3 partition 1024 0 -2\n' >> "$W/wp/swaps"
     ( base=sdz; log() { :; }; . "$W/wipe-sb.sh" ) && nok "active swap allowed writes" \
