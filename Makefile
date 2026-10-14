@@ -697,6 +697,7 @@ parity:
 	branding/cygnus/tests/test-refind-theme-config.sh
 	build/test-tour-slides.sh
 	build/test-ncz-first-login-tour.sh
+	build/test-login-notice-order.sh
 	build/test-xdg-autostart.sh
 	build/test-refind-rescue-promotion.sh
 	build/test-wallpaper-rotator-relogin.sh

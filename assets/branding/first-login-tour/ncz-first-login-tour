@@ -32,9 +32,18 @@
 #   * never steal focus from a lock screen: if the session is locked the
 #     launcher does nothing AND does not consume the marker, so the tour still
 #     appears on a later unlocked login.
-#   * thermally bounded on first login: the tour is
-#     decoupled from the desktop settling burst and its CPU is constrained so
-#     glycin's image decoding cannot burn the post-login thermal envelope.
+#   * thermally bounded: the tour starts once the desktop's first-login burst
+#     has passed (adaptive settle, capped at a few seconds), runs at nice 19
+#     under SCHED_IDLE so it can never take CPU from the desktop, and runs
+#     with GTK animations off. The tour's scene widgets otherwise redraw every
+#     frame for as long as the window is visible (a tick callback that never
+#     stops): measured 50% of a core on an HD4000 laptop, 55% on a Sky1 board
+#     and 88% on a MacBookPro16,1 (package 94-95 C, back to 61 C seconds after
+#     the tour closed). With animations off the tour idles at 0%.
+#   * first in line: notices that also start at login (quote of the day,
+#     firewall notice, update notifier) call `ncz-first-login-tour wait-done`
+#     and hold back until the tour has closed (bounded), so on a first login
+#     the tour is the first thing the user sees.
 #
 # HOW IT IS STARTED
 # -----------------------------------------------------------------
@@ -43,15 +52,41 @@
 # reads XDG system autostart dirs and launches a SYSTEM entry only when it
 # names Singularity in OnlyShowIn (libsingularity autostart_manager.vala),
 # ~1 s after the session settles -- after the compositor and shell are up.
-# The tour THEN waits NCZ_TOUR_SETTLE seconds AFTER the shell settles
-# (default 30) so the desktop's own first-login burst (settings, online
-# accounts, OOBE wallpaper) finishes before the tour's image decode runs.
+# The tour then waits until the whole system has been quiet for two samples
+# in a row (busy < NCZ_TOUR_SETTLE_BUSY percent of one core, sampled every
+# 0.5 s from /proc/stat), at least NCZ_TOUR_SETTLE_MIN and at most
+# NCZ_TOUR_SETTLE_MAX seconds (defaults 1 and 8). Until 2026-10-14 this was a
+# fixed 30 s sleep, which put the tour behind every login notice.
+#
+# CPU controls. The cgroup cpu controller is NOT delegated to user sessions on
+# NCZ-OS (post-install/43-hw-quirks.sh sets DisableControllers=cpu on the
+# root slice so rtkit can give PipeWire realtime scheduling), so a CPUQuota on
+# the transient scope is recorded but not enforced there; it still applies on
+# a system where the controller is delegated. The bounds that always hold are
+# nice 19, SCHED_IDLE (chrt --idle 0; no cgroup needed) and animations off.
+#
+# Animations off: GTK reads gtk-enable-animations from the settings portal,
+# which would override any per-process setting, so the tour is started with
+# GDK_DEBUG=no-portals and XDG_CONFIG_DIRS led by a per-user runtime directory
+# whose gtk-4.0/settings.ini sets gtk-enable-animations=0 and carries the
+# user's own font, cursor, icon theme, text scale and colour scheme from
+# GSettings, so the window looks the same. NCZ_TOUR_ANIMATIONS=1 keeps them.
 #
 # Subcommands
 #   guard   pure decision: exit 0 = may show (prints "allow"), 1 = skip
 #           (prints "skip: <reason>"). Writes nothing.
 #   show    the autostart entry point: guard, wait for the shell to settle,
 #           re-check the lock, write the marker and launch. (default)
+#   wait-done [MAX]
+#           for other login notices: return once no tour is pending or open
+#           in this session, or after MAX seconds (default
+#           NCZ_TOUR_WAIT_MAX, 90). Returns at once on a later login (tour
+#           already seen, nothing running) and whenever the tour will not
+#           open (opt-out, headless, root, live session). Always exits 0.
+#
+# Session state: "show" records its progress in
+# $XDG_RUNTIME_DIR/ncz/first-login-tour.state (pending -> open -> closed, or
+# closed when it decides not to open the tour), which wait-done reads.
 #
 # Test knobs (optional; see build/test-ncz-first-login-tour.sh)
 #   NCZ_TOUR_DRYRUN=1        do not launch; still write the marker
@@ -64,12 +99,25 @@
 #   NCZ_TOUR_LIVE=0|1        override live/installer/recovery detection
 #   NCZ_TOUR_FIRST_RUN=0|1   override another-first-run-flow detection
 #   NCZ_TOUR_LOCKED=0|1      override lock detection
-#   NCZ_TOUR_SETTLE=SECONDS  post-shell settle (default 30)
+#   NCZ_TOUR_SETTLE=SECONDS  fixed post-shell settle instead of the adaptive one
+#   NCZ_TOUR_SETTLE_MIN=SEC  adaptive settle: minimum wait (default 1)
+#   NCZ_TOUR_SETTLE_MAX=SEC  adaptive settle: maximum wait (default 8)
+#   NCZ_TOUR_SETTLE_BUSY=PCT adaptive settle: quiet below PCT of one core
+#                            summed over all CPUs (default 60)
+#   NCZ_TOUR_LOAD_SAMPLES="P P ..."  adaptive settle: use these busy values
+#                            (percent of one core) instead of /proc/stat
 #   NCZ_TOUR_SHELL_WAIT=SEC  max wait for the shell process (default 20)
 #   NCZ_TOUR_LAUNCH=CMD      command to open the tour (default gtk-launch)
-#   NCZ_TOUR_NICE=1|0        force nice+cpulimit on/off (default auto: on
-#                            when systemd-run --user is available)
-#   NCZ_TOUR_CPUQUOTA=PCT    CPU quota percent (default 40; 1-100)
+#   NCZ_TOUR_NICE=1|0        force the scope/nice wrapper on/off (default
+#                            auto: scope when systemd-run --user works)
+#   NCZ_TOUR_IDLE=0|1        SCHED_IDLE via chrt (default 1 when chrt exists)
+#   NCZ_TOUR_CPUQUOTA=PCT    scope CPUQuota percent (default 40; 1-100)
+#   NCZ_TOUR_ANIMATIONS=0|1  1 keeps GTK animations in the tour (default 0)
+#   NCZ_TOUR_RUNTIME_DIR=DIR override $XDG_RUNTIME_DIR/ncz (state, settings)
+#   NCZ_TOUR_WAIT_MAX=SEC    wait-done bound (default 90)
+#   NCZ_TOUR_WAIT_STEP=SEC   wait-done poll interval (default 1)
+#   NCZ_TOUR_PENDING_MAX=SEC a pending state older than this is stale (60)
+#   NCZ_TOUR_RUNNING=0|1     override "is a tour window running" detection
 #   NCZ_TOUR_LOG=FILE        append decision lines here
 set -u
 
@@ -80,6 +128,26 @@ config_home() { printf '%s' "${NCZ_TOUR_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.c
 marker() { printf '%s/ncz/tour-seen' "$(state_home)"; }
 admin_opt_out() { printf '%s' "${NCZ_TOUR_OPT_OUT:-/etc/ncz/no-first-login-tour}"; }
 user_opt_out() { printf '%s/ncz/no-first-login-tour' "$(config_home)"; }
+runtime_dir() { printf '%s' "${NCZ_TOUR_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u 2>/dev/null || echo 0)}/ncz}"; }
+state_file() { printf '%s/first-login-tour.state' "$(runtime_dir)"; }
+
+# set_state pending|open|closed -- per-session progress for wait-done. Best
+# effort: a read-only or missing runtime dir only makes wait-done fall back
+# to its bound.
+set_state() {
+    mkdir -p "$(runtime_dir)" 2>/dev/null || return 0
+    printf '%s\n' "$1" >"$(state_file).new" 2>/dev/null \
+        && mv -f "$(state_file).new" "$(state_file)" 2>/dev/null
+    return 0
+}
+get_state() { cat "$(state_file)" 2>/dev/null || true; }
+
+# Is a tour window running for this user? comm is truncated to 15 chars, so
+# match the command line: the binary path ends in /singularity-tour.
+tour_running() {
+    if [ -n "${NCZ_TOUR_RUNNING:-}" ]; then [ "$NCZ_TOUR_RUNNING" = 1 ]; return; fi
+    pgrep -u "$(id -u 2>/dev/null || echo 0)" -f '(^|/)singularity-tour( |$)' >/dev/null 2>&1
+}
 
 is_root() { [ "${NCZ_TOUR_UID:-$(id -u 2>/dev/null || echo 1000)}" -eq 0 ] 2>/dev/null; }
 
@@ -157,10 +225,68 @@ wait_for_shell() {
         if [ -n "${NCZ_TOUR_LAUNCH:-}" ] || [ -n "${NCZ_TOUR_DRYRUN:-}" ]; then break; fi
         sleep 1; i=$((i + 1))
     done
-    # Was 3 s. The tour's image decode (measured on a MacBookPro16,1:
-    # singularity-tour at 83-94% CPU for ~55 s) must not race the desktop's
-    # own first-login burst; the desktop settles in under 30 s.
-    sleep "${NCZ_TOUR_SETTLE:-30}"
+    settle
+}
+
+# busy_sample -- print the CPU time used by the whole system over the next
+# 0.5 s, in percent of one core (all CPUs summed: 100 = one core busy).
+# NCZ_TOUR_LOAD_SAMPLES feeds fixed values instead (tests, no sleep): this
+# prints the head of the remaining list in _ls_rest (0 once it is used up);
+# settle() advances the list, because this runs in a command substitution.
+busy_sample() {
+    if [ -n "${NCZ_TOUR_LOAD_SAMPLES+x}" ]; then
+        set -f
+        # shellcheck disable=SC2086  # deliberate split of the sample list
+        set -- $_ls_rest
+        set +f
+        echo "${1:-0}"
+        return
+    fi
+    _a=$(awk '/^cpu / {b=0; for (i=2; i<=NF; i++) if (i!=5 && i!=6) b+=$i; print b; exit}' /proc/stat 2>/dev/null)
+    sleep 0.5
+    _b=$(awk '/^cpu / {b=0; for (i=2; i<=NF; i++) if (i!=5 && i!=6) b+=$i; print b; exit}' /proc/stat 2>/dev/null)
+    _hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
+    # jiffies over 0.5 s -> percent of one core: d / (hz * 0.5) * 100
+    echo $(( ( ${_b:-0} - ${_a:-0} ) * 200 / ${_hz:-100} ))
+}
+
+# settle -- let the desktop's first-login burst pass before the tour opens.
+# NCZ_TOUR_SETTLE keeps a fixed delay. Otherwise wait until two 0.5 s samples
+# in a row are below NCZ_TOUR_SETTLE_BUSY (percent of one core, idle and
+# iowait excluded), no sooner than NCZ_TOUR_SETTLE_MIN and no later than
+# NCZ_TOUR_SETTLE_MAX seconds. On the MacBookPro16,1 the panel, dock and
+# wallpaper are up about 4.6 s after the shell starts.
+settle() {
+    if [ -n "${NCZ_TOUR_SETTLE:-}" ]; then
+        sleep "$NCZ_TOUR_SETTLE"
+        return 0
+    fi
+    _min=${NCZ_TOUR_SETTLE_MIN:-1}; _max=${NCZ_TOUR_SETTLE_MAX:-8}
+    _thr=${NCZ_TOUR_SETTLE_BUSY:-60}
+    _ls_rest="${NCZ_TOUR_LOAD_SAMPLES:-}"
+    _half=0; _quiet=0
+    while [ "$_half" -lt $((_max * 2)) ]; do
+        _busy=$(busy_sample)
+        # busy_sample runs in a subshell: advance the test list here too.
+        if [ -n "${NCZ_TOUR_LOAD_SAMPLES+x}" ]; then
+            set -f
+            # shellcheck disable=SC2086  # deliberate split of the sample list
+            set -- $_ls_rest
+            set +f
+            [ "$#" -gt 0 ] && shift
+            _ls_rest="$*"
+        fi
+        _half=$((_half + 1))
+        if [ "${_busy:-0}" -lt "$_thr" ] 2>/dev/null; then _quiet=$((_quiet + 1)); else _quiet=0; fi
+        if [ "$_quiet" -ge 2 ] && [ "$_half" -ge $((_min * 2)) ]; then
+            log "settle: quiet after ${_half} half-seconds (last ${_busy}% of a core)"
+            echo "$_half" >"$(runtime_dir)/first-login-tour.settle" 2>/dev/null || true
+            return 0
+        fi
+    done
+    log "settle: cap ${_max}s reached (last ${_busy:-?}% of a core)"
+    echo "$_half" >"$(runtime_dir)/first-login-tour.settle" 2>/dev/null || true
+    return 0
 }
 
 # launch_under_scope() -- open the tour under a CPU-bounded scope so the
@@ -239,6 +365,15 @@ launch_under_scope() {
     set -- $2
     set +f
     [ "$#" -gt 0 ] || return 64
+    # SCHED_IDLE: the tour only gets CPU time nothing else wants. It needs no
+    # cgroup controller, unlike CPUQuota/CPUWeight (see the header). chrt
+    # execs the command, so the tour keeps its own PID and argv.
+    if [ "${NCZ_TOUR_IDLE:-1}" != 0 ]; then
+        _chrt=$(command -v chrt 2>/dev/null) || _chrt=""
+        case "$_chrt" in
+            /usr/bin/chrt|/bin/chrt) set -- "$_chrt" --idle 0 "$@" ;;
+        esac
+    fi
     # NCZ_TOUR_NICE=0 disables the wrapper explicitly (test seam).
     if [ "${NCZ_TOUR_NICE:-auto}" = "0" ]; then
         _lus_run "$@"
@@ -297,6 +432,56 @@ _lus_run() {
     return 0
 }
 
+# gs_get KEY -- org.gnome.desktop.interface KEY from GSettings, outer quotes
+# stripped; empty when unavailable or when the value is not a plain one-line
+# value (it is written into an ini file).
+gs_get() {
+    command -v gsettings >/dev/null 2>&1 || return 0
+    # The image sets G_MESSAGES_DEBUG=all (20-desktop.sh); GLib then writes
+    # debug lines to stdout, so drop it for this read.
+    _v=$(env -u G_MESSAGES_DEBUG gsettings get org.gnome.desktop.interface "$1" 2>/dev/null) || return 0
+    _v=${_v#\'}; _v=${_v%\'}
+    case "$_v" in
+        *[!A-Za-z0-9\ ._-]*|"") return 0 ;;
+    esac
+    printf '%s' "$_v"
+}
+
+# quiesce_env -- start the tour without animations (see the header). Writes
+# $(runtime_dir)/first-login-tour/gtk-4.0/settings.ini and exports
+# XDG_CONFIG_DIRS + GDK_DEBUG for the launch. NCZ_TOUR_ANIMATIONS=1 skips it.
+quiesce_env() {
+    [ "${NCZ_TOUR_ANIMATIONS:-0}" = 1 ] && { log "quiesce: animations kept (NCZ_TOUR_ANIMATIONS=1)"; return 0; }
+    _qd="$(runtime_dir)/first-login-tour"
+    mkdir -p "$_qd/gtk-4.0" 2>/dev/null || { log "quiesce: cannot create $_qd"; return 0; }
+    {
+        echo "# Written by ncz-first-login-tour for the first-login tour only."
+        echo "[Settings]"
+        echo "gtk-enable-animations=0"
+        _f=$(gs_get font-name);     [ -n "$_f" ] && echo "gtk-font-name=$_f"
+        _f=$(gs_get cursor-theme);  [ -n "$_f" ] && echo "gtk-cursor-theme-name=$_f"
+        _f=$(gs_get cursor-size);   case "$_f" in ''|*[!0-9]*) ;; *) echo "gtk-cursor-theme-size=$_f" ;; esac
+        _f=$(gs_get icon-theme);    [ -n "$_f" ] && echo "gtk-icon-theme-name=$_f"
+        _f=$(gs_get gtk-theme);     [ -n "$_f" ] && echo "gtk-theme-name=$_f"
+        _f=$(gs_get color-scheme);  [ "$_f" = prefer-dark ] && echo "gtk-application-prefer-dark-theme=1"
+        _f=$(gs_get text-scaling-factor)
+        case "$_f" in
+            ''|*[!0-9.]*) ;;
+            *) _dpi=$(awk -v f="$_f" 'BEGIN { if (f > 0.4 && f < 4) printf "%d", 96 * 1024 * f }')
+               [ -n "$_dpi" ] && echo "gtk-xft-dpi=$_dpi" ;;
+        esac
+    } >"$_qd/gtk-4.0/settings.ini.new" 2>/dev/null
+    if ! mv -f "$_qd/gtk-4.0/settings.ini.new" "$_qd/gtk-4.0/settings.ini" 2>/dev/null; then
+        log "quiesce: cannot write settings.ini"
+        return 0
+    fi
+    XDG_CONFIG_DIRS="$_qd:${XDG_CONFIG_DIRS:-/etc/xdg}"
+    GDK_DEBUG="${GDK_DEBUG:+$GDK_DEBUG,}no-portals"
+    export XDG_CONFIG_DIRS GDK_DEBUG
+    log "quiesce: animations off ($_qd/gtk-4.0/settings.ini)"
+    return 0
+}
+
 open_tour() {
     if [ -n "${NCZ_TOUR_LAUNCH:-}" ]; then
         # Test hook: a single command path; the audit semantics are that this
@@ -332,41 +517,94 @@ disable_upstream() {
 
 show() {
     disable_upstream
-    reason="$(guard)" || { log "show: $reason"; echo "ncz-first-login-tour: $reason"; return 0; }
+    reason="$(guard)" || { set_state closed; log "show: $reason"; echo "ncz-first-login-tour: $reason"; return 0; }
+    # From here until the tour window exists, login notices hold back.
+    set_state pending
 
     wait_for_shell
     if is_locked; then
         # Do not consume the marker: the tour should still appear on a later
         # unlocked login, and must never steal focus from a lock screen.
+        set_state closed
         log "show: session locked -- deferring, marker not written"
         echo "ncz-first-login-tour: session locked, deferring"
         return 0
     fi
 
     m="$(marker)"
-    mkdir -p "$(dirname "$m")" 2>/dev/null || return 0
+    mkdir -p "$(dirname "$m")" 2>/dev/null || { set_state closed; return 0; }
     # Marker written BEFORE the launch, and a failed launch is deliberately
     # "fail-closed": a crash or a launch error can never loop the tour, and it
     # never reappears for that user (the operator's once-only policy).
-    : >"$m" 2>/dev/null || { log "show: cannot write marker $m"; return 0; }
+    : >"$m" 2>/dev/null || { set_state closed; log "show: cannot write marker $m"; return 0; }
 
     if [ -n "${NCZ_TOUR_DRYRUN:-}" ]; then
+        set_state closed
         log "show: DRYRUN marker written, not launching"
         echo "ncz-first-login-tour: dry-run, marker written"
         return 0
     fi
+    quiesce_env
     if open_tour; then
+        set_state open
         log "show: launched dev.sinty.tour, marker $m"
         echo "ncz-first-login-tour: opened the tour"
     else
+        set_state closed
         log "show: could not launch dev.sinty.tour"
         echo "ncz-first-login-tour: launch failed" >&2
     fi
     return 0
 }
 
+# state_age -- seconds since the state file last changed (large if unknown).
+state_age() {
+    _m=$(stat -c %Y "$(state_file)" 2>/dev/null) || { echo 999999; return; }
+    echo $(( $(date +%s) - _m ))
+}
+
+# wait_done [MAX] -- hold a login notice until the first-login tour is out of
+# the way: no tour pending or open in this session, or MAX seconds passed.
+#   state closed, or no state and the guard skips (seen, opt-out, root, live,
+#     headless): return now. This is every login after the first.
+#   no state and the guard allows: the launcher has not started yet: wait.
+#   pending: the launcher is settling: wait (a pending state older than
+#     NCZ_TOUR_PENDING_MAX, default 60 s, is left over from a launcher that
+#     never finished and counts as done).
+#   open: wait while a tour window runs; if none appears within 5 s of the
+#     launch, count it as closed.
+wait_done() {
+    _max=${1:-${NCZ_TOUR_WAIT_MAX:-90}}
+    case "$_max" in ''|*[!0-9]*) _max=90 ;; esac
+    _step=${NCZ_TOUR_WAIT_STEP:-1}
+    _t0=$(date +%s)
+    while :; do
+        _st=$(get_state)
+        case "$_st" in
+            closed) log "wait-done: tour closed or not opened"; return 0 ;;
+            open)
+                if ! tour_running && [ "$(state_age)" -ge 5 ]; then
+                    log "wait-done: tour closed"; return 0
+                fi ;;
+            pending)
+                if [ "$(state_age)" -ge "${NCZ_TOUR_PENDING_MAX:-60}" ]; then
+                    log "wait-done: stale pending state"; return 0
+                fi ;;
+            *)
+                if ! guard >/dev/null 2>&1; then
+                    log "wait-done: no tour this login"; return 0
+                fi ;;
+        esac
+        if [ $(( $(date +%s) - _t0 )) -ge "$_max" ]; then
+            log "wait-done: bound ${_max}s reached (state ${_st:-none})"; return 0
+        fi
+        sleep "$_step"
+    done
+}
+
 case "${1:-show}" in
     guard) guard ;;
     show)  show ;;
-    *)     echo "usage: ncz-first-login-tour [guard|show]" >&2; exit 2 ;;
+    wait-done) wait_done "${2:-}"; exit 0 ;;
+    *)     echo "usage: ncz-first-login-tour [guard|show|wait-done [MAX]]" >&2; exit 2 ;;
 esac

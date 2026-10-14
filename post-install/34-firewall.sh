@@ -84,6 +84,8 @@ cat > /usr/local/bin/ncz-firewall-notify <<'NOTIFY'
 #!/bin/sh
 command -v notify-send >/dev/null 2>&1 || exit 0
 systemctl is-active --quiet nftables.service 2>/dev/null && exit 0
+# On a first login the desktop tour comes first (bounded; no wait later).
+[ -x /usr/local/bin/ncz-first-login-tour ] && /usr/local/bin/ncz-first-login-tour wait-done
 sleep 10
 notify-send -a "NCZ Security" -u normal -t 30000 -i security-low \
     "Firewall installed but off" \
