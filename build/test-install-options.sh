@@ -31,7 +31,14 @@
 #      record the installer writes, rejects unknown options, finds the root
 #      partition for both layouts, and the matrix wrapper names the standard
 #      sets that build-image.sh runs;
-#   6. the first-boot report records what the boot reached.
+#   6. the first-boot report records what the boot reached;
+#   7. the root PARTUUID (2026-10-14, Macmini5,1 reinstall: an old ext4
+#      superblock under the new btrfs root made blkid ambivalent, every normal
+#      entry got root=PARTUUID= and the boot hung in the initramfs): the
+#      refresh scripts read the GPT when blkid has no answer, fail on an
+#      ambivalent probe or an empty value before the ESP, late.sh calls a menu
+#      with an empty root= unbootable, and the installer clears the old
+#      partitions' signatures before repartitioning.
 #
 # NCZ_TEST_ROOT=<tree> runs the checks against another checkout (the pre-fix
 # tree fails sections 1-3). Exit 0 = pass, 1 = fail.
@@ -221,8 +228,9 @@ if [ -s "$MATRIX" ]; then
     [ "$(gate_set_components norescue)" = desktop ] && [ "$(gate_set_components minimal)" = none ] \
         && [ "$(gate_set_components norescue-mgmt)" = desktop,mgmt-container ] && [ "$(gate_set_components nodesktop)" = mgmt-container,rescue-partition ] \
         && [ "$(gate_set_components full)" = desktop,mgmt-container,rescue-partition ] && ok "matrix sets map to the expected answers" || nok "matrix set table"
-    [ "$GATE_DEFAULT_SETS" = "norescue minimal" ] && ok "matrix default sets: rescue off + mgmt off, every option off" || nok "matrix default: $GATE_DEFAULT_SETS"
-    grep -q "NCZ_KVM_GATE_VARIANTS:-norescue minimal" "$ROOT/build/build-image.sh" && grep -q 'build/kvm-install-gate-matrix.sh' "$ROOT/build/build-image.sh" \
+    [ "$GATE_DEFAULT_SETS" = "norescue minimal stalefs" ] && ok "matrix default sets: rescue off + mgmt off, every option off, reinstall over old ext4" || nok "matrix default: $GATE_DEFAULT_SETS"
+    [ "$(gate_set_disk stalefs)" = "btrfs 1" ] && [ "$(gate_set_disk minimal)" = "ext4 0" ] && ok "stalefs set: btrfs root over a seeded old disk" || nok "matrix disk table"
+    grep -q "NCZ_KVM_GATE_VARIANTS:-norescue minimal stalefs" "$ROOT/build/build-image.sh" && grep -q 'build/kvm-install-gate-matrix.sh' "$ROOT/build/build-image.sh" \
         && ok "build-image.sh runs the option sets after the full gate" || nok "build-image.sh does not run the option sets"
     grep -q "NCZ_GATE_UI_CHECK=\"\$_ui\"" "$MATRIX" && ok "the UI check runs only in the full set" || nok "matrix UI check handling"
 else
@@ -235,6 +243,83 @@ for k in default-target greetd getty-tty1; do
 done
 grep -q 'FB_TARGET" = graphical.target' "$GATE" && grep -q 'FB_TARGET" = multi-user.target' "$GATE" \
     && ok "the gate checks the boot target against the desktop option" || nok "gate boot-target check missing"
+
+echo "=== 7. root PARTUUID, empty root= and old signatures ==="
+between "$AMD" 'NCZ-ROOT-PARTUUID-BEGIN' 'NCZ-ROOT-PARTUUID-END' > "$W/rp-amd64.sh"
+between "$ARM" 'NCZ-ROOT-PARTUUID-BEGIN' 'NCZ-ROOT-PARTUUID-END' > "$W/rp-arm64.sh"
+if [ -s "$W/rp-amd64.sh" ] && [ -s "$W/rp-arm64.sh" ]; then
+    cmp -s "$W/rp-amd64.sh" "$W/rp-arm64.sh" && ok "amd64 and arm64 carry the same root PARTUUID block" || nok "root PARTUUID blocks differ"
+    sed "s#/sys/class/block#$W/rp/sys#g; s#\"/dev/\$_disk\"#\"$W/rp/dev/\$_disk\"#g; s#-b \"$W/rp/dev#-e \"$W/rp/dev#" "$W/rp-amd64.sh" > "$W/rp-sb.sh"
+    mkdir -p "$W/rp/bin"
+    # stubs: BLKID_PARTUUID (blkid -s PARTUUID), BLKID_PROBE (blkid -p -o udev), SFDISK_UUID, SGDISK_UUID
+    cat > "$W/rp/bin/findmnt" <<'STUB'
+#!/bin/sh
+echo /dev/sda3
+STUB
+    cat > "$W/rp/bin/blkid" <<'STUB'
+#!/bin/sh
+case "$*" in *"-p -o udev"*) printf '%s\n' "$BLKID_PROBE"; [ -n "$BLKID_AMBI" ] && echo "blkid: /dev/sda3: ambivalent result (probably more filesystems on the device, use wipefs(8) to see more details)" >&2; exit 0 ;; esac
+printf '%s' "$BLKID_PARTUUID"
+STUB
+    cat > "$W/rp/bin/sfdisk" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$SFDISK_UUID"
+STUB
+    cat > "$W/rp/bin/sgdisk" <<'STUB'
+#!/bin/sh
+[ -n "$SGDISK_UUID" ] && echo "Partition unique GUID: $SGDISK_UUID"
+STUB
+    chmod +x "$W/rp/bin/"*
+    mkdir -p "$W/rp/sys/sda/sda3" "$W/rp/dev"; echo 3 > "$W/rp/sys/sda/sda3/partition"; : > "$W/rp/dev/sda"
+    ln -sfn "$W/rp/sys/sda/sda3" "$W/rp/sys/sda3"
+    rp() {   # rp BLKID_PARTUUID BLKID_AMBI SFDISK_UUID SGDISK_UUID -> "U=<uuid> rc=<rc>"
+        ( export PATH="$W/rp/bin:$PATH" BLKID_PARTUUID="$1" BLKID_AMBI="$2" SFDISK_UUID="$3" SGDISK_UUID="$4" BLKID_PROBE=""
+          . "$W/rp-sb.sh" > "$W/rp.out" 2>&1; printf 'U=%s' "$ROOT_PARTUUID" ); printf ' rc=%s' "$?"; }
+    [ "$(rp 11111111-2222-3333-4444-555555555555 '' '' '')" = "U=11111111-2222-3333-4444-555555555555 rc=0" ] && ok "blkid answer used" || nok "blkid answer: $(rp 11111111-2222-3333-4444-555555555555 '' '' '')"
+    [ "$(rp '' 1 EAEE905D-57A4-43D0-B926-3607DF73001D '')" = " rc=1" ] && grep -q 'ambivalent' "$W/rp.out" && grep -q 'eaee905d-57a4-43d0-b926-3607df73001d' "$W/rp.out" \
+        && ok "ambivalent probe (old ext4 under btrfs): refuses before the ESP and names the GPT GUID" || nok "ambivalent: $(rp '' 1 EAEE905D-57A4-43D0-B926-3607DF73001D '') $(cat "$W/rp.out")"
+    [ "$(rp '' '' EAEE905D-57A4-43D0-B926-3607DF73001D '')" = "U=eaee905d-57a4-43d0-b926-3607df73001d rc=0" ] && ok "blkid empty, probe clean: GPT GUID from sfdisk, lower case" || nok "sfdisk fallback: $(rp '' '' EAEE905D-57A4-43D0-B926-3607DF73001D '')"
+    [ "$(rp '' '' '' ae16dfe4-3ce5-4da2-b670-96642566dde2)" = "U=ae16dfe4-3ce5-4da2-b670-96642566dde2 rc=0" ] && ok "sfdisk empty: GPT GUID from sgdisk" || nok "sgdisk fallback"
+    [ "$(rp '' '' '' '')" = " rc=1" ] && grep -q 'empty root=PARTUUID=' "$W/rp.out" && ok "no PARTUUID anywhere: refuses, never writes root=PARTUUID=" || nok "empty: $(rp '' '' '' '')"
+    for sc in "$AMD" "$ARM"; do
+        n=$(basename "$sc"); bl=$(line_of "$sc" 'NCZ-ROOT-PARTUUID-BEGIN')
+        first=$(grep -nE '^[^#]*(rm -[rf]+ +/boot/efi|install -m 0644 "\$REFIND_SRC"|^ncz_promote_outgoing_rescue /boot/efi)' "$sc" | head -1 | cut -d: -f1)
+        [ -n "$bl" ] && [ -n "$first" ] && [ "$bl" -lt "$first" ] && ok "$n: root PARTUUID check (line $bl) before the first ESP write (line $first)" || nok "$n: root PARTUUID check after an ESP write"
+        grep -q 'ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC")$' "$sc" && nok "$n: a bare blkid PARTUUID assignment remains" || ok "$n: no bare blkid-only root PARTUUID"
+    done
+else
+    nok "NCZ-ROOT-PARTUUID markers missing in a refresh script"
+fi
+if [ -s "$W/boot-sb.sh" ]; then
+    rm -rf "$W/t"; mkdir -p "$W/t/boot/efi/EFI/BOOT"; echo x > "$W/t/boot/efi/EFI/BOOT/BOOTX64.EFI"
+    printf 'menuentry "a" {\n    options "root=PARTUUID= rootwait rootfstype=btrfs rw"\n}\n' > "$W/t/boot/efi/EFI/BOOT/refind.conf"
+    NCZ_DEB_ARCH=amd64 sh -c ". '$W/boot-sb.sh'; ncz_bootable" 2>/dev/null && nok "late.sh: an empty root=PARTUUID= entry counted as bootable" || ok "late.sh: a menu with an empty root=PARTUUID= is not bootable"
+    printf 'menuentry "a" {\n    options "root=PARTUUID=eaee905d-57a4-43d0-b926-3607df73001d rootwait"\n}\n' > "$W/t/boot/efi/EFI/BOOT/refind.conf"
+    NCZ_DEB_ARCH=amd64 sh -c ". '$W/boot-sb.sh'; ncz_bootable" 2>/dev/null && ok "late.sh: a menu with a real root PARTUUID is bootable" || nok "late.sh rejected a good menu"
+fi
+CHOOSER="$ROOT/preseed/disk-fs-chooser.sh"
+between "$CHOOSER" 'NCZ-WIPE-SIGNATURES-BEGIN' 'NCZ-WIPE-SIGNATURES-END' > "$W/wipe.sh"
+if [ -s "$W/wipe.sh" ]; then
+    rm -rf "$W/wp"; mkdir -p "$W/wp/sys/sdz/sdz1" "$W/wp/sys/sdz/sdz3"
+    echo 2048 > "$W/wp/sys/sdz/sdz1/start"; echo 4096 > "$W/wp/sys/sdz/sdz1/size"
+    echo 20480 > "$W/wp/sys/sdz/sdz3/start"; echo 40960 > "$W/wp/sys/sdz/sdz3/size"
+    D="$W/wp/disk.img"; head -c $((70000 * 512)) /dev/zero | tr '\0' 'x' > "$D"
+    sed "s#/sys/block/#$W/wp/sys/#g" "$W/wipe.sh" > "$W/wipe-sb.sh"
+    ( base=sdz; log() { :; }; . "$W/wipe-sb.sh" )
+    byte() { dd if="$D" bs=1 skip="$1" count=1 2>/dev/null | od -An -c | tr -d ' '; }
+    [ "$(byte $((20480 * 512 + 1080)))" = '\0' ] && [ "$(byte $((20480 * 512 + 65536 + 64)))" = '\0' ] \
+        && ok "old partition head zeroed (ext4 superblock at 1080, btrfs at 64 KiB)" || nok "old partition head not zeroed"
+    [ "$(byte $(((20480 + 40960 - 1) * 512)))" = '\0' ] && ok "old partition tail zeroed" || nok "old partition tail not zeroed"
+    [ "$(byte $((20480 * 512 + 8 * 1048576)))" = x ] && ok "data past the head is left alone" || nok "wipe went past 4 MiB"
+    [ "$(byte $((2048 * 512 + 100)))" = '\0' ] && ok "small partition zeroed whole" || nok "small partition head"
+    [ "$(stat -c %s "$D" 2>/dev/null || stat -f %z "$D")" = $((70000 * 512)) ] && ok "disk size unchanged (conv=notrunc)" || nok "disk truncated"
+    wl=$(grep -n 'NCZ-WIPE-SIGNATURES-BEGIN' "$CHOOSER" | cut -d: -f1); zl=$(grep -n 'dd if=/dev/zero of="$D" bs=1M count=16' "$CHOOSER" | cut -d: -f1)
+    [ -n "$wl" ] && [ -n "$zl" ] && [ "$wl" -lt "$zl" ] && ok "signatures cleared before the old table is zeroed" || nok "wipe runs after the table is gone"
+else
+    nok "disk-fs-chooser.sh: NCZ-WIPE-SIGNATURES markers missing"
+fi
+grep -q 'NCZ_GATE_STALE_DISK' "$GATE" && grep -q "is not the root partition's GPT GUID" "$GATE" && grep -q 'has an empty root=' "$GATE" \
+    && ok "KVM gate: stale-disk seeding, empty root= and GPT-GUID checks on the installed menu" || nok "KVM gate PARTUUID checks missing"
 
 echo
 echo "test-install-options: $PASS passed, $FAIL failed"

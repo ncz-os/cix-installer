@@ -11,14 +11,16 @@
 #
 # Usage: build/kvm-install-gate-matrix.sh IMAGE [WORKROOT] [SET...]
 #   SET is a name from the table below, or `all`. Default: the sets in
-#   NCZ_KVM_GATE_VARIANTS, else "norescue minimal" (the two that build-image.sh
-#   runs after the full-option gate).
+#   NCZ_KVM_GATE_VARIANTS, else "norescue minimal stalefs" (the sets that
+#   build-image.sh runs after the full-option gate).
 #
 #   full           desktop,mgmt-container,rescue-partition   (every option)
 #   norescue       desktop                                   (rescue off + mgmt off)
 #   norescue-mgmt  desktop,mgmt-container                    (rescue off + mgmt on)
 #   nodesktop      mgmt-container,rescue-partition           (desktop off)
 #   minimal        none                                      (every option off: console system)
+#   stalefs        desktop,mgmt-container,rescue-partition   (btrfs root, reinstall over an old
+#                                                             ext4 install: NCZ_GATE_STALE_DISK=1)
 #
 # Only `full` runs the installer UI check (it does not depend on the options).
 # A passing set's disk images are removed to keep the work root small
@@ -43,11 +45,19 @@ gate_set_components() {
         norescue-mgmt) echo "desktop,mgmt-container" ;;
         nodesktop)     echo "mgmt-container,rescue-partition" ;;
         minimal)       echo "none" ;;
+        stalefs)       echo "desktop,mgmt-container,rescue-partition" ;;
         *)             return 1 ;;
     esac
 }
-GATE_ALL_SETS="full norescue norescue-mgmt nodesktop minimal"
-GATE_DEFAULT_SETS="norescue minimal"
+# Root filesystem and disk preparation per set: "<fs> <stale 0|1>".
+gate_set_disk() {
+    case "$1" in
+        stalefs) echo "btrfs 1" ;;
+        *)       echo "ext4 0" ;;
+    esac
+}
+GATE_ALL_SETS="full norescue norescue-mgmt nodesktop minimal stalefs"
+GATE_DEFAULT_SETS="norescue minimal stalefs"
 # NCZ-GATE-SETS-END
 
 SETS="$*"
@@ -71,13 +81,16 @@ printf 'set\tcomponents\tresult\tseconds\twork\n' > "$SUMMARY"
 FAILED=""
 for _s in $SETS; do
     _c=$(gate_set_components "$_s")
+    read -r _fs _stale <<EOF_DISK
+$(gate_set_disk "$_s")
+EOF_DISK
     _w="$WORKROOT/$_s"
     _ui=0; [ "$_s" = full ] && _ui="${NCZ_GATE_UI_CHECK:-1}"
     echo
-    echo "################ install-option set: $_s ($_c) ################"
+    echo "################ install-option set: $_s ($_c, root $_fs, stale disk $_stale) ################"
     _t0=$(date +%s)
     _rc=0
-    NCZ_GATE_COMPONENTS="$_c" NCZ_GATE_UI_CHECK="$_ui" \
+    NCZ_GATE_COMPONENTS="$_c" NCZ_GATE_UI_CHECK="$_ui" NCZ_GATE_FS="$_fs" NCZ_GATE_STALE_DISK="$_stale" \
         bash "$SCRIPT_DIR/kvm-install-gate-gpt.sh" "$IMG" "$_w" 2>&1 | tee "$WORKROOT/$_s.log"
     _rc="${PIPESTATUS[0]}"
     _dt=$(( $(date +%s) - _t0 ))

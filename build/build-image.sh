@@ -1309,9 +1309,10 @@ stage_kvm_gate() {
     # Install-option sets: the gate above answers the component dialog with
     # every option selected; these install and boot the image again with
     # options unticked (rescue partition + management container off, then
-    # every option off), each in its own work dir. build/kvm-install-gate-matrix.sh
+    # every option off) and once over a disk that held an older install (btrfs
+    # root over old ext4 signatures), each in its own work dir. build/kvm-install-gate-matrix.sh
     # names the sets; NCZ_KVM_GATE_VARIANTS overrides the list ("all" = every set).
-    local sets="${NCZ_KVM_GATE_VARIANTS:-norescue minimal}" mrc=0
+    local sets="${NCZ_KVM_GATE_VARIANTS:-norescue minimal stalefs}" mrc=0
     echo "[kvm-gate] install-option sets: $sets" | tee -a "$log"
     ( cd "$ROOT" && ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_KVM_GATE_VARIANTS='$sets' bash build/kvm-install-gate-matrix.sh '$img' '$work-options'" ) 2>&1 | tee -a "$log"
     mrc="${PIPESTATUS[0]}"
