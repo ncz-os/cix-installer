@@ -76,6 +76,7 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md) | Why the stack is built the way it is, with the measurements (26.7 era) |
 | [PLATFORM-SPLIT-DESIGN.md](PLATFORM-SPLIT-DESIGN.md) | What is common to both architectures and what is platform-specific |
 | [SID-EXCEPTIONS.md](SID-EXCEPTIONS.md) | Generated report of reviewed installer packages taken from sid |
+| [FORKY-ONLY-REMEDIATION-PROPOSAL.md](FORKY-ONLY-REMEDIATION-PROPOSAL.md) | Proposal (not adopted): where Ubuntu still appears, and a staged path to a forky-only base with no Ubuntu repository usage |
 | [AI-ML-STACK.md](AI-ML-STACK.md) · [简体中文](AI-ML-STACK.zh-CN.md) | The AI/ML stack on Sky1: CPU, NPU, GPU and VPU and what runs where |
 | [INFERENCE_LIMITS.md](INFERENCE_LIMITS.md) | Measured per-engine inference capability and limits on Sky1 (earlier kernels) |
 | [MODELSCOPE-MODELS.md](MODELSCOPE-MODELS.md) | Pulling and compiling `.cix` NPU models from the CIX model hub |
