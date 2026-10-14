@@ -360,6 +360,13 @@ ncz_last_partnum() {
 echo
 echo "[4/6] phase 1: install (timeout ${INSTALL_TIMEOUT}s)"
 date -u +"  started %H:%M:%SZ"
+# Sample the running installer over its diagnostics SSH (2225 -> guest 22) for
+# the whole of phase 1: brltty must never run and tty1 must never be clamped
+# (build/kvm-installer-probe.sh; judged in step 5).
+PROBE_LOG="$WORK/installer-probe.log"
+rm -f "$PROBE_LOG"
+"$SCRIPT_DIR/kvm-installer-probe.sh" sample 2225 "$PROBE_LOG" 15 &
+PROBE_PID=$!
 set +e
 timeout "$INSTALL_TIMEOUT" "$QEMU" \
   -M "$MACHINE" -accel "$ACCEL" -cpu "$CPU" -smp "$SMP" -m "$MEM" \
@@ -369,8 +376,9 @@ timeout "$INSTALL_TIMEOUT" "$QEMU" \
   -drive file="$TEST_IMG",if=none,id=usbstick,format=raw \
   -device qemu-xhci,id=xhci \
   -device usb-storage,bus=xhci.0,drive=usbstick,bootindex=1 \
-  -usb -chardev null,id=usbser \
+  -usb -chardev null,id=usbser -chardev file,id=usbbrl,path=/dev/null \
   -device usb-serial,chardev=usbser,always-plugged=on \
+  -device usb-braille,chardev=usbbrl -device usb-kbd -device usb-mouse \
   -netdev user,id=n0,hostfwd=tcp:127.0.0.1:$FWD_SSH_INSTALL-:22,hostfwd=tcp:127.0.0.1:$FWD_HTTP_INSTALL-:8080 -device virtio-net-pci,netdev=n0,romfile= \
   -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
   -serial "file:$S0" \
@@ -395,6 +403,7 @@ done
 wait "$QEMU_PID"
 irc=$?
 trap - INT TERM
+kill "$PROBE_PID" 2>/dev/null; wait "$PROBE_PID" 2>/dev/null
 set -e
 cat "$S0" >> "$ILOG" 2>/dev/null
 date -u +"  ended   %H:%M:%SZ  (qemu rc=$irc)"
@@ -531,29 +540,33 @@ echo "[5/6] checking the install log"
 grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i |Linux version|Starting linux|Installing the base system|Starting NCZ-OS post-install plan" "$ILOG" \
   || fail "the installer never started (qemu rc=$irc) -- see $ILOG"
 
-# 2026-10-12: an emulated usb-serial adapter is attached to phase
-# 1 (see the -usb / -device usb-serial above) precisely so this gate would
-# catch the defect it did NOT catch before -- the gate used to attach no
-# USB-serial device at all, so the shipped image passed while the HP OmniDesk test desktop
-# wedged on the brltty-udeb critical question "Is the USB serial
-# device indeed a braille device?" (a generic USB-serial id started brltty and
-# set /var/run/brltty-generic). QEMU's usb-serial emulates 0403:6001, one of
-# the generic ids in brltty-udeb's udev rules. The image fixes it two ways
-# (preseed/preseed.cfg brltty-udeb/generic=false + an ncz cmdline token that
-# makes /lib/udev/brltty.sh exit before starting brltty); if either regresses,
-# this question reappears on the serial console and the gate fails here.
+# No braille in the installer. Phase 1 attaches an emulated USB-serial adapter
+# (FTDI 0403:6001, a generic id in brltty-udeb's rules) and an emulated USB
+# braille display (usb-braille, Baum 0403:fe72, a non-generic id that started
+# brltty with no question at all), next to an ordinary USB keyboard, mouse and
+# the USB stick itself. The 2026-10-14 regression started brltty on ordinary
+# hardware with no such device at all (a cmdline token containing "brltty" made
+# brltty-udeb's S37brltty start it), which the probe catches on any boot. brltty-udeb is removed from the initrd at
+# build time; if it ever comes back, brltty starts, `stty cols 80 < /dev/tty1`
+# narrows the UI and the framebuffer frontend is turned off. The probe samples
+# taken over the diagnostics SSH during phase 1 must show no brltty and an
+# unclamped tty1 (build/kvm-installer-probe.sh judge).
 #
-# The device must be on the DEFAULT `-usb` bus with `always-plugged=on`:
-# measured on an amd64 build host 2026-10-12, `-device usb-serial,bus=xhci.0` (without
-# -usb) is NOT enumerated by the d-i guest at all (no 0403:6001 in the kernel
-# log, no udev event, no question), so a naive xhci attach makes this guard
-# silently vacuous. `-usb -device usb-serial,chardev=usbser,always-plugged=on`
-# renders as `usb N-M: New USB device found, idVendor=0403, idProduct=6001`
-# and reliably raises the (pre-fix) question.
+# The USB devices must be on the DEFAULT `-usb` bus: measured on an amd64 build
+# host 2026-10-12, `-device usb-serial,bus=xhci.0` (without -usb) is NOT
+# enumerated by the d-i guest at all, which makes the check vacuous; the probe
+# log lists the guest's USB ids so the devices' presence is on record.
 if grep -qai "indeed a braille device" "$ILOG"; then
     grep -ai -B2 -A4 "braille device" "$ILOG" | head -20 >&2
-    fail "brltty asked the generic 'Is the USB serial device indeed a braille device?' question with a usb-serial device attached -- an emulated USB-UART must never be treated as a braille device"
+    fail "the installer asked the brltty 'Is the USB serial device indeed a braille device?' question -- the installer must carry no brltty"
 fi
+probe_verdict="$("$SCRIPT_DIR/kvm-installer-probe.sh" judge "$PROBE_LOG")" \
+  || fail "installer probe ($PROBE_LOG): $probe_verdict"
+echo "  $probe_verdict"
+grep -q "usb .* 0403:fe72" "$PROBE_LOG" \
+  || fail "installer probe: the emulated USB braille display (0403:fe72) was not seen by the guest -- the no-brltty check would be vacuous"
+grep -q "usb .* 0403:6001" "$PROBE_LOG" \
+  || fail "installer probe: the emulated USB-serial adapter (0403:6001) was not seen by the guest -- the no-brltty check would be vacuous"
 
 # The gaps this session fixed, each with its own message, so a failure names
 # the finding rather than just "install failed".

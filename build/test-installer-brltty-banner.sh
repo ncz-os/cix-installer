@@ -1,14 +1,17 @@
 #!/bin/bash
-# test-installer-brltty-banner.sh -- 2026-10-12 unattended amd64 install
-# defects, source-level regressions:
+# test-installer-brltty-banner.sh -- installer source-level regressions:
 #
-#   1. brltty: a USB-UART (Prolific PL2303 067b:2303, and every GENERIC
-#      USB-serial id brltty's d-i udev rules cover) must NOT raise the
-#      CRITICAL "Is the USB serial device indeed a braille device?" question.
-#      Two layers are pinned here: the preseed answer
-#      (`d-i brltty-udeb/generic boolean false`) and the cmdline autodetect
-#      kill (build/iso/build-refind-esp.py NCZ_NO_BRLTTY, exercised by
-#      build/iso/tests/test_refind_installer_cmdline.py).
+#   1. no braille stack anywhere (docs/ACCESSIBILITY.md): brltty is not in the
+#      installer or the image; users add it with `apt install brltty`.
+#      - no boot entry carries a token containing "brltty" (brltty-udeb's
+#        S37brltty starts brltty when it sees one: the ncz_no_brltty=1
+#        regression of 2026-10-14, exercised by
+#        build/iso/tests/test_refind_installer_cmdline.py);
+#      - no preseed answer, package list or anna module list names brltty;
+#      - the build removes brltty-udeb from the initrd and fails if it
+#        survives, keeps braille packages out of the medium pool, and the
+#        layer, KVM-probe gates exist (behaviour in build/iso/tests and
+#        build/test-layers-hardening.sh; probe judge exercised below).
 #   2. the boot banner must print ONCE (the old 2-second heartbeat loop smeared
 #      it over the newt UI for 120 s) and still carry the build id: the
 #      installer cmdline now receives ncz_rev=<BUILD_VERSION>.
@@ -29,19 +32,54 @@ ok()  { echo "PASS  $1"; PASS=$((PASS + 1)); }
 bad() { echo "FAIL  $1" >&2; FAIL=$((FAIL + 1)); }
 check() { local name="$1"; shift; if "$@"; then ok "$name"; else bad "$name"; fi; }
 
-# ------------------------------------------------------------------ brltty layer 1
-check "preseed.cfg answers brltty-udeb/generic as NO (no braille prompt)" \
-    grep -qF 'd-i brltty-udeb/generic boolean false' "$PRESEED"
-check "preseed.cfg marks brltty-udeb/generic seen (the answer never re-prompts)" \
-    grep -qF 'd-i brltty-udeb/generic seen true' "$PRESEED"
-check "brltty-udeb/generic is in the preseed known-keys allow-list" \
-    grep -qE '^[[:space:]]*brltty-udeb/generic([[:space:]]|$)' "$KNOWN"
+# ------------------------------------------------------------------ no braille stack
+check "no preseed setting names brltty/braille (comments aside)" \
+    sh -c '! { for f in "$1"/preseed/*.cfg; do sed -e "s/#.*//" "$f"; done; } | grep >/dev/null -iE "brltty|brlapi|braille"' _ "$ROOT"
+check "brltty-udeb/generic is not in the preseed known-keys list" \
+    sh -c '! grep -qE "^[[:space:]]*brltty" "$1"' _ "$KNOWN"
+check "no package manifest lists a brltty/brlapi package" \
+    sh -c '! { for f in "$1"/manifests/*.pkgs "$1"/sbom/*.txt; do sed -e "s/#.*//" "$f"; done; } | grep >/dev/null -iE "brltty|brlapi"' _ "$ROOT"
+check "no post-install hook installs brltty" \
+    sh -c '! grep -rqiE "(apt-get|apt|install)[^#]*(brltty|brlapi)" "$1/post-install"' _ "$ROOT"
+check "build-refind-esp.py no longer defines the ncz_no_brltty token" \
+    sh -c '! grep -qE "NCZ_NO_BRLTTY|\"ncz_no_brltty" "$1"' _ "$ESP"
+check "build-refind-esp.py refuses boot options naming brltty" \
+    grep -q 'assert_no_brltty_options(conf_text)' "$ESP"
+check "the initrd patcher verifies the final initrd carries no braille member" \
+    grep -q 'verify_no_braille_initrd(out_initrd)' "$ROOT/build/iso/patch-initrd-t2-kernel.py"
+check "the image writer refuses braille packages in the medium pool" \
+    grep -q 'find_braille_package_files(stage_dir / "pool")' "$ROOT/build/iso/write-usb-image.py"
+check "check-layers.sh runs the no-braille layer check" \
+    grep -qE '^[[:space:]]*chk_no_braille "\$l" "\$lbl"' "$ROOT/build/check-layers.sh"
+check "the KVM gate attaches usb-braille, usb-serial, usb-kbd and usb-mouse" \
+    sh -c 'grep -q -- "-device usb-braille" "$1" && grep -q -- "-device usb-serial" "$1" && grep -q -- "-device usb-kbd" "$1" && grep -q -- "-device usb-mouse" "$1"' _ "$ROOT/build/kvm-install-gate-gpt.sh"
+check "the KVM gate judges the installer probe" \
+    grep -q 'kvm-installer-probe.sh" judge' "$ROOT/build/kvm-install-gate-gpt.sh"
 
-# ------------------------------------------------------------------ brltty layer 2
-check "build-refind-esp.py defines the NCZ brltty autodetect-disable token" \
-    grep -qE '^NCZ_NO_BRLTTY = "[^"]+"' "$ESP"
-check "the brltty token is wired into the shared Install/Expert options" \
-    sh -c "grep -qE '^_PC_INSTALL_OPTIONS' \"$ESP\" && grep -q 'NCZ_NO_BRLTTY' \"$ESP\""
+# probe judge: fixtures in both directions
+PJ="$ROOT/build/kvm-installer-probe.sh"
+PT="$(mktemp -d "${TMPDIR:-/tmp}/ncz-probe.XXXXXX")"
+sample() { # name main_menu brltty_pid tty1cols tty2cols [file]
+    { echo "=== sample 1 00:00:00Z"; echo "uptime 30"; echo "main_menu $2"; echo "brltty_pid $3"
+      [ -n "${6:-}" ] && echo "brltty_file $6"
+      echo "tty1 50 $4"; echo "tty2 50 $5"; echo "usb 1-1 0403:fe72 braille"; } > "$PT/$1"
+}
+sample good yes none 128 128
+check "probe judge: clean installer passes" bash "$PJ" judge "$PT/good"
+sample running yes 9509 128 128
+check "probe judge: a running brltty fails" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/running"
+sample clamped yes none 80 128
+check "probe judge: tty1 clamped to 80 columns fails" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/clamped"
+sample files yes none 128 128 /usr/lib/udev/rules.d/brltty.rules
+check "probe judge: brltty files in the installer fail" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/files"
+sample ran yes none 128 128
+echo "syslog Jan  1 00:00:02 brltty[690]: BRLTTY 6.9.1" >> "$PT/ran"
+check "probe judge: brltty in the installer syslog fails (even after it exited)" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/ran"
+sample early no none 128 128
+check "probe judge: no sample while main-menu ran fails" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/early"
+: > "$PT/empty"
+check "probe judge: no sample at all fails" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/empty"
+rm -rf "$PT"
 
 # ------------------------------------------------------------------ banner once
 # Exactly one banner line; it writes to tty1 + tty3 + console (visible boot)

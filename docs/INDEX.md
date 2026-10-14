@@ -17,6 +17,7 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | [RELEASE-HISTORY.md](RELEASE-HISTORY.md) | Short release history; per-release archive up to 26.7 |
 | [SOURCE-RELEASES.md](SOURCE-RELEASES.md) · [简体中文](SOURCE-RELEASES.zh-CN.md) | Everything we compile ourselves, its version and where the source is |
 | [REMOTE-ACCESS.md](REMOTE-ACCESS.md) | Remote-access and recovery defaults (telnet, SSH, recovery container) and how to turn each off |
+| [ACCESSIBILITY.md](ACCESSIBILITY.md) | Braille displays: the installer has no braille support; install `brltty` with apt on the installed system, and why |
 | [RECOVERY-LOGINS.md](RECOVERY-LOGINS.md) | The installer diagnostics login (installer only, shown in the boot banner) and the rescue partition login: where each is shown, how to connect, change and reset it, troubleshooting |
 | [`tools/ncz-join-image.sh`](../tools/ncz-join-image.sh) | Joins, unpacks and checks the split release image parts (safe to re-run; never writes to a disk) |
 | [IMAGE-HOSTING.md](IMAGE-HOSTING.md) | Where release images are hosted (GitHub Releases, GitLab release + package registry, fallback storage), the one-release-page rule, stable latest-release links, release page parity and the release checklist |

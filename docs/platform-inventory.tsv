@@ -155,6 +155,7 @@ build/kernel-manifest.py	sky1	-	Sky1 accelerator module overlay manifest
 build/kernel-port-watch.sh	sky1	-	Sky1 kernel forward-port watcher
 build/kvm-install-gate-gpt.sh	common	-	architecture-generic KVM gate for raw GPT images
 build/kvm-install-gate-matrix.sh	common	-	runs the KVM gate once per install-option set (rescue partition / management container / desktop off)
+build/kvm-installer-probe.sh	common	-	samples the running installer over its diagnostics SSH during the KVM gate (no brltty, console not clamped)
 build/kvm-kernel-gate.sh	sky1	-	Sky1 kernel boot gate
 build/lib/release-identity.sh	common	-	shared release label + ISO volume-id derivation from release.conf
 build/lib/mirror-apt-opts.sh	common	-	sources.list options and apt-get update failure helper for a pinned snapshot mirror
@@ -264,6 +265,7 @@ build/yocto/	sky1	-	Yocto config templates
 docker/	common	-	host build containers and notes
 docker/Containerfile.yocto	sky1	-	Yocto build container
 docs/	common	-	documentation
+docs/ACCESSIBILITY.md	common	-	braille support: not in the installer, apt install brltty afterwards
 docs/GITHUB-SYNC.md	common	-	how the GitHub copies of the GitLab projects are built and verified
 docs/NCZ-AGENT-STACK.md	common	-	operator guide for ncz install mnemos / zeroclaw / zoder / nemoclaw + models pull (embedder stack on amd64 + Sky1)
 docs/platform-deny-exceptions.tsv	common	-	reviewed exceptions to the deny patterns
@@ -433,7 +435,7 @@ build/boot-screens.py	common	-	installer console capture harness (qemu screendum
 preseed/ncz-ui.sh	common	-	shared d-i dialog look (brand, arch, build id)
 build/test-ncz-ui.sh	common	-	ncz-ui.sh tests
 build/check-installer-screens.py	common	-	console-screen content checker
-build/test-installer-brltty-banner.sh	common	-	installer checks: brltty-udeb generic USB-serial answer, brltty autodetect token on Install/Expert, one-shot boot banner, build id on installer entries
+build/test-installer-brltty-banner.sh	common	-	installer checks: no braille stack (no brltty cmdline token, preseed, manifests; initrd/pool/layer/KVM gates wired), probe judge, one-shot boot banner, build id on installer entries
 build/test-installer-media-lookup.sh	common	-	installer checks: install media from USB drives only, USB-only screen without one, non-USB image disks never a target, d-i GRUB and systemd-boot steps skipped
 build/test-installer-screens.sh	common	-	console-screen checker tests
 build/test-installer-flow.sh	common	-	installer dialog flow tests (choosers once per boot, region template, NIC pick)

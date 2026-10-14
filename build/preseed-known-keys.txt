@@ -22,7 +22,6 @@ base-installer/kernel/failed-install
 base-installer/kernel/image
 base-installer/kernel/no-kernels-found
 base-installer/kernel/skip-install
-brltty-udeb/generic               # brltty-udeb: a USB-UART is never a braille device
 cdrom/codename
 cdrom/suite
 clock-setup/ntp
