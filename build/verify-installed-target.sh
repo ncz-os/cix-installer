@@ -680,10 +680,11 @@ if fetch /usr/bin/ncz-gpu-status "$TMP/gpustatus"; then
     grep -q -- '--require-hardware' "$TMP/gpustatus" || { gate_miss gpu "ncz-gpu-status lacks --require-hardware"; GPU_OK=0; }
 else gate_miss gpu "/usr/bin/ncz-gpu-status"; GPU_OK=0; fi
 exists /etc/systemd/system/multi-user.target.wants/ncz-gpu-health.service || { gate_miss gpu "ncz-gpu-health.service is not enabled"; GPU_OK=0; }
+# ncz-gpu-env and the labwc session belong to the desktop layer (20-desktop.sh).
+if [ "$V_DESKTOP" = 1 ]; then
 if fetch /usr/local/bin/ncz-gpu-env "$TMP/gpuenv"; then
     grep -q 'NCZ_ALLOW_SOFTWARE_FALLBACK' "$TMP/gpuenv" || { gate_miss gpu "ncz-gpu-env has no software-refusal guard"; GPU_OK=0; }
 else gate_miss gpu "/usr/local/bin/ncz-gpu-env"; GPU_OK=0; fi
-if [ "$V_DESKTOP" = 1 ]; then
 if fetch /opt/singularity/bin/singularity-labwc-session "$TMP/labwcsession"; then
     grep -q 'hw_render_device_present' "$TMP/labwcsession" || { gate_miss gpu "singularity-labwc-session still retries with software rendering on a GPU machine (overlay patch not applied)"; GPU_OK=0; }
 else gate_miss gpu "/opt/singularity/bin/singularity-labwc-session"; GPU_OK=0; fi
