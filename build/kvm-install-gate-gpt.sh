@@ -368,7 +368,7 @@ rm -f "$EVIDENCE_DISK" "$EVIDENCE_ROOT"
 OPTION_FAIL=""
 if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
     ROOT_PART=$(ncz_last_partnum "$EVIDENCE_DISK")
-    ROOT_PART="${ROOT_PART:-3}"
+    [ -n "$ROOT_PART" ] || { rm -f "$EVIDENCE_DISK"; fail "no partition table on the installed disk (sgdisk -p found no partitions)"; }
     ROOT_LBA=$("$SGDISK" -i "$ROOT_PART" "$EVIDENCE_DISK" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
     ROOT_END_LBA=$("$SGDISK" -i "$ROOT_PART" "$EVIDENCE_DISK" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
     # Install options, part 1: the partition layout and the installed ESP.
@@ -645,7 +645,7 @@ if true; then   # both architectures
     FBR="$WORK/first-boot-failed.txt"; rm -f "$FBR"
     FB_DISK="$WORK/.fb-disk.raw"; FB_ROOT="$WORK/.fb-root.raw"; rm -f "$FB_DISK" "$FB_ROOT"
     if qemu-img convert -S 4k -O raw "$DISK" "$FB_DISK"; then
-        FB_P=$(ncz_last_partnum "$FB_DISK"); FB_P="${FB_P:-3}"
+        FB_P=$(ncz_last_partnum "$FB_DISK"); FB_P="${FB_P:-0}"
         FB_S=$("$SGDISK" -i "$FB_P" "$FB_DISK" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
         FB_E=$("$SGDISK" -i "$FB_P" "$FB_DISK" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
         if [ -n "$FB_S" ] && [ -n "$FB_E" ] && qemu-img convert --image-opts -S 4k -O raw \
