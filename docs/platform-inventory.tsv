@@ -622,3 +622,6 @@ build/test-login-notice-order.sh	common	-	first-login notice order: wait-done st
 build/test-xdg-autostart.sh	common	-	system XDG autostart entries vs the Singularity AutostartManager rule: session entries need OnlyShowIn=Singularity, systemd-unit fallbacks must not launch, every entry classified (control: OnlyShowIn=XFCE)
 post-install/51-ncz-tour-slides.sh	mixed	-	NCZ tour slides (wallpapers, online wallpapers, screensavers, lock screen) generic + first-login tour launcher; the arm64-only 85-ncz-chromium-vpu slide is gated on NCZ_TARGET_ARCH/BUILD_ARCH/dpkg (chromium-ncz-sky1 is Sky1-only); TODO split the Sky1 slide into a platform hook
 build/test-recovery-logins.sh	common	-	installer diagnostics login = documented rescue login (root / rescue), shown in the boot banner, dialogs, progress screen and diag summary; docs/RECOVERY-LOGINS.md names only existing paths and commands
+build/apt-sim-tests.sh	common	-	shared APT argument/removal gates and disk workspace/cache guard regression fixtures
+build/apt-sim-zero-removals.sh	common	-	shared simulate-then-install helper enforcing identical APT arguments and zero removals
+build/lib/ncz-work-dir-guard.sh	common	-	shared disk workspace guard rejecting volatile, overlay and unavailable filesystem probes
