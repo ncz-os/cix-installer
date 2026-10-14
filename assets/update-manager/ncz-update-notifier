@@ -10,6 +10,8 @@ import time
 CHECKER = "/usr/bin/ncz-update-check"
 MANAGER = "/usr/bin/ncz-update-manager"
 INTERVAL = 6 * 60 * 60
+LOGIN_DELAY = 90
+TOUR_GATE = "/usr/local/bin/ncz-first-login-tour"
 
 
 def check():
@@ -42,11 +44,28 @@ def notify(payload):
         subprocess.Popen([MANAGER], start_new_session=True)
 
 
+def wait_for_first_login_tour():
+    """On a first login, let the desktop tour show before any notice.
+
+    The gate returns at once on later logins and is bounded (90 s) on the first.
+    """
+    if not os.access(TOUR_GATE, os.X_OK):
+        return
+    try:
+        subprocess.run([TOUR_GATE, "wait-done", str(LOGIN_DELAY)], check=False, timeout=LOGIN_DELAY + 30)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def main():
     state_dir = pathlib.Path(os.environ.get("XDG_STATE_HOME", pathlib.Path.home() / ".local/state")) / "ncz-update-manager"
     state_dir.mkdir(parents=True, exist_ok=True)
     state_file = state_dir / "last-notified"
-    time.sleep(90)  # Let networking and the notification daemon settle at login.
+    started = time.monotonic()
+    wait_for_first_login_tour()
+    # Let networking and the notification daemon settle at login; time spent
+    # waiting for the tour counts towards it.
+    time.sleep(max(0.0, LOGIN_DELAY - (time.monotonic() - started)))
     while True:
         try:
             payload = check()

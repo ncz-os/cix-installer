@@ -122,9 +122,12 @@ it as NCZ-OS. See [Architecture](#architecture).
   maximize and close buttons by default, system-wide.
 - **First-login tour** of the desktop, the wallpapers and artist packs, the
   online wallpaper sources and the screensavers (plus, on Sky1, hardware video
-  decoding in Chromium). It starts 30 seconds after the first login and runs
-  once per user; to see it again, delete `~/.local/state/ncz/tour-seen` and log
-  in again.
+  decoding in Chromium). It opens a few seconds after the first login, before
+  the quote of the day, the firewall notice and the update notice (they wait
+  until the tour is closed, at most 90 seconds), and runs once per user; to see
+  it again, delete `~/.local/state/ncz/tour-seen` and log in again. The tour
+  runs at idle CPU priority with animations off, so it does not heat the
+  machine while it is open.
 - **Screensavers:** NCZ Screensavers 0.8.15 (settings plugin 0.3.22) with 74
   savers, including the Black Hole (the default, in the Cygnus palette),
   Fractasia and Magmasimplex. Choose and preview them in Settings →
