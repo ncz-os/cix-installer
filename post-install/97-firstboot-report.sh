@@ -27,6 +27,11 @@ sleep 30
 {
     date -u +"# first boot report %FT%TZ"
     systemctl --failed --no-legend --plain --no-pager
+    # What the machine boots into: the gate checks these against the install
+    # options (graphical + greeter with the desktop, multi-user without it).
+    echo "# default-target=$(systemctl get-default 2>/dev/null)"
+    echo "# greetd=$(systemctl is-active greetd.service 2>/dev/null)"
+    echo "# getty-tty1=$(systemctl is-active getty@tty1.service 2>/dev/null)"
     if [ -x /usr/local/bin/ncz-wallpaper-bing ]; then
         timeout 90 /usr/local/bin/ncz-wallpaper-bing fetch --if-stale --preferred-only > /var/log/ncz-wallpaper-smoke.log 2>&1
         echo "# wallpaper-bing-rc=$?"

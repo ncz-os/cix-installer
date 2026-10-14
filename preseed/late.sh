@@ -1468,25 +1468,43 @@ ncz_npu_install_time || echo "[npu] install-time NPU fixes returned nonzero (non
 # run-all.sh's EXIT trap has already installed the bootloader, so this ESP
 # check is authoritative. FINALIZE_OK = "install succeeded OR is bootable".
 # ncz_bootable: TRUE iff rEFInd is on the ESP — INDEPENDENT of efibootmgr /
-# efivars. 70-bootloader writes BOTH /EFI/BOOT/BOOTAA64.EFI and
-# /EFI/BOOT/refind.conf to the removable-media fallback path BEFORE its
-# best-effort efibootmgr NVRAM write, and hard-exits if BOOTAA64.EFI is empty.
-# On Sky1 METAL there is NO efivars, so efibootmgr fails and RET!=0 — but the
-# box still boots via the fallback binary. Key the finish/reboot decision on
-# rEFInd-present, never on efibootmgr success. (refind.conf OR'd in as belt-and-
-# suspenders in case a future ESP layout renames the fallback binary.)
-ncz_bootable() {
-    # 2026-09-15: was arm64/rEFInd-only (BOOTAA64.EFI / refind.conf), so
-    # every AMD64 install -- which ships GRUB's --removable fallback binary
-    # at BOOTX64.EFI instead -- always evaluated false here, forced
-    # ncz_force_reboot's "NOT bootable" branch, and failed the finish step
-    # (exit 1) even on a genuinely bootable install. Check the real fallback
-    # binary for whichever bootloader this arch actually ships instead of
-    # assuming rEFInd/arm64.
-    [ -f /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ] || \
-    [ -f /target/boot/efi/EFI/BOOT/refind.conf ] || \
-    [ -f /target/boot/efi/EFI/BOOT/BOOTX64.EFI ]
+# efivars. 70-bootloader writes BOTH the arch's fallback binary
+# (/EFI/BOOT/BOOTX64.EFI on amd64, /EFI/BOOT/BOOTAA64.EFI on arm64) and
+# /EFI/BOOT/refind.conf BEFORE its best-effort efibootmgr NVRAM write, and
+# hard-exits if the binary is empty. On Sky1 METAL there is NO efivars, so
+# efibootmgr fails and RET!=0 — but the box still boots via the fallback
+# binary. Key the finish/reboot decision on rEFInd-present, never on
+# efibootmgr success.
+# NCZ-BOOTABLE-BEGIN
+# ncz_boot_binary: the firmware fallback path rEFInd is installed to on this
+# target architecture (amd64: BOOTX64.EFI, arm64: BOOTAA64.EFI).
+ncz_boot_binary() {
+    case "${NCZ_DEB_ARCH:-}" in
+        amd64) echo /target/boot/efi/EFI/BOOT/BOOTX64.EFI ;;
+        arm64) echo /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ;;
+        *)     echo "/target/boot/efi/EFI/BOOT/BOOTX64.EFI or BOOTAA64.EFI" ;;
+    esac
 }
+ncz_bootable() {
+    # Both refresh scripts write the arch's fallback binary and then
+    # refind.conf before any efibootmgr call, so the pair is the bootability
+    # evidence. 2026-09-15: was arm64-only, which failed every amd64 finish.
+    # 2026-10-14: the arch decides which binary counts (a refind.conf alone,
+    # or the other arch's binary, is not a bootable install) and both must be
+    # non-empty.
+    [ -s /target/boot/efi/EFI/BOOT/refind.conf ] || return 1
+    # An entry with an empty root= boots into an initramfs that waits forever.
+    if grep -E 'root=(PARTUUID=|UUID=)?([" ]|$)' /target/boot/efi/EFI/BOOT/refind.conf >/dev/null 2>&1; then
+        echo "[late] refind.conf has a boot entry with an empty root= -> not bootable" >&2
+        return 1
+    fi
+    case "${NCZ_DEB_ARCH:-}" in
+        amd64) [ -s /target/boot/efi/EFI/BOOT/BOOTX64.EFI ] ;;
+        arm64) [ -s /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ] ;;
+        *)     [ -s /target/boot/efi/EFI/BOOT/BOOTX64.EFI ] || [ -s /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ] ;;
+    esac
+}
+# NCZ-BOOTABLE-END
 # ncz_force_reboot: drive the reboot OURSELVES rather than trusting
 # finish-install's menu loop. On Sky1 METAL the priority=critical finish-install
 # did NOT auto-reboot after our late_command returned 0 — it dropped to the d-i
@@ -1842,7 +1860,7 @@ fi
 # r174 (#6 review): NOT bootable — do NOT reassert reboot; force a NONZERO exit
 # even when run-all.sh returned 0, so finish-install surfaces the failure and
 # does NOT reboot into an unbootable install.
-echo "[late r174] no rEFInd at /target/boot/efi/EFI/BOOT/BOOTAA64.EFI -> install is NOT bootable; refusing clean reboot"
+echo "[late r174] no rEFInd at $(ncz_boot_binary) (with EFI/BOOT/refind.conf) -> install is NOT bootable; refusing clean reboot"
 # r203: exit non-zero robustly. This must surface a failure to finish-install,
 # but `exit $RET` assumed RET is numeric — if RET is non-numeric (observed once
 # as the string "OK") the sh builtin dies with "exit: Illegal number: OK",

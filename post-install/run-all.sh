@@ -364,7 +364,7 @@ fi
 # a console-only install -- skipping it there left 8x16 text on a 4K display.
 # It was in the skip list until 2026-08-22, harmless only because the component
 # selection was being lost and desktop was therefore never actually OFF.
-_SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|49-artist-pack-browser|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|59-desktop-curate|60-boot-splash|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|89-npu-embed-server)\.sh$'
+_SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|49-artist-pack-browser|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|59-desktop-curate|60-boot-splash|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|89-npu-embed-server)\.sh$'
 # 54-gpu-accel and 55-t2-firmware are deliberately NOT in this list: GPU
 # compute (ROCm/CUDA/OpenVINO) and WiFi/BT firmware are not desktop-specific
 # concerns (a headless/console install with a discrete GPU still wants
@@ -374,9 +374,17 @@ _SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|49-artist-pac
 # is what this regex gates, a separate concept from BUILD_VARIANT.
 # 49-artist-pack-browser IS in this list: it is desktop-only (Singularity
 # Desktop settings UI), so it is correctly skipped when desktop is OFF.
+# 50-brand.sh is NOT in this list: it writes the release identity for both
+# variants (os-release, lsb-release, /etc/issue, motd: "Desktop" or "Server"),
+# and a console install without it had no NCZ-OS /etc/issue (2026-10-14 KVM
+# gate, every option off).
 # Per-toggle skips (work whether desktop is ON or OFF).
 _SKIP_BROWSERS_RE='^(52-vivaldi|53-chrome)\.sh$'
-_SKIP_MGMT_RE='^(38-recovery-container)\.sh$'
+# The ncz-recovery management container option carries both recovery-console
+# tiers: the nspawn container (38) and the static busybox console on :2323 (37).
+# Neither is installed when the option is unticked (operator decision
+# 2026-10-14: the failsafe console is part of that install option).
+_SKIP_MGMT_RE='^(37-failsafe-access|38-recovery-container)\.sh$'
 _SKIP_RESCUE_RE='^(72-rescue-partition)\.sh$'
 _SKIP_WALLPAPER_RE='^(45-wallpaper-rotator)\.sh$'
 # Audit every per-component skip so the install log records what was dropped
@@ -523,6 +531,8 @@ finalize_bootloader() {
     # Keep finalization best-effort so bootloader failure cannot skip
     # the diagnostics hook.
     set +e
+    # The final bootloader run is authoritative: no install-in-progress deferral.
+    rm -f "${NCZ_INSTALL_MARK:-/usr/local/lib/cix-installer/INSTALL_IN_PROGRESS}"
     BOOTLOADER_RC=0
     if [ -w /boot/efi ]; then
         { echo "TRAP ORIGINAL_RC=$ORIGINAL_RC REQUIRED_PHASE_OK=${REQUIRED_PHASE_OK:-unset}"; echo "TRAP 70bl=$([ -f "$HOOK_DIR/70-bootloader.sh" ] && echo YES || echo NO)"; } \
@@ -610,6 +620,16 @@ finalize_bootloader() {
     exit 0
 }
 trap finalize_bootloader EXIT
+
+# NCZ-INSTALL-IN-PROGRESS: while the hooks run, a package hook can call the
+# rEFInd refresh (on arm64 the cixmini-update-bootloader wrapper does, from an
+# initramfs trigger) before 72-rescue-partition.sh has written RESCUE_READY.
+# The refresh scripts leave the ESP to 70-bootloader.sh in that window when
+# this marker holds the running kernel's boot id; finalize_bootloader removes
+# it before 70-bootloader.sh runs, and on the installed system the boot id no
+# longer matches, so a left-over marker changes nothing.
+NCZ_INSTALL_MARK=/usr/local/lib/cix-installer/INSTALL_IN_PROGRESS
+cat /proc/sys/kernel/random/boot_id > "$NCZ_INSTALL_MARK" 2>/dev/null || rm -f "$NCZ_INSTALL_MARK"
 
 # Phase 0: diagnostic affordance hooks (set +e) — run BEFORE Phase 1.
 # These create the magnetar diag account + any other "must exist before

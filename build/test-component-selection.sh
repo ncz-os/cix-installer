@@ -12,7 +12,7 @@
 #   3. a defensive early_command re-run and a partman restart      (must keep the answer, never ask again)
 #   4. every consumer, extracted from its source file with only its paths redirected:
 #        disk-fs-chooser.sh (erase confirmation + partman recipe), the debootstrap stub (desktop overlay),
-#        late.sh (recovery into /target), post-install/run-all.sh (hook skips: desktop, 38 mgmt container,
+#        late.sh (recovery into /target), post-install/run-all.sh (hook skips: desktop, 37+38 mgmt container,
 #        72 rescue partition), build/70-bootloader.sh (default entry), post-install/54-gpu-accel.sh (cuda).
 # It also proves the interactive failure paths stop loudly instead of installing everything, that the answer reaches
 # syslog, that ncz_components=none and partial answers work, and that accepting the defaults still installs all.
@@ -136,7 +136,7 @@ consumer_late() {   # late.sh recovery into /target; -> recovered value
 }
 consumer_runall() { # -> the hooks run-all.sh still runs
     { echo 'TTY=/dev/null'
-      echo 'OPT_HOOKS="20-desktop.sh 33-network.sh 38-recovery-container.sh 45-wallpaper-rotator.sh 52-vivaldi.sh 55-greeter.sh 72-rescue-partition.sh"'
+      echo 'OPT_HOOKS="20-desktop.sh 33-network.sh 37-failsafe-access.sh 38-recovery-container.sh 45-wallpaper-rotator.sh 52-vivaldi.sh 55-greeter.sh 72-rescue-partition.sh"'
       extract "$ROOT/post-install/run-all.sh" '^COMP_FILE=/usr/local/lib/cix-installer/COMPONENTS$' '^# AUDIT: name every hook'
       echo 'echo $OPT_HOOKS'; } | redirect > "$W/runall.$T.sh"
     $SHX "$W/runall.$T.sh" 2>/dev/null | tail -1
@@ -178,7 +178,7 @@ check "debootstrap stub: base only, no desktop overlay" "$(consumer_stub)" base
 rm -rf "$TGT"; mkdir -p "$TGT"   # partman mounts the real root over /target: the selector's early copies are gone
 check "late.sh recovers the record" "$(consumer_late)" none
 check "late.sh persisted it into the target" "$(cat "$TGT/usr/local/lib/cix-installer/COMPONENTS" 2>/dev/null)" none
-check "run-all.sh: no desktop hooks, no 38-recovery-container, no 72-rescue-partition" "$(consumer_runall)" "33-network.sh"
+check "run-all.sh: no desktop hooks, no 37-failsafe-access/38-recovery-container, no 72-rescue-partition" "$(consumer_runall)" "33-network.sh"
 check "70-bootloader: default entry is the console" "$(consumer_bootloader)" cixmini-console
 check "54-gpu-accel: cuda not wanted" "$(consumer_cuda)" no
 # the pre-fix flow: the stub/late fallbacks only ever saw the raw debconf value, and "" meant "everything"
@@ -192,12 +192,12 @@ check "desktop only: record" "$(rec)" "desktop,browsers,wallpaper-rotator"
 check "desktop only: no rescue partition" "$(consumer_disk)" "no 0"
 check "desktop only: stub applies the desktop" "$(consumer_stub)" desktop
 rm -rf "$TGT"; mkdir -p "$TGT"; consumer_late >/dev/null
-check "desktop only: run-all skips 38 and 72 only" "$(consumer_runall)" "20-desktop.sh 33-network.sh 45-wallpaper-rotator.sh 52-vivaldi.sh 55-greeter.sh"
+check "desktop only: run-all skips 37, 38 and 72 only" "$(consumer_runall)" "20-desktop.sh 33-network.sh 45-wallpaper-rotator.sh 52-vivaldi.sh 55-greeter.sh"
 newdb dflt; sel >/dev/null; sel --prompt >/dev/null
 check "Enter on the defaults: everything" "$(rec)" "desktop,browsers,wallpaper-rotator,mgmt-container,rescue-partition"
 check "Enter on the defaults: rescue partition" "$(consumer_disk)" "yes 1"
 rm -rf "$TGT"; mkdir -p "$TGT"; consumer_late >/dev/null
-check "Enter on the defaults: every hook runs" "$(consumer_runall)" "20-desktop.sh 33-network.sh 38-recovery-container.sh 45-wallpaper-rotator.sh 52-vivaldi.sh 55-greeter.sh 72-rescue-partition.sh"
+check "Enter on the defaults: every hook runs" "$(consumer_runall)" "20-desktop.sh 33-network.sh 37-failsafe-access.sh 38-recovery-container.sh 45-wallpaper-rotator.sh 52-vivaldi.sh 55-greeter.sh 72-rescue-partition.sh"
 newdb ovn "$CMDLINE_DI ncz_components=none"
 check "ncz_components=none: exits 0 without --prompt" "$(sel)" 0
 check "ncz_components=none: record" "$(rec)" none

@@ -189,6 +189,14 @@ GSCHEMA
     printf 'Package: ncz-screensavers\nStatus: install ok installed\nVersion: %s\n\n' "$SS_FLOOR" >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/var/lib/dpkg/info"
     printf '/usr/bin/ncz-screensaver\n/usr/libexec/ncz-screensaver-idled\n' > "$r/var/lib/dpkg/info/ncz-screensavers.list"
+    # install options: every option selected (record as component-selector.sh writes it),
+    # the recovery container + failsafe console (mgmt-container), the rescue marker
+    mkdir -p "$r/etc/cix-installer" "$r/etc/systemd/nspawn" "$r/opt/ncz-failsafe/bin"
+    echo 'desktop,browsers,wallpaper-rotator,mgmt-container,rescue-partition' > "$r/etc/cix-installer/COMPONENTS"
+    echo '[Exec]' > "$r/etc/systemd/nspawn/ncz-recovery.nspawn"
+    echo x > "$r/etc/systemd/system/ncz-failsafe.service"
+    echo x > "$r/opt/ncz-failsafe/bin/busybox"
+    printf 'PARTUUID=0000-test\n' > "$r/usr/local/lib/cix-installer/RESCUE_READY"
 }
 
 run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name or "", $4 = optional regex the output must contain
@@ -204,6 +212,23 @@ run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name 
     else echo "FAIL  $name: rc=$rc want=$want"; printf '%s\n' "$out" | sed 's/^/      /'; FAILS=$((FAILS+1)); fi
     rm -rf "$r" "$img"
 }
+
+# install options (verifier section (opt))
+m_opt_strip_mgmt()   { rm -f "$1/etc/systemd/nspawn/ncz-recovery.nspawn" "$1/etc/systemd/system/ncz-failsafe.service"; rm -rf "$1/opt/ncz-failsafe"; }
+m_opt_strip_rescue() { rm -f "$1/usr/local/lib/cix-installer/RESCUE_READY"; }
+m_opt_desktop_only() { echo 'desktop,browsers,wallpaper-rotator' > "$1/etc/cix-installer/COMPONENTS"; m_opt_strip_mgmt "$1"; m_opt_strip_rescue "$1"; }
+m_opt_desktop_mgmt() { echo 'desktop,browsers,wallpaper-rotator,mgmt-container' > "$1/etc/cix-installer/COMPONENTS"; m_opt_strip_rescue "$1"; }
+m_opt_none() {   # every option off: no desktop layer, no browsers, no recovery tiers, no rescue partition
+    echo none > "$1/etc/cix-installer/COMPONENTS"; m_opt_strip_mgmt "$1"; m_opt_strip_rescue "$1"
+    rm -rf "$1/opt/singularity" "$1/etc/mpv" "$1/usr/local/bin/ncz-sky1-audio-autoswitch" "$1/usr/local/bin/ncz-wallpaper-bing" "$1/usr/local/bin/ncz-gpu-env"
+    sed -i '/^Package: google-chrome-stable$/,+2d; /^Package: chromium-ncz-sky1$/,+2d; /^Package: systemd-coredump$/,+3d' "$1/var/lib/dpkg/status"
+}
+m_opt_none_failsafe()  { m_opt_none "$1"; mkdir -p "$1/opt/ncz-failsafe/bin"; echo x > "$1/opt/ncz-failsafe/bin/busybox"; echo x > "$1/etc/systemd/system/ncz-failsafe.service"; }
+m_opt_none_marker()    { m_opt_none "$1"; printf 'PARTUUID=0000-test\n' > "$1/usr/local/lib/cix-installer/RESCUE_READY"; }
+m_opt_full_no_marker() { m_opt_strip_rescue "$1"; }
+m_opt_full_no_failsafe() { rm -rf "$1/opt/ncz-failsafe" "$1/etc/systemd/system/ncz-failsafe.service"; }
+m_opt_full_empty_marker() { echo 'stale' > "$1/usr/local/lib/cix-installer/RESCUE_READY"; }
+m_opt_no_record() { rm -f "$1/etc/cix-installer/COMPONENTS"; m_opt_strip_mgmt "$1"; }
 
 m_no_serial_getty() { rm -f "$1/etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service"; }
 m_refresh_no_acpi_pcie() { sed -i 's/sky1_pcie_native=off //' "$1/usr/local/sbin/ncz-refind-refresh"; }
@@ -508,5 +533,33 @@ run_case "apt separation: two NCZ repos enabled fails"        1 m_apt_tworepos
 run_case "apt separation: ncz-apt-policy not installed fails" 1 m_apt_nopolicy
 run_case "ldconfig: tolerate-race drop-in missing fails"        1 m_ld_dropin
 run_case "ldconfig: /etc/.updated stamp missing fails"         1 m_ld_stamp
+# ---- install options (both architectures) ----------------------------------------------------------
+for TEST_ARCH in arm64 amd64; do
+    export TEST_ARCH
+    _m=""; [ "$TEST_ARCH" = amd64 ] && _m="m_amd64_strip"
+    VERIFY_EXPECT_COMPONENTS=desktop,browsers,wallpaper-rotator,mgmt-container,rescue-partition \
+        run_case "$TEST_ARCH options: all selected passes" 0 "$_m"
+    m_t1() { [ -n "$_m" ] && "$_m" "$1"; m_opt_desktop_only "$1"; }
+    VERIFY_EXPECT_COMPONENTS=desktop,browsers,wallpaper-rotator run_case "$TEST_ARCH options: rescue off + mgmt off passes" 0 m_t1
+    m_t2() { [ -n "$_m" ] && "$_m" "$1"; m_opt_desktop_mgmt "$1"; }
+    VERIFY_EXPECT_COMPONENTS=desktop,browsers,wallpaper-rotator,mgmt-container run_case "$TEST_ARCH options: rescue off + mgmt on passes" 0 m_t2
+    m_t3() { [ -n "$_m" ] && "$_m" "$1"; m_opt_none "$1"; }
+    VERIFY_EXPECT_COMPONENTS=none run_case "$TEST_ARCH options: all off (minimal console) passes" 0 m_t3
+    m_t4() { [ -n "$_m" ] && "$_m" "$1"; m_opt_none_failsafe "$1"; }
+    run_case "$TEST_ARCH options: failsafe console installed with mgmt off fails" 1 m_t4 "ncz-failsafe"
+    m_t5() { [ -n "$_m" ] && "$_m" "$1"; m_opt_none_marker "$1"; }
+    run_case "$TEST_ARCH options: RESCUE_READY with rescue off fails" 1 m_t5 "RESCUE_READY exists"
+    m_t6() { [ -n "$_m" ] && "$_m" "$1"; m_opt_full_no_marker "$1"; }
+    run_case "$TEST_ARCH options: rescue selected but no RESCUE_READY fails" 1 m_t6 "RESCUE_READY missing"
+    m_t7() { [ -n "$_m" ] && "$_m" "$1"; m_opt_full_no_failsafe "$1"; }
+    run_case "$TEST_ARCH options: mgmt selected but no failsafe console fails" 1 m_t7 "ncz-failsafe"
+    m_t8() { [ -n "$_m" ] && "$_m" "$1"; m_opt_full_empty_marker "$1"; }
+    run_case "$TEST_ARCH options: RESCUE_READY without a PARTUUID fails" 1 m_t8 "no PARTUUID"
+    m_t9() { [ -n "$_m" ] && "$_m" "$1"; m_opt_desktop_only "$1"; }
+    VERIFY_EXPECT_COMPONENTS=none run_case "$TEST_ARCH options: record differs from the answer fails" 1 m_t9 "installer was answered"
+    m_t10() { [ -n "$_m" ] && "$_m" "$1"; m_opt_no_record "$1"; }
+    run_case "$TEST_ARCH options: no record keeps every option expected (mgmt missing fails)" 1 m_t10 "mgmt-container selected"
+done
+unset TEST_ARCH
 echo "verifier tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]

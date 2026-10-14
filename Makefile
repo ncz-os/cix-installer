@@ -733,6 +733,7 @@ parity:
 	bash build/test-t2-mce-nobootlog.sh
 	bash build/test-t2-power-cap.sh
 	bash build/test-nouveau-runpm.sh
+	bash build/test-install-options.sh
 	bash build/test-gpu-probe-no-hang.sh
 	bash build/test-hook-watchdog.sh
 	bash build/test-amd64-cuda-gates.sh

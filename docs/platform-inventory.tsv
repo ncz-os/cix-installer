@@ -154,6 +154,7 @@ build/iso/write-usb-image.py	common	-	USB image writer
 build/kernel-manifest.py	sky1	-	Sky1 accelerator module overlay manifest
 build/kernel-port-watch.sh	sky1	-	Sky1 kernel forward-port watcher
 build/kvm-install-gate-gpt.sh	common	-	architecture-generic KVM gate for raw GPT images
+build/kvm-install-gate-matrix.sh	common	-	runs the KVM gate once per install-option set (rescue partition / management container / desktop off)
 build/kvm-kernel-gate.sh	sky1	-	Sky1 kernel boot gate
 build/lib/release-identity.sh	common	-	shared release label + ISO volume-id derivation from release.conf
 build/lib/mirror-apt-opts.sh	common	-	sources.list options and apt-get update failure helper for a pinned snapshot mirror
@@ -220,6 +221,7 @@ build/test-dkms-prep-keep-going.sh	sky1	-	79-dkms-prep modules_prepare keep-goin
 build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-kernel-default-policy.sh	common	-	fixture tests for verify-kernel-default-policy.sh (positive ship states + every failure path)
 build/test-nouveau-runpm.sh	amd64	-	amd64-only nouveau.runpm=0: installer entries, installed-system rEFInd entries, late.sh modprobe.d (arm64 untouched)
+build/test-install-options.sh	common	-	every install-option combination ends bootable: rescue preflight, rEFInd entries, per-arch bootability, option skips, KVM gate option sets
 build/test-rescue-kernel-channel.sh	common	-	proves 72-rescue-partition.sh stages the arm64 rescue kernel from assets/kernel/mainline, not the retired edge channel
 build/test-kernel-purity-pin.sh	common	-	apt simulation proving the Debian-kernel preferences pin blocks dependencies while NCZ's own kernel still installs
 build/test-kernel-purity-guards.sh	common	-	behavioural test of the rEFInd Debian-kernel guards + static test of the legacy amd64 installer-kernel swap
