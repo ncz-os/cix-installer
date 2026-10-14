@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/lockrig/agent/run_host.sh -- runs ON the target NCZ host AS ROOT.
-# Executes the controlled lock/saver/greeter test cases (T1..T19), collects
+# Executes the controlled lock/saver/greeter test cases (T1..T20), collects
 # evidence, and writes a machine-readable result. It NEVER reboots, never
 # touches refind/bootloader, never reconfigures as root beyond the reversible
 # gsettings override + the transient uinput devices, and always attempts to
@@ -84,6 +84,9 @@ wait_lock() { # $1 timeout_s ; sets LOCKED
 }
 
 policy_marker() { env -i "$FEED_BIN" --print-policy 2>/dev/null | head -1; }
+# The saver renderer processes (one per output) and their process states.
+renderer_pids() { pgrep -f '^/usr/lib/ncz-screensavers/' 2>/dev/null | sort | tr '\n' ' ' | sed 's/ $//'; }
+renderer_states() { local p; for p in $(renderer_pids); do ps -o stat= -p "$p" 2>/dev/null | cut -c1; done | tr '\n' ' ' | sed 's/ $//'; }
 FEEDLOG=/run/user/1000/ncz-screensaver/ncz-saver-feed/feed.log
 # Last thermal level the off-screen renderer logged (0/1/2, or "-"): level 2 is
 # the thermal pause, the one legitimate reason an unattended saver stands still.
@@ -148,7 +151,7 @@ LOCKED=""; S0=$(shot m0-desktop)
 if wait_lock 120; then rec T1 PASS "idle->lock at 60s override (pid $LOCKED)"; else rec T1 FAIL "no lock within 120s"; fi
 
 if [ -z "$LOCKED" ]; then
-  for c in T2 T3 T4 T5 T18 T6 T6b T7 T8 T9 T10 T11 T19 T12 T13 T14 T15; do rec $c SKIP "no lock acquired (T1 failed)"; done
+  for c in T2 T3 T4 T5 T18 T6 T6b T7 T8 T9 T10 T11 T19 T20 T12 T13 T14 T15; do rec $c SKIP "no lock acquired (T1 failed)"; done
 else
   # ------------------------------------------------------------ T2 no prompt before input
   sleep 2
@@ -250,12 +253,17 @@ else
     rec T6 FAIL "pointer did not raise prompt/surface"
   fi
 
-  # ------------------------------------------------------------ T6b the prompt freezes the saver
+  # ------------------------------------------------------------ T6b the prompt suspends the saver
+  # The renderer must stop (process state T: no GL work, no frame path) and the
+  # last real frame must stay on screen behind the prompt.
   q1=$(shot t6b-a); sleep 2; q2=$(shot t6b-b); sleep 2; q3=$(shot t6b-c)
-  if [ "$q1" = "$q2" ] && [ "$q2" = "$q3" ] && grep -aq "frozen on demand" "$SLOG"; then
-    rec T6b PASS "the prompt froze the saver at the current frame ($q1 constant; lock: frozen on demand)"
+  RST=$(renderer_states)
+  if [ "$q1" = "$q2" ] && [ "$q2" = "$q3" ] && grep -aq "frame source paused" "$SLOG" && echo "$RST" | grep -q 'T' && ! echo "$RST" | grep -qE '(^| )[RS]'; then
+    rec T6b PASS "the prompt suspended the saver: renderer state $RST, frame held ($q1)"
+  elif [ "$q1" = "$q2" ] && [ "$q2" = "$q3" ] && grep -aq "frozen on demand" "$SLOG"; then
+    rec T6b FAIL "frame held but the saver was ended, not suspended (lock or feed without PAUSE support)"
   elif [ "$q1" = "$q2" ] && [ "$q2" = "$q3" ]; then
-    rec T6b PASS "frames constant behind the prompt ($q1)"
+    rec T6b FAIL "frame held but the renderer is not suspended (states: ${RST:-none})"
   else
     rec T6b FAIL "frames still change behind the prompt ($q1/$q2/$q3)"
   fi
@@ -303,33 +311,57 @@ else
   else rec T11 SKIP "could not re-lock for T11"; fi
   unlock_now
 
-  # ------------------------------------------------------------ T19 prompt lowers -> saver resumes
-  # Input froze the saver behind the prompt. If the prompt is left alone until
-  # it lowers (SINGULARITY_LOCK_RENDERER_DELAY_MS, staged at 8 s), the saver
-  # must animate again while the session stays locked.
-  if renv_backup; then
-    renv_add "SINGULARITY_LOCK_RENDERER_DELAY_MS=8000"
-    session_cycle; unlock_now; sleep 2; : > "$SLOG"
-    if wait_lock 120; then
-      sleep 5; ptr 80 40; sleep 2
-      r1=$(shot t19a); sleep 2; r2=$(shot t19b)
-      for i in $(seq 1 20); do grep -aq "prompt lowered" "$SLOG" && break; sleep 1; done
-      sleep 4
-      r3=$(shot t19c); sleep 2; r4=$(shot t19d); sleep 2; r5=$(shot t19e)
-      if [ -z "$(lockpg)" ]; then
-        rec T19 FAIL "unlocked while waiting for the prompt to lower (desktop exposed)"
-      elif [ "$r1" != "$r2" ]; then
-        rec T19 FAIL "saver not frozen behind the prompt ($r1/$r2)"
-      elif ! grep -aq "prompt lowered" "$SLOG"; then
-        rec T19 FAIL "the prompt never lowered (delay 8 s)"
-      elif [ "$r3" != "$r4" ] || [ "$r4" != "$r5" ]; then
-        rec T19 PASS "frozen behind the prompt ($r1), prompt lowered, saver animating again ($r3/$r4/$r5), still locked"
-      else
-        rec T19 FAIL "prompt lowered but the saver stayed frozen ($r3) (lock without the resume change?)"
-      fi
-    else rec T19 SKIP "could not re-lock for T19"; fi
-    unlock_now; renv_restore; session_cycle; unlock_now
-  else rec T19 SKIP "no $ENVFILE to stage SINGULARITY_LOCK_RENDERER_DELAY_MS"; fi
+  # ------------------------------------------------------------ T19 prompt times out -> saver continues
+  # No input after the prompt came up: within 60 s the prompt is dismissed and
+  # the SAME suspended renderer continues (live frames replace the held one);
+  # the session stays locked.
+  unlock_now; sleep 2; : > "$SLOG"
+  if wait_lock 120; then
+    sleep 5; P19=$(renderer_pids); ptr 80 40; T19S=$(date +%s); sleep 2
+    r1=$(shot t19a); sleep 2; r2=$(shot t19b)
+    for i in $(seq 1 75); do grep -aq "prompt lowered" "$SLOG" && break; sleep 1; done
+    T19E=$(( $(date +%s) - T19S ))
+    sleep 3
+    r3=$(shot t19c); sleep 1; r4=$(shot t19d); sleep 1; r5=$(shot t19e)
+    P19B=$(renderer_pids)
+    if [ -z "$(lockpg)" ]; then
+      rec T19 FAIL "unlocked while waiting for the prompt to time out (desktop exposed)"
+    elif [ "$r1" != "$r2" ]; then
+      rec T19 FAIL "saver not held behind the prompt ($r1/$r2)"
+    elif ! grep -aq "prompt lowered" "$SLOG"; then
+      rec T19 FAIL "the prompt did not time out within 75 s"
+    elif [ "$T19E" -gt 62 ]; then
+      rec T19 FAIL "the prompt timed out after ${T19E}s (want <= 60 s)"
+    elif [ "$r3" = "$r4" ] && [ "$r4" = "$r5" ]; then
+      rec T19 FAIL "prompt dismissed after ${T19E}s but the saver stayed still ($r3)"
+    elif [ -n "$P19" ] && [ "$P19" != "$P19B" ]; then
+      rec T19 FAIL "prompt dismissed after ${T19E}s, saver animating, but it was restarted ($P19 -> $P19B), not continued"
+    else
+      rec T19 PASS "prompt dismissed after ${T19E}s with no input, the same saver ($P19B) continues ($r3/$r4/$r5), still locked"
+    fi
+  else rec T19 SKIP "could not re-lock for T19"; fi
+
+  # ------------------------------------------------------------ T20 input restarts the prompt timeout
+  # Input at 50 s keeps the prompt up: it must still be up at 65 s after it came
+  # up, and go away at most 60 s after the last input (someone mid-password is
+  # not cut off, and the prompt never sits idle for more than 60 s).
+  unlock_now; sleep 2; : > "$SLOG"
+  if wait_lock 120; then
+    sleep 5; ptr 80 40; T20S=$(date +%s)
+    sleep 50; key shift; T20K=$(date +%s)
+    sleep 15
+    if grep -aq "prompt lowered" "$SLOG"; then
+      rec T20 FAIL "the prompt went away $(( $(date +%s) - T20S ))s after it came up despite input at 50 s"
+    else
+      for i in $(seq 1 60); do grep -aq "prompt lowered" "$SLOG" && break; sleep 1; done
+      T20E=$(( $(date +%s) - T20K ))
+      if [ -z "$(lockpg)" ]; then rec T20 FAIL "unlocked while waiting (desktop exposed)"
+      elif ! grep -aq "prompt lowered" "$SLOG"; then rec T20 FAIL "the prompt did not go away within 75 s of the last input"
+      elif [ "$T20E" -gt 62 ]; then rec T20 FAIL "the prompt went away ${T20E}s after the last input (want <= 60 s)"
+      else rec T20 PASS "input at 50 s kept the prompt up past 65 s; it went away ${T20E}s after the last input, still locked"; fi
+    fi
+  else rec T20 SKIP "could not re-lock for T20"; fi
+  unlock_now
 
   # ------------------------------------------------------------ T13 thermal governor
   # The feed re-evaluates hwmon once/s and pauses above ~85C. Test seam:
@@ -388,11 +420,11 @@ else
 
   # ------------------------------------------------------------ T15 policy defaults present
   if [ -n "$MARK" ]; then
-    echo "$MARK" | grep -q 'lock_fps=8' && echo "$MARK" | grep -q 'freeze=prompt' \
+    echo "$MARK" | grep -q 'lock_fps=30' && echo "$MARK" | grep -q 'render_div=1' && echo "$MARK" | grep -q 'freeze=prompt' \
       && rec T15 PASS "installed feed carries policy defaults: $MARK" \
       || rec T15 FAIL "policy marker incomplete: $MARK"
   else
-    rec T15 FAIL "no policy defaults in installed feed (pre-0.8.12); expected lock_fps=8 render_div=2 freeze=prompt"
+    rec T15 FAIL "no policy defaults in installed feed (pre-0.8.12); expected lock_fps=30 render_div=1 freeze=prompt"
   fi
 
   # ------------------------------------------------------------ T12 greeter (DISRUPTIVE, last)

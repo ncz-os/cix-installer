@@ -357,11 +357,23 @@ lock to the shell. Not filed upstream yet (no PR link). Regression tests:
 Patch `0023-lockscreen-resume-the-saver-when-the-prompt-lowers.patch`: with 0017 the
 saver froze when input raised the prompt and never resumed while locked. On NCZ-OS the
 lock is also the idle screensaver, so after an unanswered prompt the screen stayed on a
-still frame. When the prompt lowers again (`SINGULARITY_LOCK_RENDERER_DELAY_MS`, 5 min by
-default) without an unlock, the lock restarts the frozen frame source. The frozen frame
+still frame. When the prompt lowers again (60 s without input since 0024) without an
+unlock, the lock restarts the frozen frame source. The frozen frame
 stays on screen until the new source sends a frame, and a failing source still clears
 (fail-closed). Applies after 0017. Not filed upstream yet (no PR link). Regression tests:
 `tests/lockscreen-framesrc/test-framesrc.sh` case 1 (inside the patch) and lockrig T19.
+
+Patch `0024-lockscreen-suspend-the-saver-behind-the-prompt.patch`: a saver that
+advertises `LFS_FLAG_PAUSE` in its HELLO (ncz-screensavers 0.8.16 and later) is
+suspended, not ended, when input raises the prompt: the lock sends `LFS_PAUSE`, keeps the
+last frame and turns its watchdog off; the feed stops the renderer, so the saver does no
+GPU or CPU work behind the prompt. When the prompt is dismissed without an unlock the lock
+sends `LFS_RESUME` and the same renderer continues from that frame. Older savers still get
+the 0017/0023 freeze-and-restart. The prompt's inactivity timeout becomes 60 s (every key
+or pointer event restarts it; `SINGULARITY_LOCK_RENDERER_DELAY_MS` can only shorten it),
+and the typed password is cleared when the prompt goes away. Applies after 0023. Not filed
+upstream yet (no PR link). Regression tests: `tests/lockscreen-framesrc/test-framesrc.sh`
+cases 13-14 (inside the patch) and lockrig T6b, T19, T20.
 
 ## singularity-leafs — carried, not filed
 
