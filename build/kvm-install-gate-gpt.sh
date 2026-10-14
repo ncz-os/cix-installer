@@ -26,6 +26,21 @@
 #
 # Usage: build/kvm-install-gate-gpt.sh IMAGE [WORKDIR]
 #   DISK_GB, MEM, SMP, INSTALL_TIMEOUT, BOOT_TIMEOUT overridable by env.
+#
+# INSTALL OPTIONS. NCZ_GATE_COMPONENTS is the answer to the installer's
+# optional-components dialog, passed through the same ncz_components= cmdline
+# seam the dialog honours (preseed/component-selector.sh): a comma list of
+# desktop, mgmt-container, rescue-partition, cuda, or `none` for every option
+# off. Default: desktop,mgmt-container,rescue-partition. The gate then checks
+# the result against that answer: the recorded selection on the target, the
+# partition layout (no NCZRESCUE partition when it is off), the installed rEFInd
+# menu (a Rescue Partition entry only with the partition, the Console entry as
+# default without the desktop), the recovery console and container (only with
+# mgmt-container), and what the first boot reaches (greeter with the desktop,
+# a console login without it). NCZ_GATE_UI_CHECK=0 skips the installer UI check
+# (it does not depend on the options; build/kvm-install-gate-matrix.sh runs it
+# once, in the full-option run). build/kvm-install-gate-matrix.sh runs the
+# standard option sets one after another.
 set -euo pipefail
 
 # Resolve the gate's own directory so we can locate sibling scripts
@@ -52,6 +67,39 @@ MEM="${MEM:-4096}"
 SMP="${SMP:-4}"
 
 [ -f "$IMG" ] || { echo "GATE FAIL: no such image: $IMG" >&2; exit 2; }
+
+# NCZ-GATE-COMPONENTS-BEGIN
+# The options answer and the record the installer must write for it (same
+# order and expansion as preseed/component-selector.sh: desktop brings browsers
+# and wallpaper-rotator; nothing selected is recorded as `none`).
+GATE_COMPONENTS="${NCZ_GATE_COMPONENTS:-desktop,mgmt-container,rescue-partition}"
+GATE_COMPONENTS=$(printf '%s' "$GATE_COMPONENTS" | tr -d ' \t')
+WANT_DESKTOP=0; WANT_MGMT=0; WANT_RESCUE=0; WANT_CUDA=0
+_gc_old_ifs=$IFS; IFS=','
+for _gc in $GATE_COMPONENTS; do
+    case "$_gc" in
+        desktop)          WANT_DESKTOP=1 ;;
+        mgmt-container)   WANT_MGMT=1 ;;
+        rescue-partition) WANT_RESCUE=1 ;;
+        cuda)             WANT_CUDA=1 ;;
+        none|"")          : ;;
+        *) IFS=$_gc_old_ifs; echo "GATE FAIL: NCZ_GATE_COMPONENTS has an unknown option '$_gc' (use desktop, mgmt-container, rescue-partition, cuda or none)" >&2; exit 2 ;;
+    esac
+done
+IFS=$_gc_old_ifs
+EXPECT_RECORD=""
+[ "$WANT_DESKTOP" = 1 ] && EXPECT_RECORD="desktop,browsers,wallpaper-rotator"
+[ "$WANT_MGMT" = 1 ]    && EXPECT_RECORD="${EXPECT_RECORD:+$EXPECT_RECORD,}mgmt-container"
+[ "$WANT_RESCUE" = 1 ]  && EXPECT_RECORD="${EXPECT_RECORD:+$EXPECT_RECORD,}rescue-partition"
+[ "$WANT_CUDA" = 1 ]    && EXPECT_RECORD="${EXPECT_RECORD:+$EXPECT_RECORD,}cuda"
+[ -n "$EXPECT_RECORD" ] || EXPECT_RECORD=none
+# The value handed to ncz_components= (`none` when nothing is selected).
+GATE_COMPONENTS_ARG="$EXPECT_RECORD"
+case "$GATE_COMPONENTS_ARG" in
+    none) : ;;
+    *) GATE_COMPONENTS_ARG=$(printf '%s' "$GATE_COMPONENTS_ARG" | sed 's/,browsers//; s/,wallpaper-rotator//') ;;
+esac
+# NCZ-GATE-COMPONENTS-END
 QEMU="qemu-system-x86_64"
 MACHINE="q35"
 CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
@@ -174,7 +222,7 @@ grep -q 'NCZ-OS Installer -- Install' "$CFG" \
 GATE_PARAMS="passwd/username=nczuser passwd/user-fullname=NCZTestUser"
 GATE_PARAMS="$GATE_PARAMS passwd/user-password=nczpassword123 passwd/user-password-again=nczpassword123"
 GATE_PARAMS="$GATE_PARAMS ncz_disk=/dev/vda ncz_fs=ext4 ncz_unattended=1"
-GATE_PARAMS="$GATE_PARAMS ncz_components=desktop,mgmt-container,rescue-partition"
+GATE_PARAMS="$GATE_PARAMS ncz_components=$GATE_COMPONENTS_ARG"
 GATE_PARAMS="$GATE_PARAMS debian-installer/locale=en_US.UTF-8 keyboard-configuration/xkb-keymap=us"
 GATE_PARAMS="$GATE_PARAMS clock-setup/ntp=false time/zone=UTC"
 
@@ -252,6 +300,7 @@ echo "    ESP readback confirms options, default_selection and timeout"
 
 echo "=== KVM INSTALL GATE ($ARCH raw GPT image) ==="
 echo "  image  : $TEST_IMG"
+echo "  options: $GATE_COMPONENTS (expected record: $EXPECT_RECORD)"
 echo "  accel  : $ACCEL cpu=$CPU mem=${MEM}M smp=$SMP"
 echo "  target : $DISK (${DISK_GB}G)"
 
@@ -265,6 +314,12 @@ rm -f "$S0" "$ILOG" "$BLOG" "$WORK/boot-serial0.log"
 rm -rf "$EVIDENCE"
 
 fail() { echo; echo "GATE FAIL: $*" >&2; exit 1; }
+
+# The installed root is the LAST partition: p3 after ESP + NCZRESCUE, p2 when
+# the rescue partition was not selected (disk-fs-chooser.sh 2- or 3-stanza).
+ncz_last_partnum() {
+    "$SGDISK" -p "$1" 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {n=$1} END {print n}'
+}
 
 echo
 echo "[4/6] phase 1: install (timeout ${INSTALL_TIMEOUT}s)"
@@ -300,9 +355,37 @@ mkdir -p "$EVIDENCE"
 EVIDENCE_DISK="$WORK/.target-evidence.raw"
 EVIDENCE_ROOT="$WORK/.target-root-evidence.raw"
 rm -f "$EVIDENCE_DISK" "$EVIDENCE_ROOT"
+OPTION_FAIL=""
 if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
-    ROOT_LBA=$("$SGDISK" -i 3 "$EVIDENCE_DISK" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
-    ROOT_END_LBA=$("$SGDISK" -i 3 "$EVIDENCE_DISK" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+    ROOT_PART=$(ncz_last_partnum "$EVIDENCE_DISK")
+    ROOT_PART="${ROOT_PART:-3}"
+    ROOT_LBA=$("$SGDISK" -i "$ROOT_PART" "$EVIDENCE_DISK" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+    ROOT_END_LBA=$("$SGDISK" -i "$ROOT_PART" "$EVIDENCE_DISK" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+    # Install options, part 1: the partition layout and the installed ESP.
+    _want_parts=2; [ "$WANT_RESCUE" = 1 ] && _want_parts=3
+    [ "$ROOT_PART" = "$_want_parts" ] || OPTION_FAIL="$OPTION_FAIL; the installed disk has $ROOT_PART partitions, expected $_want_parts for options '$GATE_COMPONENTS'"
+    ESP1_LBA=$("$SGDISK" -i 1 "$EVIDENCE_DISK" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+    if [ -n "$ESP1_LBA" ]; then
+        _bootbin=BOOTX64.EFI; [ "$ARCH" = arm64 ] && _bootbin=BOOTAA64.EFI
+        rm -f "$EVIDENCE/installed-refind.conf"
+        mcopy -i "$EVIDENCE_DISK@@$((ESP1_LBA * 512))" ::/EFI/BOOT/refind.conf "$EVIDENCE/installed-refind.conf" 2>/dev/null || true
+        if mdir -i "$EVIDENCE_DISK@@$((ESP1_LBA * 512))" ::/EFI/BOOT/$_bootbin >/dev/null 2>&1; then
+            echo "  installed ESP carries EFI/BOOT/$_bootbin"
+        else
+            OPTION_FAIL="$OPTION_FAIL; the installed ESP has no EFI/BOOT/$_bootbin"
+        fi
+        if [ -s "$EVIDENCE/installed-refind.conf" ]; then
+            if grep -q '^menuentry .*Rescue Partition' "$EVIDENCE/installed-refind.conf"; then _has_rp=1; else _has_rp=0; fi
+            [ "$_has_rp" = "$WANT_RESCUE" ] || OPTION_FAIL="$OPTION_FAIL; installed rEFInd Rescue Partition entry present=$_has_rp, rescue-partition selected=$WANT_RESCUE"
+            if [ "$WANT_DESKTOP" = 0 ]; then
+                grep -qE '^default_selection ".*Console"$' "$EVIDENCE/installed-refind.conf" \
+                    || OPTION_FAIL="$OPTION_FAIL; desktop not selected but the installed rEFInd default is not the Console entry"
+            fi
+            echo "  installed rEFInd menu: $(grep -c '^menuentry ' "$EVIDENCE/installed-refind.conf") entries, Rescue Partition entry=$_has_rp, $(grep -m1 '^default_selection' "$EVIDENCE/installed-refind.conf")"
+        else
+            OPTION_FAIL="$OPTION_FAIL; the installed ESP has no EFI/BOOT/refind.conf"
+        fi
+    fi
     if [ -n "$ROOT_LBA" ] && [ -n "$ROOT_END_LBA" ]; then
         ROOT_BYTES=$(((ROOT_END_LBA - ROOT_LBA + 1) * 512))
         if qemu-img convert --image-opts -S 4k -O raw \
@@ -352,7 +435,7 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
                     fi
                 fi
                 rc_v=0
-                "$VERIFIER" "$EVIDENCE_ROOT" "$DEBUGFS" "$ARCH" || rc_v=$?
+                VERIFY_EXPECT_COMPONENTS="$EXPECT_RECORD" "$VERIFIER" "$EVIDENCE_ROOT" "$DEBUGFS" "$ARCH" || rc_v=$?
                 if [ "$rc_v" -ne 0 ]; then
                     # The verifier prints its own GATE: lines on miss; preserve
                     # the raw image so the operator can re-run the verifier
@@ -484,6 +567,8 @@ fi
 grep -qE "post-install hooks finished|finalizing apt sources|forcing clean reboot|nclawzero post-install complete|Post-install completed successfully|Completed with optional-step warnings" "$ILOG" \
   || fail "install did not reach the finish stage -- qemu rc=${irc:-?} (rc=124 means the ${INSTALL_TIMEOUT}s timeout expired; any other rc means the run was terminated early, which is NOT a timeout) -- see $ILOG"
 echo "  install reached the finish stage with no ship-critical hook failure"
+[ -z "$OPTION_FAIL" ] || fail "the install does not match the selected options '$GATE_COMPONENTS'${OPTION_FAIL}"
+echo "  installed layout and boot menu match the options '$GATE_COMPONENTS'"
 grep -q "ORPHAN" "$ILOG" && { echo "  WARNING: orphaned hooks reported:" >&2; grep "ORPHAN" "$ILOG" | head -10 >&2; } || true
 
 # Optional-hook failures do NOT fail the gate: run-all.sh runs Phase 2 in the
@@ -532,6 +617,10 @@ fi
 grep -qE "Welcome to|systemd\[1\]|Reached target|login:|Started .*getty" "$BLOG" \
   || fail "the installed system booted a kernel but never reached userspace (see $BLOG)"
 echo "  installed system reached userspace"
+# A login prompt, not just userspace: the serial getty prints "<host> login:".
+grep -aqE "[A-Za-z0-9.-]+ login: *$|[A-Za-z0-9.-]+ login: " "$BLOG" \
+  || fail "the installed system never offered a login prompt on the serial console (see $BLOG)"
+echo "  installed system offered a login prompt"
 
 DEFAULT_KVER=$(grep -aoE 'Linux version [^ ]+|Starting vmlinuz-[^[:space:]]+' "$BLOG" \
   | tail -1 | sed -E 's/^Linux version //; s/^Starting vmlinuz-//' || true)
@@ -546,8 +635,9 @@ if true; then   # both architectures
     FBR="$WORK/first-boot-failed.txt"; rm -f "$FBR"
     FB_DISK="$WORK/.fb-disk.raw"; FB_ROOT="$WORK/.fb-root.raw"; rm -f "$FB_DISK" "$FB_ROOT"
     if qemu-img convert -S 4k -O raw "$DISK" "$FB_DISK"; then
-        FB_S=$("$SGDISK" -i 3 "$FB_DISK" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
-        FB_E=$("$SGDISK" -i 3 "$FB_DISK" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+        FB_P=$(ncz_last_partnum "$FB_DISK"); FB_P="${FB_P:-3}"
+        FB_S=$("$SGDISK" -i "$FB_P" "$FB_DISK" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+        FB_E=$("$SGDISK" -i "$FB_P" "$FB_DISK" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
         if [ -n "$FB_S" ] && [ -n "$FB_E" ] && qemu-img convert --image-opts -S 4k -O raw \
             "driver=raw,file.driver=file,file.filename=$FB_DISK,offset=$((FB_S * 512)),size=$(((FB_E - FB_S + 1) * 512))" "$FB_ROOT"; then
             "$DEBUGFS" -R "dump /var/log/ncz-first-boot-failed.txt $FBR" "$FB_ROOT" >/dev/null 2>&1 || true
@@ -574,11 +664,28 @@ if true; then   # both architectures
     fi
     ALLOW="$SCRIPT_DIR/first-boot-failed-allowlist.txt"
     WP_RC="$(sed -n 's/^# wallpaper-bing-rc=//p' "$FBR" | tail -1)"
-    case "$WP_RC" in
-        0|75) echo "    wallpaper helper smoke: fetch --if-stale exit $WP_RC (0 = cache fresh/fetched, 75 = offline)" ;;
-        "")   fail "the first-boot report has no wallpaper-bing result (ncz-wallpaper-bing missing or the report script did not run it)" ;;
-        *)    fail "ncz-wallpaper-bing fetch --if-stale exited $WP_RC in the guest (expected 0 or 75); see the guest's /var/log/ncz-wallpaper-smoke.log" ;;
-    esac
+    if [ "$WANT_DESKTOP" = 1 ]; then
+        case "$WP_RC" in
+            0|75) echo "    wallpaper helper smoke: fetch --if-stale exit $WP_RC (0 = cache fresh/fetched, 75 = offline)" ;;
+            "")   fail "the first-boot report has no wallpaper-bing result (ncz-wallpaper-bing missing or the report script did not run it)" ;;
+            *)    fail "ncz-wallpaper-bing fetch --if-stale exited $WP_RC in the guest (expected 0 or 75); see the guest's /var/log/ncz-wallpaper-smoke.log" ;;
+        esac
+    else
+        [ -z "$WP_RC" ] || fail "desktop not selected but the wallpaper helper ran on first boot (rc $WP_RC)"
+        echo "    no wallpaper helper (desktop not selected)"
+    fi
+    # What the first boot reached, against the options (97-firstboot-report.sh).
+    FB_TARGET="$(sed -n 's/^# default-target=//p' "$FBR" | tail -1)"
+    FB_GREETD="$(sed -n 's/^# greetd=//p' "$FBR" | tail -1)"
+    if [ "$WANT_DESKTOP" = 1 ]; then
+        [ "$FB_TARGET" = graphical.target ] || fail "desktop selected but the default target is '${FB_TARGET:-unreported}', not graphical.target"
+        [ "$FB_GREETD" = active ] || fail "desktop selected but greetd is '${FB_GREETD:-unreported}' on first boot (no greeter)"
+        echo "    first boot: graphical.target, greeter (greetd) active"
+    else
+        [ "$FB_TARGET" = multi-user.target ] || fail "desktop not selected but the default target is '${FB_TARGET:-unreported}', not multi-user.target"
+        [ "$FB_GREETD" != active ] || fail "desktop not selected but greetd is active"
+        echo "    first boot: multi-user.target, console login"
+    fi
     FAILED_UNITS="$(grep -vE '^#|^[[:space:]]*$' "$FBR" | awk '{print $1}' | sed 's/^[^A-Za-z0-9_@.-]*//' | sort -u || true)"  # grep exits 1 when NO unit failed; under pipefail+set -e that ended the gate silently on amd64
     BAD=""
     for u in $FAILED_UNITS; do
@@ -599,7 +706,9 @@ fi
 # after the component dialog (build/kvm-installer-ui-check.sh; needs pyte). A regression here fails the image.
 echo
 echo "  installer console UI check ($ARCH)"
-if [ "${NCZ_SKIP_UI_CHECK:-0}" = 1 ]; then
+if [ "${NCZ_GATE_UI_CHECK:-1}" = 0 ]; then
+    echo "    skipped for this option set (NCZ_GATE_UI_CHECK=0): the UI check does not depend on the options and runs in the full-option gate"
+elif [ "${NCZ_SKIP_UI_CHECK:-0}" = 1 ]; then
     echo "    SKIPPED by NCZ_SKIP_UI_CHECK=1 (not for shipping images)"
 elif [ -x "$SCRIPT_DIR/kvm-installer-ui-check.sh" ]; then
     bash "$SCRIPT_DIR/kvm-installer-ui-check.sh" "$IMG" "$ARCH" "$WORK/ui-check" 2>&1 | sed 's/^/    /'
@@ -609,5 +718,5 @@ else
 fi
 
 echo
-echo "GATE PASS (phase 1+2): $(basename "$IMG") installs and boots"
+echo "GATE PASS (phase 1+2): $(basename "$IMG") installs and boots (options: $GATE_COMPONENTS)"
 echo "WORK=$WORK DISK=$DISK VARS=$VARS CODE=$CODE"
