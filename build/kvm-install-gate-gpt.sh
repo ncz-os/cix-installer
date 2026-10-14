@@ -287,7 +287,7 @@ timeout "$INSTALL_TIMEOUT" "$QEMU" \
   -device usb-storage,bus=xhci.0,drive=usbstick,bootindex=1 \
   -usb -chardev null,id=usbser -chardev null,id=usbbrl \
   -device usb-serial,chardev=usbser,always-plugged=on \
-  -device usb-braille,chardev=usbbrl -device usb-kbd -device usb-mouse \
+  -device usb-braille,chardev=usbbrl,always-plugged=on -device usb-kbd -device usb-mouse \
   -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2225-:22,hostfwd=tcp:127.0.0.1:18080-:8080 -device virtio-net-pci,netdev=n0,romfile= \
   -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
   -serial "file:$S0" \
