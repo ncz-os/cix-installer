@@ -230,6 +230,14 @@ for _rcf in "$INSTALLER_META/COMPONENTS" /etc/cix-installer/COMPONENTS /var/lib/
 done
 if [ -n "$RESCUEPART_PARTUUID" ]; then
     echo "  preflight OK: rescue partition PARTUUID=$RESCUEPART_PARTUUID"
+elif [ "$RESCUEPART_REQUIRED" = "1" ] && [ -s "$INSTALLER_META/INSTALL_IN_PROGRESS" ] \
+     && [ "$(cat "$INSTALLER_META/INSTALL_IN_PROGRESS" 2>/dev/null)" = "$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)" ]; then
+    # Called by a package hook while the install is still running (see
+    # NCZ-INSTALL-IN-PROGRESS in post-install/run-all.sh): RESCUE_READY is
+    # written later by 72-rescue-partition.sh and 70-bootloader.sh writes the
+    # boot menu at the end. Leave the ESP alone now.
+    echo "  rescue partition selected and not populated yet (install in progress): ESP left to 70-bootloader.sh"
+    exit 0
 elif [ "$RESCUEPART_REQUIRED" = "1" ]; then
     echo "ERROR: rescue partition is required but $RESCUE_READY has no PARTUUID"
     echo "       Refusing to modify the ESP until recovery is ready."

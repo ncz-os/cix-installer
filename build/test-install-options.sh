@@ -18,6 +18,9 @@
 #      requires the rescue partition exactly when it was selected (or when no
 #      selection was recorded), refuses before any ESP write when a selected
 #      partition is not ready, and reads the record in run-all.sh's order;
+#      a package hook calling it mid-install before 72-rescue-partition.sh has
+#      run leaves the ESP to 70-bootloader.sh without an ERROR (all options on,
+#      arm64: the cixmini wrapper from an initramfs trigger during step 47);
 #   2. no rescue-partition menu entry without a rescue partition (amd64 option
 #      assembly, arm64 option assembly incl. the typec blacklist merge);
 #   3. late.sh's bootability check is per architecture (amd64 BOOTX64.EFI,
@@ -58,7 +61,8 @@ if [ -s "$W/pre-amd64.sh" ] && [ -s "$W/pre-arm64.sh" ]; then
     cmp -s "$W/pre-amd64.sh" "$W/pre-arm64.sh" && ok "amd64 and arm64 carry the same preflight block" \
         || nok "the two preflight blocks differ" "$(diff "$W/pre-amd64.sh" "$W/pre-arm64.sh")"
     sed -e "s#/etc/cix-installer#$W/sb/etc/cix-installer#g" -e "s#/var/lib/cix-components#$W/sb/var/lib/cix-components#g" \
-        "$W/pre-amd64.sh" > "$W/pre-sb.sh"
+        -e "s#/proc/sys/kernel/random/boot_id#$W/boot_id#g" "$W/pre-amd64.sh" > "$W/pre-sb.sh"
+    echo boot-A > "$W/boot_id"
     # pre <record-location|-> <record> <marker: uuid|empty|-> -> prints rc and PARTUUID
     pre() {
         rm -rf "$W/sb"; mkdir -p "$W/sb/meta" "$W/sb/etc/cix-installer" "$W/sb/var/lib/cix-components"
@@ -87,6 +91,12 @@ if [ -s "$W/pre-amd64.sh" ] && [ -s "$W/pre-arm64.sh" ]; then
     [ "$(pre etc none -)" = "P= rc=0" ] && ok "record only in /etc/cix-installer is honoured" || nok "/etc record"
     [ "$(pre var none -)" = "P= rc=0" ] && ok "record only in /var/lib/cix-components is honoured" || nok "/var/lib record"
     [ "$(pre meta none abcd-3)" = "P=abcd-3 rc=0" ] && ok "a ready marker is used even when not recorded as selected" || nok "marker without selection"
+    # A package hook calling the refresh mid-install, before 72 ran (all options on: the O6N/.66 log ERROR line).
+    inst() { pre meta "$full" - >/dev/null; mkdir -p "$W/sb/meta"; echo "$1" > "$W/sb/meta/INSTALL_IN_PROGRESS"
+        ( set -euo pipefail; INSTALLER_META="$W/sb/meta"; . "$W/pre-sb.sh" > "$W/pre.out" 2>&1 ); printf 'rc=%s' "$?"; }
+    [ "$(inst boot-A)" = rc=0 ] && grep -q 'ESP left to 70-bootloader' "$W/pre.out" && ! grep -q ERROR "$W/pre.out" \
+        && ok "mid-install, rescue selected, marker not written yet: no ERROR, ESP left to 70-bootloader" || nok "mid-install deferral: $(inst boot-A) $(cat "$W/pre.out")"
+    [ "$(inst boot-B)" = rc=1 ] && ok "a left-over install marker from another boot does not defer (installed system)" || nok "stale install marker deferred"
     # The record locations and their order are run-all.sh's (COMP_FILE chain).
     ra=$(grep -E '^(COMP_FILE=|\[ -r "\$COMP_FILE" \] \|\| COMP_FILE=)' "$RUNALL" | sed 's/.*COMP_FILE=//' | tr '\n' ' ')
     pf=$(grep -m1 '^for _rcf in ' "$W/pre-amd64.sh" | sed 's/^for _rcf in //; s/; do$//; s#"\$INSTALLER_META/COMPONENTS"#/usr/local/lib/cix-installer/COMPONENTS#')
@@ -165,6 +175,12 @@ for h in 37-failsafe-access.sh 38-recovery-container.sh; do
 done
 printf '%s\n' 72-rescue-partition.sh | grep -qE "$rs" && ok "rescue-partition off skips 72-rescue-partition.sh" || nok "rescue skip"
 printf '%s\n' 36-telemetry.sh 70-bootloader.sh | grep -qE "$mg|$rs" && nok "an option skip drops 36-telemetry or 70-bootloader" || ok "telnet :23 (36) and the bootloader (70) are never option-skipped"
+
+ml=$(grep -n '^cat /proc/sys/kernel/random/boot_id > "\$NCZ_INSTALL_MARK"' "$RUNALL" | head -1 | cut -d: -f1)
+p0=$(grep -n '^# Phase 0: diagnostic affordance hooks' "$RUNALL" | head -1 | cut -d: -f1)
+[ -n "$ml" ] && [ -n "$p0" ] && [ "$ml" -lt "$p0" ] && ok "run-all.sh writes the install marker before the first hook" || nok "install marker not written before the hooks ($ml vs $p0)"
+awk '/^finalize_bootloader\(\) \{/ {f=1} f && /rm -f .*INSTALL_IN_PROGRESS/ {r=NR} f && /bash "\$HOOK_DIR\/70-bootloader.sh"/ {b=NR; exit} END {exit !(r && b && r < b)}' "$RUNALL" \
+    && ok "finalize_bootloader removes the marker before 70-bootloader.sh" || nok "marker not removed before 70-bootloader.sh"
 
 echo "=== 5. KVM gate options ==="
 between "$GATE" 'NCZ-GATE-COMPONENTS-BEGIN' 'NCZ-GATE-COMPONENTS-END' > "$W/gate-comp.sh"

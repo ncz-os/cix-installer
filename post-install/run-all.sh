@@ -527,6 +527,8 @@ finalize_bootloader() {
     # Keep finalization best-effort so bootloader failure cannot skip
     # the diagnostics hook.
     set +e
+    # The final bootloader run is authoritative: no install-in-progress deferral.
+    rm -f "${NCZ_INSTALL_MARK:-/usr/local/lib/cix-installer/INSTALL_IN_PROGRESS}"
     BOOTLOADER_RC=0
     if [ -w /boot/efi ]; then
         { echo "TRAP ORIGINAL_RC=$ORIGINAL_RC REQUIRED_PHASE_OK=${REQUIRED_PHASE_OK:-unset}"; echo "TRAP 70bl=$([ -f "$HOOK_DIR/70-bootloader.sh" ] && echo YES || echo NO)"; } \
@@ -614,6 +616,16 @@ finalize_bootloader() {
     exit 0
 }
 trap finalize_bootloader EXIT
+
+# NCZ-INSTALL-IN-PROGRESS: while the hooks run, a package hook can call the
+# rEFInd refresh (on arm64 the cixmini-update-bootloader wrapper does, from an
+# initramfs trigger) before 72-rescue-partition.sh has written RESCUE_READY.
+# The refresh scripts leave the ESP to 70-bootloader.sh in that window when
+# this marker holds the running kernel's boot id; finalize_bootloader removes
+# it before 70-bootloader.sh runs, and on the installed system the boot id no
+# longer matches, so a left-over marker changes nothing.
+NCZ_INSTALL_MARK=/usr/local/lib/cix-installer/INSTALL_IN_PROGRESS
+cat /proc/sys/kernel/random/boot_id > "$NCZ_INSTALL_MARK" 2>/dev/null || rm -f "$NCZ_INSTALL_MARK"
 
 # Phase 0: diagnostic affordance hooks (set +e) — run BEFORE Phase 1.
 # These create the magnetar diag account + any other "must exist before
