@@ -315,6 +315,16 @@ rm -rf "$EVIDENCE"
 
 fail() { echo; echo "GATE FAIL: $*" >&2; exit 1; }
 
+# Loopback ports for the guest forwards: free ones, so two gates on one build
+# host (another session's build, or the option sets) never collide on a fixed
+# port. Falls back to the historical numbers when python3 cannot pick one.
+ncz_free_port() {
+    python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])' 2>/dev/null || echo "$1"
+}
+FWD_SSH_INSTALL=$(ncz_free_port 2225)
+FWD_HTTP_INSTALL=$(ncz_free_port 18080)
+FWD_SSH_BOOT=$(ncz_free_port 2224)
+
 # The installed root is the LAST partition: p3 after ESP + NCZRESCUE, p2 when
 # the rescue partition was not selected (disk-fs-chooser.sh 2- or 3-stanza).
 ncz_last_partnum() {
@@ -335,7 +345,7 @@ timeout "$INSTALL_TIMEOUT" "$QEMU" \
   -device usb-storage,bus=xhci.0,drive=usbstick,bootindex=1 \
   -usb -chardev null,id=usbser \
   -device usb-serial,chardev=usbser,always-plugged=on \
-  -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2225-:22,hostfwd=tcp:127.0.0.1:18080-:8080 -device virtio-net-pci,netdev=n0,romfile= \
+  -netdev user,id=n0,hostfwd=tcp:127.0.0.1:$FWD_SSH_INSTALL-:22,hostfwd=tcp:127.0.0.1:$FWD_HTTP_INSTALL-:8080 -device virtio-net-pci,netdev=n0,romfile= \
   -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
   -serial "file:$S0" \
   -display none -no-reboot \
@@ -598,7 +608,7 @@ timeout "$BOOT_TIMEOUT" "$QEMU" \
   -drive file="$DISK",if=none,id=targetdisk,format=qcow2 \
   -device virtio-blk-pci,drive=targetdisk,bootindex=1,romfile= \
   "${BOOT_VIDEO_ARGS[@]}" \
-  -netdev user,id=n0,hostfwd=tcp::2224-:22 -device virtio-net-pci,netdev=n0,romfile= \
+  -netdev user,id=n0,hostfwd=tcp:127.0.0.1:$FWD_SSH_BOOT-:22 -device virtio-net-pci,netdev=n0,romfile= \
   -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
   -serial "file:$WORK/boot-serial0.log" \
   -display none -no-reboot \
