@@ -147,6 +147,10 @@ SAVER_HOT_MAX_MC=100000
 SAVER_HOT_MARGIN_MC=2000
 SAVER_HOT_DEFAULT_MC=85000
 SAVER_WARM_FPS=6
+# Auto frame rate of the saver on these Macs (ncz-screensavers 0.8.16+ reads
+# NCZ_SAVER_AUTO_FPS; other hardware gets 30 fps). Full resolution is kept; the
+# Settings page still lets the user pick a higher rate, after a heat warning.
+SAVER_AUTO_FPS=15
 
 # saver_min_crit_mc -> lowest tempN_crit (> 0) of the governor's sensors, or empty
 saver_min_crit_mc() {
@@ -197,6 +201,15 @@ else
             echo "[64] saver thermal cap: NCZ_FEED_TEMP_HOT_MC=$SAVER_HOT in $SAVER_ENV"
         else
             echo "[64] WARN: could not write $SAVER_ENV; saver thermal cap not set" >&2
+        fi
+    fi
+    if grep -qE '^[[:space:]]*NCZ_SAVER_AUTO_FPS=' "$SAVER_ENV"; then
+        echo "[64] saver Auto frame rate: $SAVER_ENV already sets NCZ_SAVER_AUTO_FPS; kept"
+    else
+        if printf 'NCZ_SAVER_AUTO_FPS=%s\n' "$SAVER_AUTO_FPS" >> "$SAVER_ENV" 2>/dev/null; then
+            echo "[64] saver Auto frame rate: NCZ_SAVER_AUTO_FPS=$SAVER_AUTO_FPS in $SAVER_ENV"
+        else
+            echo "[64] WARN: could not write $SAVER_ENV; saver Auto frame rate not set" >&2
         fi
     fi
     if grep -qE '^[[:space:]]*NCZ_FEED_FPS_WARM=' "$SAVER_ENV"; then
