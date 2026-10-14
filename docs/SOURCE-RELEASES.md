@@ -51,7 +51,7 @@ Versions are taken from the reviewed NCZ build ledger,
 | **ncz-ffmpeg** (arm64) | `9.0.1-ncz3` | LGPL-2.1+/GPL-2+ | FFmpeg with Sky1 V4L2 M2M support; patches under [`docs/upstream-patches/ffmpeg/`](upstream-patches/ffmpeg/). |
 | **chromium-ncz-sky1** (arm64) | `154.0.8037.0-ncz20261011` | BSD-3-Clause + others | Chromium with Sky1 V4L2 decode fixes; patches under [`docs/upstream-patches/chromium/`](upstream-patches/chromium/). |
 | **ncz-singularity-desktop** | built per image from pinned upstream commits | see upstream | Singularity desktop (labwc/wlroots) from `singularityos-lab`, with our packaging and the patches under [`assets/singularity/patches/`](../assets/singularity/patches/). |
-| **ncz-screensavers**, **ncz-screensavers-plugin** | `0.8.15`, `0.3.22` | see upstream | NCZ screensaver engine and its Singularity settings page. |
+| **ncz-screensavers**, **ncz-screensavers-plugin** | `0.8.16`, `0.3.23` | see upstream | NCZ screensaver engine and its Singularity settings page. |
 | **libgtk4-layer-shell0** (patched, arm64) | `1.3.0-1+ncz20261013` | MIT | gtk4-layer-shell 1.3.0 (`e8704f4`) plus the patches under [`packaging/gtk4-layer-shell/patches/`](../packaging/gtk4-layer-shell/patches/); built by `packaging/gtk4-layer-shell/make-deb.sh`. |
 | **libdrm** (patched) | `2.4.134-3+ncz2` | MIT | Debian libdrm plus `libdrm-xf86drm-acpi-platform-identity.patch` (in `docs/upstream-patches/`). |
 | **DKMS accelerator packages** | `cix-gpu-kmd-dkms 1.0+ncz3`, `panthor-cix-dkms 7.2.0+ncz3`, `cix-vpu-driver-dkms 1.0.2-ncz1+ncz3`, `cix-npu-driver-dkms 6.2.0-cixdeb13-260714+ncz3` | GPL-2.0 | DKMS packages ship their module source in the package itself (`/usr/src`); the same source is in `assets/kernel/{mali,panthor,vpu,npu}/` here. The prebuilt `.ko` overlays for the shipped kernel are bound to that source by `assets/kernel/*/7.3.0-rc7-sky1-ncz/SOURCE.sha256`. |
@@ -125,7 +125,7 @@ and most of them are not downloadable.
 | Inputs (rows in `build-inputs.tsv`) | Count | Can a stranger fetch the exact bytes? |
 |---|---|---|
 | CPython 3.11 and `uv`, both arches | 4 | **Yes.** GitHub release URLs in [`manifests/build-inputs-public.tsv`](../manifests/build-inputs-public.tsv); sha256 checked. |
-| `ncz-screensavers` 0.8.15, both arches | 2 | **Yes.** Public NCZ apt repository; sha256 checked. |
+| `ncz-screensavers` 0.8.16, both arches | 2 | **Staged locally.** Native builds and exact digests verified; public publication is pending. |
 | Recovery and rescue root filesystems | 4 | No. Rebuild with `build/build-mgmt-rootfs.sh` / `build/build-rescue-rootfs.sh` at the pinned snapshot; the output is not byte-reproducible. |
 | Artist Pack wallpaper packages | 8 | **Yes.** Version `1.2` is byte-reproducible (`build/build-wallpaper-contrib-deb.sh`, in-repo ArtistPack manifests) and is in the public NCZ apt repository; sha256 checked. |
 | Patched libdrm `2.4.134-3+ncz2` | 22 | **Partly.** The 14 runtime library packages the apt policy allows per architecture are in the public NCZ apt repository (sha256 checked). `libdrm-dev`, `libdrm-tests`, the amd64 `libdrm-freedreno1` and the two installer-only `libdrm2-udeb` files are not published: rebuild them with `build/build-libdrm-debs.sh` (Debian source plus the patch in this repository). |
@@ -144,9 +144,16 @@ Other inputs:
 * **Kernels**: the amd64 kernel packages are in the public apt repository
   (same bytes). The Sky1 r289 packages are not published there; rebuild them
   from the source above.
-* **Desktop payload** (`manifests/singularity-payload.tsv`): both
-  `ncz-singularity-desktop` packages are in the public apt repository with the
-  pinned sha256.
+* **Desktop payload** (`manifests/singularity-payload.tsv`): both native
+  `20261014213143+bk0` packages are staged locally with the pinned sha256.
+  Their actual builder source is `291821e21f168e5f980d9b2f4954fea62594a20a`;
+  subsequent builder cache policy changes do not change that provenance.
+* **Engine and settings plugin**: engine `0.8.16` and plugin `0.3.23` were built
+  from `8f8433c4f90e0a3b2d80225dafee098957eea8d5` against those exact payloads.
+  Native package, normal APT, ABI, settings-pane and lock tests pass on both
+  architectures. Publication, remaining hardware validation and corrected image
+  validation are separate pending gates. The public-input URLs name the expected
+  publication locations; they do not assert that these new bytes are public.
 
 **Vendor browsers: alias for discovery, store for reproducibility.** Vivaldi and
 Google Chrome are found through their vendors' stable aliases, the package names

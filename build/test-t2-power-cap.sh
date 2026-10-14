@@ -244,6 +244,7 @@ SAVERRUN() {
 }
 hot()  { sed -n 's/^NCZ_FEED_TEMP_HOT_MC=//p' "$LENV" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
 warm() { sed -n 's/^NCZ_FEED_FPS_WARM=//p' "$LENV" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
+autofps() { sed -n 's/^NCZ_SAVER_AUTO_FPS=//p' "$LENV" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
 
 # MacBookPro16,1 as measured: coretemp crit 100 C, amdgpu edge/junction/mem
 # 110/105/150 C, t2smc without crit files, nvme (not a governor sensor) lower.
@@ -254,6 +255,7 @@ SAVERRUN; rc=$?
 if [ "$rc" = 0 ] && [ "$(hot)" = 98000 ]; then ok "saver cap: MacBookPro16,1 sensors -> NCZ_FEED_TEMP_HOT_MC=98000 (coretemp crit = Tjmax 100 C, - 2 C)"
 else bad "saver cap: expected 98000, got '$(hot)' (rc=$rc): $(tail -3 "$T/saver.out")"; fi
 [ "$(warm)" = 6 ] && ok "saver cap: warm-band fps set to 6" || bad "saver cap: warm fps '$(warm)'"
+[ "$(autofps)" = 15 ] && ok "saver Auto frame rate on a T2 Mac: NCZ_SAVER_AUTO_FPS=15 (full resolution kept)" || bad "saver Auto fps '$(autofps)'"
 grep -q '^SINGULARITY_LOCK_RENDERER=/usr/libexec/ncz-screensaver-feed$' "$LENV" \
     && ok "saver cap: renderer line preserved" || bad "saver cap: renderer line changed"
 # shellcheck source=/dev/null
@@ -261,7 +263,7 @@ if (set -a; . "$LENV"; [ "$NCZ_FEED_TEMP_HOT_MC" = 98000 ] && [ "$NCZ_FEED_FPS_W
     ok "saver cap: env file sources cleanly the way the session launcher reads it"
 else bad "saver cap: env file does not source"; fi
 SAVERRUN
-if [ "$(hot)" = 98000 ] && [ "$(warm)" = 6 ]; then ok "saver cap: second run is idempotent (one line each)"
+if [ "$(hot)" = 98000 ] && [ "$(warm)" = 6 ] && [ "$(autofps)" = 15 ]; then ok "saver cap: second run is idempotent (one line each)"
 else bad "saver cap: duplicate lines after second run: hot='$(hot)' warm='$(warm)'"; fi
 
 # an operator value is kept
