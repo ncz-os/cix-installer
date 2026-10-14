@@ -28,6 +28,7 @@
 # framebuffer resolution.
 #
 # The password is the documented diagnostics login (override: NCZ_GATE_DIAG_PW).
+# Needs OpenSSH >= 8.4 (SSH_ASKPASS_REQUIRE).
 set -uo pipefail
 MODE="${1:?usage: kvm-installer-probe.sh sample PORT OUT [INTERVAL] | judge OUT}"
 
@@ -53,15 +54,26 @@ dmesg 2>/dev/null | grep -i -E "usb [0-9]|braille|brltty" | head -40 | sed "s/^/
 case "$MODE" in
 sample)
     PORT="${2:?port}"; OUT="${3:?out}"; INTERVAL="${4:-15}"
-    command -v sshpass >/dev/null 2>&1 || { echo "probe: sshpass not installed" >> "$OUT"; exit 2; }
-    export SSHPASS="${NCZ_GATE_DIAG_PW:-rescue}"
+    # Password login through SSH_ASKPASS, not sshpass: sshpass needs a pseudo
+    # terminal, and a build host whose /dev/pts was lost to a chroot unmount
+    # (seen on an amd64 build host 2026-10-14) made every sshpass call fail,
+    # which left the probe with no sample. The askpass helper holds no
+    # password; it prints the value from the environment.
+    export NCZ_PROBE_PW="${NCZ_GATE_DIAG_PW:-rescue}"
+    askpass="$(dirname "$OUT")/.installer-probe-askpass"
+    printf '#!/bin/sh\nprintf "%%s\\n" "$NCZ_PROBE_PW"\n' > "$askpass" && chmod 700 "$askpass" \
+        || { echo "probe: cannot write $askpass" >> "$OUT"; exit 2; }
+    trap 'rm -f "$askpass"' EXIT
+    trap 'exit 0' TERM INT
+    export SSH_ASKPASS="$askpass" SSH_ASKPASS_REQUIRE=force DISPLAY="${DISPLAY:-:0}"
     parent=$PPID
     n=0
     while kill -0 "$parent" 2>/dev/null; do
         n=$((n + 1))
-        if blk="$(timeout 20 sshpass -e ssh -p "$PORT" -o StrictHostKeyChecking=no \
+        if blk="$(timeout 20 setsid ssh -p "$PORT" -o StrictHostKeyChecking=no \
                 -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 \
-                -o PubkeyAuthentication=no root@127.0.0.1 "$remote_sample" 2>/dev/null)"; then
+                -o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive \
+                -o NumberOfPasswordPrompts=1 root@127.0.0.1 "$remote_sample" < /dev/null 2>/dev/null)"; then
             { echo "=== sample $n $(date -u +%H:%M:%SZ)"; printf '%s\n' "$blk"; } >> "$OUT"
         fi
         sleep "$INTERVAL"
