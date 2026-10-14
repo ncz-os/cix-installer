@@ -39,98 +39,12 @@ LABWC_PID=""
 LOCK_OWNED=()   # one entry per live lock launch: "PID:PGID:GENERATION"
 GEN=0
 
-# --- owned-process engine -----------------------------------------------------
-owned_add() { LOCK_OWNED+=("$1:$2:$3"); }                 # pid:pgid:generation
-owned_pid() {
-    local last="${LOCK_OWNED[${#LOCK_OWNED[@]}-1]:-}"; [ -n "$last" ] || return 1
-    echo "${last%%:*}"
-}
-owned_pgid() {
-    local last="${LOCK_OWNED[${#LOCK_OWNED[@]}-1]:-}"; [ -n "$last" ] || return 1
-    local rest="${last#*:}"; echo "${rest%%:*}"
-}
-owned_gen() {
-    local last="${LOCK_OWNED[${#LOCK_OWNED[@]}-1]:-}"; [ -n "$last" ] || return 1
-    echo "${last##*:}"
-}
-# true if $1 is a PID of a lock client we launched (any generation)
-owned_lock_pid() {
-    local pid="$1" e
-    for e in "${LOCK_OWNED[@]:-}"; do
-        [ -n "$e" ] || continue; [ "${e%%:*}" = "$pid" ] && return 0
-    done
-    return 1
-}
-exe_of() { readlink -f "/proc/$1/exe" 2>/dev/null || true; }
-pgid_of() { ps -o pgid= -p "$1" 2>/dev/null | tr -d ' '; }
-
-# Frame sources in owned group $1 whose /proc/<pid>/exe == real $SRC. Nothing
-# outside this PGID is considered (a same-basename canary is never matched).
-owned_sources_in_pgid() { # $1 = pgid
-    local want pid p
-    want="$(readlink -f "$SRC" 2>/dev/null || echo "$SRC")"
-    for p in /proc/[0-9]*; do
-        pid="${p#/proc/}"
-        [ "$(pgid_of "$pid")" = "$1" ] || continue
-        [ "$(exe_of "$pid")" = "$want" ] && echo "$pid"
-    done
-    return 0
-}
-# first owned source PID in the newest owned group (empty if none)
-owned_source_pid() {
-    local pgid; pgid="$(owned_pgid)" || return 1
-    owned_sources_in_pgid "$pgid" | head -1
-}
-owned_source_alive() { [ -n "$(owned_source_pid)" ]; }
-
-# Fault injection: kill exactly ONE owned source PID. Refuses any PID not in an
-# owned group, so a stray kill can never take an unrelated process.
-kill_owned_source() { # $1 = pid
-    local pid="$1" e pgid
-    [ -n "$pid" ] || return 1
-    for e in "${LOCK_OWNED[@]:-}"; do
-        [ -n "$e" ] || continue
-        pgid="${e#*:}"; pgid="${pgid%%:*}"
-        [ "$(pgid_of "$pid")" = "$pgid" ] && { kill -9 "$pid" 2>/dev/null; return 0; }
-    done
-    return 1
-}
-
-LABWC_PID=""
-start_labwc() {
-    rm -f "$RT"/wayland-* "$SOCK"
-    labwc >"$WORK/tmp/labwc.log" 2>&1 &
-    LABWC_PID=$!
-    for _ in $(seq 1 50); do
-        [ -S "$RT/wayland-0" ] && export WAYLAND_DISPLAY=wayland-0 && return 0
-        [ -S "$RT/wayland-1" ] && export WAYLAND_DISPLAY=wayland-1 && return 0
-        sleep 0.1
-    done
-    echo "labwc did not create a wayland socket"; return 1
-}
-
-# Kill every owned lock group and PIDs we recorded, then the labwc we started.
-# `kill -- -PGID` targets ONLY the owned group; we then wait for each owned PID
-# so no zombie leaks into the next case. Never a name scan.
-stop_all() {
-    local e pid pgid
-    for e in "${LOCK_OWNED[@]:-}"; do
-        [ -n "$e" ] || continue
-        pid="${e%%:*}"; pgid="${e#*:}"; pgid="${pgid%%:*}"
-        [ -n "$pgid" ] && kill -9 -- "-$pgid" 2>/dev/null
-        [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null
-    done
-    for e in "${LOCK_OWNED[@]:-}"; do
-        [ -n "$e" ] || continue
-        pid="${e%%:*}"
-        [ -n "$pid" ] && wait "$pid" 2>/dev/null
-    done
-    [ -n "$LABWC_PID" ] && kill -9 "$LABWC_PID" 2>/dev/null
-    [ -n "$LABWC_PID" ] && wait "$LABWC_PID" 2>/dev/null
-    LOCK_OWNED=(); LOCK_PID=""; LABWC_PID=""
-    sleep 0.3
-    return 0
-}
+# --- owned-process engine (single source of truth: owned-processes.sh) ---------
+# The engine lives in owned-processes.sh so the SAME functions are exercised by
+# the tracked unit tests/lockscreen-framesrc/test-owned-cleanup.sh; the harness
+# does not re-implement (copy) any of it.
+# shellcheck source=owned-processes.sh
+. "$(dirname "$0")/owned-processes.sh"
 trap 'stop_all' EXIT
 
 # Launch an owned lock via setsid. $1=env renderer value, $2=log, $3=delay ms.
@@ -145,7 +59,9 @@ start_lock() {
     SINGULARITY_LOCK_RENDERER_DELAY_MS="$delay" \
     setsid "$LOCK" >>"$log" 2>&1 &
     LOCK_PID=$!
-    owned_add "$LOCK_PID" "$LOCK_PID" "$GEN"   # setsid: leader PID == PGID
+    # setsid: leader PID == PGID. Record the leader's Linux start time so a
+    # reused PID cannot later qualify as our owned leader.
+    owned_add "$LOCK_PID" "$LOCK_PID" "$GEN" "$(starttime_of "$LOCK_PID")"
 }
 wait_for() { local f="$1" s="$2" secs="${3:-5}"
     for _ in $(seq 1 $(( secs * 10 ))); do have "$f" "$s" && return 0; sleep 0.1; done
@@ -275,7 +191,7 @@ start_labwc || exit 1
 GEN=$((GEN+1))
 setsid "$LOCKOFF" >>"$WORK/tmp/c6.log" 2>&1 &
 LOCK_PID=$!
-owned_add "$LOCK_PID" "$LOCK_PID" "$GEN"
+owned_add "$LOCK_PID" "$LOCK_PID" "$GEN" "$(starttime_of "$LOCK_PID")"
 if wait_for "$WORK/tmp/c6.log" "lock: configure" 6; then ok "default build locks as upstream"; else bad "default build did not lock"; fi
 if have "$WORK/tmp/c6.log" "framesrc" ; then bad "default build somehow used the frame source"; else ok "default build used no frame source"; fi
 stop_all
@@ -365,7 +281,7 @@ SINGULARITY_LOCK_RENDERER="$SRC --frames 200" \
 SINGULARITY_LOCK_RENDERER_SOCKET="$SOCK" \
     setsid "$LOCK" >>"$WORK/tmp/c10b.log" 2>&1 &
 LOCK2_PID=$!
-owned_add "$LOCK2_PID" "$LOCK2_PID" "$GEN"
+owned_add "$LOCK2_PID" "$LOCK2_PID" "$GEN" "$(starttime_of "$LOCK2_PID")"
 if wait_for "$WORK/tmp/c10b.log" "another lock instance owns the renderer socket; yielding" 6; then
     ok "second lock yielded instead of clobbering the socket"
 else
