@@ -1,7 +1,7 @@
-From 40c5cf367aab2e921e0e3b78b7477206651a1a01 Mon Sep 17 00:00:00 2001
+From 8d920cdeda675ebcaef69bdd988140182827813c Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Wed, 7 Oct 2026 13:59:08 -0400
-Subject: [PATCH 2/5] feat(wallpapers-bing): add a preferred-region picker
+Date: Wed, 7 Oct 2026 14:42:51 -0400
+Subject: [PATCH] feat(wallpapers-bing): add a preferred-region picker
 
 Adds a Bing Preferred Region row to the plugin settings. Markets come from the helper's markets command and the choice is read and saved through its market command.
 
@@ -13,7 +13,7 @@ AI-Scope: Wrote the picker row and the helper calls for listing, reading and sav
  1 file changed, 52 insertions(+)
 
 diff --git a/wallpapers-bing/wallpapers_bing.vala b/wallpapers-bing/wallpapers_bing.vala
-index dc75e00..1e005f5 100644
+index aa95003..65d5dbe 100644
 --- a/wallpapers-bing/wallpapers_bing.vala
 +++ b/wallpapers-bing/wallpapers_bing.vala
 @@ -2,6 +2,7 @@ using GLib;
@@ -24,10 +24,10 @@ index dc75e00..1e005f5 100644
  using Peas;
  
  [ModuleInit]
-@@ -33,6 +34,15 @@ namespace WallpapersBing {
+@@ -28,6 +29,15 @@ namespace WallpapersBing {
          public bool requires_credentials { get { return false; } }
          public bool supports_search { get { return false; } }
-         public Provider() { base("/usr/local/bin/ncz-wallpaper-bing"); }
+         public Provider() { base("singularity-wallpaper-bing"); }
 +        public async string market_list(Cancellable? cancel) throws Error {
 +            return yield command({helper, "markets"}, cancel, 30);
 +        }
@@ -40,7 +40,7 @@ index dc75e00..1e005f5 100644
          public async ArrayList<WallpaperProviderChoice> choices(string index, Cancellable? cancel) throws Error {
              var loaded = WallpaperBing.markets(yield command({helper, "markets"}, cancel, 30));
              // The helper is expected to always advertise the combined view
-@@ -64,6 +74,7 @@ namespace WallpapersBing {
+@@ -59,6 +69,7 @@ namespace WallpapersBing {
  public class WallpapersBingPlugin : Object, Singularity.Plugin {
      private PluginContext context;
      private WallpapersBing.Provider? provider;
@@ -48,7 +48,7 @@ index dc75e00..1e005f5 100644
  
      public void activate(PluginContext ctx) {
          this.context = ctx;
-@@ -84,6 +95,47 @@ public class WallpapersBingPlugin : Object, Singularity.Plugin {
+@@ -79,6 +90,47 @@ public class WallpapersBingPlugin : Object, Singularity.Plugin {
          lbl.wrap = true;
          lbl.xalign = 0;
          box.append(lbl);
