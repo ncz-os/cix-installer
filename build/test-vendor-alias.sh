@@ -38,6 +38,8 @@ mkrepo() {  # <mode inrelease|release> <versions...>; newest is not listed last 
             printf 'Package: browser-stable\nVersion: %s\nArchitecture: %s\nFilename: %s\nSize: %s\nSHA256: %s\n\n' \
                 "$v" "$a" "$f" "$(stat -c %s "$R/$f")" "$(sha256sum "$R/$f" | cut -d' ' -f1)" >> "$R/dists/stable/main/binary-$a/Packages"
         done
+        # Decoy: another package with a higher version and an sha256 that matches nothing. Selecting
+        # it, or downloading anything but the alias' own package, makes the refresh fail.
         f="pool/browser-snapshot_99.0-1_$a.deb"; [ -f "$R/$f" ] || mkdeb browser-snapshot 99.0-1 "$a" "$R/$f"
         printf 'Package: browser-snapshot\nVersion: 99.0-1\nArchitecture: %s\nFilename: %s\nSize: 1\nSHA256: %s\n\n' "$a" "$f" "$(printf '0%.0s' {1..64})" >> "$R/dists/stable/main/binary-$a/Packages"
     done
