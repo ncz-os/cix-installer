@@ -199,23 +199,16 @@ def find_refind_extract(arch: str) -> Path:
     return base
 
 
-# 2026-10-12 (unattended amd64 installer defect): every unattended installer entry
-# disables BRLTTY's d-i udev auto-start. brltty-udeb's /lib/udev/brltty.sh
-# begins with `grep -q brltty /proc/cmdline && exit 0`, so ANY cmdline token
-# containing the substring "brltty" suppresses the auto-detect that otherwise
-# starts brltty for GENERIC USB-serial ids -- FTDI 0403:6001/6010, CP210x
-# 10c4:ea60/ea80, CH341 1a86:55d3/7523, and the PL2303 067b:2303 family -- and
-# leaves /var/run/brltty-generic set. The brltty-udeb postinst then asks the
-# CRITICAL-priority question "Is the USB serial device indeed a braille
-# device?" and the unattended install (auto=true priority=critical) stops dead
-# on it. This token is deliberately NCZ-namespaced and self-documenting; it
-# satisfies the upstream substring test without passing a real `brltty=`
-# configuration (which upstream would read as "enable braille with defaults").
-# The second, d-i-level layer is the preseed answer in preseed/preseed.cfg
-# (`brltty-udeb/generic boolean false`). A genuinely braille device whose udev
-# rule is NOT the generic one never sets BRLTTY_GENERIC, so it is unaffected;
-# this entry is the unattended install path, where suppression is intended.
-NCZ_NO_BRLTTY = "ncz_no_brltty=1"
+# The installer carries no BRLTTY (patch-initrd-t2-kernel.py removes brltty-udeb
+# from the d-i initrd; docs/ACCESSIBILITY.md). No installer entry may pass a
+# cmdline token containing "brltty": brltty-udeb's startup hook S37brltty runs
+# `grep -q brltty /proc/cmdline` and STARTS brltty (driver autodetect) when it
+# matches, and its udev helper treats the same substring as "do not start". The
+# former ncz_no_brltty=1 token therefore started brltty on every boot of the
+# Install/Expert entries (observed on a MacBookPro16,1 with no braille or
+# USB-serial device attached: S37brltty started brltty, the console was clamped
+# to 80 columns and the framebuffer frontend was disabled). Checked below.
+BRLTTY_CMDLINE_FORBIDDEN = "brltty"
 
 # Match the old builder's unattended DI_OPTS for the normal Install entry.
 # auto=true makes d-i take its unattended path and apply the preseed early.
@@ -240,7 +233,6 @@ _PC_INSTALL_OPTIONS = " ".join((
     "locale=en_US.UTF-8",
     "keyboard-configuration/layoutcode=us",
     "DEBIAN_FRONTEND=newt",
-    NCZ_NO_BRLTTY,
     "quiet loglevel=3",
     "vt.global_cursor_default=0 consoleblank=0 console=tty0",
 ))
@@ -248,7 +240,6 @@ _PC_EXPERT_OPTIONS = " ".join((
     "priority=low ipv6.disable=1 interface=auto",
     "netcfg/dhcp_timeout=120",
     "DEBIAN_FRONTEND=newt",
-    NCZ_NO_BRLTTY,
     "loglevel=4",
     "vt.global_cursor_default=0 consoleblank=0 console=tty0",
 ))
@@ -573,6 +564,18 @@ STARTUP_NSH = """\\
 """
 
 
+def assert_no_brltty_options(conf_text: str) -> None:
+    """Refuse a refind.conf whose boot options name brltty (see
+    BRLTTY_CMDLINE_FORBIDDEN): the substring alone starts brltty in d-i."""
+    for line in conf_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("options") and BRLTTY_CMDLINE_FORBIDDEN in stripped.lower():
+            raise ValueError(
+                f"refind.conf boot options contain {BRLTTY_CMDLINE_FORBIDDEN!r}, "
+                f"which makes d-i start brltty: {stripped}"
+            )
+
+
 def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
                    d_i_kernel: Path, d_i_initrd: Path, info_line: str,
                    build_id: str = "") -> dict:
@@ -626,6 +629,7 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
             rescue_options=options_with_build_id(ARM64_RESCUE_OPTIONS, build_id),
         )
         conf_basename = "refind.conf"
+    assert_no_brltty_options(conf_text)
 
     # Locate source files in the extracted .deb
     refind_efi_src = refind_src / f"refind_{efi_arch}.efi"

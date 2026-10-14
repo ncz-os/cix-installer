@@ -156,6 +156,9 @@ it as NCZ-OS. See [Architecture](#architecture).
   recovery container with its own SSH host keys per device (see
   [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)). No SSH keys are
   preinstalled; `~/.ssh/authorized_keys` is left to you.
+- **Accessibility:** braille displays are supported on the installed system
+  after `sudo apt install brltty`; the installer itself has no braille support
+  ([docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)).
 - **Agent stack (opt-in):** `ncz install mnemos`, `ncz install zoder` and
   `ncz agent install <name>` set up MNEMOS, zoder and the agent runtimes end
   to end ([docs/NCZ-AGENT-STACK.md](docs/NCZ-AGENT-STACK.md)).

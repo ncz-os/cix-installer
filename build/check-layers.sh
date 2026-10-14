@@ -379,6 +379,22 @@ chk_no_ubuntu() {  # LAYER, label
     fi
 }
 
+chk_no_braille() {  # LAYER, label
+    # The image carries no braille stack (docs/ACCESSIBILITY.md): users add it
+    # with `apt install brltty`. Fail on the brltty daemon, its tables, udev
+    # rules or units, or any brltty/brlapi package record in the dpkg status.
+    local l="$1" lbl="$2" files pk=""
+    files="$(_listing "$l" | grep -E '(^|/)(usr/)?(s?bin/brltty|lib/brltty(/|$)|share/brltty(/|$))|(^|/)etc/brltty(/|$|\.conf$)|(^|/)(usr/)?lib/udev/rules\.d/[^/]*brltty|(^|/)(usr/)?lib/systemd/system/[^/]*brltty|(^|/)var/lib/dpkg/info/[^/]*(brltty|brlapi)[^/]*$' | head -5 | tr '\n' ' ')"
+    if _has "$l" "var/lib/dpkg/status"; then
+        pk="$(_cat "$l" var/lib/dpkg/status 2>/dev/null | awk '/^Package:/ { p = $2 } /^Status:.* installed$/ && p ~ /brltty|brlapi/ { print p }' | sort -u | tr '\n' ' ')"
+    fi
+    if [ -n "${files// /}" ] || [ -n "${pk// /}" ]; then
+        _rec "$lbl" no-braille FAIL "braille stack in the image (users install it with apt): files: ${files:-none} packages: ${pk:-none}"
+    else
+        _rec "$lbl" no-braille PASS "no brltty/brlapi files or packages"
+    fi
+}
+
 chk_one_kernel() {  # LAYER, label
     local l="$1" lbl="$2"
     local kver=""
@@ -653,6 +669,7 @@ main() {
         chk_dpkg_status "$l" "$lbl"
         chk_manifest "$l" "$lbl" "$MANIFEST"
         chk_no_ubuntu "$l" "$lbl"
+        chk_no_braille "$l" "$lbl"
         chk_one_kernel "$l" "$lbl"
         chk_labwc_shader "$l" "$lbl"
         chk_singularity_version "$l" "$lbl" "$PAYLOAD_DEB"

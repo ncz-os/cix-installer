@@ -82,6 +82,21 @@ printf 'Package: snapd\nStatus: install ok installed\nVersion: 1\nOrigin: Ubuntu
 tsv="$(lc "$bad4")"
 assert_check "$tsv" no-ubuntu FAIL "Ubuntu origin: no-ubuntu FAIL"
 
+# braille stack -> FAIL (files, then a package record alone); good layer PASS
+assert_check "$(lc "$good")" no-braille PASS "good layer: no braille"
+bb1="$T/bad-brltty-files"; cp -a "$good" "$bb1"; mkdir -p "$bb1/usr/bin" "$bb1/usr/lib/udev/rules.d"
+: > "$bb1/usr/bin/brltty"; : > "$bb1/usr/lib/udev/rules.d/85-brltty.rules"
+tsv="$(lc "$bb1")"
+assert_check "$tsv" no-braille FAIL "brltty daemon + udev rule: no-braille FAIL"
+bb2="$T/bad-brlapi-pkg"; cp -a "$good" "$bb2"
+printf '\nPackage: libbrlapi0.8\nStatus: install ok installed\nVersion: 6.9.1\n' >> "$bb2/var/lib/dpkg/status"
+tsv="$(lc "$bb2")"
+assert_check "$tsv" no-braille FAIL "libbrlapi package record: no-braille FAIL"
+bb3="$T/ok-brltty-word"; cp -a "$good" "$bb3"; mkdir -p "$bb3/usr/share/doc/foo"
+: > "$bb3/usr/share/doc/foo/notes-about-brltty-support.txt"
+tsv="$(lc "$bb3")"
+assert_check "$tsv" no-braille PASS "an unrelated doc file naming brltty: no-braille PASS"
+
 # manifest mismatch -> FAIL (both directions: missing + extra)
 mf="$T/manifest.tsv"; printf 'foo\t1\nbar\t2\n' > "$mf"
 tsv="$(lc "$good" --manifest "$mf")"
