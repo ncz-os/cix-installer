@@ -22,7 +22,11 @@
 #   * when <kver-file> sits in a staged r<N>-<kver>-... directory (the
 #     mainline pointer does), the packages' r<N> must not be OLDER than
 #     that directory's: a +r258 build of 7.2.8 sorts below the +r277
-#     already on boards, and apt silently keeps the old kernel.
+#     already on boards, and apt silently keeps the old kernel;
+#   * linux-image-cixmini must not carry an in-tree VPU driver
+#     (kernel/drivers/media/platform/cix/amvx.ko): the VPU ships only as the
+#     cix-vpu-driver DKMS module. Revisions listed in KERNEL-POLICY
+#     INTREE_ACCEL_GRANDFATHERED_SKY1 only warn.
 # A directory with no Sky1 kernel packages passes (amd64 vendor mirrors,
 # a pool before the first kernel publish).
 #
@@ -48,6 +52,10 @@ case "$_ptr_dir" in
 esac
 case "$PTR_REV" in *[!0-9]*) PTR_REV="" ;; esac
 
+# Revisions shipped with an in-tree VPU driver before that became an error.
+POLICY_FILE="${KERNEL_POLICY_FILE:-$(cd "$(dirname "$0")/.." && pwd)/assets/kernel/KERNEL-POLICY}"
+GRANDFATHERED="$(sed -n 's/^INTREE_ACCEL_GRANDFATHERED_SKY1=//p' "$POLICY_FILE" 2>/dev/null | head -1 || true)"
+
 rc=0
 for dir in "$@"; do
     [ -d "$dir" ] || continue
@@ -64,6 +72,24 @@ for dir in "$@"; do
         esac
         if [ "$pkg" = cixmini-boot ]; then
             continue
+        fi
+        if [ "$pkg" = linux-image-cixmini ]; then
+            # The VPU driver ships only as the cix-vpu-driver DKMS module; an
+            # in-tree amvx.ko with the same name loads whenever the DKMS module
+            # is missing. Error, except for grandfathered revisions.
+            _amvx="$(dpkg-deb -c "$deb" 2>/dev/null | awk '{print $NF}' \
+                | grep -E '/kernel/drivers/media/platform/cix/amvx\.ko(\.xz|\.zst|\.gz)?$' | head -1 || true)"
+            if [ -n "$_amvx" ]; then
+                _irev="${ver##*+}"
+                case ",$GRANDFATHERED," in
+                    *",$_irev,"*)
+                        echo "[kernel-pin] WARN: $dir: $pkg $ver ships in-tree $_amvx ($_irev is grandfathered)" >&2 ;;
+                    *)
+                        echo "[kernel-pin] FAIL: $dir: $pkg $ver ships in-tree $_amvx (CONFIG_VIDEO_LINLON set)" >&2
+                        echo "             (the VPU driver must ship only as the cix-vpu-driver DKMS module)" >&2
+                        dir_rc=1 ;;
+                esac
+            fi
         fi
         if [ -z "$KVER" ]; then
             echo "[kernel-pin] FAIL: $dir holds $pkg $ver but $KVER_FILE is missing or empty" >&2

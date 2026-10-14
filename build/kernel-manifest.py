@@ -65,8 +65,56 @@ INTREE_ACCEL_POLICY = {
     # to "error" and the module must be built out-of-tree.
     "CONFIG_DRM_PANTHOR":  "warn",
     "CONFIG_ARMCHINA_NPU": "warn",   # still in-tree; needs 0121/0123 ported to the OOT tree first
-    "CONFIG_VIDEO_LINLON": "warn",   # amvx still carried by the in-tree 0126+ patch series
+    # The VPU driver ships only as the cix-vpu-driver DKMS module (amvx). An
+    # in-tree amvx.ko has the same module name, and the DKMS one wins only while
+    # DKMS keeps the in-tree file moved aside; when the DKMS build fails or the
+    # package is gone, the unvalidated in-tree copy loads with no error. Error
+    # from r290 on; revisions listed in KERNEL-POLICY
+    # INTREE_ACCEL_GRANDFATHERED_SKY1 (already shipped, bytes fixed) warn.
+    "CONFIG_VIDEO_LINLON": "error",
 }
+
+# In-tree module files that must not appear in a kernel modules tree, keyed by
+# the config symbol that builds them (same severity/grandfathering as above).
+INTREE_ACCEL_MODULES = {
+    "CONFIG_VIDEO_LINLON": "kernel/drivers/media/platform/cix/amvx.ko",
+}
+
+POLICY_FILE = os.path.join(ROOT, "assets", "kernel", "KERNEL-POLICY")
+
+
+def policy_value(key, default=""):
+    """KEY=value from assets/kernel/KERNEL-POLICY ('' if absent)."""
+    try:
+        with open(POLICY_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k == key:
+                    return v
+    except OSError:
+        pass
+    return default
+
+
+def grandfathered_revs():
+    raw = policy_value("INTREE_ACCEL_GRANDFATHERED_SKY1")
+    return {r.strip() for r in raw.split(",") if r.strip()}
+
+
+def variant_rev(reldir):
+    """rNNN of the staged kernel directory a variant points at ('' if unknown).
+
+    Reads the symlink TARGET STRING, so it works without the staging mount."""
+    path = os.path.join(ROOT, reldir)
+    name = os.path.basename(os.readlink(path)) if os.path.islink(path) \
+        else os.path.basename(os.path.realpath(path))
+    head = name.split("-", 1)[0]
+    if head.startswith("r") and head[1:].isdigit():
+        return head
+    return ""
 
 
 def sha256(path):
@@ -200,6 +248,9 @@ def scan_variant(label, reldir):
     mods = os.path.join(d, "modules-cixmini.tgz")
     cfgs = sorted(glob.glob(os.path.join(d, "config-*")))
     rec = {"kver": kver, "dir": reldir}
+    rev = variant_rev(reldir)
+    if rev:
+        rec["build_rev"] = rev
     if os.path.isfile(img):
         rec["image"] = {"file": os.path.relpath(img, ROOT),
                         "sha256": sha256(img), "size": os.path.getsize(img)}
@@ -328,29 +379,114 @@ def overlay_present_errors(live):
     return errors
 
 
+def _intree_severity(sym, v):
+    sev = INTREE_ACCEL_POLICY[sym]
+    if sev == "error" and v.get("build_rev") in grandfathered_revs():
+        return "warn", f" (grandfathered: {v.get('build_rev')} shipped before this rule)"
+    return sev, ""
+
+
 def intree_accel_findings(live):
-    """Accelerators must not be compiled into the shipped kernel config."""
+    """Accelerators must not be compiled into the shipped kernel config, and
+    the modules tree must not carry an in-tree copy of an accelerator module."""
     errors, warnings = [], []
     for label, v in live.get("variants", {}).items():
         cfg = (v.get("config") or {}).get("file")
-        if not cfg:
-            continue
-        path = os.path.join(ROOT, cfg)
-        if not os.path.isfile(path):
+        text = None
+        if cfg and os.path.isfile(os.path.join(ROOT, cfg)):
+            try:
+                with open(os.path.join(ROOT, cfg), errors="replace") as f:
+                    text = f.read()
+            except OSError:
+                text = None
+        if text is not None:
+            for sym in INTREE_ACCEL_POLICY:
+                severity, note = _intree_severity(sym, v)
+                for val in ("y", "m"):
+                    if f"\n{sym}={val}\n" in "\n" + text:
+                        msg = (f"[{label}] {sym}={val} is IN-TREE in {cfg} — accelerators "
+                               "must ship out-of-tree (an in-tree copy masks the validated "
+                               f"overlay/DKMS module at modprobe time){note}")
+                        (errors if severity == "error" else warnings).append(msg)
+                        break
+        mods = (v.get("modules") or {}).get("file")
+        if not mods or not v.get("kver") or not os.path.isfile(os.path.join(ROOT, mods)):
             continue
         try:
-            text = open(path, errors="replace").read()
-        except OSError:
+            with tarfile.open(os.path.join(ROOT, mods)) as t:
+                names = t.getnames()
+        except (OSError, tarfile.TarError) as e:
+            errors.append(f"[{label}] cannot list {mods}: {e}")
             continue
-        for sym, severity in INTREE_ACCEL_POLICY.items():
-            for val in ("y", "m"):
-                if f"\n{sym}={val}\n" in "\n" + text:
-                    msg = (f"[{label}] {sym}={val} is IN-TREE in {cfg} — accelerators "
-                           "must ship out-of-tree (an in-tree copy masks the validated "
-                           "overlay/DKMS module at modprobe time)")
-                    (errors if severity == "error" else warnings).append(msg)
-                    break
+        for sym, rel in INTREE_ACCEL_MODULES.items():
+            want = f"/modules/{v['kver']}/{rel}"
+            hits = [n for n in names if (n.endswith(want) or n.endswith(want + ".xz")
+                                         or n.endswith(want + ".zst"))]
+            if hits:
+                severity, note = _intree_severity(sym, v)
+                msg = (f"[{label}] {mods} ships in-tree {hits[0]} ({sym}) — it would load "
+                       f"instead of the DKMS module whenever that is missing{note}")
+                (errors if severity == "error" else warnings).append(msg)
     return errors, warnings
+
+
+def vpu_package_errors(live):
+    """The VPU module reaches the installed system only as the cix-vpu-driver
+    DKMS package (and the prebuilt overlay built from the same source). With
+    the in-tree driver gone, a missing piece means no VPU at all, so each one
+    is a build error: the overlay .ko for the KVER, the DKMS conf that builds
+    amvx into updates/, and the ledger row of the DKMS deb."""
+    errors = []
+    vpu = os.path.join(ROOT, ACCEL_OVERLAYS["vpu"])
+    conf = os.path.join(vpu, "dkms.conf")
+    try:
+        with open(conf) as f:
+            conf_text = f.read()
+    except OSError:
+        conf_text = None
+    if conf_text is None:
+        errors.append(f"[vpu] {os.path.relpath(conf, ROOT)} missing — no DKMS package can build amvx")
+    else:
+        if 'BUILT_MODULE_NAME[0]="amvx"' not in conf_text:
+            errors.append(f"[vpu] {os.path.relpath(conf, ROOT)} does not build amvx")
+        if 'DEST_MODULE_LOCATION[0]="/updates"' not in conf_text:
+            errors.append(f"[vpu] {os.path.relpath(conf, ROOT)} does not install amvx into /updates")
+    ledger = os.path.join(ROOT, "manifests", "ncz-packages.tsv")
+    have_row = False
+    try:
+        with open(ledger) as f:
+            for line in f:
+                cols = line.rstrip("\n").split("\t")
+                if cols and cols[0] == "cix-vpu-driver-dkms" and len(cols) > 3 \
+                        and len(cols[3]) == 64:
+                    have_row = True
+    except OSError:
+        pass
+    if not have_row:
+        errors.append("[vpu] manifests/ncz-packages.tsv has no cix-vpu-driver-dkms row with a "
+                      "sha256 — the kernel package set would ship without the VPU module")
+    for label, v in live.get("variants", {}).items():
+        kver = v.get("kver")
+        if not kver:
+            continue
+        # The DKMS amvx imports the videobuf2 DMA-SG helpers. VIDEO_LINLON
+        # used to select them; a kernel without it needs VIDEO_LINLON_OOT.
+        cfg = (v.get("config") or {}).get("file")
+        if cfg and os.path.isfile(os.path.join(ROOT, cfg)):
+            with open(os.path.join(ROOT, cfg), errors="replace") as f:
+                ctext = "\n" + f.read()
+            if not ("\nCONFIG_VIDEOBUF2_DMA_SG=m\n" in ctext
+                    or "\nCONFIG_VIDEOBUF2_DMA_SG=y\n" in ctext):
+                errors.append(f"[{label}] {cfg} has no CONFIG_VIDEOBUF2_DMA_SG — the DKMS VPU "
+                              "module cannot load (set CONFIG_VIDEO_LINLON_OOT)")
+        ko = os.path.join(vpu, kver, "amvx.ko")
+        if not os.path.isfile(ko):
+            errors.append(f"[{label}] VPU overlay {os.path.relpath(ko, ROOT)} missing — "
+                          "this board would boot with no VPU driver")
+        elif not os.path.isfile(os.path.join(vpu, kver, "SOURCE.sha256")):
+            errors.append(f"[{label}] {os.path.relpath(os.path.join(vpu, kver), ROOT)}/SOURCE.sha256 "
+                          "missing — the overlay is not bound to its source")
+    return errors
 
 
 def npu_intree_enabled(v):
@@ -399,9 +535,13 @@ def cmd_check():
     # Invariant 3: each shipped variant needs a mali overlay for its KVER.
     errors.extend(overlay_present_errors(live))
 
-    # Invariant 4: no accelerator may be built into the shipped kernel config.
+    # Invariant 4: no accelerator may be built into the shipped kernel config
+    # or carried as an in-tree module file.
     _e, _w = intree_accel_findings(live)
     errors.extend(_e); warnings.extend(_w)
+
+    # Invariant 4b: the VPU module package set is complete.
+    errors.extend(vpu_package_errors(live))
 
     # Invariant 5: live assets must match the committed manifest (no silent swap).
     if not os.path.isfile(MANIFEST):

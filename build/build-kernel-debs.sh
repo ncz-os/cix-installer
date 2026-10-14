@@ -626,6 +626,29 @@ build_kernel_deb() {
         exit 1
     fi
 
+    # NO IN-TREE VPU DRIVER. The VPU ships only as the cix-vpu-driver DKMS
+    # module (updates/dkms/amvx.ko). An in-tree amvx.ko under the same name is
+    # what loads whenever the DKMS module is missing (failed build, removed
+    # package, same-KVER kernel reinstall), silently and unvalidated. Error,
+    # except for revisions in KERNEL-POLICY INTREE_ACCEL_GRANDFATHERED_SKY1
+    # (shipped before the rule; their bytes are fixed).
+    local _intree _gf
+    # (the directory does not exist at all on a correct kernel: || true)
+    _intree=$(find "$root/usr/lib/modules/$kver/kernel/drivers/media/platform/cix" \
+        -name 'amvx.ko*' 2>/dev/null | head -1 || true)
+    if [ -n "$_intree" ]; then
+        _gf=$(sed -n 's/^INTREE_ACCEL_GRANDFATHERED_SKY1=//p' "$REPO/assets/kernel/KERNEL-POLICY" 2>/dev/null | head -1)
+        case ",$_gf," in
+            *",$BUILD_REV,"*)
+                echo "  WARN: [$channel] in-tree ${_intree#"$root"} present (CONFIG_VIDEO_LINLON); $BUILD_REV is grandfathered" >&2 ;;
+            *)
+                echo "  ERROR: [$channel] in-tree ${_intree#"$root"} present (CONFIG_VIDEO_LINLON is set)" >&2
+                echo "         the VPU driver must ship only as the cix-vpu-driver DKMS module;" >&2
+                echo "         rebuild the kernel with CONFIG_VIDEO_LINLON not set" >&2
+                exit 1 ;;
+        esac
+    fi
+
     mc=$(find "$root/usr/lib/modules/$kver" \( -name '*.ko' -o -name '*.ko.xz' \) | wc -l)
     [ "$mc" -ge 50 ] || { echo "ERROR: suspiciously few modules ($mc) for $kver"; exit 1; }
 

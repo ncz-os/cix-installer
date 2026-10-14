@@ -104,6 +104,43 @@ else
     echo "  PASS  nothing was published by the refused run"; PASS=$((PASS + 1))
 fi
 
+echo "=== 9 in-tree VPU driver (CONFIG_VIDEO_LINLON) inside linux-image-cixmini ==="
+mkdeb_amvx() {   # dir version: image deb carrying kernel/drivers/media/platform/cix/amvx.ko
+    local d="$1" ver="$2" root kv
+    kv="${ver%%+*}"
+    root="$W/pkg-amvx-$ver"
+    mkdir -p "$root/DEBIAN" "$root/usr/lib/modules/$kv/kernel/drivers/media/platform/cix" "$d"
+    printf 'Package: linux-image-cixmini\nVersion: %s\nArchitecture: arm64\nMaintainer: test <t@t>\nDescription: pin fixture\n' \
+        "$ver" > "$root/DEBIAN/control"
+    printf 'ko' > "$root/usr/lib/modules/$kv/kernel/drivers/media/platform/cix/amvx.ko"
+    dpkg-deb --build --root-owner-group "$root" "$d/linux-image-cixmini_${ver}_arm64.deb" >/dev/null
+}
+printf '7.3.0-rc7-sky1-ncz' > "$W/KVER73"
+printf '# fixture\nINTREE_ACCEL_GRANDFATHERED_SKY1=r289\n' > "$W/POLICY"
+mkdeb_amvx "$W/c9a" 7.3.0-rc7-sky1-ncz+r290
+mkdeb "$W/c9a" linux-headers-cixmini 7.3.0-rc7-sky1-ncz+r290
+mkdeb "$W/c9a" cixmini-boot          1.3+r290
+check "r290 image with in-tree amvx.ko fails" 1 env KERNEL_POLICY_FILE="$W/POLICY" \
+    bash "$PIN" "$W/KVER73" "$W/c9a"
+mkdeb_amvx "$W/c9b" 7.3.0-rc7-sky1-ncz+r289
+mkdeb "$W/c9b" linux-headers-cixmini 7.3.0-rc7-sky1-ncz+r289
+mkdeb "$W/c9b" cixmini-boot          1.3+r289
+check "grandfathered r289 image with in-tree amvx.ko passes (warns)" 0 env KERNEL_POLICY_FILE="$W/POLICY" \
+    bash "$PIN" "$W/KVER73" "$W/c9b"
+printf '# fixture\n' > "$W/POLICY-empty"
+check "r289 image with in-tree amvx.ko fails once not grandfathered" 1 env KERNEL_POLICY_FILE="$W/POLICY-empty" \
+    bash "$PIN" "$W/KVER73" "$W/c9b"
+mkdeb "$W/c9c" linux-image-cixmini   7.3.0-rc7-sky1-ncz+r290
+mkdeb "$W/c9c" linux-headers-cixmini 7.3.0-rc7-sky1-ncz+r290
+mkdeb "$W/c9c" cixmini-boot          1.3+r290
+check "r290 image without in-tree amvx.ko passes" 0 env KERNEL_POLICY_FILE="$W/POLICY" \
+    bash "$PIN" "$W/KVER73" "$W/c9c"
+if grep -qx 'INTREE_ACCEL_GRANDFATHERED_SKY1=r289' "$REPO/assets/kernel/KERNEL-POLICY"; then
+    echo "  PASS  KERNEL-POLICY grandfathers exactly r289"; PASS=$((PASS + 1))
+else
+    echo "  FAIL  KERNEL-POLICY INTREE_ACCEL_GRANDFATHERED_SKY1 is not exactly r289"; FAIL=$((FAIL + 1))
+fi
+
 echo "=== 8 Makefile kernel-debs freshness parser strips +r<N> ==="
 sed_expr="$(grep -o "sed -nE 's/\.\*linux-image-cixmini_[^']*'" "$REPO/Makefile" | head -1 | sed "s/^sed -nE '//; s/'\$//")"
 got="$(printf '%s\n' "$W/x/linux-image-cixmini_7.2.8-sky1-ncz+r277_arm64.deb" | sed -nE "$sed_expr")"

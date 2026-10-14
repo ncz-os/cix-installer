@@ -59,3 +59,11 @@ EDGE_ENABLED=0
 # CLEARED. Re-add a MAINLINE_FRESHNESS_ACK=<pin>:<declined-newer> line only to
 # decline a genuinely newer non-shipping build, with explicit operator
 # direction.
+
+# Sky1 kernel revisions that shipped with an accelerator driver built in-tree
+# (CONFIG_VIDEO_LINLON=m, kernel/drivers/media/platform/cix/amvx.ko) before
+# that became an error. Their published bytes cannot change, so the in-tree
+# checks in build/kernel-manifest.py, build/build-kernel-debs.sh and
+# build/check-kernel-deb-pin.sh only warn for them. Never add a new revision:
+# every later kernel must ship the VPU driver out-of-tree only.
+INTREE_ACCEL_GRANDFATHERED_SKY1=r289
