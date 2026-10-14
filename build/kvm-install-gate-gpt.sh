@@ -358,7 +358,7 @@ trap 'kill "$QEMU_PID" 2>/dev/null; exit 130' INT TERM
 # checks below then report it from the logs as usual.
 while kill -0 "$QEMU_PID" 2>/dev/null; do
     if [ -s "$S0" ] && sed 's/\x1b\[[0-9;?]*[A-Za-z]//g' "$S0" 2>/dev/null | tr -s ' ' \
-         | grep -aqE 'Failed to run preseeded command|install is NOT bootable'; then
+         | grep -aE 'Failed to run preseeded command|install is NOT bootable' >/dev/null; then
         echo "  terminal install failure on the serial console; stopping the guest"
         sleep 20
         kill "$QEMU_PID" 2>/dev/null || true
