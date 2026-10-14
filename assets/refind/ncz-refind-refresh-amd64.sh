@@ -270,8 +270,54 @@ fi
 # keeps its OWN explicit guards.
 set +e +u +o pipefail
 
+# NCZ-ROOT-PARTUUID-BEGIN
+# Every normal entry boots root=PARTUUID=<root>. The initramfs waits for
+# /dev/disk/by-partuuid/<root>, which udev creates from the same libblkid
+# probe blkid runs here, so an empty answer is a boot that hangs ("Expecting
+# device dev-disk-by\x2dpartuuid.device", seen on a Macmini5,1 whose root
+# partition still carried an ext4 superblock under the new btrfs: the probe is
+# ambivalent and reports nothing). The GPT entry is read directly (sfdisk,
+# then sgdisk) to name the partition in the error and to cover a blkid cache
+# miss; an ambivalent probe always fails, before anything on the ESP changes.
+# build/test-install-options.sh extracts this block between its markers.
+ncz_gpt_partuuid() {   # <partition device> -> the GPT unique GUID, lower case
+    local _dev _name _disk _num _u=""
+    _dev=$(readlink -f "$1" 2>/dev/null || printf '%s' "$1")
+    _name=${_dev##*/}
+    _num=$(cat "/sys/class/block/$_name/partition" 2>/dev/null)
+    _disk=$(basename "$(readlink -f "/sys/class/block/$_name/.." 2>/dev/null)" 2>/dev/null)
+    if [ -n "$_num" ] && [ -n "$_disk" ] && [ -b "/dev/$_disk" ]; then
+        _u=$(sfdisk --part-uuid "/dev/$_disk" "$_num" 2>/dev/null)
+        [ -n "$_u" ] || _u=$(sgdisk -i "$_num" "/dev/$_disk" 2>/dev/null | sed -n 's/^Partition unique GUID: //p')
+    fi
+    printf '%s' "$_u" | tr 'A-F' 'a-f' | tr -d ' \r\n'
+}
 ROOT_SRC=$(findmnt -no SOURCE --nofsroot /)
-ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC")
+ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC" 2>/dev/null)
+if [ -z "$ROOT_PARTUUID" ]; then
+    ROOT_GPT_PARTUUID=$(ncz_gpt_partuuid "$ROOT_SRC")
+    ROOT_PROBE=$(blkid -p -o udev "$ROOT_SRC" 2>&1)
+    case "$ROOT_PROBE" in
+        *ambivalent*)
+            echo "ERROR: the root partition $ROOT_SRC carries more than one filesystem signature (blkid: ambivalent result)."
+            echo "       udev cannot create /dev/disk/by-partuuid/${ROOT_GPT_PARTUUID:-?} for it, so the system would hang in the initramfs."
+            echo "       'wipefs -n $ROOT_SRC' lists the signatures; the installer clears old signatures before partitioning."
+            echo "       Refusing to modify the ESP."
+            exit 1 ;;
+    esac
+    if [ -n "$ROOT_GPT_PARTUUID" ]; then
+        ROOT_PARTUUID="$ROOT_GPT_PARTUUID"
+        echo "  root PARTUUID read from the GPT entry ($ROOT_PARTUUID): blkid returned none"
+    fi
+fi
+case "$ROOT_PARTUUID" in
+    [0-9a-fA-F]*-*-*-*-*) : ;;
+    *)
+        echo "ERROR: no PARTUUID for the root partition ${ROOT_SRC:-?} (blkid and the GPT entry gave '${ROOT_PARTUUID}')."
+        echo "       Refusing to write boot entries with an empty root=PARTUUID= and to modify the ESP."
+        exit 1 ;;
+esac
+# NCZ-ROOT-PARTUUID-END
 ROOT_FSTYPE=$(findmnt -no FSTYPE /)
 ROOT_SUBVOL=""
 if [ "$ROOT_FSTYPE" = "btrfs" ]; then
