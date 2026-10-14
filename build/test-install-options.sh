@@ -201,6 +201,8 @@ else
 fi
 grep -q 'ncz_components=\$GATE_COMPONENTS_ARG' "$GATE" && ok "the gate passes the answer on the Install cmdline" || nok "gate cmdline still fixed"
 grep -q 'VERIFY_EXPECT_COMPONENTS="\$EXPECT_RECORD"' "$GATE" && ok "the gate hands the expected record to the verifier" || nok "verifier not told the record"
+grep -q "grep -aqE 'Failed to run preseeded command|install is NOT bootable'" "$GATE" && grep -q 'wait "\$QEMU_PID"' "$GATE" \
+    && ok "a failed finish stops the install guest instead of waiting out the timeout" || nok "no early stop on a failed finish"
 grep -q -- '-i 3 ' "$GATE" && nok "the gate still assumes the root is partition 3" || ok "no fixed partition 3 in the gate"
 SGDISK="$(command -v sgdisk || echo /sbin/sgdisk)"
 if [ -x "$SGDISK" ]; then

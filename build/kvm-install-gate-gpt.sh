@@ -349,7 +349,22 @@ timeout "$INSTALL_TIMEOUT" "$QEMU" \
   -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
   -serial "file:$S0" \
   -display none -no-reboot \
-  > "$ILOG" 2>&1
+  > "$ILOG" 2>&1 &
+QEMU_PID=$!
+# A failed finish leaves d-i on its error dialog until the timeout (90 min).
+# Stop the guest as soon as the serial console shows a terminal failure; the
+# checks below then report it from the logs as usual.
+while kill -0 "$QEMU_PID" 2>/dev/null; do
+    if [ -s "$S0" ] && sed 's/\x1b\[[0-9;?]*[A-Za-z]//g' "$S0" 2>/dev/null | tr -s ' ' \
+         | grep -aqE 'Failed to run preseeded command|install is NOT bootable'; then
+        echo "  terminal install failure on the serial console; stopping the guest"
+        sleep 20
+        kill "$QEMU_PID" 2>/dev/null || true
+        break
+    fi
+    sleep 10
+done
+wait "$QEMU_PID"
 irc=$?
 set -e
 cat "$S0" >> "$ILOG" 2>/dev/null
