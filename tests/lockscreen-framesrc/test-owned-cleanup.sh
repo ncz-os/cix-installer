@@ -17,7 +17,10 @@
 # Asserts: owned discovery finds the owned source; fault injection REFUSES the
 # unrelated PID; cleanup reaps the owned group and leaves the canary alive; no
 # owned orphan/leak remains; a reused-PID leader (start time changed) does not
-# qualify.
+# qualify; a stale-incarnation entry referring to an unrelated EXACT-same-SRC
+# executable in another owned-session group is left alive by stop_all; an
+# orphaned real-SRC child whose leader exited is reaped by stop_all while an
+# unrelated same-basename canary in another group survives.
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -47,17 +50,40 @@ CANARY="$TD/elsewhere/singularity-lock-framesrc-testsrc"
 cp /bin/sleep "$SRC"; cp /bin/sleep "$CANARY"
 chmod +x "$SRC" "$CANARY"
 
-# Engine under test: the SAME file the harness sources.
+# Engine under test: the SAME file the harness sources. The engine is
+# fail-closed about its persistent registry: it requires OWNED_WORK (or WORK)
+# to be set, otherwise it refuses to source. The unit therefore sets OWNED_WORK
+# to its own scratch dir BEFORE sourcing, so the registry file lives under $TD
+# and is cleaned up with the fixture. This mirrors the real harness, which sets
+# WORK (and thus OWNED_WORK=$WORK/tmp) before sourcing the engine.
+OWNED_WORK="$TD/owned-work"
+mkdir -p "$OWNED_WORK"
 # shellcheck source=owned-processes.sh
 . "$HERE/owned-processes.sh"
 
-# Extra cleanup on abort paths: reap our two fixture groups and the scratch dir.
-CAN_PID=""; OWN_PID=""; OWN_CHILD=""
+# Extra cleanup on abort paths: reap our fixture groups and the scratch dir.
+# Every known child is reaped by EXACT PID (never by name), and we wait on it
+# so a failure cannot leak a running orphan or hold stdout open.
+CAN_PID=""; OWN_PID=""; OWN_CHILD=""; STALE_PID=""; ORPHAN_LEADER=""; ORPHAN_CHILD=""; ORPHAN_CANARY=""
+_reap_pid() { # $1 = pid; kill -9 and wait so no orphan/zombie leaks
+    local p="$1"
+    [ -n "$p" ] || return 0
+    kill -9 "$p" 2>/dev/null
+    wait "$p" 2>/dev/null
+}
 cleanup_fixture() {
+    # Reap each known child by exact PID, then its group, then wait.
+    _reap_pid "$OWN_CHILD"
+    _reap_pid "$CAN_PID"
+    _reap_pid "$STALE_PID"
+    _reap_pid "$ORPHAN_CHILD"
+    _reap_pid "$ORPHAN_CANARY"
+    _reap_pid "$ORPHAN_LEADER"
+    _reap_pid "$OWN_PID"
+    # Group kills as a belt-and-braces for any descendant we did not name.
     [ -n "$OWN_PID" ] && kill -9 -- "-$OWN_PID" 2>/dev/null
-    [ -n "$OWN_PID" ] && kill -9 "$OWN_PID" 2>/dev/null
-    [ -n "$OWN_CHILD" ] && kill -9 "$OWN_CHILD" 2>/dev/null
-    [ -n "$CAN_PID" ] && kill -9 "$CAN_PID" 2>/dev/null
+    [ -n "$STALE_PID" ] && kill -9 -- "-$STALE_PID" 2>/dev/null
+    [ -n "$ORPHAN_LEADER" ] && kill -9 -- "-$ORPHAN_LEADER" 2>/dev/null
     wait 2>/dev/null
     rm -rf "$TD"
 }
@@ -147,7 +173,7 @@ if kill -0 "$CAN_PID" 2>/dev/null; then ok "canary alive after stop_all"; else b
 # 6) reused-PID safety: a leader whose recorded start time no longer matches
 #    must NOT qualify (owned_leader_intact false; kill_owned_source refuses).
 GEN=$((GEN+1))
-BADENTRY="$$:$$\:$GEN:bogus-starttime"     # real pid, real pgid, WRONG starttime
+BADENTRY="$$:$$:$GEN:bogus-starttime"     # real pid, real pgid, WRONG starttime
 LOCK_OWNED=("$BADENTRY")
 if owned_leader_intact "$BADENTRY"; then
     bad "owned_leader_intact accepted a changed start time (reused PID)"
@@ -160,7 +186,7 @@ else
     ok "kill_owned_source refuses a leader whose start time changed"
 fi
 # A true start time for the same pid DOES qualify (proves it is not always false).
-LOCK_OWNED=("$$:$$\:$GEN:$(starttime_of "$$")")
+LOCK_OWNED=("$$:$$:$GEN:$(starttime_of "$$")")
 if kill_owned_source "$$"; then
     bad "kill_owned_source killed the test process itself"
 else
@@ -170,7 +196,110 @@ fi
 # shellcheck disable=SC2034  # shared with sourced owned-processes.sh
 LOCK_OWNED=()
 
-# 7) canary is still ours to clean up; reap it and the scratch dir
+# 7) REGRESSION: stale-incarnation entry refers to an unrelated EXACT-same-SRC
+#    executable in another owned-session group, with a WRONG start time.
+#    ACTUAL stop_all must leave it alive (then the unit cleans it by exact PID).
+#    This proves discovery/signalling EXCLUDE entries whose leader PID exists
+#    but has a different start time, even when the exe is the EXACT same $SRC.
+#    It ALSO proves stop_all does NOT WAIT on a stale-incarnation entry: if it
+#    did, this test would block for the full 300s lifetime of the stale PID.
+STALE_PID=""
+setsid "$SRC" 300 & STALE_PID=$!
+sleep 0.4
+if [ -n "$STALE_PID" ] && kill -0 "$STALE_PID" 2>/dev/null; then
+    # Record the entry with a WRONG start time (stale incarnation).
+    GEN=$((GEN+1))
+    LOCK_OWNED=("$STALE_PID:$STALE_PID:$GEN:0")
+    stop_all
+    sleep 0.3
+    if kill -0 "$STALE_PID" 2>/dev/null; then
+        ok "stop_all left the stale-incarnation same-SRC process alive (excluded)"
+    else
+        bad "stop_all killed a stale-incarnation same-SRC process (must exclude)"
+    fi
+    # Unit cleans it by exact PID (not by name).
+    kill -9 -- "-$STALE_PID" 2>/dev/null
+    kill -9 "$STALE_PID" 2>/dev/null
+    wait "$STALE_PID" 2>/dev/null
+    STALE_PID=""
+else
+    bad "stale-incarnation fixture failed to start"
+fi
+LOCK_OWNED=()
+
+# 8) REGRESSION: orphan fixture. OWN setsid lock parent forks a real $SRC child,
+#    parent exits AFTER the child is registered (handshake barrier), while the
+#    child remains. ACTUAL stop_all must terminate the child; an unrelated
+#    same-basename canary in another group must survive.
+#
+#    The orphan child is retained in $ORPHAN_CHILD until we have PROVEN it is
+#    dead (kill -0 fails). Only then do we clear the variable, so the EXIT trap
+#    can still reap it by exact PID if any assertion fails mid-way. This is the
+#    fail-closed contract: a failed assertion must not leak a running orphan.
+ORPHAN_LEADER=""; ORPHAN_CHILD=""; ORPHAN_CANARY=""
+HANDSHAKE="$TD/orphan.handshake"
+rm -f "$HANDSHAKE"
+# Launch a setsid leader that forks a real $SRC child, waits for the handshake
+# file to appear (proving the child is up and registered), then exits.
+setsid bash -c '
+    "$1" 300 &
+    child=$!
+    printf "%s\n" "$child" >"$2"
+    # wait for the handshake file to appear (barrier: child is up)
+    for _ in $(seq 1 100); do
+        [ -e "$3" ] && break
+        sleep 0.05
+    done
+    exit 0
+' _ "$SRC" "$TD/orphan.child" "$HANDSHAKE" & ORPHAN_LEADER=$!
+sleep 0.4
+# Wait for the child PID file to appear (leader forked the child).
+for _ in $(seq 1 100); do
+    [ -s "$TD/orphan.child" ] && break
+    sleep 0.05
+ done
+ORPHAN_CHILD="$(cat "$TD/orphan.child" 2>/dev/null || true)"
+if [ -n "$ORPHAN_CHILD" ] && kill -0 "$ORPHAN_CHILD" 2>/dev/null; then
+    # Register the leader entry (with its real start time) BEFORE the leader exits.
+    GEN=$((GEN+1))
+    owned_add "$ORPHAN_LEADER" "$ORPHAN_LEADER" "$GEN" "$(starttime_of "$ORPHAN_LEADER")"
+    # Signal the barrier: leader may now exit.
+    : >"$HANDSHAKE"
+    # Wait for the leader to exit (child remains orphaned in the owned PGID).
+    for _ in $(seq 1 100); do
+        kill -0 "$ORPHAN_LEADER" 2>/dev/null || break
+        sleep 0.05
+    done
+    # Unrelated same-basename canary in another (non-owned) group.
+    "$CANARY" 300 & ORPHAN_CANARY=$!
+    sleep 0.3
+    stop_all
+    sleep 0.3
+    if kill -0 "$ORPHAN_CHILD" 2>/dev/null; then
+        bad "stop_all left the orphaned real-SRC child alive"
+        # ORPHAN_CHILD is retained so the EXIT trap reaps it by exact PID.
+    else
+        ok "stop_all reaped the orphaned real-SRC child (leader gone)"
+        # Proven dead: clear so the trap does not re-signal a reused PID.
+        ORPHAN_CHILD=""
+    fi
+    if kill -0 "$ORPHAN_CANARY" 2>/dev/null; then
+        ok "unrelated same-basename canary survived stop_all (orphan case)"
+    else
+        bad "stop_all killed the unrelated same-basename canary (orphan case)"
+    fi
+    kill -9 "$ORPHAN_CANARY" 2>/dev/null; wait "$ORPHAN_CANARY" 2>/dev/null
+    ORPHAN_CANARY=""
+else
+    bad "orphan fixture failed to fork a real-SRC child"
+fi
+ORPHAN_LEADER=""
+# ORPHAN_CHILD is cleared above ONLY after proven dead; on failure it remains
+# set so cleanup_fixture reaps it by exact PID.
+LOCK_OWNED=()
+
+# 9) canary is still ours to clean up; reap it and the scratch dir
 kill -9 "$CAN_PID" 2>/dev/null; wait "$CAN_PID" 2>/dev/null
+CAN_PID=""
 echo "== UNIT RESULT: $PASS passed, $FAIL failed =="
 [ "$FAIL" -eq 0 ]
