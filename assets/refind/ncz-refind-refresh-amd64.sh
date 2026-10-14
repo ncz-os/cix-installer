@@ -212,21 +212,47 @@ if [ "$STABLE_PREFLIGHT_READY" = "0" ]; then
 fi
 echo "  preflight OK: stable kernel payload is present"
 
-# Recovery is part of the release contract, but validate it before touching
-# the ESP.  This check used to run after stale kernels and refind.conf had
+# A selected rescue partition is validated before touching the ESP.
+# This check used to run after stale kernels and refind.conf had
 # already been deleted, so the deterministic AMD64 rescue-hook failure turned
 # an otherwise recoverable ESP into an unbootable one before returning rc=1.
+# NCZ-RESCUE-PREFLIGHT-BEGIN
+# Rescue partition (install-time component "rescue-partition"). It is required
+# only when it was selected. The selection is read from the same COMPONENTS
+# record, in the same order, that post-install/run-all.sh uses to decide whether
+# 72-rescue-partition.sh runs, so the two can never disagree. With no record at
+# all (an install that predates the component selector) the partition stays
+# required. When it is required, nothing on the ESP is touched until
+# 72-rescue-partition.sh has written RESCUE_READY with a PARTUUID. When it was
+# not selected there is no rescue-partition menu entry.
+# build/test-install-options.sh extracts this block between its markers.
 RESCUE_READY="$INSTALLER_META/RESCUE_READY"
 RESCUEPART_PARTUUID=""
 if [ -f "$RESCUE_READY" ]; then
     RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
 fi
-if [ -z "$RESCUEPART_PARTUUID" ]; then
+RESCUEPART_REQUIRED=1
+RESCUEPART_RECORD=""
+for _rcf in "$INSTALLER_META/COMPONENTS" /etc/cix-installer/COMPONENTS /var/lib/cix-components/COMPONENTS; do
+    [ -r "$_rcf" ] || continue
+    RESCUEPART_RECORD="$_rcf"
+    _rcomponents=$(tr -d ' \t\r\n' < "$_rcf" 2>/dev/null || true)
+    case ",$_rcomponents," in
+        *",rescue-partition,"*) RESCUEPART_REQUIRED=1 ;;
+        *)                      RESCUEPART_REQUIRED=0 ;;
+    esac
+    break
+done
+if [ -n "$RESCUEPART_PARTUUID" ]; then
+    echo "  preflight OK: rescue partition PARTUUID=$RESCUEPART_PARTUUID"
+elif [ "$RESCUEPART_REQUIRED" = "1" ]; then
     echo "ERROR: rescue partition is required but $RESCUE_READY has no PARTUUID"
     echo "       Refusing to modify the ESP until recovery is ready."
     exit 1
+else
+    echo "  preflight OK: rescue partition not selected ($RESCUEPART_RECORD); no rescue-partition entry"
 fi
-echo "  preflight OK: rescue partition PARTUUID=$RESCUEPART_PARTUUID"
+# NCZ-RESCUE-PREFLIGHT-END
 
 # Preflight (above) validated inputs under `set -euo pipefail`. The ESP is
 # vfat (no ownership/perms). The write section below tolerates vfat quirks
@@ -570,7 +596,13 @@ RESCUE_CMDLINE_BASE="${NCZ_SERIAL_CONSOLE_ARG:-}console=tty0 systemd.condition_f
 RESCUE_OPTIONS="$ROOT_OPTS $RESCUE_CMDLINE_BASE module_blacklist=$RESCUE_ACCEL_BLACKLIST systemd.unit=multi-user.target"
 
 RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw ${NCZ_SERIAL_CONSOLE_ARG:-}console=tty0 module_blacklist=$RESCUE_ACCEL_BLACKLIST systemd.unit=multi-user.target"
-echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — same 7.3 kernel, accelerators blacklisted ($RESCUE_ACCEL_BLACKLIST)"
+if [ -n "${RESCUEPART_PARTUUID:-}" ]; then
+    echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — same 7.3 kernel, accelerators blacklisted ($RESCUE_ACCEL_BLACKLIST)"
+else
+    # Rescue partition not selected at install time (see the preflight): no entry.
+    RESCUEPART_OPTIONS=""
+    echo "  no rescue partition on this install: rescue-partition entry omitted"
+fi
 # NCZ-DEFAULT-OPTIONS-END
 
 install -d -m 0755 /boot/efi/EFI/BOOT
