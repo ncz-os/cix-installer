@@ -281,5 +281,15 @@ grep >/dev/null 'VIVALDI_FFMPEG_AUTO=0 /usr/bin/vivaldi-stable --version' "$V" &
 n="$(grep -c 'vivaldi-stable --version' "$V")"; [ "$n" = 1 ] && ok "one version probe in 52-vivaldi" || bad "$n version probes in 52-vivaldi"
 grep >/dev/null 'sudo chroot "$MG" env NCZ_LAYER_BUILD=1 bash -c' "$ROOT/build/build-squashfs-layers.sh" && ok "the layer build runs the app hooks with NCZ_LAYER_BUILD=1" || bad "app hooks do not get NCZ_LAYER_BUILD=1"
 
+# ===========================================================================
+echo "== 8. config-files packages are named; reviewed ones carry their reason =="
+C="$T/cfgfiles"; mkdir -p "$C/var/lib/dpkg"
+printf 'Package: dracut\nStatus: deinstall ok config-files\nVersion: 112-7\n\nPackage: foo\nStatus: install ok installed\nVersion: 1\n' > "$C/var/lib/dpkg/status"
+tsv="$(lc "$C")"; e="$(ev "$tsv" dpkg-status)"
+[ "$(res "$tsv" dpkg-status)" = WARN ] && printf '%s' "$e" | grep >/dev/null 'dracut(arm64 base: initramfs-tools wins' && ok "dracut config-files: WARN with its reviewed reason" || bad "dracut config-files: $(res "$tsv" dpkg-status) $e"
+printf 'Package: bar\nStatus: deinstall ok config-files\nVersion: 2\n' > "$C/var/lib/dpkg/status"
+tsv="$(lc "$C")"; e="$(ev "$tsv" dpkg-status)"
+[ "$(res "$tsv" dpkg-status)" = WARN ] && printf '%s' "$e" | grep >/dev/null 'bar(not allow-listed)' && ok "unreviewed config-files package: WARN naming it as not allow-listed" || bad "unreviewed config-files: $e"
+
 echo "test-layer-gates: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

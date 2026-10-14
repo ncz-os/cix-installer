@@ -306,10 +306,16 @@ chk_dpkg_status() {  # LAYER, label
     if [ -n "$bad" ]; then
         _rec "$lbl" dpkg-status FAIL "half-installed/unpacked packages: $(printf '%s' "$bad" | tr '\n' ';')"
     else
-        local cfg
-        cfg="$(printf '%s' "$st" | grep -c '^Status: deinstall ok config-files' || true)"
+        local cfg cfgp note="" p why
+        cfgp="$(printf '%s\n' "$st" | awk '/^Package:/{p=$2} /^Status: deinstall ok config-files/{print p}' | sort -u)"
+        cfg="$(printf '%s\n' "$cfgp" | grep -c . || true)"
         if [ "${cfg:-0}" -gt 0 ]; then
-            _rec "$lbl" dpkg-status WARN "$cfg package(s) in config-files state (removed, config kept)"
+            # reviewed cases: 'config-files' rows in layer-perms-allowlist.tsv
+            for p in $cfgp; do
+                why="$(awk -F'\t' -v p="$p" '$1=="config-files" && p ~ $2 {print $3; exit}' "$ROOT/build/layer-perms-allowlist.tsv" 2>/dev/null)"
+                note="$note $p(${why:-not allow-listed})"
+            done
+            _rec "$lbl" dpkg-status WARN "$cfg package(s) in config-files state (removed, config kept):$note"
         else
             _rec "$lbl" dpkg-status PASS "var/lib/dpkg/status consistent (no half-installed/unpacked/config-files)"
         fi

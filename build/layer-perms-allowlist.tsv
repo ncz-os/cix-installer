@@ -3,6 +3,8 @@
 #   kind = suid  -> a setuid/setgid FILE outside this list FAILS
 #   kind = ww    -> a world-writable DIRECTORY outside this list WARNs
 #   kind = owner -> a member owned by a uid/gid >= 1000 (not 65534) outside this list FAILS
+#   kind = config-files -> a package left in dpkg config-files state; the dpkg-status
+#                   WARN names the reason (the WARN stays: the state is still reported)
 #                   (no rows: every layer member is owned by a system account)
 # The path regex is matched (grep -E) against the layer-relative member path.
 # Keep this list tight: it exists so an unexpected setuid binary fails loudly.
@@ -27,3 +29,4 @@ ww	^var/tmp$	var/tmp
 ww	^var/mail$	mail spool
 ww	^var/spool/(mail|cron)$	spool dirs
 ww	^run/lock$	lock dir
+config-files	^dracut$	arm64 base: initramfs-tools wins the dracut|initramfs-tools alternative and removes dracut (dracut-core stays); post-install/94-dracut-config.sh reinstalls dracut on the target
