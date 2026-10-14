@@ -310,9 +310,11 @@ between "$CHOOSER" 'NCZ-WIPE-SIGNATURES-BEGIN' 'NCZ-WIPE-SIGNATURES-END' > "$W/w
 if [ -s "$W/wipe.sh" ]; then
     rm -rf "$W/wp"; mkdir -p "$W/wp/sys/sdz/sdz1" "$W/wp/sys/sdz/sdz3"
     echo 2048 > "$W/wp/sys/sdz/sdz1/start"; echo 4096 > "$W/wp/sys/sdz/sdz1/size"
+    echo 240:0 > "$W/wp/sys/sdz/dev"; echo 240:1 > "$W/wp/sys/sdz/sdz1/dev"; echo 240:3 > "$W/wp/sys/sdz/sdz3/dev"
+    : > "$W/wp/mountinfo"; echo 'Filename Type Size Used Priority' > "$W/wp/swaps"
     echo 20480 > "$W/wp/sys/sdz/sdz3/start"; echo 40960 > "$W/wp/sys/sdz/sdz3/size"
     D="$W/wp/disk.img"; head -c $((70000 * 512)) /dev/zero | tr '\0' 'x' > "$D"
-    sed "s#/sys/block/#$W/wp/sys/#g" "$W/wipe.sh" > "$W/wipe-sb.sh"
+    sed "s#/sys/block/#$W/wp/sys/#g; s#/proc/self/mountinfo#$W/wp/mountinfo#g; s#/proc/swaps#$W/wp/swaps#g" "$W/wipe.sh" > "$W/wipe-sb.sh"
     ( base=sdz; log() { :; }; . "$W/wipe-sb.sh" )
     byte() { dd if="$D" bs=1 skip="$1" count=1 2>/dev/null | od -An -c | tr -d ' '; }
     [ "$(byte $((20480 * 512 + 1080)))" = '\0' ] && [ "$(byte $((20480 * 512 + 65536 + 64)))" = '\0' ] \
@@ -321,6 +323,19 @@ if [ -s "$W/wipe.sh" ]; then
     [ "$(byte $((20480 * 512 + 8 * 1048576)))" = x ] && ok "data past the head is left alone" || nok "wipe went past 4 MiB"
     [ "$(byte $((2048 * 512 + 100)))" = '\0' ] && ok "small partition zeroed whole" || nok "small partition head"
     [ "$(stat -c %s "$D" 2>/dev/null || stat -f %z "$D")" = $((70000 * 512)) ] && ok "disk size unchanged (conv=notrunc)" || nok "disk truncated"
+    before=$(cksum "$D")
+    printf '20 1 240:1 / /busy rw - ext4 /dev/alias rw\n' > "$W/wp/mountinfo"
+    ( base=sdz; log() { :; }; . "$W/wipe-sb.sh" ) && nok "mounted partition allowed writes" \
+        || { [ "$(cksum "$D")" = "$before" ] && ok "mounted partition by device number: refuses before writes" || nok "mounted partition was written"; }
+    : > "$W/wp/mountinfo"
+    printf '/dev/sdz3 partition 1024 0 -2\n' >> "$W/wp/swaps"
+    ( base=sdz; log() { :; }; . "$W/wipe-sb.sh" ) && nok "active swap allowed writes" \
+        || { [ "$(cksum "$D")" = "$before" ] && ok "active swap: refuses before writes" || nok "active swap was written"; }
+    echo 'Filename Type Size Used Priority' > "$W/wp/swaps"
+    mkdir -p "$W/wp/sys/sdz/sdz3/holders/dm-test"
+    ( base=sdz; log() { :; }; . "$W/wipe-sb.sh" ) && nok "active holder allowed writes" \
+        || { [ "$(cksum "$D")" = "$before" ] && ok "active holder: refuses before writes" || nok "active holder was written"; }
+    rmdir "$W/wp/sys/sdz/sdz3/holders/dm-test"
     wl=$(grep -n 'NCZ-WIPE-SIGNATURES-BEGIN' "$CHOOSER" | cut -d: -f1); zl=$(grep -n 'dd if=/dev/zero of="$D" bs=1M count=16' "$CHOOSER" | cut -d: -f1)
     [ -n "$wl" ] && [ -n "$zl" ] && [ "$wl" -lt "$zl" ] && ok "signatures cleared before the old table is zeroed" || nok "wipe runs after the table is gone"
 else
