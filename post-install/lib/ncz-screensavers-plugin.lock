@@ -25,11 +25,13 @@
 NCZ_SSPLUGIN_PKG=ncz-screensavers-plugin
 NCZ_SSPLUGIN_VERSION=0.3.23
 # PENDING unified-payload rebuild + repin: the 0.3.23 hashes below are a STAGING
-# placeholder. One final plugin 0.3.23 must be rebuilt from the final saver
-# source (wip/studio/2026-10-14-resume-saver b9bb90e4 + companion 639fa7a6,
-# currently DEFAULT OFF / tests-review pending) against the final newhead
-# libsingularity, restaged, and re-pinned here. Do NOT release or treat these
-# hashes as final until that rebuild lands (no fake digests, no withheld bits).
+# placeholder. One final plugin 0.3.23 must be rebuilt from the final accepted
+# saver source (8f8433c4f90e0a3b2d80225dafee098957eea8d5 APPROVED MiniMax→Gemma,
+# plus native AMD/ARM 56 Meson builders and feed-cadence pause cleanup PASS)
+# against the final newhead libsingularity, restaged, and re-pinned here. Do NOT
+# release or treat these hashes as final until that rebuild lands (no fake
+# digests, no withheld bits). Earlier source comments calling this saver
+# "r9 pending" are stale: the actual approved source is 8f8433c4f90e0a3b2d80225dafee098957eea8d5.
 NCZ_SSPLUGIN_MAINTAINER="Jason Perlow <jperlow@gmail.com>"
 # Directory under the artifact-store projects root (mount point differs per
 # build host; see build/stage-screensaver-plugin.sh).
