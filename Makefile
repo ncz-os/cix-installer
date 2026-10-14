@@ -824,6 +824,7 @@ test-build-image:
 # (build/layers-preflight.sh + build/check-layers.sh; design rule 2026-10-10).
 test-layers-hardening:
 	@bash $(ROOT)/build/test-layers-hardening.sh
+	@bash $(ROOT)/build/test-layer-gates.sh
 
 # Everything about the build process itself (no image is built).
 test-build: test-build-determinism test-build-image test-layers-hardening
