@@ -137,10 +137,12 @@ echo "[48] /etc/issue.d/10-ncz-server.issue written"
 # gets DHCP without operator intervention.
 if command -v nmcli >/dev/null 2>&1; then
     # Find the first ethernet device (skip lo, virtual, wireless)
-    ETH_DEV=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="ethernet"{print $1; exit}')
+    # nmcli has no daemon to talk to inside the install chroot and exits non-zero;
+    # under errexit + pipefail that ended the hook here (console installs).
+    ETH_DEV=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="ethernet"{print $1; exit}' || true)
     if [ -n "$ETH_DEV" ]; then
         # Only add a profile if there isn't one already for this device.
-        if ! nmcli -t -f NAME,DEVICE connection show 2>/dev/null | grep -q ":${ETH_DEV}$"; then
+        if ! { nmcli -t -f NAME,DEVICE connection show 2>/dev/null || true; } | grep ":${ETH_DEV}$" >/dev/null; then
             nmcli connection add type ethernet con-name "ncz-wired-${ETH_DEV}" \
                 ifname "$ETH_DEV" connection.autoconnect yes ipv4.method auto ipv6.method auto \
                 2>&1 | sed 's/^/    /' || \
