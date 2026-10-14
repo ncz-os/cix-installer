@@ -220,7 +220,7 @@ m_opt_desktop_only() { echo 'desktop,browsers,wallpaper-rotator' > "$1/etc/cix-i
 m_opt_desktop_mgmt() { echo 'desktop,browsers,wallpaper-rotator,mgmt-container' > "$1/etc/cix-installer/COMPONENTS"; m_opt_strip_rescue "$1"; }
 m_opt_none() {   # every option off: no desktop layer, no browsers, no recovery tiers, no rescue partition
     echo none > "$1/etc/cix-installer/COMPONENTS"; m_opt_strip_mgmt "$1"; m_opt_strip_rescue "$1"
-    rm -rf "$1/opt/singularity" "$1/etc/mpv" "$1/usr/local/bin/ncz-sky1-audio-autoswitch" "$1/usr/local/bin/ncz-wallpaper-bing"
+    rm -rf "$1/opt/singularity" "$1/etc/mpv" "$1/usr/local/bin/ncz-sky1-audio-autoswitch" "$1/usr/local/bin/ncz-wallpaper-bing" "$1/usr/local/bin/ncz-gpu-env"
     sed -i '/^Package: google-chrome-stable$/,+2d; /^Package: chromium-ncz-sky1$/,+2d; /^Package: systemd-coredump$/,+3d' "$1/var/lib/dpkg/status"
 }
 m_opt_none_failsafe()  { m_opt_none "$1"; mkdir -p "$1/opt/ncz-failsafe/bin"; echo x > "$1/opt/ncz-failsafe/bin/busybox"; echo x > "$1/etc/systemd/system/ncz-failsafe.service"; }
