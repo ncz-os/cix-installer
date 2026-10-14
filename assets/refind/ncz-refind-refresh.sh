@@ -199,6 +199,46 @@ if [ "$NEXT_PREFLIGHT_READY" = "0" ]; then
 fi
 echo "  preflight OK: edge kernel payload is present"
 
+# A selected rescue partition is validated before the ESP wipe below (it used
+# to be checked only after the wipe, when a failure already left no menu).
+# NCZ-RESCUE-PREFLIGHT-BEGIN
+# Rescue partition (install-time component "rescue-partition"). It is required
+# only when it was selected. The selection is read from the same COMPONENTS
+# record, in the same order, that post-install/run-all.sh uses to decide whether
+# 72-rescue-partition.sh runs, so the two can never disagree. With no record at
+# all (an install that predates the component selector) the partition stays
+# required. When it is required, nothing on the ESP is touched until
+# 72-rescue-partition.sh has written RESCUE_READY with a PARTUUID. When it was
+# not selected there is no rescue-partition menu entry.
+# build/test-install-options.sh extracts this block between its markers.
+RESCUE_READY="$INSTALLER_META/RESCUE_READY"
+RESCUEPART_PARTUUID=""
+if [ -f "$RESCUE_READY" ]; then
+    RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
+fi
+RESCUEPART_REQUIRED=1
+RESCUEPART_RECORD=""
+for _rcf in "$INSTALLER_META/COMPONENTS" /etc/cix-installer/COMPONENTS /var/lib/cix-components/COMPONENTS; do
+    [ -r "$_rcf" ] || continue
+    RESCUEPART_RECORD="$_rcf"
+    _rcomponents=$(tr -d ' \t\r\n' < "$_rcf" 2>/dev/null || true)
+    case ",$_rcomponents," in
+        *",rescue-partition,"*) RESCUEPART_REQUIRED=1 ;;
+        *)                      RESCUEPART_REQUIRED=0 ;;
+    esac
+    break
+done
+if [ -n "$RESCUEPART_PARTUUID" ]; then
+    echo "  preflight OK: rescue partition PARTUUID=$RESCUEPART_PARTUUID"
+elif [ "$RESCUEPART_REQUIRED" = "1" ]; then
+    echo "ERROR: rescue partition is required but $RESCUE_READY has no PARTUUID"
+    echo "       Refusing to modify the ESP until recovery is ready."
+    exit 1
+else
+    echo "  preflight OK: rescue partition not selected ($RESCUEPART_RECORD); no rescue-partition entry"
+fi
+# NCZ-RESCUE-PREFLIGHT-END
+
 # Preflight (above) validated inputs under `set -euo pipefail`. The ESP is
 # vfat (no ownership/perms). The write section below tolerates vfat quirks
 # (cp ownership warnings, grep-no-match, best-effort efibootmgr). Under
@@ -591,40 +631,38 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
     NEXT_CONSOLE_OPTIONS="$ROOT_OPTS $NEXT_CONSOLE_CMDLINE systemd.unit=multi-user.target"
 fi
 
-RESCUE_READY="$INSTALLER_META/RESCUE_READY"
 RESCUEPART_OPTIONS=""
+# The typec rts5453 modules already in NEXT_CMDLINE_BASE join the accelerator
+# list so a single module_blacklist= token carries both, on the same-kernel
+# rescue entry below and on the rescue-partition entry when there is one.
+[ -n "$NEXT_CONSOLE_EXISTING_BL" ] && RESCUE_ACCEL_BLACKLIST="$NEXT_CONSOLE_EXISTING_BL,$RESCUE_ACCEL_BLACKLIST"
 # Unified 7.3 (2026-10-05): the rescue-partition entry boots the
 # rescue rootfs with the SAME 7.3 kernel as the default (the only shipping
-# kernel), so the precondition is just the rescue marker + that kernel.
-if [ -f "$RESCUE_READY" ] && [ "$NEXT_AVAILABLE" = "1" ]; then
-    RESCUEPART_PARTUUID=$(sed -n 's/^PARTUUID=//p' "$RESCUE_READY" | head -1)
-    if [ -n "$RESCUEPART_PARTUUID" ]; then
-        # rootwait (not rootdelay): rootwait blocks until the root device
-        # actually appears, which is the correct mechanism and costs nothing
-        # once it has; rootdelay=90 was an unconditional 90s sleep paid on
-        # every rescue boot even when the disk was ready immediately.
-        # 2026-08-16 / unified 2026-10-05: RESCUE runs with EVERY
-        # accelerator blacklisted -- GPU, VPU and NPU -- because it exists to
-        # recover a board those very drivers may have wedged.
-        #
-        # linlondp is NOT in the list: it is the display controller and the only
-        # video console on O6N. Blacklisting it is a permanent black screen.
-        #
-        # sky1.gpu=none stops ncz-gpu-switcher trying to load a driver the
-        # cmdline forbids, which would fail the unit on the one entry that must
-        # never look broken. The typec rts5453 modules from NEXT_CMDLINE_BASE
-        # are merged into the single blacklist token below.
-        RESCUE_CMDLINE_NOBL=$(printf '%s\n' "$NEXT_CONSOLE_CMDLINE_NOBL" | tr ' ' '\n' | grep -vE '^(sky1\.gpu=|$)' | paste -sd' ' -)
-        [ -n "$NEXT_CONSOLE_EXISTING_BL" ] && RESCUE_ACCEL_BLACKLIST="$NEXT_CONSOLE_EXISTING_BL,$RESCUE_ACCEL_BLACKLIST"
-        RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $RESCUE_CMDLINE_NOBL module_blacklist=$RESCUE_ACCEL_BLACKLIST sky1.gpu=none systemd.unit=multi-user.target"
-        echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — same 7.3 kernel, accelerators blacklisted"
-    else
-        echo "ERROR: rescue-partition marker has no PARTUUID — refusing to ship without recovery"
-        exit 1
-    fi
-else
-    echo "ERROR: rescue partition is required but marker $RESCUE_READY or the shipping kernel is absent"
+# kernel). RESCUEPART_PARTUUID comes from the preflight above; it is empty only
+# when the rescue partition was not selected at install time.
+if [ -n "$RESCUEPART_PARTUUID" ] && [ "$NEXT_AVAILABLE" = "1" ]; then
+    # rootwait (not rootdelay): rootwait blocks until the root device
+    # actually appears, which is the correct mechanism and costs nothing
+    # once it has; rootdelay=90 was an unconditional 90s sleep paid on
+    # every rescue boot even when the disk was ready immediately.
+    # 2026-08-16 / unified 2026-10-05: RESCUE runs with EVERY
+    # accelerator blacklisted -- GPU, VPU and NPU -- because it exists to
+    # recover a board those very drivers may have wedged.
+    #
+    # linlondp is NOT in the list: it is the display controller and the only
+    # video console on O6N. Blacklisting it is a permanent black screen.
+    #
+    # sky1.gpu=none stops ncz-gpu-switcher trying to load a driver the
+    # cmdline forbids, which would fail the unit on the one entry that must
+    # never look broken.
+    RESCUE_CMDLINE_NOBL=$(printf '%s\n' "$NEXT_CONSOLE_CMDLINE_NOBL" | tr ' ' '\n' | grep -vE '^(sky1\.gpu=|$)' | paste -sd' ' -)
+    RESCUEPART_OPTIONS="root=PARTUUID=$RESCUEPART_PARTUUID rootwait rootfstype=ext4 rw $RESCUE_CMDLINE_NOBL module_blacklist=$RESCUE_ACCEL_BLACKLIST sky1.gpu=none systemd.unit=multi-user.target"
+    echo "  rescue-partition ready (PARTUUID=$RESCUEPART_PARTUUID) — same 7.3 kernel, accelerators blacklisted"
+elif [ "$NEXT_AVAILABLE" != "1" ]; then
+    echo "ERROR: the shipping kernel is absent; refusing to write a menu without it"
     exit 1
+else
+    echo "  no rescue partition on this install: rescue-partition entry omitted"
 fi
 
 # Same-kernel rescue entry (main root): the same 7.3 kernel as the default with
