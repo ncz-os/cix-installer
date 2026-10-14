@@ -181,5 +181,92 @@ class OneKernelPruneTest(unittest.TestCase):
             self.assertEqual(out["debian_kernel_paths"], 0)
 
 
+# The member set brltty-udeb 6.9.1 puts into the forky d-i initrd (both arches),
+# trimmed to one table per directory.
+BRAILLE_MEMBERS = [
+    ("etc/brltty", 0o040755, b""),
+    ("etc/brltty/Contraction", 0o040755, b""),
+    ("etc/brltty/Contraction/en.ctb", 0o100644, b"t"),
+    ("usr/bin/brltty", 0o100755, b"ELF"),
+    ("usr/lib/brltty", 0o040755, b""),
+    ("usr/lib/brltty/brltty.sh", 0o100755, b"stty cols 80 < /dev/tty1"),
+    ("usr/lib/debian-installer-startup.d/S37brltty", 0o100755,
+     b"if grep -q brltty /proc/cmdline; then /lib/brltty/brltty.sh -E; fi"),
+    ("usr/lib/debian-installer.d/S19brltty", 0o100644, b""),
+    ("usr/lib/finish-install.d/07brltty", 0o100755, b"#!/bin/sh"),
+    ("usr/lib/udev/brltty.sh", 0o100755, b"#!/bin/sh"),
+    ("usr/lib/udev/rules.d/brltty.rules", 0o100644, b"SUBSYSTEM"),
+    ("usr/share/brltty-udeb", 0o040755, b""),
+    ("usr/share/brltty-udeb/mate-preseed.cfg", 0o100644, b"d-i"),
+    ("var/lib/dpkg/info/brltty-udeb.postinst", 0o100755, b"#!/bin/sh"),
+    ("var/lib/dpkg/info/brltty-udeb.templates", 0o100644, b"Template:"),
+]
+BRAILLE_STATUS = (
+    "Package: brltty-udeb\nStatus: install ok unpacked\n"
+    "Version: 6.9.1+repack-2\nInstaller-Menu-Item: 1050\n\n"
+    "Package: partman-lvm\nStatus: install ok unpacked\nVersion: 159\n\n"
+)
+KEEP_MEMBERS = [
+    ("usr/lib/debian-installer-startup.d/S37speakup", 0o100755, b"speakup"),
+    ("usr/lib/debian-installer.d/S20speakup", 0o100644, b""),
+    ("usr/lib/udev/rules.d/60-persistent-storage.rules", 0o100644, b"x"),
+    ("usr/bin/main-menu", 0o100755, b"ELF"),
+]
+
+
+class NoBrailleInstallerTest(unittest.TestCase):
+    def test_filter_drops_every_braille_member_and_keeps_the_rest(self):
+        base = newc(BRAILLE_MEMBERS + KEEP_MEMBERS)
+        pruned, _, dropped = MODULE.filter_base_cpio(base, OUR_KVER)
+        names = [e["name"] for e in MODULE._parse_newc_entries(pruned)]
+        self.assertEqual(dropped, len(BRAILLE_MEMBERS))
+        for name, _, _ in BRAILLE_MEMBERS:
+            self.assertNotIn(name, names)
+        for name, _, _ in KEEP_MEMBERS:
+            self.assertIn(name, names)
+
+    def test_prune_status_drops_brltty_udeb(self):
+        text, dropped = MODULE.prune_initrd_status(BRAILLE_STATUS)
+        self.assertEqual(dropped, ["brltty-udeb"])
+        self.assertNotIn("brltty", text)
+        self.assertIn("partman-lvm", text)
+
+    def _gz(self, td, name, data):
+        p = Path(td) / name
+        with gzip.open(p, "wb") as fh:
+            fh.write(data)
+        return p
+
+    def test_verify_fails_on_any_braille_member(self):
+        with tempfile.TemporaryDirectory() as td:
+            for member in BRAILLE_MEMBERS:
+                bad = self._gz(td, "bad.gz", newc(KEEP_MEMBERS + [member]))
+                with self.assertRaisesRegex(RuntimeError, "braille"):
+                    MODULE.verify_no_braille_initrd(bad)
+
+    def test_verify_fails_when_a_later_archive_re_adds_brltty(self):
+        with tempfile.TemporaryDirectory() as td:
+            bad = self._gz(td, "bad.gz", newc(KEEP_MEMBERS) + newc(
+                [("usr/lib/debian-installer-startup.d/S37brltty", 0o100755, b"x")]))
+            with self.assertRaisesRegex(RuntimeError, "braille"):
+                MODULE.verify_no_braille_initrd(bad)
+
+    def test_verify_fails_on_a_status_record(self):
+        with tempfile.TemporaryDirectory() as td:
+            bad = self._gz(td, "bad.gz", newc(
+                [("var/lib/dpkg/status", 0o100644, BRAILLE_STATUS.encode())]))
+            with self.assertRaisesRegex(RuntimeError, "brltty-udeb"):
+                MODULE.verify_no_braille_initrd(bad)
+
+    def test_verify_passes_after_the_prune(self):
+        with tempfile.TemporaryDirectory() as td:
+            pruned, _, _ = MODULE.filter_base_cpio(
+                newc(BRAILLE_MEMBERS + KEEP_MEMBERS), OUR_KVER)
+            text, _ = MODULE.prune_initrd_status(BRAILLE_STATUS)
+            good = self._gz(td, "good.gz", pruned + newc(
+                [("var/lib/dpkg/status", 0o100644, text.encode())]))
+            self.assertEqual(MODULE.verify_no_braille_initrd(good)["braille_members"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

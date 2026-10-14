@@ -100,6 +100,24 @@ _KERNEL_ARTIFACT_RE = re.compile(
 # a real udeb and cannot be authorized by the pin/ledger; drop it.
 _DI_MARKER_PACKAGE = "debian-installer"
 _STATUS_REL = "var/lib/dpkg/status"
+
+# No braille support in the installer (docs/ACCESSIBILITY.md; it is installed
+# afterwards with `apt install brltty`). The substrate d-i initrd carries
+# brltty-udeb: /usr/bin/brltty, /etc/brltty tables, /usr/lib/brltty/brltty.sh,
+# the startup hook S37brltty, the menu hook S19brltty, finish-install 07brltty,
+# the udev rules + helper, /usr/share/brltty-udeb and its dpkg info. S37brltty
+# starts brltty whenever "brltty" appears anywhere on the kernel cmdline and the
+# udev rules start it for generic USB-serial ids; either way brltty runs
+# `stty cols 80 < /dev/tty1` and turns the framebuffer frontend off. Every
+# member whose path names brltty/brlapi is dropped from the base archive and
+# the brltty-udeb record from the dpkg status, so main-menu never configures it.
+_BRAILLE_PATH_RE = re.compile(r"brltty|brlapi", re.IGNORECASE)
+_BRAILLE_PKG_RE = re.compile(r"brltty|brlapi", re.IGNORECASE)
+
+
+def is_braille_member(name: str) -> bool:
+    """True for an initrd member that belongs to the braille stack."""
+    return bool(_BRAILLE_PATH_RE.search(name.removeprefix("./")))
 _MODULES_DIR_RE = re.compile(
     r"^(?:\./)?(?:usr/)?lib/modules/(?P<kver>[^/]+)(?P<child>/.*)?$"
 )
@@ -283,7 +301,9 @@ def filter_base_cpio(data: bytes, our_kver: str) -> tuple[bytes, set, int]:
     """Prune a Debian d-i initrd cpio stream for the one-kernel policy.
 
     Drops, byte-verbatim, every member under ``[usr/]lib/modules/<kver>`` for
-    any kernel version other than ours, plus the base's own
+    any kernel version other than ours, every braille-stack member
+    (``is_braille_member``: brltty-udeb, never shipped in the installer), plus
+    the base's own
     ``var/lib/dpkg/status`` (the overlay bakes a pruned copy which, as the
     later archive, is the one the kernel/initrd actually uses and the one the
     provenance scanner reads).
@@ -308,6 +328,9 @@ def filter_base_cpio(data: bytes, our_kver: str) -> tuple[bytes, set, int]:
         if n in (_STATUS_REL, "usr/" + _STATUS_REL):
             dropped += 1
             continue
+        if is_braille_member(n):
+            dropped += 1
+            continue
         out += data[entry["start"]:entry["end"]]
     return bytes(out), dropped_kvers, dropped
 
@@ -315,8 +338,9 @@ def filter_base_cpio(data: bytes, our_kver: str) -> tuple[bytes, set, int]:
 def prune_initrd_status(text: str) -> tuple[str, list]:
     """Return (pruned dpkg-status text, [dropped package names]).
 
-    Removes every Debian kernel-artifact udeb stanza (the one-kernel policy)
-    and the netinst's Architecture-less ``debian-installer`` build marker,
+    Removes every Debian kernel-artifact udeb stanza (the one-kernel policy),
+    every braille udeb stanza (brltty-udeb; the installer carries no braille
+    stack) and the netinst's Architecture-less ``debian-installer`` build marker,
     which can be authorized by neither the pin nor the review ledger.  Stanzas
     are kept byte-for-byte otherwise; a malformed/empty result is not silently
     accepted by the caller.
@@ -333,7 +357,7 @@ def prune_initrd_status(text: str) -> tuple[str, list]:
                 pkg = line[len("Package: "):].strip()
             elif line.startswith("Architecture: "):
                 has_arch = True
-        if _KERNEL_ARTIFACT_RE.search(pkg) or (
+        if _KERNEL_ARTIFACT_RE.search(pkg) or _BRAILLE_PKG_RE.search(pkg) or (
             pkg == _DI_MARKER_PACKAGE and not has_arch
         ):
             dropped.append(pkg)
@@ -457,6 +481,42 @@ def verify_one_kernel_initrd(initrd: Path, our_kver: str) -> dict:
             "debian_kernel_status_pkgs": 0}
 
 
+def verify_no_braille_initrd(initrd: Path) -> dict:
+    """Fail the build if the FINAL initrd still carries any braille member.
+
+    Walks every concatenated archive (the kernel unpacks all of them), so a
+    later overlay that re-adds brltty is caught as well as a base prune that
+    missed a member. Also rejects a dpkg status that still lists a braille
+    udeb, which would make main-menu configure it.
+    """
+    if not initrd.is_file():
+        raise RuntimeError(f"FATAL: patched initrd missing: {initrd}")
+    stream = _decompress_single_gzip(initrd)
+    bad_paths: list = []
+    bad_pkgs: list = []
+    try:
+        for entry in _parse_newc_entries(stream):
+            n = entry["name"].removeprefix("./")
+            if n == _CPIO_TRAILER:
+                continue
+            if is_braille_member(n):
+                bad_paths.append(n)
+            if n in (_STATUS_REL, "usr/" + _STATUS_REL):
+                for line in entry["payload"].decode("utf-8", "surrogateescape").splitlines():
+                    if line.startswith("Package: ") and _BRAILLE_PKG_RE.search(line[9:]):
+                        bad_pkgs.append(line[9:].strip())
+    except CpioError as exc:
+        raise RuntimeError(f"FATAL: malformed initrd cpio {initrd}: {exc}")
+    if bad_paths or bad_pkgs:
+        raise RuntimeError(
+            f"FATAL: installer initrd {initrd} still carries braille support "
+            f"(the installer must not start brltty): "
+            f"{len(bad_paths)} member(s) e.g. {sorted(set(bad_paths))[:5]}, "
+            f"status package(s) {sorted(set(bad_pkgs))}"
+        )
+    return {"braille_members": 0, "braille_status_pkgs": 0}
+
+
 def _verify_node_outputs(
     node_dir: Path, preseed_cfg: Path, hook_name: str | None = None
 ) -> dict:
@@ -466,6 +526,7 @@ def _verify_node_outputs(
     exists."""
     if not (node_dir / "linux").is_file():
         raise RuntimeError(f"FATAL: initrd node {node_dir} has no kernel file (linux)")
+    verify_no_braille_initrd(node_dir / "initrd.gz")
     return verify_baked_preseed(node_dir / "initrd.gz", preseed_cfg, hook_name)
 
 
@@ -891,7 +952,7 @@ def patch_t2_kernel(
 
     canonical = canonical_encode(
         {
-            "schema_version": "ncz-initrd-t2kernel/v7",
+            "schema_version": "ncz-initrd-t2kernel/v8",
             "arch": arch,
             "startup_hook": {
                 "name": NCZ_STARTUP_HOOK_NAME,
@@ -1173,9 +1234,10 @@ def patch_t2_kernel(
         overlay_status = overlay_root / "var" / "lib" / "dpkg" / "status"
         overlay_status.parent.mkdir(parents=True, exist_ok=True)
         overlay_status.write_text(pruned_status, errors="surrogateescape")
-        log(f"    pruned {len(pruned_status_pkgs)} Debian kernel-artifact / d-i "
-            f"marker dpkg records from the installer status "
-            f"(one-kernel policy)")
+        log(f"    pruned {len(pruned_status_pkgs)} Debian kernel-artifact / braille "
+            f"/ d-i marker dpkg records from the installer status "
+            f"(one-kernel policy, no braille in the installer): "
+            f"{sorted(p for p in pruned_status_pkgs if _BRAILLE_PKG_RE.search(p))}")
 
         # --- bake the single-preseed startup hook -------------------------
         # Runs after S60auto-install to reopen the locale/keyboard window that
@@ -1263,6 +1325,8 @@ def patch_t2_kernel(
         # Fail closed HERE if a Debian kernel artifact survived the prune
         # (the very failure the r203 provenance gate reported).
         verify_one_kernel_initrd(out_initrd, kver)
+        # No braille stack: brltty must never start in the installer.
+        verify_no_braille_initrd(out_initrd)
         log(
             f"    verified initrd carries /{initrd_verify['preseed_member']} "
             f"({initrd_verify['preseed_sha256'][:12]}) and "

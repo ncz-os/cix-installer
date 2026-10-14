@@ -785,6 +785,23 @@ KERNEL_ARTIFACT_NAME_RE = re.compile(
     r"|.+-modules-.+-di$|.+-binary-.+-di$")
 
 
+# brltty/brlapi packages (brltty, brltty-udeb, brltty-x11, libbrlapi*, xbrlapi,
+# python3-brlapi, ...). Neither the installer nor the image ships them.
+BRAILLE_PACKAGE_RE = re.compile(r"brltty|brlapi", re.IGNORECASE)
+
+
+def is_braille_package_file(filename: str) -> bool:
+    return bool(BRAILLE_PACKAGE_RE.search(filename.split("_", 1)[0]))
+
+
+def find_braille_package_files(pool_dir: Path) -> list:
+    return sorted(
+        p.name for p in pool_dir.rglob("*")
+        if p.is_file() and p.suffix in (".deb", ".udeb")
+        and is_braille_package_file(p.name)
+    )
+
+
 def filter_substrate_kernel_artifacts(pool_dir: Path) -> int:
     """One-kernel policy: remove Debian kernel/module/binary udebs+debs from a
     merged /cdrom pool copy.  NCZ kernels (names containing cixmini/ncz) are
@@ -865,6 +882,10 @@ def stage_offline_mirror(stage_dir: Path, arch: str,
     # file" failures.  The offline closure already provides those regular debs.
     n_udebs = 0
     for p in installer_pool.rglob("*.udeb"):
+        if is_braille_package_file(p.name):
+            # No braille stack in the installer (docs/ACCESSIBILITY.md).
+            log(f"    installer pool: not staging {p.name} (no braille in the installer)")
+            continue
         rel = os.path.relpath(p, installer_pool)
         dstp = stage_dir / "pool" / rel
         dstp.parent.mkdir(parents=True, exist_ok=True)
@@ -882,6 +903,14 @@ def stage_offline_mirror(stage_dir: Path, arch: str,
         removed = filter_substrate_kernel_artifacts(stage_dir / "pool")
         log(f"    one-kernel: removed {removed} Debian kernel/module artifact(s) "
             f"from the merged /cdrom pool")
+    braille = find_braille_package_files(stage_dir / "pool")
+    if braille:
+        raise RuntimeError(
+            f"FATAL: the medium pool carries braille packages {braille}; the "
+            f"installer and the installed image carry no brltty (users add it "
+            f"with `apt install brltty`, docs/ACCESSIBILITY.md). Remove them "
+            f"from the offline mirror / manifests."
+        )
     installer_index = (stage_dir / "dists" / suite / "main" /
                        "debian-installer" / f"binary-{arch}")
     installer_index.mkdir(parents=True, exist_ok=True)
