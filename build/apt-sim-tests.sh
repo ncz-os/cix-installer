@@ -367,6 +367,50 @@ else
     fail "Test9: SCRIPT_DIR did not resolve (cwd=$(pwd))"
 fi
 
+for suffix in caches/go caches/go-build caches/go/pkg/mod caches/xdg; do
+  case=$(mktemp -d "$TASK_TMP_DIR/cache-guard.XXXXXX")
+  WORK_DIR="$case/work"
+  TARGET="$case/work/$suffix"
+  mkdir -p "$TARGET"
+  bin="$case/bin"
+  mkdir -p "$bin"
+  export MOCK_CE_LOG="$case/mock-ce.log"
+  : > "$MOCK_CE_LOG"
+  for eng in docker podman; do
+    cat > "$bin/$eng" <<'MOCK'
+#!/bin/bash
+echo "$0 $*" >> "$MOCK_CE_LOG"
+exit 1
+MOCK
+    chmod +x "$bin/$eng"
+  done
+  cat > "$bin/findmnt" <<'STUB'
+#!/bin/bash
+path=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -T) path="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if [ "$path" = "$TARGET_CACHE_PATH" ]; then
+  echo "tmpfs"
+else
+  echo "ext4"
+fi
+STUB
+  chmod +x "$bin/findmnt"
+  out="$case/out"
+  log="$case/log"
+  env NCZ_WORK_DIR_GUARD_FINDMNT="$bin/findmnt" OUT="$out" NCZ_SINGULARITY_WORK_DIR="$WORK_DIR" PATH="$bin:$PATH" MOCK_CE_LOG="$MOCK_CE_LOG" TARGET_CACHE_PATH="$TARGET" bash "$BUILDER" >"$log" 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ] && grep -qF "$TARGET" "$log" && grep -qF "tmpfs" "$log" && [ ! -s "$MOCK_CE_LOG" ]; then
+    pass "cache-guard $suffix"
+  else
+    fail "cache-guard $suffix (rc=$rc)"
+  fi
+  rm -rf "$case"
+done
 echo ""
 echo "=== summary: PASS=$PASS FAIL=$FAIL ==="
 [ "$FAIL" = 0 ] && exit 0 || exit 1
