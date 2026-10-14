@@ -221,3 +221,6 @@ build/*.stale-*
 tools/lockrig/hosts.tsv
 build/npu-embed-deb/
 assets/google-chrome/
+
+# Per-session scratch: TMPDIR for author work in this workspace (never committed)
+.task-tmp/

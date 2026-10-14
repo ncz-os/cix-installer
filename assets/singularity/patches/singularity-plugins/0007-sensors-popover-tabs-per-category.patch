@@ -1,49 +1,42 @@
-From cd9a4372d990cf96d7d40b911524ebfe0b454479 Mon Sep 17 00:00:00 2001
+From dc52d1b4f7b5503842baca7535c4c51b8236c3d8 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Wed, 7 Oct 2026 23:53:28 -0400
-Subject: [PATCH] sensors: one tab per category in the details popover
+Date: Wed, 14 Oct 2026 12:21:38 -0400
+Subject: [PATCH] feat(sensors): group the details popover into tabs
 
-The details popover stacked every category (CPU, GPU, storage, system, per-core
-usage, memory, disks) in one tall scrolling column. On a 16 inch panel it
-reached the dock and the lists were cut at six rows.
+The popover stacked every category in one tall column that reached the
+dock on a 16 inch panel. Group the rows into CPU, Processor, Memory &
+Storage and Hardware tabs with a SegmentedControl over a Gtk.Stack,
+leave out empty tabs, and keep the selected tab across refreshes.
 
-Group the rows into tabs with Singularity.Widgets.SegmentedControl driving a
-Gtk.Stack: CPU (temperatures and clocks), Processor (per-core usage), Memory &
-Storage (sensors, RAM, swap, volumes, activity) and Hardware (GPU, NPU, VPU,
-system, board, network). Empty tabs are left out and the selected tab is kept
-across the periodic refresh. Grouped/Ungrouped still applies inside every tab
-and the column count from the logical width is unchanged; ungrouped CPU
-temperatures and clocks are separate sections so they fill both columns. The
-per-group row cap goes from 6 to 12 so a 12-core CPU is shown in full. The
-height cap stays as a safety net: monitor height minus the chip's bottom edge,
-the dock (dock-icon-size plus padding) and a gap, never below 240 px.
+Raise the per-group row cap from 6 to 12 so a 12-core CPU is shown in
+full, and cap the height at the space between the chip and the dock.
+
+Assisted-by: Claude Code:claude-sonnet-5-5
+AI-Scope: Wrote the tab grouping, the height cap and the section split, rebased onto the reworked popover layout; checked on hardware by the author.
 ---
- sensors/sensors.vala | 304 ++++++++++++++++++++++++++++++++-----------
- 1 file changed, 225 insertions(+), 79 deletions(-)
+ sensors/sensors.vala | 270 +++++++++++++++++++++++++++++++------------
+ 1 file changed, 193 insertions(+), 77 deletions(-)
 
 diff --git a/sensors/sensors.vala b/sensors/sensors.vala
-index 22648e0..587c1e7 100644
+index 1ef651c..6b439b0 100644
 --- a/sensors/sensors.vala
 +++ b/sensors/sensors.vala
-@@ -49,23 +49,59 @@ public class SensorsPlugin : Object, Singularity.Plugin {
+@@ -49,24 +49,56 @@ public class SensorsPlugin : Object, Singularity.Plugin {
  class SensorsIndicator : Gtk.Box {
      // Sensor counts vary by two orders of magnitude across platforms, so
      // the detail list is capped rather than unbounded.
 -    private const int MAX_ROWS_PER_GROUP = 6;
 +    private const int MAX_ROWS_PER_GROUP = 12;
-     // Column count uses logical monitor geometry and is capped at three.
      private const int MAX_DETAIL_COLUMNS = 3;
+     private const int TWO_COLUMN_MIN_WIDTH = 1280;
+     private const int THREE_COLUMN_MIN_WIDTH = 1920;
      private const int DETAIL_COLUMN_WIDTH = 340;
      private const int DETAIL_COLUMN_SPACING = 18;
      private const int DETAIL_SCREEN_MARGIN = 96;
-+    // The popover hangs below the panel chip.  Tabs keep it short, but the
-+    // height is still capped so it can never reach the dock: dock padding
-+    // plus its bottom gap on top of the configured icon size.
 +    private const int DETAIL_DOCK_CHROME = 64;
 +    private const int DETAIL_EDGE_GAP = 8;
 +    private const int DETAIL_MIN_HEIGHT = 240;
 +
-+    /** One page of the popover: its own balanced columns of sections. */
 +    private class DetailTab {
 +        public string id;
 +        public string title;
@@ -89,7 +82,7 @@ index 22648e0..587c1e7 100644
      private static Gtk.CssProvider? compact_rows_provider = null;
      private Gtk.CssProvider? contrast_provider = null;
      private SensorsContrast.Palette panel_palette;
-@@ -152,20 +188,28 @@ class SensorsIndicator : Gtk.Box {
+@@ -151,20 +183,25 @@ class SensorsIndicator : Gtk.Box {
          // row, a tall CPU section does not leave a matching blank hole
          // beneath a short GPU section in the opposite column.
          detail_toggle_box = new Box(Orientation.VERTICAL, 4);
@@ -105,9 +98,6 @@ index 22648e0..587c1e7 100644
 -            detail_columns_box.append(detail_columns[i]);
 +        detail_switcher_box = new Box(Orientation.HORIZONTAL, 0);
 +        detail_switcher_box.halign = Align.CENTER;
-+        // One page per category so no page needs to scroll on a normal
-+        // panel.  Pages are built once and refilled; an empty page is
-+        // dropped from the switcher (see rebuild_details()).
 +        detail_stack = new Stack();
 +        detail_stack.hhomogeneous = true;
 +        detail_stack.vhomogeneous = false;
@@ -130,9 +120,9 @@ index 22648e0..587c1e7 100644
  
          Popover popover = new Popover();
          // Natural size is the ordinary presentation.  Automatic vertical
-@@ -377,18 +421,46 @@ class SensorsIndicator : Gtk.Box {
-         detail_column_count = int.min(MAX_DETAIL_COLUMNS,
-             int.max(1, (available_width + DETAIL_COLUMN_SPACING) / density_slot));
+@@ -374,18 +411,41 @@ class SensorsIndicator : Gtk.Box {
+         detail_column_count = screen_width >= THREE_COLUMN_MIN_WIDTH ? 3
+             : screen_width >= TWO_COLUMN_MIN_WIDTH ? 2 : 1;
  
 -        for (int i = 0; i < MAX_DETAIL_COLUMNS; i++) {
 -            detail_columns[i].visible = i < detail_column_count;
@@ -155,11 +145,6 @@ index 22648e0..587c1e7 100644
 +        detail_scroller.max_content_height = detail_max_height(screen_height);
 +    }
 +
-+    /**
-+     * Safety cap: the monitor height minus the part used by the panel above
-+     * the chip and the dock below.  Tabs normally keep the popover well
-+     * inside this; it only matters on a short display.
-+     */
 +    private int detail_max_height(int screen_height) {
 +        int below_anchor = 0;
 +        var root = get_root() as Gtk.Widget;
@@ -183,7 +168,7 @@ index 22648e0..587c1e7 100644
      }
  
      /**
-@@ -823,13 +895,14 @@ class SensorsIndicator : Gtk.Box {
+@@ -728,13 +788,14 @@ class SensorsIndicator : Gtk.Box {
  
          int target_column = 0;
          for (int i = 1; i < detail_column_count; i++) {
@@ -202,7 +187,7 @@ index 22648e0..587c1e7 100644
      }
  
      private void add_heading(string title) {
-@@ -1010,12 +1083,11 @@ class SensorsIndicator : Gtk.Box {
+@@ -915,12 +976,11 @@ class SensorsIndicator : Gtk.Box {
       * in one render path and ignored in the other is how sensors-show-
       * frequency shipped a half-working toggle.
       */
@@ -216,7 +201,7 @@ index 22648e0..587c1e7 100644
          UtilizationReading[] cores = util.per_cpu();
          if (util.cpu_fraction >= 0.0 || cores.length > 0) {
              add_heading(_("Processor"));
-@@ -1053,7 +1125,13 @@ class SensorsIndicator : Gtk.Box {
+@@ -958,7 +1018,13 @@ class SensorsIndicator : Gtk.Box {
              }
          }
  
@@ -231,7 +216,7 @@ index 22648e0..587c1e7 100644
          if (util.memory_fraction >= 0.0) {
              add_heading(_("Memory"));
              add_row(_("RAM"),
-@@ -1071,7 +1149,13 @@ class SensorsIndicator : Gtk.Box {
+@@ -976,7 +1042,13 @@ class SensorsIndicator : Gtk.Box {
              }
          }
  
@@ -246,7 +231,7 @@ index 22648e0..587c1e7 100644
          CapacityReading[] volumes = util.filesystems();
          UtilizationReading[] spindles = util.disks();
          if (volumes.length > 0 || spindles.length > 0) {
-@@ -1209,7 +1293,7 @@ class SensorsIndicator : Gtk.Box {
+@@ -1114,7 +1186,7 @@ class SensorsIndicator : Gtk.Box {
       * aggregate temperature for the whole CPU, and clock broken out by
       * cluster underneath it.
       */
@@ -255,13 +240,9 @@ index 22648e0..587c1e7 100644
          SensorReading[] cpu_temps = {};
          foreach (SensorReading reading in monitor.readings()) {
              if (reading.kind == SensorKind.CPU) {
-@@ -1225,7 +1309,13 @@ class SensorsIndicator : Gtk.Box {
-             return;
+@@ -1131,6 +1203,9 @@ class SensorsIndicator : Gtk.Box {
          }
  
-+        // Grouped: one card holds the average temperature and the clock
-+        // tiers.  Ungrouped: temperatures and per-policy clocks are two
-+        // sections (clocks_part) so they can sit in separate columns.
          if (sensors_grouped) {
 +            if (clocks_part) {
 +                return;
@@ -269,7 +250,7 @@ index 22648e0..587c1e7 100644
              if (cpu_temps.length > 0) {
                  int64 sum = 0;
                  foreach (SensorReading reading in cpu_temps) {
-@@ -1294,6 +1384,16 @@ class SensorsIndicator : Gtk.Box {
+@@ -1199,6 +1274,16 @@ class SensorsIndicator : Gtk.Box {
              return;
          }
  
@@ -286,7 +267,7 @@ index 22648e0..587c1e7 100644
          add_heading(_("CPU"));
          int shown = 0;
          int hidden = 0;
-@@ -1312,11 +1412,15 @@ class SensorsIndicator : Gtk.Box {
+@@ -1217,11 +1302,9 @@ class SensorsIndicator : Gtk.Box {
              add_row(_("%d more").printf(hidden),
                      format_celsius((int) (hidden_millidegrees_sum / hidden)));
          }
@@ -297,17 +278,11 @@ index 22648e0..587c1e7 100644
 -        // /sys/devices/system/cpu/cpufreq/ themselves.
 +    }
 +
-+    /**
-+     * Raw, one row per cpufreq policy, in whatever order clocks() returned
-+     * them -- no grouping, no averaging. The label is the policy's own sysfs
-+     * directory name (e.g. "policy0"), the same identifier a person would
-+     * see if they went and looked at /sys/devices/system/cpu/cpufreq/.
-+     */
 +    private void add_clock_rows(ClockReading[] clocks) {
          foreach (ClockReading c in clocks) {
              string value = c.max_khz > 0
                  ? "%s / %s".printf(format_clock(c.khz), format_clock(c.max_khz))
-@@ -1325,12 +1429,68 @@ class SensorsIndicator : Gtk.Box {
+@@ -1230,12 +1313,63 @@ class SensorsIndicator : Gtk.Box {
          }
      }
  
@@ -327,11 +302,6 @@ index 22648e0..587c1e7 100644
 +        }
 +    }
 +
-+    /**
-+     * Show a switcher for the pages that have content, keeping the page the
-+     * user is on.  Rebuilt only when the set of pages changes, so the
-+     * two-second refresh does not recreate the buttons under the pointer.
-+     */
 +    private void refresh_detail_tabs() {
 +        string signature = "";
 +        foreach (DetailTab tab in detail_tabs) {
@@ -379,7 +349,7 @@ index 22648e0..587c1e7 100644
          }
  
          // One control for the whole popover, at the top so its scope is
-@@ -1339,46 +1499,32 @@ class SensorsIndicator : Gtk.Box {
+@@ -1244,46 +1378,28 @@ class SensorsIndicator : Gtk.Box {
          detail_target = detail_toggle_box;
          add_sensors_toggle();
  
@@ -394,7 +364,10 @@ index 22648e0..587c1e7 100644
 -        Box section = begin_detail_section();
 -        add_cpu_section();
 -        finish_detail_section(section);
--
++        select_tab("cpu");
++        add_section(() => add_cpu_section(false));
++        add_section(() => add_cpu_section(true));
+ 
 -        section = begin_detail_section();
 -        add_group(SensorKind.GPU,     _("GPU"));
 -        finish_detail_section(section);
@@ -419,21 +392,12 @@ index 22648e0..587c1e7 100644
 -        section = begin_detail_section();
 -        add_group(SensorKind.SYSTEM,  _("System"));
 -        finish_detail_section(section);
--
++        select_tab("processor");
++        add_section(add_processor_usage);
+ 
 -        section = begin_detail_section();
 -        add_utilization_details();
 -        finish_detail_section(section);
-+        // One tab per category.  add_group() skips a kind with no sensors,
-+        // and a tab with nothing in it is left out of the switcher, so a PC
-+        // that reports only CPU and GPU still shows exactly two tabs.  Kinds
-+        // are never dropped: every kind the backend can name lands in a tab.
-+        select_tab("cpu");
-+        add_section(() => add_cpu_section(false));
-+        add_section(() => add_cpu_section(true));
-+
-+        select_tab("processor");
-+        add_section(add_processor_usage);
-+
 +        select_tab("memory");
 +        add_section(() => add_group(SensorKind.MEMORY, _("Memory")));
 +        add_section(add_memory_usage);
@@ -451,7 +415,7 @@ index 22648e0..587c1e7 100644
 +        refresh_detail_tabs();
      }
  
-     /**
+     private static SensorMonitor new_sensor_monitor() {
 -- 
 2.53.0
 

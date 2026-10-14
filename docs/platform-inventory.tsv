@@ -251,6 +251,7 @@ build/verify-desktop-mirror-seeds.sh	common	-	desktop seed verifier
 build/verify-dkms-modules.sh	sky1	-	DKMS coverage verifier (20 arm64/cix refs)
 build/verify-dual-arch-parity.sh	common	-	dual-arch parity gate: manifests, screensaver debs, hook lint
 build/verify-singularity-depends-seeded.sh	common	-	gate: every ncz-singularity-desktop Depends is in the desktop seed closure on the pinned snapshot
+build/verify-singularity-payload.sh	common	-	offline gate: built payload and settings plugin debs match the manifest, determinism pin, plugin lock and ABI, and every patch queue applies to its pinned upstream commit
 build/verify-firmware-bom.sh	common	-	firmware BOM verifier
 build/verify-installed-target-arm64.sh	sky1	-	installed-target accelerator verifier
 build/verify-installed-target.sh	common	-	shared installed-target verifier for both arches
@@ -455,6 +456,7 @@ build/ship-image.sh	common	-	publish a gated image (the project build store + re
 build/assert-mirror-has-screensavers.sh	common	-	pre-flight: every desktop mirror must carry ncz-screensavers >= the floor in build/screensavers-version.env (item S4)
 build/screensavers-version.env	common	-	single source of truth for the ncz-screensavers version floor + mandated error message (item S4; shared with the install hook, the mirror builder, the squashfs/role-delta pre-flights and the post-install verifier)
 build/test-wallpaper-probe.sh	common	-	Bing helper offline probe test
+build/test-wallpaper-helper-symlink.sh	common	-	the singularity-wallpaper-* symlinks resolve to the ncz-wallpaper-* helpers and produce identical stdout (the helpers dispatch on argv[1], not argv[0])
 build/test-wallpaper-market.sh	common	-	Bing helper market get/set test
 build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, chatter, blank screen)
 docs/installer-ux/	common	-	installer console before/after evidence

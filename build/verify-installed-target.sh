@@ -566,6 +566,7 @@ if [ "$V_DESKTOP" = 1 ]; then
 # `fetch --if-stale` smoke run (exit 0 or 75) is checked from the first-boot report by the gate.
 echo "[verify-target] (vii) Bing wallpaper prefetch"
 exists /usr/local/bin/ncz-wallpaper-bing || gate_miss wallpaper "/usr/local/bin/ncz-wallpaper-bing"
+exists /usr/local/bin/singularity-wallpaper-bing || gate_miss wallpaper "/usr/local/bin/singularity-wallpaper-bing"
 for u in ncz-wallpaper-bing.service ncz-wallpaper-bing.timer ncz-wallpaper-bing-daily.timer; do
     exists "/usr/lib/systemd/user/$u" || gate_miss wallpaper "/usr/lib/systemd/user/$u"
 done

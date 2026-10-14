@@ -128,17 +128,22 @@ it as NCZ-OS. See [Architecture](#architecture).
   it again, delete `~/.local/state/ncz/tour-seen` and log in again. The tour
   runs at idle CPU priority with animations off, so it does not heat the
   machine while it is open.
-- **Screensavers:** NCZ Screensavers 0.8.15 (settings plugin 0.3.22) with 74
+- **Screensavers:** NCZ Screensavers 0.8.16 (settings plugin 0.3.23) with 74
   savers, including the Black Hole (the default, in the Cygnus palette),
   Fractasia and Magmasimplex. Choose and preview them in Settings →
   *Screensaver and Lock*. Heavy savers are best on a stronger GPU.
 - **Lock screen over a live screensaver.** The saver and the lock start
   together after 5 minutes idle; the password prompt appears only on the first
   key press, click or pointer movement. Behind the lock the saver runs at
-  8 fps and half resolution and keeps animating until you touch the machine;
-  it freezes on its current frame only when the prompt appears, and starts
-  again if the prompt is left to time out. A thermal guard pauses it while the
-  machine is hot.
+  30 fps and full resolution (15 fps on battery, on a weak GPU and on T2
+  MacBooks; adjustable in Settings) and keeps animating until you touch the
+  machine. When the prompt appears the saver is paused on its current frame,
+  and it continues from there if the prompt is left alone for a minute. A
+  thermal guard pauses it while the machine is hot.
+  (Pause-on-prompt, the 30 fps / auto-15 fps policy and the 60 s prompt
+  timeout require ncz-screensavers 0.8.16+ with shell patch 0024; the plugin
+  and payload hashes for that are staging placeholders until the unified
+  payload rebuild — see `post-install/lib/ncz-screensavers-plugin.lock`.)
 - **Login screen that matches the lock screen** (greetd with the native
   Singularity greeter), at the panel's native resolution on T2 MacBooks.
 - **Wallpapers:** Artist Packs (NCZ, Cygnus, Alex Jay Brady, Brandon Perlow,

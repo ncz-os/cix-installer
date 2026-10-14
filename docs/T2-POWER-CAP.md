@@ -113,7 +113,8 @@ On T2 Macs the same hook (`post-install/64-t2-power-cap.sh`) raises it, in
 | setting | value | compiled-in |
 |---|---|---|
 | `NCZ_FEED_TEMP_HOT_MC` | 100 C, or 2 C under the lowest critical trip of those sensors when it is at or below 100 C (98000 on MacBookPro16,1) | 85000 |
-| `NCZ_FEED_FPS_WARM` | 6 | 10 (above the 8 fps lock rate) |
+| `NCZ_FEED_FPS_WARM` | 6 | 15 |
+| `NCZ_SAVER_AUTO_FPS` | 15 (what Auto means for the saver frame rate; full resolution is kept, and the Settings page warns before a higher rate is used) | 30 |
 
 Up to 100 C is normal on these Macs. Measured on both MacBookPro16,1 units
 (i9-9980HK and i7-9750H):

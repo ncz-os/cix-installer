@@ -101,6 +101,35 @@ SRC_DIR="${SINGULARITY_SOURCE_DIR:-}"
 VETRO_REPO="${VETRO_REPO:-https://github.com/singularityos-lab/vetro}"
 PREFIX="/opt/singularity"
 OUT="${OUT:-$(cd "$(dirname "$0")/.." && pwd)/build/sinty-out}"
+# Host-owned container workspace. Inside the container /work holds the clone,
+# the meson build tree, and DESTDIR staging; nothing inside the container
+# must live on copy-on-write overlay scratch, because a hard kill of the
+# container would erase it and a slow host would deadlock on overlay churn.
+# NCZ_SINGULARITY_WORK_DIR overrides for build hosts that prefer a different
+# mount; the default sits inside $OUT so every build owns its workspace
+# (a shared $HOME/Projects/work can be written into by two parallel builds
+# racing on the same /work bind). Do NOT delete a pre-existing workspace
+# the caller did not ask us to create -- the actual native task uses
+# its own task/work, not this default.
+WORK_DIR="${NCZ_SINGULARITY_WORK_DIR:-$OUT/work}"
+. "$(cd "$(dirname "$0")" && pwd)/lib/ncz-site.sh"
+# Hard guard: refuse to start a build whose workspace would land on tmpfs,
+# ramfs, or any overlay/aufs scratch. The workspace MUST exist before
+# findmnt is consulted (otherwise findmnt walks up the parent path and
+# reports the nearest mounted ancestor -- which can silently be the host
+# root or something we never intended). A failed findmnt OR an empty
+# successful probe OR a tmpfs/ramfs/overlay/aufs/fuse-overlayfs backing
+# is a hard failure with the offending mount, before any apt fetch. Real
+# disk filesystems (btrfs, ext4, xfs, zfs, f2fs, ...) are accepted. The
+# guard itself lives in lib/ncz-work-dir-guard.sh so apt-sim-tests.sh can
+# exercise the EXACT same policy without copying the case statement.
+. "$(cd "$(dirname "$0")" && pwd)/lib/ncz-work-dir-guard.sh"
+ncz_work_dir_guard "$WORK_DIR" || exit 1
+mkdir -p "$WORK_DIR/tmp"
+# Container TMPDIR is on the host-owned bind (not overlay /tmp), so any
+# process the helper spawns that respawns apt or writes scratch state
+# sees the same backing store the rest of the build is using.
+export NCZ_SINGULARITY_TMPDIR="$WORK_DIR/tmp"
 . "$(cd "$(dirname "$0")" && pwd)/lib/ncz-site.sh"
 PUSH_STORE=0
 case "${1:-}" in --push|--push-argonas) PUSH_STORE=1 ;; esac
@@ -148,13 +177,38 @@ echo "           $OUT/singularity-opt.tgz.sources (upstream commit of every repo
 BUILD_SCRIPT='
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+# Keep apt scratch on the host-owned bind so the simulation and the real
+# install do not race against overlay /tmp churn.
+export TMPDIR=/work/tmp
+mkdir -p "$TMPDIR"
 apt-get update -q
+# ZERO-REMOVALS GATE (NCZ-OS payload policy): run the simulation through
+# the generic helper against the SAME package list and flag set as the
+# real transaction, against the SAME base the real install will read.
+# The helper takes the EXACT install arguments (already-expanded) and
+# runs `apt-get install -s` with them; the simulation and the install
+# use identical arguments by construction. The simulation must finish
+# cleanly (exit 0) AND must not print any "Remv " line -- a Remv here
+# means we are about to delete a package the shipped system still
+# needs (e.g. pulling libfoo-dev which Conflicts/Replaces libfoo on the
+# target). No bypass, no --allow-downgrades, no --no-trusted; if the
+# dependency resolution itself is wrong, the build fails here with the
+# exact Remv line, not silently later. On a clean simulation the
+# helper runs the actual `apt-get install` with the SAME arguments.
+# The install argument list is written ONCE below -- the helper
+# receives it as "$@" verbatim, so BUILD_SCRIPT cannot drift its
+# package list away from the gate.
 # SIT (subprojects/sit, the toolkit the superproject builds since 615dba0) needs the
 # gstreamer-play, vulkan/glslc, colord and X11 extension headers in the block before
 # build-essential (meson setup with the superproject SIT_OPTIONS, measured 2026-10-13).
 # Build deps (Debian 13 / Ubuntu 26.04 names — see docs/upstream/singularity/
 # 20-pr-arm64-build.md). No arch guards needed; the tree builds clean on aarch64.
-apt-get install -y --no-install-recommends \
+# $SINGULARITY_METADATA_SEARCH_DEV is set by the host build to the
+# metadata-search -dev package for the chosen base (e.g. libtinysparql-dev
+# on forky, libtracker-sparql-3.0-dev elsewhere); it appears exactly once
+# in the install argument list below -- the helper reuses the same args.
+bash /ncz-build/apt-sim-zero-removals.sh /work/tmp/apt-sim.log \
+    -y --no-install-recommends \
     ca-certificates git golang-go \
     libglib2.0-bin \
     valac meson ninja-build pkg-config gettext \
@@ -202,7 +256,7 @@ apt-get install -y --no-install-recommends \
     freerdp3-dev libarchive-dev libfido2-dev libfreetype-dev liblzma-dev \
     libsane-dev libxcb-render-util0-dev libxcb-xinput-dev libzbar-dev \
     libzstd-dev nettle-dev \
-    libevdev-dev libmtdev-dev libwacom-dev libtracker-sparql-3.0-dev \
+    libevdev-dev libmtdev-dev libwacom-dev \
     libsfdo-dev libudev-dev \
     libgstreamer-plugins-bad1.0-dev libvulkan-dev glslc libcolord-dev \
     libxcursor-dev libxdamage-dev libxi-dev libxinerama-dev libxrandr-dev \
@@ -655,9 +709,11 @@ esac
 
 echo "== running build in $IMAGE ($CE)${NCZ_CONTAINER_PLATFORM:+ platform=$NCZ_CONTAINER_PLATFORM} =="
 CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
+         -v "$WORK_DIR":/work \
          -v "$REPO_ROOT/build":/ncz-build:ro \
          -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV" \
-         -e NCZ_SINGULARITY_TRACK_HEAD="$TRACK_HEAD")
+         -e NCZ_SINGULARITY_TRACK_HEAD="$TRACK_HEAD" \
+         -e NCZ_SINGULARITY_TMPDIR="$NCZ_SINGULARITY_TMPDIR")
 # Optional exact SceneFX commit for the wrap the compositor-pins resolver
 # freezes (build/patch-singularity-scenefx.sh honours it). Unset -> the helper
 # resolves labwc's scenefx.wrap revision itself.

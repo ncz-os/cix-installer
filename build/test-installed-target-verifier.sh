@@ -56,6 +56,7 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     # bing wallpaper prefetch
     mkdir -p "$r/usr/local/bin" "$r/usr/lib/systemd/user" "$r/etc/systemd/user/timers.target.wants" "$r/opt/singularity/lib/singularity/plugins/wallpapers-bing"
     echo x > "$r/usr/local/bin/ncz-wallpaper-bing"
+    ln -s ncz-wallpaper-bing "$r/usr/local/bin/singularity-wallpaper-bing"
     for u in ncz-wallpaper-bing.service ncz-wallpaper-bing.timer ncz-wallpaper-bing-daily.timer; do echo x > "$r/usr/lib/systemd/user/$u"; done
     ln -s /usr/lib/systemd/user/ncz-wallpaper-bing.timer "$r/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing.timer"
     ln -s /usr/lib/systemd/user/ncz-wallpaper-bing-daily.timer "$r/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing-daily.timer"
@@ -342,6 +343,7 @@ m_rc_missing()  { rm -f "$1/etc/resolv.conf"; }
 m_hosts_other() { printf '127.0.1.1\tbuilder.example builder\n' >> "$1/etc/hosts"; }
 m_hosts_fqdn()  { printf '127.0.1.1\tncz-acrab-1717.localdomain ncz-acrab-1717\n' >> "$1/etc/hosts"; }
 m_wp_nohelper() { rm -f "$1/usr/local/bin/ncz-wallpaper-bing"; }
+m_wp_nolink()   { rm -f "$1/usr/local/bin/singularity-wallpaper-bing"; }
 m_wp_nounit()   { rm -f "$1/usr/lib/systemd/user/ncz-wallpaper-bing-daily.timer"; }
 m_wp_noenable() { rm -f "$1/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing.timer"; }
 m_wp_stale()    { printf 'old plugin build' > "$1/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"; }
@@ -435,6 +437,7 @@ run_case "resolv.conf: missing fails"            1 m_rc_missing
 run_case "hosts naming another host fails"       1 m_hosts_other "names other hosts"
 run_case "hosts with the own FQDN passes"        0 m_hosts_fqdn "local names and ncz-acrab-1717"
 run_case "no wallpaper helper fails"            1 m_wp_nohelper
+run_case "no neutral-name wallpaper helper fails" 1 m_wp_nolink
 run_case "missing daily timer unit fails"       1 m_wp_nounit
 run_case "wallpaper timer not enabled fails"    1 m_wp_noenable
 run_case "stale unpatched plugin .so fails"     1 m_wp_stale

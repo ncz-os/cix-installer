@@ -36,27 +36,6 @@ run means a merged PR's patch won't sit stale for days between manual passes.
 
 ## singularity-shell — active
 
-**Upstream PR:** [singularityos-lab/singularity-shell#30](https://github.com/singularityos-lab/singularity-shell/pull/30)
-— open, not yet merged. Patch `0002-choose-attribution-quadrant.patch`.
-Needs its schema companion, `singularity-desktop#262` below, or the
-Settings row this adds writes a key the shell can't read yet. Extends
-the wallpaper title/author overlay from a fixed bottom-left position to
-a user-selected quadrant.
-
-Delete this patch once PR #30 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-shell#37](https://github.com/singularityos-lab/singularity-shell/pull/37)
-— open, not yet merged. Patch `0006-dock-launch-feedback-owned-timer-captures.patch`.
-Fixes a use-after-free in `DockLaunchFeedback.stretch_dot()`: the 10 s give-up
-timer captured the dock-item wrapper and its dot with `unowned` (raw) pointers,
-so a dock rebuild/destroy inside that window made the callback call
-`g_object_get_data()` on freed memory — SIGSEGV in
-`g_type_check_instance_is_fundamentally_a` (Radxa Orion O6N arm64, core pid 2613,
-2026-10-11). The patch makes the captures owned so the objects stay valid until
-the timer fires. This is the image-blocking arm64 crash-loop fix.
-
-Delete this patch once PR #37 merges.
-
 **Not yet filed upstream** (2026-10-11). Patches
 `0013-lockscreen-honour-output-scale.patch`,
 `0014-lockscreen-host-an-out-of-process-frame-source.patch`,
@@ -145,61 +124,27 @@ upstream.
 No `**Upstream PR:**` link on purpose (nothing is filed). Real-greetd
 confirmation on hardware is still to be done.
 
-## singularity-desktop — active
-
-**Upstream PR:** [singularityos-lab/singularity-desktop#262](https://github.com/singularityos-lab/singularity-desktop/pull/262)
-— open, not yet merged. Patch
-`0001-wallpaper-attribution-position-schema.patch` (applies at the
-top level, not under `subprojects/`, per this file's own root-repo
-exception above). Adds the `wallpaper-attribution-position` gschema
-key that `singularity-shell#30` above reads. Additive only, defaults
-to bottom-left, no existing behavior changes on its own.
-
-Delete this patch once PR #262 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-desktop#267](https://github.com/singularityos-lab/singularity-desktop/pull/267)
-— open. Patch `0002-sensors-settings-keys.patch`. Declares the six `sensors-*` keys the
-sensors plugin reads (interval 2 s with range 1-60, frequency, utilization, grouped,
-GPU and CPU zone). The earlier private `sensors-color-mode` key is gone: nothing in the
-pinned payload reads it. Delete this patch once PR #267 merges.
-
 ## singularity-plugins — active
 
-All six patches are the heads of our upstream PRs, applied in order to the pinned commit
-(7bc0e598), except 0004. The 2026-10-07 convergence replaced the earlier private variants
-that had drifted from what the maintainer reviewed.
-
-**Upstream PR:** [singularityos-lab/singularity-plugins#2](https://github.com/singularityos-lab/singularity-plugins/pull/2)
-— open. Patch `0001-sensors-dpi-columns-bordered-sections.patch`. Popover column
-count from the logical width only (up to 3) and the `.sensors-resource-section`
-outline, defined in the plugin own `compact_rows_provider` so libsingularity is not
-touched. Delete this patch once PR #2 merges.
+Queue after the 2026-10-14 head bump (869d2afc). `#2`, `#4`, `#5` and `#6` merged upstream and are retired below; the
+remaining patches were refreshed onto the new head.
 
 **Upstream PR:** [singularityos-lab/singularity-plugins#3](https://github.com/singularityos-lab/singularity-plugins/pull/3)
 — open. Patch `0002-wallpapers-bing-preferred-market.patch`. Preferred Region row:
 the market list comes from the helper `markets` command and the choice is read and
 saved through the helper `market` command (added to `assets/wallpaper/ncz-wallpaper-bing`,
-covered by `build/test-wallpaper-market.sh`). Delete this patch once PR #3 merges.
+covered by `build/test-wallpaper-market.sh`). The patch is the PR head (rebased in place 2026-10-14).
+Delete this patch once PR #3 merges.
 
-**Upstream PR:** [singularityos-lab/singularity-plugins#4](https://github.com/singularityos-lab/singularity-plugins/pull/4)
-— open. Patch `0003-ocs-fetch-index.patch`. `choices()` fetches its own index from the
-helper. Delete this patch once PR #4 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-plugins#5](https://github.com/singularityos-lab/singularity-plugins/pull/5)
-— open. Patch `0005-sensors-adaptive-contrast.patch`. WCAG contrast for the sensors chip
-and popover. Delete this patch once PR #5 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-plugins#6](https://github.com/singularityos-lab/singularity-plugins/pull/6)
-— open. Patch `0006-ocs-import-owner-id.patch`. Items carry the provider id as owner so
-imports find the provider. Delete this patch once PR #6 merges.
-
-**Not yet filed upstream.** Patch `0004-wallpapers-bing-prefetch.patch`, stacked on #3:
+**Not yet filed upstream.** Patch `0004-wallpapers-bing-prefetch.patch`, stacked on #3 (refreshed onto the head that looks helpers up by the neutral
+`singularity-wallpaper-*` names):
 runs the helper `fetch --if-stale` on activation, when the network returns and daily,
 skipping metered links, with backoff. It has no PR link on purpose: it must not be
 retired when #3 merges.
 
 **Not yet filed upstream** (draft in the r200 upstream-drafts folder). Patch
-`0007-sensors-popover-tabs-per-category.patch`, on top of #2 and #5. The sensors popover
+`0007-sensors-popover-tabs-per-category.patch` (fork branch `pr/sensors-popover-tabs-20261014`, one commit on the
+reworked sensors from #2 and #5, now upstream). The sensors popover
 stacked every category in one tall column that reached the dock on a 16 inch panel. It now
 has tabs (CPU, Processor, Memory & Storage, Hardware; empty tabs are left out)
 using `Singularity.Widgets.SegmentedControl` over a `Gtk.Stack`. Grouped/Ungrouped works
@@ -325,8 +270,12 @@ signals, core limit; drafted for upstream, not yet filed. Neither has an
 ## singularity-shell — also carried, not filed
 
 Patch `0003-plain-contrast-live-quadrant-and-wrap.patch` (plain attribution text, live
-quadrant move, two-line wrap) sits on top of `0002` above and has no PR link; its two bug
-fixes are drafted as follow-ups to #30.
+corner move, two-line wrap) sits on top of the merged corner chooser (`6d2e5ef`) and is the
+squashed form of the fork branch `pr/attribution-plain-text-20261014`; it has no PR link.
+
+Open upstream PRs for patches below (delete each patch when its PR merges):
+[singularity-shell#38](https://github.com/singularityos-lab/singularity-shell/pull/38) (`0021`),
+[singularity-shell#39](https://github.com/singularityos-lab/singularity-shell/pull/39) (`0022`).
 
 Patch `0005-plugins-add-a-screensaver-and-lock-category.patch` adds the `lock` row
 ("Screensaver and Lock") to the Settings > Plugins hub category table, between Files
@@ -357,11 +306,23 @@ lock to the shell. Not filed upstream yet (no PR link). Regression tests:
 Patch `0023-lockscreen-resume-the-saver-when-the-prompt-lowers.patch`: with 0017 the
 saver froze when input raised the prompt and never resumed while locked. On NCZ-OS the
 lock is also the idle screensaver, so after an unanswered prompt the screen stayed on a
-still frame. When the prompt lowers again (`SINGULARITY_LOCK_RENDERER_DELAY_MS`, 5 min by
-default) without an unlock, the lock restarts the frozen frame source. The frozen frame
+still frame. When the prompt lowers again (60 s without input since 0024) without an
+unlock, the lock restarts the frozen frame source. The frozen frame
 stays on screen until the new source sends a frame, and a failing source still clears
 (fail-closed). Applies after 0017. Not filed upstream yet (no PR link). Regression tests:
 `tests/lockscreen-framesrc/test-framesrc.sh` case 1 (inside the patch) and lockrig T19.
+
+Patch `0024-lockscreen-suspend-the-saver-behind-the-prompt.patch`: a saver that
+advertises `LFS_FLAG_PAUSE` in its HELLO (ncz-screensavers 0.8.16 and later) is
+suspended, not ended, when input raises the prompt: the lock sends `LFS_PAUSE`, keeps the
+last frame and turns its watchdog off; the feed stops the renderer, so the saver does no
+GPU or CPU work behind the prompt. When the prompt is dismissed without an unlock the lock
+sends `LFS_RESUME` and the same renderer continues from that frame. Older savers still get
+the 0017/0023 freeze-and-restart. The prompt's inactivity timeout becomes 60 s (every key
+or pointer event restarts it; `SINGULARITY_LOCK_RENDERER_DELAY_MS` can only shorten it),
+and the typed password is cleared when the prompt goes away. Applies after 0023. Not filed
+upstream yet (no PR link). Regression tests: `tests/lockscreen-framesrc/test-framesrc.sh`
+cases 13-14 (inside the patch) and lockrig T6b, T19, T20.
 
 ## singularity-leafs — carried, not filed
 
@@ -375,28 +336,32 @@ Not filed upstream yet (no PR link). Regression test: `build/test-titlebar-butto
 ## singularity-nearby — active
 
 **Not yet filed upstream** (2026-10-13). Patch
-`0002-fix-keep-an-open-link-when-the-peer-announces-itself.patch`, stacked on
-0001 below: `LanProvider.discovered()` no longer opens a new connection for every
+`0002-fix-keep-an-open-link-when-the-peer-announces-itself.patch` (fork branch
+`pr/keep-open-link-20261014`): `LanProvider.discovered()` no longer opens a new connection for every
 announcement while a link to that device is open, so links are not torn down
 and re-handshaken every 30 seconds. Incoming connections still replace the old
-link. No `**Upstream PR:**` link on purpose; it must not be retired when #1
-merges.
-
-**Upstream PR:** [singularityos-lab/singularity-nearby#1](https://github.com/singularityos-lab/singularity-nearby/pull/1)
-— open, not yet merged. Patch `0001-fix-release-links-when-they-close.patch`
-(the PR head, b2c61cf9). `Service.on_link()` connected two closures to the link's own
-`packet-received` and `closed` signals and both captured the link, so no closed
-or replaced link (with its TLS connection) was ever freed. Every desktop on the
-network announces itself every 30 seconds and each announcement replaced the
-link, so with several desktops on one network the service grew by about 10 MB a
-minute. The handlers are now disconnected when the link closes;
-`tests/link_test.vala` (`meson test nearby-link`) fails on the pinned commit and
-passes with the patch. Delete this patch once PR #1 merges.
+link. **Upstream PR:** [singularityos-lab/singularity-nearby#2](https://github.com/singularityos-lab/singularity-nearby/pull/2)
+— open. Delete this patch once PR #2 merges.
 
 ## Previously landed
 
 **Currently no OTHER patches carried.** Everything else previously tracked
 here has merged upstream:
+
+## Merged upstream 2026-10-14 (retired from this queue)
+
+The maintainer merged these on 2026-10-14 (some rewritten, comments removed). Each patch
+was deleted in the commit that bumped the pins past it, after checking that its effect is
+present in the new head.
+
+- singularity-shell `0002` = shell#30 (`6d2e5ef`, attribution corner chooser).
+- singularity-shell `0006` = shell#37 (`0ee3d6a`, owned captures in the dock launch timer).
+- singularity-shell `0004` (link libm into the wallpaper tests) = `7160486`.
+- singularity-desktop `0001` = desktop#262 and `0002` = desktop#267 (schema keys present in the head).
+- singularity-plugins `0001` = plugins#2 (`4e177c1`, reworked: three columns at 1920 px),
+  `0003` = plugins#4 (`cc51b8d`), `0005` = plugins#5 (`ab025a1`, reworked contrast code),
+  `0006` = plugins#6 (`78c166b`).
+- singularity-nearby `0001` = nearby#1 (`6b50729`).
 
 ## singularity-desktop — retired 2026-09-18
 
