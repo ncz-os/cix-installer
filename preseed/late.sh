@@ -1493,6 +1493,11 @@ ncz_bootable() {
     # or the other arch's binary, is not a bootable install) and both must be
     # non-empty.
     [ -s /target/boot/efi/EFI/BOOT/refind.conf ] || return 1
+    # An entry with an empty root= boots into an initramfs that waits forever.
+    if grep -E 'root=(PARTUUID=|UUID=)?([" ]|$)' /target/boot/efi/EFI/BOOT/refind.conf >/dev/null 2>&1; then
+        echo "[late] refind.conf has a boot entry with an empty root= -> not bootable" >&2
+        return 1
+    fi
     case "${NCZ_DEB_ARCH:-}" in
         amd64) [ -s /target/boot/efi/EFI/BOOT/BOOTX64.EFI ] ;;
         arm64) [ -s /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ] ;;
