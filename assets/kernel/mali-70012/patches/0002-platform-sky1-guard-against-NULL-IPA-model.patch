@@ -13,7 +13,7 @@ race cleanly. (A DIFFERENT, unrelated NULL-deref was hit later in the
 same boot, in devfreq's clk_round_rate path — see README.md, that is a
 separate latent bug this patch does not address.)
 
-Real crash observed on cixmini/O6N with the 2027+2028 SCMI-perf-domain
+Real crash observed on a Sky1 board (O6N) with the 2027+2028 SCMI-perf-domain
 probe-order fixes applied (those fix the original mali_kbase EPROBE_DEFER
 block): once mali_kbase's probe gets far enough to actually run
 kbase_platform_sky1_late_init(), its hrtimer immediately queues
