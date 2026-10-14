@@ -27,7 +27,7 @@ echo /srv/store/build-inputs > ~/.config/ncz/build-inputs-dir
 
 | Variable | File under `~/.config/ncz/` | Used by | Meaning |
 |---|---|---|---|
-| `NCZ_YOCTO_SHARED_DIR` | `yocto-shared-dir` | `build/build-image.sh`, `build/stage-kernel.sh`, `build/stage-amd64-kernel.sh`, `build/publish-amd64-kernel.sh`, `build/ncz-yocto.sh`, `build/preflight-freshness-gate.sh`, `build/verify-overlay-modversions.py`, `build/verify-kernel-default-policy.sh` | Root of the shared Yocto export (`downloads/`, `sstate-cache/`, `kernel-staging/`) |
+| `NCZ_YOCTO_SHARED_DIR` | `yocto-shared-dir` | `build/build-image.sh`, `build/stage-kernel.sh`, `build/stage-amd64-kernel.sh`, `build/publish-amd64-kernel.sh`, `build/ncz-yocto.sh`, `build/preflight-freshness-gate.sh`, `build/verify-overlay-modversions.py`, `build/verify-kernel-default-policy.sh` | Root of the shared Yocto export (`downloads/`, `sstate-cache/`, `kernel-staging/`). `build/link-kernel-mainline.sh` (run by `build/build-image.sh`) links the untracked `assets/kernel/mainline` to `kernel-staging/<release>`, the release named in `assets/kernel/mainline.release`; `NCZ_KERNEL_STAGING_DIR` overrides the pool |
 | `NCZ_BUILD_INPUTS_DIR` | `build-inputs-dir` | `build/stage-build-inputs.sh` | Store holding the pinned build inputs of `manifests/build-inputs.tsv` |
 | `NCZ_SUBSTRATE_CACHE_DIRS` | `substrate-cache-dir` | `Makefile`, `build/stage-substrate.sh`, `build/refresh-substrate.sh` | Directories searched for the pinned Debian netinst images |
 | `NCZ_IMAGE_ARCHIVE` | `image-archive-dir` | `build/stage-to-argonas.sh`, `build/ship-image.sh` | Archive that receives gated images |

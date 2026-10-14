@@ -1160,7 +1160,12 @@ build_base(){
       done
     done
     sudo rm -rf "$_ka"/r[0-9]*-* "$_ka"/test-*
-    log "  kernel assets: accelerator overlays pruned to the pinned $_pin_kver"
+    # assets/kernel/mainline is the build tree's link into this host's
+    # kernel-staging pool (build/link-kernel-mainline.sh); on an installed
+    # system it dangles. The installer takes the Sky1 kernel from the medium
+    # (ncz-payload/assets/kernel/mainline, a real directory).
+    if [ -L "$_ka/mainline" ]; then sudo rm -f "$_ka/mainline"; fi
+    log "  kernel assets: accelerator overlays pruned to the pinned $_pin_kver; build-local mainline link left out"
   else
     log "ERROR: no pinned kernel version in assets/kernel-manifest.json; cannot prune staged overlays"
     exit 1
