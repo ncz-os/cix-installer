@@ -818,5 +818,26 @@ expect "full capture: no-blank-after the component dialog" 0 python3 "$HERE/chec
 KV="$HERE/kvm-installer-ui-check.sh"
 nl="$(grep -n 'ndist=' "$KV" | head -1 | cut -d: -f1)"; ll="$(grep -n 'PASS-LIMITED' "$KV" | head -1 | cut -d: -f1)"
 [ -n "$nl" ] && [ -n "$ll" ] && [ "$nl" -lt "$ll" ] && { PASS=$((PASS+1)); echo "ok   amd64 frame-count check (line $nl) precedes the PASS-LIMITED exit (line $ll)"; } || { FAILS=$((FAILS+1)); echo "FAIL frame-count check does not precede PASS-LIMITED ($nl vs $ll)"; }
+# --- the diagnostics login line: the UI-check regex, the ncz_diag_pw wording, 80-column wraps ---
+# kvm-installer-ui-check.sh boots its copy with ncz_diag_pw set, so the screens say
+# "root / set by ncz_diag_pw", and the 80-column console wraps the line inside the dialog
+# borders and in the banner. Taken from the arm64 f83ac780 capture.
+LRX="$(sed -n 's/.*--require-login-line "\([^"]*\)".*/\1/p' "$ROOT/build/kvm-installer-ui-check.sh" | head -1)"
+expect "ui-check login regex accepts the ncz_diag_pw wording" 0 sh -c 'case "$1" in *"set by ncz_diag_pw"*) exit 0 ;; *) exit 1 ;; esac' _ "$LRX"
+mk "$(printf '%s\n' \
+'┌─── NCZ-OS 26.10 Cygnus - select your REGION ───┐' \
+'│ arm64 (Sky1) | build f83ac780 | diagnostics login: root / set by        │' \
+'│ ncz_diag_pw                                                             │' \
+'└───┘')"
+expect "login line wrapped inside dialog borders (override wording) is found" 0 chk --require-login-line "$LRX"
+mk "$(printf '%s\n' '[NCZ 05:40:12] ==== NCZ-OS INSTALLER 2026.10.14-f83ac780 ==== diagnostics login:' ' root / set by ncz_diag_pw')"
+expect "banner wrapped at 80 columns (override wording) is found" 0 chk --require-login-line "$LRX"
+mk "$(printf '%s\n' '==== NCZ-OS INSTALLER 2026.10.14-f83ac780 ==== diagnostics login: root / rescue')"
+expect "default wording on one line is found" 0 chk --require-login-line "$LRX"
+mk "$(printf '%s\n' '==== NCZ-OS INSTALLER 2026.10.14-f83ac780 ====' 'nothing else')"
+expect "no login line: FAIL" 1 chk --require-login-line "$LRX"
+mk "$(printf '%s\n' 'diagnostics login: root / set')"
+expect "a truncated 'root / set' is not the override wording: FAIL" 1 chk --require-login-line "$LRX"
+
 echo "installer screen tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
