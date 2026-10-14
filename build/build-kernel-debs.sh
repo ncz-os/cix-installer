@@ -169,7 +169,11 @@ fi
 #      transaction; the bootloader entries are correct end-of-transaction
 #      without a follow-up invocation. Behaviourally identical to 1.2+r246.
 # 1.3: comment and log-text refresh of the helper and the generator; behaviour unchanged.
-CIXMINI_BOOT_VER="1.3+$BUILD_REV"
+# 1.4: generator requires the rescue partition only when it was selected at
+#      install time, checks it before the ESP wipe, leaves the ESP alone while
+#      the install is still running, and reads the root PARTUUID from the GPT
+#      when blkid has none (never writes an empty root=PARTUUID=).
+CIXMINI_BOOT_VER="1.4+$BUILD_REV"
 # What the kernel packages require. Kept at 1.2 while the helper behaviour is unchanged, so
 # the r289 kernel debs keep their published bytes (their Depends field is part of them).
 CIXMINI_BOOT_MIN_VER="1.2+$BUILD_REV"
