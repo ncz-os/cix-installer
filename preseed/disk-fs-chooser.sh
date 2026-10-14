@@ -454,6 +454,33 @@ awk 'NR>1{print $1}' /proc/swaps 2>/dev/null | grep "^${D}" | while read _s; do 
 awk -v dd="$D" '$1 ~ dd {print $2}' /proc/mounts 2>/dev/null | sort -r | while read _mp; do sync; umount "$_mp" 2>/dev/null || { sleep 1; umount "$_mp" 2>/dev/null || true; }; done
 ncz_step 1 "ERASING $CHOSEN_DISK: clearing old filesystem signatures and the partition table"
 # NCZ-WIPE-SIGNATURES-BEGIN
+# An unsuccessful unmount/swapoff must never be followed by raw writes.
+# Match mountinfo by device number, so aliases and bind mounts are covered;
+# active device-mapper/RAID users are represented by sysfs holders.
+if [ ! -r /proc/self/mountinfo ] || [ ! -r /proc/swaps ] || [ ! -r "/sys/block/$base/dev" ]; then
+    log "ERROR: cannot establish disk mount/swap state; refusing disk writes"
+    exit 1
+fi
+for _idle_pd in /sys/block/"$base" /sys/block/"$base"/"$base"*; do
+    [ -r "$_idle_pd/dev" ] || continue
+    _idle_mm=$(cat "$_idle_pd/dev")
+    if awk -v mm="$_idle_mm" '$3 == mm { found=1 } END { exit !found }' /proc/self/mountinfo; then
+        log "ERROR: ${_idle_pd##*/} is still mounted; refusing disk writes"
+        exit 1
+    fi
+    for _holder in "$_idle_pd"/holders/*; do
+        [ -e "$_holder" ] || continue
+        log "ERROR: ${_idle_pd##*/} has an active holder; refusing disk writes"
+        exit 1
+    done
+    for _swap in $(awk 'NR>1 { print $1 }' /proc/swaps); do
+        _swap_dev=$(readlink -f "$_swap" 2>/dev/null || printf '%s' "$_swap")
+        if [ "$_swap_dev" = "/dev/${_idle_pd##*/}" ]; then
+            log "ERROR: ${_idle_pd##*/} is still active swap; refusing disk writes"
+            exit 1
+        fi
+    done
+done
 # Old filesystem signatures inside the old partitions survive a new partition
 # table. When a new partition starts where an old one did, mkfs leaves e.g. an
 # old ext4 superblock (offset 1080) next to a new btrfs one (64 KiB): libblkid
