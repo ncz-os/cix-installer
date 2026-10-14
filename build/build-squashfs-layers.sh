@@ -1849,6 +1849,11 @@ ncz_layer_postcheck() {  # <layer>  (base|desktop|hotfix)
   [ -n "${NCZ_LAYERS_CHECK_RUN_DIR:-}" ] && a+=(--run-dir "$NCZ_LAYERS_CHECK_RUN_DIR")
   [ -n "${NCZ_LAYERS_CHECK_PAYLOAD:-}" ] && a+=(--payload-deb "$NCZ_LAYERS_CHECK_PAYLOAD")
   [ -n "${NCZ_LAYERS_CHECK_CHAIN:-}" ] && a+=(--chain "$NCZ_LAYERS_CHECK_CHAIN")
+  # overlay deltas: the layers under them (nearest first)
+  case "$l" in
+    desktop) a+=(--lower "$(ncz_layer_artifact base)") ;;
+    hotfix)  a+=(--lower "$(ncz_layer_artifact desktop)" --lower "$(ncz_layer_artifact base)") ;;
+  esac
   log "POSTCHECK: build/check-layers.sh $l"
   if bash "$ROOT/build/check-layers.sh" "$sq" "${a[@]}"; then
     return 0

@@ -1233,6 +1233,11 @@ stage_layers() {
         esac
         [ -n "${NCZ_SINGULARITY_PREBUILT_DEB:-}" ] && ca+=(--payload-deb "$NCZ_SINGULARITY_PREBUILT_DEB")
         [ -n "$prev" ] && ca+=(--prev "$prev")
+        # overlay deltas: the layers under them (nearest first)
+        case "$l" in
+            desktop)        ca+=(--lower "$LAYERS_DIR/base.squashfs") ;;
+            desktop-hotfix) ca+=(--lower "$LAYERS_DIR/desktop.squashfs" --lower "$LAYERS_DIR/base.squashfs") ;;
+        esac
         ( cd "$ROOT" && bash build/check-layers.sh "$sq" "${ca[@]}" ) 2>&1 | tee -a "$log"
         local crc="${PIPESTATUS[0]}"
         if [ "$crc" != 0 ]; then

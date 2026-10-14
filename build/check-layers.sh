@@ -16,6 +16,8 @@
 #   --manifest FILE         expected package set+versions (TAB/space: name version)
 #   --prev FILE             previous green layer of the same role (size bounds +
 #                           determinism member-list compare)
+#   --lower LAYER           a layer under this overlay delta (repeat, nearest
+#                           first); content assertions may find unchanged files there
 #   --partial-root REL      this is a partial overlay layer whose content must
 #                           live under REL (e.g. opt/singularity)
 #   --payload-deb FILE      frozen payload deb (singularity version + shader gate)
@@ -55,6 +57,7 @@ JSON=0
 STRICT=0
 APPEND=0
 LAYERS=()
+LOWERS=()   # --lower: the layers under an overlay delta, nearest first
 
 usage() { sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
@@ -64,6 +67,7 @@ while [ "$#" -gt 0 ]; do
         --layer)         LAYER_LABEL="${2:-}"; shift 2 ;;
         --manifest)      MANIFEST="${2:-}"; shift 2 ;;
         --prev)          PREV="${2:-}"; shift 2 ;;
+        --lower)         LOWERS+=("${2:-}"); shift 2 ;;
         --partial-root)  PARTIAL_ROOT="${2:-}"; shift 2 ;;
         --payload-deb)   PAYLOAD_DEB="${2:-}"; shift 2 ;;
         --run-dir)       RUN_DIR="${2:-}"; shift 2 ;;
@@ -161,6 +165,20 @@ _meta_raw() {  # mode<TAB>owner/group<TAB>size<TAB>path<TAB>mtime  (best effort)
 _listing() { _cached listing "$1" _listing_raw "$1"; }
 _meta()    { _cached meta    "$1" _meta_raw    "$1"; }
 _has() { local l="$1" p="$2"; _listing "$l" | grep >/dev/null -x "$p"; }
+# An overlay delta (desktop, desktop-hotfix) carries only what it changed; an
+# unchanged file lives in a lower layer (--lower, nearest first).
+_has_stack() {  # layer path
+    local l="$1" p="$2" lw
+    _has "$l" "$p" && return 0
+    for lw in "${LOWERS[@]}"; do [ -e "$lw" ] && _has "$lw" "$p" && return 0; done
+    return 1
+}
+_cat_stack() {  # layer path -> the member from the nearest layer that has it
+    local l="$1" p="$2" lw
+    _has "$l" "$p" && { _cat "$l" "$p"; return; }
+    for lw in "${LOWERS[@]}"; do [ -e "$lw" ] && _has "$lw" "$p" && { _cat "$lw" "$p"; return; }; done
+    return 1
+}
 _cat() {  # cat a member (best effort)
     local l="$1" p="$2" k; k="$(_layer_kind "$l")"
     case "$k" in
@@ -461,13 +479,14 @@ chk_content_assertions() {  # LAYER, label
         #     install-extra.pkgs + hook 24), so the layer carries the installer's
         #     hook, its library and that package list;
         #   * the base layer also carries the Debian kernel-purity pin.
+        # In an overlay delta the files may sit unchanged in a lower layer.
         local _ip="usr/local/lib/cix-installer"
         if _cat "$l" var/lib/dpkg/status 2>/dev/null | awk '/^Package:/{p=$2} /^Status:/{ if (p=="ncz-apt-policy" && $0 ~ /install ok installed/) f=1 } END{exit !f}'; then
-            { _has "$l" "usr/sbin/ncz-apt-source" && _has "$l" "usr/share/ncz-apt-policy/apt-separation.sh" \
-              && _has "$l" "etc/apt/preferences.d/10-ncz-origin-separation.pref"; } || fails="$fails ncz-apt-policy(package-files)"
-        elif _has "$l" "$_ip/post-install/24-apt-sources.sh" || _has "$l" "$_ip/post-install/lib/apt-separation.sh"; then
-            { _has "$l" "$_ip/post-install/24-apt-sources.sh" && _has "$l" "$_ip/post-install/lib/apt-separation.sh" \
-              && _cat "$l" "$_ip/manifests/install-extra.pkgs" 2>/dev/null | sed 's/#.*//' | grep >/dev/null -x '[[:space:]]*ncz-apt-policy[[:space:]]*'; } \
+            { _has_stack "$l" "usr/sbin/ncz-apt-source" && _has_stack "$l" "usr/share/ncz-apt-policy/apt-separation.sh" \
+              && _has_stack "$l" "etc/apt/preferences.d/10-ncz-origin-separation.pref"; } || fails="$fails ncz-apt-policy(package-files)"
+        elif _has_stack "$l" "$_ip/post-install/24-apt-sources.sh" || _has_stack "$l" "$_ip/post-install/lib/apt-separation.sh"; then
+            { _has_stack "$l" "$_ip/post-install/24-apt-sources.sh" && _has_stack "$l" "$_ip/post-install/lib/apt-separation.sh" \
+              && _cat_stack "$l" "$_ip/manifests/install-extra.pkgs" 2>/dev/null | sed 's/#.*//' | grep >/dev/null -x '[[:space:]]*ncz-apt-policy[[:space:]]*'; } \
               || fails="$fails ncz-apt-policy(install-time)"
         else
             fails="$fails ncz-apt-policy(absent)"

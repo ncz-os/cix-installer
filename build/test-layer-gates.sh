@@ -189,6 +189,16 @@ P="$T/pkg"; mkbase "$P"; rm -rf "$P/$IP"; printf '\nPackage: ncz-apt-policy\nSta
 mkdir -p "$P/usr/sbin" "$P/usr/share/ncz-apt-policy"; : > "$P/usr/sbin/ncz-apt-source"; : > "$P/usr/share/ncz-apt-policy/apt-separation.sh"; : > "$P/etc/apt/preferences.d/10-ncz-origin-separation.pref"
 tsv="$(lc "$P" --layer desktop)"; want "$tsv" content-assertions PASS "installed ncz-apt-policy with helper, library and pin: PASS"
 rm -f "$P/usr/sbin/ncz-apt-source"; tsv="$(lc "$P" --layer desktop)"; want "$tsv" content-assertions FAIL "installed ncz-apt-policy without ncz-apt-source: FAIL"
+# an overlay delta lists the installed package in its copied-up status, the files sit in base
+DL="$T/delta"; mkdir -p "$DL/usr/bin" "$DL/etc/apt/apt.conf.d" "$DL/var/lib/dpkg"
+printf 'Package: ncz-apt-policy\nStatus: install ok installed\nVersion: 1.0.4\n' > "$DL/var/lib/dpkg/status"
+LB="$T/lowerbase"; mkbase "$LB"; mkdir -p "$LB/usr/sbin" "$LB/usr/share/ncz-apt-policy"; : > "$LB/usr/sbin/ncz-apt-source"
+: > "$LB/usr/share/ncz-apt-policy/apt-separation.sh"; : > "$LB/etc/apt/preferences.d/10-ncz-origin-separation.pref"
+tsv="$(lc "$DL" --layer desktop --lower "$LB")"; want "$tsv" content-assertions PASS "delta with the package files in its lower layer: PASS"
+tsv="$(lc "$DL" --layer desktop)"; want "$tsv" content-assertions FAIL "same delta without --lower: FAIL"
+rm -f "$LB/usr/sbin/ncz-apt-source"; tsv="$(lc "$DL" --layer desktop --lower "$LB")"; want "$tsv" content-assertions FAIL "delta whose lower layer lacks ncz-apt-source: FAIL"
+grep >/dev/null 'desktop)        ca+=(--lower "$LAYERS_DIR/base.squashfs")' "$ROOT/build/build-image.sh" && grep >/dev/null 'desktop) a+=(--lower "$(ncz_layer_artifact base)")' "$ROOT/build/build-squashfs-layers.sh" \
+    && ok "both post-check call sites pass the lower layers" || bad "a post-check call site does not pass --lower"
 # the old assertion: a layer carrying only what it wanted does not satisfy the new one ...
 O="$T/old"; mkbase "$O"; rm -rf "$O/$IP" "$O/etc/apt/preferences.d"; : > "$O/usr/bin/ncz-apt-policy"; : > "$O/etc/apt/apt.conf.d/99ncz-policy"
 tsv="$(lc "$O" --layer base)"; want "$tsv" content-assertions FAIL "only the old assertion's paths present: FAIL"
