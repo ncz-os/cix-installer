@@ -365,7 +365,7 @@ date -u +"  started %H:%M:%SZ"
 # (build/kvm-installer-probe.sh; judged in step 5).
 PROBE_LOG="$WORK/installer-probe.log"
 rm -f "$PROBE_LOG"
-"$SCRIPT_DIR/kvm-installer-probe.sh" sample 2225 "$PROBE_LOG" 15 &
+"$SCRIPT_DIR/kvm-installer-probe.sh" sample "$FWD_SSH_INSTALL" "$PROBE_LOG" 15 &
 PROBE_PID=$!
 set +e
 timeout "$INSTALL_TIMEOUT" "$QEMU" \
