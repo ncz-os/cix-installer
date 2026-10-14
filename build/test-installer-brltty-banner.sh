@@ -76,6 +76,9 @@ sample ran yes none 128 128
 echo "syslog Jan  1 00:00:02 brltty[690]: BRLTTY 6.9.1" >> "$PT/ran"
 check "probe judge: brltty in the installer syslog fails (even after it exited)" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/ran"
 sample early no none 128 128
+sample early_running no 9876 128 128
+cat "$PT/early_running" "$PT/good" > "$PT/early_then_good"
+check "probe judge: early brltty fails despite a clean main-menu sample" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/early_then_good"
 check "probe judge: no sample while main-menu ran fails" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/early"
 : > "$PT/empty"
 check "probe judge: no sample at all fails" sh -c '! bash "$1" judge "$2" >/dev/null' _ "$PJ" "$PT/empty"
