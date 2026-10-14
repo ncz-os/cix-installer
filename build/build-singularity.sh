@@ -112,28 +112,19 @@ OUT="${OUT:-$(cd "$(dirname "$0")/.." && pwd)/build/sinty-out}"
 # the caller did not ask us to create -- the actual native task uses
 # its own task/work, not this default.
 WORK_DIR="${NCZ_SINGULARITY_WORK_DIR:-$OUT/work}"
-# Hard guard: refuse to start a build whose workspace would land on tmpfs
-# or any overlay/aufs scratch. The workspace MUST exist before findmnt is
-# consulted (otherwise findmnt walks up the parent path and reports the
-# nearest mounted ancestor -- which can silently be the host root or
-# something we never intended). Create the owned workspace FIRST, then
-# require a successful findmnt AND a known disk-backed fstype. A failed
-# findmnt or a tmpfs/overlay/aufs backing is a hard failure with the
-# offending mount, before any apt fetch. Real disk overlays are valid
-# (btrfs, ext4, xfs, zfs, f2fs, ...); only in-memory / copy-on-write
-# scratch filesystems are rejected here.
-mkdir -p "$WORK_DIR"
-_findmnt_target="$(findmnt -T "$WORK_DIR" -o FSTYPE -n 2>/dev/null)" || {
-    echo "ERROR: WORK_DIR=$WORK_DIR is not on any mounted filesystem (findmnt failed)." >&2
-    echo "       create the directory on a real disk-backed mount, or set NCZ_SINGULARITY_WORK_DIR." >&2
-    exit 1
-}
-case "$_findmnt_target" in
-    tmpfs|overlay|aufs|fuse-overlayfs)
-        echo "ERROR: WORK_DIR=$WORK_DIR is on $_findmnt_target; refusing to build on tmpfs/overlay scratch." >&2
-        exit 1
-        ;;
-esac
+. "$(cd "$(dirname "$0")" && pwd)/lib/ncz-site.sh"
+# Hard guard: refuse to start a build whose workspace would land on tmpfs,
+# ramfs, or any overlay/aufs scratch. The workspace MUST exist before
+# findmnt is consulted (otherwise findmnt walks up the parent path and
+# reports the nearest mounted ancestor -- which can silently be the host
+# root or something we never intended). A failed findmnt OR an empty
+# successful probe OR a tmpfs/ramfs/overlay/aufs/fuse-overlayfs backing
+# is a hard failure with the offending mount, before any apt fetch. Real
+# disk filesystems (btrfs, ext4, xfs, zfs, f2fs, ...) are accepted. The
+# guard itself lives in lib/ncz-work-dir-guard.sh so apt-sim-tests.sh can
+# exercise the EXACT same policy without copying the case statement.
+. "$(cd "$(dirname "$0")" && pwd)/lib/ncz-work-dir-guard.sh"
+ncz_work_dir_guard "$WORK_DIR" || exit 1
 mkdir -p "$WORK_DIR/tmp"
 # Container TMPDIR is on the host-owned bind (not overlay /tmp), so any
 # process the helper spawns that respawns apt or writes scratch state
