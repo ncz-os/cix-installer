@@ -178,9 +178,9 @@ GATE_PARAMS="$GATE_PARAMS ncz_components=desktop,mgmt-container,rescue-partition
 GATE_PARAMS="$GATE_PARAMS debian-installer/locale=en_US.UTF-8 keyboard-configuration/xkb-keymap=us"
 GATE_PARAMS="$GATE_PARAMS clock-setup/ntp=false time/zone=UTC"
 
-python3 - "$CFG" "$GATE_PARAMS" <<'PY'
+python3 - "$CFG" "$GATE_PARAMS" "$ARCH" <<'PY'
 import re, sys
-path, params = sys.argv[1], sys.argv[2]
+path, params, arch = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(path).read()
 
 # Boot the Install entry immediately instead of waiting out the menu.
@@ -217,13 +217,16 @@ def fix_options(m):
     # zero NCZ diagnostics anywhere in serial0.log.)
     consoles = [o for o in opts if o.startswith('console=')]
     rest = [o for o in opts if not o.startswith('console=')]
-    serial = [c for c in consoles if c.startswith('console=ttyS')]
-    other = [c for c in consoles if not c.startswith('console=ttyS')]
+    # the QEMU serial port: 16550 ttyS0 on amd64 (q35), PL011 ttyAMA0 on arm64
+    # (virt). console=ttyS0 on arm64 names no device, so /dev/console stayed on
+    # tty0 and nothing written to /dev/console reached serial0.log.
+    serial = [c for c in consoles if c.startswith(('console=ttyS', 'console=ttyAMA'))]
+    other = [c for c in consoles if not c.startswith(('console=ttyS', 'console=ttyAMA'))]
     # Reordering alone is a no-op here: the shipped entry carries only
     # console=tty0, so `serial` is empty and d-i keeps logging to the VGA
     # console that this headless gate cannot read. Add one when absent.
     if not serial:
-        serial = ['console=ttyS0,115200']
+        serial = ['console=ttyS0,115200'] if arch == 'amd64' else ['console=ttyAMA0,115200']
     return m.group(1) + ' '.join(rest + other + serial) + ' ' + params + m.group(3)
 
 new_body, n = re.subn(r'(options\s+")([^"]*)(")', fix_options, body, count=1)

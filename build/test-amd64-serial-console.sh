@@ -57,5 +57,9 @@ grep -q 'console=ttyS0,115200n8 console=tty0' "$ROOT/build/iso/build-refind-esp.
 grep -q "serial = \['console=ttyS0,115200'\]" "$ROOT/build/kvm-install-gate-gpt.sh" && ok "KVM gate still adds its own serial console" || bad "KVM gate serial patch missing"
 grep -q '^NEXT_CMDLINE_BASE="console=ttyAMA0,115200 console=tty0' "$ROOT/assets/refind/ncz-refind-refresh.sh" && ok "arm64 keeps console=ttyAMA0" || bad "arm64 ttyAMA0 console changed"
 
+grep -q "serial = \['console=ttyS0,115200'\] if arch == 'amd64' else \['console=ttyAMA0,115200'\]" "$ROOT/build/kvm-install-gate-gpt.sh" \
+    && ok "KVM gate serial console: ttyS0 on amd64, ttyAMA0 (PL011) on arm64" || bad "KVM gate serial console is not per architecture"
+grep -q "python3 - \"\$CFG\" \"\$GATE_PARAMS\" \"\$ARCH\" <<'PY'" "$ROOT/build/kvm-install-gate-gpt.sh" && ok "KVM gate passes ARCH to the refind patch" || bad "KVM gate refind patch has no ARCH"
+
 echo "amd64 serial console tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
