@@ -258,7 +258,7 @@ echo /dev/sda3
 STUB
     cat > "$W/rp/bin/blkid" <<'STUB'
 #!/bin/sh
-case "$*" in *"-p -o udev"*) printf '%s\n' "$BLKID_PROBE"; [ -n "$BLKID_AMBI" ] && echo "blkid: /dev/sda3: ambivalent result (probably more filesystems on the device, use wipefs(8) to see more details)" >&2; exit 0 ;; esac
+case "$*" in *"-p -o udev"*) printf '%s\n' "$BLKID_PROBE"; [ -n "$BLKID_AMBI" ] && echo "blkid: /dev/sda3: ambivalent result (probably more filesystems on the device, use wipefs(8) to see more details)" >&2; exit "${BLKID_PROBE_RC:-0}" ;; esac
 printf '%s' "$BLKID_PARTUUID"
 STUB
     cat > "$W/rp/bin/sfdisk" <<'STUB'
@@ -273,11 +273,19 @@ STUB
     mkdir -p "$W/rp/sys/sda/sda3" "$W/rp/dev"; echo 3 > "$W/rp/sys/sda/sda3/partition"; : > "$W/rp/dev/sda"
     ln -sfn "$W/rp/sys/sda/sda3" "$W/rp/sys/sda3"
     rp() {   # rp BLKID_PARTUUID BLKID_AMBI SFDISK_UUID SGDISK_UUID -> "U=<uuid> rc=<rc>"
-        ( export PATH="$W/rp/bin:$PATH" BLKID_PARTUUID="$1" BLKID_AMBI="$2" SFDISK_UUID="$3" SGDISK_UUID="$4" BLKID_PROBE=""
+        ( export PATH="$W/rp/bin:$PATH" BLKID_PARTUUID="$1" BLKID_AMBI="$2" SFDISK_UUID="$3" SGDISK_UUID="$4" BLKID_PROBE="${5:-}" BLKID_PROBE_RC="${6:-0}"
           . "$W/rp-sb.sh" > "$W/rp.out" 2>&1; printf 'U=%s' "$ROOT_PARTUUID" ); printf ' rc=%s' "$?"; }
     [ "$(rp 11111111-2222-3333-4444-555555555555 '' '' '')" = "U=11111111-2222-3333-4444-555555555555 rc=0" ] && ok "blkid answer used" || nok "blkid answer: $(rp 11111111-2222-3333-4444-555555555555 '' '' '')"
     [ "$(rp '' 1 EAEE905D-57A4-43D0-B926-3607DF73001D '')" = " rc=1" ] && grep -q 'ambivalent' "$W/rp.out" && grep -q 'eaee905d-57a4-43d0-b926-3607df73001d' "$W/rp.out" \
         && ok "ambivalent probe (old ext4 under btrfs): refuses before the ESP and names the GPT GUID" || nok "ambivalent: $(rp '' 1 EAEE905D-57A4-43D0-B926-3607DF73001D '') $(cat "$W/rp.out")"
+    for _probe_rc in 2 8; do
+        [ "$(rp '' '' EAEE905D-57A4-43D0-B926-3607DF73001D '' '' "$_probe_rc")" = " rc=1" ] \
+            && grep -q "blkid rc=$_probe_rc" "$W/rp.out" && ok "probe rc=$_probe_rc without text: refuses GPT fallback" \
+            || nok "probe rc=$_probe_rc accepted GPT fallback"
+    done
+    [ "$(rp '' '' EAEE905D-57A4-43D0-B926-3607DF73001D '' ID_FS_AMBIVALENT=ext4:btrfs 0)" = " rc=1" ] \
+        && grep -q ambivalent "$W/rp.out" && ok "uppercase udev ambiguity marker: refuses even with rc=0" \
+        || nok "uppercase ambiguity marker accepted GPT fallback"
     [ "$(rp '' '' EAEE905D-57A4-43D0-B926-3607DF73001D '')" = "U=eaee905d-57a4-43d0-b926-3607df73001d rc=0" ] && ok "blkid empty, probe clean: GPT GUID from sfdisk, lower case" || nok "sfdisk fallback: $(rp '' '' EAEE905D-57A4-43D0-B926-3607DF73001D '')"
     [ "$(rp '' '' '' ae16dfe4-3ce5-4da2-b670-96642566dde2)" = "U=ae16dfe4-3ce5-4da2-b670-96642566dde2 rc=0" ] && ok "sfdisk empty: GPT GUID from sgdisk" || nok "sgdisk fallback"
     [ "$(rp '' '' '' '')" = " rc=1" ] && grep -q 'empty root=PARTUUID=' "$W/rp.out" && ok "no PARTUUID anywhere: refuses, never writes root=PARTUUID=" || nok "empty: $(rp '' '' '' '')"

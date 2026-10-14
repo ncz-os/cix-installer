@@ -296,15 +296,22 @@ ROOT_SRC=$(findmnt -no SOURCE --nofsroot /)
 ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC" 2>/dev/null)
 if [ -z "$ROOT_PARTUUID" ]; then
     ROOT_GPT_PARTUUID=$(ncz_gpt_partuuid "$ROOT_SRC")
-    ROOT_PROBE=$(blkid -p -o udev "$ROOT_SRC" 2>&1)
+    ROOT_PROBE_RC=0
+    ROOT_PROBE=$(blkid -p -o udev "$ROOT_SRC" 2>&1) || ROOT_PROBE_RC=$?
     case "$ROOT_PROBE" in
-        *ambivalent*)
+        *ambivalent*|*ID_FS_AMBIVALENT*)
             echo "ERROR: the root partition $ROOT_SRC carries more than one filesystem signature (blkid: ambivalent result)."
             echo "       udev cannot create /dev/disk/by-partuuid/${ROOT_GPT_PARTUUID:-?} for it, so the system would hang in the initramfs."
             echo "       'wipefs -n $ROOT_SRC' lists the signatures; the installer clears old signatures before partitioning."
             echo "       Refusing to modify the ESP."
             exit 1 ;;
     esac
+    if [ "$ROOT_PROBE_RC" -ne 0 ]; then
+        echo "ERROR: the root filesystem probe failed (blkid rc=$ROOT_PROBE_RC)."
+        echo "       A GPT GUID alone cannot establish a readable root filesystem."
+        echo "       Refusing to modify the ESP."
+        exit 1
+    fi
     if [ -n "$ROOT_GPT_PARTUUID" ]; then
         ROOT_PARTUUID="$ROOT_GPT_PARTUUID"
         echo "  root PARTUUID read from the GPT entry ($ROOT_PARTUUID): blkid returned none"
