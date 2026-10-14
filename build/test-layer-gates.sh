@@ -21,6 +21,9 @@
 #   6. no tracked symlink has an absolute target; assets/kernel/mainline is a
 #      generated, ignored link (build/link-kernel-mainline.sh) and never enters a
 #      layer
+#   7. 52-vivaldi.sh blocks Vivaldi's codec download in a layer build and
+#      restores update-ffmpeg; root home, home and var/opt/vivaldi codecs are
+#      stripped and checked
 # Ownership needs root semantics: the test re-runs itself under fakeroot.
 # Usage: build/test-layer-gates.sh
 set -uo pipefail
@@ -74,6 +77,10 @@ mkdirty() {  # root -> a layer carrying every host-state item
     echo h > "$r/root/.bash_history"; echo h > "$r/home/u/.bash_history"; echo h > "$r/root/.lesshst"
     echo t > "$r/tmp/scratch"; echo t > "$r/var/tmp/scratch"
     echo vg > "$r/etc/lvm/backup/vg0"; echo nqn > "$r/etc/nvme/hostnqn"
+    mkdir -p "$r/root/.config/vivaldi" "$r/root/.local/lib/vivaldi/media-codecs-8.3" "$r/root/.cache/x" "$r/root/.ssh" "$r/var/opt/vivaldi/media-codecs-8.3"
+    : > "$r/root/.config/vivaldi/update-ffmpeg-checked-8.2"; echo so > "$r/root/.local/lib/vivaldi/media-codecs-8.3/libffmpeg.so"
+    echo so > "$r/var/opt/vivaldi/media-codecs-8.3/libffmpeg.so"; echo k > "$r/root/.ssh/authorized_keys"
+    echo rc > "$r/root/.bashrc"; echo pr > "$r/root/.profile"; echo f > "$r/home/u/notes"
     printf '#!/bin/sh\n' > "$r/usr/local/lib/cix-installer/post-install/10-x.sh"
     chmod 0775 "$r/usr/local/lib/cix-installer/post-install/10-x.sh"
     chmod 0664 "$r/etc/hostname"
@@ -94,6 +101,10 @@ for f in var/lib/systemd/random-seed var/lib/systemd/credential.secret etc/ssh/s
          root/.bash_history home/u/.bash_history root/.lesshst tmp/scratch var/tmp/scratch etc/lvm/backup/vg0 etc/nvme/hostnqn; do
     [ ! -e "$D/$f" ] && ok "strip: $f removed" || bad "strip: $f left"
 done
+for f in root/.config root/.local root/.cache root/.ssh/authorized_keys home/u var/opt/vivaldi/media-codecs-8.3; do
+    [ ! -e "$D/$f" ] && ok "strip: $f removed" || bad "strip: $f left"
+done
+[ -f "$D/root/.bashrc" ] && [ -f "$D/root/.profile" ] && [ -d "$D/root/.ssh" ] && ok "strip: root keeps .bashrc, .profile and an empty .ssh" || bad "strip: removed an intended root file"
 [ -e "$D/var/lib/apt/lists/lock" ] && [ -e "$D/var/lib/apt/lists/.ncz-installer-refreshed" ] && [ -d "$D/tmp/.X11-unix" ] \
     && ok "strip: apt lock, installer marker and tmp socket dir kept" || bad "strip: removed a kept entry"
 n1000="$(find "$D" \( -uid +999 ! -uid 65534 \) -o \( -gid +999 ! -gid 65534 \) | wc -l)"
@@ -130,6 +141,14 @@ leak aptbin   'mkdir -p var/cache/apt && echo b > var/cache/apt/pkgcache.bin'
 leak aptlist  'mkdir -p var/lib/apt/lists && echo i > var/lib/apt/lists/deb.example_InRelease'
 leak history  'mkdir -p home/u && echo h > home/u/.bash_history'
 leak vartmp   'mkdir -p var/tmp && echo t > var/tmp/x'
+leak rootcfg  'mkdir -p root/.config/vivaldi && : > root/.config/vivaldi/update-ffmpeg-checked-8.2'
+leak rootlocal 'mkdir -p root/.local/lib/vivaldi'
+leak rootcache 'mkdir -p root/.cache'
+leak rootssh  'mkdir -p root/.ssh && echo k > root/.ssh/authorized_keys'
+leak home     'mkdir -p home/u && echo f > home/u/notes'
+leak codecs   'mkdir -p var/opt/vivaldi/media-codecs-8.3 && echo so > var/opt/vivaldi/media-codecs-8.3/libffmpeg.so'
+d="$T/l-root"; cp -a "$G" "$d"; mkdir -p "$d/root/.ssh"; echo rc > "$d/root/.bashrc"; echo pr > "$d/root/.profile"
+tsv="$(lc "$d")"; want "$tsv" no-build-leftovers PASS "root with .bashrc, .profile and an empty .ssh is not a leftover"
 d="$T/l-keep"; cp -a "$G" "$d"; mkdir -p "$d/var/lib/apt/lists/partial" "$d/var/lib/apt/lists/auxfiles"; : > "$d/var/lib/apt/lists/lock"; : > "$d/var/lib/apt/lists/.ncz-installer-refreshed"
 tsv="$(lc "$d")"; want "$tsv" no-build-leftovers PASS "apt lock/partial/auxfiles and the installer marker are not leftovers"
 d="$T/o-1000"; cp -a "$G" "$d"; mkdir -p "$d/usr/local/lib/cix-installer"; echo x > "$d/usr/local/lib/cix-installer/f"; chown -R 1000:1000 "$d/usr/local/lib/cix-installer"
@@ -239,6 +258,18 @@ env -u NCZ_KERNEL_STAGING_DIR NCZ_YOCTO_SHARED_DIR="$T/ys" bash "$ROOT/build/lin
 [ -d "$F/assets/kernel/mainline" ] && [ ! -L "$F/assets/kernel/mainline" ] && [ -e "$F/assets/kernel/mainline/KVER" ] && ok "link-kernel-mainline: a real directory is left as is" || bad "link-kernel-mainline replaced a real directory"
 grep -q 'if \[ -L "$_ka/mainline" \]; then sudo rm -f "$_ka/mainline"; fi' "$ROOT/build/build-squashfs-layers.sh" \
     && ok "the base layer copy leaves the mainline link out" || bad "build-squashfs-layers.sh no longer removes the mainline link"
+
+# ===========================================================================
+echo "== 7. Vivaldi codecs are not downloaded during the layer build =="
+V="$ROOT/post-install/52-vivaldi.sh"
+grep >/dev/null 'if \[ "${NCZ_LAYER_BUILD:-0}" = 1 \]; then' "$V" && grep >/dev/null 'dpkg-divert --local --rename --divert /opt/vivaldi/update-ffmpeg.ncz-build --add /opt/vivaldi/update-ffmpeg' "$V" \
+    && ok "52-vivaldi diverts update-ffmpeg in a layer build" || bad "52-vivaldi does not divert update-ffmpeg"
+grep >/dev/null 'dpkg-divert --local --rename --remove /opt/vivaldi/update-ffmpeg' "$V" && ok "52-vivaldi restores update-ffmpeg" || bad "52-vivaldi does not restore update-ffmpeg"
+awk '/dpkg-divert --local --rename --divert/{a=NR} /dpkg -i "\$DEB"/{b=NR} /dpkg-divert --local --rename --remove/{c=NR} END{exit !(a<b && b<c)}' "$V" \
+    && ok "divert before dpkg -i, restore after it" || bad "divert/install/restore order"
+grep >/dev/null 'VIVALDI_FFMPEG_AUTO=0 /usr/bin/vivaldi-stable --version' "$V" && ok "the version probe does not start a codec fetch" || bad "version probe can fetch codecs"
+n="$(grep -c 'vivaldi-stable --version' "$V")"; [ "$n" = 1 ] && ok "one version probe in 52-vivaldi" || bad "$n version probes in 52-vivaldi"
+grep >/dev/null 'sudo chroot "$MG" env NCZ_LAYER_BUILD=1 bash -c' "$ROOT/build/build-squashfs-layers.sh" && ok "the layer build runs the app hooks with NCZ_LAYER_BUILD=1" || bad "app hooks do not get NCZ_LAYER_BUILD=1"
 
 echo "test-layer-gates: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
