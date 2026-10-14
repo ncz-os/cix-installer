@@ -77,7 +77,7 @@ _fst=$(findmnt -no FSTYPE -T "$WORKROOT" 2>/dev/null || true)
 case "$_fst" in tmpfs|ramfs) echo "MATRIX FAIL: $WORKROOT is on $_fst; use a directory on disk" >&2; exit 2 ;; esac
 
 SUMMARY="$WORKROOT/matrix.tsv"
-printf 'set\tcomponents\tresult\tseconds\twork\n' > "$SUMMARY"
+printf 'set\tcomponents\tresult\tseconds\twork\tcoverage\n' > "$SUMMARY"
 FAILED=""
 for _s in $SETS; do
     _c=$(gate_set_components "$_s")
@@ -86,6 +86,9 @@ $(gate_set_disk "$_s")
 EOF_DISK
     _w="$WORKROOT/$_s"
     _ui=0; [ "$_s" = full ] && _ui="${NCZ_GATE_UI_CHECK:-1}"
+    _coverage=target-logs-and-verifier
+    [ "$_fs" = ext4 ] || _coverage=SKIP-target-logs-and-verifier
+    [ "$_ui" != 0 ] || _coverage="$_coverage;SKIP-UI"
     echo
     echo "################ install-option set: $_s ($_c, root $_fs, stale disk $_stale) ################"
     _t0=$(date +%s)
@@ -95,12 +98,12 @@ EOF_DISK
     _rc="${PIPESTATUS[0]}"
     _dt=$(( $(date +%s) - _t0 ))
     if [ "$_rc" = 0 ] && grep -q '^GATE PASS' "$WORKROOT/$_s.log"; then
-        printf '%s\t%s\tPASS\t%s\t%s\n' "$_s" "$_c" "$_dt" "$_w" >> "$SUMMARY"
+        printf '%s\t%s\tPASS\t%s\t%s\t%s\n' "$_s" "$_c" "$_dt" "$_w" "$_coverage" >> "$SUMMARY"
         if [ "${NCZ_GATE_KEEP:-0}" != 1 ]; then
             rm -f "$_w"/*-qemutest.img "$_w/target.qcow2" "$_w/OVMF_VARS.fd"
         fi
     else
-        printf '%s\t%s\tFAIL(rc=%s)\t%s\t%s\n' "$_s" "$_c" "$_rc" "$_dt" "$_w" >> "$SUMMARY"
+        printf '%s\t%s\tFAIL(rc=%s)\t%s\t%s\t%s\n' "$_s" "$_c" "$_rc" "$_dt" "$_w" "$_coverage" >> "$SUMMARY"
         FAILED="$FAILED $_s"
     fi
 done
