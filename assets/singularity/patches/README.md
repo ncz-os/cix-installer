@@ -372,6 +372,17 @@ that toolbar is the static titlebar carrying minimize, maximize and close, so Le
 only app without window buttons. The patch hides the toolbar only in floating-bubbles mode.
 Not filed upstream yet (no PR link). Regression test: `build/test-titlebar-buttons.sh`.
 
+## singularity-tour — carried, not filed
+
+Patch `0001-scene-stop-the-animation-after-a-few-cycles.patch`: each tour scene added a
+tick callback on map that never stopped, so the visible slide was redrawn every frame for
+as long as the tour stayed open (50% of a core on an Intel HD4000 laptop, 55% on a Sky1
+board, 88-90% on a MacBookPro16,1 with the package at 88-95 C). The patch plays three
+2.4 s cycles when a slide is shown and then rests on the first frame; image slides do not
+animate. Not filed upstream yet (no PR link). Until a payload carries it, the first-login
+launcher starts the tour with GTK animations off
+(`assets/branding/first-login-tour/ncz-first-login-tour`), which already stops the loop.
+
 ## singularity-nearby — active
 
 **Not yet filed upstream** (2026-10-13). Patch
