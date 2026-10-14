@@ -5,28 +5,28 @@
 <h1 align="center">NCZ-OS</h1>
 <p align="center"><em>面向 Arm64（CIX Sky1）与 AMD64（Intel/AMD PC 与 Apple T2 Mac）的 Debian —— 带有可用的 GPU、VPU 与 NPU 驱动</em></p>
 
-> ### NCZ-OS 26.10 "Cygnus"（2026-10-13 镜像）
+> ### NCZ-OS 26.10 "Cygnus" Preview 2（2026-10-14 镜像）
 >
-> **[从 Releases 页面下载](https://github.com/ncz-os/cix-installer/releases)**（只有一个发布：当前镜像）
-> · [发布说明（英文）](docs/releases/26.10-cygnus-20261013.md)
+> **[从 Releases 页面下载](https://github.com/ncz-os/cix-installer/releases)**（只有一个发布：Preview 2，以预发布（pre-release）形式发布）
+> · [发布说明（英文）](docs/releases/26.10-cygnus-preview2.md)
 > · [已测试硬件](#hardware-support)
 > · [文档索引（英文）](docs/INDEX.md)
 >
 > | 镜像 | 适用于 | 内核 |
 > |---|---|---|
-> | `ncz-os-arm64-20261013-d395bb2d.img` | CIX Sky1 主板（Radxa Orion O6N、Minisforum MS-R1） | `7.3.0-rc7-sky1-ncz` |
-> | `ncz-os-amd64-20261013-d395bb2d.img` | Intel/AMD PC 与 Apple T2 Mac | `7.3.0-rc7-t2-ncz` |
+> | `ncz-os-amd64-20261014-4d0daef8.img` | Intel/AMD PC 与 Apple T2 Mac | `7.3.0-rc7-t2-ncz` |
+> | `ncz-os-arm64-20261014-4d0daef8.img` | CIX Sky1 主板（Radxa Orion O6N、Minisforum MS-R1） | `7.3.0-rc7-sky1-ncz` |
 >
 > | 镜像 | `.img` 的 sha256 |
 > |---|---|
-> | arm64 | `f6de9e4f830fd5d450b1e00654cc9341aae1a5ca070bc66f9a5a76b3ca3ba4a7` |
-> | amd64 | `7f23dcde01bd1aac9aae4bd7cee2ec87392a94d782002e8abea7f28653886851` |
+> | amd64 | `9421b36d19fda7fdb32be9deedda25387c4a11f7e5f1c469af4a8213fe2bc775` |
+> | arm64 | `c72f94e614b3e0b40e5e7eb8292cdd4383c0e957804b18582cbb7d80e7325ca0` |
 >
 > 每个镜像都是原始 GPT 磁盘镜像（`.img`），在发布页上被拆分为多个分片（GitHub 单个文件
 > 上限 2 GiB）。把对应架构的所有分片、`PARTS-<架构>.sha256`、`SHA256SUMS-<架构>`
 > （旧版本为 `PARTS.sha256` 与 `SHA256SUMS`）与
 > [`ncz-join-image.sh`](tools/ncz-join-image.sh) 放在同一个文件夹里，运行
-> `sh ncz-join-image.sh arm64`（或 `amd64`）：脚本会校验每个分片、拼接并解压，再校验
+> `sh ncz-join-image.sh amd64`（或 `arm64`）：脚本会校验每个分片、拼接并解压，再校验
 > 得到的 `.img`；它绝不会写入任何磁盘。然后把 `.img` 写入**至少 16 GB** 的驱动器
 > （会清空该驱动器），见下文"快速开始（在硬件上安装）"。
 >
@@ -40,7 +40,7 @@
 
 > **🌐 语言：** [English](README.md) · 简体中文
 >
-> **📚 从这里开始：** [文档索引](docs/INDEX.md) · [26.10 发布说明](docs/releases/26.10-cygnus-20261013.md) · [设计理据 —— 为什么这样构建](docs/DESIGN-RATIONALE.md) · [AI/ML 技术栈参考](docs/AI-ML-STACK.zh-CN.md) · [源码发布](docs/SOURCE-RELEASES.zh-CN.md) · [下载镜像](https://github.com/ncz-os/cix-installer/releases)
+> **📚 从这里开始：** [文档索引](docs/INDEX.md) · [26.10 发布说明](docs/releases/26.10-cygnus-preview2.md) · [设计理据 —— 为什么这样构建](docs/DESIGN-RATIONALE.md) · [AI/ML 技术栈参考](docs/AI-ML-STACK.zh-CN.md) · [源码发布](docs/SOURCE-RELEASES.zh-CN.md) · [下载镜像](https://github.com/ncz-os/cix-installer/releases)
 
 **NCZ-OS Linux 发行版的安装程序与镜像构建。**
 
@@ -69,7 +69,7 @@
 > 与旧的"前沿版"通道已退役。7.3.0-rc7 是**候选版**内核，之后会换成 7.3.0 正式版。
 >
 > 所有窗口默认（系统级）带有最小化、最大化与关闭按钮。屏保为 NCZ Screensavers 0.8.15
-> （设置插件 0.3.22）。自 Preview 1 以来的变化见[发布说明（英文）](docs/releases/26.10-cygnus-20261013.md#changes-since-preview-1)。
+> （设置插件 0.3.22）。自 Preview 1 以来的变化见[发布说明（英文）](docs/releases/26.10-cygnus-preview2.md#changes-since-preview-1)。
 
 > ### 远程访问默认项
 >

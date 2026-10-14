@@ -37,16 +37,16 @@ release is published.
 
 ## Components built from source in 26.10 "Cygnus"
 
-Images `ncz-os-arm64-20261013-d395bb2d` and `ncz-os-amd64-20261013-d395bb2d`.
+Images `ncz-os-arm64-20261014-4d0daef8` and `ncz-os-amd64-20261014-4d0daef8`.
 Versions are taken from the reviewed NCZ build ledger,
 [`manifests/ncz-packages.tsv`](../manifests/ncz-packages.tsv), at commit
-`d395bb2d`.
+`4d0daef8`.
 
 | Component | Shipped version | License | Source |
 |---|---|---|---|
 | **Linux kernel, Sky1 (arm64)** | `7.3.0-rc7-sky1-ncz` (package `linux-image-cixmini` `7.3.0-rc7-sky1-ncz+r289`) | GPL-2.0 | Mainline v7.3-rc7 plus the Sky1 port patch and 20 numbered patches. Vendored in [`kernel-source/`](../kernel-source/SOURCE.md); recipe tag `kernel-sky1-7.3.0-rc7-r289` in [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix); the complete patched tree is tag `kernel-sky1-7.3.0-rc7-r289-src` in [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix). See **Kernel corresponding source** below. |
 | **Linux kernel, amd64 (T2 Macs and PCs)** | `7.3.0-rc7-t2-ncz` (package `7.3.0-rc7-2`) | GPL-2.0 | Mainline v7.3-rc7 plus the t2linux patch series and our T2 fixes (24 patches), in [`ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz), tag `v7.3.0-rc7-t2-ncz-2`. See **Kernel corresponding source** below. |
-| **cix-installer** (installer, preseed, post-install hooks, build scripts) | commit `d395bb2d` | see repo | **This repository**, commit `d395bb2d`. |
+| **cix-installer** (installer, preseed, post-install hooks, build scripts) | commit `4d0daef8` | see repo | **This repository**, commit `4d0daef8` (tag `v26.10-preview2`). |
 | **cixmini-boot** | `1.3+r289` | GPL-2.0 | Boot/firmware glue for Sky1 boards, built by `build/build-kernel-debs.sh`. |
 | **ncz-ffmpeg** (arm64) | `9.0.1-ncz3` | LGPL-2.1+/GPL-2+ | FFmpeg with Sky1 V4L2 M2M support; patches under [`docs/upstream-patches/ffmpeg/`](upstream-patches/ffmpeg/). |
 | **chromium-ncz-sky1** (arm64) | `154.0.8037.0-ncz20261011` | BSD-3-Clause + others | Chromium with Sky1 V4L2 decode fixes; patches under [`docs/upstream-patches/chromium/`](upstream-patches/chromium/). |
@@ -70,11 +70,11 @@ Every part below was fetched anonymously (no account, no token) on
 | Recipe, Sky1 port patch, patches 0001-0011 and 0013-0021, defconfig | [`ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) `recipes-kernel/linux-cix-sky1-ncz/linux-cix-sky1-ncz_7.3-rc7.bb` | tag `kernel-sky1-7.3.0-rc7-r289` (branch `fix/sky1-r289-20261012`), commit `7e8c821f8c7b79309af815ae0ee243bc36befa5b` | GPL-2.0 (patches), Apache-2.0 (recipe) |
 | The same, vendored, plus the as-built `.config` (sha256 `67bb7109…`) | [`kernel-source/`](../kernel-source/SOURCE.md) in this repository | this commit | GPL-2.0 |
 | Complete patched source tree as one commit | [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix) | tag `kernel-sky1-7.3.0-rc7-r289-src`, commit `b275222cfc5703fb5595398a216b495ca7d6ee7a` (branch `release/sky1-7.3.0-rc7-r289`) | GPL-2.0 |
-| Debian packaging (`linux-image-cixmini`, `linux-headers-cixmini`, `cixmini-boot`) | `build/build-kernel-debs.sh` in this repository | commit `d395bb2d` | see repo |
-| Out-of-tree modules `mali_kbase`, `memory_group_manager`, `protected_memory_allocator` | `assets/kernel/mali/src` (CIX `cix_opensource__gpu_kernel`) | commit `d395bb2d` | GPL-2.0 |
-| Out-of-tree module `panthor` (Sky1 fork) | `assets/kernel/panthor/` | commit `d395bb2d` | GPL-2.0 OR MIT |
-| Out-of-tree module `amvx` (VPU) | `assets/kernel/vpu/src` (CIX `cix_opensource__vpu_driver`) | commit `d395bb2d` | GPL-2.0 |
-| Out-of-tree module `aipu` (NPU) | `assets/kernel/npu/src` (CIX `cix_opensource__npu_driver`) | commit `d395bb2d` | GPL-2.0 |
+| Debian packaging (`linux-image-cixmini`, `linux-headers-cixmini`, `cixmini-boot`) | `build/build-kernel-debs.sh` in this repository | commit `4d0daef8` | see repo |
+| Out-of-tree modules `mali_kbase`, `memory_group_manager`, `protected_memory_allocator` | `assets/kernel/mali/src` (CIX `cix_opensource__gpu_kernel`) | commit `4d0daef8` | GPL-2.0 |
+| Out-of-tree module `panthor` (Sky1 fork) | `assets/kernel/panthor/` | commit `4d0daef8` | GPL-2.0 OR MIT |
+| Out-of-tree module `amvx` (VPU) | `assets/kernel/vpu/src` (CIX `cix_opensource__vpu_driver`) | commit `4d0daef8` | GPL-2.0 |
+| Out-of-tree module `aipu` (NPU) | `assets/kernel/npu/src` (CIX `cix_opensource__npu_driver`) | commit `4d0daef8` | GPL-2.0 |
 
 The recipe's `SRC_URI` fetches the port tree from a local mirror; the public
 copy is `ncz-os/linux-cix` branch `kernel-73rc7-port-20261011`
@@ -88,7 +88,7 @@ tree; applying all 21 patches in `SRC_URI` order gives exactly the tree of the
 |---|---|---|---|
 | Upstream base | `https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git` | tag `v7.3-rc7`: commit `24a19b953e2a3d0ea5a8c4951a0ab8f32720c907` | GPL-2.0 |
 | Patch series (24: t2linux apple-bce, applesmc, HID, APFS and Touch Bar patches plus our T2 fixes), resolved config, build and packaging script, `verify.sh` | [`ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz) | tag `v7.3.0-rc7-t2-ncz-2`, commit `35249a98c7ad2f07cf2d0055a3be3c0c40f5b506` | GPL-2.0 |
-| T2 DKMS modules `t2smc`, `t2gmux` (built by default), `t2thunderbolt` (opt-in), `t2smp` (shipped, never built) | `assets/kernel/t2smc/`, `t2gmux/`, `t2thunderbolt/`, `t2smp/` in this repository | commit `d395bb2d` | GPL-2.0 |
+| T2 DKMS modules `t2smc`, `t2gmux` (built by default), `t2thunderbolt` (opt-in), `t2smp` (shipped, never built) | `assets/kernel/t2smc/`, `t2gmux/`, `t2thunderbolt/`, `t2smp/` in this repository | commit `4d0daef8` | GPL-2.0 |
 
 `linux-t2-ncz` is a clean export of the development repository. Applying its
 `patches/series` to the base gives git tree `451b5dfe…`, and its config is

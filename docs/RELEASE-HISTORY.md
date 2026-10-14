@@ -12,17 +12,22 @@ are not maintained.
 
 ---
 
-## 26.10 "Cygnus" (images of 2026-10-13)
+## 26.10 "Cygnus" Preview 2 (2026-10-14)
 
-Images `ncz-os-arm64-20261013-d395bb2d` and `ncz-os-amd64-20261013-d395bb2d`,
-built from commit `d395bb2d`, on the same 7.3.0-rc7 kernels as Preview 1. New
-since Preview 1: minimize and maximize buttons as the system-wide window
-default, NCZ Screensavers 0.8.13 with settings plugin 0.3.21, a steadier Sky1
-desktop session start with the Mali driver, the T2 MacBook login screen at the
-panel's native resolution, a cooler first login on T2 Macs, a Sky1 tour slide
-about hardware video decoding, DHCP on the rescue system's wired ports, and
-end-to-end `ncz` installs of MNEMOS, zoder and the agent runtimes. Full notes:
-[releases/26.10-cygnus-20261013.md](releases/26.10-cygnus-20261013.md).
+Images `ncz-os-amd64-20261014-4d0daef8` and `ncz-os-arm64-20261014-4d0daef8`,
+built from commit `4d0daef8` (source tag `v26.10-preview2`, published as a
+pre-release), on the same 7.3.0-rc7 kernels as Preview 1. New since Preview 1:
+minimize and maximize buttons as the system-wide window default, NCZ
+Screensavers 0.8.15 with settings plugin 0.3.22 (the saver keeps animating
+behind the lock and freezes only when the password prompt appears), locking
+before suspend that follows the lock-on-suspend setting, a lock-screen saver
+heat limit of 98 °C on T2 MacBooks, a steadier Sky1 desktop session start with
+the Mali driver, the T2 MacBook login screen at the panel's native resolution,
+a cooler first login on T2 Macs, Vivaldi 8.2 and Google Chrome 155, Artist
+Pack wallpapers 1.2, the installer banner on every console, DHCP on the rescue
+system's wired ports, and end-to-end `ncz` installs of MNEMOS, zoder and the
+agent runtimes. Full notes:
+[releases/26.10-cygnus-preview2.md](releases/26.10-cygnus-preview2.md).
 
 ## 26.10 "Cygnus" Preview 1 (2026-10-12)
 

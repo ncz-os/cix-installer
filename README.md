@@ -9,28 +9,28 @@
 <h1 align="center">NCZ-OS</h1>
 <p align="center"><em>Debian for Arm64 (CIX Sky1) and AMD64 (Intel/AMD PCs and Apple T2 Macs) — with working GPU, VPU and NPU drivers</em></p>
 
-> ### NCZ-OS 26.10 "Cygnus" (images of 2026-10-13)
+> ### NCZ-OS 26.10 "Cygnus" Preview 2 (images of 2026-10-14)
 >
-> **[Download from the Releases page](https://github.com/ncz-os/cix-installer/releases)** (one release: the current images)
-> · [Release notes](docs/releases/26.10-cygnus-20261013.md)
+> **[Download from the Releases page](https://github.com/ncz-os/cix-installer/releases)** (one release: Preview 2, published as a pre-release)
+> · [Release notes](docs/releases/26.10-cygnus-preview2.md)
 > · [Hardware tested](#hardware-support--testing-status)
 > · [Documentation index](docs/INDEX.md)
 >
 > | Image | For | Kernel |
 > |---|---|---|
-> | `ncz-os-arm64-20261013-d395bb2d.img` | CIX Sky1 boards (Radxa Orion O6N, Minisforum MS-R1) | `7.3.0-rc7-sky1-ncz` |
-> | `ncz-os-amd64-20261013-d395bb2d.img` | Intel/AMD PCs and Apple T2 Macs | `7.3.0-rc7-t2-ncz` |
+> | `ncz-os-amd64-20261014-4d0daef8.img` | Intel/AMD PCs and Apple T2 Macs | `7.3.0-rc7-t2-ncz` |
+> | `ncz-os-arm64-20261014-4d0daef8.img` | CIX Sky1 boards (Radxa Orion O6N, Minisforum MS-R1) | `7.3.0-rc7-sky1-ncz` |
 >
 > | Image | sha256 of the `.img` |
 > |---|---|
-> | arm64 | `f6de9e4f830fd5d450b1e00654cc9341aae1a5ca070bc66f9a5a76b3ca3ba4a7` |
-> | amd64 | `7f23dcde01bd1aac9aae4bd7cee2ec87392a94d782002e8abea7f28653886851` |
+> | amd64 | `9421b36d19fda7fdb32be9deedda25387c4a11f7e5f1c469af4a8213fe2bc775` |
+> | arm64 | `c72f94e614b3e0b40e5e7eb8292cdd4383c0e957804b18582cbb7d80e7325ca0` |
 >
 > Each image is a raw GPT disk image, split into parts on the release page
 > (GitHub limits files to 2 GiB). Put the parts of your architecture, its
 > `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>` (on older releases
 > `PARTS.sha256` and `SHA256SUMS`) and [`ncz-join-image.sh`](tools/ncz-join-image.sh) in one folder and run
-> `sh ncz-join-image.sh arm64` (or `amd64`): it checks every part, joins and
+> `sh ncz-join-image.sh amd64` (or `arm64`): it checks every part, joins and
 > unpacks them and checks the finished `.img`. It never writes to a disk. Then
 > write the `.img` to a drive of at least 16 GB — see
 > [Quick start (install on hardware)](#quick-start-install-on-hardware).
@@ -55,7 +55,7 @@ frozen-in-time legacy distro.
 
 > **🌐 Language:** English · [简体中文](README.zh-CN.md)
 >
-> **📚 Start here:** [Documentation index](docs/INDEX.md) · [26.10 release notes](docs/releases/26.10-cygnus-20261013.md) · [Design rationale — why it is built this way](docs/DESIGN-RATIONALE.md) · [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [Source releases](docs/SOURCE-RELEASES.md) · [Download the image](https://github.com/ncz-os/cix-installer/releases)
+> **📚 Start here:** [Documentation index](docs/INDEX.md) · [26.10 release notes](docs/releases/26.10-cygnus-preview2.md) · [Design rationale — why it is built this way](docs/DESIGN-RATIONALE.md) · [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [Source releases](docs/SOURCE-RELEASES.md) · [Download the image](https://github.com/ncz-os/cix-installer/releases)
 
 **The installer and image build for the NCZ-OS Linux distribution.**
 
@@ -95,7 +95,7 @@ it as NCZ-OS. See [Architecture](#architecture).
 > are retired. 7.3.0-rc7 is a **release candidate**; it will be replaced by
 > 7.3.0 final.
 >
-> **Release notes:** [26.10 "Cygnus"](docs/releases/26.10-cygnus-20261013.md) ·
+> **Release notes:** [26.10 "Cygnus"](docs/releases/26.10-cygnus-preview2.md) ·
 > [Download from the Releases page](https://github.com/ncz-os/cix-installer/releases)
 
 > ### Remote access defaults
@@ -161,7 +161,7 @@ it as NCZ-OS. See [Architecture](#architecture).
   to end ([docs/NCZ-AGENT-STACK.md](docs/NCZ-AGENT-STACK.md)).
 
 What changed since Preview 1 (2026-10-12) is listed in the
-[release notes](docs/releases/26.10-cygnus-20261013.md#changes-since-preview-1).
+[Preview 2 release notes](docs/releases/26.10-cygnus-preview2.md#changes-since-preview-1).
 
 ### Artist packs
 
@@ -1387,7 +1387,7 @@ posture and how to harden it.
 ## Releases
 
 Current and past release notes live in **[`docs/releases/`](docs/releases/)**.
-The latest is **[26.10 "Cygnus"](docs/releases/26.10-cygnus-20261013.md)** (images of 2026-10-13); they
+The latest is **[26.10 "Cygnus" Preview 2](docs/releases/26.10-cygnus-preview2.md)** (images of 2026-10-14, tag `v26.10-preview2`, a pre-release); they
 are published on the [Releases page](https://github.com/ncz-os/cix-installer/releases), which holds the one current release. The earlier
 [26.10 Preview 1](docs/releases/26.10-cygnus-preview1.md) notes (2026-10-12)
 are kept for reference.

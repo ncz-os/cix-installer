@@ -7,7 +7,7 @@
 > **Reading this for 26.10?** Most decisions below still hold for 26.10 "Cygnus",
 > but details may have moved on and the measurements were taken on the 26.7 kernel line (7.2). 26.10
 > ships one 7.3.0-rc7 kernel per architecture; see
-> [releases/26.10-cygnus-20261013.md](releases/26.10-cygnus-20261013.md).
+> [releases/26.10-cygnus-preview2.md](releases/26.10-cygnus-preview2.md).
 
 Why this distribution is built the way it is: the GPU stack, the media and
 codec path, the desktop, networking, the base distribution, and the initramfs.
