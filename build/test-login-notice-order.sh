@@ -124,7 +124,7 @@ gate_before() {   # gate_before <name> <script text>
     else
         bad "$name: gate line ${g:-missing}, sleep ${s:-?}, notify-send ${n:-?}"
     fi
-    if printf '%s\n' "$text" | grep -q -F "[ -x /usr/local/bin/ncz-first-login-tour ] && $GATE"; then
+    if printf '%s\n' "$text" | grep -F "[ -x /usr/local/bin/ncz-first-login-tour ] && $GATE" >/dev/null; then
         ok "$name: gate is optional (no launcher installed -> no wait)"
     else
         bad "$name: gate is not guarded by [ -x ]"
