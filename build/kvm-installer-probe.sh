@@ -9,8 +9,9 @@
 #       background of phase 1; the caller kills it by PID.
 #   kvm-installer-probe.sh judge OUT
 #       exit 0 when at least one sample was taken while main-menu ran, no
-#       sample shows brltty (process, binary, udev rules, d-i hooks, the
-#       framebuffer-off hook S20brltty) and tty1 is never narrower than tty2;
+#       sample shows brltty (process, a brltty line in the installer syslog,
+#       binary, udev rules, d-i hooks, the framebuffer-off hook S20brltty) and
+#       tty1 is never narrower than tty2;
 #       exit 1 otherwise, naming the finding.
 #
 # Why: the installer must never start brltty or clamp the console. brltty-udeb
@@ -44,6 +45,7 @@ for d in /sys/bus/usb/devices/*; do
     [ -f "$d/idVendor" ] && echo "usb $(basename "$d") $(cat "$d/idVendor"):$(cat "$d/idProduct") $(cat "$d/product" 2>/dev/null)"
 done
 grep -i -E "brltty|braille" /var/log/syslog 2>/dev/null | head -5 | sed "s/^/syslog /"
+dmesg 2>/dev/null | grep -i -E "usb [0-9]|braille|brltty" | head -40 | sed "s/^/dmesg /"
 '
 
 case "$MODE" in
@@ -70,6 +72,7 @@ judge)
         /^main_menu / { mm[s] = $2 }
         /^brltty_pid / && $2 != "none" { pid[s] = $2 }
         /^brltty_file / { f[s] = f[s] " " $2 }
+        /^syslog .*brltty\[[0-9]+\]/ { started[s] = 1 }
         /^tty1 / { t1r[s] = $2; t1c[s] = $3 }
         /^tty2 / { t2r[s] = $2; t2c[s] = $3 }
         END {
@@ -79,6 +82,7 @@ judge)
                 ok++
                 if (pid[i] != "") { printf "probe: sample %d: brltty is running (pid %s)\n", i, pid[i]; bad = 1 }
                 if (f[i] != "") { printf "probe: sample %d: brltty files present:%s\n", i, f[i]; bad = 1 }
+                if (started[i]) { printf "probe: sample %d: the installer syslog shows brltty ran\n", i; bad = 1 }
                 if (t1c[i] ~ /^[0-9]+$/ && t2c[i] ~ /^[0-9]+$/ && t1c[i] + 0 < t2c[i] + 0) {
                     printf "probe: sample %d: tty1 clamped to %s columns (tty2 has %s)\n", i, t1c[i], t2c[i]; bad = 1
                 }
