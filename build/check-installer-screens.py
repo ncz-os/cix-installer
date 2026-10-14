@@ -111,9 +111,16 @@ if a.no_blank_after:
             if a.allow_first_blank and blank_seen == 1: continue
             bad += 1
             print("check-installer-screens: FAIL %s: blank console after the %r dialog (the UI vanished; the operator sees an empty blue screen)" % (f, a.no_blank_after), file=sys.stderr)
+def joined(t):
+    # box borders off and wrapped lines joined: an 80-column console wraps the login line
+    # ("... diagnostics login: root / set by" / "ncz_diag_pw"), in dialog titles and the banner alike
+    return re.sub(r"\s+", " ", re.sub("[\u2500-\u257f|]", " ", t))
 if a.require_login_line:
     lrx = re.compile(a.require_login_line)
-    nlogin = sum(1 for f in files if lrx.search(rd(os.path.join(a.dir, f))))
+    def raw(path):  # rd() maps the box characters to their ACS letters; joined() needs them as they are
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    nlogin = sum(1 for f in files if lrx.search(rd(os.path.join(a.dir, f))) or lrx.search(joined(raw(os.path.join(a.dir, f)))))
     if nlogin == 0:
         bad += 1
         print("check-installer-screens: FAIL no console state shows the diagnostics login line /%s/" % a.require_login_line, file=sys.stderr)

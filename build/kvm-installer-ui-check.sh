@@ -62,7 +62,7 @@ else
         --require-prompt-sequence "select your REGION" "choose a USERNAME" \
             "choose a PASSWORD" "type the same PASSWORD" "optional components" \
         --require-header "NCZ-OS [0-9.]+ [A-Za-z]+" --min-states 20 --min-dialogs 5 \
-        --require-login-line "diagnostics login: root / [^ ]{4,}" || rc=1
+        --require-login-line "diagnostics login: root / (set by ncz_diag_pw|\S{4,})" || rc=1
     T_ANS="$(sed -n 's/^t=\([0-9]*\)s rule 0 .*/\1/p' "$WORK/answers.log" | head -1)"
     [ -n "$T_ANS" ] || { echo "UI CHECK FAIL: the component dialog was never reached/answered" >&2; exit 1; }
     "${CHK[@]}" "$WORK/serial-screens" --start-at "optional components" --no-blank-after "optional components" || rc=1
