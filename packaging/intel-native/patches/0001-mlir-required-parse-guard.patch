@@ -12,8 +12,8 @@
      if (param.isOptional())
        continue;
 -    os << formatv("assert(::mlir::succeeded(_result_{0}));\n", param.getName());
-+    os << formatv("if (::mlir::failed(_result_{0})) return {{}};\n",
-+                  param.getName());
++    os << formatv("if (::mlir::failed(_result_{0})) ", param.getName())
++       << "return {};\n";
    }
  
    // Generate call to the attribute or type builder. Use the checked getter
