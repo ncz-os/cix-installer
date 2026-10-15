@@ -625,3 +625,4 @@ build/test-recovery-logins.sh	common	-	installer diagnostics login = documented 
 build/apt-sim-tests.sh	common	-	shared APT argument/removal gates and disk workspace/cache guard regression fixtures
 build/apt-sim-zero-removals.sh	common	-	shared simulate-then-install helper enforcing identical APT arguments and zero removals
 build/lib/ncz-work-dir-guard.sh	common	-	shared disk workspace guard rejecting volatile, overlay and unavailable filesystem probes
+build/test-stage-screensaver-plugin-public.sh	common	-	offline public plugin staging fixtures; pinned local preference, HTTPS fetch, checksum/control rejection, atomic output and cleanup

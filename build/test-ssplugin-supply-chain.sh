@@ -116,7 +116,20 @@ if [ -r "$ST" ]; then
     sed -i "s/^NCZ_SSPLUGIN_SHA256_amd64=.*/NCZ_SSPLUGIN_SHA256_amd64=$(sed -n 's/^NCZ_SSPLUGIN_SHA256_arm64=//p' "$FL")/" "$T/lock.swap"
     cp -a "$A" "$T/store-swap"; cp "$A/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_arm64.deb" "$T/store-swap/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_amd64.deb"
     expect "stage: a pin-matching deb with the wrong Architecture is refused" 1 "Architecture is 'arm64'" env NCZ_SSPLUGIN_LOCK="$T/lock.swap" NCZ_SSPLUGIN_SRC_ROOT="$T/store-swap" NCZ_SSPLUGIN_OUT="$O2" bash "$ST" amd64
-    expect "stage: a missing source is refused" 1 "missing" env NCZ_SSPLUGIN_LOCK="$FL" NCZ_SSPLUGIN_SRC_ROOT="$T" NCZ_SSPLUGIN_OUT="$O2" bash "$ST" amd64
+    mkdir -p "$T/offlinecurl-bin"
+    cat >"$T/offlinecurl-bin/curl" <<'EOF'
+#!/bin/sh
+: >"$OFFLINE_CURL_MARKER"
+exit 22
+EOF
+    chmod +x "$T/offlinecurl-bin/curl"
+    OFFLINE_CURL_MARKER="$T/offlinecurl-called"
+    rm -f "$OFFLINE_CURL_MARKER"
+    rm -rf "$O2"; mkdir -p "$O2"
+    expect "stage: public fetch failure leaves no staged file" 1 "public fetch of" env PATH="$T/offlinecurl-bin:$PATH" OFFLINE_CURL_MARKER="$OFFLINE_CURL_MARKER" NCZ_SSPLUGIN_LOCK="$FL" NCZ_SSPLUGIN_SRC_ROOT="$T" NCZ_SSPLUGIN_OUT="$O2" bash "$ST" amd64
+    if [ -f "$OFFLINE_CURL_MARKER" ]; then ok "stage: offline curl stub was invoked"; else bad "stage: offline curl stub was not invoked"; fi
+    if [ -z "$(find "$O2" -mindepth 1 -print -quit 2>/dev/null)" ]; then ok "stage: no staged file left after public fetch failure"; else bad "stage: staged file left after public fetch failure"; fi
+    if [ -z "$(find "$T" -maxdepth 1 -name '*.tmp*' -print -quit 2>/dev/null)" ]; then ok "stage: no temp leftover after public fetch failure"; else bad "stage: temp leftover after public fetch failure"; fi
 else
     FAILS=$((FAILS + 1)); echo "FAIL stage: $ST missing"
 fi

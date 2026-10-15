@@ -725,6 +725,7 @@ parity:
 	build/test-overview-dock-clearance.sh
 	build/test-screensavers-mandatory-install.sh
 	build/test-ssplugin-supply-chain.sh
+	@bash build/test-stage-screensaver-plugin-public.sh; rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 77 ]; then exit $$rc; fi
 	build/test-ncz-ui.sh
 	build/test-release-identity.sh
 	build/test-base-stamp.sh
