@@ -1,0 +1,11 @@
+--- a/src/vpux_compiler/src/dialect/VPUIP/transforms/passes/legalize_repeating_func_calls.cpp
++++ b/src/vpux_compiler/src/dialect/VPUIP/transforms/passes/legalize_repeating_func_calls.cpp
+@@ -249,7 +249,7 @@
+             const bool firstTimeSeenValue = memorizedOutputs.insert(*x).second;
+             return !firstTimeSeenValue;
+         };
+-        for (size_t i = 0; !argsAcrossCallSites.empty(); OperandRange2D::advance(argsAcrossCallSites), ++i) {
++        for (; !argsAcrossCallSites.empty(); OperandRange2D::advance(argsAcrossCallSites)) {
+             const auto ithOutputs = argsAcrossCallSites.get();
+             auto it = llvm::find_if(ithOutputs, visitValue);
+             // this is currently not supported

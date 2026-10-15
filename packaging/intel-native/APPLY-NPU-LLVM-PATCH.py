@@ -9,6 +9,7 @@ import tempfile
 
 LLVM_PATH = "thirdparty/llvm-project"
 TARGET = "mlir/tools/mlir-tblgen/AttrOrTypeFormatGen.cpp"
+COMPILER_TARGET = "src/vpux_compiler/src/dialect/VPUIP/transforms/passes/legalize_repeating_func_calls.cpp"
 LLVM_UP = "8f3977c01be0f24be98b67ef2c911fd82657f30c"
 COMP_UP = "0b38f7d42113ff329ac2bdd33583d123de4ccf2f"
 AUTHOR_NAME = "Jason Perlow"
@@ -44,7 +45,7 @@ def patch_sha(patch_file):
     return h.hexdigest()
 
 
-def check_patch_paths(patch_file):
+def check_patch_paths(patch_file, expected_target):
     r = run(["git", "apply", "--numstat", patch_file], check=False)
     if r.returncode != 0:
         raise SystemExit("patch numstat failed: " + r.stderr)
@@ -53,8 +54,8 @@ def check_patch_paths(patch_file):
         parts = line.split("\t")
         if len(parts) >= 3:
             paths.append(parts[2])
-    if paths != [TARGET]:
-        raise SystemExit(f"patch paths not exactly {TARGET}: {paths!r}")
+    if paths != [expected_target]:
+        raise SystemExit(f"patch paths not exactly {expected_target}: {paths!r}")
 
 
 def commit_env(epoch):
@@ -88,7 +89,7 @@ def derive_llvm_commit(llvm_repo, patch_file, epoch, tmpdir):
     return commit
 
 
-def derive_compiler_commit(comp_repo, llvm_commit, epoch, tmpdir):
+def derive_compiler_commit(comp_repo, llvm_commit, compiler_patch_file, epoch, tmpdir):
     idx = os.path.join(tmpdir, "comp.idx")
     if os.path.exists(idx):
         os.remove(idx)
@@ -105,8 +106,13 @@ def derive_compiler_commit(comp_repo, llvm_commit, epoch, tmpdir):
         comp_repo,
         env=env,
     )
+    git(["apply", "--cached", "--check", compiler_patch_file], comp_repo, env=env)
+    git(["apply", "--cached", compiler_patch_file], comp_repo, env=env)
     tree = git(["write-tree"], comp_repo, env=env).stdout.strip()
-    msg = f"npu_compiler: materialize llvm {llvm_commit}"
+    msg = (
+        f"npu_compiler: materialize llvm {llvm_commit} "
+        f"compiler_patch {patch_sha(compiler_patch_file)}"
+    )
     cenv = commit_env(epoch)
     cenv["GIT_INDEX_FILE"] = idx
     commit = git(
@@ -135,11 +141,16 @@ def checkout_detached(repo, commit):
 
 
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 5:
         raise SystemExit(
-            "usage: APPLY-NPU-LLVM-PATCH.py COMPILER_SOURCE PATCH_FILE REPORT_JSON"
+            "usage: APPLY-NPU-LLVM-PATCH.py COMPILER_SOURCE LLVM_PATCH COMPILER_PATCH REPORT_JSON"
         )
-    comp_repo, patch_file, report_path = sys.argv[1], sys.argv[2], sys.argv[3]
+    comp_repo, patch_file, compiler_patch_file, report_path = (
+        sys.argv[1],
+        sys.argv[2],
+        sys.argv[3],
+        sys.argv[4],
+    )
 
     epoch_s = os.environ.get("SOURCE_DATE_EPOCH")
     if not epoch_s or not re.match(r"^[0-9]+$", epoch_s):
@@ -157,13 +168,19 @@ def main():
         raise SystemExit(f"missing llvm submodule at {llvm_repo}")
     if not os.path.isfile(patch_file):
         raise SystemExit("missing patch file")
-    check_patch_paths(patch_file)
+    if not os.path.isfile(compiler_patch_file):
+        raise SystemExit("missing compiler patch file")
+    check_patch_paths(patch_file, TARGET)
+    check_patch_paths(compiler_patch_file, COMPILER_TARGET)
     psha = patch_sha(patch_file)
+    cpsha = patch_sha(compiler_patch_file)
 
     tmpdir = tempfile.mkdtemp(prefix="npu-patch-", dir=tmpbase)
     try:
         llvm_derived = derive_llvm_commit(llvm_repo, patch_file, epoch, tmpdir)
-        comp_derived = derive_compiler_commit(comp_repo, llvm_derived, epoch, tmpdir)
+        comp_derived = derive_compiler_commit(
+            comp_repo, llvm_derived, compiler_patch_file, epoch, tmpdir
+        )
 
         llvm_head = head_of(llvm_repo)
         comp_head = head_of(comp_repo)
@@ -220,6 +237,9 @@ def main():
         src_file = os.path.join(llvm_repo, TARGET)
         with open(src_file, "rb") as f:
             src_sha = hashlib.sha256(f.read()).hexdigest()
+        comp_src_file = os.path.join(comp_repo, COMPILER_TARGET)
+        with open(comp_src_file, "rb") as f:
+            comp_src_sha = hashlib.sha256(f.read()).hexdigest()
 
         report = {
             "llvm_upstream": LLVM_UP,
@@ -227,7 +247,9 @@ def main():
             "compiler_upstream": COMP_UP,
             "compiler_derived": comp_derived,
             "patch_sha256": psha,
+            "compiler_patch_sha256": cpsha,
             "source_file_sha256": src_sha,
+            "compiler_source_file_sha256": comp_src_sha,
             "clean": True,
             "compiler_status": status_lines(comp_repo),
         }
