@@ -91,8 +91,8 @@
       "sha256": "7a788d10ea52030133949509fc056af7aeea4537b7b7f7484279c8ed120d8535"
     },
     "cixmini-boot": {
-      "version": "1.4+r289",
-      "sha256": "81213d2ca1a010345e5174abe5b836df2ef8bb5726100145ccc1d4c109059de0"
+      "version": "1.5+r289",
+      "sha256": "ef1ddf8fda43437ae3293233749b20a47284dca8e524cae082ebb6a0af4d9103"
     }
   },
   "overlays_mirrored": {

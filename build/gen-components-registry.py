@@ -73,10 +73,19 @@ AC_PUBLISHED = {
     "ncz-singularity-desktop",
     "ncz-screensavers",
     "ncz-screensavers-gtk4-reference",
+    # Fresh signed Buildkite/R2 downloads verified 2026-10-15.
+    "ncz-screensavers-plugin",
+    "ncz-apt-policy",
+    "apple-t2-audio-config",
+    "apple-firmware-script",
+    "libopenvino-2026.4.1",
+    "libopenvino-intel-cpu-plugin-2026.4.1",
+    "libopenvino-intel-gpu-plugin-2026.4.1",
+    "libopenvino-intel-npu-plugin-2026.4.1",
 }
 
 # The Singularity screensaver settings plugin is NOT an apt seed and not in
-# NCZ_LOCAL_DEBS: it is unpublished (AC report open question 5) and
+# NCZ_LOCAL_DEBS: it is now published (signed downloads verified 2026-10-15) and
 # ABI-coupled to the Singularity payload stage 1 rebuilds, so the image ships
 # a pinned deb on the install medium. Its row comes from the pin file.
 SSPLUGIN_LOCK_REL = "post-install/lib/ncz-screensavers-plugin.lock"
@@ -471,23 +480,23 @@ def parse_overlay_rows(kernel_root, sky1_manifest):
 HOOK_ONLY_ROWS = [
     {
         "name": "apple-firmware-script",
-        "kind": "debian", "source": "debian-forky",
+        "kind": "ncz-apt", "source": "buildkite-packages",
         "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "required": "no", "version_floor": "20261015+ncz1",
         "installed_by": "post-install/55-t2-firmware.sh (apt-get install)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "post-install/55-t2-firmware.sh",
-        "notes": "T2-gated (is_t2_hardware); Apple T2 firmware tooling from the forky suite.",
+        "notes": "T2-gated (is_t2_hardware); native NCZ apt package apple-firmware-script 20261015+ncz1, root-accepted public-signed 2026-10-15.",
     },
     {
         "name": "apple-t2-audio-config",
-        "kind": "debian", "source": "debian-forky",
+        "kind": "ncz-apt", "source": "buildkite-packages",
         "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "required": "no", "version_floor": "0.5.1+ncz1",
         "installed_by": "post-install/55-t2-firmware.sh (apt-get install)",
         "verified_by": "build/verify-installed-target.sh",
         "provenance": "post-install/55-t2-firmware.sh",
-        "notes": "T2-gated (is_t2_hardware); T2 HDA audio configuration package.",
+        "notes": "T2-gated (is_t2_hardware); native NCZ apt package apple-t2-audio-config 0.5.1+ncz1, root-accepted public-signed 2026-10-15.",
     },
     {
         "name": "dmg2img",
@@ -552,43 +561,73 @@ HOOK_ONLY_ROWS = [
     },
     {
         "name": "intel-driver-compiler-npu",
-        "kind": "debian", "source": "debian-forky",
+        "kind": "ncz-apt", "source": "buildkite-packages",
         "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
         "required": "no", "version_floor": "",
         "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL_NPU gated)",
         "verified_by": "build/verify-installed-target.sh",
-        "provenance": "post-install/54-gpu-accel.sh (Intel OpenVINO repo block)",
-        "notes": "Installed at runtime from apt.repos.intel.com/openvino (keyring intel-openvino.gpg); source label debian-forky is the nearest approved value (format gap, see drift report 2026-10-06).",
+        "provenance": "post-install/54-gpu-accel.sh (native NCZ NPU driver set)",
+        "notes": "Native NCZ NPU userspace/compiler; compile in flight, no published version yet (version_floor intentionally empty).",
+    },
+    {
+        "name": "intel-fw-npu",
+        "kind": "ncz-apt", "source": "buildkite-packages",
+        "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no", "version_floor": "",
+        "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL_NPU gated)",
+        "verified_by": "build/verify-installed-target.sh",
+        "provenance": "post-install/54-gpu-accel.sh (native NCZ NPU driver set)",
+        "notes": "Native NCZ NPU firmware; compile in flight, no published version yet (version_floor intentionally empty).",
     },
     {
         "name": "intel-level-zero-npu",
-        "kind": "debian", "source": "debian-forky",
+        "kind": "ncz-apt", "source": "buildkite-packages",
         "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
         "required": "no", "version_floor": "",
         "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL_NPU gated)",
         "verified_by": "build/verify-installed-target.sh",
-        "provenance": "post-install/54-gpu-accel.sh (Intel OpenVINO repo block)",
-        "notes": "Installed at runtime from apt.repos.intel.com/openvino; source label approximate (format gap, see drift report 2026-10-06).",
+        "provenance": "post-install/54-gpu-accel.sh (native NCZ NPU driver set)",
+        "notes": "Native NCZ NPU Level Zero driver; compile in flight, no published version yet (version_floor intentionally empty).",
     },
     {
-        "name": "level-zero",
-        "kind": "debian", "source": "debian-forky",
+        "name": "intel-validation-npu",
+        "kind": "ncz-apt", "source": "buildkite-packages",
         "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
         "required": "no", "version_floor": "",
         "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL_NPU gated)",
         "verified_by": "build/verify-installed-target.sh",
-        "provenance": "post-install/54-gpu-accel.sh (Intel OpenVINO repo block)",
-        "notes": "Installed at runtime from apt.repos.intel.com/openvino; source label approximate (format gap, see drift report 2026-10-06).",
+        "provenance": "post-install/54-gpu-accel.sh (native NCZ NPU driver set)",
+        "notes": "Native NCZ NPU validation layer; compile in flight, no published version yet (version_floor intentionally empty).",
     },
     {
-        "name": "openvino",
-        "kind": "debian", "source": "debian-forky",
+        "name": "libopenvino-intel-gpu-plugin-2026.4.1",
+        "kind": "ncz-apt", "source": "buildkite-packages",
         "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
-        "required": "no", "version_floor": "",
+        "required": "no", "version_floor": "1:2026.4.1.1-ncz1",
         "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL gated)",
         "verified_by": "build/verify-installed-target.sh",
-        "provenance": "post-install/54-gpu-accel.sh (Intel OpenVINO repo block)",
-        "notes": "Installed at runtime from apt.repos.intel.com/openvino; source label approximate (format gap, see drift report 2026-10-06).",
+        "provenance": "post-install/54-gpu-accel.sh (native NCZ OpenVINO GPU plugin)",
+        "notes": "Native NCZ OpenVINO GPU plugin 1:2026.4.1.1-ncz1 (amd64); built against Debian Forky, normal Forky APT + CPU inference proved; published Buildkite and R2 with fresh signed downloads verified 2026-10-15; GPU/NPU hardware runtime unvalidated.",
+    },
+    {
+        "name": "libopenvino-intel-npu-plugin-2026.4.1",
+        "kind": "ncz-apt", "source": "buildkite-packages",
+        "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no", "version_floor": "1:2026.4.1.1-ncz1",
+        "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL_NPU gated)",
+        "verified_by": "build/verify-installed-target.sh",
+        "provenance": "post-install/54-gpu-accel.sh (native NCZ OpenVINO NPU plugin)",
+        "notes": "Native NCZ OpenVINO NPU plugin 1:2026.4.1.1-ncz1 (amd64); built against Debian Forky, normal Forky APT + CPU inference proved; published Buildkite and R2 with fresh signed downloads verified 2026-10-15; GPU/NPU hardware runtime unvalidated.",
+    },
+    {
+        "name": "libopenvino-2026.4.1",
+        "kind": "ncz-apt", "source": "buildkite-packages",
+        "arch": "amd64", "variant": "desktop,installer,mgmt,rescue,server",
+        "required": "no", "version_floor": "1:2026.4.1.1-ncz1",
+        "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL gated)",
+        "verified_by": "build/verify-installed-target.sh",
+        "provenance": "post-install/54-gpu-accel.sh (native NCZ OpenVINO core)",
+        "notes": "Native NCZ OpenVINO core 1:2026.4.1.1-ncz1 (amd64); exact core dependency of the GPU/NPU plugins; built against Debian Forky, normal Forky APT + CPU inference proved; published Buildkite and R2 with fresh signed downloads verified 2026-10-15; GPU/NPU hardware runtime unvalidated.",
     },
     {
         "name": "intel-opencl-icd",
@@ -597,8 +636,8 @@ HOOK_ONLY_ROWS = [
         "required": "no", "version_floor": "",
         "installed_by": "post-install/54-gpu-accel.sh (HAS_INTEL gated)",
         "verified_by": "build/verify-installed-target.sh",
-        "provenance": "post-install/54-gpu-accel.sh (Intel OpenVINO repo block)",
-        "notes": "Installed at runtime from apt.repos.intel.com/openvino; source label approximate (format gap, see drift report 2026-10-06).",
+        "provenance": "post-install/54-gpu-accel.sh (Debian Forky runtime set)",
+        "notes": "Debian Forky signed runtime package (intel-opencl-icd); installed from the configured Debian suite, no Intel/NCZ index needed.",
     },
 ]
 
@@ -777,7 +816,7 @@ def main(argv=None):
                         "and the drift report track this."
                     )
                 else:
-                    notes = "Published per item AC (2026-10-05); Buildkite primary + R2 mirror."
+                    notes = "Published per reviewed publication receipts; Buildkite primary + R2 mirror."
                 if pkg == "ncz-screensavers" and fname == "install-extra.pkgs":
                     notes += (
                         " Desktop variants require the staged pool copy at "
@@ -809,7 +848,7 @@ def main(argv=None):
                 "arch": arch,
                 "variant": variant,
                 "required": required,
-                "version_floor": ss_floor if pkg == "ncz-screensavers" else ("1.0.4" if pkg == "ncz-apt-policy" else ""),
+                "version_floor": ss_floor if pkg == "ncz-screensavers" else ("1.0.5" if pkg == "ncz-apt-policy" else ""),
                 "installed_by": "manifest",
                 "verified_by": verified_by,
                 "provenance": f"manifests/{fname}" + ("; NCZ apt repo" if kind == "ncz-apt" else ""),
@@ -891,8 +930,8 @@ def main(argv=None):
                            f"{pin['NCZ_SSPLUGIN_STORE_DIR']}); "
                            "build/stage-screensaver-plugin.sh; post-install/lib/ncz-screensavers-plugin.lock"),
             "notes": (
-                "Singularity Screensaver and Lockscreen settings page. Not published "
-                "to the NCZ apt set (item AC open question 5); pinned sha256 per arch, "
+                "Singularity Screensaver and Lockscreen settings page. Published on "
+                "Buildkite and R2 (signed downloads verified 2026-10-15); pinned sha256 per arch, "
                 "carried on the install medium (ncz-payload/assets/ncz-screensavers-plugin), "
                 "installed only over the Singularity payload it was linked against "
                 "(version or byte-identical libsingularity)."
