@@ -24,11 +24,14 @@
 # plugin against the new payload, restage it in the artifact store, update this file.
 NCZ_SSPLUGIN_PKG=ncz-screensavers-plugin
 NCZ_SSPLUGIN_VERSION=0.3.23
-# 0.3.23 is locally staged (artifact store ncz-screensavers-debs/plugin-0.3.23-20261014213143)
-# and publication is pending. Built from the accepted saver source
-# 8f8433c4f90e0a3b2d80225dafee098957eea8d5 (wip/studio/2026-10-14-resume-saver)
-# against the final payload built by 291821e21f168e5f980d9b2f4954fea62594a20a,
-# newhead libsingularity (payload 20261014213143).
+# 0.3.23 is published (signed Buildkite/R2) at
+#   https://packages.buildkite.com/ncz-os/ncz/any/pool/any/main/n/ncz-screensavers-plugin/
+# Preferred local cache key: ncz-screensavers-debs/plugin-0.3.23-20261014213143.
+# The public fallback works when that cache is absent. Built from the accepted
+# saver source 8f8433c4f90e0a3b2d80225dafee098957eea8d5
+# (wip/studio/2026-10-14-resume-saver) against the final payload built by
+# 291821e21f168e5f980d9b2f4954fea62594a20a, newhead libsingularity
+# (payload 20261014213143).
 NCZ_SSPLUGIN_MAINTAINER="Jason Perlow <jperlow@gmail.com>"
 # Directory under the artifact-store projects root (mount point differs per
 # build host; see build/stage-screensaver-plugin.sh).
