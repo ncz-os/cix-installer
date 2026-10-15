@@ -44,6 +44,9 @@ docker exec -e SNAPSHOT="$SNAPSHOT" -e CI_REL="$CI_REL" "$DOCKER_NAME" bash -ceu
   [ "$VERSION_CODENAME" = forky ]
   mkdir -p "$HOME" "$TMPDIR" "$XDG_CACHE_HOME" "$GOPATH" "$GOCACHE" "$GOMODCACHE" "$CCACHE_DIR"
   chmod 1777 "$TMPDIR"
+  for source_name in openvino npu-driver npu_compiler; do
+    git config --global --add safe.directory "/work/caches/source/$source_name"
+  done
   if [ ! -s /etc/ssl/certs/ca-certificates.crt ]; then
     apt-get -o APT::Update::Error-Mode=any update
     bash "/work/$CI_REL/build/apt-sim-zero-removals.sh" /work/logs/ca-bootstrap-simulation.log -y --no-install-recommends ca-certificates
