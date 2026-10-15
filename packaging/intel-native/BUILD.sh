@@ -58,7 +58,7 @@ docker exec -e SNAPSHOT="$SNAPSHOT" -e CI_REL="$CI_REL" "$DOCKER_NAME" bash -ceu
   bash "/work/$CI_REL/build/apt-sim-zero-removals.sh" /work/logs/build-deps-simulation.log \
     -y --no-install-recommends cmake ninja-build build-essential ccache git git-lfs pkgconf \
     patchelf dpkg-dev lintian libtbb-dev libpugixml-dev libsnappy-dev libffi-dev \
-    libpython3-dev pybind11-dev nlohmann-json3-dev libflatbuffers-dev rapidjson-dev \
+    python3 libpython3-dev pybind11-dev nlohmann-json3-dev libflatbuffers-dev rapidjson-dev \
     libva-dev ocl-icd-opencl-dev opencl-headers libgtest-dev libgmock-dev \
     libyaml-cpp-dev libze-dev libdrm-dev libssl-dev libxml2-utils fdupes ca-certificates file
   dpkg-query -W > /work/logs/build-deps-versions.txt
