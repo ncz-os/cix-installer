@@ -21,3 +21,22 @@ final controls, exact internal dependencies, signed snapshot install, and CPU
 inference still require artifact QA; source approval does not prove these.
 The initial C++ compilation and the later metadata/package recipe revisions
 are recorded separately in the build evidence.
+
+### GCC 16 generated-parser guard
+
+The public NPU compiler uses LLVM `8f3977c01be0f24be98b67ef2c911fd82657f30c`.
+Its MLIR generator relies on debug-only assertions before dereferencing required
+parsed parameters; GCC 16 Release compilation reports `-Werror=maybe-uninitialized`.
+The versioned `patches/0001-mlir-required-parse-guard.patch` emits runtime failure
+checks for required parameters, preserving optional/default handling and strict
+warning settings. The builder completes the upstream source-fetch target before
+applying this patch; it never edits generated parser output.
+
+`APPLY-NPU-LLVM-PATCH.py` derives deterministic commits for the patched LLVM tree
+and its compiler gitlink, verifies both working trees clean, and records original
+pins, derived commits, patch digest and materialized source digest in
+`logs/npu-compiler-patched-source.json`. These derived commits differ from the
+public upstream pins; the public NCZ recipe carries the complete source patch.
+The helper requires `SOURCE_DATE_EPOCH` and a pre-existing owned `TMPDIR` on the
+builder's checked disk-backed task bind. Run `python3 packaging/intel-native/test-npu-llvm-patch.py`
+with `TMPDIR` under Projects to exercise real isolated Git positive/negative cases.

@@ -1,0 +1,19 @@
+--- a/mlir/tools/mlir-tblgen/AttrOrTypeFormatGen.cpp
++++ b/mlir/tools/mlir-tblgen/AttrOrTypeFormatGen.cpp
+@@ -322,12 +322,13 @@
+   for (FormatElement *el : elements)
+     genElementParser(el, ctx, os);
+ 
+-  // Emit an assert for each mandatory parameter. Triggering an assert means
+-  // the generated parser is incorrect (i.e. there is a bug in this code).
++  // Emit a failure check for each mandatory parameter. If parsing of a
++  // mandatory parameter failed, the generated parser must bail out.
+   for (const AttrOrTypeParameter &param : params) {
+     if (param.isOptional())
+       continue;
+-    os << formatv("assert(::mlir::succeeded(_result_{0}));\n", param.getName());
++    os << formatv("if (::mlir::failed(_result_{0})) ", param.getName())
++       << "return {};\n";
+   }
+ 
+   // Generate call to the attribute or type builder. Use the checked getter
