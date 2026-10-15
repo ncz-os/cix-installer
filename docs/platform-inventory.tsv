@@ -626,3 +626,9 @@ build/apt-sim-tests.sh	common	-	shared APT argument/removal gates and disk works
 build/apt-sim-zero-removals.sh	common	-	shared simulate-then-install helper enforcing identical APT arguments and zero removals
 build/lib/ncz-work-dir-guard.sh	common	-	shared disk workspace guard rejecting volatile, overlay and unavailable filesystem probes
 build/test-stage-screensaver-plugin-public.sh	common	-	offline public plugin staging fixtures; pinned local preference, HTTPS fetch, checksum/control rejection, atomic output and cleanup
+build/test-boot-manifest-parity.py	sky1	-	boot helper manifest and reviewed ledger parity with stale metadata negative cases
+build/test-installer-ui-wrapper.sh	mixed	-	amd64 framebuffer limits and arm64 serial dialog UI contract fixtures
+build/test-native-apt-overrides.sh	common	-	native package namespace and architecture override policy fixtures
+build/test-rescue-network-owner.sh	common	-	container-only actual rescue systemctl ownership fixtures
+build/test-t2-native-packages.sh	amd64	t2	native T2 acquisition, simulation refusal, source cleanup and staged firmware fixtures
+packages/apple-t2-audio-config/	amd64	t2	independent MIT T2 UCM generator, facts, package recipe and route contract tests
