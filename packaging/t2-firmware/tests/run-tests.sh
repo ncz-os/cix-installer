@@ -183,7 +183,7 @@ PY
 )"
     has() { printf '%s\n' "$REL_SET" | grep -qx "$1"; }
 
-    for dep in python3 bash tar coreutils util-linux mount sudo; do
+    for dep in python3 mount sudo kmod ca-certificates; do
         if has "$dep"; then ok "declared dependency present: $dep"; else bad "missing declared dependency: $dep"; fi
     done
     if has curl; then ok "declared: curl"; else bad "missing declared: curl"; fi

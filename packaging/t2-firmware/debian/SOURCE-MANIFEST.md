@@ -86,8 +86,10 @@ Default / Debian-relevant paths and what they actually need:
   `logging, os, os.path, re, sys, pprint, statistics, tarfile, io,
   collections, hashlib, pathlib`)
 
-Declared `Depends:` = `python3, bash, coreutils, tar, util-linux, mount,
-sudo, kmod, ca-certificates, mawk | gawk, curl`. `dmg2img` is `Recommends:` because only the optional Apple-CDN
+Declared nonessential `Depends:` = `python3, mount, sudo, kmod,
+ca-certificates, mawk | gawk, curl`. Bash, coreutils, tar and util-linux are
+Debian Essential packages and are not redundantly declared as unversioned
+runtime dependencies. `dmg2img` is `Recommends:` because only the optional Apple-CDN
 path needs it. `brew`, `dnf`, `pacman`, `rpmbuild`, `git`, `makepkg`
 are not Debian-path dependencies. The Debian package-manager path uses
 `apt-get` from the already detected APT installation. Signed Forky snapshot

@@ -12,4 +12,4 @@ apple-firmware-script (20261015+ncz1) unstable; urgency=medium
   * Distinct date-based version: the upstream source bytes differ from the
     previously shipped vendor payload, so 1.4-3 is NOT reused.
 
- -- Jason Perlow <jperlow@gmail.com>  Wed, 15 Oct 2026 00:00:00 +0000
+ -- Jason Perlow <jperlow@gmail.com>  Thu, 15 Oct 2026 00:00:00 +0000
