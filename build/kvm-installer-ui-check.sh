@@ -47,13 +47,21 @@ if [ "$ARCH" = amd64 ]; then
     ndist=$(awk '{print $2}' "$WORK/fb-frames.txt" 2>/dev/null | sort -u | wc -l | tr -d ' ')
     [ "${ndist:-0}" -ge 8 ] || { echo "check-installer-screens: FAIL only ${ndist:-0} distinct framebuffer frames captured (dialogs and progress bars expected)" >&2; rc=1; }
     # The amd64 harness has no text channel for the d-i dialogs (the fbcon VT reads back blank/banner text while the
-    # framebuffer shows the dialog), so dialog titles, their order and the branded header are NOT verified here. Say so,
-    # loudly, instead of printing a PASS that implies they were (r201: "dialogs branded" over "dialogs (0): none").
-    # NCZ_UI_CHECK_REQUIRE_DIALOGS=1 turns the gap into a failure (use it once an amd64 text channel exists).
-    if grep -q 'dialogs in capture order (0): NOT VERIFIED' "$WORK/fb-check.out"; then
-        echo "UI CHECK LIMITED (amd64): framebuffer sampling only -- dialog titles, dialog ORDER and branding were NOT verified" >&2
-        if [ "${NCZ_UI_CHECK_REQUIRE_DIALOGS:-0}" = 1 ]; then echo "UI CHECK FAIL (amd64): NCZ_UI_CHECK_REQUIRE_DIALOGS=1 and no dialog could be extracted" >&2; exit 1; fi
-        [ $rc = 0 ] && { echo "UI CHECK PASS-LIMITED (amd64): no chatter, UI never blank after the first dialog; dialog order NOT verified"; exit 0; }
+    # framebuffer shows the dialog), so dialog titles, their order, the branded header, the operator prompt sequence,
+    # the diagnostics login line and the boot-progress phases are NOT verified here. This is a structural limitation
+    # of framebuffer-only sampling: even if a future/synthetic capture happened to extract one title, the checker
+    # still cannot validate chatter/branding/order from framebuffer frames alone. So AMD is ALWAYS PASS-LIMITED when
+    # its unchanged continuity/diversity checks succeed, and the unverified items are listed explicitly.
+    # NCZ_UI_CHECK_REQUIRE_DIALOGS=1 rejects AMD in BOTH the zero-title and the nonzero-title case until an explicit
+    # full contract (a real text channel) is implemented -- we do not invent OCR.
+    if [ "${NCZ_UI_CHECK_REQUIRE_DIALOGS:-0}" = 1 ]; then
+        echo "UI CHECK FAIL (amd64): NCZ_UI_CHECK_REQUIRE_DIALOGS=1 requires a full dialog contract (titles, order, branding, chatter) that framebuffer-only sampling cannot provide" >&2
+        exit 1
+    fi
+    if [ $rc = 0 ]; then
+        echo "UI CHECK PASS-LIMITED (amd64): framebuffer continuity and diversity only" >&2
+        echo "UI CHECK PASS-LIMITED (amd64): UNVERIFIED: dialog chatter, dialog titles/order, branding, prompt sequence, diagnostics login line, boot-progress phases" >&2
+        exit 0
     fi
 else
     "${CHK[@]}" "$WORK/serial-screens" --start-at "select your REGION" \
@@ -67,5 +75,9 @@ else
     [ -n "$T_ANS" ] || { echo "UI CHECK FAIL: the component dialog was never reached/answered" >&2; exit 1; }
     "${CHK[@]}" "$WORK/serial-screens" --start-at "optional components" --no-blank-after "optional components" || rc=1
 fi
-[ $rc = 0 ] && echo "UI CHECK PASS ($ARCH): dialogs branded, no chatter, no blank console after the component dialog" || echo "UI CHECK FAIL ($ARCH)" >&2
+if [ $rc = 0 ]; then
+    echo "UI CHECK PASS ($ARCH): dialogs branded, no chatter, no blank console after the component dialog"
+else
+    echo "UI CHECK FAIL ($ARCH)" >&2
+fi
 exit $rc
