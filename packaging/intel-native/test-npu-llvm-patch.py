@@ -21,7 +21,19 @@ PATCH = """diff --git a/mlir/tools/mlir-tblgen/AttrOrTypeFormatGen.cpp b/mlir/to
  // body
 """
 
+COMPILER_PATCH = """diff --git a/src/vpux_compiler/src/dialect/VPUIP/transforms/passes/legalize_repeating_func_calls.cpp b/src/vpux_compiler/src/dialect/VPUIP/transforms/passes/legalize_repeating_func_calls.cpp
+--- a/src/vpux_compiler/src/dialect/VPUIP/transforms/passes/legalize_repeating_func_calls.cpp
++++ b/src/vpux_compiler/src/dialect/VPUIP/transforms/passes/legalize_repeating_func_calls.cpp
+@@ -1,2 +1,3 @@
+ // header
++// compiler patched
+ // body
+"""
+
 WRONG_PATCH = PATCH.replace("AttrOrTypeFormatGen.cpp", "Other.cpp")
+WRONG_COMPILER_PATCH = COMPILER_PATCH.replace(
+    "legalize_repeating_func_calls.cpp", "Other.cpp"
+)
 
 
 def sh(cmd, cwd=None, env=None, check=True):
@@ -72,6 +84,14 @@ class Fixture:
         make_repo(self.comp)
         with open(os.path.join(self.comp, "README"), "w") as f:
             f.write("x\n")
+        comp_target = os.path.join(
+            self.comp, "src/vpux_compiler/src/dialect/VPUIP/transforms/passes"
+        )
+        os.makedirs(comp_target)
+        with open(
+            os.path.join(comp_target, "legalize_repeating_func_calls.cpp"), "w"
+        ) as f:
+            f.write("// header\n// body\n")
         self.comp_up = commit_all(self.comp, "comp base")
         git(
             [
@@ -91,17 +111,28 @@ class Fixture:
         self.patch = os.path.join(root, "p.patch")
         with open(self.patch, "w") as f:
             f.write(PATCH)
+        self.compiler_patch = os.path.join(root, "cp.patch")
+        with open(self.compiler_patch, "w") as f:
+            f.write(COMPILER_PATCH)
         self.report = os.path.join(root, "report.json")
 
     def detach_both(self):
         git(["checkout", "-q", "--detach", self.llvm_up], self.llvm)
         git(["checkout", "-q", "--detach", self.comp_up], self.comp)
 
-    def run_inproc(self, patch=None, epoch="1700000000", expect_ok=True):
+    def run_inproc(
+        self, patch=None, compiler_patch=None, epoch="1700000000", expect_ok=True
+    ):
         mod = load_helper()
         mod.LLVM_UP = self.llvm_up
         mod.COMP_UP = self.comp_up
-        argv = [HELPER, self.comp, patch or self.patch, self.report]
+        argv = [
+            HELPER,
+            self.comp,
+            patch or self.patch,
+            compiler_patch or self.compiler_patch,
+            self.report,
+        ]
         env = {"SOURCE_DATE_EPOCH": epoch, "TMPDIR": self.root}
         with (
             mock.patch.object(sys, "argv", argv),
@@ -148,6 +179,13 @@ class TestApply(unittest.TestCase):
         with open(src, "rb") as f:
             data = f.read()
         self.assertIn(b"// patched", data)
+        comp_src = os.path.join(
+            self.fx.comp,
+            "src/vpux_compiler/src/dialect/VPUIP/transforms/passes/legalize_repeating_func_calls.cpp",
+        )
+        with open(comp_src, "rb") as f:
+            comp_data = f.read()
+        self.assertIn(b"// compiler patched", comp_data)
 
     def test_idempotent(self):
         self.fx.detach_both()
@@ -203,6 +241,19 @@ class TestApply(unittest.TestCase):
             git(["rev-parse", "HEAD"], self.fx.comp).stdout.strip(), self.fx.comp_up
         )
 
+    def test_wrong_compiler_patch_path(self):
+        self.fx.detach_both()
+        p = os.path.join(self.tmp, "wrong_compiler.patch")
+        with open(p, "w") as f:
+            f.write(WRONG_COMPILER_PATCH)
+        self.fx.run_inproc(compiler_patch=p, expect_ok=False)
+        self.assertEqual(
+            git(["rev-parse", "HEAD"], self.fx.llvm).stdout.strip(), self.fx.llvm_up
+        )
+        self.assertEqual(
+            git(["rev-parse", "HEAD"], self.fx.comp).stdout.strip(), self.fx.comp_up
+        )
+
     def test_changed_patch_after_derived(self):
         self.fx.detach_both()
         self.fx.run_inproc()
@@ -221,12 +272,36 @@ class TestApply(unittest.TestCase):
             rep1["compiler_derived"],
         )
 
+    def test_changed_compiler_patch_after_derived(self):
+        self.fx.detach_both()
+        self.fx.run_inproc()
+        rep1 = json.loads(Path(self.fx.report).read_text())
+        with open(self.fx.compiler_patch, "a") as f:
+            f.write("\n")
+        self.fx.run_inproc(expect_ok=False)
+        rep2 = json.loads(Path(self.fx.report).read_text())
+        self.assertEqual(rep1["compiler_patch_sha256"], rep2["compiler_patch_sha256"])
+        self.assertEqual(
+            git(["rev-parse", "HEAD"], self.fx.llvm).stdout.strip(),
+            rep1["llvm_derived"],
+        )
+        self.assertEqual(
+            git(["rev-parse", "HEAD"], self.fx.comp).stdout.strip(),
+            rep1["compiler_derived"],
+        )
+
     def test_missing_epoch(self):
         self.fx.detach_both()
         mod = load_helper()
         mod.LLVM_UP = self.fx.llvm_up
         mod.COMP_UP = self.fx.comp_up
-        argv = [HELPER, self.fx.comp, self.fx.patch, self.fx.report]
+        argv = [
+            HELPER,
+            self.fx.comp,
+            self.fx.patch,
+            self.fx.compiler_patch,
+            self.fx.report,
+        ]
         env = {"TMPDIR": self.tmp}
         with (
             mock.patch.object(sys, "argv", argv),
@@ -266,7 +341,13 @@ class TestApply(unittest.TestCase):
         mod = load_helper()
         mod.LLVM_UP = self.fx.llvm_up
         mod.COMP_UP = self.fx.comp_up
-        argv = [HELPER, self.fx.comp, self.fx.patch, self.fx.report]
+        argv = [
+            HELPER,
+            self.fx.comp,
+            self.fx.patch,
+            self.fx.compiler_patch,
+            self.fx.report,
+        ]
         env = {"SOURCE_DATE_EPOCH": "1700000000"}
         with (
             mock.patch.object(sys, "argv", argv),
@@ -285,6 +366,24 @@ class TestApply(unittest.TestCase):
         self.fx.detach_both()
         with open(os.path.join(self.fx.comp, "other"), "w") as f:
             f.write("x")
+        self.fx.run_inproc(expect_ok=False)
+        self.assertEqual(
+            git(["rev-parse", "HEAD"], self.fx.llvm).stdout.strip(), self.fx.llvm_up
+        )
+        self.assertEqual(
+            git(["rev-parse", "HEAD"], self.fx.comp).stdout.strip(), self.fx.comp_up
+        )
+
+    def test_dirty_compiler_target(self):
+        self.fx.detach_both()
+        with open(
+            os.path.join(
+                self.fx.comp,
+                "src/vpux_compiler/src/dialect/VPUIP/transforms/passes/legalize_repeating_func_calls.cpp",
+            ),
+            "a",
+        ) as f:
+            f.write("// dirty\n")
         self.fx.run_inproc(expect_ok=False)
         self.assertEqual(
             git(["rev-parse", "HEAD"], self.fx.llvm).stdout.strip(), self.fx.llvm_up
