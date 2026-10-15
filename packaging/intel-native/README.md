@@ -40,3 +40,10 @@ public upstream pins; the public NCZ recipe carries the complete source patch.
 The helper requires `SOURCE_DATE_EPOCH` and a pre-existing owned `TMPDIR` on the
 builder's checked disk-backed task bind. Run `python3 packaging/intel-native/test-npu-llvm-patch.py`
 with `TMPDIR` under Projects to exercise real isolated Git positive/negative cases.
+
+The second versioned patch removes the genuinely unused counter from the output
+verification loop in `ensureValidRepeatingCall`; the earlier input-skipping
+counter and the separate loop that consumes its index remain intact. The
+compiler source patch and the LLVM patch are both applied in isolated indexes
+before deriving clean materialized commits. Both patch digests and both changed
+source file digests are recorded; no unused-variable warning is disabled.
