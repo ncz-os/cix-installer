@@ -14,6 +14,10 @@ chmod 1777 "$PROJ/tmp"
 FSTYPE=$(findmnt -n -o FSTYPE -T "$PROJ")
 case "$FSTYPE" in ''|tmpfs|ramfs|devtmpfs) echo 'PROJ filesystem must be known and disk-backed' >&2; exit 1;; esac
 export TMPDIR="$PROJ/tmp"
+SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git -C "$CI" show -s --format=%ct HEAD)}
+case "$SOURCE_DATE_EPOCH" in ''|*[!0-9]*) echo 'SOURCE_DATE_EPOCH must be numeric' >&2; exit 1;; esac
+[ "$SOURCE_DATE_EPOCH" -gt 0 ] || { echo 'SOURCE_DATE_EPOCH must be > 0' >&2; exit 1; }
+export SOURCE_DATE_EPOCH
 SRC="$PROJ/caches/source"
 for pair in 'openvino:e213a14725769a6a2bf86fc86650aa78a9c05d3e' 'npu-driver:aea583dcd86a4723a8d3bb06ad94b6eb2f80c6f2' 'npu_compiler:0b38f7d42113ff329ac2bdd33583d123de4ccf2f'; do
   name=${pair%%:*}; pin=${pair#*:}
@@ -68,13 +72,28 @@ docker exec -e SNAPSHOT="$SNAPSHOT" -e CI_REL="$CI_REL" "$DOCKER_NAME" bash -ceu
 for item in openvino-2026.4.1 linux-npu-driver-1.38.0; do
   case "$item" in openvino-*) source_name=openvino;; *) source_name=npu-driver;; esac
   log="$PROJ/logs/$item-build.log"
-  docker exec -e SRC_DIR="/work/caches/source/$source_name" -e BUILD_DIR="/work/caches/build/$item" \
-    -e CI_REL="$CI_REL" -e ITEM="$item" -e JOBS="$JOBS" "$DOCKER_NAME" bash -ceu '
-      bash "/work/$CI_REL/packaging/intel-native/CONFIGURE-$ITEM.sh"
-      cmake --build "$BUILD_DIR" --parallel "$JOBS" --target package
-    ' > "$log" 2>&1 || { tail -20 "$log"; exit 1; }
+  case "$item" in
+    openvino-*)
+      docker exec -e SRC_DIR="/work/caches/source/$source_name" -e BUILD_DIR="/work/caches/build/$item" \
+        -e OUT_DIR="/work/artifacts/$item" \
+        -e CI_REL="$CI_REL" -e ITEM="$item" -e JOBS="$JOBS" -e SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+        "$DOCKER_NAME" bash -ceu '
+          bash "/work/$CI_REL/packaging/intel-native/CONFIGURE-$ITEM.sh"
+          bash "/work/$CI_REL/packaging/intel-native/PACKAGE-$ITEM.sh"
+        ' > "$log" 2>&1 || { tail -20 "$log"; exit 1; }
+      ;;
+    *)
+      docker exec -e SRC_DIR="/work/caches/source/$source_name" -e BUILD_DIR="/work/caches/build/$item" \
+        -e CI_REL="$CI_REL" -e ITEM="$item" -e JOBS="$JOBS" "$DOCKER_NAME" bash -ceu '
+          bash "/work/$CI_REL/packaging/intel-native/CONFIGURE-$ITEM.sh"
+          cmake --build "$BUILD_DIR" --parallel "$JOBS" --target package
+        ' > "$log" 2>&1 || { tail -20 "$log"; exit 1; }
+      ;;
+  esac
   mkdir -p "$PROJ/artifacts/$item"
-  find "$PROJ/caches/build/$item" -maxdepth 3 -name '*.deb' -exec cp -t "$PROJ/artifacts/$item" -- {} +
+  if [ "$item" != openvino-2026.4.1 ]; then
+    find "$PROJ/caches/build/$item" -maxdepth 3 -name '*.deb' -exec cp -t "$PROJ/artifacts/$item" -- {} +
+  fi
   compgen -G "$PROJ/artifacts/$item/*.deb" >/dev/null || { echo "No .deb produced: $item" >&2; exit 1; }
   sha256sum "$PROJ/artifacts/$item/"*.deb > "$PROJ/logs/$item-sha256.txt"
   tail -5 "$log"
