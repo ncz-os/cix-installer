@@ -1,0 +1,15 @@
+apple-firmware-script (20261015+ncz1) unstable; urgency=medium
+
+  * Native Debian forky packaging of the upstream t2linux firmware helper.
+  * Source: t2linux/wiki @ c16ca396f638727f943d577a24dcc0d7e5f0cdd8,
+    path docs/tools/firmware.sh (sha256 c1c1d8aa25bb5f089e46ccd0d9738fc13bfbd784f499aa924466c690f059961e,
+    31831 bytes). Shipped pristine as upstream/firmware.sh; installed
+    helper is a minimal reviewed patch (see debian/SOURCE-MANIFEST.md §5).
+  * Install to /usr/libexec/get-apple-firmware with a /usr/bin symlink.
+  * Debhelper compat 13 (via debhelper-compat), Architecture: all.
+  * Runtime-downloaded helper code pinned to immutable commits and
+    SHA-256-verified fail-closed before execution.
+  * Distinct date-based version: the upstream source bytes differ from the
+    previously shipped vendor payload, so 1.4-3 is NOT reused.
+
+ -- Jason Perlow <jperlow@gmail.com>  Wed, 15 Oct 2026 00:00:00 +0000
