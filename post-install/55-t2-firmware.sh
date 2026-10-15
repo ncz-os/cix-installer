@@ -1,66 +1,51 @@
 #!/bin/bash
 # 55-t2-firmware.sh — Apple T2 hardware: real WiFi/Bluetooth firmware +
-# audio config, from AdityaGarg8's real, verified t2-ubuntu-repo apt repo.
+# audio config, from native NCZ packages built against Debian Forky only.
 #
-# Same posture as 53-chrome.sh / 54-gpu-accel.sh (since 2026-09-14: not a
-# free-software-only distro; install what makes the hardware work) — real
-# official repo, real signed packages.
+# Native packages (built for NCZ/Forky; this hook just does the APT install,
+# it does NOT generate or trust any apt source):
+#   A) apple-t2-audio-config  0.5.1+ncz1  (Arch: all; 6 UCM files; depends on
+#                                              alsa-ucm-conf>=1.2.16)
+#   B) apple-firmware-script  20261015+ncz1 (Arch: all)
 #
-# Real repo verified 2026-09-14 (curl, not guessed): KEY.gpg and t2.list at
-# adityagarg8.github.io/t2-ubuntu-repo both return HTTP 200 with real
-# content. Debian 13 (trixie) is an explicitly listed supported codename.
+# The signed NCZ apt source is wired by hook24 (post-install/24-apt-sources.sh
+# via post-install/lib/apt-separation.sh). This hook never fetches a key, never
+# writes a sources.list entry, never adds a vendor repo: the only acquisition
+# is `apt-get install` from the already-configured NCZ/Forky suite.
 #
-# IMPORTANT — do NOT install this repo's kernel driver packages here.
-# Our own v7.2.6+T2 kernel (built 2026-09-14, t2linux's linux-t2-patches
-# applied) already carries apple-bce/applesmc/HID/APFS support IN-TREE —
-# the repo's own README explicitly warns apple-bce, apple-touchbar,
-# applesmc-t2, apfs-dkms and bcm5974-t2 must NOT be installed alongside a
-# linux-t2-class kernel (driver conflict). Only two packages are actually
-# needed here:
-#   - apple-firmware-script  — WiFi/BT firmware (the actual operator ask
-#     tonight: "T2 needs Apple firmware blobs")
-#   - apple-t2-audio-config  — audio config for the apple-bce audio device
+# Posture (same as 53-chrome.sh / 54-gpu-accel.sh since 2026-09-14: install
+# what makes the hardware work). No Ubuntu exception: this hook does not
+# consume Ubuntu-built packages from the third-party AdityaGarg8
+# `t2-ubuntu-repo` anymore. If the native NCZ package is unavailable, the
+# hook reports honest deferred/failure state; it does NOT silently fall back
+# to a vendor Ubuntu origin.
 #
-# FIRMWARE SOURCE (2026-09-22, real fix, replaces the runtime-fetch
-# approach below): the real WiFi/BT firmware blobs are pre-extracted ONCE
-# at build time and shipped as a static asset
+# IMPORTANT — do NOT install any kernel driver packages here. Our own
+# v7.2.6+T2 kernel already carries apple-bce/applesmc/HID/APFS support
+# IN-TREE; the upstream t2-ubuntu-repo README itself warns apple-bce,
+# apple-touchbar, applesmc-t2, apfs-dkms and bcm5974-t2 must NOT be installed
+# alongside a linux-t2-class kernel. Only the two audio/firmware packages
+# above are needed here.
+#
+# FIRMWARE SOURCE (real fix): the real WiFi/BT firmware blobs are
+# pre-extracted at build time and shipped as a static asset
 # (assets/firmware/apple-t2/apple-t2-firmware-sonoma14.tar.xz, staged into
-# base.squashfs by build-squashfs-layers.sh's existing `assets/firmware`
-# copy loop) — NOT fetched from Apple's CDN at every real install.
+# base.squashfs). Not fetched from Apple's CDN at every install.
 #
-# Why: get-apple-firmware's `get_from_online` path downloads a full ~753MB
-# macOS Sonoma Recovery Image just to extract ~3.6MB of real firmware
-# (confirmed live on T2 Mac B, 2026-09-22) — a >99% waste ratio repeated on
-# EVERY T2 install. The extracted set (128 files: brcmfmac4355c1/4364b2/
-# 4364b3/4377b3 board variants) covers all real T2-era Mac WiFi chips, not
-# just T2 Mac B's specific model — Apple ships every board's firmware in the
-# same Recovery Image bundle, we just extracted the whole set once.
-#
-# CAVEAT: if a future T2 Mac model needs a chip variant NOT covered by this
-# Sonoma-14 extraction (Apple occasionally adds new boards in later macOS
-# releases), the online fallback below still exists for that case.
+# The staged firmware path runs FIRST, before any APT step that might fail
+# on a missing package. A missing native package MUST NOT cause the staged
+# bytes to be skipped: the operator still gets real firmware offline.
 #
 # RUNS AT REAL INSTALL TIME ON THE TARGET MACHINE (same class of hook as
 # 54-gpu-accel.sh — T2 hardware detection is target-specific, not
 # meaningfully baked into a shared image at chroot-build time).
 # AMD64 only — never wired into the arm64 hook loops.
 #
-# UPDATED 2026-09-15 (follow-up): the T2 PCI-bridge check that used
-# to live inline here moved to the shared, unit-testable
-# post-install/lib/hw-detect.sh (`is_t2_hardware` / `t2_hardware_detail`) so
-# it isn't a copy-paste-only fact living in one hook. Detection itself is
-# unchanged (same [106b:1801] signature, verified 2026-09-14 in t2linux's
-# own patch) and now ALSO verified against REAL T2 hardware 2026-09-15
-# (read-only oracle check on T2 Mac B, a real MacBookPro16,1 — see
-# hw-detect.sh's header for the exact lspci/DMI output). A DMI fallback was
-# added for when lspci itself is unavailable — this is a strict addition,
-# not a behavior change, since the old code skipped ALL T2 work whenever
-# lspci was missing regardless of real hardware.
-#
-# This hook ALSO now unconditionally logs "T2 hardware: detected/not
-# detected" on every amd64 run (before the headless/server variant check),
-# by design: the diagnostic should be visible in install logs
-# whether or not it ends up mattering for this SKU.
+# UPDATED: native NCZ/Forky acquisition only; legacy AdityaGarg8
+# `t2-ubuntu-repo` is no longer added or trusted; if its sources.list entry
+# is found on an upgraded system it is moved aside (reversible: renamed to
+# `.disabled-for-build`, not removed) so a stray Ubuntu origin cannot
+# shadow the native packages.
 # NCZ-PLATFORM-GUARD: amd64 only (docs/PLATFORM-SPLIT-DESIGN.md). Arch order matches
 # run-all.sh: NCZ_TARGET_ARCH, then the late.sh BUILD_ARCH stamp, then dpkg. An
 # undetectable arch does NOT skip (legacy behavior).
@@ -107,7 +92,7 @@ if ! is_t2_hardware; then
     exit 0
 fi
 
-echo "[55] Apple T2 hardware confirmed — wiring real t2-ubuntu-repo apt source"
+echo "[55] Apple T2 hardware confirmed — wiring native NCZ/Forky audio + firmware packages"
 
 # --- T2 boot-noise quirks (modprobe.d) -------------------------------------
 # Written here, immediately after T2 is confirmed and BEFORE any apt/CDN step,
@@ -178,56 +163,259 @@ install hid_sensor_rotation /bin/true
 MODEOF
 echo "  [55] hid_sensor_rotation blacklisted (T2 hub descriptor lacks the common-attributes report)"
 
-install -d -m0755 /etc/apt/trusted.gpg.d
-T2_KEYRING=/etc/apt/trusted.gpg.d/t2-ubuntu-repo.gpg
-if [ ! -f "$T2_KEYRING" ] || [ ! -s "$T2_KEYRING" ]; then
-    rm -f "$T2_KEYRING"
-    # Same key-material validation discipline as 54-gpu-accel.sh's AMD/Intel
-    # blocks — don't trust a bare curl exit code, confirm real key bytes.
-    if curl -fsSL --compressed --connect-timeout 5 --max-time 30 "https://adityagarg8.github.io/t2-ubuntu-repo/KEY.gpg" 2>/dev/null | gpg --dearmor -o "$T2_KEYRING" 2>/dev/null && \
-       [ -s "$T2_KEYRING" ] && [ "$(stat -c%s "$T2_KEYRING" 2>/dev/null || echo 0)" -gt 100 ]; then
-        echo "[55] fetched t2-ubuntu-repo signing key ($(stat -c%s "$T2_KEYRING") bytes)"
-    else
-        rm -f "$T2_KEYRING"
-        echo "[55] WARN: could not fetch a real t2-ubuntu-repo KEY.gpg (no network at install time, or key content invalid) — skipping T2 firmware stack"
-        exit 0
+# --- legacy vendor sources list, disabled (reversible) -----------------------
+# Older installers wrote /etc/apt/sources.list.d/t2.list with the third-party
+# AdityaGarg8 `t2-ubuntu-repo` (Ubuntu-built packages). This hook now consumes
+# only native NCZ/Forky packages; a stray legacy Ubuntu origin would shadow
+# the native names by version. Comment out ONLY the matching legacy deb/deb-src
+# lines in place (REVERSIBLE: the original bytes are preserved in a unique
+# ${f}.disabled-for-build.XXXXXX backup); do not touch unrelated user files or
+# comments. Match by the actual URI on the line: the ONLY legacy host/path this
+# hook knows about. No generation/trust: nothing is written or fetched here.
+ncz_t2_disable_legacy_vendor_list() {
+    # Reversibly disable KNOWN-legacy vendor source lines so the native NCZ
+    # suite cannot be shadowed by a stray Ubuntu origin. Only lines whose
+    # actual URI matches the known legacy host/path are commented out; every
+    # other active deb/deb-src line, comment, and unrelated user content is
+    # preserved byte-for-byte. The original file is rewritten in place
+    # atomically; a byte-identical backup is kept as
+    # ${f}.disabled-for-build.XXXXXX (never overwriting an existing backup).
+    #
+    # Safety guarantees (tested by build/test-t2-native-packages.sh with real
+    # temporary files):
+    #   * Files already ending in `.disabled-for-build` are skipped.
+    #   * Bracket options on a `deb` line (e.g. `deb [signed-by=...key.gpg]
+    #     http://...`) are skipped when extracting the URI -- the legacy
+    #     t2.list ships with `[signed-by=...]` between the keyword and the
+    #     URL, so a naive `awk '{print $2}'` would return `[signed-by=...]`
+    #     and never match the legacy URL.
+    #   * Only lines whose actual URI matches the known legacy host/path are
+    #     commented; unrelated active deb/deb-src lines and comments are
+    #     preserved verbatim.
+    #   * A unique backup is created with mktemp; an existing backup is never
+    #     overwritten or deleted.
+    #   * On any error the original file and any backup are preserved; only
+    #     our own temp files are removed.
+    local f="$1" tmp bak
+    [ -f "$f" ] || return 0
+    case "$f" in
+        *.disabled-for-build|*.disabled-for-build.*) return 0 ;;
+    esac
+    # Refuse symlinks: rewriting through a symlink could clobber an unrelated
+    # target. Honest failure rather than a silent skip.
+    if [ -L "$f" ]; then
+        echo "[55] WARN: $f is a symlink; refusing to rewrite (leaving untouched)" >&2
+        return 1
     fi
+    tmp=$(mktemp "${f}.ncz.XXXXXX") || {
+        echo "[55] WARN: could not create temp file next to $f; leaving it untouched" >&2
+        return 1
+    }
+    # Preserve the original mode and owner on the temp file.
+    if ! cp -p "$f" "$tmp"; then
+        echo "[55] WARN: could not copy $f to temp; leaving it untouched" >&2
+        rm -f "$tmp"
+        return 1
+    fi
+    # Rewrite: comment out ONLY active deb/deb-src lines whose actual URI
+    # matches the known legacy host/path. Everything else is emitted verbatim.
+    if ! awk '
+        /^[[:space:]]*deb(-src)?[[:space:]]/ {
+            uri = ""
+            for (i = 1; i <= NF; i++) {
+                if ($i ~ /^[A-Za-z][A-Za-z0-9+.-]*:\/\//) { uri = $i; break }
+            }
+            if (uri ~ /^https?:\/\/adityagarg8\.github\.io\/t2-ubuntu-repo(\/|$)/) {
+                print "# [55] disabled legacy vendor source: " $0
+                next
+            }
+        }
+        { print }
+    ' "$f" > "$tmp"; then
+        echo "[55] WARN: awk rewrite failed for $f; leaving it untouched" >&2
+        rm -f "$tmp"
+        return 1
+    fi
+    # If nothing changed, remove our temp and report success (idempotent).
+    if cmp -s "$f" "$tmp"; then
+        rm -f "$tmp"
+        return 0
+    fi
+    # Create a UNIQUE backup (never overwrite/delete an existing one).
+    bak=$(mktemp "${f}.disabled-for-build.XXXXXX") || {
+        echo "[55] WARN: could not create backup for $f; leaving it untouched" >&2
+        rm -f "$tmp"
+        return 1
+    }
+    if ! cp -p "$f" "$bak"; then
+        echo "[55] WARN: could not write backup $bak; leaving $f untouched" >&2
+        rm -f "$tmp" "$bak"
+        return 1
+    fi
+    # Atomic replace of the original with the rewritten temp.
+    if ! mv "$tmp" "$f"; then
+        echo "[55] WARN: could not replace $f atomically; original preserved, backup at $bak" >&2
+        rm -f "$tmp"
+        return 1
+    fi
+    echo "[55] disabled known legacy vendor source line(s) in $f (backup: ${bak##*/})"
+    return 0
+}
+T2_LEGACY_FAIL=0
+for _lf in /etc/apt/sources.list.d/t2.list \
+           /etc/apt/sources.list.d/t2-ubuntu-repo.list; do
+    ncz_t2_disable_legacy_vendor_list "$_lf" || T2_LEGACY_FAIL=1
+done
+unset _lf
+
+# --- Native NCZ/Forky APT acquisition (small, testable function) ------------
+# ncz_t2_apt_acquire PACKAGE... -> 0 installed, 2 refused (Remv/sim-fail),
+# 4 install-failed, 5 not-installed-after-success-exit (honest status).
+#
+# Simulate first; refuse any removal; on a clean sim, run the EXACT same
+# expanded args and verify each package really landed. apt-get update is
+# fail-closed/ErrorMode-any but offline already-seeded packages still
+# resolve, so the network-down path can still succeed on the mirror.
+#
+# This function is intentionally small (no new framework) and is exported so
+# build/test-t2-native-packages.sh can drive it directly under mocks without
+# executing the whole hook. The marker block below is the test seam: the
+# test extracts it and sources it (NCZ_T2_APT_BASE_ARGS + ncz_t2_apt_acquire
+# + ncz_t2_log), then calls ncz_t2_apt_acquire under various mocked apt-get /
+# dpkg-query scenarios.
+# BEGIN t2-acquire-fn
+NCZ_T2_APT_BASE_ARGS=( -y --no-install-recommends )
+ncz_t2_apt_acquire() {
+    ncz_t2_log "packages: $*"
+    if [ "${T2_LEGACY_FAIL:-0}" != 0 ]; then
+        ncz_t2_log "legacy source migration failed; refusing APT acquisition"
+        return 2
+    fi
+    # apt-get update is best-effort: a stale or unreachable index is logged,
+    # but offline already-seeded packages still resolve. No metadata
+    # date-check bypass (`Acquire::Check-Date=false`) is set here -- that is
+    # an unrelated TUF/Release-date weakness and not needed: a cached signed
+    # index already on disk is used as-is, and a fresh fetch failing date
+    # validation is a real failure we want to surface.
+    apt-get update 2>&1 | tail -5
+    local _sim _rc _rm
+    _sim=$(LC_ALL=C apt-get install -s "${NCZ_T2_APT_BASE_ARGS[@]}" "$@" 2>&1); _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+        printf '%s\n' "$_sim" | tail -5
+        ncz_t2_log "simulation failed (rc=$_rc) for: $*"; return 2
+    fi
+    _rm=$(printf '%s\n' "$_sim" | grep -c '^Remv ')
+    if [ "$_rm" -gt 0 ]; then
+        printf '%s\n' "$_sim" | grep '^Remv ' | head -10
+        ncz_t2_log "simulation would remove $_rm package(s); refusing: $*"; return 2
+    fi
+    DEBIAN_FRONTEND=noninteractive apt-get install "${NCZ_T2_APT_BASE_ARGS[@]}" "$@" 2>&1 | tail -10
+    if [ "${PIPESTATUS[0]:-0}" -ne 0 ]; then
+        ncz_t2_log "install failed (rc=${PIPESTATUS[0]}) for: $*"; return 4
+    fi
+    local _p _s
+    for _p in "$@"; do
+        _s=$(dpkg-query -W -f='${Status}' "${_p%%=*}" 2>/dev/null)
+        case "$_s" in
+            *"install ok installed"*) ;;
+            *) ncz_t2_log "post-install status: $_p not installed (apt-get rc ok but dpkg disagrees)"; return 5 ;;
+        esac
+    done
+    return 0
+}
+ncz_t2_log() { echo "[55] $*"; }
+# END t2-acquire-fn
+
+# --- staged firmware extraction FIRST --------------------------------------
+# Native NCZ A/B may install or fail offline; the staged bytes (assets staged
+# at build time) must still be deployed regardless. Network/key/vendor-repo
+# failures can NEVER skip the stage path: a T2 Mac with no network at install
+# time still gets real firmware from base.squashfs.
+STAGED_FW_TARBALL=/usr/local/lib/cix-installer/assets/firmware/apple-t2/apple-t2-firmware-sonoma14.tar.xz
+ncz_t2_extract_staged_firmware() {
+    # Returns 0 only when an actual extraction succeeded; 1 when the tarball
+    # is missing (recoverable via the online fallback); 2 when tar itself
+    # failed (NOT recoverable -- the online fallback depends on the native
+    # package, and a corrupt staged asset must not be reported as success).
+    if [ -f "$STAGED_FW_TARBALL" ]; then
+        echo "[55] extracting staged Apple T2 firmware ($(du -h "$STAGED_FW_TARBALL" | cut -f1)) into /lib/firmware/brcm/"
+        mkdir -p /lib/firmware/brcm
+        tar -xJf "$STAGED_FW_TARBALL" -C /lib/firmware/brcm
+        _tar_rc=$?
+        if [ "$_tar_rc" -eq 0 ]; then
+            return 0
+        fi
+        echo "[55] WARN: staged firmware extraction FAILED (tar rc=$_tar_rc) -- NOT delivered, will rely on online get-apple-firmware fallback if available" >&2
+        return 2
+    fi
+    echo "[55] staged firmware tarball missing ($STAGED_FW_TARBALL) -- online get-apple-firmware fallback will run after native package install"
+    return 1
+}
+# Track staged-firmware delivery so the post-install status block cannot claim
+# success when extraction actually failed (a missing tarball is recoverable
+# via the online fallback; a tar failure is NOT).
+#   0 = extracted OK
+#   1 = tarball missing (recoverable via online fallback)
+#   2 = tar extraction failed (hard failure; NOT recoverable)
+STAGED_FW_RC=0
+ncz_t2_extract_staged_firmware || STAGED_FW_RC=$?
+
+# --- native NCZ A/B acquisition (apple-firmware-script + apple-t2-audio-config) -
+# Both packages are native NCZ built against Debian Forky (Arch: all). The
+# signed NCZ source is supplied by hook24 (24-apt-sources.sh); this hook does
+# not fetch a key, write one sources.list entry, or trust any Ubuntu origin.
+# Failure is honest: if the package is not yet published, the operator sees
+# a clear deferred status; the staged firmware path above has already
+# delivered real bytes offline.
+_t2_native_rc=2
+if [ "$T2_LEGACY_FAIL" = 0 ]; then
+    ncz_t2_apt_acquire apple-firmware-script=20261015+ncz1 apple-t2-audio-config=0.5.1+ncz1
+    _t2_native_rc=$?
+else
+    echo "[55] ERROR: legacy source migration failed; refusing native APT acquisition" >&2
 fi
-
-# Common repo (covers apple-firmware-script + apple-t2-audio-config —
-# neither needs the release-specific repo, which is only for kernel
-# packages/tiny-dfr that we deliberately do NOT install here).
-cat > /etc/apt/sources.list.d/t2.list <<'EOF'
-# Written by post-install/55-t2-firmware.sh — real AdityaGarg8 t2-ubuntu-repo.
-deb [signed-by=/etc/apt/trusted.gpg.d/t2-ubuntu-repo.gpg] https://adityagarg8.github.io/t2-ubuntu-repo ./
-EOF
-
-apt-get update 2>&1 | tail -5
 # BEGIN t2-pkg-status
-apt-get install -y apple-firmware-script apple-t2-audio-config 2>&1 | tail -10
-_t2_rc=${PIPESTATUS[0]}
-# `| tail` hid the status; check the apt rc AND that each package really landed (r201 review).
+# Post-install honest status check (r201 review: `| tail` hid the apt status,
+# so the helper function's rc alone is insufficient — dpkg must agree, and
+# the marker block is the test seam that build/test-hooks-fail-loudly.sh
+# extracts to verify a failed install is reported).
 T2_PKG_FAIL=0
 for _p in apple-firmware-script apple-t2-audio-config; do
     case "$(dpkg-query -W -f='${Status}' "$_p" 2>/dev/null)" in
         *"install ok installed"*) ;;
-        *) echo "[55] ERROR: $_p is not installed (apt-get rc=$_t2_rc)" >&2; T2_PKG_FAIL=1 ;;
+        *) echo "[55] ERROR: $_p is not installed (apt-get rc=$_t2_native_rc)" >&2; T2_PKG_FAIL=1 ;;
     esac
 done
 # END t2-pkg-status
 
-# --- Real Apple WiFi/BT firmware: extract from the staged build-time asset
-# (fast, offline, no Apple CDN hit) instead of fetching per-install. ------
-STAGED_FW_TARBALL=/usr/local/lib/cix-installer/assets/firmware/apple-t2/apple-t2-firmware-sonoma14.tar.xz
-if [ -f "$STAGED_FW_TARBALL" ]; then
-    echo "[55] extracting staged Apple T2 firmware ($(du -h "$STAGED_FW_TARBALL" | cut -f1)) into /lib/firmware/brcm/"
-    mkdir -p /lib/firmware/brcm
-    tar -xJf "$STAGED_FW_TARBALL" -C /lib/firmware/brcm
-else
-    echo "[55] WARN: staged firmware tarball missing ($STAGED_FW_TARBALL) — falling back to a real per-install Apple CDN fetch"
+# The ncz_t2_apt_acquire rc is authoritative. An old/leftover dpkg-installed
+# version of the package may keep `dpkg-query -W` happy even when this run's
+# sim/removal/install refused or failed — the hook must NOT silently mark
+# success in that case. Required for "even if old packages already installed"
+# (the contract test at build/test-t2-native-packages.sh verifies by driving
+# the function under a removal-conflicting scenario with leftover dpkg state).
+if [ "$_t2_native_rc" -ne 0 ]; then
+    echo "[55] ERROR: ncz_t2_apt_acquire rc=$_t2_native_rc (sim/removal/install refused or failed); package state may be a leftover from an earlier install -- not declaring success" >&2
+    T2_PKG_FAIL=1
+fi
+# Staged-firmware extraction failure also blocks the success path -- a tar
+# failure is NOT recoverable (the online fallback depends on the native pkg).
+if [ "$STAGED_FW_RC" -ge 2 ]; then
+    # 1 == "tarball missing, will retry via online path" -- acceptable; only
+    # hard tar-extract failures (>=2) block the success claim.
+    echo "[55] ERROR: staged firmware extraction rc=$STAGED_FW_RC (hard failure); not declaring success" >&2
+    T2_PKG_FAIL=1
+fi
+
+# --- online get-apple-firmware fallback (only when stage was absent) ---------
+# If the stage was absent AND the native apple-firmware-script installed
+# (which provides get-apple-firmware), AND dmg2img is now needed for the
+# per-install CDN fallback, ensure dmg2img is present (also from the
+# configured NCZ/Forky suite — same acquire discipline: sim, no-Remv,
+# EXACT same args parity, real install + status check).
+if [ ! -f "$STAGED_FW_TARBALL" ] && [ "$_t2_native_rc" = 0 ]; then
     if ! dpkg-query -W -f='${Status}\n' dmg2img 2>/dev/null | grep -q "install ok installed"; then
-        apt-get install -y dmg2img 2>&1 | tail -10
-        [ "${PIPESTATUS[0]}" -eq 0 ] || echo "[55] WARN: apt-get install dmg2img failed (rc=${PIPESTATUS[0]})" >&2
+        ncz_t2_apt_acquire dmg2img || ncz_t2_log "dmg2img not installed (rc=$?); the get-apple-firmware fallback may not run"
     fi
     if ! command -v dmg2img >/dev/null 2>&1; then
         echo "[55] WARN: dmg2img still missing after install attempt -- skipping get-apple-firmware fallback (would hit its own internal dependency prompt and corrupt the piped macOS-version answer below)"
@@ -238,7 +426,7 @@ else
         # `get-apple-firmware -h`). It still has one inner interactive
         # prompt (which macOS version's Recovery Image to fetch) --
         # Sonoma is the tool's own "RECOMMENDED" choice, option 7 as of
-        # apple-firmware-script 1.4-3 (re-verify this number if the
+        # apple-firmware-script 20261015+ncz1 (re-verify this number if the
         # tool's menu ever reorders/adds entries).
         echo 7 | get-apple-firmware get_from_online 2>&1 | tail -30
     else
@@ -300,6 +488,17 @@ case " ${T2_BT_FW_MODELS} " in
 esac
 
 if [ "$T2_PKG_FAIL" = 1 ]; then
+    # Honest deferred/failure: do NOT silently mark success, and do NOT claim
+    # a deferred-retry unit exists (none does for T2 -- unlike the Intel
+    # ncz-intel-accel-setup.timer this hook has no native retry unit; an
+    # operator running the installer again is the real recovery path). The
+    # staged firmware extraction above had its own rc tracking; only an
+    # online-fallback path remains when the staging tarball was missing.
+    case "$STAGED_FW_RC:$_t2_native_rc" in
+        0:0) ;;  # unreachable, kept for symmetry
+        1:*) echo "[55] (staged firmware bytes missing -- online get-apple-firmware may still recover after apple-firmware-script installs)" >&2 ;;
+        *)   echo "[55] (staged firmware extraction failed -- rely on online get-apple-firmware fallback)" >&2 ;;
+    esac
     echo "[55] FAILED: the T2 audio/firmware packages did not install" >&2
     exit 1
 fi

@@ -4,86 +4,146 @@
 # up at install time. Sourced by post-install/54-gpu-accel.sh; installed as
 # /usr/local/sbin/ncz-intel-accel-setup and run by ncz-intel-accel-setup.timer.
 #
-# r201 (the GU502LV laptop has no OpenVINO / Level Zero userspace): the hook curled
-#   https://apt.repos.intel.com/openvino/2026/GPG-PUB-KEY-INTEL-OPENVINO-2026
-# which answers HTTP 403, so the key fetch failed on EVERY install, network or
-# not, and the stack was skipped with no retry. It also asked for `openvino`,
-# `intel-driver-compiler-npu`, `intel-level-zero-npu` and `level-zero`, none of
-# which the ubuntu24 component publishes (checked 2026-10-07: it carries only
-# versioned libopenvino-*-<ver> packages), so the transaction could not succeed.
+# Native NCZ/Forky acquisition ONLY (no Ubuntu/Intel repo).
+# The signed NCZ apt source is supplied by hook24 (24-apt-sources.sh via
+# apt-separation.sh); this lib never fetches a key, never writes an
+# apt.repos.intel.com sources.list entry, and never trusts the
+# `ubuntu24` Ubuntu-only component. If the native NCZ package is not yet
+# published for the requested plugin class, the install reports honest
+# deferred/retry state; it does NOT fall back to a vendor origin.
 #
-# Now:
-#   * the signing key is vendored (assets/intel/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB,
-#     Intel's published apt key; it verifies the ubuntu24 InRelease), checked
-#     against a pinned sha256 -- no network needed for the key;
-#   * Level Zero, the OpenCL ICD and the VA driver come from Debian (libze1,
-#     libze-intel-gpu1, intel-opencl-icd, intel-media-va-driver); only the
-#     OpenVINO GPU/NPU plugins come from Intel's repo (newest version present);
-#   * the Debian-origin packages are seeded in manifests/desktop-amd64.pkgs and are
-#     installed FIRST, with no Intel index needed, so an offline install, the KVM
-#     gate and an install without a link still get them from the mirror; packages
-#     already installed are skipped without calling apt. Only the OpenVINO plugins
-#     wait for the Intel repo (deferred timer);
-#   * every transaction is simulated first (apt-get install -s); any removal
-#     refuses it -- nothing is forced. Simulated on debian:forky 2026-10-07:
-#     GPU set 15 installs / 0 removals, NPU set 7 / 0;
-#   * the NPU user-mode driver (intel-driver-compiler-npu, intel-level-zero-npu)
-#     is in no apt repository (github.com/intel/linux-npu-driver release debs
-#     only); it is installed when some configured repo offers it, otherwise the
-#     gap is logged;
-#   * a failure that can heal (no network, repo unreachable, download error)
-#     leaves /var/lib/ncz/intel-accel.pending and enables the timer, which
-#     retries after boot (2 min, then every 10 min, at most NCZ_INTEL_MAX_TRIES).
+# Native NCZ candidate names (built against Debian Forky; amd64):
+#   C) libopenvino-2026.4.1
+#      libopenvino-intel-cpu-plugin-2026.4.1
+#      libopenvino-intel-gpu-plugin-2026.4.1
+#      libopenvino-intel-npu-plugin-2026.4.1
+#   D) intel-driver-compiler-npu, intel-fw-npu,
+#      intel-level-zero-npu, intel-validation-npu   (artifacts in flight)
 #
-# Test seams: NCZ_INTEL_ROOT (prefix for every file path), NCZ_INTEL_ASSETS.
-# Tested by build/test-intel-accel-deferred.sh.
-
-NCZ_INTEL_KEY_SHA256=db932ba032a71f732dc415eef5f4f185fc7ae768487d7a357bc2772746b6c48c
-NCZ_INTEL_KEY_URL="${NCZ_INTEL_KEY_URL:-https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB}"
-NCZ_INTEL_REPO="https://apt.repos.intel.com/openvino ubuntu24 main"
+# Debian-origin runtime (kept -- install from the configured Debian suite,
+# independent of native availability; seeded by manifests/desktop-amd64.pkgs):
+#   intel-opencl-icd, intel-media-va-driver, libze1, libze-intel-gpu1
+#
+# Rules this lib encodes (the caller / test can rely on):
+#   * Debian runtime set is installed first, NO native index needed. A
+#     network-down install still gets them from the offline mirror.
+#   * Already-installed packages are skipped without calling apt.
+#   * Every apt transaction is simulated first (apt-get install -s); a sim
+#     that reports ANY `Remv ` refuses the whole install (status:
+#     `failed:would-remove-N-packages`, return 1, no endless retry).
+#   * Sim and real install use the SAME expanded args array (including
+#     `-y` and `--no-install-recommends`); no --force-yes, no
+#     --allow-downgrades, no `-o APT::Get::AllowUnauthenticated=true`.
+#   * The NPU user-mode driver/compiler + firmware set (D above) is
+#     required when NPU=1 is requested: if ANY of `intel-driver-compiler-npu`,
+#     `intel-fw-npu`, `intel-level-zero-npu`, `intel-validation-npu` is
+#     missing from the index, the install returns 75 (retry later) and
+#     does NOT mark `done`. NPU userspace must not be silently skipped.
+#   * GPU-only / NPU-only / both-zero selectors are all handled. The CPU
+#     plugin (libopenvino-intel-cpu-plugin-<ver>) is preserved as a build
+#     component; the current installer's selector doesn't request CPU.
+#   * Apt index update is fail-closed (ErrorMode-any) yet an offline install
+#     with already-seeded Debian packages still works.
+#
+# Return codes from ncz_intel_setup / ncz_intel_accel_install / _run:
+#   0  complete (all requested plugins and NPU drivers installed)
+#   1  refused (simulation would remove packages; or NPU drivers missing
+#      under "no retry" conditions; never silently marks done)
+#   75 retry later (network down / index missing / native candidates not yet
+#      published; leaves /var/lib/ncz/intel-accel.pending and arms timer)
+#
+# Test seams: NCZ_INTEL_ROOT (prefix for every file path), NCZ_INTEL_ASSETS,
+# NCZ_NATIVE_OPENCV_AVAILABLE / NCZ_NATIVE_NPU_AVAILABLE env toggles used by
+# build/test-intel-accel-deferred.sh to mock native candidate availability.
+# Tested by build/test-intel-accel-deferred.sh and the NPU-driver /
+# would-remove cases added in that test.
 
 _ni_r()      { printf '%s' "${NCZ_INTEL_ROOT:-}"; }
-_ni_keyring() { echo "$(_ni_r)/etc/apt/keyrings/intel-openvino.gpg"; }
 _ni_pending() { echo "$(_ni_r)/var/lib/ncz/intel-accel.pending"; }
 _ni_statusf() { echo "$(_ni_r)/var/lib/ncz/intel-accel.status"; }
 ncz_intel_log() { echo "[intel-accel] $*"; }
+ncz_intel_log_err() { echo "[intel-accel] $*" >&2; }
 ncz_intel_status() { mkdir -p "$(dirname "$(_ni_statusf)")"; echo "$1" > "$(_ni_statusf)"; ncz_intel_log "status: $1"; }
 
-# Keyring from the vendored key (sha256-pinned); network fetch only as fallback.
-ncz_intel_keyring() {
-    _kr=$(_ni_keyring)
-    [ -s "$_kr" ] && return 0
-    mkdir -p "$(dirname "$_kr")"
-    _src="${NCZ_INTEL_ASSETS:-$(_ni_r)/usr/local/lib/cix-installer/assets/intel}/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB"
-    _tmp="$_kr.download"
-    if [ -s "$_src" ]; then
-        cp "$_src" "$_tmp"
-    elif ! curl -fsSL --max-time 30 "$NCZ_INTEL_KEY_URL" -o "$_tmp" 2>/dev/null; then
-        rm -f "$_tmp"; ncz_intel_log "WARN: no vendored key and the key download failed"; return 1
+# ncz_intel_disable_legacy_vendor_list FILE -> comments out ONLY the active
+# deb/deb-src lines in FILE whose actual URI matches apt.repos.intel.com
+# (the only KNOWN legacy Intel vendor source this lib recognizes). The
+# original bytes are preserved in a unique ${f}.disabled-for-build.XXXXXX
+# backup; unrelated active lines and comments are preserved verbatim. Must
+# NOT be called on a file ending in .disabled-for-build.
+#
+# Mirrors post-install/55-t2-firmware.sh's ncz_t2_disable_legacy_vendor_list
+# (same URL-skip-bracket-options parsing, same unique-backup discipline, same
+# honest-on-failure behaviour). The URL literal IS referenced on purpose:
+# the disabler MUST recognize the legacy host pattern, so the test cannot
+# ban this token outright -- grep tests strip leading `#`/comment-only lines.
+ncz_intel_disable_legacy_vendor_list() {
+    local f="$1" tmp bak
+    [ -f "$f" ] || return 0
+    case "$f" in
+        *.disabled-for-build|*.disabled-for-build.*) return 0 ;;
+    esac
+    # Refuse symlinks: rewriting through a symlink could clobber an unrelated
+    # target. Honest failure rather than a silent skip.
+    if [ -L "$f" ]; then
+        ncz_intel_log_err "$f is a symlink; refusing to rewrite (leaving untouched)"
+        return 1
     fi
-    if [ "$(sha256sum "$_tmp" | cut -d' ' -f1)" != "$NCZ_INTEL_KEY_SHA256" ]; then
-        rm -f "$_tmp"; ncz_intel_log "ERROR: Intel key sha256 mismatch -- refusing it"; return 1
+    tmp=$(mktemp "${f}.ncz.XXXXXX") || {
+        ncz_intel_log_err "could not create temp file next to $f; leaving it untouched"
+        return 1
+    }
+    if ! cp -p "$f" "$tmp"; then
+        ncz_intel_log_err "could not copy $f to temp; leaving it untouched"
+        rm -f "$tmp"
+        return 1
     fi
-    gpg --dearmor < "$_tmp" > "$_kr" 2>/dev/null && [ -s "$_kr" ] || { rm -f "$_tmp" "$_kr"; return 1; }
-    rm -f "$_tmp"
+    # Rewrite: comment out ONLY active deb/deb-src lines whose actual URI
+    # matches the known legacy host/path. Everything else is emitted verbatim.
+    if ! awk '
+        /^[[:space:]]*deb(-src)?[[:space:]]/ {
+            uri = ""
+            for (i = 1; i <= NF; i++) {
+                if ($i ~ /^[A-Za-z][A-Za-z0-9+.-]*:\/\//) { uri = $i; break }
+            }
+            if (uri ~ /^https?:\/\/apt\.repos\.intel\.com\/openvino(\/|$)/) {
+                print "# [intel-accel] disabled legacy vendor source: " $0
+                next
+            }
+        }
+        { print }
+    ' "$f" > "$tmp"; then
+        ncz_intel_log_err "awk rewrite failed for $f; leaving it untouched"
+        rm -f "$tmp"
+        return 1
+    fi
+    if cmp -s "$f" "$tmp"; then
+        rm -f "$tmp"
+        return 0
+    fi
+    bak=$(mktemp "${f}.disabled-for-build.XXXXXX") || {
+        ncz_intel_log_err "could not create backup for $f; leaving it untouched"
+        rm -f "$tmp"
+        return 1
+    }
+    if ! cp -p "$f" "$bak"; then
+        ncz_intel_log_err "could not write backup $bak; leaving $f untouched"
+        rm -f "$tmp" "$bak"
+        return 1
+    fi
+    if ! mv "$tmp" "$f"; then
+        ncz_intel_log_err "could not replace $f atomically; original preserved, backup at $bak"
+        rm -f "$tmp"
+        return 1
+    fi
+    ncz_intel_log "disabled known legacy vendor source line(s) in $f (backup: ${bak##*/})"
     return 0
-}
-
-ncz_intel_repo() {
-    _list="$(_ni_r)/etc/apt/sources.list.d/intel-openvino.list"
-    mkdir -p "$(dirname "$_list")"
-    cat > "$_list" <<EOF
-# Written by post-install/lib/intel-accel.sh (54-gpu-accel.sh / ncz-intel-accel-setup).
-# Intel publishes OpenVINO only under ubuntuNN components; only the versioned
-# libopenvino-* plugins are taken from here, everything else comes from Debian.
-deb [signed-by=/etc/apt/keyrings/intel-openvino.gpg] $NCZ_INTEL_REPO
-EOF
 }
 
 # ncz_intel_debian_packages GPU NPU -> the Debian-origin packages (Level Zero
 # loader + Intel GPU driver, OpenCL ICD, VA driver) minus the ones already
 # installed. These are seeded in manifests/desktop-amd64.pkgs, so they resolve
-# from the offline mirror with no network and with no Intel repo index.
+# from the offline mirror with no network and with no Intel/NCZ index.
 ncz_intel_debian_packages() {
     _d=""
     [ "$1" = 1 ] && _d="intel-opencl-icd intel-media-va-driver libze1 libze-intel-gpu1"
@@ -93,63 +153,200 @@ ncz_intel_debian_packages() {
     done
 }
 
-# ncz_intel_packages GPU NPU -> the Intel-repo packages (OpenVINO plugins, and
-# the NPU user-mode driver when some repo offers it) on stdout; 1 when the Intel
-# repo index is not available (no network yet).
-ncz_intel_packages() {
-    _v=$(apt-cache pkgnames libopenvino-intel-gpu-plugin- 2>/dev/null | sed 's/^libopenvino-intel-gpu-plugin-//' | sort -V | tail -1)
-    [ -n "$_v" ] || return 1
-    _p=""
-    [ "$1" = 1 ] && _p="libopenvino-intel-gpu-plugin-$_v"
-    if [ "$2" = 1 ]; then
-        _p="$_p libopenvino-intel-npu-plugin-$_v"
-        for _u in intel-driver-compiler-npu intel-level-zero-npu; do
-            if apt-cache policy "$_u" 2>/dev/null | grep -q 'Candidate: [0-9]'; then _p="$_p $_u"
-            else ncz_intel_log "NPU: $_u is in no configured apt repo (github.com/intel/linux-npu-driver debs only); NPU user-mode driver not installed" >&2; fi
-        done
+# ncz_intel_native_opencl_vers GPU NPU -> prints "GPUVER NPUVER" of the
+# latest available native OpenVINO plugin versions on stdout (one per
+# requested class, "0" when that class is not requested). Returns non-zero
+# when the requested class has NO candidate in any configured apt repo
+# (i.e. the native NCZ suite has not yet published the plugin). This is
+# the ONLY place that decides "can we install the plugin at all".
+ncz_intel_native_opencl_vers() {
+    _gv=0; _nv=0
+    if [ "$1" = 1 ]; then
+        _gv=$(ncz_intel_pick_native_vers libopenvino-intel-gpu-plugin-) || return 1
+        [ -n "$_gv" ] || return 1
     fi
-    echo "$_p" | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' '
+    if [ "$2" = 1 ]; then
+        _nv=$(ncz_intel_pick_native_vers libopenvino-intel-npu-plugin-) || return 1
+        [ -n "$_nv" ] || return 1
+    fi
+    printf '%s %s\n' "$_gv" "$_nv"
 }
 
-# ncz_intel_apt_install PKGS... -> 0 installed, 75 retry later, 1 refused.
-# Simulated first; any removal refuses the whole transaction.
+ncz_intel_pick_native_vers() {
+    _pfx=$1; _best=
+    for _n in $(apt-cache pkgnames "$_pfx" 2>/dev/null); do
+        case "$_n" in "$_pfx"*) ;; *) continue ;; esac
+        _c=$(apt-cache policy "$_n" 2>/dev/null \
+             | sed -n 's/^[[:space:]]*Candidate:[[:space:]]*//p' | head -1)
+        [ -n "$_c" ] || continue
+        case "$_c" in "(none)"|"") continue ;; esac
+        case "$_c" in *ncz*) ;; *) continue ;; esac
+        _s=${_n#"$_pfx"}
+        [ -n "$_s" ] || continue
+        if [ -z "$_best" ]; then
+            _best=$_s
+        else
+            _hi=$(printf '%s\n%s\n' "$_best" "$_s" | sort -V | tail -1)
+            [ "$_hi" = "$_s" ] && _best=$_s
+        fi
+    done
+    [ -n "$_best" ] || return 1
+    printf '%s\n' "$_best"
+}
+
+# ncz_intel_required_npu_drivers -> prints the set of required NPU
+# userspace/firmware package NAMES (one per line, no version). The names
+# are the native NCZ D components; they don't carry a version suffix
+# because the native suite publishes single-version candidates. The
+# function does NOT probe for them: that's ncz_intel_npu_drivers_present
+# below. Defined as a separate function so the test can assert the list
+# without needing any apt state.
+ncz_intel_required_npu_drivers() {
+    printf '%s\n' intel-driver-compiler-npu intel-fw-npu \
+                  intel-level-zero-npu intel-validation-npu
+}
+
+# ncz_intel_npu_drivers_present -> 0 if every required NPU driver/firmware
+# package has a real Candidate (numeric version) in the configured repos;
+# 1 if any is missing or only "(none)". This is the gate: NPU userspace
+# MUST NOT be silently skipped; if any driver is missing the caller
+# returns 75 retry and does NOT mark done.
+#
+# Diagnostic output is written to STDERR (not stdout): the caller's package
+# list is built from command-substitution `$(ncz_intel_packages ...)` and any
+# diagnostic on stdout would be captured AS a package name and forwarded to
+# `apt-get install`, producing a phantom-arg failure.
+ncz_intel_npu_drivers_present() {
+    for _u in $(ncz_intel_required_npu_drivers); do
+        _c=$(apt-cache policy "$_u" 2>/dev/null \
+             | sed -n 's/^[[:space:]]*Candidate:[[:space:]]*//p' | head -1)
+        [ -n "$_c" ] || { ncz_intel_log_err "NPU driver missing: $_u (no native NCZ candidate yet)"; return 1; }
+        case "$_c" in "(none)"|"") ncz_intel_log_err "NPU driver missing: $_u (no native NCZ candidate yet)"; return 1 ;; esac
+        case "$_c" in *ncz*) ;; *) ncz_intel_log_err "NPU driver missing: $_u (no native NCZ candidate yet)"; return 1 ;; esac
+    done
+    return 0
+}
+
+# ncz_intel_packages GPU NPU -> the native NCZ package names to install
+# (OpenVINO plugins + NPU user-mode drivers) on stdout; returns non-zero
+# when the requested class has no candidate (caller translates to 75).
+# CPU plugin is intentionally NOT requested by the current installer; the
+# library preserves it as a build component for completeness but does not
+# include it in the install list unless GPU is selected AND the CPU
+# component exists alongside (the install-time selector in 54-gpu-accel.sh
+# never asks for CPU).
+#
+# GPU=1 and NPU=1 are independent:
+#   * GPU plugin is installed whenever its candidate exists, regardless of
+#     NPU driver availability;
+#   * NPU plugin + the four driver/compiler/firmware packages are installed
+#     ONLY when NPU=1 AND every required driver has a candidate. If a
+#     driver is missing the function returns 2 so the caller knows NPU is
+#     still incomplete, but it still prints the GPU plugin (if any) so the
+#     caller can install what's there.
+ncz_intel_packages() {
+    _v=$(ncz_intel_native_opencl_vers "$1" "$2") || return $?
+    set -- $1 $2 $_v
+    _g=$3; _n=$4
+    _p=""
+    [ "$1" = 1 ] && _p="libopenvino-intel-gpu-plugin-$_g"
+    _npustate=0
+    if [ "$2" = 1 ]; then
+        if ncz_intel_npu_drivers_present; then
+            _p="$_p libopenvino-intel-npu-plugin-$_n"
+            for _u in $(ncz_intel_required_npu_drivers); do
+                _p="$_p $_u"
+            done
+        else
+            # NPU plugin is NOT safe without its driver/compiler/firmware
+            # stack; the caller (rc=2) will defer. Don't include it in the
+            # output list; the GPU plugin (if any) is still installed.
+            _npustate=2
+        fi
+    fi
+    echo "$_p" | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' '
+    [ "$_npustate" = 0 ] || return "$_npustate"
+}
+
+# ncz_intel_apt_install PKGS... -> 0 installed, 1 refused (would-remove),
+# 75 retry later (transient: simulation unreachable OR real install failed).
+# Sim and real install use the SAME expanded args array (NCZ_INTEL_APT_BASE_ARGS
+# below, including -y and --no-install-recommends; -y is harmless under `-s`).
+# No force / allow-downgrades / trust waiver.
+NCZ_INTEL_APT_BASE_ARGS=( -y --no-install-recommends )
 ncz_intel_apt_install() {
     ncz_intel_log "packages: $*"
-    _sim=$(LC_ALL=C apt-get install -s --no-install-recommends "$@" 2>&1); _rc=$?
+    _sim=$(LC_ALL=C apt-get install -s "${NCZ_INTEL_APT_BASE_ARGS[@]}" "$@" 2>&1); _rc=$?
     if [ "$_rc" -ne 0 ]; then
         printf '%s\n' "$_sim" | tail -5
-        ncz_intel_log "simulation failed (rc=$_rc)"; return 75
+        ncz_intel_log "simulation failed (rc=$_rc); transient/unavailable -- retry later"
+        return 75
     fi
     _rm=$(printf '%s\n' "$_sim" | grep -c '^Remv ')
     if [ "$_rm" -gt 0 ]; then
         printf '%s\n' "$_sim" | grep '^Remv ' | head -10
         ncz_intel_status "failed:would-remove-$_rm-packages"; return 1
     fi
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" 2>&1 | tail -10
+    DEBIAN_FRONTEND=noninteractive apt-get install "${NCZ_INTEL_APT_BASE_ARGS[@]}" "$@" 2>&1 | tail -10
     [ "${PIPESTATUS[0]:-0}" -eq 0 ] || return 75
     return 0
 }
 
-# ncz_intel_setup GPU NPU -> 0 done, 75 retry later, 1 refused/permanent
+# ncz_intel_setup GPU NPU -> 0 done, 75 retry later, 1 refused/permanent.
+# Native NCZ acquisition only: no key fetch, no repo wiring. The signed
+# NCZ source is supplied by hook24 (apt-separation.sh). If the index does
+# not yet carry the requested native plugin, or any NPU driver is missing,
+# the function returns 75 and the caller arms the retry timer.
+#
+# GPU plugin is installed even when NPU drivers are missing (the GPU plugin
+# is independent of the NPU driver stack). The function reports 75 (not
+# done) when NPU was requested but is still incomplete, so the caller arms
+# the timer for the next native publish without falsely marking success.
 ncz_intel_setup() {
-    # The Debian-origin set needs neither the Intel key nor the Intel repo, so a missing key must not
-    # keep it from installing: only the OpenVINO plugins (Intel repo) wait for the key.
-    _key=0
-    if ncz_intel_keyring; then _key=1; ncz_intel_repo; fi
+    # Reversibly move a known-legacy intel-openvino.list aside BEFORE
+    # apt-get update so a stray Intel vendor origin cannot shadow the native
+    # NCZ suite. Only NCZ_INTEL_ROOT is touched (defaults to / for real
+    # installs, $W/r for the deferred-retry test fixture).
+    ncz_intel_disable_legacy_vendor_list "$(_ni_r)/etc/apt/sources.list.d/intel-openvino.list" || return 75
+    # Best-effort refresh; offline already-seeded Debian packages still
+    # resolve on the mirror with a stale index. Don't fatal on a
+    # network-only failure before the staging/debian path runs. No metadata
+    # date-check bypass (`Acquire::Check-Date=false`) -- that is an
+    # unrelated TUF/Release-date weakness; a cached signed index already
+    # on disk is used as-is.
     apt-get update 2>&1 | tail -3
-    # Debian-origin packages first: they need no Intel index, so an offline
-    # install (mirror seeds) or an install without a link still gets them.
-    # Already-installed packages are skipped without calling apt at all.
+    # Debian-origin packages first: they need no native index, so an
+    # offline install (mirror seeds) or an install without a link still
+    # gets them. Already-installed packages are skipped without calling
+    # apt at all.
     _dp=$(ncz_intel_debian_packages "$1" "$2")
     if [ -n "${_dp// /}" ]; then
         # shellcheck disable=SC2086
         ncz_intel_apt_install $_dp || return $?
     fi
-    [ "$_key" = 1 ] || { ncz_intel_log "Intel signing key unavailable; OpenVINO plugins deferred"; return 75; }
-    _pk=$(ncz_intel_packages "$1" "$2") || { ncz_intel_log "Intel repo index unavailable (network?)"; return 75; }
-    [ -n "${_pk// /}" ] || { ncz_intel_log "nothing more requested (GPU=$1 NPU=$2)"; return 0; }
-    # shellcheck disable=SC2086
-    ncz_intel_apt_install $_pk
+    _pk=$(ncz_intel_packages "$1" "$2")
+    _rc=$?
+    case "$_rc" in
+        0) _npustate=0 ;;
+        1) ncz_intel_log "native NCZ index unreachable (network?)"; return 75 ;;
+        2) ncz_intel_log "NPU driver(s) missing from native index; will retry once published" >&2; _npustate=2 ;;
+        *) ncz_intel_log "native candidate probe failed (rc=$_rc); retry later" >&2; return 75 ;;
+    esac
+    # Install whatever IS available (gpu plugin, etc). NPU plugin + drivers
+    # are intentionally excluded from _pk when _npustate=2 (see
+    # ncz_intel_packages), so a partial NPU stack cannot land here.
+    if [ -n "${_pk// /}" ]; then
+        # shellcheck disable=SC2086
+        ncz_intel_apt_install $_pk || return $?
+    elif [ "$_npustate" != 0 ]; then
+        # Nothing installable yet; rely on the deferred retry path.
+        return 75
+    fi
+    # NPU was incomplete (or finished); the timer retry flag in the caller
+    # decides whether to mark done. Returning 75 here still triggers the
+    # retry arming; returning 0 marks done.
+    [ "$_npustate" = 0 ] || return 75
+    return 0
 }
 
 ncz_intel_arm_retry() {   # GPU NPU
