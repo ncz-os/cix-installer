@@ -217,7 +217,8 @@ if grep -q 'keep me' "$CONF"; then ok "second hook run preserves the operator co
 # The hook raises the saver feed's hot pause (compiled-in 85 C) on T2 Macs to
 # 100 C, or 2 C under the lowest critical trip of the governor's sensors when
 # that trip is at or below 100 C, and
-# sets the warm-band fps to 6, in /etc/ncz/lock-renderer.env only.
+# sets the warm-band fps to 15 (the validated T2 warm policy), in
+# /etc/ncz/lock-renderer.env only.
 HW="$T/hwmon"; DMIF="$T/dmi"
 mk_hwmon() { # mk_hwmon "name:crit[,crit...]" ...   (crit "-" = no crit file)
     rm -rf "$HW"; mkdir -p "$HW"
@@ -254,22 +255,37 @@ renderer_env
 SAVERRUN; rc=$?
 if [ "$rc" = 0 ] && [ "$(hot)" = 98000 ]; then ok "saver cap: MacBookPro16,1 sensors -> NCZ_FEED_TEMP_HOT_MC=98000 (coretemp crit = Tjmax 100 C, - 2 C)"
 else bad "saver cap: expected 98000, got '$(hot)' (rc=$rc): $(tail -3 "$T/saver.out")"; fi
-[ "$(warm)" = 6 ] && ok "saver cap: warm-band fps set to 6" || bad "saver cap: warm fps '$(warm)'"
+[ "$(warm)" = 15 ] && ok "saver cap: warm-band fps set to 15" || bad "saver cap: warm fps '$(warm)'"
 [ "$(autofps)" = 15 ] && ok "saver Auto frame rate on a T2 Mac: NCZ_SAVER_AUTO_FPS=15 (full resolution kept)" || bad "saver Auto fps '$(autofps)'"
 grep -q '^SINGULARITY_LOCK_RENDERER=/usr/libexec/ncz-screensaver-feed$' "$LENV" \
     && ok "saver cap: renderer line preserved" || bad "saver cap: renderer line changed"
 # shellcheck source=/dev/null
-if (set -a; . "$LENV"; [ "$NCZ_FEED_TEMP_HOT_MC" = 98000 ] && [ "$NCZ_FEED_FPS_WARM" = 6 ]); then
+if (set -a; . "$LENV"; [ "$NCZ_FEED_TEMP_HOT_MC" = 98000 ] && [ "$NCZ_FEED_FPS_WARM" = 15 ]); then
     ok "saver cap: env file sources cleanly the way the session launcher reads it"
 else bad "saver cap: env file does not source"; fi
 SAVERRUN
-if [ "$(hot)" = 98000 ] && [ "$(warm)" = 6 ] && [ "$(autofps)" = 15 ]; then ok "saver cap: second run is idempotent (one line each)"
+if [ "$(hot)" = 98000 ] && [ "$(warm)" = 15 ] && [ "$(autofps)" = 15 ]; then ok "saver cap: second run is idempotent (one line each)"
 else bad "saver cap: duplicate lines after second run: hot='$(hot)' warm='$(warm)'"; fi
 
 # an operator value is kept
 renderer_env; printf 'NCZ_FEED_TEMP_HOT_MC=88000\n' >> "$LENV"
 SAVERRUN
 [ "$(hot)" = 88000 ] && ok "saver cap: existing NCZ_FEED_TEMP_HOT_MC kept" || bad "saver cap: operator value replaced: '$(hot)'"
+
+# an explicit operator warm fps is kept (no migration/overwrite)
+renderer_env; printf 'NCZ_FEED_FPS_WARM=6\n' >> "$LENV"
+SAVERRUN
+[ "$(warm)" = 6 ] && ok "saver cap: existing NCZ_FEED_FPS_WARM=6 kept" || bad "saver cap: explicit warm fps replaced: '$(warm)'"
+
+# an explicit operator Auto fps is kept
+renderer_env; printf 'NCZ_SAVER_AUTO_FPS=30\n' >> "$LENV"
+SAVERRUN
+[ "$(autofps)" = 30 ] && ok "saver cap: existing NCZ_SAVER_AUTO_FPS=30 kept" || bad "saver cap: explicit Auto fps replaced: '$(autofps)'"
+
+# an explicit operator hot value is kept
+renderer_env; printf 'NCZ_FEED_TEMP_HOT_MC=94000\n' >> "$LENV"
+SAVERRUN
+[ "$(hot)" = 94000 ] && ok "saver cap: existing NCZ_FEED_TEMP_HOT_MC=94000 kept" || bad "saver cap: explicit hot value replaced: '$(hot)'"
 
 # a lower critical trip lowers the cap (crit - 2 C)
 renderer_env; mk_hwmon "coretemp:97000" "amdgpu:105000"
@@ -289,8 +305,8 @@ SAVERRUN
 # a cap that would not raise the default is not written
 renderer_env; mk_hwmon "coretemp:87000"
 SAVERRUN
-if [ -z "$(hot)" ] && [ -z "$(warm)" ]; then ok "saver cap: crit 87 C -> nothing written (crit - 2 C is not above 85 C)"
-else bad "saver cap: wrote '$(hot)'/'$(warm)' for crit 87 C"; fi
+if [ -z "$(hot)" ] && [ -z "$(warm)" ] && [ -z "$(autofps)" ]; then ok "saver cap: crit 87 C -> nothing written (crit - 2 C is not above 85 C)"
+else bad "saver cap: wrote '$(hot)'/'$(warm)'/'$(autofps)' for crit 87 C"; fi
 
 # sensors absent (installer kernel): measured model value, other models untouched
 renderer_env; mk_hwmon "nvme:84850"
@@ -298,7 +314,8 @@ SAVERRUN
 [ "$(hot)" = 98000 ] && ok "saver cap: no sensors + MacBookPro16,1 -> 98 C" || bad "saver cap: no sensors MBP16,1 gave '$(hot)'"
 renderer_env; mk_dmi MacBookAir9,1
 SAVERRUN
-[ -z "$(hot)" ] && ok "saver cap: no sensors + other T2 model -> default kept" || bad "saver cap: unmeasured model got '$(hot)'"
+if [ -z "$(hot)" ] && [ -z "$(warm)" ] && [ -z "$(autofps)" ]; then ok "saver cap: no sensors + other T2 model -> default kept"
+else bad "saver cap: unmeasured model got '$(hot)'/'$(warm)'/'$(autofps)'"; fi
 
 # no renderer configured: the env file is neither created nor changed
 mk_dmi MacBookPro16,1; mk_hwmon "coretemp:100000"
