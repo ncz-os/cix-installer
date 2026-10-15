@@ -53,7 +53,9 @@ mkdir -p "$BUILD_DIR"
 # Upstream OpenVINO_VERSION is derived from the source tree; we do not
 # override it. The Debian release suffix is set via
 # CPACK_DEBIAN_PACKAGE_RELEASE so the resulting package version is
-# <OpenVINO_VERSION>-ncz1.
+# 1:<upstream CPACK_PACKAGE_VERSION>-ncz1. Epoch 1 preserves an ordinary
+# upgrade from Intel vendor builds whose fourth numeric component is higher.
+# Upstream debian.cmake applies the same epoch to exact internal dependencies.
 
 cmake -G Ninja \
   -S "$SRC_DIR" -B "$BUILD_DIR" \
@@ -75,4 +77,5 @@ cmake -G Ninja \
   -DCPACK_GENERATOR=DEB \
   -DCPACK_DEB_COMPONENT_INSTALL=ON \
   -DCPACK_DEBIAN_PACKAGE_SHLIBDEPS=ON \
-  -DCPACK_DEBIAN_PACKAGE_RELEASE=ncz1
+  -DCPACK_DEBIAN_PACKAGE_RELEASE=ncz1 \
+  -DCPACK_DEBIAN_PACKAGE_EPOCH=1
