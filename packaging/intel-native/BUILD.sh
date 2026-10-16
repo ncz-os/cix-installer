@@ -22,27 +22,31 @@ SRC="$PROJ/caches/source"
 for pair in 'openvino:e213a14725769a6a2bf86fc86650aa78a9c05d3e' 'npu-driver:aea583dcd86a4723a8d3bb06ad94b6eb2f80c6f2' 'npu_compiler:0b38f7d42113ff329ac2bdd33583d123de4ccf2f'; do
   name=${pair%%:*}; pin=${pair#*:}
   [ "$(git -C "$SRC/$name" rev-parse HEAD)" = "$pin" ] || { echo "Wrong source pin: $name" >&2; exit 1; }
-  # "Dirty" must mean CONTENT differs from the pinned commit. A bare
-  # `status --porcelain` also fires on git-lfs pointer-vs-smudge differences:
-  # checking out the tree rewrites LFS pointer files into their real content,
-  # so they always show as modified even though `git diff --stat` reports
-  # "0 insertions(+), 0 deletions(-)" and the bytes hash-match HEAD. That
-  # blocked the build on a tree that was provably clean. Compare real content.
-  # For each path git calls modified, decide whether the BYTES actually differ.
-  #   - hash-object with --path applies the same clean/smudge filter as HEAD, so
-  #     it compares like for like. For a git-lfs file the worktree holds real
-  #     content and HEAD holds a pointer; both smudge to the same real content,
-  #     so the hashes match and the file is correctly treated as clean.
-  #   - only a genuine content difference produces different hashes.
-  _dirty=$(git -C "$SRC/$name" status --porcelain \
-      | awk '{print $2}' \
-      | while IFS= read -r f; do
-            [ -n "$f" ] || continue
-            [ -f "$SRC/$name/$f" ] || continue
-            _wt=$(git -C "$SRC/$name" hash-object --path="$f" -- "$f" 2>/dev/null)
-            _hd=$(git -C "$SRC/$name" rev-parse "HEAD:$f" 2>/dev/null)
-            if [ -n "$_wt" ] && [ "$_wt" != "$_hd" ]; then echo "$f"; fi
-        done)
+  # "Dirty" must mean CONTENT differs from the pinned commit.
+  #
+  # A bare `git status --porcelain` also fires on git-lfs files: with
+  # filter=lfs configured, checking the tree smudges the stored object and git
+  # keeps reporting the path as modified even though the worktree bytes are
+  # identical to HEAD. hash-object/--path does not fix it, because the clean
+  # filter turns the HEAD blob back into a pointer for hashing.
+  #
+  # Rather than reimplement git's filter stack, treat lfs-tracked paths as
+  # clean-by-content: verify them with `git lfs diff`, which compares the
+  # smudged worktree against the smudged HEAD and reports nothing when they
+  # match. Everything else uses git's own diff, so genuine drift still fails.
+  _dirty=""
+  for f in $(git -C "$SRC/$name" status --porcelain | awk '{print $2}'); do
+      [ -n "$f" ] || continue
+      [ -f "$SRC/$name/$f" ] || continue
+      if git -C "$SRC/$name" check-attr filter -- "$f" 2>/dev/null | grep -q "lfs"; then
+          if ! git -C "$SRC/$name" lfs diff --name-only 2>/dev/null | grep -qxF "$f"; then
+              _dirty="$_dirty $f"
+          fi
+      elif ! git -C "$SRC/$name" diff --quiet -- "$f" 2>/dev/null; then
+          _dirty="$_dirty $f"
+      fi
+  done
+
   if [ -n "$_dirty" ]; then
       echo "Dirty source: $name" >&2
       printf '  content differs: %s\n' $_dirty >&2
