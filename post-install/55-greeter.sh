@@ -1,5 +1,5 @@
 #!/bin/bash
-# 55-greeter.sh — NCZ-OS 26.7 SHIP greeter: greetd + NATIVE singularity-greeter.
+# 55-greeter.sh — NCZ-OS 26.10 SHIP greeter: greetd + NATIVE singularity-greeter.
 #
 # ZERO-COMPROMISE NATIVE STACK (supersedes regreet). The greeter is the upstream
 # singularity-greeter (github.com/singularityos-lab/singularity-greeter): a raw
@@ -39,7 +39,9 @@ case "$VARIANT" in
 esac
 
 ASSETS=/usr/local/lib/cix-installer/assets/branding
-WALL_SRC=$ASSETS/greeter/cygnus/greeter-backdrop-1920x1080.png
+# The dedicated greeter backdrop (NOT a desktop wallpaper — see the
+# fallback-path comment below for why the name says backdrop, not wall).
+BACKDROP_SRC=$ASSETS/greeter/cygnus/greeter-backdrop-1920x1080.png
 
 install -d -m0755 /etc/greetd
 
@@ -87,12 +89,12 @@ fi
 # downscales it to 960 px and box-blurs it twice, so this is a dedicated no-text
 # image darkened (branding/cygnus/tools/make-greeter-backdrop.py) to keep white
 # UI text >= 4.5:1 after that blur -- not a desktop wallpaper.
-if [ -f "$WALL_SRC" ]; then
+if [ -f "$BACKDROP_SRC" ]; then
     install -d -m0755 /usr/share/backgrounds/singularity
-    cp -f "$WALL_SRC" /usr/share/backgrounds/singularity/default.png
+    cp -f "$BACKDROP_SRC" /usr/share/backgrounds/singularity/default.png
     echo "[55] greeter backdrop -> Cygnus (/usr/share/backgrounds/singularity/default.png)"
 else
-    echo "[55] WARN: Cygnus greeter backdrop absent ($WALL_SRC) — greeter uses singularity default backdrop" >&2
+    echo "[55] WARN: Cygnus greeter backdrop absent ($BACKDROP_SRC) — greeter uses singularity default backdrop" >&2
 fi
 
 # --- greetd: run the native greeter wrapper on the active graphical VT --------
@@ -146,6 +148,10 @@ case "$(uname -m)" in
     aarch64 | arm64) require_lit=1 ;;
     *) require_lit=0 ;;
 esac
+# Bounds: up to 120 iterations x 0.25 s = 30 s total (see the header note
+# on the amdgpu/T2 eDP connector timing). On arm64 the LIT requirement
+# carries an 8 s grace window: a connector that stays connected but is never
+# reported enabled for 32 x 0.25 s gives up the wait and fails open.
 try=0
 conn_since=-1
 while [ "$try" -lt 120 ]; do
