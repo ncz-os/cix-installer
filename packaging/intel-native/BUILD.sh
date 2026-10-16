@@ -22,7 +22,23 @@ SRC="$PROJ/caches/source"
 for pair in 'openvino:e213a14725769a6a2bf86fc86650aa78a9c05d3e' 'npu-driver:aea583dcd86a4723a8d3bb06ad94b6eb2f80c6f2' 'npu_compiler:0b38f7d42113ff329ac2bdd33583d123de4ccf2f'; do
   name=${pair%%:*}; pin=${pair#*:}
   [ "$(git -C "$SRC/$name" rev-parse HEAD)" = "$pin" ] || { echo "Wrong source pin: $name" >&2; exit 1; }
-  [ -z "$(git -C "$SRC/$name" status --porcelain)" ] || { echo "Dirty source: $name" >&2; exit 1; }
+  # "Dirty" must mean CONTENT differs from the pinned commit. A bare
+  # `status --porcelain` also fires on git-lfs pointer-vs-smudge differences:
+  # checking out the tree rewrites LFS pointer files into their real content,
+  # so they always show as modified even though `git diff --stat` reports
+  # "0 insertions(+), 0 deletions(-)" and the bytes hash-match HEAD. That
+  # blocked the build on a tree that was provably clean. Compare real content.
+  _dirty=$(git -C "$SRC/$name" status --porcelain \
+      | awk '{print $2}' \
+      | while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            git -C "$SRC/$name" diff --quiet -- "$f" 2>/dev/null || echo "$f"
+        done)
+  if [ -n "$_dirty" ]; then
+      echo "Dirty source: $name" >&2
+      printf '  content differs: %s\n' $_dirty >&2
+      exit 1
+  fi
 done
 DOCKER_IMAGE=${DOCKER_IMAGE:-debian:forky}
 DOCKER_NAME=${DOCKER_NAME:-ncz-intel-native-$$}
