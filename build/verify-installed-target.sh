@@ -322,14 +322,36 @@ if fetch /usr/bin/load-modules.sh "$TMP/load-modules.sh" && grep -q 'video-cixde
 else
     gate_miss vpu "/usr/bin/load-modules.sh with the video-cixdec0 symlink logic"
 fi
-exists /usr/bin/ffmpeg || gate_miss vpu "/usr/bin/ffmpeg"
+# ffmpeg + libavcodec carrying h264_v4l2m2m.
+#
+# There are TWO ffmpegs, and which one exists depends on the install option set:
+#   - desktop sets install the Debian `ffmpeg` package -> /usr/bin/ffmpeg and
+#     /usr/lib{,64}/libavcodec.so.*
+#   - headless sets (nodesktop, minimal, server/Magnetar) do NOT, but
+#     post-install/83-vpu-ffmpeg.sh installs the cix-mm bundle to /opt/cix-ffmpeg
+#     and wraps it as /usr/local/bin/cix-ffmpeg (bin/ + cixlib/ inside).
+# Requiring the Debian package made every headless variant fail this gate even
+# though its VPU userspace was correctly installed -- this was only ever visible
+# once the 5-variant matrix (commit a7dbb1a3) started running nodesktop/minimal;
+# before that every KVM gate run was the single hardcoded desktop set.
+# Accept either, and assert the codec on whichever is actually present, because
+# the real requirement is a working VPU transcode route, not a specific package.
+_ffmpeg=""
+for _c in /usr/bin/ffmpeg /opt/cix-ffmpeg/bin/ffmpeg; do
+    if fetch "$_c" "$TMP/ncz-ffmpeg-probe"; then _ffmpeg="$_c"; break; fi
+done
+if [ -z "$_ffmpeg" ]; then
+    gate_miss vpu "ffmpeg (neither /usr/bin/ffmpeg nor the 83-vpu-ffmpeg bundle /opt/cix-ffmpeg/bin/ffmpeg)"
+else
+    echo "[verify-target]     ffmpeg: $_ffmpeg"
+fi
 avc=""
-for d in /usr/lib/aarch64-linux-gnu /usr/lib; do
+for d in /usr/lib/aarch64-linux-gnu /usr/lib /opt/cix-ffmpeg/cixlib; do
     avc="$(lsnames $d | grep -E '^libavcodec\.so\.[0-9.]+$' | sort -V | tail -1)"
     [ -n "$avc" ] && { avc="$d/$avc"; break; }
 done
 if [ -z "$avc" ]; then
-    gate_miss vpu "libavcodec shared library"
+    gate_miss vpu "libavcodec shared library (searched system libs and /opt/cix-ffmpeg/cixlib)"
 elif fetch "$avc" "$TMP/libavcodec.so" && grep -aq 'h264_v4l2m2m' "$TMP/libavcodec.so"; then
     echo "[verify-target]     $avc carries h264_v4l2m2m"
 else
