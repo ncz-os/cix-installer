@@ -367,7 +367,9 @@ _normalise() {
 }
 CHOSEN=$( _normalise "$CHOSEN" )
 
-# Boolean presence helpers consumed by the post-install peers.
+# Normalised operator record (see _normalise): the single source of truth for
+# what gets installed. Boolean presence helpers consumed by the post-install
+# peers.
 has_component() {
     # replays the same comma-token match as _normalise. Whitespace-tolerant on
     # purpose: CHOSEN may arrive from debconf (", " separated) or from a
@@ -377,18 +379,58 @@ has_component() {
     _hc=$(printf '%s' "$CHOSEN" | tr -d ' \t')
     case ",$_hc," in *,"$_want",*) return 0 ;; *) return 1 ;; esac
 }
+
+# S1-3: PRESERVE the operator's list. The reassembly used to rebuild CHOSEN
+# from the WANT_* booleans alone, which meant any token the operator's record
+# carried but the rebuild did not know about was silently dropped, and the
+# browsers/wallpaper-rotator companions were re-added whenever desktop was on
+# EVEN IF the operator had explicitly deselected them. The normalised token
+# list is now authoritative: we keep it verbatim and only ADD the desktop
+# companions that are absent (they ride along with desktop by contract; see the
+# "Internal compatibility tokens" note above). A component the operator
+# deselected is never reintroduced.
+#
+# browsers/wallpaper-rotator are added, never removed, by this step:
+#   * desktop selected, companions absent  -> added (legacy ride-along)
+#   * desktop selected, companions present -> kept once (no duplicate)
+#   * desktop absent                       -> companions dropped (they are
+#     desktop-only; the cmdline override path already rejects them without
+#     desktop, and the dialog never offers them, so a record carrying them
+#     without desktop is a hand-edited artefact we must not act on)
+if has_component desktop; then
+    _add_browsers=1; has_component browsers           && _add_browsers=0
+    _add_wallpaper=1; has_component wallpaper-rotator && _add_wallpaper=0
+    if [ "$_add_browsers" = 1 ] || [ "$_add_wallpaper" = 1 ]; then
+        # append the missing companion(s) right after the desktop token so the
+        # desktop group stays contiguous; fall back to appending at the end.
+        _new=""; _oldifs=$IFS; IFS=','
+        for _tok in $CHOSEN; do
+            if [ "$_tok" = desktop ]; then
+                [ "$_add_browsers" = 1 ]  && _tok="desktop,browsers"
+                [ "$_add_wallpaper" = 1 ] && _tok="$_tok,wallpaper-rotator"
+            fi
+            [ -z "$_new" ] && _new="$_tok" || _new="$_new,$_tok"
+        done
+        IFS=$_oldifs
+        CHOSEN="$_new"
+    fi
+else
+    # desktop off: leave the operator's list alone (a stray browsers/
+    # wallpaper-rotator would already have been rejected upstream); this is a
+    # no-op guard so the "desktop off" case is explicit.
+    :
+fi
+
 WANT_DESKTOP=0;           has_component desktop           && WANT_DESKTOP=1
 WANT_MGMT=0;              has_component mgmt-container    && WANT_MGMT=1
 WANT_RESCUE_PART=0;       has_component rescue-partition  && WANT_RESCUE_PART=1
 WANT_CUDA=0;              has_component cuda              && WANT_CUDA=1
-WANT_BROWSERS=$WANT_DESKTOP
-WANT_WALLPAPER=$WANT_DESKTOP
+WANT_BROWSERS=0;          has_component browsers          && WANT_BROWSERS=1
+WANT_WALLPAPER=0;         has_component wallpaper-rotator && WANT_WALLPAPER=1
 
-CHOSEN=""
-[ "$WANT_DESKTOP" = 1 ]     && CHOSEN="desktop,browsers,wallpaper-rotator"
-[ "$WANT_MGMT" = 1 ]        && { [ -z "$CHOSEN" ] && CHOSEN="mgmt-container" || CHOSEN="$CHOSEN,mgmt-container"; }
-[ "$WANT_RESCUE_PART" = 1 ] && { [ -z "$CHOSEN" ] && CHOSEN="rescue-partition" || CHOSEN="$CHOSEN,rescue-partition"; }
-[ "$WANT_CUDA" = 1 ]        && { [ -z "$CHOSEN" ] && CHOSEN="cuda" || CHOSEN="$CHOSEN,cuda"; }
+# `none` (or an all-dropped list) means no optional component; an empty record
+# is never written.
+CHOSEN=$( _normalise "$CHOSEN" )
 [ -n "$CHOSEN" ] || CHOSEN=none
 
 log "SELECTED COMPONENTS: $CHOSEN"
