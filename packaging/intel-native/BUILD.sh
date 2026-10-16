@@ -84,6 +84,7 @@ for item in openvino-2026.4.1 linux-npu-driver-1.38.0; do
       ;;
     *)
       docker exec -e SRC_DIR="/work/caches/source/$source_name" -e BUILD_DIR="/work/caches/build/$item" \
+        -e OUT_DIR="/work/artifacts/$item" \
         -e CI_REL="$CI_REL" -e ITEM="$item" -e JOBS="$JOBS" -e SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" "$DOCKER_NAME" bash -ceu '
           bash "/work/$CI_REL/packaging/intel-native/CONFIGURE-$ITEM.sh"
           cmake --build "$BUILD_DIR" --parallel "$JOBS" --target npu_compiler_source
@@ -91,7 +92,7 @@ for item in openvino-2026.4.1 linux-npu-driver-1.38.0; do
             "$BUILD_DIR/compiler/src/npu_compiler" \
             "/work/$CI_REL/packaging/intel-native/patches/0001-mlir-required-parse-guard.patch" \
             /work/logs/npu-compiler-patched-source.json
-          cmake --build "$BUILD_DIR" --parallel "$JOBS" --target package
+          bash "/work/$CI_REL/packaging/intel-native/PACKAGE-$ITEM.sh"
         ' > "$log" 2>&1 || { tail -20 "$log"; exit 1; }
       ;;
   esac
