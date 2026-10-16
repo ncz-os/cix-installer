@@ -54,7 +54,28 @@ ncz_ui_id() {
         [ -r "$_dir/BUILD_VERSION" ] && read -r _bv < "$_dir/BUILD_VERSION"
     fi
     [ -n "$_arch" ] || case "$(uname -m 2>/dev/null)" in aarch64) _arch=arm64 ;; x86_64) _arch=amd64 ;; *) _arch=$(uname -m 2>/dev/null) ;; esac
-    case "$_arch" in arm64) _arch="arm64 (Sky1)" ;; esac
+    # Only label arm64 as Sky1 when the hardware actually matches: the Cix
+    # Sky1 (CP8180) SoC reports itself in /proc/cpuinfo and its device-tree
+    # compatible strings, the same probe 50-brand.sh's ncz-hw-brand uses.
+    # Any other arm64 board keeps the plain arch name.
+    case "$_arch" in
+        arm64)
+            # NCZ_UI_SKY1 is a test seam (build/test-ncz-ui.sh): it decides the
+            # probe outcome instead of reading host hardware.
+            case "${NCZ_UI_SKY1:-}" in
+                1) _is_sky1=1 ;;
+                0) _is_sky1=0 ;;
+                *) if grep -qi 'sky1\|cp8180\|cix' /proc/cpuinfo \
+                         /sys/firmware/devicetree/base/compatible 2>/dev/null; then
+                        _is_sky1=1
+                    else
+                        _is_sky1=0
+                    fi
+                    ;;
+            esac
+            [ "$_is_sky1" = 1 ] && _arch="arm64 (Sky1)"
+            ;;
+    esac
     _dl=$(ncz_ui_diag_login)
     echo "${_arch}${_bv:+ | build ${_bv##*-}}${_dl:+ | $_dl}"
 }

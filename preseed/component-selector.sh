@@ -190,14 +190,31 @@ IFS=$_oldifs
 # Validate the cmdline override tokens (drop unknown ones, with a warning).
 # Operator expectation: an unattended override list is a STRICT SUBSET of
 # the known internal set; misspelled tokens are NOT silently dropped-but-applied.
-# Legacy browsers/wallpaper-rotator override tokens still parse, but desktop
-# below decides whether they remain active.
+# browsers/wallpaper-rotator are INTERNAL companions of desktop (they ride
+# along with it in the UI and are auto-derived from it below); an override
+# that asks for them WITHOUT desktop would silently install browsers on a
+# console-only system, so that combination is rejected here.
 _OVR_FILTERED=""
+_OVR_HAS_DESKTOP=0
 if [ -n "$OVR" ]; then
     _ov_old=$IFS; IFS=','
     for _tok in $OVR; do
         _tok=$(echo "$_tok" | tr -d ' \t')
         [ -z "$_tok" ] && continue
+        [ "$_tok" = desktop ] && _OVR_HAS_DESKTOP=1
+    done
+    IFS=$_ov_old
+fi
+if [ -n "$OVR" ]; then
+    _ov_old=$IFS; IFS=','
+    for _tok in $OVR; do
+        _tok=$(echo "$_tok" | tr -d ' \t')
+        [ -z "$_tok" ] && continue
+        if { [ "$_tok" = browsers ] || [ "$_tok" = wallpaper-rotator ]; } \
+           && [ "$_OVR_HAS_DESKTOP" = 0 ]; then
+            log "WARNING: ncz_components=$_tok requires desktop — dropping (pass desktop,mgmt-container,... to keep it)"
+            continue
+        fi
         if [ "$_tok" = none ] || component_is_valid "$_tok"; then
             [ -z "$_OVR_FILTERED" ] && _OVR_FILTERED="$_tok" || _OVR_FILTERED="$_OVR_FILTERED, $_tok"
         else
@@ -226,8 +243,8 @@ else
     cat > "$NCZ_TMP/ncz-components.templates" <<TPL
 Template: ncz/components
 Type: multiselect
-Choices: ${_CHOICES_C}
-Choices-C: ${_OFFERED}
+Choices: ${_OFFERED}
+Choices-C: ${_CHOICES_C}
 Default: ${_DEFAULT}
 Description: $(ncz_ui_brand) - optional components
  Untick to skip an optional component. Enter accepts the defaults, which

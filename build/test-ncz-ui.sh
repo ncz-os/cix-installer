@@ -20,7 +20,11 @@ BB="$HERE/../assets/diag/busybox-arm64"
 [ "$(uname -m)" = aarch64 ] && [ -x "$BB" ] && "$BB" ash -c true 2>/dev/null && SHELLS+=("$BB ash")
 for shl in "${SHELLS[@]}"; do
     echo "BOOT_IMAGE=/linux quiet" > "$T/cmdline"
-    run() { NCZ_UI_CMDLINE="$T/cmdline" NCZ_UI_PAYLOAD="$1" $shl -c ". '$UI'; $2"; }
+    # NCZ_UI_SKY1=1 makes the arm64 label behave as if the probe saw a Cix
+    # Sky1 SoC (the fixture asserts the Sky1-suffixed label regardless of the
+    # host the test runs on; the plain-label path is covered by the amd64
+    # line and by any non-Sky1 arm64 host).
+    run() { NCZ_UI_CMDLINE="$T/cmdline" NCZ_UI_PAYLOAD="$1" NCZ_UI_SKY1=1 $shl -c ". '$UI'; $2"; }
     eq "$shl: brand"        "$(run "$T/p" ncz_ui_brand)" "$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
     eq "$shl: id arm64"     "$(run "$T/p" ncz_ui_id)"    "arm64 (Sky1) | build 7e1d9c2 | diagnostics login: root / rescue"
     echo amd64 > "$T/p/BUILD_ARCH"
