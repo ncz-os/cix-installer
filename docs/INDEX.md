@@ -31,6 +31,7 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | Document | What it covers |
 |---|---|
 | [ONE-KERNEL.md](ONE-KERNEL.md) | One kernel per image: the default, installer and rescue entries all boot the NCZ kernel |
+| [MAGNETAR-SERVER-VARIANT.md](MAGNETAR-SERVER-VARIANT.md) | `NCZ_VARIANT=server`: which parts of the install medium move online (measured), the pinned-manifest fetch at install time, and what stays on the medium because d-i reads it before the debootstrap stub |
 | [SUPPORTED-FIRMWARE.md](SUPPORTED-FIRMWARE.md) | Supported Sky1 board firmware (Radxa Orion EFI 1.3.1 and later) and firmware gaps |
 | [REFIND-THEME.md](REFIND-THEME.md) | The Cygnus rEFInd boot-menu theme and why it uses one 1080p background |
 | [INSTALLER-BOOT-UX.md](INSTALLER-BOOT-UX.md) | What the installer console shows and why |

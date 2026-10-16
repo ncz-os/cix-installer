@@ -569,6 +569,15 @@ test-platform:
 	@bash $(ROOT)/build/test-platform-lint.sh
 	@$(MAKE) --no-print-directory test-cygnus-branding
 
+# Magnetar (NCZ_VARIANT=server) online payload fetch: the variant logic in
+# write-usb-image.py (assets move off the medium, pinned; substrate udebs stay;
+# desktop demands a baked base.squashfs) and the fetcher's failure semantics
+# against a real HTTP server.
+.PHONY: test-magnetar-server-variant
+test-magnetar-server-variant:
+	@python3 -m pytest $(ROOT)/build/iso/tests/test_write_usb_image_server_variant.py -q
+	@sh $(ROOT)/build/iso/tests/test-ncz-fetch-payload.sh
+
 # boot-speed regression tests: no Type=oneshot unit may
 # sit in multi-user.target's critical chain just to poll for the network.
 test-boot-speed:
