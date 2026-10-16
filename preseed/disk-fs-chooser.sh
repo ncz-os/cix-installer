@@ -287,6 +287,7 @@ if [ -z "$CHOSEN_FS" ]; then
 Template: ncz/root-fs
 Type: select
 Choices: btrfs, ext4
+Choices-C: btrfs (snapshots + compression), ext4 (simple, robust)
 Default: btrfs
 Description: $(ncz_ui_brand) - root (/) filesystem
  Choose the filesystem for the root (/) partition.
@@ -321,6 +322,15 @@ if [ -z "$OVR_DISK" ] || [ -z "$OVR_FS" ]; then
     else
         _ncz_resc=yes
     fi
+    # Show the operator display names, not internal tokens (the record carries
+    # desktop,browsers,wallpaper-rotator — the latter two are desktop
+    # companions, so the screen promises exactly what the desktop toggle does).
+    _ncz_disp=""
+    case ",$_ncz_sel," in *",desktop,"*) _ncz_disp="Full Singularity desktop" ;; esac
+    case ",$_ncz_sel," in *",mgmt-container,"*) _ncz_disp="${_ncz_disp:+$_ncz_disp + }management container" ;; esac
+    case ",$_ncz_sel," in *",rescue-partition,"*) _ncz_disp="${_ncz_disp:+$_ncz_disp + }rescue partition" ;; esac
+    case ",$_ncz_sel," in *",cuda,"*) _ncz_disp="${_ncz_disp:+$_ncz_disp + }NVIDIA driver + CUDA" ;; esac
+    [ -n "$_ncz_disp" ] || _ncz_disp="no optional components"
     cat > /tmp/ncz-confirm.templates <<TPL
 Template: ncz/confirm-erase
 Type: boolean
@@ -331,7 +341,7 @@ Description: $(ncz_ui_brand) - ERASE ${CHOSEN_DISK} and install?
    Target disk:       ${CHOSEN_DISK}
    Root filesystem:   ${CHOSEN_FS}
    Rescue partition:  ${_ncz_resc}
-   Components:        ${_ncz_sel:-all}
+   Components:        ${_ncz_disp}
  .
  CONTINUING ERASES EVERYTHING ON ${CHOSEN_DISK}. This cannot be undone.
  .

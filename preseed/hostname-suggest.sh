@@ -84,7 +84,7 @@ Description: $(ncz_ui_brand) - name this computer
  A name was generated for this machine: $NAME
  .
  Press Enter to accept it, or type your own name (letters, digits and hyphens, at most 63
- characters). It stays the same if you swap network adapters.
+ characters). This name is tied to the machine, not to any network adapter.
  .
  $(ncz_ui_id)
 TPL
