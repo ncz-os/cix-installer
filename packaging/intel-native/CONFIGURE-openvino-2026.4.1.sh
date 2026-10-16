@@ -1,4 +1,22 @@
 #!/usr/bin/env bash
+
+# git-lfs caveat: for a filter=lfs path, `git status --porcelain` reports the
+# file as modified on every checkout even when the worktree bytes equal HEAD,
+# because the clean filter turns the HEAD blob back into a pointer for hashing.
+# Compare real content: sha256 of the worktree file vs the blob from git.
+_ncz_dirty_paths() {
+    local d="$1" f
+    git -C "$d" status --porcelain | awk '{print $2}' | while IFS= read -r f; do
+        [ -n "$f" ] && [ -f "$d/$f" ] || continue
+        if git -C "$d" check-attr filter -- "$f" 2>/dev/null | grep -q lfs; then
+            [ "$(sha256sum < "$d/$f" | cut -d" " -f1)" = \
+              "$(git -C "$d" cat-file blob "HEAD:$f" 2>/dev/null | sha256sum | cut -d" " -f1)" ] || echo "$f"
+        elif ! git -C "$d" diff --quiet -- "$f" 2>/dev/null; then
+            echo "$f"
+        fi
+    done
+}
+
 # packaging/intel-native/CONFIGURE-openvino-2026.4.1.sh
 #
 # Configure OpenVINO 2026.4.1 for native amd64 Forky packaging.
@@ -29,7 +47,7 @@ if [ "$head_commit" != "$OV_COMMIT" ]; then
   exit 1
 fi
 
-if [ -n "$(git -C "$SRC_DIR" status --porcelain)" ]; then
+if [ -n "$(_ncz_dirty_paths "$SRC_DIR")" ]; then
   echo "[configure-openvino] ERROR: $SRC_DIR has uncommitted changes" >&2
   exit 1
 fi
