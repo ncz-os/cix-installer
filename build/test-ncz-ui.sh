@@ -3,7 +3,7 @@
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 UI="$HERE/../preseed/ncz-ui.sh"
 # Keep the fixture in sync with the release identity instead of pinning an old
-# codename (this asserted "NCZ-OS 26.7 Maximilian" through 26.7).
+# codename (through the 26.7 release this asserted the then-current identity).
 ROOT="$(cd "$HERE/.." && pwd)"
 # shellcheck source=../release.conf
 . "$ROOT/release.conf"

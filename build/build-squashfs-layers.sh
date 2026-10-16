@@ -605,7 +605,7 @@ build_layer(){ local role="$1" manifest="$2"
   printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$MG/etc/needrestart/conf.d/99-squashfs-layer.conf" >/dev/null
   if [ "$role" = "desktop" ]; then
     log "desktop: SINGULARITY desktop delta (Wayland-only; XFCE/X11 removed) + brand"
-    # 26.7 "Maximilian": Singularity Desktop (labwc/wlroots, GTK4) REPLACES XFCE.
+    # 26.10 "Cygnus": Singularity Desktop (labwc/wlroots, GTK4) REPLACES XFCE.
     # No user-session=xfce, no x-session-manager -> xfce4, no 60-ncz-xfce.conf.
     # GREETER = greetd + NATIVE singularity-greeter (in the payload) — NOT
     # lightdm. 20-desktop.sh (run as a brand hook below) does the real work:

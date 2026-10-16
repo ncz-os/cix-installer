@@ -8,10 +8,9 @@
 # preseed/late.sh writes BUILD_VARIANT=server and this hook converts the
 # install into a headless boot.
 #
-# (2026-07-27: the old "Reinhardt"/"Magnetar" per-variant codename scheme
-# was retired — the release codename from release.conf applies to BOTH
-# variants; "Desktop"/"Server" is just the qualifier. Renamed from
-# 48-magnetar-variant.sh to match.)
+# (2026-07-27: the old per-variant codename scheme was retired — the release
+# codename from release.conf applies to BOTH variants; "Desktop"/"Server" is
+# just the qualifier. Renamed from the old magnetar-variant hook to match.)
 #
 # Keeping the toggle in a separate hook makes the server-variant work
 # explicit and reversible: `ncz desktop on` after install flips the

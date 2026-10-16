@@ -1,7 +1,7 @@
 #!/bin/sh
 # ncz-ui.sh -- shared look of every NCZ d-i dialog (arm64 and amd64). Sourced by the helpers; POSIX sh (busybox ash).
 #
-#   ncz_ui_brand   "NCZ-OS 26.7 Maximilian"        (dialog frame titles)
+#   ncz_ui_brand   "NCZ-OS 26.10 Cygnus"           (dialog frame titles)
 #   ncz_ui_id      "arm64 (Sky1) | build 7e1d9c2 | diagnostics login: root / rescue"  (last line of every dialog body)
 #   ncz_ui_diag_login  "diagnostics login: root / rescue" (empty when ncz_diag=0), also in the boot banner
 #
