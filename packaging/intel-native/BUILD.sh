@@ -24,24 +24,27 @@ for pair in 'openvino:e213a14725769a6a2bf86fc86650aa78a9c05d3e' 'npu-driver:aea5
   [ "$(git -C "$SRC/$name" rev-parse HEAD)" = "$pin" ] || { echo "Wrong source pin: $name" >&2; exit 1; }
   # "Dirty" must mean CONTENT differs from the pinned commit.
   #
-  # A bare `git status --porcelain` also fires on git-lfs files: with
-  # filter=lfs configured, checking the tree smudges the stored object and git
-  # keeps reporting the path as modified even though the worktree bytes are
-  # identical to HEAD. hash-object/--path does not fix it, because the clean
-  # filter turns the HEAD blob back into a pointer for hashing.
+  # git-lfs caveat, proven here: for a filter=lfs path, hashing the worktree
+  # with `git hash-object` returns the POINTER form (55b4c128...) while
+  # `rev-parse HEAD:path` returns the REAL stored content (b957f0b6...).
+  # The clean filter is applied to one side and not the other, so those two can
+  # never be compared, and `git status` reports the path modified forever
+  # (raw diff shows index b957f0b6 -> 00000000) even though the bytes on disk
+  # match HEAD exactly. `git lfs diff` does not exist as a subcommand.
   #
-  # Rather than reimplement git's filter stack, treat lfs-tracked paths as
-  # clean-by-content: verify them with `git lfs diff`, which compares the
-  # smudged worktree against the smudged HEAD and reports nothing when they
-  # match. Everything else uses git's own diff, so genuine drift still fails.
+  # So compare lfs paths directly: the stored object IS the smudged HEAD
+  # content, and the worktree file is the same content, so a sha256 of the
+  # worktree against the blob streamed out of git is the correct test.
+  # Non-lfs paths keep using git's own diff, so real drift still fails.
   _dirty=""
   for f in $(git -C "$SRC/$name" status --porcelain | awk '{print $2}'); do
       [ -n "$f" ] || continue
       [ -f "$SRC/$name/$f" ] || continue
       if git -C "$SRC/$name" check-attr filter -- "$f" 2>/dev/null | grep -q "lfs"; then
-          if ! git -C "$SRC/$name" lfs diff --name-only 2>/dev/null | grep -qxF "$f"; then
-              _dirty="$_dirty $f"
-          fi
+          _wt=$(sha256sum < "$SRC/$name/$f" 2>/dev/null | cut -d" " -f1)
+          _hd=$(git -C "$SRC/$name" cat-file blob "HEAD:$f" 2>/dev/null \
+                | sha256sum | cut -d" " -f1)
+          [ -n "$_wt" ] && [ "$_wt" = "$_hd" ] || _dirty="$_dirty $f"
       elif ! git -C "$SRC/$name" diff --quiet -- "$f" 2>/dev/null; then
           _dirty="$_dirty $f"
       fi
