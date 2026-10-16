@@ -19,15 +19,45 @@ _ncz_ui_dir() {
 
 _ncz_ui_field() {   # file key -> value of KEY="value" (quotes stripped)
     [ -r "$1" ] || return 0
-    while IFS= read -r _l; do
+    # `read` returns non-zero on a final line with no trailing newline, so a
+    # truncated/tampered file would silently lose that field. Consume the
+    # partial line too (|| [ -n "$_l" ]) rather than dropping it.
+    while IFS= read -r _l || [ -n "$_l" ]; do
         case "$_l" in "$2="*) _v=${_l#*=}; _v=${_v#\"}; _v=${_v%\"}; echo "$_v"; return 0 ;; esac
     done < "$1"
 }
 
+# ncz_ui_brand -- the product identity in every dialog frame title.
+#
+# AUTHORITATIVE FIRST (S1-1). The release identity must come from the build's
+# own release.conf, which build/iso/patch-initrd-t2-kernel.py bakes into the
+# initrd as /ncz/RELEASE at the same moment it bakes /preseed.cfg -- gated so a
+# build whose release.conf is unreadable FAILS rather than shipping a stale
+# identity. The medium's /ncz-payload/RELEASE (release.conf verbatim, staged by
+# build/iso/write-usb-image.py) is the FALLBACK only: on a medium written from
+# an older tree while the initrd was baked fresh (or a tampered/stale medium
+# copy) the baked identity still wins, so the retired name can never reach the
+# installer dialogs. The payload directory remains the source for build metadata
+# (BUILD_VERSION / BUILD_ARCH, see ncz_ui_id below).
+#
+# Search order:
+#   /ncz/RELEASE                       baked from release.conf (authoritative)
+#   <payload dir>/RELEASE              install medium (fallback)
+# NCZ_UI_RELEASE overrides the authoritative file (tests).
+_ncz_ui_release_files() {
+    [ -n "${NCZ_UI_RELEASE:-}" ] && printf '%s\n' "${NCZ_UI_RELEASE}"
+    printf '%s\n' /ncz/RELEASE
+    _dir=$(_ncz_ui_dir) && printf '%s\n' "$_dir/RELEASE"
+}
+
 ncz_ui_brand() {
-    _dir=$(_ncz_ui_dir) || { echo "NCZ-OS"; return 0; }
-    _rv=$(_ncz_ui_field "$_dir/RELEASE" NCZ_RELEASE_VERSION)
-    _rc=$(_ncz_ui_field "$_dir/RELEASE" NCZ_RELEASE_CODENAME)
+    _rv=""; _rc=""
+    for _f in $(_ncz_ui_release_files); do
+        [ -r "$_f" ] || continue
+        _rv=$(_ncz_ui_field "$_f" NCZ_RELEASE_VERSION)
+        _rc=$(_ncz_ui_field "$_f" NCZ_RELEASE_CODENAME)
+        [ -n "$_rv$_rc" ] && break
+    done
     echo "NCZ-OS${_rv:+ $_rv}${_rc:+ $_rc}"
 }
 
