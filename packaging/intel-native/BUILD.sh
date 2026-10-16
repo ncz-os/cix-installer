@@ -28,11 +28,20 @@ for pair in 'openvino:e213a14725769a6a2bf86fc86650aa78a9c05d3e' 'npu-driver:aea5
   # so they always show as modified even though `git diff --stat` reports
   # "0 insertions(+), 0 deletions(-)" and the bytes hash-match HEAD. That
   # blocked the build on a tree that was provably clean. Compare real content.
+  # For each path git calls modified, decide whether the BYTES actually differ.
+  #   - hash-object with --path applies the same clean/smudge filter as HEAD, so
+  #     it compares like for like. For a git-lfs file the worktree holds real
+  #     content and HEAD holds a pointer; both smudge to the same real content,
+  #     so the hashes match and the file is correctly treated as clean.
+  #   - only a genuine content difference produces different hashes.
   _dirty=$(git -C "$SRC/$name" status --porcelain \
       | awk '{print $2}' \
       | while IFS= read -r f; do
             [ -n "$f" ] || continue
-            git -C "$SRC/$name" diff --quiet -- "$f" 2>/dev/null || echo "$f"
+            [ -f "$SRC/$name/$f" ] || continue
+            _wt=$(git -C "$SRC/$name" hash-object --path="$f" -- "$f" 2>/dev/null)
+            _hd=$(git -C "$SRC/$name" rev-parse "HEAD:$f" 2>/dev/null)
+            if [ -n "$_wt" ] && [ "$_wt" != "$_hd" ]; then echo "$f"; fi
         done)
   if [ -n "$_dirty" ]; then
       echo "Dirty source: $name" >&2
