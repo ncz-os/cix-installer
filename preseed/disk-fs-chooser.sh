@@ -90,6 +90,49 @@ parent_disk_of_dev() {
     echo "/dev/$_n"
 }
 
+# ----------------------------------------------------------------------------
+# boot_disk_of_system -> echoes the whole-disk /dev node the machine BOOTED from,
+# or nothing when it cannot be proven. Best-effort and DELIBERATELY silent on
+# doubt: the disk chooser marks the boot disk so the operator does not erase the
+# running disk by accident, so a WRONG marker is worse than no marker.
+#
+# Two simple, robust signals, in order (no firmware-byte parsing: EFI device
+# paths vary too much across vendors to decode safely in POSIX sh, and a bad
+# decode would mislabel a disk on a destructive screen):
+#   1. the EFI System Partition currently mounted (vfat/msdos in /proc/mounts),
+#      resolved to its parent whole disk;
+#   2. the kernel command line's root= / BOOT_IMAGE= target, same resolution.
+# Sky1 METAL has no efivars/mounted ESP (see late.sh), so signal 2 matters there.
+# Anything unresolved returns nothing and the marker is simply omitted.
+# ----------------------------------------------------------------------------
+boot_disk_of_system() {
+    # --- signal 1: the mounted EFI System Partition's disk ---
+    while read -r _dev _mp _fs _rest; do
+        case "$_fs" in vfat|msdos|fat) ;; *) continue ;; esac
+        [ "$_dev" = "/dev/root" ] && continue
+        case "$_dev" in /dev/*) parent_disk_of_dev "$_dev"; return 0 ;; esac
+    done < /proc/mounts
+    # --- signal 2: the root= / BOOT_IMAGE= disk from the kernel command line ---
+    for _t in $(cat "${NCZ_CMDLINE:-/proc/cmdline}" 2>/dev/null) ; do
+        case "$_t" in
+            root=/dev/*|BOOT_IMAGE=/dev/*)
+                case "${_t#*=}" in /dev/*) parent_disk_of_dev "${_t#*=}"; return 0 ;; esac
+                ;;
+            root=UUID=*)
+                for _l in /dev/disk/by-uuid/"${_t#root=UUID=}" ; do
+                    [ -e "$_l" ] && { parent_disk_of_dev "$_l"; return 0; }
+                done
+                ;;
+            root=PARTUUID=*)
+                for _l in /dev/disk/by-partuuid/"${_t#root=PARTUUID=}" ; do
+                    [ -e "$_l" ] && { parent_disk_of_dev "$_l"; return 0; }
+                done
+                ;;
+        esac
+    done
+    return 0
+}
+
 # --- read cmdline overrides -------------------------------------------------
 CMD=$(cat "${NCZ_CMDLINE:-/proc/cmdline}" 2>/dev/null)
 OVR_DISK=""; OVR_FS=""
@@ -186,6 +229,12 @@ is_nonusb_media_disk() {
 }
 [ -n "$NONUSB_MEDIA_DISKS" ] && log "disks holding an NCZ-OS image on a non-USB device (never a target): $NONUSB_MEDIA_DISKS"
 
+# The disk the machine booted from (best-effort; empty when it cannot be proven).
+# Used only to LABEL the chooser so the operator can avoid wiping the running
+# disk; it changes no candidate, no default and no guard.
+BOOT_DISK=$(boot_disk_of_system)
+[ -n "$BOOT_DISK" ] && log "boot disk detected: $BOOT_DISK (labelled in the disk selector)"
+
 # Build the candidate list (whole disks, excluding the install medium).
 CANDIDATES=""
 NDISK=0
@@ -222,11 +271,21 @@ else
     # Register a cdebconf select with the candidate /dev nodes as Choices, then
     # db_input at CRITICAL so it shows even under priority=critical. A cancel /
     # go-back / template failure ABORTS — we never auto-pick a disk to erase.
+    # S2-5: the newt select must not show bare /dev nodes. Choices: keeps the raw
+    # device (the value partman/our override logic consumes), Choices-C: carries
+    # the human label the operator actually reads: model + size, plus "BOOT DISK"
+    # when the running disk is known. Both lists stay in the SAME order, one entry
+    # per candidate, so they map one-to-one.
     CHOICES=""
+    LABELS=""
     LONG=""
     for d in $CANDIDATES; do
-        desc="$(disk_model "$d") $(disk_size_h "$d")"
+        _model=$(disk_model "$d"); [ -n "$_model" ] || _model="unknown model"
+        _size=$(disk_size_h "$d")
+        desc="$_model ($_size)"
+        [ -n "$BOOT_DISK" ] && [ "$d" = "$BOOT_DISK" ] && desc="$desc - BOOT DISK"
         [ -z "$CHOICES" ] && CHOICES="$d" || CHOICES="$CHOICES, $d"
+        LABELS="${LABELS:+$LABELS, }$(printf '%s' "$desc" | sed 's/,/ /g')"   # a comma would split the cdebconf Choices-C list
         LONG="${LONG:+$LONG
  }  $d - $desc"   # continuation lines need their leading space; no trailing newline (a blank line ends a template stanza)
     done
@@ -235,6 +294,7 @@ else
 Template: ncz/target-disk
 Type: select
 Choices: ${CHOICES}
+Choices-C: ${LABELS}
 Description: $(ncz_ui_brand) - select the TARGET DISK (it will be ERASED)
  The disk you choose will be COMPLETELY ERASED and NCZ-OS installed on it.
  .
