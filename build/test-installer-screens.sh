@@ -171,7 +171,9 @@ expect "region-chooser.sh template sets locale, country, tz, keyboard from one p
 expect "user-chooser.sh template asks for username, password, password-confirm" 0 expect_template_phrase "$ROOT/preseed/user-chooser.sh" "choose a USERNAME"
 expect "user-chooser.sh password prompt is present"                              0 expect_template_phrase "$ROOT/preseed/user-chooser.sh" "choose a PASSWORD for"
 expect "user-chooser.sh password-confirm prompt is present"                      0 expect_template_phrase "$ROOT/preseed/user-chooser.sh" "type the same PASSWORD again"
-expect "hostname-suggest.sh template shows auto-generated name"                   0 expect_template_phrase "$ROOT/preseed/hostname-suggest.sh" "name this computer"
+# S2-3: the hostname is automatic -- hostname-suggest.sh must NOT carry a dialog at all
+# (the retired --prompt template is deleted, so there is no "name this computer" step).
+expect "hostname-suggest.sh carries no hostname dialog (S2-3: the name is automatic)" 1 expect_template_phrase "$ROOT/preseed/hostname-suggest.sh" "name this computer"
 expect "disk-fs-chooser.sh template shows the disk-select prompt"                0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "select the TARGET DISK"
 expect "disk-fs-chooser.sh template shows the root-fs prompt"                     0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "root (/) filesystem"
 expect "disk-fs-chooser.sh template shows the erase-confirm prompt"              0 expect_template_phrase "$ROOT/preseed/disk-fs-chooser.sh" "ERASE"
@@ -484,7 +486,18 @@ expect "component-selector.sh exposes a Type: multiselect template (the prompt r
 expect "region-chooser.sh exposes a Type: select template (the operator's first interactive prompt)"   0 expect_chooser_type "$ROOT/preseed/region-chooser.sh"     select
 expect "user-chooser.sh exposes a Type: string template (username is the second interactive prompt)"     0 expect_chooser_type "$ROOT/preseed/user-chooser.sh"      string
 expect "user-chooser.sh exposes a Type: password template (the password + confirm step)"               0 expect_chooser_type "$ROOT/preseed/user-chooser.sh"      password
-expect "hostname-suggest.sh keeps its Type: string template (not invoked with --prompt: hostname automatic)"             0 expect_chooser_type "$ROOT/preseed/hostname-suggest.sh"  string
+# S2-3: hostname-suggest.sh registers NO cdebconf template at all -- the retired
+# --prompt block (which held the Type: string template) was deleted, and the helper
+# now only db_set/db_fset the d-i-native netcfg questions.
+expect_no_hostname_template() {
+    local f="$1"
+    grep -qE '^Type:[[:space:]]*string' "$f" 2>/dev/null \
+        && { echo "$f: carries a Type: string template (S2-3: the hostname dialog was removed)" >&2; return 1; }
+    grep -qE 'debconf-loadtemplate' "$f" 2>/dev/null \
+        && { echo "$f: still loads a template (S2-3: no dialog may exist)" >&2; return 1; }
+    return 0
+}
+expect "hostname-suggest.sh registers no template (S2-3: hostname automatic, dialog removed)" 0 expect_no_hostname_template "$ROOT/preseed/hostname-suggest.sh"
 expect "disk-fs-chooser.sh exposes a Type: select template (the sixth interactive prompt, target disk)" 0 expect_chooser_type "$ROOT/preseed/disk-fs-chooser.sh"   select
 expect "disk-fs-chooser.sh exposes a Type: boolean template (the sixth-step erase confirmation)"       0 expect_chooser_type "$ROOT/preseed/disk-fs-chooser.sh"   boolean
 # --- adversarial: user-chooser.sh has EXACTLY 3 interactive templates (username + password + password-confirm) ---
@@ -716,30 +729,24 @@ expect_baked_helpers_complete() {
     return $missing
 }
 expect "BAKED_HELPERS in patch-initrd-t2-kernel.py includes all 5 orchestrator-required choosers + ncz-hostname-gen" 0 expect_baked_helpers_complete "$ROOT/build/iso/patch-initrd-t2-kernel.py"
-# --- adversarial: only ONE hostname dialog at runtime (ncz/hostname is the prompt) ---
-# The installer flow spec is "machine name: ONE step showing the
-# auto-generated name". A regression that re-introduces a second hostname
-# prompt -- e.g. by adding a `db_input critical netcfg/get_hostname` call --
-# would show two hostname dialogs. Pin that the ONLY db_input critical for a
-# hostname-related template is `ncz/hostname` (the operator's one step). The
-# d-i native questions netcfg/get_hostname + netcfg/hostname are pinned
-# seen=true in hostname-suggest.sh so d-i does NOT raise them.
-expect_single_hostname_dialog() {
+# --- adversarial: NO hostname dialog at runtime at all (S2-3: the name is automatic) ---
+# The operator flow is "machine name: automatic, never asked". A regression that
+# re-introduces the retired --prompt branch -- e.g. by adding a
+# `db_input critical ncz/hostname` (or a netcfg/get_hostname) call -- would show a
+# hostname dialog again and could block an unattended install. Pin that
+# hostname-suggest.sh raises ZERO critical hostname prompts; the d-i-native
+# netcfg/get_hostname + netcfg/hostname questions are pinned seen=true instead, so
+# d-i does not raise them either.
+expect_no_hostname_dialog() {
     local f="$1"
-    # All db_input critical calls in the file. There MUST be exactly one
-    # hostname dialog (the ncz/hostname one), and zero netcfg/get_hostname
-    # db_input critical calls. The hostname-suggest.sh has it inside an
-    # `if db_input critical ncz/hostname && db_go ; then` conditional, so the
-    # `db_input critical ncz/hostname` token appears exactly once (column 0
-    # is `if`, the token is preceded by whitespace).
     local n_hostname n_netcfg_get_hostname
     n_hostname=$(grep -cE 'db_input critical ncz/hostname\b' "$f" 2>/dev/null); n_hostname=${n_hostname:-0}; n_hostname=$(printf '%d' "$n_hostname" 2>/dev/null || echo 0)
     n_netcfg_get_hostname=$(grep -cE 'db_input critical netcfg/get_hostname\b' "$f" 2>/dev/null); n_netcfg_get_hostname=${n_netcfg_get_hostname:-0}; n_netcfg_get_hostname=$(printf '%d' "$n_netcfg_get_hostname" 2>/dev/null || echo 0)
-    [ "$n_hostname" = 1 ] || { echo "$f: expected exactly 1 'db_input critical ncz/hostname' (the operator's ONE hostname dialog), got $n_hostname" >&2; return 1; }
-    [ "$n_netcfg_get_hostname" = 0 ] || { echo "$f: a second hostname dialog 'db_input critical netcfg/get_hostname' was added (orchestrator requires ONE hostname step)" >&2; return 1; }
+    [ "$n_hostname" = 0 ] || { echo "$f: found $n_hostname 'db_input critical ncz/hostname' (S2-3: the hostname dialog must not exist)" >&2; return 1; }
+    [ "$n_netcfg_get_hostname" = 0 ] || { echo "$f: found $n_netcfg_get_hostname 'db_input critical netcfg/get_hostname' (S2-3: no hostname prompt)" >&2; return 1; }
     return 0
 }
-expect "hostname-suggest.sh shows exactly ONE hostname dialog (ncz/hostname only, no second netcfg prompt)" 0 expect_single_hostname_dialog "$ROOT/preseed/hostname-suggest.sh"
+expect "hostname-suggest.sh shows NO hostname dialog (S2-3: hostname automatic, never asked)" 0 expect_no_hostname_dialog "$ROOT/preseed/hostname-suggest.sh"
 # --- adversarial: user-chooser.sh writes CHOSEN_USER + CHOSEN_PASS to debconf ---
 # The installer flow spec: "(3) default username" + "(4) default password
 # with confirm (2x)". A regression that RETURNS EARLY before db_set passwd/...

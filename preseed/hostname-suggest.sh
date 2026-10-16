@@ -12,26 +12,22 @@
 # (18e8a14) ended up ncz-20e7bc from the first-boot fallback instead of an IAU name. Since 2026-10-08 the
 # Install entry loads preseed.cfg once, so no reload happens; this state-driven behaviour is retained
 # defensively in case the command is ever evaluated twice. So:
-#   first run (no /tmp/.ncz-hostname): decide the name -- prompt when interactive, otherwise the
-#         generated (or ncz_hostname=) name -- and save it in /tmp/.ncz-hostname;
+#   first run (no /tmp/.ncz-hostname): decide the name -- the generated (or ncz_hostname=) name -- and
+#         save it in /tmp/.ncz-hostname;
 #   every run: db_set netcfg/get_hostname + netcfg/hostname from the saved name and mark them seen.
 #
-# INTERACTIVE = no ncz_components= and no ncz_unattended=1 on the kernel command line. A critical
-# question is used because priority=critical suppresses d-i's own hostname question; the operator
-# sees the suggestion as the default and can type another name. Unattended installs never block.
+# NO PROMPT, EVER (S2-3): the hostname is automatic. The retired --prompt branch (build a critical
+# template, show a dialog, write an $ASKED marker) was removed outright -- preseed.cfg never passed
+# --prompt, and leaving it in place was an automation hazard: a future caller re-adding the flag would
+# silently reintroduce an interactive prompt into an unattended pipeline. Nothing in this script reads
+# stdin, so it cannot block.
 # ncz_hostname=<name> on the command line overrides the generated name.
 #
-# Test seams: NCZ_CONFMODULE, NCZ_HOSTNAME_GEN, NCZ_HOSTNAME_STATE, NCZ_HOSTNAME_ASKED, NCZ_CMDLINE, NCZ_EARLY_LOG.
+# Test seams: NCZ_CONFMODULE, NCZ_HOSTNAME_GEN, NCZ_HOSTNAME_STATE, NCZ_CMDLINE, NCZ_EARLY_LOG.
 . "${NCZ_CONFMODULE:-/usr/share/debconf/confmodule}" 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
 command -v db_set >/dev/null 2>&1 || exit 0
-# shared NCZ dialog look (brand in the frame title, arch + build on the last body line); optional, never fatal
-for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
-    [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
-done
-command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; }
 
 STATE="${NCZ_HOSTNAME_STATE:-/tmp/.ncz-hostname}"
-ASKED="${NCZ_HOSTNAME_ASKED:-/tmp/.ncz-hostname-asked}"
 LOG="${NCZ_EARLY_LOG:-/var/log/early_command.log}"
 CMDLINE="${NCZ_CMDLINE:-/proc/cmdline}"
 GEN="${NCZ_HOSTNAME_GEN:-}"
@@ -72,35 +68,12 @@ else
     printf '%s\n' "$NAME" > "$STATE"
 fi
 
-# 2026-10-06 operator flow: the hostname is automatic. preseed.cfg no longer calls this with --prompt (partman/
-# early_command only re-applies the generated name); the dialog below stays for a manual `--prompt` run.
-if [ "${1:-}" = "--prompt" ] && [ "$_unattended" = 0 ] && [ ! -e "$ASKED" ] && ! { [ -n "$_override" ] && _ncz_valid "$_override"; } ; then
-    : > "$ASKED"
-        cat > /tmp/ncz-hostname.templates <<TPL
-Template: ncz/hostname
-Type: string
-Default: $NAME
-Description: $(ncz_ui_brand) - name this computer
- A name was generated for this machine: $NAME
- .
- Press Enter to accept it, or type your own name (letters, digits and hyphens, at most 63
- characters). This name is tied to the machine, not to any network adapter.
- .
- $(ncz_ui_id)
-TPL
-        if debconf-loadtemplate ncz /tmp/ncz-hostname.templates 2>/dev/null ; then
-            db_set ncz/hostname "$NAME" 2>/dev/null || true
-            db_fset ncz/hostname seen false 2>/dev/null || true
-            db_settitle ncz/hostname 2>/dev/null || true
-            if db_input critical ncz/hostname && db_go ; then
-                if db_get ncz/hostname ; then
-                    _ans=$(printf '%s' "$RET" | tr 'A-Z' 'a-z')
-                    if _ncz_valid "$_ans" ; then NAME=$_ans; _how="chosen by the operator"; fi
-                fi
-            fi
-        fi
-    printf '%s\n' "$NAME" > "$STATE"
-fi
+# NO INTERACTIVE PROMPT (S2-3). The hostname is automatic: preseed.cfg never
+# calls this script with --prompt, so the retired --prompt block (which built a
+# template, showed a critical dialog and wrote an $ASKED marker) was dead code
+# that could re-enable an interactive prompt in an unattended pipeline if anyone
+# re-added the flag. It is deleted outright: this helper's ONLY job is to
+# db_set the generated/overridden name. Nothing here can block on input.
 
 db_set netcfg/get_hostname "$NAME"
 db_set netcfg/hostname "$NAME"
