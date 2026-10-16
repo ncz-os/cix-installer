@@ -145,16 +145,29 @@ def repro_uuid(kind: str) -> str | None:
 # `expected` list never picked up desktop-hotfix.squashfs / its manifest /
 # busybox-$ARCH even after stage-ncz-payload.py started producing them
 # the same session. Fixed here; the file list is arch-suffix-aware for busybox.
+def _variant() -> str:
+    """desktop (default) or server (Magnetar)."""
+    v = os.environ.get("NCZ_VARIANT", "desktop").strip().lower()
+    if v not in ("desktop", "server"):
+        raise SystemExit(f"NCZ_VARIANT must be desktop or server, got {v!r}")
+    return v
+
+
 def expected_payload_names(arch: str) -> list[str]:
-    return [
+    names = [
         "base.squashfs",
-        "desktop.squashfs",
-        "desktop.overlay-manifest",
-        "desktop-hotfix.squashfs",
-        "desktop-hotfix.overlay-manifest",
         f"busybox-{arch}",
         "sqtools",
     ]
+    # Magnetar is a server edition: no desktop layer and no desktop hotfix.
+    if _variant() == "desktop":
+        names[1:1] = [
+            "desktop.squashfs",
+            "desktop.overlay-manifest",
+            "desktop-hotfix.squashfs",
+            "desktop-hotfix.overlay-manifest",
+        ]
+    return names
 
 
 def log(msg: str) -> None:
@@ -691,7 +704,16 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
             raise RuntimeError(
                 f"FATAL: arm64 Sky1 mainline kernel payload incomplete: {missing}")
         shutil.copy2(mainline / "KVER", ncz_payload_dst / "KVER_NEXT")
-    ssplugin = stage_ssplugin_deb(assets_dst, arch)
+    # MAGNETAR(server): the screensaver settings plugin is a DESKTOP artifact --
+    # it drives the lock-screen saver picker in the settings app. A headless
+    # server image must not ship it. This call sat outside every variant guard,
+    # so the server variant still staged it even with the desktop squashfs gone.
+    ssplugin = None
+    if _variant() == "desktop":
+        ssplugin = stage_ssplugin_deb(assets_dst, arch)
+    else:
+        log("    server variant: skipping screensaver settings plugin "
+            "(desktop-only artifact)")
     if ssplugin:
         copied_assets.append("ncz-screensavers-plugin")
         log(f"    screensaver settings plugin staged: {ssplugin}")
@@ -714,6 +736,11 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
             if len(f) >= 6:
                 decl[(f[0], f[2])] = re.compile(f[1])
         required = {k for k in decl if k[1] in (arch, "all")}
+        # MAGNETAR(server): the desktop Singularity payload is not part of a
+        # server edition, so its manifest row must not be demanded. Every other
+        # declared package for this arch is still required.
+        if _variant() == "server":
+            required = {k for k in required if k[0] != "ncz-singularity-desktop"}
         ts_rec = []
         seen = set()
         for deb in sorted(ncz_payload_dst.rglob("*.deb")):

@@ -915,6 +915,8 @@ fi
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
     if [ "$NEXT_AVAILABLE" = "1" ]; then
+        # MAGNETAR(server): the server menu is Console + Rescue Partition only,
+        if [ "${NCZ_VARIANT:-desktop}" = "desktop" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Mali (Default)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
@@ -949,6 +951,7 @@ fi
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
+        fi
         echo "    options \"$PANTHOR_OPTIONS\""
         echo "}"
         echo
@@ -973,10 +976,13 @@ fi
         # REDEFINED RESCUE (2026-10-05): the SAME 7.3 kernel with
         # every accelerator blacklisted, booting the normal root. This is the
         # arm64 counterpart of the amd64 same-kernel rescue entry.
+        # MAGNETAR(server): the server menu is Console + Rescue Partition only,
+        if [ "${NCZ_VARIANT:-desktop}" = "desktop" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Rescue / No Accelerators (Console)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
+        fi
         echo "    options \"$NEXT_RESCUE_OPTIONS\""
         echo "}"
         echo
