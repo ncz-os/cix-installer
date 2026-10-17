@@ -537,7 +537,12 @@ installed; neither loads automatically.
 
 Both drivers claim the same device, so `/etc/modprobe.d/ncz-gpu-drivers.conf`
 blacklists **both**. The boot entry decides which one is bound, and
-`ncz-gpu-select` switches an installed system without a reinstall.
+`ncz-gpu-select` switches an installed system without a reinstall. The
+switcher also writes the stack it actually applied as a `# Selected:` line in
+that same file, so modprobe.d — not only the boot entry's `sky1.gpu=` token —
+records the choice; on a Panthor boot `mali_kbase` stays blacklisted there
+(the explicit load the Mali fallback needs still works, because `blacklist`
+does not block an explicit `modprobe`).
 
 **What each costs you.** `mali_kbase` gives the accelerated desktop but
 exposes **no Vulkan entrypoint** — `libmali` has none. `panthor` is the route

@@ -158,6 +158,42 @@ fi
 # passing merely because the switcher stopped touching ld.so.conf.d at all.
 [ -e "$SB/etc/ld.so.conf.d/00-cixgpu-pro.conf" ] && ok "mali boot still enables 00-cixgpu-pro.conf (guard is not vacuous)" \
     || bad "guard is vacuous: LD_PRO was not enabled either" "$(ls "$SB/etc/ld.so.conf.d/")"
+echo "=== switcher: the modprobe.d file records the selection (MINOR-003) ==="
+# The selection must be on disk, not only in the bootloader's sky1.gpu= token:
+# on the Panthor entry the cmdline no longer blacklists mali_kbase, so a
+# post-install hook or a stray autoload would otherwise find no statement of
+# which stack won. It must also stay a `blacklist` and never an `install ...
+# /bin/true` line, or the explicit modprobe the switcher and the Mali fallback
+# depend on would stop working.
+BL="$SB/etc/modprobe.d/ncz-gpu-drivers.conf"
+
+mksb "root=x sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko panthor.ko
+rc=$(runsw)
+[ "$rc" = 0 ] && grep -qx 'blacklist mali_kbase' "$BL" && grep -q '^# Selected: panthor' "$BL" \
+    && ok "Panthor selection: blacklisted mali_kbase recorded in $BL" || bad "Panthor selection not recorded (rc=$rc)" "$(cat "$BL" 2>/dev/null; cat "$SB/err")"
+[ "$(grep -c '^blacklist mali_kbase$' "$BL")" = 1 ] \
+    && ok "Panthor selection: mali_kbase named exactly once (modprobe.d is a set)" || bad "mali_kbase blacklist lines: $(grep -c '^blacklist mali_kbase$' "$BL")"
+grep -qE '^install[[:space:]]+mali_kbase' "$BL" \
+    && bad "mali_kbase held with an install line (would block the explicit modprobe and the Mali fallback)" "$(cat "$BL")" \
+    || ok "Panthor selection: no install line, so an explicit modprobe still loads mali_kbase"
+! grep -qE '^suggests[[:space:]]' "$BL" \
+    && ok "Panthor selection: nothing downgraded to 'suggests' (would let autoload win)" || bad "weak blacklist written" "$(cat "$BL")"
+
+mksb "root=x sky1.gpu=vendor" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko
+rc=$(runsw)
+[ "$rc" = 0 ] && grep -qx 'blacklist panthor' "$BL" && [ "$(grep -c '^blacklist mali_kbase$' "$BL")" = 1 ] \
+    && grep -q '^# Selected: mali' "$BL" && ! grep -q '^# Selected: panthor' "$BL" \
+    && ok "Mali selection: panthor held, selection names mali" || bad "Mali selection file (rc=$rc)" "$(cat "$BL" 2>/dev/null)"
+
+mksb "root=x sky1.gpu=none" mali_kbase.ko
+rc=$(runsw)
+[ "$rc" = 0 ] && [ -s "$BL" ] && ! grep -q '^# Selected:' "$BL" \
+    && ok "rescue entry (sky1.gpu=none): file written, no stack claimed" || bad "sky1.gpu=none blacklist (rc=$rc)" "$(cat "$BL" 2>/dev/null)"
+
+mksb "root=x sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko panthor.ko
+: > "$SB/mali-nobind"
+rc=$(runsw)
+[ "$rc" = 1 ] && ok "double failure still exit 1 with the selection recorded" || bad "double failure changed (rc=$rc)" "$(cat "$SB/err")"
 
 echo "gpu switcher fallback tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

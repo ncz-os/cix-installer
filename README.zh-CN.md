@@ -163,6 +163,9 @@ NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都�
 
 两个驱动会认领同一个设备，因此 `/etc/modprobe.d/ncz-gpu-drivers.conf` 将**两者都**
 列入黑名单。由启动项决定绑定哪一个，`ncz-gpu-select` 可在已安装的系统上切换而无需重装。
+切换器还会把实际生效的栈以 `# Selected:` 行写回同一文件，因此记录选择的不仅是启动项的
+`sky1.gpu=` 令牌，modprobe.d 本身也留痕；Panthor 启动时 `mali_kbase` 仍在该文件中被列入
+黑名单（Mali 回退所需的显式加载依然有效，因为 `blacklist` 并不阻止显式 `modprobe`）。
 
 **各自的代价。** `mali_kbase` 提供加速桌面，但**不暴露任何 Vulkan 入口**——`libmali`
 本身就没有。`panthor` 是通往 Vulkan 的路，也是生态的走向，但在 Sky1 上它仍在处理枚举

@@ -128,6 +128,23 @@ get_mode() {
 }
 
 ensure_blacklist() {
+    # $1 is the mode the switcher is about to apply (mali|panthor|none).
+    #
+    # MINOR-003: the "Selected:" line at the bottom is the switcher's OWN record
+    # of which stack it applied, in the same file that holds the pair. Until now
+    # the selection existed only as the bootloader's sky1.gpu= token (or
+    # GPU_MODE= in /etc/default/ncz-gpu), so a post-install hook running on a
+    # live system, a later `modprobe`, or an operator reading modprobe.d had no
+    # on-disk statement of intent: on the Panthor entry the cmdline no longer
+    # names mali_kbase (r201 removed it so the Mali fallback stays possible) and
+    # nothing reads the sky1.gpu= token back.
+    #
+    # Both losers stay named by `blacklist` -- mali_kbase on a Panthor boot
+    # included, because that line is what stops a udev modalias event from
+    # auto-binding CIXH5000 out from under Mesa. `blacklist` only suppresses
+    # modalias autoload; it does NOT block an explicit modprobe, so
+    # activate_panthor()'s load and the Mali fallback's `modprobe mali_kbase`
+    # both still work. Never write `install <mod> /bin/true` here.
     cat > "$BLACKLIST" <<'BL'
 # Written by ncz-gpu-switcher. Do not hand-edit -- set sky1.gpu= on the kernel
 # cmdline (or GPU_MODE= in /etc/default/ncz-gpu) instead.
@@ -142,6 +159,22 @@ blacklist mali_kbase
 blacklist memory_group_manager
 blacklist protected_memory_allocator
 BL
+    case "${1:-}" in
+        mali)
+            cat >> "$BLACKLIST" <<'BL'
+
+# Selected: mali (vendor Mali stack). ncz-gpu-switcher loaded mali_kbase here.
+BL
+            ;;
+        panthor)
+            cat >> "$BLACKLIST" <<'BL'
+
+# Selected: panthor (Mesa). ncz-gpu-switcher loaded this stack on this boot.
+# mali_kbase is held by the blacklist above so nothing autoloads it; an
+# explicit modprobe still loads it, which is what the Mali fallback relies on.
+BL
+            ;;
+    esac
 }
 
 drop_legacy() {
@@ -341,9 +374,11 @@ if [ ! -e "${NCZ_SYSROOT:-}/sys/bus/platform/devices/CIXH5000:00" ]; then
 fi
 
 drop_legacy
-ensure_blacklist
 
 mode=$(get_mode)
+# AFTER the mode is known: the file records the selection (MINOR-003), so it
+# must be written by the branch that actually knows which stack won.
+ensure_blacklist "$mode"
 # Written only when a Panthor request fell back to Mali (below); read by ncz-gpu-status.
 FALLBACK_NOTE=/run/ncz-gpu-fallback
 rm -f "$FALLBACK_NOTE" 2>/dev/null
