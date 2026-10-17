@@ -70,9 +70,25 @@ def fake_dpkg(tmp_path, monkeypatch):
         "#!/bin/sh\n"
         "# $1=-f $2=file $3=field\n"
         "[ \"$1\" = -f ] || exit 1\n"
-        "f=\"$2.depends\"\n"
-        "[ -f \"$f\" ] || exit 0\n"
-        "cat \"$f\"\n"
+        "case \"$3\" in\n"
+        "  Depends)\n"
+        "    f=\"$2.depends\"\n"
+        "    [ -f \"$f\" ] || exit 0\n"
+        "    cat \"$f\"\n"
+        "    ;;\n"
+        "  Package)\n"
+        "    # <file>.package overrides; otherwise the basename before _\n"
+        "    if [ -f \"$2.package\" ]; then\n"
+        "      cat \"$2.package\"\n"
+        "      exit 0\n"
+        "    fi\n"
+        "    b=$(basename \"$2\")\n"
+        "    printf '%s\\n' \"${b%%_*}\"\n"
+        "    ;;\n"
+        "  *)\n"
+        "    exit 0\n"
+        "    ;;\n"
+        "esac\n"
     )
     stub.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
@@ -397,3 +413,33 @@ def test_closure_terminates_on_cycle(tmp_path):
     pool = mod.Pool(tmp_path / "pool")
     kept, _ = mod.closure({"a"}, pool, {"a": ["b"], "b": ["a"]}, set())
     assert kept == {"a", "b"}
+
+
+def test_load_keep_tsv_rejects_space_separated_row(tmp_path, substrate):
+    """A space instead of a tab would turn the whole row into one bogus
+    package name and silently shrink the medium."""
+    keep = tmp_path / "keep.tsv"
+    keep.write_text("openssh-server-udeb diag-console installs it\n")
+    with pytest.raises(SystemExit, match="expected name<TAB>reason"):
+        substrate.load_keep_tsv(keep)
+
+
+def test_load_keep_tsv_accepts_well_formed_rows(tmp_path, substrate):
+    keep = tmp_path / "keep.tsv"
+    keep.write_text("# comment\n\nopenssh-server-udeb\tdiag-console\n")
+    names, reasons = substrate.load_keep_tsv(keep)
+    assert names == {"openssh-server-udeb"}
+    assert reasons["openssh-server-udeb"] == "diag-console"
+
+
+def test_pool_rejects_control_filename_mismatch(tmp_path, substrate, fake_dpkg):
+    """Pool keys come from filenames; if the Package: field disagrees the
+    index is wrong and the closure would be silently corrupted."""
+    pool_root = tmp_path / "pool"
+    bad = pool_root / "main" / "a" / "not-anna_1.udeb"
+    bad.parent.mkdir(parents=True)
+    bad.write_bytes(b"x")
+    (bad.parent / f"{bad.name}.package").write_text("anna\n")
+    # The stub reports the filename stem, so make the file disagree by name.
+    with pytest.raises(SystemExit, match="filed as"):
+        substrate.Pool(pool_root)

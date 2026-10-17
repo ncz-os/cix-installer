@@ -261,6 +261,17 @@ class Pool:
         for path in sorted(root.rglob("*.udeb")):
             name = path.name.split("_", 1)[0].lower()
             self.by_name[name] = path
+            # Filename-derived names follow a convention, not a guarantee.
+            # Cross-check against the Package: control field and fail loudly
+            # rather than silently keying the pool wrong (which would corrupt
+            # the whole dependency closure). Unreadable control is tolerated:
+            # the caller's own dpkg-deb probe reports it.
+            control = _dpkg_control(path, "Package").strip().lower()
+            if control and control != name:
+                raise SystemExit(
+                    f"magnetar-substrate: {path.name} declares Package: "
+                    f"{control!r} but is filed as {name!r}; the pool index "
+                    f"would be wrong")
 
     def __contains__(self, name: str) -> bool:
         return name in self.by_name
@@ -338,10 +349,20 @@ def load_keep_tsv(path: Path) -> tuple[set[str], dict[str, str]]:
     for line in path.read_text().splitlines():
         if not line.strip() or line.startswith("#"):
             continue
+        if "\t" not in line:
+            # A space-separated row would become one bogus package name and
+            # quietly shrink the medium; the manifest is load-bearing.
+            raise SystemExit(
+                f"magnetar-substrate: {path}: expected name<TAB>reason, "
+                f"got {line!r}")
         parts = line.split("\t")
         name = parts[0].strip().lower()
         if not name:
             continue
+        if " " in name:
+            raise SystemExit(
+                f"magnetar-substrate: {path}: package name {name!r} has a "
+                f"space (tab-separated rows, one package per line)")
         if name in keep:
             raise SystemExit(
                 f"magnetar-substrate: {path} lists {name!r} twice")
