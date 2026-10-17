@@ -215,7 +215,7 @@ installer -- none of which this task authorises.
 > classes in `provable_drop_reason()` (preseed-unused partman/kickseed/
 > speech/on-screen-keyboard components and the `xfs`/`jfs` module sets),
 > then re-add any of those a kept udeb still `Depends:` on. On the pinned
-> amd64 substrate that is 25 dropped udebs, 11,239,252 B. The cut is
+> amd64 substrate that is 21 dropped udebs, 10,989,328 B. The cut is
 > **opt-in** (`NCZ_MAGNETAR_SLIM_SUBSTRATE=1`) until a server-variant KVM
 > install has passed; by default the full pool ships and the receipt records
 > `magnetar_substrate.enabled = false`. The partition sizing in (a) and the
