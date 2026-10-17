@@ -146,6 +146,22 @@ done
 # the pending-kernel-upgrade note (baked kernel != running kernel).
 sudo mkdir -p "$CHROOT/etc/needrestart/conf.d"
 printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$CHROOT/etc/needrestart/conf.d/99-baked-rootfs.conf" >/dev/null
+
+# MINOR-001 gate: the baked rootfs carries the /etc/os-release, /etc/issue and
+# /etc/issue.net that 50-brand.sh generated from the RELEASE it read. For BOTH
+# variants (VARIANT is the env knob build-baked-rootfs.sh is invoked with) the
+# generated strings must carry the CURRENT identity from release.conf -- no
+# retired codename (Maximilian, Reinhardt), no empty product label, and a
+# variant label matching the BUILD_VARIANT stamped above (desktop -> Desktop,
+# server -> Server). A failing gate aborts the bake: a shippable image must
+# not carry a stale console banner.
+if [ -x "$ROOT/build/check-release-identity-gate.sh" ]; then
+    log "release-identity gate on the baked rootfs (variant=$VARIANT)"
+    "$ROOT/build/check-release-identity-gate.sh" baked "$CHROOT" \
+      || { log "FATAL: release-identity gate failed on the baked rootfs -- not packing"; exit 1; }
+else
+    log "FATAL: build/check-release-identity-gate.sh missing -- the MINOR-001 gate must run before pack"; exit 1
+fi
 log "clean chroot (apt cache, qemu, staging, logs)"
 sudo chroot "$CHROOT" apt-get clean 2>/dev/null || true
 sudo rm -f "$CHROOT/usr/bin/qemu-aarch64-static" "$CHROOT/usr/sbin/policy-rc.d"

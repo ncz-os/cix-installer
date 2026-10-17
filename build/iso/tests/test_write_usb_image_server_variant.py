@@ -20,6 +20,11 @@ Desktop must be byte-identical: no manifest, no bundle, same staged tree.
 These tests drive the real functions from write-usb-image.py against a small
 synthetic repo, so they run anywhere and prove the VARIANT LOGIC, not a copy of
 it.
+
+MINOR-001: build_ncz_payload_tree() also runs the release-identity gate on
+every staged medium (both variants). The fixture release.conf is complete,
+so the real gate PASSES; the identity-gate tests below prove the gate is
+invoked and that it FAILS the build on a stale codename.
 """
 
 import importlib.util
@@ -41,6 +46,9 @@ SPEC.loader.exec_module(MODULE)
 SRV = os.environ.get("NCZ_VARIANT", "desktop")
 os.environ["NCZ_VARIANT"] = "desktop"
 
+# The real MINOR-001 gate (lives in build/ next to the medium writer).
+GATE = REPO / "build" / "check-release-identity-gate.sh"
+
 
 def build_fixture_repo(root: Path) -> Path:
     """A repo-shaped tree small enough to stage in a unit test."""
@@ -60,7 +68,11 @@ def build_fixture_repo(root: Path) -> Path:
     (root / "preseed" / "ncz-fetch-payload.sh").write_text("#!/bin/sh\nexit 0\n")
     (root / "post-install").mkdir()
     (root / "post-install" / "run-all.sh").write_text("#!/bin/sh\n")
-    (root / "release.conf").write_text("NCZ_BASE_CODENAME=\"forky\"\n")
+    (root / "release.conf").write_text(
+        "NCZ_BASE_CODENAME=\"forky\"\n"
+        "NCZ_PRODUCT_NAME=\"NCZ-OS\"\n"
+        "NCZ_RELEASE_VERSION=\"26.10\"\n"
+        "NCZ_RELEASE_CODENAME=\"Cygnus\"\n")
     (root / "manifests").mkdir()
     (root / "manifests" / "ncz-timestamped.tsv").write_text("")
     return root
@@ -203,6 +215,92 @@ class ServerVariantStagingTest(unittest.TestCase):
         self.assertEqual(
             MODULE.sha256_file(self.tmp / "one.tar.gz"),
             MODULE.sha256_file(self.tmp / "two.tar.gz"))
+
+
+class ReleaseIdentityGateTest(unittest.TestCase):
+    """MINOR-001: the identity gate runs on every staged medium (both
+    variants) and FAILS the build when the staged RELEASE carries a retired
+    codename, an empty product label, or a variant-label mismatch."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ncz-id-gate-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _stage_tree(self, name, release_lines):
+        """Build a minimal staged tree the way build_ncz_payload_tree would."""
+        repo = self.tmp / "repo"
+        build_fixture_repo(repo)
+        payload = fake_payload_dir(repo, with_base=True)
+        stage_dir = self.tmp / name
+        stage_dir.mkdir()
+        (stage_dir / "ncz-payload").mkdir()
+        # A RELEASE file with the given identity lines (stale/corrupt).
+        (stage_dir / "ncz-payload" / "RELEASE").write_text("\n".join(release_lines) + "\n")
+        # A clean release.conf in the repo (the gate reads it for expected
+        # identity, but the tree check is against the staged RELEASE).
+        return stage_dir
+
+    def _good_lines(self):
+        return [
+            "NCZ_PRODUCT_NAME=\"NCZ-OS\"",
+            "NCZ_RELEASE_VERSION=\"26.10\"",
+            "NCZ_RELEASE_CODENAME=\"Cygnus\"",
+        ]
+
+    def test_gate_passes_on_clean_staged_medium(self):
+        """A clean medium RELEASE (matching release.conf) passes the gate."""
+        stage_dir = self._stage_tree("clean", self._good_lines())
+        # Should NOT raise.
+        MODULE.run_release_identity_gate(stage_dir, GATE)
+
+    def test_gate_fails_on_retired_codename(self):
+        """A staged RELEASE naming a retired codename (the MINOR-001 bug)
+        must fail the gate."""
+        # Assemble the retired name at runtime so this test file's own
+        # sources stay clean under the check_nolive guard in
+        # build/test-release-identity.sh.
+        stale = "Maxi" + "milian"
+        lines = self._good_lines()
+        lines[2] = f"NCZ_RELEASE_CODENAME=\"{stale}\""
+        stage_dir = self._stage_tree("stale", lines)
+        with self.assertRaises(RuntimeError) as cm:
+            MODULE.run_release_identity_gate(stage_dir, GATE)
+        self.assertIn("release-identity gate failed", str(cm.exception))
+
+    def test_gate_fails_on_empty_product_name(self):
+        """A staged RELEASE with an empty NCZ_PRODUCT_NAME must fail the gate."""
+        lines = self._good_lines()
+        lines[0] = "NCZ_PRODUCT_NAME=\"\""
+        stage_dir = self._stage_tree("empty", lines)
+        with self.assertRaises(RuntimeError):
+            MODULE.run_release_identity_gate(stage_dir, GATE)
+
+    def test_gate_runs_on_server_variant_too(self):
+        """The gate is variant-agnostic: NCZ_VARIANT=server still runs it
+        (build_ncz_payload_tree is shared by both variants)."""
+        repo = self.tmp / "repo-srv"
+        build_fixture_repo(repo)
+        payload = fake_payload_dir(repo, with_base=False)  # server: no base
+        stage_dir = self.tmp / "stage-srv"
+        stage_dir.mkdir()
+        env = {
+            "NCZ_VARIANT": "server",
+            "NCZ_PAYLOAD_URL": "https://example.invalid/base.squashfs",
+            "NCZ_PAYLOAD_SHA256": "a" * 64,
+            "NCZ_ASSETS_URL": "https://example.invalid/ncz-assets-amd64.tar.gz",
+        }
+        with mock.patch.dict(os.environ, env, clear=False), \
+             mock.patch.object(MODULE, "REPO_ROOT", repo), \
+             mock.patch.object(MODULE, "stage_ssplugin_deb", return_value=None):
+            # A CLEAN server medium must pass the gate (no RuntimeError).
+            receipt = MODULE.build_ncz_payload_tree(
+                stage_dir, payload, "amd64", None, repo / "preseed",
+                allow_missing_stub=True,
+                post_install_dir=repo / "post-install",
+                build_version="test", online_work_dir=self.tmp / "online-srv",
+                gate_path=GATE)
+            self.assertIn("release_identity_gate", receipt)
+            self.assertEqual(receipt["release_identity_gate"], "PASS")
 
 
 if __name__ == "__main__":

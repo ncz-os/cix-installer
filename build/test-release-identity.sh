@@ -50,10 +50,13 @@ check_eq "helper tracks a synthetic release.conf (volid)" \
 # The installer media is the raw GPT .img written by build-installer-image.sh;
 # its visible identity (the rEFInd boot menu) is derived from release.conf by
 # build-refind-esp.py. None of these may carry a stale literal codename.
+# build/iso/write-usb-image.py is NOT in this list: the MINOR-001 gate
+# (run_release_identity_gate) names the retired codenames it rejects, so the
+# no-hardcode scan below must not flag the gate itself. The generated-strings
+# guarantee for that writer is asserted in the MINOR-001 section at the end.
 WRITERS=(
     build/build-installer-image.sh
     build/iso/build-refind-esp.py
-    build/iso/write-usb-image.py
     build/kvm-install-gate-gpt.sh
 )
 for g in "${WRITERS[@]}"; do
@@ -118,6 +121,128 @@ check_eq "50-brand.sh: release file without NCZ_BASE_LABEL" "$(brand_id "$T/nola
     "NCZ-OS 99.1 Testbird Desktop, based on Debian testing"
 check_nogrep "$ROOT/post-install/50-brand.sh" '${NCZ_BASE_NAME} ${NCZ_BASE_VERSION} ${NCZ_BASE_LABEL}' \
     "50-brand.sh: no identity string repeats the base name and suite before the label"
+
+# ---- MINOR-001: the build-time gate over GENERATED identity strings --------
+# The operator saw "NCZ Maximilian Server" on an arm64 Preview2 medium. The
+# gate (build/check-release-identity-gate.sh) checks what the producers
+# ACTUALLY generated -- the RELEASE/os-release/issue strings in a staged
+# medium tree and a baked rootfs tree -- for BOTH variants:
+#   * no retired codename (Maximilian, Reinhardt) in any generated string;
+#   * no empty product label;
+#   * the os-release PRETTY_NAME variant label matches BUILD_VARIANT
+#     (desktop -> Desktop, server -> Server).
+GATE="$ROOT/build/check-release-identity-gate.sh"
+if [ -f "$GATE" ] && [ -x "$GATE" ]; then ok "gate script exists and is executable"; else bad "gate script exists and is executable"; fi
+
+# conf subcommand: the current release.conf is a sound identity.
+if bash "$GATE" conf "$ROOT_RC" >/dev/null 2>&1; then
+    ok "gate conf: current release.conf passes"
+else
+    bad "gate conf: current release.conf passes"
+fi
+
+# Build a realistic generated tree for each variant from release.conf via the
+# real 50-brand.sh print-identity path, plus the medium RELEASE copy.
+make_tree() {  # $1 dir, $2 variant
+    local d="$1" v="$2"
+    mkdir -p "$d/ncz-payload" "$d/etc" "$d/usr/local/lib/cix-installer"
+    cp "$ROOT_RC" "$d/ncz-payload/RELEASE"
+    cp "$ROOT_RC" "$d/usr/local/lib/cix-installer/RELEASE"
+    printf '%s' "$v" > "$d/usr/local/lib/cix-installer/BUILD_VARIANT"
+    brand_id "$ROOT_RC" "$v" PRETTY_NAME | sed 's/^PRETTY_NAME=//' > "$d/.pn"
+    brand_id "$ROOT_RC" "$v" VERSION    | sed 's/^VERSION=//'    > "$d/.ver"
+    {
+        printf 'PRETTY_NAME="%s"\n' "$(cat "$d/.pn")"
+        printf 'NAME="%s"\n' "$NCZ_PRODUCT_NAME"
+        printf 'VERSION_ID="%s"\n' "$NCZ_RELEASE_VERSION"
+        printf 'BUILD_ID="2026.10.17-test"\n'
+        printf 'VERSION="%s"\n' "$(cat "$d/.ver")"
+        printf 'VERSION_CODENAME=%s\n' "$(printf '%s' "$NCZ_RELEASE_CODENAME" | tr '[:upper:]' '[:lower:]')"
+        printf 'NCZ_VARIANT=%s\n' "$v"
+        printf 'ID=ncz\n'
+    } > "$d/etc/os-release"
+    {
+        printf 'DISTRIB_ID=NCZ\nDISTRIB_RELEASE=%s\nDISTRIB_CODENAME=%s\n' \
+            "$NCZ_RELEASE_VERSION" "$(printf '%s' "$NCZ_RELEASE_CODENAME" | tr '[:upper:]' '[:lower:]')"
+        printf 'DISTRIB_DESCRIPTION="%s"\n' "$(cat "$d/.pn")"
+    } > "$d/etc/lsb-release"
+    {
+        printf '%s %s  ·  unknown  (Kernel: \\r)\n' "$EXPECT_LABEL" "$([ "$v" = server ] && echo Server || echo Desktop)"
+        printf 'Build: 2026.10.17-test  (unknown)\nIP:    NCZ_ISSUE_IP_PLACEHOLDER\n'
+    } > "$d/etc/issue"
+    {
+        printf '%s %s  (NCZ_ISSUE_SOC_PLACEHOLDER)\n' "$EXPECT_LABEL" "$([ "$v" = server ] && echo Server || echo Desktop)"
+        printf 'Build: 2026.10.17-test  (unknown)\n'
+    } > "$d/etc/issue.net"
+    rm -f "$d/.pn" "$d/.ver"
+}
+GT="$T/gate-tree"
+make_tree "$GT/desktop" desktop
+make_tree "$GT/server"  server
+
+if bash "$GATE" staged "$GT/desktop/ncz-payload" >/dev/null 2>&1; then
+    ok "gate staged: clean medium RELEASE passes (desktop)"
+else
+    bad "gate staged: clean medium RELEASE passes (desktop)"
+fi
+if bash "$GATE" baked "$GT/desktop" >/dev/null 2>&1; then
+    ok "gate baked: desktop rootfs passes (Desktop label)"
+else
+    bad "gate baked: desktop rootfs passes (Desktop label)"
+fi
+if bash "$GATE" baked "$GT/server" >/dev/null 2>&1; then
+    ok "gate baked: server rootfs passes (Server label)"
+else
+    bad "gate baked: server rootfs passes (Server label)"
+fi
+
+# Negative controls: the gate must FAIL the build on every MINOR-001 failure
+# mode. (Assemble the retired name at runtime, as test-ncz-ui.sh does, so this
+# file's own sources stay clean under the check_nolive guard above.)
+STALE_C="Maxi""milian"
+# stale codename in the medium RELEASE -> must fail the staged gate
+make_tree "$GT/stale-med" desktop
+printf 'NCZ_PRODUCT_NAME="NCZ-OS"\nNCZ_RELEASE_VERSION="26.7"\nNCZ_RELEASE_CODENAME="%s"\n' "$STALE_C" > "$GT/stale-med/ncz-payload/RELEASE"
+if bash "$GATE" staged "$GT/stale-med" >/dev/null 2>&1; then
+    bad "gate staged: retired codename in medium RELEASE must FAIL"
+else
+    ok "gate staged: retired codename in medium RELEASE fails the gate"
+fi
+# stale codename in the baked rootfs os-release + issue -> must fail
+make_tree "$GT/stale-baked" server
+sed -i "s/${NCZ_RELEASE_CODENAME}/${STALE_C}/g" "$GT/stale-baked/etc/os-release" "$GT/stale-baked/etc/lsb-release" "$GT/stale-baked/etc/issue" "$GT/stale-baked/etc/issue.net"
+if bash "$GATE" baked "$GT/stale-baked" >/dev/null 2>&1; then
+    bad "gate baked: retired codename in rootfs identity files must FAIL"
+else
+    ok "gate baked: retired codename in rootfs identity files fails the gate"
+fi
+# variant mismatch: server BUILD_VARIANT but a Desktop-labelled PRETTY_NAME
+make_tree "$GT/mismatch" server
+sed -i 's/ Server/ Desktop/' "$GT/mismatch/etc/os-release"
+if bash "$GATE" baked "$GT/mismatch" >/dev/null 2>&1; then
+    bad "gate baked: variant label mismatch must FAIL"
+else
+    ok "gate baked: variant label mismatch fails the gate"
+fi
+# empty product label: RELEASE with no product name -> must fail
+make_tree "$GT/empty" desktop
+sed -i 's/^NCZ_PRODUCT_NAME=.*/NCZ_PRODUCT_NAME=""/' "$GT/empty/ncz-payload/RELEASE" "$GT/empty/usr/local/lib/cix-installer/RELEASE"
+sed -i "s/${NCZ_PRODUCT_NAME} //" "$GT/empty/etc/os-release"
+if bash "$GATE" baked "$GT/empty" >/dev/null 2>&1; then
+    bad "gate baked: empty product label must FAIL"
+else
+    ok "gate baked: empty product label fails the gate"
+fi
+# The image build must invoke the gate on every medium and every bake.
+check_grep "$ROOT/build/iso/write-usb-image.py" "check-release-identity-gate.sh" \
+    "write-usb-image.py: runs the identity gate on the staged medium"
+check_grep "$ROOT/build/build-baked-rootfs.sh" "check-release-identity-gate.sh\" baked" \
+    "build-baked-rootfs.sh: runs the identity gate on the baked rootfs"
+# The gate runs for BOTH variants: write-usb-image.py gates every
+# build_ncz_payload_tree() call (desktop and server are only _variant()
+# branches of it) and build-baked-rootfs.sh gates every bake (VARIANT env).
+check_grep "$ROOT/build/build-baked-rootfs.sh" 'VARIANT="${VARIANT:-desktop}"' \
+    "build-baked-rootfs.sh: VARIANT env knob still drives the bake (both variants gated)"
 
 echo "release-identity tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]

@@ -268,6 +268,53 @@ def write_online_fetch_manifest(payload_dst: Path, plan: dict) -> None:
         f"({len(lines)} pinned artifacts)")
 
 
+def run_release_identity_gate(stage_dir: Path,
+                              gate_path: Path | None = None) -> None:
+    """MINOR-001 gate: the staged medium tree must carry the current
+    release identity end to end.
+
+    The operator saw "NCZ Maximilian Server" on an arm64 Preview2 medium:
+    a retired codename survived into a generated identity string. This gate
+    runs at the moment every medium is written (build_ncz_payload_tree ->
+    this call, for BOTH variants -- desktop and server only differ by the
+    _variant() branch, the payload tree and this gate are shared): any
+    retired codename (Maximilian, Reinhardt), an empty product label, or a
+    variant-label mismatch in the generated RELEASE/issue strings fails the
+    build here, where it is cheap to notice.
+
+    ``gate_path`` overrides the gate script location (unit tests point it at
+    a fixture; production always uses the repo's build/ copy).
+    """
+    _here = Path(__file__).resolve().parent
+    for candidate in (
+        gate_path,
+        Path(globals().get("REPO_ROOT", _here.parent.parent))
+        / "build" / "check-release-identity-gate.sh",
+        _here.parent / "check-release-identity-gate.sh",
+    ):
+        if candidate is not None and candidate.is_file():
+            gate = candidate
+            break
+    else:
+        # The gate is part of the repo; missing means a broken checkout.
+        raise RuntimeError(
+            "FATAL: build/check-release-identity-gate.sh is missing -- "
+            "the MINOR-001 release-identity gate must run on every medium "
+            "build; refusing to write an unverified identity.")
+    payload_dir = stage_dir / "ncz-payload"
+    proc = subprocess.run(
+        ["bash", str(gate), "staged", str(stage_dir), str(payload_dir)],
+        capture_output=True, text=True, check=False)
+    for line in (proc.stdout or "").splitlines():
+        log(f"    identity-gate: {line}")
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip().splitlines()
+        raise RuntimeError(
+            "FATAL: release-identity gate failed on the staged medium -- "
+            "refusing to build a medium whose identity may be stale: "
+            f"rc={proc.returncode} {tail}")
+
+
 def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
@@ -602,7 +649,8 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
                            allow_missing_stub: bool = False,
                            post_install_dir: Path | None = None,
                            build_version: str | None = None,
-                           online_work_dir: Path | None = None) -> dict:
+                           online_work_dir: Path | None = None,
+                           gate_path: Path | None = None) -> dict:
     """Same shape as write-image.py's stage_ncz_payload(), corrected
     for the hotfix/busybox staleness bug documented above."""
     if not payload_dir.is_dir():
@@ -995,6 +1043,14 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     receipt["media_metadata"] = {k: v for k, v in meta.items() if v}
     log(f"    media metadata staged: {sorted(receipt['media_metadata'])}"
         f"{' + RELEASE' if release_conf.is_file() else ''}")
+
+    # MINOR-001 gate: the staged medium (payload RELEASE + ESP rEFInd +
+    # post-install tree) must carry the current identity from release.conf,
+    # for BOTH variants. Runs on every build_ncz_payload_tree() call --
+    # desktop and server -- so a stale codename or empty label in any
+    # generated RELEASE/issue string fails the build here.
+    run_release_identity_gate(stage_dir, gate_path)
+    receipt["release_identity_gate"] = "PASS"
 
     if preseed_dir is not None and preseed_dir.is_dir():
         preseed_staged = []

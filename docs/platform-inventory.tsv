@@ -112,6 +112,7 @@ build/build-usb-recovery-deb.sh	sky1	-	ncz-usb-recovery deb (Architecture: arm64
 build/build-vendor-mirror.sh	common	-	vendor mirror index regeneration
 build/build-wallpaper-contrib-deb.sh	common	-	wallpaper pack debs
 build/check-early-command-size.sh	common	-	preseed size gate
+build/check-release-identity-gate.sh	common	-	MINOR-001 build-time gate: generated RELEASE/os-release/issue strings in a staged medium or baked rootfs carry no retired codename, a non-empty product label and a variant label matching BUILD_VARIANT (runs for both variants in write-usb-image.py and build-baked-rootfs.sh)
 build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
 build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
 build/singularity-pins.sh	common	-	Singularity upstream pin reader: validate, pinned clone/checkout, patch-queue check against pins
