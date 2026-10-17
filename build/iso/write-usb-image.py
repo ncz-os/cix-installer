@@ -1637,7 +1637,7 @@ def write_partition_bytes(image_path: Path, start_sector: int, src: Path) -> Non
 COMPRESS_DEFAULTS = {"xz": 6, "zst": 19}
 
 
-def compress_image(image: Path, kind: str, level: int | None = None) -> dict:
+def compress_image(image: Path, kind: str, level: int | None = None) -> dict | None:
     """Write image.<kind> beside the raw image; return the measured sizes.
 
     This is a SHIPPING artifact, not a boot artifact: d-i, rEFInd and
@@ -1653,6 +1653,8 @@ def compress_image(image: Path, kind: str, level: int | None = None) -> dict:
     The receipt carries sha256 + size of both files, so a size claim can be
     checked instead of believed.
     """
+    if kind == "none":
+        return None
     lvl = COMPRESS_DEFAULTS[kind] if level is None else level
     if kind == "xz":
         out = image.with_suffix(image.suffix + ".xz")
@@ -1668,8 +1670,15 @@ def compress_image(image: Path, kind: str, level: int | None = None) -> dict:
             f"FATAL: --compress {kind} needs {cmd[0]!r} on PATH; refusing to "
             f"report a compressed size we did not measure")
     log(f"    compressing {image.name} -> {out.name} ({cmd[0]} level {lvl})")
-    with out.open("wb") as stream:
-        subprocess.run(cmd, check=True, stdout=stream)
+    # Write beside the target and rename only on success, so a compressor
+    # that dies mid-run never leaves a partial archive that looks shippable.
+    partial = out.with_name(out.name + ".partial")
+    try:
+        with partial.open("wb") as stream:
+            subprocess.run(cmd, check=True, stdout=stream)
+        partial.replace(out)
+    finally:
+        partial.unlink(missing_ok=True)
     raw = image.stat().st_size
     packed = out.stat().st_size
     log(f"    compressed: {packed} bytes "
@@ -1944,7 +1953,7 @@ def main() -> int:
                           "d-i boots the RAW image: dd it, or decompress "
                           "first -- nothing on the medium reads the archive.")
     ap.add_argument("--compress-level", type=int, default=None,
-                     help="Override the compressor level (xz: 1-9, default 6 -e; "
+                     help="Override the compressor level (xz: 1-9, default 6; "
                           "zst: 1-19, default 19)")
     ap.add_argument("--work-dir", type=Path, default=None,
                      help="Scratch directory for the staged tree and the ext4 "

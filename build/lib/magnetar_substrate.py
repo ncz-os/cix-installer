@@ -295,10 +295,19 @@ def _dpkg_control(path: Path, field: str) -> str:
 
 def read_depends(pool: Pool) -> dict[str, list[str]]:
     """package -> set of dependency tokens (alternations flattened)."""
+    import subprocess
+
     deps: dict[str, list[str]] = {}
     for name in pool.keys():
-        value = _dpkg_control(pool.udeb(name), "Depends")
-        deps[name] = _parse_depends_field(value)
+        # An unreadable control would silently contribute no dependency
+        # edges and let the closure drop something a kept udeb needs.
+        out = subprocess.run(["dpkg-deb", "-f", str(pool.udeb(name)), "Depends"],
+                             capture_output=True, text=True, check=False)
+        if out.returncode != 0:
+            raise SystemExit(
+                f"magnetar-substrate: cannot read Depends of {pool.udeb(name)}: "
+                f"{out.stderr.strip()[:200]}")
+        deps[name] = _parse_depends_field(out.stdout.strip())
     return deps
 
 
@@ -490,7 +499,8 @@ def provable_drop_reason(name: str, arch: str, flavour: str) -> str | None:
         return SKIPPED_COMPONENT_REASONS[name]
     if is_droppable_driver_udeb(name, arch, flavour):
         head = name.split("-modules-", 1)[0] + "-modules"
-        return DROPPABLE_FS_MODULES[head.replace("_", "-")]
+        return DROPPABLE_FS_MODULES.get(head.replace("_", "-"),
+                                        "non-server filesystem module set")
     return None
 
 
@@ -515,7 +525,7 @@ def slim_keep_set(pool: Pool, arch: str, flavour: str,
     kept, dep_reasons = closure(wanted, pool, read_depends(pool), initrd_builtin)
     for name, why in dep_reasons.items():
         reasons.setdefault(name, why)
-    return kept, reasons
+    return kept, {n: r for n, r in reasons.items() if n in kept}
 
 
 def drop_reason(name: str, arch: str, flavour: str,

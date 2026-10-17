@@ -298,6 +298,22 @@ def test_compress_reports_measured_sizes(writer, tmp_path, kind, binname):
 def test_compress_none_writes_no_archive(writer, tmp_path):
     image = tmp_path / "disk.img"
     image.write_bytes(b"x")
+    assert writer.compress_image(image, "none") is None
+    assert not list(tmp_path.glob("disk.img.*"))
+
+
+def test_failed_compressor_leaves_no_archive(writer, tmp_path, monkeypatch):
+    image = tmp_path / "disk.img"
+    image.write_bytes(b"x")
+    monkeypatch.setattr(writer.shutil, "which", lambda name: "/bin/false")
+
+    def boom(cmd, *a, **kw):
+        kw["stdout"].write(b"partial")
+        raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(writer.subprocess, "run", boom)
+    with pytest.raises(subprocess.CalledProcessError):
+        writer.compress_image(image, "xz")
     assert not list(tmp_path.glob("disk.img.*"))
 
 
@@ -541,3 +557,24 @@ def test_unreadable_initrd_keeps_more_not_less(writer, substrate, tmp_path, fake
     assert "partman-base" in receipt["kept"]
     assert [d["package"] for d in receipt["dropped"]] == ["partman-lvm"]
     assert calls
+
+
+def test_unreadable_control_fails_the_closure(substrate, tmp_path, monkeypatch):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "dpkg-deb"
+    stub.write_text("#!/bin/sh\n[ \"$3\" = Package ] && { b=$(basename \"$2\"); "
+                    "printf '%s\\n' \"${b%%_*}\"; exit 0; }\necho broken >&2; exit 2\n")
+    stub.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    make_pool(tmp_path / "pool", {"partman-base": (10, "")})
+    pool = substrate.Pool(tmp_path / "pool")
+    with pytest.raises(SystemExit, match="cannot read Depends"):
+        substrate.slim_keep_set(pool, "amd64", "amd64", set(), set(), {})
+
+
+def test_slim_reasons_only_describe_kept_udebs(substrate, tmp_path, fake_dpkg):
+    make_pool(tmp_path / "pool", {"partman-base": (10, ""), "partman-lvm": (10, "")})
+    pool = substrate.Pool(tmp_path / "pool")
+    kept, reasons = substrate.slim_keep_set(pool, "amd64", "amd64", set(), set(), {})
+    assert set(reasons) <= kept
