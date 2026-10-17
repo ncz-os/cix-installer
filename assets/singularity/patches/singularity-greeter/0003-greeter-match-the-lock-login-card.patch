@@ -92,7 +92,8 @@ index b2d7d59..8354fa0 100644
      cairo_destroy(cr);
 +    if (surface) wl_surface_set_buffer_scale(surface, scale);
      wl_surface_attach(surface, b->wl_buffer, 0, 0);
-     wl_surface_damage_buffer(surface, 0, 0, w, h);
+-    wl_surface_damage_buffer(surface, 0, 0, w, h);
++    wl_surface_damage_buffer(surface, 0, 0, w * scale, h * scale);
      wl_surface_commit(surface);
 @@ -377,7 +400,7 @@ static void render_surface(struct wl_surface *surface, int w, int h) {
  
