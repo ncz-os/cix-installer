@@ -43,6 +43,9 @@ ap.add_argument("--answer", action="append", default=[])
 a = ap.parse_args()
 work = a.work
 os.makedirs(work, exist_ok=True)
+# record the answer rules the wrapper passed, one per line, for the rule assertions below
+with open(os.path.join(work, "answers-argv.txt"), "w") as fh:
+    fh.write("".join(x + "\n" for x in a.answer))
 mode = os.environ.get("NCZ_TEST_FIXTURE", "amd_zero")
 
 def w(path, text):
@@ -90,8 +93,11 @@ else:
         ("choose a USERNAME", "username"),
         ("choose a PASSWORD", "password"),
         ("type the same PASSWORD", "confirm"),
+        ("HARDWARE SUMMARY", "hwsummary"),
         ("optional components", "components"),
     ]
+    if mode == "arm_no_hwsummary":
+        steps = [st for st in steps if st[0] != "HARDWARE SUMMARY"]
     for i in range(24):
         t = i * 3
         if i < len(steps):
@@ -163,6 +169,23 @@ run_case arm_valid arm64 arm_valid 0 0 "UI CHECK PASS" || fail=1
 run_case arm_missing_header arm64 arm_missing_header 0 1 "header" || fail=1
 # ARM wrong prompt order -> reject
 run_case arm_wrong_order arm64 arm_wrong_order 0 1 "never matched" || fail=1
+# ARM: the HARDWARE SUMMARY note (preseed/hw-summary.sh) sits between the password confirm and the
+# component dialog on an interactive install; a capture without it fails the sequence ...
+run_case arm_no_hwsummary arm64 arm_no_hwsummary 0 1 "never matched" || fail=1
+# ... and the wrapper answers it (Continue), otherwise the real capture stalls on it (Rebuild B 5a320504,
+# arm64: 7 states, the component dialog never reached).
+if grep -qx 'HARDWARE SUMMARY=\\r' "$WORK/arm_valid/work/answers-argv.txt" 2>/dev/null; then
+    echo "ok arm_answers_hwsummary"
+else
+    echo "FAIL arm_answers_hwsummary: no 'HARDWARE SUMMARY=\r' answer rule passed to boot-screens.py"
+    cat "$WORK/arm_valid/work/answers-argv.txt" 2>/dev/null; fail=1
+fi
+# rule 0 must stay the component dialog (T_ANS in the wrapper keys on it)
+if [ "$(head -1 "$WORK/arm_valid/work/answers-argv.txt" 2>/dev/null)" = 'optional components=\r' ]; then
+    echo "ok arm_rule0_components"
+else
+    echo "FAIL arm_rule0_components: rule 0 is not the component dialog"; fail=1
+fi
 
 if [ $fail -ne 0 ]; then
     echo "test-installer-ui-wrapper: FAIL" >&2

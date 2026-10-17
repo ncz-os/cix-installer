@@ -28,11 +28,14 @@ else
     # password, password confirm, components; the hostname is automatic and the disk dialogs stay preset
     # (ncz_disk/ncz_fs). Answer each one, otherwise the capture stalls on the first unanswered dialog. --interactive
     # also leaves passwd/* off the command line, so a d-i user-setup dialog sneaking back in before the NCZ ones
-    # stalls the capture and fails the sequence. Rule 0 must stay the component dialog (T_ANS below). The password
+    # stalls the capture and fails the sequence. The HARDWARE SUMMARY note (preseed/hw-summary.sh) follows the
+    # password confirm on an interactive install: Continue it, and require it in the sequence so a summary that
+    # silently stops appearing is caught too. Rule 0 must stay the component dialog (T_ANS below). The password
     # is a throwaway for this capture only.
     "$PY" "$HERE/boot-screens.py" "$IMG" "$WORK" --arch "$ARCH" --interactive --secs "$SECS" --every 30 \
         --answer 'optional components=\r' --answer 'select your REGION=\r' --answer 'choose a USERNAME=\r' \
         --answer 'choose a PASSWORD=nczuicheck\r' --answer 'type the same PASSWORD=nczuicheck\r' \
+        --answer 'HARDWARE SUMMARY=\r' \
         > "$WORK/harness.log" 2>&1 \
         || { echo "UI CHECK FAIL: the capture harness failed (see $WORK/harness.log)" >&2; tail -5 "$WORK/harness.log" >&2; exit 1; }
 fi
@@ -68,7 +71,7 @@ else
         --require-dialog "optional components" --require-dialog "select your REGION" \
         --require-dialog "choose a USERNAME" \
         --require-prompt-sequence "select your REGION" "choose a USERNAME" \
-            "choose a PASSWORD" "type the same PASSWORD" "optional components" \
+            "choose a PASSWORD" "type the same PASSWORD" "HARDWARE SUMMARY" "optional components" \
         --require-header "NCZ-OS [0-9.]+ [A-Za-z]+" --min-states 20 --min-dialogs 5 \
         --require-login-line "diagnostics login: root / (set by ncz_diag_pw|\S{4,})" || rc=1
     T_ANS="$(sed -n 's/^t=\([0-9]*\)s rule 0 .*/\1/p' "$WORK/answers.log" | head -1)"
