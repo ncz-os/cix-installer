@@ -794,8 +794,9 @@ echo "=== remote-origin detection: local schemes vs any remote transport ==="
 _srcd="$W/r/etc/apt/sources.list.d"
 _src_case() {   # _src_case WANT(local|remote) LABEL LINE...
     local want="$1" label="$2"; shift 2
-    mkroot; rm -f "$_srcd"/*.list "$W/r/etc/apt/sources.list"
-    printf '%s\n' "$@" > "$_srcd/case.list"
+    mkroot; rm -f "$_srcd"/*.list "$_srcd"/*.sources "$W/r/etc/apt/sources.list"
+    _ext=list; case "$1" in Types:*) _ext=sources ;; esac
+    printf '%s\n' "$@" > "$_srcd/case.$_ext"
     if run _ncz_intel_repos_all_local; then got=local; else got=remote; fi
     [ "$got" = "$want" ] && ok "sources $label -> $want" || bad "sources $label -> $got, want $want"
 }
@@ -805,6 +806,8 @@ _src_case remote "https"                 'deb https://example.invalid/ncz ./'
 _src_case remote "mirror+https"          'deb mirror+https://example.invalid/mirrors.txt forky main'
 _src_case remote "file: plus http"       'deb [trusted=yes] file:///srv/mirror ./' 'deb http://deb.debian.org/debian forky main'
 _src_case local  "commented remote"      '# deb https://example.invalid/ncz ./' 'deb file:///srv/mirror ./'
+_src_case remote "deb822 file: plus https" 'Types: deb' 'URIs: file:///srv/mirror https://example.invalid/ncz' 'Suites: forky'
+_src_case local  "deb822 file: only"     'Types: deb' 'URIs: file:///srv/mirror' 'Suites: forky'
 
 echo "=== deferred throttle: a corrupt LAST= re-checks instead of wedging ==="
 mkroot

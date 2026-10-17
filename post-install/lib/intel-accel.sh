@@ -124,6 +124,18 @@ ncz_intel_clear_deferred() {
 # never a fresh fetch, so a successful apt-get update there proves nothing
 # about publication lag. A missing candidate on such a system must NOT be
 # treated as deferred-unpublished.
+# _ncz_intel_has_remote_uri FILE -> 0 when an ACTIVE deb/deb-src line or a
+# deb822 "URIs:" value names at least one remote URI. Each URI scheme is
+# judged on its own, so a deb822 line listing a file: mirror AND an https
+# origin still counts as remote. Remote = any scheme:// other than the local
+# file:// and copy:// (cdrom: URIs carry no "//"). One pipeline, so no
+# `a || b` status masking.
+_ncz_intel_has_remote_uri() {
+    grep -E '^[[:space:]]*(deb(-src)?[[:space:]]|URIs:[[:space:]])' "$1" 2>/dev/null \
+        | grep -oE '[a-z][a-z0-9+.-]*://' \
+        | grep -vqE '^(file|copy)://'
+}
+
 _ncz_intel_repos_all_local() {
     local base f
     for base in "$(_ni_r)/etc/apt/sources.list.d" "$(_ni_r)/etc/apt"; do
@@ -138,20 +150,14 @@ _ncz_intel_repos_all_local() {
             case "$f" in *.disabled-for-build|*.disabled-for-build.*) continue ;; esac
             # Any ACTIVE remote-origin deb line disqualifies "all local".
             # deb822 (.sources) files use "URIs: <uri>"; check both shapes.
-            # One pipeline per file: local-scheme lines are dropped first,
-            # then a single grep decides (no `a || b` status masking).
-            # Remote = any URI scheme other than the local file:/cdrom:/copy:
-            # (http, https, mirror+http..., tor+https..., ftp).
-            if grep -Ev '[[:space:]](file|cdrom|copy):' "$f" 2>/dev/null \
-                | grep -Eq '^[[:space:]]*deb(-src)?[[:space:]].*[a-z+]+://|^[[:space:]]*URIs:[[:space:]].*[a-z+]+://'; then
+            if _ncz_intel_has_remote_uri "$f"; then
                 return 1
             fi
         done
     done
     # An inline deb line in the root sources.list counts too.
     f="$(_ni_r)/etc/apt/sources.list"
-    if [ -f "$f" ] && grep -Ev '[[:space:]](file|cdrom|copy):' "$f" 2>/dev/null \
-        | grep -Eq '^[[:space:]]*deb(-src)?[[:space:]].*[a-z+]+://'; then
+    if [ -f "$f" ] && _ncz_intel_has_remote_uri "$f"; then
         return 1
     fi
     return 0
