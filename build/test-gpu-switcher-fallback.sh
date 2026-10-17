@@ -17,7 +17,14 @@ SW="$ROOT/assets/gpu/ncz-gpu-switcher.sh"
 W="$(mktemp -d -t switcher-fallback.XXXXXX)"; trap 'rm -rf "$W"' EXIT
 PASS=0; FAIL=0
 ok()  { echo "  PASS  $1"; PASS=$((PASS + 1)); }
-bad() { echo "  FAIL  $1"; FAIL=$((FAIL + 1)); [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/        /'; }
+# bad() must ALWAYS return 0. Under `set -o pipefail` (and even without it, as the
+# last command of a function) the previous form ended on
+# `[ -n "${2:-}" ] && printf ...`, so reporting a failure with no detail returned
+# 1 -- and any caller chaining `... || bad ...` or leaving it as the last command
+# of a subshell would then inherit a spurious non-zero status. The tally in $FAIL
+# is the only thing that decides the result; the return status of a reporter is
+# not a result.
+bad() { echo "  FAIL  $1"; FAIL=$((FAIL + 1)); [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/        /'; return 0; }
 K=7.3.0-sky1-ncz
 echo "=== switcher: Panthor selected but not bound -> Mali ==="
 SB="$W/sb"
