@@ -32,11 +32,15 @@
 # greeter 0003 patch refreshed onto 09007fda, and the same queue otherwise.
 # Native rebuilds on HYDRA (amd64) and ULTRA (arm64) at shared build
 # timestamp 20261017070524, branch fix/p3-singularity-head-20261017.
-# amd64 payload tarball cf84bc38..., arm64 payload tarball 366ea578...;
-# both payloads carry libsingularity byte-identical to the 20261014213143
-# ones (amd64 b07dce55, arm64 8881de20), so the ncz-screensavers-plugin
-# 0.3.23 pin (post-install/lib/ncz-screensavers-plugin.lock) is still
-# valid under the ABI gate without a plugin rebuild.
+# libsingularity moved cbf3d7e1 -> 8cb3e804 between these pins, yet the
+# built library is byte-identical across both payloads -- verified
+# 2026-10-17 by expanding both debs and hashing opt/singularity/lib:
+# amd64 libsingularity.so.0 b07dce55c3cd... and
+# libsingularity-system.so.0 4e56dbca3b64...; arm64 8881de20447e... and
+# cb9c9b0f8a3f..., with identical top-level lib listings. The commit move
+# carried no ABI-affecting change, so the ncz-screensavers-plugin 0.3.23
+# pin (post-install/lib/ncz-screensavers-plugin.lock) stays valid under
+# the ABI gate without a plugin rebuild.
 # 20261014180000 is built from the 2026-10-14 upstream heads (shell 5430ce14,
 # libsingularity cbf3d7e1, plugins 869d2afc, nearby 6b507295, session 2a1f4331,
 # superproject 13b79e78) after the upstream merge of the 2026-10-13 pull requests.
