@@ -277,11 +277,17 @@ for variant in absent failing; do
     [ "$left" = 0 ] && ok "mktemp $variant: no stray temp files" || bad "mktemp $variant: $left temp file(s) left" "$(ls -a "$MD")"
 done
 # And the healthy path must NOT claim to be degraded: the warning is absent and
-# the file was published by rename.
+# the file was published by rename. Check each stream individually: grep -q
+# with multiple files returns 0 if the pattern is in ANY of them, so a single
+# shared call would mask a warning that surfaced only on stderr (review finding,
+# 2026-10-17). Either stream carrying the warning fails the assertion.
 mksb "root=x sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko panthor.ko
 printf '# stale\n' > "$BL"
 before=$(ls -i "$BL" | awk '{print $1}'); rc=$(runsw); after=$(ls -i "$BL" | awk '{print $1}')
-[ "$rc" = 0 ] && [ "$before" != "$after" ] && ! grep -q 'no usable mktemp' "$SB/out" "$SB/err" \
+_degraded=0
+[ -s "$SB/out" ] && grep -q 'no usable mktemp' "$SB/out" && _degraded=1
+[ -s "$SB/err" ] && grep -q 'no usable mktemp' "$SB/err" && _degraded=1
+[ "$rc" = 0 ] && [ "$before" != "$after" ] && [ "$_degraded" = 0 ] \
     && ok "healthy mktemp: rename path taken, no degradation warning" || bad "healthy path regressed (rc=$rc)" "$(cat "$SB/out" "$SB/err")"
 
 echo "gpu switcher fallback tests: $PASS passed, $FAIL failed"
