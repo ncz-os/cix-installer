@@ -1347,20 +1347,22 @@ def _load_magnetar_substrate():
     return mod
 
 
-def initrd_status_path(evidence_dir: Path) -> Path | None:
-    """Optional measured evidence: the d-i initrd's dpkg status for this arch.
+SLIM_ENV = "NCZ_MAGNETAR_SLIM_SUBSTRATE"
 
-    The keep-set is only as honest as the initrd it is measured against, so
-    when the caller passes --di-initrd the set is derived from that exact
-    initrd. Without it the keep manifest (manifests/magnetar-substrate-keep.tsv)
-    is the source of truth and the build says so.
+
+def slim_substrate_enabled() -> bool:
+    """The udeb cut is opt-in until a server-variant KVM install proves it.
+
+    Release images keep the full substrate pool unless the builder sets
+    NCZ_MAGNETAR_SLIM_SUBSTRATE=1. The cut itself only removes packages with a
+    provable drop reason (see magnetar_substrate.provable_drop_reason), but no
+    gate on the release branch installs a server image yet, so it stays off.
     """
-    p = evidence_dir / "initrd-status"
-    return p if p.is_file() else None
+    return os.environ.get(SLIM_ENV, "0").strip() == "1"
 
 
 def slim_installer_pool(stage_dir: Path, arch: str, installer_pool: Path,
-                        initrd_status: Path | None,
+                        di_initrd: Path | None,
                         flavour: str | None = None) -> dict:
     """Remove from /cdrom/pool every udeb the server install cannot load.
 
@@ -1375,17 +1377,21 @@ def slim_installer_pool(stage_dir: Path, arch: str, installer_pool: Path,
     if not pool.keys():
         raise RuntimeError(f"FATAL: no udebs under {pool_root}")
     flavour = flavour or arch
-    if initrd_status is not None:
-        builtin = mod.measure_substrate_initrd(initrd_status)
-        basis = f"measured from {initrd_status}"
-    else:
-        builtin = set(mod.INITRD_BUILTIN_EXPECTED_SAMPLE)
-        basis = ("keep manifest only; --di-initrd not given, so the initrd's "
-                 "own package set was not measured on this build")
+    # The initrd measurement only lets the closure skip dependencies d-i
+    # already has; it never adds drops. An unreadable initrd therefore
+    # degrades to an empty set, which keeps MORE, never less.
+    builtin: set[str] = set()
+    basis = "initrd not measured (--di-initrd not given); closure keeps every dependency"
+    if di_initrd is not None:
+        try:
+            builtin = mod._initrd_status_packages(di_initrd, stage_dir.parent)
+            basis = f"initrd dpkg status measured from {di_initrd} ({len(builtin)} packages)"
+        except SystemExit as exc:
+            basis = f"initrd measurement failed ({exc}); closure keeps every dependency"
     extra, extra_reasons = mod.load_keep_tsv(
         SUBSTRATE_LIB.parent / "manifests" / "magnetar-substrate-keep.tsv")
-    kept, reasons = mod.keep_set(pool, arch, flavour, builtin, extra,
-                                 extra_reasons)
+    kept, reasons = mod.slim_keep_set(pool, arch, flavour, builtin, extra,
+                                      extra_reasons)
 
     total = sum(pool.udeb(n).stat().st_size for n in pool.keys())
     kept_bytes = sum(pool.udeb(n).stat().st_size for n in kept)
@@ -1395,7 +1401,7 @@ def slim_installer_pool(stage_dir: Path, arch: str, installer_pool: Path,
         dropped.append({
             "package": name,
             "bytes": udeb_path.stat().st_size,
-            "reason": mod.drop_reason(name, arch, flavour, builtin),
+            "reason": mod.provable_drop_reason(name, arch, flavour),
         })
         udeb_path.unlink()
     log(f"    magnetar substrate: keep {len(kept)} udebs ({kept_bytes} B), "
@@ -1423,6 +1429,7 @@ def slim_installer_pool(stage_dir: Path, arch: str, installer_pool: Path,
 
     return {
         "schema_version": "ncz-magnetar-substrate/v1",
+        "enabled": True,
         "arch": arch,
         "flavour": flavour,
         "basis": basis,
@@ -1984,11 +1991,17 @@ def main() -> int:
         substrate_receipt = None
         if _variant() == "server":
             stage_server_installer_pool(stage_dir, args.arch, args.installer_pool)
-            log("[2/4] MAGNETAR: shedding the substrate udebs no server "
-                "install can load (docs/MAGNETAR-SERVER-VARIANT.md)")
-            substrate_receipt = slim_installer_pool(
-                stage_dir, args.arch, args.installer_pool,
-                args.di_initrd if args.di_initrd and args.di_initrd.is_file() else None)
+            if slim_substrate_enabled():
+                log("[2/4] MAGNETAR: shedding the substrate udebs no server "
+                    "install can load (docs/MAGNETAR-SERVER-VARIANT.md)")
+                substrate_receipt = slim_installer_pool(
+                    stage_dir, args.arch, args.installer_pool,
+                    args.di_initrd if args.di_initrd and args.di_initrd.is_file() else None)
+            else:
+                log(f"[2/4] MAGNETAR: full substrate pool kept ({SLIM_ENV}=1 "
+                    "enables the udeb cut; unproven without a server KVM install)")
+                substrate_receipt = {"schema_version": "ncz-magnetar-substrate/v1",
+                                     "enabled": False}
         else:
             stage_offline_mirror(stage_dir, args.arch, args.installer_pool)
         build_data_partition_img(stage_dir / "ncz-payload", data_img, args.data_size_mib)

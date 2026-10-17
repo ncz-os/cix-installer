@@ -199,6 +199,28 @@ installer -- none of which this task authorises.
 
 ### (b) udebs the server install never loads -- proved, not guessed
 
+> **Review correction (2026-10-17).** The 69-udeb keep-set below is NOT what
+> the build ships. Re-measured on the pinned
+> `debian-testing-amd64-netinst-20261013` substrate, the d-i initrd's dpkg
+> status holds 104 packages and does **not** include `partman-base`,
+> `partman-auto`, `partman-ext3`, `partman-target`, `base-installer`,
+> `bootstrap-base`, `pkgsel`, `choose-mirror`, `clock-setup`,
+> `finish-install`, `apt-setup-udeb` or `user-setup-udeb`: anna loads them
+> from `/cdrom`. The minimal set dropped every one of them (and, because the
+> writer read the gzip initrd as a text status file, the build path measured
+> zero builtins). It also dropped `partman-btrfs`, although btrfs is the
+> default root filesystem in `preseed/disk-fs-chooser.sh`.
+>
+> The build now uses `slim_keep_set()`: keep every udeb except the provable
+> classes in `provable_drop_reason()` (preseed-unused partman/kickseed/
+> speech/on-screen-keyboard components and the `xfs`/`jfs` module sets),
+> then re-add any of those a kept udeb still `Depends:` on. On the pinned
+> amd64 substrate that is 25 dropped udebs, 11,239,252 B. The cut is
+> **opt-in** (`NCZ_MAGNETAR_SLIM_SUBSTRATE=1`) until a server-variant KVM
+> install has passed; by default the full pool ships and the receipt records
+> `magnetar_substrate.enabled = false`. The partition sizing in (a) and the
+> `--compress` option in (d) are unaffected.
+
 `build/lib/magnetar_substrate.py` derives the keep-set from measurements:
 
 * **The initrd already holds the modules+main closure.** The r20261013 amd64

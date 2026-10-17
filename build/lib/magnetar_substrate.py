@@ -17,13 +17,13 @@ Two independent mechanisms decide what runs, and this module models both:
    /var/lib/dpkg/status, so anna sees it as already installed and NEVER
    fetches it from the medium. Only OPTIONAL components in the component
    list (e.g. network-console) are retriever-fetched. Proven against the real
-   substrate initrd: extracting /install.amd/initrd.gz of
-   debian-testing-amd64-netinst-20261013 shows 773 packages in
-   /var/lib/dpkg/status, including partman-base, netcfg, pkgsel, user-setup,
-   clock-setup, choose-mirror, partman-auto, partman-ext3 and partman-basic-
-   filesystems. This script reproduces that measurement from the substrate
-   itself so the manifest in manifests/magnetar-substrate-keep.tsv is not
-   taken on faith.
+   substrate initrd. CORRECTION (2026-10-17 re-measurement): extracting
+   /install.amd/initrd.gz of debian-testing-amd64-netinst-20261013 shows
+   104 packages in /var/lib/dpkg/status, and partman-base, netcfg, pkgsel,
+   user-setup-udeb, clock-setup, choose-mirror, partman-auto, partman-ext3,
+   base-installer and bootstrap-base are NOT among them: anna loads them
+   from the /cdrom pool. The build therefore uses slim_keep_set(), which
+   drops only provable classes (provable_drop_reason) and keeps the rest.
 
 2. OUR PRESEED SKIPS THE REST. preseed/preseed.cfg answers/skips whole
    components before main-menu would ask: grub-installer/skip=true,
@@ -117,6 +117,12 @@ def is_droppable_driver_udeb(pkg: str, arch: str, flavour: str) -> bool:
 
 # Components our preseed provably skips (see the module docstring). A udeb
 # that exists ONLY to serve one of these is dead on this medium.
+#
+# NEVER list here: partman-btrfs (btrfs is the DEFAULT root filesystem offered
+# by preseed/disk-fs-chooser.sh), grub-installer / systemd-boot-installer
+# (preseeded skip=true; removing them changes main-menu's bootloader step
+# from "skipped" to "absent", which no gate has exercised), save-logs (the
+# installer's own "Save debug logs" path).
 SKIPPED_COMPONENT_REASONS = {
     "partman-auto-crypto": "preseed partman-auto/method=regular; no crypto recipe",
     "partman-crypto": "preseed partman-auto/method=regular; partman-auto-crypto is not loaded",
@@ -127,10 +133,7 @@ SKIPPED_COMPONENT_REASONS = {
     "partman-multipath": "no multipath on the supported hardware",
     "partman-iscsi": "no iSCSI on the supported hardware",
     "partman-nbd": "no NBD on the supported hardware",
-    "partman-btrfs": "installed root filesystem is ext4 (partman-ext3)",
     "partman-xfs": "installed root filesystem is ext4 (partman-ext3)",
-    "grub-installer": "preseed grub-installer/skip=true (rEFInd is on the ESP)",
-    "systemd-boot-installer": "preseed systemd-boot-installer/skip=true",
     "depthcharge-tools-installer": "no depthcharge/ChromeOS firmware on the supported hardware",
     "espeakup-udeb": "no speech synthesis in the installer (docs/ACCESSIBILITY.md)",
     "espeak-ng-data-udeb": "no speech synthesis in the installer (docs/ACCESSIBILITY.md)",
@@ -140,7 +143,6 @@ SKIPPED_COMPONENT_REASONS = {
     "oldsys-preseed": "preseed is baked into the initrd, fetched nowhere",
     "initrd-kickseed": "unattended answers come from preseed.cfg, not kickstart",
     "kickseed-common": "unattended answers come from preseed.cfg, not kickstart",
-    "save-logs": "rescue shell path only; the medium has diag-console.sh",
     "kexec-tools-udeb": "kexec is not used by any NCZ boot path",
     "iprutils-iprutils": "IBM pSeries RAID tools; no supported hardware",
 }
@@ -300,13 +302,17 @@ def read_depends(pool: Pool) -> dict[str, list[str]]:
     return deps
 
 
-def _initrd_status_packages(initrd: Path) -> set[str]:
-    """Package names in the initrd's dpkg status (i.e. already unpacked)."""
+def _initrd_status_packages(initrd: Path, work_dir: Path | None = None) -> set[str]:
+    """Package names in the initrd's dpkg status (i.e. already unpacked).
+
+    work_dir keeps the scratch extraction off tmpfs; callers in the build pass
+    their own work directory.
+    """
     import subprocess
     import tempfile
-    import shutil
 
-    with tempfile.TemporaryDirectory(prefix="ncz-initrd-status-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="ncz-initrd-status-",
+                                     dir=work_dir) as tmp:
         raw: bytes
         data = initrd.read_bytes()
         if data[:2] == b"\x1f\x8b":
@@ -422,7 +428,11 @@ def keep_set(pool: Pool, arch: str, flavour: str,
              initrd_builtin: set[str],
              extra_keep: set[str],
              extra_reasons: dict[str, str]) -> tuple[set[str], dict[str, str]]:
-    """The udebs this medium keeps, each with the reason it is kept."""
+    """Minimal keep-set (initrd + NIC + runtime + manifest + closure).
+
+    NOT used by the build: it assumes the initrd carries partman and
+    base-installer, which re-measurement disproved. See slim_keep_set().
+    """
     wanted: set[str] = set()
     reasons: dict[str, str] = {}
     for name in pool.keys():
@@ -461,6 +471,48 @@ def keep_set(pool: Pool, arch: str, flavour: str,
         reasons[name] = extra_reasons.get(name) or "listed in the keep manifest"
     deps = read_depends(pool)
     kept, dep_reasons = closure(wanted, pool, deps, initrd_builtin)
+    for name, why in dep_reasons.items():
+        reasons.setdefault(name, why)
+    return kept, reasons
+
+
+def provable_drop_reason(name: str, arch: str, flavour: str) -> str | None:
+    """The reason a udeb can leave the medium, or None if none is proven.
+
+    Only two classes qualify: components the preseed skips outright and
+    filesystem module sets for filesystems the install never uses. Everything
+    else stays, whatever the initrd holds: measured on the 2026-10-13 amd64
+    substrate the netinst initrd carries 104 packages, and partman-*,
+    base-installer, pkgsel, choose-mirror and finish-install are NOT among
+    them -- anna loads them from /cdrom, so the pool must keep them.
+    """
+    if name in SKIPPED_COMPONENT_REASONS:
+        return SKIPPED_COMPONENT_REASONS[name]
+    if is_droppable_driver_udeb(name, arch, flavour):
+        head = name.split("-modules-", 1)[0] + "-modules"
+        return DROPPABLE_FS_MODULES[head.replace("_", "-")]
+    return None
+
+
+def slim_keep_set(pool: Pool, arch: str, flavour: str,
+                  initrd_builtin: set[str],
+                  extra_keep: set[str],
+                  extra_reasons: dict[str, str]) -> tuple[set[str], dict[str, str]]:
+    """Keep everything except provable drops, then re-add any provable drop
+    that a kept udeb still Depends on. The initrd set only lets the closure
+    skip dependencies d-i already has; it never removes a package."""
+    for name in extra_keep:
+        if name not in pool:
+            raise SystemExit(
+                f"magnetar-substrate: keep manifest lists {name!r}, which is "
+                f"not in {pool.root} -- the manifest is stale")
+    wanted: set[str] = set()
+    reasons: dict[str, str] = {}
+    for name in pool.keys():
+        if name in extra_keep or provable_drop_reason(name, arch, flavour) is None:
+            wanted.add(name)
+            reasons[name] = extra_reasons.get(name) or "no proven drop reason"
+    kept, dep_reasons = closure(wanted, pool, read_depends(pool), initrd_builtin)
     for name, why in dep_reasons.items():
         reasons.setdefault(name, why)
     return kept, reasons
@@ -509,8 +561,8 @@ def main(argv: list[str]) -> int:
             "magnetar-substrate: --initrd or --initrd-status is required; the "
             "keep-set is MEASURED from d-i's own initrd, never assumed")
     extra, extra_reasons = load_keep_tsv(args.keep_tsv)
-    kept, reasons = keep_set(pool, args.arch, flavour, initrd_builtin,
-                             extra, extra_reasons)
+    kept, reasons = slim_keep_set(pool, args.arch, flavour, initrd_builtin,
+                                  extra, extra_reasons)
 
     total = sum(pool.udeb(n).stat().st_size for n in pool.keys())
     kept_bytes = sum(pool.udeb(n).stat().st_size for n in kept)
@@ -526,7 +578,7 @@ def main(argv: list[str]) -> int:
         for name in sorted(kept):
             print(f"KEEP\t{name}\t{reasons.get(name, '')}")
         for name in dropped:
-            print(f"DROP\t{name}\t{drop_reason(name, args.arch, flavour, initrd_builtin)}")
+            print(f"DROP\t{name}\t{provable_drop_reason(name, args.arch, flavour)}")
     for name in sorted(kept):
         print(name)
     return 0

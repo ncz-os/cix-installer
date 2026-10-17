@@ -443,3 +443,72 @@ def test_pool_rejects_control_filename_mismatch(tmp_path, substrate, fake_dpkg):
     # The stub reports the filename stem, so make the file disagree by name.
     with pytest.raises(SystemExit, match="filed as"):
         substrate.Pool(pool_root)
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-17 review: the build path drops ONLY provable classes.
+# ---------------------------------------------------------------------------
+NEVER_DROP = ("partman-btrfs", "partman-base", "partman-auto", "partman-ext3",
+              "partman-target", "partman-partitioning", "partman-basicfilesystems",
+              "base-installer", "bootstrap-base", "debootstrap-udeb", "pkgsel",
+              "choose-mirror", "clock-setup", "finish-install", "apt-setup-udeb",
+              "user-setup-udeb", "netcfg", "net-retriever", "nobootloader",
+              "grub-installer", "systemd-boot-installer", "save-logs",
+              "btrfs-modules-7.2.9-amd64-di")
+
+
+def _pool(tmp_path, substrate, packages):
+    make_pool(tmp_path / "pool", packages)
+    return substrate.Pool(tmp_path / "pool")
+
+
+@pytest.mark.parametrize("name", NEVER_DROP)
+def test_install_path_udebs_have_no_drop_reason(substrate, name):
+    assert substrate.provable_drop_reason(name, "amd64", "amd64") is None
+
+
+def test_slim_keep_set_drops_only_provable_classes(substrate, tmp_path, fake_dpkg):
+    pool = _pool(tmp_path, substrate, {
+        "partman-base": (100, ""),
+        "partman-btrfs": (100, "partman-base"),
+        "partman-lvm": (100, "partman-base"),
+        "xfs-modules-7.2.9-amd64-di": (100, ""),
+        "some-unknown-udeb": (100, ""),
+    })
+    kept, _ = substrate.slim_keep_set(pool, "amd64", "amd64", set(), set(), {})
+    assert set(pool.keys()) - kept == {"partman-lvm", "xfs-modules-7.2.9-amd64-di"}
+
+
+def test_slim_keep_set_keeps_a_droppable_udeb_a_kept_one_depends_on(
+        substrate, tmp_path, fake_dpkg):
+    pool = _pool(tmp_path, substrate, {
+        "partman-lvm": (100, ""),
+        "needs-lvm": (100, "partman-lvm"),
+    })
+    kept, _ = substrate.slim_keep_set(pool, "amd64", "amd64", set(), set(), {})
+    assert "partman-lvm" in kept
+
+
+def test_initrd_status_is_read_from_the_compressed_initrd(substrate, tmp_path):
+    import gzip
+    import shutil
+    if not shutil.which("cpio"):
+        pytest.skip("cpio not installed")
+    tree = tmp_path / "tree" / "var" / "lib" / "dpkg"
+    tree.mkdir(parents=True)
+    (tree / "status").write_text("Package: anna\nStatus: install ok installed\n\n"
+                                 "Package: main-menu\n")
+    cpio = subprocess.run(["cpio", "-o", "-H", "newc", "--quiet"],
+                          cwd=tmp_path / "tree", input=b"var/lib/dpkg/status\n",
+                          capture_output=True, check=True).stdout
+    initrd = tmp_path / "initrd.gz"
+    initrd.write_bytes(gzip.compress(cpio))
+    got = substrate._initrd_status_packages(initrd, tmp_path)
+    assert got == {"anna", "main-menu"}
+
+
+def test_substrate_cut_is_off_by_default(writer, monkeypatch):
+    monkeypatch.delenv("NCZ_MAGNETAR_SLIM_SUBSTRATE", raising=False)
+    assert writer.slim_substrate_enabled() is False
+    monkeypatch.setenv("NCZ_MAGNETAR_SLIM_SUBSTRATE", "1")
+    assert writer.slim_substrate_enabled() is True
