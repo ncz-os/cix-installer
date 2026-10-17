@@ -112,7 +112,7 @@ run_positive() {
   for comp in driver-compiler-npu level-zero-npu; do
     t="$STAGE/ncz-npu-meta/$comp/triggers"
     [ -f "$t" ] || { echo "missing triggers: $t" >&2; exit 1; }
-    expected="interest-noawait ldconfig /usr/lib/x86_64-linux-gnu"
+    expected="activate-noawait ldconfig"
     actual=$(cat "$t")
     [ "$actual" = "$expected" ] || {
       echo "wrong triggers content: $t (got '$actual')" >&2; exit 1; }

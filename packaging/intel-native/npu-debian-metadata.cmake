@@ -261,10 +261,11 @@ License: MIT
 ")
 
 # ldconfig trigger: exactly one line as required by the task.
-# "interest-noawait" is the modern form. A bare "interest" is an implicit-await
-# trigger: lintian flags it (uses-implicit-await-trigger) and dpkg has to
-# serialise around it.
-set(_triggers_content "interest-noawait ldconfig /usr/lib/x86_64-linux-gnu\n")
+# lintian's libraries/shared/trigger/ldconfig check accepts exactly
+# "activate-noawait ldconfig": it matches the trigger line against
+# /^\s*activate-noawait\s+ldconfig\s*$/. An "interest" trigger, with or
+# without a path, leaves lacks-ldconfig-trigger in place.
+set(_triggers_content "activate-noawait ldconfig\n")
 
 # shlibs entry for libze_intel_npu.so.1.
 # Upstream umd/level_zero_driver/api/CMakeLists.txt sets:
@@ -328,6 +329,19 @@ foreach(_comp IN LISTS _expected_components)
     message(FATAL_ERROR "npu-debian-metadata: ${_changelog}.gz not produced")
   endif()
   file(REMOVE "${_changelog}")
+
+  # --- SONAME for the compiler plugin ---
+  if(_comp STREQUAL "driver-compiler-npu")
+    set(_so "${CPACK_TEMPORARY_DIRECTORY}/driver-compiler-npu/usr/lib/x86_64-linux-gnu/libopenvino_intel_npu_compiler.so")
+    if(EXISTS "${_so}")
+      find_program(_PATCHELF patchelf REQUIRED)
+      execute_process(COMMAND "${_PATCHELF}" --set-soname "libopenvino_intel_npu_compiler.so" "${_so}"
+                      RESULT_VARIABLE _soname_rc ERROR_VARIABLE _soname_err)
+      if(NOT _soname_rc EQUAL 0)
+        message(FATAL_ERROR "npu-debian-metadata: patchelf --set-soname failed (rc=${_soname_rc}): ${_soname_err}")
+      endif()
+    endif()
+  endif()
 
   # --- usrmerge: relocate firmware off the /lib alias ---
   if(_comp STREQUAL "fw-npu")
