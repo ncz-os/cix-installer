@@ -26,21 +26,21 @@
 # PrepareForSleep), 0023 (saver resumes when the prompt lowers), leafs 0001
 # (window buttons with the classic titlebar) and nearby 0001+0002 (links are
 # freed when they close; an open link is kept when the peer announces itself).
-# 20261017070524 is built from the 2026-10-17 upstream heads (superproject
+# 20261017103526 is built from the 2026-10-17 upstream heads (superproject
 # 45c6e8e8, shell a65e9c34, libsingularity 8cb3e804, greeter 09007fda,
-# nearby c17a12a4, plugins 6d989ea5, leafs 143fc0f9, labwc 458dddc5), the
-# greeter 0003 patch refreshed onto 09007fda, and the same queue otherwise.
-# Native rebuilds on HYDRA (amd64) and ULTRA (arm64) at shared build
-# timestamp 20261017070524, branch fix/p3-singularity-head-20261017.
-# libsingularity moved cbf3d7e1 -> 8cb3e804 between these pins, yet the
-# built library is byte-identical across both payloads -- verified
-# 2026-10-17 by expanding both debs and hashing opt/singularity/lib:
-# amd64 libsingularity.so.0 b07dce55c3cd... and
-# libsingularity-system.so.0 4e56dbca3b64...; arm64 8881de20447e... and
-# cb9c9b0f8a3f..., with identical top-level lib listings. The commit move
-# carried no ABI-affecting change, so the ncz-screensavers-plugin 0.3.23
-# pin (post-install/lib/ncz-screensavers-plugin.lock) stays valid under
-# the ABI gate without a plugin rebuild.
+# nearby c17a12a4, plugins 6d989ea5, leafs 143fc0f9, labwc 458dddc5) with
+# greeter 0003 as restored in "greeter 0003: restore the prompt routing and
+# output scale the refresh dropped". Native rebuilds on HYDRA (amd64) and
+# ULTRA (arm64), shared build timestamp 20261017103526; the .sources sidecar
+# of both builds lists the heads above.
+# The earlier 20261017070524 rows were built at a commit whose
+# upstream-pins.tsv still held the 2026-10-14 pins (superproject 13b79e78,
+# libsingularity cbf3d7e1), so they carried the 2026-10-14 sources; that is
+# why their libsingularity matched the plugin lock. With libsingularity at
+# 8cb3e804 the library differs (amd64 324f2b68..., arm64 63b5605b...), so
+# ncz-screensavers-plugin 0.3.23 must be rebuilt against this payload and
+# post-install/lib/ncz-screensavers-plugin.lock updated before these rows
+# can ship (ABI gate verdict MISMATCH until then).
 # 20261014180000 is built from the 2026-10-14 upstream heads (shell 5430ce14,
 # libsingularity cbf3d7e1, plugins 869d2afc, nearby 6b507295, session 2a1f4331,
 # superproject 13b79e78) after the upstream merge of the 2026-10-13 pull requests.
@@ -51,5 +51,5 @@
 # 291821e21f168e5f980d9b2f4954fea62594a20a, with shell 0024 (pause/resume and
 # the 60-second prompt limit). Both installed payloads pass the 74-case lock
 # assertions and independent process cleanup audit; image/hardware gates remain.
-amd64	3065208de485097df924c3487cce316e6a984a55eb7aacc5c7daaa7b04f00cb7	ncz-singularity-desktop_20261017070524+bk0+git7af46722_amd64.deb
-arm64	b0f212db4a4713a4a0f7e525955573cc3b89b59154062a0f03785b45d9cfb52c	ncz-singularity-desktop_20261017070524+bk0+git7af46722_arm64.deb
+amd64	254fd37acbf1fa2edfcf33342d401464a4a38b77a8943880f1fab7107d00dbe4	ncz-singularity-desktop_20261017103526+bk0+gita0a52326_amd64.deb
+arm64	831a2489c6a66daecd95604ee89c007984ef4258435bb1fc55745259e392197f	ncz-singularity-desktop_20261017103526+bk0+gita0a52326_arm64.deb
