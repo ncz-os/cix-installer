@@ -445,6 +445,7 @@ build/test-installer-media-lookup.sh	common	-	installer checks: install media fr
 build/test-installer-screens.sh	common	-	console-screen checker tests
 build/test-installer-flow.sh	common	-	installer dialog flow tests (choosers once per boot, region template, NIC pick)
 build/test-component-selection.sh	common	-	component answer end to end: nothing-ticked is honoured by the selector re-runs and every consumer; dialog failures stop the install
+build/test-magnetar-server-accel.sh	common	-	SCOPE-002: server variant opts in to every accelerator on detected hardware when the COMPONENTS record omits it, desktop stays byte-for-byte unchanged; rEFInd server menu is Console + Rescue Partition only
 post-install/98-gpu-health.sh	common	-	never-software-render health check unit (both architectures)
 assets/gpu/ncz-gpu-hw-present	common	-	shared hardware-GPU-present probe
 build/lint-no-software-render.sh	common	-	grep-deny for software-rendering settings

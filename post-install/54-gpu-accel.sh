@@ -73,6 +73,21 @@ ncz_cuda_status() {
     echo "$1" > "$NCZ_CUDA_STATUS" 2>/dev/null
     echo "[54] CUDA: $1"
 }
+# The install variant, as a plain shell variable (this hook must not leak state
+# into the helpers it sources). /usr/local/lib/cix-installer/BUILD_VARIANT is
+# written by preseed/late.sh into the target root and canonicalised by
+# 48-server-variant.sh, so that is where a real install records the answer;
+# /etc/cix-installer/BUILD_VARIANT is accepted too, and an NCZ_VARIANT already
+# in the environment (a caller that resolved it first) wins over both.
+ncz_variant() {
+    local v="${NCZ_VARIANT:-}" f
+    for f in /usr/local/lib/cix-installer/BUILD_VARIANT /etc/cix-installer/BUILD_VARIANT; do
+        [ -n "$v" ] && break
+        [ -f "$f" ] && v=$(tr -d ' \t\r\n' < "$f")
+    done
+    printf '%s\n' "${v:-desktop}"
+}
+
 ncz_cuda_component_wanted() {
     # The comma-separated COMPONENTS list is the durable record (late.sh and extract-rootfs.sh persist it into the
     # target; the selector's own early writes are destroyed when partman mounts the real root). A list that omits
@@ -80,7 +95,27 @@ ncz_cuda_component_wanted() {
     # record exists at all (older selector, headless run) do we install. Verified 2026-09-29: late.sh used to persist
     # the per-toggle COMPONENTS_<bit> files for the five old bits only, so a COMPONENTS_cuda check alone never saw a
     # decline and installed CUDA anyway.
+    #
+    # MAGNETAR server (SCOPE-002): the server SKU installs every accelerator its
+    # hardware has, so a missing or omitting record is opt-in there rather than
+    # a decline -- an unattended server install records
+    # mgmt-container,rescue-partition (no cuda) and must still get CUDA on an
+    # NVIDIA box. Only an explicit COMPONENTS_cuda=0 declines it on server.
+    # Everything below the server branch is the desktop path, unchanged.
     local f list
+    if [ "$(ncz_variant)" = "server" ]; then
+        for f in /usr/local/lib/cix-installer/COMPONENTS /etc/cix-installer/COMPONENTS /var/lib/cix-components/COMPONENTS; do
+            [ -r "$f" ] || continue
+            list=$(tr -d ' \t\r\n' < "$f")
+            case ",$list," in *,cuda,*) return 0 ;; esac
+            break
+        done
+        for f in /etc/cix-installer/COMPONENTS_cuda /usr/local/lib/cix-installer/COMPONENTS_cuda; do
+            if [ -r "$f" ]; then [ "$(tr -d ' \t\r\n' < "$f")" = 1 ]; return; fi
+        done
+        echo "[54] CUDA: BUILD_VARIANT=server -- no record declines CUDA; installing it for the detected NVIDIA GPU"
+        return 0
+    fi
     for f in /usr/local/lib/cix-installer/COMPONENTS /etc/cix-installer/COMPONENTS /var/lib/cix-components/COMPONENTS; do
         if [ -r "$f" ]; then
             list=$(tr -d ' \t\r\n' < "$f")
@@ -214,11 +249,23 @@ ncz_nvidia_dynamic_setup() {
 
 echo "[54] AMD64 GPU/accelerator vendor detection + real driver-repo wiring"
 
-VARIANT=desktop
-[ -f /usr/local/lib/cix-installer/BUILD_VARIANT ] && \
-    VARIANT=$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)
+# The install variant. ncz_variant() is the single resolver: NCZ_VARIANT
+# from the environment, else the BUILD_VARIANT record late.sh persists into
+# /usr/local/lib/cix-installer, else desktop. It stays a plain shell variable
+# read by this hook only -- nothing here is exported into the helpers.
+VARIANT=$(ncz_variant)
 case "$VARIANT" in
-    server|headless)
+    server)
+        # MAGNETAR (SCOPE-002): the server SKU installs every accelerator its
+        # detected hardware has, so the headless skip below does NOT apply.
+        # Nothing here is unconditional: every vendor block further down is
+        # gated on its own detected PCI device, so a server box with no
+        # accelerator stays a silent no-op, and a COMPONENTS record that omits
+        # an accelerator is not treated as a decline on this variant
+        # (ncz_cuda_component_wanted).
+        echo "[54] BUILD_VARIANT=server — server SKU: wiring every accelerator the detected hardware has"
+        ;;
+    headless)
         echo "[54] BUILD_VARIANT=$VARIANT — headless SKU; skipping GPU accelerator wiring"
         ncz_cuda_status "skipped:headless-variant"
         exit 0
