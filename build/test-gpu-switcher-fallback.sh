@@ -229,6 +229,35 @@ rc=$(runsw)
 [ "$rc" = 0 ] && grep -q 'selected none (rescue/no-accelerators entry)' "$SB/out" \
     && ok "sky1.gpu=none announced (file lacks the line, but journal carries it)" || bad "sky1.gpu=none not announced (rc=$rc)" "$(cat "$SB/out" "$SB/err")"
 
+# A consistency check that ties the file-published record to the journal-published
+# one: the stack named on stdout must be the same stack whose "# Selected:" line
+# the file ends up with (or, for sky1.gpu=none, the absence of a "Selected:" line
+# must be paired with the "selected none" line on stdout). A reader who only
+# inspects modprobe.d and a reader who only inspects journald must both see the
+# same answer. A regression where one was updated and the other was not would
+# ship in a code path nobody runs in isolation.
+mksb "root=x sky1.gpu=vendor" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko
+rc=$(runsw)
+if [ "$rc" = 0 ] \
+    && grep -q 'selected mali (recorded in '"$BL"')' "$SB/out" \
+    && grep -q '^# Selected: mali' "$BL" \
+    && ! grep -q '^# Selected: panthor' "$BL"; then
+    ok "mali: file and journal agree on 'mali'"
+else
+    bad "mali: file and journal disagree (rc=$rc)" "$(cat "$SB/out" "$SB/err" "$BL" 2>/dev/null)"
+fi
+
+mksb "root=x sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko panthor.ko
+rc=$(runsw)
+if [ "$rc" = 0 ] \
+    && grep -q 'selected panthor (recorded in '"$BL"')' "$SB/out" \
+    && grep -q '^# Selected: panthor' "$BL" \
+    && ! grep -q '^# Selected: mali' "$BL"; then
+    ok "panthor: file and journal agree on 'panthor'"
+else
+    bad "panthor: file and journal disagree (rc=$rc)" "$(cat "$SB/out" "$SB/err" "$BL" 2>/dev/null)"
+fi
+
 echo "=== switcher: the blacklist file is published atomically (single write) ==="
 # The file must never be observable half-written: modprobe.d is read by udev
 # coldplug (which can run concurrently with this unit) and by any `modprobe` on
