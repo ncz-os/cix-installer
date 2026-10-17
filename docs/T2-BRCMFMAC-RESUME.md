@@ -28,9 +28,11 @@ reload before `PM: suspend exit`; it never showed Wi-Fi staying down.
 
 ## Why not unload the driver around suspend
 
-That was tried (unload in a system-sleep `pre` hook, reload in `post`) and it
-breaks Wi-Fi until reboot: with no driver bound, the PCI core let the card go to
-D3cold during S3, and on resume
+That was tried (unload in a system-sleep `pre` hook — i.e.
+`/usr/lib/systemd/system-sleep/`, where this image already ships
+`ncz-t2-power-cap` — and reload in `post`) and it breaks Wi-Fi until reboot:
+with no driver bound, the PCI core let the card go to D3cold during S3, and on
+resume
 
     brcmfmac 0000:05:00.0: Unable to change power state from D3cold to D0, device inaccessible
     brcmf_pcie_probe: failed 14e4:4464
@@ -38,8 +40,18 @@ D3cold during S3, and on resume
 and wlan0 is gone. Removing and rescanning the port does not bring it back.
 `modprobe -r brcmfmac_wcc` also takes brcmfmac with it as an unused dependency.
 
-`build/test-t2-wifi-no-unload.sh` fails the build if any hook unloads or unbinds
-brcmfmac in a sleep path.
+The same holds outside a sleep path: once the card is unbound from brcmfmac it
+is one PCI power transition away from D3cold, so nothing in this tree unbinds
+it — not the installer either. `preseed.cfg` used to unbind every wireless
+interface it found on Apple hardware (`echo ... > "$_wdev/driver/unbind"`) so
+that d-i's netcfg would never offer it; that early_command runs before any
+installed system exists, so the card sat unbound until the first boot, and no
+hook binds it back before the first resume. It now only blacklists the
+wireless modules and leaves them bound: `net-pick.sh` ranks a wireless
+interface 9 and never picks it, which is what actually kept netcfg off the
+radio. `build/test-t2-wifi-no-unload.sh` fails the build if any installer file
+unloads or unbinds brcmfmac; it is not limited to `*.sh`, because that unbind
+lived in `preseed.cfg`.
 
 ## Upstream
 
