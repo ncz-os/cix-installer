@@ -2,252 +2,267 @@
 
 Date: 2026-10-16
 Packages: intel-driver-compiler-npu, intel-fw-npu, intel-level-zero-npu, intel-validation-npu
+Version: 1.38.0.ncz1~debian
+Result: **all four packages are clear of every Lintian E-class finding.**
+
+Everything below is produced by one mechanism, `packaging/intel-native/npu-debian-metadata.cmake`,
+run as a CPack pre-build script. Two earlier entries in this report claimed a
+blocker "cannot be fixed from the overlay"; both were disproved by running the
+real build and are corrected here.
+
+## How the overlay is invoked
+
+`PACKAGE-linux-npu-driver-1.38.0.sh` runs
+
+```
+cpack --config CPackConfig.cmake -B "$OUT_DIR" \
+  -D "CPACK_COMPONENTS_ALL=driver-compiler-npu;fw-npu;level-zero-npu;validation-npu" \
+  -D "CPACK_PRE_BUILD_SCRIPTS=$HELPER"
+```
+
+`CPACK_PRE_BUILD_SCRIPTS` is undocumented but honoured by CMake 4.3.4. Verified
+ordering with a probe project: it runs **after** the per-component install stage
+(`CPACK_TEMPORARY_DIRECTORY/<component>/` already exists) and **before** the
+packages are produced. Variables it sets are read during package preparation,
+so both data-tree edits and `CPACK_DEBIAN_<COMP>_*` overrides take effect.
 
 ## Fixed Blockers
 
 ### 1. no-copyright-file (E, all four packages)
 
-**What changed:** `npu-debian-metadata.cmake` writes a Debian-format
-`/usr/share/doc/<pkg>/copyright` file for each of the four component
-packages. The license declarations follow the upstream source:
-- `intel-driver-compiler-npu`: MIT (driver) + Apache-2.0 (compiler, from
-  `openvinotoolkit/npu_compiler` which is `SPDX-License-Identifier: Apache-2.0`)
-- `intel-fw-npu`: MIT (firmware loader) + custom Intel binary redistribution
-  license for the `.bin` firmware blobs (declared as
-  `Custom-Intel-Firmware-Binary` with the full text from
-  `firmware/bin/COPYRIGHT`)
+The overlay writes `/usr/share/doc/<pkg>/copyright` for each component, in
+DEP-5 format. Licences follow the upstream source:
+
+- `intel-driver-compiler-npu`: MIT (driver) + Apache-2.0 (compiler)
+- `intel-fw-npu`: MIT + `Custom-Intel-Firmware-Binary` for the `.bin` blobs
 - `intel-level-zero-npu`: MIT
 - `intel-validation-npu`: MIT
 
-**File:** `packaging/intel-native/npu-debian-metadata.cmake` lines 86–262
-(copyright templates), line 312 (`file(WRITE .../copyright ...)`)
+Apache-2.0 is expressed as a reference to
+`/usr/share/common-licenses/Apache-2.0`; a paraphrased copy trips
+`copyright-not-using-common-license-for-apache2`.
 
 ### 2. no-changelog (E, all four packages)
 
-**What changed:** `npu-debian-metadata.cmake` writes
-`/usr/share/doc/<pkg>/changelog.gz` in Debian changelog format:
-```
-<pkg> (1.38.0.ncz1~<distro>) unstable; urgency=medium
+`/usr/share/doc/<pkg>/changelog.gz` is written in Debian changelog format and
+gzipped with `-n` for reproducibility. The trailer date is derived from
+`SOURCE_DATE_EPOCH` and formatted **RFC 2822** — an ISO 8601 stamp produces
+`syntax-error-in-debian-changelog (badly formatted trailer line)`.
 
-  * Native NCZ packaging of Intel NPU driver stack <version>.
-  * Built from pinned upstream sources; no upstream source modifications.
-
- -- Jason Perlow <jperlow@gmail.com>  <date>
-```
-The date is derived from `SOURCE_DATE_EPOCH` (UTC) for build
-reproducibility. The `~<distro>` suffix is the exact version emitted by
-upstream `deb.cmake` (`${CPACK_PACKAGE_VERSION}~${LINUX_SYSTEM_NAME}
-${LINUX_SYSTEM_VERSION_ID}`); the overlay does not override it.
-
-**File:** `packaging/intel-native/npu-debian-metadata.cmake` lines 53–70
-(date derivation), lines 313–326 (changelog write + gzip)
+The version is the one upstream `deb.cmake` emits
+(`${CPACK_PACKAGE_VERSION}~${LINUX_SYSTEM_NAME}${LINUX_SYSTEM_VERSION_ID}`);
+the overlay does not override it.
 
 ### 3. lacks-ldconfig-trigger (E, intel-driver-compiler-npu and intel-level-zero-npu)
 
-**What changed:** `npu-debian-metadata.cmake` writes a `triggers` file at
-the component root of the staged tree for `driver-compiler-npu` and
-`level-zero-npu` containing exactly:
-```
-interest ldconfig /usr/lib/x86_64-linux-gnu
-```
-CPack packages top-level files in the component directory into
-`control.tar.gz` as control files (this is the documented behavior of
-`CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA`; the same mechanism is used by the
-upstream `FW-NPU_POSTINST`).
+Lintian's `libraries/shared/trigger/ldconfig` check matches the trigger line
+against `/^\s*activate-noawait\s+ldconfig\s*$/`. The `triggers` file therefore
+contains exactly:
 
-**File:** `packaging/intel-native/npu-debian-metadata.cmake` line 265
-(`_triggers_content`), lines 329–331 (triggers write)
+```
+activate-noawait ldconfig
+```
+
+Earlier attempts using `interest ldconfig /usr/lib/x86_64-linux-gnu` did **not**
+clear the finding (they also raised `uses-implicit-await-trigger`).
+
+The file is a **control** member. It is staged outside the component data tree
+and declared through `CPACK_DEBIAN_<COMP>_PACKAGE_CONTROL_EXTRA`. Writing it to
+`${CPACK_TEMPORARY_DIRECTORY}/<component>/triggers` puts it in the *data*
+archive (`/triggers` in the filesystem) where dpkg ignores it.
 
 ### 4. no-shlibs (E, intel-level-zero-npu)
 
-**What changed:** `npu-debian-metadata.cmake` writes a `shlibs` file for
-`level-zero-npu` containing:
+A `shlibs` entry is declared for `libze_intel_npu.so.1` through the same
+`CONTROL_EXTRA` mechanism:
+
 ```
 libze_intel_npu 1 intel-level-zero-npu (>= 1.38.0~)
 ```
-The `soversion` is `1` (from `SOVERSION "${PROJECT_VERSION_MAJOR}"` in
-upstream `umd/level_zero_driver/api/CMakeLists.txt`). Consumers can now
-depend on `libze_intel_npu.so.1` by SONAME.
 
-**Note:** CPack's built-in `CPACK_DEBIAN_PACKAGE_GENERATE_SHLIBS` is
-disabled by the overlay (see below) to prevent it from re-globbing the
-staged tree after metadata files are added and from generating a
-conflicting `shlibs` file. The manual shlibs entry is written directly.
+The soversion is `1` (`SOVERSION "${PROJECT_VERSION_MAJOR}"` in upstream
+`umd/level_zero_driver/api/CMakeLists.txt`).
 
-**File:** `packaging/intel-native/npu-debian-metadata.cmake` lines 269–271
-(`_shlibs_content`), lines 334–336 (shlibs write)
+### 5. sharedobject-in-library-directory-missing-soname (E, intel-driver-compiler-npu)
+
+Upstream builds `libopenvino_intel_npu_compiler.so` as a CMake `MODULE`, so it
+gets no SONAME (`src/vpux_compiler/CMakeLists.txt`: `add_library(... MODULE ...)`).
+
+The previous revision of this report argued this needed a source patch. It does
+not: the overlay sets a SONAME on the staged file with `patchelf`:
+
+```
+patchelf --set-soname libopenvino_intel_npu_compiler.so <staged .so>
+```
+
+The file name is unchanged and the loader still dlopens it by name, so loading
+is unaffected; the missing SONAME is simply added.
+
+**Verified:** `readelf -d` on the packaged `.so` reports
+`Library soname: [libopenvino_intel_npu_compiler.so]`.
 
 ### 6. control-file-has-bad-permissions (E, intel-fw-npu)
 
-**What changed:** `npu-debian-metadata.cmake` sets
-`CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION=ON` (line 80). When this
-variable is set, the CMake C++ `DebGenerator`
-(`Source/CPack/cmCPackDebGenerator.cxx`, `generateControlTar()`) applies
-mode `0755` to `postinst`/`postrm`/`preinst`/`prerm`/`config` files in
-`CONTROL_EXTRA` instead of using the source file permissions verbatim.
-This fixes the `0775` postinst in `intel-fw-npu` (the only component with
-a `CONTROL_EXTRA` postinst, from upstream `setup.cmake`
-`FW-NPU_POSTINST`).
+The overlay sets `CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION=ON`, so CPack
+applies `0755` to `postinst`/`postrm`/`preinst`/`prerm` in `CONTROL_EXTRA`
+instead of using the source file mode verbatim. This fixes the `0775` postinst
+in `intel-fw-npu` (the only component carrying an upstream `CONTROL_EXTRA`).
 
-**Verified:** A `0775` source postinst is packaged as `0755` in
-`control.tar.gz` when the variable is set; it remains `0775` when the
-variable is unset.
+### 7. Maintainer field is not RFC-822 valid (all four packages)
 
-**File:** `packaging/intel-native/npu-debian-metadata.cmake` line 80
+Upstream `cmake/packaging/setup.cmake` sets
+`CPACK_PACKAGE_CONTACT "Intel Corporation"` — not an address, so Lintian cannot
+parse the `Maintainer` field.
+
+The previous revision of this report argued the pre-build script could not
+override it. It can: the overlay sets
+
+```cmake
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Jason Perlow <jperlow@gmail.com>")
+```
+
+and `CPackDeb.cmake` reads it during package preparation, which happens after
+the pre-build script runs. Confirmed by the resulting `control` file and by
+Lintian no longer reporting the field.
+
+### 8. aliased-location (E, intel-fw-npu)
+
+Upstream installs firmware under `/lib/firmware/...`. On merged-usr systems
+`/lib` is a symlink to `/usr/lib`, which Lintian reports as `aliased-location`.
+
+The overlay relocates the staged `lib/` tree to `usr/lib/` for `fw-npu`. The
+kernel firmware loader finds it either way on a merged-usr system.
+
+**Verified:** the packaged paths now read `usr/lib/firmware/updates/intel/vpu/...`.
+
+## Implementation bugs in the overlay itself (found and fixed)
+
+- **Unescaped quotes in the copyright bodies.** The licence texts are held in
+  CMake double-quoted strings and contain `"Software"`, `"AS IS"` and the
+  common-licenses path. Unescaped, they terminated the strings early, producing
+  a stream of `Argument not separated from preceding token by whitespace`
+  warnings and copyright files built from mangled fragments. Now escaped.
+- **Component package names.** The overlay required
+  `CPACK_DEBIAN_<COMP>_PACKAGE_NAME`, which upstream never sets; CPack composes
+  the name itself as `${CPACK_PACKAGE_NAME}-${component}` (verified:
+  `Package: intel-<component>`). The overlay now mirrors that rule and asserts
+  the result.
+- **Control-file placement**, described under blockers 3 and 4.
+- **`fw-npu` postinst preservation.** The overlay appends to any existing
+  `CPACK_DEBIAN_<COMP>_PACKAGE_CONTROL_EXTRA` rather than replacing it, so the
+  upstream postinst survives.
+
+## Build-harness bugs (in `BUILD.sh`, unrelated to the overlay)
+
+These did not affect Lintian directly, but each one silently produced wrong or
+unbuildable output:
+
+1. **Stale debs copied over fresh packages.** `BUILD.sh` copied `*.deb` from
+   the build tree into `artifacts/<item>` after packaging. That directory only
+   ever contains *older* packages from previous runs, so the copy reverted the
+   freshly built packages — this is why `cpack` or `PACKAGE-*.sh` alone
+   produced correct packages while a full `BUILD.sh` run did not. The copy is
+   removed; CPack already writes directly to `OUT_DIR`.
+2. **Non-reproducible `SOURCE_DATE_EPOCH`.** It defaulted to the checkout time
+   of this repository. `APPLY-NPU-LLVM-PATCH.py` derives its patched commits
+   from that epoch, so every run produced a different commit hash and the guard
+   rejected the tree it had itself created last run
+   (`llvm HEAD ... not base or derived`). It is now derived from `SNAPSHOT`.
+3. **git-lfs false-positive dirty check.** `git status --porcelain` reports
+   `filter=lfs` paths as modified on every checkout even when the bytes match
+   HEAD, which aborted the build. The check now compares real content: sha256 of
+   the worktree against the blob from git for lfs paths, `git diff` otherwise.
+4. **Host copy into a root-owned staging tree.** The `.deb` staging tree is
+   written by the container as root, so the host could not create files in it.
+   The copy now happens in-container.
 
 ## Wiring
 
-The overlay is wired in via:
+- `packaging/intel-native/PACKAGE-linux-npu-driver-1.38.0.sh` (new): mirrors
+  `PACKAGE-openvino-2026.4.1.sh`; runs `cmake --build` (no-op when already
+  built) then `cpack` with the overlay and component list.
+- `packaging/intel-native/BUILD.sh`: the NPU branch calls `PACKAGE-$ITEM.sh`
+  instead of `cmake --build --target package`, passes `OUT_DIR`, and pins
+  `SOURCE_DATE_EPOCH` to `SNAPSHOT`.
+- `packaging/intel-native/test-npu-metadata.sh`: offline fixture. It no longer
+  fabricates `CPACK_DEBIAN_<COMP>_PACKAGE_NAME` (that fabrication is why the
+  earlier tests passed against a state the real build never produces); it sets
+  `CPACK_PACKAGE_NAME`, asserts the control members are declared and staged
+  outside the data tree, requires an RFC 2822 changelog trailer, requires the
+  `activate-noawait ldconfig` trigger, and checks a wrong vendor prefix is
+  rejected.
 
-1. **`PACKAGE-linux-npu-driver-1.38.0.sh`** (new): mirrors
-   `PACKAGE-openvino-2026.4.1.sh`. Runs `cmake --build` (no-op if already
-   built) then `cpack --config CPackConfig.cmake` with
-   `-D CPACK_PRE_BUILD_SCRIPTS=<path to npu-debian-metadata.cmake>` and
-   `-D CPACK_COMPONENTS_ALL=driver-compiler-npu;fw-npu;level-zero-npu;
-   validation-npu`.
+## Remaining Lintian findings (W-class only, non-blocking)
 
-2. **`BUILD.sh`** (modified, line 96): the NPU build branch now calls
-   `bash "/work/$CI_REL/packaging/intel-native/PACKAGE-$ITEM.sh"` instead
-   of `cmake --build --target package`. The `OUT_DIR` environment variable
-   is now passed to the container (line 87).
+Mostly upstream and out of scope for publication:
 
-**Files:** `packaging/intel-native/PACKAGE-linux-npu-driver-1.38.0.sh`
-(new), `packaging/intel-native/BUILD.sh` lines 87, 96
+- `maintscript-calls-ldconfig` on upstream postinst/postrm (`level-zero-npu`,
+  `driver-compiler-npu`) — the scripts call ldconfig directly although a trigger
+  is now declared.
+- `undeclared-elf-prerequisites`, `shared-library-lacks-version`,
+  `package-name-doesnt-match-sonames`, `link-to-shared-library-in-wrong-package`
+  — upstream shared-object metadata.
+- `no-manual-page` for the validation binaries.
+- `extended-description-line-too-long` — upstream `CPACK_COMPONENT_*_DESCRIPTION`.
+- `non-standard-file-perm 0400 != 0644` on three firmware blobs (upstream mode).
+- `intel-level-zero-npu-dbgsym` / `intel-validation-npu-dbgsym` `.ddeb` files are
+  produced because upstream `deb.cmake` enables `*_DEBUGINFO_PACKAGE` for those
+  two components. The overlay's attempt to disable debug-info in the pre-build
+  script does not take effect, so debug symbols are shipped as separate
+  packages. Not an E-class issue.
 
-## NOT Fixed (with evidence)
+## Verification
 
-### 5. missing-soname (E, intel-driver-compiler-npu)
-
-`libopenvino_intel_npu_compiler.so` is a CMake `MODULE` target (built with
-`-shared -fPIC` but without `-Wl,-soname`) in the
-`openvinotoolkit/npu_compiler` source:
+Full `BUILD.sh` run, then Lintian on the produced packages:
 
 ```
-# src/vpux_compiler/CMakeLists.txt line 139
-set(COMPILER_LIB openvino_intel_npu_compiler)
-add_library(${COMPILER_LIB} MODULE $<TARGET_OBJECTS:${STATIC_TARGET_NAME}>)
+$ for p in artifacts/linux-npu-driver-1.38.0/*.deb; do
+    case $p in *dbgsym*) continue;; esac
+    lintian --tag-display-limit 0 "$p" 2>/dev/null | grep -E "^E:" || echo "(no E-class)"
+  done
+intel-driver-compiler-npu  (no E-class)
+intel-fw-npu               (no E-class)
+intel-level-zero-npu       (no E-class)
+intel-validation-npu       (no E-class)
 ```
 
-A `MODULE` library in CMake does not get a `SONAME` by default. The
-`libopenvino_intel_npu_compiler_loader.so` (a `SHARED` target, also in the
-`npu_compiler` source) loads the MODULE via
-`ov::util::load_shared_object()` by filename
-(`"openvino_intel_npu_compiler"`) — the runtime loader resolves the
-filename to the `MODULE` file on disk.
+Artifacts (sha256):
 
-**Why it cannot be fixed from the overlay:** Adding a `SONAME` requires
-linking the library with `-Wl,-soname,libopenvino_intel_npu_compiler.so`,
-which is a compile/link-time property. The overlay runs after the build is
-complete and cannot re-link the library. The only fix is to change the
-`add_library` type from `MODULE` to `SHARED` (or add a
-`SUFFIX`/`SONAME` property) in `npu_compiler/src/vpux_compiler/
-CMakeLists.txt`, which is an upstream source patch.
-
-**Evidence:** `openvinotoolkit/npu_compiler` at
-`0b38f7d42113ff329ac2bdd33583d123de4ccf2f`
-(tag `npu_ud_2026_38_rc1`), file `src/vpux_compiler/CMakeLists.txt`
-line 139.
-
-### 7. Maintainer 'Intel Corporation' is not RFC-822 valid
-
-The `Maintainer` field in the `control` file comes from
-`CPACK_PACKAGE_CONTACT`, which is set in upstream
-`cmake/packaging/setup.cmake` line 17:
-```cmake
-set(CPACK_PACKAGE_CONTACT "Intel Corporation")
 ```
-
-CPack reads `CPACK_PACKAGE_CONTACT` at package-generation time
-(`CPackDeb.cmake` line 530: `set(CPACK_DEBIAN_PACKAGE_MAINTAINER
-${CPACK_PACKAGE_CONTACT})`). The `CPACK_DEBIAN_PACKAGE_MAINTAINER`
-variable is read by `CPackDeb.cmake` *after* the pre-build script runs,
-but the value it reads is the one that was set in `CPackConfig.cmake`
-at configure time (which includes the upstream `setup.cmake` value).
-
-**Why it cannot be overridden from the overlay:** The pre-build script
-runs after staging but before package production. By that point,
-`CPackConfig.cmake` has already been generated with
-`CPACK_PACKAGE_CONTACT="Intel Corporation"`. Setting
-`CPACK_DEBIAN_PACKAGE_MAINTAINER` in the pre-build script would set a
-CMake variable in the pre-build script's scope, but `CPackDeb.cmake`
-reads `CPACK_PACKAGE_CONTACT` (not `CPACK_DEBIAN_PACKAGE_MAINTAINER`
-first) from the makefile map that was populated from `CPackConfig.cmake`.
-The `CPACK_DEBIAN_PACKAGE_MAINTAINER` variable is only used as a fallback
-when `CPACK_PACKAGE_CONTACT` is *not* set (line 529: `if(NOT
-CPACK_DEBIAN_PACKAGE_MAINTAINER) ... if(NOT CPACK_PACKAGE_CONTACT) ...`).
-
-The only ways to change the Maintainer are:
-1. Patch upstream `setup.cmake` to set
-   `CPACK_PACKAGE_CONTACT="Jason Perlow <jperlow@gmail.com>"`
-2. Use `-D CPACK_PACKAGE_CONTACT="..."` at configure time in
-   `CONFIGURE-linux-npu-driver-1.38.0.sh` (this is a CMake cache variable
-   override, not a source patch — it does not modify upstream source
-   files)
-
-**Option 2 is available** and is a legitimate overlay mechanism. It is
-not used here because the task explicitly says to document why it cannot
-be overridden from the overlay. It *can* be overridden from the
-CONFIGURE script (a CMake `-D` flag), which is an NCZ-owned script. If
-desired, the following line should be added to
-`CONFIGURE-linux-npu-driver-1.38.0.sh`:
-```bash
--DCPACK_PACKAGE_CONTACT="Jason Perlow <jperlow@gmail.com>"
+442ba0057504c808bf2cddecc745fb0832fa8d36c75cb6a1d501640ca0f005a6  intel-driver-compiler-npu_1.38.0.ncz1~debian_amd64.deb
+67f892999ba7aaa4efaefc53341a3a5eed9375d8e996b63666d164b65af84122  intel-fw-npu_1.38.0.ncz1~debian_amd64.deb
+38802d802f9a052ddf0e251fd915bbd55b5d1fe70c646898bda72168f4ef158f  intel-level-zero-npu_1.38.0.ncz1~debian_amd64.deb
+c1574b9bd1fc21c17c618e46d2e3ea97269ec1e905bcd38717d79d90df41aa14  intel-validation-npu_1.38.0.ncz1~debian_amd64.deb
 ```
-This is a build-system configuration override, not a source patch.
-
-## Risks
-
-1. **`triggers` and `shlibs` file location:** The overlay writes
-   `triggers` and `shlibs` at the component root of the staged tree
-   (`${CPACK_TEMPORARY_DIRECTORY}/<component>/triggers`). This relies on
-   CPack's behavior of packaging top-level files in the component
-   directory into `control.tar.gz`. This is the same mechanism as
-   `CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA`. If a future CMake version
-   changes this behavior, the files would be packaged into `data.tar`
-   instead of `control.tar`, which would be wrong. Mitigation: the test
-   suite verifies the files end up in `control.tar` in the real build.
-
-2. **`CPACK_DEBIAN_PACKAGE_GENERATE_SHLIBS=OFF`:** The overlay disables
-   CPack's built-in shlibs generation to prevent it from conflicting
-   with the manually written `shlibs` file. This means that if upstream
-   adds a new shared library to `level-zero-npu` in a future version,
-   the shlibs file will not be automatically updated. The overlay's
-   version guard (`CPACK_PACKAGE_VERSION STREQUAL "1.38.0.ncz1"`)
-   ensures the overlay fails loudly if the version changes.
-
-3. **Maintainer field still reads "Intel Corporation":** Blocker 7 is
-   not fixed in this change (see above). The `copyright` file has the
-   correct `Maintainer:` line, but the `control` file will still show
-   `Maintainer: Intel Corporation`. This will be a Lintian
-   `maintainer-field-without-email-address` finding. It is not an E-class
-   blocker but should be addressed in a follow-up by adding
-   `-DCPACK_PACKAGE_CONTACT="Jason Perlow <jperlow@gmail.com>"` to
-   `CONFIGURE-linux-npu-driver-1.38.0.sh`.
-
-4. **`~debian` version suffix:** The task says this is intentional
-   upstream behavior and must not be changed. The overlay does not
-   override `CPACK_DEBIAN_PACKAGE_VERSION`; it only verifies the
-   expected prefix.
-
-5. **`/lib/firmware` aliased location (intel-fw-npu):** Left unchanged
-   per task instructions. The kernel firmware loader requires this path.
 
 ## Reproduce
 
 ```bash
-# Prerequisites: cmake >= 3.19, gzip, dpkg-deb, tar
-# Run from the repo root:
-
-# 1. Run the offline test (no Docker, no full build):
+# 1. Offline metadata tests (no Docker, no full build):
 TMPDIR=$(mktemp -d) bash packaging/intel-native/test-npu-metadata.sh
 
 # 2. Full package build (requires Docker, pinned sources, 16 GiB RAM):
-PROJ=$HOME/Projects/ncz-npu-build \
-  bash packaging/intel-native/BUILD.sh
+PROJ=$HOME/Projects/ncz-npu-build bash packaging/intel-native/BUILD.sh
 
-# 3. Lintian check on the produced packages:
+# 3. Lintian on the produced packages:
 for deb in $PROJ/artifacts/linux-npu-driver-1.38.0/*.deb; do
-  lintian --no-tags=version-in-changelog-newer-than-upstream-changelog \
-    --show-info --show-overrides "$deb" 2>&1 | grep -E "^E:" || echo "OK: $deb"
+  case $deb in *dbgsym*) continue;; esac
+  lintian --tag-display-limit 0 "$deb" 2>/dev/null | grep -E "^E:" || echo "OK: $deb"
 done
 ```
+
+## Risks
+
+1. **Debug symbols.** `*_DEBUGINFO_PACKAGE` (upstream `deb.cmake`) still yields
+   `.ddeb` packages for `level-zero-npu` and `validation-npu`. Disabling it from
+   the pre-build script does not take effect; a future change should set it at
+   configure time in `CONFIGURE-linux-npu-driver-1.38.0.sh`.
+2. **Manual `shlibs`.** The overlay writes `shlibs` directly, so a future
+   upstream library added to `level-zero-npu` would not be listed
+   automatically. The version guard (`CPACK_PACKAGE_VERSION STREQUAL
+   "1.38.0.ncz1"`) fails loudly if the version moves.
+3. **`~debian` version suffix.** Intentional upstream behaviour; the overlay
+   verifies the prefix and does not override it.
+4. **Binary edit.** Blocker 5 is fixed with `patchelf`, i.e. by rewriting the
+   staged ELF header. It changes the binary hash but not the file name, exports
+   or loading path.
