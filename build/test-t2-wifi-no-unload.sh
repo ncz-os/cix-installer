@@ -1,32 +1,65 @@
 #!/bin/bash
-# test-t2-wifi-no-unload.sh -- no installer hook may unload or unbind brcmfmac
+# test-t2-wifi-no-unload.sh -- no installer file may unload or unbind brcmfmac
 # around suspend. Doing so leaves the T2 BCM4364 in D3cold after resume and
 # Wi-Fi is gone until reboot (docs/T2-BRCMFMAC-RESUME.md). The driver recovers
 # from its own resume-time firmware crash, so no sleep hook is needed at all.
+#
+# Each shell command (backslash continuations joined, # comments dropped, split
+# on ; && || | &) is a hit when it names brcmfmac and also carries an unload: modprobe with -r in any
+# short-option cluster or --remove, in any position; rmmod; kmod remove; or a
+# write to the driver's sysfs unbind/remove. Scope is unload/unbind by name: a
+# PCI remove by device path (/sys/bus/pci/devices/<bdf>/remove) has no driver
+# name in it, and neither is an unload through a variable (modprobe -r "$m"):
+# both are out of reach of a static check.
 set -u
 cd "$(dirname "$0")/.."
 fail=0
-# modprobe with -r anywhere in a short-option cluster (-r, -rv, -q -r) or
-# --remove, rmmod, kmod remove, or a write to the brcmfmac driver's sysfs unbind/remove.
-pat='(modprobe[^#]*[[:space:]](-[a-zA-Z]*r[a-zA-Z]*|--remove)([[:space:]]|$)|rmmod|kmod[[:space:]]+remove)[^#]*brcmfmac|brcmfmac[^#]*/(unbind|remove)'
-# Per file, so the line prefix is just N: (a file name may contain a colon).
-hits=$(grep -rlE "$pat" post-install preseed assets 2>/dev/null | while IFS= read -r f; do
-    grep -nE "$pat" "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$f:|"
+scan() {   # stdin: a file; prints "N: line" for every hit
+    awk '
+    function hit(l,   t) {
+        if (l !~ /brcmfmac/) return 0
+        if (l ~ /(^|[^[:alnum:]_])rmmod([[:space:]]|$)/) return 1
+        if (l ~ /(^|[^[:alnum:]_])kmod[[:space:]]+remove([[:space:]]|$)/) return 1
+        if (l ~ /brcmfmac[^[:space:]]*\/(unbind|remove)([^[:alnum:]_]|$)/) return 1
+        if (l ~ /(^|[^[:alnum:]_])modprobe([[:space:]]|$)/) {
+            t = l; sub(/.*(^|[^[:alnum:]_])modprobe([[:space:]]|$)/, " ", t)
+            if (t ~ /[[:space:]](-[[:alpha:]]*r[[:alpha:]]*|--remove)([[:space:]]|$)/) return 1
+        }
+        return 0
+    }
+    {
+        line = $0
+        if (cont != "") { line = cont " " line; cont = ""; }
+        if (line ~ /\\$/) { sub(/\\$/, "", line); cont = line; next }
+        code = line; sub(/(^|[[:space:]])#.*$/, "", code)
+        n = split(code, cmd, /;|&&|\|\||\||&/); h = 0
+        for (i = 1; i <= n; i++) if (hit(cmd[i])) { h = 1; break }
+        if (h) print start ": " cmd[i]
+        start = NR + 1
+    }
+    BEGIN { start = 1 }
+    '
+}
+hits=$(grep -rlE 'brcmfmac' post-install preseed assets 2>/dev/null | while IFS= read -r f; do
+    scan < "$f" | sed "s|^|$f:|"
 done)
 if [ -n "$hits" ]; then
     echo "FAIL brcmfmac is unloaded/unbound by an installer file:"; echo "$hits"; fail=1
 fi
-# Negative control: the pattern must catch the shape that broke Wi-Fi.
-for s in 'modprobe -r brcmfmac' 'modprobe --remove brcmfmac' 'modprobe -q -r brcmfmac_wcc brcmfmac' 'modprobe -rv brcmfmac' \
-         'rmmod brcmfmac_wcc' 'kmod remove brcmfmac' 'modprobe -r brcmfmac # trailing comment' \
-         'echo 0000:05:00.0 > /sys/bus/pci/drivers/brcmfmac/unbind'; do
-    printf '%s\n' "$s" | grep -qE "$pat" || { echo "FAIL pattern misses: $s"; fail=1; }
+# Controls: every unload shape must be caught, every load must not be.
+for s in 'modprobe -r brcmfmac' 'modprobe --remove brcmfmac' 'modprobe -q -r brcmfmac_wcc brcmfmac' \
+         'modprobe -rv brcmfmac' 'modprobe brcmfmac -r' '/sbin/modprobe -r brcmfmac' 'rmmod brcmfmac_wcc' \
+         'kmod remove brcmfmac' 'modprobe -r brcmfmac # trailing comment' \
+         'echo 0000:05:00.0 > /sys/bus/pci/drivers/brcmfmac/unbind' $'modprobe -r \\\n    brcmfmac' \
+         'true; modprobe -r brcmfmac && echo done'; do
+    [ -n "$(printf '%s\n' "$s" | scan)" ] || { echo "FAIL control not caught: $s"; fail=1; }
 done
-for s in 'modprobe brcmfmac' 'modprobe -q brcmfmac' 'modprobe brcmfmac roamoff=1'; do
-    printf '%s\n' "$s" | grep -qE "$pat" && { echo "FAIL pattern wrongly matches a load: $s"; fail=1; }
+for s in 'modprobe brcmfmac' 'modprobe -q brcmfmac' 'modprobe brcmfmac roamoff=1' \
+         '# modprobe -r brcmfmac is forbidden here' 'echo brcmfmac >> /etc/modules-load.d/x.conf' \
+         'modprobe --show-depends brcmfmac' \
+         'echo blacklist brcmfmac > /etc/modprobe.d/x.conf ; modprobe ext4 ; [ -r /x ] && echo y'; do
+    [ -z "$(printf '%s\n' "$s" | scan)" ] || { echo "FAIL control wrongly caught: $s"; fail=1; }
 done
-printf '%s\n' '# modprobe -r brcmfmac is forbidden here' | grep -vE '^[[:space:]]*#' | grep -qE "$pat" \
-    && { echo "FAIL comment lines must not count"; fail=1; }
 [ -f docs/T2-BRCMFMAC-RESUME.md ] || { echo "FAIL docs/T2-BRCMFMAC-RESUME.md missing"; fail=1; }
 [ $fail = 0 ] && echo "test-t2-wifi-no-unload: OK"
 exit $fail
