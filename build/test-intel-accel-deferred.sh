@@ -828,6 +828,12 @@ _src_case local  "enabled=false https"   'deb [enabled=false] https://deb.debian
 _src_case local  "enabled=0 + arch opt"  'deb [arch=amd64 enabled=0] https://deb.debian.org/debian forky main' 'deb file:///srv/mirror ./'
 _src_case local  "deb822 Enabled: false" 'Types: deb' 'URIs: https://deb.debian.org/debian' 'Suites: forky' 'Enabled: false'
 _src_case remote "enabled=yes kept"      'deb [enabled=yes] https://deb.debian.org/debian forky main'
+mkroot; rm -f "$_srcd"/*.list "$_srcd"/*.sources
+printf 'deb file:///srv/mirror ./\n' > "$W/r/etc/apt/sources.list"
+printf 'deb https://example.invalid/ncz ./\n' > "$W/r/etc/apt/vendor.list"
+run _ncz_intel_repos_all_local && ok "a stray etc/apt/vendor.list (not read by apt) is ignored" \
+    || bad "etc/apt/vendor.list counted as a configured source"
+rm -f "$W/r/etc/apt/vendor.list" "$W/r/etc/apt/sources.list"
 _src_case remote "deb822 folded URIs"    'Types: deb' 'URIs: file:///srv/mirror' ' https://deb.debian.org/debian' 'Suites: forky'
 grep -q "ncz_intel_accel_run' _ \"\$lib\" >/dev/null 2>&1 || true" "$UA" \
     && ok "ncz-update-apply: a still-deferred re-check (rc 75) cannot fail the refresh under set -e" \
@@ -870,6 +876,15 @@ NET=up NCZ_INTEL_MAX_TRIES=1 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rc
 [ "$_rcF" = 0 ] && grep -qx done "$S" && [ ! -f "$P" ] \
     && ok "future LAST= is ignored: the run re-checks and installs" \
     || bad "future LAST= run rc=$_rcF status '$(cat "$S")'" "$(cat "$W/out")"
+
+mkroot
+NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_install 1 1
+NET=up NCZ_INTEL_MAX_TRIES=1 NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run
+sed -i "s/^LAST=.*/LAST=09/" "$P"
+NET=up NCZ_INTEL_MAX_TRIES=1 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rcO=$?
+[ "$_rcO" = 0 ] && grep -qx done "$S" && [ ! -f "$P" ] \
+    && ok "an octal-looking LAST=09 is ignored instead of aborting the run" \
+    || bad "LAST=09 run rc=$_rcO status '$(cat "$S")'" "$(cat "$W/out")"
 
 echo "intel accel tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

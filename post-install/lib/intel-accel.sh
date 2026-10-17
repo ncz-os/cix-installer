@@ -149,22 +149,22 @@ _ncz_intel_has_remote_uri() {
 
 _ncz_intel_repos_all_local() {
     local base f
-    for base in "$(_ni_r)/etc/apt/sources.list.d" "$(_ni_r)/etc/apt"; do
-        [ -d "$base" ] || continue
-        # *.list may be a SYMLINK to a managed config file (common on
-        # Debian); -f follows symlinks, so those are read like any other
-        # real file.
-        for f in "$base"/*.list "$base"/*.sources; do
-            # No match leaves the literal pattern as $f: not a regular file
-            # (a dangling symlink is not one either), so skip it.
-            [ -f "$f" ] || continue
-            case "$f" in *.disabled-for-build|*.disabled-for-build.*) continue ;; esac
-            # Any ACTIVE remote-origin deb line disqualifies "all local".
-            # deb822 (.sources) files use "URIs: <uri>"; check both shapes.
-            if _ncz_intel_has_remote_uri "$f"; then
-                return 1
-            fi
-        done
+    # apt reads sources.list.d/*.list|*.sources plus etc/apt/sources.list
+    # (checked below); other files directly under etc/apt are not sources.
+    base="$(_ni_r)/etc/apt/sources.list.d"
+    # *.list may be a SYMLINK to a managed config file (common on
+    # Debian); -f follows symlinks, so those are read like any other
+    # real file.
+    for f in "$base"/*.list "$base"/*.sources; do
+        # No match (or no directory) leaves the literal pattern as $f: not a
+        # regular file (a dangling symlink is not one either), so skip it.
+        [ -f "$f" ] || continue
+        case "$f" in *.disabled-for-build|*.disabled-for-build.*) continue ;; esac
+        # Any ACTIVE remote-origin deb line disqualifies "all local".
+        # deb822 (.sources) files use "URIs: <uri>"; check both shapes.
+        if _ncz_intel_has_remote_uri "$f"; then
+            return 1
+        fi
     done
     # An inline deb line in the root sources.list counts too.
     f="$(_ni_r)/etc/apt/sources.list"
@@ -663,7 +663,10 @@ _ncz_intel_accel_run_locked() {
     # update every 10 minutes indefinitely. ncz-update-apply passes
     # NCZ_INTEL_FORCE=1 because it has just refreshed the index itself.
     _last=$(sed -n 's/^LAST=//p' "$_pf")
-    case "$_last" in ""|*[!0-9]*) _last= ;; esac   # corrupt -> re-check now
+    # corrupt -> re-check now. Shell arithmetic reads a leading 0 as octal
+    # (LAST=09 aborts the run) and overflows past 18 digits: epoch seconds
+    # are 1-12 digits with no leading zero.
+    case "$_last" in ""|0*|*[!0-9]*|?????????????*) _last= ;; esac
     # A stamp in the future (clock stepped back, bad write) would throttle
     # until the clock catches up: treat it as corrupt too.
     [ -n "$_last" ] && [ "$_last" -gt "$(date +%s)" ] && _last=
