@@ -489,6 +489,7 @@ build/test-singularity-supervisor-forensics.sh	common	-	singularity supervisor p
 build/test-sibling-mirror-apt-opts.sh	common	-	hermetic fixture test that sibling rootfs scripts put snapshot apt options on every sources.list line
 build/test-sibling-empty-index.sh	common	-	hermetic fixture test that an empty package manifest or Packages index exits with an explicit error
 build/test-refind-rescue-promotion.sh	common	-	rEFInd rescue auto-promotion guard: rc/edge kernels are never promoted; existing rescue survives a failed copy (item RRH)
+build/test-installer-esp-theme.sh	common	-	installer ESP carries the Cygnus rEFInd theme: theme files + include line staged only when NCZ_REFIND_THEME=1, both arches and both SelfDir candidates; 0 restores the pre-theme bytes (MINOR-004)
 build/test-wallpaper-rotator-relogin.sh	common	-	ncz-wallpaper-rotator.service is wanted by the per-login session target (item RRH)
 build/test-wallpaper-rotator-interval.sh	common	-	the wallpaper daemon rotates only when the configured interval has elapsed, not on (re)start
 build/test-wallpaper-deb-repro.sh	common	-	the Artist Pack debs are byte-reproducible (umask, caller epoch, home checkout) and a pack.json that does not match the packaged images fails the build

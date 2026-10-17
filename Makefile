@@ -709,6 +709,7 @@ parity:
 	build/test-login-notice-order.sh
 	build/test-xdg-autostart.sh
 	build/test-refind-rescue-promotion.sh
+	build/test-installer-esp-theme.sh
 	build/test-wallpaper-rotator-relogin.sh
 	build/test-wallpaper-rotator-interval.sh
 	python3 build/test_wallpaper_fit.py
