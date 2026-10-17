@@ -3,9 +3,11 @@
 # HUMAN-READABLE label per disk (model + size, plus BOOT DISK when known) while
 # keeping the raw /dev node as the underlying value.
 #
-# Why: cdebconf's newt frontend renders a `select` from the Choices-C: list when
-# present, and from the raw Choices: token (plus an "<ERR>" stub) otherwise. With
-# only `Choices: /dev/nvme0n1, /dev/sda` the operator saw bare device nodes and
+# Why: cdebconf returns the Choices-C: entry from db_get (and matches Default:
+# against it); its newt frontend labels each entry from Choices:. Values (the raw
+# /dev nodes) therefore go in Choices-C:, labels in Choices: (2026-10-17 CHIMERA:
+# swapped, the chooser rejected its own answer). With
+# only `Choices-C: /dev/nvme0n1, /dev/sda` the operator saw bare device nodes and
 # could not tell which physical disk each was -- on a disk-ERASING screen.
 # See preseed/component-selector.sh:155-178 for the cdebconf/newt evidence.
 #
@@ -13,8 +15,8 @@
 # stand-in for cdebconf, with /sys/block, /proc/mounts and /proc/cmdline redirected
 # into a sandbox (the same path-redirection technique build/test-component-selection.sh
 # uses for the same file). It checks:
-#   1. Choices: still carries the raw /dev nodes, in candidate order;
-#   2. Choices-C: carries one human label per token, ONE-TO-ONE (a missing label
+#   1. Choices-C: still carries the raw /dev nodes, in candidate order;
+#   2. Choices: carries one human label per token, ONE-TO-ONE (a missing label
 #      makes newt render "<ERR>");
 #   3. each label carries the model + the size, and BOOT DISK only on the boot disk;
 #   4. the raw device stays the VALUE end to end (the answer round-trips unchanged);
@@ -143,8 +145,8 @@ run() { # run <tag> <candidates(with /dev prefix)> <boot-disk>
 }
 chosen()   { sed -n 's/^CHOSEN=\[\(.*\)\]$/\1/p' "$W/out.$TAG"; }
 tpl()      { sed -n 's/^[A-Za-z-]*: //p' "$W/tpl.$TAG" >/dev/null; cat "$W/tpl.$TAG" 2>/dev/null; }
-choices()  { sed -n 's/^Choices: //p' "$W/tpl.$TAG"; }
-choices_c(){ sed -n 's/^Choices-C: //p' "$W/tpl.$TAG"; }
+choices()  { sed -n 's/^Choices-C: //p' "$W/tpl.$TAG"; }
+choices_c(){ sed -n 's/^Choices: //p' "$W/tpl.$TAG"; }
 ncommas()  { printf '%s' "$1" | tr ',' '\n' | grep -c .; }
 
 # ============================================================================
@@ -158,14 +160,14 @@ mksys nvme1n1 "$(gbsize 2000)" "WD Black SN850X 2TB"
 mkpart nvme0n1p1 nvme0n1 1
 printf '%s\n' "/dev/nvme0n1p1 /boot/efi vfat rw 0 0" > "$W/mounts.one"
 TAG=one; build_script; run one "/dev/nvme0n1 /dev/nvme1n1"
-checkgrep "Choices: keeps the raw /dev nodes"          "$W/tpl.one" '^Choices: /dev/nvme0n1, /dev/nvme1n1$'
-checkgrep "Choices-C: is present"                     "$W/tpl.one" '^Choices-C: '
+checkgrep "Choices-C: keeps the raw /dev nodes"          "$W/tpl.one" '^Choices-C: /dev/nvme0n1, /dev/nvme1n1$'
+checkgrep "Choices: is present"                     "$W/tpl.one" '^Choices: '
 checkgrep "label 1 carries model + size"              "$W/tpl.one" 'Samsung SSD 990 PRO 1TB \(1000GB\)'
 checkgrep "label 2 carries model + size"              "$W/tpl.one" 'WD Black SN850X 2TB \(2000GB\)'
 checkgrep "the BOOT DISK is marked"                   "$W/tpl.one" 'Samsung SSD 990 PRO 1TB \(1000GB\) - BOOT DISK'
 checkngrep "the non-boot disk is NOT marked"          "$W/tpl.one" 'WD Black SN850X 2TB \(2000GB\) - BOOT DISK'
-check "Choices and Choices-C: one entry each (no <ERR> stub)" "$(ncommas "$(choices)")" "$(ncommas "$(choices_c)")"
-check "exactly two Choices"                           "$(ncommas "$(choices)")" 2
+check "Choices-C and Choices: one entry each (no <ERR> stub)" "$(ncommas "$(choices)")" "$(ncommas "$(choices_c)")"
+check "exactly two Choices-C"                           "$(ncommas "$(choices)")" 2
 check "exactly two labels"                            "$(ncommas "$(choices_c)")" 2
 # one-to-one mapping: same index -> same disk
 check "index 1 is nvme0n1 with the Samsung label" \
@@ -210,14 +212,14 @@ echo "== 4. missing model degrades to a readable placeholder"
 newdb four
 mksys sdc "$(gbsize 2000)" ""     # no device/model emitted
 TAG=four; build_script; run four "/dev/sdc"
-checkgrep "no model: a placeholder, not an empty label" "$W/tpl.four" 'Choices-C: unknown model \(2000GB\)'
-checkngrep "no blank label"                             "$W/tpl.four" 'Choices-C: ,'
-checkngrep "no double space from a missing model"       "$W/tpl.four" 'Choices-C:  \('
+checkgrep "no model: a placeholder, not an empty label" "$W/tpl.four" 'Choices: unknown model \(2000GB\)'
+checkngrep "no blank label"                             "$W/tpl.four" 'Choices: ,'
+checkngrep "no double space from a missing model"       "$W/tpl.four" 'Choices:  \('
 
 # ============================================================================
-# 5. a comma in a model name must not split the Choices-C list
+# 5. a comma in a model name must not split the Choices list
 # ============================================================================
-echo "== 5. a comma inside a model name never splits Choices-C"
+echo "== 5. a comma inside a model name never splits Choices"
 newdb five
 mksys sdd "$(gbsize 250)" "ACME, Inc. SSD 240GB"
 TAG=five; build_script; run five "/dev/sdd"
@@ -232,8 +234,8 @@ if command -v busybox >/dev/null 2>&1; then
     T_DISKS="/dev/sda"
     PATH="$STUB:$PATH" NCZ_CONFMODULE="$W/confmodule" NCZ_TMP="$W" NCZ_MEDIA_DIR="$W/medaddr" \
         busybox sh "$W/chooser.six.sh" 2>"$W/err.six"
-    checkgrep "busybox ash: Choices: raw nodes" "$W/tpl.six" '^Choices: /dev/sda$'
-    checkgrep "busybox ash: Choices-C: label present" "$W/tpl.six" 'Choices-C: Samsung SSD 860 EVO 256GB \(250GB\)'
+    checkgrep "busybox ash: Choices-C: raw nodes" "$W/tpl.six" '^Choices-C: /dev/sda$'
+    checkgrep "busybox ash: Choices: label present" "$W/tpl.six" 'Choices: Samsung SSD 860 EVO 256GB \(250GB\)'
 fi
 
 # ============================================================================
@@ -241,7 +243,7 @@ fi
 # ============================================================================
 echo "== 6. the boot disk is a label only (no candidate/default change)"
 checkgrep "BOOT_DISK is computed from the detector"   "$CHOOSER" '^BOOT_DISK=\$\(boot_disk_of_system\)$'
-checkgrep "Choices-C: is emitted into the template"   "$CHOOSER" '^Choices-C: \$\{LABELS\}$'
+checkgrep "Choices: is emitted into the template"   "$CHOOSER" '^Choices: \$\{LABELS\}$'
 checkgrep "the label appends the BOOT DISK marker"    "$CHOOSER" 'desc="\$desc - BOOT DISK"'
 # BOOT_DISK must never appear in the CANDIDATES filter or the chosen-disk guard
 n=$(grep -c 'BOOT_DISK' "$CHOOSER")

@@ -25,8 +25,8 @@ if [ "$ARCH" = amd64 ]; then
         > "$WORK/harness.log" 2>&1 || { echo "UI CHECK FAIL: the capture harness failed (see $WORK/harness.log)" >&2; tail -5 "$WORK/harness.log" >&2; exit 1; }
 else
     # The operator-required chooser order (preseed.cfg partman/early_command, 2026-10-06): region, username,
-    # password, password confirm, components; the hostname is automatic and the disk dialogs stay preset
-    # (ncz_disk/ncz_fs). Answer each one, otherwise the capture stalls on the first unanswered dialog. --interactive
+    # password, password confirm, components, then the target disk, root filesystem and erase confirmation;
+    # the hostname is automatic. --ask-disk drops the ncz_disk/ncz_fs preset so the real disk dialogs are walked. Answer each one, otherwise the capture stalls on the first unanswered dialog. --interactive
     # also leaves passwd/* off the command line, so a d-i user-setup dialog sneaking back in before the NCZ ones
     # stalls the capture and fails the sequence. The HARDWARE SUMMARY note (preseed/hw-summary.sh) follows the
     # password confirm on an interactive install: Continue it, and require it in the sequence so a summary that
@@ -36,6 +36,8 @@ else
         --answer 'optional components=\r' --answer 'select your REGION=\r' --answer 'choose a USERNAME=\r' \
         --answer 'choose a PASSWORD=nczuicheck\r' --answer 'type the same PASSWORD=nczuicheck\r' \
         --answer 'HARDWARE SUMMARY=\r' \
+        --ask-disk --answer 'select the TARGET DISK=\r' --answer 'root \(/\) filesystem=\r' \
+        --answer "${NCZ_UI_CHECK_ERASE_RX:-ERASE /dev/vda and install}=${NCZ_UI_CHECK_ERASE_KEYS:-\x1b[D\r}" \
         > "$WORK/harness.log" 2>&1 \
         || { echo "UI CHECK FAIL: the capture harness failed (see $WORK/harness.log)" >&2; tail -5 "$WORK/harness.log" >&2; exit 1; }
 fi
@@ -72,11 +74,22 @@ else
         --require-dialog "choose a USERNAME" \
         --require-prompt-sequence "select your REGION" "choose a USERNAME" \
             "choose a PASSWORD" "type the same PASSWORD" "HARDWARE SUMMARY" "optional components" \
+            "select the TARGET DISK" "root \(/\) filesystem" "ERASE /dev/vda and install" \
         --require-header "NCZ-OS [0-9.]+ [A-Za-z]+" --min-states 20 --min-dialogs 5 \
         --require-login-line "diagnostics login: root / (set by ncz_diag_pw|\S{4,})" || rc=1
     T_ANS="$(sed -n 's/^t=\([0-9]*\)s rule 0 .*/\1/p' "$WORK/answers.log" | head -1)"
     [ -n "$T_ANS" ] || { echo "UI CHECK FAIL: the component dialog was never reached/answered" >&2; exit 1; }
     "${CHK[@]}" "$WORK/serial-screens" --start-at "optional components" --no-blank-after "optional components" || rc=1
+    # The dialogs above are answered with Enter only, so the install must go ahead with the DEFAULTS: every
+    # optional component selected (a select/multiselect whose Choices-C holds labels instead of values returns
+    # labels, which parse as "none" -- the 2026-10-17 CHIMERA failure) and the offered disk accepted.
+    grep -a -q "chooser complete: components=.*desktop" "$WORK/serial0.log" \
+        || { echo "UI CHECK FAIL: Enter on the component dialog did not keep the default (all components); see serial0.log" >&2; rc=1; }
+    grep -a -q "operator CONFIRMED erasing /dev/vda" "$WORK/serial0.log" \
+        || { echo "UI CHECK FAIL: the disk, filesystem and erase dialogs did not lead to a confirmed target (see serial0.log)" >&2; rc=1; }
+    if grep -a -q "not in the candidate set" "$WORK/serial0.log"; then
+        echo "UI CHECK FAIL: the disk chooser rejected its own answer (Choices/Choices-C swapped?)" >&2; rc=1
+    fi
 fi
 if [ $rc = 0 ]; then
     echo "UI CHECK PASS ($ARCH): dialogs branded, no chatter, no blank console after the component dialog"

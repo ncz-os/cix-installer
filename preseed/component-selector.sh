@@ -156,25 +156,15 @@ done
 # That keeps a prompt the operator just hits OK on bit-identical to a pre-
 # component-selector install.
 #
-# 2026-09-26: also build a parallel Choices-C: field. cdebconf's newt
-# frontend renders a multiselect by iterating over the Choices-C: list
-# when present and falling back to the raw Choices: token otherwise;
-# when a Choices-C: line is missing for a token the newt layout puts
-# "<token> <ERR>" next to the checkbox (verified against cdebconf
-# 0.283/src/modules/frontend/newt/newt.c:633-716: choices_trans[i] is
-# passed verbatim as the newtCheckbox label, and choices_trans is
-# populated only when a Choices-C: field is present -- otherwise the
-# label is the token + "<ERR>" stub). That is precisely what the O6N
-# 2026-09-26 photograph shows: "desktop <ERR>", with the other two
-# components rendering normally because the descriptions embedded in
-# the Description body of THIS template incidentally happen to look
-# like valid Choices-C entries.
-#
-# The fix is to declare Choices-C: with the exact same descriptions the
-# Description body uses, so the newt frontend has a label for every
-# token and never falls back to the <ERR> stub. Belt-and-suspenders:
-# also add Choices: as the token list (unchanged) so the text frontend
-# still works when cdebconf-newt isn't available.
+# Choices-C: carries the component tokens (desktop, mgmt-container, ...): it
+# is the value list, so db_get returns tokens and Default: matches it, which
+# is what leaves every box ticked. Choices: carries the descriptions the
+# operator reads next to each checkbox (cdebconf's newt frontend labels a
+# checkbox from Choices:, and shows "<token> <ERR>" when a token has no
+# label, the O6N 2026-09-26 photograph). Same layout as region-chooser.sh.
+# 2026-10-17 CHIMERA: the two lines were swapped, so Default: matched no
+# value (every box unticked) and a ticked box came back as its description,
+# which parsed as "none".
 _DEFAULT=""
 _OFFERED=""
 _CHOICES_C=""
@@ -243,8 +233,8 @@ else
     cat > "$NCZ_TMP/ncz-components.templates" <<TPL
 Template: ncz/components
 Type: multiselect
-Choices: ${_OFFERED}
-Choices-C: ${_CHOICES_C}
+Choices-C: ${_OFFERED}
+Choices: ${_CHOICES_C}
 Default: ${_DEFAULT}
 Description: $(ncz_ui_brand) - optional components
  Untick to skip an optional component. Enter accepts the defaults, which

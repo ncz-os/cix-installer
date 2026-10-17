@@ -162,9 +162,9 @@ check "first early_command run asks nothing" "$(asked ncz/components)" 0
 ans ncz/components ""
 check "--prompt run exits 0" "$(sel --prompt)" 0
 check "the dialog was shown once" "$(asked ncz/components)" 1
-grep -q '^Choices: desktop, mgmt-container, rescue-partition$' "$FDB/tpl/ncz-components.templates" \
-    && grep -q '^Choices-C: Full Singularity desktop (GUI labwc + greetd + branding), ncz-recovery management container (nspawn), 4 GiB NCZRESCUE partition (rescue rootfs + kernel)$' "$FDB/tpl/ncz-components.templates" \
-    && ok "Macmini5,1 shape: exactly the three components were offered (Choices: tokens, Choices-C: display labels)" \
+grep -q '^Choices-C: desktop, mgmt-container, rescue-partition$' "$FDB/tpl/ncz-components.templates" \
+    && grep -q '^Choices: Full Singularity desktop (GUI labwc + greetd + branding), ncz-recovery management container (nspawn), 4 GiB NCZRESCUE partition (rescue rootfs + kernel)$' "$FDB/tpl/ncz-components.templates" \
+    && ok "Macmini5,1 shape: exactly the three components were offered (Choices-C: tokens, Choices: display labels)" \
     || bad "unexpected Choices/Choices-C: $(grep -E '^Choices' "$FDB/tpl/ncz-components.templates")"
 check "authoritative record: nothing selected" "$(rec)" none
 check "/tmp mirror matches the record" "$(mir)" none

@@ -271,9 +271,9 @@ else
     # Register a cdebconf select with the candidate /dev nodes as Choices, then
     # db_input at CRITICAL so it shows even under priority=critical. A cancel /
     # go-back / template failure ABORTS — we never auto-pick a disk to erase.
-    # S2-5: the newt select must not show bare /dev nodes. Choices: keeps the raw
-    # device (the value partman/our override logic consumes), Choices-C: carries
-    # the human label the operator actually reads: model + size, plus "BOOT DISK"
+    # S2-5: the newt select must not show bare /dev nodes. Choices-C: keeps the raw
+    # device (cdebconf returns the Choices-C entry from db_get; partman/our override
+    # logic consumes it), Choices: carries the human label the operator actually reads: model + size, plus "BOOT DISK"
     # when the running disk is known. Both lists stay in the SAME order, one entry
     # per candidate, so they map one-to-one.
     CHOICES=""
@@ -293,8 +293,8 @@ else
     cat > /tmp/ncz-disk.templates <<TPL
 Template: ncz/target-disk
 Type: select
-Choices: ${CHOICES}
-Choices-C: ${LABELS}
+Choices-C: ${CHOICES}
+Choices: ${LABELS}
 Description: $(ncz_ui_brand) - select the TARGET DISK (it will be ERASED)
  The disk you choose will be COMPLETELY ERASED and NCZ-OS installed on it.
  .
@@ -346,8 +346,8 @@ if [ -z "$CHOSEN_FS" ]; then
     cat > /tmp/ncz-fs.templates <<TPL
 Template: ncz/root-fs
 Type: select
-Choices: btrfs, ext4
-Choices-C: btrfs (snapshots + compression), ext4 (simple, robust)
+Choices-C: btrfs, ext4
+Choices: btrfs (snapshots + compression), ext4 (simple, robust)
 Default: btrfs
 Description: $(ncz_ui_brand) - root (/) filesystem
  Choose the filesystem for the root (/) partition.
