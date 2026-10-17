@@ -316,8 +316,9 @@ else pass "apt keyring files stay excluded on the leaky image"; fi
 # 3. FAIL CLOSED: no hash list at all is a failure, not a pass
 out="$($PY "$SCAN" --image "$WORK/clean.img" --hash-file "$WORK/absent.json" 2>&1)"; rc=$?
 if [ "$rc" = 1 ]; then pass "a missing hash list FAILS CLOSED"; else fail "missing hash list returned $rc"; fi
-out="$($PY "$SCAN" --image "$WORK/clean.img" --hash-file "$WORK/absent.json" --allow-detached 2>&1)"; rc=$?
-if [ "$rc" = 1 ]; then pass "--allow-detached still FAILS (hashed half did not run)"; else fail "--allow-detached returned $rc"; fi
+out="$($PY "$SCAN" --image "$WORK/clean.img" --hash-file "$WORK/absent.json" --allow-detached \
+       --receipt "$WORK/detached.receipt.json" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "\"result\": \"FAIL\"" "$WORK/detached.receipt.json"; then pass "--allow-detached still FAILS (hashed half did not run)"; else fail "--allow-detached returned $rc"; fi
 
 # 4. FAIL CLOSED: an unreadable layer is a failure
 cp "$WORK/clean.img" "$WORK/broken.img"

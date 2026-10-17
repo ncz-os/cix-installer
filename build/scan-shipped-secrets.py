@@ -1796,7 +1796,10 @@ def main(argv=None) -> int:
             "error": hash_error,
         },
         "token_shapes": not args.no_shapes,
-        "result": "FAIL" if (failed or (report and report.findings)) else "PASS",
+        # a run without the hashed half is never a PASS, whatever the shapes say
+        "result": ("FAIL" if (failed or (report and report.findings) or not hashes_given)
+                   else "PASS"),
+        "detached": not hashes_given,
         "error": error,
         "elapsed_seconds": elapsed,
         "layers": report.layers if report else [],

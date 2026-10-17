@@ -137,6 +137,10 @@ def main(argv=None) -> int:
         os.chmod(tmp, 0o600)
         os.replace(tmp, args.out)
     except OSError as exc:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
         print(f"make-secret-hashes: cannot write {args.out}: {exc}", file=sys.stderr)
         return 2
     if not args.quiet:
