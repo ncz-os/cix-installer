@@ -36,6 +36,8 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/ncz-shipped-scan-test.XXXXXX")"
 cleanup() { chmod -R u+rwX "$WORK" 2>/dev/null; rm -rf "$WORK"; }
 trap cleanup EXIT
 export TMPDIR="$WORK"
+# the hash list is keyed: make-secret-hashes creates this 0600 key, the gate reads it
+export NCZ_SECRET_HASHES_KEY="$WORK/hash.key"
 
 SCAN="$ROOT/build/scan-shipped-secrets.py"
 MAKEHASH="$ROOT/build/make-secret-hashes.py"
@@ -239,12 +241,13 @@ cat > "$WORK/keymaster.json" <<JSON
 JSON
 $PY "$MAKEHASH" --master "$WORK/keymaster.json" --out "$WORK/hashes.json" --quiet || {
     echo "test-shipped-secret-scan: cannot make the hash list" >&2; exit 1; }
-if $PY - "$WORK/hashes.json" "$FAKE" <<'PY'
+if $PY - "$WORK/hashes.json" "$FAKE" "$NCZ_SECRET_HASHES_KEY" <<'PY'
 import hashlib, json, sys, urllib.parse, base64
 
 doc = json.load(open(sys.argv[1]))
 plain = sys.argv[2].encode()
-salt = doc["salt"].encode()
+salt = open(sys.argv[3], "rb").read()
+assert "salt" not in doc and "key_id" in doc, "the list must not carry its key"
 # The three raw forms the key master must have produced, at offsets 0..2.
 forms = {plain, urllib.parse.quote_plus(plain).encode(),
          base64.b64encode(plain)}
@@ -252,7 +255,7 @@ digests = {h["sha256"] for h in doc["hashes"]}
 want = {hashlib.sha256(salt + f).hexdigest() for f in forms}
 sys.exit(0 if want and want <= digests else 1)
 PY
-then pass "the hash file carries the salted digest of the secret"; else fail "hash file missing the digest"; fi
+then pass "the hash file carries the keyed digest of the secret (and no key)"; else fail "hash file missing the digest"; fi
 if grep -qF "$FAKE" "$WORK/hashes.json"; then fail "the hash file leaks the plaintext value"; else pass "the hash file holds no plaintext"; fi
 
 build_image "$WORK/clean.img" clean || { echo "fixture: cannot build the clean image" >&2; exit 1; }
@@ -548,7 +551,8 @@ spec = importlib.util.spec_from_file_location(
 g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
 doc = json.load(open(os.path.join(work, "hashes.json")))
 assert doc["lengths"] and doc["prefixes"], "generator wrote no prefilter"
-hs = g.HashSet(); hs.load(os.path.join(work, "hashes.json"))
+key = open(os.environ["NCZ_SECRET_HASHES_KEY"], "rb").read()
+hs = g.HashSet(); hs.load(os.path.join(work, "hashes.json"), key)
 assert hs.prefixes and hs.lengths
 sc = g.Scanner(hs, shapes=False)
 assert g.scan_candidate(sc, b"TOKEN=xx" + fake + b"\n", "/x.conf")
@@ -556,7 +560,7 @@ assert not g.scan_candidate(sc, b"TOKEN=${GITLAB_TOKEN}\n", "/x.conf")
 bad = dict(doc, prefixes=["nothex"])
 p = os.path.join(work, "bad.json"); json.dump(bad, open(p, "w"))
 try:
-    g.HashSet().load(p)
+    g.HashSet().load(p, key)
 except g.Unreadable:
     pass
 else:
@@ -693,6 +697,80 @@ assert g.looks_public_key(b"\x99\x00\x03abc\xb4\x02id")   # pubkey + user id
 PY
 then pass "chunk-boundary windows, no suffix forms, whole-file keyring check"
 else fail "round-4 unit checks failed"; fi
+
+# 13. review round 6: keyed list, FAT32 by BPB, gzip tail, xz streams, zip
+# dirs, ext4 symlink targets and compression bit, keybox chain, block groups
+out="$(NCZ_SECRET_HASHES_KEY="$WORK/missing.key" $PY "$SCAN" --image "$WORK/clean.img" --hash-file "$WORK/hashes.json" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "hash key" <<<"$out"; then pass "a missing hash key FAILS CLOSED"; else fail "missing key not refused (rc=$rc)"; fi
+head -c 32 /dev/urandom > "$WORK/other.key"; chmod 600 "$WORK/other.key"
+out="$(NCZ_SECRET_HASHES_KEY="$WORK/other.key" $PY "$SCAN" --image "$WORK/clean.img" --hash-file "$WORK/hashes.json" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "different key" <<<"$out"; then pass "a hash list read with the wrong key FAILS CLOSED"; else fail "wrong key not refused (rc=$rc)"; fi
+cp "$WORK/other.key" "$WORK/open.key"; chmod 644 "$WORK/open.key"
+out="$(NCZ_SECRET_HASHES_KEY="$WORK/open.key" $PY "$SCAN" --image "$WORK/clean.img" --hash-file "$WORK/hashes.json" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "group/other" <<<"$out"; then pass "a world-readable hash key is refused"; else fail "0644 key not refused (rc=$rc)"; fi
+$PY -c 'import json,sys; d=json.load(open(sys.argv[1])); d.pop("key_id"); d["salt"]="ncz-shipped-secret-scan-v1"; json.dump(d, open(sys.argv[2], "w"))' "$WORK/hashes.json" "$WORK/salted.json"
+out="$($PY "$SCAN" --image "$WORK/clean.img" --hash-file "$WORK/salted.json" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "not keyed" <<<"$out"; then pass "an old salted (brute-forceable) list is refused"; else fail "salted list accepted (rc=$rc)"; fi
+if $PY - "$ROOT" "$FAKE" <<'PY'
+import base64, gzip, importlib.util, io, lzma, os, struct, subprocess, sys, tempfile, zipfile
+root, fake = sys.argv[1], sys.argv[2].encode()
+spec = importlib.util.spec_from_file_location(
+    "gate", os.path.join(root, "build", "scan-shipped-secrets.py"))
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+hs = g.HashSet("s")
+for v in g.secret_variants([fake], "s"):
+    hs.digests.add(v["sha256"])
+sc = g.Scanner(hs, shapes=False)
+def hit(data, path):
+    rep = g.Report()
+    g.scan_payload(rep, sc, "t", path, data)
+    return bool(rep.findings)
+# plaintext after the last gzip member is scanned
+assert hit(gzip.compress(b"harmless\n", mtime=0) + b"GITLAB_TOKEN=" + fake, "/boot/initrd.gz"), "gzip tail missed"
+# a second concatenated .xz stream is scanned
+two = lzma.compress(b"benign\n") + lzma.compress(b"tok=" + fake + b"\n")
+assert hit(two, "/x/data.xz"), "second xz stream missed"
+# a zip directory NAME is scanned
+zb = io.BytesIO()
+with zipfile.ZipFile(zb, "w") as z:
+    z.writestr("ok.txt", "fine")
+    z.writestr(fake.decode() + "/", "")
+assert hit(zb.getvalue(), "/x/a.zip"), "zip directory name missed"
+# keybox: only a well-formed blob chain is exempt
+hdr = (32).to_bytes(4, "big") + b"\x01\x01\x00\x00KBXf" + bytes(20)
+blob = (12).to_bytes(4, "big") + b"\x02" + bytes(7)
+assert g.looks_public_key(hdr + blob)
+assert not g.looks_public_key(hdr + blob + b"GITLAB_TOKEN=" + fake)
+# compression is refused; block groups use s_first_data_block
+assert any(b == 0x1 and s_ == 1 for s_, b, _n in g.blocked_features())
+d = tempfile.mkdtemp(dir=os.environ.get("TMPDIR"))
+os.makedirs(f"{d}/root/opt")
+os.symlink("tok-" + fake.decode(), f"{d}/root/opt/fast")              # fast symlink
+os.symlink("/" + "d" * 80 + "/" + fake.decode(), f"{d}/root/opt/slow")  # slow symlink
+for blk in ("1024", "4096"):
+    img = f"{d}/e{blk}.img"
+    subprocess.run(["mkfs.ext4", "-q", "-F", "-b", blk, "-d", f"{d}/root", img, "64M"], check=True)
+    with open(img, "rb") as fh:
+        files = g.ext4_walk(fh, {"index": 2, "offset": 0, "kind": "ext4"})
+    tg = {f["path"]: f["bytes"] for f in files if f["path"].endswith("#symlink-target")}
+    assert any(fake in v for k, v in tg.items() if "fast" in k), (blk, "fast symlink target")
+    assert any(fake in v for k, v in tg.items() if "slow" in k), (blk, "slow symlink target")
+PY
+then pass "gzip tail, xz streams, zip dir names, keybox chain, ext4 symlink targets (1k+4k blocks)"
+else fail "round-6 unit checks failed"; fi
+# a FAT32 volume with fewer than 65525 clusters is still FAT32
+rm -f "$WORK/f32.img"; mkfs.vfat -C -F 32 -s 8 "$WORK/f32.img" $((100 * 1024)) >/dev/null 2>&1
+printf 'tok=%s\n' "$FAKE" > "$WORK/f32.txt"; mcopy -i "$WORK/f32.img" "$WORK/f32.txt" ::/leak.txt
+if $PY - "$ROOT" "$WORK/f32.img" "$FAKE" <<'PY'
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("gate", os.path.join(sys.argv[1], "build", "scan-shipped-secrets.py"))
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+with open(sys.argv[2], "rb") as fh:
+    files = g.fat_walk(fh, {"index": 1, "offset": 0, "kind": "fat"})
+assert any(sys.argv[3].encode() in f["bytes"] for f in files), [f["path"] for f in files]
+PY
+then pass "a small FAT32 volume (< 65525 clusters) is walked as FAT32"; else fail "small FAT32 volume not walked"; fi
+rm -f "$WORK/f32.img" "$WORK/f32.txt"
 
 if [ "$FAILS" -gt 0 ]; then echo "test-shipped-secret-scan: $FAILS finding(s)" >&2; exit 1; fi
 echo "test-shipped-secret-scan: PASS ✅"

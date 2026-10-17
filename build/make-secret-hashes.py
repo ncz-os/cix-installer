@@ -2,7 +2,7 @@
 """make-secret-hashes.py -- turn a key-master JSON into the gate's hash list.
 
 RUN THIS ON A TRUSTED MACHINE (the operator's workstation, not a build host).
-It reads the plaintext values, writes ONLY salted SHA-256 digests, and never
+It reads the plaintext values, writes ONLY keyed SHA-256 digests, and never
 writes, copies or echoes a value.  The output file is the only thing that
 travels to the build host:
 
@@ -57,7 +57,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--master", required=True, help="key-master JSON (plaintext)")
     ap.add_argument("--out", required=True, help="hash file to write")
-    ap.add_argument("--salt", help=f"hash salt (default: {gate.DEFAULT_SALT})")
+    ap.add_argument("--key-file", help="secret hash key (default: NCZ_SECRET_HASHES_KEY, "
+                    "else ~/.config/ncz/secret-hashes.key); created 0600 when absent. "
+                    "Copy it to the build host next to the list.")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args(argv)
 
@@ -82,7 +84,23 @@ def main(argv=None) -> int:
         print("make-secret-hashes: refusing to write the hash list inside the "
               "repository; use ~/.config/ncz/secret-hashes.json", file=sys.stderr)
         return 2
-    salt = args.salt or gate.DEFAULT_SALT
+    key_path = args.key_file or gate.default_hash_key(repo)
+    if (os.path.realpath(key_path) + os.sep).startswith(os.path.realpath(repo) + os.sep):
+        print("make-secret-hashes: refusing a key file inside the repository",
+              file=sys.stderr)
+        return 2
+    if not os.path.exists(key_path):
+        os.makedirs(os.path.dirname(os.path.abspath(key_path)), exist_ok=True)
+        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(os.urandom(32))
+        if not args.quiet:
+            print(f"make-secret-hashes: created a new key {key_path} (0600)")
+    try:
+        salt = gate.load_hash_key(key_path, repo)
+    except gate.Unreadable as exc:
+        print(f"make-secret-hashes: {exc}", file=sys.stderr)
+        return 2
     out: list[dict] = []
     lengths: set[int] = set()
     prefixes: set[str] = set()
@@ -123,7 +141,7 @@ def main(argv=None) -> int:
     doc_out = {
         "format": "ncz-secret-hashes",
         "version": gate.GATE_VERSION,
-        "salt": salt,
+        "key_id": gate.key_id(salt),
         "entries": len(entries),
         "hashes": out,
         # window lengths only (no values): lets the gate skip impossible
@@ -132,7 +150,7 @@ def main(argv=None) -> int:
         # domain-separated digests of each window's first 8 bytes: the gate's
         # one-lookup-per-offset prefilter (no more revealing than the digests)
         "prefixes": sorted(prefixes),
-        "note": "Salted SHA-256 only. Never commit this file with real content.",
+        "note": "Keyed SHA-256 only (key kept in a separate 0600 file). Never commit this file.",
     }
     tmp = args.out + ".tmp"
     try:

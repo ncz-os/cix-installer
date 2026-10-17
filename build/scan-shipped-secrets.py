@@ -25,7 +25,9 @@ inside it, so everything a customer can read is inside the scope of this scan:
 Matching is HASHED.  The gate never receives a plaintext secret: it reads a
 hash file (the path in ``NCZ_SECRET_HASHES_FILE``, else
 ``~/.config/ncz/secret-hashes.json`` -- never a file in the repository) produced by ``build/make-secret-hashes.py`` on a
-trusted machine.  That file holds salted SHA-256 digests of every known secret
+trusted machine.  That file holds KEYED SHA-256 digests (sha256(key || form),
+the key a secret file next to it, ``NCZ_SECRET_HASHES_KEY`` else
+``~/.config/ncz/secret-hashes.key``, never stored in the list) of every known secret
 value in every form it can be embedded as:
 
     offsets 0, 1, 2  -- a secret embedded mid-token (``TOKEN=glpat-xxx``,
@@ -241,11 +243,36 @@ def b64_variant(raw: bytes) -> bytes:
 # ---------------------------------------------------------------------------
 # hash list
 # ---------------------------------------------------------------------------
-class HashSet:
-    """Salted-SHA256 hash list, nothing else.  Never holds a plaintext value."""
+def key_id(key: bytes) -> str:
+    """Public fingerprint of the hash key, recorded in the list."""
+    return hashlib.sha256(b"ncz-secret-hashes-key-id\x00" + key).hexdigest()[:16]
 
-    def __init__(self, salt: str = DEFAULT_SALT):
-        self.salt = salt.encode()
+
+def load_hash_key(path: str, root: str) -> bytes:
+    """The secret key the hash list was made with.  Without it a stolen list
+    is useless for an offline dictionary attack; a list made with a public
+    salt was not.  Fails closed: missing, short, shared or in-repo key."""
+    if (os.path.realpath(path) + os.sep).startswith(os.path.realpath(root) + os.sep):
+        raise Unreadable(f"the hash key {path} is inside the repository")
+    try:
+        st = os.stat(path)
+        with open(path, "rb") as fh:
+            key = fh.read()
+    except OSError as exc:
+        raise Unreadable(f"cannot read the hash key {path}: {exc}")
+    if st.st_mode & 0o077:
+        raise Unreadable(f"the hash key {path} is readable by group/other "
+                         f"(mode {stat.S_IMODE(st.st_mode):o}); chmod 600 it")
+    if len(key) < 32:
+        raise Unreadable(f"the hash key {path} is shorter than 32 bytes")
+    return key
+
+
+class HashSet:
+    """Keyed-SHA256 hash list, nothing else.  Never holds a plaintext value."""
+
+    def __init__(self, salt: str | bytes = DEFAULT_SALT):
+        self.salt = salt if isinstance(salt, bytes) else salt.encode()
         self.digests = set()
         # Window lengths present in the list (None: unknown, try every
         # length).  Restricting the lookup to these is what makes a full
@@ -272,9 +299,9 @@ class HashSet:
     def __contains__(self, value: bytes) -> bool:
         return self.digest(value) in self.digests
 
-    def load(self, path: str) -> int:
-        """Load a hash file (strict JSON).  A malformed line is fatal: a hash
-        list we cannot trust is the same as no gate at all."""
+    def load(self, path: str, key: bytes | None = None) -> int:
+        """Load a hash file (strict JSON) made with ``key``.  A malformed line
+        is fatal: a hash list we cannot trust is the same as no gate at all."""
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 doc = json.load(fh)
@@ -288,13 +315,19 @@ class HashSet:
             raise Unreadable(
                 f"the hash file {path} has no 'format': 'ncz-secret-hashes' "
                 f"marker -- produce it with build/make-secret-hashes.py")
-        salt = doc.get("salt")
-        if not isinstance(salt, str) or not salt:
-            raise Unreadable(f"the hash file {path} has no salt")
+        if "key_id" not in doc:
+            raise Unreadable(
+                f"the hash file {path} is not keyed (an old salted list can be "
+                "brute-forced offline); regenerate it with "
+                "build/make-secret-hashes.py --key-file")
+        if key is None:
+            raise Unreadable(f"the hash file {path} needs its key file")
+        if doc.get("key_id") != key_id(key):
+            raise Unreadable(f"the hash file {path} was made with a different key")
         entries = doc.get("hashes")
         if not isinstance(entries, list):
             raise Unreadable(f"the hash file {path} has no 'hashes' list")
-        self.salt = salt.encode()
+        self.salt = key
         lengths = doc.get("lengths")
         if lengths is not None:
             if (not isinstance(lengths, list) or not lengths
@@ -328,7 +361,7 @@ def prefix_digest(salt: bytes, window: bytes) -> str:
     return hashlib.sha256(salt + PREFIX_DOMAIN + window[:HASH_MIN_LEN]).hexdigest()
 
 
-def secret_variants(values, salt: str = DEFAULT_SALT) -> list[dict]:
+def secret_variants(values, salt: str | bytes = DEFAULT_SALT) -> list[dict]:
     """Every form a value can be embedded as, as (kind, sha256) pairs.
 
     Shared verbatim by build/make-secret-hashes.py (which writes them) and this
@@ -353,16 +386,17 @@ def secret_variants(values, salt: str = DEFAULT_SALT) -> list[dict]:
     """
     out: list[dict] = []
     seen: set[str] = set()
+    sb = salt if isinstance(salt, bytes) else salt.encode()
 
     def add(kind: str, raw: bytes, min_len: int) -> None:
         if len(raw) < min_len:
             return
-        h = hashlib.sha256(salt.encode() + raw).hexdigest()
+        h = hashlib.sha256(sb + raw).hexdigest()
         if h in seen:
             return
         seen.add(h)
         out.append({"kind": kind, "sha256": h, "length": len(raw),
-                    "prefix": prefix_digest(salt.encode(), raw)})
+                    "prefix": prefix_digest(sb, raw)})
 
     for value in values:
         if not value:
@@ -510,7 +544,9 @@ def fat_walk(img_fh, part: dict, names: list | None = None) -> list[dict]:
     if cluster_bytes == 0:
         raise Unreadable(f"partition {part['index']}: zero cluster size")
     nclusters = max(0, (total - data_sec) // spc)
-    fat_bits = 32 if (fat32_size and not fat16 and nclusters >= 65525) else (12 if nclusters < 4085 else 16)
+    # FAT32 is FATSz16 == 0 with FATSz32 set (as the Linux driver decides);
+    # a small FAT32 volume has fewer than 65525 clusters and is still FAT32.
+    fat_bits = 32 if (fat32_size and not fat16) else (12 if nclusters < 4085 else 16)
 
     def read_fat() -> bytes:
         img_fh.seek(base + reserved * bps)
@@ -656,6 +692,7 @@ def blocked_features() -> list[tuple[int, int, str]]:
     return [
         # --- incompat: the layout itself is unreadable
         (1, 0x0010, "meta-bg"),          # group descriptors are not in a flat table
+        (1, 0x0001, "compression"),      # stored blocks are compressed
         (1, 0x0008, "journal-dev"),      # data lives on an external journal
         (1, 0x8000, "inline-data"),      # small files live inside the inode
         (1, 0x10000, "encrypt"),         # ciphertext on disk
@@ -728,7 +765,8 @@ def ext4_walk(img_fh, part: dict, names: list | None = None) -> list[dict]:
     # Block that holds the superblock: 0 for a 1KiB filesystem (the 1024-byte
     # superblock sits at byte 1024), 1 for every larger block size.
     superblock_block = 1 if bs == 1024 else 0
-    groups = (nblocks - struct.unpack_from("<I", sb, 12)[0] - 1) // struct.unpack_from(
+    # s_first_data_block is at offset 20 (12 is s_free_blocks_count_lo)
+    groups = (nblocks - struct.unpack_from("<I", sb, 20)[0] - 1) // struct.unpack_from(
         "<I", sb, 32)[0] + 1 if struct.unpack_from("<I", sb, 32)[0] else 0
     if groups <= 0:
         raise Unreadable(f"partition {part['index']}: zero block groups")
@@ -913,6 +951,14 @@ def ext4_walk(img_fh, part: dict, names: list | None = None) -> list[dict]:
                 stack.append((full, child))
             elif stat.S_ISREG(ci["mode"]):
                 files.append({"path": full, "bytes": file_bytes(ci)})
+            elif stat.S_ISLNK(ci["mode"]):
+                # the target is shipped bytes: a fast symlink keeps it in
+                # i_block (size < 60, no extents), a slow one in data blocks
+                if ci["size"] < 60 and not ci["flags"] & 0x80000:
+                    tgt = struct.pack("<15I", *ci["blocks"])[:ci["size"]]
+                else:
+                    tgt = file_bytes(ci)
+                files.append({"path": full + "#symlink-target", "bytes": tgt})
     return files
 
 
@@ -968,6 +1014,22 @@ def _armored_public_only(data: bytes) -> bool:
     return True
 
 
+def _keybox_blobs(data: bytes) -> bool:
+    """A GnuPG keybox: a chain of length-prefixed blobs (type 1 header, then
+    2 OpenPGP / 3 X.509 key blobs) ending exactly at EOF."""
+    i, n, first = 0, len(data), True
+    while i < n:
+        if i + 5 > n:
+            return False
+        ln = int.from_bytes(data[i:i + 4], "big")
+        typ = data[i + 4]
+        if ln < 5 or i + ln > n or typ not in ((1,) if first else (2, 3)):
+            return False
+        i += ln
+        first = False
+    return n > 0
+
+
 def _openpgp_public_packets(data: bytes) -> bool:
     """The whole file parses as OpenPGP packets of public-keyring types."""
     i, n = 0, len(data)
@@ -1010,7 +1072,7 @@ def looks_public_key(data: bytes) -> bool:
     if b"PRIVATE KEY" in data:
         return False
     if data[8:12] == b"KBXf":
-        return True
+        return _keybox_blobs(data)
     if data.lstrip()[:5] == b"-----":
         return _armored_public_only(data)
     return _openpgp_public_packets(data)
@@ -1070,11 +1132,22 @@ def decompress_chain(data: bytes, label: str) -> list[tuple[str, bytes]]:
                         raise ValueError("truncated gzip member")
                     parts.append(plain)
                     rest = d.unused_data
-                cur = b"".join(parts)
+                # bytes after the last member are shipped too: keep them
+                cur = b"".join(parts) + rest
             elif kind == "bzip2":
                 cur = bz2.decompress(cur)
             elif kind == "xz":
-                cur = lzma.decompress(cur)
+                xs, rest = [], cur
+                while rest:            # every concatenated .xz stream
+                    d = lzma.LZMADecompressor(format=lzma.FORMAT_XZ)
+                    xs.append(d.decompress(rest))
+                    if not d.eof:
+                        raise ValueError("truncated xz stream")
+                    rest = d.unused_data.lstrip(b"\x00")   # stream padding
+                    if rest and not rest.startswith(b"\xfd7zXZ\x00"):
+                        xs.append(rest)
+                        break
+                cur = b"".join(xs)
             elif kind == "lzma":
                 cur = lzma.decompress(cur, format=lzma.FORMAT_ALONE)
             elif kind == "zstd":
@@ -1234,6 +1307,7 @@ def expand(name: str, data: bytes, label: str, depth: int = 0):
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 for info in zf.infolist():
                     if info.is_dir():
+                        yield f"{label}/{info.filename}", b""   # its name is scanned
                         continue
                     yield (f"{label}/{info.filename}",
                            _truncate(zf.read(info), f"{label}/{info.filename}"))
@@ -1870,6 +1944,14 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+def default_hash_key(root: str) -> str:
+    env = os.environ.get("NCZ_SECRET_HASHES_KEY")
+    if env:
+        return env
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "ncz", "secret-hashes.key")
+
+
 def default_hash_file(root: str) -> str:
     env = os.environ.get("NCZ_SECRET_HASHES_FILE")
     if env:
@@ -1884,6 +1966,8 @@ def main(argv=None) -> int:
     ap.add_argument("--receipt", help="write the JSON receipt here")
     ap.add_argument("--hash-file", help="hash list (default: "
                     "NCZ_SECRET_HASHES_FILE, else ~/.config/ncz/secret-hashes.json)")
+    ap.add_argument("--key-file", help="the hash list's secret key (default: "
+                    "NCZ_SECRET_HASHES_KEY, else ~/.config/ncz/secret-hashes.key)")
     ap.add_argument("--allow-detached", action="store_true",
                     help="proceed without a hash list (token shapes only); "
                     "recorded in the receipt as NOT detached-clean")
@@ -1915,7 +1999,7 @@ def main(argv=None) -> int:
     hash_error = None
     if os.path.exists(hash_file):
         try:
-            n = hashes.load(hash_file)
+            n = hashes.load(hash_file, load_hash_key(args.key_file or default_hash_key(root), root))
             hashes_given = True
             say(f"shipped-secret-scan: hash list {hash_file} ({n} digests)")
         except Unreadable as exc:
