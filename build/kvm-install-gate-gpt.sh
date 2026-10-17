@@ -988,7 +988,10 @@ fi
 if grep -qE "\[ncz\] FATAL: (disk-fs-chooser|extract-rootfs|late)\.sh not found on install media" "$ILOG"; then
     fail "a payload script was not found on the medium -- the data partition may be empty"
 fi
-if [ "$NCZ_GATE_SERVER" != 1 ] && grep -qE "Failed to run preseeded command|failed with exit code|install aborts|70-bootloader\.sh FAILED rc=|Post-install failed: bootloader rc=|refusing to ship a broken install|refusing to boot" "$ILOG"; then
+# Server runs too: the negative server run exits before this point
+# (GATE PASS (server-offline-negative) above), so only a positive install
+# reaches here, and a failed preseeded command must fail it as on desktop.
+if grep -qE "Failed to run preseeded command|failed with exit code|install aborts|70-bootloader\.sh FAILED rc=|Post-install failed: bootloader rc=|refusing to ship a broken install|refusing to boot" "$ILOG"; then
     grep -nE -B3 -A6 "Failed to run preseeded command|failed with exit code|install aborts|70-bootloader\.sh FAILED rc=|Post-install failed: bootloader rc=|refusing to ship a broken install|refusing to boot" "$ILOG" | head -50 >&2
     fail "a preseeded command failed"
 fi
