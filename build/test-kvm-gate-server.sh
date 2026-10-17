@@ -31,8 +31,10 @@ PORT=$((20000 + RANDOM % 20000))
 SRV="$WORK/srv"
 mkdir -p "$SRV"
 head -c 2097152 /dev/zero > "$SRV/base.squashfs" || dd if=/dev/zero of="$SRV/base.squashfs" bs=1k count=2048 status=none
-tar czf "$SRV/ncz-assets-amd64.tar.gz" -C "$WORK" base.squashfs 2>/dev/null || true
-[ -s "$SRV/ncz-assets-amd64.tar.gz" ] || { echo "setup: cannot make the assets bundle" >&2; exit 1; }
+tar czf "$SRV/ncz-assets-amd64.tar.gz" -C "$SRV" base.squashfs \
+    || { echo "setup: cannot make the assets bundle" >&2; exit 1; }
+tar tzf "$SRV/ncz-assets-amd64.tar.gz" | grep -qx base.squashfs \
+    || { echo "setup: the assets bundle does not carry base.squashfs" >&2; exit 1; }
 
 # --- 1: the gate's invocation, verbatim (python3 - <heredoc> arg1 arg2) ---
 # Exactly the form ncz_gate_srv_start() uses: the heredoc is the script and

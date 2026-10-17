@@ -178,7 +178,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ]; then
     # regardless of what the caller passed: the matrix passes the same value
     # and a hand-run with a different answer would be a different install.
     GATE_COMPONENTS="$NCZ_GATE_COMPONENTS"
-    WANT_DESKTOP=0; WANT_MGMT=0; WANT_RESCUE=0; WANT_CUDA=0
+    WANT_DESKTOP=0; WANT_MGMT=0; WANT_RESCUE=1; WANT_CUDA=0
     EXPECT_RECORD="rescue-partition"
     GATE_COMPONENTS_ARG="rescue-partition"
 fi
@@ -1122,8 +1122,10 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     if [ -s "$_dpkg_status" ]; then
         _desk_pkgs="greetd libgtk-4-1 xwayland swaybg fuzzel foot lightdm gdm3 google-chrome-stable ncz-singularity-desktop"
         _leak=""
+        # Status: <want> <flag> <state>; any want (install, hold, deinstall)
+        # with state "installed" is on the root.
         for _dp in $_desk_pkgs; do
-            if awk -v p="$_dp" '/^Package:/ {pk=$2} /^Status:/ {st=$0} /^$/ {if (pk==p && st ~ /install ok installed/) f=1; pk=""; st=""} END {if (pk==p && st ~ /install ok installed/) f=1; exit !f}' "$_dpkg_status"; then
+            if awk -v p="$_dp" '/^Package:/ {pk=$2} /^Status:/ {st=$4} /^$/ {if (pk==p && st == "installed") f=1; pk=""; st=""} END {if (pk==p && st == "installed") f=1; exit !f}' "$_dpkg_status"; then
                 _leak="$_leak $_dp"
             fi
         done
