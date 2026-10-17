@@ -29,9 +29,10 @@ scan() {   # stdin: a file; prints "N: line" for every hit
     }
     {
         line = $0
+        # a whole-line comment ends at its newline, even if it ends in a backslash
+        if (cont == "" && line ~ /^[[:space:]]*#/) { start = NR + 1; next }
         if (cont != "") { line = cont " " line; cont = ""; }
         if (line ~ /\\$/) { sub(/\\$/, "", line); cont = line; next }
-        if (line ~ /^[[:space:]]*#/) { start = NR + 1; next }   # whole-line comment
         code = line   # inline "#" is not stripped: it may sit inside quotes, and over-matching only fails safe
         n = split(code, cmd, /;|&&|\|\||\||&/); h = 0
         for (i = 1; i <= n; i++) if (hit(cmd[i])) { h = 1; break }
@@ -52,7 +53,7 @@ for s in 'modprobe -r brcmfmac' 'modprobe --remove brcmfmac' 'modprobe -q -r brc
          'modprobe -rv brcmfmac' 'modprobe brcmfmac -r' '/sbin/modprobe -r brcmfmac' 'rmmod brcmfmac_wcc' \
          'kmod remove brcmfmac' 'kmod -q remove brcmfmac' 'kmod --quiet remove brcmfmac' 'modprobe -r brcmfmac # trailing comment' \
          'echo 0000:05:00.0 > /sys/bus/pci/drivers/brcmfmac/unbind' $'modprobe -r \\\n    brcmfmac' \
-         'true; modprobe -r brcmfmac && echo done' 'echo "T2 resume # note"; modprobe -r brcmfmac'; do
+         'true; modprobe -r brcmfmac && echo done' 'echo "T2 resume # note"; modprobe -r brcmfmac' $'# note \\\nmodprobe -r brcmfmac'; do
     [ -n "$(printf '%s\n' "$s" | scan)" ] || { echo "FAIL control not caught: $s"; fail=1; }
 done
 for s in 'modprobe brcmfmac' 'modprobe -q brcmfmac' 'modprobe brcmfmac roamoff=1' \
