@@ -1635,6 +1635,7 @@ def write_partition_bytes(image_path: Path, start_sector: int, src: Path) -> Non
 
 
 COMPRESS_DEFAULTS = {"xz": 6, "zst": 19}
+COMPRESS_LEVELS = {"xz": range(0, 10), "zst": range(1, 20)}
 
 
 def compress_image(image: Path, kind: str, level: int | None = None) -> dict | None:
@@ -1656,6 +1657,9 @@ def compress_image(image: Path, kind: str, level: int | None = None) -> dict | N
     if kind == "none":
         return None
     lvl = COMPRESS_DEFAULTS[kind] if level is None else level
+    if kind in COMPRESS_LEVELS and lvl not in COMPRESS_LEVELS[kind]:
+        raise RuntimeError(f"FATAL: --compress-level {lvl} is outside {kind}'s "
+                           f"{COMPRESS_LEVELS[kind].start}-{COMPRESS_LEVELS[kind].stop - 1}")
     if kind == "xz":
         out = image.with_suffix(image.suffix + ".xz")
         # Single-threaded on purpose: multi-threaded xz writes a different
@@ -1664,6 +1668,9 @@ def compress_image(image: Path, kind: str, level: int | None = None) -> dict | N
         cmd = ["xz", "-c", f"-{lvl}", "-T1", str(image)]
     elif kind == "zst":
         out = image.with_suffix(image.suffix + ".zst")
+        # zstd's multi-threaded format does not depend on the worker count
+        # (measured: -T0/-T1/-T2 byte-identical on 40 MB); only
+        # --single-thread differs, and it is not used.
         cmd = ["zstd", "-c", f"-{lvl}", "--ultra", "-T0", "--long=27",
                "--no-progress", str(image)]
     else:

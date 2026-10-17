@@ -386,8 +386,13 @@ def load_keep_tsv(path: Path) -> tuple[set[str], dict[str, str]]:
         if name in keep:
             raise SystemExit(
                 f"magnetar-substrate: {path} lists {name!r} twice")
+        reason = parts[1].strip() if len(parts) > 1 else ""
+        if not reason:
+            raise SystemExit(
+                f"magnetar-substrate: {path}: {name!r} has no reason; the "
+                f"reason column is the audit trail for keeping it")
         keep.add(name)
-        reasons[name] = parts[1].strip() if len(parts) > 1 else ""
+        reasons[name] = reason
     return keep, reasons
 
 

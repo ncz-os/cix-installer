@@ -593,3 +593,18 @@ def test_slim_reasons_only_describe_kept_udebs(substrate, tmp_path, fake_dpkg):
     pool = substrate.Pool(tmp_path / "pool")
     kept, reasons = substrate.slim_keep_set(pool, "amd64", "amd64", set(), set(), {})
     assert set(reasons) <= kept
+
+
+def test_out_of_range_compress_level_is_refused(writer, tmp_path):
+    image = tmp_path / "disk.img"
+    image.write_bytes(b"x")
+    with pytest.raises(RuntimeError, match="outside xz"):
+        writer.compress_image(image, "xz", 20)
+    assert not list(tmp_path.glob("disk.img.*"))
+
+
+def test_keep_row_without_reason_is_rejected(substrate, tmp_path):
+    tsv = tmp_path / "keep.tsv"
+    tsv.write_text("openssh-server-udeb\t\n")
+    with pytest.raises(SystemExit, match="no reason"):
+        substrate.load_keep_tsv(tsv)
