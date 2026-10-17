@@ -21,6 +21,14 @@
 #   minimal        none                                      (every option off: console system)
 #   stalefs        desktop,mgmt-container,rescue-partition   (btrfs root, reinstall over an old
 #                                                             ext4 install: NCZ_GATE_STALE_DISK=1)
+#   server         rescue-partition                          (MAGNETAR: a SERVER image installs over
+#                                                             the gate's own HTTP payload server;
+#                                                             requires a server image, refused on
+#                                                             desktop media)
+#   server-offline-negative  rescue-partition                (NEGATIVE: same server image, the payload
+#                                                             server is NOT started; the install must
+#                                                             fail loudly within the deadline and
+#                                                             leave no rootfs on the target)
 #
 # Only `full` runs the installer UI check (it does not depend on the options).
 # A passing set's disk images are removed to keep the work root small
@@ -46,7 +54,20 @@ gate_set_components() {
         nodesktop)     echo "mgmt-container,rescue-partition" ;;
         minimal)       echo "none" ;;
         stalefs)       echo "desktop,mgmt-container,rescue-partition" ;;
+        server)        echo "rescue-partition" ;;
+        server-offline-negative) echo "rescue-partition" ;;
         *)             return 1 ;;
+    esac
+}
+# Per-set gate server mode: "server" runs the Magnetar server gate (the gate
+# serves the payload over its own HTTP server), "server-offline-negative"
+# runs the NEGATIVE half (server off, install must fail loud+bounded with no
+# rootfs written). "<off 0|1>" for the other sets = plain desktop gate.
+gate_set_server() {
+    case "$1" in
+        server)                  echo "1 0" ;;
+        server-offline-negative) echo "1 1" ;;
+        *)                       echo "0 0" ;;
     esac
 }
 # Root filesystem and disk preparation per set: "<fs> <stale 0|1>".
@@ -56,7 +77,7 @@ gate_set_disk() {
         *)       echo "ext4 0" ;;
     esac
 }
-GATE_ALL_SETS="full norescue norescue-mgmt nodesktop minimal stalefs"
+GATE_ALL_SETS="full norescue norescue-mgmt nodesktop minimal stalefs server server-offline-negative"
 GATE_DEFAULT_SETS="norescue minimal stalefs"
 # NCZ-GATE-SETS-END
 
@@ -84,20 +105,29 @@ for _s in $SETS; do
     read -r _fs _stale <<EOF_DISK
 $(gate_set_disk "$_s")
 EOF_DISK
+    read -r _srv _srv_off <<EOF_SRV
+$(gate_set_server "$_s")
+EOF_SRV
     _w="$WORKROOT/$_s"
     _ui=0; [ "$_s" = full ] && _ui="${NCZ_GATE_UI_CHECK:-1}"
     _coverage=target-logs-and-verifier
     [ "$_fs" = ext4 ] || _coverage=SKIP-target-logs-and-verifier
     [ "$_ui" != 0 ] || _coverage="$_coverage;SKIP-UI"
+    [ "$_srv" = 1 ] && _coverage="$_coverage;server-variant"
     echo
-    echo "################ install-option set: $_s ($_c, root $_fs, stale disk $_stale) ################"
+    if [ "$_srv" = 1 ]; then
+        echo "################ server set: $_s ($_c, root $_fs, payload server $([ "$_srv_off" = 1 ] && echo OFF || echo ON)) ################"
+    else
+        echo "################ install-option set: $_s ($_c, root $_fs, stale disk $_stale) ################"
+    fi
     _t0=$(date +%s)
     _rc=0
     NCZ_GATE_COMPONENTS="$_c" NCZ_GATE_UI_CHECK="$_ui" NCZ_GATE_FS="$_fs" NCZ_GATE_STALE_DISK="$_stale" \
+        NCZ_GATE_SERVER="$_srv" NCZ_GATE_SERVER_OFFLINE="$_srv_off" \
         bash "$SCRIPT_DIR/kvm-install-gate-gpt.sh" "$IMG" "$_w" 2>&1 | tee "$WORKROOT/$_s.log"
     _rc="${PIPESTATUS[0]}"
     _dt=$(( $(date +%s) - _t0 ))
-    if [ "$_rc" = 0 ] && grep -q '^GATE PASS' "$WORKROOT/$_s.log"; then
+    if [ "$_rc" = 0 ] && { grep -q '^GATE PASS' "$WORKROOT/$_s.log" || grep -q '^GATE PASS (server-offline-negative)' "$WORKROOT/$_s.log"; }; then
         printf '%s\t%s\tPASS\t%s\t%s\t%s\n' "$_s" "$_c" "$_dt" "$_w" "$_coverage" >> "$SUMMARY"
         if [ "${NCZ_GATE_KEEP:-0}" != 1 ]; then
             rm -f "$_w"/*-qemutest.img "$_w/target.qcow2" "$_w/OVMF_VARS.fd"

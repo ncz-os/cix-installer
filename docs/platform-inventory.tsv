@@ -202,6 +202,7 @@ build/test-amd64-t2-detect.sh	amd64	t2	T2 DMI detection test; the shipped detect
 build/test-arm64-freshness-gate.sh	sky1	-	arm64 unified-7.3 freshness gate test
 build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test (incl. overlay MODVERSIONS wiring)
 build/test-boot-speed.sh	common	-	regression tests for boot-blocking systemd units
+build/test-kvm-gate-server.sh	common	-	source test for the KVM gate server payload server (local, no QEMU)
 build/test-components.sh	common	-	hermetic fixture test for build/components.py check (pristine passes; injected drifts fail)
 build/test-components-gate.sh	common	-	hermetic fail-before/pass-after for components.py check --gate (phase 2)
 build/test-components-generate.sh	common	-	hermetic fail-before/pass-after for the phase 3 registry generators (seeds, NCZ_LOCAL_DEBS, allowlist)
