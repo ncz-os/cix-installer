@@ -165,6 +165,16 @@ has nv2 "Kepler/Pascal: legacy CUDA wording" "legacy CUDA only"
 has nv2 "Kepler/Pascal: i7 3rd generation"   "Core i, 3rd generation"
 has nv2 "Pascal: still discrete -> strong (engine: any NVIDIA)" "screensavers expect every saver at full quality"
 
+# NVIDIA HDA audio enumerates too: only a display-class function drives the
+# compute line, and a second display function of the same silicon is named once.
+fx nv3 >/dev/null; sysv nv3 "Dell Inc."; prod nv3 "Precision 3660"
+cpu nv3 "Intel(R) Core(TM) i7-12700 CPU" 20; mem nv3 33554432
+pci nv3 0000:01:00.0 040300 10de 0e0f          # GK208 HDMI audio (sorts first here)
+pci nv3 0000:01:00.1 030000 10de 2504          # GA106 [RTX 3060]
+pci nv3 0000:01:00.2 038000 10de 2504          # same silicon, second display function
+has nv3 "NVIDIA audio first: compute line from the GPU" "Turing or newer, CUDA supported"
+has nv3 "same-silicon second display function named once" "secondary display function"
+
 # --- O6N / cixmini (CIX Sky1) ------------------------------------------------
 fx cix >/dev/null; sysv cix "CIX"; prod cix "Sky1 EVB"
 cpu cix "CIX Sky1 CP8180" 12

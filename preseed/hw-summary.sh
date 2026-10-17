@@ -350,7 +350,7 @@ $_pci
 EOF
     # NVIDIA compute support, by the same arithmetic family test
     # post-install/lib/cuda-select.sh uses (thresholds on the device id).
-    _nv=$(printf '%s\n' "$_pci" | awk '$2 ~ /^10de:[0-9a-fA-F]+$/ { print $2; exit }')
+    _nv=$(printf '%s\n' "$_pci" | awk '$1 ~ /^03/ && $2 ~ /^10de:[0-9a-fA-F]+$/ { print $2; exit }')
     if [ -n "$_nv" ]; then
         _id=0x${_nv#*:}
         if [ "$((_id))" -ge $((0x1e00)) ]; then _cu="Turing or newer, CUDA supported"
