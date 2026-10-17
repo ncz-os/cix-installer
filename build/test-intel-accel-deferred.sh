@@ -845,8 +845,15 @@ NET=down NCZ_INTEL_MAX_TRIES=2 run ncz_intel_accel_run; _rcB4b=$?
 # partially spent budget is reset to a fresh 0 before the attempt counts 1.
 mkroot; mkpci 0x8086-120000
 arm 0 1 20
+# $LIB is the payload, not an executable: the operator runs the installed
+# entry point. Drive the real CLI through `bash "$LIB" rearm` only when it
+# is readable, from a copy that carries the exec bit, which is how the
+# installer ships /usr/local/sbin/ncz-intel-accel-setup.
+[ -r "$LIB" ] && cp "$LIB" "$W/ncz-intel-accel-setup" && chmod +x "$W/ncz-intel-accel-setup" \
+    && ok "CLI fixture: the lib is shipped as an executable entry point" \
+    || bad "cannot stage the CLI entry point from $LIB"
 ( export NCZ_INTEL_ROOT="$W/r" NCZ_INTEL_ACCEL_LIB=0 NCZ_INTEL_ASSETS="$ROOT/assets/intel" NCZ_INTEL_LIB_SRC="$LIB"
-  NCZ_INTEL_PCI_ROOT="$PCIR" NET=down NCZ_INTEL_MAX_TRIES=2 bash "$LIB" rearm ) >/dev/null 2>&1; _rcB5=$?
+  NCZ_INTEL_PCI_ROOT="$PCIR" NET=down NCZ_INTEL_MAX_TRIES=2 "$W/ncz-intel-accel-setup" rearm ) >/dev/null 2>&1; _rcB5=$?
 [ "$_rcB5" = 75 ] && [ "$(sed -n 's/^TRIES=//p' "$P")" = 1 ] && grep -qx 'pending:attempt-1' "$S" \
     && ok "explicit rearm resets a spent armed budget (20 -> attempt 1)" \
     || bad "explicit rearm rc=$_rcB5 status '$(cat "$S")' tries '$(sed -n 's/^TRIES=//p' "$P")'"
@@ -1040,6 +1047,36 @@ grep -A8 '^ncz_intel_recover()' "$LIB" | grep -q . \
     && ok "recover starts the timer on a running system only (not for a target root)" \
     || bad "recover does not start the timer on a running system"
 
+echo "=== fresh-index evidence: a deb822 file is judged field by field ==="
+# A deb822 stanza is a set of fields in arbitrary order; the remote-origin
+# probe must find the URIs: field wherever it sits, honour Enabled: no, and
+# join folded continuation lines. Each case writes a file of its own (NOT
+# under sources.list.d, so no earlier case can satisfy the detector) and is
+# driven through the same detector the deferred policy uses. Pins the
+# current behaviour: these pass before and after the retry-budget fix and
+# are here so a future rewrite of the detector cannot silently regress them.
+d822() {   # d822 LABEL REMOTE(1)/LOCAL(0) FIELD...
+    # A file of its own, outside sources.list.d, so no stanza from an
+    # earlier case can satisfy the detector for this one. $1 is the label,
+    # $2 the expected verdict, so the FIELDS start at $3.
+    f="$W/deb822-case.sources"
+    printf '%s\n' "${@:3}" > "$f"
+    if ( export NCZ_INTEL_ROOT="$W/r" NCZ_INTEL_ACCEL_LIB=1; . "$LIB"; _ncz_intel_has_remote_uri "$f" ) >/dev/null 2>&1; then got=1; else got=0; fi
+    # ok()/bad() both return 0, so `test && ok || bad` runs BOTH branches
+    # (a PASS is followed by a FAIL). Guard the call, not the return value.
+    case "$got" in
+        "$2") ok "deb822: $1" ;;
+        *) bad "deb822 field order: $1 (detected remote=$got, want $2)" ;;
+    esac
+}
+mkroot
+d822 "URIs after Types/Suites (remote)" 1 'Types: deb' 'Suites: forky' 'URIs: https://example.invalid/ncz'
+d822 "URIs after Components (remote)"   1 'Types: deb' 'Suites: forky' 'Components: main' 'URIs: https://example.invalid/ncz'
+d822 "URIs after Types/Suites (local)"  0 'Types: deb' 'Suites: forky' 'URIs: file:///srv/mirror'
+d822 "URIs first (remote)"              1 'URIs: https://example.invalid/ncz' 'Types: deb' 'Suites: forky'
+d822 "folded URIs, field not first"     1 'Types: deb' 'URIs: file:///srv/mirror' ' https://example.invalid/ncz' 'Suites: forky'
+d822 "disabled stanza with late URIs"   0 'Types: deb' 'Suites: forky' 'URIs: https://example.invalid/ncz' 'Enabled: no'
+
 echo "=== deferred throttle: a corrupt LAST= re-checks instead of wedging ==="
 mkroot
 NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_install 1 1
@@ -1061,6 +1098,21 @@ NET=up NCZ_INTEL_MAX_TRIES=1 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rc
 [ "$_rcF" = 0 ] && grep -qx done "$S" && [ ! -f "$P" ] \
     && ok "future LAST= is ignored: the run re-checks and installs" \
     || bad "future LAST= run rc=$_rcF status '$(cat "$S")'" "$(cat "$W/out")"
+
+# The slow-retry decision must be driven by an explicit "the stamp is
+# usable" test, never by arithmetic on a variable the case above may have
+# emptied. The status guard makes the arithmetic short-circuit return 0
+# here, which is also the permissive (re-check) answer: nothing is throttled.
+mkroot
+mkdir -p "$(dirname "$P")"; printf 'GPU=0\nNPU=1\nTRIES=1\nLAST=\n' > "$P"
+echo "deferred:native-candidates-unpublished" > "$S"
+: > "$LOG"
+NET=up NPUDRIVERS=0 NCZ_INTEL_FORCE=0 run ncz_intel_accel_run; _rcE=$?
+# rc 0 or 75 both mean the run went on to check the index; a throttled run
+# returns 0 WITHOUT any apt call, which is what this case forbids.
+grep -q ' install -y' "$LOG" \
+    && ok "an empty LAST= re-checks instead of wedging on arithmetic with no stamp" \
+    || bad "empty LAST= run rc=$_rcE was throttled or failed early: $(cat "$LOG")"
 
 mkroot
 NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_install 1 1
