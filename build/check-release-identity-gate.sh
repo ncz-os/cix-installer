@@ -168,22 +168,46 @@ check_os_release_file() {
 # codename. History prose in comments is fine; live generated content is not.
 check_generated_strings() {
     local dir="$1" where="$2"
+    N_RELEASE=0; N_OSREL=0; N_ISSUE=0; N_ISSUENET=0
     [ -d "$dir" ] || { bad "$where: tree not found: $dir"; return; }
     # Identity-shaped files: RELEASE (medium payload / chroot install copies),
-    # os-release, lsb-release, issue, issue.net. Match anywhere in the tree.
-    local f
+    # os-release, lsb-release, issue, issue.net. Match anywhere in the tree,
+    # except systemd's factory copies (usr/share/factory/etc/*): those are the
+    # stock Debian defaults tmpfiles restores only when /etc lacks the file,
+    # never the banner 50-brand.sh generated.
+    local label="$NCZ_EXPECT_PRODUCT $NCZ_EXPECT_VERSION $NCZ_EXPECT_CODENAME"
+    local want_banner="$label"
+    case "${NCZ_EXPECT_VARIANT:-}" in
+        server)  want_banner="$label Server" ;;
+        desktop) want_banner="$label Desktop" ;;
+    esac
+    local f content r rel
     while IFS= read -r f; do
+        case "$f" in */usr/share/factory/*) continue ;; esac
         case "$f" in
             */RELEASE|RELEASE)
+                N_RELEASE=$((N_RELEASE + 1))
                 check_release_file "$f" "$where: $(basename "$f")" ;;
             */os-release)
+                N_OSREL=$((N_OSREL + 1))
                 check_os_release_file "$f" "$where: $(basename "$f")" "${NCZ_EXPECT_VARIANT:-}" ;;
             */lsb-release|*issue|*issue.net)
-                local content r
                 content="$(cat "$f" 2>/dev/null || true)"
                 for r in "${RETIRED[@]}"; do
                     case "$content" in *"$r"*) bad "$where: $(basename "$f") names the retired codename '$r'" ;; esac
                 done
+                case "$f" in
+                    */lsb-release)
+                        rel="$(field "$f" DISTRIB_RELEASE)"
+                        [ "$rel" = "$NCZ_EXPECT_VERSION" ] \
+                            || bad "$where: lsb-release DISTRIB_RELEASE='$rel' does not match release.conf ('$NCZ_EXPECT_VERSION')" ;;
+                    *)
+                        case "$f" in *issue.net) N_ISSUENET=$((N_ISSUENET + 1)) ;; *) N_ISSUE=$((N_ISSUE + 1)) ;; esac
+                        case "$content" in
+                            *"$want_banner"*) ok "$where: $(basename "$f") carries '$want_banner'" ;;
+                            *) bad "$where: $(basename "$f") does not carry the banner '$want_banner'" ;;
+                        esac ;;
+                esac
                 ;;
         esac
     done < <(find "$dir" -type f \( -name RELEASE -o -name os-release -o -name lsb-release \
@@ -245,6 +269,9 @@ cmd_staged() {
     # variant-label check would be wrong here.
     NCZ_EXPECT_VARIANT=""
     check_generated_strings "$tree" "medium"
+    # A medium without its RELEASE is not an identity that passed: it is no
+    # identity at all.
+    [ "$N_RELEASE" -gt 0 ] || bad "medium: no RELEASE found in the staged tree"
     # payload_dir is accepted for interface stability with the medium
     # writer's staging layout; it is a subdir of the tree, already covered.
     [ -n "$payload_dir" ] && [ -d "$payload_dir" ] || true
@@ -272,6 +299,10 @@ cmd_baked() {
     # Generated identity files: /etc/os-release (+symlink), lsb-release,
     # issue, issue.net, and the RELEASE copies 50-brand reads.
     check_generated_strings "$tree" "baked"
+    # 50-brand.sh generates all three; a bake missing any of them did not brand.
+    [ "$N_OSREL" -gt 0 ]    || bad "baked: no os-release in the rootfs"
+    [ "$N_ISSUE" -gt 0 ]    || bad "baked: no issue in the rootfs"
+    [ "$N_ISSUENET" -gt 0 ] || bad "baked: no issue.net in the rootfs"
 }
 
 main() {

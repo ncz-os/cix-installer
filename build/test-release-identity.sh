@@ -250,6 +250,38 @@ if bash "$GATE" baked "$GT/novariant" >/dev/null 2>&1; then
 else
     ok "gate baked: a missing BUILD_VARIANT stamp fails the gate"
 fi
+# A staged medium with no RELEASE at all must fail (nothing was checked).
+mkdir -p "$GT/nomedium/ncz-payload"
+if bash "$GATE" staged "$GT/nomedium" >/dev/null 2>&1; then
+    bad "gate staged: a medium without RELEASE must FAIL"
+else
+    ok "gate staged: a medium without RELEASE fails the gate"
+fi
+# A baked rootfs missing issue.net (50-brand did not run fully) must fail.
+make_tree "$GT/noissue" desktop
+rm -f "$GT/noissue/etc/issue.net"
+if bash "$GATE" baked "$GT/noissue" >/dev/null 2>&1; then
+    bad "gate baked: a rootfs without issue.net must FAIL"
+else
+    ok "gate baked: a rootfs without issue.net fails the gate"
+fi
+# An issue banner with an older (non-retired) identity must fail.
+make_tree "$GT/oldbanner" desktop
+sed -i "s/${NCZ_RELEASE_CODENAME}/Orion/" "$GT/oldbanner/etc/issue"
+if bash "$GATE" baked "$GT/oldbanner" >/dev/null 2>&1; then
+    bad "gate baked: an issue banner with an older identity must FAIL"
+else
+    ok "gate baked: an issue banner with an older identity fails the gate"
+fi
+# The stock Debian factory copy of /etc/issue is not a generated banner.
+make_tree "$GT/factory" desktop
+mkdir -p "$GT/factory/usr/share/factory/etc"
+printf '\\S\nKernel \\r on an \\m (\\l)\n' > "$GT/factory/usr/share/factory/etc/issue"
+if bash "$GATE" baked "$GT/factory" >/dev/null 2>&1; then
+    ok "gate baked: systemd factory issue copy is ignored"
+else
+    bad "gate baked: systemd factory issue copy is ignored"
+fi
 # The image build must invoke the gate on every medium and every bake.
 check_grep "$ROOT/build/iso/write-usb-image.py" "check-release-identity-gate.sh" \
     "write-usb-image.py: runs the identity gate on the staged medium"
