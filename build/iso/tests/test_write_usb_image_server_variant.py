@@ -230,7 +230,7 @@ class ReleaseIdentityGateTest(unittest.TestCase):
         """Build a minimal staged tree the way build_ncz_payload_tree would."""
         repo = self.tmp / "repo"
         build_fixture_repo(repo)
-        payload = fake_payload_dir(repo, with_base=True)
+        fake_payload_dir(repo, with_base=True)
         stage_dir = self.tmp / name
         stage_dir.mkdir()
         (stage_dir / "ncz-payload").mkdir()
