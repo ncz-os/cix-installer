@@ -1158,8 +1158,8 @@ def scan_candidate(scanner: Scanner, data: bytes, path: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 LAYER_SUFFIXES = (".squashfs", ".sqfs", ".sfs")
 INITRD_RE = re.compile(
-    r"(^|/)(initrd|initramfs|initrd\.img|initrd\.gz)([-._][^/]*)?$|"
-    r"\.(cpio|cpio\.gz|cpio\.xz|cpio\.zst|cpio\.bz2|img)$|^initrd", re.I)
+    r"(^|/)(initrd|initramfs)([-._][^/]*)?$|"
+    r"\.(cpio|cpio\.gz|cpio\.xz|cpio\.zst|cpio\.bz2)$", re.I)
 ROOTFS_TAR_RE = re.compile(
     r"\.tar\.(zst|xz|gz|bz2)$|\.tar$", re.I)
 DEB_RE = re.compile(r"\.deb$", re.I)
@@ -1173,9 +1173,9 @@ def layer_kind(path: str) -> str | None:
 
 def initrd_kind(path: str) -> str | None:
     base = os.path.basename(path)
-    if base in ("initrd", "initrd.gz", "initrd.img", "initramfs") or \
-       base.startswith("initrd") or base.startswith("initramfs") or \
-       ".cpio" in base:
+    # INITRD_RE is the single source of truth: the old name list plus a
+    # bare ".cpio in base" substring matched things like backup.cpio.bak.
+    if INITRD_RE.search(path) or base in ("initrd", "initramfs"):
         return "initrd"
     return None
 

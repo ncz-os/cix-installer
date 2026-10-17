@@ -381,6 +381,13 @@ assert g.looks_textual("/etc/shadow")
 assert g.looks_textual("/usr/lib/systemd/system/foo")
 assert g.looks_textual("/etc/systemd/system/x.service")
 assert not g.looks_textual("/usr/bin/binary-without-extension")
+# initrd_kind must not claim every *.img or a backup.cpio.bak: a false
+# positive here makes a non-cpio file fail the build closed.
+assert g.initrd_kind("/boot/initrd.img-6.1.0") == "initrd"
+assert g.initrd_kind("/x/initramfs-linux.img") == "initrd"
+assert g.initrd_kind("/x/installer.cpio.gz") == "initrd"
+assert g.initrd_kind("/x/backup.cpio.bak") is None
+assert g.initrd_kind("/x/windows10.img") is None
 # every segment is visited in order; directory entries (".") are yielded for
 # completeness but expand() never treats them as content
 assert names == [".", "f", ".", "f"], names
