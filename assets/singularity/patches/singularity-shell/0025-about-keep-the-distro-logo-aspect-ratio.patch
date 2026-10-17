@@ -1,0 +1,67 @@
+From d6aab043f5015b19f14bbdd796bccbd677f99ddc Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 17 Oct 2026 13:20:52 -0400
+Subject: [PATCH] about: keep the distro logo aspect ratio
+
+The About page drew the os-release LOGO icon with an Image and a 96 px
+pixel size, which squeezes a non-square mark into a square. Draw logo
+artwork through a Picture with ContentFit.CONTAIN in a 96x96 box instead,
+and keep the accent-coloured Image for the generic symbolic fallback.
+---
+ src/components/sidebar/pages/system_page.vala | 33 ++++++++++++++++---
+ 1 file changed, 28 insertions(+), 5 deletions(-)
+
+diff --git a/src/components/sidebar/pages/system_page.vala b/src/components/sidebar/pages/system_page.vala
+index f314138..4c07fb2 100644
+--- a/src/components/sidebar/pages/system_page.vala
++++ b/src/components/sidebar/pages/system_page.vala
+@@ -38,11 +38,7 @@ namespace Singularity.SidebarPages {
+             logo_box.margin_top = 12;
+             logo_box.margin_bottom = 4;
+             logo_box.halign = Align.CENTER;
+-            var logo = new Image.from_icon_name("computer-symbolic");
+-            logo.icon_name = get_distro_icon_name();
+-            logo.pixel_size = 96;
+-            logo.add_css_class("accent-color");
+-            logo_box.append(logo);
++            logo_box.append(build_distro_logo(96));
+             add_widget(logo_box);
+             var device_group = new PreferencesGroup();
+             hostname_row = new EntryRow(_("Device Name"));
+@@ -238,6 +234,33 @@ namespace Singularity.SidebarPages {
+             }
+         }
+ 
++        // A distro logo is artwork, not a symbolic glyph: an Image with a
++        // pixel size forces it into a square and squeezes a wide mark. Show
++        // it through a Picture that keeps its aspect ratio inside a size x
++        // size box. The generic symbolic fallback stays an accent-coloured
++        // Image, as before.
++        private Widget build_distro_logo(int size) {
++            var icon_name = get_distro_icon_name();
++            var display = Gdk.Display.get_default();
++            if (icon_name == "computer-symbolic" || display == null) {
++                var image = new Image.from_icon_name(icon_name);
++                image.pixel_size = size;
++                image.add_css_class("accent-color");
++                return image;
++            }
++            // Scale 2 so the paintable has enough pixels on HiDPI outputs;
++            // its intrinsic size stays size x size logical pixels.
++            var paintable = Gtk.IconTheme.get_for_display(display).lookup_icon(
++                icon_name, null, size, 2, TextDirection.NONE, 0);
++            var picture = new Picture.for_paintable(paintable);
++            picture.content_fit = ContentFit.CONTAIN;
++            picture.can_shrink = true;
++            picture.set_size_request(size, size);
++            picture.halign = Align.CENTER;
++            picture.valign = Align.CENTER;
++            return picture;
++        }
++
+         private string get_distro_icon_name() {
+             string? logo_icon = HardwareInfo.os_release("LOGO");
+             string? distro_id = HardwareInfo.os_release("ID");
+-- 
+2.53.0
+

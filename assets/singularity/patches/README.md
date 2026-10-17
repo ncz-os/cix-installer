@@ -340,6 +340,16 @@ and the typed password is cleared when the prompt goes away. Applies after 0023.
 upstream yet (no PR link). Regression tests: `tests/lockscreen-framesrc/test-framesrc.sh`
 cases 13-14 (inside the patch) and lockrig T6b, T19, T20.
 
+Patch `0025-about-keep-the-distro-logo-aspect-ratio.patch` (MINOR-006): the About page
+drew the os-release `LOGO` icon with an `Image` at a 96 px pixel size, which squeezes a
+non-square mark into a square. Logo artwork now goes through a `Picture` with
+`ContentFit.CONTAIN` in a 96x96 box; the generic `computer-symbolic` fallback stays an
+accent-coloured `Image`. NCZ also installs a square Cygnus mark under the `LOGO` name in the
+sized hicolor directories (`post-install/55-greeter.sh`), so the theme lookup the About page
+makes finds a square icon while the greeter and splashes keep the wordmark from
+`/usr/share/pixmaps`. Not filed upstream yet (no PR link). Regression test:
+`build/test-about-logo-mark.sh`.
+
 ## singularity-leafs — carried, not filed
 
 Patch `0001-window-keep-the-toolbar-in-classic-titlebar-and-ssd-modes.patch`: Leafs hid

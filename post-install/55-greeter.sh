@@ -82,6 +82,31 @@ else
     echo "[55] WARN: ncz logo asset missing — greeter/boot-splash fall back to emblem-singularity" >&2
 fi
 
+# --- square Cygnus mark for icon-theme lookups (MINOR-006) --------------------
+# The LOGO name has two kinds of consumer. The greeter and both splashes look
+# for a FILE, scalable svg first, then /usr/share/pixmaps, and only then
+# hicolor/256x256 -- so they keep finding the wordmark installed in pixmaps
+# above. GTK icon-theme lookups (the Singularity About page) read the SIZED
+# hicolor directories, where the 696x52 wordmark was squeezed into a square.
+# Give those lookups the square mark at every size, including 256x256, which
+# replaces the wordmark copy there. Never install it as scalable/apps/*.svg:
+# the greeter checks that path first and would lose its wordmark.
+MARK_DIR="$ASSETS/logo/cygnus-mark"
+if [ -f "$MARK_DIR/256.png" ]; then
+    for size in 48 64 96 128 192 256; do
+        [ -f "$MARK_DIR/$size.png" ] || continue
+        install -d -m0755 "/usr/share/icons/hicolor/${size}x${size}/apps"
+        install -m0644 "$MARK_DIR/$size.png" "/usr/share/icons/hicolor/${size}x${size}/apps/$LOGO_NAME.png"
+    done
+    if [ -f /usr/share/icons/hicolor/icon-theme.cache ] && command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f /usr/share/icons/hicolor >/dev/null 2>&1 \
+            || echo "[55] WARN: gtk-update-icon-cache failed for hicolor" >&2
+    fi
+    echo "[55] square Cygnus mark installed ($LOGO_NAME.png -> hicolor 48..256 apps)"
+else
+    echo "[55] WARN: Cygnus mark absent ($MARK_DIR) — the About page shows the wordmark" >&2
+fi
+
 # --- greeter fallback background = Cygnus greeter backdrop ------------------
 # singularity-greeter background priority: per-user AccountsService Background ->
 # dev.sinty.desktop uri (current user only) -> fallback file. At the greeter no
