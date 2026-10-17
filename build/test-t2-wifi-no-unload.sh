@@ -7,8 +7,8 @@ set -u
 cd "$(dirname "$0")/.."
 fail=0
 # modprobe with -r anywhere in a short-option cluster (-r, -rv, -q -r) or
-# --remove, rmmod, or a write to the brcmfmac driver's sysfs unbind/remove.
-pat='(modprobe[^#]*[[:space:]](-[a-zA-Z]*r[a-zA-Z]*|--remove)([[:space:]]|$)|rmmod)[^#]*brcmfmac|brcmfmac[^#]*/(unbind|remove)'
+# --remove, rmmod, kmod remove, or a write to the brcmfmac driver's sysfs unbind/remove.
+pat='(modprobe[^#]*[[:space:]](-[a-zA-Z]*r[a-zA-Z]*|--remove)([[:space:]]|$)|rmmod|kmod[[:space:]]+remove)[^#]*brcmfmac|brcmfmac[^#]*/(unbind|remove)'
 # Per file, so the line prefix is just N: (a file name may contain a colon).
 hits=$(grep -rlE "$pat" post-install preseed assets 2>/dev/null | while IFS= read -r f; do
     grep -nE "$pat" "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$f:|"
@@ -18,7 +18,7 @@ if [ -n "$hits" ]; then
 fi
 # Negative control: the pattern must catch the shape that broke Wi-Fi.
 for s in 'modprobe -r brcmfmac' 'modprobe --remove brcmfmac' 'modprobe -q -r brcmfmac_wcc brcmfmac' 'modprobe -rv brcmfmac' \
-         'rmmod brcmfmac_wcc' 'modprobe -r brcmfmac # trailing comment' \
+         'rmmod brcmfmac_wcc' 'kmod remove brcmfmac' 'modprobe -r brcmfmac # trailing comment' \
          'echo 0000:05:00.0 > /sys/bus/pci/drivers/brcmfmac/unbind'; do
     printf '%s\n' "$s" | grep -qE "$pat" || { echo "FAIL pattern misses: $s"; fail=1; }
 done
