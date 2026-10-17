@@ -1067,8 +1067,10 @@ def expand(name: str, data: bytes, label: str, depth: int = 0):
     through nested archives and compression."""
     if depth > 4:
         raise Unreadable(f"{label}: nested archives deeper than 4 levels")
-    for kind, plain in decompress_chain(data, label):
+    decompressed = False
+    for _kind, plain in decompress_chain(data, label):
         data = plain
+        decompressed = True
     if data.startswith(b"!<arch>\n"):
         for mname, payload in ar_members(data, label):
             if mname.startswith(("data.tar", "control.tar")):
@@ -1097,8 +1099,10 @@ def expand(name: str, data: bytes, label: str, depth: int = 0):
         except (zipfile.BadZipFile, OSError) as exc:
             raise Unreadable(f"{label}: zip stream is corrupt: {exc}")
         return
-    # a leaf: the (already decompressed) bytes themselves
-    return
+    # a leaf.  When it was compressed, hand back the decompressed bytes so the
+    # caller scans plaintext rather than the compressed stream.
+    if decompressed:
+        yield label, data
 
 
 # ---------------------------------------------------------------------------

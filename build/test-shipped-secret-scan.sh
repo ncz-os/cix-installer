@@ -434,6 +434,16 @@ for row in open(os.path.join(root, "manifests", "secret-scan-allow.tsv")):
 zmain = subprocess.run(["zstd", "-q", "-c"], input=segs[1], capture_output=True).stdout
 mixed = [n for n, p in g.cpio_members(segs[0] + zmain, "t") if p]
 assert mixed == ["f", "f"], mixed
+# a compressed file that is not an archive is scanned as plaintext
+leaf = list(g.expand("/x/initrd.gz", __import__("gzip").compress(b"plain text\n"), "/x/initrd.gz"))
+assert leaf == [("/x/initrd.gz", b"plain text\n")], leaf
+hs2 = g.HashSet("s")
+for v in g.secret_variants([fake], "s"):
+    hs2.digests.add(v["sha256"])
+r2 = g.Report()
+g.scan_payload(r2, g.Scanner(hs2, shapes=False), "esp", "/x/initrd.gz",
+               __import__("gzip").compress(b"k=" + fake + b"\n"))
+assert r2.findings, "a gzip-compressed non-archive initrd hid the value"
 # zstd: the subprocess result must not clobber the payload variable; a broken
 # binding here raised AttributeError on every .tar.zst / zstd squashfs.
 zr = subprocess.run(["zstd", "-q", "-c"], input=b"hello-zstd\n", capture_output=True)
