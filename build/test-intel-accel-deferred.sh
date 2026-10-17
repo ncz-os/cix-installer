@@ -1,7 +1,8 @@
 #!/bin/bash
 # test-intel-accel-deferred.sh -- Intel GPU/NPU userspace: native NCZ/Forky
 # acquisition, apt simulation gate, and the deferred retry when the network
-# is down (r201) / NPU drivers are missing (r202).
+# is down (r201) / NPU drivers are missing (r202), plus the deferred
+# publication-lag policy (2026-10-17, PROTEUS: failed:gave-up-after-36).
 #
 # GU502LV had no OpenVINO / Level Zero userspace: 54-gpu-accel.sh fetched an
 # Intel key URL that answers 403, skipped the stack with no retry, and asked
@@ -15,6 +16,14 @@
 #   * "NPU drivers not yet published" (NPUPKGS=0)
 #   * "no network / index not refreshable" (NET=down)
 #   * "a transaction that would remove packages" (REMV=1)
+#
+# and covers the deferred policy:
+#   * a 75 caused ONLY by native candidates missing from a freshly fetched
+#     index does NOT give up after the fast budget: the marker is kept and
+#     the status is deferred:native-candidates-unpublished (exit 0);
+#   * network-down and would-remove keep the old give-up / refusal semantics;
+#   * a failed:gave-up-* system re-arms on the next deferred run (or
+#     ncz-update-apply refresh) when the Intel GPU/NPU hardware is present.
 #
 # Run: bash build/test-intel-accel-deferred.sh     Exit 0 = pass, 1 = fail.
 set -uo pipefail
@@ -81,12 +90,15 @@ case "$1" in
         exit 0 ;;
 esac
 EOF
-# apt-get: log every call; -s prints Inst (+ Remv when REMV=1); real install fails when NET!=up
+# apt-get: log every call; -s prints Inst (+ Remv when REMV=1); real install fails when NET!=up.
+# update fails when the network is down: a stale/cached index is NOT a fresh
+# fetch, and the deferred policy must treat "index not refreshable" as a
+# network-down 75 (give-up semantics), not as publication lag.
 cat > "$W/bin/apt-get" <<'EOF'
 #!/bin/sh
 echo "apt-get $*" >> "$LOG"
 case " $* " in
-    *" update "*) exit 0 ;;
+    *" update "*) [ "${NET:-up}" = down ] && exit 100; exit 0 ;;
     *" -s "*) echo "Inst libze1"; [ "${REMV:-0}" = 1 ] && echo "Remv mesa-opencl-icd [1]"; exit 0 ;;
     *" install "*) [ "$NET" = up ] && exit 0
                    # network down: only the Debian set can come (offline mirror, MIRROR=1)
@@ -107,7 +119,14 @@ printf '#!/bin/sh\nexit 22\n' > "$W/bin/curl"
 chmod +x "$W/bin/"*
 export PATH="$W/bin:$PATH" LOG="$W/apt.log"
 
-mkroot() { rm -rf "$W/r" "$LOG"; mkdir -p "$W/r"; : > "$LOG"; }
+mkroot() {
+    rm -rf "$W/r" "$LOG"; mkdir -p "$W/r"; : > "$LOG"
+    # A remote-origin NCZ source under the fixture root: real installs carry
+    # one (hook24), and the deferred policy requires a remote source for
+    # "freshly fetched index" -- an all-local index is never fresh.
+    mkdir -p "$W/r/etc/apt/sources.list.d"
+    echo "deb [signed-by=/x] https://example.invalid/ncz ./ " > "$W/r/etc/apt/sources.list.d/ncz-test.list"
+}
 run() {   # run FUNC ARGS... in the fixture root
     ( export NCZ_INTEL_ROOT="$W/r" NCZ_INTEL_ASSETS="${KEYASSETS:-$ROOT/assets/intel}" NCZ_INTEL_LIB_SRC="$LIB" NCZ_INTEL_ACCEL_LIB=1
       . "$LIB"; "$@" ) > "$W/out" 2>&1
@@ -452,6 +471,293 @@ NET=up NPUPKGS=1 NPUDRIVERS=1 VENDOR_ONLY_D=1 run ncz_intel_accel_install 1 1
 grep -q ' install -y.*libopenvino-intel-gpu-plugin' "$LOG" && [ -f "$P" ] \
     && ok "native GPU stays available while vendor-only NPU drivers remain pending" \
     || bad "GPU availability or NPU retry was lost" "$(cat "$W/out")"
+
+# =============================================================================
+# Deferred publication-lag policy (2026-10-17, PROTEUS gave-up defect)
+# =============================================================================
+S="$W/r/var/lib/ncz/intel-accel.status"
+PCIR="$W/pcir"
+mkpci() {   # mkpci VENDOR-CLASS...  (default: Intel GPU 0x8086-030000)
+    if [ "$#" -eq 0 ]; then
+        set -- 0x8086-030000
+    fi
+    rm -rf "$PCIR"; local c
+    for c in "$@"; do
+        mkdir -p "$PCIR/$c"
+        printf '%s\n' "${c%-*}" > "$PCIR/$c/vendor"
+        printf '0x%s\n' "${c#*-}" > "$PCIR/$c/class"
+    done
+}
+
+echo "=== deferred policy: rc 75 caused ONLY by unpublished native candidates -> defer, never give up ==="
+# PROTEUS scenario: NPU D set + NPU plugin missing from the NCZ index, but
+# the index itself fetched fine (NET=up, remote source present).
+mkroot
+NCZ_INTEL_MAX_TRIES=2 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_install 1 1
+# Attempt 1 is inside the fast budget (tries 1 < 2): still pending, retrying (75).
+NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run; _rc1=$?
+[ "$_rc1" = 75 ] && grep -qx 'TRIES=1' "$P" && ok "fast attempt 1 of 2: rc=75, marker kept" || bad "fast attempt 1 rc=$_rc1" "$(cat "$W/out")"
+# Attempt 2 exhausts the budget (tries 2 < 2 is false): the ONLY gap is the
+# unpublished native candidates -> deferred, NOT failed:gave-up-*, marker +
+# timer kept, exit 0 (clean oneshot; the timer keeps firing on the marker).
+: > "$LOG"
+NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run; _rc3=$?
+[ "$_rc3" = 0 ] && ok "attempt past budget: exit 0 (clean oneshot, timer keeps firing)" || bad "deferred attempt rc=$_rc3" "$(cat "$W/out")"
+grep -qx 'deferred:native-candidates-unpublished' "$S" \
+    && ok "status is deferred:native-candidates-unpublished" \
+    || bad "status is '$(cat "$S")'"
+[ -f "$P" ] && [ -L "$T" ] \
+    && ok "pending marker + timer kept in the deferred state (retry stays armed)" \
+    || bad "deferred state lost the marker or timer"
+grep -qx 'TRIES=2' "$P" \
+    && ok "TRIES counter preserved across the deferral" \
+    || bad "TRIES not preserved: $(cat "$P")"
+# While deferred, a deferred run where the candidates are STILL missing stays
+# deferred (no flip to failed:gave-up-*).
+NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run; _rc4=$?
+[ "$_rc4" = 0 ] && grep -qx 'deferred:native-candidates-unpublished' "$S" \
+    && ok "repeated deferred run stays deferred (no give-up flip)" \
+    || bad "repeated deferred run rc=$_rc4 status '$(cat "$S")'"
+# Once the index publishes the candidates, the next deferred run installs
+# everything and finishes: no manual re-arm needed (the timer / ncz-update
+# refresh drives it).
+: > "$LOG"
+NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rc5=$?
+inst=$(grep ' install -y' "$LOG")
+[ "$_rc5" = 0 ] && [ ! -f "$P" ] && [ ! -e "$T" ] && grep -qx done "$S" \
+    && ok "once published: next deferred run installs and finishes (done, marker gone)" \
+    || bad "published run rc=$_rc5" "$(cat "$W/out")"
+for p in libopenvino-intel-npu-plugin-2026.4.1 \
+         intel-driver-compiler-npu intel-fw-npu intel-level-zero-npu intel-validation-npu; do
+    printf '%s\n' "$inst" | grep -q -w -- "$p" || bad "deferred-then-published install lacks $p" "$inst"
+done
+ok "deferred-then-published install carries the full NPU set"
+
+echo "=== deferred policy: NPU plugin gap (C artifact missing) also defers ==="
+# NPU requested, the NPU plugin (C artifact) is missing from the index, and
+# the D set is present: the GPU plugin installs fine, but the NPU plugin +
+# D set cannot be assembled. The ONLY remaining gap is the unpublished NPU
+# plugin -> deferred after the budget, not gave-up.
+mkroot
+NCZ_INTEL_MAX_TRIES=2 NET=up NPUPKGS=0 NPUDRIVERS=1 run ncz_intel_accel_install 1 1
+NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=0 NPUDRIVERS=1 run ncz_intel_accel_run
+NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=0 NPUDRIVERS=1 run ncz_intel_accel_run; _rc6=$?
+[ "$_rc6" = 0 ] && grep -qx 'deferred:native-candidates-unpublished' "$S" && [ -f "$P" ] \
+    && ok "NPU-plugin gap defers past the budget with the marker kept" \
+    || bad "npu-plugin-gap deferred run rc=$_rc6 status '$(cat "$S")'"
+
+echo "=== deferred policy: network-down stays failed:gave-up-* (old semantics) ==="
+# No fresh index fetchable: the 75 is NOT deferred-unpublished, so the
+# budget still ends in gave-up + marker dropped.
+mkroot
+NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_install 1 1
+NET=down NCZ_INTEL_MAX_TRIES=1 MIRROR=1 run ncz_intel_accel_run; _rc7=$?
+[ "$_rc7" = 1 ] && grep -qx 'failed:gave-up-after-1-attempts' "$S" && [ ! -f "$P" ] \
+    && ok "network-down past the budget: failed:gave-up-*, marker dropped (old semantics)" \
+    || bad "network-down run rc=$_rc7 status '$(cat "$S")'"
+
+echo "=== deferred policy: would-remove refusal keeps its current semantics ==="
+# REMV=1 refuses at install time (rc 1) -- no marker, no give-up bookkeeping.
+mkroot
+NET=up REMV=1 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_install 1 0
+grep -qx 'failed:would-remove-1-packages' "$S" && [ ! -f "$P" ] \
+    && ok "would-remove: refused, status recorded, no marker (unchanged)" \
+    || bad "would-remove path changed: '$(cat "$S")'"
+# And a would-remove inside the deferred run refuses immediately (rc 1),
+# never defers and never loops.
+mkroot; mkdir -p "$(dirname "$P")"; printf 'GPU=1\nNPU=1\nTRIES=0\n' > "$P"
+NET=up REMV=1 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rc8=$?
+[ "$_rc8" = 1 ] && grep -qx 'failed:would-remove-1-packages' "$S" && [ ! -f "$P" ] \
+    && ok "deferred run would-remove: rc=1 refusal, marker dropped (no endless retry)" \
+    || bad "deferred would-remove rc=$_rc8 status '$(cat "$S")'"
+
+echo "=== recovery: a failed:gave-up-* system re-arms when hardware is present ==="
+mkroot; mkpci
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_install 1 1
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_run; _rc9=$?
+[ "$_rc9" = 1 ] && grep -q 'failed:gave-up-after-1-attempts' "$S" && [ ! -f "$P" ] \
+    && ok "precondition: system is gave-up with no marker" \
+    || bad "gave-up precondition rc=$_rc9 status '$(cat "$S")'"
+# The deferred entry (timer re-run after the payload upgrade) sees the
+# gave-up status and the still-present Intel GPU -> re-arms.
+: > "$LOG"
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rc10=$?
+[ "$_rc10" = 0 ] && [ ! -f "$P" ] && grep -qx done "$S" \
+    && ok "re-arm + immediate success: gave-up system recovers on the next deferred run" \
+    || bad "re-arm run rc=$_rc10 status '$(cat "$S")'"
+# Same recovery, but the index is still missing the candidates: the run must
+# re-arm (marker back) and then stay pending, NOT silently exit as a no-op.
+mkroot; mkpci
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_install 1 1
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_run >/dev/null 2>&1
+grep -q 'failed:gave-up' "$S" && [ ! -f "$P" ] || bad "re-arm precondition missing: '$(cat "$S")'"
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=2 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=2 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run; _rc11=$?
+[ "$_rc11" = 0 ] && [ -f "$P" ] && grep -qx 'deferred:native-candidates-unpublished' "$S" \
+    && ok "re-arm with index still incomplete: marker re-created and run defers (not a no-op)" \
+    || bad "re-arm incomplete run rc=$_rc11 status '$(cat "$S")'"
+
+echo "=== recovery: gave-up WITHOUT Intel hardware stays gave-up (no false re-arm) ==="
+mkroot; mkpci 0x10de-030000   # only an NVIDIA display device, no Intel
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_install 1 1
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_run >/dev/null 2>&1
+grep -q 'failed:gave-up' "$S" && [ ! -f "$P" ] || bad "no-hw precondition missing: '$(cat "$S")'"
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rc12=$?
+[ "$_rc12" = 0 ] && grep -q 'failed:gave-up' "$S" && [ ! -f "$P" ] \
+    && ok "no Intel GPU/NPU hardware: gave-up status kept, marker NOT re-created" \
+    || bad "no-hw run rc=$_rc12 status '$(cat "$S")'"
+# No PCI tree at all (probe cannot decide) fails open: re-arm proceeds,
+# and the run behaves like a normal pending run.
+mkroot
+NCZ_INTEL_PCI_ROOT="$W/no-pci" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_install 1 1
+NCZ_INTEL_PCI_ROOT="$W/no-pci" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_run >/dev/null 2>&1
+grep -q 'failed:gave-up' "$S" && [ ! -f "$P" ] || bad "no-sysfs precondition missing: '$(cat "$S")'"
+NCZ_INTEL_PCI_ROOT="$W/no-pci" NCZ_INTEL_MAX_TRIES=2 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run
+NCZ_INTEL_PCI_ROOT="$W/no-pci" NCZ_INTEL_MAX_TRIES=2 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run; _rc13=$?
+[ "$_rc13" = 0 ] && [ -f "$P" ] && grep -qx 'deferred:native-candidates-unpublished' "$S" \
+    && ok "no PCI tree: probe fails open and the marker is re-armed (deferred, not gave-up)" \
+    || bad "no-sysfs run rc=$_rc13 status '$(cat "$S")'"
+
+echo "=== fresh-index evidence: _ncz_intel_repos_all_local reads every real source shape ==="
+# The deferred policy treats "apt-get update succeeded" as evidence ONLY
+# when a REMOTE origin exists. That predicate must not be fooled by:
+#   * a remote URI that is a SYMLINK into the sources dir (Debian vendors
+#     managed configs that way),
+#   * a deb822 .sources file,
+#   * an inline deb line in the root sources.list,
+# and it must still report all-local for a file:/mirror-only system.
+_al() {   # _al ROOTDIR -> 1 (has remote) / 0 (all local)
+    ( NCZ_INTEL_ROOT="$1"; . "$LIB"; _ncz_intel_repos_all_local ) >/dev/null 2>&1
+    echo $?
+}
+mkroot
+mkdir -p "$W/linked" "$W/r/etc/apt/sources.list.d"
+printf 'deb [signed-by=/x] https://ncz.example/ncz forky main\n' > "$W/linked/managed.list"
+ln -sf "$W/linked/managed.list" "$W/r/etc/apt/sources.list.d/managed.list"
+[ "$(_al "$W/r")" = 1 ] && ok "symlinked remote .list is read (remote origin detected)" \
+    || bad "symlinked remote .list was skipped: index freshness would be misclassified"
+mkroot; mkdir -p "$W/r/etc/apt/sources.list.d"
+printf 'Types: deb\nURIs: http://deb.debian.org/debian\nSuites: forky\n' > "$W/r/etc/apt/sources.list.d/deb.sources"
+[ "$(_al "$W/r")" = 1 ] && ok "deb822 URIs with a remote origin detected" \
+    || bad "deb822 remote origin missed"
+mkroot; rm -f "$W/r/etc/apt/sources.list.d/ncz-test.list"
+printf 'deb file:/srv/mirror forky main\n' > "$W/r/etc/apt/sources.list.d/local.list"
+[ "$(_al "$W/r")" = 0 ] && ok "file:/mirror-only sources stay 'all local' (never a fresh fetch)" \
+    || bad "local mirror misclassified as remote"
+mkroot; rm -f "$W/r/etc/apt/sources.list.d/ncz-test.list"
+printf 'deb https://deb.example/debian forky main\n' > "$W/r/etc/apt/sources.list"
+[ "$(_al "$W/r")" = 1 ] && ok "inline remote line in root sources.list detected" \
+    || bad "inline root sources.list remote line missed"
+# A local-index system whose only gap is a missing candidate must NOT defer:
+# it keeps the giving-up semantics (no proof the index was freshly fetched).
+mkroot; rm -f "$W/r/etc/apt/sources.list.d/ncz-test.list"
+printf 'deb file:/srv/mirror forky main\n' > "$W/r/etc/apt/sources.list.d/local.list"
+NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_install 1 1
+NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run; _rcl=$?
+[ "$_rcl" = 1 ] && grep -q 'failed:gave-up' "$S" && [ ! -f "$P" ] \
+    && ok "all-local index: missing candidates still end in gave-up (defer needs a fresh remote index)" \
+    || bad "all-local index was misclassified as publication lag (rc=$_rcl status '$(cat "$S")')"
+
+echo "=== recovery: the re-arm helper itself is idempotent and status-scoped ==="
+mkroot; mkpci
+( export NCZ_INTEL_ROOT="$W/r" NCZ_INTEL_ASSETS="$ROOT/assets/intel" NCZ_INTEL_LIB_SRC="$LIB" \
+   NCZ_INTEL_ACCEL_LIB=1 NCZ_INTEL_PCI_ROOT="$PCIR"
+  . "$LIB"
+  mkdir -p "$(dirname "$S")"
+  echo "failed:gave-up-after-36-attempts" > "$S"
+  ncz_intel_recover; r1=$?
+  [ -f "$P" ] && [ -L "$T" ] || exit 1
+  ncz_intel_recover; r2=$?
+  # Idempotent second call: still exactly one marker, no error.
+  [ -f "$P" ] && [ "$r1" = 0 ] && [ "$r2" = 0 ] || exit 1
+  # A non-gave-up status is left alone: with the marker removed, a
+  # second recover call on a `done` status must NOT re-arm.
+  echo "done" > "$S"
+  rm -f "$P"
+  ncz_intel_recover
+  [ ! -f "$P" ] || exit 1
+) >/dev/null 2>&1 && ok "ncz_intel_recover: re-arms gave-up once, idempotent, ignores other statuses" \
+    || bad "ncz_intel_recover helper contract"
+
+echo "=== deferred entry CLI: run and rearm both drive the entry point ==="
+mkroot; mkpci
+# Precondition: a gave-up system (no marker).
+NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_install 1 1
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_run >/dev/null 2>&1
+grep -q 'failed:gave-up' "$S" && [ ! -f "$P" ] || bad "cli precondition: '$(cat "$S")'"
+# The asset service still drives `run` (unchanged contract) and the lib's
+# CLI entry accepts both `run` and `rearm` as synonyms for the entry point.
+grep -q 'ExecStart=/usr/local/sbin/ncz-intel-accel-setup run' "$ROOT/assets/intel/ncz-intel-accel-setup.service" \
+    && ok "timer service still invokes run" \
+    || bad "service ExecStart changed"
+# Prove the CLI ENTRY clause itself (not just the words "run"/"rearm"
+# somewhere in the file): the active `if [ ... NCZ_INTEL_ACCEL_LIB ... ]`
+# block must dispatch both words to ncz_intel_accel_run.
+printf '%s\n' "$LIB_NOCOMMENTS" | grep -Eq '^[[:space:]]*run\|rearm\)[[:space:]]*ncz_intel_accel_run' \
+    && ok "lib CLI entry dispatches both run and rearm to ncz_intel_accel_run" \
+    || bad "lib CLI entry missing run|rearm dispatch"
+# Behavioural proof: invoke the lib as the service / operator would, once
+# with each word, and require the deferred entry to run both times.
+for _verb in run rearm; do
+    mkroot; mkpci
+    # NCZ_INTEL_PCI_ROOT names the sysfs root directly (not a suffix).
+    [ -r "$PCIR/0x8086-030000/vendor" ] \
+        || bad "pcir fixture not populated for $_verb (expected $PCIR/0x8086-030000/vendor)"
+    NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_install 1 1 >/dev/null 2>&1
+    NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_run; _pv=$?
+    [ "$_pv" = 1 ] && grep -q 'failed:gave-up' "$S" 2>/dev/null \
+        || bad "precondition for $_verb: expected rc=1 + gave-up, got rc=$_pv '$(cat "$S" 2>/dev/null)'" "$(cat "$W/out")"
+    # The invocation runs in a child; the output is kept so a failure
+    # reports WHY nothing happened instead of just "did nothing".
+    ( export NCZ_INTEL_ROOT="$W/r" NCZ_INTEL_ASSETS="$ROOT/assets/intel" NCZ_INTEL_LIB_SRC="$LIB" \
+       NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1
+      bash "$LIB" "$_verb" ) >"$W/vout" 2>&1; _vrc=$?
+    # The CLI child ran at least one attempt: prove it DROVE the entry (not
+    # that it succeeded -- with the network down the attempt legitimately
+    # re-arms and then gives up again at the 1-attempt budget).
+    grep -q 'attempt 1 (GPU=1 NPU=1)' "$W/vout" \
+        && ok "CLI verb '$_verb' drives the deferred entry (attempt ran)" \
+        || bad "CLI verb '$_verb' did not reach the deferred entry" "rc=$_vrc $(cat "$W/vout")"
+    grep -q 're-arming deferred install (was: failed:gave-up' "$W/vout" \
+        && ok "CLI verb '$_verb' re-armed the gave-up system before the attempt" \
+        || bad "CLI verb '$_verb' ran without re-arming the gave-up system" "$(cat "$W/vout")"
+done
+# Execute the INSTALLED binary shape (the lib invoked with `rearm`) exactly
+# as ncz-update-apply / an operator would: it must re-arm the gave-up
+# system (marker + timer back) because the Intel GPU is present.
+( export NCZ_INTEL_ROOT="$W/r" NCZ_INTEL_ASSETS="$ROOT/assets/intel" NCZ_INTEL_LIB_SRC="$LIB" \
+   NCZ_INTEL_PCI_ROOT="$PCIR"
+  bash -c '. "$1"; ncz_intel_accel_run; exit $?' _ "$LIB" >/dev/null 2>&1 )
+# The re-arm + first fast attempt (pending:attempt-1) proves the gave-up
+# system was revived: marker and timer are back and the retry is running.
+[ -f "$P" ] && [ -L "$T" ] && grep -qx 'pending:attempt-1' "$S" \
+    && ok "deferred entry re-arms a gave-up system (marker + timer back, first fast attempt)" \
+    || bad "re-arm did not restore marker/timer: status '$(cat "$S")'"
+
+echo "=== update hook: ncz-update-apply refresh re-checks the deferred install ==="
+UA="$ROOT/assets/update-manager/ncz-update-apply"
+grep -q 'intel_deferred_recheck' "$UA" \
+    && ok "ncz-update-apply calls the intel deferred re-check helper" \
+    || bad "ncz-update-apply lacks the re-check hook"
+# Placement must be INSIDE the refresh) branch (after the `refresh)` label
+# and before the next case label) -- a raw occurrence count would also pass
+# if the call sat in a comment or in the apply) branch. Compare line
+# numbers; the next case label after refresh) may be either branch.
+_refresh_ln=$(grep -n '^[[:space:]]*refresh)' "$UA" | head -1 | cut -d: -f1)
+_apply_ln=$(grep -n '^[[:space:]]*apply)' "$UA" | head -1 | cut -d: -f1)
+_call_ln=$(grep -n '^[[:space:]]*intel_deferred_recheck$' "$UA" | head -1 | cut -d: -f1)
+# The call must sit before the NEXT case label after refresh) -- which is
+# apply) today, but the check must not depend on that branch order.
+_nextln=$(awk -v r="$_refresh_ln" 'NR>r && /^[[:space:]]*[a-z|*()]+\)/ {print NR; exit}' "$UA")
+if [ -n "$_refresh_ln" ] && [ -n "$_nextln" ] && [ -n "$_call_ln" ] \
+   && [ "$_call_ln" -gt "$_refresh_ln" ] && [ "$_call_ln" -lt "$_nextln" ]; then
+    ok "ncz-update-apply re-checks inside the refresh branch only (before apply/full-upgrade)"
+else
+    bad "ncz-update-apply re-check placement wrong (refresh=$_refresh_ln call=$_call_ln next=$_nextln apply=$_apply_ln)"
+fi
+grep -q 'ncz_intel_accel_run' "$UA" \
+    && ok "ncz-update-apply drives the real deferred entry (ncz_intel_accel_run)" \
+    || bad "ncz-update-apply does not call ncz_intel_accel_run"
 
 echo "intel accel tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

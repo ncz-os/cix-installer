@@ -45,6 +45,36 @@
 #   * Apt index update is fail-closed (ErrorMode-any) yet an offline install
 #     with already-seeded Debian packages still works.
 #
+# Retry policy (2026-10-17, PROTEUS defect: failed:gave-up-after-36-attempts
+# on a Preview2-era install whose NPU D set + NPU plugin were simply not yet
+# published to the NCZ index -- 10-minute retries are exhausted long before
+# the native packages are published, and the pending marker is then dropped
+# so NO later publish ever triggers the install):
+#   * Fast budget: while TRIES < NCZ_INTEL_MAX_TRIES (36) the deferred unit
+#     retries at the timer cadence (10 min).
+#   * A 75 that is caused ONLY by native candidates missing from a FRESHLY
+#     FETCHED index (i.e. apt-get update succeeded and the only gap is the
+#     missing native plugin or NPU-driver candidates; every Debian-origin
+#     package already resolves) is "transient publication lag", not a broken
+#     system. After the fast budget it DEFERS instead of giving up: the
+#     pending marker is kept, the status is
+#     `deferred:native-candidates-unpublished`, and the deferred run exits
+#     0 (SuccessExitStatus). The pending marker keeps ncz-intel-accel-setup
+#     active, so the next apt index refresh that publishes the candidates
+#     (e.g. ncz-update-apply) or any re-arm installs the stack then. No
+#     timer change: OnUnitInactiveSec=10min fires while the unit is not
+#     running, so a deferred install keeps being re-checked -- cheaply,
+#     since it is a no-op until the candidates appear.
+#   * Network-down (no fresh index fetch possible) and would-remove refusals
+#     keep the old semantics: after the budget they stay failed / refused
+#     and the marker is dropped (no endless 10-min loop; ncz_intel_recover
+#     re-arms them once hardware is confirmed again).
+#   * Recovery: on every re-run of the deferred entry (`ncz-intel-accel-setup
+#     rearm` / `run`) a system left at `failed:gave-up-*` is re-armed when
+#     Intel GPU or NPU hardware is still present (ncz_intel_recover,
+#     invoked from the deferred entry and from ncz-update-apply). This makes
+#     a shipped upgrade of the installer payload revive gave-up machines.
+#
 # Return codes from ncz_intel_setup / ncz_intel_accel_install / _run:
 #   0  complete (all requested plugins and NPU drivers installed)
 #   1  refused (simulation would remove packages; or NPU drivers missing
@@ -64,6 +94,63 @@ _ni_statusf() { echo "$(_ni_r)/var/lib/ncz/intel-accel.status"; }
 ncz_intel_log() { echo "[intel-accel] $*"; }
 ncz_intel_log_err() { echo "[intel-accel] $*" >&2; }
 ncz_intel_status() { mkdir -p "$(dirname "$(_ni_statusf)")"; echo "$1" > "$(_ni_statusf)"; ncz_intel_log "status: $1"; }
+
+# Scratch directory for the lib's own temporary files. It lives under the
+# same NCZ_INTEL_ROOT prefix as every other path this lib touches (so the
+# test fixture stays inside its sandbox) and never uses world-shared /tmp.
+# Prints the directory on success; when it cannot be created the caller must
+# skip the file entirely rather than retarget itself at /tmp.
+_ncz_intel_tmpdir() {
+    local d="${NCZ_INTEL_TMPDIR:-$(_ni_r)/var/lib/ncz/tmp}"
+    mkdir -p "$d" 2>/dev/null && printf '%s\n' "$d"
+}
+
+# ncz_intel_setup clears these at entry; the probe helpers set them. The
+# DEFERRED flag means "rc 75 is caused ONLY by native candidates missing
+# from the index": the index itself fetched fine (apt-get update succeeded,
+# so the network is up) and the ONLY gap is that the requested native NCZ
+# plugin / NPU-driver candidates are not published yet. Only that class of
+# 75 is allowed to fall back to the slow (deferred) retry after the fast
+# budget; network-down (fresh index not fetchable) and would-remove keep
+# their current semantics.
+NCZ_INTEL_DEFERRED=0
+
+ncz_intel_clear_deferred() {
+    NCZ_INTEL_DEFERRED=0
+}
+# True when the configured apt sources (under NCZ_INTEL_ROOT) contain NO
+# remote (http/https) origin: an all-local (file:/mirror-only) index is
+# never a fresh fetch, so a successful apt-get update there proves nothing
+# about publication lag. A missing candidate on such a system must NOT be
+# treated as deferred-unpublished.
+_ncz_intel_repos_all_local() {
+    local base f
+    for base in "$(_ni_r)/etc/apt/sources.list.d" "$(_ni_r)/etc/apt"; do
+        [ -d "$base" ] || continue
+        # *.list may be a SYMLINK to a managed config file (common on
+        # Debian); -f follows symlinks, so those are read like any other
+        # real file.
+        for f in "$base"/*.list "$base"/*.sources; do
+            # No match leaves the literal pattern as $f: not a regular file
+            # (a dangling symlink is not one either), so skip it.
+            [ -f "$f" ] || continue
+            case "$f" in *.disabled-for-build|*.disabled-for-build.*) continue ;; esac
+            # Any ACTIVE remote-origin deb line disqualifies "all local".
+            # deb822 (.sources) files use "URIs: <uri>"; check both shapes.
+            # ONE grep per file, so the pipeline status cannot mask a hit
+            # in the second branch (`a | grep -q X || b | grep -q Y`).
+            if grep -Eq '^[[:space:]]*deb(-src)?[[:space:]].*https?://|^[[:space:]]*URIs:[[:space:]].*https?://' "$f" 2>/dev/null; then
+                return 1
+            fi
+        done
+    done
+    # An inline deb line in the root sources.list counts too.
+    f="$(_ni_r)/etc/apt/sources.list"
+    if [ -f "$f" ] && grep -Eq '^[[:space:]]*deb(-src)?[[:space:]].*https?://' "$f" 2>/dev/null; then
+        return 1
+    fi
+    return 0
+}
 
 # ncz_intel_disable_legacy_vendor_list FILE -> comments out ONLY the active
 # deb/deb-src lines in FILE whose actual URI matches apt.repos.intel.com
@@ -228,8 +315,18 @@ ncz_intel_npu_drivers_present() {
 }
 
 # ncz_intel_packages GPU NPU -> the native NCZ package names to install
-# (OpenVINO plugins + NPU user-mode drivers) on stdout; returns non-zero
-# when the requested class has no candidate (caller translates to 75).
+# (OpenVINO plugins + NPU user-mode drivers) on stdout. Return codes:
+#   0 = all requested classes have candidates;
+#   1 = a requested class has no candidate (the caller must distinguish:
+#       rc=1 from ncz_intel_native_opencl_vers means the class is not yet
+#       published -- a deferrable publication lag, not a connectivity
+#       failure. The caller checks NCZ_INTEL_INDEX_FRESH to decide.);
+#   2 = NPU drivers missing (NPU=1 requested but the D set is incomplete).
+# The old caller translated rc=1 to "network?" -- that is wrong when the
+# index is fresh and only the candidate is missing. The 2026-10-17 fix
+# (ncz_intel_setup) now checks NCZ_INTEL_INDEX_FRESH before deciding
+# whether rc=1 is a deferrable publication lag or a real connectivity
+# failure.
 # CPU plugin is intentionally NOT requested by the current installer; the
 # library preserves it as a build component for completeness but does not
 # include it in the install list unless GPU is selected AND the CPU
@@ -302,7 +399,16 @@ ncz_intel_apt_install() {
 # is independent of the NPU driver stack). The function reports 75 (not
 # done) when NPU was requested but is still incomplete, so the caller arms
 # the timer for the next native publish without falsely marking success.
+#
+# 75 cause classification (deferred-retry policy, 2026-10-17): on return,
+# NCZ_INTEL_DEFERRED is 1 ONLY when the 75 is caused solely by native
+# candidates missing from a freshly fetched index (apt-get update succeeded
+# and the sources include a remote origin; everything else resolved).
+# That class may fall back to the slow deferred retry after the fast
+# budget; every other 75 (network down, probe failure, apt install
+# failure) keeps the old semantics.
 ncz_intel_setup() {
+    ncz_intel_clear_deferred
     # Reversibly move a known-legacy intel-openvino.list aside BEFORE
     # apt-get update so a stray Intel vendor origin cannot shadow the native
     # NCZ suite. Only NCZ_INTEL_ROOT is touched (defaults to / for real
@@ -314,7 +420,32 @@ ncz_intel_setup() {
     # date-check bypass (`Acquire::Check-Date=false`) -- that is an
     # unrelated TUF/Release-date weakness; a cached signed index already
     # on disk is used as-is.
-    apt-get update 2>&1 | tail -3
+    #
+    # A successful refresh of a REMOTE index is the "fresh index fetched"
+    # evidence the deferred policy needs: if apt-get update exits 0 while
+    # at least one source is a remote (http/https) origin, the index is up
+    # to date and a missing native candidate is a PUBLICATION gap, not a
+    # connectivity gap. An all-local (file:/mirror) index, or a failed
+    # update, never proves that. The flag is set only AFTER the Debian set
+    # (which must resolve from the same index) is handled: if the Debian
+    # set install fails, the index was not usable for the runtime either
+    # and the 75 must NOT be misclassified as publication lag.
+    # The update runs OUTSIDE a pipeline: `_updrc=$?` is then the real
+    # apt-get status under ANY POSIX shell (the lib is sourced by the
+    # installer's bash hooks, but this exact status is what decides
+    # deferred-vs-gave-up, so it must not depend on a bash-only PIPESTATUS).
+    _ud=$(_ncz_intel_tmpdir)
+    if [ -n "$_ud" ]; then
+        _ulog="$_ud/intel-accel-update.log"
+        apt-get update >"$_ulog" 2>&1
+        _updrc=$?
+        tail -3 "$_ulog"
+        rm -f "$_ulog"
+    else
+        # No scratch dir: still capture the real status, just not the log.
+        apt-get update >/dev/null 2>&1
+        _updrc=$?
+    fi
     # Debian-origin packages first: they need no native index, so an
     # offline install (mirror seeds) or an install without a link still
     # gets them. Already-installed packages are skipped without calling
@@ -324,11 +455,32 @@ ncz_intel_setup() {
         # shellcheck disable=SC2086
         ncz_intel_apt_install $_dp || return $?
     fi
+    if [ "${_updrc:-1}" -eq 0 ] && ! _ncz_intel_repos_all_local; then
+        NCZ_INTEL_INDEX_FRESH=1
+    else
+        NCZ_INTEL_INDEX_FRESH=0
+    fi
     _pk=$(ncz_intel_packages "$1" "$2")
     _rc=$?
     case "$_rc" in
         0) _npustate=0 ;;
-        1) ncz_intel_log "native NCZ index unreachable (network?)"; return 75 ;;
+        1)
+            # A requested class has no candidate (ncz_intel_packages ->
+            # ncz_intel_native_opencl_vers). When the index is fresh (remote
+            # sources, apt-get update succeeded, Debian set resolved) this
+            # is a PUBLICATION LAG, not a connectivity failure: the
+            # candidate simply has not been published yet. The GPU plugin
+            # (if any) was already installed above; the missing class is
+            # handled through the deferred-retry path via
+            # NCZ_INTEL_DEFERRED, which the caller (ncz_intel_accel_run)
+            # checks after the fast budget is exhausted.
+            if [ "${NCZ_INTEL_INDEX_FRESH:-0}" = 1 ]; then
+                ncz_intel_log "native candidate not yet published (fresh index); will retry, then defer" >&2
+                NCZ_INTEL_DEFERRED=1
+            else
+                ncz_intel_log "native NCZ index unreachable (network?)"
+            fi
+            return 75 ;;
         2) ncz_intel_log "NPU driver(s) missing from native index; will retry once published" >&2; _npustate=2 ;;
         *) ncz_intel_log "native candidate probe failed (rc=$_rc); retry later" >&2; return 75 ;;
     esac
@@ -340,12 +492,19 @@ ncz_intel_setup() {
         ncz_intel_apt_install $_pk || return $?
     elif [ "$_npustate" != 0 ]; then
         # Nothing installable yet; rely on the deferred retry path.
+        [ "${NCZ_INTEL_INDEX_FRESH:-0}" = 1 ] && NCZ_INTEL_DEFERRED=1
         return 75
     fi
     # NPU was incomplete (or finished); the timer retry flag in the caller
     # decides whether to mark done. Returning 75 here still triggers the
     # retry arming; returning 0 marks done.
-    [ "$_npustate" = 0 ] || return 75
+    if [ "$_npustate" != 0 ]; then
+        # Everything installable was installed above; the ONLY remaining
+        # gap is the unpublished NPU set, and it is missing from a freshly
+        # fetched index. That is publication lag, not a broken system.
+        [ "${NCZ_INTEL_INDEX_FRESH:-0}" = 1 ] && NCZ_INTEL_DEFERRED=1
+        return 75
+    fi
     return 0
 }
 
@@ -378,9 +537,67 @@ ncz_intel_accel_install() {   # GPU NPU
     return 0
 }
 
-# Deferred entry: ncz-intel-accel-setup run
+# Hardware presence probe used by the recovery path: is there still an
+# Intel GPU/NPU for this deferred install to serve? Class match follows
+# 54-gpu-accel.sh exactly (display class 03xx vendor 8086 = GPU; class 1200
+# vendor 8086 = NPU). The sysfs vendor/class files are PCI-core cached and
+# never touch device config space (the GU502LV rule). When no sysfs PCI
+# tree exists (test fixture) the probe reports presence (fail-open: the
+# deferred run then just re-checks the index and stays pending) rather
+# than silently dropping a legitimate marker.
+ncz_intel_hw_present() {
+    local root="${NCZ_INTEL_PCI_ROOT:-/sys/bus/pci/devices}" d
+    [ -d "$root" ] || return 0
+    for d in "$root"/*; do
+        [ -r "$d/vendor" ] || continue
+        local v c
+        v=$(tr -d '[:space:]' < "$d/vendor" 2>/dev/null)
+        c=$(tr -d '[:space:]' < "$d/class" 2>/dev/null)
+        [ "$v" = "0x8086" ] || continue
+        # sysfs class is "0x030000" (display) or "0x120000" (NPU/processing).
+        case "$c" in
+            0x03*|0x12*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# ncz_intel_recover -> re-arm the deferred install on a system whose status
+# is `failed:gave-up-*` and whose hardware is still present. Called from
+# the deferred entry on EVERY run and from ncz-update-apply after an apt
+# index refresh, so a shipped upgrade of the installer payload revives
+# gave-up machines without touching their apt state. Idempotent: no-op when
+# the status is not a gave-up or the marker is already armed.
+ncz_intel_recover() {
+    local s
+    [ -r "$(_ni_statusf)" ] || return 0
+    s=$(head -1 "$(_ni_statusf)")
+    case "$s" in
+        failed:gave-up-*) ;;
+        *) return 0 ;;
+    esac
+    # If the marker is already present the system was already re-armed by a
+    # previous recover or arm_retry call: do not touch the TRIES counter or
+    # the status (idempotent, status-scoped).
+    [ -r "$(_ni_pending)" ] && return 0
+    if ! ncz_intel_hw_present; then
+        ncz_intel_log "gave-up status kept: no Intel GPU/NPU hardware present"
+        return 0
+    fi
+    ncz_intel_log "re-arming deferred install (was: $s)"
+    ncz_intel_arm_retry 1 1
+    return 0
+}
+
+# Deferred entry: ncz-intel-accel-setup run / rearm
 ncz_intel_accel_run() {
     _pf=$(_ni_pending)
+    # A gave-up system must recover when the installer payload is upgraded
+    # or the update hook refreshes the index, provided the hardware is
+    # still there. Run it BEFORE the pending check: the marker is gone on
+    # a gave-up system, so without this the unit would stay a no-op forever
+    # (the exact PROTEUS dead-end this fixes).
+    ncz_intel_recover
     [ -r "$_pf" ] || { ncz_intel_log "nothing pending"; return 0; }
     _g=$(sed -n 's/^GPU=//p' "$_pf"); _n=$(sed -n 's/^NPU=//p' "$_pf"); _t=$(sed -n 's/^TRIES=//p' "$_pf")
     _t=$(( ${_t:-0} + 1 ))
@@ -388,13 +605,30 @@ ncz_intel_accel_run() {
     ncz_intel_log "attempt $_t (GPU=$_g NPU=$_n)"
     ncz_intel_setup "${_g:-0}" "${_n:-0}"; _rc=$?
     if [ "$_rc" = 0 ]; then ncz_intel_status "done"; ncz_intel_finish; return 0; fi
-    if [ "$_rc" = 75 ] && [ "$_t" -lt "${NCZ_INTEL_MAX_TRIES:-36}" ]; then ncz_intel_status "pending:attempt-$_t"; return 75; fi
+    if [ "$_rc" = 75 ] && [ "$_t" -lt "${NCZ_INTEL_MAX_TRIES:-36}" ]; then
+        ncz_intel_status "pending:attempt-$_t"; return 75
+    fi
+    if [ "$_rc" = 75 ] && [ "${NCZ_INTEL_DEFERRED:-0}" = 1 ]; then
+        # Fast budget exhausted, but the only gap is native candidates not
+        # yet published on a freshly fetched index. Do NOT give up: keep
+        # the pending marker (the timer's ConditionPathExists stays live, so
+        # every apt index refresh -- ncz-update-apply or the timer itself --
+        # re-checks the index) and report the slow-retry state. Exit 0
+        # (SuccessExitStatus) so systemd records a clean oneshot; the
+        # marker -- not the exit code -- is what keeps the retry armed.
+        ncz_intel_status "deferred:native-candidates-unpublished"
+        return 0
+    fi
+    # Network-down (no fresh index), probe/apt failure, or would-remove
+    # refusal: old semantics. Drop the marker; ncz_intel_recover (or an
+    # explicit re-arm) can revive it once hardware is confirmed again.
     [ "$_rc" = 75 ] && ncz_intel_status "failed:gave-up-after-$_t-attempts"
     ncz_intel_finish
     return 1
 }
 
-if [ "${NCZ_INTEL_ACCEL_LIB:-0}" != 1 ] && [ "${1:-}" = run ]; then
-    ncz_intel_accel_run
-    exit $?
+if [ "${NCZ_INTEL_ACCEL_LIB:-0}" != 1 ]; then
+    case "${1:-}" in
+        run|rearm) ncz_intel_accel_run; exit $? ;;
+    esac
 fi

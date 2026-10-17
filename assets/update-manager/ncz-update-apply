@@ -24,10 +24,24 @@ ensure_policy() {
         || echo "ncz-update-apply: WARN could not install ncz-apt-policy" >&2
 }
 
+# The Intel GPU/NPU deferred install keeps a pending marker whenever the
+# native NCZ candidates are not all published. Re-running its entry here
+# (a) re-arms systems stuck at failed:gave-up-* whose hardware is still
+# present (upgrade recovery, 2026-10-17), and (b) immediately installs the
+# stack on the first index refresh after the candidates are published,
+# instead of waiting for the next timer tick. The entry is a no-op when
+# nothing is pending and the status is not a gave-up. Never fatal.
+intel_deferred_recheck() {
+    local lib=/usr/local/lib/cix-installer/post-install/lib/intel-accel.sh
+    [ -r "$lib" ] || return 0
+    env NCZ_INTEL_ACCEL_LIB=1 bash -c '. "$1" && ncz_intel_accel_run' _ "$lib" >/dev/null 2>&1
+}
+
 case "${1:-}" in
     refresh)
         apt-get -o Acquire::Check-Date=false update
         ensure_policy
+        intel_deferred_recheck
         exit 0
         ;;
     apply)
