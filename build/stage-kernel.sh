@@ -83,10 +83,12 @@ IMG=$(find "$W" -name Image -path "*arch/arm64/boot*" | head -1)
 # --- staleness: compare what these patches actually touch -------------------
 MOD_CHANGED=0
 if [ -f "$PREV/modules-cixmini.tgz" ]; then
-    rm -rf /tmp/.prevmod && mkdir -p /tmp/.prevmod
-    tar -xzf "$PREV/modules-cixmini.tgz" -C /tmp/.prevmod 2>/dev/null || true
+    # Scratch follows TMPDIR: build hosts keep /tmp on a small shared tmpfs.
+    PREVMOD="${TMPDIR:-/tmp}/.prevmod"
+    rm -rf "$PREVMOD" && mkdir -p "$PREVMOD"
+    tar -xzf "$PREV/modules-cixmini.tgz" -C "$PREVMOD" 2>/dev/null || true
     for m in linlon-dp trilin-dpsub; do
-        n=$(find "$W/image" -name "$m.ko*" | head -1); o=$(find /tmp/.prevmod -name "$m.ko*" | head -1)
+        n=$(find "$W/image" -name "$m.ko*" | head -1); o=$(find "$PREVMOD" -name "$m.ko*" | head -1)
         [ -n "$n" ] && [ -n "$o" ] || continue
         nm=$(xz -dcf "$n" | md5sum | cut -d' ' -f1); om=$(xz -dcf "$o" | md5sum | cut -d' ' -f1)
         [ "$nm" != "$om" ] && { echo "module $m CHANGED"; MOD_CHANGED=1; } || echo "module $m unchanged"
