@@ -84,6 +84,15 @@ ncz_apt_debian_overrides() {
     # build must also reach systems installed before it existed, through `apt upgrade`.
     printf '%s\t%s\t%s\n' libgtk4-layer-shell0 arm64 \
         'gtk4-layer-shell 1.3.0 + patches 0001-0002 (packaging/gtk4-layer-shell/make-deb.sh; 1.3.0-1+ncz20261013)'
+    # Intel NPU native driver stack built and published by NCZ (packaging/intel-native;
+    # 1.38.0.ncz1~debian). Until now these came from apt.repos.intel.com/openvino at
+    # runtime, so versions and packaging metadata were outside our control (no
+    # copyright/changelog, no shlibs, invalid Maintainer). amd64 only: no NCZ SKU
+    # carries an Intel NPU on arm64.
+    for n in intel-driver-compiler-npu intel-fw-npu intel-level-zero-npu intel-validation-npu; do
+        printf '%s\t%s\t%s\n' "$n" amd64 \
+            'NCZ-built Intel NPU driver stack, pinned upstream (packaging/intel-native; 1.38.0.ncz1~debian)'
+    done
 }
 
 # Known-bad builds that leaked into the NCZ repo and must never be offered or

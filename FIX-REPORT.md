@@ -251,6 +251,34 @@ for deb in $PROJ/artifacts/linux-npu-driver-1.38.0/*.deb; do
 done
 ```
 
+## Publishing (operator step)
+
+The upload itself is an operator action (`build/ops/publish/ncz-reprepro-publish.sh`).
+The repo policy work needed to make these packages publishable is on this branch:
+
+- `post-install/lib/apt-separation.sh`: the four `intel-*-npu` names are now rows
+  of `ncz_apt_debian_overrides` (amd64). A Debian-named package may only be
+  published to the NCZ suite, and win over Debian/Intel's repo, if it has a row
+  there; without one `build/check-ncz-repo-policy.sh` rejects it.
+- `build/build-ncz-apt-policy-deb.sh`: version **1.0.6**. The live Buildkite index
+  already carries 1.0.5 with different content, and the version gate refuses to
+  reuse a published version, so 1.0.6 follows it. Built and gate-checked locally
+  (`version-gate: ok ... is new (published highest: 1.0.5)`).
+- `build/gen-components-registry.py` (the source of truth) and the regenerated
+  `manifests/components.tsv`: `intel-driver-compiler-npu` and
+  `intel-level-zero-npu` now source `ncz-apt`/`buildkite-packages` instead of
+  `debian`/`debian-forky`; `intel-fw-npu` (pulled as a dependency) and
+  `intel-validation-npu` (optional tooling, not installed by default) gained rows.
+
+Gates after the change:
+
+```
+gen-components-registry.py --check   exit 0
+components.py check                  0 errors, 0 warnings
+check-ncz-repo-policy.sh --components  31 rows examined, 0 violations
+test-apt-separation.sh               73 passed, 0 failed
+```
+
 ## Risks
 
 1. **Debug symbols.** `*_DEBUGINFO_PACKAGE` (upstream `deb.cmake`) still yields

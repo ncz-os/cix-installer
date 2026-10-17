@@ -34,7 +34,7 @@ PKG=ncz-apt-policy
 # 1.0.4: comment-only refresh of the packaged library (dates instead of attributions); the
 # pins and the postinst are unchanged. The library is packaged verbatim, so the bytes moved,
 # and a published version is never rebuilt with other content: new version.
-VERSION="${NCZ_APT_POLICY_VERSION:-1.0.4}"
+VERSION="${NCZ_APT_POLICY_VERSION:-1.0.6}"
 OUT="${NCZ_APT_POLICY_OUT:-$ROOT/build/ncz-apt-policy-deb}"
 LIB="$ROOT/post-install/lib/apt-separation.sh"
 [ -r "$LIB" ] || { echo "ERROR: $LIB missing" >&2; exit 1; }
@@ -112,10 +112,15 @@ chmod 0755 "$WORK/DEBIAN/postinst" "$WORK/DEBIAN/postrm"
 #   1.0.4 -> 1791921600 (2026-10-13T20:00:00Z, when 1.0.4 was cut). A new value for the same
 #            reason as 1.0.3 (a 1.0.4 build can never pass for a 1.0.3 one by mtime); fixed
 #            from the moment its reviewed sha is recorded in manifests/ncz-packages.tsv.
+#   1.0.6 -> 1792200600 (2026-10-17T01:30:00Z, when 1.0.6 was cut). The library adds the four
+#            intel-*-npu packages to the Debian-name override list so NCZ's own builds of the
+#            Intel NPU stack can be published. (1.0.5 was already published to the live index
+#            with different content, so 1.0.6 follows it; a new epoch keeps it distinct.)
 case "$VERSION" in
     1.0.2) SOURCE_DATE_EPOCH=1791662078 ;;
     1.0.3) SOURCE_DATE_EPOCH=1791902400 ;;
     1.0.4) SOURCE_DATE_EPOCH=1791921600 ;;
+    1.0.6) SOURCE_DATE_EPOCH=1792200600 ;;
     *)  SOURCE_DATE_EPOCH="${NCZ_APT_POLICY_EPOCH:-}"
         case "$SOURCE_DATE_EPOCH" in
             ''|*[!0-9]*) echo "ERROR: no mtime epoch for $PKG $VERSION: add one next to 1.0.4 in $0 (or set NCZ_APT_POLICY_EPOCH)" >&2; exit 1 ;;
