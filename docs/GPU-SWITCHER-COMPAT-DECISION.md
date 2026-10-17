@@ -82,3 +82,14 @@ sandbox: the selection record (per mode, `blacklist`-only, exactly one hold
 line per module, `none` claims nothing) and the publication (inode replaced by
 rename, no temp files left in modprobe.d, mode 0644, one header, four hold
 lines, newline-terminated) — plus the `mktemp`-less fallback path.
+
+`build/test-gpu-switcher-compat-guard.sh` pins section 1's invariant against
+regression. It RUNS the real switcher in the same stubbed sandbox and asserts
+the compat file is left exactly as found in three directions: mali mode with
+the file pre-enabled (no `disable_file` regression), mali mode with the file
+pre-disabled (the shipped state — a re-introduced `enable_file "$LD_COMPAT"`
+flips this back, i.e. exactly the 5776efd6 bug), and panthor mode. A static
+check also fails the build on any `enable_file`/`disable_file` call that
+references `$LD_COMPAT`, and on the install-time hook no longer disabling the
+file. Verified: the behavioral case fails (exit 1) when the regression line is
+re-introduced into `userspace_mali()`, and passes on the committed code.

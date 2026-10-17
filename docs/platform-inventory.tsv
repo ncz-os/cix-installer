@@ -9,6 +9,7 @@ README.zh-CN.md	common	-	readme
 assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
 build/test-about-logo-mark.sh	common	-	MINOR-006: proves the square Cygnus mark (tokens, sizes, reproducible from make-cygnus-mark.py) is installed by 55-greeter.sh into the sized hicolor dirs under the LOGO name and never as scalable (greeter wordmark kept), and that shell patch 0025 is queued
+build/test-gpu-switcher-compat-guard.sh	sky1	-	regression guard for ncz-gpu-switcher: the switcher must never enable/disable 01-cixgpu-compat.conf (runs the real switcher in a stubbed sandbox; fails if the userspace_mali re-enable of the Mesa-24/26 collision stack returns)
 build/test-publish-release-gitlab.sh	common	-	mocked-curl regression test for tools/publish-release-gitlab.sh (dry run, per-architecture packages and link folders, sha256 verification, layout refusals, idempotent re-run, stable link paths, per-package retention, token handling)
 build/test-release-parity.sh	common	-	mocked GitHub+GitLab regression test for tools/check-release-parity.sh, tools/sync-release-pages.sh and tools/check-release-links.sh (parity diffs, release layout and group order, one release page per forge, gates, retirement, stable links, join script, token handling)
 build/test-ncz-cli-basics.sh	common	-	shell-level test for the embedded ncz CLI (parses, help, exit codes, status on non-systemd hosts)
