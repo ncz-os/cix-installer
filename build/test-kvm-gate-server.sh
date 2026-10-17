@@ -139,7 +139,6 @@ esac
 FETCH="$ROOT/../preseed/ncz-fetch-payload.sh"
 [ -x "$FETCH" ] || { bad "setup: $FETCH is not executable"; }
 DEST="$WORK/fetch"; mkdir -p "$DEST"
-TAB=$(printf '\t')
 {
     printf 'base.squashfs\thttp://127.0.0.1:%s/base.squashfs\t%s\tfile\n' "$PORT" "$want_p"
     printf 'ncz-assets-amd64.tar.gz\thttp://127.0.0.1:%s/ncz-assets-amd64.tar.gz\t%s\tfile\n' "$PORT" "$want_a"
