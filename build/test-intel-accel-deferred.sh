@@ -824,6 +824,10 @@ _src_case local  "deb822 Enabled: no"    'Types: deb' 'URIs: https://deb.debian.
 _src_case remote "deb822 enabled stanza" 'Types: deb' 'URIs: https://deb.debian.org/debian' 'Suites: forky' 'Enabled: yes'
 _src_case remote "enabled=yes https"     'deb [enabled=yes] https://deb.debian.org/debian forky main'
 _src_case local  "https in a trailing comment" 'deb file:///srv/mirror forky main # mirror of https://deb.debian.org/debian'
+_src_case local  "enabled=false https"   'deb [enabled=false] https://deb.debian.org/debian forky main' 'deb file:///srv/mirror ./'
+_src_case local  "enabled=0 + arch opt"  'deb [arch=amd64 enabled=0] https://deb.debian.org/debian forky main' 'deb file:///srv/mirror ./'
+_src_case local  "deb822 Enabled: false" 'Types: deb' 'URIs: https://deb.debian.org/debian' 'Suites: forky' 'Enabled: false'
+_src_case remote "enabled=yes kept"      'deb [enabled=yes] https://deb.debian.org/debian forky main'
 _src_case remote "deb822 folded URIs"    'Types: deb' 'URIs: file:///srv/mirror' ' https://deb.debian.org/debian' 'Suites: forky'
 grep -q "ncz_intel_accel_run' _ \"\$lib\" >/dev/null 2>&1 || true" "$UA" \
     && ok "ncz-update-apply: a still-deferred re-check (rc 75) cannot fail the refresh under set -e" \

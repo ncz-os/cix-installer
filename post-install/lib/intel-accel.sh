@@ -132,15 +132,16 @@ ncz_intel_clear_deferred() {
 # `a || b` status masking.
 _ncz_intel_has_remote_uri() {
     # Disabled sources fetch nothing: drop deb822 stanzas with "Enabled: no"
-    # and one-line entries with an [enabled=no] option first. apt ends a
+    # and one-line entries with an [enabled=no] option first (apt booleans:
+    # no/false/off/0/without/disable). apt ends a
     # line at "#", so a URL in a trailing comment is not an origin either.
     # deb822 fields may fold onto indented continuation lines ("URIs: a" then
     # " b"): join them first so every URI is on its field line.
     awk 'BEGIN { RS = "" }
          /(^|\n)(Types|URIs|Suites):/ { gsub(/\n[ \t]+/, " ") }
-         !/(^|\n)[[:space:]]*Enabled:[[:space:]]*[Nn][Oo]/ { print }' "$1" 2>/dev/null \
+         !/(^|\n)[[:space:]]*[Ee]nabled:[[:space:]]*([Nn][Oo]|[Ff][Aa][Ll][Ss][Ee]|[Oo][Ff][Ff]|0|[Ww][Ii][Tt][Hh][Oo][Uu][Tt]|[Dd][Ii][Ss][Aa][Bb][Ll][Ee])[[:space:]]*(\n|$)/ { print }' "$1" 2>/dev/null \
         | grep -E '^[[:space:]]*(deb(-src)?[[:space:]]|URIs:[[:space:]])' \
-        | grep -vE '^[[:space:]]*deb(-src)?[[:space:]]+\[[^]]*enabled=no' \
+        | grep -viE '^[[:space:]]*deb(-src)?[[:space:]]+\[[^]]*enabled=(no|false|off|0|without|disable)([[:space:]]|\])' \
         | sed 's/#.*//' \
         | grep -oE '[a-z][a-z0-9+.-]*://' \
         | grep -vqE '^(file|copy)://'
