@@ -134,6 +134,11 @@ check_os_release_file() {
     for r in "${RETIRED[@]}"; do
         case "$vcod" in *"$r"*) bad "$where: VERSION_CODENAME names the retired codename '$r'" ;; esac
     done
+    # 50-brand.sh writes VERSION_CODENAME as the lower-cased release codename.
+    local want_cod
+    want_cod="$(printf '%s' "$NCZ_EXPECT_CODENAME" | tr '[:upper:]' '[:lower:]')"
+    [ "$(printf '%s' "$vcod" | tr '[:upper:]' '[:lower:]')" = "$want_cod" ] \
+        || bad "$where: VERSION_CODENAME='$vcod' does not match release.conf ('$want_cod')"
 
     # The product label must be non-empty AND must carry the version.
     if [ -n "$pn" ] && [ -n "$NCZ_EXPECT_VERSION" ]; then
@@ -200,7 +205,10 @@ check_generated_strings() {
                     */lsb-release)
                         rel="$(field "$f" DISTRIB_RELEASE)"
                         [ "$rel" = "$NCZ_EXPECT_VERSION" ] \
-                            || bad "$where: lsb-release DISTRIB_RELEASE='$rel' does not match release.conf ('$NCZ_EXPECT_VERSION')" ;;
+                            || bad "$where: lsb-release DISTRIB_RELEASE='$rel' does not match release.conf ('$NCZ_EXPECT_VERSION')"
+                        rel="$(field "$f" DISTRIB_CODENAME | tr '[:upper:]' '[:lower:]')"
+                        [ "$rel" = "$(printf '%s' "$NCZ_EXPECT_CODENAME" | tr '[:upper:]' '[:lower:]')" ] \
+                            || bad "$where: lsb-release DISTRIB_CODENAME='$rel' does not match release.conf" ;;
                     *)
                         case "$f" in *issue.net) N_ISSUENET=$((N_ISSUENET + 1)) ;; *) N_ISSUE=$((N_ISSUE + 1)) ;; esac
                         case "$content" in

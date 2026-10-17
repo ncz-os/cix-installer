@@ -282,6 +282,16 @@ if bash "$GATE" baked "$GT/factory" >/dev/null 2>&1; then
 else
     bad "gate baked: systemd factory issue copy is ignored"
 fi
+# A stale (non-retired) codename in os-release or lsb-release must fail.
+for _f in os-release:VERSION_CODENAME lsb-release:DISTRIB_CODENAME; do
+    make_tree "$GT/cod-${_f%%:*}" desktop
+    sed -i "s/^${_f#*:}=.*/${_f#*:}=orion/" "$GT/cod-${_f%%:*}/etc/${_f%%:*}"
+    if bash "$GATE" baked "$GT/cod-${_f%%:*}" >/dev/null 2>&1; then
+        bad "gate baked: a stale ${_f#*:} must FAIL"
+    else
+        ok "gate baked: a stale ${_f#*:} fails the gate"
+    fi
+done
 # The image build must invoke the gate on every medium and every bake.
 check_grep "$ROOT/build/iso/write-usb-image.py" "check-release-identity-gate.sh" \
     "write-usb-image.py: runs the identity gate on the staged medium"
