@@ -512,3 +512,32 @@ def test_substrate_cut_is_off_by_default(writer, monkeypatch):
     assert writer.slim_substrate_enabled() is False
     monkeypatch.setenv("NCZ_MAGNETAR_SLIM_SUBSTRATE", "1")
     assert writer.slim_substrate_enabled() is True
+
+
+def test_drop_reason_accepts_underscore_module_names(substrate):
+    assert substrate.drop_reason("xfs_modules-7.2.9-amd64-di", "amd64", "amd64", set())
+
+
+def test_unreadable_initrd_keeps_more_not_less(writer, substrate, tmp_path, fake_dpkg,
+                                               monkeypatch):
+    stage = tmp_path / "stage"
+    make_pool(stage / "pool", {"partman-base": (100, ""), "partman-lvm": (100, "")})
+    monkeypatch.setattr(writer, "release_codename", lambda: "forky")
+    (stage / "dists" / "forky" / "main" / "debian-installer" / "binary-amd64").mkdir(parents=True)
+    calls = []
+    real_run = subprocess.run
+
+    def fake_run(cmd, *a, **kw):
+        if cmd and cmd[0] == "dpkg-scanpackages":
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0)
+        return real_run(cmd, *a, **kw)
+
+    monkeypatch.setattr(writer.subprocess, "run", fake_run)
+    bad = tmp_path / "initrd.gz"
+    bad.write_bytes(b"\x1f\x8bnot really gzip")
+    receipt = writer.slim_installer_pool(stage, "amd64", stage / "pool", bad)
+    assert "measurement failed" in receipt["basis"]
+    assert "partman-base" in receipt["kept"]
+    assert [d["package"] for d in receipt["dropped"]] == ["partman-lvm"]
+    assert calls

@@ -1386,7 +1386,8 @@ def slim_installer_pool(stage_dir: Path, arch: str, installer_pool: Path,
         try:
             builtin = mod._initrd_status_packages(di_initrd, stage_dir.parent)
             basis = f"initrd dpkg status measured from {di_initrd} ({len(builtin)} packages)"
-        except SystemExit as exc:
+        except (SystemExit, OSError, EOFError, mod.lzma.LZMAError) as exc:
+            # gzip.BadGzipFile is an OSError; a truncated stream is EOFError.
             basis = f"initrd measurement failed ({exc}); closure keeps every dependency"
     extra, extra_reasons = mod.load_keep_tsv(
         SUBSTRATE_LIB.parent / "manifests" / "magnetar-substrate-keep.tsv")

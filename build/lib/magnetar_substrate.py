@@ -525,7 +525,7 @@ def drop_reason(name: str, arch: str, flavour: str,
         return SKIPPED_COMPONENT_REASONS[name]
     if is_droppable_driver_udeb(name, arch, flavour):
         head = name.split("-modules-", 1)[0] + "-modules"
-        return DROPPABLE_FS_MODULES[head]
+        return DROPPABLE_FS_MODULES[head.replace("_", "-")]
     if name in initrd_builtin:
         return "unpacked into the d-i initrd itself"
     return "not reachable from the preseed path (verify before shipping)"
