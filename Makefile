@@ -737,6 +737,7 @@ parity:
 	build/test-ssplugin-supply-chain.sh
 	@bash build/test-stage-screensaver-plugin-public.sh; rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 77 ]; then exit $$rc; fi
 	build/test-ncz-ui.sh
+	build/test-sinty-adopt.sh
 	build/test-debconf-choices.sh
 	build/test-release-identity.sh
 	build/check-release-identity-gate.sh conf $(ROOT)/release.conf

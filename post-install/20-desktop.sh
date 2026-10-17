@@ -371,9 +371,34 @@ fi
 systemctl --global enable xdg-desktop-portal-singularity.service 2>&1 | tail -2 || true
 echo "[20] singularity portal backend: enabled"
 
-# Fonts: Noto base + CJK + colour emoji.
+# Fonts: Noto base + CJK + colour emoji, and Inter (Singularity's design face)
+# as the default sans-serif. Inter has no CJK glyphs; fontconfig falls through
+# the prefer list to Noto Sans and then to Noto Sans CJK for those.
 ncz_apt_require --no-install-recommends \
-    fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation || exit 1
+    fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation \
+    fonts-inter-variable || exit 1
+install -d -m0755 /etc/fonts/conf.d
+cat > /etc/fonts/conf.d/60-ncz-inter.conf <<'FONTCONF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<!-- NCZ: Inter is the default sans-serif (same choice as Singularity OS,
+     rootfs-overlay/etc/fonts/conf.d/60-sinty-inter.conf), Noto behind it. -->
+<fontconfig>
+  <alias>
+    <family>sans-serif</family>
+    <prefer>
+      <family>Inter</family>
+      <family>Noto Sans</family>
+    </prefer>
+  </alias>
+</fontconfig>
+FONTCONF
+fc-cache -f >/dev/null 2>&1 || true
+echo "[20] default sans-serif: Inter (/etc/fonts/conf.d/60-ncz-inter.conf)"
+
+# User folders (Documents, Downloads, ...): xdg-user-dirs' user unit is enabled
+# by its postinst and runs under graphical-session-pre.target.
+ncz_apt_require --no-install-recommends xdg-user-dirs || exit 1
 
 # Video: mpv HW player (84-vpu-mpv wires hwdec=v4l2m2m-copy). Browsers =
 # Vivaldi (52-vivaldi, real arm64 .deb, default) and (26.7+) real official
