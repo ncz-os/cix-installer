@@ -64,7 +64,7 @@ menu_shape() {   # stdin: refind.conf fragment -> "ok" or the first problem
         /^menuentry .*\{$/ { if (open) { print "nested menuentry at line " NR; bad=1; exit } open=1; n++; next }
         /^}$/              { if (!open) { print "stray } at line " NR; bad=1; exit } open=0; next }
         /^    (options|loader|initrd|icon) / { if (!open) { print "orphan " $1 " at line " NR; bad=1; exit } }
-        END { if (!bad && open) print "unclosed menuentry"; else if (!bad) print "ok " n }'
+        END { if (!bad && open) print "unclosed menuentry"; else if (!bad) print "ok " n+0 }'
 }
 if [ -z "$block" ]; then
     bad "menu emission block (if NEXT_AVAILABLE ... fi) not found"
@@ -74,9 +74,13 @@ else
             out=$(NCZ_VARIANT=$variant PANTHOR_ENTRY=$v NEXT_AVAILABLE=1 NCZ_RELEASE_SHORT=NCZ KVER_NEXT=$K \
                 REFIND_ICON=i NEXT_INITRD_AVAILABLE=1 MALI_OPTIONS=m PANTHOR_OPTIONS=p \
                 NEXT_CONSOLE_OPTIONS=c NEXT_RESCUE_OPTIONS=r bash -c "$block" 2>&1)
+            # desktop: Mali, [Panthor], Console, Rescue; server: Console only
+            # (its Rescue Partition entry comes from the block after this one)
+            case "$variant:$v" in desktop:0) want=3 ;; desktop:1) want=4 ;; *) want=1 ;; esac
             shape=$(printf '%s\n' "$out" | menu_shape)
             case "$shape" in
-                ok\ *) ok "variant=$variant PANTHOR_ENTRY=$v: well-formed menu (${shape#ok } entries)" ;;
+                "ok $want") ok "variant=$variant PANTHOR_ENTRY=$v: well-formed menu ($want entries)" ;;
+                ok\ *) bad "variant=$variant PANTHOR_ENTRY=$v: ${shape#ok } entries, want $want" "$out" ;;
                 *) bad "variant=$variant PANTHOR_ENTRY=$v: $shape" "$out" ;;
             esac
         done
