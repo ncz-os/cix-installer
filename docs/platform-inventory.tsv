@@ -440,6 +440,7 @@ preseed/hw-summary.sh	common	-	installer HARDWARE SUMMARY note dialog (vendor/mo
 build/test-hw-summary.sh	common	-	HW summary dialog tests: dialog text rendered from fixture /proc + /sys trees for a T2 MacBook, an Arrow Lake NPU desktop, an NVIDIA box and O6N/cixmini; ASCII-only, skip rules, never-fail and registration checks
 build/test-ncz-ui.sh	common	-	ncz-ui.sh tests
 build/test-debconf-choices.sh	common	-	static test: debconf select/multiselect templates keep values in Choices-C and labels in Choices
+build/test-t2-wifi-no-unload.sh	amd64	t2	static test: no installer file unloads or unbinds brcmfmac around suspend (T2 BCM4364 D3cold)
 build/test-sinty-adopt.sh	common	-	static test: Inter default font, xdg-user-dirs and the 90-ncz-hardening sysctl file
 build/check-installer-screens.py	common	-	console-screen content checker
 build/test-installer-brltty-banner.sh	common	-	installer checks: no braille stack (no brltty cmdline token, preseed, manifests; initrd/pool/layer/KVM gates wired), probe judge, one-shot boot banner, build id on installer entries

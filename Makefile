@@ -749,6 +749,7 @@ parity:
 	build/test-ncz-ui.sh
 	build/test-sinty-adopt.sh
 	build/test-debconf-choices.sh
+	build/test-t2-wifi-no-unload.sh
 	build/test-release-identity.sh
 	build/check-release-identity-gate.sh conf $(ROOT)/release.conf
 	build/test-base-stamp.sh
