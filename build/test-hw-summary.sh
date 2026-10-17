@@ -70,6 +70,7 @@ run() { # NAME MODE [extra env...] -> body on stdout
         sh "$HS" "$m" </dev/null 2>"$T/last.err"
 }
 nonascii() { # FILE [tab] -> true when FILE holds a byte outside printable ASCII
+    [ -r "$1" ] || return 0     # a missing file must fail the ASCII check, not pass it
     # (Deliberately NOT grep '[^ -~]': that bracket expression is collation-based
     # in the host locale and matches a TAB -- gawk 5.2.1 on en_US.UTF-8 proved it
     # -- and every table row has one.)
@@ -197,8 +198,8 @@ chmod 755 "$T/none/proc" 2>/dev/null
 # --dialog with NO frontend at all: exits 0, does not create the marker.
 rm -f "$T/t2/state/.ncz-hwsummary-shown"
 run t2 --dialog >"$T/d0" 2>&1; rc=$?
-if [ "$rc" = 0 ] && [ -e "$T/t2/state/.ncz-hwsummary-shown" ] && ! out=$(run t2 --collect); then rc2=1; else rc2=0; fi
-[ "$rc" = 0 ] && ok "--dialog without a frontend: exit 0" || bad "--dialog without a frontend: exit 0" "rc=$rc" "$(cat "$T/d0")"
+if [ "$rc" = 0 ] && [ ! -e "$T/t2/state/.ncz-hwsummary-shown" ]; then ok "--dialog without a frontend: exit 0, marker NOT written"
+else bad "--dialog without a frontend: exit 0, marker NOT written" "rc=$rc" "$(cat "$T/d0")"; fi
 # The debconf frontend: functions standing in for partman/early_command's.
 # db_input fails (a broken frontend) -> still exit 0, marker NOT written.
 mkfe() { # RC -> path of a frontend stub whose db_input returns RC
