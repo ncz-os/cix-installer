@@ -81,7 +81,7 @@ sudo cp -a "$ROOT/manifests/." "$CHROOT/usr/local/lib/cix-installer/manifests/" 
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/build"
 sudo cp "$ROOT/build/screensavers-version.env" "$CHROOT/usr/local/lib/cix-installer/build/"
 sudo mkdir -p "$CHROOT/usr/local/lib/cix-installer/assets"
-for _d in cix-debs kernel rescue refind branding models python311 gpu mgmt diag npu wallpaper; do
+for _d in cix-debs kernel rescue refind branding models python311 gpu mgmt diag npu wallpaper dracut initramfs; do
   [ -d "$ROOT/assets/$_d" ] && sudo cp -a "$ROOT/assets/$_d" "$CHROOT/usr/local/lib/cix-installer/assets/" 2>/dev/null || true
 done   # deliberately EXCLUDES assets/rootfs (base tarballs + baked output)
 [ -f "$ROOT/assets/ncz-cli.sh" ] && sudo cp -a "$ROOT/assets/ncz-cli.sh" "$CHROOT/usr/local/lib/cix-installer/assets/" 2>/dev/null || true

@@ -656,8 +656,11 @@ The MS-R1 NPU is invisible to the kernel without this override (no
 initramfs, the dmesg on an MS-R1 shows
 `armchina CIXH4000:00: sky1_npu_probe: NPU core num is 3 → AIPU KMD (v6.2.0)
 probe start... → AIPU detected: zhouyi-v3` and all three cores enumerate.
-The `.asl` source is committed at `assets/npu/ssdt-npucre.asl`; the `.cpio` is
-regenerated from it by `build/build-npu-ssdt.sh`.
+The `.asl` source is committed at `assets/npu/ssdt-npucre.asl`; it is compiled
+to `.aml` by `build/build-npu-ssdt.sh` and delivered into the initramfs as an
+uncompressed early CPIO by a dracut module / initramfs-tools hook, board-gated
+so O6/O6N are untouched. See `docs/NPU-SSDT-DELIVERY.md` for the mechanism,
+the gating table, and what still needs hardware confirmation.
 
 ### What differs for AMD64
 
