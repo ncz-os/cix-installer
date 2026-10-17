@@ -131,7 +131,11 @@ ncz_intel_clear_deferred() {
 # file:// and copy:// (cdrom: URIs carry no "//"). One pipeline, so no
 # `a || b` status masking.
 _ncz_intel_has_remote_uri() {
-    grep -E '^[[:space:]]*(deb(-src)?[[:space:]]|URIs:[[:space:]])' "$1" 2>/dev/null \
+    # Disabled sources fetch nothing: drop deb822 stanzas with "Enabled: no"
+    # and one-line entries with an [enabled=no] option first.
+    awk 'BEGIN { RS = "" } !/(^|\n)[[:space:]]*Enabled:[[:space:]]*[Nn][Oo]/ { print }' "$1" 2>/dev/null \
+        | grep -E '^[[:space:]]*(deb(-src)?[[:space:]]|URIs:[[:space:]])' \
+        | grep -vE '^[[:space:]]*deb(-src)?[[:space:]]+\[[^]]*enabled=no' \
         | grep -oE '[a-z][a-z0-9+.-]*://' \
         | grep -vqE '^(file|copy)://'
 }
@@ -608,6 +612,13 @@ ncz_intel_recover() {
     ncz_intel_log "re-arming deferred install (was: $s; GPU NPU = $hw)"
     # shellcheck disable=SC2086
     ncz_intel_arm_retry $hw
+    # On a running system the manager booted without the timer link (the
+    # gave-up path removed it), so the new link alone would wait for the next
+    # boot: load and start the timer now. Skipped for a target root.
+    if [ -z "$(_ni_r)" ] && [ -d /run/systemd/system ]; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl start ncz-intel-accel-setup.timer >/dev/null 2>&1 || true
+    fi
     return 0
 }
 

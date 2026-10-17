@@ -819,6 +819,15 @@ _src_case remote "file: plus http"       'deb [trusted=yes] file:///srv/mirror .
 _src_case local  "commented remote"      '# deb https://example.invalid/ncz ./' 'deb file:///srv/mirror ./'
 _src_case remote "deb822 file: plus https" 'Types: deb' 'URIs: file:///srv/mirror https://example.invalid/ncz' 'Suites: forky'
 _src_case local  "deb822 file: only"     'Types: deb' 'URIs: file:///srv/mirror' 'Suites: forky'
+_src_case local  "disabled https line"   'deb [enabled=no] https://deb.debian.org/debian forky main' 'deb file:///srv/mirror ./'
+_src_case local  "deb822 Enabled: no"    'Types: deb' 'URIs: https://deb.debian.org/debian' 'Suites: forky' 'Enabled: no' '' 'Types: deb' 'URIs: file:///srv/mirror' 'Suites: forky'
+_src_case remote "deb822 enabled stanza" 'Types: deb' 'URIs: https://deb.debian.org/debian' 'Suites: forky' 'Enabled: yes'
+_src_case remote "enabled=yes https"     'deb [enabled=yes] https://deb.debian.org/debian forky main'
+grep -A8 '^ncz_intel_recover()' "$LIB" | grep -q . \
+    && awk '/^ncz_intel_recover\(\)/,/^}/' "$LIB" | grep -q 'systemctl start ncz-intel-accel-setup.timer' \
+    && awk '/^ncz_intel_recover\(\)/,/^}/' "$LIB" | grep -q '\[ -z "$(_ni_r)" \] && \[ -d /run/systemd/system \]' \
+    && ok "recover starts the timer on a running system only (not for a target root)" \
+    || bad "recover does not start the timer on a running system"
 
 echo "=== deferred throttle: a corrupt LAST= re-checks instead of wedging ==="
 mkroot
