@@ -1302,7 +1302,12 @@ def expand(name: str, data: bytes, label: str, depth: int = 0):
         for mname, payload in tar_members(data, label):
             yield f"{label}/{mname}", payload
         return
-    if data.startswith(b"PK\x03\x04"):
+    if data.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
+        # PK\x03\x04 is a member header, PK\x05\x06 a zero-entry archive
+        # (an "end of central directory" record and nothing else -- what a
+        # tool writes for an empty but valid .zip), PK\x07\x08 a spanned
+        # archive.  A zip is a container whatever it holds; opening it is the
+        # only way to know, and zipfile accepts the empty one.
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 for info in zf.infolist():
@@ -1470,7 +1475,6 @@ def scan_candidate(scanner: Scanner, data: bytes, path: str) -> list[dict]:
         sha = hashlib.sha256
         for tok in tokenise(data):
             stop = 0
-            hit = False
             for start in range(len(tok) - HASH_MIN_LEN + 1):
                 if start < stop:
                     continue
@@ -1487,10 +1491,7 @@ def scan_candidate(scanner: Scanner, data: bytes, path: str) -> list[dict]:
                             hit_rec["label"] = scanner.hashes.labels[d]
                         hits.append(hit_rec)
                         stop = start + length
-                        hit = True
                         break
-            if hit:
-                break  # one location per candidate is enough for the receipt
     if scanner.shapes:
         hits.extend(scanner.scan_shapes(data, path))
     return hits
@@ -1633,12 +1634,22 @@ class Report:
             self.findings.append({"layer": layer, "path": path, **h})
 
 
+# Zip records that are NOT a member header: the end-of-central-directory
+# record (PK\x05\x06) and a spanned-archive marker (PK\x07\x08).  A zero-entry
+# zip consists of the former alone, so sniffing only PK\x03\x04 meant an
+# empty-but-valid archive was handed to the matcher as opaque bytes: anything
+# that sniffs for an archive in those bytes (a comment, a later zip appended
+# to it) was missed.  Both are safe to sniff: expand() opens them with
+# zipfile, which parses the central directory.
+ZIP_MAGIC = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
+
+
 def archive_magic(data: bytes) -> bool:
     """Compression or archive by content (gzip, xz, zstd, bzip2, ar, cpio,
     tar, zip)."""
     return (data.startswith((b"\x1f\x8b\x08", b"\xfd7zXZ\x00", b"\x28\xb5\x2f\xfd",
-                             b"BZh", b"!<arch>\n", b"070701", b"070702", b"070707",
-                             b"PK\x03\x04"))
+                             b"BZh", b"!<arch>\n", b"070701", b"070702", b"070707")
+                            + ZIP_MAGIC)
             or (len(data) > 262 and data[257:262] == b"ustar"))
 
 

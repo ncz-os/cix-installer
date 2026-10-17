@@ -772,5 +772,26 @@ PY
 then pass "a small FAT32 volume (< 65525 clusters) is walked as FAT32"; else fail "small FAT32 volume not walked"; fi
 rm -f "$WORK/f32.img" "$WORK/f32.txt"
 
+# item 4, review round 6: an EMPTY zip is still a zip.  A zero-entry archive is
+# a lone end-of-central-directory record (magic PK 05 06), which the content
+# sniff did not recognise, so such a file was handed to the matcher as opaque
+# bytes instead of being opened as the archive it is.
+if $PY - "$ROOT" <<'PY'
+import importlib.util, io, os, sys, zipfile
+spec = importlib.util.spec_from_file_location(
+    "gate", os.path.join(sys.argv[1], "build", "scan-shipped-secrets.py"))
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+buf = io.BytesIO()
+with zipfile.ZipFile(buf, "w"):      # a valid zip with no members at all
+    pass
+empty = buf.getvalue()
+assert empty[:4] == b"PK\x05\x06", empty[:4]
+assert g.archive_magic(empty), "an empty zip is not sniffed as an archive"
+assert g.archive_magic(b"PK\x07\x08" + empty[4:]), "a spanned zip is not sniffed"
+# ... and expand() opens it instead of silently treating it as a leaf
+assert list(g.expand("/x/empty.zip", empty, "/x/empty.zip")) == []
+PY
+then pass "an empty zip (PK\x05\x06 only) is recognised as an archive"; else fail "empty zip not recognised as an archive"; fi
+
 if [ "$FAILS" -gt 0 ]; then echo "test-shipped-secret-scan: $FAILS finding(s)" >&2; exit 1; fi
 echo "test-shipped-secret-scan: PASS ✅"
