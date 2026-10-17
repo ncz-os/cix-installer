@@ -142,7 +142,7 @@ _ncz_intel_repos_all_local() {
             # then a single grep decides (no `a || b` status masking).
             # Remote = any URI scheme other than the local file:/cdrom:/copy:
             # (http, https, mirror+http..., tor+https..., ftp).
-            if grep -Ev '(file|cdrom|copy):' "$f" 2>/dev/null \
+            if grep -Ev '[[:space:]](file|cdrom|copy):' "$f" 2>/dev/null \
                 | grep -Eq '^[[:space:]]*deb(-src)?[[:space:]].*[a-z+]+://|^[[:space:]]*URIs:[[:space:]].*[a-z+]+://'; then
                 return 1
             fi
@@ -150,7 +150,7 @@ _ncz_intel_repos_all_local() {
     done
     # An inline deb line in the root sources.list counts too.
     f="$(_ni_r)/etc/apt/sources.list"
-    if [ -f "$f" ] && grep -Ev '(file|cdrom|copy):' "$f" 2>/dev/null \
+    if [ -f "$f" ] && grep -Ev '[[:space:]](file|cdrom|copy):' "$f" 2>/dev/null \
         | grep -Eq '^[[:space:]]*deb(-src)?[[:space:]].*[a-z+]+://'; then
         return 1
     fi
