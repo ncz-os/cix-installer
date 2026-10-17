@@ -1658,7 +1658,10 @@ def compress_image(image: Path, kind: str, level: int | None = None) -> dict | N
     lvl = COMPRESS_DEFAULTS[kind] if level is None else level
     if kind == "xz":
         out = image.with_suffix(image.suffix + ".xz")
-        cmd = ["xz", "-c", f"-{lvl}", "-T0", str(image)]
+        # Single-threaded on purpose: multi-threaded xz writes a different
+        # container (per-block sizes) than single-threaded, and -T0 picks
+        # one or the other from the host CPU count.
+        cmd = ["xz", "-c", f"-{lvl}", "-T1", str(image)]
     elif kind == "zst":
         out = image.with_suffix(image.suffix + ".zst")
         cmd = ["zstd", "-c", f"-{lvl}", "--ultra", "-T0", "--long=27",

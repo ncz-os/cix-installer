@@ -530,8 +530,23 @@ def test_substrate_cut_is_off_by_default(writer, monkeypatch):
     assert writer.slim_substrate_enabled() is True
 
 
-def test_drop_reason_accepts_underscore_module_names(substrate):
-    assert substrate.drop_reason("xfs_modules-7.2.9-amd64-di", "amd64", "amd64", set())
+def test_underscore_module_names_are_recognised(substrate):
+    reason = substrate.DROPPABLE_FS_MODULES["xfs-modules"]
+    assert substrate.provable_drop_reason("xfs_modules-7.2.9-amd64-di", "amd64", "amd64") == reason
+    assert substrate.drop_reason("xfs_modules-7.2.9-amd64-di", "amd64", "amd64", set()) == reason
+    assert substrate.provable_drop_reason("nic_modules-7.2.9-amd64-di", "amd64", "amd64") is None
+
+
+def test_xz_output_does_not_depend_on_thread_count(writer, tmp_path):
+    import shutil
+    if not shutil.which("xz"):
+        pytest.skip("xz not installed")
+    image = tmp_path / "disk.img"
+    image.write_bytes(os.urandom(1 << 16) * 64)
+    a = writer.compress_image(image, "xz", 1)["sha256"]
+    one = subprocess.run(["xz", "-c", "-1", "-T1", str(image)],
+                         capture_output=True, check=True).stdout
+    assert __import__("hashlib").sha256(one).hexdigest() == a
 
 
 def test_unreadable_initrd_keeps_more_not_less(writer, substrate, tmp_path, fake_dpkg,

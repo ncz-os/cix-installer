@@ -103,11 +103,16 @@ DROPPABLE_FS_MODULES = {
 }
 
 
+def _module_family(pkg: str) -> str:
+    """'xfs-modules-7.2.9-amd64-di' or 'xfs_modules-...' -> 'xfs-modules'."""
+    return re.split(r"[-_]modules-", pkg, maxsplit=1)[0] + "-modules"
+
+
 def is_droppable_driver_udeb(pkg: str, arch: str, flavour: str) -> bool:
     """True for a kernel-module udeb whose drivers the install cannot use."""
     if not pkg.endswith(f"-{arch}{FLAVOUR_MODULE_SUFFIX}"):
         return False
-    head = pkg.split("-modules-", 1)[0] + "-modules"
+    head = _module_family(pkg)
     # xfs-modules, jfs-modules, btrfs-modules: the base name is in the map.
     # jfs/xfs kernel-wedge packages are NOT "<fs>-modules-<kver>-<arch>-di"
     # consistently -- some substrates name them "<fs>-modules", others
@@ -498,9 +503,8 @@ def provable_drop_reason(name: str, arch: str, flavour: str) -> str | None:
     if name in SKIPPED_COMPONENT_REASONS:
         return SKIPPED_COMPONENT_REASONS[name]
     if is_droppable_driver_udeb(name, arch, flavour):
-        head = name.split("-modules-", 1)[0] + "-modules"
-        return DROPPABLE_FS_MODULES.get(head.replace("_", "-"),
-                                        "non-server filesystem module set")
+        head = _module_family(name)
+        return DROPPABLE_FS_MODULES.get(head, "non-server filesystem module set")
     return None
 
 
@@ -534,8 +538,8 @@ def drop_reason(name: str, arch: str, flavour: str,
     if name in SKIPPED_COMPONENT_REASONS:
         return SKIPPED_COMPONENT_REASONS[name]
     if is_droppable_driver_udeb(name, arch, flavour):
-        head = name.split("-modules-", 1)[0] + "-modules"
-        return DROPPABLE_FS_MODULES[head.replace("_", "-")]
+        head = _module_family(name)
+        return DROPPABLE_FS_MODULES.get(head, "non-server filesystem module set")
     if name in initrd_builtin:
         return "unpacked into the d-i initrd itself"
     return "not reachable from the preseed path (verify before shipping)"
