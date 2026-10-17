@@ -208,6 +208,26 @@ mksb "root=x sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memo
 rc=$(runsw)
 [ "$rc" = 1 ] && ok "double failure still exit 1 with the selection recorded" || bad "double failure changed (rc=$rc)" "$(cat "$SB/err")"
 
+echo "=== switcher: announce the recorded selection on stdout ==="
+# An operator running `journalctl -u ncz-gpu-switcher` needs to see WHICH stack
+# the switcher picked on THIS boot, alongside the existing "GPU stack set to ..."
+# activator output. A line per mode, never silent: BL is already used in the
+# MINOR-003 section above (the sandbox rewrites /etc/modprobe.d/... to \$SB/...).
+mksb "root=x sky1.gpu=vendor" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko
+rc=$(runsw)
+[ "$rc" = 0 ] && grep -q "selected mali (recorded in $BL)" "$SB/out" \
+    && ok "mali selection announced on stdout for journald" || bad "mali selection not announced (rc=$rc)" "$(cat "$SB/out" "$SB/err")"
+
+mksb "root=x sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko panthor.ko
+rc=$(runsw)
+[ "$rc" = 0 ] && grep -q "selected panthor (recorded in $BL)" "$SB/out" \
+    && ok "panthor selection announced on stdout for journald" || bad "panthor selection not announced (rc=$rc)" "$(cat "$SB/out" "$SB/err")"
+
+mksb "root=x sky1.gpu=none" mali_kbase.ko
+rc=$(runsw)
+[ "$rc" = 0 ] && grep -q 'selected none (rescue/no-accelerators entry)' "$SB/out" \
+    && ok "sky1.gpu=none announced (file lacks the line, but journal carries it)" || bad "sky1.gpu=none not announced (rc=$rc)" "$(cat "$SB/out" "$SB/err")"
+
 echo "=== switcher: the blacklist file is published atomically (single write) ==="
 # The file must never be observable half-written: modprobe.d is read by udev
 # coldplug (which can run concurrently with this unit) and by any `modprobe` on

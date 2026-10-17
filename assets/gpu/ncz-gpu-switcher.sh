@@ -210,6 +210,18 @@ BL
         # Same directory as the target, so this is a rename, not a copy.
         mv -f "$_bl" "$BLACKLIST" || { rm -f "$_bl"; err "WARN: could not install $BLACKLIST"; return 1; }
     fi
+    # Announce the recorded selection on stdout so journald captures which stack
+    # this boot applied, paired with the existing activate_*() output -- a
+    # post-mortem `journalctl -u ncz-gpu-switcher` will then show blacklisted
+    # + selected in two lines, in that order. The `none` case records no
+    # "Selected:" line in the file, so the per-boot log message replaces it as
+    # the on-this-host-claim of choice (sky1.gpu=none is the rescue entry
+    # which intentionally loads nothing).
+    case "${1:-}" in
+        mali)    log "selected mali (recorded in $BLACKLIST)" ;;
+        panthor) log "selected panthor (recorded in $BLACKLIST)" ;;
+        none)    log "selected none (rescue/no-accelerators entry)" ;;
+    esac
     return 0
 }
 
