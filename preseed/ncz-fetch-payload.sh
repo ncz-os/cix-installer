@@ -38,7 +38,15 @@
 
 set -u
 
+# Serial failure visibility on BOTH arm64 (Sky1 / O6N / cixmini / MS-R1:
+# the PL011 debug UART is ttyAMA0) and amd64 (T2: the on-screen console
+# tty0; d-i's own serial sidecar is diag-console.sh, not this script).
+# The server medium is headless, so a failure that lands on only one of the
+# two consoles is a silent box. /dev/console is intentionally NOT written:
+# on arm64 it is ttyAMA0 (duplicated), and on a d-i that reopened console
+# the write would disturb the installer's console device.
 SER=/dev/ttyAMA0
+SER2=/dev/tty0
 DEST_DIR="${NCZ_PAYLOAD_DIR:-/cdrom/ncz-payload}"
 MANIFEST="${NCZ_FETCH_MANIFEST:-$DEST_DIR/ncz-fetch-payload.manifest}"
 MAX_TRIES="${NCZ_FETCH_MAX_TRIES:-10}"
@@ -46,7 +54,18 @@ CONNECT_TIMEOUT="${NCZ_FETCH_CONNECT_TIMEOUT:-10}"
 OVERALL_TIMEOUT="${NCZ_FETCH_OVERALL_TIMEOUT:-1800}"
 TMPDIR_FETCH="${NCZ_FETCH_TMPDIR:-/tmp}"
 
-say() { printf '%s\n' "$*" 2>/dev/null | tee -a "$SER" 2>/dev/null || true; }
+# Every line goes to stderr (the r159 stub forwards it to the installer log
+# and tells the operator to "see the [FETCH] lines above") and to each console
+# that exists. Writes are independent: a console that exists but is not
+# writable must not silence the other one or the log.
+say() {
+    _line="$*"
+    printf '%s\n' "$_line" >&2 2>/dev/null || true
+    for _c in "$SER" "$SER2"; do
+        [ -c "$_c" ] || continue
+        printf '%s\n' "$_line" 2>/dev/null >>"$_c" || true
+    done
+}
 
 start=$(date +%s 2>/dev/null || echo 0)
 elapsed() { echo $(($(date +%s 2>/dev/null || echo 0) - start)); }
@@ -92,6 +111,11 @@ fetch_one() {
         return 0
     fi
 
+    # The staging dir must exist BEFORE any fetch: the r159 stub creates
+    # $NCZ_FETCH_TMPDIR as a sibling of the writable staging root, but a
+    # direct invocation (tests, manual re-runs) may point it at a path that
+    # does not exist yet. mkdir -p is a no-op when it already does.
+    mkdir -p "$TMPDIR_FETCH" 2>/dev/null || true
     _part="$TMPDIR_FETCH/ncz-fetch.$$.part"
     _got_sz=""
     _attempt=1
@@ -139,7 +163,8 @@ fetch_one() {
         sleep $((_attempt * 5 > 30 ? 30 : _attempt * 5))
     done
 
-    _sz=$(wc -c < "$_part" 2>/dev/null | tr -d " ")
+    _sz=""
+    [ -f "$_part" ] && _sz=$(wc -c < "$_part" 2>/dev/null | tr -d " ")
     say "[FETCH] HARD FAIL: could not fetch a verified $_name after ${_attempt} attempt(s) in $(elapsed)s"
     [ -n "$_sz" ] && say "[FETCH]   partial: ${_sz} bytes (discarded, never installed)"
     say "[FETCH]   url: $_url"
