@@ -587,14 +587,30 @@ ncz_intel_finish() {
     rm -f "$(_ni_pending)" "$(_ni_r)/etc/systemd/system/timers.target.wants/ncz-intel-accel-setup.timer"
 }
 
-# Install-time entry (54-gpu-accel.sh).
+# Install-time entry (54-gpu-accel.sh). Takes the SAME lock as the deferred
+# entry: an upgrade install runs while ncz-intel-accel-setup.timer may already
+# be active, and without the lock install can delete a marker a deferred run
+# just armed, or a deferred run can append LAST= to a marker install removed.
 ncz_intel_accel_install() {   # GPU NPU
+    local _lk _rc
+    _lk="$(_ni_r)/run/ncz-intel-accel.lock"
+    mkdir -p "${_lk%/*}" 2>/dev/null || true
+    if command -v flock >/dev/null 2>&1 && exec 9>"$_lk"; then
+        if ! flock -w "${NCZ_INTEL_LOCK_WAIT:-600}" 9; then
+            exec 9>&-
+            ncz_intel_log "another run holds $_lk; leaving this one to it"
+            # The run holding the lock owns the marker from here: it has
+            # already (re-)armed it, so this install must not undo that.
+            return 0
+        fi
+    fi
     ncz_intel_setup "$1" "$2"; _rc=$?
     case "$_rc" in
         0)  ncz_intel_status "done"; ncz_intel_finish ;;
         75) ncz_intel_log "not finished at install time; ncz-intel-accel-setup.timer retries after boot"; ncz_intel_arm_retry "$1" "$2" ;;
         *)  ncz_intel_finish ;;
     esac
+    exec 9>&- 2>/dev/null || true
     return 0
 }
 

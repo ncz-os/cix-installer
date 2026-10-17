@@ -900,6 +900,27 @@ wait "$_lkpid" 2>/dev/null
 [ "$_rcK" = 0 ] && [ "$(cat "$P")" = "$_pm" ] && grep -q "another run holds" "$W/out" \
     && ok "a run waits for the lock and leaves the marker to the run holding it" \
     || bad "lock not honoured (rc=$_rcK)" "$(cat "$W/out")"
+# The install-time entry writes/removes the marker too, and it runs while the
+# deferred timer may already be active on an upgrade install. It must take the
+# same lock: otherwise it can delete the marker after a deferred run re-armed
+# it, or a deferred run can append LAST= to a marker install just removed.
+mkroot
+NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_install 1 1
+_pm=$(cat "$P")
+mkdir -p "$W/r/run"; ( flock 8; sleep 5 ) 8>"$W/r/run/ncz-intel-accel.lock" &
+_lkpid=$!; sleep 1
+: > "$LOG"
+NCZ_INTEL_LOCK_WAIT=1 NET=up NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_install 1 1
+wait "$_lkpid" 2>/dev/null
+[ "$(cat "$P")" = "$_pm" ] && grep -q "another run holds" "$W/out" \
+    && ok "install waits for the lock and does not rewrite a marker another run owns" \
+    || bad "install-time entry ignores the run lock (marker '$(cat "$P")')" "$(cat "$W/out")"
+# And it must not leave the marker holding only LAST= when the file vanished
+# between the existence check and the append (the reason the append is guarded).
+grep -A2 'elif \[ -f "\$_pf" \]' "$LIB" | grep -q 'echo "LAST=' \
+    && ok "the LAST= append stays guarded on the marker still existing" \
+    || bad "the LAST= append is no longer existence-guarded"
+
 grep -A8 '^ncz_intel_recover()' "$LIB" | grep -q . \
     && awk '/^ncz_intel_recover\(\)/,/^}/' "$LIB" | grep -q 'systemctl start ncz-intel-accel-setup.timer' \
     && awk '/^ncz_intel_recover\(\)/,/^}/' "$LIB" | grep -q '\[ -z "$(_ni_r)" \] && \[ -d /run/systemd/system \]' \
