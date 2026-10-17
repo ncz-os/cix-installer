@@ -84,8 +84,8 @@ IMG=$(find "$W" -name Image -path "*arch/arm64/boot*" | head -1)
 MOD_CHANGED=0
 if [ -f "$PREV/modules-cixmini.tgz" ]; then
     # Scratch follows TMPDIR: build hosts keep /tmp on a small shared tmpfs.
-    PREVMOD="${TMPDIR:-/tmp}/.prevmod"
-    rm -rf "$PREVMOD" && mkdir -p "$PREVMOD"
+    PREVMOD="$(mktemp -d "${TMPDIR:-/tmp}/prevmod.XXXXXX")"
+    trap 'rm -rf "$PREVMOD"' EXIT
     tar -xzf "$PREV/modules-cixmini.tgz" -C "$PREVMOD" 2>/dev/null || true
     for m in linlon-dp trilin-dpsub; do
         n=$(find "$W/image" -name "$m.ko*" | head -1); o=$(find "$PREVMOD" -name "$m.ko*" | head -1)
