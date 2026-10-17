@@ -570,8 +570,10 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # The served file must match the manifest's URL path (usually
     # ncz-assets-<arch>.tar.gz; the pin is authoritative).
     _srv_name=$(basename "${_srv_aurl%%\?*}")
-    # Armed before the start, which can exit while its server is still alive.
+    # Armed before the start, which can exit while its server is still alive;
+    # INT/TERM too, until the QEMU-phase traps replace these.
     trap 'ncz_srv_cleanup' EXIT
+    trap 'ncz_srv_cleanup; exit 130' INT TERM
     ncz_gate_srv_start "$_srv_base"
     if [ "$(basename "$NCZ_GATE_SERVER_ASSETS")" != "$_srv_name" ]; then
         cp "$NCZ_GATE_SERVER_ASSETS" "$SRV_DIR/$_srv_name"
@@ -718,7 +720,9 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" = 1 ]; then
     ncz_norm_log() {
         sed 's/\x1b\[[0-9;?]*[A-Za-z]//g; s/\x1b[()][A-Z0-9]//g' "$1" | tr '\r' '\n' | tr -s ' '
     }
-    ncz_norm_log "$ILOG" | grep -aqE '\[FETCH\] (HARD FAIL|FATAL)' \
+    # No -q: an early grep exit would SIGPIPE the producer, and pipefail
+    # would turn a found line into a failure (same for the server greps).
+    ncz_norm_log "$ILOG" | grep -aE '\[FETCH\] (HARD FAIL|FATAL)' >/dev/null \
         || fail "negative server run: the guest failed WITHOUT a loud [FETCH] failure on the serial console -- a silent fetch failure would leave a headless box with no rootfs and no message"
     echo "  negative run: the fetch failure was loud on the serial console"
     # Nothing unverified may reach the disk. Convert the target (it may be
@@ -1030,10 +1034,10 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # artifacts must have been downloaded: a "skip ...: already present"
     # line means they came from the medium or a stale root, not this server.
     for _fa in base.squashfs "$_srv_name"; do
-        ncz_norm_log "$ILOG" | grep -aqF "[FETCH] $_fa verified sha256=" \
+        ncz_norm_log "$ILOG" | grep -aF "[FETCH] $_fa verified sha256=" >/dev/null \
             || fail "server gate: the serial log has no '[FETCH] $_fa verified sha256=' line -- $_fa was not fetched from the gate's server and verified (it may have come from the medium or a stale staging root)"
     done
-    ncz_norm_log "$ILOG" | grep -aq 'all manifest artifacts fetched and verified' \
+    ncz_norm_log "$ILOG" | grep -a 'all manifest artifacts fetched and verified' >/dev/null \
         || fail "server gate: the fetcher never reported 'all manifest artifacts fetched and verified'"
     echo "  server gate: payload fetched from ${SRV_URL_BASE} and sha256-verified by the guest before use"
     # The headless server contract on the installed root (debugfs reads,
