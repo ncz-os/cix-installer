@@ -612,8 +612,8 @@ PY
     }
     _srv_code_p=$(_srv_check_url "$_srv_purl")
     _srv_code_a=$(_srv_check_url "$_srv_aurl")
-    case "$_srv_code_p" in *200*) : ;; *) fail "server gate: the payload is not being served at ${_srv_purl} (got: ${_srv_code_p}) -- the guest's fetcher would refuse it at install time" ;; esac
-    case "$_srv_code_a" in *200*) : ;; *) fail "server gate: the asset bundle is not being served at ${_srv_aurl} (got: ${_srv_code_a}) -- the guest's fetcher would refuse it at install time" ;; esac
+    case "$_srv_code_p" in "HTTP/"*" 200 "*) : ;; *) fail "server gate: the payload is not being served at ${_srv_purl} (got: ${_srv_code_p}) -- the guest's fetcher would refuse it at install time" ;; esac
+    case "$_srv_code_a" in "HTTP/"*" 200 "*) : ;; *) fail "server gate: the asset bundle is not being served at ${_srv_aurl} (got: ${_srv_code_a}) -- the guest's fetcher would refuse it at install time" ;; esac
     echo "  both artifacts answer 200 on the gate's server"
 elif [ "$NCZ_GATE_SERVER" = 1 ]; then
     # Negative run: the server is deliberately absent. The guest's fetcher
@@ -1080,6 +1080,9 @@ echo "  installed layout and boot menu match the options '$GATE_COMPONENTS'"
 # no graphical/Default entry, no Mali/Panthor, no "Rescue / No Accelerators"
 # entry (assets/refind/ncz-refind-refresh.sh gates these on NCZ_VARIANT=server;
 # the amd64 generator drops them the same way).
+if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ] && ! [ -s "$EVIDENCE/installed-refind.conf" ]; then
+    fail "server gate: could not read the installed rEFInd config from the target ESP, so the Console + Rescue Partition menu is unproven"
+fi
 if [ "$NCZ_GATE_SERVER" = 1 ] && [ -s "$EVIDENCE/installed-refind.conf" ]; then
     _m_console=$(grep -c '^menuentry .*Console' "$EVIDENCE/installed-refind.conf")
     _m_rp=$(grep -c '^menuentry .*Rescue Partition' "$EVIDENCE/installed-refind.conf")
