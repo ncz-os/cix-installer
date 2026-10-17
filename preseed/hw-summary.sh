@@ -133,6 +133,8 @@ p_system() {
     case "$_sv" in "System manufacturer"|"To Be Filled By"*|OEM|*"Not Specified"*) _sv="" ;; esac
     case "$_pn" in "System Product Name"|"To Be Filled By"*|OEM|*"Not Specified"*|*"Default string"*) _pn="" ;; esac
     [ -n "$_sv$_pn" ] || return 0
+    # "Radxa Radxa Orion O6N": a product name that already starts with the vendor.
+    case "$_pn" in "$_sv"*) [ -n "$_sv" ] && _sv="" ;; esac
     _line=$(printf '%s %s' "$_sv" "$_pn" | sed 's/  */ /g; s/^ //; s/ $//')
     _bv=$(_attr "$DMI/bios_version")
     case "$_bv" in "To Be Filled By"*|*"Default string"*|*"Not Specified"*) _bv="" ;; esac
@@ -140,16 +142,65 @@ p_system() {
     printf 'System: %s\n' "$_line"
 }
 
+# arm_cpu_name -> "Arm Cortex-A720 + Cortex-A520" from the CPU implementer /
+# part fields arm64 /proc/cpuinfo carries (it has no "model name"; a Model /
+# Hardware line there names the board or the VM machine type, e.g. QEMU's
+# "virt-10.2", not the CPU). Distinct parts in first-seen order; an unknown
+# part is reported by its ids. Empty when the fields are absent.
+_arm_part() {   # IMPLEMENTER PART
+    case "$1:$2" in
+        41:d03) echo "Cortex-A53" ;;  41:d04) echo "Cortex-A35" ;;  41:d05) echo "Cortex-A55" ;;
+        41:d07) echo "Cortex-A57" ;;  41:d08) echo "Cortex-A72" ;;  41:d09) echo "Cortex-A73" ;;
+        41:d0a) echo "Cortex-A75" ;;  41:d0b) echo "Cortex-A76" ;;  41:d0c) echo "Neoverse-N1" ;;
+        41:d0d) echo "Cortex-A77" ;;  41:d40) echo "Neoverse-V1" ;;  41:d41) echo "Cortex-A78" ;;
+        41:d44) echo "Cortex-X1" ;;   41:d46) echo "Cortex-A510" ;; 41:d47) echo "Cortex-A710" ;;
+        41:d48) echo "Cortex-X2" ;;   41:d49) echo "Neoverse-N2" ;; 41:d4d) echo "Cortex-A715" ;;
+        41:d4e) echo "Cortex-X3" ;;   41:d4f) echo "Neoverse-V2" ;; 41:d80) echo "Cortex-A520" ;;
+        41:d81) echo "Cortex-A720" ;; 41:d82) echo "Cortex-X4" ;;   41:d84) echo "Neoverse-V3" ;;
+        41:d85) echo "Cortex-X925" ;; 41:d87) echo "Cortex-A725" ;; 41:d8e) echo "Neoverse-N3" ;;
+        *) echo "core $1:$2" ;;
+    esac
+}
+arm_cpu_name() {
+    _pairs=$(awk -F: '
+        /^CPU implementer/ { gsub(/[ \t]|0x|0X/, "", $2); im = tolower($2) }
+        /^CPU part/ { gsub(/[ \t]|0x|0X/, "", $2); pa = tolower($2); if (im != "") print im ":" pa }
+    ' "$PROC/cpuinfo" 2>/dev/null | awk '!seen[$0]++')
+    [ -n "$_pairs" ] || return 0
+    _vendor=""; _names=""
+    for _pp in $_pairs; do
+        _im=${_pp%%:*}; _pa=${_pp#*:}
+        case "$_im" in [0-9a-f][0-9a-f]) ;; *) continue ;; esac
+        case "$_pa" in *[!0-9a-f]*|'') continue ;; esac
+        case "$_im" in
+            41) _v="Arm" ;; 61) _v="Apple" ;; 51) _v="Qualcomm" ;; 48) _v="HiSilicon" ;;
+            c0) _v="Ampere" ;; 6d) _v="Microsoft" ;; *) _v="Arm-compatible (implementer 0x$_im)" ;;
+        esac
+        [ -n "$_vendor" ] || _vendor=$_v
+        _nm=$(_arm_part "$_im" "$_pa")
+        _names="${_names:+$_names + }$_nm"
+    done
+    [ -n "$_names" ] || return 0
+    printf '%s %s' "$_vendor" "$_names"
+}
+
 p_cpu() {
     _m=""
+    _n=$(grep -c '^processor' "$PROC/cpuinfo" 2>/dev/null)
+    case "$_n" in ''|0|*[!0-9]*) _n="" ;; esac
+    if grep -q '^CPU implementer' "$PROC/cpuinfo" 2>/dev/null; then
+        _m=$(arm_cpu_name)
+        [ -n "$_m" ] || _m="not reported"
+        if _is_sky1; then _m="CIX Sky1 (CP8180): $_m"; fi
+        printf 'CPU: %s%s\n' "$_m" "${_n:+ | $_n cores}"
+        return 0
+    fi
     for _k in "model name" "Model" "Hardware" "Processor"; do
         _m=$(sed -n "s/^$_k[[:space:]]*:[[:space:]]*//p" "$PROC/cpuinfo" 2>/dev/null | head -1 \
              | sed 's/  */ /g; s/^ //; s/ $//')
         [ -n "$_m" ] && break
     done
     [ -n "$_m" ] || return 0
-    _n=$(grep -c '^processor' "$PROC/cpuinfo" 2>/dev/null)
-    case "$_n" in ''|0|*[!0-9]*) _n="" ;; esac
     printf 'CPU: %s | %s%s\n' "$_m" "$(cpu_generation "$_m")" "${_n:+ | $_n threads}"
 }
 
@@ -420,19 +471,47 @@ fi
 
 # ------------------------------------------------------------------- dialog
 
+# _verbatim: text on stdin -> debconf extended-description lines. Blank -> " .";
+# text -> "  " + text (verbatim), folded at word boundaries to HW_WIDTH columns
+# with the line's indent plus 4 spaces on each continuation.
+HW_WIDTH=${NCZ_HW_WIDTH:-68}
+_verbatim() {
+    awk -v W="$HW_WIDTH" '
+    /^[[:space:]]*$/ { print " ."; next }
+    {
+        s = $0
+        match(s, /^ */); ind = substr(s, 1, RLENGTH)
+        if (length(ind) + 14 >= W) ind = ""
+        while (length(s) > W) {
+            cut = W
+            while (cut > length(ind) + 8 && substr(s, cut, 1) != " ") cut--
+            if (cut <= length(ind) + 8) cut = W
+            head = substr(s, 1, cut); sub(/ +$/, "", head)
+            print "  " head
+            rest = substr(s, cut + 1); sub(/^ +/, "", rest)
+            s = ind "    " rest
+        }
+        print "  " s
+    }'
+}
+
 _template() {
     printf 'Template: ncz/hw-summary\n'
     printf 'Type: note\n'
     printf 'Description: %s - HARDWARE SUMMARY\n' "$(ncz_ui_brand)"
     printf ' This is the machine NCZ-OS is being installed on.\n'
     printf ' .\n'
-    # Every body line becomes a continuation line; a blank one becomes ".",
-    # debconf's spelling of an empty line in a Description body.
-    printf '%s\n' "$BODY" | sed 's/^$/./; s/^/ /'
+    # Every body line is one item, so it is written VERBATIM: debconf reflows a
+    # continuation line that starts with ONE space into the paragraph above it
+    # (Rebuild B 5a320504, arm64: "System: ... CPU: ... Memory: ..." ran together)
+    # and shows a line that starts with TWO or more spaces as it is. newt does
+    # not wrap verbatim lines, so they are folded here. A blank line becomes
+    # " .", debconf's spelling of an empty line in a Description body.
+    printf '%s\n' "$BODY" | _verbatim
     printf ' .\n'
     printf ' The install continues on the next screen.\n'
     _id=$(ncz_ui_id 2>/dev/null)
-    [ -n "$_id" ] && printf ' %s\n' "$_id"
+    [ -n "$_id" ] && printf '%s\n' "$_id" | _verbatim
     return 0
 }
 

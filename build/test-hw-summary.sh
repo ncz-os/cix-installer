@@ -205,6 +205,60 @@ has cix "CIX: Sky1 on-SoC NPU/VPU"      "CIX Sky1 NPU and VPU"
 has cix "CIX: on-SoC Mali-G720, mid band (MINOR-005)" "ARM Mali-G720 (CIX Sky1 on-SoC GPU) - screensavers expect the standard saver set at full frame rate"
 hasnt cix "CIX: no NVIDIA compute"      "NVIDIA compute"
 
+# --- arm64 /proc/cpuinfo as the kernel really writes it ------------------------
+# arm64 has no "model name": only CPU implementer / CPU part per core. A Model
+# or Hardware line there names the board or the VM machine type (the arm64 KVM
+# gate showed "CPU: virt-10.2 | generation not stated", Rebuild B 5a320504).
+armcpu() { # NAME IMPL:PART... (one core each)
+    local f="$T/$1/proc/cpuinfo" i=0 pp; shift; : > "$f"
+    for pp in "$@"; do
+        printf 'processor\t: %s\nBogoMIPS\t: 2000.00\nCPU implementer\t: 0x%s\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0x%s\nCPU revision\t: 1\n\n' \
+            "$i" "${pp%%:*}" "${pp#*:}" >> "$f"; i=$((i+1))
+    done
+    printf 'Model\t\t: virt-10.2\n' >> "$f"
+}
+fx o6 >/dev/null; sysv o6 "Radxa"; prod o6 "Radxa Orion O6N"; mem o6 16777216
+armcpu o6 41:d81 41:d81 41:d81 41:d81 41:d81 41:d81 41:d81 41:d81 41:d80 41:d80 41:d80 41:d80
+printf 'cix,sky1\000' > "$T/o6/sys/firmware/devicetree/base/compatible" 2>/dev/null || {
+    mkdir -p "$T/o6/sys/firmware/devicetree/base"; printf 'cix,sky1\000' > "$T/o6/sys/firmware/devicetree/base/compatible"; }
+has o6 "arm64 Sky1: CPU named from implementer/part, both clusters, core count" \
+    "CPU: CIX Sky1 (CP8180): Arm Cortex-A720 + Cortex-A520 | 12 cores"
+hasnt o6 "arm64: the cpuinfo Model line (machine type) is never the CPU" "virt-10.2"
+has o6 "System: a product name that starts with the vendor is not doubled" "System: Radxa Orion O6N"
+hasnt o6 "System: no doubled vendor" "Radxa Radxa"
+fx qv >/dev/null; sysv qv "QEMU"; prod qv "KVM Virtual Machine"; mem qv 3984588
+armcpu qv 61:028 61:028 61:028 61:028
+has qv "arm64 KVM guest on an Apple host: vendor + part ids, not the machine type" "CPU: Apple core 61:028 | 4 cores"
+hasnt qv "arm64 KVM guest: no 'generation not stated' for an arm CPU" "generation not stated"
+: > "$T/qv/proc/cpuinfo"; printf 'processor\t: 0\nCPU implementer\t: 0x41\nCPU part\t: 0xzz9\n\n' > "$T/qv/proc/cpuinfo"
+has qv "arm64: a malformed part id is dropped, the line says not reported" "CPU: not reported | 1 cores"
+armcpu qv 61:028 61:028 61:028 61:028
+
+# --- the template: one item per line in real debconf --------------------------
+# debconf reflows a continuation line with ONE leading space into the paragraph
+# above it, so every body line must be verbatim (two spaces) or " ." -- the
+# arm64 KVM capture showed "System: ... CPU: ... Memory: ..." run together.
+for fxn in o6 qv t2 arrow nv cix; do
+    tpl=$(run "$fxn" --render 2>/dev/null)
+    body=$(printf '%s\n' "$tpl" | awk 'f && /^ The install continues/ { exit } f { print } /^ This is the machine/ { f = 1 }')
+    badl=$(printf '%s\n' "$body" | awk '$0 != " ." && $0 !~ /^  /' | head -3)
+    if [ -n "$body" ] && [ -z "$badl" ]; then ok "$fxn: every summary line is verbatim (two spaces) or ' .'"
+    else bad "$fxn: every summary line is verbatim (two spaces) or ' .'" "$badl" "$tpl"; fi
+    for item in "  System:" "  CPU:" "  Memory:"; do
+        printf '%s\n' "$body" | grep -q "^$item" && ok "$fxn: '${item# }' starts its own line" \
+            || { printf '%s\n' "$body" | grep -q "${item#  }" && bad "$fxn: '${item# }' starts its own line" "$body" || ok "$fxn: '${item# }' absent (no data), nothing to check"; }
+    done
+    long=$(printf '%s\n' "$tpl" | awk 'length($0) > 70' | head -2)
+    [ -z "$long" ] && ok "$fxn: no template line wider than 70 columns" || bad "$fxn: no template line wider than 70 columns" "$long"
+    idl=$(printf '%s\n' "$tpl" | tail -1)
+    case "$idl" in "  "*|" The install continues"*) ok "$fxn: the arch/build line is its own verbatim line (or absent)" ;;
+        *) bad "$fxn: the arch/build line is its own verbatim line" "$idl" ;; esac
+done
+# a long GPU line folds at a word boundary with a deeper indent, losing nothing
+gl=$(run cix --render 2>/dev/null | tr -s ' ' | tr -d '\n')
+case "$gl" in *"screensavers expect the standard saver set at full frame rate"*) ok "folded GPU line keeps every word" ;;
+    *) bad "folded GPU line keeps every word" "$gl" ;; esac
+
 # --- never fails, never blocks ----------------------------------------------
 # A /proc and /sys that do not exist: every probe drops its line, the script
 # still exits 0 and the body is the honest fallback sentence.

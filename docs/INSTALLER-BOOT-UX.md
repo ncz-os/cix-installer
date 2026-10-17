@@ -79,6 +79,9 @@ VT100 emulator (`pyte`) into one text file per stable screen; amd64 samples the 
 screens.py` fails on `[diag]`, `[ncz...]`, credential text, `<ERR>`, the askfirst prompt, an unbranded dialog, and a
 blank console after the component dialog. `build/kvm-installer-ui-check.sh` wraps both and runs at the end of
 `build/kvm-install-gate-gpt.sh` for BOTH architectures; a missing `pyte` fails the gate.
+On arm64 each dialog is answered by a rule and the operator order is required: region, username, password,
+password confirm, HARDWARE SUMMARY (`preseed/hw-summary.sh`, Continue), optional components. A dialog with no rule
+stalls the capture; that is how Rebuild B (5a320504) failed when the summary first shipped without one.
 
 Proof the gate rejects a bad image, on real defects and on both arches:
 
