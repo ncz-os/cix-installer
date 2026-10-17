@@ -354,15 +354,15 @@ def _initrd_status_packages(initrd: Path, work_dir: Path | None = None) -> set[s
                 f"magnetar-substrate: {initrd} carries no var/lib/dpkg/status "
                 "(cpio failed: "
                 f"{proc.stderr.decode(errors='replace').strip()[:200]})")
-        return {
-            line.split(":", 1)[1].strip().lower()
-            for line in status.read_text(errors="replace").splitlines()
-            if line.startswith("Package:")
-        }
+        return measure_substrate_initrd(status)
 
 
 def measure_substrate_initrd(status: Path) -> set[str]:
-    """Package names already installed in the substrate initrd."""
+    """Package names installed per a dpkg status file (one source of truth).
+
+    Both the compressed-initrd reader above and the tests go through here, so
+    the parsing rule ("Package:" lines, lowercased) cannot drift between them.
+    """
     return {
         line.split(":", 1)[1].strip().lower()
         for line in status.read_text(errors="replace").splitlines()

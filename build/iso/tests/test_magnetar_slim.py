@@ -637,6 +637,49 @@ def test_initrd_status_is_read_from_the_compressed_initrd(substrate, tmp_path):
     assert got == {"anna", "main-menu"}
 
 
+def test_initrd_reader_extracts_only_the_named_members(substrate, tmp_path):
+    """Guards the cpio call: `-idm --quiet var/lib/dpkg/status` with the
+    member names as positional patterns extracts ONLY those members (cpio
+    treats positional args as patterns; it does not extract everything).
+    A future "fix" that drops the patterns would unpack the whole initrd."""
+    import gzip
+    import shutil
+    if not shutil.which("cpio"):
+        pytest.skip("cpio not installed")
+    src = tmp_path / "src"
+    (src / "var" / "lib" / "dpkg").mkdir(parents=True)
+    (src / "var" / "lib" / "dpkg" / "status").write_text("Package: anna\n")
+    # a decoy that must NOT be extracted
+    (src / "var" / "lib" / "dpkg" / "decoy-debootstrap-debs").write_text("nope\n")
+    listing = b"var/lib/dpkg/status\nvar/lib/dpkg/decoy-debootstrap-debs\n"
+    archive = subprocess.run(["cpio", "-o", "-H", "newc", "--quiet"],
+                             cwd=src, input=listing,
+                             capture_output=True, check=True).stdout
+    initrd = tmp_path / "initrd.gz"
+    initrd.write_bytes(gzip.compress(archive))
+    work = tmp_path / "work"
+    work.mkdir()
+    assert substrate._initrd_status_packages(initrd, work) == {"anna"}
+    # nothing was left unpacked beside the status file
+    leftover = sorted(p.name for p in work.rglob("*") if p.is_file())
+    assert leftover == [], f"the reader unpacked extra members: {leftover}"
+
+
+def test_pool_staging_path_matches_what_scanpackages_scans(substrate, tmp_path):
+    """stage_installer_substrate() puts udebs at <stage>/pool/main/... and
+    slim_installer_pool() re-runs dpkg-scanpackages with cwd=<stage> and the
+    relative path pool/main. If those two ever disagree the re-index writes an
+    EMPTY Packages and the medium loses its installer repository. Pin the
+    rewrite rule rather than the whole (root-only) staging call."""
+    src = WRITER.read_text()
+    # the re-index must scan the same relative root the staging writes
+    assert '"pool/main", "/dev/null"' in src
+    assert 'cwd=stage_dir, check=True' in src
+    # and staging must normalise both accepted input shapes onto pool/main/...
+    assert 'stage_dir.joinpath("pool", *parts)' in src
+    assert 'if parts and parts[0] == "pool":' in src
+
+
 def test_substrate_cut_is_off_by_default(writer, monkeypatch):
     monkeypatch.delenv("NCZ_MAGNETAR_SLIM_SUBSTRATE", raising=False)
     assert writer.slim_substrate_enabled() is False
