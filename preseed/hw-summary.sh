@@ -190,6 +190,7 @@ cpu_generation() {
         *"Core(TM) i"[0-9]-*|*"Core i"[0-9]-*|*"Core(TM) i"[0-9]" "*|*"Core i"[0-9]" "*)
             _num=$(printf '%s' "$_c" | sed -n 's/.*[[:space:]]i[0-9]-\([0-9][0-9]*\).*/\1/p')
             case "$_num" in
+                1[0-4][0-9][0-9]) echo "Core i, $(_ordinal "${_num%??}") generation" ;;   # i7-1165G7: 11th
                 [0-9][0-9][0-9][0-9]) echo "Core i, $(_ordinal "${_num%???}") generation" ;;
                 [0-9][0-9][0-9][0-9][0-9]) echo "Core i, $(_ordinal "${_num%"${_num#??}"}") generation" ;;
                 [0-9][0-9][0-9]) echo "Core i, 1st or 2nd generation" ;;
@@ -222,7 +223,7 @@ p_storage() {
     for _b in "$SYS"/block/*; do
         [ -d "$_b/device" ] || continue
         [ -e "$_b/partition" ] && continue
-        case "${_b##*/}" in *[0-9]*) ;; *) continue ;; esac
+        case "${_b##*/}" in nvme*|mmcblk*|sd*|vd*|hd*|xvd*) ;; *) continue ;; esac
         [ "$(_rfile "$_b/removable")" = 1 ] && continue
         _sz=$(_rfile "$_b/size")
         case "$_sz" in ''|*[!0-9]*) continue ;; esac
@@ -321,7 +322,7 @@ p_gpu() {
         # primary's name; say which one this is instead of printing it twice.
         _base=$(gpu_name "$_key")
         _name=$_base
-        case "$_base" in "$_last_name") _name="$_name, secondary display function" ;; esac
+        case "$_cls" in 0380*) [ "$_base" = "$_last_name" ] && _name="$_name, secondary display function" ;; esac
         _last_name=$_base
         _exp=$(saver_expectation "$(gpu_saver_class "$_key")")
         printf '  %s%s\n' "$_name" "${_exp:+ - $_exp}"
@@ -333,7 +334,6 @@ EOT
 
 p_accelerators() {
     _pci=$(_pci_devices)
-    [ -n "$_pci" ] || return 0
     _any=0
     while read -r _cls _key; do
         # 0x1200 = processing accelerator (Intel NPU: 0x120000); 0x0b40 = co-processor
@@ -389,7 +389,7 @@ p_other() {
     fi
     if [ "$_t2" = 1 ]; then
         printf 'Other:\n'; _any=1
-        printf '  Apple T2 security chip: T2 firmware and drivers are installed\n'
+        printf '  Apple T2 security chip: NCZ-OS installs T2 support\n'
     fi
     if printf '%s\n' "$_pci" | grep -q '^0c0340 '; then
         [ "$_any" = 0 ] && { printf 'Other:\n'; _any=1; }
@@ -419,10 +419,6 @@ if [ "$MODE" = --collect ]; then
 fi
 
 # ------------------------------------------------------------------- dialog
-if [ -e "$STATE" ]; then
-    _log "skip: already shown this boot ($STATE)"
-    exit 0
-fi
 
 _template() {
     printf 'Template: ncz/hw-summary\n'
@@ -450,6 +446,24 @@ if [ "$MODE" = --render ]; then
     exit 0
 fi
 
+if [ -e "$STATE" ]; then
+    _log "skip: already shown this boot ($STATE)"
+    exit 0
+fi
+
+# The frontend functions come from the confmodule, exactly as the choosers get
+# them (disk-fs-chooser.sh); a child `sh` does not inherit the caller's
+# functions. A caller that already defines db_input (the tests) is kept.
+# (dash aborts on `.` of a missing file, so test for it first.)
+_cm="${NCZ_CONFMODULE:-/usr/share/debconf/confmodule}"
+if ! command -v db_input >/dev/null 2>&1 && [ -r "$_cm" ]; then . "$_cm" 2>/dev/null; fi
+# d-i ships the debconf-loadtemplate binary; `loadtemplate` is the test seam.
+_loadtpl() {
+    if command -v loadtemplate >/dev/null 2>&1; then loadtemplate "$1"
+    elif command -v debconf-loadtemplate >/dev/null 2>&1; then debconf-loadtemplate ncz "$1"
+    else return 1; fi
+}
+
 _TPL="$NCZ_TMP/ncz-hwsummary.templates.$$"
 _template > "$_TPL" 2>/dev/null
 
@@ -463,7 +477,7 @@ if [ -r "$_TPL" ]; then
     # answer; the `&&` chain below is the same shape partman/early_command uses
     # for the choosers -- db_input failing means the operator saw nothing, so
     # the marker must not be written (the next boot retries).
-    if loadtemplate "$_TPL" 2>/dev/null \
+    if _loadtpl "$_TPL" 2>/dev/null \
        && db_fset ncz/hw-summary seen false 2>/dev/null \
        && db_settitle ncz/hw-summary 2>/dev/null \
        && db_input critical ncz/hw-summary 2>/dev/null \

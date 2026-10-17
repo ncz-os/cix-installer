@@ -65,7 +65,7 @@ run() { # NAME MODE [extra env...] -> body on stdout
     local d="$T/$1" m="$2"; shift 2
     env NCZ_HW_PROC="$d/proc" NCZ_HW_SYS="$d/sys" NCZ_HW_DMI="$d/sys/class/dmi/id" \
         NCZ_HW_CMDLINE="$d/proc/cmdline" NCZ_HW_STATE="$d/state/.ncz-hwsummary-shown" \
-        NCZ_TMP="$d/state" NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent \
+        NCZ_TMP="$d/state" NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent \
         ${1+"$@"} \
         sh "$HS" "$m" </dev/null 2>"$T/last.err"
 }
@@ -92,11 +92,11 @@ say() {
     local d="$T/$1"
     env NCZ_HW_PROC="$d/proc" NCZ_HW_SYS="$d/sys" NCZ_HW_DMI="$d/sys/class/dmi/id" \
         NCZ_HW_CMDLINE="$d/proc/cmdline" NCZ_HW_STATE="$d/state/.ncz-hwsummary-shown" \
-        NCZ_TMP="$d/state" NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent \
+        NCZ_TMP="$d/state" NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent \
         sh "$HS" --collect </dev/null 2>&1
     env NCZ_HW_PROC="$d/proc" NCZ_HW_SYS="$d/sys" NCZ_HW_DMI="$d/sys/class/dmi/id" \
         NCZ_HW_CMDLINE="$d/proc/cmdline" NCZ_HW_STATE="$d/state/.ncz-hwsummary-shown" \
-        NCZ_TMP="$d/state" NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent \
+        NCZ_TMP="$d/state" NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent \
         sh "$HS" --dialog </dev/null 2>&1
 }
 has() { # NAME DESC NEEDLE
@@ -175,6 +175,25 @@ pci nv3 0000:01:00.2 038000 10de 2504          # same silicon, second display fu
 has nv3 "NVIDIA audio first: compute line from the GPU" "Turing or newer, CUDA supported"
 has nv3 "same-silicon second display function named once" "secondary display function"
 
+# Grok review 2026-10-17: SATA/virtio disks, 10th+ gen mobile Core i, two
+# identical cards, Sky1 with no PCI list, --render with the marker present.
+fx gr >/dev/null; sysv gr "LENOVO"; prod gr "20UH"
+cpu gr "Intel(R) Core(TM) i7-1165G7 @ 2.80GHz" 8; mem gr 16777216
+disk gr sda 976773168 "Samsung SSD 870"; disk gr vda 41943040 "virtio disk"
+pci gr 0000:01:00.0 030000 10de 2504; pci gr 0000:02:00.0 030000 10de 2504
+has gr "SATA disk listed"                "(sda): Samsung SSD 870"
+has gr "virtio disk listed"              "(vda): virtio disk"
+has gr "i7-1165G7 is 11th generation"    "Core i, 11th generation"
+hasnt gr "two identical cards: neither called secondary" "secondary display function"
+fx sk >/dev/null; sysv sk "CIX"; prod sk "Sky1 EVB"; cpu sk "CIX Sky1 CP8180" 12
+has sk "Sky1 with no PCI devices: NPU/VPU still listed" "CIX Sky1 NPU and VPU"
+: > "$T/gr/state/.ncz-hwsummary-shown"
+out=$(run gr --render 2>/dev/null); printf '%s' "$out" | grep -q "HARDWARE SUMMARY" && ok "--render ignores the once-per-boot marker" || bad "--render ignores the once-per-boot marker" "$out"
+rm -f "$T/gr/state/.ncz-hwsummary-shown"
+# the dialog path loads the confmodule and the real template loader
+grep -q '/usr/share/debconf/confmodule' "$HS" && ok "--dialog sources the debconf confmodule" || bad "--dialog sources the debconf confmodule"
+grep -q 'debconf-loadtemplate ncz' "$HS" && ok "--dialog loads its template with debconf-loadtemplate" || bad "--dialog loads its template with debconf-loadtemplate"
+
 # --- O6N / cixmini (CIX Sky1) ------------------------------------------------
 fx cix >/dev/null; sysv cix "CIX"; prod cix "Sky1 EVB"
 cpu cix "CIX Sky1 CP8180" 12
@@ -192,7 +211,7 @@ hasnt cix "CIX: no NVIDIA compute"      "NVIDIA compute"
 mkdir -p "$T/none/proc" "$T/none/state"
 out=$(env NCZ_HW_PROC="$T/none/proc" NCZ_HW_SYS="$T/none/sys" NCZ_HW_DMI="$T/none/sys/class/dmi/id" \
     NCZ_HW_CMDLINE="$T/none/proc/cmdline" NCZ_HW_STATE="$T/none/state/.ncz-hwsummary-shown" NCZ_TMP="$T/none/state" \
-    NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent sh "$HS" --render 2>"$T/e1"); rc=$?
+    NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent sh "$HS" --render 2>"$T/e1"); rc=$?
 if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q "No hardware could be identified"; then
     ok "no /proc, no /sys: exit 0 with the fallback sentence"
 else bad "no /proc, no /sys: exit 0 with the fallback sentence" "rc=$rc" "$out" "$(cat "$T/e1")"; fi
@@ -233,7 +252,7 @@ rm -rf "$T/t2/state"; mkdir -p "$T/t2/state"
 # preseed/partman provides them. Simulate by running through `sh -c` with `set -a`.
 env -u NCZ_TMP -u NCZ_HW_STATE -u FE_RC NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/t2/sys" NCZ_HW_DMI="$T/t2/sys/class/dmi/id" \
     NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
-    NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent FE_RC=0 NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
+    NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent FE_RC=0 NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
     sh -c ". '$FE_OK'; . '$HS'" hw-summary.sh --dialog >"$T/d1" 2>&1; rc=$?
 if [ "$rc" = 0 ] && [ -e "$T/t2/state/.ncz-hwsummary-shown" ]; then ok "frontend OK: dialog shown, once-per-boot marker written"
 else bad "frontend OK: dialog shown, once-per-boot marker written" "rc=$rc" "marker=$(ls -la "$T/t2/state")" "$(cat "$T/d1")"; fi
@@ -244,7 +263,7 @@ else ok "rendered template is not left behind (temp file removed)"; fi
 rm -f "$T/t2/state/.ncz-hwsummary-shown"
 env -u NCZ_TMP -u NCZ_HW_STATE -u FE_RC NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/t2/sys" NCZ_HW_DMI="$T/t2/sys/class/dmi/id" \
     NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
-    NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent FE_RC=1 NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
+    NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent FE_RC=1 NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
     sh -c ". '$FE_BAD'; . '$HS'" hw-summary.sh --dialog >"$T/d2" 2>&1; rc=$?
 if [ "$rc" = 0 ] && [ ! -e "$T/t2/state/.ncz-hwsummary-shown" ]; then ok "frontend that fails: exit 0, marker NOT written (next boot retries)"
 else bad "frontend that fails: exit 0, marker NOT written" "rc=$rc" "$(cat "$T/d2")"; fi
@@ -254,7 +273,7 @@ printf 'quiet ncz_hwsummary=0\n' > "$T/t2/proc/cmdline"
 rm -f "$T/t2/state/.ncz-hwsummary-shown"
 env -u NCZ_TMP -u NCZ_HW_STATE -u FE_RC NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/t2/sys" NCZ_HW_DMI="$T/t2/sys/class/dmi/id" \
     NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
-    NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent FE_RC=0 NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
+    NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent FE_RC=0 NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
     sh -c ". '$FE_OK'; . '$HS'" hw-summary.sh --dialog >"$T/d3" 2>&1
 if [ ! -e "$T/t2/state/.ncz-hwsummary-shown" ] && grep -q "ncz_hwsummary=0" "$T/d3"; then ok "ncz_hwsummary=0: dialog suppressed, reason logged"
 else bad "ncz_hwsummary=0: dialog suppressed, reason logged" "$(cat "$T/d3")"; fi
@@ -264,14 +283,14 @@ printf 'quiet ncz_hwsummary=off\n' > "$T/t2/proc/cmdline"
 rm -f "$T/t2/state/.ncz-hwsummary-shown"
 env -u NCZ_TMP -u NCZ_HW_STATE -u FE_RC NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/t2/sys" NCZ_HW_DMI="$T/t2/sys/class/dmi/id" \
     NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
-    NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent FE_RC=0 NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
+    NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent FE_RC=0 NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
     sh -c ". '$FE_OK'; . '$HS'" hw-summary.sh --dialog >/dev/null 2>&1
 [ ! -e "$T/t2/state/.ncz-hwsummary-shown" ] && ok "ncz_hwsummary=off: dialog suppressed" || bad "ncz_hwsummary=off: dialog suppressed"
 for tok in ncz_unattended=1 ncz_components=desktop,mgmt-container; do
     printf 'quiet %s\n' "$tok" > "$T/t2/proc/cmdline"; rm -f "$T/t2/state/.ncz-hwsummary-shown"
     env -u NCZ_TMP -u NCZ_HW_STATE -u FE_RC NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/t2/sys" NCZ_HW_DMI="$T/t2/sys/class/dmi/id" \
         NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
-        NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent FE_RC=0 \
+        NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent FE_RC=0 \
         sh -c ". '$FE_OK'; . '$HS'" hw-summary.sh --dialog >"$T/d4" 2>&1
     if [ ! -e "$T/t2/state/.ncz-hwsummary-shown" ] && grep -q "automated install" "$T/d4"; then ok "$tok: dialog skipped automatically"
     else bad "$tok: dialog skipped automatically" "$(cat "$T/d4")"; fi
@@ -282,7 +301,7 @@ printf 'BOOT_IMAGE=/linux quiet\n' > "$T/t2/proc/cmdline"
 dlg() { # CAPTURE-FILE LOG
     env -u NCZ_TMP -u NCZ_HW_STATE -u FE_RC NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/t2/sys" NCZ_HW_DMI="$T/t2/sys/class/dmi/id" \
         NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
-        NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent FE_RC=0 CAPPED="$1" \
+        NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent FE_RC=0 CAPPED="$1" \
         sh -c ". '$FE_OK'; . '$HS'" hw-summary.sh --dialog >"$2" 2>&1
 }
 rm -f "$T/t2/state/.ncz-hwsummary-shown" "$T/cap1" "$T/cap2"
@@ -354,7 +373,7 @@ env -u NCZ_TMP -u NCZ_HW_STATE -u FE_RC NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/
 rm -f "$T/t2/state/.ncz-hwsummary-shown"
 env CAPPED="$T/tpl" NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/t2/sys" NCZ_HW_DMI="$T/t2/sys/class/dmi/id" \
     NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
-    NCZ_UI_SH="$ROOT/preseed/ncz-ui.sh" NCZ_UI_RELEASE="$T/RELEASE" NCZ_UI_PAYLOAD=/nonexistent FE_RC=0 \
+    NCZ_UI_SH="$ROOT/preseed/ncz-ui.sh" NCZ_UI_RELEASE="$T/RELEASE" NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent FE_RC=0 \
     CAPPED="$T/tpl" sh -c ". '$FE_OK'; . '$HS'" hw-summary.sh --dialog >"$T/d6" 2>&1
 if grep -q '^Description: NCZ-OS 26.10 Cygnus - HARDWARE SUMMARY$' "$T/tpl"; then ok "template title is '<brand> - HARDWARE SUMMARY'"
 else bad "template title is '<brand> - HARDWARE SUMMARY'" "$(head -5 "$T/tpl" 2>/dev/null)"; fi
