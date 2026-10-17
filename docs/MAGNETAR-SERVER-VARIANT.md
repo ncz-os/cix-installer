@@ -198,6 +198,21 @@ the network, installs, and all the installed-root assertions pass) and the
 rootfs). First real run: record its result here (arch, run date, PASS/FAIL
 per set, and the evidence paths).
 
+**Known gap: `build-image.sh` does not yet drive a server gate end to end.**
+Found in review 2026-10-17; each fails loudly, none affects desktop builds:
+
+- Nothing pins a gate medium to the gate's server: `ncz_gate_serve_payload_base_url()`
+  has no caller, so `NCZ_PAYLOAD_URL`/`NCZ_PAYLOAD_SHA256`/`NCZ_ASSETS_URL` must be
+  supplied by hand for `NCZ_VARIANT=server`.
+- `write-usb-image.py` builds the asset bundle inside its own work dir and deletes it
+  on exit, so the gate has no bundle to serve.
+- `stage_kvm_gate` runs the first (full) gate and the default `norescue minimal stalefs`
+  sets in desktop mode on a server image, and passes `$RUN_DIR/kvm-gate-options/<set>`
+  to the gate, whose default payload paths then resolve under `kvm-gate-options/`.
+
+Until this is wired, run the server sets by hand with `NCZ_GATE_SERVER_PAYLOAD` and
+`NCZ_GATE_SERVER_ASSETS` set.
+
 The accelerator hook's server-mode branch (skip `ncz-vc4-sway-
 accelerators` on the variant root, skip the rEFInd Mali/Panthor +
 no-accel entries) runs only when a `BUILD_VARIANT=server` medium is
