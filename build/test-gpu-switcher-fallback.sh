@@ -10,11 +10,17 @@
 # are stubs that model the kernel.
 #
 # Run: bash build/test-gpu-switcher-fallback.sh     Exit 0 = pass, 1 = fail.
+#
+# Sandbox files live under $TMPDIR (default $TMPDIR, then /tmp). The fleet
+# orchestrator pins TMPDIR to ~/Projects/<item>/ so the stub's mktemp -d also
+# runs there; honour that explicitly here so a deleted-or-readonly /tmp can't
+# push the test onto tmpfs against the delivery policy.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${NCZ_TEST_ROOT:-$(cd "$HERE/.." && pwd)}"
 SW="$ROOT/assets/gpu/ncz-gpu-switcher.sh"
-W="$(mktemp -d -t switcher-fallback.XXXXXX)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d -t switcher-fallback.XXXXXX)" || { echo "test-gpu-switcher-fallback: mktemp -d failed (is TMPDIR set and writable?)" >&2; exit 2; }
+trap 'rm -rf "$W"' EXIT
 PASS=0; FAIL=0
 ok()  { echo "  PASS  $1"; PASS=$((PASS + 1)); }
 # bad() must ALWAYS return 0. Under `set -o pipefail` (and even without it, as the
