@@ -750,7 +750,9 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" = 1 ]; then
                     _neg_varls="$WORK/.neg-varls"; rm -f "$_neg_varls"
                     "$DEBUGFS" -R "dump /etc/os-release $_neg_osrel" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
                     "$DEBUGFS" -R "dump /target/.installed $_neg_installed" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
-                    "$DEBUGFS" -R "ls -l /var/lib/dpkg" "$EVIDENCE_ROOT" > "$_neg_varls" 2>&1 || true
+                    # stat, not ls -l: only stat prints an "Inode:" line, and only
+                    # when the path exists (ls -l lists entries by inode number).
+                    "$DEBUGFS" -R "stat /var/lib/dpkg" "$EVIDENCE_ROOT" > "$_neg_varls" 2>&1 || true
                     if [ -s "$_neg_osrel" ]; then
                         fail "negative server run: /etc/os-release on the target disk -- the failed fetch INSTALLED a rootfs (an unverified or half-written extract reached the disk)"
                     fi
