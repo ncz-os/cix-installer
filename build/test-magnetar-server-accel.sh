@@ -265,7 +265,9 @@ check "server + no accelerator: nothing selected" "$(detect "$P/none")" "0 0 0 0
 # The AMD and Intel blocks consult neither the variant nor the COMPONENTS
 # record, so detection alone decides on server too.
 for blk in '^if \[ "\$HAS_AMD" = 1 \]; then$' '^if \[ "\$HAS_INTEL" = 1 \] \|\| \[ "\$HAS_INTEL_NPU" = 1 \]; then$'; do
-    body=$(awk -v s="$blk" '$0 ~ s {f=1} f {print} f && /^fi$/ {exit}' "$HOOK")
+    # ENVIRON, not -v: awk -v rewrites backslash escapes, so gawk reads \[
+    # and \$ as a bracket expression and an anchor and never matches.
+    body=$(BLK="$blk" awk '$0 ~ ENVIRON["BLK"] {f=1} f {print} f && /^fi$/ {exit}' "$HOOK")
     if [ -z "$body" ]; then bad "vendor block not found: $blk"
     elif printf '%s\n' "$body" | grep -qE 'VARIANT|COMPONENTS'; then bad "vendor block is variant/record gated: $blk"
     else ok "vendor block is hardware-gated only: $(printf '%s\n' "$body" | head -1)"; fi
