@@ -155,7 +155,7 @@ disk nv nvme0n1 1000215216 "Sabrent Rocket 4.0 1TB"
 has nv "NVIDIA: curated GPU name"        "NVIDIA GeForce GTX 1650 Ti"
 has nv "NVIDIA: screensaver strength (Turing+ -> strong)" "screensavers expect every saver at full quality"
 has nv "NVIDIA: compute supported"       "Turing or newer, CUDA supported"
-has nv "NVIDIA: Ryzen generation read"   "Ryzen"
+has nv "NVIDIA: Ryzen generation read"   "Ryzen, 5000 series"
 hasnt nv "NVIDIA: no Intel NPU"          "Intel NPU"
 # an older card must say so, from the same family test cuda-select.sh uses
 fx nv2 >/dev/null; sysv nv2 "ASUSTeK COMPUTER INC."; prod nv2 "P8Z77-V"

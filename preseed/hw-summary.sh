@@ -198,8 +198,8 @@ cpu_generation() {
         *Ryzen*|*EPYC*|*Threadripper*)
             _num=$(printf '%s' "$_c" | sed -n 's/.*Ryzen [0-9][[:space:]]\([0-9][0-9]*\).*/\1/p')
             case "$_num" in
-                [0-9][0-9][0-9][0-9])       echo "Ryzen, ${_num%"${_num#?}"}xx series" ;;
-                [0-9][0-9][0-9][0-9][0-9])  echo "Ryzen, ${_num%"${_num#??}"}xx series" ;;
+                [0-9][0-9][0-9][0-9])       echo "Ryzen, ${_num%"${_num#?}"}000 series" ;;
+                [0-9][0-9][0-9][0-9][0-9])  echo "Ryzen, ${_num%"${_num#??}"}000 series" ;;
                 *)                          echo "AMD, generation not stated" ;;
             esac; return 0 ;;
         *) echo "generation not stated" ;;
