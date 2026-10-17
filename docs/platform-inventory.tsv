@@ -363,7 +363,7 @@ post-install/79-dkms-prep.sh	sky1	-	makes Sky1 kernel headers DKMS-usable; insta
 post-install/80-npu.sh	sky1	-	Zhouyi/aipu NPU driver and SSDT; own arch guard
 post-install/81-vpu.sh	sky1	-	amvx VPU module overlay; own arch guard
 post-install/82-mali-gpu.sh	sky1	-	mali_kbase DKMS; own arch guard
-post-install/83-panthor-gpu.sh	sky1	-	panthor DKMS and ncz-gpu-select; own arch guard
+post-install/83-panthor-gpu.sh	sky1	-	panthor DKMS and ncz-gpu-select; own arch guard; ncz-gpu-switcher.service is gated by ConditionPathExists=/sys/bus/platform/devices/CIXH5000:00 so it never runs (or fails) off Sky1 (r287)
 post-install/83-vpu-ffmpeg.sh	sky1	-	cix-ffmpeg VPU build
 post-install/84-vpu-mpv.sh	sky1	-	mpv v4l2m2m-copy on the amvx VPU
 post-install/84-vpu-vaapi.sh	sky1	-	cix VA-API driver detection fix under /usr/lib/aarch64-linux-gnu
@@ -534,7 +534,7 @@ assets/gpu/ncz-gpu-status	common	-	GPU stack report + never-software-render heal
 build/test-gpu-status-arch.sh	common	-	proves ncz-gpu-status reports the bound DRM drivers (amdgpu/i915/nouveau/none) and not the Sky1 Mali selection on non-Sky1 machines, and keeps the switcher report on Sky1 (r201)
 post-install/lib/sky1-browser-policy.sh	sky1	-	Sky1 browser defaults sourced by 52-vivaldi/53-chrome on arm64: chromium-ncz-sky1 default (alternatives, mimeapps), VA-API-off .desktop overrides in /usr/local/share/applications and /usr/local/bin wrappers for Vivaldi/Chrome (CIX VA-API decode hangs, docs/HW-VIDEO-DECODE-STATUS.md; r201)
 build/test-panthor-entry-gate.sh	sky1	-	proves the Panthor (Experimental) rEFInd entry is written only when a panthor module exists for its kernel and carries no cmdline kbase blacklist (Radxa Orion O6N r201)
-build/test-gpu-switcher-fallback.sh	sky1	-	proves ncz-gpu-switcher falls back to Mali (or fails loudly when the cmdline blocks it) when Panthor is selected but not bound, in a stubbed sandbox (Radxa Orion O6N r201)
+build/test-gpu-switcher-fallback.sh	sky1	-	proves ncz-gpu-switcher falls back to Mali (or fails loudly when the cmdline blocks it) when Panthor is selected but not bound, that it is a no-op exit 0 when CIXH5000 is absent, and that the unit gates on ConditionPathExists=/sys/bus/platform/devices/CIXH5000:00, in a stubbed sandbox (Radxa Orion O6N r201, KVM gate r287)
 assets/intel/	amd64	-	Intel apt signing key (vendored, sha256-pinned in lib/intel-accel.sh) and the ncz-intel-accel-setup deferred service/timer (r201)
 post-install/lib/intel-accel.sh	amd64	-	Intel GPU/NPU userspace installer sourced by 54-gpu-accel.sh and installed as ncz-intel-accel-setup: vendored key, Debian Level Zero/OpenCL/VA + Intel OpenVINO plugins, apt simulation gate, deferred retry (r201)
 build/test-intel-accel-deferred.sh	amd64	-	proves the Intel userspace path uses the vendored key, arms the retry marker/timer when the repo is unreachable, installs once the network is up, and refuses a transaction that would remove packages (r201)

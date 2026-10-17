@@ -14,6 +14,23 @@ DefaultDependencies=no
 # human can read afterwards, so losing them makes the guard half blind.
 After=systemd-udevd.service local-fs.target systemd-journald.socket
 Before=display-manager.service greetd.service graphical.target
+# CIX Sky1 only. The stale, hand-rolled first-boot allowlist used to be the only
+# thing keeping this unit from marking the KVM gate (generic arm64, no CIX GPU)
+# failed: it ran, found no CIXH5000, and exited 1 "by design". There is nothing
+# for this unit to do on a machine without the GPU, so it must not run at all.
+# ConditionFirmware=device-tree-compatible(...) does NOT work here: Sky1 boots
+# ACPI (acpi=force), of_node is NULL, and there is no /proc/device-tree, so the
+# condition never matches and the unit would be SKIPPED ON SKY1 TOO. What does
+# identify Sky1 under ACPI is the CIX GPU platform device the firmware
+# instantiates from the CIXH5000 ACPI device: /sys/bus/platform/devices/
+# CIXH5000:00. It is created at device enumeration (before this unit, which runs
+# at sysinit after systemd-udevd) and exists whether or not mali_kbase or
+# panthor has bound to it -- ncz-gpu-hw-present and ncz-gpu-status use the same
+# check. ConditionPathExists is evaluated before ExecStart and is not itself a
+# failure, so on anything else the unit ends "inactive (dead)", not "failed".
+# Sky1 behaviour is unchanged: the condition is satisfied there and the script
+# runs exactly as before.
+ConditionPathExists=/sys/bus/platform/devices/CIXH5000:00
 
 [Service]
 Type=oneshot
