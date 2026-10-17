@@ -4,7 +4,7 @@
 # Wi-Fi is gone until reboot (docs/T2-BRCMFMAC-RESUME.md). The driver recovers
 # from its own resume-time firmware crash, so no sleep hook is needed at all.
 #
-# Each shell command (backslash continuations joined, # comments dropped, split
+# Each shell command (backslash continuations joined, whole-line # comments dropped, split
 # on ; && || | &) is a hit when it names brcmfmac and also carries an unload: modprobe with -r in any
 # short-option cluster or --remove, in any position; rmmod; kmod remove; or a
 # write to the driver's sysfs unbind/remove. Scope is unload/unbind by name: a
@@ -31,7 +31,8 @@ scan() {   # stdin: a file; prints "N: line" for every hit
         line = $0
         if (cont != "") { line = cont " " line; cont = ""; }
         if (line ~ /\\$/) { sub(/\\$/, "", line); cont = line; next }
-        code = line; sub(/(^|[[:space:]])#.*$/, "", code)
+        if (line ~ /^[[:space:]]*#/) { start = NR + 1; next }   # whole-line comment
+        code = line   # inline "#" is not stripped: it may sit inside quotes, and over-matching only fails safe
         n = split(code, cmd, /;|&&|\|\||\||&/); h = 0
         for (i = 1; i <= n; i++) if (hit(cmd[i])) { h = 1; break }
         if (h) print start ": " cmd[i]
@@ -51,7 +52,7 @@ for s in 'modprobe -r brcmfmac' 'modprobe --remove brcmfmac' 'modprobe -q -r brc
          'modprobe -rv brcmfmac' 'modprobe brcmfmac -r' '/sbin/modprobe -r brcmfmac' 'rmmod brcmfmac_wcc' \
          'kmod remove brcmfmac' 'modprobe -r brcmfmac # trailing comment' \
          'echo 0000:05:00.0 > /sys/bus/pci/drivers/brcmfmac/unbind' $'modprobe -r \\\n    brcmfmac' \
-         'true; modprobe -r brcmfmac && echo done'; do
+         'true; modprobe -r brcmfmac && echo done' 'echo "T2 resume # note"; modprobe -r brcmfmac'; do
     [ -n "$(printf '%s\n' "$s" | scan)" ] || { echo "FAIL control not caught: $s"; fail=1; }
 done
 for s in 'modprobe brcmfmac' 'modprobe -q brcmfmac' 'modprobe brcmfmac roamoff=1' \
