@@ -202,5 +202,50 @@ mksb "root=x sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memo
 rc=$(runsw)
 [ "$rc" = 1 ] && ok "double failure still exit 1 with the selection recorded" || bad "double failure changed (rc=$rc)" "$(cat "$SB/err")"
 
+echo "=== switcher: the blacklist file is published atomically (single write) ==="
+# The file must never be observable half-written: modprobe.d is read by udev
+# coldplug (which can run concurrently with this unit) and by any `modprobe` on
+# the box. The switcher builds it in a sibling temp file and renames it over the
+# target, so the fix here is: exactly one write, no stray temp files, and the
+# final file is a complete document.
+mksb "root=x sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko panthor.ko
+MD="$SB/etc/modprobe.d"
+# mksb starts from a clean sandbox, so plant a PREVIOUS boot's file first: the
+# inode must change, which is how we prove the new content arrived by rename()
+# rather than by truncating the file in place.
+printf '# stale file from an earlier boot\nblacklist panthor\n' > "$BL"
+inode_before=$(ls -i "$BL" 2>/dev/null | awk '{print $1}')
+rc=$(runsw)
+inode_after=$(ls -i "$BL" 2>/dev/null | awk '{print $1}')
+[ "$rc" = 0 ] && [ -n "$inode_before" ] && [ "$inode_before" != "$inode_after" ] \
+    && ok "file is replaced by rename (inode changes), not edited in place" || bad "file not atomically replaced (before=$inode_before after=$inode_after rc=$rc)"
+leftovers=$(ls "$MD" 2>/dev/null | grep -c 'ncz-gpu-drivers\.conf\.' || true)
+[ "$leftovers" = 0 ] && ok "no temp file left behind in modprobe.d" || bad "$leftovers temp file(s) left in $MD" "$(ls -a "$MD")"
+perms=$(stat -c '%a' "$BL" 2>/dev/null)
+[ "$perms" = 644 ] && ok "installed file is mode 0644 (still world-readable for modprobe)" || bad "installed mode is $perms, expected 644"
+# A complete document: header, the four holds, and the selection, with no
+# duplicated header from a half-applied rewrite.
+[ "$(grep -c '^# Written by ncz-gpu-switcher' "$BL")" = 1 ] \
+    && ok "exactly one header line (a torn rewrite would duplicate or drop it)" || bad "header lines: $(grep -c '^# Written by ncz-gpu-switcher' "$BL")"
+[ "$(grep -c '^blacklist ' "$BL")" = 4 ] \
+    && ok "exactly the four hold lines, written once" || bad "blacklist lines: $(grep -c '^blacklist ' "$BL")" "$(cat "$BL")"
+# $(...) strips trailing newlines, so compare byte counts instead of a command
+# substitution: the file must end in exactly one newline.
+[ "$(wc -l < "$BL")" = "$(awk 'END{print NR}' "$BL")" ] \
+    && ok "file ends with a newline-terminated line" || bad "file does not end cleanly"
+
+# mktemp absent -> the fallback single-shot redirection must still produce the
+# same complete document (never a missing modprobe.d file on the box).
+mksb "root=x sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko panthor.ko
+rm -f "$SB/bin/mktemp"
+cat > "$SB/bin/mktemp" <<'MKT'
+#!/bin/sh
+exit 1
+MKT
+chmod +x "$SB/bin/mktemp"
+rc=$(runsw)
+[ "$rc" = 0 ] && grep -qx 'blacklist mali_kbase' "$BL" && grep -q '^# Selected: panthor' "$BL" \
+    && ok "no mktemp available: file still written completely by direct redirection" || bad "mktemp-less fallback broken (rc=$rc)" "$(cat "$BL" 2>/dev/null; cat "$SB/err")"
+
 echo "gpu switcher fallback tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

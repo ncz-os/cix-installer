@@ -145,7 +145,23 @@ ensure_blacklist() {
     # modalias autoload; it does NOT block an explicit modprobe, so
     # activate_panthor()'s load and the Mali fallback's `modprobe mali_kbase`
     # both still work. Never write `install <mod> /bin/true` here.
-    cat > "$BLACKLIST" <<'BL'
+    #
+    # ONE write, atomically. This used to truncate-and-rewrite the file and then
+    # append the selection with a second `cat >>`, so modprobe.d (read by udev
+    # coldplug, which can run concurrently with this unit, and by any `modprobe`
+    # on the box) could observe the file mid-update: either the bare pair with no
+    # selection, or a moment where the file was empty. Neither is fatal on its
+    # own -- the pair is what holds the drivers -- but the file is a single
+    # artifact and should never be published half-written. Build the whole thing
+    # in a sibling temp file and rename() it over the target: rename within one
+    # directory is atomic, so a reader sees either the old file or the new one.
+    _bl=$(mktemp "$BLACKLIST.XXXXXX" 2>/dev/null) || {
+        # mktemp absent (unlikely on a Debian rootfs) must not leave the box with
+        # no modprobe.d file at all: fall back to the single-shot redirection.
+        _bl="$BLACKLIST"
+    }
+    {
+        cat <<'BL'
 # Written by ncz-gpu-switcher. Do not hand-edit -- set sky1.gpu= on the kernel
 # cmdline (or GPU_MODE= in /etc/default/ncz-gpu) instead.
 #
@@ -159,22 +175,29 @@ blacklist mali_kbase
 blacklist memory_group_manager
 blacklist protected_memory_allocator
 BL
-    case "${1:-}" in
-        mali)
-            cat >> "$BLACKLIST" <<'BL'
+        case "${1:-}" in
+            mali)
+                cat <<'BL'
 
 # Selected: mali (vendor Mali stack). ncz-gpu-switcher loaded mali_kbase here.
 BL
-            ;;
-        panthor)
-            cat >> "$BLACKLIST" <<'BL'
+                ;;
+            panthor)
+                cat <<'BL'
 
 # Selected: panthor (Mesa). ncz-gpu-switcher loaded this stack on this boot.
 # mali_kbase is held by the blacklist above so nothing autoloads it; an
 # explicit modprobe still loads it, which is what the Mali fallback relies on.
 BL
-            ;;
-    esac
+                ;;
+        esac
+    } > "$_bl" || { rm -f "$_bl"; err "WARN: could not write $_bl"; return 1; }
+    [ "$_bl" = "$BLACKLIST" ] || chmod 0644 "$_bl" 2>/dev/null
+    if [ "$_bl" != "$BLACKLIST" ]; then
+        # Same directory as the target, so this is a rename, not a copy.
+        mv -f "$_bl" "$BLACKLIST" || { rm -f "$_bl"; err "WARN: could not install $BLACKLIST"; return 1; }
+    fi
+    return 0
 }
 
 drop_legacy() {

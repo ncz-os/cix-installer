@@ -37,6 +37,7 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | [INSTALLER-BOOT-UX.md](INSTALLER-BOOT-UX.md) | What the installer console shows and why |
 | [GPU-INSTALL-PROGRESS.md](GPU-INSTALL-PROGRESS.md) | GPU driver install progress on the installer screen |
 | [GPU-COMPAT-SWITCHER-DECISION.md](GPU-COMPAT-SWITCHER-DECISION.md) | Why ncz-gpu-switcher never re-enables 01-cixgpu-compat.conf, and why the old unmerged fix is superseded |
+| [GPU-SWITCHER-COMPAT-DECISION.md](GPU-SWITCHER-COMPAT-DECISION.md) | Why 5776efd6 (01-cixgpu-compat re-enable) is superseded by 60a39a23, and how the switcher records the driver it applied |
 | [HIDPI-SCALING.md](HIDPI-SCALING.md) | How the boot splash, login screen and desktop are scaled on high-density displays |
 | [APT-SEPARATION.md](APT-SEPARATION.md) | How NCZ-OS package updates are kept separate from Debian ones (apt pin, one repository, labelled updates) |
 | [CUDA-DYNAMIC-INSTALL.md](CUDA-DYNAMIC-INSTALL.md) | NVIDIA driver and CUDA installed per GPU family on amd64 |
