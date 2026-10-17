@@ -79,15 +79,26 @@ else
         --require-login-line "diagnostics login: root / (set by ncz_diag_pw|\S{4,})" || rc=1
     T_ANS="$(sed -n 's/^t=\([0-9]*\)s rule 0 .*/\1/p' "$WORK/answers.log" | head -1)"
     [ -n "$T_ANS" ] || { echo "UI CHECK FAIL: the component dialog was never reached/answered" >&2; exit 1; }
-    "${CHK[@]}" "$WORK/serial-screens" --start-at "optional components" --no-blank-after "optional components" || rc=1
-    # The dialogs above are answered with Enter only, so the install must go ahead with the DEFAULTS: every
-    # optional component selected (a select/multiselect whose Choices-C holds labels instead of values returns
-    # labels, which parse as "none" -- the 2026-10-17 CHIMERA failure) and the offered disk accepted.
-    grep -a -q "chooser complete: components=.*desktop" "$WORK/serial0.log" \
-        || { echo "UI CHECK FAIL: Enter on the component dialog did not keep the default (all components); see serial0.log" >&2; rc=1; }
-    grep -a -q "operator CONFIRMED erasing /dev/vda" "$WORK/serial0.log" \
-        || { echo "UI CHECK FAIL: the disk, filesystem and erase dialogs did not lead to a confirmed target (see serial0.log)" >&2; rc=1; }
-    if grep -a -q "not in the candidate set" "$WORK/serial0.log"; then
+    # --max-blank-secs 12: after the erase confirmation the chooser's "erasing <disk>" progress bar is up for
+    # under the 2 s a state needs to be captured, so the one blank state before it measures ~8 s on this
+    # capture although the operator sees the progress bar (it is in serial0.log).
+    "${CHK[@]}" "$WORK/serial-screens" --start-at "optional components" --no-blank-after "optional components" \
+        --max-blank-secs 12 || rc=1
+    # The dialogs above are answered with Enter only, so the install must go ahead with the DEFAULTS. The erase
+    # review screen restates what was chosen: every optional component (a select/multiselect whose Choices-C holds
+    # labels instead of values loses the Default and returns labels, which parse as "none" -- the 2026-10-17
+    # CHIMERA failure) and the rescue partition that comes with it. The d-i syslog does not reach the serial
+    # console, so this is judged from the captured screens.
+    _review=$(grep -l "ERASE /dev/vda and install" "$WORK"/serial-screens/*.txt 2>/dev/null | head -1)
+    if [ -z "$_review" ]; then
+        echo "UI CHECK FAIL: the erase review screen was never captured" >&2; rc=1
+    else
+        grep -q "Components: *Full Singularity desktop" "$_review" \
+            || { echo "UI CHECK FAIL: Enter on the component dialog did not keep the default (all components): $(grep -o 'Components:.*' "$_review" | head -1)" >&2; rc=1; }
+        grep -q "Rescue partition: *yes" "$_review" \
+            || { echo "UI CHECK FAIL: the default rescue partition was lost: $(grep -o 'Rescue partition:.*' "$_review" | head -1)" >&2; rc=1; }
+    fi
+    if grep -q "not in the candidate set" "$WORK"/serial-screens/*.txt 2>/dev/null; then
         echo "UI CHECK FAIL: the disk chooser rejected its own answer (Choices/Choices-C swapped?)" >&2; rc=1
     fi
 fi
