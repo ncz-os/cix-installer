@@ -1046,8 +1046,11 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # The normal path deleted EVIDENCE_ROOT already; the server assertions
     # need it, so convert the root partition ourselves (rootless, same way
     # the negative run does).
+    # Always re-extract: a failed earlier run in the same work dir leaves its
+    # root behind, and reading that would judge the wrong install.
     _SRV_ROOT="$WORK/.server-root.raw"
-    if [ -s "$DISK" ] && ! [ -f "$_SRV_ROOT" ]; then
+    rm -f "$_SRV_ROOT"
+    if [ -s "$DISK" ]; then
         _SRV_EVD="$WORK/.server-evidence.raw"
         if qemu-img convert -S 4k -O raw "$DISK" "$_SRV_EVD" >/dev/null 2>&1; then
             _SRV_PART=$(ncz_last_partnum "$_SRV_EVD" || true)
