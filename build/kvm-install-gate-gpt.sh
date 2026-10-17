@@ -554,11 +554,9 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
         [ -n "$_srv_purl" ] && [ -n "$_srv_aurl" ] || _srv_purl=""
     fi
     if [ -z "${_srv_purl:-}" ]; then
-        # No readable manifest: fall back to the documented default (the build
-        # pins exactly this shape for the gate) and say so.
-        _srv_purl="http://10.0.2.2/base.squashfs"
-        _srv_aurl="http://10.0.2.2/ncz-assets-$ARCH.tar.gz"
-        echo "  WARN: could not read ncz-fetch-payload.manifest from $TEST_IMG; assuming the default pin $_srv_purl"
+        # Fail closed: serving a guessed default while the guest follows a pin
+        # we could not read (QEMU user-net has outbound NAT) proves nothing.
+        fail "server gate: could not read the base.squashfs and asset-bundle pins from ncz-fetch-payload.manifest on $TEST_IMG"
     fi
     _srv_base="${_srv_purl%/base.squashfs}"
     _srv_pinhost=${_srv_purl#*://}; _srv_pinhost=${_srv_pinhost%%/*}; _srv_pinhost=${_srv_pinhost%%:*}
@@ -1027,10 +1025,14 @@ echo "  install reached the finish stage with no ship-critical hook failure"
 if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # The fetcher logs per artifact ("[FETCH] base.squashfs verified sha256=...",
     # "[FETCH] ncz-assets-<arch>.tar.gz verified sha256=...") and a final
-    # "all manifest artifacts fetched and verified" line; idempotent re-runs
-    # print "already present and verified" instead, so accept either form.
-    ncz_norm_log "$ILOG" | grep -aqE '\[FETCH\] .* (verified sha256=|already present and verified|already fetched and unpacked)' \
-        || fail "server gate: the install finished but the serial log has no '[FETCH] ... verified sha256=' line -- the payload was never fetched+verified (it may have come from a stale staging root instead of the network)"
+    # "all manifest artifacts fetched and verified" line. It runs once per
+    # install (the debootstrap stub), so on a fresh gate install both
+    # artifacts must have been downloaded: a "skip ...: already present"
+    # line means they came from the medium or a stale root, not this server.
+    for _fa in base.squashfs "$_srv_name"; do
+        ncz_norm_log "$ILOG" | grep -aqF "[FETCH] $_fa verified sha256=" \
+            || fail "server gate: the serial log has no '[FETCH] $_fa verified sha256=' line -- $_fa was not fetched from the gate's server and verified (it may have come from the medium or a stale staging root)"
+    done
     ncz_norm_log "$ILOG" | grep -aq 'all manifest artifacts fetched and verified' \
         || fail "server gate: the fetcher never reported 'all manifest artifacts fetched and verified'"
     echo "  server gate: payload fetched from ${SRV_URL_BASE} and sha256-verified by the guest before use"
@@ -1075,9 +1077,15 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
         fail "server gate: ssh.service is not enabled under multi-user.target.wants -- a headless server that cannot be reached over SSH"
     fi
     _telnet_wants=""
+    # inetd.service is the alias `systemctl enable inetd|openbsd-inetd` links
+    # (36-telemetry); telnetd.socket is 36's busybox fallback unit;
+    # ncz-failsafe.service is 37's unit. A mask (symlink to /dev/null) is off.
     for _u in /etc/systemd/system/openbsd-inetd.service /etc/systemd/system/inetd.service \
+              /etc/systemd/system/telnetd.socket /etc/systemd/system/sockets.target.wants/telnetd.socket \
               /etc/systemd/system/busybox-telnetd.socket /etc/systemd/system/ncz-failsafe.service; do
-        if "$DEBUGFS" -R "stat $_u" "$EVIDENCE_ROOT" 2>&1 | grep -q '^Inode:'; then
+        _st=$("$DEBUGFS" -R "stat $_u" "$EVIDENCE_ROOT" 2>&1)
+        if printf '%s\n' "$_st" | grep -q '^Inode:' \
+           && ! printf '%s\n' "$_st" | grep -qF 'link dest: "/dev/null"'; then
             _telnet_wants="$_telnet_wants ${_u##*/}"
         fi
     done
