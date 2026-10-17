@@ -34,7 +34,8 @@ ensure_policy() {
 intel_deferred_recheck() {
     local lib=/usr/local/lib/cix-installer/post-install/lib/intel-accel.sh
     [ -r "$lib" ] || return 0
-    env NCZ_INTEL_ACCEL_LIB=1 NCZ_INTEL_FORCE=1 bash -c '. "$1" && ncz_intel_accel_run' _ "$lib" >/dev/null 2>&1
+    # rc 75 (still deferred) is normal here; set -e must not fail the refresh.
+    env NCZ_INTEL_ACCEL_LIB=1 NCZ_INTEL_FORCE=1 bash -c '. "$1" && ncz_intel_accel_run' _ "$lib" >/dev/null 2>&1 || true
 }
 
 case "${1:-}" in

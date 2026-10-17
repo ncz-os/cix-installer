@@ -824,6 +824,21 @@ _src_case local  "deb822 Enabled: no"    'Types: deb' 'URIs: https://deb.debian.
 _src_case remote "deb822 enabled stanza" 'Types: deb' 'URIs: https://deb.debian.org/debian' 'Suites: forky' 'Enabled: yes'
 _src_case remote "enabled=yes https"     'deb [enabled=yes] https://deb.debian.org/debian forky main'
 _src_case local  "https in a trailing comment" 'deb file:///srv/mirror forky main # mirror of https://deb.debian.org/debian'
+_src_case remote "deb822 folded URIs"    'Types: deb' 'URIs: file:///srv/mirror' ' https://deb.debian.org/debian' 'Suites: forky'
+grep -q "ncz_intel_accel_run' _ \"\$lib\" >/dev/null 2>&1 || true" "$UA" \
+    && ok "ncz-update-apply: a still-deferred re-check (rc 75) cannot fail the refresh under set -e" \
+    || bad "ncz-update-apply re-check is not guarded against set -e"
+# one run at a time: with the lock held elsewhere a run leaves the marker alone
+mkroot
+NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_install 1 1
+_pm=$(cat "$P")
+mkdir -p "$W/r/run"; ( flock 8; sleep 5 ) 8>"$W/r/run/ncz-intel-accel.lock" &
+_lkpid=$!; sleep 1
+NCZ_INTEL_LOCK_WAIT=1 NET=up NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rcK=$?
+wait "$_lkpid" 2>/dev/null
+[ "$_rcK" = 0 ] && [ "$(cat "$P")" = "$_pm" ] && grep -q "another run holds" "$W/out" \
+    && ok "a run waits for the lock and leaves the marker to the run holding it" \
+    || bad "lock not honoured (rc=$_rcK)" "$(cat "$W/out")"
 grep -A8 '^ncz_intel_recover()' "$LIB" | grep -q . \
     && awk '/^ncz_intel_recover\(\)/,/^}/' "$LIB" | grep -q 'systemctl start ncz-intel-accel-setup.timer' \
     && awk '/^ncz_intel_recover\(\)/,/^}/' "$LIB" | grep -q '\[ -z "$(_ni_r)" \] && \[ -d /run/systemd/system \]' \

@@ -134,7 +134,11 @@ _ncz_intel_has_remote_uri() {
     # Disabled sources fetch nothing: drop deb822 stanzas with "Enabled: no"
     # and one-line entries with an [enabled=no] option first. apt ends a
     # line at "#", so a URL in a trailing comment is not an origin either.
-    awk 'BEGIN { RS = "" } !/(^|\n)[[:space:]]*Enabled:[[:space:]]*[Nn][Oo]/ { print }' "$1" 2>/dev/null \
+    # deb822 fields may fold onto indented continuation lines ("URIs: a" then
+    # " b"): join them first so every URI is on its field line.
+    awk 'BEGIN { RS = "" }
+         /(^|\n)(Types|URIs|Suites):/ { gsub(/\n[ \t]+/, " ") }
+         !/(^|\n)[[:space:]]*Enabled:[[:space:]]*[Nn][Oo]/ { print }' "$1" 2>/dev/null \
         | grep -E '^[[:space:]]*(deb(-src)?[[:space:]]|URIs:[[:space:]])' \
         | grep -vE '^[[:space:]]*deb(-src)?[[:space:]]+\[[^]]*enabled=no' \
         | sed 's/#.*//' \
@@ -624,8 +628,26 @@ ncz_intel_recover() {
     return 0
 }
 
-# Deferred entry: ncz-intel-accel-setup run / rearm
+# Deferred entry: ncz-intel-accel-setup run / rearm. The timer and
+# ncz-update-apply can start it at the same time; one run at a time, or a
+# run that defers could rewrite the marker another run just removed.
 ncz_intel_accel_run() {
+    local _lk _rc
+    _lk="$(_ni_r)/run/ncz-intel-accel.lock"
+    mkdir -p "${_lk%/*}" 2>/dev/null || true
+    if command -v flock >/dev/null 2>&1 && exec 9>"$_lk"; then
+        if ! flock -w "${NCZ_INTEL_LOCK_WAIT:-600}" 9; then
+            exec 9>&-
+            ncz_intel_log "another run holds $_lk; leaving this one to it"
+            return 0
+        fi
+    fi
+    _ncz_intel_accel_run_locked; _rc=$?
+    exec 9>&- 2>/dev/null || true
+    return "$_rc"
+}
+
+_ncz_intel_accel_run_locked() {
     _pf=$(_ni_pending)
     # A gave-up system must recover when the installer payload is upgraded
     # or the update hook refreshes the index, provided the hardware is
@@ -670,7 +692,8 @@ ncz_intel_accel_run() {
         ncz_intel_status "deferred:native-candidates-unpublished"
         if grep -q '^LAST=' "$_pf"; then
             sed -i "s/^LAST=.*/LAST=$(date +%s)/" "$_pf"
-        else
+        elif [ -f "$_pf" ]; then
+            # never create a marker that holds only LAST= (no GPU/NPU)
             echo "LAST=$(date +%s)" >> "$_pf"
         fi
         return 0
