@@ -7,7 +7,10 @@ set -u
 cd "$(dirname "$0")/.."
 fail=0
 pat='(modprobe[[:space:]]+-r|rmmod)[^#]*brcmfmac|brcmfmac[^#]*/(unbind|remove)'
-hits=$(grep -rnE "$pat" post-install preseed assets 2>/dev/null | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)
+# Per file, so the line prefix is just N: (a file name may contain a colon).
+hits=$(grep -rlE "$pat" post-install preseed assets 2>/dev/null | while IFS= read -r f; do
+    grep -nE "$pat" "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$f:|"
+done)
 if [ -n "$hits" ]; then
     echo "FAIL brcmfmac is unloaded/unbound by an installer file:"; echo "$hits"; fail=1
 fi
