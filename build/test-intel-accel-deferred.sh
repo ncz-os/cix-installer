@@ -336,8 +336,8 @@ done
 # `openvino` or `level-zero` (the old Intel-repo bug). And it MUST install
 # the four required NPU drivers when NPU=1 was requested.
 printf '%s\n' "$inst" | grep >/dev/null -wE 'openvino$' \
-    && bad "asks for the legacy `openvino` name (not a native NCZ package)" "$inst" \
-    || ok "no phantom `openvino` name requested"
+    && bad "asks for the legacy 'openvino' name (not a native NCZ package)" "$inst" \
+    || ok "no phantom 'openvino' name requested"
 # NPU drivers must all show up in the SAME install -y call (parity).
 _npud=$(printf '%s\n' "$inst" | grep >/dev/null -wE 'intel-driver-compiler-npu|intel-fw-npu|intel-level-zero-npu|intel-validation-npu' && echo yes || echo no)
 [ "$_npud" = yes ] && ok "all 4 native NPU drivers were installed in the same call" \
@@ -518,11 +518,25 @@ NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run; _rc
 [ "$_rc4" = 0 ] && grep -qx 'deferred:native-candidates-unpublished' "$S" \
     && ok "repeated deferred run stays deferred (no give-up flip)" \
     || bad "repeated deferred run rc=$_rc4 status '$(cat "$S")'"
-# Once the index publishes the candidates, the next deferred run installs
-# everything and finishes: no manual re-arm needed (the timer / ncz-update
-# refresh drives it).
+grep -q '^LAST=[0-9]' "$P" && ok "deferral records LAST= for the slow retry" || bad "no LAST= in marker: $(cat "$P")"
+# The 10-min timer keeps firing while deferred, but within the slow-retry
+# interval a run does nothing: no apt-get update every 10 minutes forever.
 : > "$LOG"
-NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rc5=$?
+NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rcT=$?
+[ "$_rcT" = 0 ] && [ ! -s "$LOG" ] && grep -qx 'deferred:native-candidates-unpublished' "$S" && [ -f "$P" ] \
+    && ok "deferred timer run inside the slow interval is a no-op (no apt calls)" \
+    || bad "deferred run inside the interval rc=$_rcT ran apt: $(cat "$LOG")"
+# Past the interval the run re-checks the index on its own.
+: > "$LOG"
+NCZ_INTEL_DEFER_SECS=0 NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run; _rcU=$?
+[ "$_rcU" = 0 ] && grep -q ' update' "$LOG" && grep -qx 'deferred:native-candidates-unpublished' "$S" \
+    && ok "past the slow interval the deferred run re-checks the index" \
+    || bad "past-interval run rc=$_rcU log: $(cat "$LOG")"
+# Once the index publishes the candidates, the next forced re-check (the
+# ncz-update-apply refresh passes NCZ_INTEL_FORCE=1) installs everything and
+# finishes: no manual re-arm needed.
+: > "$LOG"
+NCZ_INTEL_FORCE=1 NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rc5=$?
 inst=$(grep ' install -y' "$LOG")
 [ "$_rc5" = 0 ] && [ ! -f "$P" ] && [ ! -e "$T" ] && grep -qx done "$S" \
     && ok "once published: next deferred run installs and finishes (done, marker gone)" \
@@ -587,7 +601,7 @@ NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=1 r
     || bad "re-arm run rc=$_rc10 status '$(cat "$S")'"
 # Same recovery, but the index is still missing the candidates: the run must
 # re-arm (marker back) and then stay pending, NOT silently exit as a no-op.
-mkroot; mkpci
+mkroot; mkpci 0x8086-030000 0x8086-120000
 NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_install 1 1
 NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_run >/dev/null 2>&1
 grep -q 'failed:gave-up' "$S" && [ ! -f "$P" ] || bad "re-arm precondition missing: '$(cat "$S")'"
@@ -596,6 +610,19 @@ NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=2 NET=up NPUPKGS=1 NPUDRIVERS=0 r
 [ "$_rc11" = 0 ] && [ -f "$P" ] && grep -qx 'deferred:native-candidates-unpublished' "$S" \
     && ok "re-arm with index still incomplete: marker re-created and run defers (not a no-op)" \
     || bad "re-arm incomplete run rc=$_rc11 status '$(cat "$S")'"
+
+echo "=== recovery: re-arm requests only the classes still present ==="
+# GPU-only machine: the re-arm must not request NPU, or it would wait forever
+# for NPU drivers the machine never needs.
+mkroot; mkpci 0x8086-030000
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_install 1 1
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_run >/dev/null 2>&1
+grep -q 'failed:gave-up' "$S" && [ ! -f "$P" ] || bad "gpu-only precondition missing: '$(cat "$S")'"
+: > "$LOG"
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=2 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run; _rcG=$?
+[ "$_rcG" = 0 ] && grep -qx done "$S" && [ ! -f "$P" ] \
+    && ok "GPU-only re-arm requests GPU=1 NPU=0 and finishes without NPU drivers" \
+    || bad "gpu-only re-arm rc=$_rcG status '$(cat "$S")'" "$(cat "$W/out")"
 
 echo "=== recovery: gave-up WITHOUT Intel hardware stays gave-up (no false re-arm) ==="
 mkroot; mkpci 0x10de-030000   # only an NVIDIA display device, no Intel
@@ -713,9 +740,10 @@ for _verb in run rearm; do
        NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1
       bash "$LIB" "$_verb" ) >"$W/vout" 2>&1; _vrc=$?
     # The CLI child ran at least one attempt: prove it DROVE the entry (not
+    # The fixture has only an Intel GPU, so the re-arm requests GPU=1 NPU=0.
     # that it succeeded -- with the network down the attempt legitimately
     # re-arms and then gives up again at the 1-attempt budget).
-    grep -q 'attempt 1 (GPU=1 NPU=1)' "$W/vout" \
+    grep -q 'attempt 1 (GPU=1 NPU=0)' "$W/vout" \
         && ok "CLI verb '$_verb' drives the deferred entry (attempt ran)" \
         || bad "CLI verb '$_verb' did not reach the deferred entry" "rc=$_vrc $(cat "$W/vout")"
     grep -q 're-arming deferred install (was: failed:gave-up' "$W/vout" \
@@ -758,6 +786,9 @@ fi
 grep -q 'ncz_intel_accel_run' "$UA" \
     && ok "ncz-update-apply drives the real deferred entry (ncz_intel_accel_run)" \
     || bad "ncz-update-apply does not call ncz_intel_accel_run"
+grep -q 'NCZ_INTEL_FORCE=1' "$UA" \
+    && ok "ncz-update-apply forces the re-check past the deferred slow interval" \
+    || bad "ncz-update-apply does not pass NCZ_INTEL_FORCE=1 (a fresh refresh would be throttled)"
 
 echo "intel accel tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

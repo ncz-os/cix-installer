@@ -61,10 +61,10 @@
 #     `deferred:native-candidates-unpublished`, and the deferred run exits
 #     0 (SuccessExitStatus). The pending marker keeps ncz-intel-accel-setup
 #     active, so the next apt index refresh that publishes the candidates
-#     (e.g. ncz-update-apply) or any re-arm installs the stack then. No
-#     timer change: OnUnitInactiveSec=10min fires while the unit is not
-#     running, so a deferred install keeps being re-checked -- cheaply,
-#     since it is a no-op until the candidates appear.
+#     (e.g. ncz-update-apply, which forces a re-check) or any re-arm
+#     installs the stack then. The 10-min timer keeps firing on the marker,
+#     but a deferred run re-checks the index (apt-get update) at most once
+#     per NCZ_INTEL_DEFER_SECS (default 1 day, LAST= in the marker).
 #   * Network-down (no fresh index fetch possible) and would-remove refusals
 #     keep the old semantics: after the budget they stay failed / refused
 #     and the marker is dropped (no endless 10-min loop; ncz_intel_recover
@@ -72,7 +72,8 @@
 #   * Recovery: on every re-run of the deferred entry (`ncz-intel-accel-setup
 #     rearm` / `run`) a system left at `failed:gave-up-*` is re-armed when
 #     Intel GPU or NPU hardware is still present (ncz_intel_recover,
-#     invoked from the deferred entry and from ncz-update-apply). This makes
+#     invoked from the deferred entry and from ncz-update-apply), requesting
+#     only the classes still present (GPU and/or NPU). This makes
 #     a shipped upgrade of the installer payload revive gave-up machines.
 #
 # Return codes from ncz_intel_setup / ncz_intel_accel_install / _run:
@@ -537,29 +538,36 @@ ncz_intel_accel_install() {   # GPU NPU
     return 0
 }
 
-# Hardware presence probe used by the recovery path: is there still an
-# Intel GPU/NPU for this deferred install to serve? Class match follows
+# Hardware probe used by the recovery path: which Intel classes are still
+# present for this deferred install to serve? Prints "GPU NPU" (each 0/1)
+# so a re-arm requests exactly what the machine has -- re-arming NPU on a
+# GPU-only machine would wait forever for NPU drivers it never needs.
+# Class match follows
 # 54-gpu-accel.sh exactly (display class 03xx vendor 8086 = GPU; class 1200
 # vendor 8086 = NPU). The sysfs vendor/class files are PCI-core cached and
 # never touch device config space (the GU502LV rule). When no sysfs PCI
 # tree exists (test fixture) the probe reports presence (fail-open: the
 # deferred run then just re-checks the index and stays pending) rather
 # than silently dropping a legitimate marker.
-ncz_intel_hw_present() {
-    local root="${NCZ_INTEL_PCI_ROOT:-/sys/bus/pci/devices}" d
-    [ -d "$root" ] || return 0
+ncz_intel_hw_classes() {
+    local root="${NCZ_INTEL_PCI_ROOT:-/sys/bus/pci/devices}" d v c g=0 n=0
+    [ -d "$root" ] || { echo "1 1"; return 0; }
     for d in "$root"/*; do
         [ -r "$d/vendor" ] || continue
-        local v c
         v=$(tr -d '[:space:]' < "$d/vendor" 2>/dev/null)
         c=$(tr -d '[:space:]' < "$d/class" 2>/dev/null)
         [ "$v" = "0x8086" ] || continue
         # sysfs class is "0x030000" (display) or "0x120000" (NPU/processing).
         case "$c" in
-            0x03*|0x12*) return 0 ;;
+            0x03*) g=1 ;;
+            0x12*) n=1 ;;
         esac
     done
-    return 1
+    echo "$g $n"
+}
+ncz_intel_hw_present() {
+    case "$(ncz_intel_hw_classes)" in "0 0") return 1 ;; esac
+    return 0
 }
 
 # ncz_intel_recover -> re-arm the deferred install on a system whose status
@@ -580,12 +588,15 @@ ncz_intel_recover() {
     # previous recover or arm_retry call: do not touch the TRIES counter or
     # the status (idempotent, status-scoped).
     [ -r "$(_ni_pending)" ] && return 0
-    if ! ncz_intel_hw_present; then
+    local hw
+    hw=$(ncz_intel_hw_classes)
+    if [ "$hw" = "0 0" ]; then
         ncz_intel_log "gave-up status kept: no Intel GPU/NPU hardware present"
         return 0
     fi
-    ncz_intel_log "re-arming deferred install (was: $s)"
-    ncz_intel_arm_retry 1 1
+    ncz_intel_log "re-arming deferred install (was: $s; GPU NPU = $hw)"
+    # shellcheck disable=SC2086
+    ncz_intel_arm_retry $hw
     return 0
 }
 
@@ -599,6 +610,18 @@ ncz_intel_accel_run() {
     # (the exact PROTEUS dead-end this fixes).
     ncz_intel_recover
     [ -r "$_pf" ] || { ncz_intel_log "nothing pending"; return 0; }
+    # Slow retry while deferred: the 10-min timer keeps firing on the
+    # marker, but a deferred system re-checks the index at most once per
+    # NCZ_INTEL_DEFER_SECS (default 1 day) instead of running apt-get
+    # update every 10 minutes indefinitely. ncz-update-apply passes
+    # NCZ_INTEL_FORCE=1 because it has just refreshed the index itself.
+    _last=$(sed -n 's/^LAST=//p' "$_pf")
+    if [ -n "$_last" ] && [ "${NCZ_INTEL_FORCE:-0}" != 1 ] \
+       && grep -q '^deferred:' "$(_ni_statusf)" 2>/dev/null \
+       && [ $(( $(date +%s) - _last )) -lt "${NCZ_INTEL_DEFER_SECS:-86400}" ]; then
+        ncz_intel_log "deferred: next index re-check is at most daily; nothing to do now"
+        return 0
+    fi
     _g=$(sed -n 's/^GPU=//p' "$_pf"); _n=$(sed -n 's/^NPU=//p' "$_pf"); _t=$(sed -n 's/^TRIES=//p' "$_pf")
     _t=$(( ${_t:-0} + 1 ))
     sed -i "s/^TRIES=.*/TRIES=$_t/" "$_pf"
@@ -617,6 +640,11 @@ ncz_intel_accel_run() {
         # (SuccessExitStatus) so systemd records a clean oneshot; the
         # marker -- not the exit code -- is what keeps the retry armed.
         ncz_intel_status "deferred:native-candidates-unpublished"
+        if grep -q '^LAST=' "$_pf"; then
+            sed -i "s/^LAST=.*/LAST=$(date +%s)/" "$_pf"
+        else
+            echo "LAST=$(date +%s)" >> "$_pf"
+        fi
         return 0
     fi
     # Network-down (no fresh index), probe/apt failure, or would-remove
