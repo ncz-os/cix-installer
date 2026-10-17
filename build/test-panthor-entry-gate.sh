@@ -52,5 +52,36 @@ case "$po" in *mali_kbase*|*PANTHOR_GPU_BLACKLIST*) bad "Panthor entry still har
               *) bad "PANTHOR_OPTIONS lost sky1.gpu=mesa" "$po" ;; esac
 grep -q '^    MALI_OPTIONS=.*merge_module_blacklist "\$NEXT_OPTIONS" "\$MALI_GPU_BLACKLIST").*sky1.gpu=vendor' "$GEN" && ok "Mali entry unchanged (panthor blacklisted, sky1.gpu=vendor)" || bad "Mali entry changed"
 
+# The whole menu emission block, every variant x Panthor combination: each
+# options line must sit inside a menuentry { ... } and braces must balance.
+# 2026-10-17: the Magnetar server guard closed its if/fi before the entry
+# bodies, so the server menu (and a desktop with no panthor module) carried
+# headerless "options ..." / "}" lines; the snippet check above stopped at
+# the first "        fi" and could not see it.
+block=$(awk '/^    if \[ "\$NEXT_AVAILABLE" = "1" \]; then$/{f=1} f{print} f && /^    fi$/{exit}' "$GEN")
+menu_shape() {   # stdin: refind.conf fragment -> "ok" or the first problem
+    awk '
+        /^menuentry .*\{$/ { if (open) { print "nested menuentry at line " NR; bad=1; exit } open=1; n++; next }
+        /^}$/              { if (!open) { print "stray } at line " NR; bad=1; exit } open=0; next }
+        /^    (options|loader|initrd|icon) / { if (!open) { print "orphan " $1 " at line " NR; bad=1; exit } }
+        END { if (!bad && open) print "unclosed menuentry"; else if (!bad) print "ok " n }'
+}
+if [ -z "$block" ]; then
+    bad "menu emission block (if NEXT_AVAILABLE ... fi) not found"
+else
+    for variant in desktop server; do
+        for v in 0 1; do
+            out=$(NCZ_VARIANT=$variant PANTHOR_ENTRY=$v NEXT_AVAILABLE=1 NCZ_RELEASE_SHORT=NCZ KVER_NEXT=$K \
+                REFIND_ICON=i NEXT_INITRD_AVAILABLE=1 MALI_OPTIONS=m PANTHOR_OPTIONS=p \
+                NEXT_CONSOLE_OPTIONS=c NEXT_RESCUE_OPTIONS=r bash -c "$block" 2>&1)
+            shape=$(printf '%s\n' "$out" | menu_shape)
+            case "$shape" in
+                ok\ *) ok "variant=$variant PANTHOR_ENTRY=$v: well-formed menu (${shape#ok } entries)" ;;
+                *) bad "variant=$variant PANTHOR_ENTRY=$v: $shape" "$out" ;;
+            esac
+        done
+    done
+fi
+
 echo "panthor entry gate tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

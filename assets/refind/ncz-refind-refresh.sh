@@ -951,10 +951,10 @@ fi
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
-        fi
         echo "    options \"$PANTHOR_OPTIONS\""
         echo "}"
         echo
+        fi
         fi
         # The no-initrd recovery entry (loaded the default kernel with no
         # initrd, proving nvme+btrfs are builtin) was DROPPED from the menu
@@ -982,10 +982,10 @@ fi
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
         [ "$NEXT_INITRD_AVAILABLE" = "1" ] && echo "    initrd  /initrd.img-$KVER_NEXT"
-        fi
         echo "    options \"$NEXT_RESCUE_OPTIONS\""
         echo "}"
         echo
+        fi
     fi
     if [ -n "$RESCUEPART_OPTIONS" ]; then
         # Boots the SAME 7.3 kernel with the accelerators blacklisted.
