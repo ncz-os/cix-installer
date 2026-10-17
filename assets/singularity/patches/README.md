@@ -94,9 +94,13 @@ upstream.
 **Upstream PR:** [singularityos-lab/singularity-shell#40](https://github.com/singularityos-lab/singularity-shell/pull/40)
 -- the output-scale part of `0013` (wl_output scale listener, physical-pixel
 buffer, `wl_surface_set_buffer_scale`) was filed upstream 2026-10-14 and is
-OPEN. `0013` also carries the keyboard-failure diagnostics and the "Keyboard
-unavailable" prompt that PR #40 does not; when #40 merges, re-diff `0013`
-against the new head and keep only the parts that are still ours.
+OPEN. Since 2026-10-17 the patch is split so retirement on merge is exact:
+`0013-lockscreen-honour-output-scale.patch` is PR #40's head (`f57b404`) as-is,
+and `0013-lockscreen-keep-the-keyboard-diagnostics.patch` is the NCZ-local rest
+of the old 0013 (keyboard-failure diagnostics, the "Keyboard unavailable"
+prompt, and the comments 0014-0024 are written against). The two together give
+the same tree as the old single patch. When #40 merges, delete the first and
+keep the second.
 
 ## singularity-greeter — active
 
@@ -105,6 +109,11 @@ against the new head and keep only the parts that are still ours.
 `0002-greeter-answer-info-error-messages.patch` and
 `0003-greeter-match-the-lock-login-card.patch`, applied in order.
 
+- `0001` is [singularity-greeter#2](https://github.com/singularityos-lab/singularity-greeter/pull/2)
+  at its head `a95e5ab` (refreshed 2026-10-17). The previous shipped form stalled
+  on Tab to another user (headless harness `tab`: one cancel, no new session, no
+  login); the #2 form logs the other user in and drops a stale reply when Tab
+  arrives while a password reply is in flight (`tabflight`).
 - `0001` fixes "a session is already being configured": after a rejected password
   the greeter called `create_session` again while greetd still held the session
   under configuration. It now cancels first and re-creates only once greetd
@@ -197,7 +206,10 @@ Vala API directories". No Vala source uses a libcups binding (only
 `src/print/ipp_transport.c` does), so the patch passes the cups compile and
 link flags directly, exactly as `lcms2` is already handled in the same file.
 Delete it when upstream stops handing libcups to valac or Debian ships the
-binding.
+binding. Refreshed 2026-10-17 to the form filed upstream (static
+`ipp-transport` library):
+
+**Upstream PR:** [singularityos-lab/libsingularity#16](https://github.com/singularityos-lab/libsingularity/pull/16)
 
 **Not filed upstream** (2026-10-07). Patch
 `libsingularity/0004-drag-lift-bind-drag-icon-unowned.patch`. Vala 0.56's
@@ -316,7 +328,8 @@ unlocked. The shell now follows its logind session's `Lock` signal through the s
 path as the shortcut and the idle lock. It also holds a logind "sleep" delay inhibitor
 (who `Singularity`) and, when `dev.sinty.lockscreen lock-on-suspend` is on, locks before
 the system sleeps. `ncz-screensaver-idled` 0.8.15 sees that inhibitor and leaves the sleep
-lock to the shell. Not filed upstream yet (no PR link). Regression tests:
+lock to the shell. Filed as singularity-shell#39 (linked above); the patch is that PR's
+reviewed head `94a6c51` as of 2026-10-17. Regression tests:
 `build/test-singularity-logind-lock.sh` and lockrig T16/T16b/T17/T17s.
 
 Patch `0023-lockscreen-resume-the-saver-when-the-prompt-lowers.patch`: with 0017 the

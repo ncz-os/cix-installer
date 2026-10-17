@@ -46,14 +46,14 @@
 # and adds diff_files = scenefx-liquid.patch; the helper applies it before the
 # NCZ queue. Vendor-Mali smoke of that tree on 2026-10-13: 15/15 programs
 # compile and link (Mali-G720-Immortalis, libmali r53p0, EGL GBM).
-.	https://github.com/singularityos-lab/singularity-desktop.git	master	45c6e8e81b59819783539dd4e5ab7edb16b26f02
-subprojects/libsingularity	https://github.com/singularityos-lab/libsingularity.git	main	8cb3e804a94676b2285ba61da524e94f21b9ff42
+.	https://github.com/singularityos-lab/singularity-desktop.git	master	b3fb0b389bf9b74c4ed3366c33a3d8278071923d
+subprojects/libsingularity	https://github.com/singularityos-lab/libsingularity.git	main	1b19874bda7eb546e26b0ef2f81976f585f97167
 subprojects/singularity-files	https://github.com/singularityos-lab/singularity-files.git	main	981f2377ee2334eebdc1067fff96d4b72ecb24b0
 subprojects/singularity-leafs	https://github.com/singularityos-lab/singularity-leafs.git	main	143fc0f91690410ba5e945202d536567b3f29222
 subprojects/singularity-polkit-agent	https://github.com/singularityos-lab/singularity-polkit-agent.git	main	fa8379d8263b9198ab1e7441a7de63457133d771
 subprojects/singularity-calculator	https://github.com/singularityos-lab/singularity-calculator.git	main	6e8cd47505ed35e7ef64323c41fbbcfe54a04182
 subprojects/xdg-desktop-portal-singularity	https://github.com/singularityos-lab/xdg-desktop-portal-singularity.git	main	b9e1e40083254ec6282bcbbf24dca3b9db6bfa51
-subprojects/labwc	https://github.com/singularityos-lab/labwc.git	singularity	458dddc5c78cf211a1a9f43baa16d221ed96a223
+subprojects/labwc	https://github.com/singularityos-lab/labwc.git	singularity	6b0959e4c98a9124ac0798fc267b555749da7457
 subprojects/singularity-calendar	https://github.com/singularityos-lab/singularity-calendar.git	main	26e1f18ebc18fcf9d25f86dc04288a4a1dddb004
 subprojects/singularity-demo	https://github.com/singularityos-lab/singularity-demo.git	main	f7961449a9b91115b0c131225216e14193679319
 subprojects/singularity-edit	https://github.com/singularityos-lab/singularity-edit.git	main	7c0807abea0abcd15dcbd6aa11a92a1d180ef763
@@ -71,7 +71,7 @@ subprojects/singularity-themes	https://github.com/singularityos-lab/singularity-
 subprojects/singularity-plugins	https://github.com/singularityos-lab/singularity-plugins.git	main	6d989ea5176921647fa427bd95b0b18ce81341a4
 subprojects/singularity-widgets	https://github.com/singularityos-lab/singularity-widgets.git	main	bd4d4d708950637b3116c70dcd9e5f8ef7d3cc81
 subprojects/singularity-session	https://github.com/singularityos-lab/singularity-session.git	main	2a1f43316e069235cbd4f4246bc30f20c652edaa
-subprojects/singularity-shell	https://github.com/singularityos-lab/singularity-shell.git	main	a65e9c34810d24301ffc77e637453b4d6176fa53
+subprojects/singularity-shell	https://github.com/singularityos-lab/singularity-shell.git	main	ef8d0091b5fd31ca74f5ccb7478a2456102eaf2a
 subprojects/singularity-loginui	https://github.com/singularityos-lab/singularity-loginui.git	-	1a599d8786323af7fa86667322953ed42547662f
 subprojects/singularity-installer	https://github.com/singularityos-lab/singularity-installer.git	-	d09d94f3e0e4b17909f6e9a2e744346775f80d94
 subprojects/singularity-gestures	https://github.com/singularityos-lab/singularity-gestures.git	main	c524945f57c3a973c3971891dd392ce285c4fd59
