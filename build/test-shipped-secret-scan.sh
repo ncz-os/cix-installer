@@ -393,6 +393,11 @@ assert g.initrd_kind("/x/windows10.img") is None
 assert names == [".", "f", ".", "f"], names
 assert [n for n, p in g.cpio_members(data, "t") if p] == ["f", "f"]
 assert len(g.decompress_chain(__import__("gzip").compress(data), "t")) == 1
+# initramfs-tools layout: an uncompressed early cpio, then the zstd-compressed
+# main cpio.  The kernel unpacks both; the gate used to call the zstd frame junk.
+zmain = subprocess.run(["zstd", "-q", "-c"], input=segs[1], capture_output=True).stdout
+mixed = [n for n, p in g.cpio_members(segs[0] + zmain, "t") if p]
+assert mixed == ["f", "f"], mixed
 # zstd: the subprocess result must not clobber the payload variable; a broken
 # binding here raised AttributeError on every .tar.zst / zstd squashfs.
 zr = subprocess.run(["zstd", "-q", "-c"], input=b"hello-zstd\n", capture_output=True)
@@ -403,6 +408,104 @@ print("primitives ok")
 PY
 then pass "primitives: forms matched, clean text clear, cpio segments walked"
 else fail "primitive self-test failed"; fi
+
+# 7. a real-sized ext4 file reads back byte-identical, and a 128 MiB extent
+# (ee_len 32768) decodes as INITIALIZED.  Decoding it as "uninitialized, 0
+# blocks" handed unsquashfs a zero-filled base.squashfs on the first real image.
+mkdir -p "$WORK/big"
+head -c $((200 << 20)) /dev/urandom > "$WORK/big/blob"
+truncate -s 400M "$WORK/big.ext4"
+if mkfs.ext4 -q -F -b 4096 -d "$WORK/big" "$WORK/big.ext4" >/dev/null 2>&1 \
+   && $PY - "$ROOT" "$WORK/big.ext4" "$WORK/big/blob" <<'PY'
+import hashlib, importlib.util, os, sys
+root, img, blob = sys.argv[1:4]
+spec = importlib.util.spec_from_file_location(
+    "gate", os.path.join(root, "build", "scan-shipped-secrets.py"))
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+with open(img, "rb") as fh:
+    files = g.ext4_walk(fh, {"index": 1, "offset": 0})
+got = {f["path"]: f["bytes"] for f in files}["/blob"]
+want = open(blob, "rb").read()
+assert hashlib.sha256(got).digest() == hashlib.sha256(want).digest(), "ext4 bytes differ"
+# mke2fs -d never writes a full 32768-block extent into a fixture this small
+# (it splits at block-group metadata), so the decode itself is pinned to the
+# kernel's rule: 32768 is INITIALIZED, only values above it are unwritten.
+assert g.extent_len(32768) == (32768, False)
+assert g.extent_len(1) == (1, False)
+assert g.extent_len(32769) == (1, True)
+assert g.extent_len(65535) == (32767, True)
+PY
+then pass "ext4: a file with full 32768-block extents reads back byte-identical"
+else fail "ext4 full-extent file did not read back byte-identical"; fi
+rm -rf "$WORK/big" "$WORK/big.ext4"
+
+# 8. an unprivileged extraction: a base layer carries device nodes, which a
+# non-root unsquashfs cannot create (exit 2).  That alone must not fail the
+# gate, but a regular file missing from the extraction must, and a mode-000
+# directory must still be scanned.
+mkdir -p "$WORK/dev/src/etc" && echo hello > "$WORK/dev/src/etc/motd"
+if mksquashfs "$WORK/dev/src" "$WORK/dev/l.squashfs" -noappend -quiet \
+       -p "console c 600 0 0 5 1" -p "locked d 000 0 0" \
+       -p "locked/inner f 644 0 0 echo inner" >/dev/null 2>&1 \
+   && $PY - "$ROOT" "$WORK/dev" <<'PY'
+import importlib.util, os, shutil, sys
+root, d = sys.argv[1:3]
+spec = importlib.util.spec_from_file_location(
+    "gate", os.path.join(root, "build", "scan-shipped-secrets.py"))
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+tool = shutil.which("unsquashfs")
+g.unsquashfs_files(tool, os.path.join(d, "l.squashfs"), os.path.join(d, "x"))
+assert open(os.path.join(d, "x", "etc", "motd")).read() == "hello\n"
+# a mode-000 directory (base ships /run/systemd/dissect-root) is opened up,
+# so its content is scanned rather than silently skipped by os.walk
+assert open(os.path.join(d, "x", "locked", "inner")).read() == "inner\n"
+os.unlink(os.path.join(d, "x", "etc", "motd"))
+try:
+    g.verify_squashfs_extract(tool, os.path.join(d, "l.squashfs"), os.path.join(d, "x"))
+except g.Unreadable:
+    pass
+else:
+    raise AssertionError("a missing regular file was not caught")
+PY
+then pass "squashfs: device nodes tolerated unprivileged, a missing file FAILS CLOSED"
+else fail "unprivileged squashfs extraction check failed"; fi
+
+# 9. the hash file's prefilter: lengths/prefixes written by the generator are
+# honoured, and a malformed list fails closed instead of disabling matching.
+if $PY - "$ROOT" "$WORK" "$FAKE" <<'PY'
+import importlib.util, json, os, sys
+root, work, fake = sys.argv[1], sys.argv[2], sys.argv[3].encode()
+spec = importlib.util.spec_from_file_location(
+    "gate", os.path.join(root, "build", "scan-shipped-secrets.py"))
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+doc = json.load(open(os.path.join(work, "hashes.json")))
+assert doc["lengths"] and doc["prefixes"], "generator wrote no prefilter"
+hs = g.HashSet(); hs.load(os.path.join(work, "hashes.json"))
+assert hs.prefixes and hs.lengths
+sc = g.Scanner(hs, shapes=False)
+assert g.scan_candidate(sc, b"TOKEN=xx" + fake + b"\n", "/x.conf")
+assert not g.scan_candidate(sc, b"TOKEN=${GITLAB_TOKEN}\n", "/x.conf")
+bad = dict(doc, prefixes=["nothex"])
+p = os.path.join(work, "bad.json"); json.dump(bad, open(p, "w"))
+try:
+    g.HashSet().load(p)
+except g.Unreadable:
+    pass
+else:
+    raise AssertionError("malformed prefixes accepted")
+PY
+then pass "hash list prefilter honoured; a malformed prefilter FAILS CLOSED"
+else fail "hash list prefilter check failed"; fi
+
+# 10. the hash list never lives in the repository
+if $PY "$MAKEHASH" --master "$WORK/keymaster.json" --out "$ROOT/build/.hash-test.json" --quiet 2>/dev/null \
+   || [ -e "$ROOT/build/.hash-test.json" ]; then
+    rm -f "$ROOT/build/.hash-test.json"; fail "make-secret-hashes wrote a hash list inside the repository"
+else pass "make-secret-hashes refuses an output path inside the repository"; fi
+out="$(NCZ_SECRET_HASHES_FILE="$ROOT/manifests/secret-hashes.example.json" \
+       $PY "$SCAN" --image "$WORK/clean.img" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "inside the" <<<"$out"; then pass "the gate refuses a hash list inside the repository"
+else fail "an in-repo hash list was not refused (rc=$rc)"; fi
 
 if [ "$FAILS" -gt 0 ]; then echo "test-shipped-secret-scan: $FAILS finding(s)" >&2; exit 1; fi
 echo "test-shipped-secret-scan: PASS ✅"

@@ -123,8 +123,12 @@ the finished image BEFORE the KVM gate -- never waste hours on a doomed build)
 
   secret-scan is NOT optional and is NOT selectable via --gates: it runs on
   every image, immediately after 'image' and before the KVM gate.  It fails
-  closed -- with no hash list (manifests/secret-hashes.local or
-  $NCZ_SECRET_HASHES_FILE) there is no build.
+  closed -- with no hash list ($NCZ_SECRET_HASHES_FILE, else
+  ~/.config/ncz/secret-hashes-file naming it, else
+  ~/.config/ncz/secret-hashes.json; never a path inside the repository) the
+  build fails.  NCZ_SECRET_SCAN=skip is the ONE explicit opt-out for a build
+  host without a hash list: the stage records SKIP, the gate summary is not
+  all_required_passed, and the archive stage refuses the image.
 
 SCOPE (choose ONE; default --full)
   --full                    substrate refresh + every layer + image + all gates
@@ -1295,7 +1299,7 @@ stage_image() {
 # the build.  The hash list is the ONLY way the hashed half can run, and the
 # build host never holds a plaintext secret -- the operator generates the list
 # on a trusted machine with build/make-secret-hashes.py and copies just the
-# digests here.  manifests/secret-hashes.local is gitignored.
+# digests to ~/.config/ncz/secret-hashes.json, outside every git tree.
 #
 # The scanner needs unsquashfs and zstd on this host (checked in preflight).
 stage_secret_scan() {
@@ -1306,14 +1310,35 @@ stage_secret_scan() {
         img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA".img 2>/dev/null | tail -1)"
     fi
     [ -n "$img" ] && [ -f "$img" ] || { echo "[secret-scan] FAIL: no image found for $ARCH $GIT_SHA" | tee -a "$log" >&2; return 1; }
-    local hashf="${NCZ_SECRET_HASHES_FILE:-$ROOT/manifests/secret-hashes.local}"
+    local hashf
+    hashf="$(ncz_site_value NCZ_SECRET_HASHES_FILE secret-hashes-file)"
+    [ -n "$hashf" ] || hashf="${XDG_CONFIG_HOME:-$HOME/.config}/ncz/secret-hashes.json"
+    if [ "${NCZ_SECRET_SCAN:-}" = skip ]; then
+        echo "[secret-scan] SKIPPED by NCZ_SECRET_SCAN=skip -- this image is NOT cleared" \
+             "for release; the archive stage will refuse it" | tee -a "$log" >&2
+        printf 'gate=secret-scan\nresult=SKIP\nreason=NCZ_SECRET_SCAN=skip\nat=%s\n' \
+            "$(date -u +%s)" > "$RUN_DIR/secret-scan.result"
+        return 0
+    fi
+    # The digests are operator data: they live outside every git worktree, so
+    # a review or export of the tree can never pick them up.
+    local root_real hash_real
+    root_real="$(realpath -m "$ROOT")"; hash_real="$(realpath -m "$hashf")"
+    case "$hash_real/" in
+        "$root_real"/*)
+            echo "[secret-scan] FAIL: the hash list $hashf is inside the repository;" \
+                 "keep it under ~/.config/ncz/ (or NCZ_SECRET_HASHES_FILE outside the tree)" \
+                 | tee -a "$log" >&2
+            return 1 ;;
+    esac
     # Say which half can run before doing any work: the operator must never
     # have to read a stack trace to learn the hash list is missing.
     if [ ! -f "$hashf" ]; then
         echo "[secret-scan] FAIL: no hash list at $hashf" | tee -a "$log" >&2
         echo "[secret-scan]   run build/make-secret-hashes.py on a TRUSTED machine and copy" | tee -a "$log" >&2
-        echo "[secret-scan]   only the resulting digests to manifests/secret-hashes.local (or set" | tee -a "$log" >&2
-        echo "[secret-scan]   NCZ_SECRET_HASHES_FILE).  The gate never runs without it." | tee -a "$log" >&2
+        echo "[secret-scan]   only the resulting digests to ~/.config/ncz/secret-hashes.json (or set" | tee -a "$log" >&2
+        echo "[secret-scan]   NCZ_SECRET_HASHES_FILE).  NCZ_SECRET_SCAN=skip builds an image that" | tee -a "$log" >&2
+        echo "[secret-scan]   is never archived or released." | tee -a "$log" >&2
         return 1
     fi
     local receipt="$RUN_DIR/secret-scan.receipt.json"
@@ -1334,12 +1359,16 @@ stage_secret_scan() {
     t0="$(date -u +%s)"
     TMPDIR="$work" python3 -I "$ROOT/build/scan-shipped-secrets.py" \
         --image "$img" --hash-file "$hashf" --receipt "$receipt" \
-        --work-dir "$work" --require-hashes "${extra[@]}" 2>&1 | tee -a "$log"
+        --work-dir "$work" --require-hashes --jobs "${JOBS:-$(nproc)}" \
+        "${extra[@]}" 2>&1 | tee -a "$log"
     local rc="${PIPESTATUS[0]}"
     t1="$(date -u +%s)"
     # Keep the work dir only when the operator asked for it: a clean run must
     # leave no extracted payload behind on the build host.
-    [ "${KEEP_WORK:-0}" = 1 ] || rm -rf "$work" 2>/dev/null || true
+    if [ "${KEEP_WORK:-0}" != 1 ]; then
+        chmod -R u+rwX "$work" 2>/dev/null || true
+        rm -rf "$work" 2>/dev/null || true
+    fi
     if [ "$rc" != 0 ]; then
         echo "[secret-scan] FAIL: the shipped artifact is not shippable (rc=$rc); receipt: $receipt" | tee -a "$log" >&2
         return 1

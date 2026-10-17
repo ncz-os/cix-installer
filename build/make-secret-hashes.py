@@ -7,7 +7,7 @@ writes, copies or echoes a value.  The output file is the only thing that
 travels to the build host:
 
     build/make-secret-hashes.py --master ~/private/ncz-keymaster.json \\
-        --out manifests/secret-hashes.local
+        --out ~/.config/ncz/secret-hashes.json   (on the build host)
 
 Key-master format (JSON):
 
@@ -28,7 +28,8 @@ window occurs by chance in shipped binaries, and a >256-byte "secret" is a
 key file, not a secret (hash the file's content yourself if that is what you
 mean to catch).
 
-The output is a "*.local" file: .gitignore keeps it out of the repository,
+The output must live OUTSIDE every git tree (the tool refuses a path inside
+this repository; .gitignore also lists the old *.local names as a backstop),
 and the gate refuses to run without one.  NEVER commit real content.
 """
 from __future__ import annotations
@@ -76,8 +77,15 @@ def main(argv=None) -> int:
               file=sys.stderr)
         return 2
 
+    repo = os.path.dirname(HERE)
+    if (os.path.realpath(args.out) + os.sep).startswith(os.path.realpath(repo) + os.sep):
+        print("make-secret-hashes: refusing to write the hash list inside the "
+              "repository; use ~/.config/ncz/secret-hashes.json", file=sys.stderr)
+        return 2
     salt = args.salt or gate.DEFAULT_SALT
     out: list[dict] = []
+    lengths: set[int] = set()
+    prefixes: set[str] = set()
     for i, item in enumerate(entries, 1):
         label = f"secret-{i}"
         if isinstance(item, dict):
@@ -103,6 +111,8 @@ def main(argv=None) -> int:
             return 2
         for v in gate.secret_variants([value], salt):
             out.append({"label": label, "kind": v["kind"], "sha256": v["sha256"]})
+            lengths.add(v["length"])
+            prefixes.add(v["prefix"])
 
     doc_out = {
         "format": "ncz-secret-hashes",
@@ -110,6 +120,12 @@ def main(argv=None) -> int:
         "salt": salt,
         "entries": len(entries),
         "hashes": out,
+        # window lengths only (no values): lets the gate skip impossible
+        # window sizes instead of hashing every length at every offset
+        "lengths": sorted(lengths),
+        # domain-separated digests of each window's first 8 bytes: the gate's
+        # one-lookup-per-offset prefilter (no more revealing than the digests)
+        "prefixes": sorted(prefixes),
         "note": "Salted SHA-256 only. Never commit this file with real content.",
     }
     tmp = args.out + ".tmp"

@@ -23,8 +23,8 @@ inside it, so everything a customer can read is inside the scope of this scan:
     straight from the filesystem image.
 
 Matching is HASHED.  The gate never receives a plaintext secret: it reads a
-hash file (``manifests/secret-hashes.local`` by default, or the path in
-``NCZ_SECRET_HASHES_FILE``) produced by ``build/make-secret-hashes.py`` on a
+hash file (the path in ``NCZ_SECRET_HASHES_FILE``, else
+``~/.config/ncz/secret-hashes.json`` -- never a file in the repository) produced by ``build/make-secret-hashes.py`` on a
 trusted machine.  That file holds salted SHA-256 digests of every known secret
 value in every form it can be embedded as:
 
@@ -68,7 +68,6 @@ import argparse
 import base64
 import bz2
 import collections
-import gzip
 import hashlib
 import io
 import json
@@ -83,8 +82,8 @@ import sys
 import tarfile
 import tempfile
 import time
-import uuid
 import urllib.parse
+import uuid
 import zipfile
 import zlib
 
@@ -97,7 +96,9 @@ DEFAULT_SALT = "ncz-shipped-secret-scan-v1"
 # candidate (a member, or one codebook chunk of one member) is bounded so a
 # bytecode extractor cannot hash gigabytes forever.  Both are overridable for
 # the unit tests, which use tiny fixtures.
-MAX_MEMBER_BYTES = 512 << 20
+# The d-i initrd.gz on a real amd64 image expands to ~620 MiB (two
+# concatenated newc archives), so the cap sits well above it.
+MAX_MEMBER_BYTES = int(os.environ.get("NCZ_SECRET_SCAN_MAX_MEMBER", str(2 << 30)))
 MAX_WINDOW_BYTES = 4 << 20
 
 # Shortest secret hash in the file.  make-secret-hashes.py refuses values
@@ -139,7 +140,7 @@ NON_SECRET_PEM_LABELS = re.compile(
 PUBLIC_KEYRING_NAMES = re.compile(
     r"(debian-archive-keyring|debian-testing-cd-signing|cilium-apt|"
     r"google-chrome-apt-keyring|vivaldi-apt-keyring|microsoft|"
-    r"nvidia|intel|cix-deb-repo|ncz-repo|ncz-apt-policy)\.(asc|gpg)$", re.I)
+    r"nvidia|intel|cix-deb-repo|ncz-repo|ncz-apt-policy)\.(asc|gpg)$", re.IGNORECASE)
 PUBLIC_KEYRING_DIRS = re.compile(
     r"^/etc/apt/(trusted\.gpg\.d|keyrings)/|/usr/share/keyrings/|"
     r"/usr/share/(apt/)?keyrings?/|/usr/local/share/keyrings/")
@@ -201,7 +202,6 @@ class Unreadable(Exception):
 # tiny helpers
 # ---------------------------------------------------------------------------
 def human(n: int) -> str:
-    step = 0.0
     val = float(n)
     for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
         if val < 1024 or unit == "TiB":
@@ -230,6 +230,15 @@ class HashSet:
     def __init__(self, salt: str = DEFAULT_SALT):
         self.salt = salt.encode()
         self.digests = set()
+        # Window lengths present in the list (None: unknown, try every
+        # length).  Restricting the lookup to these is what makes a full
+        # image scan finish: 248 lengths per offset is ~60x the work.
+        self.lengths = None
+        # Domain-separated digests of the first HASH_MIN_LEN bytes of every
+        # listed window (None: absent, no prefilter).  One lookup per offset
+        # rules the offset out before the per-length loop runs; every listed
+        # window is at least HASH_MIN_LEN long, so the filter cannot miss.
+        self.prefixes = None
 
     def add(self, value: bytes) -> None:
         self.digests.add(hashlib.sha256(self.salt + value).hexdigest())
@@ -266,12 +275,35 @@ class HashSet:
         if not isinstance(entries, list):
             raise Unreadable(f"the hash file {path} has no 'hashes' list")
         self.salt = salt.encode()
+        lengths = doc.get("lengths")
+        if lengths is not None:
+            if (not isinstance(lengths, list) or not lengths
+                    or not all(isinstance(n, int) and HASH_MIN_LEN <= n <= 4 * MAX_SECRET_LEN
+                               for n in lengths)):
+                raise Unreadable(f"the hash file {path} has a malformed 'lengths' list")
+            self.lengths = sorted(set(lengths))
+        prefixes = doc.get("prefixes")
+        if prefixes is not None:
+            if (not isinstance(prefixes, list) or not prefixes
+                    or not all(isinstance(h, str) and re.fullmatch(r"[0-9a-f]{64}", h)
+                               for h in prefixes)):
+                raise Unreadable(f"the hash file {path} has a malformed 'prefixes' list")
+            self.prefixes = set(prefixes)
         for item in entries:
             h = item.get("sha256") if isinstance(item, dict) else None
             if not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{64}", h):
                 raise Unreadable(f"the hash file {path} holds a malformed entry")
             self.digests.add(h)
         return len(self.digests)
+
+
+PREFIX_DOMAIN = b"\x00ncz-prefix\x00"
+
+
+def prefix_digest(salt: bytes, window: bytes) -> str:
+    """Digest of a window's first HASH_MIN_LEN bytes, domain-separated from
+    the window digests so an 8-byte value can never collide with a prefix."""
+    return hashlib.sha256(salt + PREFIX_DOMAIN + window[:HASH_MIN_LEN]).hexdigest()
 
 
 def secret_variants(values, salt: str = DEFAULT_SALT) -> list[dict]:
@@ -305,7 +337,8 @@ def secret_variants(values, salt: str = DEFAULT_SALT) -> list[dict]:
         if h in seen:
             return
         seen.add(h)
-        out.append({"kind": kind, "sha256": h})
+        out.append({"kind": kind, "sha256": h, "length": len(raw),
+                    "prefix": prefix_digest(salt.encode(), raw)})
 
     for value in values:
         if not value:
@@ -342,7 +375,7 @@ def secret_variants(values, salt: str = DEFAULT_SALT) -> list[dict]:
                 # the first ceil(phase*4/3) chars encode our synthetic pad
                 cut = (4 * phase) // 3
                 tail = body.rstrip(b"=")
-                for start in range(0, 3):
+                for start in range(3):
                     part = tail[cut + start:]
                     add(f"b64[{phase}:{start}]", part, 8)
     return out
@@ -439,7 +472,7 @@ def fat_walk(img_fh, part: dict) -> list[dict]:
     bs = img_fh.read(512)
     if len(bs) < 512 or bs[510:512] != b"\x55\xAA":
         raise Unreadable(f"partition {part['index']}: no FAT boot sector")
-    bps, spc, reserved, nfats, root_entries, tot16, media, fat16 = struct.unpack_from(
+    bps, spc, reserved, nfats, root_entries, tot16, _media, fat16 = struct.unpack_from(
         "<HBHBHHBH", bs, 11)
     tot32 = struct.unpack_from("<I", bs, 32)[0]
     fat32_size = struct.unpack_from("<I", bs, 36)[0]
@@ -609,6 +642,19 @@ def blocked_incompat_features():
     return [(bit, name) for sect, bit, name in blocked_features() if sect in (1, 2)]
 
 
+EXT_INIT_MAX_LEN = 1 << 15
+
+
+def extent_len(raw_len: int) -> tuple[int, bool]:
+    """(blocks, unwritten) of an ext4_extent ee_len, as the kernel decodes it
+    (ext4_ext_get_actual_len / ext4_ext_is_unwritten): up to 32768 is an
+    initialized extent of that many blocks, above it an unwritten extent of
+    ee_len - 32768 blocks."""
+    if raw_len > EXT_INIT_MAX_LEN:
+        return raw_len - EXT_INIT_MAX_LEN, True
+    return raw_len, False
+
+
 def ext4_walk(img_fh, part: dict) -> list[dict]:
     """Files on an ext2/3/4 data partition (the payload partition)."""
     base = part["offset"]
@@ -732,18 +778,19 @@ def ext4_walk(img_fh, part: dict) -> list[dict]:
                         stack.append(read_block(child_lo | (child_hi << 32)))
                     else:
                         # struct ext4_extent: ee_block(u32 @0) ee_len(u16 @4)
-                        # ee_start_hi(u16 @6) ee_start_lo(u32 @8).  EE_LEN
-                        # 0x8000 marks an initialized; 0x8000 alone means
-                        # uninitialized, and EXT4_EXTENT_EOF (0x20000000) is
-                        # a sentinel, not a physical block.
+                        # ee_start_hi(u16 @6) ee_start_lo(u32 @8).  As in the
+                        # kernel (EXT_INIT_MAX_LEN): ee_len <= 32768 is an
+                        # initialized extent of ee_len blocks -- 32768 itself
+                        # is the common full 128 MiB extent of a big file --
+                        # and ee_len > 32768 is an unwritten extent of
+                        # ee_len - 32768 blocks.  Masking with 0x7FFF read
+                        # every full extent as empty and handed unsquashfs a
+                        # zero-filled base.squashfs on a real image.
                         lblk, raw_len, start_hi, start_lo = struct.unpack_from(
                             "<IHHI", e, 0)
-                        uninit = bool(raw_len & 0x8000)
-                        ln = raw_len & 0x7FFF
+                        ln, uninit = extent_len(raw_len)
                         if ln == 0:
                             continue
-                        if lblk & 0x20000000:
-                            continue          # EXT4_EXTENT_EOF sentinel
                         out.append((lblk, ln, start_lo | (start_hi << 32),
                                     uninit))
             return out
@@ -783,9 +830,9 @@ def ext4_walk(img_fh, part: dict) -> list[dict]:
         handed it), so the extent map is applied to the size we were told."""
         size = ino["size"]
         out = bytearray(size)
-        for lblk, ln, phys, _unwritten in sorted(extents(ino)):
-            if phys == 0:
-                continue      # a hole reads as zeroes; nothing to scan
+        for lblk, ln, phys, unwritten in sorted(extents(ino)):
+            if phys == 0 or unwritten:
+                continue      # a hole or an unwritten extent reads as zeroes
             if phys > nblocks:
                 raise Unreadable(f"partition {part['index']}: extent points past "
                                  f"the last block ({phys} > {nblocks})")
@@ -945,6 +992,15 @@ def cpio_members(data: bytes, label: str):
                 raise Unreadable(f"{label}: directory entry '.' carries data")
             yield name, payload
             continue
+        # initramfs-tools: an uncompressed early cpio (microcode) followed by
+        # the compressed main archive.  The kernel decompresses whatever
+        # follows a TRAILER, so the gate does too.
+        if seen_trailer and any(data.startswith(m, pos) for m, _ in COMPRESSED_MAGIC):
+            chain = decompress_chain(data[pos:], f"{label}@{pos}")
+            if not chain:
+                raise Unreadable(f"{label}: undecodable stream at offset {pos}")
+            yield from cpio_members(chain[-1][1], f"{label}@{pos}")
+            return
         if magic == b"070707":
             raise Unreadable(f"{label}: odc cpio is not produced by any NCZ "
                              "build; refusing to parse it loosely")
@@ -1041,9 +1097,7 @@ def looks_textual(path: str) -> bool:
     ext = os.path.splitext(base)[1].lower()
     if ext in TEXT_EXT:
         return True
-    if path.startswith(("/etc/", "/usr/lib/systemd/", "/etc/systemd/")) and "." not in base:
-        return True
-    return False
+    return path.startswith(("/etc/", "/usr/lib/systemd/", "/etc/systemd/")) and "." not in base
 
 
 def is_binary(data: bytes) -> bool:
@@ -1133,14 +1187,22 @@ def scan_candidate(scanner: Scanner, data: bytes, path: str) -> list[dict]:
         # a different value and would not be in the list).
         digest = scanner.hashes.digest
         known = scanner.hashes.digests
+        lengths = scanner.hashes.lengths or range(HASH_MIN_LEN, 4 * MAX_SECRET_LEN + 1)
+        prefixes = scanner.hashes.prefixes
+        salt_pd = scanner.hashes.salt + PREFIX_DOMAIN
+        sha = hashlib.sha256
         for tok in tokenise(data):
             stop = 0
             hit = False
-            for start in range(len(tok)):
+            for start in range(len(tok) - HASH_MIN_LEN + 1):
                 if start < stop:
                     continue
-                for length in range(HASH_MIN_LEN,
-                                    min(MAX_SECRET_LEN, len(tok) - start) + 1):
+                if prefixes is not None and sha(
+                        salt_pd + tok[start:start + HASH_MIN_LEN]).hexdigest() not in prefixes:
+                    continue
+                for length in lengths:
+                    if start + length > len(tok):
+                        break
                     if digest(tok[start:start + length]) in known:
                         hits.append({"kind": "known-secret", "length": length})
                         stop = start + length
@@ -1159,10 +1221,10 @@ def scan_candidate(scanner: Scanner, data: bytes, path: str) -> list[dict]:
 LAYER_SUFFIXES = (".squashfs", ".sqfs", ".sfs")
 INITRD_RE = re.compile(
     r"(^|/)(initrd|initramfs)([-._][^/]*)?$|"
-    r"\.(cpio|cpio\.gz|cpio\.xz|cpio\.zst|cpio\.bz2)$", re.I)
+    r"\.(cpio|cpio\.gz|cpio\.xz|cpio\.zst|cpio\.bz2)$", re.IGNORECASE)
 ROOTFS_TAR_RE = re.compile(
-    r"\.tar\.(zst|xz|gz|bz2)$|\.tar$", re.I)
-DEB_RE = re.compile(r"\.deb$", re.I)
+    r"\.tar\.(zst|xz|gz|bz2)$|\.tar$", re.IGNORECASE)
+DEB_RE = re.compile(r"\.deb$", re.IGNORECASE)
 
 
 def layer_kind(path: str) -> str | None:
@@ -1184,21 +1246,85 @@ def unsquashfs_files(tool: str, layer: str, dest: str) -> None:
     """Extract a layer in full with the system unsquashfs.  Any nonzero exit
     is fatal: an unreadable layer is a failure, never a clean layer."""
     os.makedirs(dest, exist_ok=True)
-    r = subprocess.run([tool, "-no-progress", "-d", dest, layer],
+    # The build runs this stage unprivileged.  A non-root unsquashfs cannot
+    # create the device nodes every base layer carries (/dev/console ...) and
+    # exits 2 even with -ig; a device node has no content to scan, so that one
+    # failure is tolerated.  Xattrs are not restored (-no-xattrs) for the same
+    # reason.  Every OTHER error is fatal, and the regular files extracted are
+    # then checked against the layer's own listing below.
+    r = subprocess.run([tool, "-no-progress", "-no-xattrs", "-d", dest, layer],
                        capture_output=True, check=False)
-    if r.returncode != 0:
+    err = (r.stderr or b"").decode("utf-8", "replace").splitlines()
+    device_only = re.compile(
+        r"could not create (character device|block device|socket)\b.*not superuser")
+    fatal = [ln for ln in err
+             if re.search(r"(Failed|ERROR|error|could not)\b", ln, re.IGNORECASE)
+             and not device_only.search(ln)
+             and not re.search(r"\d+ errors?\b", ln)]
+    if r.returncode not in (0, 2) or fatal or (r.returncode == 2 and not err):
         tail = (r.stderr or r.stdout)[-600:].decode("utf-8", "replace")
         raise Unreadable(f"unsquashfs cannot fully extract {layer} "
-                         f"(rc={r.returncode}): {tail}")
-    # unsquashfs drops what it cannot restore (xattrs, device nodes) and only
-    # warns.  A layer we cannot extract byte-for-byte is not provably clean.
-    err = (r.stderr or b"").decode("utf-8", "replace").splitlines()
-    fatal = [ln for ln in err
-             if re.search(r"(Failed|ERROR|error): ", ln)
-             and not re.search(r"\d+ errors?\b", ln)]
-    if fatal:
-        raise Unreadable(f"unsquashfs reported extraction failures for {layer}: "
-                         + " | ".join(fatal[:3])[:400])
+                         f"(rc={r.returncode}): "
+                         + (" | ".join(fatal[:3])[:400] if fatal else tail))
+    make_readable(dest)
+    verify_squashfs_extract(tool, layer, dest)
+
+
+def make_readable(root: str) -> None:
+    """Give the (unprivileged) owner read/search on every extracted directory
+    and read on every file: a layer ships mode-000 directories
+    (/run/systemd/dissect-root) whose content would otherwise be skipped."""
+    for dirpath, dirnames, filenames in os.walk(root, onerror=None):
+        for name in dirnames:
+            p = os.path.join(dirpath, name)
+            if not os.path.islink(p):
+                os.chmod(p, (os.lstat(p).st_mode & 0o7777) | 0o700)
+        for name in filenames:
+            p = os.path.join(dirpath, name)
+            st = os.lstat(p)
+            if stat.S_ISREG(st.st_mode) and not st.st_mode & 0o400:
+                os.chmod(p, (st.st_mode & 0o7777) | 0o400)
+
+
+def rmtree_all(path: str) -> None:
+    """rmtree that also removes what make_readable could not open yet."""
+    def fix(func, p, _exc):
+        try:
+            os.chmod(os.path.dirname(p), 0o700)
+            os.chmod(p, 0o700)
+            func(p)
+        except OSError:
+            pass
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=fix)
+    else:
+        shutil.rmtree(path, onerror=fix)
+
+
+def verify_squashfs_extract(tool: str, layer: str, dest: str) -> None:
+    """Every regular file the layer lists must exist in ``dest`` with the
+    listed size: a tolerated unsquashfs exit status must never hide content."""
+    r = subprocess.run([tool, "-lln", layer], capture_output=True, check=False)
+    if r.returncode != 0:
+        raise Unreadable(f"unsquashfs cannot list {layer} (rc={r.returncode})")
+    checked = 0
+    for line in r.stdout.decode("utf-8", "surrogateescape").splitlines():
+        if not line.startswith("-"):
+            continue
+        parts = line.split(None, 5)
+        if len(parts) < 6:
+            raise Unreadable(f"{layer}: unparseable listing line")
+        size, rel = int(parts[2]), parts[5].split("/", 1)[-1]
+        path = os.path.join(dest, rel)
+        try:
+            st = os.lstat(path)
+        except OSError:
+            raise Unreadable(f"{layer}: listed file /{rel} was not extracted")
+        if not stat.S_ISREG(st.st_mode) or st.st_size != size:
+            raise Unreadable(f"{layer}: /{rel} extracted with the wrong size")
+        checked += 1
+    if checked == 0 and b"\n-" in b"\n" + r.stdout:
+        raise Unreadable(f"{layer}: no regular file could be verified")
 
 
 # ---------------------------------------------------------------------------
@@ -1230,10 +1356,7 @@ def scan_payload(rep: Report, scanner: Scanner, layer: str, path: str,
     is_initrd = initrd_kind(path) is not None
     if depth < 3 and (is_initrd or DEB_RE.search(path) or ROOTFS_TAR_RE.search(path)
                       or re.search(r"\.(cpio|cpio\.gz|cpio\.xz|cpio\.zst)$", path)):
-        try:
-            members = list(expand(path, data, path, depth))
-        except Unreadable:
-            raise
+        members = list(expand(path, data, path, depth))
         if members:
             expanded = True
             for mpath, payload in members:
@@ -1246,8 +1369,97 @@ def scan_payload(rep: Report, scanner: Scanner, layer: str, path: str,
             rep.add(layer, path, hits)
 
 
-def scan_layer_tree(rep: Report, scanner: Scanner, layer: str, root: str) -> None:
-    for dirpath, dirnames, filenames in os.walk(root):
+# ---------------------------------------------------------------------------
+# parallel scanning (processes: the matcher is CPU-bound pure Python, so
+# threads serialise on the GIL; a single-threaded walk of a real 20 GiB
+# image was estimated at >14 h)
+# ---------------------------------------------------------------------------
+_WORKER_SCANNER = None
+
+
+def _worker_init(scanner: Scanner) -> None:
+    global _WORKER_SCANNER
+    _WORKER_SCANNER = scanner
+    # A killed build (SIGTERM/SIGKILL on the gate) must not leave matcher
+    # processes behind: ask the kernel to SIGTERM this worker with its parent.
+    try:
+        import ctypes
+        import signal
+        ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+    except (OSError, AttributeError):
+        pass
+
+
+def _scan_task(task):
+    """One unit of work in a worker: (layer, path, file-or-bytes).  Returns
+    the partial counters/findings, or the Unreadable message."""
+    layer, path, src = task
+    rep = Report()
+    try:
+        if isinstance(src, str):
+            try:
+                with open(src, "rb") as fh:
+                    data = fh.read()
+            except OSError as exc:
+                raise Unreadable(f"{layer}: cannot read {path}: {exc}")
+        else:
+            data = src
+        scan_payload(rep, _WORKER_SCANNER, layer, path, data)
+    except Unreadable as exc:
+        return None, str(exc)
+    except MemoryError:
+        return None, f"{layer}: {path}: out of memory while scanning"
+    return (dict(rep.counts), dict(rep.units), rep.findings), None
+
+
+def merge(rep: Report, part) -> None:
+    counts, units, findings = part
+    rep.counts.update(counts)
+    for k, v in units.items():
+        rep.units[k] += v
+    for f in findings:
+        if len(rep.findings) >= 200:
+            break
+        rep.findings.append(f)
+
+
+def expand_eligible(path: str) -> bool:
+    return bool(initrd_kind(path) or DEB_RE.search(path) or ROOTFS_TAR_RE.search(path)
+                or re.search(r"\.(cpio|cpio\.gz|cpio\.xz|cpio\.zst)$", path))
+
+
+def run_tasks(rep: Report, pool, tasks, dups=None) -> None:
+    """Scan tasks on the pool (or inline without one).  ``dups`` maps a task
+    path to the other paths holding byte-identical content in the same scan
+    class; a finding is reported for every one of them."""
+    results = (pool.imap_unordered(_scan_task, tasks, chunksize=4) if pool
+               else map(_scan_task, tasks))
+    for part, err in results:
+        if err:
+            raise Unreadable(err)
+        if dups:
+            extra = []
+            for f in part[2]:
+                for q in dups.get(f["path"], ()):
+                    extra.append({**f, "path": q})
+            part = (part[0], part[1], part[2] + extra)
+        merge(rep, part)
+
+
+def scan_layer_tree(rep: Report, scanner: Scanner, layer: str, root: str,
+                    pool=None) -> None:
+    """Scan every regular file and symlink target under an extracted layer.
+    Byte-identical files in the same scan class (same keyring exclusion and
+    archive expansion decision) are matched once."""
+    tasks = []
+    first: dict[tuple, str] = {}
+    dups: dict[str, list[str]] = collections.defaultdict(list)
+    def walk_error(exc: OSError) -> None:
+        # os.walk skips an unreadable directory silently; for this gate an
+        # unlisted directory is unscanned content, so it is fatal
+        raise Unreadable(f"{layer}: cannot list {exc.filename}: {exc.strerror}")
+
+    for dirpath, dirnames, filenames in os.walk(root, onerror=walk_error):
         dirnames.sort()
         for name in sorted(filenames):
             full = os.path.join(dirpath, name)
@@ -1256,11 +1468,7 @@ def scan_layer_tree(rep: Report, scanner: Scanner, layer: str, root: str) -> Non
                 st = os.lstat(full)
             except OSError as exc:
                 raise Unreadable(f"{layer}: cannot stat {rel}: {exc}")
-            if not stat.S_ISREG(st.st_mode):
-                continue
-            if st.st_nlink > 1 and not os.path.islink(full):
-                rep.counts["hardlinks"] += 1
-            if os.path.islink(full):
+            if stat.S_ISLNK(st.st_mode):
                 # a symlink target is a name; scan it as text
                 try:
                     target = os.readlink(full).encode("utf-8", "replace")
@@ -1271,26 +1479,56 @@ def scan_layer_tree(rep: Report, scanner: Scanner, layer: str, root: str) -> Non
                 if hits:
                     rep.add(layer, rel, hits)
                 continue
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            if st.st_nlink > 1:
+                rep.counts["hardlinks"] += 1
+            h = hashlib.sha256()
             try:
                 with open(full, "rb") as fh:
-                    data = fh.read()
+                    for blk in iter(lambda: fh.read(1 << 20), b""):
+                        h.update(blk)
             except OSError as exc:
                 raise Unreadable(f"{layer}: cannot read {rel}: {exc}")
-            scan_payload(rep, scanner, layer, rel, data)
+            key = (h.digest(), is_public_keyring(rel), expand_eligible(rel))
+            if key in first:
+                dups[first[key]].append(rel)
+                rep.counts["duplicates_skipped"] += 1
+                continue
+            first[key] = rel
+            tasks.append((layer, rel, full))
+    run_tasks(rep, pool, tasks, dups)
 
 
 def walk_image(img: str, scanner: Scanner, workdir: str, hashes_given: bool,
                jobs: int) -> Report:
-    from concurrent.futures import ThreadPoolExecutor
+    import multiprocessing as mp
 
     rep = Report()
+    # fork: workers inherit the loaded hash list; nothing is pickled per task
+    pool = (mp.get_context("fork").Pool(jobs, initializer=_worker_init,
+                                        initargs=(scanner,))
+            if jobs > 1 else None)
+    if pool is None:
+        global _WORKER_SCANNER
+        _WORKER_SCANNER = scanner
+    try:
+        return _walk_image(img, scanner, workdir, rep, pool)
+    finally:
+        if pool is not None:
+            pool.terminate()
+            pool.join()
+
+
+def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
+                pool) -> Report:
     tools = dict(which_all(["unsquashfs", "zstd"]))
     for tool, path in tools.items():
         if tool in ("unsquashfs", "zstd") and not path:
             raise Unreadable(f"the {tool} tool is missing; the gate cannot "
                              "extract the artifact without it")
     try:
-        fh = open(img, "rb")
+        fh = open(img, "rb")  # noqa: SIM115 -- the with below owns it
     except OSError as exc:
         raise Unreadable(f"cannot open the image {img} read-only: {exc}")
     with fh:
@@ -1307,6 +1545,9 @@ def walk_image(img: str, scanner: Scanner, workdir: str, hashes_given: bool,
                 files = fat_walk(fh, part) if kind == "fat" else ext4_walk(fh, part)
             except Unreadable as exc:
                 raise Unreadable(f"partition {part['index']} is unreadable: {exc}")
+            tasks = []
+            unit = "esp" if kind == "fat" else "partition"
+            lname = "esp" if kind == "fat" else f"part{part['index']}"
             for f in files:
                 path = f["path"]
                 data = f["bytes"]
@@ -1316,10 +1557,18 @@ def walk_image(img: str, scanner: Scanner, workdir: str, hashes_given: bool,
                                    "bytes": data, "kind": lk})
                     continue
                 # everything else directly on the partition (ESP files)
-                rep.units["esp" if kind == "fat" else "partition"] += 1
-                scan_payload(rep, scanner,
-                             "esp" if kind == "fat" else f"part{part['index']}",
-                             path, data)
+                rep.units[unit] += 1
+                if len(data) > (64 << 20) and expand_eligible(path):
+                    # a big initrd/archive: expand here so its members are
+                    # matched in parallel instead of in one worker
+                    rep.units[lname] += 1
+                    for mpath, payload in expand(path, data, path):
+                        tasks.append((lname, mpath, payload))
+                else:
+                    tasks.append((lname, path, data))
+            del files
+            run_tasks(rep, pool, tasks)
+            del tasks
 
         if not layers:
             raise Unreadable(
@@ -1334,40 +1583,25 @@ def walk_image(img: str, scanner: Scanner, workdir: str, hashes_given: bool,
             raw = os.path.join(workdir, name + ".squashfs")
             with open(raw, "wb") as out:
                 out.write(layer["bytes"])
+            size = len(layer["bytes"])
+            layer["bytes"] = None          # the extracted tree is the source now
             unsquashfs_files(tools["unsquashfs"], raw, dest)
             os.unlink(raw)
             layer["dest"] = dest
             layer["name"] = os.path.basename(layer["path"])
             layer_dirs.append(layer)
-            rep.layers.append({
-                "path": layer["path"],
-                "partition": layer["part"],
-                "format": "squashfs",
-                "bytes": len(layer["bytes"]),
-                "files": 0,
-            })
-
-        def run(layer):
-            before_units = rep.units[layer["name"]]
-            before_files = rep.counts["files_scanned"]
-            before_bytes = rep.counts["bytes_scanned"]
-            scan_layer_tree(rep, scanner, layer["name"], layer["dest"])
-            # Keyed by the layer PATH, not emission order: attributing stats
-            # by position would silently swap two layers' counts.
-            return (layer["path"], layer["name"],
-                    rep.units[layer["name"]] - before_units,
-                    rep.counts["files_scanned"] - before_files,
-                    rep.counts["bytes_scanned"] - before_bytes)
-
-        with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(layer_dirs)))) as ex:
-            results = list(ex.map(run, layer_dirs))
-        by_path = {entry["path"]: entry for entry in rep.layers}
-        for lpath, name, units, files, nbytes in results:
-            entry = by_path[lpath]
-            entry["name"] = name
-            entry["members_scanned"] = units
-            entry["files_scanned"] = files
-            entry["bytes_scanned"] = nbytes
+            entry = {"path": layer["path"], "partition": layer["part"],
+                     "format": "squashfs", "bytes": size, "files": 0}
+            rep.layers.append(entry)
+            before = (rep.units[layer["name"]], rep.counts["files_scanned"],
+                      rep.counts["bytes_scanned"])
+            scan_layer_tree(rep, scanner, layer["name"], dest, pool)
+            entry["name"] = layer["name"]
+            entry["members_scanned"] = rep.units[layer["name"]] - before[0]
+            entry["files_scanned"] = rep.counts["files_scanned"] - before[1]
+            entry["bytes_scanned"] = rep.counts["bytes_scanned"] - before[2]
+            # one extracted layer on disk at a time
+            rmtree_all(dest)
     return rep
 
 
@@ -1378,7 +1612,8 @@ def default_hash_file(root: str) -> str:
     env = os.environ.get("NCZ_SECRET_HASHES_FILE")
     if env:
         return env
-    return os.path.join(root, "manifests", "secret-hashes.local")
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "ncz", "secret-hashes.json")
 
 
 def main(argv=None) -> int:
@@ -1386,7 +1621,7 @@ def main(argv=None) -> int:
     ap.add_argument("--image", required=True, help="the finished .img")
     ap.add_argument("--receipt", help="write the JSON receipt here")
     ap.add_argument("--hash-file", help="hash list (default: "
-                    "manifests/secret-hashes.local or NCZ_SECRET_HASHES_FILE)")
+                    "NCZ_SECRET_HASHES_FILE, else ~/.config/ncz/secret-hashes.json)")
     ap.add_argument("--allow-detached", action="store_true",
                     help="proceed without a hash list (token shapes only); "
                     "recorded in the receipt as NOT detached-clean")
@@ -1405,6 +1640,11 @@ def main(argv=None) -> int:
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     hash_file = args.hash_file or default_hash_file(root)
+    if (os.path.realpath(hash_file) + os.sep).startswith(os.path.realpath(root) + os.sep):
+        print(f"shipped-secret-scan: FAIL — the hash list {hash_file} is inside the "
+              "repository; keep it under ~/.config/ncz/ (never in a git tree)",
+              file=sys.stderr)
+        return 1
     started = time.time()
     hashes = HashSet()
     hashes_given = False
@@ -1423,7 +1663,7 @@ def main(argv=None) -> int:
         print(f"shipped-secret-scan: FAIL — {hash_error}\n"
               "  The shipped-artifact credential gate is mandatory: run "
               "build/make-secret-hashes.py on a trusted machine and copy the "
-              "result to manifests/secret-hashes.local (or point "
+              "result to ~/.config/ncz/secret-hashes.json (or point "
               "NCZ_SECRET_HASHES_FILE at it).  --allow-detached only records "
               "that the hashed half of the gate did not run.", file=sys.stderr)
         return 1
@@ -1448,7 +1688,7 @@ def main(argv=None) -> int:
         failed = True
         error = "the image needs more memory than this host has"
     finally:
-        shutil.rmtree(scratch, ignore_errors=True)
+        rmtree_all(scratch)
 
     elapsed = round(time.time() - started, 1)
     img_bytes = os.path.getsize(args.image) if os.path.exists(args.image) else 0
