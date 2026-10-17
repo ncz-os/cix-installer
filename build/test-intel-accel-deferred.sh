@@ -834,6 +834,15 @@ printf 'deb https://example.invalid/ncz ./\n' > "$W/r/etc/apt/vendor.list"
 run _ncz_intel_repos_all_local && ok "a stray etc/apt/vendor.list (not read by apt) is ignored" \
     || bad "etc/apt/vendor.list counted as a configured source"
 rm -f "$W/r/etc/apt/vendor.list" "$W/r/etc/apt/sources.list"
+mkroot; rm -f "$_srcd"/*.list "$_srcd"/*.sources "$W/r/etc/apt/sources.list"
+printf 'deb https://example.invalid/ncz ./\n' > "$_srcd/ncz.disabled-for-build.list"
+run _ncz_intel_repos_all_local && bad "ncz.disabled-for-build.list (read by apt) was skipped" \
+    || ok "a .list named *.disabled-for-build.list is read, as apt reads it"
+rm -f "$_srcd/ncz.disabled-for-build.list"
+printf 'deb https://example.invalid/ncz ./\n' > "$_srcd/ncz.list.disabled-for-build.Ab12Cd"
+run _ncz_intel_repos_all_local && ok "a 55-t2-firmware backup (not *.list) is ignored, as apt ignores it" \
+    || bad "a .disabled-for-build backup counted as a source"
+rm -f "$_srcd/ncz.list.disabled-for-build.Ab12Cd"
 _src_case remote "deb822 folded URIs"    'Types: deb' 'URIs: file:///srv/mirror' ' https://deb.debian.org/debian' 'Suites: forky'
 grep -q "ncz_intel_accel_run' _ \"\$lib\" >/dev/null 2>&1 || true" "$UA" \
     && ok "ncz-update-apply: a still-deferred re-check (rc 75) cannot fail the refresh under set -e" \

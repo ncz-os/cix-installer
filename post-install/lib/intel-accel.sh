@@ -159,7 +159,9 @@ _ncz_intel_repos_all_local() {
         # No match (or no directory) leaves the literal pattern as $f: not a
         # regular file (a dangling symlink is not one either), so skip it.
         [ -f "$f" ] || continue
-        case "$f" in *.disabled-for-build|*.disabled-for-build.*) continue ;; esac
+        # (55-t2-firmware backups are NAME.list.disabled-for-build[.XXXXXX]:
+        # they do not end in .list/.sources, so the glob never sees them and
+        # apt never reads them; a file that does end in .list is read by apt)
         # Any ACTIVE remote-origin deb line disqualifies "all local".
         # deb822 (.sources) files use "URIs: <uri>"; check both shapes.
         if _ncz_intel_has_remote_uri "$f"; then
