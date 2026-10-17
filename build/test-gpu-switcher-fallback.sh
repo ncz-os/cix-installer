@@ -281,14 +281,18 @@ done
 # with multiple files returns 0 if the pattern is in ANY of them, so a single
 # shared call would mask a warning that surfaced only on stderr (review finding,
 # 2026-10-17). Either stream carrying the warning fails the assertion.
+# When the pattern is found in _both_ streams, prefer stderr over stdout so the
+# "where did it go" diagnostic is the right place (the warning line is emitted
+# with err() -> stderr in the switcher).
 mksb "root=x sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko panthor.ko
 printf '# stale\n' > "$BL"
 before=$(ls -i "$BL" | awk '{print $1}'); rc=$(runsw); after=$(ls -i "$BL" | awk '{print $1}')
 _degraded=0
-[ -s "$SB/out" ] && grep -q 'no usable mktemp' "$SB/out" && _degraded=1
-[ -s "$SB/err" ] && grep -q 'no usable mktemp' "$SB/err" && _degraded=1
+_degraded_stream=""
+[ -s "$SB/out" ] && grep -q 'no usable mktemp' "$SB/out" && { _degraded=1; _degraded_stream=stdout; }
+[ -s "$SB/err" ] && grep -q 'no usable mktemp' "$SB/err" && { _degraded=1; _degraded_stream=stderr; }
 [ "$rc" = 0 ] && [ "$before" != "$after" ] && [ "$_degraded" = 0 ] \
-    && ok "healthy mktemp: rename path taken, no degradation warning" || bad "healthy path regressed (rc=$rc)" "$(cat "$SB/out" "$SB/err")"
+    && ok "healthy mktemp: rename path taken, no degradation warning" || bad "healthy path regressed (rc=$rc _degraded=$_degraded via $_degraded_stream)" "$(cat "$SB/out" "$SB/err")"
 
 echo "gpu switcher fallback tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
