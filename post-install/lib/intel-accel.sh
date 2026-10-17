@@ -366,26 +366,58 @@ ncz_intel_npu_drivers_present() {
 #     still incomplete, but it still prints the GPU plugin (if any) so the
 #     caller can install what's there.
 ncz_intel_packages() {
-    _v=$(ncz_intel_native_opencl_vers "$1" "$2") || return $?
-    set -- $1 $2 $_v
-    _g=$3; _n=$4
+    # Each requested class is resolved on its own. ncz_intel_native_opencl_vers
+    # fails as a whole when ANY requested class has no candidate, which would
+    # throw away a class that IS published: with GPU=1 NPU=1 and only the NPU
+    # plugin unpublished, the GPU plugin is still installable and must be
+    # installed now while the NPU half is deferred. So probe per class and
+    # remember which classes are missing.
+    _g=; _n=; _missg=0; _missn=0
+    if [ "$1" = 1 ]; then
+        _g=$(ncz_intel_pick_native_vers libopenvino-intel-gpu-plugin-) || _g=
+        [ -n "$_g" ] || _missg=1
+    fi
+    if [ "$2" = 1 ]; then
+        _n=$(ncz_intel_pick_native_vers libopenvino-intel-npu-plugin-) || _n=
+        [ -n "$_n" ] || _missn=1
+    fi
     _p=""
-    [ "$1" = 1 ] && _p="libopenvino-intel-gpu-plugin-$_g"
+    [ "$1" = 1 ] && [ -n "$_g" ] && _p="libopenvino-intel-gpu-plugin-$_g"
     _npustate=0
     if [ "$2" = 1 ]; then
-        if ncz_intel_npu_drivers_present; then
+        if [ -n "$_n" ] && ncz_intel_npu_drivers_present; then
             _p="$_p libopenvino-intel-npu-plugin-$_n"
             for _u in $(ncz_intel_required_npu_drivers); do
                 _p="$_p $_u"
             done
-        else
+        elif [ -n "$_n" ]; then
             # NPU plugin is NOT safe without its driver/compiler/firmware
             # stack; the caller (rc=2) will defer. Don't include it in the
             # output list; the GPU plugin (if any) is still installed.
             _npustate=2
+        else
+            # The NPU plugin itself is unpublished, so the drivers alone
+            # cannot assemble a NPU stack. Same deferral, but the reason is
+            # a missing candidate (rc=1 territory) rather than a missing
+            # driver set; both are "retry once published", so keep rc=2.
+            _npustate=2
         fi
     fi
     echo "$_p" | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' '
+    # Return value = the FIRST class still missing, so a published class is
+    # installed by the caller while the missing one drives the retry:
+    #   rc 1 -> a native candidate (the GPU plugin, or the NPU plugin when no
+    #           driver gap applies) is unpublished;
+    #   rc 2 -> the NPU plugin is published but its driver set is not.
+    # rc 1 is reported in preference to rc 2: both defer when the index is
+    # fresh, but rc 1 also carries the "fresh index" classification when the
+    # GPU half is the gap and the NPU half is fine.
+    if [ "$_missg" = 1 ]; then
+        # A missing GPU plugin is a publication gap. It is returned even when
+        # the NPU half also has a gap, because the caller keys the deferred
+        # classification off rc 1.
+        return 1
+    fi
     [ "$_npustate" = 0 ] || return "$_npustate"
 }
 
@@ -489,15 +521,20 @@ ncz_intel_setup() {
     case "$_rc" in
         0) _npustate=0 ;;
         1)
-            # A requested class has no candidate (ncz_intel_packages ->
-            # ncz_intel_native_opencl_vers). When the index is fresh (remote
-            # sources, apt-get update succeeded, Debian set resolved) this
-            # is a PUBLICATION LAG, not a connectivity failure: the
-            # candidate simply has not been published yet. The GPU plugin
-            # (if any) was already installed above; the missing class is
-            # handled through the deferred-retry path via
-            # NCZ_INTEL_DEFERRED, which the caller (ncz_intel_accel_run)
-            # checks after the fast budget is exhausted.
+            # A requested class has no candidate. Install the class that IS
+            # published first: with GPU=1 NPU=1 and only the NPU plugin
+            # unpublished, _pk carries the GPU plugin (and vice versa) and a
+            # machine must not wait for the other class to get it. Only then
+            # classify the gap. When the index is fresh (remote sources,
+            # apt-get update succeeded, Debian set resolved) this is a
+            # PUBLICATION LAG, not a connectivity failure: the candidate
+            # simply has not been published yet, and the deferred-retry path
+            # via NCZ_INTEL_DEFERRED (checked by ncz_intel_accel_run after
+            # the fast budget) takes over.
+            if [ -n "${_pk// /}" ]; then
+                # shellcheck disable=SC2086
+                ncz_intel_apt_install $_pk || return $?
+            fi
             if [ "${NCZ_INTEL_INDEX_FRESH:-0}" = 1 ]; then
                 ncz_intel_log "native candidate not yet published (fresh index); will retry, then defer" >&2
                 NCZ_INTEL_DEFERRED=1

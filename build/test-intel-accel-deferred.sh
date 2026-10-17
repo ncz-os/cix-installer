@@ -48,7 +48,8 @@ case "$1" in
     pkgnames)
         case "$2" in
             libopenvino-intel-gpu-plugin-)
-                [ "$NET" = up ] && printf 'libopenvino-intel-gpu-plugin-2026.3.1\nlibopenvino-intel-gpu-plugin-2026.4.1\n' ;;
+                [ "$NET" = up ] && [ "${GPUPKGS:-1}" = 1 ] \
+                    && printf 'libopenvino-intel-gpu-plugin-2026.3.1\nlibopenvino-intel-gpu-plugin-2026.4.1\n' ;;
             libopenvino-intel-npu-plugin-)
                 [ "$NET" = up ] && [ "${NPUPKGS:-0}" = 1 ] \
                     && printf 'libopenvino-intel-npu-plugin-2026.4.1\n' ;;
@@ -71,7 +72,9 @@ case "$1" in
                 ;;
             libopenvino-intel-gpu-plugin-*)
                 echo "$2:"
-                if [ "${VENDOR_ONLY:-0}" = 1 ]; then
+                if [ "${GPUPKGS:-1}" != 1 ]; then
+                    echo "  Candidate: (none)"
+                elif [ "${VENDOR_ONLY:-0}" = 1 ]; then
                     echo "  Candidate: 2026.4.1.22982"
                 else
                     echo "  Candidate: 1:2026.4.1.1-ncz1"
@@ -559,6 +562,42 @@ NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=0 NPUDRIVERS=1 run ncz_intel_accel_run; _rc
 [ "$_rc6" = 0 ] && grep -qx 'deferred:native-candidates-unpublished' "$S" && [ -f "$P" ] \
     && ok "NPU-plugin gap defers past the budget with the marker kept" \
     || bad "npu-plugin-gap deferred run rc=$_rc6 status '$(cat "$S")'"
+
+echo "=== per-class resolution: an unpublished NPU plugin must not drop a published GPU plugin ==="
+# ncz_intel_native_opencl_vers fails as a WHOLE when any requested class has
+# no candidate. Resolving the set through it therefore threw away a class
+# that WAS published: with GPU=1 NPU=1 and only the NPU plugin unpublished,
+# the published GPU plugin was never passed to apt, so a machine waited for
+# the NPU publish to get its GPU userland too. Each class is now resolved on
+# its own and the installable half installs immediately.
+mkroot
+: > "$LOG"
+NET=up NCZ_INTEL_MAX_TRIES=2 NPUPKGS=0 NPUDRIVERS=1 run ncz_intel_accel_install 1 1
+inst=$(grep ' install -y' "$LOG")
+printf '%s\n' "$inst" | grep >/dev/null -w -- libopenvino-intel-gpu-plugin-2026.4.1 \
+    && ok "NPU plugin unpublished: the published GPU plugin still installs" \
+    || bad "NPU plugin unpublished: the published GPU plugin was NOT installed" "$inst"
+! printf '%s\n' "$inst" | grep >/dev/null -wE 'libopenvino-intel-npu-plugin|intel-driver-compiler-npu' \
+    && ok "NPU plugin unpublished: no partial NPU stack is installed" \
+    || bad "NPU plugin unpublished: a partial NPU stack was installed" "$inst"
+[ -f "$P" ] && ! grep -qx done "$S" \
+    && ok "NPU plugin unpublished: still pending (the GPU half did not mark done)" \
+    || bad "NPU plugin unpublished: status/marker wrong ('$(cat "$S")')"
+# The mirror image: an unpublished GPU plugin must not drop a published NPU
+# stack either.
+mkroot
+: > "$LOG"
+NET=up GPUPKGS=0 NCZ_INTEL_MAX_TRIES=2 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_install 1 1
+inst=$(grep ' install -y' "$LOG")
+for p in libopenvino-intel-npu-plugin-2026.4.1 \
+         intel-driver-compiler-npu intel-fw-npu intel-level-zero-npu intel-validation-npu; do
+    printf '%s\n' "$inst" | grep >/dev/null -w -- "$p" \
+        && ok "GPU plugin unpublished: the published NPU stack still installs ($p)" \
+        || bad "GPU plugin unpublished: $p was NOT installed" "$inst"
+done
+[ -f "$P" ] && ! grep -qx done "$S" \
+    && ok "GPU plugin unpublished: still pending (the NPU half did not mark done)" \
+    || bad "GPU plugin unpublished: status/marker wrong ('$(cat "$S")')"
 
 echo "=== deferred policy: network-down stays failed:gave-up-* (old semantics) ==="
 # No fresh index fetchable: the 75 is NOT deferred-unpublished, so the
