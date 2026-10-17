@@ -447,7 +447,10 @@ ncz_gate_srv_start() {
     local bind="$1" host port
     host=${bind#*://}; host=${host%%/*}; host=${host%%:*}
     [ -n "$host" ] || host=10.0.2.2
-    port=${bind##*:}; case "$port" in *[!0-9]*|'') port=80 ;; esac
+    # The port comes from the authority only (scheme://host[:port]/path).
+    port=${bind#*://}; port=${port%%/*}
+    case "$port" in *:*) port=${port##*:} ;; *) port=80 ;; esac
+    case "$port" in *[!0-9]*|'') port=80 ;; esac
     # 10.0.2.2 is the guest's view of the gate host under QEMU user-net:
     # slirp forwards it to the host's loopback, and the host itself has no
     # 10.0.2.2 address to bind. Any other pinned host must be an address of
@@ -723,7 +726,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" = 1 ]; then
     mkdir -p "$EVIDENCE"
     EVIDENCE_DISK="$WORK/.target-evidence.raw"
     EVIDENCE_ROOT="$WORK/.target-root-evidence.raw"
-    _neg_osrel=""; _neg_installed=""; _neg_varls=""
+    _neg_osrel=""; _neg_installed=""; _neg_varls=""; _neg_checked=0
     rm -f "$EVIDENCE_DISK" "$EVIDENCE_ROOT"
     if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK" >/dev/null 2>&1; then
         ROOT_PART=$(ncz_last_partnum "$EVIDENCE_DISK" || true)
@@ -750,11 +753,14 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" = 1 ]; then
                         fail "negative server run: /var/lib/dpkg on the target disk -- debootstrap wrote to the target despite the fetch failure"
                     fi
                     echo "  negative run: the root partition holds no os-release, no extracted tree, no dpkg database -- nothing was installed"
+                    _neg_checked=1
                 fi
             fi
         fi
     fi
     rm -f "$EVIDENCE_DISK" "$EVIDENCE_ROOT" "$_neg_osrel" "$_neg_installed" "$_neg_varls" 2>/dev/null || true
+    [ "$_neg_checked" = 1 ] \
+        || fail "negative server run: could not read the target disk's root partition, so the no-rootfs contract is unproven"
     ncz_srv_cleanup
     trap - EXIT
     echo

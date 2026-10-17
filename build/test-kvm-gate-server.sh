@@ -171,7 +171,6 @@ t0=$(date +%s)
 if NCZ_PAYLOAD_DIR="$DEST_OFF" NCZ_FETCH_MAX_TRIES=2 NCZ_FETCH_CONNECT_TIMEOUT=1 NCZ_FETCH_OVERALL_TIMEOUT=30 timeout 90 "$FETCH" > "$WORK/fetch-off.log" 2>&1; then
     bad "negative: the fetch SUCCEEDED with the server stopped"
 else
-    rc=$?
     t1=$(date +%s); dt=$((t1 - t0))
     [ "$dt" -gt 45 ] && bad "negative: the fetch took ${dt}s (not bounded)" \
         || ok "negative: with the server stopped the fetch failed in ${dt}s (bounded) — the gate's offline run must look like this"
