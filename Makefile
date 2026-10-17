@@ -576,7 +576,9 @@ test-platform:
 .PHONY: test-magnetar-server-variant
 test-magnetar-server-variant:
 	@python3 -m pytest $(ROOT)/build/iso/tests/test_write_usb_image_server_variant.py -q
+	@python3 -m pytest $(ROOT)/build/iso/tests/test_kvm_gate_server_matrix.py -q
 	@sh $(ROOT)/build/iso/tests/test-ncz-fetch-payload.sh
+	@bash $(ROOT)/build/test-kvm-gate-server.sh
 
 # boot-speed regression tests: no Type=oneshot unit may
 # sit in multi-user.target's critical chain just to poll for the network.

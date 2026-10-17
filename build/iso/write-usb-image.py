@@ -386,6 +386,33 @@ def _tar_members(tar: tarfile.TarFile, path: Path,
     return out
 
 
+def ncz_gate_serve_payload_base_url(arch: str, host: str | None = None) -> str:
+    """The base URL the Magnetar KVM gate serves from.
+
+    The gate (build/kvm-install-gate-matrix.sh ``server`` set) binds an HTTP
+    server to the QEMU user-net gateway 10.0.2.2 and the guest's fetcher
+    reads its URLs from the medium's ncz-fetch-payload.manifest. A server
+    image built by THIS repo's build (make image ARCH=... NCZ_VARIANT=server)
+    for the gate must pin this base (a release medium pins the published
+    payload instead, which the gate cannot serve). This is the single source
+    of the gate's base URL; the gate reads the pin back off the medium and
+    refuses one it cannot serve, so the two cannot drift.
+
+    ``host`` overrides the bind address for non-standard networks (the gate's
+    NCZ_GATE_SERVER_HOST does the same at run time); it defaults to the QEMU
+    user-net gateway, which is the guest's default network on every arch this
+    gate runs (qemu-system-x86_64 and qemu-system-aarch64 both use -netdev
+    user with the stock gateway).
+    """
+    h = host or os.environ.get("NCZ_GATE_SERVER_HOST", "10.0.2.2")
+    h = h.strip()
+    if ":" in h:  # tolerate a host:port form on the environment override
+        h = h.split(":", 1)[0]
+    if not h or "/" in h:
+        raise RuntimeError(f"FATAL: bad NCZ_GATE_SERVER_HOST {h!r} (want an IP or hostname)")
+    return f"http://{h}"
+
+
 def make_targz(src_dir: Path, entries: list[str], out: Path) -> int:
     """Deterministic gzip tar of ``entries`` (relative to ``src_dir``).
 
@@ -1801,6 +1828,11 @@ def main() -> int:
         receipt = {
             "schema_version": "ncz-usb-image-receipt/v1",
             "arch": args.arch,
+            # Which variant THIS medium is (desktop default / server = the
+            # payload comes off the network). Consumers of the receipt --
+            # the KVM gate's server sets, the orchestrator -- read this
+            # instead of re-deriving it from the medium's contents.
+            "variant": _variant(),
             "out": str(args.out),
             "out_sha256": sha256_file(args.out),
             "out_size": args.out.stat().st_size,

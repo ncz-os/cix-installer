@@ -1312,7 +1312,16 @@ stage_kvm_gate() {
     # every option off) and once over a disk that held an older install (btrfs
     # root over old ext4 signatures), each in its own work dir. build/kvm-install-gate-matrix.sh
     # names the sets; NCZ_KVM_GATE_VARIANTS overrides the list ("all" = every set).
-    local sets="${NCZ_KVM_GATE_VARIANTS:-norescue minimal stalefs}" mrc=0
+    local sets mrc=0
+    if [ "${NCZ_VARIANT:-desktop}" = server ]; then
+        # Magnetar server build: the KVM gate also runs the server variant
+        # sets (the gate serves base.squashfs + the asset bundle from its own
+        # HTTP server; the negative set proves a stopped server fails loud +
+        # bounded and installs nothing).
+        sets="${NCZ_KVM_GATE_VARIANTS:-norescue minimal stalefs server server-offline-negative}"
+    else
+        sets="${NCZ_KVM_GATE_VARIANTS:-norescue minimal stalefs}"
+    fi
     echo "[kvm-gate] install-option sets: $sets" | tee -a "$log"
     ( cd "$ROOT" && ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_KVM_GATE_VARIANTS='$sets' bash build/kvm-install-gate-matrix.sh '$img' '$work-options'" ) 2>&1 | tee -a "$log"
     mrc="${PIPESTATUS[0]}"

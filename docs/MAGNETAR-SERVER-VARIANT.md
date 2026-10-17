@@ -168,10 +168,58 @@ desktop call (proved by the A/B above) and a fix for the extract-root form.
 
 ## Not yet proven
 
-`build/kvm-install-gate-gpt.sh` has **not** been run against a server image:
-the measurement build on this host had no sudo, so the loop-mount step of
-`build_data_partition_img()` was not exercised end to end and no install was
-driven through the fetcher. The fetch script's own failure and idempotency
-behaviour *is* covered against a real HTTP server by the test above; the
-medium-level integration is not. Treat the KVM install gate as the remaining
-gate before a server image is published.
+`build/kvm-install-gate-gpt.sh`'s **server variant mode** has **not** been
+run against a real server image. The 2026-10-17 work added two
+`NCZ_KVM_GATE_VARIANTS` sets to the gate (`server`,
+`server-offline-negative`), the `NCZ_PAYLOAD_URL`/`NCZ_ASSETS_URL`
+environment override, and a local HTTP server the gate starts on the
+QEMU user-net gateway before the guest boots. Proven so far:
+
+- **The payload HTTP server is a tested path.** `build/test-kvm-gate-server.sh`
+  runs the exact `python3 - "$SRV_DIR" "$host" "$port" <<'PY'` heredoc
+  invocation the gate uses, proves `sys.argv[1:]` carries the arguments,
+  starts the server, GETs both served artifacts through it, and tears it
+  down. This runs in CI (it is part of `make test`), on a local port,
+  rootless.
+- **The gate's server-set assertions are unit-tested** by
+  `build/iso/tests/test_kvm_gate_server_matrix.py` (matrix wiring, the
+  fetcher's refusal behaviour on a stopped server, the menu/ssh/desktop
+  assertions against synthetic installed-root artifacts).
+- **The build side** (`NCZ_VARIANT=server` medium: server menu, no desktop
+  packages, fetcher pins (the gate's serve base for a gate medium, the published payload for release), BUILD_VARIANT
+  stamped) is unit-tested by `test_write_usb_image_server_variant.py` and
+  the build-image.sh / write-usb-image.py changes pass their suites.
+
+**Not yet proven: the orchestrator's real gate run** — a full QEMU install
+of a `NCZ_VARIANT=server` medium through the `server` set (guest reaches
+the gate's 10.0.2.2 server, fetches + sha256-verifies the payload from
+the network, installs, and all the installed-root assertions pass) and the
+`server-offline-negative` run (loud bounded failure, no half-written
+rootfs). First real run: record its result here (arch, run date, PASS/FAIL
+per set, and the evidence paths).
+
+**Known gap: `build-image.sh` does not yet drive a server gate end to end.**
+Found in review 2026-10-17; each fails loudly, none affects desktop builds:
+
+- Nothing pins a gate medium to the gate's server: `ncz_gate_serve_payload_base_url()`
+  has no caller, so `NCZ_PAYLOAD_URL`/`NCZ_PAYLOAD_SHA256`/`NCZ_ASSETS_URL` must be
+  supplied by hand for `NCZ_VARIANT=server`.
+- `write-usb-image.py` builds the asset bundle inside its own work dir and deletes it
+  on exit, so the gate has no bundle to serve.
+- `stage_kvm_gate` runs the first (full) gate and the default `norescue minimal stalefs`
+  sets in desktop mode on a server image, and passes `$RUN_DIR/kvm-gate-options/<set>`
+  to the gate, whose default payload paths then resolve under `kvm-gate-options/`.
+
+Until this is wired, run the server sets by hand with `NCZ_GATE_SERVER_PAYLOAD` and
+`NCZ_GATE_SERVER_ASSETS` set.
+
+The accelerator hook's server-mode branch (skip `ncz-vc4-sway-
+accelerators` on the variant root, skip the rEFInd Mali/Panthor +
+no-accel entries) runs only when a `BUILD_VARIANT=server` medium is
+installed; its assertions are the server-set assertions above.
+
+(Pre-2026-10-17, the gate had no server mode at all; the measurement
+build that wrote the first version of this doc also had no sudo, so the
+loop-mount step of `build_data_partition_img()` was not exercised end to
+end. The fetch script's own failure and idempotency behaviour *is* covered
+against a real HTTP server by the fetcher test above.)
