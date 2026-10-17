@@ -209,38 +209,21 @@ class ServerVariantStagingBase(unittest.TestCase):
         for row in rows:
             self.assertEqual(len(row[2]), 64, "every pin must be a sha256")
 
-    def test_server_pins_must_match_the_kvm_gate_serve_base(self):
-        """A server medium whose pin the KVM gate cannot serve cannot prove
-        the network path; the build must refuse it at build time."""
-        payload = fake_payload_dir(self.tmp / "n3", with_base=False)
-        stage_dir = self.tmp / "n3" / "stage"
-        stage_dir.mkdir(parents=True)
-        base = MODULE.ncz_gate_serve_payload_base_url("amd64")
-        with mock.patch.dict(os.environ, {
-                "NCZ_VARIANT": "server",
-                "NCZ_PAYLOAD_URL": "https://example.invalid/base.squashfs",
-                "NCZ_PAYLOAD_SHA256": "a" * 64,
-                "NCZ_ASSETS_URL": "https://example.invalid/ncz-assets-amd64.tar.gz"},
-                clear=False), \
-             mock.patch.object(MODULE, "REPO_ROOT", self.repo), \
-             mock.patch.object(MODULE, "stage_ssplugin_deb", return_value=None):
-            with self.assertRaises(RuntimeError) as ctx:
-                MODULE.build_ncz_payload_tree(
-                    stage_dir, payload, "amd64", None, self.repo / "preseed",
-                    allow_missing_stub=True,
-                    post_install_dir=self.repo / "post-install",
-                    build_version="test", online_work_dir=self.tmp / "n3" / "online")
-        self.assertIn("serve base", str(ctx.exception))
-        # The gate's own base is accepted: the pin it will serve and verify.
-        with mock.patch.dict(os.environ, {
-                "NCZ_VARIANT": "server",
-                "NCZ_PAYLOAD_URL": base + "/base.squashfs",
-                "NCZ_PAYLOAD_SHA256": "a" * 64,
-                "NCZ_ASSETS_URL": base + "/ncz-assets-amd64.tar.gz"},
-                clear=False):
-            plan = MODULE.server_online_fetch_plan("amd64")
-        self.assertEqual(plan["payload_url"], base + "/base.squashfs")
-        self.assertEqual(plan["assets_url"], base + "/ncz-assets-amd64.tar.gz")
+    def test_server_accepts_release_and_gate_pins(self):
+        """A release medium pins the published payload; a gate medium pins
+        the KVM gate's serve base. The build accepts both (the gate itself
+        refuses a medium whose pins it cannot serve)."""
+        base = MODULE.ncz_gate_serve_payload_base_url(self.arch)
+        for prefix in ("https://example.invalid", base):
+            with mock.patch.dict(os.environ, {
+                    "NCZ_VARIANT": "server",
+                    "NCZ_PAYLOAD_URL": prefix + "/base.squashfs",
+                    "NCZ_PAYLOAD_SHA256": "a" * 64,
+                    "NCZ_ASSETS_URL": f"{prefix}/ncz-assets-{self.arch}.tar.gz"},
+                    clear=False):
+                plan = MODULE.server_online_fetch_plan(self.arch)
+            self.assertEqual(plan["payload_url"], prefix + "/base.squashfs")
+            self.assertEqual(plan["assets_url"], f"{prefix}/ncz-assets-{self.arch}.tar.gz")
 
     def test_server_refuses_to_build_without_pins(self):
         payload = fake_payload_dir(self.tmp / "n2", self.arch, with_base=False)

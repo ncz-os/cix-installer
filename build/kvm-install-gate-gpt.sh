@@ -424,7 +424,7 @@ rm -rf "$EVIDENCE"
 SRV_DIR=""
 SRV_PID=""
 SRV_URL_BASE=""
-SRV_BIND_PORT=""
+SRV_LOCAL_HOST=""
 ncz_srv_cleanup() {
     [ -n "$SRV_PID" ] && kill "$SRV_PID" 2>/dev/null || true
     [ -n "$SRV_PID" ] && wait "$SRV_PID" 2>/dev/null || true
@@ -445,6 +445,14 @@ ncz_gate_srv_start() {
     host=${bind#*://}; host=${host%%/*}; host=${host%%:*}
     [ -n "$host" ] || host=10.0.2.2
     port=${bind##*:}; case "$port" in *[!0-9]*|'') port=80 ;; esac
+    # 10.0.2.2 is the guest's view of the gate host under QEMU user-net:
+    # slirp forwards it to the host's loopback, and the host itself has no
+    # 10.0.2.2 address to bind. Any other pinned host must be an address of
+    # this host (NCZ_GATE_SERVER_HOST at build time), reached through slirp's NAT.
+    case "$host" in
+        10.0.2.2) SRV_LOCAL_HOST=127.0.0.1 ;;
+        *)        SRV_LOCAL_HOST="$host" ;;
+    esac
     SRV_DIR="$WORK/srv"
     rm -rf "$SRV_DIR"; mkdir -p "$SRV_DIR"
     cp "$NCZ_GATE_SERVER_PAYLOAD" "$SRV_DIR/base.squashfs"
@@ -453,7 +461,7 @@ ncz_gate_srv_start() {
     # the args through sys.argv[1:] (argv[0] is '-'); a local run of exactly
     # this form is part of build/test-kvm-gate-server.sh, so the invocation
     # itself is a tested path, not an assumption.
-    python3 - "$SRV_DIR" "$host" "$port" <<'PY' >"$WORK/srv.log" 2>&1 &
+    python3 - "$SRV_DIR" "$SRV_LOCAL_HOST" "$port" <<'PY' >"$WORK/srv.log" 2>&1 &
 import http.server, os, socketserver, sys
 os.chdir(sys.argv[1])
 class H(http.server.SimpleHTTPRequestHandler):
@@ -482,7 +490,7 @@ PY
             echo "GATE FAIL: the payload HTTP server died at startup: $(tail -3 "$WORK/srv.log" 2>/dev/null | tr '\n' '; ')" >&2
             exit 2
         fi
-        if python3 - "$host" "$port" <<'PY' 2>/dev/null
+        if python3 - "$SRV_LOCAL_HOST" "$port" <<'PY' 2>/dev/null
 import socket, sys
 s = socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=2)
 s.sendall(b"GET /base.squashfs HTTP/1.0\r\nHost: " + sys.argv[1].encode() + b"\r\n\r\n")
@@ -498,7 +506,6 @@ sys.exit(0 if status.endswith(" 200 OK") else 1)
 PY
         then
             SRV_URL_BASE="$bind"
-            SRV_BIND_PORT="$port"
             return 0
         fi
         sleep 0.5; i=$((i + 1))
@@ -570,16 +577,19 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # end of the headers, which handles fragmented replies) so a wrong pin is
     # a gate error instead of a 90-minute install.
     _srv_check_url() {
-        # $1 = URL; prints the HTTP status line or "NO-RESPONSE"
-        python3 - "${1#*://}" <<'PY' 2>/dev/null
+        # $1 = pinned URL; requests its exact path from the gate's own server
+        # (on SRV_LOCAL_HOST, which is where the guest's gateway lands) and
+        # prints the HTTP status line or "NO-RESPONSE".
+        python3 - "$1" "$SRV_LOCAL_HOST" <<'PY' 2>/dev/null || echo NO-RESPONSE
 import socket, sys
-target = sys.argv[1]
-path = target.split("/", 3)
-hostport = path[2]
-host, port = hostport.rsplit(":", 1) if ":" in hostport else (hostport, "80")
-rest = "/" + path[3] if len(path) > 3 else "/"
-s = socket.create_connection((host, int(port)), timeout=5)
-s.sendall(b"GET " + rest.encode() + b" HTTP/1.0\r\nHost: " + host.encode() + b"\r\n\r\n")
+from urllib.parse import urlsplit
+u = urlsplit(sys.argv[1])
+host, port = sys.argv[2], u.port or 80
+rest = u.path or "/"
+if u.query:
+    rest += "?" + u.query
+s = socket.create_connection((host, port), timeout=5)
+s.sendall(b"GET " + rest.encode() + b" HTTP/1.0\r\nHost: " + (u.hostname or host).encode() + b"\r\n\r\n")
 buf = b""
 s.settimeout(10)
 while b"\r\n\r\n" not in buf:
@@ -632,7 +642,7 @@ PROBE_LOG="$WORK/installer-probe.log"
 rm -f "$PROBE_LOG"
 "$SCRIPT_DIR/kvm-installer-probe.sh" sample "$FWD_SSH_INSTALL" "$PROBE_LOG" 15 &
 PROBE_PID=$!
-trap 'kill "$PROBE_PID" 2>/dev/null; wait "$PROBE_PID" 2>/dev/null' EXIT
+trap 'kill "$PROBE_PID" 2>/dev/null; wait "$PROBE_PID" 2>/dev/null; ncz_srv_cleanup' EXIT
 set +e
 timeout "$INSTALL_TIMEOUT" "$QEMU" \
   -M "$MACHINE" -accel "$ACCEL" -cpu "$CPU" -smp "$SMP" -m "$MEM" \
@@ -652,7 +662,7 @@ timeout "$INSTALL_TIMEOUT" "$QEMU" \
   > "$ILOG" 2>&1 &
 QEMU_PID=$!
 # An interrupted gate must not leave the guest running.
-trap 'kill "$QEMU_PID" "$PROBE_PID" 2>/dev/null; wait "$QEMU_PID" "$PROBE_PID" 2>/dev/null; exit 130' INT TERM
+trap 'kill "$QEMU_PID" "$PROBE_PID" 2>/dev/null; wait "$QEMU_PID" "$PROBE_PID" 2>/dev/null; ncz_srv_cleanup; exit 130' INT TERM
 # A failed finish leaves d-i on its error dialog until the timeout (90 min).
 # Stop the guest as soon as the serial console shows a terminal failure; the
 # checks below then report it from the logs as usual.
@@ -683,6 +693,9 @@ wait "$QEMU_PID"
 irc=$?
 trap - INT TERM
 kill "$PROBE_PID" 2>/dev/null; wait "$PROBE_PID" 2>/dev/null
+# Phase 1 is over: the guest fetched (or failed to fetch) its payload, and
+# the installed system boots offline, so the payload server stops here.
+ncz_srv_cleanup
 trap - EXIT
 set -e
 cat "$S0" >> "$ILOG" 2>/dev/null

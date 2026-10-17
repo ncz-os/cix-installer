@@ -112,8 +112,8 @@ def test_python_invocation_passes_arguments():
 def test_gate_uses_the_tested_invocation_form():
     g = read("build/kvm-install-gate-gpt.sh")
     # The exact form: python3 - <args> with a heredoc body (not -c).
-    assert re.search(r"python3 - \"\$SRV_DIR\" \"\$host\" \"\$port\"", g), \
-        "the gate's server invocation must be: python3 - \"$SRV_DIR\" \"$host\" \"$port\" <<'PY'"
+    assert re.search(r"python3 - \"\$SRV_DIR\" \"\$SRV_LOCAL_HOST\" \"\$port\"", g), \
+        "the gate's server invocation must be: python3 - \"$SRV_DIR\" \"$SRV_LOCAL_HOST\" \"$port\" <<'PY'"
     assert "<<'PY'" in g, "the gate's server body must be a quoted heredoc"
 
 
@@ -153,3 +153,58 @@ def test_url_contract_between_build_and_gate():
     # against the guest's exact URLs, so a wrong pin fails pre-boot.
     assert "ncz_gate_srv_extract_manifest" in g, "the gate must extract the medium's pin manifest"
     assert "the pins back off the medium" in g or "SERVES AT THE PIN IT READS" in g, "the gate must document its serve-at-the-pin contract"
+
+
+# ------------------------------------------------- host-side serve address
+
+def test_gateway_pin_binds_host_loopback():
+    """QEMU user-net forwards the guest's 10.0.2.2 to the host's loopback;
+    the host has no 10.0.2.2 address, so binding it would always fail."""
+    g = read("build/kvm-install-gate-gpt.sh")
+    assert re.search(r"10\.0\.2\.2\) SRV_LOCAL_HOST=127\.0\.0\.1", g), \
+        "a 10.0.2.2 pin must bind the host loopback"
+
+
+def test_payload_server_is_stopped_on_every_exit_path():
+    """The install-phase traps replace the server's EXIT trap, so they must
+    stop it themselves, and phase 1's end must stop it before phase 2."""
+    g = read("build/kvm-install-gate-gpt.sh")
+    probe_trap = re.search(r"^trap '([^']*)' EXIT$", g[g.index("PROBE_PID=$!"):], re.M)
+    assert probe_trap and "ncz_srv_cleanup" in probe_trap.group(1)
+    assert re.search(r"^trap '[^']*ncz_srv_cleanup[^']*' INT TERM$", g, re.M)
+    end = g.index("trap - INT TERM")
+    assert "ncz_srv_cleanup" in g[end:g.index("trap - EXIT", end)]
+
+
+def _check_url_body():
+    g = read("build/kvm-install-gate-gpt.sh")
+    i = g.index("    _srv_check_url() {")
+    j = g.index("<<'PY'", i) + len("<<'PY'")
+    j = g.index("\n", j) + 1
+    k = g.index("\nPY\n", j)
+    return g[j:k] + "\n"
+
+
+def test_check_url_requests_the_pinned_path_from_the_local_server(tmp_path):
+    """The pre-boot 200 check must parse the guest's pinned URL (gateway
+    host) and ask the gate's own server for that exact path."""
+    import http.server
+    import socketserver
+    import threading
+    (tmp_path / "base.squashfs").write_bytes(b"x")
+    handler = lambda *a, **k: http.server.SimpleHTTPRequestHandler(*a, directory=str(tmp_path), **k)
+    srv = socketserver.TCPServer(("127.0.0.1", 0), handler)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        body = _check_url_body()
+        def status(url):
+            r = subprocess.run(["python3", "-", url, "127.0.0.1"], input=body,
+                               capture_output=True, text=True, timeout=20)
+            return r.stdout.strip()
+        assert status(f"http://10.0.2.2:{port}/base.squashfs").endswith("200 OK")
+        assert "404" in status(f"http://10.0.2.2:{port}/missing.tar.gz")
+    finally:
+        srv.shutdown()
+        srv.server_close()

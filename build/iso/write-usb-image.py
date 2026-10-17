@@ -234,21 +234,6 @@ def server_online_fetch_plan(arch: str) -> dict:
             "Refusing to build a server medium that cannot install, because "
             "its payload and substrate assets are fetched online and "
             "sha256-verified at install time.")
-    # Gate-consistency pin: a URL that is not the gate's own serve base is a
-    # pin this repo's KVM gate cannot prove -- the gate serves 10.0.2.2 and
-    # reads the pin back off the medium. Refuse it here (build time, cheap)
-    # rather than at the headless install prompt (expensive, unrecoverable).
-    gate_base = ncz_gate_serve_payload_base_url(arch)
-    bad = [u for u in (plan["payload_url"], plan["assets_url"])
-           if u.rstrip("/") != gate_base and not u.startswith(gate_base + "/")]
-    if bad:
-        raise RuntimeError(
-            "FATAL: NCZ_VARIANT=server pins are not the KVM gate's serve "
-            f"base {gate_base}: {bad}. Build with the gate's URLs "
-            f"({gate_base}/...), or set NCZ_GATE_SERVER_HOST at build time "
-            "to the host the operator will actually serve from (the gate "
-            "serves at the pin it reads off the medium, so pin and gate "
-            "host must agree).")
     return plan
 
 
@@ -408,10 +393,10 @@ def ncz_gate_serve_payload_base_url(arch: str, host: str | None = None) -> str:
     server to the QEMU user-net gateway 10.0.2.2 and the guest's fetcher
     reads its URLs from the medium's ncz-fetch-payload.manifest. A server
     image built by THIS repo's build (make image ARCH=... NCZ_VARIANT=server)
-    must therefore pin the same base the gate will serve, or the guest's
-    fetch goes to whatever URL the operator hand-wired -- which the gate
-    cannot prove. This is the single source of the gate's base URL; the
-    gate reads the pin back off the medium, so the two cannot drift.
+    for the gate must pin this base (a release medium pins the published
+    payload instead, which the gate cannot serve). This is the single source
+    of the gate's base URL; the gate reads the pin back off the medium and
+    refuses one it cannot serve, so the two cannot drift.
 
     ``host`` overrides the bind address for non-standard networks (the gate's
     NCZ_GATE_SERVER_HOST does the same at run time); it defaults to the QEMU

@@ -186,7 +186,7 @@ QEMU user-net gateway before the guest boots. Proven so far:
   fetcher's refusal behaviour on a stopped server, the menu/ssh/desktop
   assertions against synthetic installed-root artifacts).
 - **The build side** (`NCZ_VARIANT=server` medium: server menu, no desktop
-  packages, fetcher pins pointing at the gate's serve base, BUILD_VARIANT
+  packages, fetcher pins (the gate's serve base for a gate medium, the published payload for release), BUILD_VARIANT
   stamped) is unit-tested by `test_write_usb_image_server_variant.py` and
   the build-image.sh / write-usb-image.py changes pass their suites.
 
