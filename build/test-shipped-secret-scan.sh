@@ -299,7 +299,7 @@ for want in "/initrd.gz/" "/initrd.img/" "/rescue-rootfs.tar.zst/"; do
         fail "missed the secret inside $want"
     fi
 done
-if grep -q 'ncz-fixture_1.0_all.deb' "$WORK/leaky.receipt.json" 2>/dev/null; then
+if grep -q 'ncz-fixture_1.0_all.deb/data.tar[^"]*b64.conf' "$WORK/leaky.receipt.json" 2>/dev/null; then
     pass "caught the base64 secret inside a .deb data.tar"
 else
     fail "missed the base64 secret inside the .deb"

@@ -1429,6 +1429,11 @@ def scan_payload(rep: Report, scanner: Scanner, layer: str, path: str,
         members = list(expand(path, data, path, depth))
         if members:
             expanded = True
+            # member NAMES are shipped bytes too (a token used as a file name)
+            names = "\n".join(m for m, _ in members).encode("utf-8", "replace")
+            hits = scan_candidate(scanner, names, path + "#names")
+            if hits:
+                rep.add(layer, path + "#names", hits)
             for mpath, payload in members:
                 scan_payload(rep, scanner, layer, mpath, payload, depth + 1)
     if not expanded:
@@ -1634,6 +1639,10 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
                     members = list(expand(path, data, path))
                     if members:
                         rep.units[lname] += 1
+                        names = "\n".join(m for m, _ in members).encode("utf-8", "replace")
+                        hits = scan_candidate(scanner, names, path + "#names")
+                        if hits:
+                            rep.add(lname, path + "#names", hits)
                         tasks.extend((lname, mpath, payload) for mpath, payload in members)
                     else:
                         # not an archive after all: scan the bytes themselves
