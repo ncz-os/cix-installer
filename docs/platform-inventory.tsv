@@ -435,6 +435,8 @@ build/test-sky1-media-defaults.sh	sky1	-	Sky1 media defaults: chromium-ncz-sky1 
 build/test-sky1-serial-diag.sh	sky1	-	Sky1 installer serial diagnostics (diag-console kmsg mirror/getty/no-iface dump) + ACPI PCIe mode (sky1_pcie_native=off pcie_pnp_en) on arm64 installer entries; amd64 entries pinned unchanged
 build/boot-screens.py	common	-	installer console capture harness (qemu screendump + VT text over the diag telnet)
 preseed/ncz-ui.sh	common	-	shared d-i dialog look (brand, arch, build id)
+preseed/hw-summary.sh	common	-	installer HARDWARE SUMMARY note dialog (vendor/model, CPU + generation, memory, disks, GPU + screensaver-strength expectation from the existing saver class, accelerators, T2/Thunderbolt); never fails or blocks, silent on ncz_hwsummary=0 and automated installs
+build/test-hw-summary.sh	common	-	HW summary dialog tests: dialog text rendered from fixture /proc + /sys trees for a T2 MacBook, an Arrow Lake NPU desktop, an NVIDIA box and O6N/cixmini; ASCII-only, skip rules, never-fail and registration checks
 build/test-ncz-ui.sh	common	-	ncz-ui.sh tests
 build/check-installer-screens.py	common	-	console-screen content checker
 build/test-installer-brltty-banner.sh	common	-	installer checks: no braille stack (no brltty cmdline token, preseed, manifests; initrd/pool/layer/KVM gates wired), probe judge, one-shot boot banner, build id on installer entries
