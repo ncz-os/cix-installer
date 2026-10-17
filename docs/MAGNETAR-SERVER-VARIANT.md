@@ -195,7 +195,8 @@ of a `NCZ_VARIANT=server` medium through the `server` set (guest reaches
 the gate's 10.0.2.2 server, fetches + sha256-verifies the payload from
 the network, installs, and all the installed-root assertions pass) and the
 `server-offline-negative` run (loud bounded failure, no half-written
-rootfs). First real run: record it here.
+rootfs). First real run: record its result here (arch, run date, PASS/FAIL
+per set, and the evidence paths).
 
 The accelerator hook's server-mode branch (skip `ncz-vc4-sway-
 accelerators` on the variant root, skip the rEFInd Mali/Panthor +
