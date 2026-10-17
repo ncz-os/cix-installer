@@ -428,6 +428,7 @@ SRV_LOCAL_HOST=""
 ncz_srv_cleanup() {
     [ -n "$SRV_PID" ] && kill "$SRV_PID" 2>/dev/null || true
     [ -n "$SRV_PID" ] && wait "$SRV_PID" 2>/dev/null || true
+    SRV_PID=""
 }
 ncz_gate_srv_start() {
     # $1 = the base URL the guest's manifest pins (scheme://host[:port]).
