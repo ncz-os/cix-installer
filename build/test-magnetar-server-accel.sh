@@ -54,11 +54,6 @@ redirect() {
 #   environment variable NCZ_VARIANT is left unset so the record is what is
 #   exercised, exactly as on a real install where the hook is run by
 #   run-all.sh with no inherited variant).
-# newcase <variant> [COMPONENTS] [COMPONENTS_cuda]
-#   variant "desktop"/"server" selects the BUILD_VARIANT record path (the
-#   environment variable NCZ_VARIANT is left unset so the record is what is
-#   exercised, exactly as on a real install where the hook is run by
-#   run-all.sh with no inherited variant).
 #   $2 = NOREC means "no COMPONENTS record at all". An empty string means a
 #   record that exists and names nothing -- a different input, see below.
 NOREC=$'\001'
@@ -213,7 +208,7 @@ s_np=$(NCZ_VARIANT=server REFIND_CONF="$W/refind.np.conf" NEXT_AVAILABLE=1 KVER_
        bash -c "$(extract_menu)" >/dev/null 2>&1; grep -c '^menuentry ' "$W/refind.np.conf")
 [ "$s_np" = 1 ] && ok "server, no rescue partition selected: Console entry only" \
     || bad "server with no rescue partition wrote $s_np entries"
-unset -f emit_menu_rc
+unset -f emit_menu
 # The gating must be by variant, not by accident of the entry order.
 grep -q 'NCZ_VARIANT:-desktop' "$REFIND" && ok "rEFInd gates on the variant record" \
     || bad "rEFInd no longer gates the desktop entries on the variant"
