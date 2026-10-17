@@ -790,5 +790,33 @@ grep -q 'NCZ_INTEL_FORCE=1' "$UA" \
     && ok "ncz-update-apply forces the re-check past the deferred slow interval" \
     || bad "ncz-update-apply does not pass NCZ_INTEL_FORCE=1 (a fresh refresh would be throttled)"
 
+echo "=== remote-origin detection: local schemes vs any remote transport ==="
+_srcd="$W/r/etc/apt/sources.list.d"
+_src_case() {   # _src_case WANT(local|remote) LABEL LINE...
+    local want="$1" label="$2"; shift 2
+    mkroot; rm -f "$_srcd"/*.list "$W/r/etc/apt/sources.list"
+    printf '%s\n' "$@" > "$_srcd/case.list"
+    if run _ncz_intel_repos_all_local; then got=local; else got=remote; fi
+    [ "$got" = "$want" ] && ok "sources $label -> $want" || bad "sources $label -> $got, want $want"
+}
+_src_case local  "file: only"            'deb [trusted=yes] file:///srv/mirror ./'
+_src_case local  "cdrom: only"           'deb cdrom:[NCZ-OS]/ forky main'
+_src_case remote "https"                 'deb https://example.invalid/ncz ./'
+_src_case remote "mirror+https"          'deb mirror+https://example.invalid/mirrors.txt forky main'
+_src_case remote "file: plus http"       'deb [trusted=yes] file:///srv/mirror ./' 'deb http://deb.debian.org/debian forky main'
+_src_case local  "commented remote"      '# deb https://example.invalid/ncz ./' 'deb file:///srv/mirror ./'
+
+echo "=== deferred throttle: a corrupt LAST= re-checks instead of wedging ==="
+mkroot
+NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_install 1 1
+NET=up NCZ_INTEL_MAX_TRIES=1 NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run
+grep -qx 'deferred:native-candidates-unpublished' "$S" || bad "corrupt-LAST precondition: '$(cat "$S")'"
+sed -i 's/^LAST=.*/LAST=12x/' "$P"
+: > "$LOG"
+NET=up NCZ_INTEL_MAX_TRIES=1 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rcL=$?
+[ "$_rcL" = 0 ] && grep -qx done "$S" && [ ! -f "$P" ] \
+    && ok "corrupt LAST= is ignored: the run re-checks and installs" \
+    || bad "corrupt LAST= run rc=$_rcL status '$(cat "$S")'" "$(cat "$W/out")"
+
 echo "intel accel tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

@@ -138,16 +138,20 @@ _ncz_intel_repos_all_local() {
             case "$f" in *.disabled-for-build|*.disabled-for-build.*) continue ;; esac
             # Any ACTIVE remote-origin deb line disqualifies "all local".
             # deb822 (.sources) files use "URIs: <uri>"; check both shapes.
-            # ONE grep per file, so the pipeline status cannot mask a hit
-            # in the second branch (`a | grep -q X || b | grep -q Y`).
-            if grep -Eq '^[[:space:]]*deb(-src)?[[:space:]].*https?://|^[[:space:]]*URIs:[[:space:]].*https?://' "$f" 2>/dev/null; then
+            # One pipeline per file: local-scheme lines are dropped first,
+            # then a single grep decides (no `a || b` status masking).
+            # Remote = any URI scheme other than the local file:/cdrom:/copy:
+            # (http, https, mirror+http..., tor+https..., ftp).
+            if grep -Ev '(file|cdrom|copy):' "$f" 2>/dev/null \
+                | grep -Eq '^[[:space:]]*deb(-src)?[[:space:]].*[a-z+]+://|^[[:space:]]*URIs:[[:space:]].*[a-z+]+://'; then
                 return 1
             fi
         done
     done
     # An inline deb line in the root sources.list counts too.
     f="$(_ni_r)/etc/apt/sources.list"
-    if [ -f "$f" ] && grep -Eq '^[[:space:]]*deb(-src)?[[:space:]].*https?://' "$f" 2>/dev/null; then
+    if [ -f "$f" ] && grep -Ev '(file|cdrom|copy):' "$f" 2>/dev/null \
+        | grep -Eq '^[[:space:]]*deb(-src)?[[:space:]].*[a-z+]+://'; then
         return 1
     fi
     return 0
@@ -616,6 +620,7 @@ ncz_intel_accel_run() {
     # update every 10 minutes indefinitely. ncz-update-apply passes
     # NCZ_INTEL_FORCE=1 because it has just refreshed the index itself.
     _last=$(sed -n 's/^LAST=//p' "$_pf")
+    case "$_last" in ""|*[!0-9]*) _last= ;; esac   # corrupt -> re-check now
     if [ -n "$_last" ] && [ "${NCZ_INTEL_FORCE:-0}" != 1 ] \
        && grep -q '^deferred:' "$(_ni_statusf)" 2>/dev/null \
        && [ $(( $(date +%s) - _last )) -lt "${NCZ_INTEL_DEFER_SECS:-86400}" ]; then
