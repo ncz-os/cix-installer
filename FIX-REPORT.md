@@ -205,11 +205,6 @@ Mostly upstream and out of scope for publication:
 - `no-manual-page` for the validation binaries.
 - `extended-description-line-too-long` — upstream `CPACK_COMPONENT_*_DESCRIPTION`.
 - `non-standard-file-perm 0400 != 0644` on three firmware blobs (upstream mode).
-- `intel-level-zero-npu-dbgsym` / `intel-validation-npu-dbgsym` `.ddeb` files are
-  produced because upstream `deb.cmake` enables `*_DEBUGINFO_PACKAGE` for those
-  two components. The overlay's attempt to disable debug-info in the pre-build
-  script does not take effect, so debug symbols are shipped as separate
-  packages. Not an E-class issue.
 
 ## Verification
 
@@ -229,10 +224,10 @@ intel-validation-npu       (no E-class)
 Artifacts (sha256):
 
 ```
-442ba0057504c808bf2cddecc745fb0832fa8d36c75cb6a1d501640ca0f005a6  intel-driver-compiler-npu_1.38.0.ncz1~debian_amd64.deb
+8bb32c9383a961b55f00293c59336da2becd1e10372552256af8af3ddbf4db4a  intel-driver-compiler-npu_1.38.0.ncz1~debian_amd64.deb
 67f892999ba7aaa4efaefc53341a3a5eed9375d8e996b63666d164b65af84122  intel-fw-npu_1.38.0.ncz1~debian_amd64.deb
-38802d802f9a052ddf0e251fd915bbd55b5d1fe70c646898bda72168f4ef158f  intel-level-zero-npu_1.38.0.ncz1~debian_amd64.deb
-c1574b9bd1fc21c17c618e46d2e3ea97269ec1e905bcd38717d79d90df41aa14  intel-validation-npu_1.38.0.ncz1~debian_amd64.deb
+90638876ca06278047a799264cc3260938c229072c0a4bc98eda6c3df6784fe4  intel-level-zero-npu_1.38.0.ncz1~debian_amd64.deb
+6685324791c03883e9b89c2f866c4d6fee31e569fa91f5884813aae6c4044d86  intel-validation-npu_1.38.0.ncz1~debian_amd64.deb
 ```
 
 ## Reproduce
@@ -281,10 +276,14 @@ test-apt-separation.sh               73 passed, 0 failed
 
 ## Risks
 
-1. **Debug symbols.** `*_DEBUGINFO_PACKAGE` (upstream `deb.cmake`) still yields
-   `.ddeb` packages for `level-zero-npu` and `validation-npu`. Disabling it from
-   the pre-build script does not take effect; a future change should set it at
-   configure time in `CONFIGURE-linux-npu-driver-1.38.0.sh`.
+1. **No debug symbols.** Upstream turns `CPACK_DEBIAN_<COMP>_DEBUGINFO_PACKAGE`
+   on for `level-zero-npu` and `validation-npu`, which yields separate `.ddeb`
+   packages. The overlay switches that off *and* strips the staged ELF payload
+   itself (CPackDeb strips only as part of splitting debug symbols, so switching
+   it off alone left the packages unstripped: `level-zero-npu` went 0.5 MB ->
+   8.5 MB). No `.ddeb` is emitted and the packages are small again, but there
+   are no debug symbols for these packages. To get them back, leave debug-info
+   on and drop the strip step.
 2. **Manual `shlibs`.** The overlay writes `shlibs` directly, so a future
    upstream library added to `level-zero-npu` would not be listed
    automatically. The version guard (`CPACK_PACKAGE_VERSION STREQUAL
