@@ -224,7 +224,10 @@ if [ -s "$W/gate-comp.sh" ]; then
     # companions in its own layout), only the SET is.
     norm() { printf '%s\n' "$1" | tr ',' '\n' | LC_ALL=C sort -u | tr '\n' ',' | sed 's/,$//'; }
     for ans in UNSET desktop desktop,mgmt-container none 'rescue-partition, mgmt-container'; do
-        [ "$ans" = UNSET ] && set -- desktop,mgmt-container,rescue-partition || set -- "$ans"
+        case "$ans" in UNSET) label="default (every option)" ;; *) label="$ans" ;; esac
+        # gc takes the answer quoted (its NCZ_GATE_COMPONENTS="$1" keeps the
+        # space form one word; the gate's own IFS=',' loop then splits it), so
+        # the space answer below reaches it exactly as the matrix passes it.
         # Feed the selector the gate's ACTUAL cmdline value (field 1: bare
         # commas, desktop companions stripped). That is what reaches the
         # kernel and comes back as one token; the space form the matrix passes
@@ -232,8 +235,8 @@ if [ -s "$W/gate-comp.sh" ]; then
         # and would not survive the kernel's own word split.
         cmdline_ans="$(gc "$ans" | cut -d'|' -f1)"
         gotrec="$(norm "$(selrec "$cmdline_ans")")"; exprec="$(norm "$(gc "$ans" | cut -d'|' -f2)")"
-        [ "$gotrec" = "$exprec" ] && ok "selector record matches the gate's EXPECT_RECORD for: $1" \
-            || nok "selector record differs from the gate's EXPECT_RECORD for $1: selector [$gotrec] gate [$exprec]"
+        [ "$gotrec" = "$exprec" ] && ok "selector record matches the gate's EXPECT_RECORD for: $label" \
+            || nok "selector record differs from the gate's EXPECT_RECORD for $label: selector [$gotrec] gate [$exprec]"
     done
 else
     nok "KVM gate: NCZ-GATE-COMPONENTS markers missing"
