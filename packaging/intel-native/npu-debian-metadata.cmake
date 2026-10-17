@@ -68,6 +68,7 @@ if(NOT _changelog_date MATCHES "^[A-Z][a-z][a-z], [0-9][0-9] [A-Z][a-z][a-z] [0-
 endif()
 
 find_program(_GZIP gzip REQUIRED)
+find_program(_STRIP strip REQUIRED)
 
 # Disable the shlibdeps scan and dbgsym packaging so CPack does not re-glob the
 # staged tree after we have written our metadata files.
@@ -358,6 +359,26 @@ foreach(_comp IN LISTS _expected_components)
                   "${CPACK_TEMPORARY_DIRECTORY}/fw-npu/usr/lib")
     endif()
   endif()
+
+  # --- strip the payload ---
+  # CPackDeb strips only when it splits debug symbols into a .ddeb. With
+  # CPACK_DEBIAN_<COMP>_DEBUGINFO_PACKAGE=OFF it strips nothing, and the binaries
+  # shipped with full debug info (level-zero-npu went from 0.5 MB to 8.5 MB).
+  # Strip them here so the packages stay small without emitting .ddeb files.
+  # ELF magic is checked per file, so firmware blobs and scripts are untouched.
+  file(GLOB_RECURSE _payload_files "${CPACK_TEMPORARY_DIRECTORY}/${_comp}/*")
+  foreach(_f IN LISTS _payload_files)
+    if(NOT IS_SYMLINK "${_f}" AND NOT IS_DIRECTORY "${_f}")
+      file(READ "${_f}" _magic LIMIT 4 HEX)
+      if(_magic STREQUAL "7f454c46")
+        execute_process(COMMAND "${_STRIP}" --strip-unneeded "${_f}"
+                        RESULT_VARIABLE _strip_rc ERROR_QUIET)
+        if(NOT _strip_rc EQUAL 0)
+          message(FATAL_ERROR "npu-debian-metadata: strip failed for ${_f} (rc=${_strip_rc})")
+        endif()
+      endif()
+    endif()
+  endforeach()
 
   # --- ldconfig triggers + shlibs go into the CONTROL archive ---
   #
