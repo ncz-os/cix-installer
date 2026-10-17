@@ -218,5 +218,63 @@ unset -f emit_menu_rc
 grep -q 'NCZ_VARIANT:-desktop' "$REFIND" && ok "rEFInd gates on the variant record" \
     || bad "rEFInd no longer gates the desktop entries on the variant"
 
+
+echo "=== 7. server reaches every vendor block its detected hardware has ==="
+# The variant gate itself, run for real: server must fall through to the
+# vendor blocks, headless must still exit before them.
+gate_run() {   # gate_run <variant> -> fallthrough|exited
+    TGT="$W/gate.$1"; rm -rf "$TGT"; mkdir -p "$TGT/usr/local/lib/cix-installer"
+    printf '%s\n' "$1" > "$TGT/usr/local/lib/cix-installer/BUILD_VARIANT"
+    { echo 'ncz_cuda_status() { :; }'
+      extract "$HOOK" '^ncz_variant[(][)] [{]' '^[}]$'
+      awk '/^VARIANT=\$\(ncz_variant\)$/{f=1} f{print} f && /^esac$/{exit}' "$HOOK"
+      echo 'echo fallthrough'; } | redirect /dev/stdin > "$W/gate.$1.sh"
+    grep -q '^case "$VARIANT" in' "$W/gate.$1.sh" || { echo missing-gate; return; }
+    ( unset NCZ_VARIANT; bash "$W/gate.$1.sh" 2>/dev/null ) | tail -1 | grep -qx fallthrough && echo fallthrough || echo exited
+}
+check "server falls through to the vendor blocks" "$(gate_run server)" fallthrough
+check "headless still skips accelerator wiring" "$(gate_run headless)" exited
+check "desktop falls through as before" "$(gate_run desktop)" fallthrough
+
+# The hook's own PCI detection lines over sysfs fixture trees (vendor/device/
+# class files, the shape lib/pci-sysfs.sh reads).
+pci_dev() {    # pci_dev <root> <bdf> <class> <vendor> <device>
+    mkdir -p "$1/$2"; echo "0x$3" > "$1/$2/class"; echo "0x$4" > "$1/$2/vendor"; echo "0x$5" > "$1/$2/device"
+}
+detect() {     # detect <root> -> "NVIDIA AMD INTEL INTEL_NPU"
+    { cat "$ROOT/post-install/lib/pci-sysfs.sh"
+      grep -E '^(ALL_PCI=|DISPLAY_PCI=|HAS_NVIDIA=0|NPU_PCI=|HAS_INTEL_NPU=0)|^echo "\$(DISPLAY|NPU)_PCI" \| grep' "$HOOK"
+      echo 'echo "$HAS_NVIDIA $HAS_AMD $HAS_INTEL $HAS_INTEL_NPU"'; } > "$W/detect.sh"
+    NCZ_PCI_DEVICES_ROOT="$1" bash "$W/detect.sh" 2>/dev/null
+}
+P="$W/pci"
+pci_dev "$P/amd" 0000:03:00.0 030000 1002 73bf
+pci_dev "$P/amd" 0000:00:00.0 060000 1022 14d8
+pci_dev "$P/arl" 0000:00:02.0 030000 8086 7d67
+pci_dev "$P/arl" 0000:00:0b.0 120000 8086 ad1d
+pci_dev "$P/nv"  0000:01:00.0 030000 10de 2684
+pci_dev "$P/none" 0000:00:00.0 060000 1022 14d8
+check "server + AMD GPU: ROCm block selected" "$(detect "$P/amd")" "0 1 0 0"
+check "server + Intel Arrow Lake GPU + NPU: Intel/OpenVINO block selected" "$(detect "$P/arl")" "0 0 1 1"
+check "server + NVIDIA GPU: CUDA block selected" "$(detect "$P/nv")" "1 0 0 0"
+check "server + no accelerator: nothing selected" "$(detect "$P/none")" "0 0 0 0"
+# The AMD and Intel blocks consult neither the variant nor the COMPONENTS
+# record, so detection alone decides on server too.
+for blk in '^if \[ "\$HAS_AMD" = 1 \]; then$' '^if \[ "\$HAS_INTEL" = 1 \] \|\| \[ "\$HAS_INTEL_NPU" = 1 \]; then$'; do
+    body=$(awk -v s="$blk" '$0 ~ s {f=1} f {print} f && /^fi$/ {exit}' "$HOOK")
+    if [ -z "$body" ]; then bad "vendor block not found: $blk"
+    elif printf '%s\n' "$body" | grep -qE 'VARIANT|COMPONENTS'; then bad "vendor block is variant/record gated: $blk"
+    else ok "vendor block is hardware-gated only: $(printf '%s\n' "$body" | head -1)"; fi
+done
+# CIX Sky1: the NPU and Mali hooks are arch-gated only; nothing in them
+# skips a server install.
+for h in 80-npu.sh 82-mali-gpu.sh; do
+    if grep -qE 'BUILD_VARIANT|headless|NCZ_VARIANT' "$ROOT/post-install/$h"; then
+        bad "post-install/$h gates on the variant (server would lose the Sky1 accelerator)"
+    else
+        ok "server + CIX Sky1: post-install/$h runs (arch-gated, not variant-gated)"
+    fi
+done
+
 echo "magnetar server accelerator tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
