@@ -20,7 +20,8 @@
 #                 from assets/gpu/ncz-gpu-names.tsv when readable (else the
 #                 numeric vendor:device), plus the screensaver class the
 #                 engine's class_from_topology() would start in
-#   Accelerators  PCI class 0x0b40 (Intel NPU, CIX NPU/VPU device), NVIDIA
+#   Accelerators  PCI class 0x1200 processing accelerator (Intel NPU reports
+#                 0x120000) or 0x0b40 co-processor, NVIDIA
 #                 compute by the family test post-install/lib/cuda-select.sh
 #                 uses, CIX Sky1 NPU + VPU (SoC devices)
 #   Other         Apple T2 (post-install/lib/hw-detect.sh is_t2_hardware),
@@ -334,7 +335,8 @@ p_accelerators() {
     [ -n "$_pci" ] || return 0
     _any=0
     while read -r _cls _key; do
-        case "$_cls" in 0b40*) ;; *) continue ;; esac
+        # 0x1200 = processing accelerator (Intel NPU: 0x120000); 0x0b40 = co-processor
+        case "$_cls" in 1200*|0b40*) ;; *) continue ;; esac
         if [ "$_any" = 0 ]; then printf 'Accelerators:\n'; _any=1; fi
         case "${_key%%:*}" in
             8086) _what="Intel NPU (AI accelerator)" ;;
@@ -406,8 +408,10 @@ render_body() {
     p_other
 }
 
-# ASCII only: newt's C locale shows anything else as <ERR>.
-_ascii() { LC_ALL=C tr -c '[:print:]\n' '?'; }
+# ASCII only: newt's C locale shows anything else as <ERR>. An explicit octal
+# range, not [:print:]: busybox tr (the d-i shell's) turns most letters into
+# '?' with the class form.
+_ascii() { LC_ALL=C tr -c '\040-\176\n' '?'; }
 
 if [ "$MODE" = --collect ]; then
     render_body 2>/dev/null | _ascii

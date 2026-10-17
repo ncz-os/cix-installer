@@ -131,7 +131,7 @@ fx arrow >/dev/null; sysv arrow "ASUS"; prod arrow "PRIME Z890-P WIFI"; bios arr
 cpu arrow "Intel(R) Core(TM) Ultra 9 285K" 24
 mem arrow 67108864
 pci arrow 0000:00:02.0 030000 8086 46a6          # Alder Lake-P iGPU (curated)
-pci arrow 0000:00:0b.0 0b4000 8086 7d1d          # Intel NPU (NPU 3)
+pci arrow 0000:00:0b.0 120000 8086 ad1d          # Intel NPU, Arrow Lake (class as read on PROTEUS)
 disk arrow nvme0n1 1953525168 "Samsung SSD 990 PRO 1TB"
 disk arrow sda 3907029168 "WDC WD20EZBX-00A" 1 0 # removable: not a fixed disk
 disk arrow nvme0n1p2 1953510400 "partition" 0 1   # partition: not a disk
@@ -287,6 +287,18 @@ for n in t2 arrow nv cix; do
         bad "$n: body is ASCII only" "$(LC_ALL=C awk '/[^ -~]/ { print NR": "$0 }' "$T/body.$n")"
     else ok "$n: body is ASCII only"; fi
 done
+# --- busybox ash (the d-i shell) renders the same body ----------------------
+if command -v busybox >/dev/null 2>&1; then
+    for n in t2 arrow nv cix; do
+        d="$T/$n"
+        a=$(run "$n" --collect 2>/dev/null)
+        b=$(env NCZ_HW_PROC="$d/proc" NCZ_HW_SYS="$d/sys" NCZ_HW_DMI="$d/sys/class/dmi/id" \
+            NCZ_HW_CMDLINE="$d/proc/cmdline" NCZ_TMP="$d/state" NCZ_UI_SH=/nonexistent \
+            busybox sh "$HS" --collect </dev/null 2>/dev/null)
+        [ -n "$a" ] && [ "$a" = "$b" ] && ok "$n: busybox sh body matches" || bad "$n: busybox sh body matches" "sh: $a" "busybox: $b"
+    done
+else echo "note busybox not installed: d-i shell parity check skipped"; fi
+
 # --- the classifier mirrors the saver engine's class_from_topology ---------
 # hw-summary.sh runs from the initrd (dash/ash, no bash, no assets/ tree), so
 # it carries a POSIX copy of the engine's PCI-reachable rules. Pin them here.
