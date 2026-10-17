@@ -14,7 +14,20 @@ chmod 1777 "$PROJ/tmp"
 FSTYPE=$(findmnt -n -o FSTYPE -T "$PROJ")
 case "$FSTYPE" in ''|tmpfs|ramfs|devtmpfs) echo 'PROJ filesystem must be known and disk-backed' >&2; exit 1;; esac
 export TMPDIR="$PROJ/tmp"
-SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git -C "$CI" show -s --format=%ct HEAD)}
+# Pin SOURCE_DATE_EPOCH to the snapshot the container installs its packages
+# from, not to the checkout time of this repository.
+#
+# APPLY-NPU-LLVM-PATCH.py derives its patched commits from a base commit plus
+# this epoch, so a moving epoch gives every run a *different* derived hash. The
+# guard then sees a tree it produced itself last run and rejects it with
+# "llvm HEAD ... not base or derived", making the build non-repeatable. Pinning
+# the epoch makes the derived commits reproducible, which is also what
+# SOURCE_DATE_EPOCH is for.
+SNAPSHOT=${SNAPSHOT:-20261012T023456Z}
+_snap_epoch=$(date -u -d "$(printf '%s-%s-%sT%s:%s:%sZ' \
+  "${SNAPSHOT:0:4}" "${SNAPSHOT:4:2}" "${SNAPSHOT:6:2}" \
+  "${SNAPSHOT:9:2}" "${SNAPSHOT:11:2}" "${SNAPSHOT:13:2}")" +%s)
+SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$_snap_epoch}
 case "$SOURCE_DATE_EPOCH" in ''|*[!0-9]*) echo 'SOURCE_DATE_EPOCH must be numeric' >&2; exit 1;; esac
 [ "$SOURCE_DATE_EPOCH" -gt 0 ] || { echo 'SOURCE_DATE_EPOCH must be > 0' >&2; exit 1; }
 export SOURCE_DATE_EPOCH
@@ -59,7 +72,6 @@ done
 DOCKER_IMAGE=${DOCKER_IMAGE:-debian:forky}
 DOCKER_NAME=${DOCKER_NAME:-ncz-intel-native-$$}
 JOBS=${JOBS:-4}
-SNAPSHOT=20261012T023456Z
 created=0
 cleanup() { if [ "$created" = 1 ]; then docker stop "$DOCKER_NAME" >/dev/null; fi; }
 trap cleanup EXIT
