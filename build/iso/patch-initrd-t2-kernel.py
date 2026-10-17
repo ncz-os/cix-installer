@@ -806,6 +806,10 @@ BAKED_HELPERS = [
     "clock-sync.sh",
     # 2026-10-13: USB-only install media lookup and the screen shown without one.
     "media-usb-only.sh",
+    # 2026-10-17: the HARDWARE SUMMARY note dialog (partman/early_command, after
+    # hardware detection and before the disk chooser). Baked for the same reason
+    # as the choosers: early_command runs at S33, before any medium is mounted.
+    "hw-summary.sh",
 ]
 
 # NCZ startup hook. d-i runs its /usr/lib/debian-installer-startup.d/S* scripts

@@ -1,0 +1,23 @@
+# ncz-screensaver-strength.tsv - saver GPU class -> how the screensavers behave
+#
+# key  = the class ncz_gpu_saver_class (post-install/lib/gpu-progress.sh) and
+#        ncz-screensaver (class_from_ms / class_from_renderer /
+#        class_from_topology, docs/MINOR-005-panfrost-screensaver-class.md)
+#        report: weak, mid, strong.
+# text = one plain-English phrase, appended to the GPU line of the installer
+#        HARDWARE SUMMARY (preseed/hw-summary.sh) as
+#        "<gpu> - screensavers expect <text>".
+#
+# This table words an expectation; it does not classify anything and no
+# installer decision reads it. A class with no row words nothing (the GPU
+# line is still printed). ASCII only: the d-i C locale renders anything else
+# as <ERR>.
+#
+#    weak    the cheap tier: the engine renders every saver at the reduced
+#            scale (measured >= 20 ms per frame on this class)
+#    mid     the middle band: full frame rate on the simpler saver set
+#            (measured 8-20 ms; Sky1 Mali-G720 calibrates 9.88-11.76 ms)
+#    strong  discrete-class: every saver at full quality, no calibration down
+weak	the simple saver set at a reduced scale
+mid	the standard saver set at full frame rate
+strong	every saver at full quality
