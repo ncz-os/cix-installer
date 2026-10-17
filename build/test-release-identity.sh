@@ -233,6 +233,23 @@ if bash "$GATE" baked "$GT/empty" >/dev/null 2>&1; then
 else
     ok "gate baked: empty product label fails the gate"
 fi
+# An older, NON-retired codename in the medium RELEASE must fail: the copy
+# must equal release.conf, not merely avoid the retired list.
+make_tree "$GT/old-cod" desktop
+sed -i 's/^NCZ_RELEASE_CODENAME=.*/NCZ_RELEASE_CODENAME="Orion"/' "$GT/old-cod/ncz-payload/RELEASE"
+if bash "$GATE" staged "$GT/old-cod" >/dev/null 2>&1; then
+    bad "gate staged: a non-current (non-retired) codename must FAIL"
+else
+    ok "gate staged: a non-current (non-retired) codename fails the gate"
+fi
+# A baked rootfs without the BUILD_VARIANT stamp must fail, not default.
+make_tree "$GT/novariant" desktop
+rm -f "$GT/novariant/usr/local/lib/cix-installer/BUILD_VARIANT"
+if bash "$GATE" baked "$GT/novariant" >/dev/null 2>&1; then
+    bad "gate baked: a missing BUILD_VARIANT stamp must FAIL"
+else
+    ok "gate baked: a missing BUILD_VARIANT stamp fails the gate"
+fi
 # The image build must invoke the gate on every medium and every bake.
 check_grep "$ROOT/build/iso/write-usb-image.py" "check-release-identity-gate.sh" \
     "write-usb-image.py: runs the identity gate on the staged medium"

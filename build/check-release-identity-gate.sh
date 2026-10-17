@@ -82,7 +82,7 @@ field() { # $1 file, $2 key
 
 # check_release_file FILE WHERE -- the full identity, none empty, none retired.
 check_release_file() {
-    local f="$1" where="$2" k v
+    local f="$1" where="$2" k v want
     [ -s "$f" ] || { bad "$where: identity file is missing or empty"; return; }
     for k in NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME; do
         v="$(field "$f" "$k")"
@@ -93,6 +93,14 @@ check_release_file() {
             for r in "${RETIRED[@]}"; do
                 case "$v" in *"$r"*) bad "$where: $k names the retired codename '$r'" ;; esac
             done
+            # Not just "not retired": the generated copy must BE the current
+            # identity, so an older non-retired codename cannot slip through.
+            case "$k" in
+                NCZ_PRODUCT_NAME)     want="$NCZ_EXPECT_PRODUCT" ;;
+                NCZ_RELEASE_VERSION)  want="$NCZ_EXPECT_VERSION" ;;
+                NCZ_RELEASE_CODENAME) want="$NCZ_EXPECT_CODENAME" ;;
+            esac
+            [ "$v" = "$want" ] || bad "$where: $k='$v' does not match release.conf ('$want')"
         fi
     done
 }
@@ -107,6 +115,10 @@ check_os_release_file() {
     version_id_val="$(field "$f" VERSION_ID)"
     [ -n "$name_val" ] || bad "$where: NAME is empty"
     [ -n "$version_id_val" ] || bad "$where: VERSION_ID is empty"
+    [ -z "$name_val" ] || [ "$name_val" = "$NCZ_EXPECT_PRODUCT" ] \
+        || bad "$where: NAME='$name_val' does not match release.conf ('$NCZ_EXPECT_PRODUCT')"
+    [ -z "$version_id_val" ] || [ "$version_id_val" = "$NCZ_EXPECT_VERSION" ] \
+        || bad "$where: VERSION_ID='$version_id_val' does not match release.conf ('$NCZ_EXPECT_VERSION')"
 
     local pn vcod
     pn="$(field "$f" PRETTY_NAME)"
@@ -126,8 +138,8 @@ check_os_release_file() {
     # The product label must be non-empty AND must carry the version.
     if [ -n "$pn" ] && [ -n "$NCZ_EXPECT_VERSION" ]; then
         case "$pn" in
-            *"$NCZ_EXPECT_VERSION"*)
-                ok "$where: PRETTY_NAME carries the current version" ;;
+            *"$NCZ_EXPECT_PRODUCT"*"$NCZ_EXPECT_VERSION"*)
+                ok "$where: PRETTY_NAME carries the current product and version" ;;
             *)
                 bad "$where: PRETTY_NAME does not carry '$NCZ_EXPECT_PRODUCT $NCZ_EXPECT_VERSION'" ;;
         esac
@@ -248,7 +260,13 @@ cmd_baked() {
     local variant
     variant="$(read_variant "$tree/usr/local/lib/cix-installer/BUILD_VARIANT")"
     [ -n "$variant" ] || variant="$(read_variant "$tree/etc/cix-installer/BUILD_VARIANT")"
-    NCZ_EXPECT_VARIANT="${variant:-desktop}"
+    # build-baked-rootfs.sh stamps BUILD_VARIANT before the gate runs; a
+    # missing stamp is itself a broken bake, never an implicit desktop.
+    if [ -z "$variant" ]; then
+        bad "baked rootfs: BUILD_VARIANT stamp is missing (usr/local/lib/cix-installer or etc/cix-installer)"
+        variant=desktop
+    fi
+    NCZ_EXPECT_VARIANT="$variant"
     ok "baked rootfs: BUILD_VARIANT=${NCZ_EXPECT_VARIANT}"
 
     # Generated identity files: /etc/os-release (+symlink), lsb-release,
