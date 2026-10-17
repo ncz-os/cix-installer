@@ -670,6 +670,9 @@ _al() {   # _al ROOTDIR -> 1 (has remote) / 0 (all local)
 }
 mkroot
 mkdir -p "$W/linked" "$W/r/etc/apt/sources.list.d"
+# the symlink must be the ONLY remote source, or the check cannot fail
+rm -f "$W/r/etc/apt/sources.list.d"/*.list "$W/r/etc/apt/sources.list.d"/*.sources "$W/r/etc/apt/sources.list"
+[ "$(_al "$W/r")" = 0 ] || bad "symlink precondition: the fixture still has a remote source"
 printf 'deb [signed-by=/x] https://ncz.example/ncz forky main\n' > "$W/linked/managed.list"
 ln -sf "$W/linked/managed.list" "$W/r/etc/apt/sources.list.d/managed.list"
 [ "$(_al "$W/r")" = 1 ] && ok "symlinked remote .list is read (remote origin detected)" \
