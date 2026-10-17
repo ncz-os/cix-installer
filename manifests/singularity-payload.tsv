@@ -26,6 +26,17 @@
 # PrepareForSleep), 0023 (saver resumes when the prompt lowers), leafs 0001
 # (window buttons with the classic titlebar) and nearby 0001+0002 (links are
 # freed when they close; an open link is kept when the peer announces itself).
+# 20261017070524 is built from the 2026-10-17 upstream heads (superproject
+# 45c6e8e8, shell a65e9c34, libsingularity 8cb3e804, greeter 09007fda,
+# nearby c17a12a4, plugins 6d989ea5, leafs 143fc0f9, labwc 458dddc5), the
+# greeter 0003 patch refreshed onto 09007fda, and the same queue otherwise.
+# Native rebuilds on HYDRA (amd64) and ULTRA (arm64) at shared build
+# timestamp 20261017070524, branch fix/p3-singularity-head-20261017.
+# amd64 payload tarball cf84bc38..., arm64 payload tarball 366ea578...;
+# both payloads carry libsingularity byte-identical to the 20261014213143
+# ones (amd64 b07dce55, arm64 8881de20), so the ncz-screensavers-plugin
+# 0.3.23 pin (post-install/lib/ncz-screensavers-plugin.lock) is still
+# valid under the ABI gate without a plugin rebuild.
 # 20261014180000 is built from the 2026-10-14 upstream heads (shell 5430ce14,
 # libsingularity cbf3d7e1, plugins 869d2afc, nearby 6b507295, session 2a1f4331,
 # superproject 13b79e78) after the upstream merge of the 2026-10-13 pull requests.
@@ -36,5 +47,5 @@
 # 291821e21f168e5f980d9b2f4954fea62594a20a, with shell 0024 (pause/resume and
 # the 60-second prompt limit). Both installed payloads pass the 74-case lock
 # assertions and independent process cleanup audit; image/hardware gates remain.
-amd64	83f85f83715da020ec53763a5c920b9ef8fc19fdc2096575ab1e9daf6939ca7b	ncz-singularity-desktop_20261014213143+bk0+tgz07ee3e1c_amd64.deb
-arm64	f8edad81210d3cf2d041980f8afc5c52cb50bf8f7b9d6a8e069a5c5cde887d71	ncz-singularity-desktop_20261014213143+bk0+tgz81c42ebf_arm64.deb
+amd64	3065208de485097df924c3487cce316e6a984a55eb7aacc5c7daaa7b04f00cb7	ncz-singularity-desktop_20261017070524+bk0+git7af46722_amd64.deb
+arm64	b0f212db4a4713a4a0f7e525955573cc3b89b59154062a0f03785b45d9cfb52c	ncz-singularity-desktop_20261017070524+bk0+git7af46722_arm64.deb
