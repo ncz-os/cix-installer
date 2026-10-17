@@ -163,6 +163,8 @@ build_image() {   # <out.img> <mode>
     local img="$1" mode="$2" t="$WORK/image-$2"
     rm -rf "$t"; mkdir -p "$t/payload" "$t/esp"
     mk_base_tree "$t/base" "$mode"
+    # a NON-key file under a public keyring path must still be scanned
+    [ "${KEYRING_LEAK:-0}" = 1 ] && printf 'GITLAB_TOKEN=%s\n' "$FAKE" > "$t/base/usr/share/keyrings/leak.conf"
     mk_desktop_tree "$t/desktop" "$mode"
     mk_rescue_tree "$t/rescue" "$mode"
     mk_layer "$t/base" "$t/payload/base.squashfs" || return 1
@@ -181,18 +183,27 @@ build_image() {   # <out.img> <mode>
     cp "$ROOT/build/vivaldi-apt-keyring.asc" "$t/payload/apt-keyring.asc" 2>/dev/null || true
 
     # ESP: a FAT image with the d-i kernel + the plain-realistic initrd
-    local esp_mib=8 data_mib=48
-    mkfs.vfat -C "$t/esp.img" $((esp_mib * 1024)) -n NCZESP >/dev/null 2>&1 || return 1
+    # ESP_FAT32=1: a FAT32 ESP like the real images (40 MiB, 512 B clusters
+    # gives > 65525 clusters); ESP_LEAK=1 puts the secret ONLY on the ESP.
+    local esp_mib=8 data_mib=48 fatopt=""
+    [ "${ESP_FAT32:-0}" = 1 ] && { esp_mib=40; fatopt="-F 32 -s 1 -S 512"; }
+    # shellcheck disable=SC2086
+    mkfs.vfat -C $fatopt "$t/esp.img" $((esp_mib * 1024)) -n NCZESP >/dev/null 2>&1 || return 1
     mmd -i "$t/esp.img" ::/EFI ::/EFI/BOOT ::/boot >/dev/null 2>&1
     printf 'refind placeholder\n' > "$t/refind_x64.efi"
     mcopy -i "$t/esp.img" "$t/refind_x64.efi" ::/EFI/BOOT/BOOTX64.EFI
     printf 'kernel placeholder\n' > "$t/linux"
     mcopy -i "$t/esp.img" "$t/linux" ::/linux
     mcopy -i "$t/esp.img" "$t/payload/initrd.gz" ::/initrd.gz
+    if [ "${ESP_LEAK:-0}" = 1 ]; then
+        printf 'esp_secret=%s\n' "$FAKE" > "$t/esp-leak.conf"
+        mcopy -i "$t/esp.img" "$t/esp-leak.conf" ::/EFI/BOOT/leak.conf
+    fi
 
     # data partition: ext4 with the payload tree
     rm -f "$t/data.img"; truncate -s $((data_mib * 1024 * 1024)) "$t/data.img"
-    mkfs.ext4 -q -F -L NCZDATA -d "$t/payload" "$t/data.img" >/dev/null 2>&1 || return 1
+    # shellcheck disable=SC2086
+    mkfs.ext4 -q -F -L NCZDATA ${DATA_EXT4_OPTS:-} -d "$t/payload" "$t/data.img" >/dev/null 2>&1 || return 1
 
     # GPT: ESP + data, written at the LBAs sgdisk reports
     local total=$(( (esp_mib + data_mib + 8) * 1024 * 1024 ))
@@ -553,6 +564,66 @@ out="$(NCZ_SECRET_HASHES_FILE="$ROOT/manifests/secret-hashes.example.json" \
        $PY "$SCAN" --image "$WORK/clean.img" 2>&1)"; rc=$?
 if [ "$rc" = 1 ] && grep -q "inside the" <<<"$out"; then pass "the gate refuses a hash list inside the repository"
 else fail "an in-repo hash list was not refused (rc=$rc)"; fi
+
+# 11. review fixes 2026-10-17: FAT32 ESP root, keyring paths, ext4 feature
+# bits, multi-member gzip, special-character values, whitespace refusal
+ESP_FAT32=1 build_image "$WORK/esp32-clean.img" clean || { echo "fixture: FAT32 clean image" >&2; exit 1; }
+ESP_FAT32=1 ESP_LEAK=1 build_image "$WORK/esp32-leak.img" clean || { echo "fixture: FAT32 leak image" >&2; exit 1; }
+out="$($PY "$SCAN" --image "$WORK/esp32-clean.img" --hash-file "$WORK/hashes.json" 2>&1)"; rc=$?
+if [ "$rc" = 0 ]; then pass "a clean image with a FAT32 ESP PASSES"; else echo "$out" >&2; fail "clean FAT32 ESP image rc=$rc"; fi
+out="$($PY "$SCAN" --image "$WORK/esp32-leak.img" --hash-file "$WORK/hashes.json" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "leak.conf" <<<"$out"; then pass "a secret only on a FAT32 ESP (EFI/BOOT/leak.conf) FAILS"
+else echo "$out" | tail -5 >&2; fail "FAT32 ESP secret missed (rc=$rc)"; fi
+KEYRING_LEAK=1 build_image "$WORK/keyring-leak.img" clean || { echo "fixture: keyring leak image" >&2; exit 1; }
+out="$($PY "$SCAN" --image "$WORK/keyring-leak.img" --hash-file "$WORK/hashes.json" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "usr/share/keyrings/leak.conf" <<<"$out"; then pass "a non-key file under /usr/share/keyrings is scanned and FAILS"
+else echo "$out" | tail -5 >&2; fail "keyring-path secret missed (rc=$rc)"; fi
+DATA_EXT4_OPTS="-O inline_data" build_image "$WORK/inline.img" clean || { echo "fixture: inline_data image" >&2; exit 1; }
+out="$($PY "$SCAN" --image "$WORK/inline.img" --hash-file "$WORK/hashes.json" 2>&1)"; rc=$?
+if [ "$rc" != 0 ] && grep -q "inline-data" <<<"$out"; then pass "an inline_data ext4 data partition FAILS CLOSED"
+else echo "$out" | tail -5 >&2; fail "inline_data ext4 not refused (rc=$rc)"; fi
+rm -f "$WORK"/esp32-*.img "$WORK/keyring-leak.img" "$WORK/inline.img"
+if $PY - "$ROOT" "$FAKE" <<'PY'
+import gzip, importlib.util, os, subprocess, sys, tempfile
+root, fake = sys.argv[1], sys.argv[2].encode()
+spec = importlib.util.spec_from_file_location(
+    "gate", os.path.join(root, "build", "scan-shipped-secrets.py"))
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+# multi-member gzip: members concatenate with no separator, both cpio segments parse
+def cpio(name, body):
+    d = tempfile.mkdtemp(dir=os.environ.get("TMPDIR"))
+    open(os.path.join(d, name), "wb").write(body)
+    return subprocess.run(["sh", "-c", f"cd {d} && echo {name} | cpio -o -H newc --quiet"],
+                          check=True, capture_output=True).stdout
+blob = gzip.compress(cpio("one", b"a\n"), mtime=0) + gzip.compress(cpio("two", b"b\n"), mtime=0)
+plain = [p for k, p in g.decompress_chain(blob, "t") if k == "gzip"][-1]
+names = [m[0] if isinstance(m, tuple) else m.get("name") for m in g.cpio_members(plain, "t")]
+assert any("one" in str(n) for n in names) and any("two" in str(n) for n in names), names
+# a value with characters outside TOKEN_RUN is matched whole
+odd = b"Zq#7?x[9];k" + fake[:6]
+hs = g.HashSet("s")
+for v in g.secret_variants([odd], "s"):
+    hs.digests.add(v["sha256"])
+sc = g.Scanner(hs, shapes=False)
+assert g.scan_candidate(sc, b"pw=" + odd + b"\n", "/etc/x.conf"), "special-character value missed"
+# keyring exemption needs real public key bytes
+assert g.looks_public_key(b"-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nabc\n")
+assert g.looks_public_key(bytes([0x99, 0x01, 0x0d]) + b"xx")
+assert not g.looks_public_key(b"GITLAB_TOKEN=" + fake)
+assert not g.looks_public_key(b"-----BEGIN PGP PUBLIC KEY BLOCK-----\n-----BEGIN PRIVATE KEY-----\n")
+# ext4 feature table matches fs/ext4/ext4.h
+bf = {(sct, bit): n for sct, bit, n in g.blocked_features()}
+assert bf.get((1, 0x8000)) == "inline-data" and bf.get((1, 0x10000)) == "encrypt"
+assert bf.get((1, 0x20000)) == "casefold" and bf.get((2, 0x8000)) == "verity"
+assert (2, 0x10000) not in bf, "ORPHAN_PRESENT must not block"
+PY
+then pass "multi-member gzip, special-character values, keyring content check and ext4 bits"
+else fail "review-fix unit checks failed"; fi
+printf '{"secrets": [{"value": "two words here", "label": "spaced"}]}\n' > "$WORK/km-space.json"
+out="$($PY "$MAKEHASH" --master "$WORK/km-space.json" --out "$WORK/h-space.json" --quiet 2>&1)"; rc=$?
+if [ "$rc" = 2 ] && grep -q "whitespace" <<<"$out" && [ ! -e "$WORK/h-space.json" ]; then
+    pass "make-secret-hashes refuses a value the gate could never match (whitespace)"
+else fail "a whitespace value was not refused (rc=$rc)"; fi
 
 if [ "$FAILS" -gt 0 ]; then echo "test-shipped-secret-scan: $FAILS finding(s)" >&2; exit 1; fi
 echo "test-shipped-secret-scan: PASS ✅"

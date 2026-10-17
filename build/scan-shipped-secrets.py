@@ -156,6 +156,10 @@ PUBLIC_KEYRING_DIRS = re.compile(
 
 # Tokenised-candidate vocabulary (let first, so "My " joins "P" -> "MyP...").
 TOKEN_RUN = re.compile(rb"[A-Za-z0-9_+\-/=.:~!@$%^&*()'\"]{3,}")
+# Every printable non-space byte: a value with # ? , ; [ ] { } < > | \ `
+# is looked up whole (TOKEN_RUN alone splits it there).  Values containing
+# whitespace cannot be matched and are refused by make-secret-hashes.py.
+PRINT_RUN = re.compile(rb"[\x21-\x7e]{6,}")
 ALNUM_RUN = re.compile(rb"[A-Za-z0-9_+\-]{8,}")
 SLUG_WORDS = re.compile(rb"[a-z]+(?:_[a-z]+)*")
 SLUG_SPLIT = re.compile(rb"[^a-z]+")
@@ -551,7 +555,15 @@ def fat_walk(img_fh, part: dict) -> list[dict]:
 
     files: list[dict] = []
     lfn = ""
-    queue = [("", 0 if fat_bits == 32 else None)]
+    # FAT32 keeps its root directory in a cluster chain starting at
+    # BPB_RootClus (offset 44); FAT12/16 have a fixed root region.
+    if fat_bits == 32:
+        root_clus = struct.unpack_from("<I", bs, 44)[0] & 0x0FFFFFFF
+        if root_clus < 2:
+            raise Unreadable(f"partition {part['index']}: FAT32 root cluster {root_clus}")
+        queue = [("", root_clus)]
+    else:
+        queue = [("", None)]
 
     def entries_of(cluster: int | None):
         if cluster is None:
@@ -633,21 +645,20 @@ def blocked_features() -> list[tuple[int, int, str]]:
         real image;
       - incompat 0x10 META_BG (not 0x200);
       - bigalloc is RO_COMPAT 0x200, not incompat;
-      - VERITY is RO_COMPAT 0x80000, CASEFOLD 0x10000, INLINE_DATA 0x40000,
-        ENCRYPT 0x8000, all RO_COMPAT.
-    A previous revision read section 96 for all three and shifted most of
-    these, so the gate rejected a clean fixture image.
+      - INLINE_DATA is INCOMPAT 0x8000, ENCRYPT INCOMPAT 0x10000, CASEFOLD
+        INCOMPAT 0x20000, VERITY RO_COMPAT 0x8000 (fs/ext4/ext4.h); RO_COMPAT
+        0x10000 is ORPHAN_PRESENT, harmless, and must not block.
     """
     return [
         # --- incompat: the layout itself is unreadable
         (1, 0x0010, "meta-bg"),          # group descriptors are not in a flat table
         (1, 0x0008, "journal-dev"),      # data lives on an external journal
+        (1, 0x8000, "inline-data"),      # small files live inside the inode
+        (1, 0x10000, "encrypt"),         # ciphertext on disk
+        (1, 0x20000, "casefold"),        # names are transformed on disk
         # --- ro_compat: readable only by a filesystem that knows the feature
         (2, 0x0200, "bigalloc"),         # clusters != blocks; the guard below refuses it
-        (2, 0x8000, "encrypt"),          # ciphertext on disk
-        (2, 0x10000, "casefold"),        # names are transformed on disk
-        (2, 0x40000, "inline-data"),     # small files live inside the inode
-        (2, 0x80000, "verity"),          # a digest we cannot check
+        (2, 0x8000, "verity"),           # a digest we cannot check
     ]
 
 
@@ -906,6 +917,24 @@ def is_public_keyring(path: str) -> bool:
     return bool(PUBLIC_KEYRING_DIRS.search(path) or PUBLIC_KEYRING_NAMES.search(path))
 
 
+def looks_public_key(data: bytes) -> bool:
+    """True only for bytes that ARE public key material: an armored public key
+    or certificate, a binary OpenPGP keyring whose first packet is a public
+    key (old-format tag 6 = 0x98-0x9b, new-format 0xc6), or a GnuPG keybox.
+    Anything else at a keyring path is an ordinary file and is scanned."""
+    if b"PRIVATE KEY" in data:
+        return False
+    if NON_SECRET_PEM_LABELS.search(data[:4096]):
+        return True
+    if data[8:12] == b"KBXf":
+        return True
+    return bool(data) and ((data[0] & 0xFC) == 0x98 or data[0] == 0xC6)
+
+
+def public_keyring_exempt(path: str, data: bytes) -> bool:
+    return is_public_keyring(path) and looks_public_key(data)
+
+
 def decompress_chain(data: bytes, label: str) -> list[tuple[str, bytes]]:
     """Every decompression layer of ``data``: [('gzip', plain), ...].  Nested
     compression (xz inside gzip inside cpio) is expanded to the bottom.  Every
@@ -931,7 +960,7 @@ def decompress_chain(data: bytes, label: str) -> list[tuple[str, bytes]]:
                         raise ValueError("truncated gzip member")
                     parts.append(plain)
                     rest = d.unused_data
-                cur = b"\n".join(parts) if parts else b""
+                cur = b"".join(parts)
             elif kind == "bzip2":
                 cur = bz2.decompress(cur)
             elif kind == "xz":
@@ -1175,7 +1204,7 @@ class Scanner:
     # -- token shapes ---------------------------------------------------
     def scan_shapes(self, data: bytes, path: str) -> list[dict]:
         hits: list[dict] = []
-        public_keyring = is_public_keyring(path)
+        public_keyring = public_keyring_exempt(path, data)
         for name, rx in TOKEN_SHAPES.items():
             for m in rx.finditer(data):
                 if name == "pem-private-key":
@@ -1205,12 +1234,12 @@ def tokenise(data: bytes) -> list[bytes]:
     """Candidate strings the hash list is looked up against.
 
     Runs (``[A-Za-z0-9_+\\-/=.:~!@$%^&*()'"]{3,}``) cover config/shell/JSON
-    embeddings; alphanumeric runs cover a secret abutted by punctuation;
-    lowercase word slugs cover a passphrase written with spaces
-    ("\"my leaked phrase\"").  Adjacent runs are joined per chunk so
-    ``TOKEN=glpat-...`` is looked up as a whole as well.  A slug only ever
-    contains its own words, so a multi-word secret can never be *created* by
-    joining ordinary prose.  Chunks overlap by ``lex_overlap()`` bytes so a
+    embeddings; whole printable non-space runs cover values with any other
+    punctuation; alphanumeric runs cover a secret abutted by punctuation;
+    lowercase word slugs cover snake_case names.  The hash loop slides a
+    window over each token, so ``TOKEN=glpat-...`` is matched inside its run.
+    No run crosses whitespace: make-secret-hashes.py refuses values that
+    contain it, rather than letting the gate miss them silently.  Chunks overlap by ``lex_overlap()`` bytes so a
     token straddling a boundary is seen whole at least once.
     """
     if len(data) > MAX_MEMBER_BYTES:
@@ -1221,7 +1250,7 @@ def tokenise(data: bytes) -> list[bytes]:
     pos = 0
     while True:
         chunk = data[pos:pos + step + lex_overlap()]
-        for rx in (TOKEN_RUN, ALNUM_RUN, SLUG_WORDS):
+        for rx in (TOKEN_RUN, PRINT_RUN, ALNUM_RUN, SLUG_WORDS):
             for m in rx.finditer(chunk):
                 tok = m.group(0)
                 if len(tok) < 6 or tok in seen:
@@ -1242,7 +1271,7 @@ def scan_candidate(scanner: Scanner, data: bytes, path: str) -> list[dict]:
     # their base64 bodies routinely match the base64 form of an unrelated
     # secret by chance.  The exclusion has to apply to the HASHED half too --
     # applying it only to the shape scan flagged every clean image.
-    public_keyring = is_public_keyring(path)
+    public_keyring = public_keyring_exempt(path, data)
     if scanner.hashes and not public_keyring:
         # O(len * MAX_SECRET_LEN) hashes per candidate, no quadratic blow-up:
         # for every start offset, extend the window while its digest misses

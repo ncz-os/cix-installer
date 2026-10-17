@@ -104,6 +104,12 @@ def main(argv=None) -> int:
                   "ordinary shipped text, so it cannot be gated this way",
                   file=sys.stderr)
             return 2
+        if not all(0x21 <= b <= 0x7E for b in value):
+            print(f"make-secret-hashes: entry {i} ({label}) contains whitespace, "
+                  "control or non-ASCII bytes; the gate's tokeniser never sees "
+                  "such a value whole, so it cannot be gated this way",
+                  file=sys.stderr)
+            return 2
         if len(value) > gate.MAX_SECRET_LEN:
             print(f"make-secret-hashes: entry {i} ({label}) is longer than "
                   f"{gate.MAX_SECRET_LEN} bytes; gate the file's own digest "
