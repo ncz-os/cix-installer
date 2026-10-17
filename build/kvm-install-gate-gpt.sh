@@ -1117,7 +1117,7 @@ fi
 # installed" stanza for any of them is a desktop leak that would have pulled
 # the headless build back into a graphical one.
 if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
-    _dpkg_status="$WORK/.server-dpkg-status"
+    _dpkg_status="$WORK/.server-dpkg-status"; rm -f "$_dpkg_status"
     "$DEBUGFS" -R "dump /var/lib/dpkg/status $_dpkg_status" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
     if [ -s "$_dpkg_status" ]; then
         _desk_pkgs="greetd libgtk-4-1 xwayland swaybg fuzzel foot lightdm gdm3 google-chrome-stable ncz-singularity-desktop"
@@ -1131,7 +1131,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
             fail "server gate: desktop packages installed on the server root (the server variant must skip post-install/20-desktop.sh):$_leak"
         fi
         # The BUILD_VARIANT stamp the variant hooks read must say server.
-        _bv="$WORK/.server-variant"
+        _bv="$WORK/.server-variant"; rm -f "$_bv"
         "$DEBUGFS" -R "dump /usr/local/lib/cix-installer/BUILD_VARIANT $_bv" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
         if [ -s "$_bv" ]; then
             _bv_val=$(tr -d ' \t\r\n' < "$_bv")
