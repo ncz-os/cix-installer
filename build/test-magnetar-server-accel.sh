@@ -103,8 +103,13 @@ check "desktop, empty record + COMPONENTS_cuda=1 -> still declined (record wins)
     "$(newcase desktop "" 1)" no
 # The regression this suite exists for: a bare desktop box must not start
 # pulling a CUDA stack because SCOPE-002 touched the function.
-check "desktop never emits the server opt-in message" \
-    "$(newcase desktop 'mgmt-container' | wc -l)" 1
+newcase desktop 'mgmt-container' >/dev/null
+d_out=$(env -u NCZ_VARIANT bash "$W/case.sh" 2>&1)
+case "$d_out" in
+    *"BUILD_VARIANT=server"*) bad "desktop printed the server opt-in message" "$d_out" ;;
+    no) ok "desktop never emits the server opt-in message" ;;
+    *) bad "desktop case printed unexpected output" "$d_out" ;;
+esac
 
 echo "=== 3. server optimises in on omitted records, hardware permitting ==="
 check "server + record omitting cuda -> installed (the SCOPE-002 fix)" \
@@ -121,11 +126,14 @@ echo "=== 4. server: an accelerator is only installed where the hardware is ==="
 # device, so the server opt-in above only reaches hardware that exists. Pin
 # the NVIDIA gate: a box whose sysfs shows no NVIDIA display controller must
 # not reach the CUDA installer even on server.
-nv_gate=$(awk '/^ncz_nvidia_dynamic_setup\(\)/{f=1} f{print} f && /^}$/{exit}' "$HOOK")
-case "$nv_gate" in
-    *ncz_pci_has*|*nvidia*) ok "CUDA setup is gated on detected NVIDIA hardware" ;;
-    *) bad "CUDA setup is not gated on detected hardware" ;;
-esac
+nv_calls=$(grep -n '^[[:space:]]*ncz_nvidia_dynamic_setup[[:space:]]*$' "$HOOK" | cut -d: -f1)
+nv_ok=1
+[ -n "$nv_calls" ] || nv_ok=0
+for n in $nv_calls; do
+    sed -n "$((n - 1))p" "$HOOK" | grep -qx 'if \[ "\$HAS_NVIDIA" = 1 \]; then' || nv_ok=0
+done
+[ "$nv_ok" = 1 ] && ok "CUDA setup is gated on detected NVIDIA hardware" \
+    || bad "ncz_nvidia_dynamic_setup is called outside the HAS_NVIDIA gate"
 grep -q 'no NVIDIA/AMD/Intel display controller detected' "$HOOK" \
     && ok "server + no accelerator: the hook is a silent no-op" || bad "no-accelerator early-out missing"
 # The server branch must not install anything before the hardware gate: it
@@ -140,9 +148,10 @@ echo "=== 5. variant resolution is not global state ==="
 grep -qE '^[[:space:]]*(export|NCZ_VARIANT=.*;export)[[:space:]]*NCZ_VARIANT' "$HOOK" \
     && bad "the hook still exports NCZ_VARIANT into the helpers it sources" \
     || ok "no NCZ_VARIANT export (variant stays a plain local/variable read)"
-grep -c 'VARIANT="${VARIANT:-desktop}"\|VARIANT="${NCZ_VARIANT:-desktop}"' "$HOOK" >/dev/null \
-    && bad "VARIANT is still defaulted more than once" \
-    || ok "VARIANT defaulted exactly once (in ncz_variant)"
+n_def=$(grep -c ':-desktop}' "$HOOK")
+n_fn=$(extract "$HOOK" '^ncz_variant[(][)] [{]' | grep -c ':-desktop}')
+[ "$n_def" = 1 ] && [ "$n_fn" = 1 ] && ok "VARIANT defaulted exactly once (in ncz_variant)" \
+    || bad "the desktop default appears $n_def time(s) in the hook, $n_fn in ncz_variant"
 # An explicit environment variant still wins, for callers that resolved it.
 mkdir -p "$W/tgt.env/usr/local/lib/cix-installer"
 printf '%s\n' desktop > "$W/tgt.env/usr/local/lib/cix-installer/BUILD_VARIANT"
