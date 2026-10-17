@@ -23,7 +23,7 @@ HOOK_DIR="post-install"
 [ -f "$RUN_ALL" ] || { echo "check-hook-registration: missing $RUN_ALL" >&2; exit 2; }
 
 python3 - "$RUN_ALL" "$HOOK_DIR" <<'PY'
-import glob, os, re, sys
+import glob, os, re, subprocess, sys
 
 run_all, hook_dir = sys.argv[1], sys.argv[2]
 src = open(run_all).read()
@@ -54,8 +54,10 @@ def bare(names):
         n = n.strip()
         if n.startswith("^("):
             n = n[2:]
-        if n.endswith(")$"):
-            n = n[:-2]
+        for tail in (")\\.sh$", ")$"):
+            if n.endswith(tail):
+                n = n[: -len(tail)]
+                break
         if n:
             out.add(n)
     return out
@@ -97,6 +99,31 @@ if in_both:
           "lists; that is ambiguous and can double-run:")
     for h in in_both:
         print("    DUPLICATE %s" % h)
+    sys.exit(1)
+
+# The text parse above cannot see a regex that does not COMPILE: an unbalanced
+# paren made grep -E match nothing on the target, so every optional hook was
+# reported ORPHAN and skipped (Preview3 shakeout, 2026-10-17). Evaluate the real
+# variable and run every registered name through grep -E exactly as run-all.sh does.
+with open(run_all) as _fh:
+    _line = next((l for l in _fh if l.startswith("MACHINE_HOOKS_RE=")), None)
+if _line is None:
+    print("check-hook-registration: FAIL - MACHINE_HOOKS_RE assignment not found")
+    sys.exit(1)
+_expect = sorted(h for h in machine | (on_disk - required - referenced_elsewhere))
+_names = "\n".join("%s.sh" % h for h in _expect) + "\n"
+_r = subprocess.run(["bash", "-c", _line.strip() + '\ngrep -E "$MACHINE_HOOKS_RE"'],
+                    input=_names, capture_output=True, text=True)
+_matched = set(_r.stdout.split())
+_missed = sorted("%s.sh" % h for h in _expect if "%s.sh" % h not in _matched)
+if _r.returncode not in (0, 1) or _missed:
+    print("check-hook-registration: FAIL - MACHINE_HOOKS_RE does not compile or "
+          "does not match its own entries (grep rc=%d%s)"
+          % (_r.returncode, (": " + _r.stderr.strip()) if _r.stderr.strip() else ""))
+    for h in _missed[:20]:
+        print("    UNMATCHED %s" % h)
+    if len(_missed) > 20:
+        print("    ... and %d more" % (len(_missed) - 20))
     sys.exit(1)
 
 print("check-hook-registration: OK - %d hooks on disk, all registered "
