@@ -733,7 +733,12 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" = 1 ]; then
     rm -f "$EVIDENCE_DISK" "$EVIDENCE_ROOT"
     if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK" >/dev/null 2>&1; then
         ROOT_PART=$(ncz_last_partnum "$EVIDENCE_DISK" || true)
-        if [ -n "$ROOT_PART" ] && [ "$ROOT_PART" -ge 1 ] 2>/dev/null; then
+        if [ -z "$ROOT_PART" ]; then
+            # d-i stopped before partitioning: the disk carries no partition
+            # table, so nothing can have been installed.
+            echo "  negative run: the target disk has no partition table -- nothing was installed"
+            _neg_checked=1
+        elif [ "$ROOT_PART" -ge 1 ] 2>/dev/null; then
             ROOT_LBA=$("$SGDISK" -i "$ROOT_PART" "$EVIDENCE_DISK" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
             ROOT_END_LBA=$("$SGDISK" -i "$ROOT_PART" "$EVIDENCE_DISK" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
             if [ -n "$ROOT_LBA" ] && [ -n "$ROOT_END_LBA" ]; then
@@ -1064,7 +1069,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     _telnet_wants=""
     for _u in /etc/systemd/system/openbsd-inetd.service /etc/systemd/system/inetd.service \
               /etc/systemd/system/busybox-telnetd.socket /etc/systemd/system/ncz-failsafe.service; do
-        if "$DEBUGFS" -R "stat ${_u#?}" "$EVIDENCE_ROOT" 2>&1 | grep -q '^Inode:'; then
+        if "$DEBUGFS" -R "stat $_u" "$EVIDENCE_ROOT" 2>&1 | grep -q '^Inode:'; then
             _telnet_wants="$_telnet_wants ${_u##*/}"
         fi
     done
