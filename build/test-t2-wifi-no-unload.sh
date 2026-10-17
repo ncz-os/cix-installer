@@ -19,7 +19,7 @@ scan() {   # stdin: a file; prints "N: line" for every hit
     function hit(l,   t) {
         if (l !~ /brcmfmac/) return 0
         if (l ~ /(^|[^[:alnum:]_])rmmod([[:space:]]|$)/) return 1
-        if (l ~ /(^|[^[:alnum:]_])kmod[[:space:]]+remove([[:space:]]|$)/) return 1
+        if (l ~ /(^|[^[:alnum:]_])kmod([[:space:]]+-[^[:space:]]+)*[[:space:]]+remove([[:space:]]|$)/) return 1
         if (l ~ /brcmfmac[^[:space:]]*\/(unbind|remove)([^[:alnum:]_]|$)/) return 1
         if (l ~ /(^|[^[:alnum:]_])modprobe([[:space:]]|$)/) {
             t = l; sub(/.*(^|[^[:alnum:]_])modprobe([[:space:]]|$)/, " ", t)
@@ -50,7 +50,7 @@ fi
 # Controls: every unload shape must be caught, every load must not be.
 for s in 'modprobe -r brcmfmac' 'modprobe --remove brcmfmac' 'modprobe -q -r brcmfmac_wcc brcmfmac' \
          'modprobe -rv brcmfmac' 'modprobe brcmfmac -r' '/sbin/modprobe -r brcmfmac' 'rmmod brcmfmac_wcc' \
-         'kmod remove brcmfmac' 'modprobe -r brcmfmac # trailing comment' \
+         'kmod remove brcmfmac' 'kmod -q remove brcmfmac' 'kmod --quiet remove brcmfmac' 'modprobe -r brcmfmac # trailing comment' \
          'echo 0000:05:00.0 > /sys/bus/pci/drivers/brcmfmac/unbind' $'modprobe -r \\\n    brcmfmac' \
          'true; modprobe -r brcmfmac && echo done' 'echo "T2 resume # note"; modprobe -r brcmfmac'; do
     [ -n "$(printf '%s\n' "$s" | scan)" ] || { echo "FAIL control not caught: $s"; fail=1; }
