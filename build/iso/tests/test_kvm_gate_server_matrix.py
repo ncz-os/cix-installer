@@ -149,3 +149,7 @@ def test_url_contract_between_build_and_gate():
     assert "ncz_gate_serve_payload_base_url" in w, "the build must derive the pins from the gate's serve base"
     g = read("build/kvm-install-gate-gpt.sh")
     assert "ncz-fetch-payload.manifest" in g, "the gate must read the pins back off the medium"
+    # The gate serves AT THE PIN IT READS OFF THE MEDIUM: the 200 checks run
+    # against the guest's exact URLs, so a wrong pin fails pre-boot.
+    assert "ncz_gate_srv_extract_manifest" in g, "the gate must extract the medium's pin manifest"
+    assert "the pins back off the medium" in g or "SERVES AT THE PIN IT READS" in g, "the gate must document its serve-at-the-pin contract"

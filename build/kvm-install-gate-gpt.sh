@@ -434,10 +434,13 @@ ncz_gate_srv_start() {
     # Starts the server and proves it actually ANSWERS (a full HTTP request
     # returns 200) before the guest is allowed to start, so a silent bind
     # failure (port taken, python missing, slow bind) is a gate error, not a
-    # 90-minute install timeout. The bind address is the QEMU user-net
-    # gateway (the guest's default network); $NCZ_GATE_SERVER_HOST overrides
-    # it for non-standard networks (it must still be an address the guest
-    # reaches, and the pin in the medium's manifest must name the same host).
+    # 90-minute install timeout. The bind address is the host the MEDIUM'S
+    # PIN NAMES (read back from the data partition's
+    # ncz-fetch-payload.manifest by the caller -- the gate serves at the pin
+    # the guest will follow, so the two cannot drift); on every standard
+    # QEMU user-net setup that host is the guest's gateway 10.0.2.2.
+    # NCZ_GATE_SERVER_HOST is a BUILD-TIME knob (write-usb-image.py): it
+    # puts a non-standard serve host into the pins before the medium exists.
     local bind="$1" host port
     host=${bind#*://}; host=${host%%/*}; host=${host%%:*}
     [ -n "$host" ] || host=10.0.2.2
@@ -543,6 +546,14 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
         echo "  WARN: could not read ncz-fetch-payload.manifest from $TEST_IMG; assuming the default pin $_srv_purl"
     fi
     _srv_base="${_srv_purl%/base.squashfs}"
+    _srv_pinhost=${_srv_purl#*://}; _srv_pinhost=${_srv_pinhost%%/*}; _srv_pinhost=${_srv_pinhost%%:*}
+    # SERVES AT THE PIN IT READS OFF THE MEDIUM: the 200 checks
+    # below run against the guest's exact URLs, so a wrong pin is a gate
+    # error before the guest starts. NCZ_GATE_SERVER_HOST (build time,
+    # see write-usb-image.py) is how a non-standard serve host gets into
+    # the pins in the first place; the gate does not rewrite the medium's
+    # manifest at run time.
+    echo "  server pins point at ${_srv_pinhost} (read from the medium's ncz-fetch-payload.manifest)"
     # The served file must match the manifest's URL path (usually
     # ncz-assets-<arch>.tar.gz; the pin is authoritative).
     _srv_name=$(basename "${_srv_aurl%%\?*}")
