@@ -567,10 +567,11 @@ ncz_intel_hw_classes() {
         v=$(tr -d '[:space:]' < "$d/vendor" 2>/dev/null)
         c=$(tr -d '[:space:]' < "$d/class" 2>/dev/null)
         [ "$v" = "0x8086" ] || continue
-        # sysfs class is "0x030000" (display) or "0x120000" (NPU/processing).
+        # sysfs class is "0x030000" (display) or "0x120000" (NPU/processing);
+        # same subclasses as 54-gpu-accel.sh: 0300/0302/0380 GPU, 1200 NPU.
         case "$c" in
-            0x03*) g=1 ;;
-            0x12*) n=1 ;;
+            0x0300*|0x0302*|0x0380*) g=1 ;;
+            0x1200*) n=1 ;;
         esac
     done
     echo "$g $n"

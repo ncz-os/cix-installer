@@ -624,6 +624,17 @@ NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=2 NET=up NPUPKGS=1 NPUDRIVERS=0 r
     && ok "GPU-only re-arm requests GPU=1 NPU=0 and finishes without NPU drivers" \
     || bad "gpu-only re-arm rc=$_rcG status '$(cat "$S")'" "$(cat "$W/out")"
 
+echo "=== recovery: Intel devices outside the install-time GPU/NPU classes do not re-arm ==="
+# 54-gpu-accel.sh counts only display 0300/0302/0380 and accelerator 1200.
+mkroot; mkpci 0x8086-030100 0x8086-128000
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_install 1 1
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_run >/dev/null 2>&1
+grep -q 'failed:gave-up' "$S" && [ ! -f "$P" ] || bad "other-class precondition missing: '$(cat "$S")'"
+NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rcX=$?
+[ "$_rcX" = 0 ] && grep -q 'failed:gave-up' "$S" && [ ! -f "$P" ] \
+    && ok "Intel 0301/1280 devices only: gave-up kept, no re-arm" \
+    || bad "other-class run rc=$_rcX status '$(cat "$S")'"
+
 echo "=== recovery: gave-up WITHOUT Intel hardware stays gave-up (no false re-arm) ==="
 mkroot; mkpci 0x10de-030000   # only an NVIDIA display device, no Intel
 NCZ_INTEL_PCI_ROOT="$PCIR" NCZ_INTEL_MAX_TRIES=1 NET=down MIRROR=1 run ncz_intel_accel_install 1 1
