@@ -1374,7 +1374,7 @@ stage_secret_scan() {
         return 1
     fi
     { printf 'gate=secret-scan\nresult=PASS\nimage=%s\nsha256=%s\nhash_list=%s\nelapsed_seconds=%s\nat=%s\n' \
-        "$img" "$(sha256sum "$img" | awk '{print $1}')" "$(basename "$hashf")" "$((t1 - t0))" "$(date -u +%s)"; } \
+        "$img" "$(sha256sum "$img" | awk '{print $1}')" "sha256:$(sha256sum "$hashf" | awk '{print $1}')" "$((t1 - t0))" "$(date -u +%s)"; } \
         > "$RUN_DIR/secret-scan.result"
     echo "[secret-scan] PASS ($((t1 - t0))s) receipt: $receipt" | tee -a "$log"
     return 0

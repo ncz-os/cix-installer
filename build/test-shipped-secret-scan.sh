@@ -251,9 +251,14 @@ need = {"base.squashfs", "desktop.squashfs", "desktop-hotfix.squashfs",
         "rescue.squashfs", "mgmt.squashfs"}
 missing = need - names
 units = r["units_by_layer"]
+# every layer, the ESP and the data partition's own files (the rescue rootfs
+# tarball, the pool) each produced scanned units
 want_units = {"base.squashfs", "desktop.squashfs", "rescue.squashfs", "mgmt.squashfs",
-              "esp", "ncz-payload_rescue-rootfs.tar.zst"}
-sys.exit(0 if not missing and all(units.get(k) for k in ("base.squashfs", "desktop.squashfs")) else 1)
+              "esp", "partition"}
+empty = sorted(k for k in want_units if not units.get(k))
+if missing or empty:
+    print(f"missing layers {sorted(missing)}, no units for {empty}", file=sys.stderr)
+sys.exit(0 if not missing and not empty else 1)
 PY
 then pass "receipt lists every layer and its member counts"; else fail "receipt is missing layers"; fi
 # 1c. the clean pass is a REAL pass: layers yielded files
@@ -274,7 +279,8 @@ else pass "the documented public apt keyring is excluded"; fi
 out="$($PY "$SCAN" --image "$WORK/leaky.img" --hash-file "$WORK/hashes.json" \
         --receipt "$WORK/leaky.receipt.json" 2>&1)"; rc=$?
 if [ "$rc" = 1 ]; then pass "leaky image FAILS (exit 1)"; else echo "$out" >&2; fail "leaky image should fail (rc=$rc)"; fi
-if grep -qF "$FAKE" "$WORK/leaky.receipt.json" 2>/dev/null; then fail "the receipt leaked a value"; else pass "the receipt holds no value"; fi
+if grep -qF -e "$FAKE" -e "$FAKE_URL" -e "$FAKE_B64" -e "$SHAPE_TOKEN" "$WORK/leaky.receipt.json" 2>/dev/null; then
+    fail "the receipt leaked a value"; else pass "the receipt holds no value (raw, urlenc, base64 or shape form)"; fi
 for want in "desktop.squashfs" "base.squashfs" "rescue.squashfs"; do
     if grep -q "\"layer\": \"$want\"" "$WORK/leaky.receipt.json" 2>/dev/null; then
         pass "caught the secret inside $want"

@@ -225,8 +225,8 @@ def which_all(names):
 
 
 def b64_variant(raw: bytes) -> bytes:
-    """base64 with the punctuation (and lenient padding) that survives being
-    embedded in shell, JSON and YAML."""
+    """Plain base64 of ``raw`` (the padded/unpadded and offset forms are
+    produced by secret_variants)."""
     return base64.b64encode(raw)
 
 
@@ -1337,7 +1337,10 @@ def make_readable(root: str) -> None:
     """Give the (unprivileged) owner read/search on every extracted directory
     and read on every file: a layer ships mode-000 directories
     (/run/systemd/dissect-root) whose content would otherwise be skipped."""
-    for dirpath, dirnames, filenames in os.walk(root, onerror=None):
+    def walk_error(exc: OSError) -> None:
+        raise Unreadable(f"cannot list extracted directory {exc.filename}: {exc.strerror}")
+
+    for dirpath, dirnames, filenames in os.walk(root, onerror=walk_error):
         for name in dirnames:
             p = os.path.join(dirpath, name)
             if not os.path.islink(p):
@@ -1377,7 +1380,11 @@ def verify_squashfs_extract(tool: str, layer: str, dest: str) -> None:
         parts = line.split(None, 5)
         if len(parts) < 6:
             raise Unreadable(f"{layer}: unparseable listing line")
-        size, rel = int(parts[2]), parts[5].split("/", 1)[-1]
+        try:
+            size = int(parts[2])
+        except ValueError:
+            raise Unreadable(f"{layer}: unparseable size in listing line")
+        rel = parts[5].split("/", 1)[-1]
         path = os.path.join(dest, rel)
         try:
             st = os.lstat(path)
@@ -1624,9 +1631,13 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
                 if len(data) > (64 << 20) and expand_eligible(path):
                     # a big initrd/archive: expand here so its members are
                     # matched in parallel instead of in one worker
-                    rep.units[lname] += 1
-                    for mpath, payload in expand(path, data, path):
-                        tasks.append((lname, mpath, payload))
+                    members = list(expand(path, data, path))
+                    if members:
+                        rep.units[lname] += 1
+                        tasks.extend((lname, mpath, payload) for mpath, payload in members)
+                    else:
+                        # not an archive after all: scan the bytes themselves
+                        tasks.append((lname, path, data))
                 else:
                     tasks.append((lname, path, data))
             del files
