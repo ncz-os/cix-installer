@@ -89,6 +89,11 @@ run_positive() {
       echo "bad version in changelog.gz: $d" >&2; exit 1; }
     zcat "$d/changelog.gz" | grep -q "^ -- " || {
       echo "missing -- trailer in changelog.gz: $d" >&2; exit 1; }
+    # trailer date must be RFC 2822; an ISO 8601 stamp makes lintian report
+    # syntax-error-in-debian-changelog "badly formatted trailer line".
+    zcat "$d/changelog.gz" | grep -qE \
+      '^ -- .+ <[^>]+>  [A-Z][a-z][a-z], [0-9][0-9] [A-Z][a-z][a-z] [0-9][0-9][0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9] \+0000$' || {
+      echo "changelog trailer is not RFC 2822: $d" >&2; exit 1; }
     grep -qE "^Maintainer: .+ <[^@]+@[^@]+>" "$d/copyright" || {
       echo "missing/invalid Maintainer in copyright: $d" >&2; exit 1; }
     grep -q "UPSTREAM-SENTINEL-$comp" "$d/UPSTREAM-SENTINEL" || {
@@ -107,7 +112,7 @@ run_positive() {
   for comp in driver-compiler-npu level-zero-npu; do
     t="$STAGE/ncz-npu-meta/$comp/triggers"
     [ -f "$t" ] || { echo "missing triggers: $t" >&2; exit 1; }
-    expected="interest ldconfig /usr/lib/x86_64-linux-gnu"
+    expected="interest-noawait ldconfig /usr/lib/x86_64-linux-gnu"
     actual=$(cat "$t")
     [ "$actual" = "$expected" ] || {
       echo "wrong triggers content: $t (got '$actual')" >&2; exit 1; }

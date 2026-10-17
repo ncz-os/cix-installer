@@ -55,7 +55,7 @@ endif()
 # not a CMake variable and cannot be referenced with ${} in execute_process).
 find_program(_DATE_EXECUTABLE date REQUIRED)
 execute_process(
-  COMMAND "${_DATE_EXECUTABLE}" -u -d "@$ENV{SOURCE_DATE_EPOCH}" "+%Y-%m-%dT%H:%M:%SZ"
+  COMMAND "${_DATE_EXECUTABLE}" -u -d "@$ENV{SOURCE_DATE_EPOCH}" "+%a, %d %b %Y %H:%M:%S +0000"
   OUTPUT_VARIABLE _changelog_date
   OUTPUT_STRIP_TRAILING_WHITESPACE
   RESULT_VARIABLE _date_rc
@@ -63,7 +63,7 @@ execute_process(
 if(NOT _date_rc EQUAL 0)
   message(FATAL_ERROR "npu-debian-metadata: date failed (rc=${_date_rc}): ${_date_err}")
 endif()
-if(NOT _changelog_date MATCHES "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$")
+if(NOT _changelog_date MATCHES "^[A-Z][a-z][a-z], [0-9][0-9] [A-Z][a-z][a-z] [0-9][0-9][0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9] \\+0000$")
   message(FATAL_ERROR "npu-debian-metadata: unexpected date format '${_changelog_date}'")
 endif()
 
@@ -81,6 +81,11 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
 # file permissions are used verbatim and a 0775 postinst produces the
 # control-file-has-bad-permissions Lintian error.
 set(CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION "ON")
+
+# Upstream CPACK_PACKAGE_CONTACT is the bare string "Intel Corporation", which
+# is not a valid RFC-822 address; lintian cannot parse the Maintainer field.
+# This variable is read when the package is prepared, so setting it here works.
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Jason Perlow <jperlow@gmail.com>")
 
 # Full Debian version as emitted by upstream deb.cmake.
 # Note: CPackDeb.cmake (per-component) reads CPACK_DEBIAN_PACKAGE_VERSION.
@@ -123,17 +128,8 @@ License: MIT
 Files: compiler/*
 Copyright: 2022-2026 Intel Corporation
 License: Apache-2.0
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
- .
-     http://www.apache.org/licenses/LICENSE-2.0
- .
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
+ On Debian systems, the complete text of the Apache License 2.0 can be
+ found in "/usr/share/common-licenses/Apache-2.0".
 ")
 
 set(_copyright_fw "Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
@@ -265,7 +261,10 @@ License: MIT
 ")
 
 # ldconfig trigger: exactly one line as required by the task.
-set(_triggers_content "interest ldconfig /usr/lib/x86_64-linux-gnu\n")
+# "interest-noawait" is the modern form. A bare "interest" is an implicit-await
+# trigger: lintian flags it (uses-implicit-await-trigger) and dpkg has to
+# serialise around it.
+set(_triggers_content "interest-noawait ldconfig /usr/lib/x86_64-linux-gnu\n")
 
 # shlibs entry for libze_intel_npu.so.1.
 # Upstream umd/level_zero_driver/api/CMakeLists.txt sets:
@@ -329,6 +328,15 @@ foreach(_comp IN LISTS _expected_components)
     message(FATAL_ERROR "npu-debian-metadata: ${_changelog}.gz not produced")
   endif()
   file(REMOVE "${_changelog}")
+
+  # --- usrmerge: relocate firmware off the /lib alias ---
+  if(_comp STREQUAL "fw-npu")
+    if(IS_DIRECTORY "${CPACK_TEMPORARY_DIRECTORY}/fw-npu/lib")
+      file(MAKE_DIRECTORY "${CPACK_TEMPORARY_DIRECTORY}/fw-npu/usr")
+      file(RENAME "${CPACK_TEMPORARY_DIRECTORY}/fw-npu/lib"
+                  "${CPACK_TEMPORARY_DIRECTORY}/fw-npu/usr/lib")
+    endif()
+  endif()
 
   # --- ldconfig triggers + shlibs go into the CONTROL archive ---
   #
