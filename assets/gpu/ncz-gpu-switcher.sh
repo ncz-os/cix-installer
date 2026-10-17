@@ -45,6 +45,12 @@
 #   2. ncz.gpu=mali|panthor   on the kernel cmdline  (NCZ spelling, same thing)
 #   3. GPU_MODE= in /etc/default/ncz-gpu
 #   4. mali  -- the 26.7 shipped default
+#
+# The 7.3 'Panthor (Experimental)' boot entry selects this stack via
+# sky1.gpu=panthor (the older rEFInd entries emitted the Sky1-Linux spelling
+# sky1.gpu=mesa for the same entry; get_mode() below still accepts both).
+# Do NOT change the mali default here: the Mali (Default) entry and every
+# fallback path must keep behaving exactly as they do today.
 set -u
 
 BLACKLIST=/etc/modprobe.d/ncz-gpu-drivers.conf
