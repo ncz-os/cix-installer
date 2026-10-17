@@ -51,7 +51,13 @@
 # the native packages are published, and the pending marker is then dropped
 # so NO later publish ever triggers the install):
 #   * Fast budget: while TRIES < NCZ_INTEL_MAX_TRIES (36) the deferred unit
-#     retries at the timer cadence (10 min).
+#     retries at the timer cadence (10 min). The counter lives in the
+#     pending marker and is RESUMED by every timer `run`: the only code
+#     that re-arms is ncz_intel_recover (on a gave-up status) and the
+#     install-time entry, so a run that reset TRIES would restart the same
+#     budget forever and the give-up below could never be reached.
+#     Only an explicit re-arm (`rearm`, or recover's re-arm) starts a new
+#     budget, and that new budget is bounded like any other.
 #   * A 75 that is caused ONLY by native candidates missing from a FRESHLY
 #     FETCHED index (i.e. apt-get update succeeded and the only gap is the
 #     missing native plugin or NPU-driver candidates; every Debian-origin
@@ -75,6 +81,9 @@
 #     invoked from the deferred entry and from ncz-update-apply), requesting
 #     only the classes still present (GPU and/or NPU). This makes
 #     a shipped upgrade of the installer payload revive gave-up machines.
+#     The re-armed install gets a fresh, bounded budget: the recovery run
+#     counts attempt 1 and the next failures count down as usual, so a
+#     machine whose network is still down is not handed an unbounded loop.
 #
 # Return codes from ncz_intel_setup / ncz_intel_accel_install / _run:
 #   0  complete (all requested plugins and NPU drivers installed)
@@ -591,6 +600,41 @@ ncz_intel_finish() {
 # entry: an upgrade install runs while ncz-intel-accel-setup.timer may already
 # be active, and without the lock install can delete a marker a deferred run
 # just armed, or a deferred run can append LAST= to a marker install removed.
+
+# ncz_intel_budget_resume -> the retry budget decision for one deferred run.
+# Reads the armed marker and leaves the attempt number of THIS run in
+# _ncz_t (the stored count + 1, or 1 when the run is an explicit re-arm).
+#
+# The counter is never rewound silently. A marker written by
+# ncz_intel_arm_retry carries TRIES=0; the timer's own `run` must RESUME it,
+# because the publication-lag class re-arms ONLY through ncz_intel_recover
+# (an install-time arm has no re-arm path at all). Resetting to 0 there made
+# `pending:attempt-$_t` count the same fresh 1..N on a machine that was
+# already armed, so the give-up half of the retry/give-up policy could never
+# be reached and every timer tick kept paying for an apt-get update +
+# simulation. Only an explicit re-arm (`rearm`, or recover's re-arm when a
+# gave-up status is revived) may start a new budget.
+ncz_intel_budget_resume() {
+    local raw
+    raw=$(sed -n 's/^TRIES=//p' "$1")
+    # Corrupt -> 0. Shell arithmetic reads a leading 0 as octal (TRIES=09
+    # aborts) and a non-number aborts the run; a real count is short and
+    # decimal. A marker without TRIES (older write, or a marker edited by
+    # hand) is backfilled so the count cannot silently restart.
+    case "$raw" in
+        ""|0*|*[!0-9]*|?????????*) raw=0 ;;
+    esac
+    # An explicit re-arm starts a new budget even over a partially spent
+    # marker; recover's own arm_retry already wrote a fresh TRIES=0.
+    [ "${_rearm_budget:-0}" = 1 ] && raw=0
+    _ncz_t=$(( raw + 1 ))
+    if grep -q '^TRIES=' "$1"; then
+        sed -i "s/^TRIES=.*/TRIES=$_ncz_t/" "$1"
+    else
+        echo "TRIES=$_ncz_t" >> "$1"
+    fi
+}
+
 ncz_intel_accel_install() {   # GPU NPU
     local _lk _rc
     _lk="$(_ni_r)/run/ncz-intel-accel.lock"
@@ -705,6 +749,11 @@ ncz_intel_accel_run() {
 
 _ncz_intel_accel_run_locked() {
     _pf=$(_ni_pending)
+    # `rearm` is an explicit re-arm: it starts a NEW retry budget even when a
+    # marker with a partially spent one is already armed (armed marker +
+    # operator/recovery re-arm). The timer's own `run` never resets.
+    _rearm_budget=0
+    if [ "${_NCZ_INTEL_REARM:-0}" = 1 ]; then _NCZ_INTEL_REARM=0; _rearm_budget=1; fi
     # A gave-up system must recover when the installer payload is upgraded
     # or the update hook refreshes the index, provided the hardware is
     # still there. Run it BEFORE the pending check: the marker is gone on
@@ -731,9 +780,8 @@ _ncz_intel_accel_run_locked() {
         ncz_intel_log "deferred: next index re-check is at most daily; nothing to do now"
         return 0
     fi
-    _g=$(sed -n 's/^GPU=//p' "$_pf"); _n=$(sed -n 's/^NPU=//p' "$_pf"); _t=$(sed -n 's/^TRIES=//p' "$_pf")
-    _t=$(( ${_t:-0} + 1 ))
-    sed -i "s/^TRIES=.*/TRIES=$_t/" "$_pf"
+    _g=$(sed -n 's/^GPU=//p' "$_pf"); _n=$(sed -n 's/^NPU=//p' "$_pf")
+    ncz_intel_budget_resume "$_pf"; _t=$_ncz_t
     ncz_intel_log "attempt $_t (GPU=$_g NPU=$_n)"
     ncz_intel_setup "${_g:-0}" "${_n:-0}"; _rc=$?
     if [ "$_rc" = 0 ]; then ncz_intel_status "done"; ncz_intel_finish; return 0; fi
@@ -770,7 +818,10 @@ _ncz_intel_accel_run_locked() {
 # there would kill the sourcing shell.
 if [ "${NCZ_INTEL_ACCEL_LIB:-0}" != 1 ] && [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     case "${1:-}" in
-        run|rearm) ncz_intel_accel_run; exit $? ;;
+        # `rearm` starts a new retry budget; `run` (the timer/service entry)
+        # resumes the one in the marker.
+        rearm) _NCZ_INTEL_REARM=1; ncz_intel_accel_run; exit $? ;;
+        run)   ncz_intel_accel_run; exit $? ;;
         # Any other verb is an operator/typo error, not a no-op success.
         # Exit 0 here would report SUCCESS while installing nothing and
         # re-arming nothing (the unit only whitelists 75), so a typo'd

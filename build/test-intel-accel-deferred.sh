@@ -491,6 +491,14 @@ mkpci() {   # mkpci VENDOR-CLASS...  (default: Intel GPU 0x8086-030000)
         printf '0x%s\n' "${c#*-}" > "$PCIR/$c/class"
     done
 }
+# An armed marker is what ncz_intel_arm_retry leaves behind for the deferred
+# unit. Only `rearm` / ncz_intel_recover (an explicit re-arming actor) may
+# reset its attempt counter; a machine armed before the payload upgrade has
+# no such actor, so the timer's own `run` must carry the count forward.
+arm() {   # arm GPU NPU TRIES
+    mkdir -p "$(dirname "$P")"
+    printf 'GPU=%s\nNPU=%s\nTRIES=%s\n' "$1" "$2" "$3" > "$P"
+}
 
 echo "=== deferred policy: rc 75 caused ONLY by unpublished native candidates -> defer, never give up ==="
 # PROTEUS scenario: NPU D set + NPU plugin missing from the NCZ index, but
@@ -759,6 +767,90 @@ mkroot; mkpci
 ) >/dev/null 2>&1 && ok "ncz_intel_recover: re-arms gave-up once, idempotent, ignores other statuses" \
     || bad "ncz_intel_recover helper contract"
 
+echo "=== retry budget: the deferred timer's own run carries TRIES forward ==="
+# Regression: ncz_intel_arm_retry always wrote TRIES=0, but the defers-as-
+# publication-lag path calls arm_retry ONLY from ncz_intel_recover. A system
+# armed by the install-time attempt (54-gpu-accel.sh) has TRIES=0 and no
+# re-arm path, so after the first deferred hit the publication-lag budget
+# never counted down: `pending:attempt-N` FOREVER, re-running
+# apt-get update + simulation on every timer tick (every 10 min) for a
+# machine that will stay in that state for weeks. The give-up half of
+# item 1's retry/give-up policy was unreachable on exactly the machines it
+# was written for. An armed marker must therefore be resumed at its stored
+# attempt count; only an explicit re-arm (recover / `rearm`) resets it.
+mkroot
+arm 1 0 5
+[ "$(cat "$P")" = "$(printf 'GPU=1\nNPU=0\nTRIES=5\n')" ] \
+    && ok "fixture: marker armed at TRIES=5 with no status file" \
+    || bad "fixture marker wrong: $(cat "$P")"
+# With NCZ_INTEL_MAX_TRIES=5 one more attempt exhausts the budget. The run
+# must CONTINUE the budget (5 -> 6) and end in gave-up, not restart at 1.
+: > "$LOG"
+NET=down NCZ_INTEL_MAX_TRIES=5 run ncz_intel_accel_run; _rcB1=$?
+[ "$_rcB1" = 1 ] && grep -qx 'failed:gave-up-after-6-attempts' "$S" && [ ! -f "$P" ] \
+    && ok "armed TRIES=5 + 1 more network-down attempt: gave-up after 6 (budget resumed, not reset)" \
+    || bad "budget not resumed on `run` (rc=$_rcB1 status '$(cat "$S")' marker '$([ -f "$P" ] && sed -n 's/^TRIES=//p' "$P" || echo none)')"
+grep -q 'attempt 6' "$W/out" \
+    && ok "the attempt is logged as attempt 6 (the operator sees the real count)" \
+    || bad "attempt number restarted: $(cat "$W/out")"
+# Same continuation for the publication-lag class: an armed marker whose
+# budget is already spent must reach the deferred state on the FIRST run,
+# not burn a fresh 36 attempts on a machine that already spent them.
+mkroot
+arm 0 1 36
+: > "$LOG"
+NET=up NCZ_INTEL_MAX_TRIES=36 NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run; _rcB2=$?
+[ "$_rcB2" = 0 ] && grep -qx 'deferred:native-candidates-unpublished' "$S" && [ -f "$P" ] \
+    && ok "armed with a spent budget: first run defers instead of restarting the count" \
+    || bad "armed+spent run rc=$_rcB2 status '$(cat "$S")' statuses: $(grep -c 'attempt-' "$W/out")"
+grep -q 'attempt 37' "$W/out" && [ "$(sed -n 's/^TRIES=//p' "$P")" = 37 ] \
+    && ok "the marker records TRIES=37 (attempt counter never rewinds silently)" \
+    || bad "marker tries=$(sed -n 's/^TRIES=//p' "$P")"
+
+echo "=== retry budget: the install-time arm is a fresh budget (TRIES=0) ==="
+# The installer's one shot at handing the machine to the timer must start a
+# new budget: an old marker is irrelevant (arm_retry overwrites it), and the
+# deferred unit then resumes from 0 rather than from a stale count.
+mkroot
+arm 1 1 17
+NET=down MIRROR=1 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_install 1 1
+[ "$(sed -n 's/^TRIES=//p' "$P")" = 0 ] && grep -qx 'pending:retry-after-boot' "$S" \
+    && ok "install-time arm_retry writes a fresh TRIES=0 budget" \
+    || bad "install-time arm did not reset the budget: '$(cat "$P" 2>/dev/null)'"
+NET=down NCZ_INTEL_MAX_TRIES=2 run ncz_intel_accel_run; _rcB3=$?
+[ "$_rcB3" = 75 ] && grep -qx 'pending:attempt-1' "$S" && grep -qx 'TRIES=1' "$P" \
+    && ok "deferred run after the install-time arm counts attempt 1" \
+    || bad "first deferred run after install rc=$_rcB3 status '$(cat "$S")'"
+
+echo "=== retry budget: an explicit re-arm starts a new budget ==="
+# Only the re-arming actor (ncz_intel_recover on boot/update refresh, or an
+# operator `rearm`) may reset the counter: that is the whole point of a
+# second budget after a payload/index upgrade.
+#
+# The counter is a LOCAL (unset elsewhere): the marker file is the state.
+mkroot; mkpci 0x8086-120000
+mkdir -p "$(dirname "$S")"; echo "failed:gave-up-after-36-attempts" > "$S"
+# The budget belongs to the RE-ARMED installation, so the machine whose
+# network is still down (the reason the install armed the timer at all)
+# must not be handed a fresh 36 attempts it cannot use.
+NCZ_INTEL_PCI_ROOT="$PCIR" NET=down NCZ_INTEL_MAX_TRIES=2 run ncz_intel_accel_run; _rcB4=$?
+[ "$_rcB4" = 75 ] && grep -qx 'pending:attempt-1' "$S" && grep -qx 'TRIES=1' "$P" \
+    && ok "recover re-arms a gave-up system with a fresh budget (attempt 1, not 37)" \
+    || bad "recover re-arm budget rc=$_rcB4 status '$(cat "$S")' tries '$(sed -n 's/^TRIES=//p' "$P" 2>/dev/null)'"
+NET=down NCZ_INTEL_MAX_TRIES=2 run ncz_intel_accel_run; _rcB4b=$?
+[ "$_rcB4b" = 1 ] && grep -qx 'failed:gave-up-after-2-attempts' "$S" \
+    && ok "the re-armed budget is bounded: the next failure gives up after 2" \
+    || bad "re-armed budget not bounded rc=$_rcB4b status '$(cat "$S")'"
+# The `rearm` CLI is an explicit re-arm too: an armed marker with a
+# partially spent budget is reset to a fresh 0 before the attempt counts 1.
+mkroot; mkpci 0x8086-120000
+arm 0 1 20
+( export NCZ_INTEL_ROOT="$W/r" NCZ_INTEL_ACCEL_LIB=0 NCZ_INTEL_ASSETS="$ROOT/assets/intel" NCZ_INTEL_LIB_SRC="$LIB"
+  NCZ_INTEL_PCI_ROOT="$PCIR" NET=down NCZ_INTEL_MAX_TRIES=2 bash "$LIB" rearm ) >/dev/null 2>&1; _rcB5=$?
+[ "$_rcB5" = 75 ] && [ "$(sed -n 's/^TRIES=//p' "$P")" = 1 ] && grep -qx 'pending:attempt-1' "$S" \
+    && ok "explicit rearm resets a spent armed budget (20 -> attempt 1)" \
+    || bad "explicit rearm rc=$_rcB5 status '$(cat "$S")' tries '$(sed -n 's/^TRIES=//p' "$P")'"
+
 echo "=== deferred entry CLI: run and rearm both drive the entry point ==="
 mkroot; mkpci
 # Precondition: a gave-up system (no marker).
@@ -772,10 +864,16 @@ grep -q 'ExecStart=/usr/local/sbin/ncz-intel-accel-setup run' "$ROOT/assets/inte
     || bad "service ExecStart changed"
 # Prove the CLI ENTRY clause itself (not just the words "run"/"rearm"
 # somewhere in the file): the active `if [ ... NCZ_INTEL_ACCEL_LIB ... ]`
-# block must dispatch both words to ncz_intel_accel_run.
-printf '%s\n' "$LIB_NOCOMMENTS" | grep -Eq '^[[:space:]]*run\|rearm\)[[:space:]]*ncz_intel_accel_run' \
-    && ok "lib CLI entry dispatches both run and rearm to ncz_intel_accel_run" \
-    || bad "lib CLI entry missing run|rearm dispatch"
+# block must dispatch both words to ncz_intel_accel_run. They may share a
+# `run|rearm)` clause or be separate clauses (right side of the documented
+# `run` in the dispatched body), as long as both reach the same entry point.
+if printf '%s\n' "$LIB_NOCOMMENTS" | grep -Eq '^[[:space:]]*run\|rearm\)[[:space:]]*ncz_intel_accel_run' \
+   || { printf '%s\n' "$LIB_NOCOMMENTS" | grep -Eq '^[[:space:]]*run\)[[:space:]]*ncz_intel_accel_run' \
+        && printf '%s\n' "$LIB_NOCOMMENTS" | grep -Eq '^[[:space:]]*rearm\)[^)]*ncz_intel_accel_run'; }; then
+    ok "lib CLI entry dispatches both run and rearm to ncz_intel_accel_run"
+else
+    bad "lib CLI entry missing run|rearm dispatch"
+fi
 # Behavioural proof: invoke the lib as the service / operator would, once
 # with each word, and require the deferred entry to run both times.
 for _verb in run rearm; do
