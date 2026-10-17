@@ -707,6 +707,11 @@ parity:
 	build/test-singularity-supervisor-forensics.sh
 	build/test-panthor-vulkan.sh
 	build/test-installer-screens.sh
+	@bash build/test-installer-ui-wrapper.sh
+	@NCZ_BOOT_SCREENS_PYTHON="$${NCZ_BOOT_SCREENS_PYTHON:-$$( [ -x "$$HOME/pyte-venv/bin/python" ] && echo "$$HOME/pyte-venv/bin/python" || echo python3 )}"; \
+	$$NCZ_BOOT_SCREENS_PYTHON -c 'import pyte' 2>/dev/null \
+		&& NCZ_BOOT_SCREENS_PYTHON="$$NCZ_BOOT_SCREENS_PYTHON" $$NCZ_BOOT_SCREENS_PYTHON build/test-boot-screens-testcopy.py \
+		|| echo "test-boot-screens-testcopy: SKIP (pyte not installed for $$NCZ_BOOT_SCREENS_PYTHON: python3 -m venv ~/pyte-venv && ~/pyte-venv/bin/pip install pyte)"
 	build/test-installer-brltty-banner.sh
 	build/test-installer-flow.sh
 	build/test-component-selection.sh

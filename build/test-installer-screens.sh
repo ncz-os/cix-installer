@@ -821,10 +821,18 @@ fullchk() { python3 "$HERE/check-installer-screens.py" "$FULL" --start-at "selec
 expect "full real 33-state gate capture passes the arm64 gate arguments (no false failure)" 0 fullchk
 fullchk >"$T/ev" 2>&1; grep -q 'dialogs in capture order (8): ' "$T/ev" && { PASS=$((PASS+1)); echo "ok   full capture: exactly the 8 real titles"; } || { FAILS=$((FAILS+1)); echo "FAIL full capture titles"; cat "$T/ev"; }
 expect "full capture: no-blank-after the component dialog" 0 python3 "$HERE/check-installer-screens.py" "$FULL" --start-at "optional components" --no-blank-after "optional components"
-# --- kvm-installer-ui-check.sh: the amd64 distinct-frame floor must run BEFORE the LIMITED early exit ---
+# --- kvm-installer-ui-check.sh: amd64 is judged from a TEXT channel, not the framebuffer alone (2026-10-17) ---
+# The amd64 check used to sample the framebuffer only and exit PASS-LIMITED without reading a single dialog title,
+# which could not catch the disk-chooser Choices/Choices-C swap the arm64 check caught on the serial console. The
+# amd64 path now boots the ui-check copy with d-i on the UART (console=ttyS0,115200 on the TEST copy) and runs the
+# same text assertions as arm64; PASS-LIMITED must never come back as an amd64 outcome, and the framebuffer checks
+# must stay. (The wrapper's behaviour is exercised end to end by build/test-installer-ui-wrapper.sh.)
 KV="$HERE/kvm-installer-ui-check.sh"
-nl="$(grep -n 'ndist=' "$KV" | head -1 | cut -d: -f1)"; ll="$(grep -n 'PASS-LIMITED' "$KV" | head -1 | cut -d: -f1)"
-[ -n "$nl" ] && [ -n "$ll" ] && [ "$nl" -lt "$ll" ] && { PASS=$((PASS+1)); echo "ok   amd64 frame-count check (line $nl) precedes the PASS-LIMITED exit (line $ll)"; } || { FAILS=$((FAILS+1)); echo "FAIL frame-count check does not precede PASS-LIMITED ($nl vs $ll)"; }
+nl="$(grep -n 'ndist=' "$KV" | head -1 | cut -d: -f1)"; vl="$(grep -n 'if \[ \$rc = 0 \]' "$KV" | head -1 | cut -d: -f1)"
+[ -n "$nl" ] && [ -n "$vl" ] && [ "$nl" -lt "$vl" ] && { PASS=$((PASS+1)); echo "ok   amd64 frame-count check (line $nl) runs before the final verdict (line $vl)"; } || { FAILS=$((FAILS+1)); echo "FAIL frame-count check missing or after the verdict ($nl vs $vl)"; }
+! grep -q 'PASS-LIMITED' "$KV" && { PASS=$((PASS+1)); echo "ok   no PASS-LIMITED outcome remains (amd64 has a real text channel)"; } || { FAILS=$((FAILS+1)); echo "FAIL kvm-installer-ui-check.sh still reports PASS-LIMITED"; }
+grep -q -- '--serial-console' "$KV" && grep -q 'judge_text' "$KV" && { PASS=$((PASS+1)); echo "ok   the amd64 branch boots the test copy on the UART and judges BOTH arches with judge_text"; } || { FAILS=$((FAILS+1)); echo "FAIL kvm-installer-ui-check.sh has no amd64 serial text channel / shared judge"; }
+grep -q 'fb-states' "$KV" && grep -q 'ndist=' "$KV" && { PASS=$((PASS+1)); echo "ok   amd64 keeps the framebuffer continuity and distinct-frame checks"; } || { FAILS=$((FAILS+1)); echo "FAIL amd64 framebuffer checks were dropped"; }
 # --- the diagnostics login line: the UI-check regex, the ncz_diag_pw wording, 80-column wraps ---
 # kvm-installer-ui-check.sh boots its copy with ncz_diag_pw set, so the screens say
 # "root / set by ncz_diag_pw", and the 80-column console wraps the line inside the dialog
