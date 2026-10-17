@@ -404,6 +404,25 @@ assert shp.scan_shapes(b"-----BEGIN PRIVATE KEY-----\n" + key_body + b"\n", "/et
 assert shp.scan_shapes(b"-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\n"
                        b"DEK-Info: AES-128-CBC,0011\n\n" + key_body + b"\n", "/etc/x.pem")
 assert shp.scan_shapes(b"OPENAI=sk-" + b"Ab3dEf9hIjK1mNoP2qRsT4uVwX5yZ" + b"\n", "/etc/x.env")
+# a reviewed public match is cleared by the digest of the match, nothing else is
+tok = b"AIza" + b"SyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvW"
+hit = shp.scan_shapes(b"k=" + tok, "/opt/x/bin")
+assert hit and hit[0]["match_sha256"] == __import__("hashlib").sha256(tok).hexdigest()
+allowed = g.Scanner(g.HashSet("s"), shapes=True,
+                    allow={"google-api:" + hit[0]["match_sha256"]: "test"})
+assert not allowed.scan_shapes(b"k=" + tok, "/opt/x/bin")
+assert allowed.scan_shapes(b"k=" + tok[:-1] + b"X", "/opt/x/bin")
+af = os.path.join(tempfile.mkdtemp(), "allow.tsv")
+open(af, "w").write("google-api\tnot-a-digest\treason\n")
+try:
+    g.load_allowlist(af)
+except g.Unreadable:
+    pass
+else:
+    raise AssertionError("malformed allowlist accepted")
+for row in open(os.path.join(root, "manifests", "secret-scan-allow.tsv")):
+    if row.strip() and not row.startswith("#"):
+        assert row.split("\t")[0] in g.TOKEN_SHAPES, row
 # initramfs-tools layout: an uncompressed early cpio, then the zstd-compressed
 # main cpio.  The kernel unpacks both; the gate used to call the zstd frame junk.
 zmain = subprocess.run(["zstd", "-q", "-c"], input=segs[1], capture_output=True).stdout
