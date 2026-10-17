@@ -231,6 +231,46 @@ if [ -n "${_cur_console_loglevel:-}" ] && [ "$_cur_console_loglevel" -lt 3 ] 2>/
 fi
 echo "  console loglevel pinned to 3 (/etc/sysctl.d/99-ncz-quiet-console.conf)"
 
+# --- 6b. Kernel and network hardening (subset of Singularity OS 99-hardening) --
+# Deliberately NOT set (each would break something NCZ relies on):
+#   dmesg_restrict, kexec_load_disabled -- diagnostics, the ncz CLI and T2
+#     debugging read dmesg as the user; kexec stays available for kdump/rescue.
+#   kptr_restrict=2 -- 1 hides kernel pointers from users but not from root
+#     (perf/bpftrace/crash triage as root keep working).
+#   perf_event_paranoid=3 -- a Debian kernel patch value; NCZ kernels are
+#     upstream, where 2 (the default) is the maximum.
+#   rp_filter=1 -- strict reverse-path filtering drops traffic on multi-homed
+#     hosts (Tailscale, the macvlan management container, Wi-Fi + Ethernet);
+#     systemd's 50-default.conf already sets loose mode (2).
+#   suid_dumpable=0 -- would override systemd-coredump's crash capture.
+#   fs.protected_*, tcp_syncookies -- systemd's defaults already cover these.
+# yama.ptrace_scope=1: a user may still debug its own children (gdb ./prog,
+# strace cmd); attaching to an already-running process needs sudo. Nothing NCZ
+# ships attaches with ptrace as an unprivileged user.
+# The leading "-" makes systemd-sysctl skip a key the running kernel lacks
+# instead of failing the unit.
+cat > /etc/sysctl.d/90-ncz-hardening.conf <<'SYS'
+# NCZ: kernel and network hardening. See post-install/58-boot-hygiene.sh for
+# what is deliberately left out (dmesg and kexec stay available).
+-kernel.kptr_restrict = 1
+-kernel.unprivileged_bpf_disabled = 1
+-net.core.bpf_jit_harden = 2
+-kernel.yama.ptrace_scope = 1
+-net.ipv4.conf.all.accept_redirects = 0
+-net.ipv4.conf.default.accept_redirects = 0
+-net.ipv4.conf.all.secure_redirects = 0
+-net.ipv4.conf.default.secure_redirects = 0
+-net.ipv4.conf.all.send_redirects = 0
+-net.ipv4.conf.default.send_redirects = 0
+-net.ipv4.conf.all.accept_source_route = 0
+-net.ipv4.conf.default.accept_source_route = 0
+-net.ipv6.conf.all.accept_redirects = 0
+-net.ipv6.conf.default.accept_redirects = 0
+-net.ipv6.conf.all.accept_source_route = 0
+-net.ipv6.conf.default.accept_source_route = 0
+SYS
+echo "  kernel/network hardening (/etc/sysctl.d/90-ncz-hardening.conf)"
+
 # --- 7. Do not mount efivarfs when EFI runtime was deliberately disabled ----
 # The Sky1 platform requires efi=noruntime for stable boot.  Ubuntu's mdadm
 # initramfs script otherwise emits a visible, inevitable efivarfs mount error

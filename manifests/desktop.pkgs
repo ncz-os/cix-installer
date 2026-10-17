@@ -240,6 +240,12 @@ fonts-noto-core
 fonts-noto-cjk
 fonts-noto-color-emoji
 fonts-liberation
+# Inter: Singularity's design face, the default sans-serif (20-desktop.sh
+# writes the fontconfig alias); the variable build is 1.7 MB vs 21 MB static.
+fonts-inter-variable
+# Creates Documents/Downloads/Music/... at first login (systemd user unit
+# under graphical-session-pre.target, which singularity-session.target wants).
+xdg-user-dirs
 
 # --- input methods (CJK) ----------------------------------------------------
 # Sky1 is a Chinese SoC with an expected domestic user base, and this project
