@@ -16,8 +16,6 @@ suppression (is_plain_credential_prompt) is kept as-is, and the TPM-aware
 "Passphrase" labels upstream added are kept; this patch routes non-plain
 prompts (e.g. "Enter TPM PIN:") into the shared field label instead of the
 status row, so the greeter card still matches the lock card exactly.
-Assisted-by: opencode:deepseek-flash
-AI-Scope: authored on the pinned upstream commit; measured red->green headless;
           2026-10-17 refresh onto 09007fd (refreshed, not rebased upstream)
 
 ---

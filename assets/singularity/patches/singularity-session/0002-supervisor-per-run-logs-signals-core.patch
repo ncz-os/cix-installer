@@ -20,8 +20,6 @@ systemd-coredump can capture a core.
 The crash-count window, safe-mode request, and clean-exit reset paths are
 unchanged.
 
-Assisted-by: opencode:deepseek-flash
-AI-Scope: Added per-run timestamped supervisor logs, signal-name decoding, and a core-limit bump in the child subshell. Crash-count and safe-mode logic unchanged.
 ---
  src/singularity-desktop-session.in | 54 ++++++++++++++++++++++++++++--
  1 file changed, 52 insertions(+), 2 deletions(-)

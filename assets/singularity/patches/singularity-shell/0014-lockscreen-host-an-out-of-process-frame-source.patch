@@ -23,8 +23,6 @@ source. Includes a deterministic frame source (memfd, no GPU) and a headless
 labwc test that covers frame presentation, input dismissal, kill -9, a hung
 source, a short buffer, and a source that dies on a GPU error.
 
-Assisted-by: opencode:deepseek-flash
-AI-Scope: implemented the frame-source host, wire protocol, lock integration, meson flag, test frame source and headless labwc test from the operator's P1 design brief
 ---
  meson_options.txt                          |   3 +
  src/lockscreen/lock_framesrc.c             | 658 +++++++++++++++++++++

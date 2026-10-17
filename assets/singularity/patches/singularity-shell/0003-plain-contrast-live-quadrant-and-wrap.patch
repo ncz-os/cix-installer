@@ -15,8 +15,6 @@ A long title and author line could run under the dock or the panel
 controls. Wrap it to two lines, ellipsize past that, and justify it toward
 the side of the active corner.
 
-Assisted-by: Claude Code:claude-sonnet-5-5
-AI-Scope: Found the three attribution defects on hardware and wrote the plain-text style, the overlay re-allocation and the two-line wrap.
 ---
  src/components/background/background.vala | 43 ++++++++---------------
  1 file changed, 14 insertions(+), 29 deletions(-)
