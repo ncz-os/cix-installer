@@ -765,8 +765,19 @@ _ncz_intel_accel_run_locked() {
     return 1
 }
 
-if [ "${NCZ_INTEL_ACCEL_LIB:-0}" != 1 ]; then
+# CLI entry. Only when EXECUTED, never when sourced: 54-gpu-accel.sh and
+# ncz-update-apply source this file to call the functions, and a bare `exit`
+# there would kill the sourcing shell.
+if [ "${NCZ_INTEL_ACCEL_LIB:-0}" != 1 ] && [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     case "${1:-}" in
         run|rearm) ncz_intel_accel_run; exit $? ;;
+        # Any other verb is an operator/typo error, not a no-op success.
+        # Exit 0 here would report SUCCESS while installing nothing and
+        # re-arming nothing (the unit only whitelists 75), so a typo'd
+        # `rearm` would silently disable the deferred install. Fail loudly.
+        *)
+            echo "usage: ${0##*/} {run|rearm}" >&2
+            exit 2
+            ;;
     esac
 fi

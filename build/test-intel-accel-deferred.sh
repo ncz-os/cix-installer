@@ -815,6 +815,21 @@ done
     && ok "deferred entry re-arms a gave-up system (marker + timer back, first fast attempt)" \
     || bad "re-arm did not restore marker/timer: status '$(cat "$S")'"
 
+# An UNSUPPORTED verb must fail loudly. Exit 0 here is not cosmetic: the
+# unit declares SuccessExitStatus=75, so anything else non-zero is a unit
+# failure -- but a silent 0 for a typo'd verb (e.g. `rearm` -> `re-arm`)
+# reports SUCCESS while nothing was installed and nothing was re-armed.
+mkroot; mkpci
+( export NCZ_INTEL_ROOT="$W/r" NCZ_INTEL_PCI_ROOT="$PCIR"
+  bash "$LIB" no-such-verb ) >"$W/verbout" 2>&1; _nrc=$?
+[ "$_nrc" != 0 ] && grep -qi 'usage' "$W/verbout" \
+    && ok "an unsupported CLI verb exits non-zero with usage (no silent success)" \
+    || bad "unsupported verb exits $_nrc (want non-zero + usage): $(cat "$W/verbout")"
+# And it must not have armed, installed, or written any state while doing so.
+[ ! -f "$P" ] && ! grep -q . "$S" 2>/dev/null \
+    && ok "an unsupported CLI verb leaves no marker/status behind" \
+    || bad "unsupported verb mutated state: marker='$(cat "$P" 2>/dev/null)' status='$(cat "$S" 2>/dev/null)'"
+
 echo "=== update hook: ncz-update-apply refresh re-checks the deferred install ==="
 UA="$ROOT/assets/update-manager/ncz-update-apply"
 grep -q 'intel_deferred_recheck' "$UA" \
