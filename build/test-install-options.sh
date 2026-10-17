@@ -205,7 +205,7 @@ if [ -s "$W/gate-comp.sh" ]; then
         printf 'BOOT_IMAGE=/install.amd/vmlinuz ncz_components=%s\n' "$1" > "$st/cmdline"
         PATH="$W/bin:$PATH" NCZ_CONFMODULE="$W/confmodule" NCZ_CMDLINE="$st/cmdline" NCZ_TMP="$st" NCZ_COMP_STATE="$st/state" \
             NCZ_TARGET="$st/target" NCZ_LOGGER="$W/bin/logger" NCZ_UNAME_M=x86_64 NCZ_PCI_DEVICES=/nonexistent NCZ_UI_SH=/nonexistent \
-            sh "$ROOT/preseed/component-selector.sh" >/dev/null 2>&1
+            sh "$ROOT/preseed/component-selector.sh" >"$st/selector.log" 2>&1 || echo "selector-rc=$?"
         cat "$st/state/COMPONENTS" 2>/dev/null
     }
     [ "$(gc UNSET)" = "desktop,mgmt-container,rescue-partition|desktop,browsers,wallpaper-rotator,mgmt-container,rescue-partition|111" ] && ok "default: every option" || nok "default: $(gc UNSET)"
@@ -234,6 +234,9 @@ if [ -s "$W/gate-comp.sh" ]; then
         # to NCZ_GATE_COMPONENTS is normalised by the gate before the kernel
         # and would not survive the kernel's own word split.
         cmdline_ans="$(gc "$ans" | cut -d'|' -f1)"
+        # The gate always puts an explicit value on the cmdline (UNSET -> its
+        # full default list), so the selector never sees an empty value here.
+        [ -n "$cmdline_ans" ] || nok "gate produced an empty ncz_components= value for $label"
         gotrec="$(norm "$(selrec "$cmdline_ans")")"; exprec="$(norm "$(gc "$ans" | cut -d'|' -f2)")"
         [ "$gotrec" = "$exprec" ] && ok "selector record matches the gate's EXPECT_RECORD for: $label" \
             || nok "selector record differs from the gate's EXPECT_RECORD for $label: selector [$gotrec] gate [$exprec]"
