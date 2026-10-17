@@ -292,6 +292,14 @@ for _f in os-release:VERSION_CODENAME lsb-release:DISTRIB_CODENAME; do
         ok "gate baked: a stale ${_f#*:} fails the gate"
     fi
 done
+# A lower-cased retired codename in release.conf itself must be refused.
+printf 'NCZ_PRODUCT_NAME="NCZ-OS"\nNCZ_RELEASE_VERSION="26.10"\nNCZ_RELEASE_CODENAME="%s"\n' \
+    "$(printf '%s' "$STALE_C" | tr '[:upper:]' '[:lower:]')" > "$GT/lc-retired.conf"
+if bash "$GATE" conf "$GT/lc-retired.conf" >/dev/null 2>&1; then
+    bad "gate conf: a lower-cased retired codename must FAIL"
+else
+    ok "gate conf: a lower-cased retired codename fails the gate"
+fi
 # The image build must invoke the gate on every medium and every bake.
 check_grep "$ROOT/build/iso/write-usb-image.py" "check-release-identity-gate.sh" \
     "write-usb-image.py: runs the identity gate on the staged medium"

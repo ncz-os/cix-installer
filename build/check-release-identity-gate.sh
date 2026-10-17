@@ -61,6 +61,8 @@ ROOT="$(cd "$HERE/.." && pwd)"
 # strings in a GENERATED tree are violations, so the list is matched against
 # tree contents, never against the repo sources.
 RETIRED=("Maximilian" "Reinhardt")
+# Retired names are matched case-insensitively (VERSION_CODENAME is lower case).
+lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 FAILS=0
 ok()  { echo "ok   $1"; }
@@ -91,7 +93,7 @@ check_release_file() {
         else
             ok "$where: $k=$v"
             for r in "${RETIRED[@]}"; do
-                case "$v" in *"$r"*) bad "$where: $k names the retired codename '$r'" ;; esac
+                case "$(lc "$v")" in *"$(lc "$r")"*) bad "$where: $k names the retired codename '$r'" ;; esac
             done
             # Not just "not retired": the generated copy must BE the current
             # identity, so an older non-retired codename cannot slip through.
@@ -128,11 +130,11 @@ check_os_release_file() {
     else
         ok "$where: PRETTY_NAME=$pn"
         for r in "${RETIRED[@]}"; do
-            case "$pn" in *"$r"*) bad "$where: PRETTY_NAME names the retired codename '$r'" ;; esac
+            case "$(lc "$pn")" in *"$(lc "$r")"*) bad "$where: PRETTY_NAME names the retired codename '$r'" ;; esac
         done
     fi
     for r in "${RETIRED[@]}"; do
-        case "$vcod" in *"$r"*) bad "$where: VERSION_CODENAME names the retired codename '$r'" ;; esac
+        case "$(lc "$vcod")" in *"$(lc "$r")"*) bad "$where: VERSION_CODENAME names the retired codename '$r'" ;; esac
     done
     # 50-brand.sh writes VERSION_CODENAME as the lower-cased release codename.
     local want_cod
@@ -199,7 +201,7 @@ check_generated_strings() {
             */lsb-release|*issue|*issue.net)
                 content="$(cat "$f" 2>/dev/null || true)"
                 for r in "${RETIRED[@]}"; do
-                    case "$content" in *"$r"*) bad "$where: $(basename "$f") names the retired codename '$r'" ;; esac
+                    case "$(lc "$content")" in *"$(lc "$r")"*) bad "$where: $(basename "$f") names the retired codename '$r'" ;; esac
                 done
                 case "$f" in
                     */lsb-release)
@@ -237,8 +239,8 @@ load_expected_identity() {
     NCZ_EXPECT_VERSION="$NCZ_RELEASE_VERSION"
     NCZ_EXPECT_CODENAME="$NCZ_RELEASE_CODENAME"
     for r in "${RETIRED[@]}"; do
-        case "$NCZ_EXPECT_CODENAME" in
-            *"$r"*) echo "FATAL: release.conf codename '$NCZ_EXPECT_CODENAME' is a retired codename" >&2; exit 2 ;;
+        case "$(lc "$NCZ_EXPECT_CODENAME")" in
+            *"$(lc "$r")"*) echo "FATAL: release.conf codename '$NCZ_EXPECT_CODENAME' is a retired codename" >&2; exit 2 ;;
         esac
     done
     # The expected identity is exported into the checks above.
@@ -258,7 +260,7 @@ cmd_conf() {
     load_expected_identity "$rc"
     ok "release.conf identity: $NCZ_EXPECT_PRODUCT $NCZ_EXPECT_VERSION $NCZ_EXPECT_CODENAME (no retired codename)"
     for r in "${RETIRED[@]}"; do
-        case "$NCZ_EXPECT_CODENAME" in *"$r"*) bad "release.conf codename is retired: $r" ;; esac
+        case "$(lc "$NCZ_EXPECT_CODENAME")" in *"$(lc "$r")"*) bad "release.conf codename is retired: $r" ;; esac
     done
     [ -z "$NCZ_EXPECT_PRODUCT" ] && bad "release.conf product name is empty"
 }
