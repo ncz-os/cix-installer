@@ -123,10 +123,19 @@ TOKEN_SHAPES = collections.OrderedDict([
     ("slack", re.compile(rb"xox[abprs]-[A-Za-z0-9\-]{10,}")),
     ("aws-akia", re.compile(rb"(?<![A-Za-z0-9])AKIA[0-9A-Z]{16}(?![A-Za-z0-9])")),
     ("google-api", re.compile(rb"AIza[0-9A-Za-z_\-]{35}")),
-    ("openai-sk", re.compile(rb"(?<![A-Za-z0-9])sk-[A-Za-z0-9_\-]{20,}")),
+    # "sk-ssh-ed25519@openssh.com" / "sk-ecdsa-sha2-nistp256..." are the
+    # OpenSSH security-key algorithm names every ssh binary carries; a real
+    # key is high-entropy (checked in Scanner.scan_shapes).
+    ("openai-sk", re.compile(rb"(?<![A-Za-z0-9])sk-(?!ssh-|ecdsa-)[A-Za-z0-9_\-]{20,}")),
+    # A PEM header alone is a format string in libgnutls, sshd, NetworkManager
+    # and Qt; a shipped KEY has a base64 body right after the header (optional
+    # RFC 1421 "Proc-Type:"/"DEK-Info:" lines first).
     ("pem-private-key", re.compile(
-        rb"-----BEGIN ([A-Z0-9 ]{0,40})PRIVATE KEY-----")),
+        rb"-----BEGIN ([A-Z0-9 ]{0,40})PRIVATE KEY-----\r?\n"
+        rb"(?:[A-Za-z-]+: [^\r\n]*\r?\n)*(?:\r?\n)?[A-Za-z0-9+/=]{40,}")),
 ])
+# a generated API key mixes upper, lower and digits; words joined by "-" do not
+SHAPE_ENTROPY = {"openai-sk"}
 
 # PEM blocks that are NOT credentials.  The kernel's own trust material ships
 # as a public-key block, and the documented public apt keyrings are public
@@ -239,6 +248,9 @@ class HashSet:
         # rules the offset out before the per-length loop runs; every listed
         # window is at least HASH_MIN_LEN long, so the filter cannot miss.
         self.prefixes = None
+        # digest -> operator label (e.g. the key-master key name), so a hit
+        # can be triaged by NAME; never a value
+        self.labels: dict[str, str] = {}
 
     def add(self, value: bytes) -> None:
         self.digests.add(hashlib.sha256(self.salt + value).hexdigest())
@@ -294,6 +306,8 @@ class HashSet:
             if not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{64}", h):
                 raise Unreadable(f"the hash file {path} holds a malformed entry")
             self.digests.add(h)
+            if isinstance(item.get("label"), str):
+                self.labels[h] = item["label"][:80]
         return len(self.digests)
 
 
@@ -1110,13 +1124,49 @@ def is_binary(data: bytes) -> bool:
     return ctrl / len(sample) > 0.05
 
 
+def looks_generated(tok: bytes) -> bool:
+    """True for a random-looking key body (upper, lower AND digits, and no
+    long run of a single character class), false for hyphenated words."""
+    body = tok.split(b"-", 1)[-1]
+    has = (any(65 <= c <= 90 for c in body), any(97 <= c <= 122 for c in body),
+           any(48 <= c <= 57 for c in body))
+    return all(has) and len(set(body)) >= 12
+
+
+def load_allowlist(path: str) -> dict[str, str]:
+    """Reviewed token-shape matches that are PUBLIC by design (FIPS self-test
+    keys compiled into libgnutls, the browser API keys Google ships inside
+    Chrome).  TSV: shape, sha256 of the exact matched bytes, reason.  Keyed by
+    the digest of the match, so an allowed key is allowed wherever it ships
+    and nothing else is; the file never holds a value."""
+    allow: dict[str, str] = {}
+    try:
+        fh = open(path, encoding="utf-8")  # noqa: SIM115 -- the with below owns it
+    except FileNotFoundError:
+        return allow
+    except OSError as exc:
+        raise Unreadable(f"cannot read the allowlist {path}: {exc}")
+    with fh:
+        for n, line in enumerate(fh, 1):
+            if not line.strip() or line.startswith("#"):
+                continue
+            cols = line.rstrip("\n").split("\t")
+            if (len(cols) < 3 or cols[0] not in TOKEN_SHAPES
+                    or not re.fullmatch(r"[0-9a-f]{64}", cols[1]) or not cols[2].strip()):
+                raise Unreadable(f"{path}:{n}: want shape<TAB>sha256<TAB>reason")
+            allow[cols[0] + ":" + cols[1]] = cols[2]
+    return allow
+
+
 class Scanner:
     """Hashes candidate windows against the hash list and runs the token-shape
     scan.  Findings carry a location and a kind -- never a value."""
 
-    def __init__(self, hashes: HashSet, shapes: bool = True):
+    def __init__(self, hashes: HashSet, shapes: bool = True,
+                 allow: dict[str, str] | None = None):
         self.hashes = hashes
         self.shapes = shapes
+        self.allow = allow or {}
 
     # -- token shapes ---------------------------------------------------
     def scan_shapes(self, data: bytes, path: str) -> list[dict]:
@@ -1128,14 +1178,23 @@ class Scanner:
                     window = data[max(0, m.start() - 4096):m.start()]
                     if NON_SECRET_PEM_LABELS.search(window[-120:]):
                         continue
-                    hits.append({"kind": "token-shape", "shape": name,
-                                 "offset": m.start()})
+                    self._shape_hit(hits, name, m)
                     continue
                 if public_keyring:
                     continue
-                hits.append({"kind": "token-shape", "shape": name,
-                             "offset": m.start()})
+                if name in SHAPE_ENTROPY and not looks_generated(m.group(0)):
+                    continue
+                self._shape_hit(hits, name, m)
         return hits
+
+    def _shape_hit(self, hits: list[dict], name: str, m) -> None:
+        # The digest of a high-entropy match identifies it for review and for
+        # the allowlist without revealing it.
+        digest = hashlib.sha256(m.group(0)).hexdigest()
+        if name + ":" + digest in self.allow:
+            return
+        hits.append({"kind": "token-shape", "shape": name, "offset": m.start(),
+                     "match_sha256": digest})
 
 
 def tokenise(data: bytes) -> list[bytes]:
@@ -1203,8 +1262,12 @@ def scan_candidate(scanner: Scanner, data: bytes, path: str) -> list[dict]:
                 for length in lengths:
                     if start + length > len(tok):
                         break
-                    if digest(tok[start:start + length]) in known:
-                        hits.append({"kind": "known-secret", "length": length})
+                    d = digest(tok[start:start + length])
+                    if d in known:
+                        hit_rec = {"kind": "known-secret", "length": length}
+                        if d in scanner.hashes.labels:
+                            hit_rec["label"] = scanner.hashes.labels[d]
+                        hits.append(hit_rec)
                         stop = start + length
                         hit = True
                         break
@@ -1630,6 +1693,8 @@ def main(argv=None) -> int:
     ap.add_argument("--no-shapes", action="store_true",
                     help="skip the token-shape scan (tests only)")
     ap.add_argument("--work-dir", help="scratch dir (default: TMPDIR)")
+    ap.add_argument("--allowlist", help="reviewed public token-shape matches "
+                    "(default: manifests/secret-scan-allow.tsv)")
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args(argv)
@@ -1679,7 +1744,9 @@ def main(argv=None) -> int:
     failed = False
     error = None
     try:
-        report = walk_image(args.image, Scanner(hashes, not args.no_shapes),
+        allow = load_allowlist(args.allowlist or os.path.join(
+            root, "manifests", "secret-scan-allow.tsv"))
+        report = walk_image(args.image, Scanner(hashes, not args.no_shapes, allow),
                             scratch, hashes_given, args.jobs)
     except Unreadable as exc:
         failed = True
@@ -1744,6 +1811,7 @@ def main(argv=None) -> int:
     for f in receipt["findings"][:20]:
         print(f"  {f['kind']}"
               + (f" [{f['shape']}]" if f.get("shape") else "")
+              + (f" ({f['label']})" if f.get("label") else "")
               + f" in layer {f['layer']}: {f['path'][:200]}"
               + (f" at offset {f['offset']}" if f.get("offset") is not None else ""),
               file=sys.stderr)

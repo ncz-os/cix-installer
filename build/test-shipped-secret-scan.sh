@@ -393,6 +393,17 @@ assert g.initrd_kind("/x/windows10.img") is None
 assert names == [".", "f", ".", "f"], names
 assert [n for n, p in g.cpio_members(data, "t") if p] == ["f", "f"]
 assert len(g.decompress_chain(__import__("gzip").compress(data), "t")) == 1
+# token shapes: the OpenSSH security-key names and a bare PEM header (format
+# strings in sshd / libgnutls) are not credentials; a real-looking key is
+shp = g.Scanner(g.HashSet("s"), shapes=True)
+assert not shp.scan_shapes(b"x sk-ssh-ed25519@openssh.com sk-ecdsa-sha2-nistp256-cert-v01@openssh.com", "/usr/sbin/sshd")
+assert not shp.scan_shapes(b"\0-----BEGIN RSA PRIVATE KEY-----\0%s\0", "/usr/lib/libgnutls.so.30")
+assert not shp.scan_shapes(b"sk-this-is-just-hyphenated-words-here", "/x.txt")
+key_body = b"MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7" * 2
+assert shp.scan_shapes(b"-----BEGIN PRIVATE KEY-----\n" + key_body + b"\n", "/etc/x.pem")
+assert shp.scan_shapes(b"-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\n"
+                       b"DEK-Info: AES-128-CBC,0011\n\n" + key_body + b"\n", "/etc/x.pem")
+assert shp.scan_shapes(b"OPENAI=sk-" + b"Ab3dEf9hIjK1mNoP2qRsT4uVwX5yZ" + b"\n", "/etc/x.env")
 # initramfs-tools layout: an uncompressed early cpio, then the zstd-compressed
 # main cpio.  The kernel unpacks both; the gate used to call the zstd frame junk.
 zmain = subprocess.run(["zstd", "-q", "-c"], input=segs[1], capture_output=True).stdout
