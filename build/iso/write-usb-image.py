@@ -1311,6 +1311,131 @@ def stage_server_installer_pool(stage_dir: Path, arch: str,
     stage_installer_substrate(stage_dir, arch, installer_pool, suite)
 
 
+# ---------------------------------------------------------------------------
+# MAGNETAR size target (<= 60 MB compressed per arch): the d-i substrate.
+#
+# The server image carried all 231 substrate udebs -- 84,996,596 B on amd64,
+# 19% of the raw image -- although a server install loads a small, provable
+# subset. build/lib/magnetar_substrate.py derives that subset from MEASURED
+# facts about this pipeline rather than from a guess:
+#
+#   * d-i's own initrd already contains the modules+main closure (773 packages
+#     in the r20261013 netinst initrd), so anna/main-menu never fetch those
+#     udebs from /cdrom at all;
+#   * preseed/early_command udpkg-installs the NIC and SSH udebs from
+#     /ncz/ssh-udebs and /cdrom by path, so those must stay reachable;
+#   * the medium boots exactly one kernel flavour (docs/ONE-KERNEL.md), so
+#     module udebs for other flavours can never be modprobed.
+#
+# Everything dropped is reported with the reason it can go, and the whole set
+# is recorded in the image receipt so a shrinking image is auditable.
+# ---------------------------------------------------------------------------
+SUBSTRATE_LIB = Path(__file__).resolve().parents[1] / "lib"
+
+
+def _load_magnetar_substrate():
+    """Import build/lib/magnetar_substrate.py (not on sys.path otherwise)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "magnetar_substrate", SUBSTRATE_LIB / "magnetar_substrate.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError(
+            f"FATAL: cannot load {SUBSTRATE_LIB / 'magnetar_substrate.py'}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def initrd_status_path(evidence_dir: Path) -> Path | None:
+    """Optional measured evidence: the d-i initrd's dpkg status for this arch.
+
+    The keep-set is only as honest as the initrd it is measured against, so
+    when the caller passes --di-initrd the set is derived from that exact
+    initrd. Without it the keep manifest (manifests/magnetar-substrate-keep.tsv)
+    is the source of truth and the build says so.
+    """
+    p = evidence_dir / "initrd-status"
+    return p if p.is_file() else None
+
+
+def slim_installer_pool(stage_dir: Path, arch: str, installer_pool: Path,
+                        initrd_status: Path | None,
+                        flavour: str | None = None) -> dict:
+    """Remove from /cdrom/pool every udeb the server install cannot load.
+
+    Runs AFTER stage_installer_substrate() has indexed the pool, and re-indexes
+    the Packages file so d-i's cdrom-retriever cannot even see the dropped
+    packages -- a pool file without an index entry would be an inconsistency
+    d-i would later trip over.
+    """
+    mod = _load_magnetar_substrate()
+    pool_root = stage_dir / "pool"
+    pool = mod.Pool(pool_root)
+    if not pool.keys():
+        raise RuntimeError(f"FATAL: no udebs under {pool_root}")
+    flavour = flavour or arch
+    if initrd_status is not None:
+        builtin = mod.measure_substrate_initrd(initrd_status)
+        basis = f"measured from {initrd_status}"
+    else:
+        builtin = set(mod.INITRD_BUILTIN_EXPECTED_SAMPLE)
+        basis = ("keep manifest only; --di-initrd not given, so the initrd's "
+                 "own package set was not measured on this build")
+    extra, extra_reasons = mod.load_keep_tsv(
+        SUBSTRATE_LIB.parent / "manifests" / "magnetar-substrate-keep.tsv")
+    kept, reasons = mod.keep_set(pool, arch, flavour, builtin, extra,
+                                 extra_reasons)
+
+    total = sum(pool.udeb(n).stat().st_size for n in pool.keys())
+    kept_bytes = sum(pool.udeb(n).stat().st_size for n in kept)
+    dropped = []
+    for name in sorted(set(pool.keys()) - kept):
+        path = pool.udeb(name)
+        dropped.append({
+            "package": name,
+            "bytes": path.stat().st_size,
+            "reason": mod.drop_reason(name, arch, flavour, builtin),
+        })
+        path.unlink()
+    log(f"    magnetar substrate: keep {len(kept)} udebs ({kept_bytes} B), "
+        f"drop {len(dropped)} ({total - kept_bytes} B of {total} B); "
+        f"basis: {basis}")
+    for entry in dropped:
+        log(f"      drop {entry['package']} ({entry['bytes']} B): "
+            f"{entry['reason']}")
+
+    # Re-index: only what is still on the medium may appear in Packages.
+    suite = release_codename()
+    index = stage_dir / "dists" / suite / "main" / "debian-installer" / f"binary-{arch}"
+    packages = index / "Packages"
+    with packages.open("wb") as stream:
+        subprocess.run(
+            ["dpkg-scanpackages", "--type", "udeb", "--multiversion",
+             "pool/main", "/dev/null"],
+            cwd=stage_dir, check=True, stdout=stream,
+        )
+    with gzip.GzipFile(filename=str(index / "Packages.gz"),
+                       mode="wb", mtime=0) as stream:
+        stream.write(packages.read_bytes())
+    log(f"    magnetar substrate: re-indexed {index.name}/Packages "
+        f"({sum(1 for _ in packages.open())} index lines)")
+
+    return {
+        "schema_version": "ncz-magnetar-substrate/v1",
+        "arch": arch,
+        "flavour": flavour,
+        "basis": basis,
+        "kept_count": len(kept),
+        "kept_bytes": kept_bytes,
+        "dropped_count": len(dropped),
+        "dropped_bytes": total - kept_bytes,
+        "pool_bytes_before": total,
+        "kept": {n: reasons.get(n, "") for n in sorted(kept)},
+        "dropped": dropped,
+    }
+
+
 def release_codename() -> str:
     suite = "forky"
     release_conf = REPO_ROOT / "release.conf"
@@ -1332,9 +1457,19 @@ def build_data_partition_img(ncz_payload_tree_dir: Path, out_img: Path,
     content_bytes = du_bytes(ncz_payload_tree_dir.parent)
     if size_mib is None:
         # 20% headroom for ext4 metadata/journal + round up to 64MiB boundary.
+        #
+        # MAGNETAR size target (<= 60 MB compressed per arch): the 256 MiB
+        # FLOOR that used to live here sized a 99 MB server payload into a
+        # 256 MiB partition and then a 300 MB hole of zeroes in the image.
+        # Nothing needs 256 MiB: ext4 with a 20% headroom and a 64 MiB
+        # granularity is exactly as safe at 128 MiB, and mke2fs sizes the
+        # journal from the filesystem size. The floor is now ONE 64 MiB block,
+        # which is well past any payload this variant stages; --data-size-mib
+        # still overrides, and the content check below still refuses a
+        # partition that cannot hold its payload.
         needed_mib = int(content_bytes * 1.20 / (1024 * 1024)) + 32
         size_mib = ((needed_mib + 63) // 64) * 64
-        size_mib = max(size_mib, 256)
+        size_mib = max(size_mib, 64)
     size_bytes = size_mib * 1024 * 1024
     log(f"    data partition: content {content_bytes} bytes -> image {size_mib} MiB")
     if size_bytes < content_bytes:
@@ -1489,6 +1624,57 @@ def write_partition_bytes(image_path: Path, start_sector: int, src: Path) -> Non
             fout.seek(offset + pos)
             fout.write(blk)
             pos += len(blk)
+
+
+COMPRESS_DEFAULTS = {"xz": 6, "zst": 19}
+
+
+def compress_image(image: Path, kind: str, level: int | None = None) -> dict:
+    """Write image.<kind> beside the raw image; return the measured sizes.
+
+    This is a SHIPPING artifact, not a boot artifact: d-i, rEFInd and
+    mountmedia all read the raw image (that is what gets dd'd). The archive
+    exists so the download size is honest about the ~60 MB target. We keep
+    the raw image next to it rather than replacing it, because
+    build/ship-image.sh and kvm-install-gate-gpt.sh take the raw path and a
+    silent rename would break them.
+
+    xz uses a plain -6 (memory-hungry presets are pointless on an image this
+    small); zstd uses --ultra -19 with a long window. Both are deterministic
+    for the same input+level, so two builds of one pin compare byte-wise.
+    The receipt carries sha256 + size of both files, so a size claim can be
+    checked instead of believed.
+    """
+    lvl = COMPRESS_DEFAULTS[kind] if level is None else level
+    if kind == "xz":
+        out = image.with_suffix(image.suffix + ".xz")
+        cmd = ["xz", "-c", f"-{lvl}", "-T0", str(image)]
+    elif kind == "zst":
+        out = image.with_suffix(image.suffix + ".zst")
+        cmd = ["zstd", "-c", f"-{lvl}", "--ultra", "-T0", "--long=27",
+               "--no-progress", str(image)]
+    else:
+        raise RuntimeError(f"unknown compression {kind!r}")
+    if shutil.which(cmd[0]) is None:
+        raise RuntimeError(
+            f"FATAL: --compress {kind} needs {cmd[0]!r} on PATH; refusing to "
+            f"report a compressed size we did not measure")
+    log(f"    compressing {image.name} -> {out.name} ({cmd[0]} level {lvl})")
+    with out.open("wb") as stream:
+        subprocess.run(cmd, check=True, stdout=stream)
+    raw = image.stat().st_size
+    packed = out.stat().st_size
+    log(f"    compressed: {packed} bytes "
+        f"({packed * 100.0 / raw:.1f}% of {raw})")
+    return {
+        "kind": kind,
+        "level": lvl,
+        "path": str(out),
+        "sha256": sha256_file(out),
+        "compressed_size": packed,
+        "raw_size": raw,
+        "ratio": round(raw / packed, 3) if packed else None,
+    }
 
 
 def parse_gpt(image_path: Path) -> dict:
@@ -1737,6 +1923,21 @@ def main() -> int:
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--data-size-mib", type=int, default=None,
                      help="Data partition size; default: auto-sized from content + headroom")
+    ap.add_argument("--di-initrd", type=Path, default=None,
+                     help="This arch's d-i initrd. When given, the server "
+                          "variant's substrate keep-set is MEASURED from that "
+                          "initrd's /var/lib/dpkg/status (the packages anna "
+                          "never has to fetch); without it the keep manifest "
+                          "is the only source of truth.")
+    ap.add_argument("--compress", choices=["none", "xz", "zst"], default="none",
+                     help="Also ship a compressed copy of the raw image "
+                          "(.img.xz / .img.zst) and record its size in the "
+                          "receipt. 'none' keeps every previous behaviour. "
+                          "d-i boots the RAW image: dd it, or decompress "
+                          "first -- nothing on the medium reads the archive.")
+    ap.add_argument("--compress-level", type=int, default=None,
+                     help="Override the compressor level (xz: 1-9, default 6 -e; "
+                          "zst: 1-19, default 19)")
     ap.add_argument("--work-dir", type=Path, default=None,
                      help="Scratch directory for the staged tree and the ext4 "
                           "data image. Defaults to the OUTPUT image's own "
@@ -1780,8 +1981,14 @@ def main() -> int:
 
         log("[2/4] building ext4 data partition image")
         data_img = tmp / "data.img"
+        substrate_receipt = None
         if _variant() == "server":
             stage_server_installer_pool(stage_dir, args.arch, args.installer_pool)
+            log("[2/4] MAGNETAR: shedding the substrate udebs no server "
+                "install can load (docs/MAGNETAR-SERVER-VARIANT.md)")
+            substrate_receipt = slim_installer_pool(
+                stage_dir, args.arch, args.installer_pool,
+                args.di_initrd if args.di_initrd and args.di_initrd.is_file() else None)
         else:
             stage_offline_mirror(stage_dir, args.arch, args.installer_pool)
         build_data_partition_img(stage_dir / "ncz-payload", data_img, args.data_size_mib)
@@ -1850,6 +2057,11 @@ def main() -> int:
             # installer-substrate sid d-i packages the image still carries.
             "sid_exceptions": count_sid_exceptions(args.arch),
         }
+        if substrate_receipt is not None:
+            receipt["magnetar_substrate"] = substrate_receipt
+        if args.compress != "none":
+            receipt["compressed"] = compress_image(
+                args.out, args.compress, args.compress_level)
         receipt_path = args.out.with_suffix(args.out.suffix + ".receipt.json")
         receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))
         log(f"OK: {args.out} ({args.out.stat().st_size} bytes), receipt at {receipt_path}")

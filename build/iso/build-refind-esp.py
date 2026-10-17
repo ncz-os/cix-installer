@@ -856,9 +856,14 @@ def _required_esp_mib(esp_root: Path, requested_mib: int) -> int:
     image size. 15% plus an 8 MiB floor covers that at the sizes we ship.
     """
     total = sum(f.stat().st_size for f in esp_root.rglob("*") if f.is_file())
+    # mformat only knows FAT12/FAT16/FAT32, and 1 MiB (the smallest image it
+    # will format usefully) is the floor. 15% + 8 MiB covers reserved
+    # sectors, both FAT copies and per-file cluster slack. Content-sized by
+    # default (requested_mib == 0) so the ESP is kernel + initrd + rEFInd and
+    # nothing else -- see docs/MAGNETAR-SERVER-VARIANT.md.
     needed_bytes = int(total * 1.15) + 8 * 1024 * 1024
     needed_mib = -(-needed_bytes // (1024 * 1024))  # ceil
-    return max(requested_mib, needed_mib)
+    return max(requested_mib, needed_mib, 1)
 
 
 def make_fat_image_mtools(esp_root: Path, out_img: Path, size_mib: int = 4) -> dict:
@@ -950,9 +955,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--arch", required=True, choices=["amd64", "arm64"])
     ap.add_argument("--out-dir", required=True, type=Path)
-    ap.add_argument("--size-mib", type=int, default=64,
-                    help="ESP image size in MiB (default 64; must be large "
-                         "enough for the d-i kernel + initrd)")
+    ap.add_argument("--size-mib", type=int, default=0,
+                    help="ESP image FLOOR in MiB (default 0 = size the ESP to "
+                         "its content). _required_esp_mib() still grows past "
+                         "this if the staged kernel+initrd need the room; a "
+                         "fixed 256 MiB floor wasted ~200 MiB on every image "
+                         "whose initrd is small.")
     ap.add_argument("--keep-tree", action="store_true",
                     help="keep the intermediate EFI/ tree on disk")
     ap.add_argument("--d-i-kernel", required=True, type=Path,

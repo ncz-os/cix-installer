@@ -134,7 +134,145 @@ Measured on HYDRA 192.168.207.78 against the real repo (real assets, real
 substrate, real `dpkg-scanpackages`/`apt-ftparchive` staging). `mke2fs -d`
 confirms the ext4 image is exactly 268,435,456 B.
 
+## Slim layout (fix/p3-magnetar-slim-20261017): the honest numbers
+
+Measured on 2026-10-17 by **building both images from the same inputs**, twice:
+the parent commit `76692942` and this branch, with the real r20261013 amd64
+substrate pool (231 udebs), the real 28.6 MB d-i initrd, the real preseed/
+post-install trees and a real xz run. Everything not listed below (the
+squashfs layers, the offline apt closure) is not on a server medium.
+
+| | parent `76692942` | this branch | delta |
+|---|---:|---:|---:|
+| ESP (FAT) | 268,435,456 | **69,206,016** | −199,229,440 |
+| data partition (ext4) | 268,435,456 | **134,217,728** | −134,217,728 |
+| substrate udebs on the medium | 231 / 84,996,596 B | **69 / 48,272,260 B** | −162 udebs, −36,724,336 B |
+| data-partition content | 99,216,521 B | **56,484,859 B** | −42.7 MB |
+| **raw image** | **538,968,064** | **205,520,896** | **−61.5%** |
+| **`.img.xz`** | **146,072,784** | **103,357,360** | **−29%** |
+
+The 60 MB target is **not met**, and the remainder is not slack:
+
+| what is still on the medium, and why | bytes | xz | room left to cut |
+|---|---:|---:|---|
+| d-i initrd, embedded in the ESP | 28,602,231 | 29.5 MB | **none** |
+| `linux-binary-*-di` | 13.6 MB | — | none: it IS the installer kernel initrd paired with |
+| `nic-wireless-modules` | 12.3 MB | — | only by dropping Wi-Fi installs |
+| `nic-modules` | 8.9 MB | — | none: the only NIC driver source on the medium |
+| rest of the kept pool (64 udebs) | ~1.1 MB + kernel modules | — | each has a named consumer |
+
+Two facts make <= 60 MB unreachable **without breaking the documented d-i
+contract**, and both are measurements rather than opinions:
+
+1. **The initrd does not compress.** `xz -6` on
+   `initrd-amd64.gz` (28,602,231 B) gives 28,502,356 B -- 0.3%. It is a
+   compressed cpio archive holding an already-compressed kernel-module set and
+   already-compressed `.deb`-like members. Its 28.6 MB is a hard floor of the
+   image.
+2. **rEFInd cannot read xz.** `build-refind-esp.py` embeds the d-i kernel and
+   initrd as plain FAT files because rEFInd's SFS driver opens them directly;
+   a `.xz`/`.zst` initrd on the ESP is not a layout rEFInd can boot. So the
+   initrd cannot move out of the raw image, and the raw image therefore cannot
+   go below ~30 MB of initrd + ~22 MB of kernel even with an empty pool.
+
+Arithmetic for the floor with the current d-i inputs: 1 MiB GPT head + 69 MiB
+ESP (66 MiB content × 1.15 + 8) + 128 MiB data (56.5 MiB content × 1.2 + 32,
+64 MiB granularity) + 1 MiB backup = 199 MiB raw, and ~103 MB xz. Dropping
+**every** udeb would still leave ~55 MB raw of initrd+kernel and ~30 MB xz.
+Meeting 60 MB compressed therefore requires one of: a smaller d-i initrd
+(a d-i build decision, not this repo's), a netboot-style medium that does not
+embed an initrd at all (a different product, and it breaks the
+"medium must install with no network" contract), or network-booting the
+installer -- none of which this task authorises.
+
+### (a) Partitions sized to content
+
+* `build/iso/build-refind-esp.py --size-mib` now defaults to **0 = size to
+  content**; `_required_esp_mib()` keeps its `content × 1.15 + 8 MiB` rule and
+  still grows past a request that is too small, so the 2026-09-26 "Disk full"
+  regression cannot return. `build/build-installer-image.sh` no longer passes
+  `256`. Measured: 256 MiB -> 66 MiB with the real kernel+initrd.
+* `build_data_partition_img()` loses its **256 MiB floor** (now 64 MiB). The
+  20% headroom, the +32 MiB and the 64 MiB granularity are unchanged, and the
+  existing content-fits check still refuses an undersized partition. Measured:
+  256 MiB -> 128 MiB for a 56.5 MB payload.
+
+### (b) udebs the server install never loads -- proved, not guessed
+
+`build/lib/magnetar_substrate.py` derives the keep-set from measurements:
+
+* **The initrd already holds the modules+main closure.** The r20261013 amd64
+  initrd carries 104 packages in `/var/lib/dpkg/status`; anna resolves
+  `Depends:` against that status before fetching anything, and 45 of the 231
+  pooled udebs are in it.
+* **`preseed/early_command` udpkg-installs the NIC udebs by path.** They stay,
+  and the measurement that forced this is in the module: the initrd carries
+  448 `.ko` files and **zero** under `drivers/net/` (only `net/rfkill`), while
+  `nic-modules` carries 122. An earlier revision of this module dropped
+  `nic-modules` as "a second copy"; the real run caught it and the rule is now
+  "only the non-server filesystem module sets (`xfs`, `jfs`) may be dropped by
+  name", with a test that pins it.
+* **`netcfg` + `net-retriever` are absent from the initrd status** and are what
+  brings the link up and unpacks the rest of the chain, so they are kept;
+  a pool without them fails the build instead of shipping.
+* **Preseed skips whole components** (`grub-installer/skip`,
+  `systemd-boot-installer/skip`, `partman-auto/method=regular`,
+  `anna/no_kernel_modules=true`, no crypto/LVM/RAID/iSCSI/NBD), so the udebs
+  reachable only from those are dropped with the skipping setting named as the
+  reason.
+* The **openssh udebs** stay (manifest) because `diag-console.sh` installs them
+  by path -- remote installer diagnostics must not depend on the network it
+  exists to debug.
+
+The image receipt gains `magnetar_substrate`: kept set with reasons, dropped set
+with reasons, and the **basis** the set was measured from (the initrd path).
+The pool is re-indexed with `dpkg-scanpackages` after the drop, so
+`Packages` lists exactly what the medium holds.
+
+### (c) Compressing the substrate -- measured, and deliberately not done
+
+| the substrate | tar stream | `xz -6` |
+|---|---:|---:|
+| all 231 udebs | 85,411,840 B | 85,064,564 B (99.6%) |
+| the 162 dropped | 37,017,600 B | 36,769,596 B (99.3%) |
+| the 69 kept | 48,404,480 B | 48,298,004 B (99.8%) |
+
+udebs are `.deb` archives whose payload is already xz. A second pass recovers
+0.1%, and there is no d-i-readable compressed container to put them in:
+`cdrom-retriever` fetches a udeb *path* from the apt index and `dpkg-deb` reads
+the file itself, so a `.tar.xz` pool needs a retriever fork and breaks
+`load-cdrom`. Compressing the substrate would cost correctness for ~106 KB.
+The compression that does pay is (d).
+
+### (d) `.img.xz` / `.img.zst`
+
+`write-usb-image.py --compress {none,xz,zst}` writes `image.img.xz|.zst` beside
+the raw image (kept: it is what gets `dd`ed and what `ship-image.sh` /
+`kvm-install-gate-gpt.sh` take) and records kind, level, sha256, raw size,
+compressed size and ratio in the receipt. `build/build-installer-image.sh`
+passes `NCZ_IMAGE_COMPRESS` through; default `none`, so nothing changes for
+existing callers. Measured on this branch's amd64 image: xz -6 103,357,360 B
+(4.94x), zstd -19 103,501,908 B.
+
+### (e) udebs online: why not
+
+`main-menu` loads the installer's udebs *before* the network exists -- `netcfg`
+is itself a udeb that brings the link up. Anything needed before that must be on
+the medium, and that is exactly the set the module keeps. The only udebs that
+could move online are the ones no component loads at all, and those are now
+simply not shipped.
+
+### (f) arm64
+
+Not measured for this branch: it needs the arm64 substrate pool, the arm64 d-i
+initrd and a real arm64 run on ULTRA, none of which was available in this job
+(`~/Projects/p3-*` and the build hosts were off-limits by the task rules).
+The code is arch-parametric (`--arch arm64`, `--index`/pool path, flavour
+defaulting to arch) and the two size mechanics are arch-independent, but the
+numbers above are **amd64 only**. This is the main thing left unproven.
+
 ## Tests
+
 
 - `build/iso/tests/test_write_usb_image_server_variant.py` — desktop stages
   the assets and demands a baked `base.squashfs`; server moves

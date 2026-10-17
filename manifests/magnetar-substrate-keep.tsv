@@ -1,0 +1,43 @@
+# manifests/magnetar-substrate-keep.tsv
+#
+# Extra d-i udebs the MAGNETAR (server) medium must keep even though they are
+# not part of the d-i initrd's already-unpacked set and are not one of the NIC
+# driver udebs preseed/early_command installs by path.
+#
+# Format: <package>\t<reason>            (blank lines and '#' comments ignored)
+#
+# Everything NOT listed here is dropped by slim_installer_pool() in
+# build/iso/write-usb-image.py, with the reason recorded in the image receipt.
+# Only add a line when you can name the main-menu/anna path that loads it.
+#
+# Measured reference set (amd64, substrate 2026-10-13, d-i initrd
+# 7.2.9+deb14): 45 of the 231 pooled udebs are already unpacked in the initrd
+# (anna never fetches them from the medium), and 5 NIC module udebs are
+# installed by early_command. The five openssh/udpkg udebs come from
+# assets/ssh-udebs/ (baked into the initrd) and are ALSO pooled, so the
+# diag-console.sh by-path lookup keeps working whether it scans /ncz/ssh-udebs
+# or /cdrom.
+#
+# Why the openssh stack is not dropped outright: preseed/diag-console.sh
+# install_sshd_udebs() udpkg-installs libc6-udeb zlib1g-udeb libcrypt1-udeb
+# libcrypto3-udeb openssh-client-udeb openssh-server-udeb from the first
+# media it can find. The first three/four are already initrd builtins, but
+# openssh-*-udeb are not, and their by-path lookup scans /cdrom too. Dropping
+# them would silently degrade installer-side remote diagnostics -- the exact
+# thing diag-console.sh exists to prevent -- for ~1 MB. Keep them.
+openssh-client-udeb	diag-console.sh install_sshd_udebs() udpkg-installs it by path; remote installer diagnostics must not depend on the network
+openssh-server-udeb	diag-console.sh install_sshd_udebs() udpkg-installs it by path; remote installer diagnostics must not depend on the network
+#
+# MEASURED COMPRESSIBILITY (2026-10-17, amd64 substrate 2026-10-13, `tar -cf |
+# xz -6 -T0` over the pool). udebs are .deb archives whose payload is already
+# xz, so a second pass recovers ~0.1%:
+#   all 231 udebs, tar stream ....... 85,411,840 B -> xz 85,064,564 B (99.6%)
+#   the 162 dropped udebs ........... 37,017,600 B -> xz 36,769,596 B (99.3%)
+#   the 69 kept udebs ............... 48,404,480 B -> xz 48,298,004 B (99.8%)
+#
+# Therefore compressing the substrate pool buys nothing worth a retriever fork:
+# cdrom-retriever/anna fetch a udeb PATH from an apt index and dpkg-deb reads
+# the file itself, so a .tar.xz pool would need a custom retriever and would
+# break load-cdrom -- the one path this task must not break. The compression
+# that pays is on the finished image (write-usb-image.py --compress), where FAT
+# padding, ext4 free space and squashfs layering dominate.

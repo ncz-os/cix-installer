@@ -643,3 +643,5 @@ packages/apple-t2-audio-config/	amd64	t2	independent MIT T2 UCM generator, facts
 FIX-REPORT.md	common	-	Intel NPU (component D) packaging fix report
 build/check-hook-registration.sh	common	-	gate: every post-install hook is registered in run-all.sh (fails on orphans)
 build/test-installer-disk-labels.sh	common	-	test: human-readable labels in the installer disk selector
+build/lib/magnetar_substrate.py	common	-	Magnetar server substrate selection: parses the d-i keep-manifest, splits kept vs dropped udebs by anna/main-menu load path, and computes the compressed-medium budget used by build/iso/write-usb-image.py
+manifests/magnetar-substrate-keep.tsv	common	-	pinned keep-list of substrate udebs the server installer actually loads (proven from the d-i main-menu path), with the d-i reason column for each entry
