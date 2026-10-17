@@ -229,10 +229,10 @@ perms=$(stat -c '%a' "$BL" 2>/dev/null)
     && ok "exactly one header line (a torn rewrite would duplicate or drop it)" || bad "header lines: $(grep -c '^# Written by ncz-gpu-switcher' "$BL")"
 [ "$(grep -c '^blacklist ' "$BL")" = 4 ] \
     && ok "exactly the four hold lines, written once" || bad "blacklist lines: $(grep -c '^blacklist ' "$BL")" "$(cat "$BL")"
-# $(...) strips trailing newlines, so compare byte counts instead of a command
-# substitution: the file must end in exactly one newline.
-[ "$(wc -l < "$BL")" = "$(awk 'END{print NR}' "$BL")" ] \
-    && ok "file ends with a newline-terminated line" || bad "file does not end cleanly"
+# $(...) strips trailing newlines, so a command substitution cannot see the
+# ending. Compare the last BYTE instead: od on the final byte must be \n (012).
+[ "$(tail -c 1 "$BL" | od -An -c | tr -d ' \n')" = '\n' ] \
+    && ok "file ends with a newline" || bad "file does not end with a newline" "$(tail -c 1 "$BL" | od -c)"
 
 # mktemp absent -> the fallback single-shot redirection must still produce the
 # same complete document (never a missing modprobe.d file on the box).
