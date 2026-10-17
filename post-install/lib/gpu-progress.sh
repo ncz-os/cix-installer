@@ -475,56 +475,6 @@ _g_track_state_pct() {  # ratchet G_PCT with what the shim reported
     return 0
 }
 
-# ------------------------------------------------- screensaver GPU class
-# ncz_gpu_saver_class <vendor:device> -> strong|mid|weak, or nothing when the
-# answer is not knowable here.
-#
-# This is the GPU CLASS the screensaver engine (ncz-screensaver
-# class_from_renderer / class_from_topology, docs/MINOR-005-panfrost-screensaver-class.md)
-# works from: the same wording the saver policy uses ("weak" = the cheap tier,
-# "mid" = the Mali/Panfrost band, "strong" = a discrete card that never
-# calibrates down). It reads the PCI identity only -- no renderer probe, no
-# calibration run -- so it answers in the installer, hours before the engine
-# exists. Consumers: preseed/hw-summary.sh (the worded expectation in the
-# install-time HARDWARE SUMMARY).
-#
-# The table is a reading of the measured class bands, not a product catalogue:
-#   NVIDIA Turing (device id >= 0x1e00, the same arithmetic family cut
-#   lib/cuda-select.sh uses) and newer -> strong; older discrete NVIDIA -> mid
-#   AMD discrete (Navi+, 0x73xx and up) -> strong, older discrete AMD -> mid
-#   Intel integrated (8086, display class) -> mid; Intel Arc (0x56xx/0xe2xx) -> strong
-#   Mali-G7xx / Panfrost / Panthor -> mid (MINOR-005: measured 9.88-11.76 ms)
-#   Mali-G5x/G6x and earlier -> weak
-#   Apple T2-era integrated -> mid
-# A vendor:device this does not recognise prints nothing: the caller then says
-# nothing about the screensavers rather than inventing a class.
-ncz_gpu_saver_class() {
-    local id v dev idd
-    id=$(printf '%s' "$1" | tr 'A-F' 'a-f')
-    v="${id%%:*}"; dev="${id#*:}"
-    [ "$v" != "$id" ] || return 0
-    idd=$((0x$dev)) 2>/dev/null || return 0
-    case "$v" in
-        10de)   # NVIDIA
-            if [ "$idd" -ge $((0x1e00)) ]; then printf 'strong'
-            else printf 'mid'; fi ;;
-        1002)   # AMD
-            if [ "$idd" -ge $((0x7300)) ]; then printf 'strong'
-            else printf 'mid'; fi ;;
-        8086)   # Intel
-            case "$dev" in
-                56*|e2*) printf 'strong' ;;      # Arc / Battlemage discrete
-                *)       printf 'mid' ;;
-            esac ;;
-        106b)   # Apple
-            printf 'mid' ;;
-        13b5|14e4)   # ARM Mali (Foundation/display) / Broadcom V3D
-            printf 'mid' ;;
-        *) return 0 ;;
-    esac
-    return 0
-}
-
 _g_stop=0
 ncz_gpu_watch() {
     G_T0=$(date +%s)

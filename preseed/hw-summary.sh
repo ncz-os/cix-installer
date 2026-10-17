@@ -16,11 +16,10 @@
 #                 states + threads
 #   Memory        /proc/meminfo MemTotal
 #   Storage       fixed disks: size, model (the disks the chooser will offer)
-#   GPU           PCI class 0x03xx: curated name from
-#                 assets/gpu/ncz-gpu-names.tsv (else the numeric
-#                 vendor:device), plus the screensaver strength for the class
-#                 post-install/lib/gpu-progress.sh's ncz_gpu_saver_class()
-#                 computes, worded from assets/gpu/ncz-screensaver-strength.tsv
+#   GPU           PCI class 0x03xx (plus the Sky1 on-SoC Mali): curated name
+#                 from assets/gpu/ncz-gpu-names.tsv when readable (else the
+#                 numeric vendor:device), plus the screensaver class the
+#                 engine's class_from_topology() would start in
 #   Accelerators  PCI class 0x0b40 (Intel NPU, CIX NPU/VPU device), NVIDIA
 #                 compute by the family test post-install/lib/cuda-select.sh
 #                 uses, CIX Sky1 NPU + VPU (SoC devices)
@@ -48,8 +47,8 @@
 # (preseed/ncz-ui.sh records an em dash truncating a dialog title).
 #
 # TEST SEAMS: NCZ_HW_PROC, NCZ_HW_SYS, NCZ_HW_DMI, NCZ_HW_CMDLINE,
-# NCZ_HW_NAME_TABLE, NCZ_HW_STRENGTH_TABLE, NCZ_HW_STATE, NCZ_TMP, NCZ_UI_SH,
-# NCZ_UI_RELEASE, NCZ_UI_PAYLOAD, NCZ_GPU_LIB, NCZ_CONFMODULE.
+# NCZ_HW_NAME_TABLE, NCZ_HW_STATE, NCZ_TMP, NCZ_UI_SH,
+# NCZ_UI_RELEASE, NCZ_UI_PAYLOAD, NCZ_CONFMODULE.
 
 set +e
 
@@ -67,7 +66,9 @@ STATE="${NCZ_HW_STATE:-$NCZ_TMP/.ncz-hwsummary-shown}"   # honours NCZ_HW_STATE,
 CMDLINE="${NCZ_HW_CMDLINE:-$PROC/cmdline}"
 DIR=$(cd "$(dirname "$0")" && pwd)
 NAME_TABLE="${NCZ_HW_NAME_TABLE:-$DIR/../assets/gpu/ncz-gpu-names.tsv}"
-STRENGTH_TABLE="${NCZ_HW_STRENGTH_TABLE:-$DIR/../assets/gpu/ncz-screensaver-strength.tsv}"
+# from the initrd (/ncz/) there is no ../assets; the medium's payload may carry it
+[ -r "$NAME_TABLE" ] || [ -z "${NCZ_MEDIA_DIR:-}" ] \
+    || NAME_TABLE="$NCZ_MEDIA_DIR/assets/gpu/ncz-gpu-names.tsv"
 
 # shared NCZ dialog look (brand in the frame title, arch + build on the last
 # body line); optional, never fatal -- the same loop every chooser uses
@@ -249,43 +250,67 @@ gpu_name() {
     printf '%s [%s]\n' "$_v" "$1"
 }
 
-# The screensaver class, from the classifier the screensaver / GPU clock code
-# uses (post-install/lib/gpu-progress.sh ncz_gpu_saver_class -- the GPU-class
-# reading ncz-screensaver's class_from_topology / class_from_renderer work
-# from, see docs/MINOR-005-panfrost-screensaver-class.md). At install time the
-# saver engine is not present, so the classifier's PCI-only arm answers; the
-# answer only words the expectation below, nothing is decided from it.
-#
-# It is NEVER sourced into this shell. lib/gpu-progress.sh is bash and uses
-# bash-only redirections in the middle of the file (a sourced function body
-# ends a dash/ash parse at that point), and d-i runs this script in an
-# ash-family shell. Sourcing it worked under bash and silently stopped the
-# dialog under dash -- the exact class-dependency a test must never have. The
-# class is therefore asked for in a bash CHILD, every time. When bash is not on
-# the medium (it usually is not in d-i) the class is unknowable and the GPU
-# line is printed without the expectation -- never a guessed class.
-GPU_LIB="${NCZ_GPU_LIB:-$DIR/../post-install/lib/gpu-progress.sh}"
-saver_class() {
-    [ -n "$1" ] || return 0
-    [ -r "$GPU_LIB" ] || return 0
-    command -v bash >/dev/null 2>&1 || return 0
-    bash -c '. "$1" >/dev/null 2>&1; ncz_gpu_saver_class "$2"' _ "$GPU_LIB" "$1" 2>/dev/null
+# The screensaver class this GPU starts in. It mirrors the PCI-reachable arms
+# of ncz-screensaver's class_from_topology() (launcher/ncz-screensaver; see
+# docs/MINOR-005-panfrost-screensaver-class.md), the fallback the engine uses
+# before its first calibration run:
+#   NVIDIA                     discrete -> strong
+#   AMD                        amdgpu (MID_DRIVERS) -> mid; the engine moves a
+#                              card with >= 2 GiB VRAM to strong. VRAM is not
+#                              readable before amdgpu binds, so the device id
+#                              stands in: discrete Radeon ids sit in
+#                              0x6600-0x7fff (Polaris..Navi3x), APUs below
+#                              (0x13xx-0x19xx) -> discrete strong, APU mid
+#   Intel (i915 / xe)          weak (Arc too: the engine keys on the driver)
+#   Broadcom V3D / VC4         weak
+#   ARM Mali / Panthor / Panfrost  mid (MINOR-005)
+# Anything else prints no expectation rather than a guessed class. The engine
+# is Python and does not ship in d-i, so this is a POSIX copy of those rules;
+# build/test-hw-summary.sh pins it against the engine's table.
+gpu_saver_class() {
+    _gk=$(printf '%s' "$1" | tr 'A-F' 'a-f')
+    case "${_gk%%:*}" in
+        10de) printf 'strong' ;;
+        1002)
+            # dash aborts the whole script on bad arithmetic: validate first
+            case "${_gk#*:}" in ''|*[!0-9a-f]*) return 0 ;; esac
+            _gd=$((0x${_gk#*:}))
+            if [ "$_gd" -ge $((0x6600)) ] && [ "$_gd" -le $((0x7fff)) ]; then printf 'strong'
+            else printf 'mid'; fi ;;
+        8086|14e4) printf 'weak' ;;
+        13b5) printf 'mid' ;;
+    esac
     return 0
 }
 
-# <class> -> one plain-English sentence, worded from the same table the saver
-# policy reads (assets/gpu/ncz-screensaver-strength.tsv).
+# <class> -> the worded expectation. Kept inline: this script runs from the
+# initrd (/ncz/hw-summary.sh), where no assets/ tree is mounted yet.
 saver_expectation() {
-    [ -n "$1" ] || return 0
-    [ -r "$STRENGTH_TABLE" ] || return 0
-    _w=$(awk -F'\t' -v k="$1" '$1 == k { print $2; exit }' "$STRENGTH_TABLE")
-    [ -n "$_w" ] && printf 'screensavers expect %s' "$_w"
+    case "$1" in
+        weak)   printf 'screensavers expect the simple saver set at a reduced scale' ;;
+        mid)    printf 'screensavers expect the standard saver set at full frame rate' ;;
+        strong) printf 'screensavers expect every saver at full quality' ;;
+    esac
     return 0
+}
+
+# CIX Sky1 identity from DMI / the device tree (same test p_accelerators uses).
+_is_sky1() {
+    case "$(_rfile "$DMI/sys_vendor")$(_rfile "$DMI/product_name")$(_rfile "$SYS/firmware/devicetree/base/compatible" | tr -d '\000')" in
+        *CIX*|*Cix*|*cix*|*Sky1*|*CP8180*) return 0 ;;
+    esac
+    return 1
 }
 
 p_gpu() {
     _any=0
     _pci=$(_pci_devices)
+    # Sky1's Mali-G720 is an on-SoC platform device, not a PCI function: the
+    # engine finds it as /dev/mali0, never on the PCI bus.
+    if _is_sky1; then
+        printf 'GPU:\n'; _any=1
+        printf '  ARM Mali-G720 (CIX Sky1 on-SoC GPU) - %s\n' "$(saver_expectation mid)"
+    fi
     [ -n "$_pci" ] || return 0
     while read -r _cls _key; do
         case "$_cls" in 0300*|0301*|0302*|0380*) ;; *) continue ;; esac
@@ -296,12 +321,11 @@ p_gpu() {
         _name=$_base
         case "$_base" in "$_last_name") _name="$_name, secondary display function" ;; esac
         _last_name=$_base
-        _cls_v=$(saver_class "$_key" 2>/dev/null)
-        _exp=$(saver_expectation "$_cls_v")
+        _exp=$(saver_expectation "$(gpu_saver_class "$_key")")
         printf '  %s%s\n' "$_name" "${_exp:+ - $_exp}"
-    done <<EOF
+    done <<EOT
 $_pci
-EOF
+EOT
     return 0
 }
 
@@ -323,7 +347,7 @@ $_pci
 EOF
     # NVIDIA compute support, by the same arithmetic family test
     # post-install/lib/cuda-select.sh uses (thresholds on the device id).
-    _nv=$(printf '%s\n' "$_pci" | awk '$2 ~ /^10de:/ { print $2; exit }')
+    _nv=$(printf '%s\n' "$_pci" | awk '$2 ~ /^10de:[0-9a-fA-F]+$/ { print $2; exit }')
     if [ -n "$_nv" ]; then
         _id=0x${_nv#*:}
         if [ "$((_id))" -ge $((0x1e00)) ]; then _cu="Turing or newer, CUDA supported"

@@ -9,13 +9,13 @@
 #   T2     a 2019 MacBookPro16,1 (Apple T2 bridge [106b:1801], AMD Navi14 GPU)
 #   Arrow  an Arrow Lake desktop: Intel Core Ultra 9 285K, iGPU + Intel NPU
 #   NVIDIA an amd64 desktop with an RTX 3060 (GA106) and no NPU
-#   CIX    an O6N / cixmini: CIX Sky1 (CP8180), Mali-G720 display device
-#          [13b5:0110] (mid, MINOR-005), on-SoC NPU/VPU
+#   CIX    an O6N / cixmini: CIX Sky1 (CP8180), on-SoC Mali-G720 (a platform
+#          device, not PCI; mid, MINOR-005), on-SoC NPU/VPU
 #
 # plus: ASCII-only output, the skip rules (never a dialog in an automated
 # install / on ncz_hwsummary=0), a probe that errors only drops its own line,
 # --dialog always exiting 0 with a frontend that fails, the once-per-boot
-# marker, the strength table, the classifier reuse, and the registration of
+# marker, the classifier against the saver engine's rules, and the registration of
 # the helper in preseed.cfg + BAKED_HELPERS + the platform inventory.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -66,16 +66,9 @@ run() { # NAME MODE [extra env...] -> body on stdout
     env NCZ_HW_PROC="$d/proc" NCZ_HW_SYS="$d/sys" NCZ_HW_DMI="$d/sys/class/dmi/id" \
         NCZ_HW_CMDLINE="$d/proc/cmdline" NCZ_HW_STATE="$d/state/.ncz-hwsummary-shown" \
         NCZ_TMP="$d/state" NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent \
-        NCZ_GPU_LIB="$ROOT/post-install/lib/gpu-progress.sh" ${1+"$@"} \
+        ${1+"$@"} \
         sh "$HS" "$m" </dev/null 2>"$T/last.err"
 }
-# nonascii: bytes outside printable ASCII, newline only tolerated. NOT grep
-# '[^ -~]': that bracket expression is collation-based in the host locale and
-# matches a TAB (gawk 5.2.1 on en_US.UTF-8 proved it), which every table row has.
-# nonascii FILE [tab] -> true when FILE holds a byte outside printable ASCII.
-# (Deliberately NOT grep '[^ -~]': that bracket expression is collation-based in
-# the host locale and matches a TAB -- gawk 5.2.1 on en_US.UTF-8 proved it --
-# and every table row has one. gawk's exit expression is a number, not a boolean.)
 nonascii() { # FILE [tab] -> true when FILE holds a byte outside printable ASCII
     # (Deliberately NOT grep '[^ -~]': that bracket expression is collation-based
     # in the host locale and matches a TAB -- gawk 5.2.1 on en_US.UTF-8 proved it
@@ -99,12 +92,10 @@ say() {
     env NCZ_HW_PROC="$d/proc" NCZ_HW_SYS="$d/sys" NCZ_HW_DMI="$d/sys/class/dmi/id" \
         NCZ_HW_CMDLINE="$d/proc/cmdline" NCZ_HW_STATE="$d/state/.ncz-hwsummary-shown" \
         NCZ_TMP="$d/state" NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent \
-        NCZ_GPU_LIB="$ROOT/post-install/lib/gpu-progress.sh" \
         sh "$HS" --collect </dev/null 2>&1
     env NCZ_HW_PROC="$d/proc" NCZ_HW_SYS="$d/sys" NCZ_HW_DMI="$d/sys/class/dmi/id" \
         NCZ_HW_CMDLINE="$d/proc/cmdline" NCZ_HW_STATE="$d/state/.ncz-hwsummary-shown" \
         NCZ_TMP="$d/state" NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent \
-        NCZ_GPU_LIB="$ROOT/post-install/lib/gpu-progress.sh" \
         sh "$HS" --dialog </dev/null 2>&1
 }
 has() { # NAME DESC NEEDLE
@@ -147,7 +138,7 @@ disk arrow nvme0n1p2 1953510400 "partition" 0 1   # partition: not a disk
 has arrow "Arrow: Core Ultra 9 generation"  "Core Ultra 9"
 has arrow "Arrow: memory"                   "Memory: 64 GB"
 has arrow "Arrow: curated Intel iGPU name"  "Intel Iris Xe Graphics"
-has arrow "Arrow: iGPU strength (Intel display -> mid)" "screensavers expect the standard saver set at full frame rate"
+has arrow "Arrow: iGPU strength (Intel i915/xe -> weak, as the engine)" "screensavers expect the simple saver set at a reduced scale"
 has arrow "Arrow: Intel NPU accelerator"    "Intel NPU (AI accelerator)"
 has arrow "Arrow: fixed NVMe disk"          "Samsung SSD 990 PRO 1TB"
 hasnt arrow "Arrow: removable USB disk excluded" "WDC WD20EZBX"
@@ -162,29 +153,26 @@ pci nv 0000:0a:00.0 030000 10de 1f95          # TU117 [GTX 1650 Ti] (curated)
 disk nv nvme0n1 1000215216 "Sabrent Rocket 4.0 1TB"
 has nv "NVIDIA: curated GPU name"        "NVIDIA GeForce GTX 1650 Ti"
 has nv "NVIDIA: screensaver strength (Turing+ -> strong)" "screensavers expect every saver at full quality"
-# the table is a reading of measured bands: 0x1f95 is Turing, so strong, while
-# the older Pascal card below is mid -- the split is the classifier's.
 has nv "NVIDIA: compute supported"       "Turing or newer, CUDA supported"
 has nv "NVIDIA: Ryzen generation read"   "Ryzen"
 hasnt nv "NVIDIA: no Intel NPU"          "Intel NPU"
 # an older card must say so, from the same family test cuda-select.sh uses
-pci nv 0000:0a:00.0 030000 10de 1b80          # GP104 [GTX 1080]
 fx nv2 >/dev/null; sysv nv2 "ASUSTeK COMPUTER INC."; prod nv2 "P8Z77-V"
 cpu nv2 "Intel(R) Core(TM) i7-3770 CPU @ 3.40GHz" 8; mem nv2 16777216
 pci nv2 0000:01:00.0 030000 10de 1b80
 has nv2 "Kepler/Pascal: legacy CUDA wording" "legacy CUDA only"
 has nv2 "Kepler/Pascal: i7 3rd generation"   "Core i, 3rd generation"
-has nv2 "Kepler/Pascal: strength mid"        "screensavers expect the standard saver set"
+has nv2 "Pascal: still discrete -> strong (engine: any NVIDIA)" "screensavers expect every saver at full quality"
 
 # --- O6N / cixmini (CIX Sky1) ------------------------------------------------
 fx cix >/dev/null; sysv cix "CIX"; prod cix "Sky1 EVB"
 cpu cix "CIX Sky1 CP8180" 12
 mem cix 16777216
-pci cix 0000:01:00.0 030000 13b5 0110          # Mali-G720 (Panthor), MINOR-005 mid band
+pci cix 0000:00:00.0 060400 1f6c 0001          # a Sky1 PCIe root port (not shown)
 disk cix nvme0n1 250069680 "FORESEE XP1000F256G"
 has cix "CIX: Sky1 CPU generation"      "CIX Sky1 (CP8180)"
 has cix "CIX: Sky1 on-SoC NPU/VPU"      "CIX Sky1 NPU and VPU"
-has cix "CIX: Mali display class, mid band" "screensavers expect the standard saver set at full frame rate"
+has cix "CIX: on-SoC Mali-G720, mid band (MINOR-005)" "ARM Mali-G720 (CIX Sky1 on-SoC GPU) - screensavers expect the standard saver set at full frame rate"
 hasnt cix "CIX: no NVIDIA compute"      "NVIDIA compute"
 
 # --- never fails, never blocks ----------------------------------------------
@@ -299,27 +287,36 @@ for n in t2 arrow nv cix; do
         bad "$n: body is ASCII only" "$(LC_ALL=C awk '/[^ -~]/ { print NR": "$0 }' "$T/body.$n")"
     else ok "$n: body is ASCII only"; fi
 done
-# The worded expectations themselves must be ASCII (they come from the table).
-if nonascii "$ROOT/assets/gpu/ncz-screensaver-strength.tsv" tab; then
-    bad "strength table is ASCII only"; else ok "strength table is ASCII only"; fi
-
-# --- classification reuses the existing logic, it is not a second table ------
-lib="$ROOT/post-install/lib/gpu-progress.sh"
-if grep -q '^ncz_gpu_saver_class()' "$lib"; then ok "classifier lives in post-install/lib/gpu-progress.sh"
-else bad "classifier lives in post-install/lib/gpu-progress.sh"; fi
-if grep -q 'ncz_gpu_saver_class' "$HS"; then ok "hw-summary.sh calls the shared classifier"; else bad "hw-summary.sh calls the shared classifier"; fi
-# The classifier's NVIDIA cut is the same arithmetic family cut cuda-select.sh
-# uses (0x1e00 = Turing), so the two cannot drift into different answers.
-if grep -q '0x1e00\|3060\|Turing' "$ROOT/post-install/lib/cuda-select.sh" 2>/dev/null; then
-    ok "cuda-select.sh still carries the Turing family cut"
-else echo "note cuda-select.sh has no literal Turing cut (informational)"; fi
-# The classifier's own answers, straight from the library (not through the
-# summary): the same family cuts the saver policy reads.
-cls() { bash -c '. "$1"; ncz_gpu_saver_class "$2"' _ "$lib" "$1"; }
-[ "$(cls 10de:2504)" = strong ] && [ "$(cls 10de:1b80)" = mid ] && [ "$(cls 1002:7340)" = strong ] \
-    && [ "$(cls 8086:46a6)" = mid ] && ok "classifier: Turing+ strong, Pascal mid, Navi14 strong, Intel iGPU mid" \
-    || bad "classifier: family cuts"
-[ -z "$(cls 1234:1111)" ] && ok "classifier: an unknown device yields no class (nothing is invented)" || bad "classifier: unknown device yields no class"
+# --- the classifier mirrors the saver engine's class_from_topology ---------
+# hw-summary.sh runs from the initrd (dash/ash, no bash, no assets/ tree), so
+# it carries a POSIX copy of the engine's PCI-reachable rules. Pin them here.
+cls() { dash -c ". /dev/stdin; gpu_saver_class \"\$1\"" _ "$1" <<EOF2
+$(awk '/^gpu_saver_class\(\)/,/^}/' "$HS")
+EOF2
+}
+command -v dash >/dev/null 2>&1 || cls() { sh -c ". /dev/stdin; gpu_saver_class \"\$1\"" _ "$1" <<EOF2
+$(awk '/^gpu_saver_class\(\)/,/^}/' "$HS")
+EOF2
+}
+for pair in 10de:2504=strong 10de:1b80=strong 1002:7340=strong 1002:744c=strong 1002:15bf=mid \
+            8086:46a6=weak 8086:56a0=weak 14e4:2711=weak 13b5:0110=mid 1234:1111= 1002:zz=; do
+    k=${pair%%=*} want=${pair#*=}
+    got=$(cls "$k")
+    [ "$got" = "$want" ] && ok "classifier: $k -> ${want:-nothing}" || bad "classifier: $k" "want '$want' got '$got'"
+done
+# the engine's driver tables this copies; fail loudly when the engine is
+# reachable and they move (informational when it is not checked out here)
+eng="${NCZ_SCREENSAVER_LAUNCHER:-}"
+if [ -n "$eng" ] && [ -r "$eng" ]; then
+    grep -q '"i915", "xe", "v3d", "vc4", "lima", "etnaviv"' "$eng" && grep -q 'discrete = vendor == "nvidia"' "$eng" \
+        && ok "engine class_from_topology still matches the copied rules" \
+        || bad "engine class_from_topology changed: update gpu_saver_class in $HS"
+else echo "note NCZ_SCREENSAVER_LAUNCHER unset: engine table cross-check skipped"; fi
+# a malformed sysfs id must not abort the script (dash dies on bad arithmetic)
+fx bad >/dev/null; pci bad 0000:01:00.0 030000 1002 zz; pci bad 0000:02:00.0 030000 10de zz
+out=$(run bad --collect); rc=$?
+[ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'GPU:' && ok "malformed PCI ids: exit 0, GPU lines still printed" \
+    || bad "malformed PCI ids: exit 0" "rc=$rc" "$out"
 
 # --- the dialog text itself (title from ncz_ui_brand, brand + id last line) --
 printf 'NCZ_RELEASE_VERSION="26.10"\nNCZ_RELEASE_CODENAME="Cygnus"\n' > "$T/RELEASE"
@@ -358,19 +355,9 @@ if [ -n "$lin_hs" ] && [ -n "$lin_dc" ] && [ "$lin_hs" -lt "$lin_dc" ]; then
 else bad "hw summary runs before the disk chooser" "hs=$lin_hs dc=$lin_dc"; fi
 grep -qE '^[[:space:]]*"hw-summary\.sh",' "$ROOT/build/iso/patch-initrd-t2-kernel.py" \
     && ok "hw-summary.sh is in BAKED_HELPERS (initrd)" || bad "hw-summary.sh is in BAKED_HELPERS (initrd)"
-for f in preseed/hw-summary.sh assets/gpu/ncz-screensaver-strength.tsv build/test-hw-summary.sh; do
+for f in preseed/hw-summary.sh build/test-hw-summary.sh; do
     awk -F'\t' -v f="$f" '$1 == f { found = 1 } END { exit !found }' "$ROOT/docs/platform-inventory.tsv" \
         && ok "platform inventory row: $f" || bad "platform inventory row: $f"
-done
-
-# --- the assets the strength wording needs are in the tree -------------------
-for f in assets/gpu/ncz-gpu-names.tsv assets/gpu/ncz-screensaver-strength.tsv; do
-    [ -s "$ROOT/$f" ] && ok "asset present: $f" || bad "asset present: $f"
-done
-# every table key must be one the classifier can produce
-for k in $(grep -v '^#' "$ROOT/assets/gpu/ncz-screensaver-strength.tsv" | cut -f1); do
-    case "$k" in weak|mid|strong) ok "strength table key '$k' is a classifier answer" ;;
-        *) bad "strength table key '$k' is not a classifier answer" ;; esac
 done
 
 echo
