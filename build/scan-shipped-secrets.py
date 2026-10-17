@@ -1298,7 +1298,10 @@ def expand(name: str, data: bytes, label: str, depth: int = 0):
             # scanned with the member list (an empty payload costs nothing)
             yield f"{label}/{mname.lstrip('./')}", payload
         return
-    if len(data) > 262 and data[257:262] == b"ustar":
+    if looks_like_tar(data):
+        # same content test as archive_magic(): a v7 tar has no `ustar`
+        # marker, and testing the marker HERE would still have left its
+        # members unopened even once the sniff above learned to see it
         for mname, payload in tar_members(data, label):
             yield f"{label}/{mname}", payload
         return
@@ -1644,13 +1647,58 @@ class Report:
 ZIP_MAGIC = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
 
 
+# An octal tar field: leading zeros, then NUL/space padding to the field width
+# (#005411\0<space> for the checksum, 0000755\0 for the mode).
+_TAR_OCTAL = re.compile(rb"[0-7]+[\x00 ]*$")
+
+
+def _tar_num(field: bytes) -> bool:
+    """An octal numeric field as tar writes it (trailing NUL/space padding),
+    or the GNU/PAX base-256 form (high bit of the first byte set)."""
+    if field[:1] and field[0] & 0x80:
+        return True
+    return bool(_TAR_OCTAL.match(field))
+
+
+def tar_header_ok(block: bytes) -> bool:
+    """A 512-byte block that parses as a tar member header: a non-empty name,
+    an octal (or base-256) mode and size, and a checksum field that is either
+    the eight spaces of an empty archive or an octal number.  This is the
+    POSIX.1-1988 (v7) header shape, which carries no `ustar` magic."""
+    if len(block) < 512:
+        return False
+    name = block[:100].split(b"\x00", 1)[0]
+    if not name or block[257:262] != b"\x00\x00\x00\x00\x00":
+        return False
+    if not _tar_num(block[100:108]) or not _tar_num(block[124:136]):
+        return False
+    return block[148:156] == b"        " or _tar_num(block[148:156])
+
+
+def looks_like_tar(data: bytes) -> bool:
+    """True for a tar archive by CONTENT, not by the `ustar` marker.
+
+    --format=v7 (POSIX.1-1988) and a hand-rolled tar carry no magic at all:
+    bytes 257..262 are NUL.  Sniffing only `ustar` therefore handed a v7
+    tar to the matcher as one opaque candidate instead of opening it, which
+    hides every member behind the tar padding -- a canary inside a v7 tar
+    produced zero hashed hits and the file was reported clean.  GNU and ustar
+    both write `ustar` and are covered by the fast path.
+    """
+    if len(data) <= 262:
+        return False
+    if data[257:262] == b"ustar":
+        return True
+    return tar_header_ok(data[:512])
+
+
 def archive_magic(data: bytes) -> bool:
     """Compression or archive by content (gzip, xz, zstd, bzip2, ar, cpio,
     tar, zip)."""
     return (data.startswith((b"\x1f\x8b\x08", b"\xfd7zXZ\x00", b"\x28\xb5\x2f\xfd",
                              b"BZh", b"!<arch>\n", b"070701", b"070702", b"070707")
                             + ZIP_MAGIC)
-            or (len(data) > 262 and data[257:262] == b"ustar"))
+            or looks_like_tar(data))
 
 
 def scan_names(rep: Report, scanner: Scanner, layer: str, names: list[str]) -> None:

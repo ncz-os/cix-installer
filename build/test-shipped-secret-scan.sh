@@ -793,5 +793,78 @@ assert list(g.expand("/x/empty.zip", empty, "/x/empty.zip")) == []
 PY
 then pass "an empty zip (PK\x05\x06 only) is recognised as an archive"; else fail "empty zip not recognised as an archive"; fi
 
+# item 4, review round 7: a tar WITHOUT the `ustar` magic is still a tar.
+# --format=v7 (POSIX.1-1988) writes no magic at bytes 257..262, and the sniff
+# tested only `b"ustar"`, so a v7 tar was handed to the matcher as one opaque
+# candidate: every member stayed behind the 512-byte padding and a canary
+# inside it produced ZERO hashed findings -- the file was reported clean.
+# The detection is now the v7 header shape itself (octal mode/size, a NUL
+# magic, an octal checksum), and expand() uses the same test, because fixing
+# only the sniff would have found the container and still not opened it.
+if $PY - "$ROOT" "$FAKE" <<'PY'
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location(
+    "gate", os.path.join(sys.argv[1], "build", "scan-shipped-secrets.py"))
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+fake = sys.argv[2].encode()
+
+
+def v7_tar(name: bytes, payload: bytes) -> bytes:
+    """A POSIX.1-1988 (v7) tar: octal fields, checksum at 148, no magic."""
+    hdr = bytearray(512)
+    hdr[0:len(name)] = name
+    hdr[100:108] = b"0000644\x00"
+    hdr[108:116] = b"0000000\x00"
+    hdr[116:124] = b"0000000\x00"
+    hdr[124:136] = b"%011o\x00" % len(payload)
+    hdr[136:148] = b"00000000000\x00"
+    hdr[148:156] = b"        "
+    hdr[156:157] = b"0"
+    # bytes 257..512: v7 writes nothing, so the magic is NUL
+    hdr[148:156] = b"%06o\x00 " % sum(hdr)
+    body = bytes(hdr) + payload + b"\x00" * (-len(payload) % 512)
+    return body + b"\x00" * 1024
+
+
+data = v7_tar(b"etc/app.conf", b"api_key=" + fake + b"\n")
+assert data[257:262] == b"\x00" * 5, data[257:262]     # no ustar marker
+assert g.archive_magic(data), "a v7 tar is not sniffed as an archive"
+members = dict(g.expand("/etc/backup.tar", data, "/etc/backup.tar"))
+assert list(members) == ["/etc/backup.tar/etc/app.conf"], list(members)
+assert fake in members["/etc/backup.tar/etc/app.conf"]
+
+# the real path: scan_payload must OPEN it and hit the keyed hash list
+hs = g.HashSet(b"k" * 32)
+hs.add(fake)
+hs.lengths = {len(fake)}
+class S:                                     # noqa: N801 -- a Scanner stub
+    hashes = hs
+    shapes = None
+rep = g.Report()
+g.scan_payload(rep, S(), "rootfs", "/etc/backup.tar", data)
+assert any(f["kind"] == "known-secret" for f in rep.findings), rep.findings
+
+# nustar/gnu/pax still go through the fast path, so nothing regressed ...
+import io, tarfile
+for fmt in (tarfile.USTAR_FORMAT, tarfile.GNU_FORMAT, tarfile.PAX_FORMAT):
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w", format=fmt) as tf:
+        ti = tarfile.TarInfo("etc/app.conf")
+        ti.size = len(fake)
+        tf.addfile(ti, io.BytesIO(fake))
+    assert g.archive_magic(buf.getvalue()), fmt
+    assert len(list(g.expand("/x.tar", buf.getvalue(), "/x.tar"))) == 1, fmt
+
+# ... and the new shape test must not turn opaque payloads into containers:
+# a false positive here would stop a binary/text file from being scanned
+# whole (an ELF header has a plausible name, but no NUL magic at 257).
+for leaf in (os.urandom(8192), bytes(8192), b"hello world\n" * 400,
+             b"\x7fELF\x02\x01\x01\x00" + bytes(600),
+             b"OUTPUT_FORMAT(\"elf64-x86-64\")\nSECTIONS { }\n" * 40):
+    assert not g.archive_magic(leaf), leaf[:16]
+PY
+then pass "a v7 tar (no ustar magic) is opened and its members are hashed"
+else fail "v7 tar not recognised or not expanded"; fi
+
 if [ "$FAILS" -gt 0 ]; then echo "test-shipped-secret-scan: $FAILS finding(s)" >&2; exit 1; fi
 echo "test-shipped-secret-scan: PASS ✅"
