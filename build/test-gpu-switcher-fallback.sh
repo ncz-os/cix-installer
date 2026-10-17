@@ -74,6 +74,7 @@ EOF
 # mksb-nosky1: same sandbox, no CIXH5000 platform device (generic arm64 / a KVM guest).
 mksb-nosky1() { local a=("$@"); NOSKY1=1 mksb "${a[@]}"; }
 runsw() { PATH="$SB/bin:/usr/bin:/bin" sh "$SB/switcher.sh" > "$SB/out" 2> "$SB/err"; echo $?; }
+runsw() { PATH="${RUNSW_PATH:-$SB/bin:/usr/bin:/bin}" sh "$SB/switcher.sh" > "$SB/out" 2> "$SB/err"; echo $?; }
 mksb "root=x module_blacklist=typec_rts5453,rts5453 sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko
 left=$(grep -v '^[[:space:]]*#' "$SB/switcher.sh" | sed 's#/dev/null##g' | grep -nE '[ ="(:-]/(etc|run|sys|dev|proc|lib/modules)/' || true)
 [ -z "$left" ] && ok "switcher sandboxed (no host paths left)" || bad "sandbox rewrite left host paths" "$left"
@@ -276,21 +277,48 @@ for variant in absent failing; do
     printf '# stale file from an earlier boot\nblacklist panthor\n' > "$BL"
     case "$variant" in
         absent)
-            # A stub that fails the way a missing command does: exit 127, nothing
-            # on stdout. A dangling symlink does NOT do this -- the shell falls
-            # through to the next PATH entry and finds the real /usr/bin/mktemp
-            # (verified), so it would silently test the wrong thing. A stub that
-            # merely exits 1 is the separate "failing" variant below.
-            printf '#!/bin/sh\necho "mktemp: command not found" >&2\nexit 127\n' > "$SB/bin/mktemp"
-            chmod +x "$SB/bin/mktemp"
-            runsw_nomkt() { runsw; }
+            # A truly missing mktemp: nothing in any PATH entry.
+            # mksb() (above) created $SB/bin/id, $SB/bin/uname, ... but
+            # did not create $SB/bin/mktemp. The previous form of this
+            # test put a stub at $SB/bin/mktemp -- a stub that runs at
+            # all, even one that exits 127, is NOT "mktemp absent": the
+            # shell found it and ran it (review finding, 2026-10-17).
+            #
+            # This variant: a sibling "no-mktemp" directory that holds
+            # SYMLINKS to the host's /usr/bin and /bin tools (so sh,
+            # lsmod, modprobe, etc. still resolve -- symlinks, not
+            # hardlinks, because the test's TMPDIR is on a different
+            # filesystem than /usr/bin and cross-device hardlinks
+            # return EXDEV). mktemp is intentionally OMITTED. RUNSW_PATH
+            # prepends $SB/bin (so the test's id/uname stubs win,
+            # preserving the "must run as root" guard) and this shim,
+            # and DROPS /usr/bin and /bin from the search path so the
+            # real mktemp cannot be found by accident. Result: the
+            # switcher's `mktemp` call hits a real ENOENT, exactly as
+            # it would on a host with /usr/bin/mktemp removed.
+            shim=$SB/bin-no-mktemp
+            rm -rf "$shim"; mkdir -p "$shim"
+            for tool in sh env cat grep sed ls awk uname lsmod modinfo modprobe cp mv rm mkdir install dirname basename tr ln find head cut sort uniq wc tee; do
+                for d in /usr/bin /bin; do
+                    if [ -x "$d/$tool" ] && [ ! -e "$shim/$tool" ]; then
+                        ln -s "$d/$tool" "$shim/$tool" 2>/dev/null || true
+                    fi
+                done
+            done
+            # mktemp intentionally not linked -- this is the test.
+            [ -e "$shim/mktemp" ] && rm -f "$shim/mktemp"
+            RUNSW_PATH="$SB/bin:$shim" rc=$(runsw)
             ;;
         failing)
             printf '#!/bin/sh\nexit 1\n' > "$SB/bin/mktemp"; chmod +x "$SB/bin/mktemp"
-            runsw_nomkt() { runsw; }
+            unset RUNSW_PATH  # the default $SB/bin:/usr/bin:/bin is what the
+                              # mktemp-running-and-failing case wants; the
+                              # absent variant set RUNSW_PATH to the no-mktemp
+                              # shim above, and a leftover value would shadow
+                              # the failing stub.
+            rc=$(runsw)
             ;;
     esac
-    rc=$(runsw_nomkt)
     # Either stack may win in this sandbox (panthor never binds without a real
     # GPU, so the Mali fallback runs); what matters is that SOME selection is
     # recorded and the file is whole. grep -E, not -q: (a|b) is BRE with \( \).
@@ -302,6 +330,10 @@ for variant in absent failing; do
     left=$(ls "$MD" 2>/dev/null | grep -c 'ncz-gpu-drivers\.conf\.' || true)
     [ "$left" = 0 ] && ok "mktemp $variant: no stray temp files" || bad "mktemp $variant: $left temp file(s) left" "$(ls -a "$MD")"
 done
+# Restore the runsw() default PATH for the healthy-path assertion below --
+# the absent-variant set RUNSW_PATH="$SB/bin:/nowhere" and the variable is
+# still in scope here.
+unset RUNSW_PATH
 # And the healthy path must NOT claim to be degraded: the warning is absent and
 # the file was published by rename. Check each stream individually: grep -q
 # with multiple files returns 0 if the pattern is in ANY of them, so a single
