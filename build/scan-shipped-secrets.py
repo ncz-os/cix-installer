@@ -878,12 +878,12 @@ def decompress_chain(data: bytes, label: str) -> list[tuple[str, bytes]]:
             elif kind == "lzma":
                 cur = lzma.decompress(cur, format=lzma.FORMAT_ALONE)
             elif kind == "zstd":
-                cur = subprocess.run(["zstd", "-dcq"], input=cur,
-                                     capture_output=True, check=False)
-                if cur.returncode != 0:
+                zr = subprocess.run(["zstd", "-dcq"], input=cur,
+                                    capture_output=True, check=False)
+                if zr.returncode != 0:
                     raise Unreadable(f"{label}: zstd refused the stream: "
-                                     f"{cur.stderr[:200].decode('replace')}")
-                cur = cur.stdout
+                                     f"{zr.stderr[:200].decode('replace')}")
+                cur = zr.stdout
             else:
                 raise Unreadable(f"{label}: {kind} compression is not supported "
                                  "by this gate; refusing to call the bytes clean")
@@ -1041,7 +1041,7 @@ def looks_textual(path: str) -> bool:
     ext = os.path.splitext(base)[1].lower()
     if ext in TEXT_EXT:
         return True
-    if base.startswith(("/etc/", "/usr/lib/systemd/", "/etc/systemd/")) and "." not in base:
+    if path.startswith(("/etc/", "/usr/lib/systemd/", "/etc/systemd/")) and "." not in base:
         return True
     return False
 
@@ -1229,7 +1229,7 @@ def scan_payload(rep: Report, scanner: Scanner, layer: str, path: str,
     # scanned as one opaque blob and its members were never looked at.
     is_initrd = initrd_kind(path) is not None
     if depth < 3 and (is_initrd or DEB_RE.search(path) or ROOTFS_TAR_RE.search(path)
-                      or re.search(r"\.(cpio|cpio\.gz|cpio\.xz|cpio\.zst|tar\.dz)$", path)):
+                      or re.search(r"\.(cpio|cpio\.gz|cpio\.xz|cpio\.zst)$", path)):
         try:
             members = list(expand(path, data, path, depth))
         except Unreadable:
@@ -1352,14 +1352,19 @@ def walk_image(img: str, scanner: Scanner, workdir: str, hashes_given: bool,
             before_files = rep.counts["files_scanned"]
             before_bytes = rep.counts["bytes_scanned"]
             scan_layer_tree(rep, scanner, layer["name"], layer["dest"])
-            return (layer["name"],
+            # Keyed by the layer PATH, not emission order: attributing stats
+            # by position would silently swap two layers' counts.
+            return (layer["path"], layer["name"],
                     rep.units[layer["name"]] - before_units,
                     rep.counts["files_scanned"] - before_files,
                     rep.counts["bytes_scanned"] - before_bytes)
 
         with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(layer_dirs)))) as ex:
             results = list(ex.map(run, layer_dirs))
-        for entry, (name, units, files, nbytes) in zip(rep.layers, results):
+        by_path = {entry["path"]: entry for entry in rep.layers}
+        for lpath, name, units, files, nbytes in results:
+            entry = by_path[lpath]
+            entry["name"] = name
             entry["members_scanned"] = units
             entry["files_scanned"] = files
             entry["bytes_scanned"] = nbytes

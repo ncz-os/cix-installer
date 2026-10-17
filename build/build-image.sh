@@ -1323,6 +1323,10 @@ stage_secret_scan() {
     # Tests only (build/test-shipped-secret-scan.sh drives the stage against a
     # fixture image); a real build never sets these.
     [ -n "${NCZ_SECRET_SCAN_ALLOW_DETACHED:-}" ] && extra+=(--allow-detached)
+    # Split on whitespace: these are bare scanner flags, never quoted values.
+    # NCZ_SECRET_SCAN_EXTRA_ARGS is a test hook (see
+    # build/test-shipped-secret-scan.sh), not an operator interface -- a path
+    # with a space belongs in NCZ_SECRET_HASHES_FILE, not here.
     if [ -n "${NCZ_SECRET_SCAN_EXTRA_ARGS:-}" ]; then
         read -r -a _sa <<<"$NCZ_SECRET_SCAN_EXTRA_ARGS"; extra+=("${_sa[@]}")
     fi

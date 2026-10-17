@@ -219,14 +219,17 @@ JSON
 $PY "$MAKEHASH" --master "$WORK/keymaster.json" --out "$WORK/hashes.json" --quiet || {
     echo "test-shipped-secret-scan: cannot make the hash list" >&2; exit 1; }
 if $PY - "$WORK/hashes.json" "$FAKE" <<'PY'
-import json, sys
+import hashlib, json, sys, urllib.parse, base64
+
 doc = json.load(open(sys.argv[1]))
 plain = sys.argv[2].encode()
-import base64
-bad = [h for h in doc["hashes"]
-       if plain in bytes.fromhex("") or h["sha256"] == __import__("hashlib").sha256(
-           doc["salt"].encode() + plain).hexdigest()]
-sys.exit(0 if bad else 1)
+salt = doc["salt"].encode()
+# The three raw forms the key master must have produced, at offsets 0..2.
+forms = {plain, urllib.parse.quote_plus(plain).encode(),
+         base64.b64encode(plain)}
+digests = {h["sha256"] for h in doc["hashes"]}
+want = {hashlib.sha256(salt + f).hexdigest() for f in forms}
+sys.exit(0 if want and want <= digests else 1)
 PY
 then pass "the hash file carries the salted digest of the secret"; else fail "hash file missing the digest"; fi
 if grep -qF "$FAKE" "$WORK/hashes.json"; then fail "the hash file leaks the plaintext value"; else pass "the hash file holds no plaintext"; fi
@@ -371,11 +374,24 @@ for payload in (b"one\n", b"two\n"):
     segs.append(r.stdout)
 data = b"".join(segs)
 names = [n for n, _ in g.cpio_members(data, "t")]
+# looks_textual must treat an extension-less file under /etc as text: the
+# check used to run on the BASENAME (which never starts with "/") and was
+# dead, so --text-only quietly skipped /etc/shadow and friends.
+assert g.looks_textual("/etc/shadow")
+assert g.looks_textual("/usr/lib/systemd/system/foo")
+assert g.looks_textual("/etc/systemd/system/x.service")
+assert not g.looks_textual("/usr/bin/binary-without-extension")
 # every segment is visited in order; directory entries (".") are yielded for
 # completeness but expand() never treats them as content
 assert names == [".", "f", ".", "f"], names
 assert [n for n, p in g.cpio_members(data, "t") if p] == ["f", "f"]
 assert len(g.decompress_chain(__import__("gzip").compress(data), "t")) == 1
+# zstd: the subprocess result must not clobber the payload variable; a broken
+# binding here raised AttributeError on every .tar.zst / zstd squashfs.
+zr = subprocess.run(["zstd", "-q", "-c"], input=b"hello-zstd\n", capture_output=True)
+assert zr.returncode == 0, "zstd unavailable"
+zch = g.decompress_chain(zr.stdout, "t")
+assert zch and zch[0][0] == "zstd" and zch[0][1] == b"hello-zstd\n", zch
 print("primitives ok")
 PY
 then pass "primitives: forms matched, clean text clear, cpio segments walked"
