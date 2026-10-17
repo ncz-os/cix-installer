@@ -194,15 +194,53 @@ echo "=== 5. KVM gate options ==="
 between "$GATE" 'NCZ-GATE-COMPONENTS-BEGIN' 'NCZ-GATE-COMPONENTS-END' > "$W/gate-comp.sh"
 if [ -s "$W/gate-comp.sh" ]; then
     gc() { ( NCZ_GATE_COMPONENTS="$1"; [ "$1" = UNSET ] && unset NCZ_GATE_COMPONENTS; . "$W/gate-comp.sh" 2>/dev/null; printf '%s|%s|%s%s%s' "$GATE_COMPONENTS_ARG" "$EXPECT_RECORD" "$WANT_DESKTOP" "$WANT_MGMT" "$WANT_RESCUE" ) || echo "rc=$?"; }
+    # The selector runs the unattended ncz_components= path (no prompt, no cdebconf
+    # needed): an empty sandbox confmodule (a missing one aborts dash before
+    # the || true) and a stubbed logger so the sandbox never touches the host syslog.
+    mkdir -p "$W/bin"
+    : > "$W/confmodule"
+    [ -x "$W/bin/logger" ] || { printf '#!/bin/sh\nexit 0\n' > "$W/bin/logger"; chmod +x "$W/bin/logger"; }
+    selrec() {   # selrec <gate-components-answer> -> the record the selector writes
+        st="$W/selst-$1"; rm -rf "$st"; mkdir -p "$st/state" "$st/target"
+        printf 'BOOT_IMAGE=/install.amd/vmlinuz ncz_components=%s\n' "$1" > "$st/cmdline"
+        PATH="$W/bin:$PATH" NCZ_CONFMODULE="$W/confmodule" NCZ_CMDLINE="$st/cmdline" NCZ_TMP="$st" NCZ_COMP_STATE="$st/state" \
+            NCZ_TARGET="$st/target" NCZ_LOGGER="$W/bin/logger" NCZ_UNAME_M=x86_64 NCZ_PCI_DEVICES=/nonexistent NCZ_UI_SH=/nonexistent \
+            sh "$ROOT/preseed/component-selector.sh" >"$st/selector.log" 2>&1 || echo "selector-rc=$?"
+        cat "$st/state/COMPONENTS" 2>/dev/null
+    }
     [ "$(gc UNSET)" = "desktop,mgmt-container,rescue-partition|desktop,browsers,wallpaper-rotator,mgmt-container,rescue-partition|111" ] && ok "default: every option" || nok "default: $(gc UNSET)"
     [ "$(gc desktop)" = "desktop|desktop,browsers,wallpaper-rotator|100" ] && ok "desktop only (rescue off + mgmt off)" || nok "desktop: $(gc desktop)"
     [ "$(gc desktop,mgmt-container)" = "desktop,mgmt-container|desktop,browsers,wallpaper-rotator,mgmt-container|110" ] && ok "rescue off + mgmt on" || nok "desktop,mgmt: $(gc desktop,mgmt-container)"
     [ "$(gc none)" = "none|none|000" ] && ok "none: every option off" || nok "none: $(gc none)"
     [ "$(gc 'rescue-partition, mgmt-container')" = "mgmt-container,rescue-partition|mgmt-container,rescue-partition|011" ] && ok "desktop off, in the selector's order" || nok "nodesktop: $(gc 'rescue-partition, mgmt-container')"
     [ "$(gc desktop,bogus)" = "rc=2" ] && ok "an unknown option is refused (exit 2)" || nok "unknown option: $(gc desktop,bogus)"
-    # The record shape is the selector's: desktop expands to desktop,browsers,wallpaper-rotator.
-    grep -q '\[ "\$WANT_DESKTOP" = 1 \]     && CHOSEN="desktop,browsers,wallpaper-rotator"' "$ROOT/preseed/component-selector.sh" \
-        && ok "record shape matches preseed/component-selector.sh" || nok "component-selector.sh record shape changed; update the gate's EXPECT_RECORD"
+    # The record shape is the selector's: drive the REAL selector through its
+    # unattended ncz_components= path with the same answers the gate checks
+    # above and assert its written record equals the gate's EXPECT_RECORD.
+    # (A literal grep here used to pin the selector's line layout; the
+    # S1-3 reassembly moved CHOSEN into a function and this broke.)
+    # Normalise both sides to a sorted, de-duplicated token set: the record's
+    # token ORDER is not the contract here (the selector reassembles desktop's
+    # companions in its own layout), only the SET is.
+    norm() { printf '%s\n' "$1" | tr ',' '\n' | LC_ALL=C sort -u | tr '\n' ',' | sed 's/,$//'; }
+    for ans in UNSET desktop desktop,mgmt-container none 'rescue-partition, mgmt-container'; do
+        case "$ans" in UNSET) label="default (every option)" ;; *) label="$ans" ;; esac
+        # gc takes the answer quoted (its NCZ_GATE_COMPONENTS="$1" keeps the
+        # space form one word; the gate's own IFS=',' loop then splits it), so
+        # the space answer below reaches it exactly as the matrix passes it.
+        # Feed the selector the gate's ACTUAL cmdline value (field 1: bare
+        # commas, desktop companions stripped). That is what reaches the
+        # kernel and comes back as one token; the space form the matrix passes
+        # to NCZ_GATE_COMPONENTS is normalised by the gate before the kernel
+        # and would not survive the kernel's own word split.
+        cmdline_ans="$(gc "$ans" | cut -d'|' -f1)"
+        # The gate always puts an explicit value on the cmdline (UNSET -> its
+        # full default list), so the selector never sees an empty value here.
+        [ -n "$cmdline_ans" ] || nok "gate produced an empty ncz_components= value for $label"
+        gotrec="$(norm "$(selrec "$cmdline_ans")")"; exprec="$(norm "$(gc "$ans" | cut -d'|' -f2)")"
+        [ "$gotrec" = "$exprec" ] && ok "selector record matches the gate's EXPECT_RECORD for: $label" \
+            || nok "selector record differs from the gate's EXPECT_RECORD for $label: selector [$gotrec] gate [$exprec]"
+    done
 else
     nok "KVM gate: NCZ-GATE-COMPONENTS markers missing"
 fi
