@@ -155,11 +155,24 @@ ensure_blacklist() {
     # artifact and should never be published half-written. Build the whole thing
     # in a sibling temp file and rename() it over the target: rename within one
     # directory is atomic, so a reader sees either the old file or the new one.
-    _bl=$(mktemp "$BLACKLIST.XXXXXX" 2>/dev/null) || {
-        # mktemp absent (unlikely on a Debian rootfs) must not leave the box with
-        # no modprobe.d file at all: fall back to the single-shot redirection.
+    # Take the temp path from mktemp only if it actually produced a usable file:
+    # a missing mktemp is not the only failure mode, a present-but-failing one
+    # exits non-zero with no output, and `> ""` would then fail the whole write
+    # and leave the box with NO modprobe.d file -- strictly worse than the
+    # non-atomic original. Anything unusable falls back to writing the target
+    # directly, which is still a single write (just not a rename).
+    _bl=$(mktemp "$BLACKLIST.XXXXXX" 2>/dev/null) || _bl=""
+    if [ -n "$_bl" ] && [ ! -f "$_bl" ]; then
+        rm -f "$_bl" 2>/dev/null
+        _bl=""
+    fi
+    if [ -n "$_bl" ]; then
+        _bl_mode=atomic
+    else
         _bl="$BLACKLIST"
-    }
+        _bl_mode=direct
+        log "WARN: no usable mktemp; writing $BLACKLIST in a single direct write (not atomic)"
+    fi
     {
         cat <<'BL'
 # Written by ncz-gpu-switcher. Do not hand-edit -- set sky1.gpu= on the kernel

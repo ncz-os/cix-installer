@@ -234,18 +234,55 @@ perms=$(stat -c '%a' "$BL" 2>/dev/null)
 [ "$(tail -c 1 "$BL" | od -An -c | tr -d ' \n')" = '\n' ] \
     && ok "file ends with a newline" || bad "file does not end with a newline" "$(tail -c 1 "$BL" | od -c)"
 
-# mktemp absent -> the fallback single-shot redirection must still produce the
-# same complete document (never a missing modprobe.d file on the box).
+# The temp-file path must degrade safely, and the test must PROVE which path was
+# taken rather than merely that the file came out right (the direct write also
+# produces a correct file, so content alone cannot tell them apart -- the
+# switcher logs which one it used).
+#
+# Two distinct unusable-mktemp conditions, because they fail differently:
+#   A. mktemp missing from PATH entirely (command not found)
+#   B. mktemp present but failing: exit 1, no path on stdout (a broken/EROFS
+#      /usr, a read-only /etc, etc.) -- the case where a naive
+#      `_bl=$(mktemp ...) || _bl=$BLACKLIST` would be fine but
+#      `> "$_bl"` with an empty value would not be.
+for variant in absent failing; do
+    mksb "root=x sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko panthor.ko
+    printf '# stale file from an earlier boot\nblacklist panthor\n' > "$BL"
+    case "$variant" in
+        absent)
+            # A stub that fails the way a missing command does: exit 127, nothing
+            # on stdout. A dangling symlink does NOT do this -- the shell falls
+            # through to the next PATH entry and finds the real /usr/bin/mktemp
+            # (verified), so it would silently test the wrong thing. A stub that
+            # merely exits 1 is the separate "failing" variant below.
+            printf '#!/bin/sh\necho "mktemp: command not found" >&2\nexit 127\n' > "$SB/bin/mktemp"
+            chmod +x "$SB/bin/mktemp"
+            runsw_nomkt() { runsw; }
+            ;;
+        failing)
+            printf '#!/bin/sh\nexit 1\n' > "$SB/bin/mktemp"; chmod +x "$SB/bin/mktemp"
+            runsw_nomkt() { runsw; }
+            ;;
+    esac
+    rc=$(runsw_nomkt)
+    # Either stack may win in this sandbox (panthor never binds without a real
+    # GPU, so the Mali fallback runs); what matters is that SOME selection is
+    # recorded and the file is whole. grep -E, not -q: (a|b) is BRE with \( \).
+    [ "$rc" = 0 ] && grep -qx 'blacklist mali_kbase' "$BL" && grep -qE '^# Selected: (panthor|mali)' "$BL" \
+        && ok "mktemp $variant: file still written completely" || bad "mktemp $variant: fallback broken (rc=$rc)" "$(cat "$BL" 2>/dev/null; cat "$SB/err")"
+    grep -q 'no usable mktemp' "$SB/out" \
+        && ok "mktemp $variant: the direct (non-atomic) path was taken and announced" \
+        || bad "mktemp $variant: switcher did not report taking the direct path" "$(cat "$SB/out" "$SB/err")"
+    left=$(ls "$MD" 2>/dev/null | grep -c 'ncz-gpu-drivers\.conf\.' || true)
+    [ "$left" = 0 ] && ok "mktemp $variant: no stray temp files" || bad "mktemp $variant: $left temp file(s) left" "$(ls -a "$MD")"
+done
+# And the healthy path must NOT claim to be degraded: the warning is absent and
+# the file was published by rename.
 mksb "root=x sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko panthor.ko
-rm -f "$SB/bin/mktemp"
-cat > "$SB/bin/mktemp" <<'MKT'
-#!/bin/sh
-exit 1
-MKT
-chmod +x "$SB/bin/mktemp"
-rc=$(runsw)
-[ "$rc" = 0 ] && grep -qx 'blacklist mali_kbase' "$BL" && grep -q '^# Selected: panthor' "$BL" \
-    && ok "no mktemp available: file still written completely by direct redirection" || bad "mktemp-less fallback broken (rc=$rc)" "$(cat "$BL" 2>/dev/null; cat "$SB/err")"
+printf '# stale\n' > "$BL"
+before=$(ls -i "$BL" | awk '{print $1}'); rc=$(runsw); after=$(ls -i "$BL" | awk '{print $1}')
+[ "$rc" = 0 ] && [ "$before" != "$after" ] && ! grep -q 'no usable mktemp' "$SB/out" "$SB/err" \
+    && ok "healthy mktemp: rename path taken, no degradation warning" || bad "healthy path regressed (rc=$rc)" "$(cat "$SB/out" "$SB/err")"
 
 echo "gpu switcher fallback tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
