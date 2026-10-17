@@ -512,22 +512,21 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
         # $1 = image, $2 = out file. Reads the data partition's
         # ncz-payload/ncz-fetch-payload.manifest via sgdisk + debugfs (no
         # loop mount: the gate is rootless-safe on the target side).
-        local img="$1" out="$2" _dpart _dlba _dend _db _d
+        local img="$1" out="$2" _dpart _dlba _dend _db
         _dpart=$("$SGDISK" -p "$img" 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {n=$1} END {print n-1}')
         [ -n "$_dpart" ] && [ "$_dpart" -ge 1 ] || return 1
         _dlba=$("$SGDISK" -i "$_dpart" "$img" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
         _dend=$("$SGDISK" -i "$_dpart" "$img" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
         [ -n "$_dlba" ] && [ -n "$_dend" ] || return 1
         _db=$(mktemp "$WORK/.srv-data-XXXXXX.raw")
-        _d=$(mktemp "$WORK/.srv-part-XXXXXX.raw")
         if ! qemu-img convert --image-opts -S 4k -O raw \
             "driver=raw,file.driver=file,file.filename=$img,offset=$((_dlba * 512)),size=$(( ($_dend - _dlba + 1) * 512 ))" "$_db" >/dev/null 2>&1; then
-            rm -f "$_db" "$_d"; return 1
+            rm -f "$_db"; return 1
         fi
         if ! "$DEBUGFS" -R "dump ncz-payload/ncz-fetch-payload.manifest $out" "$_db" >/dev/null 2>&1; then
-            rm -f "$_db" "$_d"; return 1
+            rm -f "$_db"; return 1
         fi
-        rm -f "$_db" "$_d"
+        rm -f "$_db"
         [ -s "$out" ]
     }
     _srv_man="$WORK/srv-manifest.tsv"
@@ -1094,7 +1093,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
         fail "server gate: could not read /var/lib/dpkg/status from the installed root -- cannot prove the desktop layer is absent"
     fi
     rm -f "$_dpkg_status" "$WORK/.server-variant" "$_SRV_ROOT"
-    EVIDENCE_ROOT="$WORK/.target-root-evidence.raw"
+    EVIDENCE_ROOT=""  # the raw root image is consumed; nothing downstream re-reads it
 fi
 grep -q "ORPHAN" "$ILOG" && { echo "  WARNING: orphaned hooks reported:" >&2; grep "ORPHAN" "$ILOG" | head -10 >&2; } || true
 
