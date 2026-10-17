@@ -137,8 +137,6 @@ for item in openvino-2026.4.1 linux-npu-driver-1.38.0; do
             "/work/$CI_REL/packaging/intel-native/patches/0001-mlir-required-parse-guard.patch" \
             /work/logs/npu-compiler-patched-source.json
           bash "/work/$CI_REL/packaging/intel-native/PACKAGE-$ITEM.sh"
-          find "/work/caches/build/$ITEM" -maxdepth 3 -name '*.deb' \
-            -exec cp -t "/work/artifacts/$ITEM" -- {} +
         ' > "$log" 2>&1 || { tail -20 "$log"; exit 1; }
       ;;
   esac
