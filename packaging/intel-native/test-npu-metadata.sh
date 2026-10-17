@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Offline test for npu-debian-metadata.cmake using only temp files.
 # Mirrors test-openvino-metadata.sh conventions.
+#
+# NOTE: this fixture deliberately does NOT set CPACK_DEBIAN_<COMP>_PACKAGE_NAME.
+# Upstream deb.cmake never sets it either; CPack composes the component package
+# name itself as "${CPACK_PACKAGE_NAME}-${component}". An earlier revision of
+# this file set those variables, which made the tests pass against a state the
+# real build never produces.
 set -euo pipefail
 
 : "${TMPDIR:?Set TMPDIR to a writable temp directory}"
@@ -21,19 +27,23 @@ mkdir -p "$CMAKEDIR"
 VER="1.38.0.ncz1"
 SDE=1700000000
 
+pkg_for() {
+  case "$1" in
+    driver-compiler-npu) echo "intel-driver-compiler-npu";;
+    fw-npu)              echo "intel-fw-npu";;
+    level-zero-npu)      echo "intel-level-zero-npu";;
+    validation-npu)      echo "intel-validation-npu";;
+    *) echo "UNKNOWN" ;;
+  esac
+}
+
 # Build the fixture stage tree: four component directories with the files that
 # the upstream CPack DEB generator would have staged (empty lib/doc dirs are
 # enough for this metadata overlay — it only reads/writes metadata files).
 make_stage() {
   rm -rf "$STAGE"
   for comp in driver-compiler-npu fw-npu level-zero-npu validation-npu; do
-    case "$comp" in
-      driver-compiler-npu) pkg="intel-driver-compiler-npu";;
-      fw-npu)              pkg="intel-fw-npu";;
-      level-zero-npu)      pkg="intel-level-zero-npu";;
-      validation-npu)      pkg="intel-validation-npu";;
-    esac
-    d="$STAGE/$comp/usr/share/doc/$pkg"
+    d="$STAGE/$comp/usr/share/doc/$(pkg_for "$comp")"
     mkdir -p "$d"
     # sentinel file to verify we don't clobber existing staged content
     printf 'UPSTREAM-SENTINEL-%s\n' "$comp" > "$d/UPSTREAM-SENTINEL"
@@ -48,79 +58,95 @@ write_driver() {
 set(CPACK_GENERATOR "DEB")
 set(CPACK_TEMPORARY_DIRECTORY "$STAGE")
 set(CPACK_COMPONENTS_ALL "driver-compiler-npu;fw-npu;level-zero-npu;validation-npu")
+set(CPACK_PACKAGE_NAME "intel")
 set(CPACK_PACKAGE_VERSION "$ver")
 set(CPACK_DEBIAN_PACKAGE_VERSION "$deb_ver")
-set(CPACK_DEBIAN_DRIVER-COMPILER-NPU_PACKAGE_NAME "intel-driver-compiler-npu")
-set(CPACK_DEBIAN_FW-NPU_PACKAGE_NAME "intel-fw-npu")
-set(CPACK_DEBIAN_LEVEL-ZERO-NPU_PACKAGE_NAME "intel-level-zero-npu")
-set(CPACK_DEBIAN_VALIDATION-NPU_PACKAGE_NAME "intel-validation-npu")
+# fw-npu ships a postinst; the overlay must preserve it, not replace it.
+set(CPACK_DEBIAN_FW-NPU_PACKAGE_CONTROL_EXTRA "/upstream/fw-postinst")
 include("$HELPER")
+message(STATUS "T-CTRL-DRIVER-COMPILER-NPU=\${CPACK_DEBIAN_DRIVER-COMPILER-NPU_PACKAGE_CONTROL_EXTRA}")
+message(STATUS "T-CTRL-FW-NPU=\${CPACK_DEBIAN_FW-NPU_PACKAGE_CONTROL_EXTRA}")
+message(STATUS "T-CTRL-LEVEL-ZERO-NPU=\${CPACK_DEBIAN_LEVEL-ZERO-NPU_PACKAGE_CONTROL_EXTRA}")
+message(STATUS "T-CTRL-VALIDATION-NPU=\${CPACK_DEBIAN_VALIDATION-NPU_PACKAGE_CONTROL_EXTRA}")
 EOF
 }
 
 run_positive() {
   make_stage
   write_driver "$CMAKEDIR/positive.cmake"
-  SOURCE_DATE_EPOCH=$SDE cmake -P "$CMAKEDIR/positive.cmake" >/dev/null 2>&1
+  local out
+  out=$(SOURCE_DATE_EPOCH=$SDE cmake -P "$CMAKEDIR/positive.cmake" 2>&1) || {
+    echo "positive run failed:" >&2; echo "$out" >&2; exit 1; }
 
-  # All four packages must have copyright and changelog.gz
+  ctrl_of() { printf '%s\n' "$out" | sed -n "s/^-- T-CTRL-$1=//p"; }
+
+  # All four packages must have copyright and changelog.gz in the DATA tree
   for comp in driver-compiler-npu fw-npu level-zero-npu validation-npu; do
-    case "$comp" in
-      driver-compiler-npu) pkg="intel-driver-compiler-npu";;
-      fw-npu)              pkg="intel-fw-npu";;
-      level-zero-npu)      pkg="intel-level-zero-npu";;
-      validation-npu)      pkg="intel-validation-npu";;
-    esac
-    d="$STAGE/$comp/usr/share/doc/$pkg"
+    d="$STAGE/$comp/usr/share/doc/$(pkg_for "$comp")"
     [ -f "$d/copyright" ] || { echo "missing copyright: $d" >&2; exit 1; }
     [ -f "$d/changelog.gz" ] || { echo "missing changelog.gz: $d" >&2; exit 1; }
-    # changelog.gz must contain the correct version
     zcat "$d/changelog.gz" | grep -q "($VER~deb12u1)" || {
       echo "bad version in changelog.gz: $d" >&2; exit 1; }
-    # changelog.gz must have a -- trailer line
     zcat "$d/changelog.gz" | grep -q "^ -- " || {
       echo "missing -- trailer in changelog.gz: $d" >&2; exit 1; }
-    # copyright must have a Maintainer line with RFC-822 address
     grep -qE "^Maintainer: .+ <[^@]+@[^@]+>" "$d/copyright" || {
       echo "missing/invalid Maintainer in copyright: $d" >&2; exit 1; }
-    # upstream sentinel must be preserved
     grep -q "UPSTREAM-SENTINEL-$comp" "$d/UPSTREAM-SENTINEL" || {
       echo "upstream sentinel mutated: $d" >&2; exit 1; }
   done
 
-  # ldconfig triggers: exactly one line, for driver-compiler-npu and level-zero-npu only
+  # triggers/shlibs are CONTROL members now, staged OUTSIDE the data tree.
+  for comp in driver-compiler-npu fw-npu level-zero-npu validation-npu; do
+    [ ! -e "$STAGE/$comp/triggers" ] || {
+      echo "triggers leaked into data tree: $STAGE/$comp/triggers" >&2; exit 1; }
+    [ ! -e "$STAGE/$comp/shlibs" ] || {
+      echo "shlibs leaked into data tree: $STAGE/$comp/shlibs" >&2; exit 1; }
+  done
+
+  # ldconfig triggers: exactly one line, driver-compiler-npu and level-zero-npu only
   for comp in driver-compiler-npu level-zero-npu; do
-    t="$STAGE/$comp/triggers"
+    t="$STAGE/ncz-npu-meta/$comp/triggers"
     [ -f "$t" ] || { echo "missing triggers: $t" >&2; exit 1; }
     expected="interest ldconfig /usr/lib/x86_64-linux-gnu"
     actual=$(cat "$t")
     [ "$actual" = "$expected" ] || {
       echo "wrong triggers content: $t (got '$actual')" >&2; exit 1; }
-    # must be exactly one line
     [ "$(wc -l < "$t")" = "1" ] || { echo "triggers not one line: $t" >&2; exit 1; }
   done
-
-  # fw-npu and validation-npu must NOT have a triggers file
   for comp in fw-npu validation-npu; do
-    [ ! -f "$STAGE/$comp/triggers" ] || {
-      echo "unexpected triggers file: $STAGE/$comp/triggers" >&2; exit 1; }
+    [ ! -f "$STAGE/ncz-npu-meta/$comp/triggers" ] || {
+      echo "unexpected triggers: $STAGE/ncz-npu-meta/$comp/triggers" >&2; exit 1; }
   done
 
   # shlibs: level-zero-npu only
-  shlibs="$STAGE/level-zero-npu/shlibs"
+  shlibs="$STAGE/ncz-npu-meta/level-zero-npu/shlibs"
   [ -f "$shlibs" ] || { echo "missing shlibs: $shlibs" >&2; exit 1; }
   grep -q "^libze_intel_npu " "$shlibs" || {
     echo "bad shlibs content: $shlibs" >&2; exit 1; }
   for comp in driver-compiler-npu fw-npu validation-npu; do
-    [ ! -f "$STAGE/$comp/shlibs" ] || {
-      echo "unexpected shlibs file: $STAGE/$comp/shlibs" >&2; exit 1; }
+    [ ! -f "$STAGE/ncz-npu-meta/$comp/shlibs" ] || {
+      echo "unexpected shlibs: $STAGE/ncz-npu-meta/$comp/shlibs" >&2; exit 1; }
   done
+
+  # The overlay must DECLARE those files on the right components
+  printf '%s\n' "$out" | grep -q "ncz-npu-meta/driver-compiler-npu/triggers" || {
+    echo "driver-compiler-npu triggers not declared" >&2; exit 1; }
+  printf '%s\n' "$out" | grep -q "ncz-npu-meta/level-zero-npu/triggers" || {
+    echo "level-zero-npu triggers not declared" >&2; exit 1; }
+  printf '%s\n' "$out" | grep -q "ncz-npu-meta/level-zero-npu/shlibs" || {
+    echo "level-zero-npu shlibs not declared" >&2; exit 1; }
+  [ -z "$(ctrl_of VALIDATION-NPU)" ] || {
+    echo "validation-npu should declare no control extra" >&2; exit 1; }
+
+  # fw-npu's upstream postinst must be preserved alongside any overlay additions
+  printf '%s\n' "$(ctrl_of FW-NPU)" | grep -q "/upstream/fw-postinst" || {
+    echo "fw-npu upstream postinst was dropped" >&2; exit 1; }
 
   echo 'positive: ok'
 }
 
 expect_fail() {
-  local label="$1"; shift
+  local label="$1"
   if SOURCE_DATE_EPOCH="${SDE:-}" cmake -P "$CMAKEDIR/negative.cmake" >/dev/null 2>&1; then
     echo "negative '$label' unexpectedly succeeded" >&2; exit 1
   fi
@@ -171,9 +197,10 @@ sed 's/set(CPACK_PACKAGE_VERSION .*/set(CPACK_PACKAGE_VERSION "9.9.9")/' \
   "$CMAKEDIR/positive.cmake" > "$CMAKEDIR/negative.cmake"
 expect_fail wrong-version
 
-# wrong package name
+# wrong package name: CPack derives <CPACK_PACKAGE_NAME>-<component>, so a
+# different vendor prefix must be rejected.
 make_stage
-sed 's/set(CPACK_DEBIAN_LEVEL-ZERO-NPU_PACKAGE_NAME .*/set(CPACK_DEBIAN_LEVEL-ZERO-NPU_PACKAGE_NAME "other-pkg")/' \
+sed 's/set(CPACK_PACKAGE_NAME "intel")/set(CPACK_PACKAGE_NAME "acme")/' \
   "$CMAKEDIR/positive.cmake" > "$CMAKEDIR/negative.cmake"
 expect_fail unexpected-package-name
 

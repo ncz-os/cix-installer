@@ -1,13 +1,16 @@
 # CPack PRE_BUILD helper: add the Debian packaging metadata for the four
 # Intel NPU native driver packages without touching upstream sources.
-# Runs after staged install, before package production (CMake >= 3.19).
+# Runs via CPACK_PRE_BUILD_SCRIPTS: after the staged install, before
+# package production, so CPACK_TEMPORARY_DIRECTORY/<component>/ exists.
 #
 # Fixes the following Lintian E-class findings:
 #   1. no-copyright-file       - writes /usr/share/doc/<pkg>/copyright
 #   2. no-changelog            - writes /usr/share/doc/<pkg>/changelog.gz
-#   3. lacks-ldconfig-trigger  - writes triggers file for driver-compiler-npu
-#                                 and level-zero-npu
-#   4. no-shlibs               - writes shlibs for level-zero-npu
+#   3. lacks-ldconfig-trigger  - declares a triggers file, via
+#                                 CPACK_DEBIAN_<COMP>_PACKAGE_CONTROL_EXTRA,
+#                                 for driver-compiler-npu and level-zero-npu
+#   4. no-shlibs               - declares shlibs for level-zero-npu
+#                                 (control member, same mechanism)
 #   6. control-file-has-bad-permissions - forces CPACK_DEBIAN_PACKAGE_CONTROL_
 #                                 STRICT_PERMISSION=ON so CPack applies 0755 to
 #                                 postinst/postrm in CONTROL_EXTRA
@@ -272,11 +275,13 @@ set(_shlibs_content "libze_intel_npu 1 intel-level-zero-npu (>= 1.38.0~)\n")
 
 foreach(_comp IN LISTS _expected_components)
   string(TOUPPER "${_comp}" _C)
-  set(_pkg_var "CPACK_DEBIAN_${_C}_PACKAGE_NAME")
-  if(NOT DEFINED ${_pkg_var} OR "${${_pkg_var}}" STREQUAL "")
-    message(FATAL_ERROR "npu-debian-metadata: ${_pkg_var} not set")
-  endif()
-  set(_pkg "${${_pkg_var}}")
+
+  # CPack derives the DEB component package name itself as
+  # "${CPACK_PACKAGE_NAME}-${component}"; upstream deb.cmake never sets
+  # CPACK_DEBIAN_<COMP>_PACKAGE_NAME. Mirror CPack's rule here (verified to
+  # produce Package: intel-<component>) instead of requiring a variable that
+  # does not exist, then assert the result is what we expect.
+  set(_pkg "${CPACK_PACKAGE_NAME}-${_comp}")
 
   # Expected package names
   if(_comp STREQUAL "driver-compiler-npu")
@@ -325,13 +330,36 @@ foreach(_comp IN LISTS _expected_components)
   endif()
   file(REMOVE "${_changelog}")
 
-  # --- ldconfig triggers (driver-compiler-npu and level-zero-npu) ---
+  # --- ldconfig triggers + shlibs go into the CONTROL archive ---
+  #
+  # Writing them into ${CPACK_TEMPORARY_DIRECTORY}/${_comp}/ puts them in the
+  # DATA archive (verified: they appeared as /triggers and /shlibs in the
+  # filesystem), where dpkg ignores them. They must be declared as
+  # CPACK_DEBIAN_<COMP>_PACKAGE_CONTROL_EXTRA so CPackDeb copies them into
+  # DEBIAN/ as real control members.  A PRE_BUILD script may set that variable:
+  # it is read when the package is prepared, which happens afterwards.
+  #
+  # Keep the staged files outside the per-component data tree so they are never
+  # picked up as package contents.
+  set(_ctrl_dir "${CPACK_TEMPORARY_DIRECTORY}/ncz-npu-meta/${_comp}")
+  file(MAKE_DIRECTORY "${_ctrl_dir}")
+
+  set(_extra "")
   if(_comp STREQUAL "driver-compiler-npu" OR _comp STREQUAL "level-zero-npu")
-    file(WRITE "${CPACK_TEMPORARY_DIRECTORY}/${_comp}/triggers" "${_triggers_content}")
+    file(WRITE "${_ctrl_dir}/triggers" "${_triggers_content}")
+    list(APPEND _extra "${_ctrl_dir}/triggers")
+  endif()
+  if(_comp STREQUAL "level-zero-npu")
+    file(WRITE "${_ctrl_dir}/shlibs" "${_shlibs_content}")
+    list(APPEND _extra "${_ctrl_dir}/shlibs")
   endif()
 
-  # --- shlibs (level-zero-npu only) ---
-  if(_comp STREQUAL "level-zero-npu")
-    file(WRITE "${CPACK_TEMPORARY_DIRECTORY}/${_comp}/shlibs" "${_shlibs_content}")
+  # Preserve anything the project already attached (fw-npu ships a postinst).
+  set(_existing "${CPACK_DEBIAN_${_C}_PACKAGE_CONTROL_EXTRA}")
+  if(_existing)
+    list(APPEND _extra ${_existing})
+  endif()
+  if(_extra)
+    set(CPACK_DEBIAN_${_C}_PACKAGE_CONTROL_EXTRA "${_extra}")
   endif()
 endforeach()
