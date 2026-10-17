@@ -1,9 +1,16 @@
 # NPU Debian Publication Blockers — Fix Report
 
-Date: 2026-10-16
+Date: 2026-10-16 (2026-10-17 revision bump)
 Packages: intel-driver-compiler-npu, intel-fw-npu, intel-level-zero-npu, intel-validation-npu
-Version: 1.38.0.ncz1~debian
-Result: **all four packages are clear of every Lintian E-class finding.**
+Version: 1.38.0.ncz2~debian
+Result: **all four packages are clear of every Lintian E-class finding, declare
+their `Depends`, and install complete on a bare `debian:forky` system.**
+
+The `~ncz1` packages were never published but were accepted locally with no
+`Depends` field at all, so a fresh install succeeded while `ldd` still reported
+missing `libtbb.so.12`, `libOpenCL.so.1`, `libyaml-cpp.so.0.9` and
+`libze_loader.so.1`. The Debian revision is therefore bumped to `ncz2` so a
+stale local copy cannot be mistaken for a fixed one.
 
 Everything below is produced by one mechanism, `packaging/intel-native/npu-debian-metadata.cmake`,
 run as a CPack pre-build script. Two earlier entries in this report claimed a
@@ -135,6 +142,81 @@ kernel firmware loader finds it either way on a merged-usr system.
 
 **Verified:** the packaged paths now read `usr/lib/firmware/updates/intel/vpu/...`.
 
+### 9. No `Depends` field at all (all four packages)
+
+The `~ncz1` overlay set `CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF`, which made
+`CPackDeb.cmake` skip `dpkg-shlibdeps` entirely. CPack reports that with a
+friendly status line and no error at all, so all four packages were emitted
+with no `Depends`. A fresh `debian:forky` container therefore installed them
+"successfully" and then failed at runtime:
+
+```
+libopenvino_intel_npu_compiler.so => libtbb.so.12 not found
+/usr/bin/npu-umd-test              => libOpenCL.so.1 not found
+/usr/bin/npu-umd-test              => libyaml-cpp.so.0.9 not found
+/usr/bin/npu-umd-test              => libze_loader.so.1 not found
+```
+
+The overlay now, per component:
+
+- sets `CPACK_DEBIAN_<COMP>_PACKAGE_SHLIBDEPS ON`, so CPack runs
+  `dpkg-shlibdeps` over every staged ELF and resolves each `NEEDED` entry to a
+  Debian Forky package;
+- requires `dpkg-shlibdeps` to exist (`find_program(... REQUIRED)`) so a
+  packaging host without `dpkg-dev` fails loudly instead of silently emitting
+  dependency-less packages again;
+- declares the inter-package relations upstream Intel publishes, which
+  `dpkg-shlibdeps` cannot infer because the four components are separate
+  packages released in lockstep:
+  `intel-level-zero-npu` depends on `intel-fw-npu` and
+  `intel-driver-compiler-npu` at `(= ${full version})`, and
+  `intel-validation-npu` depends on `intel-level-zero-npu` at the same version.
+
+`dpkg-shlibdeps` resolves the Level Zero loader itself: `libze_loader.so.1`
+maps to `libze1` in Forky. `intel-fw-npu` ships only `.bin` blobs (no ELF), so
+its `Depends` is correctly empty.
+
+Resulting control fields:
+
+```
+intel-driver-compiler-npu: Depends: libc6 (>= 2.43), libgcc-s1 (>= 3.4), libstdc++6 (>= 14),
+                           libtbb12 (>= 2021.4.0), zlib1g (>= 1:1.1.4)
+intel-fw-npu:              (no ELF payload, no Depends)
+intel-level-zero-npu:      Depends: intel-fw-npu (= 1.38.0.ncz2~debian),
+                                  intel-driver-compiler-npu (= 1.38.0.ncz2~debian),
+                                  libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libstdc++6 (>= 14)
+intel-validation-npu:      Depends: intel-level-zero-npu (= 1.38.0.ncz2~debian),
+                                  libc6 (>= 2.38), libgcc-s1 (>= 3.0), libstdc++6 (>= 16.2.0-3),
+                                  libyaml-cpp0.9 (>= 0.9.0), libze1 (>= 1.32.0),
+                                  ocl-icd-libopencl1 | libopencl-1.1-1 | libopencl1, ...
+```
+
+### 10. A `.ddeb` reappears when the packaging entry point is wrong
+
+`cmake --build ... --target package` ignores the component selection the
+packaging driver passes on the `cpack` command line and re-enables upstream's
+per-component `DEBUGINFO_PACKAGE`, emitting `intel-level-zero-npu-dbgsym` and
+`intel-validation-npu-dbgsym` next to the four packages. Build the packages
+through `PACKAGE-linux-npu-driver-1.38.0.sh` (which selects the components on
+the `cpack` command line) to get exactly four `.deb` files and no `.ddeb`.
+
+## Acceptance evidence (1.38.0.ncz2~debian)
+
+1. Lintian on the four packages: **no `E:` tags** (output above).
+2. Fresh `podman run debian:forky` container:
+   `apt-get install ./*.deb` pulled `libtbb12`, `libyaml-cpp0.9`, `libze1`,
+   `ocl-icd-libopencl1`, `libhwloc15`, `libtbbbind-2-5` and `libtbbmalloc2`
+   automatically from `deb.debian.org/debian forky/main`; `ldd` over every ELF
+   of every installed package reported **no `not found`**.
+3. `npu-umd-test --help` prints its usage text (gtest + Intel option list) and
+   exits non-zero because it treats `--help` as an unknown flag; the usage text
+   is the documented outcome.
+4. sha256 of the four packages: the block above.
+
+Reproducibility: packaging the same build tree twice with the same
+`SOURCE_DATE_EPOCH` produces byte-identical `.deb` files, and no `.ddeb` is
+produced.
+
 ## Implementation bugs in the overlay itself (found and fixed)
 
 - **Unescaped quotes in the copyright bodies.** The licence texts are held in
@@ -190,7 +272,10 @@ unbuildable output:
   `CPACK_PACKAGE_NAME`, asserts the control members are declared and staged
   outside the data tree, requires an RFC 2822 changelog trailer, requires the
   `activate-noawait ldconfig` trigger, and checks a wrong vendor prefix is
-  rejected.
+  rejected. It also asserts that `CPACK_DEBIAN_<COMP>_PACKAGE_SHLIBDEPS` is
+  `ON` for all four components, that the inter-package `Depends` are exactly
+  the upstream relations pinned to the package version, and that the stale
+  `1.38.0.ncz1` revision is rejected outright.
 
 ## Remaining Lintian findings (W-class only, non-blocking)
 
@@ -199,7 +284,7 @@ Mostly upstream and out of scope for publication:
 - `maintscript-calls-ldconfig` on upstream postinst/postrm (`level-zero-npu`,
   `driver-compiler-npu`) — the scripts call ldconfig directly although a trigger
   is now declared.
-- `undeclared-elf-prerequisites`, `shared-library-lacks-version`,
+- `shared-library-lacks-version`,
   `package-name-doesnt-match-sonames`, `link-to-shared-library-in-wrong-package`
   — upstream shared-object metadata.
 - `no-manual-page` for the validation binaries.
@@ -224,10 +309,10 @@ intel-validation-npu       (no E-class)
 Artifacts (sha256):
 
 ```
-8bb32c9383a961b55f00293c59336da2becd1e10372552256af8af3ddbf4db4a  intel-driver-compiler-npu_1.38.0.ncz1~debian_amd64.deb
-67f892999ba7aaa4efaefc53341a3a5eed9375d8e996b63666d164b65af84122  intel-fw-npu_1.38.0.ncz1~debian_amd64.deb
-90638876ca06278047a799264cc3260938c229072c0a4bc98eda6c3df6784fe4  intel-level-zero-npu_1.38.0.ncz1~debian_amd64.deb
-6685324791c03883e9b89c2f866c4d6fee31e569fa91f5884813aae6c4044d86  intel-validation-npu_1.38.0.ncz1~debian_amd64.deb
+1f38c08f2b3d7908e54f552356b74dc0e6dd10c5860aeab77ca504bf4f2ea78a  intel-driver-compiler-npu_1.38.0.ncz2~debian_amd64.deb
+09f2135d49156c07147495ef6c17a17d9a9301e6350e47330ce8fbc05918d000  intel-fw-npu_1.38.0.ncz2~debian_amd64.deb
+501d9a291f3a25b0ad95158e94b558c472ef4a846d5a1e7d84848731610f45bf  intel-level-zero-npu_1.38.0.ncz2~debian_amd64.deb
+9f87ce65a724e0ddc2bfbd25ee0f9ab8952de15029bae7e805404e05e743daab  intel-validation-npu_1.38.0.ncz2~debian_amd64.deb
 ```
 
 ## Reproduce
