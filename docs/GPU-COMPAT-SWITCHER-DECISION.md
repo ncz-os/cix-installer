@@ -55,7 +55,7 @@ userspace_mali() {
     enable_file "$ICD_MALI"
 ```
 
-`userspace_panthor()` (lines 297-301):
+`userspace_panthor()` (lines 296-305):
 
 ```sh
 userspace_panthor() {
