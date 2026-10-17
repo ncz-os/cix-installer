@@ -328,6 +328,52 @@ else
     rm -rf /target/usr/local/lib/cix-installer
     cp -a "$SRC" /target/usr/local/lib/cix-installer
 fi
+
+# ---------------------------------------------------------------------------
+# MAGNETAR (NCZ_VARIANT=server): overlay the ONLINE payload the debootstrap
+# stub fetched, then reclaim the space.
+#
+# The server medium carries no base.squashfs and no multi-hundred-MB substrate
+# assets. The stub (the only live install path under d-i -- see the CONTRACT
+# note in preseed.cfg) fetched and sha256-verified them before extracting,
+# into "$TARGET/ncz-online/ncz-payload" because the medium itself is mounted
+# read-only. late.sh runs after that, so this is where those assets join the
+# tree the hooks read ($INSTALLER_META/assets/...). Then the staging root is
+# removed: it can be a gigabyte or more and it has no business living inside
+# the installed root filesystem.
+# ---------------------------------------------------------------------------
+NCZ_ONLINE=/target/ncz-online/ncz-payload
+if [ -d "$NCZ_ONLINE" ]; then
+    echo "--- overlaying online-fetched payload from $NCZ_ONLINE ---"
+    [ -f "$NCZ_ONLINE/base.squashfs" ] || {
+        echo "[late] FATAL: online payload staging root has no base.squashfs -- the install has no rootfs" >&2
+        exit 1
+    }
+    NCZ_DST=/target/usr/local/lib/cix-installer
+    mkdir -p "$NCZ_DST"
+    if [ -d "$NCZ_ONLINE/assets" ]; then
+        # Union, media-style: a baked layer that already carries a file wins,
+        # the fetched copy only fills gaps. Same rule the r160 union above uses.
+        ( cd "$NCZ_ONLINE/assets" && find . -type f ) | while read -r f; do
+            d="$(dirname "$NCZ_DST/assets/$f")"
+            mkdir -p "$d" 2>/dev/null || true
+            [ -e "$NCZ_DST/assets/$f" ] || cp -a "$NCZ_ONLINE/assets/$f" "$d/" 2>/dev/null || true
+        done
+        # The hooks that read these are fatal-on-missing by design; prove the
+        # biggest one is really there rather than finding out at 72-rescue.
+        for need in assets/rescue/rescue-rootfs.tar.zst assets/kernel assets/firmware assets/branding ; do
+            [ -e "$NCZ_DST/$need" ] || {
+                echo "[late] FATAL: online payload did not deliver $need -- refusing to configure a system whose kernel/rescue/branding assets are missing" >&2
+                exit 1
+            }
+        done
+        echo "[late] online assets delivered into $NCZ_DST/assets"
+    fi
+    # BUILD_VARIANT is decided further down from the component selection; do not
+    # second-guess it here.
+    rm -rf /target/ncz-online
+    echo "[late] removed the online-fetch staging root"
+fi
 # Same class of trap as the refresh above: a bare glob under `set -e` turns
 # a missing directory into an unexplained late.sh death. Say what is wrong.
 if [ ! -f /target/usr/local/lib/cix-installer/post-install/run-all.sh ]; then

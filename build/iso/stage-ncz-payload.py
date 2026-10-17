@@ -282,9 +282,16 @@ def stage_payload(
     if arch not in ("amd64", "arm64"):
         raise RuntimeError(f"unsupported arch: {arch} (must be amd64 or arm64)")
 
-    # --- 1. Validate base.squashfs (REQUIRED) ---------------------------
+    # --- 1. Validate base.squashfs ---------------------------------------
+    # MAGNETAR(server): the base layer is NOT baked onto the medium. The
+    # debootstrap stub fetches it from NCZ_PAYLOAD_URL and verifies its sha256
+    # before extracting anything, so its absence from the staged node is the
+    # intended state of a server payload, not a broken build.
+    variant = os.environ.get("NCZ_VARIANT", "desktop").strip().lower()
+    if variant not in ("desktop", "server"):
+        raise SystemExit(f"NCZ_VARIANT must be desktop or server, got {variant!r}")
     base_layer = squashfs_dir / "base.squashfs"
-    if not base_layer.is_file():
+    if variant != "server" and not base_layer.is_file():
         raise RuntimeError(
             f"FATAL: required base layer missing: {base_layer}\n"
             f"  Build it with: NCZ_TARGET_ARCH={arch} "
@@ -292,7 +299,9 @@ def stage_payload(
             f"ARTISTPACK_SOURCE_ROOT=<artistpack checkout>/packs "
             f"sudo -E bash build/build-squashfs-layers.sh base"
         )
-    assert_squashfs_root_mode(base_layer, "base")
+    # No baked base layer on a server medium, so there is no root mode to assert.
+    if variant != "server":
+        assert_squashfs_root_mode(base_layer, "base")
 
     # --- 2. Validate desktop.squashfs + overlay-manifest (OPTIONAL) ------
     # If desktop is present, both it AND its manifest are required.
@@ -407,7 +416,7 @@ def stage_payload(
     canonical_payload = canonical_encode({
         "schema_version": "ncz-payload-stage/v1",
         "arch": arch,
-        "base": _stat(base_layer),
+        "base": _stat(base_layer) if base_layer.is_file() else None,
         "desktop": _stat(desktop_layer) if desktop_present else {"present": False},
         "desktop_overlay_manifest": _stat(desktop_manifest) if desktop_present else {"present": False},
         "desktop_hotfix": _stat(hotfix_layer) if hotfix_present else {"present": False},
@@ -450,8 +459,12 @@ def stage_payload(
     receipts.mkdir()
 
     # --- 5. Copy base.squashfs ------------------------------------------
-    shutil.copy2(str(base_layer), str(build_dir / "base.squashfs"))
-    log(f"    staged base.squashfs ({base_layer.stat().st_size} bytes)")
+    if variant == "server":
+        log("    server variant: NOT staging base.squashfs (fetched online at "
+            "install time and sha256-verified by the debootstrap stub)")
+    else:
+        shutil.copy2(str(base_layer), str(build_dir / "base.squashfs"))
+        log(f"    staged base.squashfs ({base_layer.stat().st_size} bytes)")
 
     # --- 6. Copy desktop.squashfs + manifest (if present) --------------
     if desktop_present:
@@ -527,8 +540,14 @@ def stage_payload(
         "node_kind": "ncz-payload",
         "arch": arch,
         "inputs": {
-            "base_sha256": sha256_file(base_layer),
-            "base_size": base_layer.stat().st_size,
+            # MAGNETAR(server): base is fetched online at install, so it may be
+            # absent here. Record that honestly rather than hashing a missing
+            # file -- a fabricated digest here would be exactly the kind of
+            # unverifiable claim the fetch-time sha256 check exists to catch.
+            "base_sha256": (sha256_file(base_layer)
+                            if base_layer.is_file() else None),
+            "base_size": (base_layer.stat().st_size
+                          if base_layer.is_file() else None),
             "desktop_sha256": (sha256_file(desktop_layer)
                                if desktop_present else None),
             "desktop_size": (desktop_layer.stat().st_size
