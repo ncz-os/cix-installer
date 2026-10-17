@@ -1963,8 +1963,10 @@ def main() -> int:
                           "d-i boots the RAW image: dd it, or decompress "
                           "first -- nothing on the medium reads the archive.")
     ap.add_argument("--compress-level", type=int, default=None,
-                     help="Override the compressor level (xz: 1-9, default 6; "
-                          "zst: 1-19, default 19)")
+                     help="Override the compressor level (xz: 0-9, default 6; "
+                          "zst: 1-19, default 19). xz -0 is a real preset "
+                          "(stored/fast), so it is accepted, matching "
+                          "COMPRESS_LEVELS.")
     ap.add_argument("--work-dir", type=Path, default=None,
                      help="Scratch directory for the staged tree and the ext4 "
                           "data image. Defaults to the OUTPUT image's own "

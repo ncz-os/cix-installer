@@ -267,6 +267,16 @@ class Pool:
         self.by_name: dict[str, Path] = {}
         for path in sorted(root.rglob("*.udeb")):
             name = path.name.split("_", 1)[0].lower()
+            # Two versions of the same package would otherwise resolve to
+            # whichever filename sorts last, silently choosing a version the
+            # dependency closure was never computed against. A substrate pool
+            # is a flat mirror of one suite, so a duplicate name means the
+            # index is ambiguous -- refuse it rather than guess.
+            if name in self.by_name:
+                raise SystemExit(
+                    f"magnetar-substrate: two udebs resolve to package "
+                    f"{name!r}: {self.by_name[name].name} and {path.name}; "
+                    f"the pool index would be ambiguous")
             self.by_name[name] = path
             # Filename-derived names follow a convention, not a guarantee.
             # Cross-check against the Package: control field and fail loudly

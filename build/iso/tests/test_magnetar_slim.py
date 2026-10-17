@@ -471,15 +471,25 @@ def test_closure_returns_complete_result(tmp_path):
 
 
 def test_closure_skips_and_records_initrd_builtin(tmp_path):
+    """closure() returns the packages that need a copy IN THE POOL, not every
+    package installed afterwards. A dependency already unpacked in the initrd
+    is installed for free, so it must not be added to the pool -- it would be
+    a file d-i never fetches. Its reason is still recorded for the receipt.
+    """
     mod = _load(SUBSTRATE_MOD, "magnetar_substrate")
     pool_root = tmp_path / "pool" / "main"
     pool_root.mkdir(parents=True)
     for name in ("alpha", "beta"):
         (pool_root / f"{name}_1.udeb").write_bytes(b"x")
     pool = mod.Pool(tmp_path / "pool")
+    # 'beta' IS in the pool, but the initrd already has it: keeping it would
+    # ship a udeb no cdrom-retriever call can ever ask for.
     kept, reasons = mod.closure({"alpha"}, pool, {"alpha": ["beta"]}, {"beta"})
-    assert kept == {"alpha"}
+    assert kept == {"alpha"}, "an initrd builtin must not be pulled into the pool"
     assert "initrd" in reasons["beta"]
+    # ... whereas the same dependency NOT in the initrd must be kept.
+    kept2, _ = mod.closure({"alpha"}, pool, {"alpha": ["beta"]}, set())
+    assert kept2 == {"alpha", "beta"}
 
 
 def test_closure_terminates_on_cycle(tmp_path):
@@ -503,11 +513,18 @@ def test_load_keep_tsv_rejects_space_separated_row(tmp_path, substrate):
 
 
 def test_load_keep_tsv_accepts_well_formed_rows(tmp_path, substrate):
+    """name<TAB>reason, one row per line: every row is parsed, and the second
+    column is the reason (not another name)."""
     keep = tmp_path / "keep.tsv"
-    keep.write_text("# comment\n\nopenssh-server-udeb\tdiag-console\n")
+    keep.write_text("# comment\n"
+                    "\n"
+                    "openssh-server-udeb\tdiag-console installs it by path\n"
+                    "openssh-client-udeb\tdiag-console installs it by path\n")
     names, reasons = substrate.load_keep_tsv(keep)
-    assert names == {"openssh-server-udeb"}
-    assert reasons["openssh-server-udeb"] == "diag-console"
+    assert names == {"openssh-server-udeb", "openssh-client-udeb"}, \
+        "both rows must be parsed"
+    assert reasons["openssh-server-udeb"] == "diag-console installs it by path"
+    assert reasons["openssh-client-udeb"] == "diag-console installs it by path"
 
 
 def test_pool_rejects_control_filename_mismatch(tmp_path, substrate, fake_dpkg):
@@ -521,6 +538,41 @@ def test_pool_rejects_control_filename_mismatch(tmp_path, substrate, fake_dpkg):
     # The stub reports the filename stem, so make the file disagree by name.
     with pytest.raises(SystemExit, match="filed as"):
         substrate.Pool(pool_root)
+
+
+def test_pool_rejects_two_versions_of_the_same_package(tmp_path):
+    """A duplicate package name means the index is ambiguous. Silently taking
+    whichever filename sorts last would compute the dependency closure against
+    a version the pool does not really contain -- refuse it instead."""
+    pool_root = tmp_path / "pool" / "main"
+    pool_root.mkdir(parents=True)
+    (pool_root / "foo_1.0.udeb").write_bytes(b"x")
+    (pool_root / "foo_2.0.udeb").write_bytes(b"x")
+    with pytest.raises(SystemExit, match="ambiguous"):
+        _load(SUBSTRATE_MOD, "magnetar_substrate").Pool(tmp_path / "pool")
+
+
+def test_writer_can_see_lzma_through_the_substrate_module():
+    """write-usb-image.py catches mod.lzma.LZMAError in slim_installer_pool.
+    That only works if magnetar_substrate imports lzma (it does, to read the
+    xz-compressed initrd) and keeps it as a module attribute. Pin it: an
+    import-list cleanup would otherwise turn a real decode failure into an
+    AttributeError raised while handling it."""
+    import lzma
+    mod = _load(SUBSTRATE_MOD, "magnetar_substrate")
+    assert mod.lzma is lzma
+    assert mod.lzma.LZMAError is lzma.LZMAError
+
+
+def test_compressed_image_is_written_before_it_is_compressed():
+    """compress_image() measures args.out, so the image must be complete and
+    verified first. Pin the ordering in main(): the independent re-read
+    (verify_image) comes before the compression call."""
+    src = WRITER.read_text()
+    verify_at = src.index("verify_image(args.out")
+    compress_at = src.index('receipt["compressed"] = compress_image(')
+    assert verify_at < compress_at, \
+        "the image must be written AND verified before it is compressed"
 
 
 # ---------------------------------------------------------------------------
