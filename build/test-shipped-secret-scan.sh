@@ -165,6 +165,9 @@ build_image() {   # <out.img> <mode>
     mk_base_tree "$t/base" "$mode"
     # a NON-key file under a public keyring path must still be scanned
     [ "${KEYRING_LEAK:-0}" = 1 ] && printf 'GITLAB_TOKEN=%s\n' "$FAKE" > "$t/base/usr/share/keyrings/leak.conf"
+    # the secret only as a FILE NAME, or only inside a gzip with no archive name
+    [ "${NAME_LEAK:-0}" = 1 ] && : > "$t/base/etc/$FAKE"
+    [ "${GZ_LEAK:-0}" = 1 ] && printf 'token=%s\n' "$FAKE" | gzip -9n > "$t/base/etc/backup.bin"
     mk_desktop_tree "$t/desktop" "$mode"
     mk_rescue_tree "$t/rescue" "$mode"
     mk_layer "$t/base" "$t/payload/base.squashfs" || return 1
@@ -607,8 +610,8 @@ for v in g.secret_variants([odd], "s"):
 sc = g.Scanner(hs, shapes=False)
 assert g.scan_candidate(sc, b"pw=" + odd + b"\n", "/etc/x.conf"), "special-character value missed"
 # keyring exemption needs real public key bytes
-assert g.looks_public_key(b"-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nabc\n")
-assert g.looks_public_key(bytes([0x99, 0x01, 0x0d]) + b"xx")
+assert g.looks_public_key(b"-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nabc\n-----END PGP PUBLIC KEY BLOCK-----\n")
+assert g.looks_public_key(b"\x99\x00\x03abc")
 assert not g.looks_public_key(b"GITLAB_TOKEN=" + fake)
 assert not g.looks_public_key(b"-----BEGIN PGP PUBLIC KEY BLOCK-----\n-----BEGIN PRIVATE KEY-----\n")
 # ext4 feature table matches fs/ext4/ext4.h
@@ -624,6 +627,54 @@ out="$($PY "$MAKEHASH" --master "$WORK/km-space.json" --out "$WORK/h-space.json"
 if [ "$rc" = 2 ] && grep -q "whitespace" <<<"$out" && [ ! -e "$WORK/h-space.json" ]; then
     pass "make-secret-hashes refuses a value the gate could never match (whitespace)"
 else fail "a whitespace value was not refused (rc=$rc)"; fi
+
+# 12. review round 4: names, content-sniffed compression, chunk overlap,
+# no suffix forms, whole-file keyring check, no scanner-args hook
+NAME_LEAK=1 build_image "$WORK/name-leak.img" clean || { echo "fixture: name leak image" >&2; exit 1; }
+out="$($PY "$SCAN" --image "$WORK/name-leak.img" --hash-file "$WORK/hashes.json" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "#names" <<<"$out"; then pass "a secret used as a FILE NAME in a layer FAILS"
+else echo "$out" | tail -5 >&2; fail "file-name secret missed (rc=$rc)"; fi
+GZ_LEAK=1 build_image "$WORK/gz-leak.img" clean || { echo "fixture: gz leak image" >&2; exit 1; }
+out="$($PY "$SCAN" --image "$WORK/gz-leak.img" --hash-file "$WORK/hashes.json" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "etc/backup.bin" <<<"$out"; then pass "a secret inside a gzip named backup.bin FAILS (content-sniffed)"
+else echo "$out" | tail -5 >&2; fail "gzip-by-content secret missed (rc=$rc)"; fi
+rm -f "$WORK/name-leak.img" "$WORK/gz-leak.img"
+if ! grep -q NCZ_SECRET_SCAN_EXTRA_ARGS "$ROOT/build/build-image.sh"; then
+    pass "build-image passes no free-form scanner arguments (no --hash-file/--no-shapes override)"
+else fail "build-image still forwards NCZ_SECRET_SCAN_EXTRA_ARGS"; fi
+if $PY - "$ROOT" "$FAKE" <<'PY'
+import base64, importlib.util, os, sys
+root, fake = sys.argv[1], sys.argv[2].encode()
+spec = importlib.util.spec_from_file_location(
+    "gate", os.path.join(root, "build", "scan-shipped-secrets.py"))
+g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+def scanner_for(v):
+    hs = g.HashSet("s")
+    for x in g.secret_variants([v], "s"):
+        hs.digests.add(x["sha256"])
+    return g.Scanner(hs, shapes=False)
+# a 344-byte base64 form straddling the 1 MiB lexing boundary is still seen
+long_secret = (b"Kq7" * 86)[:256]
+sc = scanner_for(long_secret)
+b64 = base64.b64encode(long_secret)
+pad = (b"filler " * (g.CHUNK_BYTES // 7 + 1))[:g.CHUNK_BYTES - 1]
+data = pad[:-1] + b" " + b64 + b"\n"   # b64 starts at CHUNK_BYTES - 1
+assert g.scan_candidate(sc, data, "/x"), "window across the chunk boundary missed"
+# no suffix forms: the tail of a value is not a hit; the value mid-token is
+v = b"ABCDEFGHIJKLmn"
+sc = scanner_for(v)
+assert not g.scan_candidate(sc, b"HOST=" + v[2:] + b"\n", "/x"), "suffix of a value matched"
+assert g.scan_candidate(sc, b"tok=xy" + v + b"\n", "/x"), "value mid-token missed"
+# keyring files must be ENTIRELY public key material
+blk = b"-----BEGIN PGP PUBLIC KEY BLOCK-----\nComment: x\n\nmQENBF\n=abcd\n-----END PGP PUBLIC KEY BLOCK-----\n"
+assert g.looks_public_key(blk)
+assert not g.looks_public_key(blk + b"GITLAB_TOKEN=" + fake + b"\n")
+assert not g.looks_public_key(blk.replace(b"mQENBF", b"mQENBF\nGITLAB_TOKEN=" + fake))
+assert not g.looks_public_key(b"\x99\x00\x03abc" + b"GITLAB_TOKEN=" + fake)
+assert g.looks_public_key(b"\x99\x00\x03abc\xb4\x02id")   # pubkey + user id
+PY
+then pass "chunk-boundary windows, no suffix forms, whole-file keyring check"
+else fail "round-4 unit checks failed"; fi
 
 if [ "$FAILS" -gt 0 ]; then echo "test-shipped-secret-scan: $FAILS finding(s)" >&2; exit 1; fi
 echo "test-shipped-secret-scan: PASS ✅"

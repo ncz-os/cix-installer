@@ -201,10 +201,10 @@ FIXTURE_SECRET = ["ncz", "fixture", "leak", "token"]
 
 
 def lex_overlap() -> int:
-    """Overlap between lexing chunks: comfortably longer than any token we
-    look at (the longest documented secret form is a 40-byte PEM line), so a
-    token straddling a chunk boundary is lexed whole in the next chunk."""
-    return 256
+    """Overlap between lexing chunks: longer than the longest hashed window
+    (a MAX_SECRET_LEN value's percent-encoded form, up to 4x), so any window
+    straddling a chunk boundary is lexed whole in the next chunk."""
+    return 4 * MAX_SECRET_LEN + 64
 
 
 class Unreadable(Exception):
@@ -330,10 +330,12 @@ def secret_variants(values, salt: str = DEFAULT_SALT) -> list[dict]:
     Shared verbatim by build/make-secret-hashes.py (which writes them) and this
     gate (which looks them up), so the two can never disagree about coverage.
 
-      raw / urlenc / base64   at offsets 0, 1 and 2.  Offset 0 is the value at
-                              the start of a token ("export TOKEN=<value>");
-                              offsets 1 and 2 are the value mid-token
-                              ("x<value>", "gitlab+deploy-token-1:<value>@").
+      raw / urlenc / base64   the whole encoded value.  A value mid-token
+                              ("x<value>", "gitlab+deploy-token-1:<value>@")
+                              is found because the lookup slides a window
+                              over every start offset of every token; a
+                              suffix form (value[1:]) would only match
+                              unrelated text that ends the same way.
       b64[p:s]                the base64 of a value that sits at byte phase p
                               (p bytes of foreign data in front of it in the
                               same 3-byte group), looked up starting s base64
@@ -380,11 +382,7 @@ def secret_variants(values, salt: str = DEFAULT_SALT) -> list[dict]:
         if b64.rstrip(b"=") != b64:
             forms.append(("base64-unpadded", b64.rstrip(b"=")))
         for label, enc in forms:
-            # base64 output is already aligned to a 3-byte group of its own,
-            # so offset forms of it would only duplicate b64[0:s]; it still
-            # needs the s>0 covers below.
-            for offset in ((0,) if label.startswith("base64") else (0, 1, 2)):
-                add(f"{label}:o{offset}", enc[offset:], 8)
+            add(f"{label}:o0", enc, 8)
         for label, enc in forms:
             if label.startswith("base64"):
                 continue
@@ -917,18 +915,86 @@ def is_public_keyring(path: str) -> bool:
     return bool(PUBLIC_KEYRING_DIRS.search(path) or PUBLIC_KEYRING_NAMES.search(path))
 
 
+_ARMOR_B64 = re.compile(rb"^[A-Za-z0-9+/]*={0,2}$|^=[A-Za-z0-9+/]{4}$")
+_ARMOR_HDR = re.compile(rb"^(Version|Comment|Hash|Charset|MessageID): ")
+_ARMOR_BEGIN = re.compile(rb"^-----BEGIN (PGP PUBLIC KEY BLOCK|CERTIFICATE|(?:RSA )?PUBLIC KEY)-----$")
+# OpenPGP packet tags a public keyring holds: signature, public key, trust,
+# user id, public subkey, user attribute.
+_PGP_PUBLIC_TAGS = {2, 6, 12, 13, 14, 17}
+
+
+def _armored_public_only(data: bytes) -> bool:
+    """Every line belongs to a public-key/certificate armor block: BEGIN/END
+    lines, armor headers right after BEGIN, base64 body and checksum."""
+    label = None
+    in_headers = False
+    seen = False
+    for line in data.replace(b"\r", b"").split(b"\n"):
+        if label is None:
+            if not line.strip():
+                continue
+            m = _ARMOR_BEGIN.match(line)
+            if not m:
+                return False
+            label, in_headers, seen = m.group(1), True, True
+            continue
+        if line == b"-----END " + label + b"-----":
+            label = None
+            continue
+        if in_headers and _ARMOR_HDR.match(line):
+            continue
+        in_headers = False
+        if not _ARMOR_B64.match(line):
+            return False
+    return seen and label is None
+
+
+def _openpgp_public_packets(data: bytes) -> bool:
+    """The whole file parses as OpenPGP packets of public-keyring types."""
+    i, n = 0, len(data)
+    while i < n:
+        b = data[i]
+        if not b & 0x80:
+            return False
+        if b & 0x40:                       # new format
+            tag = b & 0x3F
+            if i + 1 >= n:
+                return False
+            l0 = data[i + 1]
+            if l0 < 192:
+                ln, i = l0, i + 2
+            elif l0 < 224:
+                if i + 2 >= n:
+                    return False
+                ln, i = ((l0 - 192) << 8) + data[i + 2] + 192, i + 3
+            elif l0 == 255:
+                ln, i = int.from_bytes(data[i + 2:i + 6], "big"), i + 6
+            else:
+                return False               # partial lengths: not a keyring
+        else:                              # old format
+            tag, lt = (b >> 2) & 0x0F, b & 0x03
+            if lt == 3:
+                return False
+            w = (1, 2, 4)[lt]
+            ln, i = int.from_bytes(data[i + 1:i + 1 + w], "big"), i + 1 + w
+        if tag not in _PGP_PUBLIC_TAGS or i + ln > n:
+            return False
+        i += ln
+    return n > 0
+
+
 def looks_public_key(data: bytes) -> bool:
-    """True only for bytes that ARE public key material: an armored public key
-    or certificate, a binary OpenPGP keyring whose first packet is a public
-    key (old-format tag 6 = 0x98-0x9b, new-format 0xc6), or a GnuPG keybox.
-    Anything else at a keyring path is an ordinary file and is scanned."""
+    """True only when the WHOLE file is public key material: armored public
+    keys/certificates and nothing else, a binary OpenPGP keyring made only
+    of public-keyring packets, or a GnuPG keybox.  Anything else at a keyring
+    path is an ordinary file and is scanned."""
     if b"PRIVATE KEY" in data:
         return False
-    if NON_SECRET_PEM_LABELS.search(data[:4096]):
-        return True
     if data[8:12] == b"KBXf":
         return True
-    return bool(data) and ((data[0] & 0xFC) == 0x98 or data[0] == 0xC6)
+    if data.lstrip()[:5] == b"-----":
+        return _armored_public_only(data)
+    return _openpgp_public_packets(data)
 
 
 def public_keyring_exempt(path: str, data: bytes) -> bool:
@@ -1448,28 +1514,56 @@ class Report:
             self.findings.append({"layer": layer, "path": path, **h})
 
 
+def archive_magic(data: bytes) -> bool:
+    """Compression or archive by content (gzip, xz, zstd, bzip2, ar, cpio,
+    tar, zip)."""
+    return (data.startswith((b"\x1f\x8b\x08", b"\xfd7zXZ\x00", b"\x28\xb5\x2f\xfd",
+                             b"BZh", b"!<arch>\n", b"070701", b"070702", b"070707",
+                             b"PK\x03\x04"))
+            or (len(data) > 262 and data[257:262] == b"ustar"))
+
+
+def scan_names(rep: Report, scanner: Scanner, layer: str, names: list[str]) -> None:
+    """File and directory names are shipped bytes too (a token used as a
+    file name); scan them as one text candidate per layer."""
+    if not names:
+        return
+    blob = "\n".join(names).encode("utf-8", "replace")
+    hits = scan_candidate(scanner, blob, layer + "#names")
+    if hits:
+        rep.add(layer, layer + "#names", hits)
+
+
 def scan_payload(rep: Report, scanner: Scanner, layer: str, path: str,
                  data: bytes, depth: int = 0) -> None:
     """Scan one member of a layer/archive, expanding archives inside it."""
     rep.units[layer] += 1
-    expanded = False
     # Every initrd/initramfs is a (possibly multi-segment) cpio stream, often
     # compressed: expand() walks all segments.  Without this an initrd was
     # scanned as one opaque blob and its members were never looked at.
     is_initrd = initrd_kind(path) is not None
-    if depth < 3 and (is_initrd or DEB_RE.search(path) or ROOTFS_TAR_RE.search(path)
-                      or re.search(r"\.(cpio|cpio\.gz|cpio\.xz|cpio\.zst)$", path)):
+    by_name = bool(is_initrd or DEB_RE.search(path) or ROOTFS_TAR_RE.search(path)
+                   or re.search(r"\.(cpio|cpio\.gz|cpio\.xz|cpio\.zst)$", path))
+    members = []
+    if depth < 3 and by_name:
         members = list(expand(path, data, path, depth))
-        if members:
-            expanded = True
-            # member NAMES are shipped bytes too (a token used as a file name)
-            names = "\n".join(m for m, _ in members).encode("utf-8", "replace")
-            hits = scan_candidate(scanner, names, path + "#names")
-            if hits:
-                rep.add(layer, path + "#names", hits)
-            for mpath, payload in members:
-                scan_payload(rep, scanner, layer, mpath, payload, depth + 1)
-    if not expanded:
+    elif depth < 3 and archive_magic(data):
+        # Compressed or archived under any other name (backup.gz, data.bin):
+        # look inside.  Sniffed by content only, so bytes that merely start
+        # with a magic number fall back to the opaque scan below.
+        try:
+            members = list(expand(path, data, path, depth))
+        except (Unreadable, ValueError, EOFError, OSError, zlib.error, lzma.LZMAError):
+            members = []
+    if members:
+        # member NAMES are shipped bytes too (a token used as a file name)
+        names = "\n".join(m for m, _ in members).encode("utf-8", "replace")
+        hits = scan_candidate(scanner, names, path + "#names")
+        if hits:
+            rep.add(layer, path + "#names", hits)
+        for mpath, payload in members:
+            scan_payload(rep, scanner, layer, mpath, payload, depth + 1)
+    else:
         rep.counts["files_scanned"] += 1
         rep.counts["bytes_scanned"] += len(data)
         hits = scan_candidate(scanner, data, path)
@@ -1567,11 +1661,14 @@ def scan_layer_tree(rep: Report, scanner: Scanner, layer: str, root: str,
         # unlisted directory is unscanned content, so it is fatal
         raise Unreadable(f"{layer}: cannot list {exc.filename}: {exc.strerror}")
 
+    names: list[str] = []
     for dirpath, dirnames, filenames in os.walk(root, onerror=walk_error):
         dirnames.sort()
+        names.extend("/" + os.path.relpath(os.path.join(dirpath, d), root) for d in dirnames)
         for name in sorted(filenames):
             full = os.path.join(dirpath, name)
             rel = "/" + os.path.relpath(full, root)
+            names.append(rel)
             try:
                 st = os.lstat(full)
             except OSError as exc:
@@ -1605,6 +1702,7 @@ def scan_layer_tree(rep: Report, scanner: Scanner, layer: str, root: str,
                 continue
             first[key] = rel
             tasks.append((layer, rel, full))
+    scan_names(rep, scanner, layer, names)
     run_tasks(rep, pool, tasks, dups)
 
 
@@ -1656,6 +1754,7 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
             tasks = []
             unit = "esp" if kind == "fat" else "partition"
             lname = "esp" if kind == "fat" else f"part{part['index']}"
+            scan_names(rep, scanner, lname, [f["path"] for f in files])
             for f in files:
                 path = f["path"]
                 data = f["bytes"]
