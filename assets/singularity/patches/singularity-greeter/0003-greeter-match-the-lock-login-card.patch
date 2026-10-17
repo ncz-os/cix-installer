@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Mon, 12 Oct 2026 12:30:00 -0400
+Date: Sat, 17 Oct 2026 04:40:00 -0400
 Subject: [PATCH] greeter: match the lock login card (shared field label + output scale)
 
 Remove the greeter-only second row so its login card is identical to the
@@ -10,13 +10,23 @@ shared loginui_field_label() into the single credential field (still functional:
 it gates posting the typed secret). Also render at the output scale with
 wl_surface_set_buffer_scale() like the lock's own output-scale handler, so a
 HiDPI panel gets a native-density card instead of a compositor-upscaled one.
-Assisted-by: opencode:deepseek-flash
-AI-Scope: authored on the pinned upstream commit; measured red->green headless
+The 2026-10-17 refresh onto greeter 09007fd re-bases onto upstream d7bb2de,
+which already hides the raw "Password:"/"PIN:" prompt line: that raw-string
+suppression (is_plain_credential_prompt) is kept as-is, and the TPM-aware
+"Passphrase" labels upstream added are kept; this patch routes non-plain
+prompts (e.g. "Enter TPM PIN:") into the shared field label instead of the
+status row, so the greeter card still matches the lock card exactly.
+          2026-10-17 refresh onto 09007fd (refreshed, not rebased upstream)
+
 ---
+ src/greeter_main.c | 89 +++++++++++++++++++++++++++++++++++++++++++++++-----
+ 1 file changed, 78 insertions(+), 11 deletions(-)
+
 diff --git a/src/greeter_main.c b/src/greeter_main.c
+index b2d7d59..8354fa0 100644
 --- a/src/greeter_main.c
 +++ b/src/greeter_main.c
-@@ -57,6 +57,13 @@
+@@ -57,6 +57,13 @@ static char password[1024];
  static size_t password_len = 0;
  static char pending_password[1024];
  static char status_text[128] = "";
@@ -28,9 +38,9 @@ diff --git a/src/greeter_main.c b/src/greeter_main.c
 +static char auth_prompt[160] = "";
 +static char label_buf[64];
  static bool auth_is_pin = false; /* SintyOS: the credential is a PIN, not a Unix password */
+ static bool auth_has_tpm = true;
  static bool recovery_mode = false; /* --recovery: forgotten-PIN escape hatch, launched as root by sinty-greetd-launch */
- static int recovery_step = 0;      /* 0 = enter recovery code, 1 = enter new PIN */
-@@ -96,6 +103,8 @@
+@@ -92,6 +99,8 @@ struct g_output {
      struct wl_surface *surface;
      struct zwlr_layer_surface_v1 *layer_surface;
      uint32_t width, height;
@@ -39,7 +49,7 @@ diff --git a/src/greeter_main.c b/src/greeter_main.c
      bool configured;
      struct wl_callback *frame_cb;
      struct wl_surface *handoff_surface;
-@@ -258,10 +267,18 @@
+@@ -254,10 +263,18 @@ static void handoff_frame_done(void *data, struct wl_callback *cb, uint32_t time
  }
  static const struct wl_callback_listener handoff_frame_listener = { .done = handoff_frame_done };
  
@@ -60,25 +70,30 @@ diff --git a/src/greeter_main.c b/src/greeter_main.c
  
      struct g_user *u = (n_users > 0) ? &users[sel_user] : NULL;
  
-@@ -285,7 +302,7 @@
+@@ -281,7 +298,12 @@ static void render_surface(struct wl_surface *surface, int w, int h) {
      if (recovery_mode)
-         st.auth_label = recovery_step == 0 ? "Recovery code" : "New PIN";
+         st.auth_label = recovery_step == 0 ? "Recovery code" : (auth_has_tpm ? "New PIN" : "New passphrase");
      else
--        st.auth_label = auth_is_pin ? "PIN" : "Password";
-+        st.auth_label = loginui_field_label(label_buf, sizeof label_buf, auth_prompt, auth_is_pin);
+-        st.auth_label = auth_is_pin ? (auth_has_tpm ? "PIN" : "Passphrase") : "Password";
++        /* Upstream d7bb2de already hides the plain Password:/PIN: line (kept:
++         * see greetd_handle below); a non-plain PAM prompt (e.g. "Enter TPM
++         * PIN:") is routed through the shared field label instead of a second
++         * status row, so the greeter card still matches the lock card exactly. */
++        st.auth_label = auth_prompt[0] ? loginui_field_label(label_buf, sizeof label_buf, auth_prompt, auth_is_pin)
++                                       : (auth_is_pin ? (auth_has_tpm ? "PIN" : "Passphrase") : "Password");
  
      double cx, cy, cw, ch;
      loginui_render(cr, &st, &cx, &cy, &cw, &ch);
-@@ -374,14 +391,15 @@
+@@ -370,6 +392,7 @@ static void render_surface(struct wl_surface *surface, int w, int h) {
      }
  
      cairo_destroy(cr);
 +    if (surface) wl_surface_set_buffer_scale(surface, scale);
      wl_surface_attach(surface, b->wl_buffer, 0, 0);
 -    wl_surface_damage_buffer(surface, 0, 0, w, h);
-+    wl_surface_damage_buffer(surface, 0, 0, (int)((unsigned)w * (unsigned)scale), (int)((unsigned)h * (unsigned)scale));
++    wl_surface_damage_buffer(surface, 0, 0, w * scale, h * scale);
      wl_surface_commit(surface);
- }
+@@ -377,7 +400,7 @@ static void render_surface(struct wl_surface *surface, int w, int h) {
  
  static void render_all(void) {
      if (preview) {
@@ -87,7 +102,7 @@ diff --git a/src/greeter_main.c b/src/greeter_main.c
          return;
      }
      for (struct g_output *o = outputs; o; o = o->next) {
-@@ -391,7 +409,7 @@
+@@ -387,7 +410,7 @@ static void render_all(void) {
              o->frame_cb = wl_surface_frame(o->surface);
              wl_callback_add_listener(o->frame_cb, &handoff_frame_listener, &o->frame_cb);
          }
@@ -96,7 +111,7 @@ diff --git a/src/greeter_main.c b/src/greeter_main.c
      }
  }
  
-@@ -476,14 +494,17 @@
+@@ -482,14 +505,17 @@ static void begin_authentication(void) {
      auth_prompt_waiting = false;
      auth_restart_pending = false;
      pending_password[0] = '\0';
@@ -116,21 +131,27 @@ diff --git a/src/greeter_main.c b/src/greeter_main.c
      pending_password[0] = '\0';
      if (awaiting_auth) {
          auth_restart_pending = true;
-@@ -639,7 +660,12 @@
+@@ -639,8 +665,17 @@ static void greetd_handle(void) {
                          snprintf(status_text, sizeof status_text, "%s", "Authenticating...");
                      } else {
                          auth_prompt_waiting = true;
--                        snprintf(status_text, sizeof status_text, "%s", m);
-+                        /* Route the PAM prompt into the ONE shared field label
-+                         * (via loginui_field_label at render time) instead of a
-+                         * second status row, so the greeter card matches the
-+                         * lock card; status_text stays empty here. */
-+                        snprintf(auth_prompt, sizeof auth_prompt, "%s", m);
-+                        status_text[0] = '\0';
+-                        if (is_plain_credential_prompt(m)) status_text[0] = '\0';
+-                        else snprintf(status_text, sizeof status_text, "%s", m);
++                        /* Upstream d7bb2de already hides the plain Password:/PIN:
++                         * prompt line (kept). A non-plain prompt goes into the ONE
++                         * shared field label (via loginui_field_label at render
++                         * time) instead of a second status row; status_text stays
++                         * empty here. */
++                        if (is_plain_credential_prompt(m)) {
++                            status_text[0] = '\0';
++                        } else {
++                            snprintf(auth_prompt, sizeof auth_prompt, "%s", m);
++                            status_text[0] = '\0';
++                        }
                      }
                      status_error = false;
                      render_all();
-@@ -671,6 +697,7 @@
+@@ -663,6 +698,7 @@ static void greetd_handle(void) {
                  awaiting_auth = false;
                  auth_prompt_waiting = false;
                  auth_restart_pending = false;
@@ -138,7 +159,7 @@ diff --git a/src/greeter_main.c b/src/greeter_main.c
                  memset(password, 0, sizeof password);
                  memset(pending_password, 0, sizeof pending_password);
                  password_len = 0;
-@@ -1134,7 +1161,7 @@
+@@ -1119,7 +1155,7 @@ static void layer_configure(void *data, struct zwlr_layer_surface_v1 *ls,
      struct g_output *o = data;
      o->width = w; o->height = h; o->configured = true;
      zwlr_layer_surface_v1_ack_configure(ls, serial);
@@ -147,7 +168,7 @@ diff --git a/src/greeter_main.c b/src/greeter_main.c
  }
  static void layer_closed(void *data, struct zwlr_layer_surface_v1 *ls) { running = false; }
  static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
-@@ -1207,7 +1234,7 @@
+@@ -1192,7 +1228,7 @@ static void create_handoff_surfaces(void) {
  static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t serial) {
      xdg_surface_ack_configure(xs, serial);
      pv_configured = true;
@@ -156,7 +177,7 @@ diff --git a/src/greeter_main.c b/src/greeter_main.c
  }
  static const struct xdg_surface_listener xdg_surface_listener = { .configure = xdg_surface_configure };
  
-@@ -1261,6 +1288,36 @@
+@@ -1246,6 +1282,36 @@ static void seat_name(void *data, struct wl_seat *s, const char *name) {
  
  static const struct wl_seat_listener seat_listener = { seat_capabilities, seat_name };
  
@@ -193,7 +214,7 @@ diff --git a/src/greeter_main.c b/src/greeter_main.c
  static void reg_global(void *data, struct wl_registry *reg, uint32_t name,
                         const char *iface, uint32_t version) {
      if (strcmp(iface, wl_compositor_interface.name) == 0) {
-@@ -1279,6 +1336,7 @@
+@@ -1264,6 +1330,7 @@ static void reg_global(void *data, struct wl_registry *reg, uint32_t name,
          struct g_output *o = calloc(1, sizeof(*o));
          o->name = name;
          o->wl_output = wl_registry_bind(reg, name, &wl_output_interface, version < 3 ? version : 3);

@@ -1,55 +1,36 @@
-From 7710d75d66bdc4a38575f62dfdca1b5db0f6a4df Mon Sep 17 00:00:00 2001
+From 94a6c5141bce65c75d81fce90d8ad2225d295a01 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Tue, 13 Oct 2026 12:29:06 -0400
-Subject: [PATCH] core: follow logind Lock and PrepareForSleep for the session
+Date: Wed, 14 Oct 2026 11:31:45 -0400
+Subject: [PATCH] fix: lock on logind Lock and before sleep
 
-loginctl lock-session (and lock-sessions or any other logind client)
-emits org.freedesktop.login1.Session.Lock on the session object. Nothing
-in the shell subscribed to it, so the request was dropped and the session
-stayed unlocked. A suspend started outside the shell (systemctl suspend,
-a logind HandleLidSwitch or idle action) also slept without locking:
-lock-on-suspend was only honoured when the shell itself called Suspend.
+`loginctl lock-session` emits Session.Lock on the session object, and a
+suspend started outside the shell (systemctl suspend, a logind lid or
+idle action) emits PrepareForSleep. The shell listened to neither, so
+lock-session did nothing and lock-on-suspend only applied when the shell
+itself suspended.
 
-LogindLockListener resolves the shell's session (XDG_SESSION_ID, then
-GetSessionByPID, then the user's display session) and subscribes, with
-logind as the sender, to:
+Follow both for the shell's own session, with logind as the sender. Lock
+goes through PowerActions.lock_screen(). Before sleep a "sleep" delay
+inhibitor is released once the lock screen is up (at most 3 s), or at
+once when lock-on-suspend is off or the session is already locked.
+Repeated requests are no-ops; Unlock is ignored.
 
-- Session.Lock: lock through PowerActions.lock_screen(), the same path as
-  the lock shortcut and the idle lock, so the screensaver frame source and
-  the unlock prompt start the same way;
-- Manager.PrepareForSleep: a "sleep" delay inhibitor is held while the
-  shell runs. On PrepareForSleep(true) with lock-on-suspend set, lock and
-  release the inhibitor once the lock client is up plus 500 ms (at most
-  3 s, inside logind's default 5 s delay). With lock-on-suspend off, or
-  when already locked, release at once. The inhibitor is taken again on
-  PrepareForSleep(false).
-
-A request while a singularity-lockscreen process of the user exists is a
-no-op, and a second request within 2 s is dropped, so the lock path's own
-`loginctl lock-session` fallback cannot loop. Session.Unlock is logged and
-ignored: the lock screen goes away only after the user authenticates.
-
-tests/logind_lock_test runs the listener against a fake logind on a test
-GTestDBus bus: session resolution, Lock, impostor senders, other
-sessions, idempotency, the repeat guard, inhibitor hold and release
-timing, resume, lock-on-suspend off, a lock screen that never comes up,
-an early stop() and the lock-client process probe.
 ---
  meson.build                     |   9 +
- src/core/logind_lock.vala       | 302 +++++++++++++++++++++++++++++
- src/core/logind_lock_shell.vala |  41 ++++
+ src/core/logind_lock.vala       | 264 ++++++++++++++++++++++++++
+ src/core/logind_lock_shell.vala |  36 ++++
  src/core/main.vala              |   1 +
- tests/logind_lock_test.vala     | 325 ++++++++++++++++++++++++++++++++
- 5 files changed, 678 insertions(+)
+ tests/logind_lock_test.vala     | 323 ++++++++++++++++++++++++++++++++
+ 5 files changed, 633 insertions(+)
  create mode 100644 src/core/logind_lock.vala
  create mode 100644 src/core/logind_lock_shell.vala
  create mode 100644 tests/logind_lock_test.vala
 
 diff --git a/meson.build b/meson.build
-index 584f41e..3db1e66 100644
+index 6c63711..ed6e374 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -529,6 +529,8 @@ singularity_core_sources = files(
+@@ -532,6 +532,8 @@ singularity_core_sources = files(
      'src/core/lid_manager.vala',
      'src/core/idle_inhibitors.vala',
      'src/core/idle_manager.vala',
@@ -58,7 +39,7 @@ index 584f41e..3db1e66 100644
      'src/core/parental/screen_time_tracker.vala',
      'src/core/parental/break_reminder.vala',
      'src/core/parental/parental_enforcer.vala',
-@@ -788,6 +790,13 @@ safe_mode_test = executable('safe-mode-test',
+@@ -791,6 +793,13 @@ safe_mode_test = executable('safe-mode-test',
  )
  test('safe-mode', safe_mode_test)
  
@@ -74,16 +55,12 @@ index 584f41e..3db1e66 100644
    dependencies: [dependency('gio-2.0')],
 diff --git a/src/core/logind_lock.vala b/src/core/logind_lock.vala
 new file mode 100644
-index 0000000..ad3f446
+index 0000000..fc0bab1
 --- /dev/null
 +++ b/src/core/logind_lock.vala
-@@ -0,0 +1,302 @@
+@@ -0,0 +1,264 @@
 +namespace Singularity {
 +
-+    /**
-+     * What the logind listener needs from the shell: start the lock screen
-+     * through the normal lock path and tell whether one is already up.
-+     */
 +    public interface SessionLocker : Object {
 +        public abstract void lock_session();
 +        public abstract bool is_locked();
@@ -92,9 +69,6 @@ index 0000000..ad3f446
 +    public delegate bool LockOnSuspendFunc();
 +
 +    public class LockClientProbe : Object {
-+        /* True when a process of this user other than self_pid runs a
-+         * singularity-lockscreen* binary: the session is locked or about to
-+         * be (a second lock instance yields to the first). */
 +        public static bool running(Posix.uid_t uid, Posix.pid_t self_pid) {
 +            Dir dir;
 +            try {
@@ -109,48 +83,25 @@ index 0000000..ad3f446
 +                string base_path = "/proc/" + name;
 +                Posix.Stat st;
 +                if (Posix.stat(base_path, out st) != 0 || st.st_uid != uid) continue;
-+                uint8[] data;
++                string argv0;
 +                try {
-+                    if (!FileUtils.get_data(base_path + "/cmdline", out data) || data.length == 0) continue;
++                    if (!FileUtils.get_contents(base_path + "/cmdline", out argv0) || argv0 == "") continue;
 +                } catch (FileError e) {
 +                    continue;
 +                }
-+                int end = 0;
-+                while (end < data.length && data[end] != 0) end++;
-+                string argv0 = ((string) data).substring(0, end);
 +                if (Path.get_basename(argv0).has_prefix("singularity-lockscreen")) return true;
 +            }
 +            return false;
 +        }
 +    }
 +
-+    /**
-+     * Follows systemd-logind for the shell's own session:
-+     *
-+     *  - org.freedesktop.login1.Session.Lock (loginctl lock-session,
-+     *    lock-sessions, or any other logind client) locks the screen;
-+     *  - org.freedesktop.login1.Manager.PrepareForSleep(true) locks the screen
-+     *    before the system sleeps when lock-on-suspend is set. A "sleep" delay
-+     *    inhibitor is held while the shell runs and released as soon as the
-+     *    lock screen is up (or right away when nothing needs to be done), then
-+     *    taken again on resume.
-+     *
-+     * A lock request while the lock screen is already up does nothing.
-+     * Session.Unlock is logged and otherwise ignored: the lock screen only
-+     * goes away after the user authenticates.
-+     */
 +    public class LogindLockListener : Object {
 +        public const string BUS_NAME = "org.freedesktop.login1";
 +        public const string MANAGER_PATH = "/org/freedesktop/login1";
 +        public const string MANAGER_IFACE = "org.freedesktop.login1.Manager";
 +        public const string SESSION_IFACE = "org.freedesktop.login1.Session";
 +
-+        /* After a lock request, ignore further requests for this long. This
-+         * also breaks a loop if the lock path itself falls back to
-+         * `loginctl lock-session`. */
 +        public int64 repeat_guard_us = 2 * 1000000;
-+        /* Poll interval and limits while the sleep inhibitor is held. The
-+         * total stays under logind's default InhibitDelayMaxSec (5 s). */
 +        public uint poll_ms = 100;
 +        public uint settle_ms = 500;
 +        public uint sleep_wait_max_ms = 3000;
@@ -169,7 +120,6 @@ index 0000000..ad3f446
 +        public string? session_path { get; private set; default = null; }
 +        public bool inhibitor_held { get { return inhibit_fd >= 0; } }
 +
-+        /* Counters for logs and tests. */
 +        public uint lock_requests { get; private set; default = 0; }
 +        public uint locks_skipped { get; private set; default = 0; }
 +
@@ -233,9 +183,6 @@ index 0000000..ad3f446
 +            }
 +        }
 +
-+        /* XDG_SESSION_ID first (set by pam_systemd for the session the shell
-+         * was started in), then the session of this process, then the user's
-+         * display session. */
 +        private async string? resolve_session() {
 +            string? id = Environment.get_variable("XDG_SESSION_ID");
 +            if (id != null && id != "") {
@@ -283,7 +230,6 @@ index 0000000..ad3f446
 +            else after_sleep();
 +        }
 +
-+        /* Returns true when a new lock was started. */
 +        public bool request_lock(string reason) {
 +            if (locker.is_locked()) {
 +                locks_skipped++;
@@ -293,8 +239,8 @@ index 0000000..ad3f446
 +            int64 now = get_monotonic_time();
 +            if (last_request != 0 && now - last_request < repeat_guard_us) {
 +                locks_skipped++;
-+                message("LogindLock: %s: a lock was requested %lld ms ago", reason,
-+                    (now - last_request) / 1000);
++                message("LogindLock: %s: a lock was requested %d ms ago", reason,
++                    (int) ((now - last_request) / 1000));
 +                return false;
 +            }
 +            last_request = now;
@@ -312,8 +258,6 @@ index 0000000..ad3f446
 +                return;
 +            }
 +            if (locker.is_locked()) {
-+                /* The lock screen is already up (also the case when the shell
-+                 * itself suspends: PowerActions locks first). */
 +                locks_skipped++;
 +                message("LogindLock: system is going to sleep; already locked");
 +                release_inhibitor();
@@ -355,7 +299,6 @@ index 0000000..ad3f446
 +                int32 index;
 +                reply.get("(h)", out index);
 +                int fd = out_fds.get(index);
-+                /* Stopped, asleep or taken meanwhile: logind drops this one on close. */
 +                if (inhibit_fd >= 0 || sleeping || stopped) {
 +                    Posix.close(fd);
 +                    return;
@@ -382,17 +325,12 @@ index 0000000..ad3f446
 +}
 diff --git a/src/core/logind_lock_shell.vala b/src/core/logind_lock_shell.vala
 new file mode 100644
-index 0000000..d6fb07e
+index 0000000..a408672
 --- /dev/null
 +++ b/src/core/logind_lock_shell.vala
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,36 @@
 +namespace Singularity {
 +
-+    /**
-+     * Locks through PowerActions.lock_screen(), the path used by the lock
-+     * shortcut, the power menu and the idle lock, so the lock screen and its
-+     * screensaver frame source start the same way.
-+     */
 +    public class ShellSessionLocker : Object, SessionLocker {
 +        public void lock_session() {
 +            PowerActions.get_default().lock_screen();
@@ -428,7 +366,7 @@ index 0000000..d6fb07e
 +    }
 +}
 diff --git a/src/core/main.vala b/src/core/main.vala
-index 12113f0..199e92c 100644
+index 008bdb6..d44895a 100644
 --- a/src/core/main.vala
 +++ b/src/core/main.vala
 @@ -213,6 +213,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
@@ -441,11 +379,10 @@ index 12113f0..199e92c 100644
          Singularity.ParentalEnforcer.get_default().start();
 diff --git a/tests/logind_lock_test.vala b/tests/logind_lock_test.vala
 new file mode 100644
-index 0000000..2ac2a6c
+index 0000000..8d6d512
 --- /dev/null
 +++ b/tests/logind_lock_test.vala
-@@ -0,0 +1,325 @@
-+/* LogindLockListener against a fake systemd-logind on a GTestDBus bus. */
+@@ -0,0 +1,323 @@
 +
 +[DBus (name = "org.freedesktop.login1.Manager")]
 +public class FakeManager : Object {
@@ -481,7 +418,6 @@ index 0000000..2ac2a6c
 +        return new UnixInputStream(fds[0], true);
 +    }
 +
-+    /* True while the client still holds the read end of the last inhibitor. */
 +    [DBus (visible = false)]
 +    public bool inhibitor_open() {
 +        if (write_end < 0) return false;
@@ -509,7 +445,7 @@ index 0000000..2ac2a6c
 +public class FakeLocker : Object, Singularity.SessionLocker {
 +    public uint calls = 0;
 +    public bool locked = false;
-+    public uint lock_after_ms = 0; /* 0: lock screen never comes up by itself */
++    public uint lock_after_ms = 0;
 +
 +    public void lock_session() {
 +        calls++;
@@ -659,7 +595,7 @@ index 0000000..2ac2a6c
 +        check(l.inhibitor_held && manager.inhibitor_open(), "inhibitor still held while the lock screen comes up");
 +        check(wait_for(() => released, 3000), "inhibitor released");
 +        int64 held_ms = (t_rel - t0) / 1000;
-+        check(held_ms >= 450 && held_ms < 1500, "held for lock (300 ms) + settle (200 ms): %lld ms".printf(held_ms));
++        check(held_ms >= 450 && held_ms < 1500, "held for lock (300 ms) + settle (200 ms): %d ms".printf((int) held_ms));
 +        check(wait_for(() => !manager.inhibitor_open(), 1000), "logind sees the inhibitor closed");
 +
 +        print("== case 9: PrepareForSleep(false) takes the inhibitor again ==\n");
@@ -699,7 +635,7 @@ index 0000000..2ac2a6c
 +        manager.prepare_for_sleep(true);
 +        check(wait_for(() => released, 3000), "inhibitor released at the deadline");
 +        held_ms = (t_rel - t0) / 1000;
-+        check(held_ms >= 700 && held_ms < 1500, "released after sleep_wait_max_ms: %lld ms".printf(held_ms));
++        check(held_ms >= 700 && held_ms < 1500, "released after sleep_wait_max_ms: %d ms".printf((int) held_ms));
 +        manager.prepare_for_sleep(false);
 +        wait_for(() => l.inhibitor_held, 2000);
 +        l.disconnect(h);
@@ -724,7 +660,7 @@ index 0000000..2ac2a6c
 +        l3.start.begin((o, r) => { started = l3.start.end(r); done = true; });
 +        wait_for(() => done, 3000);
 +        check(!started && l3.session_path == null, "no session resolved");
-+        l.stop(); /* only l3 follows PrepareForSleep from here on */
++        l.stop();
 +        manager.prepare_for_sleep(true);
 +        check(wait_for(() => locker3.calls == 1, 2000), "sleep still locks");
 +        manager.prepare_for_sleep(false);

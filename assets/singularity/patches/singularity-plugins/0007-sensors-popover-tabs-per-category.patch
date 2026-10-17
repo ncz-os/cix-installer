@@ -11,8 +11,6 @@ leave out empty tabs, and keep the selected tab across refreshes.
 Raise the per-group row cap from 6 to 12 so a 12-core CPU is shown in
 full, and cap the height at the space between the chip and the dock.
 
-Assisted-by: Claude Code:claude-sonnet-5-5
-AI-Scope: Wrote the tab grouping, the height cap and the section split, rebased onto the reworked popover layout; checked on hardware by the author.
 ---
  sensors/sensors.vala | 270 +++++++++++++++++++++++++++++++------------
  1 file changed, 193 insertions(+), 77 deletions(-)

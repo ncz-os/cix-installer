@@ -7,8 +7,6 @@ Route the lock's field label through loginui_field_label() -- the same
 resolver the greeter now uses -- so the two login cards are built from one
 code path. No behaviour change (Password, or PIN when the recoverd broker
 socket is present); the first free number after the thermals 0017 queue entry.
-Assisted-by: opencode:deepseek-flash
-AI-Scope: authored on the pinned upstream commit; measured red->green headless
 ---
 diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
 --- a/src/lockscreen/lock_main.c

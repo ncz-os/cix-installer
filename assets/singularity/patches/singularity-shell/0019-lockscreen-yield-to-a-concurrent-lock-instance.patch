@@ -31,8 +31,6 @@ probe/unlink/bind/listen sequence is serialized with a companion lock file
 test gains case 10: two clients at once; the second yields and the first keeps
 streaming.
 
-Assisted-by: opencode:deepseek-flash
-AI-Scope: reproduced the two-lock renderer-socket race on a test machine, added the atomic-socket-claim/yield fix plus a setup-lock against TOCTOU to lock_framesrc and lock_main, and a headless regression case
 ---
  src/lockscreen/lock_framesrc.c             | 103 ++++++++++++++++++---
  src/lockscreen/lock_framesrc.h             |   7 ++

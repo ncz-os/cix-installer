@@ -224,3 +224,6 @@ assets/google-chrome/
 
 # Per-session scratch: TMPDIR for author work in this workspace (never committed)
 .task-tmp/
+# Per-job workspace scratch: TMPDIR for the author of a hive job (never
+# committed; build/lint-platform.sh COVER walks git ls-files, which sees it)
+tmp-scratch/

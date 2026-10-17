@@ -5,8 +5,6 @@ Subject: [PATCH] feat(wallpapers-bing): refresh the feed in the background
 
 Run the helper fetch --if-stale on activation, when the network returns, and daily. Skip metered links, back off from 30s to 1h on failure, and cancel on deactivation.
 
-Assisted-by: opencode:deepseek-flash
-AI-Scope: Wrote the prefetch scheduler and NetworkMonitor handling from a description of the behavior.
 ---
  wallpapers-bing/wallpapers_bing.vala | 55 ++++++++++++++++++++++++++++
  1 file changed, 55 insertions(+)

@@ -90,11 +90,16 @@ ssplugin_rebuild_help() {
   The plugin ($SSP_PKG $SSP_VERSION, $arch) was linked against Singularity payload
   $SSP_PAYLOAD (libsingularity sha256 $SSP_LIBSHA); this payload is
   ${ver:-unknown}. Rebuild the plugin against THIS payload:
-    amd64: any amd64 build host, container debian:forky
-    arm64: any arm64 build host, container debian:testing
+    amd64 or arm64: a build host of that arch, container debian:forky
     in that container, with an ncz-screensavers checkout (integration/cygnus-26.10-2026-10-03):
-      apt-get install ./ncz-singularity-desktop_${ver:-<version>}_$arch.deb valac meson ninja-build \\
-          libgtk-4-dev libgee-0.8-dev libjson-glib-dev libpeas-2-dev
+      apt-get install valac meson ninja-build pkg-config gcc libgtk-4-dev libgee-0.8-dev \\
+          libjson-glib-dev libpeas-2-dev libgtksourceview-5-dev libsoup-3.0-dev \\
+          libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgtk4-layer-shell-dev
+      (singularity-1.0.pc requires gtksourceview-5, libsoup-3.0, gstreamer and
+      gtk4-layer-shell; on arm64 the payload also needs the NCZ
+      libgtk4-layer-shell0 from assets/cix-debs, which Debian's -dev does not
+      accept, so in the throwaway container install the payload with
+      dpkg -i --force-depends <that deb> ./ncz-singularity-desktop_${ver:-<version>}_$arch.deb)
       sh tools/build-plugin.sh /opt/singularity out/build-$arch
       NCZ_SINGULARITY_MIN=<payload yyyymmdd> sh tools/make-plugin-deb.sh $arch out/build-$arch \\
           out/ncz-screensavers-plugin_<version>_$arch.deb <version>
