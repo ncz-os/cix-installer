@@ -415,6 +415,8 @@ S0="$WORK/serial0.log"; ILOG="$WORK/install.log"; BLOG="$WORK/boot.log"
 EVIDENCE="$WORK/target-logs"
 rm -f "$S0" "$ILOG" "$BLOG" "$WORK/boot-serial0.log"
 rm -rf "$EVIDENCE"
+# Defined before the server block, which already fails through it.
+fail() { echo; echo "GATE FAIL: $*" >&2; exit 1; }
 
 # --- Magnetar server variant: host base.squashfs + the asset bundle ---------
 # The guest's fetcher (preseed/ncz-fetch-payload.sh) reads the URLs from the
@@ -614,7 +616,6 @@ elif [ "$NCZ_GATE_SERVER" = 1 ]; then
     echo "  NEGATIVE run: the payload HTTP server is OFF; the install must fail within the deadline and leave no rootfs"
 fi
 
-fail() { echo; echo "GATE FAIL: $*" >&2; exit 1; }
 
 # Loopback ports for the guest forwards: free ones, so two gates on one build
 # host (another session's build, or the option sets) never collide on a fixed
@@ -722,6 +723,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" = 1 ]; then
     mkdir -p "$EVIDENCE"
     EVIDENCE_DISK="$WORK/.target-evidence.raw"
     EVIDENCE_ROOT="$WORK/.target-root-evidence.raw"
+    _neg_osrel=""; _neg_installed=""; _neg_varls=""
     rm -f "$EVIDENCE_DISK" "$EVIDENCE_ROOT"
     if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK" >/dev/null 2>&1; then
         ROOT_PART=$(ncz_last_partnum "$EVIDENCE_DISK" || true)
@@ -1042,6 +1044,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
             rm -f "$_SRV_EVD"
         fi
     fi
+    [ -s "$_SRV_ROOT" ] || fail "server gate: could not extract the installed root partition from $DISK (qemu-img/sgdisk failed), so the installed-root assertions cannot run"
     EVIDENCE_ROOT="$_SRV_ROOT"
     "$DEBUGFS" -R "ls -p /etc/systemd/system/multi-user.target.wants" "$EVIDENCE_ROOT" > "$_ssh_want" 2>&1 || true
     if grep -q 'ssh.service' "$_ssh_want"; then

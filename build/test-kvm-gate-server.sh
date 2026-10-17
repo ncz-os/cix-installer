@@ -173,7 +173,7 @@ if NCZ_PAYLOAD_DIR="$DEST_OFF" NCZ_FETCH_MAX_TRIES=2 NCZ_FETCH_CONNECT_TIMEOUT=1
 else
     rc=$?
     t1=$(date +%s); dt=$((t1 - t0))
-    [ "$dt" -ge 60 ] && bad "negative: the fetch took ${dt}s (not bounded)" \
+    [ "$dt" -gt 45 ] && bad "negative: the fetch took ${dt}s (not bounded)" \
         || ok "negative: with the server stopped the fetch failed in ${dt}s (bounded) — the gate's offline run must look like this"
 fi
 if [ -e "$DEST_OFF/base.squashfs" ]; then
