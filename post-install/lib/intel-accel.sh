@@ -132,10 +132,12 @@ ncz_intel_clear_deferred() {
 # `a || b` status masking.
 _ncz_intel_has_remote_uri() {
     # Disabled sources fetch nothing: drop deb822 stanzas with "Enabled: no"
-    # and one-line entries with an [enabled=no] option first.
+    # and one-line entries with an [enabled=no] option first. apt ends a
+    # line at "#", so a URL in a trailing comment is not an origin either.
     awk 'BEGIN { RS = "" } !/(^|\n)[[:space:]]*Enabled:[[:space:]]*[Nn][Oo]/ { print }' "$1" 2>/dev/null \
         | grep -E '^[[:space:]]*(deb(-src)?[[:space:]]|URIs:[[:space:]])' \
         | grep -vE '^[[:space:]]*deb(-src)?[[:space:]]+\[[^]]*enabled=no' \
+        | sed 's/#.*//' \
         | grep -oE '[a-z][a-z0-9+.-]*://' \
         | grep -vqE '^(file|copy)://'
 }
@@ -639,6 +641,9 @@ ncz_intel_accel_run() {
     # NCZ_INTEL_FORCE=1 because it has just refreshed the index itself.
     _last=$(sed -n 's/^LAST=//p' "$_pf")
     case "$_last" in ""|*[!0-9]*) _last= ;; esac   # corrupt -> re-check now
+    # A stamp in the future (clock stepped back, bad write) would throttle
+    # until the clock catches up: treat it as corrupt too.
+    [ -n "$_last" ] && [ "$_last" -gt "$(date +%s)" ] && _last=
     if [ -n "$_last" ] && [ "${NCZ_INTEL_FORCE:-0}" != 1 ] \
        && grep -q '^deferred:' "$(_ni_statusf)" 2>/dev/null \
        && [ $(( $(date +%s) - _last )) -lt "${NCZ_INTEL_DEFER_SECS:-86400}" ]; then

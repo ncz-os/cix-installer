@@ -823,6 +823,7 @@ _src_case local  "disabled https line"   'deb [enabled=no] https://deb.debian.or
 _src_case local  "deb822 Enabled: no"    'Types: deb' 'URIs: https://deb.debian.org/debian' 'Suites: forky' 'Enabled: no' '' 'Types: deb' 'URIs: file:///srv/mirror' 'Suites: forky'
 _src_case remote "deb822 enabled stanza" 'Types: deb' 'URIs: https://deb.debian.org/debian' 'Suites: forky' 'Enabled: yes'
 _src_case remote "enabled=yes https"     'deb [enabled=yes] https://deb.debian.org/debian forky main'
+_src_case local  "https in a trailing comment" 'deb file:///srv/mirror forky main # mirror of https://deb.debian.org/debian'
 grep -A8 '^ncz_intel_recover()' "$LIB" | grep -q . \
     && awk '/^ncz_intel_recover\(\)/,/^}/' "$LIB" | grep -q 'systemctl start ncz-intel-accel-setup.timer' \
     && awk '/^ncz_intel_recover\(\)/,/^}/' "$LIB" | grep -q '\[ -z "$(_ni_r)" \] && \[ -d /run/systemd/system \]' \
@@ -840,6 +841,16 @@ NET=up NCZ_INTEL_MAX_TRIES=1 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rc
 [ "$_rcL" = 0 ] && grep -qx done "$S" && [ ! -f "$P" ] \
     && ok "corrupt LAST= is ignored: the run re-checks and installs" \
     || bad "corrupt LAST= run rc=$_rcL status '$(cat "$S")'" "$(cat "$W/out")"
+
+mkroot
+NCZ_INTEL_MAX_TRIES=1 NET=up NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_install 1 1
+NET=up NCZ_INTEL_MAX_TRIES=1 NPUPKGS=1 NPUDRIVERS=0 run ncz_intel_accel_run
+grep -qx 'deferred:native-candidates-unpublished' "$S" || bad "future-LAST precondition: '$(cat "$S")'"
+sed -i "s/^LAST=.*/LAST=$(( $(date +%s) + 30 * 86400 ))/" "$P"
+NET=up NCZ_INTEL_MAX_TRIES=1 NPUPKGS=1 NPUDRIVERS=1 run ncz_intel_accel_run; _rcF=$?
+[ "$_rcF" = 0 ] && grep -qx done "$S" && [ ! -f "$P" ] \
+    && ok "future LAST= is ignored: the run re-checks and installs" \
+    || bad "future LAST= run rc=$_rcF status '$(cat "$S")'" "$(cat "$W/out")"
 
 echo "intel accel tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
