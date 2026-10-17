@@ -341,3 +341,59 @@ def test_esp_test_does_not_leak_artifacts_into_repo(tmp_path):
     assert required(root, 0) >= 1
     after = {p.name for p in repo.iterdir()}
     assert after == before, f"repo root gained {after - before}"
+
+
+# ---------------------------------------------------------------------------
+# Review follow-ups (2026-10-17): the symbols the writer relies on must exist
+# on the substrate module, and closure() must actually return its tuple.
+# ---------------------------------------------------------------------------
+def test_writer_symbols_exist_on_substrate_module():
+    """write-usb-image.py reads these off the loaded module by name; an absent
+    symbol would be an AttributeError only on the --di-initrd-less path."""
+    mod = _load(SUBSTRATE_MOD, "magnetar_substrate")
+    for name in ("INITRD_BUILTIN_EXPECTED_SAMPLE", "measure_substrate_initrd",
+                 "load_keep_tsv", "keep_set", "drop_reason", "Pool",
+                 "closure"):
+        assert hasattr(mod, name), f"magnetar_substrate is missing {name}"
+    assert isinstance(mod.INITRD_BUILTIN_EXPECTED_SAMPLE, (set, frozenset, tuple, list))
+    assert mod.INITRD_BUILTIN_EXPECTED_SAMPLE
+
+
+def test_closure_returns_complete_result(tmp_path):
+    """closure() must terminate and return (kept, reasons) with reasons
+    covering every kept package that was pulled in as a dependency."""
+    mod = _load(SUBSTRATE_MOD, "magnetar_substrate")
+    pool_root = tmp_path / "pool" / "main"
+    pool_root.mkdir(parents=True)
+    for name in ("alpha", "beta", "gamma"):
+        (pool_root / f"{name}_1.udeb").write_bytes(b"x")
+    pool = mod.Pool(tmp_path / "pool")
+    deps = {"alpha": ["beta"], "beta": ["gamma"]}
+    kept, reasons = mod.closure({"alpha"}, pool, deps, set())
+    assert kept == {"alpha", "beta", "gamma"}
+    assert reasons["beta"] == "dependency of alpha"
+    assert reasons["gamma"] == "dependency of beta"
+    assert isinstance(reasons, dict)
+
+
+def test_closure_skips_and_records_initrd_builtin(tmp_path):
+    mod = _load(SUBSTRATE_MOD, "magnetar_substrate")
+    pool_root = tmp_path / "pool" / "main"
+    pool_root.mkdir(parents=True)
+    for name in ("alpha", "beta"):
+        (pool_root / f"{name}_1.udeb").write_bytes(b"x")
+    pool = mod.Pool(tmp_path / "pool")
+    kept, reasons = mod.closure({"alpha"}, pool, {"alpha": ["beta"]}, {"beta"})
+    assert kept == {"alpha"}
+    assert "initrd" in reasons["beta"]
+
+
+def test_closure_terminates_on_cycle(tmp_path):
+    mod = _load(SUBSTRATE_MOD, "magnetar_substrate")
+    pool_root = tmp_path / "pool" / "main"
+    pool_root.mkdir(parents=True)
+    for name in ("a", "b"):
+        (pool_root / f"{name}_1.udeb").write_bytes(b"x")
+    pool = mod.Pool(tmp_path / "pool")
+    kept, _ = mod.closure({"a"}, pool, {"a": ["b"], "b": ["a"]}, set())
+    assert kept == {"a", "b"}

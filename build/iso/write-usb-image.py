@@ -1391,13 +1391,13 @@ def slim_installer_pool(stage_dir: Path, arch: str, installer_pool: Path,
     kept_bytes = sum(pool.udeb(n).stat().st_size for n in kept)
     dropped = []
     for name in sorted(set(pool.keys()) - kept):
-        path = pool.udeb(name)
+        udeb_path = pool.udeb(name)
         dropped.append({
             "package": name,
-            "bytes": path.stat().st_size,
+            "bytes": udeb_path.stat().st_size,
             "reason": mod.drop_reason(name, arch, flavour, builtin),
         })
-        path.unlink()
+        udeb_path.unlink()
     log(f"    magnetar substrate: keep {len(kept)} udebs ({kept_bytes} B), "
         f"drop {len(dropped)} ({total - kept_bytes} B of {total} B); "
         f"basis: {basis}")
