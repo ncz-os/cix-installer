@@ -708,6 +708,16 @@ def test_xz_output_does_not_depend_on_thread_count(writer, tmp_path):
 
 def test_unreadable_initrd_keeps_more_not_less(writer, substrate, tmp_path, fake_dpkg,
                                                monkeypatch):
+    """An unreadable initrd must not cause EXTRA drops.
+
+    The initrd measurement only ever lets the closure skip dependencies d-i
+    already has; it never justifies dropping a package. With the measurement
+    failing, the drop set must still be exactly the PROVABLE classes (here
+    partman-lvm, dropped because the preseed skips LVM -- a fact independent
+    of the initrd) and must NOT grow. partman-base is droppable by no rule and
+    is kept, which is the "keeps more" half: had the code trusted a failed
+    measurement as "everything is builtin", it would have dropped it.
+    """
     stage = tmp_path / "stage"
     make_pool(stage / "pool", {"partman-base": (100, ""), "partman-lvm": (100, "")})
     monkeypatch.setattr(writer, "release_codename", lambda: "forky")
@@ -728,6 +738,16 @@ def test_unreadable_initrd_keeps_more_not_less(writer, substrate, tmp_path, fake
     assert "measurement failed" in receipt["basis"]
     assert "partman-base" in receipt["kept"]
     assert [d["package"] for d in receipt["dropped"]] == ["partman-lvm"]
+    # The failed measurement must not change the drop set at all: the same
+    # pool with NO --di-initrd drops exactly the same packages. (A fresh stage:
+    # shedding the udebs is destructive, by design.)
+    stage2 = tmp_path / "stage2"
+    make_pool(stage2 / "pool", {"partman-base": (100, ""), "partman-lvm": (100, "")})
+    (stage2 / "dists" / "forky" / "main" / "debian-installer" / "binary-amd64").mkdir(parents=True)
+    receipt_none = writer.slim_installer_pool(stage2, "amd64", stage2 / "pool", None)
+    assert [d["package"] for d in receipt_none["dropped"]] == \
+        [d["package"] for d in receipt["dropped"]], \
+        "an unreadable initrd must not drop anything extra"
     assert calls
 
 
