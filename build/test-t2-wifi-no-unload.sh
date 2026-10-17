@@ -20,7 +20,7 @@ scan() {   # stdin: a file; prints "N: line" for every hit
         if (l !~ /brcmfmac/) return 0
         if (l ~ /(^|[^[:alnum:]_])rmmod([[:space:]]|$)/) return 1
         if (l ~ /(^|[^[:alnum:]_])kmod([[:space:]]+-[^[:space:]]+)*[[:space:]]+remove([[:space:]]|$)/) return 1
-        if (l ~ /brcmfmac[^[:space:]]*\/(unbind|remove)([^[:alnum:]_]|$)/) return 1
+        if (l ~ /\/drivers\/brcmfmac(_wcc)?\/(unbind|remove)([^[:alnum:]_]|$)/) return 1
         if (l ~ /(^|[^[:alnum:]_])modprobe([[:space:]]|$)/) {
             t = l; sub(/.*(^|[^[:alnum:]_])modprobe([[:space:]]|$)/, " ", t)
             if (t ~ /[[:space:]](-[[:alpha:]]*r[[:alpha:]]*|--remove)([[:space:]]|$)/) return 1
@@ -58,7 +58,7 @@ for s in 'modprobe -r brcmfmac' 'modprobe --remove brcmfmac' 'modprobe -q -r brc
 done
 for s in 'modprobe brcmfmac' 'modprobe -q brcmfmac' 'modprobe brcmfmac roamoff=1' \
          '# modprobe -r brcmfmac is forbidden here' 'echo brcmfmac >> /etc/modules-load.d/x.conf' \
-         'modprobe --show-depends brcmfmac' \
+         'modprobe --show-depends brcmfmac' 'echo hello > /tmp/brcmfmac_something/unbind' \
          'echo blacklist brcmfmac > /etc/modprobe.d/x.conf ; modprobe ext4 ; [ -r /x ] && echo y'; do
     [ -z "$(printf '%s\n' "$s" | scan)" ] || { echo "FAIL control wrongly caught: $s"; fail=1; }
 done
