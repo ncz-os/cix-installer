@@ -545,10 +545,10 @@ then pass "hash list prefilter honoured; a malformed prefilter FAILS CLOSED"
 else fail "hash list prefilter check failed"; fi
 
 # 10. the hash list never lives in the repository
-if $PY "$MAKEHASH" --master "$WORK/keymaster.json" --out "$ROOT/build/.hash-test.json" --quiet 2>/dev/null \
-   || [ -e "$ROOT/build/.hash-test.json" ]; then
-    rm -f "$ROOT/build/.hash-test.json"; fail "make-secret-hashes wrote a hash list inside the repository"
-else pass "make-secret-hashes refuses an output path inside the repository"; fi
+out="$($PY "$MAKEHASH" --master "$WORK/keymaster.json" --out "$ROOT/build/.hash-test.json" --quiet 2>&1)"; rc=$?
+if [ "$rc" = 2 ] && grep -q "inside the" <<<"$out" && [ ! -e "$ROOT/build/.hash-test.json" ]; then
+    pass "make-secret-hashes refuses an output path inside the repository"
+else rm -f "$ROOT/build/.hash-test.json"; fail "make-secret-hashes did not refuse an in-repo path (rc=$rc)"; fi
 out="$(NCZ_SECRET_HASHES_FILE="$ROOT/manifests/secret-hashes.example.json" \
        $PY "$SCAN" --image "$WORK/clean.img" 2>&1)"; rc=$?
 if [ "$rc" = 1 ] && grep -q "inside the" <<<"$out"; then pass "the gate refuses a hash list inside the repository"
