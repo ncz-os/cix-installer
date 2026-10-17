@@ -276,6 +276,13 @@ set(_shlibs_content "libze_intel_npu 1 intel-level-zero-npu (>= 1.38.0~)\n")
 foreach(_comp IN LISTS _expected_components)
   string(TOUPPER "${_comp}" _C)
 
+  # Upstream deb.cmake turns debug-info packaging ON for level-zero-npu and
+  # validation-npu. The global CPACK_DEBIAN_DEBUGINFO_PACKAGE=OFF set above does
+  # not override the per-component variable, so switch each one off explicitly;
+  # otherwise CPack also emits intel-level-zero-npu-dbgsym and
+  # intel-validation-npu-dbgsym .ddeb packages next to the real ones.
+  set(CPACK_DEBIAN_${_C}_DEBUGINFO_PACKAGE "OFF")
+
   # CPack derives the DEB component package name itself as
   # "${CPACK_PACKAGE_NAME}-${component}"; upstream deb.cmake never sets
   # CPACK_DEBIAN_<COMP>_PACKAGE_NAME. Mirror CPack's rule here (verified to
