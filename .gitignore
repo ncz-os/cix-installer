@@ -224,3 +224,10 @@ assets/google-chrome/
 
 # Per-session scratch: TMPDIR for author work in this workspace (never committed)
 .task-tmp/
+
+# Shipped-artifact credential gate (build/scan-shipped-secrets.py): the hash
+# list holds salted SHA-256 of real secrets and MUST NEVER be committed. Only
+# the *.example template (no hashes) is tracked.
+manifests/secret-hashes*.local
+manifests/secret-hashes.local
+*.keymaster.json

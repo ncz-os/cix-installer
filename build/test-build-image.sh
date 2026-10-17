@@ -113,6 +113,27 @@ rs="$(spos refresh-sources)"
 [ -n "$rs" ] && [ -n "$om" ] && [ "$rs" -lt "$om" ] && ok "refresh-sources runs before offline-mirror (it supplies the payload deb)" || bad "refresh-sources must run before offline-mirror (rs=$rs om=$om)"
 [ -n "$pg" ] && [ -n "$kg" ] && [ "$pg" -lt "$kg" ] && ok "provenance-gate (#$pg) runs BEFORE kvm-gate (#$kg)" || bad "provenance-gate must run before kvm-gate (pg=$pg kg=$kg)"
 [ -n "$im" ] && [ -n "$pg" ] && [ "$im" -lt "$pg" ] && ok "provenance-gate runs AFTER image (#$im)" || bad "provenance-gate must run after image (im=$im pg=$pg)"
+# The shipped-artifact credential gate is MANDATORY and sits between the image
+# and the KVM gate: it must never be skippable via --gates or a scope.
+ss="$(spos secret-scan)"
+[ -n "$ss" ] && [ -n "$im" ] && [ "$ss" -gt "$im" ] && ok "secret-scan (#$ss) runs AFTER image (#$im)" || bad "secret-scan must run after image (ss=$ss im=$im)"
+[ -n "$ss" ] && [ -n "$kg" ] && [ "$ss" -lt "$kg" ] && ok "secret-scan (#$ss) runs BEFORE kvm-gate (#$kg)" || bad "secret-scan must run before kvm-gate (ss=$ss kg=$kg)"
+if bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null | grep -qE '^[[:space:]]+\[off *\] [0-9]+ secret-scan$'; then
+    bad "secret-scan is switchable off (it must always run)"
+else
+    ok "secret-scan is never switched off by a gate/scope selection"
+fi
+gk_plan="$(bash "$BIN" --arch amd64 --full --no-publish --gates kvm --dry-run 2>/dev/null \
+    | awk '/^  stages:/{f=1;next} f&&/^    \[/{print $0}')"
+if printf '%s\n' "$gk_plan" | grep -q 'secret-scan'; then
+    if printf '%s\n' "$gk_plan" | grep -q '\[run *\] [0-9]* *secret-scan'; then
+        ok "--gates kvm still RUNS the mandatory secret-scan"
+    else
+        bad "--gates kvm listed secret-scan but did not run it"
+    fi
+else
+    bad "--gates kvm dropped secret-scan from the plan entirely"
+fi
 
 # --- 2c. fail-fast: a failing provenance stage stops the long stage -------
 # (uses the entrypoint's test-only NCZ_TEST_STAGE_CMD hook so no real stage runs)

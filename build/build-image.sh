@@ -22,6 +22,7 @@
 #   50 provenance-inputs  PROVENANCE + one-kernel check on the INPUTS (fail fast)
 #   60 layers             build the squashfs layers (stage 1)
 #   70 image              assemble the raw GPT image + receipt (stage 2)
+#   75 secret-scan        scan EVERY shipped byte for credentials (MANDATORY)
 #   80 provenance-gate    forky provenance + one-kernel over the finished image
 #   90 kvm-gate           install + boot the image in KVM + installer UI check
 #   95 receipt            write the run metadata (NOT hashed) + gate summary
@@ -117,7 +118,13 @@ build-image.sh -- the single entrypoint for a repeatable, deterministic NCZ-OS i
 STAGES (fixed order; provenance runs on the INPUTS before layers, and again on
 the finished image BEFORE the KVM gate -- never waste hours on a doomed build)
   preflight  refresh-substrate  stage-inputs  refresh-sources  offline-mirror
-  provenance-inputs  layers  image  provenance-gate  kvm-gate  receipt  archive
+  provenance-inputs  layers  image  secret-scan  provenance-gate  kvm-gate
+  receipt  archive
+
+  secret-scan is NOT optional and is NOT selectable via --gates: it runs on
+  every image, immediately after 'image' and before the KVM gate.  It fails
+  closed -- with no hash list (manifests/secret-hashes.local or
+  $NCZ_SECRET_HASHES_FILE) there is no build.
 
 SCOPE (choose ONE; default --full)
   --full                    substrate refresh + every layer + image + all gates
@@ -405,7 +412,8 @@ ncz_kernel_staging_dir() {
 # Stages
 # ---------------------------------------------------------------------------
 STAGES=(preflight refresh-substrate stage-inputs refresh-sources offline-mirror \
-        provenance-inputs layers image provenance-gate kvm-gate receipt archive)
+        provenance-inputs layers image secret-scan provenance-gate kvm-gate \
+        receipt archive)
 stage_index() {
     local want="$1" i=0 s
     for s in "${STAGES[@]}"; do [ "$s" = "$want" ] && { echo "$i"; return 0; }; i=$((i+1)); done
@@ -1274,6 +1282,72 @@ stage_image() {
 }
 
 # ---------------------------------------------------------------------------
+# Stage 75 -- shipped-artifact credential scan (MANDATORY image-build gate)
+# ---------------------------------------------------------------------------
+# Preview2 shipped arm64 only because this scan was run BY HAND; amd64 was
+# never scanned at all.  It is a stage now: it reads the finished image
+# read-only, extracts every shipped byte (each squashfs layer, every
+# initrd/initramfs cpio segment, the rescue rootfs tar.zst, every .deb
+# data/control archive in every pool and cache on the image) and matches the
+# extracted text against a salted-SHA-256 hash list plus a token-shape scan.
+#
+# FAIL CLOSED: no hash list, an unreadable layer or a scanner crash all fail
+# the build.  The hash list is the ONLY way the hashed half can run, and the
+# build host never holds a plaintext secret -- the operator generates the list
+# on a trusted machine with build/make-secret-hashes.py and copies just the
+# digests here.  manifests/secret-hashes.local is gitignored.
+#
+# The scanner needs unsquashfs and zstd on this host (checked in preflight).
+stage_secret_scan() {
+    local log="$1"
+    local img; img="$(cat "$RUN_DIR/image.path" 2>/dev/null || true)"
+    [ -n "$img" ] || img="${IMAGE_ARG:-}"
+    if [ -z "$img" ]; then
+        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA".img 2>/dev/null | tail -1)"
+    fi
+    [ -n "$img" ] && [ -f "$img" ] || { echo "[secret-scan] FAIL: no image found for $ARCH $GIT_SHA" | tee -a "$log" >&2; return 1; }
+    local hashf="${NCZ_SECRET_HASHES_FILE:-$ROOT/manifests/secret-hashes.local}"
+    # Say which half can run before doing any work: the operator must never
+    # have to read a stack trace to learn the hash list is missing.
+    if [ ! -f "$hashf" ]; then
+        echo "[secret-scan] FAIL: no hash list at $hashf" | tee -a "$log" >&2
+        echo "[secret-scan]   run build/make-secret-hashes.py on a TRUSTED machine and copy" | tee -a "$log" >&2
+        echo "[secret-scan]   only the resulting digests to manifests/secret-hashes.local (or set" | tee -a "$log" >&2
+        echo "[secret-scan]   NCZ_SECRET_HASHES_FILE).  The gate never runs without it." | tee -a "$log" >&2
+        return 1
+    fi
+    local receipt="$RUN_DIR/secret-scan.receipt.json"
+    local work="$RUN_DIR/secret-scan-work"
+    mkdir -p "$work"
+    local extra=()
+    # Tests only (build/test-shipped-secret-scan.sh drives the stage against a
+    # fixture image); a real build never sets these.
+    [ -n "${NCZ_SECRET_SCAN_ALLOW_DETACHED:-}" ] && extra+=(--allow-detached)
+    if [ -n "${NCZ_SECRET_SCAN_EXTRA_ARGS:-}" ]; then
+        read -r -a _sa <<<"$NCZ_SECRET_SCAN_EXTRA_ARGS"; extra+=("${_sa[@]}")
+    fi
+    local t0 t1
+    t0="$(date -u +%s)"
+    TMPDIR="$work" python3 -I "$ROOT/build/scan-shipped-secrets.py" \
+        --image "$img" --hash-file "$hashf" --receipt "$receipt" \
+        --work-dir "$work" --require-hashes "${extra[@]}" 2>&1 | tee -a "$log"
+    local rc="${PIPESTATUS[0]}"
+    t1="$(date -u +%s)"
+    # Keep the work dir only when the operator asked for it: a clean run must
+    # leave no extracted payload behind on the build host.
+    [ "${KEEP_WORK:-0}" = 1 ] || rm -rf "$work" 2>/dev/null || true
+    if [ "$rc" != 0 ]; then
+        echo "[secret-scan] FAIL: the shipped artifact is not shippable (rc=$rc); receipt: $receipt" | tee -a "$log" >&2
+        return 1
+    fi
+    { printf 'gate=secret-scan\nresult=PASS\nimage=%s\nsha256=%s\nhash_list=%s\nelapsed_seconds=%s\nat=%s\n' \
+        "$img" "$(sha256sum "$img" | awk '{print $1}')" "$(basename "$hashf")" "$((t1 - t0))" "$(date -u +%s)"; } \
+        > "$RUN_DIR/secret-scan.result"
+    echo "[secret-scan] PASS ($((t1 - t0))s) receipt: $receipt" | tee -a "$log"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Stage 90 -- KVM gate (includes the installer UI/screens check)
 # ---------------------------------------------------------------------------
 stage_kvm_gate() {
@@ -1394,7 +1468,7 @@ try:
     sing["n_repos"] = sr.get("n_repos")
 except Exception:
     pass
-required = {"kvm", "provenance", "one_kernel", "ui"}
+required = {"kvm", "provenance", "one_kernel", "ui", "secret_scan"}
 gates_sel = [g for g in (gates or "kvm,provenance").split(",") if g]
 meta = {
     "schema": "ncz-image-build-run/v1",
@@ -1414,6 +1488,7 @@ meta = {
     "layers": {lyr: {"fingerprint": fp, "decision": plan.get("layers", {}).get(lyr, "?")}
                for lyr, fp in plan.get("fingerprints", {}).items()},
     "gates": {"kvm": gate("kvm", "kvm-gate.result"),
+              "secret_scan": gate("secret-scan", "secret-scan.result"),
               "provenance_inputs": gate("provenance-inputs", "provenance-inputs.result"),
               "provenance": gate("provenance", "provenance.result"),
               "layers_preflight": gate("layers-preflight", "layers-preflight.result"),
@@ -1431,7 +1506,9 @@ with open(out, "w") as fh:
     fh.write("\n")
 # a small, non-hashed gate summary next to the image for the archive stage
 if img:
-    gsum = {"all_required_passed": meta["gates"]["kvm"] == "PASS" and meta["gates"]["provenance"] == "PASS",
+    gsum = {"all_required_passed": (meta["gates"]["kvm"] == "PASS"
+                                    and meta["gates"]["provenance"] == "PASS"
+                                    and meta["gates"]["secret_scan"] == "PASS"),
             "gates": meta["gates"], "required": sorted(required),
             "mode": scope, "base_pin_digest": pin_digest}
     try:
@@ -1460,6 +1537,10 @@ stage_archive() {
     fi
     if [ ! -f "$RUN_DIR/provenance.result" ] || ! grep -q '^result=PASS' "$RUN_DIR/provenance.result"; then
         echo "[archive] FAIL: refusing to copy — the provenance gate did not PASS in this run" | tee -a "$log" >&2
+        return 1
+    fi
+    if [ ! -f "$RUN_DIR/secret-scan.result" ] || ! grep -q '^result=PASS' "$RUN_DIR/secret-scan.result"; then
+        echo "[archive] FAIL: refusing to copy — the shipped-artifact credential scan did not PASS in this run" | tee -a "$log" >&2
         return 1
     fi
     ( cd "$ROOT" && bash build/stage-to-argonas.sh "$ARCH" "$(cat "$RUN_DIR/image.path")" "$RUN_DIR" ) 2>&1 | tee -a "$log"
@@ -1493,6 +1574,9 @@ stage_enabled() {
         provenance-inputs) gate_selected provenance ;;
         layers) [ "$SCOPE" = only-image ] && return 1 || return 0 ;;
         image) return 0 ;;
+        # The shipped-artifact credential gate is MANDATORY: no scope, gate
+        # selection or publish flag can switch it off (see stage_secret_scan).
+        secret-scan) return 0 ;;
         kvm-gate) gate_selected kvm ;;
         provenance-gate) gate_selected provenance ;;
         receipt) return 0 ;;
