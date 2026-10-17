@@ -529,7 +529,9 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
         # ncz-payload/ncz-fetch-payload.manifest via sgdisk + debugfs (no
         # loop mount: the gate is rootless-safe on the target side).
         local img="$1" out="$2" _dpart _dlba _dend _db
-        _dpart=$("$SGDISK" -p "$img" 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {n=$1} END {print n-1}')
+        # The data partition is the one write-usb-image.py names NCZDATA
+        # (partition 2 after NCZESP); find it by name, not by position.
+        _dpart=$("$SGDISK" -p "$img" 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && $NF == "NCZDATA" {print $1; exit}')
         [ -n "$_dpart" ] && [ "$_dpart" -ge 1 ] || return 1
         _dlba=$("$SGDISK" -i "$_dpart" "$img" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
         _dend=$("$SGDISK" -i "$_dpart" "$img" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
@@ -570,11 +572,12 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # The served file must match the manifest's URL path (usually
     # ncz-assets-<arch>.tar.gz; the pin is authoritative).
     _srv_name=$(basename "${_srv_aurl%%\?*}")
+    # Armed before the start, which can exit while its server is still alive.
+    trap 'ncz_srv_cleanup' EXIT
     ncz_gate_srv_start "$_srv_base"
     if [ "$(basename "$NCZ_GATE_SERVER_ASSETS")" != "$_srv_name" ]; then
         cp "$NCZ_GATE_SERVER_ASSETS" "$SRV_DIR/$_srv_name"
     fi
-    trap 'ncz_srv_cleanup' EXIT
     echo "  server payload at $_srv_purl"
     echo "  server bundle  at ${_srv_base%/}/$_srv_name (served from $SRV_DIR)"
     # The guest's fetcher will follow the EXACT URLs the medium pins; if a

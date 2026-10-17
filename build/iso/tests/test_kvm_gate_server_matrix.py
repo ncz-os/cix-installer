@@ -208,3 +208,14 @@ def test_check_url_requests_the_pinned_path_from_the_local_server(tmp_path):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_manifest_is_read_from_the_named_data_partition():
+    """The medium is NCZESP (1) + NCZDATA (2); the pin manifest lives on
+    NCZDATA, so the gate must select it by name, not by position."""
+    g = read("build/kvm-install-gate-gpt.sh")
+    body = g[g.index("ncz_gate_srv_extract_manifest() {"):]
+    body = body[:body.index("\n    }\n")]
+    assert '$NF == "NCZDATA"' in body, "the manifest must be read from the NCZDATA partition"
+    w = read("build/iso/write-usb-image.py")
+    assert '"--change-name=2:NCZDATA"' in w
