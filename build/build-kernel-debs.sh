@@ -14,7 +14,7 @@
 #
 # 2026-08-21: legacy 7.0.12-cix-sky1-next channel retired.
 # The shipping channel is named "mainline" (assets/kernel/mainline): the single
-# unified 7.3 Sky1 kernel (7.3.0-rc7-sky1-ncz, r289). There is no edge channel
+# unified 7.3 Sky1 kernel (7.3.0-rc7-sky1-ncz, r290). There is no edge channel
 # (retired 2026-10-05). Only mainline is packaged. linux-image-cixmini-legacy and linux-image-cixmini-lts are gone
 # from the build; the empty-transitional-package trick that used to depend on
 # the legacy channel is also gone.
@@ -186,6 +186,7 @@ CIXMINI_BOOT_MIN_VER="1.2+$BUILD_REV"
 case "${NCZ_KERNEL_DEB_EPOCH:-}" in
     '') case "$BUILD_REV" in
             r289) SOURCE_DATE_EPOCH=1791201600 ;;   # 2026-10-05T12:00:00Z (ledger rows for r289)
+            r290) SOURCE_DATE_EPOCH=1791772496 ;;   # 2026-10-12T02:34:56Z, base.pin arm64 snapshot (ledger rows for r290)
         esac ;;
     *[!0-9]*) echo "ERROR: NCZ_KERNEL_DEB_EPOCH must be an integer" >&2; exit 1 ;;
     *) SOURCE_DATE_EPOCH="$NCZ_KERNEL_DEB_EPOCH" ;;
