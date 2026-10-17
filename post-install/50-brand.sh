@@ -4,10 +4,9 @@
 # from release.conf, e.g. 26.10 "Cygnus").
 #
 # The RELEASE codename applies to BOTH variants, not just desktop. The
-# variant qualifier is just "Desktop" or "Server" (2026-07-27: retired the old "Reinhardt"=desktop /
-# "Magnetar"=server per-variant codename scheme — those competed with the
-# release name instead of qualifying it, and confused which name was "the"
-# product name).
+# variant qualifier is just "Desktop" or "Server" (2026-07-27: retired the
+# old per-variant codename scheme — those competed with the release name
+# instead of qualifying it, and confused which name was "the" product name).
 #
 # Note: NO `set -e` because pipefail + `find /missing/path | head -1` causes early exit.
 # Each step is best-effort; any failure logs and continues.
@@ -70,6 +69,12 @@ fi
 # e.g. "NCZ-OS 26.10 Cygnus Desktop, based on Debian Testing (Forky)"
 OS_PRETTY_NAME="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}, based on ${NCZ_BASE_DESCRIPTION}"
 OS_VERSION="${NCZ_RELEASE_VERSION} (${SKU_NAME} ${VARIANT_LABEL}, based on ${NCZ_BASE_DESCRIPTION})"
+# os-release LOGO: the greeter (and boot-splash) look up
+# /usr/share/{pixmaps,icons/hicolor/256x256/apps}/$LOGO.png, and 55-greeter.sh
+# installs the approved mark at exactly that path (with a legacy ncz.png
+# alias). 26.10 is the Cygnus release, so this resolves to
+# ncz-os-cygnus.png. (A release whose codename has no shipped logo would
+# break this contract — ship the asset before changing the codename.)
 if [ -n "${NCZ_BRAND_PRINT_IDENTITY:-}" ]; then
     printf 'PRETTY_NAME=%s\nVERSION=%s\nDISTRIB_DESCRIPTION=%s\n' \
         "$OS_PRETTY_NAME" "$OS_VERSION" "$OS_PRETTY_NAME"

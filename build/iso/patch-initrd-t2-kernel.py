@@ -1121,8 +1121,24 @@ def patch_t2_kernel(
         # later archive creates a DIRECTORY where the base has a SYMLINK
         # (lib -> usr/lib). Nothing in the base initrd is called "ncz".
         ncz_dir = overlay_root / "ncz"
-        if helpers or diag_busybox is not None:
-            ncz_dir.mkdir(parents=True, exist_ok=True)
+        ncz_dir.mkdir(parents=True, exist_ok=True)
+
+        # --- bake the authoritative release identity (S1-1) ----------------
+        # release.conf verbatim at /ncz/RELEASE. preseed/ncz-ui.sh's
+        # ncz_ui_brand() reads it FIRST and only falls back to the install
+        # medium's /ncz-payload/RELEASE, so every dialog title carries the
+        # identity this build was made from even if the medium copy is stale
+        # (written from an older tree) or tampered. Validated above: the bake
+        # never proceeds on an unreadable/incomplete release.conf.
+        rel_dst = ncz_dir / "RELEASE"
+        shutil.copy2(release_conf, rel_dst)
+        rel_dst.chmod(0o644)
+        log(
+            f"    baked {release_conf} -> initrd /ncz/RELEASE "
+            f"({rel_fields['NCZ_PRODUCT_NAME']} "
+            f"{rel_fields['NCZ_RELEASE_VERSION']} "
+            f"{rel_fields['NCZ_RELEASE_CODENAME']}; authoritative)"
+        )
         for h in helpers:
             dst = ncz_dir / h.name
             shutil.copy2(h, dst)
@@ -1409,8 +1425,19 @@ def main() -> int:
         "device/mount dependency). Required: there is no "
         "skip; the installer has no media preseed fallback.",
     )
-    ap.add_argument("--ssh-udeb-dir", type=Path, default=None,
-                     help="Directory of *.udeb files (openssh-server-udeb + "
+    ap.add_argument(
+        "--release-conf",
+        type=Path,
+        default=REPO_ROOT / "release.conf",
+        help="Authoritative release identity, baked into the initrd at "
+        "/ncz/RELEASE (release.conf verbatim). preseed/ncz-ui.sh's "
+        "ncz_ui_brand() reads it BEFORE the install medium's "
+        "/ncz-payload/RELEASE, so a stale/tampered medium copy can no "
+        "longer put a retired product name in the installer dialogs "
+        "(S1-1). Required: an unreadable/incomplete release.conf fails "
+        "the bake rather than shipping an ambiguous identity.",
+    )
+    ap.add_argument("--ssh-udeb-dir", type=Path, default=None,                     help="Directory of *.udeb files (openssh-server-udeb + "
                           "its real deps) baked into the initrd at "
                           "/ncz/ssh-udebs/ so early_command can udpkg -i "
                           "them with zero medium/device dependency -- d-i "
@@ -1451,6 +1478,40 @@ def main() -> int:
     if helper_dir is not None and not helper_dir.is_dir():
         log(f"FATAL: --helper-dir {helper_dir} is not a directory")
         return 1
+
+    # S1-1: bake the authoritative release identity BEFORE anything else can
+    # label the medium. ncz-ui.sh's ncz_ui_brand() reads this file ahead of the
+    # install medium's /ncz-payload/RELEASE, so a build whose release.conf is
+    # missing/incomplete must fail here -- shipping an ambiguous or stale
+    # product name into every installer dialog is the bug this guards.
+    release_conf = args.release_conf
+    if release_conf is None or not release_conf.is_file():
+        log(
+            "FATAL: a real --release-conf file is required. It is baked into "
+            "the initrd as /ncz/RELEASE, the authoritative identity every "
+            "installer dialog reads before the medium's own copy, so there is "
+            "no supported skip."
+        )
+        return 1
+    rel_fields = {}
+    for line in release_conf.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        rel_fields[key.strip()] = val.strip().strip('"').strip("'")
+    _rel_missing = [
+        k for k in ("NCZ_PRODUCT_NAME", "NCZ_RELEASE_VERSION", "NCZ_RELEASE_CODENAME")
+        if not rel_fields.get(k)
+    ]
+    if _rel_missing:
+        log(
+            f"FATAL: {release_conf} is missing identity field(s) "
+            f"{_rel_missing}; an installer medium must not be labelled "
+            f"ambiguously."
+        )
+        return 1
+
     diag_busybox = args.diag_busybox
     if diag_busybox is None:
         cand = REPO_ROOT / "assets" / "diag" / f"busybox-{args.arch}"

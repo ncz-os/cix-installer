@@ -1031,7 +1031,7 @@ echo "[20] ncz-singularity-greeter wrapper installed (native greeter on /opt/sin
 # Install the Cygnus Singularity theme into libsingularity's system theme search
 # path and write the packaged gschema defaults so the out-of-box accent is the
 # Cygnus magenta (#D6208C) via accent-color='custom' and the desktop theme is
-# Cygnus -- not the old Maximilian red. The accent is written by StyleManager to
+# Cygnus -- not the old red accent. The accent is written by StyleManager to
 # the user gtk.css at runtime; setting it in the schema DEFAULT makes it the
 # out-of-box accent, and singularity-theme='Cygnus' makes the shell load the
 # theme below.

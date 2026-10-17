@@ -6,8 +6,10 @@
 #     placeholder identifiers rejected, random fallback varies.
 #  B. preseed/hostname-suggest.sh (debconf side, stubbed): unattended never prompts and marks the
 #     questions seen; interactive asks at CRITICAL priority with the generated default and applies the
-#     operator's answer (or falls back on an invalid one); ncz_hostname= overrides; and a defensive
-#     re-run keeps the same value after a hypothetical netcfg/get_hostname reset (the 18e8a14 bug).
+#     ncz_hostname= overrides; the retired --prompt branch is GONE (S2-3): the flag is inert, no dialog
+#     is ever shown, nothing reads stdin, and an unattended run (stdin closed) exits rather than waiting;
+#     and a defensive re-run keeps the same value after a hypothetical netcfg/get_hostname reset
+#     (the 18e8a14 bug).
 # Runs the real scripts under sh, dash and (when present) busybox sh.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -90,11 +92,11 @@ EOF
 mkdir -p "$W/bin"; printf '#!/bin/sh\nexit 0\n' > "$W/bin/debconf-loadtemplate"; chmod +x "$W/bin/debconf-loadtemplate"
 mkfix h; dmi h product_uuid "3F2504E0-4F89-11D3-9A0C-0305E82C3301"
 EXPECT=$(gen h sh); EXPECT=$(name "$EXPECT")
-helper() {   # $1 = cmdline text, $2 = answer ("" = accept default), $3 = mode ("" or --prompt)
+helper() {   # $1 = cmdline text, $2 = (legacy answer; S2-3: ignored, no prompt exists), extra args are flags
     printf '%s\n' "$1" > "$W/cmdline"
     PATH="$W/bin:$PATH" NCZ_DMI_DIR="$W/h/dmi" NCZ_NET_DIR="$W/h/net" NCZ_MACHINE_ID=/nonexistent \
       NCZ_CONFMODULE="$W/confmodule" NCZ_HOSTNAME_GEN="$GEN" NCZ_HOSTNAME_STATE="$W/state" NCZ_CMDLINE="$W/cmdline" \
-      NCZ_HOSTNAME_ASKED="$W/asked" NCZ_EARLY_LOG="$W/log" NCZ_TEST_CALLS="$W/calls" NCZ_TEST_ANSWER="$2" sh "$HELPER" ${3:-} >/dev/null 2>&1
+      NCZ_EARLY_LOG="$W/log" NCZ_TEST_CALLS="$W/calls" NCZ_TEST_ANSWER="$2" sh "$HELPER" "${3:-}" </dev/null >/dev/null 2>&1
 }
 applied() { sed -n 's/^set netcfg\/get_hostname //p' "$W/calls" | tail -1; }
 
@@ -106,33 +108,53 @@ grep -q '^fset netcfg/get_hostname seen true' "$W/calls" && ok "unattended: ques
 rm -f "$W/state" "$W/calls"; helper "ncz_unattended=1" ""
 grep -q '^input' "$W/calls" && bad "ncz_unattended=1 prompted" || ok "ncz_unattended=1 never prompts"
 
-rm -f "$W/state" "$W/calls" "$W/asked"; helper "quiet splash" ""
-grep -q '^input' "$W/calls" && bad "interactive: the FIRST (early_command) run prompted; the dialog is deferred to partman/early_command" || ok "interactive: the early run never prompts (the dialog is deferred to right before partitioning)"
-check "interactive, early run: the generated name is applied for netcfg" "$(applied)" "$EXPECT"
-: > "$W/calls"; helper "quiet splash" "" --prompt
-grep -q '^input critical ncz/hostname' "$W/calls" && ok "interactive --prompt: asks at CRITICAL priority (d-i's own question is suppressed at priority=critical)" || bad "interactive --prompt: no critical prompt"
-grep -q "^set ncz/hostname $EXPECT" "$W/calls" && ok "interactive --prompt: the generated name is the seeded default" || bad "interactive --prompt: default not seeded"
-check "interactive --prompt, Enter accepted: generated name applied" "$(applied)" "$EXPECT"
-: > "$W/calls"; helper "quiet splash" "" --prompt
-grep -q '^input' "$W/calls" && bad "--prompt asked twice" || ok "--prompt asks only once"
+rm -f "$W/state" "$W/calls"; helper "quiet splash" ""
+grep -q '^input' "$W/calls" && bad "interactive: the run prompted (the hostname is automatic)" || ok "interactive: never prompts (the hostname is automatic)"
+check "interactive run: the generated name is applied for netcfg" "$(applied)" "$EXPECT"
 
-rm -f "$W/state" "$W/calls" "$W/asked"; helper "quiet" ""; helper "quiet" "Kitchen-PC" --prompt
-check "interactive, operator types a name: it wins (lower-cased)" "$(applied)" "kitchen-pc"
-[ "$(cat "$W/state")" = kitchen-pc ] && ok "the chosen name is saved for the installed system" || bad "state file not updated"
-rm -f "$W/state" "$W/calls" "$W/asked"; helper "quiet" ""; helper "quiet" "bad name!" --prompt
-check "interactive, invalid answer: falls back to the generated name" "$(applied)" "$EXPECT"
-rm -f "$W/state" "$W/calls" "$W/asked"; helper "ncz_unattended=1" ""; : > "$W/calls"; helper "ncz_unattended=1" "" --prompt
-grep -q '^input' "$W/calls" && bad "--prompt on an unattended install prompted" || ok "--prompt on an unattended install never prompts"
+# S2-3: the retired --prompt branch is GONE. The flag must be inert: a caller that
+# (re)adds it must NOT be able to re-enable a prompt, and nothing may read stdin.
+rm -f "$W/state" "$W/calls"; helper "quiet splash" "" --prompt
+grep -q '^input' "$W/calls" && bad "S2-3: --prompt still prompts (dead code path is live)" || ok "S2-3: --prompt is inert -- no dialog is ever shown"
+check "S2-3: --prompt run still applies the generated name" "$(applied)" "$EXPECT"
+grep -q "^set ncz/hostname " "$W/calls" && bad "S2-3: --prompt seeded an interactive question" || ok "S2-3: --prompt does not seed any interactive question"
+grep -qE '^(set|fset) ncz/hostname( |$)' "$W/calls" && bad "S2-3: ncz/hostname template question still touched" || ok "S2-3: the ncz/hostname template question is never touched"
+[ -e "$W/asked" ] && bad "S2-3: an \$ASKED marker is still written" || ok "S2-3: no \$ASKED marker is written"
+
+# An answer on stdin must NOT change the outcome (nothing reads stdin).
+rm -f "$W/state" "$W/calls"; printf 'Kitchen-PC\n' | helper "quiet" ""
+check "S2-3: an answer on stdin is ignored" "$(applied)" "$EXPECT"
+
+# Unattended runs must not block or prompt, even if a stray --prompt is passed.
+rm -f "$W/state" "$W/calls"; helper "ncz_unattended=1" "" --prompt
+grep -q '^input' "$W/calls" && bad "S2-3: --prompt on an unattended install prompted" || ok "S2-3: --prompt on an unattended install never prompts"
+check "S2-3: unattended + --prompt applies the generated name" "$(applied)" "$EXPECT"
 
 rm -f "$W/state" "$W/calls"; helper "ncz_components=desktop ncz_hostname=lab-07" ""
 check "ncz_hostname= overrides the generated name" "$(applied)" "lab-07"
+rm -f "$W/state" "$W/calls"; helper "ncz_components=desktop ncz_hostname=lab-07" "" --prompt
+check "S2-3: ncz_hostname= still wins with a stray --prompt" "$(applied)" "lab-07"
+
+# The script must not even LOOK at stdin: with stdin closed (unattended) it exits
+# rather than waiting, and no --prompt/answer combination can make it block.
+rm -f "$W/state" "$W/calls"
+printf '%s\n' "quiet splash" > "$W/cmdline"
+PATH="$W/bin:$PATH" NCZ_DMI_DIR="$W/h/dmi" NCZ_NET_DIR="$W/h/net" NCZ_MACHINE_ID=/nonexistent \
+  NCZ_CONFMODULE="$W/confmodule" NCZ_HOSTNAME_GEN="$GEN" NCZ_HOSTNAME_STATE="$W/state" NCZ_CMDLINE="$W/cmdline" \
+  NCZ_EARLY_LOG="$W/log" NCZ_TEST_CALLS="$W/calls" timeout 10 sh "$HELPER" --prompt </dev/null >/dev/null 2>&1
+check "S2-3: exits 0 with stdin closed (never waits on input)" "$?" 0
+# Source must not read stdin at all (S2-3 hazard: a prompt needs a read). Strip
+# comment lines first, so the explanatory prose about the retired branch is not
+# mistaken for live code.
+sed 's/[[:space:]]*#.*$//' "$HELPER" | grep -nE '\bread\b|db_input|debconf-loadtemplate|--prompt' > "$W/reads" 2>/dev/null || true
+[ -s "$W/reads" ] && bad "S2-3: hostname-suggest.sh still references prompting/reading ($(tr '\n' ';' < "$W/reads"))" || ok "S2-3: no read/db_input/template logic remains in the source"
 
 # the 18e8a14 bug: a re-run that begins with netcfg/get_hostname reset; the state-driven re-apply
-# must put the SAME name back, without prompting again
-rm -f "$W/state" "$W/calls" "$W/asked"; helper "quiet" ""; helper "quiet" "Kitchen-PC" --prompt
+# must put the SAME name back (S2-3: via generation/state, never a prompt)
+rm -f "$W/state" "$W/calls"; helper "quiet" ""
 : > "$W/calls"                               # "reload": nothing carried over except /tmp state
-helper "quiet" "somethingelse"
-check "after a preseed reload the earlier choice is re-applied" "$(applied)" "kitchen-pc"
+helper "quiet" ""
+check "after a preseed reload the earlier name is re-applied" "$(applied)" "$EXPECT"
 grep -q '^input' "$W/calls" && bad "prompted again after the reload" || ok "no second prompt after the reload"
 grep -q '^fset netcfg/get_hostname seen true' "$W/calls" && ok "re-applied value is marked seen" || bad "re-applied value not marked seen"
 

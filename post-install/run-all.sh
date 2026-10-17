@@ -171,7 +171,7 @@ NCZ_BAKED=0
 # no 61-chromium-icon.log exists. build/test-run-all-baked-allowlist.sh now runs
 # this file in baked mode against every hook on both hooks.list files and fails
 # on any ORPHAN, so the next omission fails `make` instead of shipping.
-MACHINE_HOOKS_RE="^(12-sky1-firmware|13-firmware-bom|15-mesa-sky1-pin|16-mesa-gpu-2613|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|19-sinty-nm|33-network|34-firewall|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|49-artist-pack-browser|50-brand|50-update-manager|51-ncz-tour-slides|52-vivaldi|53-chrome|54-gpu-accel|55-t2-firmware|55-greeter|56-t2-dkms|56-icon-theme|57-qotd|58-boot-hygiene|59-desktop-curate|59-ncz-screensavers-pkg|60-boot-splash|61-chromium-icon|62-cygnus-screensaver-default|63-ncz-idle-lock-order|64-ncz-lock-saver-plan|64-t2-power-cap|65-ncz-titlebar-buttons|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize|96-setuid-audit|97-firstboot-report|98-gpu-health)\.sh$"
+MACHINE_HOOKS_RE="^(10-amd64-kernel|11-fix-cixmini-boot|12-sky1-firmware|13-firmware-bom|15-mesa-sky1-pin|16-mesa-gpu-2613|19-sinty-nm|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|33-network|34-firewall|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-apple-vbt-spoof|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|49-artist-pack-browser|50-brand|50-update-manager|51-ncz-tour-slides|52-vivaldi|53-chrome|54-gpu-accel|55-greeter|55-t2-firmware|56-icon-theme|56-t2-dkms|57-qotd|58-boot-hygiene|59-desktop-curate|59-ncz-screensavers-pkg|60-boot-splash|61-chromium-icon|62-cygnus-screensaver-default|63-ncz-idle-lock-order|64-ncz-lock-saver-plan|64-t2-power-cap|65-ncz-titlebar-buttons|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize|96-setuid-audit|97-firstboot-report|98-gpu-health|98-gpu-health)\.sh$)"
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
@@ -364,6 +364,10 @@ fi
 # a console-only install -- skipping it there left 8x16 text on a 4K display.
 # It was in the skip list until 2026-08-22, harmless only because the component
 # selection was being lost and desktop was therefore never actually OFF.
+# 84-vpu-mpv / 84-vpu-vaapi: video playback (mpv/VA-API) is a desktop workload.
+# 85-power-perf-mode: tunes the desktop power/perf profile (it is the one
+# hook in this list with a hardware-flavoured name — the tuning it applies
+# only makes sense with a desktop session).
 _SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|49-artist-pack-browser|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|59-desktop-curate|60-boot-splash|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|89-npu-embed-server)\.sh$'
 # 54-gpu-accel and 55-t2-firmware are deliberately NOT in this list: GPU
 # compute (ROCm/CUDA/OpenVINO) and WiFi/BT firmware are not desktop-specific
@@ -632,17 +636,18 @@ NCZ_INSTALL_MARK=/usr/local/lib/cix-installer/INSTALL_IN_PROGRESS
 cat /proc/sys/kernel/random/boot_id > "$NCZ_INSTALL_MARK" 2>/dev/null || rm -f "$NCZ_INSTALL_MARK"
 
 # Phase 0: diagnostic affordance hooks (set +e) — run BEFORE Phase 1.
-# These create the magnetar diag account + any other "must exist before
-# the install can fail" affordances. Failures logged but never block the
-# install. Specifically: 09-diag-account.sh creates magnetar/diags
-# so a remote operator has a working SSH login the moment this chroot
-# touches /etc/passwd, regardless of whether 10-our-kernel.sh or any
-# subsequent hook crashes.
+# Anything that "must exist before the install can fail" goes here:
+# failures are logged but never block the install. Today's only member is
+# 05-time-sync.sh (a wrong clock breaks HTTPS apt for every later hook);
+# the hook set is dynamic — `ls 0[0-9]-*.sh` — so any newly staged 0X-*
+# affordance (for example the retired 09-diag-account.sh, which created a
+# break-glass diag account during the r75/r76 shakedown and now lives
+# disabled in assets/dev/) joins Phase 0 automatically.
 #
-# Review-found bug 2026-05-07: on r78-take2, magnetar was missing from
-# installed system because 09-diag-account.sh was in Phase 2 alphabetic
-# sort and the install never reached Phase 2 — 10-our-kernel.sh had
-# already aborted run-all.sh. Phase 0 fixes that.
+# Review-found bug 2026-05-07: on r78-take2, the diag account was missing
+# from installed system because 09-diag-account.sh was in Phase 2
+# alphabetic sort and the install never reached Phase 2 — 10-our-kernel.sh
+# had already aborted run-all.sh. Phase 0 fixes that.
 set +e
 tty_msg "Phase 0: diag affordance hooks (run BEFORE required kernel install)"
 for hook in $PHASE0_HOOKS; do

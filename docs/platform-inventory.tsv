@@ -33,7 +33,7 @@ assets/cix-deb-repo.gpg	sky1	-	CIX vendor apt repo key
 assets/cix-debs/	sky1	-	CIX closed-source userspace debs
 assets/cix-mm/	sky1	-	CIX multimedia bundle
 assets/cix-py/	sky1	-	CIX NPU python glue
-assets/dev/	common	-	developer/diag helpers (disabled hook, art generator)
+assets/dev/	common	-	developer/diag helpers (disabled hook)
 assets/diag/busybox-amd64	amd64	-	static busybox for failsafe console (x86_64)
 assets/diag/busybox-arm64	sky1	-	static busybox for failsafe console (aarch64)
 manifests/diag-busybox.tsv	common	-	origin pin (Debian forky busybox-static deb + binary sha256) of assets/diag/busybox-<arch>
@@ -138,7 +138,6 @@ build/first-boot-failed-allowlist.txt	common	-	KVM gate first-boot allowlist
 build/gen-components-registry.py	common	-	deterministic generator for manifests/components.tsv (manifests + NCZ_LOCAL_DEBS + KERNEL-POLICY + sky1/amd64 manifests + t2 dkms.conf; edge channel retired)
 build/gen-branding-assets.py	common	-	branding art generator
 build/gen-hooks-lists.sh	common	-	generates post-install/hooks.list.<platform> from the inventory
-build/gen-maximilian-art.py	common	-	procedural art generator
 build/google-chrome-apt-keyring.asc	common	-	Google apt key
 build/hook-arch-allowlist.tsv	common	-	hooks exempt from the heuristic arch-gate lint
 build/interactive-install.py	common	-	interactive d-i QEMU driver

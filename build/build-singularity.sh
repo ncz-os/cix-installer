@@ -2,7 +2,7 @@
 # build-singularity.sh — reproducible build of the NCZ-OS Singularity Desktop
 # payload (/opt/singularity) for CIX Sky1 (arm64).
 #
-# NCZ-OS 26.7 "Maximilian" ships Singularity Desktop (labwc/wlroots, GTK4/Vala,
+# NCZ-OS 26.10 "Cygnus" ships Singularity Desktop (labwc/wlroots, GTK4/Vala,
 # GLES on CIX libmali) as THE desktop, replacing XFCE/X11. This script produces
 # the canonical, rebuildable `singularity-opt.tgz` artifact that
 # post-install/20-desktop.sh extracts to /opt/singularity at desktop-layer bake

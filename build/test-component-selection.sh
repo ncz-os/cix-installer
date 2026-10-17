@@ -162,7 +162,10 @@ check "first early_command run asks nothing" "$(asked ncz/components)" 0
 ans ncz/components ""
 check "--prompt run exits 0" "$(sel --prompt)" 0
 check "the dialog was shown once" "$(asked ncz/components)" 1
-grep -q '^Choices-C: desktop, mgmt-container, rescue-partition$' "$FDB/tpl/ncz-components.templates" && ok "Macmini5,1 shape: exactly the three components were offered" || bad "unexpected Choices-C: $(grep '^Choices-C' "$FDB/tpl/ncz-components.templates")"
+grep -q '^Choices: desktop, mgmt-container, rescue-partition$' "$FDB/tpl/ncz-components.templates" \
+    && grep -q '^Choices-C: Full Singularity desktop (GUI labwc + greetd + branding), ncz-recovery management container (nspawn), 4 GiB NCZRESCUE partition (rescue rootfs + kernel)$' "$FDB/tpl/ncz-components.templates" \
+    && ok "Macmini5,1 shape: exactly the three components were offered (Choices: tokens, Choices-C: display labels)" \
+    || bad "unexpected Choices/Choices-C: $(grep -E '^Choices' "$FDB/tpl/ncz-components.templates")"
 check "authoritative record: nothing selected" "$(rec)" none
 check "/tmp mirror matches the record" "$(mir)" none
 check "target copy (etc/cix-installer) matches" "$(cat "$TGT/etc/cix-installer/COMPONENTS" 2>/dev/null)" none
@@ -209,6 +212,47 @@ check "KVM gate override still installs everything" "$(rec)" "desktop,browsers,w
 check "KVM gate override: no dialog" "$(asked ncz/components)" 0
 ARCH=aarch64 newdb arm; ARCH=aarch64 sel >/dev/null; ans ncz/components ""; ARCH=aarch64 sel --prompt >/dev/null
 check "arm64 (same script): nothing ticked -> none" "$(rec)" none
+
+# --------------------------------------------- 2b. S1-3: reassembly respects the answer ---------------------------------
+# The reassembly must derive browsers/wallpaper-rotator from desktop (their
+# contract) WITHOUT re-adding a component the operator explicitly deselected,
+# and without dropping tokens the operator's record carries.
+echo "== 2b. S1-3: the normalised record is the single source of truth"
+# desktop OFF, but a stale/hand-edited record still names browsers: no browser
+# packages may ride along.
+newdb s13a
+mkdir -p "$STATE"; printf '%s' "browsers,mgmt-container" > "$STATE/COMPONENTS"; : > "$STMP/.ncz-components-done"
+sel >/dev/null
+check "desktop deselected + stray browsers -> record keeps the operator's list" "$(rec)" "browsers,mgmt-container"
+grep -q 'desktop=0' "$W/log.s13a" && ok "desktop stays deselected (not re-added by the reassembly)" || bad "desktop was re-added"
+# the real regression: the OLD reassembly rebuilt from WANT_DESKTOP alone, so a
+# record WITHOUT desktop still had browsers/wallpaper-rotator appended. Assert
+# the desktop companions are absent when desktop is not selected.
+grep -qE '^SELECTED COMPONENTS: .*wallpaper-rotator' "$W/log.s13a" \
+    && bad "desktop off still appended the wallpaper-rotator companion" \
+    || ok "desktop off: no wallpaper-rotator companion appended"
+# the desktop toggle off means the desktop hooks are skipped: no browser/desktop payload is installed
+rm -rf "$TGT"; mkdir -p "$TGT"; consumer_late >/dev/null
+check "desktop deselected: no desktop overlay is applied" "$(consumer_stub)" base
+# desktop ON: the companions ride along (contract preserved) and stay contiguous
+newdb s13b
+mkdir -p "$STATE"; printf '%s' "mgmt-container,desktop" > "$STATE/COMPONENTS"; : > "$STMP/.ncz-components-done"
+sel >/dev/null
+check "desktop on -> browsers/wallpaper-rotator ride along, operator order kept" "$(rec)" "mgmt-container,desktop,browsers,wallpaper-rotator"
+# desktop ON with the companions already present: no duplicate
+newdb s13c
+mkdir -p "$STATE"; printf '%s' "desktop,browsers,wallpaper-rotator,cuda" > "$STATE/COMPONENTS"; : > "$STMP/.ncz-components-done"
+sel >/dev/null
+check "desktop on, companions already present -> deduped, order kept" "$(rec)" "desktop,browsers,wallpaper-rotator,cuda"
+# a token the reassembly does not know about must not be silently dropped when it is a valid internal token
+newdb s13d
+mkdir -p "$STATE"; printf '%s' "cuda,mgmt-container" > "$STATE/COMPONENTS"; : > "$STMP/.ncz-components-done"
+sel >/dev/null
+check "no desktop, cuda + mgmt kept in the operator's order" "$(rec)" "cuda,mgmt-container"
+# the per-toggle bits the hooks read must agree: desktop/browsers/wallpaper off
+check "no desktop: COMPONENTS_desktop bit is 0" "$(cat "$TGT/etc/cix-installer/COMPONENTS_desktop" 2>/dev/null)" 0
+check "no desktop: COMPONENTS_browsers bit is 0" "$(cat "$TGT/etc/cix-installer/COMPONENTS_browsers" 2>/dev/null)" 0
+check "no desktop: COMPONENTS_wallpaper-rotator bit is 0" "$(cat "$TGT/etc/cix-installer/COMPONENTS_wallpaper-rotator" 2>/dev/null)" 0
 
 # ------------------------------------------------------------- 3. interactive failures stop loudly ------------------
 echo "== 3. a dialog that cannot be completed never becomes 'install everything'"

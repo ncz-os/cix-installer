@@ -1,4 +1,4 @@
-# desktop.pkgs — NCZ-OS 26.7 "Maximilian" Singularity Desktop offline closure.
+# desktop.pkgs — NCZ-OS 26.10 "Cygnus" Singularity Desktop offline closure.
 #
 # Singularity Desktop (labwc/wlroots, GTK4/Vala, GLES on CIX libmali) replaces
 # XFCE/X11. This seed is the runtime closure build-desktop-mirror.sh resolves +
