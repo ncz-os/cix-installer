@@ -859,6 +859,8 @@ def patch_t2_kernel(
     firmware_pool: Path | None = None,
     net_firmware_table: Path | None = DEFAULT_NET_FIRMWARE_TABLE,
     firmware_bom: Path | None = None,
+    release_conf: Path | None = None,
+    rel_fields: dict[str, str] | None = None,
 ) -> tuple[Path, Path]:
     if not base_initrd.is_file():
         raise RuntimeError(f"FATAL: no base initrd at {base_initrd}")
@@ -952,7 +954,7 @@ def patch_t2_kernel(
 
     canonical = canonical_encode(
         {
-            "schema_version": "ncz-initrd-t2kernel/v8",
+            "schema_version": "ncz-initrd-t2kernel/v9",
             "arch": arch,
             "startup_hook": {
                 "name": NCZ_STARTUP_HOOK_NAME,
@@ -973,6 +975,9 @@ def patch_t2_kernel(
                 _stat(net_firmware_table) if fw_rows else {"present": False}
             ),
             "firmware_bom": _stat(fw_bom) if fw_bom is not None else {"present": False},
+            "release_conf": _stat(release_conf)
+            if release_conf is not None
+            else {"present": False},
             "net_firmware_debs": {k: _stat(v) for k, v in sorted(fw_debs.items())},
         }
     )
@@ -1130,6 +1135,8 @@ def patch_t2_kernel(
         # identity this build was made from even if the medium copy is stale
         # (written from an older tree) or tampered. Validated above: the bake
         # never proceeds on an unreadable/incomplete release.conf.
+        if release_conf is None or not release_conf.is_file() or not rel_fields:
+            raise RuntimeError("FATAL: release.conf is required to bake /ncz/RELEASE")
         rel_dst = ncz_dir / "RELEASE"
         shutil.copy2(release_conf, rel_dst)
         rel_dst.chmod(0o644)
@@ -1539,6 +1546,7 @@ def main() -> int:
             args.kernel_image, args.modules_tar,
             args.firmware_pool, args.net_firmware_table,
             args.firmware_bom,
+            release_conf, rel_fields,
         )
     except RuntimeError as e:
         log(str(e))
