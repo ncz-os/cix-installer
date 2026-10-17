@@ -94,5 +94,33 @@ rc=$(runsw)
 grep -q 'fallback      :' "$ROOT/assets/gpu/ncz-gpu-status" && grep -q '/run/ncz-gpu-fallback' "$ROOT/assets/gpu/ncz-gpu-status" \
     && ok "ncz-gpu-status shows the fallback note" || bad "ncz-gpu-status does not show the fallback"
 
+# 01-cixgpu-compat.conf (LD_COMPAT) must NEVER be toggled by the switcher.
+# /opt/cixgpu-compat is a complete second GL stack (cix-libglvnd 1.7.0 +
+# cix-mesa 24.0.4) that collides with the system glvnd/Mesa 26.x: two loaded
+# copies of libEGL_mesa.so.0 corrupt __eglLoadVendors' pthread_once-guarded
+# vendor list, crashing labwc/greetd with SIGSEGV. post-install/26-gpu-
+# default-mali.sh leaves it disabled at install time (commit 43f7d21); the
+# switcher used to enable_file() it on every mali-mode boot, silently undoing
+# that. Fixed by 60a39a23 ("ncz-gpu-switcher must never re-enable
+# 01-cixgpu-compat.conf"). This guard keeps it fixed.
+echo "=== switcher: never re-enables 01-cixgpu-compat.conf ==="
+touched=$(grep -nE '^[[:space:]]*(enable_file|disable_file)[[:space:]]+"?\$LD_COMPAT' "$SW" || true)
+[ -z "$touched" ] && ok "no enable_file/disable_file of \$LD_COMPAT in the switcher" \
+    || bad "switcher toggles LD_COMPAT" "$touched"
+# Behavioral: a .disabled compat conf must stay disabled across a mali boot.
+mksb "root=x sky1.gpu=vendor" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko
+: > "$SB/etc/ld.so.conf.d/00-cixgpu-pro.conf.disabled"
+: > "$SB/etc/ld.so.conf.d/01-cixgpu-compat.conf.disabled"
+runsw > /dev/null
+if [ ! -e "$SB/etc/ld.so.conf.d/01-cixgpu-compat.conf" ] && [ -e "$SB/etc/ld.so.conf.d/01-cixgpu-compat.conf.disabled" ]; then
+    ok "mali boot leaves the disabled 01-cixgpu-compat.conf disabled"
+else
+    bad "mali boot re-enabled 01-cixgpu-compat.conf" "$(ls "$SB/etc/ld.so.conf.d/")"
+fi
+# sanity: LD_PRO IS still enabled by the same boot, so the guard above is not
+# passing merely because the switcher stopped touching ld.so.conf.d at all.
+[ -e "$SB/etc/ld.so.conf.d/00-cixgpu-pro.conf" ] && ok "mali boot still enables 00-cixgpu-pro.conf (guard is not vacuous)" \
+    || bad "guard is vacuous: LD_PRO was not enabled either" "$(ls "$SB/etc/ld.so.conf.d/")"
+
 echo "gpu switcher fallback tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
