@@ -631,3 +631,6 @@ build/test-native-apt-overrides.sh	common	-	native package namespace and archite
 build/test-rescue-network-owner.sh	common	-	container-only actual rescue systemctl ownership fixtures
 build/test-t2-native-packages.sh	amd64	t2	native T2 acquisition, simulation refusal, source cleanup and staged firmware fixtures
 packages/apple-t2-audio-config/	amd64	t2	independent MIT T2 UCM generator, facts, package recipe and route contract tests
+FIX-REPORT.md	common	-	Intel NPU (component D) packaging fix report
+build/check-hook-registration.sh	common	-	gate: every post-install hook is registered in run-all.sh (fails on orphans)
+build/test-installer-disk-labels.sh	common	-	test: human-readable labels in the installer disk selector
