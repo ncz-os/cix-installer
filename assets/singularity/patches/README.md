@@ -91,6 +91,13 @@ mirkoprs task owns the upstream offer). Delete them if/when the corresponding
 change lands
 upstream.
 
+**Upstream PR:** [singularityos-lab/singularity-shell#40](https://github.com/singularityos-lab/singularity-shell/pull/40)
+-- the output-scale part of `0013` (wl_output scale listener, physical-pixel
+buffer, `wl_surface_set_buffer_scale`) was filed upstream 2026-10-14 and is
+OPEN. `0013` also carries the keyboard-failure diagnostics and the "Keyboard
+unavailable" prompt that PR #40 does not; when #40 merges, re-diff `0013`
+against the new head and keep only the parts that are still ours.
+
 ## singularity-greeter — active
 
 **Not yet filed upstream** (2026-10-11). Patches
@@ -119,10 +126,19 @@ upstream.
   `wl_output.scale` exactly as the lock does (0013). The greeter's own extras
   (user dots, power button, brand footer, session pill) are kept and do not
   move or restyle the shared card. Verified pixel-for-pixel against the lock
-  at 1920x1080@1x, 3840x2160@2x and 3072x1920@2x.
+  at 1920x1080@1x, 3840x2160@2x and 3072x1920@2x. Refreshed onto greeter
+  09007fd on 2026-10-17: upstream d7bb2de already hides the raw
+  "Password:"/"PIN:" prompt line (kept as-is) and added the TPM-aware
+  "Passphrase" label (kept); this patch routes non-plain prompts (e.g. "Enter
+  TPM PIN:") into the shared field label instead of the status row, so the
+  greeter card still matches the lock card exactly.
 
-No `**Upstream PR:**` link on purpose (nothing is filed). Real-greetd
-confirmation on hardware is still to be done.
+Upstream offers for the greeter queue (all OPEN, 2026-10-17, filed from the
+fork branches this queue was built from):
+[singularityos-lab/singularity-greeter#2](https://github.com/singularityos-lab/singularity-greeter/pull/2)
+(`0001`), [#3](https://github.com/singularityos-lab/singularity-greeter/pull/3)
+(`0002`) and [#4](https://github.com/singularityos-lab/singularity-greeter/pull/4)
+(`0003`). Delete each patch when its PR merges.
 
 ## singularity-plugins — active
 
