@@ -213,8 +213,21 @@ fi
 
 echo "[5/6] building rEFInd ESP"
 rm -rf "$WORK_DIR/esp"
+# ESP size floor: the desktop installer keeps the historical 256 MiB floor so
+# its image stays byte-identical to what this script produced before the
+# Magnetar work. The server variant opts into content sizing (--size-mib 0),
+# which is where the ~200 MiB saving comes from; build/iso/build-refind-esp.py
+# still grows the image past its floor when the kernel+initrd need the room,
+# so the 2026-09-26 "Disk full" regression cannot return either way.
+case "${NCZ_VARIANT:-desktop}" in
+  server) ESP_SIZE_MIB=0 ;;
+  desktop) ESP_SIZE_MIB=256 ;;
+  *) echo "FATAL: NCZ_VARIANT must be desktop or server, got '${NCZ_VARIANT}'" >&2; exit 2 ;;
+esac
+echo "  ESP size floor: ${ESP_SIZE_MIB} MiB (NCZ_VARIANT=${NCZ_VARIANT:-desktop})"
 python3 "$ROOT/build/iso/build-refind-esp.py" --arch "$ARCH" \
-  --out-dir "$WORK_DIR/esp" --d-i-kernel "$LINUX" --d-i-initrd "$INITRD" \
+  --out-dir "$WORK_DIR/esp" --size-mib "$ESP_SIZE_MIB" \
+  --d-i-kernel "$LINUX" --d-i-initrd "$INITRD" \
   --build-id "$BUILD_VERSION"
 
 echo "[6/6] writing and independently verifying raw GPT image"

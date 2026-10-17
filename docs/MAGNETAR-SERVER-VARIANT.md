@@ -190,12 +190,19 @@ installer -- none of which this task authorises.
 * `build/iso/build-refind-esp.py --size-mib` now defaults to **0 = size to
   content**; `_required_esp_mib()` keeps its `content × 1.15 + 8 MiB` rule and
   still grows past a request that is too small, so the 2026-09-26 "Disk full"
-  regression cannot return. `build/build-installer-image.sh` no longer passes
-  `256`. Measured: 256 MiB -> 66 MiB with the real kernel+initrd.
+  regression cannot return. `build/build-installer-image.sh` chooses the floor
+  from `NCZ_VARIANT`: **desktop keeps `--size-mib 256`** (so the desktop image
+  stays byte-identical to pre-Magnetar builds -- the ESP is built by one
+  variant-agnostic script, so this gate is what keeps desktop untouched) and
+  only `NCZ_VARIANT=server` passes `0`. Measured for server: 256 MiB -> 66 MiB
+  with the real kernel+initrd.
 * `build_data_partition_img()` loses its **256 MiB floor** (now 64 MiB). The
   20% headroom, the +32 MiB and the 64 MiB granularity are unchanged, and the
   existing content-fits check still refuses an undersized partition. Measured:
-  256 MiB -> 128 MiB for a 56.5 MB payload.
+  256 MiB -> 128 MiB for a 56.5 MB payload. This floor never binds for
+  desktop: a desktop medium carries multi-GB squashfs layers, and above ~135
+  MiB of content the old and new arithmetic give the identical size, so the
+  desktop data partition is byte-for-byte unchanged too.
 
 ### (b) udebs the server install never loads -- proved, not guessed
 

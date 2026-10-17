@@ -358,6 +358,68 @@ def test_esp_floor_is_never_zero(tmp_path):
     assert _required_esp_mib()(root, 0) >= 1
 
 
+# The ESP builder is variant-agnostic; the VARIANT decision lives in
+# build/build-installer-image.sh, which is the single caller. These tests pin
+# that decision: desktop keeps the historical 256 MiB floor (so its image stays
+# byte-identical to pre-Magnetar builds) and only the server variant opts into
+# content sizing.
+INSTALLER_IMAGE = REPO_ROOT / "build" / "build-installer-image.sh"
+
+
+def _esp_size_floor(variant: str | None) -> str:
+    """Run the script's ESP-size case statement the way bash would.
+
+    The script is `set -euo pipefail` and needs a substrate ISO etc. to run,
+    so the case block is extracted and evaluated in isolation -- this asserts
+    the REAL text in the script, not a copy of the rule.
+    """
+    text = INSTALLER_IMAGE.read_text()
+    marker = 'case "${NCZ_VARIANT:-desktop}" in'
+    assert marker in text, "the ESP-size variant case is missing from build-installer-image.sh"
+    block = text.split(marker, 1)[1]
+    # up to the matching `esac` on its own line
+    block = block.split("\nesac", 1)[0]
+    script = marker + block + "\nesac\necho \"$ESP_SIZE_MIB\"\n"
+    env = {k: v for k, v in os.environ.items() if k != "NCZ_VARIANT"}
+    if variant is not None:
+        env["NCZ_VARIANT"] = variant
+    proc = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+    if proc.returncode != 0:
+        raise AssertionError(proc.stderr or proc.stdout)
+    return proc.stdout.strip()
+
+
+def test_desktop_esp_keeps_the_historical_256_mib_floor():
+    """Desktop must stay byte-identical: its ESP floor is unchanged at 256 MiB."""
+    assert _esp_size_floor("desktop") == "256"
+    # ... and the default (unset NCZ_VARIANT) is the desktop rule, because
+    # `make image` and build-installer-image.sh callers never set it.
+    assert _esp_size_floor(None) == "256"
+
+
+def test_server_esp_is_sized_to_content():
+    assert _esp_size_floor("server") == "0"
+
+
+def test_unknown_variant_is_refused_not_guessed():
+    with pytest.raises(AssertionError):
+        _esp_size_floor("frobnicate")
+
+
+def test_desktop_esp_size_is_independent_of_content(tmp_path):
+    """With the desktop floor the resulting image is 256 MiB for the real
+    desktop inputs, and content growth still wins (the Disk-full guard)."""
+    required = _required_esp_mib()
+    root = tmp_path / "esp"
+    (root / "EFI" / "BOOT").mkdir(parents=True)
+    (root / "linux").write_bytes(b"x" * (14 << 20))
+    (root / "initrd.gz").write_bytes(b"x" * 28_602_231)  # the real amd64 d-i initrd
+    assert required(root, 256) == 256
+    # a payload bigger than the floor still grows past it
+    (root / "initrd.gz").write_bytes(b"x" * (300 << 20))
+    assert required(root, 256) > 256
+
+
 def test_esp_test_does_not_leak_artifacts_into_repo(tmp_path):
     """Regression: the ESP test once wrote a 9 MiB "linux" blob into the repo
     root (2026-10-17 review), because the fixture root was not created before
