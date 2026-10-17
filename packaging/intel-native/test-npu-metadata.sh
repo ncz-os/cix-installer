@@ -24,7 +24,8 @@ STAGE="$WORK/stage"
 CMAKEDIR="$WORK/cmake"
 mkdir -p "$CMAKEDIR"
 
-VER="1.38.0.ncz1"
+VER="1.38.0.ncz2"
+DEB_VER="${VER}~deb12u1"
 SDE=1700000000
 
 pkg_for() {
@@ -53,7 +54,7 @@ make_stage() {
 write_driver() {
   local out="$1"
   local ver="$VER"
-  local deb_ver="${ver}~deb12u1"
+  local deb_ver="$DEB_VER"
   cat > "$out" <<EOF
 set(CPACK_GENERATOR "DEB")
 set(CPACK_TEMPORARY_DIRECTORY "$STAGE")
@@ -68,6 +69,14 @@ message(STATUS "T-CTRL-DRIVER-COMPILER-NPU=\${CPACK_DEBIAN_DRIVER-COMPILER-NPU_P
 message(STATUS "T-CTRL-FW-NPU=\${CPACK_DEBIAN_FW-NPU_PACKAGE_CONTROL_EXTRA}")
 message(STATUS "T-CTRL-LEVEL-ZERO-NPU=\${CPACK_DEBIAN_LEVEL-ZERO-NPU_PACKAGE_CONTROL_EXTRA}")
 message(STATUS "T-CTRL-VALIDATION-NPU=\${CPACK_DEBIAN_VALIDATION-NPU_PACKAGE_CONTROL_EXTRA}")
+message(STATUS "T-SHLIBDEPS-DRIVER-COMPILER-NPU=\${CPACK_DEBIAN_DRIVER-COMPILER-NPU_PACKAGE_SHLIBDEPS}")
+message(STATUS "T-SHLIBDEPS-FW-NPU=\${CPACK_DEBIAN_FW-NPU_PACKAGE_SHLIBDEPS}")
+message(STATUS "T-SHLIBDEPS-LEVEL-ZERO-NPU=\${CPACK_DEBIAN_LEVEL-ZERO-NPU_PACKAGE_SHLIBDEPS}")
+message(STATUS "T-SHLIBDEPS-VALIDATION-NPU=\${CPACK_DEBIAN_VALIDATION-NPU_PACKAGE_SHLIBDEPS}")
+message(STATUS "T-DEPENDS-DRIVER-COMPILER-NPU=\${CPACK_DEBIAN_DRIVER-COMPILER-NPU_PACKAGE_DEPENDS}")
+message(STATUS "T-DEPENDS-FW-NPU=\${CPACK_DEBIAN_FW-NPU_PACKAGE_DEPENDS}")
+message(STATUS "T-DEPENDS-LEVEL-ZERO-NPU=\${CPACK_DEBIAN_LEVEL-ZERO-NPU_PACKAGE_DEPENDS}")
+message(STATUS "T-DEPENDS-VALIDATION-NPU=\${CPACK_DEBIAN_VALIDATION-NPU_PACKAGE_DEPENDS}")
 EOF
 }
 
@@ -147,6 +156,36 @@ run_positive() {
   printf '%s\n' "$(ctrl_of FW-NPU)" | grep -q "/upstream/fw-postinst" || {
     echo "fw-npu upstream postinst was dropped" >&2; exit 1; }
 
+  # dpkg-shlibdeps must stay enabled for every component; when CPackDeb sees
+  # the flag off it emits a package with no Depends at all and no warning.
+  for comp in DRIVER-COMPILER-NPU FW-NPU LEVEL-ZERO-NPU VALIDATION-NPU; do
+    v=$(printf '%s\n' "$out" | sed -n "s/^-- T-SHLIBDEPS-$comp=//p")
+    [ "$v" = "ON" ] || { echo "shlibdeps not ON for $comp (got '$v')" >&2; exit 1; }
+  done
+
+  # Upstream Intel inter-package relations, pinned to the package version.
+  lvl_depends=$(printf '%s\n' "$out" | sed -n 's/^-- T-DEPENDS-LEVEL-ZERO-NPU=//p')
+  case "$lvl_depends" in
+    *"intel-fw-npu (= ${DEB_VER})"*) ;;
+    *) echo "level-zero-npu missing intel-fw-npu (= ${DEB_VER}): '$lvl_depends'" >&2; exit 1;;
+  esac
+  case "$lvl_depends" in
+    *"intel-driver-compiler-npu (= ${DEB_VER})"*) ;;
+    *) echo "level-zero-npu missing intel-driver-compiler-npu (= ${DEB_VER}): '$lvl_depends'" >&2; exit 1;;
+  esac
+
+  val_depends=$(printf '%s\n' "$out" | sed -n 's/^-- T-DEPENDS-VALIDATION-NPU=//p')
+  case "$val_depends" in
+    *"intel-level-zero-npu (= ${DEB_VER})"*) ;;
+    *) echo "validation-npu missing intel-level-zero-npu (= ${DEB_VER}): '$val_depends'" >&2; exit 1;;
+  esac
+
+  # driver-compiler-npu and fw-npu carry no NCZ-internal relation.
+  for comp in DRIVER-COMPILER-NPU FW-NPU; do
+    v=$(printf '%s\n' "$out" | sed -n "s/^-- T-DEPENDS-$comp=//p")
+    [ -z "$v" ] || { echo "unexpected $comp Depends: '$v'" >&2; exit 1; }
+  done
+
   echo 'positive: ok'
 }
 
@@ -201,6 +240,14 @@ make_stage
 sed 's/set(CPACK_PACKAGE_VERSION .*/set(CPACK_PACKAGE_VERSION "9.9.9")/' \
   "$CMAKEDIR/positive.cmake" > "$CMAKEDIR/negative.cmake"
 expect_fail wrong-version
+
+# stale revision: the ~ncz1 packages are exactly the ones that shipped without
+# Depends, so the overlay must refuse them instead of silently reproducing the
+# broken packages.
+make_stage
+sed 's/set(CPACK_PACKAGE_VERSION .*/set(CPACK_PACKAGE_VERSION "1.38.0.ncz1")/' \
+  "$CMAKEDIR/positive.cmake" > "$CMAKEDIR/negative.cmake"
+expect_fail stale-revision
 
 # wrong package name: CPack derives <CPACK_PACKAGE_NAME>-<component>, so a
 # different vendor prefix must be rejected.

@@ -65,8 +65,9 @@ mkdir -p "$BUILD_DIR"
 # npu-driver/cmake/packaging/setup.cmake):
 #  - STACK_VERSION: upstream project version (default 1.38.0).
 #  - BUILD_NUMBER: upstream build number string appended to PROJECT_VERSION
-#    in CPACK_PACKAGE_VERSION. We set it to "ncz1" so the resulting Debian
-#    version is 1.38.0.ncz1.
+#    in CPACK_PACKAGE_VERSION. We set it to "ncz2" so the resulting Debian
+#    version is 1.38.0.ncz2 (~ncz1 packages shipped without Depends and must
+#    not be mistaken for the fixed ones).
 #  - ENABLE_NPU_COMPILER_BUILD=ON: build the public NPU compiler from source
 #    via upstream ExternalProject (compiler/compiler_source.cmake).
 #  - ENABLE_VALIDATION_BUILD: upstream default is ON; we keep it ON to
@@ -79,8 +80,10 @@ mkdir -p "$BUILD_DIR"
 #  - CPACK_GENERATOR=DEB and CPACK_DEB_COMPONENT_INSTALL=ON: upstream
 #    packaging/setup.cmake selects deb generator on Debian hosts and
 #    enumerates components; component install is supported.
-#  - CPACK_DEBIAN_PACKAGE_SHLIBDEPS=ON: upstream setup.cmake relies on
-#    CPack shlibdeps for the level-zero-npu component.
+#  - CPACK_DEBIAN_PACKAGE_SHLIBDEPS=ON: required for all four components so
+#    CPack runs dpkg-shlibdeps and each package declares its shared-library
+#    dependencies. npu-debian-metadata.cmake additionally sets the per-component
+#    form and the hand-written inter-package relations.
 #
 # Upstream CPACK_PACKAGE_VERSION is ${PROJECT_VERSION}.${BUILD_NUMBER};
 # we do not override it, we only set BUILD_NUMBER.
@@ -91,7 +94,7 @@ cmake -G Ninja \
   -DCMAKE_INSTALL_PREFIX=/usr \
   -DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu \
   -DSTACK_VERSION="$DRV_VERSION" \
-  -DBUILD_NUMBER=ncz1 \
+  -DBUILD_NUMBER=ncz2 \
   -DENABLE_NPU_COMPILER_BUILD=ON \
   -DENABLE_VALIDATION_BUILD=ON \
   -DCPACK_GENERATOR=DEB \

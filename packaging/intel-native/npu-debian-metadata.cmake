@@ -11,12 +11,23 @@
 #                                 for driver-compiler-npu and level-zero-npu
 #   4. no-shlibs               - declares shlibs for level-zero-npu
 #                                 (control member, same mechanism)
+#   5. no-depends               - runs dpkg-shlibdeps per component
+#                                 (CPACK_DEBIAN_<COMP>_PACKAGE_SHLIBDEPS=ON) and
+#                                 adds the upstream inter-package relations
+#                                 (level-zero -> fw + compiler at the same
+#                                 version, validation -> level-zero) as
+#                                 CPACK_DEBIAN_<COMP>_PACKAGE_DEPENDS.
+#                                 The ~ncz1 packages carried no Depends at all,
+#                                 so they installed on a bare Forky system and
+#                                 left libtbb.so.12, libOpenCL.so.1,
+#                                 libyaml-cpp.so.0.9 and libze_loader.so.1
+#                                 unresolved.
 #   6. control-file-has-bad-permissions - forces CPACK_DEBIAN_PACKAGE_CONTROL_
 #                                 STRICT_PERMISSION=ON so CPack applies 0755 to
 #                                 postinst/postrm in CONTROL_EXTRA
 #
-# Blocker 5 (missing-soname) and blocker 7 (maintainer) cannot be fixed from
-# an overlay and are documented in FIX-REPORT.md.
+# Remaining blocker (missing-soname) cannot be fixed from an overlay and is
+# documented in FIX-REPORT.md.
 
 if(NOT CPACK_GENERATOR STREQUAL "DEB")
   message(FATAL_ERROR "npu-debian-metadata: DEB generator required")
@@ -32,14 +43,14 @@ if(NOT _actual_components STREQUAL "driver-compiler-npu;fw-npu;level-zero-npu;va
   message(FATAL_ERROR "npu-debian-metadata: CPACK_COMPONENTS_ALL must be exactly driver-compiler-npu;fw-npu;level-zero-npu;validation-npu (got '${_actual_components}')")
 endif()
 
-if(NOT CPACK_PACKAGE_VERSION STREQUAL "1.38.0.ncz1")
+if(NOT CPACK_PACKAGE_VERSION STREQUAL "1.38.0.ncz2")
   message(FATAL_ERROR "npu-debian-metadata: unexpected CPACK_PACKAGE_VERSION '${CPACK_PACKAGE_VERSION}'")
 endif()
 
 # Upstream deb.cmake appends ~${LINUX_SYSTEM_NAME}${LINUX_SYSTEM_VERSION_ID} to
 # CPACK_PACKAGE_VERSION to form the full Debian version.  We do not override it;
 # we only verify it has the expected prefix.
-if(NOT CPACK_DEBIAN_PACKAGE_VERSION MATCHES "^1\\.38\\.0\\.ncz1~")
+if(NOT CPACK_DEBIAN_PACKAGE_VERSION MATCHES "^1\\.38\\.0\\.ncz2~")
   message(FATAL_ERROR "npu-debian-metadata: unexpected CPACK_DEBIAN_PACKAGE_VERSION '${CPACK_DEBIAN_PACKAGE_VERSION}'")
 endif()
 
@@ -70,11 +81,22 @@ endif()
 find_program(_GZIP gzip REQUIRED)
 find_program(_STRIP strip REQUIRED)
 
-# Disable the shlibdeps scan and dbgsym packaging so CPack does not re-glob the
-# staged tree after we have written our metadata files.
+# Do NOT disable the shlibdeps scan: dpkg-shlibdeps is what fills in the
+# Depends field of all four packages.  Without it every package installed with
+# zero dependencies and ldd reported gaps on a stock Forky system
+# (libopenvino_intel_npu_compiler.so -> libtbb.so.12, npu-umd-test ->
+# libOpenCL.so.1 / libyaml-cpp.so.0.9 / libze_loader.so.1).  It is switched on
+# per component further down, together with the hand-written inter-package
+# Depends that dpkg-shlibdeps cannot know about.
+#
+# GENERATE_SHLIBS stays off: we write the shlibs member by hand (below) for
+# libze_intel_npu.so.1 only, and dbgsym packaging stays off so the payload is
+# stripped in place instead of being split into .ddeb packages.
 set(CPACK_DEBIAN_PACKAGE_GENERATE_SHLIBS OFF)
 set(CPACK_DEBIAN_DEBUGINFO_PACKAGE OFF)
-set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
+# Fail loudly instead of silently degrading to a Depends-less package if
+# dpkg-shlibdeps is not installed on the packaging host.
+find_program(_SHLIBDEPS dpkg-shlibdeps REQUIRED)
 
 # Force strict control-extra permissions: CPackDeb.cmake (CMake >= 3.28) passes
 # this value through to the C++ DebGenerator which applies 0755 to
@@ -283,6 +305,32 @@ foreach(_comp IN LISTS _expected_components)
   # otherwise CPack also emits intel-level-zero-npu-dbgsym and
   # intel-validation-npu-dbgsym .ddeb packages next to the real ones.
   set(CPACK_DEBIAN_${_C}_DEBUGINFO_PACKAGE "OFF")
+
+  # --- Depends ------------------------------------------------------------
+  # Two sources, both merged by CPackDeb into a single Depends field:
+  #   1. dpkg-shlibdeps (per component), which resolves every NEEDED entry of
+  #      every ELF in the staged tree to a Debian Forky package: libtbb12,
+  #      ocl-icd-opencl-dev's libOpenCL.so.1, libyaml-cpp0.9, libze1,
+  #      libc6, libgcc-s1, ...
+  #   2. the hand-written inter-package relations below, which dpkg-shlibdeps
+  #      cannot infer because the four components are separate packages that
+  #      are always released in lockstep.
+  # CPackDeb falls back to "no dependencies at all" (not an error) when the
+  # component SHLIBDEPS flag is off, so set it explicitly for all four.
+  set(CPACK_DEBIAN_${_C}_PACKAGE_SHLIBDEPS "ON")
+  if(_comp STREQUAL "level-zero-npu")
+    # The UMD needs the firmware and the compiler plugin at the exact same
+    # version; these are the relations upstream Intel publishes.
+    set(CPACK_DEBIAN_${_C}_PACKAGE_DEPENDS
+      "intel-fw-npu (= ${_full_version}),intel-driver-compiler-npu (= ${_full_version})")
+  elseif(_comp STREQUAL "validation-npu")
+    # The validation apps exercise the UMD, so the UMD is a hard dependency.
+    set(CPACK_DEBIAN_${_C}_PACKAGE_DEPENDS
+      "intel-level-zero-npu (= ${_full_version})")
+  else()
+    # driver-compiler-npu and fw-npu have no NCZ-internal dependencies.
+    set(CPACK_DEBIAN_${_C}_PACKAGE_DEPENDS "")
+  endif()
 
   # CPack derives the DEB component package name itself as
   # "${CPACK_PACKAGE_NAME}-${component}"; upstream deb.cmake never sets
