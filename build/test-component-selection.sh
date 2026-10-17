@@ -148,7 +148,8 @@ consumer_bootloader() { # -> default rEFInd entry
     $SHX "$W/bl.$T.sh" 2>/dev/null | sed -n 's/^DEFAULT=//p'
 }
 consumer_cuda() {   # -> yes|no
-    { extract "$ROOT/post-install/54-gpu-accel.sh" '^ncz_cuda_component_wanted[(][)] [{]' '^[}]$'
+    { extract "$ROOT/post-install/54-gpu-accel.sh" '^ncz_variant[(][)] [{]' '^[}]$'
+      extract "$ROOT/post-install/54-gpu-accel.sh" '^ncz_cuda_component_wanted[(][)] [{]' '^[}]$'
       echo 'ncz_cuda_component_wanted && echo yes || echo no'; } | redirect > "$W/cuda.$T.sh"
     bash "$W/cuda.$T.sh" 2>/dev/null
 }

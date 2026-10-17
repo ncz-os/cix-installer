@@ -573,10 +573,17 @@ test-platform:
 # write-usb-image.py (assets move off the medium, pinned; substrate udebs stay;
 # desktop demands a baked base.squashfs) and the fetcher's failure semantics
 # against a real HTTP server.
-.PHONY: test-magnetar-server-variant
+.PHONY: test-magnetar-server-variant test-magnetar-server-accel
 test-magnetar-server-variant:
 	@python3 -m pytest $(ROOT)/build/iso/tests/test_write_usb_image_server_variant.py -q
 	@sh $(ROOT)/build/iso/tests/test-ncz-fetch-payload.sh
+
+# SCOPE-002: the server variant treats a missing/omitting COMPONENTS record as
+# opt-in for every accelerator the detected hardware has, the desktop variant
+# keeps its pre-SCOPE-002 behaviour byte-for-byte, and the rEFInd menu on server
+# stays Console + Rescue Partition only.
+test-magnetar-server-accel:
+	@bash $(ROOT)/build/test-magnetar-server-accel.sh
 
 # boot-speed regression tests: no Type=oneshot unit may
 # sit in multi-user.target's critical chain just to poll for the network.
@@ -701,6 +708,7 @@ parity:
 	build/test-installer-brltty-banner.sh
 	build/test-installer-flow.sh
 	build/test-component-selection.sh
+	build/test-magnetar-server-accel.sh
 	build/test-usb2-rescan-sky1-only.sh
 	build/test-usb2-rescan-greetd.sh
 	branding/cygnus/tests/test-refind-theme-config.sh
