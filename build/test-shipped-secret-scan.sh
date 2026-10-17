@@ -65,11 +65,18 @@ mk_base_tree() {   # <dir> <mode>   mode = clean|leaky
     : > "$d/etc/apt/apt.conf.d.placeholder"
     # A documented public apt keyring: a PGP PUBLIC KEY BLOCK with a body that
     # happens to look like a base64 secret.  It must never trip the gate.
-    {
-        printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n'
-        printf '%s\n' "$FAKE_B64"
-        printf -- '-----END PGP PUBLIC KEY BLOCK-----\n'
-    } > "$d/usr/share/keyrings/debian-archive-keyring.gpg"
+    $PY - "$FAKE" > "$d/usr/share/keyrings/debian-archive-keyring.gpg" <<'PYK'
+import base64, sys
+key = b"\x04" + bytes(range(1, 64))           # a public-key packet body
+uid = b"fixture " + sys.argv[1].encode()       # a user ID carrying the value
+pk = b"\x99" + len(key).to_bytes(2, "big") + key
+ud = b"\xb4" + bytes([len(uid)]) + uid
+b64 = base64.b64encode(pk + ud).decode()
+print("-----BEGIN PGP PUBLIC KEY BLOCK-----\n")
+for i in range(0, len(b64), 64):
+    print(b64[i:i + 64])
+print("-----END PGP PUBLIC KEY BLOCK-----")
+PYK
     cp "$d/usr/share/keyrings/debian-archive-keyring.gpg" "$d/etc/apt/keyrings/ncz-apt-policy.asc"
     printf 'Type=oneshot\nExecStart=/usr/local/bin/ncz-first-boot\n' > "$d/etc/systemd-placeholder.service"
     if [ "$mode" = leaky ]; then
@@ -610,7 +617,7 @@ for v in g.secret_variants([odd], "s"):
 sc = g.Scanner(hs, shapes=False)
 assert g.scan_candidate(sc, b"pw=" + odd + b"\n", "/etc/x.conf"), "special-character value missed"
 # keyring exemption needs real public key bytes
-assert g.looks_public_key(b"-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nabc\n-----END PGP PUBLIC KEY BLOCK-----\n")
+assert g.looks_public_key(b"-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n" + __import__("base64").b64encode(b"\x99\x00\x03abc") + b"\n-----END PGP PUBLIC KEY BLOCK-----\n")
 assert g.looks_public_key(b"\x99\x00\x03abc")
 assert not g.looks_public_key(b"GITLAB_TOKEN=" + fake)
 assert not g.looks_public_key(b"-----BEGIN PGP PUBLIC KEY BLOCK-----\n-----BEGIN PRIVATE KEY-----\n")
@@ -666,10 +673,21 @@ sc = scanner_for(v)
 assert not g.scan_candidate(sc, b"HOST=" + v[2:] + b"\n", "/x"), "suffix of a value matched"
 assert g.scan_candidate(sc, b"tok=xy" + v + b"\n", "/x"), "value mid-token missed"
 # keyring files must be ENTIRELY public key material
-blk = b"-----BEGIN PGP PUBLIC KEY BLOCK-----\nComment: x\n\nmQENBF\n=abcd\n-----END PGP PUBLIC KEY BLOCK-----\n"
+pkt = b"\x99\x00\x03abc\xb4\x02id"
+blk = (b"-----BEGIN PGP PUBLIC KEY BLOCK-----\nComment: x\n\n" + base64.b64encode(pkt)
+       + b"\n=abcd\n-----END PGP PUBLIC KEY BLOCK-----\n")
 assert g.looks_public_key(blk)
 assert not g.looks_public_key(blk + b"GITLAB_TOKEN=" + fake + b"\n")
-assert not g.looks_public_key(blk.replace(b"mQENBF", b"mQENBF\nGITLAB_TOKEN=" + fake))
+# a base64-encoded credential dressed as a key block is not a key
+fakeblk = (b"-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n" + base64.b64encode(b"glpat-" + fake)
+           + b"\n-----END PGP PUBLIC KEY BLOCK-----\n")
+assert not g.looks_public_key(fakeblk), "base64 credential in an armor block exempted"
+# a PRIVATE KEY body is flagged even right after a PUBLIC KEY label
+sc2 = g.Scanner(g.HashSet("s"), shapes=True)
+pem = b"-----BEGIN PUBLIC KEY-----\n-----BEGIN RSA PRIVATE KEY-----\n" + b"M" * 64 + b"\n"
+assert sc2.scan_shapes(pem, "/etc/x.pem"), "private key after a public label missed"
+# a 256-byte value with a 1025-byte window is a legal hash list entry
+assert max(x["length"] for x in g.secret_variants([b"!" * 256], "s")) <= g.MAX_WINDOW_LEN
 assert not g.looks_public_key(b"\x99\x00\x03abc" + b"GITLAB_TOKEN=" + fake)
 assert g.looks_public_key(b"\x99\x00\x03abc\xb4\x02id")   # pubkey + user id
 PY

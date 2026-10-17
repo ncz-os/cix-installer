@@ -200,11 +200,15 @@ ARCHIVE_MAGIC = (
 FIXTURE_SECRET = ["ncz", "fixture", "leak", "token"]
 
 
+# Longest hashed window: base64 (4/3) of a fully percent-encoded (3x) value.
+MAX_WINDOW_LEN = 6 * MAX_SECRET_LEN
+
+
 def lex_overlap() -> int:
     """Overlap between lexing chunks: longer than the longest hashed window
     (a MAX_SECRET_LEN value's percent-encoded form, up to 4x), so any window
     straddling a chunk boundary is lexed whole in the next chunk."""
-    return 4 * MAX_SECRET_LEN + 64
+    return MAX_WINDOW_LEN + 64
 
 
 class Unreadable(Exception):
@@ -294,7 +298,7 @@ class HashSet:
         lengths = doc.get("lengths")
         if lengths is not None:
             if (not isinstance(lengths, list) or not lengths
-                    or not all(isinstance(n, int) and HASH_MIN_LEN <= n <= 4 * MAX_SECRET_LEN
+                    or not all(isinstance(n, int) and HASH_MIN_LEN <= n <= MAX_WINDOW_LEN
                                for n in lengths)):
                 raise Unreadable(f"the hash file {path} has a malformed 'lengths' list")
             self.lengths = sorted(set(lengths))
@@ -480,7 +484,7 @@ def parse_gpt(fh) -> list[dict]:
     return parts
 
 
-def fat_walk(img_fh, part: dict) -> list[dict]:
+def fat_walk(img_fh, part: dict, names: list | None = None) -> list[dict]:
     """Files on a FAT12/16/32 ESP.  Directories are walked by hand (the ESP is
     small); every file is returned with its byte span inside the image."""
     base = part["offset"]
@@ -605,6 +609,8 @@ def fat_walk(img_fh, part: dict) -> list[dict]:
             start = (hi << 16) | struct.unpack_from("<H", ent, 26)[0]
             size = struct.unpack_from("<I", ent, 28)[0]
             full = f"{path}/{name}".lstrip("/")
+            if names is not None:
+                names.append("/" + full)
             if attr & 0x10:
                 queue.append((full, start))
             else:
@@ -678,7 +684,7 @@ def extent_len(raw_len: int) -> tuple[int, bool]:
     return raw_len, False
 
 
-def ext4_walk(img_fh, part: dict) -> list[dict]:
+def ext4_walk(img_fh, part: dict, names: list | None = None) -> list[dict]:
     """Files on an ext2/3/4 data partition (the payload partition)."""
     base = part["offset"]
     img_fh.seek(base + 1024)
@@ -900,6 +906,8 @@ def ext4_walk(img_fh, part: dict) -> list[dict]:
             if name in (".", ".."):
                 continue
             full = path.rstrip("/") + "/" + name
+            if names is not None:
+                names.append(full)
             ci = inode(child)
             if stat.S_ISDIR(ci["mode"]):
                 stack.append((full, child))
@@ -946,7 +954,18 @@ def _armored_public_only(data: bytes) -> bool:
         in_headers = False
         if not _ARMOR_B64.match(line):
             return False
-    return seen and label is None
+    if not (seen and label is None):
+        return False
+    # the base64 must decode to real public key material, not any bytes
+    for lab, raw in _armor_bodies(data):
+        if raw is None:
+            return False
+        if lab == b"PGP PUBLIC KEY BLOCK":
+            if not _openpgp_public_packets(raw):
+                return False
+        elif not raw.startswith(b"\x30"):  # DER SEQUENCE (cert / SPKI)
+            return False
+    return True
 
 
 def _openpgp_public_packets(data: bytes) -> bool:
@@ -995,6 +1014,31 @@ def looks_public_key(data: bytes) -> bool:
     if data.lstrip()[:5] == b"-----":
         return _armored_public_only(data)
     return _openpgp_public_packets(data)
+
+
+def _armor_bodies(data: bytes):
+    """(label, decoded body) for each armor block (checksum line dropped)."""
+    label, body, in_headers = None, [], False
+    for line in data.replace(b"\r", b"").split(b"\n"):
+        if label is None:
+            m = _ARMOR_BEGIN.match(line)
+            if m:
+                label, body, in_headers = m.group(1), [], True
+            continue
+        if line == b"-----END " + label + b"-----":
+            try:
+                yield label, base64.b64decode(b"".join(body), validate=True)
+            except ValueError:
+                yield label, None
+            label = None
+            continue
+        if in_headers and (_ARMOR_HDR.match(line) or not line):
+            in_headers = in_headers and bool(line)
+            continue
+        in_headers = False
+        if line.startswith(b"=") and len(line) == 5:
+            continue                       # CRC24 checksum
+        body.append(line)
 
 
 def public_keyring_exempt(path: str, data: bytes) -> bool:
@@ -1175,8 +1219,10 @@ def expand(name: str, data: bytes, label: str, depth: int = 0):
         return
     if data[:6] in (b"070701", b"070702", b"070707"):
         for mname, payload in cpio_members(data, label):
-            if not payload or mname in (".", "./"):
-                continue          # a directory entry, never content
+            if mname in (".", "./"):
+                continue
+            # empty files and directories are yielded too: their names are
+            # scanned with the member list (an empty payload costs nothing)
             yield f"{label}/{mname.lstrip('./')}", payload
         return
     if len(data) > 262 and data[257:262] == b"ustar":
@@ -1274,9 +1320,8 @@ class Scanner:
         for name, rx in TOKEN_SHAPES.items():
             for m in rx.finditer(data):
                 if name == "pem-private-key":
-                    window = data[max(0, m.start() - 4096):m.start()]
-                    if NON_SECRET_PEM_LABELS.search(window[-120:]):
-                        continue
+                    # the match itself is a PRIVATE KEY header plus body; a
+                    # public label nearby does not make it public
                     self._shape_hit(hits, name, m)
                     continue
                 if public_keyring:
@@ -1345,7 +1390,7 @@ def scan_candidate(scanner: Scanner, data: bytes, path: str) -> list[dict]:
         # a different value and would not be in the list).
         digest = scanner.hashes.digest
         known = scanner.hashes.digests
-        lengths = scanner.hashes.lengths or range(HASH_MIN_LEN, 4 * MAX_SECRET_LEN + 1)
+        lengths = scanner.hashes.lengths or range(HASH_MIN_LEN, MAX_WINDOW_LEN + 1)
         prefixes = scanner.hashes.prefixes
         salt_pd = scanner.hashes.salt + PREFIX_DOMAIN
         sha = hashlib.sha256
@@ -1748,13 +1793,15 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
         for part in parts:
             kind = part["kind"]
             try:
-                files = fat_walk(fh, part) if kind == "fat" else ext4_walk(fh, part)
+                pnames: list[str] = []
+                files = (fat_walk(fh, part, pnames) if kind == "fat"
+                         else ext4_walk(fh, part, pnames))
             except Unreadable as exc:
                 raise Unreadable(f"partition {part['index']} is unreadable: {exc}")
             tasks = []
             unit = "esp" if kind == "fat" else "partition"
             lname = "esp" if kind == "fat" else f"part{part['index']}"
-            scan_names(rep, scanner, lname, [f["path"] for f in files])
+            scan_names(rep, scanner, lname, pnames)
             for f in files:
                 path = f["path"]
                 data = f["bytes"]
