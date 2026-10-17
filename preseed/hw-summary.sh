@@ -305,6 +305,7 @@ _is_sky1() {
 
 p_gpu() {
     _any=0
+    _last_name=
     _pci=$(_pci_devices)
     # Sky1's Mali-G720 is an on-SoC platform device, not a PCI function: the
     # engine finds it as /dev/mali0, never on the PCI bus.
@@ -394,7 +395,6 @@ p_other() {
         [ "$_any" = 0 ] && { printf 'Other:\n'; _any=1; }
         printf '  Thunderbolt / USB4 controller\n'
     fi
-    [ "$_any" = 1 ] && printf '.\n'
     return 0
 }
 

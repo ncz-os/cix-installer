@@ -266,17 +266,22 @@ for tok in ncz_unattended=1 ncz_components=desktop,mgmt-container; do
     else bad "$tok: dialog skipped automatically" "$(cat "$T/d4")"; fi
 done
 printf 'BOOT_IMAGE=/linux quiet\n' > "$T/t2/proc/cmdline"
-# already shown this boot -> nothing collected, nothing shown
-rm -f "$T/t2/state/.ncz-hwsummary-shown"
-# --collect is the renderer the tests and the docs use; the once-per-boot
-# marker only gates the DIALOG (that is what is asserted next).
+# once per boot: the first --dialog writes the marker, a second one must not
+# reach the frontend at all; --collect still renders with the marker present.
+dlg() { # CAPTURE-FILE LOG
+    env -u NCZ_TMP -u NCZ_HW_STATE -u FE_RC NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/t2/sys" NCZ_HW_DMI="$T/t2/sys/class/dmi/id" \
+        NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
+        NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent FE_RC=0 CAPPED="$1" \
+        sh -c ". '$FE_OK'; . '$HS'" hw-summary.sh --dialog >"$2" 2>&1
+}
+rm -f "$T/t2/state/.ncz-hwsummary-shown" "$T/cap1" "$T/cap2"
+dlg "$T/cap1" "$T/d7"
+[ -e "$T/t2/state/.ncz-hwsummary-shown" ] && [ -s "$T/cap1" ] && ok "first --dialog shows the summary and writes the marker" \
+    || bad "first --dialog shows the summary and writes the marker" "$(cat "$T/d7")"
 out=$(run t2 --collect 2>/dev/null); [ -n "$out" ] && ok "--collect still renders with the marker present (only the dialog is once per boot)" || bad "--collect still renders with the marker present" "$out"
-rm -f "$T/t2/state/.ncz-hwsummary-shown"
-env -u NCZ_TMP -u NCZ_HW_STATE -u FE_RC NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/t2/sys" NCZ_HW_DMI="$T/t2/sys/class/dmi/id" \
-    NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
-    NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent FE_RC=0 NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
-    sh -c ". '$FE_OK'; . '$HS'" hw-summary.sh --dialog >/dev/null 2>&1
-[ -e "$T/t2/state/.ncz-hwsummary-shown" ] && ok "marker present: dialog not re-shown" || bad "marker present: dialog not re-shown"
+dlg "$T/cap2" "$T/d8"; rc=$?
+if [ "$rc" = 0 ] && [ ! -e "$T/cap2" ] && grep -q "already shown this boot" "$T/d8"; then ok "marker present: second --dialog not shown"
+else bad "marker present: second --dialog not shown" "rc=$rc" "$(cat "$T/d8")"; fi
 rm -f "$T/t2/state/.ncz-hwsummary-shown"
 
 # --- ASCII only (newt's C locale shows anything else as <ERR>) ---------------
@@ -302,11 +307,8 @@ else echo "note busybox not installed: d-i shell parity check skipped"; fi
 # --- the classifier mirrors the saver engine's class_from_topology ---------
 # hw-summary.sh runs from the initrd (dash/ash, no bash, no assets/ tree), so
 # it carries a POSIX copy of the engine's PCI-reachable rules. Pin them here.
-cls() { dash -c ". /dev/stdin; gpu_saver_class \"\$1\"" _ "$1" <<EOF2
-$(awk '/^gpu_saver_class\(\)/,/^}/' "$HS")
-EOF2
-}
-command -v dash >/dev/null 2>&1 || cls() { sh -c ". /dev/stdin; gpu_saver_class \"\$1\"" _ "$1" <<EOF2
+CLS_SH=sh; command -v dash >/dev/null 2>&1 && CLS_SH=dash
+cls() { "$CLS_SH" -c ". /dev/stdin; gpu_saver_class \"\$1\"" _ "$1" <<EOF2
 $(awk '/^gpu_saver_class\(\)/,/^}/' "$HS")
 EOF2
 }
@@ -336,7 +338,6 @@ env -u NCZ_TMP -u NCZ_HW_STATE -u FE_RC NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/
     NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
     NCZ_UI_SH="$ROOT/preseed/ncz-ui.sh" NCZ_UI_RELEASE="$T/RELEASE" NCZ_UI_PAYLOAD=/nonexistent FE_RC=0 \
     sh -c ". '$FE_OK'; . '$HS'" hw-summary.sh --dialog >"$T/d5" 2>&1
-tpl_ok=0
 # the frontend consumed the template; re-render it by capturing db_input's file
 
 rm -f "$T/t2/state/.ncz-hwsummary-shown"
