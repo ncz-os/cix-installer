@@ -120,16 +120,45 @@ adversarial O6N whose vendor string also matches the MS-R1 rule, the ACPI-signal
 branches, the operator override, byte-for-byte idempotency, and that both
 builders act only on an MS-R1 fixture.
 
-## What is *not* proven here
+## Real-hardware validation (cixmini, 2026-10-18) — found and fixed a gap
 
-The archive format and the gate are proven by test; the kernel actually
-consuming it is not. Confirmation requires an MS-R1 reboot and:
+The archive format and the gate were proven by test, but the first real
+MS-R1 reboot showed the kernel was **not** consuming the table: a freshly
+dracut-rebuilt `/boot/initrd.img-$KVER` started with the zstd compressed
+magic, not cpio's `070701` — the dracut module's staged payload
+(`usr/share/ncz/acpi*`) was landing inert inside the normal compressed
+image, because nothing in this tree ever sets dracut's native
+`acpi_override=yes`/`acpi_table_dir=` knobs that would make dracut build
+the separate uncompressed early segment itself. `post-install/80-npu.sh`
+already built a correct standalone `/boot/npu-acpi-override.cpio` (step
+3.4) but never did anything with it beyond leaving it for "operator
+inspection" — step 3.5 just called `dracut --force` and stopped.
 
-```bash
-dmesg | grep -i 'NPU core num is 3'    # aipu sees 3 cores
-ls /sys/bus/acpi/devices/CIXH4010:0*   # CIXH4010:00 .. :02
-ls /dev/aipu
+**Fix:** step 3.5 now unconditionally prepends that early-CPIO onto
+`$INITRD` right after a successful dracut/update-initramfs rebuild
+(`cat npu-acpi-override.cpio initrd.img-$KVER > initrd.img-$KVER.ncz-tmp &&
+mv ...`). Safe to repeat every run: both builders fully regenerate
+`$INITRD` from scratch each time, so this never double-prepends.
+
+**Confirmed working** on cixmini (MS-R1, kernel `7.3.0-rc7-sky1-ncz` r290),
+after manually staging the dracut module + compiled `.aml`, rebuilding the
+initrd, applying the prepend fix, syncing to the ESP, and rebooting:
+
+```
+[    2.601001] armchina CIXH4000:00: sky1_npu_probe: NPU core num is 3
 ```
 
-The orchestrator hardware-tests on `cixmini`; this change does not touch any
-test host.
+```
+$ ls /sys/bus/acpi/devices/ | grep CIXH4010
+CIXH4010:00
+CIXH4010:01
+CIXH4010:02
+$ ls -la /dev/aipu
+crw-rw-rw- 1 root root 10, 260 ... /dev/aipu
+```
+
+0 failed systemd units post-reboot; no regression elsewhere. The
+initramfs-tools fallback path (`/etc/initramfs-tools/hooks/ncz-npu-ssdt` +
+`post-update.d/zz-ncz-npu-ssdt`) was not exercised by this test — this
+image uses dracut exclusively — so it carries the same fix by construction
+but is unproven against real hardware.

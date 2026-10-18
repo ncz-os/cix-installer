@@ -364,21 +364,53 @@ if should_apply_npu_ssdt; then
     # 3.5 — rebuild each initrd NOW so this install boots with the override.
     # The module/hook does the work; if the rebuild does not pick it up the
     # problem is in the builder, and saying so here is the only chance to.
+    #
+    # VERIFIED ON REAL HARDWARE (MS-R1/cixmini, 2026-10-18): the dracut module's
+    # own staged payload (usr/share/ncz/acpi*) lands inert inside the normal
+    # COMPRESSED initramfs. Nothing in this tree sets dracut's native
+    # acpi_override=yes/acpi_table_dir= knobs, so dracut never builds the
+    # separate UNCOMPRESSED early-CPIO segment the kernel's
+    # CONFIG_ACPI_TABLE_UPGRADE loader actually scans (it only reads an
+    # uncompressed cpio physically prepended before the compressed image —
+    # confirmed via `od -c`: a freshly dracut-built $INITRD starts with the
+    # zstd magic, not cpio's 070701). Without the unconditional prepend below,
+    # /sys/bus/acpi/devices/CIXH4010:* and /dev/aipu never appear, even though
+    # every unit test in build/test-npu-ssdt-delivery.sh passes (they test the
+    # standalone artifact, not the final assembled initrd). The prepend is
+    # safe to run every time: dracut --force / update-initramfs -u always
+    # rebuild $INITRD from scratch, so this never double-prepends.
     for KVER in "${KERNEL_VERS[@]}"; do
         [ -d "/usr/lib/modules/$KVER" ] || continue
         INITRD="/boot/initrd.img-$KVER"
         [ -f "$INITRD" ] || { echo "[80] WARN: no $INITRD to rebuild for $KVER"; continue; }
+        _ncz_rebuilt=0
         if command -v dracut >/dev/null 2>&1; then
             if dracut --force --kver "$KVER" "$INITRD" >/dev/null 2>&1; then
                 echo "[80] rebuilt $INITRD with dracut (91ncz-npu-ssdt active)"
+                _ncz_rebuilt=1
             else
                 echo "[80] WARN: dracut failed to rebuild $INITRD; NPU SSDT may be absent"
             fi
         elif command -v update-initramfs >/dev/null 2>&1; then
             if update-initramfs -u -k "$KVER" >/dev/null 2>&1; then
                 echo "[80] rebuilt $INITRD with update-initramfs (ncz-npu-ssdt hook active)"
+                _ncz_rebuilt=1
             else
                 echo "[80] WARN: update-initramfs failed for $KVER; NPU SSDT may be absent"
+            fi
+        fi
+        # Step 3.4 just (re)built /boot/npu-acpi-override.cpio fresh from the
+        # currently-staged .aml; prefer it over the build-time-baked
+        # $SSDT_CPIO ($ASSETS/npu-acpi-override.cpio) so a changed asset on
+        # this install is reflected even if the baked copy is stale.
+        _ncz_early_cpio=/boot/npu-acpi-override.cpio
+        [ -s "$_ncz_early_cpio" ] || _ncz_early_cpio="$SSDT_CPIO"
+        if [ "$_ncz_rebuilt" = 1 ] && [ -s "$_ncz_early_cpio" ]; then
+            if cat "$_ncz_early_cpio" "$INITRD" > "$INITRD.ncz-tmp" && mv "$INITRD.ncz-tmp" "$INITRD"; then
+                echo "[80] prepended NPU SSDT early-CPIO onto $INITRD (CIXH4010 cores will enumerate)"
+            else
+                rm -f "$INITRD.ncz-tmp"
+                echo "[80] WARN: could not prepend NPU SSDT early-CPIO onto $INITRD; NPU cores will NOT enumerate"
             fi
         fi
     done
