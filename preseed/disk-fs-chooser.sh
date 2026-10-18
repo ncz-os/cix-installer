@@ -43,7 +43,7 @@ DONE="$NCZ_TMP/.ncz-disk-done"
 for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
     [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
 done
-command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; }
+command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; ncz_ui_step() { echo "[${1}/8] "; }; }
 
 log() {
     echo "[ncz chooser] $*"
@@ -295,7 +295,7 @@ Template: ncz/target-disk
 Type: select
 Choices-C: ${CHOICES}
 Choices: ${LABELS}
-Description: $(ncz_ui_brand) - select the TARGET DISK (it will be ERASED)
+Description: $(ncz_ui_step 6)$(ncz_ui_brand) - select the TARGET DISK (it will be ERASED)
  The disk you choose will be COMPLETELY ERASED and NCZ-OS installed on it.
  .
  Detected disks:
@@ -349,7 +349,7 @@ Type: select
 Choices-C: btrfs, ext4
 Choices: btrfs (snapshots + compression), ext4 (simple, robust)
 Default: btrfs
-Description: $(ncz_ui_brand) - root (/) filesystem
+Description: $(ncz_ui_step 7)$(ncz_ui_brand) - root (/) filesystem
  Choose the filesystem for the root (/) partition.
  .
  btrfs - snapshots + transparent compression (NCZ default).
@@ -395,7 +395,7 @@ if [ -z "$OVR_DISK" ] || [ -z "$OVR_FS" ]; then
 Template: ncz/confirm-erase
 Type: boolean
 Default: false
-Description: $(ncz_ui_brand) - ERASE ${CHOSEN_DISK} and install?
+Description: $(ncz_ui_step 8)$(ncz_ui_brand) - ERASE ${CHOSEN_DISK} and install?
  Please review your choices:
  .
    Target disk:       ${CHOSEN_DISK}

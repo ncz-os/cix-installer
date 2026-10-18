@@ -77,6 +77,22 @@ ncz_ui_diag_login() {
     else echo "diagnostics login: root / $NCZ_DIAG_LOGIN_DEFAULT"; fi
 }
 
+# ncz_ui_step <n> -- "[n/TOTAL] " prefix for a dialog Description line, the
+# persistent per-stage mark docs/INSTALLER-BOOT-UX.md names as not built
+# ("a persistent stage list with per-stage marks"). This is debconf's own
+# Description field, not a bespoke overlay -- every dialog already carries
+# one line of brand text via ncz_ui_brand; this just numbers it. TOTAL is the
+# count of real operator-facing screens in the actual partman/early_command
+# sequence (preseed/preseed.cfg): region(1), username/password/confirm(3),
+# components(1), disk/root-fs/erase-confirm(3) = 8. hostname-suggest.sh and
+# locale-keyboard-chooser.sh are NOT in that sequence (hostname is automatic;
+# locale-keyboard-chooser.sh is not invoked by early_command) so they are not
+# numbered and do not count toward TOTAL.
+NCZ_UI_TOTAL_STEPS=8
+ncz_ui_step() {
+    echo "[${1}/${NCZ_UI_TOTAL_STEPS}] "
+}
+
 ncz_ui_id() {
     _arch=""; _bv=""
     if _dir=$(_ncz_ui_dir); then

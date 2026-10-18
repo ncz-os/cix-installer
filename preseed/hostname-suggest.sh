@@ -26,6 +26,12 @@
 # Test seams: NCZ_CONFMODULE, NCZ_HOSTNAME_GEN, NCZ_HOSTNAME_STATE, NCZ_CMDLINE, NCZ_EARLY_LOG.
 . "${NCZ_CONFMODULE:-/usr/share/debconf/confmodule}" 2>/dev/null || . /usr/lib/cdebconf/confmodule 2>/dev/null || true
 command -v db_set >/dev/null 2>&1 || exit 0
+# shared NCZ dialog look (brand in the frame title, arch + build on the last body line); optional, never fatal
+for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
+    [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
+done
+command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; ncz_ui_step() { echo "[${1}/8] "; }; }
+
 
 STATE="${NCZ_HOSTNAME_STATE:-/tmp/.ncz-hostname}"
 LOG="${NCZ_EARLY_LOG:-/var/log/early_command.log}"

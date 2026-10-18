@@ -87,7 +87,7 @@ NCZ_TARGET="${NCZ_TARGET:-/target}"
 for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
     [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
 done
-command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; }
+command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; ncz_ui_step() { echo "[${1}/8] "; }; }
 
 log() {
     echo "[ncz components] $*"
@@ -236,7 +236,7 @@ Type: multiselect
 Choices-C: ${_OFFERED}
 Choices: ${_CHOICES_C}
 Default: ${_DEFAULT}
-Description: $(ncz_ui_brand) - optional components
+Description: $(ncz_ui_step 5)$(ncz_ui_brand) - optional components
  Untick to skip an optional component. Enter accepts the defaults, which
  install everything. Untick all of them for a minimal console system.
  .

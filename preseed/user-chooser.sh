@@ -64,7 +64,7 @@ PW_PLACEHOLDER='!'
 for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
     [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
 done
-command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; }
+command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; ncz_ui_step() { echo "[${1}/8] "; }; }
 
 log() {
     echo "[ncz user] $*"
@@ -193,7 +193,7 @@ if [ -z "$CHOSEN_USER" ] && [ "$NCZ_PROMPT" = "--prompt" ] && [ "$_unattended" =
 Template: ncz/username
 Type: string
 Default: ncz
-Description: $(ncz_ui_brand) - choose a USERNAME
+Description: $(ncz_ui_step 2)$(ncz_ui_brand) - choose a USERNAME
  This is the only account on the installed system. It is in the sudo group
  and is the one you will log in with. Use lowercase letters, digits,
  hyphens and underscores only, starting with a letter (at most 32
@@ -246,11 +246,11 @@ elif [ "$NCZ_PROMPT" = "--prompt" ] && [ "$_unattended" = 0 ]; then
     cat > "$NCZ_TMP/ncz-password.templates" <<TPL
 Template: ncz/password
 Type: password
-Description: $(ncz_ui_brand) - choose a PASSWORD for ${CHOSEN_USER} (will be asked again to confirm)
+Description: $(ncz_ui_step 3)$(ncz_ui_brand) - choose a PASSWORD for ${CHOSEN_USER} (will be asked again to confirm)
 
 Template: ncz/password-confirm
 Type: password
-Description: $(ncz_ui_brand) - type the same PASSWORD again for ${CHOSEN_USER} (confirm)
+Description: $(ncz_ui_step 4)$(ncz_ui_brand) - type the same PASSWORD again for ${CHOSEN_USER} (confirm)
 TPL
     if debconf-loadtemplate ncz "$NCZ_TMP/ncz-password.templates" 2>/dev/null; then
         db_fset    ncz/password seen false 2>/dev/null || true

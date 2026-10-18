@@ -64,6 +64,12 @@ for shl in "${SHELLS[@]}"; do
     eq "$shl: S1-1 baked copy is the source of truth" \
         "$(NCZ_UI_CMDLINE="$T/cmdline" NCZ_UI_PAYLOAD="$T/p" NCZ_UI_RELEASE="$STALE_BAKED" NCZ_UI_SKY1=1 $shl -c ". '$UI'; ncz_ui_brand")" \
         "NCZ-OS $STALE_V $STALE_C"
+    # r187 installer-UX: per-stage dialog marks are a [N/8] prefix supplied by
+    # ncz_ui_step and consumed by every operator-facing dialog via the
+    # Description: line. The helper itself is a one-liner but it is the primary
+    # output of this branch, so assert it under every shell we have.
+    eq "$shl: step 1 of 8"  "$(run "$T/p" 'ncz_ui_step 1')" "[1/8] "
+    eq "$shl: step 8 of 8"  "$(run "$T/p" 'ncz_ui_step 8')" "[8/8] "
     eq "$shl: id arm64"     "$(run "$T/p" ncz_ui_id)"    "arm64 (Sky1) | build 7e1d9c2 | diagnostics login: root / rescue"
     echo amd64 > "$T/p/BUILD_ARCH"
     eq "$shl: id amd64"     "$(run "$T/p" ncz_ui_id)"    "amd64 | build 7e1d9c2 | diagnostics login: root / rescue"
