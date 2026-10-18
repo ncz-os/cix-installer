@@ -56,7 +56,7 @@ DONE="$NCZ_TMP/.ncz-region-done"
 for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
     [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
 done
-command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; }
+command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; ncz_ui_step() { echo "[${1}/8] "; }; }
 
 log() {
     echo "[ncz region] $*"
@@ -202,7 +202,7 @@ Type: select
 Choices-C: ${CHOICES_C}
 Choices: ${CHOICES}
 Default: us
-Description: $(ncz_ui_brand) - select your REGION
+Description: $(ncz_ui_step 1)$(ncz_ui_brand) - select your REGION
  Pick your country. NCZ-OS uses it to set the language, timezone and
  keyboard layout in one step. Press Enter to accept United States.
  .

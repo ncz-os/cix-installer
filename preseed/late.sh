@@ -1522,6 +1522,50 @@ ncz_preserve_di_logs() {
     echo "[late] preserved d-i logs to /var/log/installer on the target"
 }
 
+# ncz_reboot_countdown <seconds>: visible "Rebooting in Ns" countdown on the
+# consoles the operator is actually watching (tty1 — the newt/dialog screen —
+# plus tty3/console, the same set the completion BANNER above already uses),
+# ASCII only (this writes straight to the UI terminal, not a log — the em-dash
+# newt-render bug this whole doc area exists to avoid applies here same as any
+# other dialog text). "Not built: ... an auto-reboot countdown" was the one
+# named gap left in docs/INSTALLER-BOOT-UX.md after the dialogs-vs-silence
+# work; this is that feature, not a new reboot path — ncz_force_reboot's own
+# reboot(8) call, gating and bootability checks are unchanged.
+#
+# Skip, not cancel: pressing Enter (or any line) on tty1 reboots immediately
+# instead of waiting out the rest of the countdown. There is deliberately no
+# cancel-the-reboot path — the remove-media db_input dialog the operator
+# already dismissed just above IS the confirm step, and r180/r181 fought hard
+# to make the reboot deterministic on both the unattended and interactive
+# paths (see the history above); reopening a "wait indefinitely" branch here
+# would reintroduce exactly the MS-R1 metal failure (dropped to the d-i MAIN
+# MENU instead of rebooting) this function exists to prevent. Physically
+# powering off remains the operator's real cancel, same as before this change.
+#
+# busybox ash supports `read -t` (preseed/media-usb-only.sh:165 already
+# relies on this in the same d-i runtime); read returning 0 means a line
+# arrived before the 1s timeout, so break out and reboot now.
+#
+# NCZ_REBOOT_INPUT_TTY / NCZ_REBOOT_STATUS_TTYS: overridable (not hardcoded)
+# for the same reason ttymsg()'s $TTY and the top-of-file TTY=/dev/tty3 are —
+# build/test-reboot-countdown.sh points these at fixtures instead of real
+# ttys; production never sets either, so the defaults below are what ships.
+ncz_reboot_countdown() {
+    _secs="${1:-5}"
+    _in_tty="${NCZ_REBOOT_INPUT_TTY:-/dev/tty1}"
+    _status_ttys="${NCZ_REBOOT_STATUS_TTYS:-/dev/tty1 /dev/tty3 /dev/console}"
+    while [ "$_secs" -gt 0 ] 2>/dev/null; do
+        for _V in $_status_ttys; do
+            printf 'Rebooting in %ss -- press Enter to reboot now\n' "$_secs" > "$_V" 2>/dev/null || true
+        done
+        _ans=""
+        if read -t 1 -r _ans < "$_in_tty" 2>/dev/null; then
+            break
+        fi
+        _secs=$(( _secs - 1 ))
+    done
+}
+
 ncz_force_reboot() {
     ncz_preserve_di_logs
     echo "[late r181] forcing clean reboot ($1) — rEFInd on ESP; not relying on finish-install menu"
@@ -1529,6 +1573,10 @@ ncz_force_reboot() {
     db_try db_set  debian-installer/exit/reboot true
     db_try db_fset debian-installer/exit/reboot seen true
     db_try db_set  debian-installer/exit/poweroff false
+    # r187 (installer boot UX): a visible countdown only on the interactive
+    # path — an unattended install (qemu KVM-gate harness, automated runs) has
+    # no one watching tty1 and must stay exactly as fast as before.
+    [ "$2" = "1" ] && ncz_reboot_countdown "${NCZ_REBOOT_COUNTDOWN_SECS:-5}"
     sync
     # best-effort unmount of the target so the reboot is clean; ignore fails
     for _m in /target/cdrom /target/dev/pts /target/dev /target/proc /target/sys; do
@@ -1786,16 +1834,16 @@ if [ "$FINALIZE_OK" = "1" ]; then
             db_try db_fset "$_ncz_rm_tpl" seen false
             db_try db_input critical "$_ncz_rm_tpl"
             db_try db_go
-        else
-            # no debconf channel — the TTY banner above is the only notice; give
-            # the operator a moment to read it before we reboot.
-            sleep 5
         fi
+        # no debconf channel: the TTY banner above is the only notice (was a
+        # blind `sleep 5`; r187 gives it the same visible countdown below via
+        # ncz_force_reboot's 2nd argument instead of waiting silently).
+        #
         # r181: after the operator dismisses the dialog, DRIVE the reboot too.
         # Relying on finish-install's menu loop here is exactly what left the box
         # at the d-i MAIN MENU on Sky1 metal — force it, gated on bootability.
         if ncz_bootable; then
-            ncz_force_reboot "interactive"
+            ncz_force_reboot "interactive" 1
         else
             echo "[late r181] interactive but NOT bootable — leaving to d-i (will surface the failure, not reboot into an unbootable system)"
         fi

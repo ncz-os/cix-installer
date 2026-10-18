@@ -41,8 +41,19 @@ Mockup (80x24; the real dialog also shows its own `<Go Back>` because partman ru
   +--------------------------------------------------------------------------+
 ```
 
-Not built: a persistent stage list with per-stage marks, percentage bars for our own long steps beyond d-i's, and an
-auto-reboot countdown. d-i's own progress dialogs and its `Remove the USB stick` note are what ship.
+2026-10-18: the two gaps above are built. Every operator-facing NCZ dialog's Description now carries a `[N/8] `
+per-stage mark (`ncz_ui_step` in `preseed/ncz-ui.sh`) ahead of the brand text — region(1), username/password/confirm
+(2-4), components(5), target-disk/root-fs/erase-confirm(6-8) — the real sequence `partman/early_command` runs.
+hostname-suggest.sh and the retired locale-keyboard-chooser.sh are not numbered: the first runs with no dialog
+(hostname is automatic), and native d-i `localechooser`/`keyboard-configuration` already show their own upstream
+dialogs, unanswered, at critical priority (see "Localization" in preseed/preseed.cfg) — not a silent stretch either.
+And `ncz_force_reboot`'s interactive path (preseed/late.sh) now runs `ncz_reboot_countdown` before the actual
+`reboot(8)`: a visible "Rebooting in Ns" status on tty1/tty3/console, skippable by pressing a key (not cancellable —
+the remove-media dialog the operator already dismissed is the confirm step); the unattended/KVM-gate path is
+unchanged, zero added delay. Tests: `build/test-ncz-ui.sh`, `build/test-reboot-countdown.sh`.
+
+Percentage bars for NCZ's own long steps beyond d-i's remain unbuilt — d-i's own progress dialogs and its
+`Remove the USB stick` note are what ship for that piece.
 
 ## Install media: USB drives only
 

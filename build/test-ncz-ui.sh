@@ -22,6 +22,8 @@ for shl in "${SHELLS[@]}"; do
     echo "BOOT_IMAGE=/linux quiet" > "$T/cmdline"
     run() { NCZ_UI_CMDLINE="$T/cmdline" NCZ_UI_PAYLOAD="$1" $shl -c ". '$UI'; $2"; }
     eq "$shl: brand"        "$(run "$T/p" ncz_ui_brand)" "$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
+    eq "$shl: step 1 of 8"  "$(run "$T/p" 'ncz_ui_step 1')" "[1/8] "
+    eq "$shl: step 8 of 8"  "$(run "$T/p" 'ncz_ui_step 8')" "[8/8] "
     eq "$shl: id arm64"     "$(run "$T/p" ncz_ui_id)"    "arm64 (Sky1) | build 7e1d9c2 | diagnostics login: root / rescue"
     echo amd64 > "$T/p/BUILD_ARCH"
     eq "$shl: id amd64"     "$(run "$T/p" ncz_ui_id)"    "amd64 | build 7e1d9c2 | diagnostics login: root / rescue"
