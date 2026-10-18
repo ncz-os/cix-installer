@@ -38,11 +38,26 @@ amd_deferred_recheck() {
     env NCZ_AMD_ACCEL_LIB=1 NCZ_AMD_FORCE=1 bash -c '. "$1" && ncz_amd_accel_run' _ "$lib" >/dev/null 2>&1 || true
 }
 
+# The Intel GPU/NPU deferred install keeps a pending marker whenever the
+# native NCZ candidates are not all published. Re-running its entry here
+# (a) re-arms systems stuck at failed:gave-up-* whose hardware is still
+# present (upgrade recovery, 2026-10-17), and (b) immediately installs the
+# stack on the first index refresh after the candidates are published,
+# instead of waiting for the next timer tick. The entry is a no-op when
+# nothing is pending and the status is not a gave-up. Never fatal.
+intel_deferred_recheck() {
+    local lib=/usr/local/lib/cix-installer/post-install/lib/intel-accel.sh
+    [ -r "$lib" ] || return 0
+    # rc 75 (still deferred) is normal here; set -e must not fail the refresh.
+    env NCZ_INTEL_ACCEL_LIB=1 NCZ_INTEL_FORCE=1 bash -c '. "$1" && ncz_intel_accel_run' _ "$lib" >/dev/null 2>&1 || true
+}
+
 case "${1:-}" in
     refresh)
         apt-get -o Acquire::Check-Date=false update
         ensure_policy
         amd_deferred_recheck
+        intel_deferred_recheck
         exit 0
         ;;
     apply)
