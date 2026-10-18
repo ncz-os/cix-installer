@@ -24,10 +24,25 @@ ensure_policy() {
         || echo "ncz-update-apply: WARN could not install ncz-apt-policy" >&2
 }
 
+# AMD GPU/NPU (lib/amd-accel.sh) deferred re-check: a refresh is the moment
+# a missing native NPU candidate may have been published. Re-running its
+# entry here (a) re-arms systems stuck at failed:gave-up-* whose hardware
+# is still present (upgrade recovery), and (b) immediately installs the
+# stack on the first index refresh after the candidates are published,
+# instead of waiting for the next timer tick. The entry is a no-op when
+# nothing is pending and the status is not a gave-up. Never fatal.
+amd_deferred_recheck() {
+    local lib=/usr/local/lib/cix-installer/post-install/lib/amd-accel.sh
+    [ -r "$lib" ] || return 0
+    # rc 75 (still deferred) is normal here; set -e must not fail the refresh.
+    env NCZ_AMD_ACCEL_LIB=1 NCZ_AMD_FORCE=1 bash -c '. "$1" && ncz_amd_accel_run' _ "$lib" >/dev/null 2>&1 || true
+}
+
 case "${1:-}" in
     refresh)
         apt-get -o Acquire::Check-Date=false update
         ensure_policy
+        amd_deferred_recheck
         exit 0
         ;;
     apply)

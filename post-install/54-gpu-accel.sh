@@ -390,17 +390,13 @@ echo "$NPU_PCI" | grep -qi '\[1200\]:.*\[8086:' && HAS_INTEL_NPU=1
 echo "$NPU_PCI" | grep -qiE '\[1180\]:.*\[1022:(1502|17f0|17f2|17f3|1b0b|1b0c)\]' && HAS_AMD_NPU=1
 
 if [ "$HAS_AMD_NPU" = 1 ]; then
-    # AMD's XDNA/Ryzen-AI NPU has no equivalent mature Debian-native apt
-    # repo the way ROCm/OpenVINO do -- real, current AMD documentation
-    # points at building the xdna-driver + XRT runtime from source
-    # (github.com/amd/xdna-driver). That is a materially bigger, riskier
-    # install-time step than this hook's other vendor blocks (compiling a
-    # kernel-adjacent driver at install time, not just wiring an apt repo)
-    # and is deliberately NOT done here -- flagging the real hardware
-    # presence rather than silently no-op'ing, so it's visible instead of
-    # invisible.
-    echo "[54] AMD XDNA/Ryzen-AI NPU detected -- no mature apt-installable driver stack exists yet (real gap, not a bug in this hook)."
-    echo "[54]   AMD's own current path is building github.com/amd/xdna-driver + XRT from source, which this install-time hook deliberately does not attempt."
+    # AMD's XDNA/Ryzen-AI NPU has no Debian-native apt repo the way
+    # ROCm/OpenVINO do -- the userspace (xdna-driver + XRT runtime +
+    # inference library) is acquired from the native NCZ suite via
+    # post-install/lib/amd-accel.sh (the AMD block below), with a deferred
+    # retry when the native candidates are not yet published. Flagging the
+    # real hardware presence here so it's visible instead of invisible.
+    echo "[54] AMD XDNA/Ryzen-AI NPU detected -- userspace wired via the AMD block below (lib/amd-accel.sh, native NCZ only)."
 fi
 
 echo "[54] NPU wiring done (Intel-NPU=$HAS_INTEL_NPU AMD-NPU=$HAS_AMD_NPU)"
@@ -425,4 +421,27 @@ if [ "$HAS_INTEL" = 1 ] || [ "$HAS_INTEL_NPU" = 1 ]; then
     fi
 fi
 
-echo "[54] GPU/accelerator wiring done (NVIDIA=$HAS_NVIDIA AMD=$HAS_AMD Intel=$HAS_INTEL)"
+# --- AMD GPU / NPU userspace --------------------------------------------------
+# Same architecture as the Intel path above (post-install/lib/amd-accel.sh),
+# adapted for AMD: GPU compute is Debian-only (Mesa RADV Vulkan ICD; no
+# native NCZ GPU package is needed or gated on), the NPU half is
+# native-NCZ-only acquisition (amdxdna driver / XRT runtime / NPU inference
+# library) with the same retry/defer/give-up policy as the Intel lib, and a
+# deferred retry (ncz-amd-accel-setup.timer) when the network is not up yet
+# or the native NPU candidates are not yet published. Details and live
+# evidence: post-install/lib/amd-accel.sh.
+if [ "$HAS_AMD" = 1 ] || [ "$HAS_AMD_NPU" = 1 ]; then
+    echo "[54] AMD GPU=$HAS_AMD NPU=$HAS_AMD_NPU -- AMD userspace (Vulkan / XDNA / XRT)"
+    NCZ_AMD_LIB_SRC="$(dirname "$(readlink -f "$0")")/lib/amd-accel.sh"
+    if [ -r "$NCZ_AMD_LIB_SRC" ]; then
+        export NCZ_AMD_LIB_SRC
+        NCZ_AMD_ACCEL_LIB=1
+        # shellcheck source=post-install/lib/amd-accel.sh
+        . "$NCZ_AMD_LIB_SRC"
+        ncz_amd_accel_install "$HAS_AMD" "$HAS_AMD_NPU"
+    else
+        echo "[54] WARN: $NCZ_AMD_LIB_SRC missing -- AMD userspace not installed"
+    fi
+fi
+
+echo "[54] GPU/accelerator wiring done (NVIDIA=$HAS_NVIDIA AMD=$HAS_AMD Intel=$HAS_INTEL AMD-NPU=$HAS_AMD_NPU)"
