@@ -1606,14 +1606,59 @@ ncz_preserve_di_logs() {
 # MENU instead of rebooting) this function exists to prevent. Physically
 # powering off remains the operator's real cancel, same as before this change.
 #
-# busybox ash supports `read -t` (preseed/media-usb-only.sh:165 already
-# relies on this in the same d-i runtime); read returning 0 means a line
-# arrived before the 1s timeout, so break out and reboot now.
+# `read -t` is NOT portable: bash and busybox ash support it, but dash's
+# read rejects -t outright and returns 2 on the spot (preseed/late.sh runs
+# under whatever /bin/sh the d-i image has, and on a dash-based /bin/sh that
+# turns the countdown into a zero-delay flash past every second — precisely the
+# dead air this function exists to remove). So probe once per invocation and
+# fall back to a portable race when -t is missing. With a working read,
+# returning 0 means a line arrived before the 1s timeout, so break and reboot.
 #
 # NCZ_REBOOT_INPUT_TTY / NCZ_REBOOT_STATUS_TTYS: overridable (not hardcoded)
 # for the same reason ttymsg()'s $TTY and the top-of-file TTY=/dev/tty3 are —
 # build/test-reboot-countdown.sh points these at fixtures instead of real
 # ttys; production never sets either, so the defaults below are what ships.
+
+# 0 when `read -t` works in this shell, 1 when it does not (dash).
+ncz_shell_has_read_t() {
+    read -t 0 -r _ncz_rt_probe < /dev/null 2>/dev/null
+    [ "$?" -ne 2 ]
+}
+
+# One second of "any key reboots now", waiting portably. 0 = a line arrived on
+# the input tty first, 1 = the second elapsed with nobody at the keyboard.
+#
+# The no-`read -t` path races two background writers against one pipe: a reader
+# on the input tty (returns the moment the operator hits Enter, including when
+# a key is already sitting there) and a 1s sleeper. Whoever lands first decides,
+# and each drops its own flag file so the two outcomes stay distinguishable
+# without any non-POSIX read option. Checking the key flag first is deliberate:
+# if a key and the timer collide, "operator asked to reboot" is the answer.
+ncz_reboot_wait_1s() {
+    if ncz_shell_has_read_t; then
+        _ans=""
+        read -t 1 -r _ans < "$_in_tty" 2>/dev/null && return 0
+        return 1
+    fi
+    _ncz_dir="${TMPDIR:-/tmp}/ncz-reboot-$$"
+    rm -f "$_ncz_dir.pipe" "$_ncz_dir.key" "$_ncz_dir.flag" 2>/dev/null || true
+    # No pipe means no way to race; still owe the operator a real second of
+    # countdown rather than flashing every number past instantly.
+    mkfifo "$_ncz_dir.pipe" 2>/dev/null || { sleep 1; return 1; }
+    { IFS= read -r _ncz_line < "$_in_tty" 2>/dev/null; : > "$_ncz_dir.key"
+      printf '%s\n' "$_ncz_line" > "$_ncz_dir.pipe" 2>/dev/null; } &
+    _ncz_rpid=$!
+    { sleep 1; : > "$_ncz_dir.flag"; printf '\n' > "$_ncz_dir.pipe" 2>/dev/null; } &
+    _ncz_spid=$!
+    read -r _ans < "$_ncz_dir.pipe" 2>/dev/null
+    kill "$_ncz_rpid" "$_ncz_spid" 2>/dev/null || true
+    _ncz_gotkey=no
+    [ -e "$_ncz_dir.key" ] && _ncz_gotkey=yes
+    rm -f "$_ncz_dir.pipe" "$_ncz_dir.key" "$_ncz_dir.flag" 2>/dev/null || true
+    [ "$_ncz_gotkey" = yes ] && return 0
+    return 1
+}
+
 ncz_reboot_countdown() {
     _secs="${1:-5}"
     _in_tty="${NCZ_REBOOT_INPUT_TTY:-/dev/tty1}"
@@ -1622,8 +1667,7 @@ ncz_reboot_countdown() {
         for _V in $_status_ttys; do
             printf 'Rebooting in %ss -- press Enter to reboot now\n' "$_secs" > "$_V" 2>/dev/null || true
         done
-        _ans=""
-        if read -t 1 -r _ans < "$_in_tty" 2>/dev/null; then
+        if ncz_reboot_wait_1s; then
             break
         fi
         _secs=$(( _secs - 1 ))

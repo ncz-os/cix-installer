@@ -43,7 +43,9 @@ SHELLS="sh"
 command -v busybox >/dev/null 2>&1 && busybox sh -c ':' 2>/dev/null && SHELLS="$SHELLS busybox-sh"
 SHELLS="$SHELLS bash"
 
-FUNC="$(sed -n '/^ncz_reboot_countdown() {/,/^}/p' "$LATE")"
+# The countdown's helpers come along: under dash (no `read -t`) the wait path
+# is ncz_reboot_wait_1s, and the countdown alone would not compile there.
+FUNC="$(sed -n '/^ncz_shell_has_read_t() {/,/^}/p;/^ncz_reboot_wait_1s() {/,/^}/p;/^ncz_reboot_countdown() {/,/^}/p' "$LATE")"
 [ -n "$FUNC" ] || { echo "FAIL  could not extract ncz_reboot_countdown from $LATE"; exit 1; }
 
 for SH in $SHELLS; do
@@ -94,6 +96,18 @@ for SH in $SHELLS; do
 
     rm -f "$INFIFO"
 done
+
+# --- the countdown must NOT depend on a non-POSIX `read -t` ---------------------
+# dash's read rejects -t outright and returns 2 on the spot, so a one-line
+# `read -t 1` burned through every second instantly under a dash /bin/sh — the
+# exact zero-delay flash this countdown exists to prevent. Pin the capability
+# probe and the portable fallback so that cannot come back.
+check "preseed/late.sh: ncz_shell_has_read_t probe exists (dash-safe wait path)" \
+    grep -q '^ncz_shell_has_read_t() {' "$LATE"
+check "preseed/late.sh: the countdown delegates its wait to ncz_reboot_wait_1s" \
+    grep -q 'if ncz_reboot_wait_1s; then' "$LATE"
+check "preseed/late.sh: ncz_reboot_countdown itself uses no bare \`read -t\`" \
+    bash -c '! sed -n "/^ncz_reboot_countdown() {/,/^}/p" "$1" | grep -q "read -t"' _ "$LATE"
 
 # --- ncz_force_reboot only counts down when explicitly told to (2nd arg "1");
 #     the unattended call site must stay silent, same as before this feature
