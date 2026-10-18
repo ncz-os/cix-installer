@@ -32,7 +32,6 @@ for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(di
 done
 command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; ncz_ui_step() { echo "[${1}/8] "; }; }
 
-
 STATE="${NCZ_HOSTNAME_STATE:-/tmp/.ncz-hostname}"
 LOG="${NCZ_EARLY_LOG:-/var/log/early_command.log}"
 CMDLINE="${NCZ_CMDLINE:-/proc/cmdline}"
