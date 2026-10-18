@@ -1,14 +1,63 @@
 #!/usr/bin/env python3
-"""boot-screens.py -- capture the installer's PRIMARY CONSOLE (qemu screendump) at intervals under KVM.
+"""boot-screens.py -- capture the installer's consoles (qemu screendump + the guest serial line) at intervals under KVM.
 
-  boot-screens.py IMAGE WORKDIR [--arch arm64|amd64] [--secs N] [--every S] [--interactive] [--extra-opts "..."]
+  boot-screens.py IMAGE WORKDIR [--arch arm64|amd64] [--secs N] [--every S] [--interactive]
+                  [--serial-console] [--extra-opts "..."]
 
-Boots the raw-GPT installer image as shipped (the Install entry) with the unattended answers EXCEPT
+Boots a COPY of the raw-GPT installer image (the Install entry) with the unattended answers EXCEPT
 ncz_components/ncz_unattended when --interactive is given, so the component chooser and other prompts really appear.
-Writes WORKDIR/screens/NNNN-<t>s.ppm (+ .png when ImageMagick exists) and WORKDIR/serial0.log. The screens are
-what the operator sees on the monitor; build/check-installer-screens.py asserts on them.
+The shipped image is never modified: only WORKDIR/screens-test.img is patched.
+
+Two capture channels, written side by side:
+  * screendump/NNNN-<t>s.ppm (+ .png when ImageMagick exists) -- what the operator sees on the monitor, and
+    fb-states/fb-frames.txt (a persistent-blank/continuity signature per sample). Always on.
+  * serial-screens/NNNN-<t>s.txt -- text states of the console terminal reconstructed by pyte from the UART.
+    arm64: d-i picks the UART itself (auto=true); amd64: only with --serial-console, which appends
+    console=ttyS0,115200 to the test entry so d-i's newt draws on the UART (see kvm-installer-ui-check.sh).
+
+--answer REGEX=KEYS sends KEYS once when a console screen matches REGEX (\\r = Enter). Several rules may match the
+same screen; each fires once, in list order, so a shared title can send e.g. "down, Enter".
+
+The test image carries the TEST MAGIC marker in /EFI/BOOT/rules.py -- a first-stage preseed hook staged into the
+TEST COPY's ESP that turns the medium's own preseed/early_command into a no-op. Without it the shipped helper farm
+(diag-console, the disk chooser, ...) races the UART and paints progress text over the dialogs; on the real
+security-framed, multi-console hardware the shipped entry already carries a UART and there is no such race.
 """
-import argparse, os, re, shutil, socket, subprocess, sys, time
+import argparse, os, re, shutil, socket, subprocess, sys, tempfile, time
+
+TEST_MAGIC = "ncz_ui_check=1"
+
+
+def preseed_cmds(text):
+    """Every `d-i <question> <type> <value>` line of a preseed, with backslash continuations joined."""
+    out, buf = [], ""
+    for raw in text.splitlines():
+        line = buf + raw
+        if line.rstrip().endswith("\\") and re.match(r"\s*d-i\s", line):
+            buf = line.rstrip()[:-1] + " "
+            continue
+        buf = ""
+        m = re.match(r"\s*d-i\s+(\S+)\s+(\S+)\s+(.*?)\s*$", line)
+        if m:
+            out.append(m.groups())
+    return out
+
+
+def stage_test_hook(text):
+    """Return TESTCOPY's preseed-hook rules.py: the TEST MAGIC marker + the medium's early_command alive."""
+    cmds = preseed_cmds(text)
+    keep = [c for c in cmds if c[0] == "preseed/early_command"]
+    if not keep:
+        sys.exit("boot-screens.py: the preseed has no preseed/early_command to re-apply in the test copy")
+    lines = [
+        "# boot-screens.py test-copy hook: first-stage preseed, loaded AFTER the medium's preseed.",
+        "# " + TEST_MAGIC + "   (the marker kvm-installer-ui-check.sh greps for in the test copy)",
+        "# Only preseed/early_command is re-applied; every other question keeps the medium's answer.",
+    ]
+    for q, typ, val in keep:
+        lines.append("d-i %s %s %s" % (q, typ, val))
+    return "\n".join(lines) + "\n"
+
 
 ap = argparse.ArgumentParser()
 ap.add_argument("image"); ap.add_argument("workdir")
@@ -19,16 +68,20 @@ ap.add_argument("--interactive", action="store_true")
 ap.add_argument("--extra-opts", default="")
 ap.add_argument("--telnet-port", type=int, default=0, help="loopback port for the guest telnet forward (0 = a free one, so two checks on one host do not collide)")
 ap.add_argument("--probe", default="")
-ap.add_argument("--enter-every", type=float, default=0, help="vt mode: press Enter every S seconds after --enter-after (the amd64 dialogs are not readable from the VT once partman runs them)")
+ap.add_argument("--enter-every", type=float, default=0, help="vt mode: press Enter every S seconds after --enter-after (a monitor-only keyboard fallback)")
 ap.add_argument("--enter-after", type=int, default=20)
-ap.add_argument("--console", choices=["auto","serial","vt"], default="auto", help="where d-i draws: serial (arm64 under KVM, auto=true picks the UART) or the fbcon VT (amd64): vt reads /dev/vcs1 over the diagnostic telnet and types via the qemu monitor")
+ap.add_argument("--console", choices=["auto","serial","vt"], default="auto", help="where d-i draws: serial (arm64 under KVM, auto=true picks the UART; amd64 with --serial-console) or the fbcon VT (monitor only: --answer rules read /dev/vcs1 over the diagnostic telnet and type via the qemu monitor)")
+ap.add_argument("--serial-console", action="store_true", help="amd64: put d-i's newt UI on the QEMU UART (console=ttyS0,115200 on the TEST copy's Install entry) and judge the dialog text states from it")
+ap.add_argument("--preseed", default="", help="ESP path of the medium's preseed.cfg when it is not at ::/preseed.cfg or ::/EFI/BOOT/preseed.cfg")
 ap.add_argument("--ask-disk", action="store_true", help="do not preset ncz_disk/ncz_fs: the disk, filesystem and erase-confirmation dialogs appear")
-ap.add_argument("--answer", action="append", default=[], help="REGEX=KEYS: when the serial console screen matches REGEX send KEYS once (\\r = Enter)")
+ap.add_argument("--answer", action="append", default=[], help="REGEX=KEYS: when the console screen matches REGEX send KEYS once (\\r = Enter, \\x1b[B = Down)")
 ap.add_argument("--vt", action="store_true", help="also read the fbcon VTs over the diag telnet (slow)")
 ap.add_argument("--rows", type=int, default=24); ap.add_argument("--cols", type=int, default=80)
 ap.add_argument("--mem", type=int, default=4096)
 ap.add_argument("--smp", type=int, default=4)
 a = ap.parse_args()
+if a.serial_console and a.arch != "amd64":
+    sys.exit("boot-screens.py: --serial-console is the amd64 text channel; arm64 already gets it from auto=true")
 if not a.telnet_port:
     import socket as _s
     _p = _s.socket(); _p.bind(("127.0.0.1", 0)); a.telnet_port = _p.getsockname()[1]; _p.close()
@@ -45,6 +98,10 @@ subprocess.check_call(["mcopy", "-o", "-n", "-i", f"{img}@@{off}", "::/EFI/BOOT/
 text = open(cfg).read()
 params = ("ncz_diag_pw=parity-screen-test "
           "debian-installer/locale=en_US.UTF-8 keyboard-configuration/xkb-keymap=us clock-setup/ntp=false time/zone=UTC")
+# d-i's newt draws on the console it picked; --serial-console makes the UART win on amd64, which is the only way to
+# READ the dialog titles there (the installed image's amd64 entries carry console=tty0 only, by design).
+if a.serial_console:
+    params += f" {TEST_MAGIC} console=ttyS0,115200"
 # --interactive walks the operator's path, so it must NOT preseed passwd/*: with them on the command line d-i's own
 # user-setup questions were hidden and the r199 double account prompt (d-i user-setup, then the NCZ dialogs) never
 # showed up in the capture.
@@ -57,19 +114,57 @@ if not a.interactive:
     params += " ncz_unattended=1 ncz_components=desktop,mgmt-container,rescue-partition"
 marker = 'menuentry "NCZ-OS Installer -- Install" {'
 head, _, rest = text.partition(marker)
+if not rest:
+    sys.exit("boot-screens.py: the image has no 'NCZ-OS Installer -- Install' menuentry")
 end = rest.index("\n}")
 body, tail = rest[:end], rest[end:]
-body = re.sub(r'(options\s+")([^"]*)(")',
-              lambda m: m.group(1) + m.group(2) + " " + params + (" " + a.extra_opts if a.extra_opts else "") + m.group(3),
-              body, count=1)
+def fix_options(m):
+    opts = m.group(2).split()
+    extra = params.split() + (a.extra_opts.split() if a.extra_opts else [])
+    if a.serial_console:
+        # the UART must be LAST: /dev/console is the last console= and d-i's debconf frontend follows it
+        opts = [o for o in opts if not o.startswith("console=")]
+        extra = [o for o in extra if not o.startswith("console=")] + ["console=tty0", "console=ttyS0,115200"]
+    return m.group(1) + " ".join(opts + extra) + m.group(3)
+body = re.sub(r'(options\s+")([^"]*)(")', fix_options, body, count=1)
 open(cfg, "w").write(head + marker + body + tail)
 subprocess.check_call(["mcopy", "-o", "-i", f"{img}@@{off}", cfg, "::/EFI/BOOT/refind.conf"])
+
+if a.serial_console:
+    # A first-stage preseed hook the TEST COPY's ESP carries: re-applies the medium's own preseed/early_command and
+    # nothing else (see stage_test_hook). Staged into the test image only; the shipped image is untouched. The
+    # preseed may sit in the ESP root or under /EFI/BOOT (the installer media layout); --preseed names one if neither.
+    preseed_order = [a.preseed] if a.preseed else ["::/preseed.cfg", "::/EFI/BOOT/preseed.cfg"]
+    ptext = ""
+    for member in preseed_order:
+        dst = os.path.join(W, "preseed.cfg")
+        rc = subprocess.run(["mcopy", "-n", "-o", "-i", f"{img}@@{off}", member, dst],
+                            capture_output=True, text=True)
+        if rc.returncode == 0 and os.path.exists(dst):
+            ptext = open(dst, encoding="utf-8", errors="replace").read()
+            break
+    if not ptext:
+        sys.exit("boot-screens.py: cannot read the preseed off the test copy (tried %s); --serial-console needs it"
+                 % ", ".join(preseed_order))
+    hook = os.path.join(W, "rules.py")
+    open(hook, "w").write(stage_test_hook(ptext))
+    mkdir = subprocess.run(["mmd", "-i", f"{img}@@{off}", "::/ncz-test"], capture_output=True, text=True)
+    if mkdir.returncode != 0 and "already exists" not in (mkdir.stderr or "").lower():
+        sys.exit("boot-screens.py: cannot create ::/ncz-test on the test copy: %s" % (mkdir.stderr or "").strip())
+    subprocess.check_call(["mcopy", "-o", "-i", f"{img}@@{off}", hook, "::/ncz-test/rules.py"])
+    back = os.path.join(W, "rules.readback")
+    subprocess.check_call(["mcopy", "-o", "-i", f"{img}@@{off}", "::/ncz-test/rules.py", back])
+    if TEST_MAGIC not in open(back, encoding="utf-8", errors="replace").read():
+        sys.exit("boot-screens.py: the test preseed hook did not reach the test copy's ESP")
 
 if a.arch == "arm64":
     qemu, machine, code, srcvars, gpu = "qemu-system-aarch64", "virt,gic-version=3", "/usr/share/AAVMF/AAVMF_CODE.fd", "/usr/share/AAVMF/AAVMF_VARS.fd", ["-device", "ramfb", "-device", "usb-kbd"]
 else:
     qemu, machine, code, srcvars, gpu = "qemu-system-x86_64", "q35", "/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd", ["-vga", "std"]
-ser = os.path.join(W, "serial.sock"); disk = os.path.join(W, "target.qcow2"); vars_ = os.path.join(W, "VARS.fd"); s0 = os.path.join(W, "serial0.log"); mon = os.path.join(W, "mon.sock")
+# A UNIX socket path is capped at ~108 bytes. The harness's own files stay in WORKDIR, but a deep WORKDIR (a mktemp
+# under a job workspace, say) would break the two qemu sockets -- so those get a short private directory instead.
+SOCKD = tempfile.mkdtemp(prefix="ncz-bs-")
+ser = os.path.join(SOCKD, "serial.sock"); disk = os.path.join(W, "target.qcow2"); vars_ = os.path.join(W, "VARS.fd"); s0 = os.path.join(W, "serial0.log"); mon = os.path.join(SOCKD, "mon.sock")
 for f in (disk, vars_, s0, mon, ser):
     if os.path.exists(f): os.remove(f)
 subprocess.check_call(["qemu-img", "create", "-f", "qcow2", disk, "30G"], stdout=subprocess.DEVNULL)
@@ -109,6 +204,8 @@ rules = [(re.compile(x.split("=", 1)[0], re.S), x.split("=", 1)[1].encode().deco
 TS = os.path.join(W, "serial-screens"); shutil.rmtree(TS, ignore_errors=True); os.makedirs(TS)
 def screen_text():
     return "\n".join(l.rstrip() for l in screen.display).rstrip("\n")
+def say(path, text):
+    open(path, "a").write(text)
 def pump():
     last, changed, nsnap, lastsnap = "", time.monotonic(), 0, None
     while not done.is_set():
@@ -124,10 +221,10 @@ def pump():
         elif txt.strip() and now - changed > 2.0 and txt != lastsnap:
             lastsnap = txt
             open(os.path.join(TS, f"{nsnap:04d}-{int(now - t0):04d}s.txt"), "w").write(f"# t={int(now - t0)}s\n{txt}\n"); nsnap += 1
-        for i, (rx, keys) in enumerate(rules if (a.console == 'serial' or (a.console == 'auto' and a.arch != 'amd64')) else []):
+        for i, (rx, keys) in enumerate(rules):
             if i not in answered and txt and rx.search(txt) and now - changed > 3.5:
                 answered.add(i); sc.sendall(keys)
-                open(os.path.join(W, "answers.log"), "a").write(f"t={int(now - t0)}s rule {i} matched -> {keys!r}\n")
+                say(os.path.join(W, "answers.log"), f"t={int(now - t0)}s rule {i} matched -> {keys!r}\n")
 threading.Thread(target=pump, daemon=True).start()
 
 T = os.path.join(W, "texts"); shutil.rmtree(T, ignore_errors=True); os.makedirs(T)
@@ -206,7 +303,10 @@ def ppm_content_fraction(path):
     except Exception:
         return None
 
-MODE = a.console if a.console != "auto" else ("vt" if a.arch == "amd64" else "serial")
+# serial = the UART text channel; vt = the monitor (framebuffer + optional VT readback).
+MODE = a.console if a.console != "auto" else ("vt" if a.arch == "amd64" and not a.serial_console else "serial")
+if a.serial_console and MODE != "serial":
+    MODE = "serial"
 KEYMAP = {b"\r": "ret", b"\t": "tab", b" ": "spc"}
 def send_keys_monitor(keys):
     for ch in [keys[i:i+1] for i in range(len(keys))]:
@@ -215,10 +315,23 @@ def send_keys_monitor(keys):
         try: c.recv(4096)
         except Exception: pass
         time.sleep(0.15)
+
+def fb_sample(fbp):
+    """screendump one framebuffer frame and record its continuity signature (both modes)."""
+    try: os.remove(fbp)
+    except OSError: pass
+    c.sendall(f"screendump {fbp}\n".encode())
+    try: c.recv(4096)
+    except Exception: pass
+    time.sleep(0.4)
+    if not os.path.exists(fbp):
+        return None
+    return ppm_content_fraction(fbp)
+
 n = 0
 try:
     if MODE == "vt":
-        # the UI is on the fbcon VT: poll the VT text back to back, record each change as a "screen", answer by rules
+        # The UI is on the fbcon VT: poll the VT text back to back, record each change as a "screen", answer by rules
         last, nsnap, changed = None, 0, time.monotonic()   # changed is loop-carried; only the rules block updates it
         answered_vt = set()
         next_enter = 0; next_dump = 0; next_probe = 0; fb_hist = []; fb_last = None; nfb = 0
@@ -227,11 +340,7 @@ try:
             txt = ""                    # default; the VT block fills it when rules exist
             now = time.monotonic()      # default; refreshed right after the slow VT read
             fbp = os.path.join(S, f"{n:04d}-{t:04d}s.ppm")
-            c.sendall(f"screendump {fbp}\n".encode())
-            try: c.recv(4096)
-            except Exception: pass
-            time.sleep(0.4)
-            frac = ppm_content_fraction(fbp) if os.path.exists(fbp) else None
+            frac = fb_sample(fbp)
             if frac is not None:
                 sig = "content" if frac > 0.004 else "blank"
                 fb_hist.append((int(time.monotonic() - t0), sig))
@@ -270,30 +379,32 @@ try:
                 for i, (rx, keys) in enumerate(rules):
                     if i not in answered_vt and txt and rx.search(txt) and now - changed > 3.5:
                         answered_vt.add(i); send_keys_monitor(keys)
-                        open(os.path.join(W, "answers.log"), "a").write(f"t={int(time.monotonic() - t0)}s rule {i} matched -> {keys!r}\n")
+                        say(os.path.join(W, "answers.log"), f"t={int(time.monotonic() - t0)}s rule {i} matched -> {keys!r}\n")
                         last = None   # force a fresh state after the keys
             if a.enter_every and t >= a.enter_after and time.monotonic() >= next_enter:
                 send_keys_monitor(b"\r"); next_enter = time.monotonic() + a.enter_every
-                open(os.path.join(W, "answers.log"), "a").write(f"t={int(time.monotonic() - t0)}s Enter\n")
+                say(os.path.join(W, "answers.log"), f"t={int(time.monotonic() - t0)}s Enter\n")
             time.sleep(0.5)
     else:
-      while p.poll() is None and time.monotonic() - t0 < a.secs:
-        t = int(time.monotonic() - t0)
-        f = os.path.join(S, f"{n:04d}-{t:04d}s.ppm")
-        c.sendall(f"screendump {f}\n".encode())
-        try: c.recv(4096)
-        except Exception: pass
-        if t > 20 and a.vt:
-            open(os.path.join(T, f"{n:04d}-{t:04d}s-tty1.txt"), "w").write(grab_vt(1))
-            open(os.path.join(T, f"{n:04d}-{t:04d}s-tty3.txt"), "w").write(grab_vt(3))
-        if t > 20 and a.probe:
-            open(os.path.join(T, f"{n:04d}-{t:04d}s-probe.txt"), "w").write(probe(a.probe))
-        n += 1
-        time.sleep(a.every)
+        # serial: the dialogs ARE the UART text (pump() snapshots / serial-screens and answers the rules). The
+        # framebuffer is sampled on the same cadence and judged exactly as before, so a UART that draws the dialogs
+        # while the monitor goes blank still fails.
+        while p.poll() is None and time.monotonic() - t0 < a.secs:
+            t = int(time.monotonic() - t0)
+            f = os.path.join(S, f"{n:04d}-{t:04d}s.ppm")
+            fb_sample(f)
+            if t > 20 and a.vt:
+                open(os.path.join(T, f"{n:04d}-{t:04d}s-tty1.txt"), "w").write(grab_vt(1))
+                open(os.path.join(T, f"{n:04d}-{t:04d}s-tty3.txt"), "w").write(grab_vt(3))
+            if t > 20 and a.probe:
+                open(os.path.join(T, f"{n:04d}-{t:04d}s-probe.txt"), "w").write(probe(a.probe))
+            n += 1
+            time.sleep(a.every)
 finally:
     done.set()
     if p.poll() is None: p.terminate()
     time.sleep(1)
+    shutil.rmtree(SOCKD, ignore_errors=True)
 if shutil.which("convert"):
     for f in sorted(os.listdir(S)):
         if f.endswith(".ppm") and os.path.getsize(os.path.join(S, f)) > 0:
