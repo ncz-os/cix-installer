@@ -166,6 +166,12 @@ build/logs/	sky1	-	Sky1 bitbake/KVM resume logs
 build/ncz-logd.sh	common	-	syslog collector
 build/ncz-yocto.sh	sky1	-	Yocto bootstrap for the CIX vendor stack
 build/npu-ssdt-gate.sh	sky1	-	NPU SSDT gate
+build/test-npu-ssdt-delivery.sh	sky1	-	proves the MS-R1 NPU SSDT is actually DELIVERED into the initrd: iasl compile, uncompressed newc early-CPIO layout, DMI gate both directions, idempotency, and that the dracut module / initramfs-tools hook act only on an MS-R1
+post-install/lib/npu-ssdt.sh	sky1	-	shared MS-R1 NPU-SSDT decision helper + early-CPIO builder (DMI-gated, same allow-list convention as ncz_efi_rt_workaround)
+assets/dracut/modules.d/91ncz-npu-ssdt/	sky1	-	dracut module that stages the NPU SSDT .aml and builds the uncompressed early CPIO on every initrd rebuild
+assets/initramfs/hooks/ncz-npu-ssdt	sky1	-	initramfs-tools hook: stages kernel/firmware/acpi/ssdt-npucre.aml into the initramfs root
+assets/initramfs/post-update.d/zz-ncz-npu-ssdt	sky1	-	initramfs-tools post-update safety net: re-prepends the early CPIO if a regeneration dropped it
+docs/NPU-SSDT-DELIVERY.md	sky1	-	why the MS-R1 NPU SSDT must come from the initramfs, the delivery mechanism, the board gate, and what is unproven
 build/ops/	common	-	operations and publishing scripts
 build/ota-image-digest.txt	sky1	-	OTA image digest record
 build/pin-forky-snapshot.sh	common	-	snapshot pin bump

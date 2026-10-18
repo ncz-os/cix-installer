@@ -1,0 +1,80 @@
+#!/bin/sh
+# ncz-npu-ssdt — initramfs-tools HOOK (runs inside the initramfs being built).
+#
+# Part of the MS-R1 NPU ACPI SSDT override delivery; see
+# post-install/lib/npu-ssdt.sh for the full rationale. Install path:
+#     /etc/initramfs-tools/hooks/ncz-npu-ssdt
+# Companion post-update hook: /etc/initramfs-tools/post-update.d/zz-ncz-npu-ssdt
+#
+# WHY A post-update HOOK IS NOT ENOUGH
+# ------------------------------------
+# A previous revision of this fix only installed a post-update.d script that
+# cat'd a pre-built CPIO in front of the finished initrd. That cannot work
+# under dracut (this image's builder, see post-install/94-dracut-config.sh) --
+# post-update.d is an initramfs-tools path and dracut never runs it -- and even
+# under initramfs-tools it was a post-hoc repair of an artifact that had
+# already been written, so any later regeneration of that initrd dropped it
+# again. The correct place is INSIDE the generator: stage the .aml into the
+# initramfs root, let initramfs-tools copy it, and let the kernel's early-CPIO
+# ACPI loader find it at kernel/firmware/acpi/.
+#
+# This hook therefore stages kernel/firmware/acpi/ssdt-npucre.aml into the
+# initramfs being built. mkinitramfs ships the whole staging root, so the file
+# lands at the exact path CONFIG_ACPI_TABLE_UPGRADE scans.
+#
+# Nothing happens on a board that does not need the override: the shared
+# decision helper is asked first and the hook exits 0 quietly for every skip
+# case (Radxa Orion O6/O6N, unknown board, DMI unreadable, operator force-off).
+
+set -e
+
+PREREQ=""
+prereqs() {
+    echo "$PREREQ"
+}
+
+case "${1:-}" in
+    prereqs)
+        prereqs
+        exit 0
+        ;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+_ncz_lib=""
+for _c in /usr/local/lib/cix-installer/post-install/lib/npu-ssdt.sh \
+          /cdrom/ncz-payload/post-install/lib/npu-ssdt.sh; do
+    [ -r "$_c" ] && { _ncz_lib="$_c"; break; }
+done
+
+if [ -z "$_ncz_lib" ]; then
+    echo "ncz-npu-ssdt: decision helper not found -- overriding NPU SSDT NOT delivered" >&2
+    exit 0
+fi
+# shellcheck source=/dev/null
+. "$_ncz_lib"
+
+_meta=$(ncz_npu_ssdt_meta)
+_decision=$(ncz_npu_ssdt_decision "$_meta" 2>/dev/null) || _decision=skip
+if [ "$_decision" != "apply" ]; then
+    echo "ncz-npu-ssdt: board does not need the NPU SSDT (decision=$_decision) -- nothing staged"
+    exit 0
+fi
+
+_ncz_aml_name=$(ncz_npu_ssdt_aml_name)
+_src="$_meta/assets/npu/$_ncz_aml_name"
+if [ ! -s "$_src" ]; then
+    # Fail the initrd build rather than ship one without the table: on an
+    # MS-R1-class board a table-less initrd is a disabled NPU, and it would
+    # otherwise only be discovered on the next boot.
+    echo "ncz-npu-ssdt: $_ncz_aml_name missing at $_src" >&2
+    exit 1
+fi
+
+mkdir -p "${DESTDIR}/kernel/firmware/acpi"
+cp -f "$_src" "${DESTDIR}/kernel/firmware/acpi/$_ncz_aml_name"
+chmod 0644 "${DESTDIR}/kernel/firmware/acpi/$_ncz_aml_name"
+
+echo "ncz-npu-ssdt: staged kernel/firmware/acpi/$_ncz_aml_name (ACPI_TABLE_UPGRADE)"
+exit 0

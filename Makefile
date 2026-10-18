@@ -153,7 +153,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage refresh-substrate check-substrate-pin sid-exceptions release-image print-substrate-sha test-build-determinism test-build-image test-layers-hardening test-build compare-images gen-base-pin
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check test-npu-ssdt-delivery kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage refresh-substrate check-substrate-pin sid-exceptions release-image print-substrate-sha test-build-determinism test-build-image test-layers-hardening test-build compare-images gen-base-pin
 
 all: image
 
@@ -630,6 +630,14 @@ npu-ssdt-check:
 npu-ssdt-selftest:
 	@bash $(ROOT)/build/npu-ssdt-gate.sh --self-test
 
+# End-to-end test of the DELIVERY path (not just the asset): iasl compiles the
+# committed .asl, the early CPIO carries kernel/firmware/acpi/ssdt-npucre.aml
+# as uncompressed newc, the DMI gate keeps O6/O6N boards untouched, and the
+# initramfs-tools hook + dracut module stage the table only on an MS-R1.
+# Runs against /sys fixtures in a temp dir; no hardware, no root.
+test-npu-ssdt-delivery:
+	@bash $(ROOT)/build/test-npu-ssdt-delivery.sh
+
 verify: $(OUTPUT_IMAGE)
 	@sha256sum $(OUTPUT_IMAGE) | tee $(OUTPUT_IMAGE).sha256
 
@@ -822,6 +830,7 @@ parity:
 	bash build/test-panthor-hook-overlay-fallback.sh
 	bash build/test-panthor-fallback-real-overlay.sh
 	bash build/test-npu-dkms-deferral.sh
+	bash build/test-npu-ssdt-delivery.sh
 	bash build/test-hooks-fail-loudly.sh
 	$(MAKE) --no-print-directory test-cygnus-branding
 
