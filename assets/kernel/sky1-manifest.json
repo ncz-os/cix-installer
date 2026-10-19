@@ -4,18 +4,18 @@
   "arch": "arm64",
   "kver": "7.3.0-sky1-ncz",
   "build_rev": "r291",
-  "staged_utc": null,
+  "staged_utc": "2026-10-19",
   "channel_pointer": "assets/kernel/mainline",
-  "staging_dir": null,
+  "staging_dir": "kernel-staging/r291-7.3.0-sky1-ncz-20261019",
   "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
-  "note": "Sky1 arm64 DEFAULT kernel under the unified 7.3 policy: r291 = the v7.3.0 FINAL pin. The r290 series (27 numbered patches 0001-0011 + 0013-0028, plus the consolidated port patch) was replayed onto the upstream v7.3 tag (c03c1a14) and applies cleanly: 28/28 patches, 0 conflicts, 0 rejects, 0 fuzz. The same replay on v7.3-rc7 differs only in the 212 files upstream changed between the two tags, so every Sky1 change is carried across intact. Two code-review findings were actioned in the port patch: an unbounded strcpy in get_cpuname_by_dmi (arch/arm64/kernel/cix_dmi.c) is now strscpy bounded by the allocation size; the reported kzalloc_obj(*r) issue in drivers/acpi/scan.c is NOT a defect (kzalloc_obj is an upstream API taking the pointee TYPE via typeof, and *r there is the type, not a dereference -- upstream uses the same idiom in the same file). BUILD NOT RUN: no Yocto environment on the staging host, so Module.symvers / verify-overlay-modversions have NOT been executed and the debs, image, build_id, modules and overlay entries below are null. 7.3.0-sky1-ncz is a NEW KVER, so the r290 overlay *.ko files cannot be reused -- all six must be rebuilt and re-verified before this manifest is valid. Do not publish.",
+  "note": "Sky1 arm64 DEFAULT kernel under the unified 7.3 policy: r291 = the v7.3.0 FINAL pin. The r290 series (27 numbered patches 0001-0011 + 0013-0028, plus the consolidated port patch) was replayed onto the upstream v7.3 tag (c03c1a14): 28/28 patches applied, 0 conflicts, 0 rejects, 0 fuzz. Replaying the same series on v7.3-rc7 differs only in the 212 files upstream changed between the two tags, so every Sky1 change is carried across intact. Built in the ncz-yocto-y6 container on ULTRA against the local kernel mirror; kernel recipe tasks (do_patch/do_configure/do_compile/do_compile_kernelmodules/do_install/do_package/do_deploy) all SUCCEEDED. Note: six unrelated do_create_(recipe_)spdx tasks failed (missing static SPDX docs for bison-native/pkgconf-native) -- that is Yocto SPDX tooling, not the kernel, and does not affect the image or Module.symvers. 7.3.0-sky1-ncz is a NEW KVER, so all six accelerator overlays were REBUILT from this build's headers (build-accel-overlays.sh) and re-verified: verify-overlay-modversions PASS, 0 CRC mismatches, 0 unresolved across mali_kbase/memory_group_manager/protected_memory_allocator/amvx/aipu/panthor. Negative control: perturbing one CRC (kmalloc_caches) fails 5 of 6 modules, so the gate is live. Debs not yet built; not published (publish-first rule). Hardware boot on O6N/cixmini not yet done.",
   "source": {
     "base_tag": "v7.3",
     "base_peel": "c03c1a14507dfaf8b856c2608f9ac216021fc222",
     "port_branch": "kernel-73final-port-20261019",
-    "port_branch_tip": null,
+    "port_branch_tip": "0974edf1596f3d769e3a1c4690ce35e028b626b7",
     "port_patch": "sky1-ncz-v7.3-final-port.patch",
-    "port_patch_sha256": "c48d24d0266b5bcbc62391069c7c08d212d4d618f4508e8db7e6729174c9674c",
+    "port_patch_sha256": "82e1fa72996b18ed201784f4f686a3da9e39557c8592829d0e122db5d519916c",
     "port_commits": {
       "from_rc6_count": 207,
       "from_rc6_branch": "kernel-73rc6-port",
@@ -32,16 +32,16 @@
       "replay_result": "clean: 28/28 patches applied, 0 conflicts"
     },
     "build": {
-      "vmlinux_build_id": null,
-      "image_sha256": null,
-      "modules_tgz_sha256": null,
+      "vmlinux_build_id": "417bb85f4e083725d811e15544a1a6a0310d9aee",
+      "image_sha256": "3cf6a0854df5f57cd8082ef983537963d7594c8415c7fd29a2d6173a02c67b22",
+      "modules_tgz_sha256": "a873093731c16f5ccc00dee08d4da27b406c5d18e8b6429698ae89e9b0b46e68",
       "headers_tar_sha256": null,
-      "config_sha256": null,
-      "dtb_sha256": null,
-      "builder": "oe-user@oe-host (GCC 15.3.0, binutils 2.46.1)",
+      "config_sha256": "c87326fe35a49d543c7f9e7d3cb70247d98a819901908becfea56bfe3b17f533",
+      "dtb_sha256": "1aa102e7d699fc2cbdfc4cfdf44f88155e71972402eec4f4abe7d4e3d651873e",
+      "builder": "ncz-yocto-y6:trixie container on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0)",
       "kvm_kernel_gate": "NOT RUN",
       "dkms_abi_gate": "NOT RUN",
-      "verify_overlay_modversions": "NOT RUN",
+      "verify_overlay_modversions": "PASS (6 modules, 0 CRC mismatches, 0 unresolved; negative control fails 5/6)",
       "config_audit": {
         "CONFIG_MODVERSIONS": "y",
         "CONFIG_MODULE_COMPRESS": "not set",
@@ -53,12 +53,14 @@
         "CONFIG_DEBUG_INFO_BTF": "y",
         "CONFIG_I2C_CHARDEV": "m"
       },
-      "modules_count": null,
-      "modules_compressed": null,
-      "built_utc": null
+      "modules_count": 376,
+      "modules_compressed": 0,
+      "built_utc": "2026-10-19T21:23:28Z",
+      "symvers_sha256": "55923d4c43ea993efd3da58514fe1d498f51c7c1d2de36e33a4f79aa8a9df6ce",
+      "symvers_crcs": 18771
     },
     "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc7.bb, branch fix/sky1-kernel-7.3.0-final-pin-20261019",
-    "recipe_commit": null,
+    "recipe_commit": "268911d8a8d3c9dc11bacd052c17907f3d5d8947",
     "recipe_parent": "935ede59bfd546de7d5c61bc0da7164e3d4d6f1f",
     "applied_patches": [
       "sky1-ncz-v7.3-final-port.patch",
@@ -106,11 +108,11 @@
     }
   },
   "overlays_mirrored": {
-    "assets/kernel/mali/7.3.0-rc7-sky1-ncz/mali_kbase.ko": "41e0fe1a809820660fd9ac13514d7e98f42968639cf050c8a47f43198de2dfbe",
-    "assets/kernel/mali/7.3.0-rc7-sky1-ncz/memory_group_manager.ko": "007ba4103c004bf1922fef6f4c76eeb85b9086c34756a9c7456836422dc2a328",
-    "assets/kernel/mali/7.3.0-rc7-sky1-ncz/protected_memory_allocator.ko": "cf91495af6f63026563280d58e220b0e70bb3bdd68b274dc2cb1a2251e51898f",
-    "assets/kernel/npu/7.3.0-rc7-sky1-ncz/aipu.ko": "fd20994359e39f2344792bd66855968fd8a57d78c6ad18daf264b4d914555229",
-    "assets/kernel/panthor/7.3.0-rc7-sky1-ncz/panthor.ko": "95fff99d3c81919c119f0043d044805e1c26d669147fbc22db4810b4dbdb3473",
-    "assets/kernel/vpu/7.3.0-rc7-sky1-ncz/amvx.ko": "74a2f0bb524737ed47e8cca8c7cf5bebc312277dd606aa348befd290077a00fa"
+    "assets/kernel/mali/7.3.0-sky1-ncz/mali_kbase.ko": "8059197ca15ae0c1203c94080d57ac0a32be9bbf3d45fdfe9d7a503bbea4f2e8",
+    "assets/kernel/mali/7.3.0-sky1-ncz/memory_group_manager.ko": "405e70d1747762a5a409c899fcccc83d79ec77956757e520a0e72e7e21afe749",
+    "assets/kernel/mali/7.3.0-sky1-ncz/protected_memory_allocator.ko": "c676995ea6c7748c851fcd1d8f43bc7c239b1a5768fe1f5c45c1b2a10582ca7e",
+    "assets/kernel/npu/7.3.0-sky1-ncz/aipu.ko": "c61be8225846bebe7cf06c7b8e4f789d43274dd047b1943c3de1d04fcb6ef4fa",
+    "assets/kernel/panthor/7.3.0-sky1-ncz/panthor.ko": "2fa3400332bb06e473f22d4a5b211fe0596ee666ddd9e2dea3dba55e80f81336",
+    "assets/kernel/vpu/7.3.0-sky1-ncz/amvx.ko": "18aa266bbb7e75bd63e4f332add1dee3180401c792a6e3da315fbc0cfe9ca911"
   }
 }
