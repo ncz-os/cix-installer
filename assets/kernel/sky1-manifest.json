@@ -8,7 +8,7 @@
   "channel_pointer": "assets/kernel/mainline",
   "staging_dir": "kernel-staging/r291-7.3.0-sky1-ncz-20261019",
   "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
-  "note": "Sky1 arm64 DEFAULT kernel under the unified 7.3 policy: r291 = the v7.3.0 FINAL pin. The r290 series (27 numbered patches 0001-0011 + 0013-0028, plus the consolidated port patch) was replayed onto the upstream v7.3 tag (c03c1a14): 28/28 patches applied, 0 conflicts, 0 rejects, 0 fuzz. Replaying the same series on v7.3-rc7 differs only in the 212 files upstream changed between the two tags, so every Sky1 change is carried across intact. Built in the ncz-yocto-y6 container on ULTRA against the local kernel mirror; kernel recipe tasks (do_patch/do_configure/do_compile/do_compile_kernelmodules/do_install/do_package/do_deploy) all SUCCEEDED. Note: six unrelated do_create_(recipe_)spdx tasks failed (missing static SPDX docs for bison-native/pkgconf-native) -- that is Yocto SPDX tooling, not the kernel, and does not affect the image or Module.symvers. 7.3.0-sky1-ncz is a NEW KVER, so all six accelerator overlays were REBUILT from this build's headers (build-accel-overlays.sh) and re-verified: verify-overlay-modversions PASS, 0 CRC mismatches, 0 unresolved across mali_kbase/memory_group_manager/protected_memory_allocator/amvx/aipu/panthor. Negative control: perturbing one CRC (kmalloc_caches) fails 5 of 6 modules, so the gate is live. Debs not yet built; not published (publish-first rule). Hardware boot on O6N/cixmini not yet done.",
+  "note": "Sky1 arm64 DEFAULT kernel under the unified 7.3 policy: r291 = the v7.3.0 FINAL pin, re-verified independently on 2026-10-21. The r290 series (consolidated port patch + 27 numbered patches 0001-0011 + 0013-0028) was replayed onto the upstream v7.3 tag (peel c03c1a14) in SRC_URI order: 28/28 applied, 0 conflicts, 0 rejects, 0 fuzz. (Replaying in FILENAME order instead reports 21 spurious conflicts.) NO patch is upstream: each of the 28 was tested by reverse-apply check, by apply-then-compare against pristine v7.3, and by the ordered replay -- 0/28 are no-ops, so nothing was dropped. No upstream clobbering: the two files the port patch shares with upstream's rc7..v7.3 changes (panthor_hw.c c347fef5f8f8; quirks.c 0f8b5d90d179, 7209846a169f) all survive in the merged tree. Tree-equivalence: the same series replayed on rc7 and on v7.3 gives trees differing in 212 files, every one of which upstream itself changed between the tags -- zero unexplained differences. An independent from-scratch replay diffs 0 files against the tree this build compiled. Built in the ncz-yocto-y6 container on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0). 7.3.0-sky1-ncz is a NEW KVER, so all six accelerator overlays were rebuilt from this build's headers: verify-overlay-modversions PASS, 0 CRC mismatches, 0 unresolved. Gates re-run 2026-10-21: kvm-kernel-gate PASS (r291 vs r290 error histograms identical), dkms-abi-gate PASS, acceptance 28/28, 376 .ko with 0 .ko.xz. Debian debs built and byte-identical across two runs. STILL NOT DONE: no hardware boot (O6N/cixmini untouched), not published to apt.",
   "source": {
     "base_tag": "v7.3",
     "base_peel": "c03c1a14507dfaf8b856c2608f9ac216021fc222",
@@ -35,12 +35,12 @@
       "vmlinux_build_id": "417bb85f4e083725d811e15544a1a6a0310d9aee",
       "image_sha256": "3cf6a0854df5f57cd8082ef983537963d7594c8415c7fd29a2d6173a02c67b22",
       "modules_tgz_sha256": "a873093731c16f5ccc00dee08d4da27b406c5d18e8b6429698ae89e9b0b46e68",
-      "headers_tar_sha256": null,
+      "headers_tar_sha256": "4f9c17a034dce4782396eb21bc40babe0b3b3254372d03db1e70f91f713cfe7b",
       "config_sha256": "c87326fe35a49d543c7f9e7d3cb70247d98a819901908becfea56bfe3b17f533",
       "dtb_sha256": "1aa102e7d699fc2cbdfc4cfdf44f88155e71972402eec4f4abe7d4e3d651873e",
       "builder": "ncz-yocto-y6:trixie container on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0)",
-      "kvm_kernel_gate": "NOT RUN",
-      "dkms_abi_gate": "NOT RUN",
+      "kvm_kernel_gate": "PASS (r291 and r290 both reach root-mount; error-keyword histograms identical, no new errors vs r290)",
+      "dkms_abi_gate": "PASS (builder oe-user@oe-host, binutils 2.46.1, CONFIG_MODVERSIONS=y)",
       "verify_overlay_modversions": "PASS (6 modules, 0 CRC mismatches, 0 unresolved; negative control fails 5/6)",
       "config_audit": {
         "CONFIG_MODVERSIONS": "y",
@@ -57,7 +57,9 @@
       "modules_compressed": 0,
       "built_utc": "2026-10-19T21:23:28Z",
       "symvers_sha256": "55923d4c43ea993efd3da58514fe1d498f51c7c1d2de36e33a4f79aa8a9df6ce",
-      "symvers_crcs": 18771
+      "symvers_crcs": 18771,
+      "config_diff_vs_r290": "5 lines: banner 7.3.0-rc7->7.3.0; CONFIG_VIDEO_LINLON=m -> not set and +CONFIG_VIDEO_LINLON_OOT=m (patch 0022, in-tree VPU must not shadow the DKMS amvx.ko); the two VIDEO_LINLON sub-options disappear with their parent; and the DRM_MSM_VALIDATE_XML line is a host lxml probe (its Kconfig depends on $(success,$(PYTHON3) -c \"import lxml\")), not enabled either way. No behavioural regression.",
+      "deb_reproducibility": "the three Debian debs are byte-identical across two independent runs"
     },
     "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc7.bb, branch fix/sky1-kernel-7.3.0-final-pin-20261019",
     "recipe_commit": "268911d8a8d3c9dc11bacd052c17907f3d5d8947",
@@ -96,15 +98,20 @@
   "debs": {
     "linux-image-cixmini": {
       "version": "7.3.0-sky1-ncz+r291",
-      "sha256": null
+      "sha256": "72d32d4362acffd7688068110e50c92aa787e2a403aab788efcaa0d8587d9984"
     },
     "linux-headers-cixmini": {
       "version": "7.3.0-sky1-ncz+r291",
-      "sha256": null
+      "sha256": "d044b9643cca3d3687351249759f9a0f1ec18eeb14749857dbfbc89a367849f0"
     },
     "cixmini-boot": {
       "version": "1.5+r291",
-      "sha256": null
+      "sha256": "d3f37cce87b26510fab712ed51933a1523b918c648a7c29ae26ef8787881d098"
+    },
+    "linux-meta-cixmini": {
+      "version": "7.3.0-sky1-ncz+r291",
+      "sha256": "c3313e6931aaa4146e5ce9e4b263fd8901f405392379b167ee22e184b01ab6d6",
+      "note": "Yocto kernel-linux-cix-sky1-ncz-vmlinux 7.3+ncz0+c03c1a1450-r1 deb (/boot/vmlinux-<KVER>), named as in r290"
     }
   },
   "overlays_mirrored": {

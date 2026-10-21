@@ -169,8 +169,15 @@ fi
 # Without these the rebuild dies before it can produce modpost:
 #   scripts/selinux/mdp   -> needs security/selinux/include/classmap.h
 #   include/generated/timeconst.h -> needs kernel/time/timeconst.bc
-# Measured on O6N 2026-08-17 while porting to 7.2 final.
-for extra in security/selinux/include kernel/time/timeconst.bc; do
+#   kernel/bounds.c       -> lib/Makefile compiles it into lib/bounds.o; it is
+#                            not under include/ so the extension filters above
+#                            never see it, and its absence aborts modules_prepare
+#                            at lib/ with "No rule to make target 'bounds.o'".
+# Measured on ULTRA 2026-10-21 against the r291 (7.3.0-sky1-ncz) tree: the
+# tarball shipped 0 *.c files under kernel/ while the full tree has
+# kernel/bounds.c. The postinst's `make modules_prepare` therefore fails there
+# for EVERY board; it only survived because make was run with -k.
+for extra in security/selinux/include kernel/time/timeconst.bc kernel/bounds.c; do
     [ -e "$KSRC/$extra" ] || continue
     mkdir -p "$ROOT/$(dirname "$extra")"
     rsync -a "$KSRC/$extra" "$ROOT/$(dirname "$extra")/"

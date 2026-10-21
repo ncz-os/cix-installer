@@ -932,14 +932,41 @@ fi
 # path cannot assume the post-install hooks ever ran: a board that
 # upgraded from a pre-79 world, or that was installed via a non-standard
 # path, will never have invoked 79. The header tree must be self-healing.
+#
+# FIX 2026-10-21 (r291): the original was
+#     "$1" --version >/dev/null 2>&1 || return 1
+#     case $? in 126|127) return 1;; esac
+#     return 0
+# The `|| return 1` fires on ANY non-zero exit, so a tool that execs fine and
+# then rejects the bogus `--version` argument -- which is what BOTH fixdep and
+# modpost do, exit 1 with a usage message on stderr -- was reported UNUSABLE.
+# The 126/127 case afterwards was dead code: `||` had already returned, so $?
+# was always 0 there. Measured against the real r290 headers tree: both tools
+# are native and execute, yet this function returned "unusable" for both,
+# which forced a pointless modules_prepare on every install and then printed
+# the alarming "fixdep/modpost still unusable; DKMS builds will fail"
+# warning on boards where DKMS was about to work perfectly. The correct
+# predicate is the one 79-dkms-prep.sh already uses: ONLY 126 (found but not
+# executable) and 127 (interpreter/loader missing) mean "cannot exec", because
+# those are the execve failures -- a Yocto uninative-linked binary whose
+# loader path does not exist on the target. Any other exit means it ran.
+# 79-dkms-prep.sh is the reference implementation; keep the two in step.
 tool_usable() {
     [ -x "$1" ] || return 1
-    "$1" --version >/dev/null 2>&1 || return 1
-    case $? in 126|127) return 1;; esac
-    return 0
+    "$1" --version </dev/null >/dev/null 2>&1
+    case $? in
+        126|127) return 1 ;;   # cannot exec: wrong ABI or missing loader
+        *)       return 0 ;;   # ran (a usage error is still a successful exec)
+    esac
 }
+# genksyms matters as much as fixdep/modpost and was missing here: a module
+# that exports symbols (aipu) runs it for CONFIG_MODVERSIONS, and the shipped
+# headers carry a genksyms linked against Yocto's uninative loader even when
+# fixdep and modpost are already native (2026-10-06, r201 arm64 KVM gate:
+# "genksyms: not found", no aipu.ko). 79-dkms-prep.sh hit exactly that and
+# added genksyms to its list; this postinst never got the same change.
 need_rebuild=0
-for tool in scripts/basic/fixdep scripts/mod/modpost; do
+for tool in scripts/basic/fixdep scripts/mod/modpost scripts/genksyms/genksyms; do
     tool_usable "$B/$tool" || need_rebuild=1
 done
 
@@ -957,19 +984,30 @@ if [ "$need_rebuild" = "1" ]; then
         SELBAK="$(mktemp)"; cp -a "$SEL" "$SELBAK"; : > "$SEL"
     fi
     LOG=/var/log/ncz-headers-modules-prepare.log
-    if make -C "$B" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare >>"$LOG" 2>&1; then
+    # -k matters here, and the reason is ordering, not the bounds failure per
+    # se. The top-level Kbuild builds include/generated/bounds.h from
+    # kernel/bounds.s, and arch/$(SRCARCH)/kernel/asm-offsets.s depends on that
+    # header; the header extraction did not ship kernel/bounds.c, so without
+    # it make stops at prepare0 on "No rule to make target 'kernel/bounds.s'"
+    # (reproduced 2026-10-21 on ULTRA, logs/bounds-repro-before.txt). -k lets
+    # make carry on past that stop so the host tools this block exists to
+    # produce are still built and the verdict below is taken from re-running
+    # tool_usable on each tool rather than from make's exit status. Shipping
+    # kernel/bounds.c (extract-kernel-headers.sh) removes the stop at its
+    # source; -k is kept because the tree has other generated-source gaps by
+    # construction (any file outside include/ that the extension filters do not
+    # match) and 79-dkms-prep.sh already depends on -k for exactly that reason.
+    if make -k -C "$B" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare >>"$LOG" 2>&1; then
         log "modules_prepare clean (log: $LOG)"
     else
-        # A late failure on kernel/bounds.s is EXPECTED -- the headers
-        # tarball does not carry the full source tree that target depends
-        # on, and 79-dkms-prep.sh documents this in detail. The two tools
-        # we actually needed (fixdep, modpost) are built by the time kbuild
-        # reaches that target, so a non-zero exit is harmless.
+        # Non-zero is EXPECTED: the headers tarball does not carry the full
+        # source tree. The tools we actually needed are verified usable below,
+        # so a non-zero exit here is not itself a failure.
         log "modules_prepare returned non-zero (expected: headers omit some generated sources; see $LOG)"
     fi
     restore_selinux
     trap - EXIT INT TERM
-    for tool in scripts/basic/fixdep scripts/mod/modpost; do
+    for tool in scripts/basic/fixdep scripts/mod/modpost scripts/genksyms/genksyms; do
         if tool_usable "$B/$tool"; then
             log "$tool -> native"
         else
