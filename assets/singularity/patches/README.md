@@ -36,6 +36,13 @@ run means a merged PR's patch won't sit stale for days between manual passes.
 
 ## singularity-shell — active
 
+Refreshed 2026-10-25 onto shell `ff951e7` (from `ef8d009`): upstream
+`7f08c87`/`94df48f` show the account's full name on the lock, adding a
+`display_name` next to the declaration `0018` adds `label_buf` beside, so
+`0015`, `0016`, `0017`, `0018`, `0019`, `0020`, `0023` and `0024` were rebased
+(3-way) and regenerated; their changes are unchanged, `0018` now declares
+`label_buf` after upstream's `display_name`.
+
 **Not yet filed upstream** (2026-10-11). Patches
 `0013-lockscreen-honour-output-scale.patch`,
 `0014-lockscreen-host-an-out-of-process-frame-source.patch`,

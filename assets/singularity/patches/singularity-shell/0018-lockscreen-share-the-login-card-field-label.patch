@@ -8,18 +8,22 @@ resolver the greeter now uses -- so the two login cards are built from one
 code path. No behaviour change (Password, or PIN when the recoverd broker
 socket is present); the first free number after the thermals 0017 queue entry.
 ---
+ src/lockscreen/lock_main.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
 diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
+index 786f63a..a4a5a2c 100644
 --- a/src/lockscreen/lock_main.c
 +++ b/src/lockscreen/lock_main.c
-@@ -119,6 +119,7 @@
- static char status_text[128] = "";
+@@ -120,6 +120,7 @@ static char status_text[128] = "";
  static bool status_error = false;
  static char username[256] = "";
+ static char display_name[256] = "";
 +static char label_buf[64];
  
  static void render_output(struct lock_output *o);
  #ifdef LOCK_FRAMESRC
-@@ -488,8 +489,11 @@
+@@ -489,8 +490,11 @@ static void render_output(struct lock_output *o) {
      st.status_text = status_text[0] ? status_text : NULL;
      st.status_error = status_error;
      /* On Sinty OS the unlock field takes a PIN, not a password (the recoverd
@@ -33,3 +37,6 @@ diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
      bool animating = apply_motion(&st);
  
  #ifdef LOCK_FRAMESRC
+-- 
+2.53.0
+

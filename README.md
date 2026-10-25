@@ -128,7 +128,7 @@ it as NCZ-OS. See [Architecture](#architecture).
   it again, delete `~/.local/state/ncz/tour-seen` and log in again. The tour
   runs at idle CPU priority with animations off, so it does not heat the
   machine while it is open.
-- **Screensavers:** NCZ Screensavers 0.8.16 (settings plugin 0.3.24) with 74
+- **Screensavers:** NCZ Screensavers 0.8.16 (settings plugin 0.3.25) with 74
   savers, including the Black Hole (the default, in the Cygnus palette),
   Fractasia and Magmasimplex. Choose and preview them in Settings →
   *Screensaver and Lock*. Heavy savers are best on a stronger GPU.

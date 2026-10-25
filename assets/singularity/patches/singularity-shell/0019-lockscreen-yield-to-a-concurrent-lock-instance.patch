@@ -32,15 +32,15 @@ test gains case 10: two clients at once; the second yields and the first keeps
 streaming.
 
 ---
- src/lockscreen/lock_framesrc.c             | 103 ++++++++++++++++++---
+ src/lockscreen/lock_framesrc.c             | 103 +++++++++++++++++++++++++----
  src/lockscreen/lock_framesrc.h             |   7 ++
- src/lockscreen/lock_main.c                 |   9 ++
+ src/lockscreen/lock_main.c                 |   9 +++
  tests/lockscreen-framesrc/README.md        |   5 +-
- tests/lockscreen-framesrc/test-framesrc.sh |  25 +++++
+ tests/lockscreen-framesrc/test-framesrc.sh |  25 +++++++
  5 files changed, 136 insertions(+), 13 deletions(-)
 
 diff --git a/src/lockscreen/lock_framesrc.c b/src/lockscreen/lock_framesrc.c
-index dc0b607..64ebe79 100644
+index 0001d0c..5161c27 100644
 --- a/src/lockscreen/lock_framesrc.c
 +++ b/src/lockscreen/lock_framesrc.c
 @@ -67,6 +67,7 @@ struct lock_framesrc {
@@ -215,10 +215,10 @@ index 2942b01..42c17fb 100644
   * handle. name may be NULL. Logical size and integer output scale are used to
   * derive the buffer size requested from the frame source. */
 diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
-index 018ab3e..6c49369 100644
+index a4a5a2c..21e591d 100644
 --- a/src/lockscreen/lock_main.c
 +++ b/src/lockscreen/lock_main.c
-@@ -1217,6 +1217,15 @@ int main(int argc, char **argv) {
+@@ -1220,6 +1220,15 @@ int main(int argc, char **argv) {
          if (framesrc) {
              for (struct lock_output *o = outputs; o; o = o->next)
                  framesrc_register_output(o);
@@ -251,7 +251,7 @@ index 3fbf47d..a42b28c 100644
  Environment (defaults assume the binaries are in `$WORK`, e.g. a container):
  
 diff --git a/tests/lockscreen-framesrc/test-framesrc.sh b/tests/lockscreen-framesrc/test-framesrc.sh
-index 0049960..ec43c3e 100755
+index ae30d96..8031211 100755
 --- a/tests/lockscreen-framesrc/test-framesrc.sh
 +++ b/tests/lockscreen-framesrc/test-framesrc.sh
 @@ -267,6 +267,31 @@ else
@@ -287,5 +287,5 @@ index 0049960..ec43c3e 100755
  echo "== RESULT: $PASS passed, $FAIL failed =="
  [ "$FAIL" -eq 0 ]
 -- 
-2.50.1 (Apple Git-155)
+2.53.0
 
