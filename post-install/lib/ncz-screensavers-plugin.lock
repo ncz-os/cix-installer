@@ -23,23 +23,23 @@
 # NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_<arch>. Anything else means: rebuild the
 # plugin against the new payload, restage it in the artifact store, update this file.
 NCZ_SSPLUGIN_PKG=ncz-screensavers-plugin
-NCZ_SSPLUGIN_VERSION=0.3.24
-# 0.3.24 is the ABI rebuild of the 0.3.23 source for the 20261017175725 payload
-# (libsingularity changed with the 2026-10-17 pins). Staged in the artifact
+NCZ_SSPLUGIN_VERSION=0.3.25
+# 0.3.25 is the ABI rebuild of the 0.3.23 source for the 20261025175504 payload
+# (libsingularity changed with the 2026-10-25 pins). Staged in the artifact
 # store below; publish it to the NCZ apt repo (Buildkite/R2) before an image
 # that needs it is built (publish-first rule, build/screensavers-version.env).
 # Built from the accepted saver source 8f8433c4f90e0a3b2d80225dafee098957eea8d5
 # (wip/studio/2026-10-14-resume-saver) against the payload built by
-# cix-installer 33949334b78e971b34f08c9aa959b2f3d0f1672e.
+# cix-installer 349bf339cf72c00f3e41c62f2b2dcf7699958651.
 NCZ_SSPLUGIN_MAINTAINER="Jason Perlow <jperlow@gmail.com>"
 # Directory under the artifact-store projects root (mount point differs per
 # build host; see build/stage-screensaver-plugin.sh).
-NCZ_SSPLUGIN_STORE_DIR=ncz-screensavers-debs/plugin-0.3.24-20261017175725
-NCZ_SSPLUGIN_SOURCE="ncz-screensavers wip/studio/2026-10-14-resume-saver 8f8433c4f90e0a3b2d80225dafee098957eea8d5 (payload builder 33949334b78e971b34f08c9aa959b2f3d0f1672e)"
-NCZ_SSPLUGIN_SHA256_amd64=a0773434775001c38d4d0edcb0140c48b0689e462ec9d818a06d65312941aeb4
-NCZ_SSPLUGIN_SHA256_arm64=cd39db6c0b7102952ac31079514db14835f3351f58db7d94ab6cf530414461f7
-NCZ_SSPLUGIN_PAYLOAD_amd64=20261017175725+bk0+tgzaac75bd3
-NCZ_SSPLUGIN_PAYLOAD_arm64=20261017175725+bk0+tgzedaa72cc
+NCZ_SSPLUGIN_STORE_DIR=ncz-screensavers-debs/plugin-0.3.25-20261025175504
+NCZ_SSPLUGIN_SOURCE="ncz-screensavers wip/studio/2026-10-14-resume-saver 8f8433c4f90e0a3b2d80225dafee098957eea8d5 (payload builder 349bf339cf72c00f3e41c62f2b2dcf7699958651)"
+NCZ_SSPLUGIN_SHA256_amd64=2cc0e62463753b027f4e16e58238b4142be5b002ad889d95831a58bc6a70a964
+NCZ_SSPLUGIN_SHA256_arm64=76133a9d8c86b60210f77c7513ace95cf361f58d910e18da794ef4864a088c7a
+NCZ_SSPLUGIN_PAYLOAD_amd64=20261025175504+bk0+tgz225dba22
+NCZ_SSPLUGIN_PAYLOAD_arm64=20261025175504+bk0+tgzc1c61921
 NCZ_SSPLUGIN_ABI_LIB=/opt/singularity/lib/libsingularity.so.0
-NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_amd64=ce1764a9a766f0861f9114cbfb1d63edb2d325430c99dd6225804bb3d8fe0745
-NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_arm64=183e9cb4fd0b55a4efcf1242ad5922442b7c93c354d6e7add2d667d2d82fcb24
+NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_amd64=81fe23b1249d1c6630c17394f67874f797d916b941bdceb2fa68d1bec5607dbf
+NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_arm64=52b4d06b4d73927722fc40c9470197f41e2028e0c70edca57f14f8a038192dc1
