@@ -1,5 +1,5 @@
 diff --git a/src/lockscreen/lock_framesrc.c b/src/lockscreen/lock_framesrc.c
-index a9846cc..e1f0ffe 100644
+index 701b05e..5561464 100644
 --- a/src/lockscreen/lock_framesrc.c
 +++ b/src/lockscreen/lock_framesrc.c
 @@ -712,8 +712,9 @@ void lock_framesrc_set_enabled(struct lock_framesrc *h, bool on) {
@@ -69,10 +69,10 @@ index 42c17fb..9823497 100644
  
  #endif /* LOCK_FRAMESRC_H */
 diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
-index 44b594a..a4ccf11 100644
+index 21e591d..9df9c65 100644
 --- a/src/lockscreen/lock_main.c
 +++ b/src/lockscreen/lock_main.c
-@@ -659,8 +659,9 @@ static void framesrc_clear(void *user) {
+@@ -660,8 +660,9 @@ static void framesrc_clear(void *user) {
  }
  
  /* First input: raise the prompt over the running saver. The saver freezes at
@@ -84,7 +84,7 @@ index 44b594a..a4ccf11 100644
  static void raise_prompt(void) {
      if (!framesrc) return;
      lock_framesrc_freeze(framesrc);
-@@ -679,11 +680,19 @@ static void raise_prompt(void) {
+@@ -680,11 +681,19 @@ static void raise_prompt(void) {
  
  /* Idle after the prompt: hide it and show the raw saver frames again. A source
   * that has stopped has no frames to return to, so it keeps the prompt. A frozen
@@ -107,7 +107,7 @@ index 44b594a..a4ccf11 100644
      bool lowered = false;
      for (struct lock_output *o = outputs; o; o = o->next) {
          if (!o->prompt_visible || !o->frame_buffer || !o->surface) continue;
-@@ -699,7 +708,8 @@ static void lower_prompt(void) {
+@@ -700,7 +709,8 @@ static void lower_prompt(void) {
                                   (int)(o->height * (uint32_t)sc));
          wl_surface_commit(o->surface);
      }
@@ -118,7 +118,7 @@ index 44b594a..a4ccf11 100644
  
  static const struct lock_framesrc_ops framesrc_ops = {
 diff --git a/tests/lockscreen-framesrc/test-framesrc.sh b/tests/lockscreen-framesrc/test-framesrc.sh
-index 53e6ed3..33ae891 100755
+index ef28704..f0aed9a 100755
 --- a/tests/lockscreen-framesrc/test-framesrc.sh
 +++ b/tests/lockscreen-framesrc/test-framesrc.sh
 @@ -129,9 +129,23 @@ else
@@ -148,3 +148,6 @@ index 53e6ed3..33ae891 100755
  stop_all
  
  echo "== case 2: feed kill -9 => lock held and the prompt still works =="
+-- 
+2.53.0
+

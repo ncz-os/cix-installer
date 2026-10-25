@@ -27,10 +27,10 @@ Author: Jason Perlow <jperlow@gmail.com>
  1 file changed, 19 insertions(+), 4 deletions(-)
 
 diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
-index fd64006..8e030d6 100644
+index 550fe00..6cdbd4d 100644
 --- a/src/lockscreen/lock_main.c
 +++ b/src/lockscreen/lock_main.c
-@@ -1016,17 +1016,32 @@ static void pt_enter(void *d, struct wl_pointer *p, uint32_t serial,
+@@ -1017,17 +1017,32 @@ static void pt_enter(void *d, struct wl_pointer *p, uint32_t serial,
      ptr_x = wl_fixed_to_double(sx);
      ptr_y = wl_fixed_to_double(sy);
  #ifdef LOCK_FRAMESRC
@@ -68,5 +68,5 @@ index fd64006..8e030d6 100644
  }
  static void pt_button(void *d, struct wl_pointer *p, uint32_t serial, uint32_t time,
 -- 
-2.50.1 (Apple Git-155)
+2.53.0
 

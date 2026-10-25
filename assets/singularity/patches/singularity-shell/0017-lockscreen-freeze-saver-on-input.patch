@@ -1,5 +1,5 @@
 diff --git a/src/lockscreen/lock_framesrc.c b/src/lockscreen/lock_framesrc.c
-index bb97c47..dc0b607 100644
+index ef6ee47..0001d0c 100644
 --- a/src/lockscreen/lock_framesrc.c
 +++ b/src/lockscreen/lock_framesrc.c
 @@ -53,6 +53,7 @@ struct lfs_out {
@@ -254,10 +254,10 @@ index 8c67005..edd09da 100644
          struct lfs_output *o = &outs[oi % w->n_outputs];
          oi++;
 diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
-index 8e030d6..cba8fa3 100644
+index 6cdbd4d..786f63a 100644
 --- a/src/lockscreen/lock_main.c
 +++ b/src/lockscreen/lock_main.c
-@@ -654,10 +654,12 @@ static void framesrc_clear(void *user) {
+@@ -655,10 +655,12 @@ static void framesrc_clear(void *user) {
      if (o->configured) render_output(o);
  }
  
@@ -272,7 +272,7 @@ index 8e030d6..cba8fa3 100644
      prompt_deadline_ms = (uint64_t)(now_us() / 1000)
          + (prompt_delay_ms ? prompt_delay_ms : LOCK_PROMPT_DEFAULT_MS);
      bool changed = false;
-@@ -672,9 +674,12 @@ static void raise_prompt(void) {
+@@ -673,9 +675,12 @@ static void raise_prompt(void) {
  }
  
  /* Idle after the prompt: hide it and show the raw saver frames again. A source
@@ -286,7 +286,7 @@ index 8e030d6..cba8fa3 100644
      bool lowered = false;
      for (struct lock_output *o = outputs; o; o = o->next) {
          if (!o->prompt_visible || !o->frame_buffer || !o->surface) continue;
-@@ -1276,8 +1281,9 @@ int main(int argc, char **argv) {
+@@ -1279,8 +1284,9 @@ int main(int argc, char **argv) {
          if (gl_timeout >= 0 && gl_timeout < timeout) timeout = gl_timeout;
  #ifdef LOCK_FRAMESRC
          /* Wake at most every 100 ms so the frame-source watchdog and timers run
@@ -299,7 +299,7 @@ index 8e030d6..cba8fa3 100644
  
          int pr = poll(pfds, np, timeout);
 diff --git a/tests/lockscreen-framesrc/test-framesrc.sh b/tests/lockscreen-framesrc/test-framesrc.sh
-index 2990e0b..0049960 100755
+index 2990e0b..ae30d96 100755
 --- a/tests/lockscreen-framesrc/test-framesrc.sh
 +++ b/tests/lockscreen-framesrc/test-framesrc.sh
 @@ -97,7 +97,7 @@ wayland-info 2>/dev/null | grep -o "ext_session_lock_manager_v1" | head -1 \
@@ -453,3 +453,6 @@ index 2990e0b..0049960 100755
  echo ""
  echo "== RESULT: $PASS passed, $FAIL failed =="
  [ "$FAIL" -eq 0 ]
+-- 
+2.53.0
+

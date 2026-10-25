@@ -241,10 +241,10 @@ index edd09da..699d4f4 100644
          seq++;
          struct timespec ts = { .tv_sec = 0, .tv_nsec = 100 * 1000 * 1000 };
 diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
-index a4ccf11..aa229d2 100644
+index 9df9c65..99bcec9 100644
 --- a/src/lockscreen/lock_main.c
 +++ b/src/lockscreen/lock_main.c
-@@ -561,7 +561,10 @@ static void render_output(struct lock_output *o) {
+@@ -562,7 +562,10 @@ static void render_output(struct lock_output *o) {
   * frames themselves and render_output() for the prompt composited over them.
   */
  
@@ -256,7 +256,7 @@ index a4ccf11..aa229d2 100644
  
  static uint64_t prompt_deadline_ms;   /* monotonic ms at which the prompt hides */
  static uint32_t prompt_delay_ms;      /* SINGULARITY_LOCK_RENDERER_DELAY_MS */
-@@ -664,7 +667,10 @@ static void framesrc_clear(void *user) {
+@@ -665,7 +668,10 @@ static void framesrc_clear(void *user) {
   * unattended saver stops: until input arrives it keeps animating. */
  static void raise_prompt(void) {
      if (!framesrc) return;
@@ -268,7 +268,7 @@ index a4ccf11..aa229d2 100644
      prompt_deadline_ms = (uint64_t)(now_us() / 1000)
          + (prompt_delay_ms ? prompt_delay_ms : LOCK_PROMPT_DEFAULT_MS);
      bool changed = false;
-@@ -685,14 +691,20 @@ static void raise_prompt(void) {
+@@ -686,14 +692,20 @@ static void raise_prompt(void) {
  static void lower_prompt(void) {
      if (!framesrc) return;
      bool resumed = false;
@@ -289,7 +289,7 @@ index a4ccf11..aa229d2 100644
      bool lowered = false;
      for (struct lock_output *o = outputs; o; o = o->next) {
          if (!o->prompt_visible || !o->frame_buffer || !o->surface) continue;
-@@ -709,7 +721,8 @@ static void lower_prompt(void) {
+@@ -710,7 +722,8 @@ static void lower_prompt(void) {
          wl_surface_commit(o->surface);
      }
      if (lowered) fprintf(stderr, "lock: prompt lowered; saver frames resumed%s\n",
@@ -299,7 +299,7 @@ index a4ccf11..aa229d2 100644
  }
  
  static const struct lock_framesrc_ops framesrc_ops = {
-@@ -1222,7 +1235,12 @@ int main(int argc, char **argv) {
+@@ -1225,7 +1238,12 @@ int main(int argc, char **argv) {
      if (getenv("SINGULARITY_LOCK_RENDERER") ||
          getenv("SINGULARITY_LOCK_RENDERER_ENABLE")) {
          const char *rs = getenv("SINGULARITY_LOCK_RENDERER_DELAY_MS");
@@ -362,3 +362,6 @@ index f0aed9a..a6cf550 100755
  echo ""
  echo "== RESULT: $PASS passed, $FAIL failed =="
  [ "$FAIL" -eq 0 ]
+-- 
+2.53.0
+

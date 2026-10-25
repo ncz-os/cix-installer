@@ -27,15 +27,15 @@ stopping the source, that frames keep streaming behind it, that a real
 screen capture shows the backdrop is not the flat fill, and that the
 prompt returns to the frames after it has been idle.
 ---
- src/lockscreen/lock_framesrc.c             |  87 ++++++----
- src/lockscreen/lock_framesrc.h             |  46 +++--
- src/lockscreen/lock_main.c                 | 191 +++++++++++++++++++--
+ src/lockscreen/lock_framesrc.c             |  87 +++++++------
+ src/lockscreen/lock_framesrc.h             |  46 ++++---
+ src/lockscreen/lock_main.c                 | 191 ++++++++++++++++++++++++++---
  tests/lockscreen-framesrc/README.md        |  20 ++-
- tests/lockscreen-framesrc/test-framesrc.sh |  93 +++++++---
+ tests/lockscreen-framesrc/test-framesrc.sh |  93 ++++++++++----
  5 files changed, 341 insertions(+), 96 deletions(-)
 
 diff --git a/src/lockscreen/lock_framesrc.c b/src/lockscreen/lock_framesrc.c
-index a62c796..bb97c47 100644
+index 8d64b47..ef6ee47 100644
 --- a/src/lockscreen/lock_framesrc.c
 +++ b/src/lockscreen/lock_framesrc.c
 @@ -22,6 +22,7 @@
@@ -292,7 +292,7 @@ index ef7a407..3f11cb8 100644
   * backoff, starts/resumes the source when due, and advances the connection
   * state machine. Call once per main-loop iteration. */
 diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
-index 172d835..fd64006 100644
+index 7a01f7e..550fe00 100644
 --- a/src/lockscreen/lock_main.c
 +++ b/src/lockscreen/lock_main.c
 @@ -79,7 +79,13 @@ struct lock_output {
@@ -310,8 +310,8 @@ index 172d835..fd64006 100644
  #endif
  };
  
-@@ -115,6 +121,9 @@ static bool status_error = false;
- static char username[256] = "";
+@@ -116,6 +122,9 @@ static char username[256] = "";
+ static char display_name[256] = "";
  
  static void render_output(struct lock_output *o);
 +#ifdef LOCK_FRAMESRC
@@ -320,7 +320,7 @@ index 172d835..fd64006 100644
  
  static void render_all(void) {
      for (struct lock_output *o = outputs; o; o = o->next)
-@@ -447,9 +456,9 @@ static const struct wl_callback_listener frame_listener = { .done = frame_done }
+@@ -448,9 +457,9 @@ static const struct wl_callback_listener frame_listener = { .done = frame_done }
  static void render_output(struct lock_output *o) {
      if (o->frame_cb) return;
  #ifdef LOCK_FRAMESRC
@@ -333,7 +333,7 @@ index 172d835..fd64006 100644
  #endif
      cairo_t *cr;
      int32_t sc = o->scale > 0 ? o->scale : 1;
-@@ -483,6 +492,20 @@ static void render_output(struct lock_output *o) {
+@@ -484,6 +493,20 @@ static void render_output(struct lock_output *o) {
      st.auth_label = (access("/run/sinty-recoverd.sock", F_OK) == 0) ? "PIN" : NULL;
      bool animating = apply_motion(&st);
  
@@ -354,7 +354,7 @@ index 172d835..fd64006 100644
      double card_x, card_y, card_w, card_h;
      loginui_render(cr, &st, &card_x, &card_y, &card_w, &card_h);
  
-@@ -524,28 +547,152 @@ static void render_output(struct lock_output *o) {
+@@ -525,28 +548,152 @@ static void render_output(struct lock_output *o) {
   * off-screen and hands us a buffer fd over a Unix socket; we import it and
   * present it on the lock surface. The renderer is never code in this process,
   * so a fault there can only cost us the animation: on any error we simply paint
@@ -515,7 +515,7 @@ index 172d835..fd64006 100644
  static const struct lock_framesrc_ops framesrc_ops = {
      .present = framesrc_present,
      .clear = framesrc_clear,
-@@ -794,9 +941,9 @@ static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
+@@ -795,9 +942,9 @@ static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
                     uint32_t time, uint32_t key, uint32_t state) {
      (void)data; (void)kb; (void)serial; (void)time;
  #ifdef LOCK_FRAMESRC
@@ -527,7 +527,7 @@ index 172d835..fd64006 100644
  #endif
      if (!xkb_state) {
          /* Do not fail silently. Without a keymap this screen can never accept
-@@ -869,7 +1016,7 @@ static void pt_enter(void *d, struct wl_pointer *p, uint32_t serial,
+@@ -870,7 +1017,7 @@ static void pt_enter(void *d, struct wl_pointer *p, uint32_t serial,
      ptr_x = wl_fixed_to_double(sx);
      ptr_y = wl_fixed_to_double(sy);
  #ifdef LOCK_FRAMESRC
@@ -536,7 +536,7 @@ index 172d835..fd64006 100644
  #endif
  }
  static void pt_leave(void *d, struct wl_pointer *p, uint32_t serial, struct wl_surface *sf) {
-@@ -879,7 +1026,7 @@ static void pt_motion(void *d, struct wl_pointer *p, uint32_t t, wl_fixed_t sx,
+@@ -880,7 +1027,7 @@ static void pt_motion(void *d, struct wl_pointer *p, uint32_t t, wl_fixed_t sx,
      ptr_x = wl_fixed_to_double(sx);
      ptr_y = wl_fixed_to_double(sy);
  #ifdef LOCK_FRAMESRC
@@ -545,7 +545,7 @@ index 172d835..fd64006 100644
  #endif
  }
  static void pt_button(void *d, struct wl_pointer *p, uint32_t serial, uint32_t time,
-@@ -887,7 +1034,7 @@ static void pt_button(void *d, struct wl_pointer *p, uint32_t serial, uint32_t t
+@@ -888,7 +1035,7 @@ static void pt_button(void *d, struct wl_pointer *p, uint32_t serial, uint32_t t
      (void)d; (void)p; (void)serial; (void)time;
  #ifdef LOCK_FRAMESRC
      if (btn_state == WL_POINTER_BUTTON_STATE_PRESSED && framesrc)
@@ -554,7 +554,7 @@ index 172d835..fd64006 100644
  #endif
      if (button != BTN_LEFT || btn_state != WL_POINTER_BUTTON_STATE_PRESSED) return;
      if (!ptr_output || !ptr_output->mb_valid) return;
-@@ -954,6 +1101,9 @@ static void reg_remove(void *data, struct wl_registry *reg, uint32_t name) {
+@@ -955,6 +1102,9 @@ static void reg_remove(void *data, struct wl_registry *reg, uint32_t name) {
              if (framesrc) lock_framesrc_remove_output(framesrc, dead);
  #endif
              if (dead->frame_cb) wl_callback_destroy(dead->frame_cb);
@@ -564,7 +564,7 @@ index 172d835..fd64006 100644
              if (dead->lock_surface) ext_session_lock_surface_v1_destroy(dead->lock_surface);
              if (dead->surface) wl_surface_destroy(dead->surface);
              if (dead->wl_output) wl_output_destroy(dead->wl_output);
-@@ -1037,6 +1187,8 @@ int main(int argc, char **argv) {
+@@ -1040,6 +1190,8 @@ int main(int argc, char **argv) {
       * already be able to enable the frame source when it does. */
      if (getenv("SINGULARITY_LOCK_RENDERER") ||
          getenv("SINGULARITY_LOCK_RENDERER_ENABLE")) {
@@ -573,7 +573,7 @@ index 172d835..fd64006 100644
          framesrc = lock_framesrc_new(NULL, NULL, display, shm, &framesrc_ops);
          if (framesrc) {
              for (struct lock_output *o = outputs; o; o = o->next)
-@@ -1134,6 +1286,11 @@ int main(int argc, char **argv) {
+@@ -1137,6 +1289,11 @@ int main(int argc, char **argv) {
              if (fs_idx >= 0 && (pfds[fs_idx].revents & (POLLIN | POLLHUP | POLLERR)))
                  lock_framesrc_dispatch(framesrc);
              lock_framesrc_tick(framesrc, (uint64_t)(now_us() / 1000));
@@ -793,5 +793,5 @@ index 60e0e25..2990e0b 100755
  
  echo "== case 6: default build is inert (no frame source) =="
 -- 
-2.50.1 (Apple Git-155)
+2.53.0
 
