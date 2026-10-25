@@ -248,6 +248,7 @@ build/test-progress-bar-drive.sh	common	-	late.sh drives finish-install's progre
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
 build/test-gitlab-registry-cleanup.sh	common	-	mocked-curl regression test for tools/gitlab-registry-cleanup.sh (dry run, keep newest N, duplicate files, release-linked and unnamed packages kept, manifest before removal, token handling)
 build/test-overlay-modversions.sh	sky1	-	fixture tests for verify-overlay-modversions.py (stale CRC, unresolved, no __versions, vermagic, missing set fail)
+build/test-reboot-countdown.sh	common	-	installer auto-reboot countdown (preseed/late.sh ncz_reboot_countdown) waits, shows status, can be skipped, never runs unattended
 build/test-release-identity.sh	common	-	release identity/label + Cygnus logo wiring regression test
 build/validate-accelerators.sh	sky1	-	GPU/NPU/VPU binding validation
 build/verify-arm64-inputs.sh	sky1	-	Sky1 input preflight (firmware, cix-debs, rescue, mirror, overlay MODVERSIONS CRCs)

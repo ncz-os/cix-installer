@@ -10,7 +10,7 @@
 # The exact pinned version lives in the per-arch sidecars/manifests, not here:
 #   arm64: assets/kernel/mainline/KVER  (manifest variants.mainline.kver)
 #   amd64: assets/kernel/amd64-stable/KVER
-# Today both are 7.3.0-rc6 builds, replaced by 7.3.0 final builds later.
+# Since 2026-10-25 both are 7.3.0 final builds (arm64 r292, amd64 7.3.0-2).
 DEFAULT_BASE=7.3
 
 # An -rcN default is permitted ONLY while the pinned 7.3 version is still an
@@ -18,8 +18,7 @@ DEFAULT_BASE=7.3
 # -rcN while this is 0, and also fails if this is 1 but the pinned version is
 # no longer an -rcN (a stale allowance). Clear it when 7.3.0 final lands:
 # RC_DEFAULT_EXPIRY_NOTE=replace by 7.3.0 final
-RC_DEFAULT_ALLOWED=1
-RC_DEFAULT_EXPIRY_NOTE=replace by 7.3.0 final
+RC_DEFAULT_ALLOWED=0
 
 # RESCUE = the SAME pinned kernel as DEFAULT, not a separate series and not an
 # older kernel. Its whole difference is the accelerator drivers blacklisted on
