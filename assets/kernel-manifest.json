@@ -1,18 +1,18 @@
 {
-  "generated_utc": "2026-10-21T19:14:28Z",
+  "generated_utc": "2026-10-25T18:18:27Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
-      "file": "build/kernel-debs/cixmini-boot_1.5+r291_arm64.deb",
-      "sha256": "d3f37cce87b26510fab712ed51933a1523b918c648a7c29ae26ef8787881d098"
+      "file": "build/kernel-debs/cixmini-boot_1.5+r292_arm64.deb",
+      "sha256": "7b51de6f3e1f8abf41d7965e63ff4dd7a0134973e3da60682332b77e7579ce45"
     },
     {
-      "file": "build/kernel-debs/linux-headers-cixmini_7.3.0-sky1-ncz+r291_arm64.deb",
-      "sha256": "d044b9643cca3d3687351249759f9a0f1ec18eeb14749857dbfbc89a367849f0"
+      "file": "build/kernel-debs/linux-headers-cixmini_7.3.0-sky1-ncz+r292_arm64.deb",
+      "sha256": "f9cf30fc68d54b21c8f6397d40da8ad3009d7bb70109ba64019a451274e86a2a"
     },
     {
-      "file": "build/kernel-debs/linux-image-cixmini_7.3.0-sky1-ncz+r291_arm64.deb",
-      "sha256": "72d32d4362acffd7688068110e50c92aa787e2a403aab788efcaa0d8587d9984"
+      "file": "build/kernel-debs/linux-image-cixmini_7.3.0-sky1-ncz+r292_arm64.deb",
+      "sha256": "249f2963751692b6a759479e9169ffb3371f882c6faa672cf87f0b7a73869be3"
     }
   ],
   "schema": 1,
@@ -25,14 +25,14 @@
       "dir": "assets/kernel/mainline",
       "image": {
         "file": "assets/kernel/mainline/Image-cixmini.bin",
-        "sha256": "3cf6a0854df5f57cd8082ef983537963d7594c8415c7fd29a2d6173a02c67b22",
+        "sha256": "e8586c1532520d17f486ae9f1b7b7e7c0eda26b05372b959248ce54f7b376c2d",
         "size": 57719296
       },
       "kver": "7.3.0-sky1-ncz",
       "modules": {
         "file": "assets/kernel/mainline/modules-cixmini.tgz",
-        "sha256": "a873093731c16f5ccc00dee08d4da27b406c5d18e8b6429698ae89e9b0b46e68",
-        "size": 14977123
+        "sha256": "ee28eebb31c862b414633779ff26c42ea16965f24b9c47d4ed95aba788ab8c6c",
+        "size": 15172610
       },
       "npu": null
     }

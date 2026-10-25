@@ -3,12 +3,12 @@
   "channel": "default",
   "arch": "arm64",
   "kver": "7.3.0-sky1-ncz",
-  "build_rev": "r291",
-  "staged_utc": "2026-10-19",
+  "build_rev": "r292",
+  "staged_utc": "2026-10-23",
   "channel_pointer": "assets/kernel/mainline",
-  "staging_dir": "kernel-staging/r291-7.3.0-sky1-ncz-20261019",
+  "staging_dir": "kernel-staging/r292-7.3.0-sky1-ncz-20261023",
   "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
-  "note": "Sky1 arm64 DEFAULT kernel under the unified 7.3 policy: r291 = the v7.3.0 FINAL pin, re-verified independently on 2026-10-21. The r290 series (consolidated port patch + 27 numbered patches 0001-0011 + 0013-0028) was replayed onto the upstream v7.3 tag (peel c03c1a14) in SRC_URI order: 28/28 applied, 0 conflicts, 0 rejects, 0 fuzz. (Replaying in FILENAME order instead reports 21 spurious conflicts.) NO patch is upstream: each of the 28 was tested by reverse-apply check, by apply-then-compare against pristine v7.3, and by the ordered replay -- 0/28 are no-ops, so nothing was dropped. No upstream clobbering: the two files the port patch shares with upstream's rc7..v7.3 changes (panthor_hw.c c347fef5f8f8; quirks.c 0f8b5d90d179, 7209846a169f) all survive in the merged tree. Tree-equivalence: the same series replayed on rc7 and on v7.3 gives trees differing in 212 files, every one of which upstream itself changed between the tags -- zero unexplained differences. An independent from-scratch replay diffs 0 files against the tree this build compiled. Built in the ncz-yocto-y6 container on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0). 7.3.0-sky1-ncz is a NEW KVER, so all six accelerator overlays were rebuilt from this build's headers: verify-overlay-modversions PASS, 0 CRC mismatches, 0 unresolved. Gates re-run 2026-10-21: kvm-kernel-gate PASS (r291 vs r290 error histograms identical), dkms-abi-gate PASS, acceptance 28/28, 376 .ko with 0 .ko.xz. Debian debs built and byte-identical across two runs. STILL NOT DONE: no hardware boot (O6N/cixmini untouched), not published to apt.",
+  "note": "Sky1 arm64 DEFAULT kernel under the unified 7.3 policy: r292 = the v7.3.0 FINAL pin, re-verified independently on 2026-10-21. The r290 series (consolidated port patch + 27 numbered patches 0001-0011 + 0013-0028) was replayed onto the upstream v7.3 tag (peel c03c1a14) in SRC_URI order: 28/28 applied, 0 conflicts, 0 rejects, 0 fuzz. (Replaying in FILENAME order instead reports 21 spurious conflicts.) NO patch is upstream: each of the 28 was tested by reverse-apply check, by apply-then-compare against pristine v7.3, and by the ordered replay -- 0/28 are no-ops, so nothing was dropped. No upstream clobbering: the two files the port patch shares with upstream's rc7..v7.3 changes (panthor_hw.c c347fef5f8f8; quirks.c 0f8b5d90d179, 7209846a169f) all survive in the merged tree. Tree-equivalence: the same series replayed on rc7 and on v7.3 gives trees differing in 212 files, every one of which upstream itself changed between the tags -- zero unexplained differences. An independent from-scratch replay diffs 0 files against the tree this build compiled. Built in the ncz-yocto-y6 container on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0). 7.3.0-sky1-ncz is a NEW KVER, so all six accelerator overlays were rebuilt from this build's headers: verify-overlay-modversions PASS, 0 CRC mismatches, 0 unresolved. Gates re-run 2026-10-21: kvm-kernel-gate PASS (r292 vs r290 error histograms identical), dkms-abi-gate PASS, acceptance 28/28, 376 .ko with 0 .ko.xz. Debian debs built and byte-identical across two runs. STILL NOT DONE: no hardware boot (O6N/cixmini untouched), not published to apt. r292 = r291 + CIX patches-7.3 0029-0033 (same KVER 7.3.0-sky1-ncz, NOT ABI-compatible with r291: 0029 widens drm_crtc_state.plane_mask, 628 DRM symbol CRCs differ; overlays rebuilt).",
   "source": {
     "base_tag": "v7.3",
     "base_peel": "c03c1a14507dfaf8b856c2608f9ac216021fc222",
@@ -29,19 +29,19 @@
         }
       ],
       "replay_base_tag": "v7.3",
-      "replay_result": "clean: 28/28 patches applied, 0 conflicts"
+      "replay_result": "clean: 33/33 patches applied, 0 conflicts"
     },
     "build": {
-      "vmlinux_build_id": "417bb85f4e083725d811e15544a1a6a0310d9aee",
-      "image_sha256": "3cf6a0854df5f57cd8082ef983537963d7594c8415c7fd29a2d6173a02c67b22",
-      "modules_tgz_sha256": "a873093731c16f5ccc00dee08d4da27b406c5d18e8b6429698ae89e9b0b46e68",
-      "headers_tar_sha256": "4f9c17a034dce4782396eb21bc40babe0b3b3254372d03db1e70f91f713cfe7b",
+      "vmlinux_build_id": "775b40e6f087e29bd7ed0881d68cfe5b3b5b4973",
+      "image_sha256": "e8586c1532520d17f486ae9f1b7b7e7c0eda26b05372b959248ce54f7b376c2d",
+      "modules_tgz_sha256": "ee28eebb31c862b414633779ff26c42ea16965f24b9c47d4ed95aba788ab8c6c",
+      "headers_tar_sha256": "9f7dce8e961ce9693b539a5bdfea7c0cbb2045bba49afca44702419ba5033c0d",
       "config_sha256": "c87326fe35a49d543c7f9e7d3cb70247d98a819901908becfea56bfe3b17f533",
       "dtb_sha256": "1aa102e7d699fc2cbdfc4cfdf44f88155e71972402eec4f4abe7d4e3d651873e",
       "builder": "ncz-yocto-y6:trixie container on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0)",
-      "kvm_kernel_gate": "PASS (r291 and r290 both reach root-mount; error-keyword histograms identical, no new errors vs r290)",
+      "kvm_kernel_gate": "PASS (r292 Image reaches root-mount under qemu)",
       "dkms_abi_gate": "PASS (builder oe-user@oe-host, binutils 2.46.1, CONFIG_MODVERSIONS=y)",
-      "verify_overlay_modversions": "PASS (6 modules, 0 CRC mismatches, 0 unresolved; negative control fails 5/6)",
+      "verify_overlay_modversions": "PASS (6 modules rebuilt against r292 Module.symvers, 0 CRC mismatches, 0 unresolved)",
       "config_audit": {
         "CONFIG_MODVERSIONS": "y",
         "CONFIG_MODULE_COMPRESS": "not set",
@@ -55,15 +55,18 @@
       },
       "modules_count": 376,
       "modules_compressed": 0,
-      "built_utc": "2026-10-19T21:23:28Z",
-      "symvers_sha256": "55923d4c43ea993efd3da58514fe1d498f51c7c1d2de36e33a4f79aa8a9df6ce",
+      "built_utc": "2026-10-23T16:03:03Z",
+      "symvers_sha256": "ba30616c600a97a007727a6ef74ce4fa39960af157f923b41cdeca9031bc8deb",
       "symvers_crcs": 18771,
       "config_diff_vs_r290": "5 lines: banner 7.3.0-rc7->7.3.0; CONFIG_VIDEO_LINLON=m -> not set and +CONFIG_VIDEO_LINLON_OOT=m (patch 0022, in-tree VPU must not shadow the DKMS amvx.ko); the two VIDEO_LINLON sub-options disappear with their parent; and the DRM_MSM_VALIDATE_XML line is a host lxml probe (its Kconfig depends on $(success,$(PYTHON3) -c \"import lxml\")), not enabled either way. No behavioural regression.",
-      "deb_reproducibility": "the three Debian debs are byte-identical across two independent runs"
+      "deb_reproducibility": "the three Debian debs are byte-identical across two independent runs",
+      "config_diff_vs_r291": "none: built .config byte-identical to r291",
+      "dtb_note": "sky1-orion-o6.dtb reused from r291 (byte-identical to r290); r292 patches touch no device tree",
+      "hardware_boot": "O6N 2026-10-25: running image e8586c15, /dev/mali0 + /dev/aipu + /dev/video0-3, ncz-gpu-health PASS, greeter up"
     },
-    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc7.bb, branch fix/sky1-kernel-7.3.0-final-pin-20261019",
-    "recipe_commit": "268911d8a8d3c9dc11bacd052c17907f3d5d8947",
-    "recipe_parent": "935ede59bfd546de7d5c61bc0da7164e3d4d6f1f",
+    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc7.bb, branch sky1-73-adopt-cix-20261023",
+    "recipe_commit": "7a120e4462c1ecf44dee1c2080c4098ce9e096db",
+    "recipe_parent": "ff0a87a29c070c60ca985d045067d03a3bb30e7d",
     "applied_patches": [
       "sky1-ncz-v7.3-final-port.patch",
       "0001-drm-cix-trilin-dp-drop-fwnode_drm_find_panel-use-cou.patch",
@@ -92,34 +95,34 @@
       "0025-drm-cix-linlondp-set-the-engine-clock-while-the-disp.patch",
       "0026-drm-cix-linlondp-spread-overlay-planes-when-layers-e.patch",
       "0027-PCI-cadence-hpa-never-program-a-zero-root-port-ID.patch",
-      "0028-PCI-sky1-cix-report-the-CIX-root-port-ID-in-native-m.patch"
+      "0028-PCI-sky1-cix-report-the-CIX-root-port-ID-in-native-m.patch",
+      "0029-drm-widen-the-plane-mask-to-64-bits.patch",
+      "0030-dma350-add-str-support.patch",
+      "0031-DPTSW-19618-linlon-dp-Set-AFBC-32x8-to-the-highest-p.patch",
+      "0032-DPTSW-26437-iommu-arm-smmu-v3-fix-IRQ-setup-on-resum.patch",
+      "0033-clk-cix-audss-fix-str.patch"
     ]
   },
   "debs": {
     "linux-image-cixmini": {
-      "version": "7.3.0-sky1-ncz+r291",
-      "sha256": "72d32d4362acffd7688068110e50c92aa787e2a403aab788efcaa0d8587d9984"
+      "version": "7.3.0-sky1-ncz+r292",
+      "sha256": "249f2963751692b6a759479e9169ffb3371f882c6faa672cf87f0b7a73869be3"
     },
     "linux-headers-cixmini": {
-      "version": "7.3.0-sky1-ncz+r291",
-      "sha256": "d044b9643cca3d3687351249759f9a0f1ec18eeb14749857dbfbc89a367849f0"
+      "version": "7.3.0-sky1-ncz+r292",
+      "sha256": "f9cf30fc68d54b21c8f6397d40da8ad3009d7bb70109ba64019a451274e86a2a"
     },
     "cixmini-boot": {
-      "version": "1.5+r291",
-      "sha256": "d3f37cce87b26510fab712ed51933a1523b918c648a7c29ae26ef8787881d098"
-    },
-    "linux-meta-cixmini": {
-      "version": "7.3.0-sky1-ncz+r291",
-      "sha256": "c3313e6931aaa4146e5ce9e4b263fd8901f405392379b167ee22e184b01ab6d6",
-      "note": "Yocto kernel-linux-cix-sky1-ncz-vmlinux 7.3+ncz0+c03c1a1450-r1 deb (/boot/vmlinux-<KVER>), named as in r290"
+      "version": "1.5+r292",
+      "sha256": "7b51de6f3e1f8abf41d7965e63ff4dd7a0134973e3da60682332b77e7579ce45"
     }
   },
   "overlays_mirrored": {
-    "assets/kernel/mali/7.3.0-sky1-ncz/mali_kbase.ko": "8059197ca15ae0c1203c94080d57ac0a32be9bbf3d45fdfe9d7a503bbea4f2e8",
-    "assets/kernel/mali/7.3.0-sky1-ncz/memory_group_manager.ko": "405e70d1747762a5a409c899fcccc83d79ec77956757e520a0e72e7e21afe749",
-    "assets/kernel/mali/7.3.0-sky1-ncz/protected_memory_allocator.ko": "c676995ea6c7748c851fcd1d8f43bc7c239b1a5768fe1f5c45c1b2a10582ca7e",
-    "assets/kernel/npu/7.3.0-sky1-ncz/aipu.ko": "c61be8225846bebe7cf06c7b8e4f789d43274dd047b1943c3de1d04fcb6ef4fa",
-    "assets/kernel/panthor/7.3.0-sky1-ncz/panthor.ko": "2fa3400332bb06e473f22d4a5b211fe0596ee666ddd9e2dea3dba55e80f81336",
-    "assets/kernel/vpu/7.3.0-sky1-ncz/amvx.ko": "18aa266bbb7e75bd63e4f332add1dee3180401c792a6e3da315fbc0cfe9ca911"
+    "assets/kernel/mali/7.3.0-sky1-ncz/mali_kbase.ko": "2f1d6b69a6cdc2c0d41732769bdc5f29b53fcb13eb8b4d2aa1868adab4196f56",
+    "assets/kernel/mali/7.3.0-sky1-ncz/memory_group_manager.ko": "81a067cefe11fcee177095c711070960d46543c8e7f1409fa578835a822d310a",
+    "assets/kernel/mali/7.3.0-sky1-ncz/protected_memory_allocator.ko": "5318b4121d0e444ef16fbbfc060f3354211c68906f667646c54539d7a2f891de",
+    "assets/kernel/npu/7.3.0-sky1-ncz/aipu.ko": "5570e823546ce844efa415eb0b167005329c609ad810ff5765128002ca3fcf37",
+    "assets/kernel/panthor/7.3.0-sky1-ncz/panthor.ko": "64517a57ee6d9f5b2ef9c8220026ca017d5d5fa08281ae29b39574ca0edae51f",
+    "assets/kernel/vpu/7.3.0-sky1-ncz/amvx.ko": "36c38d73aac7ebce5ad7fc6af93c529d425e51c7971a43628ad2db4940bfd132"
   }
 }
