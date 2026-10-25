@@ -1171,13 +1171,13 @@ expect_rc "builders refuse non-Debian/unpinned mirrors" 0 bash -c '
   . "'"$ROOT"'/build/lib/mirror-apt-opts.sh"
   ! ncz_require_debian_forky forky https://deb.debian.org/debian Debian 2>/dev/null &&
   ! ncz_require_debian_forky forky /nonexistent-local-mirror Debian 2>/dev/null &&
-  ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20261012T023456Z Debian &&
+  ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20261018T082309Z Debian &&
   ! ncz_require_debian_forky resolute http://ports.ubuntu.com/ubuntu-ports Ubuntu 2>/dev/null &&
   ! ncz_require_debian_forky forky http://ports.ubuntu.com/ubuntu-ports Debian 2>/dev/null &&
   ! ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20200101T000000Z Debian 2>/dev/null'
 expect_rc "ncz_pin_snapshot parses the released pin exactly" 0 bash -c '
   . "'"$ROOT"'/build/lib/mirror-apt-opts.sh"
-  [ "$(ncz_pin_snapshot "'"$ROOT"'")" = "20261012T023456Z" ]'
+  [ "$(ncz_pin_snapshot "'"$ROOT"'")" = "20261018T082309Z" ]'
 mkdir -p "$T/badconf"
 printf 'NCZ_BASE_MIRROR_SNAPSHOT="20260101T000000Zjunk"\n' > "$T/badconf/release.conf"
 expect_rc "ncz_pin_snapshot rejects a malformed/oversized pin" 0 bash -c '

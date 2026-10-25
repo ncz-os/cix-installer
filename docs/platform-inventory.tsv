@@ -611,7 +611,7 @@ build/pin-snapshot-suites.py	common	-	fetch + gpgv-verify each declared snapshot
 build/check-substrate-pin.sh	common	-	build preflight: base.pin vs release.conf snapshot, substrate freshness (<= 8d), coverage floor (>= 99%)
 manifests/keys/debian-archive-keyring.gpg	common	-	official Debian archive signing keyring used by gpgv to verify the pinned snapshot Release
 docs/ONE-KERNEL.md	common	-	one-kernel policy: audit of every kernel artifact in the r202 images by place, the correct mechanism (installer initrd from OUR kernel), the gate rule, and the residual; KVM-UNPROVEN
-build/testdata/forky-snapshot/InRelease	common	-	the real pinned snapshot.debian.org InRelease (20261012T023456Z, the substrate-derived pin) fixture used to prove production keyring/digest compatibility offline
+build/testdata/forky-snapshot/InRelease	common	-	the real pinned snapshot.debian.org InRelease (20261018T082309Z, the substrate-derived pin) fixture used to prove production keyring/digest compatibility offline
 build/preseed-known-keys.txt	common	-	allow-list of debconf keys preseed/preseed.cfg may set; a new key must be added here with a reason; enforced by build/test-preseed-consistency.sh
 build/preseed-runtime-overrides.txt	common	-	debconf keys intentionally set by both preseed.cfg and a runtime helper (db_set); unlisted double-sets fail build/test-preseed-consistency.sh
 build/test-preseed-consistency.sh	common	-	guards the one-authoritative-preseed contract: conflicting/duplicate keys, unknown keys, unlisted runtime double-sets, per-arch variants; --self-test proves the guard by mutation

@@ -112,7 +112,7 @@ record (`36ed84e7…`, `81f18202…`).
   console, staged by `build/iso/stage-ncz-payload.py` and, on amd64, baked into
   the installer initrd) are the unmodified `usr/bin/busybox` of Debian forky
   `busybox-static` `1:1.38.0-3+b1` (amd64 and arm64) from the pinned snapshot
-  `20261012T023456Z`; deb and binary sha256 are pinned in
+  `20261018T082309Z`; deb and binary sha256 are pinned in
   `manifests/diag-busybox.tsv` and checked by `build/stage-diag-busybox.sh`.
   Source: <https://snapshot.debian.org/package/busybox/1%3A1.38.0-3/>.
 
@@ -140,7 +140,7 @@ Other inputs:
   testing netinst images came from `cdimage.debian.org/cdimage/weekly-builds/`,
   which replaces them every week. The pinned sha256 no longer matches what that
   URL serves, so the exact substrate cannot be fetched today.
-* **Debian packages**: the pinned snapshot `20261012T023456Z` on
+* **Debian packages**: the pinned snapshot `20261018T082309Z` on
   `snapshot.debian.org` is public.
 * **Kernels**: the amd64 kernel packages are in the public apt repository
   (same bytes). The Sky1 r289 packages are not published there; rebuild them
