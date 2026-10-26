@@ -328,5 +328,76 @@ grep -q 'privilege' <<<"$pf" && ok "plan reports the privilege model" || bad "pl
 grep -q 'preflight' <<<"$pf" && ok "plan includes preflight" || bad "plan omits preflight"
 grep -qi 'substrate' <<<"$pf" && ok "plan reports substrate policy" || bad "plan omits substrate policy"
 
+# --- 6. Magnetar server variant (NCZ_VARIANT=server) ------------------------
+echo "== 6. Magnetar server variant =="
+bash "$BIN" --arch amd64 --full --dry-run >/dev/null 2>&1
+NCZ_VARIANT=bogus bash "$BIN" --arch amd64 --full --dry-run >/dev/null 2>&1; rc=$?
+[ "$rc" = 2 ] && ok "NCZ_VARIANT=bogus is rejected (rc=2)" || bad "NCZ_VARIANT=bogus rc=$rc"
+# the helpers, extracted from the script exactly as shipped
+fn() { awk -v f="$1" '$0 ~ "^"f"\\(\\) \\{" {p=1} p {print} p && /^\}/ {exit}' "$BIN"; }
+MR="$SCRATCH/mroot"; mkdir -p "$MR/assets/squashfs" "$MR/build"
+ln -s "$ROOT/build/iso" "$MR/build/iso"
+printf 'base-layer-bytes' > "$MR/assets/squashfs/base.squashfs"
+BSHA="$(sha256sum "$MR/assets/squashfs/base.squashfs" | awk '{print $1}')"
+mrun() { ( eval "$(fn ncz_magnetar_prepare)"; eval "$(fn ncz_magnetar_collect)"; "$@" ) 2>&1; }
+out="$(mrun bash -c 'true')"   # helpers parse
+out="$( ( eval "$(fn ncz_magnetar_prepare)"; mkdir -p "$SCRATCH/pay"; : > "$SCRATCH/pay/ncz-assets-amd64.tar.gz.part"
+          ncz_magnetar_prepare "$MR" amd64 "$SCRATCH/pay" || exit 1
+          echo "U=$MAGNETAR_PAYLOAD_URL A=$MAGNETAR_ASSETS_URL S=$MAGNETAR_PAYLOAD_SHA256 B=$MAGNETAR_BASE_URL"
+          ls "$SCRATCH/pay" ) 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -q "U=http://10.0.2.2/base.squashfs A=http://10.0.2.2/ncz-assets-amd64.tar.gz S=$BSHA B=http://10.0.2.2" <<<"$out"; then
+    ok "default pins: the gate serve base (write-usb-image.py) + the base layer's sha256"
+else bad "default pins wrong: $out"; fi
+grep -q '\.part' <<<"$out" && bad "stale .part survived prepare" || ok "prepare clears stale payload files"
+out="$( ( eval "$(fn ncz_magnetar_prepare)"; NCZ_PAYLOAD_BASE_URL=http://192.168.207.68:8088/p4/ ncz_magnetar_prepare "$MR" arm64 "$SCRATCH/pay2" \
+          && echo "U=$MAGNETAR_PAYLOAD_URL A=$MAGNETAR_ASSETS_URL" ) 2>&1)"
+grep -q "U=http://192.168.207.68:8088/p4/base.squashfs A=http://192.168.207.68:8088/p4/ncz-assets-arm64.tar.gz" <<<"$out" \
+    && ok "NCZ_PAYLOAD_BASE_URL is the build-time payload URL" || bad "base URL override ignored: $out"
+( eval "$(fn ncz_magnetar_prepare)"; NCZ_PAYLOAD_SHA256="$(printf '0%.0s' {1..64})" ncz_magnetar_prepare "$MR" amd64 "$SCRATCH/pay3" ) >/dev/null 2>&1 \
+    && bad "a NCZ_PAYLOAD_SHA256 that is not the base layer was accepted" || ok "a wrong NCZ_PAYLOAD_SHA256 is refused"
+( eval "$(fn ncz_magnetar_prepare)"; NCZ_PAYLOAD_BASE_URL=ftp://x ncz_magnetar_prepare "$MR" amd64 "$SCRATCH/pay4" ) >/dev/null 2>&1 \
+    && bad "a non-http base URL was accepted" || ok "a non-http(s) base URL is refused"
+( eval "$(fn ncz_magnetar_prepare)"; ncz_magnetar_prepare "$SCRATCH/noroot" amd64 "$SCRATCH/pay5" ) >/dev/null 2>&1 \
+    && bad "prepare without a base layer passed" || ok "prepare without a base layer fails"
+# collect: the finished medium's receipt must pin exactly the bytes in the payload dir
+collect_case() {  # <variant> <assets bytes> <payload url>
+    ( eval "$(fn ncz_magnetar_prepare)"; eval "$(fn ncz_magnetar_collect)"
+      ncz_magnetar_prepare "$MR" amd64 "$SCRATCH/cpay" >/dev/null 2>&1 || exit 9
+      printf 'bundle' > "$SCRATCH/cpay/ncz-assets-amd64.tar.gz"
+      ASHA="$(sha256sum "$SCRATCH/cpay/ncz-assets-amd64.tar.gz" | awk '{print $1}')"
+      [ "$2" = same ] || printf 'other' > "$SCRATCH/cpay/ncz-assets-amd64.tar.gz"
+      python3 - "$SCRATCH/m.img.receipt.json" "$1" "$3" "$BSHA" "$ASHA" <<'PY'
+import json, sys
+f, v, purl, bsha, asha = sys.argv[1:6]
+json.dump({"variant": v, "ncz_payload": {"online_fetch": {
+    "payload_name": "base.squashfs", "payload_url": purl, "payload_sha256": bsha,
+    "assets_name": "ncz-assets-amd64.tar.gz", "assets_url": "http://10.0.2.2/ncz-assets-amd64.tar.gz",
+    "assets_sha256": asha}}}, open(f, "w"))
+PY
+      ncz_magnetar_collect "$SCRATCH/m.img" ) 2>&1
+}
+out="$(collect_case server same http://10.0.2.2/base.squashfs)"; rc=$?
+[ "$rc" = 0 ] && grep -q "payload pinned and present" <<<"$out" && ok "collect: a server receipt pinning the payload dir's bytes passes" \
+    || bad "collect good case rc=$rc: $out"
+[ -f "$SCRATCH/cpay/base.squashfs" ] && cmp -s "$SCRATCH/cpay/base.squashfs" "$MR/assets/squashfs/base.squashfs" \
+    && ok "collect copies the pinned base layer next to the bundle" || bad "base layer not copied into the payload dir"
+out="$(collect_case desktop same http://10.0.2.2/base.squashfs)"; rc=$?
+[ "$rc" != 0 ] && grep -q "not 'server'" <<<"$out" && ok "collect: a desktop receipt fails" || bad "collect accepted a desktop receipt: $out"
+out="$(collect_case server other http://10.0.2.2/base.squashfs)"; rc=$?
+[ "$rc" != 0 ] && grep -q "ncz-assets-amd64.tar.gz: sha256" <<<"$out" && ok "collect: bundle bytes that differ from the pin fail" || bad "collect accepted a mismatched bundle: $out"
+out="$(collect_case server same http://elsewhere/base.squashfs)"; rc=$?
+[ "$rc" != 0 ] && grep -q "payload_url" <<<"$out" && ok "collect: a receipt URL that is not the build's fails" || bad "collect accepted a foreign URL: $out"
+# the gates are server-aware, and every other container run is unchanged
+grep -q -- '--variant server' <<<"$(fn stage_secret_scan)" && grep -q -- '--payload' <<<"$(fn stage_secret_scan)" \
+    && ok "secret scan: --variant server on the medium + --payload on the payload" || bad "secret scan is not server-aware"
+grep -q -- "--variant server --server-payload" <<<"$(fn stage_provenance_gate)" \
+    && ok "provenance gate: --variant server --server-payload" || bad "provenance gate is not server-aware"
+grep -q 'server server-offline-negative' <<<"$(fn stage_kvm_gate_server)" && grep -q 'stage_kvm_gate_server' <<<"$(fn stage_kvm_gate)" \
+    && ok "kvm gate: server media run the server sets (no desktop full gate)" || bad "kvm gate is not server-aware"
+img_fn="$(fn stage_image)"
+grep -q 'NCZ_CRUN_ENV=(); NCZ_CRUN_MOUNTS=(); NCZ_CRUN_HOSTENV=()' <<<"$img_fn" \
+    && ok "the server container env is cleared after the image call" || bad "server container env is not cleared"
+grep -q '"$NCZ_VARIANT" = server' <<<"$img_fn" && ok "server env is set only for NCZ_VARIANT=server" || bad "image stage does not gate on the variant"
+
 printf '\n== build-image tests: %d passed, %d failed ==\n' "$PASS" "$FAIL"
 if [ "$FAIL" = 0 ]; then exit 0; else exit 1; fi

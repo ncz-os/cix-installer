@@ -452,6 +452,17 @@ BUILD_DATE="$(date -u +%Y%m%d)"
 RUN_DIR="$(cd "$RUN_DIR" 2>/dev/null && pwd || { mkdir -p "$RUN_DIR" && cd "$RUN_DIR" && pwd; })"
 LOGS="$RUN_DIR/logs"
 mkdir -p "$LOGS" "$RUN_DIR/tmp"
+# Image variant: desktop (default) or server (Magnetar). Only the image stage
+# and the gates after it read it; every earlier stage is identical.
+NCZ_VARIANT="${NCZ_VARIANT:-desktop}"
+case "$NCZ_VARIANT" in
+    desktop|server) ;;
+    *) echo "build-image.sh: NCZ_VARIANT must be desktop or server, got '$NCZ_VARIANT'" >&2; exit 2 ;;
+esac
+# Magnetar payload (base.squashfs + the asset bundle) the server medium pins:
+# kept in the run dir for the secret scan, provenance and the KVM gate's
+# local payload server; never uploaded by this script.
+MAGNETAR_DIR="$RUN_DIR/payload"
 # All scratch lives on the run dir's disk, never a tmpfs (policy).
 export TMPDIR="$RUN_DIR/tmp"
 
@@ -530,7 +541,8 @@ ncz_container_run() {
     local -a mk=()
     [ -n "$JOBS" ] && mk=(-j "$JOBS")
     if [ "$USE_CONTAINER" != "1" ]; then
-        ( cd "$ROOT" && bash -lc "$line" ) 2>&1 | tee -a "$log"
+        ( cd "$ROOT" && for kv in "${NCZ_CRUN_HOSTENV[@]}"; do export "${kv?}"; done
+          bash -lc "$line" ) 2>&1 | tee -a "$log"
         return "${PIPESTATUS[0]}"
     fi
     local ks; ks="$(ncz_kernel_staging_dir || true)"
@@ -538,6 +550,9 @@ ncz_container_run() {
     [ -n "$ks" ] && [ -d "$(dirname "$ks")" ] && mounts+=(-v "$(dirname "$ks")":"$(dirname "$ks")")
     local ysd; ysd="$(ncz_site_value NCZ_YOCTO_SHARED_DIR yocto-shared-dir)"
     [ -n "$ysd" ] && [ -d "$ysd" ] && mounts+=(-v "$ysd":"$ysd")
+    # Extra env/mounts for ONE call (the server image stage); empty otherwise,
+    # so every other container run is unchanged.
+    [ "${#NCZ_CRUN_MOUNTS[@]}" -gt 0 ] && mounts+=("${NCZ_CRUN_MOUNTS[@]}")
     local -a renv=(
         -e NCZ_TARGET_ARCH="$ARCH" -e HOME=/root
         -e SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" -e LC_ALL=C -e LANG=C -e TZ=UTC
@@ -547,6 +562,7 @@ ncz_container_run() {
     )
     local kv
     while IFS= read -r kv; do renv+=(-e "$kv"); done < <(ncz_repro_env_assignments "$ARCH")
+    [ "${#NCZ_CRUN_ENV[@]}" -gt 0 ] && renv+=("${NCZ_CRUN_ENV[@]}")
     ncz_sudo podman run --rm --privileged --net=host "${mounts[@]}" \
         -w /work/cix-installer "${renv[@]}" \
         "$NCZ_IMAGEBUILD_TAG" \
@@ -1267,9 +1283,140 @@ stage_layers() {
 # ---------------------------------------------------------------------------
 # Stage 70 -- image
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Magnetar (NCZ_VARIANT=server) helpers
+# ---------------------------------------------------------------------------
+# build-image.sh helpers for the Magnetar server variant
+# (NCZ_VARIANT=server, docs/MAGNETAR-SERVER-VARIANT.md).
+#
+# A server medium carries neither base.squashfs nor the runtime assets: the
+# installer fetches both and verifies the sha256 pins write-usb-image.py puts
+# in ncz-payload/ncz-fetch-payload.manifest. So a server build needs:
+#   * the pins BEFORE the image is written: the base layer's sha256 (computed
+#     here from assets/squashfs/base.squashfs) and the two URLs;
+#   * the exact payload bytes AFTER it, for the secret scan, the provenance
+#     gate and the KVM gate's local payload server: base.squashfs (copied) and
+#     the asset bundle (NCZ_ASSETS_EXPORT_DIR, exported by the writer).
+#
+# The payload URL is a BUILD-TIME parameter:
+#   NCZ_PAYLOAD_BASE_URL   base URL for both artifacts (default: the KVM gate's
+#                          own serve base from write-usb-image.py's
+#                          ncz_gate_serve_payload_base_url(), e.g.
+#                          http://10.0.2.2, which the gate serves from this
+#                          host's loopback only)
+#   NCZ_PAYLOAD_URL / NCZ_ASSETS_URL   full per-artifact URLs (override)
+# A medium pinned to the gate base is a GATE medium; a release medium pins the
+# published URLs, which is an operator decision (nothing here uploads).
+
+# ncz_magnetar_prepare ROOT ARCH OUTDIR -> 0 and sets MAGNETAR_* globals.
+ncz_magnetar_prepare() {
+    local root="$1" arch="$2" out="$3" base_layer base
+    base_layer="$root/assets/squashfs/base.squashfs"
+    if [ ! -s "$base_layer" ]; then
+        echo "[magnetar] FAIL: no base layer at $base_layer (the layers stage builds it)" >&2
+        return 1
+    fi
+    MAGNETAR_DIR="$out"
+    mkdir -p "$MAGNETAR_DIR" || return 1
+    # stale payload from an earlier image of this run dir must never be served
+    rm -f "$MAGNETAR_DIR"/base.squashfs "$MAGNETAR_DIR"/ncz-assets-*.tar.gz \
+          "$MAGNETAR_DIR"/ncz-assets-*.tar.gz.sha256 "$MAGNETAR_DIR"/*.part
+    MAGNETAR_PAYLOAD_SHA256="$(sha256sum "$base_layer" | awk '{print $1}')"
+    if [ -n "${NCZ_PAYLOAD_SHA256:-}" ] && [ "$NCZ_PAYLOAD_SHA256" != "$MAGNETAR_PAYLOAD_SHA256" ]; then
+        echo "[magnetar] FAIL: NCZ_PAYLOAD_SHA256=$NCZ_PAYLOAD_SHA256 is not the sha256 of $base_layer ($MAGNETAR_PAYLOAD_SHA256)" >&2
+        return 1
+    fi
+    base="${NCZ_PAYLOAD_BASE_URL:-}"
+    if [ -z "$base" ]; then
+        base="$(python3 -I - "$root/build/iso/write-usb-image.py" "$arch" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ncz_write_usb_image", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(mod.ncz_gate_serve_payload_base_url(sys.argv[2]))
+PY
+)" || { echo "[magnetar] FAIL: cannot derive the gate serve base URL" >&2; return 1; }
+    fi
+    base="${base%/}"
+    case "$base" in
+        http://*|https://*) ;;
+        *) echo "[magnetar] FAIL: NCZ_PAYLOAD_BASE_URL '$base' is not an http(s) URL" >&2; return 1 ;;
+    esac
+    MAGNETAR_BASE_URL="$base"
+    MAGNETAR_PAYLOAD_URL="${NCZ_PAYLOAD_URL:-$base/base.squashfs}"
+    MAGNETAR_ASSETS_NAME="ncz-assets-$arch.tar.gz"
+    MAGNETAR_ASSETS_URL="${NCZ_ASSETS_URL:-$base/$MAGNETAR_ASSETS_NAME}"
+    MAGNETAR_BASE_LAYER="$base_layer"
+    return 0
+}
+
+# ncz_magnetar_collect IMG -> 0 when the finished medium is a server medium
+# whose receipt pins exactly the bytes now in MAGNETAR_DIR (base.squashfs is
+# copied there; the bundle was exported by the writer).
+ncz_magnetar_collect() {
+    local img="$1" receipt="$1.receipt.json"
+    [ -f "$receipt" ] || { echo "[magnetar] FAIL: no receipt $receipt" >&2; return 1; }
+    cp -f "$MAGNETAR_BASE_LAYER" "$MAGNETAR_DIR/base.squashfs.part" \
+        && mv -f "$MAGNETAR_DIR/base.squashfs.part" "$MAGNETAR_DIR/base.squashfs" || return 1
+    python3 -I - "$receipt" "$MAGNETAR_DIR" "$MAGNETAR_PAYLOAD_URL" "$MAGNETAR_ASSETS_URL" <<'PY'
+import hashlib, json, os, sys
+receipt, d, purl, aurl = sys.argv[1:5]
+r = json.load(open(receipt))
+def sha(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as fh:
+        for b in iter(lambda: fh.read(1 << 20), b""):
+            h.update(b)
+    return h.hexdigest()
+bad = []
+if r.get("variant") != "server":
+    bad.append(f"receipt variant is {r.get('variant')!r}, not 'server'")
+of = (r.get("ncz_payload") or {}).get("online_fetch") or {}
+if not of:
+    bad.append("receipt has no ncz_payload.online_fetch pins")
+else:
+    if of.get("payload_url") != purl:
+        bad.append(f"receipt payload_url {of.get('payload_url')!r} != {purl!r}")
+    if of.get("assets_url") != aurl:
+        bad.append(f"receipt assets_url {of.get('assets_url')!r} != {aurl!r}")
+    for key, name in (("payload_sha256", of.get("payload_name", "base.squashfs")),
+                      ("assets_sha256", of.get("assets_name", ""))):
+        p = os.path.join(d, name)
+        if not name or not os.path.isfile(p):
+            bad.append(f"payload file {p} is missing")
+        elif sha(p) != of.get(key):
+            bad.append(f"{name}: sha256 {sha(p)} != receipt {key} {of.get(key)}")
+if bad:
+    for b in bad:
+        print("[magnetar] FAIL:", b, file=sys.stderr)
+    sys.exit(1)
+print(f"[magnetar] payload pinned and present: {of['payload_name']} {of['payload_sha256'][:16]}..., "
+      f"{of['assets_name']} {of['assets_sha256'][:16]}...")
+PY
+}
+
+NCZ_CRUN_ENV=(); NCZ_CRUN_MOUNTS=(); NCZ_CRUN_HOSTENV=()
 stage_image() {
     local log="$1"
-    ncz_container_run "make image ARCH=$ARCH BUILD_SHA=$GIT_SHA" "$log" || return $?
+    if [ "$NCZ_VARIANT" = server ]; then
+        # Magnetar: pin the payload BEFORE the medium exists (ncz_magnetar_prepare above).
+        if ! ncz_magnetar_prepare "$ROOT" "$ARCH" "$MAGNETAR_DIR" >>"$log" 2>&1; then
+            tail -3 "$log" >&2; return 1
+        fi
+        echo "[image] Magnetar server medium: payload ${MAGNETAR_PAYLOAD_URL} (sha256 ${MAGNETAR_PAYLOAD_SHA256}), assets ${MAGNETAR_ASSETS_URL}" | tee -a "$log"
+        local -a srv=(NCZ_VARIANT=server "NCZ_PAYLOAD_URL=$MAGNETAR_PAYLOAD_URL"
+                      "NCZ_PAYLOAD_SHA256=$MAGNETAR_PAYLOAD_SHA256" "NCZ_ASSETS_URL=$MAGNETAR_ASSETS_URL")
+        [ -n "${NCZ_GATE_SERVER_HOST:-}" ] && srv+=("NCZ_GATE_SERVER_HOST=$NCZ_GATE_SERVER_HOST")
+        local kv
+        NCZ_CRUN_ENV=(); for kv in "${srv[@]}"; do NCZ_CRUN_ENV+=(-e "$kv"); done
+        NCZ_CRUN_ENV+=(-e NCZ_ASSETS_EXPORT_DIR=/work/magnetar-payload)
+        NCZ_CRUN_MOUNTS=(-v "$MAGNETAR_DIR":/work/magnetar-payload)
+        NCZ_CRUN_HOSTENV=("${srv[@]}" "NCZ_ASSETS_EXPORT_DIR=$MAGNETAR_DIR")
+    fi
+    ncz_container_run "make image ARCH=$ARCH BUILD_SHA=$GIT_SHA" "$log"
+    local mrc=$?
+    NCZ_CRUN_ENV=(); NCZ_CRUN_MOUNTS=(); NCZ_CRUN_HOSTENV=()
+    [ "$mrc" = 0 ] || return "$mrc"
     # Resolve and record the image path HERE: the provenance gate now runs BEFORE
     # kvm-gate and needs the path, so it can no longer be written by the KVM gate.
     local img="${IMAGE_ARG:-}"
@@ -1282,6 +1429,16 @@ stage_image() {
     fi
     printf '%s\n' "$img" > "$RUN_DIR/image.path"
     echo "[image] $img" | tee -a "$log"
+    if [ "$NCZ_VARIANT" = server ]; then
+        # the writer ran as root in the container: hand the exported bundle back
+        ncz_sudo chown -R "$(id -u):$(id -g)" "$MAGNETAR_DIR" 2>/dev/null || true
+        ncz_magnetar_collect "$img" 2>&1 | tee -a "$log"
+        [ "${PIPESTATUS[0]}" = 0 ] || return 1
+        { printf 'variant=server\nimage=%s\npayload_url=%s\npayload_sha256=%s\nassets_url=%s\nassets_sha256=%s\nbase_url=%s\npublished=no\nat=%s\n' \
+            "$img" "$MAGNETAR_PAYLOAD_URL" "$MAGNETAR_PAYLOAD_SHA256" "$MAGNETAR_ASSETS_URL" \
+            "$(awk '{print $1}' "$MAGNETAR_DIR/$MAGNETAR_ASSETS_NAME.sha256")" "$MAGNETAR_BASE_URL" "$(date -u +%s)"; } \
+            > "$RUN_DIR/payload.result"
+    fi
     return 0
 }
 
@@ -1350,11 +1507,33 @@ stage_secret_scan() {
     [ -n "${NCZ_SECRET_SCAN_ALLOW_DETACHED:-}" ] && extra+=(--allow-detached)
     local t0 t1
     t0="$(date -u +%s)"
+    # A server medium carries no layer (--variant server checks that against its
+    # receipt); its payload ships off the medium and is scanned on its own.
+    [ "$NCZ_VARIANT" = server ] && extra+=(--variant server)
     TMPDIR="$work" python3 -I "$ROOT/build/scan-shipped-secrets.py" \
         --image "$img" --hash-file "$hashf" --receipt "$receipt" \
         --work-dir "$work" --require-hashes --jobs "${JOBS:-$(nproc)}" \
         "${extra[@]}" 2>&1 | tee -a "$log"
     local rc="${PIPESTATUS[0]}"
+    local preceipt="$RUN_DIR/secret-scan-payload.receipt.json" prc=0
+    if [ "$NCZ_VARIANT" = server ] && [ "$rc" = 0 ]; then
+        local -a pay=()
+        local pf
+        for pf in "$MAGNETAR_DIR/base.squashfs" "$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz"; do
+            [ -f "$pf" ] && pay+=(--payload "$pf")
+        done
+        if [ "${#pay[@]}" != 4 ]; then
+            echo "[secret-scan] FAIL: the Magnetar payload is incomplete in $MAGNETAR_DIR (need base.squashfs and the asset bundle; run the image stage)" | tee -a "$log" >&2
+            prc=1
+        else
+            TMPDIR="$work" python3 -I "$ROOT/build/scan-shipped-secrets.py" \
+                "${pay[@]}" --hash-file "$hashf" --receipt "$preceipt" \
+                --work-dir "$work" --require-hashes --jobs "${JOBS:-$(nproc)}" \
+                2>&1 | tee -a "$log"
+            prc="${PIPESTATUS[0]}"
+        fi
+        [ "$prc" = 0 ] || rc=1
+    fi
     t1="$(date -u +%s)"
     # Keep the work dir only when the operator asked for it: a clean run must
     # leave no extracted payload behind on the build host.
@@ -1367,8 +1546,13 @@ stage_secret_scan() {
         return 1
     fi
     { printf 'gate=secret-scan\nresult=PASS\nimage=%s\nsha256=%s\nhash_list=%s\nelapsed_seconds=%s\nat=%s\n' \
-        "$img" "$(sha256sum "$img" | awk '{print $1}')" "sha256:$(sha256sum "$hashf" | awk '{print $1}')" "$((t1 - t0))" "$(date -u +%s)"; } \
-        > "$RUN_DIR/secret-scan.result"
+        "$img" "$(sha256sum "$img" | awk '{print $1}')" "sha256:$(sha256sum "$hashf" | awk '{print $1}')" "$((t1 - t0))" "$(date -u +%s)"
+      if [ "$NCZ_VARIANT" = server ]; then
+          printf 'variant=server\npayload_receipt=%s\n' "$preceipt"
+          for pf in "$MAGNETAR_DIR/base.squashfs" "$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz"; do
+              printf 'payload=%s sha256=%s\n' "$(basename "$pf")" "$(sha256sum "$pf" | awk '{print $1}')"
+          done
+      fi; } > "$RUN_DIR/secret-scan.result"
     echo "[secret-scan] PASS ($((t1 - t0))s) receipt: $receipt" | tee -a "$log"
     return 0
 }
@@ -1401,6 +1585,10 @@ stage_kvm_gate() {
     # env_reset would otherwise drop it.  It keeps the run dir deletable by the
     # build user after the gate (2026-10-11).
     local invoker; invoker="$(id -u):$(id -g)"
+    if [ "$NCZ_VARIANT" = server ]; then
+        stage_kvm_gate_server "$log" "$img" "$work" "$invoker"
+        return $?
+    fi
     ( cd "$ROOT" && ARCH="$ARCH" TMPDIR="$RUN_DIR/tmp" \
         NCZ_PYTE_PYTHON="${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}" \
         ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_PYTE_PYTHON='${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}' bash build/kvm-install-gate-gpt.sh '$img' '$work'" ) 2>&1 | tee -a "$log"
@@ -1413,15 +1601,7 @@ stage_kvm_gate() {
     # root over old ext4 signatures), each in its own work dir. build/kvm-install-gate-matrix.sh
     # names the sets; NCZ_KVM_GATE_VARIANTS overrides the list ("all" = every set).
     local sets mrc=0
-    if [ "${NCZ_VARIANT:-desktop}" = server ]; then
-        # Magnetar server build: the KVM gate also runs the server variant
-        # sets (the gate serves base.squashfs + the asset bundle from its own
-        # HTTP server; the negative set proves a stopped server fails loud +
-        # bounded and installs nothing).
-        sets="${NCZ_KVM_GATE_VARIANTS:-norescue minimal stalefs server server-offline-negative}"
-    else
-        sets="${NCZ_KVM_GATE_VARIANTS:-norescue minimal stalefs}"
-    fi
+    sets="${NCZ_KVM_GATE_VARIANTS:-norescue minimal stalefs}"
     echo "[kvm-gate] install-option sets: $sets" | tee -a "$log"
     ( cd "$ROOT" && ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_KVM_GATE_VARIANTS='$sets' bash build/kvm-install-gate-matrix.sh '$img' '$work-options'" ) 2>&1 | tee -a "$log"
     mrc="${PIPESTATUS[0]}"
@@ -1430,6 +1610,33 @@ stage_kvm_gate() {
         return 1
     fi
     { printf 'gate=kvm\nresult=PASS\nui=PASS\noptions=%s\nimage=%s\nsha256=%s\nat=%s\n' \
+        "$(echo "$sets" | tr ' ' ',')" "$img" "$(sha256sum "$img" | awk '{print $1}')" "$(date -u +%s)"; } > "$RUN_DIR/kvm-gate.result"
+    return 0
+}
+
+# Magnetar server medium: it carries no desktop payload, so the desktop full
+# gate and the desktop option sets cannot install it. The server sets do: the
+# gate reads the pins back off the medium, serves base.squashfs + the asset
+# bundle from MAGNETAR_DIR on its own local HTTP server (stopped by PID on
+# exit), installs and boots; the negative set proves a stopped server fails
+# loud and bounded with nothing installed. The installer dialogs are the
+# desktop medium's (same preseed and chooser); they are judged there.
+stage_kvm_gate_server() {
+    local log="$1" img="$2" work="$3" invoker="$4" sets mrc
+    sets="${NCZ_KVM_GATE_SERVER_SETS:-server server-offline-negative}"
+    local assets="$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz"
+    if [ ! -f "$MAGNETAR_DIR/base.squashfs" ] || [ ! -f "$assets" ]; then
+        echo "[kvm-gate] FAIL: Magnetar payload missing in $MAGNETAR_DIR (run the image stage)" | tee -a "$log" >&2
+        return 1
+    fi
+    echo "[kvm-gate] Magnetar server sets: $sets (payload from $MAGNETAR_DIR)" | tee -a "$log"
+    ( cd "$ROOT" && ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_KVM_GATE_VARIANTS='$sets' NCZ_GATE_SERVER_PAYLOAD='$MAGNETAR_DIR/base.squashfs' NCZ_GATE_SERVER_ASSETS='$assets' bash build/kvm-install-gate-matrix.sh '$img' '$work-options'" ) 2>&1 | tee -a "$log"
+    mrc="${PIPESTATUS[0]}"
+    if [ "$mrc" != 0 ] || ! grep -q '^MATRIX PASS' "$log"; then
+        echo "[kvm-gate] FAIL: a Magnetar server set failed (see $work-options/matrix.tsv)" | tee -a "$log" >&2
+        return 1
+    fi
+    { printf 'gate=kvm\nresult=PASS\nvariant=server\nui=desktop-medium\noptions=%s\nimage=%s\nsha256=%s\nat=%s\n' \
         "$(echo "$sets" | tr ' ' ',')" "$img" "$(sha256sum "$img" | awk '{print $1}')" "$(date -u +%s)"; } > "$RUN_DIR/kvm-gate.result"
     return 0
 }
@@ -1452,11 +1659,16 @@ stage_provenance_gate() {
     # NCZ_CHOWN_BACK hands prov-work/ + prov-index/ back to the invoking user on
     # the script's exit trap, so the run dir stays deletable (2026-10-11).
     local invoker; invoker="$(id -u):$(id -g)"
+    # Server medium: the provenance scan also covers the payload it pins
+    # (base.squashfs, the asset bundle), checked against the receipt's pins.
+    local srvargs=""
+    [ "$NCZ_VARIANT" = server ] && srvargs="--variant server --server-payload '$MAGNETAR_DIR'"
     ncz_sudo_bash "cd '$ROOT' && NCZ_CHOWN_BACK='$invoker' bash build/check-forky-provenance.sh --image '$img' \
-        --work '$work' --index-dir '$idx' --fetch-index" 2>&1 | tee -a "$log"
+        --work '$work' --index-dir '$idx' --fetch-index $srvargs" 2>&1 | tee -a "$log"
     local rc="${PIPESTATUS[0]}"
     if [ "$rc" = 0 ]; then
-        { printf 'gate=provenance\nresult=PASS\none_kernel=PASS\nimage=%s\nat=%s\n' "$img" "$(date -u +%s)"; } > "$RUN_DIR/provenance.result"
+        { printf 'gate=provenance\nresult=PASS\none_kernel=PASS\nimage=%s\nat=%s\n' "$img" "$(date -u +%s)"
+          [ "$NCZ_VARIANT" = server ] && printf 'variant=server\npayload_dir=%s\n' "$MAGNETAR_DIR"; } > "$RUN_DIR/provenance.result"
     fi
     return "$rc"
 }
