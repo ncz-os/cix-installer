@@ -60,6 +60,10 @@ Usage:
   build/scan-shipped-secrets.py --image PATH [--receipt PATH]
                                 [--hash-file PATH] [--allow-detached]
                                 [--require-hashes] [--jobs N] [--quiet]
+  build/scan-shipped-secrets.py --payload PATH [--payload PATH ...] [...]
+      artifacts that ship OFF the medium (Magnetar base.squashfs and asset
+      bundle): a squashfs image or a tar archive by content, anything else
+      fails closed.
 
 Exit: 0 PASS, 1 FAIL (a finding or an unreadable artifact), 2 usage error.
 """
@@ -2001,6 +2005,155 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
 
 
 # ---------------------------------------------------------------------------
+# payload mode: artifacts that ship OFF the medium
+# ---------------------------------------------------------------------------
+# A Magnetar (NCZ_VARIANT=server) medium carries neither base.squashfs nor the
+# asset bundle: the installer fetches both and verifies their sha256 pins.
+# Those bytes ship all the same, so --payload scans them as standalone files
+# with the same matcher.  The type is decided by CONTENT, and anything that is
+# not a squashfs image or a (gzip/xz/bzip2/zstd-compressed or plain) tar
+# archive is an error: an artifact the gate cannot open is never declared
+# clean.
+SQUASHFS_MAGIC = b"hsqs"
+PAYLOAD_TAR_BATCH = 256 << 20     # bytes of tar members held before a flush
+
+
+def payload_kind(path: str) -> str:
+    """'squashfs' or 'tar' by content; Unreadable for anything else."""
+    try:
+        st = os.stat(path)
+    except OSError as exc:
+        raise Unreadable(f"cannot stat the payload {path}: {exc}")
+    if not stat.S_ISREG(st.st_mode):
+        raise Unreadable(f"the payload {path} is not a regular file")
+    if st.st_size == 0:
+        raise Unreadable(f"the payload {path} is empty")
+    with open(path, "rb") as fh:
+        head = fh.read(4096)
+    if head.startswith(SQUASHFS_MAGIC):
+        return "squashfs"
+    if head.startswith((b"\x1f\x8b\x08", b"\xfd7zXZ\x00", b"BZh",
+                        b"\x28\xb5\x2f\xfd")) or looks_like_tar(head):
+        return "tar"
+    raise Unreadable(f"the payload {path} is neither a squashfs image nor a "
+                     "tar archive (gzip, xz, bzip2, zstd or plain); the gate "
+                     "cannot open it, so it cannot be declared clean")
+
+
+def _open_payload_tar(path: str, zstd_tool: str | None):
+    """(tarfile, proc) streaming the archive; proc is the zstd decompressor
+    or None.  A truncated or non-tar stream raises Unreadable."""
+    with open(path, "rb") as fh:
+        zst = fh.read(4) == b"\x28\xb5\x2f\xfd"
+    try:
+        if zst:
+            if not zstd_tool:
+                raise Unreadable("the zstd tool is missing; the gate cannot "
+                                 f"open {path} without it")
+            proc = subprocess.Popen([zstd_tool, "-dcq", path],
+                                    stdout=subprocess.PIPE)
+            return tarfile.open(fileobj=proc.stdout, mode="r|"), proc
+        return tarfile.open(path, mode="r|*"), None
+    except tarfile.TarError as exc:
+        raise Unreadable(f"the payload {path} is not a readable tar archive: {exc}")
+
+
+def scan_payload_tar(rep: Report, scanner: Scanner, layer: str, path: str,
+                     zstd_tool: str | None, pool) -> int:
+    """Scan every member of a tar payload; returns the member count."""
+    tf, proc = _open_payload_tar(path, zstd_tool)
+    names: list[str] = []
+    tasks: list = []
+    held = 0
+    members = 0
+    try:
+        for m in tf:
+            members += 1
+            rel = "/" + m.name.removeprefix("./").lstrip("/")
+            names.append(rel)
+            if m.issym() or m.islnk():
+                # a link target is a name; scan it as text
+                rep.counts["files_scanned"] += 1
+                hits = scan_candidate(scanner, m.linkname.encode("utf-8", "replace"), rel)
+                if hits:
+                    rep.add(layer, rel, hits)
+                continue
+            if not m.isreg():
+                continue
+            fh = tf.extractfile(m)
+            if fh is None:
+                raise Unreadable(f"{layer}: cannot read the member {rel}")
+            data = fh.read()
+            if len(data) != m.size:
+                raise Unreadable(f"{layer}: the member {rel} is truncated "
+                                 f"({len(data)} of {m.size} bytes)")
+            tasks.append((layer, rel, data))
+            held += len(data)
+            if held >= PAYLOAD_TAR_BATCH:
+                run_tasks(rep, pool, tasks)
+                tasks, held = [], 0
+    except (tarfile.TarError, EOFError, OSError, zlib.error, lzma.LZMAError) as exc:
+        raise Unreadable(f"the payload {path} is not a readable tar archive: {exc}")
+    finally:
+        tf.close()
+        if proc is not None:
+            proc.stdout.close()
+            rc = proc.wait()
+            if rc != 0:
+                raise Unreadable(f"zstd could not decompress {path} (rc={rc})")
+    run_tasks(rep, pool, tasks)
+    scan_names(rep, scanner, layer, names)
+    return members
+
+
+def walk_payloads(paths: list[str], scanner: Scanner, workdir: str,
+                  jobs: int) -> Report:
+    import multiprocessing as mp
+
+    rep = Report()
+    pool = (mp.get_context("fork").Pool(jobs, initializer=_worker_init,
+                                        initargs=(scanner,))
+            if jobs > 1 else None)
+    if pool is None:
+        global _WORKER_SCANNER
+        _WORKER_SCANNER = scanner
+    try:
+        tools = dict(which_all(["unsquashfs", "zstd"]))
+        for path in paths:
+            kind = payload_kind(path)
+            name = os.path.basename(path)
+            size = os.path.getsize(path)
+            before = (rep.units[name], rep.counts["files_scanned"],
+                      rep.counts["bytes_scanned"])
+            entry = {"path": path, "format": kind, "bytes": size}
+            if kind == "squashfs":
+                if not tools.get("unsquashfs"):
+                    raise Unreadable("the unsquashfs tool is missing; the gate "
+                                     f"cannot extract {path} without it")
+                dest = os.path.join(workdir, name + ".d")
+                unsquashfs_files(tools["unsquashfs"], path, dest)
+                scan_layer_tree(rep, scanner, name, dest, pool)
+                rmtree_all(dest)
+            else:
+                entry["members"] = scan_payload_tar(rep, scanner, name, path,
+                                                    tools.get("zstd"), pool)
+            entry["name"] = name
+            entry["members_scanned"] = rep.units[name] - before[0]
+            entry["files_scanned"] = rep.counts["files_scanned"] - before[1]
+            entry["bytes_scanned"] = rep.counts["bytes_scanned"] - before[2]
+            if entry["files_scanned"] == 0:
+                raise Unreadable(f"the payload {path} yielded no file to scan: "
+                                 "nothing was scanned, so nothing can be "
+                                 "declared clean")
+            rep.layers.append(entry)
+        return rep
+    finally:
+        if pool is not None:
+            pool.terminate()
+            pool.join()
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 def default_hash_key(root: str) -> str:
@@ -2021,7 +2174,12 @@ def default_hash_file(root: str) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
-    ap.add_argument("--image", required=True, help="the finished .img")
+    ap.add_argument("--image", help="the finished .img")
+    ap.add_argument("--payload", action="append", default=[],
+                    help="a shipped artifact that is NOT on the medium "
+                    "(Magnetar: base.squashfs, the asset bundle); repeatable. "
+                    "A squashfs image or a tar archive, by content; anything "
+                    "else fails")
     ap.add_argument("--receipt", help="write the JSON receipt here")
     ap.add_argument("--hash-file", help="hash list (default: "
                     "NCZ_SECRET_HASHES_FILE, else ~/.config/ncz/secret-hashes.json)")
@@ -2040,6 +2198,8 @@ def main(argv=None) -> int:
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args(argv)
+    if bool(args.image) == bool(args.payload):
+        ap.error("give exactly one of --image or --payload (payload may repeat)")
 
     def say(msg: str) -> None:
         if not args.quiet:
@@ -2088,8 +2248,11 @@ def main(argv=None) -> int:
     try:
         allow = load_allowlist(args.allowlist or os.path.join(
             root, "manifests", "secret-scan-allow.tsv"))
-        report = walk_image(args.image, Scanner(hashes, not args.no_shapes, allow),
-                            scratch, hashes_given, args.jobs)
+        scanner = Scanner(hashes, not args.no_shapes, allow)
+        if args.image:
+            report = walk_image(args.image, scanner, scratch, hashes_given, args.jobs)
+        else:
+            report = walk_payloads(args.payload, scanner, scratch, args.jobs)
     except Unreadable as exc:
         failed = True
         error = str(exc)
@@ -2100,12 +2263,18 @@ def main(argv=None) -> int:
         rmtree_all(scratch)
 
     elapsed = round(time.time() - started, 1)
-    img_bytes = os.path.getsize(args.image) if os.path.exists(args.image) else 0
+    if args.image:
+        subject = {"image": os.path.basename(args.image),
+                   "image_bytes": (os.path.getsize(args.image)
+                                   if os.path.exists(args.image) else 0)}
+    else:
+        subject = {"payloads": [{"name": os.path.basename(p),
+                                 "bytes": (os.path.getsize(p) if os.path.exists(p) else 0)}
+                                for p in args.payload]}
     receipt = {
         "gate": "shipped-secret-scan",
         "version": GATE_VERSION,
-        "image": os.path.basename(args.image),
-        "image_bytes": img_bytes,
+        **subject,
         "arch_env": os.environ.get("NCZ_TARGET_ARCH") or os.environ.get("ARCH") or "",
         "hash_list": {
             "path": os.path.basename(hash_file),
@@ -2136,7 +2305,8 @@ def main(argv=None) -> int:
             return 1
 
     for entry in receipt["layers"]:
-        say(f"  layer {entry['path']}: {entry['bytes']} bytes, "
+        say(f"  {'payload' if args.payload else 'layer'} {entry['path']}: "
+            f"{entry['bytes']} bytes, "
             f"{entry['members_scanned']} members, {entry['files_scanned']} files")
     say(f"  scanned {receipt['counts'].get('files_scanned', 0)} files, "
         f"{human(receipt['counts'].get('bytes_scanned', 0))} in {elapsed}s")
