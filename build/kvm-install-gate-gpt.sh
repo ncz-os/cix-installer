@@ -792,6 +792,18 @@ echo "  preserving target-side installer logs in $EVIDENCE"
 mkdir -p "$EVIDENCE"
 EVIDENCE_DISK="$WORK/.target-evidence.raw"
 EVIDENCE_ROOT="$WORK/.target-root-evidence.raw"
+# The entry rEFInd boots by default: the first menuentry whose title contains
+# default_selection (rEFInd matches it as a substring). Its root= must be
+# this install's root partition. A Magnetar server menu has no "(Default)"
+# entry -- its default is the Console entry -- so the default is read from
+# default_selection, not from the "(Default)" title.
+ncz_default_entry_root() {
+    local tok
+    tok=$(sed -n 's/^default_selection "\(.*\)"[[:space:]]*$/\1/p' "$1" | head -1)
+    [ -n "$tok" ] || tok="(Default)"
+    awk -v t="$tok" 'index($0, "menuentry ") == 1 && index($0, t) {f=1} f && /options/ {print; exit}' "$1" \
+        | sed -n 's/.*root=PARTUUID=\([^ "]*\).*/\1/p' | tr 'A-F' 'a-f'
+}
 rm -f "$EVIDENCE_DISK" "$EVIDENCE_ROOT"
 OPTION_FAIL=""
 if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
@@ -825,7 +837,7 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
                 OPTION_FAIL="$OPTION_FAIL; an installed rEFInd entry has an empty root= ($(grep -cE 'root=(PARTUUID=|UUID=)?([" ]|$)' "$EVIDENCE/installed-refind.conf") lines)"
             fi
             _gpt_root=$("$SGDISK" -i "$ROOT_PART" "$EVIDENCE_DISK" | sed -n 's/^Partition unique GUID: //p' | tr 'A-F' 'a-f')
-            _cfg_root=$(awk '/^menuentry .*\(Default\)/ {f=1} f && /options/ {print; exit}' "$EVIDENCE/installed-refind.conf" | sed -n 's/.*root=PARTUUID=\([^ "]*\).*/\1/p' | tr 'A-F' 'a-f')
+            _cfg_root=$(ncz_default_entry_root "$EVIDENCE/installed-refind.conf")
             if [ -n "$_gpt_root" ] && [ "$_cfg_root" = "$_gpt_root" ]; then
                 echo "  default entry root=PARTUUID=$_cfg_root is the GPT GUID of partition $ROOT_PART"
             else

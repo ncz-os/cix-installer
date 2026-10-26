@@ -488,6 +488,28 @@ else
     nok "late.sh boot-control refresh loop not found"
 fi
 
+echo "=== 10. KVM gate reads the default entry from default_selection ==="
+awk '/^ncz_default_entry_root\(\) \{$/{f=1} f{print} f && /^\}$/{exit}' "$GATE" > "$W/defroot.sh"
+if [ -s "$W/defroot.sh" ]; then
+    . "$W/defroot.sh"
+    conf() {  # conf <default_selection> <title=root>...
+        { printf 'timeout 5\ndefault_selection "%s"\n' "$1"; shift
+          for e in "$@"; do printf 'menuentry "NCZ-OS 26.10 Cygnus  -  %s" {\n    loader  /vmlinuz-k\n    options "root=PARTUUID=%s rootwait rw"\n}\n' "${e%%=*}" "${e#*=}"; done
+        } > "$W/defroot.conf"; ncz_default_entry_root "$W/defroot.conf"; }
+    [ "$(conf '7.3 (Default)' '7.3 (Default)=AAA' '7.3 Console=BBB' '7.3 Rescue / No Accelerators (Console)=CCC' 'Rescue Partition (Console)=DDD')" = aaa ] \
+        && ok "amd64 desktop menu: the (Default) entry" || nok "amd64 desktop default entry"
+    [ "$(conf '7.3 Console' '7.3 (Default)=AAA' '7.3 Console=BBB' '7.3 Rescue / No Accelerators (Console)=CCC')" = bbb ] \
+        && ok "amd64 desktop off: the Console entry, not the Rescue (Console) one" || nok "amd64 console default entry"
+    [ "$(conf '7.3 Mali (Default)' '7.3 Mali (Default)=AAA' '7.3 Panthor (Experimental)=EEE' '7.3 Console (All Accelerators, Mali)=BBB')" = aaa ] \
+        && ok "arm64 desktop menu: the Mali (Default) entry" || nok "arm64 desktop default entry"
+    [ "$(conf '7.3 Console (All Accelerators, Mali)' '7.3 Console (All Accelerators, Mali)=BBB' '7.3 Rescue Partition (Console)=DDD')" = bbb ] \
+        && ok "arm64 Magnetar server menu (no (Default) entry): the Console entry" || nok "arm64 server default entry: '$(conf '7.3 Console (All Accelerators, Mali)' '7.3 Console (All Accelerators, Mali)=BBB' '7.3 Rescue Partition (Console)=DDD')'"
+    [ "$(conf '7.3 Console' '7.3 Console=BBB' 'Rescue Partition (Console)=DDD')" = bbb ] \
+        && ok "amd64 Magnetar server menu: the Console entry" || nok "amd64 server default entry"
+else
+    nok "KVM gate: ncz_default_entry_root not found"
+fi
+
 echo
 echo "test-install-options: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
