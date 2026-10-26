@@ -747,6 +747,7 @@ parity:
 	build/test-timesync-retry.sh
 	build/test-boot-sequence.sh
 	build/test-greeter-output-mode.sh
+	build/test-greeter-console-fallback.sh
 	build/test-boot-splash-select.sh
 	bash build/test-console-font-autosize.sh
 	bash build/test-guest-ext4-recover.sh

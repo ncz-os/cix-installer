@@ -236,6 +236,16 @@ envrun() {   # sysroot hwstub [VAR=val ...] -> prints NCZ_GPU_BACKEND and LIBGL_
 r=$(envrun none hw-no);  case "$r" in *"backend=software sw=1 pixman=pixman"*) PASS=$((PASS+1)); echo "ok   env: no GPU -> software branch (KVM keeps working)";; *) FAILS=$((FAILS+1)); echo "FAIL env: no GPU gave: $r";; esac
 r=$(envrun none hw-yes); case "$r" in *"backend=failed sw= pixman="*) PASS=$((PASS+1)); echo "ok   env: GPU + no usable stack -> REFUSED, no software variables";; *) FAILS=$((FAILS+1)); echo "FAIL env: GPU present gave: $r";; esac
 grep -q 'software rendering REFUSED' "$T/env-health.log" 2>/dev/null && { PASS=$((PASS+1)); echo "ok   env: refusal is written to the health log"; } || { FAILS=$((FAILS+1)); echo "FAIL env: refusal not in the health log"; }
+# the greeter user (_greetd) cannot write /var/log: the refusal must not add a shell error to the console
+mkdir -p "$T/ro-log"; chmod 0555 "$T/ro-log"
+e=$(env -i PATH="$PATH" NCZ_SYSROOT="$T/none" NCZ_GPU_HW_PRESENT_CMD="$T/stub/hw-yes" NCZ_GPU_HEALTH_LOG="$T/ro-log/ncz-gpu-health.log" NCZ_GPU_ENV_NO_IMPORT=1 \
+    sh -c ". '$T/ncz-gpu-env'; echo backend=\${NCZ_GPU_BACKEND:-}" 2>&1)
+case "$e" in
+    *"cannot create"*|*"Permission denied"*) FAILS=$((FAILS+1)); echo "FAIL env: unwritable health log leaks a shell error: $e" ;;
+    *"backend=failed"*"software rendering REFUSED"*|*"software rendering REFUSED"*"backend=failed"*) PASS=$((PASS+1)); echo "ok   env: unwritable health log -> still REFUSED, no shell error" ;;
+    *) FAILS=$((FAILS+1)); echo "FAIL env: unwritable health log gave: $e" ;;
+esac
+chmod 0755 "$T/ro-log"
 r=$(envrun none hw-yes NCZ_ALLOW_SOFTWARE_FALLBACK=1); case "$r" in *"backend=software sw=1"*) PASS=$((PASS+1)); echo "ok   env: NCZ_ALLOW_SOFTWARE_FALLBACK=1 opts back in";; *) FAILS=$((FAILS+1)); echo "FAIL env: opt-in gave: $r";; esac
 mkdir -p "$T/mali2/dev" "$T/mali2/proc"; : > "$T/mali2/dev/mali0"; echo 'mali_kbase 1 0 - Live 0x0' > "$T/mali2/proc/modules"
 r=$(envrun mali2 hw-yes); case "$r" in *"backend=mali sw="*) PASS=$((PASS+1)); echo "ok   env: a live Mali stack selects mali (no software)";; *) FAILS=$((FAILS+1)); echo "FAIL env: mali gave: $r";; esac
