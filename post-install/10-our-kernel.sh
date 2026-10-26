@@ -386,7 +386,10 @@ install_kernel_headers() {
 #   returns 0 when make was clean, make's status when it was not (expected for
 #   this trimmed tree; check the tools instead), 3 when the configuration could
 #   not be restored (do NOT build modules against that tree).
-NCZ_KCONFIG_FILES=".config include/config/auto.conf include/config/auto.conf.cmd include/generated/autoconf.h include/generated/rustc_cfg include/config/kernel.release include/generated/utsrelease.h"
+# Also the generated headers the kernel build shipped (bounds.h, asm-offsets.h,
+# timeconst.h are computed from the configuration; compile.h names the
+# compiler): the kernel's copies are the right ones, whatever make regenerated.
+NCZ_KCONFIG_FILES=".config include/config/auto.conf include/config/auto.conf.cmd include/generated/autoconf.h include/generated/rustc_cfg include/config/kernel.release include/generated/utsrelease.h include/generated/bounds.h include/generated/asm-offsets.h include/generated/timeconst.h include/generated/compile.h"
 ncz_prepare_pristine() {
     _np_b=$1; _np_log=$2
     _np_snap=$(mktemp -d) || return 3

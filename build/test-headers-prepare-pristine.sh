@@ -54,8 +54,9 @@ tree() {
     printf 'CONFIG_DEBUG_INFO_BTF_MODULES=y\n' > "$d/include/config/auto.conf"
     printf '#define CONFIG_DEBUG_INFO_BTF_MODULES 1\n' > "$d/include/generated/autoconf.h"
     printf '7.3.0-sky1-ncz\n' > "$d/include/config/kernel.release"
+    printf '#define NR_PAGEFLAGS 24\n' > "$d/include/generated/bounds.h"
     case "$2" in
-        drift) printf 'modules_prepare:\n\t@cat > stdin-seen.txt\n\t@printf "CONFIG_PAHOLE_VERSION=0\\n" > .config\n\t@printf "\\n" > include/config/auto.conf\n\t@printf "/* no BTF */\\n" > include/generated/autoconf.h\n\t@echo "fatal error: linux/kasan-checks.h: No such file or directory"\n\t@echo "make[3]: *** [Makefile:83: tools/bpf/resolve_btfids] Error 2"\n\t@exit 2\n' > "$d/Makefile" ;;
+        drift) printf 'modules_prepare:\n\t@cat > stdin-seen.txt\n\t@printf "#define NR_PAGEFLAGS 23\\n" > include/generated/bounds.h\n\t@printf "CONFIG_PAHOLE_VERSION=0\\n" > .config\n\t@printf "\\n" > include/config/auto.conf\n\t@printf "/* no BTF */\\n" > include/generated/autoconf.h\n\t@echo "fatal error: linux/kasan-checks.h: No such file or directory"\n\t@echo "make[3]: *** [Makefile:83: tools/bpf/resolve_btfids] Error 2"\n\t@exit 2\n' > "$d/Makefile" ;;
         clean) printf 'modules_prepare:\n\t@cat > stdin-seen.txt\n' > "$d/Makefile" ;;
         todir) printf 'modules_prepare:\n\t@rm -f .config\n\t@mkdir .config\n' > "$d/Makefile" ;;
         stuck) printf 'modules_prepare:\n\t@printf "/* no BTF */\\n" > include/generated/autoconf.h\n\t@chmod 0444 include/generated/autoconf.h\n\t@chmod 0555 include/generated\n' > "$d/Makefile" ;;
@@ -66,6 +67,7 @@ tree() {
     esac
     cp -p "$d/.config" "$d/.config.orig"; cp -p "$d/include/generated/autoconf.h" "$d/autoconf.orig"
     cp -p "$d/include/config/auto.conf" "$d/auto.conf.orig"
+    cp -p "$d/include/generated/bounds.h" "$d/bounds.orig"
 }
 
 for f in $COPIES; do
@@ -77,8 +79,8 @@ for f in $COPIES; do
     D="$T/$n.drift"; tree "$D" drift; run "$D"
     [ "$RC" = 2 ] && ok "$n: make's failure status passes through (rc=$RC)" || no "$n: rc=$RC, want 2"
     if cmp -s "$D/.config" "$D/.config.orig" && cmp -s "$D/include/generated/autoconf.h" "$D/autoconf.orig" \
-       && cmp -s "$D/include/config/auto.conf" "$D/auto.conf.orig"; then
-        ok "$n: Kconfig drift restored byte-for-byte"
+       && cmp -s "$D/include/config/auto.conf" "$D/auto.conf.orig" && cmp -s "$D/include/generated/bounds.h" "$D/bounds.orig"; then
+        ok "$n: Kconfig drift (and regenerated bounds.h) restored byte-for-byte"
     else
         no "$n: .config/auto.conf/autoconf.h not restored"
     fi
