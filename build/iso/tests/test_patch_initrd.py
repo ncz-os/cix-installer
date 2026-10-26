@@ -301,6 +301,17 @@ class RequiredInitrdPackagesTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "no /usr/bin/wget member"):
                 MODULE.verify_required_initrd_packages(bad)
 
+    def test_a_cached_node_is_checked_too(self):
+        """Cache hits run _verify_node_outputs, not the build path: a node
+        cached before wget-udeb was required must still be refused."""
+        with tempfile.TemporaryDirectory() as td:
+            node = Path(td)
+            (node / "linux").write_bytes(b"k")
+            (node / "initrd.gz").write_bytes(gzip.compress(newc(
+                [("var/lib/dpkg/status", 0o100644, b"Package: busybox-udeb\nStatus: install ok unpacked\n")])))
+            with self.assertRaisesRegex(RuntimeError, "wget-udeb"):
+                MODULE._verify_node_outputs(node, node / "preseed.cfg")
+
     def test_the_later_status_wins(self):
         """The overlay's pruned status (later archive) is the effective one."""
         with tempfile.TemporaryDirectory() as td:

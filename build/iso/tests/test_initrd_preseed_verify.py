@@ -33,6 +33,16 @@ HOOK_NAME = MODULE.NCZ_STARTUP_HOOK_NAME
 HOOK_REL = "usr/lib/debian-installer-startup.d/" + HOOK_NAME
 HOOK_BODY = MODULE.NCZ_STARTUP_HOOK_BODY.encode("utf-8")
 PRESEED = b"# fixture preseed\nnetcfg/get_hostname string fixture\n"
+# A final initrd must also carry the installer packages the NCZ installer
+# uses (REQUIRED_INITRD_PACKAGES); the cache-hit path checks them too.
+REQUIRED_ENTRIES = [
+    (
+        "var/lib/dpkg/status",
+        b"Package: wget-udeb\nStatus: install ok unpacked\nVersion: 1.25.0-3\n\n",
+        0o100644,
+    ),
+    ("usr/bin/wget", b"ELF", 0o100755),
+]
 
 
 def _has_gnu_cpio() -> bool:
@@ -257,6 +267,7 @@ class CachedNodeTest(unittest.TestCase):
         node.mkdir(parents=True)
         stream = _crafted(
             [("preseed.cfg", PRESEED, 0o100644), (HOOK_REL, HOOK_BODY, 0o100755)]
+            + REQUIRED_ENTRIES
         )
         (node / "initrd.gz").write_bytes(_gz(stream))
         (node / "linux").write_bytes(b"kernel-image")
@@ -293,6 +304,7 @@ class CachedNodeTest(unittest.TestCase):
         node = self._node(cache_root)
         stream = _crafted(
             [("preseed.cfg", PRESEED, 0o100644), (HOOK_REL, b"wrong", 0o100755)]
+            + REQUIRED_ENTRIES
         )
         (node / "initrd.gz").write_bytes(_gz(stream))
         with self.assertRaisesRegex(RuntimeError, "NCZ_STARTUP_HOOK_BODY"):

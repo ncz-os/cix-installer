@@ -580,6 +580,8 @@ def _verify_node_outputs(
     if not (node_dir / "linux").is_file():
         raise RuntimeError(f"FATAL: initrd node {node_dir} has no kernel file (linux)")
     verify_no_braille_initrd(node_dir / "initrd.gz")
+    # A cached node built before a requirement existed must meet it too.
+    verify_required_initrd_packages(node_dir / "initrd.gz")
     return verify_baked_preseed(node_dir / "initrd.gz", preseed_cfg, hook_name)
 
 
