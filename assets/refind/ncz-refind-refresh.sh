@@ -821,6 +821,27 @@ if [ "$NEXT_AVAILABLE" = "1" ]; then
         esac
     fi
 fi
+# NCZ-MENU-VARIANT-BEGIN
+# MAGNETAR(server): which menu to write -- the server menu is Console + Rescue
+# Partition only. NCZ_VARIANT (environment) wins when a caller sets it; the
+# install (70-bootloader.sh) and every later caller (the kernel postinst.d
+# hook, ncz-refind-refresh run by hand) leave it unset, so fall back to the
+# marker preseed/late.sh writes ONLY when the install came from a Magnetar
+# server medium. BUILD_VARIANT is deliberately NOT used: a desktop medium's
+# install with the desktop component off records BUILD_VARIANT=server too, and
+# that install keeps the full menu.
+NCZ_MENU_VARIANT="${NCZ_VARIANT:-}"
+if [ -z "$NCZ_MENU_VARIANT" ] && [ -r /usr/local/lib/cix-installer/MEDIUM_VARIANT ]; then
+    case "$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/MEDIUM_VARIANT 2>/dev/null)" in
+        server) NCZ_MENU_VARIANT=server ;;
+    esac
+fi
+[ -n "$NCZ_MENU_VARIANT" ] || NCZ_MENU_VARIANT=desktop
+if [ "$NCZ_MENU_VARIANT" != desktop ] && [ "$NEXT_AVAILABLE" = "1" ]; then
+    DEFAULT_TOKEN="7.3 Console (All Accelerators, Mali)"
+    echo "  server medium: Console + Rescue Partition menu"
+fi
+# NCZ-MENU-VARIANT-END
 # The policy-computed default, kept aside so a stored/learned override that
 # turns out not to match any entry we actually write (see the validation
 # after the file is written, below) has a known-good value to fall back to.
@@ -916,7 +937,7 @@ fi
     echo
     if [ "$NEXT_AVAILABLE" = "1" ]; then
         # MAGNETAR(server): the server menu is Console + Rescue Partition only,
-        if [ "${NCZ_VARIANT:-desktop}" = "desktop" ]; then
+        if [ "$NCZ_MENU_VARIANT" = "desktop" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Mali (Default)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
@@ -977,7 +998,7 @@ fi
         # every accelerator blacklisted, booting the normal root. This is the
         # arm64 counterpart of the amd64 same-kernel rescue entry.
         # MAGNETAR(server): the server menu is Console + Rescue Partition only,
-        if [ "${NCZ_VARIANT:-desktop}" = "desktop" ]; then
+        if [ "$NCZ_MENU_VARIANT" = "desktop" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Rescue / No Accelerators (Console)\" {"
         echo "    loader  /vmlinuz-$KVER_NEXT"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"

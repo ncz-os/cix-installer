@@ -751,6 +751,27 @@ if [ "$STABLE_AVAILABLE" = "1" ]; then
         esac
     fi
 fi
+# NCZ-MENU-VARIANT-BEGIN
+# MAGNETAR(server): which menu to write -- the server menu is Console + Rescue
+# Partition only. NCZ_VARIANT (environment) wins when a caller sets it; the
+# install (70-bootloader.sh) and every later caller (the kernel postinst.d
+# hook, ncz-refind-refresh run by hand) leave it unset, so fall back to the
+# marker preseed/late.sh writes ONLY when the install came from a Magnetar
+# server medium. BUILD_VARIANT is deliberately NOT used: a desktop medium's
+# install with the desktop component off records BUILD_VARIANT=server too, and
+# that install keeps the full menu.
+NCZ_MENU_VARIANT="${NCZ_VARIANT:-}"
+if [ -z "$NCZ_MENU_VARIANT" ] && [ -r /usr/local/lib/cix-installer/MEDIUM_VARIANT ]; then
+    case "$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/MEDIUM_VARIANT 2>/dev/null)" in
+        server) NCZ_MENU_VARIANT=server ;;
+    esac
+fi
+[ -n "$NCZ_MENU_VARIANT" ] || NCZ_MENU_VARIANT=desktop
+if [ "$NCZ_MENU_VARIANT" != desktop ] && [ "$STABLE_AVAILABLE" = "1" ]; then
+    DEFAULT_TOKEN="7.3 Console"
+    echo "  server medium: Console + Rescue Partition menu"
+fi
+# NCZ-MENU-VARIANT-END
 SAFE_DEFAULT_TOKEN="$DEFAULT_TOKEN"
 
 REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
@@ -816,6 +837,8 @@ fi
     echo "default_selection \"$DEFAULT_TOKEN\""
     echo
     if [ "$STABLE_AVAILABLE" = "1" ]; then
+        # MAGNETAR(server): the server menu is Console + Rescue Partition only.
+        if [ "$NCZ_MENU_VARIANT" = "desktop" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 (Default)\" {"
         echo "    loader  /vmlinuz-$KVER_STABLE"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
@@ -823,6 +846,7 @@ fi
         echo "    options \"$STABLE_OPTIONS\""
         echo "}"
         echo
+        fi
 
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Console\" {"
         echo "    loader  /vmlinuz-$KVER_STABLE"
@@ -835,6 +859,7 @@ fi
         # REDEFINED RESCUE (2026-10-05): the SAME 7.3 kernel with the
         # accelerator drivers blacklisted. This replaces the old
         # "rescue = an older known-good kernel" definition.
+        if [ "$NCZ_MENU_VARIANT" = "desktop" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  7.3 Rescue / No Accelerators (Console)\" {"
         echo "    loader  /vmlinuz-$KVER_STABLE"
         [ -n "$REFIND_ICON" ] && echo "    icon    /EFI/BOOT/$REFIND_ICON"
@@ -842,6 +867,7 @@ fi
         echo "    options \"$RESCUE_OPTIONS\""
         echo "}"
         echo
+        fi
     fi
     if [ -n "$RESCUEPART_OPTIONS" ]; then
         echo "menuentry \"$NCZ_RELEASE_SHORT  -  Rescue Partition (Console)\" {"

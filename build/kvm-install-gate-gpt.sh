@@ -1117,8 +1117,10 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ -s "$EVIDENCE/installed-refind.conf" ]; then
     [ "$_m_console" -ge 1 ] || fail "server gate: the installed rEFInd menu has no Console entry"
     [ "$_m_rp" -ge 1 ] || fail "server gate: the installed rEFInd menu has no Rescue Partition entry"
     [ "$_m_total" -le 2 ] || fail "server gate: the installed rEFInd menu has $_m_total entries (server menu is Console + Rescue Partition only; got: $(grep '^menuentry ' "$EVIDENCE/installed-refind.conf" | sed 's/^menuentry \"//; s/\" {.*//' | sort | paste -sd', ' -))"
-    if grep -qE '^menuentry .*(\(Default\)|Mali|Panthor|Rescue / No Accelerators)' "$EVIDENCE/installed-refind.conf"; then
-        fail "server gate: the installed rEFInd menu still carries a desktop/graphical entry: $(grep -E '^menuentry .*(\(Default\)|Mali|Panthor|Rescue / No Accelerators)' "$EVIDENCE/installed-refind.conf" | head -3)"
+    # "7.3 Mali", not "Mali": the arm64 server Console entry is titled
+    # "7.3 Console (All Accelerators, Mali)" and is the entry that must stay.
+    if grep -qE '^menuentry .*(\(Default\)|7\.3 Mali|Panthor|Rescue / No Accelerators)' "$EVIDENCE/installed-refind.conf"; then
+        fail "server gate: the installed rEFInd menu still carries a desktop/graphical entry: $(grep -E '^menuentry .*(\(Default\)|7\.3 Mali|Panthor|Rescue / No Accelerators)' "$EVIDENCE/installed-refind.conf" | head -3)"
     fi
     grep -qE '^default_selection ".*Console' "$EVIDENCE/installed-refind.conf" \
         || fail "server gate: the installed rEFInd default_selection is not a Console entry (got: $(grep '^default_selection' "$EVIDENCE/installed-refind.conf"))"

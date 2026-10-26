@@ -567,6 +567,17 @@ else
             ;;
     esac
 fi
+# MAGNETAR(server): record the MEDIUM this install came from. BUILD_VARIANT
+# above cannot say it: a desktop medium's install with the desktop component
+# off writes BUILD_VARIANT=server as well. The rEFInd refresh scripts read
+# this marker (at install and on every later kernel upgrade) to write the
+# server menu, Console + Rescue Partition only. A desktop medium writes
+# nothing here, so its installs are unchanged.
+if [ -n "$SRC" ] && [ -f "$SRC/ncz-fetch-payload.manifest" ]; then
+    mkdir -p /target/usr/local/lib/cix-installer
+    echo "server" > /target/usr/local/lib/cix-installer/MEDIUM_VARIANT
+    echo "    Magnetar server medium: MEDIUM_VARIANT=server"
+fi
 if [ -f /target/etc/cix-installer/BUILD_VERSION ]; then
     echo "    build stamp: $(cat /target/etc/cix-installer/BUILD_VERSION) ($(cat /target/etc/cix-installer/BUILD_DATE 2>/dev/null))"
 fi

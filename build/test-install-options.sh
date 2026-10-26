@@ -390,6 +390,79 @@ fi
 grep -q 'NCZ_GATE_STALE_DISK' "$GATE" && grep -q "is not the root partition's GPT GUID" "$GATE" && grep -q 'has an empty root=' "$GATE" \
     && ok "KVM gate: stale-disk seeding, empty root= and GPT-GUID checks on the installed menu" || nok "KVM gate PARTUUID checks missing"
 
+echo "=== 8. Magnetar server menu vs desktop menus (MEDIUM_VARIANT) ==="
+# The server menu (Console + Rescue Partition only) must come from the marker
+# late.sh writes for a Magnetar medium -- at install AND on a kernel upgrade
+# (the postinst.d hook calls the refresh with no NCZ_VARIANT). A desktop
+# medium's no-desktop install records BUILD_VARIANT=server and COMPONENTS
+# without desktop, and must keep its full menu.
+HOOK="$ROOT/assets/refind/zz1-ncz-refind-refresh-amd64"
+GATE_RE='^menuentry .*(\(Default\)|7\.3 Mali|Panthor|Rescue / No Accelerators)'
+grep -qF "$GATE_RE" "$GATE" && ok "KVM gate: the server desktop-entry pattern is the one tested here" || nok "KVM gate pattern differs from the test's"
+for s in "$AMD" "$ARM"; do
+    n=$(basename "$s" .sh)
+    between "$s" 'NCZ-MENU-VARIANT-BEGIN' 'NCZ-MENU-VARIANT-END' \
+        | sed "s#/usr/local/lib/cix-installer#$W/mv/lib#g" > "$W/mv-$n.sh"
+    awk '/^\{$/ {b=NR} /^\} > "\$REFIND_CONF"$/ {e=NR} {l[NR]=$0} END {for (i=b; i<=e; i++) print l[i]}' "$s" > "$W/menu-$n.sh"
+    if [ ! -s "$W/mv-$n.sh" ] || ! grep -q 'REFIND_CONF' "$W/menu-$n.sh"; then nok "$n: NCZ-MENU-VARIANT block or menu block not found"; continue; fi
+    # menu <marker|-> <BUILD_VARIANT> <components> [NCZ_VARIANT] -> "<variant>|<default>|<entries>|<desktop entries>"
+    menu() {
+        rm -rf "$W/mv"; mkdir -p "$W/mv/lib"
+        [ "$1" = - ] || printf '%s\n' "$1" > "$W/mv/lib/MEDIUM_VARIANT"
+        printf '%s\n' "$2" > "$W/mv/lib/BUILD_VARIANT"; printf '%s\n' "$3" > "$W/mv/lib/COMPONENTS"
+        ( set +u; unset NCZ_VARIANT; [ -n "${4:-}" ] && NCZ_VARIANT=$4
+          STABLE_AVAILABLE=1 NEXT_AVAILABLE=1 PANTHOR_ENTRY=1 KVER_STABLE=7.3.0-t2-ncz KVER_NEXT=7.3.0-sky1-ncz
+          NCZ_RELEASE_SHORT="NCZ-OS 26.10 Cygnus" RESCUEPART_OPTIONS="root=PARTUUID=p" REFIND_CONF="$W/mv/refind.conf"
+          REFIND_TIMEOUT=5 REFIND_BANNER="" REFIND_THEME="" REFIND_ICON="" BUILD_VERSION=t ROOT_FSTYPE=ext4
+          # the default the script computed before this block: console when desktop is off
+          case ",$3," in *,desktop,*) DEFAULT_TOKEN=Default ;; *) DEFAULT_TOKEN=Console ;; esac
+          . "$W/mv-$n.sh" >/dev/null; . "$W/menu-$n.sh"
+          printf '%s|%s|%s|%s' "$NCZ_MENU_VARIANT" "$DEFAULT_TOKEN" "$(grep -c '^menuentry ' "$W/mv/refind.conf")" \
+              "$(grep -cE "$GATE_RE" "$W/mv/refind.conf")" )
+    }
+    case "$n" in *amd64*) full=4 ;; *) full=5 ;; esac
+    r=$(menu - server rescue-partition)
+    case "$r" in "desktop|Console|$full|"[1-9]*) ok "$n: desktop medium, desktop off (BUILD_VARIANT=server): keeps the full $full-entry menu" ;; *) nok "$n: desktop-medium no-desktop install changed menu: $r" ;; esac
+    r=$(menu - desktop desktop,rescue-partition)
+    case "$r" in "desktop|Default|$full|"*) ok "$n: desktop medium, desktop on: full menu, default unchanged" ;; *) nok "$n: desktop install: $r" ;; esac
+    r=$(menu server server rescue-partition)
+    case "$r" in "server|"*"Console"*"|2|0") ok "$n: Magnetar medium: Console + Rescue Partition only, default Console, no desktop entry" ;; *) nok "$n: server menu: $r" ;; esac
+    grep -E '^menuentry ' "$W/mv/refind.conf" | grep -q 'Console' && grep -E '^menuentry ' "$W/mv/refind.conf" | grep -q 'Rescue Partition' \
+        && ok "$n: the two server entries are Console and Rescue Partition" || nok "$n: server entries: $(grep '^menuentry ' "$W/mv/refind.conf")"
+    r=$(menu server server rescue-partition desktop)
+    case "$r" in "desktop|"*"|$full|"*) ok "$n: an explicit NCZ_VARIANT=desktop still wins over the marker" ;; *) nok "$n: env override: $r" ;; esac
+    r=$(menu junk server rescue-partition)
+    case "$r" in "desktop|"*) ok "$n: an unknown marker value is not a server medium" ;; *) nok "$n: junk marker: $r" ;; esac
+done
+# late.sh writes the marker only from a Magnetar medium (the fetch manifest).
+awk '/^# MAGNETAR\(server\): record the MEDIUM/ {f=1} f {print} f && /^fi$/ {exit}' "$LATE" \
+    | sed "s#/target/usr/local/lib/cix-installer#$W/lt#g" > "$W/late-mv.sh"
+lt() { rm -rf "$W/lt" "$W/src"; mkdir -p "$W/src"; [ "$1" = server ] && : > "$W/src/ncz-fetch-payload.manifest"
+    ( SRC="$W/src"; . "$W/late-mv.sh" >/dev/null ); cat "$W/lt/MEDIUM_VARIANT" 2>/dev/null || echo none; }
+[ "$(lt server)" = server ] && ok "late.sh: a Magnetar medium records MEDIUM_VARIANT=server" || nok "late.sh server medium: $(lt server)"
+[ "$(lt desktop)" = none ] && ok "late.sh: a desktop medium writes no MEDIUM_VARIANT" || nok "late.sh desktop medium: $(lt desktop)"
+# Kernel upgrade: run the real amd64 postinst.d hook in a sandbox; its refresh
+# (the menu-variant block + the menu writer) must still produce the server menu.
+rm -rf "$W/hk"; mkdir -p "$W/hk/boot" "$W/hk/lib"
+: > "$W/hk/boot/vmlinuz-7.3.0-t2-ncz"; echo x > "$W/hk/boot/initrd.img-7.3.0-t2-ncz"
+cat > "$W/hk/refresh" <<HK
+#!/bin/bash
+[ -z "\${NCZ_VARIANT:-}" ] || { echo "hook passed NCZ_VARIANT=\$NCZ_VARIANT"; exit 3; }
+STABLE_AVAILABLE=1 NCZ_RELEASE_SHORT=N RESCUEPART_OPTIONS=root=PARTUUID=p REFIND_CONF="$W/hk/refind.conf"
+REFIND_TIMEOUT=5 REFIND_BANNER="" REFIND_THEME="" REFIND_ICON="" ROOT_FSTYPE=ext4 DEFAULT_TOKEN=Console
+. "$W/hk/mv.sh"; . "$W/menu-ncz-refind-refresh-amd64.sh"
+HK
+chmod +x "$W/hk/refresh"
+sed "s#/usr/local/lib/cix-installer#$W/hk/lib#g" "$W/mv-ncz-refind-refresh-amd64.sh" | sed "s#$W/mv/lib#$W/hk/lib#g" > "$W/hk/mv.sh"
+sed -e "s#^REFRESH=.*#REFRESH=$W/hk/refresh#" -e "s#/usr/local/lib/cix-installer#$W/hk/lib#g" "$HOOK" > "$W/hk/hook"
+hook() { rm -f "$W/hk/refind.conf" "$W/hk/lib/MEDIUM_VARIANT"; [ "$1" = - ] || echo "$1" > "$W/hk/lib/MEDIUM_VARIANT"
+    env -u NCZ_VARIANT BOOTDIR="$W/hk/boot" bash "$W/hk/hook" > "$W/hk/out" 2>&1; printf 'rc=%s n=%s' "$?" "$(grep -c '^menuentry ' "$W/hk/refind.conf" 2>/dev/null)"; }
+[ "$(hook server)" = "rc=0 n=2" ] && ok "kernel upgrade (amd64 postinst.d hook): a Magnetar install keeps the server menu" || nok "hook server: $(hook server) $(cat "$W/hk/out")"
+[ "$(hook -)" = "rc=0 n=4" ] && ok "kernel upgrade (amd64 postinst.d hook): a desktop-medium install keeps the full menu" || nok "hook desktop: $(hook -) $(cat "$W/hk/out")"
+# arm64's kernel-upgrade wrapper (11-fix-cixmini-boot.sh) must not pin a variant either.
+! grep -q 'NCZ_VARIANT' "$ROOT/post-install/11-fix-cixmini-boot.sh" "$HOOK" \
+    && ok "neither kernel-upgrade caller sets NCZ_VARIANT (the refresh decides from the marker)" || nok "a kernel-upgrade caller sets NCZ_VARIANT"
+
 echo
 echo "test-install-options: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
