@@ -63,6 +63,10 @@ mksb() {   # mksb CMDLINE
         "$SB/sys/bus/platform/drivers/panthor" "$SB/sys/class/drm" "$SB/etc/glvnd/egl_vendor.d" \
         "$SB/lib/modules/$K/updates/dkms"
     echo "$1" > "$SB/proc/cmdline"
+    # Sky1 is identified by the CIX GPU ACPI platform device: without it the
+    # switcher exits 0 before doing anything (24af35f9), and this guard would
+    # pass vacuously. Same fixture as test-gpu-switcher-fallback.sh.
+    mkdir -p "$SB/sys/bus/platform/devices/CIXH5000:00"
     for f in mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko panthor.ko; do
         : > "$SB/lib/modules/$K/updates/dkms/$f"
     done
@@ -122,7 +126,7 @@ mksb "root=x sky1.gpu=mesa"
 echo "path to the cix compat stack" > "$SB/etc/ld.so.conf.d/01-cixgpu-compat.conf"
 rc=$(runsw)
 # rc 0 = panthor bound; rc 1 = the switcher failed loudly with no driver bound
-# (no CIXH5000 in this fixture). Both are legitimate here: the invariant under
+# (the fixture has the Sky1 device but nothing binds). Both are legitimate here: the invariant under
 # test is that the compat file is untouched either way, and the "selected
 # panthor" log line proves userspace_panthor() ran in both.
 { [ "$rc" = 0 ] || [ "$rc" = 1 ]; } && grep -q "selected panthor" "$SB/out" \
