@@ -219,3 +219,96 @@ def test_manifest_is_read_from_the_named_data_partition():
     assert '$NF == "NCZDATA"' in body, "the manifest must be read from the NCZDATA partition"
     w = read("build/iso/write-usb-image.py")
     assert '"--change-name=2:NCZDATA"' in w
+
+
+def _stub_fetch_block(medium: Path) -> str:
+    """The r159 stub's Magnetar fetch block, verbatim, with the medium probe
+    pointed at a test directory instead of /cdrom/ncz-payload."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "patch_debootstrap_stub", REPO / "build" / "iso" / "patch-debootstrap-stub.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    stub = mod.R159_STUB_SCRIPT
+    i = stub.index('MEDIADIR=""')
+    j = stub.index('if [ -z "$SQDIR" ]; then\n    echo "FATAL: r159 stub: no payload source')
+    block = stub[i:j]
+    assert "/cdrom/ncz-payload " in block
+    return block.replace("/cdrom/ncz-payload ", f"{medium} ", 1)
+
+
+def test_stub_hands_the_medium_manifest_to_the_fetcher(tmp_path):
+    """2026-10-26, first real Magnetar install: the stub pointed the fetcher at
+    its writable destination only, the fetcher looked for the manifest THERE,
+    found none and failed "NCZ_PAYLOAD_URL required". The pinned manifest is
+    on the medium next to the helper; the stub must name it."""
+    medium = tmp_path / "medium"
+    medium.mkdir()
+    (medium / "ncz-fetch-payload.manifest").write_text("x\n")
+    rec = tmp_path / "env.txt"
+    (medium / "ncz-fetch-payload.sh").write_text(
+        f'#!/bin/sh\nprintf "%s\\n%s\\n" "$NCZ_FETCH_MANIFEST" "$NCZ_PAYLOAD_DIR" > {rec}\nexit 0\n')
+    (medium / "sqtools").mkdir()
+    (medium / "sqtools" / "unsquashfs").write_text("#!/bin/sh\n")
+    (medium / "sqtools" / "unsquashfs").chmod(0o755)
+    target = tmp_path / "target"
+    target.mkdir()
+    script = f'SQDIR=""\nTARGET="{target}"\n' + _stub_fetch_block(medium) + 'echo "SQDIR=$SQDIR"\n'
+    r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    manifest, dest = rec.read_text().splitlines()
+    assert manifest == f"{medium}/ncz-fetch-payload.manifest"
+    assert dest == f"{target}/ncz-online/ncz-payload"
+    assert f"SQDIR={target}/ncz-online/ncz-payload" in r.stdout
+
+
+def test_stub_and_real_fetcher_install_from_the_medium_manifest(tmp_path):
+    """End to end with the REAL preseed/ncz-fetch-payload.sh: the medium
+    carries only the manifest; the stub's block fetches base.squashfs and the
+    asset bundle from a local HTTP server into the writable destination and
+    the bytes match their pins."""
+    import hashlib
+    import http.server
+    import shutil
+    import socketserver
+    import tarfile
+    import threading
+    if not shutil.which("wget"):
+        import pytest
+        pytest.skip("wget not installed")
+    srvdir = tmp_path / "srv"
+    srvdir.mkdir()
+    (srvdir / "base.squashfs").write_bytes(b"base-squashfs-bytes" * 100)
+    src = tmp_path / "assets-src" / "rescue"
+    src.mkdir(parents=True)
+    (src / "README").write_text("rescue\n")
+    with tarfile.open(srvdir / "ncz-assets-amd64.tar.gz", "w:gz") as tf:
+        tf.add(src, arcname="rescue")
+    sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+    handler = lambda *a, **k: http.server.SimpleHTTPRequestHandler(*a, directory=str(srvdir), **k)
+    handler_cls = type("Quiet", (http.server.SimpleHTTPRequestHandler,), {"log_message": lambda *a: None})
+    srv = socketserver.TCPServer(("127.0.0.1", 0),
+                                 lambda *a, **k: handler_cls(*a, directory=str(srvdir), **k))
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        medium = tmp_path / "medium"
+        medium.mkdir()
+        shutil.copy(REPO / "preseed" / "ncz-fetch-payload.sh", medium / "ncz-fetch-payload.sh")
+        (medium / "sqtools").mkdir()
+        (medium / "ncz-fetch-payload.manifest").write_text(
+            f"base.squashfs\thttp://127.0.0.1:{port}/base.squashfs\t{sha(srvdir / 'base.squashfs')}\tfile\n"
+            f"ncz-assets-amd64.tar.gz\thttp://127.0.0.1:{port}/ncz-assets-amd64.tar.gz\t"
+            f"{sha(srvdir / 'ncz-assets-amd64.tar.gz')}\tuntar\n")
+        target = tmp_path / "target"
+        target.mkdir()
+        script = (f'SQDIR=""\nTARGET="{target}"\nNCZ_FETCH_MAX_TRIES=2\nexport NCZ_FETCH_MAX_TRIES\n'
+                  + _stub_fetch_block(medium) + 'echo "SQDIR=$SQDIR"\n')
+        r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, r.stdout + r.stderr
+        dest = target / "ncz-online" / "ncz-payload"
+        assert (dest / "base.squashfs").read_bytes() == (srvdir / "base.squashfs").read_bytes()
+        assert (dest / "assets" / "rescue" / "README").is_file() or (dest / "rescue" / "README").is_file()
+    finally:
+        srv.shutdown()
+        srv.server_close()

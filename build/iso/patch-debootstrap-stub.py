@@ -217,7 +217,12 @@ if [ -z "$SQDIR" ] && [ -n "$MEDIADIR" ]; then
         echo "FATAL: nothing installed -- the medium carries no rootfs and there is nowhere to put the fetched one" >&2
         exit 1
     fi
+    # The pinned manifest is ON THE MEDIUM, next to the helper; the helper's
+    # default looks beside its destination ($FETCHDIR), which is empty. Name
+    # it, or the fetch dies with "NCZ_PAYLOAD_URL required (no manifest at
+    # $FETCHDIR/...)" (first real Magnetar KVM install, 2026-10-26).
     if NCZ_PAYLOAD_DIR="$FETCHDIR" NCZ_FETCH_TMPDIR="$FETCHDIR/.fetchtmp" \
+       NCZ_FETCH_MANIFEST="$MEDIADIR/ncz-fetch-payload.manifest" \
        sh "$MEDIADIR/ncz-fetch-payload.sh"; then
         echo "I: r159 stub: payload fetched and sha256-verified into $FETCHDIR" >&2
         # sqtools (the arch-matched static unsquashfs + its loader) still ships
