@@ -53,7 +53,8 @@ grep -q 'could not start' "$T/issue" && ! grep -q '^GPU:' "$T/issue" \
     && ok "no refusal line -> no GPU cause is claimed" || no "no-refusal case wrong: $(cat "$T/issue" 2>/dev/null)"
 grep -q 'start getty@tty1.service' "$T/systemctl.log" && ok "no journal reason -> getty still started" || no "no-reason case did not start getty"
 
-# /etc not writable: tty1 must still get the message
+# /etc not writable: tty1 must still get the message (root ignores the mode: skip)
+if [ "$(id -u)" = 0 ]; then echo "SKIP: unwritable issue dir case needs a non-root user"; else
 rm -f "$T/tty1" "$T/systemctl.log"; mkdir -p "$T/ro"; chmod 0555 "$T/ro"
 JOURNAL_LINE="ncz-gpu-env: x software rendering REFUSED y" PATH="$T/bin:$PATH" NCZ_FALLBACK_TTY="$T/tty1" NCZ_FALLBACK_ISSUE="$T/ro/issue" sh "$T/fallback" 2>"$T/ro.err"
 chmod 0755 "$T/ro"
@@ -61,6 +62,7 @@ grep -q 'could not start' "$T/tty1" && grep -q '^GPU: ncz-gpu-env: x software re
     && ok "unwritable issue dir -> tty1 still gets the message" || no "unwritable issue dir lost the tty message"
 [ ! -s "$T/ro.err" ] && ok "unwritable issue dir -> no shell error" || no "unwritable issue dir printed: $(cat "$T/ro.err")"
 grep -q 'start getty@tty1.service' "$T/systemctl.log" && ok "unwritable issue dir -> getty still started" || no "getty not started"
+fi
 
 echo "test-greeter-console-fallback: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
