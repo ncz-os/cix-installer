@@ -1,6 +1,8 @@
 #!/bin/bash
 # test-console-font-autosize.sh -- 95-console-font-autosize.sh sizes the VT font
 # only on a text-mode console and never fails the boot when there is none.
+# With deferred fbcon takeover the VTs stay on the dummy console until output;
+# the script then exits 0 and a udev rule re-runs the unit on takeover.
 #
 # The kernel refuses a font change while the VT is in KD_GRAPHICS mode, which
 # the KMS boot splash and the greeter compositor set on tty1. setfont then
@@ -34,9 +36,18 @@ sh -n "$S" && ok "runtime script parses (sh -n)" || bad "runtime script syntax e
 
 # --- fixture ------------------------------------------------------------------
 # $1 = virtual_size ("" = no fb0), $2 = EDID width in cm (0 = no size, "" = no EDID)
-# $3 = kbdinfo mode output ("" = kbdinfo fails), $4 = setfont mode: ok|graphics|notfound
+# $3 = kbdinfo mode output ("" = kbdinfo fails), $4 = setfont mode: ok|graphics|notfound|dummy
+# $5 = bound VT console driver: fb (default) | dummy (deferred fbcon takeover) | none (no vtconsole class)
 setup() {
-    rm -rf "$T/case"; mkdir -p "$T/case/bin" "$T/case/drm" "$T/case/fonts"
+    rm -rf "$T/case"; mkdir -p "$T/case/bin" "$T/case/drm" "$T/case/fonts" "$T/case/vtcon"
+    case "${5:-fb}" in
+        fb)    mkdir -p "$T/case/vtcon/vtcon0" "$T/case/vtcon/vtcon1"
+               echo "(S) dummy device" > "$T/case/vtcon/vtcon0/name"; echo 0 > "$T/case/vtcon/vtcon0/bind"
+               echo "(S) frame buffer device" > "$T/case/vtcon/vtcon1/name"; echo 1 > "$T/case/vtcon/vtcon1/bind" ;;
+        dummy) mkdir -p "$T/case/vtcon/vtcon0"
+               echo "(S) dummy device" > "$T/case/vtcon/vtcon0/name"; echo 1 > "$T/case/vtcon/vtcon0/bind" ;;
+        none)  ;;
+    esac
     [ -n "$1" ] && printf '%s\n' "$1" > "$T/case/virtual_size"
     if [ -n "$2" ]; then
         mkdir -p "$T/case/drm/card0-DP-1"
@@ -60,6 +71,7 @@ case "$4" in
     ok) exit 0 ;;
     graphics) echo "setfont: ERROR kdfontop.c:38 is_kd_text_mode: Console is not in text mode" >&2; exit 1 ;;
     notfound) echo "setfont: ERROR psffontop.c:XX: Unable to find file" >&2; exit 66 ;;
+    dummy) echo "setfont: ERROR kdfontop.c:242 put_font_kdfontop: Unable to load such font with such kernel version" >&2; exit 1 ;;
 esac
 STUB
     chmod +x "$T/case/bin/kbdinfo" "$T/case/bin/setfont"
@@ -67,7 +79,7 @@ STUB
 run() {
     PATH="$T/case/bin:$PATH" \
     NCZ_FB_VIRTUAL_SIZE="$T/case/virtual_size" NCZ_DRM_SYSFS="$T/case/drm" \
-    NCZ_CONSOLEFONTS_DIR="$T/case/fonts" \
+    NCZ_CONSOLEFONTS_DIR="$T/case/fonts" NCZ_VTCONSOLE_SYSFS="$T/case/vtcon" \
         sh "$S" > "$T/case/out" 2>&1
     RC=$?
     OUT=$(cat "$T/case/out")
@@ -111,7 +123,7 @@ setup 3840,2160 0 text ok; run
 # 7. NCZ_CONSOLE_TTY selects the console for both the mode check and setfont.
 setup 3840,2160 0 text ok
 PATH="$T/case/bin:$PATH" NCZ_CONSOLE_TTY=/dev/tty3 NCZ_FB_VIRTUAL_SIZE="$T/case/virtual_size" \
-    NCZ_DRM_SYSFS="$T/case/drm" NCZ_CONSOLEFONTS_DIR="$T/case/fonts" sh "$S" >/dev/null 2>&1
+    NCZ_DRM_SYSFS="$T/case/drm" NCZ_CONSOLEFONTS_DIR="$T/case/fonts" NCZ_VTCONSOLE_SYSFS="$T/case/vtcon" sh "$S" >/dev/null 2>&1
 grep -q -- '-C /dev/tty3 getmode' "$T/case/kbdinfo.calls" 2>/dev/null && grep -q -- '-C /dev/tty3 ' "$T/case/setfont.calls" 2>/dev/null \
     && ok "NCZ_CONSOLE_TTY targets that console" || bad "NCZ_CONSOLE_TTY not honoured"
 
@@ -135,6 +147,57 @@ grep -q 'Unable to find file' <<<"$OUT" && grep -q 'setfont Lat15-Terminus20x10 
 # 11. Missing font file still fails the unit.
 setup 3840,2160 60 text ok; rm -f "$T/case/fonts/Lat15-Terminus20x10.psf.gz"; run
 [ "$RC" = 1 ] && [ -z "$CALLS" ] && ok "missing console-setup font exits 1" || bad "missing font rc=$RC calls='$CALLS'"
+
+# 12. Deferred fbcon takeover (amd64 kernel, CONFIG_FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER=y):
+#     only the dummy console is bound, so KDFONTOP cannot work. KVM gate 2026-10-26: setfont
+#     "Unable to load such font with such kernel version", unit failed. Exit 0, no setfont.
+setup 1280,800 30 text dummy dummy; run
+[ "$RC" = 0 ] && ok "dummy console only (deferred takeover) exits 0" || bad "dummy console rc=$RC: $OUT"
+[ -z "$CALLS" ] && ok "dummy console: setfont not run" || bad "dummy console ran setfont: $CALLS"
+grep -q 'takeover deferred' <<<"$OUT" && ok "dummy console logs the deferred takeover" || bad "dummy console not logged ($OUT)"
+
+# 13. fbcon registered but not yet bound (bind=0), dummy still bound: same as 12.
+setup 1280,800 30 text dummy dummy
+mkdir -p "$T/case/vtcon/vtcon1"; echo "(S) frame buffer device" > "$T/case/vtcon/vtcon1/name"; echo 0 > "$T/case/vtcon/vtcon1/bind"
+run
+[ "$RC" = 0 ] && [ -z "$CALLS" ] && ok "registered-but-unbound fbcon is treated as not taken over" \
+    || bad "unbound fbcon rc=$RC calls='$CALLS' out=$OUT"
+
+# 14. vgacon bound (text console without fbcon): font is set.
+setup 3840,2160 60 text ok none
+mkdir -p "$T/case/vtcon/vtcon0"; echo "(S) VGA+" > "$T/case/vtcon/vtcon0/name"; echo 1 > "$T/case/vtcon/vtcon0/bind"
+run
+[ "$RC" = 0 ] && [ "$CALLS" = "-C /dev/tty0 Lat15-Terminus20x10" ] && ok "vgacon-bound console gets its font" \
+    || bad "vgacon rc=$RC calls='$CALLS' out=$OUT"
+
+# 15. No vtconsole class at all: do not guess, run the normal path.
+setup 3840,2160 60 text ok none; run
+[ "$RC" = 0 ] && [ "$CALLS" = "-C /dev/tty0 Lat15-Terminus20x10" ] && ok "no vtconsole class: normal path" \
+    || bad "no vtconsole class rc=$RC calls='$CALLS' out=$OUT"
+
+# 16. fbcon bound but setfont still says "such kernel version": a real failure, stays loud.
+setup 3840,2160 60 text dummy; run
+[ "$RC" = 1 ] && ok "KDFONTOP refusal with fbcon bound still exits 1" || bad "bound fbcon refusal rc=$RC: $OUT"
+
+# --- udev re-run on takeover --------------------------------------------------
+R="$T/rules"
+awk '/cat > \/etc\/udev\/rules.d\/90-ncz-console-font-autosize.rules <<.RULES.$/ {f=1; next} f && /^RULES$/ {exit} f {print}' "$G" > "$R"
+if [ -s "$R" ]; then
+    ok "udev rule extracted"
+    grep -E '^ACTION=="add", SUBSYSTEM=="vtconsole", KERNEL=="vtcon\*", ATTR\{name\}!="\*dummy device", RUN\+="/usr/bin/systemctl --no-block restart ncz-console-font-autosize.service"$' "$R" >/dev/null \
+        && ok "udev rule restarts the unit when a non-dummy vtconsole is added" || bad "vtconsole udev rule missing or changed: $(cat "$R")"
+    grep -E '^ACTION=="add", SUBSYSTEM=="graphics", KERNEL=="fb0", RUN\+="/usr/bin/systemctl --no-block restart ncz-console-font-autosize.service"$' "$R" >/dev/null \
+        && ok "udev rule restarts the unit when fb0 is added" || bad "fb0 udev rule missing or changed"
+    grep -v '^#' "$R" | grep -q -- 'restart' && ! grep -v '^#' "$R" | grep -q -- 'systemctl restart' \
+        && ok "udev restarts are --no-block" || bad "a udev rule restarts without --no-block (would stall udev)"
+    if command -v udevadm >/dev/null 2>&1; then
+        cp "$R" "$T/90-ncz-console-font-autosize.rules"
+        udevadm verify --no-style "$T/90-ncz-console-font-autosize.rules" >/dev/null 2>&1 \
+            && ok "udevadm verify accepts the rule" || bad "udevadm verify rejects the rule: $(udevadm verify --no-style "$T/90-ncz-console-font-autosize.rules" 2>&1 | head -3)"
+    fi
+else
+    bad "hook installs no udev rule for the deferred fbcon takeover"
+fi
 
 # --- unit ordering -----------------------------------------------------------
 key() { sed -n "s/^$1=//p" "$U" | tr ' ' '\n'; }

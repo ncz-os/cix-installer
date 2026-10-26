@@ -59,6 +59,17 @@ cat > /usr/local/bin/ncz-console-font-autosize <<'SCRIPT'
 # graphics mode (a unit restart under a running greeter, another splash),
 # there is no text console to size, so log that and exit 0 instead of
 # failing the boot.
+#
+# Deferred takeover: kernels built with CONFIG_FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER=y
+# (the amd64 kernel; Debian's default) keep the VTs on the dummy console until
+# something is printed, so the firmware logo stays up. While only the dummy
+# console is bound the kernel has no font to change and setfont fails with
+# "Unable to load such font with such kernel version" (KVM gate, 2026-10-26:
+# the unit ran at 3.68 s, fbcon took over at 3.78 s). In that state exit 0;
+# the udev rules installed with this script restart the unit when fbcon
+# registers its vtconsole (and when fb0 is republished), which is when the
+# font can be set. Polling would not help: a deferred takeover waits for
+# console output, not for time, and the unit runs before the splash.
 set -eu
 
 LOG=ncz-console-font-autosize
@@ -66,6 +77,7 @@ CONSOLE=${NCZ_CONSOLE_TTY:-/dev/tty0}
 FB=${NCZ_FB_VIRTUAL_SIZE:-/sys/class/graphics/fb0/virtual_size}
 DRM_DIR=${NCZ_DRM_SYSFS:-/sys/class/drm}
 FONT_DIR=${NCZ_CONSOLEFONTS_DIR:-/usr/share/consolefonts}
+VTCON_DIR=${NCZ_VTCONSOLE_SYSFS:-/sys/class/vtconsole}
 
 if [ ! -r "$FB" ]; then
     echo "$LOG: no framebuffer console ($FB absent); nothing to size"
@@ -73,6 +85,24 @@ if [ ! -r "$FB" ]; then
 fi
 FB_WIDTH="" FB_HEIGHT=""
 IFS=, read -r FB_WIDTH FB_HEIGHT < "$FB" || true
+
+# Which console driver owns the VTs: "(S) dummy device" until fbcon (or
+# vgacon) is bound. Only judge when the vtconsole class is present.
+text_con=""
+have_vtcon=0
+for v in "$VTCON_DIR"/vtcon*; do
+    [ -r "$v/name" ] && [ -r "$v/bind" ] || continue
+    have_vtcon=1
+    [ "$(cat "$v/bind")" = 1 ] || continue
+    name=$(cat "$v/name")
+    case "$name" in *"dummy device"*) continue ;; esac
+    text_con=$name
+    break
+done
+if [ "$have_vtcon" = 1 ] && [ -z "$text_con" ]; then
+    echo "$LOG: only the dummy console is bound (framebuffer console takeover deferred); the font is sized when it takes over"
+    exit 0
+fi
 
 # kbdinfo prints "text" or "graphics"; when it cannot answer, fall through
 # to setfont, whose own error is classified below.
@@ -178,6 +208,18 @@ TimeoutStartSec=10s
 [Install]
 WantedBy=sysinit.target
 UNIT
+
+# With deferred fbcon takeover the unit can run before any text console
+# exists. fbcon registers its vtconsole when it takes over; size the font then,
+# the same way systemd's 90-vconsole.rules re-runs systemd-vconsole-setup.
+install -d -m 0755 /etc/udev/rules.d
+cat > /etc/udev/rules.d/90-ncz-console-font-autosize.rules <<'RULES'
+# Re-size the console font when a real console driver (fbcon) takes over the VTs,
+# and when fb0 is (re)published, e.g. the simpledrm -> KMS driver handover.
+ACTION=="add", SUBSYSTEM=="vtconsole", KERNEL=="vtcon*", ATTR{name}!="*dummy device", RUN+="/usr/bin/systemctl --no-block restart ncz-console-font-autosize.service"
+ACTION=="add", SUBSYSTEM=="graphics", KERNEL=="fb0", RUN+="/usr/bin/systemctl --no-block restart ncz-console-font-autosize.service"
+RULES
+chmod 0644 /etc/udev/rules.d/90-ncz-console-font-autosize.rules
 
 systemctl enable ncz-console-font-autosize.service
 
