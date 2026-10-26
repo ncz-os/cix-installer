@@ -1091,15 +1091,25 @@ if command -v efibootmgr >/dev/null 2>&1; then
     EFI_DISK=$(lsblk -no PKNAME "$EFI_DEV" 2>/dev/null || true)
     EFI_PART="${EFI_DEV##*[!0-9]}"
     if [ -n "$EFI_DISK" ] && [ -n "$EFI_PART" ]; then
-        # Prune stale/duplicate NVRAM rows before creating a fresh one so repeated
-        # installs / kernel-refreshes on a board with writable EFI NVRAM (e.g. O6)
-        # do not accumulate identical "nclawzero (rEFInd)" Boot#### entries. No-op
-        # on boards without EFI runtime services (efibootmgr lists nothing).
-        for _bn in $(efibootmgr 2>/dev/null | grep -F "nclawzero (rEFInd)" | sed -n "s/^Boot\([0-9A-Fa-f]\{4\}\).*/\1/p"); do
+        # NCZ-EFI-BOOTENTRY-BEGIN
+        # One NVRAM row for rEFInd, labelled "NCZ-OS". Images before 2026-10-26
+        # labelled it "nclawzero (rEFInd)". Delete every row carrying EITHER
+        # label (exact label match, so another OS's row is never touched)
+        # before creating the fresh one, so repeated installs / kernel refreshes
+        # and upgraded machines do not keep stale or duplicate Boot#### rows.
+        # No-op on boards without EFI runtime services (efibootmgr lists nothing).
+        _ncz_efi_label="NCZ-OS"
+        _ncz_efi_old_label="nclawzero (rEFInd)"
+        for _bn in $(efibootmgr 2>/dev/null | awk -v new="$_ncz_efi_label" -v old="$_ncz_efi_old_label" '
+                /^Boot[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][* ] / {
+                    l = substr($0, 11); sub(/\t.*/, "", l); sub(/ +$/, "", l)
+                    if (l == new || l == old) print substr($0, 5, 4)
+                }'); do
             efibootmgr -b "$_bn" -B >/dev/null 2>&1 || true
         done
         efibootmgr -c -d "/dev/$EFI_DISK" -p "$EFI_PART" \
-            -L "nclawzero (rEFInd)" -l '\EFI\BOOT\BOOTAA64.EFI' >/dev/null 2>&1 || true
+            -L "$_ncz_efi_label" -l '\EFI\BOOT\BOOTAA64.EFI' >/dev/null 2>&1 || true
+        # NCZ-EFI-BOOTENTRY-END
     fi
 fi
 

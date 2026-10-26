@@ -1300,14 +1300,15 @@ DEFAULT_KVER=$(grep -aoE 'Linux version [^ ]+|Starting vmlinuz-[^[:space:]]+' "$
 echo "  default-boot kernel: ${DEFAULT_KVER:-<unknown>}"
 
 # First-boot health: the installed system writes `systemctl --failed` to
-# /var/log/ncz-first-boot-failed.txt 30 s after multi-user.target (97-firstboot-report.sh). Read it
+# /var/log/ncz-first-boot-report.txt 30 s after multi-user.target (97-firstboot-report.sh; images
+# before 2026-10-26 named it ncz-first-boot-failed.txt, which is still read as a fallback). Read it
 # off the disk phase 2 just booted; any failed unit that is not on the allow-list fails the gate.
 if [ "$GATE_FS" != ext4 ]; then
     echo "  first-boot report not read (root is $GATE_FS; debugfs reads ext4 only): the login prompt above is the boot check"
 else
     echo
     echo "  first-boot failed-unit report"
-    FBR="$WORK/first-boot-failed.txt"; rm -f "$FBR"
+    FBR="$WORK/first-boot-report.txt"; rm -f "$FBR"
     FB_DISK="$WORK/.fb-disk.raw"; FB_ROOT="$WORK/.fb-root.raw"; rm -f "$FB_DISK" "$FB_ROOT"
     if qemu-img convert -S 4k -O raw "$DISK" "$FB_DISK"; then
         FB_P=$(ncz_last_partnum "$FB_DISK"); FB_P="${FB_P:-0}"
@@ -1321,7 +1322,8 @@ else
                 rm -f "$FB_DISK" "$FB_ROOT"
                 fail "e2fsck could not recover the installed root filesystem copy, so the first-boot report cannot be read (see $WORK/first-boot-e2fsck.log)"
             fi
-            "$DEBUGFS" -R "dump /var/log/ncz-first-boot-failed.txt $FBR" "$FB_ROOT" >/dev/null 2>&1 || true
+            "$DEBUGFS" -R "dump /var/log/ncz-first-boot-report.txt $FBR" "$FB_ROOT" >/dev/null 2>&1 || true
+            [ -s "$FBR" ] || "$DEBUGFS" -R "dump /var/log/ncz-first-boot-failed.txt $FBR" "$FB_ROOT" >/dev/null 2>&1 || true
             GHL="$WORK/gpu-health.log"; rm -f "$GHL"
             "$DEBUGFS" -R "dump /var/log/ncz-gpu-health.log $GHL" "$FB_ROOT" >/dev/null 2>&1 || true
             # Out-of-tree modules of the booted kernel, for the static ABI check below.
@@ -1336,7 +1338,7 @@ else
     fi
     rm -f "$FB_DISK" "$FB_ROOT"
     if [ ! -s "$FBR" ]; then
-        fail "no first-boot report (/var/log/ncz-first-boot-failed.txt) on the installed disk -- 97-firstboot-report did not run or the guest did not reach multi-user long enough (BOOT_TIMEOUT=${BOOT_TIMEOUT}s)"
+        fail "no first-boot report (/var/log/ncz-first-boot-report.txt) on the installed disk -- 97-firstboot-report did not run or the guest did not reach multi-user long enough (BOOT_TIMEOUT=${BOOT_TIMEOUT}s)"
     fi
     # never-software-render: 98-gpu-health ran on first boot. A KVM guest has no hardware GPU, so the expected line is
     # "OK no GPU: software allowed"; "FAIL" means a GPU is present and software rendering is in use.

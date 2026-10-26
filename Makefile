@@ -758,6 +758,7 @@ parity:
 	build/test-run-all-baked-allowlist.sh
 	build/test-sky1-audio-policy.sh
 	build/test-sky1-media-defaults.sh
+	bash build/test-desktop-app-set.sh
 	build/test-screensaver-default.sh
 	build/test-titlebar-buttons.sh
 	build/test-overview-dock-clearance.sh
@@ -776,6 +777,7 @@ parity:
 	build/test-reap-images.sh
 	REPO_ROOT=$(ROOT) bash build/test-amd64-kernel-classifier.sh
 	bash build/test-amd64-t2-detect.sh
+	bash build/test-efi-boot-label.sh
 	bash build/test-t2-mce-nobootlog.sh
 	bash build/test-t2-power-cap.sh
 	bash build/test-nouveau-runpm.sh

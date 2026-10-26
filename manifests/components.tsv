@@ -51,8 +51,6 @@ apple-t2-audio-config	ncz-apt	buildkite-packages	amd64	desktop,installer,mgmt,re
 apple-t2-firmware-sonoma14	firmware	staged:assets/firmware/apple-t2/apple-t2-firmware-sonoma14.tar.xz	amd64	desktop,mgmt,rescue	yes		post-install/55-t2-firmware.sh (extract to /lib/firmware/brcm/)	post-install/55-t2-firmware.sh (brcmfmac*.apple,*.bin check)	assets/firmware/apple-t2/ (gitignored; extracted from a 753 MB macOS Sonoma 14 Recovery Image)	Apple WiFi/BT firmware for T2 Macs (brcmfmac4355c1/4364b2/4364b3/4377b3). Network fallback only when the asset is missing.
 audacity	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 audacity	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-baobab	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-baobab	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 bc	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs	
 bc	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs	
 bind9-dnsutils	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
@@ -130,8 +128,6 @@ efibootmgr	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		m
 efibootmgr	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs; manifests/rescue.pkgs	
 efivar	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
 efivar	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
-epiphany-browser	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-epiphany-browser	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 ethtool	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs; manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	
 ethtool	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs; manifests/installer-base.pkgs; manifests/rescue.pkgs	
 exfatprogs	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
@@ -223,6 +219,8 @@ gdebi-core	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages
 gdebi-core	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 gdisk	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	
 gdisk	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs; manifests/rescue.pkgs	
+geoclue-2.0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+geoclue-2.0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 gimp	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 gimp	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 gir1.2-gtk-4.0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
@@ -243,27 +241,11 @@ glslc	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	m
 glslc	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 glycin-loaders	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 glycin-loaders	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-gnome-calculator	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-gnome-calculator	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-gnome-calendar	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-gnome-calendar	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-gnome-characters	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-gnome-characters	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-gnome-console	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-gnome-console	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-gnome-disk-utility	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-gnome-disk-utility	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-gnome-font-viewer	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-gnome-font-viewer	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+gnome-desktop3-data	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+gnome-desktop3-data	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 gnome-online-accounts	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 gnome-session-canberra	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 gnome-session-canberra	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-gnome-sound-recorder	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-gnome-sound-recorder	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-gnome-text-editor	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-gnome-text-editor	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-gnome-weather	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-gnome-weather	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 gnupg	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
 gnupg	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
 google-chrome-stable	staged-deb	staged:assets/google-chrome/google-chrome-stable_*_${ARCH}.deb	all	desktop	no		post-install/53-chrome.sh (apt from the offline forky-vendor-mirror)	build/verify-installed-target.sh	assets/google-chrome/ (pinned Google .deb, staged by build/stage-build-inputs.sh, refreshed from the google-chrome-stable alias by build/refresh-google-chrome.sh); build/build-vendor-mirror.sh; manifests/desktop.pkgs; manifests/desktop-amd64.pkgs	Second browser; Vivaldi stays default. Real arm64 Linux Chrome landed Q2 2026.
@@ -340,6 +322,8 @@ lftp	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-
 lftp	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
 libadwaita-1-0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libadwaita-1-0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libcamera-ipa	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+libcamera-ipa	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libdbusmenu-glib4	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libdbusmenu-glib4	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libdrm-amdgpu1	staged-deb	staged:build/libdrm-debs/libdrm-amdgpu1_2.4.134-3+ncz*_${ARCH}.deb	all	desktop,installer,mgmt,rescue,server	yes	2.4.134-3+ncz	build/build-desktop-mirror.sh (pool staging; apt resolver installs)	build/verify-desktop-mirror-seeds.sh	build/build-desktop-mirror.sh (NCZ_LOCAL_DEBS)	NCZ_LOCAL_DEBS: required; NCZ libdrm 2.4.134-3+ncz (Sky1 ACPI platform fix); built by build/build-libdrm-debs.sh.
@@ -384,6 +368,8 @@ libjson-glib-1.0-0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-
 libjson-glib-1.0-0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libliftoff0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libliftoff0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libmtp-runtime	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+libmtp-runtime	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libnice10	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libnice10	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libnotify-bin	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
@@ -407,6 +393,10 @@ libsodium26	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-package
 libsodium26	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libsoup-3.0-0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libsoup-3.0-0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libspa-0.2-bluetooth	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+libspa-0.2-bluetooth	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libspa-0.2-libcamera	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+libspa-0.2-libcamera	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libtinysparql-3.0-0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libtinysparql-3.0-0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libupower-glib3	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
@@ -442,8 +432,6 @@ lm-sensors	debian	debian-forky	amd64	desktop,rescue	yes		manifest	build/verify-p
 lm-sensors	debian	debian-forky	arm64	desktop,rescue	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs; manifests/rescue.pkgs	
 locales	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs	
 locales	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs	
-loupe	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-loupe	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 lshw	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	
 lshw	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs; manifests/rescue.pkgs	
 lsof	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	
@@ -525,8 +513,6 @@ openssh-server	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	ye
 openssh-sftp-server	debian	debian-forky	arm64	mgmt	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/mgmt.pkgs	
 panthor-cix	dkms	vendored:assets/kernel/panthor	arm64	desktop,mgmt,rescue,server	yes	7.2.0	post-install/83-panthor-gpu.sh (panthor-cix-dkms deb; dkms build per kernel)	build/verify-dkms-deb-sources.py,build/build-accel-overlays.sh	assets/kernel/panthor/dkms.conf; deb from build/build-dkms-debs.sh	Sky1 Panthor GPU driver source. Every kernel gets a panthor.ko overlay compiled from it (SOURCE.sha256 stamp, CRC-checked) and the DKMS deb must carry it byte-for-byte.
 panthor-panthor	overlay	vendored:assets/kernel/panthor/7.3.0-sky1-ncz/panthor.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.0-sky1-ncz	post-install/83-panthor-gpu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/panthor/7.3.0-sky1-ncz/panthor.ko, build_rev=r292)	Pinned Sky1 default-kernel overlay for panthor (r292); no EDGE channel.
-papers	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-papers	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 partclone	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
 partclone	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
 parted	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	
@@ -567,7 +553,6 @@ python3-pip	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-package
 python3-pip	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 python3-venv	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 python3-venv	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-rasdaemon	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 rsync	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	
 rsync	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs; manifests/mgmt.pkgs; manifests/rescue.pkgs	
 rtkit	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	

@@ -95,7 +95,7 @@ Exec=/usr/bin/google-chrome-stable
 GC
 printf '[Desktop Entry]\nName=Chromium (NCZ)\nExec=/usr/bin/chromium-ncz-sky1 %%U\n' > "$B/usr/share/applications/chromium-ncz-sky1.desktop"
 # what 52-vivaldi.sh / 53-chrome.sh leave behind
-printf '[Default Applications]\ntext/html=vivaldi-stable.desktop\nx-scheme-handler/http=vivaldi-stable.desktop\nx-scheme-handler/https=vivaldi-stable.desktop\ninode/directory=thunar.desktop\n' > "$B/etc/xdg/mimeapps.list"
+printf '[Default Applications]\ntext/html=vivaldi-stable.desktop\nx-scheme-handler/http=vivaldi-stable.desktop\nx-scheme-handler/https=vivaldi-stable.desktop\ninode/directory=dev.sinty.files.desktop\n' > "$B/etc/xdg/mimeapps.list"
 cp "$B/etc/xdg/mimeapps.list" "$B/etc/skel/.config/mimeapps.list"
 cp "$B/usr/share/applications/vivaldi-stable.desktop" "$B/etc/skel/Desktop/Vivaldi.desktop"
 cp "$B/usr/share/applications/google-chrome.desktop" "$B/etc/skel/Desktop/Google-Chrome.desktop"
@@ -134,7 +134,7 @@ for m in "$B/etc/xdg/mimeapps.list" "$B/etc/skel/.config/mimeapps.list"; do
         grep -qx "$k=chromium-ncz-sky1.desktop" "$m" || bad_keys="$bad_keys $k"
     done
     [ -z "$bad_keys" ] && ok "browser: ${m#$B} -> chromium-ncz-sky1.desktop" || bad "browser: ${m#$B} keys not on chromium:$bad_keys" "$(cat "$m")"
-    grep -qx 'inode/directory=thunar.desktop' "$m" && ok "browser: ${m#$B} keeps non-browser handlers" || bad "browser: ${m#$B} lost inode/directory"
+    grep -qx 'inode/directory=dev.sinty.files.desktop' "$m" && ok "browser: ${m#$B} keeps non-browser handlers" || bad "browser: ${m#$B} lost inode/directory"
     [ "$(grep -c '^text/html=' "$m")" = 1 ] && ok "browser: ${m#$B} has no duplicate keys after two runs" || bad "browser: duplicate keys in ${m#$B}"
 done
 U="$B/home/ncz/.config/mimeapps.list"
