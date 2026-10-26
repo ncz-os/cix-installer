@@ -2,7 +2,8 @@
 # 97-firstboot-report.sh -- record which systemd units failed on the installed system's FIRST boot.
 #
 # Installs a oneshot unit that, 30 s after multi-user.target, writes `systemctl --failed` to
-# /var/log/ncz-first-boot-failed.txt once. The KVM gate reads that file from the installed disk
+# /var/log/ncz-first-boot-report.txt once (named ncz-first-boot-failed.txt before 2026-10-26; it is
+# a report of the first boot, written whether or not anything failed). The KVM gate reads that file from the installed disk
 # (build/kvm-install-gate-gpt.sh) so a unit that fails only on first boot (ldconfig.service on
 # 18e8a14: "Renaming of /etc/ld.so.cache~ ... failed") is caught before an image ships.
 # Runs inside the target chroot; arch-neutral.
@@ -37,14 +38,14 @@ sleep 30
         echo "# wallpaper-bing-rc=$?"
     fi
     echo "# end"
-} > /var/log/ncz-first-boot-failed.txt 2>&1
+} > /var/log/ncz-first-boot-report.txt 2>&1
 sync
 REPORT
 chmod 0755 /usr/local/sbin/ncz-firstboot-report
 cat > /etc/systemd/system/ncz-firstboot-report.service <<'UNIT'
 [Unit]
 Description=Record failed units after the first boot (NCZ gate evidence)
-ConditionPathExists=!/var/log/ncz-first-boot-failed.txt
+ConditionPathExists=!/var/log/ncz-first-boot-report.txt
 
 # Type=simple on purpose: a oneshot in multi-user.target's wants would hold the target (and the
 # display manager behind it) for the 30 s sleep, and After=multi-user.target on a unit wanted by
