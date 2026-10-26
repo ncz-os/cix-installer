@@ -481,7 +481,7 @@ remove_unbuildable() {
     local kp st sim extra
     kp=$(kmod_pkg)
     st=$(dpkg-query -W -f='${db:Status-Abbrev}' "$kp" 2>/dev/null)
-    case "$st" in i[FUHWt]*) ;; *) return 0 ;; esac
+    case "$st" in i[FUH]*) ;; *) return 0 ;; esac   # half-configured, unpacked, half-installed
     if ! sim=$(apt_run remove -s -y "$kp" 2>&1); then
         log "could not simulate removing the unconfigured $kp; left as is: $(printf '%s\n' "$sim" | grep -m1 '^E:')"; return 1
     fi
@@ -810,7 +810,9 @@ cmd_apt_post_invoke() {
 # timer, which repairs it (falling back if needed) once that kernel runs.
 cmd_kernel_postinst() {
     local k=${1:-}
-    [ -n "$k" ] && [ -r "$CONF" ] && [ -e "$STAMP" ] || return 0
+    [ -n "$k" ] && [ -r "$CONF" ] || return 0
+    # installed by us, or a repair already pending (a second kernel before the reboot)
+    [ -e "$STAMP" ] || [ -s "$REPAIR" ] || return 0
     case "$(conf KMOD)" in open|proprietary) ;; *) return 0 ;; esac
     [ -e "$MODULES_ROOT/$k/build" ] || return 0      # no headers: DKMS cannot build for it anyway
     module_ok "$k" && return 0
