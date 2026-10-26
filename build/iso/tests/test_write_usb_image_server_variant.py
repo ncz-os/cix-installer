@@ -37,6 +37,7 @@ invoked and that it FAILS the build on a stale codename.
 
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -442,8 +443,8 @@ class ArchSpecificNamesTest(unittest.TestCase):
 
 class FetcherSerialVisibilityTest(unittest.TestCase):
     """A server fetch failure is fatal on a HEADLESS box: it must be visible
-    on both the ARM UART (/dev/ttyAMA0, arm64) and the on-screen console
-    (/dev/tty0, amd64).
+    on the ARM UART (/dev/ttyAMA0, arm64), the amd64 serial console
+    (/dev/ttyS0) and the on-screen console (/dev/tty0).
 
     The dual-console write in say() targets real character devices that
     cannot be created in a unit test, so this class verifies the two
@@ -452,9 +453,9 @@ class FetcherSerialVisibilityTest(unittest.TestCase):
     1. the failure path is LOUD: HARD FAIL and the "No root filesystem was
        installed" outcome appear in stderr (they are tee'd to stdout before
        the device write, so the operator always sees them);
-    2. the script source contains both SER and SER2 device targets, so the
-       dual-write is structurally present (regression guard against a
-       future refactor that drops one of the two consoles).
+    2. the script's default console list names every console (ttyAMA0,
+       ttyS0, tty0), so the multi-console write is structurally present
+       (regression guard against a refactor that drops one).
     """
 
     def setUp(self):
@@ -495,17 +496,20 @@ class FetcherSerialVisibilityTest(unittest.TestCase):
                       "the outcome must be loud")
 
     def test_dual_console_targets_are_present(self):
-        """say() must target BOTH /dev/ttyAMA0 (arm64 PL011) and /dev/tty0
-        (amd64 on-screen console). A failure that lands on only one of the
-        two consoles is a silent box on a headless server."""
+        """say() must target the arm64 PL011 UART (/dev/ttyAMA0), the amd64
+        serial console (/dev/ttyS0, added 2026-10-26: the amd64 KVM server
+        gate's serial got no [FETCH] line without it) and the on-screen
+        console (/dev/tty0). A failure that lands on only some of them is a
+        silent box on a headless server."""
         src = FETCH_SCRIPT.read_text()
-        self.assertIn("SER=/dev/ttyAMA0", src,
-                      "the ARM UART target must be present")
-        self.assertIn("SER2=/dev/tty0", src,
-                      "the on-screen console target must be present")
-        # The say() function must iterate over both.
-        self.assertIn('for _c in "$SER" "$SER2"', src,
-                      "say() must write to both consoles")
+        m = re.search(r'^CONSOLES="\$\{NCZ_FETCH_CONSOLES:-([^}"]*)\}"', src, re.M)
+        self.assertIsNotNone(m, "the default console list must be defined")
+        consoles = m.group(1).split()
+        for dev in ("/dev/ttyAMA0", "/dev/ttyS0", "/dev/tty0"):
+            self.assertIn(dev, consoles, f"{dev} must be a default console")
+        # say() must iterate over the whole list.
+        self.assertIn("for _c in $CONSOLES", src,
+                      "say() must write to every console")
 
 
 class ReleaseIdentityGateTest(unittest.TestCase):
