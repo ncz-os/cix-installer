@@ -1585,23 +1585,42 @@ def scan_squashfs(ref, sq, src):
 
 
 # ---------------------------------------------------------------- finished .img
-def safe_extract_zst(tar_path, dest, src):
-    """Safely extract a .tar.zst: decompress to an owned temp tar, prevalidate
-    member names, then extract with tarfile's data filter (rejects absolute
-    paths, '..', and links escaping the destination)."""
-    if not need_tool("zstd"):
+def safe_extract_zst(tar_path, dest, src, codec="zstd"):
+    """Safely extract a .tar.zst (codec "zstd") or .tar.gz (codec "gzip"):
+    decompress to an owned temp tar, prevalidate member names, then extract
+    with the explicit safe filter below (rejects absolute paths, '..', and
+    links escaping the destination)."""
+    if codec == "zstd" and not need_tool("zstd"):
         return False
     base = os.path.dirname(dest)
     os.makedirs(base, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".ncztar-", dir=base)
     os.close(fd)
     try:
-        with open(tmp, "wb") as out:
-            p = subprocess.Popen(["zstd", "-dc", tar_path], stdout=out, env=tool_env())
-            rc = p.wait()
-        if rc != 0:
-            fail(src, tar_path, "zstd decompression failed")
-            return False
+        if codec == "gzip":
+            # Bounded: a gzip that expands past the cap is refused before it
+            # can fill the scratch disk (the Magnetar bundle is ~0.6 GB).
+            cap = int(os.environ.get("NCZ_PROV_MAX_TAR_BYTES", str(16 << 30)))
+            written = 0
+            try:
+                with gzip.open(tar_path, "rb") as gz, open(tmp, "wb") as out:
+                    for blk in iter(lambda: gz.read(1 << 20), b""):
+                        written += len(blk)
+                        if written > cap:
+                            fail(src, tar_path, f"gzip expands past {cap} bytes "
+                                                "(NCZ_PROV_MAX_TAR_BYTES); refusing it")
+                            return False
+                        out.write(blk)
+            except (OSError, EOFError) as e:
+                fail(src, tar_path, f"gzip decompression failed: {e}")
+                return False
+        else:
+            with open(tmp, "wb") as out:
+                p = subprocess.Popen(["zstd", "-dc", tar_path], stdout=out, env=tool_env())
+                rc = p.wait()
+            if rc != 0:
+                fail(src, tar_path, "zstd decompression failed")
+                return False
         with tarfile.open(tmp, "r:") as tf:
             # Explicit filter (replaces tarfile's "data" filter): reject absolute
             # and '..' MEMBER paths and hardlinks that escape, allow an absolute
@@ -1718,7 +1737,132 @@ def load_receipt_ts(ref, receipt, src="receipt"):
         ref.receipt_ts[key] = e["sha256"]
 
 
-def scan_image(ref, img, work):
+SERVER_FETCH_MANIFEST = "ncz-fetch-payload.manifest"
+
+
+def read_image_receipt(img):
+    """<img>.receipt.json as a dict, or None (with a FAIL) when absent/unreadable."""
+    path = img + ".receipt.json"
+    if not os.path.isfile(path):
+        return None
+    try:
+        rec = json.loads(slurp(path, encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        fail("image", path, f"receipt is unreadable: {e}")
+        return None
+    if not isinstance(rec, dict):
+        fail("image", path, f"receipt is not a JSON object ({type(rec).__name__})")
+        return None
+    return rec
+
+
+def server_pins(img, rec):
+    """The online payload pins a server receipt records, or None (with FAILs).
+    Every pin is required: a server medium with a missing pin can only fail at
+    install time."""
+    of = ((rec or {}).get("ncz_payload") or {}).get("online_fetch")
+    if not isinstance(of, dict):
+        fail("image", img, "server receipt has no ncz_payload.online_fetch payload pins")
+        return None
+    pins = {}
+    for k in ("payload_name", "payload_url", "payload_sha256",
+              "assets_name", "assets_url", "assets_sha256"):
+        v = of.get(k)
+        if not isinstance(v, str) or not v:
+            fail("image", img, f"server receipt payload pin {k} is missing")
+            return None
+        pins[k] = v
+    for k in ("payload_sha256", "assets_sha256"):
+        if not SHA256_RE.match(pins[k]):
+            fail("image", img, f"server receipt pin {k} is not a sha256: {pins[k]!r}")
+            return None
+    for k in ("payload_name", "assets_name"):
+        if os.path.basename(pins[k]) != pins[k] or pins[k] in (".", ".."):
+            fail("image", img, f"server receipt pin {k} is not a plain file name: {pins[k]!r}")
+            return None
+    return pins
+
+
+def check_server_manifest(img, manifest_path, pins):
+    """The medium's own fetch manifest must pin exactly what the receipt pins
+    (the installer reads the manifest, not the receipt)."""
+    if not os.path.isfile(manifest_path):
+        fail("image", img, f"server medium has no ncz-payload/{SERVER_FETCH_MANIFEST}")
+        return
+    rows = {}
+    for line in slurp(manifest_path, errors="replace").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        f = line.split("\t")
+        if len(f) != 4:
+            fail("image", img, f"malformed fetch manifest row (want 4 tab-separated "
+                               f"fields): {line!r}")
+            return
+        if f[0] in rows:
+            fail("image", img, f"fetch manifest pins {f[0]} twice: {line!r}")
+            return
+        rows[f[0]] = (f[1], f[2], f[3])
+    want = {pins["payload_name"]: (pins["payload_url"], pins["payload_sha256"], "file"),
+            pins["assets_name"]: (pins["assets_url"], pins["assets_sha256"], "untar")}
+    if rows != want:
+        fail("image", img, f"medium fetch manifest {rows} does not pin what the "
+                           f"receipt pins {want}")
+
+
+def scan_server_payload(ref, img, payload_dir, pins, owned):
+    """Provenance of what a server medium downloads at install time:
+    base.squashfs and every rootfs tarball and .deb in the asset bundle, after
+    proving the files are the bytes the receipt pins."""
+    total = 0
+    payload = os.path.join(payload_dir, pins["payload_name"])
+    bundle = os.path.join(payload_dir, pins["assets_name"])
+    for path, key in ((payload, "payload_sha256"), (bundle, "assets_sha256")):
+        if not os.path.isfile(path):
+            fail("payload", path, "server payload file is missing")
+            return total
+        got = sha256_file(path)
+        if got != pins[key]:
+            fail("payload", path, f"sha256 {got} does not match the receipt pin "
+                                  f"{key} {pins[key]}")
+            return total
+    n = scan_squashfs(ref, payload, "payload:" + pins["payload_name"])
+    print(f"PAYLOAD  {pins['payload_name']}: sha256 matches the pin, {n} packages checked")
+    total += n
+    bdir = os.path.join(owned, "bundle")
+    shutil.rmtree(bdir, ignore_errors=True)   # only this bundle's files are scanned
+    os.makedirs(bdir, exist_ok=True)
+    # The writer builds the bundle as a gzip tar (make_targz); decide by the
+    # bytes, not the name, and refuse anything else.
+    with open(bundle, "rb") as fh:
+        magic = fh.read(4)
+    if magic[:2] == b"\x1f\x8b":
+        codec = "gzip"
+    elif magic == b"\x28\xb5\x2f\xfd":
+        codec = "zstd"
+    else:
+        fail("payload", bundle, "the asset bundle is neither a gzip nor a zstd tar")
+        return total
+    if not safe_extract_zst(bundle, bdir, "payload:" + pins["assets_name"], codec=codec):
+        return total
+    rootfs_tars = rglob(bdir, "*rootfs*.tar.zst")
+    if not any("rescue" in os.path.basename(t) for t in rootfs_tars):
+        fail("payload", bundle, "the asset bundle carries no rescue rootfs tarball")
+    for tb in rootfs_tars:
+        d = tb[: -len(".tar.zst")] + ".x"
+        os.makedirs(d, exist_ok=True)
+        if safe_extract_zst(tb, d, "payload:" + os.path.basename(tb)):
+            n = scan_rootfs(ref, d, "payload:" + os.path.basename(tb))
+            print(f"PAYLOAD  {pins['assets_name']}:{os.path.relpath(tb, bdir)}: {n} packages checked")
+            total += n
+    for adir in sorted({os.path.dirname(p) for p in rglob(bdir, "*.deb")
+                        + rglob(bdir, "*.udeb")}):
+        n = scan_debs(ref, adir, "payload:" + os.path.relpath(adir, bdir))
+        print(f"PAYLOAD  {pins['assets_name']}:{os.path.relpath(adir, bdir)}/: {n} packages checked")
+        total += n
+    return total
+
+
+def scan_image(ref, img, work, variant="desktop", payload_dir=None):
     """Scan a finished GPT .img: the offline apt pool + indexes, every squashfs
     layer, the rescue/mgmt rootfs tarballs, every present asset/vendor pool, the
     ESP's embedded udebs and any initrd.  Reads the data partition with debugfs
@@ -1740,6 +1884,30 @@ def scan_image(ref, img, work):
              text=True).stdout.strip()
     if fs in ("tmpfs", "ramfs", "devtmpfs"):
         die(f"--work {work} is on {fs}; use local disk")
+    # Variant: what the receipt records must be what the caller asked for, and
+    # (below) what the medium itself carries.
+    rec = read_image_receipt(img)
+    rec_variant = str((rec or {}).get("variant", "desktop"))
+    pins = None
+    if variant == "server":
+        if rec is None:
+            fail("image", img, "--variant server needs the image receipt "
+                               f"{img}.receipt.json (it records the variant and the payload pins)")
+            return 0
+        if rec_variant != "server":
+            fail("image", img, f"--variant server, but the receipt records variant={rec_variant}")
+            return 0
+        pins = server_pins(img, rec)
+        if pins is None:
+            return 0
+        if not payload_dir or not os.path.isdir(payload_dir):
+            fail("image", img, "--variant server needs --server-payload DIR holding "
+                               "the pinned base.squashfs and asset bundle")
+            return 0
+    elif rec_variant == "server":
+        fail("image", img, "the receipt records variant=server; scan it with "
+                           "--variant server --server-payload DIR")
+        return 0
     # Owned, unique scratch: never rmtree a caller-supplied path.
     # Offline-source binding is per image: clear it and restore the caller's
     # prior state in finally, so one image can never authorize another.
@@ -1921,13 +2089,27 @@ def scan_image(ref, img, work):
                 fail("image", img, "/ncz-payload/apt-repo present but not fully "
                                    "authorized; its file: source cannot be trusted")
         layers = sorted(rglob(pl, "*.squashfs"))
-        if not layers:
+        if variant == "server":
+            # A server medium ships its layers and rescue rootfs OFF the
+            # medium; prove it is one (no layer, no offline apt closure, the
+            # fetch manifest pinning the payload) and scan the payload itself.
+            if layers:
+                fail("image", img, "--variant server, but the medium carries squashfs "
+                                   f"layer(s): {[os.path.basename(f) for f in layers]}")
+            offline = rglob(os.path.join(base, "pool"), "*.deb")
+            if offline:
+                fail("image", img, "--variant server, but the medium carries an offline "
+                                   f"apt pool ({len(offline)} .deb under /pool, e.g. "
+                                   f"{os.path.relpath(offline[0], base)})")
+            check_server_manifest(img, os.path.join(pl, SERVER_FETCH_MANIFEST), pins)
+            total += scan_server_payload(ref, img, payload_dir, pins, owned)
+        elif not layers:
             fail("image", img, "no squashfs layers found in /ncz-payload")
         for f in layers:
             total += scan_squashfs(ref, f, "image:" + os.path.basename(f))
 
         rootfs_tars = rglob(pl, "*rootfs*.tar.zst")
-        for required in ("rescue", "mgmt"):
+        for required in (() if variant == "server" else ("rescue", "mgmt")):
             if not any(required in os.path.basename(p) for p in rootfs_tars):
                 fail("image", img, f"required {required} rootfs tarball is missing")
         for tb in rootfs_tars:
@@ -2337,6 +2519,13 @@ def main():
                          "uses it for the freshly-built singularity payload deb). "
                          "The --image scan's own receipt takes precedence.")
     ap.add_argument("--work", help="scratch dir for --image (not tmpfs)")
+    ap.add_argument("--variant", choices=("desktop", "server"), default="desktop",
+                    help="server: --image is a Magnetar medium (receipt "
+                         "variant=server, no layer or offline pool on it); its "
+                         "downloaded payload is scanned from --server-payload")
+    ap.add_argument("--server-payload",
+                    help="with --variant server: directory holding the pinned "
+                         "base.squashfs and asset bundle")
     a = ap.parse_args()
 
     # The offline lint mode must never be usable to downgrade a shipping scan.
@@ -2395,10 +2584,14 @@ def main():
         total += scan_rootfs(ref, r, r)
     for s in a.squashfs:
         total += scan_squashfs(ref, s, s)
+    if (a.variant == "server" or a.server_payload) and not a.image:
+        ap.error("--variant server / --server-payload apply to --image")
+    if a.server_payload and a.variant != "server":
+        ap.error("--server-payload needs --variant server")
     for im in a.image:
         if not a.work:
             ap.error("--image needs --work DIR")
-        total += scan_image(ref, im, a.work)
+        total += scan_image(ref, im, a.work, a.variant, a.server_payload)
 
     mode = ("ubuntu-only" if a.ubuntu_only
             else f"forky-provenance (snapshot {ref.pin}, {len(ref.idx)} forky "

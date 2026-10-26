@@ -1200,6 +1200,156 @@ expect_rc "pinned InRelease sha256+size match trust metadata" 0 bash -c '
 expect_rc "--ubuntu-only refuses --image (shipping scan cannot downgrade)" 2 "${PROV[@]}" --ubuntu-only --image "$T/x.img" --work "$T"
 expect_rc "--ubuntu-only refuses --verify-mirror" 2 "${PROV[@]}" --ubuntu-only --verify-mirror "$T/m"
 
+echo "=== 9. Magnetar server media (--variant server) ==="
+expect_rc "--variant server without --image is a usage error" 2 "${PROV[@]}" --variant server --debs "$T/debian-pool"
+expect_rc "--server-payload without --variant server is a usage error" 2 "${PROV[@]}" --image "$T/x.img" --work "$T" --server-payload "$T"
+mkdir -p "$T/srv/work" "$T/srv/payload"
+printf 'not really an image\n' > "$T/srv/medium.img"
+expect_rc "server receipt / pins / manifest / payload sha checks" 0 python3 -I - "$T/repo/build/forky-provenance.py" "$T/srv" <<'PY'
+import hashlib, importlib.util, json, os, sys
+spec = importlib.util.spec_from_file_location("fp", sys.argv[1]); fp = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fp)
+d = sys.argv[2]; img = os.path.join(d, "medium.img"); pay = os.path.join(d, "payload")
+open(os.path.join(pay, "base.squashfs"), "wb").write(b"base-bytes")
+open(os.path.join(pay, "ncz-assets-amd64.tar.gz"), "wb").write(b"bundle-bytes")
+sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
+pins = {"payload_name": "base.squashfs", "payload_url": "http://10.0.2.2/base.squashfs",
+        "payload_sha256": sha(os.path.join(pay, "base.squashfs")),
+        "assets_name": "ncz-assets-amd64.tar.gz", "assets_url": "http://10.0.2.2/ncz-assets-amd64.tar.gz",
+        "assets_sha256": sha(os.path.join(pay, "ncz-assets-amd64.tar.gz"))}
+def receipt(variant, of=pins):
+    json.dump({"variant": variant, "ncz_payload": {"online_fetch": dict(of)}}, open(img + ".receipt.json", "w"))
+def fails(fn):
+    before = len(fp.FAILS); fn(); return fp.FAILS[before:]
+class Ref:  # scan_image only touches these before the variant checks return
+    bound_offline = set(); receipt_ts = {}; seen_kernel = set()
+bad = []
+# every pin is required
+for k in pins:
+    of = dict(pins); del of[k]
+    if fp.server_pins(img, {"variant": "server", "ncz_payload": {"online_fetch": of}}) is not None:
+        bad.append(f"missing pin {k} accepted")
+if fp.server_pins(img, {"ncz_payload": {"online_fetch": dict(pins, payload_sha256="x")}}) is not None:
+    bad.append("non-sha256 pin accepted")
+if fp.server_pins(img, {"ncz_payload": {"online_fetch": dict(pins, assets_name="../x")}}) is not None:
+    bad.append("path-like pin name accepted")
+if fp.server_pins(img, {"ncz_payload": {"online_fetch": pins}}) != pins:
+    bad.append("complete pins rejected")
+# the medium's manifest must pin exactly what the receipt pins
+mf = os.path.join(d, "manifest")
+open(mf, "w").write(f"base.squashfs\t{pins['payload_url']}\t{pins['payload_sha256']}\tfile\n"
+                    f"ncz-assets-amd64.tar.gz\t{pins['assets_url']}\t{pins['assets_sha256']}\tuntar\n")
+if fails(lambda: fp.check_server_manifest(img, mf, pins)):
+    bad.append("matching manifest failed")
+if not fails(lambda: fp.check_server_manifest(img, mf, dict(pins, payload_sha256="0" * 64))):
+    bad.append("manifest/receipt mismatch passed")
+if not fails(lambda: fp.check_server_manifest(img, mf + ".absent", pins)):
+    bad.append("missing manifest passed")
+# a payload file that is not the pinned bytes fails before anything is scanned
+os.makedirs(os.path.join(d, "owned"), exist_ok=True)
+f = fails(lambda: fp.scan_server_payload(None, img, pay, dict(pins, payload_sha256="1" * 64), os.path.join(d, "owned")))
+if not any("does not match the receipt pin" in x[2] for x in f):
+    bad.append(f"payload sha mismatch not caught: {f}")
+f = fails(lambda: fp.scan_server_payload(None, img, os.path.join(d, "nowhere"), pins, os.path.join(d, "owned")))
+if not any("missing" in x[2] for x in f):
+    bad.append("missing payload file not caught")
+# receipt variant vs requested variant (checked before the medium is read)
+w = os.path.join(d, "work")
+receipt("desktop")
+if not any("receipt records variant=desktop" in x[2] for x in fails(lambda: fp.scan_image(Ref(), img, w, "server", pay))):
+    bad.append("--variant server on a desktop receipt passed")
+receipt("server")
+if not any("--variant server" in x[2] for x in fails(lambda: fp.scan_image(Ref(), img, w, "desktop", None))):
+    bad.append("a server receipt scanned in desktop mode passed")
+receipt("server", {k: v for k, v in pins.items() if k != "assets_sha256"})
+if not any("pin assets_sha256 is missing" in x[2] for x in fails(lambda: fp.scan_image(Ref(), img, w, "server", pay))):
+    bad.append("server receipt with a missing pin passed")
+os.remove(img + ".receipt.json")
+if not any("needs the image receipt" in x[2] for x in fails(lambda: fp.scan_image(Ref(), img, w, "server", pay))):
+    bad.append("--variant server without a receipt passed")
+receipt("server")
+if not any("--server-payload" in x[2] for x in fails(lambda: fp.scan_image(Ref(), img, w, "server", None))):
+    bad.append("--variant server without --server-payload passed")
+for b in bad:
+    print("BAD:", b)
+sys.exit(1 if bad else 0)
+PY
+
+# Through the real CLI and scan_image(): a minimal GPT medium (FAT ESP + ext4 data)
+# proves the server checks are wired to what the medium carries.
+for t in mkfs.ext4 mkfs.vfat sgdisk sfdisk debugfs; do
+    command -v "$t" >/dev/null 2>&1 || PATH="$PATH:/usr/sbin:/sbin"
+    command -v "$t" >/dev/null 2>&1 || { bad "fixture tool $t missing" ""; }
+done
+mk_srv_medium() {   # <name> <bad|good|tampered> <payload dir>
+    local r="$T/srvmed/$1" kind="$2" pd="$3"
+    rm -rf "$r"; mkdir -p "$r/data/dists/forky/main/debian-installer/binary-amd64" "$r/data/pool/main" "$r/data/ncz-payload"
+    : > "$r/data/dists/forky/main/debian-installer/binary-amd64/Packages"
+    if [ "$kind" = bad ]; then
+        printf 'layer' > "$r/data/ncz-payload/base.squashfs"
+        cp "$(ls "$T/debian-pool"/*.deb | head -1)" "$r/data/pool/main/"
+    else
+        local psha asha
+        psha="$(sha "$pd/base.squashfs")"; asha="$(sha "$pd/ncz-assets-amd64.tar.gz")"
+        [ "$kind" = tampered ] && psha="$(printf '2%.0s' {1..64})"
+        printf 'base.squashfs\thttp://10.0.2.2/base.squashfs\t%s\tfile\nncz-assets-amd64.tar.gz\thttp://10.0.2.2/ncz-assets-amd64.tar.gz\t%s\tuntar\n' \
+            "$psha" "$asha" > "$r/data/ncz-payload/ncz-fetch-payload.manifest"
+    fi
+    mkfs.ext4 -q -F -L NCZDATA -d "$r/data" "$r/data.img" 16M >/dev/null 2>&1 || return 1
+    mkfs.vfat -C "$r/esp.img" 4096 -n NCZESP >/dev/null 2>&1 || return 1
+    truncate -s 24M "$r/m.img"
+    sgdisk --clear --new=1:2048:+8192 --typecode=1:ef00 --new=2:0:+32768 --typecode=2:8300 \
+        --change-name=2:NCZDATA "$r/m.img" >/dev/null 2>&1 || return 1
+    dd if="$r/esp.img" of="$r/m.img" bs=512 seek=2048 conv=notrunc status=none
+    dd if="$r/data.img" of="$r/m.img" bs=512 seek="$(sgdisk -i 2 "$r/m.img" | sed -n 's/^First sector: \([0-9]*\).*/\1/p')" conv=notrunc status=none
+    python3 - "$r/m.img.receipt.json" "$pd" <<'PY'
+import hashlib, json, os, sys
+d = sys.argv[2]; sha = lambda n: hashlib.sha256(open(os.path.join(d, n), "rb").read()).hexdigest()
+json.dump({"variant": "server", "ncz_payload": {"online_fetch": {
+    "payload_name": "base.squashfs", "payload_url": "http://10.0.2.2/base.squashfs", "payload_sha256": sha("base.squashfs"),
+    "assets_name": "ncz-assets-amd64.tar.gz", "assets_url": "http://10.0.2.2/ncz-assets-amd64.tar.gz",
+    "assets_sha256": sha("ncz-assets-amd64.tar.gz")}}}, open(sys.argv[1], "w"))
+PY
+}
+mkdir -p "$T/srvmed/work" "$T/srv/payload-good/b/rescue"
+# a REAL (tiny) gzip bundle for the positive case; $T/srv/payload's bundle is junk bytes
+printf 'base-bytes' > "$T/srv/payload-good/base.squashfs"
+printf 'r\n' > "$T/srv/payload-good/b/rescue/README"
+tar -C "$T/srv/payload-good/b" -czf "$T/srv/payload-good/ncz-assets-amd64.tar.gz" .
+mk_srv_medium bad bad "$T/srv/payload" || bad "fixture: server medium bad" ""
+mk_srv_medium good good "$T/srv/payload-good" || bad "fixture: server medium good" ""
+mk_srv_medium tampered tampered "$T/srv/payload-good" || bad "fixture: server medium tampered" ""
+mk_srv_medium junk good "$T/srv/payload" || bad "fixture: server medium junk-bundle" ""
+srvscan() { "${PROV[@]}" --image "$T/srvmed/$1/m.img" --work "$T/srvmed/work" --variant server --server-payload "${2:-$T/srv/payload-good}" 2>&1; }
+out="$(srvscan bad "$T/srv/payload")"
+for msg in "medium carries squashfs layer" "medium carries an offline apt pool" "no ncz-payload/ncz-fetch-payload.manifest"; do
+    grep -q "$msg" <<<"$out" && ok "scan_image server: '$msg' on a medium that carries it" || bad "server wiring: '$msg' not reported" "$out"
+done
+out="$(srvscan good)"
+if grep -qE "medium carries|fetch manifest|does not pin what|does not match the receipt pin" <<<"$out"; then
+    bad "server wiring: a server-shaped medium with matching pins drew a server-check FAIL" "$out"
+else
+    ok "scan_image server: a server-shaped medium whose manifest matches the receipt passes the server checks"
+fi
+grep -q "PAYLOAD  base.squashfs: sha256 matches the pin" <<<"$out" && ok "scan_image server: the payload is hashed against the pin and scanned" \
+    || bad "server wiring: the payload was not scanned" "$out"
+grep -q "the asset bundle carries no rescue rootfs tarball" <<<"$out" && ok "scan_image server: the gzip bundle is extracted and must carry the rescue rootfs" \
+    || bad "server wiring: the bundle was not extracted/checked" "$out"
+out="$(srvscan junk "$T/srv/payload")"
+grep -q "the asset bundle is neither a gzip nor a zstd tar" <<<"$out" && ok "scan_image server: a bundle that is not a gzip/zstd tar fails (decided by its bytes)" \
+    || bad "server wiring: a junk asset bundle was not refused" "$out"
+out="$(NCZ_PROV_MAX_TAR_BYTES=10 srvscan good)"
+grep -q "gzip expands past 10 bytes" <<<"$out" && ok "a bundle that expands past the cap is refused" || bad "decompression cap not enforced" "$out"
+out="$(srvscan tampered)"
+grep -q "does not pin what the receipt pins" <<<"$out" && ok "scan_image server: a medium manifest that differs from the receipt fails" \
+    || bad "server wiring: manifest/receipt mismatch not reported" "$out"
+out="$("${PROV[@]}" --image "$T/srvmed/good/m.img" --work "$T/srvmed/work" 2>&1)"
+grep -q "receipt records variant=server" <<<"$out" && ok "scan_image: a server medium scanned in desktop mode fails" \
+    || bad "server medium accepted in desktop mode" "$out"
+printf '["not", "an", "object"]' > "$T/srvmed/good/m.img.receipt.json"
+out="$(srvscan good)"
+grep -q "receipt is not a JSON object" <<<"$out" && ok "a non-object receipt is reported as such" || bad "non-object receipt not reported" "$out"
+
 echo
 echo "no-ubuntu tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
