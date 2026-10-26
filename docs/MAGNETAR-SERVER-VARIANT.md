@@ -61,7 +61,7 @@ the preseed/post-install scripts, rEFInd, and the metadata files.
 |---|---:|---|
 | `base.squashfs` | ~700 MB | `NCZ_PAYLOAD_URL` + `NCZ_PAYLOAD_SHA256` |
 | `assets/{rescue,firmware,kernel,branding}` | 564,418,364 B | packed into one pinned `ncz-assets-<arch>.tar.gz`, `NCZ_ASSETS_URL` + digest |
-| the offline apt closure (regular `.deb`s) | 1,875,725,028 B | not staged at all |
+| the offline apt closure (regular `.deb`s) | 1,875,725,028 B | the pinned `ncz-pool-<arch>.tar.gz` (`repo/dists` + `repo/pool`), `NCZ_POOL_URL` + digest (option B) |
 
 The offline closure is not *fetched*, it is **dropped**, and that is a
 deliberate call rather than an oversight: its only consumer on the medium is
@@ -70,7 +70,8 @@ file:///cdrom` and exits immediately for `BUILD_VARIANT=server|headless`;
 `post-install/24-apt-sources.sh` already treats a missing pool as a warning and
 falls back to the network sources. Shipping 1.8 GB of packages nothing on a
 server image can install was the single largest reason the medium was ~3.4 GB.
-(Superseded: see the correction and the decision below.)
+(Superseded: see the correction and the decision below. The closure is now
+fetched, not dropped.)
 
 > **Correction (2026-10-26, first real server installs).** That premise is
 > wrong. `20-desktop.sh` is not the only consumer of the on-media regular
@@ -84,17 +85,39 @@ server image can install was the single largest reason the medium was ~3.4 GB.
 > `libtext-iconv-perl` and `refind` are absent on both arches, and
 > `ncz-apt-policy` on amd64. A server medium therefore needs a regular apt
 > closure from somewhere (on the medium, in the fetched payload, or a computed
-> subset). Resolved for Preview4 by option A (next section).
+> subset). Resolved for Preview4 by option B (next section).
 
-## Decision: A for Preview4 (orchestrator 2026-10-26, pending operator review); B is the long-term target
+## Decision: B for Preview4 (operator 2026-10-26); A is superseded
 
-- **A (Preview4):** the server medium carries the offline apt closure
-  (`dists/` + `pool/`, as desktop does). It leaves out only the squashfs
-  layers and the assets, which the install fetches and verifies.
-- **B (long-term):** fetch the closure as a third pinned payload artifact and
-  present it to the install as `/cdrom`, so the medium shrinks again.
+- **B (Preview4):** the offline apt closure is the third pinned payload
+  artifact, `ncz-pool-<arch>.tar.gz`: the build's `<suite>-mirror`
+  (`dists/` with its own `Release`, and `pool/`) under `repo/`, a
+  deterministic gzip tar (level 1; the members are already-compressed
+  `.deb`s). The medium carries only the d-i substrate, as before option A.
+- **A (superseded):** the medium carried the closure, as desktop does. It
+  passed every gate at `0c2d700b` and was the interim decision for a few
+  hours; its sizes are kept below for comparison.
 
-What A costs, from the Preview4 receipts (`medium_size`):
+How B reaches the hooks without changing them: the fetcher unpacks the pool
+into `<staging>/repo`; the r159 stub copies the medium's small `ncz-payload/`
+beside it and binds `<staging>/repo` as the target's `/cdrom`, so apt-setup's
+preseeded `file:///cdrom` source, `late.sh` and every post-install hook see
+the repository they saw when it was on the medium. Installer-side lookups
+(the stub's index probe and `libtext-iconv-perl` lookup, `late.sh`'s index
+check, bind and `python3-dbus` fallback) follow a repo-root variable instead
+of `/cdrom`. `late.sh` keeps `<staging>/repo` through the hooks and the
+cdrom-source strip, and only then unmounts `/target/cdrom` and deletes the
+staging root, in that order (deleting first would empty the target's
+`/cdrom` under the hooks; leaving the bind mounted would keep `/target` busy
+for d-i's final unmount).
+
+The pool is the same closure option A measured: amd64 1,782 debs
+(1,878,201,360 B), arm64 1,822 debs (1,529,373,396 B); the receipt records
+`pool_debs`, `pool_deb_bytes` and the artifact's size. `40-claude-code.sh`
+and `47-llm-stack.sh` stay as they are (operator) and account for a large
+share of it (table below).
+
+What A cost, from the 0c2d700b receipts (`medium_size`), for comparison:
 
 | | amd64 | arm64 |
 |---|---:|---:|
@@ -102,10 +125,16 @@ What A costs, from the Preview4 receipts (`medium_size`):
 | data partition | 2,617,245,696 B | 2,415,919,104 B |
 | offline pool | 1,782 debs, 1,878,201,360 B | 1,822 debs, 1,529,373,396 B |
 
-The gates enforce A: `scan-shipped-secrets.py --variant server` and
-`forky-provenance.py --variant server` fail a server medium that carries no
-regular `.deb` under `pool/` or no regular `dists/<suite>/<component>/binary-<arch>/Packages`
-index, and still fail one that carries a squashfs layer.
+The gates enforce B: `scan-shipped-secrets.py --variant server` and
+`forky-provenance.py --variant server` fail a server medium that carries a
+regular `.deb` under `pool/` or a regular
+`dists/<suite>/<component>/binary-<arch>/Packages` index (option A's shape),
+and still fail one that carries a squashfs layer. The receipt and the
+medium's manifest must pin the pool; provenance fails when the pool payload
+is missing or does not hash to its pin, and otherwise unpacks it and treats
+it like `/cdrom`: every `.deb` and `Packages` index scanned, every file the
+indexes name present, the repository fully authorized against the pinned
+snapshot and the ledgers.
 
 ### What the install takes from the pool
 
@@ -153,14 +182,17 @@ question for option B, where the pool's size becomes the payload's.
    re-downloaded), and a loud serial failure. Any failure is fatal — an
    unverified rootfs is never installed.
 6. The stub links `sqtools` in and extracts. The wipe of `$TARGET` deliberately
-   skips `ncz-online`; deleting it would delete the file just verified.
+   skips `ncz-online`; deleting it would delete the file just verified. It
+   then binds the fetched `<staging>/repo` (option B) as `$TARGET/cdrom`, with
+   the medium's `ncz-payload/` copied beside it.
 7. `late.sh` (still a real `preseed/late_command`) unions the fetched
    `assets/` into `/target/usr/local/lib/cix-installer/assets/` (the bundle's
    members all live under `assets/` for this), asserts
    `assets/{rescue,kernel,firmware,branding}` really arrived, and removes the
-   staging root so it does not live inside the installed root filesystem. A
-   staging root without `assets/`, or a server medium whose stub staged
-   nothing, fails the install.
+   rest of the staging root except `repo/`. A staging root without `assets/`,
+   or a server medium whose stub staged nothing, fails the install. After the
+   hooks and the cdrom-source strip it unmounts `/target/cdrom` and then
+   deletes the staging root, so nothing of it is left in the installed root.
 
 Every post-install hook therefore still finds what it expects at
 `$INSTALLER_META/assets/...`.
@@ -182,7 +214,7 @@ NCZ_VARIANT=server build/build-image.sh --arch amd64 --full --sources pinned \
 |---|---|---|
 | `NCZ_VARIANT` | `desktop` | `server` builds a Magnetar medium; anything else is a usage error |
 | `NCZ_PAYLOAD_BASE_URL` | the KVM gate's serve base, `http://10.0.2.2` (`ncz_gate_serve_payload_base_url()`) | where the medium will fetch `base.squashfs` and `ncz-assets-<arch>.tar.gz` |
-| `NCZ_PAYLOAD_URL` / `NCZ_ASSETS_URL` | `<base>/base.squashfs` / `<base>/ncz-assets-<arch>.tar.gz` | per-artifact override |
+| `NCZ_PAYLOAD_URL` / `NCZ_ASSETS_URL` / `NCZ_POOL_URL` | `<base>/base.squashfs` / `<base>/ncz-assets-<arch>.tar.gz` / `<base>/ncz-pool-<arch>.tar.gz` | per-artifact override |
 | `NCZ_PAYLOAD_SHA256` | the sha256 of `assets/squashfs/base.squashfs` | must equal it if given |
 | `NCZ_GATE_SERVER_HOST` | unset | pin a LAN address of the build host instead of 10.0.2.2 |
 | `NCZ_KVM_GATE_SERVER_SETS` | `server server-offline-negative` | the server gate sets |
@@ -190,7 +222,7 @@ NCZ_VARIANT=server build/build-image.sh --arch amd64 --full --sources pinned \
 The image stage pins the payload before the writer runs, passes the pins and
 `NCZ_ASSETS_EXPORT_DIR` into the image container (that one call only), and
 afterwards requires the receipt to say `variant=server` and to pin exactly the
-bytes now in `<run>/payload/` (the exported bundle and a copy of the base
+bytes now in `<run>/payload/` (the exported bundle and pool, and a copy of the base
 layer). `<run>/payload.result` records the pins and `published=no`.
 
 A medium pinned to the gate's base is a **gate medium**. A release medium pins
@@ -450,23 +482,26 @@ payload:
 - **secret scan**: `scan-shipped-secrets.py --image <img> --variant server`
   (the receipt must say server, the medium must carry no squashfs layer and
   must carry the fetch manifest; every file on it is scanned), then
-  `--payload base.squashfs --payload ncz-assets-<arch>.tar.gz` on the exact
-  pinned bytes.
+  `--payload base.squashfs --payload ncz-assets-<arch>.tar.gz --payload
+  ncz-pool-<arch>.tar.gz` on the exact pinned bytes (all three required).
 - **provenance**: `forky-provenance.py --image <img> --variant server
   --server-payload <run>/payload`: receipt and medium agree it is a server
-  medium (no layer, no offline apt pool, a well-formed manifest pinning what
-  the receipt pins), the payload hashes to its pins, and `base.squashfs`, the
-  rootfs tarballs and the `.deb`s in the bundle are checked against the pinned
-  snapshot and ledgers. ESP, initrd, installer-pool and kernel-purity checks
+  medium (no layer, no offline apt pool, a well-formed manifest pinning the
+  three artifacts the receipt pins), the payload hashes to its pins, and
+  `base.squashfs`, the rootfs tarballs and the `.deb`s in the bundle, and the
+  whole pool repository (see the decision above) are checked against the
+  pinned snapshot and ledgers. ESP, initrd, installer-pool and kernel-purity checks
   are unchanged.
 - **KVM**: the `server` and `server-offline-negative` sets (the desktop full
   gate and desktop option sets cannot install a server medium; the installer
-  dialogs are judged on the desktop medium).
+  dialogs are judged on the desktop medium). The gate serves all three
+  artifacts, proves each pinned URL answers 200 before the guest boots, and
+  requires the guest's `[FETCH] <name> verified sha256=` line for each.
 
 ## The LAN-served payload
 
 The gate serves the payload itself: it reads the pins back off the medium,
-copies `<run>/payload/{base.squashfs,ncz-assets-<arch>.tar.gz}` into its work
+copies `<run>/payload/{base.squashfs,ncz-assets-<arch>.tar.gz,ncz-pool-<arch>.tar.gz}` into its work
 dir under `~/Projects`, starts `python3 http.server` there bound to the
 host's loopback for a `10.0.2.2` pin (QEMU user-net forwards the guest's
 10.0.2.2 to it) or to the pinned LAN address of the build host, proves it
