@@ -217,14 +217,14 @@ done
 # medium is mounted read-only; finding that out after a multi-GB download is
 # the worst possible time to find out.
 if [ -z "$DOWNLOADER" ]; then
-    say "[FETCH] FATAL: no working downloader: GNU wget (wget-udeb) is not installed and busybox has no wget applet -- cannot fetch the Magnetar payload"
+    say "[FETCH] FATAL: no working downloader: GNU wget (wget-udeb) is not installed and busybox has no wget applet -- cannot download Magnetar Server"
     say "[FETCH] No root filesystem was installed."
     exit 1
 fi
 say "[FETCH] downloader: $([ "$DOWNLOADER" = gnu ] && echo "GNU wget" || echo "busybox wget")"
 mkdir -p "$DEST_DIR" 2>/dev/null
 if [ ! -d "$DEST_DIR" ] || [ ! -w "$DEST_DIR" ]; then
-    say "[FETCH] FATAL: payload destination $DEST_DIR is not writable -- cannot fetch the Magnetar payload"
+    say "[FETCH] FATAL: payload destination $DEST_DIR is not writable -- cannot download Magnetar Server"
     say "[FETCH] No root filesystem was installed."
     exit 1
 fi
@@ -258,7 +258,7 @@ fi
 : "${NCZ_PAYLOAD_NAME:=base.squashfs}"
 say "[FETCH] start url=$NCZ_PAYLOAD_URL dest=$DEST_DIR tries=$MAX_TRIES overall=${OVERALL_TIMEOUT}s"
 if ! fetch_one "$NCZ_PAYLOAD_NAME" "$NCZ_PAYLOAD_URL" "$NCZ_PAYLOAD_SHA256" file; then
-    say "[FETCH] This install needs the network for the Magnetar payload."
+    say "[FETCH] This Magnetar Server install needs the network to download the system."
     say "[FETCH] No root filesystem was installed."
     exit 1
 fi
