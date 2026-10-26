@@ -546,5 +546,67 @@ class ReleaseIdentityGateTest(unittest.TestCase):
             self.assertEqual(receipt["release_identity_gate"], "PASS")
 
 
+class LateOnlineOverlayTest(unittest.TestCase):
+    """preseed/late.sh's Magnetar overlay, run for real with /target pointed at
+    a scratch tree: server mode must fail when the staged payload has no
+    assets/ (or when a server medium staged nothing); desktop is untouched."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ncz-late-online-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        late = (REPO / "preseed" / "late.sh").read_text()
+        i = late.index("NCZ_ONLINE=/target/ncz-online/ncz-payload")
+        j = late.index("# Same class of trap as the refresh above", i)
+        self.block = late[i:j].replace("/target", str(self.tmp / "target"))
+        (self.tmp / "target" / "usr/local/lib/cix-installer").mkdir(parents=True)
+        self.src = self.tmp / "medium"
+        self.src.mkdir()
+
+    def run_block(self):
+        return subprocess.run(["sh", "-c", f'SRC="{self.src}"\n' + self.block + "\necho LATE-OK\n"],
+                              capture_output=True, text=True, timeout=60)
+
+    def stage(self, with_assets=True):
+        d = self.tmp / "target" / "ncz-online" / "ncz-payload"
+        d.mkdir(parents=True)
+        (d / "base.squashfs").write_bytes(b"x")
+        if with_assets:
+            for n in ("rescue", "kernel", "firmware", "branding"):
+                (d / "assets" / n).mkdir(parents=True)
+            (d / "assets" / "rescue" / "rescue-rootfs.tar.zst").write_bytes(b"r")
+            (d / "assets" / "kernel" / "k").write_bytes(b"k")
+            (d / "assets" / "firmware" / "f").write_bytes(b"f")
+            (d / "assets" / "branding" / "b").write_bytes(b"b")
+
+    def test_desktop_is_untouched(self):
+        r = self.run_block()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("LATE-OK", r.stdout)
+        self.assertNotIn("online", r.stdout)
+
+    def test_server_with_assets_overlays_and_cleans_up(self):
+        (self.src / "ncz-fetch-payload.manifest").write_text("x\n")
+        self.stage(with_assets=True)
+        r = self.run_block()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        dst = self.tmp / "target" / "usr/local/lib/cix-installer/assets/rescue/rescue-rootfs.tar.zst"
+        self.assertTrue(dst.is_file())
+        self.assertFalse((self.tmp / "target" / "ncz-online").exists())
+
+    def test_server_without_assets_fails(self):
+        (self.src / "ncz-fetch-payload.manifest").write_text("x\n")
+        self.stage(with_assets=False)
+        r = self.run_block()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("has no assets/", r.stderr)
+        self.assertNotIn("LATE-OK", r.stdout)
+
+    def test_server_medium_with_nothing_staged_fails(self):
+        (self.src / "ncz-fetch-payload.manifest").write_text("x\n")
+        r = self.run_block()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("no online payload was staged", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

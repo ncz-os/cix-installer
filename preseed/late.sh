@@ -343,6 +343,12 @@ fi
 # the installed root filesystem.
 # ---------------------------------------------------------------------------
 NCZ_ONLINE=/target/ncz-online/ncz-payload
+# A server medium (it carries the pinned fetch manifest) whose stub staged
+# nothing must not go on to configure a system with no assets.
+if [ ! -d "$NCZ_ONLINE" ] && [ -n "$SRC" ] && [ -f "$SRC/ncz-fetch-payload.manifest" ]; then
+    echo "[late] FATAL: Magnetar server medium ($SRC/ncz-fetch-payload.manifest) but no online payload was staged at $NCZ_ONLINE" >&2
+    exit 1
+fi
 if [ -d "$NCZ_ONLINE" ]; then
     echo "--- overlaying online-fetched payload from $NCZ_ONLINE ---"
     [ -f "$NCZ_ONLINE/base.squashfs" ] || {
@@ -368,6 +374,12 @@ if [ -d "$NCZ_ONLINE" ]; then
             }
         done
         echo "[late] online assets delivered into $NCZ_DST/assets"
+    else
+        # Server mode with no assets/ in the staged payload: skipping the
+        # overlay silently (as before 2026-10-26) leaves the kernel, rescue,
+        # firmware and branding hooks without their inputs. Fail here.
+        echo "[late] FATAL: the online payload at $NCZ_ONLINE has no assets/ -- the asset bundle did not unpack where it must (expected assets/rescue, assets/kernel, assets/firmware, assets/branding)" >&2
+        exit 1
     fi
     # BUILD_VARIANT is decided further down from the component selection; do not
     # second-guess it here.
