@@ -14,7 +14,9 @@ the test copy, then kills the harness and checks what landed on the image:
      split across two lines would otherwise make d-i parse the tail as a new question type);
   4. --ask-disk keeps ncz_disk/ncz_fs off the kernel command line;
   5. the SHIPPED image is byte-identical afterwards (only WORKDIR/screens-test.img is patched);
-  6. no --serial-console: no hook, no rewritten console= (arm64 behaviour unchanged).
+  6. no --serial-console: no hook, no rewritten console= (arm64 behaviour unchanged);
+  7. no preseed.cfg on the ESP (the shipped layout since 2026-10-08): the preseed baked into the Install entry's
+     initrd (an appended newc archive) is read instead, and a medium with neither fails clearly.
 
 Needs sgdisk, mkfs.vfat, mcopy/mdir (mtools), pyte, and qemu-system-x86_64 (started and killed immediately).
 Run it under an interpreter with pyte (NCZ_BOOT_SCREENS_PYTHON) or one of ~/pyte-venv/bin/python; exits 77 (skip)
@@ -68,17 +70,37 @@ def ok(cond, what, detail=""):
             print("\n".join("     " + l for l in str(detail).splitlines()))
 
 
-def mkimage(path):
-    """raw-GPT disk with one EFI System partition holding refind.conf and the preseed."""
+def newc(members):
+    """A newc cpio archive (with its TRAILER!!!) of [(name, bytes)] regular files, as the kernel reads it."""
+    out = b""
+    for ino, (name, data) in enumerate(list(members) + [("TRAILER!!!", b"")], start=1):
+        nb = name.encode() + b"\0"
+        mode = 0o100644 if name != "TRAILER!!!" else 0
+        hdr = "070701" + "".join("%08X" % v for v in (
+            ino, mode, 0, 0, 1, 0, len(data), 0, 0, 0, 0, len(nb), 0))
+        out += hdr.encode() + nb
+        out += b"\0" * ((4 - len(out) % 4) % 4)
+        out += data
+        out += b"\0" * ((4 - len(out) % 4) % 4)
+    return out
+
+
+def mkimage(path, refind=REFIND, preseed_on_esp=True, initrd=None):
+    """raw-GPT disk with one EFI System partition holding refind.conf and the preseed (or an initrd carrying it)."""
     esp = os.path.join(WORK, "esp.vfat")
     open(esp, "wb").write(b"\0" * (64 * 1024 * 1024))
     subprocess.run(["mkfs.vfat", "-n", "ESP", esp], check=True, capture_output=True)
     subprocess.run(["mmd", "-i", esp, "::/EFI"], capture_output=True)
     subprocess.run(["mmd", "-i", esp, "::/EFI/BOOT"], capture_output=True)
-    for name, body in (("refind.conf", REFIND), ("preseed.cfg", PRESEED)):
+    files = [("refind.conf", refind)] + ([("preseed.cfg", PRESEED)] if preseed_on_esp else [])
+    for name, body in files:
         src = os.path.join(WORK, name)
         open(src, "w").write(body)
         subprocess.run(["mcopy", "-o", "-i", esp, src, "::/EFI/BOOT/" + name], check=True)
+    if initrd is not None:
+        src = os.path.join(WORK, "initrd.gz")
+        open(src, "wb").write(initrd)
+        subprocess.run(["mcopy", "-o", "-i", esp, src, "::/initrd.gz"], check=True)
     open(path, "wb").write(b"\0" * 128 * 1024 * 1024)
     subprocess.run(["sgdisk", "-n", "1:2048:+64M", "-t", "1:ef00", "-c", "1:ESP", path],
                    check=True, capture_output=True)
@@ -180,6 +202,30 @@ def main():
     md = subprocess.run(["mdir", "-i", t2 + "@@" + str(2048 * 512), "::/"], capture_output=True, text=True)
     ok("ncz-test" not in (md.stdout or ""), "no --serial-console: no ::/ncz-test hook is staged", md.stdout)
     ok(sha(image2) == sha2, "no --serial-console: the shipped image is byte-identical too")
+
+    # 7: since the single preseed load (2026-10-08) the medium has no preseed.cfg on the ESP; the one copy is
+    # /preseed.cfg in an APPENDED newc archive of the Install entry's initrd (GNU cpio never reads it). The harness
+    # must read that one; before 2026-10-26 it exited "cannot read the preseed off the test copy" on every amd64 image.
+    import gzip
+    refind3 = REFIND.replace('    options "quiet loglevel=3 console=tty0"\n',
+                             '    initrd /initrd.gz\n    options "quiet loglevel=3 console=tty0"\n', 1)
+    initrd = gzip.compress(newc([("init", b"#!/bin/sh\n")]) + newc([("preseed.cfg", PRESEED.encode())]))
+    image3 = os.path.join(WORK, "shipped3.img")
+    mkimage(image3, refind=refind3, preseed_on_esp=False, initrd=initrd)
+    pr3, work3 = run("initrd", image3, ["--interactive", "--serial-console", "--ask-disk"])
+    ok(pr3.returncode == 0, "no preseed on the ESP: boot-screens.py reads it from the Install entry's initrd",
+       pr3.stdout + pr3.stderr)
+    if pr3.returncode == 0:
+        rules3 = open(esp_file(os.path.join(work3, "screens-test.img"), "/ncz-test/rules.py")).read()
+        ok("marker-ran" in rules3 and "PARTMAN-MUST-NOT-RUN" not in rules3,
+           "the initrd's preseed/early_command is the one re-applied", rules3)
+    ok(not os.path.exists(os.path.join(work3, "install-initrd.img")), "the initrd copy is removed from WORKDIR")
+    image4 = os.path.join(WORK, "shipped4.img")
+    mkimage(image4, refind=refind3, preseed_on_esp=False, initrd=gzip.compress(newc([("init", b"x")])))
+    pr4, _ = run("nopreseed", image4, ["--interactive", "--serial-console", "--ask-disk"])
+    ok(pr4.returncode != 0 and "cannot read the preseed" in (pr4.stdout + pr4.stderr)
+       and "initrd" in (pr4.stdout + pr4.stderr),
+       "no preseed on the ESP or in the initrd: a clear failure naming both places", pr4.stdout + pr4.stderr)
 
     if fails:
         print("test-boot-screens-testcopy: FAIL (%d)" % fails)
