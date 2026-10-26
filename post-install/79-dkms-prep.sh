@@ -177,6 +177,8 @@ done
 # A listed file that make creates (the shipped tree has no
 # include/config/auto.conf.cmd) is removed again, so the tree ends as shipped.
 #
+# Safe under set -e whether or not the caller tests its status.
+#
 # ncz_prepare_pristine <build-dir> <log>
 #   returns 0 when make was clean, make's status when it was not (expected for
 #   this trimmed tree; check the tools instead), 3 when the configuration could
@@ -191,21 +193,21 @@ ncz_prepare_pristine() {
             || { rm -rf "$_np_snap"; return 3; }
     done
     _np_off=$(($({ wc -c <"$_np_log"; } 2>/dev/null || echo 0) + 1))
-    make -k -C "$_np_b" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare </dev/null >>"$_np_log" 2>&1
-    _np_rc=$?
+    _np_rc=0
+    make -k -C "$_np_b" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare </dev/null >>"$_np_log" 2>&1 || _np_rc=$?
     _np_bad=0
     for _np_f in $NCZ_KCONFIG_FILES; do
         if [ ! -f "$_np_snap/$_np_f" ]; then
             [ -e "$_np_b/$_np_f" ] || continue
             echo "ncz_prepare_pristine: Kconfig created $_np_f; removed it (the kernel's tree has none)" >>"$_np_log"
-            rm -f "$_np_b/$_np_f" 2>>"$_np_log"
-            [ -e "$_np_b/$_np_f" ] && _np_bad=1
+            rm -rf "${_np_b:?}/$_np_f" 2>>"$_np_log"
+            if [ -e "$_np_b/$_np_f" ]; then _np_bad=1; fi
             continue
         fi
-        cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null && continue
+        if cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null; then continue; fi
         echo "ncz_prepare_pristine: Kconfig rewrote $_np_f; restored the kernel's copy" >>"$_np_log"
         # a path make turned into a directory: remove it so the copy can land
-        [ -d "$_np_b/$_np_f" ] && rm -rf "${_np_b:?}/$_np_f"
+        if [ -d "$_np_b/$_np_f" ]; then rm -rf "${_np_b:?}/$_np_f"; fi
         cp -p "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>>"$_np_log" || _np_bad=1
         cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null || _np_bad=1
     done

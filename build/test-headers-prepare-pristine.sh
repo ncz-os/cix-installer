@@ -61,6 +61,7 @@ tree() {
         stuck) printf 'modules_prepare:\n\t@printf "/* no BTF */\\n" > include/generated/autoconf.h\n\t@chmod 0444 include/generated/autoconf.h\n\t@chmod 0555 include/generated\n' > "$d/Makefile" ;;
         create) printf 'modules_prepare:\n\t@printf "deps\\n" > include/config/auto.conf.cmd\n' > "$d/Makefile" ;;
         createdir) printf 'modules_prepare:\n\t@mkdir -p include/config/auto.conf.cmd/x\n' > "$d/Makefile" ;;
+        createstuck) printf 'modules_prepare:\n\t@printf "deps\\n" > include/config/auto.conf.cmd\n\t@chmod 0555 include/config\n' > "$d/Makefile" ;;
     esac
     cp -p "$d/.config" "$d/.config.orig"; cp -p "$d/include/generated/autoconf.h" "$d/autoconf.orig"
     cp -p "$d/include/config/auto.conf" "$d/auto.conf.orig"
@@ -88,13 +89,26 @@ for f in $COPIES; do
     D="$T/$n.todir"; tree "$D" todir; run "$D"
     [ "$RC" = 0 ] && [ -f "$D/.config" ] && cmp -s "$D/.config" "$D/.config.orig" \
         && ok "$n: a config file make turned into a directory is restored" || no "$n: directory case rc=$RC"
-    D="$T/$n.stuck"; tree "$D" stuck; run "$D"; chmod 0755 "$D/include/generated"
-    [ "$RC" = 3 ] && ok "$n: unrestorable configuration returns 3" || no "$n: unrestorable case rc=$RC, want 3"
+    if [ "$(id -u)" != 0 ]; then
+        D="$T/$n.stuck"; tree "$D" stuck; run "$D"; chmod 0755 "$D/include/generated"
+        [ "$RC" = 3 ] && ok "$n: unrestorable configuration returns 3" || no "$n: unrestorable case rc=$RC, want 3"
+    else
+        echo "SKIP: $n: unrestorable case needs a non-root user (root ignores the file modes)"
+    fi
+    # under set -e with the status NOT tested: still restores and returns
+    D="$T/$n.errexit"; tree "$D" drift
+    printf 'x\n' | bash -ec ". '$T/$n.fn'; ncz_prepare_pristine '$D' '$D/prep.log'; echo unreachable-on-nonzero" > "$D/out" 2>&1; RC=$?
+    [ "$RC" = 2 ] && cmp -s "$D/include/generated/autoconf.h" "$D/autoconf.orig" \
+        && ok "$n: under set -e the restore completes before the non-zero return" || no "$n: set -e case rc=$RC, autoconf restored: $(cmp -s "$D/include/generated/autoconf.h" "$D/autoconf.orig" && echo yes || echo no)"
     D="$T/$n.create"; tree "$D" create; run "$D"
     [ "$RC" = 0 ] && [ ! -e "$D/include/config/auto.conf.cmd" ] && grep -q 'Kconfig created include/config/auto.conf.cmd; removed it' "$D/prep.log" \
         && ok "$n: a Kconfig file make created is removed again" || no "$n: created file case rc=$RC, file $(ls "$D/include/config")"
     D="$T/$n.createdir"; tree "$D" createdir; run "$D"
-    [ "$RC" = 3 ] && ok "$n: a created file that cannot be removed returns 3" || no "$n: unremovable created file rc=$RC, want 3"
+    [ "$RC" = 0 ] && [ ! -e "$D/include/config/auto.conf.cmd" ] && ok "$n: a created directory is removed again" || no "$n: created directory case rc=$RC"
+    if [ "$(id -u)" != 0 ]; then
+        D="$T/$n.createstuck"; tree "$D" createstuck; run "$D"; chmod 0755 "$D/include/config"
+        [ "$RC" = 3 ] && ok "$n: a created file that cannot be removed returns 3" || no "$n: unremovable created file rc=$RC, want 3"
+    fi
     D="$T/$n.drift"; rm -f "$D/prep.log"; printf 'resolve_btfids from an earlier run\n' > "$D/prep.log"
     printf 'modules_prepare:\n\t@true\n' > "$D/Makefile"; run "$D"
     grep -q 'resolve_btfids not built' "$D/prep.log" && no "$n: resolve_btfids note added for an earlier run's failure" || ok "$n: resolve_btfids note only for this run's failure"
