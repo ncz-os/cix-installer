@@ -594,6 +594,9 @@ eq "setup: removals -> failed:would-remove-packages" "$(st)" "failed:would-remov
 [ ! -e "$CS/apt.calls" ] && ok "setup: nothing installed when removals were simulated" || nok "setup: installed despite removals"
 csconf turing-plus; eq "setup: unsatisfiable set (rc 1)" "$(STUB_APT=unsat cs run)" 1
 eq "setup: unsat -> failed:not-installable" "$(st)" "failed:not-installable"
+csconf turing-plus; printf '%s|nvidia|615.60.01|x-1|none|pkg=nvidia-kernel-open-dkms|old.c:1:1: error: old kernel\n' "6.9.0-old" > "$CS/var/lib/ncz/cuda-setup.dkms-failed"
+eq "setup: unsat with only an old kernel's build record (rc 1)" "$(STUB_APT=unsat cs run)" 1
+eq "setup: ... still failed:not-installable (old kernels' records do not count)" "$(st)" "failed:not-installable"
 csconf turing-plus; eq "setup: NVIDIA index not available yet -> retryable (rc 75)" "$(STUB_NVVERS='' cs run)" 75
 eq "setup: index unavailable -> pending" "$(st)" "pending:index-unavailable"
 csconf turing-plus; eq "setup: a selected package missing from a usable index (renamed) -> hard failure (rc 1)" "$(STUB_APT=noindex cs run)" 1
@@ -716,6 +719,14 @@ eq "ladder: ... status says builds are still being tried" "$(st)" "failed:dkms-b
 eq "ladder: ... the timer continues with the next version (rc 0)" "$(NCZ_CUDA_DRIVER_TRIES=1 STUB_NVVERS="$NV3" STUB_FAIL_VERS='615.71.10' cs run --scheduled)" 0
 eq "ladder: ... 615.71.09-2 installed on the second run" "$(cat "$CS/var/lib/ncz/cuda-setup.driver" 2>/dev/null)" "615.71.09-2"
 
+# patch(1) missing (dkms not installed yet): installed before the content check
+mkdir -p "$CS/nopatch"; for t in bash sh cat sed awk grep sort head tail tr cut cksum find mktemp install mv rm cp mkdir ls date tee wc basename dirname touch flock uname rmdir getent curl chmod ln readlink env dpkg-deb tar gzip xz zstd; do
+    p=$(PATH="$CS/bin:$PATH" command -v "$t" 2>/dev/null) && ln -sf "$p" "$CS/nopatch/$t"; done
+for t in "$CS/bin/"*; do ln -sf "$t" "$CS/nopatch/$(basename "$t")"; done
+csconf turing-plus; shipped
+PATH="$CS/nopatch" "$CS/ncz-cuda-setup" run >"$CS/out" 2>&1
+grep -q -- '--no-remove patch' "$CS/apt.calls" && ok "patch: patch(1) is installed before the local patches are checked" || nok "patch: patch(1) missing -> patches refused without trying to install it"
+
 # ------------------------------- ncz-cuda-setup: the module must exist for the kernel; kernel updates
 csconf turing-plus; eq "kmod: apt installed the set but no module exists for the kernel -> dkms autoinstall builds it (rc 0)" "$(STUB_NVVERS='615.71.10-1' STUB_NOMOD=1 cs run)" 0
 grep -q 'no nvidia module for kernel 7.3.0-t2-ncz; running dkms autoinstall' "$CS/setup.log" && ok "kmod: ... the missing module is noticed and logged" || nok "kmod: missing module not noticed"
@@ -786,6 +797,10 @@ cp "$SHIPPED_SET/"*.patch "$CS/usr/src/nvidia-615.80.01/patches/"
 cs dkms-stage "$CS/usr/src/nvidia-615.80.01" >/dev/null
 [ ! -e "$CS/etc/dkms/nvidia-615.80.01.conf" ] && [ ! -e "$CS/usr/src/nvidia-615.80.01/patches/ncz-0001-dmem-cgroup-init-linux-7.3.patch" ] \
     && ok "content: conf and staged patch withdrawn once the source has the fix" || nok "content: stale local patch left behind"
+# dkms.conf with a trailing comment still names the module and version
+mksrc "$CS/usr/src/nvidia-615.80.05" 615.80.05 defect; sed -i 's/^PACKAGE_VERSION=.*/PACKAGE_VERSION="615.80.05"   # point release/' "$CS/usr/src/nvidia-615.80.05/dkms.conf"
+cs dkms-stage "$CS/usr/src/nvidia-615.80.05" >/dev/null
+[ -e "$CS/etc/dkms/nvidia-615.80.05.conf" ] && ok "content: dkms.conf values with a trailing comment are parsed" || nok "content: trailing comment broke dkms.conf parsing"
 # guards: no marker, unsafe marker, vendor patches already in dkms.conf
 mksrc "$CS/usr/src/nvidia-615.80.04" 615.80.04 defect
 rm -f "$CS/patches/nvidia/"*/fixed-upstream

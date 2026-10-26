@@ -104,10 +104,14 @@ target_kernel() {
     echo "${best:-$k}"
 }
 
-# module_ok KERNEL: an nvidia kernel module exists for KERNEL (true when modinfo is unavailable)
+# module_ok KERNEL: an nvidia kernel module exists for KERNEL (the file DKMS installs, or
+# anything modinfo resolves through modules.dep)
 module_ok() {
-    command -v modinfo >/dev/null 2>&1 || return 0
-    modinfo -k "$1" nvidia >/dev/null 2>&1
+    local f
+    for f in "$MODULES_ROOT/$1"/updates/dkms/nvidia.ko* "$MODULES_ROOT/$1"/updates/nvidia.ko* "$MODULES_ROOT/$1"/extra/nvidia.ko*; do
+        [ -e "$f" ] && return 0
+    done
+    command -v modinfo >/dev/null 2>&1 && modinfo -k "$1" nvidia >/dev/null 2>&1
 }
 
 kmod_pkg() {
@@ -196,7 +200,8 @@ patches_sum() { # every shipped patch-set file: a changed or added patch retries
 # ------------------------------------------------------------ local DKMS patches
 # dkms_conf_val SRC KEY -> value of KEY in SRC/dkms.conf (parsed, never sourced)
 dkms_conf_val() {
-    sed -n "s/^$2=[\"']\{0,1\}\([^\"']*\)[\"']\{0,1\}[[:space:]]*\$/\1/p" "$1/dkms.conf" 2>/dev/null | head -n1
+    sed -e 's/[[:space:]]#.*$//' "$1/dkms.conf" 2>/dev/null \
+        | sed -n "s/^$2=[\"']\{0,1\}\([^\"']*\)[\"']\{0,1\}[[:space:]]*\$/\1/p" | head -n1
 }
 
 scratch_dir() { install -d -m0700 "$STATE/tmp" 2>/dev/null; mktemp -d "$STATE/tmp/$1.XXXXXX"; }
@@ -361,6 +366,15 @@ is_driver_pkg() {
     return 1
 }
 
+# build_failed_now: some driver version failed to BUILD with the current kernel, config and
+# patches (not just "not installable"); older kernels' records do not count
+build_failed_now() {
+    local k key
+    [ -s "$DKMS_FAIL" ] || return 1
+    k=$(target_kernel); key=$(inputs_key "$k")
+    awk -F'|' -v k="$k" -v key="$key" '$1 == k && $2 != "-" && ($4 "|" $5) == key { f = 1 } END { exit !f }' "$DKMS_FAIL"
+}
+
 # record_noinst VERSION REASON: a version apt cannot install as a matched set (same ledger, module "-")
 record_noinst() {
     local k u tmp
@@ -522,13 +536,19 @@ try_driver() {
     fi
     rm_drv=$(echo "$sim" | sed -n 's/^Remv \([^ ]*\).*/\1/p' | tr '\n' ' ')
     [ -n "$rm_drv" ] && log "driver $v: the set at this version drops NVIDIA package(s): $rm_drv"
-    noremove="--no-remove"; [ -n "$rm_drv" ] && noremove=""
+    # --no-remove is dropped only when every removal is an NVIDIA driver package (checked above)
+    noremove="--no-remove"; [ -z "$rm_other" ] && [ -n "$rm_drv" ] && noremove=""
     inst=$(echo "$sim" | sed -n "s/^Inst $kp \(\[[^]]*\] \)\{0,1\}(\([^ ]*\) .*/\2/p" | head -n1)
     [ -n "$inst" ] || inst=$(dpkg-query -W -f='${Version}' "$kp" 2>/dev/null)
     if [ "$inst" != "$v" ]; then
         log "driver $v: apt would install $kp ${inst:-nothing}, not $v (incomplete set); trying the next version"
         record_noinst "$v" "apt resolves $kp to ${inst:-nothing}"
         return 2
+    fi
+    # patch(1) checks the local patches (DKMS needs it to apply them anyway; dkms depends on it)
+    if ! command -v patch >/dev/null 2>&1; then
+        apt_run install -y --no-install-recommends --no-remove patch >>"$LOG" 2>&1 \
+            || log "dkms: patch(1) is not installed and could not be; local patches cannot be checked"
     fi
     # The module source must be checked and its patches staged before dpkg runs the postinst.
     # shellcheck disable=SC2086
@@ -671,7 +691,7 @@ do_run() {
                 log "not every offered driver was tried yet; the timer continues"
                 return 1
             fi
-            if [ "$N_BUILD" = 0 ] && ! grep -q '^[^|]*|[^-]' "$DKMS_FAIL" 2>/dev/null; then
+            if [ "$N_BUILD" = 0 ] && ! build_failed_now; then
                 set_status "failed:not-installable"; backoff_note hard >/dev/null
                 notice_no_driver "NCZ-OS: no offered NVIDIA driver version can be installed as a complete set, so the NVIDIA GPU is not used (the display runs on the integrated GPU). Details: ncz-cuda-setup status"
                 return 1
