@@ -203,7 +203,7 @@ eq "50-brand: server PRETTY_NAME" "$(printf '%s\n' "$B" | sed -n 's/^PRETTY_NAME
 eq "50-brand: server VERSION" "$(printf '%s\n' "$B" | sed -n 's/^VERSION=//p')" "$NCZ_RELEASE_VERSION (Magnetar Server, based on $NCZ_BASE_LABEL)"
 eq "50-brand: server VARIANT" "$(printf '%s\n' "$B" | sed -n 's/^VARIANT=//p')" '"Magnetar Server"'
 eq "50-brand: server VARIANT_ID" "$(printf '%s\n' "$B" | sed -n 's/^VARIANT_ID=//p')" magnetar-server
-eq "50-brand: server /etc/issue first line" "$(printf '%s\n' "$B" | sed -n 's/^ISSUE=//p')" "$SRVF - NCZ_ISSUE_SOC_PLACEHOLDER - kernel \\r"
+eq "50-brand: server /etc/issue first line" "$(printf '%s\n' "$B" | sed -n 's/^ISSUE=//p')" "$SRVF - (detecting hardware) - kernel \\r"
 nocyg "50-brand: server identity" "$B"
 eq "50-brand: desktop medium, desktop PRETTY_NAME unchanged" "$(brand desktop desktop | sed -n 's/^PRETTY_NAME=//p')" "$DESK_LABEL Desktop, based on $NCZ_BASE_LABEL"
 eq "50-brand: desktop medium, console-only install unchanged" "$(brand server desktop | sed -n 's/^PRETTY_NAME=//p')" "$DESK_LABEL Server, based on $NCZ_BASE_LABEL"
@@ -223,15 +223,46 @@ realbrand() { # medium(server|desktop) build-variant -> sandbox root
 R=$(realbrand server server)
 eq "50-brand (real write, server): PRETTY_NAME" "$(unset VARIANT PRETTY_NAME; . "$R/etc/os-release"; echo "$PRETTY_NAME")" "$SRVF, based on $NCZ_BASE_LABEL"
 eq "50-brand (real write, server): VARIANT / VARIANT_ID / ID parse" "$(unset VARIANT VARIANT_ID ID; . "$R/etc/os-release"; echo "$VARIANT|$VARIANT_ID|$ID")" "Magnetar Server|magnetar-server|ncz"
-eq "50-brand (real write, server): /etc/issue first line" "$(head -1 "$R/etc/issue")" "$SRVF - NCZ_ISSUE_SOC_PLACEHOLDER - kernel \\r"
-eq "50-brand (real write, server): /etc/issue.net first line" "$(head -1 "$R/etc/issue.net")" "$SRVF (NCZ_ISSUE_SOC_PLACEHOLDER)"
+eq "50-brand (real write, server): /etc/issue first line" "$(head -1 "$R/etc/issue")" "$SRVF - (detecting hardware) - kernel \\r"
+eq "50-brand (real write, server): /etc/issue.net first line" "$(head -1 "$R/etc/issue.net")" "$SRVF (detecting hardware)"
 eq "50-brand (real write, server): lsb DISTRIB_DESCRIPTION" "$(sed -n 's/^DISTRIB_DESCRIPTION=//p' "$R/etc/lsb-release")" "\"$SRVF, based on $NCZ_BASE_LABEL\""
 nocyg "50-brand (real write, server): PRETTY_NAME/VERSION/VARIANT, issue, issue.net, log" \
     "$(grep -E '^(PRETTY_NAME|VERSION|VARIANT)=' "$R/etc/os-release"; cat "$R/etc/issue" "$R/etc/issue.net" "$R/log")"
 R=$(realbrand desktop desktop)
 eq "50-brand (real write, desktop): PRETTY_NAME unchanged" "$(unset PRETTY_NAME; . "$R/etc/os-release"; echo "$PRETTY_NAME")" "$DESK_LABEL Desktop, based on $NCZ_BASE_LABEL"
 grep -q '^VARIANT' "$R/etc/os-release" && bad "50-brand (real write, desktop): gained a VARIANT key" || ok "50-brand (real write, desktop): no VARIANT key"
-case "$(head -1 "$R/etc/issue")" in "$DESK_LABEL Desktop  ·  NCZ_ISSUE_SOC_PLACEHOLDER  (Kernel: \r)") ok "50-brand (real write, desktop): /etc/issue unchanged" ;; *) bad "50-brand (real write, desktop): issue: $(head -1 "$R/etc/issue")" ;; esac
+case "$(head -1 "$R/etc/issue")" in "$DESK_LABEL Desktop  ·  (detecting hardware)  (Kernel: \r)") ok "50-brand (real write, desktop): /etc/issue first-boot text (no token)" ;; *) bad "50-brand (real write, desktop): issue: $(head -1 "$R/etc/issue")" ;; esac
+# --- the login banner never shows a raw token (2026-10-26, cyclops: agetty printed NCZ_ISSUE_*_PLACEHOLDER) --
+for _m in server desktop; do
+    R=$(realbrand $_m $_m)
+    grep -q 'NCZ_ISSUE_' "$R/etc/issue" "$R/etc/issue.net" && bad "issue ($_m): first-boot text carries a raw NCZ_ISSUE_ token" || ok "issue ($_m): first-boot text has no raw token"
+    grep -q '^IP:    (waiting for network)$' "$R/etc/issue" && ok "issue ($_m): first-boot IP line reads '(waiting for network)'" || bad "issue ($_m): IP line: $(grep '^IP:' "$R/etc/issue")"
+    # the real refresh script the hook installed, run against the sandbox banner with stub hw-brand and ip
+    mkdir -p "$R/stub"
+    printf '#!/bin/sh\necho "SOC=Intel Core i5-2415M & co|x"\necho GPU=none\n' > "$R/stub/hw"; chmod +x "$R/stub/hw"
+    printf '#!/bin/sh\ncase "$*" in *"route get"*) [ -s "%s/addr" ] && echo "1.1.1.1 via 10.0.0.1 dev eth0 src $(cat %s/addr) uid 0" ;; esac\nexit 0\n' "$R" "$R" > "$R/stub/ip"
+    printf '#!/bin/sh\necho "$*" >> %s/agetty.calls\n' "$R" > "$R/stub/agetty"; chmod +x "$R/stub/ip" "$R/stub/agetty"
+    RF() { PATH="$R/stub:$PATH" NCZ_ISSUE_FILE="$R/etc/issue" NCZ_ISSUE_NET_FILE="$R/etc/issue.net" NCZ_HW_BRAND="$R/stub/hw" sh "$R/usr/local/bin/ncz-issue-refresh" "$@"; }
+    RF --soc
+    case "$(head -1 "$R/etc/issue")" in *"Intel Core i5-2415M & co|x"*) ok "issue ($_m): --soc fills the SoC before the gettys (special characters kept)" ;; *) bad "issue ($_m): after --soc: $(head -1 "$R/etc/issue")" ;; esac
+    grep -q '(Intel Core i5-2415M & co|x)$' "$R/etc/issue.net" && ok "issue.net ($_m): SoC filled, in brackets" || bad "issue.net ($_m): $(head -1 "$R/etc/issue.net")"
+    grep -q -- '--reload' "$R/agetty.calls" 2>/dev/null && ok "issue ($_m): the gettys are told to re-print (agetty --reload)" || bad "issue ($_m): no agetty --reload"
+    RF --ip-once; grep -q '^IP:    (waiting for network)$' "$R/etc/issue" && ok "issue ($_m): no address yet keeps the waiting text" || bad "issue ($_m): no-address IP line: $(grep '^IP:' "$R/etc/issue")"
+    echo 192.168.207.89 > "$R/addr"; RF --ip-once
+    grep -q '^IP:    192.168.207.89$' "$R/etc/issue" && ok "issue ($_m): the address is filled in" || bad "issue ($_m): IP line: $(grep '^IP:' "$R/etc/issue")"
+    echo 192.168.207.90 > "$R/addr"; RF --ip-once
+    grep -q '^IP:    192.168.207.90$' "$R/etc/issue" && ok "issue ($_m): a changed address replaces the old one (no stale banner)" || bad "issue ($_m): changed IP: $(grep '^IP:' "$R/etc/issue")"
+    grep -qE 'NCZ_ISSUE_|\(detecting hardware\)' "$R/etc/issue" "$R/etc/issue.net" && bad "issue ($_m): a token or waiting text survived the refresh" || ok "issue ($_m): after the refresh no token or waiting text remains"
+    [ "$_m" = server ] && { head -1 "$R/etc/issue" | grep -q 'Desktop' && bad "issue (server): first line says Desktop" || ok "issue (server): first line has no 'Desktop'"; }
+done
+# an older banner that still carries the tokens is healed too
+printf 'X  ·  NCZ_ISSUE_SOC_PLACEHOLDER  (Kernel: \\r)\nIP:    NCZ_ISSUE_IP_PLACEHOLDER\n' > "$R/etc/issue"; echo 10.1.2.3 > "$R/addr"; RF --soc; RF --ip-once
+grep -q 'NCZ_ISSUE_' "$R/etc/issue" && bad "issue: an old token banner is not healed: $(cat "$R/etc/issue")" || ok "issue: an old token banner is healed by the refresh"
+# the unit: SoC before the first login prompt, the main process async
+_u="$R/etc/systemd/system/ncz-issue-refresh.service"
+grep -q '^Before=getty-pre.target$' "$_u" && grep -q '^Wants=getty-pre.target$' "$_u" && grep -qE '^ExecStartPre=-(.*)?/usr/local/bin/ncz-issue-refresh --soc$' "$_u" && grep -q '^Type=simple$' "$_u" \
+    && ok "ncz-issue-refresh.service: SoC step ordered before getty-pre.target, main process Type=simple" || bad "ncz-issue-refresh.service: $(grep -E '^(Before|Wants|ExecStartPre|Type)=' "$_u" | tr '\n' ' ')"
+
 # the motd title row reads the edition from os-release VARIANT, never from the caller's environment
 # (the generated banner already reads the sandbox's etc/; only the live hardware probe is cut out)
 _mt=$(VARIANT="Magnetar Server" bash -c "$(sed "s#$R/usr/local/bin/ncz-hw-brand#$W/none#g" "$R/etc/update-motd.d/00-ncz-banner")" 2>/dev/null | sed -n 3p)
