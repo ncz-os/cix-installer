@@ -212,7 +212,8 @@ EOF
     if [ -n "$_sd" ]; then
         _sn=${_sd##*/}
         _bdf=$(basename "$(readlink -f "$SYSR/class/drm/$_sn/device" 2>/dev/null)" 2>/dev/null)
-        _sdrv=$(basename "$(readlink -f "$SYSR/class/drm/$_sn/device/driver" 2>/dev/null)" 2>/dev/null)
+        _sdrv=""
+        [ -e "$SYSR/class/drm/$_sn/device/driver" ] && _sdrv=$(basename "$(readlink -f "$SYSR/class/drm/$_sn/device/driver")")
         case "$_bdf" in
             [0-9a-f][0-9a-f][0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f].[0-7])
                 if [ -e "$SYSR/bus/pci/devices/$_bdf" ]; then
