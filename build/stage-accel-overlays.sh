@@ -73,7 +73,9 @@ done
 # struct module reference: an in-tree module linked by this same kernel build.
 # assets/kernel/mainline may still pin the previous kernel at this point, so
 # its modules-cixmini.tgz is not the right reference here.
-REF_KO="$(find "$KDIR/build/drivers" -name '*.ko' 2>/dev/null | LC_ALL=C sort | head -1)"
+# Any in-tree module will do: all of them are compiled against the same
+# autoconf.h, so all carry the same struct module.
+REF_KO="$(find "$KDIR/build/drivers" -type f -name '*.ko' 2>/dev/null | LC_ALL=C sort | head -1)"
 [ -n "$REF_KO" ] || die "no in-tree .ko under $KDIR/build/drivers (struct module reference)"
 python3 "$ROOT/build/verify-overlay-modversions.py" --root "$ROOT" \
     --symvers "$KDIR/build/Module.symvers" --kver "$KVER" --ref-ko "$REF_KO" \

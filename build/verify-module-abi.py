@@ -27,7 +27,7 @@ WHAT IT CHECKS, for one lib/modules/<kver> tree (an installed root, a kernel
 (post-install/97-firstboot-report.sh) copied off a KVM gate guest:
   "# module-abi: <mod> OK|SKIP|INFO|FAIL ..."   one line per module
   "# module-abi-reject: <kernel log line>"       loader rejections in the log
-  "# module-abi-probe=modules:N failed:M skipped:S"   summary, last
+  "# module-abi-probe=modules:N failed:M skipped:S[ incomplete]"   summary
   "# module-abi-probe=skipped (not a VM guest)"  the probe did not run
 It passes only on a summary with failed:0 and no FAIL or reject line; a
 skipped probe fails (the gate always boots a VM, so a skip means the probe
@@ -43,6 +43,7 @@ reference module. Pure Python, no kmod/binutils needed, any host arch.
 import argparse
 import lzma
 import os
+import re
 import struct
 import sys
 
@@ -129,8 +130,7 @@ def judge_probe(path):
     except OSError as exc:
         print(f"{TAG}: FAIL: cannot read probe report {path}: {exc}")
         return 1
-    bad = [ln for ln in lines if ln.startswith("# module-abi-reject: ")
-           or (ln.startswith("# module-abi: ") and len(ln.split()) > 3 and ln.split()[3] == "FAIL")]
+    bad = [ln for ln in lines if ln.startswith("# module-abi-reject: ") or re.match(r"# module-abi: \S+ FAIL\b", ln)]
     summary = [ln[len("# module-abi-probe="):] for ln in lines if ln.startswith("# module-abi-probe=")]
     for ln in lines:
         if ln.startswith("# module-abi"):
@@ -146,7 +146,7 @@ def judge_probe(path):
         print(f"{TAG}: FAIL: probe skipped ({last}); a gate guest must be detected as a VM")
         return 1
     fields = dict(kv.split(":", 1) for kv in last.split() if ":" in kv)
-    if "modules" not in fields or fields.get("failed") != "0":
+    if "modules" not in fields or fields.get("failed") != "0" or "incomplete" in last.split():
         print(f"{TAG}: FAIL: probe summary {last!r}")
         return 1
     print(f"{TAG}: PASS (probe: {last})")

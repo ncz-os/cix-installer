@@ -142,6 +142,9 @@ stubs "$T/s5" 0 'echo "modprobe: ERROR: could not insert '"'"'$1'"'"': Invalid a
 out=$(probe "$T/s5" "$T/rt")
 pexpect "probe: an init failure that is not a rejection is INFO, not FAIL" '^# module-abi: mali_kbase INFO accepted, init failed' "$out"
 pexpect "probe: init failures do not count as failed" '^# module-abi-probe=modules:2 failed:0 skipped:0' "$out"
+stubs "$T/s6" 0 'echo "modprobe: FATAL: Module $1 not found in directory /lib/modules/x" >&2; exit 1'
+out=$(probe "$T/s6" "$T/rt")
+pexpect "probe: a module modprobe cannot find (stale modules.dep) fails" '^# module-abi: mali_kbase FAIL not indexed' "$out"
 stubs "$T/s4" 1 'echo LOADED >> "'"$T"'/s4/loaded"; exit 0'
 out=$(probe "$T/s4" "$T/rt")
 pexpect "probe: real hardware is left alone" '^# module-abi-probe=skipped \(not a VM guest\)' "$out"
@@ -161,6 +164,7 @@ judge "report: a kernel-log rejection alone fails" 1 'refused out-of-tree module
     "# module-abi: mali_kbase INFO accepted, init failed" "# module-abi-reject: module mali_kbase: .gnu.linkonce.this_module section size must match" "# module-abi-probe=modules:1 failed:0 skipped:0"
 judge "report: a skipped probe fails (the gate guest is a VM)" 1 'probe skipped' "# module-abi-probe=skipped (not a VM guest)"
 judge "report: no summary fails" 1 'no probe summary' "# module-abi: mali_kbase OK (loaded)"
+judge "report: an incomplete probe fails" 1 "probe summary 'modules:2 failed:0 skipped:0 incomplete'" "# module-abi-probe=modules:2 failed:0 skipped:0 incomplete"
 judge "report: failed>0 in the summary fails" 1 "probe summary 'modules:2 failed:1" "# module-abi-probe=modules:2 failed:1 skipped:0"
 
 # --- 4. wiring ------------------------------------------------------------

@@ -68,10 +68,12 @@ if ! systemd-detect-virt --vm -q 2>/dev/null; then
     exit 0
 fi
 REJECT='section size must match|disagrees about version of symbol|version magic .* should be|Unknown symbol|[Ii]nvalid module format|Exec format error'
-n=0; bad=0; skip=0
+n=0; bad=0; skip=0; incomplete=""
+start=$(date +%s)
 names=$(find "$MODDIR/updates" "$MODDIR/extra" -type f \( -name '*.ko' -o -name '*.ko.xz' -o -name '*.ko.zst' \) 2>/dev/null \
         | sed 's|.*/||; s/\.ko\(\.xz\|\.zst\)\{0,1\}$//' | sort -u)
 for m in $names; do
+    if [ $(($(date +%s) - start)) -gt 150 ]; then incomplete=" incomplete"; break; fi
     n=$((n + 1))
     mu=$(printf '%s' "$m" | tr - _)
     if [ -d "/sys/module/$mu" ]; then
@@ -85,6 +87,9 @@ for m in $names; do
         modprobe -r "$m" >/dev/null 2>&1 || true
     elif printf '%s' "$out" | grep -qE "$REJECT"; then
         echo "# module-abi: $m FAIL rc=$rc $out"; bad=$((bad + 1))
+    elif printf '%s' "$out" | grep -q 'not found in directory'; then
+        # on disk but not in modules.dep: it would never load on a real boot either
+        echo "# module-abi: $m FAIL not indexed (stale modules.dep?): $out"; bad=$((bad + 1))
     elif printf '%s' "$out" | grep -q 'Operation not permitted'; then
         # module_blacklist= on this boot entry (e.g. panthor on the Mali entry):
         # the loader stops before its ABI checks; the static gate covers it.
@@ -96,8 +101,10 @@ for m in $names; do
         echo "# module-abi: $m INFO accepted, init failed: $out"
     fi
 done
+# The whole boot on purpose: a rejection of any module at any point of the
+# guest boot (e.g. ncz-gpu-switcher's own modprobe) is a defect of the image.
 journalctl -k -b --no-pager 2>/dev/null | grep -E "$REJECT" | head -20 | sed 's/^/# module-abi-reject: /'
-echo "# module-abi-probe=modules:$n failed:$bad skipped:$skip"
+echo "# module-abi-probe=modules:$n failed:$bad skipped:$skip$incomplete"
 PROBE
 chmod 0755 /usr/local/sbin/ncz-module-abi-probe
 cat > /etc/systemd/system/ncz-firstboot-report.service <<'UNIT'
