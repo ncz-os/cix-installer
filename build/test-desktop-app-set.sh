@@ -11,7 +11,8 @@
 #   4. post-install/lib/ncz-default-apps.sh points images/PDF/text/folders/
 #      fonts/calendars at the Singularity apps, only when the app exists,
 #      keeps every other key, and is idempotent;
-#   5. the PipeWire Bluetooth/libcamera plugins and libmtp-runtime are seeded.
+#   5. the PipeWire Bluetooth/libcamera plugins and libmtp-runtime are seeded;
+#   6. rasdaemon is not seeded on client images.
 # Run: bash build/test-desktop-app-set.sh   Exit 0 = pass, 1 = fail.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -117,6 +118,12 @@ for m in desktop desktop-amd64; do
     done
     [ -z "$miss" ] && ok "$m.pkgs seeds the Bluetooth/libcamera SPA plugins and libmtp-runtime" || bad "$m.pkgs is missing:$miss"
 done
+
+echo "== 6. rasdaemon is not on client images"
+# 9x "Can't get traces from cxl:*" + 9x "Can't write to set_event" every boot,
+# nothing depends on it (2026-10-26).
+hit=""; for f in "$ROOT"/manifests/*.pkgs; do seeds "$f" | grep -qx rasdaemon && hit="$hit ${f##*/}"; done
+[ -z "$hit" ] && ok "no manifest seeds rasdaemon" || bad "rasdaemon still seeded by:$hit"
 
 echo
 echo "test-desktop-app-set: $PASS passed, $FAIL failed"

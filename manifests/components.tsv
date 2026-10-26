@@ -553,7 +553,6 @@ python3-pip	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-package
 python3-pip	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 python3-venv	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 python3-venv	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
-rasdaemon	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 rsync	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	
 rsync	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs; manifests/mgmt.pkgs; manifests/rescue.pkgs	
 rtkit	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	

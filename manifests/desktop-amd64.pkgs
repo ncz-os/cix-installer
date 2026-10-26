@@ -369,22 +369,13 @@ amd64-microcode
 # apple-firmware   [T2-conditional — do not uncomment unconditionally]
 
 # ============================================================================
-# MCE / RAS persistence — added 2026-10-11 (T2 power-cap mission, item 3)
+# MCE / RAS persistence -- rasdaemon REMOVED 2026-10-26 (was added 2026-10-11
+# for the T2 power-cap mission). On client images it logged nine "Can't get
+# traces from cxl:*" and nine "Can't write to set_event" lines every boot
+# (no CXL on these machines) and nothing depends on it. Runtime machine checks
+# still reach the kernel log and the journal; install rasdaemon by hand to
+# persist them across reboots when debugging a specific machine.
 # ============================================================================
-# T2 Mac A (MacBookPro16,1) logged a leftover UNCORRECTED machine check at boot
-# (banks 12/13, status ee0000000040110a), consistent with a prior hard power
-# cut; nothing on the images persists machine-check records today, so the next
-# boot cannot say whether an error recurred. rasdaemon records MCE/RAS events
-# to a sqlite DB (ras-mc-ctl --errors / --summary) so they survive a reboot.
-# Chosen over mcelog because mcelog was DROPPED from Debian -- it is absent
-# from the pinned forky snapshot (verified 2026-10-11 against
-# snapshot.debian.org 20261005T120000Z: no `Package: mcelog` in any component),
-# while rasdaemon 0.8.4-2 is present in main/amd64 with its dependency closure
-# (libtraceevent1, libdbd-sqlite3-perl, sqlite3, libpci3, libsqlite3-0).
-# Provenance is Debian/forky, so the provenance gate stays green. ~0.5 MB, idle,
-# and generically useful, so it is seeded for all amd64 desktops (the T2 Macs
-# are the motivating case).
-rasdaemon
 
 # ============================================================================
 # GPU/ACCELERATOR STACK — install-time hardware-detected, NOT unconditional.
