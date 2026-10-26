@@ -65,14 +65,14 @@ def preseed_from_initrd(img, off, refind_text):
     The initrd is several concatenated newc archives (the baked preseed is in an appended one, which GNU cpio never
     reads), so this reuses build/iso/patch-initrd-t2-kernel.py's strict parser, the same code that verified the
     baked preseed when the image was built."""
-    m = re.search(r'menuentry "NCZ-OS Installer -- Install" \{(.*?)\n\}', refind_text, re.S)
-    im = re.search(r"^\s*initrd\s+(\S+)", m.group(1), re.M) if m else None
+    m = re.search(r'menuentry "NCZ-OS Installer -- Install" \{(.*?)\n\}', refind_text, re.DOTALL)
+    im = re.search(r"^\s*initrd\s+(\S+)", m.group(1), re.MULTILINE) if m else None
     rel = im.group(1) if im else "/initrd.gz"
-    where = "the Install entry's initrd ::%s:/preseed.cfg" % rel
+    where = f"the Install entry's initrd ::{rel}:/preseed.cfg"
     local = os.path.join(W, "install-initrd.img")
     try:
         if subprocess.run(["mcopy", "-n", "-o", "-i", f"{img}@@{off}", "::" + rel, local],
-                          capture_output=True, text=True).returncode != 0:
+                          capture_output=True, text=True, check=False).returncode != 0:
             return "", where
         import importlib.util
         from pathlib import Path
@@ -85,8 +85,9 @@ def preseed_from_initrd(img, off, refind_text):
             if target == "preseed.cfg" and exact:
                 return entry["payload"].decode("utf-8", "replace"), where
         return "", where
-    except Exception as exc:  # a malformed initrd is reported by the caller's exit, with this reason
-        return "", "%s (%s)" % (where, exc)
+    except (OSError, RuntimeError, ValueError, ImportError, AttributeError, KeyError) as exc:
+        # a missing or malformed initrd (CpioError is a ValueError) is reported by the caller's exit, with this reason
+        return "", f"{where} ({exc})"
     finally:
         if os.path.exists(local):
             os.remove(local)
@@ -179,7 +180,8 @@ if a.serial_console:
     if not ptext and not a.preseed:
         # Since 2026-10-08 (single preseed load) the medium has no preseed.cfg on the ESP: the one copy is /preseed.cfg
         # baked into the Install entry's initrd. Read that one, with the build's own strict cpio reader.
-        ptext, where = preseed_from_initrd(img, off, open(cfg, encoding="utf-8").read())
+        with open(cfg, encoding="utf-8") as fh:
+            ptext, where = preseed_from_initrd(img, off, fh.read())
         preseed_order.append(where)
     if not ptext:
         sys.exit("boot-screens.py: cannot read the preseed off the test copy (tried %s); --serial-console needs it"
