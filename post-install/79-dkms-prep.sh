@@ -204,6 +204,8 @@ ncz_prepare_pristine() {
         fi
         cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null && continue
         echo "ncz_prepare_pristine: Kconfig rewrote $_np_f; restored the kernel's copy" >>"$_np_log"
+        # a path make turned into a directory: remove it so the copy can land
+        [ -d "$_np_b/$_np_f" ] && rm -rf "${_np_b:?}/$_np_f"
         cp -p "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>>"$_np_log" || _np_bad=1
         cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null || _np_bad=1
     done

@@ -16,7 +16,8 @@
 #     non-zero status is passed through;
 #   - make gets no stdin (a Kconfig prompt cannot wait on a terminal);
 #   - a clean make leaves everything as it was and returns 0;
-#   - a configuration that cannot be restored returns 3;
+#   - a config path make turned into a directory is restored;
+#   - a configuration that cannot be restored returns 3 (unless run as root);
 #   - a resolve_btfids failure is explained in the log.
 # Plus: the three copies are identical and every caller treats 3 as fatal.
 set -u
@@ -56,7 +57,8 @@ tree() {
     case "$2" in
         drift) printf 'modules_prepare:\n\t@cat > stdin-seen.txt\n\t@printf "CONFIG_PAHOLE_VERSION=0\\n" > .config\n\t@printf "\\n" > include/config/auto.conf\n\t@printf "/* no BTF */\\n" > include/generated/autoconf.h\n\t@echo "fatal error: linux/kasan-checks.h: No such file or directory"\n\t@echo "make[3]: *** [Makefile:83: tools/bpf/resolve_btfids] Error 2"\n\t@exit 2\n' > "$d/Makefile" ;;
         clean) printf 'modules_prepare:\n\t@cat > stdin-seen.txt\n' > "$d/Makefile" ;;
-        stuck) printf 'modules_prepare:\n\t@rm -f .config\n\t@mkdir .config\n' > "$d/Makefile" ;;
+        todir) printf 'modules_prepare:\n\t@rm -f .config\n\t@mkdir .config\n' > "$d/Makefile" ;;
+        stuck) printf 'modules_prepare:\n\t@printf "/* no BTF */\\n" > include/generated/autoconf.h\n\t@chmod 0444 include/generated/autoconf.h\n\t@chmod 0555 include/generated\n' > "$d/Makefile" ;;
         create) printf 'modules_prepare:\n\t@printf "deps\\n" > include/config/auto.conf.cmd\n' > "$d/Makefile" ;;
         createdir) printf 'modules_prepare:\n\t@mkdir -p include/config/auto.conf.cmd/x\n' > "$d/Makefile" ;;
     esac
@@ -83,7 +85,10 @@ for f in $COPIES; do
     [ -f "$D/stdin-seen.txt" ] && [ ! -s "$D/stdin-seen.txt" ] && ok "$n: make got no stdin" || no "$n: make read stdin ($(cat "$D/stdin-seen.txt" 2>/dev/null))"
     D="$T/$n.clean"; tree "$D" clean; run "$D"
     [ "$RC" = 0 ] && cmp -s "$D/.config" "$D/.config.orig" && ok "$n: clean make returns 0, config untouched" || no "$n: clean case rc=$RC"
-    D="$T/$n.stuck"; tree "$D" stuck; run "$D"
+    D="$T/$n.todir"; tree "$D" todir; run "$D"
+    [ "$RC" = 0 ] && [ -f "$D/.config" ] && cmp -s "$D/.config" "$D/.config.orig" \
+        && ok "$n: a config file make turned into a directory is restored" || no "$n: directory case rc=$RC"
+    D="$T/$n.stuck"; tree "$D" stuck; run "$D"; chmod 0755 "$D/include/generated"
     [ "$RC" = 3 ] && ok "$n: unrestorable configuration returns 3" || no "$n: unrestorable case rc=$RC, want 3"
     D="$T/$n.create"; tree "$D" create; run "$D"
     [ "$RC" = 0 ] && [ ! -e "$D/include/config/auto.conf.cmd" ] && grep -q 'Kconfig created include/config/auto.conf.cmd; removed it' "$D/prep.log" \
