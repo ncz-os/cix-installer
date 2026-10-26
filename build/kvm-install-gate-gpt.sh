@@ -124,7 +124,9 @@ if [ "$NCZ_GATE_SERVER" = 1 ]; then
     # Console + Rescue Partition (assets/refind/ncz-refind-refresh.sh).
     NCZ_GATE_COMPONENTS="rescue-partition"
     export NCZ_GATE_COMPONENTS
-    export NCZ_GATE_UI_CHECK=0   # the installer UI is identical to desktop; the full set ran it
+    # The installer UI is NOT the desktop UI: a Magnetar Server medium names its
+    # edition on every screen and shows no component dialog. The UI check runs
+    # in its server mode at the end of a positive server run (NCZ_UI_CHECK_VARIANT).
     # The payload + bundle the gate serves (and the negative run points at
     # with its server off). Defaults: the build's layer work dir, one level
     # up from this gate's per-set work dir.
@@ -143,6 +145,40 @@ if [ "$NCZ_GATE_SERVER" = 1 ]; then
     fi
 fi
 # NCZ-GATE-SERVER-END
+
+# NCZ-GATE-SERVER-BRAND-BEGIN
+# ncz_gate_server_brand OS_RELEASE ISSUE REFIND_CONF -- the installed Magnetar
+# Server names its edition, exactly "Magnetar Server", where a person reads it
+# (os-release PRETTY_NAME and VARIANT, /etc/issue, every installed rEFInd menu
+# title) and never the desktop codename (PRETTY_NAME, VERSION, VARIANT,
+# /etc/issue, menu titles). The release identity keys (VERSION_ID,
+# VERSION_CODENAME, NCZ_RELEASE_CODENAME, LOGO) are machine-readable and stay
+# the release's. Prints one line per finding; returns 1 on any failure.
+# build/test-server-branding.sh runs this block on fixtures.
+ncz_gate_server_brand() {
+    local osr="$1" iss="$2" rconf="$3" bad=0 k l n_all n_srv
+    for k in PRETTY_NAME VARIANT; do
+        l=$(grep -m1 "^$k=" "$osr" 2>/dev/null || true)
+        case "$l" in
+            *"Magnetar Server"*) echo "ok: os-release $k names Magnetar Server" ;;
+            *) echo "FAIL: os-release $k does not name 'Magnetar Server' (got: ${l:-<missing>})"; bad=1 ;;
+        esac
+    done
+    l=$(grep -E '^(PRETTY_NAME|VERSION|VARIANT)=' "$osr" 2>/dev/null | grep -i cygnus || true)
+    [ -z "$l" ] || { echo "FAIL: os-release names the desktop codename: $(printf '%s' "$l" | tr '\n' ' ')"; bad=1; }
+    if grep -q 'Magnetar Server' "$iss" 2>/dev/null; then echo "ok: /etc/issue names Magnetar Server"
+    else echo "FAIL: /etc/issue does not name 'Magnetar Server' (got: $(head -1 "$iss" 2>/dev/null))"; bad=1; fi
+    l=$(grep -i cygnus "$iss" 2>/dev/null || true)
+    [ -z "$l" ] || { echo "FAIL: /etc/issue names the desktop codename: $l"; bad=1; }
+    n_all=$(grep -c '^menuentry ' "$rconf" 2>/dev/null || true)
+    n_srv=$(grep '^menuentry ' "$rconf" 2>/dev/null | grep -c 'Magnetar Server' || true)
+    if [ "${n_all:-0}" -ge 1 ] && [ "$n_all" = "$n_srv" ]; then echo "ok: all $n_all installed menu entries name Magnetar Server"
+    else echo "FAIL: $n_srv of ${n_all:-0} installed menu entries name 'Magnetar Server': $(grep '^menuentry ' "$rconf" 2>/dev/null | tr '\n' ' ')"; bad=1; fi
+    l=$(grep '^menuentry ' "$rconf" 2>/dev/null | grep -i cygnus || true)
+    [ -z "$l" ] || { echo "FAIL: installed menu entries name the desktop codename: $l"; bad=1; }
+    return $bad
+}
+# NCZ-GATE-SERVER-BRAND-END
 
 # NCZ-GATE-COMPONENTS-BEGIN
 # The options answer and the record the installer must write for it (same
@@ -1151,6 +1187,17 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ -s "$EVIDENCE/installed-refind.conf" ]; then
         || fail "server gate: the installed rEFInd default_selection is not a Console entry (got: $(grep '^default_selection' "$EVIDENCE/installed-refind.conf"))"
     echo "  server gate: installed boot menu is Console + Rescue Partition, default on the Console entry"
 fi
+# MAGNETAR(server): the installed system names its edition (ncz_gate_server_brand above).
+if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
+    "$DEBUGFS" -R "dump /etc/os-release $EVIDENCE/installed-os-release" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
+    "$DEBUGFS" -R "dump /etc/issue $EVIDENCE/installed-issue" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
+    if _brand_out=$(ncz_gate_server_brand "$EVIDENCE/installed-os-release" "$EVIDENCE/installed-issue" "$EVIDENCE/installed-refind.conf"); then
+        printf '%s\n' "$_brand_out" | sed 's/^/  server gate: /'
+    else
+        printf '%s\n' "$_brand_out" | sed 's/^/  server gate: /'
+        fail "server gate: the installed system does not name its edition 'Magnetar Server' everywhere (see above)"
+    fi
+fi
 # MAGNETAR(server): the installed root must carry NO desktop layer. The
 # server variant skips post-install/20-desktop.sh (BUILD_VARIANT=server), so
 # none of the packages that hook installs may be present. dpkg's status file
@@ -1342,14 +1389,14 @@ fi
 # after the component dialog (build/kvm-installer-ui-check.sh; needs pyte). A regression here fails the image.
 echo
 echo "  installer console UI check ($ARCH)"
-if [ "$NCZ_GATE_SERVER" = 1 ]; then
-    echo "    skipped (server run: the installer UI is the desktop UI, which ran in the full-option set)"
-elif [ "${NCZ_GATE_UI_CHECK:-1}" = 0 ]; then
+if [ "${NCZ_GATE_UI_CHECK:-1}" = 0 ]; then
     echo "    skipped for this option set (NCZ_GATE_UI_CHECK=0): the UI check does not depend on the options and runs in the full-option gate"
 elif [ "${NCZ_SKIP_UI_CHECK:-0}" = 1 ]; then
     echo "    SKIPPED by NCZ_SKIP_UI_CHECK=1 (not for shipping images)"
 elif [ -x "$SCRIPT_DIR/kvm-installer-ui-check.sh" ]; then
-    bash "$SCRIPT_DIR/kvm-installer-ui-check.sh" "$IMG" "$ARCH" "$WORK/ui-check" 2>&1 | sed 's/^/    /'
+    # A server run judges the Magnetar Server screens (no component dialog, "Magnetar Server" in every title, no "Cygnus").
+    _ui_variant=desktop; [ "$NCZ_GATE_SERVER" = 1 ] && _ui_variant=server
+    NCZ_UI_CHECK_VARIANT=$_ui_variant bash "$SCRIPT_DIR/kvm-installer-ui-check.sh" "$IMG" "$ARCH" "$WORK/ui-check" 2>&1 | sed 's/^/    /'
     [ "${PIPESTATUS[0]}" = 0 ] || fail "the installer console UI check failed (see $WORK/ui-check): chatter over the dialogs, an unbranded dialog, or a blank screen after the component dialog"
 else
     fail "build/kvm-installer-ui-check.sh is missing"

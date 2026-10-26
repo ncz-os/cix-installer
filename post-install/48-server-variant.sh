@@ -104,6 +104,32 @@ mkdir -p /etc/issue.d
 # Pure ASCII — agetty/console may not have a font with Unicode box-draw
 # chars; broken renderings on tty2 looked worse than no border at all.
 # Classic 1970s Unix / mainframe MOTD aesthetic.
+# MAGNETAR SERVER: an install from a Magnetar Server medium names its edition
+# (post-install/lib/ncz-brand.sh) and has no desktop to re-enable. A desktop
+# medium's console-only install keeps the block below unchanged.
+_ncz_medium=desktop
+_ncz_brand_lib="$(dirname "$0")/lib/ncz-brand.sh"
+[ -r "$_ncz_brand_lib" ] || _ncz_brand_lib=/usr/local/lib/cix-installer/post-install/lib/ncz-brand.sh
+if [ -r "$_ncz_brand_lib" ] && . "$_ncz_brand_lib"; then
+    _ncz_medium=$(ncz_brand_medium_variant /usr/local/lib/cix-installer)
+fi
+if [ "$_ncz_medium" = server ]; then
+    _ncz_ver=""
+    for _ncz_rf in /usr/local/lib/cix-installer/RELEASE /etc/cix-installer/RELEASE; do
+        [ -r "$_ncz_rf" ] || continue
+        _ncz_ver=$(sed -n 's/^NCZ_RELEASE_VERSION="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$_ncz_rf" | head -1)
+        [ -n "$_ncz_ver" ] && break
+    done
+    # Plain ASCII, no box (copy review H3). \4 is agetty's IPv4 address escape,
+    # \r and \m the kernel release and machine.
+    {
+        echo
+        ncz_brand_label server "" NCZ-OS "$_ncz_ver"
+        printf '%s\n' 'Log in below, or over the network with: ssh <user>@\4' \
+            'Other consoles: press Alt+F2 to Alt+F6.' 'Kernel \r (\m)'
+        echo
+    } > /etc/issue.d/10-ncz-server.issue
+else
 cat > /etc/issue.d/10-ncz-server.issue <<'EOF'
 
 ****************************************************************
@@ -127,6 +153,7 @@ cat > /etc/issue.d/10-ncz-server.issue <<'EOF'
    NCZ-OS  -  running kernel \r  (\m)
 
 EOF
+fi
 chmod 0644 /etc/issue.d/10-ncz-server.issue
 echo "[48] /etc/issue.d/10-ncz-server.issue written"
 

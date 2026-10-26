@@ -41,9 +41,8 @@ ttymsg() {
     _el=$(( $(date +%s 2>/dev/null || echo 0) - LATE_T0 ))
     printf '[ncz %s +%ss] %s\n' "$(date -u +%H:%M:%S)" "$_el" "$*" >"$TTY" 2>/dev/null || true
 }
-ttymsg "NCZ-OS installer: applying base OS + desktop + drivers (offline)."
-ttymsg "This phase takes several minutes. The main screen shows a 'please be"
-ttymsg "patient' status that updates per step; watch THIS console (Alt+F3) for detail."
+# (The first Alt+F3 lines are written right after the release identity below:
+# what they say depends on whether this is a Magnetar Server medium.)
 
 echo "=== late.sh ($(date -u)) ==="
 echo
@@ -84,7 +83,28 @@ done
 NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
 [ -n "$NCZ_RELEASE_CODENAME" ] && \
     NCZ_RELEASE_LABEL="$NCZ_RELEASE_LABEL $NCZ_RELEASE_CODENAME"
+# Magnetar Server medium (its ncz-payload/ carries ncz-fetch-payload.manifest):
+# the installer names the edition (post-install/lib/ncz-brand.sh, the one place
+# that spells it) and describes what a server install really does. A desktop
+# medium keeps every string below exactly as it was.
+NCZ_LATE_VARIANT=desktop
+NCZ_LATE_APPLYING="NCZ-OS installer: applying base OS + desktop + drivers (offline)."
+if [ -n "${NCZ_RELEASE_SOURCE:-}" ]; then
+    _ncz_rdir=${NCZ_RELEASE_SOURCE%/RELEASE}
+    if [ -r "$_ncz_rdir/post-install/lib/ncz-brand.sh" ] && . "$_ncz_rdir/post-install/lib/ncz-brand.sh"; then
+        NCZ_LATE_VARIANT=$(ncz_brand_medium_variant "$_ncz_rdir")
+    elif [ -f "$_ncz_rdir/ncz-fetch-payload.manifest" ]; then
+        echo "[late] WARN: Magnetar Server medium without post-install/lib/ncz-brand.sh; installer text keeps '$NCZ_RELEASE_LABEL'"
+    fi
+fi
+if [ "$NCZ_LATE_VARIANT" = server ]; then
+    NCZ_RELEASE_LABEL=$(ncz_brand_label server "$NCZ_RELEASE_LABEL" "$NCZ_PRODUCT_NAME" "$NCZ_RELEASE_VERSION")
+    NCZ_LATE_APPLYING="${NCZ_SERVER_EDITION} installer: setting up the downloaded system and drivers."
+fi
 export NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME NCZ_RELEASE_LABEL
+ttymsg "$NCZ_LATE_APPLYING"
+ttymsg "This phase takes several minutes. The main screen shows a 'please be"
+ttymsg "patient' status that updates per step; watch THIS console (Alt+F3) for detail."
 
 # Initialize debconf before source discovery and asset staging so even the
 # pre-hook portion of late_command has visible main-screen status. We inherit
@@ -114,6 +134,42 @@ if [ -n "$DEBIAN_HAS_FRONTEND" ] && [ -n "$DEBCONF_REDIR" ] \
     # The installer diagnostics login (root / rescue, docs/RECOVERY-LOGINS.md) stays on the
     # progress screen for the whole post-install phase (preseed/ncz-ui.sh).
     NCZ_DIAG_LOGIN_LINE=$( . /ncz/ncz-ui.sh 2>/dev/null && ncz_ui_diag_login 2>/dev/null )
+    if [ "$NCZ_LATE_VARIANT" = server ]; then
+    # Magnetar Server: same template keys, server text (no desktop, a text login).
+    cat > /tmp/ncz-progress.templates <<NCZTPL
+Template: nclawzero/install-progress
+Type: text
+Description: Installing ${NCZ_SERVER_EDITION} - this takes several minutes
+ ${NCZ_SERVER_EDITION} is being installed now. Keep the network cable plugged in.
+ For more detail, press Alt+F3.${NCZ_DIAG_LOGIN_LINE:+ Remote $NCZ_DIAG_LOGIN_LINE.}
+
+Template: nclawzero/install-step
+Type: text
+Description: \${STEP}
+
+Template: nclawzero/remove-media
+Type: note
+Description: ${NCZ_SERVER_EDITION} is installed - remove the USB stick now
+ The installation finished successfully.
+ .
+ Remove the USB stick now. Then choose Continue. The server restarts to a
+ text login. Log in on screen, or over the network with ssh.
+ .
+ If the USB stick is left in, the installer may start again.
+
+Template: nclawzero/remove-media-gpu
+Type: note
+Description: ${NCZ_SERVER_EDITION} is installed - remove the USB stick now
+ The installation finished successfully.
+ .
+ \${GPUNOTE}
+ .
+ Remove the USB stick now. Then choose Continue. The server restarts to a
+ text login. Log in on screen, or over the network with ssh.
+ .
+ If the USB stick is left in, the installer may start again.
+NCZTPL
+    else
     cat > /tmp/ncz-progress.templates <<NCZTPL
 Template: nclawzero/install-progress
 Type: text
@@ -152,6 +208,7 @@ Description: ${NCZ_RELEASE_LABEL} install complete - REMOVE THE USB STICK NOW
  desktop. If the USB stick is left inserted, the machine may boot back
  into the installer instead of your new system.
 NCZTPL
+    fi
     if . /usr/share/debconf/confmodule 2>/dev/null; then
         if debconf-loadtemplate nclawzero /tmp/ncz-progress.templates 2>/dev/null; then
             DEBCONF_OK=1
@@ -1165,6 +1222,12 @@ hb_tick() {
     [ "$hb_elapsed" -ge 0 ] 2>/dev/null || hb_elapsed=0
     hb_label=${hb_hook%.sh}
     hb_label=$(printf '%s' "$hb_label" | sed 's/^[0-9][0-9]-//; s/-/ /g')
+    # A Magnetar Server install never shows the desktop codename: a hook named
+    # after it ("62-cygnus-screensaver-default") is labelled without it.
+    if [ "${NCZ_LATE_VARIANT:-desktop}" = server ] && [ -n "$NCZ_RELEASE_CODENAME" ]; then
+        _hb_cn=$(printf '%s' "$NCZ_RELEASE_CODENAME" | tr '[:upper:]' '[:lower:]')
+        case "$hb_label" in "$_hb_cn "*) hb_label=${hb_label#"$_hb_cn "} ;; esac
+    fi
     case "$hb_event" in
         APT)
             hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total, ${hb_elapsed}s) - packages ${hb_pct:-0}%: $hb_detail"

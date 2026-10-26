@@ -769,6 +769,8 @@ parity:
 	build/test-t2-wifi-no-unload.sh
 	build/test-release-identity.sh
 	build/check-release-identity-gate.sh conf $(ROOT)/release.conf
+	build/test-server-branding.sh
+	build/check-server-codename.sh
 	build/test-base-stamp.sh
 	build/test-reap-images.sh
 	REPO_ROOT=$(ROOT) bash build/test-amd64-kernel-classifier.sh

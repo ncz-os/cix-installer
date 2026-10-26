@@ -94,6 +94,7 @@ with open(os.path.join(work, "fb-frames.txt"), "w") as fh:
         fh.write("%04d %d\n" % (i, (i % 2) if static else (i % 10)))
 
 ss = os.path.join(work, "serial-screens"); os.makedirs(ss, exist_ok=True)
+server = os.environ.get("NCZ_UI_CHECK_VARIANT", "desktop") == "server"
 hdr = "NCZ-OS 26.10 Cygnus | %s | build abc1234" % ("amd64 (T2/x86_64)" if a.arch == "amd64" else "arm64 (Sky1)")
 def frame(title, body):
     # Real newt title bar: l qqq u TITLE t qqq k, then body rows, then bottom border.
@@ -128,6 +129,27 @@ if mode in ("text_swapped_choices", "amd_swapped_choices"):
     # 2026-10-17 CHIMERA: Choices/Choices-C swapped -> the chooser answers its own labels and d-i refuses the value
     erase.append(("not in the candidate set", "ncz/components: 'Full Singularity desktop' is not in the candidate set"))
 rows = steps + erase
+if server:
+    # Magnetar Server medium (preseed/ncz-ui.sh ncz_ui_title): "Magnetar Server - Step n of 7: <action>" titles, the
+    # full edition on the id line, no component dialog, and a review that states the download before the erase.
+    # srv_cygnus: the pre-fix brand; srv_components_shown: the 2026-10-26 cyclops selector; srv_desktop_review: the
+    # review promises a desktop; srv_no_download: the review omits the network requirement.
+    full = "NCZ-OS 26.10 Cygnus" if mode == "srv_cygnus" else "NCZ-OS 26.10 Magnetar Server"
+    hdr = "%s | %s | build abc1234" % (full, "amd64 (T2/x86_64)" if a.arch == "amd64" else "arm64 (Sky1)")
+    short = "NCZ-OS 26.10 Cygnus" if mode == "srv_cygnus" else "Magnetar Server"
+    acts = ["Choose your country", "Choose a user name", "Choose a password", "Type the password again"]
+    rows = [("%s - Step %d of 7: %s" % (short, i + 1, t), "") for i, t in enumerate(acts)]
+    rows.append(("%s - What we found" % short, ""))
+    if mode == "srv_components_shown":
+        rows.append(("%s - optional components" % short, "[*] Full Singularity desktop"))
+    rows += [("%s - Step 5 of 7: Choose the disk to ERASE" % short, ""),
+             ("%s - Step 6 of 7: Choose the file system" % short, "")]
+    review = ("  Target disk:       /dev/vda\n  Root filesystem:   btrfs\n  Rescue partition:  yes\n")
+    if mode == "srv_desktop_review":
+        review += "  Components:        Full Singularity desktop\n"
+    if mode != "srv_no_download":
+        review += "This install downloads about 3 GB after the disk is erased.\n"
+    rows.append(("%s - Step 7 of 7: Erase disk and install?" % short, review))
 for i in range(24):
     t = i * 3
     if i < len(rows):
@@ -153,13 +175,13 @@ if mode == "arm_debconf_assert":
     serial += "debconf: ./src/question.c:276: lookup_directive: Assertion `'!' == directive[0]' failed.\n"
 w(os.path.join(work, "serial0.log"), serial)
 with open(os.path.join(work, "answers.log"), "w") as fh:
-    fh.write("t=25s rule 0 optional components=\\r\n")
+    fh.write("t=25s rule 0 %s=\\r\n" % ("Choose your country" if server else "optional components"))
 PY
 chmod +x "$STUB"
 
 # --- harness: run the real wrapper with the stub capture and shimmed python ----------------------
 run_case() {
-    local name="$1" arch="$2" fixture="$3" expect_rc="$4" expect_out="$5"
+    local name="$1" arch="$2" fixture="$3" expect_rc="$4" expect_out="$5" variant="${6:-desktop}"
     local w="$WORK/$name"
     mkdir -p "$w"
     # Point the wrapper's boot-screens.py at our stub by shadowing HERE via a copy of the wrapper dir.
@@ -171,7 +193,7 @@ run_case() {
     mkdir -p "$wdir/lib"
     [ -f "$HERE/lib/priv.sh" ] && cp "$HERE/lib/priv.sh" "$wdir/lib/priv.sh"
     local out rc
-    out="$(NCZ_TEST_FIXTURE="$fixture" NCZ_PYTE_PYTHON="$SHIM/pyte.py" PYTHONPATH="$SHIM" \
+    out="$(NCZ_TEST_FIXTURE="$fixture" NCZ_PYTE_PYTHON="$SHIM/pyte.py" PYTHONPATH="$SHIM" NCZ_UI_CHECK_VARIANT="$variant" \
            bash "$wdir/kvm-installer-ui-check.sh" /dev/null "$arch" "$w/work" 2>&1)"
     rc=$?
     if [ "$expect_rc" = "0" ] && [ $rc -ne 0 ]; then
@@ -252,6 +274,25 @@ fi
 # an erase answered No and a dead debconf frontend are named, not left to their symptoms
 run_case arm_erase_declined arm64 arm_erase_declined 1 "erase confirmation was answered No" || fail=1
 run_case arm_debconf_assert arm64 arm_debconf_assert 1 "debconf frontend aborted" || fail=1
+
+# --- Magnetar Server medium (NCZ_UI_CHECK_VARIANT=server, the KVM gate's server set) ------------
+# 2026-10-26, first real server install (cyclops): every dialog said "Cygnus" and the desktop component selector
+# was shown. The server UI check must pass a correct capture and name both defects.
+for _a in amd64 arm64; do
+    run_case "srv_valid_$_a" "$_a" srv_valid 0 "UI CHECK PASS ($_a, Magnetar Server)" server || fail=1
+    run_case "srv_cygnus_$_a" "$_a" srv_cygnus 1 "names the desktop codename 'Cygnus'" server || fail=1
+    run_case "srv_components_shown_$_a" "$_a" srv_components_shown 1 "component selector appeared" server || fail=1
+    run_case "srv_desktop_review_$_a" "$_a" srv_desktop_review 1 "lists desktop components" server || fail=1
+    run_case "srv_no_download_$_a" "$_a" srv_no_download 1 "downloads about 3 GB" server || fail=1
+done
+# the server capture never sends an answer for the component dialog it must not show; rule 0 is the country
+if [ "$(head -1 "$WORK/srv_valid_arm64/work/answers-argv.txt" 2>/dev/null)" = 'Choose your country=\r' ] \
+   && ! grep -q 'optional components' "$WORK/srv_valid_arm64/work/answers-argv.txt"; then
+    echo "ok srv_rule0_region"
+else
+    echo "FAIL srv_rule0_region: a server capture must not answer a component dialog"; cat "$WORK/srv_valid_arm64/work/answers-argv.txt"; fail=1
+fi
+run_case bad_variant arm64 text_valid 1 "NCZ_UI_CHECK_VARIANT must be desktop or server" bogus || fail=1
 
 if [ $fail -ne 0 ]; then
     echo "test-installer-ui-wrapper: FAIL" >&2

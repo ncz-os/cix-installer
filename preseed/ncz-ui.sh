@@ -1,7 +1,9 @@
 #!/bin/sh
 # ncz-ui.sh -- shared look of every NCZ d-i dialog (arm64 and amd64). Sourced by the helpers; POSIX sh (busybox ash).
 #
-#   ncz_ui_brand   "NCZ-OS 26.10 Cygnus"           (dialog frame titles)
+#   ncz_ui_brand   "NCZ-OS 26.10 Cygnus"           (dialog frame titles; "NCZ-OS 26.10 Magnetar Server" on a server medium)
+#   ncz_ui_title   "[n/8] NCZ-OS 26.10 Cygnus - ..." | "Magnetar Server - Step n of 7: ..." (dialog titles)
+#   ncz_ui_variant "desktop" | "server"            (which medium this is; post-install/lib/ncz-brand.sh)
 #   ncz_ui_id      "arm64 (Sky1) | build 7e1d9c2 | diagnostics login: root / rescue"  (last line of every dialog body)
 #   ncz_ui_diag_login  "diagnostics login: root / rescue" (empty when ncz_diag=0), also in the boot banner
 #
@@ -58,7 +60,47 @@ ncz_ui_brand() {
         _rc=$(_ncz_ui_field "$_f" NCZ_RELEASE_CODENAME)
         [ -n "$_rv$_rc" ] && break
     done
-    echo "NCZ-OS${_rv:+ $_rv}${_rc:+ $_rc}"
+    _ncz_lbl="NCZ-OS${_rv:+ $_rv}${_rc:+ $_rc}"
+    # A Magnetar Server medium names its edition instead of the desktop
+    # codename (post-install/lib/ncz-brand.sh); a desktop medium prints the
+    # line above unchanged.
+    if [ "$(ncz_ui_variant)" = server ] && _ncz_ui_brand_lib; then
+        _ncz_lbl=$(ncz_brand_label server "$_ncz_lbl" NCZ-OS "$_rv")
+    fi
+    echo "$_ncz_lbl"
+}
+
+# _ncz_ui_brand_lib -- source the medium's post-install/lib/ncz-brand.sh, the one
+# place that names the server edition. NCZ_BRAND_SH overrides (tests). Returns 1
+# when it cannot be found.
+_ncz_ui_brand_lib() {
+    command -v ncz_brand_label >/dev/null 2>&1 && return 0
+    _ncz_bdir=$(_ncz_ui_dir) || _ncz_bdir=""
+    for _ncz_bl in "${NCZ_BRAND_SH:-}" \
+                   "${NCZ_MEDIA_DIR:+$NCZ_MEDIA_DIR/post-install/lib/ncz-brand.sh}" \
+                   "${_ncz_bdir:+$_ncz_bdir/post-install/lib/ncz-brand.sh}"; do
+        [ -n "$_ncz_bl" ] && [ -r "$_ncz_bl" ] && . "$_ncz_bl" && return 0
+    done
+    return 1
+}
+
+# ncz_ui_variant -- "server" when the install medium is a Magnetar Server medium
+# (its ncz-payload/ carries ncz-fetch-payload.manifest), else "desktop". Read from
+# the medium, which partman/early_command has mounted (NCZ_MEDIA_DIR) before the
+# first operator-facing dialog. NCZ_UI_VARIANT=server|desktop overrides (tests).
+ncz_ui_variant() {
+    case "${NCZ_UI_VARIANT:-}" in server|desktop) echo "$NCZ_UI_VARIANT"; return 0 ;; esac
+    _ncz_vdir=$(_ncz_ui_dir) || _ncz_vdir=""
+    if _ncz_ui_brand_lib; then
+        ncz_brand_medium_variant "${NCZ_MEDIA_DIR:-}" "$_ncz_vdir"
+        return 0
+    fi
+    # No helper on the medium: the same marker test, so a server medium never
+    # falls back to the desktop flow just because a file is missing.
+    for _ncz_vd in "${NCZ_MEDIA_DIR:-}" "$_ncz_vdir"; do
+        [ -n "$_ncz_vd" ] && [ -f "$_ncz_vd/ncz-fetch-payload.manifest" ] && { echo server; return 0; }
+    done
+    echo desktop
 }
 
 # The installer diagnostics login (preseed/diag-console.sh, network-console) is the documented
@@ -93,6 +135,32 @@ ncz_ui_step() {
     echo "[${1}/${NCZ_UI_TOTAL_STEPS}] "
 }
 
+# ncz_ui_title N DESKTOP_TEXT SERVER_ACTION -- one dialog title (debconf Description).
+#   desktop medium: "[N/8] NCZ-OS 26.10 Cygnus - DESKTOP_TEXT", exactly the title the
+#                   dialogs carried before (no step mark when N is empty)
+#   server medium:  "Magnetar Server - Step n of 7: SERVER_ACTION". The full edition
+#                   name ("NCZ-OS 26.10 Magnetar Server") is on the id line (ncz_ui_id),
+#                   so the title fits d-i's ~61 columns. A server medium has no
+#                   component dialog (step 5): disk / root fs / erase confirm are
+#                   steps 5, 6 and 7 of 7. N empty: "Magnetar Server - SERVER_ACTION".
+ncz_ui_title() {
+    if [ "$(ncz_ui_variant)" = server ] && _ncz_ui_brand_lib; then
+        if [ -n "$1" ]; then
+            _ncz_sn=$1
+            [ "$_ncz_sn" -gt 5 ] 2>/dev/null && _ncz_sn=$((_ncz_sn - 1))
+            echo "${NCZ_SERVER_EDITION} - Step ${_ncz_sn} of $((NCZ_UI_TOTAL_STEPS - 1)): $3"
+        else
+            echo "${NCZ_SERVER_EDITION} - $3"
+        fi
+        return 0
+    fi
+    if [ -n "$1" ]; then
+        echo "$(ncz_ui_step "$1")$(ncz_ui_brand) - $2"
+    else
+        echo "$(ncz_ui_brand) - $2"
+    fi
+}
+
 ncz_ui_id() {
     _arch=""; _bv=""
     if _dir=$(_ncz_ui_dir); then
@@ -123,5 +191,9 @@ ncz_ui_id() {
             ;;
     esac
     _dl=$(ncz_ui_diag_login)
-    echo "${_arch}${_bv:+ | build ${_bv##*-}}${_dl:+ | $_dl}"
+    # A server medium's dialog titles carry only "Magnetar Server"; the full
+    # edition name leads the id line instead.
+    _ncz_idb=""
+    [ "$(ncz_ui_variant)" = server ] && _ncz_idb="$(ncz_ui_brand) | "
+    echo "${_ncz_idb}${_arch}${_bv:+ | build ${_bv##*-}}${_dl:+ | $_dl}"
 }

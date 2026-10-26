@@ -44,6 +44,7 @@ for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(di
     [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
 done
 command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; ncz_ui_step() { echo "[${1}/8] "; }; }
+command -v ncz_ui_title >/dev/null 2>&1 || ncz_ui_title() { if [ -n "$1" ]; then echo "$(ncz_ui_step "$1")$(ncz_ui_brand) - $2"; else echo "$(ncz_ui_brand) - $2"; fi; }
 
 log() {
     echo "[ncz chooser] $*"
@@ -295,7 +296,7 @@ Template: ncz/target-disk
 Type: select
 Choices-C: ${CHOICES}
 Choices: ${LABELS}
-Description: $(ncz_ui_step 6)$(ncz_ui_brand) - select the TARGET DISK (it will be ERASED)
+Description: $(ncz_ui_title 6 "select the TARGET DISK (it will be ERASED)" "Choose the disk to ERASE")
  The disk you choose will be COMPLETELY ERASED and NCZ-OS installed on it.
  .
  Detected disks:
@@ -349,7 +350,7 @@ Type: select
 Choices-C: btrfs, ext4
 Choices: btrfs (snapshots + compression), ext4 (simple, robust)
 Default: btrfs
-Description: $(ncz_ui_step 7)$(ncz_ui_brand) - root (/) filesystem
+Description: $(ncz_ui_title 7 "root (/) filesystem" "Choose the file system")
  Choose the filesystem for the root (/) partition.
  .
  btrfs - snapshots + transparent compression (NCZ default).
@@ -391,6 +392,31 @@ if [ -z "$OVR_DISK" ] || [ -z "$OVR_FS" ]; then
     case ",$_ncz_sel," in *",rescue-partition,"*) _ncz_disp="${_ncz_disp:+$_ncz_disp + }rescue partition" ;; esac
     case ",$_ncz_sel," in *",cuda,"*) _ncz_disp="${_ncz_disp:+$_ncz_disp + }NVIDIA driver + CUDA" ;; esac
     [ -n "$_ncz_disp" ] || _ncz_disp="no optional components"
+    if command -v ncz_ui_variant >/dev/null 2>&1 && [ "$(ncz_ui_variant)" = server ]; then
+    # Magnetar Server: no components to review (the server record is fixed), and the
+    # network requirement is stated BEFORE anything is erased: the payload download
+    # runs after partitioning, into the new root filesystem.
+    cat > /tmp/ncz-confirm.templates <<TPL
+Template: ncz/confirm-erase
+Type: boolean
+Default: false
+Description: $(ncz_ui_title 8 "" "Erase disk and install?")
+ Please review your choices:
+ .
+   Target disk:       ${CHOSEN_DISK}
+   Root filesystem:   ${CHOSEN_FS}
+   Rescue partition:  ${_ncz_resc}
+ .
+ This install downloads about 3 GB after the disk is erased. Keep a
+ wired network cable plugged in until it finishes. If the download
+ fails, the disk is left erased with nothing installed on it. Restart
+ from the USB stick to try again.
+ .
+ CONTINUING ERASES EVERYTHING ON ${CHOSEN_DISK}. This cannot be undone.
+ .
+ $(ncz_ui_id)
+TPL
+    else
     cat > /tmp/ncz-confirm.templates <<TPL
 Template: ncz/confirm-erase
 Type: boolean
@@ -407,6 +433,7 @@ Description: $(ncz_ui_step 8)$(ncz_ui_brand) - ERASE ${CHOSEN_DISK} and install?
  .
  $(ncz_ui_id)
 TPL
+    fi
     debconf-loadtemplate ncz /tmp/ncz-confirm.templates 2>/dev/null || abort "could not load the erase-confirmation template (never erase without asking)"
     db_set   ncz/confirm-erase false 2>/dev/null || true
     db_fset  ncz/confirm-erase seen false || abort "db_fset confirm-erase seen failed"
@@ -503,7 +530,7 @@ _ncz_prog=0
 cat > /tmp/ncz-erase.templates <<TPL
 Template: ncz/erase-title
 Type: text
-Description: $(ncz_ui_brand) - erasing ${CHOSEN_DISK}
+Description: $(ncz_ui_title "" "erasing ${CHOSEN_DISK}" "Erasing ${CHOSEN_DISK}")
 
 Template: ncz/erase-info
 Type: text

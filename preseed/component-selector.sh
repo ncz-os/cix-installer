@@ -89,6 +89,23 @@ for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(di
 done
 command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; ncz_ui_step() { echo "[${1}/8] "; }; }
 
+# MAGNETAR SERVER: a server medium (its ncz-payload/ carries ncz-fetch-payload.manifest;
+# post-install/lib/ncz-brand.sh) has no desktop layer and no optional-component dialog.
+# Its record is fixed: the rescue partition, which the documented server menu
+# (Console + Rescue Partition) needs, and nothing else -- exactly what the server KVM
+# gate installs with ncz_components=rescue-partition. Every consumer below
+# (disk-fs-chooser.sh, the debootstrap stub, late.sh's BUILD_VARIANT/COMPONENTS_*
+# bits, run-all.sh) reads the same record it reads for that gate run.
+NCZ_SERVER_COMPONENTS="rescue-partition"
+NCZ_COMP_VARIANT=desktop
+if command -v ncz_ui_variant >/dev/null 2>&1; then
+    NCZ_COMP_VARIANT=$(ncz_ui_variant)
+else
+    for _ncz_md in "${NCZ_MEDIA_DIR:-}" /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
+        [ -n "$_ncz_md" ] && [ -f "$_ncz_md/ncz-fetch-payload.manifest" ] && { NCZ_COMP_VARIANT=server; break; }
+    done
+fi
+
 log() {
     echo "[ncz components] $*"
     # Audit trail: d-i's syslogd keeps this and copies it to /var/log/installer/syslog on the target.
@@ -150,6 +167,23 @@ for tok in $CMD; do
         ncz_components_timeout=*) : ;; # deprecated no-op (2026-08-24): the poll-and-kill timeout WAS the wedge bug; see prompt block below
     esac
 done
+# A server medium has no desktop: desktop and its companions are dropped from an
+# override (nothing left = the server record, never a prompt).
+if [ "$NCZ_COMP_VARIANT" = server ] && [ -n "$OVR" ]; then
+    _srv_ovr=""
+    _ov_old=$IFS; IFS=','
+    for _tok in $OVR; do
+        _tok=$(echo "$_tok" | tr -d ' \t')
+        case "$_tok" in
+            "") ;;
+            desktop|browsers|wallpaper-rotator)
+                log "WARNING: ncz_components=$_tok: a Magnetar Server medium has no desktop -- dropping" ;;
+            *) [ -z "$_srv_ovr" ] && _srv_ovr="$_tok" || _srv_ovr="$_srv_ovr,$_tok" ;;
+        esac
+    done
+    IFS=$_ov_old
+    OVR="${_srv_ovr:-$NCZ_SERVER_COMPONENTS}"
+fi
 
 # --- build the question -----------------------------------------------------
 # The full candidate set is the default answer (opt-OUT: today's behaviour).
@@ -224,6 +258,9 @@ if [ -n "$_OVR_FILTERED" ]; then
 elif [ -n "$_SAVED" ]; then
     CHOSEN="$_SAVED"
     log "already answered this boot: keeping components = $CHOSEN (no dialog)"
+elif [ "$NCZ_COMP_VARIANT" = server ]; then
+    CHOSEN="$NCZ_SERVER_COMPONENTS"
+    log "Magnetar Server medium: no component dialog; components = $CHOSEN"
 else
     if [ -n "$OVR" ]; then
         # override was present but resolved to empty (all tokens unknown) —

@@ -30,7 +30,23 @@ NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
 NCZ_BASE_DESCRIPTION="${NCZ_BASE_LABEL:-$NCZ_BASE_NAME $NCZ_BASE_VERSION}"
 [ -n "${NCZ_BRAND_PRINT_IDENTITY:-}" ] || [ "$RELEASE_FILE" = /etc/cix-installer/RELEASE ] || \
     install -D -m 0644 "$RELEASE_FILE" /etc/cix-installer/RELEASE
-echo "[50] $NCZ_RELEASE_LABEL brand identity"
+# MAGNETAR SERVER: which medium this install came from (MEDIUM_VARIANT=server, written by
+# preseed/late.sh; post-install/lib/ncz-brand.sh decides). Used below for the server identity.
+MEDIUM_VARIANT=desktop
+_ncz_brand_lib="$(dirname "$0")/lib/ncz-brand.sh"
+[ -r "$_ncz_brand_lib" ] || _ncz_brand_lib=/usr/local/lib/cix-installer/post-install/lib/ncz-brand.sh
+if [ -r "$_ncz_brand_lib" ] && . "$_ncz_brand_lib"; then
+    if [ -n "${NCZ_BRAND_PRINT_IDENTITY:-}" ]; then
+        # Test seam: the medium comes from NCZ_BRAND_MEDIUM (default desktop),
+        # never from the host running the test.
+        MEDIUM_VARIANT="${NCZ_BRAND_MEDIUM:-desktop}"
+    else
+        MEDIUM_VARIANT=$(ncz_brand_medium_variant /usr/local/lib/cix-installer)
+    fi
+elif [ -r /usr/local/lib/cix-installer/MEDIUM_VARIANT ]; then
+    echo "[50] WARN: no post-install/lib/ncz-brand.sh; a Magnetar Server install keeps the release label" >&2
+fi
+[ "$MEDIUM_VARIANT" = server ] || echo "[50] $NCZ_RELEASE_LABEL brand identity"
 
 BUILD_ID_VALUE=""
 if [ -f /usr/local/lib/cix-installer/BUILD_VERSION ]; then
@@ -69,6 +85,31 @@ fi
 # e.g. "NCZ-OS 26.10 Cygnus Desktop, based on Debian Testing (Forky)"
 OS_PRETTY_NAME="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}, based on ${NCZ_BASE_DESCRIPTION}"
 OS_VERSION="${NCZ_RELEASE_VERSION} (${SKU_NAME} ${VARIANT_LABEL}, based on ${NCZ_BASE_DESCRIPTION})"
+# The console banner first lines (/etc/issue, /etc/issue.net).
+ISSUE_LINE="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}  ·  NCZ_ISSUE_SOC_PLACEHOLDER  (Kernel: \r)"
+ISSUE_NET_LINE="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}  (NCZ_ISSUE_SOC_PLACEHOLDER)"
+
+# MAGNETAR SERVER: an install from a Magnetar Server MEDIUM (MEDIUM_VARIANT=server,
+# written by preseed/late.sh) is named by its edition everywhere a person reads
+# it -- "NCZ-OS 26.10 Magnetar Server" -- and os-release gains VARIANT/VARIANT_ID.
+# The edition name comes from post-install/lib/ncz-brand.sh (the one place that
+# spells it). The machine identity keys (VERSION_ID, VERSION_CODENAME,
+# NCZ_RELEASE_CODENAME, LOGO) stay the release's, as on desktop. A desktop
+# medium (including its console-only installs, BUILD_VARIANT=server) is not
+# touched by this block: every string above stays as it was.
+OS_VARIANT_LINES=""
+if [ "$MEDIUM_VARIANT" = server ]; then
+    SERVER_LABEL=$(ncz_brand_label server "" "$NCZ_PRODUCT_NAME" "$NCZ_RELEASE_VERSION")
+    OS_PRETTY_NAME="${SERVER_LABEL}, based on ${NCZ_BASE_DESCRIPTION}"
+    OS_VERSION="${NCZ_RELEASE_VERSION} (${NCZ_SERVER_EDITION}, based on ${NCZ_BASE_DESCRIPTION})"
+    # Console text is ASCII (no middle dot) on the server.
+    ISSUE_LINE="${SERVER_LABEL} - NCZ_ISSUE_SOC_PLACEHOLDER - kernel \r"
+    ISSUE_NET_LINE="${SERVER_LABEL} (NCZ_ISSUE_SOC_PLACEHOLDER)"
+    OS_VARIANT_LINES="VARIANT=\"${NCZ_SERVER_EDITION}\"
+VARIANT_ID=magnetar-server
+"
+    echo "[50] Magnetar Server medium: ${SERVER_LABEL}"
+fi
 # os-release LOGO: the greeter (and boot-splash) look up
 # /usr/share/{pixmaps,icons/hicolor/256x256/apps}/$LOGO.png, and 55-greeter.sh
 # installs the approved mark at exactly that path (with a legacy ncz.png
@@ -78,6 +119,7 @@ OS_VERSION="${NCZ_RELEASE_VERSION} (${SKU_NAME} ${VARIANT_LABEL}, based on ${NCZ
 if [ -n "${NCZ_BRAND_PRINT_IDENTITY:-}" ]; then
     printf 'PRETTY_NAME=%s\nVERSION=%s\nDISTRIB_DESCRIPTION=%s\n' \
         "$OS_PRETTY_NAME" "$OS_VERSION" "$OS_PRETTY_NAME"
+    [ "$MEDIUM_VARIANT" = server ] && printf '%sISSUE=%s\n' "$OS_VARIANT_LINES" "$ISSUE_LINE"
     exit 0
 fi
 
@@ -92,7 +134,7 @@ NCZ_VARIANT=${VARIANT}
 NCZ_RELEASE_VERSION="${NCZ_RELEASE_VERSION}"
 NCZ_RELEASE_CODENAME="${NCZ_RELEASE_CODENAME}"
 NCZ_BASE_VERSION="${NCZ_BASE_VERSION}"
-ID=ncz
+${OS_VARIANT_LINES}ID=ncz
 ID_LIKE=debian
 HOME_URL="https://gitlab.com/nclawzero"
 SUPPORT_URL="https://gitlab.com/nclawzero/cix-installer/-/issues"
@@ -110,14 +152,14 @@ DISTRIB_DESCRIPTION="${OS_PRETTY_NAME}"
 EOF_LSB
 
 cat > /etc/issue <<EOF_ISSUE
-${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}  ·  NCZ_ISSUE_SOC_PLACEHOLDER  (Kernel: \r)
+${ISSUE_LINE}
 Build: ${BUILD_ID_VALUE}  (${BUILD_DATE_VALUE})
 IP:    NCZ_ISSUE_IP_PLACEHOLDER
 
 EOF_ISSUE
 
 cat > /etc/issue.net <<EOF_ISSUENET
-${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}  (NCZ_ISSUE_SOC_PLACEHOLDER)
+${ISSUE_NET_LINE}
 Build: ${BUILD_ID_VALUE}  (${BUILD_DATE_VALUE})
 
 EOF_ISSUENET
@@ -287,8 +329,13 @@ SOC="unknown"; GPU="none detected"; NPU="none detected"
 if [ -x /usr/local/bin/ncz-hw-brand ]; then
     eval "$(/usr/local/bin/ncz-hw-brand 2>/dev/null | sed -E 's/^(SOC|GPU|NPU)=/\1="/; s/$/"/')"
 fi
+# A Magnetar Server install records its edition as os-release VARIANT (50-brand.sh);
+# its title row names the edition, never the desktop codename.
+TITLE="  $NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $SKU  ·  $SOC edge agent"
+OS_EDITION=$(. /etc/os-release 2>/dev/null; echo "${VARIANT:-}")
+[ -n "$OS_EDITION" ] && TITLE="  $NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $OS_EDITION - $SOC"
 ROWS=(
-  "  $NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $SKU  ·  $SOC edge agent"
+  "$TITLE"
   ""
   "  Agents:  zeroclaw · openclaw · hermes · claude-code"
   "  Kernel:  $(uname -r)"

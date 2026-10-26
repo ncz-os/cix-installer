@@ -98,6 +98,35 @@ def theme_source_dir() -> Path:
     return REPO_ROOT / "assets" / "refind" / "cygnus"
 
 
+BRAND_LIB = REPO_ROOT / "post-install" / "lib" / "ncz-brand.sh"
+
+
+def server_edition() -> str:
+    """The server edition name, read from post-install/lib/ncz-brand.sh (the one
+    place that spells it; the installer dialogs, late.sh, 50-brand.sh and the
+    installed rEFInd menu source the same file). Fails loudly when absent: a
+    Magnetar Server boot menu must never fall back to the desktop codename."""
+    import re
+
+    m = re.search(
+        r'^NCZ_SERVER_EDITION="([^"]+)"$',
+        BRAND_LIB.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if not m:
+        raise SystemExit(f"FATAL: no NCZ_SERVER_EDITION in {BRAND_LIB}")
+    return m.group(1)
+
+
+def image_variant() -> str:
+    """NCZ_VARIANT of this image build (build/build-installer-image.sh exports it;
+    unset = desktop, the historical default)."""
+    v = os.environ.get("NCZ_VARIANT", "desktop").strip().lower() or "desktop"
+    if v not in ("desktop", "server"):
+        raise SystemExit(f"NCZ_VARIANT must be desktop or server, got {v!r}")
+    return v
+
+
 def build_info_line(arch: str) -> str:
     """Real, dynamic 'what build is this' text for the installer's own
     boot menu -- product/version/codename from release.conf, the real
@@ -132,6 +161,10 @@ def build_info_line(arch: str) -> str:
     kver_text = " / ".join(kver_bits) if kver_bits else "kernel line unknown"
 
     ident = f"{product} {version} {codename}".strip()
+    if image_variant() == "server":
+        # Magnetar Server medium: "NCZ-OS 26.10 Magnetar Server" (the edition in
+        # the codename's place, never the codename). Desktop keeps the line above.
+        ident = f"{product} {version} {server_edition()}".strip()
     return f"{ident} -- built {build_date} -- {kver_text}"
 
 

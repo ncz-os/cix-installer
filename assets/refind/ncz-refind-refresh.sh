@@ -837,6 +837,21 @@ if [ -z "$NCZ_MENU_VARIANT" ] && [ -r /usr/local/lib/cix-installer/MEDIUM_VARIAN
     esac
 fi
 [ -n "$NCZ_MENU_VARIANT" ] || NCZ_MENU_VARIANT=desktop
+# The server menu titles name the edition (post-install/lib/ncz-brand.sh, the
+# one place that spells it), never the desktop release codename. A desktop
+# menu keeps NCZ_RELEASE_SHORT exactly as computed above.
+if [ "$NCZ_MENU_VARIANT" = server ]; then
+    if [ -r /usr/local/lib/cix-installer/post-install/lib/ncz-brand.sh ] \
+       && . /usr/local/lib/cix-installer/post-install/lib/ncz-brand.sh; then
+        NCZ_RELEASE_SHORT=$(ncz_brand_label server "$NCZ_RELEASE_SHORT" "${NCZ_PRODUCT_NAME:-NCZ-OS}" "${NCZ_RELEASE_VERSION:-}")
+    else
+        echo "  WARN: server medium but no post-install/lib/ncz-brand.sh; menu titles keep '$NCZ_RELEASE_SHORT'"
+    fi
+    # The legacy ncz-banner.png carries an old release name in its pixels; the
+    # theme hides it, but it would show whenever the theme is absent. A server
+    # menu never references it.
+    REFIND_BANNER=""
+fi
 if [ "$NCZ_MENU_VARIANT" != desktop ] && [ "$NEXT_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="7.3 Console (All Accelerators, Mali)"
     echo "  server medium: Console + Rescue Partition menu"

@@ -77,6 +77,7 @@ for _u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh "$DIR/ncz-ui.sh"; do
     [ -n "$_u" ] && [ -r "$_u" ] && . "$_u" && break
 done
 command -v ncz_ui_brand >/dev/null 2>&1 || ncz_ui_brand() { echo "NCZ-OS"; }
+command -v ncz_ui_title >/dev/null 2>&1 || ncz_ui_title() { echo "$(ncz_ui_brand) - $2"; }
 command -v ncz_ui_id >/dev/null 2>&1 || ncz_ui_id() { echo ""; }
 
 _log() { echo "[ncz hwsummary] $*" >&2; }
@@ -498,7 +499,7 @@ _verbatim() {
 _template() {
     printf 'Template: ncz/hw-summary\n'
     printf 'Type: note\n'
-    printf 'Description: %s - HARDWARE SUMMARY\n' "$(ncz_ui_brand)"
+    printf 'Description: %s\n' "$(ncz_ui_title "" "HARDWARE SUMMARY" "What we found")"
     printf ' This is the machine NCZ-OS is being installed on.\n'
     printf ' .\n'
     # Every body line is one item, so it is written VERBATIM: debconf reflows a

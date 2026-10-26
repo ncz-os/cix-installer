@@ -109,7 +109,10 @@ EOF_DISK
 $(gate_set_server "$_s")
 EOF_SRV
     _w="$WORKROOT/$_s"
-    _ui=0; [ "$_s" = full ] && _ui="${NCZ_GATE_UI_CHECK:-1}"
+    # The installer UI check runs in the full desktop set and in the positive
+    # Magnetar Server set (its screens differ: no component dialog, the edition
+    # in every title); the other sets share the full set's UI.
+    _ui=0; { [ "$_s" = full ] || [ "$_s" = server ]; } && _ui="${NCZ_GATE_UI_CHECK:-1}"
     _coverage=target-logs-and-verifier
     [ "$_fs" = ext4 ] || _coverage=SKIP-target-logs-and-verifier
     [ "$_ui" != 0 ] || _coverage="$_coverage;SKIP-UI"
