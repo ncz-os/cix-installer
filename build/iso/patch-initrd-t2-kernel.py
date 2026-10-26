@@ -481,6 +481,59 @@ def verify_one_kernel_initrd(initrd: Path, our_kver: str) -> dict:
             "debian_kernel_status_pkgs": 0}
 
 
+# d-i packages the NCZ installer USES that only reach it through the pinned
+# netinst substrate's initrd, with the file each one must deliver. A substrate
+# that drops one fails the build here, not on a headless box.
+#   wget-udeb: preseed/ncz-fetch-payload.sh downloads the Magnetar payload with
+#   GNU wget; d-i's busybox has no wget applet (2026-10-26 KVM gate, rc=127).
+# Their provenance is the pinned forky snapshot (forky-provenance.py checks the
+# initrd's dpkg status against it), so they need no NCZ ledger row.
+REQUIRED_INITRD_PACKAGES = {
+    "wget-udeb": "usr/bin/wget",
+}
+
+
+def verify_required_initrd_packages(initrd: Path,
+                                    required: dict | None = None) -> dict:
+    """Fail the build if the FINAL initrd lacks a package the installer uses:
+    it must be in the effective dpkg status (the later archive wins) and its
+    file must be a member."""
+    if required is None:
+        required = REQUIRED_INITRD_PACKAGES
+    if not initrd.is_file():
+        raise RuntimeError(f"FATAL: patched initrd missing: {initrd}")
+    stream = _decompress_single_gzip(initrd)
+    members: set = set()
+    status = ""
+    try:
+        for entry in _parse_newc_entries(stream):
+            n = entry["name"].removeprefix("./")
+            members.add(n)
+            if n in (_STATUS_REL, "usr/" + _STATUS_REL):
+                status = entry["payload"].decode("utf-8", "surrogateescape")
+    except CpioError as exc:
+        raise RuntimeError(f"FATAL: malformed initrd cpio {initrd}: {exc}")
+    present = set()
+    for block in status.split("\n\n"):
+        m = re.search(r"^Package: (\S+)$", block, re.MULTILINE)
+        st = re.search(r"^Status: (.+)$", block, re.MULTILINE)
+        if m and st and st.group(1).strip() in ("install ok unpacked",
+                                                 "install ok installed"):
+            present.add(m.group(1))
+    missing = []
+    for pkg, path in sorted(required.items()):
+        if pkg not in present:
+            missing.append(f"{pkg} (not in the initrd dpkg status)")
+        elif path not in members:
+            missing.append(f"{pkg} (no /{path} member)")
+    if missing:
+        raise RuntimeError(
+            f"FATAL: {initrd} lacks installer package(s) the NCZ installer "
+            f"uses: {missing} -- the pinned substrate changed; pin one that "
+            f"carries them")
+    return {"required_initrd_packages": sorted(required)}
+
+
 def verify_no_braille_initrd(initrd: Path) -> dict:
     """Fail the build if the FINAL initrd still carries any braille member.
 
@@ -1354,6 +1407,8 @@ def patch_t2_kernel(
         verify_one_kernel_initrd(out_initrd, kver)
         # No braille stack: brltty must never start in the installer.
         verify_no_braille_initrd(out_initrd)
+        # The d-i packages the NCZ installer relies on are really there.
+        verify_required_initrd_packages(out_initrd)
         log(
             f"    verified initrd carries /{initrd_verify['preseed_member']} "
             f"({initrd_verify['preseed_sha256'][:12]}) and "

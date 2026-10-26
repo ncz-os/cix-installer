@@ -268,5 +268,49 @@ class NoBrailleInstallerTest(unittest.TestCase):
             self.assertEqual(MODULE.verify_no_braille_initrd(good)["braille_members"], 0)
 
 
+class RequiredInitrdPackagesTest(unittest.TestCase):
+    """wget-udeb must be in the final initrd: the Magnetar fetcher uses GNU
+    wget because d-i's busybox has no wget applet (2026-10-26)."""
+
+    STATUS_OK = ("Package: wget-udeb\nStatus: install ok unpacked\nVersion: 1.25.0-3\n\n"
+                 "Package: busybox-udeb\nStatus: install ok unpacked\nVersion: 1:1.38.0-3\n")
+
+    def _gz(self, td, data):
+        p = Path(td) / "initrd.gz"
+        p.write_bytes(gzip.compress(data))
+        return p
+
+    def test_passes_with_status_and_binary(self):
+        with tempfile.TemporaryDirectory() as td:
+            good = self._gz(td, newc([("usr/bin/wget", 0o100755, b"ELF"),
+                                      ("var/lib/dpkg/status", 0o100644, self.STATUS_OK.encode())]))
+            self.assertEqual(MODULE.verify_required_initrd_packages(good)["required_initrd_packages"],
+                             ["wget-udeb"])
+
+    def test_fails_without_the_status_record(self):
+        with tempfile.TemporaryDirectory() as td:
+            bad = self._gz(td, newc([("usr/bin/wget", 0o100755, b"ELF"),
+                                     ("var/lib/dpkg/status", 0o100644,
+                                      b"Package: busybox-udeb\nStatus: install ok unpacked\n")]))
+            with self.assertRaisesRegex(RuntimeError, "wget-udeb .not in the initrd dpkg status"):
+                MODULE.verify_required_initrd_packages(bad)
+
+    def test_fails_without_the_binary(self):
+        with tempfile.TemporaryDirectory() as td:
+            bad = self._gz(td, newc([("var/lib/dpkg/status", 0o100644, self.STATUS_OK.encode())]))
+            with self.assertRaisesRegex(RuntimeError, "no /usr/bin/wget member"):
+                MODULE.verify_required_initrd_packages(bad)
+
+    def test_the_later_status_wins(self):
+        """The overlay's pruned status (later archive) is the effective one."""
+        with tempfile.TemporaryDirectory() as td:
+            bad = self._gz(td, newc([("usr/bin/wget", 0o100755, b"ELF"),
+                                     ("var/lib/dpkg/status", 0o100644, self.STATUS_OK.encode())])
+                               + newc([("var/lib/dpkg/status", 0o100644,
+                                        b"Package: busybox-udeb\nStatus: install ok unpacked\n")]))
+            with self.assertRaises(RuntimeError):
+                MODULE.verify_required_initrd_packages(bad)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -92,6 +92,31 @@ verify() {
     return 0
 }
 
+# ------------------------------------------------------------- downloader ---
+# Picked by what actually works, never assumed. The 2026-10-26 Magnetar KVM
+# gate: this script called `busybox wget`, d-i's busybox has no wget applet
+# (rc=127 on every attempt), and the install died with no rootfs. d-i ships
+# GNU wget (wget-udeb; build/iso/patch-initrd-t2-kernel.py fails the build if
+# the final initrd lacks it); use it first, busybox only when
+# its wget applet answers, and fail LOUDLY before any fetch otherwise. Every
+# file is still sha256-verified below whichever client fetched it.
+DOWNLOADER=""
+if command -v wget >/dev/null 2>&1 && wget --version 2>/dev/null | grep -q "GNU Wget"; then
+    DOWNLOADER=gnu
+elif command -v busybox >/dev/null 2>&1 && busybox wget --help >/dev/null 2>&1; then
+    DOWNLOADER=busybox
+fi
+# download <-c|""> <out> <url>: one attempt; the retry loop below owns retries.
+download() {
+    if [ "$DOWNLOADER" = gnu ]; then
+        # --tries=1: GNU wget retries 20 times by itself, which would hide the
+        # bounded loop and its serial-console reporting.
+        wget -q $1 --tries=1 --timeout="$CONNECT_TIMEOUT" -O "$2" "$3" 2>/dev/null
+    else
+        busybox wget -q $1 --timeout="$CONNECT_TIMEOUT" -O "$2" "$3" 2>/dev/null
+    fi
+}
+
 # ---------------------------------------------------------------- one artifact
 # fetch_one <name> <url> <sha256> <mode>
 #   mode=file  -> $DEST_DIR/<name> is the downloaded file
@@ -127,10 +152,10 @@ fetch_one() {
         if [ -s "$_part" ]; then
             _got_sz=$(wc -c < "$_part" 2>/dev/null | tr -d " ")
             say "[FETCH] $_name attempt $_attempt: resuming from ${_got_sz} bytes"
-            busybox wget -q -c --timeout="$CONNECT_TIMEOUT" -O "$_part" "$_url" 2>/dev/null
+            download -c "$_part" "$_url"
         else
             say "[FETCH] $_name attempt $_attempt: starting fresh"
-            busybox wget -q --timeout="$CONNECT_TIMEOUT" -O "$_part" "$_url" 2>/dev/null
+            download "" "$_part" "$_url"
         fi
         _rc=$?
 
@@ -187,6 +212,12 @@ done
 # Refuse to start writing into a destination we cannot write. The install
 # medium is mounted read-only; finding that out after a multi-GB download is
 # the worst possible time to find out.
+if [ -z "$DOWNLOADER" ]; then
+    say "[FETCH] FATAL: no working downloader: GNU wget (wget-udeb) is not installed and busybox has no wget applet -- cannot fetch the Magnetar payload"
+    say "[FETCH] No root filesystem was installed."
+    exit 1
+fi
+say "[FETCH] downloader: $([ "$DOWNLOADER" = gnu ] && echo "GNU wget" || echo "busybox wget")"
 mkdir -p "$DEST_DIR" 2>/dev/null
 if [ ! -d "$DEST_DIR" ] || [ ! -w "$DEST_DIR" ]; then
     say "[FETCH] FATAL: payload destination $DEST_DIR is not writable -- cannot fetch the Magnetar payload"
