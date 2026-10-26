@@ -42,12 +42,14 @@ fi
 # On Server (headless) those libs aren't present and aren't carried
 # offline, so skip cix-gstreamer there; it ships on Desktop where
 # 20-desktop pulls its libs online from ports.
+# BEGIN cix-variant
 IS_SERVER=0
 if [ -f /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
     case "$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/BUILD_VARIANT)" in
         server|headless) IS_SERVER=1 ;;
     esac
 fi
+# END cix-variant
 
 mkdir -p /var/log/cix-install
 
@@ -108,6 +110,7 @@ cd "$ASSETS" || { echo "ERROR: cannot cd to $ASSETS"; exit 1; }
 #      81-vpu.sh, 82/83 GPU hooks, 86-cix-dkms-register.sh).
 #      Installing the 6.6 .ko packages just pollutes the modules tree
 #      with files that fail vermagic check. Skip entirely.)
+# BEGIN cix-deb-filter
 DEBS=()
 NOE_UMD_DEB=""
 for deb in ./*.deb; do
@@ -161,9 +164,20 @@ for deb in ./*.deb; do
         cix-gstreamer_*.deb|cix-ffmpeg_*.deb|cix-libav*_*.deb)
             echo "    skipping $deb (shadows distro media libraries via ldconfig'd /usr/share/cix/lib)"
             continue ;;
+        # Server (BUILD_VARIANT=server: a Magnetar medium, or any install with
+        # the desktop component off) has no GTK4 shell. libgtk4-layer-shell0
+        # depends on libgtk-4-1, which `apt-get install -fy` below then pulls
+        # from the offline pool: the Preview4 arm64 server gate found
+        # libgtk-4-1 on the server root (2026-10-26).
+        libgtk4-layer-shell0_*.deb)
+            if [ "$IS_SERVER" = 1 ]; then
+                echo "    skipping $deb (server: no GTK4 shell; it would pull in libgtk-4-1)"
+                continue
+            fi ;;
     esac
     DEBS+=("$deb")
 done
+# END cix-deb-filter
 
 echo "Skipping vermagic-incompatible cix-*-driver debs (post-Sky1-switch):"
 for deb in ./*.deb; do
