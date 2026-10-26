@@ -35,6 +35,12 @@ tar czf "$SRV/ncz-assets-amd64.tar.gz" -C "$SRV" base.squashfs \
     || { echo "setup: cannot make the assets bundle" >&2; exit 1; }
 tar tzf "$SRV/ncz-assets-amd64.tar.gz" | grep -qx base.squashfs \
     || { echo "setup: the assets bundle does not carry base.squashfs" >&2; exit 1; }
+# option B: the offline apt pool, a repo/ tree the fetcher unpacks
+mkdir -p "$WORK/poolsrc/repo/dists/forky/main/binary-amd64" "$WORK/poolsrc/repo/pool/main"
+printf 'Package: x\n' > "$WORK/poolsrc/repo/dists/forky/main/binary-amd64/Packages"
+printf 'deb' > "$WORK/poolsrc/repo/pool/main/x_1_all.deb"
+tar czf "$SRV/ncz-pool-amd64.tar.gz" -C "$WORK/poolsrc" repo \
+    || { echo "setup: cannot make the pool payload" >&2; exit 1; }
 
 # --- 1: the gate's invocation, verbatim (python3 - <heredoc> arg1 arg2) ---
 # Exactly the form ncz_gate_srv_start() uses: the heredoc is the script and
@@ -107,6 +113,9 @@ want_p=$(sha256sum "$SRV/base.squashfs" | cut -d' ' -f1)
 got_a=$(curl -fsS --max-time 10 "http://127.0.0.1:$PORT/ncz-assets-amd64.tar.gz" | sha256sum | cut -d' ' -f1)
 want_a=$(sha256sum "$SRV/ncz-assets-amd64.tar.gz" | cut -d' ' -f1)
 [ "$got_a" = "$want_a" ] && ok "serving: the assets bundle bytes match (sha256 $got_a)" || bad "serving: assets bundle sha256 mismatch"
+got_l=$(curl -fsS --max-time 10 "http://127.0.0.1:$PORT/ncz-pool-amd64.tar.gz" | sha256sum | cut -d' ' -f1)
+want_l=$(sha256sum "$SRV/ncz-pool-amd64.tar.gz" | cut -d' ' -f1)
+[ "$got_l" = "$want_l" ] && ok "serving: the offline apt pool bytes match (sha256 $got_l)" || bad "serving: pool sha256 mismatch"
 
 # --- 3: the gate's per-artifact pin check catches a wrong URL --------------
 # A URL the server does not serve must not answer 200 (the gate proves both
@@ -144,9 +153,15 @@ DEST="$WORK/fetch"; mkdir -p "$DEST"
 {
     printf 'base.squashfs\thttp://127.0.0.1:%s/base.squashfs\t%s\tfile\n' "$PORT" "$want_p"
     printf 'ncz-assets-amd64.tar.gz\thttp://127.0.0.1:%s/ncz-assets-amd64.tar.gz\t%s\tfile\n' "$PORT" "$want_a"
+    printf 'ncz-pool-amd64.tar.gz\thttp://127.0.0.1:%s/ncz-pool-amd64.tar.gz\t%s\tuntar\n' "$PORT" "$want_l"
 } > "$DEST/ncz-fetch-payload.manifest"
 if NCZ_PAYLOAD_DIR="$DEST" "$FETCH" > "$WORK/fetch-live.log" 2>&1; then
-    ok "fetcher: both artifacts fetched + sha256-verified against the live server"
+    ok "fetcher: all three artifacts fetched + sha256-verified against the live server"
+    [ -s "$DEST/repo/dists/forky/main/binary-amd64/Packages" ] && [ -f "$DEST/repo/pool/main/x_1_all.deb" ] \
+        && ok "fetcher: the pool unpacked as <staging>/repo (where the stub binds the target's /cdrom)" \
+        || bad "fetcher: the pool did not unpack to <staging>/repo"
+    grep -q "ncz-pool-amd64.tar.gz verified sha256=" "$WORK/fetch-live.log" \
+        && ok "fetcher: the pool's 'verified sha256=' line the gate asserts is present" || bad "fetcher: no pool 'verified sha256=' line"
 else
     bad "fetcher: a fetch that should succeed failed: $(tail -3 "$WORK/fetch-live.log")"
 fi
@@ -182,6 +197,16 @@ else
     ok "negative: no half-written payload left behind (no partial file on the staging root)"
 fi
 grep -q "No root filesystem was installed" "$WORK/fetch-off.log" && ok "negative: the log carries the guest's refusal line the gate asserts" || bad "negative: no 'No root filesystem was installed' line: $(tail -2 "$WORK/fetch-off.log")"
+
+# --- 7: the gate serves and checks the pool (option B) ---------------------
+G="$ROOT/kvm-install-gate-gpt.sh"
+grep -q 'cp "$NCZ_GATE_SERVER_POOL" "$SRV_DIR/' "$G" && ok "gate: the pool is copied into the served dir" || bad "gate: the pool is not served"
+grep -q '\$1 ~ /^ncz-pool-/' "$G" && grep -q '\$1 ~ /^ncz-assets-/' "$G" \
+    && ok "gate: the bundle and pool pins are read by name (two untar rows)" || bad "gate: untar rows are not told apart"
+grep -q '_srv_check_url "$_srv_lurl"' "$G" && ok "gate: the pinned pool URL must answer 200 before the guest starts" || bad "gate: pool URL not checked"
+grep -q 'for _fa in base.squashfs "$_srv_name" "$_srv_pool_name"; do' "$G" \
+    && ok "gate: the guest must log 'verified sha256=' for the pool too" || bad "gate: pool fetch not asserted"
+grep -q 'no offline apt pool to serve' "$G" && ok "gate: a missing pool payload is a gate error" || bad "gate: missing pool not refused"
 
 echo
 [ "$FAIL" -eq 0 ] && echo "test-kvm-gate-server: ALL PASSED" || { echo "test-kvm-gate-server: FAILURES" >&2; exit 1; }

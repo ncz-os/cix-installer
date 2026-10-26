@@ -1992,14 +1992,15 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
                     "--variant server, but the medium has no "
                     f"ncz-payload/{SERVER_FETCH_MANIFEST}: it is not a server "
                     "medium")
-            # Magnetar option A (2026-10-26): the offline apt closure stays on
-            # the medium (the r159 stub, late.sh and the post-install hooks
-            # install from it). A medium without it cannot install; refuse it.
-            if not pool_debs or not pool_indexes:
+            # Magnetar option B (operator 2026-10-26): the offline apt closure
+            # is fetched as the pinned ncz-pool payload (--payload scans it). A
+            # medium that still carries one is not the medium the build makes.
+            if pool_debs or pool_indexes:
                 raise Unreadable(
-                    "--variant server, but the medium carries no offline apt "
+                    "--variant server, but the medium carries an offline apt "
                     f"pool ({pool_debs} .deb under pool/, {pool_indexes} "
-                    "regular Packages index under dists/): it cannot install")
+                    "regular Packages index under dists/): option B fetches "
+                    "it as the pinned pool payload")
             return rep
         if not layers:
             raise Unreadable(

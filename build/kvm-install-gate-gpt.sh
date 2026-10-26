@@ -131,12 +131,15 @@ if [ "$NCZ_GATE_SERVER" = 1 ]; then
     _srv_parent="$(cd "$(dirname "$WORK")" 2>/dev/null && pwd || echo "$WORK")"
     NCZ_GATE_SERVER_PAYLOAD="${NCZ_GATE_SERVER_PAYLOAD:-$_srv_parent/payload/base.squashfs}"
     NCZ_GATE_SERVER_ASSETS="${NCZ_GATE_SERVER_ASSETS:-$_srv_parent/ncz-assets-$ARCH.tar.gz}"
+    # Option B (operator 2026-10-26): the offline apt pool is the third artifact.
+    NCZ_GATE_SERVER_POOL="${NCZ_GATE_SERVER_POOL:-$_srv_parent/ncz-pool-$ARCH.tar.gz}"
     [ -f "$IMG.receipt.json" ] || { echo "GATE FAIL: server mode needs $IMG.receipt.json to confirm the medium is a server image" >&2; exit 2; }
     _rv=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("variant","desktop"))' "$IMG.receipt.json")
     [ "$_rv" = server ] || { echo "GATE FAIL: $IMG.receipt.json records variant=$_rv; server gate needs a server image (build with NCZ_VARIANT=server)" >&2; exit 2; }
     if [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
         [ -f "$NCZ_GATE_SERVER_PAYLOAD" ] || { echo "GATE FAIL: no base.squashfs to serve at $NCZ_GATE_SERVER_PAYLOAD (set NCZ_GATE_SERVER_PAYLOAD)" >&2; exit 2; }
         [ -f "$NCZ_GATE_SERVER_ASSETS" ] || { echo "GATE FAIL: no asset bundle to serve at $NCZ_GATE_SERVER_ASSETS (set NCZ_GATE_SERVER_ASSETS)" >&2; exit 2; }
+        [ -f "$NCZ_GATE_SERVER_POOL" ] || { echo "GATE FAIL: no offline apt pool to serve at $NCZ_GATE_SERVER_POOL (set NCZ_GATE_SERVER_POOL)" >&2; exit 2; }
     fi
 fi
 # NCZ-GATE-SERVER-END
@@ -465,6 +468,7 @@ ncz_gate_srv_start() {
     rm -rf "$SRV_DIR"; mkdir -p "$SRV_DIR"
     cp "$NCZ_GATE_SERVER_PAYLOAD" "$SRV_DIR/base.squashfs"
     cp "$NCZ_GATE_SERVER_ASSETS" "$SRV_DIR/$(basename "$NCZ_GATE_SERVER_ASSETS")"
+    cp "$NCZ_GATE_SERVER_POOL" "$SRV_DIR/$(basename "$NCZ_GATE_SERVER_POOL")"
     # `python3 - arg1 arg2 <<'PY'` runs the heredoc as the script and passes
     # the args through sys.argv[1:] (argv[0] is '-'); a local run of exactly
     # this form is part of build/test-kvm-gate-server.sh, so the invocation
@@ -552,13 +556,15 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     _srv_man="$WORK/srv-manifest.tsv"
     if ncz_gate_srv_extract_manifest "$TEST_IMG" "$_srv_man"; then
         _srv_purl=$(awk -F'\t' '$1=="base.squashfs" && $4=="file" {print $2}' "$_srv_man" | tail -1)
-        _srv_aurl=$(awk -F'\t' '$4=="untar" {print $2}' "$_srv_man" | tail -1)
-        [ -n "$_srv_purl" ] && [ -n "$_srv_aurl" ] || _srv_purl=""
+        # two untar rows since option B: the asset bundle and the offline apt pool
+        _srv_aurl=$(awk -F'\t' '$4=="untar" && $1 ~ /^ncz-assets-/ {print $2}' "$_srv_man" | tail -1)
+        _srv_lurl=$(awk -F'\t' '$4=="untar" && $1 ~ /^ncz-pool-/ {print $2}' "$_srv_man" | tail -1)
+        [ -n "$_srv_purl" ] && [ -n "$_srv_aurl" ] && [ -n "$_srv_lurl" ] || _srv_purl=""
     fi
     if [ -z "${_srv_purl:-}" ]; then
         # Fail closed: serving a guessed default while the guest follows a pin
         # we could not read (QEMU user-net has outbound NAT) proves nothing.
-        fail "server gate: could not read the base.squashfs and asset-bundle pins from ncz-fetch-payload.manifest on $TEST_IMG"
+        fail "server gate: could not read the base.squashfs, asset-bundle and offline-pool pins from ncz-fetch-payload.manifest on $TEST_IMG"
     fi
     _srv_base="${_srv_purl%/base.squashfs}"
     _srv_pinhost=${_srv_purl#*://}; _srv_pinhost=${_srv_pinhost%%/*}; _srv_pinhost=${_srv_pinhost%%:*}
@@ -572,6 +578,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # The served file must match the manifest's URL path (usually
     # ncz-assets-<arch>.tar.gz; the pin is authoritative).
     _srv_name=$(basename "${_srv_aurl%%\?*}")
+    _srv_pool_name=$(basename "${_srv_lurl%%\?*}")
     # Armed before the start, which can exit while its server is still alive;
     # INT/TERM too, until the QEMU-phase traps replace these.
     trap 'ncz_srv_cleanup' EXIT
@@ -580,8 +587,12 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     if [ "$(basename "$NCZ_GATE_SERVER_ASSETS")" != "$_srv_name" ]; then
         cp "$NCZ_GATE_SERVER_ASSETS" "$SRV_DIR/$_srv_name"
     fi
+    if [ "$(basename "$NCZ_GATE_SERVER_POOL")" != "$_srv_pool_name" ]; then
+        cp "$NCZ_GATE_SERVER_POOL" "$SRV_DIR/$_srv_pool_name"
+    fi
     echo "  server payload at $_srv_purl"
     echo "  server bundle  at ${_srv_base%/}/$_srv_name (served from $SRV_DIR)"
+    echo "  server pool    at ${_srv_base%/}/$_srv_pool_name"
     # The guest's fetcher will follow the EXACT URLs the medium pins; if a
     # pinned path does not exist on THIS server, the guest fails at install
     # time. Prove both artifacts answer 200 NOW (a full HTTP GET read to the
@@ -614,9 +625,11 @@ PY
     }
     _srv_code_p=$(_srv_check_url "$_srv_purl")
     _srv_code_a=$(_srv_check_url "$_srv_aurl")
+    _srv_code_l=$(_srv_check_url "$_srv_lurl")
     case "$_srv_code_p" in "HTTP/"*" 200 "*) : ;; *) fail "server gate: the payload is not being served at ${_srv_purl} (got: ${_srv_code_p}) -- the guest's fetcher would refuse it at install time" ;; esac
     case "$_srv_code_a" in "HTTP/"*" 200 "*) : ;; *) fail "server gate: the asset bundle is not being served at ${_srv_aurl} (got: ${_srv_code_a}) -- the guest's fetcher would refuse it at install time" ;; esac
-    echo "  both artifacts answer 200 on the gate's server"
+    case "$_srv_code_l" in "HTTP/"*" 200 "*) : ;; *) fail "server gate: the offline apt pool is not being served at ${_srv_lurl} (got: ${_srv_code_l}) -- the guest's fetcher would refuse it at install time" ;; esac
+    echo "  all three artifacts answer 200 on the gate's server"
 elif [ "$NCZ_GATE_SERVER" = 1 ]; then
     # Negative run: the server is deliberately absent. The guest's fetcher
     # must fail loud and bounded; phase 2 and the finish checks below are
@@ -1047,7 +1060,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # install (the debootstrap stub), so on a fresh gate install both
     # artifacts must have been downloaded: a "skip ...: already present"
     # line means they came from the medium or a stale root, not this server.
-    for _fa in base.squashfs "$_srv_name"; do
+    for _fa in base.squashfs "$_srv_name" "$_srv_pool_name"; do
         ncz_norm_log "$ILOG" | grep -aF "[FETCH] $_fa verified sha256=" >/dev/null \
             || fail "server gate: the serial log has no '[FETCH] $_fa verified sha256=' line -- $_fa was not fetched from the gate's server and verified (it may have come from the medium or a stale staging root)"
     done

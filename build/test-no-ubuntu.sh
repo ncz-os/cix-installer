@@ -1212,11 +1212,14 @@ spec.loader.exec_module(fp)
 d = sys.argv[2]; img = os.path.join(d, "medium.img"); pay = os.path.join(d, "payload")
 open(os.path.join(pay, "base.squashfs"), "wb").write(b"base-bytes")
 open(os.path.join(pay, "ncz-assets-amd64.tar.gz"), "wb").write(b"bundle-bytes")
+open(os.path.join(pay, "ncz-pool-amd64.tar.gz"), "wb").write(b"pool-bytes")
 sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
 pins = {"payload_name": "base.squashfs", "payload_url": "http://10.0.2.2/base.squashfs",
         "payload_sha256": sha(os.path.join(pay, "base.squashfs")),
         "assets_name": "ncz-assets-amd64.tar.gz", "assets_url": "http://10.0.2.2/ncz-assets-amd64.tar.gz",
-        "assets_sha256": sha(os.path.join(pay, "ncz-assets-amd64.tar.gz"))}
+        "assets_sha256": sha(os.path.join(pay, "ncz-assets-amd64.tar.gz")),
+        "pool_name": "ncz-pool-amd64.tar.gz", "pool_url": "http://10.0.2.2/ncz-pool-amd64.tar.gz",
+        "pool_sha256": sha(os.path.join(pay, "ncz-pool-amd64.tar.gz"))}
 def receipt(variant, of=pins):
     json.dump({"variant": variant, "ncz_payload": {"online_fetch": dict(of)}}, open(img + ".receipt.json", "w"))
 def fails(fn):
@@ -1238,13 +1241,19 @@ if fp.server_pins(img, {"ncz_payload": {"online_fetch": pins}}) != pins:
 # the medium's manifest must pin exactly what the receipt pins
 mf = os.path.join(d, "manifest")
 open(mf, "w").write(f"base.squashfs\t{pins['payload_url']}\t{pins['payload_sha256']}\tfile\n"
-                    f"ncz-assets-amd64.tar.gz\t{pins['assets_url']}\t{pins['assets_sha256']}\tuntar\n")
+                    f"ncz-assets-amd64.tar.gz\t{pins['assets_url']}\t{pins['assets_sha256']}\tuntar\n"
+                    f"ncz-pool-amd64.tar.gz\t{pins['pool_url']}\t{pins['pool_sha256']}\tuntar\n")
 if fails(lambda: fp.check_server_manifest(img, mf, pins)):
     bad.append("matching manifest failed")
 if not fails(lambda: fp.check_server_manifest(img, mf, dict(pins, payload_sha256="0" * 64))):
     bad.append("manifest/receipt mismatch passed")
 if not fails(lambda: fp.check_server_manifest(img, mf + ".absent", pins)):
     bad.append("missing manifest passed")
+if not fails(lambda: fp.check_server_manifest(img, mf, dict(pins, pool_sha256="0" * 64))):
+    bad.append("manifest/receipt pool-pin mismatch passed")
+f = fails(lambda: fp.scan_server_payload(None, img, pay, dict(pins, pool_sha256="1" * 64), os.path.join(d, "owned")))
+if not any("does not match the receipt pin pool_sha256" in x[2] for x in f):
+    bad.append(f"pool sha mismatch not caught: {f}")
 # a payload file that is not the pinned bytes fails before anything is scanned
 os.makedirs(os.path.join(d, "owned"), exist_ok=True)
 f = fails(lambda: fp.scan_server_payload(None, img, pay, dict(pins, payload_sha256="1" * 64), os.path.join(d, "owned")))
@@ -1281,12 +1290,13 @@ for t in mkfs.ext4 mkfs.vfat sgdisk sfdisk debugfs; do
     command -v "$t" >/dev/null 2>&1 || PATH="$PATH:/usr/sbin:/sbin"
     command -v "$t" >/dev/null 2>&1 || { bad "fixture tool $t missing" ""; }
 done
-mk_srv_medium() {   # <name> <bad|good|tampered|nopool> <payload dir>
+mk_srv_medium() {   # <name> <bad|good|tampered|withpool> <payload dir>
     local r="$T/srvmed/$1" kind="$2" pd="$3"
     rm -rf "$r"; mkdir -p "$r/data/dists/forky/main/debian-installer/binary-amd64" "$r/data/pool/main" "$r/data/ncz-payload"
     : > "$r/data/dists/forky/main/debian-installer/binary-amd64/Packages"
-    if [ "$kind" != bad ] && [ "$kind" != nopool ]; then
-        # the offline apt closure a server medium must carry (option A)
+    if [ "$kind" = bad ] || [ "$kind" = withpool ]; then
+        # option A's shape: the offline apt closure on the medium (option B
+        # fetches it as the pinned pool payload, so this must fail)
         mkdir -p "$r/data/dists/forky/main/binary-amd64"
         cp "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb" "$r/data/pool/main/"
         printf 'Package: fonts-liberation\nVersion: 1:2.1.5-3\nArchitecture: all\nMaintainer: %s\nFilename: pool/main/fonts-liberation_1%%3a2.1.5-3_all.deb\nSize: %s\nSHA256: %s\nDescription: fixture\n\n' \
@@ -1296,10 +1306,10 @@ mk_srv_medium() {   # <name> <bad|good|tampered|nopool> <payload dir>
         printf 'layer' > "$r/data/ncz-payload/base.squashfs"
     else
         local psha asha
-        psha="$(sha "$pd/base.squashfs")"; asha="$(sha "$pd/ncz-assets-amd64.tar.gz")"
+        psha="$(sha "$pd/base.squashfs")"; asha="$(sha "$pd/ncz-assets-amd64.tar.gz")"; lsha="$(sha "$pd/ncz-pool-amd64.tar.gz" 2>/dev/null || printf '3%.0s' {1..64})"
         [ "$kind" = tampered ] && psha="$(printf '2%.0s' {1..64})"
-        printf 'base.squashfs\thttp://10.0.2.2/base.squashfs\t%s\tfile\nncz-assets-amd64.tar.gz\thttp://10.0.2.2/ncz-assets-amd64.tar.gz\t%s\tuntar\n' \
-            "$psha" "$asha" > "$r/data/ncz-payload/ncz-fetch-payload.manifest"
+        printf 'base.squashfs\thttp://10.0.2.2/base.squashfs\t%s\tfile\nncz-assets-amd64.tar.gz\thttp://10.0.2.2/ncz-assets-amd64.tar.gz\t%s\tuntar\nncz-pool-amd64.tar.gz\thttp://10.0.2.2/ncz-pool-amd64.tar.gz\t%s\tuntar\n' \
+            "$psha" "$asha" "$lsha" > "$r/data/ncz-payload/ncz-fetch-payload.manifest"
     fi
     mkfs.ext4 -q -F -L NCZDATA -d "$r/data" "$r/data.img" 16M >/dev/null 2>&1 || return 1
     mkfs.vfat -C "$r/esp.img" 4096 -n NCZESP >/dev/null 2>&1 || return 1
@@ -1310,11 +1320,16 @@ mk_srv_medium() {   # <name> <bad|good|tampered|nopool> <payload dir>
     dd if="$r/data.img" of="$r/m.img" bs=512 seek="$(sgdisk -i 2 "$r/m.img" | sed -n 's/^First sector: \([0-9]*\).*/\1/p')" conv=notrunc status=none
     python3 - "$r/m.img.receipt.json" "$pd" <<'PY'
 import hashlib, json, os, sys
-d = sys.argv[2]; sha = lambda n: hashlib.sha256(open(os.path.join(d, n), "rb").read()).hexdigest()
+d = sys.argv[2]
+def sha(n):
+    p = os.path.join(d, n)
+    return hashlib.sha256(open(p, "rb").read()).hexdigest() if os.path.isfile(p) else "3" * 64
 json.dump({"variant": "server", "ncz_payload": {"online_fetch": {
     "payload_name": "base.squashfs", "payload_url": "http://10.0.2.2/base.squashfs", "payload_sha256": sha("base.squashfs"),
     "assets_name": "ncz-assets-amd64.tar.gz", "assets_url": "http://10.0.2.2/ncz-assets-amd64.tar.gz",
-    "assets_sha256": sha("ncz-assets-amd64.tar.gz")}}}, open(sys.argv[1], "w"))
+    "assets_sha256": sha("ncz-assets-amd64.tar.gz"),
+    "pool_name": "ncz-pool-amd64.tar.gz", "pool_url": "http://10.0.2.2/ncz-pool-amd64.tar.gz",
+    "pool_sha256": sha("ncz-pool-amd64.tar.gz")}}}, open(sys.argv[1], "w"))
 PY
 }
 mkdir -p "$T/srvmed/work" "$T/srv/payload-good/b/rescue"
@@ -1322,27 +1337,53 @@ mkdir -p "$T/srvmed/work" "$T/srv/payload-good/b/rescue"
 printf 'base-bytes' > "$T/srv/payload-good/base.squashfs"
 printf 'r\n' > "$T/srv/payload-good/b/rescue/README"
 tar -C "$T/srv/payload-good/b" -czf "$T/srv/payload-good/ncz-assets-amd64.tar.gz" .
+# option B: a REAL (tiny) offline apt pool payload: repo/{dists,pool} with the
+# snapshot-authorized fonts-liberation deb and an index that names it
+mkdir -p "$T/srv/poolsrc/repo/dists/forky/main/binary-amd64" "$T/srv/poolsrc/repo/pool/main"
+cp "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb" "$T/srv/poolsrc/repo/pool/main/"
+printf 'Package: fonts-liberation\nVersion: 1:2.1.5-3\nArchitecture: all\nMaintainer: %s\nFilename: pool/main/fonts-liberation_1%%3a2.1.5-3_all.deb\nSize: %s\nSHA256: %s\nDescription: fixture\n\n' \
+    "$DEB_MAINT" "$DEBSIZE" "$DEBSHA" > "$T/srv/poolsrc/repo/dists/forky/main/binary-amd64/Packages"
+tar -C "$T/srv/poolsrc" -czf "$T/srv/payload-good/ncz-pool-amd64.tar.gz" repo
+cp "$T/srv/payload-good/ncz-pool-amd64.tar.gz" "$T/srv/payload/"
+mkdir -p "$T/srv/payload-nopool"; cp "$T/srv/payload-good/base.squashfs" "$T/srv/payload-good/ncz-assets-amd64.tar.gz" "$T/srv/payload-nopool/"
+# a pool with an orphan deb its index does not name: must not authorize
+mkdir -p "$T/srv/payload-orphan"; cp "$T/srv/payload-good/base.squashfs" "$T/srv/payload-good/ncz-assets-amd64.tar.gz" "$T/srv/payload-orphan/"
+cp -a "$T/srv/poolsrc" "$T/srv/poolsrc-orphan"
+cp "$(ls "$T/tpm-pool"/*.deb | head -1)" "$T/srv/poolsrc-orphan/repo/pool/main/"
+tar -C "$T/srv/poolsrc-orphan" -czf "$T/srv/payload-orphan/ncz-pool-amd64.tar.gz" repo
 mk_srv_medium bad bad "$T/srv/payload" || bad "fixture: server medium bad" ""
 mk_srv_medium good good "$T/srv/payload-good" || bad "fixture: server medium good" ""
 mk_srv_medium tampered tampered "$T/srv/payload-good" || bad "fixture: server medium tampered" ""
 mk_srv_medium junk good "$T/srv/payload" || bad "fixture: server medium junk-bundle" ""
-mk_srv_medium nopool nopool "$T/srv/payload-good" || bad "fixture: server medium without pool" ""
+mk_srv_medium withpool withpool "$T/srv/payload-good" || bad "fixture: server medium carrying the pool" ""
+mk_srv_medium nopoolpay good "$T/srv/payload-nopool" || bad "fixture: server medium whose payload lacks the pool" ""
+mk_srv_medium orphanpool good "$T/srv/payload-orphan" || bad "fixture: server medium with an orphan-carrying pool" ""
 srvscan() { "${PROV[@]}" --image "$T/srvmed/$1/m.img" --work "$T/srvmed/work" --variant server --server-payload "${2:-$T/srv/payload-good}" 2>&1; }
 out="$(srvscan bad "$T/srv/payload")"
-for msg in "medium carries squashfs layer" "medium carries no offline apt pool" "no ncz-payload/ncz-fetch-payload.manifest"; do
+for msg in "medium carries squashfs layer" "medium carries an offline apt pool" "no ncz-payload/ncz-fetch-payload.manifest"; do
     grep -q "$msg" <<<"$out" && ok "scan_image server: '$msg' on a medium that has that defect" || bad "server wiring: '$msg' not reported" "$out"
 done
-out="$(srvscan nopool)"
-grep -q "medium carries no offline apt pool" <<<"$out" && ok "scan_image server: a medium without the offline apt pool fails" \
-    || bad "server wiring: a server medium without the pool passed" "$out"
+out="$(srvscan withpool)"
+grep -q "medium carries an offline apt pool" <<<"$out" && ok "scan_image server: a medium that still carries the offline apt pool fails (option B)" \
+    || bad "server wiring: a pool-carrying server medium passed" "$out"
+out="$(srvscan nopoolpay "$T/srv/payload-nopool")"
+grep -q "ncz-pool-amd64.tar.gz :: server payload file is missing" <<<"$out" && ok "scan_image server: a payload without the pool fails" \
+    || bad "server wiring: a missing pool payload passed" "$out"
 out="$(srvscan good)"
-if grep -qE "medium carries|fetch manifest|does not pin what|does not match the receipt pin|pool is not fully authorized" <<<"$out"; then
+if grep -qE "medium carries|fetch manifest|does not pin what|does not match the receipt pin|offline apt pool is not fully authorized" <<<"$out"; then
     bad "server wiring: a server-shaped medium with matching pins drew a server-check FAIL" "$out"
 else
     ok "scan_image server: a server-shaped medium whose manifest matches the receipt passes the server checks"
 fi
 grep -q "PAYLOAD  base.squashfs: sha256 matches the pin" <<<"$out" && ok "scan_image server: the payload is hashed against the pin and scanned" \
     || bad "server wiring: the payload was not scanned" "$out"
+grep -q "PAYLOAD  ncz-pool-amd64.tar.gz: sha256 matches the pin, 1 pool packages checked" <<<"$out" \
+    && ok "scan_image server: the pool payload is hashed, unpacked, scanned and authorized" || bad "server wiring: the pool was not scanned" "$out"
+grep -q "offline apt pool is not fully authorized" <<<"$out" && bad "server wiring: a snapshot-authorized pool was not authorized" "$out" \
+    || ok "scan_image server: a snapshot-authorized pool binds"
+out="$(srvscan orphanpool "$T/srv/payload-orphan")"
+grep -q "offline apt pool is not fully authorized" <<<"$out" && ok "scan_image server: a pool with an orphan deb is not authorized" \
+    || bad "server wiring: an orphan-carrying pool was authorized" "$out"
 grep -q "the asset bundle carries no rescue rootfs tarball" <<<"$out" && ok "scan_image server: the gzip bundle is extracted and must carry the rescue rootfs" \
     || bad "server wiring: the bundle was not extracted/checked" "$out"
 out="$(srvscan junk "$T/srv/payload")"

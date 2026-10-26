@@ -1766,17 +1766,18 @@ def server_pins(img, rec):
         return None
     pins = {}
     for k in ("payload_name", "payload_url", "payload_sha256",
-              "assets_name", "assets_url", "assets_sha256"):
+              "assets_name", "assets_url", "assets_sha256",
+              "pool_name", "pool_url", "pool_sha256"):
         v = of.get(k)
         if not isinstance(v, str) or not v:
             fail("image", img, f"server receipt payload pin {k} is missing")
             return None
         pins[k] = v
-    for k in ("payload_sha256", "assets_sha256"):
+    for k in ("payload_sha256", "assets_sha256", "pool_sha256"):
         if not SHA256_RE.match(pins[k]):
             fail("image", img, f"server receipt pin {k} is not a sha256: {pins[k]!r}")
             return None
-    for k in ("payload_name", "assets_name"):
+    for k in ("payload_name", "assets_name", "pool_name"):
         if os.path.basename(pins[k]) != pins[k] or pins[k] in (".", ".."):
             fail("image", img, f"server receipt pin {k} is not a plain file name: {pins[k]!r}")
             return None
@@ -1803,7 +1804,8 @@ def check_server_manifest(img, manifest_path, pins):
             return
         rows[f[0]] = (f[1], f[2], f[3])
     want = {pins["payload_name"]: (pins["payload_url"], pins["payload_sha256"], "file"),
-            pins["assets_name"]: (pins["assets_url"], pins["assets_sha256"], "untar")}
+            pins["assets_name"]: (pins["assets_url"], pins["assets_sha256"], "untar"),
+            pins["pool_name"]: (pins["pool_url"], pins["pool_sha256"], "untar")}
     if rows != want:
         fail("image", img, f"medium fetch manifest {rows} does not pin what the "
                            f"receipt pins {want}")
@@ -1816,7 +1818,9 @@ def scan_server_payload(ref, img, payload_dir, pins, owned):
     total = 0
     payload = os.path.join(payload_dir, pins["payload_name"])
     bundle = os.path.join(payload_dir, pins["assets_name"])
-    for path, key in ((payload, "payload_sha256"), (bundle, "assets_sha256")):
+    pool = os.path.join(payload_dir, pins["pool_name"])
+    for path, key in ((payload, "payload_sha256"), (bundle, "assets_sha256"),
+                      (pool, "pool_sha256")):
         if not os.path.isfile(path):
             fail("payload", path, "server payload file is missing")
             return total
@@ -1859,6 +1863,58 @@ def scan_server_payload(ref, img, payload_dir, pins, owned):
         n = scan_debs(ref, adir, "payload:" + os.path.relpath(adir, bdir))
         print(f"PAYLOAD  {pins['assets_name']}:{os.path.relpath(adir, bdir)}/: {n} packages checked")
         total += n
+    total += scan_server_pool(ref, pool, pins["pool_name"], owned)
+    return total
+
+
+def scan_server_pool(ref, pool, name, owned):
+    """Option B (operator 2026-10-26): the offline apt pool a server medium
+    fetches is the repository the target's file:///cdrom sources resolve to,
+    so it gets the /cdrom treatment: every .deb scanned, every Packages index
+    scanned, every file the indexes name present, and the whole pool fully
+    authorized against the pinned snapshot and the ledgers."""
+    total = 0
+    pdir = os.path.join(owned, "pool")
+    shutil.rmtree(pdir, ignore_errors=True)
+    os.makedirs(pdir, exist_ok=True)
+    with open(pool, "rb") as fh:
+        magic = fh.read(4)
+    if magic[:2] != b"\x1f\x8b":
+        fail("payload", pool, "the offline apt pool is not a gzip tar")
+        return total
+    if not safe_extract_zst(pool, pdir, "payload:" + name, codec="gzip"):
+        return total
+    repo = os.path.join(pdir, "repo")
+    if not os.path.isdir(os.path.join(repo, "dists")) or not os.path.isdir(os.path.join(repo, "pool")):
+        fail("payload", pool, "the offline apt pool carries no repo/dists + repo/pool "
+                              "(the r159 stub binds <staging>/repo as the target's /cdrom)")
+        return total
+    n = scan_debs(ref, os.path.join(repo, "pool"), "payload:" + name + ":pool")
+    total += n
+    pkgidx = rglob(os.path.join(repo, "dists"), "Packages*")
+    if not pkgidx:
+        fail("payload", pool, "the offline apt pool has no Packages index")
+    referenced = set()
+    for p in pkgidx:
+        try:
+            text = read_maybe_compressed(p)
+        except Exception as e:  # noqa: BLE001
+            fail("payload", p, f"Packages index could not be read: {e}")
+            continue
+        total += scan_packages(ref, text, "payload:" + name + ":" + os.path.relpath(p, repo))
+        for st in parse_stanzas(text):
+            fn = st.get("Filename")
+            if fn:
+                referenced.add(os.path.normpath(fn))
+    for fn in sorted(referenced):
+        if not os.path.isfile(os.path.join(repo, fn)):
+            fail("payload", fn, "pool file referenced by the pool's dists is missing")
+    if authorize_pool(ref, repo, ref.idx, "payload:" + name, flat=False,
+                      orphan_root=os.path.join(repo, "pool"),
+                      sid_idx=ref.sid_idx) is None:
+        fail("payload", pool, "the offline apt pool is not fully authorized; the "
+                              "target's file:///cdrom source would not be trustworthy")
+    print(f"PAYLOAD  {name}: sha256 matches the pin, {n} pool packages checked")
     return total
 
 
@@ -2090,25 +2146,21 @@ def scan_image(ref, img, work, variant="desktop", payload_dir=None):
                                    "authorized; its file: source cannot be trusted")
         layers = sorted(rglob(pl, "*.squashfs"))
         if variant == "server":
-            # A server medium ships its layers and rescue rootfs OFF the
-            # medium; prove it is one (no layer, the fetch manifest pinning the
-            # payload) and scan the payload itself. It must still carry the
-            # offline apt closure (Magnetar option A, 2026-10-26): the r159
-            # stub, apt-setup's file:///cdrom source, late.sh and the
-            # post-install hooks install from it, and the base layer lacks
-            # what they install. The pool itself was authorized above.
+            # A server medium ships its layers, rescue rootfs and (option B,
+            # operator 2026-10-26) its offline apt pool OFF the medium; prove
+            # it is one (no layer, no regular pool, the fetch manifest pinning
+            # all three) and scan the payload itself.
             if layers:
                 fail("image", img, "--variant server, but the medium carries squashfs "
                                    f"layer(s): {[os.path.basename(f) for f in layers]}")
             offline = rglob(os.path.join(base, "pool"), "*.deb")
             regular_idx = [p for p in pkgidx
                            if "debian-installer" not in os.path.relpath(p, base).split(os.sep)]
-            if not offline or not regular_idx:
-                fail("image", img, "--variant server, but the medium carries no offline "
+            if offline or regular_idx:
+                fail("image", img, "--variant server, but the medium carries an offline "
                                    f"apt pool ({len(offline)} .deb under /pool, "
                                    f"{len(regular_idx)} regular Packages index under "
-                                   "/dists); the stub, late.sh and the post-install "
-                                   "hooks install from it")
+                                   "/dists); option B fetches it as the pinned pool payload")
             check_server_manifest(img, os.path.join(pl, SERVER_FETCH_MANIFEST), pins)
             total += scan_server_payload(ref, img, payload_dir, pins, owned)
         elif not layers:
