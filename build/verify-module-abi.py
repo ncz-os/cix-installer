@@ -190,10 +190,11 @@ def main():
         return 2
     print(f"{TAG}: reference {ref}: this_module=0x{ref_size:x} vermagic={ref_magic!r}")
 
-    kos = (out_of_tree(a.tree) if a.tree else []) + list(a.ko)
-    if len(kos) < a.min_count:
-        print(f"{TAG}: FAIL: {len(kos)} out-of-tree module(s) found, expected at least {a.min_count} (incomplete copy of the tree?)")
+    found = out_of_tree(a.tree) if a.tree else []
+    if len(found) < a.min_count:
+        print(f"{TAG}: FAIL: {len(found)} out-of-tree module(s) found, expected at least {a.min_count} (incomplete copy of the tree?)")
         return 1
+    kos = found + list(a.ko)
     if not kos:
         if a.allow_empty:
             print(f"{TAG}: PASS (no out-of-tree modules)")
