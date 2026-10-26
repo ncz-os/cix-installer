@@ -619,6 +619,9 @@ eq "setup: no nvcc -> failed:nvcc-missing" "$(st)" "failed:nvcc-missing"
 csconf turing-plus; echo "5 0" > "$CS/var/lib/ncz/cuda-setup.attempts"; echo "failed:not-installable" > "$CS/var/lib/ncz/cuda-toolkit.status"
 eq "setup: scheduled run is parked after 5 hard failures (rc 0, no apt)" "$(STUB_APT=ok cs run --scheduled)" 0
 [ ! -e "$CS/apt.calls" ] && ok "setup: parked run did not call apt" || nok "setup: parked run called apt"
+( exec 8>"$CS/lock"; flock -n 8; echo "x|nvidia|1|a|b|pkg=p|e" > "$CS/var/lib/ncz/cuda-setup.dkms-failed"; PATH="$CS/bin:$PATH" "$CS/ncz-cuda-setup" retry >/dev/null 2>&1 )
+[ -s "$CS/var/lib/ncz/cuda-setup.dkms-failed" ] && ok "setup: retry clears records only under the lock (a running setup keeps its own)" || nok "setup: retry cleared records outside the lock"
+rm -f "$CS/var/lib/ncz/cuda-setup.dkms-failed"
 eq "setup: retry clears the park and installs (rc 0)" "$(STUB_APT=ok cs retry)" 0
 eq "setup: retry -> installed" "$(st)" "installed:1.0"
 csconf kepler-older; eq "setup: Kepler run is a recorded skip (rc 0)" "$(cs run)" 0
@@ -831,6 +834,8 @@ rm -rf "$CS/patches/nvidia/0001-dmem-cgroup-init-linux-7.3"
 cs dkms-stage "$CS/usr/src/nvidia-615.80.06" >/dev/null
 [ ! -e "$CS/etc/dkms/nvidia-615.80.06.conf" ] && ok "content: ... and refused when the set it depends on is not applied" || nok "content: dependent set accepted on its own"
 rm -rf "$CS/patches"; shipped
+mkdir -p "$CS/usr/src/not-a-dkms-tree"
+eq "content: dkms-stage on a directory without a usable dkms.conf exits 1" "$(cs dkms-stage "$CS/usr/src/not-a-dkms-tree")" 1
 # guards: no marker, unsafe marker, vendor patches already in dkms.conf
 mksrc "$CS/usr/src/nvidia-615.80.04" 615.80.04 defect
 rm -f "$CS/patches/nvidia/"*/fixed-upstream

@@ -607,9 +607,12 @@ try_driver() {
 }
 
 do_run() {
-    local scheduled=0
+    local scheduled=0 retry=0
     [ "${1:-}" = "--scheduled" ] && scheduled=1
+    [ "${1:-}" = "--retry" ] && retry=1
     exec 9>"$LOCK"; flock -n 9 || { log "another ncz-cuda-setup is running"; return 0; }
+    # retry: forget the backoff, the build records and the stamp, under the lock
+    [ "$retry" = 1 ] && rm -f "$ATTEMPTS" "$DKMS_FAIL" "$STAMP"
 
     if [ -e "$STAMP" ]; then log "already done"; return 0; fi
     if [ ! -r "$CONF" ]; then log "no $CONF: nothing to install"; return 0; fi
@@ -784,7 +787,7 @@ cmd_apt_pre_install() {
         case "$deb" in *.deb) ;; *) continue ;; esac
         [ -r "$deb" ] || continue
         p=$(dpkg-deb -f "$deb" Package 2>/dev/null)
-        case "$p" in nvidia*-dkms) stage_from_deb "$deb" ;; esac
+        case "$p" in nvidia*-dkms) stage_from_deb "$deb" </dev/null ;; esac
     done
     return 0
 }
@@ -821,11 +824,13 @@ cmd_kernel_postinst() {
 
 case "${1:-}" in
     run)    shift; do_run "$@" ;;
-    retry)  rm -f "$ATTEMPTS" "$DKMS_FAIL"; rm -f "$STAMP"; do_run ;;
+    retry)  do_run --retry ;;
     status) cmd_status ;;
     dkms-stage)
         shift; [ $# -gt 0 ] || { echo "usage: ncz-cuda-setup dkms-stage DIR..." >&2; exit 2; }
-        for d in "$@"; do stage_for_src "${d%/}"; done ;;
+        src_rc=0
+        for d in "$@"; do stage_for_src "${d%/}" || src_rc=1; done
+        exit "$src_rc" ;;
     apt-pre-install) cmd_apt_pre_install; exit 0 ;;
     apt-post-invoke) cmd_apt_post_invoke; exit 0 ;;
     kernel-postinst) cmd_kernel_postinst "${2:-}"; exit 0 ;;
