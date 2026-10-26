@@ -318,8 +318,10 @@ OnFailure=ncz-greeter-fallback.service
 
 [Service]
 # A greeter that starts again (GPU fixed, restart, reboot) must not keep the
-# old "could not start" message on the next text login.
+# old "could not start" message on the next text login, nor share VT1 with the
+# text login the fallback started.
 ExecStartPre=-/bin/rm -f /etc/issue.d/90-ncz-greeter-failed.issue
+ExecStartPre=-/bin/systemctl --no-block stop getty@tty1.service
 GREETDFB
 echo "[55] greetd OnFailure -> ncz-greeter-fallback (text login on tty1 when the greeter cannot start)"
 

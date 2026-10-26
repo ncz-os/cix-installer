@@ -28,6 +28,7 @@ grep -qx 'OnFailure=ncz-greeter-fallback.service' "$T/dropin" && ok "greetd drop
 grep -q '/etc/systemd/system/greetd.service.d/12-ncz-console-fallback.conf' "$HOOK" && ok "drop-in path is under greetd.service.d" || no "drop-in not installed under greetd.service.d"
 default_issue=$(sed -n 's/^ISSUE=\${NCZ_FALLBACK_ISSUE:-\(.*\)}$/\1/p' "$T/fallback")
 grep -qx "ExecStartPre=-/bin/rm -f $default_issue" "$T/dropin" && ok "next greetd start clears the message ($default_issue)" || no "greetd does not clear $default_issue"
+grep -qx 'ExecStartPre=-/bin/systemctl --no-block stop getty@tty1.service' "$T/dropin" && ok "greetd starting again takes VT1 back from the fallback getty" || no "greetd does not stop the fallback getty"
 grep -qx 'ExecStart=/usr/local/sbin/ncz-greeter-fallback' "$T/unit" && grep -qx 'Type=oneshot' "$T/unit" && ok "unit runs the fallback script" || no "unit does not run the script"
 
 mkdir -p "$T/bin"
