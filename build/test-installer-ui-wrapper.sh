@@ -67,10 +67,13 @@ w(os.path.join(work, "rules.readback"),
   "# ncz_ui_check=1   (test copy)\n" if hook_ok else "# unrelated preseed hook\n")
 # the UART console is appended only by --serial-console (amd_fb_uart: a framebuffer boot that wrongly carries it)
 uart = (a.serial_console and mode != "amd_no_console") or (not a.serial_console and mode == "amd_fb_uart")
+# The shipped Rescue entry carries console=ttyS0 by design (2026-10-26: the framebuffer-boot UART check first
+# read the whole file and refused every real image); it must not count against the Install entry.
+rescue = 'menuentry "NCZ-OS Installer -- Rescue mode" {\n  options "rescue/enable=true console=ttyS0,115200n8 console=tty0"\n}\n'
 w(os.path.join(work, "refind.conf"),
-  'menuentry "NCZ-OS Installer -- Install" {\n  options "quiet console=tty0 console=ttyS0,115200"\n}\n'
-  if uart else
-  'menuentry "NCZ-OS Installer -- Install" {\n  options "quiet console=tty0"\n}\n')
+  ('menuentry "NCZ-OS Installer -- Install" {\n  options "quiet console=tty0 console=ttyS0,115200"\n}\n'
+   if uart else
+   'menuentry "NCZ-OS Installer -- Install" {\n  options "quiet console=tty0"\n}\n') + rescue)
 
 # the framebuffer is sampled on BOTH architectures now (continuity + distinct frames)
 fb = os.path.join(work, "fb-states"); os.makedirs(fb, exist_ok=True)

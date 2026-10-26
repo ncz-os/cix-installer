@@ -41,6 +41,10 @@ ANS=(--answer 'optional components=\r' --answer 'select your REGION=\r' --answer
      --answer 'HARDWARE SUMMARY=\r'
      --answer 'select the TARGET DISK=\r' --answer 'root \(/\) filesystem=\r'
      --answer "${NCZ_UI_CHECK_ERASE_RX:-ERASE /dev/vda and install}=${NCZ_UI_CHECK_ERASE_KEYS:-\x1b[D\r}")
+# The Install menuentry of a test copy's refind.conf. The console checks below read ONLY this entry: the shipped
+# Rescue entry carries console=ttyS0 by design, so a whole-file grep refused every real image (and would pass a
+# test copy whose Install entry lost its UART).
+install_entry() { awk '/^menuentry "NCZ-OS Installer -- Install" \{/{f=1} f && /^\}/{f=0} f' "$1" 2>/dev/null; }
 if [ "$ARCH" = amd64 ]; then
     # amd64 has no UART on the shipped entries (by design: console=tty0 only, see preseed/diag-console.sh), so the
     # TEST COPY gets console=ttyS0,115200 appended to its Install entry and d-i's newt draws the same dialogs there.
@@ -56,7 +60,7 @@ if [ "$ARCH" = amd64 ]; then
     # one) has both halves before judging anything the UART says.
     grep -q 'ncz_ui_check=1' "$WORK/rules.readback" 2>/dev/null \
         || { echo "UI CHECK FAIL (amd64): the test copy's ESP has no ncz_ui_check=1 preseed hook; the UART text cannot be trusted" >&2; exit 1; }
-    grep -q 'console=ttyS0,115200' "$WORK/refind.conf" 2>/dev/null \
+    install_entry "$WORK/refind.conf" | grep -q 'console=ttyS0,115200' \
         || { echo "UI CHECK FAIL (amd64): the test copy's Install entry has no console=ttyS0,115200; d-i never drew on the UART" >&2; exit 1; }
     # The MONITOR is judged on its own boot. With console=ttyS0 last, d-i's newt draws on the UART only and the
     # framebuffer stays on a static screen (2026-10-26, Preview4 amd64: no fb-states, 2 distinct frames), so the
@@ -68,7 +72,7 @@ if [ "$ARCH" = amd64 ]; then
     "$PY" "$HERE/boot-screens.py" "$IMG" "$FBW" --arch "$ARCH" --interactive --secs "$SECS" --enter-every 6 --enter-after 25 \
         > "$FBW/harness.log" 2>&1 \
         || { echo "UI CHECK FAIL: the framebuffer capture harness failed (see $FBW/harness.log)" >&2; tail -5 "$FBW/harness.log" >&2; exit 1; }
-    if grep -q 'console=ttyS0' "$FBW/refind.conf" 2>/dev/null; then
+    if install_entry "$FBW/refind.conf" | grep -q 'console=ttyS0'; then
         echo "UI CHECK FAIL (amd64): the framebuffer boot's Install entry carries a UART console; the monitor would not show d-i" >&2; exit 1
     fi
 else
