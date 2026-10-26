@@ -57,6 +57,8 @@ tree() {
         drift) printf 'modules_prepare:\n\t@cat > stdin-seen.txt\n\t@printf "CONFIG_PAHOLE_VERSION=0\\n" > .config\n\t@printf "\\n" > include/config/auto.conf\n\t@printf "/* no BTF */\\n" > include/generated/autoconf.h\n\t@echo "fatal error: linux/kasan-checks.h: No such file or directory"\n\t@echo "make[3]: *** [Makefile:83: tools/bpf/resolve_btfids] Error 2"\n\t@exit 2\n' > "$d/Makefile" ;;
         clean) printf 'modules_prepare:\n\t@cat > stdin-seen.txt\n' > "$d/Makefile" ;;
         stuck) printf 'modules_prepare:\n\t@rm -f .config\n\t@mkdir .config\n' > "$d/Makefile" ;;
+        create) printf 'modules_prepare:\n\t@printf "deps\\n" > include/config/auto.conf.cmd\n' > "$d/Makefile" ;;
+        createdir) printf 'modules_prepare:\n\t@mkdir -p include/config/auto.conf.cmd/x\n' > "$d/Makefile" ;;
     esac
     cp -p "$d/.config" "$d/.config.orig"; cp -p "$d/include/generated/autoconf.h" "$d/autoconf.orig"
     cp -p "$d/include/config/auto.conf" "$d/auto.conf.orig"
@@ -83,6 +85,14 @@ for f in $COPIES; do
     [ "$RC" = 0 ] && cmp -s "$D/.config" "$D/.config.orig" && ok "$n: clean make returns 0, config untouched" || no "$n: clean case rc=$RC"
     D="$T/$n.stuck"; tree "$D" stuck; run "$D"
     [ "$RC" = 3 ] && ok "$n: unrestorable configuration returns 3" || no "$n: unrestorable case rc=$RC, want 3"
+    D="$T/$n.create"; tree "$D" create; run "$D"
+    [ "$RC" = 0 ] && [ ! -e "$D/include/config/auto.conf.cmd" ] && grep -q 'Kconfig created include/config/auto.conf.cmd; removed it' "$D/prep.log" \
+        && ok "$n: a Kconfig file make created is removed again" || no "$n: created file case rc=$RC, file $(ls "$D/include/config")"
+    D="$T/$n.createdir"; tree "$D" createdir; run "$D"
+    [ "$RC" = 3 ] && ok "$n: a created file that cannot be removed returns 3" || no "$n: unremovable created file rc=$RC, want 3"
+    D="$T/$n.drift"; rm -f "$D/prep.log"; printf 'resolve_btfids from an earlier run\n' > "$D/prep.log"
+    printf 'modules_prepare:\n\t@true\n' > "$D/Makefile"; run "$D"
+    grep -q 'resolve_btfids not built' "$D/prep.log" && no "$n: resolve_btfids note added for an earlier run's failure" || ok "$n: resolve_btfids note only for this run's failure"
 done
 
 # callers: 3 is fatal, never "expected non-zero"

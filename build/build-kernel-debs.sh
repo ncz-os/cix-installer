@@ -999,6 +999,9 @@ done
 # and the module loads without BTF. That failure, like the missing
 # kernel/bounds.s and asm-offsets sources, is why make runs with -k.
 #
+# A listed file that make creates (the shipped tree has no
+# include/config/auto.conf.cmd) is removed again, so the tree ends as shipped.
+#
 # ncz_prepare_pristine <build-dir> <log>
 #   returns 0 when make was clean, make's status when it was not (expected for
 #   this trimmed tree; check the tools instead), 3 when the configuration could
@@ -1012,18 +1015,25 @@ ncz_prepare_pristine() {
         mkdir -p "$_np_snap/$(dirname "$_np_f")" && cp -p "$_np_b/$_np_f" "$_np_snap/$_np_f" \
             || { rm -rf "$_np_snap"; return 3; }
     done
+    _np_off=$(($({ wc -c <"$_np_log"; } 2>/dev/null || echo 0) + 1))
     make -k -C "$_np_b" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare </dev/null >>"$_np_log" 2>&1
     _np_rc=$?
     _np_bad=0
     for _np_f in $NCZ_KCONFIG_FILES; do
-        [ -f "$_np_snap/$_np_f" ] || continue
+        if [ ! -f "$_np_snap/$_np_f" ]; then
+            [ -e "$_np_b/$_np_f" ] || continue
+            echo "ncz_prepare_pristine: Kconfig created $_np_f; removed it (the kernel's tree has none)" >>"$_np_log"
+            rm -f "$_np_b/$_np_f" 2>>"$_np_log"
+            [ -e "$_np_b/$_np_f" ] && _np_bad=1
+            continue
+        fi
         cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null && continue
         echo "ncz_prepare_pristine: Kconfig rewrote $_np_f; restored the kernel's copy" >>"$_np_log"
         cp -p "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>>"$_np_log" || _np_bad=1
         cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null || _np_bad=1
     done
     rm -rf "$_np_snap"
-    if grep -q 'resolve_btfids' "$_np_log" 2>/dev/null; then
+    if tail -c +"$_np_off" "$_np_log" 2>/dev/null | grep -q 'resolve_btfids'; then
         echo "ncz_prepare_pristine: tools/bpf/resolve_btfids not built (no tools/ sources in the header tree); not needed for DKMS: without vmlinux kbuild skips module BTF" >>"$_np_log"
     fi
     [ "$_np_bad" = 0 ] || return 3
