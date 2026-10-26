@@ -49,8 +49,8 @@ cmp -s "$T/issue" "$T/tty1" && ok "the same message is written to tty1" || no "t
 grep -qE 'LIBGL_ALWAYS_SOFTWARE|WLR_RENDERER|pixman|llvmpipe|NCZ_ALLOW_SOFTWARE_FALLBACK' "$T/fallback" && no "fallback touches software rendering" || ok "fallback does not enable software rendering"
 rm -f "$T/issue" "$T/tty1" "$T/systemctl.log"
 JOURNAL_LINE= run
-grep -q 'could not start' "$T/issue" && grep -q '^GPU: ncz-gpu-env: WARNING a later unrelated line' "$T/issue" \
-    && ok "no refusal line -> the latest ncz-gpu-env line is shown" || no "no-refusal case wrong: $(cat "$T/issue" 2>/dev/null)"
+grep -q 'could not start' "$T/issue" && ! grep -q '^GPU:' "$T/issue" \
+    && ok "no refusal line -> no GPU cause is claimed" || no "no-refusal case wrong: $(cat "$T/issue" 2>/dev/null)"
 grep -q 'start getty@tty1.service' "$T/systemctl.log" && ok "no journal reason -> getty still started" || no "no-reason case did not start getty"
 
 # /etc not writable: tty1 must still get the message

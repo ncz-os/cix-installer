@@ -283,9 +283,8 @@ cat > /usr/local/sbin/ncz-greeter-fallback <<'FALLBACK'
 # ncz-greeter-fallback -- greetd.service OnFailure: text login on tty1.
 TTY=${NCZ_FALLBACK_TTY:-/dev/tty1}
 ISSUE=${NCZ_FALLBACK_ISSUE:-/etc/issue.d/90-ncz-greeter-failed.issue}
-# The refusal line is the reason; any other ncz-gpu-env line is only a fallback.
+# Name a GPU cause only when ncz-gpu-env logged its refusal on this boot.
 why=$(journalctl -b -t ncz-gpu-env -o cat --no-pager 2>/dev/null | grep 'REFUSED' | tail -1)
-[ -n "$why" ] || why=$(journalctl -b -t ncz-gpu-env -o cat -n 1 --no-pager 2>/dev/null | tail -1)
 msg="
 NCZ-OS: the graphical login could not start, so this is a text login.${why:+
 GPU: $why}
