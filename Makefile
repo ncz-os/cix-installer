@@ -835,6 +835,7 @@ parity:
 	bash build/test-panthor-fallback-real-overlay.sh
 	bash build/test-npu-dkms-deferral.sh
 	bash build/test-cix-deb-server-skip.sh
+	bash build/test-boot-splash-unit.sh
 	bash build/test-npu-ssdt-delivery.sh
 	bash build/test-hooks-fail-loudly.sh
 	$(MAKE) --no-print-directory test-cygnus-branding

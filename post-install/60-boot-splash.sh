@@ -162,7 +162,12 @@ Conflicts=getty@tty1.service plymouth-start.service plymouth-quit.service
 # greetd starts after USB readiness in parallel with this unit.
 Type=oneshot
 RemainAfterExit=no
-TimeoutStartSec=22s
+# Must exceed the wrapper's own worst case (timeout 22s + --kill-after=2s =
+# 24s): the wrapper turns its cap into a clean exit 0, but only if systemd
+# lets it get there. At 22s systemd killed it first whenever the greeter was
+# late, and the unit failed (Preview4 amd64 KVM gate, desktop+mgmt-container,
+# first boot on a loaded build host, 2026-10-26). build/test-boot-splash-unit.sh
+TimeoutStartSec=30s
 # Wait for late Sky1 KMS without turning a legitimately headless/KVM boot into
 # a failed service. ExecCondition exit 1 is a clean skip, not a unit failure.
 ExecStart=/usr/local/bin/ncz-boot-splash
