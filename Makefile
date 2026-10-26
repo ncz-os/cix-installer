@@ -792,6 +792,7 @@ parity:
 	build/test-diag-busybox.sh
 	build/test-gpu-install-progress.sh
 	build/test-preseed-consistency.sh
+	build/test-early-command-shape.sh
 	build/test-install-feedback.sh
 	build/test-progress-bar-drive.sh
 	build/test-firstboot-gpu.sh

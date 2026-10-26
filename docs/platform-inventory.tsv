@@ -112,7 +112,8 @@ build/build-squashfs-layers.sh	common	-	shared layer builder; per-arch branches 
 build/build-usb-recovery-deb.sh	sky1	-	ncz-usb-recovery deb (Architecture: arm64) for the Sky1 USB2 bug; never published to amd64 mirrors
 build/build-vendor-mirror.sh	common	-	vendor mirror index regeneration
 build/build-wallpaper-contrib-deb.sh	common	-	wallpaper pack debs
-build/check-early-command-size.sh	common	-	preseed size gate
+build/check-early-command-initrd.sh	common	-	runs the real d-i loader chain (debconf-set-selections, db_get, the initrd's sh -n) from an unpacked netinst initrd against preseed.cfg; root + native arch, else SKIP
+build/check-early-command-size.sh	common	-	preseed/early_command loader-shape gate: size budget, comments or backslashes inside the value, sh -n parse, set +e / trailing true (cdebconf lookup_directive hazard)
 build/check-release-identity-gate.sh	common	-	MINOR-001 build-time gate: generated RELEASE/os-release/issue strings in a staged medium or baked rootfs carry no retired codename, a non-empty product label and a variant label matching BUILD_VARIANT (runs for both variants in write-usb-image.py and build-baked-rootfs.sh)
 build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
 build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
@@ -615,6 +616,7 @@ build/testdata/forky-snapshot/InRelease	common	-	the real pinned snapshot.debian
 build/preseed-known-keys.txt	common	-	allow-list of debconf keys preseed/preseed.cfg may set; a new key must be added here with a reason; enforced by build/test-preseed-consistency.sh
 build/preseed-runtime-overrides.txt	common	-	debconf keys intentionally set by both preseed.cfg and a runtime helper (db_set); unlisted double-sets fail build/test-preseed-consistency.sh
 build/test-preseed-consistency.sh	common	-	guards the one-authoritative-preseed contract: conflicting/duplicate keys, unknown keys, unlisted runtime double-sets, per-arch variants; --self-test proves the guard by mutation
+build/test-early-command-shape.sh	common	-	pins every preseed/early_command shape check-early-command-size.sh must refuse (the d9d64be1 comment block, comment-ended value, syntax error, escapes, non-zero exit, budget) and accept (real file, column-0 comment); optional real-initrd chain
 build/test-install-feedback.sh	common	-	acceptance test: milestone INFO feedback from post-install/lib/progress-msg.sh, ASCII, bounded, in hook order (run-all end to end)
 post-install/lib/progress-msg.sh	common	-	ncz_msg(): one-line milestone feedback into run-all progress.tsv/progress.state + the d-i log VT, for long user-visible post-install steps (never FAIL/WARN)
 build/build-image.sh	common	-	single build entrypoint: stages, scopes (full/respin/rebuild-*/components/only-image), gates, both-arch orchestration, publish rule
