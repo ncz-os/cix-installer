@@ -86,8 +86,14 @@ fi
 OS_PRETTY_NAME="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}, based on ${NCZ_BASE_DESCRIPTION}"
 OS_VERSION="${NCZ_RELEASE_VERSION} (${SKU_NAME} ${VARIANT_LABEL}, based on ${NCZ_BASE_DESCRIPTION})"
 # The console banner first lines (/etc/issue, /etc/issue.net).
-ISSUE_LINE="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}  ·  NCZ_ISSUE_SOC_PLACEHOLDER  (Kernel: \r)"
-ISSUE_NET_LINE="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}  (NCZ_ISSUE_SOC_PLACEHOLDER)"
+# Never a raw token on a login screen (2026-10-26, cyclops: agetty printed
+# NCZ_ISSUE_*_PLACEHOLDER before the refresh ran). The first-boot text is
+# readable as it stands; ncz-issue-refresh (below) replaces exactly these
+# phrases with the real values.
+NCZ_ISSUE_SOC_WAIT="(detecting hardware)"
+NCZ_ISSUE_IP_WAIT="(waiting for network)"
+ISSUE_LINE="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}  ·  ${NCZ_ISSUE_SOC_WAIT}  (Kernel: \r)"
+ISSUE_NET_LINE="${NCZ_RELEASE_LABEL} ${VARIANT_LABEL}  ${NCZ_ISSUE_SOC_WAIT}"
 
 # MAGNETAR SERVER: an install from a Magnetar Server MEDIUM (MEDIUM_VARIANT=server,
 # written by preseed/late.sh) is named by its edition everywhere a person reads
@@ -103,8 +109,8 @@ if [ "$MEDIUM_VARIANT" = server ]; then
     OS_PRETTY_NAME="${SERVER_LABEL}, based on ${NCZ_BASE_DESCRIPTION}"
     OS_VERSION="${NCZ_RELEASE_VERSION} (${NCZ_SERVER_EDITION}, based on ${NCZ_BASE_DESCRIPTION})"
     # Console text is ASCII (no middle dot) on the server.
-    ISSUE_LINE="${SERVER_LABEL} - NCZ_ISSUE_SOC_PLACEHOLDER - kernel \r"
-    ISSUE_NET_LINE="${SERVER_LABEL} (NCZ_ISSUE_SOC_PLACEHOLDER)"
+    ISSUE_LINE="${SERVER_LABEL} - ${NCZ_ISSUE_SOC_WAIT} - kernel \r"
+    ISSUE_NET_LINE="${SERVER_LABEL} ${NCZ_ISSUE_SOC_WAIT}"
     OS_VARIANT_LINES="VARIANT=\"${NCZ_SERVER_EDITION}\"
 VARIANT_ID=magnetar-server
 "
@@ -154,7 +160,7 @@ EOF_LSB
 cat > /etc/issue <<EOF_ISSUE
 ${ISSUE_LINE}
 Build: ${BUILD_ID_VALUE}  (${BUILD_DATE_VALUE})
-IP:    NCZ_ISSUE_IP_PLACEHOLDER
+IP:    ${NCZ_ISSUE_IP_WAIT}
 
 EOF_ISSUE
 
@@ -223,69 +229,110 @@ fi
 printf 'SOC=%s\nGPU=%s\nNPU=%s\n' "$SOC" "$GPU" "$NPU"
 HWBRAND
 
-# The IP/SOC lines above are placeholders: at THIS point in post-install, the
-# machine may not have a network connection yet (DHCP hasn't necessarily
-# run), and the network stack itself varies by build (sinty-nm normally
-# owns it, NetworkManager is only the fallback when sinty-nmd isn't staged
-# -- see post-install/19-sinty-nm.sh) so there's no single dispatcher-hook
-# mechanism guaranteed to exist on every image. Likewise, GPU/NPU hardware
-# generally is not visible from inside the build-time chroot this hook runs
-# in at all. ncz-issue-refresh.service below fills in both the real address
-# and the real SoC identity once it actually runs on the target.
+# The IP and SoC values above start as readable "waiting" text: at THIS point
+# in post-install the machine may have no network yet, and the hardware is
+# not always visible from the chroot this hook runs in. ncz-issue-refresh
+# fills them in on the target. The SoC needs no network, so it is filled in
+# BEFORE the first login prompt (ExecStartPre, ordered before getty-pre.target,
+# bounded by TimeoutStartSec); the address follows when DHCP lands and again
+# whenever it changes (DHCP renew, cable moved), and every running agetty
+# re-prints the banner (agetty --reload).
 install -m 0755 /dev/stdin /usr/local/bin/ncz-issue-refresh <<'ISSUE_REFRESH'
 #!/bin/sh
-# ncz-issue-refresh -- replace the IP and SoC placeholder lines in /etc/issue
-# with the real values once network is up and hardware is probeable. Polls
-# rather than trusting a single network-online trigger to have fired after a
-# real address landed (DHCP can complete a beat after network-online.target
-# is reported active).
+# ncz-issue-refresh [--soc | --ip-once] -- fill in the live lines of /etc/issue.
+#   --soc      the SoC/CPU name only (no network needed; run before the gettys)
+#   --ip-once  the IP line once, from the current address
+#   (none)     SoC, then poll for the first address, then follow address changes
+# NCZ_ISSUE_FILE / NCZ_ISSUE_NET_FILE / NCZ_HW_BRAND override paths (tests).
 set -u
-TRIES=30
-IP=""
-while [ "$TRIES" -gt 0 ]; do
+ISSUE="${NCZ_ISSUE_FILE:-/etc/issue}"
+ISSUE_NET="${NCZ_ISSUE_NET_FILE:-/etc/issue.net}"
+HW_BRAND="${NCZ_HW_BRAND:-/usr/local/bin/ncz-hw-brand}"
+SOC_WAIT="(detecting hardware)"
+IP_WAIT="(waiting for network)"
+
+esc() { printf '%s' "$1" | sed 's/[\\|&]/\\&/g'; }   # safe as a sed replacement
+
+reload_gettys() {   # make every running agetty re-print the banner
+    command -v agetty >/dev/null 2>&1 && agetty --reload >/dev/null 2>&1
+    return 0
+}
+
+fill_soc() {
+    SOC=""
+    [ -x "$HW_BRAND" ] && SOC=$("$HW_BRAND" 2>/dev/null | awk -F= '/^SOC=/ {sub(/^SOC=/,""); print; exit}')
+    [ -n "$SOC" ] || SOC="unknown"
+    # /etc/issue shows the name bare, /etc/issue.net in brackets; the old token
+    # too, so an older banner left on disk is healed as well
+    [ -f "$ISSUE" ] && sed -i "s|$(esc "$SOC_WAIT")|$(esc "$SOC")|; s|NCZ_ISSUE_SOC_PLACEHOLDER|$(esc "$SOC")|" "$ISSUE" 2>/dev/null
+    [ -f "$ISSUE_NET" ] && sed -i "s|$(esc "$SOC_WAIT")|($(esc "$SOC"))|; s|NCZ_ISSUE_SOC_PLACEHOLDER|$(esc "$SOC")|" "$ISSUE_NET" 2>/dev/null
+    return 0
+}
+
+ip_now() {
     # Route-based lookup, not the first line of `ip addr` -- a box with more
     # than one live interface (e.g. wired + wireless both up) lists them in
     # whatever order the kernel enumerated them, not by which one actually
-    # carries the default route. Confirmed picking the WRONG interface on a
-    # real dual-NIC host during this fix's own verification. `ip route get`
-    # asks the kernel which source address it would actually use, which
-    # respects real route metrics regardless of listing order.
-    IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="src") print $(i+1)}')
-    [ -z "$IP" ] && IP=$(ip -4 -o addr show scope global up 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+    # carries the default route. `ip route get` asks the kernel which source
+    # address it would actually use.
+    _ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="src") print $(i+1)}')
+    [ -z "$_ip" ] && _ip=$(ip -4 -o addr show scope global up 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+    printf '%s' "$_ip"
+}
+
+set_ip() {   # $1 = address, or empty for the waiting text
+    _v="${1:-$IP_WAIT}"
+    [ -f "$ISSUE" ] || return 0
+    sed -i "s|^IP:    .*|IP:    $(esc "$_v")|" "$ISSUE" 2>/dev/null || true
+}
+
+case "${1:-}" in
+    --soc) fill_soc; reload_gettys; exit 0 ;;
+    --ip-once) set_ip "$(ip_now)"; reload_gettys; exit 0 ;;
+esac
+
+fill_soc
+# Poll for the first address rather than trusting a single network-online
+# trigger to have fired after a real address landed.
+TRIES=30
+IP=""
+while [ "$TRIES" -gt 0 ]; do
+    IP=$(ip_now)
     [ -n "$IP" ] && break
     TRIES=$((TRIES - 1))
     sleep 2
 done
-[ -n "$IP" ] || IP="(no address)"
-SOC="unknown"
-if [ -x /usr/local/bin/ncz-hw-brand ]; then
-    SOC=$(/usr/local/bin/ncz-hw-brand 2>/dev/null | awk -F= '/^SOC=/ {sub(/^SOC=/,""); print; exit}')
-    [ -n "$SOC" ] || SOC="unknown"
-fi
-for f in /etc/issue /etc/issue.net; do
-    [ -f "$f" ] || continue
-    sed -i "s/NCZ_ISSUE_IP_PLACEHOLDER/$IP/; s/NCZ_ISSUE_SOC_PLACEHOLDER/$SOC/" "$f" 2>/dev/null || true
+set_ip "$IP"
+reload_gettys
+# Keep the banner current: re-read the address on every address event.
+command -v ip >/dev/null 2>&1 || exit 0
+LAST="$IP"
+ip -4 monitor address 2>/dev/null | while read -r _ev; do
+    NOW=$(ip_now)
+    [ "$NOW" = "$LAST" ] && continue
+    LAST="$NOW"
+    set_ip "$NOW"
+    reload_gettys
 done
 ISSUE_REFRESH
 
 cat > /etc/systemd/system/ncz-issue-refresh.service <<'ISSUE_UNIT'
 [Unit]
-Description=Fill in the real IP address on the login console banner
-# Type=simple ON PURPOSE, and no network-online ordering. This unit only
-# rewrites the cosmetic IP/SoC lines in /etc/issue, and ncz-issue-refresh
-# (installed just above) already polls for a real DHCP address itself (TRIES
-# 30 x 2 s). As a Type=oneshot wanted by multi-user.target it would hold
-# multi-user.target -- and therefore graphical.target, which is After= it --
-# until that poll gave up, i.e. up to ~60 s on a slow/absent DHCP server.
-# Type=simple lets the target complete while the banner refreshes in the
-# background, exactly as post-install/97-firstboot-report.sh does for its 30 s
-# sleep (see its [Unit] comment). Dropping the network-online dependency also
-# keeps the NetworkManager-wait-online budget off this unit's start.
-# It is safe because the helper is self-polling, not one-shot: if it runs
-# before DHCP it keeps retrying and fills the address in when the lease lands.
+Description=Fill in the hardware and IP address on the login console banner
+# Type=simple ON PURPOSE, and no network-online ordering. The main process
+# polls for the first DHCP address itself (TRIES 30 x 2 s) and then follows
+# address changes; as a Type=oneshot wanted by multi-user.target it would hold
+# multi-user.target -- and graphical.target after it -- until the poll gave up.
+# Only the ExecStartPre step, the SoC name (no network, about a second, capped
+# by TimeoutStartSec), runs before the first login prompt: getty-pre.target is
+# ordered after this unit, so agetty never shows the waiting text for it.
+Wants=getty-pre.target
+Before=getty-pre.target
 
 [Service]
 Type=simple
+ExecStartPre=-/usr/local/bin/ncz-issue-refresh --soc
+TimeoutStartSec=15
 ExecStart=/usr/local/bin/ncz-issue-refresh
 
 [Install]
