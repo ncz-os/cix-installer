@@ -190,9 +190,9 @@ sum_of() { # sum_of FILE... -> one cksum over the files' contents, "none" when t
     cat "$@" 2>/dev/null | cksum | awk '{print $1 "-" $2}'
 }
 
-patches_sum() { # every shipped patch-set file: a changed or added patch retries a failed build
+patches_sum() { # every shipped patch and marker: a changed or added set retries a failed build
     local files
-    files=$(find "$NV_DKMS_PATCHES" -type f 2>/dev/null | LC_ALL=C sort)
+    files=$(find "$NV_DKMS_PATCHES" -type f \( -name '*.patch' -o -name fixed-upstream \) 2>/dev/null | LC_ALL=C sort)
     # shellcheck disable=SC2086
     [ -n "$files" ] && sum_of $files || echo none
 }
@@ -299,17 +299,26 @@ stage_for_src() {
     log "dkms: staged $n local patch(es) for $mv ($DKMS_ETC/$mv.conf):$names"
 }
 
-# stage_from_deb DEB: verify the driver source inside a *-dkms .deb before dpkg unpacks it
+# stage_from_deb DEB: verify the driver source inside a *-dkms .deb before dpkg unpacks it.
+# Extracts only dkms.conf and the files the patch sets touch or test (kilobytes, not the
+# whole source): this also runs inside an apt transaction.
 stage_from_deb() {
-    local deb=$1 x src rc=0
+    local deb=$1 x src rc=0 f
+    local -a want=('./usr/src/*/dkms.conf')
+    for f in $( { sed -n 's#^+++ b/\([^[:space:]]*\).*#\1#p' "$NV_DKMS_PATCHES"/*/*/*.patch
+                  sed -n 1p "$NV_DKMS_PATCHES"/*/*/fixed-upstream; } 2>/dev/null | sort -u); do
+        case "$f" in /*|*..*|-*) continue ;; esac
+        want+=("./usr/src/*/$f")
+    done
     x=$(scratch_dir nvdeb) || { log "dkms: no scratch space in $STATE/tmp"; return 1; }
-    if dpkg-deb --fsys-tarfile "$deb" 2>/dev/null | tar -x -C "$x" --wildcards './usr/src/*' 2>/dev/null; then
-        for src in "$x"/usr/src/*/; do
-            [ -r "$src/dkms.conf" ] || continue
-            stage_for_src "${src%/}" || rc=1
-        done
-    else
-        log "dkms: cannot read the driver source in $(basename "$deb")"; rc=1
+    # members a source does not have are simply absent (tar reports them; dkms.conf decides)
+    dpkg-deb --fsys-tarfile "$deb" 2>/dev/null | tar -x -C "$x" --wildcards "${want[@]}" 2>/dev/null
+    for src in "$x"/usr/src/*/; do
+        [ -r "$src/dkms.conf" ] || continue
+        stage_for_src "${src%/}" || rc=1
+    done
+    if ! ls "$x"/usr/src/*/dkms.conf >/dev/null 2>&1; then
+        log "dkms: no DKMS source (dkms.conf) found in $(basename "$deb")"; rc=1
     fi
     rm -rf "$x"
     return $rc
