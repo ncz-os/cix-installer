@@ -179,7 +179,9 @@ backoff_note() { # backoff_note <hard|soft>
     echo "$n"
 }
 
-apt_run() { apt-get -o DPkg::Lock::Timeout=900 -o Dpkg::Options::=--force-confold "$@"; }
+# NCZ_CUDA_SETUP_TXN marks apt transactions started by this tool: its apt hook then skips
+# staging (try_driver stages before installing) instead of guessing from the run lock
+apt_run() { NCZ_CUDA_SETUP_TXN=1 apt-get -o DPkg::Lock::Timeout=900 -o Dpkg::Options::=--force-confold "$@"; }
 
 is_transient() { grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect'; }
 
@@ -781,8 +783,8 @@ PROFEOF
 cmd_apt_pre_install() {
     local deb p
     [ -d "$NV_DKMS_PATCHES" ] || { cat >/dev/null; return 0; }
-    # a running ncz-cuda-setup (it holds the lock) stages the patches itself
-    flock -n "$LOCK" true 2>/dev/null || { cat >/dev/null; return 0; }
+    # this tool's own transaction: try_driver already staged the patches for it
+    [ "${NCZ_CUDA_SETUP_TXN:-}" = 1 ] && { cat >/dev/null; return 0; }
     while read -r deb; do
         case "$deb" in *.deb) ;; *) continue ;; esac
         [ -r "$deb" ] || continue

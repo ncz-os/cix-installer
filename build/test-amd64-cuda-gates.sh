@@ -869,8 +869,11 @@ if [ "$HAVE_DPKG_DEB" = 1 ]; then
     eq "hook: apt-pre-install always exits 0" "$(printf '%s\n%s\n' "$CS/archives/nvidia-kernel-open-dkms_615.80.05-1_amd64.deb" /nonexistent.deb | cs apt-pre-install)" 0
     grep -qxF -- "$want_line" "$CS/etc/dkms/nvidia-615.80.05.conf" 2>/dev/null && ok "hook: a driver update through apt gets the content-matched patch" || nok "hook: patch not staged by the apt hook"
     rm -f "$CS/etc/dkms/nvidia-615.80.05.conf"
+    printf '%s\n' "$CS/archives/nvidia-kernel-open-dkms_615.80.05-1_amd64.deb" | NCZ_CUDA_SETUP_TXN=1 PATH="$CS/bin:$PATH" "$CS/ncz-cuda-setup" apt-pre-install >/dev/null 2>&1
+    [ ! -e "$CS/etc/dkms/nvidia-615.80.05.conf" ] && ok "hook: skipped inside ncz-cuda-setup's own apt transaction (it stages)" || nok "hook: ran inside a ncz-cuda-setup transaction"
     ( exec 8>"$CS/lock"; flock -n 8; printf '%s\n' "$CS/archives/nvidia-kernel-open-dkms_615.80.05-1_amd64.deb" | PATH="$CS/bin:$PATH" "$CS/ncz-cuda-setup" apt-pre-install >/dev/null 2>&1 )
-    [ ! -e "$CS/etc/dkms/nvidia-615.80.05.conf" ] && ok "hook: skipped while ncz-cuda-setup itself runs (it stages)" || nok "hook: ran inside a ncz-cuda-setup run"
+    [ -e "$CS/etc/dkms/nvidia-615.80.05.conf" ] && ok "hook: a user's apt while a setup run holds the lock still gets the patch" || nok "hook: skipped a foreign apt transaction because the run lock was held"
+    grep -q 'NCZ_CUDA_SETUP_TXN=1 apt-get' "$ROOT/assets/nvidia/ncz-cuda-setup" && ok "hook: every apt call of the tool carries the transaction marker" || nok "hook: apt_run lacks the marker"
 else
     echo "SKIP content/hook .deb tests: no dpkg-deb on this host"
 fi
