@@ -802,6 +802,7 @@ parity:
 	build/test-progress-bar-drive.sh
 	build/test-firstboot-gpu.sh
 	build/test-dkms-btf-toolchain.sh
+	@bash build/test-mali-overlay-abi-guard.sh; rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 77 ]; then exit $$rc; fi
 	build/test-fwupd-i2c-mask.sh
 	build/test-apt-sources-offline-canary.sh
 	build/test-dkms-prep-keep-going.sh

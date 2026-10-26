@@ -59,7 +59,20 @@ if [ ! -d "$KDIR" ]; then
     echo "[82] $KDIR absent — mali skipped"; exit 0
 fi
 
-# --- 1. pre-built overlay -> updates/ (vermagic-guarded) --------------------
+# Size of a module's .gnu.linkonce.this_module section (= the struct module it
+# was compiled against). The kernel refuses a module whose size differs from
+# its own: "section size must match the kernel's built struct module size".
+this_module_size() {
+    readelf -S -W "$1" 2>/dev/null \
+        | sed -n 's/.*\.gnu\.linkonce\.this_module[[:space:]]*PROGBITS[[:space:]]*[0-9a-f]*[[:space:]]*[0-9a-f]*[[:space:]]*\([0-9a-f]*\).*/\1/p' \
+        | head -1
+}
+# An in-tree module of the shipping kernel: same build, so same struct module.
+REF_KO=$(find "$KDIR/kernel" -name '*.ko' 2>/dev/null | LC_ALL=C sort | head -1)
+REF_TM=""
+[ -n "$REF_KO" ] && REF_TM=$(this_module_size "$REF_KO")
+
+# --- 1. pre-built overlay -> updates/ (vermagic + struct-module guarded) ----
 OVL="$ASSET_DIR/$KVER_NEXT"
 installed=0
 if [ -d "$OVL" ]; then
@@ -71,6 +84,20 @@ if [ -d "$OVL" ]; then
         vm=$(modinfo -F vermagic "$ko" 2>/dev/null | awk '{print $1}')
         if [ -n "$vm" ] && [ "$vm" != "$KVER_NEXT" ]; then
             echo "[82] REFUSE $m: vermagic '$vm' != '$KVER_NEXT'"; continue
+        fi
+        # struct module guard (2026-10-26, O6N r292: overlays with this_module
+        # 0x4c0 against the kernel's 0x500 passed the vermagic guard and were
+        # refused at load -> no GPU). Needs readelf (binutils, pulled in by
+        # dkms); without it, or without an in-tree reference, warn and keep the
+        # old behavior. The project ships uncompressed overlays.
+        if [ -z "$REF_TM" ]; then
+            echo "[82] WARN: cannot verify $m struct module size (no readelf or no in-tree reference module)"
+        else
+            tm=$(this_module_size "$ko")
+            if [ "$tm" != "$REF_TM" ]; then
+                echo "[82] REFUSE $m: this_module size '${tm:-unreadable}' != kernel '$REF_TM' (struct module layout differs; the kernel would refuse it)"
+                continue
+            fi
         fi
         install -m 0644 "$ko" "$KDIR/updates/$(basename "$ko")"
         echo "[82] installed overlay $(basename "$ko") -> updates/"
@@ -172,6 +199,29 @@ rm -f /etc/modules-load.d/cix-mali.conf \
       /etc/systemd/system/multi-user.target.wants/ncz-mali-kbase-load.service
 echo "[82] mali_kbase loading delegated to ncz-gpu-switcher (see 83-panthor-gpu.sh)"
 
+
+# --- DKMS WINS: install a DKMS build that dkms refused to install ---------
+# The overlay above and the DKMS build come from the same source, so they carry
+# the same MODULE_VERSION/srcversion. dkms then declines to install over the
+# overlay ("already installed at version r53p0-00eac0, override by specifying
+# --force") and leaves the package "built", not "installed": the DKMS module
+# never reaches updates/dkms/, the retirement below never fires, and the
+# overlay stays the loaded driver. Measured on O6N 2026-10-26 (r292): DKMS had
+# built correct modules (this_module 0x500) while the refused 0x4c0 overlay
+# stayed in updates/. A module built here, against this machine's headers, is
+# the one to keep, so force the install when dkms built it.
+if [ -n "${KVER_NEXT:-}" ] && command -v dkms >/dev/null 2>&1; then
+    _st=$(dkms status -m cix-gpu-kmd -v "$DKMS_VER" -k "$KVER_NEXT" 2>/dev/null)
+    case "$_st" in
+        *": built"*)
+            if dkms install -m cix-gpu-kmd -v "$DKMS_VER" -k "$KVER_NEXT" --force >/dev/null 2>&1; then
+                echo "[82] dkms install --force cix-gpu-kmd/$DKMS_VER for $KVER_NEXT (dkms had built it but declined to replace the overlay)"
+            else
+                echo "[82] WARN: dkms install --force cix-gpu-kmd/$DKMS_VER for $KVER_NEXT failed"
+            fi ;;
+    esac
+    unset _st
+fi
 
 # --- DKMS WINS: retire the overlay once DKMS has produced modules -----------
 # The overlay installs into updates/ and DKMS into updates/dkms/; depmod prefers
