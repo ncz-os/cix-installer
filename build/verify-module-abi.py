@@ -143,13 +143,18 @@ def judge_probe(path):
         print(f"{TAG}: FAIL: no probe summary (ncz-module-abi-probe missing, or it did not finish)")
         return 1
     last = summary[-1]
-    if last.startswith("skipped"):
-        print(f"{TAG}: FAIL: probe skipped ({last}); a gate guest must be detected as a VM")
-        return 1
-    fields = dict(kv.split(":", 1) for kv in last.split() if ":" in kv)
-    if "modules" not in fields or fields.get("failed") != "0" or "incomplete" in last.split():
-        print(f"{TAG}: FAIL: probe summary {last!r}")
-        return 1
+    for one in summary:
+        if one.startswith("skipped"):
+            print(f"{TAG}: FAIL: probe skipped ({one}); a gate guest must be detected as a VM")
+            return 1
+        fields = dict(kv.split(":", 1) for kv in one.split() if ":" in kv)
+        if (
+            set(fields) != {"modules", "failed", "skipped"}
+            or fields["failed"] != "0"
+            or "incomplete" in one.split()
+        ):
+            print(f"{TAG}: FAIL: probe summary {one!r}")
+            return 1
     print(f"{TAG}: PASS (probe: {last})")
     return 0
 

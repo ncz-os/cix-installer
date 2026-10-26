@@ -167,6 +167,8 @@ judge "report: a kernel-log rejection alone fails" 1 'refused modules in the gue
 judge "report: a skipped probe fails (the gate guest is a VM)" 1 'probe skipped' "# module-abi-probe=skipped (not a VM guest)"
 judge "report: no summary fails" 1 'no probe summary' "# module-abi: mali_kbase OK (loaded)"
 judge "report: an incomplete probe fails" 1 "probe summary 'modules:2 failed:0 skipped:0 incomplete'" "# module-abi-probe=modules:2 failed:0 skipped:0 incomplete"
+judge "report: an earlier failing summary is not hidden by a later one" 1 "probe summary 'modules:2 failed:1 skipped:0'" "# module-abi-probe=modules:2 failed:1 skipped:0" "# module-abi-probe=modules:2 failed:0 skipped:0"
+judge "report: a truncated summary fails" 1 "probe summary 'modules:2 failed:0'" "# module-abi-probe=modules:2 failed:0"
 judge "report: failed>0 in the summary fails" 1 "probe summary 'modules:2 failed:1" "# module-abi-probe=modules:2 failed:1 skipped:0"
 
 # --- 4. wiring ------------------------------------------------------------
