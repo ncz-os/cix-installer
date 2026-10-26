@@ -250,7 +250,8 @@ build/test-gpu-install-progress.sh	common	-	GPU/DKMS install-step feedback: step
 build/test-progress-bar-drive.sh	common	-	late.sh drives finish-install's progress bar at runtime: stub debconf records PROGRESS, cdebconf model asserts forward-only to 100%, GPU weight, flat-stretch creep, text-only fallbacks, no bad number under sh/busybox/bash
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
 build/test-gitlab-registry-cleanup.sh	common	-	mocked-curl regression test for tools/gitlab-registry-cleanup.sh (dry run, keep newest N, duplicate files, release-linked and unnamed packages kept, manifest before removal, token handling)
-build/test-overlay-modversions.sh	sky1	-	fixture tests for verify-overlay-modversions.py (stale CRC, unresolved, no __versions, vermagic, missing set fail)
+build/test-overlay-modversions.sh	sky1	-	fixture tests for verify-overlay-modversions.py (stale CRC, unresolved, no __versions, vermagic, missing set, struct module size fail)
+build/test-module-abi-gate.sh	common	-	verify-module-abi.py, the in-guest ncz-module-abi-probe and their packaging/KVM-gate wiring (struct module size drift, vermagic, loader rejections)
 build/test-reboot-countdown.sh	common	-	installer auto-reboot countdown (preseed/late.sh ncz_reboot_countdown) waits, shows status, can be skipped, never runs unattended
 build/test-release-identity.sh	common	-	release identity/label + Cygnus logo wiring regression test
 build/validate-accelerators.sh	sky1	-	GPU/NPU/VPU binding validation

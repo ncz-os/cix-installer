@@ -1324,6 +1324,14 @@ else
             "$DEBUGFS" -R "dump /var/log/ncz-first-boot-failed.txt $FBR" "$FB_ROOT" >/dev/null 2>&1 || true
             GHL="$WORK/gpu-health.log"; rm -f "$GHL"
             "$DEBUGFS" -R "dump /var/log/ncz-gpu-health.log $GHL" "$FB_ROOT" >/dev/null 2>&1 || true
+            # Out-of-tree modules of the booted kernel, for the static ABI check below.
+            MODS="$WORK/installed-modules/$DEFAULT_KVER"; rm -rf "$WORK/installed-modules"
+            if [ -n "$DEFAULT_KVER" ]; then
+                mkdir -p "$MODS"
+                for _md in kernel updates extra; do
+                    "$DEBUGFS" -R "rdump /usr/lib/modules/$DEFAULT_KVER/$_md $MODS" "$FB_ROOT" >/dev/null 2>&1 || true
+                done
+            fi
         fi
     fi
     rm -f "$FB_DISK" "$FB_ROOT"
@@ -1343,6 +1351,33 @@ else
     else
         cat "$GHL" >&2; fail "unrecognized GPU health log"
     fi
+    # Out-of-tree module ABI (2026-10-26, O6N r292: three Mali modules with
+    # struct module 0x4c0 vs the kernel's 0x500 were refused at load, no GPU,
+    # no desktop, while every earlier gate passed).
+    #   static:  every .ko under updates/ and extra/ of the booted kernel must
+    #            have an in-tree module's this_module size and vermagic;
+    #   runtime: the guest's ncz-module-abi-probe (97-firstboot-report.sh)
+    #            modprobes each one under the real kernel; any rejection fails.
+    if [ -z "$DEFAULT_KVER" ] || [ ! -d "$WORK/installed-modules/$DEFAULT_KVER/kernel" ]; then
+        fail "could not read /usr/lib/modules/${DEFAULT_KVER:-<unknown>}/kernel from the installed root -- cannot check the out-of-tree module ABI"
+    fi
+    # The guest probe counted the module names under updates/ and extra/; the
+    # copy read off the disk must hold at least that many files, so a partial
+    # rdump cannot turn into a vacuous pass.
+    _probe_n=$(sed -n 's/^# module-abi-probe=modules:\([0-9]*\).*/\1/p' "$FBR" | tail -1)
+    _abi_rc=0
+    python3 "$SCRIPT_DIR/verify-module-abi.py" --allow-empty --min-count "${_probe_n:-0}" \
+        "$WORK/installed-modules/$DEFAULT_KVER" > "$WORK/module-abi.txt" 2>&1 || _abi_rc=$?
+    sed 's/^/    /' "$WORK/module-abi.txt"
+    rm -rf "$WORK/installed-modules"
+    [ "$_abi_rc" = 0 ] \
+        || fail "out-of-tree modules on the installed root do not match the booted kernel $DEFAULT_KVER (struct module size or vermagic; see above)"
+    # Line format: see verify-module-abi.py --probe-report (a skipped probe fails).
+    _abi_rc=0
+    python3 "$SCRIPT_DIR/verify-module-abi.py" --probe-report "$FBR" > "$WORK/module-abi-probe.txt" 2>&1 || _abi_rc=$?
+    sed 's/^/    /' "$WORK/module-abi-probe.txt"
+    [ "$_abi_rc" = 0 ] \
+        || fail "the booted kernel refused modules on first boot, or the in-guest probe did not run (ncz-module-abi-probe; see above)"
     ALLOW="$SCRIPT_DIR/first-boot-failed-allowlist.txt"
     WP_RC="$(sed -n 's/^# wallpaper-bing-rc=//p' "$FBR" | tail -1)"
     if [ "$WANT_DESKTOP" = 1 ]; then

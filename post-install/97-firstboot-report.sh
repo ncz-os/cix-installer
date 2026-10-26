@@ -32,6 +32,10 @@ sleep 30
     echo "# default-target=$(systemctl get-default 2>/dev/null)"
     echo "# greetd=$(systemctl is-active greetd.service 2>/dev/null)"
     echo "# getty-tty1=$(systemctl is-active getty@tty1.service 2>/dev/null)"
+    # Out-of-tree module ABI at runtime (VM guests only; see ncz-module-abi-probe).
+    if [ -x /usr/local/sbin/ncz-module-abi-probe ]; then
+        timeout 180 /usr/local/sbin/ncz-module-abi-probe
+    fi
     if [ -x /usr/local/bin/ncz-wallpaper-bing ]; then
         timeout 90 /usr/local/bin/ncz-wallpaper-bing fetch --if-stale --preferred-only > /var/log/ncz-wallpaper-smoke.log 2>&1
         echo "# wallpaper-bing-rc=$?"
@@ -41,6 +45,68 @@ sleep 30
 sync
 REPORT
 chmod 0755 /usr/local/sbin/ncz-firstboot-report
+
+# Gate evidence: does the running kernel accept every out-of-tree module this
+# image ships? 2026-10-26 (O6N, Preview4 desktop, r292): the three Mali modules
+# in updates/ were refused at load ("module mali_kbase:
+# .gnu.linkonce.this_module section size must match the kernel's built struct
+# module size at run time") and the board had no GPU and no desktop. That check
+# runs before any hardware probing, so a QEMU guest of the same kernel shows it;
+# the arm64 KVM gate boots the real Sky1 kernel. Loading a driver for hardware
+# that is not there is harmless in a VM but is NOT done on real hardware, where
+# ncz-gpu-switcher alone decides which GPU driver loads: outside a VM this
+# prints a skip line and touches nothing. Output lines start with "# module-abi"
+# (build/kvm-install-gate-gpt.sh judges them with verify-module-abi.py
+# --probe-report, which documents the line format).
+cat > /usr/local/sbin/ncz-module-abi-probe <<'PROBE'
+#!/bin/sh
+KVER=$(uname -r)
+MODDIR=${NCZ_MODULE_ABI_MODDIR:-/usr/lib/modules/$KVER}
+[ -d "$MODDIR" ] || MODDIR=/lib/modules/$KVER
+if ! systemd-detect-virt --vm -q 2>/dev/null; then
+    echo "# module-abi-probe=skipped (not a VM guest)"
+    exit 0
+fi
+REJECT='section size must match|disagrees about version of symbol|version magic .* should be|Unknown symbol|[Ii]nvalid module format|Exec format error'
+n=0; bad=0; skip=0; incomplete=""
+start=$(date +%s)
+names=$(find "$MODDIR/updates" "$MODDIR/extra" -type f \( -name '*.ko' -o -name '*.ko.xz' -o -name '*.ko.zst' \) 2>/dev/null \
+        | sed 's|.*/||; s/\.ko\(\.xz\|\.zst\)\{0,1\}$//' | sort -u)
+for m in $names; do
+    if [ $(($(date +%s) - start)) -gt 150 ]; then incomplete=" incomplete"; break; fi
+    n=$((n + 1))
+    mu=$(printf '%s' "$m" | tr - _)
+    if [ -d "/sys/module/$mu" ]; then
+        echo "# module-abi: $m OK (already loaded)"
+        continue
+    fi
+    out=$(timeout 30 modprobe "$m" 2>&1); rc=$?
+    out=$(printf '%s' "$out" | tr '\n' ' ')
+    if [ "$rc" = 0 ]; then
+        echo "# module-abi: $m OK (loaded)"
+        modprobe -r "$m" >/dev/null 2>&1 || true
+    elif printf '%s' "$out" | grep -qE "$REJECT"; then
+        echo "# module-abi: $m FAIL rc=$rc $out"; bad=$((bad + 1))
+    elif printf '%s' "$out" | grep -q 'not found in directory'; then
+        # on disk but not in modules.dep: it would never load on a real boot either
+        echo "# module-abi: $m FAIL not indexed (stale modules.dep?): $out"; bad=$((bad + 1))
+    elif printf '%s' "$out" | grep -q 'Operation not permitted'; then
+        # module_blacklist= on this boot entry (e.g. panthor on the Mali entry):
+        # the loader stops before its ABI checks; the static gate covers it.
+        echo "# module-abi: $m SKIP blacklisted on this boot entry"; skip=$((skip + 1))
+    else
+        # The loader accepted the module and its init failed (no hardware in
+        # this guest, missing firmware, ...): not an ABI problem. The kernel log
+        # scan below still catches a rejection modprobe did not print.
+        echo "# module-abi: $m INFO accepted, init failed: $out"
+    fi
+done
+# The whole boot on purpose: a rejection of any module at any point of the
+# guest boot (e.g. ncz-gpu-switcher's own modprobe) is a defect of the image.
+journalctl -k -b --no-pager 2>/dev/null | grep -E "$REJECT" | head -20 | sed 's/^/# module-abi-reject: /'
+echo "# module-abi-probe=modules:$n failed:$bad skipped:$skip$incomplete"
+PROBE
+chmod 0755 /usr/local/sbin/ncz-module-abi-probe
 cat > /etc/systemd/system/ncz-firstboot-report.service <<'UNIT'
 [Unit]
 Description=Record failed units after the first boot (NCZ gate evidence)

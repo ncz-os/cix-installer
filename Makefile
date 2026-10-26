@@ -788,6 +788,7 @@ parity:
 	build/test-singularity-mali-shaders.sh
 	@bash build/test-singularity-deb-version.sh; rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 77 ]; then exit $$rc; fi
 	build/test-overlay-modversions.sh
+	build/test-module-abi-gate.sh
 	build/test-amd64-dracut-isolation.sh
 	python3 -I build/test-boot-manifest-parity.py
 	build/test-kernel-default-policy.sh
