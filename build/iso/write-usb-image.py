@@ -237,6 +237,35 @@ def server_online_fetch_plan(arch: str) -> dict:
     return plan
 
 
+# Opt-in (unset = no change): the asset bundle is built in this writer's own
+# work dir, which is deleted on exit. The KVM gate has to serve the exact bytes
+# the medium pins, and the shipped-artifact secret scan has to read them, so a
+# build that needs them names a directory here and gets a verified copy plus a
+# sha256 sidecar. Desktop builds never build a bundle and ignore it.
+ASSETS_EXPORT_ENV = "NCZ_ASSETS_EXPORT_DIR"
+
+
+def export_assets_bundle(bundle: Path, export_dir: Path, sha256: str) -> Path:
+    """Copy the pinned bundle to export_dir (atomically) with <name>.sha256.
+
+    The copy is re-hashed against the pin before it is renamed into place, so
+    the exported bytes are provably the ones the medium's manifest pins."""
+    export_dir.mkdir(parents=True, exist_ok=True)
+    dest = export_dir / bundle.name
+    part = export_dir / (bundle.name + ".part")
+    shutil.copyfile(bundle, part)
+    got = sha256_file(part)
+    if got != sha256:
+        part.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"FATAL: exported asset bundle {part} hashes {got}, the medium "
+            f"pins {sha256}; refusing to export bytes the medium does not pin")
+    os.replace(part, dest)
+    (export_dir / (bundle.name + ".sha256")).write_text(f"{sha256}  {bundle.name}\n")
+    log(f"    server variant: asset bundle exported to {dest} ({ASSETS_EXPORT_ENV})")
+    return dest
+
+
 def write_online_fetch_manifest(payload_dst: Path, plan: dict) -> None:
     """Emit the manifest ncz-fetch-payload.sh consumes.
 
@@ -990,6 +1019,9 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
             f"{online['assets_sha256'][:16]}...)")
         write_online_fetch_manifest(ncz_payload_dst, online)
         receipt["online_fetch"] = online
+        export_dir = os.environ.get(ASSETS_EXPORT_ENV, "").strip()
+        if export_dir:
+            export_assets_bundle(bundle, Path(export_dir), online["assets_sha256"])
     else:
         # Desktop is byte-identical to before: no manifest, no bundle, the
         # assets stay on the medium exactly where they always were.

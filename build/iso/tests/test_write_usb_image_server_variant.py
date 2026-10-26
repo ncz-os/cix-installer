@@ -124,7 +124,7 @@ def make_udeb(dest: Path) -> None:
                    check=True, capture_output=True)
 
 
-def stage(variant, tmp, with_base=None, arch="amd64"):
+def stage(variant, tmp, with_base=None, arch="amd64", extra_env=None):
     """Stage a payload tree through the REAL writer functions.
 
     The server variant must produce the same logical medium for amd64 and
@@ -144,6 +144,7 @@ def stage(variant, tmp, with_base=None, arch="amd64"):
         "NCZ_PAYLOAD_SHA256": "a" * 64,
         "NCZ_ASSETS_URL": f"https://example.invalid/ncz-assets-{arch}.tar.gz",
     }
+    env.update(extra_env or {})
     with mock.patch.dict(os.environ, env, clear=False), \
          mock.patch.object(MODULE, "REPO_ROOT", tmp / "repo"), \
          mock.patch.object(MODULE, "stage_ssplugin_deb", return_value=None):
@@ -208,6 +209,50 @@ class ServerVariantStagingBase(unittest.TestCase):
         self.assertEqual([r[3] for r in rows], ["file", "untar"])
         for row in rows:
             self.assertEqual(len(row[2]), 64, "every pin must be a sha256")
+
+    def test_server_exports_the_pinned_bundle_when_asked(self):
+        """NCZ_ASSETS_EXPORT_DIR: the gate and the payload secret scan need the
+        exact bytes the medium pins, which otherwise die with the work dir."""
+        out = self.tmp / "export"
+        stage_dir, receipt = stage("server", self.tmp / "sx", arch=self.arch,
+                                   extra_env={"NCZ_ASSETS_EXPORT_DIR": str(out)})
+        plan = receipt["online_fetch"]
+        exported = out / plan["assets_name"]
+        self.assertTrue(exported.is_file(), "bundle not exported")
+        self.assertEqual(MODULE.sha256_file(exported), plan["assets_sha256"])
+        side = (out / (plan["assets_name"] + ".sha256")).read_text().split()
+        self.assertEqual(side, [plan["assets_sha256"], plan["assets_name"]])
+        self.assertFalse((out / (plan["assets_name"] + ".part")).exists())
+        self.assertNotIn("assets_export", plan, "the manifest plan must not change")
+        manifest = (stage_dir / "ncz-payload" / "ncz-fetch-payload.manifest").read_text()
+        self.assertIn(plan["assets_sha256"], manifest)
+
+    def test_export_unset_changes_nothing(self):
+        """Opt-in: without the variable no directory appears, desktop and server."""
+        out = self.tmp / "never"
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NCZ_ASSETS_EXPORT_DIR", None)
+            self._stage("server", "sn")
+            self._stage("desktop", "dn")
+        self.assertFalse(out.exists())
+        self.assertEqual(sorted(p.name for p in (self.tmp / "sn" / "online").iterdir()),
+                         [f"ncz-assets-{self.arch}.tar.gz"])
+
+    def test_desktop_ignores_the_export_dir(self):
+        """Desktop builds no bundle: the variable must not create anything."""
+        out = self.tmp / "dexport"
+        _, receipt = stage("desktop", self.tmp / "dx", arch=self.arch,
+                           extra_env={"NCZ_ASSETS_EXPORT_DIR": str(out)})
+        self.assertFalse(out.exists())
+        self.assertNotIn("online_fetch", receipt)
+
+    def test_export_refuses_bytes_that_do_not_match_the_pin(self):
+        src = self.tmp / "b.tar.gz"
+        src.write_bytes(b"bundle")
+        with self.assertRaises(RuntimeError):
+            MODULE.export_assets_bundle(src, self.tmp / "bad", "0" * 64)
+        self.assertFalse((self.tmp / "bad" / "b.tar.gz").exists())
+        self.assertFalse((self.tmp / "bad" / "b.tar.gz.part").exists())
 
     def test_server_accepts_release_and_gate_pins(self):
         """A release medium pins the published payload; a gate medium pins
