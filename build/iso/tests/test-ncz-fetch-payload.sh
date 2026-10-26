@@ -209,6 +209,34 @@ else
     echo "skip - GNU wget case (no GNU wget on this host)"
 fi
 
+# --- 8. every [FETCH] line reaches the consoles (amd64 serial is ttyS0) ---
+# The default console list must name the serial console of BOTH arches; a
+# FIFO stands in for a console device so the test can read what was written.
+grep -qE '^CONSOLES="\$\{NCZ_FETCH_CONSOLES:-[^"]*/dev/ttyS0' "$FETCH" \
+    && grep -qE '^CONSOLES="\$\{NCZ_FETCH_CONSOLES:-[^"]*/dev/ttyAMA0' "$FETCH" \
+    && ok "the default consoles include ttyS0 (amd64 serial) and ttyAMA0 (arm64 serial)" \
+    || fail "run8a: the default console list lacks ttyS0 or ttyAMA0"
+rm -rf "$WORK/con"; mkdir -p "$WORK/con/dest"
+mkfifo "$WORK/con/ttyS0"
+cat "$WORK/con/ttyS0" > "$WORK/con/serial.log" &
+_catpid=$!
+# hold the FIFO open: each say() opens and closes it, and the reader must not
+# see EOF between lines
+exec 9<>"$WORK/con/ttyS0"
+cp "$WORK/dest/ncz-fetch-payload.manifest" "$WORK/con/dest/"
+NCZ_FETCH_CONSOLES="$WORK/con/absent $WORK/con/ttyS0" NCZ_PAYLOAD_DIR="$WORK/con/dest" \
+    NCZ_FETCH_MAX_TRIES=2 sh "$FETCH" >"$WORK/con/run.log" 2>&1
+_rc=$?
+# drop the holder: the fetcher has exited, so cat now sees EOF
+exec 9>&-
+wait "$_catpid" 2>/dev/null
+if [ "$_rc" = 0 ] && grep -qF "[FETCH] base.squashfs verified sha256=" "$WORK/con/serial.log" \
+   && grep -qF "all manifest artifacts fetched and verified" "$WORK/con/serial.log"; then
+    ok "[FETCH] verified lines reach the serial console (and a missing console is skipped)"
+else
+    fail "run8b: the serial console did not get the [FETCH] lines (rc=$_rc)"; sed -n '1,10p' "$WORK/con/serial.log"
+fi
+
 echo
 if [ "$FAILS" -eq 0 ]; then
     echo "PASS: ncz-fetch-payload.sh"

@@ -39,14 +39,18 @@
 set -u
 
 # Serial failure visibility on BOTH arm64 (Sky1 / O6N / cixmini / MS-R1:
-# the PL011 debug UART is ttyAMA0) and amd64 (T2: the on-screen console
-# tty0; d-i's own serial sidecar is diag-console.sh, not this script).
-# The server medium is headless, so a failure that lands on only one of the
-# two consoles is a silent box. /dev/console is intentionally NOT written:
-# on arm64 it is ttyAMA0 (duplicated), and on a d-i that reopened console
-# the write would disturb the installer's console device.
-SER=/dev/ttyAMA0
-SER2=/dev/tty0
+# the PL011 debug UART is ttyAMA0) and amd64 (the 16550 serial console
+# ttyS0 of a headless server, and the on-screen console tty0 of a T2 box;
+# d-i's own serial sidecar is diag-console.sh, not this script).
+# The server medium is headless, so a failure that lands on only some of the
+# consoles is a silent box. ttyS0 was missing until 2026-10-26: on an amd64
+# server (and the amd64 KVM gate, whose serial is ttyS0) no [FETCH] line
+# reached the serial console at all. /dev/console is intentionally NOT
+# written: it is one of these devices already, and on a d-i that reopened
+# console the write would disturb the installer's console device.
+# NCZ_FETCH_CONSOLES overrides the list (tests); entries that are not a
+# character device or a FIFO are skipped.
+CONSOLES="${NCZ_FETCH_CONSOLES:-/dev/ttyAMA0 /dev/ttyS0 /dev/tty0}"
 DEST_DIR="${NCZ_PAYLOAD_DIR:-/cdrom/ncz-payload}"
 MANIFEST="${NCZ_FETCH_MANIFEST:-$DEST_DIR/ncz-fetch-payload.manifest}"
 MAX_TRIES="${NCZ_FETCH_MAX_TRIES:-10}"
@@ -61,8 +65,8 @@ TMPDIR_FETCH="${NCZ_FETCH_TMPDIR:-/tmp}"
 say() {
     _line="$*"
     printf '%s\n' "$_line" >&2 2>/dev/null || true
-    for _c in "$SER" "$SER2"; do
-        [ -c "$_c" ] || continue
+    for _c in $CONSOLES; do
+        [ -c "$_c" ] || [ -p "$_c" ] || continue
         printf '%s\n' "$_line" 2>/dev/null >>"$_c" || true
     done
 }
