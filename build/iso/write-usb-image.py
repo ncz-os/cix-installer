@@ -1013,7 +1013,12 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
                 f"cannot install")
         bundle = online_work_dir / bundle_name
         staged_bytes = sum(du_bytes(assets_dst / n) for n in present)
-        size = make_targz(assets_dst, present, bundle)
+        # Members are assets/<name>/...: ncz-fetch-payload.sh unpacks the bundle
+        # into the staging root (ncz-online/ncz-payload) and late.sh overlays
+        # ncz-online/ncz-payload/assets/ onto $INSTALLER_META/assets. Without
+        # the prefix the assets land beside assets/ and are never overlaid
+        # (found reading the first real Magnetar install, 2026-10-26).
+        size = make_targz(assets_dst.parent, [f"assets/{n}" for n in present], bundle)
         for name in present:
             shutil.rmtree(assets_dst / name)
             if name in copied_assets:

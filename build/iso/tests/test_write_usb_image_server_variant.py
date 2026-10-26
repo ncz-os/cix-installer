@@ -227,6 +227,25 @@ class ServerVariantStagingBase(unittest.TestCase):
         manifest = (stage_dir / "ncz-payload" / "ncz-fetch-payload.manifest").read_text()
         self.assertIn(plan["assets_sha256"], manifest)
 
+    def test_bundle_unpacks_where_late_sh_overlays_it(self):
+        """The fetcher untars the bundle into the staging root and late.sh
+        overlays <staging>/assets onto $INSTALLER_META/assets, so every member
+        must live under assets/ (2026-10-26: they were rescue/, kernel/, ...
+        and would never have been overlaid)."""
+        import tarfile
+        _, receipt = self._stage("server", "bl")
+        bundle = self.tmp / "bl" / "online" / receipt["online_fetch"]["assets_name"]
+        with tarfile.open(bundle) as tf:
+            names = tf.getnames()
+        self.assertTrue(names)
+        bad = [n for n in names if n != "assets" and not n.startswith("assets/")]
+        self.assertEqual(bad, [], "bundle members outside assets/")
+        for entry in receipt["online_fetch"]["assets_entries"]:
+            self.assertIn(f"assets/{entry}", names)
+        late = (REPO / "preseed" / "late.sh").read_text()
+        self.assertIn('if [ -d "$NCZ_ONLINE/assets" ]', late,
+                      "late.sh no longer overlays <staging>/assets; re-check the bundle layout")
+
     def test_server_refuses_a_payload_node_with_the_base_layer(self):
         """A desktop/stale payload node (base.squashfs present) must never
         become a server medium: the layer would ship on it after all."""
