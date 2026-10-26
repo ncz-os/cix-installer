@@ -71,6 +71,21 @@ file:///cdrom` and exits immediately for `BUILD_VARIANT=server|headless`;
 falls back to the network sources. Shipping 1.8 GB of packages nothing on a
 server image can install was the single largest reason the medium was ~3.4 GB.
 
+> **Correction (2026-10-26, first real server installs).** That premise is
+> wrong. `20-desktop.sh` is not the only consumer of the on-media regular
+> repository: the r159 stub binds it into the target as the install-time apt
+> source and refuses to continue without it (`FATAL: r159 stub: no on-media
+> <arch> apt repository found`, both arches, Preview4 `079bbf39`), apt-setup's
+> preseeded `local0` source is `file:///cdrom`, and `late.sh` and many
+> post-install hooks `apt-get install` from it. The server base layer does not
+> carry what they install: in the extracted Preview4 base, `firmware-linux-free`,
+> `firmware-realtek`, `firmware-misc-nonfree`, `python3-dbus`,
+> `libtext-iconv-perl` and `refind` are absent on both arches, and
+> `ncz-apt-policy` on amd64. A server medium therefore needs a regular apt
+> closure from somewhere (on the medium, in the fetched payload, or a computed
+> subset). Which one is an open decision; until it is made, a server medium
+> fetches and verifies its payload and then stops at that FATAL.
+
 ## The install-time flow
 
 1. d-i boots from the medium and reads its installer udebs (`/cdrom`).
@@ -82,8 +97,12 @@ server image can install was the single largest reason the medium was ~3.4 GB.
    (`$TARGET/ncz-online/ncz-payload`; the medium itself is mounted `-o ro,noload`,
    so a fetch into `/cdrom` would die part-way and leave a half-written tree),
    and runs the fetcher.
-5. `ncz-fetch-payload.sh` reads `ncz-fetch-payload.manifest` and fetches each
-   artifact, **verifying its sha256 before use**: bounded retries with
+5. `ncz-fetch-payload.sh` reads the medium's `ncz-fetch-payload.manifest` (the
+   stub passes it as `NCZ_FETCH_MANIFEST`; the destination is empty) and fetches
+   each artifact with GNU `wget` (wget-udeb, which the build requires in the
+   initrd; d-i's busybox has no `wget` applet), falling back to `busybox wget`
+   only when that applet answers and failing loudly before any download when
+   neither works. Every artifact is **sha256-verified before use**: bounded retries with
    exponential backoff, HTTP `Range` resume, an overall deadline, a DNS
    readiness probe, idempotency (an already-verified artifact is not
    re-downloaded), and a loud serial failure. Any failure is fatal — an
@@ -91,9 +110,12 @@ server image can install was the single largest reason the medium was ~3.4 GB.
 6. The stub links `sqtools` in and extracts. The wipe of `$TARGET` deliberately
    skips `ncz-online`; deleting it would delete the file just verified.
 7. `late.sh` (still a real `preseed/late_command`) unions the fetched
-   `assets/` into `/target/usr/local/lib/cix-installer/assets/`, asserts
+   `assets/` into `/target/usr/local/lib/cix-installer/assets/` (the bundle's
+   members all live under `assets/` for this), asserts
    `assets/{rescue,kernel,firmware,branding}` really arrived, and removes the
-   staging root so it does not live inside the installed root filesystem.
+   staging root so it does not live inside the installed root filesystem. A
+   staging root without `assets/`, or a server medium whose stub staged
+   nothing, fails the install.
 
 Every post-install hook therefore still finds what it expects at
 `$INSTALLER_META/assets/...`.
@@ -102,7 +124,35 @@ Every post-install hook therefore still finds what it expects at
 
 The URLs and digests are build inputs, not something the writer invents. A
 server build **refuses** to run without them, because a medium whose payload
-cannot be verified can only fail at the operator's prompt on a headless box:
+cannot be verified can only fail at the operator's prompt on a headless box.
+
+`build/build-image.sh` drives a server build end to end:
+
+```sh
+NCZ_VARIANT=server build/build-image.sh --arch amd64 --full --sources pinned \
+    --substrate pinned --no-publish --keep-work --run-dir <run>
+```
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `NCZ_VARIANT` | `desktop` | `server` builds a Magnetar medium; anything else is a usage error |
+| `NCZ_PAYLOAD_BASE_URL` | the KVM gate's serve base, `http://10.0.2.2` (`ncz_gate_serve_payload_base_url()`) | where the medium will fetch `base.squashfs` and `ncz-assets-<arch>.tar.gz` |
+| `NCZ_PAYLOAD_URL` / `NCZ_ASSETS_URL` | `<base>/base.squashfs` / `<base>/ncz-assets-<arch>.tar.gz` | per-artifact override |
+| `NCZ_PAYLOAD_SHA256` | the sha256 of `assets/squashfs/base.squashfs` | must equal it if given |
+| `NCZ_GATE_SERVER_HOST` | unset | pin a LAN address of the build host instead of 10.0.2.2 |
+| `NCZ_KVM_GATE_SERVER_SETS` | `server server-offline-negative` | the server gate sets |
+
+The image stage pins the payload before the writer runs, passes the pins and
+`NCZ_ASSETS_EXPORT_DIR` into the image container (that one call only), and
+afterwards requires the receipt to say `variant=server` and to pin exactly the
+bytes now in `<run>/payload/` (the exported bundle and a copy of the base
+layer). `<run>/payload.result` records the pins and `published=no`.
+
+A medium pinned to the gate's base is a **gate medium**. A release medium pins
+the published URL (`NCZ_PAYLOAD_BASE_URL=https://…`); nothing in the build
+uploads anything.
+
+Calling the writer directly still works:
 
 ```sh
 NCZ_VARIANT=server \
@@ -312,7 +362,21 @@ numbers above are **amd64 only**. This is the main thing left unproven.
   a good manifest fetches/verifies/unpacks; a second run downloads nothing; a
   wrong pin fails the run loudly and installs nothing; an unwritable
   destination is refused *before* any bytes move; the env-only contract still
-  works; an unreachable host gives up in bounded time.
+  works; an unreachable host gives up in bounded time; with no downloader the
+  run fails before any attempt; busybox-only and GNU-wget-only both work.
+- `build/iso/tests/test_kvm_gate_server_matrix.py` — the stub's own fetch block
+  hands the medium manifest to the fetcher, and with the real fetcher installs
+  from it.
+- `build/iso/tests/test_patch_initrd.py` — the build fails if the final initrd
+  lacks wget-udeb, including an initrd node reused from the cache.
+- `test_write_usb_image_server_variant.py` also: a server build refuses a
+  payload node carrying `base.squashfs`; the bundle unpacks under `assets/`;
+  `NCZ_ASSETS_EXPORT_DIR` exports the pinned bytes; `late.sh`'s overlay fails
+  without `assets/`.
+- `build/test-build-image.sh` section 6 (the build-image server path),
+  `build/test-shipped-secret-scan.sh` and `build/test-shipped-secret-scan-payload.sh`
+  (`--variant server`, `--payload`), `build/test-no-ubuntu.sh` section 9
+  (provenance `--variant server`).
 
 ```sh
 python3 -m pytest build/iso/tests/test_write_usb_image_server_variant.py -q
@@ -333,60 +397,59 @@ component" failure the surrounding comment warns about. The leading `pool/`
 component is now stripped if present. This is a no-op for the production
 desktop call (proved by the A/B above) and a fix for the extract-root form.
 
-## Not yet proven
+## Gates (build-image.sh, server media)
 
-`build/kvm-install-gate-gpt.sh`'s **server variant mode** has **not** been
-run against a real server image. The 2026-10-17 work added two
-`NCZ_KVM_GATE_VARIANTS` sets to the gate (`server`,
-`server-offline-negative`), the `NCZ_PAYLOAD_URL`/`NCZ_ASSETS_URL`
-environment override, and a local HTTP server the gate starts on the
-QEMU user-net gateway before the guest boots. Proven so far:
+Every gate a desktop image passes, adapted to a medium that does not carry its
+payload:
 
-- **The payload HTTP server is a tested path.** `build/test-kvm-gate-server.sh`
-  runs the exact `python3 - "$SRV_DIR" "$host" "$port" <<'PY'` heredoc
-  invocation the gate uses, proves `sys.argv[1:]` carries the arguments,
-  starts the server, GETs both served artifacts through it, and tears it
-  down. This runs in CI (it is part of `make test`), on a local port,
-  rootless.
-- **The gate's server-set assertions are unit-tested** by
-  `build/iso/tests/test_kvm_gate_server_matrix.py` (matrix wiring, the
-  fetcher's refusal behaviour on a stopped server, the menu/ssh/desktop
-  assertions against synthetic installed-root artifacts).
-- **The build side** (`NCZ_VARIANT=server` medium: server menu, no desktop
-  packages, fetcher pins (the gate's serve base for a gate medium, the published payload for release), BUILD_VARIANT
-  stamped) is unit-tested by `test_write_usb_image_server_variant.py` and
-  the build-image.sh / write-usb-image.py changes pass their suites.
+- **secret scan**: `scan-shipped-secrets.py --image <img> --variant server`
+  (the receipt must say server, the medium must carry no squashfs layer and
+  must carry the fetch manifest; every file on it is scanned), then
+  `--payload base.squashfs --payload ncz-assets-<arch>.tar.gz` on the exact
+  pinned bytes.
+- **provenance**: `forky-provenance.py --image <img> --variant server
+  --server-payload <run>/payload`: receipt and medium agree it is a server
+  medium (no layer, no offline apt pool, a well-formed manifest pinning what
+  the receipt pins), the payload hashes to its pins, and `base.squashfs`, the
+  rootfs tarballs and the `.deb`s in the bundle are checked against the pinned
+  snapshot and ledgers. ESP, initrd, installer-pool and kernel-purity checks
+  are unchanged.
+- **KVM**: the `server` and `server-offline-negative` sets (the desktop full
+  gate and desktop option sets cannot install a server medium; the installer
+  dialogs are judged on the desktop medium).
 
-**Not yet proven: the orchestrator's real gate run** — a full QEMU install
-of a `NCZ_VARIANT=server` medium through the `server` set (guest reaches
-the gate's 10.0.2.2 server, fetches + sha256-verifies the payload from
-the network, installs, and all the installed-root assertions pass) and the
-`server-offline-negative` run (loud bounded failure, no half-written
-rootfs). First real run: record its result here (arch, run date, PASS/FAIL
-per set, and the evidence paths).
+## The LAN-served payload
 
-**Known gap: `build-image.sh` does not yet drive a server gate end to end.**
-Found in review 2026-10-17; each fails loudly, none affects desktop builds:
+The gate serves the payload itself: it reads the pins back off the medium,
+copies `<run>/payload/{base.squashfs,ncz-assets-<arch>.tar.gz}` into its work
+dir under `~/Projects`, starts `python3 http.server` there bound to the
+host's loopback for a `10.0.2.2` pin (QEMU user-net forwards the guest's
+10.0.2.2 to it) or to the pinned LAN address of the build host, proves it
+answers 200 before the guest boots, and stops it on every exit path. Nothing
+is published.
 
-- Nothing pins a gate medium to the gate's server: `ncz_gate_serve_payload_base_url()`
-  has no caller, so `NCZ_PAYLOAD_URL`/`NCZ_PAYLOAD_SHA256`/`NCZ_ASSETS_URL` must be
-  supplied by hand for `NCZ_VARIANT=server`.
-- `write-usb-image.py` builds the asset bundle inside its own work dir and deletes it
-  on exit, so the gate has no bundle to serve.
-- `stage_kvm_gate` runs the first (full) gate and the default `norescue minimal stalefs`
-  sets in desktop mode on a server image, and passes `$RUN_DIR/kvm-gate-options/<set>`
-  to the gate, whose default payload paths then resolve under `kvm-gate-options/`.
+## Publication: waiting on the operator
 
-Until this is wired, run the server sets by hand with `NCZ_GATE_SERVER_PAYLOAD` and
-`NCZ_GATE_SERVER_ASSETS` set.
+A release Magnetar medium pins a public URL (the Preview3 plan was the R2
+bucket `ncz-apt`, prefix `magnetar/<preview>/<arch>/`). Uploading the payload
+is an operator decision and has not been made for Preview4: the Preview4
+server images are gate media marked "payload not yet published". When it is
+made: rebuild the image stage with `NCZ_PAYLOAD_BASE_URL` set to the published
+prefix, upload the secret-scanned `<run>/payload/` bytes, verify the public
+sha256 matches the pins, then install from the published URL.
 
-The accelerator hook's server-mode branch (skip `ncz-vc4-sway-
-accelerators` on the variant root, skip the rEFInd Mali/Panthor +
-no-accel entries) runs only when a `BUILD_VARIANT=server` medium is
-installed; its assertions are the server-set assertions above.
+## Gate runs
 
-(Pre-2026-10-17, the gate had no server mode at all; the measurement
-build that wrote the first version of this doc also had no sudo, so the
-loop-mount step of `build_data_partition_img()` was not exercised end to
-end. The fetch script's own failure and idempotency behaviour *is* covered
-against a real HTTP server by the fetcher test above.)
+- 2026-10-26, Preview4, both arches: the first real server installs found and
+  fixed, in order: the stub never passed the medium's manifest to the
+  fetcher; the bundle unpacked beside `assets/`; the fetcher called a
+  `busybox wget` that d-i lacks; `late.sh` skipped a missing overlay
+  silently; the payload cache reused the desktop node (base layer on the
+  server medium). Results of the full set after those fixes are recorded in
+  the next entry.
+- 2026-10-26, Preview4 `079bbf39`, both arches: image, secret scan (medium
+  `--variant server` and payload) and provenance PASS; the cached initrd node
+  passed the wget-udeb check. In the `server` KVM set the guest fetched both
+  artifacts with GNU wget and verified them (amd64 4 s, arm64 18 s), unpacked
+  the base layer, then stopped at the missing on-media apt repository (see the
+  correction above). No server medium has completed an install yet.
