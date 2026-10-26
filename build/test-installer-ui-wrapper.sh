@@ -286,12 +286,14 @@ for _a in amd64 arm64; do
     run_case "srv_no_download_$_a" "$_a" srv_no_download 1 "downloads about 3 GB" server || fail=1
 done
 # the server capture never sends an answer for the component dialog it must not show; rule 0 is the country
-if [ "$(head -1 "$WORK/srv_valid_arm64/work/answers-argv.txt" 2>/dev/null)" = 'Choose your country=\r' ] \
-   && ! grep -q 'optional components' "$WORK/srv_valid_arm64/work/answers-argv.txt"; then
-    echo "ok srv_rule0_region"
-else
-    echo "FAIL srv_rule0_region: a server capture must not answer a component dialog"; cat "$WORK/srv_valid_arm64/work/answers-argv.txt"; fail=1
-fi
+for _a in amd64 arm64; do
+    if [ "$(head -1 "$WORK/srv_valid_$_a/work/answers-argv.txt" 2>/dev/null)" = 'Choose your country=\r' ] \
+       && ! grep -q 'optional components' "$WORK/srv_valid_$_a/work/answers-argv.txt"; then
+        echo "ok srv_rule0_region_$_a"
+    else
+        echo "FAIL srv_rule0_region_$_a: a server capture must not answer a component dialog"; cat "$WORK/srv_valid_$_a/work/answers-argv.txt" 2>/dev/null; fail=1
+    fi
+done
 run_case bad_variant arm64 text_valid 1 "NCZ_UI_CHECK_VARIANT must be desktop or server" bogus || fail=1
 
 if [ $fail -ne 0 ]; then
