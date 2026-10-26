@@ -621,7 +621,13 @@ do_run() {
     fi
 
     if [ "$scheduled" = 1 ] && [ -s "$REPAIR" ] && [ "$(uname -r)" != "$(cat "$REPAIR")" ]; then
-        return 0   # the driver is repaired once the machine runs that kernel
+        if [ ! -e "$MODULES_ROOT/$(cat "$REPAIR")/build" ]; then
+            log "kernel $(cat "$REPAIR") is gone; nothing to repair for it"
+            rm -f "$REPAIR"
+        elif module_ok "$(uname -r)"; then
+            return 0   # the running kernel has its module; repaired once the machine runs that kernel
+        fi
+        # otherwise the running kernel lacks the module too: repair it now
     fi
 
     if [ "$scheduled" = 1 ] && [ -s "$DKMS_FAIL" ]; then

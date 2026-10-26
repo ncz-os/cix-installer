@@ -743,6 +743,16 @@ eq "kernel: still running the old kernel -> the timer waits (rc 0)" "$(STUB_NVVE
 [ ! -e "$CS/apt.calls" ] && ok "kernel: ... and does nothing until the new kernel runs" || nok "kernel: repaired for the wrong kernel"
 eq "kernel: after booting it, the timer builds the module for it (rc 0)" "$(STUB_KVER=$KV_B STUB_NOMOD=1 STUB_NVVERS='615.71.10-1' cs run --scheduled)" 0
 [ -e "$CS/mods/$KV_B" ] && [ ! -e "$CS/var/lib/ncz/cuda-setup.repair-kernel" ] && ok "kernel: ... module built for the new kernel, repair record cleared" || nok "kernel: not repaired"
+# a third kernel booted instead, also without a module: repaired now, not after booting the recorded one
+csconf turing-plus; STUB_NVVERS='615.71.10-1' cs run >/dev/null; mkdir -p "$CS/modules/$KV_B/build" "$CS/modules/7.3.2-t2-ncz/build/include/generated"
+cs kernel-postinst "$KV_B" >/dev/null
+eq "kernel: another kernel without a module is running -> repaired now (rc 0)" "$(STUB_KVER=7.3.2-t2-ncz STUB_NOMOD=1 STUB_NVVERS='615.71.10-1' cs run --scheduled)" 0
+[ -e "$CS/mods/7.3.2-t2-ncz" ] && ok "kernel: ... module built for the running kernel" || nok "kernel: running kernel left without a module"
+# the recorded kernel was removed: the record is dropped instead of waiting forever
+csconf turing-plus; STUB_NVVERS='615.71.10-1' cs run >/dev/null; mkdir -p "$CS/modules/$KV_B/build"
+cs kernel-postinst "$KV_B" >/dev/null; rm -rf "$CS/modules/$KV_B"
+STUB_NVVERS='615.71.10-1' cs run --scheduled >/dev/null
+[ ! -e "$CS/var/lib/ncz/cuda-setup.repair-kernel" ] && [ -e "$CS/var/lib/ncz/cuda-setup.done" ] && ok "kernel: a removed kernel's repair record is dropped (no endless pending)" || nok "kernel: stuck waiting for a removed kernel"
 csconf turing-plus; STUB_NVVERS='615.71.10-1' cs run >/dev/null; mkdir -p "$CS/modules/$KV_B/build" "$CS/mods"; touch "$CS/mods/$KV_B"
 cs kernel-postinst "$KV_B" >/dev/null
 [ -e "$CS/var/lib/ncz/cuda-setup.done" ] && ok "kernel: a new kernel the driver built for is left alone" || nok "kernel: healthy kernel update re-armed"
