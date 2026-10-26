@@ -64,18 +64,26 @@ BUDGET="${NCZ_EARLY_COMMAND_BUDGET:-13000}"
 
 # Join exactly as the loader does and report structural faults. Output is one
 # line "KIND:detail" followed, for KIND=OK, by the joined command.
-report="$(python3 -I - "$CFG" <<'EOF'
+# join_value KEY -> that report for one preseed key (KIND=ABSENT when the file
+# has no such line).
+join_value() {
+python3 -I - "$CFG" "$1" <<'EOF'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
+name = sys.argv[2]
+key = re.escape(name)
 lines = text.split("\n")
-idx = [i for i, l in enumerate(lines) if re.match(r"^\s*d-i\s+preseed/early_command\s+string(\s|$)", l)]
+idx = [i for i, l in enumerate(lines) if re.match(r"^\s*d-i\s+" + key + r"\s+string(\s|$)", l)]
+if not idx:
+    print("ABSENT:no 'd-i %s string' line" % name)
+    sys.exit(0)
 if len(idx) != 1:
-    print("ERR:expected exactly one 'd-i preseed/early_command string' line, found %d" % len(idx))
+    print("ERR:expected exactly one 'd-i %s string' line, found %d" % (name, len(idx)))
     sys.exit(0)
 k = idx[0]
 # The loader's view of the file: `grep -v '^#\|^[[:space:]]*$'` (column-0
 # comments and blank lines vanish BEFORE continuation is evaluated), CR dropped.
-first = re.sub(r"^\s*d-i\s+preseed/early_command\s+string\s*", "", lines[k].replace("\r", ""))
+first = re.sub(r"^\s*d-i\s+" + key + r"\s+string\s*", "", lines[k].replace("\r", ""))
 cur = first
 parts = []
 n = k
@@ -113,7 +121,8 @@ joined = " ".join(parts)
 print("OK:%d" % len(joined.encode("utf-8")))
 print(joined)
 EOF
-)"
+}
+report="$(join_value preseed/early_command)"
 
 kind="${report%%:*}"
 detail="${report#*:}"
@@ -121,7 +130,7 @@ detail="${detail%%$'\n'*}"
 joined="${report#*$'\n'}"
 
 case "$kind" in
-    ERR) echo "check-early-command-size: $detail" >&2; exit 2 ;;
+    ERR|ABSENT) echo "check-early-command-size: $detail" >&2; exit 2 ;;
     COMMENT|BACKSLASH)
         echo "check-early-command-size: FAIL: preseed/early_command $detail" >&2
         echo "check-early-command-size:       move comments above the d-i line (see the header of this script); no backslash anywhere but the line end." >&2
@@ -171,4 +180,43 @@ if ! printf '%s' "$joined" | grep -qE '(^|;)[[:space:]]*set \+e[[:space:]]*;'; t
     exit 1
 fi
 
-echo "check-early-command-size: OK ($len bytes, budget $BUDGET; parses under:${shells}; ends with true)"
+# The other preseed commands are ALLOWED to fail: partman/early_command exits
+# non-zero on purpose when the operator declines the erase confirmation (or the
+# chooser aborts), and preseed/late_command exits with late.sh's status. Each
+# failure displays preseed/command_failed with COMMAND=<the value>, so the
+# HAZARD above applies in full: a `${...}` in the value aborts the debconf
+# frontend instead of showing the error. 2026-10-26 (Preview4 arm64 UI check):
+# the chooser aborted, partman/early_command's "${_blk#/sys}" crashed cdebconf
+# and d-i fell back to the syslog window. Same joiner rules, no `${`, and the
+# joined value must parse.
+others=""
+for key in partman/early_command preseed/late_command; do
+    r="$(join_value "$key")"
+    k="${r%%:*}"; d="${r#*:}"; d="${d%%$'\n'*}"; j="${r#*$'\n'}"
+    case "$k" in
+        ABSENT) continue ;;
+        ERR) echo "check-early-command-size: $d" >&2; exit 2 ;;
+        COMMENT|BACKSLASH)
+            echo "check-early-command-size: FAIL: $key $d" >&2
+            exit 1 ;;
+        OK) ;;
+        *) echo "check-early-command-size: unexpected parser output for $key: ${r:0:200}" >&2; exit 2 ;;
+    esac
+    if printf '%s' "$j" | grep -qF '${'; then
+        echo "check-early-command-size: FAIL: $key contains a \${...} expansion: $(printf '%s' "$j" | grep -oE '\$\{[^}]*\}' | head -3 | tr '\n' ' ')" >&2
+        echo "check-early-command-size:       it can exit non-zero; d-i then shows preseed/command_failed with COMMAND=<this value> and cdebconf 0.283 asserts on \${...} (lookup_directive, question.c:276), so the installer frontend dies instead of showing the error. Use \$var, or move the logic into a preseed/*.sh helper." >&2
+        exit 1
+    fi
+    printf '%s\n' "$j" > "$tmp"
+    for sh_cmd in "dash" "busybox sh"; do
+        set -- $sh_cmd
+        command -v "$1" >/dev/null 2>&1 || continue
+        if ! err="$($sh_cmd -n "$tmp" 2>&1)"; then
+            echo "check-early-command-size: FAIL: the joined $key does not parse under '$sh_cmd -n': ${err//$tmp/$key}" >&2
+            exit 1
+        fi
+    done
+    others="$others $key"
+done
+
+echo "check-early-command-size: OK ($len bytes, budget $BUDGET; parses under:${shells}; ends with true; no \${...} in:${others:- (none present)})"

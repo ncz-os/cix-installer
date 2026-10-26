@@ -74,7 +74,7 @@ ap.add_argument("--console", choices=["auto","serial","vt"], default="auto", hel
 ap.add_argument("--serial-console", action="store_true", help="amd64: put d-i's newt UI on the QEMU UART (console=ttyS0,115200 on the TEST copy's Install entry) and judge the dialog text states from it")
 ap.add_argument("--preseed", default="", help="ESP path of the medium's preseed.cfg when it is not at ::/preseed.cfg or ::/EFI/BOOT/preseed.cfg")
 ap.add_argument("--ask-disk", action="store_true", help="do not preset ncz_disk/ncz_fs: the disk, filesystem and erase-confirmation dialogs appear")
-ap.add_argument("--answer", action="append", default=[], help="REGEX=KEYS: when the console screen matches REGEX send KEYS once (\\r = Enter, \\x1b[B = Down)")
+ap.add_argument("--answer", action="append", default=[], help="REGEX=KEYS: when the console screen matches REGEX send KEYS once (\\r = Enter, \\x1b[B = Down, \\x1b[D = Left)")
 ap.add_argument("--vt", action="store_true", help="also read the fbcon VTs over the diag telnet (slow)")
 ap.add_argument("--rows", type=int, default=24); ap.add_argument("--cols", type=int, default=80)
 ap.add_argument("--mem", type=int, default=4096)

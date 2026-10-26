@@ -178,6 +178,62 @@ expect no-set+e 1 "must start with 'set \+e ;'" "$t/no-set-e.cfg"
 
 expect budget 1 "budget" "$PRESEED" NCZ_EARLY_COMMAND_BUDGET=100
 
+# --- commands that are allowed to fail: no ${...} (2026-10-26, Preview4 arm64) ---
+# partman/early_command exits non-zero when the operator declines the erase
+# confirmation; d-i then displays preseed/command_failed with COMMAND=<value>
+# and cdebconf asserted on its "${_blk#/sys}".
+mk "$t/partman-brace.cfg" <<'EOF'
+d-i preseed/early_command string \
+    set +e ; \
+    true
+d-i partman/early_command string \
+    for _blk in /sys/block/sd* ; do \
+        udevadm info -q env -p "${_blk#/sys}" ; \
+    done ; \
+    exit 1
+EOF
+expect partman-brace 1 'partman/early_command contains a \$\{' "$t/partman-brace.cfg"
+
+mk "$t/late-brace.cfg" <<'EOF'
+d-i preseed/early_command string \
+    set +e ; \
+    true
+d-i preseed/late_command string \
+    sh "${D:-/cdrom}/late.sh"
+EOF
+expect late-brace 1 'preseed/late_command contains a \$\{' "$t/late-brace.cfg"
+
+mk "$t/partman-plain.cfg" <<'EOF'
+d-i preseed/early_command string \
+    set +e ; \
+    true
+d-i partman/early_command string \
+    for _blk in /sys/block/sd* ; do \
+        _bn=$(basename "$_blk") ; \
+        udevadm info -q env -p "/block/$_bn" ; \
+    done ; \
+    exit 1
+EOF
+expect partman-plain 0 "" "$t/partman-plain.cfg"
+
+mk "$t/partman-syntax.cfg" <<'EOF'
+d-i preseed/early_command string \
+    set +e ; \
+    true
+d-i partman/early_command string \
+    if [ -e /x ] ; then \
+        exit 1
+EOF
+expect partman-syntax 1 "joined partman/early_command does not parse" "$t/partman-syntax.cfg"
+
+# The real file with the pre-fix udevadm line restored must fail.
+sed 's|udevadm info -q env -p "/block/\$_bn"|udevadm info -q env -p "${_blk#/sys}"|' "$PRESEED" > "$t/real-brace.cfg"
+if cmp -s "$PRESEED" "$t/real-brace.cfg"; then
+    bad real-brace "could not re-insert the pre-fix \${_blk#/sys} line (anchor moved)"
+else
+    expect real-brace 1 'partman/early_command contains a \$\{' "$t/real-brace.cfg"
+fi
+
 # --- the joined real value --------------------------------------------------------
 if bash "$CHECK" --print-joined "$PRESEED" > "$t/real.joined"; then
     if [ "$(wc -l < "$t/real.joined")" = 1 ] && dash -n "$t/real.joined" 2>"$t/dash.err"; then

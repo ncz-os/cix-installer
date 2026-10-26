@@ -135,6 +135,15 @@ for i in range(24):
         body = frame("select your REGION", hdr + "\nselect your REGION")
     w(os.path.join(ss, "%04d-%ds.txt" % (i, t)), "# t=%ds\n%s" % (t, body))
 w(os.path.join(ss, "0099-297s.txt"), "# t=297s\ndiagnostics login: root / set by ncz_diag_pw\n")
+# 2026-10-26 arm64: the erase confirmation answered No (Down does not move off the last button), the chooser
+# aborted, and preseed/command_failed crashed cdebconf on a ${...} in partman/early_command.
+if mode == "arm_erase_declined":
+    w(os.path.join(ss, "0098-296s.txt"), "# t=296s\nOct 26 02:03:41 log-output: [ncz chooser] ABORT: "
+      "the operator did not confirm erasing /dev/vda - wiping NOTHING, stopping install.\n")
+serial = "boot\n"
+if mode == "arm_debconf_assert":
+    serial += "debconf: ./src/question.c:276: lookup_directive: Assertion `'!' == directive[0]' failed.\n"
+w(os.path.join(work, "serial0.log"), serial)
 with open(os.path.join(work, "answers.log"), "w") as fh:
     fh.write("t=25s rule 0 optional components=\\r\n")
 PY
@@ -214,14 +223,18 @@ if [ "$(head -1 "$WORK/arm_valid/work/answers-argv.txt" 2>/dev/null)" = 'optiona
 else
     echo "FAIL arm_rule0_components: rule 0 is not the component dialog"; fail=1
 fi
-# the erase confirmation must select Yes: Enter alone answers No and the install never reaches the disk
-# (the wrapper's default is Down,Enter; an operator can override it for a different capture)
-if grep -q 'ERASE /dev/vda and install=$' "$WORK/arm_valid/work/answers-argv.txt" 2>/dev/null; then
-    echo "FAIL arm_erase_answer: the erase rule sends no keys (Enter would answer No)"
-    cat -v "$WORK/arm_valid/work/answers-argv.txt"; fail=1
+# the erase confirmation must select Yes: Enter alone answers No and the install never reaches the disk.
+# cdebconf's newt boolean is [Go Back] [text] [Yes] [No] with focus on No and newt does not wrap focus, so
+# only Left (or Up) reaches Yes; Down did nothing and answered No (2026-10-26, Preview4 arm64).
+if grep -qxF 'ERASE /dev/vda and install=\x1b[D\r' "$WORK/arm_valid/work/answers-argv.txt" 2>/dev/null; then
+    echo "ok arm_erase_answer (Left, Enter)"
 else
-    echo "ok arm_erase_answer"
+    echo "FAIL arm_erase_answer: the erase rule must send Left then Enter (\\x1b[D\\r) to select Yes"
+    cat -v "$WORK/arm_valid/work/answers-argv.txt"; fail=1
 fi
+# an erase answered No and a dead debconf frontend are named, not left to their symptoms
+run_case arm_erase_declined arm64 arm_erase_declined 1 "erase confirmation was answered No" || fail=1
+run_case arm_debconf_assert arm64 arm_debconf_assert 1 "debconf frontend aborted" || fail=1
 
 if [ $fail -ne 0 ]; then
     echo "test-installer-ui-wrapper: FAIL" >&2

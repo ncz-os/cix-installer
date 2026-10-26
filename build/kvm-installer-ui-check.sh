@@ -30,13 +30,16 @@ rm -rf "$WORK"; mkdir -p "$WORK"
 # The HARDWARE SUMMARY note (preseed/hw-summary.sh) follows the password confirm on an interactive install:
 # Continue it, and require it in the sequence so a summary that silently stops appearing is caught too.
 # Rule 0 must stay the component dialog (T_ANS below). The password is a throwaway for this capture only.
-# The ERASE confirmation defaults to No and its Yes/No buttons have no keyboard accelerator, so Down then Enter
-# selects Yes -- Enter alone answers No and the install stops at the chooser (nothing is written).
+# The ERASE confirmation defaults to No and its Yes/No buttons have no keyboard accelerator. cdebconf's newt
+# boolean adds the components as [Go Back] [text] [Yes] [No] with focus on No, and newt moves focus with
+# Up/Left (previous) and Down/Right (next) WITHOUT wrapping, so Down on the last button does nothing and the
+# Enter that follows answers No (2026-10-26, Preview4 arm64: the chooser aborted, nothing was written).
+# Left then Enter selects Yes; Enter alone answers No and the install stops at the chooser.
 ANS=(--answer 'optional components=\r' --answer 'select your REGION=\r' --answer 'choose a USERNAME=\r'
      --answer 'choose a PASSWORD=nczuicheck\r' --answer 'type the same PASSWORD=nczuicheck\r'
      --answer 'HARDWARE SUMMARY=\r'
      --answer 'select the TARGET DISK=\r' --answer 'root \(/\) filesystem=\r'
-     --answer "${NCZ_UI_CHECK_ERASE_RX:-ERASE /dev/vda and install}=${NCZ_UI_CHECK_ERASE_KEYS:-\x1b[B\r}")
+     --answer "${NCZ_UI_CHECK_ERASE_RX:-ERASE /dev/vda and install}=${NCZ_UI_CHECK_ERASE_KEYS:-\x1b[D\r}")
 if [ "$ARCH" = amd64 ]; then
     # amd64 has no UART on the shipped entries (by design: console=tty0 only, see preseed/diag-console.sh), so the
     # TEST COPY gets console=ttyS0,115200 appended to its Install entry and d-i's newt draws the same dialogs there.
@@ -95,6 +98,14 @@ else
         || { echo "UI CHECK FAIL: Enter on the component dialog did not keep the default (all components): $(grep -o 'Components:.*' "$_review" | head -1)" >&2; rc=1; }
     grep -q "Rescue partition: *yes" "$_review" \
         || { echo "UI CHECK FAIL: the default rescue partition was lost: $(grep -o 'Rescue partition:.*' "$_review" | head -1)" >&2; rc=1; }
+fi
+# Name the two ways the 2026-10-26 arm64 capture went wrong instead of leaving only their symptoms (a syslog
+# window on the console, a short capture): the erase confirmation answered No, and the debconf frontend died.
+if grep -q "the operator did not confirm erasing" "$WORK/serial0.log" "$WORK"/serial-screens/*.txt 2>/dev/null; then
+    echo "UI CHECK FAIL: the erase confirmation was answered No (the answer keys did not select Yes; see answers.log)" >&2; rc=1
+fi
+if grep -aq "lookup_directive: Assertion" "$WORK/serial0.log" 2>/dev/null; then
+    echo "UI CHECK FAIL: the debconf frontend aborted (cdebconf lookup_directive assertion: a \${...} reached a displayed question)" >&2; rc=1
 fi
 if grep -q "not in the candidate set" "$WORK"/serial-screens/*.txt 2>/dev/null; then
     echo "UI CHECK FAIL: the disk chooser rejected its own answer (Choices/Choices-C swapped?)" >&2; rc=1
