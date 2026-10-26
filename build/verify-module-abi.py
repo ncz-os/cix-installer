@@ -34,7 +34,8 @@ skipped probe fails (the gate always boots a VM, so a skip means the probe
 did not see one).
 
 Usage:
-  build/verify-module-abi.py [--ref KO] [--ko KO ...] [--allow-empty] [TREE]
+  build/verify-module-abi.py [--ref KO] [--ko KO ...] [--allow-empty]
+                             [--min-count N] [TREE]
   build/verify-module-abi.py --probe-report FILE
 Exit: 0 pass, 1 mismatch (every failure printed), 2 bad invocation or no
 reference module. Pure Python, no kmod/binutils needed, any host arch.
@@ -136,7 +137,7 @@ def judge_probe(path):
         if ln.startswith("# module-abi"):
             print(f"  {ln}")
     if bad:
-        print(f"{TAG}: FAIL: the kernel refused out-of-tree modules ({len(bad)} line(s) above)")
+        print(f"{TAG}: FAIL: the kernel refused modules in the guest ({len(bad)} line(s) above)")
         return 1
     if not summary:
         print(f"{TAG}: FAIL: no probe summary (ncz-module-abi-probe missing, or it did not finish)")
@@ -163,6 +164,12 @@ def main():
         action="store_true",
         help="pass when the tree has no out-of-tree modules",
     )
+    ap.add_argument(
+        "--min-count",
+        type=int,
+        default=0,
+        help="fail unless at least this many out-of-tree modules were checked",
+    )
     ap.add_argument("--probe-report", help="judge ncz-module-abi-probe output instead")
     a = ap.parse_args()
     if a.probe_report:
@@ -184,6 +191,9 @@ def main():
     print(f"{TAG}: reference {ref}: this_module=0x{ref_size:x} vermagic={ref_magic!r}")
 
     kos = (out_of_tree(a.tree) if a.tree else []) + list(a.ko)
+    if len(kos) < a.min_count:
+        print(f"{TAG}: FAIL: {len(kos)} out-of-tree module(s) found, expected at least {a.min_count} (incomplete copy of the tree?)")
+        return 1
     if not kos:
         if a.allow_empty:
             print(f"{TAG}: PASS (no out-of-tree modules)")

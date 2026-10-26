@@ -1361,9 +1361,13 @@ else
     if [ -z "$DEFAULT_KVER" ] || [ ! -d "$WORK/installed-modules/$DEFAULT_KVER/kernel" ]; then
         fail "could not read /usr/lib/modules/${DEFAULT_KVER:-<unknown>}/kernel from the installed root -- cannot check the out-of-tree module ABI"
     fi
+    # The guest probe counted the module names under updates/ and extra/; the
+    # copy read off the disk must hold at least that many files, so a partial
+    # rdump cannot turn into a vacuous pass.
+    _probe_n=$(sed -n 's/^# module-abi-probe=modules:\([0-9]*\).*/\1/p' "$FBR" | tail -1)
     _abi_rc=0
-    python3 "$SCRIPT_DIR/verify-module-abi.py" --allow-empty "$WORK/installed-modules/$DEFAULT_KVER" \
-        > "$WORK/module-abi.txt" 2>&1 || _abi_rc=$?
+    python3 "$SCRIPT_DIR/verify-module-abi.py" --allow-empty --min-count "${_probe_n:-0}" \
+        "$WORK/installed-modules/$DEFAULT_KVER" > "$WORK/module-abi.txt" 2>&1 || _abi_rc=$?
     sed 's/^/    /' "$WORK/module-abi.txt"
     rm -rf "$WORK/installed-modules"
     [ "$_abi_rc" = 0 ] \
@@ -1373,7 +1377,7 @@ else
     python3 "$SCRIPT_DIR/verify-module-abi.py" --probe-report "$FBR" > "$WORK/module-abi-probe.txt" 2>&1 || _abi_rc=$?
     sed 's/^/    /' "$WORK/module-abi-probe.txt"
     [ "$_abi_rc" = 0 ] \
-        || fail "the booted kernel refused out-of-tree modules on first boot, or the in-guest probe did not run (ncz-module-abi-probe; see above)"
+        || fail "the booted kernel refused modules on first boot, or the in-guest probe did not run (ncz-module-abi-probe; see above)"
     ALLOW="$SCRIPT_DIR/first-boot-failed-allowlist.txt"
     WP_RC="$(sed -n 's/^# wallpaper-bing-rc=//p' "$FBR" | tail -1)"
     if [ "$WANT_DESKTOP" = 1 ]; then

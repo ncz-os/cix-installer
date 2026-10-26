@@ -94,6 +94,8 @@ mkdir -p "$T/empty/kernel"; mkko "$T/empty/kernel/ref.ko" 0x500 "$VM"
 expect "empty tree fails" 1 'no out-of-tree modules' "$T/empty"
 expect "empty tree passes with --allow-empty" 0 'PASS \(no out-of-tree' "$T/empty" --allow-empty
 tree "$T/junk"; printf 'not elf' > "$T/junk/updates/aipu.ko"
+expect "--min-count catches an incomplete copy" 1 'found, expected at least 5' "$T/good" --min-count 5
+expect "--min-count met passes" 0 'PASS \(2 module' "$T/good" --min-count 2
 expect "unreadable module fails" 1 'FAIL updates/aipu.ko: unreadable' "$T/junk"
 tree "$T/notmod"; mkko "$T/notmod/updates/amvx.ko" - "$VM"
 expect "ELF without this_module fails" 1 'amvx.ko: unreadable: no .gnu.linkonce.this_module' "$T/notmod"
@@ -109,7 +111,7 @@ fi
 PROBE="$T/ncz-module-abi-probe"
 sed -n "/^cat > \/usr\/local\/sbin\/ncz-module-abi-probe <<'PROBE'$/,/^PROBE$/p" \
     "$ROOT/post-install/97-firstboot-report.sh" | sed '1d;$d' > "$PROBE"
-[ -s "$PROBE" ] && ok "probe script extracted" || no "probe script extracted from 97-firstboot-report.sh"
+tail -1 "$PROBE" | grep -q 'module-abi-probe=modules:' && ok "probe script extracted whole" || no "probe script extraction from 97-firstboot-report.sh is empty or truncated"
 # stubs <dir> <virt rc> <modprobe body>
 stubs() {
     mkdir -p "$1"
@@ -158,9 +160,9 @@ judge() {  # judge <name> <want-rc> <regex> <report lines...>
 }
 judge "report: clean summary passes" 0 'PASS \(probe: modules:3 failed:0 skipped:1\)' \
     "# module-abi: mali_kbase OK (loaded)" "# module-abi: panthor SKIP blacklisted on this boot entry" "# module-abi-probe=modules:3 failed:0 skipped:1"
-judge "report: a FAIL line fails" 1 'refused out-of-tree modules' \
+judge "report: a FAIL line fails" 1 'refused modules in the guest' \
     "# module-abi: mali_kbase FAIL rc=1 Exec format error" "# module-abi-probe=modules:3 failed:1 skipped:0"
-judge "report: a kernel-log rejection alone fails" 1 'refused out-of-tree modules' \
+judge "report: a kernel-log rejection alone fails" 1 'refused modules in the guest' \
     "# module-abi: mali_kbase INFO accepted, init failed" "# module-abi-reject: module mali_kbase: .gnu.linkonce.this_module section size must match" "# module-abi-probe=modules:1 failed:0 skipped:0"
 judge "report: a skipped probe fails (the gate guest is a VM)" 1 'probe skipped' "# module-abi-probe=skipped (not a VM guest)"
 judge "report: no summary fails" 1 'no probe summary' "# module-abi: mali_kbase OK (loaded)"
@@ -170,7 +172,7 @@ judge "report: failed>0 in the summary fails" 1 "probe summary 'modules:2 failed
 # --- 4. wiring ------------------------------------------------------------
 grep -q 'verify-module-abi.py" "$root/usr/lib/modules/$kver"' "$ROOT/build/build-kernel-debs.sh" \
     && ok "kernel .deb packaging runs verify-module-abi.py" || no "build-kernel-debs.sh does not run verify-module-abi.py"
-grep -q 'verify-module-abi.py" --allow-empty "$WORK/installed-modules/$DEFAULT_KVER"' "$ROOT/build/kvm-install-gate-gpt.sh" \
+grep -q 'verify-module-abi.py" --allow-empty --min-count "${_probe_n:-0}"' "$ROOT/build/kvm-install-gate-gpt.sh" \
     && ok "KVM gate runs the static check on the installed root" || no "KVM gate does not run verify-module-abi.py"
 grep -q 'verify-module-abi.py" --probe-report "$FBR"' "$ROOT/build/kvm-install-gate-gpt.sh" \
     && ok "KVM gate judges the probe report with --probe-report" || no "KVM gate does not judge the probe report"
