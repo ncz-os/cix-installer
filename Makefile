@@ -776,6 +776,7 @@ parity:
 	build/test-reap-images.sh
 	REPO_ROOT=$(ROOT) bash build/test-amd64-kernel-classifier.sh
 	bash build/test-amd64-t2-detect.sh
+	bash build/test-efi-boot-label.sh
 	bash build/test-t2-mce-nobootlog.sh
 	bash build/test-t2-power-cap.sh
 	bash build/test-nouveau-runpm.sh
