@@ -328,5 +328,31 @@ printf 'preseed/late.sh\tnothing-matches-this\tstale\n' >> "$W/cc/manifests/serv
 _o=$(NCZ_CODENAME_CHECK_ROOT="$W/cc" bash "$C" 2>&1); _r=$?
 [ "$_r" != 0 ] && printf '%s' "$_o" | grep -q 'matches nothing' && ok "check-server-codename: a stale allow-list row fails" || bad "check-server-codename: stale row not caught: $_o"
 
+# --- 12. dry run of the gate wiring: the matrix runs the UI check in the server set, and the gate --
+#     hands it NCZ_UI_CHECK_VARIANT=server (real matrix + the gate's real dispatch block, stub gate/check)
+mkdir -p "$W/dry/bin"; cp "$ROOT/build/kvm-install-gate-matrix.sh" "$W/dry/bin/"; mkdir -p "$W/dry/bin/lib"
+cat > "$W/dry/bin/kvm-install-gate-gpt.sh" <<'STUB'
+#!/bin/bash
+echo "STUB set=$(basename "$2") ui=$NCZ_GATE_UI_CHECK server=$NCZ_GATE_SERVER offline=$NCZ_GATE_SERVER_OFFLINE comps=$NCZ_GATE_COMPONENTS"
+[ "$NCZ_GATE_SERVER_OFFLINE" = 1 ] && echo "GATE PASS (server-offline-negative): stub" || echo "GATE PASS (phase 1+2): stub"
+STUB
+chmod +x "$W/dry/bin/kvm-install-gate-gpt.sh"; : > "$W/dry/img.img"
+_m=$(bash "$W/dry/bin/kvm-install-gate-matrix.sh" "$W/dry/img.img" "$W/dry/work" full server server-offline-negative nodesktop 2>&1)
+case "$_m" in *"use a directory on disk"*)   # the matrix refuses a tmpfs work root; run it on disk
+    _dd=$(mktemp -d "$ROOT/.ncz-srv-brand-dry.XXXXXX"); _m=$(bash "$W/dry/bin/kvm-install-gate-matrix.sh" "$W/dry/img.img" "$_dd/work" full server server-offline-negative nodesktop 2>&1); rm -rf "$_dd" ;;
+esac
+printf '%s\n' "$_m" | grep -q '^STUB set=server ui=1 server=1 offline=0 comps=rescue-partition$' && ok "matrix dry run: the server set runs the UI check" || bad "matrix dry run: server set: $(printf '%s\n' "$_m" | grep STUB)"
+printf '%s\n' "$_m" | grep -q '^STUB set=server-offline-negative ui=0 ' && ok "matrix dry run: the offline-negative set does not" || bad "matrix dry run: offline set"
+printf '%s\n' "$_m" | grep -q '^STUB set=full ui=1 ' && printf '%s\n' "$_m" | grep -q '^STUB set=nodesktop ui=0 ' && ok "matrix dry run: desktop sets unchanged (full ui=1, nodesktop ui=0)" || bad "matrix dry run: desktop sets"
+awk '/echo "  installer console UI check/{f=1} f{print} f && /^fi$/{exit}' "$ROOT/build/kvm-install-gate-gpt.sh" > "$W/dry/ui-block.sh"
+cat > "$W/dry/bin/kvm-installer-ui-check.sh" <<'STUB'
+#!/bin/bash
+echo "UI-STUB variant=${NCZ_UI_CHECK_VARIANT:-unset} img=$1 arch=$2"
+STUB
+chmod +x "$W/dry/bin/kvm-installer-ui-check.sh"
+uidry() { bash -c "fail() { echo \"GATEFAIL \$*\"; }; SCRIPT_DIR='$W/dry/bin'; IMG=x.img; ARCH=amd64; WORK='$W/dry'; NCZ_GATE_SERVER=$1; NCZ_GATE_UI_CHECK=1; . '$W/dry/ui-block.sh'" 2>&1; }
+uidry 1 | grep -q 'UI-STUB variant=server' && ok "gate dry run: a server run calls the UI check with NCZ_UI_CHECK_VARIANT=server" || bad "gate dry run server: $(uidry 1)"
+uidry 0 | grep -q 'UI-STUB variant=desktop' && ok "gate dry run: a desktop run calls it with the desktop contract" || bad "gate dry run desktop: $(uidry 0)"
+
 if [ "$FAIL" != 0 ]; then echo "test-server-branding: FAIL" >&2; exit 1; fi
 echo "test-server-branding: PASS"
