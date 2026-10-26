@@ -1142,13 +1142,15 @@ artist-pack-apt-sources=['https://packages.buildkite.com/ncz-os/ncz/any/', 'http
 #   - firefox-ncz-sky1.desktop is DROPPED. That branch ships Firefox; this one
 #     does not (no firefox .desktop on a r237 install), and pinning an absent
 #     app leaves a dead tile on the dock.
-#   - org.gnome.Console.desktop is ADDED. The original pinned no terminal at
-#     all. Console is the user-facing terminal here; foot is kept only as the
-#     fallback for the scripted NCZ installer launchers (see above), so it is
-#     the wrong thing to put on the dock.
+#   - a terminal is ADDED. The original pinned no terminal at all. It is
+#     dev.sinty.leafs.desktop, the native Singularity terminal (the session's
+#     TERMINAL, see ncz-singularity); gnome-console is no longer installed
+#     (2026-10-26). foot is kept only as the fallback for the scripted NCZ
+#     installer launchers (see above), so it is the wrong thing to put on the
+#     dock.
 # Every id below was verified present in /usr/share/applications or
-# /opt/singularity/share/applications on a real r237 install.
-pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chrome.desktop', 'org.gnome.Console.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
+# /opt/singularity/share/applications on a real install (Leafs: 2026-10-26).
+pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chrome.desktop', 'dev.sinty.leafs.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
 # Upstream 795da47 (2026-09-18) split OCS/Bing/stock wallpaper browsing out
 # of the shell into plugins, disabled by default (schema default lacks
 # them). They were always-on before that refactor. Keep the in-app

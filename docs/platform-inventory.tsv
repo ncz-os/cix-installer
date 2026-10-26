@@ -445,6 +445,7 @@ tools/sync-github-mirror.sh	common	-	build and push the filtered GitHub copies o
 build/test-sky1-audio-policy.sh	sky1	-	Sky1 audio default-sink policy fixture tests
 build/testdata/sky1-audio/	sky1	-	fake pactl/aplay/pw-dump/amixer for the Sky1 audio autoswitch daemon-loop tests
 build/test-sky1-media-defaults.sh	sky1	-	Sky1 media defaults: chromium-ncz-sky1 wrapper flags, mpv V4L2 hwdec, audio/media runtime seeds
+build/test-desktop-app-set.sh	common	-	desktop app set: dropped stock GNOME apps seeded nowhere and named by no hook/asset/build script, shared libraries kept, dock pins Singularity apps (Leafs terminal), lib/ncz-default-apps.sh defaults images/PDF/text/folders/fonts/calendars to the Singularity apps
 build/test-sky1-serial-diag.sh	sky1	-	Sky1 installer serial diagnostics (diag-console kmsg mirror/getty/no-iface dump) + ACPI PCIe mode (sky1_pcie_native=off pcie_pnp_en) on arm64 installer entries; amd64 entries pinned unchanged
 build/boot-screens.py	common	-	installer console capture harness (qemu screendump + pyte text of the UART d-i draws on; --serial-console gives amd64 its text channel on the test copy)
 preseed/ncz-ui.sh	common	-	shared d-i dialog look (brand, arch, build id)
@@ -545,6 +546,7 @@ build/test-amd64-serial-console.sh	amd64	-	proves installed amd64 rEFInd entries
 build/test-greeter-display-detect.sh	common	-	proves the greetd drop-ins order on cix-detect-display.service on arm64 only (amd64 pulled the disabled unit in, 7.4 s on a MacBookPro16,1) while ncz-usb2-rescan ordering stays on both (r201)
 assets/gpu/ncz-gpu-status	common	-	GPU stack report + never-software-render health check; installed on both platforms by 98-gpu-health.sh (Sky1 switcher report on Sky1, per-card driver report elsewhere, r201)
 build/test-gpu-status-arch.sh	common	-	proves ncz-gpu-status reports the bound DRM drivers (amdgpu/i915/nouveau/none) and not the Sky1 Mali selection on non-Sky1 machines, and keeps the switcher report on Sky1 (r201)
+post-install/lib/ncz-default-apps.sh	common	-	default handlers for images/PDF/text/folders/fonts/calendars point at the native Singularity apps (only when installed); sourced by 59-desktop-curate.sh
 post-install/lib/sky1-browser-policy.sh	sky1	-	Sky1 browser defaults sourced by 52-vivaldi/53-chrome on arm64: chromium-ncz-sky1 default (alternatives, mimeapps), VA-API-off .desktop overrides in /usr/local/share/applications and /usr/local/bin wrappers for Vivaldi/Chrome (CIX VA-API decode hangs, docs/HW-VIDEO-DECODE-STATUS.md; r201)
 build/test-panthor-entry-gate.sh	sky1	-	proves the Panthor (Experimental) rEFInd entry is written only when a panthor module exists for its kernel and carries no cmdline kbase blacklist (Radxa Orion O6N r201)
 build/test-gpu-switcher-fallback.sh	sky1	-	proves ncz-gpu-switcher falls back to Mali (or fails loudly when the cmdline blocks it) when Panthor is selected but not bound, that it is a no-op exit 0 when CIXH5000 is absent, and that the unit gates on ConditionPathExists=/sys/bus/platform/devices/CIXH5000:00, in a stubbed sandbox (Radxa Orion O6N r201, KVM gate r287)

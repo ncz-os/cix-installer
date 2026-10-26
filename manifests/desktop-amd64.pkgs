@@ -185,7 +185,6 @@ pavucontrol
 gvfs
 gvfs-backends
 udisks2
-gnome-disk-utility
 bluez
 blueman
 python3-dbus
@@ -214,11 +213,9 @@ systemd-container
 xarchiver
 7zip
 unrar-free
-papers
 synaptic
 gdebi
 gdebi-core
-baobab
 gimp
 librsvg2-bin
 imagemagick
@@ -249,7 +246,6 @@ libnice10
 flatpak
 gnome-session-canberra
 xdg-desktop-portal-gtk
-epiphany-browser
 # feh is X11-only and post-install/59-desktop-curate.sh deliberately purges it
 # from this Wayland-only image. Keep the manifest aligned with shipped state.
 vulkan-validationlayers
@@ -267,18 +263,16 @@ ffmpeg
 audacity
 kooha
 celluloid
-loupe
-gnome-calculator
-gnome-text-editor
-gnome-font-viewer
-gnome-characters
-gnome-calendar
-gnome-weather
-gnome-sound-recorder
 drawing
+# Stock GNOME apps with a native Singularity twin are not installed (operator,
+# 2026-10-26); the full mapping is in manifests/desktop.pkgs. geoclue-2.0
+# (Singularity Weather/Maps/shell location over D-Bus) and gnome-desktop3-data
+# (kept by operator decision) only arrived as their dependencies, so they are
+# seeded directly.
+geoclue-2.0
+gnome-desktop3-data
 imv
 swayimg
-gnome-console
 zstd
 curl
 ca-certificates

@@ -226,7 +226,6 @@ pavucontrol
 gvfs
 gvfs-backends
 udisks2
-gnome-disk-utility
 bluez
 blueman
 # vendor cix-debian-misc's bluetooth-autoconnect script does `import dbus`
@@ -298,11 +297,12 @@ systemd-container
 # r201: unseeded, so its apt-get install failed rc=100 and the NPU python path was left without numpy
 python3-numpy
 
-# --- archives + PDF + image (GTK, DE-agnostic) -----------------------------
+# --- archives (GTK, DE-agnostic) ---------------------------------------------
+# PDF and image viewing are the native Singularity Reader and Photos apps
+# (papers and loupe were dropped 2026-10-26; see the stock-GNOME note below).
 xarchiver
 7zip
 unrar-free
-papers
 
 # --- offline-apt tools (usable from the desktop with no network) -----------
 synaptic
@@ -311,13 +311,13 @@ gdebi-core
 # software-properties-gtk is Ubuntu's PPA GUI.  NCZ uses its signed NCZ
 # repository plus Debian sources, so it has no role on the Debian base.
 
-# --- keyring / disk-usage ---------------------------------------------------
+# --- keyring ----------------------------------------------------------------
 # KEYRING: the NATIVE `singularity-keyring` (in /opt/singularity, D-Bus-activated
 # org.freedesktop.secrets) is THE Secret Service — gnome-keyring is NOT shipped
 # (20-desktop purges it; it would otherwise grab the secrets name first). seahorse
 # is dropped with it (seahorse depends on gnome-keyring; Singularity has its own
-# secret UI).
-baobab
+# secret UI). Disk usage is the native Singularity Disk Usage app (baobab
+# dropped 2026-10-26).
 
 # --- image editing ----------------------------------------------------------
 gimp
@@ -378,11 +378,11 @@ libdrm-etnaviv1
 flatpak
 gnome-session-canberra
 xdg-desktop-portal-gtk
-epiphany-browser
 # r181: falkon dropped — it half-configures (iF) on Sky1/qemu (its postinst was
 # the desktop apt rc=100), and its stale .desktop launcher errored like the
-# mnemos one. Vivaldi (staged .deb, 52-vivaldi.sh) is the default browser now;
-# epiphany stays as a lightweight secondary.
+# mnemos one. Vivaldi (staged .deb, 52-vivaldi.sh) is the default browser now.
+# epiphany-browser was dropped 2026-10-26: Singularity Browser is the native
+# lightweight browser (see the stock-GNOME note below).
 # feh is X11-only and post-install/59-desktop-curate.sh deliberately purges it
 # from this Wayland-only image. Keep the manifest aligned with shipped state.
 
@@ -450,27 +450,36 @@ audacity
 #     kooha fixes the earlier screen-recording bug -- goes through
 #     xdg-desktop-portal's ScreenCast interface, which singularity.portal
 #     does implement. celluloid is a native GTK4 GUI complement to the CLI
-#     mpv already above (same VAAPI hardware decode path). loupe is GNOME's
-#     GPU-accelerated image viewer. The rest are small, real desktop-
-#     completeness gaps (calc/text-editor/font-viewer/characters/calendar/
-#     weather/sound-recorder/drawing), no GNOME-shell dependency drag. ---
+#     mpv already above (same VAAPI hardware decode path). drawing is a
+#     small paint app. ---
+#
+# Stock GNOME apps with a native Singularity twin are NOT installed (operator,
+# 2026-10-26: "We shouldn't be installing most of the gnome apps"). Dropped:
+#   gnome-calculator -> Calculator     gnome-calendar   -> Calendar
+#   gnome-characters -> Characters     gnome-weather    -> Weather
+#   gnome-text-editor-> Edit/Notes     gnome-font-viewer-> Fonts
+#   gnome-sound-recorder -> Recorder   gnome-console    -> Leafs (terminal)
+#   gnome-disk-utility -> Disks        baobab           -> Disk Usage
+#   epiphany-browser -> Browser        loupe            -> Photos
+#   papers           -> Reader
+# Nothing kept depends on them (checked against the pinned snapshot and a real
+# install). Default handlers for their types point at the Singularity apps
+# (post-install/lib/ncz-default-apps.sh, applied by 59-desktop-curate.sh).
+# Two packages that only arrived as their dependencies stay, seeded directly:
+#   geoclue-2.0          Singularity Weather, Maps and the shell ask
+#                        org.freedesktop.GeoClue2 for the location over D-Bus
+#   gnome-desktop3-data  shared GNOME desktop data, kept by operator decision
+geoclue-2.0
+gnome-desktop3-data
 kooha
 celluloid
-loupe
-gnome-calculator
-gnome-text-editor
-gnome-font-viewer
-gnome-characters
-gnome-calendar
-gnome-weather
-gnome-sound-recorder
 drawing
-# Additional Wayland-first utilities: native image viewers and GNOME Console.
-# These are small, composited clients and do not pull in a second desktop
-# session or an Xorg server; Xwayland remains only for legacy applications.
+# Additional Wayland-first utilities: small native image viewers. They do not
+# pull in a second desktop session or an Xorg server; Xwayland remains only for
+# legacy applications. The terminal is Singularity Leafs (foot stays for the
+# scripted NCZ launchers).
 imv
 swayimg
-gnome-console
 
 # zstd: post-install/72-rescue-partition.sh unpacks rescue-rootfs.tar.zst on the
 # installed system and hard-requires it. The base layer is the Debian forky

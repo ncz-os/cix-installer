@@ -47,7 +47,7 @@ APPDIR=/usr/share/applications
 #    Also removes the Xorg SERVER stack itself (xserver-xorg*, xinit,
 #    x11-xserver-utils, xscreensaver-data*) — NCZ-OS 26.7 is Wayland-only; the
 #    Xorg display server is never used. Wayland-capable GTK/Qt/Electron apps
-#    (gimp/vivaldi/mpv/celluloid/mousepad/nautilus/epiphany) are KEPT.
+#    (gimp/vivaldi/mpv/celluloid) are KEPT.
 #    Xwayland (the rootless X-compat layer) is KEPT — it is NOT an X11 desktop
 #    and is required for any app that still needs X. Its transitive deps are
 #    PROTECTED (never listed here): xserver-common, x11-xkb-utils, x11-common,
@@ -145,14 +145,30 @@ NODISPLAY="
   software-properties-drivers.desktop menulibre.desktop
   org.gnome.SystemMonitor.desktop gnome-system-monitor-kde.desktop
   gnome-language-selector.desktop org.gnome.seahorse.Application.desktop
-  org.gnome.font-viewer.desktop display-im7.q16.desktop
+  display-im7.q16.desktop
   footclient.desktop foot-server.desktop
 "
 echo "[59] hiding base GNOME/system cruft (kept installed, NoDisplay):"
 for d in $NODISPLAY; do set_nodisplay "$d"; done
 
 # ---------------------------------------------------------------------------
-# 4) Rebuild the desktop database so the launcher re-reads the curated set.
+# 4) Default handlers: images -> Photos, PDF -> Reader, text -> Edit, folders ->
+#    Files, fonts -> Fonts, calendars -> Calendar (the native Singularity apps;
+#    the stock GNOME viewers are not installed). Browser and video keys written
+#    by 52-vivaldi / 53-chrome / 84-vpu-mpv are left alone.
+# ---------------------------------------------------------------------------
+_da="$(dirname "$0")/lib/ncz-default-apps.sh"
+[ -r "$_da" ] || _da=/usr/local/lib/cix-installer/post-install/lib/ncz-default-apps.sh
+if [ -r "$_da" ]; then
+    # shellcheck source=lib/ncz-default-apps.sh
+    . "$_da"
+    ncz_default_apps_apply ""
+else
+    echo "[59] WARN: lib/ncz-default-apps.sh missing -- document/image/text defaults not set" >&2
+fi
+
+# ---------------------------------------------------------------------------
+# 5) Rebuild the desktop database so the launcher re-reads the curated set.
 # ---------------------------------------------------------------------------
 update-desktop-database "$APPDIR" 2>/dev/null || true
 update-desktop-database /opt/singularity/share/applications 2>/dev/null || true

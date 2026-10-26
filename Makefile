@@ -757,6 +757,7 @@ parity:
 	build/test-run-all-baked-allowlist.sh
 	build/test-sky1-audio-policy.sh
 	build/test-sky1-media-defaults.sh
+	bash build/test-desktop-app-set.sh
 	build/test-screensaver-default.sh
 	build/test-titlebar-buttons.sh
 	build/test-overview-dock-clearance.sh
