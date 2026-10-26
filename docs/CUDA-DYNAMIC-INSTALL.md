@@ -55,6 +55,12 @@ Nothing in the image names a driver point release or a CUDA minor version.
   restored, status is `failed:no-buildable-driver`, `/etc/motd.d/ncz-nvidia-driver`
   and the first-boot notice say the integrated GPU is in use, and
   `nvidia-persistenced` is skipped (not failed) because no module exists.
+- **Updates.** A driver update through `apt upgrade` whose module fails to
+  build (apt `Post-Invoke` hook), or a new kernel the installed driver does not
+  build for (`/etc/kernel/postinst.d/zz-ncz-nvidia`, after DKMS's hook), puts the
+  machine back to `pending:driver-repair`; the timer repairs it with the same
+  ladder once that kernel runs. After any install the tool checks that an
+  `nvidia` module exists for the target kernel and runs `dkms autoinstall` if not.
 - **Toolkit.** The newest `cuda-compiler-<series>-N` whose companion packages
   (`TOOLKIT_PKGS` stems) all exist. A renamed or missing set is
   `failed:toolkit-not-found` (the driver is still installed); a renamed driver
@@ -87,7 +93,8 @@ different `nvidia.Kbuild`, so the set is refused there (the ladder moves on);
 - `/etc/apt/preferences.d/ncz-nvidia-cuda.pref`: family default (any NVIDIA
   driver series for Turing+, `580.*` for Maxwell..Volta), then rewritten by
   `ncz-cuda-setup` to the series or exact version that built.
-- `/etc/apt/apt.conf.d/60ncz-nvidia-dkms`: the apt hooks above.
+- `/etc/apt/apt.conf.d/60ncz-nvidia-dkms` and `/etc/kernel/postinst.d/zz-ncz-nvidia`:
+  the apt and kernel hooks above (they never fail apt or the kernel install).
 - `/etc/systemd/system/nvidia-persistenced.service.d/ncz-needs-module.conf`:
   `ExecCondition` on `modinfo -k <running kernel> nvidia`.
 - `/etc/modprobe.d/ncz-nvidia-legacy-fb.conf`: blacklists `nvidiafb`/`rivafb`

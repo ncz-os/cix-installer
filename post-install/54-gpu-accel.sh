@@ -236,6 +236,16 @@ ncz_nvidia_dynamic_setup() {
 DPkg::Pre-Install-Pkgs { "if [ -x /usr/local/sbin/ncz-cuda-setup ]; then /usr/local/sbin/ncz-cuda-setup apt-pre-install; else cat >/dev/null; fi || true"; };
 DPkg::Post-Invoke { "if [ -x /usr/local/sbin/ncz-cuda-setup ]; then /usr/local/sbin/ncz-cuda-setup apt-post-invoke; fi || true"; };
 APTEOF
+    # A new kernel the installed driver does not build for: hand it back to ncz-cuda-setup (runs after DKMS's hook).
+    install -d -m0755 /etc/kernel/postinst.d
+    cat > /etc/kernel/postinst.d/zz-ncz-nvidia <<'KEOF'
+#!/bin/sh
+# Written by NCZ-OS (post-install/54-gpu-accel.sh): if the NVIDIA DKMS module did
+# not build for the new kernel, ncz-cuda-setup repairs it after that kernel boots.
+[ -x /usr/local/sbin/ncz-cuda-setup ] && /usr/local/sbin/ncz-cuda-setup kernel-postinst "$1" >/dev/null 2>&1
+exit 0
+KEOF
+    chmod 0755 /etc/kernel/postinst.d/zz-ncz-nvidia
     # Without an nvidia module for the running kernel (not built yet, or its build failed) nvidia-persistenced can only
     # fail; skip it then (inactive, condition failed) instead of a failed unit on every boot. %v = running kernel.
     install -d -m0755 /etc/systemd/system/nvidia-persistenced.service.d

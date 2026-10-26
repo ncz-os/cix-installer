@@ -265,6 +265,7 @@ extract54() {
             -e "s#/usr/local/lib/ncz#$SB/usr/local/lib/ncz#g" \
             -e "s#/etc/apt/preferences.d#$SB/etc/apt/preferences.d#g" -e "s#/etc/apt/sources.list.d#$SB/etc/apt/sources.list.d#g" \
             -e "s#/etc/apt/apt.conf.d#$SB/etc/apt/apt.conf.d#g" -e "s#/etc/modprobe.d#$SB/etc/modprobe.d#g" \
+            -e "s#/etc/kernel/postinst.d#$SB/etc/kernel/postinst.d#g" \
             -e "s#/usr/share/keyrings#$SB/usr/share/keyrings#g" -e "s#/etc/crypto-policies#$SB/etc/crypto-policies#g" \
             -e "s#/usr/share/apt/default-sequoia.config#$SB/default-sequoia.config#g" \
             -e "s#/var/log#$SB/var/log#g"
@@ -328,6 +329,8 @@ grep -q 'else cat >/dev/null' "$APTH" 2>/dev/null && ok "54: pre-install hook dr
 PDROP="$SB/etc/systemd/system/nvidia-persistenced.service.d/ncz-needs-module.conf"
 grep -q "^ExecCondition=/bin/sh -c 'exec modinfo -k %v nvidia >/dev/null 2>&1'" "$PDROP" 2>/dev/null && ok "54: nvidia-persistenced is skipped (not failed) without an nvidia module for the running kernel" || nok "54: persistenced drop-in missing"
 grep -q '^\[Service\]' "$PDROP" 2>/dev/null && ok "54: ExecCondition sits in [Service]" || nok "54: drop-in lacks [Service]"
+KH="$SB/etc/kernel/postinst.d/zz-ncz-nvidia"
+[ -x "$KH" ] && grep -q 'ncz-cuda-setup kernel-postinst "\$1"' "$KH" && grep -qx 'exit 0' "$KH" && ok "54: kernel postinst hook (after DKMS's) hands a failed rebuild to ncz-cuda-setup, never fails the kernel install" || nok "54: kernel postinst hook missing"
 FBB="$SB/etc/modprobe.d/ncz-nvidia-legacy-fb.conf"
 grep -qx 'blacklist nvidiafb' "$FBB" 2>/dev/null && grep -qx 'blacklist rivafb' "$FBB" 2>/dev/null && ok "54: legacy nvidiafb/rivafb blacklisted" || nok "54: legacy fb blacklist missing"
 grep -qE 'blacklist (i915|xe|simpledrm|efifb|amdgpu)' "$FBB" 2>/dev/null && nok "54: blacklist touches the integrated/firmware display path" || ok "54: integrated GPU and firmware framebuffer stay untouched"
@@ -434,6 +437,20 @@ case "\$fmt" in
   *) if [ -n "\$line" ]; then echo "\$line" | awk '{printf "%s", \$2}'; else case "\$pkg" in cuda-nvcc-*) printf '1.0' ;; *) exit 1 ;; esac; fi ;;
 esac
 EOF
+# kernel modules: $CS/mods/<kernel> exists when an nvidia module was built for it
+printf '#!/bin/bash\n[ "$1" = -k ] && [ -e "%s/mods/$2" ]\n' "$CS" > "$CS/bin/modinfo"
+cat > "$CS/bin/dkms" <<DKMSEOF
+#!/bin/bash
+# dkms autoinstall -k K: builds the installed module for K (STUB_DKMS_FAIL=1: compile error)
+[ "\$1" = autoinstall ] || exit 0
+k=\$3; v=\$(awk '\$1 == "nvidia-kernel-open-dkms" {print \$2}' "$CS/dpkg.state" 2>/dev/null); u=\${v%-*}
+if [ "\${STUB_DKMS_FAIL:-0}" = 1 ]; then
+  mkdir -p "$CS/dkms/nvidia/\$u/build"
+  { echo "DKMS (dkms-3.2.2) make.log for nvidia/\$u for kernel \$k (x86_64)"; echo "nvidia/nv.c:9:9: error: new kernel API"; } > "$CS/dkms/nvidia/\$u/build/make.log"
+  exit 10
+fi
+mkdir -p "$CS/mods"; touch "$CS/mods/\$k"
+DKMSEOF
 # the NVIDIA repo index: STUB_NVVERS (driver versions), STUB_TKS (toolkits N-M), STUB_TK_MISSING (absent packages)
 cat > "$CS/bin/apt-cache" <<'EOF'
 #!/bin/bash
@@ -525,14 +542,15 @@ case "\$args" in *nvidia-kernel-open-dkms*)
   [ "\${STUB_PATCH_FIXES:-0}" = 1 ] && grep -q '^PATCH' "$CS/etc/dkms/nvidia-\$u.conf" 2>/dev/null && fail=0
   if [ "\$fail" = 1 ]; then
     mkdir -p "$CS/dkms/nvidia/\$u/build"
-    { echo "DKMS (dkms-3.2.2) make.log for nvidia/\$u for kernel \${STUB_KVER:-$KV_A} (x86_64)"
+    { echo "DKMS (dkms-3.2.2) make.log for nvidia/\$u for kernel \${STUB_BUILDK:-\${STUB_KVER:-$KV_A}} (x86_64)"
       echo "  CC [M]  nvidia/os-interface.o"
       echo "nvidia/os-interface.c:3031:48: error: passing argument 1 of 'dmem_cgroup_register_region' makes pointer from integer without a cast [-Wint-conversion]"
       echo "nvidia/other.c:1:1: error: a later error"; } > "$CS/dkms/nvidia/\$u/build/make.log"
     setstate nvidia-kernel-open-dkms "\$pin" iF
     echo "Building module(s)......(bad exit status: 2)"; echo "E: Sub-process /usr/bin/dpkg returned an error code (1)" >&2; exit 100
   fi
-  setstate nvidia-kernel-open-dkms "\$pin" ii ;;
+  setstate nvidia-kernel-open-dkms "\$pin" ii
+  [ "\${STUB_NOMOD:-0}" = 1 ] || { mkdir -p "$CS/mods"; touch "$CS/mods/\${STUB_BUILDK:-\${STUB_KVER:-$KV_A}}"; } ;;
 esac
 tk=\$(printf '%s\n' "\$args" | grep -o 'cuda-compiler-[0-9]*-[0-9]*' | head -n1 | sed 's/^cuda-compiler-//')
 if [ -n "\$tk" ] && [ "\${STUB_APT:-ok}" != nonvcc ]; then
@@ -542,7 +560,7 @@ exit 0
 EOF
 chmod +x "$CS/bin/"*
 csconf() {   # csconf family : fresh selection, empty dpkg state, no patch sets, no records
-    rm -rf "$CS/etc" "$CS/var" "$CS/setup.log" "$CS/apt.calls" "$CS/dl.calls" "$CS/cuda-"* "$CS/lock" "$CS/dpkg.state" \
+    rm -rf "$CS/etc" "$CS/var" "$CS/setup.log" "$CS/apt.calls" "$CS/dl.calls" "$CS/cuda-"* "$CS/lock" "$CS/dpkg.state" "$CS/mods" \
            "$CS/dkms" "$CS/patches" "$CS/usr" "$CS/modules" "$CS/conf-at-postinst" "$CS/archives"
     mkdir -p "$CS/etc/ncz" "$CS/var/lib/ncz" "$CS/modules/$KV_A/build/include/generated" "$CS/modules/$KV_B/build/include/generated"
     echo '#define CONFIG_CGROUP_DMEM 1' > "$CS/modules/$KV_A/build/include/generated/autoconf.h"
@@ -698,6 +716,33 @@ eq "ladder: ... status says builds are still being tried" "$(st)" "failed:dkms-b
 eq "ladder: ... the timer continues with the next version (rc 0)" "$(NCZ_CUDA_DRIVER_TRIES=1 STUB_NVVERS="$NV3" STUB_FAIL_VERS='615.71.10' cs run --scheduled)" 0
 eq "ladder: ... 615.71.09-2 installed on the second run" "$(cat "$CS/var/lib/ncz/cuda-setup.driver" 2>/dev/null)" "615.71.09-2"
 
+# ------------------------------- ncz-cuda-setup: the module must exist for the kernel; kernel updates
+csconf turing-plus; eq "kmod: apt installed the set but no module exists for the kernel -> dkms autoinstall builds it (rc 0)" "$(STUB_NVVERS='615.71.10-1' STUB_NOMOD=1 cs run)" 0
+grep -q 'no nvidia module for kernel 7.3.0-t2-ncz; running dkms autoinstall' "$CS/setup.log" && ok "kmod: ... the missing module is noticed and logged" || nok "kmod: missing module not noticed"
+csconf turing-plus; eq "kmod: no module and dkms autoinstall fails for every version (rc 1)" "$(STUB_NVVERS='615.71.10-1 615.71.09-2' STUB_NOMOD=1 STUB_DKMS_FAIL=1 cs run)" 1
+grep -q 'nv.c:9:9: error: new kernel API' "$CS/var/lib/ncz/cuda-setup.dkms-failed" && ok "kmod: ... recorded as a DKMS build failure with its first error" || nok "kmod: autoinstall failure not recorded"
+eq "kmod: ... both versions tried" "$(drvcalls)" 2
+csconf turing-plus; STUB_NVVERS='615.71.10-1' cs run >/dev/null
+mkdir -p "$CS/modules/$KV_B/build"
+eq "kernel: the hook exits 0" "$(cs kernel-postinst "$KV_B")" 0
+[ ! -e "$CS/var/lib/ncz/cuda-setup.done" ] && eq "kernel: a new kernel without an nvidia module re-arms the setup" "$(st)" "pending:driver-repair" || nok "kernel: missing module for a new kernel left silent"
+eq "kernel: ... and remembers which kernel" "$(cat "$CS/var/lib/ncz/cuda-setup.repair-kernel" 2>/dev/null)" "$KV_B"
+rm -f "$CS/apt.calls"
+eq "kernel: still running the old kernel -> the timer waits (rc 0)" "$(STUB_NVVERS='615.71.10-1' cs run --scheduled)" 0
+[ ! -e "$CS/apt.calls" ] && ok "kernel: ... and does nothing until the new kernel runs" || nok "kernel: repaired for the wrong kernel"
+eq "kernel: after booting it, the timer builds the module for it (rc 0)" "$(STUB_KVER=$KV_B STUB_NOMOD=1 STUB_NVVERS='615.71.10-1' cs run --scheduled)" 0
+[ -e "$CS/mods/$KV_B" ] && [ ! -e "$CS/var/lib/ncz/cuda-setup.repair-kernel" ] && ok "kernel: ... module built for the new kernel, repair record cleared" || nok "kernel: not repaired"
+csconf turing-plus; STUB_NVVERS='615.71.10-1' cs run >/dev/null; mkdir -p "$CS/modules/$KV_B/build" "$CS/mods"; touch "$CS/mods/$KV_B"
+cs kernel-postinst "$KV_B" >/dev/null
+[ -e "$CS/var/lib/ncz/cuda-setup.done" ] && ok "kernel: a new kernel the driver built for is left alone" || nok "kernel: healthy kernel update re-armed"
+cs kernel-postinst 9.9.9-nohdr >/dev/null
+[ -e "$CS/var/lib/ncz/cuda-setup.done" ] && ok "kernel: a kernel without headers is ignored" || nok "kernel: headerless kernel re-armed"
+csconf turing-plus; rm -rf "$CS/modules/$KV_A"
+eq "kmod: in a chroot whose running kernel has no headers, the target is the newest kernel with headers" "$(STUB_KVER=6.1.0-installer STUB_BUILDK=$KV_B STUB_NVVERS='615.71.10-1' STUB_FAIL_VERS=615.71.10 cs run)" 1
+eq "kmod: ... the build record names that kernel" "$(cut -d'|' -f1 "$CS/var/lib/ncz/cuda-setup.dkms-failed" 2>/dev/null)" "$KV_B"
+rm -f "$CS/apt.calls"; STUB_KVER=6.1.0-installer STUB_NVVERS='615.71.10-1' cs run --scheduled >/dev/null
+[ ! -e "$CS/apt.calls" ] && ok "kmod: ... and the record matches later runs (no rebuild loop)" || nok "kmod: chroot record never matches; rebuild loop"
+
 # ------------------------------- ncz-cuda-setup: DKMS failure record
 csconf turing-plus; STUB_NVVERS='615.71.10-1' STUB_FAIL_VERS=615.71.10 cs run >/dev/null
 grep -q "os-interface.c:3031:48: error: passing argument 1 of 'dmem_cgroup_register_region'" "$CS/setup.log" \
@@ -746,7 +791,7 @@ mksrc "$CS/usr/src/nvidia-615.80.04" 615.80.04 defect
 rm -f "$CS/patches/nvidia/"*/fixed-upstream
 cs dkms-stage "$CS/usr/src/nvidia-615.80.04" >/dev/null
 [ ! -e "$CS/etc/dkms/nvidia-615.80.04.conf" ] && grep -q 'no usable fixed-upstream marker' "$CS/setup.log" && ok "content: a set without a fixed-upstream marker is refused" || nok "content: marker-less set applied"
-shipped; printf '../../etc/passwd\nroot\n' > "$(ls -d "$CS/patches/nvidia/"*/ | head -n1)fixed-upstream"
+shipped; printf '../../etc/passwd\nroot\n' > "$CS/patches/nvidia/$(basename "$SHIPPED_SET")/fixed-upstream"
 cs dkms-stage "$CS/usr/src/nvidia-615.80.04" >/dev/null
 grep -q "ignoring unsafe fixed-upstream path" "$CS/setup.log" && [ ! -e "$CS/etc/dkms/nvidia-615.80.04.conf" ] && ok "content: an unsafe marker path is refused and logged" || nok "content: unsafe marker path not rejected"
 rm -rf "$CS/patches"; shipped; echo 'PATCH[0]="vendor.patch"' >> "$CS/usr/src/nvidia-615.80.04/dkms.conf"
