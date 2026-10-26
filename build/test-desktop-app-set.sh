@@ -95,6 +95,9 @@ for m in "$R/etc/xdg/mimeapps.list" "$R/etc/skel/.config/mimeapps.list"; do
     done
     [ -z "$(dflt "$m" text/calendar)" ] && ok "$n: no default names the absent Calendar app" || bad "$n: text/calendar set although Calendar is absent"
     grep -qx 'image/png=gimp.desktop;' "$m" && ok "$n: [Added Associations] left as written" || bad "$n: [Added Associations] changed" "$(cat "$m")"
+    [ "$(grep -c '^\[Default Applications\]$' "$m")" = 1 ] && [ "$(grep -c '^\[Added Associations\]$' "$m")" = 1 ] \
+        && [ "$(awk '/^\[Added Associations\]$/{g=1; next} /^\[/{g=0} g && NF' "$m")" = 'image/png=gimp.desktop;' ] \
+        && ok "$n: both groups kept once; nothing was moved into [Added Associations]" || bad "$n: group structure changed" "$(cat "$m")"
     dup=$(awk -F= '/^\[/{g=$0} !/^\[/ && NF {print g"|"$1}' "$m" | sort | uniq -d)
     [ -z "$dup" ] && ok "$n: every key appears once per group" || bad "$n: duplicate keys" "$dup"
 done
@@ -107,6 +110,16 @@ printf '[Desktop Entry]\n' > "$R2/opt/singularity/share/applications/dev.sinty.r
 ( . "$LIB"; ncz_default_apps_apply "$R2" ) >/dev/null 2>&1
 [ "$(dflt "$R2/etc/xdg/mimeapps.list" application/pdf)" = dev.sinty.reader.desktop ] && head -1 "$R2/etc/xdg/mimeapps.list" | grep -qx '\[Default Applications\]' \
     && ok "no mimeapps.list yet: one is created with the group header" || bad "fresh root" "$(cat "$R2/etc/xdg/mimeapps.list" 2>&1)"
+
+if [ "$(id -u)" != 0 ]; then
+    R3="$T/ro"; mkdir -p "$R3/opt/singularity/share/applications" "$R3/etc/xdg" "$R3/etc/skel/.config"
+    printf '[Desktop Entry]\n' > "$R3/opt/singularity/share/applications/dev.sinty.reader.desktop"
+    printf '[Default Applications]\n' > "$R3/etc/xdg/mimeapps.list"; chmod 0555 "$R3/etc/xdg"
+    # shellcheck source=post-install/lib/ncz-default-apps.sh
+    ( . "$LIB"; ncz_default_apps_apply "$R3" ) >/dev/null 2>&1 && bad "an unwritable mimeapps.list is not reported" || ok "an unwritable mimeapps.list makes the helper return non-zero"
+    [ "$(cat "$R3/etc/xdg/mimeapps.list")" = '[Default Applications]' ] && ok "the unwritable file is left intact" || bad "unwritable file changed"
+    chmod 0755 "$R3/etc/xdg"
+fi
 
 echo "== 5. PipeWire plugins and mtp-probe"
 # wireplumber logged "SPA handle 'api.bluez5.enum.dbus' could not be loaded" at

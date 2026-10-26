@@ -38,14 +38,18 @@ _ncz_da_set() {
         ing && index($0, k "=") == 1 { if (!done) { print k "=" v; done = 1 } next }
         { print }
         END { if (ing && !done) print k "=" v }
-    ' "$_f" > "$_f.ncz-da" && cat "$_f.ncz-da" > "$_f" && rm -f "$_f.ncz-da"
+    ' "$_f" > "$_f.ncz-da" && mv -f "$_f.ncz-da" "$_f" && return 0
+    rm -f "$_f.ncz-da"
+    return 1
 }
 
+# Returns non-zero when a mimeapps.list could not be written (the caller warns).
 ncz_default_apps_apply() {
     _r=${1:-}
     _apps="$_r/opt/singularity/share/applications"
-    mkdir -p "$_r/etc/xdg" "$_r/etc/skel/.config"
-    printf '%s\n' "$NCZ_DEFAULT_APPS_MAP" | while read -r _id _types; do
+    _rc=0
+    mkdir -p "$_r/etc/xdg" "$_r/etc/skel/.config" || return 1
+    while read -r _id _types; do
         [ -n "$_id" ] || continue
         if [ ! -f "$_apps/$_id" ]; then
             echo "[default-apps] $_id not installed: its types keep their current handler"
@@ -53,9 +57,12 @@ ncz_default_apps_apply() {
         fi
         for _t in $_types; do
             for _m in "$_r/etc/xdg/mimeapps.list" "$_r/etc/skel/.config/mimeapps.list"; do
-                _ncz_da_set "$_m" "$_t" "$_id"
+                _ncz_da_set "$_m" "$_t" "$_id" || { echo "[default-apps] could not write $_m" >&2; _rc=1; }
             done
         done
         echo "[default-apps] $_id: $(printf '%s\n' $_types | wc -l | tr -d ' ') types"
-    done
+    done <<EOF
+$NCZ_DEFAULT_APPS_MAP
+EOF
+    return $_rc
 }

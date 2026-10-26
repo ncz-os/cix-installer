@@ -162,7 +162,7 @@ _da="$(dirname "$0")/lib/ncz-default-apps.sh"
 if [ -r "$_da" ]; then
     # shellcheck source=lib/ncz-default-apps.sh
     . "$_da"
-    ncz_default_apps_apply ""
+    ncz_default_apps_apply "" || echo "[59] WARN: some default handlers could not be written" >&2
 else
     echo "[59] WARN: lib/ncz-default-apps.sh missing -- document/image/text defaults not set" >&2
 fi
