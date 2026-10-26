@@ -10,7 +10,8 @@
 #      terminal;
 #   4. post-install/lib/ncz-default-apps.sh points images/PDF/text/folders/
 #      fonts/calendars at the Singularity apps, only when the app exists,
-#      keeps every other key, and is idempotent.
+#      keeps every other key, and is idempotent;
+#   5. the PipeWire Bluetooth/libcamera plugins and libmtp-runtime are seeded.
 # Run: bash build/test-desktop-app-set.sh   Exit 0 = pass, 1 = fail.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -105,6 +106,17 @@ printf '[Desktop Entry]\n' > "$R2/opt/singularity/share/applications/dev.sinty.r
 ( . "$LIB"; ncz_default_apps_apply "$R2" ) >/dev/null 2>&1
 [ "$(dflt "$R2/etc/xdg/mimeapps.list" application/pdf)" = dev.sinty.reader.desktop ] && head -1 "$R2/etc/xdg/mimeapps.list" | grep -qx '\[Default Applications\]' \
     && ok "no mimeapps.list yet: one is created with the group header" || bad "fresh root" "$(cat "$R2/etc/xdg/mimeapps.list" 2>&1)"
+
+echo "== 5. PipeWire plugins and mtp-probe"
+# wireplumber logged "SPA handle 'api.bluez5.enum.dbus' could not be loaded" at
+# every login and udev "Failed to find and pin callout binary
+# /usr/lib/udev/mtp-probe" for every USB device (Chimera/Medusa, 2026-10-26).
+for m in desktop desktop-amd64; do
+    miss=""; for p in libspa-0.2-bluetooth libspa-0.2-libcamera libcamera-ipa libmtp-runtime; do
+        seeds "$ROOT/manifests/$m.pkgs" | grep -qx -- "$p" || miss="$miss $p"
+    done
+    [ -z "$miss" ] && ok "$m.pkgs seeds the Bluetooth/libcamera SPA plugins and libmtp-runtime" || bad "$m.pkgs is missing:$miss"
+done
 
 echo
 echo "test-desktop-app-set: $PASS passed, $FAIL failed"

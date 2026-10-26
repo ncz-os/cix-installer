@@ -322,6 +322,8 @@ lftp	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-
 lftp	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
 libadwaita-1-0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libadwaita-1-0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libcamera-ipa	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+libcamera-ipa	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libdbusmenu-glib4	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libdbusmenu-glib4	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libdrm-amdgpu1	staged-deb	staged:build/libdrm-debs/libdrm-amdgpu1_2.4.134-3+ncz*_${ARCH}.deb	all	desktop,installer,mgmt,rescue,server	yes	2.4.134-3+ncz	build/build-desktop-mirror.sh (pool staging; apt resolver installs)	build/verify-desktop-mirror-seeds.sh	build/build-desktop-mirror.sh (NCZ_LOCAL_DEBS)	NCZ_LOCAL_DEBS: required; NCZ libdrm 2.4.134-3+ncz (Sky1 ACPI platform fix); built by build/build-libdrm-debs.sh.
@@ -366,6 +368,8 @@ libjson-glib-1.0-0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-
 libjson-glib-1.0-0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libliftoff0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libliftoff0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libmtp-runtime	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+libmtp-runtime	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libnice10	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libnice10	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libnotify-bin	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
@@ -389,6 +393,10 @@ libsodium26	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-package
 libsodium26	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libsoup-3.0-0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libsoup-3.0-0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libspa-0.2-bluetooth	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+libspa-0.2-bluetooth	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+libspa-0.2-libcamera	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+libspa-0.2-libcamera	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libtinysparql-3.0-0	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 libtinysparql-3.0-0	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 libupower-glib3	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	

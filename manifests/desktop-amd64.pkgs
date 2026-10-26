@@ -180,11 +180,17 @@ pipewire
 pipewire-pulse
 pipewire-alsa
 wireplumber
+# SPA plugins wireplumber loads (Bluetooth audio, libcamera); see desktop.pkgs.
+libspa-0.2-bluetooth
+libspa-0.2-libcamera
+libcamera-ipa
 pulseaudio-utils
 pavucontrol
 gvfs
 gvfs-backends
 udisks2
+# mtp-probe for libmtp-common's 69-libmtp.rules; see desktop.pkgs.
+libmtp-runtime
 bluez
 blueman
 python3-dbus

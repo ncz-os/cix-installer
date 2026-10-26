@@ -213,6 +213,15 @@ pipewire
 pipewire-pulse
 pipewire-alsa
 wireplumber
+# PipeWire SPA plugins that wireplumber loads but the core packages do not
+# pull in (Recommends are off). Without libspa-0.2-bluetooth every login logs
+# "SPA handle 'api.bluez5.enum.dbus' could not be loaded; is it installed?"
+# and Bluetooth audio never appears; without libspa-0.2-libcamera cameras are
+# only reachable through the raw V4L2 path. libcamera-ipa carries the image
+# processing modules libcamera Recommends (soft ISP for raw sensors).
+libspa-0.2-bluetooth
+libspa-0.2-libcamera
+libcamera-ipa
 # pactl is in pulseaudio-utils, and PipeWire Pulse intentionally only
 # suggests it. The Sky1 HDMI/DP autoswitch user service needs pactl to load
 # isolated module-alsa-sink instances and set the session default sink.
@@ -226,6 +235,11 @@ pavucontrol
 gvfs
 gvfs-backends
 udisks2
+# libmtp-runtime ships /usr/lib/udev/mtp-probe, which libmtp-common's
+# 69-libmtp.rules calls for every USB device; without it udev logs "Failed to
+# find and pin callout binary /usr/lib/udev/mtp-probe" for each one per boot
+# and MTP phones are not tagged for gvfs.
+libmtp-runtime
 bluez
 blueman
 # vendor cix-debian-misc's bluetooth-autoconnect script does `import dbus`
