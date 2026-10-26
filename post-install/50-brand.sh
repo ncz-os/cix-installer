@@ -332,7 +332,7 @@ fi
 # A Magnetar Server install records its edition as os-release VARIANT (50-brand.sh);
 # its title row names the edition, never the desktop codename.
 TITLE="  $NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $SKU  ·  $SOC edge agent"
-OS_EDITION=$(. /etc/os-release 2>/dev/null; echo "${VARIANT:-}")
+OS_EDITION=$(unset VARIANT; . /etc/os-release 2>/dev/null; echo "${VARIANT:-}")
 [ -n "$OS_EDITION" ] && TITLE="  $NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $OS_EDITION - $SOC"
 ROWS=(
   "$TITLE"

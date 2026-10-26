@@ -24,7 +24,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 W="$(mktemp -d "${TMPDIR:-/tmp}/ncz-srv-brand.XXXXXX")" || exit 2
-trap 'rm -rf "$W"' EXIT
+_dd=""; trap 'rm -rf "$W"; [ -n "$_dd" ] && rm -rf "$_dd"' EXIT
 FAIL=0
 ok()  { echo "ok   $*"; }
 bad() { echo "FAIL $*"; FAIL=1; }
@@ -208,6 +208,34 @@ nocyg "50-brand: server identity" "$B"
 eq "50-brand: desktop medium, desktop PRETTY_NAME unchanged" "$(brand desktop desktop | sed -n 's/^PRETTY_NAME=//p')" "$DESK_LABEL Desktop, based on $NCZ_BASE_LABEL"
 eq "50-brand: desktop medium, console-only install unchanged" "$(brand server desktop | sed -n 's/^PRETTY_NAME=//p')" "$DESK_LABEL Server, based on $NCZ_BASE_LABEL"
 brand desktop desktop | grep -q '^VARIANT=' && bad "50-brand: desktop gained a VARIANT key" || ok "50-brand: desktop has no VARIANT key"
+# the real writer (not only the print seam): 50-brand.sh run in a sandbox root, /etc and the installer meta dir
+# rewritten into it, systemctl stubbed
+realbrand() { # medium(server|desktop) build-variant -> sandbox root
+    local R="$W/rb-$1-$2"; rm -rf "$R"; mkdir -p "$R/etc/update-motd.d" "$R/etc/systemd/system" "$R/lib/cix" "$R/usr/local/bin" "$R/usr/lib" "$R/bin" "$R/hook/lib"
+    cp "$ROOT/release.conf" "$R/lib/cix/RELEASE"; echo 2026.10.26-abc1234 > "$R/lib/cix/BUILD_VERSION"; echo 2026-10-26 > "$R/lib/cix/BUILD_DATE"
+    echo "$2" > "$R/lib/cix/BUILD_VARIANT"; [ "$1" = server ] && echo server > "$R/lib/cix/MEDIUM_VARIANT"
+    printf '#!/bin/sh\nexit 0\n' > "$R/bin/systemctl"; chmod +x "$R/bin/systemctl"; cp "$H" "$R/hook/lib/"
+    sed "s#/usr/local/lib/cix-installer#$R/lib/cix#g; s#/etc/#$R/etc/#g; s#/usr/local/bin/#$R/usr/local/bin/#g; s#/usr/lib/os-release#$R/usr/lib/os-release#g" \
+        "$ROOT/post-install/50-brand.sh" > "$R/hook/50-brand.sh"
+    PATH="$R/bin:$PATH" bash "$R/hook/50-brand.sh" > "$R/log" 2>&1
+    echo "$R"
+}
+R=$(realbrand server server)
+eq "50-brand (real write, server): PRETTY_NAME" "$(unset VARIANT PRETTY_NAME; . "$R/etc/os-release"; echo "$PRETTY_NAME")" "$SRVF, based on $NCZ_BASE_LABEL"
+eq "50-brand (real write, server): VARIANT / VARIANT_ID / ID parse" "$(unset VARIANT VARIANT_ID ID; . "$R/etc/os-release"; echo "$VARIANT|$VARIANT_ID|$ID")" "Magnetar Server|magnetar-server|ncz"
+eq "50-brand (real write, server): /etc/issue first line" "$(head -1 "$R/etc/issue")" "$SRVF - NCZ_ISSUE_SOC_PLACEHOLDER - kernel \\r"
+eq "50-brand (real write, server): /etc/issue.net first line" "$(head -1 "$R/etc/issue.net")" "$SRVF (NCZ_ISSUE_SOC_PLACEHOLDER)"
+eq "50-brand (real write, server): lsb DISTRIB_DESCRIPTION" "$(sed -n 's/^DISTRIB_DESCRIPTION=//p' "$R/etc/lsb-release")" "\"$SRVF, based on $NCZ_BASE_LABEL\""
+nocyg "50-brand (real write, server): PRETTY_NAME/VERSION/VARIANT, issue, issue.net, log" \
+    "$(grep -E '^(PRETTY_NAME|VERSION|VARIANT)=' "$R/etc/os-release"; cat "$R/etc/issue" "$R/etc/issue.net" "$R/log")"
+R=$(realbrand desktop desktop)
+eq "50-brand (real write, desktop): PRETTY_NAME unchanged" "$(unset PRETTY_NAME; . "$R/etc/os-release"; echo "$PRETTY_NAME")" "$DESK_LABEL Desktop, based on $NCZ_BASE_LABEL"
+grep -q '^VARIANT' "$R/etc/os-release" && bad "50-brand (real write, desktop): gained a VARIANT key" || ok "50-brand (real write, desktop): no VARIANT key"
+case "$(head -1 "$R/etc/issue")" in "$DESK_LABEL Desktop  ·  NCZ_ISSUE_SOC_PLACEHOLDER  (Kernel: \r)") ok "50-brand (real write, desktop): /etc/issue unchanged" ;; *) bad "50-brand (real write, desktop): issue: $(head -1 "$R/etc/issue")" ;; esac
+# the motd title row reads the edition from os-release VARIANT, never from the caller's environment
+# (the generated banner already reads the sandbox's etc/; only the live hardware probe is cut out)
+_mt=$(VARIANT="Magnetar Server" bash -c "$(sed "s#$R/usr/local/bin/ncz-hw-brand#$W/none#g" "$R/etc/update-motd.d/00-ncz-banner")" 2>/dev/null | sed -n 3p)
+case "$_mt" in *"$DESK_LABEL Desktop  ·  unknown edge agent"*) ok "motd: an exported VARIANT does not change the desktop title row" ;; *) bad "motd: exported VARIANT leaked into the desktop title: $_mt" ;; esac
 # the motd title row reads the edition from os-release VARIANT
 awk "/^cat > \/etc\/update-motd.d\/00-ncz-banner <<'BANNER'/{f=1;next} /^BANNER\$/{f=0} f" "$ROOT/post-install/50-brand.sh" > "$W/banner.sh"
 motd() { # os-release-file -> first title row
@@ -229,6 +257,16 @@ if [ -s "$W/10-ncz-server.issue" ]; then
     grep -qiE 'maximilian|cygnus|ncz desktop on' "$W/10-ncz-server.issue" && bad "48: server banner names a retired/desktop name or the desktop toggle" || ok "48: server banner has no retired name, no codename, no desktop toggle"
     LC_ALL=C grep -q '[^ -~]' "$W/10-ncz-server.issue" && bad "48: server banner is not plain ASCII" || ok "48: server banner is plain ASCII"
 else bad "48: no server banner block"; fi
+
+# the whole 48 hook on a server medium (sandbox, systemctl/nmcli stubbed): no desktop advice in its log
+R48="$W/r48"; mkdir -p "$R48/lib/cix" "$R48/etc" "$R48/bin" "$R48/hook/lib"
+echo server > "$R48/lib/cix/BUILD_VARIANT"; echo server > "$R48/lib/cix/MEDIUM_VARIANT"; cp "$ROOT/release.conf" "$R48/lib/cix/RELEASE"
+printf '#!/bin/sh\nexit 0\n' > "$R48/bin/systemctl"; printf '#!/bin/sh\nexit 1\n' > "$R48/bin/nmcli"; chmod +x "$R48/bin/systemctl" "$R48/bin/nmcli"; cp "$H" "$R48/hook/lib/"
+sed "s#/usr/local/lib/cix-installer#$R48/lib/cix#g; s#/etc/#$R48/etc/#g" "$ROOT/post-install/48-server-variant.sh" > "$R48/hook/48.sh"
+PATH="$R48/bin:$PATH" bash "$R48/hook/48.sh" > "$R48/log" 2>&1; _r48=$?
+eq "48 (whole hook, server medium): exit status" "$_r48" 0
+grep -q 'ncz desktop on' "$R48/log" "$R48/etc/issue.d/10-ncz-server.issue" 2>/dev/null && bad "48 (whole hook, server medium): still advises 'ncz desktop on'" || ok "48 (whole hook, server medium): no 'ncz desktop on' advice"
+eq "48 (whole hook, server medium): issue.d title" "$(sed -n 2p "$R48/etc/issue.d/10-ncz-server.issue" 2>/dev/null)" "$SRVF"
 
 # --- 7. installed rEFInd menus ----------------------------------------------------------------------
 for s in "$ROOT/assets/refind/ncz-refind-refresh.sh" "$ROOT/assets/refind/ncz-refind-refresh-amd64.sh"; do
@@ -253,7 +291,7 @@ for s in "$ROOT/assets/refind/ncz-refind-refresh.sh" "$ROOT/assets/refind/ncz-re
     nocyg "$n: server menu titles" "$T"
     printf '%s\n' "$T" | grep -q '^banner ' && bad "$n: the server menu still references the legacy banner image" || ok "$n: no legacy banner image on the server menu"
     T=$(titles -)
-    [ "$(printf '%s\n' "$T" | grep -c "^menuentry \"$DESK_LABEL  -  ")" = "$(printf '%s\n' "$T" | grep -c '^menuentry ')" ] \
+    [ "$(printf '%s\n' "$T" | grep -c '^menuentry ')" -ge 3 ] && [ "$(printf '%s\n' "$T" | grep -c "^menuentry \"$DESK_LABEL  -  ")" = "$(printf '%s\n' "$T" | grep -c '^menuentry ')" ] \
         && ok "$n: desktop-medium titles unchanged ('$DESK_LABEL  -  ')" || bad "$n: desktop titles: $T"
     printf '%s\n' "$T" | grep -q '^banner ncz-banner.png' && ok "$n: desktop menu keeps its banner line" || bad "$n: desktop banner line lost"
 done
@@ -339,7 +377,8 @@ STUB
 chmod +x "$W/dry/bin/kvm-install-gate-gpt.sh"; : > "$W/dry/img.img"
 _m=$(bash "$W/dry/bin/kvm-install-gate-matrix.sh" "$W/dry/img.img" "$W/dry/work" full server server-offline-negative nodesktop 2>&1)
 case "$_m" in *"use a directory on disk"*)   # the matrix refuses a tmpfs work root; run it on disk
-    _dd=$(mktemp -d "$ROOT/.ncz-srv-brand-dry.XXXXXX"); _m=$(bash "$W/dry/bin/kvm-install-gate-matrix.sh" "$W/dry/img.img" "$_dd/work" full server server-offline-negative nodesktop 2>&1); rm -rf "$_dd" ;;
+    _dd=$(mktemp -d "$ROOT/../.ncz-srv-brand-dry.XXXXXX");   # beside the tree, never inside it
+ _m=$(bash "$W/dry/bin/kvm-install-gate-matrix.sh" "$W/dry/img.img" "$_dd/work" full server server-offline-negative nodesktop 2>&1); rm -rf "$_dd" ;;
 esac
 printf '%s\n' "$_m" | grep -q '^STUB set=server ui=1 server=1 offline=0 comps=rescue-partition$' && ok "matrix dry run: the server set runs the UI check" || bad "matrix dry run: server set: $(printf '%s\n' "$_m" | grep STUB)"
 printf '%s\n' "$_m" | grep -q '^STUB set=server-offline-negative ui=0 ' && ok "matrix dry run: the offline-negative set does not" || bad "matrix dry run: offline set"
@@ -353,6 +392,18 @@ chmod +x "$W/dry/bin/kvm-installer-ui-check.sh"
 uidry() { bash -c "fail() { echo \"GATEFAIL \$*\"; }; SCRIPT_DIR='$W/dry/bin'; IMG=x.img; ARCH=amd64; WORK='$W/dry'; NCZ_GATE_SERVER=$1; NCZ_GATE_UI_CHECK=1; . '$W/dry/ui-block.sh'" 2>&1; }
 uidry 1 | grep -q 'UI-STUB variant=server' && ok "gate dry run: a server run calls the UI check with NCZ_UI_CHECK_VARIANT=server" || bad "gate dry run server: $(uidry 1)"
 uidry 0 | grep -q 'UI-STUB variant=desktop' && ok "gate dry run: a desktop run calls it with the desktop contract" || bad "gate dry run desktop: $(uidry 0)"
+# build-image.sh's server gate runner: sudo's env_reset drops everything not on its command line, so the pyte
+# interpreter the UI check needs (the /root/ncz-pyte-venv the image build provisions) must be passed there, as the
+# desktop runner does. Run the real stage_kvm_gate_server with a stub ncz_sudo_bash that prints its command.
+awk '/^stage_kvm_gate_server\(\) \{$/{f=1} f{print} f && /^\}$/{exit}' "$ROOT/build/build-image.sh" > "$W/dry/srv-runner.sh"
+mkdir -p "$W/dry/mag"; : > "$W/dry/mag/base.squashfs"; : > "$W/dry/mag/ncz-assets-amd64.tar.gz"; : > "$W/dry/mag/ncz-pool-amd64.tar.gz"
+_sr=$(bash -c "ncz_sudo_bash() { echo \"SUDO: \$*\"; echo 'MATRIX PASS'; }
+    ROOT='$ROOT'; RUN_DIR='$W/dry'; ARCH=amd64; MAGNETAR_DIR='$W/dry/mag'; unset NCZ_PYTE_PYTHON
+    . '$W/dry/srv-runner.sh'; pyvenv=/root/ncz-pyte-venv; stage_kvm_gate_server '$W/dry/srv.log' '$W/dry/img.img' '$W/dry/kw' 0:0 /root/ncz-pyte-venv" 2>&1)
+printf '%s\n' "$_sr" | grep '^SUDO: ' | grep -q "NCZ_PYTE_PYTHON='/root/ncz-pyte-venv/bin/python'" \
+    && ok "build-image: the server gate runner passes NCZ_PYTE_PYTHON through sudo (the UI check finds pyte)" \
+    || bad "build-image: the server gate runner's sudo line has no NCZ_PYTE_PYTHON: $(printf '%s\n' "$_sr" | grep '^SUDO: ' | cut -c1-300)"
+grep -q '^ui=server$' "$W/dry/kvm-gate.result" 2>/dev/null && ok "build-image: the server gate result records ui=server" || bad "build-image: kvm-gate.result ui field: $(grep '^ui=' "$W/dry/kvm-gate.result" 2>/dev/null)"
 
 if [ "$FAIL" != 0 ]; then echo "test-server-branding: FAIL" >&2; exit 1; fi
 echo "test-server-branding: PASS"

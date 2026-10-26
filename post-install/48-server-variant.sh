@@ -191,4 +191,5 @@ echo
 echo "[48] Server variant applied. Boot-up will land in tty2 multi-user."
 echo "     tty1 reserved for kernel boot diag; press Alt+F2 for login prompt."
 echo "     SSH on port 22."
-echo "     Switch back to desktop with: sudo ncz desktop on"
+# A Magnetar Server medium carries no desktop layer, so there is nothing to switch back to.
+[ "$_ncz_medium" = server ] || echo "     Switch back to desktop with: sudo ncz desktop on"

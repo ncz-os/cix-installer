@@ -122,7 +122,8 @@ rc=0
 if [ "$VARIANT" = server ]; then
     judge_text_server || rc=1
     # What the operator reported on the first real server install (2026-10-26, cyclops): the desktop codename in
-    # the dialogs and the desktop component selector. Judged on every captured screen from the first dialog on.
+    # the dialogs and the desktop component selector. Judged on every captured screen, including the boot text before
+    # the first dialog: the codename must not appear anywhere on the server path.
     _srv_screens=()
     for _s in "$WORK"/serial-screens/*.txt; do [ -f "$_s" ] && _srv_screens+=("$_s"); done
     if [ "${#_srv_screens[@]}" = 0 ]; then

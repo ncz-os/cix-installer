@@ -30,7 +30,8 @@
 #                                                             fail loudly within the deadline and
 #                                                             leave no rootfs on the target)
 #
-# Only `full` runs the installer UI check (it does not depend on the options).
+# `full` runs the installer UI check (it does not depend on the options), and
+# `server` runs it in its server mode (a Magnetar Server medium's screens differ).
 # A passing set's disk images are removed to keep the work root small
 # (NCZ_GATE_KEEP=1 keeps them); a failing set keeps everything for inspection.
 # Every set runs even after a failure; the summary is WORKROOT/matrix.tsv.

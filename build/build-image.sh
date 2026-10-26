@@ -1596,7 +1596,7 @@ stage_kvm_gate() {
     # build user after the gate (2026-10-11).
     local invoker; invoker="$(id -u):$(id -g)"
     if [ "$NCZ_VARIANT" = server ]; then
-        stage_kvm_gate_server "$log" "$img" "$work" "$invoker"
+        stage_kvm_gate_server "$log" "$img" "$work" "$invoker" "$pyvenv"
         return $?
     fi
     ( cd "$ROOT" && ARCH="$ARCH" TMPDIR="$RUN_DIR/tmp" \
@@ -1629,10 +1629,13 @@ stage_kvm_gate() {
 # gate reads the pins back off the medium, serves base.squashfs + the asset
 # bundle from MAGNETAR_DIR on its own local HTTP server (stopped by PID on
 # exit), installs and boots; the negative set proves a stopped server fails
-# loud and bounded with nothing installed. The installer dialogs are the
-# desktop medium's (same preseed and chooser); they are judged there.
+# loud and bounded with nothing installed. The server set also runs the
+# installer UI check in its server mode (a Magnetar Server medium names its
+# edition and shows no component dialog), so it needs the pyte interpreter
+# ($5, the venv provisioned above) on the sudo line like the desktop gate:
+# sudo's env_reset drops anything that is not on it.
 stage_kvm_gate_server() {
-    local log="$1" img="$2" work="$3" invoker="$4" sets mrc
+    local log="$1" img="$2" work="$3" invoker="$4" pyvenv="${5:-/root/ncz-pyte-venv}" sets mrc
     sets="${NCZ_KVM_GATE_SERVER_SETS:-server server-offline-negative}"
     local assets="$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz" pool="$MAGNETAR_DIR/ncz-pool-$ARCH.tar.gz"
     if [ ! -f "$MAGNETAR_DIR/base.squashfs" ] || [ ! -f "$assets" ] || [ ! -f "$pool" ]; then
@@ -1640,13 +1643,13 @@ stage_kvm_gate_server() {
         return 1
     fi
     echo "[kvm-gate] Magnetar server sets: $sets (payload from $MAGNETAR_DIR)" | tee -a "$log"
-    ( cd "$ROOT" && ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_KVM_GATE_VARIANTS='$sets' NCZ_GATE_SERVER_PAYLOAD='$MAGNETAR_DIR/base.squashfs' NCZ_GATE_SERVER_ASSETS='$assets' NCZ_GATE_SERVER_POOL='$pool' bash build/kvm-install-gate-matrix.sh '$img' '$work-options'" ) 2>&1 | tee -a "$log"
+    ( cd "$ROOT" && ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_PYTE_PYTHON='${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}' NCZ_KVM_GATE_VARIANTS='$sets' NCZ_GATE_SERVER_PAYLOAD='$MAGNETAR_DIR/base.squashfs' NCZ_GATE_SERVER_ASSETS='$assets' NCZ_GATE_SERVER_POOL='$pool' bash build/kvm-install-gate-matrix.sh '$img' '$work-options'" ) 2>&1 | tee -a "$log"
     mrc="${PIPESTATUS[0]}"
     if [ "$mrc" != 0 ] || ! grep -q '^MATRIX PASS' "$log"; then
         echo "[kvm-gate] FAIL: a Magnetar server set failed (see $work-options/matrix.tsv)" | tee -a "$log" >&2
         return 1
     fi
-    { printf 'gate=kvm\nresult=PASS\nvariant=server\nui=desktop-medium\noptions=%s\nimage=%s\nsha256=%s\nat=%s\n' \
+    { printf 'gate=kvm\nresult=PASS\nvariant=server\nui=server\noptions=%s\nimage=%s\nsha256=%s\nat=%s\n' \
         "$(echo "$sets" | tr ' ' ',')" "$img" "$(sha256sum "$img" | awk '{print $1}')" "$(date -u +%s)"; } > "$RUN_DIR/kvm-gate.result"
     return 0
 }
