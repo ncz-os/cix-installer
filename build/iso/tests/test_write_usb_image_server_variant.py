@@ -555,6 +555,43 @@ class FetcherSerialVisibilityTest(unittest.TestCase):
                       "say() must write to every console")
 
 
+class LiteAssetsStagedTest(unittest.TestCase):
+    """post-install/66-ncz-lite-profile.sh reads assets/lite/ncz-profile from
+    the medium (or the installer copy late.sh makes of it); the writer must
+    stage assets/lite on amd64 and only there."""
+
+    def _stage(self, arch):
+        tmp = Path(tempfile.mkdtemp(prefix="ncz-lite-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        repo = build_fixture_repo(tmp / "repo")
+        (repo / "assets" / "lite").mkdir(parents=True)
+        (repo / "assets" / "lite" / "ncz-profile").write_text("#!/bin/sh\n")
+        payload = fake_payload_dir(tmp, arch, True)
+        stage_dir = tmp / "stage"
+        stage_dir.mkdir()
+        with mock.patch.dict(os.environ, {"NCZ_VARIANT": "desktop"}, clear=False), \
+             mock.patch.object(MODULE, "REPO_ROOT", repo), \
+             mock.patch.object(MODULE, "stage_ssplugin_deb", return_value=None):
+            receipt = MODULE.build_ncz_payload_tree(
+                stage_dir, payload, arch, None, repo / "preseed",
+                allow_missing_stub=True, post_install_dir=repo / "post-install",
+                build_version="test", online_work_dir=tmp / "online")
+        return stage_dir, receipt
+
+    def test_amd64_medium_carries_the_lite_profile(self):
+        stage_dir, receipt = self._stage("amd64")
+        self.assertTrue((stage_dir / "ncz-payload" / "assets" / "lite" / "ncz-profile").is_file())
+        self.assertIn("lite", receipt["architecture_assets_staged"])
+        hook = (REPO / "post-install" / "66-ncz-lite-profile.sh").read_text()
+        self.assertIn('"$_r/assets/lite/ncz-profile"', hook,
+                      "the hook no longer reads assets/lite/ncz-profile; re-check the staged path")
+
+    def test_arm64_medium_does_not(self):
+        stage_dir, receipt = self._stage("arm64")
+        self.assertFalse((stage_dir / "ncz-payload" / "assets" / "lite").exists())
+        self.assertNotIn("lite", receipt["architecture_assets_staged"])
+
+
 class ReleaseIdentityGateTest(unittest.TestCase):
     """MINOR-001: the identity gate runs on every staged medium (both
     variants) and FAILS the build when the staged RELEASE carries a retired

@@ -893,12 +893,22 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         # ISSUES #2). Listing it is all that is needed: the copy loop below
         # is generic and skips a name whose source directory is absent.
         "update-manager",
+        # assets/lite/ is the amd64 weak-GPU profile (ncz-profile CLI, labwc
+        # and themerc fragments, schema key, first-login unit) that
+        # post-install/66-ncz-lite-profile.sh installs. The lite-profile merge
+        # (a0f203a9) added the hook but not this entry, so the hook found
+        # neither /cdrom/ncz-payload/assets/lite nor the installer copy and
+        # logged "lite profile not installed" on every amd64 install (Preview4
+        # 866040c7 KVM gate). amd64 only: the hook's guard exits elsewhere.
+        "lite",
     )
     copied_assets = []
     for name in asset_names:
         src = REPO_ROOT / "assets" / name
         dst = assets_dst / name
         if not src.exists():
+            continue
+        if name == "lite" and arch != "amd64":
             continue
         if name == "kernel":
             # mainline is the single Sky1 kernel channel (unified 7.3 policy,
