@@ -201,8 +201,8 @@ build/stage-canonical-assets.sh	sky1	-	restages CIX-NCZ gitignored blobs (183 ar
 build/stage-kernel.sh	sky1	-	stages a Sky1 kernel
 build/stage-screensaver-plugin.sh	common	-	copies the pinned ncz-screensavers-plugin deb from the project build store into build/ncz-screensavers-out (sha256 + control fields checked); make ssplugin-stage
 build/systemd/	common	-	singularity patch reconcile units
-build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	AMD64 dynamic NVIDIA driver + CUDA gate tests (Turing plan, R580 plan, Kepler skip, ncz-cuda-setup simulation, removals refused, status/retry/park/backoff, DKMS compile-failure record and same-inputs back-off, local DKMS patch staging, installed-target fixture, chooser)
-build/test-nvidia-dkms-patch-build.sh	amd64	nvidia-cuda	Build-level test (container on a build host, SKIP without podman/docker or headers): stock NVIDIA DKMS source fails against CONFIG_CGROUP_DMEM=y 7.3 headers, the staged assets/nvidia/dkms patch builds all five modules
+build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	AMD64 dynamic NVIDIA driver + CUDA gate tests (Turing plan, R580 plan, Kepler skip, ncz-cuda-setup simulation, removals refused, status/retry/park/backoff, toolkit resolved from the index, driver fallback ladder and all-fail path, DKMS compile-failure record and same-inputs back-off, content-matched DKMS patches with the real patch, apt hooks, installed-target fixture, chooser)
+build/test-nvidia-dkms-patch-build.sh	amd64	nvidia-cuda	Build-level test (container on a build host, SKIP without podman/docker or headers): stock NVIDIA DKMS source (any version) fails against CONFIG_CGROUP_DMEM=y 7.3 headers, the patches ncz-cuda-setup dkms-stage selects by content build all five modules
 build/test-amd64-dracut-isolation.sh	amd64	-	amd64 base must not stage the Sky1 dracut config (static checks + the real staging loop)
 build/test-amd64-intel-vaapi.sh	amd64	-	amd64 desktop closure ships intel-media-va-driver (Intel VA-API gap, a MacBookPro16,1 UHD 630)
 build/test-amd64-kernel-classifier.sh	amd64	-	amd64 unified-7.3 kernel classifier test

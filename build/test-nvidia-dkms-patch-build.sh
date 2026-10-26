@@ -1,8 +1,10 @@
 #!/bin/bash
 # test-nvidia-dkms-patch-build.sh -- build-level test for the local NVIDIA DKMS
-# patches in assets/nvidia/dkms/: the real stage_dkms_patches() from
-# assets/nvidia/ncz-cuda-setup stages them, then the real dkms builds the full
-# NVIDIA module set against real kernel headers in a Debian forky container.
+# patches in assets/nvidia/dkms/: the real `ncz-cuda-setup dkms-stage` decides
+# by content which patch sets the given driver source needs (fix absent, applies
+# with fuzz 0) and stages them, then the real dkms builds the full NVIDIA module
+# set against real kernel headers in a Debian forky container. The driver
+# version does not matter: any unpacked nvidia-<ver> source works.
 #
 #   unpatched  the stock source against headers with CONFIG_CGROUP_DMEM=y must
 #              FAIL at os-interface.c (dmem_cgroup_register_region, the 7.3 API)
@@ -34,7 +36,6 @@ for c in podman docker; do command -v "$c" >/dev/null 2>&1 && { RT=$c; break; };
     || skip "set NCZ_KHDR_DIR and NCZ_KVER (headers dir linux-headers-\$NCZ_KVER)"
 [ -r "${NCZ_NV_SRC:-/nonexistent}/dkms.conf" ] || skip "set NCZ_NV_SRC to an unpacked nvidia-<ver> DKMS source"
 NVMV=$(basename "$NCZ_NV_SRC")
-[ -d "$ROOT/assets/nvidia/dkms/$NVMV" ] || skip "no local patch set for $NVMV in assets/nvidia/dkms"
 case "$(findmnt -no FSTYPE -T "${TMPDIR:-/tmp}" 2>/dev/null)" in
     tmpfs|ramfs) echo "ERROR: TMPDIR ${TMPDIR:-/tmp} is a tmpfs; point it at local disk" >&2; exit 2 ;;
 esac
@@ -42,10 +43,8 @@ IMAGE=${NCZ_CTR_IMAGE:-docker.io/library/debian:forky}
 MODES=${NCZ_TEST_MODES:-unpatched patched}
 W=$(mktemp -d "${TMPDIR:-/tmp}/nvdkms.XXXXXX"); trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/fn"
-# the real functions, not a copy: log, sum_of, stage_dkms_patches
-sed -n '/^log() /p; /^sum_of() {/,/^}/p; /^stage_dkms_patches() {/,/^}/p' \
-    "$ROOT/assets/nvidia/ncz-cuda-setup" > "$W/fn/stage.sh"
-grep -q '^stage_dkms_patches()' "$W/fn/stage.sh" || { echo "FAIL: stage_dkms_patches not found in ncz-cuda-setup"; exit 1; }
+# the real tool, not a copy of its functions
+install -m0755 "$ROOT/assets/nvidia/ncz-cuda-setup" "$W/fn/ncz-cuda-setup"
 
 cat > "$W/fn/inner.sh" <<'EOF'
 #!/bin/bash
@@ -61,11 +60,8 @@ ln -sfn "/hdr/linux-headers-$kv" "/usr/src/linux-headers-$kv"
 mkdir -p "/lib/modules/$kv"; ln -sfn "/usr/src/linux-headers-$kv" "/lib/modules/$kv/build"
 cp -a "/nvsrc" "/usr/src/$mv"
 if [ "$mode" = patched ]; then
-    LOG=/dev/null NV_DKMS_PATCHES=/patches DKMS_ETC=/etc/dkms SRC_ROOT=/usr/src
-    # shellcheck disable=SC1091
-    . /fn/stage.sh
-    stage_dkms_patches
-    echo "--- /etc/dkms/$mv.conf"; cat "/etc/dkms/$mv.conf"
+    NCZ_NV_DKMS_PATCHES=/patches NCZ_DKMS_ETC=/etc/dkms NCZ_SRC_ROOT=/usr/src /fn/ncz-cuda-setup dkms-stage "/usr/src/$mv"
+    echo "--- /etc/dkms/$mv.conf"; cat "/etc/dkms/$mv.conf" 2>/dev/null || echo "(none)"
 fi
 m=${mv%-*}; v=${mv##*-}
 dkms add "$m/$v" >/dev/null 2>&1
@@ -107,10 +103,14 @@ for mode in $MODES; do
             [ "$rc" = 0 ] && ok "unpatched $NVMV builds (CGROUP_DMEM off)" || nok "unpatched failed (rc=$rc): ${first_err:-}"
         fi ;;
     patched)
-        grep -q '^PATCH\[' "$W/out-$mode/ctr.log" && ok "patched: /etc/dkms/$NVMV.conf lists the patches" \
-            || nok "patched: no PATCH[] in /etc/dkms/$NVMV.conf"
-        grep -q 'Applying patch' "$W/out-$mode/dkms.out" "$W/out-$mode/make.log" 2>/dev/null \
-            && ok "patched: dkms applied the local patch" || nok "patched: dkms did not apply a patch"
+        if grep -q 'already carries the fix' "$W/out-$mode/ctr.log"; then
+            ok "patched: $NVMV carries the fix upstream; no local patch staged (content check)"
+        else
+            grep -q '^PATCH\[' "$W/out-$mode/ctr.log" && ok "patched: /etc/dkms/$NVMV.conf lists the patches" \
+                || nok "patched: no PATCH[] in /etc/dkms/$NVMV.conf"
+            grep -q 'Applying patch' "$W/out-$mode/dkms.out" "$W/out-$mode/make.log" 2>/dev/null \
+                && ok "patched: dkms applied the local patch" || nok "patched: dkms did not apply a patch"
+        fi
         [ "$rc" = 0 ] && ok "patched $NVMV builds (dkms rc=0)" || { nok "patched build failed (rc=$rc): ${first_err:-}"; tail -15 "$W/out-$mode/dkms.out"; }
         for ko in nvidia nvidia-modeset nvidia-drm nvidia-uvm nvidia-peermem; do
             grep -qx "$ko.ko" "$W/out-$mode/ko.txt" 2>/dev/null && ok "patched: $ko.ko built" || nok "patched: $ko.ko missing"

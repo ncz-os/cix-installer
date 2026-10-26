@@ -9,9 +9,9 @@
 #
 #  family        PCI device id     driver                       CUDA toolkit
 #  ------------  ----------------  ---------------------------  -------------
-#  turing-plus   >= 0x1e00         R615 open kernel modules     13.4
-#                (sm_75+)          (cuda-drivers, nvidia-open)  (debian13 repo)
-#  maxwell-volta 0x1340 .. 0x1dff  R580 PROPRIETARY module      12.9
+#  turing-plus   >= 0x1e00         newest open kernel modules   newest 13.x
+#                (sm_75+)          (nvidia-open)                (debian13 repo)
+#  maxwell-volta 0x1340 .. 0x1dff  newest R580 PROPRIETARY      newest 12.x
 #                (sm_50 .. sm_70)  (cuda-drivers-580,           (debian12 repo)
 #                                  nvidia-kernel-dkms; the
 #                                  open modules are Turing+
@@ -90,6 +90,16 @@ ncz_cuda_pick_family() {
     echo "$best $bestid"
 }
 
+# Versions are NOT fixed here: ncz-cuda-setup picks, at run time, the newest
+# driver the repo offers within DRIVER_PIN whose DKMS module builds for the
+# running kernel (falling back to older ones), and the newest CUDA
+# TOOLKIT_SERIES.N whose TOOLKIT_PKGS stems (<stem>-<series>-N) all exist. What
+# it installed is appended to the selection as INSTALLED_DRIVER /
+# INSTALLED_TOOLKIT / INSTALLED_TOOLKIT_DIR. DRIVER_PIN keeps the family's
+# hardware limit (580.* is the last branch for Maxwell..Volta); for Turing+ it
+# only matches NVIDIA driver versions (3-digit series), not the separately
+# versioned EGL platform libraries the NVIDIA repo also carries.
+#
 # ncz_cuda_plan FAMILY -> prints KEY=value lines (eval-safe, no spaces in
 # values except PKGS/DRIVER_PKGS which are quoted).
 ncz_cuda_plan() {
@@ -97,19 +107,24 @@ ncz_cuda_plan() {
         turing-plus)
             cat <<'EOF'
 FAMILY=turing-plus
-DRIVER_BRANCH=615
-DRIVER_PIN='615.*'
+DRIVER_BRANCH=newest
+DRIVER_PIN='[1-9][0-9][0-9]*'
 KMOD=open
+KMOD_PKG=nvidia-kernel-open-dkms
 # the GU502LV laptop RTX 2060 needed the ICD/library plus Wayland and GBM external
 # platforms before PRIME's GLES3 calibrator selected NVIDIA on Wayland.
-DRIVER_PKGS='cuda-drivers libnvidia-encode1 libnvcuvid1 nvidia-egl-icd libegl-nvidia0 libnvidia-egl-wayland1 libnvidia-egl-gbm1'
-TOOLKIT=13-4
-TOOLKIT_DIR=/usr/local/cuda-13.4
-TOOLKIT_PKGS='cuda-compiler-13-4 cuda-libraries-13-4 cuda-libraries-dev-13-4'
+# nvidia-open, not cuda-drivers: cuda-drivers means the open modules only from
+# 615 on (610.x and older cuda-drivers depend on the PROPRIETARY nvidia-kernel-dkms,
+# measured in NVIDIA's debian13 index 2026-10-26); nvidia-open pulls
+# nvidia-kernel-open-dkms + nvidia-driver + nvidia-driver-cuda in every series 590-615.
+DRIVER_PKGS='nvidia-open libnvidia-encode1 libnvcuvid1 nvidia-egl-icd libegl-nvidia0 libnvidia-egl-wayland1 libnvidia-egl-gbm1'
+TOOLKIT=13.x
+TOOLKIT_SERIES=13
+TOOLKIT_PKGS='cuda-compiler cuda-libraries cuda-libraries-dev'
 REPO=debian13
 KEY_ASSET=cuda-keyring_1.1-1_all.deb
 SEQUOIA_RELAX=0
-REASON='Turing or newer (sm_75+): R615 open kernel modules + CUDA 13.4'
+REASON='Turing or newer (sm_75+): newest NVIDIA open-kernel-module driver that builds + newest CUDA 13.x'
 EOF
             ;;
         maxwell-volta)
@@ -118,14 +133,15 @@ FAMILY=maxwell-volta
 DRIVER_BRANCH=580
 DRIVER_PIN='580.*'
 KMOD=proprietary
+KMOD_PKG=nvidia-kernel-dkms
 DRIVER_PKGS='cuda-drivers-580'
-TOOLKIT=12-9
-TOOLKIT_DIR=/usr/local/cuda-12.9
-TOOLKIT_PKGS='cuda-compiler-12-9 cuda-libraries-12-9 cuda-libraries-dev-12-9'
+TOOLKIT=12.x
+TOOLKIT_SERIES=12
+TOOLKIT_PKGS='cuda-compiler cuda-libraries cuda-libraries-dev'
 REPO=debian12
 KEY_ASSET=cuda-archive-keyring-debian12.gpg
 SEQUOIA_RELAX=1
-REASON='Maxwell/Pascal/Volta (sm_50-sm_70): CUDA 13 dropped them; R580 proprietary module (open modules are Turing+ only) + CUDA 12.9'
+REASON='Maxwell/Pascal/Volta (sm_50-sm_70): CUDA 13 dropped them; newest R580 proprietary module that builds (open modules are Turing+ only) + newest CUDA 12.x'
 EOF
             ;;
         kepler-older)
@@ -136,7 +152,7 @@ DRIVER_PIN=''
 KMOD=none
 DRIVER_PKGS=''
 TOOLKIT=none
-TOOLKIT_DIR=''
+TOOLKIT_SERIES=''
 TOOLKIT_PKGS=''
 REPO=none
 KEY_ASSET=''
@@ -156,12 +172,12 @@ ncz_cuda_pin_file() {
     [ -n "$pin" ] || return 1
     cat <<EOF
 # /etc/apt/preferences.d/ncz-nvidia-cuda.pref -- written by NCZ-OS
-# (post-install/54-gpu-accel.sh). Family: $1. Keeps the whole NVIDIA driver
-# family on branch $pin so a newer NVIDIA branch (or Debian's older in-archive
-# nvidia 550.x) never silently replaces it. Point releases inside the branch
-# still update. Toolkit packages are versioned by name (cuda-*-N-M), so a new
-# toolkit is a different package and is never pulled in by a normal upgrade.
-# To move deliberately, edit /etc/ncz/cuda-selection.conf and this file.
+# (post-install/54-gpu-accel.sh). Family: $1. Family default: NVIDIA driver
+# versions matching '$pin' only, all driver packages moved together.
+# ncz-cuda-setup rewrites this pin once it knows which driver builds for the
+# running kernel (its series, or exactly the version it fell back to). Toolkit
+# packages are versioned by name (cuda-*-N-M), so a new toolkit is a different
+# package and is never pulled in by a normal upgrade.
 Package: cuda-drivers cuda-drivers-* nvidia-* libnvidia-* libcuda1 libcudadebugger1 libnvcuvid1 libnvoptix1 libxnvctrl* libegl-nvidia0 libgles-nvidia* libglx-nvidia0 firmware-nvidia-* xserver-xorg-video-nvidia
 Pin: version $pin
 Pin-Priority: 1001

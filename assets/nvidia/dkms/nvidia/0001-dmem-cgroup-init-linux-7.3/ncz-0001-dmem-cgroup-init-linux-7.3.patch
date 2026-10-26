@@ -16,8 +16,11 @@ it when present. The name goes through "%s" since the argument is a
 printf-style format. Same change as NVIDIA/open-gpu-kernel-modules PR #1330,
 with a conftest probe instead of a LINUX_VERSION_CODE check.
 
-Applied by NCZ-OS ncz-cuda-setup via /etc/dkms/nvidia-615.71.09.conf, to
-NVIDIA 615.71.09 only.
+Applied by NCZ-OS ncz-cuda-setup (via /etc/dkms/nvidia-<version>.conf) to
+any NVIDIA open kernel-module source that lacks the fix (fixed-upstream
+marker) and to which it applies exactly (fuzz 0). Built: 615.71.09 and
+615.71.10. NVIDIA fixed it upstream in 615.78.08 (commit ca2d03e6), which the
+marker recognizes.
 ---
 --- a/kernel-open/conftest.sh
 +++ b/kernel-open/conftest.sh
