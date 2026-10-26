@@ -108,6 +108,8 @@ def server_edition() -> str:
     Magnetar Server boot menu must never fall back to the desktop codename."""
     import re
 
+    if not BRAND_LIB.is_file():
+        raise SystemExit(f"FATAL: {BRAND_LIB} is missing; it names the server edition")
     m = re.search(
         r'^NCZ_SERVER_EDITION="([^"]+)"$',
         BRAND_LIB.read_text(encoding="utf-8"),

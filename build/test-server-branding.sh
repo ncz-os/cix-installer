@@ -264,6 +264,11 @@ s=importlib.util.spec_from_file_location('e','$ROOT/build/iso/build-refind-esp.p
 print(m.build_info_line('amd64'))"; }
 case "$(esp_line server)" in "$SRVF -- built "*) ok "build-refind-esp: server info line" ;; *) bad "build-refind-esp: server info line: $(esp_line server)" ;; esac
 case "$(esp_line desktop)" in "$DESK_LABEL -- built "*) ok "build-refind-esp: desktop info line unchanged" ;; *) bad "build-refind-esp: desktop info line: $(esp_line desktop)" ;; esac
+mkdir -p "$W/espcopy/build/iso"; cp "$ROOT/build/iso/build-refind-esp.py" "$W/espcopy/build/iso/"; cp "$ROOT/release.conf" "$W/espcopy/"
+_o=$(NCZ_VARIANT=server python3 -c "import importlib.util
+s=importlib.util.spec_from_file_location('e','$W/espcopy/build/iso/build-refind-esp.py'); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)
+print(m.build_info_line('amd64'))" 2>&1); _r=$?
+[ "$_r" != 0 ] && printf '%s' "$_o" | grep -q 'ncz-brand.sh is missing' && ok "build-refind-esp: a server build without the brand helper fails with a clear message" || bad "build-refind-esp: missing helper: rc=$_r $_o"
 case "$(NCZ_VARIANT= esp_line '')" in "$DESK_LABEL -- built "*) ok "build-refind-esp: unset NCZ_VARIANT is desktop" ;; *) bad "build-refind-esp: unset variant" ;; esac
 
 # --- 9. ncz version ---------------------------------------------------------------------------------------
