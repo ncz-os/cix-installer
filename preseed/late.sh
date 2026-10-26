@@ -307,8 +307,20 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
         # generator otherwise remain stale across every image that reuses the
         # base squashfs. Refresh this small executable from the current media
         # unconditionally and verify the copy before 70-bootloader runs it.
-        REFIND_REFRESH=refind/ncz-refind-refresh.sh
-        if [ -s "$SRC/assets/$REFIND_REFRESH" ]; then
+        # The arm64 generator was the only one refreshed; the amd64 generator
+        # and its kernel postinst.d hook stayed at the base layer's copies, so
+        # an amd64 fix to them (2026-10-26: the Magnetar server menu) never
+        # reached an install until the layers were rebuilt. Refresh every
+        # boot-control script the medium carries; the arm64 generator stays
+        # mandatory (both arches' media carry it).
+        for REFIND_REFRESH in refind/ncz-refind-refresh.sh \
+                              refind/ncz-refind-refresh-amd64.sh \
+                              refind/zz1-ncz-refind-refresh-amd64; do
+            if [ ! -s "$SRC/assets/$REFIND_REFRESH" ]; then
+                [ "$REFIND_REFRESH" = refind/ncz-refind-refresh.sh ] || continue
+                echo "[late] FATAL: install media lacks $REFIND_REFRESH" >&2
+                exit 1
+            fi
             cp -a "$SRC/assets/$REFIND_REFRESH" "$DSTA/$REFIND_REFRESH" || {
                 echo "[late] FATAL: could not refresh $REFIND_REFRESH from install media" >&2
                 exit 1
@@ -319,10 +331,7 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
                 exit 1
             }
             echo "[late] refreshed boot-control asset: $REFIND_REFRESH"
-        else
-            echo "[late] FATAL: install media lacks $REFIND_REFRESH" >&2
-            exit 1
-        fi
+        done
     fi
 else
     rm -rf /target/usr/local/lib/cix-installer

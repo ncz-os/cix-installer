@@ -463,6 +463,31 @@ hook() { rm -f "$W/hk/refind.conf" "$W/hk/lib/MEDIUM_VARIANT"; [ "$1" = - ] || e
 ! grep -q 'NCZ_VARIANT' "$ROOT/post-install/11-fix-cixmini-boot.sh" "$HOOK" \
     && ok "neither kernel-upgrade caller sets NCZ_VARIANT (the refresh decides from the marker)" || nok "a kernel-upgrade caller sets NCZ_VARIANT"
 
+echo "=== 9. late.sh refreshes every boot-control script over a baked base ==="
+# A baked base keeps its own assets ("baked wins"), but the rEFInd generators
+# and the amd64 kernel hook must come from the medium, or a fix to them never
+# reaches an install (2026-10-26: the amd64 server menu stayed the desktop one).
+awk '/^        for REFIND_REFRESH in /{f=1} f{print} f && /^        done$/{exit}' "$LATE" > "$W/late-rr.sh"
+if grep -q 'zz1-ncz-refind-refresh-amd64' "$W/late-rr.sh"; then
+    rr() {  # rr <medium files...> -> rc + which DSTA copies now match the medium
+        rm -rf "$W/rr"; mkdir -p "$W/rr/src/assets/refind" "$W/rr/dst/refind"
+        for f in ncz-refind-refresh.sh ncz-refind-refresh-amd64.sh zz1-ncz-refind-refresh-amd64; do
+            echo baked > "$W/rr/dst/refind/$f"; done
+        for f in "$@"; do echo "medium $f" > "$W/rr/src/assets/refind/$f"; done
+        ( SRC="$W/rr/src"; DSTA="$W/rr/dst"; . "$W/late-rr.sh" ) > "$W/rr/out" 2>&1; rc=$?
+        printf 'rc=%s' "$rc"
+        for f in ncz-refind-refresh.sh ncz-refind-refresh-amd64.sh zz1-ncz-refind-refresh-amd64; do
+            grep -q medium "$W/rr/dst/refind/$f" && printf ' %s' "$f"; done
+    }
+    all="ncz-refind-refresh.sh ncz-refind-refresh-amd64.sh zz1-ncz-refind-refresh-amd64"
+    [ "$(rr $all)" = "rc=0 $all" ] && ok "all three generators/hooks replace the baked copies" || nok "refresh all: $(rr $all) $(cat "$W/rr/out")"
+    [ "$(rr ncz-refind-refresh.sh)" = "rc=0 ncz-refind-refresh.sh" ] && ok "a medium without the amd64 scripts still refreshes the arm64 one" || nok "arm64-only medium: $(rr ncz-refind-refresh.sh)"
+    case "$(rr ncz-refind-refresh-amd64.sh zz1-ncz-refind-refresh-amd64)" in "rc=1"*) grep -q 'install media lacks refind/ncz-refind-refresh.sh' "$W/rr/out" \
+        && ok "a medium without the arm64 generator is still FATAL" || nok "missing arm64 generator: wrong message" ;; *) nok "missing arm64 generator not fatal" ;; esac
+else
+    nok "late.sh boot-control refresh loop not found"
+fi
+
 echo
 echo "test-install-options: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
