@@ -35,12 +35,19 @@ while IFS= read -r hit; do
     # a whole-line comment (first non-blank character '#') is prose; a trailing comment is not exempt
     l2=$(printf '%s' "$line" | sed 's/^[[:space:]]*//')
     case "$l2" in '#'*) continue ;; esac
-    allowed=0; idx=0
+    # Per occurrence, not per line: every allow-listed text this file's rows match is cut out
+    # of the line, and the line is a hit when a "cygnus" is still left. A second, unlisted
+    # literal on an allow-listed line therefore still fails.
+    rest="$line"; idx=0
     while IFS=$'\t' read -r ap are _reason; do
         case "$ap" in ''|'#'*) continue ;; esac
         idx=$((idx + 1))
-        if [ "$ap" = "$f" ] && printf '%s\n' "$line" | grep -qE -- "$are"; then allowed=1; used="$used $idx"; break; fi
+        [ "$ap" = "$f" ] || continue
+        cut=$(printf '%s\n' "$rest" | NCZ_RE="$are" awk '{ n = gsub(ENVIRON["NCZ_RE"], ""); print n "\t" $0 }')
+        if [ "${cut%%$'\t'*}" != 0 ]; then used="$used $idx"; rest="${cut#*$'\t'}"; fi
     done < "$ALLOW"
+    allowed=1
+    printf '%s\n' "$rest" | grep -qi cygnus && allowed=0
     if [ "$allowed" = 0 ]; then
         echo "FAIL $f:$n: names the desktop codename on the server install path: $(printf '%s' "$line" | sed 's/^[[:space:]]*//' | cut -c1-160)"
         fail=1
