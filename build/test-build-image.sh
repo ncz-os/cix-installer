@@ -343,15 +343,15 @@ mrun() { ( eval "$(fn ncz_magnetar_prepare)"; eval "$(fn ncz_magnetar_collect)";
 out="$(mrun bash -c 'true')"   # helpers parse
 out="$( ( eval "$(fn ncz_magnetar_prepare)"; mkdir -p "$SCRATCH/pay"; : > "$SCRATCH/pay/ncz-assets-amd64.tar.gz.part"
           ncz_magnetar_prepare "$MR" amd64 "$SCRATCH/pay" || exit 1
-          echo "U=$MAGNETAR_PAYLOAD_URL A=$MAGNETAR_ASSETS_URL S=$MAGNETAR_PAYLOAD_SHA256 B=$MAGNETAR_BASE_URL"
+          echo "U=$MAGNETAR_PAYLOAD_URL A=$MAGNETAR_ASSETS_URL L=$MAGNETAR_POOL_URL S=$MAGNETAR_PAYLOAD_SHA256 B=$MAGNETAR_BASE_URL"
           ls "$SCRATCH/pay" ) 2>&1)"; rc=$?
-if [ "$rc" = 0 ] && grep -q "U=http://10.0.2.2/base.squashfs A=http://10.0.2.2/ncz-assets-amd64.tar.gz S=$BSHA B=http://10.0.2.2" <<<"$out"; then
+if [ "$rc" = 0 ] && grep -q "U=http://10.0.2.2/base.squashfs A=http://10.0.2.2/ncz-assets-amd64.tar.gz L=http://10.0.2.2/ncz-pool-amd64.tar.gz S=$BSHA B=http://10.0.2.2" <<<"$out"; then
     ok "default pins: the gate serve base (write-usb-image.py) + the base layer's sha256"
 else bad "default pins wrong: $out"; fi
 grep -q '\.part' <<<"$out" && bad "stale .part survived prepare" || ok "prepare clears stale payload files"
 out="$( ( eval "$(fn ncz_magnetar_prepare)"; NCZ_PAYLOAD_BASE_URL=http://192.168.207.68:8088/p4/ ncz_magnetar_prepare "$MR" arm64 "$SCRATCH/pay2" \
-          && echo "U=$MAGNETAR_PAYLOAD_URL A=$MAGNETAR_ASSETS_URL" ) 2>&1)"
-grep -q "U=http://192.168.207.68:8088/p4/base.squashfs A=http://192.168.207.68:8088/p4/ncz-assets-arm64.tar.gz" <<<"$out" \
+          && echo "U=$MAGNETAR_PAYLOAD_URL A=$MAGNETAR_ASSETS_URL L=$MAGNETAR_POOL_URL" ) 2>&1)"
+grep -q "U=http://192.168.207.68:8088/p4/base.squashfs A=http://192.168.207.68:8088/p4/ncz-assets-arm64.tar.gz L=http://192.168.207.68:8088/p4/ncz-pool-arm64.tar.gz" <<<"$out" \
     && ok "NCZ_PAYLOAD_BASE_URL is the build-time payload URL" || bad "base URL override ignored: $out"
 ( eval "$(fn ncz_magnetar_prepare)"; NCZ_PAYLOAD_SHA256="$(printf '0%.0s' {1..64})" ncz_magnetar_prepare "$MR" amd64 "$SCRATCH/pay3" ) >/dev/null 2>&1 \
     && bad "a NCZ_PAYLOAD_SHA256 that is not the base layer was accepted" || ok "a wrong NCZ_PAYLOAD_SHA256 is refused"
@@ -360,19 +360,24 @@ grep -q "U=http://192.168.207.68:8088/p4/base.squashfs A=http://192.168.207.68:8
 ( eval "$(fn ncz_magnetar_prepare)"; ncz_magnetar_prepare "$SCRATCH/noroot" amd64 "$SCRATCH/pay5" ) >/dev/null 2>&1 \
     && bad "prepare without a base layer passed" || ok "prepare without a base layer fails"
 # collect: the finished medium's receipt must pin exactly the bytes in the payload dir
-collect_case() {  # <variant> <assets bytes> <payload url>
+collect_case() {  # <variant> <assets bytes> <payload url> [<pool bytes>]
     ( eval "$(fn ncz_magnetar_prepare)"; eval "$(fn ncz_magnetar_collect)"
       ncz_magnetar_prepare "$MR" amd64 "$SCRATCH/cpay" >/dev/null 2>&1 || exit 9
       printf 'bundle' > "$SCRATCH/cpay/ncz-assets-amd64.tar.gz"
       ASHA="$(sha256sum "$SCRATCH/cpay/ncz-assets-amd64.tar.gz" | awk '{print $1}')"
       [ "$2" = same ] || printf 'other' > "$SCRATCH/cpay/ncz-assets-amd64.tar.gz"
-      python3 - "$SCRATCH/m.img.receipt.json" "$1" "$3" "$BSHA" "$ASHA" <<'PY'
+      printf 'pool' > "$SCRATCH/cpay/ncz-pool-amd64.tar.gz"
+      LSHA="$(sha256sum "$SCRATCH/cpay/ncz-pool-amd64.tar.gz" | awk '{print $1}')"
+      case "${4:-same}" in other) printf 'otherpool' > "$SCRATCH/cpay/ncz-pool-amd64.tar.gz" ;; missing) rm -f "$SCRATCH/cpay/ncz-pool-amd64.tar.gz" ;; esac
+      python3 - "$SCRATCH/m.img.receipt.json" "$1" "$3" "$BSHA" "$ASHA" "$LSHA" <<'PY'
 import json, sys
-f, v, purl, bsha, asha = sys.argv[1:6]
+f, v, purl, bsha, asha, lsha = sys.argv[1:7]
 json.dump({"variant": v, "ncz_payload": {"online_fetch": {
     "payload_name": "base.squashfs", "payload_url": purl, "payload_sha256": bsha,
     "assets_name": "ncz-assets-amd64.tar.gz", "assets_url": "http://10.0.2.2/ncz-assets-amd64.tar.gz",
-    "assets_sha256": asha}}}, open(f, "w"))
+    "assets_sha256": asha,
+    "pool_name": "ncz-pool-amd64.tar.gz", "pool_url": "http://10.0.2.2/ncz-pool-amd64.tar.gz",
+    "pool_sha256": lsha}}}, open(f, "w"))
 PY
       ncz_magnetar_collect "$SCRATCH/m.img" ) 2>&1
 }
@@ -385,9 +390,17 @@ out="$(collect_case desktop same http://10.0.2.2/base.squashfs)"; rc=$?
 [ "$rc" != 0 ] && grep -q "not 'server'" <<<"$out" && ok "collect: a desktop receipt fails" || bad "collect accepted a desktop receipt: $out"
 out="$(collect_case server other http://10.0.2.2/base.squashfs)"; rc=$?
 [ "$rc" != 0 ] && grep -q "ncz-assets-amd64.tar.gz: sha256" <<<"$out" && ok "collect: bundle bytes that differ from the pin fail" || bad "collect accepted a mismatched bundle: $out"
+out="$(collect_case server same http://10.0.2.2/base.squashfs other)"; rc=$?
+[ "$rc" != 0 ] && grep -q "ncz-pool-amd64.tar.gz: sha256" <<<"$out" && ok "collect: pool bytes that differ from the pin fail" || bad "collect accepted a mismatched pool: $out"
+out="$(collect_case server same http://10.0.2.2/base.squashfs missing)"; rc=$?
+[ "$rc" != 0 ] && grep -q "ncz-pool-amd64.tar.gz is missing" <<<"$out" && ok "collect: a missing pool fails" || bad "collect accepted a missing pool: $out"
 out="$(collect_case server same http://elsewhere/base.squashfs)"; rc=$?
 [ "$rc" != 0 ] && grep -q "payload_url" <<<"$out" && ok "collect: a receipt URL that is not the build's fails" || bad "collect accepted a foreign URL: $out"
 # the gates are server-aware, and every other container run is unchanged
+grep -q 'ncz-pool-$ARCH.tar.gz' <<<"$(fn stage_secret_scan)" && grep -q '"${#pay\[@\]}" != 6' <<<"$(fn stage_secret_scan)" \
+    && ok "secret scan: the pool payload is scanned and required" || bad "secret scan does not require the pool payload"
+grep -q "NCZ_GATE_SERVER_POOL=" <<<"$(fn stage_kvm_gate_server)" \
+    && ok "kvm gate: the pool payload is handed to the gate" || bad "kvm gate does not serve the pool"
 grep -q -- '--variant server' <<<"$(fn stage_secret_scan)" && grep -q -- '--payload' <<<"$(fn stage_secret_scan)" \
     && ok "secret scan: --variant server on the medium + --payload on the payload" || bad "secret scan is not server-aware"
 grep -q -- "--variant server --server-payload" <<<"$(fn stage_provenance_gate)" \

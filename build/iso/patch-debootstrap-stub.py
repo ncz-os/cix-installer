@@ -479,15 +479,31 @@ if [ -n "$SQDIR" ]; then
     # and remove the baked live sources for the duration of installation.
     # late.sh replaces these with the runtime update sources before reboot.
     _TARGET_ARCH=$(chroot "$TARGET" dpkg --print-architecture 2>/dev/null)
+    # Magnetar option B (operator 2026-10-26): a server medium carries no
+    # regular apt repository. The fetched ncz-pool-<arch>.tar.gz unpacked it
+    # (dists/ + pool/, with its own Release) under the staging root, and the
+    # target's /cdrom becomes that repository, so apt-setup's file:///cdrom
+    # source, late.sh and the hooks see what they saw when it was on the
+    # medium. The medium's ncz-payload/ is copied in beside it: hooks fall
+    # back to /cdrom/ncz-payload/... inside the target.
+    _NCZ_REPO=/cdrom
+    if [ -n "${FETCHDIR:-}" ] && [ -d "$FETCHDIR/repo/dists" ]; then
+        _NCZ_REPO="$FETCHDIR/repo"
+        if [ -d "${MEDIADIR:-/cdrom/ncz-payload}" ] && [ ! -e "$_NCZ_REPO/ncz-payload" ]; then
+            cp -a "${MEDIADIR:-/cdrom/ncz-payload}" "$_NCZ_REPO/ncz-payload" || {
+                echo "FATAL: r159 stub: cannot copy the medium's ncz-payload beside the fetched repository" >&2; exit 1; }
+        fi
+        echo "I: r159 stub: offline apt repository from the fetched pool: $_NCZ_REPO" >&2
+    fi
     _MEDIA_SUITE=""
-    for _d in /cdrom/dists/*; do
+    for _d in "$_NCZ_REPO"/dists/*; do
         [ -s "$_d/main/binary-${_TARGET_ARCH}/Packages" ] || continue
         _MEDIA_SUITE=${_d##*/}
         break
     done
     if [ -n "$_MEDIA_SUITE" ]; then
         mkdir -p "$TARGET/cdrom" "$TARGET/etc/apt/sources.list.d"
-        mount --bind /cdrom "$TARGET/cdrom" 2>/dev/null || {
+        mount --bind "$_NCZ_REPO" "$TARGET/cdrom" 2>/dev/null || {
             echo "FATAL: r159 stub: cannot bind installation repository into target" >&2; exit 1; }
         rm -f "$TARGET/etc/apt/sources.list.d/"*.list \
               "$TARGET/etc/apt/sources.list.d/"*.sources
@@ -507,7 +523,7 @@ if [ -n "$SQDIR" ]; then
         fi
         echo "I: r159 stub: target apt pinned to file:///cdrom $_MEDIA_SUITE/main for installation" >&2
     else
-        echo "FATAL: r159 stub: no on-media $_TARGET_ARCH apt repository found" >&2
+        echo "FATAL: r159 stub: no $_TARGET_ARCH apt repository (on the medium or fetched) at $_NCZ_REPO" >&2
         exit 1
     fi
     # A base layer can omit Text::Iconv even though debconf's Encoding.pm
@@ -515,7 +531,7 @@ if [ -n "$SQDIR" ]; then
     # fail after apt itself succeeds, and apt-setup loops forever at 50mirror.
     # Install the package from the on-media pool before any d-i target-side
     # debconf frontend runs. Do not mask mirror errors: make the rootfs complete.
-    _ICONV_DEB=$(find /cdrom/pool -type f -name "libtext-iconv-perl_*_${_TARGET_ARCH}.deb" 2>/dev/null | head -1)
+    _ICONV_DEB=$(find "$_NCZ_REPO/pool" -type f -name "libtext-iconv-perl_*_${_TARGET_ARCH}.deb" 2>/dev/null | head -1)
     if [ -n "$_ICONV_DEB" ] && ! chroot "$TARGET" dpkg-query -W libtext-iconv-perl >/dev/null 2>&1; then
         cp "$_ICONV_DEB" "$TARGET/tmp/ncz-libtext-iconv-perl.deb" || {
             echo "FATAL: r159 stub: cannot stage libtext-iconv-perl" >&2; exit 1; }

@@ -1320,7 +1320,8 @@ ncz_magnetar_prepare() {
     mkdir -p "$MAGNETAR_DIR" || return 1
     # stale payload from an earlier image of this run dir must never be served
     rm -f "$MAGNETAR_DIR"/base.squashfs "$MAGNETAR_DIR"/ncz-assets-*.tar.gz \
-          "$MAGNETAR_DIR"/ncz-assets-*.tar.gz.sha256 "$MAGNETAR_DIR"/*.part
+          "$MAGNETAR_DIR"/ncz-assets-*.tar.gz.sha256 "$MAGNETAR_DIR"/ncz-pool-*.tar.gz \
+          "$MAGNETAR_DIR"/ncz-pool-*.tar.gz.sha256 "$MAGNETAR_DIR"/*.part
     MAGNETAR_PAYLOAD_SHA256="$(sha256sum "$base_layer" | awk '{print $1}')"
     if [ -n "${NCZ_PAYLOAD_SHA256:-}" ] && [ "$NCZ_PAYLOAD_SHA256" != "$MAGNETAR_PAYLOAD_SHA256" ]; then
         echo "[magnetar] FAIL: NCZ_PAYLOAD_SHA256=$NCZ_PAYLOAD_SHA256 is not the sha256 of $base_layer ($MAGNETAR_PAYLOAD_SHA256)" >&2
@@ -1346,6 +1347,10 @@ PY
     MAGNETAR_PAYLOAD_URL="${NCZ_PAYLOAD_URL:-$base/base.squashfs}"
     MAGNETAR_ASSETS_NAME="ncz-assets-$arch.tar.gz"
     MAGNETAR_ASSETS_URL="${NCZ_ASSETS_URL:-$base/$MAGNETAR_ASSETS_NAME}"
+    # Option B (operator 2026-10-26): the offline apt pool is the third
+    # pinned artifact, fetched like the other two.
+    MAGNETAR_POOL_NAME="ncz-pool-$arch.tar.gz"
+    MAGNETAR_POOL_URL="${NCZ_POOL_URL:-$base/$MAGNETAR_POOL_NAME}"
     MAGNETAR_BASE_LAYER="$base_layer"
     return 0
 }
@@ -1358,9 +1363,9 @@ ncz_magnetar_collect() {
     [ -f "$receipt" ] || { echo "[magnetar] FAIL: no receipt $receipt" >&2; return 1; }
     cp -f "$MAGNETAR_BASE_LAYER" "$MAGNETAR_DIR/base.squashfs.part" \
         && mv -f "$MAGNETAR_DIR/base.squashfs.part" "$MAGNETAR_DIR/base.squashfs" || return 1
-    python3 -I - "$receipt" "$MAGNETAR_DIR" "$MAGNETAR_PAYLOAD_URL" "$MAGNETAR_ASSETS_URL" <<'PY'
+    python3 -I - "$receipt" "$MAGNETAR_DIR" "$MAGNETAR_PAYLOAD_URL" "$MAGNETAR_ASSETS_URL" "$MAGNETAR_POOL_URL" <<'PY'
 import hashlib, json, os, sys
-receipt, d, purl, aurl = sys.argv[1:5]
+receipt, d, purl, aurl, lurl = sys.argv[1:6]
 r = json.load(open(receipt))
 def sha(p):
     h = hashlib.sha256()
@@ -1379,8 +1384,11 @@ else:
         bad.append(f"receipt payload_url {of.get('payload_url')!r} != {purl!r}")
     if of.get("assets_url") != aurl:
         bad.append(f"receipt assets_url {of.get('assets_url')!r} != {aurl!r}")
+    if of.get("pool_url") != lurl:
+        bad.append(f"receipt pool_url {of.get('pool_url')!r} != {lurl!r}")
     for key, name in (("payload_sha256", of.get("payload_name", "base.squashfs")),
-                      ("assets_sha256", of.get("assets_name", ""))):
+                      ("assets_sha256", of.get("assets_name", "")),
+                      ("pool_sha256", of.get("pool_name", ""))):
         p = os.path.join(d, name)
         if not name or not os.path.isfile(p):
             bad.append(f"payload file {p} is missing")
@@ -1391,7 +1399,7 @@ if bad:
         print("[magnetar] FAIL:", b, file=sys.stderr)
     sys.exit(1)
 print(f"[magnetar] payload pinned and present: {of['payload_name']} {of['payload_sha256'][:16]}..., "
-      f"{of['assets_name']} {of['assets_sha256'][:16]}...")
+      f"{of['assets_name']} {of['assets_sha256'][:16]}..., {of['pool_name']} {of['pool_sha256'][:16]}...")
 PY
 }
 
@@ -1403,9 +1411,10 @@ stage_image() {
         if ! ncz_magnetar_prepare "$ROOT" "$ARCH" "$MAGNETAR_DIR" >>"$log" 2>&1; then
             tail -3 "$log" >&2; return 1
         fi
-        echo "[image] Magnetar server medium: payload ${MAGNETAR_PAYLOAD_URL} (sha256 ${MAGNETAR_PAYLOAD_SHA256}), assets ${MAGNETAR_ASSETS_URL}" | tee -a "$log"
+        echo "[image] Magnetar server medium: payload ${MAGNETAR_PAYLOAD_URL} (sha256 ${MAGNETAR_PAYLOAD_SHA256}), assets ${MAGNETAR_ASSETS_URL}, pool ${MAGNETAR_POOL_URL}" | tee -a "$log"
         local -a srv=(NCZ_VARIANT=server "NCZ_PAYLOAD_URL=$MAGNETAR_PAYLOAD_URL"
-                      "NCZ_PAYLOAD_SHA256=$MAGNETAR_PAYLOAD_SHA256" "NCZ_ASSETS_URL=$MAGNETAR_ASSETS_URL")
+                      "NCZ_PAYLOAD_SHA256=$MAGNETAR_PAYLOAD_SHA256" "NCZ_ASSETS_URL=$MAGNETAR_ASSETS_URL"
+                      "NCZ_POOL_URL=$MAGNETAR_POOL_URL")
         [ -n "${NCZ_GATE_SERVER_HOST:-}" ] && srv+=("NCZ_GATE_SERVER_HOST=$NCZ_GATE_SERVER_HOST")
         local kv
         NCZ_CRUN_ENV=(); for kv in "${srv[@]}"; do NCZ_CRUN_ENV+=(-e "$kv"); done
@@ -1434,9 +1443,10 @@ stage_image() {
         ncz_sudo chown -R "$(id -u):$(id -g)" "$MAGNETAR_DIR" 2>/dev/null || true
         ncz_magnetar_collect "$img" 2>&1 | tee -a "$log"
         [ "${PIPESTATUS[0]}" = 0 ] || return 1
-        { printf 'variant=server\nimage=%s\npayload_url=%s\npayload_sha256=%s\nassets_url=%s\nassets_sha256=%s\nbase_url=%s\npublished=no\nat=%s\n' \
+        { printf 'variant=server\nimage=%s\npayload_url=%s\npayload_sha256=%s\nassets_url=%s\nassets_sha256=%s\npool_url=%s\npool_sha256=%s\nbase_url=%s\npublished=no\nat=%s\n' \
             "$img" "$MAGNETAR_PAYLOAD_URL" "$MAGNETAR_PAYLOAD_SHA256" "$MAGNETAR_ASSETS_URL" \
-            "$(awk '{print $1}' "$MAGNETAR_DIR/$MAGNETAR_ASSETS_NAME.sha256")" "$MAGNETAR_BASE_URL" "$(date -u +%s)"; } \
+            "$(awk '{print $1}' "$MAGNETAR_DIR/$MAGNETAR_ASSETS_NAME.sha256")" "$MAGNETAR_POOL_URL" \
+            "$(awk '{print $1}' "$MAGNETAR_DIR/$MAGNETAR_POOL_NAME.sha256")" "$MAGNETAR_BASE_URL" "$(date -u +%s)"; } \
             > "$RUN_DIR/payload.result"
     fi
     return 0
@@ -1519,11 +1529,11 @@ stage_secret_scan() {
     if [ "$NCZ_VARIANT" = server ] && [ "$rc" = 0 ]; then
         local -a pay=()
         local pf
-        for pf in "$MAGNETAR_DIR/base.squashfs" "$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz"; do
+        for pf in "$MAGNETAR_DIR/base.squashfs" "$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz" "$MAGNETAR_DIR/ncz-pool-$ARCH.tar.gz"; do
             [ -f "$pf" ] && pay+=(--payload "$pf")
         done
-        if [ "${#pay[@]}" != 4 ]; then
-            echo "[secret-scan] FAIL: the Magnetar payload is incomplete in $MAGNETAR_DIR (need base.squashfs and the asset bundle; run the image stage)" | tee -a "$log" >&2
+        if [ "${#pay[@]}" != 6 ]; then
+            echo "[secret-scan] FAIL: the Magnetar payload is incomplete in $MAGNETAR_DIR (need base.squashfs, the asset bundle and the offline apt pool; run the image stage)" | tee -a "$log" >&2
             prc=1
         else
             TMPDIR="$work" python3 -I "$ROOT/build/scan-shipped-secrets.py" \
@@ -1549,7 +1559,7 @@ stage_secret_scan() {
         "$img" "$(sha256sum "$img" | awk '{print $1}')" "sha256:$(sha256sum "$hashf" | awk '{print $1}')" "$((t1 - t0))" "$(date -u +%s)"
       if [ "$NCZ_VARIANT" = server ]; then
           printf 'variant=server\npayload_receipt=%s\n' "$preceipt"
-          for pf in "$MAGNETAR_DIR/base.squashfs" "$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz"; do
+          for pf in "$MAGNETAR_DIR/base.squashfs" "$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz" "$MAGNETAR_DIR/ncz-pool-$ARCH.tar.gz"; do
               printf 'payload=%s sha256=%s\n' "$(basename "$pf")" "$(sha256sum "$pf" | awk '{print $1}')"
           done
       fi; } > "$RUN_DIR/secret-scan.result"
@@ -1624,13 +1634,13 @@ stage_kvm_gate() {
 stage_kvm_gate_server() {
     local log="$1" img="$2" work="$3" invoker="$4" sets mrc
     sets="${NCZ_KVM_GATE_SERVER_SETS:-server server-offline-negative}"
-    local assets="$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz"
-    if [ ! -f "$MAGNETAR_DIR/base.squashfs" ] || [ ! -f "$assets" ]; then
+    local assets="$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz" pool="$MAGNETAR_DIR/ncz-pool-$ARCH.tar.gz"
+    if [ ! -f "$MAGNETAR_DIR/base.squashfs" ] || [ ! -f "$assets" ] || [ ! -f "$pool" ]; then
         echo "[kvm-gate] FAIL: Magnetar payload missing in $MAGNETAR_DIR (run the image stage)" | tee -a "$log" >&2
         return 1
     fi
     echo "[kvm-gate] Magnetar server sets: $sets (payload from $MAGNETAR_DIR)" | tee -a "$log"
-    ( cd "$ROOT" && ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_KVM_GATE_VARIANTS='$sets' NCZ_GATE_SERVER_PAYLOAD='$MAGNETAR_DIR/base.squashfs' NCZ_GATE_SERVER_ASSETS='$assets' bash build/kvm-install-gate-matrix.sh '$img' '$work-options'" ) 2>&1 | tee -a "$log"
+    ( cd "$ROOT" && ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_KVM_GATE_VARIANTS='$sets' NCZ_GATE_SERVER_PAYLOAD='$MAGNETAR_DIR/base.squashfs' NCZ_GATE_SERVER_ASSETS='$assets' NCZ_GATE_SERVER_POOL='$pool' bash build/kvm-install-gate-matrix.sh '$img' '$work-options'" ) 2>&1 | tee -a "$log"
     mrc="${PIPESTATUS[0]}"
     if [ "$mrc" != 0 ] || ! grep -q '^MATRIX PASS' "$log"; then
         echo "[kvm-gate] FAIL: a Magnetar server set failed (see $work-options/matrix.tsv)" | tee -a "$log" >&2

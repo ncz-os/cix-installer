@@ -198,18 +198,16 @@ def expected_payload_names(arch: str) -> list[str]:
 # ---------------------------------------------------------------------------
 SERVER_ONLINE_ASSET_DIRS = ("rescue", "firmware", "kernel", "branding")
 
-# The offline apt closure (1.8 GB of regular .debs) STAYS on a server medium
-# (Magnetar option A, orchestrator 2026-10-26, pending operator review; option
-# B, fetching it as part of the payload, is the long-term target). An earlier
-# revision dropped it on the premise that only post-install/20-desktop.sh read
-# it. The first real server installs disproved that: the r159 debootstrap stub
-# binds it as the target's install-time apt source and refuses to continue
-# without it, apt-setup's preseeded local0 source is file:///cdrom, and
-# late.sh and the post-install hooks apt-get install from it -- packages the
-# base layer does not carry (firmware-*, python3-dbus, libtext-iconv-perl,
-# refind, ...). What a server medium drops is the squashfs layers and the
-# assets, which the payload fetch delivers.
-SERVER_SKIPS_OFFLINE_CLOSURE = False
+# The offline apt closure (1.8 GB of regular .debs) is NOT on a server medium
+# (Magnetar option B, operator 2026-10-26; option A, carrying it on the medium,
+# is superseded). It is the third pinned payload artifact,
+# ncz-pool-<arch>.tar.gz: the build's <suite>-mirror (dists/ + pool/, with its
+# own Release) under repo/, fetched and sha256-verified at install time like
+# base.squashfs and the asset bundle. The r159 stub binds the unpacked repo as
+# the target's /cdrom, so apt-setup's file:///cdrom source, late.sh and the
+# post-install hooks see the same repository they saw when it was on the medium.
+SERVER_SKIPS_OFFLINE_CLOSURE = True
+SERVER_POOL_REPO_DIR = "repo"
 
 
 def server_online_fetch_plan(arch: str) -> dict:
@@ -228,14 +226,18 @@ def server_online_fetch_plan(arch: str) -> dict:
         "assets_name": os.environ.get("NCZ_ASSETS_NAME",
                                       f"ncz-assets-{arch}.tar.gz"),
         "assets_url": os.environ.get("NCZ_ASSETS_URL", ""),
+        "pool_name": os.environ.get("NCZ_POOL_NAME", f"ncz-pool-{arch}.tar.gz"),
+        "pool_url": os.environ.get("NCZ_POOL_URL", ""),
     }
-    missing = [k for k in ("payload_url", "payload_sha256", "assets_url")
+    missing = [k for k in ("payload_url", "payload_sha256", "assets_url",
+                           "pool_url")
                if not plan[k]]
     if missing:
         raise RuntimeError(
             "FATAL: NCZ_VARIANT=server needs "
-            "NCZ_PAYLOAD_URL + NCZ_PAYLOAD_SHA256 (base.squashfs) and "
-            f"NCZ_ASSETS_URL (the pinned asset bundle); missing: {missing}. "
+            "NCZ_PAYLOAD_URL + NCZ_PAYLOAD_SHA256 (base.squashfs), "
+            "NCZ_ASSETS_URL (the pinned asset bundle) and NCZ_POOL_URL (the "
+            f"pinned offline apt pool); missing: {missing}. "
             "Refusing to build a server medium that cannot install, because "
             "its payload and substrate assets are fetched online and "
             "sha256-verified at install time.")
@@ -250,7 +252,8 @@ def server_online_fetch_plan(arch: str) -> dict:
 ASSETS_EXPORT_ENV = "NCZ_ASSETS_EXPORT_DIR"
 
 
-def export_assets_bundle(bundle: Path, export_dir: Path, sha256: str) -> Path:
+def export_assets_bundle(bundle: Path, export_dir: Path, sha256: str,
+                         what: str = "asset bundle") -> Path:
     """Copy the pinned bundle to export_dir (atomically) with <name>.sha256.
 
     The copy is re-hashed against the pin before it is renamed into place, so
@@ -267,7 +270,7 @@ def export_assets_bundle(bundle: Path, export_dir: Path, sha256: str) -> Path:
             f"pins {sha256}; refusing to export bytes the medium does not pin")
     os.replace(part, dest)
     (export_dir / (bundle.name + ".sha256")).write_text(f"{sha256}  {bundle.name}\n")
-    log(f"    server variant: asset bundle exported to {dest} ({ASSETS_EXPORT_ENV})")
+    log(f"    server variant: {what} exported to {dest} ({ASSETS_EXPORT_ENV})")
     return dest
 
 
@@ -291,6 +294,8 @@ def write_online_fetch_manifest(payload_dst: Path, plan: dict) -> None:
         f"{plan['payload_sha256']}\tfile",
         f"{plan['assets_name']}\t{plan['assets_url']}\t"
         f"{plan['assets_sha256']}\tuntar",
+        (f"{plan['pool_name']}\t{plan['pool_url']}\t"
+         f"{plan['pool_sha256']}\tuntar"),
     ]
     manifest = payload_dst / "ncz-fetch-payload.manifest"
     manifest.write_text(
@@ -447,7 +452,8 @@ def ncz_gate_serve_payload_base_url(arch: str, host: str | None = None) -> str:
     return f"http://{h}"
 
 
-def make_targz(src_dir: Path, entries: list[str], out: Path) -> int:
+def make_targz(src_dir: Path, entries: list[str], out: Path,
+               arc_prefix: str = "", compresslevel: int = 6) -> int:
     """Deterministic gzip tar of ``entries`` (relative to ``src_dir``).
 
     Deterministic on purpose: the sha256 of this file is what the medium pins
@@ -466,7 +472,7 @@ def make_targz(src_dir: Path, entries: list[str], out: Path) -> int:
                 path = src_dir / name
                 if not path.exists():
                     continue
-                for member, source in _tar_members(tar, path, name):
+                for member, source in _tar_members(tar, path, arc_prefix + name):
                     member.mtime = 0
                     member.uid = member.gid = 0
                     member.uname = member.gname = ""
@@ -480,7 +486,7 @@ def make_targz(src_dir: Path, entries: list[str], out: Path) -> int:
                         tar.addfile(member)
         with tar_path.open("rb") as src, out.open("wb") as dst:
             with gzip.GzipFile(filename="", mode="wb", fileobj=dst,
-                               mtime=0, compresslevel=6) as gz:
+                               mtime=0, compresslevel=compresslevel) as gz:
                 shutil.copyfileobj(src, gz)
     finally:
         if tar_path.exists():
@@ -1035,11 +1041,29 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         log(f"    server variant: {present} (measured {staged_bytes} bytes) come "
             f"off the medium as {bundle_name} ({size} bytes, sha256 "
             f"{online['assets_sha256'][:16]}...)")
+        # Option B: the offline apt closure is the third pinned artifact.
+        pool = online_work_dir / online["pool_name"]
+        mirror, _suite = offline_mirror_root()
+        pool_debs = [f for f in (mirror / "pool").rglob("*.deb") if f.is_file()]
+        # gzip -1: the members are .debs, already compressed; a higher level
+        # buys nothing but build time. Still deterministic (make_targz).
+        online["pool_size"] = make_targz(mirror, ["dists", "pool"], pool,
+                                         arc_prefix=SERVER_POOL_REPO_DIR + "/",
+                                         compresslevel=1)
+        online["pool_sha256"] = sha256_file(pool)
+        online["pool_debs"] = len(pool_debs)
+        online["pool_deb_bytes"] = sum(f.stat().st_size for f in pool_debs)
+        log(f"    server variant: offline apt pool ({online['pool_debs']} debs, "
+            f"{online['pool_deb_bytes']} bytes) comes off the medium as "
+            f"{online['pool_name']} ({online['pool_size']} bytes, sha256 "
+            f"{online['pool_sha256'][:16]}...)")
         write_online_fetch_manifest(ncz_payload_dst, online)
         receipt["online_fetch"] = online
         export_dir = os.environ.get(ASSETS_EXPORT_ENV, "").strip()
         if export_dir:
             export_assets_bundle(bundle, Path(export_dir), online["assets_sha256"])
+            export_assets_bundle(pool, Path(export_dir), online["pool_sha256"],
+                                 what="offline apt pool")
     else:
         # Desktop is byte-identical to before: no manifest, no bundle, the
         # assets stay on the medium exactly where they always were.
@@ -1182,23 +1206,13 @@ def filter_substrate_kernel_artifacts(pool_dir: Path) -> int:
     return removed
 
 
-def stage_offline_mirror(stage_dir: Path, arch: str,
-                         installer_pool: Path) -> None:
-    """Copy the offline apt closure to the medium root as dists/ + pool/.
+def offline_mirror_root() -> tuple[Path, str]:
+    """The build's offline apt closure (build/<suite>-mirror) and its suite.
 
-    This is what makes an install offline. post-install/20-desktop.sh gates
-    on `/cdrom/dists/$NCZ_APT_SUITE` and writes
-    `deb [trusted=yes] file:///cdrom $SUITE main`; without the closure at the
-    root that test is false and every package install silently falls through
-    to the network. build-iso-di.sh embedded it and aborted when it was
-    missing; the raw-GPT writer never did.
-
-    The closure is built by the `offline-mirror` make target (a prerequisite
-    of the image target) and is a complete, verified apt repo -- 1764 packages
-    on arm64 including google-chrome-stable and chromium-ncz-sky1, resolved
-    from manifests/{installer-base,desktop}.pkgs over the vendor and desktop
-    mirrors, with Release regenerated by apt-ftparchive.
-    """
+    Desktop copies it onto the medium (stage_offline_mirror); a Magnetar server
+    medium ships it as the pinned ncz-pool-<arch>.tar.gz instead (option B).
+    Either way it must be a complete repository, or the install has no local
+    package source."""
     suite = "forky"
     release_conf = REPO_ROOT / "release.conf"
     if release_conf.is_file():
@@ -1222,6 +1236,27 @@ def stage_offline_mirror(stage_dir: Path, arch: str,
             f"check would stay false"
         )
 
+    return mirror, suite
+
+
+def stage_offline_mirror(stage_dir: Path, arch: str,
+                         installer_pool: Path) -> None:
+    """Copy the offline apt closure to the medium root as dists/ + pool/.
+
+    This is what makes an install offline. post-install/20-desktop.sh gates
+    on `/cdrom/dists/$NCZ_APT_SUITE` and writes
+    `deb [trusted=yes] file:///cdrom $SUITE main`; without the closure at the
+    root that test is false and every package install silently falls through
+    to the network. build-iso-di.sh embedded it and aborted when it was
+    missing; the raw-GPT writer never did.
+
+    The closure is built by the `offline-mirror` make target (a prerequisite
+    of the image target) and is a complete, verified apt repo -- 1764 packages
+    on arm64 including google-chrome-stable and chromium-ncz-sky1, resolved
+    from manifests/{installer-base,desktop}.pkgs over the vendor and desktop
+    mirrors, with Release regenerated by apt-ftparchive.
+    """
+    mirror, suite = offline_mirror_root()
     for name in ("dists", "pool"):
         shutil.copytree(mirror / name, stage_dir / name, symlinks=True)
 
@@ -1352,17 +1387,18 @@ def medium_size_record(image: Path, esp_bytes: int, data_bytes: int,
 
 def stage_server_installer_pool(stage_dir: Path, arch: str,
                                 installer_pool: Path) -> None:
-    """MAGNETAR(server): stage the offline apt closure and the installer
-    substrate, exactly as desktop does (see SERVER_SKIPS_OFFLINE_CLOSURE).
+    """MAGNETAR(server): stage the debian-installer substrate ONLY.
 
-    The server medium differs from desktop in what build_ncz_payload_tree()
-    leaves out (the squashfs layers and the assets, fetched and verified at
-    install time), not in its apt repository.
+    d-i reads the substrate udebs during boot, before the debootstrap stub
+    runs, so they stay on the medium (stage_installer_substrate()). The
+    offline apt closure is the pinned ncz-pool-<arch>.tar.gz payload artifact
+    (option B, see SERVER_SKIPS_OFFLINE_CLOSURE), built by
+    build_ncz_payload_tree().
     """
-    log("    server variant: staging the offline apt closure + the "
-        "debian-installer substrate (option A; the stub, late.sh and the "
-        "post-install hooks install from file:///cdrom)")
-    stage_offline_mirror(stage_dir, arch, installer_pool)
+    suite = release_codename()
+    log("    server variant: staging the debian-installer substrate only; the "
+        "offline apt pool is fetched at install time (option B)")
+    stage_installer_substrate(stage_dir, arch, installer_pool, suite)
 
 
 # ---------------------------------------------------------------------------

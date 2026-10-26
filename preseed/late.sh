@@ -392,8 +392,29 @@ if [ -d "$NCZ_ONLINE" ]; then
     fi
     # BUILD_VARIANT is decided further down from the component selection; do not
     # second-guess it here.
-    rm -rf /target/ncz-online
-    echo "[late] removed the online-fetch staging root"
+    if [ -d "$NCZ_ONLINE/repo/dists" ]; then
+        # Magnetar option B: the fetched offline apt repository is the target's
+        # /cdrom (the r159 stub bound it) until the hooks are done; it is
+        # removed at the end, after /target/cdrom is unmounted. Drop the rest
+        # of the staging root (base.squashfs, the unpacked assets) now.
+        for _ncz_e in "$NCZ_ONLINE"/* "$NCZ_ONLINE"/.[!.]*; do
+            [ -e "$_ncz_e" ] || continue
+            [ "$_ncz_e" = "$NCZ_ONLINE/repo" ] && continue
+            rm -rf "$_ncz_e"
+        done
+        echo "[late] kept the fetched apt repository $NCZ_ONLINE/repo for the hooks; removed the rest of the staging root"
+    else
+        rm -rf /target/ncz-online
+        echo "[late] removed the online-fetch staging root"
+    fi
+fi
+# The installer-side root of the offline apt repository: the medium, or (a
+# Magnetar server medium, option B) the fetched pool's repo under the staging
+# root. Inside the target it is always /cdrom.
+NCZ_REPO_ROOT=/cdrom
+if [ -d /target/ncz-online/ncz-payload/repo/dists ]; then
+    NCZ_REPO_ROOT=/target/ncz-online/ncz-payload/repo
+    echo "[late] offline apt repository: $NCZ_REPO_ROOT (fetched pool)"
 fi
 # Same class of trap as the refresh above: a bare glob under `set -e` turns
 # a missing directory into an unexplained late.sh death. Say what is wrong.
@@ -663,14 +684,14 @@ case "$NCZ_DEB_ARCH" in
     aarch64) NCZ_DEB_ARCH=arm64 ;;
     x86_64)  NCZ_DEB_ARCH=amd64 ;;
 esac
-CDROM_REGULAR_INDEX=/cdrom/dists/${NCZ_BASE_CODENAME:-forky}/main/binary-${NCZ_DEB_ARCH}/Packages
+CDROM_REGULAR_INDEX=$NCZ_REPO_ROOT/dists/${NCZ_BASE_CODENAME:-forky}/main/binary-${NCZ_DEB_ARCH}/Packages
 if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     echo "--- mounting cdrom into /target for offline apt-get during post-install ---"
     mkdir -p /target/cdrom
     if grep -qs ' /target/cdrom ' /proc/mounts; then
         echo "    /target/cdrom already mounted"
     else
-        mount --bind /cdrom /target/cdrom 2>&1 || \
+        mount --bind "$NCZ_REPO_ROOT" /target/cdrom 2>&1 || \
             { echo "WARN: bind-mount /cdrom into /target failed; post-install apt-get may fail"; }
     fi
 
@@ -766,7 +787,7 @@ CDROM_PREF
         # pool here as a no-op once the layer is fresh, and as a targeted fix
         # for the live MS-R1 test-board ModuleNotFoundError: No module named 'dbus'.
         if ! chroot /target /usr/bin/apt-get install -y --allow-unauthenticated python3-dbus; then
-            _pydbus_deb=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'python3-dbus_*.deb' 2>/dev/null | sort -V | tail -1)
+            _pydbus_deb=$(find "$NCZ_REPO_ROOT/pool/main" -maxdepth 1 -type f -name 'python3-dbus_*.deb' 2>/dev/null | sort -V | tail -1)
             if [ -n "$_pydbus_deb" ]; then
                 cp "$_pydbus_deb" /target/tmp/python3-dbus.deb
                 chroot /target /usr/bin/dpkg -i --force-depends /tmp/python3-dbus.deb || true
@@ -1836,6 +1857,25 @@ echo "    remaining apt sources after cdrom strip:"
 grep -rhsE '^[[:space:]]*deb' \
     /target/etc/apt/sources.list /target/etc/apt/sources.list.d/ 2>/dev/null \
     | sed 's/^/      /' || echo "      (none)"
+
+# Magnetar option B teardown, in this order and only now (no apt use of
+# file:///cdrom follows): unmount the target's /cdrom (a bind of the fetched
+# repository that lives INSIDE /target), then delete the staging root. A bind
+# left mounted would keep /target busy for d-i's final unmount; deleting the
+# staging root first would empty the target's /cdrom under the hooks.
+ncz_teardown_fetched_repo() {
+    [ "$NCZ_REPO_ROOT" != /cdrom ] || return 0
+    if grep -qs ' /target/cdrom ' /proc/mounts; then
+        umount /target/cdrom 2>/dev/null || umount -l /target/cdrom 2>/dev/null || \
+            echo "WARN: could not unmount /target/cdrom (the fetched repository bind)"
+    fi
+    grep -qs ' /target/cdrom ' /proc/mounts && echo "WARN: /target/cdrom is still mounted"
+    rmdir /target/cdrom 2>/dev/null || true
+    rm -rf /target/ncz-online
+    [ -e /target/ncz-online ] && echo "WARN: /target/ncz-online could not be removed" \
+        || echo "[late] fetched apt repository unmounted from /target/cdrom and removed"
+}
+ncz_teardown_fetched_repo || echo "WARN: fetched-repository teardown failed (non-fatal)"
 
 # r130 fix: the INSTALLED system's apt sources. Previously 20-desktop overwrote
 # sources.list with a network line that survived the cdrom strip; r130 made
