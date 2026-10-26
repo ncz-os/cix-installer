@@ -810,7 +810,11 @@ else
         _ncz_msg="ncz-gpu-env: a hardware GPU is present but no hardware GPU stack is usable; software rendering REFUSED (NCZ_ALLOW_SOFTWARE_FALLBACK=1 overrides). Run: ncz-gpu-status --require-hardware"
         echo "$_ncz_msg" >&2
         logger -t ncz-gpu-env "$_ncz_msg" 2>/dev/null || true
-        echo "$(date -u +%FT%TZ 2>/dev/null) FAIL $_ncz_msg" >> "${NCZ_GPU_HEALTH_LOG:-/var/log/ncz-gpu-health.log}" 2>/dev/null || true
+        # The greeter sources this as _greetd, which cannot write /var/log (O6N 2026-10-26: "ncz-gpu-env: cannot
+        # create /var/log/ncz-gpu-health.log: Permission denied" on the console). The journal line above is the
+        # record for every caller; the health log gets the line only when this user can write it. The braces
+        # matter: a failed redirection is reported on the shell's stderr, not the command's.
+        { echo "$(date -u +%FT%TZ 2>/dev/null) FAIL $_ncz_msg" >> "${NCZ_GPU_HEALTH_LOG:-/var/log/ncz-gpu-health.log}"; } 2>/dev/null || true
         unset _ncz_msg
     else
         if _ncz_hw_present; then echo "ncz-gpu-env: WARNING NCZ_ALLOW_SOFTWARE_FALLBACK=1: software rendering ALLOWED on a machine with a GPU" >&2; fi

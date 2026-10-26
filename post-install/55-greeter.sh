@@ -269,6 +269,60 @@ GREETDDISPLAY
 esac
 unset _ncz_greeter_arch
 
+# --- console login when the greeter cannot start -----------------------------
+# O6N 2026-10-26 (Preview4 desktop, Mali modules refused by the kernel): the
+# greeter exited without a session five times, greetd hit its start limit and
+# stayed failed, and the board showed two error lines and nothing else -- no
+# login anywhere on the screen. getty@tty1 is not running on a graphical boot
+# (the boot splash conflicts with it and greetd owns VT1), so nothing took
+# over. When greetd fails for good, put a login on tty1 with a message that
+# says why. Software rendering stays refused on a machine with a GPU; this is
+# a text console, not a degraded desktop.
+cat > /usr/local/sbin/ncz-greeter-fallback <<'FALLBACK'
+#!/bin/sh
+# ncz-greeter-fallback -- greetd.service OnFailure: text login on tty1.
+TTY=${NCZ_FALLBACK_TTY:-/dev/tty1}
+ISSUE=${NCZ_FALLBACK_ISSUE:-/etc/issue.d/90-ncz-greeter-failed.issue}
+why=$(journalctl -b -t ncz-gpu-env -o cat -n 1 --no-pager 2>/dev/null | tail -1)
+{
+    echo
+    echo "NCZ-OS: the graphical login could not start, so this is a text login."
+    if [ -n "$why" ]; then
+        echo "GPU: $why"
+    fi
+    echo "After logging in: 'ncz-gpu-status --require-hardware' shows the GPU state,"
+    echo "'journalctl -b -u greetd' the greeter log, 'sudo systemctl restart greetd' retries."
+    echo
+} > "${ISSUE}.tmp" 2>/dev/null && mv -f "${ISSUE}.tmp" "$ISSUE" 2>/dev/null
+logger -t ncz-greeter-fallback "greetd failed; starting a text login on tty1${why:+ ($why)}" 2>/dev/null || true
+chvt 1 2>/dev/null || true
+cat "$ISSUE" > "$TTY" 2>/dev/null || true
+systemctl --no-block start getty@tty1.service
+FALLBACK
+chmod 0755 /usr/local/sbin/ncz-greeter-fallback
+install -d -m0755 /etc/issue.d
+cat > /etc/systemd/system/ncz-greeter-fallback.service <<'FBUNIT'
+[Unit]
+Description=Text login on tty1 when the graphical greeter cannot start
+# Started only by greetd.service OnFailure= (start limit hit, or a hard failure).
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ncz-greeter-fallback
+FBUNIT
+cat > /etc/systemd/system/greetd.service.d/12-ncz-console-fallback.conf <<'GREETDFB'
+[Unit]
+# If greetd gives up (the greeter exited without a session until the start
+# limit hit), hand tty1 to a text login: see ncz-greeter-fallback.
+OnFailure=ncz-greeter-fallback.service
+
+[Service]
+# A greeter that starts again (GPU fixed, restart, reboot) must not keep the
+# old "could not start" message on the next text login.
+ExecStartPre=-/bin/rm -f /etc/issue.d/90-ncz-greeter-failed.issue
+GREETDFB
+echo "[55] greetd OnFailure -> ncz-greeter-fallback (text login on tty1 when the greeter cannot start)"
+
 # --- greeter labwc config: greeter is Labwc's session client -----------------
 install -d -m0755 /etc/greetd/singularity-labwc
 # ncz-singularity-greeter invokes Labwc with `-S singularity-greeter`, making
