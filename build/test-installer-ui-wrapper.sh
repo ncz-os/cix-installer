@@ -65,14 +65,19 @@ def w(path, text):
 hook_ok = mode != "amd_no_hook"
 w(os.path.join(work, "rules.readback"),
   "# ncz_ui_check=1   (test copy)\n" if hook_ok else "# unrelated preseed hook\n")
+# the UART console is appended only by --serial-console (amd_fb_uart: a framebuffer boot that wrongly carries it)
+uart = (a.serial_console and mode != "amd_no_console") or (not a.serial_console and mode == "amd_fb_uart")
 w(os.path.join(work, "refind.conf"),
   'menuentry "NCZ-OS Installer -- Install" {\n  options "quiet console=tty0 console=ttyS0,115200"\n}\n'
-  if mode != "amd_no_console" else
+  if uart else
   'menuentry "NCZ-OS Installer -- Install" {\n  options "quiet console=tty0"\n}\n')
 
 # the framebuffer is sampled on BOTH architectures now (continuity + distinct frames)
 fb = os.path.join(work, "fb-states"); os.makedirs(fb, exist_ok=True)
-for i in range(24):
+# 2026-10-26 amd64: with the UART as /dev/console the monitor of the SERIAL boot stays static (no fb-states,
+# 2 distinct frames); only the separate framebuffer boot shows d-i.
+static = mode == "amd_serial_fb_static" and a.serial_console
+for i in range(0 if static else 24):
     t = i * 3
     body = "framebuffer frame %d\n" % (i % 10) if mode != "amd_late_blank" or t not in range(30, 63) else ""
     if mode == "amd_late_blank":
@@ -83,7 +88,7 @@ for i in range(24):
     w(os.path.join(fb, "%04d-%ds.txt" % (i, t)), "# t=%ds\n%s" % (t, body))
 with open(os.path.join(work, "fb-frames.txt"), "w") as fh:
     for i in range(24):
-        fh.write("%04d %d\n" % (i, i % 10))
+        fh.write("%04d %d\n" % (i, (i % 2) if static else (i % 10)))
 
 ss = os.path.join(work, "serial-screens"); os.makedirs(ss, exist_ok=True)
 hdr = "NCZ-OS 26.10 Cygnus | %s | build abc1234" % ("amd64 (T2/x86_64)" if a.arch == "amd64" else "arm64 (Sky1)")
@@ -201,6 +206,15 @@ run_case amd_late_blank amd64 amd_late_blank 1 "blank console after" || fail=1
 # honest failure when the test channel did not reach the booted copy (never judge a UART we did not boot)
 run_case amd_no_hook amd64 amd_no_hook 1 "no ncz_ui_check=1 preseed hook" || fail=1
 run_case amd_no_console amd64 amd_no_console 1 "no console=ttyS0,115200" || fail=1
+
+# the monitor is judged on its own boot: the serial boot's static framebuffer must not fail a good install ...
+run_case amd_serial_fb_static amd64 amd_serial_fb_static 0 "UI CHECK PASS (amd64)" || fail=1
+F2="$WORK/amd_valid/work/fb/flags-argv.txt"
+grep -qx 'serial-console=0' "$F2" 2>/dev/null && grep -qx 'ask-disk=0' "$F2" 2>/dev/null \
+    && echo "ok amd_fb_boot_without_uart" \
+    || { echo "FAIL amd_fb_boot_without_uart: no second boot without --serial-console for the framebuffer checks"; cat "$F2" 2>/dev/null; fail=1; }
+# ... and a framebuffer boot that carries the UART console is refused (the monitor would not show d-i)
+run_case amd_fb_uart amd64 amd_fb_uart 1 "framebuffer boot's Install entry carries a UART console" || fail=1
 
 # --- arm64: unchanged contract ---------------------------------------------------------------
 run_case arm_valid arm64 text_valid 0 "UI CHECK PASS (arm64)" || fail=1

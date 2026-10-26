@@ -8,7 +8,8 @@
 # auto=true (d-i picks ttyAMA0); amd64 gets it because the TEST COPY's Install entry carries console=ttyS0,115200
 # (boot-screens.py --serial-console), which is what finally closes the 2026-10-17 gap: amd64 used to be sampled from
 # the framebuffer only, so it could not read a dialog title, its order, the Choices/Choices-C swap, or the erase
-# review. The amd64 framebuffer checks (continuity + distinct frames) still run on the same boot.
+# review. The amd64 framebuffer checks (continuity + distinct frames) run on a second boot that keeps the shipped
+# console=tty0: with the UART as /dev/console d-i never draws on the monitor.
 # Needs pyte: NCZ_PYTE_PYTHON (default ~/pyte-venv/bin/python, else python3 with pyte). A missing pyte FAILS the gate.
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -57,6 +58,19 @@ if [ "$ARCH" = amd64 ]; then
         || { echo "UI CHECK FAIL (amd64): the test copy's ESP has no ncz_ui_check=1 preseed hook; the UART text cannot be trusted" >&2; exit 1; }
     grep -q 'console=ttyS0,115200' "$WORK/refind.conf" 2>/dev/null \
         || { echo "UI CHECK FAIL (amd64): the test copy's Install entry has no console=ttyS0,115200; d-i never drew on the UART" >&2; exit 1; }
+    # The MONITOR is judged on its own boot. With console=ttyS0 last, d-i's newt draws on the UART only and the
+    # framebuffer stays on a static screen (2026-10-26, Preview4 amd64: no fb-states, 2 distinct frames), so the
+    # serial boot cannot show what an operator sees. A second boot of a test copy that keeps the shipped Install
+    # entry's console=tty0 answers on a timer exactly as the pre-serial check did, and the framebuffer continuity
+    # and distinct-frame checks below read it.
+    FBW="$WORK/fb"
+    mkdir -p "$FBW"
+    "$PY" "$HERE/boot-screens.py" "$IMG" "$FBW" --arch "$ARCH" --interactive --secs "$SECS" --enter-every 6 --enter-after 25 \
+        > "$FBW/harness.log" 2>&1 \
+        || { echo "UI CHECK FAIL: the framebuffer capture harness failed (see $FBW/harness.log)" >&2; tail -5 "$FBW/harness.log" >&2; exit 1; }
+    if grep -q 'console=ttyS0' "$FBW/refind.conf" 2>/dev/null; then
+        echo "UI CHECK FAIL (amd64): the framebuffer boot's Install entry carries a UART console; the monitor would not show d-i" >&2; exit 1
+    fi
 else
     # arm64: auto=true already hands the UART to d-i; the interactive rules walk the same sequence.
     "$PY" "$HERE/boot-screens.py" "$IMG" "$WORK" --arch "$ARCH" --interactive --secs "$SECS" --every 30 \
@@ -115,9 +129,9 @@ if [ "$ARCH" = amd64 ]; then
     # the kernel and the initrd load (5-9 s depending on the host); that state may last up to 20 s. Every later blank
     # is a vanished UI unless it is a redraw shorter than --max-blank-secs. This now guards a real claim: d-i draws
     # on the UART, and the monitor must still show the same UI.
-    "$PY" "$HERE/check-installer-screens.py" "$WORK/fb-states" --no-blank-after "framebuffer" --boot-blank-max-secs 20 2>&1 | tee "$WORK/fb-check.out"; [ "${PIPESTATUS[0]}" = 0 ] || rc=1
+    "$PY" "$HERE/check-installer-screens.py" "$FBW/fb-states" --no-blank-after "framebuffer" --boot-blank-max-secs 20 2>&1 | tee "$WORK/fb-check.out"; [ "${PIPESTATUS[0]}" = 0 ] || rc=1
     # proof the installer really progressed on the framebuffer (dialogs and progress bars): many distinct frames
-    ndist=$(awk '{print $2}' "$WORK/fb-frames.txt" 2>/dev/null | sort -u | wc -l | tr -d ' ')
+    ndist=$(awk '{print $2}' "$FBW/fb-frames.txt" 2>/dev/null | sort -u | wc -l | tr -d ' ')
     [ "${ndist:-0}" -ge 8 ] || { echo "check-installer-screens: FAIL only ${ndist:-0} distinct framebuffer frames captured (dialogs and progress bars expected)" >&2; rc=1; }
 fi
 if [ $rc = 0 ]; then

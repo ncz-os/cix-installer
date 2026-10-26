@@ -428,8 +428,8 @@ try:
             time.sleep(0.5)
     else:
         # serial: the dialogs ARE the UART text (pump() snapshots / serial-screens and answers the rules). The
-        # framebuffer is sampled on the same cadence and judged exactly as before, so a UART that draws the dialogs
-        # while the monitor goes blank still fails.
+        # framebuffer is screendumped on the same cadence for the record only: with the UART as /dev/console d-i
+        # does not draw on the monitor, so kvm-installer-ui-check.sh judges the monitor on a separate VT-mode boot.
         while p.poll() is None and time.monotonic() - t0 < a.secs:
             t = int(time.monotonic() - t0)
             f = os.path.join(S, f"{n:04d}-{t:04d}s.ppm")
