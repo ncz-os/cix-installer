@@ -971,6 +971,66 @@ for tool in scripts/basic/fixdep scripts/mod/modpost scripts/genksyms/genksyms; 
     tool_usable "$B/$tool" || need_rebuild=1
 done
 
+# >>> ncz_prepare_pristine (keep identical in build/build-kernel-debs.sh,
+# post-install/79-dkms-prep.sh and post-install/10-our-kernel.sh;
+# build/test-headers-prepare-pristine.sh checks that they match)
+#
+# Rebuild the kernel host tools (fixdep, modpost, genksyms) with
+# `make modules_prepare` WITHOUT letting it change the kernel configuration the
+# header tree describes. modules_prepare re-runs Kconfig (syncconfig) whenever
+# the compiler differs from the one that built the kernel, which on these
+# trees is always (OE gcc built the kernel, Debian gcc builds DKMS). Kconfig
+# then re-derives every toolchain-dependent symbol for the NEW compiler and
+# rewrites .config, include/config/auto.conf and include/generated/autoconf.h.
+# Every DKMS module is compiled against that autoconf.h, so a dropped symbol
+# changes the module ABI. 2026-10-26 (r292): on a host without pahole,
+# CONFIG_PAHOLE_VERSION became 0, CONFIG_DEBUG_INFO_BTF_MODULES disappeared,
+# struct module shrank from 0x500 to 0x4c0, and the kernel refused the Mali
+# modules built there ("section size must match"). On O6N the same step also
+# dropped CONFIG_GCC_PLUGINS and prompted for new symbols on the terminal.
+# So: snapshot the Kconfig output, run modules_prepare with stdin closed (a new
+# symbol takes its default instead of waiting for an answer on a terminal
+# during an apt run), put the snapshot back, and verify it is byte-identical.
+#
+# tools/bpf/resolve_btfids fails to build here ("linux/kasan-checks.h: No such
+# file or directory": the header tree carries no tools/ sources). DKMS does not
+# need it: it is only used to add BTF to a module when vmlinux is present, and
+# the header tree has no vmlinux, so kbuild prints "Skipping BTF generation"
+# and the module loads without BTF. That failure, like the missing
+# kernel/bounds.s and asm-offsets sources, is why make runs with -k.
+#
+# ncz_prepare_pristine <build-dir> <log>
+#   returns 0 when make was clean, make's status when it was not (expected for
+#   this trimmed tree; check the tools instead), 3 when the configuration could
+#   not be restored (do NOT build modules against that tree).
+NCZ_KCONFIG_FILES=".config include/config/auto.conf include/config/auto.conf.cmd include/generated/autoconf.h include/generated/rustc_cfg include/config/kernel.release include/generated/utsrelease.h"
+ncz_prepare_pristine() {
+    _np_b=$1; _np_log=$2
+    _np_snap=$(mktemp -d) || return 3
+    for _np_f in $NCZ_KCONFIG_FILES; do
+        [ -f "$_np_b/$_np_f" ] || continue
+        mkdir -p "$_np_snap/$(dirname "$_np_f")" && cp -p "$_np_b/$_np_f" "$_np_snap/$_np_f" \
+            || { rm -rf "$_np_snap"; return 3; }
+    done
+    make -k -C "$_np_b" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare </dev/null >>"$_np_log" 2>&1
+    _np_rc=$?
+    _np_bad=0
+    for _np_f in $NCZ_KCONFIG_FILES; do
+        [ -f "$_np_snap/$_np_f" ] || continue
+        cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null && continue
+        echo "ncz_prepare_pristine: Kconfig rewrote $_np_f; restored the kernel's copy" >>"$_np_log"
+        cp -p "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>>"$_np_log" || _np_bad=1
+        cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null || _np_bad=1
+    done
+    rm -rf "$_np_snap"
+    if grep -q 'resolve_btfids' "$_np_log" 2>/dev/null; then
+        echo "ncz_prepare_pristine: tools/bpf/resolve_btfids not built (no tools/ sources in the header tree); not needed for DKMS: without vmlinux kbuild skips module BTF" >>"$_np_log"
+    fi
+    [ "$_np_bad" = 0 ] || return 3
+    return "$_np_rc"
+}
+# <<< ncz_prepare_pristine
+
 if [ "$need_rebuild" = "1" ]; then
     log "rebuilding host tools natively (shipped ones are Yocto build-host binaries)"
     SEL="$B/scripts/selinux/Makefile"
@@ -998,14 +1058,19 @@ if [ "$need_rebuild" = "1" ]; then
     # source; -k is kept because the tree has other generated-source gaps by
     # construction (any file outside include/ that the extension filters do not
     # match) and 79-dkms-prep.sh already depends on -k for exactly that reason.
-    if make -k -C "$B" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare >>"$LOG" 2>&1; then
-        log "modules_prepare clean (log: $LOG)"
-    else
+    _prep_rc=0
+    ncz_prepare_pristine "$B" "$LOG" || _prep_rc=$?
+    case "$_prep_rc" in
+        0) log "modules_prepare clean (log: $LOG)" ;;
+        3)  restore_selinux
+            warn "modules_prepare changed the kernel configuration in $B and it could not be restored"
+            warn "Refusing to run dkms autoinstall: modules built against it would not load (see $LOG)"
+            exit 1 ;;
         # Non-zero is EXPECTED: the headers tarball does not carry the full
         # source tree. The tools we actually needed are verified usable below,
         # so a non-zero exit here is not itself a failure.
-        log "modules_prepare returned non-zero (expected: headers omit some generated sources; see $LOG)"
-    fi
+        *) log "modules_prepare returned non-zero (expected: headers omit some generated sources; see $LOG)" ;;
+    esac
     restore_selinux
     trap - EXIT INT TERM
     for tool in scripts/basic/fixdep scripts/mod/modpost scripts/genksyms/genksyms; do
