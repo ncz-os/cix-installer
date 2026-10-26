@@ -105,7 +105,7 @@ fi
 
 install -D -m 0755 /dev/stdin /usr/local/bin/ncz <<'NCZ'
 #!/bin/bash
-# ncz — nclawzero operator CLI.
+# ncz — NCZ-OS operator CLI.
 # Subcommands:
 #   desktop {on|off|status}  — graphical/multi-user toggle
 #   models pull              — fetch cixtech/ai_model_hub_25_Q3 LFS to /opt/ncz/models
@@ -127,7 +127,7 @@ readonly MNEMOS_IMAGE="${MNEMOS_IMAGE:-ghcr.io/ncz-os/mnemos-enterprise:latest}"
 
 ncz_help() {
     cat <<HELP
-ncz — nclawzero operator CLI ($NCZ_VERSION)
+ncz — NCZ-OS operator CLI ($NCZ_VERSION)
 
 Usage: ncz <subcommand> [args]
 
