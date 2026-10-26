@@ -25,6 +25,10 @@ mksb() {   # mksb CMDLINE MODULE-FILES...
     rm -rf "$SB"; mkdir -p "$SB/bin" "$SB/etc/modprobe.d" "$SB/etc/default" "$SB/etc/ld.so.conf.d" "$SB/etc/vulkan/icd.d" \
         "$SB/etc/vulkan/implicit_layer.d" "$SB/usr/share/vulkan/implicit_layer.d" "$SB/run" "$SB/dev" "$SB/proc" \
         "$SB/sys/bus/platform/drivers/panthor" "$SB/sys/class/drm" "$SB/lib/modules/$K/updates/dkms" "$SB/etc/glvnd/egl_vendor.d"
+    # Sky1 is identified by the CIX GPU ACPI platform device; the switcher exits 0
+    # early without it (the unit also gates on ConditionPathExists for the same
+    # path). Cases are Sky1 unless they say otherwise (mksb-nosky1).
+    [ -z "${NOSKY1:-}" ] && mkdir -p "$SB/sys/bus/platform/devices/CIXH5000:00"
     echo "$1" > "$SB/proc/cmdline"; shift
     for f in "$@"; do : > "$SB/lib/modules/$K/updates/dkms/$f"; done
     : > "$SB/lsmod"
@@ -54,6 +58,8 @@ EOF
         -e "s#=/etc/#=$SB/etc/#g" -e "s# /etc/# $SB/etc/#g" -e "s#\"/etc/#\"$SB/etc/#g" -e "s#:-/etc/#:-$SB/etc/#g" -e "s#/opt/cixgpu-compat#$SB/opt/cixgpu-compat#g" \
         "$SW" > "$SB/switcher.sh"
 }
+# mksb-nosky1: same sandbox, no CIXH5000 platform device (generic arm64 / a KVM guest).
+mksb-nosky1() { local a=("$@"); NOSKY1=1 mksb "${a[@]}"; }
 runsw() { PATH="$SB/bin:/usr/bin:/bin" sh "$SB/switcher.sh" > "$SB/out" 2> "$SB/err"; echo $?; }
 mksb "root=x module_blacklist=typec_rts5453,rts5453 sky1.gpu=mesa" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko
 left=$(grep -v '^[[:space:]]*#' "$SB/switcher.sh" | sed 's#/dev/null##g' | grep -nE '[ ="(:-]/(etc|run|sys|dev|proc|lib/modules)/' || true)
@@ -93,6 +99,37 @@ rc=$(runsw)
 
 grep -q 'fallback      :' "$ROOT/assets/gpu/ncz-gpu-status" && grep -q '/run/ncz-gpu-fallback' "$ROOT/assets/gpu/ncz-gpu-status" \
     && ok "ncz-gpu-status shows the fallback note" || bad "ncz-gpu-status does not show the fallback"
+
+# --- not Sky1 (generic arm64, e.g. the KVM gate): switch nothing, exit 0 ------
+# The unit is gated by ConditionPathExists; a direct run (ncz-gpu-select shim,
+# a boot hook) must also be a no-op success. Before this, the script ran, found
+# no CIXH5000 and exited 1, and the KVM guest reported
+# "ncz-gpu-switcher.service loaded failed failed".
+echo "=== switcher: not Sky1 -> no-op, exit 0 ==="
+mksb-nosky1 "root=x sky1.gpu=vendor" mali_kbase.ko memory_group_manager.ko protected_memory_allocator.ko
+rc=$(runsw)
+[ "$rc" = 0 ] && [ ! -e "$SB/dev/mali0" ] && grep -q 'not Sky1 hardware, nothing to switch' "$SB/out" \
+    && ok "no CIXH5000: mali entry exits 0, loads nothing, logs why (no failed unit)" \
+    || bad "off-Sky1 run is not a clean no-op (rc=$rc)" "$(cat "$SB/out" "$SB/err" "$SB/lsmod")"
+# ...and it must not touch the machine's configuration on the way out: the
+# blacklists and the legacy removals are Sky1 concerns only.
+[ ! -e "$SB/etc/modprobe.d/ncz-gpu-drivers.conf" ] && ok "off-Sky1 run writes no modprobe.d blacklist" \
+    || bad "off-Sky1 run wrote ncz-gpu-drivers.conf"
+mksb-nosky1 "root=x sky1.gpu=mesa" panthor.ko
+rc=$(runsw)
+[ "$rc" = 0 ] && ok "off-Sky1 panthor entry also exits 0 (no fail-loud about a GPU it does not have)" \
+    || bad "off-Sky1 panthor entry exited $rc" "$(cat "$SB/out" "$SB/err")"
+
+# --- the unit itself must be gated, not made to fail --------------------------
+# ConditionFirmware=device-tree-compatible() is NOT usable: Sky1 is ACPI, so it
+# would skip the unit on Sky1 too. The condition must name the ACPI platform
+# device the same way the script and ncz-gpu-status do.
+echo "=== unit: ConditionPathExists on the Sky1 ACPI device ==="
+UNIT="$ROOT/assets/gpu/ncz-gpu-switcher.service"
+grep -q '^ConditionPathExists=/sys/bus/platform/devices/CIXH5000:00$' "$UNIT" \
+    && ok "unit gates on /sys/bus/platform/devices/CIXH5000:00" || bad "unit has no Sky1 ConditionPathExists" "$(grep -n '^Condition' "$UNIT")"
+grep -q '^ConditionFirmware=' "$UNIT" && bad "unit uses ConditionFirmware=device-tree-compatible (never true on ACPI Sky1)" || ok "no device-tree ConditionFirmware on the unit"
+grep -q '^ExecStart=.*/usr/lib/ncz/gpu-switcher.sh$' "$UNIT" && ok "unit still runs the switcher on Sky1" || bad "unit lost its ExecStart"
 
 # 01-cixgpu-compat.conf (LD_COMPAT) must NEVER be toggled by the switcher.
 # /opt/cixgpu-compat is a complete second GL stack (cix-libglvnd 1.7.0 +

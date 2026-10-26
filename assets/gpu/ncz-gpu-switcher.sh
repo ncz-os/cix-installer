@@ -325,6 +325,21 @@ activate_panthor() {
 
 [ "$(id -u)" = 0 ] || { echo "ncz-gpu-switcher: must run as root" >&2; exit 1; }
 
+# Not a CIX Sky1 board: nothing to switch. The unit carries
+# ConditionPathExists=/sys/bus/platform/devices/CIXH5000:00, so systemd never
+# even starts this script off Sky1; this guard is for the direct runs
+# (`ncz-gpu-select`'s shim, a human, a first-boot hook) that bypass the unit.
+# Same probe as ncz-gpu-status / ncz-gpu-hw-present: Sky1 is ACPI (acpi=force),
+# so the firmware-instantiated CIX GPU platform device is the identifier --
+# a device-tree HID does not exist on this platform. Exit 0, never 1: an
+# unsupported machine is not a broken GPU stack, and the old exit 1 is what
+# made the generic-arm64 KVM gate report "loaded failed failed".
+# Test seam: NCZ_SYSROOT prefixes /sys.
+if [ ! -e "${NCZ_SYSROOT:-}/sys/bus/platform/devices/CIXH5000:00" ]; then
+    log "no CIX Sky1 GPU (no /sys/bus/platform/devices/CIXH5000:00) -- not Sky1 hardware, nothing to switch"
+    exit 0
+fi
+
 drop_legacy
 ensure_blacklist
 
