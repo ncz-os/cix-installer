@@ -17,6 +17,7 @@
 #   2. replaces assets/kernel/<drv>/<kver>/ with the result (.ko files plus
 #      SOURCE.sha256);
 #   3. verify-overlay-modversions.py against that build's Module.symvers and
+#      struct module size (an in-tree .ko of the same build) and
 #      verify-dkms-deb-sources.py --overlays. Any failure exits non-zero.
 #
 # Usage:
@@ -69,9 +70,14 @@ for drv in "${DRIVERS[@]}"; do
     echo "  staged $(ls "$dst"/*.ko | wc -l) module(s) -> assets/kernel/$drv/$KVER/"
 done
 
+# struct module reference: an in-tree module linked by this same kernel build.
+# assets/kernel/mainline may still pin the previous kernel at this point, so
+# its modules-cixmini.tgz is not the right reference here.
+REF_KO="$(find "$KDIR/build/drivers" -name '*.ko' 2>/dev/null | LC_ALL=C sort | head -1)"
+[ -n "$REF_KO" ] || die "no in-tree .ko under $KDIR/build/drivers (struct module reference)"
 python3 "$ROOT/build/verify-overlay-modversions.py" --root "$ROOT" \
-    --symvers "$KDIR/build/Module.symvers" --kver "$KVER" \
-    || die "overlay CRCs do not match $KDIR/build/Module.symvers"
+    --symvers "$KDIR/build/Module.symvers" --kver "$KVER" --ref-ko "$REF_KO" \
+    || die "overlays do not match $KDIR/build (Module.symvers CRCs or struct module size)"
 python3 "$ROOT/build/verify-dkms-deb-sources.py" --root "$ROOT" --overlays "$KVER" \
     || die "overlay SOURCE.sha256 does not match assets/kernel/<drv>"
 echo "stage-accel-overlays: OK ($KVER: ${DRIVERS[*]})"

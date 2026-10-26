@@ -1324,6 +1324,14 @@ else
             "$DEBUGFS" -R "dump /var/log/ncz-first-boot-failed.txt $FBR" "$FB_ROOT" >/dev/null 2>&1 || true
             GHL="$WORK/gpu-health.log"; rm -f "$GHL"
             "$DEBUGFS" -R "dump /var/log/ncz-gpu-health.log $GHL" "$FB_ROOT" >/dev/null 2>&1 || true
+            # Out-of-tree modules of the booted kernel, for the static ABI check below.
+            MODS="$WORK/installed-modules/$DEFAULT_KVER"; rm -rf "$WORK/installed-modules"
+            if [ -n "$DEFAULT_KVER" ]; then
+                mkdir -p "$MODS"
+                for _md in kernel updates extra; do
+                    "$DEBUGFS" -R "rdump /usr/lib/modules/$DEFAULT_KVER/$_md $MODS" "$FB_ROOT" >/dev/null 2>&1 || true
+                done
+            fi
         fi
     fi
     rm -f "$FB_DISK" "$FB_ROOT"
@@ -1342,6 +1350,31 @@ else
         echo "    GPU health: hardware GPU, no software rendering"
     else
         cat "$GHL" >&2; fail "unrecognized GPU health log"
+    fi
+    # Out-of-tree module ABI (2026-10-26, O6N r292: three Mali modules with
+    # struct module 0x4c0 vs the kernel's 0x500 were refused at load, no GPU,
+    # no desktop, while every earlier gate passed).
+    #   static:  every .ko under updates/ and extra/ of the booted kernel must
+    #            have an in-tree module's this_module size and vermagic;
+    #   runtime: the guest's ncz-module-abi-probe (97-firstboot-report.sh)
+    #            modprobes each one under the real kernel; any rejection fails.
+    if [ -z "$DEFAULT_KVER" ] || [ ! -d "$WORK/installed-modules/$DEFAULT_KVER/kernel" ]; then
+        fail "could not read /usr/lib/modules/${DEFAULT_KVER:-<unknown>}/kernel from the installed root -- cannot check the out-of-tree module ABI"
+    fi
+    _abi_rc=0
+    python3 "$SCRIPT_DIR/verify-module-abi.py" --allow-empty "$WORK/installed-modules/$DEFAULT_KVER" \
+        > "$WORK/module-abi.txt" 2>&1 || _abi_rc=$?
+    sed 's/^/    /' "$WORK/module-abi.txt"
+    rm -rf "$WORK/installed-modules"
+    [ "$_abi_rc" = 0 ] \
+        || fail "out-of-tree modules on the installed root do not match the booted kernel $DEFAULT_KVER (struct module size or vermagic; see above)"
+    if grep -qE '^# module-abi: .* FAIL|^# module-abi-reject: ' "$FBR"; then
+        grep -E '^# module-abi' "$FBR" >&2
+        fail "the booted kernel refused out-of-tree modules on first boot (ncz-module-abi-probe; see above)"
+    elif grep -q '^# module-abi-probe=modules:' "$FBR"; then
+        echo "    module ABI probe: $(sed -n 's/^# module-abi-probe=//p' "$FBR" | tail -1)"
+    else
+        fail "the first-boot report has no module ABI probe result (ncz-module-abi-probe missing or did not run in the guest)"
     fi
     ALLOW="$SCRIPT_DIR/first-boot-failed-allowlist.txt"
     WP_RC="$(sed -n 's/^# wallpaper-bing-rc=//p' "$FBR" | tail -1)"

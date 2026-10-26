@@ -648,6 +648,15 @@ build_kernel_deb() {
         echo "    baked OOT armchina_npu.ko (vermagic $vm)"
     fi
 
+    # Every out-of-tree module this package ships (updates/, extra/) must have
+    # the kernel's struct module layout and vermagic. 2026-10-26 (r292): the
+    # mali overlays had this_module 0x4c0 against the kernel's 0x500, the CRC
+    # and vermagic checks passed, and the kernel refused all three on O6N
+    # ("section size must match") -> no GPU, no desktop. Compare against an
+    # in-tree module of this same package.
+    python3 "$REPO/build/verify-module-abi.py" "$root/usr/lib/modules/$kver" \
+        || { echo "ERROR: [$channel] out-of-tree modules do not match $kver (see above); refusing to package" >&2; exit 1; }
+
     # Drop stale dep maps; postinst regenerates with depmod on target.
     rm -f "$root/usr/lib/modules/$kver"/modules.dep* \
           "$root/usr/lib/modules/$kver"/modules.alias* \
