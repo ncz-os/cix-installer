@@ -17,7 +17,7 @@ ROOT="${NCZ_CODENAME_CHECK_ROOT:-$ROOT}"
 ALLOW="${NCZ_CODENAME_ALLOWLIST:-$ROOT/manifests/server-codename-allowlist.tsv}"
 cd "$ROOT" || exit 2
 [ -r "$ALLOW" ] || { echo "check-server-codename: allow-list missing: $ALLOW" >&2; exit 2; }
-SKIP=$(sed -n "s/^_SKIP_DESKTOP_RE='\(.*\)'$/\1/p" post-install/run-all.sh)
+SKIP=$(sed -n "s/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}_SKIP_DESKTOP_RE=[\"']\([^\"']*\)[\"'].*/\2/p" post-install/run-all.sh | head -1)
 [ -n "$SKIP" ] || { echo "check-server-codename: cannot read _SKIP_DESKTOP_RE from post-install/run-all.sh" >&2; exit 2; }
 
 files=()

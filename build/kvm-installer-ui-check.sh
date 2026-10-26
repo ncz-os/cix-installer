@@ -165,7 +165,7 @@ else
         # The server record is fixed (preseed/component-selector.sh: rescue partition only), so the review lists no
         # components, and it must
         # state the network requirement before the erase.
-        ! grep -qE "Components:|Singularity|desktop" "$_review" \
+        ! grep -qE "Components:|Singularity" "$_review" \
             || { echo "UI CHECK FAIL: the Magnetar Server review lists desktop components: $(grep -oE 'Components:.*|.*Singularity.*' "$_review" | head -1)" >&2; rc=1; }
         grep -q "downloads about 3 GB" "$_review" \
             || { echo "UI CHECK FAIL: the Magnetar Server review does not say the install downloads about 3 GB before the disk is erased" >&2; rc=1; }

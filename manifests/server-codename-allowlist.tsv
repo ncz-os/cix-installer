@@ -6,6 +6,6 @@ assets/refind/ncz-refind-refresh.sh	CYGNUS_SRC|themes/cygnus|rEFInd Cygnus theme
 assets/refind/ncz-refind-refresh-amd64.sh	CYGNUS_SRC|themes/cygnus|rEFInd Cygnus theme installed	same as the arm64 generator
 build/iso/build-refind-esp.py	[Cc]ygnus (rEFInd )?theme|themes"?\)? ?/ ?"?cygnus|"refind" / "cygnus"|refind/cygnus|include themes/cygnus|\(Cygnus is	docstrings, help text and the theme directory path of the installer ESP theme (art only); the boot menu text is build_info_line
 post-install/61-chromium-icon.sh	\[61\].*Cygnus|ncz-cygnus-branding	install-log lines and the dpkg-divert package name of the Chromium icon hook
-post-install/62-cygnus-screensaver-default.sh	.	hook named after the Cygnus screensaver palette; on a server (BUILD_VARIANT=server) it logs one line and exits; late.sh drops the codename from its progress label on a server medium
+post-install/62-cygnus-screensaver-default.sh	\[62\].*[Cc]ygnus|99-ncz-cygnus-screensaver|nick=\.cygnus\.|blackhole-color-mode='cygnus'	hook named after the Cygnus screensaver palette; on a server (BUILD_VARIANT=server) it logs one line and exits; late.sh drops the codename from its progress label on a server medium
 post-install/run-all.sh	62-cygnus-screensaver-default	the hook's file name in the machine-hook list
 post-install/lib/ncz-ssplugin-install.sh	integration/cygnus-26\.10	a source branch name in the plugin build notes
