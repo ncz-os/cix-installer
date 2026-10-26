@@ -227,6 +227,13 @@ class ServerVariantStagingBase(unittest.TestCase):
         manifest = (stage_dir / "ncz-payload" / "ncz-fetch-payload.manifest").read_text()
         self.assertIn(plan["assets_sha256"], manifest)
 
+    def test_server_refuses_a_payload_node_with_the_base_layer(self):
+        """A desktop/stale payload node (base.squashfs present) must never
+        become a server medium: the layer would ship on it after all."""
+        with self.assertRaises(RuntimeError) as ctx:
+            self._stage("server", "sb", with_base=True)
+        self.assertIn("carries base.squashfs", str(ctx.exception))
+
     def test_export_unset_changes_nothing(self):
         """Opt-in: without the variable no directory appears, desktop and server."""
         out = self.tmp / "never"

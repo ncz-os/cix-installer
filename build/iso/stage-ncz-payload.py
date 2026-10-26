@@ -426,6 +426,11 @@ def stage_payload(
         ),
         "busybox": _stat(busybox_src) if busybox_present else {"present": False},
         "sqtools_manifest": sqtools_manifest,
+        # A server node carries no base.squashfs, so it must never share a
+        # key with the desktop node built from the same layers (2026-10-26:
+        # a Magnetar build reused the cached desktop node and shipped the
+        # 989 MB base layer on the server medium). Desktop keys are unchanged.
+        **({"variant": "server"} if variant == "server" else {}),
         "tool_versions": {
             "unsquashfs": tool_version("unsquashfs"),
             "mksquashfs": tool_version("mksquashfs"),

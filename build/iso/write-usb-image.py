@@ -714,6 +714,14 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     ncz_payload_dst = stage_dir / "ncz-payload"
     ncz_payload_dst.mkdir(parents=True, exist_ok=True)
 
+    # MAGNETAR(server): the base layer is fetched at install time; a payload
+    # node that carries it is a desktop (or stale) node, and copying it would
+    # ship the layer on the medium after all (2026-10-26). Fail closed.
+    if _variant() == "server" and (payload_dir / "base.squashfs").exists():
+        raise RuntimeError(
+            f"FATAL: server variant, but the payload dir {payload_dir} carries "
+            f"base.squashfs -- a desktop or stale payload node; a server medium "
+            f"must not ship the base layer (it is fetched from NCZ_PAYLOAD_URL)")
     staged = []
     for name in expected_payload_names(arch):
         src = payload_dir / name
