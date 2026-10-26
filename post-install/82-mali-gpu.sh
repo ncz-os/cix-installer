@@ -212,6 +212,13 @@ echo "[82] mali_kbase loading delegated to ncz-gpu-switcher (see 83-panthor-gpu.
 # the one to keep, so force the install when dkms built it.
 if [ -n "${KVER_NEXT:-}" ] && command -v dkms >/dev/null 2>&1; then
     _st=$(dkms status -m cix-gpu-kmd -v "$DKMS_VER" -k "$KVER_NEXT" 2>/dev/null)
+    # The DKMS build must itself have the kernel's struct module before it
+    # replaces anything (same check as the overlay guard above).
+    _dk=$(ls /var/lib/dkms/cix-gpu-kmd/"$DKMS_VER"/"$KVER_NEXT"/*/module/mali_kbase.ko 2>/dev/null | head -1)
+    if [ -n "$REF_TM" ] && [ -n "$_dk" ] && [ "$(this_module_size "$_dk")" != "$REF_TM" ]; then
+        echo "[82] WARN: dkms-built mali_kbase has this_module '$(this_module_size "$_dk")' != kernel '$REF_TM'; not installing it"
+        _st=""
+    fi
     case "$_st" in
         *": built"*)
             if dkms install -m cix-gpu-kmd -v "$DKMS_VER" -k "$KVER_NEXT" --force >/dev/null 2>&1; then
@@ -220,7 +227,7 @@ if [ -n "${KVER_NEXT:-}" ] && command -v dkms >/dev/null 2>&1; then
                 echo "[82] WARN: dkms install --force cix-gpu-kmd/$DKMS_VER for $KVER_NEXT failed"
             fi ;;
     esac
-    unset _st
+    unset _st _dk
 fi
 
 # --- DKMS WINS: retire the overlay once DKMS has produced modules -----------

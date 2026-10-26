@@ -77,8 +77,18 @@ dkms_stub() {  # dkms_stub <status line>
     chmod +x "$T/bin/dkms"; rm -f "$T/dkms.log"
 }
 dkms_stub "cix-gpu-kmd/1.0, $K, aarch64: built"
-PATH="$T/bin:$PATH" KVER_NEXT=$K DKMS_VER=1.0 bash "$T/force.sh" > "$T/force.out" 2>&1
+PATH="$T/bin:$PATH" KVER_NEXT=$K DKMS_VER=1.0 REF_TM= bash "$T/force.sh" > "$T/force.out" 2>&1
 grep -q -- "install -m cix-gpu-kmd -v 1.0 -k $K --force" "$T/dkms.log" 2>/dev/null && ok "status 'built' -> dkms install --force" || { no "built module not force-installed"; cat "$T/force.out"; }
+# a DKMS build with the wrong struct module is not forced in (the dkms tree is
+# read from its absolute path, so this case uses a rewritten copy of the step)
+mkdir -p "$T/dk/cix-gpu-kmd/1.0/$K/aarch64/module"; mkko "$T/dk/cix-gpu-kmd/1.0/$K/aarch64/module/mali_kbase.ko" 0x4c0
+sed "s|/var/lib/dkms/|$T/dk/|" "$T/force.sh" > "$T/force-dk.sh"
+dkms_stub "cix-gpu-kmd/1.0, $K, aarch64: built"
+PATH="$T/bin:$PATH" KVER_NEXT=$K DKMS_VER=1.0 bash -c 'this_module_size() { readelf -S -W "$1" | sed -n "s/.*\.gnu\.linkonce\.this_module[[:space:]]*PROGBITS[[:space:]]*[0-9a-f]*[[:space:]]*[0-9a-f]*[[:space:]]*\([0-9a-f]*\).*/\1/p"; }; REF_TM=000500; . "$0"' "$T/force-dk.sh" > "$T/force.out" 2>&1
+[ ! -s "$T/dkms.log" ] && grep -q "dkms-built mali_kbase has this_module '0004c0'" "$T/force.out" && ok "a DKMS build with the wrong struct module is not force-installed" || { no "wrong-ABI DKMS build was forced"; cat "$T/force.out"; }
+mkko "$T/dk/cix-gpu-kmd/1.0/$K/aarch64/module/mali_kbase.ko" 0x500; rm -f "$T/dkms.log"
+PATH="$T/bin:$PATH" KVER_NEXT=$K DKMS_VER=1.0 bash -c 'this_module_size() { readelf -S -W "$1" | sed -n "s/.*\.gnu\.linkonce\.this_module[[:space:]]*PROGBITS[[:space:]]*[0-9a-f]*[[:space:]]*[0-9a-f]*[[:space:]]*\([0-9a-f]*\).*/\1/p"; }; REF_TM=000500; . "$0"' "$T/force-dk.sh" > "$T/force.out" 2>&1
+grep -q -- "--force" "$T/dkms.log" 2>/dev/null && ok "a DKMS build with the kernel's struct module is force-installed" || { no "matching DKMS build not forced"; cat "$T/force.out"; }
 dkms_stub "cix-gpu-kmd/1.0, $K, aarch64: installed"
 PATH="$T/bin:$PATH" KVER_NEXT=$K DKMS_VER=1.0 bash "$T/force.sh" > "$T/force.out" 2>&1
 [ ! -s "$T/dkms.log" ] && ok "status 'installed' -> no reinstall" || no "installed module was reinstalled"
