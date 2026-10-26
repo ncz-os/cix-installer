@@ -2091,16 +2091,24 @@ def scan_image(ref, img, work, variant="desktop", payload_dir=None):
         layers = sorted(rglob(pl, "*.squashfs"))
         if variant == "server":
             # A server medium ships its layers and rescue rootfs OFF the
-            # medium; prove it is one (no layer, no offline apt closure, the
-            # fetch manifest pinning the payload) and scan the payload itself.
+            # medium; prove it is one (no layer, the fetch manifest pinning the
+            # payload) and scan the payload itself. It must still carry the
+            # offline apt closure (Magnetar option A, 2026-10-26): the r159
+            # stub, apt-setup's file:///cdrom source, late.sh and the
+            # post-install hooks install from it, and the base layer lacks
+            # what they install. The pool itself was authorized above.
             if layers:
                 fail("image", img, "--variant server, but the medium carries squashfs "
                                    f"layer(s): {[os.path.basename(f) for f in layers]}")
             offline = rglob(os.path.join(base, "pool"), "*.deb")
-            if offline:
-                fail("image", img, "--variant server, but the medium carries an offline "
-                                   f"apt pool ({len(offline)} .deb under /pool, e.g. "
-                                   f"{os.path.relpath(offline[0], base)})")
+            regular_idx = [p for p in pkgidx
+                           if "debian-installer" not in os.path.relpath(p, base).split(os.sep)]
+            if not offline or not regular_idx:
+                fail("image", img, "--variant server, but the medium carries no offline "
+                                   f"apt pool ({len(offline)} .deb under /pool, "
+                                   f"{len(regular_idx)} regular Packages index under "
+                                   "/dists); the stub, late.sh and the post-install "
+                                   "hooks install from it")
             check_server_manifest(img, os.path.join(pl, SERVER_FETCH_MANIFEST), pins)
             total += scan_server_payload(ref, img, payload_dir, pins, owned)
         elif not layers:

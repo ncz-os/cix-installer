@@ -1281,13 +1281,19 @@ for t in mkfs.ext4 mkfs.vfat sgdisk sfdisk debugfs; do
     command -v "$t" >/dev/null 2>&1 || PATH="$PATH:/usr/sbin:/sbin"
     command -v "$t" >/dev/null 2>&1 || { bad "fixture tool $t missing" ""; }
 done
-mk_srv_medium() {   # <name> <bad|good|tampered> <payload dir>
+mk_srv_medium() {   # <name> <bad|good|tampered|nopool> <payload dir>
     local r="$T/srvmed/$1" kind="$2" pd="$3"
     rm -rf "$r"; mkdir -p "$r/data/dists/forky/main/debian-installer/binary-amd64" "$r/data/pool/main" "$r/data/ncz-payload"
     : > "$r/data/dists/forky/main/debian-installer/binary-amd64/Packages"
+    if [ "$kind" != bad ] && [ "$kind" != nopool ]; then
+        # the offline apt closure a server medium must carry (option A)
+        mkdir -p "$r/data/dists/forky/main/binary-amd64"
+        cp "$T/debian-pool/fonts-liberation_1%3a2.1.5-3_all.deb" "$r/data/pool/main/"
+        printf 'Package: fonts-liberation\nVersion: 1:2.1.5-3\nArchitecture: all\nMaintainer: %s\nFilename: pool/main/fonts-liberation_1%%3a2.1.5-3_all.deb\nSize: %s\nSHA256: %s\nDescription: fixture\n\n' \
+            "$DEB_MAINT" "$DEBSIZE" "$DEBSHA" > "$r/data/dists/forky/main/binary-amd64/Packages"
+    fi
     if [ "$kind" = bad ]; then
         printf 'layer' > "$r/data/ncz-payload/base.squashfs"
-        cp "$(ls "$T/debian-pool"/*.deb | head -1)" "$r/data/pool/main/"
     else
         local psha asha
         psha="$(sha "$pd/base.squashfs")"; asha="$(sha "$pd/ncz-assets-amd64.tar.gz")"
@@ -1320,13 +1326,17 @@ mk_srv_medium bad bad "$T/srv/payload" || bad "fixture: server medium bad" ""
 mk_srv_medium good good "$T/srv/payload-good" || bad "fixture: server medium good" ""
 mk_srv_medium tampered tampered "$T/srv/payload-good" || bad "fixture: server medium tampered" ""
 mk_srv_medium junk good "$T/srv/payload" || bad "fixture: server medium junk-bundle" ""
+mk_srv_medium nopool nopool "$T/srv/payload-good" || bad "fixture: server medium without pool" ""
 srvscan() { "${PROV[@]}" --image "$T/srvmed/$1/m.img" --work "$T/srvmed/work" --variant server --server-payload "${2:-$T/srv/payload-good}" 2>&1; }
 out="$(srvscan bad "$T/srv/payload")"
-for msg in "medium carries squashfs layer" "medium carries an offline apt pool" "no ncz-payload/ncz-fetch-payload.manifest"; do
-    grep -q "$msg" <<<"$out" && ok "scan_image server: '$msg' on a medium that carries it" || bad "server wiring: '$msg' not reported" "$out"
+for msg in "medium carries squashfs layer" "medium carries no offline apt pool" "no ncz-payload/ncz-fetch-payload.manifest"; do
+    grep -q "$msg" <<<"$out" && ok "scan_image server: '$msg' on a medium that has that defect" || bad "server wiring: '$msg' not reported" "$out"
 done
+out="$(srvscan nopool)"
+grep -q "medium carries no offline apt pool" <<<"$out" && ok "scan_image server: a medium without the offline apt pool fails" \
+    || bad "server wiring: a server medium without the pool passed" "$out"
 out="$(srvscan good)"
-if grep -qE "medium carries|fetch manifest|does not pin what|does not match the receipt pin" <<<"$out"; then
+if grep -qE "medium carries|fetch manifest|does not pin what|does not match the receipt pin|pool is not fully authorized" <<<"$out"; then
     bad "server wiring: a server-shaped medium with matching pins drew a server-check FAIL" "$out"
 else
     ok "scan_image server: a server-shaped medium whose manifest matches the receipt passes the server checks"

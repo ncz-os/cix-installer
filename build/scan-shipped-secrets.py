@@ -1927,6 +1927,8 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
         rep.counts["partitions"] = len(parts)
         layers: list[dict] = []
         fetch_manifests: list[str] = []
+        pool_debs = 0
+        pool_indexes = 0
 
         for part in parts:
             kind = part["kind"]
@@ -1945,6 +1947,10 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
                 data = f["bytes"]
                 if path.endswith("/" + SERVER_FETCH_MANIFEST):
                     fetch_manifests.append(path)
+                if _REGULAR_POOL_DEB.search(path):
+                    pool_debs += 1
+                elif _REGULAR_PACKAGES_INDEX.search(path):
+                    pool_indexes += 1
                 lk = layer_kind(path)
                 if lk:
                     layers.append({"path": path, "part": part["index"],
@@ -1986,6 +1992,14 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
                     "--variant server, but the medium has no "
                     f"ncz-payload/{SERVER_FETCH_MANIFEST}: it is not a server "
                     "medium")
+            # Magnetar option A (2026-10-26): the offline apt closure stays on
+            # the medium (the r159 stub, late.sh and the post-install hooks
+            # install from it). A medium without it cannot install; refuse it.
+            if not pool_debs or not pool_indexes:
+                raise Unreadable(
+                    "--variant server, but the medium carries no offline apt "
+                    f"pool ({pool_debs} .deb under pool/, {pool_indexes} "
+                    "regular Packages index under dists/): it cannot install")
             return rep
         if not layers:
             raise Unreadable(
@@ -2035,6 +2049,13 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
 SQUASHFS_MAGIC = b"hsqs"
 # What a Magnetar medium carries instead of its layers (write-usb-image.py).
 SERVER_FETCH_MANIFEST = "ncz-fetch-payload.manifest"
+# The regular offline apt closure on a medium: pool/**.deb and the
+# dists/<suite>/<component>/binary-<arch>/Packages index (the installer's
+# debian-installer/binary-<arch> index has one more component, so it does not
+# match).
+_REGULAR_POOL_DEB = re.compile(r"(^|/)pool/.+\.deb$")
+_REGULAR_PACKAGES_INDEX = re.compile(
+    r"(^|/)dists/[^/]+/[^/]+/binary-[^/]+/Packages(\.(gz|xz|zst|bz2))?$")
 
 
 def receipt_variant(img: str) -> str:

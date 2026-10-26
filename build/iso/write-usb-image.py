@@ -198,13 +198,18 @@ def expected_payload_names(arch: str) -> list[str]:
 # ---------------------------------------------------------------------------
 SERVER_ONLINE_ASSET_DIRS = ("rescue", "firmware", "kernel", "branding")
 
-# The offline apt closure (1.8 GB of regular .debs) has no consumer on a server
-# image: post-install/20-desktop.sh is the only hook that registers
-# file:///cdrom, and it exits immediately for BUILD_VARIANT=server|headless.
-# post-install/24-apt-sources.sh treats a missing pool as a warning and falls
-# back to the network sources. So the server medium ships the installer
-# substrate only; the package closure is downloaded by the installed system.
-SERVER_SKIPS_OFFLINE_CLOSURE = True
+# The offline apt closure (1.8 GB of regular .debs) STAYS on a server medium
+# (Magnetar option A, orchestrator 2026-10-26, pending operator review; option
+# B, fetching it as part of the payload, is the long-term target). An earlier
+# revision dropped it on the premise that only post-install/20-desktop.sh read
+# it. The first real server installs disproved that: the r159 debootstrap stub
+# binds it as the target's install-time apt source and refuses to continue
+# without it, apt-setup's preseeded local0 source is file:///cdrom, and
+# late.sh and the post-install hooks apt-get install from it -- packages the
+# base layer does not carry (firmware-*, python3-dbus, libtext-iconv-perl,
+# refind, ...). What a server medium drops is the squashfs layers and the
+# assets, which the payload fetch delivers.
+SERVER_SKIPS_OFFLINE_CLOSURE = False
 
 
 def server_online_fetch_plan(arch: str) -> dict:
@@ -1331,29 +1336,33 @@ def stage_installer_substrate(stage_dir: Path, arch: str,
         subprocess.run(release_cmd, check=True, stdout=stream)
 
 
+def medium_size_record(image: Path, esp_bytes: int, data_bytes: int,
+                       stage_dir: Path) -> dict:
+    """What a server medium weighs, and how much of it is the offline apt
+    closure it carries (Magnetar option A)."""
+    debs = [f for f in (stage_dir / "pool").rglob("*.deb") if f.is_file()]
+    return {
+        "image_bytes": image.stat().st_size,
+        "esp_bytes": esp_bytes,
+        "data_partition_bytes": data_bytes,
+        "offline_pool_debs": len(debs),
+        "offline_pool_deb_bytes": sum(f.stat().st_size for f in debs),
+    }
+
+
 def stage_server_installer_pool(stage_dir: Path, arch: str,
                                 installer_pool: Path) -> None:
-    """MAGNETAR(server): stage the installer substrate and NOTHING else.
+    """MAGNETAR(server): stage the offline apt closure and the installer
+    substrate, exactly as desktop does (see SERVER_SKIPS_OFFLINE_CLOSURE).
 
-    The 1,875,725,028 bytes of regular .debs in build/<suite>-mirror/pool are
-    not staged here. They are the offline apt closure, and their only consumer
-    on a server image does not exist: post-install/20-desktop.sh is the one
-    hook that registers `deb [trusted=yes] file:///cdrom` and it exits
-    immediately for BUILD_VARIANT=server|headless, while
-    post-install/24-apt-sources.sh already treats "no offline pool" as a
-    warning and falls back to the network sources. Shipping 1.8 GB of packages
-    that nothing on the medium can install is the single largest thing keeping
-    the server image at ~3.4 GB.
-
-    The debian-installer substrate stays -- see stage_installer_substrate():
-    d-i reads it during boot, before the debootstrap stub runs.
+    The server medium differs from desktop in what build_ncz_payload_tree()
+    leaves out (the squashfs layers and the assets, fetched and verified at
+    install time), not in its apt repository.
     """
-    suite = release_codename()
-    log("    server variant: NOT staging the offline apt closure "
-        "(1.8 GB of regular debs; post-install/20-desktop.sh is "
-        "desktop-only and 24-apt-sources.sh falls back to the network). "
-        "Staging the debian-installer substrate only.")
-    stage_installer_substrate(stage_dir, arch, installer_pool, suite)
+    log("    server variant: staging the offline apt closure + the "
+        "debian-installer substrate (option A; the stub, late.sh and the "
+        "post-install hooks install from file:///cdrom)")
+    stage_offline_mirror(stage_dir, arch, installer_pool)
 
 
 # ---------------------------------------------------------------------------
@@ -2139,6 +2148,9 @@ def main() -> int:
         }
         if substrate_receipt is not None:
             receipt["magnetar_substrate"] = substrate_receipt
+        if _variant() == "server":
+            receipt["medium_size"] = medium_size_record(
+                args.out, esp_size, data_size, stage_dir)
         if args.compress != "none":
             receipt["compressed"] = compress_image(
                 args.out, args.compress, args.compress_level)

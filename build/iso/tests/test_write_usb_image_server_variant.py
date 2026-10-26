@@ -1,5 +1,5 @@
-"""The Magnetar server medium (both amd64 and arm64) must carry only what
-d-i needs BEFORE the stub.
+"""The Magnetar server medium (both amd64 and arm64) carries everything but
+the squashfs layers and the assets.
 
 Measured on the amd64 server image of 2026-10-16 (data-partition content,
 2,546,377,288 B):
@@ -10,7 +10,9 @@ Measured on the amd64 server image of 2026-10-16 (data-partition content,
     dists/                           2,805,485
     ncz-payload/ (sqtools, post-install, preseed, ...)  ~8.6 MB
 
-NCZ_VARIANT=server moves the first two rows OFF the medium, for BOTH arches:
+NCZ_VARIANT=server moves the assets row (and the squashfs layers) OFF the
+medium, for BOTH arches; the regular-deb closure in pool/ stays (option A,
+2026-10-26: the r159 stub, late.sh and the post-install hooks install from it):
 the arm64 (CIX Sky1 / O6N / cixmini / MS-R1) server image must go through the
 identical online-payload path -- base.squashfs + ncz-assets-arm64.tar.gz
 fetched and sha256-verified by preseed/ncz-fetch-payload.sh, substrate udebs
@@ -313,19 +315,65 @@ class ServerVariantStagingBase(unittest.TestCase):
                     online_work_dir=self.tmp / "n2" / "online")
         self.assertIn("NCZ_PAYLOAD_URL", str(ctx.exception))
 
-    def test_server_keeps_the_installer_substrate_udebs(self):
-        """r159 CONTRACT: d-i reads the substrate BEFORE the stub runs."""
-        stage_dir = self.tmp / "s2" / "stage"
+    def _fake_closure(self, root: Path) -> Path:
+        """A minimal build/<suite>-mirror: one regular deb + its index."""
+        mirror = root / "build" / "forky-mirror"
+        idx = mirror / "dists" / "forky" / "main" / f"binary-{self.arch}"
+        idx.mkdir(parents=True)
+        deb = mirror / "pool" / "main" / "f" / "fixture" / f"fixture_1.0_{self.arch}.deb"
+        deb.parent.mkdir(parents=True)
+        deb.write_bytes(b"!<arch>\nfixture")
+        (idx / "Packages").write_text(
+            f"Package: fixture\nVersion: 1.0\nArchitecture: {self.arch}\n"
+            f"Filename: pool/main/f/fixture/{deb.name}\n\n")
+        return mirror
+
+    def test_server_keeps_the_offline_closure_and_the_substrate(self):
+        """Option A (2026-10-26): the r159 stub, late.sh and the post-install
+        hooks install from file:///cdrom, so a server medium carries the
+        regular-deb closure as well as the substrate udebs d-i reads before
+        the stub runs."""
+        root = self.tmp / "s2"
+        self._fake_closure(root)
+        stage_dir = root / "stage"
         stage_dir.mkdir(parents=True)
-        pool = self.tmp / "s2" / "pool"
+        pool = root / "pool"
         udeb = pool / "main" / "d" / "debootstrap" / "debootstrap-udeb_1.0.145_all.udeb"
         make_udeb(udeb)
-        with mock.patch.dict(os.environ, {"NCZ_VARIANT": "server"}, clear=False):
+        with mock.patch.dict(os.environ, {"NCZ_VARIANT": "server"}, clear=False), \
+             mock.patch.object(MODULE, "REPO_ROOT", root):
             MODULE.stage_server_installer_pool(stage_dir, self.arch, pool)
-        staged = list((stage_dir / "pool").rglob("*.udeb"))
-        self.assertEqual(len(staged), 1, "the installer substrate must stay")
-        self.assertEqual(list((stage_dir / "pool").rglob("*.deb")), [],
-                         "the 1.8 GB regular-deb closure must NOT be staged")
+        self.assertEqual(len(list((stage_dir / "pool").rglob("*.udeb"))), 1,
+                         "the installer substrate must stay")
+        self.assertEqual(len(list((stage_dir / "pool").rglob("*.deb"))), 1,
+                         "the regular-deb closure must be staged")
+        self.assertTrue((stage_dir / "dists" / "forky" / "main"
+                         / f"binary-{self.arch}" / "Packages").is_file())
+        self.assertFalse(MODULE.SERVER_SKIPS_OFFLINE_CLOSURE)
+
+    def test_server_without_the_closure_fails(self):
+        root = self.tmp / "s3"
+        stage_dir = root / "stage"
+        stage_dir.mkdir(parents=True)
+        pool = root / "pool"
+        make_udeb(pool / "main" / "d" / "debootstrap" / "debootstrap-udeb_1.0.145_all.udeb")
+        with mock.patch.dict(os.environ, {"NCZ_VARIANT": "server"}, clear=False), \
+             mock.patch.object(MODULE, "REPO_ROOT", root):
+            with self.assertRaisesRegex(RuntimeError, "offline apt closure missing"):
+                MODULE.stage_server_installer_pool(stage_dir, self.arch, pool)
+
+    def test_medium_size_record(self):
+        root = self.tmp / "s4"
+        (root / "stage" / "pool" / "main").mkdir(parents=True)
+        (root / "stage" / "pool" / "main" / "a.deb").write_bytes(b"x" * 10)
+        (root / "stage" / "pool" / "main" / "b.udeb").write_bytes(b"y" * 7)
+        img = root / "m.img"
+        img.write_bytes(b"z" * 100)
+        rec = MODULE.medium_size_record(img, 30, 60, root / "stage")
+        self.assertEqual(rec, {"image_bytes": 100, "esp_bytes": 30,
+                               "data_partition_bytes": 60,
+                               "offline_pool_debs": 1,
+                               "offline_pool_deb_bytes": 10})
 
     def test_make_targz_is_deterministic(self):
         """The pin is only meaningful if two builds agree on the digest."""

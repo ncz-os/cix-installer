@@ -200,6 +200,14 @@ build_image() {   # <out.img> <mode>
         mkdir -p "$t/payload/ncz-payload"
         [ "${SERVER_NO_MANIFEST:-0}" = 1 ] || printf 'base.squashfs\thttp://10.0.2.2/base.squashfs\t%s\tfile\n' \
             "$(printf '0%.0s' {1..64})" > "$t/payload/ncz-payload/ncz-fetch-payload.manifest"
+        # the offline apt closure stays on a server medium (option A,
+        # 2026-10-26); SERVER_NO_POOL=1 drops it
+        if [ "${SERVER_NO_POOL:-0}" != 1 ]; then
+            mkdir -p "$t/payload/pool/main" "$t/payload/dists/forky/main/binary-amd64"
+            cp "$t/pool/main/ncz-fixture_1.0_all.deb" "$t/payload/pool/main/"
+            printf 'Package: ncz-fixture\nVersion: 1.0\nArchitecture: all\nFilename: pool/main/ncz-fixture_1.0_all.deb\n\n' \
+                > "$t/payload/dists/forky/main/binary-amd64/Packages"
+        fi
     fi
 
     # ESP: a FAT image with the d-i kernel + the plain-realistic initrd
@@ -907,6 +915,11 @@ receipt_for "$WORK/server-nomf.img" server
 out="$($PY "$SCAN" --image "$WORK/server-nomf.img" --hash-file "$WORK/hashes.json" --variant server 2>&1)"; rc=$?
 [ "$rc" = 1 ] && grep -q 'no ncz-payload/ncz-fetch-payload.manifest' <<<"$out" \
     && pass "a layerless medium without the fetch manifest is not a server medium" || fail "no-manifest medium passed (rc=$rc): $out"
+SERVER=1 SERVER_NO_POOL=1 build_image "$WORK/server-nopool.img" clean || exit 1
+receipt_for "$WORK/server-nopool.img" server
+out="$($PY "$SCAN" --image "$WORK/server-nopool.img" --hash-file "$WORK/hashes.json" --variant server 2>&1)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'carries no offline apt pool' <<<"$out" \
+    && pass "a server medium without the offline apt pool fails" || fail "no-pool server medium passed (rc=$rc): $out"
 SERVER=1 ESP_LEAK=1 build_image "$WORK/server-leak.img" clean || exit 1
 receipt_for "$WORK/server-leak.img" server
 out="$($PY "$SCAN" --image "$WORK/server-leak.img" --hash-file "$WORK/hashes.json" --variant server 2>&1)"; rc=$?
