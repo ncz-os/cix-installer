@@ -35,7 +35,7 @@ cat > "$T/bin/systemctl" <<STUB
 #!/bin/sh
 echo "\$*" >> "$T/systemctl.log"
 STUB
-printf '#!/bin/sh\n[ -n "${JOURNAL_LINE:-}" ] && echo "$JOURNAL_LINE"\nexit 0\n' > "$T/bin/journalctl"
+printf '#!/bin/sh\necho "ncz-gpu-env: an older unrelated line"\n[ -n "${JOURNAL_LINE:-}" ] && echo "$JOURNAL_LINE"\necho "ncz-gpu-env: WARNING a later unrelated line"\nexit 0\n' > "$T/bin/journalctl"
 printf '#!/bin/sh\nexit 0\n' > "$T/bin/logger"; printf '#!/bin/sh\nexit 0\n' > "$T/bin/chvt"
 chmod +x "$T/bin/"*
 run() { PATH="$T/bin:$PATH" NCZ_FALLBACK_TTY="$T/tty1" NCZ_FALLBACK_ISSUE="$T/issue" sh "$T/fallback"; }
@@ -49,8 +49,18 @@ cmp -s "$T/issue" "$T/tty1" && ok "the same message is written to tty1" || no "t
 grep -qE 'LIBGL_ALWAYS_SOFTWARE|WLR_RENDERER|pixman|llvmpipe|NCZ_ALLOW_SOFTWARE_FALLBACK' "$T/fallback" && no "fallback touches software rendering" || ok "fallback does not enable software rendering"
 rm -f "$T/issue" "$T/tty1" "$T/systemctl.log"
 JOURNAL_LINE= run
-grep -q 'could not start' "$T/issue" && ! grep -q '^GPU:' "$T/issue" && ok "no journal reason -> message without a GPU line" || no "no-reason case wrong: $(cat "$T/issue" 2>/dev/null)"
+grep -q 'could not start' "$T/issue" && grep -q '^GPU: ncz-gpu-env: WARNING a later unrelated line' "$T/issue" \
+    && ok "no refusal line -> the latest ncz-gpu-env line is shown" || no "no-refusal case wrong: $(cat "$T/issue" 2>/dev/null)"
 grep -q 'start getty@tty1.service' "$T/systemctl.log" && ok "no journal reason -> getty still started" || no "no-reason case did not start getty"
+
+# /etc not writable: tty1 must still get the message
+rm -f "$T/tty1" "$T/systemctl.log"; mkdir -p "$T/ro"; chmod 0555 "$T/ro"
+JOURNAL_LINE="ncz-gpu-env: x software rendering REFUSED y" PATH="$T/bin:$PATH" NCZ_FALLBACK_TTY="$T/tty1" NCZ_FALLBACK_ISSUE="$T/ro/issue" sh "$T/fallback" 2>"$T/ro.err"
+chmod 0755 "$T/ro"
+grep -q 'could not start' "$T/tty1" && grep -q '^GPU: ncz-gpu-env: x software rendering REFUSED y' "$T/tty1" \
+    && ok "unwritable issue dir -> tty1 still gets the message" || no "unwritable issue dir lost the tty message"
+[ ! -s "$T/ro.err" ] && ok "unwritable issue dir -> no shell error" || no "unwritable issue dir printed: $(cat "$T/ro.err")"
+grep -q 'start getty@tty1.service' "$T/systemctl.log" && ok "unwritable issue dir -> getty still started" || no "getty not started"
 
 echo "test-greeter-console-fallback: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

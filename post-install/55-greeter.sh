@@ -283,20 +283,21 @@ cat > /usr/local/sbin/ncz-greeter-fallback <<'FALLBACK'
 # ncz-greeter-fallback -- greetd.service OnFailure: text login on tty1.
 TTY=${NCZ_FALLBACK_TTY:-/dev/tty1}
 ISSUE=${NCZ_FALLBACK_ISSUE:-/etc/issue.d/90-ncz-greeter-failed.issue}
-why=$(journalctl -b -t ncz-gpu-env -o cat -n 1 --no-pager 2>/dev/null | tail -1)
-{
-    echo
-    echo "NCZ-OS: the graphical login could not start, so this is a text login."
-    if [ -n "$why" ]; then
-        echo "GPU: $why"
-    fi
-    echo "After logging in: 'ncz-gpu-status --require-hardware' shows the GPU state,"
-    echo "'journalctl -b -u greetd' the greeter log, 'sudo systemctl restart greetd' retries."
-    echo
-} > "${ISSUE}.tmp" 2>/dev/null && mv -f "${ISSUE}.tmp" "$ISSUE" 2>/dev/null
-logger -t ncz-greeter-fallback "greetd failed; starting a text login on tty1${why:+ ($why)}" 2>/dev/null || true
+# The refusal line is the reason; any other ncz-gpu-env line is only a fallback.
+why=$(journalctl -b -t ncz-gpu-env -o cat --no-pager 2>/dev/null | grep 'REFUSED' | tail -1)
+[ -n "$why" ] || why=$(journalctl -b -t ncz-gpu-env -o cat -n 1 --no-pager 2>/dev/null | tail -1)
+msg="
+NCZ-OS: the graphical login could not start, so this is a text login.${why:+
+GPU: $why}
+After logging in: 'ncz-gpu-status --require-hardware' shows the GPU state,
+'journalctl -b -u greetd' the greeter log, 'sudo systemctl restart greetd' retries.
+"
+# tty1 first and independently: the message must reach the screen even when
+# /etc is not writable.
 chvt 1 2>/dev/null || true
-cat "$ISSUE" > "$TTY" 2>/dev/null || true
+printf '%s\n' "$msg" > "$TTY" 2>/dev/null || true
+{ printf '%s\n' "$msg" > "${ISSUE}.tmp" && mv -f "${ISSUE}.tmp" "$ISSUE"; } 2>/dev/null || rm -f "${ISSUE}.tmp" 2>/dev/null
+logger -t ncz-greeter-fallback "greetd failed; starting a text login on tty1${why:+ ($why)}" 2>/dev/null || true
 systemctl --no-block start getty@tty1.service
 FALLBACK
 chmod 0755 /usr/local/sbin/ncz-greeter-fallback
