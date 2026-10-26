@@ -193,6 +193,14 @@ build_image() {   # <out.img> <mode>
     mk_deb "$t/pool/main/ncz-fixture_1.0_all.deb" "$mode" || return 1
     cp "$t/pool/main/ncz-fixture_1.0_all.deb" "$t/payload/ncz-fixture_1.0_all.deb"
     cp "$ROOT/build/vivaldi-apt-keyring.asc" "$t/payload/apt-keyring.asc" 2>/dev/null || true
+    # SERVER=1: a Magnetar medium -- no squashfs layer on it (they ship off the
+    # medium), and the fetch manifest that pins them (SERVER_NO_MANIFEST=1 drops it)
+    if [ "${SERVER:-0}" = 1 ]; then
+        rm -f "$t/payload"/*.squashfs
+        mkdir -p "$t/payload/ncz-payload"
+        [ "${SERVER_NO_MANIFEST:-0}" = 1 ] || printf 'base.squashfs\thttp://10.0.2.2/base.squashfs\t%s\tfile\n' \
+            "$(printf '0%.0s' {1..64})" > "$t/payload/ncz-payload/ncz-fetch-payload.manifest"
+    fi
 
     # ESP: a FAT image with the d-i kernel + the plain-realistic initrd
     # ESP_FAT32=1: a FAT32 ESP like the real images (40 MiB, 512 B clusters
@@ -865,6 +873,53 @@ for leaf in (os.urandom(8192), bytes(8192), b"hello world\n" * 400,
 PY
 then pass "a v7 tar (no ustar magic) is opened and its members are hashed"
 else fail "v7 tar not recognised or not expanded"; fi
+
+# ---------------------------------------------------------------- --variant server
+# A Magnetar medium carries no squashfs layer; --variant server accepts that only
+# when the receipt says server AND the medium has no layer AND carries the fetch
+# manifest. The medium's own files (ESP, data partition) are still scanned.
+receipt_for() { printf '{"variant": "%s"}\n' "$2" > "$1.receipt.json"; }
+SERVER=1 build_image "$WORK/server.img" clean || { echo "fixture: server image" >&2; exit 1; }
+receipt_for "$WORK/server.img" server
+out="$($PY "$SCAN" --image "$WORK/server.img" --hash-file "$WORK/hashes.json" --variant server \
+       --receipt "$WORK/server.receipt.json" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -q '"variant": "server"' "$WORK/server.receipt.json"; then
+    pass "server medium + server receipt + --variant server passes (receipt records variant)"
+else fail "clean server medium did not pass (rc=$rc): $out"; fi
+out="$($PY "$SCAN" --image "$WORK/server.img" --hash-file "$WORK/hashes.json" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'no squashfs layer at all' <<<"$out" \
+    && pass "without --variant server a layerless medium still fails" || fail "layerless medium passed without --variant (rc=$rc)"
+receipt_for "$WORK/server.img" desktop
+out="$($PY "$SCAN" --image "$WORK/server.img" --hash-file "$WORK/hashes.json" --variant server 2>&1)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'records variant=desktop' <<<"$out" \
+    && pass "--variant server with a desktop receipt fails" || fail "desktop receipt accepted (rc=$rc): $out"
+rm -f "$WORK/server.img.receipt.json"
+out="$($PY "$SCAN" --image "$WORK/server.img" --hash-file "$WORK/hashes.json" --variant server 2>&1)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'cannot read the image receipt' <<<"$out" \
+    && pass "--variant server without a receipt fails" || fail "missing receipt accepted (rc=$rc)"
+receipt_for "$WORK/clean.img" server
+out="$($PY "$SCAN" --image "$WORK/clean.img" --hash-file "$WORK/hashes.json" --variant server 2>&1)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'carries squashfs layer' <<<"$out" \
+    && pass "a desktop medium with a server receipt fails --variant server" || fail "desktop medium passed as server (rc=$rc): $out"
+rm -f "$WORK/clean.img.receipt.json"
+SERVER=1 SERVER_NO_MANIFEST=1 build_image "$WORK/server-nomf.img" clean || exit 1
+receipt_for "$WORK/server-nomf.img" server
+out="$($PY "$SCAN" --image "$WORK/server-nomf.img" --hash-file "$WORK/hashes.json" --variant server 2>&1)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'no ncz-payload/ncz-fetch-payload.manifest' <<<"$out" \
+    && pass "a layerless medium without the fetch manifest is not a server medium" || fail "no-manifest medium passed (rc=$rc): $out"
+SERVER=1 ESP_LEAK=1 build_image "$WORK/server-leak.img" clean || exit 1
+receipt_for "$WORK/server-leak.img" server
+out="$($PY "$SCAN" --image "$WORK/server-leak.img" --hash-file "$WORK/hashes.json" --variant server 2>&1)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'known-secret' <<<"$out" \
+    && pass "a secret on a server medium's ESP is still caught" || fail "server medium leak missed (rc=$rc): $out"
+SERVER=1 build_image "$WORK/server-dleak.img" leaky || exit 1
+receipt_for "$WORK/server-dleak.img" server
+out="$($PY "$SCAN" --image "$WORK/server-dleak.img" --hash-file "$WORK/hashes.json" --variant server 2>&1)"; rc=$?
+[ "$rc" = 1 ] && grep -q 'known-secret' <<<"$out" \
+    && pass "a secret in a server medium's data partition (initrd, rescue tar, deb) is still caught" \
+    || fail "server data-partition leak missed (rc=$rc): $out"
+out="$($PY "$SCAN" --payload "$WORK/clean.img" --variant server --hash-file "$WORK/hashes.json" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && pass "--variant server with --payload is a usage error" || fail "--variant server --payload rc=$rc"
 
 if [ "$FAILS" -gt 0 ]; then echo "test-shipped-secret-scan: $FAILS finding(s)" >&2; exit 1; fi
 echo "test-shipped-secret-scan: PASS ✅"

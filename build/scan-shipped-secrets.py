@@ -1889,7 +1889,7 @@ def scan_layer_tree(rep: Report, scanner: Scanner, layer: str, root: str,
 
 
 def walk_image(img: str, scanner: Scanner, workdir: str, hashes_given: bool,
-               jobs: int) -> Report:
+               jobs: int, variant: str = "desktop") -> Report:
     import multiprocessing as mp
 
     rep = Report()
@@ -1901,7 +1901,7 @@ def walk_image(img: str, scanner: Scanner, workdir: str, hashes_given: bool,
         global _WORKER_SCANNER
         _WORKER_SCANNER = scanner
     try:
-        return _walk_image(img, scanner, workdir, rep, pool)
+        return _walk_image(img, scanner, workdir, rep, pool, variant)
     finally:
         if pool is not None:
             pool.terminate()
@@ -1909,7 +1909,7 @@ def walk_image(img: str, scanner: Scanner, workdir: str, hashes_given: bool,
 
 
 def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
-                pool) -> Report:
+                pool, variant: str = "desktop") -> Report:
     tools = dict(which_all(["unsquashfs", "zstd"]))
     for tool, path in tools.items():
         if tool in ("unsquashfs", "zstd") and not path:
@@ -1926,6 +1926,7 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
         parts = parse_gpt(fh)
         rep.counts["partitions"] = len(parts)
         layers: list[dict] = []
+        fetch_manifests: list[str] = []
 
         for part in parts:
             kind = part["kind"]
@@ -1942,6 +1943,8 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
             for f in files:
                 path = f["path"]
                 data = f["bytes"]
+                if path.endswith("/" + SERVER_FETCH_MANIFEST):
+                    fetch_manifests.append(path)
                 lk = layer_kind(path)
                 if lk:
                     layers.append({"path": path, "part": part["index"],
@@ -1969,6 +1972,21 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
             run_tasks(rep, pool, tasks)
             del tasks
 
+        if variant == "server":
+            # A Magnetar medium ships its layers OFF the medium (--payload
+            # scans them). Prove the medium really is one: no layer on it,
+            # and the fetch manifest that pins the payload is present.
+            if layers:
+                raise Unreadable(
+                    "--variant server, but the medium carries squashfs "
+                    f"layer(s) {sorted(l['path'] for l in layers)[:4]}: a "
+                    "server medium ships none")
+            if not fetch_manifests:
+                raise Unreadable(
+                    "--variant server, but the medium has no "
+                    f"ncz-payload/{SERVER_FETCH_MANIFEST}: it is not a server "
+                    "medium")
+            return rep
         if not layers:
             raise Unreadable(
                 "the image carries no squashfs layer at all: nothing was "
@@ -2015,6 +2033,19 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
 # archive is an error: an artifact the gate cannot open is never declared
 # clean.
 SQUASHFS_MAGIC = b"hsqs"
+# What a Magnetar medium carries instead of its layers (write-usb-image.py).
+SERVER_FETCH_MANIFEST = "ncz-fetch-payload.manifest"
+
+
+def receipt_variant(img: str) -> str:
+    """The variant the writer recorded next to the image (<img>.receipt.json);
+    Unreadable when the receipt is missing or unreadable."""
+    path = img + ".receipt.json"
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return str(json.load(fh).get("variant", "desktop"))
+    except (OSError, ValueError) as exc:
+        raise Unreadable(f"cannot read the image receipt {path}: {exc}")
 PAYLOAD_TAR_BATCH = 256 << 20     # bytes of tar members held before a flush
 
 
@@ -2175,6 +2206,10 @@ def default_hash_file(root: str) -> str:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     ap.add_argument("--image", help="the finished .img")
+    ap.add_argument("--variant", choices=("desktop", "server"), default="desktop",
+                    help="server: the image is a Magnetar medium; its receipt "
+                    "must say so, it must carry no squashfs layer and must "
+                    "carry the fetch manifest (scan its payload with --payload)")
     ap.add_argument("--payload", action="append", default=[],
                     help="a shipped artifact that is NOT on the medium "
                     "(Magnetar: base.squashfs, the asset bundle); repeatable. "
@@ -2200,6 +2235,8 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if bool(args.image) == bool(args.payload):
         ap.error("give exactly one of --image or --payload (payload may repeat)")
+    if args.variant == "server" and not args.image:
+        ap.error("--variant server applies to --image")
 
     def say(msg: str) -> None:
         if not args.quiet:
@@ -2250,7 +2287,13 @@ def main(argv=None) -> int:
             root, "manifests", "secret-scan-allow.tsv"))
         scanner = Scanner(hashes, not args.no_shapes, allow)
         if args.image:
-            report = walk_image(args.image, scanner, scratch, hashes_given, args.jobs)
+            if args.variant == "server":
+                rv = receipt_variant(args.image)
+                if rv != "server":
+                    raise Unreadable(f"--variant server, but the image receipt "
+                                     f"records variant={rv}")
+            report = walk_image(args.image, scanner, scratch, hashes_given,
+                                args.jobs, args.variant)
         else:
             report = walk_payloads(args.payload, scanner, scratch, args.jobs)
     except Unreadable as exc:
@@ -2267,6 +2310,8 @@ def main(argv=None) -> int:
         subject = {"image": os.path.basename(args.image),
                    "image_bytes": (os.path.getsize(args.image)
                                    if os.path.exists(args.image) else 0)}
+        if args.variant == "server":
+            subject["variant"] = "server"
     else:
         subject = {"payloads": [{"name": os.path.basename(p),
                                  "bytes": (os.path.getsize(p) if os.path.exists(p) else 0)}
