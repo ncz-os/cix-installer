@@ -70,6 +70,7 @@ file:///cdrom` and exits immediately for `BUILD_VARIANT=server|headless`;
 `post-install/24-apt-sources.sh` already treats a missing pool as a warning and
 falls back to the network sources. Shipping 1.8 GB of packages nothing on a
 server image can install was the single largest reason the medium was ~3.4 GB.
+(Superseded: see the correction and the decision below.)
 
 > **Correction (2026-10-26, first real server installs).** That premise is
 > wrong. `20-desktop.sh` is not the only consumer of the on-media regular
@@ -83,8 +84,52 @@ server image can install was the single largest reason the medium was ~3.4 GB.
 > `libtext-iconv-perl` and `refind` are absent on both arches, and
 > `ncz-apt-policy` on amd64. A server medium therefore needs a regular apt
 > closure from somewhere (on the medium, in the fetched payload, or a computed
-> subset). Which one is an open decision; until it is made, a server medium
-> fetches and verifies its payload and then stops at that FATAL.
+> subset). Resolved for Preview4 by option A (next section).
+
+## Decision: A for Preview4 (orchestrator 2026-10-26, pending operator review); B is the long-term target
+
+- **A (Preview4):** the server medium carries the offline apt closure
+  (`dists/` + `pool/`, as desktop does). It leaves out only the squashfs
+  layers and the assets, which the install fetches and verifies.
+- **B (long-term):** fetch the closure as a third pinned payload artifact and
+  present it to the install as `/cdrom`, so the medium shrinks again.
+
+What A costs, from the Preview4 receipts (`medium_size`):
+
+| | amd64 | arm64 |
+|---|---:|---:|
+| image | 2,837,446,656 B | 2,536,505,344 B |
+| data partition | 2,617,245,696 B | 2,415,919,104 B |
+| offline pool | 1,782 debs, 1,878,201,360 B | 1,822 debs, 1,529,373,396 B |
+
+The gates enforce A: `scan-shipped-secrets.py --variant server` and
+`forky-provenance.py --variant server` fail a server medium that carries no
+regular `.deb` under `pool/` or no regular `dists/<suite>/<component>/binary-<arch>/Packages`
+index, and still fail one that carries a squashfs layer.
+
+### What the install takes from the pool
+
+Measured on the Preview4 amd64 server install (the installed target's hook
+logs, 498 `Setting up` lines, i.e. what the install set up on top of the
+base layer):
+
+| consumer | packages |
+|---|---|
+| r159 stub | `libtext-iconv-perl` (debconf needs it before apt-setup) |
+| apt-setup / `late.sh` | the `file:///cdrom` source itself (`apt-get update`) |
+| `13-firmware-bom.sh` | the 40-package firmware BOM (`firmware-linux-free`, `firmware-misc-nonfree`, `firmware-realtek`, `firmware-iwlwifi`, ...) |
+| `24-apt-sources.sh` | `gnupg` (+ `gpg`, `dirmngr`, ...), `ncz-apt-policy` |
+| `33-network.sh` | `wpasupplicant` |
+| `34-firewall.sh` | `nftables` |
+| `40-claude-code.sh` | `nodejs`, `npm` and about 300 `node-*` dependencies |
+| `44-rtc-sync.sh` | `util-linux-extra` |
+| `47-llm-stack.sh` | `mesa-vulkan-drivers`, `vulkan-tools`, `clinfo`, `glmark2-*` and their GL/X11 libraries |
+| `92-apparmor-enable.sh` | `apparmor`, `apparmor-utils`, `apparmor-profiles` |
+| `93-zram-swap.sh` | `systemd-zram-generator` |
+
+Some of these hooks are not server-specific (`40-claude-code.sh`,
+`47-llm-stack.sh`); whether a server install should run them is a separate
+question for option B, where the pool's size becomes the payload's.
 
 ## The install-time flow
 
@@ -453,3 +498,15 @@ sha256 matches the pins, then install from the published URL.
   artifacts with GNU wget and verified them (amd64 4 s, arm64 18 s), unpacked
   the base layer, then stopped at the missing on-media apt repository (see the
   correction above). No server medium has completed an install yet.
+- 2026-10-26, Preview4 `d6c21317` (option A, fetcher tees to ttyS0), both
+  arches: image, secret scan and provenance PASS with the pool on the medium
+  (amd64: 6,901 packages checked, 0 failures). In the `server` set both
+  installs completed (amd64 3 min, arm64 7 min). The installed-target checks
+  passed, and the gate confirmed that the payload was fetched and its sha256
+  verified, that `ssh.service` is enabled, and that there is no telnet
+  surface. amd64 `server-offline-negative` PASS. Remaining failure: the installed rEFInd menu
+  is the desktop one (amd64 4 entries, arm64 5) instead of Console + Rescue
+  Partition; `assets/refind/ncz-refind-refresh.sh` picks the server menu only
+  from an `NCZ_VARIANT` environment variable that the install (and a later
+  kernel upgrade) does not set.
+
