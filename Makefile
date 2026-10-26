@@ -748,6 +748,7 @@ parity:
 	build/test-greeter-output-mode.sh
 	build/test-boot-splash-select.sh
 	bash build/test-console-font-autosize.sh
+	bash build/test-guest-ext4-recover.sh
 	python3 build/test_display_scale.py
 	build/test-chromium-icon.sh
 	build/test-libpeas-plugin-icon.sh

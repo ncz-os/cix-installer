@@ -486,6 +486,7 @@ build/test-boot-sequence.sh	common	-	regression tests for installer NIC-wait/clo
 build/test-greeter-output-mode.sh	common	-	regression test: greeter labwc autostart never scans out 4K, keeps the panel aspect via ncz-display-scale, falls back to the fixed 1080p loop
 build/test-boot-splash-select.sh	common	-	regression test: 60-boot-splash.sh selects the KMS splash (singularity-boot-splash) by canonical name, never the GTK4/Wayland session splash (singularity-splash) that cannot paint at early boot
 build/test-console-font-autosize.sh	common	-	regression test: VT font autosize skips a graphics-mode console or missing display with exit 0, sets the font on a text console, still fails on real setfont errors; dummy console (deferred fbcon takeover) exits 0 and the udev rule re-runs the unit; unit ordered before the boot splash and greetd
+build/test-guest-ext4-recover.sh	common	-	regression test: a needs_recovery guest root (bad inode-bitmap checksum) is unreadable by debugfs until lib/guest-ext4.sh repairs the scratch copy; the gate recovers before the first-boot dump
 build/test-chromium-icon.sh	common	-	chromium icon assets (Cygnus colours, crisp) and the 61 hook (divert + install + idempotent, package before/after/upgrade)
 build/test-run-all-baked-allowlist.sh	common	-	run-all.sh in baked mode against every hook on both hooks.list files: no ORPHAN, every listed hook runs
 build/test-idle-lock-order.sh	common	-	regression test for the idle-lock ordering hook (lock default strictly after the saver, tracks the schema, idempotent, skips without the lockscreen schema)
@@ -629,6 +630,7 @@ build/lib/reproducible.sh	common	-	shell surface of the determinism contract (en
 build/lib/compare-lib.sh	common	-	normalising helpers for compare-images (squashfs/fat/tar/json/tree)
 build/lib/priv.sh	common	-	the ONE privilege model: root / passwordless sudo / sudo -S with a sudo password on stdin (no FIFO)
 build/lib/ncz-site.sh	common	-	per-site settings lookup (env var, else ~/.config/ncz/<name>): store mount points, build hosts, push targets; nothing site-specific in code
+build/lib/guest-ext4.sh	common	-	KVM gate helper: e2fsck -fy a scratch copy of the timed-out guest root so debugfs can read the first-boot report
 build/test-build-determinism.sh	common	-	unit proof of the determinism primitives (+ negative controls) and compare-images both directions
 build/test-build-image.sh	common	-	CLI/plan/fingerprint/both-arch orchestration tests for the single entrypoint
 build/make-secret-hashes.py	common	-	salted-SHA-256 hash-list generator for the shipped-artifact credential gate (run on a trusted machine; never ships plaintext)

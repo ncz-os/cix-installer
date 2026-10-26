@@ -202,6 +202,8 @@ SGDISK="$(command -v sgdisk || echo /sbin/sgdisk)"
 [ -x "$SGDISK" ] || { echo "GATE FAIL: sgdisk not installed" >&2; exit 2; }
 DEBUGFS="$(command -v debugfs || echo /sbin/debugfs)"
 [ -x "$DEBUGFS" ] || { echo "GATE FAIL: debugfs not installed" >&2; exit 2; }
+# shellcheck source=lib/guest-ext4.sh
+. "$SCRIPT_DIR/lib/guest-ext4.sh" || { echo "GATE FAIL: build/lib/guest-ext4.sh missing" >&2; exit 2; }
 
 # NEVER /tmp: it is a RAM-backed tmpfs on several build hosts and this
 # copies a multi-GiB image. Same rule as write-usb-image.py's --work-dir.
@@ -1235,6 +1237,12 @@ else
         FB_E=$("$SGDISK" -i "$FB_P" "$FB_DISK" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
         if [ -n "$FB_S" ] && [ -n "$FB_E" ] && qemu-img convert --image-opts -S 4k -O raw \
             "driver=raw,file.driver=file,file.filename=$FB_DISK,offset=$((FB_S * 512)),size=$(((FB_E - FB_S + 1) * 512))" "$FB_ROOT"; then
+            # The guest was stopped by timeout, so its root is usually needs_recovery and debugfs cannot open it
+            # until the journal is replayed (lib/guest-ext4.sh). Only the scratch copy is touched.
+            if ! ncz_guest_ext4_recover "$FB_ROOT" "$WORK/first-boot-e2fsck.log"; then
+                rm -f "$FB_DISK" "$FB_ROOT"
+                fail "e2fsck could not recover the installed root filesystem copy, so the first-boot report cannot be read (see $WORK/first-boot-e2fsck.log)"
+            fi
             "$DEBUGFS" -R "dump /var/log/ncz-first-boot-failed.txt $FBR" "$FB_ROOT" >/dev/null 2>&1 || true
             GHL="$WORK/gpu-health.log"; rm -f "$GHL"
             "$DEBUGFS" -R "dump /var/log/ncz-gpu-health.log $GHL" "$FB_ROOT" >/dev/null 2>&1 || true
