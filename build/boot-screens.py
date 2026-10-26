@@ -85,8 +85,9 @@ def preseed_from_initrd(img, off, refind_text):
             if target == "preseed.cfg" and exact:
                 return entry["payload"].decode("utf-8", "replace"), where
         return "", where
-    except (OSError, RuntimeError, ValueError, ImportError, AttributeError, KeyError) as exc:
-        # a missing or malformed initrd (CpioError is a ValueError) is reported by the caller's exit, with this reason
+    except (OSError, RuntimeError, ValueError) as exc:
+        # a missing or malformed initrd (CpioError is a ValueError) is reported by the caller's exit, with this
+        # reason; a broken parser API (ImportError/AttributeError) is a harness bug and raises instead
         return "", f"{where} ({exc})"
     finally:
         if os.path.exists(local):

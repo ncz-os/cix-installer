@@ -25,6 +25,9 @@ PASS=0; FAIL=0
 ok()  { echo "  PASS  $1"; PASS=$((PASS + 1)); }
 bad() { echo "  FAIL  $1"; FAIL=$((FAIL + 1)); }
 
+if [ "$(uname -s)" != Linux ]; then
+    echo "test-guest-ext4-recover: SKIP (Linux only)"; exit 0
+fi
 MKE2FS="$(command -v mke2fs || echo /sbin/mke2fs)"
 DEBUGFS="$(command -v debugfs || echo /sbin/debugfs)"
 if [ ! -x "$MKE2FS" ] || [ ! -x "$DEBUGFS" ]; then

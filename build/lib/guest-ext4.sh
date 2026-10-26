@@ -12,8 +12,10 @@
 # ncz_guest_ext4_recover IMG LOG
 #   Replay the journal and repair IMG in place with e2fsck -fy. IMG must be a
 #   scratch copy (the gate's .fb-root.raw), never the guest disk itself.
-#   Returns 0 when e2fsck left the filesystem consistent (exit 0, 1 or 2),
-#   non-zero otherwise; e2fsck's output goes to LOG.
+#   Returns 0 when e2fsck left the filesystem consistent: exit 0 (nothing to
+#   fix), 1 (errors corrected) or 2 (corrected, "reboot" -- meaningless for an
+#   offline scratch copy). 4 and above (uncorrected, operational error) return
+#   non-zero. e2fsck's output goes to LOG.
 ncz_guest_ext4_recover() {
     local img="$1" log="$2" e2fsck rc
     e2fsck="$(command -v e2fsck || echo /sbin/e2fsck)"
