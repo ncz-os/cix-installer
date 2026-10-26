@@ -805,6 +805,7 @@ parity:
 	build/test-fwupd-i2c-mask.sh
 	build/test-apt-sources-offline-canary.sh
 	build/test-dkms-prep-keep-going.sh
+	build/test-headers-prepare-pristine.sh
 	build/test-dkms-prep-genksyms.sh
 	build/test-stale-singularity-prune.sh
 	build/test-kernel-purity-pin.sh
