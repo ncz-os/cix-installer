@@ -208,7 +208,7 @@ def main():
         return 1
     failures = 0
     for ko in kos:
-        rel = os.path.relpath(ko, a.tree) if a.tree and ko.startswith(a.tree) else ko
+        rel = os.path.relpath(ko, a.tree) if a.tree and ko.startswith(a.tree.rstrip(os.sep) + os.sep) else ko
         try:
             size, magic = module_abi(ko)
         except (OSError, ElfError) as exc:
