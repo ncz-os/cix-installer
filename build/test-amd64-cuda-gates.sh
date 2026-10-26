@@ -801,6 +801,26 @@ cs dkms-stage "$CS/usr/src/nvidia-615.80.01" >/dev/null
 mksrc "$CS/usr/src/nvidia-615.80.05" 615.80.05 defect; sed -i 's/^PACKAGE_VERSION=.*/PACKAGE_VERSION="615.80.05"   # point release/' "$CS/usr/src/nvidia-615.80.05/dkms.conf"
 cs dkms-stage "$CS/usr/src/nvidia-615.80.05" >/dev/null
 [ -e "$CS/etc/dkms/nvidia-615.80.05.conf" ] && ok "content: dkms.conf values with a trailing comment are parsed" || nok "content: trailing comment broke dkms.conf parsing"
+# two sets on the same file are checked in order, cumulatively, as DKMS applies them
+rm -rf "$CS/patches"; shipped; mkdir -p "$CS/patches/nvidia/0002-on-top"
+printf 'kernel-open/nvidia/os-interface.c\nNCZ_SECOND_SET_MARKER\n' > "$CS/patches/nvidia/0002-on-top/fixed-upstream"
+cat > "$CS/patches/nvidia/0002-on-top/ncz-0002-on-top.patch" <<'P2EOF'
+--- a/kernel-open/nvidia/os-interface.c
++++ b/kernel-open/nvidia/os-interface.c
+@@ -10,4 +10,5 @@
+ #if defined(NV_DMEM_CGROUP_INIT_PRESENT)
+     struct dmem_cgroup_init init = { .size = size };
++    /* NCZ_SECOND_SET_MARKER */
+     void *region = dmem_cgroup_register_region(&init, "%s", name);
+ #else
+P2EOF
+mksrc "$CS/usr/src/nvidia-615.80.06" 615.80.06 defect
+cs dkms-stage "$CS/usr/src/nvidia-615.80.06" >/dev/null
+eq "content: a set that applies on top of an earlier set is accepted, in DKMS order" "$(sed -n 's/^PATCH\[.*\]="\(.*\)"$/\1/p' "$CS/etc/dkms/nvidia-615.80.06.conf" 2>/dev/null | tr '\n' ' ')" "ncz-0001-dmem-cgroup-init-linux-7.3.patch ncz-0002-on-top.patch "
+rm -rf "$CS/patches/nvidia/0001-dmem-cgroup-init-linux-7.3"
+cs dkms-stage "$CS/usr/src/nvidia-615.80.06" >/dev/null
+[ ! -e "$CS/etc/dkms/nvidia-615.80.06.conf" ] && ok "content: ... and refused when the set it depends on is not applied" || nok "content: dependent set accepted on its own"
+rm -rf "$CS/patches"; shipped
 # guards: no marker, unsafe marker, vendor patches already in dkms.conf
 mksrc "$CS/usr/src/nvidia-615.80.04" 615.80.04 defect
 rm -f "$CS/patches/nvidia/"*/fixed-upstream

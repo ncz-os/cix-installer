@@ -208,7 +208,9 @@ scratch_dir() { install -d -m0700 "$STATE/tmp" 2>/dev/null; mktemp -d "$STATE/tm
 
 # select_patches SRC MODULE VERSION -> the patch files (absolute, in apply order)
 # that SRC needs and that apply to it exactly; logs every decision. SRC is never
-# modified: the sets are applied to a scratch copy of the files they touch.
+# modified: the sets are applied to a scratch copy of the files they touch, in set
+# order and cumulatively, exactly as DKMS applies the PATCH[] list (in that order)
+# to the pristine source. A refused set is rolled back before the next is checked.
 select_patches() {
     local src=$1 module=$2 ver=$3 set name f p out mfile marker work ok
     [ -d "$NV_DKMS_PATCHES/$module" ] || return 0
@@ -299,16 +301,18 @@ stage_for_src() {
 
 # stage_from_deb DEB: verify the driver source inside a *-dkms .deb before dpkg unpacks it
 stage_from_deb() {
-    local deb=$1 x src
+    local deb=$1 x src rc=0
     x=$(scratch_dir nvdeb) || { log "dkms: no scratch space in $STATE/tmp"; return 1; }
     if dpkg-deb --fsys-tarfile "$deb" 2>/dev/null | tar -x -C "$x" --wildcards './usr/src/*' 2>/dev/null; then
         for src in "$x"/usr/src/*/; do
-            [ -r "$src/dkms.conf" ] && stage_for_src "${src%/}"
+            [ -r "$src/dkms.conf" ] || continue
+            stage_for_src "${src%/}" || rc=1
         done
     else
-        log "dkms: cannot read the driver source in $(basename "$deb")"
+        log "dkms: cannot read the driver source in $(basename "$deb")"; rc=1
     fi
     rm -rf "$x"
+    return $rc
 }
 
 # --------------------------------------------------------------- build records
@@ -678,7 +682,7 @@ do_run() {
                 0) built=$v; break ;;
                 2) continue ;;
                 *) set_pin "$(family_pin)" "Family default (restored after an unfinished attempt)."
-                   [ "$tried" -gt 1 ] && remove_unbuildable
+                   remove_unbuildable   # acts only when the module package is left unconfigured
                    return "$rc" ;;
             esac
         done
