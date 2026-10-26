@@ -32,7 +32,9 @@ done
 fail=0; used=""
 while IFS= read -r hit; do
     f=${hit%%:*}; rest=${hit#*:}; n=${rest%%:*}; line=${rest#*:}
-    case "$line" in [[:space:]]*'#'*|'#'*) l2=$(printf '%s' "$line" | sed 's/^[[:space:]]*//'); case "$l2" in '#'*) continue ;; esac ;; esac
+    # a whole-line comment (first non-blank character '#') is prose; a trailing comment is not exempt
+    l2=$(printf '%s' "$line" | sed 's/^[[:space:]]*//')
+    case "$l2" in '#'*) continue ;; esac
     allowed=0; idx=0
     while IFS=$'\t' read -r ap are _reason; do
         case "$ap" in ''|'#'*) continue ;; esac

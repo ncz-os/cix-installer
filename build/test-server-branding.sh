@@ -310,8 +310,12 @@ printf '\necho "NCZ-OS 26.10 Cygnus"\n' >> "$W/cc/preseed/region-chooser.sh"
 _o=$(NCZ_CODENAME_CHECK_ROOT="$W/cc" bash "$C" 2>&1); _r=$?
 [ "$_r" != 0 ] && printf '%s' "$_o" | grep -q 'preseed/region-chooser.sh' && ok "check-server-codename: a hard-coded Cygnus in a d-i helper fails" || bad "check-server-codename: injected literal not caught: $_o"
 cp "$ROOT/preseed/region-chooser.sh" "$W/cc/preseed/region-chooser.sh"
-printf '\n# the Cygnus prose in a comment is fine\n' >> "$W/cc/preseed/region-chooser.sh"
+printf '\n# the Cygnus prose in a comment is fine\n    # indented Cygnus prose too\n' >> "$W/cc/preseed/region-chooser.sh"
 NCZ_CODENAME_CHECK_ROOT="$W/cc" bash "$C" >/dev/null 2>&1 && ok "check-server-codename: comment prose is not a hit" || bad "check-server-codename: a comment was flagged"
+printf '    echo "NCZ-OS 26.10 Cygnus" # a trailing comment does not exempt the code\n' >> "$W/cc/preseed/region-chooser.sh"
+_o=$(NCZ_CODENAME_CHECK_ROOT="$W/cc" bash "$C" 2>&1); _r=$?
+[ "$_r" != 0 ] && printf '%s' "$_o" | grep -q 'region-chooser.sh' && ok "check-server-codename: code with a trailing comment is still a hit" || bad "check-server-codename: trailing-comment code passed: $_o"
+cp "$ROOT/preseed/region-chooser.sh" "$W/cc/preseed/region-chooser.sh"
 printf 'preseed/late.sh\tnothing-matches-this\tstale\n' >> "$W/cc/manifests/server-codename-allowlist.tsv"
 _o=$(NCZ_CODENAME_CHECK_ROOT="$W/cc" bash "$C" 2>&1); _r=$?
 [ "$_r" != 0 ] && printf '%s' "$_o" | grep -q 'matches nothing' && ok "check-server-codename: a stale allow-list row fails" || bad "check-server-codename: stale row not caught: $_o"

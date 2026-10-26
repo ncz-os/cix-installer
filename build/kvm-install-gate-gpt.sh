@@ -156,7 +156,11 @@ fi
 # the release's. Prints one line per finding; returns 1 on any failure.
 # build/test-server-branding.sh runs this block on fixtures.
 ncz_gate_server_brand() {
-    local osr="$1" iss="$2" rconf="$3" bad=0 k l n_all n_srv
+    local osr="$1" iss="$2" rconf="$3" bad=0 k l n_all n_srv f
+    # A file that was not extracted is reported as such, not as a branding mismatch.
+    for f in "$osr" "$iss" "$rconf"; do
+        [ -s "$f" ] || { echo "FAIL: $(basename "$f") was not extracted from the installed system (empty or missing: $f)"; bad=1; }
+    done
     for k in PRETTY_NAME VARIANT; do
         l=$(grep -m1 "^$k=" "$osr" 2>/dev/null || true)
         case "$l" in

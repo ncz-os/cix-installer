@@ -123,17 +123,18 @@ if [ "$VARIANT" = server ]; then
     judge_text_server || rc=1
     # What the operator reported on the first real server install (2026-10-26, cyclops): the desktop codename in
     # the dialogs and the desktop component selector. Judged on every captured screen from the first dialog on.
-    _srv_screens=$(ls "$WORK"/serial-screens/*.txt 2>/dev/null)
-    if [ -z "$_srv_screens" ]; then
+    _srv_screens=()
+    for _s in "$WORK"/serial-screens/*.txt; do [ -f "$_s" ] && _srv_screens+=("$_s"); done
+    if [ "${#_srv_screens[@]}" = 0 ]; then
         echo "UI CHECK FAIL: no installer screens were captured" >&2; rc=1
     else
-        _hit=$(grep -l "Cygnus" $_srv_screens 2>/dev/null | head -3 | tr '\n' ' ')
+        _hit=$(grep -l -- "Cygnus" "${_srv_screens[@]}" 2>/dev/null | head -3 | tr '\n' ' ')
         [ -z "$_hit" ] || { echo "UI CHECK FAIL: a Magnetar Server installer screen names the desktop codename 'Cygnus': $_hit" >&2; rc=1; }
-        _hit=$(grep -lE "optional components|Full Singularity desktop" $_srv_screens 2>/dev/null | head -3 | tr '\n' ' ')
+        _hit=$(grep -lE -- "optional components|Full Singularity desktop" "${_srv_screens[@]}" 2>/dev/null | head -3 | tr '\n' ' ')
         [ -z "$_hit" ] || { echo "UI CHECK FAIL: the desktop component selector appeared on a Magnetar Server medium: $_hit" >&2; rc=1; }
-        grep -q "Magnetar Server - Step 1 of 7: Choose your country" $_srv_screens 2>/dev/null \
+        grep -q -- "Magnetar Server - Step 1 of 7: Choose your country" "${_srv_screens[@]}" 2>/dev/null \
             || { echo "UI CHECK FAIL: the first server dialog is not titled 'Magnetar Server - Step 1 of 7: Choose your country'" >&2; rc=1; }
-        grep -qE "NCZ-OS [0-9.]+ Magnetar Server \|" $_srv_screens 2>/dev/null \
+        grep -qE -- "NCZ-OS [0-9.]+ Magnetar Server \|" "${_srv_screens[@]}" 2>/dev/null \
             || { echo "UI CHECK FAIL: no server dialog carries the full edition name 'NCZ-OS 26.10 Magnetar Server' on its id line" >&2; rc=1; }
     fi
     _ncz_rule0_missing="the region dialog (answer rule 0 on a server medium) was never reached/answered"
@@ -161,8 +162,8 @@ if [ -z "$_review" ]; then
     echo "UI CHECK FAIL: the erase review screen was never captured" >&2; rc=1
 else
     if [ "$VARIANT" = server ]; then
-        # The server record is fixed (preseed/component-selector.sh): the rescue partition and nothing else.
-        # The server record is fixed (rescue partition only), so the review lists no components, and it must
+        # The server record is fixed (preseed/component-selector.sh: rescue partition only), so the review lists no
+        # components, and it must
         # state the network requirement before the erase.
         ! grep -qE "Components:|Singularity|desktop" "$_review" \
             || { echo "UI CHECK FAIL: the Magnetar Server review lists desktop components: $(grep -oE 'Components:.*|.*Singularity.*' "$_review" | head -1)" >&2; rc=1; }
