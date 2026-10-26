@@ -61,6 +61,7 @@ tree() {
         stuck) printf 'modules_prepare:\n\t@printf "/* no BTF */\\n" > include/generated/autoconf.h\n\t@chmod 0444 include/generated/autoconf.h\n\t@chmod 0555 include/generated\n' > "$d/Makefile" ;;
         create) printf 'modules_prepare:\n\t@printf "deps\\n" > include/config/auto.conf.cmd\n' > "$d/Makefile" ;;
         createdir) printf 'modules_prepare:\n\t@mkdir -p include/config/auto.conf.cmd/x\n' > "$d/Makefile" ;;
+        exit3) printf 'modules_prepare:\n\t@exit 3\n' > "$d/Makefile" ;;
         createstuck) printf 'modules_prepare:\n\t@printf "deps\\n" > include/config/auto.conf.cmd\n\t@chmod 0555 include/config\n' > "$d/Makefile" ;;
     esac
     cp -p "$d/.config" "$d/.config.orig"; cp -p "$d/include/generated/autoconf.h" "$d/autoconf.orig"
@@ -95,6 +96,8 @@ for f in $COPIES; do
     else
         echo "SKIP: $n: unrestorable case needs a non-root user (root ignores the file modes)"
     fi
+    D="$T/$n.exit3"; tree "$D" exit3; run "$D"
+    [ "$RC" = 2 ] && ok "$n: make's own status 3 is not reported as 'not restored'" || no "$n: make exit 3 returned $RC"
     # under set -e with the status NOT tested: still restores and returns
     D="$T/$n.errexit"; tree "$D" drift
     printf 'x\n' | bash -ec ". '$T/$n.fn'; ncz_prepare_pristine '$D' '$D/prep.log'; echo unreachable-on-nonzero" > "$D/out" 2>&1; RC=$?

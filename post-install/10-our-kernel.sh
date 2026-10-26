@@ -398,6 +398,8 @@ ncz_prepare_pristine() {
     _np_off=$(($({ wc -c <"$_np_log"; } 2>/dev/null || echo 0) + 1))
     _np_rc=0
     make -k -C "$_np_b" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare </dev/null >>"$_np_log" 2>&1 || _np_rc=$?
+    # 3 is reserved for "not restored"; GNU make never exits 3, but keep it unambiguous
+    if [ "$_np_rc" = 3 ]; then _np_rc=2; fi
     _np_bad=0
     for _np_f in $NCZ_KCONFIG_FILES; do
         if [ ! -f "$_np_snap/$_np_f" ]; then
