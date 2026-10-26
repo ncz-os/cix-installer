@@ -12,7 +12,10 @@
 #      modprobe/journalctl/systemd-detect-virt: a loader rejection fails, a
 #      clean load passes, a blacklisted module is a skip, real hardware is
 #      left untouched.
-#   3. wiring: kernel .deb packaging and the KVM gate call the checks.
+#   3. verify-module-abi.py --probe-report (the KVM gate's verdict on the
+#      probe lines): clean passes; FAIL, kernel-log rejection, skipped probe,
+#      missing summary and failed>0 fail.
+#   4. wiring: kernel .deb packaging and the KVM gate call the checks.
 #
 # Real modules: NCZ_MODULE_ABI_BAD_TREE / NCZ_MODULE_ABI_GOOD_TREE, when set,
 # are lib/modules/<kver> trees that must FAIL / PASS (proof runs, not CI).
@@ -135,20 +138,38 @@ stubs "$T/s3" 0 '[ "$1" = panthor ] && { echo "modprobe: ERROR: could not insert
 out=$(probe "$T/s3" "$T/rt")
 pexpect "probe: module_blacklist= is a skip, not a failure" '^# module-abi: panthor SKIP blacklisted.*' "$out"
 pexpect "probe: blacklisted summary" '^# module-abi-probe=modules:2 failed:0 skipped:1' "$out"
+stubs "$T/s5" 0 'echo "modprobe: ERROR: could not insert '"'"'$1'"'"': Invalid argument" >&2; exit 1'
+out=$(probe "$T/s5" "$T/rt")
+pexpect "probe: an init failure that is not a rejection is INFO, not FAIL" '^# module-abi: mali_kbase INFO accepted, init failed' "$out"
+pexpect "probe: init failures do not count as failed" '^# module-abi-probe=modules:2 failed:0 skipped:0' "$out"
 stubs "$T/s4" 1 'echo LOADED >> "'"$T"'/s4/loaded"; exit 0'
 out=$(probe "$T/s4" "$T/rt")
 pexpect "probe: real hardware is left alone" '^# module-abi-probe=skipped \(not a VM guest\)' "$out"
 [ ! -e "$T/s4/loaded" ] && ok "probe: nothing was loaded outside a VM" || no "probe loaded a module outside a VM"
 
-# --- 3. wiring ------------------------------------------------------------
+# --- 3. judging the probe report (what the KVM gate runs) -----------------
+judge() {  # judge <name> <want-rc> <regex> <report lines...>
+    local name=$1 want=$2 re=$3; shift 3
+    printf '%s\n' "# first boot report" "$@" "# end" > "$T/fbr"
+    expect "$name" "$want" "$re" --probe-report "$T/fbr"
+}
+judge "report: clean summary passes" 0 'PASS \(probe: modules:3 failed:0 skipped:1\)' \
+    "# module-abi: mali_kbase OK (loaded)" "# module-abi: panthor SKIP blacklisted on this boot entry" "# module-abi-probe=modules:3 failed:0 skipped:1"
+judge "report: a FAIL line fails" 1 'refused out-of-tree modules' \
+    "# module-abi: mali_kbase FAIL rc=1 Exec format error" "# module-abi-probe=modules:3 failed:1 skipped:0"
+judge "report: a kernel-log rejection alone fails" 1 'refused out-of-tree modules' \
+    "# module-abi: mali_kbase INFO accepted, init failed" "# module-abi-reject: module mali_kbase: .gnu.linkonce.this_module section size must match" "# module-abi-probe=modules:1 failed:0 skipped:0"
+judge "report: a skipped probe fails (the gate guest is a VM)" 1 'probe skipped' "# module-abi-probe=skipped (not a VM guest)"
+judge "report: no summary fails" 1 'no probe summary' "# module-abi: mali_kbase OK (loaded)"
+judge "report: failed>0 in the summary fails" 1 "probe summary 'modules:2 failed:1" "# module-abi-probe=modules:2 failed:1 skipped:0"
+
+# --- 4. wiring ------------------------------------------------------------
 grep -q 'verify-module-abi.py" "$root/usr/lib/modules/$kver"' "$ROOT/build/build-kernel-debs.sh" \
     && ok "kernel .deb packaging runs verify-module-abi.py" || no "build-kernel-debs.sh does not run verify-module-abi.py"
 grep -q 'verify-module-abi.py" --allow-empty "$WORK/installed-modules/$DEFAULT_KVER"' "$ROOT/build/kvm-install-gate-gpt.sh" \
     && ok "KVM gate runs the static check on the installed root" || no "KVM gate does not run verify-module-abi.py"
-grep -qF "grep -qE '^# module-abi: .* FAIL|^# module-abi-reject: ' \"\$FBR\"" "$ROOT/build/kvm-install-gate-gpt.sh" \
-    && ok "KVM gate fails on probe rejections" || no "KVM gate does not judge the probe lines"
-grep -q 'no module ABI probe result' "$ROOT/build/kvm-install-gate-gpt.sh" \
-    && ok "KVM gate fails when the probe did not run" || no "KVM gate accepts a missing probe"
+grep -q 'verify-module-abi.py" --probe-report "$FBR"' "$ROOT/build/kvm-install-gate-gpt.sh" \
+    && ok "KVM gate judges the probe report with --probe-report" || no "KVM gate does not judge the probe report"
 
 echo "test-module-abi-gate: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -177,6 +177,9 @@ def reference_layout(staging, kver, explicit):
             raise ElfError(f"no {prefix}*.ko in {tgz}")
     if THIS_MODULE not in sections:
         raise ElfError(f"reference {where} has no {THIS_MODULE} section")
+    vm = vermagic(sections)
+    if vm is None or not (vm == kver or vm.startswith(kver + " ")):
+        raise ElfError(f"reference {where} has vermagic {vm!r}, not {kver}")
     return len(sections[THIS_MODULE]), where
 
 

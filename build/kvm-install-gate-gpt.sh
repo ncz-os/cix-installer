@@ -1368,14 +1368,12 @@ else
     rm -rf "$WORK/installed-modules"
     [ "$_abi_rc" = 0 ] \
         || fail "out-of-tree modules on the installed root do not match the booted kernel $DEFAULT_KVER (struct module size or vermagic; see above)"
-    if grep -qE '^# module-abi: .* FAIL|^# module-abi-reject: ' "$FBR"; then
-        grep -E '^# module-abi' "$FBR" >&2
-        fail "the booted kernel refused out-of-tree modules on first boot (ncz-module-abi-probe; see above)"
-    elif grep -q '^# module-abi-probe=modules:' "$FBR"; then
-        echo "    module ABI probe: $(sed -n 's/^# module-abi-probe=//p' "$FBR" | tail -1)"
-    else
-        fail "the first-boot report has no module ABI probe result (ncz-module-abi-probe missing or did not run in the guest)"
-    fi
+    # Line format: see verify-module-abi.py --probe-report (a skipped probe fails).
+    _abi_rc=0
+    python3 "$SCRIPT_DIR/verify-module-abi.py" --probe-report "$FBR" > "$WORK/module-abi-probe.txt" 2>&1 || _abi_rc=$?
+    sed 's/^/    /' "$WORK/module-abi-probe.txt"
+    [ "$_abi_rc" = 0 ] \
+        || fail "the booted kernel refused out-of-tree modules on first boot, or the in-guest probe did not run (ncz-module-abi-probe; see above)"
     ALLOW="$SCRIPT_DIR/first-boot-failed-allowlist.txt"
     WP_RC="$(sed -n 's/^# wallpaper-bing-rc=//p' "$FBR" | tail -1)"
     if [ "$WANT_DESKTOP" = 1 ]; then

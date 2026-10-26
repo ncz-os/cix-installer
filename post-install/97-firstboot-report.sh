@@ -56,7 +56,8 @@ chmod 0755 /usr/local/sbin/ncz-firstboot-report
 # that is not there is harmless in a VM but is NOT done on real hardware, where
 # ncz-gpu-switcher alone decides which GPU driver loads: outside a VM this
 # prints a skip line and touches nothing. Output lines start with "# module-abi"
-# (build/kvm-install-gate-gpt.sh reads them).
+# (build/kvm-install-gate-gpt.sh judges them with verify-module-abi.py
+# --probe-report, which documents the line format).
 cat > /usr/local/sbin/ncz-module-abi-probe <<'PROBE'
 #!/bin/sh
 KVER=$(uname -r)
@@ -88,11 +89,11 @@ for m in $names; do
         # module_blacklist= on this boot entry (e.g. panthor on the Mali entry):
         # the loader stops before its ABI checks; the static gate covers it.
         echo "# module-abi: $m SKIP blacklisted on this boot entry"; skip=$((skip + 1))
-    elif printf '%s' "$out" | grep -q 'No such device'; then
-        # init ran (the ABI was accepted) and found no hardware
-        echo "# module-abi: $m OK (accepted, no device: $out)"
     else
-        echo "# module-abi: $m FAIL rc=$rc $out"; bad=$((bad + 1))
+        # The loader accepted the module and its init failed (no hardware in
+        # this guest, missing firmware, ...): not an ABI problem. The kernel log
+        # scan below still catches a rejection modprobe did not print.
+        echo "# module-abi: $m INFO accepted, init failed: $out"
     fi
 done
 journalctl -k -b --no-pager 2>/dev/null | grep -E "$REJECT" | head -20 | sed 's/^/# module-abi-reject: /'
