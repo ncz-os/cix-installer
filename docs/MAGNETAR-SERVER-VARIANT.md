@@ -509,4 +509,23 @@ sha256 matches the pins, then install from the published URL.
   Partition; `assets/refind/ncz-refind-refresh.sh` picks the server menu only
   from an `NCZ_VARIANT` environment variable that the install (and a later
   kernel upgrade) does not set.
+- 2026-10-26, Preview4 `0c2d700b`, both arches: **PASS**, every gate
+  (image, secret scan of medium and payload, provenance, KVM `server` install
+  + first boot, `server-offline-negative`). Fixed on the way:
+  - the server menu: `late.sh` writes
+    `/usr/local/lib/cix-installer/MEDIUM_VARIANT=server` only from a medium
+    that carries the fetch manifest, and both rEFInd generators read it when
+    `NCZ_VARIANT` is unset (at install and from the kernel postinst.d hook).
+    `BUILD_VARIANT` cannot carry this: a desktop medium's install with the
+    desktop component off records `BUILD_VARIANT=server` as well, and keeps
+    the full menu. The amd64 generator had no server branch before this;
+  - over a baked base, `late.sh` now refreshes the amd64 generator and its
+    kernel hook from the medium, not only the arm64 generator;
+  - the gate reads the default entry from `default_selection` (a server menu
+    has no "(Default)" entry) and matches `7.3 Mali`, not `Mali`, as a
+    desktop entry (the arm64 server Console title names Mali);
+  - `25-cix-proprietary.sh` skips `libgtk4-layer-shell0` on a server root
+    (it pulled `libgtk-4-1` from the pool).
+  Artifacts on STUDIO under `ncz-preview4-artifacts/<arch>-server/`, marked
+  "payload not yet published", with the pinned payload copies.
 
