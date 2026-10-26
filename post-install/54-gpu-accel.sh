@@ -59,8 +59,8 @@ fi
 # and the network is up, with a first-boot retry (ncz-cuda-setup.timer) when it
 # is not. The GPU family decides the driver branch and toolkit (see
 # post-install/lib/cuda-select.sh for the matrix and its evidence):
-#   Turing+       R615 open kernel modules + CUDA 13.4 (debian13 repo)
-#   Maxwell..Volta R580 proprietary module     + CUDA 12.9 (debian12 repo)
+#   Turing+       newest open kernel modules that build + newest CUDA 13.x (debian13 repo)
+#   Maxwell..Volta newest R580 proprietary module that builds + newest CUDA 12.x (debian12 repo)
 #   Kepler/older  nothing usable: nouveau only, logged
 # The choice is recorded in /etc/ncz/cuda-selection.conf and pinned in apt so a
 # later `apt upgrade` cannot move a machine to a branch that drops its GPU.
@@ -217,8 +217,8 @@ ncz_nvidia_dynamic_setup() {
     install -D -m0755 "$NCZ_NV_ASSETS/ncz-cuda-setup" /usr/local/sbin/ncz-cuda-setup
     install -D -m0644 "$NCZ_NV_ASSETS/ncz-cuda-setup.service" /etc/systemd/system/ncz-cuda-setup.service
     install -D -m0644 "$NCZ_NV_ASSETS/ncz-cuda-setup.timer" /etc/systemd/system/ncz-cuda-setup.timer
-    # Local DKMS patches for exact driver versions (assets/nvidia/dkms/<module>-<version>/); ncz-cuda-setup stages
-    # them into DKMS before every driver install. Optional: without them the stock driver source is built.
+    # Local DKMS patch sets (assets/nvidia/dkms/<module>/<set>/), matched to a driver source by content: ncz-cuda-setup
+    # stages a set only where its fix is absent and it applies exactly. Optional: without them the stock source is built.
     rm -rf /usr/local/lib/ncz/nvidia-dkms
     if [ -d "$NCZ_NV_ASSETS/dkms" ]; then
         install -d -m0755 /usr/local/lib/ncz
@@ -226,6 +226,44 @@ ncz_nvidia_dynamic_setup() {
     else
         echo "[54] NOTE: $NCZ_NV_ASSETS/dkms not staged: no local NVIDIA DKMS patches"
     fi
+    # A driver update through a plain `apt upgrade` gets the same content check before dpkg builds it, and a build
+    # that still fails re-arms ncz-cuda-setup, which falls back to a driver version that builds.
+    install -d -m0755 /etc/apt/apt.conf.d
+    cat > /etc/apt/apt.conf.d/60ncz-nvidia-dkms <<'APTEOF'
+// Written by NCZ-OS (post-install/54-gpu-accel.sh). NVIDIA DKMS driver updates:
+// stage the local patches whose fix the new source lacks (ncz-cuda-setup), and
+// hand a failed module build back to ncz-cuda-setup. Both never fail apt.
+DPkg::Pre-Install-Pkgs { "if [ -x /usr/local/sbin/ncz-cuda-setup ]; then /usr/local/sbin/ncz-cuda-setup apt-pre-install; else cat >/dev/null; fi || true"; };
+DPkg::Post-Invoke { "if [ -x /usr/local/sbin/ncz-cuda-setup ]; then /usr/local/sbin/ncz-cuda-setup apt-post-invoke; fi || true"; };
+APTEOF
+    # A new kernel the installed driver does not build for: hand it back to ncz-cuda-setup (runs after DKMS's hook).
+    install -d -m0755 /etc/kernel/postinst.d
+    cat > /etc/kernel/postinst.d/zz-ncz-nvidia <<'KEOF'
+#!/bin/sh
+# Written by NCZ-OS (post-install/54-gpu-accel.sh): if the NVIDIA DKMS module did
+# not build for the new kernel, ncz-cuda-setup repairs it after that kernel boots.
+[ -x /usr/local/sbin/ncz-cuda-setup ] && /usr/local/sbin/ncz-cuda-setup kernel-postinst "$1" >/dev/null 2>&1
+exit 0
+KEOF
+    chmod 0755 /etc/kernel/postinst.d/zz-ncz-nvidia
+    # Without an nvidia module for the running kernel (not built yet, or its build failed) nvidia-persistenced can only
+    # fail; skip it then (inactive, condition failed) instead of a failed unit on every boot. %v = running kernel.
+    install -d -m0755 /etc/systemd/system/nvidia-persistenced.service.d
+    cat > /etc/systemd/system/nvidia-persistenced.service.d/ncz-needs-module.conf <<'UNITEOF'
+# Written by NCZ-OS (post-install/54-gpu-accel.sh): start only when an nvidia
+# kernel module exists for the running kernel.
+[Service]
+ExecCondition=/bin/sh -c 'exec modinfo -k %v nvidia >/dev/null 2>&1'
+UNITEOF
+    # nvidiafb/rivafb drive only pre-2008 NVIDIA chips (NV4..NV4x); on this family they bind nothing ("unknown NV_ARCH")
+    # and only get in the way of nvidia.ko. The display never depends on them: the integrated GPU (eDP) or the
+    # firmware framebuffer (simpledrm) stays the fallback.
+    install -d -m0755 /etc/modprobe.d
+    cat > /etc/modprobe.d/ncz-nvidia-legacy-fb.conf <<'MODEOF'
+# Written by NCZ-OS (post-install/54-gpu-accel.sh) for a Maxwell-or-newer NVIDIA GPU.
+blacklist nvidiafb
+blacklist rivafb
+MODEOF
     install -d -m0755 /etc/systemd/system/timers.target.wants
     ln -sf ../ncz-cuda-setup.timer /etc/systemd/system/timers.target.wants/ncz-cuda-setup.timer
     ncz_cuda_status "pending:install"

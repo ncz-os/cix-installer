@@ -241,7 +241,10 @@ short: the unit has no start timeout and finished with `Result=success`.
 In r199 `ncz-cuda-setup.timer` then repeated the build in the background
 with backoff. Since fix/nvidia-dkms-73-20261006 it records the compiler
 error and rebuilds only when the kernel, its config, the driver or the local
-DKMS patches change, and the shipped dmem patch makes 615.71.09 build on 7.3.
+DKMS patches change. Since fix/p4-nvidia-dkms-615.71.10-20261026 the dmem patch
+is matched to any driver source by content (it fixed 615.71.09 and 615.71.10),
+and a driver that still does not build makes `ncz-cuda-setup` fall back to the
+next older version the repo offers (docs/CUDA-DYNAMIC-INSTALL.md).
 
 `post-install/lib/dkms-pending.sh` classifies each DKMS package dpkg left
 unconfigured:
