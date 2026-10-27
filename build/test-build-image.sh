@@ -16,6 +16,9 @@
 #   4. both-arch parallel orchestration with a fake stage command: one arch
 #      failing does not kill the other and the combined rc is non-zero
 #   5. preflight dry-run (tmpfs/privilege/substrate lines present)
+#   5b. resume-from bypass: a run resumed AT or AFTER the mandatory
+#       static-gates stage re-runs the suites first (it cannot be skipped),
+#       and a failing suite still aborts before any layer work
 #
 # Exit 0 all pass, 1 any FAIL.
 set -uo pipefail
@@ -185,6 +188,79 @@ if awk -F'\t' '$2=="layers"{f=1} END{exit !f}' "$T4/stages.tsv"; then
     bad "layers ran after a failing static-gates"
 else
     ok "layers did NOT run after a failing static-gates"
+fi
+
+# --- 2c2. resume-from must not bypass the mandatory static-gates -----------
+# A run resumed at/after static-gates re-runs the suites BEFORE the resume
+# point instead of recording SKIP (the r2 review finding: --resume-from layers
+# used to SKIP the mandatory stage and reach image assembly without either
+# suite).  The test hook replaces each stage body, so BOTH amd64 suites are
+# observed as one logged stage; the assertion is that the stage actually ran.
+echo "== 2c2. resume-from does not bypass the mandatory static-gates =="
+# the plan: resume points before the stage keep it a normal "run"; resume
+# points at/after it mark it a re-run -- never a skip
+p5a="$(bash "$BIN" --arch amd64 --full --resume-from preflight --dry-run 2>/dev/null \
+    | awk '/^  stages:/{f=1;next} f&&/^    \[/{print $0}')"
+grep -q '\[run *\] [0-9]* *static-gates' <<<"$p5a" \
+    && ok "resume-from preflight: static-gates is a normal run in the plan" \
+    || bad "resume-from preflight plan wrong for static-gates: $(grep static-gates <<<"$p5a")"
+for from in static-gates layers image; do
+    p5b="$(bash "$BIN" --arch amd64 --full --resume-from "$from" --dry-run 2>/dev/null \
+        | awk '/^  stages:/{f=1;next} f&&/^    \[/{print $0}')"
+    if grep -q '\[skip *\] [0-9]* *static-gates' <<<"$p5b"; then
+        bad "resume-from $from: the plan SKIPS the mandatory static-gates"
+    elif grep -q '\[rerun *\] [0-9]* *static-gates' <<<"$p5b"; then
+        ok "resume-from $from: the plan re-runs the mandatory static-gates"
+    else
+        bad "resume-from $from: plan has no run/rerun marker for static-gates: $(grep static-gates <<<"$p5b")"
+    fi
+done
+# live run resumed from layers: static-gates must PASS (not SKIP) and the
+# suites must have executed (their fake command logged) before layers ran
+T5a="$SCRATCH/resume-layers"
+NCZ_TEST_STAGE_CMD='case "{stage}" in static-gates) echo "[fake] static-gates suites ran"; exit 0;; *) exit 0;; esac' \
+    bash "$BIN" --arch amd64 --full --no-publish --resume-from layers --run-dir "$T5a" >/dev/null 2>&1
+rc=$?
+[ "$rc" = 0 ] && ok "resume-from layers: build rc=0" || bad "resume-from layers rc=$rc"
+awk -F'\t' '$2=="static-gates" && $3=="PASS"{f=1} END{exit !f}' "$T5a/stages.tsv" \
+    && ok "resume-from layers: stages.tsv records static-gates PASS (the suites re-ran)" \
+    || bad "resume-from layers: static-gates was not PASS in stages.tsv: $(awk -F'\t' '$2=="static-gates"' "$T5a/stages.tsv")"
+if awk -F'\t' '$2=="static-gates" && $3=="SKIP"{f=1} END{exit !f}' "$T5a/stages.tsv"; then
+    bad "resume-from layers: the mandatory static-gates was recorded SKIP"
+else
+    ok "resume-from layers: static-gates is NOT recorded SKIP"
+fi
+grep -q '\[fake\] static-gates suites ran' "$T5a"/logs/*static-gates.log 2>/dev/null \
+    && ok "resume-from layers: the suites executed (fake command logged)" \
+    || bad "resume-from layers: no suite output in the static-gates stage log"
+# order: static-gates must precede layers in the same run
+sg_t="$(awk -F'\t' '$2=="static-gates"{print NR; exit}' "$T5a/stages.tsv")"
+lr_t="$(awk -F'\t' '$2=="layers"{print NR; exit}' "$T5a/stages.tsv")"
+[ -n "$sg_t" ] && [ -n "$lr_t" ] && [ "$sg_t" -lt "$lr_t" ] \
+    && ok "resume-from layers: static-gates ran BEFORE layers in the same run" \
+    || bad "resume-from layers: static-gates/layers order wrong (sg=$sg_t lr=$lr_t)"
+# live run resumed from the image stage (the --image PATH use case): the
+# suites still run first, even though the resume point is past them
+T5b="$SCRATCH/resume-image"
+NCZ_TEST_STAGE_CMD='case "{stage}" in static-gates) echo "[fake] static-gates suites ran"; exit 0;; *) exit 0;; esac' \
+    bash "$BIN" --arch amd64 --full --no-publish --resume-from image --run-dir "$T5b" >/dev/null 2>&1
+awk -F'\t' '$2=="static-gates" && $3=="PASS"{f=1} END{exit !f}' "$T5b/stages.tsv" \
+    && ok "resume-from image: static-gates still re-ran (PASS)" \
+    || bad "resume-from image: static-gates did not re-run: $(awk -F'\t' '$2=="static-gates"' "$T5b/stages.tsv")"
+# negative: a failing suite on a resumed-from-layers run must abort the build
+# before any layer work
+T5c="$SCRATCH/resume-layers-fail"
+NCZ_TEST_STAGE_CMD='case "{stage}" in static-gates) echo "[fake] static-gates suite failure"; exit 1;; *) exit 0;; esac' \
+    bash "$BIN" --arch amd64 --full --no-publish --resume-from layers --run-dir "$T5c" >/dev/null 2>&1
+rc=$?
+[ "$rc" != 0 ] && ok "resume-from layers: a failing suite aborts the build (rc=$rc)" || bad "resume-from layers: a failing suite was ignored"
+awk -F'\t' '$2=="static-gates" && $3 ~ /^FAIL/{f=1} END{exit !f}' "$T5c/stages.tsv" \
+    && ok "resume-from layers: stages.tsv records static-gates FAIL" \
+    || bad "resume-from layers: stages.tsv missing static-gates FAIL"
+if awk -F'\t' '$2=="layers"{f=1} END{exit !f}' "$T5c/stages.tsv"; then
+    bad "resume-from layers: layers ran after a failing suite"
+else
+    ok "resume-from layers: layers did NOT run after a failing suite"
 fi
 
 # --- 2d. refresh-sources must not delete the source-of-truth payload deb ----

@@ -343,7 +343,7 @@ apt 指向镜像上的离线镜像。少数可选组件（例如 NVIDIA 驱动�
 | 30 | `refresh-sources` | 解析 Singularity 桌面源码（`--sources latest`）或复现已提交的锁定（`--sources pinned`），再构建或暂存桌面载荷软件包。 | `build/refresh-singularity-sources.sh`、`build/stage-singularity-payload.sh`、`build/build-singularity.sh`、`build/build-singularity-deb.sh` |
 | 40 | `offline-mirror` | 构建放入镜像的离线 apt 闭包。 | `make offline-mirror` |
 | 50 | `provenance-inputs` | 每个将进入镜像的软件包只能有一个来源：锁定的 Debian 快照、NCZ 构建或经审核的厂商软件包；不得出现 Debian 内核。 | `build/check-forky-provenance.sh`、`build/verify-no-debian-kernel.sh` |
-| 55 | `static-gates` | 在任何层或镜像工作之前对锁定的源码树强制执行静态门禁套件：AMD64 NVIDIA CUDA 设计门禁（`build/test-amd64-cuda-gates.sh`，仅 amd64）与 greeter 控制台回退门禁（`build/test-greeter-console-fallback.sh`，两种架构）。失败即中止构建，不可跳过。 | `build/test-amd64-cuda-gates.sh`、`build/test-greeter-console-fallback.sh` |
+| 55 | `static-gates` | 在任何层或镜像工作之前对锁定的源码树强制执行静态门禁套件：AMD64 NVIDIA CUDA 设计门禁（`build/test-amd64-cuda-gates.sh`，仅 amd64）与 greeter 控制台回退门禁（`build/test-greeter-console-fallback.sh`，两种架构）。失败即中止构建，不可跳过——`--resume-from` 的续跑点位于该阶段或其后时，会先重新运行套件而不是跳过，因此任何仍能产出镜像的运行都无法绕过它们。 | `build/test-amd64-cuda-gates.sh`、`build/test-greeter-console-fallback.sh` |
 | 60 | `layers` | 构建并检查 `base`、`desktop`、`desktop-hotfix` 三个 squashfs 层。 | `build/layers-preflight.sh`、`build/build-squashfs-layers.sh all`（桌面软件包经 `build/build-role-delta-mkosi.sh`）、`build/check-layers.sh` |
 | 70 | `image` | 用基底、内核、各层与离线镜像组装原始 GPT 镜像。 | `make image` → `build/build-installer-image.sh`、`build/iso/*.py` |
 | 80 | `provenance-gate` | 对成品镜像再做一次来源与单内核检查。 | `build/check-forky-provenance.sh --image` |

@@ -44,7 +44,14 @@
 #   --no-publish           build + gates, never copy to the image archive
 #   --gates kvm,provenance run only these gates (REQUIRES --no-publish)
 #   --substrate refresh|pinned   substrate policy (refresh default for --full)
-#   --resume-from STAGE    start at STAGE (skips earlier stages)
+#   --resume-from STAGE    start at STAGE (skips earlier stages EXCEPT the
+#                          mandatory static-gates, which re-runs first when the
+#                          resume point is at or after it).  secret-scan and
+#                          the KVM/provenance gates sit at/after the image
+#                          stage, so a resume point at/after them (the
+#                          --image PATH use case) cannot skip a mandatory
+#                          stage that still guards the artifact this run
+#                          produces.
 #   --run-dir DIR          run directory (logs + run metadata + tmp scratch)
 #   --image PATH           an already-built image (for --resume-from kvm-gate+)
 #   --host H               run on host H (remote over ssh when H is not local)
@@ -129,7 +136,10 @@ the finished image BEFORE the KVM gate -- never waste hours on a doomed build)
   (build/test-amd64-cuda-gates.sh, amd64 only) and the greeter
   console-fallback gates (build/test-greeter-console-fallback.sh, both
   arches) -- on the pinned tree BEFORE any layer or image work, so a broken
-  NVIDIA path or greeter fallback can never reach the image.
+  NVIDIA path or greeter fallback can never reach the image.  It also
+  RE-RUNS when a build resumes at or after it (--resume-from layers ...
+  archive): a resume point at/after the stage re-runs the suites first, so
+  no run that can still produce an image skips them.
 
   secret-scan is NOT optional and is NOT selectable via --gates: it runs on
   every image, immediately after 'image' and before the KVM gate.  It fails
@@ -161,7 +171,9 @@ OPTIONS
                             freezes them in the receipt; 'pinned' reproduces the
                             committed pins.  latest is the --full / --rebuild-
                             desktop default
-  --resume-from STAGE       start at STAGE
+  --resume-from STAGE       start at STAGE (earlier stages are skipped,
+                            EXCEPT the mandatory static-gates stage, which
+                            re-runs first whenever STAGE is at or after it)
   --run-dir DIR             run directory (logs, run metadata, tmp scratch)
   --image PATH              an already-built image (kvm-gate+ resume)
   --host H                  assert this host (or dispatch to it over ssh)
@@ -586,22 +598,43 @@ ncz_container_run() {
 RUN_FROM="$(stage_index "${RESUME_FROM:-preflight}")" || {
     echo "build-image.sh: unknown --resume-from stage '${RESUME_FROM}'" >&2; exit 2
 }
+# The mandatory static gate suites must run on EVERY run that can still reach
+# the layers stage, even one resumed at or after the stage itself: a resume
+# re-runs static-gates first so the tree cannot advance to layer/image work
+# with a broken CUDA or greeter fallback path.  (secret-scan is the only other
+# always-run stage and it sits AFTER the image, so --resume-from can never
+# skip it on a run that still assembles an image.)
 
-should_skip() {
+# SKIP / RUN / RE-RUN: a stage before the resume point is skipped, the
+# mandatory static-gates stage is re-run when the resume point is at or after
+# it, and every other stage runs.
+stage_skip_state() {
     local idx; idx="$(stage_index "$1")"
-    [ "$idx" -lt "$RUN_FROM" ] && return 0
-    return 1
+    # static-gates re-runs when the resume point is at or AFTER it, i.e.
+    # resume index >= static-gates index.  idx is the stage's own index.
+    if [ "$1" = static-gates ] && [ "$RUN_FROM" -ge "$idx" ]; then
+        echo "rerun"
+    elif [ "$idx" -lt "$RUN_FROM" ]; then
+        echo "skip"
+    else
+        echo "run"
+    fi
 }
+
+should_skip() { [ "$(stage_skip_state "$1")" = skip ]; }
 
 run_stage() {
     local name="$1" fn="$2"
     local idx; idx="$(stage_index "$name")"
     local log; log="$(printf '%s/%02d-%s.log' "$LOGS" "$idx" "$name")"
-    if should_skip "$name"; then
-        ncz_log "SKIP  [$name] (before --resume-from ${RESUME_FROM})"
-        printf '%02d\t%s\tSKIP\t0\n' "$idx" "$name" >> "$STAGE_TIMES"
-        return 0
-    fi
+    case "$(stage_skip_state "$name")" in
+        skip)
+            ncz_log "SKIP  [$name] (before --resume-from ${RESUME_FROM})"
+            printf '%02d\t%s\tSKIP\t0\n' "$idx" "$name" >> "$STAGE_TIMES"
+            return 0 ;;
+        rerun)
+            ncz_log "RERUN [$name] (mandatory suite re-run before --resume-from ${RESUME_FROM})" ;;
+    esac
     local t0; t0="$(date -u +%s)"
     ncz_log "BEGIN [$name] log=$log"
     local rc=0
@@ -1177,7 +1210,11 @@ PYEOF
 # console-fallback (both arches) directly from the tree: they are the same
 # suites `make test` runs, but a release image must not be able to skip them.
 # A failure here aborts the build before any layer or image byte is produced.
-# No skip path: no scope, gate selection or env var turns this stage off.
+# No skip path: no scope, gate selection, env var or resume point turns this
+# stage off.  stage_skip_state() gives it a dedicated "rerun" state: when a
+# build resumes at or after static-gates, the stage re-runs BEFORE the resume
+# point instead of being recorded SKIP, so a --resume-from layers run cannot
+# advance to layer or image work without the suites passing first.
 # (The greeter suite asserts the CUDA chooser never offers cuda on arm64, so
 #  arm64 gets that negative coverage without the amd64-only CUDA suite.)
 # ---------------------------------------------------------------------------
@@ -1944,7 +1981,11 @@ print_plan() {
     local i=0 s
     for s in "${STAGES[@]}"; do
         local mark="run "
-        if should_skip "$s"; then mark="skip"; elif ! stage_enabled "$s"; then mark="off "; fi
+        case "$(stage_skip_state "$s")" in
+            skip)  mark="skip" ;;
+            rerun) mark="rerun" ;;
+            *)     ! stage_enabled "$s" && mark="off " ;;
+        esac
         printf '    [%s] %02d %s\n' "$mark" "$i" "$s"
         i=$((i+1))
     done
