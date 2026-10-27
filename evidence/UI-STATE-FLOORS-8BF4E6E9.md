@@ -92,16 +92,27 @@ dialogs and fails there too).
 ## Proof-of-work
 
 - `bash build/test-installer-screens.sh` → **116 passed, 0 failed**
+  (115 pre-existing + 1 new truncation fixture)
 - `bash build/test-installer-ui-wrapper.sh` → OK
 - `bash build/test-server-branding.sh` → PASS
+- `NCZ_BOOT_SCREENS_PYTHON=~/pyte-venv/bin/python python3
+  build/test-boot-screens-testcopy.py` → all pass (boot-screens.py plumbing
+  untouched, sanity)
+- Branch `fix/ui-state-floors-20261027` (from base `8bf4e6e9`), head
+  `04af3fd6`, pushed to ARGONAS with upstream tracking; worktree clean, remote
+  SHA verified.
+- Cross-family review: `zoder review --base 8bf4e6e9 --scope branch -m
+  cerberus-reviewer` → **verdict: approve** (cerberus-reviewer = gpt-oss-20b /
+  openai family per /etc/fleet/llm-roles.json; author is qwen38 / alibaba
+  family). Full verdict JSON: `evidence/review-cerberus-reviewer.json`.
 - Offline reproduction note: the ULTRA capture dir
   (`~/Projects/p4-desktop-arm64-20261025/kvm-gate/ui-check/`) is not reachable
-  from this host (ULTRA SSH unreachable; no fleet host mirrors it), so the
-  offline pyte replay of `serial0.log` was not re-run here; the reconstruction
-  above uses the gate's own recorded evidence (dialog list, state timestamps,
-  harness.log, serial0.log tail) plus the in-repo fixture capture. A fetch
-  request for the tarball was posted to the hive bus (topic `file-request`)
-  for the orchestrator's follow-up.
-- Branch `fix/ui-state-floors-20261027` (from base `8bf4e6e9`), pushed to ARGONAS;
-  cross-family review via `zoder review --base 8bf4e6e9 --scope branch -m
-  cerberus-reviewer` (verdict JSON recorded in the job result).
+  from this host (ULTRA SSH refused; no fleet host or shared mount mirrors the
+  build dir), so the offline pyte replay of `serial0.log` could not be re-run
+  here; the reconstruction above uses the gate's own recorded evidence (the
+  dialog-order line, the 16..138 s state timestamps, harness.log "7
+  screendumps", the serial0.log tail at ~182 s) plus the in-repo fixture
+  capture (`build/testdata/installer-screens/arm64-d90ed961-full`, 33 states,
+  which shows exactly the progress-bar-state collapse mechanism). Fetch
+  requests for the tarball were posted to the hive bus (topic `file-request`)
+  for the orchestrator's follow-up if the raw log replay is still wanted.
