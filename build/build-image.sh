@@ -652,7 +652,26 @@ run_stage() {
         local line="${NCZ_TEST_STAGE_CMD//\{stage\}/$name}"
         ( set -o pipefail; eval "$line" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
     else
-        ( set -o pipefail; "$fn" "$log" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
+        # Test-only hook (build/test-build-image.sh): record a named stage
+        # without executing its body -- used by the passing-suites run in
+        # section 2c3, where the REAL stage_static_gates must run (with the
+        # NCZ_TEST_SUITES_DIR stubs) but nothing at or past the layers stage
+        # should.  NCZ_TEST_STAGE_SKIP is a comma-separated allowlist; a
+        # stage body is skipped only when it is named AND the stage comes
+        # AFTER static-gates, so this hook can never disable the mandatory
+        # suite stage (or any stage before it).  Unlike NCZ_TEST_STAGE_CMD
+        # the skipped stage still records a normal PASS row, so "the build
+        # reached layers" stays an honest assertion about stage order.
+        if [ -n "${NCZ_TEST_STAGE_SKIP:-}" ] && [[ ",${NCZ_TEST_STAGE_SKIP}," = *",${name},"* ]]; then
+            case "$name" in
+                layers|image|secret-scan|provenance-gate|kvm-gate|receipt|archive)
+                    echo "[$name] test skip (NCZ_TEST_STAGE_SKIP) -- body not executed" | tee -a "$log"
+                    rc=0 ;;
+                *) ( set -o pipefail; "$fn" "$log" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}" ;;
+            esac
+        else
+            ( set -o pipefail; "$fn" "$log" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
+        fi
     fi
     local t1; t1="$(date -u +%s)"
     printf '%02d\t%s\t%s\t%s\n' "$idx" "$name" \

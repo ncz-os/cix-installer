@@ -26,10 +26,12 @@
 #       before layers (no layers row in stages.tsv), and the failure must
 #       name the failing suite.  amd64 (cuda suite) and arm64 (greeter
 #       suite) are both covered, and a run with both suites passing must
-#       still proceed.  (Without this, a stage that ignored a suite's rc
-#       would have gone unnoticed: NCZ_TEST_STAGE_CMD replaces the whole
-#       stage body, so a fake stage failure proved nothing about
-#       stage_static_gates itself.)
+#       still proceed -- that passing run ALSO runs the real stage body
+#       (NCZ_TEST_SUITES_DIR stubs only; NCZ_TEST_STAGE_SKIP=layers stops
+#       the run at layers so nothing past the stage actually builds).
+#       (Without this, a stage that ignored a suite's rc would have gone
+#       unnoticed: NCZ_TEST_STAGE_CMD replaces the whole stage body, so a
+#       fake stage failure proved nothing about stage_static_gates itself.)
 #
 # Exit 0 all pass, 1 any FAIL.
 set -uo pipefail
@@ -343,13 +345,18 @@ if { grep -q 'running test-greeter-console-fallback.sh' "$T6b"/logs/*static-gate
 else
     bad "arm64+greeter-failing: no evidence the stage executed the failing suite"
 fi
-# a run with BOTH suites passing still proceeds past the stage (stubs exit 0;
-# every later stage body is replaced by the plain hook, nothing real runs)
+# a run with BOTH suites passing still proceeds past the stage: the REAL
+# stage_static_gates runs (no NCZ_TEST_STAGE_CMD here -- replacing the stage
+# body would not prove anything about a passing run), with the suites swapped
+# for exit-0 stubs via NCZ_TEST_SUITES_DIR; NCZ_TEST_STAGE_SKIP stops every
+# stage at/after layers so nothing past the stage actually builds (the hook
+# cannot skip static-gates itself).
 sgok="$T6/pass"; mkdir -p "$sgok"
 printf '#!/bin/bash\nexit 0\n' > "$sgok/test-amd64-cuda-gates.sh"
 printf '#!/bin/bash\nexit 0\n' > "$sgok/test-greeter-console-fallback.sh"
 T6c="$T6/amd64-pass"; sgout="$(NCZ_TEST_SUITES_DIR="$sgok" NCZ_BUILD_LOCK="$T6c/lock" \
-    NCZ_TEST_STAGE_CMD='exit 0' bash "$BIN" --arch amd64 --full --no-publish --resume-from static-gates --run-dir "$T6c" 2>&1)"; rc=$?
+    NCZ_TEST_STAGE_SKIP='layers,image,secret-scan,provenance-gate,kvm-gate,receipt' \
+    bash "$BIN" --arch amd64 --full --no-publish --resume-from static-gates --run-dir "$T6c" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && ok "both-suites-passing: the build proceeds (rc=0)" || bad "both-suites-passing: a passing run did not proceed: $sgout"
 awk -F'\t' '$2=="static-gates" && $3=="PASS"{f=1} END{exit !f}' "$T6c/stages.tsv" \
     && ok "both-suites-passing: stages.tsv records static-gates PASS" \
@@ -357,6 +364,15 @@ awk -F'\t' '$2=="static-gates" && $3=="PASS"{f=1} END{exit !f}' "$T6c/stages.tsv
 awk -F'\t' '$2=="layers" && $3=="PASS"{f=1} END{exit !f}' "$T6c/stages.tsv" \
     && ok "both-suites-passing: the build reached layers" \
     || bad "both-suites-passing: layers did not run: $(cat "$T6c/stages.tsv" 2>/dev/null | tr '\n' ' ')"
+# prove the REAL stage body ran (not a faked one): the stage log carries the
+# suite the stage itself ran and its pass summary
+if { grep -q 'running test-amd64-cuda-gates.sh' "$T6c"/logs/*static-gates.log 2>/dev/null; \
+      grep -q 'running test-greeter-console-fallback.sh' "$T6c"/logs/*static-gates.log 2>/dev/null; \
+      grep -q 'all static gate suites PASS' "$T6c"/logs/*static-gates.log 2>/dev/null; }; then
+    ok "both-suites-passing: the real stage body executed both suites"
+else
+    bad "both-suites-passing: no real stage execution in the stage log: $(cat "$T6c"/logs/*static-gates.log 2>/dev/null | tr '\n' ' ')"
+fi
 # the same suite failure on a resumed-from-layers run still aborts before
 # any layer work (the mandatory re-run path, this time through the real stage)
 sgf2="$T6/cuda-fail-resume"; mkdir -p "$sgf2"
