@@ -687,3 +687,7 @@ post-install/lib/ncz-brand.sh	common	-	the one place that names the Magnetar Ser
 build/test-server-branding.sh	common	-	Magnetar Server branding + no component selector on a server medium, desktop strings unchanged: renders every server/desktop string from the real helpers (d-i dialogs, late.sh, os-release/issue/motd, issue.d, rEFInd titles, ESP info line, ncz version) and the gate's installed-system assertion
 build/check-server-codename.sh	common	-	static guard: no non-comment "Cygnus" in Magnetar Server install-path files outside manifests/server-codename-allowlist.tsv (stale rows fail)
 manifests/server-codename-allowlist.tsv	common	-	allow-list for build/check-server-codename.sh with a reason per row
+evidence/UI-STATE-FLOORS-8BF4E6E9.md	common	-	ui-state floor investigation: cadence vs truncation evidence for the 14-state Preview4 capture
+evidence/review-cerberus-reviewer.json	common	-	ui-state floor: first review verdict (request_changes, superseded by r2/r3)
+evidence/review-cerberus-reviewer-r2.json	common	-	ui-state floor: second review verdict
+evidence/review-cerberus-reviewer-r3.json	common	-	ui-state floor: third review verdict (approve)
