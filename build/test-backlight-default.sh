@@ -32,6 +32,11 @@ grep -qx 'ExecStart=/usr/local/sbin/ncz-backlight-default' "$T/unit" && ok "unit
 # --- sandbox ----------------------------------------------------------------
 SYS="$T/sys"; SB="$T/bin"; MARK="/var/lib/ncz/backlight-default-applied"
 mkdir -p "$SYS/class/backlight" "$SYS/class/dmi/id" "$SYS/devices/virtual/dmi/id" "$SB"
+# The marker lands in $T/varlib-ncz (the sed-rewritten /var/lib/ncz). Create
+# it up front: has_marker() must be able to see a marker even if the script's
+# own install -d is unavailable, and each sub-test's rm -rf only removes the
+# marker file's parent's contents, never the dir itself.
+mkdir -p "$T/varlib-ncz"
 # panel backlight: max 4882 (the DELL .70 panel), low initial 342 (7 %)
 mkdir -p "$SYS/class/backlight/intel_backlight"
 echo 4882 > "$SYS/class/backlight/intel_backlight/max_brightness"
@@ -64,7 +69,7 @@ reset_panel() {  # reset the panel to a known low brightness
 has_marker() { [ -e "$T/varlib-ncz/backlight-default-applied" ]; }
 
 # (1) laptop + first boot (no marker) + low brightness -> raised to >= 40 %
-set_laptop 9; rm -rf "$T/varlib-ncz"; reset_panel
+set_laptop 9; rm -f "$T/varlib-ncz/backlight-default-applied"; reset_panel
 run_bl; rc=$?
 [ "$rc" = 0 ] && ok "(1) laptop first boot: script exits 0" || no "(1) rc=$rc"
 new=$(cat "$SYS/class/backlight/intel_backlight/brightness")
@@ -82,7 +87,7 @@ run_bl; rc=$?
     || no "(2) user value clobbered to $(cat "$SYS/class/backlight/intel_backlight/brightness")"
 
 # (3) desktop chassis (3) -> skipped, no marker
-set_laptop 3; rm -rf "$T/varlib-ncz"; reset_panel
+set_laptop 3; rm -f "$T/varlib-ncz/backlight-default-applied"; reset_panel
 run_bl; rc=$?
 [ "$rc" = 0 ] && ok "(3) desktop: script exits 0" || no "(3) rc=$rc"
 [ "$(cat "$SYS/class/backlight/intel_backlight/brightness")" = 342 ] \
@@ -91,7 +96,7 @@ run_bl; rc=$?
 ! has_marker && ok "(3) desktop: no marker created (will re-check)" || no "(3) desktop: marker wrongly created"
 
 # (4) no DMI chassis_type (VM) -> skipped
-rm -f "$SYS/class/dmi/id/chassis_type"; rm -rf "$T/varlib-ncz"; reset_panel
+rm -f "$SYS/class/dmi/id/chassis_type"; rm -f "$T/varlib-ncz/backlight-default-applied"; reset_panel
 run_bl; rc=$?
 [ "$rc" = 0 ] && ok "(4) no DMI: script exits 0" || no "(4) rc=$rc"
 [ "$(cat "$SYS/class/backlight/intel_backlight/brightness")" = 342 ] \
@@ -100,7 +105,7 @@ run_bl; rc=$?
 ! has_marker && ok "(4) no DMI: no marker" || no "(4) no DMI: marker wrongly created"
 
 # (5) the dummy (max<16) is not the device chosen; only the panel is written
-set_laptop 9; rm -rf "$T/varlib-ncz"; reset_panel
+set_laptop 9; rm -f "$T/varlib-ncz/backlight-default-applied"; reset_panel
 run_bl
 [ "$(cat "$SYS/class/backlight/usb-dummy/brightness")" = 2 ] \
     && ok "(5) the USB/ACPI dummy (max<16) is not touched" \
