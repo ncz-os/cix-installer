@@ -261,5 +261,76 @@ else
     echo "[43] not arm64 (Sky1 VPU only); VPU governor step skipped"
 fi
 
+# (4) laptop backlight first-boot default ------------------------------------
+# DELL Inspiron 5521 (Intel HD 4000), 2026-10-27: the panel's backlight
+# persisted at 342/4882 (7 % of max), masking a partial scanout success as a
+# black screen and making a healthy greeter look dead. Laptops do not ship
+# with a usable default here, so the FIRST boot raises the brightness to
+# >= 40 % of max, once. The marker in /var/lib makes this first-run only:
+# a value the user sets afterwards is never clobbered.
+cat > /usr/local/sbin/ncz-backlight-default <<'BLDEF'
+#!/bin/sh
+# ncz-backlight-default -- first-boot laptop brightness default. Run by
+# ncz-backlight-default.service (After= multi-user, Before= greetd). See
+# post-install/43-hw-quirks.sh for the rationale.
+set -u
+MARK=/var/lib/ncz/backlight-default-applied
+is_laptop() {
+    case "$(tr -d '\000' < /sys/class/dmi/id/chassis_type 2>/dev/null)" in
+        9 | 10 | 11 | 14 | 19) return 0 ;;
+    esac
+    case "$(tr -d '\000' < /sys/devices/virtual/dmi/id/chassis_type 2>/dev/null)" in
+        9 | 10 | 11 | 14 | 19) return 0 ;;
+    esac
+    return 1
+}
+# (1) laptop check: no DMI chassis_type (VM / unknown) or a desktop form
+# factor -> nothing to do, and no marker (re-check on a future boot where DMI
+# is readable, if such a machine exists).
+is_laptop || exit 0
+# (2) first-run only: a user-set value from a later boot is never clobbered.
+[ -e "$MARK" ] && exit 0
+# (3) find the panel device: a real panel has max_brightness >= 16 (GPU
+# backlights); USB/ACPI dummies are smaller or absent.
+dev=""
+for b in /sys/class/backlight/*; do
+    [ -r "$b/max_brightness" ] && [ -w "$b/brightness" ] || continue
+    mx=$(cat "$b/max_brightness" 2>/dev/null) || continue
+    case "$mx" in '' | *[!0-9]*) continue ;; esac
+    [ "$mx" -ge 16 ] && { dev="$b"; break; }
+done
+[ -n "$dev" ] || exit 0
+target=$(( $(cat "$dev/max_brightness") * 40 / 100 ))
+[ "$target" -ge 1 ] || exit 0
+if [ "$(cat "$dev/brightness" 2>/dev/null)" -lt "$target" ] 2>/dev/null; then
+    echo "$target" > "$dev/brightness" 2>/dev/null || true
+    logger -t ncz-backlight-default "first boot on a laptop: brightness raised to $target ($(cat "$dev/max_brightness"))" 2>/dev/null || true
+fi
+install -d -m 0755 /var/lib/ncz
+touch "$MARK"
+BLDEF
+chmod 0755 /usr/local/sbin/ncz-backlight-default
+cat > /etc/systemd/system/ncz-backlight-default.service <<'BLUNIT'
+[Unit]
+Description=First-boot laptop backlight default (>= 40 % of max, once)
+After=multi-user.target
+# Before the greeter so the first painted frame is at a readable brightness;
+# After the splash's ordering anchor is unnecessary (it does not own
+# brightness).
+Before=greetd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ncz-backlight-default
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical.target
+BLUNIT
+systemctl enable ncz-backlight-default.service 2>/dev/null || \
+    ln -sf /etc/systemd/system/ncz-backlight-default.service \
+        /etc/systemd/system/graphical.target.wants/ncz-backlight-default.service
+echo "[43] first-boot laptop backlight default installed (>= 40 % of max, once)"
+
 echo "[43] hw quirks done"
 exit 0

@@ -236,8 +236,7 @@ install -d -m0755 /etc/systemd/system/greetd.service.d
 cat > /etc/systemd/system/greetd.service.d/10-ncz-drm.conf <<'GREETDDRM'
 [Unit]
 # labwc needs at least one libinput device at creation; let USB recovery finish
-# its bounded keyboard probe before starting the greeter. The splash runs in
-# parallel and releases DRM when this wrapper creates its ready marker.
+# its bounded keyboard probe before starting the greeter.
 After=ncz-usb2-rescan.service
 Wants=ncz-usb2-rescan.service
 
@@ -245,6 +244,32 @@ Wants=ncz-usb2-rescan.service
 ExecCondition=/usr/local/bin/ncz-has-drm-output
 ExecStartPre=/usr/local/bin/ncz-wait-input-ready
 GREETDDRM
+
+# --- DRM handoff: greetd starts only after the boot splash released DRM ------
+# DELL Inspiron 5521 (Intel HD 4000), desktop 4971507b, 2026-10-27: the greeter
+# ran for 16 h with the panel black. The KMS boot splash (singularity-boot-
+# splash.service) still owned DRM master when greetd's labwc called drmSetMaster
+# (seatd: "Could not make device fd drm master: Device or resource busy"); a
+# wlroots compositor does not retry the master after losing that race, so it
+# lived with a dead pipeline (every plane crtc=(null), fb=0) until a manual
+# `systemctl restart greetd`, after which the pipeline came up instantly.
+#
+# Ordering contract: greetd is After= the splash unit. This cannot deadlock --
+# the splash is a bounded oneshot (total DRM ownership <= 8 s, it must not wait
+# on the greeter past that cap) and the splash does not order itself after
+# greetd; the old greeter-ready marker is not in the dependency graph. A headless
+# or splash-missing boot has nothing to wait on (unit absent => no dependency).
+# The ncz-greeter-scanout gate below then verifies the pipeline is ACTUALLY
+# scanning and restarts/falls back if not. Do not reorder this back into
+# parallel with the splash.
+cat > /etc/systemd/system/greetd.service.d/13-ncz-splash-handoff.conf <<'GREETDSPLASH'
+[Unit]
+# The KMS boot splash owns DRM master until it exits; its bounded cap (<= 8 s
+# total) guarantees this wait terminates. Starting the compositor before the
+# release makes it lose the drmSetMaster race and never recover.
+After=singularity-boot-splash.service
+GREETDSPLASH
+echo "[55] greetd ordered After= singularity-boot-splash.service (deterministic DRM handoff)"
 
 # The display-detect ordering is arm64 only. 22-display-fix.sh leaves
 # cix-detect-display.service disabled on amd64, but a Wants= here pulled it in
@@ -324,6 +349,138 @@ ExecStartPre=-/bin/rm -f /etc/issue.d/90-ncz-greeter-failed.issue
 ExecStartPre=-/bin/systemctl --no-block stop getty@tty1.service
 GREETDFB
 echo "[55] greetd OnFailure -> ncz-greeter-fallback (text login on tty1 when the greeter cannot start)"
+
+# --- scanout gate: a live greeter with a dead pipeline must not stay black ---
+# Same DELL .70 evidence as the handoff drop-in above: seatd logged
+# "Could not make device fd drm master: Device or resource busy" 16 s before the
+# splash released DRM, the compositor came up with every plane crtc=(null) fb=0
+# (panel black for 16 h), and a manual restart lit the pipeline instantly
+# (crtc[54] pipe A enable=1 active=1, primary fb=115). The ordering contract
+# keeps the known race from recurring; this gate is the last-line check for any
+# other cause of a dead pipeline.
+#
+# Predicate: an ACTIVE CRTC on the card(s) the greeter may use. The kernel
+# debugfs drm state (/sys/kernel/debug/dri/card*/state) is the source the
+# diagnosis read -- a CRTC is active when its header line (crtc[N]) is
+# followed by an enable=1 active=1 line (DELL .70 post-restart: "crtc[54]
+# pipe A enable=1 active=1, primary fb=115"; every plane crtc=(null), fb=0
+# while the pipeline was dead). debugfs is not packaged as an extra component
+# here -- the kernel ships with CONFIG_DEBUG_FS and the file is mounted at
+# the default path; /sys/class/drm card*-*/enabled (the connector sysfs attr
+# already relied on by ncz-has-drm-output) is the fallback when the file is
+# unreadable. The check is card-agnostic: the greeter's card is whichever one
+# has a connected output (card numbering is not stable; the live display has
+# been card1 on one board and card0 on the DELL), so any card with an active
+# connected scanout satisfies the gate.
+#
+# Outcomes (each at most once -- the gate is a oneshot, nothing re-triggers
+# it, so it cannot loop):
+#   greetd not active (skipped headless / condition failed / still starting)
+#       -> do nothing, exit 0.
+#   greeter active, an active CRTC appears within ~10 s
+#       -> gate passes, exit 0.
+#   greeter active, no active CRTC after 10 s
+#       -> log a diagnostic, restart greetd once, wait up to ~10 s more.
+#   still no active CRTC
+#       -> fall back to the existing text console path
+#          (ncz-greeter-fallback: message + getty@tty1).
+cat > /usr/local/sbin/ncz-greeter-scanout <<'SCANOUT'
+#!/bin/sh
+# ncz-greeter-scanout -- post-greetd scanout assertion. Run by
+# ncz-greeter-scanout.service (After=greetd.service). See post-install/55-greeter.sh.
+set -u
+
+# predicate: 0 = an active CRTC is scanning on a connected card, 1 = not yet
+crtc_active() {
+    # An active CRTC: the state file has a crtc[N] header line followed by an
+    # enable=1 active=1 line. POSIX/dash-safe: a bare shell for-list glob is
+    # NOT word-split in dash (the pattern would stay literal and the file
+    # would never be checked), so each loop body re-tests its own expansion
+    # and falls through cleanly when nothing matched. No `find | while`
+    # pipeline either: the loop would run in a subshell and an exit/return
+    # inside it would not return from this function.
+    for st in /sys/kernel/debug/dri/card[0-9]*.state; do
+        [ -r "$st" ] || continue
+        if grep -A1 -qE '^crtc\[[0-9]+\]' "$st" 2>/dev/null \
+           && grep -qE '^[[:space:]]*enable=1[[:space:]]+active=1' "$st" 2>/dev/null; then
+            return 0
+        fi
+    done
+    # the glob matched nothing (literal path remains): fall through to the
+    # connector sysfs fallback, which does not depend on the card number.
+    for e in /sys/class/drm/card[0-9]*-[0-9]/enabled; do
+        [ -f "$e" ] || continue
+        [ "$(cat "$e" 2>/dev/null)" = enabled ] \
+            && [ "$(cat "${e%/enabled}/status" 2>/dev/null)" = connected ] \
+            && return 0
+    done
+    return 1
+}
+
+# wait: 0 = active CRTC seen, 1 = timeout
+wait_scanout() {
+    _n=0
+    while [ "$_n" -lt 40 ]; do
+        crtc_active && exit 0
+        _n=$((_n + 1))
+        sleep 0.25
+    done
+    return 1
+}
+
+greetd_active() { systemctl is-active --quiet greetd.service 2>/dev/null; }
+
+# (d) greetd not active: nothing to judge. Also covers the headless/KVM boot
+# where the DRM condition skipped greetd, and the brief window before greetd
+# reaches its active state after this unit's After= ordering.
+if ! greetd_active; then
+    logger -t ncz-greeter-scanout "greetd is not active; scanout gate not applicable" 2>/dev/null || true
+    exit 0
+fi
+
+# (a) the compositor already has a scanning pipeline -- nothing to do.
+if crtc_active; then
+    logger -t ncz-greeter-scanout "greeter active with an active CRTC; scanout gate passed" 2>/dev/null || true
+    exit 0
+fi
+
+# (b) greetd is up but the pipeline is dead (no CRTC scanning after ~10 s):
+# restart once. The known DELL failure (lost drmSetMaster race) recovers on
+# this restart because the boot splash has already released DRM.
+logger -t ncz-greeter-scanout "greetd is active but no CRTC is scanning after 10s; restarting greetd once" 2>/dev/null || true
+systemctl restart greetd.service 2>/dev/null || logger -t ncz-greeter-scanout "greetd restart attempt failed" 2>/dev/null || true
+if wait_scanout; then
+    logger -t ncz-greeter-scanout "active CRTC after the single restart; scanout gate recovered" 2>/dev/null || true
+    exit 0
+fi
+
+# (c) the second check failed too: fall back to the existing text console path.
+logger -t ncz-greeter-scanout "no active CRTC even after one greetd restart; falling back to the text login (ncz-greeter-fallback)" 2>/dev/null || true
+systemctl start ncz-greeter-fallback.service 2>/dev/null \
+    || systemctl --no-block start getty@tty1.service 2>/dev/null || true
+exit 0
+SCANOUT
+chmod 0755 /usr/local/sbin/ncz-greeter-scanout
+cat > /etc/systemd/system/ncz-greeter-scanout.service <<'SCANUNIT'
+[Unit]
+Description=Assert the greeter pipeline is actually scanning after greetd starts
+# After greetd so the gate judges a greeter that exists; no dependency BACK to
+# greetd is allowed (the gate may restart it), so there is no ordering cycle.
+After=greetd.service
+
+[Service]
+Type=oneshot
+# The script's own budget is ~20 s worst case (10 s wait + 10 s post-restart).
+TimeoutStartSec=45s
+ExecStart=/usr/local/sbin/ncz-greeter-scanout
+
+[Install]
+WantedBy=graphical.target
+SCANUNIT
+systemctl enable ncz-greeter-scanout.service 2>/dev/null || \
+    ln -sf /etc/systemd/system/ncz-greeter-scanout.service \
+        /etc/systemd/system/graphical.target.wants/ncz-greeter-scanout.service
+echo "[55] ncz-greeter-scanout gate installed (active-CRTC assertion, one restart, then text console)"
 
 # --- greeter labwc config: greeter is Labwc's session client -----------------
 install -d -m0755 /etc/greetd/singularity-labwc

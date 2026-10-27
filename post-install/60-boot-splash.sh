@@ -128,10 +128,17 @@ echo "boot-splash: using connected DRM device $card"
 set +e
 # The splash paints from this point, owns DRM master and exits immediately when
 # the greeter-ready marker appears (written by the greeter wrapper just before
-# labwc takes over). Keep a safety cap for headless/failed-greeter boots, but
-# never use the cap as normal timing.
-timeout --kill-after=2s 22s "$BSP" --device "$card" --wait-seconds 2 --handoff 0.4 \
-    --max-life 20 --greeter-ready /run/singularity/greeter-ready
+# labwc takes over). The total DRM-ownership cap is hard-bounded to 8 s
+# (timeout 6s + --kill-after=2s = worst case 8 s): greetd is ordered After=
+# this unit, so every extra second the splash holds DRM is a second the
+# compositor is born without a modeset (DELL Inspiron 5521, 2026-10-27:
+# the splash kept DRM ~16 s past the greeter's drmSetMaster, the greeter
+# never retried, panel black for 16 h). The cap is a safety bound for
+# headless boots, not normal timing: a greeter that is not ready at 6 s is
+# started anyway, and the ncz-greeter-scanout gate checks that the pipeline
+# is actually scanning.
+timeout --kill-after=2s 6s "$BSP" --device "$card" --wait-seconds 1 --handoff 0.4 \
+    --max-life 5 --greeter-ready /run/singularity/greeter-ready
 rc=$?
 set -e
 # rc=1 (could not open/own DRM), 124 (timeout cap) and 137 (kill-after) are all
@@ -151,23 +158,33 @@ Documentation=https://github.com/singularityos-lab/singularity-boot-splash
 DefaultDependencies=no
 # DRM connectors are populated asynchronously after the kernel registers the
 # Sky1 display pipeline. Wait for the detector so the splash does not race the
-# connector and incorrectly conclude that the machine is headless. Do not order
-# greetd after this unit: it supplies the greeter-ready handoff marker.
+# connector and incorrectly conclude that the machine is headless.
+#
+# ORDERING CONTRACT (2026-10-27, DELL .70): the greeter's compositor must NOT
+# start in parallel with this unit. In parallel, the splash can still hold DRM
+# master when greetd's labwc does its drmSetMaster (seatd: "Could not make
+# device fd drm master: Device or resource busy"); wlroots does not retry the
+# master after losing that race, so the greeter runs live with a dead
+# pipeline (panel black) until a manual restart. greetd is therefore ordered
+# After= this unit (drop-in in 55-greeter.sh); this unit no longer supplies
+# the greeter-ready handoff marker, so the two directions of ordering cannot
+# cycle. Do not "optimise" the ordering back into parallel.
 After=systemd-udevd.service systemd-udev-settle.service local-fs.target cix-detect-display.service
 Before=graphical.target
 Conflicts=getty@tty1.service plymouth-start.service plymouth-quit.service
 
 [Service]
-# Type=oneshot owns DRM until the greeter-ready marker requests a handoff.
-# greetd starts after USB readiness in parallel with this unit.
+# Type=oneshot owns DRM until its own bounded cap expires (or the greeter-ready
+# marker appears first, if a greeter writes it). The cap is total <= 8 s, so
+# the splash can never hold DRM past the moment greetd starts behind it.
 Type=oneshot
 RemainAfterExit=no
-# Must exceed the wrapper's own worst case (timeout 22s + --kill-after=2s =
-# 24s): the wrapper turns its cap into a clean exit 0, but only if systemd
-# lets it get there. At 22s systemd killed it first whenever the greeter was
-# late, and the unit failed (Preview4 amd64 KVM gate, desktop+mgmt-container,
-# first boot on a loaded build host, 2026-10-26). build/test-boot-splash-unit.sh
-TimeoutStartSec=30s
+# Must exceed the wrapper's own worst case (timeout 6s + --kill-after=2s = 8s):
+# the wrapper turns its cap into a clean exit 0, but only if systemd lets it
+# get there. systemd killing a gracefully-releasing splash first is the
+# Preview4 amd64 KVM gate failure of 2026-10-26; the bound now tracks the
+# wrapper's bounded cap. build/test-boot-splash-unit.sh.
+TimeoutStartSec=15s
 # Wait for late Sky1 KMS without turning a legitimately headless/KVM boot into
 # a failed service. ExecCondition exit 1 is a clean skip, not a unit failure.
 ExecStart=/usr/local/bin/ncz-boot-splash
