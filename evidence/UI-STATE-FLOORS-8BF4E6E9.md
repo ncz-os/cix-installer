@@ -99,7 +99,7 @@ dialogs and fails there too).
   build/test-boot-screens-testcopy.py` → all pass (boot-screens.py plumbing
   untouched, sanity)
 - Branch `fix/ui-state-floors-20261027` (from base `8bf4e6e9`), head
-  `04af3fd6`, pushed to ARGONAS with upstream tracking; worktree clean, remote
+  `1b106e16`, pushed to ARGONAS with upstream tracking; worktree clean, remote
   SHA verified.
 - Cross-family review: `zoder review --base 8bf4e6e9 --scope branch -m
   cerberus-reviewer` → **verdict: approve** (cerberus-reviewer = gpt-oss-20b /
