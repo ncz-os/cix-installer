@@ -227,6 +227,10 @@ assets/google-chrome/
 # Per-job workspace scratch: TMPDIR for the author of a hive job (never
 # committed; build/lint-platform.sh COVER walks git ls-files, which sees it)
 tmp-scratch/
+# test-build-image.sh scratch: its run dirs live under $ROOT/build/.imgtest.$$
+# (NCZ_TEST_SCRATCH overrides), and build run dirs are scratch, not inputs --
+# keep the worktree clean after a test run.
+build/.imgtest.*/
 
 # Ad-hoc work dir used while iterating locally in a job workspace (never committed)
 /.tmp/

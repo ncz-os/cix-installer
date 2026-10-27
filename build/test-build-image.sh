@@ -19,6 +19,17 @@
 #   5b. resume-from bypass: a run resumed AT or AFTER the mandatory
 #       static-gates stage re-runs the suites first (it cannot be skipped),
 #       and a failing suite still aborts before any layer work
+#   5c. failing suite THROUGH the real stage: the test-only
+#       NCZ_TEST_SUITES_DIR hook makes ONE of the two real suites (as
+#       stage_static_gates itself runs it) exit non-zero, while the stage
+#       body runs for real -- the stage must fail, the build must abort
+#       before layers (no layers row in stages.tsv), and the failure must
+#       name the failing suite.  amd64 (cuda suite) and arm64 (greeter
+#       suite) are both covered, and a run with both suites passing must
+#       still proceed.  (Without this, a stage that ignored a suite's rc
+#       would have gone unnoticed: NCZ_TEST_STAGE_CMD replaces the whole
+#       stage body, so a fake stage failure proved nothing about
+#       stage_static_gates itself.)
 #
 # Exit 0 all pass, 1 any FAIL.
 set -uo pipefail
@@ -261,6 +272,103 @@ if awk -F'\t' '$2=="layers"{f=1} END{exit !f}' "$T5c/stages.tsv"; then
     bad "resume-from layers: layers ran after a failing suite"
 else
     ok "resume-from layers: layers did NOT run after a failing suite"
+fi
+
+# --- 2c3. a failing suite THROUGH the real stage_static_gates ----------------
+# r3 review finding: 2c/2c2 fail the FAKE stage body (NCZ_TEST_STAGE_CMD
+# replaces the whole stage), so stage_static_gates itself was never observed
+# failing -- a stage that ignored a suite's nonzero rc would have passed them.
+# The test-only NCZ_TEST_SUITES_DIR hook (build/build-image.sh, stage
+# static-gates only) swaps ONE of the two real suites for a stub that exits
+# non-zero while the rest of the stage runs untouched: the stage's own loop,
+# rc capture and FAIL line.  A skipped stage leaves NO row in stages.tsv, so
+# "no layers row" asserts the build genuinely stopped before the layers stage.
+# The build aborts at the failed stage, so no real suite body (or any other
+# stage body) is ever executed in these runs.
+echo "== 2c3. a failing suite through the REAL static-gates stage =="
+T6="$SCRATCH/static-gates-real"; mkdir -p "$T6"
+sg_fail_run() { # arch dir suites_dir -> build rc
+    # --resume-from static-gates: every stage before the suite stage is
+    # recorded SKIP, so preflight's host checks (privilege, host tools,
+    # substrate pin) are never run here -- only the real static-gates stage
+    # and the plain-hook stage bodies are.
+    NCZ_TEST_SUITES_DIR="$3" NCZ_BUILD_LOCK="$2/lock" \
+        bash "$BIN" --arch "$1" --full --no-publish --resume-from static-gates --run-dir "$2" 2>&1
+}
+# amd64: the CUDA suite fails inside the stage (both real suites are in play)
+sgf="$T6/cuda-fail"; mkdir -p "$sgf"
+printf '#!/bin/bash\necho "stub: test-amd64-cuda-gates.sh forced failure (test hook)"; exit 1\n' \
+    > "$sgf/test-amd64-cuda-gates.sh"
+T6a="$T6/amd64-cuda-fail"; sgout="$(sg_fail_run amd64 "$T6a" "$sgf")"; rc=$?
+[ "$rc" != 0 ] && ok "amd64+cuda-failing: the build fails (rc=$rc)" || bad "amd64+cuda-failing: a failing suite did not fail the build"
+awk -F'\t' '$2=="static-gates" && $3 ~ /^FAIL/{f=1} END{exit !f}' "$T6a/stages.tsv" \
+    && ok "amd64+cuda-failing: stages.tsv records static-gates FAIL" \
+    || bad "amd64+cuda-failing: stages.tsv missing static-gates FAIL: $(cat "$T6a/stages.tsv" 2>/dev/null | tr '\n' ' ')"
+if awk -F'\t' '$2=="layers"{f=1} END{exit !f}' "$T6a/stages.tsv"; then
+    bad "amd64+cuda-failing: layers ran after a failing suite"
+else
+    ok "amd64+cuda-failing: the build aborted before layers (no layers row)"
+fi
+grep -q 'test-amd64-cuda-gates.sh FAILED' <<<"$sgout" \
+    && ok "amd64+cuda-failing: the stage failure names the failing suite" \
+    || bad "amd64+cuda-failing: the failure output does not name test-amd64-cuda-gates.sh"
+# the stage log may be empty (tee's stdout is the captured build output, which
+# the stage pipes into the log), so prove execution from both places:
+if { grep -q 'running test-amd64-cuda-gates.sh' "$T6a"/logs/*static-gates.log 2>/dev/null; \
+      grep -q 'stub: test-amd64-cuda-gates.sh forced failure' <<<"$sgout"; }; then
+    ok "amd64+cuda-failing: the suite was executed by the stage"
+else
+    bad "amd64+cuda-failing: no evidence the stage executed the failing suite"
+fi
+# arm64: the greeter suite fails inside the stage (the arm64 path's only suite)
+sgg="$T6/greeter-fail"; mkdir -p "$sgg"
+printf '#!/bin/bash\necho "stub: test-greeter-console-fallback.sh forced failure (test hook)"; exit 1\n' \
+    > "$sgg/test-greeter-console-fallback.sh"
+T6b="$T6/arm64-greeter-fail"; sgout="$(sg_fail_run arm64 "$T6b" "$sgg")"; rc=$?
+[ "$rc" != 0 ] && ok "arm64+greeter-failing: the build fails (rc=$rc)" || bad "arm64+greeter-failing: a failing suite did not fail the build"
+awk -F'\t' '$2=="static-gates" && $3 ~ /^FAIL/{f=1} END{exit !f}' "$T6b/stages.tsv" \
+    && ok "arm64+greeter-failing: stages.tsv records static-gates FAIL" \
+    || bad "arm64+greeter-failing: stages.tsv missing static-gates FAIL: $(cat "$T6b/stages.tsv" 2>/dev/null | tr '\n' ' ')"
+if awk -F'\t' '$2=="layers"{f=1} END{exit !f}' "$T6b/stages.tsv"; then
+    bad "arm64+greeter-failing: layers ran after a failing suite"
+else
+    ok "arm64+greeter-failing: the build aborted before layers (no layers row)"
+fi
+grep -q 'test-greeter-console-fallback.sh FAILED' <<<"$sgout" \
+    && ok "arm64+greeter-failing: the stage failure names the failing suite" \
+    || bad "arm64+greeter-failing: the failure output does not name test-greeter-console-fallback.sh"
+if { grep -q 'running test-greeter-console-fallback.sh' "$T6b"/logs/*static-gates.log 2>/dev/null; \
+      grep -q 'stub: test-greeter-console-fallback.sh forced failure' <<<"$sgout"; }; then
+    ok "arm64+greeter-failing: the suite was executed by the stage"
+else
+    bad "arm64+greeter-failing: no evidence the stage executed the failing suite"
+fi
+# a run with BOTH suites passing still proceeds past the stage (stubs exit 0;
+# every later stage body is replaced by the plain hook, nothing real runs)
+sgok="$T6/pass"; mkdir -p "$sgok"
+printf '#!/bin/bash\nexit 0\n' > "$sgok/test-amd64-cuda-gates.sh"
+printf '#!/bin/bash\nexit 0\n' > "$sgok/test-greeter-console-fallback.sh"
+T6c="$T6/amd64-pass"; sgout="$(NCZ_TEST_SUITES_DIR="$sgok" NCZ_BUILD_LOCK="$T6c/lock" \
+    NCZ_TEST_STAGE_CMD='exit 0' bash "$BIN" --arch amd64 --full --no-publish --resume-from static-gates --run-dir "$T6c" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && ok "both-suites-passing: the build proceeds (rc=0)" || bad "both-suites-passing: a passing run did not proceed: $sgout"
+awk -F'\t' '$2=="static-gates" && $3=="PASS"{f=1} END{exit !f}' "$T6c/stages.tsv" \
+    && ok "both-suites-passing: stages.tsv records static-gates PASS" \
+    || bad "both-suites-passing: static-gates not PASS: $(cat "$T6c/stages.tsv" 2>/dev/null | tr '\n' ' ')"
+awk -F'\t' '$2=="layers" && $3=="PASS"{f=1} END{exit !f}' "$T6c/stages.tsv" \
+    && ok "both-suites-passing: the build reached layers" \
+    || bad "both-suites-passing: layers did not run: $(cat "$T6c/stages.tsv" 2>/dev/null | tr '\n' ' ')"
+# the same suite failure on a resumed-from-layers run still aborts before
+# any layer work (the mandatory re-run path, this time through the real stage)
+sgf2="$T6/cuda-fail-resume"; mkdir -p "$sgf2"
+printf '#!/bin/bash\nexit 1\n' > "$sgf2/test-amd64-cuda-gates.sh"
+T6d="$T6/resume-layers-fail-real"; sgout="$(NCZ_TEST_SUITES_DIR="$sgf2" NCZ_BUILD_LOCK="$T6d/lock" \
+    bash "$BIN" --arch amd64 --full --no-publish --resume-from layers --run-dir "$T6d" 2>&1)"; rc=$?
+[ "$rc" != 0 ] && ok "resume+cuda-failing: a failing suite aborts the resumed build (rc=$rc)" \
+    || bad "resume+cuda-failing: a failing suite did not abort a resumed build"
+if awk -F'\t' '$2=="layers"{f=1} END{exit !f}' "$T6d/stages.tsv"; then
+    bad "resume+cuda-failing: layers ran after a failing suite on the resumed run"
+else
+    ok "resume+cuda-failing: the resumed build aborted before layers (no layers row)"
 fi
 
 # --- 2d. refresh-sources must not delete the source-of-truth payload deb ----

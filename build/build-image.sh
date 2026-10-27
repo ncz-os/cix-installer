@@ -491,6 +491,9 @@ export TMPDIR="$RUN_DIR/tmp"
 # Host-level build lock (design rule 2026-10-10: layers-preflight checks
 # "no other build holding the lock").  One build per build-runs dir; a stale lock
 # (dead pid) is reclaimed; a live holder aborts this run before any work.
+# NCZ_BUILD_LOCK is honored as-is: build/test-build-image.sh points it at a
+# lock inside the test's scratch dir so two test runs never contend on the
+# real build-runs lock (and a stale lock in the tree cannot abort a test).
 NCZ_BUILD_LOCK="${NCZ_BUILD_LOCK:-$(dirname "$RUN_DIR")/.ncz-build.lock}"
 export NCZ_BUILD_LOCK NCZ_BUILD_LOCK_OWNER="$$"
 if [ "$DRY_RUN" != 1 ]; then
@@ -630,7 +633,11 @@ run_stage() {
     case "$(stage_skip_state "$name")" in
         skip)
             ncz_log "SKIP  [$name] (before --resume-from ${RESUME_FROM})"
-            printf '%02d\t%s\tSKIP\t0\n' "$idx" "$name" >> "$STAGE_TIMES"
+            # A skipped stage never runs, so it leaves NO row in stages.tsv:
+            # "no <stage> row" is the assertion a test makes when it proves
+            # the build aborted before <stage> (see build/test-build-image.sh
+            # sections 2c/2c3 -- a stage that merely returned early still
+            # left its row and would mask a bypass).
             return 0 ;;
         rerun)
             ncz_log "RERUN [$name] (mandatory suite re-run before --resume-from ${RESUME_FROM})" ;;
@@ -1217,6 +1224,15 @@ PYEOF
 # advance to layer or image work without the suites passing first.
 # (The greeter suite asserts the CUDA chooser never offers cuda on arm64, so
 #  arm64 gets that negative coverage without the amd64-only CUDA suite.)
+#
+# TEST-ONLY HOOK: NCZ_TEST_SUITES_DIR (build/test-build-image.sh only) points
+# the stage at a directory holding REPLACEMENT scripts named
+# test-amd64-cuda-gates.sh / test-greeter-console-fallback.sh.  It lets the
+# test suite fail one of the REAL suites (as the stage itself sees it: the
+# same loop, the same rc capture, the same FAIL line) without replacing the
+# whole stage body (NCZ_TEST_STAGE_CMD).  It is read in this stage only, so
+# an operator setting it has no other effect on the build.  When unset or
+# pointing at a dir that does not hold a given suite, the real suite runs.
 # ---------------------------------------------------------------------------
 stage_static_gates() {
     local log="$1"
@@ -1224,9 +1240,21 @@ stage_static_gates() {
     say() { printf '[static-gates] %s\n' "$*" | tee -a "$log"; }
     bad() { printf '[static-gates] FAIL: %s\n' "$*" | tee -a "$log" >&2; fail=1; }
 
+    # Test-only suite replacement (see above): a replacement is used only when
+    # the dir AND the named replacement exist, so a partial dir still falls
+    # back to the real suite for anything it does not cover.
+    _sg_suite() {
+        local s="$1"
+        if [ -n "${NCZ_TEST_SUITES_DIR:-}" ] && [ -f "${NCZ_TEST_SUITES_DIR}/$(basename "$s")" ]; then
+            printf '%s\n' "${NCZ_TEST_SUITES_DIR}/$(basename "$s")"
+        else
+            printf '%s\n' "$s"
+        fi
+    }
+
     local -a suites=()
-    [ "$ARCH" = amd64 ] && suites+=("$ROOT/build/test-amd64-cuda-gates.sh")
-    suites+=("$ROOT/build/test-greeter-console-fallback.sh")
+    [ "$ARCH" = amd64 ] && suites+=("$(_sg_suite "$ROOT/build/test-amd64-cuda-gates.sh")")
+    suites+=("$(_sg_suite "$ROOT/build/test-greeter-console-fallback.sh")")
 
     local s
     for s in "${suites[@]}"; do
@@ -1234,11 +1262,22 @@ stage_static_gates() {
             bad "gate suite missing: $s"
             continue
         fi
-        say "running $(basename "$s")"
+        # A replaced suite (NCZ_TEST_SUITES_DIR) is logged by its own name so
+        # the log still says which gate suite failed; a real suite runs from
+        # the pinned tree root, a replacement from its own dir (its fixtures
+        # are self-contained).
+        local label runfrom
+        label="$(basename "$s")"
+        if [ -n "${NCZ_TEST_SUITES_DIR:-}" ] && [ "$(dirname "$s")" != "$(dirname "$ROOT/build")" ]; then
+            runfrom="$(dirname "$s")"
+        else
+            runfrom="$ROOT"
+        fi
+        say "running $label"
         # The suites exit with their failure count (0 = pass); capture it so a
         # FAIL line names the suite even for an rc > 255.
-        if ! ( cd "$ROOT" && bash "$s" ) >>"$log" 2>&1; then
-            bad "$(basename "$s") FAILED (see the stage log above); tail:"
+        if ! ( cd "$runfrom" && bash "$s" ) >>"$log" 2>&1; then
+            bad "$label FAILED (see the stage log above); tail:"
             tail -15 "$log" 2>/dev/null | sed 's/^/[static-gates] /' >&2
         fi
     done
