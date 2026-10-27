@@ -20,6 +20,9 @@
 #   30 refresh-sources    resolve+freeze the singularity payload sources, build its deb
 #   40 offline-mirror     build the offline apt closure (stage 0)
 #   50 provenance-inputs  PROVENANCE + one-kernel check on the INPUTS (fail fast)
+#   55 static-gates       MANDATORY static gate suites (cuda gates on amd64,
+#                         greeter console-fallback on every arch); abort the
+#                         build before any layer or image work
 #   60 layers             build the squashfs layers (stage 1)
 #   70 image              assemble the raw GPT image + receipt (stage 2)
 #   75 secret-scan        scan EVERY shipped byte for credentials (MANDATORY)
@@ -41,7 +44,14 @@
 #   --no-publish           build + gates, never copy to the image archive
 #   --gates kvm,provenance run only these gates (REQUIRES --no-publish)
 #   --substrate refresh|pinned   substrate policy (refresh default for --full)
-#   --resume-from STAGE    start at STAGE (skips earlier stages)
+#   --resume-from STAGE    start at STAGE (skips earlier stages EXCEPT the
+#                          mandatory static-gates, which re-runs first when the
+#                          resume point is at or after it).  secret-scan and
+#                          the KVM/provenance gates sit at/after the image
+#                          stage, so a resume point at/after them (the
+#                          --image PATH use case) cannot skip a mandatory
+#                          stage that still guards the artifact this run
+#                          produces.
 #   --run-dir DIR          run directory (logs + run metadata + tmp scratch)
 #   --image PATH           an already-built image (for --resume-from kvm-gate+)
 #   --host H               run on host H (remote over ssh when H is not local)
@@ -118,8 +128,18 @@ build-image.sh -- the single entrypoint for a repeatable, deterministic NCZ-OS i
 STAGES (fixed order; provenance runs on the INPUTS before layers, and again on
 the finished image BEFORE the KVM gate -- never waste hours on a doomed build)
   preflight  refresh-substrate  stage-inputs  refresh-sources  offline-mirror
-  provenance-inputs  layers  image  secret-scan  provenance-gate  kvm-gate
-  receipt  archive
+  provenance-inputs  static-gates  layers  image  secret-scan
+  provenance-gate  kvm-gate  receipt  archive
+
+  static-gates is MANDATORY and is NOT selectable via --gates: it runs the
+  static gate suites -- the AMD64 NVIDIA CUDA design gates
+  (build/test-amd64-cuda-gates.sh, amd64 only) and the greeter
+  console-fallback gates (build/test-greeter-console-fallback.sh, both
+  arches) -- on the pinned tree BEFORE any layer or image work, so a broken
+  NVIDIA path or greeter fallback can never reach the image.  It also
+  RE-RUNS when a build resumes at or after it (--resume-from layers ...
+  archive): a resume point at/after the stage re-runs the suites first, so
+  no run that can still produce an image skips them.
 
   secret-scan is NOT optional and is NOT selectable via --gates: it runs on
   every image, immediately after 'image' and before the KVM gate.  It fails
@@ -151,7 +171,9 @@ OPTIONS
                             freezes them in the receipt; 'pinned' reproduces the
                             committed pins.  latest is the --full / --rebuild-
                             desktop default
-  --resume-from STAGE       start at STAGE
+  --resume-from STAGE       start at STAGE (earlier stages are skipped,
+                            EXCEPT the mandatory static-gates stage, which
+                            re-runs first whenever STAGE is at or after it)
   --run-dir DIR             run directory (logs, run metadata, tmp scratch)
   --image PATH              an already-built image (kvm-gate+ resume)
   --host H                  assert this host (or dispatch to it over ssh)
@@ -416,8 +438,8 @@ ncz_kernel_staging_dir() {
 # Stages
 # ---------------------------------------------------------------------------
 STAGES=(preflight refresh-substrate stage-inputs refresh-sources offline-mirror \
-        provenance-inputs layers image secret-scan provenance-gate kvm-gate \
-        receipt archive)
+        provenance-inputs static-gates layers image secret-scan provenance-gate \
+        kvm-gate receipt archive)
 stage_index() {
     local want="$1" i=0 s
     for s in "${STAGES[@]}"; do [ "$s" = "$want" ] && { echo "$i"; return 0; }; i=$((i+1)); done
@@ -469,6 +491,9 @@ export TMPDIR="$RUN_DIR/tmp"
 # Host-level build lock (design rule 2026-10-10: layers-preflight checks
 # "no other build holding the lock").  One build per build-runs dir; a stale lock
 # (dead pid) is reclaimed; a live holder aborts this run before any work.
+# NCZ_BUILD_LOCK is honored as-is: build/test-build-image.sh points it at a
+# lock inside the test's scratch dir so two test runs never contend on the
+# real build-runs lock (and a stale lock in the tree cannot abort a test).
 NCZ_BUILD_LOCK="${NCZ_BUILD_LOCK:-$(dirname "$RUN_DIR")/.ncz-build.lock}"
 export NCZ_BUILD_LOCK NCZ_BUILD_LOCK_OWNER="$$"
 if [ "$DRY_RUN" != 1 ]; then
@@ -576,22 +601,47 @@ ncz_container_run() {
 RUN_FROM="$(stage_index "${RESUME_FROM:-preflight}")" || {
     echo "build-image.sh: unknown --resume-from stage '${RESUME_FROM}'" >&2; exit 2
 }
+# The mandatory static gate suites must run on EVERY run that can still reach
+# the layers stage, even one resumed at or after the stage itself: a resume
+# re-runs static-gates first so the tree cannot advance to layer/image work
+# with a broken CUDA or greeter fallback path.  (secret-scan is the only other
+# always-run stage and it sits AFTER the image, so --resume-from can never
+# skip it on a run that still assembles an image.)
 
-should_skip() {
+# SKIP / RUN / RE-RUN: a stage before the resume point is skipped, the
+# mandatory static-gates stage is re-run when the resume point is at or after
+# it, and every other stage runs.
+stage_skip_state() {
     local idx; idx="$(stage_index "$1")"
-    [ "$idx" -lt "$RUN_FROM" ] && return 0
-    return 1
+    # static-gates re-runs when the resume point is at or AFTER it, i.e.
+    # resume index >= static-gates index.  idx is the stage's own index.
+    if [ "$1" = static-gates ] && [ "$RUN_FROM" -ge "$idx" ]; then
+        echo "rerun"
+    elif [ "$idx" -lt "$RUN_FROM" ]; then
+        echo "skip"
+    else
+        echo "run"
+    fi
 }
+
+should_skip() { [ "$(stage_skip_state "$1")" = skip ]; }
 
 run_stage() {
     local name="$1" fn="$2"
     local idx; idx="$(stage_index "$name")"
     local log; log="$(printf '%s/%02d-%s.log' "$LOGS" "$idx" "$name")"
-    if should_skip "$name"; then
-        ncz_log "SKIP  [$name] (before --resume-from ${RESUME_FROM})"
-        printf '%02d\t%s\tSKIP\t0\n' "$idx" "$name" >> "$STAGE_TIMES"
-        return 0
-    fi
+    case "$(stage_skip_state "$name")" in
+        skip)
+            ncz_log "SKIP  [$name] (before --resume-from ${RESUME_FROM})"
+            # A skipped stage never runs, so it leaves NO row in stages.tsv:
+            # "no <stage> row" is the assertion a test makes when it proves
+            # the build aborted before <stage> (see build/test-build-image.sh
+            # sections 2c/2c3 -- a stage that merely returned early still
+            # left its row and would mask a bypass).
+            return 0 ;;
+        rerun)
+            ncz_log "RERUN [$name] (mandatory suite re-run before --resume-from ${RESUME_FROM})" ;;
+    esac
     local t0; t0="$(date -u +%s)"
     ncz_log "BEGIN [$name] log=$log"
     local rc=0
@@ -602,7 +652,26 @@ run_stage() {
         local line="${NCZ_TEST_STAGE_CMD//\{stage\}/$name}"
         ( set -o pipefail; eval "$line" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
     else
-        ( set -o pipefail; "$fn" "$log" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
+        # Test-only hook (build/test-build-image.sh): record a named stage
+        # without executing its body -- used by the passing-suites run in
+        # section 2c3, where the REAL stage_static_gates must run (with the
+        # NCZ_TEST_SUITES_DIR stubs) but nothing at or past the layers stage
+        # should.  NCZ_TEST_STAGE_SKIP is a comma-separated allowlist; a
+        # stage body is skipped only when it is named AND the stage comes
+        # AFTER static-gates, so this hook can never disable the mandatory
+        # suite stage (or any stage before it).  Unlike NCZ_TEST_STAGE_CMD
+        # the skipped stage still records a normal PASS row, so "the build
+        # reached layers" stays an honest assertion about stage order.
+        if [ -n "${NCZ_TEST_STAGE_SKIP:-}" ] && [[ ",${NCZ_TEST_STAGE_SKIP}," = *",${name},"* ]]; then
+            case "$name" in
+                layers|image|secret-scan|provenance-gate|kvm-gate|receipt|archive)
+                    echo "[$name] test skip (NCZ_TEST_STAGE_SKIP) -- body not executed" | tee -a "$log"
+                    rc=0 ;;
+                *) ( set -o pipefail; "$fn" "$log" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}" ;;
+            esac
+        else
+            ( set -o pipefail; "$fn" "$log" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
+        fi
     fi
     local t1; t1="$(date -u +%s)"
     printf '%02d\t%s\t%s\t%s\n' "$idx" "$name" \
@@ -1158,6 +1227,85 @@ with open(out, "w") as fh:
 print("[refresh-sources] wrote payload receipt %s (%s %s %s)" % (out, name, ver, arch))
 PYEOF
     echo "[refresh-sources] payload deb: $(basename "$deb") sha256=$sha (sources=$SOURCES)" | tee -a "$log"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Stage 55 -- static gates (MANDATORY, runs on the pinned tree BEFORE layers)
+# The static gate suites assert the NVIDIA CUDA path (amd64) and the greeter
+# console-fallback (both arches) directly from the tree: they are the same
+# suites `make test` runs, but a release image must not be able to skip them.
+# A failure here aborts the build before any layer or image byte is produced.
+# No skip path: no scope, gate selection, env var or resume point turns this
+# stage off.  stage_skip_state() gives it a dedicated "rerun" state: when a
+# build resumes at or after static-gates, the stage re-runs BEFORE the resume
+# point instead of being recorded SKIP, so a --resume-from layers run cannot
+# advance to layer or image work without the suites passing first.
+# (The greeter suite asserts the CUDA chooser never offers cuda on arm64, so
+#  arm64 gets that negative coverage without the amd64-only CUDA suite.)
+#
+# TEST-ONLY HOOK: NCZ_TEST_SUITES_DIR (build/test-build-image.sh only) points
+# the stage at a directory holding REPLACEMENT scripts named
+# test-amd64-cuda-gates.sh / test-greeter-console-fallback.sh.  It lets the
+# test suite fail one of the REAL suites (as the stage itself sees it: the
+# same loop, the same rc capture, the same FAIL line) without replacing the
+# whole stage body (NCZ_TEST_STAGE_CMD).  It is read in this stage only, so
+# an operator setting it has no other effect on the build.  When unset or
+# pointing at a dir that does not hold a given suite, the real suite runs.
+# ---------------------------------------------------------------------------
+stage_static_gates() {
+    local log="$1"
+    local fail=0
+    say() { printf '[static-gates] %s\n' "$*" | tee -a "$log"; }
+    bad() { printf '[static-gates] FAIL: %s\n' "$*" | tee -a "$log" >&2; fail=1; }
+
+    # Test-only suite replacement (see above): a replacement is used only when
+    # the dir AND the named replacement exist, so a partial dir still falls
+    # back to the real suite for anything it does not cover.
+    _sg_suite() {
+        local s="$1"
+        if [ -n "${NCZ_TEST_SUITES_DIR:-}" ] && [ -f "${NCZ_TEST_SUITES_DIR}/$(basename "$s")" ]; then
+            printf '%s\n' "${NCZ_TEST_SUITES_DIR}/$(basename "$s")"
+        else
+            printf '%s\n' "$s"
+        fi
+    }
+
+    local -a suites=()
+    [ "$ARCH" = amd64 ] && suites+=("$(_sg_suite "$ROOT/build/test-amd64-cuda-gates.sh")")
+    suites+=("$(_sg_suite "$ROOT/build/test-greeter-console-fallback.sh")")
+
+    local s
+    for s in "${suites[@]}"; do
+        if [ ! -f "$s" ]; then
+            bad "gate suite missing: $s"
+            continue
+        fi
+        # A replaced suite (NCZ_TEST_SUITES_DIR) is logged by its own name so
+        # the log still says which gate suite failed; a real suite runs from
+        # the pinned tree root, a replacement from its own dir (its fixtures
+        # are self-contained).
+        local label runfrom
+        label="$(basename "$s")"
+        if [ -n "${NCZ_TEST_SUITES_DIR:-}" ] && [ "$(dirname "$s")" != "$(dirname "$ROOT/build")" ]; then
+            runfrom="$(dirname "$s")"
+        else
+            runfrom="$ROOT"
+        fi
+        say "running $label"
+        # The suites exit with their failure count (0 = pass); capture it so a
+        # FAIL line names the suite even for an rc > 255.
+        if ! ( cd "$runfrom" && bash "$s" ) >>"$log" 2>&1; then
+            bad "$label FAILED (see the stage log above); tail:"
+            tail -15 "$log" 2>/dev/null | sed 's/^/[static-gates] /' >&2
+        fi
+    done
+
+    if [ "$fail" != 0 ]; then
+        ncz_err "[static-gates] FAILED -- a static gate suite failed; fix the code it checks BEFORE the layers stage (no image is produced)."
+        return 1
+    fi
+    say "all static gate suites PASS (${#suites[@]} suite(s))"
     return 0
 }
 
@@ -1832,6 +1980,9 @@ stage_enabled() {
                 *) return 1 ;;
             esac ;;
         provenance-inputs) gate_selected provenance ;;
+        # MANDATORY static gate suites: no scope, gate selection or env var can
+        # switch them off (the same rule as secret-scan).
+        static-gates) return 0 ;;
         layers) [ "$SCOPE" = only-image ] && return 1 || return 0 ;;
         image) return 0 ;;
         # The shipped-artifact credential gate is MANDATORY: no scope, gate
@@ -1888,7 +2039,11 @@ print_plan() {
     local i=0 s
     for s in "${STAGES[@]}"; do
         local mark="run "
-        if should_skip "$s"; then mark="skip"; elif ! stage_enabled "$s"; then mark="off "; fi
+        case "$(stage_skip_state "$s")" in
+            skip)  mark="skip" ;;
+            rerun) mark="rerun" ;;
+            *)     ! stage_enabled "$s" && mark="off " ;;
+        esac
         printf '    [%s] %02d %s\n' "$mark" "$i" "$s"
         i=$((i+1))
     done
