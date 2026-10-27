@@ -821,6 +821,108 @@ fullchk() { python3 "$HERE/check-installer-screens.py" "$FULL" --start-at "selec
 expect "full real 33-state gate capture passes the arm64 gate arguments (no false failure)" 0 fullchk
 fullchk >"$T/ev" 2>&1; grep -q 'dialogs in capture order (8): ' "$T/ev" && { PASS=$((PASS+1)); echo "ok   full capture: exactly the 8 real titles"; } || { FAILS=$((FAILS+1)); echo "FAIL full capture titles"; cat "$T/ev"; }
 expect "full capture: no-blank-after the component dialog" 0 python3 "$HERE/check-installer-screens.py" "$FULL" --start-at "optional components" --no-blank-after "optional components"
+# --- the state floor must track the DIAMOND COUNT, not one run's cadence (2026-10-27, job 01a17b13) ---
+# The 2026-10-26 content branch (13 desktop apps removed) made the KVM gate's full-option arm64 install
+# finish in under ~100 s: its d-i phase drew a steady "Finishing the installation" progress dialog that
+# collapses to one or two stable states (the pre-branch fixture above has 24 of 33), and the 8bf4e6e9
+# gate captured 14 COMPLETE states (all 9 required dialogs in order, login line, headers, no chatter)
+# while the UART kept producing installer output until the harness' own SIGTERM. The floor was 20, so
+# the image failed on cadence, not content. Re-based to 12 (kvm-installer-ui-check.sh). Pin the
+# structural property the re-based floor protects: it must still fail a capture truncated right after
+# the component dialog (5 states: boot diag + region + username + password + components) even though a
+# full run today yields only ~14.
+rm -rf "$T/s"; mkdir -p "$T/s"
+printf '# t=16s\n%s\n' '=== NCZ CONSOLE DIAG ===
+ttyAMA0              -W- (E  Np a)  204:64
+=== END CONSOLE DIAG ===' > "$T/s/0000-0016s.txt"
+printf '# t=29s\n%s\n' '[                    (1**installer)  2 shell  3 shell  4- log' > "$T/s/0001-0029s.txt"
+printf '# t=33s\n%s\n' "$DIALOG_REG" > "$T/s/0002-0033s.txt"
+printf '# t=37s\n%s\n' "$DIALOG_USR" > "$T/s/0003-0037s.txt"
+printf '# t=40s\n%s\n' "$DIALOG_PWD" > "$T/s/0004-0040s.txt"
+printf '# t=43s\n%s\n' "$DIALOG_COMP" > "$T/s/0005-0043s.txt"
+# A capture whose dialog-stage content is complete but whose disk-stage states were never captured
+# (truncation) must fail the re-based floor: 5 captured states < 12.
+expect "truncated-after-components capture (5 states) fails the re-based floor of 12" 1 chk --min-states 12
+# --- the truncation property, per cut point (2026-10-27 r2) --------------------------------
+# The floor counts ALL captured files, including the repeated states one long install phase
+# emits, so it is a count floor, not an end-point pin. The 14-state 8bf4e6e9 fixture
+# (build/testdata/installer-screens/arm64-8bf4e6e9-14states, reconstructed from the gate's
+# recorded evidence: 16..138 s, 10 dialog titles in order, install phase collapsed to its
+# 1-2 stable states plus the finish states) shows where each check bites:
+#
+#   5 states   cut after the component dialog     floor FAIL (5 < 12),  end-point FAIL
+#   8 states   cut after the erase confirmation   floor FAIL (8 < 12),  end-point FAIL
+#   12 states  cut after the install phase        floor PASS (12 >= 12), end-point PASS
+#   14 states  complete capture (16..138 s)       floor PASS (14 >= 12), end-point PASS
+#
+# Every cut BEFORE the final dialog fails at least one check; the complete capture passes
+# both. The end-point rule (--last-state-matches) is the second half of the guard: a
+# complete run always ends inside the install progress phase ("Installing the base system"
+# or "Finishing the installation"), so a capture whose last state is the erase review
+# (truncated after the confirmation, before the install drew its first stable state) fails
+# the end-point rule even when its state count would beat the floor on a slower capture.
+CUTFX="$HERE/testdata/installer-screens/arm64-8bf4e6e9-14states"
+PROG_RX="Installing the base system|Finishing the installation"
+cutbuild() { # cutbuild <n> <dir> = copy the first N state files of the fixture into <dir>
+    local n="$1" d="$2" f
+    rm -rf "$d"; mkdir -p "$d"
+    ls "$CUTFX"/*.txt | sort | head -n "$n" | while read -r f; do cp "$f" "$d/"; done; }
+cutchk() { # cutchk <n> = the first N state files of the fixture, judged with the floor + end-point rule
+    local n="$1"
+    cutbuild "$n" "$T/cut"
+    python3 "$HERE/check-installer-screens.py" "$T/cut" --min-states 12 --last-state-matches "$PROG_RX"; }
+expect "14-state complete capture passes floor 12 + end-point (the real 8bf4e6e9 run, 16..138 s)" 0 cutchk 14
+expect "5-state cut after the component dialog fails floor 12" 1 cutchk 5
+expect "5-state cut after the component dialog fails the end-point rule (last state = component dialog)" 1 python3 "$HERE/check-installer-screens.py" "$T/cut" --last-state-matches "$PROG_RX"
+expect "8-state cut after the erase confirmation fails floor 12" 1 cutchk 8
+expect "8-state cut after the erase confirmation fails the end-point rule (last state = erase review)" 1 python3 "$HERE/check-installer-screens.py" "$T/cut" --last-state-matches "$PROG_RX"
+cutbuild 12 "$T/cut12"
+expect "12-state cut after the install phase passes floor 12 + end-point (a capture that reached the final dialog)" 0 python3 "$HERE/check-installer-screens.py" "$T/cut12" --min-states 12 --last-state-matches "$PROG_RX"
+# --- the end-point rule is deterministic: "last" = the LATEST recorded # t= time, not
+# the last name in sorted order. A name with a non-zero-padded second field (14-00138s)
+# sorts lexicographically FIRST but is chronologically LAST, so files[-1] would judge the
+# wrong state. Build two states: a blank diag at t=16 (name 0000) and the install progress
+# at t=138 (name 14-00138s, which sorts before 0000...). The end-point rule must pick the
+# t=138 state (PASS) even though sorted order puts it first.
+rm -rf "$T/ep"; mkdir -p "$T/ep"
+printf '# t=16s\n%s\n' '=== NCZ CONSOLE DIAG ===
+ttyAMA0              -W- (E  Np a)  204:64
+=== END CONSOLE DIAG ===' > "$T/ep/0000-0016s.txt"
+printf '# t=138s\n%s\n' '  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                   23%%                                   │
+  └─────────────────────────────────────────────────────────────────────────┘' > "$T/ep/14-00138s.txt"
+# sorted order = [0000-0016s, 14-00138s]; lexicographic last = 14-00138s here, but to make
+# the test bite, the chronologically-last file must NOT be the lexicographic-last one:
+# rename the progress state so it sorts FIRST (0000) while carrying the larger # t= value.
+rm -f "$T/ep/14-00138s.txt"
+printf '# t=138s\n%s\n' '  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                   23%%                                   │
+  └─────────────────────────────────────────────────────────────────────────┘' > "$T/ep/0000-0138s.txt"
+printf '# t=16s\n%s\n' '=== NCZ CONSOLE DIAG ===
+ttyAMA0              -W- (E  Np a)  204:64
+=== END CONSOLE DIAG ===' > "$T/ep/0001-0016s.txt"
+# Now sorted = [0000-0138s (t=138, progress), 0001-0016s (t=16, diag)].
+# Lexicographic last = 0001-0016s (the diag) -- the WRONG state.
+# Chronological last = 0000-0138s (t=138, the progress) -- the RIGHT state.
+# A correct end-point rule picks the t=138 state and PASSES the progress regex.
+expect "end-point rule picks the chronological last state (t=138 progress), not the lexicographic last (t=16 diag)" 0 python3 "$HERE/check-installer-screens.py" "$T/ep" --last-state-matches "Finishing the installation"
+# And the same two states, with the regex matching ONLY the diag, must FAIL (proves the
+# rule did not fall back to the lexicographic-last diag state).
+expect "end-point rule does not fall back to the lexicographic-last state (diag-only regex fails)" 1 python3 "$HERE/check-installer-screens.py" "$T/ep" --last-state-matches "NCZ CONSOLE DIAG"
+# --- --last-state-matches on an EMPTY directory: report a clean FAIL, never IndexError.
+# The checker's existing early-exit for an empty directory (sys.exit "no console states
+# captured") fires before the end-point check, so an empty capture already fails cleanly.
+# The guard in the end-point block is a belt-and-suspenders: if the early-exit is ever
+# removed or reordered, files[-1] would raise IndexError. Prove no crash either way.
+rm -rf "$T/empty"; mkdir -p "$T/empty"
+expect "--last-state-matches on an empty capture fails cleanly (no IndexError)" 1 python3 "$HERE/check-installer-screens.py" "$T/empty" --last-state-matches "Finishing the installation"
+# the gate wires the end-point rule into the judge call of BOTH judge paths
+KV2="$HERE/kvm-installer-ui-check.sh"
+n_lsm=$(awk '/^judge_text\(\) \{/,/^\}/' "$KV2" | grep -c -- '--last-state-matches')
+n_lsm_s=$(awk '/^judge_text_server\(\) \{/,/^\}/' "$KV2" | grep -c -- '--last-state-matches')
+[ "$n_lsm" = 1 ] && [ "$n_lsm_s" = 1 ] \
+    && { PASS=$((PASS+1)); echo "ok   kvm-installer-ui-check.sh pins the install-progress end point in judge_text and judge_text_server"
+} || { FAILS=$((FAILS+1)); echo "FAIL kvm-installer-ui-check.sh end-point wiring: judge_text=$n_lsm judge_text_server=$n_lsm_s (expected 1/1)"; }
 # --- kvm-installer-ui-check.sh: amd64 is judged from a TEXT channel, not the framebuffer alone (2026-10-17) ---
 # The amd64 check used to sample the framebuffer only and exit PASS-LIMITED without reading a single dialog title,
 # which could not catch the disk-chooser Choices/Choices-C swap the arm64 check caught on the serial console. The

@@ -36,10 +36,11 @@ ap.add_argument("--allow-first-blank", action="store_true", help="with --no-blan
 ap.add_argument("--max-blank-secs", type=int, default=8, help="a blank console shorter than this is a redraw between steps, not a vanished UI (default 8; the defect was 14-25 s)")
 ap.add_argument("--boot-blank-max-secs", type=int, default=0, help="with --no-blank-after: when the marker is in the FIRST captured state (the bootloader frame), the blank state right after it is the kernel and initrd load, not a vanished UI; allow it up to N seconds (default 0 = off). Every later blank is judged by --max-blank-secs")
 ap.add_argument("--no-blank-after", default=None, help="after the first state containing TEXT, no later state may be a blank console (only the screen tab bar): the UI must stay up until the install progress")
-ap.add_argument("--min-states", type=int, default=0, help="fail when fewer than N distinct console states were captured. The state COUNT itself is timing-dependent (arm64 r201 candidates: 35, 33, 32 with identical dialog sequences), so this is only a floor that catches a truncated capture; the content assertions above are the real checks")
+ap.add_argument("--min-states", type=int, default=0, help="fail when fewer than N distinct console states were captured. The state COUNT itself is timing-dependent (arm64 r201 candidates: 35, 33, 32 with identical dialog sequences; the 2026-10-27 Preview4 candidate: 14, also complete), so this is only a floor that catches a truncated capture; the content assertions above are the real checks. Pick N from the dialog COUNT the harness is guaranteed to capture (one stable state per answered dialog, boot-screens.py pump()), not from a particular run's cadence")
 ap.add_argument("--require-prompt-sequence", nargs="+", default=[], help="assert every REGEX appears in the given order across the captured screens (operator's interactive sequence)")
 ap.add_argument("--require-boot-progress", nargs="+", default=[], help="assert every PHASE appears in the given order in the boot-time serial log (the [NCZ HH:MM:SS +Ns] lines from preseed/boot-progress.sh)")
 ap.add_argument("--min-dialogs", type=int, default=0, help="fail unless at least N distinct dialog titles were extracted from the captured states (proves the dialog order is real; a capture whose frames could not be parsed fails instead of printing 'none')")
+ap.add_argument("--last-state-matches", default=None, help="fail unless the LAST captured state matches REGEX. The --min-states floor counts all captured files, including repeated states of one long phase, so it can pass a capture that ended early WHILE STILL CONTAINING every dialog; this check pins the capture's end point. The 8bf4e6e9 gate (2026-10-27): a cut right after the erase confirmation left 13 of 14 states with all 10 dialogs present, which the floor alone cannot catch; a complete run's final state is the install progress dialog, so pin that")
 ap.add_argument("--require-login-line", default=None, help="assert at least one captured primary-console state shows the installer diagnostics login line matching REGEX (preseed/ncz-ui.sh ncz_ui_diag_login; docs/RECOVERY-LOGINS.md)")
 a = ap.parse_args()
 
@@ -201,6 +202,42 @@ if a.min_dialogs and len(titles) < a.min_dialogs:
 if a.min_states and len(files) < a.min_states:
     bad += 1
     print(f"check-installer-screens: FAIL only {len(files)} console states captured, expected at least {a.min_states} (truncated capture?)", file=sys.stderr)
+# --- --last-state-matches: pin the capture's END point ---------------------------------
+# The --min-states floor counts all captured files, including the repeated states one long
+# install phase emits, so it cannot by itself distinguish a complete capture from one that
+# stopped early while still holding every dialog. A complete desktop run always ends inside
+# the install progress phase (the screen goes blank at shutdown, and pump() stops writing
+# stable states once the screen stops changing), so its final state carries the install
+# progress dialog. Judging ONLY the last state: a cut right after the erase confirmation
+# leaves the final state as the erase review and fails here.
+#
+# "Last" means the LATEST recorded capture time, not the last name in sorted order: every
+# state carries a `# t=<N>s` header (the harness' own capture clock), and a name with a
+# non-zero-padded second field (e.g. 14-00138s.txt) sorts lexicographically FIRST while
+# being chronologically LAST, so files[-1] would judge the wrong state. Select by the
+# recorded timestamp; fall back to sorted order when no state carries a header.
+if a.last_state_matches:
+    if not files:
+        # No captured state at all: the end point cannot be judged. Report it instead of
+        # indexing files[-1] (IndexError) -- a directory of zero states is always a
+        # truncation, and the --min-states floor (when supplied) says so too.
+        bad += 1
+        print("check-installer-screens: FAIL --last-state-matches /%s/ requested but no console state was captured (the capture is empty; truncated?)" % a.last_state_matches, file=sys.stderr)
+    else:
+        lrx = re.compile(a.last_state_matches)
+        keyed = []
+        for f in files:
+            mt = re.match(r"# t=(\d+)s", rd(os.path.join(a.dir, f), 20))
+            keyed.append((int(mt.group(1)) if mt else None, f))
+        timed = [k for k in keyed if k[0] is not None]
+        if timed:
+            # latest capture time wins; ties broken by name order (deterministic)
+            last = max(timed, key=lambda k: (k[0], k[1]))[1]
+        else:
+            last = files[-1]  # no state carries a # t= header: fall back to sorted order
+        if not lrx.search(rd(os.path.join(a.dir, last))):
+            bad += 1
+            print("check-installer-screens: FAIL the last captured state %s does not match /%s/ (the capture ended before the install progress; truncated?)" % (last, a.last_state_matches), file=sys.stderr)
 if bad:
     sys.exit(1)
 print("check-installer-screens: OK (%d console states)" % len(files))

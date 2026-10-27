@@ -1,0 +1,13 @@
+# t=116s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+  ┌────────────┤ [7/8] NCZ-OS 26.10 Cygnus - root (/) filesystem ├──────────────────────┐
+  │ Pick the filesystem for the root partition:                                           │
+  │                                                                                      │
+  │   ext4  (default)                                                                    │
+  │                                                                                      │
+  │ arm64 (Sky1) | build 8bf4e6e9 | diagnostics login: root / set by ncz_diag_pw         │
+  │                                                                                      │
+  │                              <Go Back>       <OK>                                    │
+  └──────────────────────────────────────────────────────────────────────────────────────┘
