@@ -61,20 +61,24 @@ DEAD_STATE='crtc[0] [899]  eDP-1
 '
 # crtc_active() must satisfy on either source: the debugfs state pair above,
 # or the connector sysfs fallback (enabled + connected) when state is absent.
-# card9 is unambiguous for the gate's card[0-9]*.state glob.
+# card9 is unambiguous for the gate's card[0-9]*.state glob. mkstate also
+# toggles the connector enabled flag: a dead pipeline must be dead on BOTH
+# sources (active=0 AND connector not enabled) or the fallback would mask it.
 cat > "$SB/mkstate" <<MKS
 #!/bin/sh
 # mkstate <active|dead|none>
 case "\$1" in
-    active) printf '%s\n' "$ACTIVE_STATE" > "$SYS/kernel/debug/dri/card9.state" ;;
-    dead)   printf '%s\n' "$DEAD_STATE"   > "$SYS/kernel/debug/dri/card9.state" ;;
-    none)   rm -f "$SYS/kernel/debug/dri/card9.state" ;;
+    active) printf '%s\n' "$ACTIVE_STATE" > "$SYS/kernel/debug/dri/card9.state"; echo enabled > "$SYS/class/drm/card0-eDP-1/enabled" ;;
+    dead)   printf '%s\n' "$DEAD_STATE"   > "$SYS/kernel/debug/dri/card9.state"; echo disabled > "$SYS/class/drm/card0-eDP-1/enabled" ;;
+    none)   rm -f "$SYS/kernel/debug/dri/card9.state"; echo disabled > "$SYS/class/drm/card0-eDP-1/enabled" ;;
 esac
 MKS
-# connector sysfs: present + connected + enabled (the fallback source)
-mkdir -p "$SYS/class/drm/eDP-1"
-echo connected > "$SYS/class/drm/eDP-1/status"
-echo enabled   > "$SYS/class/drm/eDP-1/enabled"
+# connector sysfs: present + connected (the fallback source). The directory is
+# a realistic cardN-OUTPUT path so it matches the gate's card[0-9]*-[0-9]
+# glob; the enabled flag is set per-case by mkstate.
+mkdir -p "$SYS/class/drm/card0-eDP-1"
+echo connected > "$SYS/class/drm/card0-eDP-1/status"
+echo enabled   > "$SYS/class/drm/card0-eDP-1/enabled"
 
 # Stubs are written with an UNQUOTED heredoc so the test shell expands
 # $SYS/$ST/$SB/$ACTIVE_STATE/$DEAD_STATE into the stub bodies at write time
@@ -179,21 +183,53 @@ run_gate; rc=$?
 [ "$rc" = 0 ] && [ -z "$(real_acts)" ] && ok "(d2) inactive greetd + lit console: no-op" || no "(d2) wrong: $(real_acts)"
 
 # --- the predicate must be the debugfs drm state with a sysfs fallback ------
-# The gate enumerates /sys with POSIX globs (a bare shell for-list glob does
-# not work in dash: it is not word-split), so the source carries literal glob
-# patterns -- check them as fixed strings, and the CRTC-header + enable/active
-# regexes as EREs.
-grep -qF '/sys/kernel/debug/dri/' "$T/scanout" && grep -qF 'card[0-9]*.state' "$T/scanout" \
-    && ok "predicate reads the drm debugfs state (glob card[0-9]*.state)" \
+# The gate enumerates /sys with POSIX globs (a bare shell for-list glob is not
+# word-split in dash), so the source carries literal glob patterns -- verify
+# the exact path + glob strings as fixed strings.
+grep -qF '/sys/kernel/debug/dri/card[0-9]*.state' "$T/scanout" \
+    && ok "predicate reads the drm debugfs state (exact: card[0-9]*.state)" \
     || no "predicate does not read the drm debugfs state"
-# The gate source carries the raw ERE patterns; check them as fixed strings
-# (grep -F) since they contain backslashes that an ERE check would re-escape.
-grep -qF 'crtc\[[0-9]+\]' "$T/scanout" && grep -qF 'enable=1[[:space:]]+active=1' "$T/scanout" \
-    && ok "predicate matches a crtc[N] header with an enable=1 active=1 line" \
-    || no "predicate regex wrong"
-grep -qF '/sys/class/drm/' "$T/scanout" && grep -qF 'card[0-9]*-[0-9]/enabled' "$T/scanout" \
-    && ok "predicate has the /sys/class/drm connector fallback (glob card[0-9]*-[0-9]/enabled)" \
+grep -qF '/sys/class/drm/card[0-9]*-[0-9]/enabled' "$T/scanout" \
+    && ok "predicate has the /sys/class/drm connector fallback (exact: card[0-9]*-[0-9]/enabled)" \
     || no "no sysfs fallback in the predicate"
+# The CRTC-header + enable/active regexes are stored in the source as literal
+# text (backslashes and all), so a source grep must be fixed-string; but the
+# real validation is that the predicate FUNCTION matches the shapes it is
+# meant to match. Extract crtc_active() and run it against real fixtures.
+grep -qF 'crtc\[[0-9]+\]' "$T/scanout" && grep -qF 'enable=1[[:space:]]+active=1' "$T/scanout" \
+    && ok "predicate source carries the crtc[N] + enable/active ERE patterns" \
+    || no "predicate regex missing from source"
+# Functionally prove the predicate: build a fixture sysfs, redefine the paths
+# the extracted function uses, and check the active vs dead state.
+FX="$T/fx"; mkdir -p "$FX/kernel/debug/dri" "$FX/class/drm/card0-eDP-1"
+sed -n '/^crtc_active() {/,/^}/p' "$T/scanout" > "$T/crtc_active.sh"
+sed -e "s#/sys/kernel/debug/dri#$FX/kernel/debug/dri#g" \
+    -e "s#/sys/class/drm#$FX/class/drm#g" "$T/crtc_active.sh" > "$T/crtc_active_fx.sh"
+printf 'crtc[54] [4098]  eDP-1\n    enable=1 active=1\n    primary fb=115\n' \
+    > "$FX/kernel/debug/dri/card0.state"
+printf 'connected\n' > "$FX/class/drm/card0-eDP-1/status"; printf 'enabled\n' > "$FX/class/drm/card0-eDP-1/enabled"
+. "$T/crtc_active_fx.sh"; crtc_active && ok "predicate function returns ACTIVE on a lit CRTC" \
+    || no "predicate function did not detect an active CRTC"
+printf 'crtc[0] [899]  eDP-1\n    enable=1 active=0\n    primary fb=0\n' \
+    > "$FX/kernel/debug/dri/card0.state"
+printf 'disabled\n' > "$FX/class/drm/card0-eDP-1/enabled"
+. "$T/crtc_active_fx.sh"; crtc_active && no "predicate function returned ACTIVE on a dead CRTC (debugfs path)" \
+    || ok "predicate function returns DEAD on a crtc=(null)/active=0 state"
+# connector-sysfs fallback: with no debugfs state file, a connected+enabled
+# connector must still satisfy the predicate. (The previous sub-test left the
+# connector disabled, so re-enable it first.)
+rm -f "$FX/kernel/debug/dri/card0.state"
+printf 'enabled\n' > "$FX/class/drm/card0-eDP-1/enabled"
+. "$T/crtc_active_fx.sh"; crtc_active && ok "predicate function uses the connector sysfs fallback" \
+    || no "predicate function ignored the connected+enabled connector fallback"
+
+# --- wait_scanout must RETURN, not exit: a CRTC that comes up inside the wait
+# must let the caller continue (log the recovery), not terminate the whole
+# gate script before it acts. (Regression: it once used `exit 0`.)
+grep -q 'crtc_active && exit 0' "$T/scanout" && no "wait_scanout uses exit 0 (terminates the script)" \
+    || ok "wait_scanout returns to the caller (does not exit the script)"
+grep -q 'crtc_active && return 0' "$T/scanout" && ok "wait_scanout uses return 0" \
+    || no "wait_scanout does not use return 0"
 
 # --- idempotence: the unit has no Restart= and nothing re-triggers it -------
 grep -q '^Restart=' "$T/unit" && no "unit has Restart= (could loop)" || ok "unit has no Restart= (the oneshot runs once per boot)"

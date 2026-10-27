@@ -419,9 +419,12 @@ crtc_active() {
 
 # wait: 0 = active CRTC seen, 1 = timeout
 wait_scanout() {
+    # return 0 (NOT exit 0): a CRTC that comes up inside the wait must let the
+    # CALLER continue its logic (the post-restart check), not terminate the
+    # whole gate script before it can log/act on the outcome.
     _n=0
     while [ "$_n" -lt 40 ]; do
-        crtc_active && exit 0
+        crtc_active && return 0
         _n=$((_n + 1))
         sleep 0.25
     done

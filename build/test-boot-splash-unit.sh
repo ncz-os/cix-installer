@@ -75,10 +75,22 @@ grep -qE '^After=.*greetd' <<<"$unit" && bad "splash unit orders itself after gr
 grep -q 'greetd starts.*in parallel\|starts after USB readiness in parallel' <<<"$unit" \
     && bad "unit still documents greetd starting in parallel" \
     || ok "unit no longer documents a parallel greetd start"
-# The splash cannot wait for the greeter past its cap: with a bounded timeout
-# around the marker wait (asserted above) plus the 8s bound, the After= wait
-# terminates. Document the bound in the unit itself.
-grep -q '8 s' <<<"$unit" && ok "splash unit documents the bounded cap" || bad "splash unit does not document the cap bound"
+# The unit's start timeout must be a BOUNDED numeric value (not the old 30s
+# that let DRM ownership run unbounded). The actual <= 8 s cap is asserted
+# numerically above from the wrapper's timeout + kill-after; here we only
+# verify TimeoutStartSec is a finite number (any wording change to the
+# comment must not break this -- we match the directive, not the prose).
+_ts_directive=$(sed -n 's/^TimeoutStartSec=//p' <<<"$unit")
+case "$_ts_directive" in
+    '') bad "TimeoutStartSec directive missing from the splash unit" ;;
+    *?*)
+        if printf '%s' "$_ts_directive" | grep -qE '^[0-9]+(s|min)$'; then
+            ok "TimeoutStartSec=${_ts_directive} is a bounded numeric value (cap is enforced by the wrapper)"
+        else
+            bad "TimeoutStartSec=${_ts_directive} is not a bounded numeric value"
+        fi
+        ;;
+esac
 # Run the real wrapper against a stub splash: sandboxed sysfs/dev, short cap.
 mkdir -p "$T/sys/card0-HDMI-A-1" "$T/dev" "$T/run"
 echo connected > "$T/sys/card0-HDMI-A-1/status"; : > "$T/dev/card0"
