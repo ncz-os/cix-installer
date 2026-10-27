@@ -1395,6 +1395,7 @@ else
     # What the first boot reached, against the options (97-firstboot-report.sh).
     FB_TARGET="$(sed -n 's/^# default-target=//p' "$FBR" | tail -1)"
     FB_GREETD="$(sed -n 's/^# greetd=//p' "$FBR" | tail -1)"
+    FB_GETTY1="$(sed -n 's/^# getty-tty1=//p' "$FBR" | tail -1)"
     if [ "$WANT_DESKTOP" = 1 ]; then
         [ "$FB_TARGET" = graphical.target ] || fail "desktop selected but the default target is '${FB_TARGET:-unreported}', not graphical.target"
         case "$ARCH:$FB_GREETD" in
@@ -1403,6 +1404,13 @@ else
             # cannot start there and greetd keeps restarting it. Enabled and
             # retrying is what this guest can show; real Sky1 boards run it.
             arm64:activating) echo "    first boot: graphical.target, greetd enabled and restarting its greeter (arm64 guest: no Mali GPU)" ;;
+            # 2026-10-27: with no Mali the arm64 guest can also end up with greetd
+            # stopped outright (its DRM condition skips the unit). That is
+            # acceptable ONLY when the scanout gate handed tty1 to a text login:
+            # a desktop that boots to no console at all is not.
+            arm64:inactive)
+                [ "$FB_GETTY1" = active ] || fail "desktop selected, greetd inactive and no text login on tty1 either (first boot is unreachable)"
+                echo "    first boot: graphical.target, greetd inactive (arm64 guest: no Mali GPU) and a text login on tty1" ;;
             *) fail "desktop selected but greetd is '${FB_GREETD:-unreported}' on first boot (no greeter)" ;;
         esac
     else

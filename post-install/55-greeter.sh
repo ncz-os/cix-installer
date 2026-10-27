@@ -433,11 +433,28 @@ wait_scanout() {
 
 greetd_active() { systemctl is-active --quiet greetd.service 2>/dev/null; }
 
-# (d) greetd not active: nothing to judge. Also covers the headless/KVM boot
-# where the DRM condition skipped greetd, and the brief window before greetd
-# reaches its active state after this unit's After= ordering.
+# (d) greetd not active: the boot may still be in the window between this
+# unit's After= ordering and greetd reaching active, so wait briefly before
+# judging. After that: a greeter that never came up must not leave the machine
+# with no console at all (arm64 KVM boots have no Mali GPU, so greetd's DRM
+# condition can skip it outright -- the 2026-10-27 gate found greetd=inactive
+# AND getty-tty1=inactive on first boot: a black screen with no way in).
 if ! greetd_active; then
-    logger -t ncz-greeter-scanout "greetd is not active; scanout gate not applicable" 2>/dev/null || true
+    _waited=0
+    while [ "$_waited" -lt 15 ]; do
+        greetd_active && break
+        sleep 1
+        _waited=$((_waited + 1))
+    done
+fi
+if ! greetd_active; then
+    if crtc_active; then
+        logger -t ncz-greeter-scanout "greetd is not active but a CRTC is scanning; leaving the pipeline alone" 2>/dev/null || true
+        exit 0
+    fi
+    logger -t ncz-greeter-scanout "greetd is not active and no CRTC is scanning; starting a text login on tty1" 2>/dev/null || true
+    systemctl start ncz-greeter-fallback.service 2>/dev/null \
+        || systemctl --no-block start getty@tty1.service 2>/dev/null || true
     exit 0
 fi
 
