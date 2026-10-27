@@ -100,6 +100,28 @@ else
 fi
 # ONE text contract for BOTH architectures. --start-at "select your REGION" skips the bootloader's echo of the test
 # kernel command line (on amd64 that line now carries the ncz_ui_check marker, which must not be read as a dialog).
+#
+# The --min-states floor is a TRUNCATION guard, not a cadence measurement: it only has to stay below the
+# minimum the harness can produce when the install is genuinely fast. The harness writes one state per
+# *stable* console screen (build/boot-screens.py pump(): a file lands when the screen has not changed for
+# 2 s, or on every change), and each interactive dialog that the --answer rules fire on is stable for at
+# least 3.5 s, so every answered dialog is captured; a capture is therefore >= the number of answered
+# dialogs plus the boot/diag and the install-progress states that frame them. The floor's history:
+#   * 4bf4bd1f (2026-09-30) set 20 -- with the full desktop package set the d-i base install alone was a
+#     20-40 s steady progress dialog (serial-screens fixture arm64-d90ed961-full: 24 of 33 states) and the
+#     captures measured 33-41 states.
+#   * 2026-10-26 (Preview4, fix/p4-image-content-20261026) removed 13 desktop apps; the KVM gate's full
+#    -option arm64 install now finishes in under ~100 s and its install phase draws a steady "Finishing
+#     the installation" progress dialog that collapses to one or two states. The 8bf4e6e9 candidate then
+#     captured 14 states with every content assertion green (all 9 required dialogs in order, the login
+#     line, the branded headers, no chatter, no blank) and failed ONLY this floor -- and the UART kept
+#     producing installer output until the harness' own SIGTERM, i.e. the capture was complete, the
+#     install was faster. 2026-10-27 (job 01a17b13): the floor was re-based to 12: below the observed
+#     14, below the 15 an all-dialogs-answered desktop run is structurally guaranteed to produce
+#     (boot 2 + 5 NCZ dialogs + install 2 + post-install 1 minimum), and still above the 5 states of a
+#     capture truncated right after the component dialog (the truncation the floor exists to catch: the
+#     required disk-stage dialogs would then be missing too and fail --require-prompt-sequence, but a
+#     partial dialog-stage capture with the sequence intact would not).
 judge_text() {
     "$PY" "$HERE/check-installer-screens.py" "$WORK/serial-screens" --start-at "select your REGION" \
         --require-dialog "optional components" --require-dialog "select your REGION" \
@@ -107,7 +129,7 @@ judge_text() {
         --require-prompt-sequence "select your REGION" "choose a USERNAME" \
             "choose a PASSWORD" "type the same PASSWORD" "HARDWARE SUMMARY" "optional components" \
             "select the TARGET DISK" "root \(/\) filesystem" "ERASE /dev/vda and install" \
-        --require-header "NCZ-OS [0-9.]+ [A-Za-z]+" --min-states 20 --min-dialogs 5 \
+        --require-header "NCZ-OS [0-9.]+ [A-Za-z]+" --min-states 12 --min-dialogs 5 \
         --require-login-line "diagnostics login: root / (set by ncz_diag_pw|\S{4,})"
 }
 # Magnetar Server: the same sequence without the component dialog, and every dialog header names the edition.
@@ -115,7 +137,7 @@ judge_text_server() {
     "$PY" "$HERE/check-installer-screens.py" "$WORK/serial-screens" --start-at "Choose your country" \
         --require-dialog "Choose your country" --require-dialog "Choose a user name" \
         --require-prompt-sequence "${SRV_SEQ[@]}" \
-        --require-header "Magnetar Server" --min-states 20 --min-dialogs 5 \
+        --require-header "Magnetar Server" --min-states 12 --min-dialogs 5 \
         --require-login-line "diagnostics login: root / (set by ncz_diag_pw|\S{4,})"
 }
 rc=0

@@ -821,6 +821,28 @@ fullchk() { python3 "$HERE/check-installer-screens.py" "$FULL" --start-at "selec
 expect "full real 33-state gate capture passes the arm64 gate arguments (no false failure)" 0 fullchk
 fullchk >"$T/ev" 2>&1; grep -q 'dialogs in capture order (8): ' "$T/ev" && { PASS=$((PASS+1)); echo "ok   full capture: exactly the 8 real titles"; } || { FAILS=$((FAILS+1)); echo "FAIL full capture titles"; cat "$T/ev"; }
 expect "full capture: no-blank-after the component dialog" 0 python3 "$HERE/check-installer-screens.py" "$FULL" --start-at "optional components" --no-blank-after "optional components"
+# --- the state floor must track the DIAMOND COUNT, not one run's cadence (2026-10-27, job 01a17b13) ---
+# The 2026-10-26 content branch (13 desktop apps removed) made the KVM gate's full-option arm64 install
+# finish in under ~100 s: its d-i phase drew a steady "Finishing the installation" progress dialog that
+# collapses to one or two stable states (the pre-branch fixture above has 24 of 33), and the 8bf4e6e9
+# gate captured 14 COMPLETE states (all 9 required dialogs in order, login line, headers, no chatter)
+# while the UART kept producing installer output until the harness' own SIGTERM. The floor was 20, so
+# the image failed on cadence, not content. Re-based to 12 (kvm-installer-ui-check.sh). Pin the
+# structural property the re-based floor protects: it must still fail a capture truncated right after
+# the component dialog (5 states: boot diag + region + username + password + components) even though a
+# full run today yields only ~14.
+rm -rf "$T/s"; mkdir -p "$T/s"
+printf '# t=16s\n%s\n' '=== NCZ CONSOLE DIAG ===
+ttyAMA0              -W- (E  Np a)  204:64
+=== END CONSOLE DIAG ===' > "$T/s/0000-0016s.txt"
+printf '# t=29s\n%s\n' '[                    (1**installer)  2 shell  3 shell  4- log' > "$T/s/0001-0029s.txt"
+printf '# t=33s\n%s\n' "$DIALOG_REG" > "$T/s/0002-0033s.txt"
+printf '# t=37s\n%s\n' "$DIALOG_USR" > "$T/s/0003-0037s.txt"
+printf '# t=40s\n%s\n' "$DIALOG_PWD" > "$T/s/0004-0040s.txt"
+printf '# t=43s\n%s\n' "$DIALOG_COMP" > "$T/s/0005-0043s.txt"
+# A capture whose dialog-stage content is complete but whose disk-stage states were never captured
+# (truncation) must fail the re-based floor: 5 captured states < 12.
+expect "truncated-after-components capture (5 states) fails the re-based floor of 12" 1 chk --min-states 12
 # --- kvm-installer-ui-check.sh: amd64 is judged from a TEXT channel, not the framebuffer alone (2026-10-17) ---
 # The amd64 check used to sample the framebuffer only and exit PASS-LIMITED without reading a single dialog title,
 # which could not catch the disk-chooser Choices/Choices-C swap the arm64 check caught on the serial console. The
