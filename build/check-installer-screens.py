@@ -210,12 +210,34 @@ if a.min_states and len(files) < a.min_states:
 # stable states once the screen stops changing), so its final state carries the install
 # progress dialog. Judging ONLY the last state: a cut right after the erase confirmation
 # leaves the final state as the erase review and fails here.
+#
+# "Last" means the LATEST recorded capture time, not the last name in sorted order: every
+# state carries a `# t=<N>s` header (the harness' own capture clock), and a name with a
+# non-zero-padded second field (e.g. 14-00138s.txt) sorts lexicographically FIRST while
+# being chronologically LAST, so files[-1] would judge the wrong state. Select by the
+# recorded timestamp; fall back to sorted order when no state carries a header.
 if a.last_state_matches:
-    lrx = re.compile(a.last_state_matches)
-    last = files[-1]
-    if not lrx.search(rd(os.path.join(a.dir, last))):
+    if not files:
+        # No captured state at all: the end point cannot be judged. Report it instead of
+        # indexing files[-1] (IndexError) -- a directory of zero states is always a
+        # truncation, and the --min-states floor (when supplied) says so too.
         bad += 1
-        print("check-installer-screens: FAIL the last captured state %s does not match /%s/ (the capture ended before the install progress; truncated?)" % (last, a.last_state_matches), file=sys.stderr)
+        print("check-installer-screens: FAIL --last-state-matches /%s/ requested but no console state was captured (the capture is empty; truncated?)" % a.last_state_matches, file=sys.stderr)
+    else:
+        lrx = re.compile(a.last_state_matches)
+        keyed = []
+        for f in files:
+            mt = re.match(r"# t=(\d+)s", rd(os.path.join(a.dir, f), 20))
+            keyed.append((int(mt.group(1)) if mt else None, f))
+        timed = [k for k in keyed if k[0] is not None]
+        if timed:
+            # latest capture time wins; ties broken by name order (deterministic)
+            last = max(timed, key=lambda k: (k[0], k[1]))[1]
+        else:
+            last = files[-1]  # no state carries a # t= header: fall back to sorted order
+        if not lrx.search(rd(os.path.join(a.dir, last))):
+            bad += 1
+            print("check-installer-screens: FAIL the last captured state %s does not match /%s/ (the capture ended before the install progress; truncated?)" % (last, a.last_state_matches), file=sys.stderr)
 if bad:
     sys.exit(1)
 print("check-installer-screens: OK (%d console states)" % len(files))

@@ -111,7 +111,12 @@ files); the end point can. So the gate now pins it:
 - `build/check-installer-screens.py`: new `--last-state-matches REGEX` — fails
   unless the **last** captured state matches REGEX (judging only the last state,
   so a cut that drops only the final state of a multi-state phase is not masked
-  by an earlier progress state).
+  by an earlier progress state). "Last" is the **latest recorded `# t=` capture
+  time**, not the last name in sorted order: a name with a non-zero-padded
+  second field (e.g. `14-00138s.txt`) sorts lexicographically FIRST while being
+  chronologically LAST, so `files[-1]` would judge the wrong state. The check
+  also guards the empty-directory case (no `files[-1]` IndexError): an empty
+  capture reports a clean FAIL.
 - `build/kvm-installer-ui-check.sh`: `judge_text` and `judge_text_server` add
   `--last-state-matches "Installing the base system|Finishing the installation"`.
 
@@ -135,8 +140,9 @@ not the install progress (end point).
 
 ## Proof-of-work
 
-- `bash build/test-installer-screens.sh` → **123 passed, 0 failed**
-  (115 pre-existing + 1 truncation fixture + 7 r2 per-cut-point assertions)
+- `bash build/test-installer-screens.sh` → **126 passed, 0 failed**
+  (115 pre-existing + 1 truncation fixture + 7 r2 per-cut-point assertions
+  + 3 determinism/empty-guard assertions)
 - `bash build/test-installer-ui-wrapper.sh` → OK
 - `bash build/test-server-branding.sh` → PASS
 - `NCZ_BOOT_SCREENS_PYTHON=~/pyte-venv/bin/python python3

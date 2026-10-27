@@ -878,6 +878,44 @@ expect "8-state cut after the erase confirmation fails floor 12" 1 cutchk 8
 expect "8-state cut after the erase confirmation fails the end-point rule (last state = erase review)" 1 python3 "$HERE/check-installer-screens.py" "$T/cut" --last-state-matches "$PROG_RX"
 cutbuild 12 "$T/cut12"
 expect "12-state cut after the install phase passes floor 12 + end-point (a capture that reached the final dialog)" 0 python3 "$HERE/check-installer-screens.py" "$T/cut12" --min-states 12 --last-state-matches "$PROG_RX"
+# --- the end-point rule is deterministic: "last" = the LATEST recorded # t= time, not
+# the last name in sorted order. A name with a non-zero-padded second field (14-00138s)
+# sorts lexicographically FIRST but is chronologically LAST, so files[-1] would judge the
+# wrong state. Build two states: a blank diag at t=16 (name 0000) and the install progress
+# at t=138 (name 14-00138s, which sorts before 0000...). The end-point rule must pick the
+# t=138 state (PASS) even though sorted order puts it first.
+rm -rf "$T/ep"; mkdir -p "$T/ep"
+printf '# t=16s\n%s\n' '=== NCZ CONSOLE DIAG ===
+ttyAMA0              -W- (E  Np a)  204:64
+=== END CONSOLE DIAG ===' > "$T/ep/0000-0016s.txt"
+printf '# t=138s\n%s\n' '  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                   23%%                                   │
+  └─────────────────────────────────────────────────────────────────────────┘' > "$T/ep/14-00138s.txt"
+# sorted order = [0000-0016s, 14-00138s]; lexicographic last = 14-00138s here, but to make
+# the test bite, the chronologically-last file must NOT be the lexicographic-last one:
+# rename the progress state so it sorts FIRST (0000) while carrying the larger # t= value.
+rm -f "$T/ep/14-00138s.txt"
+printf '# t=138s\n%s\n' '  ┌─────────────────────┤ Finishing the installation ├──────────────────────┐
+  │                                   23%%                                   │
+  └─────────────────────────────────────────────────────────────────────────┘' > "$T/ep/0000-0138s.txt"
+printf '# t=16s\n%s\n' '=== NCZ CONSOLE DIAG ===
+ttyAMA0              -W- (E  Np a)  204:64
+=== END CONSOLE DIAG ===' > "$T/ep/0001-0016s.txt"
+# Now sorted = [0000-0138s (t=138, progress), 0001-0016s (t=16, diag)].
+# Lexicographic last = 0001-0016s (the diag) -- the WRONG state.
+# Chronological last = 0000-0138s (t=138, the progress) -- the RIGHT state.
+# A correct end-point rule picks the t=138 state and PASSES the progress regex.
+expect "end-point rule picks the chronological last state (t=138 progress), not the lexicographic last (t=16 diag)" 0 python3 "$HERE/check-installer-screens.py" "$T/ep" --last-state-matches "Finishing the installation"
+# And the same two states, with the regex matching ONLY the diag, must FAIL (proves the
+# rule did not fall back to the lexicographic-last diag state).
+expect "end-point rule does not fall back to the lexicographic-last state (diag-only regex fails)" 1 python3 "$HERE/check-installer-screens.py" "$T/ep" --last-state-matches "NCZ CONSOLE DIAG"
+# --- --last-state-matches on an EMPTY directory: report a clean FAIL, never IndexError.
+# The checker's existing early-exit for an empty directory (sys.exit "no console states
+# captured") fires before the end-point check, so an empty capture already fails cleanly.
+# The guard in the end-point block is a belt-and-suspenders: if the early-exit is ever
+# removed or reordered, files[-1] would raise IndexError. Prove no crash either way.
+rm -rf "$T/empty"; mkdir -p "$T/empty"
+expect "--last-state-matches on an empty capture fails cleanly (no IndexError)" 1 python3 "$HERE/check-installer-screens.py" "$T/empty" --last-state-matches "Finishing the installation"
 # the gate wires the end-point rule into the judge call of BOTH judge paths
 KV2="$HERE/kvm-installer-ui-check.sh"
 n_lsm=$(awk '/^judge_text\(\) \{/,/^\}/' "$KV2" | grep -c -- '--last-state-matches')
