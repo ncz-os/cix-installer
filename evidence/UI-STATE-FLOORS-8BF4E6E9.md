@@ -98,9 +98,9 @@ dialogs and fails there too).
 - `NCZ_BOOT_SCREENS_PYTHON=~/pyte-venv/bin/python python3
   build/test-boot-screens-testcopy.py` → all pass (boot-screens.py plumbing
   untouched, sanity)
-- Branch `fix/ui-state-floors-20261027` (from base `8bf4e6e9`), head
-  `1b106e16`, pushed to ARGONAS with upstream tracking; worktree clean, remote
-  SHA verified.
+- Branch `fix/ui-state-floors-20261027` (from base `8bf4e6e9`), pushed to
+  ARGONAS with upstream tracking; worktree clean, remote SHA verified. (Head
+  sha = the commit this file is in; see the branch's `git log 8bf4e6e9..`.)
 - Cross-family review: `zoder review --base 8bf4e6e9 --scope branch -m
   cerberus-reviewer` → **verdict: approve** (cerberus-reviewer = gpt-oss-20b /
   openai family per /etc/fleet/llm-roles.json; author is qwen38 / alibaba
