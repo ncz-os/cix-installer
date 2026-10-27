@@ -170,12 +170,18 @@ grep -q 'start ncz-greeter-fallback.service' "$ST/actions.log" 2>/dev/null \
     || no "(c) restart count wrong: $(acts)"
 grep -q 'falling back' "$T/journal" && ok "(c) diagnostic names the fallback" || no "(c) no fallback diagnostic"
 
-# (d) greetd not active -> nothing happens (headless KVM / skipped / starting)
+# (d) greetd not active and NO CRTC scanning -> the machine would have no
+# console at all (arm64 KVM first boot 2026-10-27: greetd=inactive and
+# getty-tty1=inactive). The gate must hand tty1 to a text login.
 reset_state dead; reset_greetd inactive
 run_gate; rc=$?
-[ "$rc" = 0 ] && ok "(d) greetd inactive: gate exits 0" || no "(d) rc=$rc"
-[ -z "$(real_acts)" ] && ok "(d) greetd inactive: no restart, no fallback" || no "(d) unexpected action: $(real_acts)"
-grep -q 'not active' "$T/journal" && ok "(d) greetd inactive: diagnostic says gate not applicable" || no "(d) no inactive diagnostic: $(cat "$T/journal")"
+[ "$rc" = 0 ] && ok "(d) greetd inactive, dead pipeline: gate exits 0" || no "(d) rc=$rc"
+[ -z "$(grep -c 'restart greetd.service' "$ST/actions.log" 2>/dev/null)" ] || [ "$(grep -c 'restart greetd.service' "$ST/actions.log" 2>/dev/null)" = 0 ] \
+    && ok "(d) greetd inactive: no restart" || no "(d) unexpected restart: $(real_acts)"
+grep -q 'start ncz-greeter-fallback.service' "$ST/actions.log" 2>/dev/null \
+    && ok "(d) greetd inactive + no scanout: text login started" \
+    || no "(d) no console rescued: $(real_acts)"
+grep -q 'starting a text login' "$T/journal" && ok "(d) diagnostic names the rescue" || no "(d) no rescue diagnostic: $(cat "$T/journal")"
 
 # (d2) greetd not active + active CRTC (console already scanning) is also a no-op
 reset_state active; reset_greetd inactive
