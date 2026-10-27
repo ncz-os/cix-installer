@@ -91,7 +91,7 @@ case "$(plan_layer --arch amd64 --full)" in
 esac
 # dry-run names the stages and the never-do list
 p="$(bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null)"
-for s in preflight refresh-substrate stage-inputs refresh-sources offline-mirror provenance-inputs layers image provenance-gate kvm-gate receipt archive; do
+for s in preflight refresh-substrate stage-inputs refresh-sources offline-mirror provenance-inputs static-gates layers image provenance-gate kvm-gate receipt archive; do
     grep -q "$s" <<<"$p" && ok "plan names stage $s" || bad "plan missing stage $s"
 done
 grep -q 'NEVER (operator-only)' <<<"$p" && ok "plan states the never-do list" || bad "plan omits never-do list"
@@ -123,6 +123,20 @@ if bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null | grep -qE '^[[:space:]
 else
     ok "secret-scan is never switched off by a gate/scope selection"
 fi
+# The MANDATORY static gate suites sit between provenance-inputs and the layers:
+# they must run before any layer/image work on every scope and gate selection.
+sg="$(spos static-gates)"
+[ -n "$sg" ] && [ -n "$pi" ] && [ "$sg" -gt "$pi" ] && ok "static-gates (#$sg) runs AFTER provenance-inputs (#$pi)" || bad "static-gates must run after provenance-inputs (sg=$sg pi=$pi)"
+[ -n "$sg" ] && [ -n "$lr" ] && [ "$sg" -lt "$lr" ] && ok "static-gates (#$sg) runs BEFORE layers (#$lr)" || bad "static-gates must run before layers (sg=$sg lr=$lr)"
+for gsel in --gates\ kvm --gates\ provenance; do
+    for scope in --full --respin --rebuild-base --rebuild-hotfix --only-image; do
+        if bash "$BIN" --arch amd64 $scope --no-publish $gsel --dry-run 2>/dev/null | grep -qE '^[[:space:]]+\[off *\] [0-9]+ static-gates$'; then
+            bad "static-gates is switchable off ($scope $gsel)"
+        else
+            ok "static-gates is never switched off ($scope $gsel)"
+        fi
+    done
+done
 gk_plan="$(bash "$BIN" --arch amd64 --full --no-publish --gates kvm --dry-run 2>/dev/null \
     | awk '/^  stages:/{f=1;next} f&&/^    \[/{print $0}')"
 if printf '%s\n' "$gk_plan" | grep -q 'secret-scan'; then
@@ -158,6 +172,19 @@ if awk -F'\t' '$2=="kvm-gate"{f=1} END{exit !f}' "$T2/stages.tsv"; then
     bad "kvm-gate ran after a failing provenance-gate"
 else
     ok "kvm-gate did NOT run after a failing provenance-gate"
+fi
+# A failing static-gates stage must abort before any layer work.
+T4="$SCRATCH/ff-static-gates"
+NCZ_TEST_STAGE_CMD='case "{stage}" in static-gates) echo "[fake] static-gates failure"; exit 1;; *) exit 0;; esac' \
+    bash "$BIN" --arch amd64 --full --no-publish --run-dir "$T4" >/dev/null 2>&1
+rc=$?
+[ "$rc" != 0 ] && ok "a failing static-gates fails the build (rc=$rc)" || bad "static-gates failure was ignored"
+awk -F'\t' '$2=="static-gates" && $3 ~ /^FAIL/{f=1} END{exit !f}' "$T4/stages.tsv" \
+    && ok "stages.tsv records static-gates FAIL" || bad "stages.tsv missing static-gates FAIL"
+if awk -F'\t' '$2=="layers"{f=1} END{exit !f}' "$T4/stages.tsv"; then
+    bad "layers ran after a failing static-gates"
+else
+    ok "layers did NOT run after a failing static-gates"
 fi
 
 # --- 2d. refresh-sources must not delete the source-of-truth payload deb ----

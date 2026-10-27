@@ -20,6 +20,9 @@
 #   30 refresh-sources    resolve+freeze the singularity payload sources, build its deb
 #   40 offline-mirror     build the offline apt closure (stage 0)
 #   50 provenance-inputs  PROVENANCE + one-kernel check on the INPUTS (fail fast)
+#   55 static-gates       MANDATORY static gate suites (cuda gates on amd64,
+#                         greeter console-fallback on every arch); abort the
+#                         build before any layer or image work
 #   60 layers             build the squashfs layers (stage 1)
 #   70 image              assemble the raw GPT image + receipt (stage 2)
 #   75 secret-scan        scan EVERY shipped byte for credentials (MANDATORY)
@@ -118,8 +121,15 @@ build-image.sh -- the single entrypoint for a repeatable, deterministic NCZ-OS i
 STAGES (fixed order; provenance runs on the INPUTS before layers, and again on
 the finished image BEFORE the KVM gate -- never waste hours on a doomed build)
   preflight  refresh-substrate  stage-inputs  refresh-sources  offline-mirror
-  provenance-inputs  layers  image  secret-scan  provenance-gate  kvm-gate
-  receipt  archive
+  provenance-inputs  static-gates  layers  image  secret-scan
+  provenance-gate  kvm-gate  receipt  archive
+
+  static-gates is MANDATORY and is NOT selectable via --gates: it runs the
+  static gate suites -- the AMD64 NVIDIA CUDA design gates
+  (build/test-amd64-cuda-gates.sh, amd64 only) and the greeter
+  console-fallback gates (build/test-greeter-console-fallback.sh, both
+  arches) -- on the pinned tree BEFORE any layer or image work, so a broken
+  NVIDIA path or greeter fallback can never reach the image.
 
   secret-scan is NOT optional and is NOT selectable via --gates: it runs on
   every image, immediately after 'image' and before the KVM gate.  It fails
@@ -416,8 +426,8 @@ ncz_kernel_staging_dir() {
 # Stages
 # ---------------------------------------------------------------------------
 STAGES=(preflight refresh-substrate stage-inputs refresh-sources offline-mirror \
-        provenance-inputs layers image secret-scan provenance-gate kvm-gate \
-        receipt archive)
+        provenance-inputs static-gates layers image secret-scan provenance-gate \
+        kvm-gate receipt archive)
 stage_index() {
     local want="$1" i=0 s
     for s in "${STAGES[@]}"; do [ "$s" = "$want" ] && { echo "$i"; return 0; }; i=$((i+1)); done
@@ -1162,6 +1172,49 @@ PYEOF
 }
 
 # ---------------------------------------------------------------------------
+# Stage 55 -- static gates (MANDATORY, runs on the pinned tree BEFORE layers)
+# The static gate suites assert the NVIDIA CUDA path (amd64) and the greeter
+# console-fallback (both arches) directly from the tree: they are the same
+# suites `make test` runs, but a release image must not be able to skip them.
+# A failure here aborts the build before any layer or image byte is produced.
+# No skip path: no scope, gate selection or env var turns this stage off.
+# (The greeter suite asserts the CUDA chooser never offers cuda on arm64, so
+#  arm64 gets that negative coverage without the amd64-only CUDA suite.)
+# ---------------------------------------------------------------------------
+stage_static_gates() {
+    local log="$1"
+    local fail=0
+    say() { printf '[static-gates] %s\n' "$*" | tee -a "$log"; }
+    bad() { printf '[static-gates] FAIL: %s\n' "$*" | tee -a "$log" >&2; fail=1; }
+
+    local -a suites=()
+    [ "$ARCH" = amd64 ] && suites+=("$ROOT/build/test-amd64-cuda-gates.sh")
+    suites+=("$ROOT/build/test-greeter-console-fallback.sh")
+
+    local s
+    for s in "${suites[@]}"; do
+        if [ ! -f "$s" ]; then
+            bad "gate suite missing: $s"
+            continue
+        fi
+        say "running $(basename "$s")"
+        # The suites exit with their failure count (0 = pass); capture it so a
+        # FAIL line names the suite even for an rc > 255.
+        if ! ( cd "$ROOT" && bash "$s" ) >>"$log" 2>&1; then
+            bad "$(basename "$s") FAILED (see the stage log above); tail:"
+            tail -15 "$log" 2>/dev/null | sed 's/^/[static-gates] /' >&2
+        fi
+    done
+
+    if [ "$fail" != 0 ]; then
+        ncz_err "[static-gates] FAILED -- a static gate suite failed; fix the code it checks BEFORE the layers stage (no image is produced)."
+        return 1
+    fi
+    say "all static gate suites PASS (${#suites[@]} suite(s))"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Stage 50 -- layers
 # ---------------------------------------------------------------------------
 stage_layers() {
@@ -1832,6 +1885,9 @@ stage_enabled() {
                 *) return 1 ;;
             esac ;;
         provenance-inputs) gate_selected provenance ;;
+        # MANDATORY static gate suites: no scope, gate selection or env var can
+        # switch them off (the same rule as secret-scan).
+        static-gates) return 0 ;;
         layers) [ "$SCOPE" = only-image ] && return 1 || return 0 ;;
         image) return 0 ;;
         # The shipped-artifact credential gate is MANDATORY: no scope, gate
