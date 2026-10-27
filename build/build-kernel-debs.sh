@@ -174,7 +174,11 @@ fi
 #      the install is still running, and reads the root PARTUUID from the GPT
 #      when blkid has none (never writes an empty root=PARTUUID=).
 # 1.5: GPT fallback requires a successful root filesystem probe.
-CIXMINI_BOOT_VER="1.5+$BUILD_REV"
+# 1.6: generator now prunes NVRAM rows labelled either "NCZ-OS" or the old
+#      "nclawzero (rEFInd)" and creates one entry labelled "NCZ-OS". Without
+#      this bump upgraded boards keep the 1.5 generator from /usr/local/sbin
+#      and never gain the NVRAM-entry fix.
+CIXMINI_BOOT_VER="1.6+$BUILD_REV"
 # What the kernel packages require. Kept at 1.2 while the helper behaviour is unchanged, so
 # the r289 kernel debs keep their published bytes (their Depends field is part of them).
 CIXMINI_BOOT_MIN_VER="1.2+$BUILD_REV"
