@@ -40,6 +40,7 @@ ap.add_argument("--min-states", type=int, default=0, help="fail when fewer than 
 ap.add_argument("--require-prompt-sequence", nargs="+", default=[], help="assert every REGEX appears in the given order across the captured screens (operator's interactive sequence)")
 ap.add_argument("--require-boot-progress", nargs="+", default=[], help="assert every PHASE appears in the given order in the boot-time serial log (the [NCZ HH:MM:SS +Ns] lines from preseed/boot-progress.sh)")
 ap.add_argument("--min-dialogs", type=int, default=0, help="fail unless at least N distinct dialog titles were extracted from the captured states (proves the dialog order is real; a capture whose frames could not be parsed fails instead of printing 'none')")
+ap.add_argument("--last-state-matches", default=None, help="fail unless the LAST captured state matches REGEX. The --min-states floor counts all captured files, including repeated states of one long phase, so it can pass a capture that ended early WHILE STILL CONTAINING every dialog; this check pins the capture's end point. The 8bf4e6e9 gate (2026-10-27): a cut right after the erase confirmation left 13 of 14 states with all 10 dialogs present, which the floor alone cannot catch; a complete run's final state is the install progress dialog, so pin that")
 ap.add_argument("--require-login-line", default=None, help="assert at least one captured primary-console state shows the installer diagnostics login line matching REGEX (preseed/ncz-ui.sh ncz_ui_diag_login; docs/RECOVERY-LOGINS.md)")
 a = ap.parse_args()
 
@@ -201,6 +202,20 @@ if a.min_dialogs and len(titles) < a.min_dialogs:
 if a.min_states and len(files) < a.min_states:
     bad += 1
     print(f"check-installer-screens: FAIL only {len(files)} console states captured, expected at least {a.min_states} (truncated capture?)", file=sys.stderr)
+# --- --last-state-matches: pin the capture's END point ---------------------------------
+# The --min-states floor counts all captured files, including the repeated states one long
+# install phase emits, so it cannot by itself distinguish a complete capture from one that
+# stopped early while still holding every dialog. A complete desktop run always ends inside
+# the install progress phase (the screen goes blank at shutdown, and pump() stops writing
+# stable states once the screen stops changing), so its final state carries the install
+# progress dialog. Judging ONLY the last state: a cut right after the erase confirmation
+# leaves the final state as the erase review and fails here.
+if a.last_state_matches:
+    lrx = re.compile(a.last_state_matches)
+    last = files[-1]
+    if not lrx.search(rd(os.path.join(a.dir, last))):
+        bad += 1
+        print("check-installer-screens: FAIL the last captured state %s does not match /%s/ (the capture ended before the install progress; truncated?)" % (last, a.last_state_matches), file=sys.stderr)
 if bad:
     sys.exit(1)
 print("check-installer-screens: OK (%d console states)" % len(files))

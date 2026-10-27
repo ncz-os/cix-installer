@@ -119,9 +119,21 @@ fi
 #     install was faster. 2026-10-27 (job 01a17b13): the floor was re-based to 12: below the observed
 #     14, below the 15 an all-dialogs-answered desktop run is structurally guaranteed to produce
 #     (boot 2 + 5 NCZ dialogs + install 2 + post-install 1 minimum), and still above the 5 states of a
-#     capture truncated right after the component dialog (the truncation the floor exists to catch: the
-#     required disk-stage dialogs would then be missing too and fail --require-prompt-sequence, but a
-#     partial dialog-stage capture with the sequence intact would not).
+#     capture truncated right after the component dialog.
+#   * 2026-10-27 r2 (this gate): the floor is a COUNT, so it says nothing about the capture's END
+#     point, and --require-prompt-sequence only proves every dialog was reached at least once --
+#     neither one can say the install actually ran. The truncation property is proven per cut
+#     point on the fixture build/testdata/installer-screens/arm64-8bf4e6e9-14states (reconstructed
+#     from the gate's recorded evidence: 16..138 s, 10 dialog titles in order): a capture cut
+#     after the component dialog holds 5 states (floor 5 < 12: FAIL), a capture cut after the
+#     erase confirmation holds 8 states (floor 8 < 12: FAIL), and only a capture that reached the
+#     install progress holds >= 12. The second half of the guard is the end point, pinned here
+#     with --last-state-matches: a complete run always ends inside the install progress phase
+#     ("Installing the base system" / "Finishing the installation" -- the screen blanking at
+#     shutdown ends stable-state emission), so a capture whose last state is the erase review
+#     (truncated after the confirmation, before the install drew a stable state) fails that
+#     check even when its state count beats the floor. build/test-installer-screens.sh holds the
+#     per-cut-point assertions.
 judge_text() {
     "$PY" "$HERE/check-installer-screens.py" "$WORK/serial-screens" --start-at "select your REGION" \
         --require-dialog "optional components" --require-dialog "select your REGION" \
@@ -130,14 +142,18 @@ judge_text() {
             "choose a PASSWORD" "type the same PASSWORD" "HARDWARE SUMMARY" "optional components" \
             "select the TARGET DISK" "root \(/\) filesystem" "ERASE /dev/vda and install" \
         --require-header "NCZ-OS [0-9.]+ [A-Za-z]+" --min-states 12 --min-dialogs 5 \
+        --last-state-matches "Installing the base system|Finishing the installation" \
         --require-login-line "diagnostics login: root / (set by ncz_diag_pw|\S{4,})"
 }
 # Magnetar Server: the same sequence without the component dialog, and every dialog header names the edition.
+# The server variant pins the same end point: its install phase draws the same d-i progress dialog,
+# so the last captured state of a complete server run also carries it.
 judge_text_server() {
     "$PY" "$HERE/check-installer-screens.py" "$WORK/serial-screens" --start-at "Choose your country" \
         --require-dialog "Choose your country" --require-dialog "Choose a user name" \
         --require-prompt-sequence "${SRV_SEQ[@]}" \
         --require-header "Magnetar Server" --min-states 12 --min-dialogs 5 \
+        --last-state-matches "Installing the base system|Finishing the installation" \
         --require-login-line "diagnostics login: root / (set by ncz_diag_pw|\S{4,})"
 }
 rc=0

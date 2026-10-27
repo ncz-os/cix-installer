@@ -89,10 +89,54 @@ Truncation detection is preserved twice: the floor itself, and
 `--require-prompt-sequence` (a truncated capture is missing the disk-stage
 dialogs and fails there too).
 
+## r2: the truncation property, per cut point (2026-10-27)
+
+The floor counts **all** captured files, including the repeated states one long
+install phase emits, so it is a count floor — it cannot by itself prove that a
+capture which still contains every dialog is not one that stopped early. The
+prompt-sequence assertion catches a *wholesale* truncation (dialogs missing),
+but the floor's stated purpose is to catch a capture that **stops early while
+still containing the dialogs**. r2 makes that property explicit and testable.
+
+### The missing check: the capture's end point
+
+A complete run always ends **inside the install progress phase**
+(`Installing the base system` → `Finishing the installation`): the screen goes
+blank at shutdown, which ends stable-state emission, so the last captured state
+is the install progress dialog. A capture truncated after the erase
+confirmation (before the install drew a stable state) has the **erase review**
+as its last state. The floor cannot see the difference (both can hold ≥ 12
+files); the end point can. So the gate now pins it:
+
+- `build/check-installer-screens.py`: new `--last-state-matches REGEX` — fails
+  unless the **last** captured state matches REGEX (judging only the last state,
+  so a cut that drops only the final state of a multi-state phase is not masked
+  by an earlier progress state).
+- `build/kvm-installer-ui-check.sh`: `judge_text` and `judge_text_server` add
+  `--last-state-matches "Installing the base system|Finishing the installation"`.
+
+### Per-cut-point numbers (fixture `arm64-8bf4e6e9-14states`)
+
+Fixture reconstructed from the gate's recorded evidence (14 states, 16..138 s,
+10 dialog titles in order; install phase collapsed to its 1-2 stable states).
+`build/test-installer-screens.sh` asserts each row.
+
+| cut point | states | last state | floor `--min-states 12` | end-point `--last-state-matches` | verdict |
+|---|---|---|---|---|---|
+| after the component dialog | 5 | optional components | FAIL (5 < 12) | FAIL | **FAIL** |
+| after the erase confirmation | 8 | erase review | FAIL (8 < 12) | FAIL | **FAIL** |
+| after the install phase | 12 | Finishing the installation | PASS (12 ≥ 12) | PASS | **PASS** |
+| complete (16..138 s) | 14 | Finishing the installation | PASS (14 ≥ 12) | PASS | **PASS** |
+
+Every cut **before** the final dialog fails at least one check; the complete
+capture passes both. A capture that stopped early while still holding the
+dialogs cannot pass: it either has < 12 states (floor) or its last state is
+not the install progress (end point).
+
 ## Proof-of-work
 
-- `bash build/test-installer-screens.sh` → **116 passed, 0 failed**
-  (115 pre-existing + 1 new truncation fixture)
+- `bash build/test-installer-screens.sh` → **123 passed, 0 failed**
+  (115 pre-existing + 1 truncation fixture + 7 r2 per-cut-point assertions)
 - `bash build/test-installer-ui-wrapper.sh` → OK
 - `bash build/test-server-branding.sh` → PASS
 - `NCZ_BOOT_SCREENS_PYTHON=~/pyte-venv/bin/python python3

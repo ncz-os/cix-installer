@@ -843,6 +843,48 @@ printf '# t=43s\n%s\n' "$DIALOG_COMP" > "$T/s/0005-0043s.txt"
 # A capture whose dialog-stage content is complete but whose disk-stage states were never captured
 # (truncation) must fail the re-based floor: 5 captured states < 12.
 expect "truncated-after-components capture (5 states) fails the re-based floor of 12" 1 chk --min-states 12
+# --- the truncation property, per cut point (2026-10-27 r2) --------------------------------
+# The floor counts ALL captured files, including the repeated states one long install phase
+# emits, so it is a count floor, not an end-point pin. The 14-state 8bf4e6e9 fixture
+# (build/testdata/installer-screens/arm64-8bf4e6e9-14states, reconstructed from the gate's
+# recorded evidence: 16..138 s, 10 dialog titles in order, install phase collapsed to its
+# 1-2 stable states plus the finish states) shows where each check bites:
+#
+#   5 states   cut after the component dialog     floor FAIL (5 < 12),  end-point FAIL
+#   8 states   cut after the erase confirmation   floor FAIL (8 < 12),  end-point FAIL
+#   12 states  cut after the install phase        floor PASS (12 >= 12), end-point PASS
+#   14 states  complete capture (16..138 s)       floor PASS (14 >= 12), end-point PASS
+#
+# Every cut BEFORE the final dialog fails at least one check; the complete capture passes
+# both. The end-point rule (--last-state-matches) is the second half of the guard: a
+# complete run always ends inside the install progress phase ("Installing the base system"
+# or "Finishing the installation"), so a capture whose last state is the erase review
+# (truncated after the confirmation, before the install drew its first stable state) fails
+# the end-point rule even when its state count would beat the floor on a slower capture.
+CUTFX="$HERE/testdata/installer-screens/arm64-8bf4e6e9-14states"
+PROG_RX="Installing the base system|Finishing the installation"
+cutbuild() { # cutbuild <n> <dir> = copy the first N state files of the fixture into <dir>
+    local n="$1" d="$2" f
+    rm -rf "$d"; mkdir -p "$d"
+    ls "$CUTFX"/*.txt | sort | head -n "$n" | while read -r f; do cp "$f" "$d/"; done; }
+cutchk() { # cutchk <n> = the first N state files of the fixture, judged with the floor + end-point rule
+    local n="$1"
+    cutbuild "$n" "$T/cut"
+    python3 "$HERE/check-installer-screens.py" "$T/cut" --min-states 12 --last-state-matches "$PROG_RX"; }
+expect "14-state complete capture passes floor 12 + end-point (the real 8bf4e6e9 run, 16..138 s)" 0 cutchk 14
+expect "5-state cut after the component dialog fails floor 12" 1 cutchk 5
+expect "5-state cut after the component dialog fails the end-point rule (last state = component dialog)" 1 python3 "$HERE/check-installer-screens.py" "$T/cut" --last-state-matches "$PROG_RX"
+expect "8-state cut after the erase confirmation fails floor 12" 1 cutchk 8
+expect "8-state cut after the erase confirmation fails the end-point rule (last state = erase review)" 1 python3 "$HERE/check-installer-screens.py" "$T/cut" --last-state-matches "$PROG_RX"
+cutbuild 12 "$T/cut12"
+expect "12-state cut after the install phase passes floor 12 + end-point (a capture that reached the final dialog)" 0 python3 "$HERE/check-installer-screens.py" "$T/cut12" --min-states 12 --last-state-matches "$PROG_RX"
+# the gate wires the end-point rule into the judge call of BOTH judge paths
+KV2="$HERE/kvm-installer-ui-check.sh"
+n_lsm=$(awk '/^judge_text\(\) \{/,/^\}/' "$KV2" | grep -c -- '--last-state-matches')
+n_lsm_s=$(awk '/^judge_text_server\(\) \{/,/^\}/' "$KV2" | grep -c -- '--last-state-matches')
+[ "$n_lsm" = 1 ] && [ "$n_lsm_s" = 1 ] \
+    && { PASS=$((PASS+1)); echo "ok   kvm-installer-ui-check.sh pins the install-progress end point in judge_text and judge_text_server"
+} || { FAILS=$((FAILS+1)); echo "FAIL kvm-installer-ui-check.sh end-point wiring: judge_text=$n_lsm judge_text_server=$n_lsm_s (expected 1/1)"; }
 # --- kvm-installer-ui-check.sh: amd64 is judged from a TEXT channel, not the framebuffer alone (2026-10-17) ---
 # The amd64 check used to sample the framebuffer only and exit PASS-LIMITED without reading a single dialog title,
 # which could not catch the disk-chooser Choices/Choices-C swap the arm64 check caught on the serial console. The
