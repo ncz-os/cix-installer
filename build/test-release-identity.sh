@@ -311,5 +311,29 @@ check_grep "$ROOT/build/build-baked-rootfs.sh" "check-release-identity-gate.sh\"
 check_grep "$ROOT/build/build-baked-rootfs.sh" 'VARIANT="${VARIANT:-desktop}"' \
     "build-baked-rootfs.sh: VARIANT env knob still drives the bake (both variants gated)"
 
+# A retired codename must never reach a LOGIN SCREEN through the quote of the
+# day. reinhardt (26.5) and maximilian (26.7) are also characters in The Black
+# Hole (1979), which is where assets/branding/cosmic-quotes comes from, so the
+# curated list attributes six lines to "Dr. Hans Reinhardt" -- which on a login
+# banner reads exactly like a stale release name (reported by the operator on a
+# real install, 2026-10-28, while every identity file was correct).
+if grep -qiE 'reinhardt|maximilian' "$ROOT/assets/branding/cosmic-quotes"; then
+    if grep -q 'reinhardt|maximilian' "$ROOT/post-install/57-qotd.sh"; then
+        ok "qotd: the installer filters retired codenames out of the quote list"
+    else
+        bad "qotd: cosmic-quotes carries a retired codename and 57-qotd.sh does not filter it"
+    fi
+    # Prove the filter actually removes them from what lands on the login screen.
+    _q=$(mktemp -d "${TMPDIR:-/tmp}/qotd-check.XXXXXX") || _q=/tmp/qotd-check.$$; mkdir -p "$_q"
+    grep -aviE 'reinhardt|maximilian' "$ROOT/assets/branding/cosmic-quotes" > "$_q/kept"
+    if grep -qiE 'reinhardt|maximilian' "$_q/kept"; then
+        bad "qotd: the filter leaves a retired codename behind"
+    else
+        ok "qotd: filtered list contains no retired codename ($(grep -cvE '^[[:space:]]*(#|$)' "$_q/kept") quotes kept)"
+    fi
+else
+    ok "qotd: cosmic-quotes names no retired codename"
+fi
+
 echo "release-identity tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
