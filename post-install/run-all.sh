@@ -378,7 +378,7 @@ fi
 # 85-power-perf-mode: tunes the desktop power/perf profile (it is the one
 # hook in this list with a hardware-flavoured name — the tuning it applies
 # only makes sense with a desktop session).
-_SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|49-artist-pack-browser|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|59-desktop-curate|60-boot-splash|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|89-npu-embed-server)\.sh$'
+_SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|49-artist-pack-browser|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|59-desktop-curate|60-boot-splash|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode)\.sh$'
 # 54-gpu-accel and 55-t2-firmware are deliberately NOT in this list: GPU
 # compute (ROCm/CUDA/OpenVINO) and WiFi/BT firmware are not desktop-specific
 # concerns (a headless/console install with a discrete GPU still wants
@@ -388,6 +388,12 @@ _SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|49-artist-pac
 # is what this regex gates, a separate concept from BUILD_VARIANT.
 # 49-artist-pack-browser IS in this list: it is desktop-only (Singularity
 # Desktop settings UI), so it is correctly skipped when desktop is OFF.
+# 89-npu-embed-server REMOVED from this list (2026-10-28): an OpenAI-compatible
+# /v1/embeddings service on the Zhouyi NPU is a SERVER workload, not a desktop
+# one -- an arm64 server with a working NPU is exactly what should serve
+# embeddings to MNEMOS, and gating it on the desktop toggle meant a server
+# install shipped a working NPU with nothing using it. The hook keeps its own
+# arm64 arch gate and no-ops elsewhere, so removing it here is safe on amd64.
 # 50-brand.sh is NOT in this list: it writes the release identity for both
 # variants (os-release, lsb-release, /etc/issue, motd: "Desktop" or "Server"),
 # and a console install without it had no NCZ-OS /etc/issue (2026-10-14 KVM
