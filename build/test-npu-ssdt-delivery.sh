@@ -34,6 +34,8 @@
 #       on a non-MS-R1 fixture and stages the CPIO on an MS-R1 fixture
 #   T12 the CPIO the hook writes is one the kernel's loader would accept
 #       (magic + inner ACPI header signature/length self-consistency)
+#   T14 the ESP copy is what boots: 58-boot-hygiene must install the dracut-
+#       safe sync (kernel postinst + path unit) and 80-npu must verify it.
 #   T13 the MEDIUM STAGER produces the table: build/iso/write-usb-image.py
 #       must call build/iso/ncz_ssdt.py's ensure_npu_ssdt_aml() for arm64,
 #       which compiles assets/npu/ssdt-npucre.asl and raises (never warns)
@@ -427,6 +429,28 @@ PY
 else
     sk "python3 absent -- stager contract untested here"
 fi
+
+# --- T14: the ESP copy is what boots ------------------------------------
+echo "T14 rEFInd boots the ESP initrd: the sync must be wired for dracut"
+# MEASURED on the MS-R1 2026-10-28: a rebuilt /boot/initrd.img carrying the
+# SSDT had no effect because rEFInd's stanza points at /initrd.img-<ver> on
+# the ESP, which still held the install-day copy. 58-boot-hygiene.sh only
+# installed an initramfs-tools post-update hook, and this image uses dracut.
+BH="$REPO/post-install/58-boot-hygiene.sh"
+if grep -q 'ncz-sync-initrd-to-esp' "$BH"; then
+    ok "58-boot-hygiene installs ncz-sync-initrd-to-esp"
+else
+    no "58-boot-hygiene does not install the ESP initrd sync (dracut rebuilds never reach the bootloader)"
+fi
+grep -q 'etc/kernel/postinst.d/zz-ncz-refind-esp-sync' "$BH" \
+    && ok "kernel upgrades re-sync the ESP (postinst hook)" \
+    || no "no /etc/kernel/postinst.d hook: a kernel upgrade leaves the ESP stale"
+grep -q 'ncz-esp-initrd-sync.path' "$BH" \
+    && ok "rebuilds that bypass postinst are caught by the path unit" \
+    || no "no path unit: dracut -f / DKMS rebuilds leave the ESP stale"
+grep -q 'ESP copy' "$REPO/post-install/80-npu.sh" \
+    && ok "80-npu.sh verifies the ESP copy carries the SSDT" \
+    || no "80-npu.sh does not verify the ESP copy (it would pass while the board boots an old initrd)"
 
 # --- summary ------------------------------------------------------------
 echo ""
