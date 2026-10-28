@@ -806,6 +806,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" = 1 ]; then
                     _neg_installed="$WORK/.neg-installed"; rm -f "$_neg_installed"
                     _neg_varls="$WORK/.neg-varls"; rm -f "$_neg_varls"
                     "$DEBUGFS" -R "dump /etc/os-release $_neg_osrel" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
+                    [ -s "$_neg_osrel" ] || "$DEBUGFS" -R "dump /usr/lib/os-release $_neg_osrel" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
                     "$DEBUGFS" -R "dump /target/.installed $_neg_installed" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
                     # stat, not ls -l: only stat prints an "Inode:" line, and only
                     # when the path exists (ls -l lists entries by inode number).
