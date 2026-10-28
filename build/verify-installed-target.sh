@@ -147,6 +147,41 @@ exists /etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf || gate_
 exists /etc/ld.so.cache || gate_miss ldconfig "/etc/ld.so.cache"
 exists /etc/.updated || gate_miss ldconfig "/etc/.updated stamp (late.sh)"
 
+# --- (identity) no retired codename on any console banner -----------------------------------
+# Measured 2026-10-28 on a real console install (desktop medium, desktop
+# component off): /etc/issue.d/10-ncz-server.issue carried a hardcoded ASCII
+# block reading "N C Z   M A X I M I L I A N   S E R V E R" -- the 26.7
+# codename, frozen in a hook heredoc, sitting directly under a correct
+# /etc/issue that said "26.10 Cygnus Server". The identity gate never saw it
+# because the string is generated at INSTALL time by post-install/
+# 48-server-variant.sh, not written into any staged identity file. This checks
+# what a user actually sees: every console banner file on the installed target.
+echo "[verify-target] (identity) console banners carry no retired codename"
+_id_checked=0
+for _idf in /etc/issue /etc/issue.net; do
+    if exists "$_idf"; then
+        _id_checked=$((_id_checked + 1))
+        _idc="$(dfs "cat $_idf" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+        case "$_idc" in
+            *maximilian*|*reinhardt*)
+                gate_miss identity "$_idf names a retired codename (release is Cygnus)" ;;
+        esac
+    fi
+done
+for _idd in /etc/issue.d; do
+    exists "$_idd" || continue
+    for _idn in $(lsnames "$_idd" 2>/dev/null); do
+        _idf="$_idd/$_idn"
+        _id_checked=$((_id_checked + 1))
+        _idc="$(dfs "cat $_idf" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+        case "$_idc" in
+            *maximilian*|*reinhardt*)
+                gate_miss identity "$_idf names a retired codename (release is Cygnus)" ;;
+        esac
+    done
+done
+echo "[verify-target]     $_id_checked console banner file(s) inspected, none names a retired codename"
+
 # --- (apt) NCZ-OS / Debian apt separation (r201), same on both architectures ---------------------------
 # The installed apt configuration must keep NCZ packages and Debian packages apart: the origin pin
 # file present and current, the kernel-purity pin present, exactly ONE NCZ repo enabled, a T2 repo

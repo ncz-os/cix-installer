@@ -311,6 +311,33 @@ check_grep "$ROOT/build/build-baked-rootfs.sh" "check-release-identity-gate.sh\"
 check_grep "$ROOT/build/build-baked-rootfs.sh" 'VARIANT="${VARIANT:-desktop}"' \
     "build-baked-rootfs.sh: VARIANT env knob still drives the bake (both variants gated)"
 
+# The console banner 48-server-variant.sh writes must not carry a codename at
+# all, and must not repeat the product line that /etc/issue already prints.
+# Measured 2026-10-28 (operator photo): the desktop-medium branch emitted a
+# hardcoded "N C Z   M A X I M I L I A N   S E R V E R" box from the 26.7 era,
+# directly under a correct /etc/issue, so the machine looked a release behind
+# and the same identity appeared twice.
+SV="$ROOT/post-install/48-server-variant.sh"
+if grep -qiE 'maximilian|reinhardt' "$SV"; then
+    bad "48-server-variant.sh: still contains a retired codename literal"
+else
+    ok "48-server-variant.sh: no retired codename literal"
+fi
+# Region that writes the issue.d banner: must not restate the product/identity.
+_svblock=$(sed -n '/WHAT IT IS NOW/,/chmod 0644 \/etc\/issue.d/p' "$SV")
+case "$_svblock" in
+    *NCZ-OS*|*RELEASE_VERSION*) bad "48-server-variant.sh: the issue.d block still prints the product/version line (duplicates /etc/issue)" ;;
+    *) ok "48-server-variant.sh: the issue.d block adds only headless-mode guidance (no duplicate identity)" ;;
+esac
+case "$_svblock" in
+    *"headless server mode"*) ok "48-server-variant.sh: the block still tells the operator the box is headless" ;;
+    *) bad "48-server-variant.sh: the headless-mode guidance was lost" ;;
+esac
+case "$_svblock" in
+    *"ncz desktop on"*) ok "48-server-variant.sh: desktop-medium installs still get the re-enable hint" ;;
+    *) bad "48-server-variant.sh: the re-enable-desktop hint is gone" ;;
+esac
+
 # A retired codename must never reach a LOGIN SCREEN through the quote of the
 # day. reinhardt (26.5) and maximilian (26.7) are also characters in The Black
 # Hole (1979), which is where assets/branding/cosmic-quotes comes from, so the

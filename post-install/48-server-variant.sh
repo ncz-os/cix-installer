@@ -113,47 +113,33 @@ _ncz_brand_lib="$(dirname "$0")/lib/ncz-brand.sh"
 if [ -r "$_ncz_brand_lib" ] && . "$_ncz_brand_lib"; then
     _ncz_medium=$(ncz_brand_medium_variant /usr/local/lib/cix-installer)
 fi
-if [ "$_ncz_medium" = server ]; then
-    _ncz_ver=""
-    for _ncz_rf in /usr/local/lib/cix-installer/RELEASE /etc/cix-installer/RELEASE; do
-        [ -r "$_ncz_rf" ] || continue
-        _ncz_ver=$(sed -n 's/^NCZ_RELEASE_VERSION="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$_ncz_rf" | head -1)
-        [ -n "$_ncz_ver" ] && break
-    done
-    # Plain ASCII, no box (copy review H3). \4 is agetty's IPv4 address escape,
-    # \r and \m the kernel release and machine.
-    {
-        echo
-        ncz_brand_label server "" NCZ-OS "$_ncz_ver"
-        printf '%s\n' 'Log in below, or over the network with: ssh <user>@\4' \
-            'Other consoles: press Alt+F2 to Alt+F6.' 'Kernel \r (\m)'
-        echo
-    } > /etc/issue.d/10-ncz-server.issue
-else
-cat > /etc/issue.d/10-ncz-server.issue <<'EOF'
-
-****************************************************************
-*                                                              *
-*      N C Z   M A X I M I L I A N   S E R V E R               *
-*                                                              *
-*--------------------------------------------------------------*
-*                                                              *
-*   THIS SYSTEM IS RUNNING IN HEADLESS SERVER MODE             *
-*                                                              *
-*   Console login is fully available on all terminals.         *
-*   Switch consoles:    Alt + F1 .. F6                         *
-*                                                              *
-*--------------------------------------------------------------*
-*                                                              *
-*   Remote access ......... ssh   port 22                      *
-*   Re-enable graphical ... sudo ncz desktop on                *
-*                                                              *
-****************************************************************
-
-   NCZ-OS  -  running kernel \r  (\m)
-
-EOF
-fi
+# One banner, no duplication, no codename (operator report + photo, 2026-10-28).
+# WHAT WAS WRONG: the desktop-medium branch below carried a hardcoded ASCII
+# block reading "N C Z   M A X I M I L I A N   S E R V E R" -- the 26.7 codename,
+# frozen into a shell heredoc when the codename moved to Cygnus, and shipped on
+# every console-only install from a desktop medium. /etc/issue on the same
+# screen already names the release correctly, so the block was both stale and
+# redundant, and it is what made a correct machine look like it was running a
+# two-release-old build. The identity gate never saw it: the string lived in a
+# hook's heredoc, not in a generated identity file.
+#
+# WHAT IT IS NOW: /etc/issue (50-brand.sh) owns the identity -- product,
+# version, codename, SoC, build and IP. This file adds ONLY what /etc/issue
+# cannot say: that the box is in headless mode and how to get back. No product
+# line, no kernel line, no box art, no codename. The two media differ by a
+# single hint line.
+{
+    echo
+    printf '%s\n' 'This system is running in headless server mode.'
+    printf '%s\n' 'Console login is available on all terminals; other consoles: Alt+F2 .. Alt+F6.'
+    printf '%s\n' 'Remote access: ssh port 22.'
+    # A Magnetar Server medium has no desktop to re-enable; a desktop medium
+    # installed with the desktop component off does.
+    if [ "$_ncz_medium" = desktop ]; then
+        printf '%s\n' 'Re-enable the desktop: sudo ncz desktop on'
+    fi
+    echo
+} > /etc/issue.d/10-ncz-server.issue
 chmod 0644 /etc/issue.d/10-ncz-server.issue
 echo "[48] /etc/issue.d/10-ncz-server.issue written"
 

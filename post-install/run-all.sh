@@ -175,7 +175,7 @@ NCZ_BAKED=0
 # across multiple ISO revisions.
 # 2026-10-06: and again. 61-chromium-icon (the Cygnus Chromium launcher icon,
 # added 2026-10-04) was put on hooks.list.sky1-arm64 but not here, so every
-# --mode full Sky1 install dropped it and kept the package's orange Maximilian
+# --mode full Sky1 install dropped it and kept the package's orange 26.7-codename
 # icon. Measured on O6N and MS-R1 (diag image 5830d91b): the orphan audit below
 # printed "ORPHAN: 61-chromium-icon.sh" into /var/log/cix-installer-late.log and
 # no 61-chromium-icon.log exists. build/test-run-all-baked-allowlist.sh now runs
