@@ -584,6 +584,13 @@ ncz_container_run() {
         -e NCZ_OFFLINE="${NCZ_OFFLINE:-0}"
         -e NCZ_REPRO_ARCH="$ARCH"
         -e NCZ_PIN_FILE=/work/cix-installer/manifests/base.pin
+        # 2026-10-28: a release build freezes its substrate, so the pinned
+        # substrate legitimately ages past the default 8-day window while both
+        # arches are still being rebuilt on the SAME snapshot. The freshness
+        # gate must still run (and still fail on a drifted release.conf), so the
+        # limit is forwarded rather than disabled: the caller raises it
+        # deliberately for the frozen pin.
+        -e NCZ_SUBSTRATE_MAX_AGE_DAYS="${NCZ_SUBSTRATE_MAX_AGE_DAYS:-8}"
     )
     local kv
     while IFS= read -r kv; do renv+=(-e "$kv"); done < <(ncz_repro_env_assignments "$ARCH")
