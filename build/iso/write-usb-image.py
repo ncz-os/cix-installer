@@ -916,6 +916,18 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         # ISSUES #2). Listing it is all that is needed: the copy loop below
         # is generic and skips a name whose source directory is absent.
         "update-manager",
+        # assets/nvidia/ is the CUDA delivery payload: cuda-keyring_1.1-1_all.deb,
+        # the archive keyring, the deferred ncz-cuda-setup unit and the local
+        # DKMS patch sets. post-install/54-gpu-accel.sh requires all of it under
+        # $INSTALLER_META/assets/nvidia and otherwise records
+        # "failed:keyring-not-staged" and returns -- so the NVIDIA driver and
+        # CUDA are impossible to install, on ANY amd64 image. Measured on
+        # TYPHON (.61, Core Ultra 5 225F + RTX 5060, 2026-10-28):
+        #   [54] NVIDIA GPU 10de:2d05 -> family turing-plus
+        #   [54] WARN: .../assets/nvidia/cuda-keyring_1.1-1_all.deb not staged
+        #   [54] CUDA: failed:keyring-not-staged
+        # It was never in this list, so no medium has ever carried it.
+        "nvidia",
         # assets/lite/ is the amd64 weak-GPU profile (ncz-profile CLI, labwc
         # and themerc fragments, schema key, first-login unit) that
         # post-install/66-ncz-lite-profile.sh installs. The lite-profile merge
@@ -932,6 +944,12 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         if not src.exists():
             continue
         if name == "lite" and arch != "amd64":
+            continue
+        # The NVIDIA/CUDA payload is wired by 54-gpu-accel.sh's amd64 path only
+        # (driver family detection is PCI-ID driven and the CUDA repo is x86).
+        # Sky1 media stays lean; an arm64 board with a discrete NVIDIA card
+        # would need that path ported first, so do not ship dead weight.
+        if name == "nvidia" and arch != "amd64":
             continue
         if name == "kernel":
             # mainline is the single Sky1 kernel channel (unified 7.3 policy,

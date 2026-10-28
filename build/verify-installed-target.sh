@@ -463,6 +463,21 @@ if [ "$_fw_npu" -gt 0 ]; then
 else
     gate_miss intel-npu "no /lib/firmware/intel/vpu/*.bin (intel_vpu cannot load on any Core Ultra host)"
 fi
+# The NVIDIA/CUDA payload must reach the medium or 54-gpu-accel.sh records
+# "failed:keyring-not-staged" and returns, making the driver and CUDA
+# impossible on every amd64 image (measured on TYPHON .61, RTX 5060,
+# 2026-10-28: the asset dir existed in the repo but was missing from the
+# medium's asset list). The keyring deb is the specific file the hook
+# requires before it will write anything.
+exists /usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb \
+    || gate_miss nvidia "/usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb (without it 54-gpu-accel fails keyring-not-staged and the NVIDIA driver/CUDA cannot be installed)"
+exists /usr/local/lib/cix-installer/assets/nvidia/ncz-cuda-setup \
+    || gate_miss nvidia "/usr/local/lib/cix-installer/assets/nvidia/ncz-cuda-setup (deferred driver/CUDA installer)"
+exists /etc/systemd/system/ncz-cuda-setup.timer \
+    || exists /lib/systemd/system/ncz-cuda-setup.timer \
+    || exists /usr/lib/systemd/system/ncz-cuda-setup.timer \
+    || gate_miss nvidia "ncz-cuda-setup.timer (deferred NVIDIA driver/CUDA install unit)"
+
 exists /usr/local/sbin/ncz-intel-accel-setup \
     || gate_miss intel-npu "/usr/local/sbin/ncz-intel-accel-setup (NPU userspace delivery/retry helper)"
 exists /etc/systemd/system/ncz-intel-accel-setup.timer \
