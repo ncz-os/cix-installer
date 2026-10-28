@@ -42,6 +42,7 @@ ap.add_argument("--require-boot-progress", nargs="+", default=[], help="assert e
 ap.add_argument("--min-dialogs", type=int, default=0, help="fail unless at least N distinct dialog titles were extracted from the captured states (proves the dialog order is real; a capture whose frames could not be parsed fails instead of printing 'none')")
 ap.add_argument("--last-state-matches", default=None, help="fail unless the LAST captured state matches REGEX. The --min-states floor counts all captured files, including repeated states of one long phase, so it can pass a capture that ended early WHILE STILL CONTAINING every dialog; this check pins the capture's end point. The 8bf4e6e9 gate (2026-10-27): a cut right after the erase confirmation left 13 of 14 states with all 10 dialogs present, which the floor alone cannot catch; a complete run's final state is the install progress dialog, so pin that")
 ap.add_argument("--require-login-line", default=None, help="assert at least one captured primary-console state shows the installer diagnostics login line matching REGEX (preseed/ncz-ui.sh ncz_ui_diag_login; docs/RECOVERY-LOGINS.md)")
+ap.add_argument("--login-line-fallback", action="append", default=[], help="also accept the login line from this full console capture when the dialog-state split missed it (the banner is printed before the first dialog, so a capture that starts at the first dialog cannot contain it)")
 a = ap.parse_args()
 
 # The capture harness renders the d-i newt UI through pyte, which turns the terminal's ACS line-drawing set into
@@ -122,6 +123,21 @@ if a.require_login_line:
         with open(path, encoding="utf-8", errors="replace") as fh:
             return fh.read()
     nlogin = sum(1 for f in files if lrx.search(rd(os.path.join(a.dir, f))) or lrx.search(joined(raw(os.path.join(a.dir, f)))))
+    if nlogin == 0:
+        # The banner is drawn once, before the first dialog. A capture that
+        # starts at the first dialog (or a state split that drops the boot text)
+        # legitimately cannot contain it, so accept the full console capture as
+        # proof the line was displayed -- but only that: the fallback file has to
+        # exist and match, otherwise this is still a failure.
+        for _fb in a.login_line_fallback:
+            try:
+                with open(_fb, encoding="utf-8", errors="replace") as fh:
+                    if lrx.search(fh.read()):
+                        nlogin = max(nlogin, 1)
+                        print("check-installer-screens: diagnostics login line shown on the full console (%s); the dialog-state split did not reach it" % _fb)
+                        break
+            except OSError:
+                continue
     if nlogin == 0:
         bad += 1
         print("check-installer-screens: FAIL no console state shows the diagnostics login line /%s/" % a.require_login_line, file=sys.stderr)

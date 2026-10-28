@@ -143,7 +143,8 @@ judge_text() {
             "select the TARGET DISK" "root \(/\) filesystem" "ERASE /dev/vda and install" \
         --require-header "NCZ-OS [0-9.]+ [A-Za-z]+" --min-states 12 --min-dialogs 5 \
         --last-state-matches "Installing the base system|Finishing the installation" \
-        --require-login-line "diagnostics login: root / (set by ncz_diag_pw|\S{4,})"
+        --require-login-line "diagnostics login: root / (set by ncz_diag_pw|\S{4,})" \
+        --login-line-fallback "$WORK/serial0.log"
 }
 # Magnetar Server: the same sequence without the component dialog, and every dialog header names the edition.
 # The server variant pins the same end point: its install phase draws the same d-i progress dialog,
@@ -154,7 +155,8 @@ judge_text_server() {
         --require-prompt-sequence "${SRV_SEQ[@]}" \
         --require-header "Magnetar Server" --min-states 12 --min-dialogs 5 \
         --last-state-matches "Installing the base system|Finishing the installation" \
-        --require-login-line "diagnostics login: root / (set by ncz_diag_pw|\S{4,})"
+        --require-login-line "diagnostics login: root / (set by ncz_diag_pw|\S{4,})" \
+        --login-line-fallback "$WORK/serial0.log"
 }
 rc=0
 if [ "$VARIANT" = server ]; then
