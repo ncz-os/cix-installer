@@ -693,3 +693,4 @@ evidence/UI-STATE-FLOORS-8BF4E6E9.md	common	-	ui-state floor investigation: cade
 evidence/review-cerberus-reviewer.json	common	-	ui-state floor: first review verdict (request_changes, superseded by r2/r3)
 evidence/review-cerberus-reviewer-r2.json	common	-	ui-state floor: second review verdict
 evidence/review-cerberus-reviewer-r3.json	common	-	ui-state floor: third review verdict (approve)
+build/iso/ncz_ssdt.py	common	-	NPU ACPI SSDT stager: compiles the MS-R1 table from the committed .asl, stages .aml + early CPIO, hard-fails when it cannot (called by write-usb-image.py)
