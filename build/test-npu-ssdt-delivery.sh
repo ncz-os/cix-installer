@@ -357,17 +357,27 @@ if command -v python3 >/dev/null 2>&1; then
     # arm64 with iasl present -> builds a valid table
     if command -v iasl >/dev/null 2>&1; then
         rc=$( cd "$TW/repo" && python3 - "$STAGER" <<'PY'
-import sys, importlib.util
+import sys, importlib.util, hashlib
 from pathlib import Path
 spec = importlib.util.spec_from_file_location("ncz_ssdt", sys.argv[1])
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 p = m.ensure_npu_ssdt_aml(Path.cwd(), "arm64", log=lambda s: None)
 d = Path(p).read_bytes()
 assert d[:4] == b"SSDT" and d.count(b"CIXH4010") == 3, "bad table"
+cpio = Path.cwd()/"assets"/"npu"/"npu-acpi-override.cpio"
+assert cpio.is_file(), "early CPIO not staged (the target cannot copy it to /boot)"
+c = cpio.read_bytes()
+assert c[:6] == b"070701", "early CPIO is not newc"
+assert b"kernel/firmware/acpi/ssdt-npucre.aml" in c, "early CPIO names the wrong entry"
+assert b"TRAILER!!!" in c, "early CPIO has no trailer"
+h1 = hashlib.sha256(c).hexdigest()
+m.ensure_npu_ssdt_aml(Path.cwd(), "arm64", log=lambda s: None)
+h2 = hashlib.sha256(Path(cpio).read_bytes()).hexdigest()
+assert h1 == h2, "early CPIO is not reproducible across runs"
 print(p)
 PY
-        ) && ok "arm64: compiles and stages ssdt-npucre.aml ($rc)" \
-          || no "arm64: ensure_npu_ssdt_aml did not produce a valid table"
+        ) && ok "arm64: compiles ssdt-npucre.aml + reproducible newc early CPIO ($rc)" \
+          || no "arm64: ensure_npu_ssdt_aml did not produce a valid table + CPIO"
     else
         sk "iasl absent -- cannot prove the compile path on this host"
     fi

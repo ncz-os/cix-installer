@@ -66,6 +66,7 @@ from typing import Callable, Optional
 
 AML_NAME = "ssdt-npucre.aml"
 ASL_NAME = "ssdt-npucre.asl"
+CPIO_NAME = "npu-acpi-override.cpio"
 # Every NPU core must receive this _HID or the driver sees fewer than 3 cores
 # and disables the NPU. Checked by count, not by presence, so a table that
 # lost a Scope() cannot pass.
@@ -148,6 +149,50 @@ def _compile(asl: Path, out_aml: Path, repo_root: Path, log: Logger) -> None:
         f"({out_aml.stat().st_size} bytes, {EXPECTED_CORES} CIXH4010 cores)")
 
 
+def _newc_entry(name: str, data: bytes) -> bytes:
+    """One newc CPIO entry, fully reproducible (mtime 0, uid/gid 0, mode 0644)."""
+    namez = name.encode() + b"\0"
+    fields = [
+        0o100644,  # mode: regular file, 0644
+        0,         # uid
+        0,         # gid
+        1,         # nlink
+        0,         # mtime (epoch 0: byte-identical rebuilds)
+        len(data), # filesize
+        0,         # devmajor
+        0,         # devminor
+        0,         # rdevmajor
+        0,         # rdevminor
+        len(namez),# namesize
+        0,         # check
+    ]
+    header = b"070701" + b"".join(b"%08X" % f for f in fields) + namez
+    pad = (-len(header)) % 4
+    body = data + b"\0" * ((-len(data)) % 4)
+    return header + b"\0" * pad + body
+
+
+def _write_early_cpio(aml: Path, cpio: Path, log: Logger) -> None:
+    """Stage the install-time convenience archive the target copies to /boot.
+
+    post-install/80-npu.sh installs this as /boot/npu-acpi-override.cpio for
+    the post-update safety net. It does NOT deliver the override by itself
+    (dracut's acpi_override builds the real early segment from
+    /etc/ncz/npu-acpi); its only other consumer is a prepend fallback, which
+    used to need cpio(1) -- absent on a lean NCZ rootfs (measured on cixmini).
+    Building it here means the medium always carries one.
+    """
+    name = f"kernel/firmware/acpi/{AML_NAME}"
+    trailer = b"070701" + b"0" * 104 + b"TRAILER!!!\0"
+    trailer += b"\0" * ((-len(trailer)) % 4)
+    payload = _newc_entry(name, aml.read_bytes()) + trailer
+    tmp = cpio.with_suffix(cpio.suffix + ".tmp")
+    tmp.write_bytes(payload)
+    tmp.chmod(0o644)
+    tmp.replace(cpio)
+    log(f"    NPU SSDT early CPIO staged: {cpio} ({len(payload)} bytes)")
+
+
 def ensure_npu_ssdt_aml(
     repo_root: Path,
     arch: str,
@@ -164,6 +209,7 @@ def ensure_npu_ssdt_aml(
     npu_dir = Path(repo_root) / "assets" / "npu"
     asl = npu_dir / ASL_NAME
     aml = npu_dir / AML_NAME
+    cpio = npu_dir / CPIO_NAME
 
     if not asl.is_file():
         raise RuntimeError(
@@ -176,11 +222,19 @@ def ensure_npu_ssdt_aml(
         stale = aml.stat().st_mtime < asl.stat().st_mtime
         if reason is None and not stale:
             log(f"    NPU SSDT staged: {aml} ({aml.stat().st_size} bytes)")
-            return aml
-        if reason is None and stale:
-            log(f"    NPU SSDT out of date vs {ASL_NAME} -- recompiling")
         else:
-            log(f"    NPU SSDT unusable ({reason}) -- recompiling")
+            if reason is None:
+                log(f"    NPU SSDT out of date vs {ASL_NAME} -- recompiling")
+            else:
+                log(f"    NPU SSDT unusable ({reason}) -- recompiling")
+            _compile(asl, aml, Path(repo_root), log)
+    else:
+        _compile(asl, aml, Path(repo_root), log)
 
-    _compile(asl, aml, Path(repo_root), log)
+    # The convenience archive must be at least as new as the table it carries,
+    # or a stale blob would ship and the fallback would inject the wrong table.
+    if not cpio.is_file() or cpio.stat().st_mtime < aml.stat().st_mtime:
+        _write_early_cpio(aml, cpio, log)
+    else:
+        log(f"    NPU SSDT early CPIO staged: {cpio} ({cpio.stat().st_size} bytes)")
     return aml
