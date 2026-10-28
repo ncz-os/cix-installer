@@ -241,3 +241,9 @@ build/.imgtest.*/
 manifests/secret-hashes*.local
 manifests/secret-hashes.local
 *.keymaster.json
+
+# Layers-stage scratch (stage_layers sets TMPDIR here). A killed build leaves
+# verify logs behind; without this the platform lint lists them as source files
+# and fails the NEXT build with "no inventory row for tracked file:
+# build/.ncz-tmp/..." (hit on ACHILLES 2026-10-28 after a kill/restart).
+build/.ncz-tmp/
