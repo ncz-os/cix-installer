@@ -485,18 +485,26 @@ fi
 # arm64 branch above and are unset on amd64 (first run of this check died with
 # 'mod_path: command not found' / 'KVER: unbound variable').
 echo "[verify-target] (amd64 NPU) Intel NPU stack (intel_vpu + firmware + userspace)"
+# intel_vpu must be present in the image's module set. lsnames appends a "/" to
+# directories (it is `ls -p`), so strip it -- the first version of this check
+# looked for .../7.3.0-t2-ncz//modules.dep and concluded the driver was absent
+# on a kernel that has it.
 _ivpu_found=""
-for _k in $(lsnames /usr/lib/modules 2>/dev/null); do
-    case "$_k" in *-ncz*|*-amd64*|*-generic*|*-cloud*) ;; *) continue ;; esac
-    if dfs "cat /usr/lib/modules/$_k/modules.dep" 2>/dev/null | grep -q 'intel_vpu\.ko'; then
+for _k in $(lsnames /usr/lib/modules 2>/dev/null | sed 's#/$##'); do
+    case "$_k" in *ncz*|*-generic*|*-amd64*) ;; *) continue ;; esac
+    if exists "/usr/lib/modules/$_k/modules.dep" \
+       && dfs "cat /usr/lib/modules/$_k/modules.dep" 2>/dev/null | grep -q 'intel_vpu'; then
         _ivpu_found="$_k"
         break
     fi
 done
 if [ -n "$_ivpu_found" ]; then
-    echo "[verify-target]     intel_vpu registered for $_ivpu_found"
+    echo "[verify-target]     intel_vpu present for $_ivpu_found"
+elif exists /boot/config-"$(lsnames /usr/lib/modules 2>/dev/null | sed 's#/$##' | head -1)" \
+     && dfs "cat /boot/config-$(lsnames /usr/lib/modules 2>/dev/null | sed 's#/$##' | head -1)" 2>/dev/null | grep -q '^CONFIG_INTEL_VPU=y'; then
+    echo "[verify-target]     intel_vpu is built in (CONFIG_INTEL_VPU=y)"
 else
-    gate_miss intel-npu "intel_vpu is not in any /usr/lib/modules/*/modules.dep (no NPU on a Core Ultra host)"
+    gate_miss intel-npu "intel_vpu is neither a module nor built in (no NPU on a Core Ultra host)"
 fi
 _fw_npu=0
 for _d in /lib/firmware/intel/vpu /usr/lib/firmware/intel/vpu; do
@@ -508,36 +516,42 @@ if [ "$_fw_npu" -gt 0 ]; then
 else
     gate_miss intel-npu "no /lib/firmware/intel/vpu/*.bin (intel_vpu cannot load on a Core Ultra host)"
 fi
-exists /usr/local/sbin/ncz-intel-accel-setup \
-    || gate_miss intel-npu "/usr/local/sbin/ncz-intel-accel-setup (NPU userspace delivery/retry helper)"
-exists /etc/systemd/system/ncz-intel-accel-setup.timer \
-    || exists /lib/systemd/system/ncz-intel-accel-setup.timer \
-    || exists /usr/lib/systemd/system/ncz-intel-accel-setup.timer \
-    || gate_miss intel-npu "ncz-intel-accel-setup.timer (deferred NPU userspace retry unit)"
-# The NVIDIA/CUDA payload must reach the medium or 54-gpu-accel.sh stops at
+# The MECHANISM must ship unconditionally; the units it installs exist only on a
+# machine that actually has the hardware, so they are reported, not required.
+exists /usr/local/lib/cix-installer/post-install/lib/intel-accel.sh \
+    || gate_miss intel-npu "post-install/lib/intel-accel.sh (NPU/GPU userspace delivery library is not on the medium)"
+for _u in /usr/local/sbin/ncz-intel-accel-setup /etc/systemd/system/ncz-intel-accel-setup.timer; do
+    exists "$_u" && echo "[verify-target]     present: $_u" || echo "[verify-target]     absent (expected on a host without Intel accelerators): $_u"
+done
+# NVIDIA/CUDA payload: it must be ON THE MEDIUM, or 54-gpu-accel stops at
 # 'failed:keyring-not-staged' and no driver is installed (TYPHON .61, RTX 5060).
 exists /usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb \
     || gate_miss nvidia "/usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb (without it 54-gpu-accel cannot add the CUDA repo)"
 exists /usr/local/lib/cix-installer/assets/nvidia/ncz-cuda-setup \
     || gate_miss nvidia "/usr/local/lib/cix-installer/assets/nvidia/ncz-cuda-setup (deferred driver/CUDA installer)"
-exists /etc/systemd/system/ncz-cuda-setup.timer \
-    || exists /lib/systemd/system/ncz-cuda-setup.timer \
-    || exists /usr/lib/systemd/system/ncz-cuda-setup.timer \
-    || gate_miss nvidia "ncz-cuda-setup.timer (deferred NVIDIA driver/CUDA install unit)"
-_npu_state="$(dfs "cat /var/lib/ncz/intel-accel.status" 2>/dev/null | tr -d '\r\n')"
-case "$_npu_state" in
-    done)
-        _dpkg="$(dfs "cat /var/lib/dpkg/status" 2>/dev/null)"
-        for _p in intel-level-zero-npu intel-fw-npu intel-driver-compiler-npu intel-validation-npu; do
-            printf '%s\n' "$_dpkg" | grep -qx "Package: $_p" \
-                || gate_miss intel-npu "installer recorded NPU userspace 'done' but $_p is not installed"
-        done
-        echo "[verify-target]     installer marker 'done': NPU userspace packages present"
-        ;;
-    not-found) echo "[verify-target]     installer marker 'not-found': no Intel NPU on the install host (consistent)" ;;
-    "")        echo "[verify-target]     no installer marker (image not installed on an NPU host)" ;;
-    *)         echo "[verify-target]     WARNING: installer marker '$_npu_state' (deferred/failed NPU userspace install)" ;;
-esac
+for _u in /etc/systemd/system/ncz-cuda-setup.timer /usr/local/sbin/ncz-cuda-setup; do
+    exists "$_u" && echo "[verify-target]     present: $_u" || echo "[verify-target]     absent (expected on a host without an NVIDIA GPU): $_u"
+done
+# The installer's own record, read only when the file exists (debugfs prints its
+# banner plus "File not found" on stdout for a missing path, so a bare cat
+# produced a nonsense 'marker' in the first run).
+if exists /var/lib/ncz/intel-accel.status; then
+    _npu_state="$(dfs "cat /var/lib/ncz/intel-accel.status" 2>/dev/null | tr -d '\r\n')"
+    case "$_npu_state" in
+        done)
+            _dpkg="$(dfs "cat /var/lib/dpkg/status" 2>/dev/null)"
+            for _p in intel-level-zero-npu intel-fw-npu intel-driver-compiler-npu intel-validation-npu; do
+                printf '%s\n' "$_dpkg" | grep -qx "Package: $_p" \
+                    || gate_miss intel-npu "installer recorded NPU userspace 'done' but $_p is not installed"
+            done
+            echo "[verify-target]     installer marker 'done': NPU userspace packages present"
+            ;;
+        not-found) echo "[verify-target]     installer marker 'not-found': no Intel NPU on the install host (consistent)" ;;
+        *)         echo "[verify-target]     installer marker '$_npu_state' (deferred or failed NPU userspace install)" ;;
+    esac
+else
+    echo "[verify-target]     no installer marker (image not installed on an NPU host)"
+fi
 
 # --- (boot-GPU) the INSTALLED kernel must be the pinned r2 build -------------
 # The KVM gate pins the INSTALLER kernel to the manifest's r2 vmlinuz and
