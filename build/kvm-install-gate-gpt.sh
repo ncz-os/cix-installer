@@ -1194,6 +1194,14 @@ fi
 # MAGNETAR(server): the installed system names its edition (ncz_gate_server_brand above).
 if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     "$DEBUGFS" -R "dump /etc/os-release $EVIDENCE/installed-os-release" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
+    # Debian-family systems make /etc/os-release a symlink to ../usr/lib/os-release,
+    # and a debugfs dump of a symlink produces nothing - the server gate then
+    # reported "installed-os-release was not extracted" although /etc/issue from
+    # the same root read fine (measured 2026-10-28 on the first MAGNETAR amd64
+    # build). Fall back to the real file.
+    if [ ! -s "$EVIDENCE/installed-os-release" ]; then
+        "$DEBUGFS" -R "dump /usr/lib/os-release $EVIDENCE/installed-os-release" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
+    fi
     "$DEBUGFS" -R "dump /etc/issue $EVIDENCE/installed-issue" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
     if _brand_out=$(ncz_gate_server_brand "$EVIDENCE/installed-os-release" "$EVIDENCE/installed-issue" "$EVIDENCE/installed-refind.conf"); then
         printf '%s\n' "$_brand_out" | sed 's/^/  server gate: /'
