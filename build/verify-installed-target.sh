@@ -490,21 +490,29 @@ echo "[verify-target] (amd64 NPU) Intel NPU stack (intel_vpu + firmware + usersp
 # looked for .../7.3.0-t2-ncz//modules.dep and concluded the driver was absent
 # on a kernel that has it.
 _ivpu_found=""
+_ivpu_seen=""
 for _k in $(lsnames /usr/lib/modules 2>/dev/null | sed 's#/$##'); do
-    case "$_k" in *ncz*|*-generic*|*-amd64*) ;; *) continue ;; esac
+    case "$_k" in [0-9]*) ;; *) continue ;; esac      # skip banner/noise lines
+    _ivpu_seen="$_ivpu_seen $_k"
     if exists "/usr/lib/modules/$_k/modules.dep" \
        && dfs "cat /usr/lib/modules/$_k/modules.dep" 2>/dev/null | grep -q 'intel_vpu'; then
-        _ivpu_found="$_k"
-        break
+        _ivpu_found="$_k (modules.dep)"; break
     fi
+    # Fallback: the module FILE itself, in case modules.dep was regenerated
+    # without it (depmod run before the package was fully unpacked).
+    for _sub in accel/ivpu accel; do
+        if [ -n "$(lsnames "/usr/lib/modules/$_k/kernel/drivers/$_sub" 2>/dev/null | grep '^intel_vpu\.ko' || true)" ]; then
+            _ivpu_found="$_k (kernel/drivers/$_sub/intel_vpu.ko)"; break 2
+        fi
+    done
 done
 if [ -n "$_ivpu_found" ]; then
-    echo "[verify-target]     intel_vpu present for $_ivpu_found"
-elif exists /boot/config-"$(lsnames /usr/lib/modules 2>/dev/null | sed 's#/$##' | head -1)" \
-     && dfs "cat /boot/config-$(lsnames /usr/lib/modules 2>/dev/null | sed 's#/$##' | head -1)" 2>/dev/null | grep -q '^CONFIG_INTEL_VPU=y'; then
+    echo "[verify-target]     intel_vpu present: $_ivpu_found"
+elif [ -n "$_ivpu_seen" ] && exists "/boot/config-$(printf '%s' "$_ivpu_seen" | awk '{print $1}')" \
+     && dfs "cat /boot/config-$(printf '%s' "$_ivpu_seen" | awk '{print $1}')" 2>/dev/null | grep -q '^CONFIG_INTEL_VPU=y'; then
     echo "[verify-target]     intel_vpu is built in (CONFIG_INTEL_VPU=y)"
 else
-    gate_miss intel-npu "intel_vpu is neither a module nor built in (no NPU on a Core Ultra host)"
+    gate_miss intel-npu "intel_vpu absent from every module tree (scanned:${_ivpu_seen:- none}) -- no NPU on a Core Ultra host"
 fi
 _fw_npu=0
 for _d in /lib/firmware/intel/vpu /usr/lib/firmware/intel/vpu; do
