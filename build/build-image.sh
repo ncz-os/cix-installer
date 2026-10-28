@@ -1284,14 +1284,26 @@ stage_static_gates() {
     # any stage, so nothing enforced NPU SSDT delivery and two images shipped
     # with "only 0 of 3 NPU cores usable". They run on arm64 only (the NPU is
     # Sky1 hardware) and they are cheap: iasl + cpio, no root, no hardware.
+    #
+    # npu-ssdt-gate.sh runs with --regen: assets/npu/ is a gitignored blob dir,
+    # so a fresh clone legitimately has the committed .asl and no .cpio. The
+    # gate regenerates from the .asl and then validates the result -- which is
+    # the property we care about (a build host that CANNOT produce it fails
+    # here, before the layers stage).
     [ "$ARCH" = arm64 ] && suites+=("$(_sg_suite "$ROOT/build/test-npu-ssdt-delivery.sh")")
-    [ "$ARCH" = arm64 ] && suites+=("$(_sg_suite "$ROOT/build/npu-ssdt-gate.sh")")
+    [ "$ARCH" = arm64 ] && suites+=("$(_sg_suite "$ROOT/build/npu-ssdt-gate.sh") --regen")
     suites+=("$(_sg_suite "$ROOT/build/test-greeter-console-fallback.sh")")
 
     local s
     for s in "${suites[@]}"; do
-        if [ ! -f "$s" ]; then
-            bad "gate suite missing: $s"
+        # An entry may carry arguments ("<path> --regen"); split them so the
+        # loop can still report a missing file by path.
+        local suite_path="${s%% *}" suite_args=""
+        case "$s" in
+            *" "*) suite_args="${s#* }" ;;
+        esac
+        if [ ! -f "$suite_path" ]; then
+            bad "gate suite missing: $suite_path"
             continue
         fi
         # A replaced suite (NCZ_TEST_SUITES_DIR) is logged by its own name so
@@ -1299,16 +1311,17 @@ stage_static_gates() {
         # the pinned tree root, a replacement from its own dir (its fixtures
         # are self-contained).
         local label runfrom
-        label="$(basename "$s")"
-        if [ -n "${NCZ_TEST_SUITES_DIR:-}" ] && [ "$(dirname "$s")" != "$(dirname "$ROOT/build")" ]; then
-            runfrom="$(dirname "$s")"
+        label="$(basename "$suite_path")"
+        if [ -n "${NCZ_TEST_SUITES_DIR:-}" ] && [ "$(dirname "$suite_path")" != "$(dirname "$ROOT/build")" ]; then
+            runfrom="$(dirname "$suite_path")"
         else
             runfrom="$ROOT"
         fi
-        say "running $label"
+        say "running $label${suite_args:+ $suite_args}"
         # The suites exit with their failure count (0 = pass); capture it so a
         # FAIL line names the suite even for an rc > 255.
-        if ! ( cd "$runfrom" && bash "$s" ) >>"$log" 2>&1; then
+        # shellcheck disable=SC2086  # suite_args is a deliberate word split
+        if ! ( cd "$runfrom" && bash "$suite_path" $suite_args ) >>"$log" 2>&1; then
             bad "$label FAILED (see the stage log above); tail:"
             tail -15 "$log" 2>/dev/null | sed 's/^/[static-gates] /' >&2
         fi
