@@ -429,6 +429,75 @@ if [ -n "$(lsnames /usr/lib/modules)" ]; then
 else
     gate_miss kernel "no /usr/lib/modules/<kver> on the amd64 target"
 fi
+
+# --- (amd64 NPU) Intel NPU stack ------------------------------------------
+# The amd64 desktop's accelerator is the Intel NPU (class-1200 PCI 8086:ad1d on
+# Arrow Lake / Core Ultra 200), not the CIX one — the arm64 SSDT machinery
+# above has nothing to do with it. The only hardware that can prove it is
+# PROTEUS (.68) and TYPHON (.61); ACHILLES/HYDRA/ULTRA have no class-1200
+# device at all, so a KVM gate can NEVER test the NPU itself. What it CAN test
+# is that the image carries the pieces that make it work, so a build cannot
+# silently drop them the way the arm64 SSDT was dropped:
+#   * the kernel's intel_vpu driver (upstream, CONFIG_INTEL_VPU)
+#   * the NPU firmware (intel/vpu/*.bin — present even on hosts with no NPU,
+#     so its absence is unconditionally wrong)
+#   * the userspace delivery mechanism (lib + deferred timer), because NPU
+#     userspace is installed CONDITIONALLY on the target: a machine with the
+#     silicon gets intel-level-zero-npu + friends, one without it does not.
+# The conditional set is asserted for internal consistency with the marker
+# 54-gpu-accel writes; on real hardware (PROTEUS) the marker reads "done" and
+# the packages must then all be there.
+echo "[verify-target] (amd64 NPU) Intel NPU stack (intel_vpu + firmware + userspace)"
+if [ -n "$(mod_path intel_vpu)" ]; then
+    echo "[verify-target]     intel_vpu driver registered ($(mod_path intel_vpu))"
+else
+    gate_miss intel-npu "intel_vpu not registered in /usr/lib/modules/$KVER/modules.dep (no NPU on any Core Ultra host)"
+fi
+_fw_npu=0
+for _d in /lib/firmware/intel/vpu /usr/lib/firmware/intel/vpu; do
+    _n="$(lsnames "$_d" 2>/dev/null | grep -c '\.bin$' || true)"
+    [ "${_n:-0}" -gt 0 ] && _fw_npu=$((_fw_npu + _n))
+done
+if [ "$_fw_npu" -gt 0 ]; then
+    echo "[verify-target]     NPU firmware: $_fw_npu intel/vpu/*.bin"
+else
+    gate_miss intel-npu "no /lib/firmware/intel/vpu/*.bin (intel_vpu cannot load on any Core Ultra host)"
+fi
+exists /usr/local/sbin/ncz-intel-accel-setup \
+    || gate_miss intel-npu "/usr/local/sbin/ncz-intel-accel-setup (NPU userspace delivery/retry helper)"
+exists /etc/systemd/system/ncz-intel-accel-setup.timer \
+    || exists /lib/systemd/system/ncz-intel-accel-setup.timer \
+    || exists /usr/lib/systemd/system/ncz-intel-accel-setup.timer \
+    || gate_miss intel-npu "ncz-intel-accel-setup.timer (deferred NPU userspace retry unit)"
+# Marker written by post-install/54-gpu-accel.sh: "done" means this image was
+# installed on a host WITH an Intel NPU and the userspace install completed.
+_npu_state="$(dfs "cat /var/lib/ncz/intel-accel.status" 2>/dev/null | tr -d '\r\n')"
+case "$_npu_state" in
+    done)
+        # dpkg status is authoritative for "installed", and is what
+        # PROTEUS (.68, Core Ultra 7 265, 8086:ad1d) reports after a
+        # successful NPU userspace install.
+        _dpkg="$(dfs "cat /var/lib/dpkg/status" 2>/dev/null)"
+        for _p in intel-level-zero-npu intel-fw-npu intel-driver-compiler-npu intel-validation-npu; do
+            if printf '%s\n' "$_dpkg" | grep -qx "Package: $_p"; then
+                :
+            else
+                gate_miss intel-npu "installer recorded NPU userspace 'done' but $_p is not installed"
+            fi
+        done
+        echo "[verify-target]     installer marker 'done': NPU userspace packages present"
+        ;;
+    not-found)
+        echo "[verify-target]     installer marker 'not-found': no Intel NPU on the install host (consistent)"
+        ;;
+    "")
+        echo "[verify-target]     no installer marker (image not installed on an NPU host)"
+        ;;
+    *)
+        echo "[verify-target]     WARNING: installer marker '$_npu_state' (deferred/failed NPU userspace install)"
+        ;;
+esac
+
 # --- (boot-GPU) the INSTALLED kernel must be the pinned r2 build -------------
 # The KVM gate pins the INSTALLER kernel to the manifest's r2 vmlinuz and
 # exports VERIFY_EXPECT_KVER / VERIFY_EXPECT_VMLINUZ_SHA256 here. Assert the
