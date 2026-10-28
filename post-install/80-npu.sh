@@ -373,6 +373,33 @@ if should_apply_npu_ssdt; then
         cp -a "$NPU_DRACUT_SRC" /usr/lib/dracut/modules.d/91ncz-npu-ssdt
         chmod 0755 /usr/lib/dracut/modules.d/91ncz-npu-ssdt/module-setup.sh
         echo "[80] installed dracut module 91ncz-npu-ssdt (builds the early CPIO on every rebuild)"
+
+        # dracut's OWN early-CPIO support. acpi_override=yes makes dracut copy
+        # every $acpi_table_dir/*.aml into kernel/firmware/acpi of the
+        # uncompressed CPIO it prepends to the initrd -- the exact structure
+        # CONFIG_ACPI_TABLE_UPGRADE scans (confirmed in dracut 108:
+        # /usr/bin/dracut:2352). Without this, a kernel upgrade that
+        # regenerates the initrd drops the override and the NPU silently dies
+        # again; the install-time prepend below only covers the first boot.
+        # The config is written ONLY on a board whose decision is apply, so a
+        # Radxa O6/O6N never enables the knob.
+        install -d -m 0755 /etc/dracut.conf.d /etc/ncz/npu-acpi
+        if [ -s "$ASSETS/ssdt-npucre.aml" ]; then
+            install -m 0644 "$ASSETS/ssdt-npucre.aml" /etc/ncz/npu-acpi/ssdt-npucre.aml
+        fi
+        cat > /etc/dracut.conf.d/90-ncz-npu-ssdt.conf << 'EOF'
+# NCZ: MS-R1 NPU ACPI SSDT override (written by post-install/80-npu.sh only on
+# a board whose firmware omits _HID on \_SB.NPU0.CRE0/1/2).
+#
+# dracut prepends an UNCOMPRESSED early CPIO holding $acpi_table_dir/*.aml at
+# kernel/firmware/acpi/. That is the only layout the kernel's
+# CONFIG_ACPI_TABLE_UPGRADE loader reads, so every initrd regeneration (kernel
+# upgrade, apt, manual dracut) keeps the NPU cores enumerable without anyone
+# re-running the installer.
+acpi_override="yes"
+acpi_table_dir="/etc/ncz/npu-acpi"
+EOF
+        echo "[80] dracut acpi_override enabled (table dir /etc/ncz/npu-acpi)"
     else
         echo "[80] WARN: dracut module sources not staged — initramfs-tools path only"
     fi
@@ -389,23 +416,20 @@ if should_apply_npu_ssdt; then
     fi
 
     # 3.5 — rebuild each initrd NOW so this install boots with the override.
-    # The module/hook does the work; if the rebuild does not pick it up the
-    # problem is in the builder, and saying so here is the only chance to.
     #
-    # VERIFIED ON REAL HARDWARE (MS-R1/cixmini, 2026-10-18): the dracut module's
-    # own staged payload (usr/share/ncz/acpi*) lands inert inside the normal
-    # COMPRESSED initramfs. Nothing in this tree sets dracut's native
-    # acpi_override=yes/acpi_table_dir= knobs, so dracut never builds the
-    # separate UNCOMPRESSED early-CPIO segment the kernel's
-    # CONFIG_ACPI_TABLE_UPGRADE loader actually scans (it only reads an
-    # uncompressed cpio physically prepended before the compressed image —
-    # confirmed via `od -c`: a freshly dracut-built $INITRD starts with the
-    # zstd magic, not cpio's 070701). Without the unconditional prepend below,
-    # /sys/bus/acpi/devices/CIXH4010:* and /dev/aipu never appear, even though
-    # every unit test in build/test-npu-ssdt-delivery.sh passes (they test the
-    # standalone artifact, not the final assembled initrd). The prepend is
-    # safe to run every time: dracut --force / update-initramfs -u always
-    # rebuild $INITRD from scratch, so this never double-prepends.
+    # ORDER OF PREFERENCE (2026-10-28):
+    #   1. dracut's native acpi_override (config written in 3.3). It rebuilds
+    #      the early CPIO on EVERY regeneration, so a kernel upgrade keeps the
+    #      NPU alive with no installer involvement. Verify this worked.
+    #   2. Only if the fresh initrd does NOT carry the table, prepend the
+    #      early-CPIO by hand (what the old code did unconditionally -- and
+    #      what a dracut rebuild silently threw away).
+    #   3. Verify again. If the bytes still are not there, fail the hook: on an
+    #      MS-R1 that means a disabled NPU, which is not shippable.
+    #
+    # VERIFIED ON REAL HARDWARE (MS-R1/cixmini, 2026-10-18, before this
+    # change): a dracut-built initrd starts with the zstd magic, not cpio's
+    # 070701, and `lsinitramfs | grep -c npucre` = 0.
     for KVER in "${KERNEL_VERS[@]}"; do
         [ -d "/usr/lib/modules/$KVER" ] || continue
         INITRD="/boot/initrd.img-$KVER"
@@ -426,15 +450,19 @@ if should_apply_npu_ssdt; then
                 echo "[80] WARN: update-initramfs failed for $KVER; NPU SSDT may be absent"
             fi
         fi
-        # Step 3.4 just (re)built /boot/npu-acpi-override.cpio fresh from the
-        # currently-staged .aml; prefer it over the build-time-baked
-        # $SSDT_CPIO ($ASSETS/npu-acpi-override.cpio) so a changed asset on
-        # this install is reflected even if the baked copy is stale.
+        # 1. Did the generator deliver it natively?
+        if npu_ssdt_verify_initrd "$INITRD"; then
+            echo "[80] verified: $INITRD carries ssdt-npucre.aml (generator-native early CPIO)"
+            continue
+        fi
+        # 2. Fallback: prepend /boot/npu-acpi-override.cpio by hand. Step 3.4
+        # just (re)built it from the currently-staged .aml; prefer it over the
+        # build-time-baked $SSDT_CPIO so a changed asset is reflected.
         _ncz_early_cpio=/boot/npu-acpi-override.cpio
         [ -s "$_ncz_early_cpio" ] || _ncz_early_cpio="$SSDT_CPIO"
         if [ "$_ncz_rebuilt" = 1 ] && [ -s "$_ncz_early_cpio" ]; then
             if cat "$_ncz_early_cpio" "$INITRD" > "$INITRD.ncz-tmp" && mv "$INITRD.ncz-tmp" "$INITRD"; then
-                echo "[80] prepended NPU SSDT early-CPIO onto $INITRD (CIXH4010 cores will enumerate)"
+                echo "[80] prepended NPU SSDT early-CPIO onto $INITRD (fallback; dracut did not)"
             else
                 rm -f "$INITRD.ncz-tmp"
                 echo "[80] ERROR: could not prepend NPU SSDT early-CPIO onto $INITRD"
@@ -444,7 +472,7 @@ if should_apply_npu_ssdt; then
             echo "[80] ERROR: no early CPIO to prepend (neither /boot/npu-acpi-override.cpio nor $SSDT_CPIO)"
             NPU_SSDT_DELIVERY_FAILED=1
         fi
-        # VERIFY THE RESULT, do not trust the steps above. This is the check
+        # 3. VERIFY THE RESULT, do not trust the steps above. This is the check
         # that was missing: every individual step "succeeded" on the 2026-10-28
         # MS-R1 image while the initrd contained zero kernel/firmware/acpi
         # entries, because the .aml was never staged.

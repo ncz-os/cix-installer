@@ -40,7 +40,15 @@ case "${1:-}" in
         ;;
 esac
 
-. /usr/share/initramfs-tools/hook-functions
+# initramfs-tools exposes its helper API here, but this hook uses none of it
+# (plain mkdir/cp onto $DESTDIR), and a dracut-only build host has no such
+# file. Sourcing it unconditionally made the hook abort under `set -e` on every
+# dracut-only host -- which is exactly where build/test-npu-ssdt-delivery.sh
+# runs, so the suite that exists to catch a missing SSDT was itself failing.
+# Keep the source for a real initramfs-tools host, tolerate its absence.
+if [ -r /usr/share/initramfs-tools/hook-functions ]; then
+    . /usr/share/initramfs-tools/hook-functions
+fi
 
 _ncz_lib=""
 for _c in /usr/local/lib/cix-installer/post-install/lib/npu-ssdt.sh \

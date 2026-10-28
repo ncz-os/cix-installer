@@ -265,7 +265,7 @@ EOF
 # the dracut framework. Source it, then call into it.
 mod_case() {
     local fx="$1" id="$W/mod-$1"
-    rm -rf "$id"; mkdir -p "$id"
+    rm -rf "$id" "$W/acpi-$fx"; mkdir -p "$id"
     ( set +u
       . "$W/dracut_shim.sh"
       # $initdir is the dracut module framework's staging root.
@@ -276,26 +276,38 @@ mod_case() {
       export NCZ_SYS_ROOT="$W/$fx"
       export NCZ_NPU_SSDT_LIB="$LIB"
       export NCZ_NPU_SSDT_META="$W/meta"
+      # The module populates the host-side acpi_table_dir dracut reads for its
+      # native early-CPIO. Redirect it: the test must never touch /etc.
+      export NCZ_NPU_ACPI_DIR="$W/acpi-$fx"
       # shellcheck source=/dev/null
       . "$MOD"
       _c=0; check || _c=$?
       _i=0; install || _i=$?
-      a=no; c=no
+      a=no; c=no; t=no
       [ -f "$id/usr/share/ncz/acpi/$AML_NAME" ] && a=yes
       [ -f "$id/usr/share/ncz/acpi-early/npu-acpi-override.cpio" ] && c=yes
-      printf 'check:%s install:%s aml:%s cpio:%s' "$_c" "$_i" "$a" "$c"
+      [ -f "$W/acpi-$fx/$AML_NAME" ] && t=yes
+      printf 'check:%s install:%s aml:%s cpio:%s tbl:%s' "$_c" "$_i" "$a" "$c" "$t"
     ) 2>/dev/null
 }
 r=$(mod_case s_msr1_pn)
 case "$r" in
-    check:0*install:0*aml:yes*cpio:yes*) ok "MS-R1 fixture: $r" ;;
-    *) no "MS-R1 fixture: $r (expected check:0 install:0 aml:yes cpio:yes)" ;;
+    check:0*install:0*aml:yes*cpio:yes*tbl:yes*) ok "MS-R1 fixture: $r" ;;
+    *) no "MS-R1 fixture: $r (expected check:0 install:0 aml:yes cpio:yes tbl:yes)" ;;
 esac
 r=$(mod_case s_o6n)
 case "$r" in
-    check:0*install:0*aml:no*cpio:no*) ok "O6N fixture: $r" ;;
-    *) no "O6N fixture: $r (expected check:0 install:0 aml:no cpio:no)" ;;
+    check:0*install:0*aml:no*cpio:no*tbl:no*) ok "O6N fixture: $r" ;;
+    *) no "O6N fixture: $r (expected check:0 install:0 aml:no cpio:no tbl:no)" ;;
 esac
+# The native dracut path only works if the installer enables the knob for the
+# board and the module fills the directory it points at.
+if grep -q 'acpi_override="yes"' "$REPO/post-install/80-npu.sh" \
+   && grep -q 'acpi_table_dir=' "$REPO/post-install/80-npu.sh"; then
+    ok "80-npu.sh enables dracut acpi_override + acpi_table_dir on apply boards"
+else
+    no "80-npu.sh does not enable dracut's native ACPI override (kernel upgrades lose the NPU)"
+fi
 
 # --- T12: what the hook wrote is what the kernel would accept -----------
 echo "T12 kernel acceptance shape (magic + ACPI header self-consistency)"

@@ -87,6 +87,12 @@ install() {
 
     if [ "$decision" != "apply" ]; then
         echo "91ncz-npu-ssdt: board does not need the NPU SSDT (decision=$decision) -- inactive" >&2
+        # The acpi_table_dir may still hold a table staged by an earlier build
+        # on a board that DID need it (same disk, different machine). dracut
+        # only reads that directory when acpi_override=yes, but removing the
+        # table makes the state unambiguous for a board whose firmware already
+        # declares the cores -- injecting there is an AE_ALREADY_EXISTS hazard.
+        rm -f "${NCZ_NPU_ACPI_DIR:-/etc/ncz/npu-acpi}/$_ncz_aml_name" 2>/dev/null || true
         return 0
     fi
 
@@ -114,6 +120,26 @@ install() {
     mkdir -p "$dst" || { derror "91ncz-npu-ssdt: cannot create $dst"; return 1; }
     ncz_npu_ssdt_build_early_cpio "$dst/npu-acpi-override.cpio" "$meta" \
         || { derror "91ncz-npu-ssdt: could not build the early CPIO"; return 1; }
+
+    # NATIVE PATH (2026-10-28). Everything above is inert unless something
+    # prepends the archive; a dracut-regenerated initrd (kernel upgrade) would
+    # otherwise lose the override and silently re-disable the NPU. dracut has
+    # supported this itself for years: acpi_override=yes + acpi_table_dir=
+    # makes it copy every *.aml into kernel/firmware/acpi of the uncompressed
+    # early-CPIO segment it prepends (verified in this tree's dracut 108 at
+    # /usr/bin/dracut:2352). post-install/80-npu.sh writes that config only on
+    # a board whose decision is apply, so the knob is never enabled on a Radxa
+    # board. Populate the table dir here (the module runs before dracut reads
+    # it) so a rebuild always reflects THIS board, not the one that installed
+    # the disk.
+    _acpi_dir="${NCZ_NPU_ACPI_DIR:-/etc/ncz/npu-acpi}"
+    if mkdir -p "$_acpi_dir" 2>/dev/null; then
+        cp -f "$src" "$_acpi_dir/$_ncz_aml_name" 2>/dev/null \
+            || derror "91ncz-npu-ssdt: cannot stage $_acpi_dir/$_ncz_aml_name"
+        chmod 0644 "$_acpi_dir/$_ncz_aml_name" 2>/dev/null || true
+    else
+        derror "91ncz-npu-ssdt: cannot create $_acpi_dir (dracut acpi_override will have no table)"
+    fi
 
     # Record the decision so the post-build verifier knows an override was
     # expected for THIS image (and can fail loudly if it is absent).
