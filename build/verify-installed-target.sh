@@ -467,26 +467,36 @@ fi
 
 # --- (amd64 NPU) Intel NPU stack ------------------------------------------
 # The amd64 desktop's accelerator is the Intel NPU (class-1200 PCI 8086:ad1d on
-# Arrow Lake / Core Ultra 200), not the CIX one — the arm64 SSDT machinery
+# Arrow Lake / Core Ultra 200), not the CIX one -- the arm64 SSDT machinery
 # above has nothing to do with it. The only hardware that can prove it is
-# PROTEUS (.68) and TYPHON (.61); ACHILLES/HYDRA/ULTRA have no class-1200
-# device at all, so a KVM gate can NEVER test the NPU itself. What it CAN test
-# is that the image carries the pieces that make it work, so a build cannot
-# silently drop them the way the arm64 SSDT was dropped:
-#   * the kernel's intel_vpu driver (upstream, CONFIG_INTEL_VPU)
-#   * the NPU firmware (intel/vpu/*.bin — present even on hosts with no NPU,
-#     so its absence is unconditionally wrong)
-#   * the userspace delivery mechanism (lib + deferred timer), because NPU
-#     userspace is installed CONDITIONALLY on the target: a machine with the
-#     silicon gets intel-level-zero-npu + friends, one without it does not.
-# The conditional set is asserted for internal consistency with the marker
-# 54-gpu-accel writes; on real hardware (PROTEUS) the marker reads "done" and
-# the packages must then all be there.
+# PROTEUS (.68, Core Ultra 7 265: driver bound, /dev/accel/accel0, the four
+# *-npu packages, Level Zero enumerating 2 drivers) and TYPHON (.61, same
+# device on a Proxmox host). ACHILLES/HYDRA/ULTRA have no class-1200 device, so
+# a KVM gate can never test the NPU itself. What it CAN test is that the image
+# carries the pieces, so a build cannot silently drop them:
+#   * the kernel's intel_vpu driver
+#   * the NPU firmware (intel/vpu/*.bin -- present even on hosts with no NPU,
+#     measured on DELL .70, so its absence is unconditionally wrong)
+#   * the userspace delivery mechanism (helper + deferred timer), because NPU
+#     userspace is installed CONDITIONALLY on the target
+#   * the NVIDIA/CUDA payload, without which 54-gpu-accel records
+#     'failed:keyring-not-staged' and installs no driver at all (TYPHON .61)
+# NOTE: this section must not use KVER/MODDEP/mod_path -- those live in the
+# arm64 branch above and are unset on amd64 (first run of this check died with
+# 'mod_path: command not found' / 'KVER: unbound variable').
 echo "[verify-target] (amd64 NPU) Intel NPU stack (intel_vpu + firmware + userspace)"
-if [ -n "$(mod_path intel_vpu)" ]; then
-    echo "[verify-target]     intel_vpu driver registered ($(mod_path intel_vpu))"
+_ivpu_found=""
+for _k in $(lsnames /usr/lib/modules 2>/dev/null); do
+    case "$_k" in *-ncz*|*-amd64*|*-generic*|*-cloud*) ;; *) continue ;; esac
+    if dfs "cat /usr/lib/modules/$_k/modules.dep" 2>/dev/null | grep -q 'intel_vpu\.ko'; then
+        _ivpu_found="$_k"
+        break
+    fi
+done
+if [ -n "$_ivpu_found" ]; then
+    echo "[verify-target]     intel_vpu registered for $_ivpu_found"
 else
-    gate_miss intel-npu "intel_vpu not registered in /usr/lib/modules/$KVER/modules.dep (no NPU on any Core Ultra host)"
+    gate_miss intel-npu "intel_vpu is not in any /usr/lib/modules/*/modules.dep (no NPU on a Core Ultra host)"
 fi
 _fw_npu=0
 for _d in /lib/firmware/intel/vpu /usr/lib/firmware/intel/vpu; do
@@ -496,56 +506,37 @@ done
 if [ "$_fw_npu" -gt 0 ]; then
     echo "[verify-target]     NPU firmware: $_fw_npu intel/vpu/*.bin"
 else
-    gate_miss intel-npu "no /lib/firmware/intel/vpu/*.bin (intel_vpu cannot load on any Core Ultra host)"
+    gate_miss intel-npu "no /lib/firmware/intel/vpu/*.bin (intel_vpu cannot load on a Core Ultra host)"
 fi
-# The NVIDIA/CUDA payload must reach the medium or 54-gpu-accel.sh records
-# "failed:keyring-not-staged" and returns, making the driver and CUDA
-# impossible on every amd64 image (measured on TYPHON .61, RTX 5060,
-# 2026-10-28: the asset dir existed in the repo but was missing from the
-# medium's asset list). The keyring deb is the specific file the hook
-# requires before it will write anything.
-exists /usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb \
-    || gate_miss nvidia "/usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb (without it 54-gpu-accel fails keyring-not-staged and the NVIDIA driver/CUDA cannot be installed)"
-exists /usr/local/lib/cix-installer/assets/nvidia/ncz-cuda-setup \
-    || gate_miss nvidia "/usr/local/lib/cix-installer/assets/nvidia/ncz-cuda-setup (deferred driver/CUDA installer)"
-exists /etc/systemd/system/ncz-cuda-setup.timer \
-    || exists /lib/systemd/system/ncz-cuda-setup.timer \
-    || exists /usr/lib/systemd/system/ncz-cuda-setup.timer \
-    || gate_miss nvidia "ncz-cuda-setup.timer (deferred NVIDIA driver/CUDA install unit)"
-
 exists /usr/local/sbin/ncz-intel-accel-setup \
     || gate_miss intel-npu "/usr/local/sbin/ncz-intel-accel-setup (NPU userspace delivery/retry helper)"
 exists /etc/systemd/system/ncz-intel-accel-setup.timer \
     || exists /lib/systemd/system/ncz-intel-accel-setup.timer \
     || exists /usr/lib/systemd/system/ncz-intel-accel-setup.timer \
     || gate_miss intel-npu "ncz-intel-accel-setup.timer (deferred NPU userspace retry unit)"
-# Marker written by post-install/54-gpu-accel.sh: "done" means this image was
-# installed on a host WITH an Intel NPU and the userspace install completed.
+# The NVIDIA/CUDA payload must reach the medium or 54-gpu-accel.sh stops at
+# 'failed:keyring-not-staged' and no driver is installed (TYPHON .61, RTX 5060).
+exists /usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb \
+    || gate_miss nvidia "/usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb (without it 54-gpu-accel cannot add the CUDA repo)"
+exists /usr/local/lib/cix-installer/assets/nvidia/ncz-cuda-setup \
+    || gate_miss nvidia "/usr/local/lib/cix-installer/assets/nvidia/ncz-cuda-setup (deferred driver/CUDA installer)"
+exists /etc/systemd/system/ncz-cuda-setup.timer \
+    || exists /lib/systemd/system/ncz-cuda-setup.timer \
+    || exists /usr/lib/systemd/system/ncz-cuda-setup.timer \
+    || gate_miss nvidia "ncz-cuda-setup.timer (deferred NVIDIA driver/CUDA install unit)"
 _npu_state="$(dfs "cat /var/lib/ncz/intel-accel.status" 2>/dev/null | tr -d '\r\n')"
 case "$_npu_state" in
     done)
-        # dpkg status is authoritative for "installed", and is what
-        # PROTEUS (.68, Core Ultra 7 265, 8086:ad1d) reports after a
-        # successful NPU userspace install.
         _dpkg="$(dfs "cat /var/lib/dpkg/status" 2>/dev/null)"
         for _p in intel-level-zero-npu intel-fw-npu intel-driver-compiler-npu intel-validation-npu; do
-            if printf '%s\n' "$_dpkg" | grep -qx "Package: $_p"; then
-                :
-            else
-                gate_miss intel-npu "installer recorded NPU userspace 'done' but $_p is not installed"
-            fi
+            printf '%s\n' "$_dpkg" | grep -qx "Package: $_p" \
+                || gate_miss intel-npu "installer recorded NPU userspace 'done' but $_p is not installed"
         done
         echo "[verify-target]     installer marker 'done': NPU userspace packages present"
         ;;
-    not-found)
-        echo "[verify-target]     installer marker 'not-found': no Intel NPU on the install host (consistent)"
-        ;;
-    "")
-        echo "[verify-target]     no installer marker (image not installed on an NPU host)"
-        ;;
-    *)
-        echo "[verify-target]     WARNING: installer marker '$_npu_state' (deferred/failed NPU userspace install)"
-        ;;
+    not-found) echo "[verify-target]     installer marker 'not-found': no Intel NPU on the install host (consistent)" ;;
+    "")        echo "[verify-target]     no installer marker (image not installed on an NPU host)" ;;
+    *)         echo "[verify-target]     WARNING: installer marker '$_npu_state' (deferred/failed NPU userspace install)" ;;
 esac
 
 # --- (boot-GPU) the INSTALLED kernel must be the pinned r2 build -------------
