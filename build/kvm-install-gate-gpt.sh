@@ -1409,8 +1409,19 @@ else
             # acceptable ONLY when the scanout gate handed tty1 to a text login:
             # a desktop that boots to no console at all is not.
             arm64:inactive)
-                [ "$FB_GETTY1" = active ] || fail "desktop selected, greetd inactive and no text login on tty1 either (first boot is unreachable)"
-                echo "    first boot: graphical.target, greetd inactive (arm64 guest: no Mali GPU) and a text login on tty1" ;;
+                # 2026-10-28: on this guest the reachable console is the SERIAL
+                # one (kernel cmdline console=ttyAMA0,tty0), so a login prompt on
+                # ttyAMA0 with getty@tty1 inactive is a reachable machine, not a
+                # black screen - the earlier criterion failed two good builds.
+                # Evidence, not assumption: the boot log must actually show a
+                # login prompt from this boot.
+                if [ "$FB_GETTY1" = active ]; then
+                    echo "    first boot: graphical.target, greetd inactive (arm64 guest: no Mali GPU) and a text login on tty1"
+                elif grep -qaE '^[A-Za-z0-9._-]+ login: *$' "$BLOG" 2>/dev/null; then
+                    echo "    first boot: graphical.target, greetd inactive (arm64 guest: no Mali GPU) and a serial login prompt on the console"
+                else
+                    fail "desktop selected, greetd inactive and no login prompt on any console (first boot is unreachable)"
+                fi ;;
             *) fail "desktop selected but greetd is '${FB_GREETD:-unreported}' on first boot (no greeter)" ;;
         esac
     else
