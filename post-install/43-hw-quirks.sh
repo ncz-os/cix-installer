@@ -276,12 +276,27 @@ cat > /usr/local/sbin/ncz-backlight-default <<'BLDEF'
 set -u
 MARK=/var/lib/ncz/backlight-default-applied
 is_laptop() {
-    case "$(tr -d '\000' < /sys/class/dmi/id/chassis_type 2>/dev/null)" in
-        9 | 10 | 11 | 14 | 19) return 0 ;;
-    esac
-    case "$(tr -d '\000' < /sys/devices/virtual/dmi/id/chassis_type 2>/dev/null)" in
-        9 | 10 | 11 | 14 | 19) return 0 ;;
-    esac
+    # SMBIOS chassis types that are actually portable: 8 Portable, 9 Laptop,
+    # 10 Notebook, 11 Hand Held, 14 Sub Notebook, 30 Tablet, 31 Convertible,
+    # 32 Detachable. 8 was missing, and the DELL Inspiron 5521 reports 8 -- so
+    # the reference weak host skipped this default entirely and booted at 7 %
+    # brightness (measured 2026-10-28: chassis_type=8, brightness 342/4882, no
+    # /var/lib/ncz marker because the script exited here).
+    for t in "$(tr -d '\000' < /sys/class/dmi/id/chassis_type 2>/dev/null)" \
+             "$(tr -d '\000' < /sys/devices/virtual/dmi/id/chassis_type 2>/dev/null)"; do
+        case "$t" in
+            8 | 9 | 10 | 11 | 14 | 30 | 31 | 32) return 0 ;;
+        esac
+    done
+    # A machine with a battery and a panel backlight is portable whatever the
+    # DMI table claims; some firmware reports a desktop chassis code (3/35) on a
+    # laptop, or omits chassis_type entirely.
+    for b in /sys/class/power_supply/BAT*; do
+        [ -e "$b" ] || continue
+        for bl in /sys/class/backlight/*; do
+            [ -r "$bl/max_brightness" ] && return 0
+        done
+    done
     return 1
 }
 # (1) laptop check: no DMI chassis_type (VM / unknown) or a desktop form

@@ -59,6 +59,7 @@ run_bl() {  # run_bl -> exit code; journal in $T/journal
     FLOG="$T/journal" \
     /bin/sh <(sed -e "s#/sys/class/backlight#$SYS/class/backlight#g" \
                  -e "s#/sys/class/dmi#$SYS/class/dmi#g" \
+                 -e "s#/sys/class/power_supply#$SYS/class/power_supply#g" \
                  -e "s#/sys/devices/virtual/dmi#$SYS/devices/virtual/dmi#g" \
                  -e "s#/var/lib/ncz#$T/varlib-ncz#g" \
                  "$T/bldef")
@@ -103,6 +104,25 @@ run_bl; rc=$?
     && ok "(4) no DMI: brightness untouched" \
     || no "(4) no DMI: brightness changed"
 ! has_marker && ok "(4) no DMI: no marker" || no "(4) no DMI: marker wrongly created"
+
+# (8) chassis 8 (Portable) IS a laptop - the DELL Inspiron 5521 case that
+# booted at 7 % because 8 was missing from the accepted list.
+set_laptop 8; rm -f "$T/varlib-ncz/backlight-default-applied"; reset_panel
+run_bl; rc=$?
+[ "$rc" = 0 ] && ok "(8) chassis 8: runs" || no "(8) rc=$rc"
+got=$(cat "$SYS/class/backlight/intel_backlight/brightness")
+[ "$got" = "1952" ] && ok "(8) chassis 8 (Portable) raised to 40 % ($got)" \
+    || no "(8) chassis 8: brightness $got, want 1952"
+has_marker && ok "(8) chassis 8: marker written" || no "(8) chassis 8: no marker"
+
+# (9) a desktop chassis code with a battery and a panel is still portable
+set_laptop 3; mkdir -p "$SYS/class/power_supply/BAT0"
+rm -f "$T/varlib-ncz/backlight-default-applied"; reset_panel
+run_bl; rc=$?
+got=$(cat "$SYS/class/backlight/intel_backlight/brightness")
+[ "$got" = "1952" ] && ok "(9) desktop chassis + battery: raised anyway ($got)" \
+    || no "(9) chassis 3 with battery: $got, want 1952"
+rm -rf "$SYS/class/power_supply/BAT0"
 
 # (5) the dummy (max<16) is not the device chosen; only the panel is written
 set_laptop 9; rm -f "$T/varlib-ncz/backlight-default-applied"; reset_panel
