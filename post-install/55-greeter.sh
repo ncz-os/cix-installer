@@ -322,7 +322,10 @@ chvt 1 2>/dev/null || true
 printf '%s\n' "$msg" > "$TTY" 2>/dev/null || true
 { printf '%s\n' "$msg" > "${ISSUE}.tmp" && mv -f "${ISSUE}.tmp" "$ISSUE"; } 2>/dev/null || rm -f "${ISSUE}.tmp" 2>/dev/null
 logger -t ncz-greeter-fallback "greetd failed; starting a text login on tty1${why:+ ($why)}" 2>/dev/null || true
-systemctl --no-block start getty@tty1.service
+systemctl unmask getty@tty1.service 2>/dev/null || true
+systemctl --no-block start getty@tty1.service 2>/dev/null \
+    || { systemctl unmask getty@tty2.service 2>/dev/null || true
+         systemctl --no-block start getty@tty2.service 2>/dev/null; } || true
 FALLBACK
 chmod 0755 /usr/local/sbin/ncz-greeter-fallback
 install -d -m0755 /etc/issue.d
@@ -453,8 +456,22 @@ if ! greetd_active; then
         exit 0
     fi
     logger -t ncz-greeter-scanout "greetd is not active and no CRTC is scanning; starting a text login on tty1" 2>/dev/null || true
-    systemctl start ncz-greeter-fallback.service 2>/dev/null \
-        || systemctl --no-block start getty@tty1.service 2>/dev/null || true
+    # getty@tty1 can be masked or absent on a graphical image, so a bare
+    # `systemctl start` is not enough to rescue the console (arm64 KVM,
+    # 2026-10-28: greetd inactive AND getty-tty1 inactive, both starts failed).
+    # Unmask, then tty1, then tty2, logging which one actually came up.
+    systemctl start ncz-greeter-fallback.service 2>/dev/null && exit 0
+    systemctl unmask getty@tty1.service 2>/dev/null || true
+    if systemctl --no-block start getty@tty1.service 2>/dev/null; then
+        logger -t ncz-greeter-scanout "text login started on tty1 (getty@tty1 unmasked)" 2>/dev/null || true
+        exit 0
+    fi
+    systemctl unmask getty@tty2.service 2>/dev/null || true
+    if systemctl --no-block start getty@tty2.service 2>/dev/null; then
+        logger -t ncz-greeter-scanout "text login started on tty2 (tty1 unavailable)" 2>/dev/null || true
+        exit 0
+    fi
+    logger -t ncz-greeter-scanout "could not start a text login on tty1 or tty2" 2>/dev/null || true
     exit 0
 fi
 
