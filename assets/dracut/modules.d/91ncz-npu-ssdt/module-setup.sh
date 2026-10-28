@@ -116,10 +116,23 @@ install() {
 
     # The early CPIO must also land where a fallback prepend can find it after
     # dracut finishes, because install() cannot verify dracut's own output.
+    #
+    # 2026-10-28 (measured on cixmini): building that CPIO on the TARGET needs
+    # `cpio`, which a lean NCZ rootfs does not ship -- install() then returned
+    # 1 and dracut logged "91ncz-npu-ssdt: could not build the early CPIO",
+    # even though the native acpi_override path had already produced exactly
+    # the right early segment. So: use the PREBUILT archive that ships in
+    # assets/npu/ (build/build-npu-ssdt.sh) and treat a local build as a
+    # best-effort extra. A missing fallback is a warning, never a failure.
     dst="$initdir/usr/share/ncz/acpi-early"
     mkdir -p "$dst" || { derror "91ncz-npu-ssdt: cannot create $dst"; return 1; }
-    ncz_npu_ssdt_build_early_cpio "$dst/npu-acpi-override.cpio" "$meta" \
-        || { derror "91ncz-npu-ssdt: could not build the early CPIO"; return 1; }
+    _prebuilt="$meta/assets/npu/npu-acpi-override.cpio"
+    if [ -s "$_prebuilt" ]; then
+        cp -f "$_prebuilt" "$dst/npu-acpi-override.cpio" \
+            || dwarn "91ncz-npu-ssdt: cannot copy the prebuilt early CPIO"
+    elif ! ncz_npu_ssdt_build_early_cpio "$dst/npu-acpi-override.cpio" "$meta"; then
+        dwarn "91ncz-npu-ssdt: no prebuilt early CPIO and no cpio(1) on this system -- the fallback prepend will have nothing to use (the native acpi_override path is unaffected)"
+    fi
 
     # NATIVE PATH (2026-10-28). Everything above is inert unless something
     # prepends the archive; a dracut-regenerated initrd (kernel upgrade) would

@@ -405,11 +405,23 @@ EOF
     fi
 
     # 3.4 — keep a copy of the early CPIO at /boot for the post-update safety
-    # net and for operator inspection. It is NOT the delivery mechanism: the
-    # builders regenerate the table from the staged .aml each time.
-    if [ -r "$NPU_SSDT_LIB" ] && [ -s "$ASSETS/ssdt-npucre.aml" ]; then
+    # net and for operator inspection. It is NOT the delivery mechanism: dracut
+    # builds the real early segment from /etc/ncz/npu-acpi (3.3) and the
+    # builders regenerate from the staged .aml each time.
+    #
+    # Prefer the archive the MEDIUM ships ($SSDT_CPIO, built by
+    # build/build-npu-ssdt.sh). Building one here needs cpio(1), which a lean
+    # NCZ rootfs does not have -- measured on cixmini 2026-10-28: "NPU SSDT:
+    # cpio not installed -- cannot build early CPIO".
+    if [ -s "$SSDT_CPIO" ]; then
+        if install -m 0644 "$SSDT_CPIO" /boot/npu-acpi-override.cpio; then
+            echo "[80] early CPIO installed at /boot/npu-acpi-override.cpio (shipped with the medium)"
+        else
+            echo "[80] WARN: could not install /boot/npu-acpi-override.cpio"
+        fi
+    elif [ -r "$NPU_SSDT_LIB" ] && [ -s "$ASSETS/ssdt-npucre.aml" ]; then
         if ncz_npu_ssdt_build_early_cpio /boot/npu-acpi-override.cpio "$INSTALLER_META" >/dev/null 2>&1; then
-            echo "[80] early CPIO available at /boot/npu-acpi-override.cpio (fallback only)"
+            echo "[80] early CPIO built at /boot/npu-acpi-override.cpio (no prebuilt archive shipped)"
         else
             echo "[80] WARN: could not build the /boot early CPIO (fallback unavailable)"
         fi
