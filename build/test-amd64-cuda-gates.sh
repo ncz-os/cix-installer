@@ -13,6 +13,15 @@
 # Style follows build/test-hostname-suggest.sh: fixtures in a temp dir, every
 # check prints ok/FAIL, exit status is the number of failures.
 set -uo pipefail
+# These cases exercise the DESKTOP installer's NVIDIA/CUDA selection logic, and
+# the suite runs inside image builds of BOTH variants. With NCZ_VARIANT=server in
+# the environment, ncz_cuda_component_wanted() takes its server branch (a record
+# that omits cuda is opt-in there) and the desktop case "a COMPONENTS list
+# WITHOUT cuda skips it" fails on a perfectly good tree - measured 2026-10-28 on
+# the first MAGNETAR amd64 build. The variant is therefore pinned here; the
+# server branch is covered by its own tests, not by inheriting the caller's env.
+export NCZ_VARIANT=desktop
+unset BUILD_VARIANT 2>/dev/null || true
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 W="$(mktemp -d -t cudagates.XXXXXX)"
