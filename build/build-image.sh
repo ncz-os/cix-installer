@@ -1280,6 +1280,12 @@ stage_static_gates() {
 
     local -a suites=()
     [ "$ARCH" = amd64 ] && suites+=("$(_sg_suite "$ROOT/build/test-amd64-cuda-gates.sh")")
+    # 2026-10-28 MS-R1 NPU release blocker: neither suite below was wired into
+    # any stage, so nothing enforced NPU SSDT delivery and two images shipped
+    # with "only 0 of 3 NPU cores usable". They run on arm64 only (the NPU is
+    # Sky1 hardware) and they are cheap: iasl + cpio, no root, no hardware.
+    [ "$ARCH" = arm64 ] && suites+=("$(_sg_suite "$ROOT/build/test-npu-ssdt-delivery.sh")")
+    [ "$ARCH" = arm64 ] && suites+=("$(_sg_suite "$ROOT/build/npu-ssdt-gate.sh")")
     suites+=("$(_sg_suite "$ROOT/build/test-greeter-console-fallback.sh")")
 
     local s

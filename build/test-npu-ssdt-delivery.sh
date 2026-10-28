@@ -34,6 +34,11 @@
 #       on a non-MS-R1 fixture and stages the CPIO on an MS-R1 fixture
 #   T12 the CPIO the hook writes is one the kernel's loader would accept
 #       (magic + inner ACPI header signature/length self-consistency)
+#   T13 the MEDIUM STAGER produces the table: build/iso/write-usb-image.py
+#       must call build/iso/ncz_ssdt.py's ensure_npu_ssdt_aml() for arm64,
+#       which compiles assets/npu/ssdt-npucre.asl and raises (never warns)
+#       when it cannot. This is the case that would have caught the release
+#       that shipped "only 0 of 3 NPU cores usable".
 #
 # Requires: bash, cpio, iasl (acpica-tools). Skips iasl cases with SKIP if the
 # tool is absent rather than failing a host that cannot compile.
@@ -317,6 +322,88 @@ PY
     if [ $? -eq 0 ]; then pass=$((pass+2)); else fail=$((fail+1)); fi
 else
     no "no staged table from T10 to inspect"
+fi
+
+echo "T13 the medium stager must produce the table (build/iso/ncz_ssdt.py)"
+# WHY: the 2026-10-28 root cause. Every unit above could pass while a real
+# image shipped assets/npu/ with only the .asl, because nothing in the build
+# ever compiled it -- the only caller of build/build-npu-ssdt.sh was
+# build/stage-canonical-assets.sh, which no stage runs. write-usb-image.py is
+# the ONE place that stages assets/* onto the medium, so it must call the
+# stager for arm64 and must fail the build when it cannot.
+STAGER="$REPO/build/iso/ncz_ssdt.py"
+MEDIUM="$REPO/build/iso/write-usb-image.py"
+if [ -f "$STAGER" ]; then ok "build/iso/ncz_ssdt.py exists"; else no "build/iso/ncz_ssdt.py missing"; fi
+if grep -q 'ensure_npu_ssdt_aml' "$MEDIUM" 2>/dev/null; then
+    ok "write-usb-image.py stages the table via ensure_npu_ssdt_aml()"
+else
+    no "write-usb-image.py does not call ensure_npu_ssdt_aml() (an arm64 image would ship no NPU table)"
+fi
+if command -v python3 >/dev/null 2>&1; then
+    TW="$W/stager"; mkdir -p "$TW/repo/assets/npu"
+    cp "$ASL" "$TW/repo/assets/npu/ssdt-npucre.asl"
+    # arm64 with iasl present -> builds a valid table
+    if command -v iasl >/dev/null 2>&1; then
+        rc=$( cd "$TW/repo" && python3 - "$STAGER" <<'PY'
+import sys, importlib.util
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("ncz_ssdt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+p = m.ensure_npu_ssdt_aml(Path.cwd(), "arm64", log=lambda s: None)
+d = Path(p).read_bytes()
+assert d[:4] == b"SSDT" and d.count(b"CIXH4010") == 3, "bad table"
+print(p)
+PY
+        ) && ok "arm64: compiles and stages ssdt-npucre.aml ($rc)" \
+          || no "arm64: ensure_npu_ssdt_aml did not produce a valid table"
+    else
+        sk "iasl absent -- cannot prove the compile path on this host"
+    fi
+    # amd64 is a no-op (no CIX NPU on amd64 images)
+    rm -f "$TW/repo/assets/npu/$AML_NAME"
+    ( cd "$TW/repo" && python3 - "$STAGER" <<'PY'
+import sys, importlib.util
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("ncz_ssdt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+p = m.ensure_npu_ssdt_aml(Path.cwd(), "amd64", log=lambda s: None)
+assert p is None, "amd64 must not stage a table"
+assert not (Path.cwd()/"assets"/"npu"/"ssdt-npucre.aml").exists()
+PY
+    ) && ok "amd64: no-op (no CIX NPU)" || no "amd64: stager did something unexpected"
+    # arm64 with neither iasl nor a staged table must FAIL LOUDLY
+    if command -v iasl >/dev/null 2>&1; then
+        if ( cd "$TW/repo" && PATH=/nonexistent /usr/bin/python3 - "$STAGER" <<'PY'
+import sys, importlib.util
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("ncz_ssdt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+try:
+    m.ensure_npu_ssdt_aml(Path.cwd(), "arm64", log=lambda s: None)
+except RuntimeError as e:
+    assert "acpica-tools" in str(e), "error must name the fix"
+    sys.exit(0)
+sys.exit(3)
+PY
+        ); then ok "arm64 without iasl: raises naming acpica-tools (build stops)"
+        else no "arm64 without iasl: did not raise with the actionable message"; fi
+    fi
+    # missing .asl is fatal
+    mv "$TW/repo/assets/npu/ssdt-npucre.asl" "$TW/repo/assets/npu/x.asl"
+    if ( cd "$TW/repo" && python3 - "$STAGER" <<'PY'
+import sys, importlib.util
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("ncz_ssdt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+try:
+    m.ensure_npu_ssdt_aml(Path.cwd(), "arm64", log=lambda s: None)
+except RuntimeError:
+    sys.exit(0)
+sys.exit(1)
+PY
+    ); then ok "missing committed .asl is fatal"; else no "missing .asl did not fail"; fi
+else
+    sk "python3 absent -- stager contract untested here"
 fi
 
 # --- summary ------------------------------------------------------------

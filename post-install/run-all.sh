@@ -50,6 +50,16 @@ CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|7
 # Both hooks used to degrade to a WARN that the install carried forward, and
 # the result was a black-screen or inoperable-NPU shipped artifact. amd64
 # keeps CRITICAL_OPTIONAL_HOOKS_RE unchanged (same regex bytes).
+#
+# 2026-10-28: 80-npu joins the arm64 critical set. It installs the MS-R1 NPU
+# ACPI SSDT and now VERIFIES the initrd actually carries it (an uncompressed
+# newc archive naming kernel/firmware/acpi/ssdt-npucre.aml). The MS-R1 shipped
+# twice with "only 0 of 3 NPU cores usable - disabling NPU" because that hook
+# only warned: the table was never compiled by the build, so the hook installed
+# its modules and initramfs hooks and had nothing to inject. A board that needs
+# the override and does not get it is not shippable -- the NPU is the reason
+# the SKU exists. On a Radxa O6/O6N the decision is 'skip', the hook never
+# takes this path, and the regex is irrelevant.
 INSTALLER_META=/usr/local/lib/cix-installer
 _NCZ_SYSTEM_ARCH="${NCZ_TARGET_ARCH:-}"
 if [ -z "$_NCZ_SYSTEM_ARCH" ] && [ -r "$INSTALLER_META/BUILD_ARCH" ]; then
@@ -58,7 +68,7 @@ fi
 _NCZ_SYSTEM_ARCH="${_NCZ_SYSTEM_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
 case "$_NCZ_SYSTEM_ARCH" in
     arm64)
-        CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition|12-sky1-firmware|25-cix-proprietary)\.sh$'
+        CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition|12-sky1-firmware|25-cix-proprietary|80-npu)\.sh$'
         ;;
     amd64|"")
         # amd64: leave CRITICAL_OPTIONAL_HOOKS_RE untouched. Empty detection

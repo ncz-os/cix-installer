@@ -317,14 +317,41 @@ for _cand in "$INSTALLER_META/assets" "/cdrom/ncz-payload/assets"; do
     [ -n "$NPU_DRACUT_SRC$NPU_INITRAMFS_SRC" ] && break
 done
 
+# Set when the override was REQUIRED by the board decision but could not be
+# proven to be inside the initrd. Returned as the hook's exit status: on arm64
+# run-all.sh treats 80-npu as a critical hook, so an MS-R1 that would boot with
+# a dead NPU fails the install instead of shipping. (Two releases went out with
+# "only 0 of 3 NPU cores usable - disabling NPU" because this was a warning.)
+NPU_SSDT_DELIVERY_FAILED=0
+
+# npu_ssdt_verify_initrd <initrd> — the kernel's CONFIG_ACPI_TABLE_UPGRADE
+# loader only reads an UNCOMPRESSED newc archive physically prepended in front
+# of the compressed image, and the entry name must be exactly
+# kernel/firmware/acpi/ssdt-npucre.aml. Both properties are visible in the
+# first bytes of the file, so this needs no unpacking.
+npu_ssdt_verify_initrd() {
+    [ -s "$1" ] || return 1
+    [ "$(head -c 6 "$1" 2>/dev/null)" = "070701" ] || return 1
+    head -c 4096 "$1" 2>/dev/null | grep -qa 'kernel/firmware/acpi/ssdt-npucre.aml' || return 1
+    return 0
+}
+
 if should_apply_npu_ssdt; then
     # 3.1 — the .aml the target-side builder consumes.
     if [ -s "$ASSETS/ssdt-npucre.aml" ]; then
         echo "[80] NPU SSDT: compiled table staged at $ASSETS/ssdt-npucre.aml"
     else
-        echo "[80] WARN: $ASSETS/ssdt-npucre.aml missing — the initramfs hook has nothing"
-        echo "[80]       to inject and the NPU cores will NOT enumerate on this board."
-        echo "[80]       Build it with build/build-npu-ssdt.sh (needs iasl) and rebuild."
+        # 2026-10-28: this used to be a WARN, and that is precisely how the
+        # MS-R1 shipped twice with a disabled NPU: the build never compiled
+        # the table (nothing called build-npu-ssdt.sh), the hook installed
+        # correctly, and there was simply nothing to inject. The build-side
+        # fix is build/iso/ncz_ssdt.py (called by write-usb-image.py). If the
+        # table is still absent here the medium is defective; say so and fail.
+        echo "[80] ERROR: $ASSETS/ssdt-npucre.aml missing on a board that NEEDS it."
+        echo "[80]        The NPU cores have no _HID without this table, so the"
+        echo "[80]        NPU would boot disabled. The build is defective:"
+        echo "[80]        build/iso/ncz_ssdt.py must stage it into assets/npu/."
+        NPU_SSDT_DELIVERY_FAILED=1
     fi
 
     # 3.2 — install the initramfs-tools hook + post-update hook.
@@ -410,8 +437,24 @@ if should_apply_npu_ssdt; then
                 echo "[80] prepended NPU SSDT early-CPIO onto $INITRD (CIXH4010 cores will enumerate)"
             else
                 rm -f "$INITRD.ncz-tmp"
-                echo "[80] WARN: could not prepend NPU SSDT early-CPIO onto $INITRD; NPU cores will NOT enumerate"
+                echo "[80] ERROR: could not prepend NPU SSDT early-CPIO onto $INITRD"
+                NPU_SSDT_DELIVERY_FAILED=1
             fi
+        elif [ "$_ncz_rebuilt" = 1 ]; then
+            echo "[80] ERROR: no early CPIO to prepend (neither /boot/npu-acpi-override.cpio nor $SSDT_CPIO)"
+            NPU_SSDT_DELIVERY_FAILED=1
+        fi
+        # VERIFY THE RESULT, do not trust the steps above. This is the check
+        # that was missing: every individual step "succeeded" on the 2026-10-28
+        # MS-R1 image while the initrd contained zero kernel/firmware/acpi
+        # entries, because the .aml was never staged.
+        if ! npu_ssdt_verify_initrd "$INITRD"; then
+            echo "[80] ERROR: $INITRD does not carry the NPU SSDT early-CPIO"
+            echo "[80]        (expected an uncompressed 070701 archive naming"
+            echo "[80]        kernel/firmware/acpi/ssdt-npucre.aml at the front)"
+            NPU_SSDT_DELIVERY_FAILED=1
+        else
+            echo "[80] verified: $INITRD early-CPIO carries ssdt-npucre.aml"
         fi
     done
 elif [ -s "$ASSETS/ssdt-npucre.aml" ] || [ -f "$SSDT_CPIO" ]; then
@@ -546,3 +589,13 @@ done
 
 echo "[80] NPU stack installed: modules + SSDT override + autoload + status doc"
 echo "[80] Install cix-noe-umd 2.0.2 from radxa-pkg/cix-prebuilt to enable inference"
+
+# Fail the hook when the board required the ACPI override and the initrd was
+# not proven to carry it. run-all.sh lists 80-npu as critical on arm64, so this
+# aborts the install rather than shipping an MS-R1 whose NPU probes as
+# "only 0 of 3 NPU cores usable - disabling NPU".
+if [ "${NPU_SSDT_DELIVERY_FAILED:-0}" = 1 ]; then
+    echo "[80] FATAL: the NPU ACPI SSDT override was required on this board and was NOT delivered"
+    exit 1
+fi
+exit 0

@@ -881,6 +881,29 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # amd64-stable 7.3 kernel package directory
     # (2026-10-05, unified; the amd64-edge channel is retired) instead of the
     # Sky1 tarball shape.
+    # MS-R1 NPU ACPI SSDT: the table MUST exist in assets/npu/ before this
+    # loop copies the tree onto the medium. Nothing in the pipeline ever
+    # produced it -- build/build-npu-ssdt.sh was only reachable from
+    # build/stage-canonical-assets.sh, which no stage calls -- so two releases
+    # shipped a medium whose assets/npu/ held the .asl but no .aml, and
+    # post-install/80-npu.sh then had nothing to inject. Result on cixmini
+    # (.66, the MS-R1): "only 0 of 3 NPU cores usable - disabling NPU", while
+    # the Radxa O6N works because its own firmware declares the cores.
+    # ensure_npu_ssdt_aml() compiles from the committed .asl and RAISES when
+    # it cannot: a warning here is what let this ship twice.
+    try:
+        _libdir = str(REPO_ROOT / "build" / "iso")
+        if _libdir not in sys.path:
+            sys.path.insert(0, _libdir)
+        from ncz_ssdt import ensure_npu_ssdt_aml  # noqa: WPS433 (local import)
+    except Exception as exc:  # pragma: no cover - import failure is fatal
+        raise RuntimeError(
+            f"FATAL: cannot load the NPU SSDT stager "
+            f"(build/iso/ncz_ssdt.py): {exc}. An arm64 image built without it "
+            f"has no working NPU on the Minisforum MS-R1."
+        ) from exc
+    ensure_npu_ssdt_aml(REPO_ROOT, arch, log=log)
+
     asset_names = (
         "agent-stack", "branding", "cix-debs", "diag", "firmware",
         "kernel", "npu", "python311", "sky1-firmware", "mgmt",
