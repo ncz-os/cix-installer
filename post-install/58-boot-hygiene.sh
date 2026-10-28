@@ -373,4 +373,108 @@ fi
 #     -newer /usr/lib/systemd/system/cron.service 2>/dev/null)" || \
 #     echo "  WARN: NCZ-owned cron file detected — convert to .timer"
 
+# --- 9. rEFInd boots the ESP copy of the initrd: keep it in sync -----------
+# MEASURED 2026-10-28 on the MS-R1 (cixmini, .66), and it cost a boot cycle:
+# a repaired /boot/initrd.img-7.3.0-sky1-ncz (carrying the NPU ACPI SSDT early
+# CPIO, verified with lsinitrd) had ZERO effect because rEFInd's stanza says
+#     initrd  /initrd.img-7.3.0-sky1-ncz
+# and that path is on the ESP. /boot/efi/initrd.img-... was still the install-day
+# copy, so the kernel booted the old initrd, logged "NPU core CRE0 has no
+# platform device" and disabled the NPU.
+#
+# item 7 above installs an equivalent sync, but only as an initramfs-tools
+# post-update hook -- and this image builds its initrd with dracut, so that
+# path never runs. dracut writes /boot/initrd.img-$KVER, /etc/kernel/postinst.d
+# runs afterwards on a kernel upgrade, and nothing else covers a manual or
+# DKMS-triggered rebuild. So install ONE helper and reach it from both:
+#   * /etc/kernel/postinst.d/zz-ncz-refind-esp-sync (kernel package install)
+#   * ncz-esp-initrd-sync.path/.service (any write to /boot, incl. dracut -f)
+# The helper only touches versions rEFInd actually references, and verifies the
+# copy byte-for-byte, so a half-written ESP file cannot become the boot default.
+install -d -m0755 /usr/local/sbin /etc/kernel/postinst.d
+cat > /usr/local/sbin/ncz-sync-initrd-to-esp <<'ESPSYNCSH'
+#!/bin/sh
+# ncz-sync-initrd-to-esp — copy the /boot initrd rEFInd references onto the ESP.
+#
+# WHY: rEFInd loads `initrd /initrd.img-<ver>` from the ESP. /boot is a
+# different filesystem, so an initrd rebuilt by dracut (kernel upgrade, manual
+# `dracut -f`, DKMS refresh) is invisible to the bootloader until it is copied.
+# On the MS-R1 that gap silently disabled the NPU: the ACPI SSDT override lives
+# in the initrd's early CPIO, and the board booted the stale ESP copy.
+#
+# Safe by construction: only versions named in refind.conf are touched, the
+# source must exist and be non-empty, and the destination is verified with cmp
+# after the copy. Idempotent (cmp-equal files are skipped). Never fails the
+# caller: a broken ESP must not abort a kernel upgrade.
+set -u
+CONF=/boot/efi/EFI/BOOT/refind.conf
+[ -r "$CONF" ] || exit 0
+findmnt -no FSTYPE /boot/efi 2>/dev/null | grep -qx vfat || exit 0
+rc=0
+for ver in $(sed -n 's#^[[:space:]]*initrd[[:space:]]\+/initrd\.img-\([^[:space:]]*\).*#\1#p' "$CONF" | sort -u); do
+    src=/boot/initrd.img-$ver
+    dst=/boot/efi/initrd.img-$ver
+    [ -s "$src" ] || continue
+    if [ -s "$dst" ] && cmp -s "$src" "$dst"; then continue; fi
+    # Keep one previous copy: a bad rebuild must not destroy the only bootable
+    # initrd on the ESP.
+    [ -s "$dst" ] && cp -f "$dst" "$dst.previous" 2>/dev/null || true
+    if cp -f "$src" "$dst" 2>/dev/null && sync && cmp -s "$src" "$dst"; then
+        echo "ncz-sync-initrd-to-esp: updated $dst ($(stat -c%s "$src" 2>/dev/null || echo ?) bytes)"
+    else
+        echo "ncz-sync-initrd-to-esp: FAILED to sync $dst" >&2
+        rc=1
+    fi
+done
+exit $rc
+ESPSYNCSH
+chmod 0755 /usr/local/sbin/ncz-sync-initrd-to-esp
+
+cat > /etc/kernel/postinst.d/zz-ncz-refind-esp-sync <<'KPESPSYNC'
+#!/bin/sh
+# Runs after a kernel package install and after its initrd was generated.
+# /usr/local/sbin/ncz-sync-initrd-to-esp is the single implementation.
+[ -x /usr/local/sbin/ncz-sync-initrd-to-esp ] || exit 0
+/usr/local/sbin/ncz-sync-initrd-to-esp || true
+exit 0
+KPESPSYNC
+chmod 0755 /etc/kernel/postinst.d/zz-ncz-refind-esp-sync
+
+# Path unit: dracut -f, a DKMS rebuild or a hand-run update-initramfs do not go
+# through /etc/kernel/postinst.d at all. PathModified=/boot fires on any
+# directory write; the service re-runs the (cheap, cmp-based) sync.
+install -d -m0755 /etc/systemd/system
+cat > /etc/systemd/system/ncz-esp-initrd-sync.service <<'ESPUNIT'
+[Unit]
+Description=Sync the NCZ-OS initrd to the ESP (rEFInd boots /initrd.img-* there)
+Documentation=man:refind(8)
+ConditionPathExists=/boot/efi/EFI/BOOT/refind.conf
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ncz-sync-initrd-to-esp
+# A slow or failing ESP must never take the boot down with it.
+Nice=19
+IOSchedulingClass=idle
+ESPUNIT
+
+cat > /etc/systemd/system/ncz-esp-initrd-sync.path <<'ESPPATH'
+[Unit]
+Description=Watch /boot for initrd rebuilds and sync them to the ESP
+
+[Path]
+PathModified=/boot
+PathChanged=/boot/efi/EFI/BOOT/refind.conf
+Unit=ncz-esp-initrd-sync.service
+
+[Install]
+WantedBy=paths.target
+ESPPATH
+
+systemctl enable ncz-esp-initrd-sync.path >/dev/null 2>&1 || true
+# Run once now: the install may have produced a /boot initrd after the ESP copy
+# was staged (70-bootloader runs later, but a bake can run this hook late).
+/usr/local/sbin/ncz-sync-initrd-to-esp >/dev/null 2>&1 || true
+echo "  installed ncz-sync-initrd-to-esp (kernel postinst + path unit; dracut does not run the initramfs-tools hook)"
+
 echo "[58] boot hygiene done"

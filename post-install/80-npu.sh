@@ -496,6 +496,27 @@ EOF
         else
             echo "[80] verified: $INITRD early-CPIO carries ssdt-npucre.aml"
         fi
+
+        # 4. The ESP copy is the one rEFInd boots (stanza: initrd /initrd.img-X).
+        # MEASURED 2026-10-28: a correctly rebuilt /boot initrd had no effect at
+        # all because the ESP still held the install-day image -- the kernel
+        # logged "NPU core CRE0 has no platform device ... disabling NPU".
+        # late.sh and 70-bootloader stage it during an install; this covers the
+        # case where /boot changed first (a live re-apply, a converted system).
+        if [ -r /boot/efi/EFI/BOOT/refind.conf ] && [ -x /usr/local/sbin/ncz-sync-initrd-to-esp ]; then
+            /usr/local/sbin/ncz-sync-initrd-to-esp || echo "[80] WARN: ESP initrd sync reported a failure"
+            _esp="/boot/efi/initrd.img-$KVER"
+            if [ -f "$_esp" ]; then
+                if npu_ssdt_verify_initrd "$_esp"; then
+                    echo "[80] verified: ESP copy $_esp carries ssdt-npucre.aml"
+                else
+                    echo "[80] ERROR: ESP copy $_esp does NOT carry the SSDT -- this board would boot without it"
+                    NPU_SSDT_DELIVERY_FAILED=1
+                fi
+            fi
+        else
+            echo "[80] ESP not mounted in this environment -- late.sh/70-bootloader stage /boot/initrd.img-$KVER onto it"
+        fi
     done
 elif [ -s "$ASSETS/ssdt-npucre.aml" ] || [ -f "$SSDT_CPIO" ]; then
     # 2026-08-02: this used to warn unconditionally, which produced a scary
