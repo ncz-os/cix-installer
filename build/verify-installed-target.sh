@@ -308,6 +308,46 @@ else
     fi
 fi
 
+# --- (ii-b) NPU ACPI SSDT payload ----------------------------------------
+# The MS-R1's firmware omits _HID on \_SB.NPU0.CRE0/1/2, so on that board the
+# module above can only bind if the ACPI override table ships with the image.
+# The 2026-10-28 release shipped two arm64 images whose payload had the .asl
+# but NOT the compiled .aml: every step "succeeded", the driver logged
+# "only 0 of 3 NPU cores usable - disabling NPU", and nothing here noticed.
+# build/iso/ncz_ssdt.py is the stager; this is the end-to-end check that its
+# output actually reached the medium.
+if [ "$ARCH" = arm64 ]; then
+    echo "[verify-target] (ii-b) NPU ACPI SSDT override payload"
+    AML_REL="/usr/local/lib/cix-installer/assets/npu/ssdt-npucre.aml"
+    ASL_REL="/usr/local/lib/cix-installer/assets/npu/ssdt-npucre.asl"
+    exists "$ASL_REL" || gate_miss npu-ssdt "committed ASL source $ASL_REL"
+    if exists "$AML_REL"; then
+        aml="$TMP/ssdt-npucre.aml"
+        if ! fetch "$AML_REL" "$aml"; then
+            gate_miss npu-ssdt "cannot read $AML_REL"
+        else
+            _sig="$(dd if="$aml" bs=4 count=1 2>/dev/null | tr -d '\000')"
+            [ "$_sig" = SSDT ] || gate_miss npu-ssdt "$AML_REL is not an ACPI SSDT (sig '$_sig')"
+            _n="$(grep -c CIXH4010 "$aml" 2>/dev/null || echo 0)"
+            [ "${_n:-0}" -ge 3 ] \
+                || gate_miss npu-ssdt "$AML_REL names CIXH4010 $_n time(s), expected 3 cores"
+            echo "[verify-target]     SSDT $(stat -c%s "$aml" 2>/dev/null || echo ?)B with $_n CIXH4010 cores"
+        fi
+    else
+        gate_miss npu-ssdt "$AML_REL (arm64 images without it boot with the NPU disabled on an MS-R1)"
+    fi
+    # Board gate must stay OFF for everything that is not MS-R1-class. The
+    # dracut knob is written by post-install/80-npu.sh only on an apply board;
+    # on this build host (and on the KVM guest) the DMI is neither, so its
+    # presence means the gate leaked and an SSDT would be injected on a Radxa
+    # board whose firmware already declares the cores (AE_ALREADY_EXISTS).
+    if exists /etc/dracut.conf.d/90-ncz-npu-ssdt.conf; then
+        gate_miss npu-ssdt "/etc/dracut.conf.d/90-ncz-npu-ssdt.conf present on a non-MS-R1 build (acpi_override leaked past the board gate)"
+    else
+        echo "[verify-target]     dracut acpi_override NOT enabled (correct: non-MS-R1 DMI)"
+    fi
+fi
+
 # --- (iii) VPU ------------------------------------------------------------
 echo "[verify-target] (iii) VPU (amvx)"
 AMVX_REL="$(mod_path amvx)"
