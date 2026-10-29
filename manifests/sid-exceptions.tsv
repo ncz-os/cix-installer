@@ -13,5 +13,3 @@
 #                first_seen snapshot owner_action review_by tracking_url
 # class: B = small gap, rebuild planned; C = large gap/none, wait/replace.
 # owner_action: rebuild | wait | replace (what we will do to remove it).
-libaio1-udeb	0.3.113-10	amd64	566affc17f6ba34319d692eb14871dc7d25d9300c9085659145858e5b63f8e46	B	0.3.113-9	revision	forky has the same source at a close version (0.3.113-9); small gap -> rebuild	2026-10-25	20261018T082309Z	rebuild	2026-11-24	https://tracker.debian.org/pkg/libaio1-udeb
-libaio1-udeb	0.3.113-10	arm64	34a183c0a5b329c851ca76fba5643bff31a387e4f751c00a503378c58db4dabb	B	0.3.113-9	revision	forky has the same source at a close version (0.3.113-9); small gap -> rebuild	2026-10-25	20261018T082309Z	rebuild	2026-11-24	https://tracker.debian.org/pkg/libaio1-udeb

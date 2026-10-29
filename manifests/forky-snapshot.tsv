@@ -12,16 +12,16 @@
 # snapshot, the same keyring, one Debian origin (NOT a fourth origin), and never sid's
 # runtime (binary-*) packages.  di_inrelease_* is the digest of dists/sid/InRelease at
 # the pinned timestamp; build/refresh-substrate.sh records/verifies it.
-snapshot	20261018T082309Z
+snapshot	20261026T022331Z
 codename	forky
 components	main contrib non-free non-free-firmware
 architectures	amd64 arm64 all
 inrelease_path	dists/forky/InRelease
-inrelease_sha256	d3417d63e210ac470b03a0860bf15f5135c76a0f50af96cb9651d150d78edbc1
+inrelease_sha256	6ec08cad6429f75b76dd2b1fd4821474faebfcc95c9f0800bd790d2db8fc1cf7
 inrelease_size	150773
 di_suite	sid
 di_inrelease_path	dists/sid/InRelease
-di_inrelease_sha256	de358f89f0375dc97784567b657f0ce3828974d6b6fe265426261e7663fd1ba7
+di_inrelease_sha256	b05af00634da6c2388599cd9c9485a2db7408bd4acd10af157d130cebde3688a
 di_inrelease_size	192842
 keyring	manifests/keys/debian-archive-keyring.gpg
 keyring_sha256	506b815cbb32d9b6066b4a2aa524071e071761e7e7f68c3ac74f3061ba852017
