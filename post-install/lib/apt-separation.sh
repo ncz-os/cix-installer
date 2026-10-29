@@ -54,6 +54,15 @@
 : "${NCZ_APT_T2_HOST:=adityagarg8.github.io}"
 : "${NCZ_APT_NCZ_RELEASE_ORIGIN:=NCZ-OS}"
 : "${NCZ_APT_INTEL_HOST:=apt.repos.intel.com}"
+# AMD's ROCm vendor host (lib/vendor-gpu-repos.sh). Its suites are Ubuntu
+# labels (noble), so it is handled like the two hosts above: everything is
+# pinned -1 EXCEPT the ROCm package names, which stay at apt's default.
+: "${NCZ_APT_ROCM_HOST:=repo.radeon.com}"
+NCZ_APT_ROCM_NAMES='rocm-* hsa-* hip-* hsakmt-* rocminfo rocm-smi* rocm-core rocm-device-libs comgr'
+# Same list with every '*' escaped, for interpolation into an unquoted
+# here-document: a bare glob there would be expanded by the shell against the
+# build host's CWD before apt ever sees it (apt wants the literal '*').
+NCZ_APT_ROCM_NAMES_QUOTED="${NCZ_APT_ROCM_NAMES//\*/\\*}"
 NCZ_APT_PIN_NAME=10-ncz-origin-separation.pref
 
 # Names only NCZ may supply. One glob per line. linux-image-*/linux-headers-*
@@ -265,6 +274,28 @@ Pin-Priority: -1
 
 Package: *
 Pin: origin $NCZ_APT_INTEL_HOST
+Pin-Priority: -1
+EOF
+    # AMD's ROCm repo (repo.radeon.com, lib/vendor-gpu-repos.sh) is the odd
+    # one out: it publishes only Ubuntu suites, yet its packages are the AMD
+    # vendor's own (rocm-*, hsa-*, hip-*), not Debian names. A whole-host -1
+    # would therefore break the very vendor userspace the operator asked for,
+    # while letting it through unfiltered would let an Ubuntu-built
+    # Debian-named deb win. So: the ROCm names stay at apt's default, and
+    # everything ELSE from that host is pinned -1. Combined with the
+    # provenance gate (which classifies every package in the image as NCZ, a
+    # reviewed vendor deb or byte-identical to pinned forky), an Ubuntu-built
+    # Debian-named package can neither win a contest nor reach the image.
+    cat <<EOF
+
+# AMD ROCm names keep apt's default from the vendor host; nothing else from it
+# may ever win.
+Package: $NCZ_APT_ROCM_NAMES_QUOTED
+Pin: origin $NCZ_APT_ROCM_HOST
+Pin-Priority: 500
+
+Package: *
+Pin: origin $NCZ_APT_ROCM_HOST
 Pin-Priority: -1
 EOF
 }

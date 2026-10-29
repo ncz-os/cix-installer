@@ -373,22 +373,68 @@ if [ "$HAS_NVIDIA" = 1 ]; then
 fi
 
 # --- AMD ------------------------------------------------------------------
+# Two layers, in this order (operator 2026-10-29: pull drivers from AMD's own
+# repo; never amdgpu-dkms on our 7.3 kernel):
+#   1. DEFAULT, always, offline-safe: the in-kernel amdgpu driver plus Debian
+#      forky's Mesa/firmware/ROCm packages. This is what makes the display
+#      and Vulkan work on any AMD GPU with no network at all.
+#   2. ONLY for a ROCm-capable GPU (lib/vendor-gpu-repos.sh's support list):
+#      AMD's published ROCm userspace from repo.radeon.com, keyed by AMD's
+#      own key and pinned by the apt policy so no Ubuntu-built Debian-named
+#      package can win. Non-fatal-but-loud: an outage leaves layer 1 working.
 if [ "$HAS_AMD" = 1 ]; then
-    echo "[54] AMD GPU detected: using Debian-native ROCm packages; no AMD Ubuntu repository will be configured"
     # Remove files produced by older revisions of this hook so an upgrade or
-    # rerun cannot keep the unpinned jammy source active.
+    # rerun cannot keep an unpinned jammy source active. The vendor path
+    # below writes its own, pinned, file.
     rm -f /etc/apt/sources.list.d/rocm.list /etc/apt/keyrings/rocm.gpg \
         /etc/profile.d/ncz-rocm-gfx-override.sh
-    echo "[54] removed any legacy repo.radeon.com source, keyring, and RDNA1 override"
-    apt-get update 2>&1 | tail -5
-    ROCM_DEBIAN_PACKAGES="rocminfo rocm-smi rocm-opencl-icd rocm-device-libs-21 libamdhip64-6 hipcc rocm-cmake"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $ROCM_DEBIAN_PACKAGES 2>&1 | tail -12
-    ROCM_INSTALL_RC=${PIPESTATUS[0]}
-    if [ "$ROCM_INSTALL_RC" -eq 0 ]; then
-        echo "[54] AMD: Debian-native ROCm packages installed"
-    else
-        echo "[54] WARN: Debian-native ROCm package installation was incomplete"
+    echo "[54] removed any legacy unpinned repo.radeon.com source, keyring, and RDNA1 override"
+
+    # Layer 1: Debian forky. Names differ between forky and older Debian, so
+    # request each one only when the index offers it; a missing name is a
+    # logged note, never a failed install.
+    ROCM_DEBIAN_PACKAGES=""
+    for _p in rocminfo rocm-smi rocm-opencl-icd rocm-device-libs-21 libamdhip64-6 hipcc rocm-cmake; do
+        if apt-cache show "$_p" >/dev/null 2>&1; then
+            ROCM_DEBIAN_PACKAGES="$ROCM_DEBIAN_PACKAGES $_p"
+        else
+            echo "[54] AMD: Debian forky does not offer $_p -- leaving it out (the vendor path may supply it)"
+        fi
+    done
+    if [ -n "$ROCM_DEBIAN_PACKAGES" ]; then
+        # shellcheck disable=SC2086
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $ROCM_DEBIAN_PACKAGES 2>&1 | tail -12
+        ROCM_INSTALL_RC=${PIPESTATUS[0]}
+        if [ "$ROCM_INSTALL_RC" -eq 0 ]; then
+            echo "[54] AMD: Debian forky ROCm packages installed"
+        else
+            echo "[54] WARN: Debian forky ROCm package installation was incomplete (non-fatal)"
+        fi
     fi
+
+    # Layer 2: AMD's published ROCm userspace, only where it can work.
+    if [ -r "$NCZ_HOOK_LIB/vendor-gpu-repos.sh" ]; then
+        # shellcheck source=post-install/lib/vendor-gpu-repos.sh
+        . "$NCZ_HOOK_LIB/vendor-gpu-repos.sh"
+        _rocm_ids=$(ncz_gpu_amd_rocm_ids)
+        if [ -z "$_rocm_ids" ]; then
+            echo "[54] AMD: no ROCm-capable GPU (ids present: $(printf '%s\n' "$DISPLAY_PCI" | grep -oiE '\[1002:[0-9a-f]{4}\]' | tr '\n' ' ')); ROCm userspace not requested"
+            ncz_gpu_vendor_record amd "skipped:no-rocm-capable-gpu"
+        elif [ "$(ncz_variant)" != "server" ] && [ "${NCZ_GPU_AMD_VENDOR_REPO:-0}" != 1 ]; then
+            # Desktop media keep their offline behaviour by default (r201
+            # posture); the vendor repo is opt-in there, and always on for
+            # the server SKU. This is the "as an option for desktop" half.
+            echo "[54] AMD: ROCm-capable GPU ($(printf '%s' "$_rocm_ids" | tr '\n' ' ')) but this is the desktop variant and NCZ_GPU_AMD_VENDOR_REPO != 1 -- keeping the offline Debian stack"
+            ncz_gpu_vendor_record amd "skipped:desktop-offline-default"
+        elif ncz_gpu_vendor_add_amd_rocm; then
+            echo "[54] AMD: ROCm userspace wired from repo.radeon.com"
+        else
+            echo "[54] WARN: AMD's ROCm repo is unavailable; keeping the Debian forky stack (display and Vulkan unaffected)"
+        fi
+    else
+        echo "[54] WARN: $NCZ_HOOK_LIB/vendor-gpu-repos.sh missing -- no AMD vendor repo path"
+    fi
+
     # rocminfo opens /dev/kfd and talks to the GPU: bounded, never fatal.
     if ! command -v rocminfo >/dev/null 2>&1; then
         echo "[54] AMD: rocminfo not installed; no OpenCL support claim is made"
