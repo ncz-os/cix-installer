@@ -122,9 +122,7 @@ ncz_gpu_vendor_row() {
     local want_v="$1" want_i="$2" line v i scheme host path suite keyring ksrc
     while IFS= read -r line; do
         [ -n "$line" ] || continue
-        IFS="$(printf '\t')" read -r v i scheme host path suite keyring ksrc <<EOF
-$line
-EOF
+        IFS="$(printf '\t')" read -r v i scheme host path suite keyring ksrc <<< "$line"
         [ -n "${v:-}" ] || continue
         if [ "$v" = "$want_v" ] && [ "$i" = "$want_i" ]; then
             printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -151,9 +149,7 @@ ncz_gpu_vendor_is_ubuntu_suite() {
 ncz_gpu_vendor_source_line() {
     local row; row=$(ncz_gpu_vendor_row "$1" "$2") || return 1
     local scheme host path suite keyring
-    IFS="$(printf '\t')" read -r _ _ scheme host path suite keyring _ <<EOF
-$row
-EOF
+    IFS="$(printf '\t')" read -r _ _ scheme host path suite keyring _ <<< "$row"
     [ -n "$keyring" ] || return 1
     printf 'deb [arch=amd64 signed-by=%s] %s://%s%s %s\n' "$keyring" "$scheme" "$host" "$path" "$suite"
 }
@@ -175,9 +171,7 @@ ncz_gpu_vendor_repo_row() {
     [ -r "$f" ] || return 1
     local row; row=$(ncz_gpu_vendor_row "$1" "$2") || return 1
     local scheme host path suite
-    IFS="$(printf '\t')" read -r _ _ scheme host path suite _ _ <<EOF
-$row
-EOF
+    IFS="$(printf '\t')" read -r _ _ scheme host path suite _ _ <<< "$row"
     # manifests/vendor-repos.tsv columns are exactly:
     #   kind scheme host path suite approved vendor note
     # (there is no `id` column -- the id lives only in the catalogue).
@@ -198,9 +192,7 @@ EOF
 ncz_gpu_vendor_install_key() {
     local row; row=$(ncz_gpu_vendor_row "$1" "$2") || return 1
     local v i scheme host path suite keyring ksrc
-    IFS="$(printf '\t')" read -r v i scheme host path suite keyring ksrc <<EOF
-$row
-EOF
+    IFS="$(printf '\t')" read -r v i scheme host path suite keyring ksrc <<< "$row"
     # `keyring` is an absolute install path (/usr/share/keyrings/...,
     # /etc/apt/keyrings/...). It must NOT be prefixed with the vendor root:
     # NCZ_GPU_VENDOR_ROOT is a staging prefix for the apt/sources files, but

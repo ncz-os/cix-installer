@@ -177,6 +177,41 @@ check "fixture: a shifted decoy cannot approve another row" \
 NCZ_GPU_VENDOR_CATALOGUE="$NCZ_GPU_VENDOR_CATALOGUE_SAVE"
 
 echo
+echo
+echo "=== 3b. Catalogue field splitting: every column survives the read ==="
+# Regression guard for the review finding that these three functions used a
+# broken here-document to split a catalogue line. They did not (the body is
+# the expanded $row on its own line, so `read` sees exactly one record), but
+# the split is now the unambiguous here-string form -- and this asserts that
+# EVERY position is populated, so a future edit that drops a field or lets
+# IFS eat the last column fails here instead of silently at install time.
+# Section 3 repointed NCZ_GPU_VENDOR_MANIFESTS_DIR at a fixture; drop the
+# override so repo_row reads the committed manifest again.
+unset NCZ_GPU_VENDOR_MANIFESTS_DIR
+split_row=$(ncz_gpu_vendor_row amd rocm)
+IFS="$(printf '\t')" read -r s_v s_i s_scheme s_host s_path s_suite s_keyring s_ksrc <<< "$split_row"
+check "split: vendor"    "$s_v"       "amd"
+check "split: id"        "$s_i"       "rocm"
+check "split: scheme"    "$s_scheme"  "https"
+check "split: host"      "$s_host"    "repo.radeon.com"
+check "split: path"      "$s_path"    "/rocm/apt/7.2/"
+check "split: suite"     "$s_suite"   "noble"
+check "split: keyring"   "$s_keyring" "/etc/apt/keyrings/ncz-amd-rocm.gpg"
+check "split: key source" "$s_ksrc"   "fetch:https://repo.radeon.com/rocm/rocm.gpg"
+# The LAST field must not be swallowed: no field is empty, which is what
+# "read received no input" would look like.
+empty_fields=0
+for f in "$s_v" "$s_i" "$s_scheme" "$s_host" "$s_path" "$s_suite" "$s_keyring" "$s_ksrc"; do
+    [ -n "$f" ] || empty_fields=$((empty_fields+1))
+done
+check "split: no catalogue field came back empty" "$empty_fields" 0
+# And each of the three consumers really produces output, not an empty
+# string that a caller would misread as failure.
+[ -n "$(ncz_gpu_vendor_source_line nvidia deb12)" ] \
+    && ok "source_line emits a deb line" || bad "source_line emitted nothing"
+[ -n "$(ncz_gpu_vendor_repo_row amd rocm)" ] \
+    && ok "repo_row emits the approved manifest row" || bad "repo_row emitted nothing"
+
 echo "=== 4. AMD ROCm source line: signed-by, never amdgpu-dkms ==="
 sl=$(ncz_gpu_vendor_source_line amd rocm 2>/dev/null)
 case "$sl" in
