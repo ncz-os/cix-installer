@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- NCZ-OS screensaver configuration. Superset of the schema the Singularity
+     screensaver-chooser plugin already uses: every pre-existing key keeps its
+     name, type and meaning. Read live by ncz-screensaver-idled and
+     ncz-screensaver; written by the Singularity plugin (or any front end). -->
+<schemalist>
+  <enum id="dev.ncz.screensaver.BlackholeColorMode">
+    <value nick="stylized" value="0"/>
+    <value nick="kipthorne" value="1"/>
+    <value nick="faithful" value="2"/>
+    <value nick="singularity" value="3"/>
+    <value nick="slingshot" value="4"/>
+    <value nick="whitehole" value="5"/>
+    <value nick="eht" value="6"/>
+    <value nick="psychedelic" value="7"/>
+    <value nick="synthwave" value="8"/>
+    <value nick="cygnus" value="9"/>
+  </enum>
+  <schema id="dev.ncz.screensaver" path="/dev/ncz/screensaver/">
+    <key name="mode" type="s">
+      <choices>
+        <choice value="off"/>
+        <choice value="one"/>
+        <choice value="random"/>
+        <choice value="playlist"/>
+      </choices>
+      <default>'one'</default>
+      <summary>Screensaver mode</summary>
+      <description>off: no animated screensaver (idle lock and display power-off still apply). one: always run hack-id. random: pick from random-hacks (empty means every hack in the catalog) and rotate every cycle-delay seconds. playlist: run the hacks in the playlist key in order, rotating every cycle-delay seconds.</description>
+    </key>
+    <key name="hack-id" type="s">
+      <default>'blackhole_gles3'</default>
+      <summary>Selected screensaver</summary>
+      <description>Catalog id of the hack used in mode "one".</description>
+    </key>
+    <key name="random-hacks" type="as">
+      <default>[]</default>
+      <summary>Random rotation set</summary>
+      <description>Catalog ids enabled for random rotation. An empty list means all hacks in the catalog.</description>
+    </key>
+    <key name="playlist" type="as">
+      <default>[]</default>
+      <summary>Playlist</summary>
+      <description>Ordered catalog ids used in mode "playlist".</description>
+    </key>
+    <key name="hack-idle-delay" type="i">
+      <range min="1" max="86400"/>
+      <default>300</default>
+      <summary>Idle delay</summary>
+      <description>Seconds of inactivity before the screensaver starts.</description>
+    </key>
+    <key name="cycle-delay" type="i">
+      <range min="5" max="86400"/>
+      <default>600</default>
+      <summary>Rotation interval</summary>
+      <description>Seconds each hack runs before the next one in random and playlist modes.</description>
+    </key>
+    <key name="lock-enabled" type="b">
+      <default>false</default>
+      <summary>Lock from the idle daemon</summary>
+      <description>Lock from ncz-screensaver-idled after the idle period. Off by default: the desktop shell locks by itself (dev.sinty.lockscreen). With mode off the lock happens at hack-idle-delay.</description>
+    </key>
+    <key name="lock-delay" type="i">
+      <range min="0" max="86400"/>
+      <default>60</default>
+      <summary>Lock delay after screensaver</summary>
+      <description>Seconds after the screensaver starts before the screen locks.</description>
+    </key>
+    <key name="lock-on-suspend" type="b">
+      <default>true</default>
+      <summary>Lock on suspend</summary>
+      <description>Lock the screen when the system is about to suspend.</description>
+    </key>
+    <key name="display-off-delay" type="i">
+      <range min="0" max="86400"/>
+      <default>0</default>
+      <summary>Display off delay</summary>
+      <description>Seconds of inactivity before the displays are powered off (DPMS). 0 means never.</description>
+    </key>
+    <key name="blackhole-color-mode" enum="dev.ncz.screensaver.BlackholeColorMode">
+      <default>'cygnus'</default>
+      <summary>Black hole color mode</summary>
+      <description>Color model used by the black hole hack. The shipped default is cygnus (the NCZ-OS 26.10 magenta and cyan palette); stylized is the vendor default and is the value at which the randomize roll may pick the palette. Any value other than stylized is treated as a pin and is never overwritten by randomize. Passed to the hack as NCZ_BLACKHOLE_COLORS; stylized leaves the variable unset.</description>
+    </key>
+    <key name="gpu-offload" type="s">
+      <default>'auto'</default>
+      <summary>GPU for screensavers</summary>
+      <description>auto: hacks the display GPU can carry stay on it; heavier ones render on the fastest other GPU (NVIDIA offload variables or Mesa DRI_PRIME, per process only), except on battery. off: every hack renders on the GPU the compositor uses. prime: send every hack to the best other GPU. Or a GPU id such as pci-0000_01_00_0 (see ncz-screensaver gpus). The compositor and the session environment are never touched.</description>
+    </key>
+    <key name="pool-gpu-class" type="s">
+      <choices>
+        <choice value="auto"/>
+        <choice value="weak"/>
+        <choice value="mid"/>
+        <choice value="all"/>
+        <choice value="igpu-only"/>
+      </choices>
+      <default>'auto'</default>
+      <summary>Screensavers used in random and playlist mode</summary>
+      <description>weak: only screensavers measured to run well on weak graphics chips (about 20 ms or slower on the reference benchmark). mid: also those that need a mid-class GPU. all: every screensaver. auto: choose from the calibrated class of the GPU that renders the display, or all when a discrete GPU is used for offload. igpu-only is the old name of weak.</description>
+    </key>
+    <key name="show-all-hacks" type="b">
+      <default>false</default>
+      <summary>Show screensavers that may run poorly on this graphics chip</summary>
+      <description>The chooser lists screensavers that are flagged as too heavy for this GPU class in a separate group only when this is on. It does not change which screensavers random and playlist modes use.</description>
+    </key>
+    <key name="render-scale-mode" type="s">
+      <choices>
+        <choice value="auto"/>
+        <choice value="fixed"/>
+      </choices>
+      <default>'auto'</default>
+      <summary>Render quality mode</summary>
+      <description>auto: shader screensavers render at native resolution unless the platform data (render-defaults.tsv) caps the height, for example on a 4K panel driven by an integrated GPU. fixed: use render-scale and max-render-height exactly as set.</description>
+    </key>
+    <key name="render-scale" type="d">
+      <range min="0.25" max="1.0"/>
+      <default>1.0</default>
+      <summary>Render scale</summary>
+      <description>Fraction of the native resolution shader screensavers render at (passed as NCZ_RENDER_SCALE). Lower values reduce GPU load and stutter on high resolution screens.</description>
+    </key>
+    <key name="max-render-height" type="i">
+      <range min="0" max="8192"/>
+      <default>0</default>
+      <summary>Maximum render height</summary>
+      <description>Cap on the render height in pixels (passed as NCZ_MAX_RENDER_HEIGHT). A non-zero value overrides the platform default in auto mode; 0 lets auto mode decide, and in fixed mode 0 means no cap.</description>
+    </key>
+    <key name="lock-fps" type="i">
+      <range min="0" max="120"/>
+      <default>0</default>
+      <summary>Screensaver frame rate</summary>
+      <description>Frames per second of the screensaver shown behind the lock. 0 is Auto: 30, capped at the display refresh rate, 15 on battery or on a weak GPU. NCZ_SAVER_LOCK_FPS in /etc/ncz/lock-renderer.env overrides it.</description>
+    </key>
+    <key name="lock-render-divisor" type="i">
+      <range min="0" max="4"/>
+      <default>0</default>
+      <summary>Screensaver render resolution</summary>
+      <description>Render the screensaver behind the lock at 1/N of the screen resolution and scale it up: 1 full, 2 half. 0 is Auto: full resolution, half on a weak GPU. NCZ_SAVER_RENDER_DIV in /etc/ncz/lock-renderer.env overrides it.</description>
+    </key>
+    <key name="hack-options" type="a{sa{ss}}">
+      <default>{'blackhole_gles3': {'randomize': 'everything'}}</default>
+      <summary>Per-screensaver options</summary>
+      <description>Option values by screensaver id, validated against the schema in /usr/share/ncz-screensavers/options/ and passed to the screensaver process as environment variables. Absent means the screensaver's own defaults. The shipped default runs Black Hole with randomize=everything; a value here is pinned and is never overwritten by the randomize roll. The palette is pinned separately through blackhole-color-mode when that is not stylized.</description>
+    </key>
+    <key name="dynamics-default" type="d">
+      <range min="0.0" max="1.0"/>
+      <default>0.0</default>
+      <summary>Default beat dynamics</summary>
+      <description>How strongly the beat layer drives a screensaver that supports it when its own per-screensaver options do not set dynamics. 0 (the default) leaves every look exactly as it was. A per-preset or per-screensaver dynamics always overrides this.</description>
+    </key>
+    <key name="audio-reactive" type="s">
+      <choices>
+        <choice value="off"/>
+        <choice value="system"/>
+        <choice value="mic"/>
+      </choices>
+      <default>'off'</default>
+      <summary>Audio-reactive default</summary>
+      <description>Audio source for the beat layer when a screensaver's own options do not set audio. off (the default) uses the procedural virtual beat with no capture. system listens to the default output monitor (what is playing). mic listens to the default microphone ONLY when explicitly selected; a log line is printed every time capture starts. A per-preset or per-screensaver audio always overrides this.</description>
+    </key>
+    <key name="audio-intensity" type="d">
+      <range min="0.0" max="1.0"/>
+      <default>0.5</default>
+      <summary>Audio intensity</summary>
+      <description>Depth of every audio-reactive mapping, 0..1. 0 is identical to off and is the safe floor for photosensitivity; the shared limiter additionally caps flashes and the tempo at 180 BPM. Only screensavers that opt in to the beat layer are affected, and dynamics-default still governs how strongly a beat-layer saver reacts.</description>
+    </key>
+    <key name="verify-render" type="b">
+      <default>true</default>
+      <summary>Detect black screensavers</summary>
+      <description>A few seconds after a hack starts, capture the screen; if it is entirely black treat the hack as failed and move on.</description>
+    </key>
+  </schema>
+</schemalist>

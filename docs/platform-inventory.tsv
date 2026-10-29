@@ -702,3 +702,6 @@ assets/screensaver/ncz-bh-flightplan-rotate	common	-	applies a real probe encoun
 assets/screensaver/flight-plans.json	common	-	ten real deep-space encounters mapped onto the camera options
 assets/screensaver/VT323-Regular.ttf	common	-	card typeface, SIL OFL 1.1 (DEC VT320 face; MU/TH/UR lookalike lineage)
 assets/screensaver/VT323-OFL.txt	common	-	SIL Open Font License text for VT323
+assets/screensaver/amd64/blackhole_gles3	common	-	0.8.19 x86-64 engine (per-cycle geometry re-draw, plan-jitter)
+assets/screensaver/arm64/blackhole_gles3	common	-	0.8.19 aarch64 engine (per-cycle geometry re-draw, plan-jitter)
+assets/screensaver/dev.ncz.screensaver.gschema.xml	common	-	0.8.19 schema (declares plan-jitter), compiled after install

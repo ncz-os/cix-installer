@@ -33,6 +33,35 @@ if [ -z "$SRC" ]; then
     exit 0
 fi
 
+# --- the engine itself -------------------------------------------------------
+# The screening package in the pinned pool is 0.8.18; the engine that renders the
+# per-cycle re-draw (0.8.19) ships here as a per-architecture binary. Without it
+# the image gets the new shader on last week's engine, and the five-minute
+# re-roll only changes the flyby phase -- the exact defect this cycle fixes.
+ARCH=$(dpkg --print-architecture 2>/dev/null)
+ENGINE=/usr/lib/ncz-screensavers/blackhole_gles3
+if [ -s "$SRC/$ARCH/blackhole_gles3" ]; then
+    install -d -m 0755 "$(dirname "$ENGINE")"
+    [ -f "$ENGINE" ] && cp -f "$ENGINE" "$ENGINE.package" 2>/dev/null
+    install -m 0755 "$SRC/$ARCH/blackhole_gles3" "$ENGINE"
+    echo "[58] blackhole engine installed for $ARCH ($(sha256sum "$ENGINE" | cut -c1-12))"
+else
+    echo "[58] WARN: no engine binary for $ARCH staged; keeping the package's"
+fi
+
+# The 0.8.19 engine adds the plan-jitter option, so the installed schema has to
+# know it: a stale schema hides the option from the settings UI and from
+# --dump-schema. Compiled after install so the settings app sees one schema set.
+SCHEMA=/usr/share/glib-2.0/schemas/dev.ncz.screensaver.gschema.xml
+if [ -s "$SRC/dev.ncz.screensaver.gschema.xml" ]; then
+    install -d -m 0755 "$(dirname "$SCHEMA")"
+    [ -f "$SCHEMA" ] && cp -f "$SCHEMA" "$SCHEMA.package" 2>/dev/null
+    install -m 0644 "$SRC/dev.ncz.screensaver.gschema.xml" "$SCHEMA"
+    command -v glib-compile-schemas >/dev/null 2>&1 && \
+        glib-compile-schemas /usr/share/glib-2.0/schemas >/dev/null 2>&1
+    echo "[58] screensaver schema updated (plan-jitter)"
+fi
+
 SHADER=/usr/share/ncz-screensavers/shaders/blackhole.frag
 if [ -s "$SRC/blackhole.frag" ]; then
     install -d -m 0755 "$(dirname "$SHADER")"
