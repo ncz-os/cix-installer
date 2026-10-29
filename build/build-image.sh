@@ -591,6 +591,13 @@ ncz_container_run() {
         # limit is forwarded rather than disabled: the caller raises it
         # deliberately for the frozen pin.
         -e NCZ_SUBSTRATE_MAX_AGE_DAYS="${NCZ_SUBSTRATE_MAX_AGE_DAYS:-8}"
+        # 2026-10-29: how a server medium obtains its payload. 'medium' makes it
+        # self-contained (no URLs). Without this forward the writer inside the
+        # container never sees the caller's choice, falls back to 'online' and
+        # pins the gate alias -- which the no-LAN-URL rule then refuses, so the
+        # build fails with FATAL instead of shipping a medium that installs
+        # nowhere (exactly the TYPHON failure this rule exists to prevent).
+        -e NCZ_SERVER_PAYLOAD="${NCZ_SERVER_PAYLOAD:-online}"
     )
     local kv
     while IFS= read -r kv; do renv+=(-e "$kv"); done < <(ncz_repro_env_assignments "$ARCH")
