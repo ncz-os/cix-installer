@@ -623,6 +623,21 @@ out="$(collect_case server same http://10.0.2.2/base.squashfs missing)"; rc=$?
 [ "$rc" != 0 ] && grep -q "ncz-pool-amd64.tar.gz is missing" <<<"$out" && ok "collect: a missing pool fails" || bad "collect accepted a missing pool: $out"
 out="$(collect_case server same http://elsewhere/base.squashfs)"; rc=$?
 [ "$rc" != 0 ] && grep -q "payload_url" <<<"$out" && ok "collect: a receipt URL that is not the build's fails" || bad "collect accepted a foreign URL: $out"
+# collect: a self-contained server medium (NCZ_SERVER_PAYLOAD=medium) has no
+# online_fetch pins; it must pass on its staged base layer, not KeyError on them
+sc_case() {  # <staged_files json list>
+    ( eval "$(fn ncz_magnetar_prepare)"; eval "$(fn ncz_magnetar_collect)"
+      ncz_magnetar_prepare "$MR" amd64 "$SCRATCH/scpay" >/dev/null 2>&1 || exit 9
+      printf '{"variant": "server", "ncz_payload": {"server_payload": "medium", "staged_files": %s}}' "$1" \
+          > "$SCRATCH/sc.img.receipt.json"
+      ncz_magnetar_collect "$SCRATCH/sc.img" ) 2>&1
+}
+out="$(sc_case '["base.squashfs", "sqtools"]')"; rc=$?
+[ "$rc" = 0 ] && grep -q "self-contained server medium" <<<"$out" && ! grep -q "Traceback" <<<"$out" \
+    && ok "collect: a self-contained server receipt passes" || bad "collect self-contained case rc=$rc: $out"
+out="$(sc_case '["sqtools"]')"; rc=$?
+[ "$rc" != 0 ] && grep -q "does not stage base.squashfs" <<<"$out" \
+    && ok "collect: a self-contained receipt without base.squashfs fails" || bad "collect accepted a self-contained medium with no base layer: $out"
 # the gates are server-aware, and every other container run is unchanged
 grep -q 'ncz-pool-$ARCH.tar.gz' <<<"$(fn stage_secret_scan)" && grep -q '"${#pay\[@\]}" != 6' <<<"$(fn stage_secret_scan)" \
     && ok "secret scan: the pool payload is scanned and required" || bad "secret scan does not require the pool payload"
