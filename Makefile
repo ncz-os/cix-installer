@@ -134,7 +134,13 @@ ASSETS        := $(ROOT)/assets
 PRESEED       := $(ROOT)/preseed
 POST          := $(ROOT)/post-install
 
-MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))
+# The artifact name has to identify the MEDIUM, not only the build mode. A full
+# server medium and a full desktop medium are both MODE=full, so they used to
+# share `ncz-os-<arch>-<date>-<sha>.img` and the second build silently overwrote
+# the first (2026-10-29: a 7.2 GB desktop image replaced the 555 MB self-
+# contained server medium, which then failed its own gate on the wrong file).
+NCZ_VARIANT   ?= desktop
+MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))-$(NCZ_VARIANT)
 BUILD_DATE    := $(shell date -u +%Y%m%d)
 # BUILD_SHA used to silently fall back to empty when git rev-parse failed
 # (dubious-ownership inside the rootful imagebuild container, missing git,

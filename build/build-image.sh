@@ -1561,8 +1561,16 @@ def sha(p):
 bad = []
 if r.get("variant") != "server":
     bad.append(f"receipt variant is {r.get('variant')!r}, not 'server'")
-of = (r.get("ncz_payload") or {}).get("online_fetch") or {}
-if not of:
+pl = r.get("ncz_payload") or {}
+of = pl.get("online_fetch") or {}
+if pl.get("server_payload") == "medium":
+    # Self-contained server medium (NCZ_SERVER_PAYLOAD=medium): the payload is ON
+    # the medium, so there are no URL pins to check. What must hold instead is
+    # that the root filesystem really went onto the medium -- the whole point of
+    # the mode, and the thing its absence would silently break.
+    if "base.squashfs" not in (pl.get("staged_files") or []):
+        bad.append("self-contained server medium does not stage base.squashfs")
+elif not of:
     bad.append("receipt has no ncz_payload.online_fetch pins")
 else:
     if of.get("payload_url") != purl:
@@ -1615,7 +1623,7 @@ stage_image() {
     # kvm-gate and needs the path, so it can no longer be written by the KVM gate.
     local img="${IMAGE_ARG:-}"
     if [ -z "$img" ]; then
-        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA".img 2>/dev/null | tail -1)"
+        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA"*.img 2>/dev/null | tail -1)"
     fi
     if [ -z "$img" ] || [ ! -f "$img" ]; then
         echo "[image] FAIL: no image found for $ARCH $GIT_SHA" | tee -a "$log" >&2
@@ -1659,7 +1667,7 @@ stage_secret_scan() {
     local img; img="$(cat "$RUN_DIR/image.path" 2>/dev/null || true)"
     [ -n "$img" ] || img="${IMAGE_ARG:-}"
     if [ -z "$img" ]; then
-        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA".img 2>/dev/null | tail -1)"
+        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA"*.img 2>/dev/null | tail -1)"
     fi
     [ -n "$img" ] && [ -f "$img" ] || { echo "[secret-scan] FAIL: no image found for $ARCH $GIT_SHA" | tee -a "$log" >&2; return 1; }
     local hashf
@@ -1760,7 +1768,7 @@ stage_kvm_gate() {
     local img; img="$(cat "$RUN_DIR/image.path" 2>/dev/null || true)"
     [ -n "$img" ] || img="${IMAGE_ARG:-}"
     if [ -z "$img" ]; then
-        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA".img 2>/dev/null | tail -1)"
+        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA"*.img 2>/dev/null | tail -1)"
     fi
     [ -n "$img" ] && [ -f "$img" ] || { echo "[kvm-gate] FAIL: no image found for $ARCH $GIT_SHA (pass --image)" | tee -a "$log" >&2; return 1; }
     local pyvenv="/root/ncz-pyte-venv"
