@@ -74,6 +74,59 @@ def apply(plan, palette, duration):
     return opts
 
 
+def _load_state(n_plans):
+    """State is {deck:[idx...], pal:[idx...], last:id}. A legacy bare integer
+    (the old modular stepper) is upgraded in place so an installed host keeps
+    working after the update."""
+    if not STATE.exists():
+        return {"deck": [], "pal": [], "last": None}
+    raw = STATE.read_text().strip()
+    if raw.isdigit():
+        return {"deck": [], "pal": [], "last": None, "legacy": int(raw)}
+    try:
+        d = json.loads(raw)
+        if isinstance(d, dict) and "deck" in d:
+            return d
+    except (ValueError, TypeError):
+        pass
+    return {"deck": [], "pal": [], "last": None}
+
+
+def _save_state(st):
+    st.pop("legacy", None)
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(st))
+
+
+def _shuffled(n, rng):
+    d = list(range(n))
+    rng.shuffle(d)
+    return d
+
+
+def _deal(plans, st):
+    """Deal the next (plan, palette). Refills are shuffled; a refill never
+    starts with the plan that was just shown, so a deck boundary cannot produce
+    the same encounter twice in a row."""
+    import random
+    seed = os.environ.get("NCZ_BH_DECK_SEED")
+    rng = random.Random(int(seed)) if seed else random.Random()
+    n = len(plans)
+    if not st.get("deck"):
+        st["deck"] = _shuffled(n, rng)
+        if st.get("last") and plans[st["deck"][0]]["id"] == st["last"] and n > 1:
+            # move the repeat off the front rather than redraw: a redraw can
+            # loop on a two-element deck
+            st["deck"][0], st["deck"][n // 2] = st["deck"][n // 2], st["deck"][0]
+    if not st.get("pal"):
+        st["pal"] = _shuffled(len(PALETTES), rng)
+    idx = st["deck"].pop(0)
+    pidx = st["pal"].pop(0) % len(PALETTES)
+    p = plans[idx]
+    st["last"] = p["id"]
+    return p, PALETTES[pidx], st
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--next", action="store_true", help="advance to the next plan")
@@ -82,21 +135,27 @@ def main():
     ap.add_argument("--show", action="store_true", help="print the current plan, do not change anything")
     a = ap.parse_args()
     plans = json.load(open(_plans_path()))["plans"]
-    idx = int(STATE.read_text().strip()) if STATE.exists() and STATE.read_text().strip().isdigit() else -1
+    # Deck dealing, not modular stepping (review, 2026-10-29): stepping through
+    # the table in order repeats the same plan-to-palette pairing every cycle and
+    # can deal two visually similar encounters back to back. A shuffled deck
+    # deals every plan once before any plan repeats, and the palette deck does
+    # the same, so one pass covers all ten plans in ten different palettes.
+    st = _load_state(len(plans))
     if a.show:
-        p = plans[idx % len(plans)] if idx >= 0 else None
+        p = next((x for x in plans if x["id"] == st.get("last")), None)
         print(p["id"] if p else "none")
         return 0
     if a.id:
         p = next((x for x in plans if x["id"] == a.id), None)
         if not p:
             print("unknown plan", a.id, file=sys.stderr); return 2
+        pal = PALETTES[plans.index(p) % len(PALETTES)]
+        st["last"] = p["id"]
+        _save_state(st)
     else:
-        idx = idx + 1 if a.next else idx
-        p = plans[idx % len(plans)]
-    STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(str(plans.index(p)))
-    opts = apply(p, PALETTES[plans.index(p) % len(PALETTES)], a.duration)
+        p, pal, st = _deal(plans, st)
+        _save_state(st)
+    opts = apply(p, pal, a.duration)
     print(f"{p['id']:22} flyby={p['flyby']:<11} d={p['distance_min']}-{p['distance_max']} "
           f"inc={p['inclination']} speed={p['speed']}  ({len(plans)} plans in rotation)")
     return 0

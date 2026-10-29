@@ -140,17 +140,47 @@ def show_card(d, seconds, phosphor):
     import gi
     gi.require_version("Gtk", "4.0")
     from gi.repository import Gtk, GLib
+    # The saver is a wlr-layer-shell surface on the OVERLAY layer, so an ordinary
+    # toplevel window can never appear above it -- measured on O6N 2026-10-29: the
+    # card fired (journal "card for seed="), drew, and was invisible. Put the card
+    # on the same layer as the saver, created after it, with no keyboard mode and
+    # no exclusive zone, and fall back to a plain window where layer-shell is not
+    # available (gir1.2-gtk4layershell-1.0 is not installed everywhere yet).
+    LS = None
+    try:
+        gi.require_version("Gtk4LayerShell", "1.0")
+        from gi.repository import Gtk4LayerShell
+        LS = Gtk4LayerShell
+    except Exception:
+        LS = None
     font = next((f for f in FONT_CANDIDATES if os.path.exists(f)), None)
     win = Gtk.Window(); win.set_decorated(False)
+    if LS is not None:
+        try:
+            LS.init_for_window(win)
+            LS.set_layer(win, LS.Layer.OVERLAY)
+            for edge in (LS.Edge.TOP, LS.Edge.BOTTOM, LS.Edge.LEFT, LS.Edge.RIGHT):
+                LS.set_anchor(win, edge, True)
+            LS.set_keyboard_mode(win, LS.KeyboardMode.NONE)
+            LS.set_exclusive_zone(win, -1)     # covers the saver, reserves nothing
+            LS.set_namespace(win, "ncz-bh-card")
+        except Exception as exc:               # noqa: BLE001 - never lose the card
+            print(f"ncz-bh-card: layer-shell setup failed ({exc}); plain window",
+                  file=sys.stderr)
+            LS = None
     # The card is a slate, not an app: it must never take activation, or the
     # compositor hides the saver's surface and the supervisor exits (measured on
     # CHIMERA 2026-10-29: after the first card the saver was gone for good).
     try: win.set_focusable(False)
     except Exception: pass
-    win.fullscreen()
+    if LS is None:
+        win.fullscreen()
     da = Gtk.DrawingArea(); da.set_draw_func(
         lambda _a, cr, w, h, d=d: draw(cr, w, h, d, phosphor, font))
-    win.set_child(da); win.present()
+    win.set_child(da)
+    if LS is None:
+        win.fullscreen()      # the plain-window fallback still wants the screen
+    win.present()
     state = {"t": 0.0}
     def tick():
         state["t"] += 0.1
