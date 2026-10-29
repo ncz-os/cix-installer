@@ -1073,7 +1073,18 @@ void traceMulti(vec3 cam,vec3 ray,float drama,inout vec3 color,inout float trans
    mr=min(mr,r-rs*.8);
   }
   if(cap)break;
-  float dt=clamp(.09*mr,.015,2.5);
+  /* High-order photon rings: a ray that skims the photon sphere (r/rs ~ 1.5)
+   * winds several times and returns images of the disk nested inside one another.
+   * A step that is comfortable at r=10 jumps clean over whole rings there, so
+   * shrink it near the photon sphere and let it recover outside. */
+  float pr=1e9;
+  for(int k=0;k<3;k++){
+   float rs=u_holes[k].w;
+   if(rs<=0.)continue;
+   vec3 q=x-u_holes[k].xyz;
+   pr=min(pr,abs(sqrt(dot(q,q))/rs-1.5));
+  }
+  float dt=clamp(.09*mr,.015,2.5)*mix(.38,1.,smoothstep(0.,.9,pr));
   vec3 xo=x;
   if(u_flow>.5){
    for(int k=0;k<3;k++){
@@ -1781,7 +1792,14 @@ void main(){
  // Capture-quality mode averages supersamples in linear radiance and applies
  // the identical display transform (below) in C: output the radiance here.
  if(u_dither<-.5){fragColor=vec4(max(color,0.)*u_fade,1.);return;}
- if(u_tonemap>.5){
+ if(u_tonemap>1.5){
+  // ACES (Narkowicz fit). A film-like shoulder: the photon ring and the beamed
+  // approach keep their colour instead of clipping to a flat white cap, which is
+  // what the per-channel Reinhard curve does to the brightest pixels.
+  const float AA=2.51,AB=0.03,AC=2.43,AD=0.59,AE=0.14;
+  vec3 x=max(color,0.);
+  color=clamp((x*(AA*x+AB))/(x*(AC*x+AD)+AE),0.,1.);
+ }else if(u_tonemap>.5){
   color=color/(1.+color);
  }else{
   // Hue-preserving: compress luminance, scale all channels alike, keep the

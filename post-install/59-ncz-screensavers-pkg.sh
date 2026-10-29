@@ -143,6 +143,37 @@ ss_installed "$PKG" || { echo "[59-ncz-screensavers] FATAL: $PKG is not in the i
 INSTALLED_VER="$(dpkg-query -W -f='${Version}' "$PKG" 2>/dev/null)"
 echo "[59-ncz-screensavers] installed $PKG $INSTALLED_VER"
 
+# --- upgrade to the staged build, if the medium carries one ------------------
+# The pinned pool still ships 0.8.18, which cannot re-draw the black hole's
+# viewing geometry and whose feed renderer ignores the height cap (O6N drew
+# 4388x2468 at ~175 ms a frame). Both fixes live in the package, in the 74 hack
+# binaries and in the feed path, so installing only the engine binary would leave
+# the other savers -- and the lock-screen path -- on the old behaviour. The deb is
+# staged on the medium by 58-screensaver-shader.sh's asset set.
+ARCH="$(dpkg --print-architecture 2>/dev/null)"
+STAGED=""
+for c in /usr/local/lib/cix-installer/assets/screensaver "$ARCH" \
+         /cdrom/ncz-payload/assets/screensaver/"$ARCH" \
+         /run/ncz-payload/assets/screensaver/"$ARCH"; do
+    case "$c" in
+        */"$ARCH") deb="$(ls "$c"/ncz-screensavers_*.deb 2>/dev/null | sort -V | tail -1)";;
+        *)         deb="$(ls "$c/$ARCH"/ncz-screensavers_*.deb 2>/dev/null | sort -V | tail -1)";;
+    esac
+    [ -n "$deb" ] && { STAGED="$deb"; break; }
+done
+if [ -n "$STAGED" ]; then
+    if DEBIAN_FRONTEND=noninteractive dpkg -i "$STAGED" >/tmp/ncz-ss-upgrade.log 2>&1; then
+        echo "[59-ncz-screensavers] upgraded to $(dpkg-query -W -f='${Version}' "$PKG") from $(basename "$STAGED")"
+        command -v glib-compile-schemas >/dev/null 2>&1 && \
+            glib-compile-schemas /usr/share/glib-2.0/schemas >/dev/null 2>&1
+    else
+        echo "[59-ncz-screensavers] WARN: staged upgrade failed; keeping $INSTALLED_VER" >&2
+        tail -3 /tmp/ncz-ss-upgrade.log >&2
+    fi
+else
+    echo "[59-ncz-screensavers] no staged build on the medium; pool version stands"
+fi
+
 # Engine binary + idle daemon + shipped catalogue + schema (live proof -- the
 # post-install verify-installed-target.sh re-asserts the same against the
 # finished squashfs, this catches "apt exited 0 but unpack failed" early).

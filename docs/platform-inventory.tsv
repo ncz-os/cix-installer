@@ -705,3 +705,5 @@ assets/screensaver/VT323-OFL.txt	common	-	SIL Open Font License text for VT323
 assets/screensaver/amd64/blackhole_gles3	common	-	0.8.19 x86-64 engine (per-cycle geometry re-draw, plan-jitter)
 assets/screensaver/arm64/blackhole_gles3	common	-	0.8.19 aarch64 engine (per-cycle geometry re-draw, plan-jitter)
 assets/screensaver/dev.ncz.screensaver.gschema.xml	common	-	0.8.19 schema (declares plan-jitter), compiled after install
+assets/screensaver/amd64/ncz-screensavers_0.8.19_amd64.deb	common	-	0.8.19 package for amd64: ACES tone map, photon-ring steps, feed height cap (installed by 59)
+assets/screensaver/arm64/ncz-screensavers_0.8.19_arm64.deb	common	-	0.8.19 package for arm64: ACES tone map, photon-ring steps, feed height cap (installed by 59)
