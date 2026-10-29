@@ -987,6 +987,10 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         #   [54] CUDA: failed:keyring-not-staged
         # It was never in this list, so no medium has ever carried it.
         "nvidia",
+        # the current black-hole shader + probe tooling, installed by
+        # post-install/58-screensaver-shader.sh (only the shader is a visual fix
+        # that cannot come from the package: 0.8.18 is unchanged, the .frag is not)
+        "screensaver",
         # assets/lite/ is the amd64 weak-GPU profile (ncz-profile CLI, labwc
         # and themerc fragments, schema key, first-login unit) that
         # post-install/66-ncz-lite-profile.sh installs. The lite-profile merge

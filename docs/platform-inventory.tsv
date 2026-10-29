@@ -695,3 +695,10 @@ evidence/review-cerberus-reviewer-r2.json	common	-	ui-state floor: second review
 evidence/review-cerberus-reviewer-r3.json	common	-	ui-state floor: third review verdict (approve)
 build/iso/ncz_ssdt.py	common	-	NPU ACPI SSDT stager: compiles the MS-R1 table from the committed .asl, stages .aml + early CPIO, hard-fails when it cannot (called by write-usb-image.py)
 build/test-no-lan-urls.sh	common	-	HARD RULE: no image carries a LAN URL (writer refusal + shipped-surface scan)
+post-install/58-screensaver-shader.sh	common	-	installs the current black-hole shader + probe tooling (card, flight plans, VT323) over the package
+assets/screensaver/blackhole.frag	common	-	current black-hole shader (installed over the 0.8.18 package by 58-screensaver-shader)
+assets/screensaver/ncz-bh-card	common	-	probe-telemetry intro card overlay (GTK4 slate, watches the supervisor log)
+assets/screensaver/ncz-bh-flightplan-rotate	common	-	applies a real probe encounter from flight-plans.json and advances the set
+assets/screensaver/flight-plans.json	common	-	ten real deep-space encounters mapped onto the camera options
+assets/screensaver/VT323-Regular.ttf	common	-	card typeface, SIL OFL 1.1 (DEC VT320 face; MU/TH/UR lookalike lineage)
+assets/screensaver/VT323-OFL.txt	common	-	SIL Open Font License text for VT323

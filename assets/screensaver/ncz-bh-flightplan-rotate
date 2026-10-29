@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""ncz-bh-flightplan-rotate -- fly a REAL deep-space encounter, and rotate them.
+
+The engine's own paths are invented circles and slingshots. The probe flight
+plans in flight-plans.json are actual encounter geometry (Voyager 1/2 at
+Jupiter/Saturn/Uranus/Neptune, New Horizons at Pluto, Cassini SOI, Juno
+perijove, Parker perihelion) mapped onto the camera options the engine exposes:
+flyby type, closest/farthest distance, inclination and speed.
+
+This writes one plan into the saver's options, so the next launch (every
+`duration` seconds) flies it. With --next it advances to the following plan and
+records the position, so a timer steps through the whole set: every five-minute
+re-roll becomes a different real encounter.
+"""
+import argparse, json, os, pathlib, subprocess, sys
+
+HERE = pathlib.Path(__file__).resolve().parent
+# The plan table lives next to the script in the repo, but on an installed host
+# it ships under ~/.local/share/ncz (or /usr/share/ncz-screensavers). Search all
+# of them: the first cut looked only beside the script, so on a host without the
+# symlink every rotation silently did nothing.
+def _plans_path():
+    for c in (pathlib.Path(os.environ.get("NCZ_BH_PLANS", "")),
+              HERE / "flight-plans.json",
+              pathlib.Path(os.path.expanduser("~/.local/share/ncz/flight-plans.json")),
+              pathlib.Path("/usr/share/ncz-screensavers/flight-plans.json")):
+        if c and pathlib.Path(c).is_file():
+            return pathlib.Path(c)
+    raise SystemExit("ncz-bh-flightplan-rotate: flight-plans.json not found "
+                     "(set NCZ_BH_PLANS or install it in ~/.local/share/ncz/)")
+
+
+PLANS = None  # resolved in main()
+STATE = pathlib.Path(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))) / "ncz-bh-plan"
+SCHEMA = "dev.ncz.screensaver"
+PALETTES = ["kipthorne", "faithful", "eht", "stylized", "slingshot", "whitehole",
+            "synthwave", "singularity", "psychedelic", "cygnus"]
+
+
+def gsettings_env():
+    e = dict(os.environ)
+    e.setdefault("GSETTINGS_SCHEMA_DIR", "/opt/singularity/share/glib-2.0/schemas")
+    e.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    return e
+
+
+def current_options():
+    try:
+        out = subprocess.run(["gsettings", "get", SCHEMA, "hack-options"],
+                             capture_output=True, text=True, timeout=10,
+                             env=gsettings_env()).stdout
+        for line in out.splitlines():
+            if line.startswith("{'blackhole_gles3'"):
+                return line.strip()
+    except Exception:
+        pass
+    return "{'blackhole_gles3': {'randomize': 'look', 'duration': '300'}}"
+
+
+def apply(plan, palette, duration):
+    opts = {
+        "randomize": "look", "duration": str(duration),
+        "flyby": plan["flyby"],
+        "distance-min": str(plan["distance_min"]),
+        "distance-max": str(plan["distance_max"]),
+        "inclination": str(plan["inclination"]),
+        "speed": str(plan["speed"]),
+        "palette": palette,
+    }
+    body = ", ".join(f"'{k}': '{v}'" for k, v in opts.items())
+    subprocess.run(["gsettings", "set", SCHEMA, "hack-options",
+                    "{'blackhole_gles3': {" + body + "}}"],
+                   capture_output=True, timeout=10, env=gsettings_env())
+    return opts
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--next", action="store_true", help="advance to the next plan")
+    ap.add_argument("--id", default=None, help="apply one plan by id")
+    ap.add_argument("--duration", default="300")
+    ap.add_argument("--show", action="store_true", help="print the current plan, do not change anything")
+    a = ap.parse_args()
+    plans = json.load(open(_plans_path()))["plans"]
+    idx = int(STATE.read_text().strip()) if STATE.exists() and STATE.read_text().strip().isdigit() else -1
+    if a.show:
+        p = plans[idx % len(plans)] if idx >= 0 else None
+        print(p["id"] if p else "none")
+        return 0
+    if a.id:
+        p = next((x for x in plans if x["id"] == a.id), None)
+        if not p:
+            print("unknown plan", a.id, file=sys.stderr); return 2
+    else:
+        idx = idx + 1 if a.next else idx
+        p = plans[idx % len(plans)]
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(str(plans.index(p)))
+    opts = apply(p, PALETTES[plans.index(p) % len(PALETTES)], a.duration)
+    print(f"{p['id']:22} flyby={p['flyby']:<11} d={p['distance_min']}-{p['distance_max']} "
+          f"inc={p['inclination']} speed={p['speed']}  ({len(plans)} plans in rotation)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

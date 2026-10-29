@@ -51,6 +51,7 @@
 56-icon-theme.sh
 57-qotd.sh
 58-boot-hygiene.sh
+58-screensaver-shader.sh
 59-desktop-curate.sh
 59-ncz-screensavers-pkg.sh
 60-boot-splash.sh

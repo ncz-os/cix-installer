@@ -355,8 +355,8 @@ base_stamp_in_layer() {   # layer -> stamp or empty
 }
 
 case "$NCZ_TARGET_ARCH" in
-  amd64) BASE_HOOKS="10-amd64-kernel 19-sinty-nm" ;;
-  *)     BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 19-sinty-nm" ;;
+  amd64) BASE_HOOKS="10-amd64-kernel 19-sinty-nm 58-screensaver-shader" ;;
+  *)     BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 19-sinty-nm 58-screensaver-shader" ;;
 esac
 case "$NCZ_TARGET_ARCH" in
   amd64) BASE_MANIFEST="${BASE_MANIFEST:-manifests/installer-base-amd64.pkgs}"

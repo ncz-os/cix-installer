@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""ncz-bh-card -- show the "probe telemetry" intro card at every scene start.
+
+HOW IT KNOWS WHAT TO PRINT
+The saver's supervisor already writes the engine's diagnostics to
+$XDG_RUNTIME_DIR/ncz-screensaver/hack.log, including, on every launch and every
+re-roll:
+
+    [diag] blackhole seed=42 radius=1.043 ... periapsis=5.787 ... palette=0 ...
+    [diag] blackhole scene=single quality=rich flyby=4
+
+So this watches that file and shows the card each time a new launch appears --
+no supervisor change, no guessing the seed. Every value on the card is one the
+engine actually resolved; the normalised art knobs (radius/temp/density) are
+deliberately NOT shown, because they are not kelvin or solar masses.
+
+DISPLAY
+A plain fullscreen black GTK4 window for a few seconds. The card is a slate, not
+an overlay: it is meant to replace the picture briefly and then get out of the
+way, which is also why it needs no layer-shell (unavailable here: no
+Gtk4LayerShell namespace, no libgtk4-layer-shell).
+
+usage: ncz-bh-card [--seconds 6] [--phosphor amber|green] [--check]
+"""
+import argparse, os, pathlib, re, subprocess, sys, time
+
+FLYBYS = {0: "auto", 1: "orbit", 2: "slow-orbit", 3: "equatorial", 4: "polar",
+          5: "plunge", 6: "slingshot", 7: "drift", 8: "random", 9: "director",
+          10: "legacy"}
+PALETTES = ["stylized", "kipthorne", "faithful", "singularity", "slingshot",
+            "whitehole", "eht", "psychedelic", "synthwave", "cygnus"]
+AMBER, GREEN = (1.0, 0.69, 0.25), (0.47, 1.0, 0.59)
+FONT_CANDIDATES = [
+    os.path.expanduser("~/.local/share/fonts/VT323-Regular.ttf"),
+    "/usr/share/ncz-screensavers/fonts/VT323-Regular.ttf",
+    "/usr/share/fonts/truetype/vt323/VT323-Regular.ttf",
+]
+
+LAUNCH_RE = re.compile(r"\[diag\] blackhole seed=(\d+) radius=")
+# Fields are extracted individually, NOT as one ordered pattern: the engine
+# prints palette= BEFORE periapsis=, so an ordered regex silently drops fields
+# (first cut of this file showed a card with every value as "-").
+FIELD_RES = {
+    "periapsis":   re.compile(r"periapsis=([-\d.]+)"),
+    "inclination": re.compile(r"inclination=([-\d.]+)"),
+    "flyby":       re.compile(r"flyby=(\d+)"),
+    "palette":     re.compile(r"palette=(\d+)"),
+}
+SCENE_RE = re.compile(r"\[diag\] blackhole scene=(\S+) quality=\S+ cycle=\S+ flyby=(\d+)")
+
+
+def log_paths():
+    run = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    return [pathlib.Path(run) / "ncz-screensaver" / "hack.log"]
+
+
+def parse_block(text):
+    """Return the newest launch's fields, or None."""
+    lines = text.splitlines()
+    for i in range(len(lines) - 1, -1, -1):
+        m = LAUNCH_RE.search(lines[i])
+        if not m:
+            continue
+        seed = int(m.group(1))
+        out = {"seed": seed}
+        for j in range(i, min(i + 6, len(lines))):
+            for key, rx in FIELD_RES.items():
+                m2 = rx.search(lines[j])
+                if m2 and key not in out:
+                    out[key] = float(m2.group(1))
+        if "inclination" in out:
+            out["inclination"] *= 90.0          # normalised (-1..1) -> degrees
+        for k in ("flyby", "palette"):
+            if k in out:
+                out[k] = int(out[k])
+        return out
+    return None
+
+
+def newest_block():
+    for p in log_paths():
+        try:
+            with open(p, "rb") as fh:
+                fh.seek(0, os.SEEK_END)
+                size = fh.tell()
+                fh.seek(max(0, size - 40000))
+                return parse_block(fh.read().decode("utf-8", "replace"))
+        except OSError:
+            continue
+    return None
+
+
+def draw(cr, w, h, d, phosphor, font_path):
+    import cairo
+    cr.set_source_rgb(0.012, 0.012, 0.016)
+    cr.paint()
+    def face(sz):
+        if font_path:
+            return cairo.ToyFontFace(font_path, cairo.FONT_SLANT_NORMAL,
+                                     cairo.FONT_WEIGHT_NORMAL), sz
+        return cairo.ToyFontFace("monospace"), sz
+    x0, y = w * 0.085, h * 0.20
+    def text(s, sz, rgb, x, yy, track=0.0):
+        f, s2 = face(sz)
+        cr.set_font_face(f); cr.set_font_size(s2)
+        cr.set_source_rgb(*rgb)
+        if track <= 0:
+            cr.move_to(x, yy); cr.show_text(s); return
+        for ch in s:
+            cr.move_to(x, yy); cr.show_text(ch)
+            x += cr.text_extents(ch).x_advance + track * s2
+    dim = tuple(c * 0.62 for c in phosphor); faint = tuple(c * 0.45 for c in phosphor)
+    text("PROBE TELEMETRY", h * 0.030, dim, x0, y, 0.06)
+    title = "ENCOUNTER SEQUENCE"
+    ts = h * 0.078
+    while ts > h * 0.03:
+        cr.set_font_face(face(ts)[0]); cr.set_font_size(ts)
+        if sum(cr.text_extents(c).x_advance + 0.06 * ts for c in title) <= w * 0.80:
+            break
+        ts *= 0.94
+    text(title, ts, phosphor, x0, y + h * 0.070, 0.06)
+    ly = y + h * 0.070 + ts * 1.20
+    cr.set_source_rgb(*dim); cr.set_line_width(2)
+    cr.move_to(x0, ly); cr.line_to(x0 + w * 0.62, ly); cr.stroke()
+    rows = [("PERIAPSIS", f"{d['periapsis']:.2f}  R_s" if 'periapsis' in d else "-"),
+            ("INCLINATION", f"{d['inclination']:.0f} DEG" if 'inclination' in d else "-"),
+            ("FLYBY", FLYBYS.get(d.get("flyby"), "-")),
+            ("PALETTE", PALETTES[d["palette"] % len(PALETTES)] if 'palette' in d else "-"),
+            ("SEED", f"0x{d['seed']:x}"),
+            ("RE-ROLL", "5:00")]
+    yy = ly + h * 0.030
+    for k, v in rows:
+        text(k, h * 0.032, dim, x0, yy, 0.05)
+        text(v, h * 0.032, phosphor, x0 + w * 0.28, yy, 0.05)
+        yy += h * 0.052
+    text(f"REPRODUCE WITH NCZ_BLACKHOLE_SEED={d['seed']}", h * 0.022, faint, x0, h - h * 0.070, 0.05)
+
+
+def show_card(d, seconds, phosphor):
+    import gi
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk, GLib
+    font = next((f for f in FONT_CANDIDATES if os.path.exists(f)), None)
+    win = Gtk.Window(); win.set_decorated(False)
+    # The card is a slate, not an app: it must never take activation, or the
+    # compositor hides the saver's surface and the supervisor exits (measured on
+    # CHIMERA 2026-10-29: after the first card the saver was gone for good).
+    try: win.set_focusable(False)
+    except Exception: pass
+    win.fullscreen()
+    da = Gtk.DrawingArea(); da.set_draw_func(
+        lambda _a, cr, w, h, d=d: draw(cr, w, h, d, phosphor, font))
+    win.set_child(da); win.present()
+    state = {"t": 0.0}
+    def tick():
+        state["t"] += 0.1
+        # fade in over 0.6 s, out over the last 0.8 s
+        t = state["t"]
+        a = min(1.0, t / 0.6) if t < seconds - 0.8 else max(0.0, (seconds - t) / 0.8)
+        try: win.set_opacity(a)
+        except Exception: pass
+        if t >= seconds:
+            app.quit(); return False
+        return True
+    GLib.timeout_add(100, tick)
+    app = Gtk.Application(application_id="dev.ncz.BhCard")
+    app.connect("activate", lambda a: None)
+    app.run([])
+
+
+def saver_running():
+    try:
+        out = subprocess.run(["ncz-screensaver", "status"], capture_output=True,
+                             text=True, timeout=10).stdout
+        return "running" in out.splitlines()[0] if out else False
+    except Exception:
+        return False
+
+
+def restore_saver():
+    """Bring the saver back after the slate closes (idempotent, best effort)."""
+    for attempt in range(3):
+        if saver_running():
+            return attempt > 0
+        try:
+            subprocess.run(["ncz-screensaver", "start"], capture_output=True,
+                           timeout=20)
+        except Exception:
+            pass
+        time.sleep(1.5)
+    return saver_running()
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--seconds", type=float, default=6.0)
+    ap.add_argument("--phosphor", choices=["amber", "green"], default="amber")
+    ap.add_argument("--check", action="store_true", help="print what would be shown, then exit")
+    ap.add_argument("--watch", action="store_true", help="watch launches and show the card")
+    a = ap.parse_args()
+    d = newest_block() or {"seed": 0}
+    if a.check:
+        print(d); return 0
+    if not a.watch:
+        show_card(d, a.seconds, AMBER if a.phosphor == "amber" else GREEN); return 0
+    last = None
+    print(f"ncz-bh-card: watching {log_paths()[0]}", flush=True)
+    while True:
+        d = newest_block()
+        if d and d.get("seed") != last:
+            last = d.get("seed")
+            print(f"ncz-bh-card: card for seed=0x{last:x}", flush=True)
+            try:
+                show_card(d, a.seconds, AMBER if a.phosphor == "amber" else GREEN)
+            except Exception as exc:
+                print("card failed:", exc, flush=True)
+            # The slate temporarily owns the screen; when it closes, the saver
+            # has to be re-started or the desktop is left bare. This is the
+            # second half of the same defect: card shown, saver never returned.
+            if restore_saver():
+                print("ncz-bh-card: saver re-started after the card", flush=True)
+        time.sleep(0.75)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
