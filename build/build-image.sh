@@ -1292,6 +1292,10 @@ stage_static_gates() {
     # here, before the layers stage).
     [ "$ARCH" = arm64 ] && suites+=("$(_sg_suite "$ROOT/build/test-npu-ssdt-delivery.sh")")
     [ "$ARCH" = arm64 ] && suites+=("$(_sg_suite "$ROOT/build/npu-ssdt-gate.sh") --regen")
+    # HARD RULE (operator, 2026-10-29): no image may carry a LAN URL. Cheap,
+    # and it fails the build rather than shipping a medium that only installs
+    # inside the build rack.
+    suites+=("$(_sg_suite "$ROOT/build/test-no-lan-urls.sh")")
     suites+=("$(_sg_suite "$ROOT/build/test-greeter-console-fallback.sh")")
 
     local s

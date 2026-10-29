@@ -146,6 +146,58 @@ def repro_uuid(kind: str) -> str | None:
 # `expected` list never picked up desktop-hotfix.squashfs / its manifest /
 # busybox-$ARCH even after stage-ncz-payload.py started producing them
 # the same session. Fixed here; the file list is arch-suffix-aware for busybox.
+def _server_payload_mode() -> str:
+    """How a server medium obtains its payload: 'online' (default) or 'medium'.
+
+    'online' is Magnetar option B: the medium carries a pinned manifest of
+    URLs and the installer fetches base.squashfs, the asset bundle and the apt
+    pool at install time. 'medium' is self-contained: the payload rides on the
+    medium exactly as a desktop medium carries it and NO URL is baked
+    anywhere -- the only shape that installs on a machine with no reachable
+    HTTP host.
+    """
+    mode = os.environ.get("NCZ_SERVER_PAYLOAD", "online").strip().lower()
+    if mode not in ("online", "medium"):
+        raise SystemExit(
+            f"NCZ_SERVER_PAYLOAD must be online or medium, got {mode!r}")
+    return mode
+
+
+_LAN_HOST_PATTERNS = (
+    re.compile(r"^10\."),
+    re.compile(r"^192\.168\."),
+    re.compile(r"^172\.(1[6-9]|2[0-9]|3[01])\."),
+    re.compile(r"^127\."),
+    re.compile(r"^169\.254\."),
+    re.compile(r"^localhost$", re.I),
+    re.compile(r"\.local$", re.I),
+)
+
+
+def _refuse_lan_url(url: str, what: str) -> None:
+    """HARD RULE (operator, 2026-10-29): never bake a LAN URL into an image.
+
+    A medium pinned to http://10.0.2.2 (the KVM gate's host alias) or to a
+    build host's LAN address installs nowhere but the build rack. The first
+    real server install (TYPHON, 2026-10-29) died in the debootstrap stub with
+    '[FETCH] base.squashfs attempt 1..9 failed (rc=4)' while that host was
+    serving the same file at 561 MB/s. Only a publicly resolvable host may be
+    pinned; anything else is a gate artifact (never shipped) or belongs in a
+    self-contained medium (NCZ_SERVER_PAYLOAD=medium).
+    """
+    host = ""
+    m = re.match(r"^[a-z]+://([^/:]+)", url, re.I)
+    if m:
+        host = m.group(1)
+    for pat in _LAN_HOST_PATTERNS:
+        if pat.search(host):
+            raise RuntimeError(
+                f"FATAL: refusing to pin {what} to a LAN/loopback host ({url}).\n"
+                f"  RULE: images never carry LAN URLs.\n"
+                f"  Pin a publicly resolvable host, or build the medium\n"
+                f"  self-contained with NCZ_SERVER_PAYLOAD=medium.")
+
+
 def _variant() -> str:
     """desktop (default) or server (Magnetar)."""
     v = os.environ.get("NCZ_VARIANT", "desktop").strip().lower()
@@ -282,6 +334,12 @@ def write_online_fetch_manifest(payload_dst: Path, plan: dict) -> None:
     assets/{rescue,firmware,kernel,branding}/ at exactly the paths the
     post-install hooks and late.sh expect.
     """
+    for _key, _what in (("payload_url", "base.squashfs"),
+                        ("assets_url", "the asset bundle"),
+                        ("pool_url", "the offline apt pool")):
+        _u = str(plan.get(_key, ""))
+        if _u:
+            _refuse_lan_url(_u, _what)
     helper = REPO_ROOT / "preseed" / "ncz-fetch-payload.sh"
     if not helper.is_file():
         raise RuntimeError(
@@ -728,7 +786,8 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # MAGNETAR(server): the base layer is fetched at install time; a payload
     # node that carries it is a desktop (or stale) node, and copying it would
     # ship the layer on the medium after all (2026-10-26). Fail closed.
-    if _variant() == "server" and (payload_dir / "base.squashfs").exists():
+    self_contained = _variant() == "server" and _server_payload_mode() == "medium"
+    if _variant() == "server" and not self_contained and (payload_dir / "base.squashfs").exists():
         raise RuntimeError(
             f"FATAL: server variant, but the payload dir {payload_dir} carries "
             f"base.squashfs -- a desktop or stale payload node; a server medium "
@@ -758,7 +817,7 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # before anything is extracted, so its absence here is the intended state,
     # not a broken payload dir. sqtools (the arch-matched static unsquashfs)
     # still has to be there: it is what unpacks the file we just downloaded.
-    for required in (("sqtools",) if _variant() == "server"
+    for required in (("sqtools",) if (_variant() == "server" and not self_contained)
                      else ("base.squashfs", "sqtools")):
         if required not in staged:
             raise RuntimeError(
@@ -1059,7 +1118,12 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # target before late.sh copies the payload tree, so every post-install hook
     # that reads $INSTALLER_META/assets/{rescue,firmware,kernel,branding} still
     # finds what it expects.
-    if _variant() == "server":
+    if _variant() == "server" and _server_payload_mode() == "medium":
+        # Self-contained server medium: base.squashfs, the asset tree and (in
+        # main) dists/ + pool/ stay on the medium. No manifest, no URL.
+        log("    server payload: SELF-CONTAINED on the medium (no URLs baked)")
+        receipt["server_payload"] = "medium"
+    elif _variant() == "server":
         if online_work_dir is None:
             raise RuntimeError(
                 "FATAL: NCZ_VARIANT=server needs an online work dir to build "
@@ -2152,7 +2216,13 @@ def main() -> int:
         log("[2/4] building ext4 data partition image")
         data_img = tmp / "data.img"
         substrate_receipt = None
-        if _variant() == "server":
+        if _variant() == "server" and _server_payload_mode() == "medium":
+            # Same on-medium closure a desktop medium carries: dists/ + pool/
+            # at the root, which 20-desktop.sh's /cdrom test and apt-setup's
+            # file:///cdrom source both read. No fetch, no URL.
+            log("[2/4] MAGNETAR self-contained: offline apt closure on the medium")
+            stage_offline_mirror(stage_dir, args.arch, args.installer_pool)
+        elif _variant() == "server":
             stage_server_installer_pool(stage_dir, args.arch, args.installer_pool)
             if slim_substrate_enabled():
                 log("[2/4] MAGNETAR: shedding the substrate udebs no server "

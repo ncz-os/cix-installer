@@ -479,7 +479,7 @@ ncz_install_nemoclaw() {
     systemctl start nemoclaw.service
 
     echo "[ncz] NemoClaw started."
-    echo "[ncz] OpenShell-gated inference endpoint: https://inference.local/v1"
+    echo "[ncz] OpenShell-gated inference endpoint: https://inference.local/v1"   # lan-url-ok: the target's own mDNS inference endpoint named by OpenShell, not a medium payload pin
     echo "[ncz] Service: systemctl status nemoclaw.service"
 }
 
