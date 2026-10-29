@@ -564,3 +564,41 @@ sha256 matches the pins, then install from the published URL.
   Artifacts on STUDIO under `ncz-preview4-artifacts/<arch>-server/`, marked
   "payload not yet published", with the pinned payload copies.
 
+## Self-contained media, and the no-LAN-URL rule (2026-10-29)
+
+**RULE (operator): an image never carries a LAN URL. Ever.**
+
+A medium pinned to `http://10.0.2.2` (the KVM gate's host alias) or to a build
+host's private address installs nowhere except the build rack. The first real
+server install proved it: TYPHON failed in the debootstrap stub with
+`[FETCH] base.squashfs attempt 1..9 failed (rc=4)` while the payload host was
+serving that exact file to that exact machine at 561 MB/s.
+
+Two supported shapes:
+
+| `NCZ_SERVER_PAYLOAD` | Medium carries | URLs baked | Use |
+|---|---|---|---|
+| `online` (default) | pinned manifest only | yes — **public hosts only** | release media served from a real CDN |
+| `medium` | `base.squashfs`, `assets/`, `dists/`, `pool/` | **none** | any machine with no reachable HTTP host |
+
+`medium` is the shape to use for hardware bring-up and for anything that is
+not published to a CDN. It is the same payload layout a desktop medium carries,
+so the installer takes the long-tested local path (no fetch, no network).
+
+Enforcement:
+
+* `build/iso/write-usb-image.py` — `_refuse_lan_url()` rejects RFC1918,
+  loopback, link-local, `localhost` and `*.local` hosts for every pinned
+  artifact; `write_online_fetch_manifest()` calls it per artifact.
+* `build/test-no-lan-urls.sh` — runs in the static-gates stage on both arches:
+  exercises the refusal, scans `preseed/`, `post-install/` and `assets/` for LAN
+  URLs (loopback client calls excluded; a documented mDNS endpoint needs an
+  explicit `lan-url-ok` marker), and asserts the self-contained path exists.
+
+Build a self-contained server medium:
+
+```bash
+NCZ_VARIANT=server NCZ_SERVER_PAYLOAD=medium \
+  bash build/build-image.sh --arch amd64 --full --sources pinned \
+    --substrate pinned --no-publish --run-dir <run>
+```
