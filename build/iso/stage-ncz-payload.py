@@ -291,7 +291,9 @@ def stage_payload(
     if variant not in ("desktop", "server"):
         raise SystemExit(f"NCZ_VARIANT must be desktop or server, got {variant!r}")
     base_layer = squashfs_dir / "base.squashfs"
-    if variant != "server" and not base_layer.is_file():
+    _self_contained = variant == "server" and \
+        os.environ.get("NCZ_SERVER_PAYLOAD", "online").strip().lower() == "medium"
+    if (variant != "server" or _self_contained) and not base_layer.is_file():
         raise RuntimeError(
             f"FATAL: required base layer missing: {base_layer}\n"
             f"  Build it with: NCZ_TARGET_ARCH={arch} "
@@ -300,7 +302,7 @@ def stage_payload(
             f"sudo -E bash build/build-squashfs-layers.sh base"
         )
     # No baked base layer on a server medium, so there is no root mode to assert.
-    if variant != "server":
+    if variant != "server" or _self_contained:
         assert_squashfs_root_mode(base_layer, "base")
 
     # --- 2. Validate desktop.squashfs + overlay-manifest (OPTIONAL) ------
@@ -431,6 +433,10 @@ def stage_payload(
         # a Magnetar build reused the cached desktop node and shipped the
         # 989 MB base layer on the server medium). Desktop keys are unchanged.
         **({"variant": "server"} if variant == "server" else {}),
+        # A self-contained server node DOES carry the base layer, so it must
+        # never share a cache key with the online node built from the same
+        # layers (the mirror image of the 2026-10-26 bug).
+        **({"server_payload": "medium"} if _self_contained else {}),
         "tool_versions": {
             "unsquashfs": tool_version("unsquashfs"),
             "mksquashfs": tool_version("mksquashfs"),
@@ -464,10 +470,19 @@ def stage_payload(
     receipts.mkdir()
 
     # --- 5. Copy base.squashfs ------------------------------------------
-    if variant == "server":
+    # A self-contained server medium (NCZ_SERVER_PAYLOAD=medium) carries the
+    # base layer exactly as a desktop medium does: no URLs, no fetch. Without
+    # this the writer's self-contained mode correctly refuses to build a medium
+    # that claims to be self-contained and has no rootfs (hit 2026-10-29).
+    _server_payload = os.environ.get("NCZ_SERVER_PAYLOAD", "online").strip().lower()
+    if variant == "server" and _server_payload != "medium":
         log("    server variant: NOT staging base.squashfs (fetched online at "
             "install time and sha256-verified by the debootstrap stub)")
     else:
+        if not base_layer.is_file():
+            raise RuntimeError(
+                f"FATAL: {base_layer} missing but this medium must carry the "
+                f"base layer (variant={variant}, NCZ_SERVER_PAYLOAD={_server_payload})")
         shutil.copy2(str(base_layer), str(build_dir / "base.squashfs"))
         log(f"    staged base.squashfs ({base_layer.stat().st_size} bytes)")
 
