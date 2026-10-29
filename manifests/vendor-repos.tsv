@@ -17,6 +17,7 @@ vendor	https	dl.google.com	/linux/chrome/deb/	stable	yes	Google LLC	Chrome legac
 vendor	https	repo.vivaldi.com	/archive/deb/	stable	yes	Vivaldi Technologies	neutralised to .disabled by 52-vivaldi.sh
 vendor	https	developer.download.nvidia.com	/compute/cuda/repos/debian12/x86_64/	/	yes	NVIDIA	CUDA repo written by the vendor keyring
 vendor	https	developer.download.nvidia.com	/compute/cuda/repos/debian13/x86_64/	/	yes	NVIDIA	CUDA repo written by the vendor keyring
+vendor	https	repo.radeon.com	/rocm/apt/7.2/	noble	yes	AMD	AMD ROCm userspace for a ROCm-capable GPU (lib/vendor-gpu-repos.sh); Ubuntu-suite label but only ROCm names, pinned 500 in 10-ncz-origin-separation.pref with every other package from the host at -1 -- no Debian-named package can win
 vendor	https	apt.repos.intel.com	/openvino	ubuntu24	yes	Intel	Intel OpenVINO runtime; suite token 'ubuntu24' is Intel's compat label, and the gate STILL hard-rejects any Ubuntu-maintained/-version deb
 vendor	https	adityagarg8.github.io	/t2-ubuntu-repo	./	yes	t2linux	t2linux (AdityaGarg8) T2 firmware/audio vendor repo; the gate STILL hard-rejects any Ubuntu-maintained/-version deb (T2 packages install only on real T2 hardware, not baked into the image)
 offline	file	-	/cdrom/ncz-payload/apt-repo	/	yes	NCZ-OS	installer offline NCZ apt-repo (preseed/late.sh; bound only when the image pool is enumerated+verified)
