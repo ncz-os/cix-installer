@@ -1167,17 +1167,25 @@ rm -f "$T/srcrepo/build/bad.sh"; unset NCZ_NO_UBUNTU_ROOT
 
 echo "=== 6. the real tree ==="
 expect_rc "check-no-ubuntu.sh on this repo passes" 0 bash "$NOUB"
+# The released pin is read from release.conf at test time with a parser
+# independent of ncz_pin_snapshot (never a literal: build/test-no-pin-literals.sh),
+# so a re-pin needs no edit here.
+REL_PIN="$(sed -n 's/^NCZ_BASE_MIRROR_SNAPSHOT="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$ROOT/release.conf")"
 expect_rc "builders refuse non-Debian/unpinned mirrors" 0 bash -c '
-  . "'"$ROOT"'/build/lib/mirror-apt-opts.sh"
+  . "$1/build/lib/mirror-apt-opts.sh"; pin="$2"
+  [ -n "$pin" ] && [ "$pin" != 20200101T000000Z ] &&
   ! ncz_require_debian_forky forky https://deb.debian.org/debian Debian 2>/dev/null &&
   ! ncz_require_debian_forky forky /nonexistent-local-mirror Debian 2>/dev/null &&
-  ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20261026T022331Z Debian &&
+  ncz_require_debian_forky forky "https://snapshot.debian.org/archive/debian/$pin" Debian &&
   ! ncz_require_debian_forky resolute http://ports.ubuntu.com/ubuntu-ports Ubuntu 2>/dev/null &&
   ! ncz_require_debian_forky forky http://ports.ubuntu.com/ubuntu-ports Debian 2>/dev/null &&
-  ! ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20200101T000000Z Debian 2>/dev/null'
-expect_rc "ncz_pin_snapshot parses the released pin exactly" 0 bash -c '
-  . "'"$ROOT"'/build/lib/mirror-apt-opts.sh"
-  [ "$(ncz_pin_snapshot "'"$ROOT"'")" = "20261026T022331Z" ]'
+  ! ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20200101T000000Z Debian 2>/dev/null' _ "$ROOT" "$REL_PIN"
+expect_rc "ncz_pin_snapshot parses the released pin exactly (well formed, = both base.pin rows)" 0 bash -c '
+  . "$1/build/lib/mirror-apt-opts.sh"; pin="$2"
+  printf "%s\n" "$pin" | grep -Eqx "[0-9]{8}T[0-9]{6}Z" &&
+  [ "$(ncz_pin_snapshot "$1")" = "$pin" ] &&
+  [ "$(awk -F"\t" "\$1==\"amd64\"{print \$4}" "$1/manifests/base.pin")" = "$pin" ] &&
+  [ "$(awk -F"\t" "\$1==\"arm64\"{print \$4}" "$1/manifests/base.pin")" = "$pin" ]' _ "$ROOT" "$REL_PIN"
 mkdir -p "$T/badconf"
 printf 'NCZ_BASE_MIRROR_SNAPSHOT="20260101T000000Zjunk"\n' > "$T/badconf/release.conf"
 expect_rc "ncz_pin_snapshot rejects a malformed/oversized pin" 0 bash -c '
