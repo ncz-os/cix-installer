@@ -198,7 +198,15 @@ expect_rc "  ... an Architecture: all deb is judged for every arch" 1 bash "$CHK
 #     20261018T082309Z (manifests/build-inputs.tsv notes); the pin is newer.
 #     Fixing it means rebuilding both tarballs per arch at the current pin
 #     (docs/BUILD-STABILITY.md M8), which is a build, not an edit.
-KNOWN_FAIL="rootfs-inputs"
+#   kernel-revision: assets/kernel/mainline.release names
+#     r292-7.3.0-sky1-ncz-20261023 while kernel-manifest.json and the
+#     ncz-packages.tsv rows pin the r293 debs (overlay ABI rebuild + cixmini-boot
+#     1.6).  The fix is to point mainline.release at the staged directory that
+#     holds those r293 debs, but no r293 staging directory (and no +r293 deb)
+#     exists in the shared kernel-staging pool, so its name cannot be read from
+#     anywhere; reverting the pins to r292 would re-ship the debs r293 replaced.
+#     Stage the r293 release, set mainline.release to it, and drop this entry.
+KNOWN_FAIL="rootfs-inputs kernel-revision"
 echo "=== 3. the real tree ==="
 rc=0; out="$(bash "$CHK" --root "$ROOT" 2>&1)" || rc=$?
 printf '%s\n' "$out" | sed 's/^/    /'
