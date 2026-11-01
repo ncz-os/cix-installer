@@ -107,7 +107,7 @@ case "$(plan_layer --arch amd64 --full)" in
 esac
 # dry-run names the stages and the never-do list
 p="$(bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null)"
-for s in preflight refresh-substrate stage-inputs refresh-sources offline-mirror provenance-inputs static-gates layers image provenance-gate kvm-gate receipt archive; do
+for s in preflight refresh-substrate stage-inputs provenance-predict refresh-sources offline-mirror provenance-inputs static-gates layers image provenance-gate kvm-gate receipt archive; do
     grep -q "$s" <<<"$p" && ok "plan names stage $s" || bad "plan missing stage $s"
 done
 grep -q 'NEVER (operator-only)' <<<"$p" && ok "plan states the never-do list" || bad "plan omits never-do list"
@@ -127,6 +127,14 @@ rs="$(spos refresh-sources)"
 [ -n "$pi" ] && [ -n "$lr" ] && [ "$pi" -lt "$lr" ] && ok "provenance-inputs (#$pi) runs BEFORE layers (#$lr)" || bad "provenance-inputs must run before layers (pi=$pi lr=$lr)"
 [ -n "$om" ] && [ -n "$pi" ] && [ "$om" -lt "$pi" ] && ok "provenance-inputs runs AFTER offline-mirror (#$om)" || bad "provenance-inputs must run after offline-mirror (om=$om pi=$pi)"
 [ -n "$rs" ] && [ -n "$om" ] && [ "$rs" -lt "$om" ] && ok "refresh-sources runs before offline-mirror (it supplies the payload deb)" || bad "refresh-sources must run before offline-mirror (rs=$rs om=$om)"
+# M1: the predictive gate must run BEFORE the 13-minute mirror and before
+# refresh-sources, and after the inputs are staged.  That ordering is the whole
+# point: a bad input must fail in minutes, not after hours of layers.
+pp="$(spos provenance-predict)"; si="$(spos stage-inputs)"
+[ -n "$pp" ] && [ -n "$om" ] && [ "$pp" -lt "$om" ] && ok "provenance-predict (#$pp) runs BEFORE offline-mirror (#$om)" || bad "provenance-predict must run before offline-mirror (pp=$pp om=$om)"
+[ -n "$pp" ] && [ -n "$rs" ] && [ "$pp" -lt "$rs" ] && ok "provenance-predict (#$pp) runs BEFORE refresh-sources (#$rs)" || bad "provenance-predict must run before refresh-sources (pp=$pp rs=$rs)"
+[ -n "$pp" ] && [ -n "$si" ] && [ "$pp" -gt "$si" ] && ok "provenance-predict (#$pp) runs AFTER stage-inputs (#$si)" || bad "provenance-predict must run after stage-inputs (pp=$pp si=$si)"
+[ -n "$pp" ] && [ -n "$pi" ] && [ "$pp" -lt "$pi" ] && ok "provenance-predict (#$pp) runs BEFORE provenance-inputs (#$pi)" || bad "provenance-predict must run before provenance-inputs (pp=$pp pi=$pi)"
 [ -n "$pg" ] && [ -n "$kg" ] && [ "$pg" -lt "$kg" ] && ok "provenance-gate (#$pg) runs BEFORE kvm-gate (#$kg)" || bad "provenance-gate must run before kvm-gate (pg=$pg kg=$kg)"
 [ -n "$im" ] && [ -n "$pg" ] && [ "$im" -lt "$pg" ] && ok "provenance-gate runs AFTER image (#$im)" || bad "provenance-gate must run after image (im=$im pg=$pg)"
 # The shipped-artifact credential gate is MANDATORY and sits between the image
@@ -179,6 +187,20 @@ if awk -F'\t' '$2=="layers"{f=1} END{exit !f}' "$T1/stages.tsv"; then
     bad "layers ran after a failing provenance-inputs"
 else
     ok "layers did NOT run after a failing provenance-inputs"
+fi
+# M1 / BUILD-STABILITY section 4: with the PREDICT stage failing, the
+# 13-minute mirror must never start -- stages.tsv has no offline-mirror row.
+T3="$SCRATCH/ff-predict"
+NCZ_TEST_STAGE_CMD='case "{stage}" in provenance-predict) echo "[fake] provenance-predict failure"; exit 1;; *) exit 0;; esac' \
+    bash "$BIN" --arch amd64 --full --no-publish --run-dir "$T3" >/dev/null 2>&1
+rc=$?
+[ "$rc" != 0 ] && ok "a failing provenance-predict fails the build (rc=$rc)" || bad "provenance-predict failure was ignored"
+awk -F'\t' '$2=="provenance-predict" && $3 ~ /^FAIL/{f=1} END{exit !f}' "$T3/stages.tsv" \
+    && ok "stages.tsv records provenance-predict FAIL" || bad "stages.tsv missing provenance-predict FAIL"
+if awk -F'\t' '$2=="offline-mirror"{f=1} END{exit !f}' "$T3/stages.tsv"; then
+    bad "offline-mirror ran after a failing provenance-predict"
+else
+    ok "stages.tsv has no offline-mirror row after a failing provenance-predict"
 fi
 NCZ_TEST_STAGE_CMD='case "{stage}" in provenance-gate) echo "[fake] provenance-gate failure"; exit 1;; *) exit 0;; esac' \
     bash "$BIN" --arch amd64 --full --no-publish --run-dir "$T2" >/dev/null 2>&1
