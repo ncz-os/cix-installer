@@ -736,6 +736,72 @@ grep -q '^RC 0 FAILS_DELTA 1' <<<"$LAST" \
 expect_rc "--iso-evidence without --ubuntu-only is refused" 2 \
     python3 -I "$PY" --iso-evidence "$T/ev2" --substrate-iso "$T/fix/substrate.iso" --work "$WF"
 
+# 2j. the shared-helper contract the parity claim rests on.  Stage 25 and the
+#     final gate "cannot disagree" because they call the SAME helpers; that only
+#     holds while every call site still matches the helper's signature.  These
+#     pin the three ways a refactor could silently split the two gates:
+#       (a) a required parameter added to _scan_initrd, which would make the
+#           image scan's 3-arg ESP call (scan_image) raise TypeError;
+#       (b) 'src' dropped or renamed, which would turn every fail(src, ...)
+#           inside it into a NameError;
+#       (c) _ncz_build_context() no longer resolving release_conf() at call time
+#           (a def moved below a call would only bite at runtime, not at import).
+rc=0; LAST="$(python3 -I - "$PY" <<'PYEOF' 2>&1
+import importlib.util, inspect, sys, tempfile, os
+spec = importlib.util.spec_from_file_location("fp", sys.argv[1])
+fp = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fp)            # import-time: any bad def order surfaces here
+
+sig = inspect.signature(fp._scan_initrd)
+ps = sig.parameters
+bad = []
+
+# (a) the image scan calls it with three arguments; that must keep binding, and
+#     every extra parameter must have a default so it stays optional.
+try:
+    sig.bind(None, "/p", "/o")
+except TypeError as e:
+    bad.append(f"3-arg call site no longer binds: {e}")
+for name, p in ps.items():
+    if name in ("ref", "path", "owned"):
+        continue
+    if p.default is inspect.Parameter.empty:
+        bad.append(f"_scan_initrd parameter {name!r} is required; the ESP call "
+                   "site passes 3 arguments and would raise TypeError")
+
+# (b) 'src' must exist, and every fail() inside it must see it.
+if "src" not in ps:
+    bad.append("_scan_initrd has no 'src' parameter; fail(src, ...) would NameError")
+elif ps["src"].default != "image":
+    bad.append(f"_scan_initrd src default is {ps['src'].default!r}, expected 'image'")
+
+# (c) the exemption helper must resolve release_conf() when CALLED, not at def
+#     time (Python resolves globals lazily, so this holds unless something shadows
+#     or rebinds it).
+if not hasattr(fp, "release_conf"):
+    bad.append("release_conf is not defined at module scope")
+else:
+    try:
+        v = fp._ncz_build_context()
+    except NameError as e:
+        bad.append(f"_ncz_build_context raised NameError: {e}")
+    except Exception:
+        pass
+    else:
+        if not isinstance(v, bool):
+            bad.append(f"_ncz_build_context returned {type(v).__name__}, expected bool")
+
+for b in bad:
+    print("CONTRACT", b)
+print("OK" if not bad else "BROKEN")
+PYEOF
+)" || rc=$?
+if grep -q '^OK$' <<<"$LAST"; then
+    ok "shared-helper contract: _scan_initrd call sites and _ncz_build_context hold"
+else
+    bad "shared-helper contract broken (the two gates can now diverge)" "$LAST"
+fi
+
 # 2e. fail closed: an index directory that holds nothing.  The gate must exit
 #     non-zero (it cannot verify anything) and must never print the "all input
 #     provenance checks passed" line -- a missing index is not a pass.
