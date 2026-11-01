@@ -762,6 +762,23 @@ stage_preflight() {
     fi
     say "run pin: $RUN_PIN"
 
+    # -- repo pin coherence (docs/BUILD-STABILITY.md M3 + M7) --------------
+    # Offline: the committed pins must agree with each other before any host
+    # work.  Includes the Sky1 kernel revision (mainline.release vs
+    # kernel-manifest.json vs ncz-packages.tsv), so an arm64 build refuses to
+    # produce +rNNN debs the manifest does not pin.
+    local pc_out pc_rc=0 line
+    pc_out="$(bash "$ROOT/build/check-pin-coherence.sh" --root "$ROOT" --arch "$ARCH" 2>&1)" || pc_rc=$?
+    printf '%s\n' "$pc_out" >>"$log"
+    if [ "$pc_rc" = 0 ]; then
+        say "pin coherence OK (check-pin-coherence.sh --arch $ARCH)"
+    else
+        while IFS= read -r line; do
+            case "$line" in *" FAIL "*) bad "$line" ;; esac
+        done <<<"$pc_out"
+        bad "repo pins disagree (build/check-pin-coherence.sh rc=$pc_rc); fix and commit the pin files"
+    fi
+
     # -- required host tools ----------------------------------------------
     local tools="git make python3 mksquashfs mkfs.ext4 sgdisk tar sha256sum zstd unsquashfs"
     [ "$USE_CONTAINER" = "1" ] && tools="$tools podman"

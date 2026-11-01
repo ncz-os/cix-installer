@@ -276,6 +276,9 @@ iso iso-verified:
 # matched, so every run rebuilt; fixing only the parser would have made a
 # stale +r258 build of 7.2.8 reusable while the pointer names r277. The pin
 # checks KVER, the revision floor, and one version per package.
+# 2026-11-01 (BUILD-STABILITY M7): reuse also requires every deb's full
+# Version (+rNNN) and sha256 to equal assets/kernel-manifest.json; r292 debs
+# were reused under the r293 manifest because only KVER was compared.
 #
 # The four branches below, in order:
 #   (a) arch != arm64: skip (no-op on amd64 build hosts).
@@ -341,8 +344,8 @@ kernel-debs:
 	        echo "[kernel-debs] existing set carries no linux-image-cixmini_*_arm64.deb -- rebuilding"; \
 	        bash $(ROOT)/build/build-kernel-debs.sh; \
 	    elif [ "$$_have_kver" = "$$_want_kver" ] \
-	         && bash $(ROOT)/build/check-kernel-deb-pin.sh "$(ROOT)/assets/kernel/mainline/KVER" "$(BUILD)/kernel-debs"; then \
-	        echo "[kernel-debs] using existing debs from $(BUILD)/kernel-debs (KVER=$$_have_kver matches assets/kernel/mainline/KVER and passes the kernel pin)"; \
+	         && bash $(ROOT)/build/check-kernel-deb-pin.sh --manifest "$(ROOT)/assets/kernel-manifest.json" "$(ROOT)/assets/kernel/mainline/KVER" "$(BUILD)/kernel-debs"; then \
+	        echo "[kernel-debs] using existing debs from $(BUILD)/kernel-debs (KVER=$$_have_kver matches assets/kernel/mainline/KVER and passes the kernel pin, revision and sha256 included)"; \
 	        find $(BUILD)/kernel-debs -maxdepth 1 -name '*.deb' -printf '  %f\n' | sort; \
 	    else \
 	        echo "[kernel-debs] STALE: existing debs (KVER=$$_have_kver) do not match assets/kernel/mainline (KVER=$$_want_kver, revision floor from the staged dir)" >&2; \
@@ -843,6 +846,7 @@ parity:
 	bash build/test-desktop-apt-require.sh
 	bash build/test-build-inputs.sh
 	bash build/test-pin-coherence.sh
+	bash build/test-kernel-revision-pin.sh
 	bash build/test-gate-chown-back.sh
 	bash build/test-fresh-clone-inputs.sh
 	bash build/test-deb-rev-defaults.sh

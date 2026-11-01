@@ -23,17 +23,45 @@
 #     mainline pointer does), the packages' r<N> must not be OLDER than
 #     that directory's: a +r258 build of 7.2.8 sorts below the +r277
 #     already on boards, and apt silently keeps the old kernel.
+#   * with --manifest (docs/BUILD-STABILITY.md M7): every Sky1 kernel
+#     package's full Version (the +rNNN packaging revision, not just KVER)
+#     and sha256 must equal the deb assets/kernel-manifest.json pins, and
+#     the set must be complete.  KVER alone let r292 debs pass under an
+#     r293 manifest (2026-10-29) and fail only at provenance, stage 50.
 # A directory with no Sky1 kernel packages passes (amd64 vendor mirrors,
 # a pool before the first kernel publish).
 #
-# Usage: check-kernel-deb-pin.sh <kver-file> <deb-dir> [<deb-dir>...]
+# Usage: check-kernel-deb-pin.sh [--manifest <kernel-manifest.json>]
+#                                <kver-file> <deb-dir> [<deb-dir>...]
 # Exit 0 = pinned, 1 = violation, 2 = usage error.
 set -euo pipefail
 export LC_ALL=C
 
-[ "$#" -ge 2 ] || { echo "usage: $0 <kver-file> <deb-dir> [<deb-dir>...]" >&2; exit 2; }
+USAGE="usage: $0 [--manifest <kernel-manifest.json>] <kver-file> <deb-dir> [<deb-dir>...]"
+MANIFEST=""
+if [ "${1:-}" = "--manifest" ]; then
+    [ -n "${2:-}" ] || { echo "$USAGE" >&2; exit 2; }
+    MANIFEST="$2"; shift 2
+fi
+[ "$#" -ge 2 ] || { echo "$USAGE" >&2; exit 2; }
 KVER_FILE="$1"; shift
 command -v dpkg-deb >/dev/null 2>&1 || { echo "[kernel-pin] ERROR: dpkg-deb not found" >&2; exit 2; }
+
+# Pinned "<package> <version> <sha256>" rows from the manifest.  An unreadable
+# manifest pins nothing, so any Sky1 kernel deb then fails below.
+PINNED=""
+MANIFEST_ERR=""
+if [ -n "$MANIFEST" ]; then
+    PINNED="$(python3 -I -c '
+import json, re, sys
+from urllib.parse import unquote
+for d in json.load(open(sys.argv[1], encoding="utf-8"))["kernel_debs"]:
+    m = re.match(r"^([^_]+)_([^_]+)_([^_]+)\.deb$", d["file"].rsplit("/", 1)[-1])
+    if not m or not re.fullmatch(r"[0-9a-f]{64}", d.get("sha256", "")):
+        sys.exit("bad kernel_debs entry: %r" % (d,))
+    print(m.group(1), unquote(m.group(2)), d["sha256"])
+' "$MANIFEST" 2>&1)" || { MANIFEST_ERR="$PINNED"; PINNED=""; }
+fi
 
 KVER=""
 if [ -s "$KVER_FILE" ]; then
@@ -51,7 +79,7 @@ case "$PTR_REV" in *[!0-9]*) PTR_REV="" ;; esac
 rc=0
 for dir in "$@"; do
     [ -d "$dir" ] || continue
-    img_vers=(); hdr_vers=(); boot_vers=()
+    img_vers=(); hdr_vers=(); boot_vers=(); seen_pkgs=" "
     dir_rc=0
     while IFS= read -r -d '' deb; do
         pkg="$(dpkg-deb -f "$deb" Package 2>/dev/null || true)"
@@ -62,6 +90,24 @@ for dir in "$@"; do
             cixmini-boot)          boot_vers+=("$ver") ;;
             *) continue ;;
         esac
+        if [ -n "$MANIFEST" ]; then
+            seen_pkgs="$seen_pkgs$pkg "
+            want="$(awk -v p="$pkg" '$1 == p { print $2 " " $3 }' <<<"$PINNED")"
+            if [ -n "$MANIFEST_ERR" ] || [ -z "$want" ]; then
+                echo "[kernel-pin] FAIL: $dir: $pkg $ver is not pinned by $MANIFEST${MANIFEST_ERR:+ ($MANIFEST_ERR)}" >&2
+                dir_rc=1
+            elif [ "$ver" != "${want%% *}" ]; then
+                echo "[kernel-pin] FAIL: $dir: $pkg $ver is not the pinned revision ${want%% *} ($MANIFEST)" >&2
+                echo "             (same KVER, different packaging revision: refusing to publish it)" >&2
+                dir_rc=1
+            else
+                have_sha="$(sha256sum "$deb" | awk '{print $1}')"
+                if [ "$have_sha" != "${want#* }" ]; then
+                    echo "[kernel-pin] FAIL: $dir: $pkg $ver sha256 $have_sha != pinned ${want#* } ($MANIFEST)" >&2
+                    dir_rc=1
+                fi
+            fi
+        fi
         if [ "$pkg" = cixmini-boot ]; then
             continue
         fi
@@ -106,10 +152,19 @@ for dir in "$@"; do
         echo "[kernel-pin] FAIL: $dir: cixmini-boot $boot_one and linux-image-cixmini $img_one come from different builds" >&2
         dir_rc=1
     fi
+    if [ -n "$MANIFEST" ] && [ "$seen_pkgs" != " " ] && [ -z "$MANIFEST_ERR" ]; then
+        while read -r mp mv _; do
+            [ -n "$mp" ] || continue
+            case "$seen_pkgs" in *" $mp "*) ;; *)
+                echo "[kernel-pin] FAIL: $dir: incomplete Sky1 kernel set: $mp $mv (pinned by $MANIFEST) is missing" >&2
+                dir_rc=1 ;;
+            esac
+        done <<<"$PINNED"
+    fi
     if [ "$dir_rc" -ne 0 ]; then
         rc=1
     elif [ "$((${#img_vers[@]} + ${#hdr_vers[@]} + ${#boot_vers[@]}))" -gt 0 ]; then
-        echo "[kernel-pin] OK: $dir: Sky1 kernel packages match the shipping kernel $KVER (${img_one:-no image})"
+        echo "[kernel-pin] OK: $dir: Sky1 kernel packages match the shipping kernel $KVER (${img_one:-no image})${MANIFEST:+; Version and sha256 match $MANIFEST}"
     fi
 done
 exit "$rc"
