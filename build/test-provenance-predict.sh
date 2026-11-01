@@ -500,7 +500,132 @@ else
 fi
 
 # ===========================================================================
-echo "== 2. negatives (one per class the late gate found in the 2026-10-29 run) =="
+echo "== 3. the A2 (2026-10-29 amd64) findings, replayed: parity with the final gate =="
+# docs/BUILD-STABILITY.md section 4, definition of done: "Every finding that
+# stage_provenance_gate() reports on an image is also reported by stage 25 or 50
+# on the same inputs.  Test: the 71 A2 findings, replayed against fixture
+# inputs, are all caught by build/check-inputs-provenance.sh."
+#
+# "The 71" is not a magic constant to assert: 71 is what the late gate counted
+# on the REAL inputs of that run, which this fixture is not.  What has to hold
+# is the PARITY -- for the same bytes, every finding class the late gate emits
+# is emitted by the early gate.  Each class below is one of the three the run
+# recorded (docs/BUILD-STABILITY.md C3): an old-snapshot rootfs tarball, an NCZ
+# deb with no ledger row, and a substrate udeb with no reviewed origin.  The
+# late gate is driven by calling the SAME helper it calls (scan_rootfs_tar /
+# scan_debs / scan_substrate_iso, via --rootfs / --substrate-iso), so a
+# divergence means the two paths stopped sharing code, which is the risk in
+# section 5.
+# Parity is about WHICH defect is reported, not the source label: the final gate
+# labels a finding by its position in the image ([image:assets/...]) while stage
+# 25 labels it by the input path ([input:rescue.tar.zst]), and those must differ.
+# So compare on the "package :: reason" pair, which both gates take from the
+# same classify()/audit helper -- that is exactly the thing that must agree.
+pi_find() {
+    # The shell gate prefixes each verifier line with its section
+    # ("[staged debs (2 dir(s))] FAIL ..."); the direct invocation does not.
+    # Drop that prefix, the "[src]" label and the ":: why" tail, so the two
+    # sides compare on the defect itself -- which both take from the same
+    # helper, so a diff here means they stopped sharing code.
+    grep -E '^(\[[^]]*\] )*FAIL ' <<<"${1:-}" \
+        | sed -e 's/^\[[^]]*\] //' \
+              -e 's/^FAIL *\[[^]]*\] *//' \
+              -e 's/ :: .*//' | sort -u
+}
+
+# 3a. class 1: the prebuilt rootfs tarballs carried the OLD snapshot.  The late
+#     gate never sees a tarball: it extracts one and scans the DIRECTORY
+#     (scan_image -> safe_extract_zst -> scan_rootfs), so the parity reference is
+#     --rootfs DIR over the unpacked bytes, not --rootfs TARBALL.
+mkrootfs "$T/a2/rescue.tar.zst" "$OLD_SRC" base-files 1.0 all libc6 2.41-7 amd64
+mkdir -p "$T/a2/rescue.d"
+zstd -dc "$T/a2/rescue.tar.zst" | tar -C "$T/a2/rescue.d" -xf - \
+    || bad "replay/rescue-rootfs: could not unpack the fixture" ""
+rc=0; LATE="$(python3 -I "$PY" --rootfs "$T/a2/rescue.d" --root-dir "$TR" \
+    --index-dir "$IDX" 2>&1)" || rc=$?
+early_rc=0
+EARLY="$(python3 -I "$PY" --rootfs-tar "$T/a2/rescue.tar.zst" --work "$WF" \
+    --root-dir "$TR" --index-dir "$IDX" 2>&1)" || early_rc=$?
+lf="$(pi_find "$LATE")"; ef="$(pi_find "$EARLY")"
+[ -n "$lf" ] && ok "replay/rescue-rootfs: the final gate reports findings" \
+             || bad "replay/rescue-rootfs: the final gate reported nothing" "$LATE"
+missing="$(comm -23 <(printf '%s\n' "$lf") <(printf '%s\n' "$ef"))"
+[ -z "$missing" ] && ok "replay/rescue-rootfs: stage 25 reports every final-gate finding" \
+                  || bad "replay/rescue-rootfs: stage 25 MISSED findings the final gate reports:
+$missing" "$EARLY"
+[ "$early_rc" = 1 ] && ok "replay/rescue-rootfs: stage 25 fails the input (rc=1)" \
+                    || bad "replay/rescue-rootfs: stage 25 rc=$early_rc, wanted 1" "$EARLY"
+grep -q "$OLD_SNAP" <<<"$EARLY" && ok "replay/rescue-rootfs: the old snapshot is named" \
+                                 || bad "replay/rescue-rootfs: snapshot $OLD_SNAP not named" "$EARLY"
+
+# 3b. class 2: an NCZ deb the ledger does not review (0.8.19 vs a 0.8.18 row).
+rm -rf "$T/a2/tr"; cp -a "$TR" "$T/a2/tr"; rm -rf "$T/a2/tr/assets"
+mkdir -p "$T/a2/tr/assets/screensaver/amd64"
+cp "$T/debs/ncz-screensavers_0.8.19_amd64.deb" "$T/a2/tr/assets/screensaver/amd64/"
+awk -F'\t' '!($1=="ncz-screensavers" && $2=="0.8.19")' \
+    "$T/a2/tr/manifests/ncz-packages.tsv" > "$T/a2/t.tsv"
+mv "$T/a2/t.tsv" "$T/a2/tr/manifests/ncz-packages.tsv"
+# --debs takes a DIRECTORY (the late gate scans the image's deb tree), so both
+# sides are pointed at the same directory of identical bytes.
+DEBDIR="$T/a2/tr/assets/screensaver/amd64"
+rc=0; LATE="$(python3 -I "$PY" --debs "$DEBDIR" --root-dir "$T/a2/tr" \
+    --index-dir "$IDX" 2>&1)" || rc=$?
+early_rc=0
+EARLY="$(bash "$CHK" --root "$T/a2/tr" --work "$WF" --index-dir "$IDX" \
+    --arch amd64 --no-substrate 2>&1)" || early_rc=$?
+lf="$(pi_find "$LATE")"; ef="$(pi_find "$EARLY")"
+[ -n "$lf" ] && ok "replay/screensavers: the final gate reports findings" \
+             || bad "replay/screensavers: the final gate reported nothing" "$LATE"
+missing="$(comm -23 <(printf '%s\n' "$lf") <(printf '%s\n' "$ef"))"
+[ -z "$missing" ] && ok "replay/screensavers: stage 25 reports every final-gate finding" \
+                  || bad "replay/screensavers: stage 25 MISSED findings the final gate reports:
+$missing" "$EARLY"
+[ "$early_rc" = 1 ] && ok "replay/screensavers: stage 25 fails the input (rc=1)" \
+                    || bad "replay/screensavers: stage 25 rc=$early_rc, wanted 1" "$EARLY"
+grep -q 'not in the reviewed NCZ ledger' <<<"$EARLY" \
+    && ok "replay/screensavers: the ledger finding is named" \
+    || bad "replay/screensavers: no ledger finding" "$EARLY"
+
+# 3c. class 3: a substrate pool udeb with no reviewed origin.
+mkiso "$T/a2/rogue.iso" --bad-udeb
+rc=0; LATE="$(python3 -I "$PY" --substrate-iso "$T/a2/rogue.iso" \
+    --root-dir "$TR" --index-dir "$IDX" --work "$WF" 2>&1)" || rc=$?
+early_rc=0
+mkdir -p "$T/a2/empty"
+EARLY="$(gate --arch amd64 --substrate-iso "$T/a2/rogue.iso" --no-rootfs \
+    --deb-dir "$T/a2/empty" --exclude "$T/a2/empty" 2>&1)" || early_rc=$?
+lf="$(pi_find "$LATE")"; ef="$(pi_find "$EARLY")"
+[ -n "$lf" ] && ok "replay/substrate: the final gate reports findings" \
+             || bad "replay/substrate: the final gate reported nothing" "$LATE"
+missing="$(comm -23 <(printf '%s\n' "$lf") <(printf '%s\n' "$ef"))"
+[ -z "$missing" ] && ok "replay/substrate: stage 25 reports every final-gate finding" \
+                  || bad "replay/substrate: stage 25 MISSED findings the final gate reports:
+$missing" "$EARLY"
+[ "$early_rc" = 1 ] && ok "replay/substrate: stage 25 fails the input (rc=1)" \
+                    || bad "replay/substrate: stage 25 rc=$early_rc, wanted 1" "$EARLY"
+
+# 3d. all three classes at once, exactly as they coexisted in the A2 image: the
+#     union of the classes must all surface from ONE stage-25 run, because a
+#     gate that stops at the first bad input would let the rest ship.
+rm -rf "$T/a2/all"; mkdir -p "$T/a2/all"
+cp -a "$T/a2/tr/." "$T/a2/all/"
+mkdir -p "$T/a2/all/assets/rescue"
+# the gate looks for assets/rescue/rescue-rootfs-$ARCH.tar.zst
+cp "$T/a2/rescue.tar.zst" "$T/a2/all/assets/rescue/rescue-rootfs-amd64.tar.zst"
+early_rc=0
+EARLY="$(bash "$CHK" --root "$T/a2/all" --work "$WF" --index-dir "$IDX" \
+    --arch amd64 --substrate-iso "$T/a2/rogue.iso" 2>&1)" || early_rc=$?
+[ "$early_rc" = 1 ] && ok "replay/all: the combined A2 input set fails (rc=1)" \
+                    || bad "replay/all: rc=$early_rc, wanted 1" "$EARLY"
+n="$(grep -c '^\[provenance-predict\] FAIL' <<<"$EARLY")"
+[ "${n:-0}" -ge 3 ] && ok "replay/all: all three classes are reported together (${n} findings)" \
+                    || bad "replay/all: only ${n:-0} finding(s); a class was dropped" "$EARLY"
+for cls in "$OLD_SNAP" 'not in the reviewed NCZ ledger' 'has no reviewed origin'; do
+    grep -q "$cls" <<<"$EARLY" && ok "replay/all: class present: $cls" \
+                              || bad "replay/all: class MISSING: $cls" "$EARLY"
+done
+
+
 # 2a. a rootfs tarball built at ANOTHER snapshot
 mkrootfs "$T/bad/old.tar.zst" "$OLD_SRC" base-files 1.0 all libc6 2.41-7 amd64
 expect_rc "rootfs tarball at another snapshot FAILS" 1 \
