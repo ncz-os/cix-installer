@@ -826,6 +826,7 @@ parity:
 	bash build/test-reprepro-publish-pool-arch.sh
 	bash build/test-no-ubuntu.sh
 	bash build/test-no-pin-literals.sh
+	bash build/test-forky-inrelease-fixture.sh
 	bash build/test-ncz-apt-policy-deb.sh
 	bash build/test-apt-sources-hook-container.sh
 	bash build/test-ncz-cli-basics.sh
