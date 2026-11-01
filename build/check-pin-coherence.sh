@@ -45,7 +45,12 @@ case "$ARCH" in ""|amd64|arm64) ;; *) echo "[pin-coherence] bad --arch '$ARCH'" 
     || { echo "[pin-coherence] $ROOT is not a repo tree (no manifests/ or release.conf)" >&2; exit 2; }
 git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
     || { echo "[pin-coherence] $ROOT is not a git work tree (tracked-debs needs git)" >&2; exit 2; }
-TRACKED="$(git -C "$ROOT" ls-files -- 'assets/*.deb')" \
+# Every tracked file under assets/, at any depth; the .deb filter is applied
+# below, not by a pathspec glob: GIT_GLOB_PATHSPECS / GIT_LITERAL_PATHSPECS in
+# the caller's environment would otherwise stop 'assets/*.deb' at the first
+# '/' (or match nothing) and the rule would pass on zero debs.
+TRACKED="$(env -u GIT_GLOB_PATHSPECS -u GIT_NOGLOB_PATHSPECS -u GIT_LITERAL_PATHSPECS \
+               -u GIT_ICASE_PATHSPECS git -C "$ROOT" ls-files -- assets)" \
     || { echo "[pin-coherence] git ls-files failed in $ROOT" >&2; exit 2; }
 
 exec python3 -I - "$ROOT" "$ARCH" "$TRACKED" <<'PY'
@@ -233,7 +238,7 @@ for n, c in rows("manifests/vendor-debs.tsv") or []:
     if len(c) >= 6:
         known.setdefault((c[0], c[1], c[2]), []).append(("manifests/vendor-debs.tsv", c[5]))
 bad = checked = 0
-for rel in sorted(l for l in tracked.splitlines() if l):
+for rel in sorted(l for l in tracked.splitlines() if l.endswith(".deb")):
     p = split_deb(Path(rel).name)
     if not p:
         fail("tracked-debs", f"{rel}: not a name_version_arch.deb file name"); bad += 1; continue

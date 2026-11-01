@@ -209,6 +209,25 @@ expect_rc "ncz-screensavers 0.8.19 debs with 0.8.18 ledger rows only FAIL" 1 bas
 if grep -q "ncz-screensavers_0.8.19_amd64.deb" <<<"$LAST"; then ok "  finding names the deb"; else bad "  deb not named" "$LAST"; fi
 F="$(fresh n-unl)"; printf 'x' > "$F/assets/screensaver/amd64/ncz-stray_1.0_amd64.deb"; git -C "$F" add -- assets
 expect_rc "a tracked deb with no ledger row FAILS" 1 bash "$CHK" --root "$F"; names_rule tracked-debs
+# Review 2026-11-01 (DeepSeek item 1, "the rule never sees debs in
+# subdirectories"): did NOT hold on the base -- a plain git pathspec '*'
+# matches across '/', so 'assets/*.deb' already listed assets/<x>/<y>/*.deb
+# (the n-unl case above).  Pinned here at depth >1 (the assets/kernel/** shape).
+# What DID hold: the listing obeyed GIT_GLOB_PATHSPECS / GIT_LITERAL_PATHSPECS
+# from the caller's environment, under which 'assets/*.deb' matches no
+# subdirectory deb (glob: '*' stops at '/') or nothing at all (literal), and the
+# rule then reported OK on zero debs.
+F="$(fresh n-deep)"; mkdir -p "$F/assets/kernel/a/b"
+printf 'x' > "$F/assets/kernel/a/b/linux-stray_1.0_arm64.deb"; git -C "$F" add -- assets
+expect_rc "a tracked deb two directories down with no ledger row FAILS" 1 bash "$CHK" --root "$F"; names_rule tracked-debs
+if grep -q "assets/kernel/a/b/linux-stray_1.0_arm64.deb: no linux-stray" <<<"$LAST"; then
+    ok "  finding names the nested deb"; else bad "  nested deb not named" "$LAST"; fi
+F="$(fresh n-unl-env)"; printf 'x' > "$F/assets/screensaver/amd64/ncz-stray_1.0_amd64.deb"; git -C "$F" add -- assets
+for v in GIT_GLOB_PATHSPECS GIT_LITERAL_PATHSPECS; do
+    expect_rc "a subdirectory deb with no ledger row FAILS under $v=1" 1 env "$v=1" bash "$CHK" --root "$F"; names_rule tracked-debs
+    if grep -q "ncz-stray_1.0_amd64.deb: no ncz-stray" <<<"$LAST"; then
+        ok "  finding names the deb under $v=1"; else bad "  deb not named under $v=1" "$LAST"; fi
+done
 F="$(fresh n-untracked)"; printf 'x' > "$F/assets/screensaver/amd64/ncz-stray_1.0_amd64.deb"
 expect_rc "an UNtracked stray deb is not judged (build-inputs rules cover staged files)" 0 bash "$CHK" --root "$F"
 F="$(fresh n-sssha)"; printf 'rebuilt' > "$F/assets/screensaver/arm64/ncz-screensavers_0.8.19_arm64.deb"
