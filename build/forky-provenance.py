@@ -200,6 +200,20 @@ def run(argv, **kw):
     return subprocess.run(argv, env=tool_env(), **kw)  # noqa: PLW1510
 
 
+def _ncz_build_context():
+    """True when a shipped-tree scan may EXEMPT an installer-substrate kernel
+    udeb (docs/ONE-KERNEL.md one-kernel rule), False for an isolated tree.
+
+    An isolated trust root (a test fixture, a scratch repo with its own
+    release.conf + manifests/) states its policy in its own metadata.  A tree
+    that predates the key, or omits it, does NOT get the exemption: the
+    exemption is opted into per trust root, never assumed.  This is what keeps
+    the reach of an already-reviewed exemption (the substrate's own
+    kernel-module udebs, which the medium's /cdrom pool deliberately does not
+    carry) from widening to a fixture that was reviewed without it."""
+    return release_conf("NCZ_ONE_KERNEL_SUBSTRATE_UDEBS", "") == "exempt"
+
+
 def need_tool(name):
     if shutil.which(name, path=TOOL_PATH):
         return True
@@ -2500,13 +2514,20 @@ def _extract_newc(data, dest, src, allow_tail=False, written=None):
     return off
 
 
-def _scan_initrd(ref, path, owned):
+def _scan_initrd(ref, path, owned, src="image", skip_kernel_artifacts=False):
     """Drive an initrd by magic (never by filename): decompress and safely extract
     every concatenated cpio archive, including a mixed raw-newc + compressed-tail
     layout.  Scan embedded debs/udebs and dpkg status.  Fails closed on any
-    unrecognised format or trailing bytes; never silently skips."""
+    unrecognised format or trailing bytes; never silently skips.
+
+    `src` labels the findings; `skip_kernel_artifacts` drops the substrate's own
+    Debian kernel-module udebs from the one-kernel audit only (the same
+    docs/ONE-KERNEL.md ruling audit_kernel_purity() makes for the /cdrom pool --
+    a d-i initrd is BUILT from its own kernel).  It is never set for a medium
+    scan, and it does not skip any provenance classification: those udebs are
+    still scanned and still need an authorized origin."""
     if not os.path.isfile(path):
-        fail("image", path, "initrd could not be extracted")
+        fail(src, path, "initrd could not be extracted")
         return 0
     out = tempfile.mkdtemp(prefix="ncz-initrd-", dir=owned)
     remaining = _read_bytes(path)
@@ -2524,7 +2545,7 @@ def _scan_initrd(ref, path, owned):
             if consumed is None:
                 return 0
             if consumed == 0:
-                fail("image", path, "cpio section parsed to zero bytes")
+                fail(src, path, "cpio section parsed to zero bytes")
                 return 0
             saw = True
             remaining = remaining[off + consumed:]
@@ -2538,22 +2559,405 @@ def _scan_initrd(ref, path, owned):
                 remaining = dec
                 break
         else:
-            fail("image", path, "initrd contains an unrecognised section (not "
-                                "gzip/xz/zstd/lz4/bzip2/newc cpio); refusing to skip it")
+            fail(src, path, "initrd contains an unrecognised section (not "
+                            "gzip/xz/zstd/lz4/bzip2/newc cpio); refusing to skip it")
             return 0
     if not saw:
-        fail("image", path, "initrd has no parsable cpio/compressed archive")
+        fail(src, path, "initrd has no parsable cpio/compressed archive")
         return 0
     total = 0
+    keep = set(ref.seen_kernel)
+    if skip_kernel_artifacts:
+        ref.seen_kernel.clear()
     pools = {os.path.dirname(p) for p in rglob(out, "*.deb") + rglob(out, "*.udeb")}
     for d in pools:
-        total += scan_debs(ref, d, "image:initrd")
+        total += scan_debs(ref, d, src)
     for stf in rglob(out, "var/lib/dpkg/status"):
-        total += scan_status(ref, slurp(stf, errors="replace"), "image:initrd-status")
+        total += scan_status(ref, slurp(stf, errors="replace"), src + "-status")
+    if skip_kernel_artifacts:
+        sub = ref.seen_kernel
+        ref.seen_kernel = keep
+        print(f"NOTE  [{src}] one-kernel: {len(sub)} installer-substrate kernel "
+              f"udeb(s)/record(s) in the initrd are built from d-i's own kernel and "
+              f"are not audited as image kernel artifacts (docs/ONE-KERNEL.md)")
     return total
 
 
-# ---------------------------------------------------------------- main
+# ---------------------------------------------------------------- stage-25 input scans
+# The stage-25 "predictive" gate (docs/BUILD-STABILITY.md M1) scans the BUILD
+# INPUTS -- the prebuilt rootfs tarballs and the pinned substrate ISO -- with
+# the SAME helpers the finished-image scan uses (safe_extract_zst +
+# scan_rootfs; authorize_pool + the initrd extractor), so the early and the
+# final gate cannot reach different verdicts.  Nothing here reimplements a
+# verdict rule: these functions only decide HOW the bytes are read.
+
+def scan_rootfs_tar(ref, tar, work, src):
+    """--rootfs-tar: safe_extract_zst() -> scan_rootfs() on ONE input tarball.
+
+    Exactly what scan_image() does to a rootfs tarball it finds in
+    /ncz-payload (same extractor, same dpkg-status + apt-audit scan); the only
+    difference is where the bytes come from, so an input defect the image scan
+    would report is reported on the INPUT, before any layer exists."""
+    if not os.path.isfile(tar):
+        fail(src, tar, "input rootfs tarball is missing")
+        return 0
+    owned = tempfile.mkdtemp(prefix="ncz-tarscan-", dir=work)
+    try:
+        dest = os.path.join(owned, "root")
+        os.makedirs(dest, exist_ok=True)
+        if not safe_extract_zst(tar, dest, src):
+            return 0
+        n = scan_rootfs(ref, dest, src)
+        if n:
+            print(f"INPUT  [{src}] {os.path.basename(tar)}: {n} packages checked")
+        return n
+    finally:
+        shutil.rmtree(owned, ignore_errors=True)
+
+
+# ------------------------------------------------- substrate ISO (no mount, no root)
+# A directory listing of the substrate ISO as `xorriso -ls` prints it:
+#
+#   -r-xr-xr-x  1 .     208 Oct 25 2026 [  17 02] .
+#   -r-xr-xr-x  1 .     209 Oct 25 2026 [  56 00] ..
+#   -r-xr-xr-x  2 .      48 Oct 25 2026 [  64 00] dists
+#   -r-xr-xr-x  1 .     859 Oct 25 2026 [  65 00] InRelease
+#
+# The bare names (no extension) are the ISO9660 "relaxed" names, which are what
+# d-i reads on the medium; the Rock Ridge names in [brackets] are the same
+# entries in long form.  The SCANNER never needs xorriso: it verifies the
+# listing against the ISO's own ECMA-119 directory records and reads the member
+# bytes straight out of the extent, so the early gate runs on any host that can
+# read the file.  The listing is a manifest, not a trust decision: a listing
+# that does not match the ISO cannot authorize anything.
+
+ISO_REC_FIXED = 33            # a directory record's fixed part, no name
+ISO_LBS = 2048                # logical block size
+ISO_PVD_OFFSET = 16 * ISO_LBS  # the volume descriptor set starts at block 16
+ISO_LS_RE = re.compile(r"^[-dl][rwxStTs-]{9}\s+\d+\s+\S+\s+(\d+)\s+"
+                       r"\w{3}\s+\d+\s+\d{4}\s+\[\s*(\d+)\s+(\d+)\]\s+(\S.*?)\s*$")
+ISO_MAX_LISTING_ENTRIES = 200000
+
+
+def parse_iso_listing(text, src="iso"):
+    """`xorriso -ls` output -> {path: [(name, kind, size), ...]}, where path is
+    "" for the root, kind is "dir" or "file", and "." / ".." are kept (their
+    sizes are how a parent entry's directory size is cross-checked).  A line
+    that is not a listing entry is ignored (xorriso's drive banners); a line
+    that starts like an entry but does not parse FAILS (never skip a member)."""
+    out = {}
+    cur = None
+    n = 0
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        m = ISO_LS_RE.match(line)
+        if not m:
+            if line[:1] in ("-", "d") and line[1:2] in "rwxsSt-":
+                fail(src, line[:120], "unparseable xorriso -ls entry")
+            continue
+        size, _b1, _b2, name = m.group(1), m.group(2), m.group(3), m.group(4)
+        n += 1
+        if n > ISO_MAX_LISTING_ENTRIES:
+            fail(src, "listing", "iso listing has more entries than any real "
+                                 "substrate; refusing it")
+            return {}
+        if name == ".":
+            cur = ""
+            out.setdefault(cur, []).append((".", "dir", int(size)))
+            continue
+        if name == "..":
+            if cur:
+                out.setdefault(cur, []).append(("..", "dir", int(size)))
+            continue
+        if cur is None:
+            fail(src, name, "iso listing entry outside any directory "
+                            "(the listing does not start at /)")
+            return {}
+        kind = "dir" if line.startswith("d") else "file"
+        if " -> " in name:            # a symlink: listed, never materialised
+            name = name.split(" -> ", 1)[0].strip()
+            kind = "link"
+        out.setdefault(cur, []).append((name, kind, int(size)))
+        if kind == "dir":
+            cur = (cur + "/" + name) if cur else name
+            out.setdefault(cur, [])
+    return out
+
+
+def read_iso_records(data):
+    """The ISO's ECMA-119 directory records, read from the image bytes.
+
+    Returns {(parent_path, name): record} where record = {is_dir, size, start}
+    for every real member under the primary volume descriptor's root, plus
+    {(path, None): {"start", "size"}} for each directory listed.  A directory
+    record is only accepted when its both-endian extent LBA and data length
+    agree in both byte orders and its extent lies inside the file: never by
+    matching a name at an arbitrary offset (a 6-byte ISO_REC_FIXED-less scan
+    finds every name at many false positions inside 2048-byte sectors)."""
+    out = {}
+    if len(data) < ISO_PVD_OFFSET + ISO_LBS:
+        return out
+    root = None
+    off = ISO_PVD_OFFSET
+    while off + ISO_LBS <= len(data):
+        vd = data[off:off + ISO_LBS]
+        if vd[1:6] != b"CD001":
+            break
+        kind = vd[0]
+        if kind == 255:
+            break
+        if kind == 1:
+            r = vd[156:156 + 34]
+            lba_l = int.from_bytes(r[2:6], "little")
+            lba_b = int.from_bytes(r[6:10], "big")
+            sz_l = int.from_bytes(r[10:14], "little")
+            sz_b = int.from_bytes(r[14:18], "big")
+            if (r[0] == 34 and lba_l == lba_b and sz_l == sz_b and sz_l > 0
+                    and lba_l * ISO_LBS + sz_l <= len(data)):
+                root = (lba_l, sz_l)
+        off += ISO_LBS
+    if root is None:
+        return out
+    stack = [("", root[0] * ISO_LBS, root[1])]
+    seen = set()
+    while stack:
+        path, start, size = stack.pop()
+        if (path, start) in seen or start < 0 or start + size > len(data):
+            continue
+        seen.add((path, start))
+        out[(path, None)] = {"start": start, "size": size}
+        pos, end = start, start + size
+        while pos + 1 <= end:
+            rl = data[pos]
+            if rl == 0:                       # padding to the next sector
+                pos = ((pos // ISO_LBS) + 1) * ISO_LBS
+                continue
+            if rl < ISO_REC_FIXED or pos + rl > end:
+                break
+            rec = data[pos:pos + rl]
+            lba_l = int.from_bytes(rec[2:6], "little")
+            lba_b = int.from_bytes(rec[6:10], "big")
+            sz_l = int.from_bytes(rec[10:14], "little")
+            sz_b = int.from_bytes(rec[14:18], "big")
+            nl = rec[32]
+            raw = rec[33:33 + nl]
+            if lba_l != lba_b or sz_l != sz_b or len(raw) != nl:
+                pos += rl
+                continue
+            isdir = bool(rec[25] & 0x02)
+            if nl == 1 and raw in (b"\x00", b"\x01"):
+                pos += rl                        # "." / "..": recorded by walk()
+                continue
+            name = raw.decode("latin-1")
+            name = name[:-2] if name.endswith(";1") else name
+            name = name[:-1] if name.endswith(".") else name
+            full = (path + "/" + name) if path else name
+            out[(path, name)] = {"is_dir": isdir, "size": sz_l,
+                                 "start": lba_l * ISO_LBS}
+            if isdir:
+                stack.append((full, lba_l * ISO_LBS, sz_l))
+            pos += rl
+    return out
+
+
+def iso_member_bytes(data, rec, src, path):
+    """The bytes of one regular ISO member, or None (with a FAIL)."""
+    if rec["start"] + rec["size"] > len(data):
+        fail(src, path, "ISO member's extent runs past the end of the image")
+        return None
+    return data[rec["start"]:rec["start"] + rec["size"]]
+
+
+def iso_verify(listing_text, data, src):
+    """Cross-check the xorriso listing against the ISO's directory records.
+
+    Returns the record map when the listing and the ISO agree at every
+    directory depth, else None with a FAIL.  Every listed directory must exist
+    on the ISO as a directory of the same size; every listed member must exist
+    as the same kind; a directory the listing omits FAILS (a subset listing
+    would silently skip a whole subtree, and the scan must see every byte the
+    medium argument is about)."""
+    recs = read_iso_records(data)
+    if not recs:
+        fail(src, "iso", "ISO has no readable ECMA-119 root directory")
+        return None
+    lst = parse_iso_listing(listing_text, src)
+    if not lst:
+        fail(src, "iso", "iso listing is empty")
+        return None
+    on_iso = {}
+    for (parent, name) in recs:
+        if name is None:
+            continue
+        on_iso.setdefault(parent, {})[name] = recs[(parent, name)]
+    if set(lst) != set(on_iso):
+        missing = sorted(set(on_iso) - set(lst))
+        extra = sorted(set(lst) - set(on_iso))
+        fail(src, "iso", f"iso listing and the ISO disagree on the directory "
+                         f"set (not listed: {missing[:5]}; not on the ISO: "
+                         f"{extra[:5]})")
+        return None
+    for d in sorted(lst):
+        listed = {name: (kind, size) for name, kind, size in lst[d]
+                  if name not in (".", "..")}
+        actual = on_iso[d]
+        if set(listed) != set(actual):
+            fail(src, f"iso:{d or '/'}",
+                 f"iso listing and the ISO disagree on the members of {d or '/'} "
+                 f"(not listed: {sorted(set(actual) - set(listed))[:5]}; not on "
+                 f"the ISO: {sorted(set(listed) - set(actual))[:5]})")
+            return None
+        for name, (kind, size) in sorted(listed.items()):
+            rec = actual[name]
+            want = "dir" if rec["is_dir"] else "file"
+            if want != kind:
+                fail(src, f"iso:{d or '/'}/{name}",
+                     f"ISO has a {want} here but the listing says {kind}")
+                return None
+            if kind == "dir":
+                continue
+            if size != rec["size"]:
+                fail(src, f"iso:{d or '/'}/{name}",
+                     f"ISO extent is {rec['size']} bytes but the listing says {size}")
+                return None
+        # A directory's own size is the listing's cross-check on the walk.
+        dot = [size for name, kind, size in lst[d] if name == "."]
+        if dot and dot[0] not in (recs[(d, None)]["size"],):
+            fail(src, f"iso:{d or '/'}",
+                 f"ISO directory size {recs[(d, None)]['size']} != the listing's "
+                 f"{dot[0]}")
+            return None
+    return recs
+
+
+def scan_substrate_iso(ref, iso, work, src, listing=None):
+    """--substrate-iso: the pinned installer substrate's own packages.
+
+    Checks, using the image scan's helpers unchanged:
+      1. every udeb in the ISO's `/cdrom` pool  -- authorize_pool()
+      2. every udeb/deb in the ISO's installer initrd (bytes + dpkg status) --
+         the SAME _scan_initrd() the image scan's ESP path uses
+      3. the one-kernel ruling for the substrate (audit_kernel_purity)
+
+    The /cdrom pool is what stage_provenance_gate() finds in the finished
+    image's `/pool` + `/dists`, and the initrd is what it finds in initrd-status,
+    so an unreviewed substrate udeb is reported HERE, before the 13-minute
+    mirror, instead of after layers + image.
+
+    With `listing`, the host needs NO xorriso: the manifest is verified against
+    the ISO bytes (iso_verify) and the members are read from their extents."""
+    if not os.path.isfile(iso):
+        fail(src, iso, "substrate ISO is missing")
+        return 0
+    with open(iso, "rb") as fh:
+        data = fh.read()
+    if len(data) < ISO_PVD_OFFSET + ISO_LBS or data[ISO_PVD_OFFSET + 1:ISO_PVD_OFFSET + 6] != b"CD001":
+        fail(src, iso, "not an ISO9660 image (no primary volume descriptor)")
+        return 0
+    if listing is not None:
+        if not os.path.isfile(listing):
+            fail(src, listing, "--iso-listing file is missing")
+            return 0
+        recs = iso_verify(slurp(listing, errors="replace"), data, src)
+        if recs is None:
+            return 0
+    else:
+        recs = read_iso_records(data)
+        if not recs:
+            fail(src, iso, "ISO has no readable ECMA-119 root directory")
+            return 0
+    owned = tempfile.mkdtemp(prefix="ncz-isoscan-", dir=work)
+    try:
+        total = 0
+        # 1. the /cdrom pool: its Packages index + every pool file it names.
+        pool = os.path.join(owned, "pool")
+        os.makedirs(pool, exist_ok=True)
+        pool_recs = {(p, n): r for (p, n), r in recs.items()
+                     if n is not None and not r["is_dir"]
+                     and (("pool" == p or p.startswith("pool/"))
+                          or ("dists" == p or p.startswith("dists/")))}
+        if not any(p.startswith("pool") for (p, _n) in pool_recs):
+            fail(src, iso, "substrate ISO carries no /pool tree (d-i cannot "
+                           "install from it, and its udebs cannot be authorized)")
+            return total
+        emitted = 0
+        for (p, n), r in sorted(pool_recs.items()):
+            rel = (p + "/" + n) if p else n
+            if rel.startswith("dists/") and not (
+                    n.startswith("Packages") or n.startswith("Release")):
+                continue
+            if rel.startswith("dists/") and "debian-installer" not in rel:
+                continue           # the runtime closure is the mirror's job
+            if rel.startswith("pool/") and not n.endswith((".udeb", ".deb")):
+                continue
+            b = iso_member_bytes(data, r, src, rel)
+            if b is None:
+                return total
+            dst = os.path.join(pool, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with open(dst, "wb") as fh:
+                fh.write(b)
+            emitted += 1
+        if not emitted:
+            fail(src, iso, "substrate ISO's /pool + d-i /dists carry no readable "
+                           "index or package")
+            return total
+        auth = authorize_pool(ref, pool, ref.idx, src + ":/cdrom", flat=False,
+                              sid_idx=ref.sid_idx)
+        if auth is None:
+            fail(src, iso, "the substrate's /cdrom pool is not fully authorized "
+                           "(an installer udeb has no reviewed origin)")
+            return total
+        total += sum(1 for _ in auth)
+        print(f"INPUT  [{src}] {os.path.basename(iso)}: /cdrom pool authorized "
+              f"({len(auth)} package file(s))")
+        # 2. every installer initrd: its udebs and its udpkg status.
+        initrds = [(p + "/" + n if p else n, r) for (p, n), r in recs.items()
+                   if n is not None and not r["is_dir"] and n.endswith(".gz")
+                   and initrd_candidate(n)]
+        if not initrds:
+            fail(src, iso, "substrate ISO carries no installer initrd (nothing to "
+                           "check for udebs the pool does not list)")
+        for rel, r in sorted(initrds):
+            b = iso_member_bytes(data, r, src, rel)
+            if b is None:
+                continue
+            ip = os.path.join(owned, "initrd-" + re.sub(r"[^A-Za-z0-9_.-]", "_", rel))
+            with open(ip, "wb") as fh:
+                fh.write(b)
+            total += _scan_initrd(ref, ip, owned, src=src + ":initrd",
+                                  skip_kernel_artifacts=_ncz_build_context())
+        total += audit_kernel_purity(ref, src + ":substrate")
+        return total
+    finally:
+        shutil.rmtree(owned, ignore_errors=True)
+
+
+def scan_input_evidence(work, iso, listing, src="iso"):
+    """--iso-evidence DIR: emit the `xorriso -ls` listing (the two directories
+    the substrate scan reads) into DIR so a host without xorriso can run the SAME
+    check with --substrate-iso ISO --iso-listing DIR/iso-listing.txt.  The ISO
+    must be present because xorriso reads it.  Not used by the build gate."""
+    if not need_tool("xorriso"):
+        return 0
+    os.makedirs(work, exist_ok=True)
+    out = os.path.join(work, "iso-listing.txt")
+    chunk = []
+    for d in ("/", "/dists", "/pool"):
+        r = run(["xorriso", "-osirrox", "on", "-indev", iso, "-ls", d],
+                capture_output=True, text=True)
+        if r.returncode != 0:
+            fail(src, iso, f"xorriso -ls {d} failed: {(r.stderr or '').strip()[:200]}")
+            return 0
+        chunk.append(r.stdout)
+    with open(out, "w") as fh:
+        fh.write("\n".join(chunk))
+    print(f"ISO-EVIDENCE  wrote {out}")
+    return 1
+
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -2586,12 +2990,32 @@ def main():
     ap.add_argument("--server-payload",
                     help="with --variant server: directory holding the pinned "
                          "base.squashfs and asset bundle")
+    # ---- stage-25 input modes (docs/BUILD-STABILITY.md M1) ------------------
+    ap.add_argument("--rootfs-tar", action="append", default=[],
+                    help="a prebuilt input rootfs .tar.zst: safe-extract and scan "
+                         "it exactly as scan_image() scans the one inside the "
+                         "finished image (stage 25)")
+    ap.add_argument("--substrate-iso", action="append", default=[],
+                    help="the pinned installer substrate ISO: authorize its "
+                         "/cdrom pool against the pinned snapshot + "
+                         "manifests/sid-exceptions.tsv and scan its installer "
+                         "initrd (stage 25).  Needs no xorriso, no root, no mount")
+    ap.add_argument("--iso-listing",
+                    help="with --substrate-iso: the `xorriso -ls` manifest for "
+                         "that ISO (see --iso-evidence).  Verified against the "
+                         "ISO's own directory records before it is trusted.")
+    ap.add_argument("--iso-evidence",
+                    help="write the `xorriso -ls` manifest for --substrate-iso "
+                         "ISO into this directory (needs xorriso; for a host "
+                         "without it)")
     a = ap.parse_args()
 
     # The offline lint mode must never be usable to downgrade a shipping scan.
-    if a.ubuntu_only and (a.image or a.verify_mirror):
-        ap.error("--ubuntu-only cannot be combined with --image or --verify-mirror "
-                 "(the shipping scan must not be downgraded)")
+    if a.ubuntu_only and (a.image or a.verify_mirror or a.rootfs_tar
+                          or a.substrate_iso):
+        ap.error("--ubuntu-only cannot be combined with --image, --verify-mirror, "
+                 "--rootfs-tar or --substrate-iso (the shipping scan must not be "
+                 "downgraded)")
 
     if a.verify_mirror:
         if not a.index_dir:
@@ -2611,7 +3035,8 @@ def main():
         print(f"== verify-mirror {a.verify_mirror}: {'OK' if ok else 'FAIL'}")
         sys.exit(0 if ok else 1)
 
-    if not (a.debs or a.packages or a.status or a.rootfs or a.squashfs or a.image):
+    if not (a.debs or a.packages or a.status or a.rootfs or a.squashfs or a.image
+            or a.rootfs_tar or a.substrate_iso or a.iso_evidence):
         ap.error("nothing to scan")
     if not a.ubuntu_only and not a.index_dir:
         die("no verified snapshot index (use --index-dir DIR, --fetch-index); failing closed")
@@ -2652,6 +3077,29 @@ def main():
         if not a.work:
             ap.error("--image needs --work DIR")
         total += scan_image(ref, im, a.work, a.variant, a.server_payload)
+
+    # ---- stage-25 input modes ---------------------------------------------
+    if (a.rootfs_tar or a.substrate_iso or a.iso_listing
+            or a.iso_evidence) and not a.work:
+        ap.error("--rootfs-tar / --substrate-iso need --work DIR (scratch, "
+                 "not tmpfs)")
+    if a.iso_listing and not a.substrate_iso:
+        ap.error("--iso-listing needs --substrate-iso")
+    if a.iso_listing and len(a.substrate_iso) > 1:
+        ap.error("--iso-listing applies to exactly one --substrate-iso")
+    if a.iso_evidence and not a.substrate_iso:
+        ap.error("--iso-evidence needs --substrate-iso (it lists that ISO)")
+    if a.work:
+        os.makedirs(a.work, exist_ok=True)
+    for ev, iso in zip([a.iso_evidence] * len(a.substrate_iso), a.substrate_iso):
+        if ev:
+            total += scan_input_evidence(ev, iso)
+    for tb in a.rootfs_tar:
+        total += scan_rootfs_tar(ref, tb, a.work, "input:" + os.path.basename(tb))
+    for iso in a.substrate_iso:
+        total += scan_substrate_iso(ref, iso, a.work,
+                                    "input:" + os.path.basename(iso),
+                                    listing=a.iso_listing)
 
     mode = ("ubuntu-only" if a.ubuntu_only
             else f"forky-provenance (snapshot {ref.pin}, {len(ref.idx)} forky "
