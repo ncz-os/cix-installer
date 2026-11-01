@@ -165,6 +165,16 @@ expect_rc "  ... but an amd64-only check does not judge the Sky1 kernel" 0 bash 
 F="$(fresh n-kled)"
 { grep -v cixmini "$F/manifests/ncz-packages.tsv"; kernel_ledger r292; } > "$F/x" && mv "$F/x" "$F/manifests/ncz-packages.tsv"
 expect_rc "ncz-packages kernel rows at r292 with the manifest at r293 FAILS" 1 bash "$CHK" --root "$F"; names_rule kernel-revision
+# Review 2026-11-01 (item 1): the ledger rows are compared with mainline.release
+# directly, not only through the manifest.  Here the manifest and its three
+# ledger rows agree at r293; the ONLY defect is an extra r292 ledger row that
+# no manifest entry points at, so only the ledger-vs-mainline.release
+# comparison can catch it.
+F="$(fresh n-kled-extra)"
+printf 'linux-image-cixmini\t7.3.0-sky1-ncz+r292\tarm64\t%s\tr\ts\tn\n' "$(ksha linux-image-cixmini r292)" >> "$F/manifests/ncz-packages.tsv"
+expect_rc "an extra r292 ledger row beside a coherent r293 set FAILS" 1 bash "$CHK" --root "$F"; names_rule kernel-revision
+if grep -q "ncz-packages.tsv:[0-9]*: linux-image-cixmini 7.3.0-sky1-ncz+r292 is revision r292" <<<"$LAST"; then
+    ok "  finding names the ledger row and its revision"; else bad "  ledger row not named" "$LAST"; fi
 F="$(fresh n-kmix)"; mkmanifest "$F" r292 r293 r293
 expect_rc "manifest mixing r292 boot with r293 image FAILS" 1 bash "$CHK" --root "$F"; names_rule kernel-revision
 F="$(fresh n-ksha)"; sed -i "s/^\(linux-image-cixmini\t[^\t]*\tarm64\t\)[0-9a-f]*/\1$SHA_A/" "$F/manifests/ncz-packages.tsv"
