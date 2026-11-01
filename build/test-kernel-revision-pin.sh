@@ -77,6 +77,15 @@ if grep -q "incomplete Sky1 kernel set: cixmini-boot" <<<"$LAST"; then ok "  fin
 printf '{"kernel_debs": "nope"}' > "$W/broken.json"
 expect_rc "an unreadable manifest FAILS a dir holding kernel debs" 1 bash "$PIN" --manifest "$W/broken.json" "$W/KVER" "$W/r293"
 expect_rc "a missing manifest FAILS a dir holding kernel debs" 1 bash "$PIN" --manifest "$W/no-such.json" "$W/KVER" "$W/r293"
+# Review 2026-11-01 (item 3): a malformed manifest is fatal even when no
+# directory holds a Sky1 deb (amd64 mirror, empty pool, or a dir that does
+# not exist yet): a broken pin file must never read as "nothing to check".
+expect_rc "an unreadable manifest FAILS even with no Sky1 debs present" 1 bash "$PIN" --manifest "$W/broken.json" "$W/KVER" "$W/empty"
+if grep -q "kernel-pin\] FAIL: .*broken.json" <<<"$LAST"; then ok "  finding names the manifest"; else bad "  manifest not named" "$LAST"; fi
+expect_rc "a missing manifest FAILS even with no Sky1 debs present" 1 bash "$PIN" --manifest "$W/no-such.json" "$W/KVER" "$W/empty"
+expect_rc "a malformed manifest FAILS even when no deb dir exists" 1 bash "$PIN" --manifest "$W/broken.json" "$W/KVER" "$W/no-such-dir"
+printf '{"kernel_debs": []}' > "$W/nodebs.json"
+expect_rc "a manifest that pins no kernel debs FAILS" 1 bash "$PIN" --manifest "$W/nodebs.json" "$W/KVER" "$W/empty"
 
 echo "=== 3. build-vendor-mirror.sh end to end: r292 debs, r293 manifest ==="
 mkdir -p "$W/mirror"

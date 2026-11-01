@@ -29,7 +29,8 @@
 #     the set must be complete.  KVER alone let r292 debs pass under an
 #     r293 manifest (2026-10-29) and fail only at provenance, stage 50.
 # A directory with no Sky1 kernel packages passes (amd64 vendor mirrors,
-# a pool before the first kernel publish).
+# a pool before the first kernel publish), but a --manifest that is missing,
+# malformed or pins no kernel deb fails every invocation.
 #
 # Usage: check-kernel-deb-pin.sh [--manifest <kernel-manifest.json>]
 #                                <kver-file> <deb-dir> [<deb-dir>...]
@@ -47,10 +48,12 @@ fi
 KVER_FILE="$1"; shift
 command -v dpkg-deb >/dev/null 2>&1 || { echo "[kernel-pin] ERROR: dpkg-deb not found" >&2; exit 2; }
 
-# Pinned "<package> <version> <sha256>" rows from the manifest.  An unreadable
-# manifest pins nothing, so any Sky1 kernel deb then fails below.
+# Pinned "<package> <version> <sha256>" rows from the manifest.  A manifest
+# that is missing, unparseable or pins no kernel deb is fatal before any
+# directory is looked at: with nothing pinned, a directory holding no Sky1
+# deb (amd64 mirror, empty pool) would otherwise pass and hide a broken pin
+# file until the first arm64 publish (review 2026-11-01).
 PINNED=""
-MANIFEST_ERR=""
 if [ -n "$MANIFEST" ]; then
     PINNED="$(python3 -I -c '
 import json, re, sys
@@ -60,7 +63,14 @@ for d in json.load(open(sys.argv[1], encoding="utf-8"))["kernel_debs"]:
     if not m or not re.fullmatch(r"[0-9a-f]{64}", d.get("sha256", "")):
         sys.exit("bad kernel_debs entry: %r" % (d,))
     print(m.group(1), unquote(m.group(2)), d["sha256"])
-' "$MANIFEST" 2>&1)" || { MANIFEST_ERR="$PINNED"; PINNED=""; }
+' "$MANIFEST" 2>&1)" || {
+        echo "[kernel-pin] FAIL: $MANIFEST is unreadable or malformed: $PINNED" >&2
+        exit 1
+    }
+    if [ -z "$PINNED" ]; then
+        echo "[kernel-pin] FAIL: $MANIFEST pins no kernel_debs" >&2
+        exit 1
+    fi
 fi
 
 KVER=""
@@ -93,8 +103,8 @@ for dir in "$@"; do
         if [ -n "$MANIFEST" ]; then
             seen_pkgs="$seen_pkgs$pkg "
             want="$(awk -v p="$pkg" '$1 == p { print $2 " " $3 }' <<<"$PINNED")"
-            if [ -n "$MANIFEST_ERR" ] || [ -z "$want" ]; then
-                echo "[kernel-pin] FAIL: $dir: $pkg $ver is not pinned by $MANIFEST${MANIFEST_ERR:+ ($MANIFEST_ERR)}" >&2
+            if [ -z "$want" ]; then
+                echo "[kernel-pin] FAIL: $dir: $pkg $ver is not pinned by $MANIFEST" >&2
                 dir_rc=1
             elif [ "$ver" != "${want%% *}" ]; then
                 echo "[kernel-pin] FAIL: $dir: $pkg $ver is not the pinned revision ${want%% *} ($MANIFEST)" >&2
@@ -152,7 +162,7 @@ for dir in "$@"; do
         echo "[kernel-pin] FAIL: $dir: cixmini-boot $boot_one and linux-image-cixmini $img_one come from different builds" >&2
         dir_rc=1
     fi
-    if [ -n "$MANIFEST" ] && [ "$seen_pkgs" != " " ] && [ -z "$MANIFEST_ERR" ]; then
+    if [ -n "$MANIFEST" ] && [ "$seen_pkgs" != " " ]; then
         while read -r mp mv _; do
             [ -n "$mp" ] || continue
             case "$seen_pkgs" in *" $mp "*) ;; *)
