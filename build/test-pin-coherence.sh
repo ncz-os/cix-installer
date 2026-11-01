@@ -219,18 +219,13 @@ expect_rc "a vendor deb whose bytes differ from vendor-debs.tsv FAILS" 1 bash "$
 expect_rc "  ... an Architecture: all deb is judged for every arch" 1 bash "$CHK" --root "$F" --arch arm64
 
 # --- 3. the real tree ------------------------------------------------------
-# KNOWN_FAIL lists the rules this checkout is KNOWN to fail, each with the
-# reason it cannot be fixed by a commit alone.  A listed rule that fails is
+# KNOWN_FAIL is the rule column of manifests/pin-coherence-known-fail.tsv,
+# the same list build-image.sh preflight reads (each row gives the owner, the
+# exact fix and why a commit alone cannot fix it).  A listed rule that fails is
 # reported XFAIL (and does not fail the suite); a listed rule that PASSES fails
-# the suite, so the marker is removed as soon as the defect is fixed.  A rule
+# the suite, so the row is removed as soon as the defect is fixed.  A rule
 # that fails and is NOT listed fails the suite.
-#
-#   rootfs-inputs: assets/mgmt/ncz-mgmt-rootfs.tar.zst and
-#     assets/rescue/rescue-rootfs-<arch>.tar.zst were built at snapshot
-#     20261018T082309Z (manifests/build-inputs.tsv notes); the pin is newer.
-#     Fixing it means rebuilding both tarballs per arch at the current pin
-#     (docs/BUILD-STABILITY.md M8), which is a build, not an edit.
-KNOWN_FAIL="rootfs-inputs"
+KNOWN_FAIL="$(awk -F'\t' '$1 !~ /^(#|$)/ {print $1}' "$ROOT/manifests/pin-coherence-known-fail.tsv" | tr '\n' ' ')"
 echo "=== 3. the real tree ==="
 rc=0; out="$(bash "$CHK" --root "$ROOT" 2>&1)" || rc=$?
 printf '%s\n' "$out" | sed 's/^/    /'

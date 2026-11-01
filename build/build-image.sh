@@ -82,6 +82,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=/dev/null
 . "$ROOT/build/lib/priv.sh"
 . "$ROOT/build/lib/ncz-site.sh"
+. "$ROOT/build/lib/pin-coherence-gate.sh"
 LAYERPLAN_PY="$ROOT/build/lib/layerplan.py"
 
 # ---------------------------------------------------------------------------
@@ -764,20 +765,21 @@ stage_preflight() {
 
     # -- repo pin coherence (docs/BUILD-STABILITY.md M3 + M7) --------------
     # Offline: the committed pins must agree with each other before any host
-    # work.  Includes the Sky1 kernel revision (mainline.release vs
-    # kernel-manifest.json vs ncz-packages.tsv), so an arm64 build refuses to
-    # produce +rNNN debs the manifest does not pin.
-    local pc_out pc_rc=0 line
-    pc_out="$(bash "$ROOT/build/check-pin-coherence.sh" --root "$ROOT" --arch "$ARCH" 2>&1)" || pc_rc=$?
-    printf '%s\n' "$pc_out" >>"$log"
-    if [ "$pc_rc" = 0 ]; then
-        say "pin coherence OK (check-pin-coherence.sh --arch $ARCH)"
-    else
-        while IFS= read -r line; do
-            case "$line" in *" FAIL "*) bad "$line" ;; esac
-        done <<<"$pc_out"
-        bad "repo pins disagree (build/check-pin-coherence.sh rc=$pc_rc); fix and commit the pin files"
-    fi
+    # work.  Includes the Sky1 kernel packaging revision (mainline.release /
+    # mainline.deb-revision vs kernel-manifest.json vs ncz-packages.tsv), so an
+    # arm64 build refuses to produce +rNNN debs the manifest does not pin.
+    # A rule listed in manifests/pin-coherence-known-fail.tsv WARNs loudly
+    # (owner + exact fix) and does not abort; any other failure aborts
+    # (build/lib/pin-coherence-gate.sh).
+    local pc_line
+    while IFS= read -r pc_line; do
+        case "$pc_line" in
+            "FAIL: "*) bad "${pc_line#FAIL: }" ;;
+            "WARN: "*) say "WARN: ${pc_line#WARN: }" ;;
+            "OK: "*)   say "${pc_line#OK: }" ;;
+        esac
+    done < <(ncz_pin_coherence_gate "$ROOT/build/check-pin-coherence.sh" "$ROOT" "$ARCH" \
+                 "$ROOT/manifests/pin-coherence-known-fail.tsv" 2>>"$log")
 
     # -- required host tools ----------------------------------------------
     local tools="git make python3 mksquashfs mkfs.ext4 sgdisk tar sha256sum zstd unsquashfs"

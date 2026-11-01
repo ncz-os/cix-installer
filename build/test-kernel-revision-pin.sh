@@ -135,7 +135,10 @@ if grep -q 'check-kernel-deb-pin.sh --manifest "$(ROOT)/assets/kernel-manifest.j
 else bad "Makefile kernel-debs reuse decision does not pass --manifest"; fi
 pf="$(sed -n '/^stage_preflight() {/,/^}/p' "$REPO/build/build-image.sh")"
 # shellcheck disable=SC2016
-if grep -q 'build/check-pin-coherence.sh" --root "\$ROOT" --arch "\$ARCH"' <<<"$pf"; then
+# (through build/lib/pin-coherence-gate.sh, which runs the checker it is given
+# with --root/--arch; the WARN/abort decision is tested in test-build-image.sh 2f)
+if grep -q 'ncz_pin_coherence_gate "\$ROOT/build/check-pin-coherence.sh" "\$ROOT" "\$ARCH"' <<<"$pf" \
+   && grep -q 'bash "\$checker" --root "\$root" --arch "\$arch"' "$REPO/build/lib/pin-coherence-gate.sh"; then
     ok "build-image.sh stage_preflight runs check-pin-coherence.sh for the build arch"
 else bad "stage_preflight does not run check-pin-coherence.sh"; fi
 

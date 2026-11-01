@@ -456,6 +456,95 @@ for f in build/build-image.sh build/layers-preflight.sh; do
     done
 done
 
+# --- 2f. preflight pin-coherence gate: known failure WARNs, new one aborts --
+# stage_preflight ran check-pin-coherence.sh and called bad() on ANY failure,
+# so every build (both arches) aborted on the known rootfs-inputs failure.  The
+# gate must WARN loudly (owner + exact fix) for a rule listed in
+# manifests/pin-coherence-known-fail.tsv and still abort for every other
+# failure.  The REAL preflight block (from "# -- repo pin coherence" to the
+# next "# --" section) is cut out of build-image.sh and run with preflight's
+# own say/bad, so the assertions hold for the code a build executes; ROOT
+# points at a fixture tree whose build/check-pin-coherence.sh is a stub
+# emitting the failure under test.
+echo "== 2f. preflight pin-coherence gate =="
+PCB="$SCRATCH/pc-block.sh"
+awk '/^    # -- repo pin coherence/{p=1} p && /^    # -- required host tools/{exit} p' "$BIN" > "$PCB"
+grep -q 'check-pin-coherence' "$PCB" && ok "preflight pin-coherence block located in build-image.sh" \
+    || bad "preflight pin-coherence block not found in build-image.sh"
+grep -q '^\. "\$ROOT/build/lib/pin-coherence-gate.sh"' "$BIN" \
+    && ok "build-image.sh sources build/lib/pin-coherence-gate.sh" \
+    || bad "build-image.sh does not source build/lib/pin-coherence-gate.sh"
+pc_preflight() { # root arch -> prints preflight lines; rc 1 when preflight would abort
+    # (the gate library comes from the real tree, as build-image.sh sources it
+    # before ROOT could point anywhere else)
+    local gate="$ROOT/build/lib/pin-coherence-gate.sh"
+    ( ROOT="$1" ARCH="$2"; log="$SCRATCH/pc.log"; fail=0
+      say() { printf '[preflight] %s\n' "$*"; }
+      bad() { printf '[preflight] FAIL: %s\n' "$*"; fail=1; }
+      [ -f "$gate" ] && . "$gate"
+      . "$PCB"; exit "$fail" ) 2>&1
+}
+pc_fixture() { # name rc stub-output-lines... -> fixture root
+    local d="$SCRATCH/pcroot-$1" rc="$2"; shift 2
+    mkdir -p "$d/build" "$d/manifests"
+    cp "$ROOT/manifests/pin-coherence-known-fail.tsv" "$d/manifests/" 2>/dev/null
+    { echo '#!/bin/bash'; for l in "$@"; do printf 'echo %q\n' "$l"; done; echo "exit $rc"; } > "$d/build/check-pin-coherence.sh"
+    printf '%s\n' "$d"
+}
+# (a) the real tree, real checker, real known-fail list: both arches proceed
+for a in arm64 amd64; do
+    pout="$(pc_preflight "$ROOT" "$a")"; prc=$?
+    [ "$prc" = 0 ] && ok "real tree $a: preflight does not abort on the known rootfs-inputs failure" \
+        || bad "real tree $a: preflight aborts: $(grep 'FAIL' <<<"$pout" | head -3 | tr '\n' ' ')"
+    grep -q 'WARN: .*KNOWN pin-coherence failure: rootfs-inputs' <<<"$pout" \
+        && grep -q 'WARN: .*owner: ' <<<"$pout" \
+        && grep -q 'WARN: .*fix: .*stage-build-inputs.sh --arch <arch> --publish' <<<"$pout" \
+        && ok "real tree $a: loud WARN names rootfs-inputs, its owner and the exact fix" \
+        || bad "real tree $a: no WARN with owner + fix for rootfs-inputs: $(head -5 <<<"$pout" | tr '\n' ' ')"
+done
+# (b) a failure outside the known list aborts
+F="$(pc_fixture new 1 '[pin-coherence] FAIL kernel-revision: manifest says r294')"
+pout="$(pc_preflight "$F" arm64)"; prc=$?
+[ "$prc" = 1 ] && grep -q "FAIL: .*kernel-revision" <<<"$pout" \
+    && ok "unlisted rule failure (kernel-revision): preflight aborts and names it" \
+    || bad "unlisted rule failure did not abort preflight (rc=$prc): $pout"
+# (c) known + new together: WARN for the known one, abort for the new one
+F="$(pc_fixture mixed 1 '[pin-coherence] FAIL rootfs-inputs: old snapshot' '[pin-coherence] FAIL base-pin: snapshot mismatch')"
+pout="$(pc_preflight "$F" amd64)"; prc=$?
+[ "$prc" = 1 ] && grep -q 'WARN: .*rootfs-inputs' <<<"$pout" && grep -q 'FAIL: .*base-pin' <<<"$pout" \
+    && ! grep -q 'FAIL: .*rootfs-inputs' <<<"$pout" \
+    && ok "known + unlisted failure: known one WARNs, unlisted one aborts" \
+    || bad "known + unlisted failure handled wrongly (rc=$prc): $pout"
+# (d) the known failure alone, from a stub: WARN, no abort (not just the real tree)
+F="$(pc_fixture known 1 '[pin-coherence] FAIL rootfs-inputs: old snapshot')"
+pout="$(pc_preflight "$F" arm64)"; prc=$?
+[ "$prc" = 0 ] && grep -q 'WARN: .*rootfs-inputs: old snapshot' <<<"$pout" \
+    && ok "known failure alone: WARN carries the checker's detail line, no abort" \
+    || bad "known failure alone aborted or lost its detail (rc=$prc): $pout"
+# (e) checker could not judge the tree (rc 2): abort even with only known lines
+F="$(pc_fixture rc2 2 '[pin-coherence] FAIL rootfs-inputs: old snapshot')"
+pout="$(pc_preflight "$F" arm64)"; prc=$?
+[ "$prc" = 1 ] && ok "checker rc=2 (tree error): preflight aborts" || bad "checker rc=2 did not abort: $pout"
+# (f) rc 1 without any FAIL line: abort (nothing to match against the list)
+F="$(pc_fixture norule 1 'something broke')"
+pout="$(pc_preflight "$F" arm64)"; prc=$?
+[ "$prc" = 1 ] && ok "checker rc=1 naming no rule: preflight aborts" || bad "unnamed failure did not abort: $pout"
+# (g) the known-fail list is absent: the same rootfs-inputs failure aborts
+F="$(pc_fixture nolist 1 '[pin-coherence] FAIL rootfs-inputs: old snapshot')"; rm -f "$F/manifests/pin-coherence-known-fail.tsv"
+pout="$(pc_preflight "$F" arm64)"; prc=$?
+[ "$prc" = 1 ] && ok "no known-fail list: rootfs-inputs failure aborts" || bad "missing known-fail list did not make the failure fatal: $pout"
+# (h) a malformed list row (no owner/fix) aborts rather than excusing anything
+F="$(pc_fixture badlist 1 '[pin-coherence] FAIL rootfs-inputs: old snapshot')"
+printf 'rootfs-inputs\n' > "$F/manifests/pin-coherence-known-fail.tsv"
+pout="$(pc_preflight "$F" arm64)"; prc=$?
+[ "$prc" = 1 ] && grep -q 'malformed' <<<"$pout" && ok "malformed known-fail row: preflight aborts" \
+    || bad "malformed known-fail row did not abort (rc=$prc): $pout"
+# (i) a passing checker: OK line, no WARN, no abort
+F="$(pc_fixture pass 0 '[pin-coherence] OK all')"
+pout="$(pc_preflight "$F" arm64)"; prc=$?
+[ "$prc" = 0 ] && grep -q 'pin coherence OK' <<<"$pout" && ! grep -q 'WARN' <<<"$pout" \
+    && ok "passing checker: OK, no WARN" || bad "passing checker mis-handled (rc=$prc): $pout"
+
 # --- 3. fingerprint invalidation (both directions) -------------------------
 echo "== 3. fingerprint invalidation =="
 FIX="$SCRATCH/fix"; mkdir -p "$FIX"
