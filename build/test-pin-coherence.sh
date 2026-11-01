@@ -175,6 +175,20 @@ printf 'linux-image-cixmini\t7.3.0-sky1-ncz+r292\tarm64\t%s\tr\ts\tn\n' "$(ksha 
 expect_rc "an extra r292 ledger row beside a coherent r293 set FAILS" 1 bash "$CHK" --root "$F"; names_rule kernel-revision
 if grep -q "ncz-packages.tsv:[0-9]*: linux-image-cixmini 7.3.0-sky1-ncz+r292 is revision r292" <<<"$LAST"; then
     ok "  finding names the ledger row and its revision"; else bad "  ledger row not named" "$LAST"; fi
+# Review 2026-11-01 (DeepSeek item 3): a version with no +rNNN suffix was
+# reported as "is revision None"; the finding must say what is wrong and name
+# the row / the manifest entry.
+F="$(fresh n-knorev)"
+printf 'linux-image-cixmini\t7.3.0-sky1-ncz\tarm64\t%s\tr\ts\tn\n' "$SHA_A" >> "$F/manifests/ncz-packages.tsv"
+expect_rc "a ledger kernel row with no +rNNN revision FAILS" 1 bash "$CHK" --root "$F"; names_rule kernel-revision
+if grep -q "ncz-packages.tsv:[0-9]*: linux-image-cixmini version has no +rNNN revision (7.3.0-sky1-ncz)" <<<"$LAST" \
+   && ! grep -q "None" <<<"$LAST"; then
+    ok "  finding names the ledger row and says it has no +rNNN revision"; else bad "  misleading finding" "$LAST"; fi
+F="$(fresh n-kmnorev)"; sed -i 's/linux-image-cixmini_7.3.0-sky1-ncz+r293_arm64/linux-image-cixmini_7.3.0-sky1-ncz_arm64/' "$F/assets/kernel-manifest.json"
+expect_rc "a manifest kernel deb with no +rNNN revision FAILS" 1 bash "$CHK" --root "$F"; names_rule kernel-revision
+if grep -q "kernel-manifest.json pins linux-image-cixmini_7.3.0-sky1-ncz_arm64.deb: version has no +rNNN revision (7.3.0-sky1-ncz)" <<<"$LAST" \
+   && ! grep -q "None" <<<"$LAST"; then
+    ok "  finding names the manifest entry and says it has no +rNNN revision"; else bad "  misleading finding" "$LAST"; fi
 F="$(fresh n-kmix)"; mkmanifest "$F" r292 r293 r293
 expect_rc "manifest mixing r292 boot with r293 image FAILS" 1 bash "$CHK" --root "$F"; names_rule kernel-revision
 F="$(fresh n-ksha)"; sed -i "s/^\(linux-image-cixmini\t[^\t]*\tarm64\t\)[0-9a-f]*/\1$SHA_A/" "$F/manifests/ncz-packages.tsv"

@@ -209,7 +209,9 @@ else:
         if len(c) >= 4 and c[0] in KERNEL_PKGS:
             lrows.setdefault((c[0], c[1], c[2]), []).append(c[3])
             r = revision(c[1])
-            if want and r != want:
+            if r is None:
+                fail("kernel-revision", f"manifests/ncz-packages.tsv:{n}: {c[0]} version has no +rNNN revision ({c[1]})"); bad += 1
+            elif want and r != want:
                 fail("kernel-revision", f"manifests/ncz-packages.tsv:{n}: {c[0]} {c[1]} is revision {r}, "
                      f"packaging revision is {want} ({src})"); bad += 1
     for d in debs:
@@ -218,7 +220,9 @@ else:
         if not p:
             fail("kernel-revision", f"assets/kernel-manifest.json: unparseable deb name '{f}'"); bad += 1; continue
         r = revision(p[1])
-        if want and r != want:
+        if r is None:
+            fail("kernel-revision", f"assets/kernel-manifest.json pins {f}: version has no +rNNN revision ({p[1]})"); bad += 1
+        elif want and r != want:
             fail("kernel-revision", f"assets/kernel-manifest.json pins {f} (revision {r}), "
                  f"packaging revision is {want} ({src})"); bad += 1
         shas = lrows.get(p)
