@@ -842,6 +842,7 @@ parity:
 	bash build/test-firmware-arch-bom.sh
 	bash build/test-desktop-apt-require.sh
 	bash build/test-build-inputs.sh
+	bash build/test-pin-coherence.sh
 	bash build/test-gate-chown-back.sh
 	bash build/test-fresh-clone-inputs.sh
 	bash build/test-deb-rev-defaults.sh
