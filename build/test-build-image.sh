@@ -471,9 +471,29 @@ PCB="$SCRATCH/pc-block.sh"
 awk '/^    # -- repo pin coherence/{p=1} p && /^    # -- required host tools/{exit} p' "$BIN" > "$PCB"
 grep -q 'check-pin-coherence' "$PCB" && ok "preflight pin-coherence block located in build-image.sh" \
     || bad "preflight pin-coherence block not found in build-image.sh"
-grep -q '^\. "\$ROOT/build/lib/pin-coherence-gate.sh"' "$BIN" \
+sources_gate() { grep -q '^[[:space:]]*\. "\$ROOT/build/lib/pin-coherence-gate.sh"' "$1"; }
+sources_gate "$BIN" \
     && ok "build-image.sh sources build/lib/pin-coherence-gate.sh" \
     || bad "build-image.sh does not source build/lib/pin-coherence-gate.sh"
+# Review 2026-11-01 (Muse item 4): the match was anchored at column 0, so an
+# indented (e.g. moved into a block) but live source line read as missing.
+# Indentation is accepted; a removed or commented-out line still is not.
+GV="$SCRATCH/gate-variants"; mkdir -p "$GV"
+gate_line='\. "\$ROOT/build/lib/pin-coherence-gate.sh"'
+sed "s|^$gate_line|    . \"\$ROOT/build/lib/pin-coherence-gate.sh\"|" "$BIN" > "$GV/spaces.sh"
+sed "s|^$gate_line|\t. \"\$ROOT/build/lib/pin-coherence-gate.sh\"|" "$BIN" > "$GV/tab.sh"
+sed "\\|^$gate_line|d" "$BIN" > "$GV/removed.sh"
+sed "s|^$gate_line|# . \"\$ROOT/build/lib/pin-coherence-gate.sh\"|" "$BIN" > "$GV/commented.sh"
+for v in spaces tab; do
+    { [ -s "$GV/$v.sh" ] && ! cmp -s "$BIN" "$GV/$v.sh"; } || bad "gate variant '$v' was not generated (fixture broken)"
+    sources_gate "$GV/$v.sh" && ok "gate source line indented with $v is recognised" \
+        || bad "gate source line indented with $v reads as missing"
+done
+for v in removed commented; do
+    { [ -s "$GV/$v.sh" ] && ! cmp -s "$BIN" "$GV/$v.sh"; } || bad "gate variant '$v' was not generated (fixture broken)"
+    sources_gate "$GV/$v.sh" && bad "a $v gate source line still reads as sourced" \
+        || ok "a $v gate source line reads as missing"
+done
 pc_preflight() { # root arch -> prints preflight lines; rc 1 when preflight would abort
     # (the gate library comes from the real tree, as build-image.sh sources it
     # before ROOT could point anywhere else)
