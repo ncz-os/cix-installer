@@ -210,11 +210,16 @@ if [ "$DO_SUBSTRATE" = 1 ] && [ -n "$ISO" ] && ! is_excluded "$ISO"; then
             # Only a host with xorriso can WRITE the manifest; without it the
             # scan proceeds on the ISO's own directory records.
             if command -v xorriso >/dev/null 2>&1; then
-                # Evidence only: exit status ignored (the real verdict is the
-                # scan below, which runs with the verified index).
+                # Evidence only: this run WRITES the manifest, it does not
+                # produce a verdict (the scan below does, with the verified
+                # index).  Its exit status is ignored, and because run_scan()
+                # bumps FAILS on a non-zero rc, restore the counter around it
+                # unconditionally -- decrementing after the fact would drive
+                # FAILS negative on success and mask a real failure.
+                _f_before="$FAILS"
                 run_scan "iso evidence $(basename "$ISO")" --substrate-iso "$ISO" \
                     --iso-evidence "$EVIDENCE" --work "$WORK" --ubuntu-only || true
-                FAILS=$((FAILS - 1))
+                FAILS="$_f_before"
                 [ -f "$EVIDENCE/iso-listing.txt" ] && IARGS+=(--iso-listing "$EVIDENCE/iso-listing.txt")
             else
                 [ -n "$QUIET" ] || echo "[provenance-predict] note: no xorriso on this host; the substrate is scanned from the ISO's own directory records" >&2
