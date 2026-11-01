@@ -113,6 +113,17 @@ expect_rc "deb-revision r293 over staged r292: BUILD_REV is r293" 0 kd_rev
 [ "$LAST" = r293 ] && ok "  -> r293" || bad "  wanted r293" "$LAST"
 expect_rc "an explicit BUILD_REV still wins" 0 kd_rev BUILD_REV=r295
 [ "$LAST" = r295 ] && ok "  -> r295" || bad "  wanted r295" "$LAST"
+# Review 2026-11-01 (DeepSeek item 2): --print-build-rev is a pure query.  It
+# was recognised only as $1; anywhere else the script ran the real packaging
+# path (rm -rf build/kernel-debs and onward).  It must be honoured in any
+# position and leave the tree untouched.
+kd_tree() { (cd "$KD" && find . -printf '%p %s %T@\n' | sort); }
+before="$(kd_tree)"
+expect_rc "--print-build-rev after another argument is still the query" 0 \
+    env -u BUILD_REV bash "$KD/build/build-kernel-debs.sh" --unused --print-build-rev
+[ "$LAST" = r293 ] && ok "  -> r293" || bad "  wanted r293" "$LAST"
+[ "$before" = "$(kd_tree)" ] && ok "  the query wrote nothing under the tree" \
+    || bad "  the query changed the tree" "$(diff <(printf '%s\n' "$before") <(kd_tree))"
 printf 'r291\n' > "$KD/assets/kernel/mainline.deb-revision"
 expect_rc "deb-revision older than the staged release is refused" 1 kd_rev
 grep -q "mainline.deb-revision" <<<"$LAST" && ok "  refusal names mainline.deb-revision" || bad "  refused for another reason" "$LAST"

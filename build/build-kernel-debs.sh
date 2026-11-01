@@ -21,6 +21,14 @@
 set -euo pipefail
 umask 022   # reproducible file modes: the version gate compares content, modes included
 
+# --print-build-rev: print the revision this tree would build and exit, before
+# anything is written.  Recognised in any argument position (it was $1 only, and
+# anywhere else the full packaging path ran, starting with rm -rf $OUT).
+_PRINT_BUILD_REV=0
+for _arg in "$@"; do
+    case "$_arg" in --print-build-rev) _PRINT_BUILD_REV=1 ;; esac
+done
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"   # cix-installer/
 ASSETS="$REPO/assets/kernel"
 NPU="$REPO/assets/npu"
@@ -173,7 +181,10 @@ if [ -n "$_MAINLINE_REV" ] && [ "${BUILD_REV#r}" -lt "${_MAINLINE_REV#r}" ] 2>/d
     echo "ERROR: BUILD_REV=$BUILD_REV is older than the staged kernel directory ($_MAINLINE_DIR_NAME); refusing to build a downgrade-labelled kernel deb" >&2
     exit 1
 fi
-if [ "${1:-}" = "--print-build-rev" ]; then   # tests: the revision this tree would build
+# Everything above only READS the tree.  The rNNN checks stay ahead of the
+# query on purpose: a revision this script would refuse to build is not "the
+# revision this tree would build", so the query fails exactly as the build does.
+if [ "$_PRINT_BUILD_REV" = 1 ]; then
     printf '%s\n' "$BUILD_REV"
     exit 0
 fi
