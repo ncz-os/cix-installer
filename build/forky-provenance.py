@@ -2533,7 +2533,15 @@ def _scan_initrd(ref, path, owned, src="image", skip_kernel_artifacts=False):
     docs/ONE-KERNEL.md ruling audit_kernel_purity() makes for the /cdrom pool --
     a d-i initrd is BUILT from its own kernel).  It is never set for a medium
     scan, and it does not skip any provenance classification: those udebs are
-    still scanned and still need an authorized origin."""
+    still scanned and still need an authorized origin.
+
+    Both are OPTIONAL, and that is what lets the one-call-site-per-gate shape
+    work: the image scan's ESP path and the no-ubuntu fixture call it with three
+    arguments (src defaults to "image", no exemption), while the stage-25
+    substrate path passes src="...:initrd" and the exemption explicitly.  Keep
+    that contract when touching the signature -- a new REQUIRED parameter would
+    break every 3-argument caller at once.  build/test-provenance-predict.sh
+    ("shared-helper contract") asserts it."""
     if not os.path.isfile(path):
         fail(src, path, "initrd could not be extracted")
         return 0
