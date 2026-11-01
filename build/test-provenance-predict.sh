@@ -543,6 +543,74 @@ expect_rc "a +r292 kernel deb under a +r293 manifest FAILS" 1 \
     bash "$CHK" --root "$TR3" --work "$WF" --index-dir "$IDX" --arch amd64 --no-substrate
 lastfind "ncz-kernel 7.3.0 amd64"
 
+# 2f. the --iso-evidence run writes a manifest, it is NOT a verdict.  Its exit
+#     status must not move the failure count either way: a decrement on success
+#     drives FAILS negative (run_scan bumps it only on failure) and would mask a
+#     real finding.  Driven through a stub xorriso so the branch is reachable.
+mkdir -p "$T/evbin"
+printf '#!/bin/sh\ncase "$*" in *-ls*) echo total 0;; esac\nexit 0\n' > "$T/evbin/xorriso"
+chmod +x "$T/evbin/xorriso"
+mkdir -p "$T/evtrust" "$T/evdebs"
+printf 'NCZ_BASE_MIRROR_SNAPSHOT="%s"\n' "$SNAP" > "$T/evtrust/release.conf"
+rc=0; LAST="$(PATH="$T/evbin:$PATH" bash "$CHK" --root "$T/evtrust" --work "$WF" \
+    --index-dir "$T/ev-index" --arch amd64 --no-rootfs --deb-dir "$T/evdebs" \
+    --substrate-iso "$T/bad/rogue.iso" --iso-evidence "$T/ev" 2>&1)" || rc=$?
+n="$(grep -oE '[0-9]+ input check\(s\) FAILED' <<<"$LAST" | awk '{print $1; exit}')"
+[ "$rc" != 0 ] && ok "--iso-evidence: a failing input still fails the gate (rc=$rc)" \
+               || bad "--iso-evidence masked a failing input (rc=$rc)" "$LAST"
+[ "${n:-0}" -ge 1 ] && ok "--iso-evidence: the evidence run is not counted as a verdict (${n} finding(s))" \
+                    || bad "--iso-evidence corrupted the failure count (n=${n:-unset})" "$LAST"
+
+# 2g. the evidence mode itself.  The stub above returns before the listing
+#     writer, so it never exercises it.  TOOL_PATH is deliberately fixed (a
+#     shipping scan must not be steered by the caller's PATH), so this host
+#     either HAS xorriso -- then the manifest is written and the mode exits 0
+#     (0 = success here, NOT a finding count: an earlier revision returned 1
+#     and drove FAILS negative) -- or it does not, and the mode must fail CLOSED
+#     with the env finding rather than write a half manifest and report a pass.
+mkdir -p "$T/ev2"
+rc=0; LAST="$(python3 -I "$PY" --ubuntu-only --work "$WF" \
+    --iso-evidence "$T/ev2" --substrate-iso "$T/fix/substrate.iso" 2>&1)" || rc=$?
+if [ -s "$T/ev2/iso-listing.txt" ]; then
+    [ "$rc" = 0 ] && ok "--iso-evidence: writes the manifest and exits 0 (rc=$rc)" \
+                  || bad "--iso-evidence: wrote a manifest but exited $rc, wanted 0" "$LAST"
+    grep -q '^ISO-EVIDENCE' <<<"$LAST" && ok "--iso-evidence: reports the manifest it wrote" \
+                                       || bad "--iso-evidence: no ISO-EVIDENCE line" "$LAST"
+else
+    [ "$rc" = 1 ] && ok "--iso-evidence: no xorriso fails closed, no partial manifest (rc=$rc)" \
+                  || bad "--iso-evidence: exited $rc with no manifest, wanted 1" "$LAST"
+    grep -q 'xorriso' <<<"$LAST" && ok "--iso-evidence: the failure names the missing tool" \
+                                 || bad "--iso-evidence: failure does not name xorriso" "$LAST"
+fi
+
+# 2h. the arity of the writer, pinned without needing the tool: a call that
+#     mismatches the signature raises TypeError, which main() turns into a
+#     deterministic non-zero exit, so a bad call can never read as success.
+rc=0; LAST="$(python3 -I - "$PY" <<'PYEOF' 2>&1
+import importlib.util, sys, os, tempfile
+spec = importlib.util.spec_from_file_location("fp", sys.argv[1])
+fp = importlib.util.module_from_spec(spec)
+try:
+    spec.loader.exec_module(fp)
+except SystemExit:
+    sys.exit(3)
+d = tempfile.mkdtemp()
+iso = os.path.join(d, "x.iso")
+open(iso, "wb").close()
+before = len(fp.FAILS)
+rc = fp.scan_input_evidence(d, iso)          # the real call site's shape
+print("RC", rc, "FAILS_DELTA", len(fp.FAILS) - before)
+PYEOF
+)" || rc=$?
+grep -q '^RC 0 FAILS_DELTA 1' <<<"$LAST" \
+    && ok "--iso-evidence: the 2-arg call matches the writer signature" \
+    || bad "--iso-evidence: writer call/def arity mismatch" "$LAST"
+
+# 2i. --iso-evidence renders no verdict, so a bare (non --ubuntu-only) scan must
+#     REFUSE it rather than silently ignore it and report a pass.
+expect_rc "--iso-evidence without --ubuntu-only is refused" 2 \
+    python3 -I "$PY" --iso-evidence "$T/ev2" --substrate-iso "$T/fix/substrate.iso" --work "$WF"
+
 # 2e. fail closed: an index directory that holds nothing.  The gate must exit
 #     non-zero (it cannot verify anything) and must never print the "all input
 #     provenance checks passed" line -- a missing index is not a pass.
