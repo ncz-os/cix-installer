@@ -200,7 +200,7 @@ def run(argv, **kw):
     return subprocess.run(argv, env=tool_env(), **kw)  # noqa: PLW1510
 
 
-def _ncz_build_context():
+def _ncz_build_context(root=None):
     """True when a shipped-tree scan may EXEMPT an installer-substrate kernel
     udeb (docs/ONE-KERNEL.md one-kernel rule), False for an isolated tree.
 
@@ -211,7 +211,7 @@ def _ncz_build_context():
     the reach of an already-reviewed exemption (the substrate's own
     kernel-module udebs, which the medium's /cdrom pool deliberately does not
     carry) from widening to a fixture that was reviewed without it."""
-    return release_conf("NCZ_ONE_KERNEL_SUBSTRATE_UDEBS", "") == "exempt"
+    return release_conf("NCZ_ONE_KERNEL_SUBSTRATE_UDEBS", "", root=root) == "exempt"
 
 
 def need_tool(name):
@@ -279,8 +279,8 @@ def sha256_file(path):
 
 
 # ---------------------------------------------------------------- trust metadata
-def load_trust():
-    p = os.path.join(ROOT, "manifests", "forky-snapshot.tsv")
+def load_trust(root=None):
+    p = os.path.join(root or ROOT, "manifests", "forky-snapshot.tsv")
     if not os.path.isfile(p):
         die(f"missing trust metadata {p}")
     kv = {}
@@ -321,12 +321,12 @@ def load_trust():
     return kv
 
 
-def release_conf(key, default=None):
+def release_conf(key, default=None, root=None):
     """Strict single-assignment read of release.conf.  A malformed or duplicated
     value is a hard error, not a silently-truncated prefix.  Documented syntax:
     KEY=value or KEY="value"; either form must occupy the whole line, with no
     trailing comment, no inner quotes, and no single-quote form."""
-    p = os.path.join(ROOT, "release.conf")
+    p = os.path.join(root or ROOT, "release.conf")
     vals = []
     if os.path.isfile(p):
         for line in slurp(p, encoding="utf-8").splitlines():
@@ -460,7 +460,7 @@ def suite_releases(trust):
     return out
 
 
-def verify_index(d, trust, need, fetch, verify_pool=False, src="index"):
+def verify_index(d, trust, need, fetch, verify_pool=False, src="index", root=None):
     """Verify the signed Release for the pinned snapshot and every needed
     Packages index against it.  ``need`` is a list of (suite, component, arch):
     each suite's InRelease is verified against its own committed digest in the
@@ -476,7 +476,7 @@ def verify_index(d, trust, need, fetch, verify_pool=False, src="index"):
         fail(src, "index", "no index directory supplied")
         return None
     if not os.path.isabs(keyring):
-        keyring = os.path.join(ROOT, keyring)
+        keyring = os.path.join(root or ROOT, keyring)
     if not os.path.isfile(keyring):
         fail(src, keyring, "trust keyring is missing")
         return None
@@ -668,14 +668,16 @@ def verify_candidate_mirror(ref, mirror, up_dir, fetch):
     if not os.path.isdir(mirror):
         fail("mirror", mirror, "candidate mirror directory does not exist")
         return False
-    up = verify_index(up_dir, ref.trust, codename_need(ref.trust), fetch, src="upstream")
+    up = verify_index(up_dir, ref.trust, codename_need(ref.trust), fetch,
+                      src="upstream", root=ref.root)
     if up is None:
         fail("mirror", mirror, "upstream snapshot index could not be verified")
         return False
     up_di = {}
     dneed = di_need(ref.trust)
     if dneed:
-        up_di = verify_index(up_dir, ref.trust, dneed, fetch, src="upstream")
+        up_di = verify_index(up_dir, ref.trust, dneed, fetch, src="upstream",
+                             root=ref.root)
         if up_di is None:
             fail("mirror", mirror, "upstream sid debian-installer index could not "
                                    "be verified")
@@ -811,10 +813,15 @@ def load_tsv(path, min_cols, roster_name):
 class Ref:
     def __init__(self, a):
         self.ubuntu_only = a.ubuntu_only
+        # The trust root.  Defaults to this checkout; --root-dir names an
+        # isolated one (a fixture repo in the tests).  Every manifest read below
+        # goes through it, so a fixture trust root is complete on its own and
+        # never silently falls back to the checkout's ledgers.
+        self.root = getattr(a, "root_dir", None) or ROOT
         self.verify_mirror = bool(a.verify_mirror)
-        self.trust = {} if a.ubuntu_only else load_trust()
-        self.pin = release_conf("NCZ_BASE_MIRROR_SNAPSHOT")
-        self.codename = release_conf("NCZ_BASE_CODENAME")
+        self.trust = {} if a.ubuntu_only else load_trust(self.root)
+        self.pin = release_conf("NCZ_BASE_MIRROR_SNAPSHOT", root=self.root)
+        self.codename = release_conf("NCZ_BASE_CODENAME", root=self.root)
         if not PIN_RE.match(self.pin or ""):
             die(f"release.conf NCZ_BASE_MIRROR_SNAPSHOT is not a valid timestamp: {self.pin!r}")
         if not self.codename:
@@ -828,7 +835,7 @@ class Ref:
                     f"'{self.trust['codename']}'")
 
         self.vendor = {}
-        for n, r in load_tsv(os.path.join(ROOT, "manifests/vendor-debs.tsv"), 7,
+        for n, r in load_tsv(os.path.join(self.root, "manifests/vendor-debs.tsv"), 7,
                              "manifests/vendor-debs.tsv"):
             if not SHA256_RE.match(r[5]):
                 die(f"vendor-debs.tsv:{n} sha256 is not 64 hex")
@@ -838,7 +845,7 @@ class Ref:
         # Installed-Size differs per host) still has exactly REVIEWED bytes per
         # build; every member is an explicit reviewed sha256, never a pattern.
         self.ncz = {}
-        for n, r in load_tsv(os.path.join(ROOT, "manifests/ncz-packages.tsv"), 7,
+        for n, r in load_tsv(os.path.join(self.root, "manifests/ncz-packages.tsv"), 7,
                              "manifests/ncz-packages.tsv"):
             if not SHA256_RE.match(r[3]):
                 die(f"ncz-packages.tsv:{n} sha256 is not 64 hex")
@@ -856,7 +863,7 @@ class Ref:
         # the finished image's receipt (`ncz_timestamped_debs`).  See
         # manifests/ncz-timestamped.tsv.
         self.ncz_ts = {}
-        for n, r in load_tsv(os.path.join(ROOT, "manifests/ncz-timestamped.tsv"), 6,
+        for n, r in load_tsv(os.path.join(self.root, "manifests/ncz-timestamped.tsv"), 6,
                              "manifests/ncz-timestamped.tsv"):
             if not r[1].strip() or not r[3].strip() or not r[4].strip():
                 die(f"ncz-timestamped.tsv:{n} needs a non-empty version_regex "
@@ -873,7 +880,7 @@ class Ref:
         self.seen_kernel = set()
 
         self.sources = []
-        for n, r in load_tsv(os.path.join(ROOT, "manifests/vendor-repos.tsv"), 8,
+        for n, r in load_tsv(os.path.join(self.root, "manifests/vendor-repos.tsv"), 8,
                              "manifests/vendor-repos.tsv"):
             self.sources.append({
                 "kind": r[0], "scheme": r[1].lower(), "host": r[2].lower(),
@@ -886,7 +893,7 @@ class Ref:
         # {basename: (tree_root, recipe, source_revision)}.  A status-less layer
         # that is not listed here still fails closed.
         self.overlays = {}
-        for n, r in load_tsv(os.path.join(ROOT, "manifests/overlay-layers.tsv"), 5,
+        for n, r in load_tsv(os.path.join(self.root, "manifests/overlay-layers.tsv"), 5,
                              "manifests/overlay-layers.tsv"):
             if not r[1].strip() or not r[2].strip() or not r[3].strip():
                 die(f"overlay-layers.tsv:{n} needs a non-empty tree_root (col 2), "
@@ -902,7 +909,7 @@ class Ref:
         #  review_by, snapshot, ...}}.  This REPLACES the former blanket sid d-i
         # suite grant: the ONLY sid content authorized is an exact row here.
         self.sid = {}
-        path = os.path.join(ROOT, "manifests/sid-exceptions.tsv")
+        path = os.path.join(self.root, "manifests/sid-exceptions.tsv")
         if os.path.isfile(path):
             for n, r in load_tsv(path, 13, "manifests/sid-exceptions.tsv"):
                 if not SHA256_RE.match(r[3]):
@@ -934,13 +941,14 @@ class Ref:
         self.idx = {}
         if not a.ubuntu_only and not self.verify_mirror:
             got = verify_index(a.index_dir, self.trust, codename_need(self.trust),
-                               a.fetch_index)
+                               a.fetch_index, root=self.root)
             if got is None:
                 sys.exit(1)
             self.idx = got
             dneed = di_need(self.trust)
             if dneed:
-                got2 = verify_index(a.index_dir, self.trust, dneed, a.fetch_index)
+                got2 = verify_index(a.index_dir, self.trust, dneed, a.fetch_index,
+                                    root=self.root)
                 if got2 is None:
                     sys.exit(1)
                 self.sid_idx = got2
@@ -2903,8 +2911,12 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
             fail(src, iso, "substrate ISO's /pool + d-i /dists carry no readable "
                            "index or package")
             return total
+        # orphan_root=pool: a pool file that NO Packages index lists is a
+        # finding, exactly as in the finished-image scan (authorize_pool above).
+        # Without it an unauthorized udeb simply dropped into /pool would be
+        # invisible to this gate -- the C3 failure it exists to catch early.
         auth = authorize_pool(ref, pool, ref.idx, src + ":/cdrom", flat=False,
-                              sid_idx=ref.sid_idx)
+                              orphan_root=pool, sid_idx=ref.sid_idx)
         if auth is None:
             fail(src, iso, "the substrate's /cdrom pool is not fully authorized "
                            "(an installer udeb has no reviewed origin)")
@@ -2927,7 +2939,7 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
             with open(ip, "wb") as fh:
                 fh.write(b)
             total += _scan_initrd(ref, ip, owned, src=src + ":initrd",
-                                  skip_kernel_artifacts=_ncz_build_context())
+                                  skip_kernel_artifacts=_ncz_build_context(ref.root))
         total += audit_kernel_purity(ref, src + ":substrate")
         return total
     finally:
@@ -2962,6 +2974,10 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ubuntu-only", action="store_true")
+    ap.add_argument("--root-dir",
+                    help="the trust root whose release.conf + manifests/ are read "
+                         "(default: this checkout).  The tests drive an isolated "
+                         "fixture root; the build always uses the checkout.")
     ap.add_argument("--index-dir",
                     help="directory holding the verified snapshot index (required "
                          "unless --ubuntu-only or --verify-mirror)")
@@ -3089,11 +3105,18 @@ def main():
         ap.error("--iso-listing applies to exactly one --substrate-iso")
     if a.iso_evidence and not a.substrate_iso:
         ap.error("--iso-evidence needs --substrate-iso (it lists that ISO)")
+    if a.iso_evidence is not None:
+        if not a.iso_evidence.strip():
+            ap.error("--iso-evidence DIR must not be empty")
+        # One evidence directory per ISO it describes, no more and no fewer: a
+        # single listing silently applied to several ISOs would be a mismatch.
+        if len(a.substrate_iso) != 1:
+            ap.error("--iso-evidence applies to exactly one --substrate-iso "
+                     f"(got {len(a.substrate_iso)})")
     if a.work:
         os.makedirs(a.work, exist_ok=True)
-    for ev, iso in zip([a.iso_evidence] * len(a.substrate_iso), a.substrate_iso):
-        if ev:
-            total += scan_input_evidence(ev, iso)
+    if a.iso_evidence:
+        total += scan_input_evidence(a.iso_evidence, a.substrate_iso[0])
     for tb in a.rootfs_tar:
         total += scan_rootfs_tar(ref, tb, a.work, "input:" + os.path.basename(tb))
     for iso in a.substrate_iso:
