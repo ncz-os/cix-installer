@@ -2946,12 +2946,17 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
         shutil.rmtree(owned, ignore_errors=True)
 
 
-def scan_input_evidence(work, iso, listing, src="iso"):
-    """--iso-evidence DIR: emit the `xorriso -ls` listing (the two directories
-    the substrate scan reads) into DIR so a host without xorriso can run the SAME
+def scan_input_evidence(work, iso, src="iso"):
+    """--iso-evidence DIR: emit the `xorriso -ls` listing (the directories the
+    substrate scan reads) into DIR so a host without xorriso can run the SAME
     check with --substrate-iso ISO --iso-listing DIR/iso-listing.txt.  The ISO
-    must be present because xorriso reads it.  Not used by the build gate."""
+    must be present because xorriso reads it.  This WRITES a manifest; it
+    renders no verdict, so it is the one mode that may pair --ubuntu-only with
+    --substrate-iso (main() refuses every other pairing).  Returns 0."""
     if not need_tool("xorriso"):
+        return 0
+    if not os.path.isfile(iso):
+        fail(src, iso, "no such substrate ISO (--iso-evidence reads it)")
         return 0
     os.makedirs(work, exist_ok=True)
     out = os.path.join(work, "iso-listing.txt")
@@ -2966,7 +2971,7 @@ def scan_input_evidence(work, iso, listing, src="iso"):
     with open(out, "w") as fh:
         fh.write("\n".join(chunk))
     print(f"ISO-EVIDENCE  wrote {out}")
-    return 1
+    return 0
 
 
 
@@ -3027,11 +3032,34 @@ def main():
     a = ap.parse_args()
 
     # The offline lint mode must never be usable to downgrade a shipping scan.
+    # --iso-evidence is the one exception: it only WRITES the xorriso manifest
+    # for an ISO and renders no verdict, so it is the sole mode that may pair
+    # --ubuntu-only with --substrate-iso (refused otherwise, below).
     if a.ubuntu_only and (a.image or a.verify_mirror or a.rootfs_tar
-                          or a.substrate_iso):
+                          or (a.substrate_iso and not a.iso_evidence)):
         ap.error("--ubuntu-only cannot be combined with --image, --verify-mirror, "
                  "--rootfs-tar or --substrate-iso (the shipping scan must not be "
                  "downgraded)")
+    if a.iso_evidence is not None and not a.ubuntu_only:
+        # It WRITES a manifest and renders no verdict; a scan that silently
+        # ignored it would report a pass the caller thinks covers the ISO.
+        ap.error("--iso-evidence is evidence-only: pair it with --ubuntu-only")
+    if a.ubuntu_only and a.iso_evidence and (
+            a.substrate_iso and (a.debs or a.packages or a.status or a.rootfs
+                                 or a.squashfs)):
+        ap.error("--iso-evidence with --ubuntu-only emits evidence only; it does "
+                 "not accept other scan inputs")
+
+    if a.ubuntu_only and a.iso_evidence and a.substrate_iso:
+        # Evidence-only: WRITE the xorriso manifest and stop.  No Ref is built,
+        # so this needs no trust root and no verified index -- that is exactly
+        # what it emits the manifest FOR (a host without xorriso then verifies
+        # with --substrate-iso ISO --iso-listing DIR/iso-listing.txt).
+        if not a.work:
+            ap.error("--iso-evidence needs --work DIR (scratch, not tmpfs)")
+        os.makedirs(a.work, exist_ok=True)
+        scan_input_evidence(a.iso_evidence, a.substrate_iso[0])
+        sys.exit(1 if FAILS else 0)
 
     if a.verify_mirror:
         if not a.index_dir:
@@ -3105,9 +3133,8 @@ def main():
         ap.error("--iso-listing applies to exactly one --substrate-iso")
     if a.iso_evidence and not a.substrate_iso:
         ap.error("--iso-evidence needs --substrate-iso (it lists that ISO)")
-    if a.iso_evidence is not None:
-        if not a.iso_evidence.strip():
-            ap.error("--iso-evidence DIR must not be empty")
+    if a.iso_evidence is not None and not a.iso_evidence.strip():
+        ap.error("--iso-evidence DIR must not be empty")
         # One evidence directory per ISO it describes, no more and no fewer: a
         # single listing silently applied to several ISOs would be a mismatch.
         if len(a.substrate_iso) != 1:
@@ -3115,8 +3142,6 @@ def main():
                      f"(got {len(a.substrate_iso)})")
     if a.work:
         os.makedirs(a.work, exist_ok=True)
-    if a.iso_evidence:
-        total += scan_input_evidence(a.iso_evidence, a.substrate_iso[0])
     for tb in a.rootfs_tar:
         total += scan_rootfs_tar(ref, tb, a.work, "input:" + os.path.basename(tb))
     for iso in a.substrate_iso:
