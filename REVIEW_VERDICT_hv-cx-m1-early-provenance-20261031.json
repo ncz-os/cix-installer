@@ -1,0 +1,10 @@
+{
+  "reviewers": [
+    {
+      "model": "qwen38",
+      "verdict": "blocked"
+    }
+  ],
+  "head_sha": "607242eba6cc6a64af7c1f514e007b9745825c6c",
+  "reason": "The requested review must be performed by one of the specified non-author model families. This environment exposes no MiniMax-M3.1-Flash-Preview, qwen38, gemma4-31b, MiniMax-M3, or nvidia/nemotron-3-ultra-550b-a55b reviewer, so a compliant reviewer could not be run. The base exists only as origin/release/preview4-20261025; the requested HEAD is exact and the author worktree was clean."
+}
