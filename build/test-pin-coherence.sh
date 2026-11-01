@@ -180,6 +180,28 @@ expect_rc "manifest mixing r292 boot with r293 image FAILS" 1 bash "$CHK" --root
 F="$(fresh n-ksha)"; sed -i "s/^\(linux-image-cixmini\t[^\t]*\tarm64\t\)[0-9a-f]*/\1$SHA_A/" "$F/manifests/ncz-packages.tsv"
 expect_rc "ledger kernel sha != manifest sha FAILS" 1 bash "$CHK" --root "$F"; names_rule kernel-revision
 
+echo "=== 2e'. kernel-revision: a packaging revision over a staged release ==="
+# r293 (2026-10-27) repackaged the r292 staged kernel (same Image) with rebuilt
+# overlays and a fixed headers tree, BUILD_REV=r293.  mainline.release names
+# the staged directory (r292-...); assets/kernel/mainline.deb-revision names
+# the packaging revision the debs carry.  The rule compares the latter with
+# the manifest and the ledger, and refuses one older than the staged dir.
+F="$(fresh p-kdebrev)"; echo "r292-7.3.0-sky1-ncz-20261023" > "$F/assets/kernel/mainline.release"
+printf '# packaging revision\nr293\n' > "$F/assets/kernel/mainline.deb-revision"
+expect_rc "staged r292 + deb-revision r293 + manifest/ledger r293 passes" 0 bash "$CHK" --root "$F"
+if grep -q "OK kernel-revision: r293 .*mainline.deb-revision.*r292" <<<"$LAST"; then ok "  OK line names the packaging revision and the staged release"
+else bad "  OK line lacks the revision sources" "$LAST"; fi
+F="$(fresh n-kdebrev-ahead)"; printf 'r294\n' > "$F/assets/kernel/mainline.deb-revision"
+expect_rc "deb-revision r294 with the manifest at r293 FAILS" 1 bash "$CHK" --root "$F"; names_rule kernel-revision
+F="$(fresh n-kdebrev-down)"; echo "r294-7.3.0-sky1-ncz-20261101" > "$F/assets/kernel/mainline.release"
+printf 'r293\n' > "$F/assets/kernel/mainline.deb-revision"
+expect_rc "deb-revision r293 older than the staged r294 release FAILS" 1 bash "$CHK" --root "$F"; names_rule kernel-revision
+if grep -q "older than the staged release" <<<"$LAST"; then ok "  finding names the downgrade"; else bad "  downgrade not named" "$LAST"; fi
+F="$(fresh n-kdebrev-bad)"; printf '293\n' > "$F/assets/kernel/mainline.deb-revision"
+expect_rc "a malformed deb-revision FAILS" 1 bash "$CHK" --root "$F"; names_rule kernel-revision
+F="$(fresh n-kdebrev-empty)"; printf '# nothing\n' > "$F/assets/kernel/mainline.deb-revision"
+expect_rc "an empty deb-revision FAILS (present but says nothing)" 1 bash "$CHK" --root "$F"; names_rule kernel-revision
+
 echo "=== 2f. tracked-debs ==="
 F="$(fresh n-ss)"
 sed -i 's/^ncz-screensavers\t0\.8\.19/ncz-screensavers\t0.8.18/' "$F/manifests/ncz-packages.tsv"
@@ -208,15 +230,7 @@ expect_rc "  ... an Architecture: all deb is judged for every arch" 1 bash "$CHK
 #     20261018T082309Z (manifests/build-inputs.tsv notes); the pin is newer.
 #     Fixing it means rebuilding both tarballs per arch at the current pin
 #     (docs/BUILD-STABILITY.md M8), which is a build, not an edit.
-#   kernel-revision: assets/kernel/mainline.release names
-#     r292-7.3.0-sky1-ncz-20261023 while kernel-manifest.json and the
-#     ncz-packages.tsv rows pin the r293 debs (overlay ABI rebuild + cixmini-boot
-#     1.6).  The fix is to point mainline.release at the staged directory that
-#     holds those r293 debs, but no r293 staging directory (and no +r293 deb)
-#     exists in the shared kernel-staging pool, so its name cannot be read from
-#     anywhere; reverting the pins to r292 would re-ship the debs r293 replaced.
-#     Stage the r293 release, set mainline.release to it, and drop this entry.
-KNOWN_FAIL="rootfs-inputs kernel-revision"
+KNOWN_FAIL="rootfs-inputs"
 echo "=== 3. the real tree ==="
 rc=0; out="$(bash "$CHK" --root "$ROOT" 2>&1)" || rc=$?
 printf '%s\n' "$out" | sed 's/^/    /'

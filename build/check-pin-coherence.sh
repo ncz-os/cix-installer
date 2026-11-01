@@ -12,10 +12,13 @@
 #                    records the snapshot it was built at, and it is the pin.
 #                    Until M8 adds a snapshot column, the record is the note's
 #                    "snapshot YYYYMMDDTHHMMSSZ".
-#   kernel-revision  the +rNNN packaging revision in assets/kernel/mainline.release
-#                    == every assets/kernel-manifest.json kernel deb == every
-#                    manifests/ncz-packages.tsv Sky1 kernel row, and each manifest
-#                    deb has a ledger row with the same sha256.  arm64 only.
+#   kernel-revision  the +rNNN packaging revision == every assets/kernel-manifest.json
+#                    kernel deb == every manifests/ncz-packages.tsv Sky1 kernel
+#                    row, and each manifest deb has a ledger row with the same
+#                    sha256.  The packaging revision is assets/kernel/mainline.deb-revision
+#                    when that file exists (a repackaging of the staged release;
+#                    never older than it), else the rNNN of assets/kernel/mainline.release.
+#                    arm64 only.
 #   tracked-debs     every .deb tracked in git under assets/ has an exact
 #                    (name, version, arch) row in manifests/ncz-packages.tsv or
 #                    manifests/vendor-debs.tsv whose sha256 is the file's.
@@ -171,9 +174,25 @@ else:
     rel_p = root / "assets/kernel/mainline.release"
     rel = rel_p.read_text(encoding="utf-8").strip() if rel_p.is_file() else ""
     m = re.match(r"^(r[0-9]+)-", rel)
-    want = m.group(1) if m else None
-    if not want:
+    staged = m.group(1) if m else None
+    if not staged:
         fail("kernel-revision", f"assets/kernel/mainline.release '{rel}' has no rNNN- revision"); bad += 1
+    # The packaging revision the debs carry: assets/kernel/mainline.deb-revision
+    # when present (a repackaging of the staged release, e.g. r293 over r292),
+    # else the staged release's own revision.  Never older than the staged one.
+    want, src = staged, f"mainline.release ({rel})"
+    dr_p = root / "assets/kernel/mainline.deb-revision"
+    if dr_p.is_file():
+        vals = [l.split("#", 1)[0].strip() for l in dr_p.read_text(encoding="utf-8").splitlines()]
+        vals = [v for v in vals if v]
+        if len(vals) != 1 or not re.fullmatch(r"r[0-9]+", vals[0]):
+            fail("kernel-revision", f"assets/kernel/mainline.deb-revision must hold exactly one rNNN value, has {vals}"); bad += 1
+            want = None
+        else:
+            want, src = vals[0], f"mainline.deb-revision over staged {rel}"
+            if staged and int(want[1:]) < int(staged[1:]):
+                fail("kernel-revision", f"assets/kernel/mainline.deb-revision {want} is older than the staged release {rel}"); bad += 1
+                want = None
     try:
         debs = json.loads((root / "assets/kernel-manifest.json").read_text(encoding="utf-8"))["kernel_debs"]
     except (OSError, ValueError, KeyError, TypeError) as e:
@@ -187,7 +206,7 @@ else:
             r = revision(c[1])
             if want and r != want:
                 fail("kernel-revision", f"manifests/ncz-packages.tsv:{n}: {c[0]} {c[1]} is revision {r}, "
-                     f"mainline.release is {want} ({rel})"); bad += 1
+                     f"packaging revision is {want} ({src})"); bad += 1
     for d in debs:
         f = Path(str(d.get("file", ""))).name
         p = split_deb(f)
@@ -196,14 +215,14 @@ else:
         r = revision(p[1])
         if want and r != want:
             fail("kernel-revision", f"assets/kernel-manifest.json pins {f} (revision {r}), "
-                 f"mainline.release is {want} ({rel})"); bad += 1
+                 f"packaging revision is {want} ({src})"); bad += 1
         shas = lrows.get(p)
         if not shas:
             fail("kernel-revision", f"assets/kernel-manifest.json pins {f}; manifests/ncz-packages.tsv has no {p[0]} {p[1]} {p[2]} row"); bad += 1
         elif d.get("sha256") not in shas:
             fail("kernel-revision", f"{f}: kernel-manifest sha256 {d.get('sha256')} != ncz-packages.tsv {','.join(shas)}"); bad += 1
     if not bad:
-        say("OK", "kernel-revision", f"{want} in mainline.release, kernel-manifest.json ({len(debs)} debs) and ncz-packages.tsv")
+        say("OK", "kernel-revision", f"{want} ({src}) in kernel-manifest.json ({len(debs)} debs) and ncz-packages.tsv")
 
 # --- tracked-debs -----------------------------------------------------------
 known = {}

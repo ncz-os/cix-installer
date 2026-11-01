@@ -7,7 +7,7 @@
 # build/build-vendor-mirror.sh end to end (its pin runs before any network
 # step), and asserts every caller passes --manifest: the vendor mirror (both
 # calls), the Makefile kernel-debs reuse decision, and build-image.sh
-# preflight's pin-coherence step (which compares mainline.release's revision
+# preflight's pin-coherence step (which compares the packaging revision
 # with the manifest before stage 40 can build anything).
 #
 # Run: bash build/test-kernel-revision-pin.sh     Exit 0 = all cases pass.
@@ -97,6 +97,31 @@ expect_rc "vendor mirror refuses r292 debs under the r293 manifest" 1 env \
 if grep -q "is not the pinned revision" <<<"$LAST"; then ok "  refused by the revision pin"; else bad "  refused for another reason" "$LAST"; fi
 if find "$W/mirror" -name '*.deb' | grep -q .; then bad "vendor mirror pool is not empty after the refused run"
 else ok "nothing was published by the refused run"; fi
+
+echo "=== 3b. build-kernel-debs.sh packaging revision ==="
+# r293 repackaged the r292 staged release: mainline.release names the staged
+# dir, assets/kernel/mainline.deb-revision the revision the debs must carry.
+# Without it, stage 40 can only ever build +r292 (the R2 failure).
+KD="$W/kd"; mkdir -p "$KD/build" "$KD/assets/kernel" "$KD/manifests"
+cp "$REPO/build/build-kernel-debs.sh" "$KD/build/"; cp "$REPO/manifests/base.pin" "$KD/manifests/"
+echo "r292-7.3.0-sky1-ncz-20261023" > "$KD/assets/kernel/mainline.release"
+kd_rev() { env -u BUILD_REV "$@" bash "$KD/build/build-kernel-debs.sh" --print-build-rev; }
+expect_rc "no deb-revision: BUILD_REV is the staged r292" 0 kd_rev
+[ "$LAST" = r292 ] && ok "  -> r292" || bad "  wanted r292" "$LAST"
+printf '# packaging revision over the staged release\nr293\n' > "$KD/assets/kernel/mainline.deb-revision"
+expect_rc "deb-revision r293 over staged r292: BUILD_REV is r293" 0 kd_rev
+[ "$LAST" = r293 ] && ok "  -> r293" || bad "  wanted r293" "$LAST"
+expect_rc "an explicit BUILD_REV still wins" 0 kd_rev BUILD_REV=r295
+[ "$LAST" = r295 ] && ok "  -> r295" || bad "  wanted r295" "$LAST"
+printf 'r291\n' > "$KD/assets/kernel/mainline.deb-revision"
+expect_rc "deb-revision older than the staged release is refused" 1 kd_rev
+grep -q "mainline.deb-revision" <<<"$LAST" && ok "  refusal names mainline.deb-revision" || bad "  refused for another reason" "$LAST"
+printf '293\n' > "$KD/assets/kernel/mainline.deb-revision"
+expect_rc "a malformed deb-revision is refused" 1 kd_rev
+grep -q "mainline.deb-revision" <<<"$LAST" && ok "  refusal names mainline.deb-revision" || bad "  refused for another reason" "$LAST"
+printf '# empty\n' > "$KD/assets/kernel/mainline.deb-revision"
+expect_rc "an empty deb-revision is refused" 1 kd_rev
+grep -q "mainline.deb-revision" <<<"$LAST" && ok "  refusal names mainline.deb-revision" || bad "  refused for another reason" "$LAST"
 
 echo "=== 4. every caller pins the revision ==="
 # The patterns below match source text, so their $ are literal (SC2016).
