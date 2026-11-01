@@ -56,6 +56,7 @@ assets/kernel/.gitkeep	common	-	placeholder
 assets/kernel/amd64-stable/	amd64	-	amd64 unified 7.3 default kernel KVER stamp
 assets/kernel/amd64-stable-manifest.json	amd64	-	amd64 default 7.3 kernel artifact manifest (sha256, provenance)
 assets/kernel/mainline.release	sky1	-	staged Sky1 kernel release name; build/link-kernel-mainline.sh links assets/kernel/mainline to it under the site kernel-staging pool
+assets/kernel/mainline.deb-revision	sky1	-	Sky1 kernel deb packaging revision when it differs from the staged release (r293 over r292); read by build-kernel-debs.sh, checked by check-pin-coherence.sh
 assets/kernel/sky1-manifest.json	sky1	-	Sky1 r286 7.3 default kernel artifact manifest (sha256, provenance)
 assets/kernel/t2gmux/	amd64	t2	T2 gmux DKMS source
 assets/kernel/t2gmux/patches/	amd64	t2	local hardening patches applied by DKMS (t2gmux G2/G3/G4)
@@ -118,6 +119,7 @@ build/check-early-command-size.sh	common	-	preseed/early_command loader-shape ga
 build/check-release-identity-gate.sh	common	-	MINOR-001 build-time gate: generated RELEASE/os-release/issue strings in a staged medium or baked rootfs carry no retired codename, a non-empty product label and a variant label matching BUILD_VARIANT (runs for both variants in write-usb-image.py and build-baked-rootfs.sh)
 build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
 build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
+build/check-pin-coherence.sh	common	-	M3 static check: base.pin/release.conf/forky-snapshot/determinism snapshot agree, sid-exceptions and rootfs rows at the pin, Sky1 kernel revision == kernel-manifest.json == ledger, tracked assets/ debs have ledger rows
 build/singularity-pins.sh	common	-	Singularity upstream pin reader: validate, pinned clone/checkout, patch-queue check against pins
 build/stage-accel-overlays.sh	sky1	-	builds and stages the mali/panthor/vpu/npu overlays for a kernel; fails on compile error or CRC/source mismatch
 build/test-singularity-pins.sh	common	-	offline test for the Singularity upstream pins and their build/preflight wiring
@@ -231,6 +233,8 @@ build/test-apt-sources-offline-canary.sh	common	-	24-apt-sources offline live-up
 build/test-dkms-prep-keep-going.sh	sky1	-	79-dkms-prep modules_prepare keep-going test
 build/test-headers-prepare-pristine.sh	sky1	-	modules_prepare on the installed header tree keeps the kernel's Kconfig output byte-for-byte (headers postinst, 79-dkms-prep, 10-our-kernel)
 build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
+build/test-kernel-revision-pin.sh	sky1	-	M7 fixture tests: Sky1 kernel debs pinned by full +rNNN Version and sha256 to kernel-manifest.json; malformed manifest fatal; build-kernel-debs packaging revision
+build/test-pin-coherence.sh	common	-	M3 fixture tests for check-pin-coherence.sh (one negative per rule) plus the real tree against manifests/pin-coherence-known-fail.tsv
 build/test-kernel-default-policy.sh	common	-	fixture tests for verify-kernel-default-policy.sh (positive ship states + every failure path)
 build/test-nouveau-runpm.sh	amd64	-	amd64-only nouveau.runpm=0: installer entries, installed-system rEFInd entries, late.sh modprobe.d (arm64 untouched)
 build/test-install-options.sh	common	-	every install-option combination ends bootable: rescue preflight, rEFInd entries, per-arch bootability, option skips, KVM gate option sets
@@ -587,6 +591,7 @@ build/test-stale-singularity-prune.sh	sky1	-	proves the base layer drops a stale
 build/test-libpeas-plugin-icon.sh	common	-	proves the generic libpeas-plugin fallback icon (NCZ puzzle-piece svg under assets/branding/icons) is a plain scalable svg and that 56-icon-theme.sh installs it into hicolor (idempotent, no clobber, never fails)
 build/stage-build-inputs.sh	common	-	stages the gitignored rescue/mgmt rootfs, python311 and wallpaper debs from the project build store build-inputs store, sha256-pinned (r201)
 manifests/build-inputs.tsv	common	-	sha256 pins for the the project build store build inputs staged by build/stage-build-inputs.sh
+manifests/pin-coherence-known-fail.tsv	common	-	check-pin-coherence.sh rules the tree is known to fail, with owner and exact fix; read by preflight and test-pin-coherence.sh
 build/test-build-inputs.sh	common	-	proves stage-build-inputs publish/fetch/check/refusal and that hooks 20/25/38 packages are seeded (r201)
 manifests/build-inputs-public.tsv	common	-	public source URL (+ tar member) for the build inputs a stranger can fetch with stage-build-inputs.sh --public; sha256 must equal the build-inputs.tsv pin
 build/test-build-inputs-public.sh	common	-	proves stage-build-inputs --public: download/extract, pin verification, refusal of drift and tampering, INTERNAL-ONLY reporting, and the real manifest against the pins
@@ -643,6 +648,7 @@ build/lib/reproducible.sh	common	-	shell surface of the determinism contract (en
 build/lib/compare-lib.sh	common	-	normalising helpers for compare-images (squashfs/fat/tar/json/tree)
 build/lib/priv.sh	common	-	the ONE privilege model: root / passwordless sudo / sudo -S with a sudo password on stdin (no FIFO)
 build/lib/ncz-site.sh	common	-	per-site settings lookup (env var, else ~/.config/ncz/<name>): store mount points, build hosts, push targets; nothing site-specific in code
+build/lib/pin-coherence-gate.sh	common	-	build-image.sh preflight decision on check-pin-coherence.sh: known-fail rule WARNs with owner + fix, any other failure aborts
 build/lib/guest-ext4.sh	common	-	KVM gate helper: e2fsck -fy a scratch copy of the timed-out guest root so debugfs can read the first-boot report
 build/test-build-determinism.sh	common	-	unit proof of the determinism primitives (+ negative controls) and compare-images both directions
 build/test-build-image.sh	common	-	CLI/plan/fingerprint/both-arch orchestration tests for the single entrypoint

@@ -21,6 +21,14 @@
 set -euo pipefail
 umask 022   # reproducible file modes: the version gate compares content, modes included
 
+# --print-build-rev: print the revision this tree would build and exit, before
+# anything is written.  Recognised in any argument position (it was $1 only, and
+# anywhere else the full packaging path ran, starting with rm -rf $OUT).
+_PRINT_BUILD_REV=0
+for _arg in "$@"; do
+    case "$_arg" in --print-build-rev) _PRINT_BUILD_REV=1 ;; esac
+done
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"   # cix-installer/
 ASSETS="$REPO/assets/kernel"
 NPU="$REPO/assets/npu"
@@ -146,10 +154,39 @@ fi
 _MAINLINE_REV=""
 case "$_MAINLINE_DIR_NAME" in r[0-9]*-*) _MAINLINE_REV="${_MAINLINE_DIR_NAME%%-*}" ;; esac
 case "${_MAINLINE_REV#r}" in *[!0-9]*) _MAINLINE_REV="" ;; esac
-BUILD_REV="${BUILD_REV:-${_MAINLINE_REV:-r258}}"
+# A repackaging of the staged release (same Image, different deb content) gets
+# its own revision without a new staging directory: r293 (2026-10-27) is the
+# r292 release with rebuilt overlays and a fixed headers tree.  The revision is
+# tracked in assets/kernel/mainline.deb-revision, so a clean build produces the
+# debs kernel-manifest.json pins instead of +r292 (the 2026-10-29 R2 failure).
+_DEB_REV=""
+_DEB_REV_FILE="$REPO/assets/kernel/mainline.deb-revision"
+if [ -e "$_DEB_REV_FILE" ]; then
+    _DEB_REV="$(sed 's/#.*//' "$_DEB_REV_FILE" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')"
+    case "$_DEB_REV" in
+        r[0-9]*) case "${_DEB_REV#r}" in *[!0-9]*) _DEB_REV="" ;; esac ;;
+        *) _DEB_REV="" ;;
+    esac
+    if [ -z "$_DEB_REV" ]; then
+        echo "ERROR: $_DEB_REV_FILE (assets/kernel/mainline.deb-revision) must hold exactly one rNNN value" >&2
+        exit 1
+    fi
+    if [ -n "$_MAINLINE_REV" ] && [ "${_DEB_REV#r}" -lt "${_MAINLINE_REV#r}" ]; then
+        echo "ERROR: assets/kernel/mainline.deb-revision $_DEB_REV is older than the staged kernel directory ($_MAINLINE_DIR_NAME)" >&2
+        exit 1
+    fi
+fi
+BUILD_REV="${BUILD_REV:-${_DEB_REV:-${_MAINLINE_REV:-r258}}}"
 if [ -n "$_MAINLINE_REV" ] && [ "${BUILD_REV#r}" -lt "${_MAINLINE_REV#r}" ] 2>/dev/null; then
     echo "ERROR: BUILD_REV=$BUILD_REV is older than the staged kernel directory ($_MAINLINE_DIR_NAME); refusing to build a downgrade-labelled kernel deb" >&2
     exit 1
+fi
+# Everything above only READS the tree.  The rNNN checks stay ahead of the
+# query on purpose: a revision this script would refuse to build is not "the
+# revision this tree would build", so the query fails exactly as the build does.
+if [ "$_PRINT_BUILD_REV" = 1 ]; then
+    printf '%s\n' "$BUILD_REV"
+    exit 0
 fi
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the

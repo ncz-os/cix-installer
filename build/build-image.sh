@@ -82,6 +82,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=/dev/null
 . "$ROOT/build/lib/priv.sh"
 . "$ROOT/build/lib/ncz-site.sh"
+. "$ROOT/build/lib/pin-coherence-gate.sh"
 LAYERPLAN_PY="$ROOT/build/lib/layerplan.py"
 
 # ---------------------------------------------------------------------------
@@ -761,6 +762,24 @@ stage_preflight() {
         say "determinism.pin OK (base digest $PIN_DIGEST)"
     fi
     say "run pin: $RUN_PIN"
+
+    # -- repo pin coherence (docs/BUILD-STABILITY.md M3 + M7) --------------
+    # Offline: the committed pins must agree with each other before any host
+    # work.  Includes the Sky1 kernel packaging revision (mainline.release /
+    # mainline.deb-revision vs kernel-manifest.json vs ncz-packages.tsv), so an
+    # arm64 build refuses to produce +rNNN debs the manifest does not pin.
+    # A rule listed in manifests/pin-coherence-known-fail.tsv WARNs loudly
+    # (owner + exact fix) and does not abort; any other failure aborts
+    # (build/lib/pin-coherence-gate.sh).
+    local pc_line
+    while IFS= read -r pc_line; do
+        case "$pc_line" in
+            "FAIL: "*) bad "${pc_line#FAIL: }" ;;
+            "WARN: "*) say "WARN: ${pc_line#WARN: }" ;;
+            "OK: "*)   say "${pc_line#OK: }" ;;
+        esac
+    done < <(ncz_pin_coherence_gate "$ROOT/build/check-pin-coherence.sh" "$ROOT" "$ARCH" \
+                 "$ROOT/manifests/pin-coherence-known-fail.tsv" 2>>"$log")
 
     # -- required host tools ----------------------------------------------
     local tools="git make python3 mksquashfs mkfs.ext4 sgdisk tar sha256sum zstd unsquashfs"

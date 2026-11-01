@@ -478,6 +478,14 @@ current tree without the change.
 - **Where.** A static-gates suite (stage 55). Also called from preflight in
   `--rehearse`, and run by `build/repin.sh`. Because it needs no host, it also
   runs at commit time.
+- **Known failures (2026-11-01).** `build-image.sh` preflight runs the check
+  for the build arch through `build/lib/pin-coherence-gate.sh`. A rule listed
+  in `manifests/pin-coherence-known-fail.tsv` (rule, owner, exact fix, reason)
+  is a loud WARN and does not abort; any other failure, a checker error, or a
+  malformed list aborts. `test-pin-coherence.sh` reads the same list and fails
+  when a listed rule passes. The kernel revision is the packaging revision in
+  `assets/kernel/mainline.deb-revision` (r293) when it differs from the staged
+  release in `mainline.release` (r292).
 - **Script.** New `build/test-pin-coherence.sh` plus `build/check-pin-coherence.sh`.
   The check is the reusable part; the test drives it on fixture repos.
 - **Tests.**

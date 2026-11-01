@@ -1,0 +1,13 @@
+# manifests/pin-coherence-known-fail.tsv -- check-pin-coherence.sh rules this
+# tree is KNOWN to fail, and why a commit alone cannot fix them.
+#
+# Read by build/lib/pin-coherence-gate.sh (build-image.sh preflight) and by
+# build/test-pin-coherence.sh section 3.  Preflight turns a failure of a listed
+# rule into a loud WARN naming the owner and the exact fix, and does not abort;
+# a failure of any rule NOT listed here aborts the build.  The test suite fails
+# when a listed rule starts passing, so a row is deleted in the same commit
+# that fixes its rule.  Never add a row to get a build through: an unlisted
+# failure is a real pin disagreement.
+#
+# Columns (TAB): rule, owner, fix (the exact action that clears it), reason.
+rootfs-inputs	Jason Perlow (build-inputs store / release operator)	rebuild assets/mgmt/ncz-mgmt-rootfs.tar.zst (build/build-mgmt-rootfs.sh <chroot> assets/mgmt/ncz-mgmt-rootfs.tar.zst forky <arch>) and assets/rescue/rescue-rootfs-<arch>.tar.zst (build/build-rescue-rootfs.sh) at the manifests/base.pin snapshot, then build/stage-build-inputs.sh --arch <arch> --publish and commit manifests/build-inputs.tsv; see docs/BUILD-DECISIONS-NEEDED.md and docs/BUILD-STABILITY.md M8	manifests/build-inputs.tsv rows for both tarballs, both arches, record snapshot 20261018T082309Z; the pin is newer.  Rebuilding is a build, not an edit.
