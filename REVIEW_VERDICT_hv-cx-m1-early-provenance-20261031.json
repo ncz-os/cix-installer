@@ -1,10 +1,79 @@
 {
+  "job_id": "01a19a05-3276-72e1-a6ae-11bc5454dfa2",
+  "auto_review_job_id": "72f77a0f-9213-4659-b738-7b190d870a2c",
+  "parent_job_id": "01a19873-1871-7007-bbfb-a38b84a46382",
+  "kind": "review",
+  "repo": "cix-installer",
+  "branch": "hv/cx-m1-early-provenance-20261031",
+  "base_ref": "release/preview4-20261025",
+  "base_sha": "323b2d29e1954e3c7ca1c82bd50b3df48e41e6a2",
+  "head_sha": "06e2d0a380c0232e9e9db46fcf86854798410a9a",
+  "reviewed_at": "2026-11-01T21:12:54-05:00",
+  "author": {
+    "model": "deepseek-flash",
+    "family": "deepseek"
+  },
+  "verdict": "request-changes",
   "reviewers": [
     {
       "model": "qwen38",
-      "verdict": "blocked"
+      "family": "qwen",
+      "verdict": "request-changes"
     }
   ],
-  "head_sha": "607242eba6cc6a64af7c1f514e007b9745825c6c",
-  "reason": "The requested review must be performed by one of the specified non-author model families. This environment exposes no MiniMax-M3.1-Flash-Preview, qwen38, gemma4-31b, MiniMax-M3, or nvidia/nemotron-3-ultra-550b-a55b reviewer, so a compliant reviewer could not be run. The base exists only as origin/release/preview4-20261025; the requested HEAD is exact and the author worktree was clean."
+  "cross_family": true,
+  "cross_family_note": "Author is deepseek-flash (deepseek family, per the parent job 01a19873-1871-7007-bbfb-a38b84a46382 result.models); reviewer qwen38 is a local vLLM (TYDEUS :8006) on a different family. The host zoder resolver confirms qwen38 serves this host (coder's configured route); the prior verdict's 'no compliant reviewer' claim is stale -- a compliant cross-family reviewer does exist here.",
+  "reason": "Request changes. The M1 predictive provenance gate (stage 25) is sound in design and mostly working: 11 commits, +1687/-37 across 6 files, the new --rootfs-tar/--substrate-iso/--iso-evidence modes, the writer-arity fix, the gate wiring, and the contract tests are all coherent, and 36 of the 41 new tests pass. But the suite build/test/test-provenance-predict.sh (the M1 deliverable's own gate) FAILS on the review host: 36 passed, 5 failed, exit 1 -- reproduced identically three consecutive runs, not flaky. Three distinct defects, none of them review-host-only: (1) the fixture writer xorriso_fallback() emits directory records that the gate's own parser rejects ('substrate ISO carries no /pool tree'), which breaks every ISO-driven scenario including the canonical positive 'a pool+initrd whose udebs are reviewed passes' and the A2-replay parity class MISSING; (2) a self-inconsistent test: 2h asserts 'RC 0 FAILS_DELTA 1' for a well-formed 2-arg call to scan_input_evidence(), but the function documents 'it renders no verdict' and every path -- including both fail() paths (missing tool, missing ISO file) -- returns 0 with zero FAILS delta, so the test cannot pass on any host regardless of xorriso presence; (3) a wrong-tool contract: 2f stubs xorriso on PATH, but the gate's need_tool()/run() use only the fixed TOOL_PATH, so the stub never runs and the stub-dependent sub-assertions cannot pass deterministically. A stage-25 gate that ships failing its own test suite (the build fails closed, correctly) is not mergeable as-is. Not blocked: the diff is reviewable, the architecture is correct, and all three defects are localized and fixable in the branch.",
+  "test_evidence": {
+    "suite": "build/test-provenance-predict.sh",
+    "result": "36 passed, 5 failed",
+    "exit_code": 1,
+    "reproductions": 3,
+    "failures": [
+      "substrate ISO: a pool+initrd whose udebs are reviewed passes (rc=1, wanted 0) -- fallback-written fixture ISO rejected by the gate's own ISO reader",
+      "replay/all: class MISSING: has no reviewed origin -- A2-parity replay cannot exercise the origin path because the fixture ISO fails the same reader rejection",
+      "finding 'pool/main/rogue.udeb' missing (rogue.udeb never reached the pool scan)",
+      "finding 'has no reviewed origin' missing (same fixture rejection)",
+      "--iso-evidence: writer call/def arity mismatch (RC 0 FAILS_DELTA 0, asserted RC 0 FAILS_DELTA 1)"
+    ]
+  },
+  "findings": [
+    {
+      "id": "fallback-iso-writer-incompatible-with-gate-parser",
+      "severity": "critical",
+      "title": "xorriso_fallback() fixture ISOs are rejected by the gate's own ISO reader: every no-xorriso host runs a failing suite",
+      "body": "build/test-provenance-predict.sh:332 xorriso_fallback() is the mkiso() fallback used on hosts without xorriso (the review host has none). The ISOs it writes make scan_substrate_iso() (build/forky-provenance.py:2854) fail with 'substrate ISO carries no /pool tree' -- the same error an ISO that genuinely lacks a pool gets. The failure is deterministic (3/3 runs). The pool-rejection filter (forky-provenance.py, scan_substrate_iso pool_recs) is correct for the intended use (a real d-i netinst DOES carry /pool); the defect is that the fallback writer's records do not survive the gate's own ECMA-119 reader on this host (directory records for /pool and /dists evidently do not resolve to names the reader accepts), while the same fixture path passes when xorriso writes the ISO. The test file even says the writer is 'used only when xorriso is absent' -- i.e., on exactly the hosts where the suite now fails. Consequence: the entire ISO-driven half of the M1 gate is unverifiable on no-xorriso hosts, and the canonical POSITIVE case ('a pool+initrd whose udebs are reviewed passes') cannot pass there, which also breaks the A2 (2026-10-29) replay parity class MISSING (its 'has no reviewed origin' expectation is unreachable because the ISO scan dies first).",
+      "location": "build/test-provenance-predict.sh:332; build/forky-provenance.py:2854"
+    },
+    {
+      "id": "test-2h-expects-finding-from-no-verdict-mode",
+      "severity": "critical",
+      "title": "2h asserts FAILS_DELTA 1 for a well-formed 2-arg call; scan_input_evidence() cannot satisfy that on any host",
+      "body": "build/test-provenance-predict.sh:713 (block 2h) imports build/forky-provenance.py, creates an empty x.iso in a fresh tempdir, calls fp.scan_input_evidence(d, iso) -- 'the real call site's shape' -- and asserts the output matches 'RC 0 FAILS_DELTA 1'. The function's contract (build/forky-provenance.py:2957-2988, docstring) is that it 'renders no verdict': it returns 0 unconditionally (all four return statements are 'return 0'), and its only two fail() paths -- need_tool('xorriso') failing (forky-provenance.py:2972, which itself appends to FAILS but the test's grep requires RC 0 AND FAILS_DELTA 1 simultaneously; on a no-xorriso host need_tool prints 'FAIL [env] xorriso :: required tool not found' AND the call returns 0 with FAILS_DELTA 1, which WOULD match -- except the test was written to pin the tool-present shape) and 'no such substrate ISO' (forky-provenance.py:2974, returns 0 with FAILS_DELTA 1, also matching) -- mean the test's semantics are host-dependent and, as written against a tool-present host (or an ISO that exists but lacks the PVD), it expects a finding the function's documented behavior does not produce: with xorriso present and an existing ISO, both fail() paths are skipped, the writer runs, and FAILS_DELTA is 0 (reproduced: 'ISO-EVIDENCE wrote ... RC 0 FAILS_DELTA 0'). The intent (the comment says: 'a call that mismatches the signature raises TypeError, which main() turns into a deterministic non-zero exit, so a bad call can never read as success') is an arity PING, but the assertion greps for a FAILS delta instead of a TypeError/non-zero exit, so it tests the wrong property and fails wherever the tool+ISO happy path is taken. Fix: assert the TypeError path (e.g. call fp.scan_input_evidence(d, iso, extra='x') and expect a non-zero rc) or grep 'FAILS_DELTA 0' on the tool-present host, and make the tool-absent branch explicit.",
+      "location": "build/test-provenance-predict.sh:713-731"
+    },
+    {
+      "id": "test-2f-stub-invisible-to-scrubbed-tool-path",
+      "severity": "high",
+      "title": "2f stubs xorriso on PATH, but the gate resolves tools only from the fixed TOOL_PATH -- the stub never runs",
+      "body": "build/test-provenance-predict.sh:671 (block 2f) places a stub xorriso at $T/evbin and invokes the gate with PATH=\"$T/evbin:$PATH\". build/forky-provenance.py:76 pins TOOL_PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'; need_tool() (forky-provenance.py:215) calls shutil.which(name, path=TOOL_PATH) and run() (forky-provenance.py:196) passes env=tool_env() (PATH=TOOL_PATH only) to every subprocess. So the stub is invisible to the gate on every host: the '--iso-evidence' run hits need_tool() -> fail('env', 'xorriso', ...) -> returns 0 without writing a manifest, and the sub-assertions that depend on the stub executing ('a failing input still fails the gate', 'the evidence run is not counted as a verdict') pass only by accident of the env finding, not by exercising the documented branch. The comment in the test ('driven through a stub xorriso so the branch is reachable') is wrong for the current tool resolution. Fix: make the stub reachable the way the gate looks (e.g. point a TOOL_PATH override at $T/evbin if one exists, extend the gate to honor a test-only env override, or restructure the assertion to accept the fail-closed env finding as the no-xorriso outcome).",
+      "location": "build/test-provenance-predict.sh:671-688; build/forky-provenance.py:76,196,215"
+    }
+  ],
+  "positives": [
+    "Design: a predictive stage-25 gate that fails inputs BEFORE the 13-minute mirror is well-motivated (build/build-image.sh:1119-1160), wired into STAGES correctly, and shares _scan_initrd()/authorize_pool() with the image scan so verdicts cannot diverge.",
+    "Fail-closed behavior is implemented consistently: a missing verified snapshot index exits non-zero and never prints the pass line (test 2e passes); --iso-evidence without --ubuntu-only is refused (test 2i passes); the _scan_initrd call-site contract and _ncz_build_context laziness are pinned by a passing contract test.",
+    "The writer-arity fix (cc356507) and the --iso-evidence gate (f7b12acb) are real fixes to real defects, and the docstring at forky-provenance.py:2957 honestly states 'it renders no verdict' -- the defect is in the TEST's expectation, not the function's documented behavior.",
+    "All six changed Python/shell files compile/pass shell syntax checks; the Makefile/build-image stage wiring is coherent with docs/BUILD-STABILITY.md M1."
+  ],
+  "recommendations": [
+    "Fix xorriso_fallback() so its directory records survive the gate's own reader (or regenerate fixtures only via xorriso and SKIP the ISO scenarios with a clear message when the tool is absent) -- the suite must be green, not skipped, on no-xorriso hosts, because that is where the gate's value is claimed.",
+    "Rewrite test 2h to assert the property its comment names (a mismatched call raises TypeError -> non-zero exit) and make the tool-present/absent branches explicit instead of grepping a FAILS delta the no-verdict function does not produce on the happy path.",
+    "Make the 2f stub reachable through the gate's tool resolution (TOOL_PATH-aware) or assert the fail-closed env finding explicitly, so the stub-driven branch is actually exercised.",
+    "Once the suite is green, re-run the doctor verify job (01a19a05) which is currently wedged at 'tip mismatch' because this review commit moved the branch tip past 607242eba6cc."
+  ],
+  "blocker_context": {
+    "prior_verdict": "The earlier verdict recorded at 607242eba6cc (commit 06e2d0a3, same file) claimed 'blocked' because 'no compliant reviewer could be run'. That claim is stale on this host: the zoder resolver serves qwen38 (custom.coder, TYDEUS :8006, cost tier A) and the parent job itself reviewed with cross-family reviewers (tydeus-reviewer, nvidia/nemotron-3-ultra-550b-a55b). This review was performed by qwen38, a different family than the deepseek-flash author.",
+    "verify_job_state": "Doctor verify job 01a19a05-3276-72e1-a6ae-11bc5454dfa2 is at status needs-review with failure_reason completion_evidence_missing / 'tip mismatch: origin/hv/cx-m1-early-provenance-20261031 is at 06e2d0a380c0, requested 607242eba6cc' -- the tip it pinned no longer exists at the branch head because the review verdict was committed onto the branch. Re-point or re-run after the requested changes."
+  }
 }
