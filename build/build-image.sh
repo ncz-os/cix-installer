@@ -747,11 +747,13 @@ stage_preflight() {
         if bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" >>"$log" 2>&1; then
             say "substrate pin OK (check-substrate-pin.sh)"
         else
-            if [ "$SUBSTRATE" = refresh ]; then
-                say "substrate pin stale/absent; the refresh-substrate stage will refresh it"
-            else
-                bad "substrate pin failed and --substrate pinned forbids a refresh; run with --substrate refresh"
-            fi
+            # docs/BUILD-STABILITY.md M2: a stale pin BLOCKS the build; it is
+            # never repaired in place.  `--substrate refresh` used to refresh
+            # manifests/base.pin for one arch right here, inside the clone (R1:
+            # a builder left a modified base.pin and one arch re-pinned).  A
+            # re-pin is a reviewed commit (build/repin.sh), so this fails closed
+            # for BOTH policies and names the fix.
+            bad "pin stale: run build/repin.sh and commit (a re-pin is a reviewed commit moving both arches; the build never rewrites manifests/base.pin -- upgrade with --substrate refresh is disabled for tracked files)"
         fi
     else
         bad "build/check-substrate-pin.sh is missing; the substrate pin cannot be verified"
@@ -907,11 +909,22 @@ stage_refresh_substrate() {
         bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" 2>&1 | tee -a "$log"
         return "${PIPESTATUS[0]}"
     fi
-    if [ -x "$ROOT/build/refresh-substrate.sh" ]; then
-        ncz_info "using build/refresh-substrate.sh --arch $ARCH"
-        ( cd "$ROOT" && NCZ_TARGET_ARCH="$ARCH" bash build/refresh-substrate.sh --arch "$ARCH" ) 2>&1 | tee -a "$log"
-        return "${PIPESTATUS[0]}"
+    # --substrate refresh does NOT refresh the committed pin (docs/BUILD-STABILITY.md
+    # M2): refresh-substrate.sh rewrites manifests/base.pin, release.conf,
+    # forky-snapshot.tsv and determinism.pin INSIDE the clone, for one arch, so a
+    # builder silently left a half re-pin behind (R1, C1/C7).  The pin is already
+    # verified by preflight (which fails closed when it is stale); a stale pin is
+    # fixed by committing a re-pin (build/repin.sh), never by the build.  The
+    # pinned substrate ISO itself is still restored from the cache above.
+    if ! bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" >>"$log" 2>&1; then
+        echo "[refresh-substrate] FAIL: pin stale: run build/repin.sh and commit" \
+            "(--substrate refresh does not rewrite pinned files: the re-pin is a commit to review)" \
+            | tee -a "$log" >&2
+        [ "$SUBSTRATE" = refresh ] && return 3
+        return 1
     fi
+    echo "[refresh-substrate] pin fresh: the committed substrate verifies; nothing to refresh" | tee -a "$log"
+    return 0
     local want="$SUBSTRATE_SHA" got=""
     if [ -f "$DOWNLOADS/$UPSTREAM_ISO" ]; then
         got="$(sha256sum "$DOWNLOADS/$UPSTREAM_ISO" | awk '{print $1}')"

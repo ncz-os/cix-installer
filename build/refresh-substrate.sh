@@ -10,6 +10,14 @@
 # pinned snapshot.  There is deliberately NO fourth origin.
 #
 # Usage: build/refresh-substrate.sh --arch amd64|arm64 [--iso FILE] [--no-fetch]
+#        build/refresh-substrate.sh --sync-only
+#   --sync-only  do NOT fetch, measure or verify anything: re-derive the files
+#                that DEPEND on the pin that is already in manifests/base.pin
+#                (release.conf snapshot, forky-snapshot.tsv trust digests,
+#                determinism.pin) and exit.  This is the committed-pin half of a
+#                re-pin, which build/repin.sh runs in its scratch tree
+#                (docs/BUILD-STABILITY.md M2).  It never fetches, so it is safe
+#                to run offline and it cannot move the pin by itself.
 # Exit: 0 ok; 2 usage/fetch/signature error (fails closed); 3 the derived
 #       snapshot authorizes <99% of the substrate (the netinst is stale -- a
 #       newer weekly is needed; the missing identities are printed).
@@ -17,17 +25,23 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 
-ARCH=""; ISO=""; FETCH=1
+ARCH=""; ISO=""; FETCH=1; SYNC_ONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --arch) ARCH="${2:-}"; shift 2 ;;
     --iso) ISO="${2:-}"; shift 2 ;;
     --no-fetch) FETCH=0; shift ;;
+    --sync-only) SYNC_ONLY=1; shift ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
-case "$ARCH" in amd64|arm64) ;; *) echo "usage: $0 --arch amd64|arm64 [--iso FILE]" >&2; exit 2 ;; esac
+if [ "$SYNC_ONLY" = 1 ]; then
+  [ -z "$ARCH" ] && [ -z "$ISO" ] && [ "$FETCH" = 1 ] \
+    || { echo "usage: $0 --sync-only (it takes no --arch/--iso/--no-fetch: it re-derives from the pin already in manifests/base.pin)" >&2; exit 2; }
+else
+  case "$ARCH" in amd64|arm64) ;; *) echo "usage: $0 --arch amd64|arm64 [--iso FILE]" >&2; exit 2 ;; esac
+fi
 
 # The reviewed Debian CD signing key.  Committed; the fingerprint is asserted.
 CD_KEY="$ROOT/manifests/keys/debian-testing-cd-signing.gpg"
@@ -43,53 +57,59 @@ CACHE_DIR="${NCZ_SUBSTRATE_CACHE_DIR:-}"
 
 die() { echo "refresh-substrate: ERROR: $*" >&2; exit 2; }
 need() { command -v "$1" >/dev/null 2>&1 || die "required tool missing: $1"; }
-for t in curl gpgv sha256sum xorriso python3 sort; do need "$t"; done
-[ -s "$CD_KEY" ] || die "committed Debian CD signing key missing: $CD_KEY"
-fpr="$(gpg --with-colons --import-options show-only --import "$CD_KEY" 2>/dev/null \
-        | awk -F: '/^fpr/{print $10; exit}')"
-[ "$fpr" = "$CD_KEY_FPR" ] || die "committed CD key fingerprint '$fpr' != reviewed '$CD_KEY_FPR'"
+for t in sha256sum python3 sort; do need "$t"; done
+if [ "$SYNC_ONLY" = 0 ]; then
+  for t in curl gpgv xorriso; do need "$t"; done
+  [ -s "$CD_KEY" ] || die "committed Debian CD signing key missing: $CD_KEY"
+  fpr="$(gpg --with-colons --import-options show-only --import "$CD_KEY" 2>/dev/null \
+          | awk -F: '/^fpr/{print $10; exit}')"
+  [ "$fpr" = "$CD_KEY_FPR" ] || die "committed CD key fingerprint '$fpr' != reviewed '$CD_KEY_FPR'"
+fi
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ncz-substrate.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
-# --- 1. fetch + verify SHA256SUMS and its signature -------------------------
-curl -fsSL "$BASE_URL/SHA256SUMS" -o "$WORK/SHA256SUMS" || die "fetch SHA256SUMS failed"
-curl -fsSL "$BASE_URL/SHA256SUMS.sign" -o "$WORK/SHA256SUMS.sign" || die "fetch SHA256SUMS.sign failed"
-gpgv --keyring "$CD_KEY" "$WORK/SHA256SUMS.sign" "$WORK/SHA256SUMS" >/dev/null 2>&1 \
-  || die "SHA256SUMS.sign does not verify against the committed Debian CD key"
-want_sha="$(awk -v n="$ISO_NAME" '$2==n{print $1}' "$WORK/SHA256SUMS")"
-[ -n "$want_sha" ] || die "SHA256SUMS does not list $ISO_NAME"
+rc=0; pin_snap=""
+if [ "$SYNC_ONLY" = 0 ]; then
+  # --- 1. fetch + verify SHA256SUMS and its signature -------------------------
+  curl -fsSL "$BASE_URL/SHA256SUMS" -o "$WORK/SHA256SUMS" || die "fetch SHA256SUMS failed"
+  curl -fsSL "$BASE_URL/SHA256SUMS.sign" -o "$WORK/SHA256SUMS.sign" || die "fetch SHA256SUMS.sign failed"
+  gpgv --keyring "$CD_KEY" "$WORK/SHA256SUMS.sign" "$WORK/SHA256SUMS" >/dev/null 2>&1 \
+    || die "SHA256SUMS.sign does not verify against the committed Debian CD key"
+  want_sha="$(awk -v n="$ISO_NAME" '$2==n{print $1}' "$WORK/SHA256SUMS")"
+  [ -n "$want_sha" ] || die "SHA256SUMS does not list $ISO_NAME"
 
-# --- 2. obtain the ISO and verify it ----------------------------------------
-if [ -z "$ISO" ] && [ "$FETCH" = 1 ]; then
-  ISO="$WORK/$ISO_NAME"
-  echo "[substrate] fetching $BASE_URL/$ISO_NAME"
-  curl -fsSL "$BASE_URL/$ISO_NAME" -o "$ISO" || die "ISO download failed"
+  # --- 2. obtain the ISO and verify it ----------------------------------------
+  if [ -z "$ISO" ] && [ "$FETCH" = 1 ]; then
+    ISO="$WORK/$ISO_NAME"
+    echo "[substrate] fetching $BASE_URL/$ISO_NAME"
+    curl -fsSL "$BASE_URL/$ISO_NAME" -o "$ISO" || die "ISO download failed"
+  fi
+  [ -n "$ISO" ] && [ -f "$ISO" ] || die "no ISO given and --no-fetch set"
+  have_sha="$(sha256sum "$ISO" | awk '{print $1}')"
+  [ "$have_sha" = "$want_sha" ] || die "ISO sha256 $have_sha != signed $want_sha (rotated/corrupt)"
+
+  # --- 3. derive base.pin (substrate -> snapshot by measurement) --------------
+  echo "[substrate] deriving base.pin for $ARCH from $(basename "$ISO")"
+  python3 -I "$HERE/derive-base-pin.py" --arch "$ARCH" --iso "$ISO" \
+    --scratch "$WORK/scratch" --min-coverage "${NCZ_SUBSTRATE_MIN_COVERAGE:-99}"
+  rc=$?
+
+  # --- 4. cache the verified ISO in the substrate cache (keep the last two per arch)
+  if [ -n "$CACHE_DIR" ] && [ -d "$CACHE_DIR" ] && [ -w "$CACHE_DIR" ]; then
+    short="${have_sha:0:8}"
+    date_tag="$(date -u +%Y%m%d)"
+    dest="$CACHE_DIR/${ISO_NAME%.iso}-${date_tag}-${short}.iso"
+    if [ ! -f "$dest" ]; then cp -f "$ISO" "$dest"; echo "[substrate] cached $dest"; fi
+    # keep the newest two for this arch
+    ls -1t "$CACHE_DIR/${ISO_NAME%.iso}-"*.iso 2>/dev/null | tail -n +3 | while read -r old; do
+      echo "[substrate] pruning old cache $old"; rm -f "$old"
+    done
+  elif [ "$FETCH" = 1 ]; then
+    echo "[substrate] WARN: cache dir $CACHE_DIR not writable; ISO not cached" >&2
+  fi
+
 fi
-[ -n "$ISO" ] && [ -f "$ISO" ] || die "no ISO given and --no-fetch set"
-have_sha="$(sha256sum "$ISO" | awk '{print $1}')"
-[ "$have_sha" = "$want_sha" ] || die "ISO sha256 $have_sha != signed $want_sha (rotated/corrupt)"
-
-# --- 3. derive base.pin (substrate -> snapshot by measurement) --------------
-echo "[substrate] deriving base.pin for $ARCH from $(basename "$ISO")"
-python3 -I "$HERE/derive-base-pin.py" --arch "$ARCH" --iso "$ISO" \
-  --scratch "$WORK/scratch" --min-coverage "${NCZ_SUBSTRATE_MIN_COVERAGE:-99}"
-rc=$?
-
-# --- 4. cache the verified ISO in the substrate cache (keep the last two per arch)
-if [ -n "$CACHE_DIR" ] && [ -d "$CACHE_DIR" ] && [ -w "$CACHE_DIR" ]; then
-  short="${have_sha:0:8}"
-  date_tag="$(date -u +%Y%m%d)"
-  dest="$CACHE_DIR/${ISO_NAME%.iso}-${date_tag}-${short}.iso"
-  if [ ! -f "$dest" ]; then cp -f "$ISO" "$dest"; echo "[substrate] cached $dest"; fi
-  # keep the newest two for this arch
-  ls -1t "$CACHE_DIR/${ISO_NAME%.iso}-"*.iso 2>/dev/null | tail -n +3 | while read -r old; do
-    echo "[substrate] pruning old cache $old"; rm -f "$old"
-  done
-elif [ "$FETCH" = 1 ]; then
-  echo "[substrate] WARN: cache dir $CACHE_DIR not writable; ISO not cached" >&2
-fi
-
 # --- 4b. sync the pin into release.conf AND the multi-suite trust digests ---
 # The snapshot is DERIVED from the substrate, and the substrate's d-i udebs are
 # built from the same snapshot's development suite (sid).  So a successful
@@ -98,8 +118,21 @@ fi
 # build fails closed in check-substrate-pin.sh / the provenance gate.  Never runs
 # when the measurement failed (rc != 0): a substrate the snapshot cannot
 # authorize must not be pinned.
+if [ "$SYNC_ONLY" = 1 ]; then
+  # The pin is already committed: derive it from base.pin, and require the two
+  # arch rows to agree (a half pin cannot be synced into a coherent release.conf).
+  pin_snap="$(awk -F'\t' '!/^#/{print $4}' "$ROOT/manifests/base.pin" 2>/dev/null | sort -u)"
+  case "$pin_snap" in
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+    "") die "--sync-only: manifests/base.pin has no snapshot column" ;;
+    *) die "--sync-only: manifests/base.pin rows disagree on the snapshot ('$(echo "$pin_snap" | tr '\n' ' ')'); re-pin (build/repin.sh) first" ;;
+  esac
+  echo "[substrate] --sync-only: re-deriving the pin-dependent files from $pin_snap (no fetch, no measurement)"
+fi
 if [ "$rc" = 0 ]; then
-  pin_snap="$(awk -F'\t' -v a="$ARCH" '$1==a{print $4}' "$ROOT/manifests/base.pin" 2>/dev/null)"
+  if [ "$SYNC_ONLY" = 0 ]; then
+    pin_snap="$(awk -F'\t' -v a="$ARCH" '$1==a{print $4}' "$ROOT/manifests/base.pin" 2>/dev/null)"
+  fi
   if [ -n "$pin_snap" ]; then
     if grep -q '^NCZ_BASE_MIRROR_SNAPSHOT=' "$ROOT/release.conf"; then
       sed -i.ncz "s|^NCZ_BASE_MIRROR_SNAPSHOT=.*|NCZ_BASE_MIRROR_SNAPSHOT=\"$pin_snap\"|" "$ROOT/release.conf"
@@ -107,8 +140,19 @@ if [ "$rc" = 0 ]; then
       echo "[substrate] release.conf NCZ_BASE_MIRROR_SNAPSHOT -> $pin_snap"
     fi
     echo "[substrate] recording signed InRelease digests for the pinned snapshot $pin_snap"
-    python3 -I "$HERE/pin-snapshot-suites.py" --snapshot "$pin_snap" \
-      || { echo "refresh-substrate: ERROR: could not record the snapshot's suite digests" >&2; exit 2; }
+    # NCZ_SUITE_DIGESTS_CMD lets a test (and only a test) replace the signed fetch
+    # with a fixture; the real default verifies gpgv against the committed keyring.
+    if [ -n "${NCZ_SUITE_DIGESTS_CMD:-}" ]; then
+      # NCZ_SUITE_DIGESTS_CMD is a test-only command string.  Word-splitting it
+      # with `$CMD` would keep any embedded quotes as literal filename
+      # characters (bash '<path>' -> looks for a file named '<path>'), so eval
+      # it: the expansion is a shell program, not a pre-split argv.
+      ( cd "$ROOT" && NCZ_PIN_SNAPSHOT="$pin_snap" eval "$NCZ_SUITE_DIGESTS_CMD --snapshot \"\$pin_snap\"" ) \
+        || { echo "refresh-substrate: ERROR: could not record the snapshot's suite digests" >&2; exit 2; }
+    else
+      python3 -I "$HERE/pin-snapshot-suites.py" --snapshot "$pin_snap" \
+        || { echo "refresh-substrate: ERROR: could not record the snapshot's suite digests" >&2; exit 2; }
+    fi
   fi
   # The local determinism aggregate (manifests/determinism.pin) records the
   # substrate sha per arch, so it must be regenerated in lockstep with base.pin.
