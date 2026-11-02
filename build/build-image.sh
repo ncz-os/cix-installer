@@ -17,6 +17,10 @@
 #   00 preflight          host, disk, tmpfs, tools, privilege, pins, substrate age
 #   10 refresh-substrate  refresh/verify the pinned substrate (pin file)
 #   20 stage-inputs       stage the checksum-pinned gitignored build inputs
+#   25 provenance-predict PROVENANCE over the STAGED INPUTS (M1): debs, rootfs
+#                         tarballs and the substrate ISO's pool + initrd udebs,
+#                         with the SAME verifier stage 50/80 use.  Runs before
+#                         the 13-minute mirror, so a bad input fails in minutes.
 #   30 refresh-sources    resolve+freeze the singularity payload sources, build its deb
 #   40 offline-mirror     build the offline apt closure (stage 0)
 #   50 provenance-inputs  PROVENANCE + one-kernel check on the INPUTS (fail fast)
@@ -128,8 +132,8 @@ build-image.sh -- the single entrypoint for a repeatable, deterministic NCZ-OS i
 
 STAGES (fixed order; provenance runs on the INPUTS before layers, and again on
 the finished image BEFORE the KVM gate -- never waste hours on a doomed build)
-  preflight  refresh-substrate  stage-inputs  refresh-sources  offline-mirror
-  provenance-inputs  static-gates  layers  image  secret-scan
+  preflight  refresh-substrate  stage-inputs  provenance-predict  refresh-sources
+  offline-mirror  provenance-inputs  static-gates  layers  image  secret-scan
   provenance-gate  kvm-gate  receipt  archive
 
   static-gates is MANDATORY and is NOT selectable via --gates: it runs the
@@ -438,7 +442,8 @@ ncz_kernel_staging_dir() {
 # ---------------------------------------------------------------------------
 # Stages
 # ---------------------------------------------------------------------------
-STAGES=(preflight refresh-substrate stage-inputs refresh-sources offline-mirror \
+STAGES=(preflight refresh-substrate stage-inputs provenance-predict \
+        refresh-sources offline-mirror \
         provenance-inputs static-gates layers image secret-scan provenance-gate \
         kvm-gate receipt archive)
 stage_index() {
@@ -1109,6 +1114,52 @@ stage_provenance_inputs() {
     { printf 'gate=provenance-inputs\nresult=PASS\narch=%s\nat=%s\n' "$ARCH" "$(date -u +%s)"; } \
         > "$RUN_DIR/provenance-inputs.result"
     say "every input verified -- safe to run the layers/image stages"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Stage 25 -- provenance-predict (M1: the early predictive gate)
+# Everything stages 50/80 will authorize, checked against the INPUTS alone:
+# staged debs, prebuilt rootfs tarballs and the pinned substrate ISO's /cdrom
+# pool + initrd udebs, with the SAME verifier helpers.  Runs BEFORE the
+# 13-minute offline-mirror and before refresh-sources, so a bad input fails in
+# minutes instead of after hours of layers.
+# ---------------------------------------------------------------------------
+stage_provenance_predict() {
+    local log="$1"
+    say() { printf '[provenance-predict] %s\n' "$*" | tee -a "$log"; }
+
+    local idx="$RUN_DIR/prov-predict-index"
+    mkdir -p "$idx"
+    local mirror="$ROOT/build/forky-mirror"
+    # The offline mirror is built by a LATER stage, so it cannot be verified
+    # here on a cold tree; reuse the last one when it is present and reuse is
+    # the plan (the same decision offline-mirror itself makes).
+    if [ -d "$mirror/dists" ] && [ "$(LAYER_DECISION mirror)" = reuse ]; then
+        say "offline mirror present and reused: $mirror (verified in stage 50)"
+    else
+        say "offline mirror not built yet (stage 40); not part of this gate"
+    fi
+
+    local -a args=(--arch "$ARCH" --work "$RUN_DIR/prov-predict")
+    # The pinned substrate ISO is scanned when it is already staged; a missing
+    # one is stage 10's failure to report, not a provenance finding.
+    local iso="$ROOT/downloads/$UPSTREAM_ISO"
+    if [ -f "$iso" ]; then
+        args+=(--substrate-iso "$iso")
+    else
+        args+=(--no-substrate)
+    fi
+    [ "$OFFLINE" = 1 ] || args+=(--index-dir "$idx")
+
+    if ( cd "$ROOT" && bash build/check-inputs-provenance.sh "${args[@]}" ) >>"$log" 2>&1; then
+        say "every input verifies -- safe to spend the mirror and layer time"
+    else
+        ncz_err "[provenance-predict] FAILED -- an input has an unreviewed origin (see the FAIL lines). Fix the input BEFORE the mirror/layers stages."
+        return 1
+    fi
+    { printf 'gate=provenance-predict\nresult=PASS\narch=%s\nat=%s\n' "$ARCH" "$(date -u +%s)"; } \
+        > "$RUN_DIR/provenance-predict.result"
     return 0
 }
 
@@ -2034,6 +2085,11 @@ stage_enabled() {
         # with --substrate refresh it fetches and re-pins.
         refresh-substrate) return 0 ;;
         stage-inputs) return 0 ;;
+        # Stage 25 (M1): predictive provenance over the staged inputs.  Also
+        # MANDATORY -- it is the only thing standing between a bad input and
+        # the 13-minute mirror plus the layer stages, and the offline-mirror
+        # stage reuses a warm mirror, so nothing later would re-read them.
+        provenance-predict) return 0 ;;
         offline-mirror)
             # reuse the mirror when the plan says reuse and it is present
             [ "$(LAYER_DECISION mirror)" = reuse ] && [ -d "$ROOT/build/forky-mirror" ] && return 1 || return 0 ;;
