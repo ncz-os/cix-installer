@@ -180,6 +180,68 @@ run_for_source() {
             "$(printf 'rc=%s\n' "$rc"; cat "$w/s5.log")"
     fi
 
+    # ---- 5b: a pair THIS tool staged is recognised and refreshed ------------
+    # The staging record written by --add must be readable by the tool itself.
+    # Regression: the record is "<kver>/<vmlinuz-sha>/<initrd-sha>", so the
+    # reader must compare all three fields; comparing only "<sha_v>/<sha_i>"
+    # makes every staged kernel look foreign, and the add-only path then
+    # REFUSES to refresh it (and reports it as not staged). Sequence: stage,
+    # then change the /boot payload for the same kver, then re-add: the ESP
+    # copy must be refreshed to the new /boot bytes, rc=0, and no second
+    # menuentry may be appended.
+    mkesp "$w/esp5b" "$OLD_KVER"
+    run5b() {
+        NCZ_ESP_DIR="$w/esp5b" KVER_STABLE="$NEW_KVER" \
+            KVER_STABLE_SRC="$w/boot/vmlinuz-$NEW_KVER" \
+            KVER_STABLE_INITRD="$w/boot/initrd.img-$NEW_KVER" \
+            NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" --add
+    }
+    run5b >"$w/s5b-a.log" 2>&1; rc_a=$?
+    # Change ONLY the vmlinuz payload in /boot, same kver: the tool staged the
+    # old bytes, so it owns the ESP copy and may refresh it.
+    printf 'vmlinuz-payload-%s-v2\n' "$NEW_KVER" > "$w/boot/vmlinuz-$NEW_KVER"
+    run5b >"$w/s5b-b.log" 2>&1; rc_b=$?
+    if [ "$rc_a" = 0 ] && [ "$rc_b" = 0 ] \
+       && cmp -s "$w/boot/vmlinuz-$NEW_KVER" "$w/esp5b/vmlinuz-$NEW_KVER" \
+       && grep -q 'refreshing vmlinuz-.*staged by this tool' "$w/s5b-b.log" \
+       && [ "$(grep -c "^menuentry .*$NEW_KVER" "$w/esp5b/EFI/BOOT/refind.conf")" = 1 ]; then
+        ok "5b) a pair this tool staged is recognised and refreshed in place"
+    else
+        bad "5b) a pair this tool staged is recognised and refreshed in place" \
+            "$(printf 'rc_a=%s rc_b=%s\n--- first ---\n' "$rc_a" "$rc_b"; cat "$w/s5b-a.log"; printf -- '--- second ---\n'; cat "$w/s5b-b.log"; ls -1 "$w/esp5b")"
+    fi
+    # The record format itself is the contract: kver/vmlinuz-sha/initrd-sha.
+    rec="$(cat "$w/esp5b/ncz-staged-$NEW_KVER" 2>/dev/null)"
+    if [ "$rec" = "$NEW_KVER/$(sha "$w/boot/vmlinuz-$NEW_KVER")/$(sha "$w/boot/initrd.img-$NEW_KVER")" ]; then
+        ok "5c) the staging record carries kver/vmlinuz-sha/initrd-sha"
+    else
+        bad "5c) the staging record carries kver/vmlinuz-sha/initrd-sha" \
+            "$(printf 'record=<%s>\nwant=<%s>\n' "$rec" "$NEW_KVER/$(sha "$w/boot/vmlinuz-$NEW_KVER")/$(sha "$w/boot/initrd.img-$NEW_KVER")")"
+    fi
+    # Restore the pristine /boot payload so later cases are unaffected.
+    mkboot "$w/boot" "$NEW_KVER"
+
+    # ---- 5d: a foreign ESP copy is still refused (add-only is unchanged) ----
+    # Refreshing must stay limited to bytes THIS tool staged: a differing ESP
+    # file with no matching record is an operator/foreign file.
+    mkesp "$w/esp5d" "$OLD_KVER"
+    printf 'foreign-bytes\n' > "$w/esp5d/vmlinuz-$NEW_KVER"
+    printf 'foreign-bytes\n' > "$w/esp5d/initrd.img-$NEW_KVER"
+    cp -f "$w/esp5d/EFI/BOOT/refind.conf" "$w/conf5d.before"
+    NCZ_ESP_DIR="$w/esp5d" KVER_STABLE="$NEW_KVER" \
+        KVER_STABLE_SRC="$w/boot/vmlinuz-$NEW_KVER" \
+        KVER_STABLE_INITRD="$w/boot/initrd.img-$NEW_KVER" \
+        NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" --add >"$w/s5d.log" 2>&1
+    rc=$?
+    if [ "$rc" = 1 ] && grep -q 'was not staged by this tool\|already exists on the ESP with DIFFERENT content' "$w/s5d.log" \
+       && cmp -s "$w/conf5d.before" "$w/esp5d/EFI/BOOT/refind.conf" \
+       && [ "$(cat "$w/esp5d/vmlinuz-$NEW_KVER")" = "foreign-bytes" ]; then
+        ok "5d) a foreign ESP copy is still refused and left untouched"
+    else
+        bad "5d) a foreign ESP copy is still refused and left untouched" \
+            "$(printf 'rc=%s\n' "$rc"; cat "$w/s5d.log")"
+    fi
+
     # ---- 6: --promote rewrites only default_selection ----------------------
     mkesp "$w/esp6" "$OLD_KVER" "$NEW_KVER"
     cp -f "$w/esp6/EFI/BOOT/refind.conf" "$w/conf6.before"

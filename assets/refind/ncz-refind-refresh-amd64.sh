@@ -604,24 +604,55 @@ ncz_stage_pair() {
         staged_here=$((staged_here + 1))
     done
     # --stage/--add: record that WE put these bytes there, so a later identical
-    # replacement is allowed and a different one is refused.
+    # replacement is allowed and a different one is refused. The record is the
+    # single source of truth for "we own this ESP file", so it is written even
+    # when both halves were already identical (staged_here=0): an --add that
+    # finds its own earlier bytes must still leave a record that a later
+    # refresh can match. ncz_staged_by_us reads it back field-for-field, so the
+    # order here (kver, vmlinuz-sha, initrd-sha) is the contract.
     printf '%s/%s/%s\n' "$kver" "$(sha256sum "$src_v" | cut -d' ' -f1)" \
         "$(sha256sum "$src_i" | cut -d' ' -f1)" > "$ESP_DIR/$NCZ_STAGE_TAG-$kver" 2>/dev/null || true
     return 0
 }
 
-# ncz_staged_by_us <kver> <sha-vmlinuz> <sha-initrd> -- 0 when the staging
-# record proves this tool wrote exactly these bytes.
+# ncz_staged_by_us <kver> -- 0 when the staging record proves this tool wrote
+# the ESP files for <kver>.
+# The record is a single line "<kver>/<vmlinuz-sha>/<initrd-sha>" written by
+# ncz_stage_pair. It records WHICH kernel we own and WHICH bytes we wrote there
+# at that time. A refresh happens precisely because /boot now differs from the
+# ESP copy, so the recorded shas can never equal the incoming ones -- ownership
+# is therefore decided by a well-formed record naming this kver, not by sha
+# equality with the new /boot content. (Comparing the record against the new
+# shas made every staged kernel look foreign, so the add-only path refused to
+# refresh its own files and reported them as not staged.)
 ncz_staged_by_us() {
-    local rec="$ESP_DIR/$NCZ_STAGE_TAG-$1" want=$2/$3
+    local rec="$ESP_DIR/$NCZ_STAGE_TAG-$1" rec_kver rec_v rec_i
     [ -s "$rec" ] || return 1
-    [ "$(cat "$rec" 2>/dev/null)" = "$want" ]
+    IFS=/ read -r rec_kver rec_v rec_i < "$rec" 2>/dev/null || return 1
+    [ "$rec_kver" = "$1" ] || return 1
+    # Both hashes must be present and well-formed (64 hex chars, as sha256sum
+    # emits); a truncated or hand-edited record is not proof of ownership.
+    ncz_is_sha256 "$rec_v" || return 1
+    ncz_is_sha256 "$rec_i" || return 1
+    return 0
 }
 
 ncz_restore_conf() {   # used by callers that rewrote refind.conf and failed
     local bak=$1
     [ -n "$bak" ] && [ -s "$bak" ] && cp -f "$bak" "$ESP_CONF" 2>/dev/null
     rm -f "$bak" 2>/dev/null || true
+}
+
+# ncz_is_sha256 <string> -- 0 when <string> is exactly 64 lowercase hex
+# characters, i.e. the shape sha256sum emits. Guards the staging record against
+# truncated or hand-edited values.
+ncz_is_sha256() {
+    case "$1" in
+        *[!0-9a-f]*) return 1 ;;
+        ????????????????????????????????????????????????????????????????) ;;
+        *) return 1 ;;
+    esac
+    [ "${#1}" -eq 64 ]
 }
 
 # ncz_conf_escape <string> -- printf replacement text that inserts <string>
@@ -821,7 +852,7 @@ ncz_add_only() {
             esac
             dst="$ESP_DIR/$half-$kver"
             cmp -s "$src" "$dst" && continue
-            if ncz_staged_by_us "$kver" "$sha_v" "$sha_i"; then
+            if ncz_staged_by_us "$kver"; then
                 echo "  refreshing $half-$kver (staged by this tool, content changed in /boot)"
                 cp -f "$src" "$ESP_DIR/.$half-$kver.$NCZ_STAGE_TAG.$$" 2>/dev/null \
                     && cmp -s "$src" "$ESP_DIR/.$half-$kver.$NCZ_STAGE_TAG.$$" \
