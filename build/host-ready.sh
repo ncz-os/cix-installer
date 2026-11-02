@@ -205,11 +205,16 @@ check_dirty_tree() {
 # ---------------------------------------------------------------------------
 check_kvm() {
     # The kvm gate needs /dev/kvm; a run without that gate does not.
-    case ",${GATES}," in
-        *,kvm,*) ;;
-        ,,) _ok kvm "the kvm gate is not in this run ($GATES); /dev/kvm is not required"; return ;;
-        *) _ok kvm "the kvm gate is not in this run (gates=${GATES:-none}); /dev/kvm is not required"; return ;;
-    esac
+    # An EMPTY GATES means "all gates" (build-image.sh's convention), so the
+    # kvm gate -- and /dev/kvm -- is required.  It must not be mistaken for
+    # "the kvm gate is not in this run": ",${GATES}," is ",," when empty, which
+    # the comma-splicing case below would otherwise match.
+    if [ -n "$GATES" ]; then
+        case ",${GATES}," in
+            *,kvm,*) ;;
+            *) _ok kvm "the kvm gate is not in this run (gates=$GATES); /dev/kvm is not required"; return ;;
+        esac
+    fi
     if [ ! -e "$KVM_DEV" ]; then
         _bad kvm "$KVM_DEV is absent; the kvm gate needs hardware acceleration (build the image on a host with /dev/kvm, or run without the kvm gate)"
         return
@@ -518,10 +523,16 @@ check_build_inputs() {
 # never read: only its configured path and size are inspected, and its
 # contents are never printed.
 check_sudo_model() {
-    local model="" pwfile="${NCZ_SUDO_PASS_FILE:-}"
-    if [ -f "$SELF_DIR/lib/priv.sh" ]; then
+    local model="" pwfile="${NCZ_SUDO_PASS_FILE:-}" priv=""
+    # The privilege helper belongs to the tree under test, so --root decides
+    # which one answers; the script's own tree is the fallback.  (A test
+    # fixture can then present a host with no usable model at all.)
+    for priv in "$ROOT/build/lib/priv.sh" "$SELF_DIR/lib/priv.sh"; do
+        [ -f "$priv" ] && break
+    done
+    if [ -f "$priv" ]; then
         # shellcheck source=/dev/null
-        model="$( . "$SELF_DIR/lib/priv.sh" >/dev/null 2>&1; ncz_priv_model 2>/dev/null || true)"
+        model="$( . "$priv" >/dev/null 2>&1; ncz_priv_model 2>/dev/null || true)"
     fi
     case "$model" in
         root|direct|sudo-nopasswd)
