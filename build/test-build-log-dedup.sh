@@ -293,5 +293,78 @@ else
     fi
 fi
 
+echo "== 4c. the REAL tree: a capture+printf stage logs every line once =="
+# Some stages CANNOT print straight to stdout: they must decide PASS/FAIL from
+# the sub-script's output BEFORE run_stage() writes the stage log (run_stage's
+# tee only lands after the stage function returns).  stage_kvm_gate and
+# stage_kvm_gate_server therefore capture the sub-script into a variable and
+# re-print it once:
+#
+#     gate_out="$( ... bash build/kvm-install-gate-gpt.sh ... 2>&1 )"
+#     printf '%s\n' "$gate_out"
+#
+# That shape is single-write BY CONSTRUCTION: the command substitution's stdout
+# goes to the variable, not the pipe, so only the printf ever reaches
+# run_stage()'s tee.  It is easy to "simplify" that back into a pipe (which
+# would double every line) or to leave the captured bytes also flowing to the
+# outer tee, so it is pinned here: the harness is first shown to DETECT the
+# doubled variant, then the tree's capture+printf shape is run for real.
+cat > "$T4/bin/stage-capture.sh" <<'STUB'
+#!/bin/bash
+# <log>  -- a stage body using the capture+printf shape.  $CAP_TEE selects:
+#   CAP_TEE=1 -> capture AND also pipe to stdout (the doubling mistake)
+#   CAP_TEE=0 -> capture and print once (what the tree does)
+log="$1"
+[ -n "$log" ] || { echo "stage-capture: usage: <log>" >&2; exit 2; }
+sub="$(dirname "$0")/stub-sub.sh"
+out="$( "$sub" captured 2>&1 )"
+if [ "${CAP_TEE:-0}" = 1 ]; then
+    # the mistake: the sub-script ALSO goes to stdout, so run_stage tees it
+    ( "$sub" captured ) 2>&1
+    printf '%s\n' "$out"
+else
+    printf '%s\n' "$out"
+fi
+STUB
+chmod +x "$T4/bin/stage-capture.sh"
+
+cap_shape() { # <cap-tee 0|1> <log> -> writes $log
+    local cap="$1" l="$2"
+    : > "$l"
+    ( CAP_TEE="$cap" "$T4/bin/stage-capture.sh" "$l" ) 2>&1 | tee -a "$l" >/dev/null
+}
+CAPCTL="$SCRATCH/capctl.log"
+cap_shape 1 "$CAPCTL"
+capctl_total="$(grep -c '^MARK-' "$CAPCTL" 2>/dev/null || true)"
+capctl_dist="$(grep '^MARK-' "$CAPCTL" 2>/dev/null | sort -u | grep -c . || true)"
+if [ "${capctl_dist:-0}" -gt 0 ] && [ "${capctl_total:-0}" -gt "${capctl_dist:-0}" ]; then
+    ok "control: the capture+piped shape doubles lines (${capctl_total} lines, ${capctl_dist} distinct) -- the check can see it"
+else
+    bad "control: the capture+piped shape was not doubled (${capctl_total:-0}/${capctl_dist:-0}) -- 4c would be blind to it"
+fi
+
+CAPOK="$SCRATCH/capok.log"
+cap_shape 0 "$CAPOK"
+capok_total="$(grep -c '^MARK-' "$CAPOK" 2>/dev/null || true)"
+capok_dist="$(grep '^MARK-' "$CAPOK" 2>/dev/null | sort -u | grep -c . || true)"
+capok_dupes="$(grep '^MARK-' "$CAPOK" 2>/dev/null | sort | uniq -d | wc -l)"
+if [ "${capok_dist:-0}" -gt 0 ] && [ "${capok_total:-0}" -eq "${capok_dist:-0}" ] && [ "${capok_dupes:-1}" = 0 ]; then
+    ok "the capture+printf shape logs every line exactly once (${capok_dist} distinct)"
+else
+    bad "the capture+printf shape doubled or dropped lines (${capok_total:-0} lines, ${capok_dist:-0} distinct)"
+fi
+
+# ...and the tree really uses that shape where it must, so 4c covers code that
+# exists rather than a happy accident: both KVM gate stages capture their
+# sub-script and print it once (never `| tee -a "$log"` -- section 3 forbids it).
+for fn in stage_kvm_gate stage_kvm_gate_server; do
+    body="$(awk -v f="^$fn\\\\(\\\\)" '$0 ~ f { fn=1; next } fn && /^}/ { exit } fn' "$BIN")"
+    if grep -qE '^[[:space:]]*(gate_out|set_out)=' <<<"$body" && grep -q 'printf' <<<"$body"; then
+        ok "$fn uses the capture+printf shape 4c exercises"
+    else
+        bad "$fn no longer uses the capture+printf shape -- 4c no longer covers a real stage"
+    fi
+done
+
 printf '\n== build-log-dedup tests: %d passed, %d failed ==\n' "$PASS" "$FAIL"
 if [ "$FAIL" = 0 ]; then exit 0; else exit 1; fi
