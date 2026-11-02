@@ -427,7 +427,13 @@ ncz_audit_stage_ownership() {
             fuid+=(-o -uid "$u")
         done
     fi
-    local out="" root p
+    # Paths are collected NUL-separated end to end.  A filename may legally
+    # contain a newline; with -print/line-splitting such a name arrives as two
+    # pieces, so the count over-reports and the chown below is aimed at paths
+    # that do not exist.  -print0 + IFS= read -d '' keeps one path == one entry
+    # no matter what bytes the name holds.  (Spaces alone were always fine.)
+    local -a found=()
+    local root p
     for root in "${roots[@]}"; do
         # Roots arrive already stripped of trailing slashes above: find -path
         # matches the exact string find prints, and find echoes the root back
@@ -451,12 +457,23 @@ ncz_audit_stage_ownership() {
         # report, which is exactly the root the operator cares about for
         # cleanup.  20 each keeps the message readable and still names a
         # problem in BOTH places when both have one.
-        out+="$(find "$root" -xdev ${clause[@]+"${clause[@]}"} \
-                  -type f \( "${fuid[@]}" \) -print 2>/dev/null | head -20)"$'\n'
+        local -a hit=()
+        local f
+        while IFS= read -r -d '' f; do
+            hit+=("$f")
+        done < <(find "$root" -xdev ${clause[@]+"${clause[@]}"} \
+                     -type f \( "${fuid[@]}" \) -print0 2>/dev/null | head -z -n 20)
+        # head -z (coreutils) caps on NULs; if this find/head lacks it the
+        # substitution above still terminates, and the cap is re-applied here.
+        [ "${#hit[@]}" -gt 20 ] && hit=("${hit[@]:0:20}")
+        found+=(${hit[@]+"${hit[@]}"})
     done
-    out="$(printf '%s\n' "$out" | grep -v '^$')"
-    [ -n "$out" ] || return 0
-    local n; n="$(printf '%s\n' "$out" | grep -c . || true)"
+    [ "${#found[@]}" -gt 0 ] || return 0
+    local n="${#found[@]}"
+    # Human-readable rendering of the findings, one path per line.  A path
+    # containing a newline would render across lines here; that only affects
+    # the message, never the count or the chown, which use the array.
+    local out; out="$(printf '%s\n' "${found[@]}")"
     # Written to the stage log as well as the console: run_stage() has already
     # closed its tee by the time the audit runs, so relying on that tee would
     # leave the finding off the log the operator actually reads for a failure.
@@ -483,15 +500,10 @@ ncz_audit_stage_ownership() {
     # the verdict -- the finding stands either way.
     local target; target="$(ncz_chown_target 2>/dev/null || true)"
     if [ -n "$target" ]; then
-        local -a files=()
-        local f
-        while IFS= read -r f; do
-            [ -n "$f" ] && files+=("$f")
-        done <<<"$out"
-        if [ "${#files[@]}" -gt 0 ]; then
-            ncz_sudo chown "$target" "${files[@]}" >> "$log" 2>&1 || \
-                printf '[%s] WARN: could not chown %d file(s) back to %s\n' "$name" "${#files[@]}" "$target" >&2
-        fi
+        # Straight from the NUL-parsed array: no re-splitting, so a path with
+        # a newline or a space is chowned exactly as found.
+        ncz_sudo chown "$target" "${found[@]}" >> "$log" 2>&1 || \
+            printf '[%s] WARN: could not chown %d file(s) back to %s\n' "$name" "${#found[@]}" "$target" >&2
     fi
     return 1
 }

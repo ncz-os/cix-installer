@@ -392,5 +392,41 @@ for case_ in same nested; do
         || bad "RUN_DIR $case_ ROOT: path listed $np times"
 done
 
+# --- 12. a filename containing a newline is ONE finding, not two ----------
+# Names may legally contain newlines (and spaces).  With -print and line
+# splitting such a name arrives as two pieces: the count over-reports and the
+# chown is aimed at paths that do not exist, so the file is never handed back.
+# The scan is NUL-separated end to end; this pins it.
+echo "== 12. newline and space in a filename ==="
+nl="$SCRATCH/newline-name"
+mkdir -p "$nl/root" "$nl/run"
+: > "$nl/root/plain.txt"
+: > "$nl/root/with space.txt"
+: > "$nl/root/file with
+newline.txt"
+# Record the chown argv NUL-separated so a split path is visible.
+ROOT="$nl/root" RUN_DIR="$nl/run" NCZ_OWNERSHIP_FOREIGN_UIDS="$(id -u)" \
+    bash -c '
+        set -uo pipefail
+        '"$(audit_src)"'
+        NCZ_AUDIT_PRUNE=()
+        ncz_chown_target() { echo "1000:1000"; }
+        ncz_sudo() { local a; for a in "$@"; do printf "%s\0" "$a"; done >> "'"$nl"'/args"; }
+        ncz_audit_stage_ownership test "$1"
+    ' _ "$nl/stage.log" >"$nl/out" 2>&1
+nfile="$(grep -oE 'FAIL: [0-9]+ root-owned' "$nl/out" 2>/dev/null | grep -oE '[0-9]+')"
+[ "$nfile" = "3" ] \
+    && ok "3 files -> 3 findings (newline name counts once, n=$nfile)" \
+    || bad "counted n='${nfile:-none}', expected 3 (a newline name was split)"
+# Every file argument must exist; a split name leaves dangling paths.
+dangling=0; real=0
+while IFS= read -r -d '' a; do
+    case "$a" in chown|*:*) continue ;; esac
+    if [ -e "$a" ]; then real=$((real + 1)); else dangling=$((dangling + 1)); fi
+done < "$nl/args" 2>/dev/null
+[ "$dangling" = "0" ] && [ "$real" = "3" ] \
+    && ok "chown targets 3 real paths, none dangling" \
+    || bad "chown got $real real / $dangling dangling paths (expected 3/0)"
+
 printf '\n== container-ownership-audit tests: %d passed, %d failed ==\n' "$PASS" "$FAIL"
 if [ "$FAIL" = 0 ]; then exit 0; else exit 1; fi
