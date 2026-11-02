@@ -381,9 +381,30 @@ ncz_err()  { ncz_log "ERROR $*" >&2; }
 NCZ_AUDIT_PRUNE=(.git downloads manifests assets sbom)
 ncz_audit_stage_ownership() {
     local name="$1" log="$2"
+    # Strip trailing slashes up front (see the prune loop below) so the overlap
+    # test compares like with like.
+    local r
+    local -a cand=()
+    for r in "$RUN_DIR" "$ROOT"; do
+        [ -n "$r" ] && [ -d "$r" ] || continue
+        while [ "${#r}" -gt 1 ] && [ "${r%/}" != "$r" ]; do r="${r%/}"; done
+        cand+=("$r")
+    done
+    # Drop a root that IS another root, or sits inside it: scanning both would
+    # walk the same tree twice, list every finding twice and inflate the count
+    # in the message the operator reads ("2 root-owned files" for one file).
+    # The default RUN_DIR is outside the clone, but --run-dir is free to point
+    # it at or under the clone, so this cannot be assumed.
     local -a roots=()
-    [ -n "$RUN_DIR" ] && [ -d "$RUN_DIR" ] && roots+=("$RUN_DIR")
-    [ -n "$ROOT" ] && [ -d "$ROOT" ] && roots+=("$ROOT")
+    local c o dup
+    for c in ${cand[@]+"${cand[@]}"}; do
+        dup=0
+        for o in ${roots[@]+"${roots[@]}"}; do
+            [ "$c" = "$o" ] && { dup=1; break; }
+            case "$c/" in "$o"/*) dup=1; break ;; esac
+        done
+        [ "$dup" = 1 ] || roots+=("$c")
+    done
     [ "${#roots[@]}" -gt 0 ] || return 0
     # Foreign-uids knob: the shipped rule is "no uid 0 file", but a normal user
     # cannot create one, so the regression test points this at its OWN uid to
@@ -408,13 +429,10 @@ ncz_audit_stage_ownership() {
     fi
     local out="" root p
     for root in "${roots[@]}"; do
-        # find -path matches the exact string find prints, and find echoes the
-        # root back in the form it was given -- so a root of "/x/y/" would make
-        # it print "/x/y//.git" and every pattern below would miss.  Strip
-        # trailing slashes (but keep "/" itself) so pattern and output agree.
-        while [ "${#root}" -gt 1 ] && [ "${root%/}" != "$root" ]; do
-            root="${root%/}"
-        done
+        # Roots arrive already stripped of trailing slashes above: find -path
+        # matches the exact string find prints, and find echoes the root back
+        # in the form it was given, so "/x/y/" would print "/x/y//.git" and
+        # every pattern below would miss.
         # Build the prune clause as its own array so an empty NCZ_AUDIT_PRUNE
         # emits NO -prune at all rather than `\( \) -prune -o` (a find syntax
         # error).  Each name is resolved against THIS root.
@@ -721,6 +739,12 @@ ncz_container_run() {
     # the in-container helpers see the same target.  Cleanup only: a gate
     # verdict is never altered (lib/priv.sh's trap restores $?).
     local invoker; invoker="$(id -u):$(id -g)"
+    # NCZ_CHOWN_BACK must be EXPORTED, not just local: ncz_trap_chown_back()
+    # takes directories, derives the target itself from NCZ_CHOWN_BACK (see
+    # lib/priv.sh ncz_chown_back) and runs from an EXIT trap in THIS shell, so
+    # a local would not be in scope there.  The container additionally gets the
+    # value explicitly via -e below; that is the same value, read from the
+    # variable this line sets, so the two cannot disagree.
     export NCZ_CHOWN_BACK="${NCZ_CHOWN_BACK:-$invoker}"
     ncz_trap_chown_back "$ROOT" "$RUN_DIR"
     local ks; ks="$(ncz_kernel_staging_dir || true)"

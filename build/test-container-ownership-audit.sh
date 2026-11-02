@@ -352,5 +352,45 @@ cap_n="$(grep -c "/f[0-9]\+$\|/only-one\.txt$" "$cap/out" 2>/dev/null || echo 0)
     && ok "the report stays bounded and covers both roots ($cap_n paths for 26 files)" \
     || bad "the report named $cap_n paths -- expected 2..40 (cap 20 per root)"
 
+# --- 11. overlapping roots are never scanned twice ------------------------
+# RUN_DIR defaults outside the clone, but --run-dir is free to point it at or
+# under the clone.  Scanning both then walks one tree twice: every finding is
+# listed twice and the count in the message ("2 root-owned files") is wrong,
+# which sends the operator looking for a file that does not exist.
+echo "== 11. RUN_DIR equal to or inside ROOT is counted once =="
+ov="$SCRATCH/overlap"
+mkdir -p "$ov/root/planted"
+: > "$ov/root/planted/one-file.txt"
+audit_src() {
+    awk '
+        $0 ~ "^ncz_audit_stage_ownership\\(\\)[[:space:]]*\\{" { p = 1 }
+        p { print }
+        p && /^\}[[:space:]]*$/{ exit }
+    ' "$BIN"
+}
+for case_ in same nested; do
+    case "$case_" in
+        same)   oroot="$ov/root"; orun="$ov/root" ;;
+        nested) oroot="$ov/root"; orun="$ov/root/sub"; mkdir -p "$orun" ;;
+    esac
+    ROOT="$oroot" RUN_DIR="$orun" NCZ_OWNERSHIP_FOREIGN_UIDS="$(id -u)" \
+        bash -c '
+            set -uo pipefail
+            '"$(audit_src)"'
+            NCZ_AUDIT_PRUNE=()
+            ncz_chown_target() { return 1; }
+            ncz_sudo() { :; }
+            ncz_audit_stage_ownership test /dev/null
+        ' >"$ov/out-$case_" 2>&1
+    nfile="$(grep -oE 'FAIL: [0-9]+ root-owned' "$ov/out-$case_" 2>/dev/null | grep -oE '[0-9]+')"
+    [ "$nfile" = "1" ] \
+        && ok "RUN_DIR $case_ ROOT: one file counted once (n=$nfile)" \
+        || bad "RUN_DIR $case_ ROOT: counted n='${nfile:-none}', expected 1 (double scan)"
+    np="$(grep -c 'one-file\.txt' "$ov/out-$case_" 2>/dev/null || echo 0)"
+    [ "$np" = "1" ] \
+        && ok "RUN_DIR $case_ ROOT: the path is listed once" \
+        || bad "RUN_DIR $case_ ROOT: path listed $np times"
+done
+
 printf '\n== container-ownership-audit tests: %d passed, %d failed ==\n' "$PASS" "$FAIL"
 if [ "$FAIL" = 0 ]; then exit 0; else exit 1; fi
