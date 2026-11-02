@@ -27,7 +27,10 @@
 #   5. --add refuses a Debian-archive kernel name (7.3 policy);
 #   6. --promote changes only the default_selection line;
 #   7. --promote refuses a title that matches no entry;
-#   8. an unknown verb is misuse (rc=2), not a wipe.
+#   8. an unknown verb is misuse (rc=2), not a wipe;
+#   9. --stage is an alias for --add (stages, appends, never wipes);
+#  10. --promote needs no KVER_STABLE and rewrites only the default;
+#  11. --promote uses the parsed title and honours --force.
 #
 # Usage:
 #   bash build/test-refind-addonly.sh                 # the shipped amd64 script
@@ -335,6 +338,88 @@ CONSTS
     else
         bad "8) an unknown verb is misuse (rc=2) and writes nothing" \
             "$(printf 'rc=%s\n' "$rc"; cat "$w/s8.log")"
+    fi
+
+    # ---- 9: --stage is an alias for --add, NOT a path to the wipe ----------
+    # --stage must dispatch to the same add-only code as --add: stage the pair,
+    # append one entry, leave the pre-existing kernel and default_selection
+    # alone. If it fell through to generate it would WIPE the ESP.
+    mkesp "$w/esp9" "$OLD_KVER"
+    cp -f "$w/esp9/EFI/BOOT/refind.conf" "$w/conf9.before"
+    stage_default="$(sed -n 's/^default_selection //p' "$w/conf9.before" | head -1)"
+    NCZ_ESP_DIR="$w/esp9" KVER_STABLE="$NEW_KVER" \
+        KVER_STABLE_SRC="$w/boot/vmlinuz-$NEW_KVER" \
+        KVER_STABLE_INITRD="$w/boot/initrd.img-$NEW_KVER" \
+        NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" --stage >"$w/s9.log" 2>&1
+    rc=$?
+    if [ "$rc" = 0 ] \
+       && grep -q 'verb=stage' "$w/s9.log" \
+       && ! grep -q 'wiping stale ESP entries' "$w/s9.log" \
+       && [ -s "$w/esp9/vmlinuz-$OLD_KVER" ] \
+       && [ -s "$w/esp9/vmlinuz-$NEW_KVER" ] \
+       && [ "$(grep -c "^menuentry .*$NEW_KVER" "$w/esp9/EFI/BOOT/refind.conf")" = 1 ] \
+       && [ "$(sed -n 's/^default_selection //p' "$w/esp9/EFI/BOOT/refind.conf" | head -1)" = "$stage_default" ]; then
+        ok "9) --stage behaves exactly like --add (stages, appends, never wipes)"
+    else
+        bad "9) --stage behaves exactly like --add (stages, appends, never wipes)" \
+            "$(printf 'rc=%s\n' "$rc"; cat "$w/s9.log"; ls -1 "$w/esp9")"
+    fi
+
+    # ---- 10: --promote needs NO KVER_STABLE -------------------------------
+    # The promote path rewrites default_selection only, so it must work with the
+    # kernel identity absent. If it fell through to menu generation it would
+    # abort (no KVER_STABLE) or, worse, regenerate the menu.
+    mkesp "$w/esp10" "$OLD_KVER" "$NEW_KVER"
+    cp -f "$w/esp10/EFI/BOOT/refind.conf" "$w/conf10.before"
+    sel10="$(grep '^menuentry .*' "$w/conf10.before" | grep -F "$NEW_KVER" | head -1 \
+             | sed 's/^menuentry "\(.*\)" {.*/\1/')"
+    NCZ_ESP_DIR="$w/esp10" KVER_EDGE= NCZ_SERIAL_CONSOLE=off \
+        env -u KVER_STABLE bash "$w/tool.sh" --promote "$sel10" >"$w/s10.log" 2>&1
+    rc=$?
+    diff <(grep -v '^default_selection' "$w/conf10.before") \
+         <(grep -v '^default_selection' "$w/esp10/EFI/BOOT/refind.conf") >/dev/null 2>&1
+    same_rest=$?
+    if [ "$rc" = 0 ] && [ "$same_rest" = 0 ] \
+       && grep -qF "default_selection \"$sel10\"" "$w/esp10/EFI/BOOT/refind.conf" \
+       && ! grep -q 'wiping stale ESP entries' "$w/s10.log"; then
+        ok "10) --promote works with no KVER_STABLE and rewrites only the default"
+    else
+        bad "10) --promote works with no KVER_STABLE and rewrites only the default" \
+            "$(printf 'rc=%s rest_diff=%s sel=<%s>\n' "$rc" "$same_rest" "$sel10"; cat "$w/s10.log"; grep default_selection "$w/esp10/EFI/BOOT/refind.conf")"
+    fi
+
+    # ---- 11: --promote uses the parsed title, and honours --force ----------
+    # The parsed title is what selects the entry; --force is what permits
+    # rewriting a default_selection line that already names that entry. The
+    # rewrite's own message is "default_selection '<old>' -> '<new>'", anchored
+    # here so an unrelated "->" in a log line cannot satisfy the check.
+    mkesp "$w/esp11" "$OLD_KVER"
+    cp -f "$w/esp11/EFI/BOOT/refind.conf" "$w/conf11.before"
+    # 11a: a title matching no entry is refused and writes nothing.
+    NCZ_ESP_DIR="$w/esp11" NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" \
+        --promote "no-such-title" >"$w/s11a.log" 2>&1
+    rc_a=$?
+    unchanged=$([ "$(grep -c '^menuentry ' "$w/esp11/EFI/BOOT/refind.conf")" = 1 ] && echo 1 || echo 0)
+    # Promote the old kernel's real title so it becomes the default, then
+    # promote the SAME title again: no-op without --force, rewrite with it.
+    cur11="$(grep '^menuentry .*' "$w/conf11.before" | head -1 | sed 's/^menuentry "\(.*\)" {.*/\1/')"
+    NCZ_ESP_DIR="$w/esp11" NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" \
+        --promote "$cur11" >"$w/s11pre.log" 2>&1
+    NCZ_ESP_DIR="$w/esp11" NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" \
+        --promote "$cur11" >"$w/s11b.log" 2>&1
+    rc_b=$?
+    f11b="$(sed -n 's/^default_selection "\(.*\)"/\1/p' "$w/esp11/EFI/BOOT/refind.conf" | head -1)"
+    NCZ_ESP_DIR="$w/esp11" NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" \
+        --promote "$cur11" --force >"$w/s11c.log" 2>&1
+    rc_c=$?
+    if [ "$rc_a" = 1 ] && [ "$unchanged" = 1 ] \
+       && [ "$rc_b" = 0 ] && grep -q "default_selection is already" "$w/s11b.log" \
+       && [ "$f11b" = "$cur11" ] \
+       && [ "$rc_c" = 0 ] && grep -q "^  default_selection '.*' -> '" "$w/s11c.log"; then
+        ok "11) --promote uses the parsed title and honours --force"
+    else
+        bad "11) --promote uses the parsed title and honours --force" \
+            "$(printf 'a=%s unchanged=%s b=%s c=%s cur=<%s> f11b=<%s>\n' "$rc_a" "$unchanged" "$rc_b" "$rc_c" "$cur11" "$f11b"; grep -hE 'ERROR|already|->' "$w/s11a.log" "$w/s11b.log" "$w/s11c.log")"
     fi
 
     rm -rf "$w"
