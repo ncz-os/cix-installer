@@ -319,17 +319,18 @@ stage_iso() {  # arch -> prints the path, rc 1 if the ISO is nowhere
     printf '%s' "$WORK/.repin/$arch.iso"
 }
 
-ledger_per_arch() {  # arch out log -- stderr is tee'd to log (captured ONCE)
+ledger_per_arch() {  # arch out log [extra classifier args...] -- stderr tee'd to log
     local arch="$1" out="$2" log="$3"
+    shift 3
     if [ -n "$CLASSIFY_CMD" ]; then
         # CLASSIFY_CMD is a TEST-ONLY command string: eval it (see REFRESH_CMD).
-        ( cd "$WORK" && eval "$CLASSIFY_CMD " --arch "$arch" --snapshot "$NEW_SNAP" --ledger "$(printf '%q' "$out")" ) 2>&1 | tee "$log" | sed 's/^/    /'
+        ( cd "$WORK" && eval "$CLASSIFY_CMD " --arch "$arch" --snapshot "$NEW_SNAP" --ledger "$(printf '%q' "$out")" "$@" ) 2>&1 | tee "$log" | sed 's/^/    /'
         return "${PIPESTATUS[0]}"
     fi
     local iso
     iso="$(stage_iso "$arch")" || die 1 "no $arch netinst to classify: pass --iso-$arch, or let refresh-substrate.sh fetch and cache it (looked in \$WORK/.repin/$arch.iso, the substrate cache and downloads/). Nothing was changed in $ROOT."
     ( cd "$WORK" && python3 -I "$CLASSIFY" --arch "$arch" --iso "$iso" --snapshot "$NEW_SNAP" \
-        --scratch "$WORK/.repin/classify-$arch" --ledger "$out" ) 2>&1 | tee "$log" | sed 's/^/    /'
+        --scratch "$WORK/.repin/classify-$arch" --ledger "$out" "$@" ) 2>&1 | tee "$log" | sed 's/^/    /'
     return "${PIPESTATUS[0]}"
 }
 
@@ -343,14 +344,17 @@ else
     for arch in $ARCH_LIST; do
         next="$WORK/.repin/sid-exceptions.$arch.tsv"
         cp -p "$cur" "$next"
-        args=(--arch "$arch" --snapshot "$NEW_SNAP" --ledger "$next" --require-accepted)
+        # Only the EXTRA flags: ledger_per_arch supplies arch/snapshot/ledger.
+        args=(--require-accepted)
         [ -n "$REVIEW_BY" ] && args+=(--review-by "$REVIEW_BY")
         say "classify $arch against $NEW_SNAP"
         # One run per arch: the classifier names every new row on stderr and
         # this log is where the names are read from (never a second run, whose
         # result could differ).
         clog="$WORK/.repin/classify-$arch.log"
-        ledger_per_arch "$arch" "$next" "$clog"
+        # Forward the classifier flags that were built above: dropping them
+        # silently disabled --require-accepted/--review-by.
+        ledger_per_arch "$arch" "$next" "$clog" "${args[@]}"
         rc=$?
         case "$rc" in
             0) ;;
@@ -365,7 +369,10 @@ else
         esac
         cmp -s "$cur" "$next" || cp -f "$next" "$cur"
     done
-    say "sid-exceptions: $(grep -vc '^#' "$cur" 2>/dev/null || echo 0) row(s)"
+    # count rows, not lines: `grep -c` exits 1 on no match (so `|| echo 0`
+    # printed a second line) and comments/blank lines are not rows.
+    nrows="$(awk '!/^#/ && NF' "$cur" 2>/dev/null | wc -l | tr -d '[:space:]')"
+    say "sid-exceptions: ${nrows:-0} row(s)"
 fi
 
 # --- 4. the pinned-InRelease fixture, gen-base-pin, tests -------------------
