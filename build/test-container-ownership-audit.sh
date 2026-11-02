@@ -241,8 +241,8 @@ mkdir -p "$rd/planted"
 # The stage body leaves a foreign file AND exits non-zero.
 rc="$(run_run "$rd" "mkdir -p '$rd/planted' && : > '$rd/planted/left-by-failure.txt'; exit 7" \
       NCZ_OWNERSHIP_FOREIGN_UIDS="$(id -u)" ; echo $?)"
-[ "$rc" != 0 ] && ok "the failed stage keeps its failure (rc=$rc)" \
-    || bad "a failing stage with a foreign file reported success"
+[ "$rc" = 7 ] && ok "the failed stage keeps its own exit code (rc=$rc, not flattened to 1)" \
+    || bad "the stage's exit code was $rc, expected 7 (the audit must not mask it)"
 grep -rq 'left-by-failure.txt' "$rd"/logs 2>/dev/null \
     && ok "a FAILED stage is still audited (the leftover is named)" \
     || bad "a FAILED stage was not audited -- root-owned leftovers would be missed"

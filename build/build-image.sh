@@ -818,10 +818,14 @@ run_stage() {
     # files, before its verdict is recorded.  This runs whatever the stage's own
     # rc was: the cleanup problem exists just as much when a stage fails
     # half-way through, and a failed container stage is exactly when root-owned
-    # leftovers are most likely.  A finding fails an otherwise-clean stage and
-    # never turns a failure into a pass (rc is only ever set, never cleared).
-    # (Skipped stages returned above and never ran.)
-    ncz_audit_stage_ownership "$name" "$log" || rc=1
+    # leftovers are most likely.  A finding fails an otherwise-clean stage; when
+    # the stage ALREADY failed its own rc is kept, because that code is the
+    # diagnostic (stages.tsv and "[name] FAILED rc=N" both report it) and
+    # flattening a 7 to a 1 would point the operator at the audit instead of
+    # the real fault.  The finding is still printed and logged either way.
+    if ! ncz_audit_stage_ownership "$name" "$log"; then
+        [ "$rc" = 0 ] && rc=1
+    fi
     local t1; t1="$(date -u +%s)"
     printf '%02d\t%s\t%s\t%s\n' "$idx" "$name" \
         "$([ "$rc" = 0 ] && echo PASS || echo "FAIL:$rc")" "$((t1 - t0))" >> "$STAGE_TIMES"
