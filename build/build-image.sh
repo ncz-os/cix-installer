@@ -923,23 +923,12 @@ stage_refresh_substrate() {
         [ "$SUBSTRATE" = refresh ] && return 3
         return 1
     fi
+    # Stage 10 ends here: the substrate ISO was restored above (sha256-checked
+    # against the pin) and the committed pin was verified.  The stage never
+    # fetches -- a stale pin is fixed by a committed re-pin (build/repin.sh),
+    # never by the build -- so there is no "refresh" body after this point.
     echo "[refresh-substrate] pin fresh: the committed substrate verifies; nothing to refresh" | tee -a "$log"
     return 0
-    local want="$SUBSTRATE_SHA" got=""
-    if [ -f "$DOWNLOADS/$UPSTREAM_ISO" ]; then
-        got="$(sha256sum "$DOWNLOADS/$UPSTREAM_ISO" | awk '{print $1}')"
-    fi
-    if [ "$got" = "$want" ]; then
-        echo "[refresh-substrate] pinned substrate already present: $UPSTREAM_ISO ($want)" | tee -a "$log"
-        return 0
-    fi
-    if [ "$OFFLINE" = "1" ]; then
-        echo "[refresh-substrate] FAIL: --offline and the pinned substrate is not staged" | tee -a "$log" >&2
-        return 3
-    fi
-    echo "[refresh-substrate] restoring the pinned substrate from the substrate cache via make download" | tee -a "$log"
-    ( cd "$ROOT" && make download ARCH="$ARCH" ) 2>&1 | tee -a "$log"
-    return "${PIPESTATUS[0]}"
 }
 
 # ---------------------------------------------------------------------------
