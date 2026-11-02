@@ -2710,7 +2710,20 @@ def read_iso_records(data):
     record is only accepted when its both-endian extent LBA and data length
     agree in both byte orders and its extent lies inside the file: never by
     matching a name at an arbitrary offset (a 6-byte ISO_REC_FIXED-less scan
-    finds every name at many false positions inside 2048-byte sectors)."""
+    finds every name at many false positions inside 2048-byte sectors).
+
+    Names are kept exactly as the directory records store them (ECMA-119 stores
+    identifiers upper case; a writer that emits a Rock Ridge / Joliet tree in
+    the records stores them lower case).  Callers that look for a fixed member
+    match it case-insensitively -- a real /pool stored as POOL is still /pool,
+    and a case-sensitive filter would report 'carries no /pool tree' for every
+    xorriso-written substrate ISO.
+
+    A directory whose extent was already walked on the way to it is a cycle no
+    real ISO contains: it is recorded once and never descended, so a malformed
+    image cannot make the walk unbounded (a record that names a new path but
+    repeats an ancestor's extent -- root/LOOP with root's own extent -- would
+    otherwise push LOOP, LOOP/LOOP, ... forever)."""
     out = {}
     if len(data) < ISO_PVD_OFFSET + ISO_LBS:
         return out
@@ -2737,11 +2750,13 @@ def read_iso_records(data):
         return out
     stack = [("", root[0] * ISO_LBS, root[1])]
     seen = set()
+    walked = set()          # (start, size): a directory's identity is its extent
     while stack:
         path, start, size = stack.pop()
         if (path, start) in seen or start < 0 or start + size > len(data):
             continue
         seen.add((path, start))
+        walked.add((start, size))
         out[(path, None)] = {"start": start, "size": size}
         pos, end = start, start + size
         while pos + 1 <= end:
@@ -2771,7 +2786,9 @@ def read_iso_records(data):
             full = (path + "/" + name) if path else name
             out[(path, name)] = {"is_dir": isdir, "size": sz_l,
                                  "start": lba_l * ISO_LBS}
-            if isdir:
+            # An extent already on the path to here is a cycle: record the
+            # member, but never descend (it would name a new path each turn).
+            if isdir and (lba_l * ISO_LBS, sz_l) not in walked:
                 stack.append((full, lba_l * ISO_LBS, sz_l))
             pos += rl
     return out
@@ -2889,28 +2906,50 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
         # 1. the /cdrom pool: its Packages index + every pool file it names.
         pool = os.path.join(owned, "pool")
         os.makedirs(pool, exist_ok=True)
+        # A directory whose records store POOL/ (ECMA-119 upper case) is the
+        # /cdrom pool exactly as one storing pool/ is: match the fixed names
+        # case-insensitively so no real substrate is reported as pool-less.
         pool_recs = {(p, n): r for (p, n), r in recs.items()
                      if n is not None and not r["is_dir"]
-                     and (("pool" == p or p.startswith("pool/"))
-                          or ("dists" == p or p.startswith("dists/")))}
-        if not any(p.startswith("pool") for (p, _n) in pool_recs):
+                     and (("pool" == p.lower() or p.lower().startswith("pool/"))
+                          or ("dists" == p.lower()
+                              or p.lower().startswith("dists/")))}
+        if not any(p.lower().startswith("pool") for (p, _n) in pool_recs):
             fail(src, iso, "substrate ISO carries no /pool tree (d-i cannot "
                            "install from it, and its udebs cannot be authorized)")
             return total
         emitted = 0
         for (p, n), r in sorted(pool_recs.items()):
             rel = (p + "/" + n) if p else n
-            if rel.startswith("dists/") and not (
-                    n.startswith("Packages") or n.startswith("Release")):
+            # read_iso_records() maps names to their ls(1) (lower-case) form, so
+            # the two fixed spellings are matched case-insensitively here.
+            low = rel.lower()
+            if low.startswith("dists/") and not (
+                    low == "packages" or low.endswith("/packages")
+                    or low == "release" or low.endswith("/release")):
                 continue
-            if rel.startswith("dists/") and "debian-installer" not in rel:
-                continue           # the runtime closure is the mirror's job
-            if rel.startswith("pool/") and not n.endswith((".udeb", ".deb")):
+            if low.startswith("dists/") and "debian-installer" not in low:
+                # ECMA-119 d-characters have no '-': the stored form is
+                # DEBIAN_INSTALLER, which read_iso_records() maps to lower case.
+                if "debian_installer" not in low:
+                    continue       # the runtime closure is the mirror's job
+            if low.startswith("pool/") and not low.endswith((".udeb", ".deb")):
                 continue
             b = iso_member_bytes(data, r, src, rel)
             if b is None:
                 return total
-            dst = os.path.join(pool, rel)
+            # Materialise under the ls(1) (lower-case) spelling a real
+            # `xorriso -osirrox` extraction produces, EXCEPT the index stem:
+            # authorize_pool()'s rglob looks for "Packages*"/"Release", the
+            # spelling the finished image carries, and the ECMA-119 records
+            # store those names upper case.
+            parts = rel.lower().split("/")
+            base = parts[-1]
+            for stem in ("packages", "release"):
+                if base == stem or base.startswith(stem + "."):
+                    parts[-1] = stem.capitalize() + base[len(stem):]
+                    break
+            dst = os.path.join(pool, *parts)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             with open(dst, "wb") as fh:
                 fh.write(b)
@@ -2934,8 +2973,8 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
               f"({len(auth)} package file(s))")
         # 2. every installer initrd: its udebs and its udpkg status.
         initrds = [(p + "/" + n if p else n, r) for (p, n), r in recs.items()
-                   if n is not None and not r["is_dir"] and n.endswith(".gz")
-                   and initrd_candidate(n)]
+                   if n is not None and not r["is_dir"]
+                   and n.lower().endswith(".gz") and initrd_candidate(n)]
         if not initrds:
             fail(src, iso, "substrate ISO carries no installer initrd (nothing to "
                            "check for udebs the pool does not list)")
