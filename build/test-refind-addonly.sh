@@ -123,6 +123,57 @@ run_for_source() {
         echo "  SKIP  1) install-time generate still writes a menu (needs root + a mounted /boot/efi)"
     fi
 
+    # ---- 1b: the tool's internal constants are defined before first use -----
+    # Static contract check. These five names drive the staging record
+    # (NCZ_STAGE_TAG), the FAT32 size guard (NCZ_ESP_MAX_FILE_BYTES), the ESP
+    # root entry budget (NCZ_ESP_MAX_FILES_IN_ROOT), the hook-entry marker
+    # (NCZ_HOOK_TAG) and the menu title (NCZ_RELEASE_SHORT). If any of them
+    # lost its definition the add-only path would silently build names like
+    # "$ESP_DIR/-$kver" and "$$ESP_DIR/.vmlinuz-x..1234" rather than failing
+    # loudly, so assert each is assigned BEFORE its first use and is non-empty.
+    missing=""
+    for _v in NCZ_STAGE_TAG NCZ_HOOK_TAG NCZ_ESP_MAX_FILE_BYTES \
+              NCZ_ESP_MAX_FILES_IN_ROOT NCZ_RELEASE_SHORT; do
+        _def=$(grep -n "^[[:space:]]*$_v=" "$w/tool.sh" | head -1 | cut -d: -f1)
+        _use=$(grep -n "\"\?\\\$$_v\|\\\${$_v" "$w/tool.sh" | head -1 | cut -d: -f1)
+        _val=$(sed -n "s/^[[:space:]]*$_v=//p" "$w/tool.sh" | head -1)
+        if [ -z "$_def" ] || [ -z "$_use" ] || [ "$_def" -ge "$_use" ] || [ -z "$_val" ]; then
+            missing="$missing $_v(def=${_def:-none},use=${_use:-none})"
+        fi
+    done
+    # Resolve the names through a real shell under `set -u`: a definition that
+    # expands empty (e.g. NCZ_RELEASE_SHORT built from unset RELEASE fields)
+    # is just as broken as a missing one. The constants come from the tool's
+    # NCZ-STAGING-MARKERS block; NCZ_RELEASE_SHORT is computed from the RELEASE
+    # identity sourced just above it, so supply that file the same way.
+    {
+        sed -n '/NCZ-STAGING-MARKERS-BEGIN/,/NCZ-STAGING-MARKERS-END/p' "$w/tool.sh"
+        printf 'RELEASE_FILE=%s\n' "$w/lib/RELEASE"
+        sed -n '/^\. "\$RELEASE_FILE"$/p;/^NCZ_RELEASE_SHORT=/p' "$w/tool.sh"
+        cat <<'CONSTS'
+printf '%s|%s|%s|%s\n' "$NCZ_STAGE_TAG" "$NCZ_HOOK_TAG" \
+    "$NCZ_ESP_MAX_FILES_IN_ROOT" "$NCZ_RELEASE_SHORT"
+CONSTS
+    } > "$w/consts.sh"
+    _expanded=$(env -u NCZ_STAGE_TAG -u NCZ_HOOK_TAG -u NCZ_RELEASE_SHORT \
+        bash -c 'set -u; . "$1"' _ "$w/consts.sh" 2>&1)
+    _expanded_ok=0
+    case "$_expanded" in
+        *\|*\|*\|*)
+            # Every field must be non-empty; split and test each.
+            case "$_expanded" in
+                ''\|*|*\|''\|*|*\|*\|''\|*|*\|*\|*\|'') ;;
+                *) _expanded_ok=1 ;;
+            esac
+            ;;
+    esac
+    if [ -z "$missing" ] && [ "$_expanded_ok" = 1 ]; then
+        ok "1b) NCZ_STAGE_TAG/HOOK_TAG/MAX_*/RELEASE_SHORT are defined before use"
+    else
+        bad "1b) NCZ_STAGE_TAG/HOOK_TAG/MAX_*/RELEASE_SHORT are defined before use" \
+            "missing:$missing expanded=<$_expanded>"
+    fi
+
     # ---- 2 + 3: --add appends one entry, stages, never wipes ----------------
     mkesp "$w/esp" "$OLD_KVER"
     cp -f "$w/esp/EFI/BOOT/refind.conf" "$w/conf.before"

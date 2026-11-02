@@ -58,6 +58,31 @@ else
     bad "A2) the install-time generator is still called without a verb (first install)" \
         "$(grep -n 'SHARED_DST' "$BOOTLOADER")"
 fi
+
+# A3: the hooks are self-contained. dpkg runs /etc/kernel/postinst.d/* directly,
+# so each needs its own shebang, and zz1 must not depend on BOOTDIR being
+# exported to it -- it defaults it. A missing default would make the
+# KVER_STABLE_SRC/INITRD paths "/vmlinuz-..." and every add would fail.
+_a3_bad=""
+for _h in "$ZZ1" "$ZZ2"; do
+    head -1 "$_h" | grep -q '^#!/bin/bash' || _a3_bad="$_a3_bad $(basename "$_h"):no-shebang"
+done
+grep -qE '^BOOTDIR="\$\{BOOTDIR:-/boot\}"' "$ZZ1" || _a3_bad="$_a3_bad zz1:no-BOOTDIR-default"
+grep -qE '\$BOOTDIR/vmlinuz-' "$ZZ1" || _a3_bad="$_a3_bad zz1:BOOTDIR-unused"
+if [ -z "$_a3_bad" ]; then
+    ok "A4) both hooks have a shebang and zz1 defaults BOOTDIR to /boot"
+else
+    bad "A4) both hooks have a shebang and zz1 defaults BOOTDIR to /boot" "$_a3_bad"
+fi
+
+# A4: 70-bootloader.sh installs the hooks 0755, so a hook that is not a program
+# cannot slip through by source mode alone.
+if grep -qE 'install -D -m 0755 "\$HOOK_SRC"' "$BOOTLOADER"; then
+    ok "A5) 70-bootloader.sh installs each hook mode 0755"
+else
+    bad "A5) 70-bootloader.sh installs each hook mode 0755" \
+        "$(grep -n 'HOOK_SRC' "$BOOTLOADER")"
+fi
 if ! grep -qE '"\$SHARED_DST" +--(add|promote)' "$BOOTLOADER"; then
     ok "A3) the first-install path never uses --add/--promote"
 else
