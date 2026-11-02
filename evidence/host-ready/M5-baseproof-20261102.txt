@@ -1,0 +1,52 @@
+# M5 host-ready base-proof (2026-11-02)
+# base commit: a75395d67f25ac5ebd60caba6cd7f324197c0d35 (hv/cx-m5-host-ready-20261031 / parent of this branch's work)
+# Run A: PRISTINE base -- every case rc=2 (script does not parse)
+
+  == base commit: a75395d6 ==
+  -- 1. the syntax error --
+  ok   base: bash -n build/host-ready.sh FAILS (every check is unreachable)
+  -- 2. the five checks M5 requires that the base gate never made --
+  ok   base: no 'substrate' check exists at all (M5 requirement absent)
+  ok   base: no 'build-inputs' check exists at all (M5 requirement absent)
+  ok   base: no 'sudo-model' check exists at all (M5 requirement absent)
+  ok   base: no 'stdout' check exists at all (M5 requirement absent)
+  ok   base: no 'container-image' check exists at all (M5 requirement absent)
+  -- 3. the named negatives, against the base gate --
+  FAIL base MISSES the stale pool: rc=2, wanted 1
+  FAIL base MISSES the unresolvable substrate cache: rc=2, wanted 1
+  FAIL base MISSES the missing input row: rc=2, wanted 1
+  FAIL base MISSES the wrong input sha: rc=2, wanted 1
+  FAIL base MISSES the missing sudo model: rc=2, wanted 1
+  FAIL base MISSES stdout inside the clone: rc=2, wanted 1
+  FAIL base MISSES the absent container image: rc=2, wanted 1
+  FAIL base: a default run did check kvm (unexpected)
+  -- 4. checks the base DID implement (controls: these must pass) --
+  FAIL control: base missed the dirty tree (rc=2)
+  FAIL control: base missed low free space (rc=2)
+  
+  == base-proof: 6 checks, 10 unexpected ==
+
+# Run B: base + ONLY the line-264 syntax fix -- each M5 negative the base never checks
+  == base commit: a75395d6 ==
+  -- 1. the syntax error --
+  FAIL base: bash -n unexpectedly passes
+  -- 2. the five checks M5 requires that the base gate never made --
+  ok   base: no 'substrate' check exists at all (M5 requirement absent)
+  ok   base: no 'build-inputs' check exists at all (M5 requirement absent)
+  ok   base: no 'sudo-model' check exists at all (M5 requirement absent)
+  ok   base: no 'stdout' check exists at all (M5 requirement absent)
+  ok   base: no 'container-image' check exists at all (M5 requirement absent)
+  -- 3. the named negatives, against the base gate --
+  ok   base catches the stale pool (rc=1)
+  FAIL base MISSES the unresolvable substrate cache: rc=0, wanted 1
+  FAIL base MISSES the missing input row: rc=0, wanted 1
+  FAIL base MISSES the wrong input sha: rc=0, wanted 1
+  FAIL base MISSES the missing sudo model: rc=0, wanted 1
+  FAIL base MISSES stdout inside the clone: rc=0, wanted 1
+  FAIL base MISSES the absent container image: rc=0, wanted 1
+  ok   base: a default run (gates=all) reports 'kvm not required' (the check is dead)
+  -- 4. checks the base DID implement (controls: these must pass) --
+  ok   control: base catches a dirty tree on a publishable build
+  ok   control: base catches low free space
+  
+  == base-proof: 9 checks, 7 unexpected ==

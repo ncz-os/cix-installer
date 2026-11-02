@@ -739,6 +739,35 @@ stage_preflight() {
         *) say "run dir fs=$fstype (TMPDIR=$TMPDIR)" ;;
     esac
 
+    # -- M5 builder-host readiness gate ------------------------------------
+    # docs/BUILD-STABILITY.md M5 "Where": host-ready.sh runs FIRST, and any
+    # FAIL aborts stage 00 before a stage body runs.  It is the single
+    # implementation of the host checks (dirty tree, staging pool, substrate
+    # cache, build inputs, tools, disk, tmpfs, sudo model, stdout, container
+    # image), so this stage does not duplicate them.  A build that passes
+    # --resume-from past preflight never reaches this function, and a
+    # --dry-run returns before the stages run.
+    if [ -f "$ROOT/build/host-ready.sh" ]; then
+        local hr_gates="" hr_rc=0 hr_out=""
+        # An empty GATES means "all gates", so the kvm gate (and /dev/kvm) is
+        # required; otherwise forward the explicit list.
+        hr_gates="${GATES:-kvm,provenance}"
+        local hr_args=(--arch "$ARCH" --root "$ROOT" --run-dir "$RUN_DIR" --gates "$hr_gates")
+        [ "$NO_PUBLISH" = 1 ] && hr_args+=(--no-publish)
+        [ "$USE_CONTAINER" = 1 ] || hr_args+=(--no-container)
+        hr_out="$(bash "$ROOT/build/host-ready.sh" "${hr_args[@]}" 2>&1)"; hr_rc=$?
+        printf '%s\n' "$hr_out" | tee -a "$log"
+        if [ "$hr_rc" = 0 ]; then
+            say "host-ready: the builder host satisfies this commit"
+        else
+            local hr_first
+            hr_first="$(printf '%s\n' "$hr_out" | sed -n 's/^\[host-ready\] FAIL [^ ]*  *//p' | head -3 | tr '\n' ';' | sed -e 's/;$//' -e 's/;/; /g')"
+            bad "host-ready: this host is not ready for arch=$ARCH (build/host-ready.sh rc=$hr_rc); ${hr_first:-see the [host-ready] FAIL lines above} -- fix them and rerun the build (host state needs no new commit, so --resume-from preflight reruns this gate)"
+        fi
+    else
+        bad "build/host-ready.sh is missing; the M5 builder-host readiness gate cannot run"
+    fi
+
     # -- git cleanliness ---------------------------------------------------
     if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
         say "WARN: git tree is not clean; the artifact will record git=$GIT_FULL"

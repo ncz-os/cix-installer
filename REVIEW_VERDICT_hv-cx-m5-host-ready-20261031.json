@@ -1,0 +1,8 @@
+{
+  "verdict": "request-changes",
+  "reason": "The new build/host-ready.sh (the only file added in d1b9fb24) does not parse: `bash -n build/host-ready.sh` fails with `syntax error near unexpected token '}'` at line 264 (the NCZ_KERNEL_STAGING_DIR branch of _pool_dir() uses a `}` to close a one-line if-then). The script is completely non-runnable as committed -- it aborts with exit 2 before any check can execute on any host, so it cannot serve as the M5 builder-host readiness gate described in docs/BUILD-STABILITY.md. The file is also not wired into build/build-image.sh stage_preflight() as the doc's M5 'Where' section requires, no build/test-host-ready.sh test was added, and several M5-documented checks (substrate cache, build inputs, sudo model, stdout/inside-clone, container image) are absent; the header comment even contains a typo ('cannot satisfies it'). The script logic and the seven checks that are present look reasonable once the syntax error is fixed, so this is a request-changes (fix line 264, add the test file, wire into stage_preflight) rather than blocked. Reviewed the author branch read-only: no changes were committed or pushed to it.",
+  "head_sha": "d1b9fb24d0ac88f77caf0095a8e229b5f5721636",
+  "job_id": "3fdceeda-2ba6-4200-84fd-de2f511b837f",
+  "branch": "hv/cx-m5-host-ready-20261031",
+  "reviewed_at_utc": "2026-11-02T05:35:00Z"
+}
