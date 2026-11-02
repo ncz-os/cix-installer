@@ -25,7 +25,6 @@
 # Usage: bash build/test-refresh-substrate-pin-safety.sh   Exit 0 = all pass.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 REFRESH="$ROOT/build/refresh-substrate.sh"
 
 pass=0 fail=0
@@ -98,6 +97,29 @@ MARK3="$T/control.marker"
 out="$(run_sync "$F" NCZ_ALLOW_SUITE_DIGESTS_CMD=1 NCZ_SUITE_DIGESTS_CMD="touch $MARK3 --")"
 [ -e "$MARK3" ] && ok "the opt-in lets the test stub run (the gate blocks only the bypass)" \
     || bad "the stub did not run even with the opt-in" "$out"
+
+echo "== the stub still receives the snapshot as a real argument =="
+# The override is now run via `bash -c ... --snapshot "$1"`, so the stamp is a
+# positional argument rather than text spliced into the command.  A stub SCRIPT
+# records its own argv; formatting it inline would let the outer shell expand
+# "$@" before the hook ever runs, which would test nothing.
+F="$T/argv"; mk_repo "$F"
+ARGV="$T/argv.txt"
+STUB="$T/record-argv"
+cat > "$STUB" <<'STUBEOF'
+#!/bin/bash
+printf '%s\n' "$@" > "$ARGV_OUT"
+STUBEOF
+chmod +x "$STUB"
+out="$(run_sync "$F" NCZ_ALLOW_SUITE_DIGESTS_CMD=1 ARGV_OUT="$ARGV" \
+    NCZ_SUITE_DIGESTS_CMD="$STUB")"
+if [ "$(sed -n '1p' "$ARGV" 2>/dev/null)" = "--snapshot" ] \
+   && [ "$(sed -n '2p' "$ARGV" 2>/dev/null)" = "20300101T000000Z" ]; then
+    ok "the stub receives (--snapshot, <stamp>) as separate argv entries"
+else
+    bad "the stub did not receive the snapshot as a positional argument" \
+        "$(cat "$ARGV" 2>/dev/null)"
+fi
 
 echo "-- results --"
 echo "  $pass passed, $fail failed"

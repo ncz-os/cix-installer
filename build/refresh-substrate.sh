@@ -139,6 +139,10 @@ fi
 if [ "$rc" = 0 ]; then
   if [ "$SYNC_ONLY" = 0 ]; then
     pin_snap="$(awk -F'\t' -v a="$ARCH" '$1==a{print $4}' "$ROOT/manifests/base.pin" 2>/dev/null)"
+    # Fail closed rather than silently skip the digest step: without a stamp
+    # there is nothing to pin, and a release must not proceed half-pinned.
+    [ -n "$pin_snap" ] \
+      || die "manifests/base.pin has no snapshot for $ARCH; re-pin (build/repin.sh) first"
   fi
   if [ -n "$pin_snap" ]; then
     # Validate the snapshot stamp on EVERY path, not just --sync-only: it is
@@ -162,9 +166,11 @@ if [ "$rc" = 0 ]; then
     if [ -n "${NCZ_SUITE_DIGESTS_CMD:-}" ]; then
       [ "${NCZ_ALLOW_SUITE_DIGESTS_CMD:-0}" = 1 ] \
         || die "NCZ_SUITE_DIGESTS_CMD is set but NCZ_ALLOW_SUITE_DIGESTS_CMD=1 is not; refusing to skip signed-suite verification"
-      # Only the validated stamp is interpolated, and it is quoted on the eval
-      # side, so no base.pin content can be parsed as shell.
-      ( cd "$ROOT" && NCZ_PIN_SNAPSHOT="$pin_snap" eval "$NCZ_SUITE_DIGESTS_CMD --snapshot \"\$pin_snap\"" ) \
+      # Run it through `bash -c` with the snapshot as a POSITIONAL argument
+      # ("$1"), never interpolated into the command string: the stamp cannot be
+      # re-parsed as shell no matter what it contains.
+      ( cd "$ROOT" && NCZ_PIN_SNAPSHOT="$pin_snap" \
+          bash -c "$NCZ_SUITE_DIGESTS_CMD"' --snapshot "$1"' _ "$pin_snap" ) \
         || { echo "refresh-substrate: ERROR: could not record the snapshot's suite digests" >&2; exit 2; }
     else
       python3 -I "$HERE/pin-snapshot-suites.py" --snapshot "$pin_snap" \
