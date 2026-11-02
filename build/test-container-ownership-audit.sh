@@ -250,5 +250,107 @@ awk -F'\t' '$2=="preflight" && $3 ~ /^FAIL/ {f=1} END{exit !f}' "$rd/stages.tsv"
     && ok "stages.tsv records the failed-and-audited stage" \
     || bad "stages.tsv lost the failed stage's row"
 
+# --- 8. NCZ_OWNERSHIP_FOREIGN_UIDS accepts comma-separated uids ------------
+# "1000,1001" is the obvious way to write a list of uids.  Split on whitespace
+# only, it reaches find as ONE bogus -uid value that matches nothing, and the
+# audit silently checks fewer uids than asked -- a missed finding, not an error.
+echo "== 8. NCZ_OWNERSHIP_FOREIGN_UIDS takes commas as well as spaces =="
+cm="$SCRATCH/comma-uids"
+mkdir -p "$cm/root" "$cm/run/bulk"
+: > "$cm/root/planted.txt"
+mine="$(id -u)"
+# An impossible uid first, the real one second: a whitespace-only parser passes
+# "99999,<mine>" through as one token and finds nothing.
+audit_snippet() {
+    awk '
+        $0 ~ "^ncz_audit_stage_ownership\\(\\)[[:space:]]*\\{" { p = 1 }
+        p { print }
+        p && /^\}[[:space:]]*$/ { exit }
+    ' "$BIN"
+}
+for spec in "99999,$mine" "99999 $mine"; do
+    ROOT="$cm/root" RUN_DIR="$cm/run" NCZ_OWNERSHIP_FOREIGN_UIDS="$spec" \
+        bash -c '
+            set -uo pipefail
+            '"$(audit_snippet)"'
+            NCZ_AUDIT_PRUNE=()
+            ncz_chown_target() { return 1; }
+            ncz_sudo() { :; }
+            ncz_audit_stage_ownership test /dev/null
+        ' >"$cm/out" 2>&1
+    c_rc=$?
+    grep -q 'planted.txt' "$cm/out" 2>/dev/null \
+        && ok "spec '$spec' found the planted file (second uid honoured)" \
+        || bad "spec '$spec' found nothing -- comma list parsed as one token"
+done
+# A non-numeric token must be warned about, not silently passed to find.
+ROOT="$cm/root" RUN_DIR="$cm/run" NCZ_OWNERSHIP_FOREIGN_UIDS="bogus,$mine" \
+    bash -c '
+        set -uo pipefail
+        '"$(audit_snippet)"'
+        NCZ_AUDIT_PRUNE=()
+        ncz_chown_target() { return 1; }
+        ncz_sudo() { :; }
+        ncz_audit_stage_ownership test /dev/null
+    ' >"$cm/out-warn" 2>&1
+grep -qi 'non-numeric uid' "$cm/out-warn" 2>/dev/null \
+    && ok "a non-numeric uid is warned about" \
+    || bad "a non-numeric uid is passed to find silently"
+
+# --- 9. a trailing slash on a root does not defeat the prune --------------
+# find echoes the root in the form it was given, so "/x/y/" makes it print
+# "/x/y//.git" and a pattern built as "$root/.git" misses.  The audit strips
+# the slash; without that the prune silently stops pruning.
+echo "== 9. a trailing slash on \$ROOT still prunes =="
+ts="$SCRATCH/trailing-slash"
+mkdir -p "$ts/root/.git/objects" "$ts/root/keep" "$ts/run"
+: > "$ts/root/.git/objects/packed"    # pruned -> must not be named
+: > "$ts/root/keep/planted.txt"       # foreign -> must be named
+ROOT="$ts/root/" RUN_DIR="$ts/run" NCZ_OWNERSHIP_FOREIGN_UIDS="$(id -u)" \
+    bash -c '
+        set -uo pipefail
+        '"$(audit_snippet)"'
+        NCZ_AUDIT_PRUNE=(.git downloads manifests assets sbom)
+        ncz_chown_target() { return 1; }
+        ncz_sudo() { :; }
+        ncz_audit_stage_ownership test /dev/null
+    ' >"$ts/out" 2>&1
+if grep -q 'keep/planted.txt' "$ts/out" 2>/dev/null; then
+    ok "the planted file is reported with a trailing-slash root"
+    grep -q '\.git/objects/packed' "$ts/out" 2>/dev/null \
+        && bad "trailing slash defeated the prune (.git was scanned)" \
+        || ok "the prune still applies when \$ROOT has a trailing slash"
+else
+    bad "nothing reported with a trailing-slash root -- prune ate the scan"
+fi
+
+# --- 10. one root with many findings does not mask the other --------------
+# The cap is per root.  A single shared cap let a run dir with 20+ findings push
+# every finding under the clone out of the report -- and the clone is the root
+# the operator has to clean up.
+echo "== 10. the 20-file cap is per root, not shared =="
+cap="$SCRATCH/cap"
+mkdir -p "$cap/root/clone-keep" "$cap/run/many"
+i=0
+while [ "$i" -lt 25 ]; do : > "$cap/run/many/f$i"; i=$((i + 1)); done
+: > "$cap/root/clone-keep/only-one.txt"
+ROOT="$cap/root" RUN_DIR="$cap/run" NCZ_OWNERSHIP_FOREIGN_UIDS="$(id -u)" \
+    bash -c '
+        set -uo pipefail
+        '"$(audit_snippet)"'
+        NCZ_AUDIT_PRUNE=()
+        ncz_chown_target() { return 1; }
+        ncz_sudo() { :; }
+        ncz_audit_stage_ownership test /dev/null
+    ' >"$cap/out" 2>&1
+grep -q 'clone-keep/only-one.txt' "$cap/out" 2>/dev/null \
+    && ok "the clone's finding survives a run dir with 25 findings" \
+    || bad "25 run-dir findings masked the clone's finding (shared cap)"
+# Count the reported path lines (the /fN files plus the clone's one file).
+cap_n="$(grep -c "/f[0-9]\+$\|/only-one\.txt$" "$cap/out" 2>/dev/null || echo 0)"
+[ "$cap_n" -ge 2 ] && [ "$cap_n" -le 40 ] \
+    && ok "the report stays bounded and covers both roots ($cap_n paths for 26 files)" \
+    || bad "the report named $cap_n paths -- expected 2..40 (cap 20 per root)"
+
 printf '\n== container-ownership-audit tests: %d passed, %d failed ==\n' "$PASS" "$FAIL"
 if [ "$FAIL" = 0 ]; then exit 0; else exit 1; fi

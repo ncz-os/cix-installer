@@ -392,11 +392,29 @@ ncz_audit_stage_ownership() {
     local -a fuid=(-uid 0)
     local extra="${NCZ_OWNERSHIP_FOREIGN_UIDS:-}"
     if [ -n "$extra" ]; then
+        # Accept both "1000 1001" and "1000,1001": the obvious way to write a
+        # list of uids is commas, and `for u in "$extra"` would pass
+        # "1000,1001" straight to find as one bogus -uid value, which just
+        # matches nothing -- the audit would silently check one uid fewer than
+        # the operator asked for.  Commas become spaces first.
         local u
-        for u in $extra; do fuid+=(-o -uid "$u"); done
+        for u in ${extra//,/ }; do
+            case "$u" in
+                ''|*[!0-9]*) printf '[%s] WARN: ignoring non-numeric uid %q in NCZ_OWNERSHIP_FOREIGN_UIDS\n' \
+                                 "$name" "$u" >&2; continue ;;
+            esac
+            fuid+=(-o -uid "$u")
+        done
     fi
     local out="" root p
     for root in "${roots[@]}"; do
+        # find -path matches the exact string find prints, and find echoes the
+        # root back in the form it was given -- so a root of "/x/y/" would make
+        # it print "/x/y//.git" and every pattern below would miss.  Strip
+        # trailing slashes (but keep "/" itself) so pattern and output agree.
+        while [ "${#root}" -gt 1 ] && [ "${root%/}" != "$root" ]; do
+            root="${root%/}"
+        done
         # Build the prune clause as its own array so an empty NCZ_AUDIT_PRUNE
         # emits NO -prune at all rather than `\( \) -prune -o` (a find syntax
         # error).  Each name is resolved against THIS root.
@@ -410,11 +428,15 @@ ncz_audit_stage_ownership() {
             unset 'prune[${#prune[@]}-1]'   # drop the trailing -o
             clause=(\( "${prune[@]}" \) -prune -o)
         fi
+        # Cap PER ROOT, not on the combined list: a single cap would let a run
+        # dir with 20+ findings push everything under the clone out of the
+        # report, which is exactly the root the operator cares about for
+        # cleanup.  20 each keeps the message readable and still names a
+        # problem in BOTH places when both have one.
         out+="$(find "$root" -xdev ${clause[@]+"${clause[@]}"} \
-                  -type f \( "${fuid[@]}" \) -print 2>/dev/null)"$'\n'
+                  -type f \( "${fuid[@]}" \) -print 2>/dev/null | head -20)"$'\n'
     done
-    # head -20 applies to the COMBINED list so both roots share one cap
-    out="$(printf '%s\n' "$out" | grep -v '^$' | head -20)"
+    out="$(printf '%s\n' "$out" | grep -v '^$')"
     [ -n "$out" ] || return 0
     local n; n="$(printf '%s\n' "$out" | grep -c . || true)"
     # Written to the stage log as well as the console: run_stage() has already
@@ -426,7 +448,14 @@ ncz_audit_stage_ownership() {
            printf '[%s] FAIL: chown them back (sudo chown -R %s: %s) -- normally ncz_container_run/ncz_sudo_bash hand them back on exit; a survivor means a stage bypassed the trap\n' \
                "$name" "$(id -un)" "$RUN_DIR")"
     printf '%s\n' "$msg"
-    [ -n "$log" ] && printf '%s\n' "$msg" >> "$log" 2>/dev/null
+    # Appended to the stage log and, if that path is unusable, to the console
+    # only -- never silently dropped.  run_stage() creates $LOGS up front
+    # (line ~586) so this normally just works; the fallback exists because a
+    # finding that reaches no log at all is worse than a noisy one.
+    if [ -n "$log" ]; then
+        printf '%s\n' "$msg" >> "$log" 2>/dev/null || \
+            printf '[%s] WARN: could not append the finding to %s\n' "$name" "$log" >&2
+    fi
     # Chown back whatever the scan named, when this process can.  A survivor
     # usually means a stage bypassed the exit trap, so the file is handed back
     # BEFORE the stage is failed: the operator gets the finding AND a run dir
