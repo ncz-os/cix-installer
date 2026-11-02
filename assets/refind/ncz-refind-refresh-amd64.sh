@@ -35,7 +35,63 @@
 #     Sky1-specific.
 set -euo pipefail
 
-echo "[ncz-refind-refresh-amd64] rEFInd bootloader (staged kernel menu)"
+# NCZ-ADDONLY-HOOK-BEGIN
+# Verbs (2026-11-02). Until now this tool had no modes: every run WIPED the
+# ESP and regenerated the whole menu, and the /etc/kernel/postinst.d/zz1 hook
+# ran it on every kernel install. The consequence, proven on CHIMERA and
+# PEGASUS on 2026-11-02, is that installing any newer kernel silently made it
+# the DEFAULT on the next reboot. The menu is now written by three verbs:
+#
+#   (default)  install-time generation, UNCHANGED: wipes and regenerates the
+#              first-install menu (Default / Console / Rescue / Rescue
+#              Partition). Only post-install/70-bootloader.sh calls it.
+#   --add      the postinst.d hook path: STAGES the new kernel/initrd on the
+#              ESP (never overwriting a file already there) and APPENDS one
+#              menuentry. It never wipes, never rewrites default_selection or
+#              timeout, and never touches the rescue entries.
+#   --promote  operator/kernel-side pin: rewrite ONLY the first
+#              default_selection line (forced or persisted by the zz2 guard).
+#
+# Exit codes for --add/--promote (the hooks zz1/zz2 map them 1:1):
+#   0  done (also: nothing to do)
+#   1  refused -- unsafe/unreadable input, nothing on the ESP was modified
+#   2  misuse -- unknown verb or argument
+# build/test-refind-addonly.sh pins all of this against a fixture ESP.
+NCZ_VERB=generate
+case "${1:-}" in
+    "")        NCZ_VERB=generate ;;
+    --add)     NCZ_VERB=add ;;
+    --stage)   NCZ_VERB=stage ;;   # alias: --add stages first, so --stage == --add
+    --promote) NCZ_VERB=promote
+               shift
+               NCZ_PROMOTE_SELECTION="${1:-}"
+               [ -n "$NCZ_PROMOTE_SELECTION" ] || {
+                   echo "ERROR: --promote needs the entry title to select" >&2; exit 2; }
+               NCZ_PROMOTE_FORCE=0
+               if [ "${2:-}" = "--force" ]; then NCZ_PROMOTE_FORCE=1; shift; fi
+               ;;
+    -h|--help)
+        sed -n '2,6p' "$0" >&2
+        echo "usage: ${0##*/} [--add|--stage|--promote '<entry title>' [--force]]" >&2
+        exit 0 ;;
+    *) echo "ERROR: unknown argument '${1}'; expected --add, --stage or --promote" >&2; exit 2 ;;
+esac
+# On the installed system the generator lives in two places (70-bootloader.sh
+# installs it to $GENERATOR_DST), so the refuse/act decisions below log the
+# name once and reuse it. Kept short deliberately: the hook's own output.
+NCZ_GEN="${NCZ_REFRESH_NAME:-ncz-refind-refresh-amd64}"
+# NCZ-STAGING-MARKERS-BEGIN
+NCZ_STAGE_TAG=ncz-staged
+NCZ_HOOK_TAG="# ncz-hook-entry:"
+# The ESP holds kernels at its ROOT under the exact /boot names (layout=other;
+# nothing else copies them there -- the .deb does not and neither did this
+# tool). The ESP is vfat: 8.3-safe names matter only for /EFI, so /vmlinuz-*
+# and /initrd.img-* are fine. 64-bit LFN, 512-byte sectors, FAT32 limits.
+NCZ_ESP_MAX_FILE_BYTES=$((4 * 1024 * 1024 * 1024 - 1))
+NCZ_ESP_MAX_FILES_IN_ROOT=510
+# NCZ-STAGING-MARKERS-END
+echo "[ncz-refind-refresh-amd64] rEFInd bootloader (staged kernel menu; verb=$NCZ_VERB)"
+# NCZ-ADDONLY-HOOK-END
 
 INSTALLER_META=/usr/local/lib/cix-installer
 REFIND_SRC="$INSTALLER_META/assets/refind/refind_x64.efi"
@@ -108,7 +164,7 @@ fi
 # titles read "NCZ-OS 26.10 Cygnus" consistently with GRUB/.disk/info/motd.
 NCZ_RELEASE_SHORT="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
 
-if [ -z "$KVER_STABLE" ]; then
+if [ -z "$KVER_STABLE" ] && [ "$NCZ_VERB" != promote ]; then
     echo "ERROR: no KVER_STABLE provided (the stable kernel line is required)"
     exit 1
 fi
@@ -122,7 +178,7 @@ fi
 # filters /boot, but this generator can be invoked with an explicit KVER, so
 # fail closed here too. The build-time gate build/verify-kernel-default-policy.sh
 # enforces the 7.3 series and the rc-allowance rules.
-case "$KVER_STABLE" in
+case "${KVER_STABLE:-}" in
     *-amd64|7.1.*|7.1-*)
         echo "ERROR: KVER_STABLE='$KVER_STABLE' names a Debian-archive kernel (amd64/7.1.x);" >&2
         echo "       the default MUST be the NCZ 7.3 T2 kernel (unified 7.3 policy)." >&2
@@ -143,11 +199,20 @@ echo "  KVER_STABLE=$KVER_STABLE"
 echo "  KVER_EDGE=${KVER_EDGE:-<none>}"
 echo "  BUILD_VERSION=$BUILD_VERSION"
 
-# Prevent systemd-boot deb postinst from double-staging kernels to the ESP
-mkdir -p /etc/kernel
-echo "layout=other" > /etc/kernel/install.conf
-echo "  /etc/kernel/install.conf set to layout=other (disables double-staging)"
+# Prevent systemd-boot deb postinst from double-staging kernels to the ESP.
+# Add-only verbs never write it: the install-time generator already did, and a
+# kernel hook must not write outside the ESP (a read-only or full root here
+# used to abort the whole run before the menu logic could even report).
+if [ "$NCZ_VERB" = generate ]; then
+    mkdir -p /etc/kernel
+    echo "layout=other" > /etc/kernel/install.conf
+    echo "  /etc/kernel/install.conf set to layout=other (disables double-staging)"
+fi
 
+if [ "$NCZ_VERB" = generate ]; then
+# rEFInd binary + the /boot/efi mount check are GENERATE-mode preconditions:
+# add-only verbs never (re)install the bootloader binary and never write outside
+# the ESP, and they have their own preflights (esp_is_vfat, ncz_add_only).
 if [ ! -s "$REFIND_SRC" ]; then
     echo "ERROR: rEFInd binary missing/empty at $REFIND_SRC"
     echo "       cannot install a bootloader."
@@ -190,7 +255,7 @@ verify_payload_readable() {
 
 STABLE_PREFLIGHT_READY=0
 if [ -n "$KVER_STABLE" ]; then
-    if [ -s "/boot/vmlinuz-$KVER_STABLE" ] && [ -s "/boot/initrd.img-$KVER_STABLE" ]; then
+    if [ -z "${KVER_STABLE_SRC:-}" ] && [ -s "/boot/vmlinuz-$KVER_STABLE" ] && [ -s "/boot/initrd.img-$KVER_STABLE" ]; then
         verify_payload_readable "stable kernel" "/boot/vmlinuz-$KVER_STABLE"
         verify_payload_readable "stable initrd" "/boot/initrd.img-$KVER_STABLE"
         STABLE_PREFLIGHT_READY=1
@@ -205,7 +270,10 @@ if [ -n "$KVER_STABLE" ]; then
         exit 1
     fi
 fi
-if [ "$STABLE_PREFLIGHT_READY" = "0" ]; then
+# Add-only verbs carry the pair's paths (KVER_STABLE_SRC/INITRD) because their
+# main loop runs with the generator's /boot replaced by the caller's paths;
+# only the install-time generator has to find them by name in /boot.
+if [ "$STABLE_PREFLIGHT_READY" = "0" ] && [ -z "${KVER_STABLE_SRC:-}" ]; then
     echo "ERROR: no stable kernel has both a non-empty vmlinuz and initrd in /boot."
     echo "       Refusing to wipe the ESP because there is nothing bootable to restage."
     exit 1
@@ -245,7 +313,8 @@ for _rcf in "$INSTALLER_META/COMPONENTS" /etc/cix-installer/COMPONENTS /var/lib/
 done
 if [ -n "$RESCUEPART_PARTUUID" ]; then
     echo "  preflight OK: rescue partition PARTUUID=$RESCUEPART_PARTUUID"
-elif [ "$RESCUEPART_REQUIRED" = "1" ] && [ -s "$INSTALLER_META/INSTALL_IN_PROGRESS" ] \
+fi
+if [ -z "$RESCUEPART_PARTUUID" ] && [ "$RESCUEPART_REQUIRED" = "1" ] && [ -s "$INSTALLER_META/INSTALL_IN_PROGRESS" ] \
      && [ "$(cat "$INSTALLER_META/INSTALL_IN_PROGRESS" 2>/dev/null)" = "$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)" ]; then
     # Called by a package hook while the install is still running (see
     # NCZ-INSTALL-IN-PROGRESS in post-install/run-all.sh): RESCUE_READY is
@@ -253,14 +322,15 @@ elif [ "$RESCUEPART_REQUIRED" = "1" ] && [ -s "$INSTALLER_META/INSTALL_IN_PROGRE
     # boot menu at the end. Leave the ESP alone now.
     echo "  rescue partition selected and not populated yet (install in progress): ESP left to 70-bootloader.sh"
     exit 0
-elif [ "$RESCUEPART_REQUIRED" = "1" ]; then
+elif [ -z "$RESCUEPART_PARTUUID" ] && [ "$RESCUEPART_REQUIRED" = "1" ]; then
     echo "ERROR: rescue partition is required but $RESCUE_READY has no PARTUUID"
     echo "       Refusing to modify the ESP until recovery is ready."
     exit 1
-else
+elif [ -z "$RESCUEPART_PARTUUID" ]; then
     echo "  preflight OK: rescue partition not selected ($RESCUEPART_RECORD); no rescue-partition entry"
 fi
 # NCZ-RESCUE-PREFLIGHT-END
+fi   # end of the GENERATE-only preconditions (rEFInd binary, /boot/efi, rescue)
 
 # Preflight (above) validated inputs under `set -euo pipefail`. The ESP is
 # vfat (no ownership/perms). The write section below tolerates vfat quirks
@@ -270,6 +340,10 @@ fi
 # keeps its OWN explicit guards.
 set +e +u +o pipefail
 
+# Generate-only: it exists to decide the root= stanzas of a menu this run is
+# about to WRITE. The add-only verbs reuse the previous run's options verbatim,
+# and must not run (or fail on) root probing at all.
+if [ "$NCZ_VERB" = generate ]; then
 # NCZ-ROOT-PARTUUID-BEGIN
 # Every normal entry boots root=PARTUUID=<root>. The initramfs waits for
 # /dev/disk/by-partuuid/<root>, which udev creates from the same libblkid
@@ -325,6 +399,8 @@ case "$ROOT_PARTUUID" in
         exit 1 ;;
 esac
 # NCZ-ROOT-PARTUUID-END
+fi   # end of the root= probe (generate only)
+
 ROOT_FSTYPE=$(findmnt -no FSTYPE /)
 ROOT_SUBVOL=""
 if [ "$ROOT_FSTYPE" = "btrfs" ]; then
@@ -431,6 +507,386 @@ SPLASH="quiet loglevel=3 vt.global_cursor_default=0 systemd.show_status=false rd
 ROOT_OPTS="root=PARTUUID=$ROOT_PARTUUID rootwait rootfstype=$ROOT_FSTYPE rw"
 if [ -n "$ROOT_SUBVOL" ]; then
     ROOT_OPTS="$ROOT_OPTS rootflags=subvol=$ROOT_SUBVOL"
+fi
+
+# NCZ-ADDONLY-FUNCS-BEGIN
+# ---------------------------------------------------------------------------
+# Add-only kernel install (2026-11-02). Used by the /etc/kernel/postinst.d
+# hooks, never by the install itself. Everything here is a REFUSAL unless it
+# can prove the ESP afterwards holds exactly one more complete, untouched-by-
+# us kernel pair plus one appended menuentry.
+#
+# Why staging lives here (lesson from the amd64-kernel-t2 lane): neither the
+# .deb nor the kernel-postinst contract copies vmlinuz/initrd onto this ESP
+# (layout=other), so an --add that only appended an entry would point at
+# files that do not exist there. --add therefore stages first, and it refuses
+# when it cannot (missing /boot files, ESP full, an ESP file present with
+# other content -- that is never overwritten).
+ESP_DIR="${NCZ_ESP_DIR:-/boot/efi}"
+ESP_CONF="$ESP_DIR/EFI/BOOT/refind.conf"
+#
+# The marker comments below are read back on every run, so changing them
+# re-classifies every previously written entry as unowned. Keep in sync with
+# the shell tests: build/test-refind-addonly.sh.
+# ---------------------------------------------------------------------------
+
+esp_is_vfat() {
+    [ -n "${NCZ_ESP_DIR:-}" ] && return 0   # fixture tree in the tests
+    local fstype
+    fstype=$(findmnt -no FSTYPE "$ESP_DIR" 2>/dev/null || true)
+    [ "$fstype" = vfat ]
+}
+
+# Same shell-glob-escape as the generated-entry helper: an option value with a
+# quote or backslash must not be able to end the quoted rEFInd options string.
+ncz_quote_option_value() {
+    local v=$1
+    v=$(printf '%s' "$v" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+    v=${v//\$/\$\$}
+    v=${v//\`/\'\`}
+    printf '%s' "$v"
+}
+
+# ncz_esp_kernel_present <kver> -- 0 when BOTH files for kver exist on the ESP
+# with content.
+ncz_esp_kernel_present() {
+    [ -s "$ESP_DIR/vmlinuz-$1" ] && [ -s "$ESP_DIR/initrd.img-$1" ]
+}
+
+# ncz_esp_file_count -- files needed to know whether a FAT root can take more;
+# the root directory of a FAT32 volume is capped at 510 8.3-style slots.
+ncz_esp_file_count() {
+    find "$ESP_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' '
+}
+
+# ncz_stage_pair <kver> <vmlinuz-source> <initrd-source>
+# Stage the pair onto the ESP without ever overwriting an existing ESP file.
+# Each half is copied to a private temp name on the ESP first, then recorded as
+# STAGED-BY-US and renamed. A crash between the two renames leaves at most one
+# half behind, and the next run re-stages the missing half (the temp name is
+# never the final name). rc 1 (refuse) for: missing/unreadable source, no room,
+# ESP file with different content already present.
+ncz_stage_pair() {
+    local kver=$1 src_v=$2 src_i=$3 half src dst tmp staged_here=0
+    for half in vmlinuz initrd.img; do
+        case "$half" in
+            vmlinuz)    src=$src_v ;;
+            initrd.img) src=$src_i ;;
+        esac
+        dst="$ESP_DIR/$half-$kver"
+        if [ -e "$dst" ]; then
+            if [ ! -s "$dst" ]; then
+                echo "ERROR: $dst exists on the ESP but is empty; refusing to guess what it should hold" >&2
+                return 1
+            fi
+            if cmp -s "$src" "$dst"; then
+                echo "  $half-$kver already staged on the ESP (identical), left as-is"
+                continue
+            fi
+            echo "ERROR: $dst already exists on the ESP with DIFFERENT content;" >&2
+            echo "       add-only never overwrites an existing ESP file. Remove it by hand" >&2
+            echo "       if the ESP copy is known-bad, then re-run the kernel hook." >&2
+            return 1
+        fi
+        tmp="$ESP_DIR/.$half-$kver.$NCZ_STAGE_TAG.$$"
+        rm -f "$tmp" 2>/dev/null || true
+        if ! cp -f "$src" "$tmp" 2>/dev/null || [ ! -s "$tmp" ] || ! cmp -s "$src" "$tmp"; then
+            rm -f "$tmp" 2>/dev/null || true
+            echo "ERROR: could not stage $src to $tmp (ESP full or unwritable); nothing was added" >&2
+            return 1
+        fi
+        if ! mv -f "$tmp" "$dst" 2>/dev/null; then
+            rm -f "$tmp" 2>/dev/null || true
+            echo "ERROR: could not rename $tmp to $dst; nothing was added" >&2
+            return 1
+        fi
+        echo "  staged $half-$kver on the ESP"
+        staged_here=$((staged_here + 1))
+    done
+    # --stage/--add: record that WE put these bytes there, so a later identical
+    # replacement is allowed and a different one is refused.
+    printf '%s/%s/%s\n' "$kver" "$(sha256sum "$src_v" | cut -d' ' -f1)" \
+        "$(sha256sum "$src_i" | cut -d' ' -f1)" > "$ESP_DIR/$NCZ_STAGE_TAG-$kver" 2>/dev/null || true
+    return 0
+}
+
+# ncz_staged_by_us <kver> <sha-vmlinuz> <sha-initrd> -- 0 when the staging
+# record proves this tool wrote exactly these bytes.
+ncz_staged_by_us() {
+    local rec="$ESP_DIR/$NCZ_STAGE_TAG-$1" want=$2/$3
+    [ -s "$rec" ] || return 1
+    [ "$(cat "$rec" 2>/dev/null)" = "$want" ]
+}
+
+ncz_restore_conf() {   # used by callers that rewrote refind.conf and failed
+    local bak=$1
+    [ -n "$bak" ] && [ -s "$bak" ] && cp -f "$bak" "$ESP_CONF" 2>/dev/null
+    rm -f "$bak" 2>/dev/null || true
+}
+
+# ncz_conf_escape <string> -- printf replacement text that inserts <string>
+# literally into a later printf format.
+ncz_conf_escape() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g' -e 's/|/\\|/g'
+}
+
+# ncz_options_from_menu -- echo the `options` string of the FIRST menuentry
+# that carries one. --add reuses it verbatim: it runs no root= probe (that is
+# generate-only), so building options itself would emit root=PARTUUID= (empty)
+# -- a stanza that hangs in the initramfs. Reusing the live string keeps the
+# new entry bootable by construction and keeps this tool out of cmdline policy.
+ncz_options_from_menu() {
+    awk '
+        /^menuentry / { inentry = 1; next }
+        inentry && /^[[:space:]]*options[[:space:]]+"/ {
+            line = $0
+            sub(/^[[:space:]]*options[[:space:]]+"/, "", line)
+            sub(/"[[:space:]]*$/, "", line)
+            print line
+            exit
+        }
+    ' "$ESP_CONF" 2>/dev/null
+}
+
+# ncz_menu_title_token <kver> -- the UNIQUE substring that names an entry for
+# this kernel. rEFInd matches default_selection as a substring, so the kver
+# itself is the token: it appears in no other entry title, and the title never
+# contains "(Default)"/"Console"/"Rescue" markers.
+ncz_menu_title_token() { printf '%s' "$1"; }
+
+# ncz_entry_append <kver|tag> <loader> <initrd> <options> <title-token>
+# Append one menuentry to refind.conf. Every append is rolled back when the
+# written file no longer holds the previous content verbatim.
+ncz_entry_append() {
+    local tag=$1 loader=$2 initrd=$3 options=$4 token=$5
+    local bak new before_size after_size
+    bak="$(mktemp "${TMPDIR:-/var/tmp}/refind-conf.XXXXXX")" || {
+        echo "ERROR: cannot allocate a backup for $ESP_CONF; nothing was added" >&2; return 1; }
+    cp -f "$ESP_CONF" "$bak" || { rm -f "$bak"; echo "ERROR: cannot read $ESP_CONF; nothing was added" >&2; return 1; }
+    before_size=$(wc -c < "$bak" | tr -d ' ')
+    if [ "$before_size" -gt 0 ] && [ "$(tail -c 1 "$bak" | od -An -c | tr -d ' ')" != '\n' ]; then
+        echo "" >> "$bak"
+    fi
+    new="$bak.new"
+    cp -f "$bak" "$new" || { rm -f "$bak" "$new"; echo "ERROR: cannot copy $ESP_CONF; nothing was added" >&2; return 1; }
+    {
+        printf '\n'
+        printf '%s %s\n' "$NCZ_HOOK_TAG" "$tag"
+        printf '%s "7.3 Kernel %s" {\n' "menuentry" "$tag"
+        printf '%s /%s\n' "    loader " "$loader"
+        [ -n "$REFIND_ICON" ] && printf '%s /EFI/BOOT/%s\n' "    icon   " "$REFIND_ICON"
+        [ -n "$initrd" ] && printf '%s /%s\n' "    initrd " "$initrd"
+        printf '%s "%s"\n' "    options" "$(ncz_quote_option_value "$options")"
+        printf '%s\n' "}"
+    } >> "$new" || { rm -f "$bak" "$new"; echo "ERROR: cannot write $ESP_CONF; nothing was added" >&2; return 1; }
+    after_size=$(wc -c < "$new" 2>/dev/null | tr -d ' ')
+    if [ -z "$after_size" ] || [ "$after_size" -le "$before_size" ] \
+       || ! head -c "$before_size" "$new" | cmp -s - "$bak"; then
+        rm -f "$bak" "$new" 2>/dev/null || true
+        echo "ERROR: appending to $ESP_CONF did not round-trip; ESP left unchanged" >&2
+        return 1
+    fi
+    if ! mv -f "$new" "$ESP_CONF"; then
+        rm -f "$new" "$bak" 2>/dev/null || true
+        echo "ERROR: cannot replace $ESP_CONF; ESP left unchanged" >&2
+        return 1
+    fi
+    rm -f "$bak" 2>/dev/null || true
+    # The token must now match exactly one entry title.
+    local hits
+    hits=$(grep -c "^menuentry .*$token" "$ESP_CONF" 2>/dev/null || true)
+    if [ "${hits:-0}" != "1" ]; then
+        echo "ERROR: the appended entry for '$token' is not unique in $ESP_CONF (hits=$hits)" >&2
+        return 1
+    fi
+    return 0
+}
+# NCZ-ADDONLY-FUNCS-END
+
+# ---------------------------------------------------------------------------
+# --promote "<entry title>": the ONLY thing allowed to change
+# default_selection outside install-time generation. It rewrites the
+# default_selection line and nothing else; the zz2 guard calls it.
+# ---------------------------------------------------------------------------
+ncz_promote() {
+    local sel="$NCZ_PROMOTE_SELECTION" cur tmp bak hits
+    if [ ! -s "$ESP_CONF" ]; then
+        echo "ERROR: no menu at $ESP_CONF; nothing to promote" >&2
+        return 1
+    fi
+    hits=$(grep '^menuentry ' "$ESP_CONF" | grep -cF -- "$sel" || true)
+    if [ "${hits:-0}" = "0" ]; then
+        echo "ERROR: --promote '$sel' matches no menuentry in $ESP_CONF" >&2
+        return 1
+    fi
+    cur=$(sed -n 's/^[[:space:]]*default_selection[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$ESP_CONF" | head -1)
+    if [ "$cur" = "$sel" ] && [ "$NCZ_PROMOTE_FORCE" != "1" ]; then
+        echo "  default_selection is already '$sel'"
+        return 0
+    fi
+    bak="$(mktemp "${TMPDIR:-/var/tmp}/refind-conf.XXXXXX")" || return 1
+    cp -f "$ESP_CONF" "$bak" || { rm -f "$bak"; return 1; }
+    tmp="$bak.new"
+    if [ -z "$cur" ]; then
+        { printf 'default_selection "%s"\n' "$sel"; cat "$bak"; } > "$tmp"
+    else
+        sed "s|^[[:space:]]*default_selection[[:space:]]*\"[^\"]*\"[[:space:]]*$|default_selection \"$(printf '%s' "$sel" | sed 's/[&|\\]/\\&/g')\"|" "$bak" > "$tmp"
+    fi
+    # Only the default_selection line may differ.
+    if ! diff <(grep -v '^[[:space:]]*default_selection' "$bak") \
+              <(grep -v '^[[:space:]]*default_selection' "$tmp") >/dev/null 2>&1; then
+        rm -f "$bak" "$tmp"
+        echo "ERROR: --promote would change more than default_selection; refused" >&2
+        return 1
+    fi
+    if ! mv -f "$tmp" "$ESP_CONF"; then
+        rm -f "$bak" "$tmp"
+        echo "ERROR: cannot replace $ESP_CONF; unchanged" >&2
+        return 1
+    fi
+    rm -f "$bak"
+    echo "  default_selection '$cur' -> '$sel' in $ESP_CONF"
+    return 0
+}
+
+# NCZ-ADDONLY-DISPATCH-BEGIN
+# ---------------------------------------------------------------------------
+# --add / --stage: stage the new kernel/initrd on the ESP and append ONE
+# menuentry. Never wipes, never rewrites default_selection or timeout, never
+# removes or edits anything already in refind.conf.
+# ---------------------------------------------------------------------------
+ncz_add_only() {
+    local kver="$KVER_STABLE" src_v src_i sha_v sha_i title token
+    local icon="$REFIND_ICON"
+
+    if [ -z "$kver" ]; then
+        echo "ERROR: --add needs KVER_STABLE (or the zz1 hook's trigger version)" >&2
+        return 1
+    fi
+    case "$kver" in
+        *-amd64|7.1.*|7.1-*)
+            echo "ERROR: --add refuses Debian-archive kernel '$kver' (NCZ 7.3 policy)" >&2
+            return 1 ;;
+    esac
+    if ! esp_is_vfat; then
+        echo "ERROR: $ESP_DIR is not a mounted vfat ESP; refusing to touch it" >&2
+        return 1
+    fi
+    if [ ! -s "$ESP_CONF" ]; then
+        echo "ERROR: no generated menu at $ESP_CONF; the install-time generator" >&2
+        echo "       (70-bootloader.sh) has not written one -- refusing to invent a menu" >&2
+        return 1
+    fi
+    if ! grep -q '^menuentry ' "$ESP_CONF" 2>/dev/null; then
+        echo "ERROR: $ESP_CONF has no menuentry; refusing to append to a menu that cannot boot" >&2
+        return 1
+    fi
+
+    src_v="${KVER_STABLE_SRC:-/boot/vmlinuz-$kver}"
+    src_i="${KVER_STABLE_INITRD:-/boot/initrd.img-$kver}"
+    if [ ! -s "$src_v" ] || [ ! -s "$src_i" ]; then
+        echo "ERROR: $kver has no complete kernel pair in /boot (need $src_v and $src_i);" >&2
+        echo "       add-only stages only what is already installed, and never fabricates a kernel" >&2
+        return 1
+    fi
+    sha_v=$(sha256sum "$src_v" | cut -d' ' -f1)
+    sha_i=$(sha256sum "$src_i" | cut -d' ' -f1)
+
+    # Bounded ESP: a kernel pair that does not fit must fail here, before the
+    # first byte is copied, not half-way through a stage.
+    local need avail
+    need=$(( $(stat -c %s "$src_v") + $(stat -c %s "$src_i") ))
+    if [ "$(stat -c %s "$src_v")" -gt "$NCZ_ESP_MAX_FILE_BYTES" ] \
+       || [ "$(stat -c %s "$src_i")" -gt "$NCZ_ESP_MAX_FILE_BYTES" ]; then
+        echo "ERROR: $kver payload exceeds the FAT32 4 GiB per-file limit; cannot stage it" >&2
+        return 1
+    fi
+    avail=$(df -Pk "$ESP_DIR" 2>/dev/null | awk 'NR == 2 { print $4 * 1024 }')
+    if [ -n "$avail" ] && [ "$avail" -lt "$need" ]; then
+        echo "ERROR: ESP has $avail bytes free, $kver needs $need; nothing was added" >&2
+        return 1
+    fi
+
+    if ! ncz_esp_kernel_present "$kver"; then
+        ncz_stage_pair "$kver" "$src_v" "$src_i" || return 1
+    else
+        echo "  $kver already staged on the ESP"
+        # Reconcile an ESP copy that differs from /boot only when WE put the
+        # current bytes there; anything else is an operator/foreign file.
+        local half dst src sha_now
+        for half in vmlinuz initrd.img; do
+            case "$half" in
+                vmlinuz)    src=$src_v; sha_now=$sha_v ;;
+                initrd.img) src=$src_i; sha_now=$sha_i ;;
+            esac
+            dst="$ESP_DIR/$half-$kver"
+            cmp -s "$src" "$dst" && continue
+            if ncz_staged_by_us "$kver" "$sha_v" "$sha_i"; then
+                echo "  refreshing $half-$kver (staged by this tool, content changed in /boot)"
+                cp -f "$src" "$ESP_DIR/.$half-$kver.$NCZ_STAGE_TAG.$$" 2>/dev/null \
+                    && cmp -s "$src" "$ESP_DIR/.$half-$kver.$NCZ_STAGE_TAG.$$" \
+                    && mv -f "$ESP_DIR/.$half-$kver.$NCZ_STAGE_TAG.$$" "$dst" \
+                    || { rm -f "$ESP_DIR/.$half-$kver.$NCZ_STAGE_TAG.$$"; \
+                         echo "ERROR: could not refresh $dst; nothing was added" >&2; return 1; }
+            else
+                echo "ERROR: $dst differs from $src and was not staged by this tool;" >&2
+                echo "       add-only never overwrites an existing ESP file" >&2
+                return 1
+            fi
+        done
+        printf '%s/%s/%s\n' "$kver" "$sha_v" "$sha_i" > "$ESP_DIR/$NCZ_STAGE_TAG-$kver" 2>/dev/null || true
+    fi
+    if [ "$(ncz_esp_file_count)" -gt "$NCZ_ESP_MAX_FILES_IN_ROOT" ]; then
+        echo "WARN: the ESP root already holds $NCZ_ESP_MAX_FILES_IN_ROOT+ files; a FAT32 root can" >&2
+        echo "      reject new entries. This add was attempted, but check the ESP contents." >&2
+    fi
+
+    token=$(ncz_menu_title_token "$kver")
+    if grep -qF -- "$NCZ_HOOK_TAG $kver" "$ESP_CONF" 2>/dev/null; then
+        echo "  $kver already has a hook-written entry in $ESP_CONF; menu left as-is"
+        echo "  default_selection stays '$(sed -n 's/^[[:space:]]*default_selection[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$ESP_CONF" | head -1)'"
+        return 0
+    fi
+    # A generator-written entry for this exact kernel (a re-install of the
+    # running kernel, or a hand-run generator) already names it: do not add a
+    # duplicate, and do not touch it.
+    if grep '^menuentry ' "$ESP_CONF" | grep -qF -- "$token"; then
+        echo "  $ESP_CONF already names kernel $kver; no entry appended"
+        return 0
+    fi
+
+    title="$NCZ_RELEASE_SHORT  -  7.3 Kernel $kver"
+    # Reuse the live menu's options verbatim (see ncz_options_from_menu): --add
+    # never probes root= and must not invent a cmdline.
+    local opts
+    opts="$(ncz_options_from_menu)"
+    if [ -z "$opts" ]; then
+        echo "ERROR: $ESP_CONF has no menuentry with an options string to reuse;" >&2
+        echo "       refusing to append an entry that would not boot (add-only)" >&2
+        return 1
+    fi
+    ncz_entry_append "$kver" "vmlinuz-$kver" "initrd.img-$kver" \
+        "$opts" "$token" || return 1
+    echo "  appended menuentry \"$title\" to $ESP_CONF"
+    echo "  default_selection unchanged: '$(sed -n 's/^[[:space:]]*default_selection[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$ESP_CONF" | head -1)'"
+    echo "  timeout unchanged: $(awk '$1 == "timeout" { print $2; exit }' "$ESP_CONF")"
+    echo "  rescue entries untouched: $(grep -c '^menuentry .*\(Rescue\|RESCUE\)' "$ESP_CONF" 2>/dev/null || echo 0)"
+    return 0
+}
+
+# NCZ-ADDONLY-DISPATCH-END
+
+# Dispatch the add-only verbs BEFORE the first destructive statement: every
+# helper and both menu editors are defined above this point, and nothing below
+# it may run for --add/--stage/--promote (reaching the wipe from the hook path
+# is exactly the defect the add-only design exists to prevent).
+if [ "$NCZ_VERB" = add ] || [ "$NCZ_VERB" = stage ]; then
+    ncz_add_only
+    exit $?
+fi
+if [ "$NCZ_VERB" = promote ]; then
+    ncz_promote
+    exit $?
 fi
 
 echo "  wiping stale ESP entries + kernel images..."
@@ -569,6 +1025,7 @@ ncz_promote_outgoing_rescue() {
 }
 
 ncz_promote_outgoing_rescue /boot/efi "$KVER_STABLE" "${KVER_EDGE:-}"
+
 
 for _esp_f in /boot/efi/vmlinuz-* /boot/efi/initrd.img-*; do
     [ -e "$_esp_f" ] || continue
@@ -760,6 +1217,9 @@ fi
 # server medium. BUILD_VARIANT is deliberately NOT used: a desktop medium's
 # install with the desktop component off records BUILD_VARIANT=server too, and
 # that install keeps the full menu.
+# Wrapped in a function (2026-11-02) so the add-only verbs append entries with
+# the SAME variant/title rule the generated menu uses, without duplicating it.
+ncz_apply_menu_variant() {
 NCZ_MENU_VARIANT="${NCZ_VARIANT:-}"
 if [ -z "$NCZ_MENU_VARIANT" ] && [ -r /usr/local/lib/cix-installer/MEDIUM_VARIANT ]; then
     case "$(tr -d ' \t\r\n' < /usr/local/lib/cix-installer/MEDIUM_VARIANT 2>/dev/null)" in
@@ -786,10 +1246,13 @@ if [ "$NCZ_MENU_VARIANT" != desktop ] && [ "$STABLE_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="7.3 Console"
     echo "  server medium: Console + Rescue Partition menu"
 fi
+}
+ncz_apply_menu_variant
 # NCZ-MENU-VARIANT-END
 SAFE_DEFAULT_TOKEN="$DEFAULT_TOKEN"
 
 REFIND_CONF=/boot/efi/EFI/BOOT/refind.conf
+
 
 # PRESERVE THE OPERATOR'S CHOICES ACROSS REGENERATION — same mechanism as
 # arm64: stored prefs in /etc/ncz/refind-prefs.conf, plus learning from a

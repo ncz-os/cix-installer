@@ -378,6 +378,31 @@ if [ -f "$_amd64_hook" ]; then
         err "amd64: classifier hook still carries the retired 'amd64 edge channel is pinned' marker"
     fi
 fi
+# Check 8b (amd64, 2026-11-02): the kernel install path must be ADD-ONLY.
+# zz1 has to invoke the tool with --add; a bare invocation wipes the ESP and
+# regenerates the menu, which made every newly installed kernel the DEFAULT on
+# the next reboot (CHIMERA/PEGASUS, 2026-11-02). zz2 (the promote guard) must
+# ship alongside it, because it is the ONLY hook allowed to move
+# default_selection outside the install-time generator.
+_amd64_zz2="$ROOT/assets/refind/zz2-ncz-refind-promote-guard"
+if [ -f "$_amd64_hook" ]; then
+    if grep -qE '\$REFRESH"? +--add|"\$REFRESH" --add' "$_amd64_hook" 2>/dev/null; then
+        log "amd64: kernel postinst.d hook is add-only (zz1 calls the tool with --add)"
+    else
+        err "amd64: zz1 does not call the refresh tool with --add; a bare call wipes the ESP and changes the default on every kernel install"
+    fi
+    # A bare, verbless invocation (the pre-2026-11-02 form) must be gone.
+    if grep -qE '^\s*"?\$REFRESH"?\s*$|BUILD_VERSION="\$BUILD_VERSION" "\$REFRESH"\s*$' "$_amd64_hook" 2>/dev/null; then
+        err "amd64: zz1 still contains a verbless refresh invocation (it would wipe the menu)"
+    fi
+fi
+if [ ! -f "$_amd64_zz2" ]; then
+    err "amd64: $_amd64_zz2 is missing (the promote guard that keeps default_selection stable)"
+elif ! grep -q -- '--promote' "$_amd64_zz2" 2>/dev/null; then
+    err "amd64: zz2-ncz-refind-promote-guard does not call --promote"
+else
+    log "amd64: promote guard (zz2) is present and delegates to --promote"
+fi
 if [ -f "$_amd64_refresh" ]; then
     if grep -q "$UNIFIED_MARKER" "$_amd64_refresh" 2>/dev/null; then
         log "amd64: rEFInd refresh is on the unified 7.3 policy"
