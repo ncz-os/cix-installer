@@ -215,11 +215,21 @@ if [ "$DO_SUBSTRATE" = 1 ] && [ -n "$ISO" ] && ! is_excluded "$ISO"; then
                 # index).  Its exit status is ignored, and because run_scan()
                 # bumps FAILS on a non-zero rc, restore the counter around it
                 # unconditionally -- decrementing after the fact would drive
-                # FAILS negative on success and mask a real failure.
+                # FAILS negative on success and mask a real failure.  run_scan()
+                # also appends the run's FAIL rows to --report, so the report
+                # must be restored with the counter: an evidence-only finding
+                # left in the report would contradict the verdict this stage
+                # returns (the report would list a finding FAILS never counted).
                 _f_before="$FAILS"
+                _rep_before=""
+                [ -n "$REPORT" ] && _rep_before="$(cat "$REPORT" 2>/dev/null)"
                 run_scan "iso evidence $(basename "$ISO")" --substrate-iso "$ISO" \
                     --iso-evidence "$EVIDENCE" --work "$WORK" --ubuntu-only || true
                 FAILS="$_f_before"
+                if [ -n "$REPORT" ]; then
+                    printf '%s' "$_rep_before" > "$REPORT"
+                    [ -n "$_rep_before" ] && printf '\n' >> "$REPORT"
+                fi
                 [ -f "$EVIDENCE/iso-listing.txt" ] && IARGS+=(--iso-listing "$EVIDENCE/iso-listing.txt")
             else
                 [ -n "$QUIET" ] || echo "[provenance-predict] note: no xorriso on this host; the substrate is scanned from the ISO's own directory records" >&2

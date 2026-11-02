@@ -3102,6 +3102,13 @@ def main():
         # so this needs no trust root and no verified index -- that is exactly
         # what it emits the manifest FOR (a host without xorriso then verifies
         # with --substrate-iso ISO --iso-listing DIR/iso-listing.txt).
+        # One evidence directory describes one ISO: a single listing silently
+        # applied to several would leave every ISO after the first unlisted
+        # while the run exits 0, which is exactly the incomplete evidence this
+        # mode exists to avoid.
+        if len(a.substrate_iso) != 1:
+            ap.error("--iso-evidence applies to exactly one --substrate-iso "
+                     f"(got {len(a.substrate_iso)})")
         if not a.work:
             ap.error("--iso-evidence needs --work DIR (scratch, not tmpfs)")
         os.makedirs(a.work, exist_ok=True)
@@ -3182,11 +3189,6 @@ def main():
         ap.error("--iso-evidence needs --substrate-iso (it lists that ISO)")
     if a.iso_evidence is not None and not a.iso_evidence.strip():
         ap.error("--iso-evidence DIR must not be empty")
-        # One evidence directory per ISO it describes, no more and no fewer: a
-        # single listing silently applied to several ISOs would be a mismatch.
-        if len(a.substrate_iso) != 1:
-            ap.error("--iso-evidence applies to exactly one --substrate-iso "
-                     f"(got {len(a.substrate_iso)})")
     if a.work:
         os.makedirs(a.work, exist_ok=True)
     for tb in a.rootfs_tar:

@@ -668,6 +668,33 @@ expect_rc "a +r292 kernel deb under a +r293 manifest FAILS" 1 \
     bash "$CHK" --root "$TR3" --work "$WF" --index-dir "$IDX" --arch amd64 --no-substrate
 lastfind "ncz-kernel 7.3.0 amd64"
 
+# 2f0. the evidence-only run is not a verdict, so it must leave NO trace in
+#      --report either.  run_scan() appends its FAIL rows to $REPORT on rc!=0,
+#      and the wrapper restores FAILS around the evidence run but used to leave
+#      those rows behind: the report listed a finding the returned verdict never
+#      counted, which contradicts the comment that the evidence run produces no
+#      verdict.  Force the evidence run to fail (a truncated ISO makes xorriso's
+#      -ls exit non-zero) and assert the substrate finding is reported while the
+#      evidence row is not.
+if command -v xorriso >/dev/null 2>&1; then
+    head -c 40000 "$T/fix/substrate.iso" > "$T/trunc.iso"
+    rc=0; LAST="$(bash "$CHK" --root "$TR" --work "$WF" --index-dir "$IDX" \
+        --arch amd64 --no-rootfs --substrate-iso "$T/trunc.iso" \
+        --iso-evidence "$T/evr" --report "$T/rep.txt" 2>&1)" || rc=$?
+    if [ -f "$T/rep.txt" ] && ! grep -q 'trunc.iso ::' "$T/rep.txt"; then
+        ok "--iso-evidence: the evidence-only run leaves no finding in --report"
+    else
+        bad "--iso-evidence leaked its own FAIL row into --report" "$(cat "$T/rep.txt" 2>/dev/null)"
+    fi
+    if grep -q 'substrate ISO' <<<"$LAST" && grep -q '^FAIL' "$T/rep.txt" 2>/dev/null; then
+        ok "  --report still carries the findings of the verdict-producing runs"
+    else
+        bad "  --report lost the verdict-producing runs' findings" "$(cat "$T/rep.txt" 2>/dev/null)"
+    fi
+else
+    ok "--iso-evidence: --report leak check skipped (no xorriso to fail the evidence run)"
+fi
+
 # 2f. the --iso-evidence run writes a manifest, it is NOT a verdict.  Its exit
 #     status must not move the failure count either way: a decrement on success
 #     drives FAILS negative (run_scan bumps it only on failure) and would mask a
@@ -708,28 +735,72 @@ else
                                  || bad "--iso-evidence: failure does not name xorriso" "$LAST"
 fi
 
-# 2h. the arity of the writer, pinned without needing the tool: a call that
-#     mismatches the signature raises TypeError, which main() turns into a
-#     deterministic non-zero exit, so a bad call can never read as success.
-rc=0; LAST="$(python3 -I - "$PY" <<'PYEOF' 2>&1
-import importlib.util, sys, os, tempfile
+# 2h. the CALL SITES match the writer's signature, pinned without the tool.
+#     scan_input_evidence() renders no verdict (its docstring says so and every
+#     return is 0), so a FAILS delta can never pin its arity: a correct 2-arg
+#     call on a tool-present host returns 0 with a delta of 0, and a wrong call
+#     raises TypeError.  Pin exactly that: every in-tree call must bind, and a
+#     call with an extra/renamed keyword must raise TypeError (which main()'s
+#     `except Exception` turns into a deterministic non-zero exit, so a bad
+#     call can never read as success).
+rc=0; LAST="$(python3 -I - "$PY" "$ROOT/build/forky-provenance.py" \
+    "$ROOT/build/check-inputs-provenance.sh" <<'PYEOF' 2>&1
+import importlib.util, inspect, os, sys, tempfile
 spec = importlib.util.spec_from_file_location("fp", sys.argv[1])
 fp = importlib.util.module_from_spec(spec)
 try:
     spec.loader.exec_module(fp)
 except SystemExit:
     sys.exit(3)
+sig = inspect.signature(fp.scan_input_evidence)
+params = list(sig.parameters)
+print("PARAMS", ",".join(params))
+# (a) the documented call shape binds without TypeError
 d = tempfile.mkdtemp()
 iso = os.path.join(d, "x.iso")
 open(iso, "wb").close()
-before = len(fp.FAILS)
-rc = fp.scan_input_evidence(d, iso)          # the real call site's shape
-print("RC", rc, "FAILS_DELTA", len(fp.FAILS) - before)
+try:
+    sig.bind(d, iso)
+    print("BIND ok")
+except TypeError as e:
+    print("BIND TypeError:", e)
+# (b) a mismatched call must raise TypeError, never succeed silently
+try:
+    sig.bind(d, iso, unexpected_kw=1)
+except TypeError as e:
+    print("MISMATCH TypeError:", str(e)[:60])
+else:
+    print("MISMATCH accepted (arity is not pinned)")
+# (c) the module entry point must not turn a TypeError into a zero exit: its
+#     `except Exception` -> die() -> SystemExit(2).  Pin the handler in the
+#     __main__ block (where it lives) and that die() exits non-zero.
+with open(sys.argv[1]) as fh:
+    modsrc = fh.read()
+tail = modsrc.split('if __name__ == "__main__":', 1)
+print("MAIN_GUARDS", len(tail) == 2 and "except Exception" in tail[1])
+# die() must terminate non-zero, or a TypeError would read as a pass.  Call it
+# in a subprocess so the SystemExit it raises is observable, not fatal here.
+import subprocess
+r = subprocess.run([sys.executable, "-I", "-c",
+                    "import importlib.util,sys\n"
+                    "s=importlib.util.spec_from_file_location('fp',sys.argv[1])\n"
+                    "m=importlib.util.module_from_spec(s);s.loader.exec_module(m)\n"
+                    "m.die('probe')", sys.argv[1]],
+                   capture_output=True)
+print("DIE_RC", r.returncode)
 PYEOF
 )" || rc=$?
-grep -q '^RC 0 FAILS_DELTA 1' <<<"$LAST" \
-    && ok "--iso-evidence: the 2-arg call matches the writer signature" \
-    || bad "--iso-evidence: writer call/def arity mismatch" "$LAST"
+bad2=""
+grep -q '^PARAMS work,iso,src$' <<<"$LAST" || bad2="$bad2 signature-drifted"
+grep -q '^BIND ok$' <<<"$LAST"          || bad2="$bad2 documented-call-does-not-bind"
+grep -q '^MISMATCH TypeError' <<<"$LAST" || bad2="$bad2 mismatch-accepted"
+grep -q '^MAIN_GUARDS True$' <<<"$LAST" || bad2="$bad2 main-has-no-Exception-guard"
+grep -qE '^DIE_RC [1-9][0-9]*$' <<<"$LAST" || bad2="$bad2 die-does-not-exit-nonzero"
+if [ -z "$bad2" ]; then
+    ok "--iso-evidence: every call site matches the writer signature, and a mismatched call raises"
+else
+    bad "--iso-evidence: writer call/def arity mismatch ($bad2)" "$LAST"
+fi
 
 # 2i. --iso-evidence renders no verdict, so a bare (non --ubuntu-only) scan must
 #     REFUSE it rather than silently ignore it and report a pass.
@@ -801,6 +872,92 @@ if grep -q '^OK$' <<<"$LAST"; then
 else
     bad "shared-helper contract broken (the two gates can now diverge)" "$LAST"
 fi
+
+# 2k. read_iso_records() must TERMINATE on a directory cycle.  A record whose
+#     extent repeats an ancestor's under a new name (root/LOOP carrying root's
+#     own extent) is a tree no real ISO contains, but the walk pushed every
+#     child directory and deduped on (path, start) only, so LOOP, LOOP/LOOP,
+#     ... each named a fresh path the seen set never held: the scan never
+#     returned and out/stack grew without bound.  Build the image by hand (the
+#     fixture writer cannot emit a cycle) and give the walk a hard timeout.
+rc=0; LAST="$(FP_PATH="$PY" python3 -I - <<'PYEOF' 2>&1
+import importlib.util, os, signal, sys, tempfile
+spec = importlib.util.spec_from_file_location("fp", os.environ["FP_PATH"])
+fp = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fp)
+LBS, PVD = fp.ISO_LBS, fp.ISO_PVD_OFFSET
+
+def rec(name, lba, size, isdir):
+    nl = len(name); rl = 33 + nl; rl += rl % 2
+    b = bytearray(rl); b[0] = rl
+    b[2:6] = lba.to_bytes(4, "little"); b[6:10] = lba.to_bytes(4, "big")
+    b[10:14] = size.to_bytes(4, "little"); b[14:18] = size.to_bytes(4, "big")
+    b[25] = 0x02 if isdir else 0x00; b[32] = nl; b[33:33 + nl] = name
+    return bytes(b)
+
+root_lba = PVD // LBS + 1
+size = LBS
+data = bytearray((root_lba + 2) * LBS)
+pvd = bytearray(LBS); pvd[0] = 1; pvd[1:6] = b"CD001"; pvd[6] = 1
+pvd[156:156 + 34] = rec(b"\x00", root_lba, size, True)
+data[PVD:PVD + LBS] = pvd
+body = (rec(b"\x00", root_lba, size, True)      # .
+        + rec(b"\x01", root_lba, size, True)    # ..
+        + rec(b"LOOP", root_lba, size, True))   # a child with the ROOT's extent
+data[root_lba * LBS:root_lba * LBS + len(body)] = body
+
+class Timeout(Exception):
+    pass
+
+def _alarm(_s, _f):
+    raise Timeout()
+
+signal.signal(signal.SIGALRM, _alarm)
+signal.alarm(10)
+try:
+    recs = fp.read_iso_records(bytes(data))
+except Timeout:
+    print("HUNG")
+    sys.exit(0)
+finally:
+    signal.alarm(0)
+print("RETURNED", len(recs))
+print("LOOP_RECORDED", any(k[1] == "LOOP" for k in recs))
+PYEOF
+)" || rc=$?
+if grep -q '^RETURNED ' <<<"$LAST"; then
+    ok "read_iso_records terminates on a directory cycle ($(grep '^RETURNED' <<<"$LAST"))"
+else
+    bad "read_iso_records does not terminate on a directory cycle (unbounded walk)" "$LAST"
+fi
+grep -q '^LOOP_RECORDED True$' <<<"$LAST" \
+    && ok "  the cyclic member is still recorded, just not descended" \
+    || bad "  the cyclic member was dropped instead of recorded" "$LAST"
+
+# 2l. the substrate scan must resolve /pool on a REAL ISO, whose ECMA-119
+#     directory records store identifiers upper case (POOL, DISTS, INITRD.GZ).
+#     The pool/initrd filters compared them case-sensitively against the
+#     lower-case ls(1) spelling, so every xorriso-written substrate reported
+#     'carries no /pool tree' -- including the canonical positive case.
+expect_rc "substrate ISO: the uppercase-record fixture is found (pool+dists)" 0 \
+    python3 -I "$PY" --substrate-iso "$T/fix/substrate.iso" --work "$WF" \
+    --root-dir "$TR" --index-dir "$IDX"
+grep -q '/cdrom pool authorized' <<<"$LAST" \
+    && ok "  the scan reports the pool it authorized" \
+    || bad "  the scan never authorized the pool" "$LAST"
+
+# 2m. --iso-evidence describes exactly ONE ISO.  With two --substrate-iso the
+#     evidence branch wrote only the first directory and exited 0, so every ISO
+#     after it was silently unlisted while the caller read the run as complete.
+expect_rc "--iso-evidence with two --substrate-iso is refused" 2 \
+    python3 -I "$PY" --ubuntu-only --work "$WF" --iso-evidence "$T/ev3" \
+    --substrate-iso "$T/fix/substrate.iso" --substrate-iso "$T/bad/rogue.iso"
+
+# 2n. --iso-evidence without --substrate-iso must never be silently ignored: it
+#     renders no verdict, so a run that dropped it would report a pass the
+#     caller thinks covers an ISO that was never read.
+expect_rc "--iso-evidence without --substrate-iso is refused" 2 \
+    python3 -I "$PY" --ubuntu-only --work "$WF" --iso-evidence "$T/ev4"
 
 # 2e. fail closed: an index directory that holds nothing.  The gate must exit
 #     non-zero (it cannot verify anything) and must never print the "all input
