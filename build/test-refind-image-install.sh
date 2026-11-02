@@ -158,6 +158,26 @@ if [ -z "$_miss" ]; then
 else
     bad "A8b) every amd64 name in required_refind exists under assets/refind" "$_miss"
 fi
+
+# A9: no `\s` inside a `grep -E` pattern in these suites. `\s` is a GNU/PCRE
+# extension, not POSIX ERE: a strict ERE engine reads it as a literal 's', so
+# an anchored pattern would silently stop matching (a false NEGATIVE that looks
+# like a real regression) or match the wrong line. Use [[:space:]]. This suite
+# lives on the validation path, so it must not depend on GNU grep.
+_sbad=""
+for _t in "$SCRIPT_DIR/test-refind-image-install.sh" \
+          "$SCRIPT_DIR/test-refind-addonly.sh"; do
+    # Only real command lines: start of line (optional indent) with `grep`,
+    # and skip this check's own source line.
+    _hit=$(grep -nE '^[[:space:]]*(if[[:space:]]+|!?[[:space:]]*)?grep[[:space:]]+-[a-zA-Z]*E[[:space:]]' "$_t" 2>/dev/null \
+           | grep -F -- '\s' | grep -vF '_hit=' | head -3)
+    [ -z "$_hit" ] || _sbad="$_sbad $(basename "$_t"):${_hit}"
+done
+if [ -z "$_sbad" ]; then
+    ok "A9) no \\s in grep -E (POSIX ERE uses [[:space:]])"
+else
+    bad "A9) no \\s in grep -E (POSIX ERE uses [[:space:]])" "$_sbad"
+fi
 if ! grep -qE '"\$SHARED_DST" +--(add|promote)' "$BOOTLOADER"; then
     ok "A3) the first-install path never uses --add/--promote"
 else
@@ -173,8 +193,8 @@ fi
 # defect the add-only design exists to prevent. Pin the call shape here so a
 # future edit cannot regress it, and pin that no hook relies on the env var.
 _verb_bad=""
-grep -qE '^\s*"\$REFRESH" --add\s*$' "$ZZ1" || _verb_bad="$_verb_bad zz1:no-positional---add"
-grep -qE '^\s*"\$REFRESH" --promote "\$TOKEN"\s*$' "$ZZ2" || _verb_bad="$_verb_bad zz2:no-positional---promote"
+grep -qE '^[[:space:]]*"\$REFRESH" --add[[:space:]]*$' "$ZZ1" || _verb_bad="$_verb_bad zz1:no-positional---add"
+grep -qE '^[[:space:]]*"\$REFRESH" --promote "\$TOKEN"[[:space:]]*$' "$ZZ2" || _verb_bad="$_verb_bad zz2:no-positional---promote"
 # A hook must never export NCZ_VERB: the tool ignores it, so setting it would
 # only create the illusion of selecting a verb.
 if grep -qE '^[[:space:]]*(export[[:space:]]+)?NCZ_VERB=' "$ZZ1" "$ZZ2"; then
@@ -187,8 +207,8 @@ else
 fi
 # A7: the tool derives its verb from $1, so the contract above is the only
 # thing that makes the hooks work. Assert the parse exists rather than assume.
-if grep -qE '^\s*--add\)\s*NCZ_VERB=add' "$TOOL_SRC" \
-   && grep -qE '^\s*--promote\)\s*NCZ_VERB=promote' "$TOOL_SRC"; then
+if grep -qE '^[[:space:]]*--add\)[[:space:]]*NCZ_VERB=add' "$TOOL_SRC" \
+   && grep -qE '^[[:space:]]*--promote\)[[:space:]]*NCZ_VERB=promote' "$TOOL_SRC"; then
     ok "A7) the tool parses --add/--promote from \$1 into NCZ_VERB"
 else
     bad "A7) the tool parses --add/--promote from \$1 into NCZ_VERB" \

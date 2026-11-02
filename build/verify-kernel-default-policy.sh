@@ -392,7 +392,8 @@ if [ -f "$_amd64_hook" ]; then
         err "amd64: zz1 does not call the refresh tool with --add; a bare call wipes the ESP and changes the default on every kernel install"
     fi
     # A bare, verbless invocation (the pre-2026-11-02 form) must be gone.
-    if grep -qE '^\s*"?\$REFRESH"?\s*$|BUILD_VERSION="\$BUILD_VERSION" "\$REFRESH"\s*$' "$_amd64_hook" 2>/dev/null; then
+    # [[:space:]] not \s: \s is a GNU/PCRE extension, not POSIX ERE.
+    if grep -qE '^[[:space:]]*"?\$REFRESH"?[[:space:]]*$|BUILD_VERSION="\$BUILD_VERSION" "\$REFRESH"[[:space:]]*$' "$_amd64_hook" 2>/dev/null; then
         err "amd64: zz1 still contains a verbless refresh invocation (it would wipe the menu)"
     fi
 fi
