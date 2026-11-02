@@ -501,9 +501,13 @@ def main() -> int:
                     "version": ver,
                     "arch": arch,
                     "sha256": f[3],
-                    "class": f[4],
-                    "forky_version": f[5],
-                    "gap": f[6],
+                    # A short (legacy) row has fewer than the 13 columns: read
+                    # each one only if it is there.  Indexing f[4]/f[5]/f[6]
+                    # unconditionally raised IndexError on a 4-6 column row for
+                    # arch:all that this substrate does not carry.
+                    "class": f[4] if len(f) > 4 else "",
+                    "forky_version": f[5] if len(f) > 5 else "",
+                    "gap": f[6] if len(f) > 6 else "",
                     "action": f[10] if len(f) > 10 else "",
                 }
             if r["class"] == "?":
@@ -628,7 +632,13 @@ def main() -> int:
                     f"{r['name']} {r['version']} {r['arch']} class {r['class']} "
                     f"owner_action {r['action']} review_by {review_by}"
                 )
-            elif not os.path.isfile(a.ledger):
+            elif not os.path.isfile(a.ledger) or not any(
+                n["name"] == r["name"] and n["arch"] == r["arch"] for n in new
+            ):
+                # New to the ledger whether or not the file already existed: a
+                # reviewed ledger never approves a row just because the file is
+                # there (that path used to write a brand-new (name,version,arch)
+                # straight to the merged output, unreported and unreviewed).
                 new.append(
                     {
                         "name": r["name"],

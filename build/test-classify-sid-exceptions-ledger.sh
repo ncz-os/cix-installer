@@ -23,6 +23,13 @@
 #   2. an UNCHANGED row that is re-chained to the new pin is not NEW (no
 #      over-reporting: the drift check must not fire on an identical version).
 #   3. --require-accepted fails closed (rc 4) on the drift and writes nothing.
+#   4. a SHORT carried row (4-6 of the 13 columns) for arch:all that this
+#      substrate does not carry is handled, not IndexError (regression: only
+#      f[10] was length-guarded, so f[4]/f[5]/f[6] raised on a legacy row).
+#   5. when the ledger file ALREADY EXISTS, a (name,version,arch) that is new to
+#      it is still reviewed: named on stderr, refused by --require-accepted and
+#      left unwritten (regression: it was written straight to the merged output
+#      because only a MISSING ledger appended to the review list).
 #
 # Run: bash build/test-classify-sid-exceptions-ledger.sh
 # Exit 0 = all cases pass.
@@ -182,6 +189,60 @@ expect_rc "--require-accepted refuses an unreviewed version drift" 4 \
     && ok "nothing was written on the refusal" || bad "the ledger was written on a refusal"
 printf '%s\n' "$LAST" | grep -q 'version 1.20.0 -> 1.22.6' \
     && ok "the refusal names the version drift" || bad "the refusal hides the drift" "$LAST"
+
+echo "== a SHORT carried ledger row (4-6 columns) is not an IndexError =="
+# The ledger's documented schema is 13 columns, but a legacy/short row must not
+# crash the merge: the class/forky_version/gap columns are read only if present.
+# A row for arch:all that this substrate does not carry takes the r-is-None
+# path, which used to index f[4]/f[5]/f[6] unconditionally.
+for n in 4 5 6; do
+    LS="$T/short$n.tsv"
+    {   printf '# columns (TAB): name version arch sha256 class forky_version gap reason\n'
+        printf '#  first_seen snapshot owner_action review_by tracking_url\n'
+        col=("carried-udeb" "1.0-1" "all" "$SHA_A" "C" "none" "none")
+        for ((i = 0; i < n; i++)); do printf '%s' "${col[$i]}"; [ $((i + 1)) -lt "$n" ] && printf '\t'; done
+        printf '\n'
+    } > "$LS"
+    out="$(run_classify "$F" "$LS" --require-accepted 2>&1)"; rc=$?
+    case "$rc" in
+        0|4) ok "a $n-column carried row is handled (rc=$rc, no crash)" ;;
+        *) bad "a $n-column carried row crashed the merge (rc=$rc)" "$out" ;;
+    esac
+    printf '%s\n' "$out" | grep -q 'Traceback\|IndexError' \
+        && bad "a $n-column carried row raised an IndexError" "$out" \
+        || ok "a $n-column carried row raised no IndexError"
+    printf '%s\n' "$out" | grep -q 'needs a human review: carried-udeb 1.0-1' \
+        && ok "a $n-column carried row is reported for review" \
+        || bad "a $n-column carried row was not reported" "$out"
+done
+
+echo "== a row new to an EXISTING ledger is still reviewed, not written =="
+# The ledger already carries one of the two substrate rows, so the merge runs
+# the "output file exists" path -- the other (name,version,arch) is new to it.
+LE="$T/ledger-exists.tsv"
+{   printf '# columns (TAB): name version arch sha256 class forky_version gap reason\n'
+    printf '#  first_seen snapshot owner_action review_by tracking_url\n'
+    printf 'dpkg-udeb\t1.22.6\tamd64\t%s\tC\tnone\tnone\tforky lacks it\t2029-12-01\t%s\twait\t2030-02-01\thttps://example.invalid/dpkg\n' \
+        "$SHA_A" "$SNAP"
+} > "$LE"
+before="$(sha256sum "$LE" | awk '{print $1}')"
+expect_rc "--require-accepted refuses a row new to an existing ledger" 4 \
+    run_classify "$F" "$LE" --require-accepted
+printf '%s\n' "$LAST" | grep -q 'needs a human review: nano-udeb 9.3-1' \
+    && ok "the new-to-existing row is named for review" \
+    || bad "the new-to-existing row was not named" "$LAST"
+[ "$(sha256sum "$LE" | awk '{print $1}')" = "$before" ] \
+    && ok "nothing was written on the refusal" || bad "the ledger was written on a refusal"
+grep -qP '^nano-udeb\t' "$LE" \
+    && bad "the unreviewed row reached an existing ledger" "$(cat "$LE")" \
+    || ok "the unreviewed row is not in the existing ledger"
+# ... and the explicit flag still writes it, so the gate is a gate, not a wall.
+out="$(run_classify "$F" "$LE" --accept-new-exceptions 2>&1)"; rc=$?
+[ "$rc" = 0 ] && ok "the accepted run succeeds on an existing ledger (rc=0)" \
+    || bad "the accepted run failed" "$out"
+grep -qP '^nano-udeb\t9\.3-1\tamd64' "$LE" \
+    && ok "the accepted row is written when --accept-new-exceptions is given" \
+    || bad "the accepted row is missing" "$(cat "$LE")"
 
 echo "-- results --"
 printf '  %d passed, %d failed\n' "$PASS" "$FAIL"
