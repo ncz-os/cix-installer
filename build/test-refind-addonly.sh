@@ -31,7 +31,10 @@
 #   8. an unknown verb is misuse (rc=2), not a wipe;
 #   9. --stage is an alias for --add (stages, appends, never wipes);
 #  10. --promote needs no KVER_STABLE and rewrites only the default;
-#  11. --promote uses the parsed title and honours --force.
+#  11. --promote uses the parsed title and honours --force;
+#  12. appended-entry uniqueness is literal (a look-alike title is not a
+#      duplicate), a real duplicate is refused with the menu byte-identical,
+#      and a repeated --add stays idempotent.
 #
 # Usage:
 #   bash build/test-refind-addonly.sh                 # the shipped amd64 script
@@ -439,6 +442,86 @@ CONSTS
     else
         bad "11) --promote uses the parsed title and honours --force" \
             "$(printf 'a=%s unchanged=%s b=%s c=%s cur=<%s> f11b=<%s>\n' "$rc_a" "$unchanged" "$rc_b" "$rc_c" "$cur11" "$f11b"; grep -hE 'ERROR|already|->' "$w/s11a.log" "$w/s11b.log" "$w/s11c.log")"
+    fi
+
+    # ---- 12: the appended-entry uniqueness check is LITERAL, not a regex ---
+    # A kver is a grep PATTERN unless -F is used: "7.3.0-rc8-t2-ncz" has dots,
+    # so `grep -c "^menuentry .*$token"` also matches an unrelated entry whose
+    # title merely FITS the pattern ("7x3y0-rc8-t2-ncz"). That false positive
+    # made a perfectly good append report failure. 12a: such a look-alike entry
+    # must not stop the add (rc=0, both entries present).
+    mkesp "$w/esp12a" "$OLD_KVER"
+    LOOKALIKE="7x3y0-rc8-t2-ncz"
+    {
+        printf 'menuentry "NCZ-OS 26.10 Cygnus  -  7.3 Kernel %s" {\n' "$LOOKALIKE"
+        printf '    loader  /vmlinuz-%s\n' "$LOOKALIKE"
+        printf '    options "root=PARTUUID=x"\n}\n\n'
+    } >> "$w/esp12a/EFI/BOOT/refind.conf"
+    NCZ_ESP_DIR="$w/esp12a" KVER_STABLE="$NEW_KVER" \
+        KVER_STABLE_SRC="$w/boot/vmlinuz-$NEW_KVER" \
+        KVER_STABLE_INITRD="$w/boot/initrd.img-$NEW_KVER" \
+        NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" --add >"$w/s12a.log" 2>&1
+    rc=$?
+    if [ "$rc" = 0 ] \
+       && [ "$(grep -c '^menuentry ' "$w/esp12a/EFI/BOOT/refind.conf")" = 3 ] \
+       && grep -qF "7.3 Kernel $NEW_KVER" "$w/esp12a/EFI/BOOT/refind.conf" \
+       && grep -qF "7.3 Kernel $LOOKALIKE" "$w/esp12a/EFI/BOOT/refind.conf"; then
+        ok "12a) a look-alike title is not treated as a duplicate (literal match)"
+    else
+        bad "12a) a look-alike title is not treated as a duplicate (literal match)" \
+            "$(printf 'rc=%s\n' "$rc"; grep '^menuentry ' "$w/esp12a/EFI/BOOT/refind.conf"; cat "$w/s12a.log")"
+    fi
+
+    # 12b: the append's own uniqueness check, exercised where the upstream
+    # guard cannot see it. ncz_entry_append is the last thing standing between
+    # a duplicate and the ESP, so call it directly on a menu that ALREADY
+    # carries the token in another title. It must refuse and leave refind.conf
+    # byte-identical: the check runs on the candidate before the replace,
+    # because the backup is unlinked once `mv` succeeds and a post-replace
+    # failure would leave the duplicate on the ESP while reporting failure.
+    mkesp "$w/esp12b" "$OLD_KVER" "$NEW_KVER"
+    cp -f "$w/esp12b/EFI/BOOT/refind.conf" "$w/conf12b.before"
+    # Source only the helper block, with ESP_DIR/ESP_CONF bound to the fixture.
+    {
+        sed -n '/^# NCZ-ADDONLY-FUNCS-BEGIN/,/^# NCZ-ADDONLY-FUNCS-END/p' "$w/tool.sh" \
+            | sed "s#^ESP_DIR=.*#ESP_DIR=$w/esp12b#; s#^ESP_CONF=.*#ESP_CONF=$w/esp12b/EFI/BOOT/refind.conf#"
+        cat <<'APPEND'
+ncz_entry_append "$NEW_KVER" "vmlinuz-$NEW_KVER" "initrd.img-$NEW_KVER" "root=PARTUUID=x" "$NEW_KVER"
+APPEND
+    } > "$w/harness12b.sh"
+    ( cd "$w" && NEW_KVER="$NEW_KVER" REFIND_ICON="" NCZ_HOOK_TAG="# ncz-hook-entry:" \
+          bash "$w/harness12b.sh" ) >"$w/s12b.log" 2>&1
+    rc=$?
+    if [ "$rc" = 1 ] \
+       && grep -q 'would not leave exactly one match' "$w/s12b.log" \
+       && cmp -s "$w/conf12b.before" "$w/esp12b/EFI/BOOT/refind.conf" \
+       && [ "$(grep -c '^menuentry ' "$w/esp12b/EFI/BOOT/refind.conf")" = 2 ]; then
+        ok "12b) ncz_entry_append refuses a second match, menu byte-identical"
+    else
+        bad "12b) ncz_entry_append refuses a second match, menu byte-identical" \
+            "$(printf 'rc=%s\n' "$rc"; diff "$w/conf12b.before" "$w/esp12b/EFI/BOOT/refind.conf"; cat "$w/s12b.log")"
+    fi
+
+    # 12c: a second --add of the SAME kernel is a no-op, not a duplicate: the
+    # hook path must stay idempotent (the guard refuses it, the menu is
+    # unchanged, and the ESP never accumulates two entries for one kernel).
+    mkesp "$w/esp12c" "$OLD_KVER"
+    run12c() {
+        NCZ_ESP_DIR="$w/esp12c" KVER_STABLE="$NEW_KVER" \
+            KVER_STABLE_SRC="$w/boot/vmlinuz-$NEW_KVER" \
+            KVER_STABLE_INITRD="$w/boot/initrd.img-$NEW_KVER" \
+            NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" --add
+    }
+    run12c >"$w/s12c-a.log" 2>&1; rc_a=$?
+    cp -f "$w/esp12c/EFI/BOOT/refind.conf" "$w/conf12c.after-first"
+    run12c >"$w/s12c-b.log" 2>&1; rc_b=$?
+    if [ "$rc_a" = 0 ] && [ "$rc_b" = 0 ] \
+       && cmp -s "$w/conf12c.after-first" "$w/esp12c/EFI/BOOT/refind.conf" \
+       && [ "$(grep -cF "7.3 Kernel $NEW_KVER" "$w/esp12c/EFI/BOOT/refind.conf")" = 1 ]; then
+        ok "12c) a repeated --add leaves exactly one entry (idempotent, no rollback)"
+    else
+        bad "12c) a repeated --add leaves exactly one entry (idempotent, no rollback)" \
+            "$(printf 'rc_a=%s rc_b=%s\n--- first ---\n' "$rc_a" "$rc_b"; cat "$w/s12c-a.log"; printf -- '--- second ---\n'; cat "$w/s12c-b.log"; grep '^menuentry ' "$w/esp12c/EFI/BOOT/refind.conf")"
     fi
 
     rm -rf "$w"

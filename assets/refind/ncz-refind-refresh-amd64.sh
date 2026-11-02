@@ -685,12 +685,32 @@ ncz_options_from_menu() {
 # contains "(Default)"/"Console"/"Rescue" markers.
 ncz_menu_title_token() { printf '%s' "$1"; }
 
+# The entry title this tool writes, and the ONLY title the uniqueness check
+# accepts as its own. One definition, so the appended line and the check cannot
+# drift apart.
+# ncz_menu_title_for <tag> -- echo the entry title for <tag>.
+ncz_menu_title_for() { printf '7.3 Kernel %s' "$1"; }
+
 # ncz_entry_append <kver|tag> <loader> <initrd> <options> <title-token>
 # Append one menuentry to refind.conf. Every append is rolled back when the
 # written file no longer holds the previous content verbatim.
+#
+# Uniqueness is checked BEFORE the file is replaced: an append that would make
+# the token name a second entry is refused while the original menu is still
+# intact. It must be checked here rather than after `mv` because the backup is
+# unlinked once the replace succeeds -- a post-mv failure to restore would
+# leave the duplicate entry on the ESP while still reporting failure, which is
+# exactly what the append-once claim forbids.
+#
+# The check is LITERAL and whole-title, never a regex: a kver is a pattern to
+# grep (`7.3.0-rc8-t2-ncz` has dots, and any char in it could be a regex
+# operator), so `grep -c "^menuentry .*$token"` would match a different kernel
+# whose name merely fits as a pattern (7x3y0-rc8...). Both the pre-existing
+# menus and the text we are about to write are compared the same way.
 ncz_entry_append() {
     local tag=$1 loader=$2 initrd=$3 options=$4 token=$5
     local bak new before_size after_size
+    local title existing matches ours
     bak="$(mktemp "${TMPDIR:-/var/tmp}/refind-conf.XXXXXX")" || {
         echo "ERROR: cannot allocate a backup for $ESP_CONF; nothing was added" >&2; return 1; }
     cp -f "$ESP_CONF" "$bak" || { rm -f "$bak"; echo "ERROR: cannot read $ESP_CONF; nothing was added" >&2; return 1; }
@@ -703,7 +723,7 @@ ncz_entry_append() {
     {
         printf '\n'
         printf '%s %s\n' "$NCZ_HOOK_TAG" "$tag"
-        printf '%s "7.3 Kernel %s" {\n' "menuentry" "$tag"
+        printf '%s "%s" {\n' "menuentry" "$(ncz_menu_title_for "$tag")"
         printf '%s /%s\n' "    loader " "$loader"
         [ -n "$REFIND_ICON" ] && printf '%s /EFI/BOOT/%s\n' "    icon   " "$REFIND_ICON"
         [ -n "$initrd" ] && printf '%s /%s\n' "    initrd " "$initrd"
@@ -717,17 +737,45 @@ ncz_entry_append() {
         echo "ERROR: appending to $ESP_CONF did not round-trip; ESP left unchanged" >&2
         return 1
     fi
+    # Decide uniqueness on the CANDIDATE file, before it replaces the menu.
+    # The candidate already holds the entry written above, so it is the final
+    # menu: exactly one title may carry the token, and it must be the one this
+    # tool wrote. Anything else (a second match, or a title that merely
+    # contains the token without being ours) is refused while the real menu is
+    # still untouched.
+    title=$(ncz_menu_title_for "$tag")
+    existing=$(awk -v tok="$token" -v want="$title" '
+            /^menuentry[[:space:]]+"/ {
+                line = $0
+                sub(/^menuentry[[:space:]]+"/, "", line)
+                sub(/"[[:space:]]*\{.*$/, "", line)
+                if (index(line, tok) > 0) { n++; if (line == want) exact++ }
+            }
+            END { print (n + 0) "/" (exact + 0) }
+        ' "$new" 2>/dev/null || true)
+    matches=${existing%%/*}
+    ours=${existing##*/}
+    if [ "${matches:-0}" != "1" ] || [ "${ours:-0}" != "1" ]; then
+        rm -f "$bak" "$new" 2>/dev/null || true
+        echo "ERROR: appending an entry for '$token' would not leave exactly one match in $ESP_CONF" >&2
+        echo "       (titles carrying it=${matches:-0}, this tool's title=${ours:-0}); ESP left unchanged" >&2
+        return 1
+    fi
     if ! mv -f "$new" "$ESP_CONF"; then
         rm -f "$new" "$bak" 2>/dev/null || true
         echo "ERROR: cannot replace $ESP_CONF; ESP left unchanged" >&2
         return 1
     fi
     rm -f "$bak" 2>/dev/null || true
-    # The token must now match exactly one entry title.
+    # Last line of defence: the installed menu must still hold exactly one
+    # match. From here on the previous bytes are gone (the backup is unlinked
+    # above), so a failure here cannot be rolled back -- it is reported as a
+    # corrupt menu, which is why the decision above is made pre-replace.
     local hits
-    hits=$(grep -c "^menuentry .*$token" "$ESP_CONF" 2>/dev/null || true)
+    hits=$(grep '^menuentry ' "$ESP_CONF" 2>/dev/null | grep -cF -- "$token" || true)
     if [ "${hits:-0}" != "1" ]; then
-        echo "ERROR: the appended entry for '$token' is not unique in $ESP_CONF (hits=$hits)" >&2
+        echo "ERROR: $ESP_CONF now holds ${hits:-0} entries matching '$token' (expected 1);" >&2
+        echo "       the append could not be rolled back -- reinstall or regenerate the menu" >&2
         return 1
     fi
     return 0
