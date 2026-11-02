@@ -34,6 +34,23 @@
 #                   pins, with the bytes assets/kernel-manifest.json pins.
 #                   A pool that holds an older release is stale (C2/T item 5).
 #   tmpfs           the build scratch is on a real disk, never on tmpfs.
+#   substrate       the substrate cache (NCZ_SUBSTRATE_CACHE_DIRS or
+#                   ~/.config/ncz/substrate-cache-dir) resolves and holds an
+#                   ISO with the manifests/base.pin sha256 for this arch.  A
+#                   cache that does not resolve costs the whole
+#                   refresh-substrate stage at full speed (C6).
+#   build-inputs    every manifests/build-inputs.tsv row for this arch is
+#                   staged and sha256-verified (build/stage-build-inputs.sh
+#                   --check, i.e. its verify-only mode).  Reuses that script
+#                   rather than re-implementing its store lookup.
+#   sudo-model      a privilege model exists (ncz_priv_model != none).  The
+#                   password FILE IS NEVER READ: only its configured path and
+#                   size are inspected.
+#   stdout          this run's stdout and stderr are outside the clone
+#                   (/proc/$$/fd/1 and fd/2 must not resolve under $ROOT); a
+#                   log written into the tree dirties it mid-build.
+#   container-image the ncz-imagebuild container image exists, unless this
+#                   run passes --no-container.
 #
 # Exit: 0 ready, 1 not ready (the findings are printed), 2 usage error.
 #
@@ -52,10 +69,15 @@
 #                     is in LIST.
 #   --staging-dir DIR the kernel-staging pool (default: $NCZ_KERNEL_STAGING_DIR,
 #                     else $NCZ_YOCTO_SHARED_DIR/kernel-staging)
+#   --substrate-cache DIRS  substrate cache dirs, space separated (default:
+#                     $NCZ_SUBSTRATE_CACHE_DIRS, else ~/.config/ncz/substrate-cache-dir)
 #   --df-fixture FILE a `df -Pk` output used for the disk check (tests)
 #   --fs-fixture FILE "<path><TAB><fstype>" lines used for the tmpfs check
 #   --kvm PATH        the KVM device (default: /dev/kvm)
 #   --tools "A B C"   the required tool list (default: the five above)
+#   --container-image TAG  the build container image (default: $NCZ_IMAGEBUILD_TAG)
+#   --no-container    this run does not use the container (skips the check)
+#   --stdout-fd N     the stdout fd to inspect (default: 1; tests)
 #   -h|--help         this help
 set -uo pipefail
 export LC_ALL=C
@@ -74,9 +96,13 @@ DF_FIXTURE=""
 FS_FIXTURE=""
 KVM_DEV="/dev/kvm"
 REQUIRED_TOOLS="xorriso cpio zstd unsquashfs mmdebstrap"
+SUBSTRATE_CACHE=""
+CONTAINER_IMAGE=""
+USE_CONTAINER=1
+STDOUT_FD=1
 
 usage() {
-    sed -n '2,63p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,81p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -92,6 +118,10 @@ while [ "$#" -gt 0 ]; do
         --fs-fixture)  FS_FIXTURE="${2:-}"; shift 2 ;;
         --kvm)         KVM_DEV="${2:-}"; shift 2 ;;
         --tools)       REQUIRED_TOOLS="${2:-}"; shift 2 ;;
+        --substrate-cache) SUBSTRATE_CACHE="${2:-}"; shift 2 ;;
+        --container-image) CONTAINER_IMAGE="${2:-}"; shift 2 ;;
+        --no-container)    USE_CONTAINER=0; shift ;;
+        --stdout-fd)       STDOUT_FD="${2:-}"; shift 2 ;;
         -h|--help)     usage 0 ;;
         *) echo "host-ready.sh: unknown argument '$1'" >&2; usage 2 ;;
     esac
@@ -390,6 +420,187 @@ check_tmpfs() {
 }
 
 # ---------------------------------------------------------------------------
+# 8. substrate cache (M5 item 2)
+# ---------------------------------------------------------------------------
+# The pinned ISO for this arch, from manifests/base.pin.  Nothing is invented:
+# a pin row that is absent or malformed is itself a finding.
+_substrate_pin() {
+    local pin="$ROOT/manifests/base.pin"
+    [ -f "$pin" ] || return 0
+    awk -F'\t' -v a="$ARCH" '$1==a{print $2; exit}' "$pin" 2>/dev/null
+}
+
+substrate_cache_dirs() {  # one dir per line
+    local dirs="$SUBSTRATE_CACHE" v=""
+    if [ -z "$dirs" ] && command -v ncz_site_value >/dev/null 2>&1; then
+        dirs="$(ncz_site_value NCZ_SUBSTRATE_CACHE_DIRS substrate-cache-dir)"
+    fi
+    [ -n "$dirs" ] || dirs="${NCZ_SUBSTRATE_CACHE_DIRS:-}"
+    for v in $dirs; do [ -n "$v" ] && printf '%s\n' "${v%/}"; done
+    return 0
+}
+
+check_substrate_cache() {
+    local want short dirs f found=""
+    want="$(_substrate_pin)"
+    if [ -z "$want" ]; then
+        _bad substrate "manifests/base.pin names no substrate sha256 for arch $ARCH; the cache cannot be checked against a pin"
+        return
+    fi
+    case "$want" in
+        *[!0-9a-f]*|'') _bad substrate "manifests/base.pin has a malformed substrate sha256 for arch $ARCH ('$want'); fix the pin, never float to what Debian serves today" ;;
+    esac
+    [ "${#want}" = 64 ] || { _bad substrate "manifests/base.pin substrate sha256 for arch $ARCH is ${#want} hex chars, not 64"; return; }
+    short="${want:0:8}"
+    dirs="$(substrate_cache_dirs)"
+    if [ -z "$dirs" ]; then
+        _bad substrate "no substrate cache is configured (set NCZ_SUBSTRATE_CACHE_DIRS or ~/.config/ncz/substrate-cache-dir); the pinned netinst ISO for $ARCH ($short) cannot be resolved"
+        return
+    fi
+    for f in $dirs; do
+        if [ ! -d "$f" ]; then
+            _report substrate "the substrate cache dir $f does not exist"
+            continue
+        fi
+        # Same lookup as build/stage-substrate.sh: <name>-<yyyymmdd>-<sha8>.iso
+        # or the upstream name, sha256-verified against the pin.
+        local cand
+        for cand in "$f"/*-"$short".iso "$f"/debian-testing-"$ARCH"-netinst.iso; do
+            [ -f "$cand" ] || continue
+            if [ "$(sha256sum "$cand" 2>/dev/null | awk '{print $1}')" = "$want" ]; then
+                found="$cand"
+                break 2
+            fi
+        done
+    done
+    if [ -n "$found" ]; then
+        _ok substrate "the substrate cache holds the pinned $ARCH ISO ($short) at $found"
+        return
+    fi
+    _bad substrate "the substrate cache ($(printf '%s ' $dirs)) holds no ISO with the pinned sha256 $short for $ARCH; restore it into a cache dir, or adopt a new substrate deliberately (manifests/base.pin)"
+}
+
+# ---------------------------------------------------------------------------
+# 9. build inputs (M5 item 3)
+# ---------------------------------------------------------------------------
+# Reuses stage-build-inputs.sh --check (its verify-only mode) so the store
+# lookup, the per-row sha256 and the arch filter have ONE implementation.
+check_build_inputs() {
+    local script="$ROOT/build/stage-build-inputs.sh" tsv="$ROOT/manifests/build-inputs.tsv"
+    if [ ! -x "$script" ] && [ ! -f "$script" ]; then
+        _bad build-inputs "build/stage-build-inputs.sh is missing; the pinned build inputs cannot be verified"
+        return
+    fi
+    if [ ! -f "$tsv" ]; then
+        _bad build-inputs "manifests/build-inputs.tsv is missing; the pinned build inputs cannot be verified"
+        return
+    fi
+    local out rc first="" nbad
+    out="$(bash "$script" --arch "$ARCH" --check 2>&1)"; rc=$?
+    if [ "$rc" = 0 ]; then
+        _ok build-inputs "every build-inputs.tsv row for $ARCH is staged and sha256-verified"
+        return
+    fi
+    # ONE actionable line: a count plus the first offending rows, not the dump.
+    nbad="$(printf '%s\n' "$out" | grep -c 'MISSING/BAD:' 2>/dev/null || true)"
+    first="$(printf '%s\n' "$out" \
+        | sed -n 's/^\[build-inputs\] MISSING\/BAD: //p' \
+        | sed 's/ (run build\/stage-build-inputs.sh.*$//' \
+        | head -3 | tr '\n' ';' | sed 's/;$//;s/;/; /g')"
+    [ -n "$first" ] || first="$(printf '%s\n' "$out" | grep -v '^\[build-inputs\] arch=\|^\[build-inputs\] OK' | head -2 | tr '\n' ';' | sed 's/;$//')"
+    _bad build-inputs "${nbad:-some} build-inputs row(s) for $ARCH are not staged or do not match the pin: ${first:-see build/stage-build-inputs.sh --arch $ARCH --check}; stage them with build/stage-build-inputs.sh --arch $ARCH (a missing store is a site setting: NCZ_BUILD_INPUTS_DIR)"
+}
+
+# ---------------------------------------------------------------------------
+# 10. sudo model (M5 item 4)
+# ---------------------------------------------------------------------------
+# Asks the ONE privilege helper which model applies.  The password file is
+# never read: only its configured path and size are inspected, and its
+# contents are never printed.
+check_sudo_model() {
+    local model="" pwfile="${NCZ_SUDO_PASS_FILE:-}"
+    if [ -f "$SELF_DIR/lib/priv.sh" ]; then
+        # shellcheck source=/dev/null
+        model="$( . "$SELF_DIR/lib/priv.sh" >/dev/null 2>&1; ncz_priv_model 2>/dev/null || true)"
+    fi
+    case "$model" in
+        root|direct|sudo-nopasswd)
+            _ok sudo-model "privilege model: $model" ;;
+        sudo-stdin)
+            if [ -n "$pwfile" ] && [ -f "$pwfile" ]; then
+                _ok sudo-model "privilege model: sudo-stdin (password file $(stat -c %s "$pwfile" 2>/dev/null || echo '?') B, contents not read)"
+            else
+                _bad sudo-model "privilege model: sudo-stdin, but no readable password file is configured; set NCZ_SUDO_PASS_FILE or ~/.config/ncz/sudo-pass-file"
+            fi ;;
+        none|'')
+            _bad sudo-model "no usable privilege model (need root, passwordless sudo, or NCZ_SUDO_PASS_FILE; see build/lib/priv.sh); the build's mount/chroot steps cannot run" ;;
+        *)
+            _bad sudo-model "unrecognised privilege model '$model' (see build/lib/priv.sh)" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# 11. stdout / stderr outside the clone (M5 item 9)
+# ---------------------------------------------------------------------------
+# fd 1 and fd 2 must not resolve under $ROOT: a log redirected into the tree
+# dirties it mid-build, and the artifact then records a tree that changed
+# while it was being built.
+_fd_target() {  # fd -> the resolved path, or empty
+    local fd="$1" t=""
+    [ -e "/proc/$$/fd/$fd" ] || return 0
+    t="$(readlink "/proc/$$/fd/$fd" 2>/dev/null || true)"
+    [ -n "$t" ] && printf '%s\n' "$t"
+    return 0
+}
+
+check_stdout() {
+    local root_real fd t badn=0
+    root_real="$(readlink -f "$ROOT" 2>/dev/null || printf '%s' "$ROOT")"
+    for fd in "$STDOUT_FD" $([ "$STDOUT_FD" = 1 ] && echo 2); do
+        t="$(_fd_target "$fd")"
+        [ -n "$t" ] || continue
+        case "$t" in
+            pipe:*|socket:*|/dev/null|/dev/pts/*|/dev/tty*|anon_inode:*|'') continue ;;
+        esac
+        case "$t" in
+            "$root_real"/*|"$ROOT"/*)
+                _bad stdout "fd $fd points at $t, which is inside the clone $root_real; write the build log outside the tree (--run-dir) so the tree stays clean while it is built"
+                badn=1 ;;
+        esac
+    done
+    [ "$badn" = 1 ] && return 0
+    _ok stdout "this run's stdout and stderr are outside the clone"
+}
+
+# ---------------------------------------------------------------------------
+# 12. container image (M5 item 10)
+# ---------------------------------------------------------------------------
+check_container_image() {
+    local tag="${CONTAINER_IMAGE:-${NCZ_IMAGEBUILD_TAG:-}}"
+    if [ "$USE_CONTAINER" != 1 ]; then
+        _ok container-image "this run passes --no-container; the build image is not required"
+        return
+    fi
+    if [ -z "$tag" ]; then
+        _bad container-image "no build container image is configured (set NCZ_IMAGEBUILD_TAG or pass --container-image); the image stage has nothing to run in"
+        return
+    fi
+    local eng
+    for eng in podman docker; do
+        command -v "$eng" >/dev/null 2>&1 || continue
+        if "$eng" image exists "$tag" >/dev/null 2>&1; then
+            _ok container-image "the build image $tag exists ($eng)"
+            return
+        fi
+    done
+    if ! command -v podman >/dev/null 2>&1 && ! command -v docker >/dev/null 2>&1; then
+        _bad container-image "neither podman nor docker is installed, so the image $tag cannot be present; install podman or pass --no-container"
+        return
+    fi
+    _bad container-image "the build image $tag is absent; build it from build/containers/Containerfile.ncz-imagebuild ('podman save | sudo podman load'), or pass --no-container"
+}
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 _say "arch=$ARCH root=$ROOT run=${RUN_DIR:-<none>} publish=$([ "$NO_PUBLISH" = 1 ] && echo no || echo yes) gates=${GATES:-all}"
@@ -401,6 +612,11 @@ check_tools
 check_disk
 check_kernel_staging
 check_tmpfs
+check_substrate_cache
+check_build_inputs
+check_sudo_model
+check_stdout
+check_container_image
 
 if [ "$FAILS" = 0 ]; then
     _say "READY: 0 failing check(s), $WARNS warning(s)"
