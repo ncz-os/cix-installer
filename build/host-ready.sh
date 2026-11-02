@@ -2,7 +2,7 @@
 # host-ready.sh -- builder-host readiness check (docs/BUILD-STABILITY.md, M5).
 #
 # ONE question, asked BEFORE any stage runs: can THIS host satisfy THIS
-# commit?  A build that starts on a host that cannot satisfies it burns the
+# commit?  A build that starts on a host that cannot satisfy it burns the
 # 13-minute offline-mirror build before the first failure is reported
 # (docs/BUILD-STABILITY.md C2/C3/C6/C7/C9).  The 2026-10-29 failures were all
 # of that class: a dirty tree, a stale kernel-staging pool, a substrate cache
@@ -238,7 +238,7 @@ check_disk() {
     local probes=()
     [ -n "$RUN_DIR" ] && probes+=("$RUN_DIR")
     probes+=("$ROOT")
-    local p free_kb bad=0
+    local p free_kb
     for p in "${probes[@]}"; do
         free_kb="$(_free_kb_of "$p")"
         if [ -z "$free_kb" ]; then
@@ -247,13 +247,11 @@ check_disk() {
         fi
         if [ "$free_kb" -lt "$need_kb" ]; then
             _bad disk "only $(( free_kb / 1024 / 1024 )) GiB free at $p (< ${min_gb} GiB required; NCZ_LAYERS_MIN_FREE_GB=${MIN_FREE_GB_DEFAULT}); free space on the build filesystem or point --run-dir at a bigger disk"
-            bad=1
         else
             _ok disk "$(( free_kb / 1024 / 1024 )) GiB free at $p (>= ${min_gb} GiB)"
         fi
     done
-    [ "$bad" = 1 ] && return
-    :
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -261,7 +259,7 @@ check_disk() {
 # ---------------------------------------------------------------------------
 _pool_dir() {
     if [ -n "$STAGING_DIR" ]; then printf '%s\n' "$STAGING_DIR"; return 0; fi
-    if [ -n "${NCZ_KERNEL_STAGING_DIR:-}" ]; then printf '%s\n' "$NCZ_KERNEL_STAGING_DIR"; return 0; }
+    if [ -n "${NCZ_KERNEL_STAGING_DIR:-}" ]; then printf '%s\n' "$NCZ_KERNEL_STAGING_DIR"; return 0; fi
     local ysd=""
     if command -v ncz_site_value >/dev/null 2>&1; then
         ysd="$(ncz_site_value NCZ_YOCTO_SHARED_DIR yocto-shared-dir)"
