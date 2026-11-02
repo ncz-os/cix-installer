@@ -330,6 +330,13 @@ elif [ -z "$RESCUEPART_PARTUUID" ]; then
     echo "  preflight OK: rescue partition not selected ($RESCUEPART_RECORD); no rescue-partition entry"
 fi
 # NCZ-RESCUE-PREFLIGHT-END
+# This `fi` closes the `if [ "$NCZ_VERB" = generate ]; then` opened above the
+# rEFInd-binary check (~line 206), NOT the rescue-partition if/elif chain that
+# ends on the previous line. Two consecutive `fi`s are correct here and both
+# are required: removing either one yields "syntax error: unexpected end of
+# file". A review has flagged this dangle twice; build/test-refind-addonly.sh
+# case 0 parses this file (and both hooks) so the claim is settled by a test
+# result, not by reading the diff without its context.
 fi   # end of the GENERATE-only preconditions (rEFInd binary, /boot/efi, rescue)
 
 # Preflight (above) validated inputs under `set -euo pipefail`. The ESP is

@@ -19,7 +19,12 @@
 #
 # These cases run the REAL shipped script against a fixture ESP tree under
 # mktemp -d in $TMPDIR (NCZ_ESP_DIR points the tool at the fixture):
-#   0. the tool and both hooks parse with `bash -n`;
+#   0. the tool and both hooks parse with `bash -n`; 0b proves that BOTH
+#      consecutive `fi`s after the rescue-partition preflight are required
+#      (deleting either breaks the parse) and 0c proves the "remove the
+#      stray fi" review suggestion is exactly that deletion -- a repeated
+#      false positive, settled here by a test result instead of by reading a
+#      diff hunk without its context;
 #   1. install-time generate still writes the menu (Default entry present);
 #   2. --add appends exactly one entry, stages both files, and leaves
 #      default_selection byte-identical;
@@ -122,6 +127,50 @@ run_for_source() {
     else
         bad "0) the tool and both hooks parse (bash -n)" "$_parse_bad"
         rm -rf "$w"; return
+    fi
+
+    # ---- 0b: the two consecutive `fi`s are BOTH required -------------------
+    # A review has twice reported "unbalanced if/fi: an extra `fi` after the
+    # rescue-partition elif block". It is a false positive read from a diff
+    # hunk: the first `fi` ends the rescue-partition if/elif chain and the
+    # second closes the `if [ "$NCZ_VERB" = generate ]` opened above the
+    # rEFInd-binary check. Rather than argue it, prove it -- delete each and
+    # require that the file STOPS parsing. If anyone ever "fixes" the reported
+    # stray `fi` by removing one, this case fails and names the line.
+    # The pair is: the `fi` that ends the rescue if/elif chain (bare), and the
+    # next `fi` (which carries the "end of the GENERATE-only preconditions"
+    # comment). Locate the commented one, then take the nearest `fi` above it.
+    _gen_fi=$(grep -n '^fi[[:space:]]*#.*GENERATE-only preconditions' "$w/tool.sh" | head -1 | cut -d: -f1)
+    _rescue_fi=$(awk -v m="${_gen_fi:-0}" 'NR < m && /^fi([[:space:]]|$)/ { n = NR } END { print n }' "$w/tool.sh")
+    if [ -z "$_gen_fi" ] || [ -z "$_rescue_fi" ] || [ $((_gen_fi - _rescue_fi)) -gt 12 ]; then
+        bad "0b) both consecutive fi's are required (a removed fi breaks the parse)" \
+            "could not locate the pair (rescue=${_rescue_fi:-none} generate=${_gen_fi:-none})"
+    else
+        _pair_bad=""
+        for _dl in "$_rescue_fi" "$_gen_fi"; do
+            sed "${_dl}d" "$w/tool.sh" > "$w/pair-check.sh" 2>/dev/null
+            if bash -n "$w/pair-check.sh" 2>/dev/null; then
+                _pair_bad="$_pair_bad line${_dl}:removable"
+            fi
+        done
+        rm -f "$w/pair-check.sh"
+        if [ -z "$_pair_bad" ]; then
+            ok "0b) both consecutive fi's are required (a removed fi breaks the parse)"
+        else
+            bad "0b) both consecutive fi's are required (a removed fi breaks the parse)" \
+                "$_pair_bad"
+        fi
+    fi
+    # ...and the reviewer's proposed edit (delete the `fi` after the rescue
+    # chain) must be exactly the one this case rejects.
+    if [ -n "${_gen_fi:-}" ]; then
+        sed "${_gen_fi}d" "$w/tool.sh" > "$w/reviewer-edit.sh" 2>/dev/null
+        if bash -n "$w/reviewer-edit.sh" 2>/dev/null; then
+            bad "0c) the reviewer's suggested edit (drop the stray fi) does not parse" "line ${_gen_fi} was removable"
+        else
+            ok "0c) the reviewer's suggested edit (drop the stray fi) does not parse"
+        fi
+        rm -f "$w/reviewer-edit.sh"
     fi
 
     mkdir -p "$w/boot"
