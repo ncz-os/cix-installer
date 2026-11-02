@@ -39,7 +39,10 @@
 #  11. --promote uses the parsed title and honours --force;
 #  12. appended-entry uniqueness is literal (a look-alike title is not a
 #      duplicate), a real duplicate is refused with the menu byte-identical,
-#      and a repeated --add stays idempotent.
+#      and a repeated --add stays idempotent. 12d covers the POST-replace
+#      verification: the backup stays alive until it passes, so a failure
+#      there (torn/concurrent write) restores the previous menu instead of
+#      leaving a mutated ESP -- the add-only guarantee on the error path.
 #
 # Usage:
 #   bash build/test-refind-addonly.sh                 # the shipped amd64 script
@@ -549,6 +552,35 @@ APPEND
     else
         bad "12b) ncz_entry_append refuses a second match, menu byte-identical" \
             "$(printf 'rc=%s\n' "$rc"; diff "$w/conf12b.before" "$w/esp12b/EFI/BOOT/refind.conf"; cat "$w/s12b.log")"
+    fi
+
+    # 12d: the POST-REPLACE verification must also roll back. The decision is
+    # made on the candidate before mv, so this path only fires on a torn or
+    # concurrently-mutated file -- but the backup must still be alive when it
+    # runs, or a failure there would leave a mutated ESP behind. Simulate a
+    # concurrent writer by shadowing `mv`: the candidate lands, then a second
+    # stanza carrying the token appears, so the check must fail AND restore.
+    mkesp "$w/esp12d" "$OLD_KVER"
+    cp -f "$w/esp12d/EFI/BOOT/refind.conf" "$w/conf12d.before"
+    {
+        sed -n '/^# NCZ-ADDONLY-FUNCS-BEGIN/,/^# NCZ-ADDONLY-FUNCS-END/p' "$w/tool.sh" \
+            | sed "s#^ESP_DIR=.*#ESP_DIR=$w/esp12d#; s#^ESP_CONF=.*#ESP_CONF=$w/esp12d/EFI/BOOT/refind.conf#"
+        cat <<'ROLLBACK'
+# Withstand the post-replace check: after mv, append a second match.
+mv() { command mv "$@"; printf '\nmenuentry "7.3 Kernel %s" {\n    loader /v\n}\n' "$NEW_KVER" >> "$ESP_CONF"; }
+ncz_entry_append "$NEW_KVER" "vmlinuz-$NEW_KVER" "initrd.img-$NEW_KVER" "root=PARTUUID=x" "$NEW_KVER"
+ROLLBACK
+    } > "$w/harness12d.sh"
+    ( cd "$w" && NEW_KVER="$NEW_KVER" REFIND_ICON="" NCZ_HOOK_TAG="# ncz-hook-entry:" \
+          bash "$w/harness12d.sh" ) >"$w/s12d.log" 2>&1
+    rc=$?
+    if [ "$rc" = 1 ] \
+       && grep -q 'restored the previous menu' "$w/s12d.log" \
+       && cmp -s "$w/conf12d.before" "$w/esp12d/EFI/BOOT/refind.conf"; then
+        ok "12d) a post-replace failure restores the previous menu"
+    else
+        bad "12d) a post-replace failure restores the previous menu" \
+            "$(printf 'rc=%s\n' "$rc"; diff "$w/conf12d.before" "$w/esp12d/EFI/BOOT/refind.conf"; cat "$w/s12d.log")"
     fi
 
     # 12c: a second --add of the SAME kernel is a no-op, not a duplicate: the

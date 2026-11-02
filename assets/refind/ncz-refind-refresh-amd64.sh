@@ -800,18 +800,27 @@ ncz_entry_append() {
         echo "ERROR: cannot replace $ESP_CONF; ESP left unchanged" >&2
         return 1
     fi
-    rm -f "$bak" 2>/dev/null || true
-    # Last line of defence: the installed menu must still hold exactly one
-    # match. From here on the previous bytes are gone (the backup is unlinked
-    # above), so a failure here cannot be rolled back -- it is reported as a
-    # corrupt menu, which is why the decision above is made pre-replace.
+    # Verification after the replace. The uniqueness decision was already made
+    # on the candidate above, so this only catches a torn/partial write (a
+    # concurrent writer, a filesystem error) -- but it must still be able to
+    # undo itself: the backup is kept until the check passes, so a failure here
+    # RESTORES the original menu instead of leaving a mutated ESP behind. This
+    # is the whole point of the add-only contract: a failure never alters the
+    # menu.
     local hits
     hits=$(grep '^menuentry ' "$ESP_CONF" 2>/dev/null | grep -cF -- "$token" || true)
     if [ "${hits:-0}" != "1" ]; then
-        echo "ERROR: $ESP_CONF now holds ${hits:-0} entries matching '$token' (expected 1);" >&2
-        echo "       the append could not be rolled back -- reinstall or regenerate the menu" >&2
+        if cp -f "$bak" "$ESP_CONF" 2>/dev/null; then
+            rm -f "$new" "$bak" 2>/dev/null || true
+            echo "ERROR: $ESP_CONF did not hold exactly one entry for '$token' (hits=${hits:-0});" >&2
+            echo "       restored the previous menu -- the ESP is unchanged" >&2
+        else
+            echo "ERROR: $ESP_CONF did not hold exactly one entry for '$token' (hits=${hits:-0});" >&2
+            echo "       AND the previous menu could not be restored ($bak) -- regenerate the menu" >&2
+        fi
         return 1
     fi
+    rm -f "$bak" 2>/dev/null || true
     return 0
 }
 # NCZ-ADDONLY-FUNCS-END

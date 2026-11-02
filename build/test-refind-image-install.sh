@@ -93,6 +93,21 @@ else
     bad "A5) 70-bootloader.sh installs each hook mode 0755" \
         "$(grep -n 'HOOK_SRC' "$BOOTLOADER")"
 fi
+# A5b: the hook SOURCES must be executable in git too (mode 100755), not only
+# at install time. A 100644 source still works when install(1) stamps 0755,
+# but it cannot be run straight from a checkout -- which is how these hooks
+# are exercised and debugged -- and a bare `grep install` cannot tell the
+# difference. Check the recorded mode in the index.
+_mode_bad=""
+for _h in "$ZZ1" "$ZZ2"; do
+    _m=$(cd "$REPO" && git ls-files -s -- "$_h" 2>/dev/null | awk '{ print $1 }')
+    [ "$_m" = "100755" ] || _mode_bad="$_mode_bad $(basename "$_h"):${_m:-untracked}"
+done
+if [ -z "$_mode_bad" ]; then
+    ok "A5b) both hook sources are mode 100755 in git"
+else
+    bad "A5b) both hook sources are mode 100755 in git" "$_mode_bad"
+fi
 if ! grep -qE '"\$SHARED_DST" +--(add|promote)' "$BOOTLOADER"; then
     ok "A3) the first-install path never uses --add/--promote"
 else
