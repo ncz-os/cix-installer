@@ -121,6 +121,13 @@ fi
 if [ "$SYNC_ONLY" = 1 ]; then
   # The pin is already committed: derive it from base.pin, and require the two
   # arch rows to agree (a half pin cannot be synced into a coherent release.conf).
+  # Every arch row must be present: a base.pin carrying only one arch is a half
+  # pin, and syncing it would derive a coherent-looking release.conf from it.
+  for a in amd64 arm64; do
+    awk -F'\t' -v a="$a" '!/^#/ && $1==a{found=1} END{exit !found}' \
+      "$ROOT/manifests/base.pin" 2>/dev/null \
+      || die "--sync-only: manifests/base.pin has no $a row (half pin); re-pin (build/repin.sh) first"
+  done
   pin_snap="$(awk -F'\t' '!/^#/{print $4}' "$ROOT/manifests/base.pin" 2>/dev/null | sort -u)"
   case "$pin_snap" in
     [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;

@@ -531,7 +531,12 @@ def main() -> int:
                 why = list(identity)
                 if decided:
                     why.append("decision changed: " + ", ".join(decided))
-                new.append({"name": name, "version": ver, "why": "; ".join(why)})
+                # Keyed by the ledger's identity (name, arch): the version may
+                # have CHANGED (that is often exactly why it is new content), so
+                # matching on version below would never find this entry.
+                new.append(
+                    {"name": name, "arch": arch, "version": ver, "why": "; ".join(why)}
+                )
                 continue
             same_snap = len(f) > 9 and f[9] == a.snapshot
             by = f[11] if len(f) > 11 else ""
@@ -575,9 +580,11 @@ def main() -> int:
                 ),
             }.get(r["class"], "review")
             tracking = f"https://tracker.debian.org/pkg/{r['name']}"
-            as_new = any(
-                n["name"] == r["name"] and n["version"] == r["version"] for n in new
-            )
+            # A ledger row is the SAME package when (name, arch) matches; its
+            # version may legitimately differ from the new row's (version drift
+            # is one of the things that makes it new content), so compare the
+            # identity, never the version.
+            as_new = any(n["name"] == r["name"] and n["arch"] == r["arch"] for n in new)
             if as_new and not a.accept_new_exceptions:
                 continue
             row = "\t".join(
@@ -602,7 +609,7 @@ def main() -> int:
                 new = [
                     n
                     for n in new
-                    if not (n["name"] == r["name"] and n["version"] == r["version"])
+                    if not (n["name"] == r["name"] and n["arch"] == r["arch"])
                 ]
                 print(
                     f"NEW exception ACCEPTED (--accept-new-exceptions): "
@@ -613,6 +620,7 @@ def main() -> int:
                 new.append(
                     {
                         "name": r["name"],
+                        "arch": r["arch"],
                         "version": r["version"],
                         "why": "new to the ledger",
                     }

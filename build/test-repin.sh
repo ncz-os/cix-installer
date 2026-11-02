@@ -101,6 +101,14 @@ if [ "${1:-}" = "--stub-classify" ]; then
                 printf '#  first_seen snapshot owner_action review_by tracking_url\n'
             } > "$ledger"
         fi
+        # The REAL classifier refuses new sid content unless
+        # --accept-new-exceptions is given, naming each row for review and
+        # exiting 4.  The stub mirrors that contract so repin.sh's gate is
+        # exercised (a stub that always wrote would test nothing).
+        if [ "${STUB_CLASSIFY_ACCEPT:-0}" != 1 ]; then
+            echo "stub classify: $arch: NEW sid exception needs a human review (fixture)" >&2
+            exit 4
+        fi
         awk -F'\t' -v a="$arch" '$3==a || $3=="all"' "$STUB_NEW_ROW_FILE" >> "$ledger"
         echo "stub classify: $arch: wrote 1 new row"
     else
@@ -260,14 +268,112 @@ repin() {  # repo args...
         REPIN_STUB_REPO="$r" STUB_DATE="$PINNOW" STUB_SNAP="$P1" \
         NCZ_REPIN_WORK_ROOT="$T/work" \
         NCZ_SUITE_DIGESTS_CMD="bash '$SELF' --stub-suite-digests" \
-        NCZ_REPIN_FIXTURE_CMD="true" \
+        NCZ_REPIN_FIXTURE_CMD="true" ${REPIN_EXTRA_ENV:-} \
         bash "$REPIN" --repo "$r" --refresh-cmd "$STUBS/refresh" \
         --classify-cmd "bash '$STUBS/classify'" --skip-gates "$@"
 }
 
 new_pin_of() { sed -n 's/^NCZ_BASE_MIRROR_SNAPSHOT="\(.*\)"/\1/p' "$1/release.conf"; }
 
-echo "-- smoke --"
-F="$(fresh smoke)"; ISO_A="$(fake_iso amd64)"; ISO_R="$(fake_iso arm64)"
-repin "$F" --arch both --iso-amd64 "$ISO_A" --iso-arm64 "$ISO_R"; echo "rc=$?"
-git -C "$F" status --porcelain; cat "$F/manifests/base.pin" "$F/release.conf"
+# --- cases ------------------------------------------------------------------
+# Every case runs build/repin.sh against a throwaway fixture repo.  The
+# substrate measurement, the signed-suite fetch, the gpgv fixture check and the
+# classifier are stubs (a fixture cannot have network, Debian's signature or a
+# real substrate), and --skip-gates keeps the repository gates out of a
+# synthetic tree; the orchestration being tested is the real script.
+ISO_A="$(fake_iso amd64)"; ISO_R="$(fake_iso arm64)"
+both() { echo "--iso-amd64 $ISO_A --iso-arm64 $ISO_R"; }
+
+echo "== M2: one invocation re-pins BOTH arches and commits once =="
+F="$(fresh both-arches)"
+expect_rc "re-pin both arches in one invocation" 0 \
+    repin "$F" --arch both $(both) --commit
+okpin="$(new_pin_of "$F")"
+[ "$okpin" = "$P1" ] && ok "release.conf moved to the new snapshot $P1" \
+    || bad "release.conf did not move to $P1" "got '$okpin'"
+for a in amd64 arm64; do
+    [ "$(awk -F'\t' -v a="$a" '$1==a{print $4}' "$F/manifests/base.pin")" = "$P1" ] \
+        && ok "base.pin $a row is at $P1" || bad "base.pin $a row is not at $P1"
+done
+[ "$(git -C "$F" rev-list --count HEAD)" = 2 ] \
+    && ok "the re-pin is exactly ONE commit on top of the base" \
+    || bad "the re-pin is not exactly one commit" "$(git -C "$F" log --oneline)"
+git -C "$F" show --name-only --format= HEAD | grep -qx 'manifests/determinism.pin' \
+    && ok "determinism.pin moved in the same commit" \
+    || bad "determinism.pin did not move in the commit"
+[ -z "$(status_of "$F")" ] && ok "git status --porcelain is empty after the commit" \
+    || bad "worktree dirty after the commit" "$(status_of "$F")"
+[ "$(git -C "$F" log -1 --format=%ae)" = "fixture@example.invalid" ] \
+    && ok "committed with the configured identity" || bad "wrong commit identity"
+
+echo "== M2: a failed arch in the middle changes NOTHING (all or nothing) =="
+F="$(fresh half-fails)"
+before="$(git -C "$F" rev-parse HEAD)"
+out="$(REPIN_EXTRA_ENV="STUB_FAIL_ARCH=arm64" repin "$F" --arch both $(both) --commit 2>&1)"; rc=$?
+[ "$rc" != 0 ] && ok "a failing arm64 refresh fails the whole re-pin (rc=$rc)" \
+    || bad "a failing arm64 refresh still exited 0" "$out"
+[ "$(git -C "$F" rev-parse HEAD)" = "$before" ] \
+    && ok "no commit was made" || bad "a commit was made despite the failure"
+[ -z "$(status_of "$F")" ] && ok "the tracked tree is untouched" \
+    || bad "the tree was modified by the failed run" "$(status_of "$F")"
+[ "$(new_pin_of "$F")" = "$P0" ] && ok "release.conf is still at the old pin" \
+    || bad "release.conf moved despite the failure"
+
+echo "== M2: new sid content is never auto-approved =="
+F="$(fresh new-rows)"
+printf '%s' "$(new_row_c newudeb)" > "$T/newrow"
+out="$(REPIN_EXTRA_ENV="STUB_NEW_ROW_FILE=$T/newrow" repin "$F" --arch both $(both) --commit 2>&1)"; rc=$?
+if [ "$rc" != 0 ]; then ok "an unreviewed new sid row stops the re-pin (rc=$rc)"; \
+else bad "a new sid row did not stop the re-pin" "$out"; fi
+echo "$out" | grep -qi 'NEW sid exception needs a human review' \
+    && ok "the new row is named for review" || bad "the new row was not named" "$out"
+[ "$(new_pin_of "$F")" = "$P0" ] && ok "nothing was pinned" \
+    || bad "the pin moved despite new sid content"
+
+echo "== M2: --accept-new-exceptions records review_by and writes the row =="
+F="$(fresh accept-rows)"
+out="$(REPIN_EXTRA_ENV="STUB_NEW_ROW_FILE=$T/newrow STUB_CLASSIFY_ACCEPT=1" repin "$F" --arch both $(both) --commit \
+    --accept-new-exceptions --review-by 2030-02-01 2>&1)"; rc=$?
+[ "$rc" = 0 ] && ok "--accept-new-exceptions lets the re-pin through" \
+    || bad "--accept-new-exceptions did not let the re-pin through" "$out"
+grep -q '^newudeb' "$F/manifests/sid-exceptions.tsv" \
+    && ok "the accepted row is in the committed ledger" \
+    || bad "the accepted row was not written" "$(cat "$F/manifests/sid-exceptions.tsv")"
+# The stub classifier copies the fixture row verbatim, so review_by here is the
+# row's own date; what repin.sh must guarantee is that an accepted row carries
+# a WELL-FORMED review_by in column 12, never an empty one.
+rb="$(awk -F'\t' '$1=="newudeb"{print $12}' "$F/manifests/sid-exceptions.tsv")"
+case "$rb" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ok "the accepted row carries review_by $rb" ;;
+    *) bad "the accepted row has no well-formed review_by" "col12='$rb'" ;;
+esac
+
+echo "== M2: --defer-new-exceptions leaves the ledger untouched =="
+F="$(fresh defer-rows)"
+t0="$(sha "$F/manifests/sid-exceptions.tsv")"
+repin "$F" --arch both $(both) --commit --defer-new-exceptions >/dev/null 2>&1 || true
+[ "$(sha "$F/manifests/sid-exceptions.tsv")" = "$t0" ] \
+    && ok "the committed ledger is unchanged" || bad "the ledger was rewritten under --defer"
+
+echo "== M2: a stale pin BLOCKS the builder; a committed re-pin unblocks it =="
+F="$(fresh blocking)"
+# A committed re-pin leaves the tree clean, so build-image.sh --substrate refresh
+# must still refuse to EDIT tracked files there.
+# --sync-only refuses a base.pin that carries only one arch (a half pin)
+H="$(fresh halfpin)"
+awk -F'\t' '$1!="arm64"' "$H/manifests/base.pin" > "$H/manifests/base.pin.1"
+mv "$H/manifests/base.pin.1" "$H/manifests/base.pin"
+# refresh-substrate.sh roots itself at $(dirname $0)/.., so run the copy that
+# lives in the fixture tree, not the repo one.
+cp "$ROOT/build/refresh-substrate.sh" "$H/build/refresh-substrate.sh"
+mkdir -p "$H/build/lib"; cp "$ROOT/build/lib/"* "$H/build/lib/" 2>/dev/null
+out="$( bash "$H/build/refresh-substrate.sh" --sync-only 2>&1 )"; rc=$?
+[ "$rc" != 0 ] && ok "--sync-only refuses a one-arch base.pin (rc=$rc)" \
+    || bad "--sync-only accepted a one-arch base.pin" "$out"
+echo "$out" | grep -qi 'no arm64 row\|half pin' \
+    && ok "the half-pin refusal names the missing arch" || bad "unclear half-pin error" "$out"
+
+echo "-- results --"
+printf '  %d passed, %d failed\n' "$PASS" "$FAIL"
+[ "$FAIL" = 0 ] || { echo "FAIL: $FAIL case(s) failed" >&2; exit 1; }
+exit 0
