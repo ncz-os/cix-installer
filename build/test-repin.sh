@@ -37,6 +37,9 @@
 #      fails, names build/repin.sh, git status --porcelain EMPTY, and no
 #      candidate pin written into the tree.
 #   7. the same stage on a FRESH pin verifies and leaves the tree untouched.
+#   8. negative: an option that takes a value but was given none (--arch,
+#      --snapshot, --review-by, --repo, ... at the end of argv) dies with the
+#      usage error (rc 2) instead of re-reading the same flag forever.
 #
 # Usage: bash build/test-repin.sh        Exit 0 = all cases pass.
 set -uo pipefail
@@ -358,9 +361,51 @@ repin "$F" --arch both $(both) --commit --defer-new-exceptions >/dev/null 2>&1 |
 
 echo "== M2: a stale pin BLOCKS the builder; a committed re-pin unblocks it =="
 F="$(fresh blocking)"
-# A committed re-pin leaves the tree clean, so build-image.sh --substrate refresh
-# must still refuse to EDIT tracked files there.
-# --sync-only refuses a base.pin that carries only one arch (a half pin)
+# build-image.sh runs refresh-substrate.sh out of its OWN build/ dir (the
+# script roots itself at $(dirname $0)/..), so the fixture tree carries that
+# script and the lib it sources: the real, unstubbed stage runs there.
+cp "$ROOT/build/refresh-substrate.sh" "$F/build/refresh-substrate.sh"
+mkdir -p "$F/build/lib"; cp "$ROOT/build/lib/"* "$F/build/lib/" 2>/dev/null
+# 1. STALE: release.conf and base.pin are still at P0 while this substrate is
+#    the P1 one, so the substrate stage must FAIL -- and must fail without
+#    editing a tracked file (C1/C7: no half re-pin from the builder).
+stale_before="$(git -C "$F" rev-parse HEAD)"; stale_status="$(status_of "$F")"
+out="$( cd "$F" && bash build/refresh-substrate.sh --sync-only 2>&1 )"; rc=$?
+[ "$rc" != 0 ] && ok "a stale pin FAILS the substrate stage (rc=$rc)" \
+    || bad "the substrate stage accepted a stale pin" "$out"
+[ "$(status_of "$F")" = "$stale_status" ] && ok "the refused stage edited no tracked file" \
+    || bad "the refused stage modified the tree" "$(status_of "$F")"
+[ "$(git -C "$F" rev-parse HEAD)" = "$stale_before" ] && ok "the refused stage made no commit" \
+    || bad "the refused stage committed"
+# 2. UNBLOCK: a committed re-pin (both arches, one commit) moves the pin set to
+#    P1, and the SAME gate now passes on the clean tree.
+out="$( repin "$F" --arch both $(both) --commit 2>&1 )"; rc=$?
+[ "$rc" = 0 ] && ok "the committed re-pin succeeds (rc=$rc)" || bad "the re-pin failed" "$out"
+[ "$(new_pin_of "$F")" = "$P1" ] && ok "release.conf moved to the re-pinned $P1" \
+    || bad "release.conf is not at $P1" "got '$(new_pin_of "$F")'"
+[ "$(git -C "$F" rev-list --count HEAD)" = 2 ] && ok "the unblocking re-pin is ONE commit" \
+    || bad "the re-pin is not one commit" "$(git -C "$F" log --oneline)"
+[ -z "$(status_of "$F")" ] && ok "the tree is clean after the committed re-pin" \
+    || bad "worktree dirty after the re-pin" "$(status_of "$F")"
+out="$( cd "$F" && bash build/refresh-substrate.sh --sync-only 2>&1 )"; rc=$?
+[ "$rc" = 0 ] && ok "the committed re-pin UNBLOCKS the substrate stage (rc=$rc)" \
+    || bad "the re-pinned tree is still refused" "$out"
+[ -z "$(status_of "$F")" ] && ok "the passing stage left the tree untouched" \
+    || bad "the passing stage edited the tree" "$(status_of "$F")"
+
+echo "== M2: an option missing its value is a usage error, not a hang =="
+# `shift 2` on the last argv entry fails and leaves $1 in place, so an
+# unguarded loop re-reads the same flag forever (caught by `timeout` here).
+for opt in --arch --snapshot --iso-amd64 --iso-arm64 --review-by \
+           --build-inputs-dir --repo --work --refresh-cmd --classify-cmd; do
+    out="$(timeout 20 bash "$REPIN" "$opt" 2>&1)"; rc=$?
+    [ "$rc" = 2 ] && ok "$opt with no value is a usage error (rc=2)" \
+        || bad "$opt with no value did not die with rc 2 (rc=$rc)" "$out"
+    printf '%s\n' "$out" | grep -qF -e "$opt requires a value" \
+        && ok "$opt names the missing value" || bad "$opt error is unclear" "$out"
+done
+
+echo "== M2: --sync-only refuses a base.pin that carries only one arch (a half pin) =="
 H="$(fresh halfpin)"
 awk -F'\t' '$1!="arm64"' "$H/manifests/base.pin" > "$H/manifests/base.pin.1"
 mv "$H/manifests/base.pin.1" "$H/manifests/base.pin"

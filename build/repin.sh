@@ -105,25 +105,31 @@ say()  { printf '[repin] %s\n' "$*"; }
 err()  { printf '[repin] %s\n' "$*" >&2; }
 die()  { local rc="$1"; shift; err "ERROR: $*"; exit "$rc"; }
 
+# An option that takes a value consumes exactly two argv entries.  `shift 2`
+# with one left fails (and, under `set -uo pipefail` without `set -e`, leaves $1
+# in place), so the loop would re-read the same flag forever instead of dying.
+need_value() {  # flag
+    [ $# -ge 2 ] || die 2 "$1 requires a value (see --help)"
+}
 while [ $# -gt 0 ]; do
     case "$1" in
-        --arch) ARCHS="${2:-}"; shift 2 ;;
-        --snapshot) SNAP_REQ="${2:-}"; shift 2 ;;
-        --iso-amd64) ISO_AMD64="${2:-}"; shift 2 ;;
-        --iso-arm64) ISO_ARM64="${2:-}"; shift 2 ;;
+        --arch) need_value "$@"; ARCHS="$2"; shift 2 ;;
+        --snapshot) need_value "$@"; SNAP_REQ="$2"; shift 2 ;;
+        --iso-amd64) need_value "$@"; ISO_AMD64="$2"; shift 2 ;;
+        --iso-arm64) need_value "$@"; ISO_ARM64="$2"; shift 2 ;;
         --no-fetch) NO_FETCH=1; shift ;;
         --accept-new-exceptions) ACCEPT_NEW=1; shift ;;
         --defer-new-exceptions) DEFER_NEW=1; shift ;;
         --skip-gates) SKIP_GATES=1; shift ;;   # TESTS ONLY: orchestration fixtures
-        --review-by) REVIEW_BY="${2:-}"; shift 2 ;;
-        --build-inputs-dir) BUILD_INPUTS_DIR="${2:-}"; shift 2 ;;
+        --review-by) need_value "$@"; REVIEW_BY="$2"; shift 2 ;;
+        --build-inputs-dir) need_value "$@"; BUILD_INPUTS_DIR="$2"; shift 2 ;;
         --defer-build-inputs) DEFER_BUILD_INPUTS=1; shift ;;
         --commit) COMMIT=1; shift ;;
         --no-commit) COMMIT=0; shift ;;
-        --repo) ROOT="${2:-}"; shift 2 ;;
-        --work) WORK="${2:-}"; shift 2 ;;
-        --refresh-cmd) REFRESH_CMD="${2:-}"; shift 2 ;;
-        --classify-cmd) CLASSIFY_CMD="${2:-}"; shift 2 ;;
+        --repo) need_value "$@"; ROOT="$2"; shift 2 ;;
+        --work) need_value "$@"; WORK="$2"; shift 2 ;;
+        --refresh-cmd) need_value "$@"; REFRESH_CMD="$2"; shift 2 ;;
+        --classify-cmd) need_value "$@"; CLASSIFY_CMD="$2"; shift 2 ;;
         -h|--help) sed -n '2,80p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die 2 "unknown argument: $1 (see --help)" ;;
     esac
