@@ -1,0 +1,244 @@
+{
+  "job_deliverable": "structured non-author review of the M10/M11 rebase",
+  "repo": "cix-installer",
+  "branch": "hv/cx-m10m11-rebase-20261031",
+  "base_ref": "release/preview4-20261025",
+  "base_sha": "1d1a82f656818c0b045b50636cc97bd0e388fdf4",
+  "head_sha": "c4aec59c12b3306ba2ab357bf833f6b587d9fb89",
+  "reviewed_at": "2026-11-02T08:34:38-05:00",
+  "author": {
+    "model": "deepseek-flash",
+    "family": "deepseek"
+  },
+  "reviewers": [
+    {
+      "model": "tydeus-reviewer",
+      "verdict": "request_changes",
+      "findings_count": 23,
+      "findings": [
+        {
+          "title": "Syntax error in multi-line command substitution",
+          "location": "build/build-image.sh:470",
+          "severity": "critical",
+          "body": "In `build/build-image.sh`, the `msg` variable assignment is missing a semicolon or newline between the first `printf` and the second `printf`. This will cause a shell syntax error because `printf` is treated as an argument to the first `printf` rather than a new command.",
+          "verified": "false-positive",
+          "verification": "FALSE. bash -n build/build-image.sh exits 0. The msg= assignment spans lines inside ONE $( ... ); a bare newline separates the three printfs, which is the normal shell way to sequence commands in a substitution. No semicolon is needed."
+        },
+        {
+          "title": "Potential environment variable mismatch",
+          "location": "build/build-image.sh:798",
+          "severity": "medium",
+          "body": "In `ncz_container_run`, `NCZ_CHOWN_BACK` is exported in the host shell, but inside the `docker run` command, it is passed via `-e NCZ_CHOWN_BACK=\"${NCZ_CHOWN_BACK:-}\"`. If `NCZ_CHOWN_BACK` was successfully exported in the host shell, the host's value is used. However, if it was not set, it is passed as an empty string. This might conflict with the host's logic which uses `export NCZ_CHOWN_BACK=\"${",
+          "verified": "false-positive",
+          "verification": "Verified against source: not reproducible as described."
+        },
+        {
+          "title": "Loss of error logging in stage_refresh_substrate",
+          "location": "build/build-image.sh:1104",
+          "severity": "high",
+          "body": "The removal of `2>&1` from `bash build/stage-substrate.sh ...` and `bash build/check-substrate-pin.sh ...` means that any error output from these scripts will be sent to stderr of the current shell and will NOT be captured in the `$log` file, even though `run_stage` pipes the function's stdout to the log. This contradicts the intent of having a centralized stage log.",
+          "verified": "false-positive",
+          "verification": "FALSE. run_stage() runs `( set -o pipefail; \"$fn\" \"$log\" ) 2>&1 | tee -a \"$log\"`, so the whole function, stdout AND stderr, is captured. Proven at runtime: a stub stage writing to fd 2 landed in 00-preflight.log."
+        },
+        {
+          "title": "Loss of error logging in stage_stage_inputs",
+          "location": "build/build-image.sh:1145",
+          "severity": "medium",
+          "body": "The removal of `2>&1` from `( cd \"$ROOT\" && bash build/stage-build-inputs.sh ... )` means that errors from the subshell are no longer redirected to stdout, so they won't be captured by the `tee -a \"$log\"` in the caller `run_stage`.",
+          "verified": "false-positive",
+          "verification": "FALSE. Same run_stage() outer pipe captures both streams (runtime-proven)."
+        },
+        {
+          "title": "Inconsistent error redirection in stage_refresh_substrate",
+          "location": "build/build-image.sh:1124",
+          "severity": "low",
+          "body": "In the error case for stale pins (line 1124), the code uses `>&2` to redirect to stderr, but since the caller `run_stage` only pipes stdout to the log, this error message will appear in the console but will be missing from the stage log file.",
+          "verified": "false-positive",
+          "verification": "FALSE. >&2 text is still captured by the outer pipe of run_stage()."
+        },
+        {
+          "title": "Loss of build logging in stage_refresh_sources",
+          "location": "build/build-image.sh:1421",
+          "severity": "high",
+          "body": "The diff removes `| tee -a \"$log\"` from multiple `echo` statements in `stage_refresh_sources`. This means that critical information regarding whether a prebuilt deb is being used, whether a build is being reused, or whether a build has failed will only be printed to stdout/stderr and will not be captured in the stage's log file. This breaks the observability of the build process.",
+          "verified": "false-positive",
+          "verification": "FALSE. Same outer-pipe capture. This function is byte-identical to the already reviewed commit 09800181."
+        },
+        {
+          "title": "Loss of build logging in stage_static_gates",
+          "location": "build/build-image.sh:1546",
+          "severity": "high",
+          "body": "The `say` function in `stage_static_gates` has been modified to remove `| tee -a \"$log\"`. This prevents all status messages emitted via `say` from being recorded in the log file.",
+          "verified": "false-positive",
+          "verification": "FALSE. Same outer-pipe capture; function byte-identical to 09800181."
+        },
+        {
+          "title": "Loss of build logging in stage_layers",
+          "location": "build/build-image.sh:1641",
+          "severity": "high",
+          "body": "The `say_layers` function in `stage_layers` has been modified to remove `| tee -a \"$log\"`. This prevents all status messages emitted via `say_layers` from being recorded in the log file.",
+          "verified": "false-positive",
+          "verification": "FALSE. Same outer-pipe capture; function byte-identical to 09800181."
+        },
+        {
+          "title": "Loss of build logs due to removal of tee",
+          "location": "build/build-image.sh:1656",
+          "severity": "high",
+          "body": "The diff removes `2>&1 | tee -a \"$log\"` from multiple command executions in `stage_layers`, `stage_image`, and `stage_secret_scan`. This means that the standard output and error of these critical build steps are no longer being captured in the `$log` file. If any of these steps fail, the diagnostic information will be lost to the log, making troubleshooting extremely difficult.",
+          "verified": "false-positive",
+          "verification": "FALSE. Base-to-HEAD line numbers made pre-existing removals look new. Every stage function is byte-identical to the reviewed 09800181 tree except the four named in the M11 commit, and all output is still captured by run_stage."
+        },
+        {
+          "title": "Loss of build logs due to removal of tee",
+          "location": "build/build-image.sh:1689",
+          "severity": "high",
+          "body": "The removal of `2>&1 | tee -a \"$log\"` prevents the output of `ncz_sudo_bash` from being recorded in the log file.",
+          "verified": "false-positive",
+          "verification": "FALSE. Base-to-HEAD line numbers made pre-existing removals look new. Every stage function is byte-identical to the reviewed 09800181 tree except the four named in the M11 commit, and all output is still captured by run_stage."
+        },
+        {
+          "title": "Loss of build logs due to removal of tee",
+          "location": "build/build-image.sh:1727",
+          "severity": "high",
+          "body": "The removal of `2>&1 | tee -a \"$log\"` prevents the output of `bash build/check-layers.sh` from being recorded in the log file.",
+          "verified": "false-positive",
+          "verification": "FALSE. Base-to-HEAD line numbers made pre-existing removals look new. Every stage function is byte-identical to the reviewed 09800181 tree except the four named in the M11 commit, and all output is still captured by run_stage."
+        },
+        {
+          "title": "Loss of build logs due to removal of tee",
+          "location": "build/build-image.sh:1902",
+          "severity": "high",
+          "body": "The removal of `| tee -a \"$log\"` from the Magnetar server info echo means this information is no longer persisted in the build log.",
+          "verified": "false-positive",
+          "verification": "FALSE. Base-to-HEAD line numbers made pre-existing removals look new. Every stage function is byte-identical to the reviewed 09800181 tree except the four named in the M11 commit, and all output is still captured by run_stage."
+        },
+        {
+          "title": "Loss of build logs due to removal of tee",
+          "location": "build/build-image.sh:1945",
+          "severity": "high",
+          "body": "The removal of `| tee -a \"$log\"` from the image path echo means the final image path is not recorded in the log file.",
+          "verified": "false-positive",
+          "verification": "FALSE. Base-to-HEAD line numbers made pre-existing removals look new. Every stage function is byte-identical to the reviewed 09800181 tree except the four named in the M11 commit, and all output is still captured by run_stage."
+        },
+        {
+          "title": "Loss of build logs due to removal of tee",
+          "location": "build/build-image.sh:1955",
+          "severity": "high",
+          "body": "The removal of `2>&1 | tee -a \"$log\"` prevents the output of `ncz_magnetar_collect` from being recorded in the log file.",
+          "verified": "false-positive",
+          "verification": "FALSE. Base-to-HEAD line numbers made pre-existing removals look new. Every stage function is byte-identical to the reviewed 09800181 tree except the four named in the M11 commit, and all output is still captured by run_stage."
+        },
+        {
+          "title": "Loss of error logging in stage_secret_scan",
+          "location": "build/build-image.sh:1963",
+          "severity": "high",
+          "body": "The changes remove `| tee -a \"$log\"` from several `echo` commands that output error messages to `stderr`. While redirecting to `>&2` is appropriate for error messages, removing the `tee` command means these errors are no longer recorded in the `$log` file. This will make debugging failed builds significantly harder as the log file will lack the specific error reasons.",
+          "verified": "false-positive",
+          "verification": "FALSE. Same outer-pipe capture."
+        },
+        {
+          "title": "Loss of success logging in stage_secret_scan",
+          "location": "build/build-image.sh:2030",
+          "severity": "medium",
+          "body": "The `echo` command reporting the successful completion of `stage_secret_scan` has had its `| tee -a \"$log\"` removed. This means successful stage completions will no longer be recorded in the build log.",
+          "verified": "false-positive",
+          "verification": "FALSE. Same outer-pipe capture."
+        },
+        {
+          "title": "Regression: Stage output is no longer written to the log file",
+          "location": "build/build-image.sh:2071",
+          "severity": "high",
+          "body": "The changes replace `command | tee -a \"$log\"` with `local var=\"$(command)\"; printf '%s\\n' \"$var\"`. While this correctly captures the output for immediate grep/validation, it stops writing the output to the `$log` file. Since `$log` is passed as an argument to these functions and is likely used by the caller (e.g., `run_stage`) to persist logs for the entire build process, this change breaks the lo",
+          "verified": "false-positive",
+          "verification": "Verified against source: not reproducible as described."
+        },
+        {
+          "title": "Inconsistent logging: stdout vs stderr",
+          "location": "build/build-image.sh:2071",
+          "severity": "medium",
+          "body": "In `stage_kvm_gate`, `stage_kvm_gate_server`, and `stage_provenance_gate`, the `tee -a \"$log\"` was previously capturing both stdout and stderr (via `2>&1`). The new implementation captures stdout and stderr into a variable via `2>&1`, but then only `printf`s the result to stdout. If the caller expects the log file to contain the full execution trace, it will now be empty or missing these sections.",
+          "verified": "false-positive",
+          "verification": "FALSE. Outer pipe includes 2>&1, so both streams reach the log."
+        },
+        {
+          "title": "Loss of critical build logs in stage_archive",
+          "location": "build/build-image.sh:2265",
+          "severity": "high",
+          "body": "The diff removes `| tee -a \"$log\"` from several `echo` statements and the final `bash build/stage-to-argonas.sh` command in `stage_archive`. While the intention might be to clean up output, this removes the ability to persist these critical messages (especially failure reasons and the output of the actual upload script) to the run log file. This makes post-mortem debugging of failed builds signifi",
+          "verified": "false-positive",
+          "verification": "FALSE. Same outer-pipe capture."
+        },
+        {
+          "title": "Potential loss of stdout/stderr from stage-to-argonas.sh",
+          "location": "build/build-image.sh:2283",
+          "severity": "medium",
+          "body": "The command `( cd \"$ROOT\" && bash build/stage-to-argonas.sh ... )` no longer redirects its output to the log file. If the upload to Argonas fails, the error messages will only appear in the console and will not be captured in the persistent log file.",
+          "verified": "false-positive",
+          "verification": "FALSE. Same outer-pipe capture."
+        },
+        {
+          "title": "Incorrect assertion in check_dedup logic",
+          "location": "build/test-build-log-dedup.sh:145",
+          "severity": "high",
+          "body": "In `check_dedup`, the script asserts `[ \"${n:-0}\" != 2 ]` to detect errors. However, the purpose of the test (as stated in the comments and the setup) is to ensure that lines are NOT doubled. If the code is correct (M11 shape), each sentinel line should appear exactly ONCE. The current logic `[ \"${n:-0}\" != 2 ]` will trigger a `bad` result if the count is 1 (the correct behavior), and will only pa",
+          "verified": "false-positive",
+          "verification": "FALSE. check_dedup() is the andon CONTROL: it requires n==2 because the pre-M11 shape writes each sentinel twice. The positive \"each line once\" assertion lives in section 4b (saytotal == saydist), which passes."
+        },
+        {
+          "title": "Incorrect control test assertion logic",
+          "location": "build/test-build-log-dedup.sh:25",
+          "severity": "high",
+          "body": "In the control test (section 4a), the script aims to verify that the test harness correctly detects doubled lines. The control is designed to fail (produce doubled lines). However, the `if` condition `[ \"${ctl_dist:-0}\" -gt 0 ] && [ \"${ctl_total:-0}\" -gt \"${ctl_dist:-0}\" ]` checks if there are any duplicate lines. If duplicates are found, it calls `ok` (success). While this logic correctly identif",
+          "verified": "false-positive",
+          "verification": "Verified against source: not reproducible as described."
+        },
+        {
+          "title": "Incomplete conditional check in empty prune test",
+          "location": "build/test-container-ownership-audit.sh:118",
+          "severity": "high",
+          "body": "In the final block of the script, the `if` statement checking for 'invalid expression' is followed by an `elif [ \"$e_rc\" = 1 ]; then` which is left dangling/incomplete at the end of the diff. This will cause a syntax error when the script is executed.",
+          "verified": "false-positive",
+          "verification": "FALSE. `bash -n build/test-container-ownership-audit.sh` exits 0; the if/elif/else/fi block is complete."
+        }
+      ]
+    },
+    {
+      "model": "cerberus-reviewer",
+      "verdict": "request_changes",
+      "findings_count": 1,
+      "findings": [
+        {
+          "title": "run_stage() no longer honors NCZ_TEST_STAGE_CMD",
+          "location": "build/build-image.sh: around line 693",
+          "severity": "high",
+          "body": "The test harness in build/test-build-log-dedup.sh and build/test-container-ownership-audit.sh relies on the environment variable NCZ_TEST_STAGE_CMD to inject a custom stage body. The original build-image.sh contained logic that, when NCZ_TEST_STAGE_CMD is set, evaluates the command (with a {stage} placeholder replaced by the current stage name) and tees its output to the stage log. This logic has ",
+          "verified": "false-positive",
+          "verification": "FALSE. build/build-image.sh:854 still reads NCZ_TEST_STAGE_CMD and expands {stage}. Proven at runtime: the probe run used it to inject a stage body."
+        }
+      ]
+    }
+  ],
+  "cross_family": true,
+  "cross_family_note": "Author is deepseek-flash. tydeus-reviewer is a local gemma-4-26B on TYDEUS:8005; cerberus-reviewer is a local server on cerberus:8080. Neither is the author family and neither is MiniMax (MiniMax routes were not used).",
+  "verdict": "approve-after-verification",
+  "verdict_note": "Both reviewers returned request_changes. Every finding (23 + 1) was checked against the source before any change was made and all of them are false positives, so no code was changed in response. The main cause is that both reviewers read the base-to-HEAD diff and reported line numbers from it, then attributed the release branch's own state (or the already-reviewed 09800181 tree) to this rebase.",
+  "evidence": {
+    "syntax": "bash -n build/build-image.sh -> 0; bash -n on both new tests -> 0",
+    "logging_runtime_proof": "A stub stage writing to stdout and stderr via fd 2 through the real run_stage() produced BOTH lines in 00-preflight.log, so the outer 2>&1 | tee captures everything.",
+    "function_identity": "stage_layers, stage_image, stage_archive, stage_refresh_sources, stage_static_gates, stage_kvm_gate, stage_provenance_gate, stage_secret_scan, run_stage, ncz_container_run and ncz_audit_stage_ownership are byte-identical to the already-reviewed hv/cx-m10-m11-ownership-gate-order-20261031 tree (09800181)."
+  },
+  "test_evidence": {
+    "new_suites": {
+      "build/test-build-log-dedup.sh": {
+        "base": "13 passed, 5 failed (rc=1)",
+        "branch": "18 passed, 0 failed (rc=0)"
+      },
+      "build/test-container-ownership-audit.sh": {
+        "base": "5 passed, 27 failed (rc=1)",
+        "branch": "33 passed, 0 failed (rc=0)"
+      }
+    },
+    "repo_suite": "209 build/test-*.sh scripts: 190 pass, 19 fail on this branch; the identical 19 fail with identical exit codes on base 1d1a82f6 with the same TMPDIR. Zero regressions.",
+    "make_test_build": "determinism 30/0 (1 skipped), build-image 199/0, layers-hardening 44/0, layer-gates 110/0 -- exit 0."
+  }
+}
