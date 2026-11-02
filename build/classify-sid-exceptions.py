@@ -521,8 +521,20 @@ def main() -> int:
                 # reason names the column that changed -- version against version,
                 # sha256 against sha256 (never one against the other).
                 identity = []
-                if f[1] != ver:
-                    identity.append(f"version {f[1]} -> {ver}")
+                # `ver` is the LEDGER row's version (key = (f[0], f[1], f[2])),
+                # so a drift is measured against the version the pinned
+                # classification currently lists -- never against `ver`, which
+                # would make the comparison a tautology.
+                now_ver = next(
+                    (
+                        x["version"]
+                        for x in ledger_rows
+                        if x["name"] == name and x["arch"] == arch
+                    ),
+                    "",
+                )
+                if now_ver and now_ver != ver:
+                    identity.append(f"version {ver} -> {now_ver}")
                 if len(f) > 3 and f[3] != got_sha:
                     identity.append(f"sha256 {f[3][:12]}… -> {got_sha[:12]}…")
                 decided = [
