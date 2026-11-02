@@ -366,19 +366,25 @@ ncz_err()  { ncz_log "ERROR $*" >&2; }
 # The scan is bounded: -xdev keeps it on one filesystem (the clone may sit on a
 # huge pool), and the mounts below are read-only views of, or build inputs for,
 # the run -- root-owned by construction and owned by someone else's package.
-NCZ_AUDIT_PRUNE=(./.git ./downloads ./manifests ./assets ./sbom)
+#
+# The prune names are RELATIVE TO THE ROOT BEING SCANNED and are resolved per
+# root ($ROOT/.git, $RUN_DIR/.git, ...).  Two things that are easy to get wrong
+# here, both caught by build/test-container-ownership-audit.sh section 6:
+#   * -path matches the exact string find prints, so the paths must be built
+#     from the root with no "./" or "//" segment -- "$ROOT/./.git" never
+#     matches anything and silently prunes nothing;
+#   * find rejects an empty \( \) group ("invalid expression"), so the prune
+#     clause is only emitted when the list is non-empty.
+# Pruning is a convenience (skip .git and the pre-staged substrate); the rule
+# enforced is still "no uid-0 file", so a wrong prune costs time, never a
+# missed finding -- which is why the scan below re-checks ownership itself.
+NCZ_AUDIT_PRUNE=(.git downloads manifests assets sbom)
 ncz_audit_stage_ownership() {
     local name="$1" log="$2"
     local -a roots=()
     [ -n "$RUN_DIR" ] && [ -d "$RUN_DIR" ] && roots+=("$RUN_DIR")
     [ -n "$ROOT" ] && [ -d "$ROOT" ] && roots+=("$ROOT")
     [ "${#roots[@]}" -gt 0 ] || return 0
-    local -a prune=()
-    local p
-    for p in "${NCZ_AUDIT_PRUNE[@]}"; do
-        prune+=(-path "$ROOT/$p" -o)
-    done
-    [ "${#prune[@]}" -gt 0 ] && unset 'prune[${#prune[@]}-1]'
     # Foreign-uids knob: the shipped rule is "no uid 0 file", but a normal user
     # cannot create one, so the regression test points this at its OWN uid to
     # exercise the identical report/fail path.  Empty (the default) means only
@@ -389,9 +395,26 @@ ncz_audit_stage_ownership() {
         local u
         for u in $extra; do fuid+=(-o -uid "$u"); done
     fi
-    local out=""
-    out="$(find "${roots[@]}" -xdev \( "${prune[@]}" \) -prune -o \
-              -type f \( "${fuid[@]}" \) -print 2>/dev/null | head -20)"
+    local out="" root p
+    for root in "${roots[@]}"; do
+        # Build the prune clause as its own array so an empty NCZ_AUDIT_PRUNE
+        # emits NO -prune at all rather than `\( \) -prune -o` (a find syntax
+        # error).  Each name is resolved against THIS root.
+        local -a clause=()
+        local -a prune=()
+        for p in "${NCZ_AUDIT_PRUNE[@]}"; do
+            [ -n "$p" ] || continue
+            prune+=(-path "$root/$p" -o)
+        done
+        if [ "${#prune[@]}" -gt 0 ]; then
+            unset 'prune[${#prune[@]}-1]'   # drop the trailing -o
+            clause=(\( "${prune[@]}" \) -prune -o)
+        fi
+        out+="$(find "$root" -xdev ${clause[@]+"${clause[@]}"} \
+                  -type f \( "${fuid[@]}" \) -print 2>/dev/null)"$'\n'
+    done
+    # head -20 applies to the COMBINED list so both roots share one cap
+    out="$(printf '%s\n' "$out" | grep -v '^$' | head -20)"
     [ -n "$out" ] || return 0
     local n; n="$(printf '%s\n' "$out" | grep -c . || true)"
     # Written to the stage log as well as the console: run_stage() has already
@@ -791,13 +814,14 @@ run_stage() {
             ( set -o pipefail; "$fn" "$log" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
         fi
     fi
-    # M10: every stage -- container or not -- is audited for uid-0 files it
-    # left behind, before its verdict is recorded.  A clean stage is untouched;
-    # a stage that strands root-owned files fails here instead of at cleanup
-    # time.  (Skipped stages returned above and never ran.)
-    if [ "$rc" = 0 ]; then
-        ncz_audit_stage_ownership "$name" "$log" || rc=1
-    fi
+    # M10: every stage that RAN -- container or not -- is audited for uid-0
+    # files, before its verdict is recorded.  This runs whatever the stage's own
+    # rc was: the cleanup problem exists just as much when a stage fails
+    # half-way through, and a failed container stage is exactly when root-owned
+    # leftovers are most likely.  A finding fails an otherwise-clean stage and
+    # never turns a failure into a pass (rc is only ever set, never cleared).
+    # (Skipped stages returned above and never ran.)
+    ncz_audit_stage_ownership "$name" "$log" || rc=1
     local t1; t1="$(date -u +%s)"
     printf '%02d\t%s\t%s\t%s\n' "$idx" "$name" \
         "$([ "$rc" = 0 ] && echo PASS || echo "FAIL:$rc")" "$((t1 - t0))" >> "$STAGE_TIMES"

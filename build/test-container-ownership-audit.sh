@@ -165,5 +165,90 @@ grep -q 'lib/priv.sh' "$BIN" \
     && ok "build-image.sh sources build/lib/priv.sh (the chown-back helpers)" \
     || bad "build-image.sh does not source lib/priv.sh"
 
+# --- 6. the prune actually prunes, under BOTH scanned roots --------------
+# NCZ_AUDIT_PRUNE names are relative to whichever root is being scanned, and
+# find -path matches the exact string it prints.  Two regressions are easy to
+# reintroduce and both are silent: a "./" in the built path ("$ROOT/./.git")
+# never matches so the prune does nothing, and an EMPTY prune list emits
+# `\( \) -prune -o`, which find rejects outright.  Both made the audit either
+# scan the whole tree (slow) or fail to run at all.
+echo "== 6. the audit prunes .git/downloads under each root, and survives an empty prune =="
+pr="$SCRATCH/prune"
+mkdir -p "$pr/root/.git/objects" "$pr/root/downloads" "$pr/root/keep" \
+         "$pr/run/logs" "$pr/run/.git/objects"
+: > "$pr/root/.git/objects/packed"      # pruned, and owned by nobody -> must NOT be reported
+: > "$pr/root/downloads/substrate.iso"  # pruned
+: > "$pr/root/keep/real-check.txt"      # planted foreign -> MUST be reported
+: > "$pr/run/.git/objects/packed"       # pruned under the RUN root too
+: > "$pr/run/logs/keep.log"             # harmless, not foreign
+# Drive the audit directly (sourcing build-image.sh would run the pipeline).
+ROOT="$pr/root" RUN_DIR="$pr/run" \
+NCZ_OWNERSHIP_FOREIGN_UIDS="$(id -u)" \
+    bash -c '
+        set -uo pipefail
+        '"$(fn ncz_audit_stage_ownership)"'
+        NCZ_AUDIT_PRUNE=(.git downloads manifests assets sbom)
+        ncz_chown_target() { return 1; }   # no chown in this check
+        ncz_audit_stage_ownership test "$1"   # foreign uid comes from the env prefix
+    ' _ "$pr/out.log" >"$pr/stdout" 2>&1
+prep_rc=$?
+[ "$prep_rc" = 1 ] && ok "the audit still fails when a foreign file is present (rc=$prep_rc)" \
+    || bad "the audit did not fail on a foreign file (rc=$prep_rc)"
+prout="$(cat "$pr/stdout" 2>/dev/null)"
+# Gate the "was pruned" assertions on the audit having actually RAN and
+# reported: without this, an absent/broken function prints nothing, so "the
+# .git file is not named" passes vacuously and the prune regression hides.
+if grep -q 'keep/real-check.txt' <<<"$prout"; then
+    ok "the planted file under the root IS reported"
+    grep -q '\.git/objects/packed' <<<"$prout" \
+        && bad "the prune did not skip .git under one of the roots (slow scan)" \
+        || ok "the audit prunes .git under BOTH \$ROOT and \$RUN_DIR"
+    grep -q 'downloads/substrate.iso' <<<"$prout" \
+        && bad "the prune did not skip downloads/ under the root" \
+        || ok "the audit prunes downloads/ under the root"
+else
+    bad "the planted file under the root was not reported: $prout"
+    bad "cannot check the .git prune -- the audit never reported (see above)"
+    bad "cannot check the downloads prune -- the audit never reported (see above)"
+fi
+# empty prune list must not break find
+printf '' > "$pr/empty.log"
+ROOT="$pr/root" RUN_DIR="$pr/run" NCZ_OWNERSHIP_FOREIGN_UIDS="$(id -u)" \
+    bash -c '
+        set -uo pipefail
+        '"$(fn ncz_audit_stage_ownership)"'
+        NCZ_AUDIT_PRUNE=()
+        ncz_chown_target() { return 1; }
+        ncz_audit_stage_ownership test "$1"
+    ' _ "$pr/empty.log" >"$pr/stdout-empty" 2>&1
+e_rc=$?
+if grep -qi 'invalid expression' "$pr/stdout-empty" 2>/dev/null; then
+    bad "an empty NCZ_AUDIT_PRUNE makes find reject the expression"
+elif [ "$e_rc" = 1 ]; then
+    ok "an empty NCZ_AUDIT_PRUNE still scans (and still finds the foreign file)"
+else
+    bad "an empty NCZ_AUDIT_PRUNE broke the audit (rc=$e_rc)"
+fi
+
+# --- 7. a FAILED stage is still audited ----------------------------------
+# The cleanup problem does not care why a stage stopped; a container stage that
+# dies half-way is exactly when root-owned leftovers appear.  An audit that only
+# ran on rc=0 would leave them behind and the run dir undeletable.
+echo "== 7. the audit runs even when the stage itself failed =="
+rd="$SCRATCH/failed-stage"
+mkdir -p "$rd/planted"
+: > "$rd/planted/left-by-failure.txt"
+# The stage body leaves a foreign file AND exits non-zero.
+rc="$(run_run "$rd" "mkdir -p '$rd/planted' && : > '$rd/planted/left-by-failure.txt'; exit 7" \
+      NCZ_OWNERSHIP_FOREIGN_UIDS="$(id -u)" ; echo $?)"
+[ "$rc" != 0 ] && ok "the failed stage keeps its failure (rc=$rc)" \
+    || bad "a failing stage with a foreign file reported success"
+grep -rq 'left-by-failure.txt' "$rd"/logs 2>/dev/null \
+    && ok "a FAILED stage is still audited (the leftover is named)" \
+    || bad "a FAILED stage was not audited -- root-owned leftovers would be missed"
+awk -F'\t' '$2=="preflight" && $3 ~ /^FAIL/ {f=1} END{exit !f}' "$rd/stages.tsv" 2>/dev/null \
+    && ok "stages.tsv records the failed-and-audited stage" \
+    || bad "stages.tsv lost the failed stage's row"
+
 printf '\n== container-ownership-audit tests: %d passed, %d failed ==\n' "$PASS" "$FAIL"
 if [ "$FAIL" = 0 ]; then exit 0; else exit 1; fi
