@@ -210,7 +210,7 @@ CONSTS
         NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" --add >"$w/s2.log" 2>&1
     rc=$?
     new_default="$(sed -n 's/^default_selection //p' "$w/esp/EFI/BOOT/refind.conf" | head -1)"
-    added="$(grep -c "^menuentry .*$NEW_KVER" "$w/esp/EFI/BOOT/refind.conf" 2>/dev/null || echo 0)"
+    added="$(grep '^menuentry ' "$w/esp/EFI/BOOT/refind.conf" 2>/dev/null | grep -cF -- "$NEW_KVER" || true)"
     if [ "$rc" = 0 ] && [ "$added" = 1 ] \
        && [ -s "$w/esp/vmlinuz-$NEW_KVER" ] && [ -s "$w/esp/initrd.img-$NEW_KVER" ]; then
         ok "2) --add stages the new pair and appends exactly one entry (rc=0)"
@@ -280,7 +280,7 @@ CONSTS
     if [ "$rc_a" = 0 ] && [ "$rc_b" = 0 ] \
        && cmp -s "$w/boot/vmlinuz-$NEW_KVER" "$w/esp5b/vmlinuz-$NEW_KVER" \
        && grep -q 'refreshing vmlinuz-.*staged by this tool' "$w/s5b-b.log" \
-       && [ "$(grep -c "^menuentry .*$NEW_KVER" "$w/esp5b/EFI/BOOT/refind.conf")" = 1 ]; then
+       && [ "$(grep '^menuentry ' "$w/esp5b/EFI/BOOT/refind.conf" | grep -cF -- "$NEW_KVER" || true)" = 1 ]; then
         ok "5b) a pair this tool staged is recognised and refreshed in place"
     else
         bad "5b) a pair this tool staged is recognised and refreshed in place" \
@@ -379,7 +379,7 @@ CONSTS
        && ! grep -q 'wiping stale ESP entries' "$w/s9.log" \
        && [ -s "$w/esp9/vmlinuz-$OLD_KVER" ] \
        && [ -s "$w/esp9/vmlinuz-$NEW_KVER" ] \
-       && [ "$(grep -c "^menuentry .*$NEW_KVER" "$w/esp9/EFI/BOOT/refind.conf")" = 1 ] \
+       && [ "$(grep '^menuentry ' "$w/esp9/EFI/BOOT/refind.conf" | grep -cF -- "$NEW_KVER" || true)" = 1 ] \
        && [ "$(sed -n 's/^default_selection //p' "$w/esp9/EFI/BOOT/refind.conf" | head -1)" = "$stage_default" ]; then
         ok "9) --stage behaves exactly like --add (stages, appends, never wipes)"
     else

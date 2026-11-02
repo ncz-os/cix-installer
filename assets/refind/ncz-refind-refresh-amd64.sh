@@ -679,6 +679,33 @@ ncz_options_from_menu() {
     ' "$ESP_CONF" 2>/dev/null
 }
 
+# ncz_options_have_root <options> -- 0 when <options> carries a root= the
+# kernel can mount. --add never probes the root filesystem (that is
+# generate-only, and probing it from a kernel postinst would be both slow and
+# wrong), so it reuses the live menu's options verbatim -- but reusing them
+# blind is not enough: a menu whose options carry no root= yields an appended
+# entry that cannot boot. Refuse that instead of writing it.
+#
+# A root= keyword is bare when it opens the string or follows whitespace; a
+# "root=" inside another word is not one. Values that hand off to something
+# else (root=PARTUUID=empty, root=LABEL=) are not a usable spec.
+ncz_options_have_root() {
+    local word val found=0
+    for word in $1; do
+        case "$word" in
+            root=*)
+                val=${word#root=}
+                case "$val" in
+                    ""|LABEL=|UUID=|PARTLABEL=|PARTUUID=) continue ;;
+                esac
+                found=1
+                break
+                ;;
+        esac
+    done
+    [ "$found" = 1 ]
+}
+
 # ncz_menu_title_token <kver> -- the UNIQUE substring that names an entry for
 # this kernel. rEFInd matches default_selection as a substring, so the kver
 # itself is the token: it appears in no other entry title, and the title never
@@ -941,6 +968,16 @@ ncz_add_only() {
     opts="$(ncz_options_from_menu)"
     if [ -z "$opts" ]; then
         echo "ERROR: $ESP_CONF has no menuentry with an options string to reuse;" >&2
+        echo "       refusing to append an entry that would not boot (add-only)" >&2
+        return 1
+    fi
+    # Reusing the live options is only safe when they actually name a root.
+    # Without one the appended entry cannot mount the root filesystem, so an
+    # "add-only" run would produce a menu entry that never boots -- worse than
+    # not adding it, because the entry LOOKS usable.
+    if ! ncz_options_have_root "$opts"; then
+        echo "ERROR: the options string in $ESP_CONF names no usable root=" >&2
+        echo "       (reused verbatim by --add: '$opts');" >&2
         echo "       refusing to append an entry that would not boot (add-only)" >&2
         return 1
     fi

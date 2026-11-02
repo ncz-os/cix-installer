@@ -11,11 +11,21 @@
 #
 #   A. 70-bootloader.sh installs BOTH hooks (zz1 add-only, zz2 promote guard)
 #      and still runs the generator once, with NO verb, for the first install.
+#      The hooks must pass their verb POSITIONALLY (--add / --promote "<title>"):
+#      the tool derives NCZ_VERB from $1 and ignores the environment, so a hook
+#      that set NCZ_VERB and called the tool bare would run the GENERATE path
+#      and wipe the ESP on every kernel install. A6/A7 pin that contract.
 #   C. zz1, run as a postinst.d hook against a fixture ESP, is ADD-ONLY:
 #      it appends one entry, stages the pair, and leaves default_selection
-#      byte-identical.
+#      byte-identical. C4 pins that the appended entry's reused options still
+#      carry a valid root= (--add never probes the root filesystem itself);
+#      C5/C6 pin that zz1 REFUSES, leaving the menu byte-identical, when the
+#      live options hold no usable root= to reuse.
 #   D. zz2 with no operator pin does NOT touch default_selection.
 #   E. zz2 WITH a pin calls --promote and moves only default_selection.
+#
+# Entries are counted with `grep '^menuentry ' | grep -cF -- "$kver"`: a kver
+# contains dots, so an unescaped regex would match a look-alike kernel id.
 #
 # Every ESP is a fixture tree under mktemp -d in $TMPDIR. Nothing is built,
 # installed or booted.
@@ -90,6 +100,36 @@ else
         "$(grep -nE '\$SHARED_DST .*--' "$BOOTLOADER")"
 fi
 
+# A6/A7: the hooks must pass their verb to the tool POSITIONALLY ("$REFRESH"
+# --add / --promote "<title>"). The tool parses $1 (NCZ_VERB is derived from
+# it, not read from the environment), so a hook that set NCZ_VERB=<verb> and
+# called the tool bare would silently run the GENERATE path instead -- wiping
+# the ESP and rebuilding the menu on every kernel install, which is the exact
+# defect the add-only design exists to prevent. Pin the call shape here so a
+# future edit cannot regress it, and pin that no hook relies on the env var.
+_verb_bad=""
+grep -qE '^\s*"\$REFRESH" --add\s*$' "$ZZ1" || _verb_bad="$_verb_bad zz1:no-positional---add"
+grep -qE '^\s*"\$REFRESH" --promote "\$TOKEN"\s*$' "$ZZ2" || _verb_bad="$_verb_bad zz2:no-positional---promote"
+# A hook must never export NCZ_VERB: the tool ignores it, so setting it would
+# only create the illusion of selecting a verb.
+if grep -qE '^[[:space:]]*(export[[:space:]]+)?NCZ_VERB=' "$ZZ1" "$ZZ2"; then
+    _verb_bad="$_verb_bad hook-sets-NCZ_VERB"
+fi
+if [ -z "$_verb_bad" ]; then
+    ok "A6) zz1/zz2 pass --add/--promote positionally (not via NCZ_VERB)"
+else
+    bad "A6) zz1/zz2 pass --add/--promote positionally (not via NCZ_VERB)" "$_verb_bad"
+fi
+# A7: the tool derives its verb from $1, so the contract above is the only
+# thing that makes the hooks work. Assert the parse exists rather than assume.
+if grep -qE '^\s*--add\)\s*NCZ_VERB=add' "$TOOL_SRC" \
+   && grep -qE '^\s*--promote\)\s*NCZ_VERB=promote' "$TOOL_SRC"; then
+    ok "A7) the tool parses --add/--promote from \$1 into NCZ_VERB"
+else
+    bad "A7) the tool parses --add/--promote from \$1 into NCZ_VERB" \
+        "$(grep -n 'NCZ_VERB=' "$TOOL_SRC" | head -6)"
+fi
+
 echo "=== hooks against a fixture ESP ==="
 w="$(mktemp -d "${TMPDIR:-/var/tmp}/ncz-img-install.XXXXXX")" || { echo "FATAL: mktemp" >&2; exit 1; }
 trap 'rm -rf "$w"' EXIT
@@ -129,7 +169,7 @@ NCZ_ESP_DIR="$w/esp" BOOTDIR="$w/boot" NCZ_SERIAL_CONSOLE=off \
     bash "$w/zz1.sh" "$NEW_KVER" "$w/boot/vmlinuz-$NEW_KVER" > "$w/zz1.log" 2>&1
 rc=$?
 after_default="$(sed -n 's/^default_selection //p' "$w/esp/EFI/BOOT/refind.conf" | head -1)"
-new_entries="$(grep -c "^menuentry .*$NEW_KVER" "$w/esp/EFI/BOOT/refind.conf" 2>/dev/null || echo 0)"
+new_entries="$(grep '^menuentry ' "$w/esp/EFI/BOOT/refind.conf" 2>/dev/null | grep -cF -- "$NEW_KVER" || true)"
 if [ "$rc" = 0 ] && [ "$new_entries" = 1 ] && [ -s "$w/esp/vmlinuz-$NEW_KVER" ] \
    && [ -s "$w/esp/initrd.img-$NEW_KVER" ]; then
     ok "C1) zz1 stages the new pair and appends exactly one entry"
@@ -146,12 +186,56 @@ else
 fi
 NCZ_ESP_DIR="$w/esp" BOOTDIR="$w/boot" NCZ_SERIAL_CONSOLE=off \
     bash "$w/zz1.sh" "$NEW_KVER" "$w/boot/vmlinuz-$NEW_KVER" > "$w/zz1b.log" 2>&1
-still="$(grep -c "^menuentry .*$NEW_KVER" "$w/esp/EFI/BOOT/refind.conf" 2>/dev/null || echo 0)"
+still="$(grep '^menuentry ' "$w/esp/EFI/BOOT/refind.conf" 2>/dev/null | grep -cF -- "$NEW_KVER" || true)"
 if [ "$still" = 1 ]; then
     ok "C3) a repeated kernel install (zz1 re-run) does not duplicate the entry"
 else
     bad "C3) a repeated kernel install (zz1 re-run) does not duplicate the entry" \
         "$(printf 'entries=%s\n' "$still"; cat "$w/zz1b.log")"
+fi
+
+# C4: the entry zz1 appended must carry a usable root=. --add does NOT probe
+# the root filesystem (that is generate-only, and probing it from a kernel
+# postinst is slow and wrong); it reuses the live menu's options verbatim. If
+# that reuse were dropped the entry would have no root= and the kernel could
+# never mount the root filesystem -- a boot entry that looks fine and is dead.
+_added_opts="$(awk -v k="$NEW_KVER" '
+        /^menuentry / { inentry = 0 }
+        /^menuentry .*7\.3 Kernel / && index($0, k) > 0 { inentry = 1 }
+        inentry && /^[[:space:]]*options[[:space:]]+"/ {
+            line = $0
+            sub(/^[[:space:]]*options[[:space:]]+"/, "", line)
+            sub(/"[[:space:]]*$/, "", line)
+            print line; exit
+        }' "$w/esp/EFI/BOOT/refind.conf")"
+if [ -n "$_added_opts" ] \
+   && printf '%s\n' "$_added_opts" | grep -qE '(^|[[:space:]])root=PARTUUID=[^[:space:]]+'; then
+    ok "C4) the appended entry carries a valid root=PARTUUID= (no probe needed)"
+else
+    bad "C4) the appended entry carries a valid root=PARTUUID= (no probe needed)" \
+        "$(printf 'options=<%s>\n' "$_added_opts"; grep -A5 "^menuentry .*$NEW_KVER" "$w/esp/EFI/BOOT/refind.conf"; cat "$w/zz1.log")"
+fi
+
+# C5: ...and when the live menu has NO usable root= to reuse, zz1 must REFUSE
+# rather than append an entry that cannot boot. The ESP must be untouched.
+mkesp "$w/esp-c5" "$OLD_KVER"
+sed -i 's#options "root=PARTUUID=x"#options "quiet splash"#' "$w/esp-c5/EFI/BOOT/refind.conf"
+cp -f "$w/esp-c5/EFI/BOOT/refind.conf" "$w/conf.c5"
+NCZ_ESP_DIR="$w/esp-c5" BOOTDIR="$w/boot" NCZ_SERIAL_CONSOLE=off \
+    bash "$w/zz1.sh" "$NEW_KVER" "$w/boot/vmlinuz-$NEW_KVER" > "$w/zz1c5.log" 2>&1
+rc=$?
+if grep -q 'names no usable root=' "$w/zz1.log" 2>/dev/null || \
+   grep -q 'names no usable root=' "$w/zz1c5.log"; then
+    ok "C5) zz1 refuses to append an entry whose reused options have no root="
+else
+    bad "C5) zz1 refuses to append an entry whose reused options have no root=" \
+        "$(cat "$w/zz1c5.log")"
+fi
+if cmp -s "$w/conf.c5" "$w/esp-c5/EFI/BOOT/refind.conf"; then
+    ok "C6) ...and leaves that menu byte-identical when it refuses"
+else
+    bad "C6) ...and leaves that menu byte-identical when it refuses" \
+        "$(diff "$w/conf.c5" "$w/esp-c5/EFI/BOOT/refind.conf")"
 fi
 
 reroot_hook "$ZZ2" > "$w/zz2.sh"
