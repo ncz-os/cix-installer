@@ -19,6 +19,7 @@
 #
 # These cases run the REAL shipped script against a fixture ESP tree under
 # mktemp -d in $TMPDIR (NCZ_ESP_DIR points the tool at the fixture):
+#   0. the tool and both hooks parse with `bash -n`;
 #   1. install-time generate still writes the menu (Default entry present);
 #   2. --add appends exactly one entry, stages both files, and leaves
 #      default_selection byte-identical;
@@ -101,6 +102,24 @@ run_for_source() {
     sed "s#^INSTALLER_META=.*#INSTALLER_META=$w/lib#" "$src" > "$w/tool.sh"
     chmod +x "$w/tool.sh"
     bash -n "$w/tool.sh" || { bad "$(basename "$src") parses" "$(bash -n "$w/tool.sh" 2>&1)"; rm -rf "$w"; return; }
+
+    # ---- 0: the script parses ----------------------------------------------
+    # `bash -n` above only gates the run; make the parse a reported case, and
+    # cover every shipped script. A stray or missing `fi` makes bash refuse the
+    # whole file, so this is the first thing that must hold. Both `fi`s that
+    # close the rescue-partition preflight and the generate-only block around
+    # it are required: removing either yields "unexpected end of file".
+    _parse_bad=""
+    for _s in "$src" "$REPO/assets/refind/zz1-ncz-refind-refresh-amd64" \
+              "$REPO/assets/refind/zz2-ncz-refind-promote-guard"; do
+        _msg=$(bash -n "$_s" 2>&1) || _parse_bad="$_parse_bad $(basename "$_s"):$(printf '%s' "$_msg" | head -1)"
+    done
+    if [ -z "$_parse_bad" ]; then
+        ok "0) the tool and both hooks parse (bash -n)"
+    else
+        bad "0) the tool and both hooks parse (bash -n)" "$_parse_bad"
+        rm -rf "$w"; return
+    fi
 
     mkdir -p "$w/boot"
     mkboot "$w/boot" "$NEW_KVER"
