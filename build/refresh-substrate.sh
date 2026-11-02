@@ -32,7 +32,7 @@ while [ $# -gt 0 ]; do
     --iso) ISO="${2:-}"; shift 2 ;;
     --no-fetch) FETCH=0; shift ;;
     --sync-only) SYNC_ONLY=1; shift ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -132,7 +132,7 @@ if [ "$SYNC_ONLY" = 1 ]; then
   case "$pin_snap" in
     [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
     "") die "--sync-only: manifests/base.pin has no snapshot column" ;;
-    *) die "--sync-only: manifests/base.pin rows disagree on the snapshot ('$(echo "$pin_snap" | tr '\n' ' ')'); re-pin (build/repin.sh) first" ;;
+    *) die "--sync-only: manifests/base.pin snapshot '$(echo "$pin_snap" | tr '\n' ' ')' is not a YYYYMMDDTHHMMSSZ stamp (or the rows disagree on it); re-pin (build/repin.sh) first" ;;
   esac
   echo "[substrate] --sync-only: re-deriving the pin-dependent files from $pin_snap (no fetch, no measurement)"
 fi
@@ -141,19 +141,29 @@ if [ "$rc" = 0 ]; then
     pin_snap="$(awk -F'\t' -v a="$ARCH" '$1==a{print $4}' "$ROOT/manifests/base.pin" 2>/dev/null)"
   fi
   if [ -n "$pin_snap" ]; then
+    # Validate the snapshot stamp on EVERY path, not just --sync-only: it is
+    # interpolated into a command below, so a base.pin carrying shell
+    # metacharacters must fail closed here rather than reach an eval.
+    case "$pin_snap" in
+      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;;
+      *) die "manifests/base.pin snapshot '$pin_snap' is not a YYYYMMDDTHHMMSSZ stamp; re-pin (build/repin.sh) first" ;;
+    esac
     if grep -q '^NCZ_BASE_MIRROR_SNAPSHOT=' "$ROOT/release.conf"; then
       sed -i.ncz "s|^NCZ_BASE_MIRROR_SNAPSHOT=.*|NCZ_BASE_MIRROR_SNAPSHOT=\"$pin_snap\"|" "$ROOT/release.conf"
       rm -f "$ROOT/release.conf.ncz"
       echo "[substrate] release.conf NCZ_BASE_MIRROR_SNAPSHOT -> $pin_snap"
     fi
     echo "[substrate] recording signed InRelease digests for the pinned snapshot $pin_snap"
-    # NCZ_SUITE_DIGESTS_CMD lets a test (and only a test) replace the signed fetch
-    # with a fixture; the real default verifies gpgv against the committed keyring.
+    # NCZ_SUITE_DIGESTS_CMD exists so the shell tests can substitute a fixture
+    # for the signed fetch.  It is honoured ONLY when the test suite explicitly
+    # opts in with NCZ_ALLOW_SUITE_DIGESTS_CMD=1: an inherited variable alone
+    # must never be able to replace gpgv verification in a real run, which
+    # would break the fails-closed guarantee.
     if [ -n "${NCZ_SUITE_DIGESTS_CMD:-}" ]; then
-      # NCZ_SUITE_DIGESTS_CMD is a test-only command string.  Word-splitting it
-      # with `$CMD` would keep any embedded quotes as literal filename
-      # characters (bash '<path>' -> looks for a file named '<path>'), so eval
-      # it: the expansion is a shell program, not a pre-split argv.
+      [ "${NCZ_ALLOW_SUITE_DIGESTS_CMD:-0}" = 1 ] \
+        || die "NCZ_SUITE_DIGESTS_CMD is set but NCZ_ALLOW_SUITE_DIGESTS_CMD=1 is not; refusing to skip signed-suite verification"
+      # Only the validated stamp is interpolated, and it is quoted on the eval
+      # side, so no base.pin content can be parsed as shell.
       ( cd "$ROOT" && NCZ_PIN_SNAPSHOT="$pin_snap" eval "$NCZ_SUITE_DIGESTS_CMD --snapshot \"\$pin_snap\"" ) \
         || { echo "refresh-substrate: ERROR: could not record the snapshot's suite digests" >&2; exit 2; }
     else

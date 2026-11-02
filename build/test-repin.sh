@@ -267,6 +267,7 @@ repin() {  # repo args...
         GIT_COMMITTER_NAME=Fixture GIT_COMMITTER_EMAIL=fixture@example.invalid \
         REPIN_STUB_REPO="$r" STUB_DATE="$PINNOW" STUB_SNAP="$P1" \
         NCZ_REPIN_WORK_ROOT="$T/work" \
+        NCZ_ALLOW_SUITE_DIGESTS_CMD=1 \
         NCZ_SUITE_DIGESTS_CMD="bash '$SELF' --stub-suite-digests" \
         NCZ_REPIN_FIXTURE_CMD="true" ${REPIN_EXTRA_ENV:-} \
         bash "$REPIN" --repo "$r" --refresh-cmd "$STUBS/refresh" \
