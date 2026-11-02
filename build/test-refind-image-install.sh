@@ -108,6 +108,56 @@ if [ -z "$_mode_bad" ]; then
 else
     bad "A5b) both hook sources are mode 100755 in git" "$_mode_bad"
 fi
+
+# A8: write-usb-image.py's required_refind is a FLAT tuple of bare filenames,
+# not (filename, script) pairs. A review reported that adding zz2 "breaks the
+# two-element structure used later when the tuple is unpacked"; there is no
+# such unpacking -- its only consumers are an existence scan and list(). Pin
+# the real shape: evaluate the expression for both arches and assert every
+# element is a str and that no element is itself a tuple.
+USB_PY="$REPO/build/iso/write-usb-image.py"
+_utup=$(python3 - "$USB_PY" <<'PYEOF' 2>&1
+import ast, sys
+src = open(sys.argv[1]).read()
+node = None
+for n in ast.walk(ast.parse(src)):
+    if isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "required_refind"
+                                         for t in n.targets):
+        node = n.value
+        break
+if node is None:
+    print("required_refind not found"); raise SystemExit(1)
+# Walk the IfExp and literal tuples: every element must be a literal str.
+bad = []
+for n in ast.walk(node):
+    if isinstance(n, ast.Tuple):
+        for el in n.elts:
+            if isinstance(el, ast.Tuple):
+                bad.append("nested-tuple")
+            elif isinstance(el, ast.Constant) and not isinstance(el.value, str):
+                bad.append(f"non-str:{el.value!r}")
+            elif not isinstance(el, ast.Constant):
+                bad.append(eval(compile(ast.Expression(el), "<el>", "eval"), {}))
+print(",".join(bad) if bad else "OK")
+PYEOF
+)
+if [ "$_utup" = "OK" ]; then
+    ok "A8) required_refind is a flat tuple of filenames (no (name, script) pairs)"
+else
+    bad "A8) required_refind is a flat tuple of filenames (no (name, script) pairs)" "$_utup"
+fi
+# A8b: and the names it demands must exist, so staging cannot fail at build
+# time -- this is what makes "add the hook to the tuple" sufficient.
+_miss=""
+for _n in refind_x64.efi ncz-refind-refresh-amd64.sh \
+          zz1-ncz-refind-refresh-amd64 zz2-ncz-refind-promote-guard; do
+    [ -f "$REPO/assets/refind/$_n" ] || _miss="$_miss $_n"
+done
+if [ -z "$_miss" ]; then
+    ok "A8b) every amd64 name in required_refind exists under assets/refind"
+else
+    bad "A8b) every amd64 name in required_refind exists under assets/refind" "$_miss"
+fi
 if ! grep -qE '"\$SHARED_DST" +--(add|promote)' "$BOOTLOADER"; then
     ok "A3) the first-install path never uses --add/--promote"
 else

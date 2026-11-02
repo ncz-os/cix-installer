@@ -894,6 +894,13 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # that may only move default_selection under an operator pin. Both are
     # required here: 70-bootloader.sh installs whatever is staged, and a
     # missing zz2 would silently reintroduce "no way to pin the default".
+    #
+    # NOTE: this is a FLAT tuple of bare FILENAMES, not (name, script) pairs.
+    # Its only consumers are the two below -- a "does this file exist" scan and
+    # list() for the manifest -- so every element is a str and order is
+    # irrelevant. A review has misread it as pairs and concluded that adding
+    # zz2 "breaks unpacking"; there is no unpacking. Adding a name here is
+    # therefore just: add a string.
     required_refind = (
         ("refind_x64.efi", "ncz-refind-refresh-amd64.sh",
          "zz1-ncz-refind-refresh-amd64", "zz2-ncz-refind-promote-guard")
