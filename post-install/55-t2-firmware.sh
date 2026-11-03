@@ -70,6 +70,19 @@ HOOK_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
 # shellcheck source=post-install/lib/hw-detect.sh
 . "$HOOK_LIB_DIR/hw-detect.sh"
 
+# --- amd64 boot-noise fixes for EVERY amd64 host ---------------------------
+# Before the BUILD_VARIANT and T2 gates below, which exit early: the pcspkr /
+# snd_pcsp duplicate registration hits any amd64 machine whose kernel ships
+# both drivers (PEGASUS, 2026-11-02), not only T2 Macs. The ucsi_ccg blacklist
+# is operator opt-in only. Details: post-install/lib/amd64-boot-noise.sh.
+if [ -r "$HOOK_LIB_DIR/amd64-boot-noise.sh" ]; then
+    # shellcheck source=post-install/lib/amd64-boot-noise.sh
+    . "$HOOK_LIB_DIR/amd64-boot-noise.sh"
+    ncz_amd64_boot_noise_apply
+else
+    echo "[55] WARN: lib/amd64-boot-noise.sh not staged -- pcspkr fix skipped"
+fi
+
 # --- diagnostic: always logged on amd64, regardless of variant/gating ----
 if is_t2_hardware; then
     echo "[55] T2 hardware: detected ($(t2_hardware_detail))"
@@ -129,6 +142,10 @@ echo "  [55] brcmfmac P2P disabled (T2 firmware rejects p2p_da_override, -52)"
 #     (the loser's module init returns the error, so it is not even listed in
 #     lsmod). Blacklist the ALSA one; the input pcspkr driver keeps the terminal
 #     bell working and the error line disappears.
+#     Every amd64 host now also gets /etc/modprobe.d/ncz-pcspkr.conf from
+#     lib/amd64-boot-noise.sh above; this T2 file is kept so existing T2
+#     installs and their contract tests stay unchanged (same rule, harmless
+#     twice).
 cat > /etc/modprobe.d/ncz-t2-pcspkr.conf <<'MODEOF'
 # pcspkr (input) and snd_pcsp (ALSA) both register platform driver "pcspkr"
 # (MODULE_ALIAS platform:pcspkr) -> duplicate-registration error every boot.

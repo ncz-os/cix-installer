@@ -61,7 +61,9 @@ floor**; the benign noise is fixed at its source instead (below).
    `BRCMF_FEAT_P2P`); the BCM4364 firmware rejects `p2p_da_override` so the P2P
    Device interface can never be created. Removes the 3-line `brcmf_p2p_*`
    error cluster every boot and stops advertising a feature that does not work.
-2. **pcspkr duplicate registration** — `blacklist snd_pcsp`; the input `pcspkr`
+2. **pcspkr duplicate registration** (since 2026-11-03 also on every non-T2
+   amd64 host via `ncz-pcspkr.conf`, see `docs/AMD64-BOOT-NOISE.md`) —
+   `blacklist snd_pcsp`; the input `pcspkr`
    and ALSA `snd_pcsp` modules both register a platform driver named `pcspkr`
    (`MODULE_ALIAS platform:pcspkr`), so udev autoloads both and one fails with
    *"Error: Driver 'pcspkr' is already registered, aborting..."*.

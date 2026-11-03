@@ -159,7 +159,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check test-npu-ssdt-delivery kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage refresh-substrate check-substrate-pin sid-exceptions release-image print-substrate-sha test-build-determinism test-build-image test-layers-hardening test-build compare-images gen-base-pin
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check test-npu-ssdt-delivery test-amd64-boot-noise kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage refresh-substrate check-substrate-pin sid-exceptions release-image print-substrate-sha test-build-determinism test-build-image test-layers-hardening test-build compare-images gen-base-pin
 
 all: image
 
@@ -647,6 +647,9 @@ npu-ssdt-selftest:
 test-npu-ssdt-delivery:
 	@bash $(ROOT)/build/test-npu-ssdt-delivery.sh
 
+test-amd64-boot-noise:
+	@bash $(ROOT)/build/test-amd64-boot-noise.sh
+
 verify: $(OUTPUT_IMAGE)
 	@sha256sum $(OUTPUT_IMAGE) | tee $(OUTPUT_IMAGE).sha256
 
@@ -858,6 +861,7 @@ parity:
 	bash build/test-cix-deb-server-skip.sh
 	bash build/test-boot-splash-unit.sh
 	bash build/test-npu-ssdt-delivery.sh
+	bash build/test-amd64-boot-noise.sh
 	bash build/test-hooks-fail-loudly.sh
 	$(MAKE) --no-print-directory test-cygnus-branding
 
