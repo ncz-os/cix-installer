@@ -1,0 +1,143 @@
+{
+  "_comment": "FB152 ratchet allowlist: scripts predating the gate that lack set -e. New scripts must declare set -e or be added here with a reason. 55* hooks are report-only and never listed. Keys are post-install/*.sh basenames; values map property (strict|idempotence) to reason.",
+  "exemptions": {
+    "05-time-sync.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "13-firmware-bom.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "16-mesa-gpu-2613.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "21-flatpak-arch-filter.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "22-locale-gen.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "26-gpu-default-mali.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "32-quadlet-shim.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "35-fstrim-fix.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "36-telemetry.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "37-failsafe-access.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "37-ntp-hostname.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "39-usb-gpt-autofix.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "41-usb2-rescan.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "43-hw-quirks.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "44-apple-vbt-spoof.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "44-rtc-sync.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "46-python311.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "50-brand.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "51-ncz-tour-slides.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "52-vivaldi.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "53-chrome.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "54-gpu-accel.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "56-t2-dkms.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "57-qotd.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "59-desktop-curate.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "59-ncz-screensavers-pkg.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "61-chromium-icon.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "62-cygnus-screensaver-default.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "63-ncz-idle-lock-order.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "64-ncz-lock-saver-plan.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "64-t2-power-cap.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "65-ncz-titlebar-buttons.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "72-rescue-partition.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "79-dkms-prep.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "80-npu.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "81-vpu.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "82-mali-gpu.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "83-panthor-gpu.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "83-vpu-ffmpeg.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "84-vpu-mpv.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "84-vpu-vaapi.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "86-cix-dkms-register.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "88-noe-umd-venv.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "97-firstboot-report.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "98-gpu-health.sh": {
+      "strict": "grandfathered without set -e at base main; adding errexit is unproven without executing the hook, which is forbidden"
+    },
+    "99-diagnostics.sh": {
+      "strict": "declares set +e: deliberate best-effort/forensics style; adding errexit is unproven without executing the hook, which is forbidden"
+    }
+  }
+}
