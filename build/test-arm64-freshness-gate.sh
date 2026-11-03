@@ -249,6 +249,8 @@ bom_repo "$R8"; sed -i 's/^[0-9a-f]* /'"$(printf 'b%.0s' {1..64})"' /' "$R8/buil
 bom_expect "BOM: a payload derived from other debs FAILs" FAIL "$R8"
 bom_repo "$R8"; ln -sfn "$SYN_POOL/r286-7.3.0-rc6-sky1-ncz-20261011" "$R8/assets/kernel/mainline"
 bom_expect "BOM: mainline still linked into the pool FAILs" FAIL "$R8"
+bom_repo "$R8"; rm "$R8/build/kernel-mainline/r901-7.9.9-sky1-ncz-20301231/STAMP"; printf '{}' > "$R8/assets/kernel-manifest.json"
+bom_expect "BOM: missing STAMP with an unreadable manifest FAILs" FAIL "$R8"
 bom_repo "$R8"; rm "$R8/assets/kernel/mainline"
 bom_expect "BOM: no derived payload FAILs" FAIL "$R8"
 

@@ -268,9 +268,13 @@ check_arm64_bom() {
         echo "[3] FAIL: arm64 mainline -- the derived payload is not the pinned $kver build (KVER, Image sha256 or DERIVED.sha256); re-run build/stage-arm64-kernel.sh"
         FAIL=$((FAIL + 1)); return
     fi
+    local pinned
     stamp="$(awk 'NF == 2 && $1 ~ /^[0-9a-f]{64}$/ {print $2, $1}' "$lp/STAMP" 2>/dev/null | sort)"
-    if [ "$stamp" != "$(python3 -I -c 'import json,sys
-for d in json.load(open(sys.argv[1]))["kernel_debs"]: print(d["file"].rsplit("/",1)[-1], d["sha256"])' assets/kernel-manifest.json 2>/dev/null | sort)" ]; then
+    pinned="$(python3 -I -c 'import json,sys
+for d in json.load(open(sys.argv[1]))["kernel_debs"]: print(d["file"].rsplit("/",1)[-1], d["sha256"])' assets/kernel-manifest.json 2>/dev/null | sort)"
+    # Both sides must be non-empty: a missing STAMP and an unreadable manifest
+    # would otherwise compare equal and pass.
+    if [ -z "$stamp" ] || [ -z "$pinned" ] || [ "$stamp" != "$pinned" ]; then
         echo "[3] FAIL: arm64 mainline -- the payload was derived from other debs than assets/kernel-manifest.json pins; re-run build/stage-arm64-kernel.sh"
         FAIL=$((FAIL + 1)); return
     fi
