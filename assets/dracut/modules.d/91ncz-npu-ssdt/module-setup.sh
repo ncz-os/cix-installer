@@ -85,18 +85,37 @@ install() {
         return 0
     fi
 
+    _acpi_dir="${NCZ_NPU_ACPI_DIR:-/etc/ncz/npu-acpi}"
+
     if [ "$decision" != "apply" ]; then
         echo "91ncz-npu-ssdt: board does not need the NPU SSDT (decision=$decision) -- inactive" >&2
-        # The acpi_table_dir may still hold a table staged by an earlier build
-        # on a board that DID need it (same disk, different machine). dracut
-        # only reads that directory when acpi_override=yes, but removing the
-        # table makes the state unambiguous for a board whose firmware already
-        # declares the cores -- injecting there is an AE_ALREADY_EXISTS hazard.
-        rm -f "${NCZ_NPU_ACPI_DIR:-/etc/ncz/npu-acpi}/$_ncz_aml_name" 2>/dev/null || true
+        # NEVER delete the host-side table here (2026-11-02, MS-R1): an older
+        # decision order said "skip" on a running MS-R1 (its cores enumerate
+        # only because the current initrd injected the table) and this branch
+        # then removed /etc/ncz/npu-acpi/ssdt-npucre.aml, so one wrong rebuild
+        # destroyed the only copy the next rebuild needed. The table stays.
+        #
+        # What a skip board must not get is the table INSIDE this initrd.
+        # dracut packs $acpi_table_dir/*.aml after every module's install()
+        # has run, in the same shell (module_install sources this file), so
+        # turn its knob off for this build only, and only when it points at
+        # our directory: an operator's own acpi_table_dir is left alone.
+        # shellcheck disable=SC2154
+        if [ "${acpi_override:-}" = "yes" ] \
+           && [ "${acpi_table_dir%/}" = "${_acpi_dir%/}" ]; then
+            acpi_override=no
+            echo "91ncz-npu-ssdt: acpi_override disabled for this build ($_acpi_dir kept on disk, not packed)" >&2
+        fi
         return 0
     fi
 
     src="$meta/assets/npu/$_ncz_aml_name"
+    # The payload copy can be gone (payload pruned, hand-run dracut) while the
+    # host-side table 80-npu.sh staged is still there: use that rather than
+    # fail an MS-R1 rebuild.
+    if [ ! -s "$src" ] && [ -s "$_acpi_dir/$_ncz_aml_name" ]; then
+        src="$_acpi_dir/$_ncz_aml_name"
+    fi
     if [ ! -s "$src" ]; then
         # Hard-fail rather than silently produce an initrd without the table:
         # on an MS-R1-class board that means a dead NPU after the next kernel
@@ -145,10 +164,13 @@ install() {
     # board. Populate the table dir here (the module runs before dracut reads
     # it) so a rebuild always reflects THIS board, not the one that installed
     # the disk.
-    _acpi_dir="${NCZ_NPU_ACPI_DIR:-/etc/ncz/npu-acpi}"
     if mkdir -p "$_acpi_dir" 2>/dev/null; then
-        cp -f "$src" "$_acpi_dir/$_ncz_aml_name" 2>/dev/null \
-            || derror "91ncz-npu-ssdt: cannot stage $_acpi_dir/$_ncz_aml_name"
+        # Idempotent: rewrite only when the bytes differ (and never copy a
+        # file onto itself when $src IS the host table).
+        if ! cmp -s "$src" "$_acpi_dir/$_ncz_aml_name" 2>/dev/null; then
+            cp -f "$src" "$_acpi_dir/$_ncz_aml_name" 2>/dev/null \
+                || derror "91ncz-npu-ssdt: cannot stage $_acpi_dir/$_ncz_aml_name"
+        fi
         chmod 0644 "$_acpi_dir/$_ncz_aml_name" 2>/dev/null || true
     else
         derror "91ncz-npu-ssdt: cannot create $_acpi_dir (dracut acpi_override will have no table)"

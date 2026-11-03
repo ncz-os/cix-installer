@@ -255,12 +255,13 @@ done
 # Detection priority (runs in the d-i chroot, where /proc /sys /dev are
 # bind-mounted, so it reflects the REAL hardware being installed):
 #   0. operator override  /usr/local/lib/cix-installer/NPU_SSDT = force|skip
-#   1. functional ACPI check (authoritative, board-agnostic):
-#        >=3 CIXH4010:* cores present -> enumerate natively   -> SKIP
-#        CIXH4000:00 present, <3 cores -> MS-R1-class bug      -> APPLY
-#   2. DMI board match (only if ACPI gives no signal):
-#        MS-R1 / "Micro Computer (HK)" -> APPLY ; Radxa / Orion -> SKIP
-#   3. unknown + no CIX NPU ACPI signal -> SKIP + warn (refuse to inject an
+#   1. DMI allow-list: Radxa / Orion / Orange Pi             -> SKIP
+#   2. DMI MS-R1 / "Micro Computer (HK)"                     -> APPLY
+#        (before any live core count: an installer kernel that already
+#        injected our table shows 3 cores on an MS-R1)
+#   3. the NCZ NPUCRE table is loaded right now              -> APPLY
+#   4. unknown board: CIXH4000:00 with <3 cores -> APPLY; >=3 native -> SKIP
+#   5. unknown + no CIX NPU ACPI signal -> SKIP + warn (refuse to inject an
 #        MS-R1 SSDT into unidentified hardware).
 #
 # The shared helper is the single source of truth for this decision; the

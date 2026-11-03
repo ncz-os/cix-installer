@@ -47,16 +47,28 @@
 #       not build (missing source, no cpio, ...), 2 = source is not an .aml.
 #       The caller decides what a failure means; this function never exits.
 #
-# Priority for the decision:
+# Priority for the decision (2026-11-03 order; DMI before any live count):
 #   0. operator override  $META/NPU_SSDT = force|apply|on|1 | skip|off|0
-#   1. functional ACPI check (authoritative, board-agnostic):
-#        >=3 CIXH4010:* cores already enumerate -> firmware OK   -> skip
-#        CIXH4000:00 present with <3 cores       -> MS-R1-class  -> apply
-#   2. DMI:
-#        product_name / product_family match MS-R1, or sys_vendor /
-#        board_vendor "Micro Computer (HK)"                       -> apply
-#        Radxa / Orion / Orange Pi (checked first: allow-list wins) -> skip
-#   3. anything else                                            -> skip
+#   1. DMI allow-list: Radxa / Orion / Orange Pi                 -> skip
+#   2. DMI MS-R1: product_name / product_family match MS-R1, or
+#        sys_vendor / board_vendor "Micro Computer (HK)"         -> apply
+#   3. our own table is LIVE (an SSDT with OEM ID "NCZ" and table
+#        ID "NPUCRE" in /sys/firmware/acpi/tables)               -> apply
+#   4. functional ACPI check (unknown board only):
+#        CIXH4000:00 present with <3 CIXH4010 cores              -> apply
+#        >=3 CIXH4010:* cores, none of them from our table       -> skip
+#   5. anything else                                             -> skip
+#
+# WHY DMI COMES BEFORE THE LIVE CORE COUNT (MS-R1, 2026-11-02)
+# ------------------------------------------------------------
+# On a running MS-R1 the three CIXH4010 cores exist ONLY because the current
+# initrd injected ssdt-npucre.aml. The previous order counted live cores first,
+# saw 3, decided "skip (firmware OK)", and the next dracut rebuild produced an
+# initrd WITHOUT the table (and the dracut module deleted
+# /etc/ncz/npu-acpi/ssdt-npucre.aml), so the boot after a kernel upgrade lost
+# the NPU again. A live core count therefore never decides skip on a board
+# that DMI or the loaded-table check identifies, and no caller deletes the
+# host-side table on a skip.
 
 # shellcheck shell=sh
 
@@ -108,6 +120,26 @@ ncz_npu_ssdt_core_count() {
     printf '%s' "$_n"
 }
 
+# ncz_npu_ssdt_table_loaded <sys-root> -> exit 0 when an SSDT carrying OEM ID
+# "NCZ" and OEM table ID "NPUCRE" (assets/npu/ssdt-npucre.asl's
+# DefinitionBlock) is in the live ACPI table list. The kernel exposes every
+# table it installed, including ones from an initrd table upgrade, as
+# /sys/firmware/acpi/tables/SSDT<n>. The header is READ (dd), never stat'ed:
+# sysfs reports a size of 0 for these binary attributes.
+ncz_npu_ssdt_table_loaded() {
+    _tl_dir="${1%/}/firmware/acpi/tables"
+    [ -d "$_tl_dir" ] || return 1
+    for _tl_f in "$_tl_dir"/SSDT*; do
+        [ -e "$_tl_f" ] || continue
+        # ACPI header: OEM ID at byte 10 (6 bytes), OEM table ID at 16 (8).
+        _tl_id=$(dd if="$_tl_f" bs=1 skip=10 count=14 2>/dev/null | tr -d '\000')
+        case "$_tl_id" in
+            "NCZ   NPUCRE"*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 # ncz_npu_ssdt_decision [INSTALLER_META]
 ncz_npu_ssdt_decision() {
     _meta=${1:-/usr/local/lib/cix-installer}
@@ -141,28 +173,40 @@ ncz_npu_ssdt_decision() {
             echo skip; return 0 ;;
     esac
 
-    # 2. Functional ACPI check -- what the firmware actually described.
-    if [ -d "$_sys/bus/acpi/devices" ]; then
-        _cores=$(ncz_npu_ssdt_core_count "$_sys/bus/acpi/devices")
-        if [ "$_cores" -ge 3 ]; then
-            echo "NPU SSDT: $_cores CIXH4010:* cores enumerate natively (>=3) -- skip (firmware OK)" >&2
-            echo skip; return 0
-        fi
-        if [ -e "$_sys/bus/acpi/devices/CIXH4000:00" ]; then
-            # The device is there but the cores are not: the MS-R1 _HID gap.
-            # Only a board that is not on the allow-list above can get here.
-            echo "NPU SSDT: NPU device present, cores incomplete ($_cores/3) -- apply (MS-R1-class _HID gap)" >&2
-            echo apply; return 0
-        fi
-    else
-        echo "NPU SSDT: $_sys/bus/acpi unavailable -- falling back to DMI" >&2
-    fi
-
-    # 3. DMI match for the board that actually has this defect.
+    # 2. DMI match for the board that actually has this defect. This MUST come
+    #    before the live core count: on a running MS-R1 the cores enumerate
+    #    because the current initrd injected our table, not because the
+    #    firmware is fixed.
     if ncz_npu_ssdt_is_msr1 "$_pn" "$_pf" "$_sv" "$_bv"; then
         echo "NPU SSDT: DMI '$_pn'/'$_pf'/'$_sv' is MS-R1-class -- apply" >&2
         echo apply; return 0
     fi
+
+    # 3. Our own table is live: whatever the board, the cores it enumerates
+    #    are ours, so they are no evidence that the firmware describes them.
+    #    Keep delivering it (idempotent: every rebuild decides the same way).
+    if ncz_npu_ssdt_table_loaded "$_sys"; then
+        echo "NPU SSDT: the NCZ NPUCRE override is loaded (cores come from it) -- apply" >&2
+        echo apply; return 0
+    fi
+
+    # 4. Functional ACPI check -- what the firmware actually described, for a
+    #    board DMI does not identify.
+    if [ -d "$_sys/bus/acpi/devices" ]; then
+        _cores=$(ncz_npu_ssdt_core_count "$_sys/bus/acpi/devices")
+        if [ "$_cores" -ge 3 ]; then
+            echo "NPU SSDT: $_cores CIXH4010:* cores enumerate natively (>=3, no NCZ override loaded) -- skip (firmware OK)" >&2
+            echo skip; return 0
+        fi
+        if [ -e "$_sys/bus/acpi/devices/CIXH4000:00" ]; then
+            # The device is there but the cores are not: the MS-R1 _HID gap.
+            echo "NPU SSDT: NPU device present, cores incomplete ($_cores/3) -- apply (MS-R1-class _HID gap)" >&2
+            echo apply; return 0
+        fi
+    else
+        echo "NPU SSDT: $_sys/bus/acpi unavailable -- no functional signal" >&2
+    fi
+
     if [ -n "$_pn$_pf$_sv$_bv" ]; then
         echo "NPU SSDT: DMI '$_pn' is not MS-R1-class -- skip" >&2
     else

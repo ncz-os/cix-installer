@@ -78,10 +78,24 @@ and always win.**
 |---|---|---|
 | 0 | `<meta>/NPU_SSDT` = `force` / `skip` | operator override wins |
 | 1 | DMI `product_name` matches `Orion O6` / `Orange Pi 6`, or `sys_vendor`/`board_vendor` matches Radxa / Xunlong | **skip** (allow-list) |
-| 2 | ≥3 `CIXH4010:*` cores enumerate | **skip** (firmware is fine) |
-| 3 | `CIXH4000:00` present with <3 cores | **apply** (the MS-R1 gap) |
-| 4 | DMI matches `MS-R1` or `Micro Computer (HK)` | **apply** |
-| 5 | anything else | **skip** + warn |
+| 2 | DMI matches `MS-R1` or `Micro Computer (HK)` | **apply** |
+| 3 | an SSDT with OEM ID `NCZ` / table ID `NPUCRE` is in `/sys/firmware/acpi/tables` (our override is live) | **apply** |
+| 4 | `CIXH4000:00` present with <3 cores | **apply** (the MS-R1 gap) |
+| 5 | ≥3 `CIXH4010:*` cores enumerate and none come from our table | **skip** (firmware is fine) |
+| 6 | anything else | **skip** + warn |
+
+DMI and the loaded-table check come **before** the live core count
+(2026-11-02, MS-R1). On a running MS-R1 the three cores exist only because the
+current initrd injected `ssdt-npucre.aml`; the old order counted them first,
+decided *skip*, and the next dracut rebuild built an initrd without the table.
+
+A *skip* never deletes `/etc/ncz/npu-acpi/ssdt-npucre.aml`. The dracut module
+instead turns `acpi_override` off for that one build when `acpi_table_dir`
+points at `/etc/ncz/npu-acpi` (dracut packs the table directory after every
+module's `install()`, in the same shell), so a disk moved to an O6N does not
+inject the table while the file stays for the board that needs it. On an
+*apply* board the module re-stages the table from the payload, or from the
+host copy when the payload is gone, and rewrites it only when the bytes differ.
 
 An unreadable DMI with no ACPI signal is a **skip**, not an apply: injecting an
 SSDT that scopes `\_SB.NPU0.CRE0..2` into firmware that has no such scope is

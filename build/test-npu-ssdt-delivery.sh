@@ -36,6 +36,15 @@
 #       (magic + inner ACPI header signature/length self-consistency)
 #   T14 the ESP copy is what boots: 58-boot-hygiene must install the dracut-
 #       safe sync (kernel postinst + path unit) and 80-npu must verify it.
+#   T15 MS-R1 RUNNING WITH THE INJECTED SSDT (3 live cores, NCZ NPUCRE table
+#       loaded): decision apply, the dracut module keeps + stages the host
+#       table (the 2026-11-02 regression decided skip and deleted it)
+#   T16 O6N with native cores: skip, the module stages nothing and turns
+#       dracut's acpi_override off for the build; a table already on disk
+#       is NOT deleted
+#   T17 unknown board with native cores: skip without deleting the table
+#   T18 dracut re-run twice on the same host: same decision, same bytes,
+#       the host table survives both runs (MS-R1 and O6N)
 #   T13 the MEDIUM STAGER produces the table: build/iso/write-usb-image.py
 #       must call build/iso/ncz_ssdt.py's ensure_npu_ssdt_aml() for arm64,
 #       which compiles assets/npu/ssdt-npucre.asl and raises (never warns)
@@ -78,6 +87,18 @@ mkfix() {
     for ((i=0; i<nc; i++)); do mkdir -p "$d/bus/acpi/devices/CIXH4010:0$i"; done
     [ "$npu" = 1 ] && mkdir -p "$d/bus/acpi/devices/CIXH4000:00"
     return 0
+}
+
+# mktable <sysfixture> <name> <oemid6> <tableid8>: a live ACPI table header
+# under firmware/acpi/tables, as the kernel exposes an installed table.
+mktable() {
+    mkdir -p "$1/firmware/acpi/tables"
+    python3 -c '
+import struct, sys
+hdr = b"SSDT" + struct.pack("<I", 36) + b"\x02\x00" + sys.argv[2].encode().ljust(6)[:6] \
+    + sys.argv[3].encode().ljust(8)[:8] + b"\x01\x00\x00\x00" + b"INTL" + b"\x30\x09\x26\x20"
+open(sys.argv[1], "wb").write(hdr)
+' "$1/firmware/acpi/tables/$2" "$3" "$4"
 }
 
 # decide <sysfixture> [meta] -> apply|skip  (stderr discarded)
@@ -337,6 +358,145 @@ PY
 else
     no "no staged table from T10 to inspect"
 fi
+
+# --- T15-T18: the 2026-11-02 MS-R1 regression ------------------------------
+# A running MS-R1 shows 3 CIXH4010 cores ONLY because its current initrd
+# injected ssdt-npucre.aml. The old decision counted live cores first, said
+# "skip", and the dracut module then deleted /etc/ncz/npu-acpi/ssdt-npucre.aml.
+#
+# mod_run <fixture> <acpi-dir> -> one line:
+#   check:<rc> install:<rc> tbl:<yes|no> sha:<sha256|-> override:<value>
+# The acpi dir is NOT reset, so a pre-existing host table and a second run
+# see exactly what the first left behind. dracut's acpi_override/acpi_table_dir
+# globals are preset the way /etc/dracut.conf.d/90-ncz-npu-ssdt.conf sets them.
+mod_run() {
+    local fx="$1" ad="$2" id="$W/modrun-$1"
+    rm -rf "$id"; mkdir -p "$id"
+    ( set +u
+      . "$W/dracut_shim.sh"
+      # shellcheck disable=SC2034
+      initdir="$id"
+      acpi_override=yes
+      acpi_table_dir="$ad"
+      export NCZ_SYS_ROOT="$W/$fx" NCZ_NPU_SSDT_LIB="$LIB" \
+             NCZ_NPU_SSDT_META="$W/meta" NCZ_NPU_ACPI_DIR="$ad"
+      # shellcheck source=/dev/null
+      . "$MOD"
+      _c=0; check || _c=$?
+      _i=0; install || _i=$?
+      t=no; h=-
+      if [ -f "$ad/$AML_NAME" ]; then
+          t=yes; h=$(sha256sum "$ad/$AML_NAME" | cut -c1-16)
+      fi
+      printf 'check:%s install:%s tbl:%s sha:%s override:%s' "$_c" "$_i" "$t" "$h" "$acpi_override"
+    ) 2>/dev/null
+}
+want_sha=$(sha256sum "$W/meta/assets/npu/$AML_NAME" | cut -c1-16)
+
+echo "T15 MS-R1 running with the injected SSDT: keep + inject"
+mkfix "$W/s_msr1_live" "MS-R1" "Micro Computer (HK) Tech Limited" "" 3 1
+mktable "$W/s_msr1_live" SSDT1 "CIXTEK" "SKY1EDK2"
+mktable "$W/s_msr1_live" SSDT3 "NCZ" "NPUCRE"
+r=$(decide "$W/s_msr1_live")
+[ "$r" = apply ] && ok "MS-R1, 3 live cores from our table -> apply" \
+                 || no "MS-R1, 3 live cores from our table -> '$r', expected apply (the regression)"
+# Same live state with DMI unreadable: the loaded NCZ table alone must keep it.
+mkfix "$W/s_live_nodmi" "" "" "" 3 1
+mktable "$W/s_live_nodmi" SSDT3 "NCZ" "NPUCRE"
+r=$(decide "$W/s_live_nodmi")
+[ "$r" = apply ] && ok "no DMI, 3 cores + NCZ NPUCRE loaded -> apply" \
+                 || no "no DMI, 3 cores + NCZ NPUCRE loaded -> '$r', expected apply"
+# Another vendor's SSDT is not ours: 3 cores + only firmware tables -> native.
+mkfix "$W/s_live_other" "" "" "" 3 1
+mktable "$W/s_live_other" SSDT1 "CIXTEK" "SKY1EDK2"
+r=$(decide "$W/s_live_other")
+[ "$r" = skip ] && ok "no DMI, 3 cores, only firmware SSDTs -> skip (native)" \
+                || no "no DMI, 3 cores, only firmware SSDTs -> '$r', expected skip"
+AD15="$W/acpi15"; mkdir -p "$AD15"
+cp "$W/meta/assets/npu/$AML_NAME" "$AD15/$AML_NAME"
+r=$(mod_run s_msr1_live "$AD15")
+case "$r" in
+    "check:0 install:0 tbl:yes sha:$want_sha override:yes") ok "dracut module on the live MS-R1: $r" ;;
+    *) no "dracut module on the live MS-R1: '$r' (expected install:0 tbl:yes sha:$want_sha override:yes)" ;;
+esac
+[ -f "$W/modrun-s_msr1_live/usr/share/ncz/acpi/$AML_NAME" ] \
+    && ok "the table is staged into the initrd being built" \
+    || no "the table is NOT staged into the initrd being built"
+# Payload copy gone, host copy present: still apply from the host copy.
+mv "$W/meta/assets/npu/$AML_NAME" "$W/meta-aml.bak"
+r=$(mod_run s_msr1_live "$AD15")
+mv "$W/meta-aml.bak" "$W/meta/assets/npu/$AML_NAME"
+case "$r" in
+    "check:0 install:0 tbl:yes sha:$want_sha override:yes") ok "payload .aml gone: module uses the host table ($r)" ;;
+    *) no "payload .aml gone: '$r' (expected the host table to be used)" ;;
+esac
+
+echo "T16 O6N (native cores, no NPU SSDT need): skip, nothing injected, nothing deleted"
+mkfix "$W/s_o6n_live" "Orion O6N" "Radxa Computer (Shenzhen) Co., Ltd." "Orion O6" 3 1
+r=$(decide "$W/s_o6n_live")
+[ "$r" = skip ] && ok "O6N with 3 native cores -> skip" || no "O6N -> '$r', expected skip"
+AD16="$W/acpi16"; mkdir -p "$AD16"
+r=$(mod_run s_o6n_live "$AD16")
+case "$r" in
+    "check:0 install:0 tbl:no sha:- override:no") ok "O6N, empty table dir: $r" ;;
+    *) no "O6N, empty table dir: '$r' (expected tbl:no override:no)" ;;
+esac
+# A disk moved from an MS-R1: the host table is there. Keep the file, but
+# do not pack it into THIS initrd (acpi_override turned off for the build).
+cp "$W/meta/assets/npu/$AML_NAME" "$AD16/$AML_NAME"
+r=$(mod_run s_o6n_live "$AD16")
+case "$r" in
+    "check:0 install:0 tbl:yes sha:$want_sha override:no") ok "O6N with a table on disk: kept, not packed ($r)" ;;
+    *) no "O6N with a table on disk: '$r' (expected tbl:yes override:no)" ;;
+esac
+[ -z "$(find "$W/modrun-s_o6n_live" -name '*.aml' 2>/dev/null)" ] \
+    && ok "O6N: no table staged into the initrd" \
+    || no "O6N: a table was staged into the initrd"
+# An operator's own acpi_table_dir is not ours to switch off.
+r=$( ( set +u; . "$W/dracut_shim.sh"; initdir="$W/modrun-op"; mkdir -p "$initdir"
+       acpi_override=yes; acpi_table_dir="$W/operator-acpi"
+       export NCZ_SYS_ROOT="$W/s_o6n_live" NCZ_NPU_SSDT_LIB="$LIB" \
+              NCZ_NPU_SSDT_META="$W/meta" NCZ_NPU_ACPI_DIR="$AD16"
+       . "$MOD"; install; printf '%s' "$acpi_override" ) 2>/dev/null )
+[ "$r" = yes ] && ok "O6N: an operator's own acpi_table_dir keeps acpi_override=yes" \
+               || no "O6N: the module switched off an operator acpi_override ('$r')"
+
+echo "T17 unknown board with native cores: skip without deleting"
+mkfix "$W/s_native" "Some CIX Board" "Some Vendor" "" 3 1
+r=$(decide "$W/s_native")
+[ "$r" = skip ] && ok "unknown board, 3 native cores -> skip" || no "-> '$r', expected skip"
+AD17="$W/acpi17"; mkdir -p "$AD17"
+cp "$W/meta/assets/npu/$AML_NAME" "$AD17/$AML_NAME"
+r=$(mod_run s_native "$AD17")
+case "$r" in
+    "check:0 install:0 tbl:yes sha:$want_sha override:no") ok "native board: table kept on disk, not packed ($r)" ;;
+    *) no "native board: '$r' (expected tbl:yes override:no -- never delete)" ;;
+esac
+# The initramfs-tools hook must never delete anything either.
+grep -qE '^[^#]*rm -f[^#]*npu-acpi' "$HOOK" "$MOD" "$LIB" \
+    && no "a builder still deletes the host table" \
+    || ok "no builder deletes /etc/ncz/npu-acpi/$AML_NAME"
+
+echo "T18 dracut re-run twice on the same host"
+for fx in s_msr1_live s_o6n_live; do
+    AD="$W/acpi18-$fx"; rm -rf "$AD"; mkdir -p "$AD"
+    [ "$fx" = s_msr1_live ] && cp "$W/meta/assets/npu/$AML_NAME" "$AD/$AML_NAME"
+    r1=$(mod_run "$fx" "$AD"); m1=$(stat -c %Y "$AD/$AML_NAME" 2>/dev/null || echo -)
+    sleep 1
+    r2=$(mod_run "$fx" "$AD"); m2=$(stat -c %Y "$AD/$AML_NAME" 2>/dev/null || echo -)
+    d1=$(decide "$W/$fx"); d2=$(decide "$W/$fx")
+    if [ "$r1" = "$r2" ] && [ "$d1" = "$d2" ]; then
+        ok "$fx: two rebuilds agree ($d1; $r2)"
+    else
+        no "$fx: rebuilds disagree ('$d1' '$r1' vs '$d2' '$r2')"
+    fi
+    [ "$m1" = "$m2" ] && ok "$fx: second rebuild did not rewrite the host table (mtime $m2)" \
+                      || no "$fx: second rebuild rewrote the host table ($m1 -> $m2)"
+done
+case "$(mod_run s_msr1_live "$W/acpi18-s_msr1_live")" in
+    *tbl:yes*) ok "MS-R1: the host table is still there after repeated rebuilds" ;;
+    *) no "MS-R1: the host table vanished after repeated rebuilds" ;;
+esac
 
 echo "T13 the medium stager must produce the table (build/iso/ncz_ssdt.py)"
 # WHY: the 2026-10-28 root cause. Every unit above could pass while a real
