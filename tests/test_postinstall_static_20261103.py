@@ -31,17 +31,19 @@ VALID_PROPERTIES = ("strict", "idempotence")
 
 STRICT_RE = re.compile(r"^[ \t]*set[ \t]+-[a-z]*e", re.MULTILINE)
 WRITE_RE = re.compile(r"/etc/|/usr/")
+# Deliberately tight: bare words like marker/stamp also match comment prose
+# ("timestamp"), and bare is-enabled/is-active match strings anywhere. Every
+# guarded hook in the corpus matches at least one of the tokens below, so a
+# future hook relying only on prose must say so in the allowlist instead.
 GUARD_PATTERNS = (
-    r"marker",
-    r"stamp",
     r"\[ -[fe] ",
     r"grep -q",
     r"install -m",
     r"mkdir -p",
     r"\|\| true",
     r"command -v",
-    r"is-enabled",
-    r"is-active",
+    r"systemctl is-enabled",
+    r"systemctl is-active",
     r"cmp -s",
 )
 GUARD_RES = [re.compile(p) for p in GUARD_PATTERNS]
