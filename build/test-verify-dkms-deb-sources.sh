@@ -236,6 +236,10 @@ expect_bom "BOM: amvx deb bytes differ from the ledger pin -> FAIL" 1 'FAIL cix-
 mkbom "$R"; grep -v '^cix-gpu-kmd-dkms' "$R/manifests/ncz-packages.tsv" > "$R/l" && mv "$R/l" "$R/manifests/ncz-packages.tsv"
 expect_bom "BOM: mali DKMS deb not in the ledger -> FAIL" 1 'FAIL cix-gpu-kmd-dkms: .*: 0 manifests/ncz-packages\.tsv row' "$R"
 
+mkbom "$R"; grep "^cix-vpu-driver-dkms" "$R/manifests/ncz-packages.tsv" > "$R/dup"; cat "$R/dup" >> "$R/manifests/ncz-packages.tsv"
+expect_bom "BOM: a DKMS deb listed twice in the ledger (same sha256) -> FAIL" 1 \
+    "FAIL cix-vpu-driver-dkms: .*: 2 manifests/ncz-packages\\.tsv row" "$R"
+
 mkbom "$R"; cp "$R/assets/cix-debs/cix-gpu-kmd-dkms_1.0+ncz3_all.deb" "$R/assets/cix-debs/cix-gpu-kmd-dkms_1.0+ncz2_all.deb"
 expect_bom "BOM: two mali DKMS debs staged -> FAIL" 1 'FAIL cix-gpu-kmd-dkms: 2 cix-gpu-kmd-dkms debs staged' "$R"
 

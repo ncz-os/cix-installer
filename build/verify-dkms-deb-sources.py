@@ -351,7 +351,8 @@ def deb_dkms_confs(path):
 
 
 def ledger_rows(root):
-    """{(name, version, arch): {sha256, ...}} from manifests/ncz-packages.tsv."""
+    """{(name, version, arch): [sha256, ...]} from manifests/ncz-packages.tsv,
+    one entry per row (a duplicated row is two entries, not one)."""
     rows = {}
     with open(
         os.path.join(root, "manifests", "ncz-packages.tsv"), encoding="utf-8"
@@ -361,7 +362,7 @@ def ledger_rows(root):
                 continue
             c = line.rstrip("\n").split("\t")
             if len(c) >= 4:
-                rows.setdefault((c[0], c[1], c[2]), set()).add(c[3])
+                rows.setdefault((c[0], c[1], c[2]), []).append(c[3])
     return rows
 
 
@@ -415,7 +416,7 @@ def check_bom_debs(root, deb_dir, kver):
         fname_ver = re.sub(r"%3[aA]", ":", fname_ver)
         if fname_ver != ver:
             errs.append(f"file name says {fname_ver}, control Version is {ver}")
-        rows = ledger.get((pkg, ver, arch), set())
+        rows = ledger.get((pkg, ver, arch), [])
         with open(deb, "rb") as f:
             have = sha256(f.read())
         if len(rows) != 1:
@@ -424,7 +425,7 @@ def check_bom_debs(root, deb_dir, kver):
             )
         elif have not in rows:
             errs.append(
-                f"sha256 {have[:12]} != manifests/ncz-packages.tsv {next(iter(rows))[:12]}"
+                f"sha256 {have[:12]} != manifests/ncz-packages.tsv {rows[0][:12]}"
             )
         if len(confs) != 1:
             errs.append(f"{len(confs)} usr/src/*/dkms.conf in the deb (want exactly 1)")
