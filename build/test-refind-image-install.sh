@@ -361,6 +361,28 @@ else
     bad "E2) a stale pin is refused and the menu is unchanged" \
         "$(diff "$w/conf.stale" "$w/esp/EFI/BOOT/refind.conf"; cat "$w/zz2s.log")"
 fi
+# E3: ...and the refusal must NOT fail the kernel install. zz2 runs from
+# /etc/kernel/postinst.d, so a non-zero exit fails the linux-image package's
+# dpkg configuration. A stale operator pin is not a broken system: the
+# machine is bootable and the menu is untouched, so zz2 must exit 0 while
+# reporting the refusal loudly. (zz1 does the same for a failed --add.)
+rc_stale=0
+NCZ_ESP_DIR="$w/esp" NCZ_SERIAL_CONSOLE=off \
+    bash "$w/zz2.sh" "$NEW_KVER" "$w/boot/vmlinuz-$NEW_KVER" > "$w/zz2s2.log" 2>&1 || rc_stale=$?
+if [ "$rc_stale" = 0 ] && cmp -s "$w/conf.stale" "$w/esp/EFI/BOOT/refind.conf"; then
+    ok "E3) a stale pin exits 0 (a kernel install is never failed by the guard)"
+else
+    bad "E3) a stale pin exits 0 (a kernel install is never failed by the guard)" \
+        "$(printf 'rc=%s\n' "$rc_stale"; cat "$w/zz2s2.log")"
+fi
+# E4: the refusal must still be LOUD -- silently swallowing it would leave
+# the operator believing the pin is honoured when it is not.
+if grep -q -- '--promote failed' "$w/zz2s2.log"; then
+    ok "E4) a refused promote is reported loudly (the operator is told)"
+else
+    bad "E4) a refused promote is reported loudly (the operator is told)" \
+        "$(cat "$w/zz2s2.log")"
+fi
 
 echo
 echo "refind image-install tests: $PASS passed, $FAIL failed"

@@ -462,6 +462,32 @@ CONSTS
             "$(printf 'rc=%s rest_diff=%s sel=<%s>\n' "$rc" "$same_rest" "$sel10"; cat "$w/s10.log"; grep default_selection "$w/esp10/EFI/BOOT/refind.conf")"
     fi
 
+    # ---- 13: the promote-path guard must be set -u safe -------------------
+    # A review reported that the KVER_STABLE guard on the promote path
+    # expanded a bare $KVER_STABLE, so with the variable unset the file
+    # aborted with "unbound variable" and --promote never reached
+    # ncz_promote. The guard is reached BEFORE the verb dispatch, and the
+    # promote path legitimately runs with no kernel identity in the
+    # environment (zz2 calls the tool with only a pin token), so the
+    # expansion must not depend on the variable being set. Pin the SOURCE
+    # form: every KVER_STABLE expansion in that guard must be a defaulted
+    # one (${KVER_STABLE:-} / ${KVER_STABLE:=}), exactly like the sibling
+    # expansion in the kernel-purity case below it.
+    _guard_bad=""
+    _guard_line=$(grep -n 'no KVER_STABLE provided' "$w/tool.sh" | head -1 | cut -d: -f1)
+    if [ -z "$_guard_line" ]; then
+        _guard_bad="the KVER_STABLE guard is missing from the tool"
+    else
+        _guard_src=$(sed -n "$((_guard_line - 2)),${_guard_line}p" "$w/tool.sh")
+        printf '%s\n' "$_guard_src" | grep -q 'KVER_STABLE:-' \
+            || _guard_bad="the guard does not use a defaulted KVER_STABLE expansion: $_guard_src"
+    fi
+    if [ -z "$_guard_bad" ]; then
+        ok "13) the promote-path KVER_STABLE guard is set -u safe (defaulted expansion)"
+    else
+        bad "13) the promote-path KVER_STABLE guard is set -u safe (defaulted expansion)" "$_guard_bad"
+    fi
+
     # ---- 11: --promote uses the parsed title, and honours --force ----------
     # The parsed title is what selects the entry; --force is what permits
     # rewriting a default_selection line that already names that entry. The

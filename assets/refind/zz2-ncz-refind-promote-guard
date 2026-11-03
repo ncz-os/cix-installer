@@ -45,4 +45,19 @@ fi
 echo "zz2-ncz-refind-promote-guard: pinning default_selection to '$TOKEN'"
 NCZ_PROMOTE_SELECTION="$TOKEN"
 export NCZ_PROMOTE_SELECTION
+# The promote result must NOT be the exit status of this hook. This script
+# runs from /etc/kernel/postinst.d, so a non-zero exit fails the kernel
+# package's dpkg configuration -- and the most common cause of a refused
+# promote is a STALE operator pin (the token matches no menuentry any
+# more), which says nothing about the health of the running system: the
+# machine is still bootable, the menu is untouched, and default_selection
+# simply keeps its old value. zz1 does the same for --add. So the failure
+# is reported loudly (the operator must know the pin is not being honoured)
+# but the hook still succeeds.
 "$REFRESH" --promote "$TOKEN"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+    echo "zz2-ncz-refind-promote-guard: --promote failed (rc=$rc); default_selection left as-is" >&2
+    echo "zz2-ncz-refind-promote-guard: if '$TOKEN' is a stale pin, fix or remove $PIN_FILE" >&2
+fi
+exit 0

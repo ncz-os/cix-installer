@@ -164,7 +164,15 @@ fi
 # titles read "NCZ-OS 26.10 Cygnus" consistently with GRUB/.disk/info/motd.
 NCZ_RELEASE_SHORT="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME"
 
-if [ -z "$KVER_STABLE" ] && [ "$NCZ_VERB" != promote ]; then
+# set -u safe: the verb promote must work with NO kernel identity in the
+# environment (zz2 calls the tool with only a pin token). This guard runs
+# BEFORE the verb dispatch, so the expansion must not depend on the variable
+# being set: ${KVER_STABLE:-} cannot abort with "unbound variable" even if
+# the top-of-file default (`: "${KVER_STABLE:=}"`) ever moves, and it matches
+# the sibling expansion used by the kernel-purity case below. (That default
+# does mask the abort today; the guard is made independent of it anyway, so
+# the promote path cannot regress into an unbound-variable abort.)
+if [ -z "${KVER_STABLE:-}" ] && [ "$NCZ_VERB" != promote ]; then
     echo "ERROR: no KVER_STABLE provided (the stable kernel line is required)"
     exit 1
 fi
