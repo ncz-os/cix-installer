@@ -216,6 +216,42 @@ else
     FAIL=$((FAIL+1))
 fi
 
+# --- Case 8: prebuilt BOM (assets/kernel/mainline.debs, r297+). The pin is by
+#     sha256, so "newest rNNN dir in the pool" does not apply: the gate checks
+#     that assets/kernel/mainline is the payload derived from the pinned debs.
+echo; echo "=== Case 8: full gate -- prebuilt BOM ==="
+bom_repo() {  # dir -- a synthetic repo with a coherent derived payload
+    local r="$1" d
+    rm -rf "$r"; mkdir -p "$r/build" "$r/assets/kernel"
+    cp "$GATE" "$r/build/preflight-freshness-gate.sh"
+    d="$r/build/kernel-mainline/r901-7.9.9-sky1-ncz-20301231"; mkdir -p "$d"
+    printf '7.9.9-sky1-ncz\n' > "$d/KVER"; printf 'image' > "$d/Image-cixmini.bin"
+    (cd "$d" && sha256sum KVER Image-cixmini.bin > DERIVED.sha256)
+    printf '%s linux-image-7.9.9-sky1-ncz_7.9.9-sky1-ncz+r901_arm64.deb\nepoch 1\n' "$(printf 'a%.0s' {1..64})" > "$d/STAMP"
+    printf 'r901-7.9.9-sky1-ncz-20301231\n' > "$r/assets/kernel/mainline.release"
+    printf 'KVER=7.9.9-sky1-ncz\nIMAGE_SHA256=%s\n' "$(printf 'image' | sha256sum | awk '{print $1}')" > "$r/assets/kernel/mainline.debs"
+    printf '{"kernel_debs": [{"file": "build/kernel-debs/linux-image-7.9.9-sky1-ncz_7.9.9-sky1-ncz+r901_arm64.deb", "sha256": "%s"}]}\n' \
+        "$(printf 'a%.0s' {1..64})" > "$r/assets/kernel-manifest.json"
+    ln -sfn ../../build/kernel-mainline/r901-7.9.9-sky1-ncz-20301231 "$r/assets/kernel/mainline"
+}
+bom_gate() {  # repo -> count of "[3] OK: arm64 mainline -- prebuilt BOM" / FAIL lines
+    NCZ_TARGET_ARCH=arm64 bash "$1/build/preflight-freshness-gate.sh" --kernel-staging-dir "$SYN_POOL" 2>&1 | grep '^\[3\].*arm64 mainline'
+}
+bom_expect() {  # label want(OK|FAIL) repo
+    local out; out="$(bom_gate "$3")"; printf '%s\n' "$out" | sed 's/^/    /'
+    if grep -q "^\[3\] $2: arm64 mainline" <<<"$out"; then echo "  PASS  $1"; PASS=$((PASS+1)); else echo "  FAIL  $1"; FAIL=$((FAIL+1)); fi
+}
+R8="$TMPROOT/bom-repo"
+bom_repo "$R8"; bom_expect "BOM: payload derived from the pinned debs is OK" OK "$R8"
+bom_repo "$R8"; printf 'other' > "$R8/build/kernel-mainline/r901-7.9.9-sky1-ncz-20301231/Image-cixmini.bin"
+bom_expect "BOM: a payload whose Image is not the pinned build FAILs" FAIL "$R8"
+bom_repo "$R8"; sed -i 's/^[0-9a-f]* /'"$(printf 'b%.0s' {1..64})"' /' "$R8/build/kernel-mainline/r901-7.9.9-sky1-ncz-20301231/STAMP"
+bom_expect "BOM: a payload derived from other debs FAILs" FAIL "$R8"
+bom_repo "$R8"; ln -sfn "$SYN_POOL/r286-7.3.0-rc6-sky1-ncz-20261011" "$R8/assets/kernel/mainline"
+bom_expect "BOM: mainline still linked into the pool FAILs" FAIL "$R8"
+bom_repo "$R8"; rm "$R8/assets/kernel/mainline"
+bom_expect "BOM: no derived payload FAILs" FAIL "$R8"
+
 echo
 echo "=== arm64 freshness gate test: PASS=$PASS FAIL=$FAIL ==="
 [ "$FAIL" -eq 0 ]
