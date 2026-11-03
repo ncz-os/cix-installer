@@ -616,6 +616,7 @@ build/layers-preflight.sh	common	-	pre-layer fail-fast checks (harden-the-layer-
 build/test-layer-gates.sh	common	-	both-direction tests for strip_build_host_state, check-layers leftovers/ownership/content/no-ubuntu, allow-list regexes, tracked symlinks and the mainline link
 build/test-layers-hardening.sh	common	-	both-direction tests for build/layers-preflight.sh + build/check-layers.sh (bad fixtures FAIL, good PASS)
 build/forky-provenance.py	common	-	implementation of check-no-ubuntu.sh / check-forky-provenance.sh (debs, Packages, dpkg status, rootfs, squashfs, finished .img via debugfs)
+build/test-iso-rockridge.sh	common	-	forky-provenance.py's ISO reader on xorriso fixture ISOs (Rock Ridge NM/CE/SL/CL/RE names, plain ECMA-119) and the real netinst when present; --iso-evidence lsdl listing accepted by iso_verify, tampered listings refused
 build/test-no-ubuntu.sh	common	-	positive+negative fixtures for the no-Ubuntu and forky-provenance gates (fonts-liberation 1:2.1.5-3build1 must fail)
 manifests/vendor-repos.tsv	common	-	complete reviewed apt-SOURCE allowlist; every source/pin must match a row exactly on scheme/host/path/suite (Debian pin+runtime, NCZ, Chrome, Vivaldi, NVIDIA; Intel OpenVINO + t2linux approved in r203 with justification)
 manifests/vendor-aliases.tsv	common	-	vendor apt aliases (google-chrome-stable, vivaldi-stable): signed repo, key fingerprints, store dir; discovery only, builds use the staged pinned deb

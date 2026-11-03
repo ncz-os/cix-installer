@@ -21,7 +21,7 @@
 #                       timestamped singularity deb), as stage 50 passes
 #   --substrate-iso F   the pinned installer substrate ISO (default:
 #                       downloads/debian-testing-$ARCH-netinst.iso when present)
-#   --iso-listing F     an `xorriso -ls` manifest for that ISO (verified against
+#   --iso-listing F     an `xorriso -find / -exec lsdl` manifest for that ISO (verified against
 #                       the ISO's own directory records; needs no xorriso)
 #   --iso-evidence DIR  WRITE that manifest into DIR on a host that has xorriso,
 #                       then scan with it (this is how a host without xorriso can

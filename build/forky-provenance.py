@@ -2632,92 +2632,196 @@ def scan_rootfs_tar(ref, tar, work, src):
 
 
 # ------------------------------------------------- substrate ISO (no mount, no root)
-# A directory listing of the substrate ISO as `xorriso -ls` prints it:
+# The substrate ISO's manifest (--iso-listing) is what
 #
-#   -r-xr-xr-x  1 .     208 Oct 25 2026 [  17 02] .
-#   -r-xr-xr-x  1 .     209 Oct 25 2026 [  56 00] ..
-#   -r-xr-xr-x  2 .      48 Oct 25 2026 [  64 00] dists
-#   -r-xr-xr-x  1 .     859 Oct 25 2026 [  65 00] InRelease
+#   xorriso -indev ISO -find / -exec lsdl --
 #
-# The bare names (no extension) are the ISO9660 "relaxed" names, which are what
-# d-i reads on the medium; the Rock Ridge names in [brackets] are the same
-# entries in long form.  The SCANNER never needs xorriso: it verifies the
-# listing against the ISO's own ECMA-119 directory records and reads the member
-# bytes straight out of the extent, so the early gate runs on any host that can
-# read the file.  The listing is a manifest, not a trust decision: a listing
-# that does not match the ISO cannot authorize anything.
+# prints: one long-format line per member, full path from the root, Rock Ridge
+# names, xorriso's shell quoting, symlinks with their target, e.g.
+#
+#   drwxr-xr-x    1 0        0               0 Oct 26 03:12 '/dists'
+#   -r--r--r--    1 0        0           37398 Oct 26 03:13 '/dists/forky/main/debian-installer/binary-amd64/Packages.gz'
+#   lr-xr-xr-x    1 0        0               0 Oct 26 03:12 '/dists/testing' -> 'forky'
+#   er--r--r--    1 0        0            2048 Oct 26 03:15 '/isolinux/boot.cat'
+#
+# (scan_input_evidence() writes exactly that.)  The SCANNER never needs
+# xorriso: it reads the ISO's own ECMA-119 directory records, with the Rock
+# Ridge (SUSP "NM") names when the image carries them -- a Debian netinst's
+# plain ECMA-119 identifiers are truncated 8.3 forms (DEBIAN_I, BINARY_A,
+# PACKAGES.GZ) that no real path matches -- and reads member bytes straight out
+# of the extent, so the early gate runs on any host that can read the file.
+# The listing is a manifest, not a trust decision: a listing that does not
+# match the ISO cannot authorize anything.
 
 ISO_REC_FIXED = 33            # a directory record's fixed part, no name
 ISO_LBS = 2048                # logical block size
 ISO_PVD_OFFSET = 16 * ISO_LBS  # the volume descriptor set starts at block 16
-ISO_LS_RE = re.compile(r"^[-dl][rwxStTs-]{9}\s+\d+\s+\S+\s+(\d+)\s+"
-                       r"\w{3}\s+\d+\s+\d{4}\s+\[\s*(\d+)\s+(\d+)\]\s+(\S.*?)\s*$")
+ISO_LSDL_RE = re.compile(r"^([-dlebcps])[-rwxsStT]{9}\S*\s+\d+\s+\S+\s+\S+\s+(\d+)\s+"
+                         r"\w{3}\s+\d+\s+(?:\d{4}|\d{1,2}:\d{2})\s+('.*)$")
 ISO_MAX_LISTING_ENTRIES = 200000
+ISO_LISTING_HEADER = "# ncz iso-listing v2: xorriso -indev ISO -find / -exec lsdl --"
+
+
+def _xorriso_word(text, i):
+    """One xorriso-quoted word starting at text[i] -> (word, next index), or
+    (None, i) when text[i:] is not a quoted word.  xorriso quotes every name
+    in single quotes and writes an embedded ' as '"'"' (end quote, a
+    double-quoted ', reopen), exactly like a POSIX shell word."""
+    out = []
+    n = len(text)
+    if i >= n or text[i] not in "'\"":
+        return None, i
+    while i < n and text[i] in "'\"":
+        q = text[i]
+        j = text.find(q, i + 1)
+        if j < 0:
+            return None, i
+        out.append(text[i + 1:j])
+        i = j + 1
+    return "".join(out), i
 
 
 def parse_iso_listing(text, src="iso"):
-    """`xorriso -ls` output -> {path: [(name, kind, size), ...]}, where path is
-    "" for the root, kind is "dir" or "file", and "." / ".." are kept (their
-    sizes are how a parent entry's directory size is cross-checked).  A line
-    that is not a listing entry is ignored (xorriso's drive banners); a line
-    that starts like an entry but does not parse FAILS (never skip a member)."""
+    """The `-find / -exec lsdl` manifest -> {dir_path: [(name, kind, size)]},
+    where dir_path is "" for the root, kind is "dir", "file" or "link", and
+    every directory on the ISO has a key (an empty one included).  A line that
+    is not a listing entry is ignored (a comment or a blank); a line that
+    starts like an entry but does not parse FAILS and returns {} (never skip a
+    member, never verify a partial listing).  A listing in any other shape (the old short `-ls`, an isoinfo dump) has no
+    parseable entry and is refused by the caller as empty."""
     out = {}
-    cur = None
     n = 0
     for line in text.splitlines():
-        if not line.strip():
+        if not line.strip() or line.startswith("#"):
             continue
-        m = ISO_LS_RE.match(line)
+        m = ISO_LSDL_RE.match(line)
         if not m:
-            if line[:1] in ("-", "d") and line[1:2] in "rwxsSt-":
-                fail(src, line[:120], "unparseable xorriso -ls entry")
+            if line[:1] in "-dlebcps" and line[1:2] in "rwxsStT-":
+                fail(src, line[:120], "unparseable iso listing entry")
+                return {}
             continue
-        size, _b1, _b2, name = m.group(1), m.group(2), m.group(3), m.group(4)
+        typ, size, rest = m.group(1), int(m.group(2)), m.group(3)
+        path, i = _xorriso_word(rest, 0)
+        tail = rest[i:]
+        if path is None or not path.startswith("/") or (
+                tail and not (typ == "l" and tail.startswith(" -> "))):
+            fail(src, line[:120], "unparseable iso listing entry")
+            return {}
         n += 1
         if n > ISO_MAX_LISTING_ENTRIES:
             fail(src, "listing", "iso listing has more entries than any real "
                                  "substrate; refusing it")
             return {}
-        if name == ".":
-            cur = ""
-            out.setdefault(cur, []).append((".", "dir", int(size)))
-            continue
-        if name == "..":
-            if cur:
-                out.setdefault(cur, []).append(("..", "dir", int(size)))
-            continue
-        if cur is None:
-            fail(src, name, "iso listing entry outside any directory "
-                            "(the listing does not start at /)")
-            return {}
-        kind = "dir" if line.startswith("d") else "file"
-        if " -> " in name:            # a symlink: listed, never materialised
-            name = name.split(" -> ", 1)[0].strip()
-            kind = "link"
-        out.setdefault(cur, []).append((name, kind, int(size)))
+        path = path.strip("/")
+        kind = {"d": "dir", "l": "link"}.get(typ, "file")
         if kind == "dir":
-            cur = (cur + "/" + name) if cur else name
-            out.setdefault(cur, [])
+            out.setdefault(path, [])
+        if not path:
+            continue                      # the root itself
+        parent, _, name = path.rpartition("/")
+        out.setdefault(parent, []).append((name, kind, size))
     return out
 
 
+ISO_SUSP_MAX_CE = 64          # continuation-area hops per record (a loop guard)
+
+
+def _susp_entries(data, su):
+    """Yield (signature, entry bytes) for the SUSP entries in a record's
+    System Use area `su`, following CE continuation areas (bounded: a CE that
+    points back at itself cannot loop)."""
+    hops = 0
+    while su is not None:
+        nxt = None
+        pos = 0
+        while pos + 4 <= len(su):
+            sig, ln = su[pos:pos + 2], su[pos + 2]
+            if ln < 4 or pos + ln > len(su):
+                break
+            e = su[pos:pos + ln]
+            if sig == b"ST":
+                break
+            if sig == b"CE" and ln >= 28:
+                lba = int.from_bytes(e[4:8], "little")
+                off = int.from_bytes(e[12:16], "little")
+                cnt = int.from_bytes(e[20:24], "little")
+                start = lba * ISO_LBS + off
+                if 0 <= start and start + cnt <= len(data):
+                    nxt = data[start:start + cnt]
+            else:
+                yield sig, e
+            pos += ln
+        hops += 1
+        su = nxt if hops < ISO_SUSP_MAX_CE else None
+
+
+def _rock_ridge(data, rec, skip):
+    """Rock Ridge facts for one directory record: (name or None, is_link,
+    child_lba or None, relocated).  `name` is the NM name (POSIX case, full
+    length); child_lba is set by a CL entry (a directory relocated out of a
+    deep tree), `relocated` by RE (that directory's placeholder in rr_moved)."""
+    nl = rec[32]
+    su = rec[ISO_REC_FIXED + nl + (0 if nl % 2 else 1) + skip:]
+    name = []
+    have_name = False
+    is_link = relocated = False
+    child = None
+    for sig, e in _susp_entries(data, su):
+        if sig == b"NM" and len(e) >= 5:
+            flags = e[4]
+            if flags & 0x06:                  # CURRENT / PARENT: not a name
+                continue
+            name.append(e[5:])
+            have_name = True
+        elif sig == b"SL":
+            is_link = True
+        elif sig == b"CL" and len(e) >= 12:
+            child = int.from_bytes(e[4:8], "little")
+        elif sig == b"RE":
+            relocated = True
+    nm = (b"".join(name).decode("utf-8", "surrogateescape")
+          if have_name else None)
+    return nm, is_link, child, relocated
+
+
+def _rr_skip(data, root_start, root_size):
+    """The Rock Ridge SP entry's LEN_SKP when the root's "." record carries
+    one (SUSP is in use on this image), else None."""
+    if root_start + ISO_REC_FIXED + 1 > len(data):
+        return None
+    rl = data[root_start]
+    if rl < ISO_REC_FIXED + 1 or rl > root_size:
+        return None
+    rec = data[root_start:root_start + rl]
+    su = rec[ISO_REC_FIXED + rec[32] + (0 if rec[32] % 2 else 1):]
+    if len(su) >= 7 and su[0:2] == b"SP" and su[4:6] == b"\xbe\xef":
+        return su[6]
+    return None
+
+
 def read_iso_records(data):
-    """The ISO's ECMA-119 directory records, read from the image bytes.
+    """The ISO's directory records, read from the image bytes.
 
-    Returns {(parent_path, name): record} where record = {is_dir, size, start}
-    for every real member under the primary volume descriptor's root, plus
-    {(path, None): {"start", "size"}} for each directory listed.  A directory
-    record is only accepted when its both-endian extent LBA and data length
-    agree in both byte orders and its extent lies inside the file: never by
-    matching a name at an arbitrary offset (a 6-byte ISO_REC_FIXED-less scan
-    finds every name at many false positions inside 2048-byte sectors).
+    Returns {(parent_path, name): record} where record = {is_dir, size, start,
+    rr, is_link} for every real member under the primary volume descriptor's
+    root, plus {(path, None): {"start", "size"}} for each directory listed.  A
+    directory record is only accepted when its both-endian extent LBA and data
+    length agree in both byte orders and its extent lies inside the file:
+    never by matching a name at an arbitrary offset (a 6-byte
+    ISO_REC_FIXED-less scan finds every name at many false positions inside
+    2048-byte sectors).
 
-    Names are kept exactly as the directory records store them (ECMA-119 stores
-    identifiers upper case; a writer that emits a Rock Ridge / Joliet tree in
-    the records stores them lower case).  Callers that look for a fixed member
-    match it case-insensitively -- a real /pool stored as POOL is still /pool,
-    and a case-sensitive filter would report 'carries no /pool tree' for every
-    xorriso-written substrate ISO.
+    NAMES.  When the root's "." record carries a SUSP "SP" entry the image is
+    Rock Ridge, and each member's name is its "NM" entry (POSIX case, full
+    length, CE continuations followed): that is the only spelling that matches
+    a real path on a Debian netinst, whose ECMA-119 identifiers are truncated
+    8.3 forms (DEBIAN_I for debian-installer, BINARY_A for binary-amd64).  "SL"
+    marks a symlink (is_link); a "CL" placeholder is followed to the relocated
+    directory and the "RE" original plus the root rr_moved holder are hidden,
+    as every Rock Ridge reader does.  Without SUSP (or for a record with no
+    NM) the ECMA-119 identifier is kept as stored, minus ";1" and a trailing
+    ".", with rr=False; callers that look for a fixed member match it
+    case-insensitively, so a /pool stored as POOL is still /pool.
 
     A directory whose extent was already walked on the way to it is a cycle no
     real ISO contains: it is recorded once and never descended, so a malformed
@@ -2748,6 +2852,7 @@ def read_iso_records(data):
         off += ISO_LBS
     if root is None:
         return out
+    rr_skip = _rr_skip(data, root[0] * ISO_LBS, root[1])
     stack = [("", root[0] * ISO_LBS, root[1])]
     seen = set()
     walked = set()          # (start, size): a directory's identity is its extent
@@ -2783,13 +2888,31 @@ def read_iso_records(data):
             name = raw.decode("latin-1")
             name = name[:-2] if name.endswith(";1") else name
             name = name[:-1] if name.endswith(".") else name
+            rr = is_link = False
+            ext, length = lba_l * ISO_LBS, sz_l
+            if rr_skip is not None:
+                nm, is_link, child, relocated = _rock_ridge(data, rec, rr_skip)
+                if relocated:
+                    pos += rl                    # shown at its CL placeholder
+                    continue
+                if nm is not None:
+                    name, rr = nm, True
+                    if not path and nm in ("rr_moved", ".rr_moved") and isdir:
+                        pos += rl                # the relocation holder
+                        continue
+                if child is not None:
+                    cst = child * ISO_LBS
+                    if cst + ISO_REC_FIXED <= len(data) and data[cst] >= ISO_REC_FIXED:
+                        isdir, ext = True, cst
+                        length = int.from_bytes(data[cst + 10:cst + 14], "little")
             full = (path + "/" + name) if path else name
-            out[(path, name)] = {"is_dir": isdir, "size": sz_l,
-                                 "start": lba_l * ISO_LBS}
+            out[(path, name)] = {"is_dir": isdir, "size": length,
+                                 "start": ext, "rr": rr,
+                                 "is_link": is_link and not isdir}
             # An extent already on the path to here is a cycle: record the
             # member, but never descend (it would name a new path each turn).
-            if isdir and (lba_l * ISO_LBS, sz_l) not in walked:
-                stack.append((full, lba_l * ISO_LBS, sz_l))
+            if isdir and (ext, length) not in walked:
+                stack.append((full, ext, length))
             pos += rl
     return out
 
@@ -2807,8 +2930,10 @@ def iso_verify(listing_text, data, src):
 
     Returns the record map when the listing and the ISO agree at every
     directory depth, else None with a FAIL.  Every listed directory must exist
-    on the ISO as a directory of the same size; every listed member must exist
-    as the same kind; a directory the listing omits FAILS (a subset listing
+    on the ISO as a directory; every listed member must exist as the same kind
+    (dir, file or symlink) and every regular file with the same size (xorriso
+    prints 0 for a directory, so directories are matched by name and member
+    set, not size); a directory the listing omits FAILS (a subset listing
     would silently skip a whole subtree, and the scan must see every byte the
     medium argument is about)."""
     recs = read_iso_records(data)
@@ -2822,6 +2947,7 @@ def iso_verify(listing_text, data, src):
     on_iso = {}
     for (parent, name) in recs:
         if name is None:
+            on_iso.setdefault(parent, {})   # an empty directory is still one
             continue
         on_iso.setdefault(parent, {})[name] = recs[(parent, name)]
     if set(lst) != set(on_iso):
@@ -2843,24 +2969,18 @@ def iso_verify(listing_text, data, src):
             return None
         for name, (kind, size) in sorted(listed.items()):
             rec = actual[name]
-            want = "dir" if rec["is_dir"] else "file"
+            want = ("dir" if rec["is_dir"]
+                    else "link" if rec.get("is_link") else "file")
             if want != kind:
                 fail(src, f"iso:{d or '/'}/{name}",
                      f"ISO has a {want} here but the listing says {kind}")
                 return None
-            if kind == "dir":
+            if kind in ("dir", "link"):
                 continue
             if size != rec["size"]:
                 fail(src, f"iso:{d or '/'}/{name}",
                      f"ISO extent is {rec['size']} bytes but the listing says {size}")
                 return None
-        # A directory's own size is the listing's cross-check on the walk.
-        dot = [size for name, kind, size in lst[d] if name == "."]
-        if dot and dot[0] not in (recs[(d, None)]["size"],):
-            fail(src, f"iso:{d or '/'}",
-                 f"ISO directory size {recs[(d, None)]['size']} != the listing's "
-                 f"{dot[0]}")
-            return None
     return recs
 
 
@@ -2924,17 +3044,24 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
             # read_iso_records() maps names to their ls(1) (lower-case) form, so
             # the two fixed spellings are matched case-insensitively here.
             low = rel.lower()
+            # The d-i index on a real netinst is Packages.gz only (no plain
+            # Packages): accept the compressed forms, which authorize_pool()
+            # reads through read_maybe_compressed().
+            base_low = low.rsplit("/", 1)[-1]
             if low.startswith("dists/") and not (
-                    low == "packages" or low.endswith("/packages")
-                    or low == "release" or low.endswith("/release")):
+                    base_low in ("packages", "release",
+                                 "packages.gz", "packages.xz")):
                 continue
-            if low.startswith("dists/") and "debian-installer" not in low:
-                # ECMA-119 d-characters have no '-': the stored form is
-                # DEBIAN_INSTALLER, which read_iso_records() maps to lower case.
-                if "debian_installer" not in low:
-                    continue       # the runtime closure is the mirror's job
+            # Every dists/ index, not only debian-installer's: a real netinst's
+            # /pool also carries the .debs that dists/<suite>/main/binary-<arch>
+            # lists, and authorize_pool(orphan_root=pool) reports any pool file
+            # no index lists -- exactly as the finished-image /cdrom gate does
+            # (it rglobs every Packages* under /dists).  Filtering to the d-i
+            # index turned every such .deb into an "orphan pool file".
             if low.startswith("pool/") and not low.endswith((".udeb", ".deb")):
                 continue
+            if r.get("is_link"):
+                continue           # a symlink's extent is not the target's bytes
             b = iso_member_bytes(data, r, src, rel)
             if b is None:
                 return total
@@ -2943,12 +3070,18 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
             # authorize_pool()'s rglob looks for "Packages*"/"Release", the
             # spelling the finished image carries, and the ECMA-119 records
             # store those names upper case.
-            parts = rel.lower().split("/")
-            base = parts[-1]
-            for stem in ("packages", "release"):
-                if base == stem or base.startswith(stem + "."):
-                    parts[-1] = stem.capitalize() + base[len(stem):]
-                    break
+            # A Rock Ridge name IS the real spelling (Packages.gz, mixed-case
+            # pool names): keep it.  Only a bare ECMA-119 record needs the
+            # lower-case + index-stem mapping above.
+            if r.get("rr"):
+                parts = rel.split("/")
+            else:
+                parts = rel.lower().split("/")
+                base = parts[-1]
+                for stem in ("packages", "release"):
+                    if base == stem or base.startswith(stem + "."):
+                        parts[-1] = stem.capitalize() + base[len(stem):]
+                        break
             dst = os.path.join(pool, *parts)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             with open(dst, "wb") as fh:
@@ -2973,7 +3106,7 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
               f"({len(auth)} package file(s))")
         # 2. every installer initrd: its udebs and its udpkg status.
         initrds = [(p + "/" + n if p else n, r) for (p, n), r in recs.items()
-                   if n is not None and not r["is_dir"]
+                   if n is not None and not r["is_dir"] and not r.get("is_link")
                    and n.lower().endswith(".gz") and initrd_candidate(n)]
         if not initrds:
             fail(src, iso, "substrate ISO carries no installer initrd (nothing to "
@@ -2994,8 +3127,8 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
 
 
 def scan_input_evidence(work, iso, src="iso"):
-    """--iso-evidence DIR: emit the `xorriso -ls` listing (the directories the
-    substrate scan reads) into DIR so a host without xorriso can run the SAME
+    """--iso-evidence DIR: emit the `xorriso -find / -exec lsdl` listing (the
+    whole tree, Rock Ridge names, sizes) into DIR so a host without xorriso can run the SAME
     check with --substrate-iso ISO --iso-listing DIR/iso-listing.txt.  The ISO
     must be present because xorriso reads it.  This WRITES a manifest; it
     renders no verdict, so it is the one mode that may pair --ubuntu-only with
@@ -3007,16 +3140,19 @@ def scan_input_evidence(work, iso, src="iso"):
         return 0
     os.makedirs(work, exist_ok=True)
     out = os.path.join(work, "iso-listing.txt")
-    chunk = []
-    for d in ("/", "/dists", "/pool"):
-        r = run(["xorriso", "-osirrox", "on", "-indev", iso, "-ls", d],
-                capture_output=True, text=True)
-        if r.returncode != 0:
-            fail(src, iso, f"xorriso -ls {d} failed: {(r.stderr or '').strip()[:200]}")
-            return 0
-        chunk.append(r.stdout)
-    with open(out, "w") as fh:
-        fh.write("\n".join(chunk))
+    # The whole tree in the one shape parse_iso_listing() reads: iso_verify()
+    # refuses a listing that omits any directory, so a per-directory `-ls`
+    # (short names, no sizes, no subtrees) can never verify.
+    r = run(["xorriso", "-indev", iso, "-find", "/", "-exec", "lsdl", "--"],
+            capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        fail(src, iso, f"xorriso -find / -exec lsdl failed: "
+                       f"{(r.stderr or '').strip()[-200:]}")
+        return 0
+    tmp = out + ".tmp"
+    with open(tmp, "w") as fh:
+        fh.write(ISO_LISTING_HEADER + "\n" + r.stdout)
+    os.replace(tmp, out)
     print(f"ISO-EVIDENCE  wrote {out}")
     return 0
 
@@ -3069,11 +3205,11 @@ def main():
                          "manifests/sid-exceptions.tsv and scan its installer "
                          "initrd (stage 25).  Needs no xorriso, no root, no mount")
     ap.add_argument("--iso-listing",
-                    help="with --substrate-iso: the `xorriso -ls` manifest for "
+                    help="with --substrate-iso: the `xorriso -find / -exec lsdl` manifest for "
                          "that ISO (see --iso-evidence).  Verified against the "
                          "ISO's own directory records before it is trusted.")
     ap.add_argument("--iso-evidence",
-                    help="write the `xorriso -ls` manifest for --substrate-iso "
+                    help="write the `xorriso -find / -exec lsdl` manifest for --substrate-iso "
                          "ISO into this directory (needs xorriso; for a host "
                          "without it)")
     a = ap.parse_args()

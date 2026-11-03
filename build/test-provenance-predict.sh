@@ -681,7 +681,9 @@ if command -v xorriso >/dev/null 2>&1; then
     rc=0; LAST="$(bash "$CHK" --root "$TR" --work "$WF" --index-dir "$IDX" \
         --arch amd64 --no-rootfs --substrate-iso "$T/trunc.iso" \
         --iso-evidence "$T/evr" --report "$T/rep.txt" 2>&1)" || rc=$?
-    if [ -f "$T/rep.txt" ] && ! grep -q 'trunc.iso ::' "$T/rep.txt"; then
+    # The evidence writer reports as [iso]; the verdict scan of the same file
+    # reports as [input:trunc.iso] and MUST stay (checked just below).
+    if [ -f "$T/rep.txt" ] && ! grep -q '\[iso\] .*trunc.iso ::' "$T/rep.txt"; then
         ok "--iso-evidence: the evidence-only run leaves no finding in --report"
     else
         bad "--iso-evidence leaked its own FAIL row into --report" "$(cat "$T/rep.txt" 2>/dev/null)"
