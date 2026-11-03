@@ -379,6 +379,65 @@ run_gate "arm64 dangling kernel pin -> overlay-modversions FAIL" \
     1 'verify-arm64-inputs: MISSING: overlay-modversions' \
     "NCZ_TARGET_ARCH=arm64 VERIFY_ROOT=$DANGLING_PIN"
 
+# Case B16: a prebuilt-deb kernel BOM (assets/kernel/mainline.debs, the r297
+# layout from build/stage-arm64-kernel.sh: Module.symvers at the top of the
+# derived dir, no headers-dir, no per-KVER overlays). The overlay classes must
+# not demand prebuilt .ko files (aipu/amvx/panthor/mali are DKMS-built on the
+# target); the four DKMS source debs must be present and pinned instead.
+# Without the BOM file the same tree still fails the overlay classes.
+if command -v dpkg-deb >/dev/null 2>&1; then
+    BOMK=7.3.1-sky1-ncz
+    mkbomdeb() { # <out.deb> <package> <version> <dkms-name> <dkms-version>
+        local w="$TMPROOT/bomdeb-$2"
+        rm -rf "$w"; mkdir -p "$w/DEBIAN" "$w/usr/src/$4-$5"
+        printf 'PACKAGE_NAME="%s"\nPACKAGE_VERSION="%s"\n' "$4" "$5" > "$w/usr/src/$4-$5/dkms.conf"
+        printf 'Package: %s\nVersion: %s\nArchitecture: all\nMaintainer: t <t@t>\nDescription: t\n' "$2" "$3" > "$w/DEBIAN/control"
+        dpkg-deb --build --root-owner-group "$w" "$1" >/dev/null
+    }
+    mkbom_root() {
+        local r="$1" d
+        mkpassing_root "$r"
+        rm -f "$r"/assets/cix-debs/cix-npu-driver-dkms_* "$r"/assets/cix-debs/cix-vpu-driver-dkms_* \
+              "$r"/assets/cix-debs/cix-gpu-kmd-dkms_* "$r"/assets/cix-debs/panthor-cix-dkms_*
+        mkbomdeb "$r/assets/cix-debs/cix-npu-driver-dkms_6.2.0+ncz3_arm64.deb" cix-npu-driver-dkms 6.2.0+ncz3 aipu 6.2.0
+        mkbomdeb "$r/assets/cix-debs/cix-vpu-driver-dkms_1.0.2-ncz1+ncz3_all.deb" cix-vpu-driver-dkms 1.0.2-ncz1+ncz3 cix-vpu-driver 1.0.2-ncz1
+        mkbomdeb "$r/assets/cix-debs/cix-gpu-kmd-dkms_1.0+ncz3_all.deb" cix-gpu-kmd-dkms 1.0+ncz3 cix-gpu-kmd 1.0
+        mkbomdeb "$r/assets/cix-debs/panthor-cix-dkms_7.2.0+ncz3_all.deb" panthor-cix-dkms 7.2.0+ncz3 panthor-cix 7.2.0
+        mkdir -p "$r/manifests" "$r/staging"
+        for d in "$r"/assets/cix-debs/*dkms_*.deb; do
+            printf '%s\t%s\tall\t%s\ttest\ttest\ttest\n' "$(dpkg-deb -f "$d" Package)" \
+                "$(dpkg-deb -f "$d" Version)" "$(sha256sum "$d" | awk '{print $1}')" >> "$r/manifests/ncz-packages.tsv"
+        done
+        printf '%s\n' "$BOMK" > "$r/staging/KVER"
+        printf '0x11111111\tfoo\tvmlinux\tEXPORT_SYMBOL\t\n' > "$r/staging/Module.symvers"
+        mkdir -p "$r/assets/kernel"; ln -s ../../staging "$r/assets/kernel/mainline"
+        printf 'KVER=%s\nPKGVERSION=%s+r297\n' "$BOMK" "$BOMK" > "$r/assets/kernel/mainline.debs"
+        printf '{"variants":{"mainline":{"kver":"%s"}}}\n' "$BOMK" > "$r/assets/kernel-manifest.json"
+    }
+    BOM_ROOT="$TMPROOT/bom"; mkbom_root "$BOM_ROOT"
+    run_gate "arm64 prebuilt kernel BOM, no overlays, DKMS debs pinned -> OK" \
+        0 'verify-arm64-inputs: OK .*overlay_crc=ok' \
+        "NCZ_TARGET_ARCH=arm64 VERIFY_ROOT=$BOM_ROOT"
+    BOM_SHA="$TMPROOT/bom-sha"; mkbom_root "$BOM_SHA"
+    sed -i "s/^\(cix-npu-driver-dkms\t[^\t]*\tall\t\)[0-9a-f]*/\1$(printf '0%.0s' $(seq 64))/" "$BOM_SHA/manifests/ncz-packages.tsv"
+    run_gate "arm64 BOM, aipu DKMS deb does not match its pin -> FAIL" \
+        1 'verify-arm64-inputs: MISSING: cix-debs\.dkms-source' \
+        "NCZ_TARGET_ARCH=arm64 VERIFY_ROOT=$BOM_SHA"
+    BOM_STALE="$TMPROOT/bom-stale"; mkbom_root "$BOM_STALE"
+    mkdir -p "$BOM_STALE/assets/kernel/panthor/$BOMK"
+    printf 'PACKAGE_NAME="panthor-cix"\nPACKAGE_VERSION="7.2.0"\n' > "$BOM_STALE/assets/kernel/panthor/dkms.conf"
+    printf '%064d\n' 0 > "$BOM_STALE/assets/kernel/panthor/$BOMK/SOURCE.sha256"
+    run_gate "arm64 BOM, an overlay dir that exists with a stale stamp -> FAIL" \
+        1 'verify-arm64-inputs: MISSING: overlay-source' \
+        "NCZ_TARGET_ARCH=arm64 VERIFY_ROOT=$BOM_STALE"
+    NOBOM="$TMPROOT/no-bom"; mkbom_root "$NOBOM"; rm -f "$NOBOM/assets/kernel/mainline.debs"
+    run_gate "arm64 same tree without the BOM file -> overlays still required" \
+        1 'verify-arm64-inputs: MISSING: overlay-modversions' \
+        "NCZ_TARGET_ARCH=arm64 VERIFY_ROOT=$NOBOM"
+else
+    echo "  FAIL  B16 BOM cases need dpkg-deb (not found)"; FAIL=$((FAIL+1))
+fi
+
 echo
 echo "=== arm64 gates test: PASS=$PASS FAIL=$FAIL ==="
 [ "$FAIL" -eq 0 ]

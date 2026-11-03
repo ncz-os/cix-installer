@@ -151,6 +151,134 @@ expect_ovl "no overlay dir for the pinned kernel -> FAIL" 1 'no overlay dir' "$R
 mkroot "$R"
 expect_ovl "no pinned kver -> SKIP, PASS" 0 'overlays: SKIP' "$R"
 
+# --- prebuilt kernel BOM (--bom): no per-KVER overlays, DKMS source debs pinned
+# A tree whose Sky1 kernel is the prebuilt-deb BOM (assets/kernel/mainline.debs)
+# ships no prebuilt accelerator overlays: aipu, amvx, panthor and mali are built
+# by DKMS on the target. --bom then requires the four DKMS source debs instead:
+# each present exactly once, its sha256 the single manifests/ncz-packages.tsv
+# row for its (Package, Version, Architecture), its dkms.conf coherent with the
+# deb version and with the BOM kernel. --overlays --bom accepts a missing
+# <kver>/ dir but still checks the stamp of any overlay dir that exists.
+BK=7.3.1-sky1-ncz
+
+# mkdkmsdeb <out.deb> <package> <version> <dkms-name> <dkms-version> [extra dkms.conf line]
+mkdkmsdeb() {
+    local out="$1" pkg="$2" ver="$3" dn="$4" dv="$5" extra="${6:-}"
+    local w="$WORK/pkg-$pkg"
+    rm -rf "$w"
+    mkdir -p "$w/DEBIAN" "$w/usr/src/$dn-$dv"
+    printf 'PACKAGE_NAME="%s"\nPACKAGE_VERSION="%s"\nAUTOINSTALL="yes"\n%s\n' "$dn" "$dv" "$extra" \
+        > "$w/usr/src/$dn-$dv/dkms.conf"
+    printf 'obj-m += %s.o\n' "$dn" > "$w/usr/src/$dn-$dv/Kbuild"
+    printf 'Package: %s\nVersion: %s\nArchitecture: all\nMaintainer: t <t@t>\nDescription: t\n' "$pkg" "$ver" \
+        > "$w/DEBIAN/control"
+    dpkg-deb --build --root-owner-group "$w" "$out" >/dev/null
+}
+
+# ledger <root>: (re)write manifests/ncz-packages.tsv from the staged debs.
+ledger() {
+    local r="$1" d
+    mkdir -p "$r/manifests"
+    printf '# name\tversion\tarch\tsha256\trecipe\tsource_revision\tnote\n' > "$r/manifests/ncz-packages.tsv"
+    for d in "$r"/assets/cix-debs/*.deb; do
+        printf '%s\t%s\t%s\t%s\ttest\ttest\ttest\n' \
+            "$(dpkg-deb -f "$d" Package)" "$(dpkg-deb -f "$d" Version)" \
+            "$(dpkg-deb -f "$d" Architecture)" "$(sha256sum "$d" | awk '{print $1}')" \
+            >> "$r/manifests/ncz-packages.tsv"
+    done
+}
+
+# mkbom <root>: the panthor asset tree plus a kernel BOM and all four DKMS debs,
+# every one of them in the ledger.
+mkbom() {
+    local r="$1"
+    mkroot "$r"
+    rm -rf "$r/assets/kernel/panthor/7.3.0-rc6-sky1-ncz"
+    printf 'KVER=%s\nPKGVERSION=%s+r297\n' "$BK" "$BK" > "$r/assets/kernel/mainline.debs"
+    printf '{"variants": {"mainline": {"kver": "%s"}}}\n' "$BK" > "$r/assets/kernel-manifest.json"
+    mkdeb "$r" "$r/assets/cix-debs/panthor-cix-dkms_7.2.0+ncz1_all.deb"
+    mkdkmsdeb "$r/assets/cix-debs/cix-gpu-kmd-dkms_1.0+ncz3_all.deb" cix-gpu-kmd-dkms 1.0+ncz3 cix-gpu-kmd 1.0
+    mkdkmsdeb "$r/assets/cix-debs/cix-vpu-driver-dkms_1.0.2-ncz1+ncz3_all.deb" cix-vpu-driver-dkms 1.0.2-ncz1+ncz3 cix-vpu-driver 1.0.2-ncz1
+    mkdkmsdeb "$r/assets/cix-debs/cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz3_arm64.deb" cix-npu-driver-dkms 6.2.0-cixdeb13-260714+ncz3 aipu 6.2.0
+    ledger "$r"
+}
+
+# expect_bom <label> <want_rc> <want_regex> <root> [extra gate args]
+expect_bom() {
+    local label="$1" want_rc="$2" pat="$3" root="$4" out rc=0
+    shift 4
+    out=$(python3 "$GATE" --root "$root" --bom "$@" 2>&1) || rc=$?
+    if [ "$rc" = "$want_rc" ] && printf '%s\n' "$out" | grep >/dev/null -E "$pat"; then
+        echo "PASS: $label"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL: $label (rc=$rc want=$want_rc, pattern '$pat')"
+        printf '%s\n' "$out" | sed 's/^/    /'
+        FAILED=$((FAILED + 1))
+    fi
+}
+
+mkbom "$R"
+expect_bom "BOM: four pinned DKMS source debs -> PASS" 0 'bom 7\.3\.1-sky1-ncz: PASS \(4 DKMS source debs' "$R"
+
+mkbom "$R"; rm -f "$R"/assets/cix-debs/cix-npu-driver-dkms_*.deb
+expect_bom "BOM: aipu DKMS deb missing -> FAIL" 1 'FAIL cix-npu-driver-dkms: no cix-npu-driver-dkms_\*\.deb' "$R"
+
+mkbom "$R"; rm -f "$R"/assets/cix-debs/cix-npu-driver-dkms_*.deb
+out=$(python3 "$GATE" --root "$R" 2>&1); rc=$?
+if [ "$rc" = 0 ]; then echo "PASS: no --bom: aipu deb absence is not this gate's job (unchanged)"; PASS=$((PASS + 1));
+else echo "FAIL: no --bom changed behavior (rc=$rc)"; printf '%s\n' "$out" | sed 's/^/    /'; FAILED=$((FAILED + 1)); fi
+
+mkbom "$R"
+mkdkmsdeb "$R/assets/cix-debs/cix-vpu-driver-dkms_1.0.2-ncz1+ncz3_all.deb" cix-vpu-driver-dkms 1.0.2-ncz1+ncz3 cix-vpu-driver 1.0.2-ncz1 '# rebuilt'
+expect_bom "BOM: amvx deb bytes differ from the ledger pin -> FAIL" 1 'FAIL cix-vpu-driver-dkms: .*sha256 [0-9a-f]{12}.* != manifests/ncz-packages\.tsv' "$R"
+
+mkbom "$R"; grep -v '^cix-gpu-kmd-dkms' "$R/manifests/ncz-packages.tsv" > "$R/l" && mv "$R/l" "$R/manifests/ncz-packages.tsv"
+expect_bom "BOM: mali DKMS deb not in the ledger -> FAIL" 1 'FAIL cix-gpu-kmd-dkms: .*: 0 manifests/ncz-packages\.tsv row' "$R"
+
+mkbom "$R"; cp "$R/assets/cix-debs/cix-gpu-kmd-dkms_1.0+ncz3_all.deb" "$R/assets/cix-debs/cix-gpu-kmd-dkms_1.0+ncz2_all.deb"
+expect_bom "BOM: two mali DKMS debs staged -> FAIL" 1 'FAIL cix-gpu-kmd-dkms: 2 cix-gpu-kmd-dkms debs staged' "$R"
+
+mkbom "$R"; mv "$R/assets/cix-debs/cix-gpu-kmd-dkms_1.0+ncz3_all.deb" "$R/assets/cix-debs/cix-gpu-kmd-dkms_1.0+ncz9_all.deb"
+expect_bom "BOM: file name version != control Version -> FAIL" 1 'FAIL cix-gpu-kmd-dkms: .*file name says 1\.0\+ncz9, control Version is 1\.0\+ncz3' "$R"
+
+mkbom "$R"
+mkdkmsdeb "$R/assets/cix-debs/cix-npu-driver-dkms_6.2.0-cixdeb13-260714+ncz3_arm64.deb" cix-npu-driver-dkms 6.2.0-cixdeb13-260714+ncz3 aipu 6.1.0
+ledger "$R"
+expect_bom "BOM: dkms.conf PACKAGE_VERSION not the deb's upstream version -> FAIL" 1 'FAIL cix-npu-driver-dkms: .*PACKAGE_VERSION 6\.1\.0' "$R"
+
+mkbom "$R"
+mkdkmsdeb "$R/assets/cix-debs/cix-vpu-driver-dkms_1.0.2-ncz1+ncz3_all.deb" cix-vpu-driver-dkms 1.0.2-ncz1+ncz3 cix-vpu-driver 1.0.2-ncz1 'BUILD_EXCLUSIVE_KERNEL="^7\.2\."'
+ledger "$R"
+expect_bom "BOM: BUILD_EXCLUSIVE_KERNEL excludes the BOM kernel -> FAIL" 1 'FAIL cix-vpu-driver-dkms: .*BUILD_EXCLUSIVE_KERNEL .* excludes 7\.3\.1-sky1-ncz' "$R"
+
+mkbom "$R"
+mkdkmsdeb "$R/assets/cix-debs/cix-vpu-driver-dkms_1.0.2-ncz1+ncz3_all.deb" cix-vpu-driver-dkms 1.0.2-ncz1+ncz3 cix-vpu-driver 1.0.2-ncz1 'BUILD_EXCLUSIVE_KERNEL="^7\.3\."'
+ledger "$R"
+expect_bom "BOM: BUILD_EXCLUSIVE_KERNEL that admits the BOM kernel -> PASS" 0 'bom 7\.3\.1-sky1-ncz: PASS' "$R"
+
+mkbom "$R"; printf '{"variants": {"mainline": {"kver": "7.3.0-sky1-ncz"}}}\n' > "$R/assets/kernel-manifest.json"
+expect_bom "BOM: KVER disagrees with kernel-manifest.json -> FAIL" 1 'mainline\.debs KVER 7\.3\.1-sky1-ncz != .*kernel-manifest\.json.* 7\.3\.0-sky1-ncz' "$R"
+
+mkbom "$R"; printf '/* newer */\n' >> "$R/assets/kernel/panthor/panthor_drv.c"
+expect_bom "BOM: panthor deb stale vs assets/kernel/panthor still -> FAIL" 1 'differ: panthor_drv\.c' "$R"
+
+mkroot "$R"
+expect_bom "--bom on a tree without assets/kernel/mainline.debs -> exit 2" 2 'requires assets/kernel/mainline\.debs' "$R"
+
+# --overlays --bom
+mkbom "$R"
+expect_bom "BOM overlays: no <kver>/ dir -> SKIP, PASS (DKMS on the target)" 0 \
+    "SKIP panthor: no prebuilt overlay assets/kernel/panthor/$BK/" "$R" --driver panthor --overlays
+mkbom "$R"
+expect_ovl "no --bom: no overlay dir for the BOM kernel still FAILs (unchanged)" 1 'no overlay dir' "$R"
+mkbom "$R"; mkdir -p "$R/assets/kernel/panthor/$BK"; printf 'ELF' > "$R/assets/kernel/panthor/$BK/panthor.ko"
+expect_bom "BOM overlays: an overlay dir without SOURCE.sha256 -> FAIL" 1 'SOURCE\.sha256 missing' "$R" --driver panthor --overlays
+mkbom "$R"; mkdir -p "$R/assets/kernel/panthor/$BK"
+python3 "$GATE" --root "$R" --source-digest panthor > "$R/assets/kernel/panthor/$BK/SOURCE.sha256"
+printf '/* changed */\n' >> "$R/assets/kernel/panthor/panthor_drv.c"
+expect_bom "BOM overlays: an overlay dir built from other source -> FAIL" 1 'built from other source' "$R" --driver panthor --overlays
+
 echo "---"
 echo "passed=$PASS failed=$FAILED"
 [ "$FAILED" -eq 0 ]
