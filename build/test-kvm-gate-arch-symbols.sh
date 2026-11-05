@@ -38,9 +38,13 @@ mkcfg() { # <path> <iso9660-value> <collider: yes|no>
 : > "$TMP/dummy-image"   # never booted: GATE_SKIP_BOOT=1 stops after the lint
 
 # run <arch> <config> -> exit code, output in $TMP/out
+# Lint-only mode exits 3 (deliberately not 0 — see the gate). Treat 3 as "lint passed"
+# for these checks, and assert below that 0 never happens in this mode.
 run() {
   GATE_ARCH="$1" GATE_SKIP_BOOT=1 bash "$GATE" "$TMP/dummy-image" "$2" > "$TMP/out" 2>&1
-  return $?
+  rc=$?
+  [ "$rc" = 3 ] && return 0
+  return "$rc"
 }
 
 check_pass() { # <desc> <arch> <iso> <collider>
@@ -89,6 +93,13 @@ eq tcg "$(gate_accel amd64 aarch64 1)" "amd64 guest on arm64 host: tcg (cross-ar
 eq kvm "$(gate_accel amd64 x86_64 1)" "amd64 guest on x86 host: kvm"
 eq kvm "$(gate_accel arm64 aarch64 1)" "arm64 guest on arm64 host: kvm"
 eq tcg "$(gate_accel amd64 x86_64 0)" "amd64 guest on x86 host without /dev/kvm: tcg"
+
+# --- lint-only mode must not be mistakable for a gate pass (review finding) --------
+mkcfg "$TMP/c" "y" "no"
+GATE_ARCH=amd64 GATE_SKIP_BOOT=1 bash "$GATE" "$TMP/dummy-image" "$TMP/c" > "$TMP/out" 2>&1
+rc=$?
+if [ "$rc" = 3 ]; then ok "lint-only exits 3, not 0 (cannot be read as a pass)"; else bad "lint-only exited $rc, expected 3"; fi
+if grep -qi "not a gate pass" "$TMP/out"; then ok "lint-only says it is not a gate pass"; else bad "lint-only output still claims a pass"; fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -151,10 +151,12 @@ else
 fi
 echo "  accel=$ACCEL cpu=$CPU qemu=$QEMU timeout=${TIMEOUT}s"
 
-# Test hook: GATE_SKIP_BOOT=1 stops here so the lint can be proven on its own.
+# Test hook: GATE_SKIP_BOOT=1 stops after the lint so it can be proven on its own.
+# It exits **3**, never 0: this mode proves the config rules only and must not be
+# readable as a gate pass, because the kernel was never booted.
 if [ "${GATE_SKIP_BOOT:-0}" = "1" ]; then
-  echo "lint: PASS (boot skipped by GATE_SKIP_BOOT=1)"
-  exit 0
+  echo "lint: PASS (boot gate NOT run; exit 3 is not a gate pass)"
+  exit 3
 fi
 
 # ---------------------------------------------------------------------------
