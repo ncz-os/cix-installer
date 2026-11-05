@@ -39,6 +39,21 @@ CONFIG="${2:-}"
 TIMEOUT="${GATE_TIMEOUT:-120}"
 LOG="$(mktemp "${TMPDIR:-/tmp}/kvm-kernel-gate.XXXXXX.log")"
 
+# Accelerator policy, in one place so the test suite can exercise every combination.
+# KVM only when the guest architecture matches this host: a cross-arch boot under KVM
+# fails on the accelerator and looks like a bad kernel.
+gate_accel() { # <karch> <host-arch> <kvm-readable: 1|0>
+  if [ "$3" = "1" ]; then
+    case "$1:$2" in
+      arm64:aarch64|amd64:x86_64) echo kvm; return 0 ;;
+    esac
+  fi
+  echo tcg
+}
+
+# Sourced (by build/test-kvm-gate-arch-symbols.sh): define the policy and stop.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0 2>/dev/null || exit 0; fi
+
 if [ -z "$CONFIG" ]; then
   CONFIG="$(ls "$(dirname "$IMAGE")"/config-* 2>/dev/null | head -1)"
 fi
@@ -125,12 +140,8 @@ fi
 # KVM only when the guest architecture matches this host: cross-arch boot must use TCG,
 # otherwise an arm64 image on an x86 host fails on the accelerator and looks like a bad kernel.
 HOST_ARCH="$(uname -m)"
-ACCEL="tcg"
-if [ -r /dev/kvm ]; then
-  case "$KARCH:$HOST_ARCH" in
-    arm64:aarch64|amd64:x86_64) ACCEL="kvm" ;;
-  esac
-fi
+KVM_READABLE=0; [ -r /dev/kvm ] && KVM_READABLE=1
+ACCEL="$(gate_accel "$KARCH" "$HOST_ARCH" "$KVM_READABLE")"
 if [ "$KARCH" = arm64 ]; then
   QEMU=qemu-system-aarch64; MACH="-M virt"; CONSOLE="console=ttyAMA0"
   CPU="cortex-a72"; [ "$ACCEL" = kvm ] && CPU="host"

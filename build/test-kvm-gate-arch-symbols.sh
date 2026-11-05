@@ -78,5 +78,17 @@ mkcfg "$TMP/c" "y" "no"
 grep -v "CONFIG_DEVTMPFS_MOUNT" "$TMP/c" > "$TMP/c2" && mv "$TMP/c2" "$TMP/c"
 if run arm64 "$TMP/c"; then bad "arm64 without DEVTMPFS_MOUNT must fail"; else ok "arm64 without DEVTMPFS_MOUNT fails"; fi
 
+# --- accelerator policy, all combinations (no qemu involved) ----------------------
+# shellcheck disable=SC1090  # the gate returns immediately when sourced
+. ./build/kvm-kernel-gate.sh >/dev/null 2>&1
+eq() { # <expected> <actual> <desc>
+  if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (got $2, want $1)"; fi
+}
+eq tcg "$(gate_accel arm64 x86_64 1)" "arm64 guest on x86 host: tcg (cross-arch)"
+eq tcg "$(gate_accel amd64 aarch64 1)" "amd64 guest on arm64 host: tcg (cross-arch)"
+eq kvm "$(gate_accel amd64 x86_64 1)" "amd64 guest on x86 host: kvm"
+eq kvm "$(gate_accel arm64 aarch64 1)" "arm64 guest on arm64 host: kvm"
+eq tcg "$(gate_accel amd64 x86_64 0)" "amd64 guest on x86 host without /dev/kvm: tcg"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
