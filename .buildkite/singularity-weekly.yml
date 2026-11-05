@@ -1,0 +1,218 @@
+# Weekly Singularity Desktop head build — both arches, no publish.
+#
+# TASK S step 4. DESIGN ONLY: committing this file creates nothing. A human
+# creates the pipeline (or uploads these steps) and applies the schedule; see
+# docs/SINGULARITY-WEEKLY-CI.md for the exact API call and the approval path.
+#
+# Queues (verified 2026-11-05): `arm64` exists (ULTRA agent tags
+# queue=arm64,os=linux,arch=arm64,host=ultra88). There is NO amd64 Buildkite
+# agent on HYDRA or TYPHON today, so the amd64 steps declare queue `amd64` and
+# stay blocked until that agent exists — they must not silently fall back to
+# an arm64 agent, because build-singularity.sh builds natively for the host.
+#
+# Every `$$` below is a runtime shell expansion (Buildkite interpolates a bare
+# $ at upload time, before the shell runs).
+steps:
+  - group: ":arrows_counterclockwise: resolve upstream"
+    steps:
+      - label: ":mag: refresh sources and record the pins table"
+        key: refresh
+        agents:
+          queue: "arm64"
+        timeout_in_minutes: 25
+        artifact_paths:
+          - "ncz-weekly/pins-*.tsv"
+        command: |
+          set -euo pipefail
+          W="$${PWD}/ncz-weekly"; mkdir -p "$$W"
+          export TMPDIR="$$W/tmp"; mkdir -p "$$TMPDIR"   # ext4 work dir, never a tmpfs
+          # Current upstream heads in the same row shape as the committed pins.
+          bash build/singularity-pins.sh propose > "$$W/pins-latest.tsv"
+          awk -F'\t' '!/^#/ && NF>=4 {print $$1"\t"$$4}' \
+            assets/singularity/upstream-pins.tsv | sort > "$$W/pins-repo-sorted.tsv"
+          awk -F'\t' '!/^#/ && NF>=4 {print $$1"\t"$$4}' \
+            "$$W/pins-latest.tsv" | sort > "$$W/pins-latest-sorted.tsv"
+          join -t "$$(printf '\t')" "$$W/pins-repo-sorted.tsv" "$$W/pins-latest-sorted.tsv" \
+            | awk -F'\t' '$$2 != $$3' > "$$W/pins-moved.tsv" || true
+          moved="$$(wc -l < "$$W/pins-moved.tsv")"
+          echo "pins moved versus the committed set: $$moved"
+          {
+            echo "### Weekly Singularity pins"
+            echo ""
+            echo "Committed pins: $$(grep -vcE '^#|^$$' assets/singularity/upstream-pins.tsv) rows; moved at this run: **$$moved**"
+            echo ""
+            echo '```'
+            head -40 "$$W/pins-moved.tsv" || true
+            echo '```'
+          } > "$$W/annotation.md"
+          buildkite-agent annotate --style info --context ncz-pins < "$$W/annotation.md"
+
+      - label: ":shield: patch queue still applies to the heads"
+        key: reconcile
+        depends_on: refresh
+        agents:
+          queue: "arm64"
+        timeout_in_minutes: 30
+        command: |
+          set -euo pipefail
+          export TMPDIR="$${PWD}/ncz-weekly/tmp"; mkdir -p "$$TMPDIR"
+          bash build/singularity-pins.sh validate
+          # Fails loudly, naming each patch and commit, when a downstream patch
+          # no longer applies. A failure here is the signal to reconcile or
+          # retire a patch, NOT to skip the build.
+          bash build/singularity-pins.sh check-patches
+
+  - group: ":hammer: build (one build per arch, in parallel)"
+    steps:
+      - label: ":penguin: build payload + deb (amd64)"
+        key: build_amd64
+        depends_on: reconcile
+        agents:
+          queue: "amd64"
+        timeout_in_minutes: 240
+        artifact_paths:
+          - "ncz-weekly/amd64/**"
+        command: |
+          set -euo pipefail
+          W="$${PWD}/ncz-weekly/amd64"; mkdir -p "$$W"
+          export TMPDIR="$$W/tmp"; mkdir -p "$$TMPDIR"
+          export SOURCE_DATE_EPOCH="$${SOURCE_DATE_EPOCH:-$$(date +%s)}"
+          export NCZ_SINGULARITY_ARCH=amd64
+          export NCZ_SINGULARITY_PINS="$${PWD}/assets/singularity/upstream-pins.tsv"
+          export NCZ_SINGULARITY_WORK_DIR="$$W/work"
+          bash build/build-singularity.sh 2>&1 | tee "$$W/build.log"
+          NCZ_SINGULARITY_BUILD_TS="$$(date -u -d "@$$SOURCE_DATE_EPOCH" +%Y%m%d%H%M%S)" \
+            bash build/build-singularity-deb.sh build/sinty-out/singularity-opt.tgz
+          cp build/sinty-out/singularity-opt.tgz build/sinty-out/singularity-opt.tgz.depends \
+             build/sinty-out/singularity-opt.tgz.sources build/sinty-out/ncz-singularity-desktop_*_amd64.deb \
+             "$$W"/ 2>/dev/null || true
+
+      - label: ":apple: build payload + deb (arm64)"
+        key: build_arm64
+        depends_on: reconcile
+        agents:
+          queue: "arm64"
+        timeout_in_minutes: 240
+        artifact_paths:
+          - "ncz-weekly/arm64/**"
+        command: |
+          set -euo pipefail
+          W="$${PWD}/ncz-weekly/arm64"; mkdir -p "$$W"
+          export TMPDIR="$$W/tmp"; mkdir -p "$$TMPDIR"
+          export SOURCE_DATE_EPOCH="$${SOURCE_DATE_EPOCH:-$$(date +%s)}"
+          export NCZ_SINGULARITY_ARCH=arm64
+          export NCZ_SINGULARITY_PINS="$${PWD}/assets/singularity/upstream-pins.tsv"
+          export NCZ_SINGULARITY_WORK_DIR="$$W/work"
+          bash build/build-singularity.sh 2>&1 | tee "$$W/build.log"
+          NCZ_SINGULARITY_BUILD_TS="$$(date -u -d "@$$SOURCE_DATE_EPOCH" +%Y%m%d%H%M%S)" \
+            bash build/build-singularity-deb.sh build/sinty-out/singularity-opt.tgz
+          cp build/sinty-out/singularity-opt.tgz build/sinty-out/singularity-opt.tgz.depends \
+             build/sinty-out/singularity-opt.tgz.sources build/sinty-out/ncz-singularity-desktop_*_arm64.deb \
+             "$$W"/ 2>/dev/null || true
+
+  - group: ":white_check_mark: checks (per arch)"
+    steps:
+      - label: ":microscope: checks (amd64)"
+        key: checks_amd64
+        depends_on: build_amd64
+        agents:
+          queue: "amd64"
+        timeout_in_minutes: 30
+        command: |
+          set -euo pipefail
+          W="$${PWD}/ncz-weekly/amd64"
+          buildkite-agent artifact download "ncz-weekly/amd64/**" . 2>/dev/null || true
+          # 1. the internal gates ran inside the build (they abort the build when
+          #    they fail; assert the markers so a silent skip is visible).
+          grep -q "^== done ==$$" "$$W/build.log" || { echo "FATAL: build did not reach == done =="; exit 1; }
+          grep -q "scenefx: OK -- no quoted #error remains" "$$W/build.log" \
+            || { echo "FATAL: scenefx shader gate did not report OK"; exit 1; }
+          # 2. the deb is well formed and carries the payload's soname.
+          deb="$$(ls "$$W"/ncz-singularity-desktop_*_amd64.deb | head -1)"
+          [ -s "$$deb" ] || { echo "FATAL: no payload deb"; exit 1; }
+          [ "$$(dpkg-deb -f "$$deb" Architecture)" = amd64 ]
+          dpkg-deb --fsys-tarfile "$$deb" | tar -t | grep -qx "./opt/singularity/lib/libsingularity.so.0"
+          dpkg-deb --fsys-tarfile "$$deb" | tar -t | grep -qx "./opt/singularity/bin/singularity-desktop"
+          [ -n "$$(dpkg-deb -f "$$deb" Depends)" ] || { echo "FATAL: empty Depends"; exit 1; }
+          [ -s "$$W/singularity-opt.tgz.depends" ] || { echo "FATAL: missing .depends sidecar"; exit 1; }
+          # 3. ABI drift report (informational): a moved libsingularity means the
+          #    screensaver plugin must be relinked before an image ships with it.
+          libsha="$$(dpkg-deb --fsys-tarfile "$$deb" | tar -xO ./opt/singularity/lib/libsingularity.so.0.1.0 2>/dev/null | sha256sum | cut -d' ' -f1)"
+          locked="$$(sed -n 's/^NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_amd64=//p' post-install/lib/ncz-screensavers-plugin.lock)"
+          if [ "$$libsha" = "$$locked" ]; then
+            echo "ABI: libsingularity matches the plugin lock — no relink needed"
+          else
+            echo "ABI DRIFT: payload libsingularity $$libsha != plugin lock $$locked — relink the plugin before shipping"
+            printf '### ABI drift (amd64)\n\nlibsingularity moved: `%s` -> `%s`.\nThe screensaver plugin must be rebuilt against this payload before an image ships it (see docs/SINGULARITY-WEEKLY-CI.md).\n' "$$locked" "$$libsha" \
+              > "$$W/abi.md"
+            buildkite-agent annotate --style warning --context ncz-abi-amd64 < "$$W/abi.md"
+          fi
+
+      - label: ":microscope: checks (arm64)"
+        key: checks_arm64
+        depends_on: build_arm64
+        agents:
+          queue: "arm64"
+        timeout_in_minutes: 30
+        command: |
+          set -euo pipefail
+          W="$${PWD}/ncz-weekly/arm64"
+          buildkite-agent artifact download "ncz-weekly/arm64/**" . 2>/dev/null || true
+          grep -q "^== done ==$$" "$$W/build.log" || { echo "FATAL: build did not reach == done =="; exit 1; }
+          grep -q "scenefx: OK -- no quoted #error remains" "$$W/build.log" \
+            || { echo "FATAL: scenefx shader gate did not report OK"; exit 1; }
+          deb="$$(ls "$$W"/ncz-singularity-desktop_*_arm64.deb | head -1)"
+          [ -s "$$deb" ] || { echo "FATAL: no payload deb"; exit 1; }
+          [ "$$(dpkg-deb -f "$$deb" Architecture)" = arm64 ]
+          dpkg-deb --fsys-tarfile "$$deb" | tar -t | grep -qx "./opt/singularity/lib/libsingularity.so.0"
+          dpkg-deb --fsys-tarfile "$$deb" | tar -t | grep -qx "./opt/singularity/bin/singularity-desktop"
+          [ -n "$$(dpkg-deb -f "$$deb" Depends)" ] || { echo "FATAL: empty Depends"; exit 1; }
+          [ -s "$$W/singularity-opt.tgz.depends" ] || { echo "FATAL: missing .depends sidecar"; exit 1; }
+          libsha="$$(dpkg-deb --fsys-tarfile "$$deb" | tar -xO ./opt/singularity/lib/libsingularity.so.0.1.0 2>/dev/null | sha256sum | cut -d' ' -f1)"
+          locked="$$(sed -n 's/^NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_arm64=//p' post-install/lib/ncz-screensavers-plugin.lock)"
+          if [ "$$libsha" = "$$locked" ]; then
+            echo "ABI: libsingularity matches the plugin lock — no relink needed"
+          else
+            echo "ABI DRIFT: payload libsingularity $$libsha != plugin lock $$locked — relink the plugin before shipping"
+            printf '### ABI drift (arm64)\n\nlibsingularity moved: `%s` -> `%s`.\nThe screensaver plugin must be rebuilt against this payload before an image ships it (see docs/SINGULARITY-WEEKLY-CI.md).\n' "$$locked" "$$libsha" \
+              > "$$W/abi.md"
+            buildkite-agent annotate --style warning --context ncz-abi-arm64 < "$$W/abi.md"
+          fi
+
+  - label: ":arrow_up: upload artifacts to ARGONAS (never publish)"
+    key: upload
+    depends_on:
+      - checks_amd64
+      - checks_arm64
+    agents:
+      queue: "arm64"
+    timeout_in_minutes: 20
+    command: |
+      set -euo pipefail
+      DEST="/mnt/datapool/projects/ncz-singularity-weekly/$${BUILDKITE_BUILD_NUMBER}"
+      mkdir -p ncz-upload
+      buildkite-agent artifact download "ncz-weekly/**" .
+      tar -czf ncz-upload/weekly-$${BUILDKITE_BUILD_NUMBER}.tgz ncz-weekly
+      scp -o BatchMode=yes ncz-upload/weekly-$${BUILDKITE_BUILD_NUMBER}.tgz \
+        jasonperlow@192.168.207.101:"$$DEST"/
+      ssh -o BatchMode=yes jasonperlow@192.168.207.101 \
+        "cd $$DEST && sha256sum weekly-$${BUILDKITE_BUILD_NUMBER}.tgz | tee SHA256SUMS"
+
+  - label: ":memo: summary"
+    key: summary
+    depends_on: upload
+    agents:
+      queue: "arm64"
+    command: |
+      set -euo pipefail
+      {
+        echo "### Singularity weekly — build #$${BUILDKITE_BUILD_NUMBER}"
+        echo ""
+        echo "- pins: \`pins-latest.tsv\` artifact (moved rows in the ncz-pins annotation)"
+        echo "- patch queue: applied (see reconcile step)"
+        echo "- artifacts: ARGONAS \`/mnt/datapool/projects/ncz-singularity-weekly/$${BUILDKITE_BUILD_NUMBER}/\`"
+        echo "- **not published**: no apt repo, no R2, no image build"
+        echo ""
+        echo "Publishing needs a human: see docs/SINGULARITY-WEEKLY-CI.md."
+      } > summary.md
+      buildkite-agent annotate --style success --context ncz-summary < summary.md
