@@ -122,6 +122,24 @@ if [ "$KARCH" = amd64 ]; then
 fi
 [ "$lint_rc" -eq 0 ] || fail "config lint rejected this kernel"
 
+# KVM only when the guest architecture matches this host: cross-arch boot must use TCG,
+# otherwise an arm64 image on an x86 host fails on the accelerator and looks like a bad kernel.
+HOST_ARCH="$(uname -m)"
+ACCEL="tcg"
+if [ -r /dev/kvm ]; then
+  case "$KARCH:$HOST_ARCH" in
+    arm64:aarch64|amd64:x86_64) ACCEL="kvm" ;;
+  esac
+fi
+if [ "$KARCH" = arm64 ]; then
+  QEMU=qemu-system-aarch64; MACH="-M virt"; CONSOLE="console=ttyAMA0"
+  CPU="cortex-a72"; [ "$ACCEL" = kvm ] && CPU="host"
+else
+  QEMU=qemu-system-x86_64; MACH=""; CONSOLE="console=ttyS0"
+  CPU="max"; [ "$ACCEL" = kvm ] && CPU="host"
+fi
+echo "  accel=$ACCEL cpu=$CPU qemu=$QEMU timeout=${TIMEOUT}s"
+
 # Test hook: GATE_SKIP_BOOT=1 stops here so the lint can be proven on its own.
 if [ "${GATE_SKIP_BOOT:-0}" = "1" ]; then
   echo "lint: PASS (boot skipped by GATE_SKIP_BOOT=1)"
@@ -138,16 +156,6 @@ fi
 # PASS marker; any other panic, oops, or internal error is a failure.
 # ---------------------------------------------------------------------------
 echo "--- boot under qemu ---"
-ACCEL="tcg"
-[ -r /dev/kvm ] && ACCEL="kvm"
-if [ "$KARCH" = arm64 ]; then
-  QEMU=qemu-system-aarch64; MACH="-M virt"; CONSOLE="console=ttyAMA0"
-  CPU="cortex-a72"; [ "$ACCEL" = kvm ] && [ "$(uname -m)" = aarch64 ] && CPU="host"
-else
-  QEMU=qemu-system-x86_64; MACH=""; CONSOLE="console=ttyS0"
-  CPU="max"; [ "$ACCEL" = kvm ] && CPU="host"
-fi
-echo "  accel=$ACCEL cpu=$CPU qemu=$QEMU timeout=${TIMEOUT}s"
 
 # -nic none: the default virt NIC wants an efi-virtio.rom this host does not
 # ship, and qemu exits rc=1 before the kernel ever runs. Without it the gate
