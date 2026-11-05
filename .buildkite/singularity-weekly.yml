@@ -193,6 +193,9 @@ steps:
       mkdir -p ncz-upload
       buildkite-agent artifact download "ncz-weekly/**" .
       tar -czf ncz-upload/weekly-$${BUILDKITE_BUILD_NUMBER}.tgz ncz-weekly
+      # The destination is per-build and does not exist on a first run: create it
+      # remotely before the copy, or scp fails on a missing directory.
+      ssh -o BatchMode=yes jasonperlow@192.168.207.101 "mkdir -p $$DEST"
       scp -o BatchMode=yes ncz-upload/weekly-$${BUILDKITE_BUILD_NUMBER}.tgz \
         jasonperlow@192.168.207.101:"$$DEST"/
       ssh -o BatchMode=yes jasonperlow@192.168.207.101 \
