@@ -125,7 +125,45 @@ PLAN
             echo "substrate-ci: $missing resolver tool(s) missing - the plan names what the tree does not have" >&2
             exit 4
         fi
-        echo "---- stage 1 plan is complete; resolution itself is not implemented yet"
+
+        # Singularity is the one resolver cheap enough to run inline: one clone plus
+        # ls-remotes. Resolving candidates is read-only - moving a pin is stage 3.
+        echo
+        echo "== singularity: candidate heads vs our pins =="
+        _cand="$(mktemp "${TMPDIR:-/tmp}/ncz-resolve.XXXXXX")" || exit 1
+        if TMPDIR="${TMPDIR:-/tmp}" bash "$ROOT/build/singularity-pins.sh" propose > "$_cand" 2>/dev/null; then
+            python3 -I - "$ROOT/assets/singularity/upstream-pins.tsv" "$_cand" <<'PYEOF'
+import sys
+cur_path, cand_path = sys.argv[1], sys.argv[2]
+
+def read(p):
+    out = {}
+    for line in open(p, encoding="utf-8", errors="replace"):
+        if line.startswith("#") or not line.strip():
+            continue
+        f = line.rstrip("\n").split("\t")
+        if len(f) >= 4:
+            out[f[0]] = {"url": f[1], "branch": f[2], "sha": f[3]}
+    return out
+
+cur, cand = read(cur_path), read(cand_path)
+moved = []
+for path, c in sorted(cand.items()):
+    if path not in cur:
+        moved.append((path, "NEW", c["sha"][:12]))
+    elif cur[path]["sha"] != c["sha"]:
+        moved.append((path, cur[path]["sha"][:12], c["sha"][:12]))
+print("%d candidate rows, %d differ from the pins" % (len(cand), len(moved)))
+for path, a, b in moved[:12]:
+    print("  %-40s %s -> %s" % (path[:40], a, b))
+if len(moved) > 12:
+    print("  ... and %d more" % (len(moved) - 12))
+PYEOF
+        else
+            echo "  WARN: propose failed; the singularity candidates are unknown this run"
+        fi
+        rm -f "$_cand"
+        echo "---- resolution is read-only; other subsystems are still TODO"
         exit 0
         ;;
 
