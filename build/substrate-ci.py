@@ -26,6 +26,7 @@ what matters, and no pin motion happens either way.
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -338,6 +339,88 @@ def rehearse(spec, automerge=False, min_coverage=99.0, max_delta=150,
             "proof": proof, "gates": gates, "delta": delta}
 
 
+# --- stage 1 input: the current pin inventory -------------------------------
+
+def read_pins(root):
+    """Read what the tree is pinned TO, as structured data.
+
+    Stage 1 has to compare candidates against the current pins, so the current pins
+    need one machine-readable shape rather than four formats parsed ad hoc. This reads
+    only; nothing here decides anything.
+
+    Returns {forky: {snapshot, arches}, runtime: {...}, payload: {arch: {...}},
+             singularity: {superproject, count}, sources: {file: found|missing}}
+    """
+    out = {"forky": {"snapshot": None, "arches": {}},
+           "runtime": {}, "payload": {}, "singularity": {}, "sources": {}}
+
+    def path(rel):
+        return os.path.join(root, rel)
+
+    # manifests/base.pin: arch 	 substrate 	 date 	 snapshot 	 coverage 	 iso
+    bp = path("manifests/base.pin")
+    if os.path.exists(bp):
+        out["sources"]["base.pin"] = "found"
+        for line in open(bp, encoding="utf-8", errors="replace"):
+            if line.startswith("#") or not line.strip():
+                continue
+            f = line.rstrip("\n").split("\t")
+            if len(f) >= 5:
+                out["forky"]["arches"][f[0]] = {"substrate": f[1], "snapshot": f[3],
+                                                "coverage": f[4]}
+                out["forky"]["snapshot"] = out["forky"]["snapshot"] or f[3]
+    else:
+        out["sources"]["base.pin"] = "missing"
+
+    # release.conf: shell assignments
+    rc = path("release.conf")
+    if os.path.exists(rc):
+        out["sources"]["release.conf"] = "found"
+        for line in open(rc, encoding="utf-8", errors="replace"):
+            m = re.match(r'^NCZ_BASE_MIRROR_SNAPSHOT="?([^"\n]*)"?', line)
+            if m:
+                out["forky"]["snapshot"] = m.group(1)
+            for key, name in (("NCZ_LIBDRM_NCZ_REV", "libdrm"),
+                              ("NCZ_DKMS_DEB_REV", "dkms")):
+                m = re.match(r'^%s="?([^"\n]*)"?' % key, line)
+                if m:
+                    out["runtime"][name] = m.group(1)
+    else:
+        out["sources"]["release.conf"] = "missing"
+
+    # manifests/singularity-payload.tsv: arch \t sha256 \t deb
+    sp = path("manifests/singularity-payload.tsv")
+    if os.path.exists(sp):
+        out["sources"]["singularity-payload.tsv"] = "found"
+        for line in open(sp, encoding="utf-8", errors="replace"):
+            if line.startswith("#") or not line.strip():
+                continue
+            f = line.rstrip("\n").split("\t")
+            if len(f) == 3:
+                out["payload"][f[0]] = {"sha256": f[1], "deb": f[2]}
+    else:
+        out["sources"]["singularity-payload.tsv"] = "missing"
+
+    # assets/singularity/upstream-pins.tsv: path \t url \t branch \t sha
+    up = path("assets/singularity/upstream-pins.tsv")
+    if os.path.exists(up):
+        out["sources"]["upstream-pins.tsv"] = "found"
+        count = 0
+        for line in open(up, encoding="utf-8", errors="replace"):
+            if line.startswith("#") or not line.strip():
+                continue
+            f = line.rstrip("\n").split("\t")
+            if len(f) == 4:
+                count += 1
+                if f[0] == ".":
+                    out["singularity"]["superproject"] = {"sha": f[3], "branch": f[2]}
+        out["singularity"]["count"] = count
+    else:
+        out["sources"]["upstream-pins.tsv"] = "missing"
+
+    return out
+
+
 # --- stage 3: transactional pin move + changelog ----------------------------
 
 def apply_pin_move(root, changes, replace=None):
@@ -532,6 +615,11 @@ def _cmd_rehearse(args):
     return 0 if out["decision"] == "auto-merge" else 0
 
 
+def _cmd_pins(args):
+    print(json.dumps(read_pins(args.root), indent=2, sort_keys=True))
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="automatic substrate CI decision core")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -580,6 +668,11 @@ def main(argv=None):
     rh.add_argument("--max-delta", type=int,
                     default=int(os.environ.get("NCZ_CI_MAX_PKG_DELTA", "150")))
     rh.set_defaults(func=_cmd_rehearse)
+
+    pn = sub.add_parser("pins", help="read the current pin inventory as JSON")
+    pn.add_argument("--root", default=os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))
+    pn.set_defaults(func=_cmd_pins)
 
     r = sub.add_parser("retention", help="stage 8: what to keep and what to prune")
     r.add_argument("spec", help="JSON: {\"items\": [...], \"validated\": name, \"keep_candidates\": 1}")
