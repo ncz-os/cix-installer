@@ -37,13 +37,13 @@ printf '{"forky.stamp":"20200101T000000Z"}' > "$NCZ_IMAGE_CI_STATE"
 # 1. dry run plans the image build and starts nothing
 out="$(cd "$HERE/.." && bash "$RUN" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && ok "dry run exits 0" || nok "dry run exited $rc"
-printf '%s' "$out" | grep -q 'forky-pin.*WOULD RUN' \
+printf '%s' "$out" | grep  'forky-pin.*WOULD RUN' >/dev/null \
     && ok "dry run names the forky trigger and the command" \
     || nok "dry run did not plan the forky trigger: $(printf '%s' "$out" | head -3)"
-printf '%s' "$out" | grep -q 'build/build-image.sh' \
+printf '%s' "$out" | grep  'build/build-image.sh' >/dev/null \
     && ok "the planned command is the documented image build" \
     || nok "the planned command is not build-image.sh"
-printf '%s' "$out" | grep -q 'no-publish' \
+printf '%s' "$out" | grep  'no-publish' >/dev/null \
     && ok "the planned command carries --no-publish" \
     || nok "the planned command does not carry --no-publish"
 [ -z "$(ls -A "$T/markers" 2>/dev/null)" ] && ok "dry run wrote no marker" || nok "dry run wrote a marker"
@@ -52,17 +52,17 @@ printf '%s' "$out" | grep -q 'no-publish' \
 # 2. a command that would publish is refused before anything runs
 out="$(cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='bash build/ncz-reprepro-publish.sh' bash "$RUN" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && ok "a publishing command is refused with exit 2" || nok "publishing command exited $rc, wanted 2"
-printf '%s' "$out" | grep -q 'refusing to start' && ok "the refusal says why" || nok "the refusal does not say why"
+printf '%s' "$out" | grep  'refusing to start' && ok "the refusal says why" || nok "the refusal does not say why" >/dev/null
 
 # 3. a host already building is skipped, with the reason
 out="$(cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='true' bash "$RUN" 2>&1)"
-printf '%s' "$out" | grep -q 'WOULD RUN' && ok "control: without a marker the action is planned" || nok "control failed"
+printf '%s' "$out" | grep  'WOULD RUN' && ok "control: without a marker the action is planned" || nok "control failed" >/dev/null
 # a genuinely live pid: the marker must be judged by whether that process runs
 sleep 30 & LIVE=$!
 printf '%s\n' "$LIVE" > "$T/markers/ncz-image-ci-forky-pin"
 out="$(cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='true' bash "$RUN" 2>&1)"
 kill "$LIVE" 2>/dev/null; wait "$LIVE" 2>/dev/null
-printf '%s' "$out" | grep -q 'SKIP: a build already holds' \
+printf '%s' "$out" | grep  'SKIP: a build already holds' >/dev/null \
     && ok "an existing live marker skips the action and names it" \
     || nok "an existing live marker did not skip the action"
 rm -f "$T/markers/ncz-image-ci-forky-pin"
@@ -70,7 +70,7 @@ rm -f "$T/markers/ncz-image-ci-forky-pin"
 # 3b. a marker whose pid is gone must not block the trigger forever
 printf '999999\n' > "$T/markers/ncz-image-ci-forky-pin"
 out="$(cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='true' bash "$RUN" 2>&1)"
-printf '%s' "$out" | grep -q 'clearing a stale marker' \
+printf '%s' "$out" | grep  'clearing a stale marker' >/dev/null \
     && ok "a stale marker is cleared and named" \
     || nok "a stale marker blocked the trigger: $(printf '%s' "$out" | grep forky | head -1)"
 [ ! -e "$T/markers/ncz-image-ci-forky-pin" ] && ok "the stale marker is gone" || nok "the stale marker survived"
@@ -105,7 +105,7 @@ PY
 # has to stop the second launch.
 printf '{"forky.stamp":"20200101T000000Z"}' > "$NCZ_IMAGE_CI_STATE"
 out="$(cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='true' bash "$RUN" --execute 2>&1)"
-printf '%s' "$out" | grep -q 'SKIP: a build already holds' \
+printf '%s' "$out" | grep  'SKIP: a build already holds' >/dev/null \
     && ok "the same trigger cannot be launched twice on one host" \
     || nok "the runner launched (or planned) the same trigger twice: $(printf '%s' "$out" | grep forky-pin | head -1)"
 lines="$(wc -l < "$T/runs/launched.jsonl" 2>/dev/null || echo 0)"
