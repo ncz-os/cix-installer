@@ -32,10 +32,10 @@ AI-Scope: Root-caused and fixed all three against real operator reports on live 
  1 file changed, 31 insertions(+), 13 deletions(-)
 
 diff --git a/src/components/background/background.vala b/src/components/background/background.vala
-index 3a867b8..070d459 100644
+index 8758bf2..4be4f13 100644
 --- a/src/components/background/background.vala
 +++ b/src/components/background/background.vala
-@@ -123,6 +123,16 @@ namespace Singularity {
+@@ -125,6 +125,16 @@ namespace Singularity {
              attribution_label.visible = false;
              attribution_label.can_focus = false;
              attribution_label.can_target = false;
@@ -52,7 +52,7 @@ index 3a867b8..070d459 100644
              wp_overlay = new Gtk.Overlay();
              wp_motion = new Singularity.Animation.MotionBin(wp_stack);
              wp_overlay.set_child(wp_motion);
-@@ -224,22 +234,18 @@ namespace Singularity {
+@@ -239,22 +249,18 @@ namespace Singularity {
          // and rationale unchanged, just relocated to the actual consumer.
          private const string ATTRIBUTION_CSS = """
  .background-window .attribution-label {
@@ -81,7 +81,7 @@ index 3a867b8..070d459 100644
  }
  """;
  
-@@ -350,30 +356,42 @@ namespace Singularity {
+@@ -360,27 +366,42 @@ namespace Singularity {
                      attribution_label.valign = Align.START;
                      attribution_label.xalign = 0.0f;
                      attribution_label.yalign = 0.0f;
@@ -109,9 +109,6 @@ index 3a867b8..070d459 100644
 +                    attribution_label.justify = Justification.LEFT;
                      break;
              }
--            // Gtk.Overlay keeps its current child allocation when only the
--            // alignment changes, so explicitly request a fresh allocation
--            // for live GSettings changes to move the label immediately.
 +            // queue_allocate() on the LABEL alone is not enough: GtkOverlay
 +            // computes each overlay child's position from halign/valign
 +            // inside its OWN size_allocate, which does not re-run just
@@ -127,6 +124,3 @@ index 3a867b8..070d459 100644
          }
  
          private void update_wallpaper(WallpaperManager manager) {
--- 
-2.55.0
-
