@@ -10,4 +10,3 @@
 # failure is a real pin disagreement.
 #
 # Columns (TAB): rule, owner, fix (the exact action that clears it), reason.
-rootfs-inputs	Jason Perlow (build-inputs store / release operator)	rebuild assets/mgmt/ncz-mgmt-rootfs.tar.zst (build/build-mgmt-rootfs.sh <chroot> assets/mgmt/ncz-mgmt-rootfs.tar.zst forky <arch>) and assets/rescue/rescue-rootfs-<arch>.tar.zst (build/build-rescue-rootfs.sh) at the manifests/base.pin snapshot, then build/stage-build-inputs.sh --arch <arch> --publish and commit manifests/build-inputs.tsv; see docs/BUILD-DECISIONS-NEEDED.md and docs/BUILD-STABILITY.md M8	manifests/build-inputs.tsv rows for both tarballs, both arches, record snapshot 20261018T082309Z; the pin is newer.  Rebuilding is a build, not an edit.

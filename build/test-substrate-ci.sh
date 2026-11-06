@@ -208,10 +208,10 @@ import shutil
 shutil.rmtree(root, ignore_errors=True)
 
 # ---- prove aggregation (stage 2) -------------------------------------------
-good = {"amd64": {"snapshot": "20261102T082611Z", "coverage": 100.0, "inrelease_sha256": "aa"},
-        "arm64": {"snapshot": "20261102T082611Z", "coverage": 100.0, "inrelease_sha256": "aa"}}
+good = {"amd64": {"snapshot": "20990101T000000Z", "coverage": 100.0, "inrelease_sha256": "aa"},
+        "arm64": {"snapshot": "20990101T000000Z", "coverage": 100.0, "inrelease_sha256": "aa"}}
 r = m.aggregate_proof(good)
-check(r["coverage_ok"] and r["digests_equal"] and r["snapshot"] == "20261102T082611Z",
+check(r["coverage_ok"] and r["digests_equal"] and r["snapshot"] == "20990101T000000Z",
       "both arches 100% on one snapshot with equal digests -> proven")
 
 split = dict(good)
@@ -329,10 +329,10 @@ os.makedirs(os.path.join(root, "manifests"))
 os.makedirs(os.path.join(root, "assets/singularity"))
 open(os.path.join(root, "manifests/base.pin"), "w").write(
     "# comment\n"
-    "amd64\tSUB1\tMon, 02 Nov 2026 08:09:16 UTC\t20261102T082611Z\t100.0\thttps://x/a.iso\n"
-    "arm64\tSUB2\tMon, 02 Nov 2026 08:09:16 UTC\t20261102T082611Z\t100.0\thttps://x/b.iso\n")
+    "amd64\tSUB1\tMon, 02 Nov 2026 08:09:16 UTC\t20990101T000000Z\t100.0\thttps://x/a.iso\n"
+    "arm64\tSUB2\tMon, 02 Nov 2026 08:09:16 UTC\t20990101T000000Z\t100.0\thttps://x/b.iso\n")
 open(os.path.join(root, "release.conf"), "w").write(
-    'NCZ_BASE_MIRROR_SNAPSHOT="20261102T082611Z"\n'
+    'NCZ_BASE_MIRROR_SNAPSHOT="20990101T000000Z"\n'
     'NCZ_LIBDRM_NCZ_REV=abc123\n'
     'NCZ_DKMS_DEB_REV=def456\n')
 open(os.path.join(root, "manifests/singularity-payload.tsv"), "w").write(
@@ -342,7 +342,7 @@ open(os.path.join(root, "assets/singularity/upstream-pins.tsv"), "w").write(
     "subprojects/a\thttps://github.com/x/a.git\t-\tAAA\n")
 
 inv = m.read_pins(root)
-check(inv["forky"]["snapshot"] == "20261102T082611Z", "pins: snapshot read from release.conf")
+check(inv["forky"]["snapshot"] == "20990101T000000Z", "pins: snapshot read from release.conf")
 check(set(inv["forky"]["arches"]) == {"amd64", "arm64"}, "pins: both arch rows parsed")
 check(inv["forky"]["arches"]["arm64"]["coverage"] == "100.0", "pins: coverage parsed")
 check(inv["runtime"].get("libdrm") == "abc123" and inv["runtime"].get("dkms") == "def456",
