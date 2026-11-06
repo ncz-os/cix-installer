@@ -29,6 +29,8 @@ import os
 import re
 import subprocess
 import sys
+import urllib.error
+import time
 import urllib.request
 
 COMPONENTS = ("main", "contrib", "non-free-firmware")
@@ -104,19 +106,49 @@ def netinst_identities(iso: str, arch: str, scratch: str) -> tuple[set, str]:
     return ident, sub_date
 
 
-def snapshot_identities(ts: str, arch: str, cache: str) -> set:
+def snapshot_identities(ts: str, arch: str, cache: str):
+    """Return (identities, failed_paths) for one snapshot timestamp.
+
+    A 404 means the component genuinely does not exist at that snapshot and is
+    recorded as an empty index.  Any OTHER failure (5xx, timeout, connection
+    reset) is a transient service failure: it is retried with backoff and, if
+    it still fails, the path is returned in ``failed`` so the caller refuses to
+    score coverage from a partial index.  A silent empty file here once
+    under-reported coverage (snapshot.debian.org answered 503/504 for the
+    contrib, non-free-firmware and debian-installer indices) and made a healthy
+    netinst look stale.
+    """
     os.makedirs(cache, exist_ok=True)
     ident = set()
+    failed = []
 
     def load(suite: str, relpath: str) -> None:
         f = os.path.join(cache, f"{ts}_{suite}_" + relpath.replace("/", "_"))
         if not os.path.isfile(f) or os.path.getsize(f) == 0:
             url = f"{SNAP}/{ts}/dists/{suite}/{relpath}"
-            try:
-                with urllib.request.urlopen(url, timeout=120) as r, open(f, "wb") as o:
-                    o.write(r.read())
-            except Exception:  # noqa: BLE001 - a missing component index is fine
-                open(f, "wb").close()
+            last = None
+            for delay in (0, 5, 15):
+                if delay:
+                    time.sleep(delay)
+                try:
+                    with urllib.request.urlopen(url, timeout=180) as r, open(f, "wb") as o:
+                        o.write(r.read())
+                    last = None
+                    break
+                except urllib.error.HTTPError as e:  # noqa: PERF203
+                    last = e
+                    if e.code == 404:
+                        open(f, "wb").close()
+                        return
+                except Exception as e:  # noqa: BLE001
+                    last = e
+            if last is not None:
+                failed.append(f"{suite}/{relpath} ({last})")
+                try:
+                    if os.path.isfile(f) and os.path.getsize(f) == 0:
+                        os.unlink(f)
+                except OSError:
+                    pass
                 return
         try:
             text = read_maybe(f)
@@ -126,7 +158,7 @@ def snapshot_identities(ts: str, arch: str, cache: str) -> set:
             if d.get("Package") and d.get("Version") and d.get("Architecture"):
                 ident.add((d["Package"], d["Version"], d["Architecture"]))
 
-    # The codename's (testing/forky) full index set -- the image base closure.
+    # The codename (testing/forky) full index set -- the image base closure.
     for comp in COMPONENTS:
         for x in (arch, "all"):
             load("forky", f"{comp}/binary-{x}/Packages.xz")
@@ -136,11 +168,7 @@ def snapshot_identities(ts: str, arch: str, cache: str) -> set:
         # only: the netinst substrate's d-i udebs are built from sid.  Its
         # runtime (binary-*) packages are deliberately NOT loaded.
         load(DI_SUITE, f"main/debian-installer/binary-{x}/Packages.xz")
-    return ident
-
-
-RUN_RE = re.compile(r"\b([0-9]{8}T[0-9]{6}Z)\b")
-
+    return ident, failed
 
 def archive_runs(listing: str, days: set) -> list[str]:
     """The snapshot.debian.org archive run timestamps in a month listing page
@@ -197,8 +225,14 @@ def main() -> int:
         print(f"ERROR: no netinst identities extracted from {a.iso}", file=sys.stderr)
         return 2
     best = None
+    unverifiable = []
     for ts in candidate_timestamps(sub_date):
-        snap = snapshot_identities(ts, a.arch, a.scratch)
+        snap, failed = snapshot_identities(ts, a.arch, a.scratch)
+        if failed:
+            print(f"  candidate snapshot {ts}: UNVERIFIABLE - {len(failed)} index"
+                  f" fetches failed, first: {failed[0]}", file=sys.stderr)
+            unverifiable.append(ts)
+            continue
         if not snap:
             continue
         cov = 100.0 * len(sub & snap) / len(sub)
@@ -206,6 +240,12 @@ def main() -> int:
         if best is None or cov > best[1]:
             best = (ts, cov, sub - snap)
     if best is None:
+        if unverifiable:
+            print(f"ERROR: no candidate snapshot could be verified ({len(unverifiable)}"
+                  " timestamps had failed index fetches). The snapshot.debian.org"
+                  " service is degraded; re-run when it recovers. No pin written.",
+                  file=sys.stderr)
+            return 2
         print("ERROR: no candidate snapshot index could be fetched", file=sys.stderr)
         return 2
     ts, cov, missing = best
