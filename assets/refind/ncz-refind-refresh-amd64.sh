@@ -537,7 +537,26 @@ fi
 # files that do not exist there. --add therefore stages first, and it refuses
 # when it cannot (missing /boot files, ESP full, an ESP file present with
 # other content -- that is never overwritten).
-ESP_DIR="${NCZ_ESP_DIR:-/boot/efi}"
+# WHICH LAYOUT IS THIS? (detected, never configured)
+#   1. the ESP is mounted AT /boot (vfat)      -> the ESP root is /boot and the
+#      kernel pairs are already there: copying /boot/vmlinuz-X to /boot/efi/X on
+#      such a host fails, because there is no /boot/efi. MEDUSA is this layout.
+#   2. the ESP is mounted at /boot/efi (vfat)  -> the ESP root holds the pairs,
+#      unless the host keeps them in $ESP/boot, which is also handled.
+# Fixture trees pass NCZ_ESP_DIR and use the same subdirectory rule, so the tests
+# exercise the same code the installer does.
+if [ -n "${NCZ_ESP_DIR:-}" ]; then
+    ESP_DIR="$NCZ_ESP_DIR"
+elif findmnt -no FSTYPE /boot 2>/dev/null | grep -qx vfat; then
+    ESP_DIR=/boot
+else
+    ESP_DIR=/boot/efi
+fi
+ESP_KERNEL_DIR="$ESP_DIR"
+if compgen -G "$ESP_DIR/boot/vmlinuz-*" >/dev/null 2>&1; then
+    ESP_KERNEL_DIR="$ESP_DIR/boot"
+fi
+echo "  layout: esp=$ESP_DIR kernel-dir=$ESP_KERNEL_DIR"
 ESP_CONF="$ESP_DIR/EFI/BOOT/refind.conf"
 #
 # The marker comments below are read back on every run, so changing them
@@ -565,13 +584,13 @@ ncz_quote_option_value() {
 # ncz_esp_kernel_present <kver> -- 0 when BOTH files for kver exist on the ESP
 # with content.
 ncz_esp_kernel_present() {
-    [ -s "$ESP_DIR/vmlinuz-$1" ] && [ -s "$ESP_DIR/initrd.img-$1" ]
+    [ -s "$ESP_KERNEL_DIR/vmlinuz-$1" ] && [ -s "$ESP_KERNEL_DIR/initrd.img-$1" ]
 }
 
 # ncz_esp_file_count -- files needed to know whether a FAT root can take more;
 # the root directory of a FAT32 volume is capped at 510 8.3-style slots.
 ncz_esp_file_count() {
-    find "$ESP_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' '
+    find "$ESP_KERNEL_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' '
 }
 
 # ncz_stage_pair <kver> <vmlinuz-source> <initrd-source>
@@ -588,7 +607,7 @@ ncz_stage_pair() {
             vmlinuz)    src=$src_v ;;
             initrd.img) src=$src_i ;;
         esac
-        dst="$ESP_DIR/$half-$kver"
+        dst="$ESP_KERNEL_DIR/$half-$kver"
         if [ -e "$dst" ]; then
             if [ ! -s "$dst" ]; then
                 echo "ERROR: $dst exists on the ESP but is empty; refusing to guess what it should hold" >&2
@@ -603,7 +622,7 @@ ncz_stage_pair() {
             echo "       if the ESP copy is known-bad, then re-run the kernel hook." >&2
             return 1
         fi
-        tmp="$ESP_DIR/.$half-$kver.$NCZ_STAGE_TAG.$$"
+        tmp="$ESP_KERNEL_DIR/.$half-$kver.$NCZ_STAGE_TAG.$$"
         rm -f "$tmp" 2>/dev/null || true
         if ! cp -f "$src" "$tmp" 2>/dev/null || [ ! -s "$tmp" ] || ! cmp -s "$src" "$tmp"; then
             rm -f "$tmp" 2>/dev/null || true
@@ -1200,11 +1219,15 @@ if [ -n "$KVER_STABLE" ] && [ -s "/boot/vmlinuz-$KVER_STABLE" ]; then
         echo "       Refusing to write a stable loader entry without an initrd."
         exit 1
     fi
-    install -m 0644 "/boot/vmlinuz-$KVER_STABLE" "/boot/efi/vmlinuz-$KVER_STABLE"
-    echo "  staged /boot/efi/vmlinuz-$KVER_STABLE"
+    # Stage through the add-only helper, into the detected kernel directory: the
+    # old unconditional `install /boot/... /boot/efi/...` both overwrote whatever
+    # was there and assumed a layout that does not exist on an ESP mounted at /boot.
+    if ! ncz_stage_pair "$KVER_STABLE" "/boot/vmlinuz-$KVER_STABLE" "/boot/initrd.img-$KVER_STABLE"; then
+        echo "ERROR: could not stage the $KVER_STABLE pair onto $ESP_KERNEL_DIR" >&2
+        exit 1
+    fi
+    echo "  staged $ESP_KERNEL_DIR/vmlinuz-$KVER_STABLE"
     STABLE_AVAILABLE=1
-    install -m 0644 "/boot/initrd.img-$KVER_STABLE" "/boot/efi/initrd.img-$KVER_STABLE"
-    echo "  staged /boot/efi/initrd.img-$KVER_STABLE"
     STABLE_INITRD_AVAILABLE=1
 fi
 

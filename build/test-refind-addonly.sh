@@ -634,6 +634,56 @@ ROLLBACK
     rm -rf "$w"
 }
 
+# ---- 13. layout B: the ESP keeps its kernel pairs under $ESP/boot --------------
+# Ruling: the tool must DETECT the layout, not be told. On MEDUSA the ESP is
+# mounted at /boot, where a hardcoded /boot/efi copy fails closed on every kernel
+# install; a host that keeps the pairs in $ESP/boot is the other shape. This case
+# builds the second shape and requires the staged pair to land in $ESP/boot.
+_layout_case() {
+    local src="$1" w esp
+    w="$(mktemp -d "${TMPDIR:-/var/tmp}/ncz-layoutb.XXXXXX")" || return
+    mkdir -p "$w/lib" "$w/boot"
+    cp -f "$REPO/release.conf" "$w/lib/RELEASE"
+    sed "s#^INSTALLER_META=.*#INSTALLER_META=$w/lib#" "$src" > "$w/tool.sh"
+    chmod +x "$w/tool.sh"
+    esp="$w/esp"; mkdir -p "$esp/EFI/BOOT" "$esp/boot"
+    {
+        printf 'timeout 10\n'
+        printf 'default_selection "NCZ-OS test"\n\n'
+        printf 'menuentry "NCZ-OS test %s" {\n    loader  /boot/vmlinuz-%s\n    initrd  /boot/initrd.img-%s\n    options "root=PARTUUID=x"\n}\n\n' \
+            "$OLD_KVER" "$OLD_KVER" "$OLD_KVER"
+    } > "$esp/EFI/BOOT/refind.conf"
+    printf 'payload-%s\n' "$OLD_KVER" > "$esp/boot/vmlinuz-$OLD_KVER"
+    printf 'payload-%s\n' "$OLD_KVER" > "$esp/boot/initrd.img-$OLD_KVER"
+    printf 'vmlinuz-payload-%s\n' "$NEW_KVER" > "$w/boot/vmlinuz-$NEW_KVER"
+    printf 'initrd-payload-%s\n' "$NEW_KVER" > "$w/boot/initrd.img-$NEW_KVER"
+    if NCZ_ESP_DIR="$esp" KVER_STABLE="$NEW_KVER" \
+         KVER_STABLE_SRC="$w/boot/vmlinuz-$NEW_KVER" \
+         KVER_STABLE_INITRD="$w/boot/initrd.img-$NEW_KVER" \
+         NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" --add >"$w/log" 2>&1; then
+        if [ -s "$esp/boot/vmlinuz-$NEW_KVER" ] && [ -s "$esp/boot/initrd.img-$NEW_KVER" ]; then
+            ok "13) ESP/boot layout: the pair is staged into \$ESP/boot"
+        else
+            bad "13) ESP/boot layout: the pair is staged into \$ESP/boot" "$(tail -4 "$w/log")"
+        fi
+        if [ ! -e "$esp/vmlinuz-$NEW_KVER" ]; then
+            ok "13b) ESP/boot layout: nothing is written to the ESP root"
+        else
+            bad "13b) ESP/boot layout: nothing is written to the ESP root"
+        fi
+        grep -q "kernel-dir=$esp/boot" "$w/log" \
+            && ok "13c) the detected layout is printed for the journal" \
+            || bad "13c) the detected layout is printed for the journal" "$(grep layout "$w/log" | head -1)"
+        grep -q "^menuentry .*${NEW_KVER}" "$esp/EFI/BOOT/refind.conf" \
+            && ok "13d) ESP/boot layout: exactly one new menuentry is appended" \
+            || bad "13d) ESP/boot layout: exactly one new menuentry is appended"
+    else
+        bad "13) ESP/boot layout: --add succeeds" "$(tail -6 "$w/log")"
+    fi
+    rm -rf "$w"
+}
+_layout_case "${SOURCES[0]}"
+
 for s in "${SOURCES[@]}"; do
     run_for_source "$s"
 done
