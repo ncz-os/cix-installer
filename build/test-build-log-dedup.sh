@@ -68,9 +68,9 @@ fi
     && ok "the reordered pair still sits between image (#$im) and kvm-gate (#$kg)" \
     || bad "gate order broken around image/kvm-gate (im=$im pg=$pg kg=$kg)"
 
-# The plan is read ONCE into a variable: `... | grep ` under `set -o >/dev/null
+# The plan is read ONCE into a variable: `... | grep -q` under `set -o
 # pipefail` returns 141 (grep exits at the first match, the writer gets
-# SIGPIPE, pipefail propagates it), so a piped `grep ` reports "not found" >/dev/null
+# SIGPIPE, pipefail propagates it), so a piped `grep -q` reports "not found"
 # for a line that IS present.  Herestrings have no pipe and no SIGPIPE.
 PLAN="$(bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null)"
 # both gates stay MANDATORY: neither may ever be listed [off ...]

@@ -10,13 +10,16 @@ still parse and still pass a lint:
   * the redirect lands INSIDE a quoted pattern, silently changing what the test
     looks for;
   * a whole flag token is mangled (-qF, -Eqx, -qai);
-  * whitespace inside a pattern changes.
+  * whitespace inside a pattern changes;
+  * a q is dropped with no redirect added, or vice versa.
 
-This checker compares each -/+ pair in a unified diff after a symmetric
-normalisation: on BOTH sides every q flag is dropped and every bare
-`>/dev/null` is removed. Quoted text is never touched, so if a pattern's text
-changed -- including a redirect inserted inside it -- the two sides differ and
-the line is reported.
+The check pairs each -/+ line by simple command. Inside a command, the text must
+be identical once q flags and bare null-redirects are normalised away, and the
+number of q flags removed must equal the number of redirects added.
+
+The scanner respects single quotes (no escapes inside), double quotes (backslash
+escapes), unquoted backslash escapes, and `#` comments, and it does not mistake
+the `&` of `2>&1` / `>&2` for a command separator.
 
 Usage:
     check-grepq-conversion.py DIFF
@@ -27,35 +30,49 @@ Exit 0 when every grep line is explained, 1 otherwise.
 import sys
 
 BARE_REDIRECT = ">/dev/null"
+BS = chr(92)
 
 
-def segments(s):
-    """Split into (quoted?, text) so only unquoted text is ever modified."""
-    out, buf, i, q, start = [], "", 0, None, 0
-    while i < len(s):
-        c = s[i]
-        if q is None:
-            if c in "'\"":
-                if buf:
-                    out.append((False, buf))
-                    buf = ""
-                q = c
-                start = i
-                i += 1
-                continue
-            buf += c
-            i += 1
-        else:
-            if c == q:
-                out.append((True, s[start:i + 1]))
-                buf = ""
-                q = None
-            i += 1
-    if q is not None:
-        out.append((True, s[start:]))
-    if buf:
-        out.append((False, buf))
-    return out
+def scan(line):
+    """Return [(is_quoted, text)] with comments dropped and escapes kept verbatim."""
+    segs, buf, i = [], "", 0
+    n = len(line)
+
+    def flush():
+        nonlocal buf
+        if buf:
+            segs.append((False, buf))
+            buf = ""
+
+    while i < n:
+        c = line[i]
+        if c in "'\"":
+            flush()
+            j = i + 1
+            quoted = c
+            while j < n:
+                if line[j] == BS and c == '"' and j + 1 < n:
+                    quoted += line[j:j + 2]
+                    j += 2
+                    continue
+                quoted += line[j]
+                if line[j] == c:
+                    j += 1
+                    break
+                j += 1
+            segs.append((True, quoted))
+            i = j
+            continue
+        if c == BS and i + 1 < n:
+            buf += line[i:i + 2]
+            i += 2
+            continue
+        if c == "#" and (i == 0 or line[i - 1] in " \t"):
+            break                                   # comment: rest of line ignored
+        buf += c
+        i += 1
+    flush()
+    return segs
 
 
 def collapse(t):
@@ -129,54 +146,87 @@ def remove_redirects(segs):
     return out, n
 
 
-def split_commands(line):
-    """Split a line at unquoted shell operators, keeping quoted text intact.
-
-    Operators: && || ; | & (each becomes its own separator). A q flag and the
-    redirect that replaces it must live in the SAME simple command, so the
-    comparison is done piece by piece rather than over the whole line.
-    """
-    pieces, buf, i, q = [], [], 0, None
-    while i < len(line):
-        c = line[i]
-        if q is None:
-            if c in "'\"":
-                q = c
-                buf.append(c)
-                i += 1
-                continue
-            two = line[i:i + 2]
+def split_commands(segs):
+    """Split at unquoted shell operators: && || ; | |& and a lone & (not 2>&1)."""
+    pieces, buf = [], ""
+    prev = ""                                        # last character emitted
+    for isq, t in segs:
+        if isq:
+            buf += t
+            prev = t[-1] if t else prev
+            continue
+        i = 0
+        while i < len(t):
+            c = t[i]
+            two = t[i:i + 2]
             if two in ("&&", "||"):
-                pieces.append("".join(buf)); buf = []
+                pieces.append(buf); buf = ""
+                prev = "&" if two == "&&" else "|"
                 i += 2
                 continue
-            if c in ";|&":
-                pieces.append("".join(buf)); buf = []
+            if two == "|&":
+                pieces.append(buf); buf = ""
+                prev = "&"
+                i += 2
+                continue
+            if c in ";|":
+                pieces.append(buf); buf = ""
+                prev = c
                 i += 1
                 continue
-            buf.append(c)
+            if c == "&":
+                # `>&2` and `2>&1` are redirections, not separators
+                before = t[i - 1] if i > 0 else prev
+                after = t[i + 1] if i + 1 < len(t) else ""
+                if before == ">" or after == ">":
+                    buf += c
+                    prev = c
+                    i += 1
+                    continue
+                pieces.append(buf); buf = ""
+                prev = c
+                i += 1
+                continue
+            buf += c
+            prev = c
             i += 1
-        else:
-            buf.append(c)
-            if c == q:
-                q = None
-            i += 1
-    pieces.append("".join(buf))
+    pieces.append(buf)
     return [p for p in pieces if p.strip()]
+
+
+def is_candidate_pair(before, after):
+    """True when either side looks like a grep that could have been converted."""
+    return is_candidate(before) or is_candidate(after)
+
+
+def is_candidate(line):
+    """True when a line either has a piped grep or a grep carrying a q flag.
+
+    A filename that merely contains "grep" (build/test-pipefail-grep.sh) is not a
+    candidate, and neither is a line without any grep.
+    """
+    if "grep" not in line:
+        return False
+    if "|" in line:
+        return True
+    if BARE_REDIRECT in line:
+        return True                 # already carries the redirect being checked
+    _, q = drop_q(scan(line))
+    return q > 0
 
 
 def check_pair(before, after):
     """One conversion per simple command: q removed <=> redirect added."""
-    bp = split_commands(before)
-    ap = split_commands(after)
+    bp = split_commands(scan(before))
+    ap = split_commands(scan(after))
     if len(bp) != len(ap):
         return False, ("command structure changed: %d simple command(s) -> %d"
                        % (len(bp), len(ap)))
     total_q = total_r = 0
     for bcmd, acmd in zip(bp, ap):
-        b1, q_before = drop_q(segments(bcmd))
+        b1, q_before = drop_q(scan(bcmd))
         b1, r_before = remove_redirects(b1)
-        a1, q_after = drop_q(segments(acmd))
+        a1, q_after = drop_q(scan(acmd))
         a1, r_after = remove_redirects(a1)
         bn, an = normalize(b1), normalize(a1)
         q_removed = q_before - q_after
@@ -218,14 +268,39 @@ def run(text, verbose=False):
     for h in hunks(text):
         minus = [l[1:] for l in h if l.startswith("-")]
         plus = [l[1:] for l in h if l.startswith("+")]
+        if not minus:
+            continue                    # pure additions (new files) have no pair
         if len(minus) != len(plus):
-            print("HUNK SKEW %+d -- hunk skipped, pairs not positional"
-                  % (len(minus) - len(plus)))
-            bad += 1
+            # unequal counts: pair by content, so a converted line inside an
+            # otherwise skewed hunk is still verified rather than skipped
+            used = [False] * len(plus)
+            unpaired = 0
+            for before in minus:
+                if not is_candidate_pair(before, after):
+                    continue          # no grep here to convert
+                matched = False
+                for idx, after in enumerate(plus):
+                    if used[idx]:
+                        continue
+                    good, detail = check_pair(before, after)
+                    if good:
+                        used[idx] = True
+                        ok += 1
+                        matched = True
+                        if verbose:
+                            print("  OK   %s" % detail)
+                        break
+                if not matched:
+                    unpaired += 1
+                    bad += 1
+                    print("  BAD  no counterpart explains this line")
+                    print("     - %s" % before.strip()[:160])
+            if unpaired == 0:
+                continue
             continue
         for before, after in zip(minus, plus):
-            if "grep" not in before:
-                continue
+            if not is_candidate_pair(before, after):
+                continue              # no grep here to convert
             good, detail = check_pair(before, after)
             if good:
                 ok += 1
@@ -239,14 +314,22 @@ def run(text, verbose=False):
     return ok, bad
 
 
+# Good pairs: 1 plain, 2 multi-letter flag clusters, 1 with 2>&1, 1 with an
+# escaped double quote inside the pattern. Bad pairs: redirect inside a quoted
+# pattern, pattern whitespace changed, q lost its redirect, redirect appeared
+# without a q, and a comment carrying a phantom q.
 SELF_TEST = """diff --git a/x.sh b/x.sh
-@@ -1,7 +1,7 @@
+@@ -1,12 +1,12 @@
 -grep -q 'PATTERN' "$f" && ok
 +grep 'PATTERN' "$f" >/dev/null && ok
 -grep -qF -- "$pkg"; then
 +grep -F -- "$pkg" >/dev/null; then
 -grep -Eqx "RE" &&
 +grep -Ex "RE" >/dev/null &&
+-vm 2>&1 | grep -q 'booted'
++vm 2>&1 | grep 'booted' >/dev/null
+-grep -q "a @BS@"b@BS@" c" "$f"
++grep "a @BS@"b@BS@" c" "$f" >/dev/null
 -grep -q "a >/dev/null b" "$f"
 +grep "a b" "$f" >/dev/null
 -grep -q 'keep me' "$f"
@@ -255,22 +338,31 @@ SELF_TEST = """diff --git a/x.sh b/x.sh
 +grep 'lost its redirect' "$f"
 -grep 'gained a redirect' "$f"
 +grep 'gained a redirect' "$f" >/dev/null
-"""
+-grep 'no q here' "$f" >/dev/null  # was grep -q 'x'
++grep 'no q here' "$f" >/dev/null
+-grep 'stderr kept' "$f" >&2
++grep 'stderr kept' "$f" >&2 >/dev/null
+""".replace("@BS@", BS)
+
+GOOD_EXPECTED = 5
+BAD_EXPECTED = 6
 
 
 def self_test():
-    """Three legitimate conversions pass; four one-sided/corrupt ones are caught."""
-    ok, bad = run(SELF_TEST)
+    ok, bad = run(SELF_TEST.replace("@@", "@@"))
     failures = []
-    if ok != 3:
-        failures.append("expected 3 legitimate conversions to pass, got %d" % ok)
-    if bad != 4:
-        failures.append("expected 4 corruptions to be caught, got %d" % bad)
+    if ok != GOOD_EXPECTED:
+        failures.append("expected %d legitimate conversions to pass, got %d"
+                        % (GOOD_EXPECTED, ok))
+    if bad != BAD_EXPECTED:
+        failures.append("expected %d corruptions to be caught, got %d"
+                        % (BAD_EXPECTED, bad))
     if failures:
         for f in failures:
             print("SELF-TEST FAIL: %s" % f)
         return 1
-    print("self-test: 3 conversions accepted, 4 corruptions caught -- good")
+    print("self-test: %d conversions accepted, %d corruptions caught -- good"
+          % (GOOD_EXPECTED, BAD_EXPECTED))
     return 0
 
 
@@ -278,7 +370,6 @@ def main(argv):
     if len(argv) == 2 and argv[1] == "--self-test":
         return self_test()
     if len(argv) != 2:
-        print(__doc__.strip().splitlines()[-3].strip())
         print("usage: %s DIFF | --self-test" % argv[0])
         return 2
     with open(argv[1], encoding="utf-8", errors="replace") as fh:
