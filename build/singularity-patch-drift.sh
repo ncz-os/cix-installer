@@ -26,6 +26,19 @@ DIR=$(cd "$DIR" && pwd)
 REPO=$(cd "$REPO" && pwd)
 
 cd "$REPO" || exit 2
+
+# This tool restores the tree with `git checkout -- .` and `git clean -fdq`, so pointing it
+# at a working tree with real work in it silently deletes that work. Since it is now a CI
+# gate, a wrong path is one typo away - so a dirty tree is refused instead of cleaned.
+if [ "${NCZ_DRIFT_ALLOW_DIRTY:-0}" != 1 ]; then
+    dirty="$(git status --porcelain 2>/dev/null)"
+    if [ -n "$dirty" ]; then
+        echo "FATAL: $REPO has uncommitted changes; this tool restores the tree and would destroy them" >&2
+        printf '%s\n' "$dirty" | head -5 >&2
+        echo "       commit or stash them, or set NCZ_DRIFT_ALLOW_DIRTY=1 if the tree is disposable" >&2
+        exit 2
+    fi
+fi
 git checkout -q -- . 2>/dev/null
 git clean -fdq 2>/dev/null
 

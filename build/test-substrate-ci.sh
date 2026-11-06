@@ -396,11 +396,15 @@ def flaky(src, dst):
     if state["n"] == 2:
         raise OSError("injected")
     os.replace(src, dst)
+cpath2 = os.path.join(root, "docs/rollback-changelog.md")
 r = m.compose_proposal({"root": root,
-                        "changes": {"manifests/base.pin": "X\n", "release.conf": "Y\n"}},
+                        "changes": {"manifests/base.pin": "X\n", "release.conf": "Y\n"},
+                        "changelog_path": "docs/rollback-changelog.md"},
                        write=True, replace=flaky)
 check(r["error"] is not None and open(os.path.join(root, "manifests/base.pin")).read() == "KEEP-BASE\n",
       "propose: a failed write rolls back and reports the error")
+check(not os.path.exists(cpath2),
+      "propose: the changelog is inside the transaction, so a failed move leaves none behind")
 _sh.rmtree(root, ignore_errors=True)
 
 
@@ -474,6 +478,11 @@ cand2 = _sym(os.path.join(abiroot, "cand2.syms"), ["beta", "gamma", "delta"])
 v = m.symbol_abi_verdict(_read(base), _read(cand2), _read(plug), _read(need))
 check(not v["ok"] and ("alpha" in v["removed"] or "alpha" in v["unsatisfied"]),
       "abi-symbols: a symbol the plugin needs and the candidate lost is a failure")
+# an unreadable DT_NEEDED list is a failed read, not a pass
+v = m.symbol_abi_verdict(_read(base), _read(cand), _read(plug), [])
+check(not v["ok"] and "cannot prove" in v["why"],
+      "abi-symbols: an empty NEEDED list cannot prove the plugin links the library")
+
 _sh.rmtree(abiroot, ignore_errors=True)
 
 

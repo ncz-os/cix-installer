@@ -54,7 +54,9 @@ else
     # 1. every package's status abbreviation
     dpkg-query -W -f='pkg ${db:Status-Abbrev} ${Package} ${Version}\n' 2>/dev/null >> "$T"
     # 2. what the installed module packages own, so an overlap can be named
-    for p in $(dpkg-query -W -f='${Package}\n' 2>/dev/null | grep -E -- '-modules-[0-9]' | head -40); do
+    # No head -N here: a limit silently stops looking for collisions, and an audit that
+    # stopped looking is the failure mode this script exists to remove.
+    for p in $(dpkg-query -W -f='${Package}\n' 2>/dev/null | grep -E -- '-modules-[0-9]'); do
         dpkg -L "$p" 2>/dev/null | grep -E '^/lib/modules/.*/updates/dkms/.*\.ko$' \
             | sed "s|^|owns $p |" >> "$T"
     done

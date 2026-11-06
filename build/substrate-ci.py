@@ -431,12 +431,16 @@ def symbol_abi_verdict(baseline_syms, candidate_syms, plugin_undef, needed=(),
            "candidate_symbols": len(cand), "plugin_imports": 0, "removed": [],
            "unsatisfied": [], "ok": False, "why": ""}
 
-    if need:
-        out["soname_ok"] = soname in need
-        if not out["soname_ok"]:
-            out["why"] = "the plugin does not declare %s as NEEDED (it links %s)" % (
-                soname, ", ".join(need) or "nothing")
-            return out
+    # No DT_NEEDED list is not "nothing to check": it is a failed read, and a plugin whose
+    # dependency list could not be read has not been shown to link the library at all.
+    if not need:
+        out["why"] = "no DT_NEEDED list: cannot prove the plugin links %s" % soname
+        return out
+    out["soname_ok"] = soname in need
+    if not out["soname_ok"]:
+        out["why"] = "the plugin does not declare %s as NEEDED (it links %s)" % (
+            soname, ", ".join(need))
+        return out
 
     if not base:
         out["why"] = "no baseline symbols: nothing to compare, so nothing is proven"
@@ -568,25 +572,24 @@ def compose_proposal(spec, write=False, replace=None):
     delta = classify_delta(old, new, max_delta=10 ** 9, allow_removals=True)
     changelog = render_changelog(old, new, evidence=spec.get("evidence"),
                                  title=spec.get("title", "Substrate pin update"))
+    changes = dict(spec.get("changes", {}))
+    cpath = spec.get("changelog_path")
+    if cpath:
+        # In the SAME transaction as the pins: a changelog written after the move leaves a
+        # half-committed proposal when it fails, which is the state apply_pin_move exists
+        # to make impossible.
+        changes[cpath] = changelog
     out = {"dry_run": not write, "delta": delta, "changelog_bytes": len(changelog),
            "written": [], "error": None}
     if not write:
         return out
 
-    applied = apply_pin_move(spec["root"], spec.get("changes", {}), replace=replace)
+    applied = apply_pin_move(spec["root"], changes, replace=replace)
     out["applied"] = applied
     if not applied["ok"]:
         out["error"] = applied["error"]
         return out
     out["written"] = list(applied["written"])
-
-    cpath = spec.get("changelog_path")
-    if cpath:
-        full = os.path.join(spec["root"], cpath)
-        os.makedirs(os.path.dirname(full), exist_ok=True)
-        with open(full, "w", encoding="utf-8") as f:
-            f.write(changelog)
-        out["written"].append(full)
     return out
 
 
@@ -616,6 +619,9 @@ def apply_pin_move(root, changes, replace=None):
                 originals[path] = f.read()
         except FileNotFoundError:
             originals[path] = None
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         tmp = path + ".ncz-tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(content)
