@@ -134,7 +134,13 @@ ASSETS        := $(ROOT)/assets
 PRESEED       := $(ROOT)/preseed
 POST          := $(ROOT)/post-install
 
-MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))
+# The artifact name has to identify the MEDIUM, not only the build mode. A full
+# server medium and a full desktop medium are both MODE=full, so they used to
+# share `ncz-os-<arch>-<date>-<sha>.img` and the second build silently overwrote
+# the first (2026-10-29: a 7.2 GB desktop image replaced the 555 MB self-
+# contained server medium, which then failed its own gate on the wrong file).
+NCZ_VARIANT   ?= desktop
+MODE_SUFFIX   := $(if $(filter full,$(MODE)),,-$(MODE))-$(NCZ_VARIANT)
 BUILD_DATE    := $(shell date -u +%Y%m%d)
 # BUILD_SHA used to silently fall back to empty when git rev-parse failed
 # (dubious-ownership inside the rootful imagebuild container, missing git,
@@ -153,7 +159,7 @@ endif
 endif
 OUTPUT_IMAGE  := $(BUILD)/ncz-os-$(ARCH)-$(BUILD_DATE)-$(BUILD_SHA)$(MODE_SUFFIX).img
 
-.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage refresh-substrate check-substrate-pin sid-exceptions release-image print-substrate-sha test-build-determinism test-build-image test-layers-hardening test-build compare-images gen-base-pin
+.PHONY: parity all download image image-verified iso iso-verified verify clean distclean qemu help secretscan npu-ssdt-check test-npu-ssdt-delivery test-amd64-boot-noise kernel-debs usb-recovery-deb libdrm-debs apt-policy-deb vendor-mirror desktop-mirror offline-mirror lint-platform gen-hooks-lists test-platform test-cygnus-branding test-boot-speed test-timesync-retry test-boot-sequence ssplugin-stage refresh-substrate check-substrate-pin sid-exceptions release-image print-substrate-sha test-build-determinism test-build-image test-layers-hardening test-build compare-images gen-base-pin
 
 all: image
 
@@ -270,6 +276,9 @@ iso iso-verified:
 # matched, so every run rebuilt; fixing only the parser would have made a
 # stale +r258 build of 7.2.8 reusable while the pointer names r277. The pin
 # checks KVER, the revision floor, and one version per package.
+# 2026-11-01 (BUILD-STABILITY M7): reuse also requires every deb's full
+# Version (+rNNN) and sha256 to equal assets/kernel-manifest.json; r292 debs
+# were reused under the r293 manifest because only KVER was compared.
 #
 # The four branches below, in order:
 #   (a) arch != arm64: skip (no-op on amd64 build hosts).
@@ -335,8 +344,8 @@ kernel-debs:
 	        echo "[kernel-debs] existing set carries no linux-image-cixmini_*_arm64.deb -- rebuilding"; \
 	        bash $(ROOT)/build/build-kernel-debs.sh; \
 	    elif [ "$$_have_kver" = "$$_want_kver" ] \
-	         && bash $(ROOT)/build/check-kernel-deb-pin.sh "$(ROOT)/assets/kernel/mainline/KVER" "$(BUILD)/kernel-debs"; then \
-	        echo "[kernel-debs] using existing debs from $(BUILD)/kernel-debs (KVER=$$_have_kver matches assets/kernel/mainline/KVER and passes the kernel pin)"; \
+	         && bash $(ROOT)/build/check-kernel-deb-pin.sh --manifest "$(ROOT)/assets/kernel-manifest.json" "$(ROOT)/assets/kernel/mainline/KVER" "$(BUILD)/kernel-debs"; then \
+	        echo "[kernel-debs] using existing debs from $(BUILD)/kernel-debs (KVER=$$_have_kver matches assets/kernel/mainline/KVER and passes the kernel pin, revision and sha256 included)"; \
 	        find $(BUILD)/kernel-debs -maxdepth 1 -name '*.deb' -printf '  %f\n' | sort; \
 	    else \
 	        echo "[kernel-debs] STALE: existing debs (KVER=$$_have_kver) do not match assets/kernel/mainline (KVER=$$_want_kver, revision floor from the staged dir)" >&2; \
@@ -569,6 +578,24 @@ test-platform:
 	@bash $(ROOT)/build/test-platform-lint.sh
 	@$(MAKE) --no-print-directory test-cygnus-branding
 
+# Magnetar (NCZ_VARIANT=server) online payload fetch: the variant logic in
+# write-usb-image.py (assets move off the medium, pinned; substrate udebs stay;
+# desktop demands a baked base.squashfs) and the fetcher's failure semantics
+# against a real HTTP server.
+.PHONY: test-magnetar-server-variant test-magnetar-server-accel
+test-magnetar-server-variant:
+	@python3 -m pytest $(ROOT)/build/iso/tests/test_write_usb_image_server_variant.py -q
+	@python3 -m pytest $(ROOT)/build/iso/tests/test_kvm_gate_server_matrix.py -q
+	@sh $(ROOT)/build/iso/tests/test-ncz-fetch-payload.sh
+	@bash $(ROOT)/build/test-kvm-gate-server.sh
+
+# SCOPE-002: the server variant treats a missing/omitting COMPONENTS record as
+# opt-in for every accelerator the detected hardware has, the desktop variant
+# keeps its pre-SCOPE-002 behaviour byte-for-byte, and the rEFInd menu on server
+# stays Console + Rescue Partition only.
+test-magnetar-server-accel:
+	@bash $(ROOT)/build/test-magnetar-server-accel.sh
+
 # boot-speed regression tests: no Type=oneshot unit may
 # sit in multi-user.target's critical chain just to poll for the network.
 test-boot-speed:
@@ -611,6 +638,17 @@ npu-ssdt-check:
 # isolated temp tree, never touches assets/npu/). Requires iasl.
 npu-ssdt-selftest:
 	@bash $(ROOT)/build/npu-ssdt-gate.sh --self-test
+
+# End-to-end test of the DELIVERY path (not just the asset): iasl compiles the
+# committed .asl, the early CPIO carries kernel/firmware/acpi/ssdt-npucre.aml
+# as uncompressed newc, the DMI gate keeps O6/O6N boards untouched, and the
+# initramfs-tools hook + dracut module stage the table only on an MS-R1.
+# Runs against /sys fixtures in a temp dir; no hardware, no root.
+test-npu-ssdt-delivery:
+	@bash $(ROOT)/build/test-npu-ssdt-delivery.sh
+
+test-amd64-boot-noise:
+	@bash $(ROOT)/build/test-amd64-boot-noise.sh
 
 verify: $(OUTPUT_IMAGE)
 	@sha256sum $(OUTPUT_IMAGE) | tee $(OUTPUT_IMAGE).sha256
@@ -689,16 +727,25 @@ parity:
 	build/test-singularity-supervisor-forensics.sh
 	build/test-panthor-vulkan.sh
 	build/test-installer-screens.sh
+	@bash build/test-installer-ui-wrapper.sh
+	@NCZ_BOOT_SCREENS_PYTHON="$${NCZ_BOOT_SCREENS_PYTHON:-$$( [ -x "$$HOME/pyte-venv/bin/python" ] && echo "$$HOME/pyte-venv/bin/python" || echo python3 )}"; \
+	$$NCZ_BOOT_SCREENS_PYTHON -c 'import pyte' 2>/dev/null \
+		&& NCZ_BOOT_SCREENS_PYTHON="$$NCZ_BOOT_SCREENS_PYTHON" $$NCZ_BOOT_SCREENS_PYTHON build/test-boot-screens-testcopy.py \
+		|| echo "test-boot-screens-testcopy: SKIP (pyte not installed for $$NCZ_BOOT_SCREENS_PYTHON: python3 -m venv ~/pyte-venv && ~/pyte-venv/bin/pip install pyte)"
 	build/test-installer-brltty-banner.sh
 	build/test-installer-flow.sh
 	build/test-component-selection.sh
+	build/test-magnetar-server-accel.sh
 	build/test-usb2-rescan-sky1-only.sh
 	build/test-usb2-rescan-greetd.sh
 	branding/cygnus/tests/test-refind-theme-config.sh
 	build/test-tour-slides.sh
 	build/test-ncz-first-login-tour.sh
+	build/test-login-notice-order.sh
 	build/test-xdg-autostart.sh
+	build/test-lite-profile.sh
 	build/test-refind-rescue-promotion.sh
+	build/test-installer-esp-theme.sh
 	build/test-wallpaper-rotator-relogin.sh
 	build/test-wallpaper-rotator-interval.sh
 	python3 build/test_wallpaper_fit.py
@@ -712,27 +759,41 @@ parity:
 	build/test-timesync-retry.sh
 	build/test-boot-sequence.sh
 	build/test-greeter-output-mode.sh
+	build/test-greeter-console-fallback.sh
 	build/test-boot-splash-select.sh
+	bash build/test-console-font-autosize.sh
+	bash build/test-guest-ext4-recover.sh
 	python3 build/test_display_scale.py
 	build/test-chromium-icon.sh
 	build/test-libpeas-plugin-icon.sh
+	build/test-about-logo-mark.sh
 	build/test-run-all-baked-allowlist.sh
 	build/test-sky1-audio-policy.sh
 	build/test-sky1-media-defaults.sh
+	bash build/test-desktop-app-set.sh
 	build/test-screensaver-default.sh
 	build/test-titlebar-buttons.sh
 	build/test-overview-dock-clearance.sh
 	build/test-screensavers-mandatory-install.sh
 	build/test-ssplugin-supply-chain.sh
+	@bash build/test-stage-screensaver-plugin-public.sh; rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 77 ]; then exit $$rc; fi
 	build/test-ncz-ui.sh
+	build/test-sinty-adopt.sh
+	build/test-debconf-choices.sh
+	build/test-t2-wifi-no-unload.sh
 	build/test-release-identity.sh
+	build/check-release-identity-gate.sh conf $(ROOT)/release.conf
+	build/test-server-branding.sh
+	build/check-server-codename.sh
 	build/test-base-stamp.sh
 	build/test-reap-images.sh
 	REPO_ROOT=$(ROOT) bash build/test-amd64-kernel-classifier.sh
 	bash build/test-amd64-t2-detect.sh
+	bash build/test-efi-boot-label.sh
 	bash build/test-t2-mce-nobootlog.sh
 	bash build/test-t2-power-cap.sh
 	bash build/test-nouveau-runpm.sh
+	bash build/test-install-options.sh
 	bash build/test-gpu-probe-no-hang.sh
 	bash build/test-hook-watchdog.sh
 	bash build/test-amd64-cuda-gates.sh
@@ -741,7 +802,9 @@ parity:
 	build/test-singularity-mali-shaders.sh
 	@bash build/test-singularity-deb-version.sh; rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 77 ]; then exit $$rc; fi
 	build/test-overlay-modversions.sh
+	build/test-module-abi-gate.sh
 	build/test-amd64-dracut-isolation.sh
+	python3 -I build/test-boot-manifest-parity.py
 	build/test-kernel-default-policy.sh
 	build/test-rescue-kernel-channel.sh
 	build/test-late-npu-aipu.sh
@@ -750,13 +813,16 @@ parity:
 	build/test-diag-busybox.sh
 	build/test-gpu-install-progress.sh
 	build/test-preseed-consistency.sh
+	build/test-early-command-shape.sh
 	build/test-install-feedback.sh
 	build/test-progress-bar-drive.sh
 	build/test-firstboot-gpu.sh
 	build/test-dkms-btf-toolchain.sh
+	@bash build/test-mali-overlay-abi-guard.sh; rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 77 ]; then exit $$rc; fi
 	build/test-fwupd-i2c-mask.sh
 	build/test-apt-sources-offline-canary.sh
 	build/test-dkms-prep-keep-going.sh
+	build/test-headers-prepare-pristine.sh
 	build/test-dkms-prep-genksyms.sh
 	build/test-stale-singularity-prune.sh
 	build/test-kernel-purity-pin.sh
@@ -765,6 +831,8 @@ parity:
 	bash build/test-ncz-repo-policy.sh
 	bash build/test-reprepro-publish-pool-arch.sh
 	bash build/test-no-ubuntu.sh
+	bash build/test-no-pin-literals.sh
+	bash build/test-forky-inrelease-fixture.sh
 	bash build/test-ncz-apt-policy-deb.sh
 	bash build/test-apt-sources-hook-container.sh
 	bash build/test-ncz-cli-basics.sh
@@ -782,12 +850,18 @@ parity:
 	bash build/test-firmware-arch-bom.sh
 	bash build/test-desktop-apt-require.sh
 	bash build/test-build-inputs.sh
+	bash build/test-pin-coherence.sh
+	bash build/test-kernel-revision-pin.sh
 	bash build/test-gate-chown-back.sh
 	bash build/test-fresh-clone-inputs.sh
 	bash build/test-deb-rev-defaults.sh
 	bash build/test-panthor-hook-overlay-fallback.sh
 	bash build/test-panthor-fallback-real-overlay.sh
 	bash build/test-npu-dkms-deferral.sh
+	bash build/test-cix-deb-server-skip.sh
+	bash build/test-boot-splash-unit.sh
+	bash build/test-npu-ssdt-delivery.sh
+	bash build/test-amd64-boot-noise.sh
 	bash build/test-hooks-fail-loudly.sh
 	$(MAKE) --no-print-directory test-cygnus-branding
 

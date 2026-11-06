@@ -17,14 +17,26 @@
 #     kernel-build-dir  a prepared tree (headers-dir/lib/modules/<kver>/build)
 #     out-dir           receives <drv>/<kver>/*.ko and <drv>/<kver>/SOURCE.sha256
 #                       (digest of the assets/kernel/<drv> source compiled),
-#                       plus OVERLAYS.txt
+#                       plus OVERLAYS.txt and MODULE-ABI.txt
 #   Toolchain: CROSS_COMPILE / CC in the environment are honored. mali's gpu.mk
 #   hard-codes aarch64-linux-gnu-, so put a matching prefix on PATH when the
 #   kernel was built with a different triplet (the r279 run does).
 #
 # Verification per module: vermagic must start with <kver>, the .ko must be
-# uncompressed ELF with a GNU build-id, and every undefined symbol must be
-# satisfied by <kernel-build-dir>/Module.symvers or a sibling overlay module.
+# uncompressed ELF with a GNU build-id, every undefined symbol must be
+# satisfied by <kernel-build-dir>/Module.symvers or a sibling overlay module,
+# and its struct module (.gnu.linkonce.this_module size) must equal that of an
+# in-tree module of the same kernel build: NCZ_ACCEL_REF_KO, else the first
+# drivers/**/*.ko under <kernel-build-dir> (a real build tree has them; a
+# headers-only tree does not, so set NCZ_ACCEL_REF_KO to a module from the
+# kernel's modules-cixmini.tgz).
+#
+# Why the last check (2026-10-26, r292): the overlays were built against a
+# headers tree after `make modules_prepare` had re-run Kconfig on a host
+# without pahole. That dropped CONFIG_DEBUG_INFO_BTF_MODULES from
+# include/generated/autoconf.h, struct module shrank from 0x500 to 0x4c0, and
+# the kernel refused all three Mali modules on O6N ("section size must
+# match"). vermagic and every symbol CRC were still correct.
 set -euo pipefail
 export LC_ALL=C
 
@@ -107,5 +119,16 @@ for ko in "$OUT"/*/"$KVER"/*.ko; do
     [ -z "$unres" ] || { echo "FAIL $rel: unresolved symbols: $unres" >&2; fail=1; }
     printf '%s  vermagic=%s  build-id=%s  sha256=%s\n' "$rel" "$vm" "$bid" "$sha" | tee -a "$OUT/OVERLAYS.txt"
 done
+REF_KO="${NCZ_ACCEL_REF_KO:-$(find "$KB" -path '*/drivers/*' -name '*.ko' 2>/dev/null | LC_ALL=C sort | head -1)}"
+if [ -z "$REF_KO" ] || [ ! -f "$REF_KO" ]; then
+    echo "FAIL: no in-tree reference module for the struct module check: set NCZ_ACCEL_REF_KO to a .ko" \
+         "from this kernel's modules-cixmini.tgz (lib/modules/$KVER/kernel/...)" >&2
+    fail=1
+else
+    mapfile -t _built < <(find "$OUT" -path "*/$KVER/*" -name '*.ko' | LC_ALL=C sort)
+    _args=(); for k in "${_built[@]}"; do _args+=(--ko "$k"); done
+    python3 "$ROOT/build/verify-module-abi.py" --ref "$REF_KO" "${_args[@]}" | tee "$OUT/MODULE-ABI.txt" \
+        || { echo "FAIL: overlays do not have this kernel's struct module (see above)" >&2; fail=1; }
+fi
 [ "$fail" -eq 0 ] || { echo "accel overlays: FAIL" >&2; exit 1; }
 echo "accel overlays: OK (${#DRIVERS[@]} driver(s), $(find "$OUT" -name '*.ko' | wc -l) module(s)) -> $OUT"

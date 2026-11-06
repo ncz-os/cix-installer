@@ -355,8 +355,8 @@ base_stamp_in_layer() {   # layer -> stamp or empty
 }
 
 case "$NCZ_TARGET_ARCH" in
-  amd64) BASE_HOOKS="10-amd64-kernel 19-sinty-nm" ;;
-  *)     BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 19-sinty-nm" ;;
+  amd64) BASE_HOOKS="10-amd64-kernel 19-sinty-nm 58-screensaver-shader" ;;
+  *)     BASE_HOOKS="10-our-kernel 12-sky1-firmware 15-mesa-sky1-pin 16-mesa-gpu-2613 19-sinty-nm 58-screensaver-shader" ;;
 esac
 case "$NCZ_TARGET_ARCH" in
   amd64) BASE_MANIFEST="${BASE_MANIFEST:-manifests/installer-base-amd64.pkgs}"
@@ -605,7 +605,7 @@ build_layer(){ local role="$1" manifest="$2"
   printf '$nrconf{kernelhints} = 0;\n' | sudo tee "$MG/etc/needrestart/conf.d/99-squashfs-layer.conf" >/dev/null
   if [ "$role" = "desktop" ]; then
     log "desktop: SINGULARITY desktop delta (Wayland-only; XFCE/X11 removed) + brand"
-    # 26.7 "Maximilian": Singularity Desktop (labwc/wlroots, GTK4) REPLACES XFCE.
+    # 26.10 "Cygnus": Singularity Desktop (labwc/wlroots, GTK4) REPLACES XFCE.
     # No user-session=xfce, no x-session-manager -> xfce4, no 60-ncz-xfce.conf.
     # GREETER = greetd + NATIVE singularity-greeter (in the payload) — NOT
     # lightdm. 20-desktop.sh (run as a brand hook below) does the real work:
@@ -1132,13 +1132,17 @@ build_base(){
   # this allowlist, breaking the NCZ agent stack, EmbedKit LLM stack, the
   # regreet login theme, NPU assets, and Singularity Desktop's own asset
   # tree on every amd64 build since this loop was last updated.
-  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs sinty-nm agent-images agent-stack audio display cix-c-shims cix-mm dev diag docs dracut embedkit intel keys npu regreet singularity; do
+  for a in cix-debs kernel mesa gpu sky1-firmware firmware refind grub rescue branding wallpaper wallpaper-debs sinty-nm agent-images agent-stack audio display cix-c-shims cix-mm dev diag docs dracut initramfs embedkit amd intel keys npu regreet singularity; do
     # assets/dracut is Sky1-only (docs/platform-inventory.tsv): 10-ncz-sky1.conf
     # is the linlon-dp/trilin-dpsub Sky1 display + USB-ethernet module set.
     # 94-dracut-config refuses to apply it on amd64, but staging the file still
     # leaves an arm64-only dracut config in the amd64 payload (and any future
     # consumer would feed it to dracut, which logs "linlon_dp: module not
     # found"). Never stage it into an amd64 base.
+    # assets/initramfs holds the initramfs-tools hooks (ncz-npu-ssdt) and is
+    # arch-neutral: the hook itself is board-gated at initrd-build time by
+    # post-install/lib/npu-ssdt.sh, so an amd64 base that stages it installs a
+    # hook that decides "not MS-R1-class" and does nothing.
     case "$a" in
       dracut) [ "$NCZ_TARGET_ARCH" = amd64 ] && continue ;;
     esac

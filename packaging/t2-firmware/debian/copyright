@@ -1,0 +1,50 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: t2linux/wiki firmware helper (firmware.sh)
+Upstream-Contact: t2linux project <https://github.com/t2linux/wiki>
+Source: https://github.com/t2linux/wiki
+  Pinned: commit c16ca396f638727f943d577a24dcc0d7e5f0cdd8, path docs/tools/firmware.sh
+  sha256: c1c1d8aa25bb5f089e46ccd0d9738fc13bfbd784f499aa924466c690f059961e (31831 bytes)
+Comment:
+ The pristine upstream shell helper is shipped as documentation
+ (upstream/firmware.sh). The installed helper is a minimal reviewed patch
+ that pins runtime-downloaded code to immutable commits and verifies its
+ SHA-256 before execution. The rights below are as carried in the file
+ itself (MIT on lines 3-24, plus a nested Python SPDX tag) and the
+ MIT SPDX tag of the embedded Python archive-renamer. Optional runtime
+ downloads are separate assets and are not bundled.
+
+Files: upstream/firmware.sh get-apple-firmware
+Copyright:
+  Copyright (C) 2024 Aditya Garg <gargaditya08@live.com>
+  Copyright (C) 2024 Orlando Chamberlain <redecorating@protonmail.com>
+  Copyright (C) 2024 Sharpened Blade <sharpenedblade@proton.me>
+  2026 Jason Perlow <jperlow@gmail.com> (packaging changes)
+License: MIT
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ IN THE SOFTWARE.
+Files: debian/* tests/*
+Copyright: 2026 Jason Perlow <jperlow@gmail.com>
+License: MIT
+ (Same MIT terms as above.)
+
+Comment:
+ The runtime-downloaded helper code (kholia/OSX-KVM fetch-macOS-v2.py and
+ Homebrew install.sh) is NOT bundled in this package and its license is NOT
+ asserted here. The original OpenCore BSD-3-Clause grant covers upstream
+ macrecovery.py; it does not automatically cover OSX-KVM derivative
+ modifications. See debian/SOURCE-MANIFEST.md for the full audit.

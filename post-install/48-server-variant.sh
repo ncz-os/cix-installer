@@ -8,10 +8,9 @@
 # preseed/late.sh writes BUILD_VARIANT=server and this hook converts the
 # install into a headless boot.
 #
-# (2026-07-27: the old "Reinhardt"/"Magnetar" per-variant codename scheme
-# was retired — the release codename from release.conf applies to BOTH
-# variants; "Desktop"/"Server" is just the qualifier. Renamed from
-# 48-magnetar-variant.sh to match.)
+# (2026-07-27: the old per-variant codename scheme was retired — the release
+# codename from release.conf applies to BOTH variants; "Desktop"/"Server" is
+# just the qualifier. Renamed from the old magnetar-variant hook to match.)
 #
 # Keeping the toggle in a separate hook makes the server-variant work
 # explicit and reversible: `ncz desktop on` after install flips the
@@ -105,29 +104,42 @@ mkdir -p /etc/issue.d
 # Pure ASCII — agetty/console may not have a font with Unicode box-draw
 # chars; broken renderings on tty2 looked worse than no border at all.
 # Classic 1970s Unix / mainframe MOTD aesthetic.
-cat > /etc/issue.d/10-ncz-server.issue <<'EOF'
-
-****************************************************************
-*                                                              *
-*      N C Z   M A X I M I L I A N   S E R V E R               *
-*                                                              *
-*--------------------------------------------------------------*
-*                                                              *
-*   THIS SYSTEM IS RUNNING IN HEADLESS SERVER MODE             *
-*                                                              *
-*   Console login is fully available on all terminals.         *
-*   Switch consoles:    Alt + F1 .. F6                         *
-*                                                              *
-*--------------------------------------------------------------*
-*                                                              *
-*   Remote access ......... ssh   port 22                      *
-*   Re-enable graphical ... sudo ncz desktop on                *
-*                                                              *
-****************************************************************
-
-   NCZ-OS  -  running kernel \r  (\m)
-
-EOF
+# MAGNETAR SERVER: an install from a Magnetar Server medium names its edition
+# (post-install/lib/ncz-brand.sh) and has no desktop to re-enable. A desktop
+# medium's console-only install keeps the block below unchanged.
+_ncz_medium=desktop
+_ncz_brand_lib="$(dirname "$0")/lib/ncz-brand.sh"
+[ -r "$_ncz_brand_lib" ] || _ncz_brand_lib=/usr/local/lib/cix-installer/post-install/lib/ncz-brand.sh
+if [ -r "$_ncz_brand_lib" ] && . "$_ncz_brand_lib"; then
+    _ncz_medium=$(ncz_brand_medium_variant /usr/local/lib/cix-installer)
+fi
+# One banner, no duplication, no codename (operator report + photo, 2026-10-28).
+# WHAT WAS WRONG: the desktop-medium branch below carried a hardcoded ASCII
+# block reading "N C Z   M A X I M I L I A N   S E R V E R" -- the 26.7 codename,
+# frozen into a shell heredoc when the codename moved to Cygnus, and shipped on
+# every console-only install from a desktop medium. /etc/issue on the same
+# screen already names the release correctly, so the block was both stale and
+# redundant, and it is what made a correct machine look like it was running a
+# two-release-old build. The identity gate never saw it: the string lived in a
+# hook's heredoc, not in a generated identity file.
+#
+# WHAT IT IS NOW: /etc/issue (50-brand.sh) owns the identity -- product,
+# version, codename, SoC, build and IP. This file adds ONLY what /etc/issue
+# cannot say: that the box is in headless mode and how to get back. No product
+# line, no kernel line, no box art, no codename. The two media differ by a
+# single hint line.
+{
+    echo
+    printf '%s\n' 'This system is running in headless server mode.'
+    printf '%s\n' 'Console login is available on all terminals; other consoles: Alt+F2 .. Alt+F6.'
+    printf '%s\n' 'Remote access: ssh port 22.'
+    # A Magnetar Server medium has no desktop to re-enable; a desktop medium
+    # installed with the desktop component off does.
+    if [ "$_ncz_medium" = desktop ]; then
+        printf '%s\n' 'Re-enable the desktop: sudo ncz desktop on'
+    fi
+    echo
+} > /etc/issue.d/10-ncz-server.issue
 chmod 0644 /etc/issue.d/10-ncz-server.issue
 echo "[48] /etc/issue.d/10-ncz-server.issue written"
 
@@ -137,10 +149,12 @@ echo "[48] /etc/issue.d/10-ncz-server.issue written"
 # gets DHCP without operator intervention.
 if command -v nmcli >/dev/null 2>&1; then
     # Find the first ethernet device (skip lo, virtual, wireless)
-    ETH_DEV=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="ethernet"{print $1; exit}')
+    # nmcli has no daemon to talk to inside the install chroot and exits non-zero;
+    # under errexit + pipefail that ended the hook here (console installs).
+    ETH_DEV=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="ethernet"{print $1; exit}' || true)
     if [ -n "$ETH_DEV" ]; then
         # Only add a profile if there isn't one already for this device.
-        if ! nmcli -t -f NAME,DEVICE connection show 2>/dev/null | grep -q ":${ETH_DEV}$"; then
+        if ! { nmcli -t -f NAME,DEVICE connection show 2>/dev/null || true; } | grep ":${ETH_DEV}$" >/dev/null; then
             nmcli connection add type ethernet con-name "ncz-wired-${ETH_DEV}" \
                 ifname "$ETH_DEV" connection.autoconnect yes ipv4.method auto ipv6.method auto \
                 2>&1 | sed 's/^/    /' || \
@@ -163,4 +177,5 @@ echo
 echo "[48] Server variant applied. Boot-up will land in tty2 multi-user."
 echo "     tty1 reserved for kernel boot diag; press Alt+F2 for login prompt."
 echo "     SSH on port 22."
-echo "     Switch back to desktop with: sudo ncz desktop on"
+# A Magnetar Server medium carries no desktop layer, so there is nothing to switch back to.
+[ "$_ncz_medium" = server ] || echo "     Switch back to desktop with: sudo ncz desktop on"

@@ -124,6 +124,9 @@ fi
 
 printf '%s\n' "$BODY" > "$OVERRIDE"
 chmod 0644 "$OVERRIDE"
+# Recompile the real schema dir in PRODUCTION. In tests NCZ_IDLELOCK_SCHEMA_DIR
+# points the whole hook at a scratch dir that the --dry-run above already
+# validated, so there is nothing to compile.
 if [ -z "${NCZ_IDLELOCK_SCHEMA_DIR:-}" ]; then
     glib-compile-schemas "$SCHEMADIR" 2>&1 | sed 's/^/[63]   /' || true
 fi

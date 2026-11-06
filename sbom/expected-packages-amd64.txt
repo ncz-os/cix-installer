@@ -128,7 +128,6 @@ manifests/desktop-amd64.pkgs:pavucontrol
 manifests/desktop-amd64.pkgs:gvfs
 manifests/desktop-amd64.pkgs:gvfs-backends
 manifests/desktop-amd64.pkgs:udisks2
-manifests/desktop-amd64.pkgs:gnome-disk-utility
 manifests/desktop-amd64.pkgs:bluez
 manifests/desktop-amd64.pkgs:blueman
 manifests/desktop-amd64.pkgs:python3-dbus
@@ -145,11 +144,9 @@ manifests/desktop-amd64.pkgs:mpv
 manifests/desktop-amd64.pkgs:xarchiver
 manifests/desktop-amd64.pkgs:7zip
 manifests/desktop-amd64.pkgs:unrar-free
-manifests/desktop-amd64.pkgs:papers
 manifests/desktop-amd64.pkgs:synaptic
 manifests/desktop-amd64.pkgs:gdebi
 manifests/desktop-amd64.pkgs:gdebi-core
-manifests/desktop-amd64.pkgs:baobab
 manifests/desktop-amd64.pkgs:gimp
 manifests/desktop-amd64.pkgs:librsvg2-bin
 manifests/desktop-amd64.pkgs:imagemagick
@@ -172,7 +169,6 @@ manifests/desktop-amd64.pkgs:libnice10
 manifests/desktop-amd64.pkgs:flatpak
 manifests/desktop-amd64.pkgs:gnome-session-canberra
 manifests/desktop-amd64.pkgs:xdg-desktop-portal-gtk
-manifests/desktop-amd64.pkgs:epiphany-browser
 manifests/desktop-amd64.pkgs:vulkan-validationlayers
 manifests/desktop-amd64.pkgs:glslc
 manifests/desktop-amd64.pkgs:icewm
@@ -188,18 +184,9 @@ manifests/desktop-amd64.pkgs:ffmpeg
 manifests/desktop-amd64.pkgs:audacity
 manifests/desktop-amd64.pkgs:kooha
 manifests/desktop-amd64.pkgs:celluloid
-manifests/desktop-amd64.pkgs:loupe
-manifests/desktop-amd64.pkgs:gnome-calculator
-manifests/desktop-amd64.pkgs:gnome-text-editor
-manifests/desktop-amd64.pkgs:gnome-font-viewer
-manifests/desktop-amd64.pkgs:gnome-characters
-manifests/desktop-amd64.pkgs:gnome-calendar
-manifests/desktop-amd64.pkgs:gnome-weather
-manifests/desktop-amd64.pkgs:gnome-sound-recorder
 manifests/desktop-amd64.pkgs:drawing
 manifests/desktop-amd64.pkgs:imv
 manifests/desktop-amd64.pkgs:swayimg
-manifests/desktop-amd64.pkgs:gnome-console
 manifests/desktop-amd64.pkgs:zstd
 manifests/desktop-amd64.pkgs:curl
 manifests/desktop-amd64.pkgs:ca-certificates

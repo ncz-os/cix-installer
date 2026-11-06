@@ -8,8 +8,6 @@ greetd's PAM conversation blocks on every auth_message, including the
 replying left the session showing "Authenticating..." forever. Reply to
 those messages with a null response, as the reference client does.
 
-Assisted-by: opencode:deepseek-flash
-AI-Scope: generated the null post_auth_message_response for info and error auth messages in greeter_main.c
 ---
  src/greeter_main.c | 6 ++++++
  1 file changed, 6 insertions(+)

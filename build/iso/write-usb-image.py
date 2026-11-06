@@ -94,6 +94,7 @@ import socket
 import struct
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import zlib
@@ -145,16 +146,270 @@ def repro_uuid(kind: str) -> str | None:
 # `expected` list never picked up desktop-hotfix.squashfs / its manifest /
 # busybox-$ARCH even after stage-ncz-payload.py started producing them
 # the same session. Fixed here; the file list is arch-suffix-aware for busybox.
+def _server_payload_mode() -> str:
+    """How a server medium obtains its payload: 'online' (default) or 'medium'.
+
+    'online' is Magnetar option B: the medium carries a pinned manifest of
+    URLs and the installer fetches base.squashfs, the asset bundle and the apt
+    pool at install time. 'medium' is self-contained: the payload rides on the
+    medium exactly as a desktop medium carries it and NO URL is baked
+    anywhere -- the only shape that installs on a machine with no reachable
+    HTTP host.
+    """
+    mode = os.environ.get("NCZ_SERVER_PAYLOAD", "online").strip().lower()
+    if mode not in ("online", "medium"):
+        raise SystemExit(
+            f"NCZ_SERVER_PAYLOAD must be online or medium, got {mode!r}")
+    return mode
+
+
+_LAN_HOST_PATTERNS = (
+    re.compile(r"^10\."),
+    re.compile(r"^192\.168\."),
+    re.compile(r"^172\.(1[6-9]|2[0-9]|3[01])\."),
+    re.compile(r"^127\."),
+    re.compile(r"^169\.254\."),
+    re.compile(r"^localhost$", re.I),
+    re.compile(r"\.local$", re.I),
+)
+
+
+def _refuse_lan_url(url: str, what: str) -> None:
+    """HARD RULE (operator, 2026-10-29): never bake a LAN URL into an image.
+
+    A medium pinned to http://10.0.2.2 (the KVM gate's host alias) or to a
+    build host's LAN address installs nowhere but the build rack. The first
+    real server install (TYPHON, 2026-10-29) died in the debootstrap stub with
+    '[FETCH] base.squashfs attempt 1..9 failed (rc=4)' while that host was
+    serving the same file at 561 MB/s. Only a publicly resolvable host may be
+    pinned; anything else is a gate artifact (never shipped) or belongs in a
+    self-contained medium (NCZ_SERVER_PAYLOAD=medium).
+    """
+    host = ""
+    m = re.match(r"^[a-z]+://([^/:]+)", url, re.I)
+    if m:
+        host = m.group(1)
+    for pat in _LAN_HOST_PATTERNS:
+        if pat.search(host):
+            raise RuntimeError(
+                f"FATAL: refusing to pin {what} to a LAN/loopback host ({url}).\n"
+                f"  RULE: images never carry LAN URLs.\n"
+                f"  Pin a publicly resolvable host, or build the medium\n"
+                f"  self-contained with NCZ_SERVER_PAYLOAD=medium.")
+
+
+def _variant() -> str:
+    """desktop (default) or server (Magnetar)."""
+    v = os.environ.get("NCZ_VARIANT", "desktop").strip().lower()
+    if v not in ("desktop", "server"):
+        raise SystemExit(f"NCZ_VARIANT must be desktop or server, got {v!r}")
+    return v
+
+
 def expected_payload_names(arch: str) -> list[str]:
-    return [
+    names = [
         "base.squashfs",
-        "desktop.squashfs",
-        "desktop.overlay-manifest",
-        "desktop-hotfix.squashfs",
-        "desktop-hotfix.overlay-manifest",
         f"busybox-{arch}",
         "sqtools",
     ]
+    # Magnetar is a server edition: no desktop layer and no desktop hotfix.
+    if _variant() == "desktop":
+        names[1:1] = [
+            "desktop.squashfs",
+            "desktop.overlay-manifest",
+            "desktop-hotfix.squashfs",
+            "desktop-hotfix.overlay-manifest",
+        ]
+    return names
+
+
+# ---------------------------------------------------------------------------
+# MAGNETAR (NCZ_VARIANT=server): the assets that go ONLINE instead of onto the
+# medium.
+#
+# Measured on the amd64 server image of 2026-10-16 (data partition content,
+# 2,546,377,288 B total):
+#     pool/                     1,960,721,624   (1,875,725,028 regular debs
+#                                             +  84,996,596 substrate udebs)
+#     ncz-payload/assets/         574,624,515   (rescue 212,638,137 / firmware
+#                                             170,081,121 / kernel 124,339,917
+#                                             / branding 57,359,189 / rest)
+#     dists/                        2,805,485
+#     ncz-payload/ (everything else, incl. sqtools, post-install, preseed)  ~8.6 MB
+#
+# The substrate UDEBs and the debian-installer index they are read through
+# CANNOT go online: cdrom-retriever/load-cdrom reads them from the medium
+# during d-i's main-menu, long before bootstrap-base calls the debootstrap
+# stub, and the r159 CONTRACT is that anything needed during boot is either on
+# the medium or fetched before the stub runs. They stay.
+#
+# Everything else in the list above is only read AFTER the stub has run, by
+# post-install/20-desktop.sh (file:///cdrom pool) and the kernel/rescue/
+# firmware/branding hooks that late.sh copies out of the payload tree. For the
+# server variant that is replaced by an online fetch, verified by sha256.
+# ---------------------------------------------------------------------------
+SERVER_ONLINE_ASSET_DIRS = ("rescue", "firmware", "kernel", "branding")
+
+# The offline apt closure (1.8 GB of regular .debs) is NOT on a server medium
+# (Magnetar option B, operator 2026-10-26; option A, carrying it on the medium,
+# is superseded). It is the third pinned payload artifact,
+# ncz-pool-<arch>.tar.gz: the build's <suite>-mirror (dists/ + pool/, with its
+# own Release) under repo/, fetched and sha256-verified at install time like
+# base.squashfs and the asset bundle. The r159 stub binds the unpacked repo as
+# the target's /cdrom, so apt-setup's file:///cdrom source, late.sh and the
+# post-install hooks see the same repository they saw when it was on the medium.
+SERVER_SKIPS_OFFLINE_CLOSURE = True
+SERVER_POOL_REPO_DIR = "repo"
+
+
+def server_online_fetch_plan(arch: str) -> dict:
+    """The pinned online artifacts for a server image, read from the environment.
+
+    These are BUILD INPUTS, not something this script invents: whoever
+    publishes the image must already host these files at stable URLs. Building
+    a server medium without them would produce media that can only fail, at the
+    operator's prompt, with a headless box and no rootfs -- so a missing pin is
+    a build-time refusal, not a runtime surprise.
+    """
+    plan = {
+        "payload_name": os.environ.get("NCZ_PAYLOAD_NAME", "base.squashfs"),
+        "payload_url": os.environ.get("NCZ_PAYLOAD_URL", ""),
+        "payload_sha256": os.environ.get("NCZ_PAYLOAD_SHA256", ""),
+        "assets_name": os.environ.get("NCZ_ASSETS_NAME",
+                                      f"ncz-assets-{arch}.tar.gz"),
+        "assets_url": os.environ.get("NCZ_ASSETS_URL", ""),
+        "pool_name": os.environ.get("NCZ_POOL_NAME", f"ncz-pool-{arch}.tar.gz"),
+        "pool_url": os.environ.get("NCZ_POOL_URL", ""),
+    }
+    missing = [k for k in ("payload_url", "payload_sha256", "assets_url",
+                           "pool_url")
+               if not plan[k]]
+    if missing:
+        raise RuntimeError(
+            "FATAL: NCZ_VARIANT=server needs "
+            "NCZ_PAYLOAD_URL + NCZ_PAYLOAD_SHA256 (base.squashfs), "
+            "NCZ_ASSETS_URL (the pinned asset bundle) and NCZ_POOL_URL (the "
+            f"pinned offline apt pool); missing: {missing}. "
+            "Refusing to build a server medium that cannot install, because "
+            "its payload and substrate assets are fetched online and "
+            "sha256-verified at install time.")
+    return plan
+
+
+# Opt-in (unset = no change): the asset bundle is built in this writer's own
+# work dir, which is deleted on exit. The KVM gate has to serve the exact bytes
+# the medium pins, and the shipped-artifact secret scan has to read them, so a
+# build that needs them names a directory here and gets a verified copy plus a
+# sha256 sidecar. Desktop builds never build a bundle and ignore it.
+ASSETS_EXPORT_ENV = "NCZ_ASSETS_EXPORT_DIR"
+
+
+def export_assets_bundle(bundle: Path, export_dir: Path, sha256: str,
+                         what: str = "asset bundle") -> Path:
+    """Copy the pinned bundle to export_dir (atomically) with <name>.sha256.
+
+    The copy is re-hashed against the pin before it is renamed into place, so
+    the exported bytes are provably the ones the medium's manifest pins."""
+    export_dir.mkdir(parents=True, exist_ok=True)
+    dest = export_dir / bundle.name
+    part = export_dir / (bundle.name + ".part")
+    shutil.copyfile(bundle, part)
+    got = sha256_file(part)
+    if got != sha256:
+        part.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"FATAL: exported asset bundle {part} hashes {got}, the medium "
+            f"pins {sha256}; refusing to export bytes the medium does not pin")
+    os.replace(part, dest)
+    (export_dir / (bundle.name + ".sha256")).write_text(f"{sha256}  {bundle.name}\n")
+    log(f"    server variant: {what} exported to {dest} ({ASSETS_EXPORT_ENV})")
+    return dest
+
+
+def write_online_fetch_manifest(payload_dst: Path, plan: dict) -> None:
+    """Emit the manifest ncz-fetch-payload.sh consumes.
+
+    TSV, one artifact per line: name <TAB> url <TAB> sha256 <TAB> mode.
+    'untar' unpacks into the payload directory, so the bundle restores
+    assets/{rescue,firmware,kernel,branding}/ at exactly the paths the
+    post-install hooks and late.sh expect.
+    """
+    for _key, _what in (("payload_url", "base.squashfs"),
+                        ("assets_url", "the asset bundle"),
+                        ("pool_url", "the offline apt pool")):
+        _u = str(plan.get(_key, ""))
+        if _u:
+            _refuse_lan_url(_u, _what)
+    helper = REPO_ROOT / "preseed" / "ncz-fetch-payload.sh"
+    if not helper.is_file():
+        raise RuntimeError(
+            f"FATAL: server variant needs {helper} on the medium so the "
+            f"debootstrap stub can fetch the payload online")
+    shutil.copy2(str(helper), str(payload_dst / helper.name))
+    (payload_dst / helper.name).chmod(0o755)
+    lines = [
+        f"{plan['payload_name']}\t{plan['payload_url']}\t"
+        f"{plan['payload_sha256']}\tfile",
+        f"{plan['assets_name']}\t{plan['assets_url']}\t"
+        f"{plan['assets_sha256']}\tuntar",
+        (f"{plan['pool_name']}\t{plan['pool_url']}\t"
+         f"{plan['pool_sha256']}\tuntar"),
+    ]
+    manifest = payload_dst / "ncz-fetch-payload.manifest"
+    manifest.write_text(
+        "# ncz-fetch-payload manifest v1\n"
+        "# name<TAB>url<TAB>sha256<TAB>mode -- verified by "
+        "preseed/ncz-fetch-payload.sh before anything is used.\n"
+        + "\n".join(lines) + "\n")
+    log(f"    online fetch manifest staged: {manifest.name} "
+        f"({len(lines)} pinned artifacts)")
+
+
+def run_release_identity_gate(stage_dir: Path,
+                              gate_path: Path | None = None) -> None:
+    """MINOR-001 gate: the staged medium tree must carry the current
+    release identity end to end.
+
+    The operator saw "NCZ Maximilian Server" on an arm64 Preview2 medium:
+    a retired codename survived into a generated identity string. This gate
+    runs at the moment every medium is written (build_ncz_payload_tree ->
+    this call, for BOTH variants -- desktop and server only differ by the
+    _variant() branch, the payload tree and this gate are shared): any
+    retired codename (Maximilian, Reinhardt), an empty product label, or a
+    variant-label mismatch in the generated RELEASE/issue strings fails the
+    build here, where it is cheap to notice.
+
+    ``gate_path`` overrides the gate script location (unit tests point it at
+    a fixture; production always uses the repo's build/ copy).
+    """
+    _here = Path(__file__).resolve().parent
+    for candidate in (
+        gate_path,
+        Path(globals().get("REPO_ROOT", _here.parent.parent))
+        / "build" / "check-release-identity-gate.sh",
+        _here.parent / "check-release-identity-gate.sh",
+    ):
+        if candidate is not None and candidate.is_file():
+            gate = candidate
+            break
+    else:
+        # The gate is part of the repo; missing means a broken checkout.
+        raise RuntimeError(
+            "FATAL: build/check-release-identity-gate.sh is missing -- "
+            "the MINOR-001 release-identity gate must run on every medium "
+            "build; refusing to write an unverified identity.")
+    payload_dir = stage_dir / "ncz-payload"
+    proc = subprocess.run(
+        ["bash", str(gate), "staged", str(stage_dir), str(payload_dir)],
+        capture_output=True, text=True, check=False)
+    for line in (proc.stdout or "").splitlines():
+        log(f"    identity-gate: {line}")
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip().splitlines()
+        raise RuntimeError(
+            "FATAL: release-identity gate failed on the staged medium -- "
+            "refusing to build a medium whose identity may be stale: "
+            f"rc={proc.returncode} {tail}")
 
 
 def log(msg: str) -> None:
@@ -213,6 +468,88 @@ def du_bytes(path: Path) -> int:
         run(["du", "-sb", str(path)], stdout=subprocess.PIPE, text=True)
         .stdout.split()[0]
     )
+
+
+def _tar_members(tar: tarfile.TarFile, path: Path,
+                 arcname: str) -> list[tuple[tarfile.TarInfo, Path | None]]:
+    """Every member under ``path``, in a deterministic order, paired with the
+    file it should be filled from (None for dirs, links and other specials)."""
+    info = tar.gettarinfo(str(path), arcname=arcname)
+    if not info.isdir():
+        return [(info, path if info.isfile() else None)]
+    out = [(info, None)]
+    for child in sorted(path.iterdir(), key=lambda p: p.name):
+        out.extend(_tar_members(tar, child, f"{arcname}/{child.name}"))
+    return out
+
+
+def ncz_gate_serve_payload_base_url(arch: str, host: str | None = None) -> str:
+    """The base URL the Magnetar KVM gate serves from.
+
+    The gate (build/kvm-install-gate-matrix.sh ``server`` set) binds an HTTP
+    server to the QEMU user-net gateway 10.0.2.2 and the guest's fetcher
+    reads its URLs from the medium's ncz-fetch-payload.manifest. A server
+    image built by THIS repo's build (make image ARCH=... NCZ_VARIANT=server)
+    for the gate must pin this base (a release medium pins the published
+    payload instead, which the gate cannot serve). This is the single source
+    of the gate's base URL; the gate reads the pin back off the medium and
+    refuses one it cannot serve, so the two cannot drift.
+
+    ``host`` overrides the bind address for non-standard networks (the gate's
+    NCZ_GATE_SERVER_HOST does the same at run time); it defaults to the QEMU
+    user-net gateway, which is the guest's default network on every arch this
+    gate runs (qemu-system-x86_64 and qemu-system-aarch64 both use -netdev
+    user with the stock gateway).
+    """
+    h = host or os.environ.get("NCZ_GATE_SERVER_HOST", "10.0.2.2")
+    h = h.strip()
+    if ":" in h:  # tolerate a host:port form on the environment override
+        h = h.split(":", 1)[0]
+    if not h or "/" in h:
+        raise RuntimeError(f"FATAL: bad NCZ_GATE_SERVER_HOST {h!r} (want an IP or hostname)")
+    return f"http://{h}"
+
+
+def make_targz(src_dir: Path, entries: list[str], out: Path,
+               arc_prefix: str = "", compresslevel: int = 6) -> int:
+    """Deterministic gzip tar of ``entries`` (relative to ``src_dir``).
+
+    Deterministic on purpose: the sha256 of this file is what the medium pins
+    in ncz-fetch-payload.manifest and what the installer verifies at fetch
+    time, so two builds of the same inputs must produce the same bytes --
+    otherwise every rebuild silently invalidates every published artifact.
+    Members are added in sorted order with uid/gid/uname/gname/mtime
+    normalised, and the gzip header mtime is pinned to 0 (tarfile's "w:gz"
+    stamps the current time into it, which alone would break the digest).
+    """
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tar_path = out.with_name(out.name + ".tar")
+    try:
+        with tarfile.open(tar_path, "w", format=tarfile.PAX_FORMAT) as tar:
+            for name in sorted(entries):
+                path = src_dir / name
+                if not path.exists():
+                    continue
+                for member, source in _tar_members(tar, path, arc_prefix + name):
+                    member.mtime = 0
+                    member.uid = member.gid = 0
+                    member.uname = member.gname = ""
+                    # Symlink targets are paths INSIDE the installer chroot on
+                    # the receiving side; keep them verbatim, that is what the
+                    # staged tree has always carried.
+                    if source is not None:
+                        with source.open("rb") as fh:
+                            tar.addfile(member, fh)
+                    else:
+                        tar.addfile(member)
+        with tar_path.open("rb") as src, out.open("wb") as dst:
+            with gzip.GzipFile(filename="", mode="wb", fileobj=dst,
+                               mtime=0, compresslevel=compresslevel) as gz:
+                shutil.copyfileobj(src, gz)
+    finally:
+        if tar_path.exists():
+            tar_path.unlink()
+    return out.stat().st_size
 
 
 # Headroom over the exact requirement: ext4 metadata/journal inside the image
@@ -436,7 +773,9 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
                            patched_udeb: Path | None, preseed_dir: Path | None,
                            allow_missing_stub: bool = False,
                            post_install_dir: Path | None = None,
-                           build_version: str | None = None) -> dict:
+                           build_version: str | None = None,
+                           online_work_dir: Path | None = None,
+                           gate_path: Path | None = None) -> dict:
     """Same shape as write-image.py's stage_ncz_payload(), corrected
     for the hotfix/busybox staleness bug documented above."""
     if not payload_dir.is_dir():
@@ -444,6 +783,15 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     ncz_payload_dst = stage_dir / "ncz-payload"
     ncz_payload_dst.mkdir(parents=True, exist_ok=True)
 
+    # MAGNETAR(server): the base layer is fetched at install time; a payload
+    # node that carries it is a desktop (or stale) node, and copying it would
+    # ship the layer on the medium after all (2026-10-26). Fail closed.
+    self_contained = _variant() == "server" and _server_payload_mode() == "medium"
+    if _variant() == "server" and not self_contained and (payload_dir / "base.squashfs").exists():
+        raise RuntimeError(
+            f"FATAL: server variant, but the payload dir {payload_dir} carries "
+            f"base.squashfs -- a desktop or stale payload node; a server medium "
+            f"must not ship the base layer (it is fetched from NCZ_PAYLOAD_URL)")
     staged = []
     for name in expected_payload_names(arch):
         src = payload_dir / name
@@ -464,7 +812,13 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # sqtools/ is the arch-matched unsquashfs that extracts it: with either
     # one missing there is no install, so refuse here rather than at the
     # d-i prompt on the operator's hardware.
-    for required in ("base.squashfs", "sqtools"):
+    # MAGNETAR(server): base.squashfs is deliberately NOT on the medium -- it is
+    # fetched from NCZ_PAYLOAD_URL and sha256-verified by the debootstrap stub
+    # before anything is extracted, so its absence here is the intended state,
+    # not a broken payload dir. sqtools (the arch-matched static unsquashfs)
+    # still has to be there: it is what unpacks the file we just downloaded.
+    for required in (("sqtools",) if (_variant() == "server" and not self_contained)
+                     else ("base.squashfs", "sqtools")):
         if required not in staged:
             raise RuntimeError(
                 f"FATAL: payload dir {payload_dir} has no {required} -- "
@@ -535,9 +889,21 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # invokes.  Stage and validate both inputs as one coherent payload.
     assets_dst = ncz_payload_dst / "assets"
     refind_src = REPO_ROOT / "assets" / "refind"
+    # amd64 ships the ADD-ONLY kernel hooks (2026-11-02): zz1 adds the newly
+    # installed kernel to the menu without wiping it, zz2 is the promote guard
+    # that may only move default_selection under an operator pin. Both are
+    # required here: 70-bootloader.sh installs whatever is staged, and a
+    # missing zz2 would silently reintroduce "no way to pin the default".
+    #
+    # NOTE: this is a FLAT tuple of bare FILENAMES, not (name, script) pairs.
+    # Its only consumers are the two below -- a "does this file exist" scan and
+    # list() for the manifest -- so every element is a str and order is
+    # irrelevant. A review has misread it as pairs and concluded that adding
+    # zz2 "breaks unpacking"; there is no unpacking. Adding a name here is
+    # therefore just: add a string.
     required_refind = (
         ("refind_x64.efi", "ncz-refind-refresh-amd64.sh",
-         "zz1-ncz-refind-refresh-amd64")
+         "zz1-ncz-refind-refresh-amd64", "zz2-ncz-refind-promote-guard")
         if arch == "amd64"
         else ("refind_aa64.efi", "ncz-refind-refresh.sh")
     )
@@ -586,6 +952,29 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     # amd64-stable 7.3 kernel package directory
     # (2026-10-05, unified; the amd64-edge channel is retired) instead of the
     # Sky1 tarball shape.
+    # MS-R1 NPU ACPI SSDT: the table MUST exist in assets/npu/ before this
+    # loop copies the tree onto the medium. Nothing in the pipeline ever
+    # produced it -- build/build-npu-ssdt.sh was only reachable from
+    # build/stage-canonical-assets.sh, which no stage calls -- so two releases
+    # shipped a medium whose assets/npu/ held the .asl but no .aml, and
+    # post-install/80-npu.sh then had nothing to inject. Result on cixmini
+    # (.66, the MS-R1): "only 0 of 3 NPU cores usable - disabling NPU", while
+    # the Radxa O6N works because its own firmware declares the cores.
+    # ensure_npu_ssdt_aml() compiles from the committed .asl and RAISES when
+    # it cannot: a warning here is what let this ship twice.
+    try:
+        _libdir = str(REPO_ROOT / "build" / "iso")
+        if _libdir not in sys.path:
+            sys.path.insert(0, _libdir)
+        from ncz_ssdt import ensure_npu_ssdt_aml  # noqa: WPS433 (local import)
+    except Exception as exc:  # pragma: no cover - import failure is fatal
+        raise RuntimeError(
+            f"FATAL: cannot load the NPU SSDT stager "
+            f"(build/iso/ncz_ssdt.py): {exc}. An arm64 image built without it "
+            f"has no working NPU on the Minisforum MS-R1."
+        ) from exc
+    ensure_npu_ssdt_aml(REPO_ROOT, arch, log=log)
+
     asset_names = (
         "agent-stack", "branding", "cix-debs", "diag", "firmware",
         "kernel", "npu", "python311", "sky1-firmware", "mgmt",
@@ -598,12 +987,44 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         # ISSUES #2). Listing it is all that is needed: the copy loop below
         # is generic and skips a name whose source directory is absent.
         "update-manager",
+        # assets/nvidia/ is the CUDA delivery payload: cuda-keyring_1.1-1_all.deb,
+        # the archive keyring, the deferred ncz-cuda-setup unit and the local
+        # DKMS patch sets. post-install/54-gpu-accel.sh requires all of it under
+        # $INSTALLER_META/assets/nvidia and otherwise records
+        # "failed:keyring-not-staged" and returns -- so the NVIDIA driver and
+        # CUDA are impossible to install, on ANY amd64 image. Measured on
+        # TYPHON (.61, Core Ultra 5 225F + RTX 5060, 2026-10-28):
+        #   [54] NVIDIA GPU 10de:2d05 -> family turing-plus
+        #   [54] WARN: .../assets/nvidia/cuda-keyring_1.1-1_all.deb not staged
+        #   [54] CUDA: failed:keyring-not-staged
+        # It was never in this list, so no medium has ever carried it.
+        "nvidia",
+        # the current black-hole shader + probe tooling, installed by
+        # post-install/58-screensaver-shader.sh (only the shader is a visual fix
+        # that cannot come from the package: 0.8.18 is unchanged, the .frag is not)
+        "screensaver",
+        # assets/lite/ is the amd64 weak-GPU profile (ncz-profile CLI, labwc
+        # and themerc fragments, schema key, first-login unit) that
+        # post-install/66-ncz-lite-profile.sh installs. The lite-profile merge
+        # (a0f203a9) added the hook but not this entry, so the hook found
+        # neither /cdrom/ncz-payload/assets/lite nor the installer copy and
+        # logged "lite profile not installed" on every amd64 install (Preview4
+        # 866040c7 KVM gate). amd64 only: the hook's guard exits elsewhere.
+        "lite",
     )
     copied_assets = []
     for name in asset_names:
         src = REPO_ROOT / "assets" / name
         dst = assets_dst / name
         if not src.exists():
+            continue
+        if name == "lite" and arch != "amd64":
+            continue
+        # The NVIDIA/CUDA payload is wired by 54-gpu-accel.sh's amd64 path only
+        # (driver family detection is PCI-ID driven and the CUDA repo is x86).
+        # Sky1 media stays lean; an arm64 board with a discrete NVIDIA card
+        # would need that path ported first, so do not ship dead weight.
+        if name == "nvidia" and arch != "amd64":
             continue
         if name == "kernel":
             # mainline is the single Sky1 kernel channel (unified 7.3 policy,
@@ -691,10 +1112,94 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
             raise RuntimeError(
                 f"FATAL: arm64 Sky1 mainline kernel payload incomplete: {missing}")
         shutil.copy2(mainline / "KVER", ncz_payload_dst / "KVER_NEXT")
-    ssplugin = stage_ssplugin_deb(assets_dst, arch)
+    # MAGNETAR(server): the screensaver settings plugin is a DESKTOP artifact --
+    # it drives the lock-screen saver picker in the settings app. A headless
+    # server image must not ship it. This call sat outside every variant guard,
+    # so the server variant still staged it even with the desktop squashfs gone.
+    ssplugin = None
+    if _variant() == "desktop":
+        ssplugin = stage_ssplugin_deb(assets_dst, arch)
+    else:
+        log("    server variant: skipping screensaver settings plugin "
+            "(desktop-only artifact)")
     if ssplugin:
         copied_assets.append("ncz-screensavers-plugin")
         log(f"    screensaver settings plugin staged: {ssplugin}")
+
+    # MAGNETAR(server): the multi-hundred-MB runtime assets come OFF the medium
+    # (see SERVER_ONLINE_ASSET_DIRS for the measurement). They are staged
+    # exactly as desktop stages them -- so the bundle provably contains the same
+    # bytes desktop would have shipped -- then tarred into ONE pinned artifact
+    # and deleted from the staged tree. ncz-fetch-payload.sh puts it back on the
+    # target before late.sh copies the payload tree, so every post-install hook
+    # that reads $INSTALLER_META/assets/{rescue,firmware,kernel,branding} still
+    # finds what it expects.
+    if _variant() == "server" and _server_payload_mode() == "medium":
+        # Self-contained server medium: base.squashfs, the asset tree and (in
+        # main) dists/ + pool/ stay on the medium. No manifest, no URL.
+        log("    server payload: SELF-CONTAINED on the medium (no URLs baked)")
+        receipt["server_payload"] = "medium"
+    elif _variant() == "server":
+        if online_work_dir is None:
+            raise RuntimeError(
+                "FATAL: NCZ_VARIANT=server needs an online work dir to build "
+                "the pinned asset bundle into")
+        online = server_online_fetch_plan(arch)
+        bundle_name = online["assets_name"]
+        present = [n for n in SERVER_ONLINE_ASSET_DIRS
+                   if (assets_dst / n).is_dir()]
+        if not present:
+            raise RuntimeError(
+                f"FATAL: server variant staged none of {list(SERVER_ONLINE_ASSET_DIRS)}"
+                f" -- nothing to put online, refusing to build a medium that "
+                f"cannot install")
+        bundle = online_work_dir / bundle_name
+        staged_bytes = sum(du_bytes(assets_dst / n) for n in present)
+        # Members are assets/<name>/...: ncz-fetch-payload.sh unpacks the bundle
+        # into the staging root (ncz-online/ncz-payload) and late.sh overlays
+        # ncz-online/ncz-payload/assets/ onto $INSTALLER_META/assets. Without
+        # the prefix the assets land beside assets/ and are never overlaid
+        # (found reading the first real Magnetar install, 2026-10-26).
+        size = make_targz(assets_dst.parent, [f"assets/{n}" for n in present], bundle)
+        for name in present:
+            shutil.rmtree(assets_dst / name)
+            if name in copied_assets:
+                copied_assets.remove(name)
+        online["assets_size"] = size
+        online["assets_sha256"] = sha256_file(bundle)
+        online["assets_entries"] = present
+        online["assets_bytes_off_medium"] = staged_bytes
+        log(f"    server variant: {present} (measured {staged_bytes} bytes) come "
+            f"off the medium as {bundle_name} ({size} bytes, sha256 "
+            f"{online['assets_sha256'][:16]}...)")
+        # Option B: the offline apt closure is the third pinned artifact.
+        pool = online_work_dir / online["pool_name"]
+        mirror, _suite = offline_mirror_root()
+        pool_debs = [f for f in (mirror / "pool").rglob("*.deb") if f.is_file()]
+        # gzip -1: the members are .debs, already compressed; a higher level
+        # buys nothing but build time. Still deterministic (make_targz).
+        online["pool_size"] = make_targz(mirror, ["dists", "pool"], pool,
+                                         arc_prefix=SERVER_POOL_REPO_DIR + "/",
+                                         compresslevel=1)
+        online["pool_sha256"] = sha256_file(pool)
+        online["pool_debs"] = len(pool_debs)
+        online["pool_deb_bytes"] = sum(f.stat().st_size for f in pool_debs)
+        log(f"    server variant: offline apt pool ({online['pool_debs']} debs, "
+            f"{online['pool_deb_bytes']} bytes) comes off the medium as "
+            f"{online['pool_name']} ({online['pool_size']} bytes, sha256 "
+            f"{online['pool_sha256'][:16]}...)")
+        write_online_fetch_manifest(ncz_payload_dst, online)
+        receipt["online_fetch"] = online
+        export_dir = os.environ.get(ASSETS_EXPORT_ENV, "").strip()
+        if export_dir:
+            export_assets_bundle(bundle, Path(export_dir), online["assets_sha256"])
+            export_assets_bundle(pool, Path(export_dir), online["pool_sha256"],
+                                 what="offline apt pool")
+    else:
+        # Desktop is byte-identical to before: no manifest, no bundle, the
+        # assets stay on the medium exactly where they always were.
+        pass
+
     receipt["architecture_assets_staged"] = copied_assets
     log(f"    architecture assets staged ({arch}): {copied_assets}")
 
@@ -714,6 +1219,11 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
             if len(f) >= 6:
                 decl[(f[0], f[2])] = re.compile(f[1])
         required = {k for k in decl if k[1] in (arch, "all")}
+        # MAGNETAR(server): the desktop Singularity payload is not part of a
+        # server edition, so its manifest row must not be demanded. Every other
+        # declared package for this arch is still required.
+        if _variant() == "server":
+            required = {k for k in required if k[0] != "ncz-singularity-desktop"}
         ts_rec = []
         seen = set()
         for deb in sorted(ncz_payload_dst.rglob("*.deb")):
@@ -766,6 +1276,14 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     log(f"    media metadata staged: {sorted(receipt['media_metadata'])}"
         f"{' + RELEASE' if release_conf.is_file() else ''}")
 
+    # MINOR-001 gate: the staged medium (payload RELEASE + ESP rEFInd +
+    # post-install tree) must carry the current identity from release.conf,
+    # for BOTH variants. Runs on every build_ncz_payload_tree() call --
+    # desktop and server -- so a stale codename or empty label in any
+    # generated RELEASE/issue string fails the build here.
+    run_release_identity_gate(stage_dir, gate_path)
+    receipt["release_identity_gate"] = "PASS"
+
     if preseed_dir is not None and preseed_dir.is_dir():
         preseed_staged = []
         for entry in sorted(preseed_dir.iterdir()):
@@ -785,6 +1303,23 @@ KERNEL_ARTIFACT_NAME_RE = re.compile(
     r"|.+-modules-.+-di$|.+-binary-.+-di$")
 
 
+# brltty/brlapi packages (brltty, brltty-udeb, brltty-x11, libbrlapi*, xbrlapi,
+# python3-brlapi, ...). Neither the installer nor the image ships them.
+BRAILLE_PACKAGE_RE = re.compile(r"brltty|brlapi", re.IGNORECASE)
+
+
+def is_braille_package_file(filename: str) -> bool:
+    return bool(BRAILLE_PACKAGE_RE.search(filename.split("_", 1)[0]))
+
+
+def find_braille_package_files(pool_dir: Path) -> list:
+    return sorted(
+        p.name for p in pool_dir.rglob("*")
+        if p.is_file() and p.suffix in (".deb", ".udeb")
+        and is_braille_package_file(p.name)
+    )
+
+
 def filter_substrate_kernel_artifacts(pool_dir: Path) -> int:
     """One-kernel policy: remove Debian kernel/module/binary udebs+debs from a
     merged /cdrom pool copy.  NCZ kernels (names containing cixmini/ncz) are
@@ -802,23 +1337,13 @@ def filter_substrate_kernel_artifacts(pool_dir: Path) -> int:
     return removed
 
 
-def stage_offline_mirror(stage_dir: Path, arch: str,
-                         installer_pool: Path) -> None:
-    """Copy the offline apt closure to the medium root as dists/ + pool/.
+def offline_mirror_root() -> tuple[Path, str]:
+    """The build's offline apt closure (build/<suite>-mirror) and its suite.
 
-    This is what makes an install offline. post-install/20-desktop.sh gates
-    on `/cdrom/dists/$NCZ_APT_SUITE` and writes
-    `deb [trusted=yes] file:///cdrom $SUITE main`; without the closure at the
-    root that test is false and every package install silently falls through
-    to the network. build-iso-di.sh embedded it and aborted when it was
-    missing; the raw-GPT writer never did.
-
-    The closure is built by the `offline-mirror` make target (a prerequisite
-    of the image target) and is a complete, verified apt repo -- 1764 packages
-    on arm64 including google-chrome-stable and chromium-ncz-sky1, resolved
-    from manifests/{installer-base,desktop}.pkgs over the vendor and desktop
-    mirrors, with Release regenerated by apt-ftparchive.
-    """
+    Desktop copies it onto the medium (stage_offline_mirror); a Magnetar server
+    medium ships it as the pinned ncz-pool-<arch>.tar.gz instead (option B).
+    Either way it must be a complete repository, or the install has no local
+    package source."""
     suite = "forky"
     release_conf = REPO_ROOT / "release.conf"
     if release_conf.is_file():
@@ -842,6 +1367,27 @@ def stage_offline_mirror(stage_dir: Path, arch: str,
             f"check would stay false"
         )
 
+    return mirror, suite
+
+
+def stage_offline_mirror(stage_dir: Path, arch: str,
+                         installer_pool: Path) -> None:
+    """Copy the offline apt closure to the medium root as dists/ + pool/.
+
+    This is what makes an install offline. post-install/20-desktop.sh gates
+    on `/cdrom/dists/$NCZ_APT_SUITE` and writes
+    `deb [trusted=yes] file:///cdrom $SUITE main`; without the closure at the
+    root that test is false and every package install silently falls through
+    to the network. build-iso-di.sh embedded it and aborted when it was
+    missing; the raw-GPT writer never did.
+
+    The closure is built by the `offline-mirror` make target (a prerequisite
+    of the image target) and is a complete, verified apt repo -- 1764 packages
+    on arm64 including google-chrome-stable and chromium-ncz-sky1, resolved
+    from manifests/{installer-base,desktop}.pkgs over the vendor and desktop
+    mirrors, with Release regenerated by apt-ftparchive.
+    """
+    mirror, suite = offline_mirror_root()
     for name in ("dists", "pool"):
         shutil.copytree(mirror / name, stage_dir / name, symlinks=True)
 
@@ -855,21 +1401,58 @@ def stage_offline_mirror(stage_dir: Path, arch: str,
     # Carry the substrate's matching udeb pool and index it, as the old ISO
     # builder did. An empty index lets load-cdrom return, but leaves main-menu
     # with no next component; this must be a real installer repository.
-    if not installer_pool.is_dir():
-        raise RuntimeError(f"FATAL: installer udeb pool missing: {installer_pool}")
     # Carry ONLY the substrate's debian-installer UDEBs (cdrom-retriever reads
     # them).  The substrate extract also contains a small regular-deb mini-mirror
     # (~500 debs) under the standard lettered pool layout; merging those left
     # pool files the offline Packages index (the mirror's flat layout) does not
     # list, which the provenance gate correctly flagged as ~550 "orphan pool
     # file" failures.  The offline closure already provides those regular debs.
+    stage_installer_substrate(stage_dir, arch, installer_pool, suite)
+
+    debs = sum(1 for _ in (stage_dir / "pool").rglob("*.deb"))
+    log(f"    offline apt closure staged ({arch}, suite={suite}): "
+        f"{debs} debs from {mirror}")
+
+
+def stage_installer_substrate(stage_dir: Path, arch: str,
+                              installer_pool: Path, suite: str) -> None:
+    """Stage the debian-installer substrate udebs and index them.
+
+    This is the part of the medium d-i itself reads DURING BOOT:
+    cdrom-retriever/load-cdrom resolves the installer Packages index under
+    dists/<suite>/main/debian-installer/binary-<arch>/ and pulls udebs out of
+    pool/main. That happens in main-menu, long before bootstrap-base calls the
+    debootstrap stub -- which is exactly what the r159 CONTRACT means by
+    "anything needed during boot must be on the medium or fetched BEFORE the
+    stub runs". So this is never moved online, on either variant.
+    """
+    if not installer_pool.is_dir():
+        raise RuntimeError(f"FATAL: installer udeb pool missing: {installer_pool}")
     n_udebs = 0
     for p in installer_pool.rglob("*.udeb"):
+        if is_braille_package_file(p.name):
+            # No braille stack in the installer (docs/ACCESSIBILITY.md).
+            log(f"    installer pool: not staging {p.name} (no braille in the installer)")
+            continue
         rel = os.path.relpath(p, installer_pool)
-        dstp = stage_dir / "pool" / rel
+        # Callers hand us either the extract root (whose udebs are already at
+        # pool/main/...) or the pool directory itself (pool/main/... relative
+        # to it). Both must land at stage_dir/pool/main/...; blindly joining
+        # produced stage_dir/pool/pool/main/..., and then dpkg-scanpackages
+        # --type udeb pool/main failed with "binary path pool/main not found"
+        # (measured 2026-10-16 while sizing the server variant).
+        parts = Path(rel).parts
+        if parts and parts[0] == "pool":
+            parts = parts[1:]
+        dstp = stage_dir.joinpath("pool", *parts)
         dstp.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(p, dstp)
         n_udebs += 1
+    if not n_udebs:
+        raise RuntimeError(
+            f"FATAL: no installer udebs under {installer_pool} -- d-i's "
+            f"load-cdrom would find no installer repository and the install "
+            f"would stop before the debootstrap stub ever runs")
     log(f"    installer pool: staged {n_udebs} substrate udeb(s) into /cdrom/pool")
     # One-kernel policy (docs/ONE-KERNEL.md).  When NCZ_ONE_KERNEL=1, drop the
     # substrate's Debian kernel/module/binary udebs from the merged /cdrom pool
@@ -882,6 +1465,14 @@ def stage_offline_mirror(stage_dir: Path, arch: str,
         removed = filter_substrate_kernel_artifacts(stage_dir / "pool")
         log(f"    one-kernel: removed {removed} Debian kernel/module artifact(s) "
             f"from the merged /cdrom pool")
+    braille = find_braille_package_files(stage_dir / "pool")
+    if braille:
+        raise RuntimeError(
+            f"FATAL: the medium pool carries braille packages {braille}; the "
+            f"installer and the installed image carry no brltty (users add it "
+            f"with `apt install brltty`, docs/ACCESSIBILITY.md). Remove them "
+            f"from the offline mirror / manifests."
+        )
     installer_index = (stage_dir / "dists" / suite / "main" /
                        "debian-installer" / f"binary-{arch}")
     installer_index.mkdir(parents=True, exist_ok=True)
@@ -910,9 +1501,179 @@ def stage_offline_mirror(stage_dir: Path, arch: str,
     with release.open("wb") as stream:
         subprocess.run(release_cmd, check=True, stdout=stream)
 
-    debs = sum(1 for _ in (stage_dir / "pool").rglob("*.deb"))
-    log(f"    offline apt closure staged ({arch}, suite={suite}): "
-        f"{debs} debs from {mirror}")
+
+def medium_size_record(image: Path, esp_bytes: int, data_bytes: int,
+                       stage_dir: Path) -> dict:
+    """What a server medium weighs, and how much of it is the offline apt
+    closure it carries (Magnetar option A)."""
+    debs = [f for f in (stage_dir / "pool").rglob("*.deb") if f.is_file()]
+    return {
+        "image_bytes": image.stat().st_size,
+        "esp_bytes": esp_bytes,
+        "data_partition_bytes": data_bytes,
+        "offline_pool_debs": len(debs),
+        "offline_pool_deb_bytes": sum(f.stat().st_size for f in debs),
+    }
+
+
+def stage_server_installer_pool(stage_dir: Path, arch: str,
+                                installer_pool: Path) -> None:
+    """MAGNETAR(server): stage the debian-installer substrate ONLY.
+
+    d-i reads the substrate udebs during boot, before the debootstrap stub
+    runs, so they stay on the medium (stage_installer_substrate()). The
+    offline apt closure is the pinned ncz-pool-<arch>.tar.gz payload artifact
+    (option B, see SERVER_SKIPS_OFFLINE_CLOSURE), built by
+    build_ncz_payload_tree().
+    """
+    suite = release_codename()
+    log("    server variant: staging the debian-installer substrate only; the "
+        "offline apt pool is fetched at install time (option B)")
+    stage_installer_substrate(stage_dir, arch, installer_pool, suite)
+
+
+# ---------------------------------------------------------------------------
+# MAGNETAR size target (<= 60 MB compressed per arch): the d-i substrate.
+#
+# The server image carried all 231 substrate udebs -- 84,996,596 B on amd64,
+# 19% of the raw image -- although a server install loads a small, provable
+# subset. build/lib/magnetar_substrate.py derives that subset from MEASURED
+# facts about this pipeline rather than from a guess:
+#
+#   * d-i's own initrd already contains the modules+main closure (773 packages
+#     in the r20261013 netinst initrd), so anna/main-menu never fetch those
+#     udebs from /cdrom at all;
+#   * preseed/early_command udpkg-installs the NIC and SSH udebs from
+#     /ncz/ssh-udebs and /cdrom by path, so those must stay reachable;
+#   * the medium boots exactly one kernel flavour (docs/ONE-KERNEL.md), so
+#     module udebs for other flavours can never be modprobed.
+#
+# Everything dropped is reported with the reason it can go, and the whole set
+# is recorded in the image receipt so a shrinking image is auditable.
+# ---------------------------------------------------------------------------
+SUBSTRATE_LIB = Path(__file__).resolve().parents[1] / "lib"
+
+
+def _load_magnetar_substrate():
+    """Import build/lib/magnetar_substrate.py (not on sys.path otherwise)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "magnetar_substrate", SUBSTRATE_LIB / "magnetar_substrate.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError(
+            f"FATAL: cannot load {SUBSTRATE_LIB / 'magnetar_substrate.py'}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+SLIM_ENV = "NCZ_MAGNETAR_SLIM_SUBSTRATE"
+
+
+def slim_substrate_enabled() -> bool:
+    """The udeb cut is opt-in until a server-variant KVM install proves it.
+
+    Release images keep the full substrate pool unless the builder sets
+    NCZ_MAGNETAR_SLIM_SUBSTRATE=1. The cut itself only removes packages with a
+    provable drop reason (see magnetar_substrate.provable_drop_reason), but no
+    gate on the release branch installs a server image yet, so it stays off.
+    """
+    return os.environ.get(SLIM_ENV, "0").strip() == "1"
+
+
+def slim_installer_pool(stage_dir: Path, arch: str, installer_pool: Path,
+                        di_initrd: Path | None,
+                        flavour: str | None = None) -> dict:
+    """Remove from /cdrom/pool every udeb the server install cannot load.
+
+    Runs AFTER stage_installer_substrate() has indexed the pool, and re-indexes
+    the Packages file so d-i's cdrom-retriever cannot even see the dropped
+    packages -- a pool file without an index entry would be an inconsistency
+    d-i would later trip over.
+    """
+    mod = _load_magnetar_substrate()
+    pool_root = stage_dir / "pool"
+    pool = mod.Pool(pool_root)
+    if not pool.keys():
+        raise RuntimeError(f"FATAL: no udebs under {pool_root}")
+    flavour = flavour or arch
+    # The initrd measurement only lets the closure skip dependencies d-i
+    # already has; it never adds drops. An unreadable initrd therefore
+    # degrades to an empty set, which keeps MORE, never less.
+    builtin: set[str] = set()
+    basis = "initrd not measured (--di-initrd not given); closure keeps every dependency"
+    if di_initrd is not None:
+        try:
+            builtin = mod._initrd_status_packages(di_initrd, stage_dir.parent)
+            basis = f"initrd dpkg status measured from {di_initrd} ({len(builtin)} packages)"
+        except (SystemExit, OSError, EOFError, mod.lzma.LZMAError) as exc:
+            # gzip.BadGzipFile is an OSError; a truncated stream is EOFError.
+            basis = f"initrd measurement failed ({exc}); closure keeps every dependency"
+    extra, extra_reasons = mod.load_keep_tsv(
+        SUBSTRATE_LIB.parent / "manifests" / "magnetar-substrate-keep.tsv")
+    kept, reasons = mod.slim_keep_set(pool, arch, flavour, builtin, extra,
+                                      extra_reasons)
+
+    total = sum(pool.udeb(n).stat().st_size for n in pool.keys())
+    kept_bytes = sum(pool.udeb(n).stat().st_size for n in kept)
+    dropped = []
+    for name in sorted(set(pool.keys()) - kept):
+        udeb_path = pool.udeb(name)
+        dropped.append({
+            "package": name,
+            "bytes": udeb_path.stat().st_size,
+            "reason": mod.provable_drop_reason(name, arch, flavour),
+        })
+        udeb_path.unlink()
+    log(f"    magnetar substrate: keep {len(kept)} udebs ({kept_bytes} B), "
+        f"drop {len(dropped)} ({total - kept_bytes} B of {total} B); "
+        f"basis: {basis}")
+    for entry in dropped:
+        log(f"      drop {entry['package']} ({entry['bytes']} B): "
+            f"{entry['reason']}")
+
+    # Re-index: only what is still on the medium may appear in Packages.
+    suite = release_codename()
+    index = stage_dir / "dists" / suite / "main" / "debian-installer" / f"binary-{arch}"
+    packages = index / "Packages"
+    with packages.open("wb") as stream:
+        subprocess.run(
+            ["dpkg-scanpackages", "--type", "udeb", "--multiversion",
+             "pool/main", "/dev/null"],
+            cwd=stage_dir, check=True, stdout=stream,
+        )
+    with gzip.GzipFile(filename=str(index / "Packages.gz"),
+                       mode="wb", mtime=0) as stream:
+        stream.write(packages.read_bytes())
+    log(f"    magnetar substrate: re-indexed {index.name}/Packages "
+        f"({sum(1 for _ in packages.open())} index lines)")
+
+    return {
+        "schema_version": "ncz-magnetar-substrate/v1",
+        "enabled": True,
+        "arch": arch,
+        "flavour": flavour,
+        "basis": basis,
+        "kept_count": len(kept),
+        "kept_bytes": kept_bytes,
+        "dropped_count": len(dropped),
+        "dropped_bytes": total - kept_bytes,
+        "pool_bytes_before": total,
+        "kept": {n: reasons.get(n, "") for n in sorted(kept)},
+        "dropped": dropped,
+    }
+
+
+def release_codename() -> str:
+    suite = "forky"
+    release_conf = REPO_ROOT / "release.conf"
+    if release_conf.is_file():
+        for line in release_conf.read_text().splitlines():
+            if line.startswith("NCZ_BASE_CODENAME="):
+                suite = line.split("=", 1)[1].strip().strip('"').strip("'") or suite
+                break
+    return suite
 
 
 def build_data_partition_img(ncz_payload_tree_dir: Path, out_img: Path,
@@ -925,9 +1686,19 @@ def build_data_partition_img(ncz_payload_tree_dir: Path, out_img: Path,
     content_bytes = du_bytes(ncz_payload_tree_dir.parent)
     if size_mib is None:
         # 20% headroom for ext4 metadata/journal + round up to 64MiB boundary.
+        #
+        # MAGNETAR size target (<= 60 MB compressed per arch): the 256 MiB
+        # FLOOR that used to live here sized a 99 MB server payload into a
+        # 256 MiB partition and then a 300 MB hole of zeroes in the image.
+        # Nothing needs 256 MiB: ext4 with a 20% headroom and a 64 MiB
+        # granularity is exactly as safe at 128 MiB, and mke2fs sizes the
+        # journal from the filesystem size. The floor is now ONE 64 MiB block,
+        # which is well past any payload this variant stages; --data-size-mib
+        # still overrides, and the content check below still refuses a
+        # partition that cannot hold its payload.
         needed_mib = int(content_bytes * 1.20 / (1024 * 1024)) + 32
         size_mib = ((needed_mib + 63) // 64) * 64
-        size_mib = max(size_mib, 256)
+        size_mib = max(size_mib, 64)
     size_bytes = size_mib * 1024 * 1024
     log(f"    data partition: content {content_bytes} bytes -> image {size_mib} MiB")
     if size_bytes < content_bytes:
@@ -1057,8 +1828,101 @@ def write_partition_bytes(image_path: Path, start_sector: int, src: Path) -> Non
     offset = start_sector * 512
     size = src.stat().st_size
     log(f"    writing {src} ({size} bytes) at LBA {start_sector} (byte offset {offset})")
-    run(["dd", f"if={src}", f"of={image_path}", "bs=1M",
-         f"seek={offset}", "oflag=seek_bytes", "conv=notrunc", "status=none"])
+    # SPARSE WRITE. build_data_partition_img() creates the ext4 data image with
+    # f.truncate(), so it is mostly holes -- a slim server payload is a few tens
+    # of MB inside a 256 MiB partition. A plain dd materialises every one of
+    # those zero bytes as real allocated blocks in the outer GPT, which is
+    # measured: a 3,424,649,216 B image that compresses to far less than its
+    # size and occupies its full length on disk. Copying block-wise and seeking
+    # over all-zero blocks keeps the holes as holes. Layout and content are
+    # identical either way -- only the allocated extent changes -- and the
+    # independent re-read in verify_image() still hashes every byte that is
+    # there, so this cannot hide a corruption. Done in Python because the dd on
+    # this host is uutils coreutils, which has no conv=sparse.
+    BLOCK = 1 << 20
+    zero = b"\0" * BLOCK
+    with src.open("rb") as fin, image_path.open("r+b") as fout:
+        pos = 0
+        while True:
+            blk = fin.read(BLOCK)
+            if not blk:
+                break
+            if len(blk) == BLOCK and blk == zero:
+                pos += BLOCK          # leave a hole; do not write
+                continue
+            fout.seek(offset + pos)
+            fout.write(blk)
+            pos += len(blk)
+
+
+COMPRESS_DEFAULTS = {"xz": 6, "zst": 19}
+COMPRESS_LEVELS = {"xz": range(0, 10), "zst": range(1, 20)}
+
+
+def compress_image(image: Path, kind: str, level: int | None = None) -> dict | None:
+    """Write image.<kind> beside the raw image; return the measured sizes.
+
+    This is a SHIPPING artifact, not a boot artifact: d-i, rEFInd and
+    mountmedia all read the raw image (that is what gets dd'd). The archive
+    exists so the download size is honest about the ~60 MB target. We keep
+    the raw image next to it rather than replacing it, because
+    build/ship-image.sh and kvm-install-gate-gpt.sh take the raw path and a
+    silent rename would break them.
+
+    xz uses a plain -6 (memory-hungry presets are pointless on an image this
+    small); zstd uses --ultra -19 with a long window. Both are deterministic
+    for the same input+level, so two builds of one pin compare byte-wise.
+    The receipt carries sha256 + size of both files, so a size claim can be
+    checked instead of believed.
+    """
+    if kind == "none":
+        return None
+    lvl = COMPRESS_DEFAULTS[kind] if level is None else level
+    if kind in COMPRESS_LEVELS and lvl not in COMPRESS_LEVELS[kind]:
+        raise RuntimeError(f"FATAL: --compress-level {lvl} is outside {kind}'s "
+                           f"{COMPRESS_LEVELS[kind].start}-{COMPRESS_LEVELS[kind].stop - 1}")
+    if kind == "xz":
+        out = image.with_suffix(image.suffix + ".xz")
+        # Single-threaded on purpose: multi-threaded xz writes a different
+        # container (per-block sizes) than single-threaded, and -T0 picks
+        # one or the other from the host CPU count.
+        cmd = ["xz", "-c", f"-{lvl}", "-T1", str(image)]
+    elif kind == "zst":
+        out = image.with_suffix(image.suffix + ".zst")
+        # zstd's multi-threaded format does not depend on the worker count
+        # (measured: -T0/-T1/-T2 byte-identical on 40 MB); only
+        # --single-thread differs, and it is not used.
+        cmd = ["zstd", "-c", f"-{lvl}", "--ultra", "-T0", "--long=27",
+               "--no-progress", str(image)]
+    else:
+        raise RuntimeError(f"unknown compression {kind!r}")
+    if shutil.which(cmd[0]) is None:
+        raise RuntimeError(
+            f"FATAL: --compress {kind} needs {cmd[0]!r} on PATH; refusing to "
+            f"report a compressed size we did not measure")
+    log(f"    compressing {image.name} -> {out.name} ({cmd[0]} level {lvl})")
+    # Write beside the target and rename only on success, so a compressor
+    # that dies mid-run never leaves a partial archive that looks shippable.
+    partial = out.with_name(out.name + ".partial")
+    try:
+        with partial.open("wb") as stream:
+            subprocess.run(cmd, check=True, stdout=stream)
+        partial.replace(out)
+    finally:
+        partial.unlink(missing_ok=True)
+    raw = image.stat().st_size
+    packed = out.stat().st_size
+    log(f"    compressed: {packed} bytes "
+        f"({packed * 100.0 / raw:.1f}% of {raw})")
+    return {
+        "kind": kind,
+        "level": lvl,
+        "path": str(out),
+        "sha256": sha256_file(out),
+        "compressed_size": packed,
+        "raw_size": raw,
+        "ratio": round(raw / packed, 3) if packed else None,
+    }
 
 
 def parse_gpt(image_path: Path) -> dict:
@@ -1307,6 +2171,23 @@ def main() -> int:
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--data-size-mib", type=int, default=None,
                      help="Data partition size; default: auto-sized from content + headroom")
+    ap.add_argument("--di-initrd", type=Path, default=None,
+                     help="This arch's d-i initrd. When given, the server "
+                          "variant's substrate keep-set is MEASURED from that "
+                          "initrd's /var/lib/dpkg/status (the packages anna "
+                          "never has to fetch); without it the keep manifest "
+                          "is the only source of truth.")
+    ap.add_argument("--compress", choices=["none", "xz", "zst"], default="none",
+                     help="Also ship a compressed copy of the raw image "
+                          "(.img.xz / .img.zst) and record its size in the "
+                          "receipt. 'none' keeps every previous behaviour. "
+                          "d-i boots the RAW image: dd it, or decompress "
+                          "first -- nothing on the medium reads the archive.")
+    ap.add_argument("--compress-level", type=int, default=None,
+                     help="Override the compressor level (xz: 0-9, default 6; "
+                          "zst: 1-19, default 19). xz -0 is a real preset "
+                          "(stored/fast), so it is accepted, matching "
+                          "COMPRESS_LEVELS.")
     ap.add_argument("--work-dir", type=Path, default=None,
                      help="Scratch directory for the staged tree and the ext4 "
                           "data image. Defaults to the OUTPUT image's own "
@@ -1345,11 +2226,33 @@ def main() -> int:
             args.allow_missing_debootstrap_stub,
             args.post_install_dir if args.post_install_dir.is_dir() else None,
             args.build_version,
+            online_work_dir=tmp,
         )
 
         log("[2/4] building ext4 data partition image")
         data_img = tmp / "data.img"
-        stage_offline_mirror(stage_dir, args.arch, args.installer_pool)
+        substrate_receipt = None
+        if _variant() == "server" and _server_payload_mode() == "medium":
+            # Same on-medium closure a desktop medium carries: dists/ + pool/
+            # at the root, which 20-desktop.sh's /cdrom test and apt-setup's
+            # file:///cdrom source both read. No fetch, no URL.
+            log("[2/4] MAGNETAR self-contained: offline apt closure on the medium")
+            stage_offline_mirror(stage_dir, args.arch, args.installer_pool)
+        elif _variant() == "server":
+            stage_server_installer_pool(stage_dir, args.arch, args.installer_pool)
+            if slim_substrate_enabled():
+                log("[2/4] MAGNETAR: shedding the substrate udebs no server "
+                    "install can load (docs/MAGNETAR-SERVER-VARIANT.md)")
+                substrate_receipt = slim_installer_pool(
+                    stage_dir, args.arch, args.installer_pool,
+                    args.di_initrd if args.di_initrd and args.di_initrd.is_file() else None)
+            else:
+                log(f"[2/4] MAGNETAR: full substrate pool kept ({SLIM_ENV}=1 "
+                    "enables the udeb cut; unproven without a server KVM install)")
+                substrate_receipt = {"schema_version": "ncz-magnetar-substrate/v1",
+                                     "enabled": False}
+        else:
+            stage_offline_mirror(stage_dir, args.arch, args.installer_pool)
         build_data_partition_img(stage_dir / "ncz-payload", data_img, args.data_size_mib)
 
         log("[3/4] laying out GPT + writing partitions")
@@ -1368,10 +2271,20 @@ def main() -> int:
         if payload_receipt.get("post_install_staged"):
             required_data_files.append("ncz-payload/post-install/run-all.sh")
         if payload_receipt.get("runtime_assets_staged"):
-            required_data_files.extend([
+            required_data_files.append(
                 "ncz-payload/assets/refind/" +
-                ("refind_x64.efi" if args.arch == "amd64" else "refind_aa64.efi"),
-                "ncz-payload/assets/rescue/rescue-rootfs.tar.zst",
+                ("refind_x64.efi" if args.arch == "amd64" else "refind_aa64.efi"))
+            # MAGNETAR(server): the rescue rootfs rides in the pinned online
+            # bundle, so demanding it on the medium would fail a build that is
+            # exactly right. What must be on the medium is the MANIFEST that
+            # carries its digest.
+            if not payload_receipt.get("online_fetch"):
+                required_data_files.append(
+                    "ncz-payload/assets/rescue/rescue-rootfs.tar.zst")
+        if payload_receipt.get("online_fetch"):
+            required_data_files.extend([
+                "ncz-payload/ncz-fetch-payload.sh",
+                "ncz-payload/ncz-fetch-payload.manifest",
             ])
         if "patched_udeb" in payload_receipt:
             required_data_files.append(
@@ -1384,6 +2297,11 @@ def main() -> int:
         receipt = {
             "schema_version": "ncz-usb-image-receipt/v1",
             "arch": args.arch,
+            # Which variant THIS medium is (desktop default / server = the
+            # payload comes off the network). Consumers of the receipt --
+            # the KVM gate's server sets, the orchestrator -- read this
+            # instead of re-deriving it from the medium's contents.
+            "variant": _variant(),
             "out": str(args.out),
             "out_sha256": sha256_file(args.out),
             "out_size": args.out.stat().st_size,
@@ -1401,6 +2319,14 @@ def main() -> int:
             # installer-substrate sid d-i packages the image still carries.
             "sid_exceptions": count_sid_exceptions(args.arch),
         }
+        if substrate_receipt is not None:
+            receipt["magnetar_substrate"] = substrate_receipt
+        if _variant() == "server":
+            receipt["medium_size"] = medium_size_record(
+                args.out, esp_size, data_size, stage_dir)
+        if args.compress != "none":
+            receipt["compressed"] = compress_image(
+                args.out, args.compress, args.compress_level)
         receipt_path = args.out.with_suffix(args.out.suffix + ".receipt.json")
         receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))
         log(f"OK: {args.out} ({args.out.stat().st_size} bytes), receipt at {receipt_path}")

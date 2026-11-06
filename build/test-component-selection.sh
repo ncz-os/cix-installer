@@ -12,7 +12,7 @@
 #   3. a defensive early_command re-run and a partman restart      (must keep the answer, never ask again)
 #   4. every consumer, extracted from its source file with only its paths redirected:
 #        disk-fs-chooser.sh (erase confirmation + partman recipe), the debootstrap stub (desktop overlay),
-#        late.sh (recovery into /target), post-install/run-all.sh (hook skips: desktop, 38 mgmt container,
+#        late.sh (recovery into /target), post-install/run-all.sh (hook skips: desktop, 37+38 mgmt container,
 #        72 rescue partition), build/70-bootloader.sh (default entry), post-install/54-gpu-accel.sh (cuda).
 # It also proves the interactive failure paths stop loudly instead of installing everything, that the answer reaches
 # syslog, that ncz_components=none and partial answers work, and that accepting the defaults still installs all.
@@ -136,7 +136,7 @@ consumer_late() {   # late.sh recovery into /target; -> recovered value
 }
 consumer_runall() { # -> the hooks run-all.sh still runs
     { echo 'TTY=/dev/null'
-      echo 'OPT_HOOKS="20-desktop.sh 33-network.sh 38-recovery-container.sh 45-wallpaper-rotator.sh 52-vivaldi.sh 55-greeter.sh 72-rescue-partition.sh"'
+      echo 'OPT_HOOKS="20-desktop.sh 33-network.sh 37-failsafe-access.sh 38-recovery-container.sh 45-wallpaper-rotator.sh 52-vivaldi.sh 55-greeter.sh 72-rescue-partition.sh"'
       extract "$ROOT/post-install/run-all.sh" '^COMP_FILE=/usr/local/lib/cix-installer/COMPONENTS$' '^# AUDIT: name every hook'
       echo 'echo $OPT_HOOKS'; } | redirect > "$W/runall.$T.sh"
     $SHX "$W/runall.$T.sh" 2>/dev/null | tail -1
@@ -148,7 +148,8 @@ consumer_bootloader() { # -> default rEFInd entry
     $SHX "$W/bl.$T.sh" 2>/dev/null | sed -n 's/^DEFAULT=//p'
 }
 consumer_cuda() {   # -> yes|no
-    { extract "$ROOT/post-install/54-gpu-accel.sh" '^ncz_cuda_component_wanted[(][)] [{]' '^[}]$'
+    { extract "$ROOT/post-install/54-gpu-accel.sh" '^ncz_variant[(][)] [{]' '^[}]$'
+      extract "$ROOT/post-install/54-gpu-accel.sh" '^ncz_cuda_component_wanted[(][)] [{]' '^[}]$'
       echo 'ncz_cuda_component_wanted && echo yes || echo no'; } | redirect > "$W/cuda.$T.sh"
     bash "$W/cuda.$T.sh" 2>/dev/null
 }
@@ -162,7 +163,10 @@ check "first early_command run asks nothing" "$(asked ncz/components)" 0
 ans ncz/components ""
 check "--prompt run exits 0" "$(sel --prompt)" 0
 check "the dialog was shown once" "$(asked ncz/components)" 1
-grep -q '^Choices-C: desktop, mgmt-container, rescue-partition$' "$FDB/tpl/ncz-components.templates" && ok "Macmini5,1 shape: exactly the three components were offered" || bad "unexpected Choices-C: $(grep '^Choices-C' "$FDB/tpl/ncz-components.templates")"
+grep -q '^Choices-C: desktop, mgmt-container, rescue-partition$' "$FDB/tpl/ncz-components.templates" \
+    && grep -q '^Choices: Full Singularity desktop (GUI labwc + greetd + branding), ncz-recovery management container (nspawn), 4 GiB NCZRESCUE partition (rescue rootfs + kernel)$' "$FDB/tpl/ncz-components.templates" \
+    && ok "Macmini5,1 shape: exactly the three components were offered (Choices-C: tokens, Choices: display labels)" \
+    || bad "unexpected Choices/Choices-C: $(grep -E '^Choices' "$FDB/tpl/ncz-components.templates")"
 check "authoritative record: nothing selected" "$(rec)" none
 check "/tmp mirror matches the record" "$(mir)" none
 check "target copy (etc/cix-installer) matches" "$(cat "$TGT/etc/cix-installer/COMPONENTS" 2>/dev/null)" none
@@ -178,7 +182,7 @@ check "debootstrap stub: base only, no desktop overlay" "$(consumer_stub)" base
 rm -rf "$TGT"; mkdir -p "$TGT"   # partman mounts the real root over /target: the selector's early copies are gone
 check "late.sh recovers the record" "$(consumer_late)" none
 check "late.sh persisted it into the target" "$(cat "$TGT/usr/local/lib/cix-installer/COMPONENTS" 2>/dev/null)" none
-check "run-all.sh: no desktop hooks, no 38-recovery-container, no 72-rescue-partition" "$(consumer_runall)" "33-network.sh"
+check "run-all.sh: no desktop hooks, no 37-failsafe-access/38-recovery-container, no 72-rescue-partition" "$(consumer_runall)" "33-network.sh"
 check "70-bootloader: default entry is the console" "$(consumer_bootloader)" cixmini-console
 check "54-gpu-accel: cuda not wanted" "$(consumer_cuda)" no
 # the pre-fix flow: the stub/late fallbacks only ever saw the raw debconf value, and "" meant "everything"
@@ -192,12 +196,12 @@ check "desktop only: record" "$(rec)" "desktop,browsers,wallpaper-rotator"
 check "desktop only: no rescue partition" "$(consumer_disk)" "no 0"
 check "desktop only: stub applies the desktop" "$(consumer_stub)" desktop
 rm -rf "$TGT"; mkdir -p "$TGT"; consumer_late >/dev/null
-check "desktop only: run-all skips 38 and 72 only" "$(consumer_runall)" "20-desktop.sh 33-network.sh 45-wallpaper-rotator.sh 52-vivaldi.sh 55-greeter.sh"
+check "desktop only: run-all skips 37, 38 and 72 only" "$(consumer_runall)" "20-desktop.sh 33-network.sh 45-wallpaper-rotator.sh 52-vivaldi.sh 55-greeter.sh"
 newdb dflt; sel >/dev/null; sel --prompt >/dev/null
 check "Enter on the defaults: everything" "$(rec)" "desktop,browsers,wallpaper-rotator,mgmt-container,rescue-partition"
 check "Enter on the defaults: rescue partition" "$(consumer_disk)" "yes 1"
 rm -rf "$TGT"; mkdir -p "$TGT"; consumer_late >/dev/null
-check "Enter on the defaults: every hook runs" "$(consumer_runall)" "20-desktop.sh 33-network.sh 38-recovery-container.sh 45-wallpaper-rotator.sh 52-vivaldi.sh 55-greeter.sh 72-rescue-partition.sh"
+check "Enter on the defaults: every hook runs" "$(consumer_runall)" "20-desktop.sh 33-network.sh 37-failsafe-access.sh 38-recovery-container.sh 45-wallpaper-rotator.sh 52-vivaldi.sh 55-greeter.sh 72-rescue-partition.sh"
 newdb ovn "$CMDLINE_DI ncz_components=none"
 check "ncz_components=none: exits 0 without --prompt" "$(sel)" 0
 check "ncz_components=none: record" "$(rec)" none
@@ -209,6 +213,47 @@ check "KVM gate override still installs everything" "$(rec)" "desktop,browsers,w
 check "KVM gate override: no dialog" "$(asked ncz/components)" 0
 ARCH=aarch64 newdb arm; ARCH=aarch64 sel >/dev/null; ans ncz/components ""; ARCH=aarch64 sel --prompt >/dev/null
 check "arm64 (same script): nothing ticked -> none" "$(rec)" none
+
+# --------------------------------------------- 2b. S1-3: reassembly respects the answer ---------------------------------
+# The reassembly must derive browsers/wallpaper-rotator from desktop (their
+# contract) WITHOUT re-adding a component the operator explicitly deselected,
+# and without dropping tokens the operator's record carries.
+echo "== 2b. S1-3: the normalised record is the single source of truth"
+# desktop OFF, but a stale/hand-edited record still names browsers: no browser
+# packages may ride along.
+newdb s13a
+mkdir -p "$STATE"; printf '%s' "browsers,mgmt-container" > "$STATE/COMPONENTS"; : > "$STMP/.ncz-components-done"
+sel >/dev/null
+check "desktop deselected + stray browsers -> record keeps the operator's list" "$(rec)" "browsers,mgmt-container"
+grep -q 'desktop=0' "$W/log.s13a" && ok "desktop stays deselected (not re-added by the reassembly)" || bad "desktop was re-added"
+# the real regression: the OLD reassembly rebuilt from WANT_DESKTOP alone, so a
+# record WITHOUT desktop still had browsers/wallpaper-rotator appended. Assert
+# the desktop companions are absent when desktop is not selected.
+grep -qE '^SELECTED COMPONENTS: .*wallpaper-rotator' "$W/log.s13a" \
+    && bad "desktop off still appended the wallpaper-rotator companion" \
+    || ok "desktop off: no wallpaper-rotator companion appended"
+# the desktop toggle off means the desktop hooks are skipped: no browser/desktop payload is installed
+rm -rf "$TGT"; mkdir -p "$TGT"; consumer_late >/dev/null
+check "desktop deselected: no desktop overlay is applied" "$(consumer_stub)" base
+# desktop ON: the companions ride along (contract preserved) and stay contiguous
+newdb s13b
+mkdir -p "$STATE"; printf '%s' "mgmt-container,desktop" > "$STATE/COMPONENTS"; : > "$STMP/.ncz-components-done"
+sel >/dev/null
+check "desktop on -> browsers/wallpaper-rotator ride along, operator order kept" "$(rec)" "mgmt-container,desktop,browsers,wallpaper-rotator"
+# desktop ON with the companions already present: no duplicate
+newdb s13c
+mkdir -p "$STATE"; printf '%s' "desktop,browsers,wallpaper-rotator,cuda" > "$STATE/COMPONENTS"; : > "$STMP/.ncz-components-done"
+sel >/dev/null
+check "desktop on, companions already present -> deduped, order kept" "$(rec)" "desktop,browsers,wallpaper-rotator,cuda"
+# a token the reassembly does not know about must not be silently dropped when it is a valid internal token
+newdb s13d
+mkdir -p "$STATE"; printf '%s' "cuda,mgmt-container" > "$STATE/COMPONENTS"; : > "$STMP/.ncz-components-done"
+sel >/dev/null
+check "no desktop, cuda + mgmt kept in the operator's order" "$(rec)" "cuda,mgmt-container"
+# the per-toggle bits the hooks read must agree: desktop/browsers/wallpaper off
+check "no desktop: COMPONENTS_desktop bit is 0" "$(cat "$TGT/etc/cix-installer/COMPONENTS_desktop" 2>/dev/null)" 0
+check "no desktop: COMPONENTS_browsers bit is 0" "$(cat "$TGT/etc/cix-installer/COMPONENTS_browsers" 2>/dev/null)" 0
+check "no desktop: COMPONENTS_wallpaper-rotator bit is 0" "$(cat "$TGT/etc/cix-installer/COMPONENTS_wallpaper-rotator" 2>/dev/null)" 0
 
 # ------------------------------------------------------------- 3. interactive failures stop loudly ------------------
 echo "== 3. a dialog that cannot be completed never becomes 'install everything'"

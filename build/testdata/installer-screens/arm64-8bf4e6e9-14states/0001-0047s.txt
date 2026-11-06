@@ -1,0 +1,25 @@
+# t=47s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+   ┌───────────┤ [!!] NCZ-OS 26.10 Cygnus - choose a USERNAME ├────────────┐
+   │                                                                       │
+   │ This is the only account on the installed system. It is in the sudo   │
+   │ group and is the one you will log in with. Use lowercase letters,     │
+   │ digits, hyphens and underscores only, starting with a letter (at most │
+   │ 32 characters).                                                       │
+  ┌│                                                                       │
+  ││ Press Enter to accept the default "ncz".                              │
+  ││                                                                       │
+  ││ arm64 (Sky1) | build d90ed961                                         │
+  ││                                                                       │
+  ││ NCZ-OS 26.10 Cygnus - choose a USERNAME                               │
+  └│                                                                       │
+   │ ncz__________________________________________________________________ │
+   │                                                                       │
+   │     <Go Back>                                          <Continue>     │
+   │                                                                       │
+   └───────────────────────────────────────────────────────────────────────┘
+
+
+
+<Tab> moves; <Space> selects; <Enter> activates buttons

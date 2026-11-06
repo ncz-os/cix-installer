@@ -132,9 +132,10 @@ fi
 # once a second and the package temperature moves 10-14 C in one second under
 # turbo bursts, so the reading that trips the pause can reach Tjmax; the CPU's
 # own throttling covers that.
-# The warm band (75 C .. hot) renders at NCZ_FEED_FPS_WARM, compiled-in 10 fps,
-# which is above the 8 fps lock policy; T2 Macs use 6 fps there so a warmer
-# machine renders less, not more.
+# The warm band (75 C .. hot) renders at NCZ_FEED_FPS_WARM. On the validated
+# MacBookPro16,x T2 hosts the tested policy is 15 fps warm (matching the Auto
+# rate), so a warmer machine renders at the same rate as Auto rather than
+# dropping frames.
 # Written into /etc/ncz/lock-renderer.env (sourced by the session launcher and
 # inherited by the lock and the feed) only when that file already names a lock
 # renderer (post-install/64-ncz-lock-saver-plan.sh); a value already present
@@ -146,7 +147,11 @@ SAVER_DMI="${NCZ_T2_SAVER_DMI:-/sys/class/dmi/id}"
 SAVER_HOT_MAX_MC=100000
 SAVER_HOT_MARGIN_MC=2000
 SAVER_HOT_DEFAULT_MC=85000
-SAVER_WARM_FPS=6
+SAVER_WARM_FPS=15
+# Auto frame rate of the saver on these Macs (ncz-screensavers 0.8.16+ reads
+# NCZ_SAVER_AUTO_FPS; other hardware gets 30 fps). Full resolution is kept; the
+# Settings page still lets the user pick a higher rate, after a heat warning.
+SAVER_AUTO_FPS=15
 
 # saver_min_crit_mc -> lowest tempN_crit (> 0) of the governor's sensors, or empty
 saver_min_crit_mc() {
@@ -197,6 +202,15 @@ else
             echo "[64] saver thermal cap: NCZ_FEED_TEMP_HOT_MC=$SAVER_HOT in $SAVER_ENV"
         else
             echo "[64] WARN: could not write $SAVER_ENV; saver thermal cap not set" >&2
+        fi
+    fi
+    if grep -qE '^[[:space:]]*NCZ_SAVER_AUTO_FPS=' "$SAVER_ENV"; then
+        echo "[64] saver Auto frame rate: $SAVER_ENV already sets NCZ_SAVER_AUTO_FPS; kept"
+    else
+        if printf 'NCZ_SAVER_AUTO_FPS=%s\n' "$SAVER_AUTO_FPS" >> "$SAVER_ENV" 2>/dev/null; then
+            echo "[64] saver Auto frame rate: NCZ_SAVER_AUTO_FPS=$SAVER_AUTO_FPS in $SAVER_ENV"
+        else
+            echo "[64] WARN: could not write $SAVER_ENV; saver Auto frame rate not set" >&2
         fi
     fi
     if grep -qE '^[[:space:]]*NCZ_FEED_FPS_WARM=' "$SAVER_ENV"; then

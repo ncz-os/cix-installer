@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""ncz-bh-flightplan-rotate -- fly a REAL deep-space encounter, and rotate them.
+
+The engine's own paths are invented circles and slingshots. The probe flight
+plans in flight-plans.json are actual encounter geometry (Voyager 1/2 at
+Jupiter/Saturn/Uranus/Neptune, New Horizons at Pluto, Cassini SOI, Juno
+perijove, Parker perihelion) mapped onto the camera options the engine exposes:
+flyby type, closest/farthest distance, inclination and speed.
+
+This writes one plan into the saver's options, so the next launch (every
+`duration` seconds) flies it. With --next it advances to the following plan and
+records the position, so a timer steps through the whole set: every five-minute
+re-roll becomes a different real encounter.
+"""
+import argparse, json, os, pathlib, subprocess, sys
+
+HERE = pathlib.Path(__file__).resolve().parent
+# The plan table lives next to the script in the repo, but on an installed host
+# it ships under ~/.local/share/ncz (or /usr/share/ncz-screensavers). Search all
+# of them: the first cut looked only beside the script, so on a host without the
+# symlink every rotation silently did nothing.
+def _plans_path():
+    for c in (pathlib.Path(os.environ.get("NCZ_BH_PLANS", "")),
+              HERE / "flight-plans.json",
+              pathlib.Path(os.path.expanduser("~/.local/share/ncz/flight-plans.json")),
+              pathlib.Path("/usr/share/ncz-screensavers/flight-plans.json")):
+        if c and pathlib.Path(c).is_file():
+            return pathlib.Path(c)
+    raise SystemExit("ncz-bh-flightplan-rotate: flight-plans.json not found "
+                     "(set NCZ_BH_PLANS or install it in ~/.local/share/ncz/)")
+
+
+PLANS = None  # resolved in main()
+STATE = pathlib.Path(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))) / "ncz-bh-plan"
+SCHEMA = "dev.ncz.screensaver"
+PALETTES = ["kipthorne", "faithful", "eht", "stylized", "slingshot", "whitehole",
+            "synthwave", "singularity", "psychedelic", "cygnus"]
+
+
+def gsettings_env():
+    e = dict(os.environ)
+    e.setdefault("GSETTINGS_SCHEMA_DIR", "/opt/singularity/share/glib-2.0/schemas")
+    e.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    return e
+
+
+def current_options():
+    try:
+        out = subprocess.run(["gsettings", "get", SCHEMA, "hack-options"],
+                             capture_output=True, text=True, timeout=10,
+                             env=gsettings_env()).stdout
+        for line in out.splitlines():
+            if line.startswith("{'blackhole_gles3'"):
+                return line.strip()
+    except Exception:
+        pass
+    return "{'blackhole_gles3': {'randomize': 'look', 'duration': '300'}}"
+
+
+def apply(plan, palette, duration):
+    opts = {
+        "randomize": "look", "duration": str(duration),
+        "flyby": plan["flyby"],
+        "distance-min": str(plan["distance_min"]),
+        "distance-max": str(plan["distance_max"]),
+        "inclination": str(plan["inclination"]),
+        "speed": str(plan["speed"]),
+        "palette": palette,
+    }
+    body = ", ".join(f"'{k}': '{v}'" for k, v in opts.items())
+    subprocess.run(["gsettings", "set", SCHEMA, "hack-options",
+                    "{'blackhole_gles3': {" + body + "}}"],
+                   capture_output=True, timeout=10, env=gsettings_env())
+    return opts
+
+
+def _load_state(n_plans):
+    """State is {deck:[idx...], pal:[idx...], last:id}. A legacy bare integer
+    (the old modular stepper) is upgraded in place so an installed host keeps
+    working after the update."""
+    if not STATE.exists():
+        return {"deck": [], "pal": [], "last": None}
+    raw = STATE.read_text().strip()
+    if raw.isdigit():
+        return {"deck": [], "pal": [], "last": None, "legacy": int(raw)}
+    try:
+        d = json.loads(raw)
+        if isinstance(d, dict) and "deck" in d:
+            return d
+    except (ValueError, TypeError):
+        pass
+    return {"deck": [], "pal": [], "last": None}
+
+
+def _save_state(st):
+    st.pop("legacy", None)
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(st))
+
+
+def _shuffled(n, rng):
+    d = list(range(n))
+    rng.shuffle(d)
+    return d
+
+
+def _deal(plans, st):
+    """Deal the next (plan, palette). Refills are shuffled; a refill never
+    starts with the plan that was just shown, so a deck boundary cannot produce
+    the same encounter twice in a row."""
+    import random
+    seed = os.environ.get("NCZ_BH_DECK_SEED")
+    rng = random.Random(int(seed)) if seed else random.Random()
+    n = len(plans)
+    if not st.get("deck"):
+        st["deck"] = _shuffled(n, rng)
+        if st.get("last") and plans[st["deck"][0]]["id"] == st["last"] and n > 1:
+            # move the repeat off the front rather than redraw: a redraw can
+            # loop on a two-element deck
+            st["deck"][0], st["deck"][n // 2] = st["deck"][n // 2], st["deck"][0]
+    if not st.get("pal"):
+        st["pal"] = _shuffled(len(PALETTES), rng)
+    idx = st["deck"].pop(0)
+    pidx = st["pal"].pop(0) % len(PALETTES)
+    p = plans[idx]
+    st["last"] = p["id"]
+    return p, PALETTES[pidx], st
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--next", action="store_true", help="advance to the next plan")
+    ap.add_argument("--id", default=None, help="apply one plan by id")
+    ap.add_argument("--duration", default="300")
+    ap.add_argument("--show", action="store_true", help="print the current plan, do not change anything")
+    a = ap.parse_args()
+    plans = json.load(open(_plans_path()))["plans"]
+    # Deck dealing, not modular stepping (review, 2026-10-29): stepping through
+    # the table in order repeats the same plan-to-palette pairing every cycle and
+    # can deal two visually similar encounters back to back. A shuffled deck
+    # deals every plan once before any plan repeats, and the palette deck does
+    # the same, so one pass covers all ten plans in ten different palettes.
+    st = _load_state(len(plans))
+    if a.show:
+        p = next((x for x in plans if x["id"] == st.get("last")), None)
+        print(p["id"] if p else "none")
+        return 0
+    if a.id:
+        p = next((x for x in plans if x["id"] == a.id), None)
+        if not p:
+            print("unknown plan", a.id, file=sys.stderr); return 2
+        pal = PALETTES[plans.index(p) % len(PALETTES)]
+        st["last"] = p["id"]
+        _save_state(st)
+    else:
+        p, pal, st = _deal(plans, st)
+        _save_state(st)
+    opts = apply(p, pal, a.duration)
+    print(f"{p['id']:22} flyby={p['flyby']:<11} d={p['distance_min']}-{p['distance_max']} "
+          f"inc={p['inclination']} speed={p['speed']}  ({len(plans)} plans in rotation)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

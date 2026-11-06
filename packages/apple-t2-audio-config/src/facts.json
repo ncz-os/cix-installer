@@ -1,0 +1,104 @@
+{
+  "schema_version": 2,
+  "provenance": {
+    "observed_on": "two AppleT2x6 systems",
+    "observed_package": "apple-t2-audio-config 0.5.1 (six UCM files, data-only)",
+    "transcribed_from": ".scratch/context/HARDWARE-FACTS.json",
+    "boundary": "Primary author received only interface/route facts and public BSD ALSA grammar. Supervisor inspected installed baseline for factual extraction and corrected standard grammar after failed candidates. No disputed configuration blobs, expressive comments, DSP or protection code were copied.",
+    "grammar_source": "Public ALSA UCM Syntax 6 files (alsa-ucm-conf, BSD 3-Clause) were used as the grammar reference: SectionUseCase/SectionVerb/SectionDevice, Include, Value and the SplitPCM / SplitPCMDevice macro invocation form. No configuration text was copied.",
+    "notes": "alsa-ucm-conf was absent on the observed systems, so the common/pcm/split.conf macro interface this package depends on is declared explicitly in the dependency field. The Forky candidate version is 1.2.16.1-1; the declared floor is 1.2.16."
+  },
+  "package": {
+    "name": "apple-t2-audio-config",
+    "version": "0.5.1+ncz1",
+    "architecture": "all",
+    "section": "sound",
+    "priority": "optional",
+    "depends": "alsa-ucm-conf (>= 1.2.16)",
+    "maintainer": "Jason Perlow <jperlow@gmail.com>",
+    "homepage": "https://github.com/ncz-os/cix-installer"
+  },
+  "ucm": {
+    "root": "/usr/share/alsa/ucm2",
+    "driver_dir": "AppleT2",
+    "conf_d_dir": "conf.d",
+    "card_name_template": "AppleT2x{n}",
+    "master_config_template": "HiFi-x{n}.conf",
+    "syntax_version": 6,
+    "verb": "HiFi"
+  },
+  "split": {
+    "macro_file": "/common/pcm/split.conf",
+    "include_id": "pcm_split",
+    "macro_instance": "t2_speaker",
+    "split_pcm_macro": "SplitPCM",
+    "split_pcm_device_macro": "SplitPCMDevice",
+    "substi_name": "t2_speaker_split"
+  },
+  "speaker": {
+    "name": "Speaker",
+    "pcm_device": 0,
+    "format": "S24_LE",
+    "channels": [
+      2,
+      4,
+      6
+    ],
+    "channel_positions": {
+      "2": [
+        "FL",
+        "FR"
+      ],
+      "4": [
+        "FL",
+        "FR",
+        "RL",
+        "RR"
+      ],
+      "6": [
+        "FL",
+        "SL",
+        "RL",
+        "FR",
+        "SR",
+        "RR"
+      ]
+    },
+    "priority": 100,
+    "preserve_all_channels": true,
+    "shared_split_pcm_required": true
+  },
+  "playback": [
+    {
+      "name": "Headphones",
+      "pcm_device": 2,
+      "channels": 2,
+      "priority": 300,
+      "jack": "Codec Output Jack",
+      "conflict": "Speaker"
+    }
+  ],
+  "capture": [
+    {
+      "name": "Mic",
+      "pcm_device": 1,
+      "channels": 3,
+      "rate": [
+        48000
+      ],
+      "priority": 300,
+      "conflict": "Headset"
+    },
+    {
+      "name": "Headset",
+      "pcm_device": 3,
+      "channels": 1,
+      "priority": 200,
+      "jack": "Codec Output Jack",
+      "conflict": "Mic"
+    }
+  ],
+  "untouched_paths": [
+    "/etc/pipewire/pipewire.conf.d/99-ncz-audio-headroom.conf"
+  ]
+}

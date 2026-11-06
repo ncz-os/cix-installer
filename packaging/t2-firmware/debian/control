@@ -1,0 +1,40 @@
+Source: apple-firmware-script
+Section: admin
+Priority: optional
+Maintainer: Jason Perlow <jperlow@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+                     python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/t2linux/wiki
+Vcs-Git: https://github.com/t2linux/wiki
+Vcs-Browser: https://github.com/t2linux/wiki
+
+Package: apple-firmware-script
+Architecture: all
+Depends: ${misc:Depends},
+         python3,
+         mount,
+         sudo,
+         kmod,
+         ca-certificates,
+         mawk | gawk,
+         curl
+Recommends: dmg2img
+Description: Get Wi-Fi and Bluetooth firmware from macOS (T2 Macs)
+ get-apple-firmware retrieves the Broadcom Wi-Fi/Bluetooth firmware blobs
+ that Apple T2 Macs require from a macOS installation, an Apple recovery
+ image, or a previously prepared EFI partition, and installs them under
+ /lib/firmware/brcm/.
+ .
+ This is the upstream t2linux "firmware.sh" helper, packaged for Debian.
+ The pristine upstream source is shipped as documentation
+ (upstream/firmware.sh) and the installed helper is a minimal, reviewed
+ patch that pins the runtime-downloaded helper code to an immutable commit
+ and verifies its SHA-256 before execution. The helper is a Bash script
+ that embeds a Python 3 archive-renamer using only the standard library.
+ .
+ The optional "download from Apple's CDN" path (get_from_online)
+ additionally requires curl and dmg2img, and downloads a macOS Recovery
+ Image at run time; that path is not required for the EFI or macOS-host
+ retrieval modes.

@@ -46,6 +46,7 @@
 56-t2-dkms.sh
 57-qotd.sh
 58-boot-hygiene.sh
+58-screensaver-shader.sh
 59-desktop-curate.sh
 59-ncz-screensavers-pkg.sh
 60-boot-splash.sh
@@ -54,6 +55,7 @@
 64-ncz-lock-saver-plan.sh
 64-t2-power-cap.sh
 65-ncz-titlebar-buttons.sh
+66-ncz-lite-profile.sh
 70-bootloader.sh
 72-rescue-partition.sh
 85-power-perf-mode.sh

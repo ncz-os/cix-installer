@@ -23,7 +23,24 @@ if [ -z "$SRC" ]; then
 fi
 
 install -d -m0755 /usr/share/ncz
-install -m0644 "$SRC" /usr/share/ncz/cosmic-quotes
+# Retired release codenames must never reach a login screen (MINOR-001 follow-up,
+# 2026-10-28): reinhardt (26.5) and maximilian (26.7) are ALSO characters in
+# The Black Hole (1979), which is where this quote list comes from -- so six
+# curated lines attribute quotes to "Dr. Hans Reinhardt" / "V.I.N.CENT", and on a
+# login banner they read exactly like a stale release name. An operator reported
+# the banner naming "Maximilian"; the identity files were all correct, and the
+# only user-visible place a retired codename could appear was here. Drop those
+# lines at install time: the quote-of-the-day is decoration, the release identity
+# is contractual, and ambiguity between the two is not worth a single quote.
+if grep -qiE 'reinhardt|maximilian' "$SRC" 2>/dev/null; then
+    grep -aviE 'reinhardt|maximilian' "$SRC" > /usr/share/ncz/cosmic-quotes.tmp 2>/dev/null \
+        && mv -f /usr/share/ncz/cosmic-quotes.tmp /usr/share/ncz/cosmic-quotes
+    drop=$(( $(grep -cviE '^[[:space:]]*(#|$)' "$SRC") - $(grep -cviE '^[[:space:]]*(#|$)' /usr/share/ncz/cosmic-quotes) ))
+    echo "[57] dropped $drop quote(s) naming a retired release codename (reinhardt/maximilian)"
+else
+    install -m0644 "$SRC" /usr/share/ncz/cosmic-quotes
+fi
+chmod 0644 /usr/share/ncz/cosmic-quotes
 echo "[57] installed $(grep -cvE '^\s*(#|$)' /usr/share/ncz/cosmic-quotes) quotes -> /usr/share/ncz/cosmic-quotes"
 
 # --- picker: deterministic per-day quote ------------------------------------
@@ -61,7 +78,9 @@ chmod 0755 /etc/update-motd.d/50-ncz-qotd
 # The Singularity shell (libsingularity AutostartManager) starts a SYSTEM
 # /etc/xdg/autostart entry only when its OnlyShowIn names Singularity, and the
 # session exports XDG_CURRENT_DESKTOP=Singularity; an entry without it is never
-# launched (build/test-xdg-autostart.sh).
+# launched (build/test-xdg-autostart.sh). On a first login the notifier waits
+# for the desktop tour (`ncz-first-login-tour wait-done`) so the tour is the
+# first thing the user sees (build/test-login-notice-order.sh).
 cat > /usr/local/bin/ncz-qotd-notify <<'NOTIFY'
 #!/bin/sh
 command -v notify-send >/dev/null 2>&1 || exit 0
@@ -69,6 +88,9 @@ Q=$(/usr/local/bin/ncz-qotd 2>/dev/null)
 [ -n "$Q" ] || exit 0
 ICON=/usr/share/pixmaps/ncz-avatar-magenta.png
 [ -f "$ICON" ] || ICON=dialog-information
+# On a first login the desktop tour comes first: hold the quote until the
+# tour has closed (bounded; returns at once on later logins).
+[ -x /usr/local/bin/ncz-first-login-tour ] && /usr/local/bin/ncz-first-login-tour wait-done
 # wait for the notification daemon to be up after session start
 sleep 8
 notify-send -a "NCZ" -u low -t 20000 -i "$ICON" "Quote of the Day" "$Q"

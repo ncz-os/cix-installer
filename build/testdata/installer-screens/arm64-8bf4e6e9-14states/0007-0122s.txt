@@ -1,0 +1,18 @@
+# t=122s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+  ┌────────────┤ [8/8] NCZ-OS 26.10 Cygnus - ERASE /dev/vda and install? ├──────────────┐
+  │ Please review your choices:                                                         │
+  │                                                                                     │
+  │   Target disk:       /dev/vda                                                      │
+  │   Root filesystem:   ext4                                                           │
+  │   Rescue partition:  yes                                                            │
+  │   Components:        Full Singularity desktop                                       │
+  │                                                                                     │
+  │ CONTINUING ERASES EVERYTHING ON /dev/vda. This cannot be undone.                    │
+  │                                                                                     │
+  │ arm64 (Sky1) | build 8bf4e6e9 | diagnostics login: root / set by ncz_diag_pw        │
+  │                                                                                     │
+  │                      [Go Back]        [Yes]      [No]                               │
+  └─────────────────────────────────────────────────────────────────────────────────────┘

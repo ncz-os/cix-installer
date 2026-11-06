@@ -113,7 +113,8 @@ On T2 Macs the same hook (`post-install/64-t2-power-cap.sh`) raises it, in
 | setting | value | compiled-in |
 |---|---|---|
 | `NCZ_FEED_TEMP_HOT_MC` | 100 C, or 2 C under the lowest critical trip of those sensors when it is at or below 100 C (98000 on MacBookPro16,1) | 85000 |
-| `NCZ_FEED_FPS_WARM` | 6 | 10 (above the 8 fps lock rate) |
+| `NCZ_FEED_FPS_WARM` | 6 | 15 |
+| `NCZ_SAVER_AUTO_FPS` | 15 (what Auto means for the saver frame rate; full resolution is kept, and the Settings page warns before a higher rate is used) | 30 |
 
 Up to 100 C is normal on these Macs. Measured on both MacBookPro16,1 units
 (i9-9980HK and i7-9750H):
@@ -169,3 +170,12 @@ forky (checked against the pinned snapshot index 2026-10-05); `rasdaemon`
 0.8.4-2 **is** (main/amd64, deps present). It is added to the amd64 closure
 (`manifests/desktop-amd64.pkgs`) so it is available offline and its provenance
 stays traceable to forky.
+
+**Removed 2026-10-26.** On the client desktop images rasdaemon logged nine
+`Can't get traces from cxl:*` and nine `Can't write to set_event` lines at every
+boot (these machines have no CXL), plus `ras-mc-ctl` EDAC label noise, and
+nothing on the image depends on it (no reverse dependency on a real install;
+its own closure, libtraceevent1, sqlite3, libdbd-sqlite3-perl and libdbi-perl,
+about 6 MB, goes with it). Runtime machine checks still reach the kernel log
+and the journal; install `rasdaemon` by hand on a machine under investigation
+to keep them across reboots.

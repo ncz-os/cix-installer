@@ -53,7 +53,7 @@ fi
 # --- environment stubs -------------------------------------------------------------------------
 SANDBOX_N=0
 mk_sandbox() {   # fresh state/home each case
-    SANDBOX_N=$((SANDBOX_N + 1)); S="$W/s-$SANDBOX_N"; mkdir -p "$S/home" "$S/state" "$S/config"
+    SANDBOX_N=$((SANDBOX_N + 1)); S="$W/s-$SANDBOX_N"; mkdir -p "$S/home" "$S/state" "$S/config" "$S/run"
 }
 # base "everything fine" knobs; individual cases flip one.
 pretend() {
@@ -69,6 +69,7 @@ pretend() {
         NCZ_TOUR_FIRST_RUN="${CASE_FIRSTRUN:-0}" \
         NCZ_TOUR_LOCKED="${CASE_LOCKED:-0}" \
         NCZ_TOUR_SETTLE=0 NCZ_TOUR_SHELL_WAIT=0 \
+        NCZ_TOUR_RUNTIME_DIR="$S/run" \
         ${CASE_EXTRA:-} \
         sh "$SCRIPT" "${1:-guard}"
 }
@@ -140,17 +141,52 @@ else
     bad "marker path does not use XDG_STATE_HOME/.local/state"
 fi
 
-# --- first-login thermal envelope ---------------------------------------------
-# T2 MacBooks ran hot post-login (singularity-tour 83-94% CPU ~55 s,
-# glycin image decoding). The fix is a longer post-shell settle AND wrapping
-# the tour in a transient scope with nice + CPUQuota so the image-decode
-# burst cannot spike the panel's thermal envelope.
-# Default settle raised from 3 s to 30 s (configurable via NCZ_TOUR_SETTLE).
-if grep -qE 'NCZ_TOUR_SETTLE:-30' "$SCRIPT"; then
-    ok "default settle is 30s"
+# --- first-login timing and thermal envelope ---------------------------------
+# The tour opens once the desktop's login burst has passed: an adaptive settle
+# (two quiet 0.5 s samples, at least NCZ_TOUR_SETTLE_MIN, at most
+# NCZ_TOUR_SETTLE_MAX = 8 s) instead of the old fixed 30 s sleep that put the
+# tour behind every login notice. NCZ_TOUR_SETTLE still forces a fixed delay.
+if grep -q 'NCZ_TOUR_SETTLE:-30' "$SCRIPT"; then
+    bad "fixed 30 s settle is still the default"
 else
-    bad "settle default is not 30s"
+    ok "no fixed 30 s settle"
 fi
+if grep -qE 'NCZ_TOUR_SETTLE_MAX:-8' "$SCRIPT"; then ok "adaptive settle capped at 8 s"; else bad "adaptive settle cap is not 8 s"; fi
+# settle_case <name> <samples> <min> <max> <want_half_seconds>
+settle_case() {
+    local name="$1" samples="$2" min="$3" max="$4" want="$5" got
+    mk_sandbox; mkdir -p "$S/run"
+    env -i PATH="$PATH" HOME="$S/home" NCZ_TOUR_STATE_HOME="$S/state" NCZ_TOUR_CONFIG_HOME="$S/config" \
+        NCZ_TOUR_OPT_OUT="$S/no-such-optout" NCZ_TOUR_UID=1000 NCZ_TOUR_WAYLAND=1 NCZ_TOUR_DRM_STATUS=connected \
+        NCZ_TOUR_LIVE=0 NCZ_TOUR_FIRST_RUN=0 NCZ_TOUR_LOCKED=0 NCZ_TOUR_SHELL_WAIT=0 NCZ_TOUR_DRYRUN=1 \
+        NCZ_TOUR_RUNTIME_DIR="$S/run" NCZ_TOUR_LOAD_SAMPLES="$samples" \
+        NCZ_TOUR_SETTLE_MIN="$min" NCZ_TOUR_SETTLE_MAX="$max" \
+        sh "$SCRIPT" show >/dev/null 2>&1
+    got="$(cat "$S/run/first-login-tour.settle" 2>/dev/null)"
+    if [ "$got" = "$want" ]; then ok "$name"; else bad "$name: settled after '$got' half-seconds, want $want"; fi
+}
+settle_case "settle: quiet desktop -> opens at the minimum (1 s)" "5 5 5 5" 1 8 2
+settle_case "settle: waits out the login burst, then two quiet samples" "300 250 180 90 20 10 5" 1 8 6
+settle_case "settle: one quiet sample inside a burst does not end it" "300 10 300 10 10" 1 8 5
+settle_case "settle: a desktop that never quiets is capped at 8 s" "$(printf '400 %.0s' $(seq 1 30))" 1 8 16
+# Real sampling path (no test samples): bounded by the cap and parses /proc/stat.
+if [ -r /proc/stat ]; then
+    mk_sandbox; mkdir -p "$S/run"; t0=$(date +%s)
+    env -i PATH="$PATH" HOME="$S/home" NCZ_TOUR_STATE_HOME="$S/state" NCZ_TOUR_CONFIG_HOME="$S/config" \
+        NCZ_TOUR_OPT_OUT="$S/no-such-optout" NCZ_TOUR_UID=1000 NCZ_TOUR_WAYLAND=1 NCZ_TOUR_DRM_STATUS=connected \
+        NCZ_TOUR_LIVE=0 NCZ_TOUR_FIRST_RUN=0 NCZ_TOUR_LOCKED=0 NCZ_TOUR_SHELL_WAIT=0 NCZ_TOUR_DRYRUN=1 \
+        NCZ_TOUR_RUNTIME_DIR="$S/run" NCZ_TOUR_SETTLE_MIN=1 NCZ_TOUR_SETTLE_MAX=2 \
+        sh "$SCRIPT" show >/dev/null 2>&1
+    el=$(( $(date +%s) - t0 )); got="$(cat "$S/run/first-login-tour.settle" 2>/dev/null)"
+    if [ "$el" -le 4 ] && [ -n "$got" ] && [ "$got" -ge 2 ] && [ "$got" -le 4 ]; then
+        ok "settle: /proc/stat sampling is bounded (${el}s, ${got} half-seconds)"
+    else
+        bad "settle: /proc/stat sampling took ${el}s / '${got}' half-seconds (want 1-2 s)"
+    fi
+else
+    ok "settle: /proc/stat case skipped (no /proc on this host)"
+fi
+
 # Wrapper must look up nice/cpu-quota. systemd-run --user --scope is the
 # preferred path; plain `nice -n 19` is the fallback for non-IPC sessions.
 if grep -q 'systemd-run --user --scope' "$SCRIPT" \
@@ -165,10 +201,7 @@ if grep -q 'NCZ_TOUR_NICE' "$SCRIPT" && grep -q 'NCZ_TOUR_CPUQUOTA' "$SCRIPT"; t
 else
     bad "NCZ_TOUR_NICE / NCZ_TOUR_CPUQUOTA test seams missing"
 fi
-# The marker is written BEFORE the launch (fail-closed) and a CPUQuota <100%
-# guarantees the decode burst is capped at NCZ_TOUR_CPUQUOTA%; document that the
-# marker is written first so a crash cannot loop the tour under the new
-# slower schedule.
+# The marker is written BEFORE the launch (fail-closed), whatever the settle.
 mk_sandbox; out="$(CASE_LOCKED=0 CASE_EXTRA="NCZ_TOUR_DRYRUN=1 NCZ_TOUR_SETTLE=0 NCZ_TOUR_SHELL_WAIT=0" pretend show 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && [ -f "$S/state/ncz/tour-seen" ]; then
     ok "marker is still fail-closed (written before launch, regardless of settle)"
@@ -258,6 +291,115 @@ if [ ! -e /opt/singularity/bin/singularity-tour ]; then
 else
     ok "launch: fall-through case skipped (real singularity-tour installed on this host)"
 fi
+
+# --- SCHED_IDLE, animations off, session state -------------------------------------------------
+# The cgroup cpu controller is not delegated on NCZ-OS (43-hw-quirks.sh), so the
+# scope's CPUQuota is not enforced there; SCHED_IDLE and animations off are the
+# bounds that always hold. Measured: the tour's scene tick redraws every frame
+# while the window is visible (50% of a core on HD4000, 55% Sky1, 88% on a
+# MacBookPro16,1); with gtk-enable-animations=0 it idles at 0%.
+_chrt="$(command -v chrt 2>/dev/null)"
+if [ "$_chrt" = /usr/bin/chrt ] || [ "$_chrt" = /bin/chrt ]; then
+    printf '#!/bin/sh\nchrt -p $$ >"%s/hook-sched"\nnice >>"%s/hook-sched"\n' "$W" "$W" >"$W/stub/tour-sched"
+    chmod +x "$W/stub/tour-sched"
+    mk_sandbox; rm -f "$W/hook-sched"
+    out="$(CASE_EXTRA="NCZ_TOUR_SR_OK=0 NCZ_TOUR_LAUNCH=$W/stub/tour-sched" pretend show 2>&1)"
+    if grep -q 'SCHED_IDLE' "$W/hook-sched" 2>/dev/null && grep -qx 19 "$W/hook-sched"; then
+        ok "launch: the tour runs under SCHED_IDLE at nice 19"
+    else
+        bad "launch: tour not SCHED_IDLE + nice 19 ($(tr '\n' ' ' <"$W/hook-sched" 2>/dev/null) $out)"
+    fi
+    mk_sandbox; rm -f "$W/hook-sched"
+    out="$(CASE_EXTRA="NCZ_TOUR_IDLE=0 NCZ_TOUR_SR_OK=0 NCZ_TOUR_LAUNCH=$W/stub/tour-sched" pretend show 2>&1)"
+    if grep -q 'SCHED_OTHER' "$W/hook-sched" 2>/dev/null; then ok "launch: NCZ_TOUR_IDLE=0 keeps the normal policy"; else bad "launch: NCZ_TOUR_IDLE=0 ignored ($(tr '\n' ' ' <"$W/hook-sched" 2>/dev/null))"; fi
+else
+    ok "launch: SCHED_IDLE case skipped (no chrt at /usr/bin or /bin)"
+fi
+
+# Animations off: the launch sees GDK_DEBUG with no-portals and an
+# XDG_CONFIG_DIRS led by the runtime dir, whose gtk-4.0/settings.ini turns
+# animations off and carries the user's interface settings from GSettings.
+mkdir -p "$W/gs"
+cat >"$W/gs/gsettings" <<'GS'
+#!/bin/sh
+[ "$1" = get ] && [ "$2" = org.gnome.desktop.interface ] || exit 1
+# GLib writes debug lines to stdout when G_MESSAGES_DEBUG is set (the image sets it).
+[ -n "${G_MESSAGES_DEBUG:-}" ] && echo "(process:1): GLib-GIO-DEBUG: 00:00:00.000: noise"
+case "$3" in
+    font-name) echo "'Adwaita Sans 11'" ;;
+    cursor-theme) echo "'Singularity'" ;;
+    cursor-size) echo 48 ;;
+    icon-theme) echo "'Singularity-pink'" ;;
+    gtk-theme) echo "'Adwaita'" ;;
+    color-scheme) echo "'prefer-dark'" ;;
+    text-scaling-factor) echo 1.25 ;;
+    *) exit 1 ;;
+esac
+GS
+chmod +x "$W/gs/gsettings"
+# shellcheck disable=SC2016  # the stub expands these when it runs
+printf '#!/bin/sh\nprintf "%%s\\n%%s\\n" "$XDG_CONFIG_DIRS" "$GDK_DEBUG" >"%s/hook-env"\n' "$W" >"$W/stub/tour-env"
+chmod +x "$W/stub/tour-env"
+mk_sandbox; rm -f "$W/hook-env"
+out="$(PATH="$W/gs:$PATH" CASE_EXTRA="G_MESSAGES_DEBUG=all NCZ_TOUR_NICE=0 NCZ_TOUR_LAUNCH=$W/stub/tour-env" pretend show 2>&1)"
+ini="$S/run/first-login-tour/gtk-4.0/settings.ini"
+if [ "$(sed -n 1p "$W/hook-env" 2>/dev/null)" = "$S/run/first-login-tour:/etc/xdg" ] \
+   && [ "$(sed -n 2p "$W/hook-env" 2>/dev/null)" = no-portals ]; then
+    ok "quiesce: launch gets XDG_CONFIG_DIRS=<runtime>/first-login-tour:... and GDK_DEBUG=no-portals"
+else
+    bad "quiesce: launch env wrong ($(tr '\n' '|' <"$W/hook-env" 2>/dev/null) $out)"
+fi
+if grep -qx 'gtk-enable-animations=0' "$ini" 2>/dev/null; then ok "quiesce: settings.ini turns animations off"; else bad "quiesce: settings.ini lacks gtk-enable-animations=0"; fi
+want_ini='gtk-font-name=Adwaita Sans 11
+gtk-cursor-theme-name=Singularity
+gtk-cursor-theme-size=48
+gtk-icon-theme-name=Singularity-pink
+gtk-theme-name=Adwaita
+gtk-application-prefer-dark-theme=1
+gtk-xft-dpi=122880'
+if [ "$(grep -v -e '^#' -e '^\[Settings\]' -e '^gtk-enable-animations' "$ini" 2>/dev/null)" = "$want_ini" ]; then
+    ok "quiesce: settings.ini carries font, cursor, icons, theme, dark scheme and text scale (G_MESSAGES_DEBUG=all)"
+else
+    bad "quiesce: settings.ini content: $(tr '\n' '|' <"$ini" 2>/dev/null)"
+fi
+# A GSettings value that is not a plain one-line value is never written.
+cat >"$W/gs/gsettings" <<'GS'
+#!/bin/sh
+case "$3" in font-name) echo "'x]
+gtk-enable-animations=1'" ;; icon-theme) echo "'a=b'" ;; *) exit 1 ;; esac
+GS
+mk_sandbox
+out="$(PATH="$W/gs:$PATH" CASE_EXTRA="NCZ_TOUR_NICE=0 NCZ_TOUR_LAUNCH=$W/stub/tour-env" pretend show 2>&1)"
+ini="$S/run/first-login-tour/gtk-4.0/settings.ini"
+if [ "$(grep -c . "$ini" 2>/dev/null)" = 3 ] && ! grep -q 'gtk-enable-animations=1' "$ini"; then
+    ok "quiesce: odd GSettings values are dropped, animations stay off"
+else
+    bad "quiesce: unexpected settings.ini: $(tr '\n' '|' <"$ini" 2>/dev/null)"
+fi
+mk_sandbox; rm -f "$W/hook-env"
+out="$(CASE_EXTRA="NCZ_TOUR_ANIMATIONS=1 NCZ_TOUR_NICE=0 NCZ_TOUR_LAUNCH=$W/stub/tour-env" pretend show 2>&1)"
+if [ "$(sed -n 1p "$W/hook-env" 2>/dev/null)" = "" ] && [ ! -e "$S/run/first-login-tour/gtk-4.0/settings.ini" ]; then
+    ok "quiesce: NCZ_TOUR_ANIMATIONS=1 leaves the environment alone"
+else
+    bad "quiesce: NCZ_TOUR_ANIMATIONS=1 still changed the launch ($(tr '\n' '|' <"$W/hook-env" 2>/dev/null))"
+fi
+
+# Session state for wait-done: open after a launch, closed on every other exit.
+state_case() {
+    local name="$1" want="$2" got
+    got="$(cat "$S/run/first-login-tour.state" 2>/dev/null)"
+    if [ "$got" = "$want" ]; then ok "$name"; else bad "$name: state '$got', want '$want'"; fi
+}
+mk_sandbox; CASE_EXTRA="NCZ_TOUR_NICE=0 NCZ_TOUR_LAUNCH=$W/stub/tour-ok" pretend show >/dev/null 2>&1
+state_case "state: open after the tour is launched" open
+mk_sandbox; CASE_EXTRA="NCZ_TOUR_NICE=0 NCZ_TOUR_LAUNCH=$W/stub/tour-fail" pretend show >/dev/null 2>&1
+state_case "state: closed after a failed launch" closed
+mk_sandbox; CASE_EXTRA="NCZ_TOUR_DRYRUN=1" pretend show >/dev/null 2>&1
+state_case "state: closed after a dry run" closed
+mk_sandbox; CASE_LOCKED=1 CASE_EXTRA="NCZ_TOUR_DRYRUN=1" pretend show >/dev/null 2>&1
+state_case "state: closed when the session is locked (deferred)" closed
+mk_sandbox; mkdir -p "$S/state/ncz"; : >"$S/state/ncz/tour-seen"; pretend show >/dev/null 2>&1
+state_case "state: closed on a later login (already shown)" closed
 
 echo "$((PASS + FAIL)) checks, $PASS ok, $FAIL failed"
 [ "$FAIL" -eq 0 ]

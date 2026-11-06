@@ -19,6 +19,12 @@ NCZ_RELEASE_CODENAME=""
 NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
 [ -n "$NCZ_RELEASE_CODENAME" ] && \
     NCZ_RELEASE_LABEL="$NCZ_RELEASE_LABEL \"$NCZ_RELEASE_CODENAME\""
+# A Magnetar Server install names its edition (post-install/lib/ncz-brand.sh).
+if [ -r /usr/local/lib/cix-installer/post-install/lib/ncz-brand.sh ] \
+   && . /usr/local/lib/cix-installer/post-install/lib/ncz-brand.sh \
+   && [ "$(ncz_brand_medium_variant /usr/local/lib/cix-installer)" = server ]; then
+    NCZ_RELEASE_LABEL=$(ncz_brand_label server "$NCZ_RELEASE_LABEL" "$NCZ_PRODUCT_NAME" "$NCZ_RELEASE_VERSION")
+fi
 
 declare -A AGENT_IMAGE
 AGENT_IMAGE[zeroclaw]='ghcr.io/zeroclaw-labs/zeroclaw:latest'

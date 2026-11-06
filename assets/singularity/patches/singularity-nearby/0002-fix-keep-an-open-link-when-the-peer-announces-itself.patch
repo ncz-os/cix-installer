@@ -13,8 +13,6 @@ Track the open link per device and ignore announcements while it is
 open. Incoming connections are still accepted and still replace the
 old link, and a link that drops is reopened on the next announcement.
 
-Assisted-by: Claude Code:claude-opus-5-5
-AI-Scope: Wrote the open-link check in LanProvider; reviewed and measured on hardware by the author.
 ---
  src/lan.vala | 13 +++++++++++++
  1 file changed, 13 insertions(+)

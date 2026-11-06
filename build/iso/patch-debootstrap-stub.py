@@ -38,6 +38,16 @@ syntax-checked at build time):
   * exits 0 so base-installer believes debootstrap succeeded and d-i's
     later steps proceed normally against the now-populated ``$TARGET``.
 
+MAGNETAR (``NCZ_VARIANT=server``): the server medium carries NO squashfs at
+all. When the probe finds no local ``base.squashfs`` the stub looks for
+``ncz-fetch-payload.sh`` beside the payload instead, picks a WRITABLE staging
+root (the install medium is mounted ``ro``), and lets that script fetch every
+artifact named in the medium's pinned manifest -- verifying each sha256, with
+bounded retries, HTTP resume and a loud serial failure on anything wrong. A
+failed fetch exits non-zero, so an unverified rootfs can never be installed.
+The wipe of ``$TARGET`` deliberately skips that staging root. Desktop media
+finds ``base.squashfs`` in the first probe and never enters this path.
+
 The script copies the stub VERBATIM — including its inline comments
 explaining WHY each gate exists (the 0700-root incident, the
 ARM64-unsquashfs-on-AMD64 silent failure, the missing-overlay-manifest
@@ -172,6 +182,67 @@ SQDIR=""
 for d in /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
     [ -f "$d/base.squashfs" ] && { SQDIR="$d"; break; }
 done
+
+# MAGNETAR (NCZ_VARIANT=server): the payload is NOT on the medium. The server
+# medium carries only a pinned manifest (url + sha256 per artifact) plus this
+# fetch helper; everything else -- base.squashfs and the substrate assets the
+# post-install hooks read out of the payload tree -- is pulled here, BEFORE the
+# extraction below, and verified by ncz-fetch-payload.sh (bounded retries,
+# HTTP resume, loud serial failure, exit non-zero on a bad or missing digest).
+# A failed fetch therefore never installs an unverified rootfs: we abort.
+#
+# This runs inside the debootstrap stub, which is the ONLY live install path
+# under d-i (there is no partman/late_command hook -- see the CONTRACT note in
+# preseed/preseed.cfg), so "before the stub extracts" IS "before the install
+# needs it". Desktop media always finds base.squashfs in the loop above, so the
+# whole block is skipped for it and desktop media is byte-identical.
+MEDIADIR=""
+if [ -z "$SQDIR" ]; then
+    for d in /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
+        [ -f "$d/ncz-fetch-payload.sh" ] && { MEDIADIR="$d"; break; }
+    done
+fi
+if [ -z "$SQDIR" ] && [ -n "$MEDIADIR" ]; then
+    echo "I: r159 stub: no payload on the medium -- fetching it (Magnetar online install)" >&2
+    # The install medium is mounted READ-ONLY (media-usb-only.sh mounts it
+    # `-o ro,noload`), so a fetch into /cdrom would die part-way and leave a
+    # half-written tree. $TARGET is the disk d-i just partitioned and mounted
+    # rw; /run (the initrd tmpfs) is the fallback. Probe, never assume.
+    FETCHDIR=""
+    for cand in "$TARGET/ncz-online/ncz-payload" /run/ncz-online/ncz-payload ; do
+        mkdir -p "$cand" 2>/dev/null && [ -w "$cand" ] && { FETCHDIR="$cand"; break; }
+    done
+    if [ -z "$FETCHDIR" ]; then
+        echo "FATAL: r159 stub: no writable directory to fetch the payload into" >&2
+        echo "FATAL: nothing installed -- the medium carries no rootfs and there is nowhere to put the fetched one" >&2
+        exit 1
+    fi
+    # The pinned manifest is ON THE MEDIUM, next to the helper; the helper's
+    # default looks beside its destination ($FETCHDIR), which is empty. Name
+    # it, or the fetch dies with "NCZ_PAYLOAD_URL required (no manifest at
+    # $FETCHDIR/...)" (first real Magnetar KVM install, 2026-10-26).
+    if NCZ_PAYLOAD_DIR="$FETCHDIR" NCZ_FETCH_TMPDIR="$FETCHDIR/.fetchtmp" \
+       NCZ_FETCH_MANIFEST="$MEDIADIR/ncz-fetch-payload.manifest" \
+       sh "$MEDIADIR/ncz-fetch-payload.sh"; then
+        echo "I: r159 stub: payload fetched and sha256-verified into $FETCHDIR" >&2
+        # sqtools (the arch-matched static unsquashfs + its loader) still ships
+        # on the medium -- it is a few MB and unsquashfs is needed to unpack the
+        # very file we just downloaded. Link it in so every path below stays
+        # "$SQDIR/<artifact>" with no special cases.
+        [ -d "$FETCHDIR/sqtools" ] || ln -s "$MEDIADIR/sqtools" "$FETCHDIR/sqtools" 2>/dev/null || true
+        [ -x "$FETCHDIR/sqtools/unsquashfs" ] || cp -a "$MEDIADIR/sqtools" "$FETCHDIR/sqtools"
+        SQDIR="$FETCHDIR"
+    else
+        echo "FATAL: r159 stub: online payload fetch failed; see the [FETCH] lines above" >&2
+        echo "FATAL: nothing installed -- the medium has no local rootfs and the network fetch did not succeed" >&2
+        exit 1
+    fi
+fi
+if [ -z "$SQDIR" ]; then
+    echo "FATAL: r159 stub: no payload source and no online fetch helper on the medium" >&2
+    echo "FATAL: nothing installed -- refusing to network-debootstrap a bare Debian" >&2
+    exit 1
+fi
 if [ -n "$SQDIR" ]; then
     echo "I: r159 stub: LAYERED SQUASHFS install from $SQDIR" >&2
     LDR=$(ls "$SQDIR"/sqtools/ld-* 2>/dev/null | head -1)
@@ -179,7 +250,15 @@ if [ -n "$SQDIR" ]; then
     if [ ! -x "$UNSQ" ] || [ -z "$LDR" ]; then
         echo "FATAL: r159 stub: sqtools bundle missing (bin=$UNSQ ldr=$LDR)" >&2; exit 1
     fi
-    rm -rf "$TARGET"/* "$TARGET"/.[!.]* 2>/dev/null || true
+    # Wipe the target, but NOT the online-fetch staging root: when the payload
+    # came off the network it was written to "$TARGET/ncz-online" because the
+    # medium is read-only, and a blind glob would delete the very base.squashfs
+    # we just verified and are about to extract.
+    for _ncz_e in "$TARGET"/* "$TARGET"/.[!.]* ; do
+        [ "$_ncz_e" = "$TARGET/ncz-online" ] && continue
+        rm -rf "$_ncz_e"
+    done
+    rm -rf "$TARGET"/.[!.]* 2>/dev/null || true
     ncz_component_record() {
         _ncz_comp=""
         if [ -r /tmp/ncz-components ] && command -v tr >/dev/null 2>&1; then
@@ -400,15 +479,31 @@ if [ -n "$SQDIR" ]; then
     # and remove the baked live sources for the duration of installation.
     # late.sh replaces these with the runtime update sources before reboot.
     _TARGET_ARCH=$(chroot "$TARGET" dpkg --print-architecture 2>/dev/null)
+    # Magnetar option B (operator 2026-10-26): a server medium carries no
+    # regular apt repository. The fetched ncz-pool-<arch>.tar.gz unpacked it
+    # (dists/ + pool/, with its own Release) under the staging root, and the
+    # target's /cdrom becomes that repository, so apt-setup's file:///cdrom
+    # source, late.sh and the hooks see what they saw when it was on the
+    # medium. The medium's ncz-payload/ is copied in beside it: hooks fall
+    # back to /cdrom/ncz-payload/... inside the target.
+    _NCZ_REPO=/cdrom
+    if [ -n "${FETCHDIR:-}" ] && [ -d "$FETCHDIR/repo/dists" ]; then
+        _NCZ_REPO="$FETCHDIR/repo"
+        if [ -d "${MEDIADIR:-/cdrom/ncz-payload}" ] && [ ! -e "$_NCZ_REPO/ncz-payload" ]; then
+            cp -a "${MEDIADIR:-/cdrom/ncz-payload}" "$_NCZ_REPO/ncz-payload" || {
+                echo "FATAL: r159 stub: cannot copy the medium's ncz-payload beside the fetched repository" >&2; exit 1; }
+        fi
+        echo "I: r159 stub: offline apt repository from the fetched pool: $_NCZ_REPO" >&2
+    fi
     _MEDIA_SUITE=""
-    for _d in /cdrom/dists/*; do
+    for _d in "$_NCZ_REPO"/dists/*; do
         [ -s "$_d/main/binary-${_TARGET_ARCH}/Packages" ] || continue
         _MEDIA_SUITE=${_d##*/}
         break
     done
     if [ -n "$_MEDIA_SUITE" ]; then
         mkdir -p "$TARGET/cdrom" "$TARGET/etc/apt/sources.list.d"
-        mount --bind /cdrom "$TARGET/cdrom" 2>/dev/null || {
+        mount --bind "$_NCZ_REPO" "$TARGET/cdrom" 2>/dev/null || {
             echo "FATAL: r159 stub: cannot bind installation repository into target" >&2; exit 1; }
         rm -f "$TARGET/etc/apt/sources.list.d/"*.list \
               "$TARGET/etc/apt/sources.list.d/"*.sources
@@ -428,7 +523,7 @@ if [ -n "$SQDIR" ]; then
         fi
         echo "I: r159 stub: target apt pinned to file:///cdrom $_MEDIA_SUITE/main for installation" >&2
     else
-        echo "FATAL: r159 stub: no on-media $_TARGET_ARCH apt repository found" >&2
+        echo "FATAL: r159 stub: no $_TARGET_ARCH apt repository (on the medium or fetched) at $_NCZ_REPO" >&2
         exit 1
     fi
     # A base layer can omit Text::Iconv even though debconf's Encoding.pm
@@ -436,7 +531,7 @@ if [ -n "$SQDIR" ]; then
     # fail after apt itself succeeds, and apt-setup loops forever at 50mirror.
     # Install the package from the on-media pool before any d-i target-side
     # debconf frontend runs. Do not mask mirror errors: make the rootfs complete.
-    _ICONV_DEB=$(find /cdrom/pool -type f -name "libtext-iconv-perl_*_${_TARGET_ARCH}.deb" 2>/dev/null | head -1)
+    _ICONV_DEB=$(find "$_NCZ_REPO/pool" -type f -name "libtext-iconv-perl_*_${_TARGET_ARCH}.deb" 2>/dev/null | head -1)
     if [ -n "$_ICONV_DEB" ] && ! chroot "$TARGET" dpkg-query -W libtext-iconv-perl >/dev/null 2>&1; then
         cp "$_ICONV_DEB" "$TARGET/tmp/ncz-libtext-iconv-perl.deb" || {
             echo "FATAL: r159 stub: cannot stage libtext-iconv-perl" >&2; exit 1; }

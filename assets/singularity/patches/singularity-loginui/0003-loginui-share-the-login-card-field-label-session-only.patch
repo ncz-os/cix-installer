@@ -8,8 +8,6 @@ used by both the greeter and the session lock, so the shared login card cannot
 drift between them. A greetd/PAM prompt is normalised (trailing ':'/whitespace
 stripped) so a PAM "Password: " renders identically to the lock's own
 "Password"; an empty prompt falls back to the credential kind (PIN/Password).
-Assisted-by: opencode:deepseek-flash
-AI-Scope: authored on the pinned upstream commit; measured red->green headless
 ---
 diff --git a/loginui.h b/loginui.h
 --- a/loginui.h

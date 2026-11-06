@@ -1,0 +1,25 @@
+# t=50s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+
+
+
+   ┌┤ [!!] NCZ-OS 26.10 Cygnus - choose a PASSWORD for ncz (will be as... ├┐
+   │                                                                       │
+  ┌│ NCZ-OS 26.10 Cygnus - choose a PASSWORD for ncz (will be asked again  │
+  ││ to confirm)                                                           │
+  ││                                                                       │
+  ││ _____________________________________________________________________ │
+  ││                                                                       │
+  ││ [ ] Show Password in Clear                                            │
+  └│                                                                       │
+   │     <Go Back>                                          <Continue>     │
+   │                                                                       │
+   └───────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+<Tab> moves; <Space> selects; <Enter> activates buttons

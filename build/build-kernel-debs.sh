@@ -14,12 +14,20 @@
 #
 # 2026-08-21: legacy 7.0.12-cix-sky1-next channel retired.
 # The shipping channel is named "mainline" (assets/kernel/mainline): the single
-# unified 7.3 Sky1 kernel (7.3.0-rc7-sky1-ncz, r289). There is no edge channel
+# unified 7.3 Sky1 kernel (7.3.0-rc7-sky1-ncz, r290). There is no edge channel
 # (retired 2026-10-05). Only mainline is packaged. linux-image-cixmini-legacy and linux-image-cixmini-lts are gone
 # from the build; the empty-transitional-package trick that used to depend on
 # the legacy channel is also gone.
 set -euo pipefail
 umask 022   # reproducible file modes: the version gate compares content, modes included
+
+# --print-build-rev: print the revision this tree would build and exit, before
+# anything is written.  Recognised in any argument position (it was $1 only, and
+# anywhere else the full packaging path ran, starting with rm -rf $OUT).
+_PRINT_BUILD_REV=0
+for _arg in "$@"; do
+    case "$_arg" in --print-build-rev) _PRINT_BUILD_REV=1 ;; esac
+done
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"   # cix-installer/
 ASSETS="$REPO/assets/kernel"
@@ -146,10 +154,39 @@ fi
 _MAINLINE_REV=""
 case "$_MAINLINE_DIR_NAME" in r[0-9]*-*) _MAINLINE_REV="${_MAINLINE_DIR_NAME%%-*}" ;; esac
 case "${_MAINLINE_REV#r}" in *[!0-9]*) _MAINLINE_REV="" ;; esac
-BUILD_REV="${BUILD_REV:-${_MAINLINE_REV:-r258}}"
+# A repackaging of the staged release (same Image, different deb content) gets
+# its own revision without a new staging directory: r293 (2026-10-27) is the
+# r292 release with rebuilt overlays and a fixed headers tree.  The revision is
+# tracked in assets/kernel/mainline.deb-revision, so a clean build produces the
+# debs kernel-manifest.json pins instead of +r292 (the 2026-10-29 R2 failure).
+_DEB_REV=""
+_DEB_REV_FILE="$REPO/assets/kernel/mainline.deb-revision"
+if [ -e "$_DEB_REV_FILE" ]; then
+    _DEB_REV="$(sed 's/#.*//' "$_DEB_REV_FILE" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')"
+    case "$_DEB_REV" in
+        r[0-9]*) case "${_DEB_REV#r}" in *[!0-9]*) _DEB_REV="" ;; esac ;;
+        *) _DEB_REV="" ;;
+    esac
+    if [ -z "$_DEB_REV" ]; then
+        echo "ERROR: $_DEB_REV_FILE (assets/kernel/mainline.deb-revision) must hold exactly one rNNN value" >&2
+        exit 1
+    fi
+    if [ -n "$_MAINLINE_REV" ] && [ "${_DEB_REV#r}" -lt "${_MAINLINE_REV#r}" ]; then
+        echo "ERROR: assets/kernel/mainline.deb-revision $_DEB_REV is older than the staged kernel directory ($_MAINLINE_DIR_NAME)" >&2
+        exit 1
+    fi
+fi
+BUILD_REV="${BUILD_REV:-${_DEB_REV:-${_MAINLINE_REV:-r258}}}"
 if [ -n "$_MAINLINE_REV" ] && [ "${BUILD_REV#r}" -lt "${_MAINLINE_REV#r}" ] 2>/dev/null; then
     echo "ERROR: BUILD_REV=$BUILD_REV is older than the staged kernel directory ($_MAINLINE_DIR_NAME); refusing to build a downgrade-labelled kernel deb" >&2
     exit 1
+fi
+# Everything above only READS the tree.  The rNNN checks stay ahead of the
+# query on purpose: a revision this script would refuse to build is not "the
+# revision this tree would build", so the query fails exactly as the build does.
+if [ "$_PRINT_BUILD_REV" = 1 ]; then
+    printf '%s\n' "$BUILD_REV"
+    exit 0
 fi
 
 # cixmini-boot package version. BUMP THIS whenever the bootloader helper or the
@@ -169,7 +206,16 @@ fi
 #      transaction; the bootloader entries are correct end-of-transaction
 #      without a follow-up invocation. Behaviourally identical to 1.2+r246.
 # 1.3: comment and log-text refresh of the helper and the generator; behaviour unchanged.
-CIXMINI_BOOT_VER="1.3+$BUILD_REV"
+# 1.4: generator requires the rescue partition only when it was selected at
+#      install time, checks it before the ESP wipe, leaves the ESP alone while
+#      the install is still running, and reads the root PARTUUID from the GPT
+#      when blkid has none (never writes an empty root=PARTUUID=).
+# 1.5: GPT fallback requires a successful root filesystem probe.
+# 1.6: generator now prunes NVRAM rows labelled either "NCZ-OS" or the old
+#      "nclawzero (rEFInd)" and creates one entry labelled "NCZ-OS". Without
+#      this bump upgraded boards keep the 1.5 generator from /usr/local/sbin
+#      and never gain the NVRAM-entry fix.
+CIXMINI_BOOT_VER="1.6+$BUILD_REV"
 # What the kernel packages require. Kept at 1.2 while the helper behaviour is unchanged, so
 # the r289 kernel debs keep their published bytes (their Depends field is part of them).
 CIXMINI_BOOT_MIN_VER="1.2+$BUILD_REV"
@@ -181,6 +227,7 @@ CIXMINI_BOOT_MIN_VER="1.2+$BUILD_REV"
 case "${NCZ_KERNEL_DEB_EPOCH:-}" in
     '') case "$BUILD_REV" in
             r289) SOURCE_DATE_EPOCH=1791201600 ;;   # 2026-10-05T12:00:00Z (ledger rows for r289)
+            r290) SOURCE_DATE_EPOCH=1791772496 ;;   # 2026-10-12T02:34:56Z, base.pin arm64 snapshot (ledger rows for r290)
         esac ;;
     *[!0-9]*) echo "ERROR: NCZ_KERNEL_DEB_EPOCH must be an integer" >&2; exit 1 ;;
     *) SOURCE_DATE_EPOCH="$NCZ_KERNEL_DEB_EPOCH" ;;
@@ -642,6 +689,15 @@ build_kernel_deb() {
         echo "    baked OOT armchina_npu.ko (vermagic $vm)"
     fi
 
+    # Every out-of-tree module this package ships (updates/, extra/) must have
+    # the kernel's struct module layout and vermagic. 2026-10-26 (r292): the
+    # mali overlays had this_module 0x4c0 against the kernel's 0x500, the CRC
+    # and vermagic checks passed, and the kernel refused all three on O6N
+    # ("section size must match") -> no GPU, no desktop. Compare against an
+    # in-tree module of this same package.
+    python3 "$REPO/build/verify-module-abi.py" "$root/usr/lib/modules/$kver" \
+        || { echo "ERROR: [$channel] out-of-tree modules do not match $kver (see above); refusing to package" >&2; exit 1; }
+
     # Drop stale dep maps; postinst regenerates with depmod on target.
     rm -f "$root/usr/lib/modules/$kver"/modules.dep* \
           "$root/usr/lib/modules/$kver"/modules.alias* \
@@ -927,16 +983,122 @@ fi
 # path cannot assume the post-install hooks ever ran: a board that
 # upgraded from a pre-79 world, or that was installed via a non-standard
 # path, will never have invoked 79. The header tree must be self-healing.
+#
+# FIX 2026-10-21 (r291): the original was
+#     "$1" --version >/dev/null 2>&1 || return 1
+#     case $? in 126|127) return 1;; esac
+#     return 0
+# The `|| return 1` fires on ANY non-zero exit, so a tool that execs fine and
+# then rejects the bogus `--version` argument -- which is what BOTH fixdep and
+# modpost do, exit 1 with a usage message on stderr -- was reported UNUSABLE.
+# The 126/127 case afterwards was dead code: `||` had already returned, so $?
+# was always 0 there. Measured against the real r290 headers tree: both tools
+# are native and execute, yet this function returned "unusable" for both,
+# which forced a pointless modules_prepare on every install and then printed
+# the alarming "fixdep/modpost still unusable; DKMS builds will fail"
+# warning on boards where DKMS was about to work perfectly. The correct
+# predicate is the one 79-dkms-prep.sh already uses: ONLY 126 (found but not
+# executable) and 127 (interpreter/loader missing) mean "cannot exec", because
+# those are the execve failures -- a Yocto uninative-linked binary whose
+# loader path does not exist on the target. Any other exit means it ran.
+# 79-dkms-prep.sh is the reference implementation; keep the two in step.
 tool_usable() {
     [ -x "$1" ] || return 1
-    "$1" --version >/dev/null 2>&1 || return 1
-    case $? in 126|127) return 1;; esac
-    return 0
+    "$1" --version </dev/null >/dev/null 2>&1
+    case $? in
+        126|127) return 1 ;;   # cannot exec: wrong ABI or missing loader
+        *)       return 0 ;;   # ran (a usage error is still a successful exec)
+    esac
 }
+# genksyms matters as much as fixdep/modpost and was missing here: a module
+# that exports symbols (aipu) runs it for CONFIG_MODVERSIONS, and the shipped
+# headers carry a genksyms linked against Yocto's uninative loader even when
+# fixdep and modpost are already native (2026-10-06, r201 arm64 KVM gate:
+# "genksyms: not found", no aipu.ko). 79-dkms-prep.sh hit exactly that and
+# added genksyms to its list; this postinst never got the same change.
 need_rebuild=0
-for tool in scripts/basic/fixdep scripts/mod/modpost; do
+for tool in scripts/basic/fixdep scripts/mod/modpost scripts/genksyms/genksyms; do
     tool_usable "$B/$tool" || need_rebuild=1
 done
+
+# >>> ncz_prepare_pristine (keep identical in build/build-kernel-debs.sh,
+# post-install/79-dkms-prep.sh and post-install/10-our-kernel.sh;
+# build/test-headers-prepare-pristine.sh checks that they match)
+#
+# Rebuild the kernel host tools (fixdep, modpost, genksyms) with
+# `make modules_prepare` WITHOUT letting it change the kernel configuration the
+# header tree describes. modules_prepare re-runs Kconfig (syncconfig) whenever
+# the compiler differs from the one that built the kernel, which on these
+# trees is always (OE gcc built the kernel, Debian gcc builds DKMS). Kconfig
+# then re-derives every toolchain-dependent symbol for the NEW compiler and
+# rewrites .config, include/config/auto.conf and include/generated/autoconf.h.
+# Every DKMS module is compiled against that autoconf.h, so a dropped symbol
+# changes the module ABI. 2026-10-26 (r292): on a host without pahole,
+# CONFIG_PAHOLE_VERSION became 0, CONFIG_DEBUG_INFO_BTF_MODULES disappeared,
+# struct module shrank from 0x500 to 0x4c0, and the kernel refused the Mali
+# modules built there ("section size must match"). On O6N the same step also
+# dropped CONFIG_GCC_PLUGINS and prompted for new symbols on the terminal.
+# So: snapshot the Kconfig output, run modules_prepare with stdin closed (a new
+# symbol takes its default instead of waiting for an answer on a terminal
+# during an apt run), put the snapshot back, and verify it is byte-identical.
+#
+# tools/bpf/resolve_btfids fails to build here ("linux/kasan-checks.h: No such
+# file or directory": the header tree carries no tools/ sources). DKMS does not
+# need it: it is only used to add BTF to a module when vmlinux is present, and
+# the header tree has no vmlinux, so kbuild prints "Skipping BTF generation"
+# and the module loads without BTF. That failure, like the missing
+# kernel/bounds.s and asm-offsets sources, is why make runs with -k.
+#
+# A listed file that make creates (the shipped tree has no
+# include/config/auto.conf.cmd) is removed again, so the tree ends as shipped.
+#
+# Safe under set -e whether or not the caller tests its status.
+#
+# ncz_prepare_pristine <build-dir> <log>
+#   returns 0 when make was clean, make's status when it was not (expected for
+#   this trimmed tree; check the tools instead), 3 when the configuration could
+#   not be restored (do NOT build modules against that tree).
+# Also the generated headers the kernel build shipped (bounds.h, asm-offsets.h,
+# timeconst.h are computed from the configuration; compile.h names the
+# compiler): the kernel's copies are the right ones, whatever make regenerated.
+NCZ_KCONFIG_FILES=".config include/config/auto.conf include/config/auto.conf.cmd include/generated/autoconf.h include/generated/rustc_cfg include/config/kernel.release include/generated/utsrelease.h include/generated/bounds.h include/generated/asm-offsets.h include/generated/timeconst.h include/generated/compile.h"
+ncz_prepare_pristine() {
+    _np_b=$1; _np_log=$2
+    _np_snap=$(mktemp -d) || return 3
+    for _np_f in $NCZ_KCONFIG_FILES; do
+        [ -f "$_np_b/$_np_f" ] || continue
+        mkdir -p "$_np_snap/$(dirname "$_np_f")" && cp -p "$_np_b/$_np_f" "$_np_snap/$_np_f" \
+            || { rm -rf "$_np_snap"; return 3; }
+    done
+    _np_off=$(($({ wc -c <"$_np_log"; } 2>/dev/null || echo 0) + 1))
+    _np_rc=0
+    make -k -C "$_np_b" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare </dev/null >>"$_np_log" 2>&1 || _np_rc=$?
+    # 3 is reserved for "not restored"; GNU make never exits 3, but keep it unambiguous
+    if [ "$_np_rc" = 3 ]; then _np_rc=2; fi
+    _np_bad=0
+    for _np_f in $NCZ_KCONFIG_FILES; do
+        if [ ! -f "$_np_snap/$_np_f" ]; then
+            [ -e "$_np_b/$_np_f" ] || continue
+            echo "ncz_prepare_pristine: Kconfig created $_np_f; removed it (the kernel's tree has none)" >>"$_np_log"
+            rm -rf "${_np_b:?}/$_np_f" 2>>"$_np_log"
+            if [ -e "$_np_b/$_np_f" ]; then _np_bad=1; fi
+            continue
+        fi
+        if cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null; then continue; fi
+        echo "ncz_prepare_pristine: Kconfig rewrote $_np_f; restored the kernel's copy" >>"$_np_log"
+        # a path make turned into a directory: remove it so the copy can land
+        if [ -d "$_np_b/$_np_f" ]; then rm -rf "${_np_b:?}/$_np_f"; fi
+        cp -p "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>>"$_np_log" || _np_bad=1
+        cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null || _np_bad=1
+    done
+    rm -rf "$_np_snap"
+    if tail -c +"$_np_off" "$_np_log" 2>/dev/null | grep -q 'resolve_btfids'; then
+        echo "ncz_prepare_pristine: tools/bpf/resolve_btfids not built (no tools/ sources in the header tree); not needed for DKMS: without vmlinux kbuild skips module BTF" >>"$_np_log"
+    fi
+    [ "$_np_bad" = 0 ] || return 3
+    return "$_np_rc"
+}
+# <<< ncz_prepare_pristine
 
 if [ "$need_rebuild" = "1" ]; then
     log "rebuilding host tools natively (shipped ones are Yocto build-host binaries)"
@@ -952,19 +1114,35 @@ if [ "$need_rebuild" = "1" ]; then
         SELBAK="$(mktemp)"; cp -a "$SEL" "$SELBAK"; : > "$SEL"
     fi
     LOG=/var/log/ncz-headers-modules-prepare.log
-    if make -C "$B" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare >>"$LOG" 2>&1; then
-        log "modules_prepare clean (log: $LOG)"
-    else
-        # A late failure on kernel/bounds.s is EXPECTED -- the headers
-        # tarball does not carry the full source tree that target depends
-        # on, and 79-dkms-prep.sh documents this in detail. The two tools
-        # we actually needed (fixdep, modpost) are built by the time kbuild
-        # reaches that target, so a non-zero exit is harmless.
-        log "modules_prepare returned non-zero (expected: headers omit some generated sources; see $LOG)"
-    fi
+    # -k matters here, and the reason is ordering, not the bounds failure per
+    # se. The top-level Kbuild builds include/generated/bounds.h from
+    # kernel/bounds.s, and arch/$(SRCARCH)/kernel/asm-offsets.s depends on that
+    # header; the header extraction did not ship kernel/bounds.c, so without
+    # it make stops at prepare0 on "No rule to make target 'kernel/bounds.s'"
+    # (reproduced 2026-10-21 on ULTRA, logs/bounds-repro-before.txt). -k lets
+    # make carry on past that stop so the host tools this block exists to
+    # produce are still built and the verdict below is taken from re-running
+    # tool_usable on each tool rather than from make's exit status. Shipping
+    # kernel/bounds.c (extract-kernel-headers.sh) removes the stop at its
+    # source; -k is kept because the tree has other generated-source gaps by
+    # construction (any file outside include/ that the extension filters do not
+    # match) and 79-dkms-prep.sh already depends on -k for exactly that reason.
+    _prep_rc=0
+    ncz_prepare_pristine "$B" "$LOG" || _prep_rc=$?
+    case "$_prep_rc" in
+        0) log "modules_prepare clean (log: $LOG)" ;;
+        3)  restore_selinux
+            warn "modules_prepare changed the kernel configuration in $B and it could not be restored"
+            warn "Refusing to run dkms autoinstall: modules built against it would not load (see $LOG)"
+            exit 1 ;;
+        # Non-zero is EXPECTED: the headers tarball does not carry the full
+        # source tree. The tools we actually needed are verified usable below,
+        # so a non-zero exit here is not itself a failure.
+        *) log "modules_prepare returned non-zero (expected: headers omit some generated sources; see $LOG)" ;;
+    esac
     restore_selinux
     trap - EXIT INT TERM
-    for tool in scripts/basic/fixdep scripts/mod/modpost; do
+    for tool in scripts/basic/fixdep scripts/mod/modpost scripts/genksyms/genksyms; do
         if tool_usable "$B/$tool"; then
             log "$tool -> native"
         else

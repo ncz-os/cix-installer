@@ -56,6 +56,9 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     # bing wallpaper prefetch
     mkdir -p "$r/usr/local/bin" "$r/usr/lib/systemd/user" "$r/etc/systemd/user/timers.target.wants" "$r/opt/singularity/lib/singularity/plugins/wallpapers-bing"
     echo x > "$r/usr/local/bin/ncz-wallpaper-bing"
+    ln -s ncz-wallpaper-bing "$r/usr/local/bin/singularity-wallpaper-bing"
+    echo x > "$r/usr/local/bin/ncz-wallpaper-ocs"
+    ln -s ncz-wallpaper-ocs "$r/usr/local/bin/singularity-wallpaper-ocs"
     for u in ncz-wallpaper-bing.service ncz-wallpaper-bing.timer ncz-wallpaper-bing-daily.timer; do echo x > "$r/usr/lib/systemd/user/$u"; done
     ln -s /usr/lib/systemd/user/ncz-wallpaper-bing.timer "$r/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing.timer"
     ln -s /usr/lib/systemd/user/ncz-wallpaper-bing-daily.timer "$r/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing-daily.timer"
@@ -130,6 +133,15 @@ build_root() {   # $1 = root dir to populate with a healthy installed system
     for n in $(seq 1 84); do echo x > "$r/usr/lib/ncz-screensavers/hack${n}_gles3"; done
     echo x > "$r/usr/bin/ncz-screensaver"
     echo x > "$r/usr/libexec/ncz-screensaver-idled"; echo x > "$r/usr/libexec/ncz-screensaver-run"
+    # Real-shape 0.8.16 feed policy markers (verifier section (f4)). The test
+    # never executes the feed; it only greps these text markers.
+    cat > "$r/usr/libexec/ncz-screensaver-feed" <<'SSFEED'
+"weak_lock_fps": WEAK_LOCK_FPS,
+DEFAULT_LOCK_FPS = 30
+DEFAULT_RENDER_DIV = 1
+LFS_FLAG_PAUSE
+DEFAULT_FREEZE_MODE = "prompt"
+SSFEED
     mkdir -p "$r/usr/libexec/ncz-screensavers"; echo x > "$r/usr/libexec/ncz-screensavers/ncz-screensaver-calibrate"
     echo x > "$r/usr/lib/systemd/user/ncz-screensaver-idled.service"
     # Real-shape schema with the operator-mandated default saver (blackhole_gles3).
@@ -189,6 +201,14 @@ GSCHEMA
     printf 'Package: ncz-screensavers\nStatus: install ok installed\nVersion: %s\n\n' "$SS_FLOOR" >> "$r/var/lib/dpkg/status"
     mkdir -p "$r/var/lib/dpkg/info"
     printf '/usr/bin/ncz-screensaver\n/usr/libexec/ncz-screensaver-idled\n' > "$r/var/lib/dpkg/info/ncz-screensavers.list"
+    # install options: every option selected (record as component-selector.sh writes it),
+    # the recovery container + failsafe console (mgmt-container), the rescue marker
+    mkdir -p "$r/etc/cix-installer" "$r/etc/systemd/nspawn" "$r/opt/ncz-failsafe/bin"
+    echo 'desktop,browsers,wallpaper-rotator,mgmt-container,rescue-partition' > "$r/etc/cix-installer/COMPONENTS"
+    echo '[Exec]' > "$r/etc/systemd/nspawn/ncz-recovery.nspawn"
+    echo x > "$r/etc/systemd/system/ncz-failsafe.service"
+    echo x > "$r/opt/ncz-failsafe/bin/busybox"
+    printf 'PARTUUID=0000-test\n' > "$r/usr/local/lib/cix-installer/RESCUE_READY"
 }
 
 run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name or "", $4 = optional regex the output must contain
@@ -204,6 +224,23 @@ run_case() {   # $1 = name, $2 = expected rc (0|1), $3 = mutation function name 
     else echo "FAIL  $name: rc=$rc want=$want"; printf '%s\n' "$out" | sed 's/^/      /'; FAILS=$((FAILS+1)); fi
     rm -rf "$r" "$img"
 }
+
+# install options (verifier section (opt))
+m_opt_strip_mgmt()   { rm -f "$1/etc/systemd/nspawn/ncz-recovery.nspawn" "$1/etc/systemd/system/ncz-failsafe.service"; rm -rf "$1/opt/ncz-failsafe"; }
+m_opt_strip_rescue() { rm -f "$1/usr/local/lib/cix-installer/RESCUE_READY"; }
+m_opt_desktop_only() { echo 'desktop,browsers,wallpaper-rotator' > "$1/etc/cix-installer/COMPONENTS"; m_opt_strip_mgmt "$1"; m_opt_strip_rescue "$1"; }
+m_opt_desktop_mgmt() { echo 'desktop,browsers,wallpaper-rotator,mgmt-container' > "$1/etc/cix-installer/COMPONENTS"; m_opt_strip_rescue "$1"; }
+m_opt_none() {   # every option off: no desktop layer, no browsers, no recovery tiers, no rescue partition
+    echo none > "$1/etc/cix-installer/COMPONENTS"; m_opt_strip_mgmt "$1"; m_opt_strip_rescue "$1"
+    rm -rf "$1/opt/singularity" "$1/etc/mpv" "$1/usr/local/bin/ncz-sky1-audio-autoswitch" "$1/usr/local/bin/ncz-wallpaper-bing" "$1/usr/local/bin/ncz-gpu-env"
+    sed -i '/^Package: google-chrome-stable$/,+2d; /^Package: chromium-ncz-sky1$/,+2d; /^Package: systemd-coredump$/,+3d' "$1/var/lib/dpkg/status"
+}
+m_opt_none_failsafe()  { m_opt_none "$1"; mkdir -p "$1/opt/ncz-failsafe/bin"; echo x > "$1/opt/ncz-failsafe/bin/busybox"; echo x > "$1/etc/systemd/system/ncz-failsafe.service"; }
+m_opt_none_marker()    { m_opt_none "$1"; printf 'PARTUUID=0000-test\n' > "$1/usr/local/lib/cix-installer/RESCUE_READY"; }
+m_opt_full_no_marker() { m_opt_strip_rescue "$1"; }
+m_opt_full_no_failsafe() { rm -rf "$1/opt/ncz-failsafe" "$1/etc/systemd/system/ncz-failsafe.service"; }
+m_opt_full_empty_marker() { echo 'stale' > "$1/usr/local/lib/cix-installer/RESCUE_READY"; }
+m_opt_no_record() { rm -f "$1/etc/cix-installer/COMPONENTS"; m_opt_strip_mgmt "$1"; }
 
 m_no_serial_getty() { rm -f "$1/etc/systemd/system/getty.target.wants/serial-getty@ttyAMA0.service"; }
 m_refresh_no_acpi_pcie() { sed -i 's/sky1_pcie_native=off //' "$1/usr/local/sbin/ncz-refind-refresh"; }
@@ -228,6 +265,14 @@ m_ss_hacks()    { rm -f "$1"/usr/lib/ncz-screensavers/hack1*_gles3; }
 m_ss_noidled()  { rm -f "$1/etc/systemd/user/graphical-session.target.wants/ncz-screensaver-idled.service"; }
 m_ss_oldidle()  { ln -s /usr/lib/systemd/user/ncz-idle-manager.service "$1/etc/systemd/user/graphical-session.target.wants/ncz-idle-manager.service"; }
 m_ss_schema()   { printf 'nothing' > "$1/usr/share/glib-2.0/schemas/gschemas.compiled"; }
+# (f4) lock-saver feed policy mutations
+m_ss_feed_missing() { rm -f "$1/usr/libexec/ncz-screensaver-feed"; }
+m_ss_feed_no_v2() { sed -i '/DEFAULT_SAVER_POLICY_REV = 2/d; /weak_lock_fps/d' "$1/usr/libexec/ncz-screensaver-feed"; }
+m_ss_feed_oldfeed() { sed -i 's/^DEFAULT_LOCK_FPS = 30$/DEFAULT_LOCK_FPS = 8/; s/^DEFAULT_RENDER_DIV = 1$/DEFAULT_RENDER_DIV = 2/' "$1/usr/libexec/ncz-screensaver-feed"; }
+m_ss_feed_wrong_fps() { sed -i 's/^DEFAULT_LOCK_FPS = 30$/DEFAULT_LOCK_FPS = 15/' "$1/usr/libexec/ncz-screensaver-feed"; }
+m_ss_feed_render_div2() { sed -i 's/^DEFAULT_RENDER_DIV = 1$/DEFAULT_RENDER_DIV = 2/' "$1/usr/libexec/ncz-screensaver-feed"; }
+m_ss_feed_no_pause() { sed -i '/LFS_FLAG_PAUSE/d' "$1/usr/libexec/ncz-screensaver-feed"; }
+m_ss_feed_wrong_freeze() { sed -i 's/^DEFAULT_FREEZE_MODE = "prompt"$/DEFAULT_FREEZE_MODE = "timer"/' "$1/usr/libexec/ncz-screensaver-feed"; }
 # The Singularity plugin ships in a SEPARATE package (ncz-screensavers-plugin):
 # a pinned deb on the install medium (post-install/lib/ncz-screensavers-plugin.lock).
 # The verifier requires it when the image pins it (the pin in the target's
@@ -317,6 +362,9 @@ m_rc_missing()  { rm -f "$1/etc/resolv.conf"; }
 m_hosts_other() { printf '127.0.1.1\tbuilder.example builder\n' >> "$1/etc/hosts"; }
 m_hosts_fqdn()  { printf '127.0.1.1\tncz-acrab-1717.localdomain ncz-acrab-1717\n' >> "$1/etc/hosts"; }
 m_wp_nohelper() { rm -f "$1/usr/local/bin/ncz-wallpaper-bing"; }
+m_wp_ocs_nohelper() { rm -f "$1/usr/local/bin/ncz-wallpaper-ocs"; }
+m_wp_ocs_nolink() { rm -f "$1/usr/local/bin/singularity-wallpaper-ocs"; }
+m_wp_nolink()   { rm -f "$1/usr/local/bin/singularity-wallpaper-bing"; }
 m_wp_nounit()   { rm -f "$1/usr/lib/systemd/user/ncz-wallpaper-bing-daily.timer"; }
 m_wp_noenable() { rm -f "$1/etc/systemd/user/timers.target.wants/ncz-wallpaper-bing.timer"; }
 m_wp_stale()    { printf 'old plugin build' > "$1/opt/singularity/lib/singularity/plugins/wallpapers-bing/libwallpapers-bing.so"; }
@@ -410,6 +458,9 @@ run_case "resolv.conf: missing fails"            1 m_rc_missing
 run_case "hosts naming another host fails"       1 m_hosts_other "names other hosts"
 run_case "hosts with the own FQDN passes"        0 m_hosts_fqdn "local names and ncz-acrab-1717"
 run_case "no wallpaper helper fails"            1 m_wp_nohelper
+run_case "ocs helper missing fails" 1 m_wp_ocs_nohelper
+run_case "ocs symlink missing fails" 1 m_wp_ocs_nolink
+run_case "no neutral-name wallpaper helper fails" 1 m_wp_nolink
 run_case "missing daily timer unit fails"       1 m_wp_nounit
 run_case "wallpaper timer not enabled fails"    1 m_wp_noenable
 run_case "stale unpatched plugin .so fails"     1 m_wp_stale
@@ -456,6 +507,13 @@ run_case "old idle-manager still enabled fails" 1 m_ss_oldidle
 run_case "schema not compiled fails"            1 m_ss_schema
 run_case "catalogue under 74 rows fails"        1 m_ss_short_catalogue
 run_case "default saver is not blackhole fails" 1 m_ss_no_blackhole_default
+run_case "screensaver feed missing fails"       1 m_ss_feed_missing
+run_case "screensaver feed without v2 policy markers fails" 1 m_ss_feed_no_v2
+run_case "screensaver feed with legacy weak marker but wrong fps/div fails" 1 m_ss_feed_oldfeed
+run_case "screensaver feed with wrong lock fps fails" 1 m_ss_feed_wrong_fps
+run_case "screensaver feed rendering at half resolution fails" 1 m_ss_feed_render_div2
+run_case "screensaver feed without LFS_FLAG_PAUSE fails" 1 m_ss_feed_no_pause
+run_case "screensaver feed with timer freeze mode fails" 1 m_ss_feed_wrong_freeze
 run_case "version below the floor fails"        1 m_ss_tooold
 run_case "Cygnus effective-default override missing fails" 1 m_ss_no_override
 run_case "no audio autoswitch daemon fails"     1 m_aud_nodaemon
@@ -508,5 +566,33 @@ run_case "apt separation: two NCZ repos enabled fails"        1 m_apt_tworepos
 run_case "apt separation: ncz-apt-policy not installed fails" 1 m_apt_nopolicy
 run_case "ldconfig: tolerate-race drop-in missing fails"        1 m_ld_dropin
 run_case "ldconfig: /etc/.updated stamp missing fails"         1 m_ld_stamp
+# ---- install options (both architectures) ----------------------------------------------------------
+for TEST_ARCH in arm64 amd64; do
+    export TEST_ARCH
+    _m=""; [ "$TEST_ARCH" = amd64 ] && _m="m_amd64_strip"
+    VERIFY_EXPECT_COMPONENTS=desktop,browsers,wallpaper-rotator,mgmt-container,rescue-partition \
+        run_case "$TEST_ARCH options: all selected passes" 0 "$_m"
+    m_t1() { [ -n "$_m" ] && "$_m" "$1"; m_opt_desktop_only "$1"; }
+    VERIFY_EXPECT_COMPONENTS=desktop,browsers,wallpaper-rotator run_case "$TEST_ARCH options: rescue off + mgmt off passes" 0 m_t1
+    m_t2() { [ -n "$_m" ] && "$_m" "$1"; m_opt_desktop_mgmt "$1"; }
+    VERIFY_EXPECT_COMPONENTS=desktop,browsers,wallpaper-rotator,mgmt-container run_case "$TEST_ARCH options: rescue off + mgmt on passes" 0 m_t2
+    m_t3() { [ -n "$_m" ] && "$_m" "$1"; m_opt_none "$1"; }
+    VERIFY_EXPECT_COMPONENTS=none run_case "$TEST_ARCH options: all off (minimal console) passes" 0 m_t3
+    m_t4() { [ -n "$_m" ] && "$_m" "$1"; m_opt_none_failsafe "$1"; }
+    run_case "$TEST_ARCH options: failsafe console installed with mgmt off fails" 1 m_t4 "ncz-failsafe"
+    m_t5() { [ -n "$_m" ] && "$_m" "$1"; m_opt_none_marker "$1"; }
+    run_case "$TEST_ARCH options: RESCUE_READY with rescue off fails" 1 m_t5 "RESCUE_READY exists"
+    m_t6() { [ -n "$_m" ] && "$_m" "$1"; m_opt_full_no_marker "$1"; }
+    run_case "$TEST_ARCH options: rescue selected but no RESCUE_READY fails" 1 m_t6 "RESCUE_READY missing"
+    m_t7() { [ -n "$_m" ] && "$_m" "$1"; m_opt_full_no_failsafe "$1"; }
+    run_case "$TEST_ARCH options: mgmt selected but no failsafe console fails" 1 m_t7 "ncz-failsafe"
+    m_t8() { [ -n "$_m" ] && "$_m" "$1"; m_opt_full_empty_marker "$1"; }
+    run_case "$TEST_ARCH options: RESCUE_READY without a PARTUUID fails" 1 m_t8 "no PARTUUID"
+    m_t9() { [ -n "$_m" ] && "$_m" "$1"; m_opt_desktop_only "$1"; }
+    VERIFY_EXPECT_COMPONENTS=none run_case "$TEST_ARCH options: record differs from the answer fails" 1 m_t9 "installer was answered"
+    m_t10() { [ -n "$_m" ] && "$_m" "$1"; m_opt_no_record "$1"; }
+    run_case "$TEST_ARCH options: no record keeps every option expected (mgmt missing fails)" 1 m_t10 "mgmt-container selected"
+done
+unset TEST_ARCH
 echo "verifier tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]

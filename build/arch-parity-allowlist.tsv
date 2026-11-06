@@ -22,7 +22,6 @@ desktop	intel-opencl-icd	amd64-only	Intel OpenCL ICD for the deferred Intel acce
 desktop	libze-intel-gpu1	amd64-only	Intel Level Zero GPU driver for the deferred Intel accel installer; no Intel GPU on Sky1
 desktop	libze1	amd64-only	Level Zero loader for the Intel GPU/NPU stack; only the amd64 Intel path uses it
 desktop	gnome-online-accounts	amd64-only	Online Accounts backend; published for amd64 only (absent from the arm64 index), and 20-desktop.sh only needs it where the Online Accounts UI ships
-desktop	rasdaemon	amd64-only	MCE/RAS persistence for the T2 Macs (machine-check records survive a reboot; mcelog is absent from Debian/forky); x86-only, no arm64 counterpart
 installer-base	cixmini-boot	arm64-only	cixmini bootloader glue
 installer-base	gcc-aarch64-linux-gnu	arm64-only	cross toolchain for Sky1 kernel module builds
 installer-base	linux-image-cixmini	arm64-only	cixmini kernel

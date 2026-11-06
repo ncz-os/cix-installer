@@ -87,7 +87,24 @@ NCZ_TARGET="${NCZ_TARGET:-/target}"
 for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
     [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
 done
-command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; }
+command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; ncz_ui_step() { echo "[${1}/8] "; }; }
+
+# MAGNETAR SERVER: a server medium (its ncz-payload/ carries ncz-fetch-payload.manifest;
+# post-install/lib/ncz-brand.sh) has no desktop layer and no optional-component dialog.
+# Its record is fixed: the rescue partition, which the documented server menu
+# (Console + Rescue Partition) needs, and nothing else -- exactly what the server KVM
+# gate installs with ncz_components=rescue-partition. Every consumer below
+# (disk-fs-chooser.sh, the debootstrap stub, late.sh's BUILD_VARIANT/COMPONENTS_*
+# bits, run-all.sh) reads the same record it reads for that gate run.
+NCZ_SERVER_COMPONENTS="rescue-partition"
+NCZ_COMP_VARIANT=desktop
+if command -v ncz_ui_variant >/dev/null 2>&1; then
+    NCZ_COMP_VARIANT=$(ncz_ui_variant)
+else
+    for _ncz_md in "${NCZ_MEDIA_DIR:-}" /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
+        [ -n "$_ncz_md" ] && [ -f "$_ncz_md/ncz-fetch-payload.manifest" ] && { NCZ_COMP_VARIANT=server; break; }
+    done
+fi
 
 log() {
     echo "[ncz components] $*"
@@ -150,31 +167,38 @@ for tok in $CMD; do
         ncz_components_timeout=*) : ;; # deprecated no-op (2026-08-24): the poll-and-kill timeout WAS the wedge bug; see prompt block below
     esac
 done
+# A server medium has no desktop: desktop and its companions are dropped from an
+# override (nothing left = the server record, never a prompt).
+if [ "$NCZ_COMP_VARIANT" = server ] && [ -n "$OVR" ]; then
+    _srv_ovr=""
+    _ov_old=$IFS; IFS=','
+    for _tok in $OVR; do
+        _tok=$(echo "$_tok" | tr -d ' \t')
+        case "$_tok" in
+            "") ;;
+            desktop|browsers|wallpaper-rotator)
+                log "WARNING: ncz_components=$_tok: a Magnetar Server medium has no desktop -- dropping" ;;
+            *) [ -z "$_srv_ovr" ] && _srv_ovr="$_tok" || _srv_ovr="$_srv_ovr,$_tok" ;;
+        esac
+    done
+    IFS=$_ov_old
+    OVR="${_srv_ovr:-$NCZ_SERVER_COMPONENTS}"
+fi
 
 # --- build the question -----------------------------------------------------
 # The full candidate set is the default answer (opt-OUT: today's behaviour).
 # That keeps a prompt the operator just hits OK on bit-identical to a pre-
 # component-selector install.
 #
-# 2026-09-26: also build a parallel Choices-C: field. cdebconf's newt
-# frontend renders a multiselect by iterating over the Choices-C: list
-# when present and falling back to the raw Choices: token otherwise;
-# when a Choices-C: line is missing for a token the newt layout puts
-# "<token> <ERR>" next to the checkbox (verified against cdebconf
-# 0.283/src/modules/frontend/newt/newt.c:633-716: choices_trans[i] is
-# passed verbatim as the newtCheckbox label, and choices_trans is
-# populated only when a Choices-C: field is present -- otherwise the
-# label is the token + "<ERR>" stub). That is precisely what the O6N
-# 2026-09-26 photograph shows: "desktop <ERR>", with the other two
-# components rendering normally because the descriptions embedded in
-# the Description body of THIS template incidentally happen to look
-# like valid Choices-C entries.
-#
-# The fix is to declare Choices-C: with the exact same descriptions the
-# Description body uses, so the newt frontend has a label for every
-# token and never falls back to the <ERR> stub. Belt-and-suspenders:
-# also add Choices: as the token list (unchanged) so the text frontend
-# still works when cdebconf-newt isn't available.
+# Choices-C: carries the component tokens (desktop, mgmt-container, ...): it
+# is the value list, so db_get returns tokens and Default: matches it, which
+# is what leaves every box ticked. Choices: carries the descriptions the
+# operator reads next to each checkbox (cdebconf's newt frontend labels a
+# checkbox from Choices:, and shows "<token> <ERR>" when a token has no
+# label, the O6N 2026-09-26 photograph). Same layout as region-chooser.sh.
+# 2026-10-17 CHIMERA: the two lines were swapped, so Default: matched no
+# value (every box unticked) and a ticked box came back as its description,
+# which parsed as "none".
 _DEFAULT=""
 _OFFERED=""
 _CHOICES_C=""
@@ -190,14 +214,31 @@ IFS=$_oldifs
 # Validate the cmdline override tokens (drop unknown ones, with a warning).
 # Operator expectation: an unattended override list is a STRICT SUBSET of
 # the known internal set; misspelled tokens are NOT silently dropped-but-applied.
-# Legacy browsers/wallpaper-rotator override tokens still parse, but desktop
-# below decides whether they remain active.
+# browsers/wallpaper-rotator are INTERNAL companions of desktop (they ride
+# along with it in the UI and are auto-derived from it below); an override
+# that asks for them WITHOUT desktop would silently install browsers on a
+# console-only system, so that combination is rejected here.
 _OVR_FILTERED=""
+_OVR_HAS_DESKTOP=0
 if [ -n "$OVR" ]; then
     _ov_old=$IFS; IFS=','
     for _tok in $OVR; do
         _tok=$(echo "$_tok" | tr -d ' \t')
         [ -z "$_tok" ] && continue
+        [ "$_tok" = desktop ] && _OVR_HAS_DESKTOP=1
+    done
+    IFS=$_ov_old
+fi
+if [ -n "$OVR" ]; then
+    _ov_old=$IFS; IFS=','
+    for _tok in $OVR; do
+        _tok=$(echo "$_tok" | tr -d ' \t')
+        [ -z "$_tok" ] && continue
+        if { [ "$_tok" = browsers ] || [ "$_tok" = wallpaper-rotator ]; } \
+           && [ "$_OVR_HAS_DESKTOP" = 0 ]; then
+            log "WARNING: ncz_components=$_tok requires desktop — dropping (pass desktop,mgmt-container,... to keep it)"
+            continue
+        fi
         if [ "$_tok" = none ] || component_is_valid "$_tok"; then
             [ -z "$_OVR_FILTERED" ] && _OVR_FILTERED="$_tok" || _OVR_FILTERED="$_OVR_FILTERED, $_tok"
         else
@@ -217,6 +258,9 @@ if [ -n "$_OVR_FILTERED" ]; then
 elif [ -n "$_SAVED" ]; then
     CHOSEN="$_SAVED"
     log "already answered this boot: keeping components = $CHOSEN (no dialog)"
+elif [ "$NCZ_COMP_VARIANT" = server ]; then
+    CHOSEN="$NCZ_SERVER_COMPONENTS"
+    log "Magnetar Server medium: no component dialog; components = $CHOSEN"
 else
     if [ -n "$OVR" ]; then
         # override was present but resolved to empty (all tokens unknown) —
@@ -226,10 +270,10 @@ else
     cat > "$NCZ_TMP/ncz-components.templates" <<TPL
 Template: ncz/components
 Type: multiselect
-Choices: ${_CHOICES_C}
 Choices-C: ${_OFFERED}
+Choices: ${_CHOICES_C}
 Default: ${_DEFAULT}
-Description: $(ncz_ui_brand) - optional components
+Description: $(ncz_ui_step 5)$(ncz_ui_brand) - optional components
  Untick to skip an optional component. Enter accepts the defaults, which
  install everything. Untick all of them for a minimal console system.
  .
@@ -350,7 +394,9 @@ _normalise() {
 }
 CHOSEN=$( _normalise "$CHOSEN" )
 
-# Boolean presence helpers consumed by the post-install peers.
+# Normalised operator record (see _normalise): the single source of truth for
+# what gets installed. Boolean presence helpers consumed by the post-install
+# peers.
 has_component() {
     # replays the same comma-token match as _normalise. Whitespace-tolerant on
     # purpose: CHOSEN may arrive from debconf (", " separated) or from a
@@ -360,18 +406,58 @@ has_component() {
     _hc=$(printf '%s' "$CHOSEN" | tr -d ' \t')
     case ",$_hc," in *,"$_want",*) return 0 ;; *) return 1 ;; esac
 }
+
+# S1-3: PRESERVE the operator's list. The reassembly used to rebuild CHOSEN
+# from the WANT_* booleans alone, which meant any token the operator's record
+# carried but the rebuild did not know about was silently dropped, and the
+# browsers/wallpaper-rotator companions were re-added whenever desktop was on
+# EVEN IF the operator had explicitly deselected them. The normalised token
+# list is now authoritative: we keep it verbatim and only ADD the desktop
+# companions that are absent (they ride along with desktop by contract; see the
+# "Internal compatibility tokens" note above). A component the operator
+# deselected is never reintroduced.
+#
+# browsers/wallpaper-rotator are added, never removed, by this step:
+#   * desktop selected, companions absent  -> added (legacy ride-along)
+#   * desktop selected, companions present -> kept once (no duplicate)
+#   * desktop absent                       -> companions dropped (they are
+#     desktop-only; the cmdline override path already rejects them without
+#     desktop, and the dialog never offers them, so a record carrying them
+#     without desktop is a hand-edited artefact we must not act on)
+if has_component desktop; then
+    _add_browsers=1; has_component browsers           && _add_browsers=0
+    _add_wallpaper=1; has_component wallpaper-rotator && _add_wallpaper=0
+    if [ "$_add_browsers" = 1 ] || [ "$_add_wallpaper" = 1 ]; then
+        # append the missing companion(s) right after the desktop token so the
+        # desktop group stays contiguous; fall back to appending at the end.
+        _new=""; _oldifs=$IFS; IFS=','
+        for _tok in $CHOSEN; do
+            if [ "$_tok" = desktop ]; then
+                [ "$_add_browsers" = 1 ]  && _tok="desktop,browsers"
+                [ "$_add_wallpaper" = 1 ] && _tok="$_tok,wallpaper-rotator"
+            fi
+            [ -z "$_new" ] && _new="$_tok" || _new="$_new,$_tok"
+        done
+        IFS=$_oldifs
+        CHOSEN="$_new"
+    fi
+else
+    # desktop off: leave the operator's list alone (a stray browsers/
+    # wallpaper-rotator would already have been rejected upstream); this is a
+    # no-op guard so the "desktop off" case is explicit.
+    :
+fi
+
 WANT_DESKTOP=0;           has_component desktop           && WANT_DESKTOP=1
 WANT_MGMT=0;              has_component mgmt-container    && WANT_MGMT=1
 WANT_RESCUE_PART=0;       has_component rescue-partition  && WANT_RESCUE_PART=1
 WANT_CUDA=0;              has_component cuda              && WANT_CUDA=1
-WANT_BROWSERS=$WANT_DESKTOP
-WANT_WALLPAPER=$WANT_DESKTOP
+WANT_BROWSERS=0;          has_component browsers          && WANT_BROWSERS=1
+WANT_WALLPAPER=0;         has_component wallpaper-rotator && WANT_WALLPAPER=1
 
-CHOSEN=""
-[ "$WANT_DESKTOP" = 1 ]     && CHOSEN="desktop,browsers,wallpaper-rotator"
-[ "$WANT_MGMT" = 1 ]        && { [ -z "$CHOSEN" ] && CHOSEN="mgmt-container" || CHOSEN="$CHOSEN,mgmt-container"; }
-[ "$WANT_RESCUE_PART" = 1 ] && { [ -z "$CHOSEN" ] && CHOSEN="rescue-partition" || CHOSEN="$CHOSEN,rescue-partition"; }
-[ "$WANT_CUDA" = 1 ]        && { [ -z "$CHOSEN" ] && CHOSEN="cuda" || CHOSEN="$CHOSEN,cuda"; }
+# `none` (or an all-dropped list) means no optional component; an empty record
+# is never written.
+CHOSEN=$( _normalise "$CHOSEN" )
 [ -n "$CHOSEN" ] || CHOSEN=none
 
 log "SELECTED COMPONENTS: $CHOSEN"

@@ -17,11 +17,12 @@ W="$(mktemp -d -t dkms-prep.XXXXXX)"
 trap 'rm -rf "$W"' EXIT
 pass=0; fail=0
 
-# the make invocation exactly as the hook runs it (the line(s) after "if ! ")
+# the make invocation exactly as the hook runs it (inside ncz_prepare_pristine,
+# which snapshots and restores the kernel configuration around it)
 CMD="$(python3 - "$HOOK" <<'EOF'
 import re, sys
 s = open(sys.argv[1]).read()
-m = re.search(r'if ! (make [^\n]*modules_prepare)', s)
+m = re.search(r'\n\s*(make -k -C "\$_np_b" [^\n]*modules_prepare)', s)
 print(m.group(1) if m else "")
 EOF
 )"
@@ -41,7 +42,7 @@ MK
 }
 
 run() {   # $1 make command  $2 tree
-    B="$2" LOG="$2/make.log" bash -c "$1 >>\"\$LOG\" 2>&1" || true
+    _np_b="$2" LOG="$2/make.log" bash -c "$1 >>\"\$LOG\" 2>&1" || true
 }
 
 mktree "$W/hook"

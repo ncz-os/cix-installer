@@ -17,12 +17,25 @@
 #   00 preflight          host, disk, tmpfs, tools, privilege, pins, substrate age
 #   10 refresh-substrate  refresh/verify the pinned substrate (pin file)
 #   20 stage-inputs       stage the checksum-pinned gitignored build inputs
+#   25 provenance-predict PROVENANCE over the STAGED INPUTS (M1): debs, rootfs
+#                         tarballs and the substrate ISO's pool + initrd udebs,
+#                         with the SAME verifier stage 50/80 use.  Runs before
+#                         the 13-minute mirror, so a bad input fails in minutes.
 #   30 refresh-sources    resolve+freeze the singularity payload sources, build its deb
 #   40 offline-mirror     build the offline apt closure (stage 0)
 #   50 provenance-inputs  PROVENANCE + one-kernel check on the INPUTS (fail fast)
+#   55 static-gates       MANDATORY static gate suites (cuda gates on amd64,
+#                         greeter console-fallback on every arch); abort the
+#                         build before any layer or image work
 #   60 layers             build the squashfs layers (stage 1)
 #   70 image              assemble the raw GPT image + receipt (stage 2)
-#   80 provenance-gate    forky provenance + one-kernel over the finished image
+#   75 provenance-gate    forky provenance + one-kernel over the finished image
+#   80 secret-scan        scan EVERY shipped byte for credentials (MANDATORY)
+#
+# provenance-gate runs BEFORE secret-scan (BUILD-STABILITY M11): the gate is
+# cheap (48 s vs 409 s on amd64 in A2) and nothing in it reads the secret-scan's
+# output, so a provenance-doomed image fails before paying for the credential
+# scan.  Both stages stay mandatory.
 #   90 kvm-gate           install + boot the image in KVM + installer UI check
 #   95 receipt            write the run metadata (NOT hashed) + gate summary
 #   99 archive            copy to the image archive ONLY if every gate PASSed
@@ -40,7 +53,14 @@
 #   --no-publish           build + gates, never copy to the image archive
 #   --gates kvm,provenance run only these gates (REQUIRES --no-publish)
 #   --substrate refresh|pinned   substrate policy (refresh default for --full)
-#   --resume-from STAGE    start at STAGE (skips earlier stages)
+#   --resume-from STAGE    start at STAGE (skips earlier stages EXCEPT the
+#                          mandatory static-gates, which re-runs first when the
+#                          resume point is at or after it).  secret-scan and
+#                          the KVM/provenance gates sit at/after the image
+#                          stage, so a resume point at/after them (the
+#                          --image PATH use case) cannot skip a mandatory
+#                          stage that still guards the artifact this run
+#                          produces.
 #   --run-dir DIR          run directory (logs + run metadata + tmp scratch)
 #   --image PATH           an already-built image (for --resume-from kvm-gate+)
 #   --host H               run on host H (remote over ssh when H is not local)
@@ -71,6 +91,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=/dev/null
 . "$ROOT/build/lib/priv.sh"
 . "$ROOT/build/lib/ncz-site.sh"
+. "$ROOT/build/lib/pin-coherence-gate.sh"
 LAYERPLAN_PY="$ROOT/build/lib/layerplan.py"
 
 # ---------------------------------------------------------------------------
@@ -116,8 +137,33 @@ build-image.sh -- the single entrypoint for a repeatable, deterministic NCZ-OS i
 
 STAGES (fixed order; provenance runs on the INPUTS before layers, and again on
 the finished image BEFORE the KVM gate -- never waste hours on a doomed build)
-  preflight  refresh-substrate  stage-inputs  refresh-sources  offline-mirror
-  provenance-inputs  layers  image  provenance-gate  kvm-gate  receipt  archive
+  preflight  refresh-substrate  stage-inputs  provenance-predict  refresh-sources
+  offline-mirror  provenance-inputs  static-gates  layers  image
+  provenance-gate  secret-scan  kvm-gate  receipt  archive
+
+  provenance-gate runs BEFORE secret-scan (BUILD-STABILITY M11): the
+  provenance gate is cheap and does not read the credential scan's output,
+  so a provenance-doomed image fails in seconds instead of after a full
+  409 s credential scan.  Both stages still run on every image.
+
+  static-gates is MANDATORY and is NOT selectable via --gates: it runs the
+  static gate suites -- the AMD64 NVIDIA CUDA design gates
+  (build/test-amd64-cuda-gates.sh, amd64 only) and the greeter
+  console-fallback gates (build/test-greeter-console-fallback.sh, both
+  arches) -- on the pinned tree BEFORE any layer or image work, so a broken
+  NVIDIA path or greeter fallback can never reach the image.  It also
+  RE-RUNS when a build resumes at or after it (--resume-from layers ...
+  archive): a resume point at/after the stage re-runs the suites first, so
+  no run that can still produce an image skips them.
+
+  secret-scan is NOT optional and is NOT selectable via --gates: it runs on
+  every image, immediately after 'provenance-gate' and before the KVM gate.
+  It fails closed -- with no hash list ($NCZ_SECRET_HASHES_FILE, else
+  ~/.config/ncz/secret-hashes-file naming it, else
+  ~/.config/ncz/secret-hashes.json; never a path inside the repository) the
+  build fails.  NCZ_SECRET_SCAN=skip is the ONE explicit opt-out for a build
+  host without a hash list: the stage records SKIP, the gate summary is not
+  all_required_passed, and the archive stage refuses the image.
 
 SCOPE (choose ONE; default --full)
   --full                    substrate refresh + every layer + image + all gates
@@ -140,7 +186,9 @@ OPTIONS
                             freezes them in the receipt; 'pinned' reproduces the
                             committed pins.  latest is the --full / --rebuild-
                             desktop default
-  --resume-from STAGE       start at STAGE
+  --resume-from STAGE       start at STAGE (earlier stages are skipped,
+                            EXCEPT the mandatory static-gates stage, which
+                            re-runs first whenever STAGE is at or after it)
   --run-dir DIR             run directory (logs, run metadata, tmp scratch)
   --image PATH              an already-built image (kvm-gate+ resume)
   --host H                  assert this host (or dispatch to it over ssh)
@@ -303,6 +351,164 @@ ncz_warn() { ncz_log "WARN  $*" >&2; }
 ncz_err()  { ncz_log "ERROR $*" >&2; }
 
 # ---------------------------------------------------------------------------
+# Ownership audit (BUILD-STABILITY M10, class C6)
+# ---------------------------------------------------------------------------
+# T item 6, 2026-10-29: "root-owned files in the clone after the containerised
+# build stages made rm/cleanup fail until sudo chown -R".  The container stages
+# run their builds as root inside a podman mount of the clone, so anything they
+# create under $ROOT/$RUN_DIR is owned by uid 0 and the build user can no longer
+# clean up.  build/lib/priv.sh has the chown-back half (ncz_trap_chown_back);
+# this is the audit half: after EVERY stage -- container or not -- the run dir
+# and the clone are scanned for uid-0 files, and any finding fails the stage
+# with up to 20 paths named.  A failing stage is far cheaper than a 36G run dir
+# nobody can delete.
+#
+# The scan is bounded: -xdev keeps it on one filesystem (the clone may sit on a
+# huge pool), and the mounts below are read-only views of, or build inputs for,
+# the run -- root-owned by construction and owned by someone else's package.
+#
+# The prune names are RELATIVE TO THE ROOT BEING SCANNED and are resolved per
+# root ($ROOT/.git, $RUN_DIR/.git, ...).  Two things that are easy to get wrong
+# here, both caught by build/test-container-ownership-audit.sh section 6:
+#   * -path matches the exact string find prints, so the paths must be built
+#     from the root with no "./" or "//" segment -- "$ROOT/./.git" never
+#     matches anything and silently prunes nothing;
+#   * find rejects an empty \( \) group ("invalid expression"), so the prune
+#     clause is only emitted when the list is non-empty.
+# Pruning is a convenience (skip .git and the pre-staged substrate); the rule
+# enforced is still "no uid-0 file", so a wrong prune costs time, never a
+# missed finding -- which is why the scan below re-checks ownership itself.
+NCZ_AUDIT_PRUNE=(.git downloads manifests assets sbom)
+ncz_audit_stage_ownership() {
+    local name="$1" log="$2"
+    # Strip trailing slashes up front (see the prune loop below) so the overlap
+    # test compares like with like.
+    local r
+    local -a cand=()
+    for r in "$RUN_DIR" "$ROOT"; do
+        [ -n "$r" ] && [ -d "$r" ] || continue
+        while [ "${#r}" -gt 1 ] && [ "${r%/}" != "$r" ]; do r="${r%/}"; done
+        cand+=("$r")
+    done
+    # Drop a root that IS another root, or sits inside it: scanning both would
+    # walk the same tree twice, list every finding twice and inflate the count
+    # in the message the operator reads ("2 root-owned files" for one file).
+    # The default RUN_DIR is outside the clone, but --run-dir is free to point
+    # it at or under the clone, so this cannot be assumed.
+    local -a roots=()
+    local c o dup
+    for c in ${cand[@]+"${cand[@]}"}; do
+        dup=0
+        for o in ${roots[@]+"${roots[@]}"}; do
+            [ "$c" = "$o" ] && { dup=1; break; }
+            case "$c/" in "$o"/*) dup=1; break ;; esac
+        done
+        [ "$dup" = 1 ] || roots+=("$c")
+    done
+    [ "${#roots[@]}" -gt 0 ] || return 0
+    # Foreign-uids knob: the shipped rule is "no uid 0 file", but a normal user
+    # cannot create one, so the regression test points this at its OWN uid to
+    # exercise the identical report/fail path.  Empty (the default) means only
+    # uid 0 is foreign.
+    local -a fuid=(-uid 0)
+    local extra="${NCZ_OWNERSHIP_FOREIGN_UIDS:-}"
+    if [ -n "$extra" ]; then
+        # Accept both "1000 1001" and "1000,1001": the obvious way to write a
+        # list of uids is commas, and `for u in "$extra"` would pass
+        # "1000,1001" straight to find as one bogus -uid value, which just
+        # matches nothing -- the audit would silently check one uid fewer than
+        # the operator asked for.  Commas become spaces first.
+        local u
+        for u in ${extra//,/ }; do
+            case "$u" in
+                ''|*[!0-9]*) printf '[%s] WARN: ignoring non-numeric uid %q in NCZ_OWNERSHIP_FOREIGN_UIDS\n' \
+                                 "$name" "$u" >&2; continue ;;
+            esac
+            fuid+=(-o -uid "$u")
+        done
+    fi
+    # Paths are collected NUL-separated end to end.  A filename may legally
+    # contain a newline; with -print/line-splitting such a name arrives as two
+    # pieces, so the count over-reports and the chown below is aimed at paths
+    # that do not exist.  -print0 + IFS= read -d '' keeps one path == one entry
+    # no matter what bytes the name holds.  (Spaces alone were always fine.)
+    local -a found=()
+    local root p
+    for root in "${roots[@]}"; do
+        # Roots arrive already stripped of trailing slashes above: find -path
+        # matches the exact string find prints, and find echoes the root back
+        # in the form it was given, so "/x/y/" would print "/x/y//.git" and
+        # every pattern below would miss.
+        # Build the prune clause as its own array so an empty NCZ_AUDIT_PRUNE
+        # emits NO -prune at all rather than `\( \) -prune -o` (a find syntax
+        # error).  Each name is resolved against THIS root.
+        local -a clause=()
+        local -a prune=()
+        for p in "${NCZ_AUDIT_PRUNE[@]}"; do
+            [ -n "$p" ] || continue
+            prune+=(-path "$root/$p" -o)
+        done
+        if [ "${#prune[@]}" -gt 0 ]; then
+            unset 'prune[${#prune[@]}-1]'   # drop the trailing -o
+            clause=(\( "${prune[@]}" \) -prune -o)
+        fi
+        # Cap PER ROOT, not on the combined list: a single cap would let a run
+        # dir with 20+ findings push everything under the clone out of the
+        # report, which is exactly the root the operator cares about for
+        # cleanup.  20 each keeps the message readable and still names a
+        # problem in BOTH places when both have one.
+        local -a hit=()
+        local f
+        while IFS= read -r -d '' f; do
+            hit+=("$f")
+        done < <(find "$root" -xdev ${clause[@]+"${clause[@]}"} \
+                     -type f \( "${fuid[@]}" \) -print0 2>/dev/null | head -z -n 20)
+        # head -z (coreutils) caps on NULs; if this find/head lacks it the
+        # substitution above still terminates, and the cap is re-applied here.
+        [ "${#hit[@]}" -gt 20 ] && hit=("${hit[@]:0:20}")
+        found+=(${hit[@]+"${hit[@]}"})
+    done
+    [ "${#found[@]}" -gt 0 ] || return 0
+    local n="${#found[@]}"
+    # Human-readable rendering of the findings, one path per line.  A path
+    # containing a newline would render across lines here; that only affects
+    # the message, never the count or the chown, which use the array.
+    local out; out="$(printf '%s\n' "${found[@]}")"
+    # Written to the stage log as well as the console: run_stage() has already
+    # closed its tee by the time the audit runs, so relying on that tee would
+    # leave the finding off the log the operator actually reads for a failure.
+    local msg
+    msg="$(printf '[%s] FAIL: %s root-owned file(s) left under the run dir or the clone\n' "$name" "$n"
+           printf '  %s\n' "$out"
+           printf '[%s] FAIL: chown them back (sudo chown -R %s: %s) -- normally ncz_container_run/ncz_sudo_bash hand them back on exit; a survivor means a stage bypassed the trap\n' \
+               "$name" "$(id -un)" "$RUN_DIR")"
+    printf '%s\n' "$msg"
+    # Appended to the stage log and, if that path is unusable, to the console
+    # only -- never silently dropped.  run_stage() creates $LOGS up front
+    # (line ~586) so this normally just works; the fallback exists because a
+    # finding that reaches no log at all is worse than a noisy one.
+    if [ -n "$log" ]; then
+        printf '%s\n' "$msg" >> "$log" 2>/dev/null || \
+            printf '[%s] WARN: could not append the finding to %s\n' "$name" "$log" >&2
+    fi
+    # Chown back whatever the scan named, when this process can.  A survivor
+    # usually means a stage bypassed the exit trap, so the file is handed back
+    # BEFORE the stage is failed: the operator gets the finding AND a run dir
+    # they can delete.  The build user cannot chown a root-owned file, so this
+    # goes through the same privilege model (ncz_sudo) the container stages use;
+    # when we ARE root it is a plain chown.  Failure to hand back never changes
+    # the verdict -- the finding stands either way.
+    local target; target="$(ncz_chown_target 2>/dev/null || true)"
+    if [ -n "$target" ]; then
+        # Straight from the NUL-parsed array: no re-splitting, so a path with
+        # a newline or a space is chowned exactly as found.
+        ncz_sudo chown "$target" "${found[@]}" >> "$log" 2>&1 || \
+            printf '[%s] WARN: could not chown %d file(s) back to %s\n' "$name" "${#found[@]}" "$target" >&2
+    fi
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # --arch both : parallel orchestration on the two hosts
 # ---------------------------------------------------------------------------
 # Each arch runs in its own child process (own run dir + log) so one failing
@@ -404,8 +610,10 @@ ncz_kernel_staging_dir() {
 # ---------------------------------------------------------------------------
 # Stages
 # ---------------------------------------------------------------------------
-STAGES=(preflight refresh-substrate stage-inputs refresh-sources offline-mirror \
-        provenance-inputs layers image provenance-gate kvm-gate receipt archive)
+STAGES=(preflight refresh-substrate stage-inputs provenance-predict \
+        refresh-sources offline-mirror \
+        provenance-inputs static-gates layers image provenance-gate secret-scan \
+        kvm-gate receipt archive)
 stage_index() {
     local want="$1" i=0 s
     for s in "${STAGES[@]}"; do [ "$s" = "$want" ] && { echo "$i"; return 0; }; i=$((i+1)); done
@@ -440,12 +648,26 @@ BUILD_DATE="$(date -u +%Y%m%d)"
 RUN_DIR="$(cd "$RUN_DIR" 2>/dev/null && pwd || { mkdir -p "$RUN_DIR" && cd "$RUN_DIR" && pwd; })"
 LOGS="$RUN_DIR/logs"
 mkdir -p "$LOGS" "$RUN_DIR/tmp"
+# Image variant: desktop (default) or server (Magnetar). Only the image stage
+# and the gates after it read it; every earlier stage is identical.
+NCZ_VARIANT="${NCZ_VARIANT:-desktop}"
+case "$NCZ_VARIANT" in
+    desktop|server) ;;
+    *) echo "build-image.sh: NCZ_VARIANT must be desktop or server, got '$NCZ_VARIANT'" >&2; exit 2 ;;
+esac
+# Magnetar payload (base.squashfs + the asset bundle) the server medium pins:
+# kept in the run dir for the secret scan, provenance and the KVM gate's
+# local payload server; never uploaded by this script.
+MAGNETAR_DIR="$RUN_DIR/payload"
 # All scratch lives on the run dir's disk, never a tmpfs (policy).
 export TMPDIR="$RUN_DIR/tmp"
 
 # Host-level build lock (design rule 2026-10-10: layers-preflight checks
 # "no other build holding the lock").  One build per build-runs dir; a stale lock
 # (dead pid) is reclaimed; a live holder aborts this run before any work.
+# NCZ_BUILD_LOCK is honored as-is: build/test-build-image.sh points it at a
+# lock inside the test's scratch dir so two test runs never contend on the
+# real build-runs lock (and a stale lock in the tree cannot abort a test).
 NCZ_BUILD_LOCK="${NCZ_BUILD_LOCK:-$(dirname "$RUN_DIR")/.ncz-build.lock}"
 export NCZ_BUILD_LOCK NCZ_BUILD_LOCK_OWNER="$$"
 if [ "$DRY_RUN" != 1 ]; then
@@ -518,23 +740,60 @@ ncz_container_run() {
     local -a mk=()
     [ -n "$JOBS" ] && mk=(-j "$JOBS")
     if [ "$USE_CONTAINER" != "1" ]; then
-        ( cd "$ROOT" && bash -lc "$line" ) 2>&1 | tee -a "$log"
+        ( cd "$ROOT" && for kv in "${NCZ_CRUN_HOSTENV[@]}"; do export "${kv?}"; done
+          bash -lc "$line" ) 2>&1 | tee -a "$log"
         return "${PIPESTATUS[0]}"
     fi
+    # M10: the container's make targets run as root inside a bind mount of the
+    # clone, so everything they create under it is uid 0 on the host.  Hand the
+    # clone (and the run dir the build writes into) back to the invoking user on
+    # EVERY exit path.  NCZ_CHOWN_BACK is exported into the container too, so
+    # the in-container helpers see the same target.  Cleanup only: a gate
+    # verdict is never altered (lib/priv.sh's trap restores $?).
+    local invoker; invoker="$(id -u):$(id -g)"
+    # NCZ_CHOWN_BACK must be EXPORTED, not just local: ncz_trap_chown_back()
+    # takes directories, derives the target itself from NCZ_CHOWN_BACK (see
+    # lib/priv.sh ncz_chown_back) and runs from an EXIT trap in THIS shell, so
+    # a local would not be in scope there.  The container additionally gets the
+    # value explicitly via -e below; that is the same value, read from the
+    # variable this line sets, so the two cannot disagree.
+    export NCZ_CHOWN_BACK="${NCZ_CHOWN_BACK:-$invoker}"
+    ncz_trap_chown_back "$ROOT" "$RUN_DIR"
     local ks; ks="$(ncz_kernel_staging_dir || true)"
     local -a mounts=(-v "$ROOT":/work/cix-installer -v /dev:/dev)
     [ -n "$ks" ] && [ -d "$(dirname "$ks")" ] && mounts+=(-v "$(dirname "$ks")":"$(dirname "$ks")")
     local ysd; ysd="$(ncz_site_value NCZ_YOCTO_SHARED_DIR yocto-shared-dir)"
     [ -n "$ysd" ] && [ -d "$ysd" ] && mounts+=(-v "$ysd":"$ysd")
+    # Extra env/mounts for ONE call (the server image stage); empty otherwise,
+    # so every other container run is unchanged.
+    [ "${#NCZ_CRUN_MOUNTS[@]}" -gt 0 ] && mounts+=("${NCZ_CRUN_MOUNTS[@]}")
     local -a renv=(
         -e NCZ_TARGET_ARCH="$ARCH" -e HOME=/root
         -e SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" -e LC_ALL=C -e LANG=C -e TZ=UTC
         -e NCZ_OFFLINE="${NCZ_OFFLINE:-0}"
         -e NCZ_REPRO_ARCH="$ARCH"
         -e NCZ_PIN_FILE=/work/cix-installer/manifests/base.pin
+        # 2026-10-28: a release build freezes its substrate, so the pinned
+        # substrate legitimately ages past the default 8-day window while both
+        # arches are still being rebuilt on the SAME snapshot. The freshness
+        # gate must still run (and still fail on a drifted release.conf), so the
+        # limit is forwarded rather than disabled: the caller raises it
+        # deliberately for the frozen pin.
+        -e NCZ_SUBSTRATE_MAX_AGE_DAYS="${NCZ_SUBSTRATE_MAX_AGE_DAYS:-8}"
+        # 2026-10-29: how a server medium obtains its payload. 'medium' makes it
+        # self-contained (no URLs). Without this forward the writer inside the
+        # container never sees the caller's choice, falls back to 'online' and
+        # pins the gate alias -- which the no-LAN-URL rule then refuses, so the
+        # build fails with FATAL instead of shipping a medium that installs
+        # nowhere (exactly the TYPHON failure this rule exists to prevent).
+        -e NCZ_SERVER_PAYLOAD="${NCZ_SERVER_PAYLOAD:-online}"
+        # M10: the in-container helpers chown their own output back to this uid,
+        # which is the invoking (host) user -- not uid 0 inside the container.
+        -e NCZ_CHOWN_BACK="${NCZ_CHOWN_BACK:-}"
     )
     local kv
     while IFS= read -r kv; do renv+=(-e "$kv"); done < <(ncz_repro_env_assignments "$ARCH")
+    [ "${#NCZ_CRUN_ENV[@]}" -gt 0 ] && renv+=("${NCZ_CRUN_ENV[@]}")
     ncz_sudo podman run --rm --privileged --net=host "${mounts[@]}" \
         -w /work/cix-installer "${renv[@]}" \
         "$NCZ_IMAGEBUILD_TAG" \
@@ -548,22 +807,47 @@ ncz_container_run() {
 RUN_FROM="$(stage_index "${RESUME_FROM:-preflight}")" || {
     echo "build-image.sh: unknown --resume-from stage '${RESUME_FROM}'" >&2; exit 2
 }
+# The mandatory static gate suites must run on EVERY run that can still reach
+# the layers stage, even one resumed at or after the stage itself: a resume
+# re-runs static-gates first so the tree cannot advance to layer/image work
+# with a broken CUDA or greeter fallback path.  (secret-scan is the only other
+# always-run stage and it sits AFTER the image, so --resume-from can never
+# skip it on a run that still assembles an image.)
 
-should_skip() {
+# SKIP / RUN / RE-RUN: a stage before the resume point is skipped, the
+# mandatory static-gates stage is re-run when the resume point is at or after
+# it, and every other stage runs.
+stage_skip_state() {
     local idx; idx="$(stage_index "$1")"
-    [ "$idx" -lt "$RUN_FROM" ] && return 0
-    return 1
+    # static-gates re-runs when the resume point is at or AFTER it, i.e.
+    # resume index >= static-gates index.  idx is the stage's own index.
+    if [ "$1" = static-gates ] && [ "$RUN_FROM" -ge "$idx" ]; then
+        echo "rerun"
+    elif [ "$idx" -lt "$RUN_FROM" ]; then
+        echo "skip"
+    else
+        echo "run"
+    fi
 }
+
+should_skip() { [ "$(stage_skip_state "$1")" = skip ]; }
 
 run_stage() {
     local name="$1" fn="$2"
     local idx; idx="$(stage_index "$name")"
     local log; log="$(printf '%s/%02d-%s.log' "$LOGS" "$idx" "$name")"
-    if should_skip "$name"; then
-        ncz_log "SKIP  [$name] (before --resume-from ${RESUME_FROM})"
-        printf '%02d\t%s\tSKIP\t0\n' "$idx" "$name" >> "$STAGE_TIMES"
-        return 0
-    fi
+    case "$(stage_skip_state "$name")" in
+        skip)
+            ncz_log "SKIP  [$name] (before --resume-from ${RESUME_FROM})"
+            # A skipped stage never runs, so it leaves NO row in stages.tsv:
+            # "no <stage> row" is the assertion a test makes when it proves
+            # the build aborted before <stage> (see build/test-build-image.sh
+            # sections 2c/2c3 -- a stage that merely returned early still
+            # left its row and would mask a bypass).
+            return 0 ;;
+        rerun)
+            ncz_log "RERUN [$name] (mandatory suite re-run before --resume-from ${RESUME_FROM})" ;;
+    esac
     local t0; t0="$(date -u +%s)"
     ncz_log "BEGIN [$name] log=$log"
     local rc=0
@@ -574,7 +858,38 @@ run_stage() {
         local line="${NCZ_TEST_STAGE_CMD//\{stage\}/$name}"
         ( set -o pipefail; eval "$line" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
     else
-        ( set -o pipefail; "$fn" "$log" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
+        # Test-only hook (build/test-build-image.sh): record a named stage
+        # without executing its body -- used by the passing-suites run in
+        # section 2c3, where the REAL stage_static_gates must run (with the
+        # NCZ_TEST_SUITES_DIR stubs) but nothing at or past the layers stage
+        # should.  NCZ_TEST_STAGE_SKIP is a comma-separated allowlist; a
+        # stage body is skipped only when it is named AND the stage comes
+        # AFTER static-gates, so this hook can never disable the mandatory
+        # suite stage (or any stage before it).  Unlike NCZ_TEST_STAGE_CMD
+        # the skipped stage still records a normal PASS row, so "the build
+        # reached layers" stays an honest assertion about stage order.
+        if [ -n "${NCZ_TEST_STAGE_SKIP:-}" ] && [[ ",${NCZ_TEST_STAGE_SKIP}," = *",${name},"* ]]; then
+            case "$name" in
+                layers|image|secret-scan|provenance-gate|kvm-gate|receipt|archive)
+                    echo "[$name] test skip (NCZ_TEST_STAGE_SKIP) -- body not executed" | tee -a "$log"
+                    rc=0 ;;
+                *) ( set -o pipefail; "$fn" "$log" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}" ;;
+            esac
+        else
+            ( set -o pipefail; "$fn" "$log" ) 2>&1 | tee -a "$log"; rc="${PIPESTATUS[0]}"
+        fi
+    fi
+    # M10: every stage that RAN -- container or not -- is audited for uid-0
+    # files, before its verdict is recorded.  This runs whatever the stage's own
+    # rc was: the cleanup problem exists just as much when a stage fails
+    # half-way through, and a failed container stage is exactly when root-owned
+    # leftovers are most likely.  A finding fails an otherwise-clean stage; when
+    # the stage ALREADY failed its own rc is kept, because that code is the
+    # diagnostic (stages.tsv and "[name] FAILED rc=N" both report it) and
+    # flattening a 7 to a 1 would point the operator at the audit instead of
+    # the real fault.  The finding is still printed and logged either way.
+    if ! ncz_audit_stage_ownership "$name" "$log"; then
+        [ "$rc" = 0 ] && rc=1
     fi
     local t1; t1="$(date -u +%s)"
     printf '%02d\t%s\t%s\t%s\n' "$idx" "$name" \
@@ -593,8 +908,8 @@ run_stage() {
 stage_preflight() {
     local log="$1"
     local fail=0
-    say() { printf '[preflight] %s\n' "$*" | tee -a "$log"; }
-    bad() { printf '[preflight] FAIL: %s\n' "$*" | tee -a "$log" >&2; fail=1; }
+    say() { printf '[preflight] %s\n' "$*"; }
+    bad() { printf '[preflight] FAIL: %s\n' "$*" >&2; fail=1; }
 
     say "arch=$ARCH host=$(hostname -s) git=$GIT_SHA sde=$SOURCE_DATE_EPOCH mode=$SCOPE"
     say "run-dir=$RUN_DIR pin-digest=$PIN_DIGEST"
@@ -622,6 +937,35 @@ stage_preflight() {
         *) say "run dir fs=$fstype (TMPDIR=$TMPDIR)" ;;
     esac
 
+    # -- M5 builder-host readiness gate ------------------------------------
+    # docs/BUILD-STABILITY.md M5 "Where": host-ready.sh runs FIRST, and any
+    # FAIL aborts stage 00 before a stage body runs.  It is the single
+    # implementation of the host checks (dirty tree, staging pool, substrate
+    # cache, build inputs, tools, disk, tmpfs, sudo model, stdout, container
+    # image), so this stage does not duplicate them.  A build that passes
+    # --resume-from past preflight never reaches this function, and a
+    # --dry-run returns before the stages run.
+    if [ -f "$ROOT/build/host-ready.sh" ]; then
+        local hr_gates="" hr_rc=0 hr_out=""
+        # An empty GATES means "all gates", so the kvm gate (and /dev/kvm) is
+        # required; otherwise forward the explicit list.
+        hr_gates="${GATES:-kvm,provenance}"
+        local hr_args=(--arch "$ARCH" --root "$ROOT" --run-dir "$RUN_DIR" --gates "$hr_gates")
+        [ "$NO_PUBLISH" = 1 ] && hr_args+=(--no-publish)
+        [ "$USE_CONTAINER" = 1 ] || hr_args+=(--no-container)
+        hr_out="$(bash "$ROOT/build/host-ready.sh" "${hr_args[@]}" 2>&1)"; hr_rc=$?
+        printf '%s\n' "$hr_out" | tee -a "$log"
+        if [ "$hr_rc" = 0 ]; then
+            say "host-ready: the builder host satisfies this commit"
+        else
+            local hr_first
+            hr_first="$(printf '%s\n' "$hr_out" | sed -n 's/^\[host-ready\] FAIL [^ ]*  *//p' | head -3 | tr '\n' ';' | sed -e 's/;$//' -e 's/;/; /g')"
+            bad "host-ready: this host is not ready for arch=$ARCH (build/host-ready.sh rc=$hr_rc); ${hr_first:-see the [host-ready] FAIL lines above} -- fix them and rerun the build (host state needs no new commit, so --resume-from preflight reruns this gate)"
+        fi
+    else
+        bad "build/host-ready.sh is missing; the M5 builder-host readiness gate cannot run"
+    fi
+
     # -- git cleanliness ---------------------------------------------------
     if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then
         say "WARN: git tree is not clean; the artifact will record git=$GIT_FULL"
@@ -635,11 +979,13 @@ stage_preflight() {
         if bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" >>"$log" 2>&1; then
             say "substrate pin OK (check-substrate-pin.sh)"
         else
-            if [ "$SUBSTRATE" = refresh ]; then
-                say "substrate pin stale/absent; the refresh-substrate stage will refresh it"
-            else
-                bad "substrate pin failed and --substrate pinned forbids a refresh; run with --substrate refresh"
-            fi
+            # docs/BUILD-STABILITY.md M2: a stale pin BLOCKS the build; it is
+            # never repaired in place.  `--substrate refresh` used to refresh
+            # manifests/base.pin for one arch right here, inside the clone (R1:
+            # a builder left a modified base.pin and one arch re-pinned).  A
+            # re-pin is a reviewed commit (build/repin.sh), so this fails closed
+            # for BOTH policies and names the fix.
+            bad "pin stale: run build/repin.sh and commit (a re-pin is a reviewed commit moving both arches; the build never rewrites manifests/base.pin -- upgrade with --substrate refresh is disabled for tracked files)"
         fi
     else
         bad "build/check-substrate-pin.sh is missing; the substrate pin cannot be verified"
@@ -650,6 +996,24 @@ stage_preflight() {
         say "determinism.pin OK (base digest $PIN_DIGEST)"
     fi
     say "run pin: $RUN_PIN"
+
+    # -- repo pin coherence (docs/BUILD-STABILITY.md M3 + M7) --------------
+    # Offline: the committed pins must agree with each other before any host
+    # work.  Includes the Sky1 kernel packaging revision (mainline.release /
+    # mainline.deb-revision vs kernel-manifest.json vs ncz-packages.tsv), so an
+    # arm64 build refuses to produce +rNNN debs the manifest does not pin.
+    # A rule listed in manifests/pin-coherence-known-fail.tsv WARNs loudly
+    # (owner + exact fix) and does not abort; any other failure aborts
+    # (build/lib/pin-coherence-gate.sh).
+    local pc_line
+    while IFS= read -r pc_line; do
+        case "$pc_line" in
+            "FAIL: "*) bad "${pc_line#FAIL: }" ;;
+            "WARN: "*) say "WARN: ${pc_line#WARN: }" ;;
+            "OK: "*)   say "${pc_line#OK: }" ;;
+        esac
+    done < <(ncz_pin_coherence_gate "$ROOT/build/check-pin-coherence.sh" "$ROOT" "$ARCH" \
+                 "$ROOT/manifests/pin-coherence-known-fail.tsv" 2>>"$log")
 
     # -- required host tools ----------------------------------------------
     local tools="git make python3 mksquashfs mkfs.ext4 sgdisk tar sha256sum zstd unsquashfs"
@@ -682,7 +1046,7 @@ stage_preflight() {
         if [ -n "$alt" ] && [ -e "$alt" ]; then
             local rootspell; rootspell="$(dirname "$ks")"
             say "kernel staging $ks missing; bind-mounting $(dirname "$alt") -> $rootspell (automated r202 workaround #3)"
-            ncz_sudo mkdir -p "$rootspell" >>"$log" 2>&1
+            ncz_sudo mkdir -p "$rootspell" >>"$log"
             if ncz_sudo mountpoint -q "$rootspell" 2>/dev/null || ncz_sudo mount --bind "$(dirname "$alt")" "$rootspell" >>"$log" 2>&1; then
                 say "bind mount OK: $rootspell"
             else
@@ -758,45 +1122,48 @@ stage_refresh_substrate() {
     if [ ! -f "$DOWNLOADS/$UPSTREAM_ISO" ] || \
        [ "$(sha256sum "$DOWNLOADS/$UPSTREAM_ISO" 2>/dev/null | awk '{print $1}')" != "$SUBSTRATE_SHA" ]; then
         if [ "$OFFLINE" = "1" ]; then
-            echo "[refresh-substrate] FAIL: --offline and the pinned substrate is not staged in downloads/" | tee -a "$log" >&2
+            echo "[refresh-substrate] FAIL: --offline and the pinned substrate is not staged in downloads/" >&2
             return 3
         fi
         if [ -x "$ROOT/build/stage-substrate.sh" ]; then
-            echo "[refresh-substrate] pinned substrate not staged; restoring from the substrate cache (build/stage-substrate.sh --arch $ARCH)" | tee -a "$log"
-            ( cd "$ROOT" && bash build/stage-substrate.sh --arch "$ARCH" ) 2>&1 | tee -a "$log"
+            echo "[refresh-substrate] pinned substrate not staged; restoring from the substrate cache (build/stage-substrate.sh --arch $ARCH)"
+            ( cd "$ROOT" && bash build/stage-substrate.sh --arch "$ARCH" )
             local rcs="${PIPESTATUS[0]}"
             [ "$rcs" = 0 ] || return "$rcs"
         fi
     fi
     if [ "$SUBSTRATE" = pinned ]; then
-        echo "[refresh-substrate] pinned policy: verifying the substrate pin (no fetch)" | tee -a "$log"
+        echo "[refresh-substrate] pinned policy: verifying the substrate pin (no fetch)"
         if [ ! -f "$ROOT/build/check-substrate-pin.sh" ]; then
-            echo "[refresh-substrate] FAIL: build/check-substrate-pin.sh is missing" | tee -a "$log" >&2
+            echo "[refresh-substrate] FAIL: build/check-substrate-pin.sh is missing" >&2
             return 1
         fi
-        bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" 2>&1 | tee -a "$log"
+        bash "$ROOT/build/check-substrate-pin.sh" "$ARCH"
         return "${PIPESTATUS[0]}"
     fi
-    if [ -x "$ROOT/build/refresh-substrate.sh" ]; then
-        ncz_info "using build/refresh-substrate.sh --arch $ARCH"
-        ( cd "$ROOT" && NCZ_TARGET_ARCH="$ARCH" bash build/refresh-substrate.sh --arch "$ARCH" ) 2>&1 | tee -a "$log"
-        return "${PIPESTATUS[0]}"
+    # --substrate refresh does NOT refresh the committed pin (docs/BUILD-STABILITY.md
+    # M2): refresh-substrate.sh rewrites manifests/base.pin, release.conf,
+    # forky-snapshot.tsv and determinism.pin INSIDE the clone, for one arch, so a
+    # builder silently left a half re-pin behind (R1, C1/C7).  The pin is already
+    # verified by preflight (which fails closed when it is stale); a stale pin is
+    # fixed by committing a re-pin (build/repin.sh), never by the build.  The
+    # pinned substrate ISO itself is still restored from the cache above.
+    #
+    # M11: this body must not append to the stage log itself -- run_stage()
+    # pipes the whole function through the stage log, which is the only writer.
+    if ! bash "$ROOT/build/check-substrate-pin.sh" "$ARCH" >>"$log" 2>&1; then
+        echo "[refresh-substrate] FAIL: pin stale: run build/repin.sh and commit" \
+            "(--substrate refresh does not rewrite pinned files: the re-pin is a commit to review)" \
+            >&2
+        [ "$SUBSTRATE" = refresh ] && return 3
+        return 1
     fi
-    local want="$SUBSTRATE_SHA" got=""
-    if [ -f "$DOWNLOADS/$UPSTREAM_ISO" ]; then
-        got="$(sha256sum "$DOWNLOADS/$UPSTREAM_ISO" | awk '{print $1}')"
-    fi
-    if [ "$got" = "$want" ]; then
-        echo "[refresh-substrate] pinned substrate already present: $UPSTREAM_ISO ($want)" | tee -a "$log"
-        return 0
-    fi
-    if [ "$OFFLINE" = "1" ]; then
-        echo "[refresh-substrate] FAIL: --offline and the pinned substrate is not staged" | tee -a "$log" >&2
-        return 3
-    fi
-    echo "[refresh-substrate] restoring the pinned substrate from the substrate cache via make download" | tee -a "$log"
-    ( cd "$ROOT" && make download ARCH="$ARCH" ) 2>&1 | tee -a "$log"
-    return "${PIPESTATUS[0]}"
+    # Stage 10 ends here: the substrate ISO was restored above (sha256-checked
+    # against the pin) and the committed pin was verified.  The stage never
+    # fetches -- a stale pin is fixed by a committed re-pin (build/repin.sh),
+    # never by the build -- so there is no "refresh" body after this point.
+    echo "[refresh-substrate] pin fresh: the committed substrate verifies; nothing to refresh"
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -804,7 +1171,7 @@ stage_refresh_substrate() {
 # ---------------------------------------------------------------------------
 stage_stage_inputs() {
     local log="$1"
-    ( cd "$ROOT" && bash build/stage-build-inputs.sh --arch "$ARCH" ) 2>&1 | tee -a "$log"
+    ( cd "$ROOT" && bash build/stage-build-inputs.sh --arch "$ARCH" )
     local rc="${PIPESTATUS[0]}"
     [ "$rc" = 0 ] || return "$rc"
     # amd64 installer kernel: staged from the shared kernel-staging pool
@@ -813,7 +1180,7 @@ stage_stage_inputs() {
     # "set KERNEL_DEB to the amd64 installer kernel package" (r203 failure #2).
     # arm64 builds its Sky1 kernel during offline-mirror, so this is amd64-only.
     if [ "$ARCH" = amd64 ]; then
-        ( cd "$ROOT" && bash build/stage-amd64-kernel.sh ) 2>&1 | tee -a "$log"
+        ( cd "$ROOT" && bash build/stage-amd64-kernel.sh )
         rc="${PIPESTATUS[0]}"
         [ "$rc" = 0 ] || return "$rc"
     fi
@@ -821,7 +1188,7 @@ stage_stage_inputs() {
     # tarballs stage-build-inputs just fetched (they are gitignored and were not
     # pinned before; r203 failure #3).
     if [ "$ARCH" = arm64 ] && [ -x "$ROOT/build/stage-arm64-assets.sh" ]; then
-        ( cd "$ROOT" && bash build/stage-arm64-assets.sh ) 2>&1 | tee -a "$log"
+        ( cd "$ROOT" && bash build/stage-arm64-assets.sh )
         rc="${PIPESTATUS[0]}"
         [ "$rc" = 0 ] || return "$rc"
     fi
@@ -832,7 +1199,7 @@ stage_stage_inputs() {
     # on a fresh clone -- the same hand-staging gap as the engine deb (r203
     # failure #1). Idempotent + sha256-verified against the lock.
     if [ -x "$ROOT/build/stage-screensaver-plugin.sh" ]; then
-        ( cd "$ROOT" && bash build/stage-screensaver-plugin.sh "$ARCH" ) 2>&1 | tee -a "$log"
+        ( cd "$ROOT" && bash build/stage-screensaver-plugin.sh "$ARCH" )
         rc="${PIPESTATUS[0]}"
         [ "$rc" = 0 ] || return "$rc"
     fi
@@ -867,8 +1234,8 @@ stage_offline_mirror() {
 stage_provenance_inputs() {
     local log="$1"
     local fail=0
-    say() { printf '[provenance-inputs] %s\n' "$*" | tee -a "$log"; }
-    bad() { printf '[provenance-inputs] FAIL: %s\n' "$*" | tee -a "$log" >&2; fail=1; }
+    say() { printf '[provenance-inputs] %s\n' "$*"; }
+    bad() { printf '[provenance-inputs] FAIL: %s\n' "$*" >&2; fail=1; }
 
     local idx="$RUN_DIR/prov-input-index"
     mkdir -p "$idx"
@@ -981,6 +1348,55 @@ stage_provenance_inputs() {
 }
 
 # ---------------------------------------------------------------------------
+# Stage 25 -- provenance-predict (M1: the early predictive gate)
+# Everything stages 50/80 will authorize, checked against the INPUTS alone:
+# staged debs, prebuilt rootfs tarballs and the pinned substrate ISO's /cdrom
+# pool + initrd udebs, with the SAME verifier helpers.  Runs BEFORE the
+# 13-minute offline-mirror and before refresh-sources, so a bad input fails in
+# minutes instead of after hours of layers.
+# ---------------------------------------------------------------------------
+stage_provenance_predict() {
+    local log="$1"
+    # M11: this body must not append to the stage log itself -- run_stage()
+    # already pipes the whole function into it, and a second writer doubled
+    # every line in A2.
+    say() { printf '[provenance-predict] %s\n' "$*"; }
+
+    local idx="$RUN_DIR/prov-predict-index"
+    mkdir -p "$idx"
+    local mirror="$ROOT/build/forky-mirror"
+    # The offline mirror is built by a LATER stage, so it cannot be verified
+    # here on a cold tree; reuse the last one when it is present and reuse is
+    # the plan (the same decision offline-mirror itself makes).
+    if [ -d "$mirror/dists" ] && [ "$(LAYER_DECISION mirror)" = reuse ]; then
+        say "offline mirror present and reused: $mirror (verified in stage 50)"
+    else
+        say "offline mirror not built yet (stage 40); not part of this gate"
+    fi
+
+    local -a args=(--arch "$ARCH" --work "$RUN_DIR/prov-predict")
+    # The pinned substrate ISO is scanned when it is already staged; a missing
+    # one is stage 10's failure to report, not a provenance finding.
+    local iso="$ROOT/downloads/$UPSTREAM_ISO"
+    if [ -f "$iso" ]; then
+        args+=(--substrate-iso "$iso")
+    else
+        args+=(--no-substrate)
+    fi
+    [ "$OFFLINE" = 1 ] || args+=(--index-dir "$idx")
+
+    if ( cd "$ROOT" && bash build/check-inputs-provenance.sh "${args[@]}" ) >>"$log" 2>&1; then
+        say "every input verifies -- safe to spend the mirror and layer time"
+    else
+        ncz_err "[provenance-predict] FAILED -- an input has an unreviewed origin (see the FAIL lines). Fix the input BEFORE the mirror/layers stages."
+        return 1
+    fi
+    { printf 'gate=provenance-predict\nresult=PASS\narch=%s\nat=%s\n' "$ARCH" "$(date -u +%s)"; } \
+        > "$RUN_DIR/provenance-predict.result"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Stage 30 -- refresh sources (singularity payload pins + deb)
 # (runs BEFORE offline-mirror: the payload deb is consumed by
 #  vendor-mirror -> sinty-out-sync -> verify-local-package-versions)
@@ -998,14 +1414,14 @@ stage_refresh_sources() {
     # 1. resolve + freeze the source pins (never silent).
     local rs=(--sources "$SOURCES" --output "$sdir" --arch "$ARCH")
     [ "$OFFLINE" = 1 ] && rs+=(--offline)
-    ( cd "$ROOT" && TMPDIR="$RUN_DIR/tmp" bash build/refresh-singularity-sources.sh "${rs[@]}" ) 2>&1 | tee -a "$log"
+    ( cd "$ROOT" && TMPDIR="$RUN_DIR/tmp" bash build/refresh-singularity-sources.sh "${rs[@]}" )
     local rc="${PIPESTATUS[0]}"
     if [ "$rc" != 0 ]; then
-        echo "[refresh-sources] FAIL: source resolution failed (rc=$rc)" | tee -a "$log" >&2
+        echo "[refresh-sources] FAIL: source resolution failed (rc=$rc)" >&2
         return "$rc"
     fi
     local up="$sdir/upstream-pins.tsv"
-    [ -s "$up" ] || { echo "[refresh-sources] FAIL: no upstream-pins.tsv produced" | tee -a "$log" >&2; return 1; }
+    [ -s "$up" ] || { echo "[refresh-sources] FAIL: no upstream-pins.tsv produced" >&2; return 1; }
     export NCZ_SINGULARITY_PINS="$up"
 
     # 2. build the payload deb -- or, for --sources pinned with a committed
@@ -1022,10 +1438,10 @@ stage_refresh_sources() {
             # source carries a new timestamped version, so it is never used here.
             local so=(--arch "$ARCH")
             [ "$OFFLINE" = 1 ] && so+=(--offline)
-            ( cd "$ROOT" && bash build/stage-singularity-payload.sh "${so[@]}" ) 2>&1 | tee -a "$log"
+            ( cd "$ROOT" && bash build/stage-singularity-payload.sh "${so[@]}" )
             rc="${PIPESTATUS[0]}"
             if [ "$rc" != 0 ]; then
-                echo "[refresh-sources] FAIL: the pinned payload deb could not be staged (rc=$rc); --sources pinned does not rebuild it from source" | tee -a "$log" >&2
+                echo "[refresh-sources] FAIL: the pinned payload deb could not be staged (rc=$rc); --sources pinned does not rebuild it from source" >&2
                 return "$rc"
             fi
             deb="$(bash "$ROOT/build/stage-singularity-payload.sh" --arch "$ARCH" --print-path)"
@@ -1034,29 +1450,29 @@ stage_refresh_sources() {
         fi
     fi
     if [ -n "$deb" ] && [ -f "$deb" ]; then
-        echo "[refresh-sources] pinned: using committed prebuilt $(basename "$deb")" | tee -a "$log"
+        echo "[refresh-sources] pinned: using committed prebuilt $(basename "$deb")"
     elif [ -s "$marker" ] && [ "$(cat "$marker")" = "$pins_sha" ] && \
          [ -n "$(ls -1 "$sdir_out"/ncz-singularity-desktop_"*"_"$ARCH".deb 2>/dev/null)" ]; then
         # idempotent reuse: a deb already built from THESE exact resolved pins
         # (lets a `--resume-from refresh-sources` / retry avoid a full rebuild).
         deb="$(ls -1 "$sdir_out"/ncz-singularity-desktop_"*"_"$ARCH".deb 2>/dev/null | sort -V | tail -1)"
-        echo "[refresh-sources] reusing the deb built from these exact pins: $(basename "$deb")" | tee -a "$log"
+        echo "[refresh-sources] reusing the deb built from these exact pins: $(basename "$deb")"
     else
-        echo "[refresh-sources] building ncz-singularity-desktop ($ARCH) from $SOURCES sources" | tee -a "$log"
+        echo "[refresh-sources] building ncz-singularity-desktop ($ARCH) from $SOURCES sources"
         ( cd "$ROOT" && TMPDIR="$RUN_DIR/tmp" NCZ_SINGULARITY_PINS="$up" NCZ_SINGULARITY_TRACK_HEAD=0 \
             OUT="$sdir_out" SINGULARITY_IMAGE="debian:${NCZ_BASE_CODENAME:-forky}" \
-            bash build/build-singularity.sh ) 2>&1 | tee -a "$log"
+            bash build/build-singularity.sh )
         rc="${PIPESTATUS[0]}"
         if [ "$rc" != 0 ]; then
-            echo "[refresh-sources] FAIL: payload build failed (rc=$rc) from $SOURCES sources." | tee -a "$log" >&2
-            echo "[refresh-sources]   NOT falling back to stale pins. Re-run with --sources pinned to reproduce the committed pins, or fix the upstream break." | tee -a "$log" >&2
+            echo "[refresh-sources] FAIL: payload build failed (rc=$rc) from $SOURCES sources." >&2
+            echo "[refresh-sources]   NOT falling back to stale pins. Re-run with --sources pinned to reproduce the committed pins, or fix the upstream break." >&2
             return "$rc"
         fi
         local tgz="$sdir_out/singularity-opt.tgz"
-        [ -s "$tgz" ] || { echo "[refresh-sources] FAIL: build-singularity.sh produced no tarball" | tee -a "$log" >&2; return 1; }
-        deb="$( ( cd "$ROOT" && NCZ_SINGULARITY_ARCH="$ARCH" OUT="$sdir_out" bash build/build-singularity-deb.sh "$tgz" ) 2>&1 | tee -a "$log" | sed -n 's/^Final \.deb: //p' | tail -1 )"
+        [ -s "$tgz" ] || { echo "[refresh-sources] FAIL: build-singularity.sh produced no tarball" >&2; return 1; }
+        deb="$( ( cd "$ROOT" && NCZ_SINGULARITY_ARCH="$ARCH" OUT="$sdir_out" bash build/build-singularity-deb.sh "$tgz" ) 2>&1 | sed -n 's/^Final \.deb: //p' | tail -1 )"
         if [ -z "$deb" ] || [ ! -s "$deb" ]; then
-            echo "[refresh-sources] FAIL: build-singularity-deb.sh produced no usable deb" | tee -a "$log" >&2
+            echo "[refresh-sources] FAIL: build-singularity-deb.sh produced no usable deb" >&2
             return 1
         fi
         printf '%s\n' "$pins_sha" > "$marker"
@@ -1069,16 +1485,16 @@ stage_refresh_sources() {
     if dpkg-deb -x "$deb" "$xdir" 2>/dev/null; then
         lw="$xdir/opt/singularity/bin/labwc"
         if [ -f "$lw" ]; then
-            bash "$ROOT/build/check-singularity-shaders.sh" "$lw" 2>&1 | tee -a "$log"
+            bash "$ROOT/build/check-singularity-shaders.sh" "$lw"
             rc="${PIPESTATUS[0]}"
             rm -rf "$xdir"
-            [ "$rc" = 0 ] || { echo "[refresh-sources] FAIL: static shader gate rejected the payload labwc" | tee -a "$log" >&2; return "$rc"; }
+            [ "$rc" = 0 ] || { echo "[refresh-sources] FAIL: static shader gate rejected the payload labwc" >&2; return "$rc"; }
         else
             rm -rf "$xdir"
         fi
     else
         rm -rf "$xdir"
-        echo "[refresh-sources] WARN: could not extract $deb for the static shader gate" | tee -a "$log" >&2
+        echo "[refresh-sources] WARN: could not extract $deb for the static shader gate" >&2
     fi
 
     # 4. hand the frozen deb to the layers stage AND stage it into
@@ -1111,7 +1527,7 @@ stage_refresh_sources() {
     # provenance-inputs stage can authorize it (identical shape to a finished
     # image's <img>.receipt.json ncz_timestamped_debs).
     local receipt="$sdir/payload-receipt.json"
-    python3 -I - "$receipt" "$deb" "$sha" "$ARCH" <<'PYEOF' | tee -a "$log"
+    python3 -I - "$receipt" "$deb" "$sha" "$ARCH" <<'PYEOF'
 import json, os, sys
 out, deb, sha, arch = sys.argv[1:5]
 base = os.path.basename(deb)
@@ -1129,7 +1545,109 @@ with open(out, "w") as fh:
     fh.write("\n")
 print("[refresh-sources] wrote payload receipt %s (%s %s %s)" % (out, name, ver, arch))
 PYEOF
-    echo "[refresh-sources] payload deb: $(basename "$deb") sha256=$sha (sources=$SOURCES)" | tee -a "$log"
+    echo "[refresh-sources] payload deb: $(basename "$deb") sha256=$sha (sources=$SOURCES)"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Stage 55 -- static gates (MANDATORY, runs on the pinned tree BEFORE layers)
+# The static gate suites assert the NVIDIA CUDA path (amd64) and the greeter
+# console-fallback (both arches) directly from the tree: they are the same
+# suites `make test` runs, but a release image must not be able to skip them.
+# A failure here aborts the build before any layer or image byte is produced.
+# No skip path: no scope, gate selection, env var or resume point turns this
+# stage off.  stage_skip_state() gives it a dedicated "rerun" state: when a
+# build resumes at or after static-gates, the stage re-runs BEFORE the resume
+# point instead of being recorded SKIP, so a --resume-from layers run cannot
+# advance to layer or image work without the suites passing first.
+# (The greeter suite asserts the CUDA chooser never offers cuda on arm64, so
+#  arm64 gets that negative coverage without the amd64-only CUDA suite.)
+#
+# TEST-ONLY HOOK: NCZ_TEST_SUITES_DIR (build/test-build-image.sh only) points
+# the stage at a directory holding REPLACEMENT scripts named
+# test-amd64-cuda-gates.sh / test-greeter-console-fallback.sh.  It lets the
+# test suite fail one of the REAL suites (as the stage itself sees it: the
+# same loop, the same rc capture, the same FAIL line) without replacing the
+# whole stage body (NCZ_TEST_STAGE_CMD).  It is read in this stage only, so
+# an operator setting it has no other effect on the build.  When unset or
+# pointing at a dir that does not hold a given suite, the real suite runs.
+# ---------------------------------------------------------------------------
+stage_static_gates() {
+    local log="$1"
+    local fail=0
+    say() { printf '[static-gates] %s\n' "$*"; }
+    bad() { printf '[static-gates] FAIL: %s\n' "$*" >&2; fail=1; }
+
+    # Test-only suite replacement (see above): a replacement is used only when
+    # the dir AND the named replacement exist, so a partial dir still falls
+    # back to the real suite for anything it does not cover.
+    _sg_suite() {
+        local s="$1"
+        if [ -n "${NCZ_TEST_SUITES_DIR:-}" ] && [ -f "${NCZ_TEST_SUITES_DIR}/$(basename "$s")" ]; then
+            printf '%s\n' "${NCZ_TEST_SUITES_DIR}/$(basename "$s")"
+        else
+            printf '%s\n' "$s"
+        fi
+    }
+
+    local -a suites=()
+    [ "$ARCH" = amd64 ] && suites+=("$(_sg_suite "$ROOT/build/test-amd64-cuda-gates.sh")")
+    # 2026-10-28 MS-R1 NPU release blocker: neither suite below was wired into
+    # any stage, so nothing enforced NPU SSDT delivery and two images shipped
+    # with "only 0 of 3 NPU cores usable". They run on arm64 only (the NPU is
+    # Sky1 hardware) and they are cheap: iasl + cpio, no root, no hardware.
+    #
+    # npu-ssdt-gate.sh runs with --regen: assets/npu/ is a gitignored blob dir,
+    # so a fresh clone legitimately has the committed .asl and no .cpio. The
+    # gate regenerates from the .asl and then validates the result -- which is
+    # the property we care about (a build host that CANNOT produce it fails
+    # here, before the layers stage).
+    [ "$ARCH" = arm64 ] && suites+=("$(_sg_suite "$ROOT/build/test-npu-ssdt-delivery.sh")")
+    [ "$ARCH" = arm64 ] && suites+=("$(_sg_suite "$ROOT/build/npu-ssdt-gate.sh") --regen")
+    # HARD RULE (operator, 2026-10-29): no image may carry a LAN URL. Cheap,
+    # and it fails the build rather than shipping a medium that only installs
+    # inside the build rack.
+    suites+=("$(_sg_suite "$ROOT/build/test-no-lan-urls.sh")")
+    suites+=("$(_sg_suite "$ROOT/build/test-greeter-console-fallback.sh")")
+
+    local s
+    for s in "${suites[@]}"; do
+        # An entry may carry arguments ("<path> --regen"); split them so the
+        # loop can still report a missing file by path.
+        local suite_path="${s%% *}" suite_args=""
+        case "$s" in
+            *" "*) suite_args="${s#* }" ;;
+        esac
+        if [ ! -f "$suite_path" ]; then
+            bad "gate suite missing: $suite_path"
+            continue
+        fi
+        # A replaced suite (NCZ_TEST_SUITES_DIR) is logged by its own name so
+        # the log still says which gate suite failed; a real suite runs from
+        # the pinned tree root, a replacement from its own dir (its fixtures
+        # are self-contained).
+        local label runfrom
+        label="$(basename "$suite_path")"
+        if [ -n "${NCZ_TEST_SUITES_DIR:-}" ] && [ "$(dirname "$suite_path")" != "$(dirname "$ROOT/build")" ]; then
+            runfrom="$(dirname "$suite_path")"
+        else
+            runfrom="$ROOT"
+        fi
+        say "running $label${suite_args:+ $suite_args}"
+        # The suites exit with their failure count (0 = pass); capture it so a
+        # FAIL line names the suite even for an rc > 255.
+        # shellcheck disable=SC2086  # suite_args is a deliberate word split
+        if ! ( cd "$runfrom" && bash "$suite_path" $suite_args ) >>"$log" 2>&1; then
+            bad "$label FAILED (see the stage log above); tail:"
+            tail -15 "$log" 2>/dev/null | sed 's/^/[static-gates] /' >&2
+        fi
+    done
+
+    if [ "$fail" != 0 ]; then
+        ncz_err "[static-gates] FAILED -- a static gate suite failed; fix the code it checks BEFORE the layers stage (no image is produced)."
+        return 1
+    fi
+    say "all static gate suites PASS (${#suites[@]} suite(s))"
     return 0
 }
 
@@ -1152,7 +1670,7 @@ stage_layers() {
         # shellcheck disable=SC1091
         . "$RUN_DIR/singularity-sources/result.env"
         export NCZ_SINGULARITY_PREBUILT_DEB NCZ_SINGULARITY_PREBUILT_SHA256 NCZ_SINGULARITY_PINS
-        say_layers() { printf '[layers] %s\n' "$*" | tee -a "$log"; }
+        say_layers() { printf '[layers] %s\n' "$*"; }
         say_layers "refresh-sources outputs: deb=$(basename "$NCZ_SINGULARITY_PREBUILT_DEB") sources=${NCZ_SINGULARITY_SOURCES:-?}"
     fi
 
@@ -1167,7 +1685,7 @@ stage_layers() {
     local -a lp=(--arch "$ARCH" --root "$ROOT" --run-dir "$RUN_DIR" --layers-dir "$LAYERS_DIR" --quarantine --lock-owner "$$")
     if [ -x "$ROOT/build/layers-preflight.sh" ]; then
         ( cd "$ROOT" && NCZ_TARGET_ARCH="$ARCH" SCOPE="$SCOPE" COMPONENTS="$COMPONENTS" \
-              bash build/layers-preflight.sh "${lp[@]}" ) 2>&1 | tee -a "$log"
+              bash build/layers-preflight.sh "${lp[@]}" )
         local lprc="${PIPESTATUS[0]}"
         if [ "$lprc" != 0 ]; then
             ncz_err "[layers] layers-preflight FAILED (rc=$lprc); stopping before any layer work."
@@ -1200,7 +1718,7 @@ stage_layers() {
     # not rootless). It must run on the host, never nested in the container
     # (arm64 report #4). The layer plan (NCZ_LAYER_PLAN) decides reuse/rebuild.
     local layers_rc=0
-    ncz_sudo_bash "cd '$ROOT' && TMPDIR='$ltmp' NCZ_TARGET_ARCH='$ARCH' NCZ_LAYER_PLAN='$NCZ_LAYER_PLAN'$postcheck_env$envs bash build/build-squashfs-layers.sh all" 2>&1 | tee -a "$log"
+    ncz_sudo_bash "cd '$ROOT' && TMPDIR='$ltmp' NCZ_TARGET_ARCH='$ARCH' NCZ_LAYER_PLAN='$NCZ_LAYER_PLAN'$postcheck_env$envs bash build/build-squashfs-layers.sh all"
     layers_rc="${PIPESTATUS[0]}"
     if [ "$layers_rc" != 0 ]; then
         return "$layers_rc"
@@ -1238,7 +1756,7 @@ stage_layers() {
             desktop)        ca+=(--lower "$LAYERS_DIR/base.squashfs") ;;
             desktop-hotfix) ca+=(--lower "$LAYERS_DIR/desktop.squashfs" --lower "$LAYERS_DIR/base.squashfs") ;;
         esac
-        ( cd "$ROOT" && bash build/check-layers.sh "$sq" "${ca[@]}" ) 2>&1 | tee -a "$log"
+        ( cd "$ROOT" && bash build/check-layers.sh "$sq" "${ca[@]}" )
         local crc="${PIPESTATUS[0]}"
         if [ "$crc" != 0 ]; then
             ncz_err "[layers] post-check FAILED for $l; not handing a bad layer to the image stage"
@@ -1255,21 +1773,293 @@ stage_layers() {
 # ---------------------------------------------------------------------------
 # Stage 70 -- image
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Magnetar (NCZ_VARIANT=server) helpers
+# ---------------------------------------------------------------------------
+# build-image.sh helpers for the Magnetar server variant
+# (NCZ_VARIANT=server, docs/MAGNETAR-SERVER-VARIANT.md).
+#
+# A server medium carries neither base.squashfs nor the runtime assets: the
+# installer fetches both and verifies the sha256 pins write-usb-image.py puts
+# in ncz-payload/ncz-fetch-payload.manifest. So a server build needs:
+#   * the pins BEFORE the image is written: the base layer's sha256 (computed
+#     here from assets/squashfs/base.squashfs) and the two URLs;
+#   * the exact payload bytes AFTER it, for the secret scan, the provenance
+#     gate and the KVM gate's local payload server: base.squashfs (copied) and
+#     the asset bundle (NCZ_ASSETS_EXPORT_DIR, exported by the writer).
+#
+# The payload URL is a BUILD-TIME parameter:
+#   NCZ_PAYLOAD_BASE_URL   base URL for both artifacts (default: the KVM gate's
+#                          own serve base from write-usb-image.py's
+#                          ncz_gate_serve_payload_base_url(), e.g.
+#                          http://10.0.2.2, which the gate serves from this
+#                          host's loopback only)
+#   NCZ_PAYLOAD_URL / NCZ_ASSETS_URL   full per-artifact URLs (override)
+# A medium pinned to the gate base is a GATE medium; a release medium pins the
+# published URLs, which is an operator decision (nothing here uploads).
+
+# ncz_magnetar_prepare ROOT ARCH OUTDIR -> 0 and sets MAGNETAR_* globals.
+ncz_magnetar_prepare() {
+    local root="$1" arch="$2" out="$3" base_layer base
+    base_layer="$root/assets/squashfs/base.squashfs"
+    if [ ! -s "$base_layer" ]; then
+        echo "[magnetar] FAIL: no base layer at $base_layer (the layers stage builds it)" >&2
+        return 1
+    fi
+    MAGNETAR_DIR="$out"
+    mkdir -p "$MAGNETAR_DIR" || return 1
+    # stale payload from an earlier image of this run dir must never be served
+    rm -f "$MAGNETAR_DIR"/base.squashfs "$MAGNETAR_DIR"/ncz-assets-*.tar.gz \
+          "$MAGNETAR_DIR"/ncz-assets-*.tar.gz.sha256 "$MAGNETAR_DIR"/ncz-pool-*.tar.gz \
+          "$MAGNETAR_DIR"/ncz-pool-*.tar.gz.sha256 "$MAGNETAR_DIR"/*.part
+    MAGNETAR_PAYLOAD_SHA256="$(sha256sum "$base_layer" | awk '{print $1}')"
+    if [ -n "${NCZ_PAYLOAD_SHA256:-}" ] && [ "$NCZ_PAYLOAD_SHA256" != "$MAGNETAR_PAYLOAD_SHA256" ]; then
+        echo "[magnetar] FAIL: NCZ_PAYLOAD_SHA256=$NCZ_PAYLOAD_SHA256 is not the sha256 of $base_layer ($MAGNETAR_PAYLOAD_SHA256)" >&2
+        return 1
+    fi
+    base="${NCZ_PAYLOAD_BASE_URL:-}"
+    if [ -z "$base" ]; then
+        base="$(python3 -I - "$root/build/iso/write-usb-image.py" "$arch" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ncz_write_usb_image", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(mod.ncz_gate_serve_payload_base_url(sys.argv[2]))
+PY
+)" || { echo "[magnetar] FAIL: cannot derive the gate serve base URL" >&2; return 1; }
+    fi
+    base="${base%/}"
+    case "$base" in
+        http://*|https://*) ;;
+        *) echo "[magnetar] FAIL: NCZ_PAYLOAD_BASE_URL '$base' is not an http(s) URL" >&2; return 1 ;;
+    esac
+    MAGNETAR_BASE_URL="$base"
+    MAGNETAR_PAYLOAD_URL="${NCZ_PAYLOAD_URL:-$base/base.squashfs}"
+    MAGNETAR_ASSETS_NAME="ncz-assets-$arch.tar.gz"
+    MAGNETAR_ASSETS_URL="${NCZ_ASSETS_URL:-$base/$MAGNETAR_ASSETS_NAME}"
+    # Option B (operator 2026-10-26): the offline apt pool is the third
+    # pinned artifact, fetched like the other two.
+    MAGNETAR_POOL_NAME="ncz-pool-$arch.tar.gz"
+    MAGNETAR_POOL_URL="${NCZ_POOL_URL:-$base/$MAGNETAR_POOL_NAME}"
+    MAGNETAR_BASE_LAYER="$base_layer"
+    return 0
+}
+
+# ncz_magnetar_collect IMG -> 0 when the finished medium is a server medium
+# whose receipt pins exactly the bytes now in MAGNETAR_DIR (base.squashfs is
+# copied there; the bundle was exported by the writer).
+ncz_magnetar_collect() {
+    local img="$1" receipt="$1.receipt.json"
+    [ -f "$receipt" ] || { echo "[magnetar] FAIL: no receipt $receipt" >&2; return 1; }
+    cp -f "$MAGNETAR_BASE_LAYER" "$MAGNETAR_DIR/base.squashfs.part" \
+        && mv -f "$MAGNETAR_DIR/base.squashfs.part" "$MAGNETAR_DIR/base.squashfs" || return 1
+    python3 -I - "$receipt" "$MAGNETAR_DIR" "$MAGNETAR_PAYLOAD_URL" "$MAGNETAR_ASSETS_URL" "$MAGNETAR_POOL_URL" <<'PY'
+import hashlib, json, os, sys
+receipt, d, purl, aurl, lurl = sys.argv[1:6]
+r = json.load(open(receipt))
+def sha(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as fh:
+        for b in iter(lambda: fh.read(1 << 20), b""):
+            h.update(b)
+    return h.hexdigest()
+bad = []
+if r.get("variant") != "server":
+    bad.append(f"receipt variant is {r.get('variant')!r}, not 'server'")
+pl = r.get("ncz_payload") or {}
+of = pl.get("online_fetch") or {}
+if pl.get("server_payload") == "medium":
+    # Self-contained server medium (NCZ_SERVER_PAYLOAD=medium): the payload is ON
+    # the medium, so there are no URL pins to check. What must hold instead is
+    # that the root filesystem really went onto the medium -- the whole point of
+    # the mode, and the thing its absence would silently break.
+    if "base.squashfs" not in (pl.get("staged_files") or []):
+        bad.append("self-contained server medium does not stage base.squashfs")
+elif not of:
+    bad.append("receipt has no ncz_payload.online_fetch pins")
+else:
+    if of.get("payload_url") != purl:
+        bad.append(f"receipt payload_url {of.get('payload_url')!r} != {purl!r}")
+    if of.get("assets_url") != aurl:
+        bad.append(f"receipt assets_url {of.get('assets_url')!r} != {aurl!r}")
+    if of.get("pool_url") != lurl:
+        bad.append(f"receipt pool_url {of.get('pool_url')!r} != {lurl!r}")
+    for key, name in (("payload_sha256", of.get("payload_name", "base.squashfs")),
+                      ("assets_sha256", of.get("assets_name", "")),
+                      ("pool_sha256", of.get("pool_name", ""))):
+        p = os.path.join(d, name)
+        if not name or not os.path.isfile(p):
+            bad.append(f"payload file {p} is missing")
+        elif sha(p) != of.get(key):
+            bad.append(f"{name}: sha256 {sha(p)} != receipt {key} {of.get(key)}")
+if bad:
+    for b in bad:
+        print("[magnetar] FAIL:", b, file=sys.stderr)
+    sys.exit(1)
+print(f"[magnetar] payload pinned and present: {of['payload_name']} {of['payload_sha256'][:16]}..., "
+      f"{of['assets_name']} {of['assets_sha256'][:16]}..., {of['pool_name']} {of['pool_sha256'][:16]}...")
+PY
+}
+
+NCZ_CRUN_ENV=(); NCZ_CRUN_MOUNTS=(); NCZ_CRUN_HOSTENV=()
 stage_image() {
     local log="$1"
-    ncz_container_run "make image ARCH=$ARCH BUILD_SHA=$GIT_SHA" "$log" || return $?
+    if [ "$NCZ_VARIANT" = server ]; then
+        # Magnetar: pin the payload BEFORE the medium exists (ncz_magnetar_prepare above).
+        if ! ncz_magnetar_prepare "$ROOT" "$ARCH" "$MAGNETAR_DIR" >>"$log" 2>&1; then
+            tail -3 "$log" >&2; return 1
+        fi
+        echo "[image] Magnetar server medium: payload ${MAGNETAR_PAYLOAD_URL} (sha256 ${MAGNETAR_PAYLOAD_SHA256}), assets ${MAGNETAR_ASSETS_URL}, pool ${MAGNETAR_POOL_URL}"
+        local -a srv=(NCZ_VARIANT=server "NCZ_PAYLOAD_URL=$MAGNETAR_PAYLOAD_URL"
+                      "NCZ_PAYLOAD_SHA256=$MAGNETAR_PAYLOAD_SHA256" "NCZ_ASSETS_URL=$MAGNETAR_ASSETS_URL"
+                      "NCZ_POOL_URL=$MAGNETAR_POOL_URL")
+        [ -n "${NCZ_GATE_SERVER_HOST:-}" ] && srv+=("NCZ_GATE_SERVER_HOST=$NCZ_GATE_SERVER_HOST")
+        local kv
+        NCZ_CRUN_ENV=(); for kv in "${srv[@]}"; do NCZ_CRUN_ENV+=(-e "$kv"); done
+        NCZ_CRUN_ENV+=(-e NCZ_ASSETS_EXPORT_DIR=/work/magnetar-payload)
+        NCZ_CRUN_MOUNTS=(-v "$MAGNETAR_DIR":/work/magnetar-payload)
+        NCZ_CRUN_HOSTENV=("${srv[@]}" "NCZ_ASSETS_EXPORT_DIR=$MAGNETAR_DIR")
+    fi
+    ncz_container_run "make image ARCH=$ARCH BUILD_SHA=$GIT_SHA" "$log"
+    local mrc=$?
+    NCZ_CRUN_ENV=(); NCZ_CRUN_MOUNTS=(); NCZ_CRUN_HOSTENV=()
+    [ "$mrc" = 0 ] || return "$mrc"
     # Resolve and record the image path HERE: the provenance gate now runs BEFORE
     # kvm-gate and needs the path, so it can no longer be written by the KVM gate.
     local img="${IMAGE_ARG:-}"
     if [ -z "$img" ]; then
-        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA".img 2>/dev/null | tail -1)"
+        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA"*.img 2>/dev/null | tail -1)"
     fi
     if [ -z "$img" ] || [ ! -f "$img" ]; then
-        echo "[image] FAIL: no image found for $ARCH $GIT_SHA" | tee -a "$log" >&2
+        echo "[image] FAIL: no image found for $ARCH $GIT_SHA" >&2
         return 1
     fi
     printf '%s\n' "$img" > "$RUN_DIR/image.path"
-    echo "[image] $img" | tee -a "$log"
+    echo "[image] $img"
+    if [ "$NCZ_VARIANT" = server ]; then
+        # the writer ran as root in the container: hand the exported bundle back
+        ncz_sudo chown -R "$(id -u):$(id -g)" "$MAGNETAR_DIR" 2>/dev/null || true
+        ncz_magnetar_collect "$img"
+        [ "${PIPESTATUS[0]}" = 0 ] || return 1
+        { printf 'variant=server\nimage=%s\npayload_url=%s\npayload_sha256=%s\nassets_url=%s\nassets_sha256=%s\npool_url=%s\npool_sha256=%s\nbase_url=%s\npublished=no\nat=%s\n' \
+            "$img" "$MAGNETAR_PAYLOAD_URL" "$MAGNETAR_PAYLOAD_SHA256" "$MAGNETAR_ASSETS_URL" \
+            "$(awk '{print $1}' "$MAGNETAR_DIR/$MAGNETAR_ASSETS_NAME.sha256")" "$MAGNETAR_POOL_URL" \
+            "$(awk '{print $1}' "$MAGNETAR_DIR/$MAGNETAR_POOL_NAME.sha256")" "$MAGNETAR_BASE_URL" "$(date -u +%s)"; } \
+            > "$RUN_DIR/payload.result"
+    fi
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Stage 75 -- shipped-artifact credential scan (MANDATORY image-build gate)
+# ---------------------------------------------------------------------------
+# Preview2 shipped arm64 only because this scan was run BY HAND; amd64 was
+# never scanned at all.  It is a stage now: it reads the finished image
+# read-only, extracts every shipped byte (each squashfs layer, every
+# initrd/initramfs cpio segment, the rescue rootfs tar.zst, every .deb
+# data/control archive in every pool and cache on the image) and matches the
+# extracted text against a salted-SHA-256 hash list plus a token-shape scan.
+#
+# FAIL CLOSED: no hash list, an unreadable layer or a scanner crash all fail
+# the build.  The hash list is the ONLY way the hashed half can run, and the
+# build host never holds a plaintext secret -- the operator generates the list
+# on a trusted machine with build/make-secret-hashes.py and copies just the
+# digests to ~/.config/ncz/secret-hashes.json, outside every git tree.
+#
+# The scanner needs unsquashfs and zstd on this host (checked in preflight).
+stage_secret_scan() {
+    local log="$1"
+    local img; img="$(cat "$RUN_DIR/image.path" 2>/dev/null || true)"
+    [ -n "$img" ] || img="${IMAGE_ARG:-}"
+    if [ -z "$img" ]; then
+        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA"*.img 2>/dev/null | tail -1)"
+    fi
+    [ -n "$img" ] && [ -f "$img" ] || { echo "[secret-scan] FAIL: no image found for $ARCH $GIT_SHA" >&2; return 1; }
+    local hashf
+    hashf="$(ncz_site_value NCZ_SECRET_HASHES_FILE secret-hashes-file)"
+    [ -n "$hashf" ] || hashf="${XDG_CONFIG_HOME:-$HOME/.config}/ncz/secret-hashes.json"
+    if [ "${NCZ_SECRET_SCAN:-}" = skip ]; then
+        echo "[secret-scan] SKIPPED by NCZ_SECRET_SCAN=skip -- this image is NOT cleared" \
+             "for release; the archive stage will refuse it" >&2
+        printf 'gate=secret-scan\nresult=SKIP\nreason=NCZ_SECRET_SCAN=skip\nat=%s\n' \
+            "$(date -u +%s)" > "$RUN_DIR/secret-scan.result"
+        return 0
+    fi
+    # The digests are operator data: they live outside every git worktree, so
+    # a review or export of the tree can never pick them up.
+    local root_real hash_real
+    root_real="$(realpath -m "$ROOT")"; hash_real="$(realpath -m "$hashf")"
+    case "$hash_real/" in
+        "$root_real"/*)
+            echo "[secret-scan] FAIL: the hash list $hashf is inside the repository;" \
+                 "keep it under ~/.config/ncz/ (or NCZ_SECRET_HASHES_FILE outside the tree)" >&2
+            return 1 ;;
+    esac
+    # Say which half can run before doing any work: the operator must never
+    # have to read a stack trace to learn the hash list is missing.
+    if [ ! -f "$hashf" ]; then
+        echo "[secret-scan] FAIL: no hash list at $hashf" >&2
+        echo "[secret-scan]   run build/make-secret-hashes.py on a TRUSTED machine and copy" >&2
+        echo "[secret-scan]   only the resulting digests to ~/.config/ncz/secret-hashes.json (or set" >&2
+        echo "[secret-scan]   NCZ_SECRET_HASHES_FILE).  NCZ_SECRET_SCAN=skip builds an image that" >&2
+        echo "[secret-scan]   is never archived or released." >&2
+        return 1
+    fi
+    local receipt="$RUN_DIR/secret-scan.receipt.json"
+    local work="$RUN_DIR/secret-scan-work"
+    mkdir -p "$work"
+    local extra=()
+    # Tests only (build/test-shipped-secret-scan.sh drives the stage against a
+    # fixture image); a real build never sets these.
+    [ -n "${NCZ_SECRET_SCAN_ALLOW_DETACHED:-}" ] && extra+=(--allow-detached)
+    local t0 t1
+    t0="$(date -u +%s)"
+    # A server medium carries no layer (--variant server checks that against its
+    # receipt); its payload ships off the medium and is scanned on its own.
+    [ "$NCZ_VARIANT" = server ] && extra+=(--variant server)
+    TMPDIR="$work" python3 -I "$ROOT/build/scan-shipped-secrets.py" \
+        --image "$img" --hash-file "$hashf" --receipt "$receipt" \
+        --work-dir "$work" --require-hashes --jobs "${JOBS:-$(nproc)}" \
+        "${extra[@]}"
+    local rc="${PIPESTATUS[0]}"
+    local preceipt="$RUN_DIR/secret-scan-payload.receipt.json" prc=0
+    if [ "$NCZ_VARIANT" = server ] && [ "$rc" = 0 ]; then
+        local -a pay=()
+        local pf
+        for pf in "$MAGNETAR_DIR/base.squashfs" "$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz" "$MAGNETAR_DIR/ncz-pool-$ARCH.tar.gz"; do
+            [ -f "$pf" ] && pay+=(--payload "$pf")
+        done
+        if [ "${#pay[@]}" != 6 ]; then
+            echo "[secret-scan] FAIL: the Magnetar payload is incomplete in $MAGNETAR_DIR (need base.squashfs, the asset bundle and the offline apt pool; run the image stage)" >&2
+            prc=1
+        else
+            TMPDIR="$work" python3 -I "$ROOT/build/scan-shipped-secrets.py" \
+                "${pay[@]}" --hash-file "$hashf" --receipt "$preceipt" \
+                --work-dir "$work" --require-hashes --jobs "${JOBS:-$(nproc)}"
+            prc="${PIPESTATUS[0]}"
+        fi
+        [ "$prc" = 0 ] || rc=1
+    fi
+    t1="$(date -u +%s)"
+    # Keep the work dir only when the operator asked for it: a clean run must
+    # leave no extracted payload behind on the build host.
+    if [ "${KEEP_WORK:-0}" != 1 ]; then
+        chmod -R u+rwX "$work" 2>/dev/null || true
+        rm -rf "$work" 2>/dev/null || true
+    fi
+    if [ "$rc" != 0 ]; then
+        echo "[secret-scan] FAIL: the shipped artifact is not shippable (rc=$rc); receipt: $receipt" >&2
+        return 1
+    fi
+    { printf 'gate=secret-scan\nresult=PASS\nimage=%s\nsha256=%s\nhash_list=%s\nelapsed_seconds=%s\nat=%s\n' \
+        "$img" "$(sha256sum "$img" | awk '{print $1}')" "sha256:$(sha256sum "$hashf" | awk '{print $1}')" "$((t1 - t0))" "$(date -u +%s)"
+      if [ "$NCZ_VARIANT" = server ]; then
+          printf 'variant=server\npayload_receipt=%s\n' "$preceipt"
+          for pf in "$MAGNETAR_DIR/base.squashfs" "$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz" "$MAGNETAR_DIR/ncz-pool-$ARCH.tar.gz"; do
+              printf 'payload=%s sha256=%s\n' "$(basename "$pf")" "$(sha256sum "$pf" | awk '{print $1}')"
+          done
+      fi; } > "$RUN_DIR/secret-scan.result"
+    echo "[secret-scan] PASS ($((t1 - t0))s) receipt: $receipt"
     return 0
 }
 
@@ -1281,15 +2071,15 @@ stage_kvm_gate() {
     local img; img="$(cat "$RUN_DIR/image.path" 2>/dev/null || true)"
     [ -n "$img" ] || img="${IMAGE_ARG:-}"
     if [ -z "$img" ]; then
-        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA".img 2>/dev/null | tail -1)"
+        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA"*.img 2>/dev/null | tail -1)"
     fi
-    [ -n "$img" ] && [ -f "$img" ] || { echo "[kvm-gate] FAIL: no image found for $ARCH $GIT_SHA (pass --image)" | tee -a "$log" >&2; return 1; }
+    [ -n "$img" ] && [ -f "$img" ] || { echo "[kvm-gate] FAIL: no image found for $ARCH $GIT_SHA (pass --image)" >&2; return 1; }
     local pyvenv="/root/ncz-pyte-venv"
     if ! [ -x "$pyvenv/bin/python" ]; then
         if [ "$OFFLINE" = "1" ]; then
-            echo "[kvm-gate] WARN: --offline; cannot create the pyte venv (UI check may FAIL)" | tee -a "$log"
+            echo "[kvm-gate] WARN: --offline; cannot create the pyte venv (UI check may FAIL)"
         else
-            echo "[kvm-gate] creating $pyvenv for the UI check" | tee -a "$log"
+            echo "[kvm-gate] creating $pyvenv for the UI check"
             ncz_sudo python3 -m venv "$pyvenv" >>"$log" 2>&1 && \
               ncz_sudo "$pyvenv/bin/pip" install --quiet pyte >>"$log" 2>&1 || true
         fi
@@ -1301,15 +2091,73 @@ stage_kvm_gate() {
     # env_reset would otherwise drop it.  It keeps the run dir deletable by the
     # build user after the gate (2026-10-11).
     local invoker; invoker="$(id -u):$(id -g)"
-    ( cd "$ROOT" && ARCH="$ARCH" TMPDIR="$RUN_DIR/tmp" \
-        NCZ_PYTE_PYTHON="${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}" \
-        ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_PYTE_PYTHON='${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}' bash build/kvm-install-gate-gpt.sh '$img' '$work'" ) 2>&1 | tee -a "$log"
-    local rc="${PIPESTATUS[0]}"
-    if [ "$rc" = 0 ] && grep -q 'GATE PASS' "$log"; then
-        { printf 'gate=kvm\nresult=PASS\nui=PASS\nimage=%s\nsha256=%s\nat=%s\n' \
-            "$img" "$(sha256sum "$img" | awk '{print $1}')" "$(date -u +%s)"; } > "$RUN_DIR/kvm-gate.result"
+    if [ "$NCZ_VARIANT" = server ]; then
+        stage_kvm_gate_server "$log" "$img" "$work" "$invoker" "$pyvenv"
+        return $?
     fi
-    return "$rc"
+    # The gate's own output is captured once and echoed: run_stage() tees the
+    # stage's stdout into the stage log, so the verdict is grepped from the
+    # capture instead of re-reading the log (which run_stage writes only after
+    # this function returns).
+    local gate_out
+    gate_out="$( cd "$ROOT" && ARCH="$ARCH" TMPDIR="$RUN_DIR/tmp" \
+        NCZ_PYTE_PYTHON="${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}" \
+        ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_PYTE_PYTHON='${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}' bash build/kvm-install-gate-gpt.sh '$img' '$work'" 2>&1 )"
+    local rc=$?
+    printf '%s\n' "$gate_out"
+    [ "$rc" = 0 ] && grep -q 'GATE PASS' <<<"$gate_out" || return "$rc"
+    # Install-option sets: the gate above answers the component dialog with
+    # every option selected; these install and boot the image again with
+    # options unticked (rescue partition + management container off, then
+    # every option off) and once over a disk that held an older install (btrfs
+    # root over old ext4 signatures), each in its own work dir. build/kvm-install-gate-matrix.sh
+    # names the sets; NCZ_KVM_GATE_VARIANTS overrides the list ("all" = every set).
+    local sets mrc=0
+    sets="${NCZ_KVM_GATE_VARIANTS:-norescue minimal stalefs}"
+    echo "[kvm-gate] install-option sets: $sets"
+    local set_out
+    set_out="$( cd "$ROOT" && ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_KVM_GATE_VARIANTS='$sets' bash build/kvm-install-gate-matrix.sh '$img' '$work-options'" 2>&1 )"
+    mrc=$?
+    printf '%s\n' "$set_out"
+    if [ "$mrc" != 0 ] || ! grep -q '^MATRIX PASS' <<<"$set_out"; then
+        echo "[kvm-gate] FAIL: an install-option set failed (see $work-options/matrix.tsv)" >&2
+        return 1
+    fi
+    { printf 'gate=kvm\nresult=PASS\nui=PASS\noptions=%s\nimage=%s\nsha256=%s\nat=%s\n' \
+        "$(echo "$sets" | tr ' ' ',')" "$img" "$(sha256sum "$img" | awk '{print $1}')" "$(date -u +%s)"; } > "$RUN_DIR/kvm-gate.result"
+    return 0
+}
+
+# Magnetar server medium: it carries no desktop payload, so the desktop full
+# gate and the desktop option sets cannot install it. The server sets do: the
+# gate reads the pins back off the medium, serves base.squashfs + the asset
+# bundle from MAGNETAR_DIR on its own local HTTP server (stopped by PID on
+# exit), installs and boots; the negative set proves a stopped server fails
+# loud and bounded with nothing installed. The server set also runs the
+# installer UI check in its server mode (a Magnetar Server medium names its
+# edition and shows no component dialog), so it needs the pyte interpreter
+# ($5, the venv provisioned above) on the sudo line like the desktop gate:
+# sudo's env_reset drops anything that is not on it.
+stage_kvm_gate_server() {
+    local log="$1" img="$2" work="$3" invoker="$4" pyvenv="${5:-/root/ncz-pyte-venv}" sets mrc
+    sets="${NCZ_KVM_GATE_SERVER_SETS:-server server-offline-negative}"
+    local assets="$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz" pool="$MAGNETAR_DIR/ncz-pool-$ARCH.tar.gz"
+    if [ ! -f "$MAGNETAR_DIR/base.squashfs" ] || [ ! -f "$assets" ] || [ ! -f "$pool" ]; then
+        echo "[kvm-gate] FAIL: Magnetar payload missing in $MAGNETAR_DIR (run the image stage)" >&2
+        return 1
+    fi
+    echo "[kvm-gate] Magnetar server sets: $sets (payload from $MAGNETAR_DIR)"
+    local set_out
+    set_out="$( cd "$ROOT" && ncz_sudo_bash "ARCH=$ARCH TMPDIR='$RUN_DIR/tmp' HOME='$HOME' NCZ_CHOWN_BACK='$invoker' NCZ_PYTE_PYTHON='${NCZ_PYTE_PYTHON:-$pyvenv/bin/python}' NCZ_KVM_GATE_VARIANTS='$sets' NCZ_GATE_SERVER_PAYLOAD='$MAGNETAR_DIR/base.squashfs' NCZ_GATE_SERVER_ASSETS='$assets' NCZ_GATE_SERVER_POOL='$pool' bash build/kvm-install-gate-matrix.sh '$img' '$work-options'" 2>&1 )"
+    mrc=$?
+    printf '%s\n' "$set_out"
+    if [ "$mrc" != 0 ] || ! grep -q '^MATRIX PASS' <<<"$set_out"; then
+        echo "[kvm-gate] FAIL: a Magnetar server set failed (see $work-options/matrix.tsv)" >&2
+        return 1
+    fi
+    { printf 'gate=kvm\nresult=PASS\nvariant=server\nui=server\noptions=%s\nimage=%s\nsha256=%s\nat=%s\n' \
+        "$(echo "$sets" | tr ' ' ',')" "$img" "$(sha256sum "$img" | awk '{print $1}')" "$(date -u +%s)"; } > "$RUN_DIR/kvm-gate.result"
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -1319,7 +2167,7 @@ stage_provenance_gate() {
     local log="$1"
     local img; img="$(cat "$RUN_DIR/image.path" 2>/dev/null || true)"
     [ -n "$img" ] || img="${IMAGE_ARG:-}"
-    [ -n "$img" ] && [ -f "$img" ] || { echo "[provenance-gate] FAIL: no image path" | tee -a "$log" >&2; return 1; }
+    [ -n "$img" ] && [ -f "$img" ] || { echo "[provenance-gate] FAIL: no image path" >&2; return 1; }
     local work="$RUN_DIR/prov-work" idx="$RUN_DIR/prov-index"
     mkdir -p "$work" "$idx"
     # Run as root: the --image scan extracts partitions with `debugfs rdump`,
@@ -1330,11 +2178,16 @@ stage_provenance_gate() {
     # NCZ_CHOWN_BACK hands prov-work/ + prov-index/ back to the invoking user on
     # the script's exit trap, so the run dir stays deletable (2026-10-11).
     local invoker; invoker="$(id -u):$(id -g)"
+    # Server medium: the provenance scan also covers the payload it pins
+    # (base.squashfs, the asset bundle), checked against the receipt's pins.
+    local srvargs=""
+    [ "$NCZ_VARIANT" = server ] && srvargs="--variant server --server-payload '$MAGNETAR_DIR'"
     ncz_sudo_bash "cd '$ROOT' && NCZ_CHOWN_BACK='$invoker' bash build/check-forky-provenance.sh --image '$img' \
-        --work '$work' --index-dir '$idx' --fetch-index" 2>&1 | tee -a "$log"
+        --work '$work' --index-dir '$idx' --fetch-index $srvargs"
     local rc="${PIPESTATUS[0]}"
     if [ "$rc" = 0 ]; then
-        { printf 'gate=provenance\nresult=PASS\none_kernel=PASS\nimage=%s\nat=%s\n' "$img" "$(date -u +%s)"; } > "$RUN_DIR/provenance.result"
+        { printf 'gate=provenance\nresult=PASS\none_kernel=PASS\nimage=%s\nat=%s\n' "$img" "$(date -u +%s)"
+          [ "$NCZ_VARIANT" = server ] && printf 'variant=server\npayload_dir=%s\n' "$MAGNETAR_DIR"; } > "$RUN_DIR/provenance.result"
     fi
     return "$rc"
 }
@@ -1348,7 +2201,7 @@ stage_receipt() {
     local out="$RUN_DIR/run-metadata.json"
     NCZ_RUN_META_PLAN="$PLAN_JSON" python3 -I - "$out" "$ARCH" "$GIT_FULL" "$GIT_SHA" "$PIN_DIGEST" \
         "$SOURCE_DATE_EPOCH" "$KVER" "$SUBSTRATE_SHA" "$RUN_DIR" "$ROOT" "$img" \
-        "$SCOPE" "$COMPONENTS" "$GATES" "$NO_PUBLISH" "$SUBSTRATE" "$NCZ_LAYER_PLAN" "$SOURCES" <<'PYEOF' | tee -a "$log"
+        "$SCOPE" "$COMPONENTS" "$GATES" "$NO_PUBLISH" "$SUBSTRATE" "$NCZ_LAYER_PLAN" "$SOURCES" <<'PYEOF'
 import json, os, socket, sys, time
 (out, arch, git_full, git_sha, pin_digest, sde, kver, substrate,
  run_dir, root, img, scope, components, gates, no_publish, substrate_policy,
@@ -1381,7 +2234,7 @@ try:
     sing["n_repos"] = sr.get("n_repos")
 except Exception:
     pass
-required = {"kvm", "provenance", "one_kernel", "ui"}
+required = {"kvm", "provenance", "one_kernel", "ui", "secret_scan"}
 gates_sel = [g for g in (gates or "kvm,provenance").split(",") if g]
 meta = {
     "schema": "ncz-image-build-run/v1",
@@ -1401,6 +2254,7 @@ meta = {
     "layers": {lyr: {"fingerprint": fp, "decision": plan.get("layers", {}).get(lyr, "?")}
                for lyr, fp in plan.get("fingerprints", {}).items()},
     "gates": {"kvm": gate("kvm", "kvm-gate.result"),
+              "secret_scan": gate("secret-scan", "secret-scan.result"),
               "provenance_inputs": gate("provenance-inputs", "provenance-inputs.result"),
               "provenance": gate("provenance", "provenance.result"),
               "layers_preflight": gate("layers-preflight", "layers-preflight.result"),
@@ -1418,7 +2272,9 @@ with open(out, "w") as fh:
     fh.write("\n")
 # a small, non-hashed gate summary next to the image for the archive stage
 if img:
-    gsum = {"all_required_passed": meta["gates"]["kvm"] == "PASS" and meta["gates"]["provenance"] == "PASS",
+    gsum = {"all_required_passed": (meta["gates"]["kvm"] == "PASS"
+                                    and meta["gates"]["provenance"] == "PASS"
+                                    and meta["gates"]["secret_scan"] == "PASS"),
             "gates": meta["gates"], "required": sorted(required),
             "mode": scope, "base_pin_digest": pin_digest}
     try:
@@ -1438,18 +2294,22 @@ PYEOF
 stage_archive() {
     local log="$1"
     if [ "$NO_PUBLISH" = 1 ]; then
-        echo "[archive] skipped (--no-publish)" | tee -a "$log"
+        echo "[archive] skipped (--no-publish)"
         return 0
     fi
     if [ ! -f "$RUN_DIR/kvm-gate.result" ] || ! grep -q '^result=PASS' "$RUN_DIR/kvm-gate.result"; then
-        echo "[archive] FAIL: refusing to copy — the KVM gate did not PASS in this run" | tee -a "$log" >&2
+        echo "[archive] FAIL: refusing to copy — the KVM gate did not PASS in this run" >&2
         return 1
     fi
     if [ ! -f "$RUN_DIR/provenance.result" ] || ! grep -q '^result=PASS' "$RUN_DIR/provenance.result"; then
-        echo "[archive] FAIL: refusing to copy — the provenance gate did not PASS in this run" | tee -a "$log" >&2
+        echo "[archive] FAIL: refusing to copy — the provenance gate did not PASS in this run" >&2
         return 1
     fi
-    ( cd "$ROOT" && bash build/stage-to-argonas.sh "$ARCH" "$(cat "$RUN_DIR/image.path")" "$RUN_DIR" ) 2>&1 | tee -a "$log"
+    if [ ! -f "$RUN_DIR/secret-scan.result" ] || ! grep -q '^result=PASS' "$RUN_DIR/secret-scan.result"; then
+        echo "[archive] FAIL: refusing to copy — the shipped-artifact credential scan did not PASS in this run" >&2
+        return 1
+    fi
+    ( cd "$ROOT" && bash build/stage-to-argonas.sh "$ARCH" "$(cat "$RUN_DIR/image.path")" "$RUN_DIR" )
     return "${PIPESTATUS[0]}"
 }
 
@@ -1466,6 +2326,11 @@ stage_enabled() {
         # with --substrate refresh it fetches and re-pins.
         refresh-substrate) return 0 ;;
         stage-inputs) return 0 ;;
+        # Stage 25 (M1): predictive provenance over the staged inputs.  Also
+        # MANDATORY -- it is the only thing standing between a bad input and
+        # the 13-minute mirror plus the layer stages, and the offline-mirror
+        # stage reuses a warm mirror, so nothing later would re-read them.
+        provenance-predict) return 0 ;;
         offline-mirror)
             # reuse the mirror when the plan says reuse and it is present
             [ "$(LAYER_DECISION mirror)" = reuse ] && [ -d "$ROOT/build/forky-mirror" ] && return 1 || return 0 ;;
@@ -1478,8 +2343,14 @@ stage_enabled() {
                 *) return 1 ;;
             esac ;;
         provenance-inputs) gate_selected provenance ;;
+        # MANDATORY static gate suites: no scope, gate selection or env var can
+        # switch them off (the same rule as secret-scan).
+        static-gates) return 0 ;;
         layers) [ "$SCOPE" = only-image ] && return 1 || return 0 ;;
         image) return 0 ;;
+        # The shipped-artifact credential gate is MANDATORY: no scope, gate
+        # selection or publish flag can switch it off (see stage_secret_scan).
+        secret-scan) return 0 ;;
         kvm-gate) gate_selected kvm ;;
         provenance-gate) gate_selected provenance ;;
         receipt) return 0 ;;
@@ -1531,7 +2402,11 @@ print_plan() {
     local i=0 s
     for s in "${STAGES[@]}"; do
         local mark="run "
-        if should_skip "$s"; then mark="skip"; elif ! stage_enabled "$s"; then mark="off "; fi
+        case "$(stage_skip_state "$s")" in
+            skip)  mark="skip" ;;
+            rerun) mark="rerun" ;;
+            *)     ! stage_enabled "$s" && mark="off " ;;
+        esac
         printf '    [%s] %02d %s\n' "$mark" "$i" "$s"
         i=$((i+1))
     done

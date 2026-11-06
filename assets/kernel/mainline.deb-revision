@@ -1,0 +1,13 @@
+# Packaging revision of the Sky1 kernel debs (linux-image/headers-cixmini,
+# cixmini-boot), when it differs from the staged release in mainline.release.
+# Read by build/build-kernel-debs.sh (default BUILD_REV) and checked by
+# build/check-pin-coherence.sh (== kernel-manifest.json == ncz-packages.tsv;
+# never older than the staged release).  Delete this file when the next staged
+# release (rNNN-...) is packaged at its own revision.
+#
+# r293 (2026-10-27) repackages the staged r292-7.3.0-sky1-ncz-20261023 kernel:
+# same Image (kernel-manifest.json image sha256 e8586c15..., unchanged by
+# 100bd157), overlays rebuilt against the r292 headers (1c2d3371), headers tree
+# kept byte-identical by modules_prepare (a18a8d57), cixmini-boot 1.6
+# (e7417407).  No r293 staging directory or kernel source tag exists.
+r293

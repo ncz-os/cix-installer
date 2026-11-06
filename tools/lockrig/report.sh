@@ -15,7 +15,7 @@ done
 [ -n "$OUT" ] || { echo "report: --out required" >&2; exit 2; }
 IFS=',' read -r -a SEL <<< "$HOSTS"
 
-ORDER="PREFLIGHT LEASE ATTENDED_GATE T1 T2 T3 T3b T4 T5 T6 T6b T7 T8 T9 T10 T11 T12 T13 T14 T15 T16 T16b T17 T17s T18 T19 TRESTORE TH RUN"
+ORDER="PREFLIGHT LEASE ATTENDED_GATE T1 T2 T3 T3b T4 T5 T6 T6b T7 T8 T9 T10 T11 T12 T13 T14 T15 T16 T16b T17 T17s T18 T19 T20 TRESTORE TH RUN"
 
 status_of() { # $1 hostdir $2 case
   awk -F'\t' -v c="$2" '$1==c{print $2; exit}' "$1/cases.tsv" 2>/dev/null

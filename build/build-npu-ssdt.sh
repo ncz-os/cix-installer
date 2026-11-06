@@ -19,12 +19,22 @@
 #
 # Requires: iasl (Debian/Ubuntu: acpica-tools), cpio.
 #
+# OUTPUTS (all in assets/npu/, all gitignored — rebuilt, never committed):
+#   ssdt-npucre.aml            the compiled table, staged into the image at
+#                              /usr/local/lib/cix-installer/assets/npu/ so the
+#                              TARGET can build its own early CPIO on every
+#                              initrd rebuild (post-install/lib/npu-ssdt.sh +
+#                              assets/dracut/modules.d/91ncz-npu-ssdt)
+#   npu-acpi-override.cpio     convenience early-CPIO for the install-time
+#                              prepend in post-install/80-npu.sh
+#
 # Usage:  build/build-npu-ssdt.sh
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$REPO/assets/npu/ssdt-npucre.asl"
 OUT="$REPO/assets/npu/npu-acpi-override.cpio"
+OUT_AML="$REPO/assets/npu/ssdt-npucre.aml"
 TABLE=ssdt-npucre.aml
 
 # GNU-coreutils dependent: `sort -z`, `stat -c` and `sha256sum` are not BSD/
@@ -53,6 +63,15 @@ cp "$SRC" "$WORK/"
 mkdir -p "$WORK/root/kernel/firmware/acpi"
 cp "$WORK/$TABLE" "$WORK/root/kernel/firmware/acpi/$TABLE"
 
+# Also publish the bare .aml next to the CPIO. The TARGET rebuilds the early
+# CPIO from this file on every initrd regeneration (tables staged inline in
+# the initramfs root by the initramfs-tools hook, or via dracut's
+# acpi_table_dir), which is what keeps the override alive across a kernel
+# upgrade. Neither file is committed: assets/npu/*.aml and *.cpio are
+# gitignored build outputs regenerated from the committed .asl.
+cp "$WORK/$TABLE" "$OUT_AML"
+chmod 0644 "$OUT_AML"
+
 # Reproducible build: GNU cpio has no --mtime equivalent to tar's, and
 # embeds each file's real mtime by default -- iasl just created these
 # files moments ago, so every regeneration produced a byte-different
@@ -64,7 +83,7 @@ find "$WORK/root" -exec touch -h -d @0 {} +
 
 echo "[ssdt] packing early-CPIO (newc, uid/gid 0)"
 ( cd "$WORK/root" && find kernel -print0 | LC_ALL=C sort -z \
-    | cpio --null -o -H newc --owner=0:0 --quiet ) > "$WORK/out.cpio"
+    | cpio --null -o -H newc --owner=0:0 --reproducible --quiet ) > "$WORK/out.cpio"
 
 # The kernel only inspects tables in this archive before the real initramfs is
 # unpacked; it must NOT be compressed.
@@ -74,6 +93,7 @@ chmod 0644 "$OUT"
 
 echo ""
 echo "[ssdt] wrote $OUT ($(stat -c%s "$OUT") bytes)"
+echo "[ssdt] wrote $OUT_AML ($(stat -c%s "$OUT_AML") bytes)"
 echo "[ssdt] contents:"
 cpio -itv < "$OUT" 2>/dev/null | sed 's/^/    /'
 echo "[ssdt] table sha256: $(sha256sum "$WORK/$TABLE" | cut -d' ' -f1)"

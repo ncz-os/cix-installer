@@ -120,7 +120,10 @@ echo '{"host":"h2","mode":"live","summary":{"pass":3,"fail":0,"skip":0}}' > "$RO
 rm -rf "$RO"
 
 echo "== greetd login retries a busy greeter =="
-GT="$(mktemp -d)"; GS="$GT/greetd.sock"
+# A UNIX socket path is capped at ~108 bytes; keep it under /tmp so a deep
+# TMPDIR in CI/workspace checkouts does not make bind() fail with AF_UNIX
+# path too long.
+GT="$(mktemp -d -p /tmp lrgreet.XXXXXX)"; GS="$GT/greetd.sock"
 python3 "$HERE/agent/lib/fake_greetd.py" "$GS" 2 rightpw & FG=$!
 for _i in 1 2 3 4 5 6 7 8 9 10; do [ -S "$GS" ] && break; sleep 0.2; done
 out=$(printf 'rightpw\n' | GREETD_SOCK="$GS" python3 "$HERE/agent/lib/greetd_login.py" rigtest 2>&1); rc=$?
@@ -133,8 +136,17 @@ echo "== seams reach the session =="
 R="$HERE/agent/run_host.sh"
 grep -A3 'renv_add "NCZ_FEED_THERMAL_ROOT' "$R" | grep -q 'session_cycle' && ok "T13 re-logs in after staging the thermal seam" || bad "T13 stages the seam without a new session"
 grep -q "grep -q 'blank_after'" "$R" && ok "T14 runs only when the feed advertises blank_after" || bad "T14 not gated on the policy marker"
-grep -A3 'renv_add "SINGULARITY_LOCK_RENDERER_DELAY_MS' "$R" | grep -q 'session_cycle' && ok "T19 re-logs in after staging the prompt delay" || bad "T19 stages the prompt delay without a new session"
-grep -q "grep -q 'freeze=prompt'" "$R" && ! grep -q "grep -q 'freeze=always'" "$R" && ok "T15 expects freeze mode prompt (no timer freeze)" || bad "T15 still expects a timer freeze"
+grep -q 'rec T19 FAIL "the prompt timed out after' "$R" && grep -q 'rec T20 PASS' "$R" && ok "T19/T20 check the 60 s prompt timeout and its restart on input" || bad "no prompt-timeout cases"
+grep -q 'renderer_states' "$R" && grep -q 'frame source paused' "$R" && ok "T6b checks that the renderer is suspended" || bad "T6b does not check suspension"
+grep -q "grep -q 'freeze=prompt'" "$R" && grep -q "grep -q 'lock_fps=30'" "$R" && ! grep -q "grep -q 'freeze=always'" "$R" && ok "T15 expects freeze mode prompt (no timer freeze)" || bad "T15 still expects a timer freeze"
+# The pause-aware cases must be XSKIP-pending (recorded as SKIP with a 'pending'
+# note) on a staged 0.8.15 saver, so a pre-rebuild studio reports them as
+# pending rather than as new regressions.
+grep -q 'saver_pause_capable()' "$R" && grep -q 'weak_lock_fps=' "$R" && ok "pause capability is probed from --print-policy" || bad "no pause-capability probe"
+for _c in T6b T15 T19 T20; do
+  grep -q "rec $_c SKIP \"pending ncz-screensavers 0.8.16+" "$R" || bad "$_c is not SKIP-pending on a non-pause-capable saver"
+done
+ok "T6b/T15/T19/T20 are SKIP-pending until ncz-screensavers 0.8.16+"
 grep -q 'rec T4 FAIL "the saver froze with no input' "$R" && grep -q 'progress_soak "$PS_S"' "$R" && ok "T4/T18 fail an idle saver that freezes without input" || bad "no frame-progress check for the unattended saver"
 grep -q 'PubkeyAuthentication=no' "$HERE/lockrig" && ok "password hosts skip agent keys" || bad "password hosts may exhaust MaxAuthTries"
 out=$(bash -c 'set -u; ATT=(); n=0; for x in ${ATT[@]+"${ATT[@]}"}; do n=1; done; echo ok' 2>&1)

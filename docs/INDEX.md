@@ -17,6 +17,7 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | [RELEASE-HISTORY.md](RELEASE-HISTORY.md) | Short release history; per-release archive up to 26.7 |
 | [SOURCE-RELEASES.md](SOURCE-RELEASES.md) · [简体中文](SOURCE-RELEASES.zh-CN.md) | Everything we compile ourselves, its version and where the source is |
 | [REMOTE-ACCESS.md](REMOTE-ACCESS.md) | Remote-access and recovery defaults (telnet, SSH, recovery container) and how to turn each off |
+| [ACCESSIBILITY.md](ACCESSIBILITY.md) | Braille displays: the installer has no braille support; install `brltty` with apt on the installed system, and why |
 | [RECOVERY-LOGINS.md](RECOVERY-LOGINS.md) | The installer diagnostics login (installer only, shown in the boot banner) and the rescue partition login: where each is shown, how to connect, change and reset it, troubleshooting |
 | [`tools/ncz-join-image.sh`](../tools/ncz-join-image.sh) | Joins, unpacks and checks the split release image parts (safe to re-run; never writes to a disk) |
 | [IMAGE-HOSTING.md](IMAGE-HOSTING.md) | Where release images are hosted (GitHub Releases, GitLab release + package registry, fallback storage), the one-release-page rule, stable latest-release links, release page parity and the release checklist |
@@ -30,10 +31,13 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | Document | What it covers |
 |---|---|
 | [ONE-KERNEL.md](ONE-KERNEL.md) | One kernel per image: the default, installer and rescue entries all boot the NCZ kernel |
+| [MAGNETAR-SERVER-VARIANT.md](MAGNETAR-SERVER-VARIANT.md) | `NCZ_VARIANT=server`: which parts of the install medium move online (measured), the pinned-manifest fetch at install time, and what stays on the medium because d-i reads it before the debootstrap stub |
 | [SUPPORTED-FIRMWARE.md](SUPPORTED-FIRMWARE.md) | Supported Sky1 board firmware (Radxa Orion EFI 1.3.1 and later) and firmware gaps |
 | [REFIND-THEME.md](REFIND-THEME.md) | The Cygnus rEFInd boot-menu theme and why it uses one 1080p background |
 | [INSTALLER-BOOT-UX.md](INSTALLER-BOOT-UX.md) | What the installer console shows and why |
 | [GPU-INSTALL-PROGRESS.md](GPU-INSTALL-PROGRESS.md) | GPU driver install progress on the installer screen |
+| [GPU-COMPAT-SWITCHER-DECISION.md](GPU-COMPAT-SWITCHER-DECISION.md) | Why ncz-gpu-switcher never re-enables 01-cixgpu-compat.conf, and why the old unmerged fix is superseded |
+| [GPU-SWITCHER-COMPAT-DECISION.md](GPU-SWITCHER-COMPAT-DECISION.md) | Why 5776efd6 (01-cixgpu-compat re-enable) is superseded by 60a39a23, and how the switcher records the driver it applied |
 | [HIDPI-SCALING.md](HIDPI-SCALING.md) | How the boot splash, login screen and desktop are scaled on high-density displays |
 | [APT-SEPARATION.md](APT-SEPARATION.md) | How NCZ-OS package updates are kept separate from Debian ones (apt pin, one repository, labelled updates) |
 | [CUDA-DYNAMIC-INSTALL.md](CUDA-DYNAMIC-INSTALL.md) | NVIDIA driver and CUDA installed per GPU family on amd64 |
@@ -76,6 +80,7 @@ for 26.10; they remain in the git history and in the `v26.10-preview1` tag.
 | [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md) | Why the stack is built the way it is, with the measurements (26.7 era) |
 | [PLATFORM-SPLIT-DESIGN.md](PLATFORM-SPLIT-DESIGN.md) | What is common to both architectures and what is platform-specific |
 | [SID-EXCEPTIONS.md](SID-EXCEPTIONS.md) | Generated report of reviewed installer packages taken from sid |
+| [FORKY-ONLY-REMEDIATION-PROPOSAL.md](FORKY-ONLY-REMEDIATION-PROPOSAL.md) | Proposal (not adopted): where Ubuntu still appears, and a staged path to a forky-only base with no Ubuntu repository usage |
 | [AI-ML-STACK.md](AI-ML-STACK.md) · [简体中文](AI-ML-STACK.zh-CN.md) | The AI/ML stack on Sky1: CPU, NPU, GPU and VPU and what runs where |
 | [INFERENCE_LIMITS.md](INFERENCE_LIMITS.md) | Measured per-engine inference capability and limits on Sky1 (earlier kernels) |
 | [MODELSCOPE-MODELS.md](MODELSCOPE-MODELS.md) | Pulling and compiling `.cix` NPU models from the CIX model hub |

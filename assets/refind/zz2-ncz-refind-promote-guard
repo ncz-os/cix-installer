@@ -1,0 +1,63 @@
+#!/bin/bash
+# zz2-ncz-refind-promote-guard — /etc/kernel/postinst.d/ hook, runs AFTER
+# zz1-ncz-refind-refresh-amd64 (run-parts order) and nothing else.
+#
+# WHY THIS EXISTS (2026-11-02)
+# zz1 adds the newly installed kernel to the rEFInd menu with `--add`, which
+# deliberately never touches default_selection: installing a kernel must not
+# silently make it the one the machine boots next time. The flip side is that a
+# machine can then hold an entry the operator has to reach by hand. This guard
+# is the ONE sanctioned place that may move default_selection outside the
+# install-time generator, and it does so only when the operator has pinned it:
+#
+#   /etc/ncz/refind-default-token     the entry title substring to keep as the
+#                                     default across kernel installs.
+#
+# With no such file this hook does NOTHING (the default stays where it is —
+# the whole point of the add-only design). With one, it calls the tool's
+# `--promote '<token>'`, which rewrites only the default_selection line and
+# refuses if the token matches no entry; a stale pin therefore cannot corrupt
+# the menu.
+#
+# Called by dpkg/kernel postinst as: <this-script> <kernel-version>
+# <boot-image-path> (the standard /etc/kernel/postinst.d/ contract). Neither
+# argument is used: the tool re-reads the live menu.
+set -uo pipefail
+
+REFRESH=/usr/local/sbin/ncz-refind-refresh-amd64
+PIN_FILE="${NCZ_REFIND_DEFAULT_PIN:-/etc/ncz/refind-default-token}"
+
+if [ ! -x "$REFRESH" ]; then
+    echo "zz2-ncz-refind-promote-guard: $REFRESH not present, skipping"
+    exit 0
+fi
+if [ ! -s "$PIN_FILE" ]; then
+    echo "zz2-ncz-refind-promote-guard: no operator pin ($PIN_FILE); default_selection left as-is"
+    exit 0
+fi
+
+TOKEN="$(sed -n '1p' "$PIN_FILE" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+if [ -z "$TOKEN" ]; then
+    echo "zz2-ncz-refind-promote-guard: $PIN_FILE is empty; default_selection left as-is"
+    exit 0
+fi
+
+echo "zz2-ncz-refind-promote-guard: pinning default_selection to '$TOKEN'"
+NCZ_PROMOTE_SELECTION="$TOKEN"
+export NCZ_PROMOTE_SELECTION
+# The promote result must NOT be the exit status of this hook. This script
+# runs from /etc/kernel/postinst.d, so a non-zero exit fails the kernel
+# package's dpkg configuration -- and the most common cause of a refused
+# promote is a STALE operator pin (the token matches no menuentry any
+# more), which says nothing about the health of the running system: the
+# machine is still bootable, the menu is untouched, and default_selection
+# simply keeps its old value. zz1 does the same for --add. So the failure
+# is reported loudly (the operator must know the pin is not being honoured)
+# but the hook still succeeds.
+"$REFRESH" --promote "$TOKEN"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+    echo "zz2-ncz-refind-promote-guard: --promote failed (rc=$rc); default_selection left as-is" >&2
+    echo "zz2-ncz-refind-promote-guard: if '$TOKEN' is a stale pin, fix or remove $PIN_FILE" >&2
+fi
+exit 0

@@ -206,28 +206,81 @@ for KVER in "${KERNEL_VERS[@]}"; do
     fi
 done
 
-# --- Step 3: ACPI SSDT override — BOARD-GATED (r123) ---
+# --- Step 3: ACPI SSDT override — DELIVERED BY THE INITRAMFS BUILDER ---
 #
 # The SSDT injects _HID="CIXH4010" onto the NPU compute cores (CRE0/CRE1/CRE2).
 # This is a fix for ONE specific defect: the Minisforum MS-R1's shipped BIOS
 # omits that _HID, so the cores never enumerate (CIXH4000:00 appears but no
-# CIXH4010:0x). On boards whose firmware is correct — Radxa Orion O6 / O6N —
-# the cores enumerate natively, and force-loading a second SSDT that redefines
-# the same ACPI named objects risks an AML name-collision (AE_ALREADY_EXISTS).
-# So we only prepend the override when the target actually needs it.
+# CIXH4010:0x), and aipu logs
+#     "only 0 of 3 NPU cores usable - disabling NPU"
+#
+# THE CANONICAL MECHANISM
+# -----------------------
+# The kernel's CONFIG_ACPI_TABLE_UPGRADE (verified =y in the r290 config, see
+# TASK notes and build/test-npu-ssdt-delivery.sh) instaloads any
+# kernel/firmware/acpi/*.aml it finds in an UNCOMPRESSED CPIO archive stacked
+# in front of (or inside the root of) the initramfs. So the override has to be
+# produced BY the initramfs generator, on every regeneration:
+#
+#   dracut (this image's builder, see post-install/94-dracut-config.sh):
+#       /usr/lib/dracut/modules.d/91ncz-npu-ssdt/module-setup.sh
+#   initramfs-tools (fallback builder):
+#       /etc/initramfs-tools/hooks/ncz-npu-ssdt
+#         + /etc/initramfs-tools/post-update.d/zz-ncz-npu-ssdt (belt + braces)
+#
+# Both hook modules are BOARD-GATED by the same shared decision helper
+# (post-install/lib/npu-ssdt.sh, ncz_npu_ssdt_decision), which is the DMI gate
+# modelled on ncz_efi_rt_workaround(): known-good boards are checked first and
+# always win, so Radxa Orion O6/O6N never receive an SSDT that would collide
+# with the _HID their firmware already provides.
+#
+# WHAT THIS HOOK DOES — AND DOES NOT — HAVE TO DO
+# -----------------------------------------------
+# THIS hook (install time) does three things:
+#   1. stage the compiled .aml so the builder on the installed system can use
+#      it:  $META/assets/npu/ssdt-npucre.aml
+#        (the sources live in the gitignored assets/npu/ blob dir; only
+#         ssdt-npucre.asl is committed and build/build-npu-ssdt.sh compiles it
+#         with iasl at build time — no binary is ever committed)
+#   2. install the dracut module and/or the initramfs-tools hooks on the target
+#   3. force one initrd rebuild so the CURRENT image boots with the override,
+#      instead of waiting for the next kernel upgrade to deliver it.
+# It no longer cat's a pre-built blob in front of /boot/initrd.img-*: that was
+# the previous approach and it is what silently failed, because
+#    - update-initramfs/dracut REGENERATE the file from scratch, dropping the
+#      prepend, and
+#    - post-update.d is an initramfs-tools path, and this image uses dracut,
+#      so the "survives regeneration" hook never ran at all.
 #
 # Detection priority (runs in the d-i chroot, where /proc /sys /dev are
 # bind-mounted, so it reflects the REAL hardware being installed):
 #   0. operator override  /usr/local/lib/cix-installer/NPU_SSDT = force|skip
-#   1. functional ACPI check (authoritative, board-agnostic):
-#        >=3 CIXH4010:* cores present -> enumerate natively   -> SKIP
-#        CIXH4000:00 present, <3 cores -> MS-R1-class bug      -> APPLY
-#   2. DMI board match (only if ACPI gives no signal):
-#        MS-R1 / MINISFORUM -> APPLY ;  Radxa / Orion -> SKIP
-#   3. unknown + no CIX NPU ACPI signal -> SKIP + warn (refuse to inject an
-#        MS-R1 SSDT into unidentified hardware; a real MS-R1 would have matched
-#        step 1 or the MINISFORUM DMI rule). Override with NPU_SSDT=force.
+#   1. DMI allow-list: Radxa / Orion / Orange Pi             -> SKIP
+#   2. DMI MS-R1 / "Micro Computer (HK)"                     -> APPLY
+#        (before any live core count: an installer kernel that already
+#        injected our table shows 3 cores on an MS-R1)
+#   3. the NCZ NPUCRE table is loaded right now              -> APPLY
+#   4. unknown board: CIXH4000:00 with <3 cores -> APPLY; >=3 native -> SKIP
+#   5. unknown + no CIX NPU ACPI signal -> SKIP + warn (refuse to inject an
+#        MS-R1 SSDT into unidentified hardware).
+#
+# The shared helper is the single source of truth for this decision; the
+# function below is kept as a thin, name-stable wrapper so existing callers and
+# tests keep working.
+NPU_SSDT_LIB="$HERE/lib/npu-ssdt.sh"
+if [ -r "$NPU_SSDT_LIB" ]; then
+    # shellcheck source=lib/npu-ssdt.sh
+    . "$NPU_SSDT_LIB"
+fi
+
 should_apply_npu_ssdt() {
+    if [ -r "$NPU_SSDT_LIB" ]; then
+        [ "$(ncz_npu_ssdt_decision "$INSTALLER_META")" = "apply" ]
+        return $?
+    fi
+
+    # Fallback: the helper was not staged (older medium). Same rules, minus
+    # the ACPI cross-check, with the DMI gate still in force.
     local force="$INSTALLER_META/NPU_SSDT"
     if [ -f "$force" ]; then
         case "$(tr -d ' \t\r\n' < "$force" 2>/dev/null)" in
@@ -235,177 +288,248 @@ should_apply_npu_ssdt() {
             skip|off|0)       echo "[80] NPU SSDT: forced OFF by $force"; return 1 ;;
         esac
     fi
-
-    if [ -d /sys/bus/acpi/devices ]; then
-        # r124: require the FULL complement of cores before declaring firmware OK.
-        # A partial enumeration (1-2 of 3) is still a defect we should fix, so
-        # only >=3 CIXH4010:* cores count as "native".
-        local ncores
-        ncores=$(ls -d /sys/bus/acpi/devices/CIXH4010:* 2>/dev/null | wc -l)
-        if [ "$ncores" -ge 3 ]; then
-            echo "[80] NPU SSDT: $ncores CIXH4010:* cores enumerate natively (>=3) — SKIP (firmware OK; likely O6/O6N)"
-            return 1
-        fi
-        if [ -e /sys/bus/acpi/devices/CIXH4000:00 ]; then
-            echo "[80] NPU SSDT: NPU device present, cores incomplete ($ncores/3) — APPLY (MS-R1-class BIOS _HID gap)"
-            return 0
-        fi
-        echo "[80] NPU SSDT: no CIXH4000 in ACPI view — falling back to DMI board match"
-    else
-        echo "[80] NPU SSDT: /sys/bus/acpi unavailable in chroot — falling back to DMI board match"
-    fi
-
     local pn pf sv
     pn=$(cat /sys/class/dmi/id/product_name   2>/dev/null)
     pf=$(cat /sys/class/dmi/id/product_family 2>/dev/null)
     sv=$(cat /sys/class/dmi/id/sys_vendor     2>/dev/null)
-    case "$pn $pf $sv" in
-        *MS-R1*|*MINISFORUM*|*[Mm]inisforum*)
-            echo "[80] NPU SSDT: DMI='$pn'/'$pf' (Minisforum MS-R1) — APPLY"; return 0 ;;
-        *Orion*|*[Rr]adxa*)
-            echo "[80] NPU SSDT: DMI='$pn'/'$sv' (Radxa Orion) — SKIP (native _HID expected)"; return 1 ;;
+    case "$pn" in
+        *"Orion O6"*|*"Orange Pi 6"*|*"OrangePi 6"*) return 1 ;;
     esac
-
-    # r124: unknown board WITHOUT any CIX NPU ACPI signal -> SKIP, do NOT inject.
-    # If this were an MS-R1-class board the functional ACPI check above (or the
-    # MINISFORUM DMI match) would have already returned APPLY; reaching here
-    # means it is not recognizable CIX hardware, so injecting an MS-R1 SSDT is
-    # unsafe. Force it on a genuinely-MS-R1-class board with the override file.
-    echo "[80] NPU SSDT: board UNKNOWN (pn='$pn' pf='$pf' sv='$sv') and no CIX NPU ACPI signal — SKIP (refusing to inject MS-R1 SSDT into unidentified hardware)"
+    case "$sv" in
+        *Radxa*|*Xunlong*) return 1 ;;
+    esac
+    case "$pn $pf" in
+        *MS-R1*) return 0 ;;
+    esac
+    case "$sv" in
+        *"Micro Computer (HK)"*) return 0 ;;
+    esac
+    echo "[80] NPU SSDT: board UNKNOWN (pn='$pn' pf='$pf' sv='$sv') — SKIP (refusing to inject MS-R1 SSDT into unidentified hardware)"
     echo "[80]   (force on a known MS-R1-class board with: echo force > $INSTALLER_META/NPU_SSDT)"
     return 1
 }
 
-# Prepend the 1024-byte SSDT CPIO archive to each kernel's initrd. The kernel
-# reads CPIO archives stacked before the main initramfs; the SSDT injects via
-# the ACPI override mechanism before any driver probes.
-if [ -f "$SSDT_CPIO" ] && should_apply_npu_ssdt; then
-    install -D -m 0644 "$SSDT_CPIO" /boot/npu-acpi-override.cpio
-    for KVER in "${KERNEL_VERS[@]}"; do
-        INITRD="/boot/initrd.img-$KVER"
-        if [ -f "$INITRD" ]; then
-            # Idempotent: only prepend if not already prepended (check first 4 bytes).
-            # CPIO archives start with "070701" (newc magic) — if initrd starts with
-            # those bytes we know it's already been prepended.
-            head -c 6 "$INITRD" 2>/dev/null | grep -q '070701' && {
-                echo "[80] $INITRD already has SSDT prepended, skipping"
-                continue
-            }
-            cp -n "$INITRD" "${INITRD}.pre-npu-override"
-            cat "$SSDT_CPIO" "${INITRD}.pre-npu-override" > "${INITRD}.tmp" \
-                && mv "${INITRD}.tmp" "$INITRD" \
-                && rm -f "${INITRD}.pre-npu-override" \
-                && echo "[80] SSDT override prepended to $INITRD"
-        else
-            echo "[80] WARN: $INITRD not found after update-initramfs; SSDT skipped for $KVER"
-        fi
-    done
+# Path to the builder modules exactly as the image stages them under $META.
+NPU_DRACUT_SRC=""
+NPU_INITRAMFS_SRC=""
+for _cand in "$INSTALLER_META/assets" "/cdrom/ncz-payload/assets"; do
+    [ -d "$_cand/dracut/modules.d/91ncz-npu-ssdt" ] && NPU_DRACUT_SRC="$_cand/dracut/modules.d/91ncz-npu-ssdt"
+    [ -d "$_cand/initramfs/hooks" ] && NPU_INITRAMFS_SRC="$_cand/initramfs"
+    [ -n "$NPU_DRACUT_SRC$NPU_INITRAMFS_SRC" ] && break
+done
 
-    # 2026-08-22: update-initramfs REGENERATES /boot/initrd.img-$KVER from
-    # scratch, silently DROPPING the prepended SSDT early-CPIO. That is exactly
-    # how the MS-R1 lost its NPU _HID override on the first on-device kernel/
-    # DKMS update: the regenerated initrd booted without the SSDT, the CRE
-    # cores had no platform devices, and (pre-+ncz3) sky1_npu_probe panicked
-    # in pm_runtime_enable(NULL). Install an initramfs post-update hook so
-    # every future regeneration re-prepends the override from the copy
-    # persisted at /boot/npu-acpi-override.cpio above.
-    # 2026-08-27: the initramfs-tools post-update.d hook below CANNOT FIRE on
-    # this image. Measured on a fresh MS-R1 install: dracut is the installed
-    # initramfs generator (ii dracut 112-1) and initramfs-tools is REMOVED
-    # (rc 0.151, config files only). /etc/initramfs/post-update.d/ is an
-    # initramfs-tools path, so dracut never runs anything in it. Net effect:
-    # 80-npu.sh copied the CPIO to /boot, installed a hook that could never
-    # run, the npu-ssdt build gate passed on the artifact being present --
-    # and the override never reached the booted initrd at all. Every MS-R1
-    # shipped with `only 0 of 3 NPU cores usable - disabling NPU` and no
-    # /dev/aipu. The direct prepend above also only touched /boot, never the
-    # ESP copy that rEFInd actually loads.
+# Set when the override was REQUIRED by the board decision but could not be
+# proven to be inside the initrd. Returned as the hook's exit status: on arm64
+# run-all.sh treats 80-npu as a critical hook, so an MS-R1 that would boot with
+# a dead NPU fails the install instead of shipping. (Two releases went out with
+# "only 0 of 3 NPU cores usable - disabling NPU" because this was a warning.)
+NPU_SSDT_DELIVERY_FAILED=0
+
+# npu_ssdt_verify_initrd <initrd> — the kernel's CONFIG_ACPI_TABLE_UPGRADE
+# loader only reads an UNCOMPRESSED newc archive physically prepended in front
+# of the compressed image, and the entry name must be exactly
+# kernel/firmware/acpi/ssdt-npucre.aml. Both properties are visible in the
+# first bytes of the file, so this needs no unpacking.
+npu_ssdt_verify_initrd() {
+    [ -s "$1" ] || return 1
+    [ "$(head -c 6 "$1" 2>/dev/null)" = "070701" ] || return 1
+    head -c 4096 "$1" 2>/dev/null | grep -qa 'kernel/firmware/acpi/ssdt-npucre.aml' || return 1
+    return 0
+}
+
+if should_apply_npu_ssdt; then
+    # 3.1 — the .aml the target-side builder consumes.
+    if [ -s "$ASSETS/ssdt-npucre.aml" ]; then
+        echo "[80] NPU SSDT: compiled table staged at $ASSETS/ssdt-npucre.aml"
+    else
+        # 2026-10-28: this used to be a WARN, and that is precisely how the
+        # MS-R1 shipped twice with a disabled NPU: the build never compiled
+        # the table (nothing called build-npu-ssdt.sh), the hook installed
+        # correctly, and there was simply nothing to inject. The build-side
+        # fix is build/iso/ncz_ssdt.py (called by write-usb-image.py). If the
+        # table is still absent here the medium is defective; say so and fail.
+        echo "[80] ERROR: $ASSETS/ssdt-npucre.aml missing on a board that NEEDS it."
+        echo "[80]        The NPU cores have no _HID without this table, so the"
+        echo "[80]        NPU would boot disabled. The build is defective:"
+        echo "[80]        build/iso/ncz_ssdt.py must stage it into assets/npu/."
+        NPU_SSDT_DELIVERY_FAILED=1
+    fi
+
+    # 3.2 — install the initramfs-tools hook + post-update hook.
+    if [ -n "$NPU_INITRAMFS_SRC" ]; then
+        install -d -m 0755 /etc/initramfs-tools/hooks /etc/initramfs-tools/post-update.d
+        install -m 0755 "$NPU_INITRAMFS_SRC/hooks/ncz-npu-ssdt" \
+            /etc/initramfs-tools/hooks/ncz-npu-ssdt
+        install -m 0755 "$NPU_INITRAMFS_SRC/post-update.d/zz-ncz-npu-ssdt" \
+            /etc/initramfs-tools/post-update.d/zz-ncz-npu-ssdt
+        echo "[80] installed initramfs-tools hooks ncz-npu-ssdt (stages kernel/firmware/acpi/ssdt-npucre.aml)"
+    else
+        echo "[80] WARN: initramfs-tools hook sources not staged — dracut path only"
+    fi
+
+    # 3.3 — install the dracut module (the builder this image actually uses).
+    if [ -n "$NPU_DRACUT_SRC" ]; then
+        install -d -m 0755 /usr/lib/dracut/modules.d
+        rm -rf /usr/lib/dracut/modules.d/91ncz-npu-ssdt
+        cp -a "$NPU_DRACUT_SRC" /usr/lib/dracut/modules.d/91ncz-npu-ssdt
+        chmod 0755 /usr/lib/dracut/modules.d/91ncz-npu-ssdt/module-setup.sh
+        echo "[80] installed dracut module 91ncz-npu-ssdt (builds the early CPIO on every rebuild)"
+
+        # dracut's OWN early-CPIO support. acpi_override=yes makes dracut copy
+        # every $acpi_table_dir/*.aml into kernel/firmware/acpi of the
+        # uncompressed CPIO it prepends to the initrd -- the exact structure
+        # CONFIG_ACPI_TABLE_UPGRADE scans (confirmed in dracut 108:
+        # /usr/bin/dracut:2352). Without this, a kernel upgrade that
+        # regenerates the initrd drops the override and the NPU silently dies
+        # again; the install-time prepend below only covers the first boot.
+        # The config is written ONLY on a board whose decision is apply, so a
+        # Radxa O6/O6N never enables the knob.
+        install -d -m 0755 /etc/dracut.conf.d /etc/ncz/npu-acpi
+        if [ -s "$ASSETS/ssdt-npucre.aml" ]; then
+            install -m 0644 "$ASSETS/ssdt-npucre.aml" /etc/ncz/npu-acpi/ssdt-npucre.aml
+        fi
+        cat > /etc/dracut.conf.d/90-ncz-npu-ssdt.conf << 'EOF'
+# NCZ: MS-R1 NPU ACPI SSDT override (written by post-install/80-npu.sh only on
+# a board whose firmware omits _HID on \_SB.NPU0.CRE0/1/2).
+#
+# dracut prepends an UNCOMPRESSED early CPIO holding $acpi_table_dir/*.aml at
+# kernel/firmware/acpi/. That is the only layout the kernel's
+# CONFIG_ACPI_TABLE_UPGRADE loader reads, so every initrd regeneration (kernel
+# upgrade, apt, manual dracut) keeps the NPU cores enumerable without anyone
+# re-running the installer.
+acpi_override="yes"
+acpi_table_dir="/etc/ncz/npu-acpi"
+EOF
+        echo "[80] dracut acpi_override enabled (table dir /etc/ncz/npu-acpi)"
+    else
+        echo "[80] WARN: dracut module sources not staged — initramfs-tools path only"
+    fi
+
+    # 3.4 — keep a copy of the early CPIO at /boot for the post-update safety
+    # net and for operator inspection. It is NOT the delivery mechanism: dracut
+    # builds the real early segment from /etc/ncz/npu-acpi (3.3) and the
+    # builders regenerate from the staged .aml each time.
     #
-    # dracut has NATIVE support for exactly this: acpi_override=yes plus
-    # acpi_table_dir=<dir of .aml files> makes dracut build the uncompressed
-    # early CPIO itself on every regeneration, which is strictly better than
-    # re-prepending after the fact. It requires CONFIG_ACPI_TABLE_UPGRADE or
-    # CONFIG_ACPI_INITRD_TABLE_OVERRIDE in the kernel; this tree has
-    # CONFIG_ACPI_TABLE_UPGRADE=y.
+    # Prefer the archive the MEDIUM ships ($SSDT_CPIO, built by
+    # build/build-npu-ssdt.sh). Building one here needs cpio(1), which a lean
+    # NCZ rootfs does not have -- measured on cixmini 2026-10-28: "NPU SSDT:
+    # cpio not installed -- cannot build early CPIO".
+    if [ -s "$SSDT_CPIO" ]; then
+        if install -m 0644 "$SSDT_CPIO" /boot/npu-acpi-override.cpio; then
+            echo "[80] early CPIO installed at /boot/npu-acpi-override.cpio (shipped with the medium)"
+        else
+            echo "[80] WARN: could not install /boot/npu-acpi-override.cpio"
+        fi
+    elif [ -r "$NPU_SSDT_LIB" ] && [ -s "$ASSETS/ssdt-npucre.aml" ]; then
+        if ncz_npu_ssdt_build_early_cpio /boot/npu-acpi-override.cpio "$INSTALLER_META" >/dev/null 2>&1; then
+            echo "[80] early CPIO built at /boot/npu-acpi-override.cpio (no prebuilt archive shipped)"
+        else
+            echo "[80] WARN: could not build the /boot early CPIO (fallback unavailable)"
+        fi
+    fi
+
+    # 3.5 — rebuild each initrd NOW so this install boots with the override.
     #
-    # Verified on the MS-R1 test board across a real reboot: dracut-generated initrd starts
-    # with 070701 and contains kernel/firmware/acpi/ssdt-npucre.aml, /dev/aipu
-    # is present, and sky1_npu_probe reports armchina_aipu_probe done.
-    if command -v dracut >/dev/null 2>&1; then
-        # Extract the .aml out of the CPIO into a directory dracut can consume.
-        # The CPIO already uses the canonical kernel/firmware/acpi/ layout, so
-        # the payload is lifted out verbatim -- no regeneration from .asl here,
-        # which keeps this hook independent of iasl being present on target.
-        NCZ_ACPI_DIR=/usr/share/ncz/acpi
-        mkdir -p "$NCZ_ACPI_DIR"
-        if command -v cpio >/dev/null 2>&1; then
-            ( cd "$NCZ_ACPI_DIR" && cpio -idu --quiet < /boot/npu-acpi-override.cpio 2>/dev/null ) || true
-            if [ -f "$NCZ_ACPI_DIR/kernel/firmware/acpi/ssdt-npucre.aml" ]; then
-                mv -f "$NCZ_ACPI_DIR/kernel/firmware/acpi/ssdt-npucre.aml" "$NCZ_ACPI_DIR/ssdt-npucre.aml"
-                rm -rf "$NCZ_ACPI_DIR/kernel"
+    # ORDER OF PREFERENCE (2026-10-28):
+    #   1. dracut's native acpi_override (config written in 3.3). It rebuilds
+    #      the early CPIO on EVERY regeneration, so a kernel upgrade keeps the
+    #      NPU alive with no installer involvement. Verify this worked.
+    #   2. Only if the fresh initrd does NOT carry the table, prepend the
+    #      early-CPIO by hand (what the old code did unconditionally -- and
+    #      what a dracut rebuild silently threw away).
+    #   3. Verify again. If the bytes still are not there, fail the hook: on an
+    #      MS-R1 that means a disabled NPU, which is not shippable.
+    #
+    # VERIFIED ON REAL HARDWARE (MS-R1/cixmini, 2026-10-18, before this
+    # change): a dracut-built initrd starts with the zstd magic, not cpio's
+    # 070701, and `lsinitramfs | grep -c npucre` = 0.
+    for KVER in "${KERNEL_VERS[@]}"; do
+        [ -d "/usr/lib/modules/$KVER" ] || continue
+        INITRD="/boot/initrd.img-$KVER"
+        [ -f "$INITRD" ] || { echo "[80] WARN: no $INITRD to rebuild for $KVER"; continue; }
+        _ncz_rebuilt=0
+        if command -v dracut >/dev/null 2>&1; then
+            if dracut --force --kver "$KVER" "$INITRD" >/dev/null 2>&1; then
+                echo "[80] rebuilt $INITRD with dracut (91ncz-npu-ssdt active)"
+                _ncz_rebuilt=1
+            else
+                echo "[80] WARN: dracut failed to rebuild $INITRD; NPU SSDT may be absent"
+            fi
+        elif command -v update-initramfs >/dev/null 2>&1; then
+            if update-initramfs -u -k "$KVER" >/dev/null 2>&1; then
+                echo "[80] rebuilt $INITRD with update-initramfs (ncz-npu-ssdt hook active)"
+                _ncz_rebuilt=1
+            else
+                echo "[80] WARN: update-initramfs failed for $KVER; NPU SSDT may be absent"
             fi
         fi
-        if [ -s "$NCZ_ACPI_DIR/ssdt-npucre.aml" ]; then
-            chmod 0644 "$NCZ_ACPI_DIR/ssdt-npucre.aml"
-            mkdir -p /etc/dracut.conf.d
-            cat > /etc/dracut.conf.d/20-ncz-npu-ssdt.conf << 'NPUDRACUT'
-# NPU ACPI _HID override for MS-R1-class boards whose firmware omits the
-# CIXH4010 NPU core _HIDs. dracut builds the uncompressed early CPIO itself
-# from acpi_table_dir, so the override survives every initrd regeneration --
-# unlike an initramfs-tools post-update.d hook, which never fires here because
-# this image uses dracut, not initramfs-tools.
-acpi_override="yes"
-acpi_table_dir="/usr/share/ncz/acpi"
-NPUDRACUT
-            echo "[80] installed /etc/dracut.conf.d/20-ncz-npu-ssdt.conf (dracut rebuilds the SSDT early-CPIO natively)"
-        else
-            echo "[80] WARN: could not stage ssdt-npucre.aml for dracut; NPU override will NOT survive an initrd rebuild"
+        # 1. Did the generator deliver it natively?
+        if npu_ssdt_verify_initrd "$INITRD"; then
+            echo "[80] verified: $INITRD carries ssdt-npucre.aml (generator-native early CPIO)"
+            continue
         fi
-    fi
+        # 2. Fallback: prepend /boot/npu-acpi-override.cpio by hand. Step 3.4
+        # just (re)built it from the currently-staged .aml; prefer it over the
+        # build-time-baked $SSDT_CPIO so a changed asset is reflected.
+        _ncz_early_cpio=/boot/npu-acpi-override.cpio
+        [ -s "$_ncz_early_cpio" ] || _ncz_early_cpio="$SSDT_CPIO"
+        if [ "$_ncz_rebuilt" = 1 ] && [ -s "$_ncz_early_cpio" ]; then
+            if cat "$_ncz_early_cpio" "$INITRD" > "$INITRD.ncz-tmp" && mv "$INITRD.ncz-tmp" "$INITRD"; then
+                echo "[80] prepended NPU SSDT early-CPIO onto $INITRD (fallback; dracut did not)"
+            else
+                rm -f "$INITRD.ncz-tmp"
+                echo "[80] ERROR: could not prepend NPU SSDT early-CPIO onto $INITRD"
+                NPU_SSDT_DELIVERY_FAILED=1
+            fi
+        elif [ "$_ncz_rebuilt" = 1 ]; then
+            echo "[80] ERROR: no early CPIO to prepend (neither /boot/npu-acpi-override.cpio nor $SSDT_CPIO)"
+            NPU_SSDT_DELIVERY_FAILED=1
+        fi
+        # 3. VERIFY THE RESULT, do not trust the steps above. This is the check
+        # that was missing: every individual step "succeeded" on the 2026-10-28
+        # MS-R1 image while the initrd contained zero kernel/firmware/acpi
+        # entries, because the .aml was never staged.
+        if ! npu_ssdt_verify_initrd "$INITRD"; then
+            echo "[80] ERROR: $INITRD does not carry the NPU SSDT early-CPIO"
+            echo "[80]        (expected an uncompressed 070701 archive naming"
+            echo "[80]        kernel/firmware/acpi/ssdt-npucre.aml at the front)"
+            NPU_SSDT_DELIVERY_FAILED=1
+        else
+            echo "[80] verified: $INITRD early-CPIO carries ssdt-npucre.aml"
+        fi
 
-    # Kept for images that genuinely use initramfs-tools. Harmless (and inert)
-    # under dracut; the dracut path above is what actually works here.
-    mkdir -p /etc/initramfs/post-update.d
-    cat > /etc/initramfs/post-update.d/zz-npu-ssdt << 'NPUHOOK'
-#!/bin/sh
-# Re-prepend the NCZ NPU ACPI SSDT override after update-initramfs.
-# Args: $1 = kernel version, $2 = initramfs path.
-# Installed by cix-installer post-install/80-npu.sh (MS-R1-class boards only).
-CPIO=/boot/npu-acpi-override.cpio
-[ -f "$CPIO" ] || exit 0
-INITRD="$2"
-[ -n "$INITRD" ] && [ -f "$INITRD" ] || exit 0
-# Already prepended? (early-CPIO = uncompressed newc archive, magic 070701)
-head -c 6 "$INITRD" 2>/dev/null | grep -q '070701' && exit 0
-TMP="${INITRD}.npu-ssdt.$$"
-if cat "$CPIO" "$INITRD" > "$TMP" && mv "$TMP" "$INITRD"; then
-    echo "npu-ssdt: re-prepended ACPI override to $INITRD" >&2
-else
-    rm -f "$TMP"
-    echo "npu-ssdt: WARNING: failed to prepend override to $INITRD" >&2
-fi
-exit 0
-NPUHOOK
-    chmod 0755 /etc/initramfs/post-update.d/zz-npu-ssdt
-    echo "[80] installed /etc/initramfs/post-update.d/zz-npu-ssdt (SSDT survives initrd regeneration)"
-elif [ ! -f "$SSDT_CPIO" ]; then
+        # 4. The ESP copy is the one rEFInd boots (stanza: initrd /initrd.img-X).
+        # MEASURED 2026-10-28: a correctly rebuilt /boot initrd had no effect at
+        # all because the ESP still held the install-day image -- the kernel
+        # logged "NPU core CRE0 has no platform device ... disabling NPU".
+        # late.sh and 70-bootloader stage it during an install; this covers the
+        # case where /boot changed first (a live re-apply, a converted system).
+        if [ -r /boot/efi/EFI/BOOT/refind.conf ] && [ -x /usr/local/sbin/ncz-sync-initrd-to-esp ]; then
+            /usr/local/sbin/ncz-sync-initrd-to-esp || echo "[80] WARN: ESP initrd sync reported a failure"
+            _esp="/boot/efi/initrd.img-$KVER"
+            if [ -f "$_esp" ]; then
+                if npu_ssdt_verify_initrd "$_esp"; then
+                    echo "[80] verified: ESP copy $_esp carries ssdt-npucre.aml"
+                else
+                    echo "[80] ERROR: ESP copy $_esp does NOT carry the SSDT -- this board would boot without it"
+                    NPU_SSDT_DELIVERY_FAILED=1
+                fi
+            fi
+        else
+            echo "[80] ESP not mounted in this environment -- late.sh/70-bootloader stage /boot/initrd.img-$KVER onto it"
+        fi
+    done
+elif [ -s "$ASSETS/ssdt-npucre.aml" ] || [ -f "$SSDT_CPIO" ]; then
     # 2026-08-02: this used to warn unconditionally, which produced a scary
     # "NPU cores may not enumerate" line on every O6/O6N install even though
-    # should_apply_npu_ssdt() would have SKIPPED the override on those boards
-    # anyway (their firmware exposes the CIXH4010 _HID natively — the SSDT is a
-    # workaround for the Minisforum MS-R1 BIOS gap only). Ask the detector
-    # first, so the warning only fires on a board that actually needed the
-    # asset, and is silent-but-explicit everywhere else.
-    if should_apply_npu_ssdt; then
-        echo "[80] WARN: SSDT CPIO missing at $SSDT_CPIO — this board NEEDS the ACPI _HID"
-        echo "[80]       override, so the NPU cores will NOT enumerate. Stage the override at"
-        echo "[80]       assets/npu/npu-acpi-override.cpio and rebuild the image."
-    else
-        echo "[80] SSDT CPIO not staged at $SSDT_CPIO — not needed on this board (native _HID)"
-    fi
-else
+    # the detector would have skipped the override on those boards anyway
+    # (their firmware exposes the CIXH4010 _HID natively). Ask the detector
+    # first, so the message only fires on a board that actually needed it.
     echo "[80] NPU SSDT override staged but NOT applied for this board (see detection above)"
+else
+    echo "[80] NPU SSDT assets not staged — not needed on this board (native _HID)"
 fi
+
 
 # --- Step 4: auto-load on boot ---
 mkdir -p /etc/modules-load.d
@@ -527,3 +651,13 @@ done
 
 echo "[80] NPU stack installed: modules + SSDT override + autoload + status doc"
 echo "[80] Install cix-noe-umd 2.0.2 from radxa-pkg/cix-prebuilt to enable inference"
+
+# Fail the hook when the board required the ACPI override and the initrd was
+# not proven to carry it. run-all.sh lists 80-npu as critical on arm64, so this
+# aborts the install rather than shipping an MS-R1 whose NPU probes as
+# "only 0 of 3 NPU cores usable - disabling NPU".
+if [ "${NPU_SSDT_DELIVERY_FAILED:-0}" = 1 ]; then
+    echo "[80] FATAL: the NPU ACPI SSDT override was required on this board and was NOT delivered"
+    exit 1
+fi
+exit 0

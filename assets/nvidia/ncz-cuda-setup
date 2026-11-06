@@ -3,8 +3,13 @@
 # machine, from NVIDIA's apt repo, when the network is available.
 #
 #   ncz-cuda-setup run [--scheduled]   do the install (idempotent)
-#   ncz-cuda-setup retry               clear the backoff and run now
+#   ncz-cuda-setup retry               clear the backoff and the build record, run now
 #   ncz-cuda-setup status              selection, state, attempts, last log
+#   ncz-cuda-setup dkms-stage DIR...   stage the local DKMS patches that fit the
+#                                      unpacked driver source DIR (dkms.conf inside)
+#   ncz-cuda-setup apt-pre-install     apt DPkg::Pre-Install-Pkgs hook (.debs on stdin)
+#   ncz-cuda-setup apt-post-invoke     apt DPkg::Post-Invoke hook
+#   ncz-cuda-setup kernel-postinst K   /etc/kernel/postinst.d hook
 #
 # Called once by post-install/54-gpu-accel.sh at install time; when that cannot
 # finish (no network yet, download failed) ncz-cuda-setup.timer retries it after
@@ -18,20 +23,34 @@
 #   1   hard failure (would remove packages, not installable, no nvcc): retried
 #       a few times, then parked as failed until `ncz-cuda-setup retry`
 #
-# A driver install that fails because the NVIDIA DKMS module does not compile
-# (status failed:dkms-build) logs the first compiler error from DKMS's make.log
-# and is NOT retried by the timer while the inputs are the same: running
-# kernel, kernel config (autoconf.h), driver version apt would install, and
-# the NCZ DKMS patches staged for it. Rebuilding identical inputs fails
-# identically and costs minutes of CPU per attempt. Any change (new kernel
-# booted, new driver point release, new patch) triggers the next attempt.
+# Versions are chosen at run time, never hard-coded here:
+#   - Driver: every version of the family's kernel-module package that NVIDIA's
+#     repo offers (filtered by the family's DRIVER_PIN, e.g. 580.* for
+#     Maxwell..Volta), newest first. Each one is installed as a matched set (an
+#     exact-version apt pin moves every NVIDIA driver package to that version).
+#     When its DKMS module does not compile for the running kernel, the next
+#     older version is tried (at most NCZ_CUDA_DRIVER_TRIES per run), and the
+#     version that finally built is recorded. A failed build is remembered with
+#     its inputs (kernel, kernel config, local patches); identical inputs are
+#     never rebuilt, any change (new kernel, new driver version in the index,
+#     new patch) is retried by the timer.
+#   - Toolkit: the newest cuda-compiler-<series>-N in the index whose companion
+#     packages (TOOLKIT_PKGS stems) all exist; a missing set is a loud
+#     failed:toolkit-not-found, never a guess.
 #
-# Local DKMS patches: for each $NV_DKMS_PATCHES/<module>-<version>/ directory
-# shipped by the installer, the patches are staged into
-# /usr/src/<module>-<version>/patches/ and listed in
-# /etc/dkms/<module>-<version>.conf BEFORE apt runs the package postinst, so
-# DKMS applies them on every build of exactly that driver version (and on any
-# later rebuild, e.g. for a new kernel). Other versions are never touched.
+# Local DKMS patches are matched by CONTENT, not by driver version: each patch
+# set in $NV_DKMS_PATCHES/<module>/<set>/ carries a fixed-upstream marker (line
+# 1: path in the source, line 2: a string the upstream fix adds). A set is
+# staged for a driver source only when the marker is absent AND every patch of
+# the set applies to the pristine source exactly (patch -p1 --fuzz=0, offsets
+# allowed). Anything else is refused and logged; nothing is ever force-applied.
+# Staging writes /usr/src/<module>-<version>/patches/ and
+# /etc/dkms/<module>-<version>.conf BEFORE dpkg runs the module postinst, so the
+# package's own build and every later DKMS rebuild apply them. The apt hook
+# (/etc/apt/apt.conf.d/60ncz-nvidia-dkms) does the same for driver updates that
+# arrive through a plain `apt upgrade`. A failed driver update (apt hook) or a new
+# kernel the installed driver does not build for (kernel hook) hands the machine
+# back to the timer, which repairs it with the same ladder.
 set -u
 export LC_ALL=C DEBIAN_FRONTEND=noninteractive
 
@@ -39,17 +58,30 @@ CONF=/etc/ncz/cuda-selection.conf
 STATE=/var/lib/ncz
 STAMP=$STATE/cuda-setup.done
 ATTEMPTS=$STATE/cuda-setup.attempts     # "<count> <next-allowed-epoch>"
-STATUS=$STATE/cuda-toolkit.status       # installed:<ver> | skipped:<why> | failed:<why>
+STATUS=$STATE/cuda-toolkit.status       # installed:<ver> | skipped:<why> | failed:<why> | pending:<why>
 LOG=/var/log/ncz-cuda-setup.log
 LOCK=/run/ncz-cuda-setup.lock
 HOST=developer.download.nvidia.com
 MAX_HARD_FAILS=5
-DKMS_FAIL=$STATE/cuda-setup.dkms-failed  # key line, pkg/module line, first compiler error
+# one line per driver version whose DKMS build failed:
+#   <kernel>|<module>|<version>|<config sum>|<patches sum>|pkg=<package>|<first compiler error>
+DKMS_FAIL=$STATE/cuda-setup.dkms-failed
+DRIVER_REC=$STATE/cuda-setup.driver      # the driver version that built and was installed
+REPAIR=$STATE/cuda-setup.repair-kernel    # a kernel the installed driver did not build for (kernel hook)
+APT_PREF=/etc/apt/preferences.d/ncz-nvidia-cuda.pref
+APT_ARCHIVES=/var/cache/apt/archives
+MOTD=/etc/motd.d/ncz-nvidia-driver
+TOOLKIT_ROOT=/usr/local
+DRIVER_TRIES=${NCZ_CUDA_DRIVER_TRIES:-4}
 NV_DKMS_PATCHES=${NCZ_NV_DKMS_PATCHES:-/usr/local/lib/ncz/nvidia-dkms}
 DKMS_ETC=${NCZ_DKMS_ETC:-/etc/dkms}
 DKMS_TREE=${NCZ_DKMS_TREE:-/var/lib/dkms}
 SRC_ROOT=${NCZ_SRC_ROOT:-/usr/src}
 MODULES_ROOT=${NCZ_MODULES_ROOT:-/lib/modules}
+# the NVIDIA driver packages one apt pin moves together (same list as post-install/lib/cuda-select.sh)
+PIN_PKGS='cuda-drivers cuda-drivers-* nvidia-* libnvidia-* libcuda1 libcudadebugger1 libnvcuvid1 libnvoptix1 libxnvctrl* libegl-nvidia0 libgles-nvidia* libglx-nvidia0 firmware-nvidia-* xserver-xorg-video-nvidia'
+# what removing an unbuildable module package may take with it (its own driver metapackages, nothing else)
+REMOVABLE_RE='nvidia-kernel-open-dkms|nvidia-kernel-dkms|nvidia-driver|nvidia-open|nvidia-open-[0-9]+|cuda-drivers|cuda-drivers-[0-9]+'
 mkdir -p "$STATE" /etc/ncz 2>/dev/null
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" | tee -a "$LOG" >&2; }
@@ -57,6 +89,38 @@ set_status() { echo "$1" > "$STATUS"; log "status: $1"; }
 
 conf() { # conf KEY
     sed -n "s/^$1=//p" "$CONF" 2>/dev/null | head -n1 | sed -e "s/^'//" -e "s/'\$//"
+}
+
+upstream_ver() { local v=${1#*:}; echo "${v%-*}"; }   # 1:615.71.09-2 -> 615.71.09
+
+# target_kernel: the kernel the driver must build for. The running one when its
+# headers are installed; otherwise (the installer's chroot runs another kernel)
+# the newest kernel with headers, which is what the DKMS postinst builds for.
+target_kernel() {
+    local k d best=""
+    k=$(uname -r)
+    if [ -e "$MODULES_ROOT/$k/build" ]; then echo "$k"; return 0; fi
+    best=$(for d in "$MODULES_ROOT"/*/build; do [ -e "$d" ] && basename "$(dirname "$d")"; done | sort -V | tail -n1)
+    echo "${best:-$k}"
+}
+
+# module_ok KERNEL: an nvidia kernel module exists for KERNEL (the file DKMS installs, or
+# anything modinfo resolves through modules.dep)
+module_ok() {
+    local f
+    for f in "$MODULES_ROOT/$1"/updates/dkms/nvidia.ko* "$MODULES_ROOT/$1"/updates/nvidia.ko* "$MODULES_ROOT/$1"/extra/nvidia.ko*; do
+        [ -e "$f" ] && return 0
+    done
+    command -v modinfo >/dev/null 2>&1 && modinfo -k "$1" nvidia >/dev/null 2>&1
+}
+
+kmod_pkg() {
+    local p; p=$(conf KMOD_PKG)
+    if [ -n "$p" ]; then echo "$p"; return 0; fi
+    case "$(conf KMOD)" in
+        open) echo nvidia-kernel-open-dkms ;;
+        proprietary) echo nvidia-kernel-dkms ;;
+    esac
 }
 
 cmd_status() {
@@ -69,21 +133,23 @@ cmd_status() {
     echo "-- state"
     echo "   result:   $(cat "$STATUS" 2>/dev/null || echo 'not recorded')"
     echo "   stamp:    $([ -e "$STAMP" ] && echo "done ($(cat "$STAMP" 2>/dev/null))" || echo 'not done')"
+    [ -r "$DRIVER_REC" ] && echo "   driver:   $(cat "$DRIVER_REC") (the version that built and was installed)"
     if [ -r "$ATTEMPTS" ]; then
         read -r n next < "$ATTEMPTS"
         echo "   attempts: $n, next scheduled attempt not before $(date -u -d "@${next:-0}" +%FT%TZ 2>/dev/null)"
     fi
-    if [ -r "$DKMS_FAIL" ]; then
-        echo "   dkms:     build failed for $(sed -n 1p "$DKMS_FAIL" | cut -d'|' -f1-3 | tr '|' ' ')"
-        echo "             $(sed -n 3p "$DKMS_FAIL")"
-        echo "             retried automatically when the kernel, its config, the driver or the local patches change"
+    if [ -s "$DKMS_FAIL" ]; then
+        echo "   dkms:     driver builds that failed (not rebuilt until the kernel, its config, the driver or the local patches change):"
+        awk -F'|' '{ e=$7; for (i=8;i<=NF;i++) e=e "|" $i; printf "             %s %s for kernel %s: %s\n", $2, $3, $1, e }' "$DKMS_FAIL"
     fi
+    [ -r "$APT_PREF" ] && echo "   apt pin:  $(sed -n 's/^Pin: //p' "$APT_PREF" | head -n1)"
     local t_en t_act
     t_en=$(systemctl is-enabled ncz-cuda-setup.timer 2>/dev/null); t_en=${t_en:-unknown}
     t_act=$(systemctl is-active ncz-cuda-setup.timer 2>/dev/null); t_act=${t_act:-unknown}
     echo "   timer:    $t_en / $t_act"
-    if [ -x "$(conf TOOLKIT_DIR 2>/dev/null)/bin/nvcc" ]; then
-        echo "   nvcc:     $("$(conf TOOLKIT_DIR)/bin/nvcc" --version 2>/dev/null | tail -n1)"
+    local idir; idir=$(conf INSTALLED_TOOLKIT_DIR); idir=${idir:-$(conf TOOLKIT_DIR)}
+    if [ -n "$idir" ] && [ -x "$idir/bin/nvcc" ]; then
+        echo "   nvcc:     $("$idir/bin/nvcc" --version 2>/dev/null | tail -n1)"
     fi
     echo "-- last log lines ($LOG)"
     tail -n 8 "$LOG" 2>/dev/null | sed 's/^/   /'
@@ -113,7 +179,11 @@ backoff_note() { # backoff_note <hard|soft>
     echo "$n"
 }
 
-apt_run() { apt-get -o DPkg::Lock::Timeout=900 -o Dpkg::Options::=--force-confold "$@"; }
+# NCZ_CUDA_SETUP_TXN marks apt transactions started by this tool: its apt hook then skips
+# staging (try_driver stages before installing) instead of guessing from the run lock
+apt_run() { NCZ_CUDA_SETUP_TXN=1 apt-get -o DPkg::Lock::Timeout=900 -o Dpkg::Options::=--force-confold "$@"; }
+
+is_transient() { grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect'; }
 
 sum_of() { # sum_of FILE... -> one cksum over the files' contents, "none" when there are none
     local f any=0
@@ -122,47 +192,141 @@ sum_of() { # sum_of FILE... -> one cksum over the files' contents, "none" when t
     cat "$@" 2>/dev/null | cksum | awk '{print $1 "-" $2}'
 }
 
-# stage_dkms_patches: copy each shipped <module>-<version> patch set into the
-# DKMS source dir and list it in /etc/dkms/<module>-<version>.conf, so the
-# package's own postinst build (and every later DKMS rebuild) applies it. A
-# patch set whose "fixed-upstream" marker (line 1: path in the source, line 2:
-# fixed string) is already present in an unpacked source is withdrawn instead.
-stage_dkms_patches() {
-    local d mv conf p n src_file marker f patches
-    for d in "$NV_DKMS_PATCHES"/*-*/; do
-        [ -d "$d" ] || continue
-        mv=$(basename "$d"); conf="$DKMS_ETC/$mv.conf"
-        patches=""
-        for p in "$d"*.patch; do [ -f "$p" ] && patches="$patches $(basename "$p")"; done
-        src_file=""; marker=""
-        if [ -r "$d/fixed-upstream" ]; then
-            src_file=$(sed -n 1p "$d/fixed-upstream"); marker=$(sed -n 2p "$d/fixed-upstream")
-            case "$src_file" in /*|*..*|-*) log "dkms: $mv: ignoring unsafe fixed-upstream path '$src_file'"; src_file=""; marker="" ;; esac
-        fi
-        if [ -z "$patches" ] || { [ -n "$src_file" ] && [ -n "$marker" ] && [ -r "$SRC_ROOT/$mv/dkms.conf" ] \
-                && grep -qF -- "$marker" "$SRC_ROOT/$mv/$src_file" 2>/dev/null; }; then
-            # nothing to apply, or the driver source already carries the fix: withdraw our files
-            if grep -q '^# Written by ncz-cuda-setup' "$conf" 2>/dev/null; then
-                rm -f "$conf"; log "dkms: local patches for $mv withdrawn (${patches:+source already has the fix: $src_file}${patches:-no patches shipped})"
-            fi
-            for f in "$d"*.patch; do [ -e "$f" ] && rm -f "$SRC_ROOT/$mv/patches/$(basename "$f")"; done
-            continue
-        fi
-        install -d -m0755 "$SRC_ROOT/$mv/patches" "$DKMS_ETC" || { log "dkms: cannot stage patches for $mv"; continue; }
-        n=0
-        {
-            echo "# Written by ncz-cuda-setup (NCZ-OS): local patches for $mv only;"
-            echo "# sources in $d. Removed when the driver source carries the fix."
-            for p in $patches; do
-                install -m0644 "$d$p" "$SRC_ROOT/$mv/patches/$p" || { log "dkms: cannot stage $p for $mv"; continue; }
-                echo "PATCH[\${#PATCH[@]}]=\"$p\""
-                n=$((n + 1))
-            done
-        } > "$conf.ncz-tmp" && mv -f "$conf.ncz-tmp" "$conf"
-        log "dkms: staged $n local patch(es) for $mv ($conf)"
-    done
+patches_sum() { # every shipped patch and marker: a changed or added set retries a failed build
+    local files
+    files=$(find "$NV_DKMS_PATCHES" -type f \( -name '*.patch' -o -name fixed-upstream \) 2>/dev/null | LC_ALL=C sort)
+    # shellcheck disable=SC2086
+    [ -n "$files" ] && sum_of $files || echo none
 }
 
+# ------------------------------------------------------------ local DKMS patches
+# dkms_conf_val SRC KEY -> value of KEY in SRC/dkms.conf (parsed, never sourced)
+dkms_conf_val() {
+    sed -e 's/[[:space:]]#.*$//' "$1/dkms.conf" 2>/dev/null \
+        | sed -n "s/^$2=[\"']\{0,1\}\([^\"']*\)[\"']\{0,1\}[[:space:]]*\$/\1/p" | head -n1
+}
+
+scratch_dir() { install -d -m0700 "$STATE/tmp" 2>/dev/null; mktemp -d "$STATE/tmp/$1.XXXXXX"; }
+
+# select_patches SRC MODULE VERSION -> the patch files (absolute, in apply order)
+# that SRC needs and that apply to it exactly; logs every decision. SRC is never
+# modified: the sets are applied to a scratch copy of the files they touch, in set
+# order and cumulatively, exactly as DKMS applies the PATCH[] list (in that order)
+# to the pristine source. A refused set is rolled back before the next is checked.
+select_patches() {
+    local src=$1 module=$2 ver=$3 set name f p out mfile marker work ok
+    [ -d "$NV_DKMS_PATCHES/$module" ] || return 0
+    if grep -q '^PATCH\[' "$src/dkms.conf" 2>/dev/null; then
+        log "dkms: $module $ver: its dkms.conf already lists patches; local patch sets refused (not combined unverified)"
+        return 0
+    fi
+    work=$(scratch_dir nvpatch) || { log "dkms: no scratch space in $STATE/tmp"; return 1; }
+    mkdir -p "$work/tree"
+    for set in "$NV_DKMS_PATCHES/$module"/*/; do
+        [ -d "$set" ] || continue
+        name=$(basename "$set")
+        ls "$set"*.patch >/dev/null 2>&1 || continue
+        mfile=$(sed -n 1p "$set/fixed-upstream" 2>/dev/null); marker=$(sed -n 2p "$set/fixed-upstream" 2>/dev/null)
+        case "$mfile" in /*|*..*|-*) log "dkms: $name: ignoring unsafe fixed-upstream path '$mfile'"; mfile="" ;; esac
+        if [ -z "$mfile" ] || [ -z "$marker" ]; then
+            log "dkms: $name: REFUSED for $module $ver: no usable fixed-upstream marker (cannot tell whether the source still needs it)"
+            continue
+        fi
+        if grep -qF -- "$marker" "$src/$mfile" 2>/dev/null; then
+            log "dkms: $name: not needed, $module $ver already carries the fix ('$marker' in $mfile)"
+            continue
+        fi
+        if [ ! -f "$src/$mfile" ]; then
+            log "dkms: $name: REFUSED for $module $ver: $mfile is not in this source"
+            continue
+        fi
+        ok=1
+        for f in $(sed -n 's#^+++ b/\([^[:space:]]*\).*#\1#p' "$set"*.patch | sort -u); do
+            case "$f" in /*|*..*) ok=0; log "dkms: $name: REFUSED: unsafe path '$f' in a patch"; break ;; esac
+            [ -e "$work/tree/$f" ] && continue
+            if [ ! -f "$src/$f" ]; then ok=0; log "dkms: $name: REFUSED for $module $ver: $f is not in this source"; break; fi
+            mkdir -p "$work/tree/$(dirname "$f")" && cp "$src/$f" "$work/tree/$f"
+        done
+        [ "$ok" = 1 ] || continue
+        rm -rf "$work/try"; cp -a "$work/tree" "$work/try"
+        for p in "$set"*.patch; do
+            if ! out=$(patch -d "$work/try" -p1 --fuzz=0 --forward --batch --no-backup-if-mismatch --reject-file=- < "$p" 2>&1); then
+                ok=0
+                log "dkms: $name: REFUSED for $module $ver: $(basename "$p") does not apply exactly (fuzz 0): $(printf '%s' "$out" | grep -m1 -iE 'fail|reject|ignor|malformed|can.t' || printf '%s' "$out" | head -n1)"
+                break
+            fi
+            log "dkms: $name: $(basename "$p") applies to $module $ver exactly$(printf '%s' "$out" | grep -o 'offset -\{0,1\}[0-9]* lines\{0,1\}' | sort | uniq -c | awk '{printf "%s%s x%s", (n++ ? "," : " ("), $2" "$3" "$4, $1} END {if (n) printf ")"}')"
+        done
+        [ "$ok" = 1 ] || continue
+        rm -rf "$work/tree"; mv "$work/try" "$work/tree"
+        for p in "$set"*.patch; do echo "$p"; done
+    done
+    rm -rf "$work"
+}
+
+# withdraw_patches MODULE-VERSION: remove a conf (and the patches) this tool staged earlier
+withdraw_patches() {
+    local mv=$1 conf p
+    conf="$DKMS_ETC/$mv.conf"
+    grep -q '^# Written by ncz-cuda-setup' "$conf" 2>/dev/null || return 0
+    for p in $(sed -n 's/^PATCH\[.*\]="\(.*\)"$/\1/p' "$conf"); do
+        case "$p" in */*|"") continue ;; esac
+        rm -f "$SRC_ROOT/$mv/patches/$p"
+    done
+    rmdir "$SRC_ROOT/$mv/patches" 2>/dev/null
+    rm -f "$conf"
+    log "dkms: local patches for $mv withdrawn"
+}
+
+# stage_for_src SRC: decide and stage the local patches for the driver source in
+# SRC (the unpacked /usr/src tree, or a scratch copy taken from the .deb before
+# dpkg unpacks it). Staging always targets $SRC_ROOT/<module>-<version>.
+stage_for_src() {
+    local src=$1 module ver mv sel p n=0 names=""
+    module=$(dkms_conf_val "$src" PACKAGE_NAME); ver=$(dkms_conf_val "$src" PACKAGE_VERSION)
+    case "$module$ver" in ""|*/*|*..*) log "dkms: $src: no usable PACKAGE_NAME/PACKAGE_VERSION in dkms.conf"; return 1 ;; esac
+    mv="$module-$ver"
+    sel=$(select_patches "$src" "$module" "$ver")
+    if [ -z "$sel" ]; then withdraw_patches "$mv"; return 0; fi
+    install -d -m0755 "$SRC_ROOT/$mv/patches" "$DKMS_ETC" || { log "dkms: cannot stage patches for $mv"; return 1; }
+    {
+        echo "# Written by ncz-cuda-setup (NCZ-OS): local patches for $mv, chosen by content"
+        echo "# (fix absent upstream, applies with fuzz 0); sources in $NV_DKMS_PATCHES/$module/."
+        for p in $sel; do
+            install -m0644 "$p" "$SRC_ROOT/$mv/patches/$(basename "$p")" || { log "dkms: cannot stage $(basename "$p") for $mv"; continue; }
+            echo "PATCH[\${#PATCH[@]}]=\"$(basename "$p")\""
+            n=$((n + 1)); names="$names $(basename "$p")"
+        done
+    } > "$DKMS_ETC/$mv.conf.ncz-tmp" && mv -f "$DKMS_ETC/$mv.conf.ncz-tmp" "$DKMS_ETC/$mv.conf"
+    log "dkms: staged $n local patch(es) for $mv ($DKMS_ETC/$mv.conf):$names"
+}
+
+# stage_from_deb DEB: verify the driver source inside a *-dkms .deb before dpkg unpacks it.
+# Extracts only dkms.conf and the files the patch sets touch or test (kilobytes, not the
+# whole source): this also runs inside an apt transaction.
+stage_from_deb() {
+    local deb=$1 x src rc=0 f
+    local -a want=('./usr/src/*/dkms.conf')
+    for f in $( { sed -n 's#^+++ b/\([^[:space:]]*\).*#\1#p' "$NV_DKMS_PATCHES"/*/*/*.patch
+                  sed -n 1p "$NV_DKMS_PATCHES"/*/*/fixed-upstream; } 2>/dev/null | sort -u); do
+        case "$f" in /*|*..*|-*) continue ;; esac
+        want+=("./usr/src/*/$f")
+    done
+    x=$(scratch_dir nvdeb) || { log "dkms: no scratch space in $STATE/tmp"; return 1; }
+    # members a source does not have are simply absent (tar reports them; dkms.conf decides)
+    dpkg-deb --fsys-tarfile "$deb" 2>/dev/null | tar -x -C "$x" --wildcards "${want[@]}" 2>/dev/null
+    for src in "$x"/usr/src/*/; do
+        [ -r "$src/dkms.conf" ] || continue
+        stage_for_src "${src%/}" || rc=1
+    done
+    if ! ls "$x"/usr/src/*/dkms.conf >/dev/null 2>&1; then
+        log "dkms: no DKMS source (dkms.conf) found in $(basename "$deb")"; rc=1
+    fi
+    rm -rf "$x"
+    return $rc
+}
+
+# --------------------------------------------------------------- build records
 # dkms_first_error: newest NVIDIA DKMS make.log written during this driver
 # install attempt (newer than $DRV_MARK) that holds a compiler error ->
 # "<kernel>|<module>|<version>|<first error line>"; rc 1 when there is none.
@@ -181,46 +345,276 @@ dkms_first_error() {
     printf '%s|%s|%s|%s\n' "${k:-unknown}" "$m" "$v" "$(printf '%s' "$e" | tr -d '\r' | cut -c1-300)"
 }
 
-# dkms_pkg: the NVIDIA *-dkms package dpkg has (installed or half-configured).
-dkms_pkg() {
-    dpkg-query -W -f='${Package} ${db:Status-Abbrev}\n' 'nvidia*dkms' 2>/dev/null \
-        | awk '$2 ~ /^[ih]/ && $2 !~ /^.n/ {print $1; exit}'
+# inputs_key KERNEL -> "<config sum>|<patches sum>": with the kernel and the driver version, what decides a build
+inputs_key() { printf '%s|%s\n' "$(sum_of "$MODULES_ROOT/$1/build/include/generated/autoconf.h")" "$(patches_sum)"; }
+
+# ledger_has VERSION: this driver version already failed with the running kernel, its config and these patches
+ledger_has() {
+    local k u key
+    [ -s "$DKMS_FAIL" ] || return 1
+    k=$(target_kernel); u=$(upstream_ver "$1"); key=$(inputs_key "$k")
+    awk -F'|' -v k="$k" -v u="$u" -v key="$key" '$1 == k && $3 == u && ($4 "|" $5) == key { f = 1 } END { exit !f }' "$DKMS_FAIL"
 }
 
-# dkms_key KERNEL MODULE VERSION -> the inputs that decide a DKMS build result.
-dkms_key() {
-    printf '%s|%s|%s|%s|%s\n' "$1" "$2" "$3" \
-        "$(sum_of "$MODULES_ROOT/$1/build/include/generated/autoconf.h")" \
-        "$(sum_of "$NV_DKMS_PATCHES/$2-$3"/*.patch)"
-}
-
-# dkms_key_now PKG MODULE: the key a build attempted now would have.
-dkms_key_now() {
-    local ver
-    ver=$(apt-cache policy "$1" 2>/dev/null | sed -n 's/^ *Candidate: //p' | head -n1)
-    case "$ver" in ""|"(none)") ver=$(dpkg-query -W -f='${Version}' "$1" 2>/dev/null) ;; esac
-    ver=${ver#*:}; ver=${ver%-*}
-    dkms_key "$(uname -r)" "$2" "$ver"
-}
-
-# record_dkms_failure: after a failed driver install; rc 0 when it was a DKMS
-# compile error (logged, recorded with its key), 1 otherwise.
+# record_dkms_failure PKG: after a failed driver install; rc 0 when it was a
+# DKMS compile error (logged, added to the ledger), 1 otherwise.
 record_dkms_failure() {
-    local fe k m v e pkg
+    local fe k m v e tmp
     fe=$(dkms_first_error) || return 1
     k=${fe%%|*}; fe=${fe#*|}; m=${fe%%|*}; fe=${fe#*|}; v=${fe%%|*}; e=${fe#*|}
-    pkg=$(dkms_pkg); pkg=${pkg:-nvidia-kernel-open-dkms}
     log "DKMS build of $m $v for kernel $k failed; first compiler error:"
     log "    $e"
-    log "not retrying until the kernel, its config, the driver version or the local patches change (or: ncz-cuda-setup retry)"
-    { dkms_key "$k" "$m" "$v"; echo "pkg=$pkg module=$m"; echo "$e"; } > "$DKMS_FAIL"
+    tmp="$DKMS_FAIL.tmp"
+    { awk -F'|' -v k="$k" -v v="$v" '!($1 == k && $3 == v)' "$DKMS_FAIL" 2>/dev/null
+      printf '%s|%s|%s|%s|pkg=%s|%s\n' "$k" "$m" "$v" "$(inputs_key "$k")" "$1" "$e"; } > "$tmp" && mv -f "$tmp" "$DKMS_FAIL"
     return 0
 }
 
+# is_driver_pkg NAME: one of the NVIDIA driver packages the pin moves together (PIN_PKGS globs)
+is_driver_pkg() {
+    local g globs
+    read -r -a globs <<< "$PIN_PKGS"
+    for g in "${globs[@]}"; do
+        # shellcheck disable=SC2254
+        case "${1%%:*}" in $g) return 0 ;; esac
+    done
+    return 1
+}
+
+# build_failed_now: some driver version failed to BUILD with the current kernel, config and
+# patches (not just "not installable"); older kernels' records do not count
+build_failed_now() {
+    local k key
+    [ -s "$DKMS_FAIL" ] || return 1
+    k=$(target_kernel); key=$(inputs_key "$k")
+    awk -F'|' -v k="$k" -v key="$key" '$1 == k && $2 != "-" && ($4 "|" $5) == key { f = 1 } END { exit !f }' "$DKMS_FAIL"
+}
+
+# record_noinst VERSION REASON: a version apt cannot install as a matched set (same ledger, module "-")
+record_noinst() {
+    local k u tmp
+    k=$(target_kernel); u=$(upstream_ver "$1"); tmp="$DKMS_FAIL.tmp"
+    { awk -F'|' -v k="$k" -v v="$u" '!($1 == k && $3 == v)' "$DKMS_FAIL" 2>/dev/null
+      printf '%s|-|%s|%s|pkg=%s|not installable as a matched set: %s\n' "$k" "$u" "$(inputs_key "$k")" "$(kmod_pkg)" "$2"; } > "$tmp" && mv -f "$tmp" "$DKMS_FAIL"
+}
+
+# ------------------------------------------------------------- driver selection
+# driver_candidates -> every version of the module package NVIDIA's repo offers
+# for this family, one per upstream version (highest packaging revision), newest first
+driver_candidates() {
+    local pkg pin v u seen=" "
+    pkg=$(kmod_pkg); pin=$(conf DRIVER_PIN)
+    [ -n "$pkg" ] || return 0
+    apt-cache madison "$pkg" 2>/dev/null \
+        | awk -F'|' -v h="$HOST" 'index($3, h) { gsub(/[[:space:]]/, "", $2); print $2 }' \
+        | sort -u | sort -rV | while read -r v; do
+            if [ -n "$pin" ]; then
+                # shellcheck disable=SC2254
+                case "$v" in $pin) ;; *) continue ;; esac
+            fi
+            u=$(upstream_ver "$v")
+            case "$seen" in *" $u "*) continue ;; esac
+            seen="$seen$u "
+            echo "$v"
+        done
+}
+
+untried_candidates() { local v; for v in $(driver_candidates); do ledger_has "$v" || echo "$v"; done; }
+
+# set_pin "<apt pin expression>" "<why>": the one NVIDIA pin file, owned by this tool after install
+set_pin() {
+    install -d -m0755 "$(dirname "$APT_PREF")" 2>/dev/null
+    {
+        echo "# $APT_PREF -- written by NCZ-OS (ncz-cuda-setup). Family: $(conf FAMILY)."
+        echo "# $2"
+        echo "# Driver versions are chosen by ncz-cuda-setup (status: ncz-cuda-setup status); to move"
+        echo "# deliberately run 'ncz-cuda-setup retry' (newest version that builds wins)."
+        echo "Package: $PIN_PKGS"
+        echo "Pin: $1"
+        echo "Pin-Priority: 1001"
+    } > "$APT_PREF.ncz-tmp" && mv -f "$APT_PREF.ncz-tmp" "$APT_PREF"
+}
+family_pin() {
+    local pin; pin=$(conf DRIVER_PIN)
+    if [ -n "$pin" ]; then echo "version $pin"; else echo "origin $HOST"; fi
+}
+series_pin() { # series_pin VERSION -> the pin that lets point releases of VERSION's series update
+    echo "version $(upstream_ver "$1" | cut -d. -f1).*"
+}
+
+# resolve_toolkit: sets TK (N-M), TK_DIR, TK_PKGS from the index; rc 1 when no complete set exists
+TK=""; TK_DIR=""; TK_PKGS=""
+resolve_toolkit() {
+    local series stems s mm missing cands
+    series=$(conf TOOLKIT_SERIES); stems=$(conf TOOLKIT_PKGS)
+    TK=""; TK_DIR=""; TK_PKGS=""
+    if [ -z "$series" ]; then
+        # selection written before toolkit resolution existed: exact toolkit and packages
+        TK=$(conf TOOLKIT); TK_DIR=$(conf TOOLKIT_DIR); TK_PKGS=$stems
+        return 0
+    fi
+    case "$series" in
+        *[!0-9-]*|-*|*-) log "toolkit: bad TOOLKIT_SERIES '$series' in $CONF"; return 1 ;;
+        *-*) cands=$series ;;
+        *) cands=$(apt-cache pkgnames "cuda-compiler-$series-" 2>/dev/null \
+                | sed -n "s/^cuda-compiler-\($series-[0-9][0-9]*\)\$/\1/p" | sort -t- -k2,2nr -u) ;;
+    esac
+    for mm in $cands; do
+        missing=""
+        for s in $stems; do
+            apt-cache show "$s-$mm" >/dev/null 2>&1 || missing="$missing $s-$mm"
+        done
+        if [ -n "$missing" ]; then
+            log "toolkit: CUDA ${mm/-/.} is incomplete in the index (missing:$missing); trying an older one"
+            continue
+        fi
+        TK=$mm; TK_DIR="$TOOLKIT_ROOT/cuda-${mm/-/.}"
+        for s in $stems; do TK_PKGS="$TK_PKGS $s-$mm"; done
+        TK_PKGS=${TK_PKGS# }
+        return 0
+    done
+    log "toolkit: no complete CUDA $series.x set (cuda-compiler-$series-N with:$(printf ' %s-N' $stems)) in the index; were the packages renamed?"
+    return 1
+}
+
+# remove_unbuildable: never leave the module package half-configured. Removes it
+# (and only its own driver metapackages) when every candidate failed to build.
+remove_unbuildable() {
+    local kp st sim extra
+    kp=$(kmod_pkg)
+    st=$(dpkg-query -W -f='${db:Status-Abbrev}' "$kp" 2>/dev/null)
+    case "$st" in i[FUH]*) ;; *) return 0 ;; esac   # half-configured, unpacked, half-installed
+    if ! sim=$(apt_run remove -s -y "$kp" 2>&1); then
+        log "could not simulate removing the unconfigured $kp; left as is: $(printf '%s\n' "$sim" | grep -m1 '^E:')"; return 1
+    fi
+    extra=$(printf '%s\n' "$sim" | sed -n 's/^Remv \([^ ]*\).*/\1/p' | grep -vxE "$REMOVABLE_RE" | tr '\n' ' ')
+    if [ -n "$extra" ]; then
+        log "NOT removing the unconfigured $kp: it would also remove: $extra"; return 1
+    fi
+    if apt_run remove -y "$kp" >>"$LOG" 2>&1; then
+        log "removed the unbuildable $kp and its driver metapackages ($(printf '%s\n' "$sim" | sed -n 's/^Remv \([^ ]*\).*/\1/p' | tr '\n' ' ')); the NVIDIA libraries stay"
+        # what could not be installed next to the half-configured set may install now: forget those records
+        [ -s "$DKMS_FAIL" ] && sed -i '/^[^|]*|-|/d' "$DKMS_FAIL"
+        rm -f "$DRIVER_REC"
+        return 0
+    fi
+    log "removing the unconfigured $kp failed; see $LOG"; return 1
+}
+
+notice_no_driver() { # notice_no_driver TEXT | "" (clear)
+    if [ -z "$1" ]; then rm -f "$MOTD"; return 0; fi
+    install -d -m0755 "$(dirname "$MOTD")" 2>/dev/null
+    printf '%s\n' "$1" > "$MOTD" 2>/dev/null
+    command -v logger >/dev/null 2>&1 && logger -t ncz-cuda-setup -p user.warning "$1" 2>/dev/null
+    return 0
+}
+
+record_installed() { # record_installed KEY=VALUE... : appended to the selection, earlier INSTALLED_* replaced
+    local tmp="$CONF.ncz-tmp"
+    { grep -v '^INSTALLED_' "$CONF" 2>/dev/null; printf '%s\n' "$@"; } > "$tmp" && mv -f "$tmp" "$CONF"
+}
+
+# try_driver VERSION -> 0 installed, 2 this version does not build/install (try the next),
+# The module package is named explicitly next to DRIVER_PKGS so apt can never satisfy a
+# metapackage with the other module flavor.
+# 75 transient (retry later), 1 hard failure (stop). --allow-downgrades: falling back
+# moves the whole driver set to an older version; only the packages the exact pin
+# (priority 1001) selects can be downgraded, everything else keeps apt's defaults.
+try_driver() {
+    local v=$1 kp sim rc logoff deb inst u src rm_other rm_drv noremove tk
+    kp=$(kmod_pkg); u=$(upstream_ver "$v")
+    log "driver: trying $kp $v as a matched set"
+    set_pin "version $v" "Trying driver $v (all NVIDIA driver packages at exactly this version)."
+    # shellcheck disable=SC2086
+    sim=$(apt_run install -s -y --allow-downgrades --no-install-recommends $kp $DRV $TK_PKGS 2>&1); rc=$?
+    if [ $rc -ne 0 ]; then
+        log "simulation failed (rc=$rc):"; echo "$sim" | tail -20 | sed 's/^/    /' | tee -a "$LOG" >&2
+        if echo "$sim" | grep -qE 'Temporary failure|Could not resolve|Failed to fetch'; then
+            set_status "pending:index-unavailable"; backoff_note soft >/dev/null; return 75
+        fi
+        if echo "$sim" | grep -qE 'Unable to locate package'; then
+            # the NVIDIA index is usable (it offered this driver), so a name the selection asks for was renamed or dropped
+            log "package(s) not in the index: $(echo "$sim" | sed -n 's/.*Unable to locate package \(.*\)/\1/p' | tr '\n' ' ')- renamed upstream? fix DRIVER_PKGS/TOOLKIT_PKGS in $CONF"
+            set_status "failed:package-missing"; backoff_note hard >/dev/null; return 1
+        fi
+        record_noinst "$v" "$(echo "$sim" | grep -m1 '^E:' | cut -c1-200)"
+        log "driver $v: not installable as a matched set; trying the next version"
+        return 2
+    fi
+    # Moving the driver set to another series may drop a package the other series does not
+    # have (measured: nvidia-powerd going from 610 to 595). Only NVIDIA driver packages (the
+    # pinned set) may go; anything else is refused exactly as before.
+    rm_other=$(echo "$sim" | sed -n 's/^Remv \([^ ]*\).*/\1/p' | while read -r r; do is_driver_pkg "$r" || echo "$r"; done | tr '\n' ' ')
+    if [ -n "$rm_other" ]; then
+        log "REFUSING: installing would remove packages:"; echo "$sim" | grep '^Remv ' | sed 's/^/    /' | tee -a "$LOG" >&2
+        set_status "failed:would-remove-packages"; backoff_note hard >/dev/null; return 1
+    fi
+    rm_drv=$(echo "$sim" | sed -n 's/^Remv \([^ ]*\).*/\1/p' | tr '\n' ' ')
+    [ -n "$rm_drv" ] && log "driver $v: the set at this version drops NVIDIA package(s): $rm_drv"
+    # --no-remove is dropped only when every removal is an NVIDIA driver package (checked above)
+    noremove="--no-remove"; [ -z "$rm_other" ] && [ -n "$rm_drv" ] && noremove=""
+    inst=$(echo "$sim" | sed -n "s/^Inst $kp \(\[[^]]*\] \)\{0,1\}(\([^ ]*\) .*/\2/p" | head -n1)
+    [ -n "$inst" ] || inst=$(dpkg-query -W -f='${Version}' "$kp" 2>/dev/null)
+    if [ "$inst" != "$v" ]; then
+        log "driver $v: apt would install $kp ${inst:-nothing}, not $v (incomplete set); trying the next version"
+        record_noinst "$v" "apt resolves $kp to ${inst:-nothing}"
+        return 2
+    fi
+    # patch(1) checks the local patches (DKMS needs it to apply them anyway; dkms depends on it)
+    if ! command -v patch >/dev/null 2>&1; then
+        apt_run install -y --no-install-recommends --no-remove patch >>"$LOG" 2>&1 \
+            || log "dkms: patch(1) is not installed and could not be; local patches cannot be checked"
+    fi
+    # The module source must be checked and its patches staged before dpkg runs the postinst.
+    # shellcheck disable=SC2086
+    if ! apt_run install -y --allow-downgrades --download-only --no-install-recommends $noremove $kp $DRV >>"$LOG" 2>&1; then
+        set_status "pending:download"; backoff_note soft >/dev/null; return 75
+    fi
+    deb=$(ls "$APT_ARCHIVES/${kp}_$(printf '%s' "$v" | sed 's/:/%3a/')_"*.deb 2>/dev/null | head -n1)
+    if [ -n "$deb" ]; then
+        stage_from_deb "$deb"
+    else
+        # already unpacked (a retry of an unconfigured package): check the source in place
+        for src in "$SRC_ROOT"/*-"$u"; do [ -r "$src/dkms.conf" ] && stage_for_src "$src"; done
+    fi
+    logoff=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+    touch "$DRV_MARK" 2>/dev/null
+    # shellcheck disable=SC2086
+    if apt_run install -y --allow-downgrades --no-install-recommends $noremove $kp $DRV >>"$LOG" 2>&1; then
+        tk=$(target_kernel)
+        module_ok "$tk" && return 0
+        # already installed at this version (apt had nothing to do) but never built for this
+        # kernel, e.g. after a kernel update: build it now, the same way the kernel hook would
+        log "driver $v: installed, but no nvidia module for kernel $tk; running dkms autoinstall"
+        touch "$DRV_MARK" 2>/dev/null
+        dkms autoinstall -k "$tk" >>"$LOG" 2>&1
+        module_ok "$tk" && return 0
+        if record_dkms_failure "$kp"; then
+            N_BUILD=$((N_BUILD + 1))
+        else
+            record_noinst "$v" "installed but no nvidia module for kernel $tk"
+        fi
+        return 2
+    fi
+    # only what THIS apt transaction appended: an older "Failed to fetch" line must not turn a
+    # hard failure (dpkg/dkms/resolver) into an endless "pending:download" retry
+    if tail -c +"$((logoff + 1))" "$LOG" 2>/dev/null | is_transient; then
+        set_status "pending:download"; backoff_note soft >/dev/null; return 75
+    fi
+    if record_dkms_failure "$kp"; then
+        N_BUILD=$((N_BUILD + 1))
+        return 2
+    fi
+    set_status "failed:driver-install"; backoff_note hard >/dev/null; return 1
+}
+
 do_run() {
-    local scheduled=0
+    local scheduled=0 retry=0
     [ "${1:-}" = "--scheduled" ] && scheduled=1
+    [ "${1:-}" = "--retry" ] && retry=1
     exec 9>"$LOCK"; flock -n 9 || { log "another ncz-cuda-setup is running"; return 0; }
+    # retry: forget the backoff, the build records and the stamp, under the lock
+    [ "$retry" = 1 ] && rm -f "$ATTEMPTS" "$DKMS_FAIL" "$STAMP"
 
     if [ -e "$STAMP" ]; then log "already done"; return 0; fi
     if [ ! -r "$CONF" ]; then log "no $CONF: nothing to install"; return 0; fi
@@ -231,15 +625,22 @@ do_run() {
         date -u +%FT%TZ > "$STAMP"; return 0
     fi
 
-    if [ "$scheduled" = 1 ] && [ -r "$DKMS_FAIL" ]; then
-        local fpkg fmod
-        fpkg=$(sed -n 2p "$DKMS_FAIL" | sed -n 's/.*pkg=\([^ ]*\).*/\1/p')
-        fmod=$(sed -n 2p "$DKMS_FAIL" | sed -n 's/.*module=\([^ ]*\).*/\1/p')
-        if [ "$(dkms_key_now "${fpkg:-nvidia-kernel-open-dkms}" "${fmod:-nvidia}")" = "$(sed -n 1p "$DKMS_FAIL")" ]; then
-            return 0   # same inputs as the failed build: it would fail the same way
+    if [ "$scheduled" = 1 ] && [ -s "$REPAIR" ] && [ "$(uname -r)" != "$(cat "$REPAIR")" ]; then
+        if [ ! -e "$MODULES_ROOT/$(cat "$REPAIR")/build" ]; then
+            log "kernel $(cat "$REPAIR") is gone; nothing to repair for it"
+            rm -f "$REPAIR"
+        elif module_ok "$(uname -r)"; then
+            return 0   # the running kernel has its module; repaired once the machine runs that kernel
         fi
-        log "kernel, config, driver or local patches changed since the failed DKMS build; retrying now"
-        rm -f "$DKMS_FAIL" "$ATTEMPTS"
+        # otherwise the running kernel lacks the module too: repair it now
+    fi
+
+    if [ "$scheduled" = 1 ] && [ -s "$DKMS_FAIL" ]; then
+        if [ -z "$(untried_candidates | head -n1)" ]; then
+            return 0   # every offered driver already failed with this kernel, config and patches
+        fi
+        log "a driver version not yet built with this kernel, its config and the local patches is available; trying it now"
+        rm -f "$ATTEMPTS"
     fi
 
     if [ "$scheduled" = 1 ] && [ -r "$ATTEMPTS" ]; then
@@ -257,7 +658,7 @@ do_run() {
         return 75
     fi
 
-    log "== run: family=$family driver=$(conf DRIVER_PKGS) toolkit=$(conf TOOLKIT_PKGS)"
+    log "== run: family=$family driver=$(kmod_pkg) [$(conf DRIVER_PKGS)] toolkit=$(conf TOOLKIT) [$(conf TOOLKIT_PKGS)]"
     # Sources, key and pin were staged by 54-gpu-accel.sh; refresh the indexes.
     if ! apt_run update >>"$LOG" 2>&1; then
         # A partial failure (one unreachable source) must not stop us if the
@@ -265,56 +666,93 @@ do_run() {
         log "apt-get update reported errors; continuing to the simulation"
     fi
 
-    local drv pkgs sim
     # NCZ_CUDA_DRIVER_PKGS overrides the driver list (test hook: lets a machine
     # that already has its driver exercise only the toolkit path).
-    drv=${NCZ_CUDA_DRIVER_PKGS-$(conf DRIVER_PKGS)}; pkgs=$(conf TOOLKIT_PKGS)
-    # shellcheck disable=SC2086
-    sim=$(apt_run install -s -y --no-install-recommends --no-remove $drv $pkgs 2>&1); local rc=$?
-    if [ $rc -ne 0 ]; then
-        log "simulation failed (rc=$rc):"; echo "$sim" | tail -20 | sed 's/^/    /' | tee -a "$LOG" >&2
-        if echo "$sim" | grep -qE 'Unable to locate package|Temporary failure|Could not resolve|Failed to fetch'; then
+    DRV=${NCZ_CUDA_DRIVER_PKGS-$(conf DRIVER_PKGS)}
+    local tk_ok=1
+    if ! resolve_toolkit; then tk_ok=0; fi
+    [ "$tk_ok" = 1 ] && log "toolkit: CUDA ${TK/-/.} ($TK_PKGS)"
+
+    local built="" newest="" v rc tried=0 cands
+    N_BUILD=0
+    if [ -n "$DRV" ]; then
+        cands=$(driver_candidates)
+        newest=$(printf '%s\n' "$cands" | head -n1)
+        if [ -z "$newest" ]; then
+            if apt-cache madison "$(kmod_pkg)" 2>/dev/null | grep -qF "$HOST"; then
+                log "no $(kmod_pkg) version from $HOST matches the family limit '$(conf DRIVER_PIN)'"
+                set_status "failed:no-driver-candidates"; backoff_note hard >/dev/null; return 1
+            fi
+            log "the $HOST index offers no $(kmod_pkg) (index not downloaded yet, or the package was renamed)"
             set_status "pending:index-unavailable"; backoff_note soft >/dev/null; return 75
         fi
-        set_status "failed:not-installable"; backoff_note hard >/dev/null; return 1
-    fi
-    if echo "$sim" | grep -q '^Remv '; then
-        log "REFUSING: installing would remove packages:"; echo "$sim" | grep '^Remv ' | sed 's/^/    /' | tee -a "$LOG" >&2
-        set_status "failed:would-remove-packages"; backoff_note hard >/dev/null; return 1
+        log "driver: offered (newest first): $(printf '%s\n' "$cands" | tr '\n' ' ')"
+        for v in $cands; do
+            if ledger_has "$v"; then
+                log "driver $v: already failed to build with this kernel, config and patches; skipped"
+                continue
+            fi
+            if [ "$tried" -ge "$DRIVER_TRIES" ]; then
+                log "driver: tried $tried versions in this run; the timer continues with the older ones"
+                break
+            fi
+            tried=$((tried + 1))
+            try_driver "$v"; rc=$?
+            case $rc in
+                0) built=$v; break ;;
+                2) continue ;;
+                *) set_pin "$(family_pin)" "Family default (restored after an unfinished attempt)."
+                   remove_unbuildable   # acts only when the module package is left unconfigured
+                   return "$rc" ;;
+            esac
+        done
+        if [ -z "$built" ]; then
+            # the family pin first: under the last exact pin apt would try to move the half-installed set again
+            set_pin "$(family_pin)" "Family default: no offered driver built for kernel $(target_kernel) yet."
+            remove_unbuildable
+            if [ -n "$(untried_candidates | head -n1)" ]; then
+                set_status "failed:dkms-build"
+                log "not every offered driver was tried yet; the timer continues"
+                return 1
+            fi
+            if [ "$N_BUILD" = 0 ] && ! build_failed_now; then
+                set_status "failed:not-installable"; backoff_note hard >/dev/null
+                notice_no_driver "NCZ-OS: no offered NVIDIA driver version can be installed as a complete set, so the NVIDIA GPU is not used (the display runs on the integrated GPU). Details: ncz-cuda-setup status"
+                return 1
+            fi
+            set_status "failed:no-buildable-driver"
+            log "no offered NVIDIA driver builds for kernel $(target_kernel); the machine stays on its integrated GPU."
+            log "retried automatically when a new kernel or a new driver version is available (or: ncz-cuda-setup retry)"
+            notice_no_driver "NCZ-OS: no available NVIDIA driver version builds for kernel $(target_kernel), so the NVIDIA GPU is not used (the display runs on the integrated GPU). It is retried automatically when a new kernel or driver version arrives. Details: ncz-cuda-setup status"
+            return 1
+        fi
+        printf '%s\n' "$built" > "$DRIVER_REC"
+        if [ "$built" = "$newest" ]; then
+            set_pin "$(series_pin "$built")" "Driver $built built for kernel $(target_kernel); point releases of its series may update."
+        else
+            set_pin "version $built" "Held at driver $built: newer offered versions did not build for kernel $(target_kernel) (ncz-cuda-setup status)."
+            log "driver: held at $built (newest offered: $newest); 'ncz-cuda-setup retry' tries the newer ones again"
+        fi
+        log "driver: $(kmod_pkg) $built installed"
+        notice_no_driver ""
+        rm -f "$DKMS_FAIL"
     fi
 
-    # Local DKMS patches must be in place before dpkg runs the module postinst.
-    stage_dkms_patches
-
-    # Driver first so a toolkit problem never costs the display driver.
-    # attempt_log prints only what THIS apt transaction appended to the log: an older "Failed to fetch" line must not
-    # turn a hard failure (dpkg/dkms/resolver) into an endless "pending:download" retry (review, verified).
+    if [ "$tk_ok" != 1 ]; then
+        set_status "failed:toolkit-not-found"; backoff_note hard >/dev/null; return 1
+    fi
     local logoff
-    attempt_log() { tail -c +"$((logoff + 1))" "$LOG" 2>/dev/null; }
-    logoff=$(wc -c < "$LOG" 2>/dev/null || echo 0)
-    touch "$DRV_MARK" 2>/dev/null
-    # shellcheck disable=SC2086
-    if ! apt_run install -y --no-install-recommends --no-remove $drv >>"$LOG" 2>&1; then
-        if attempt_log | grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect'; then
-            set_status "pending:download"; backoff_note soft >/dev/null; return 75
-        fi
-        if record_dkms_failure; then
-            set_status "failed:dkms-build"; backoff_note hard >/dev/null; return 1
-        fi
-        set_status "failed:driver-install"; backoff_note hard >/dev/null; return 1
-    fi
     logoff=$(wc -c < "$LOG" 2>/dev/null || echo 0)
     # shellcheck disable=SC2086
-    if ! apt_run install -y --no-install-recommends --no-remove $pkgs >>"$LOG" 2>&1; then
-        if attempt_log | grep -qE 'Failed to fetch|Temporary failure|Could not resolve|Connection (timed out|failed)|Unable to connect'; then
+    if ! apt_run install -y --no-install-recommends --no-remove $TK_PKGS >>"$LOG" 2>&1; then
+        if tail -c +"$((logoff + 1))" "$LOG" 2>/dev/null | is_transient; then
             set_status "pending:download"; backoff_note soft >/dev/null; return 75
         fi
         set_status "failed:toolkit-install"; backoff_note hard >/dev/null; return 1
     fi
 
     ldconfig 2>/dev/null || true
-    local tdir; tdir=$(conf TOOLKIT_DIR)
-    if [ ! -x "$tdir/bin/nvcc" ]; then
+    if [ ! -x "$TK_DIR/bin/nvcc" ]; then
         set_status "failed:nvcc-missing"; backoff_note hard >/dev/null; return 1
     fi
     install -d -m0755 /etc/profile.d
@@ -331,17 +769,74 @@ PROFEOF
     if [ "$(conf KMOD)" = proprietary ] && command -v dkms >/dev/null 2>&1; then
         log "dkms: $(dkms status 2>/dev/null | tr '\n' ';')"
     fi
-    set_status "installed:$(dpkg-query -W -f='${Version}' "cuda-nvcc-$(conf TOOLKIT)" 2>/dev/null)"
+    record_installed "INSTALLED_DRIVER=$built" "INSTALLED_TOOLKIT=$TK" "INSTALLED_TOOLKIT_DIR=$TK_DIR"
+    rm -f "$REPAIR"
+    set_status "installed:$(dpkg-query -W -f='${Version}' "cuda-nvcc-$TK" 2>/dev/null)"
     date -u +%FT%TZ > "$STAMP"
     rm -f "$ATTEMPTS" "$DKMS_FAIL"
     systemctl disable --now ncz-cuda-setup.timer >/dev/null 2>&1 || true
-    log "done: $("$tdir/bin/nvcc" --version 2>/dev/null | tail -n1)"
+    log "done: driver ${built:-unchanged}, $("$TK_DIR/bin/nvcc" --version 2>/dev/null | tail -n1)"
+    return 0
+}
+
+# apt hooks: never fail apt (always exit 0), never take the run lock.
+cmd_apt_pre_install() {
+    local deb p
+    [ -d "$NV_DKMS_PATCHES" ] || { cat >/dev/null; return 0; }
+    # this tool's own transaction: try_driver already staged the patches for it
+    [ "${NCZ_CUDA_SETUP_TXN:-}" = 1 ] && { cat >/dev/null; return 0; }
+    while read -r deb; do
+        case "$deb" in *.deb) ;; *) continue ;; esac
+        [ -r "$deb" ] || continue
+        p=$(dpkg-deb -f "$deb" Package 2>/dev/null)
+        case "$p" in nvidia*-dkms) stage_from_deb "$deb" </dev/null ;; esac
+    done
+    return 0
+}
+cmd_apt_post_invoke() {
+    local kp st
+    [ -r "$CONF" ] && [ -e "$STAMP" ] || return 0   # not installed by us, or a run is still in charge
+    kp=$(kmod_pkg); [ -n "$kp" ] || return 0
+    st=$(dpkg-query -W -f='${db:Status-Abbrev}' "$kp" 2>/dev/null)
+    case "$st" in i[FUH]*) ;; *) return 0 ;; esac
+    rm -f "$STAMP"
+    set_status "pending:driver-repair"
+    log "apt left $kp unconfigured (its DKMS build failed); ncz-cuda-setup.timer will fall back to a driver version that builds"
+    systemctl enable ncz-cuda-setup.timer >/dev/null 2>&1 || true
+    systemctl start ncz-cuda-setup.timer >/dev/null 2>&1 || true
+    return 0
+}
+
+# kernel postinst hook (/etc/kernel/postinst.d/zz-ncz-nvidia, after DKMS's own):
+# when the installed driver did not build for the new kernel, hand it back to the
+# timer, which repairs it (falling back if needed) once that kernel runs.
+cmd_kernel_postinst() {
+    local k=${1:-}
+    [ -n "$k" ] && [ -r "$CONF" ] || return 0
+    # installed by us, or a repair already pending (a second kernel before the reboot)
+    [ -e "$STAMP" ] || [ -s "$REPAIR" ] || return 0
+    case "$(conf KMOD)" in open|proprietary) ;; *) return 0 ;; esac
+    [ -e "$MODULES_ROOT/$k/build" ] || return 0      # no headers: DKMS cannot build for it anyway
+    module_ok "$k" && return 0
+    echo "$k" > "$REPAIR"
+    rm -f "$STAMP"
+    set_status "pending:driver-repair"
+    log "the installed NVIDIA driver did not build for kernel $k; ncz-cuda-setup repairs it after booting $k"
+    systemctl enable ncz-cuda-setup.timer >/dev/null 2>&1 || true
     return 0
 }
 
 case "${1:-}" in
     run)    shift; do_run "$@" ;;
-    retry)  rm -f "$ATTEMPTS" "$DKMS_FAIL"; rm -f "$STAMP"; do_run ;;
+    retry)  do_run --retry ;;
     status) cmd_status ;;
-    *)      echo "usage: ncz-cuda-setup run [--scheduled] | retry | status" >&2; exit 2 ;;
+    dkms-stage)
+        shift; [ $# -gt 0 ] || { echo "usage: ncz-cuda-setup dkms-stage DIR..." >&2; exit 2; }
+        src_rc=0
+        for d in "$@"; do stage_for_src "${d%/}" || src_rc=1; done
+        exit "$src_rc" ;;
+    apt-pre-install) cmd_apt_pre_install; exit 0 ;;
+    apt-post-invoke) cmd_apt_post_invoke; exit 0 ;;
+    kernel-postinst) cmd_kernel_postinst "${2:-}"; exit 0 ;;
+    *)      echo "usage: ncz-cuda-setup run [--scheduled] | retry | status | dkms-stage DIR... | apt-pre-install | apt-post-invoke | kernel-postinst KVER" >&2; exit 2 ;;
 esac

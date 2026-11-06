@@ -1,0 +1,14 @@
+# themerc-lite.fragment -- the labwc titlebar-theme half of the NCZ-OS lite profile.
+#
+# DATA, installed to /usr/share/ncz/lite/ by post-install/66-ncz-lite-profile.sh.
+# `ncz-profile lite` reads the shadow sizes below and patches them into the
+# user's ~/.config/labwc/themerc-override (backing it up to
+# themerc-override.ncz-lite-orig first). The stock Singularity theme draws a
+# 40 px active / 28 px inactive window shadow; on a Gen6/Gen7 GPU that shadow
+# is a full per-window blur pass for every composited frame, and lite drops it.
+#
+# Only the two shadow sizes are consumed by ncz-profile; the rest is the
+# documented intent. Colours are left to the shell's accent-tinted themerc.
+
+window.active.shadow.size: 0
+window.inactive.shadow.size: 0

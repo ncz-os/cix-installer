@@ -349,12 +349,99 @@ install_kernel_headers() {
 # file this trimmed tree does not carry; that is tolerated, because the two
 # tools DKMS needs are produced before that point. What matters is whether they
 # exist and run, which is what we check.
+# >>> ncz_prepare_pristine (keep identical in build/build-kernel-debs.sh,
+# post-install/79-dkms-prep.sh and post-install/10-our-kernel.sh;
+# build/test-headers-prepare-pristine.sh checks that they match)
+#
+# Rebuild the kernel host tools (fixdep, modpost, genksyms) with
+# `make modules_prepare` WITHOUT letting it change the kernel configuration the
+# header tree describes. modules_prepare re-runs Kconfig (syncconfig) whenever
+# the compiler differs from the one that built the kernel, which on these
+# trees is always (OE gcc built the kernel, Debian gcc builds DKMS). Kconfig
+# then re-derives every toolchain-dependent symbol for the NEW compiler and
+# rewrites .config, include/config/auto.conf and include/generated/autoconf.h.
+# Every DKMS module is compiled against that autoconf.h, so a dropped symbol
+# changes the module ABI. 2026-10-26 (r292): on a host without pahole,
+# CONFIG_PAHOLE_VERSION became 0, CONFIG_DEBUG_INFO_BTF_MODULES disappeared,
+# struct module shrank from 0x500 to 0x4c0, and the kernel refused the Mali
+# modules built there ("section size must match"). On O6N the same step also
+# dropped CONFIG_GCC_PLUGINS and prompted for new symbols on the terminal.
+# So: snapshot the Kconfig output, run modules_prepare with stdin closed (a new
+# symbol takes its default instead of waiting for an answer on a terminal
+# during an apt run), put the snapshot back, and verify it is byte-identical.
+#
+# tools/bpf/resolve_btfids fails to build here ("linux/kasan-checks.h: No such
+# file or directory": the header tree carries no tools/ sources). DKMS does not
+# need it: it is only used to add BTF to a module when vmlinux is present, and
+# the header tree has no vmlinux, so kbuild prints "Skipping BTF generation"
+# and the module loads without BTF. That failure, like the missing
+# kernel/bounds.s and asm-offsets sources, is why make runs with -k.
+#
+# A listed file that make creates (the shipped tree has no
+# include/config/auto.conf.cmd) is removed again, so the tree ends as shipped.
+#
+# Safe under set -e whether or not the caller tests its status.
+#
+# ncz_prepare_pristine <build-dir> <log>
+#   returns 0 when make was clean, make's status when it was not (expected for
+#   this trimmed tree; check the tools instead), 3 when the configuration could
+#   not be restored (do NOT build modules against that tree).
+# Also the generated headers the kernel build shipped (bounds.h, asm-offsets.h,
+# timeconst.h are computed from the configuration; compile.h names the
+# compiler): the kernel's copies are the right ones, whatever make regenerated.
+NCZ_KCONFIG_FILES=".config include/config/auto.conf include/config/auto.conf.cmd include/generated/autoconf.h include/generated/rustc_cfg include/config/kernel.release include/generated/utsrelease.h include/generated/bounds.h include/generated/asm-offsets.h include/generated/timeconst.h include/generated/compile.h"
+ncz_prepare_pristine() {
+    _np_b=$1; _np_log=$2
+    _np_snap=$(mktemp -d) || return 3
+    for _np_f in $NCZ_KCONFIG_FILES; do
+        [ -f "$_np_b/$_np_f" ] || continue
+        mkdir -p "$_np_snap/$(dirname "$_np_f")" && cp -p "$_np_b/$_np_f" "$_np_snap/$_np_f" \
+            || { rm -rf "$_np_snap"; return 3; }
+    done
+    _np_off=$(($({ wc -c <"$_np_log"; } 2>/dev/null || echo 0) + 1))
+    _np_rc=0
+    make -k -C "$_np_b" -j"$(nproc 2>/dev/null || echo 2)" modules_prepare </dev/null >>"$_np_log" 2>&1 || _np_rc=$?
+    # 3 is reserved for "not restored"; GNU make never exits 3, but keep it unambiguous
+    if [ "$_np_rc" = 3 ]; then _np_rc=2; fi
+    _np_bad=0
+    for _np_f in $NCZ_KCONFIG_FILES; do
+        if [ ! -f "$_np_snap/$_np_f" ]; then
+            [ -e "$_np_b/$_np_f" ] || continue
+            echo "ncz_prepare_pristine: Kconfig created $_np_f; removed it (the kernel's tree has none)" >>"$_np_log"
+            rm -rf "${_np_b:?}/$_np_f" 2>>"$_np_log"
+            if [ -e "$_np_b/$_np_f" ]; then _np_bad=1; fi
+            continue
+        fi
+        if cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null; then continue; fi
+        echo "ncz_prepare_pristine: Kconfig rewrote $_np_f; restored the kernel's copy" >>"$_np_log"
+        # a path make turned into a directory: remove it so the copy can land
+        if [ -d "$_np_b/$_np_f" ]; then rm -rf "${_np_b:?}/$_np_f"; fi
+        cp -p "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>>"$_np_log" || _np_bad=1
+        cmp -s "$_np_snap/$_np_f" "$_np_b/$_np_f" 2>/dev/null || _np_bad=1
+    done
+    rm -rf "$_np_snap"
+    if tail -c +"$_np_off" "$_np_log" 2>/dev/null | grep -q 'resolve_btfids'; then
+        echo "ncz_prepare_pristine: tools/bpf/resolve_btfids not built (no tools/ sources in the header tree); not needed for DKMS: without vmlinux kbuild skips module BTF" >>"$_np_log"
+    fi
+    [ "$_np_bad" = 0 ] || return 3
+    return "$_np_rc"
+}
+# <<< ncz_prepare_pristine
+
 rebuild_host_tools() {
-    local kver="$1" b="/lib/modules/$1/build"
+    local kver="$1" b="/lib/modules/$1/build" prep_rc=0
     [ -f "$b/Makefile" ] || return 0
     command -v make >/dev/null 2>&1 || {
         echo "    WARN: make absent — cannot rebuild kernel host tools; DKMS will fail" >&2; return 1; }
-    make -C "$b" modules_prepare >/dev/null 2>&1 || true
+    ncz_prepare_pristine "$b" /var/log/ncz-kernel-host-tools.log || prep_rc=$?
+    if [ "$prep_rc" = 3 ]; then
+        echo "    WARN: modules_prepare changed the kernel configuration in $b and it could not be restored;" \
+             "DKMS modules built against it would not load (see /var/log/ncz-kernel-host-tools.log)" >&2
+        return 1
+    elif [ "$prep_rc" != 0 ]; then
+        echo "    modules_prepare returned $prep_rc (expected: the headers omit some generated sources);" \
+             "see /var/log/ncz-kernel-host-tools.log"
+    fi
     local ok=1
     for t in scripts/basic/fixdep scripts/mod/modpost; do
         if [ -x "$b/$t" ] && ! "$b/$t" 2>&1 | grep -q "not found"; then :; else ok=0; fi

@@ -1,0 +1,16 @@
+[Unit]
+Description=NCZ-OS AMD GPU/NPU userspace setup (deferred install)
+After=network-online.target nss-lookup.target
+Wants=network-online.target
+# Written only when the install-time attempt could not finish (no network);
+# removed once the stack is installed, so the unit is a no-op afterwards.
+ConditionPathExists=/var/lib/ncz/amd-accel.pending
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ncz-amd-accel-setup run
+# 75 (EX_TEMPFAIL) = network/repo not ready yet: the timer retries.
+SuccessExitStatus=75
+TimeoutStartSec=1h
+Nice=10
+IOSchedulingClass=idle

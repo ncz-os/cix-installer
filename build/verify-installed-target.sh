@@ -20,6 +20,10 @@
 #   (info) VA-API driver files (reported, never a failure)
 #
 # Usage: verify-installed-target.sh <EVIDENCE_ROOT_RAW> <DEBUGFS> [arm64|amd64]
+# VERIFY_EXPECT_COMPONENTS=<record> (set by the KVM gate from its options answer)
+# must equal the target's /etc/cix-installer/COMPONENTS; the desktop-layer
+# sections run only when that record has the desktop, and the (opt) section
+# checks the recovery console/container and the rescue marker against it.
 # COMMON sections run for both architectures; Sky1 (arm64) sections only for arm64; the amd64
 # section also proves no Sky1 policy leaked onto x86 (the cause of the T2 boot hangs). Every run
 # prints machine-readable '[fact] key=value' lines that build/verify-dual-arch-parity.sh compares.
@@ -79,6 +83,42 @@ plain_module() {
 }
 
 
+# --- (opt) install options: the recorded selection and what it installs -------------------------------
+# The record is the comma list preseed/component-selector.sh wrote (`none` = no
+# option). Without a record the old behaviour holds: every component expected.
+echo "[verify-target] (opt) install options"
+V_RECORD=""
+if fetch /etc/cix-installer/COMPONENTS "$TMP/components"; then
+    V_RECORD="$(tr -d ' \t\r\n' < "$TMP/components")"
+fi
+if [ -n "${VERIFY_EXPECT_COMPONENTS:-}" ] && [ "$V_RECORD" != "$VERIFY_EXPECT_COMPONENTS" ]; then
+    gate_miss options "/etc/cix-installer/COMPONENTS is '${V_RECORD:-missing}', the installer was answered '$VERIFY_EXPECT_COMPONENTS'"
+fi
+V_DESKTOP=1; V_MGMT=1; V_RESCUE=1
+if [ -n "$V_RECORD" ]; then
+    case ",$V_RECORD," in *,desktop,*) : ;; *) V_DESKTOP=0 ;; esac
+    case ",$V_RECORD," in *,mgmt-container,*) : ;; *) V_MGMT=0 ;; esac
+    case ",$V_RECORD," in *,rescue-partition,*) : ;; *) V_RESCUE=0 ;; esac
+fi
+echo "[verify-target]     record '${V_RECORD:-none recorded}': desktop=$V_DESKTOP mgmt-container=$V_MGMT rescue-partition=$V_RESCUE"
+# mgmt-container carries both recovery tiers: the nspawn container (38) and the
+# static console on :2323 (37). Both present with it, both absent without it.
+for _o in /etc/systemd/nspawn/ncz-recovery.nspawn /etc/systemd/system/ncz-failsafe.service /opt/ncz-failsafe/bin/busybox; do
+    if exists "$_o"; then
+        [ "$V_MGMT" = 1 ] || gate_miss options "$_o is installed but mgmt-container was not selected"
+    else
+        [ "$V_MGMT" = 0 ] || gate_miss options "$_o is missing (mgmt-container selected; post-install/37-failsafe-access.sh, 38-recovery-container.sh)"
+    fi
+done
+# 72-rescue-partition.sh writes RESCUE_READY (PARTUUID=) only for a selected partition.
+if fetch /usr/local/lib/cix-installer/RESCUE_READY "$TMP/rescue_ready"; then
+    grep -q '^PARTUUID=..*' "$TMP/rescue_ready" || gate_miss options "RESCUE_READY has no PARTUUID"
+    [ "$V_RESCUE" = 1 ] || gate_miss options "RESCUE_READY exists but rescue-partition was not selected"
+else
+    [ "$V_RESCUE" = 0 ] || gate_miss options "/usr/local/lib/cix-installer/RESCUE_READY missing (rescue-partition selected; post-install/72-rescue-partition.sh)"
+fi
+echo "[fact] components=${V_RECORD:-unrecorded}"
+
 # --- (id) release identity, same on both architectures ------------------------------------------------
 echo "[verify-target] (id) release identity"
 if fetch /usr/local/lib/cix-installer/BUILD_ARCH "$TMP/build_arch"; then
@@ -106,6 +146,41 @@ echo "[verify-target] (ld) ldconfig"
 exists /etc/systemd/system/ldconfig.service.d/10-ncz-tolerate-race.conf || gate_miss ldconfig "ldconfig.service tolerate-race drop-in (late.sh final ldconfig block did not run)"
 exists /etc/ld.so.cache || gate_miss ldconfig "/etc/ld.so.cache"
 exists /etc/.updated || gate_miss ldconfig "/etc/.updated stamp (late.sh)"
+
+# --- (identity) no retired codename on any console banner -----------------------------------
+# Measured 2026-10-28 on a real console install (desktop medium, desktop
+# component off): /etc/issue.d/10-ncz-server.issue carried a hardcoded ASCII
+# block reading "N C Z   M A X I M I L I A N   S E R V E R" -- the 26.7
+# codename, frozen in a hook heredoc, sitting directly under a correct
+# /etc/issue that said "26.10 Cygnus Server". The identity gate never saw it
+# because the string is generated at INSTALL time by post-install/
+# 48-server-variant.sh, not written into any staged identity file. This checks
+# what a user actually sees: every console banner file on the installed target.
+echo "[verify-target] (identity) console banners carry no retired codename"
+_id_checked=0
+for _idf in /etc/issue /etc/issue.net; do
+    if exists "$_idf"; then
+        _id_checked=$((_id_checked + 1))
+        _idc="$(dfs "cat $_idf" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+        case "$_idc" in
+            *maximilian*|*reinhardt*)
+                gate_miss identity "$_idf names a retired codename (release is Cygnus)" ;;
+        esac
+    fi
+done
+for _idd in /etc/issue.d; do
+    exists "$_idd" || continue
+    for _idn in $(lsnames "$_idd" 2>/dev/null); do
+        _idf="$_idd/$_idn"
+        _id_checked=$((_id_checked + 1))
+        _idc="$(dfs "cat $_idf" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+        case "$_idc" in
+            *maximilian*|*reinhardt*)
+                gate_miss identity "$_idf names a retired codename (release is Cygnus)" ;;
+        esac
+    done
+done
+echo "[verify-target]     $_id_checked console banner file(s) inspected, none names a retired codename"
 
 # --- (apt) NCZ-OS / Debian apt separation (r201), same on both architectures ---------------------------
 # The installed apt configuration must keep NCZ packages and Debian packages apart: the origin pin
@@ -185,7 +260,9 @@ elif [ -s "$TMP/netfw-installed" ]; then
         grep -qxF -- "$_p" "$TMP/netfw-installed" || gate_miss fw-bom "$_p is not 'install ok installed' (manifests/firmware-$ARCH.pkgs; post-install/13-firmware-bom.sh)"
     done < <(grep -hvE '^[[:space:]]*(#|$)' "$BOM_PKGS" | awk '{print $1}' | sort -u)
     echo "[fact] firmware_bom_checked=$_bom_n"
-    grep -qxF -- systemd-coredump "$TMP/netfw-installed" || gate_miss diagnostics "systemd-coredump is not installed (post-install/20-desktop.sh)"
+    if [ "$V_DESKTOP" = 1 ]; then
+        grep -qxF -- systemd-coredump "$TMP/netfw-installed" || gate_miss diagnostics "systemd-coredump is not installed (post-install/20-desktop.sh)"
+    fi
 else
     # An empty or unreadable installed-package list must FAIL, never skip the BOM check.
     gate_miss fw-bom "no installed-package list to check (empty or missing /var/lib/dpkg/status)"
@@ -266,6 +343,46 @@ else
     fi
 fi
 
+# --- (ii-b) NPU ACPI SSDT payload ----------------------------------------
+# The MS-R1's firmware omits _HID on \_SB.NPU0.CRE0/1/2, so on that board the
+# module above can only bind if the ACPI override table ships with the image.
+# The 2026-10-28 release shipped two arm64 images whose payload had the .asl
+# but NOT the compiled .aml: every step "succeeded", the driver logged
+# "only 0 of 3 NPU cores usable - disabling NPU", and nothing here noticed.
+# build/iso/ncz_ssdt.py is the stager; this is the end-to-end check that its
+# output actually reached the medium.
+if [ "$ARCH" = arm64 ]; then
+    echo "[verify-target] (ii-b) NPU ACPI SSDT override payload"
+    AML_REL="/usr/local/lib/cix-installer/assets/npu/ssdt-npucre.aml"
+    ASL_REL="/usr/local/lib/cix-installer/assets/npu/ssdt-npucre.asl"
+    exists "$ASL_REL" || gate_miss npu-ssdt "committed ASL source $ASL_REL"
+    if exists "$AML_REL"; then
+        aml="$TMP/ssdt-npucre.aml"
+        if ! fetch "$AML_REL" "$aml"; then
+            gate_miss npu-ssdt "cannot read $AML_REL"
+        else
+            _sig="$(dd if="$aml" bs=4 count=1 2>/dev/null | tr -d '\000')"
+            [ "$_sig" = SSDT ] || gate_miss npu-ssdt "$AML_REL is not an ACPI SSDT (sig '$_sig')"
+            _n="$(grep -c CIXH4010 "$aml" 2>/dev/null || echo 0)"
+            [ "${_n:-0}" -ge 3 ] \
+                || gate_miss npu-ssdt "$AML_REL names CIXH4010 $_n time(s), expected 3 cores"
+            echo "[verify-target]     SSDT $(stat -c%s "$aml" 2>/dev/null || echo ?)B with $_n CIXH4010 cores"
+        fi
+    else
+        gate_miss npu-ssdt "$AML_REL (arm64 images without it boot with the NPU disabled on an MS-R1)"
+    fi
+    # Board gate must stay OFF for everything that is not MS-R1-class. The
+    # dracut knob is written by post-install/80-npu.sh only on an apply board;
+    # on this build host (and on the KVM guest) the DMI is neither, so its
+    # presence means the gate leaked and an SSDT would be injected on a Radxa
+    # board whose firmware already declares the cores (AE_ALREADY_EXISTS).
+    if exists /etc/dracut.conf.d/90-ncz-npu-ssdt.conf; then
+        gate_miss npu-ssdt "/etc/dracut.conf.d/90-ncz-npu-ssdt.conf present on a non-MS-R1 build (acpi_override leaked past the board gate)"
+    else
+        echo "[verify-target]     dracut acpi_override NOT enabled (correct: non-MS-R1 DMI)"
+    fi
+fi
+
 # --- (iii) VPU ------------------------------------------------------------
 echo "[verify-target] (iii) VPU (amvx)"
 AMVX_REL="$(mod_path amvx)"
@@ -280,14 +397,36 @@ if fetch /usr/bin/load-modules.sh "$TMP/load-modules.sh" && grep -q 'video-cixde
 else
     gate_miss vpu "/usr/bin/load-modules.sh with the video-cixdec0 symlink logic"
 fi
-exists /usr/bin/ffmpeg || gate_miss vpu "/usr/bin/ffmpeg"
+# ffmpeg + libavcodec carrying h264_v4l2m2m.
+#
+# There are TWO ffmpegs, and which one exists depends on the install option set:
+#   - desktop sets install the Debian `ffmpeg` package -> /usr/bin/ffmpeg and
+#     /usr/lib{,64}/libavcodec.so.*
+#   - headless sets (nodesktop, minimal, server/Magnetar) do NOT, but
+#     post-install/83-vpu-ffmpeg.sh installs the cix-mm bundle to /opt/cix-ffmpeg
+#     and wraps it as /usr/local/bin/cix-ffmpeg (bin/ + cixlib/ inside).
+# Requiring the Debian package made every headless variant fail this gate even
+# though its VPU userspace was correctly installed -- this was only ever visible
+# once the 5-variant matrix (commit a7dbb1a3) started running nodesktop/minimal;
+# before that every KVM gate run was the single hardcoded desktop set.
+# Accept either, and assert the codec on whichever is actually present, because
+# the real requirement is a working VPU transcode route, not a specific package.
+_ffmpeg=""
+for _c in /usr/bin/ffmpeg /opt/cix-ffmpeg/bin/ffmpeg; do
+    if fetch "$_c" "$TMP/ncz-ffmpeg-probe"; then _ffmpeg="$_c"; break; fi
+done
+if [ -z "$_ffmpeg" ]; then
+    gate_miss vpu "ffmpeg (neither /usr/bin/ffmpeg nor the 83-vpu-ffmpeg bundle /opt/cix-ffmpeg/bin/ffmpeg)"
+else
+    echo "[verify-target]     ffmpeg: $_ffmpeg"
+fi
 avc=""
-for d in /usr/lib/aarch64-linux-gnu /usr/lib; do
+for d in /usr/lib/aarch64-linux-gnu /usr/lib /opt/cix-ffmpeg/cixlib; do
     avc="$(lsnames $d | grep -E '^libavcodec\.so\.[0-9.]+$' | sort -V | tail -1)"
     [ -n "$avc" ] && { avc="$d/$avc"; break; }
 done
 if [ -z "$avc" ]; then
-    gate_miss vpu "libavcodec shared library"
+    gate_miss vpu "libavcodec shared library (searched system libs and /opt/cix-ffmpeg/cixlib)"
 elif fetch "$avc" "$TMP/libavcodec.so" && grep -aq 'h264_v4l2m2m' "$TMP/libavcodec.so"; then
     echo "[verify-target]     $avc carries h264_v4l2m2m"
 else
@@ -325,6 +464,103 @@ if [ -n "$(lsnames /usr/lib/modules)" ]; then
 else
     gate_miss kernel "no /usr/lib/modules/<kver> on the amd64 target"
 fi
+
+# --- (amd64 NPU) Intel NPU stack ------------------------------------------
+# The amd64 desktop's accelerator is the Intel NPU (class-1200 PCI 8086:ad1d on
+# Arrow Lake / Core Ultra 200), not the CIX one -- the arm64 SSDT machinery
+# above has nothing to do with it. The only hardware that can prove it is
+# PROTEUS (.68, Core Ultra 7 265: driver bound, /dev/accel/accel0, the four
+# *-npu packages, Level Zero enumerating 2 drivers) and TYPHON (.61, same
+# device on a Proxmox host). ACHILLES/HYDRA/ULTRA have no class-1200 device, so
+# a KVM gate can never test the NPU itself. What it CAN test is that the image
+# carries the pieces, so a build cannot silently drop them:
+#   * the kernel's intel_vpu driver
+#   * the NPU firmware (intel/vpu/*.bin -- present even on hosts with no NPU,
+#     measured on DELL .70, so its absence is unconditionally wrong)
+#   * the userspace delivery mechanism (helper + deferred timer), because NPU
+#     userspace is installed CONDITIONALLY on the target
+#   * the NVIDIA/CUDA payload, without which 54-gpu-accel records
+#     'failed:keyring-not-staged' and installs no driver at all (TYPHON .61)
+# NOTE: this section must not use KVER/MODDEP/mod_path -- those live in the
+# arm64 branch above and are unset on amd64 (first run of this check died with
+# 'mod_path: command not found' / 'KVER: unbound variable').
+echo "[verify-target] (amd64 NPU) Intel NPU stack (intel_vpu + firmware + userspace)"
+# intel_vpu must be present in the image's module set. lsnames appends a "/" to
+# directories (it is `ls -p`), so strip it -- the first version of this check
+# looked for .../7.3.0-t2-ncz//modules.dep and concluded the driver was absent
+# on a kernel that has it.
+_ivpu_found=""
+_ivpu_seen=""
+for _k in $(lsnames /usr/lib/modules 2>/dev/null | sed 's#/$##'); do
+    case "$_k" in [0-9]*) ;; *) continue ;; esac      # skip banner/noise lines
+    _ivpu_seen="$_ivpu_seen $_k"
+    if exists "/usr/lib/modules/$_k/modules.dep" \
+       && dfs "cat /usr/lib/modules/$_k/modules.dep" 2>/dev/null | grep -q 'intel_vpu'; then
+        _ivpu_found="$_k (modules.dep)"; break
+    fi
+    # Fallback: the module FILE itself, in case modules.dep was regenerated
+    # without it (depmod run before the package was fully unpacked).
+    for _sub in accel/ivpu accel; do
+        if [ -n "$(lsnames "/usr/lib/modules/$_k/kernel/drivers/$_sub" 2>/dev/null | grep '^intel_vpu\.ko' || true)" ]; then
+            _ivpu_found="$_k (kernel/drivers/$_sub/intel_vpu.ko)"; break 2
+        fi
+    done
+done
+if [ -n "$_ivpu_found" ]; then
+    echo "[verify-target]     intel_vpu present: $_ivpu_found"
+elif [ -n "$_ivpu_seen" ] && exists "/boot/config-$(printf '%s' "$_ivpu_seen" | awk '{print $1}')" \
+     && dfs "cat /boot/config-$(printf '%s' "$_ivpu_seen" | awk '{print $1}')" 2>/dev/null | grep -q '^CONFIG_INTEL_VPU=y'; then
+    echo "[verify-target]     intel_vpu is built in (CONFIG_INTEL_VPU=y)"
+else
+    gate_miss intel-npu "intel_vpu absent from every module tree (scanned:${_ivpu_seen:- none}) -- no NPU on a Core Ultra host"
+fi
+_fw_npu=0
+for _d in /lib/firmware/intel/vpu /usr/lib/firmware/intel/vpu; do
+    _n="$(lsnames "$_d" 2>/dev/null | grep -c '\.bin$' || true)"
+    [ "${_n:-0}" -gt 0 ] && _fw_npu=$((_fw_npu + _n))
+done
+if [ "$_fw_npu" -gt 0 ]; then
+    echo "[verify-target]     NPU firmware: $_fw_npu intel/vpu/*.bin"
+else
+    gate_miss intel-npu "no /lib/firmware/intel/vpu/*.bin (intel_vpu cannot load on a Core Ultra host)"
+fi
+# The MECHANISM must ship unconditionally; the units it installs exist only on a
+# machine that actually has the hardware, so they are reported, not required.
+exists /usr/local/lib/cix-installer/post-install/lib/intel-accel.sh \
+    || gate_miss intel-npu "post-install/lib/intel-accel.sh (NPU/GPU userspace delivery library is not on the medium)"
+for _u in /usr/local/sbin/ncz-intel-accel-setup /etc/systemd/system/ncz-intel-accel-setup.timer; do
+    exists "$_u" && echo "[verify-target]     present: $_u" || echo "[verify-target]     absent (expected on a host without Intel accelerators): $_u"
+done
+# NVIDIA/CUDA payload: it must be ON THE MEDIUM, or 54-gpu-accel stops at
+# 'failed:keyring-not-staged' and no driver is installed (TYPHON .61, RTX 5060).
+exists /usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb \
+    || gate_miss nvidia "/usr/local/lib/cix-installer/assets/nvidia/cuda-keyring_1.1-1_all.deb (without it 54-gpu-accel cannot add the CUDA repo)"
+exists /usr/local/lib/cix-installer/assets/nvidia/ncz-cuda-setup \
+    || gate_miss nvidia "/usr/local/lib/cix-installer/assets/nvidia/ncz-cuda-setup (deferred driver/CUDA installer)"
+for _u in /etc/systemd/system/ncz-cuda-setup.timer /usr/local/sbin/ncz-cuda-setup; do
+    exists "$_u" && echo "[verify-target]     present: $_u" || echo "[verify-target]     absent (expected on a host without an NVIDIA GPU): $_u"
+done
+# The installer's own record, read only when the file exists (debugfs prints its
+# banner plus "File not found" on stdout for a missing path, so a bare cat
+# produced a nonsense 'marker' in the first run).
+if exists /var/lib/ncz/intel-accel.status; then
+    _npu_state="$(dfs "cat /var/lib/ncz/intel-accel.status" 2>/dev/null | tr -d '\r\n')"
+    case "$_npu_state" in
+        done)
+            _dpkg="$(dfs "cat /var/lib/dpkg/status" 2>/dev/null)"
+            for _p in intel-level-zero-npu intel-fw-npu intel-driver-compiler-npu intel-validation-npu; do
+                printf '%s\n' "$_dpkg" | grep -qx "Package: $_p" \
+                    || gate_miss intel-npu "installer recorded NPU userspace 'done' but $_p is not installed"
+            done
+            echo "[verify-target]     installer marker 'done': NPU userspace packages present"
+            ;;
+        not-found) echo "[verify-target]     installer marker 'not-found': no Intel NPU on the install host (consistent)" ;;
+        *)         echo "[verify-target]     installer marker '$_npu_state' (deferred or failed NPU userspace install)" ;;
+    esac
+else
+    echo "[verify-target]     no installer marker (image not installed on an NPU host)"
+fi
+
 # --- (boot-GPU) the INSTALLED kernel must be the pinned r2 build -------------
 # The KVM gate pins the INSTALLER kernel to the manifest's r2 vmlinuz and
 # exports VERIFY_EXPECT_KVER / VERIFY_EXPECT_VMLINUZ_SHA256 here. Assert the
@@ -372,6 +608,8 @@ fi
 echo "[verify-target] (iv) browsers"
 if fetch /var/lib/dpkg/status "$TMP/dpkg-status"; then
     BROWSERS="google-chrome-stable"; [ "$ARCH" = arm64 ] && BROWSERS="$BROWSERS chromium-ncz-sky1"
+    # Browsers come with the desktop option only (post-install/run-all.sh skips 52/53 without it).
+    [ "$V_DESKTOP" = 1 ] || { BROWSERS=""; echo "[verify-target]     desktop not selected: no browsers expected"; }
     for pkg in $BROWSERS; do
         if awk -v p="$pkg" '
             BEGIN { RS=""; FS="\n" }
@@ -469,7 +707,8 @@ else
     gate_miss hosts "/etc/hosts unreadable"
 fi
 
-if [ "$ARCH" = arm64 ]; then
+# (v) and (v-b) are desktop-layer pieces (84-vpu-mpv, 20-desktop).
+if [ "$ARCH" = arm64 ] && [ "$V_DESKTOP" = 1 ]; then
 # --- (v) media stack: V4L2 on the amvx VPU (VA-API is optional) -------------------
 # VA-API is NOT the browser path: chromium-ncz-sky1 decodes and encodes through V4L2-M2M, and
 # stock Google Chrome on arm64 has no such patches. mpv follows what is installed.
@@ -512,6 +751,8 @@ done
 [ "$audsw" = 1 ] || gate_miss audio "ncz-sky1-audio-autoswitch.service is not enabled (no .wants symlink under /etc/systemd/user)"
 
 fi
+# (vii) .. (vi) check the desktop layer; they run only when the desktop was selected.
+if [ "$V_DESKTOP" = 1 ]; then
 # --- (vii) Bing wallpaper prefetch (helper, user units, patched plugin) -----------------------
 # LEAD 4's fix: the helper prefetches at login (no jitter) and daily; the Settings plugin gained a
 # "Preferred market" row. Assert the helper, the three units (enabled for users) and that the
@@ -519,6 +760,9 @@ fi
 # `fetch --if-stale` smoke run (exit 0 or 75) is checked from the first-boot report by the gate.
 echo "[verify-target] (vii) Bing wallpaper prefetch"
 exists /usr/local/bin/ncz-wallpaper-bing || gate_miss wallpaper "/usr/local/bin/ncz-wallpaper-bing"
+exists /usr/local/bin/singularity-wallpaper-bing || gate_miss wallpaper "/usr/local/bin/singularity-wallpaper-bing"
+exists /usr/local/bin/ncz-wallpaper-ocs || gate_miss wallpaper "/usr/local/bin/ncz-wallpaper-ocs"
+exists /usr/local/bin/singularity-wallpaper-ocs || gate_miss wallpaper "/usr/local/bin/singularity-wallpaper-ocs"
 for u in ncz-wallpaper-bing.service ncz-wallpaper-bing.timer ncz-wallpaper-bing-daily.timer; do
     exists "/usr/lib/systemd/user/$u" || gate_miss wallpaper "/usr/lib/systemd/user/$u"
 done
@@ -607,6 +851,9 @@ fi
 SS_STATUS=""; SS_PLUGIN=""
 # shellcheck source=./verify-installed-target-screensavers.sh
 . "$HERE_VT/verify-installed-target-screensavers.sh"
+else
+    echo "[verify-target] (vii)-(vi) desktop not selected: wallpaper, sensors, tour and screensaver checks do not apply"
+fi
 
 if [ "$ARCH" = arm64 ]; then
 # --- (info) VA-API ---------------------------------------------------------
@@ -630,12 +877,15 @@ if fetch /usr/bin/ncz-gpu-status "$TMP/gpustatus"; then
     grep -q -- '--require-hardware' "$TMP/gpustatus" || { gate_miss gpu "ncz-gpu-status lacks --require-hardware"; GPU_OK=0; }
 else gate_miss gpu "/usr/bin/ncz-gpu-status"; GPU_OK=0; fi
 exists /etc/systemd/system/multi-user.target.wants/ncz-gpu-health.service || { gate_miss gpu "ncz-gpu-health.service is not enabled"; GPU_OK=0; }
+# ncz-gpu-env and the labwc session belong to the desktop layer (20-desktop.sh).
+if [ "$V_DESKTOP" = 1 ]; then
 if fetch /usr/local/bin/ncz-gpu-env "$TMP/gpuenv"; then
     grep -q 'NCZ_ALLOW_SOFTWARE_FALLBACK' "$TMP/gpuenv" || { gate_miss gpu "ncz-gpu-env has no software-refusal guard"; GPU_OK=0; }
 else gate_miss gpu "/usr/local/bin/ncz-gpu-env"; GPU_OK=0; fi
 if fetch /opt/singularity/bin/singularity-labwc-session "$TMP/labwcsession"; then
     grep -q 'hw_render_device_present' "$TMP/labwcsession" || { gate_miss gpu "singularity-labwc-session still retries with software rendering on a GPU machine (overlay patch not applied)"; GPU_OK=0; }
 else gate_miss gpu "/opt/singularity/bin/singularity-labwc-session"; GPU_OK=0; fi
+fi
 if [ "$ARCH" = arm64 ]; then
     if exists /opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json; then
         exists /etc/glvnd/egl_vendor.d/10_cix.json || { gate_miss gpu "/etc/glvnd/egl_vendor.d/10_cix.json (Mali EGL vendor not registered system-wide: any process without the compositor environment renders in llvmpipe)"; GPU_OK=0; }

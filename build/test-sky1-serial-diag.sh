@@ -96,20 +96,18 @@ check(all(all(t in l.split() or t + '"' in l.split() for t in TOKENS) for l in o
 #     on Install/Expert only -- Rescue deliberately keeps full modeset for
 #     diagnosis. The old baseline pinned the shared strings and stripped only
 #     nouveau.runpm=0, so it had been RED since 5a21d5cb added nomodeset.
-#   * ncz_no_brltty=1  (2026-10-12 installer fix) on Install/Expert only:
-#     a USB-UART must never raise the brltty-udeb braille question on the
-#     unattended path (the token satisfies brltty-udeb's
-#     `grep -q brltty /proc/cmdline` autodetect guard).
+#   * no token containing "brltty" on any entry: brltty-udeb's S37brltty
+#     startup hook starts brltty when the substring is on the cmdline (the
+#     ncz_no_brltty=1 regression, 2026-10-14); the installer carries no brltty.
 # Any drift on any of the three, or any Sky1 token, is still a failure.
 AMD64 = {
     "install": "auto=true priority=critical "
                "ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 locale=en_US.UTF-8 "
                "keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt "
-               "ncz_no_brltty=1 "
                "quiet loglevel=3 vt.global_cursor_default=0 consoleblank=0 console=tty0 "
                "nouveau.runpm=0 nomodeset",
     "expert": "priority=low ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
-              "DEBIAN_FRONTEND=newt ncz_no_brltty=1 "
+              "DEBIAN_FRONTEND=newt "
               "loglevel=4 vt.global_cursor_default=0 consoleblank=0 console=tty0 "
               "nouveau.runpm=0 nomodeset",
     "rescue": "rescue/enable=true ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "

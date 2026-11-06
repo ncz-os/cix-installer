@@ -48,10 +48,11 @@ Versions are taken from the reviewed NCZ build ledger,
 | **Linux kernel, amd64 (T2 Macs and PCs)** | `7.3.0-rc7-t2-ncz` (package `7.3.0-rc7-2`) | GPL-2.0 | Mainline v7.3-rc7 plus the t2linux patch series and our T2 fixes (24 patches), in [`ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz), tag `v7.3.0-rc7-t2-ncz-2`. See **Kernel corresponding source** below. |
 | **cix-installer** (installer, preseed, post-install hooks, build scripts) | commit `d395bb2d` | see repo | **This repository**, commit `d395bb2d`. |
 | **cixmini-boot** | `1.3+r289` | GPL-2.0 | Boot/firmware glue for Sky1 boards, built by `build/build-kernel-debs.sh`. |
-| **ncz-ffmpeg** (arm64) | `9.0.1-ncz3` | LGPL-2.1+/GPL-2+ | FFmpeg with Sky1 V4L2 M2M support; patches under [`docs/upstream-patches/ffmpeg/`](upstream-patches/ffmpeg/). |
+| **ncz-ffmpeg** (arm64) | `9.0.1-ncz4` | LGPL-2.1+/GPL-2+ | Upstream FFmpeg 9.0.1 with one patch, the multiplanar plane-layout fix [`docs/upstream-patches/ffmpeg-v4l2-multiplane.patch`](upstream-patches/ffmpeg-v4l2-multiplane.patch), built with `--enable-v4l2-m2m`. Same source as `9.0.1-ncz3`, rebuilt against Debian forky snapshot `20261018T082309Z`. The AV1 patch under [`docs/upstream-patches/ffmpeg/`](upstream-patches/ffmpeg/) is not applied. |
 | **chromium-ncz-sky1** (arm64) | `154.0.8037.0-ncz20261011` | BSD-3-Clause + others | Chromium with Sky1 V4L2 decode fixes; patches under [`docs/upstream-patches/chromium/`](upstream-patches/chromium/). |
 | **ncz-singularity-desktop** | built per image from pinned upstream commits | see upstream | Singularity desktop (labwc/wlroots) from `singularityos-lab`, with our packaging and the patches under [`assets/singularity/patches/`](../assets/singularity/patches/). |
-| **ncz-screensavers**, **ncz-screensavers-plugin** | `0.8.15`, `0.3.22` | see upstream | NCZ screensaver engine and its Singularity settings page. |
+| **ncz-screensavers** (engine) | `0.8.16` | see upstream | NCZ screensaver engine. Source: branch `wip/studio/2026-10-14-t2-perf` @ `a7fe5cd4ed3b3c90c74fd5efd990e922c37de5ca` (jet cadence fix `9d8` + cadence-classification correction); native rebuild both arches from this commit (amd64 766088 B, arm64 695876 B). The GTK4 reference binary (`ref26bd4a34...`, 42340 B) is unchanged and stays excluded from the NCZ image default. |
+| **ncz-screensavers-plugin** | `0.3.25` | see upstream | NCZ Singularity "Screensaver and Lockscreen" settings plugin. Source: the accepted saver source `8f8433c4f90e0a3b2d80225dafee098957eea8d5` (unchanged by this repin) — the plugin keeps that source even after the engine moves to A7. Built against the actual payload builder `291821e21f168e5f980d9b2f4954fea62594a20a` and libsingularity payload `20261014213143+bk0`. |
 | **libgtk4-layer-shell0** (patched, arm64) | `1.3.0-1+ncz20261013` | MIT | gtk4-layer-shell 1.3.0 (`e8704f4`) plus the patches under [`packaging/gtk4-layer-shell/patches/`](../packaging/gtk4-layer-shell/patches/); built by `packaging/gtk4-layer-shell/make-deb.sh`. |
 | **libdrm** (patched) | `2.4.134-3+ncz2` | MIT | Debian libdrm plus `libdrm-xf86drm-acpi-platform-identity.patch` (in `docs/upstream-patches/`). |
 | **DKMS accelerator packages** | `cix-gpu-kmd-dkms 1.0+ncz3`, `panthor-cix-dkms 7.2.0+ncz3`, `cix-vpu-driver-dkms 1.0.2-ncz1+ncz3`, `cix-npu-driver-dkms 6.2.0-cixdeb13-260714+ncz3` | GPL-2.0 | DKMS packages ship their module source in the package itself (`/usr/src`); the same source is in `assets/kernel/{mali,panthor,vpu,npu}/` here. The prebuilt `.ko` overlays for the shipped kernel are bound to that source by `assets/kernel/*/7.3.0-rc7-sky1-ncz/SOURCE.sha256`. |
@@ -111,7 +112,7 @@ record (`36ed84e7…`, `81f18202…`).
   console, staged by `build/iso/stage-ncz-payload.py` and, on amd64, baked into
   the installer initrd) are the unmodified `usr/bin/busybox` of Debian forky
   `busybox-static` `1:1.38.0-3+b1` (amd64 and arm64) from the pinned snapshot
-  `20261012T023456Z`; deb and binary sha256 are pinned in
+  `20261018T082309Z`; deb and binary sha256 are pinned in
   `manifests/diag-busybox.tsv` and checked by `build/stage-diag-busybox.sh`.
   Source: <https://snapshot.debian.org/package/busybox/1%3A1.38.0-3/>.
 
@@ -125,7 +126,7 @@ and most of them are not downloadable.
 | Inputs (rows in `build-inputs.tsv`) | Count | Can a stranger fetch the exact bytes? |
 |---|---|---|
 | CPython 3.11 and `uv`, both arches | 4 | **Yes.** GitHub release URLs in [`manifests/build-inputs-public.tsv`](../manifests/build-inputs-public.tsv); sha256 checked. |
-| `ncz-screensavers` 0.8.15, both arches | 2 | **Yes.** Public NCZ apt repository; sha256 checked. |
+| `ncz-screensavers` 0.8.16, both arches | 2 | **Staged locally.** Native rebuilds off accepted source `a7fe5cd4ed3b3c90c74fd5efd990e922c37de5ca`; exact digests verified (amd64 `bedad82cac22bd0017fe551655c558bdddfec59b4bd1ad680cb407d6a94d5671`, arm64 `35ad90bac8af12a63c2ed03295fabc21e02574eafc8b4509d2bb0563a03e9896`); public publication is pending. |
 | Recovery and rescue root filesystems | 4 | No. Rebuild with `build/build-mgmt-rootfs.sh` / `build/build-rescue-rootfs.sh` at the pinned snapshot; the output is not byte-reproducible. |
 | Artist Pack wallpaper packages | 8 | **Yes.** Version `1.2` is byte-reproducible (`build/build-wallpaper-contrib-deb.sh`, in-repo ArtistPack manifests) and is in the public NCZ apt repository; sha256 checked. |
 | Patched libdrm `2.4.134-3+ncz2` | 22 | **Partly.** The 14 runtime library packages the apt policy allows per architecture are in the public NCZ apt repository (sha256 checked). `libdrm-dev`, `libdrm-tests`, the amd64 `libdrm-freedreno1` and the two installer-only `libdrm2-udeb` files are not published: rebuild them with `build/build-libdrm-debs.sh` (Debian source plus the patch in this repository). |
@@ -139,14 +140,49 @@ Other inputs:
   testing netinst images came from `cdimage.debian.org/cdimage/weekly-builds/`,
   which replaces them every week. The pinned sha256 no longer matches what that
   URL serves, so the exact substrate cannot be fetched today.
-* **Debian packages**: the pinned snapshot `20261012T023456Z` on
+* **Debian packages**: the pinned snapshot `20261018T082309Z` on
   `snapshot.debian.org` is public.
 * **Kernels**: the amd64 kernel packages are in the public apt repository
   (same bytes). The Sky1 r289 packages are not published there; rebuild them
   from the source above.
-* **Desktop payload** (`manifests/singularity-payload.tsv`): both
-  `ncz-singularity-desktop` packages are in the public apt repository with the
-  pinned sha256.
+* **Desktop payload** (`manifests/singularity-payload.tsv`): both native
+  `20261014213143+bk0` packages are staged locally with the pinned sha256.
+  Their actual builder source is `291821e21f168e5f980d9b2f4954fea62594a20a`;
+  subsequent builder cache policy changes do not change that provenance.
+* **Engine**: `0.8.16` was rebuilt from the accepted saver source
+  `a7fe5cd4ed3b3c90c74fd5efd990e922c37de5ca`
+  (branch `wip/studio/2026-10-14-t2-perf`, includes the jet cadence fix
+  `9d8` and the cadence-classification correction). Each arch was built with
+  the canonical `dpkg-buildpackage -us -uc -b` flow: 4773 targets, 56 PASS,
+  0 FAIL, 3 SKIP hardware-only cases (the same three compiled-hardware SKIPs
+  appear separately on a fresh Forky image; on an actual GPU all three
+  pass, so the runs cover 59 of the 59 hardware cases without claiming 59
+  PASS). Signed normal APT, exact candidate stack `0 Remv`, `apt check`,
+  `audit`, and `dpkgV0` pass; the GTK4 reference binary (`ref26bd4a3...`,
+  42340 B) is unchanged and remains excluded from the NCZ image default.
+  Native AMD64 byte SHA `bedad82cac22bd0017fe551655c558bdddfec59b4bd1ad680cb407d6a94d5671`
+  (766088 B); native ARM64 byte SHA `35ad90bac8af12a63c2ed03295fabc21e02574eafc8b4509d2bb0563a03e9896`
+  (695876 B). Gemma (artifact review) APPROVED the native ARM artifact.
+* **Settings plugin** (separate row, NOT being rebuilt as part of the A7
+  repin): `0.3.23` keeps its accepted source `8f8433c4f90e0a3b2d80225dafee098957eea8d5`
+  (`wip/studio/2026-10-14-resume-saver`), built against the actual payload
+  builder `291821e21f168e5f980d9b2f4954fea62594a20a` and the same
+  `20261014213143+bk0` libsingularity payload that the existing `0.3.23`
+  binary was linked against; the lock file pins its ABI to that byte.
+  The `ncz-screensavers-plugin` rows of `manifests/ncz-packages.tsv` and
+  `post-install/lib/ncz-screensavers-plugin.lock` are deliberately
+  unchanged. Native plugin, normal APT, ABI, settings-pane and lock tests
+  pass on both architectures.
+* **Publication gate**: 0.8.16 (engine) and 0.3.23 (plugin) are HELD
+  UNPUSHED to the public NCZ apt repository; only the canonical internal
+  ARGONAS build-inputs store carries the new A7 engine bytes today. The
+  current reviewed wayshade export candidate `2920b9f5` is also HELD
+  UNPUSHED: root-user acceptance and public availability of both
+  artifacts remain pending gates, and the package build source for that
+  export is the A7 canonical source (NOT `8f8433c4f`). The public-input
+  URL rows in `manifests/build-inputs-public.tsv` name the expected
+  publication locations; they do not assert that the new bytes are
+  public yet.
 
 **Vendor browsers: alias for discovery, store for reproducibility.** Vivaldi and
 Google Chrome are found through their vendors' stable aliases, the package names

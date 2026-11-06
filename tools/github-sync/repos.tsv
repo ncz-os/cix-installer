@@ -5,6 +5,9 @@
 #   trusted_base=<sha>[,...]  history imported unchanged from upstream, not re-read.
 #   gh_only=<glob>[,...]      GitHub-only refs that are expected and kept.
 #   prune_github_only=<glob>[,...]  GitHub-only refs approved for deletion by --prune.
+amd64-kernel-edge	ncz-os/amd64-kernel-edge	ncz-os/amd64-kernel-edge	filter
+amd64-kernel-t2	ncz-os/amd64-kernel-t2	ncz-os/amd64-kernel-t2	filter
+artistpack	ncz-os/artistpack	ncz-os/artistpack	filter
 charon	ncz-os/charon	ncz-os/charon	filter
 chromium-ncz-sky1	ncz-os/chromium-ncz-sky1	ncz-os/chromium-ncz-sky1	filter
 cix-gen	ncz-os/cix-gen	ncz-os/cix-gen	filter
@@ -36,14 +39,19 @@ mnemos-rs	ncz-os/mnemos-rs	ncz-os/mnemos-rs	filter
 mnemos-stiphos	ncz-os/mnemos-stiphos	ncz-os/mnemos-stiphos	filter
 mnemosctl	ncz-os/mnemosctl	ncz-os/mnemosctl	filter
 mpf	ncz-os/mpf	ncz-os/mpf	identity
+ncz-packaging	ncz-os/ncz-packaging	ncz-os/ncz-packaging	filter
 ncz-ports	ncz-os/ncz-ports	ncz-os/ncz-ports	filter
 ncz-tools	ncz-os/ncz-tools	ncz-os/ncz-tools	filter
 ncz-wayland-screenhack	ncz-os/ncz-wayland-screenhack	ncz-os/ncz-wayland-screenhack	filter
 pantheon	ncz-os/pantheon	ncz-os/pantheon	filter
 pi-gen	ncz-os/pi-gen	ncz-os/pi-gen	filter
+singularity-desktop	ncz-os/singularity-desktop	ncz-os/singularity-desktop	filter
+singularity-plugins	ncz-os/singularity-plugins	ncz-os/singularity-plugins	filter
+singularity-shell	ncz-os/singularity-shell	ncz-os/singularity-shell	filter
 singularity-wallpaper-rotator	ncz-os/singularity-wallpaper-rotator	ncz-os/singularity-wallpaper-rotator	filter
 tokenomics	ncz-os/tokenomics	ncz-os/tokenomics	filter
 wayshade	ncz-os/wayshade	ncz-os/wayshade	filter
 worker-hive-relay	ncz-os/worker-hive-relay	ncz-os/worker-hive-relay	filter
 zcon	ncz-os/zcon	ncz-os/zcon	filter
+zeroclaw	ncz-os/zeroclaw	ncz-os/zeroclaw	filter
 zoder	ncz-os/zoder	ncz-os/zoder	filter

@@ -41,9 +41,8 @@ ttymsg() {
     _el=$(( $(date +%s 2>/dev/null || echo 0) - LATE_T0 ))
     printf '[ncz %s +%ss] %s\n' "$(date -u +%H:%M:%S)" "$_el" "$*" >"$TTY" 2>/dev/null || true
 }
-ttymsg "NCZ-OS installer: applying base OS + desktop + drivers (offline)."
-ttymsg "This phase takes several minutes. The main screen shows a 'please be"
-ttymsg "patient' status that updates per step; watch THIS console (Alt+F3) for detail."
+# (The first Alt+F3 lines are written right after the release identity below:
+# what they say depends on whether this is a Magnetar Server medium.)
 
 echo "=== late.sh ($(date -u)) ==="
 echo
@@ -84,7 +83,28 @@ done
 NCZ_RELEASE_LABEL="$NCZ_PRODUCT_NAME $NCZ_RELEASE_VERSION"
 [ -n "$NCZ_RELEASE_CODENAME" ] && \
     NCZ_RELEASE_LABEL="$NCZ_RELEASE_LABEL $NCZ_RELEASE_CODENAME"
+# Magnetar Server medium (its ncz-payload/ carries ncz-fetch-payload.manifest):
+# the installer names the edition (post-install/lib/ncz-brand.sh, the one place
+# that spells it) and describes what a server install really does. A desktop
+# medium keeps every string below exactly as it was.
+NCZ_LATE_VARIANT=desktop
+NCZ_LATE_APPLYING="NCZ-OS installer: applying base OS + desktop + drivers (offline)."
+if [ -n "${NCZ_RELEASE_SOURCE:-}" ]; then
+    _ncz_rdir=${NCZ_RELEASE_SOURCE%/RELEASE}
+    if [ -r "$_ncz_rdir/post-install/lib/ncz-brand.sh" ] && . "$_ncz_rdir/post-install/lib/ncz-brand.sh"; then
+        NCZ_LATE_VARIANT=$(ncz_brand_medium_variant "$_ncz_rdir")
+    elif [ -f "$_ncz_rdir/ncz-fetch-payload.manifest" ]; then
+        echo "[late] WARN: Magnetar Server medium without post-install/lib/ncz-brand.sh; installer text keeps '$NCZ_RELEASE_LABEL'"
+    fi
+fi
+if [ "$NCZ_LATE_VARIANT" = server ]; then
+    NCZ_RELEASE_LABEL=$(ncz_brand_label server "$NCZ_RELEASE_LABEL" "$NCZ_PRODUCT_NAME" "$NCZ_RELEASE_VERSION")
+    NCZ_LATE_APPLYING="${NCZ_SERVER_EDITION} installer: setting up the downloaded system and drivers."
+fi
 export NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME NCZ_RELEASE_LABEL
+ttymsg "$NCZ_LATE_APPLYING"
+ttymsg "This phase takes several minutes. The main screen shows a 'please be"
+ttymsg "patient' status that updates per step; watch THIS console (Alt+F3) for detail."
 
 # Initialize debconf before source discovery and asset staging so even the
 # pre-hook portion of late_command has visible main-screen status. We inherit
@@ -114,6 +134,42 @@ if [ -n "$DEBIAN_HAS_FRONTEND" ] && [ -n "$DEBCONF_REDIR" ] \
     # The installer diagnostics login (root / rescue, docs/RECOVERY-LOGINS.md) stays on the
     # progress screen for the whole post-install phase (preseed/ncz-ui.sh).
     NCZ_DIAG_LOGIN_LINE=$( . /ncz/ncz-ui.sh 2>/dev/null && ncz_ui_diag_login 2>/dev/null )
+    if [ "$NCZ_LATE_VARIANT" = server ]; then
+    # Magnetar Server: same template keys, server text (no desktop, a text login).
+    cat > /tmp/ncz-progress.templates <<NCZTPL
+Template: nclawzero/install-progress
+Type: text
+Description: Installing ${NCZ_SERVER_EDITION} - this takes several minutes
+ ${NCZ_SERVER_EDITION} is being installed now. Keep the network cable plugged in.
+ For more detail, press Alt+F3.${NCZ_DIAG_LOGIN_LINE:+ Remote $NCZ_DIAG_LOGIN_LINE.}
+
+Template: nclawzero/install-step
+Type: text
+Description: \${STEP}
+
+Template: nclawzero/remove-media
+Type: note
+Description: ${NCZ_SERVER_EDITION} is installed - remove the USB stick now
+ The installation finished successfully.
+ .
+ Remove the USB stick now. Then choose Continue. The server restarts to a
+ text login. Log in on screen, or over the network with ssh.
+ .
+ If the USB stick is left in, the installer may start again.
+
+Template: nclawzero/remove-media-gpu
+Type: note
+Description: ${NCZ_SERVER_EDITION} is installed - remove the USB stick now
+ The installation finished successfully.
+ .
+ \${GPUNOTE}
+ .
+ Remove the USB stick now. Then choose Continue. The server restarts to a
+ text login. Log in on screen, or over the network with ssh.
+ .
+ If the USB stick is left in, the installer may start again.
+NCZTPL
+    else
     cat > /tmp/ncz-progress.templates <<NCZTPL
 Template: nclawzero/install-progress
 Type: text
@@ -152,6 +208,7 @@ Description: ${NCZ_RELEASE_LABEL} install complete - REMOVE THE USB STICK NOW
  desktop. If the USB stick is left inserted, the machine may boot back
  into the installer instead of your new system.
 NCZTPL
+    fi
     if . /usr/share/debconf/confmodule 2>/dev/null; then
         if debconf-loadtemplate nclawzero /tmp/ncz-progress.templates 2>/dev/null; then
             DEBCONF_OK=1
@@ -307,8 +364,20 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
         # generator otherwise remain stale across every image that reuses the
         # base squashfs. Refresh this small executable from the current media
         # unconditionally and verify the copy before 70-bootloader runs it.
-        REFIND_REFRESH=refind/ncz-refind-refresh.sh
-        if [ -s "$SRC/assets/$REFIND_REFRESH" ]; then
+        # The arm64 generator was the only one refreshed; the amd64 generator
+        # and its kernel postinst.d hook stayed at the base layer's copies, so
+        # an amd64 fix to them (2026-10-26: the Magnetar server menu) never
+        # reached an install until the layers were rebuilt. Refresh every
+        # boot-control script the medium carries; the arm64 generator stays
+        # mandatory (both arches' media carry it).
+        for REFIND_REFRESH in refind/ncz-refind-refresh.sh \
+                              refind/ncz-refind-refresh-amd64.sh \
+                              refind/zz1-ncz-refind-refresh-amd64; do
+            if [ ! -s "$SRC/assets/$REFIND_REFRESH" ]; then
+                [ "$REFIND_REFRESH" = refind/ncz-refind-refresh.sh ] || continue
+                echo "[late] FATAL: install media lacks $REFIND_REFRESH" >&2
+                exit 1
+            fi
             cp -a "$SRC/assets/$REFIND_REFRESH" "$DSTA/$REFIND_REFRESH" || {
                 echo "[late] FATAL: could not refresh $REFIND_REFRESH from install media" >&2
                 exit 1
@@ -319,14 +388,90 @@ if [ -f /target/usr/local/lib/cix-installer/BAKED ] || [ -f /target/etc/ncz-bake
                 exit 1
             }
             echo "[late] refreshed boot-control asset: $REFIND_REFRESH"
-        else
-            echo "[late] FATAL: install media lacks $REFIND_REFRESH" >&2
-            exit 1
-        fi
+        done
     fi
 else
     rm -rf /target/usr/local/lib/cix-installer
     cp -a "$SRC" /target/usr/local/lib/cix-installer
+fi
+
+# ---------------------------------------------------------------------------
+# MAGNETAR (NCZ_VARIANT=server): overlay the ONLINE payload the debootstrap
+# stub fetched, then reclaim the space.
+#
+# The server medium carries no base.squashfs and no multi-hundred-MB substrate
+# assets. The stub (the only live install path under d-i -- see the CONTRACT
+# note in preseed.cfg) fetched and sha256-verified them before extracting,
+# into "$TARGET/ncz-online/ncz-payload" because the medium itself is mounted
+# read-only. late.sh runs after that, so this is where those assets join the
+# tree the hooks read ($INSTALLER_META/assets/...). Then the staging root is
+# removed: it can be a gigabyte or more and it has no business living inside
+# the installed root filesystem.
+# ---------------------------------------------------------------------------
+NCZ_ONLINE=/target/ncz-online/ncz-payload
+# A server medium (it carries the pinned fetch manifest) whose stub staged
+# nothing must not go on to configure a system with no assets.
+if [ ! -d "$NCZ_ONLINE" ] && [ -n "$SRC" ] && [ -f "$SRC/ncz-fetch-payload.manifest" ]; then
+    echo "[late] FATAL: Magnetar server medium ($SRC/ncz-fetch-payload.manifest) but no online payload was staged at $NCZ_ONLINE" >&2
+    exit 1
+fi
+if [ -d "$NCZ_ONLINE" ]; then
+    echo "--- overlaying online-fetched payload from $NCZ_ONLINE ---"
+    [ -f "$NCZ_ONLINE/base.squashfs" ] || {
+        echo "[late] FATAL: online payload staging root has no base.squashfs -- the install has no rootfs" >&2
+        exit 1
+    }
+    NCZ_DST=/target/usr/local/lib/cix-installer
+    mkdir -p "$NCZ_DST"
+    if [ -d "$NCZ_ONLINE/assets" ]; then
+        # Union, media-style: a baked layer that already carries a file wins,
+        # the fetched copy only fills gaps. Same rule the r160 union above uses.
+        ( cd "$NCZ_ONLINE/assets" && find . -type f ) | while read -r f; do
+            d="$(dirname "$NCZ_DST/assets/$f")"
+            mkdir -p "$d" 2>/dev/null || true
+            [ -e "$NCZ_DST/assets/$f" ] || cp -a "$NCZ_ONLINE/assets/$f" "$d/" 2>/dev/null || true
+        done
+        # The hooks that read these are fatal-on-missing by design; prove the
+        # biggest one is really there rather than finding out at 72-rescue.
+        for need in assets/rescue/rescue-rootfs.tar.zst assets/kernel assets/firmware assets/branding ; do
+            [ -e "$NCZ_DST/$need" ] || {
+                echo "[late] FATAL: online payload did not deliver $need -- refusing to configure a system whose kernel/rescue/branding assets are missing" >&2
+                exit 1
+            }
+        done
+        echo "[late] online assets delivered into $NCZ_DST/assets"
+    else
+        # Server mode with no assets/ in the staged payload: skipping the
+        # overlay silently (as before 2026-10-26) leaves the kernel, rescue,
+        # firmware and branding hooks without their inputs. Fail here.
+        echo "[late] FATAL: the online payload at $NCZ_ONLINE has no assets/ -- the asset bundle did not unpack where it must (expected assets/rescue, assets/kernel, assets/firmware, assets/branding)" >&2
+        exit 1
+    fi
+    # BUILD_VARIANT is decided further down from the component selection; do not
+    # second-guess it here.
+    if [ -d "$NCZ_ONLINE/repo/dists" ]; then
+        # Magnetar option B: the fetched offline apt repository is the target's
+        # /cdrom (the r159 stub bound it) until the hooks are done; it is
+        # removed at the end, after /target/cdrom is unmounted. Drop the rest
+        # of the staging root (base.squashfs, the unpacked assets) now.
+        for _ncz_e in "$NCZ_ONLINE"/* "$NCZ_ONLINE"/.[!.]*; do
+            [ -e "$_ncz_e" ] || continue
+            [ "$_ncz_e" = "$NCZ_ONLINE/repo" ] && continue
+            rm -rf "$_ncz_e"
+        done
+        echo "[late] kept the fetched apt repository $NCZ_ONLINE/repo for the hooks; removed the rest of the staging root"
+    else
+        rm -rf /target/ncz-online
+        echo "[late] removed the online-fetch staging root"
+    fi
+fi
+# The installer-side root of the offline apt repository: the medium, or (a
+# Magnetar server medium, option B) the fetched pool's repo under the staging
+# root. Inside the target it is always /cdrom.
+NCZ_REPO_ROOT=/cdrom
+if [ -d /target/ncz-online/ncz-payload/repo/dists ]; then
+    NCZ_REPO_ROOT=/target/ncz-online/ncz-payload/repo
+    echo "[late] offline apt repository: $NCZ_REPO_ROOT (fetched pool)"
 fi
 # Same class of trap as the refresh above: a bare glob under `set -e` turns
 # a missing directory into an unexplained late.sh death. Say what is wrong.
@@ -509,6 +654,17 @@ else
             ;;
     esac
 fi
+# MAGNETAR(server): record the MEDIUM this install came from. BUILD_VARIANT
+# above cannot say it: a desktop medium's install with the desktop component
+# off writes BUILD_VARIANT=server as well. The rEFInd refresh scripts read
+# this marker (at install and on every later kernel upgrade) to write the
+# server menu, Console + Rescue Partition only. A desktop medium writes
+# nothing here, so its installs are unchanged.
+if [ -n "$SRC" ] && [ -f "$SRC/ncz-fetch-payload.manifest" ]; then
+    mkdir -p /target/usr/local/lib/cix-installer
+    echo "server" > /target/usr/local/lib/cix-installer/MEDIUM_VARIANT
+    echo "    Magnetar server medium: MEDIUM_VARIANT=server"
+fi
 if [ -f /target/etc/cix-installer/BUILD_VERSION ]; then
     echo "    build stamp: $(cat /target/etc/cix-installer/BUILD_VERSION) ($(cat /target/etc/cix-installer/BUILD_DATE 2>/dev/null))"
 fi
@@ -585,14 +741,14 @@ case "$NCZ_DEB_ARCH" in
     aarch64) NCZ_DEB_ARCH=arm64 ;;
     x86_64)  NCZ_DEB_ARCH=amd64 ;;
 esac
-CDROM_REGULAR_INDEX=/cdrom/dists/${NCZ_BASE_CODENAME:-forky}/main/binary-${NCZ_DEB_ARCH}/Packages
+CDROM_REGULAR_INDEX=$NCZ_REPO_ROOT/dists/${NCZ_BASE_CODENAME:-forky}/main/binary-${NCZ_DEB_ARCH}/Packages
 if [ -e /cdrom/.disk/base_installable ] || [ -s "$CDROM_REGULAR_INDEX" ]; then
     echo "--- mounting cdrom into /target for offline apt-get during post-install ---"
     mkdir -p /target/cdrom
     if grep -qs ' /target/cdrom ' /proc/mounts; then
         echo "    /target/cdrom already mounted"
     else
-        mount --bind /cdrom /target/cdrom 2>&1 || \
+        mount --bind "$NCZ_REPO_ROOT" /target/cdrom 2>&1 || \
             { echo "WARN: bind-mount /cdrom into /target failed; post-install apt-get may fail"; }
     fi
 
@@ -688,7 +844,7 @@ CDROM_PREF
         # pool here as a no-op once the layer is fresh, and as a targeted fix
         # for the live MS-R1 test-board ModuleNotFoundError: No module named 'dbus'.
         if ! chroot /target /usr/bin/apt-get install -y --allow-unauthenticated python3-dbus; then
-            _pydbus_deb=$(find /cdrom/pool/main -maxdepth 1 -type f -name 'python3-dbus_*.deb' 2>/dev/null | sort -V | tail -1)
+            _pydbus_deb=$(find "$NCZ_REPO_ROOT/pool/main" -maxdepth 1 -type f -name 'python3-dbus_*.deb' 2>/dev/null | sort -V | tail -1)
             if [ -n "$_pydbus_deb" ]; then
                 cp "$_pydbus_deb" /target/tmp/python3-dbus.deb
                 chroot /target /usr/bin/dpkg -i --force-depends /tmp/python3-dbus.deb || true
@@ -1066,6 +1222,12 @@ hb_tick() {
     [ "$hb_elapsed" -ge 0 ] 2>/dev/null || hb_elapsed=0
     hb_label=${hb_hook%.sh}
     hb_label=$(printf '%s' "$hb_label" | sed 's/^[0-9][0-9]-//; s/-/ /g')
+    # A Magnetar Server install never shows the desktop codename: a hook named
+    # after it ("62-cygnus-screensaver-default") is labelled without it.
+    if [ "${NCZ_LATE_VARIANT:-desktop}" = server ] && [ -n "$NCZ_RELEASE_CODENAME" ]; then
+        _hb_cn=$(printf '%s' "$NCZ_RELEASE_CODENAME" | tr '[:upper:]' '[:lower:]')
+        case "$hb_label" in "$_hb_cn "*) hb_label=${hb_label#"$_hb_cn "} ;; esac
+    fi
     case "$hb_event" in
         APT)
             hb_status="Installing NCZ-OS: $hb_label ($hb_idx/$hb_total, ${hb_elapsed}s) - packages ${hb_pct:-0}%: $hb_detail"
@@ -1468,25 +1630,43 @@ ncz_npu_install_time || echo "[npu] install-time NPU fixes returned nonzero (non
 # run-all.sh's EXIT trap has already installed the bootloader, so this ESP
 # check is authoritative. FINALIZE_OK = "install succeeded OR is bootable".
 # ncz_bootable: TRUE iff rEFInd is on the ESP — INDEPENDENT of efibootmgr /
-# efivars. 70-bootloader writes BOTH /EFI/BOOT/BOOTAA64.EFI and
-# /EFI/BOOT/refind.conf to the removable-media fallback path BEFORE its
-# best-effort efibootmgr NVRAM write, and hard-exits if BOOTAA64.EFI is empty.
-# On Sky1 METAL there is NO efivars, so efibootmgr fails and RET!=0 — but the
-# box still boots via the fallback binary. Key the finish/reboot decision on
-# rEFInd-present, never on efibootmgr success. (refind.conf OR'd in as belt-and-
-# suspenders in case a future ESP layout renames the fallback binary.)
-ncz_bootable() {
-    # 2026-09-15: was arm64/rEFInd-only (BOOTAA64.EFI / refind.conf), so
-    # every AMD64 install -- which ships GRUB's --removable fallback binary
-    # at BOOTX64.EFI instead -- always evaluated false here, forced
-    # ncz_force_reboot's "NOT bootable" branch, and failed the finish step
-    # (exit 1) even on a genuinely bootable install. Check the real fallback
-    # binary for whichever bootloader this arch actually ships instead of
-    # assuming rEFInd/arm64.
-    [ -f /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ] || \
-    [ -f /target/boot/efi/EFI/BOOT/refind.conf ] || \
-    [ -f /target/boot/efi/EFI/BOOT/BOOTX64.EFI ]
+# efivars. 70-bootloader writes BOTH the arch's fallback binary
+# (/EFI/BOOT/BOOTX64.EFI on amd64, /EFI/BOOT/BOOTAA64.EFI on arm64) and
+# /EFI/BOOT/refind.conf BEFORE its best-effort efibootmgr NVRAM write, and
+# hard-exits if the binary is empty. On Sky1 METAL there is NO efivars, so
+# efibootmgr fails and RET!=0 — but the box still boots via the fallback
+# binary. Key the finish/reboot decision on rEFInd-present, never on
+# efibootmgr success.
+# NCZ-BOOTABLE-BEGIN
+# ncz_boot_binary: the firmware fallback path rEFInd is installed to on this
+# target architecture (amd64: BOOTX64.EFI, arm64: BOOTAA64.EFI).
+ncz_boot_binary() {
+    case "${NCZ_DEB_ARCH:-}" in
+        amd64) echo /target/boot/efi/EFI/BOOT/BOOTX64.EFI ;;
+        arm64) echo /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ;;
+        *)     echo "/target/boot/efi/EFI/BOOT/BOOTX64.EFI or BOOTAA64.EFI" ;;
+    esac
 }
+ncz_bootable() {
+    # Both refresh scripts write the arch's fallback binary and then
+    # refind.conf before any efibootmgr call, so the pair is the bootability
+    # evidence. 2026-09-15: was arm64-only, which failed every amd64 finish.
+    # 2026-10-14: the arch decides which binary counts (a refind.conf alone,
+    # or the other arch's binary, is not a bootable install) and both must be
+    # non-empty.
+    [ -s /target/boot/efi/EFI/BOOT/refind.conf ] || return 1
+    # An entry with an empty root= boots into an initramfs that waits forever.
+    if grep -E 'root=(PARTUUID=|UUID=)?([" ]|$)' /target/boot/efi/EFI/BOOT/refind.conf >/dev/null 2>&1; then
+        echo "[late] refind.conf has a boot entry with an empty root= -> not bootable" >&2
+        return 1
+    fi
+    case "${NCZ_DEB_ARCH:-}" in
+        amd64) [ -s /target/boot/efi/EFI/BOOT/BOOTX64.EFI ] ;;
+        arm64) [ -s /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ] ;;
+        *)     [ -s /target/boot/efi/EFI/BOOT/BOOTX64.EFI ] || [ -s /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ] ;;
+    esac
+}
+# NCZ-BOOTABLE-END
 # ncz_force_reboot: drive the reboot OURSELVES rather than trusting
 # finish-install's menu loop. On Sky1 METAL the priority=critical finish-install
 # did NOT auto-reboot after our late_command returned 0 — it dropped to the d-i
@@ -1522,6 +1702,94 @@ ncz_preserve_di_logs() {
     echo "[late] preserved d-i logs to /var/log/installer on the target"
 }
 
+# ncz_reboot_countdown <seconds>: visible "Rebooting in Ns" countdown on the
+# consoles the operator is actually watching (tty1 — the newt/dialog screen —
+# plus tty3/console, the same set the completion BANNER above already uses),
+# ASCII only (this writes straight to the UI terminal, not a log — the em-dash
+# newt-render bug this whole doc area exists to avoid applies here same as any
+# other dialog text). "Not built: ... an auto-reboot countdown" was the one
+# named gap left in docs/INSTALLER-BOOT-UX.md after the dialogs-vs-silence
+# work; this is that feature, not a new reboot path — ncz_force_reboot's own
+# reboot(8) call, gating and bootability checks are unchanged.
+#
+# Skip, not cancel: pressing Enter (or any line) on tty1 reboots immediately
+# instead of waiting out the rest of the countdown. There is deliberately no
+# cancel-the-reboot path — the remove-media db_input dialog the operator
+# already dismissed just above IS the confirm step, and r180/r181 fought hard
+# to make the reboot deterministic on both the unattended and interactive
+# paths (see the history above); reopening a "wait indefinitely" branch here
+# would reintroduce exactly the MS-R1 metal failure (dropped to the d-i MAIN
+# MENU instead of rebooting) this function exists to prevent. Physically
+# powering off remains the operator's real cancel, same as before this change.
+#
+# `read -t` is NOT portable: bash and busybox ash support it, but dash's
+# read rejects -t outright and returns 2 on the spot (preseed/late.sh runs
+# under whatever /bin/sh the d-i image has, and on a dash-based /bin/sh that
+# turns the countdown into a zero-delay flash past every second — precisely the
+# dead air this function exists to remove). So probe once per invocation and
+# fall back to a portable race when -t is missing. With a working read,
+# returning 0 means a line arrived before the 1s timeout, so break and reboot.
+#
+# NCZ_REBOOT_INPUT_TTY / NCZ_REBOOT_STATUS_TTYS: overridable (not hardcoded)
+# for the same reason ttymsg()'s $TTY and the top-of-file TTY=/dev/tty3 are —
+# build/test-reboot-countdown.sh points these at fixtures instead of real
+# ttys; production never sets either, so the defaults below are what ships.
+
+# 0 when `read -t` works in this shell, 1 when it does not (dash).
+ncz_shell_has_read_t() {
+    read -t 0 -r _ncz_rt_probe < /dev/null 2>/dev/null
+    [ "$?" -ne 2 ]
+}
+
+# One second of "any key reboots now", waiting portably. 0 = a line arrived on
+# the input tty first, 1 = the second elapsed with nobody at the keyboard.
+#
+# The no-`read -t` path races two background writers against one pipe: a reader
+# on the input tty (returns the moment the operator hits Enter, including when
+# a key is already sitting there) and a 1s sleeper. Whoever lands first decides,
+# and each drops its own flag file so the two outcomes stay distinguishable
+# without any non-POSIX read option. Checking the key flag first is deliberate:
+# if a key and the timer collide, "operator asked to reboot" is the answer.
+ncz_reboot_wait_1s() {
+    if ncz_shell_has_read_t; then
+        _ans=""
+        read -t 1 -r _ans < "$_in_tty" 2>/dev/null && return 0
+        return 1
+    fi
+    _ncz_dir="${TMPDIR:-/tmp}/ncz-reboot-$$"
+    rm -f "$_ncz_dir.pipe" "$_ncz_dir.key" "$_ncz_dir.flag" 2>/dev/null || true
+    # No pipe means no way to race; still owe the operator a real second of
+    # countdown rather than flashing every number past instantly.
+    mkfifo "$_ncz_dir.pipe" 2>/dev/null || { sleep 1; return 1; }
+    { IFS= read -r _ncz_line < "$_in_tty" 2>/dev/null; : > "$_ncz_dir.key"
+      printf '%s\n' "$_ncz_line" > "$_ncz_dir.pipe" 2>/dev/null; } &
+    _ncz_rpid=$!
+    { sleep 1; : > "$_ncz_dir.flag"; printf '\n' > "$_ncz_dir.pipe" 2>/dev/null; } &
+    _ncz_spid=$!
+    read -r _ans < "$_ncz_dir.pipe" 2>/dev/null
+    kill "$_ncz_rpid" "$_ncz_spid" 2>/dev/null || true
+    _ncz_gotkey=no
+    [ -e "$_ncz_dir.key" ] && _ncz_gotkey=yes
+    rm -f "$_ncz_dir.pipe" "$_ncz_dir.key" "$_ncz_dir.flag" 2>/dev/null || true
+    [ "$_ncz_gotkey" = yes ] && return 0
+    return 1
+}
+
+ncz_reboot_countdown() {
+    _secs="${1:-5}"
+    _in_tty="${NCZ_REBOOT_INPUT_TTY:-/dev/tty1}"
+    _status_ttys="${NCZ_REBOOT_STATUS_TTYS:-/dev/tty1 /dev/tty3 /dev/console}"
+    while [ "$_secs" -gt 0 ] 2>/dev/null; do
+        for _V in $_status_ttys; do
+            printf 'Rebooting in %ss -- press Enter to reboot now\n' "$_secs" > "$_V" 2>/dev/null || true
+        done
+        if ncz_reboot_wait_1s; then
+            break
+        fi
+        _secs=$(( _secs - 1 ))
+    done
+}
+
 ncz_force_reboot() {
     ncz_preserve_di_logs
     echo "[late r181] forcing clean reboot ($1) — rEFInd on ESP; not relying on finish-install menu"
@@ -1529,6 +1797,10 @@ ncz_force_reboot() {
     db_try db_set  debian-installer/exit/reboot true
     db_try db_fset debian-installer/exit/reboot seen true
     db_try db_set  debian-installer/exit/poweroff false
+    # r187 (installer boot UX): a visible countdown only on the interactive
+    # path — an unattended install (qemu KVM-gate harness, automated runs) has
+    # no one watching tty1 and must stay exactly as fast as before.
+    [ "$2" = "1" ] && ncz_reboot_countdown "${NCZ_REBOOT_COUNTDOWN_SECS:-5}"
     sync
     # best-effort unmount of the target so the reboot is clean; ignore fails
     for _m in /target/cdrom /target/dev/pts /target/dev /target/proc /target/sys; do
@@ -1648,6 +1920,25 @@ echo "    remaining apt sources after cdrom strip:"
 grep -rhsE '^[[:space:]]*deb' \
     /target/etc/apt/sources.list /target/etc/apt/sources.list.d/ 2>/dev/null \
     | sed 's/^/      /' || echo "      (none)"
+
+# Magnetar option B teardown, in this order and only now (no apt use of
+# file:///cdrom follows): unmount the target's /cdrom (a bind of the fetched
+# repository that lives INSIDE /target), then delete the staging root. A bind
+# left mounted would keep /target busy for d-i's final unmount; deleting the
+# staging root first would empty the target's /cdrom under the hooks.
+ncz_teardown_fetched_repo() {
+    [ "$NCZ_REPO_ROOT" != /cdrom ] || return 0
+    if grep -qs ' /target/cdrom ' /proc/mounts; then
+        umount /target/cdrom 2>/dev/null || umount -l /target/cdrom 2>/dev/null || \
+            echo "WARN: could not unmount /target/cdrom (the fetched repository bind)"
+    fi
+    grep -qs ' /target/cdrom ' /proc/mounts && echo "WARN: /target/cdrom is still mounted"
+    rmdir /target/cdrom 2>/dev/null || true
+    rm -rf /target/ncz-online
+    [ -e /target/ncz-online ] && echo "WARN: /target/ncz-online could not be removed" \
+        || echo "[late] fetched apt repository unmounted from /target/cdrom and removed"
+}
+ncz_teardown_fetched_repo || echo "WARN: fetched-repository teardown failed (non-fatal)"
 
 # r130 fix: the INSTALLED system's apt sources. Previously 20-desktop overwrote
 # sources.list with a network line that survived the cdrom strip; r130 made
@@ -1786,16 +2077,16 @@ if [ "$FINALIZE_OK" = "1" ]; then
             db_try db_fset "$_ncz_rm_tpl" seen false
             db_try db_input critical "$_ncz_rm_tpl"
             db_try db_go
-        else
-            # no debconf channel — the TTY banner above is the only notice; give
-            # the operator a moment to read it before we reboot.
-            sleep 5
         fi
+        # no debconf channel: the TTY banner above is the only notice (was a
+        # blind `sleep 5`; r187 gives it the same visible countdown below via
+        # ncz_force_reboot's 2nd argument instead of waiting silently).
+        #
         # r181: after the operator dismisses the dialog, DRIVE the reboot too.
         # Relying on finish-install's menu loop here is exactly what left the box
         # at the d-i MAIN MENU on Sky1 metal — force it, gated on bootability.
         if ncz_bootable; then
-            ncz_force_reboot "interactive"
+            ncz_force_reboot "interactive" 1
         else
             echo "[late r181] interactive but NOT bootable — leaving to d-i (will surface the failure, not reboot into an unbootable system)"
         fi
@@ -1842,7 +2133,7 @@ fi
 # r174 (#6 review): NOT bootable — do NOT reassert reboot; force a NONZERO exit
 # even when run-all.sh returned 0, so finish-install surfaces the failure and
 # does NOT reboot into an unbootable install.
-echo "[late r174] no rEFInd at /target/boot/efi/EFI/BOOT/BOOTAA64.EFI -> install is NOT bootable; refusing clean reboot"
+echo "[late r174] no rEFInd at $(ncz_boot_binary) (with EFI/BOOT/refind.conf) -> install is NOT bootable; refusing clean reboot"
 # r203: exit non-zero robustly. This must surface a failure to finish-install,
 # but `exit $RET` assumed RET is numeric — if RET is non-numeric (observed once
 # as the string "OK") the sh builtin dies with "exit: Illegal number: OK",

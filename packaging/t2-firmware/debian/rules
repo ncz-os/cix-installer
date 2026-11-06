@@ -1,0 +1,41 @@
+#!/usr/bin/make -f
+# debian/rules — apple-firmware-script (native t2linux firmware helper)
+#
+# Architecture: all. The payload is a Bash script (with an embedded Python 3
+# archive renamer using only the standard library). There is no compilation
+# step; we install the reviewed helper and create the /usr/bin symlink via
+# dh_link. The pristine upstream source is installed as documentation.
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# No build. Syntax-check the shell script and the embedded Python so a
+	# broken source pin fails the build rather than silently shipping.
+	bash -n get-apple-firmware
+	bash tests/extract-renamer.sh get-apple-firmware > $(CURDIR)/debian/renamer.py
+	python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" $(CURDIR)/debian/renamer.py
+
+override_dh_auto_test:
+	# Offline, meaningful fixture tests (no network, no Apple downloads,
+	# no mounts, no live devices). See tests/.
+	bash tests/run-tests.sh
+	bash tests/test-runtime-guards.sh
+
+override_dh_auto_install:
+	install -d -m0755 $(CURDIR)/debian/apple-firmware-script/usr/libexec
+	install -m0755 get-apple-firmware \
+		$(CURDIR)/debian/apple-firmware-script/usr/libexec/get-apple-firmware
+	install -d -m0755 $(CURDIR)/debian/apple-firmware-script/usr/bin
+	ln -s ../libexec/get-apple-firmware \
+		$(CURDIR)/debian/apple-firmware-script/usr/bin/get-apple-firmware
+
+override_dh_installdocs:
+	dh_installdocs
+	install -d -m0755 $(CURDIR)/debian/apple-firmware-script/usr/share/doc/apple-firmware-script
+	install -m0644 debian/README.source \
+		$(CURDIR)/debian/apple-firmware-script/usr/share/doc/apple-firmware-script/README.source
+	install -m0644 debian/SOURCE-MANIFEST.md \
+		$(CURDIR)/debian/apple-firmware-script/usr/share/doc/apple-firmware-script/SOURCE-MANIFEST.md
+	install -m0644 upstream/firmware.sh \
+		$(CURDIR)/debian/apple-firmware-script/usr/share/doc/apple-firmware-script/upstream-firmware.sh

@@ -68,8 +68,8 @@
 > 默认、安装程序与救援启动项都使用这同一个内核；救援项会屏蔽 GPU/加速器驱动。7.2 系列
 > 与旧的"前沿版"通道已退役。7.3.0-rc7 是**候选版**内核，之后会换成 7.3.0 正式版。
 >
-> 所有窗口默认（系统级）带有最小化、最大化与关闭按钮。屏保为 NCZ Screensavers 0.8.15
-> （设置插件 0.3.22）。自 Preview 1 以来的变化见[发布说明（英文）](docs/releases/26.10-cygnus-20261013.md#changes-since-preview-1)。
+> 所有窗口默认（系统级）带有最小化、最大化与关闭按钮。屏保为 NCZ Screensavers 0.8.17
+> （设置插件 0.3.25）。自 Preview 1 以来的变化见[发布说明（英文）](docs/releases/26.10-cygnus-20261013.md#changes-since-preview-1)。
 
 > ### 远程访问默认项
 >
@@ -163,6 +163,9 @@ NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都�
 
 两个驱动会认领同一个设备，因此 `/etc/modprobe.d/ncz-gpu-drivers.conf` 将**两者都**
 列入黑名单。由启动项决定绑定哪一个，`ncz-gpu-select` 可在已安装的系统上切换而无需重装。
+切换器还会把实际生效的栈以 `# Selected:` 行写回同一文件，因此记录选择的不仅是启动项的
+`sky1.gpu=` 令牌，modprobe.d 本身也留痕；Panthor 启动时 `mali_kbase` 仍在该文件中被列入
+黑名单（Mali 回退所需的显式加载依然有效，因为 `blacklist` 并不阻止显式 `modprobe`）。
 
 **各自的代价。** `mali_kbase` 提供加速桌面，但**不暴露任何 Vulkan 入口**——`libmali`
 本身就没有。`panthor` 是通往 Vulkan 的路，也是生态的走向，但在 Sky1 上它仍在处理枚举
@@ -340,6 +343,7 @@ apt 指向镜像上的离线镜像。少数可选组件（例如 NVIDIA 驱动�
 | 30 | `refresh-sources` | 解析 Singularity 桌面源码（`--sources latest`）或复现已提交的锁定（`--sources pinned`），再构建或暂存桌面载荷软件包。 | `build/refresh-singularity-sources.sh`、`build/stage-singularity-payload.sh`、`build/build-singularity.sh`、`build/build-singularity-deb.sh` |
 | 40 | `offline-mirror` | 构建放入镜像的离线 apt 闭包。 | `make offline-mirror` |
 | 50 | `provenance-inputs` | 每个将进入镜像的软件包只能有一个来源：锁定的 Debian 快照、NCZ 构建或经审核的厂商软件包；不得出现 Debian 内核。 | `build/check-forky-provenance.sh`、`build/verify-no-debian-kernel.sh` |
+| 55 | `static-gates` | 在任何层或镜像工作之前对锁定的源码树强制执行静态门禁套件：AMD64 NVIDIA CUDA 设计门禁（`build/test-amd64-cuda-gates.sh`，仅 amd64）与 greeter 控制台回退门禁（`build/test-greeter-console-fallback.sh`，两种架构）。失败即中止构建，不可跳过——`--resume-from` 的续跑点位于该阶段或其后时，会先重新运行套件而不是跳过，因此任何仍能产出镜像的运行都无法绕过它们。 | `build/test-amd64-cuda-gates.sh`、`build/test-greeter-console-fallback.sh` |
 | 60 | `layers` | 构建并检查 `base`、`desktop`、`desktop-hotfix` 三个 squashfs 层。 | `build/layers-preflight.sh`、`build/build-squashfs-layers.sh all`（桌面软件包经 `build/build-role-delta-mkosi.sh`）、`build/check-layers.sh` |
 | 70 | `image` | 用基底、内核、各层与离线镜像组装原始 GPT 镜像。 | `make image` → `build/build-installer-image.sh`、`build/iso/*.py` |
 | 80 | `provenance-gate` | 对成品镜像再做一次来源与单内核检查。 | `build/check-forky-provenance.sh --image` |

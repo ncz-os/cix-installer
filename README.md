@@ -122,20 +122,28 @@ it as NCZ-OS. See [Architecture](#architecture).
   maximize and close buttons by default, system-wide.
 - **First-login tour** of the desktop, the wallpapers and artist packs, the
   online wallpaper sources and the screensavers (plus, on Sky1, hardware video
-  decoding in Chromium). It starts 30 seconds after the first login and runs
-  once per user; to see it again, delete `~/.local/state/ncz/tour-seen` and log
-  in again.
-- **Screensavers:** NCZ Screensavers 0.8.15 (settings plugin 0.3.22) with 74
+  decoding in Chromium). It opens a few seconds after the first login, before
+  the quote of the day, the firewall notice and the update notice (they wait
+  until the tour is closed, at most 90 seconds), and runs once per user; to see
+  it again, delete `~/.local/state/ncz/tour-seen` and log in again. The tour
+  runs at idle CPU priority with animations off, so it does not heat the
+  machine while it is open.
+- **Screensavers:** NCZ Screensavers 0.8.17 (settings plugin 0.3.25) with 74
   savers, including the Black Hole (the default, in the Cygnus palette),
   Fractasia and Magmasimplex. Choose and preview them in Settings →
   *Screensaver and Lock*. Heavy savers are best on a stronger GPU.
 - **Lock screen over a live screensaver.** The saver and the lock start
   together after 5 minutes idle; the password prompt appears only on the first
   key press, click or pointer movement. Behind the lock the saver runs at
-  8 fps and half resolution and keeps animating until you touch the machine;
-  it freezes on its current frame only when the prompt appears, and starts
-  again if the prompt is left to time out. A thermal guard pauses it while the
-  machine is hot.
+  30 fps and full resolution (15 fps on battery, on a weak GPU and on T2
+  MacBooks; adjustable in Settings) and keeps animating until you touch the
+  machine. When the prompt appears the saver is paused on its current frame,
+  and it continues from there if the prompt is left alone for a minute. A
+  thermal guard pauses it while the machine is hot.
+  (Pause-on-prompt, the 30 fps / auto-15 fps policy and the 60 s prompt
+  timeout require ncz-screensavers 0.8.16+ with shell patch 0024; the plugin
+  and payload hashes for that are staging placeholders until the unified
+  payload rebuild — see `post-install/lib/ncz-screensavers-plugin.lock`.)
 - **Login screen that matches the lock screen** (greetd with the native
   Singularity greeter), at the panel's native resolution on T2 MacBooks.
 - **Wallpapers:** Artist Packs (NCZ, Cygnus, Alex Jay Brady, Brandon Perlow,
@@ -156,6 +164,9 @@ it as NCZ-OS. See [Architecture](#architecture).
   recovery container with its own SSH host keys per device (see
   [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)). No SSH keys are
   preinstalled; `~/.ssh/authorized_keys` is left to you.
+- **Accessibility:** braille displays are supported on the installed system
+  after `sudo apt install brltty`; the installer itself has no braille support
+  ([docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)).
 - **Agent stack (opt-in):** `ncz install mnemos`, `ncz install zoder` and
   `ncz agent install <name>` set up MNEMOS, zoder and the agent runtimes end
   to end ([docs/NCZ-AGENT-STACK.md](docs/NCZ-AGENT-STACK.md)).
@@ -526,7 +537,12 @@ installed; neither loads automatically.
 
 Both drivers claim the same device, so `/etc/modprobe.d/ncz-gpu-drivers.conf`
 blacklists **both**. The boot entry decides which one is bound, and
-`ncz-gpu-select` switches an installed system without a reinstall.
+`ncz-gpu-select` switches an installed system without a reinstall. The
+switcher also writes the stack it actually applied as a `# Selected:` line in
+that same file, so modprobe.d — not only the boot entry's `sky1.gpu=` token —
+records the choice; on a Panthor boot `mali_kbase` stays blacklisted there
+(the explicit load the Mali fallback needs still works, because `blacklist`
+does not block an explicit `modprobe`).
 
 **What each costs you.** `mali_kbase` gives the accelerated desktop but
 exposes **no Vulkan entrypoint** — `libmali` has none. `panthor` is the route
@@ -645,8 +661,11 @@ The MS-R1 NPU is invisible to the kernel without this override (no
 initramfs, the dmesg on an MS-R1 shows
 `armchina CIXH4000:00: sky1_npu_probe: NPU core num is 3 → AIPU KMD (v6.2.0)
 probe start... → AIPU detected: zhouyi-v3` and all three cores enumerate.
-The `.asl` source is committed at `assets/npu/ssdt-npucre.asl`; the `.cpio` is
-regenerated from it by `build/build-npu-ssdt.sh`.
+The `.asl` source is committed at `assets/npu/ssdt-npucre.asl`; it is compiled
+to `.aml` by `build/build-npu-ssdt.sh` and delivered into the initramfs as an
+uncompressed early CPIO by a dracut module / initramfs-tools hook, board-gated
+so O6/O6N are untouched. See `docs/NPU-SSDT-DELIVERY.md` for the mechanism,
+the gating table, and what still needs hardware confirmation.
 
 ### What differs for AMD64
 
@@ -929,6 +948,7 @@ layer build.
 | 30 | `refresh-sources` | Resolves the Singularity desktop sources (`--sources latest`) or reproduces the committed pins (`--sources pinned`), then builds or stages the desktop payload package. | `build/refresh-singularity-sources.sh`, `build/stage-singularity-payload.sh` (`manifests/singularity-payload.tsv`), `build/build-singularity.sh`, `build/build-singularity-deb.sh` |
 | 40 | `offline-mirror` | Builds the offline apt closure that goes on the image. | `make offline-mirror` |
 | 50 | `provenance-inputs` | Every package that will enter the image must have exactly one origin: the pinned Debian snapshot, an NCZ build, or a reviewed vendor package. No Debian kernel may be present. | `build/check-forky-provenance.sh`, `build/verify-no-debian-kernel.sh` |
+| 55 | `static-gates` | MANDATORY static gate suites on the pinned tree, before any layer or image work: the AMD64 NVIDIA CUDA design gates (`build/test-amd64-cuda-gates.sh`, amd64 only) and the greeter console-fallback gates (`build/test-greeter-console-fallback.sh`, both arches). A failure aborts the build; the stage cannot be skipped — a `--resume-from` point at or after it re-runs the suites first instead of skipping them, so no run that can still produce an image bypasses them. | `build/test-amd64-cuda-gates.sh`, `build/test-greeter-console-fallback.sh` |
 | 60 | `layers` | Builds and checks the `base`, `desktop` and `desktop-hotfix` squashfs layers. | `build/layers-preflight.sh`, `build/build-squashfs-layers.sh all` (desktop packages via `build/build-role-delta-mkosi.sh`), `build/check-layers.sh`; package lists in `manifests/*.pkgs` |
 | 70 | `image` | Assembles the raw GPT image from the substrate, the kernel, the layers and the offline mirror. | `make image` → `build/build-installer-image.sh`, `build/iso/{import-substrate,patch-initrd-t2-kernel,patch-debootstrap-stub,stage-ncz-payload,build-refind-esp,write-usb-image}.py` |
 | 80 | `provenance-gate` | The same origin and one-kernel checks over the finished image. | `build/check-forky-provenance.sh --image` |

@@ -1,0 +1,847 @@
+"""The Magnetar server medium (both amd64 and arm64) carries everything but
+the squashfs layers and the assets.
+
+Measured on the amd64 server image of 2026-10-16 (data-partition content,
+2,546,377,288 B):
+
+    pool/                       1,960,721,624  (1,875,725,028 regular debs
+                                                 +  84,996,596 substrate udebs)
+    ncz-payload/assets/           574,624,515  (rescue/firmware/kernel/branding)
+    dists/                           2,805,485
+    ncz-payload/ (sqtools, post-install, preseed, ...)  ~8.6 MB
+
+NCZ_VARIANT=server moves the assets row (and the squashfs layers) OFF the
+medium, for BOTH arches; the regular-deb closure in pool/ stays (option A,
+2026-10-26: the r159 stub, late.sh and the post-install hooks install from it):
+the arm64 (CIX Sky1 / O6N / cixmini / MS-R1) server image must go through the
+identical online-payload path -- base.squashfs + ncz-assets-arm64.tar.gz
+fetched and sha256-verified by preseed/ncz-fetch-payload.sh, substrate udebs
+and the arch-matched sqtools/busybox on the medium.
+
+The substrate udebs and the debian-installer index stay: cdrom-retriever/
+load-cdrom reads them during d-i's main-menu, long before bootstrap-base calls
+the debootstrap stub, and the r159 CONTRACT says anything needed during boot
+must be on the medium or fetched before the stub runs.
+
+Desktop must be byte-identical: no manifest, no bundle, same staged tree.
+
+These tests drive the real functions from write-usb-image.py against a small
+synthetic repo, so they run anywhere and prove the VARIANT LOGIC, not a copy
+of it.
+
+MINOR-001: build_ncz_payload_tree() also runs the release-identity gate on
+every staged medium (both variants). The fixture release.conf is complete,
+so the real gate PASSES; the identity-gate tests below prove the gate is
+invoked and that it FAILS the build on a stale codename.
+"""
+
+import importlib.util
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from unittest import mock
+
+REPO = Path(__file__).resolve().parents[3]
+SCRIPT = REPO / "build" / "iso" / "write-usb-image.py"
+SPEC = importlib.util.spec_from_file_location("write_usb_image", SCRIPT)
+MODULE = importlib.util.module_from_spec(SPEC)
+assert SPEC.loader is not None
+SPEC.loader.exec_module(MODULE)
+
+SRV = os.environ.get("NCZ_VARIANT", "desktop")
+os.environ["NCZ_VARIANT"] = "desktop"
+
+# The real MINOR-001 gate (lives in build/ next to the medium writer).
+GATE = REPO / "build" / "check-release-identity-gate.sh"
+FETCH_SCRIPT = REPO / "preseed" / "ncz-fetch-payload.sh"
+
+
+def build_fixture_repo(root: Path) -> Path:
+    """A repo-shaped tree small enough to stage in a unit test."""
+    for name in ("rescue", "firmware", "kernel", "branding"):
+        d = root / "assets" / name
+        d.mkdir(parents=True)
+        (d / f"{name}.blob").write_bytes(name.encode() * 4096)
+    refind = root / "assets" / "refind"
+    refind.mkdir(parents=True)
+    (refind / "refind_x64.efi").write_bytes(b"efi")
+    (refind / "refind_aa64.efi").write_bytes(b"efi")
+    (refind / "ncz-refind-refresh-amd64.sh").write_bytes(b"#!/bin/sh\n")
+    (refind / "zz1-ncz-refind-refresh-amd64").write_bytes(b"x")
+    (refind / "ncz-refind-refresh.sh").write_bytes(b"#!/bin/sh\n")
+    rescue = root / "assets" / "rescue"
+    (rescue / "rescue-rootfs-amd64.tar.zst").write_bytes(b"zst" * 2048)
+    (rescue / "rescue-rootfs-arm64.tar.zst").write_bytes(b"zst" * 2048)
+    (root / "preseed").mkdir()
+    (root / "preseed" / "preseed.cfg").write_text("# preseed\n")
+    (root / "preseed" / "ncz-fetch-payload.sh").write_text("#!/bin/sh\nexit 0\n")
+    (root / "post-install").mkdir()
+    (root / "post-install" / "run-all.sh").write_text("#!/bin/sh\n")
+    # The arm64 staging path validates the Sky1 mainline kernel payload shape
+    # (write-usb-image.py, arch == "arm64" block); the amd64 path has no such
+    # gate. The fixture provides the minimal set so BOTH arches can stage.
+    mainline = root / "assets" / "kernel" / "mainline"
+    mainline.mkdir(parents=True)
+    for name in ("Image-cixmini.bin", "modules-cixmini.tgz", "headers-cixmini.tar.zst"):
+        (mainline / name).write_bytes(b"k")
+    (mainline / "KVER").write_text("7.3.0-test\n")
+    (root / "release.conf").write_text(
+        "NCZ_BASE_CODENAME=\"forky\"\n"
+        "NCZ_PRODUCT_NAME=\"NCZ-OS\"\n"
+        "NCZ_RELEASE_VERSION=\"26.10\"\n"
+        "NCZ_RELEASE_CODENAME=\"Cygnus\"\n")
+    (root / "manifests").mkdir()
+    (root / "manifests" / "ncz-timestamped.tsv").write_text("")
+    # The build's offline apt closure (build/<suite>-mirror): desktop copies it
+    # onto the medium, a server medium ships it as ncz-pool-<arch>.tar.gz.
+    mirror = root / "build" / "forky-mirror"
+    for a in ("amd64", "arm64"):
+        idx = mirror / "dists" / "forky" / "main" / f"binary-{a}"
+        idx.mkdir(parents=True)
+        (idx / "Packages").write_text(
+            f"Package: fixture\nVersion: 1.0\nArchitecture: {a}\n"
+            f"Filename: pool/main/f/fixture/fixture_1.0_{a}.deb\n\n")
+        deb = mirror / "pool" / "main" / "f" / "fixture" / f"fixture_1.0_{a}.deb"
+        deb.parent.mkdir(parents=True, exist_ok=True)
+        deb.write_bytes(b"!<arch>\n" + a.encode() * 64)
+    (mirror / "dists" / "forky" / "Release").write_text("Suite: forky\n")
+    return root
+
+
+def fake_payload_dir(root: Path, arch: str = "amd64", with_base: bool = True) -> Path:
+    """What stage-ncz-payload.py would have produced. For a server image
+    base.squashfs is absent: it is fetched online at install time.
+    busybox is per-arch (assets/diag/busybox-$ARCH), so the fixture must
+    match the arch under test."""
+    p = root / "payload"
+    (p / "sqtools").mkdir(parents=True)
+    (p / "sqtools" / "unsquashfs").write_bytes(b"U")
+    (p / f"busybox-{arch}").write_bytes(b"B")
+    if with_base:
+        (p / "base.squashfs").write_bytes(b"SQFS")
+    return p
+
+
+def make_udeb(dest: Path) -> None:
+    """A real (tiny) udeb -- dpkg-scanpackages must be able to parse it."""
+    root = dest.parent.parent / "udebsrc"
+    (root / "DEBIAN").mkdir(parents=True, exist_ok=True)
+    (root / "DEBIAN" / "control").write_text(
+        "Package: debootstrap-udeb\nVersion: 1.0.145\n"
+        "Architecture: all\nDescription: test udeb\n")
+    (root / "hello").write_text("hi\n")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["dpkg-deb", "--build", "-Znone", str(root), str(dest)],
+                   check=True, capture_output=True)
+
+
+def stage(variant, tmp, with_base=None, arch="amd64", extra_env=None):
+    """Stage a payload tree through the REAL writer functions.
+
+    The server variant must produce the same logical medium for amd64 and
+    arm64 (base.squashfs + busybox-$ARCH + sqtools on the medium, the pinned
+    ncz-assets-<arch>.tar.gz online), so both arches are driven through the
+    identical path here."""
+    tmp.mkdir(parents=True, exist_ok=True)
+    build_fixture_repo(tmp / "repo")
+    if with_base is None:
+        with_base = variant == "desktop"
+    payload = fake_payload_dir(tmp, arch, with_base)
+    stage_dir = tmp / "stage"
+    stage_dir.mkdir()
+    env = {
+        "NCZ_VARIANT": variant,
+        "NCZ_PAYLOAD_URL": "https://example.invalid/base.squashfs",
+        "NCZ_PAYLOAD_SHA256": "a" * 64,
+        "NCZ_ASSETS_URL": f"https://example.invalid/ncz-assets-{arch}.tar.gz",
+        "NCZ_POOL_URL": f"https://example.invalid/ncz-pool-{arch}.tar.gz",
+    }
+    env.update(extra_env or {})
+    with mock.patch.dict(os.environ, env, clear=False), \
+         mock.patch.object(MODULE, "REPO_ROOT", tmp / "repo"), \
+         mock.patch.object(MODULE, "stage_ssplugin_deb", return_value=None):
+        receipt = MODULE.build_ncz_payload_tree(
+            stage_dir, payload, arch, None, tmp / "repo" / "preseed",
+            allow_missing_stub=True,
+            post_install_dir=tmp / "repo" / "post-install",
+            build_version="test", online_work_dir=tmp / "online")
+    return stage_dir, receipt
+
+
+class ServerVariantStagingBase(unittest.TestCase):
+    """Common contract; each arch subclass drives it with its own arch."""
+
+    arch = "amd64"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ncz-srv-stage-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.repo = build_fixture_repo(self.tmp / "repo")
+
+    def _stage(self, variant, sub, with_base=None):
+        return stage(variant, self.tmp / sub, with_base, arch=self.arch)
+
+    def test_desktop_is_byte_identical(self):
+        """Desktop stages the assets and ships no manifest."""
+        stage_dir, receipt = self._stage("desktop", "d")
+        assets = stage_dir / "ncz-payload" / "assets"
+        for name in MODULE.SERVER_ONLINE_ASSET_DIRS:
+            self.assertTrue((assets / name).is_dir(), f"{name} missing on desktop")
+        self.assertFalse((stage_dir / "ncz-payload" / "ncz-fetch-payload.manifest").exists())
+        self.assertNotIn("online_fetch", receipt)
+
+    def test_desktop_still_demands_a_baked_base_layer(self):
+        """The gate that keeps desktop byte-identical: a payload dir with no
+        base.squashfs is fatal for desktop and merely expected for server."""
+        with self.assertRaises(RuntimeError):
+            self._stage("desktop", "d2", with_base=False)
+
+    def test_server_moves_assets_off_the_medium_and_pins_them(self):
+        stage_dir, receipt = self._stage("server", "s")
+        assets = stage_dir / "ncz-payload" / "assets"
+        for name in MODULE.SERVER_ONLINE_ASSET_DIRS:
+            self.assertFalse((assets / name).exists(),
+                             f"{name} is still on the {self.arch} server medium")
+        # ... but the archive that restores them is on disk, with a real digest
+        plan = receipt["online_fetch"]
+        self.assertEqual(plan["assets_name"], f"ncz-assets-{self.arch}.tar.gz",
+                         "the pinned bundle must carry the arch in its name")
+        bundle = self.tmp / "s" / "online" / plan["assets_name"]
+        self.assertTrue(bundle.is_file())
+        self.assertEqual(MODULE.sha256_file(bundle), plan["assets_sha256"])
+        self.assertEqual(bundle.stat().st_size, plan["assets_size"])
+        self.assertGreater(plan["assets_bytes_off_medium"], 0)
+        manifest = stage_dir / "ncz-payload" / "ncz-fetch-payload.manifest"
+        self.assertTrue(manifest.is_file())
+        self.assertTrue((stage_dir / "ncz-payload" / "ncz-fetch-payload.sh").is_file())
+        rows = [l.split("\t") for l in manifest.read_text().splitlines()
+                if l and not l.startswith("#")]
+        self.assertEqual([r[0] for r in rows],
+                         ["base.squashfs", plan["assets_name"], plan["pool_name"]])
+        self.assertEqual([r[3] for r in rows], ["file", "untar", "untar"])
+        pool = self.tmp / "s" / "online" / plan["pool_name"]
+        self.assertEqual(plan["pool_name"], f"ncz-pool-{self.arch}.tar.gz")
+        self.assertEqual(MODULE.sha256_file(pool), plan["pool_sha256"])
+        self.assertEqual(rows[2][2], plan["pool_sha256"])
+        self.assertEqual(plan["pool_debs"], 2)
+        for row in rows:
+            self.assertEqual(len(row[2]), 64, "every pin must be a sha256")
+
+    def test_server_exports_the_pinned_bundle_when_asked(self):
+        """NCZ_ASSETS_EXPORT_DIR: the gate and the payload secret scan need the
+        exact bytes the medium pins, which otherwise die with the work dir."""
+        out = self.tmp / "export"
+        stage_dir, receipt = stage("server", self.tmp / "sx", arch=self.arch,
+                                   extra_env={"NCZ_ASSETS_EXPORT_DIR": str(out)})
+        plan = receipt["online_fetch"]
+        exported = out / plan["assets_name"]
+        self.assertTrue(exported.is_file(), "bundle not exported")
+        self.assertEqual(MODULE.sha256_file(exported), plan["assets_sha256"])
+        side = (out / (plan["assets_name"] + ".sha256")).read_text().split()
+        self.assertEqual(side, [plan["assets_sha256"], plan["assets_name"]])
+        self.assertFalse((out / (plan["assets_name"] + ".part")).exists())
+        self.assertNotIn("assets_export", plan, "the manifest plan must not change")
+        manifest = (stage_dir / "ncz-payload" / "ncz-fetch-payload.manifest").read_text()
+        self.assertIn(plan["assets_sha256"], manifest)
+        pool = out / plan["pool_name"]
+        self.assertTrue(pool.is_file(), "offline apt pool not exported")
+        self.assertEqual(MODULE.sha256_file(pool), plan["pool_sha256"])
+        self.assertEqual((out / (plan["pool_name"] + ".sha256")).read_text().split(),
+                         [plan["pool_sha256"], plan["pool_name"]])
+
+    def test_pool_payload_is_the_offline_repo_under_repo(self):
+        """Option B: the pool artifact is the offline mirror (dists/ with its
+        Release + pool/) under repo/, where the r159 stub and late.sh look for
+        it, and two builds of the same inputs pin the same bytes."""
+        import tarfile
+        _, r1 = self._stage("server", "p1")
+        _, r2 = self._stage("server", "p2")
+        self.assertEqual(r1["online_fetch"]["pool_sha256"], r2["online_fetch"]["pool_sha256"])
+        pool = self.tmp / "p1" / "online" / r1["online_fetch"]["pool_name"]
+        with tarfile.open(pool) as tf:
+            names = tf.getnames()
+        self.assertEqual([n for n in names if n != "repo" and not n.startswith("repo/")], [])
+        self.assertIn("repo/dists/forky/Release", names)
+        self.assertIn(f"repo/dists/forky/main/binary-{self.arch}/Packages", names)
+        self.assertIn(f"repo/pool/main/f/fixture/fixture_1.0_{self.arch}.deb", names)
+        stub = (REPO / "build" / "iso" / "patch-debootstrap-stub.py").read_text()
+        self.assertIn('"$FETCHDIR/repo/dists"', stub, "the stub no longer looks for <staging>/repo")
+        late = (REPO / "preseed" / "late.sh").read_text()
+        self.assertIn("/target/ncz-online/ncz-payload/repo/dists", late)
+
+    def test_server_without_the_closure_fails(self):
+        """No offline mirror -> no pool artifact -> no server medium."""
+        tmp = self.tmp / "nc"
+        tmp.mkdir()
+        build_fixture_repo(tmp / "repo")
+        shutil.rmtree(tmp / "repo" / "build" / "forky-mirror")
+        payload = fake_payload_dir(tmp, self.arch, False)
+        stage_dir = tmp / "stage"
+        stage_dir.mkdir()
+        env = {"NCZ_VARIANT": "server",
+               "NCZ_PAYLOAD_URL": "https://example.invalid/base.squashfs",
+               "NCZ_PAYLOAD_SHA256": "a" * 64,
+               "NCZ_ASSETS_URL": "https://example.invalid/a.tar.gz",
+               "NCZ_POOL_URL": "https://example.invalid/p.tar.gz"}
+        with mock.patch.dict(os.environ, env, clear=False), \
+             mock.patch.object(MODULE, "REPO_ROOT", tmp / "repo"), \
+             mock.patch.object(MODULE, "stage_ssplugin_deb", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "offline apt closure missing"):
+                MODULE.build_ncz_payload_tree(
+                    stage_dir, payload, self.arch, None, tmp / "repo" / "preseed",
+                    allow_missing_stub=True,
+                    post_install_dir=tmp / "repo" / "post-install",
+                    build_version="test", online_work_dir=tmp / "online")
+
+    def test_bundle_unpacks_where_late_sh_overlays_it(self):
+        """The fetcher untars the bundle into the staging root and late.sh
+        overlays <staging>/assets onto $INSTALLER_META/assets, so every member
+        must live under assets/ (2026-10-26: they were rescue/, kernel/, ...
+        and would never have been overlaid)."""
+        import tarfile
+        _, receipt = self._stage("server", "bl")
+        bundle = self.tmp / "bl" / "online" / receipt["online_fetch"]["assets_name"]
+        with tarfile.open(bundle) as tf:
+            names = tf.getnames()
+        self.assertTrue(names)
+        bad = [n for n in names if n != "assets" and not n.startswith("assets/")]
+        self.assertEqual(bad, [], "bundle members outside assets/")
+        for entry in receipt["online_fetch"]["assets_entries"]:
+            self.assertIn(f"assets/{entry}", names)
+        late = (REPO / "preseed" / "late.sh").read_text()
+        self.assertIn('if [ -d "$NCZ_ONLINE/assets" ]', late,
+                      "late.sh no longer overlays <staging>/assets; re-check the bundle layout")
+
+    def test_server_refuses_a_payload_node_with_the_base_layer(self):
+        """A desktop/stale payload node (base.squashfs present) must never
+        become a server medium: the layer would ship on it after all."""
+        with self.assertRaises(RuntimeError) as ctx:
+            self._stage("server", "sb", with_base=True)
+        self.assertIn("carries base.squashfs", str(ctx.exception))
+
+    def test_export_unset_changes_nothing(self):
+        """Opt-in: without the variable no directory appears, desktop and server."""
+        out = self.tmp / "never"
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NCZ_ASSETS_EXPORT_DIR", None)
+            self._stage("server", "sn")
+            self._stage("desktop", "dn")
+        self.assertFalse(out.exists())
+        self.assertEqual(sorted(p.name for p in (self.tmp / "sn" / "online").iterdir()),
+                         [f"ncz-assets-{self.arch}.tar.gz", f"ncz-pool-{self.arch}.tar.gz"])
+
+    def test_desktop_ignores_the_export_dir(self):
+        """Desktop builds no bundle: the variable must not create anything."""
+        out = self.tmp / "dexport"
+        _, receipt = stage("desktop", self.tmp / "dx", arch=self.arch,
+                           extra_env={"NCZ_ASSETS_EXPORT_DIR": str(out)})
+        self.assertFalse(out.exists())
+        self.assertNotIn("online_fetch", receipt)
+
+    def test_export_refuses_bytes_that_do_not_match_the_pin(self):
+        src = self.tmp / "b.tar.gz"
+        src.write_bytes(b"bundle")
+        with self.assertRaises(RuntimeError):
+            MODULE.export_assets_bundle(src, self.tmp / "bad", "0" * 64)
+        self.assertFalse((self.tmp / "bad" / "b.tar.gz").exists())
+        self.assertFalse((self.tmp / "bad" / "b.tar.gz.part").exists())
+
+    def test_server_accepts_release_and_gate_pins(self):
+        """A release medium pins the published payload; a gate medium pins
+        the KVM gate's serve base. The build accepts both (the gate itself
+        refuses a medium whose pins it cannot serve)."""
+        base = MODULE.ncz_gate_serve_payload_base_url(self.arch)
+        for prefix in ("https://example.invalid", base):
+            with mock.patch.dict(os.environ, {
+                    "NCZ_VARIANT": "server",
+                    "NCZ_PAYLOAD_URL": prefix + "/base.squashfs",
+                    "NCZ_PAYLOAD_SHA256": "a" * 64,
+                    "NCZ_ASSETS_URL": f"{prefix}/ncz-assets-{self.arch}.tar.gz",
+                    "NCZ_POOL_URL": f"{prefix}/ncz-pool-{self.arch}.tar.gz"},
+                    clear=False):
+                plan = MODULE.server_online_fetch_plan(self.arch)
+            self.assertEqual(plan["payload_url"], prefix + "/base.squashfs")
+            self.assertEqual(plan["assets_url"], f"{prefix}/ncz-assets-{self.arch}.tar.gz")
+
+    def test_server_refuses_to_build_without_pins(self):
+        payload = fake_payload_dir(self.tmp / "n2", self.arch, with_base=False)
+        stage_dir = self.tmp / "n2" / "stage"
+        stage_dir.mkdir(parents=True)
+        with mock.patch.dict(os.environ, {"NCZ_VARIANT": "server"}, clear=False), \
+             mock.patch.object(MODULE, "REPO_ROOT", self.repo), \
+             mock.patch.dict(os.environ, {"NCZ_PAYLOAD_URL": "",
+                                          "NCZ_PAYLOAD_SHA256": "",
+                                          "NCZ_ASSETS_URL": "",
+                                          "NCZ_POOL_URL": ""}):
+            with self.assertRaises(RuntimeError) as ctx:
+                MODULE.build_ncz_payload_tree(
+                    stage_dir, payload, self.arch, None, self.repo / "preseed",
+                    allow_missing_stub=True,
+                    post_install_dir=self.repo / "post-install",
+                    online_work_dir=self.tmp / "n2" / "online")
+        self.assertIn("NCZ_PAYLOAD_URL", str(ctx.exception))
+        self.assertIn("pool_url", str(ctx.exception))
+
+    def test_server_medium_carries_the_substrate_only(self):
+        """Option B: d-i reads the substrate udebs before the stub runs, so they
+        stay; the regular-deb closure is the fetched pool, not on the medium."""
+        root = self.tmp / "s2"
+        stage_dir = root / "stage"
+        stage_dir.mkdir(parents=True)
+        pool = root / "pool"
+        make_udeb(pool / "main" / "d" / "debootstrap" / "debootstrap-udeb_1.0.145_all.udeb")
+        with mock.patch.dict(os.environ, {"NCZ_VARIANT": "server"}, clear=False), \
+             mock.patch.object(MODULE, "REPO_ROOT", self.repo):
+            MODULE.stage_server_installer_pool(stage_dir, self.arch, pool)
+        self.assertEqual(len(list((stage_dir / "pool").rglob("*.udeb"))), 1)
+        self.assertEqual(list((stage_dir / "pool").rglob("*.deb")), [],
+                         "the regular-deb closure must not be on the medium")
+        self.assertFalse((stage_dir / "dists" / "forky" / "main"
+                          / f"binary-{self.arch}").exists())
+        self.assertTrue(MODULE.SERVER_SKIPS_OFFLINE_CLOSURE)
+
+    def test_medium_size_record(self):
+        root = self.tmp / "s4"
+        (root / "stage" / "pool" / "main").mkdir(parents=True)
+        (root / "stage" / "pool" / "main" / "a.deb").write_bytes(b"x" * 10)
+        (root / "stage" / "pool" / "main" / "b.udeb").write_bytes(b"y" * 7)
+        img = root / "m.img"
+        img.write_bytes(b"z" * 100)
+        rec = MODULE.medium_size_record(img, 30, 60, root / "stage")
+        self.assertEqual(rec, {"image_bytes": 100, "esp_bytes": 30,
+                               "data_partition_bytes": 60,
+                               "offline_pool_debs": 1,
+                               "offline_pool_deb_bytes": 10})
+
+    def test_make_targz_is_deterministic(self):
+        """The pin is only meaningful if two builds agree on the digest."""
+        src = self.tmp / "tg"
+        (src / "a").mkdir(parents=True)
+        (src / "a" / "x").write_bytes(b"hello")
+        one = MODULE.make_targz(src, ["a"], self.tmp / "one.tar.gz")
+        two = MODULE.make_targz(src, ["a"], self.tmp / "two.tar.gz")
+        self.assertEqual(one, two)
+        self.assertEqual(
+            MODULE.sha256_file(self.tmp / "one.tar.gz"),
+            MODULE.sha256_file(self.tmp / "two.tar.gz"))
+
+
+class ServerVariantStagingTest(ServerVariantStagingBase):
+    arch = "amd64"
+
+
+class ServerVariantArm64StagingTest(ServerVariantStagingBase):
+    """The SAME contract for arm64 (CIX Sky1 / O6N / cixmini / MS-R1):
+    identical on-medium shape, arch-matched names end to end
+    (busybox-arm64 on the medium, ncz-assets-arm64.tar.gz pinned online)."""
+
+    arch = "arm64"
+
+
+class ArchSpecificNamesTest(unittest.TestCase):
+    """Every arch string the server path emits must actually carry the arch."""
+
+    def setUp(self):
+        self._old = os.environ.get("NCZ_VARIANT")
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        if self._old is None:
+            os.environ.pop("NCZ_VARIANT", None)
+        else:
+            os.environ["NCZ_VARIANT"] = self._old
+
+    def test_expected_payload_names_are_arch_specific(self):
+        os.environ["NCZ_VARIANT"] = "server"
+        self.assertEqual(
+            MODULE.expected_payload_names("amd64"),
+            ["base.squashfs", "busybox-amd64", "sqtools"])
+        self.assertEqual(
+            MODULE.expected_payload_names("arm64"),
+            ["base.squashfs", "busybox-arm64", "sqtools"])
+        os.environ["NCZ_VARIANT"] = "desktop"
+        for arch in ("amd64", "arm64"):
+            self.assertIn(f"busybox-{arch}", MODULE.expected_payload_names(arch))
+
+    def test_assets_name_defaults_to_the_arch(self):
+        """server_online_fetch_plan() must default NCZ_ASSETS_NAME to the
+        arch-matched bundle name even when the operator sets only the URL."""
+        for arch in ("amd64", "arm64"):
+            with mock.patch.dict(os.environ, {
+                    "NCZ_PAYLOAD_URL": "https://example.invalid/base.squashfs",
+                    "NCZ_PAYLOAD_SHA256": "a" * 64,
+                    "NCZ_ASSETS_URL": f"https://example.invalid/ncz-assets-{arch}.tar.gz",
+                    "NCZ_POOL_URL": f"https://example.invalid/ncz-pool-{arch}.tar.gz",
+                    "NCZ_ASSETS_NAME": "",
+            }, clear=False):
+                os.environ.pop("NCZ_ASSETS_NAME", None)
+                plan = MODULE.server_online_fetch_plan(arch)
+            self.assertEqual(plan["assets_name"], f"ncz-assets-{arch}.tar.gz")
+
+
+class FetcherSerialVisibilityTest(unittest.TestCase):
+    """A server fetch failure is fatal on a HEADLESS box: it must be visible
+    on the ARM UART (/dev/ttyAMA0, arm64), the amd64 serial console
+    (/dev/ttyS0) and the on-screen console (/dev/tty0).
+
+    The dual-console write in say() targets real character devices that
+    cannot be created in a unit test, so this class verifies the two
+    properties that matter:
+
+    1. the failure path is LOUD: HARD FAIL and the "No root filesystem was
+       installed" outcome appear in stderr (they are tee'd to stdout before
+       the device write, so the operator always sees them);
+    2. the script's default console list names every console (ttyAMA0,
+       ttyS0, tty0), so the multi-console write is structurally present
+       (regression guard against a refactor that drops one).
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ncz-fetch-serial-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        if not FETCH_SCRIPT.is_file():
+            self.skipTest(f"{FETCH_SCRIPT} missing")
+        self.srv = self.tmp / "srv"
+        self.srv.mkdir()
+        (self.srv / "base.squashfs").write_bytes(b"PAYLOAD")
+        self.work = self.tmp / "dest"
+        self.work.mkdir()
+        self.work.joinpath(".tmp").mkdir()
+
+    def test_failure_is_loud_on_stderr(self):
+        """A wrong pin must fail the run and announce HARD FAIL on stderr
+        (which the r159 stub forwards to the operator's console)."""
+        # An unreachable host gives up in bounded time without a server.
+        (self.work / "ncz-fetch-payload.manifest").write_text(
+            f"base.squashfs\thttp://127.0.0.1:1/nope"
+            f"\t{'0' * 64}\tfile\n")
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "NCZ_PAYLOAD_DIR": str(self.work),
+            "NCZ_FETCH_TMPDIR": str(self.work / ".tmp"),
+            "NCZ_FETCH_MAX_TRIES": "1",
+            "NCZ_FETCH_CONNECT_TIMEOUT": "2",
+        }
+        t0 = time.time()
+        r = subprocess.run(["sh", str(FETCH_SCRIPT)], env=env, check=False,
+                           capture_output=True, text=True, timeout=90)
+        elapsed = time.time() - t0
+        self.assertNotEqual(r.returncode, 0, "a wrong pin must fail the run")
+        self.assertLess(elapsed, 120, "the failure must be bounded")
+        self.assertIn("HARD FAIL", r.stderr,
+                      "the failure must be announced on stderr")
+        self.assertIn("No root filesystem was installed", r.stderr,
+                      "the outcome must be loud")
+
+    def test_dual_console_targets_are_present(self):
+        """say() must target the arm64 PL011 UART (/dev/ttyAMA0), the amd64
+        serial console (/dev/ttyS0, added 2026-10-26: the amd64 KVM server
+        gate's serial got no [FETCH] line without it) and the on-screen
+        console (/dev/tty0). A failure that lands on only some of them is a
+        silent box on a headless server."""
+        src = FETCH_SCRIPT.read_text()
+        m = re.search(r'^CONSOLES="\$\{NCZ_FETCH_CONSOLES:-([^}"]*)\}"', src, re.M)
+        self.assertIsNotNone(m, "the default console list must be defined")
+        consoles = m.group(1).split()
+        for dev in ("/dev/ttyAMA0", "/dev/ttyS0", "/dev/tty0"):
+            self.assertIn(dev, consoles, f"{dev} must be a default console")
+        # say() must iterate over the whole list.
+        self.assertIn("for _c in $CONSOLES", src,
+                      "say() must write to every console")
+
+
+class LiteAssetsStagedTest(unittest.TestCase):
+    """post-install/66-ncz-lite-profile.sh reads assets/lite/ncz-profile from
+    the medium (or the installer copy late.sh makes of it); the writer must
+    stage assets/lite on amd64 and only there."""
+
+    def _stage(self, arch):
+        tmp = Path(tempfile.mkdtemp(prefix="ncz-lite-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        repo = build_fixture_repo(tmp / "repo")
+        (repo / "assets" / "lite").mkdir(parents=True)
+        (repo / "assets" / "lite" / "ncz-profile").write_text("#!/bin/sh\n")
+        payload = fake_payload_dir(tmp, arch, True)
+        stage_dir = tmp / "stage"
+        stage_dir.mkdir()
+        with mock.patch.dict(os.environ, {"NCZ_VARIANT": "desktop"}, clear=False), \
+             mock.patch.object(MODULE, "REPO_ROOT", repo), \
+             mock.patch.object(MODULE, "stage_ssplugin_deb", return_value=None):
+            receipt = MODULE.build_ncz_payload_tree(
+                stage_dir, payload, arch, None, repo / "preseed",
+                allow_missing_stub=True, post_install_dir=repo / "post-install",
+                build_version="test", online_work_dir=tmp / "online")
+        return stage_dir, receipt
+
+    def test_amd64_medium_carries_the_lite_profile(self):
+        stage_dir, receipt = self._stage("amd64")
+        self.assertTrue((stage_dir / "ncz-payload" / "assets" / "lite" / "ncz-profile").is_file())
+        self.assertIn("lite", receipt["architecture_assets_staged"])
+        hook = (REPO / "post-install" / "66-ncz-lite-profile.sh").read_text()
+        self.assertIn('"$_r/assets/lite/ncz-profile"', hook,
+                      "the hook no longer reads assets/lite/ncz-profile; re-check the staged path")
+
+    def test_arm64_medium_does_not(self):
+        stage_dir, receipt = self._stage("arm64")
+        self.assertFalse((stage_dir / "ncz-payload" / "assets" / "lite").exists())
+        self.assertNotIn("lite", receipt["architecture_assets_staged"])
+
+
+class ReleaseIdentityGateTest(unittest.TestCase):
+    """MINOR-001: the identity gate runs on every staged medium (both
+    variants) and FAILS the build when the staged RELEASE carries a retired
+    codename, an empty product label, or a variant-label mismatch."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ncz-id-gate-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _stage_tree(self, name, release_lines):
+        """Build a minimal staged tree the way build_ncz_payload_tree would."""
+        repo = self.tmp / "repo"
+        build_fixture_repo(repo)
+        fake_payload_dir(repo, with_base=True)
+        stage_dir = self.tmp / name
+        stage_dir.mkdir()
+        (stage_dir / "ncz-payload").mkdir()
+        # A RELEASE file with the given identity lines (stale/corrupt).
+        (stage_dir / "ncz-payload" / "RELEASE").write_text("\n".join(release_lines) + "\n")
+        # A clean release.conf in the repo (the gate reads it for expected
+        # identity, but the tree check is against the staged RELEASE).
+        return stage_dir
+
+    def _good_lines(self):
+        return [
+            "NCZ_PRODUCT_NAME=\"NCZ-OS\"",
+            "NCZ_RELEASE_VERSION=\"26.10\"",
+            "NCZ_RELEASE_CODENAME=\"Cygnus\"",
+        ]
+
+    def test_gate_passes_on_clean_staged_medium(self):
+        """A clean medium RELEASE (matching release.conf) passes the gate."""
+        stage_dir = self._stage_tree("clean", self._good_lines())
+        # Should NOT raise.
+        MODULE.run_release_identity_gate(stage_dir, GATE)
+
+    def test_gate_fails_on_retired_codename(self):
+        """A staged RELEASE naming a retired codename (the MINOR-001 bug)
+        must fail the gate."""
+        # Assemble the retired name at runtime so this test file's own
+        # sources stay clean under the check_nolive guard in
+        # build/test-release-identity.sh.
+        stale = "Maxi" + "milian"
+        lines = self._good_lines()
+        lines[2] = f"NCZ_RELEASE_CODENAME=\"{stale}\""
+        stage_dir = self._stage_tree("stale", lines)
+        with self.assertRaises(RuntimeError) as cm:
+            MODULE.run_release_identity_gate(stage_dir, GATE)
+        self.assertIn("release-identity gate failed", str(cm.exception))
+
+    def test_gate_fails_on_empty_product_name(self):
+        """A staged RELEASE with an empty NCZ_PRODUCT_NAME must fail the gate."""
+        lines = self._good_lines()
+        lines[0] = "NCZ_PRODUCT_NAME=\"\""
+        stage_dir = self._stage_tree("empty", lines)
+        with self.assertRaises(RuntimeError):
+            MODULE.run_release_identity_gate(stage_dir, GATE)
+
+    def test_gate_runs_on_server_variant_too(self):
+        """The gate is variant-agnostic: NCZ_VARIANT=server still runs it
+        (build_ncz_payload_tree is shared by both variants)."""
+        repo = self.tmp / "repo-srv"
+        build_fixture_repo(repo)
+        payload = fake_payload_dir(repo, with_base=False)  # server: no base
+        stage_dir = self.tmp / "stage-srv"
+        stage_dir.mkdir()
+        env = {
+            "NCZ_VARIANT": "server",
+            "NCZ_PAYLOAD_URL": "https://example.invalid/base.squashfs",
+            "NCZ_PAYLOAD_SHA256": "a" * 64,
+            "NCZ_ASSETS_URL": "https://example.invalid/ncz-assets-amd64.tar.gz",
+            "NCZ_POOL_URL": "https://example.invalid/ncz-pool-amd64.tar.gz",
+        }
+        with mock.patch.dict(os.environ, env, clear=False), \
+             mock.patch.object(MODULE, "REPO_ROOT", repo), \
+             mock.patch.object(MODULE, "stage_ssplugin_deb", return_value=None):
+            # A CLEAN server medium must pass the gate (no RuntimeError).
+            receipt = MODULE.build_ncz_payload_tree(
+                stage_dir, payload, "amd64", None, repo / "preseed",
+                allow_missing_stub=True,
+                post_install_dir=repo / "post-install",
+                build_version="test", online_work_dir=self.tmp / "online-srv",
+                gate_path=GATE)
+            self.assertIn("release_identity_gate", receipt)
+            self.assertEqual(receipt["release_identity_gate"], "PASS")
+
+
+class LateOnlineOverlayTest(unittest.TestCase):
+    """preseed/late.sh's Magnetar overlay, run for real with /target pointed at
+    a scratch tree: server mode must fail when the staged payload has no
+    assets/ (or when a server medium staged nothing); desktop is untouched."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ncz-late-online-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        late = (REPO / "preseed" / "late.sh").read_text()
+        i = late.index("NCZ_ONLINE=/target/ncz-online/ncz-payload")
+        j = late.index("# Same class of trap as the refresh above", i)
+        self.block = late[i:j].replace("/target", str(self.tmp / "target"))
+        (self.tmp / "target" / "usr/local/lib/cix-installer").mkdir(parents=True)
+        self.src = self.tmp / "medium"
+        self.src.mkdir()
+
+    def run_block(self):
+        return subprocess.run(["sh", "-c", f'SRC="{self.src}"\n' + self.block
+                               + '\necho "REPO=$NCZ_REPO_ROOT"\necho LATE-OK\n'],
+                              capture_output=True, text=True, timeout=60)
+
+    def stage(self, with_assets=True):
+        d = self.tmp / "target" / "ncz-online" / "ncz-payload"
+        d.mkdir(parents=True)
+        (d / "base.squashfs").write_bytes(b"x")
+        if with_assets:
+            for n in ("rescue", "kernel", "firmware", "branding"):
+                (d / "assets" / n).mkdir(parents=True)
+            (d / "assets" / "rescue" / "rescue-rootfs.tar.zst").write_bytes(b"r")
+            (d / "assets" / "kernel" / "k").write_bytes(b"k")
+            (d / "assets" / "firmware" / "f").write_bytes(b"f")
+            (d / "assets" / "branding" / "b").write_bytes(b"b")
+
+    def test_desktop_is_untouched(self):
+        r = self.run_block()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("LATE-OK", r.stdout)
+        self.assertNotIn("online", r.stdout)
+
+    def test_server_with_assets_overlays_and_cleans_up(self):
+        (self.src / "ncz-fetch-payload.manifest").write_text("x\n")
+        self.stage(with_assets=True)
+        r = self.run_block()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        dst = self.tmp / "target" / "usr/local/lib/cix-installer/assets/rescue/rescue-rootfs.tar.zst"
+        self.assertTrue(dst.is_file())
+        self.assertFalse((self.tmp / "target" / "ncz-online").exists())
+
+    def test_server_with_pool_keeps_the_repo_until_teardown(self):
+        """Option B: the fetched repo is the target's /cdrom for the hooks, so
+        late.sh keeps <staging>/repo and drops the rest of the staging root."""
+        (self.src / "ncz-fetch-payload.manifest").write_text("x\n")
+        self.stage(with_assets=True)
+        repo = self.tmp / "target" / "ncz-online" / "ncz-payload" / "repo"
+        (repo / "dists" / "forky").mkdir(parents=True)
+        (repo / "dists" / "forky" / "Release").write_text("Suite: forky\n")
+        r = self.run_block()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((repo / "dists" / "forky" / "Release").is_file())
+        staging = repo.parent
+        self.assertEqual(sorted(p.name for p in staging.iterdir()), ["repo"])
+        self.assertIn(f"REPO={repo}", r.stdout)
+
+    def test_desktop_repo_root_is_the_medium(self):
+        r = self.run_block()
+        self.assertIn("REPO=/cdrom", r.stdout)
+
+    def test_server_without_assets_fails(self):
+        (self.src / "ncz-fetch-payload.manifest").write_text("x\n")
+        self.stage(with_assets=False)
+        r = self.run_block()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("has no assets/", r.stderr)
+        self.assertNotIn("LATE-OK", r.stdout)
+
+    def test_server_medium_with_nothing_staged_fails(self):
+        (self.src / "ncz-fetch-payload.manifest").write_text("x\n")
+        r = self.run_block()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("no online payload was staged", r.stderr)
+
+
+class LateTeardownTest(unittest.TestCase):
+    """Option B teardown: after the hooks and the cdrom-source strip, unmount
+    the target's /cdrom (the bind of the fetched repo inside /target), THEN
+    delete the staging root -- never the other way round."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ncz-late-teardown-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.late = (REPO / "preseed" / "late.sh").read_text()
+        i = self.late.index("ncz_teardown_fetched_repo() {")
+        j = self.late.index("\n}\n", i) + 3
+        self.fn = self.late[i:j].replace("/target", str(self.tmp / "target"))
+
+    def run_fn(self, repo_root):
+        (self.tmp / "target" / "ncz-online" / "ncz-payload" / "repo").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "target" / "cdrom").mkdir(parents=True, exist_ok=True)
+        return subprocess.run(["sh", "-c", f'NCZ_REPO_ROOT="{repo_root}"\n' + self.fn
+                               + "\nncz_teardown_fetched_repo\n"],
+                              capture_output=True, text=True, timeout=60, check=False)
+
+    def test_server_teardown_removes_the_staging_root(self):
+        r = self.run_fn(self.tmp / "target" / "ncz-online" / "ncz-payload" / "repo")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse((self.tmp / "target" / "ncz-online").exists())
+        self.assertFalse((self.tmp / "target" / "cdrom").exists())
+
+    def test_desktop_teardown_is_a_no_op(self):
+        r = self.run_fn("/cdrom")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.tmp / "target" / "ncz-online").exists())
+
+    def test_order_unmount_before_delete_and_after_the_hooks(self):
+        fn = self.late[self.late.index("ncz_teardown_fetched_repo() {"):]
+        self.assertLess(fn.index("umount /target/cdrom"), fn.index("rm -rf /target/ncz-online"))
+        call = self.late.index("ncz_teardown_fetched_repo ||")
+        self.assertGreater(call, self.late.index("strip_cdrom_sources ||"))
+        self.assertGreater(call, self.late.rindex("chroot /target /usr/local/lib/cix-installer/post-install/run-all.sh"))
+        after = self.late[call:]
+        self.assertNotIn("apt-get", after, "nothing may use apt after the fetched repo is gone")
+
+
+class StubRepoRootTest(unittest.TestCase):
+    """The r159 stub's repository choice: the medium for desktop, the fetched
+    pool's repo/ (with the medium's ncz-payload copied beside it) for a
+    Magnetar server medium; the target's /cdrom is bound to that choice."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ncz-stub-repo-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        stub = (REPO / "build" / "iso" / "patch-debootstrap-stub.py").read_text()
+        i = stub.index("    _NCZ_REPO=/cdrom\n")
+        j = stub.index('    _MEDIA_SUITE=""', i)
+        self.block = stub[i:j]
+        self.stub = stub
+
+    def run_block(self, fetchdir):
+        media = self.tmp / "medium" / "ncz-payload"
+        media.mkdir(parents=True, exist_ok=True)
+        (media / "late.sh").write_text("x")
+        env = f'FETCHDIR="{fetchdir}"\nMEDIADIR="{media}"\n' if fetchdir else ""
+        return subprocess.run(["sh", "-c", env + self.block + '\necho "REPO=$_NCZ_REPO"\n'],
+                              capture_output=True, text=True, timeout=60, check=False)
+
+    def test_desktop_uses_the_medium(self):
+        r = self.run_block(None)
+        self.assertIn("REPO=/cdrom", r.stdout)
+
+    def test_server_uses_the_fetched_repo_and_keeps_ncz_payload(self):
+        fd = self.tmp / "target" / "ncz-online" / "ncz-payload"
+        (fd / "repo" / "dists" / "forky").mkdir(parents=True)
+        r = self.run_block(fd)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"REPO={fd / 'repo'}", r.stdout)
+        self.assertTrue((fd / "repo" / "ncz-payload" / "late.sh").is_file())
+
+    def test_bind_and_lookups_follow_the_choice(self):
+        self.assertIn('mount --bind "$_NCZ_REPO" "$TARGET/cdrom"', self.stub)
+        self.assertIn('for _d in "$_NCZ_REPO"/dists/*; do', self.stub)
+        self.assertIn('find "$_NCZ_REPO/pool"', self.stub)
+        self.assertNotIn("mount --bind /cdrom", self.stub)
+
+
+if __name__ == "__main__":
+    unittest.main()

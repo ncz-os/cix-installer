@@ -100,6 +100,24 @@ _KERNEL_ARTIFACT_RE = re.compile(
 # a real udeb and cannot be authorized by the pin/ledger; drop it.
 _DI_MARKER_PACKAGE = "debian-installer"
 _STATUS_REL = "var/lib/dpkg/status"
+
+# No braille support in the installer (docs/ACCESSIBILITY.md; it is installed
+# afterwards with `apt install brltty`). The substrate d-i initrd carries
+# brltty-udeb: /usr/bin/brltty, /etc/brltty tables, /usr/lib/brltty/brltty.sh,
+# the startup hook S37brltty, the menu hook S19brltty, finish-install 07brltty,
+# the udev rules + helper, /usr/share/brltty-udeb and its dpkg info. S37brltty
+# starts brltty whenever "brltty" appears anywhere on the kernel cmdline and the
+# udev rules start it for generic USB-serial ids; either way brltty runs
+# `stty cols 80 < /dev/tty1` and turns the framebuffer frontend off. Every
+# member whose path names brltty/brlapi is dropped from the base archive and
+# the brltty-udeb record from the dpkg status, so main-menu never configures it.
+_BRAILLE_PATH_RE = re.compile(r"brltty|brlapi", re.IGNORECASE)
+_BRAILLE_PKG_RE = re.compile(r"brltty|brlapi", re.IGNORECASE)
+
+
+def is_braille_member(name: str) -> bool:
+    """True for an initrd member that belongs to the braille stack."""
+    return bool(_BRAILLE_PATH_RE.search(name.removeprefix("./")))
 _MODULES_DIR_RE = re.compile(
     r"^(?:\./)?(?:usr/)?lib/modules/(?P<kver>[^/]+)(?P<child>/.*)?$"
 )
@@ -283,7 +301,9 @@ def filter_base_cpio(data: bytes, our_kver: str) -> tuple[bytes, set, int]:
     """Prune a Debian d-i initrd cpio stream for the one-kernel policy.
 
     Drops, byte-verbatim, every member under ``[usr/]lib/modules/<kver>`` for
-    any kernel version other than ours, plus the base's own
+    any kernel version other than ours, every braille-stack member
+    (``is_braille_member``: brltty-udeb, never shipped in the installer), plus
+    the base's own
     ``var/lib/dpkg/status`` (the overlay bakes a pruned copy which, as the
     later archive, is the one the kernel/initrd actually uses and the one the
     provenance scanner reads).
@@ -308,6 +328,9 @@ def filter_base_cpio(data: bytes, our_kver: str) -> tuple[bytes, set, int]:
         if n in (_STATUS_REL, "usr/" + _STATUS_REL):
             dropped += 1
             continue
+        if is_braille_member(n):
+            dropped += 1
+            continue
         out += data[entry["start"]:entry["end"]]
     return bytes(out), dropped_kvers, dropped
 
@@ -315,8 +338,9 @@ def filter_base_cpio(data: bytes, our_kver: str) -> tuple[bytes, set, int]:
 def prune_initrd_status(text: str) -> tuple[str, list]:
     """Return (pruned dpkg-status text, [dropped package names]).
 
-    Removes every Debian kernel-artifact udeb stanza (the one-kernel policy)
-    and the netinst's Architecture-less ``debian-installer`` build marker,
+    Removes every Debian kernel-artifact udeb stanza (the one-kernel policy),
+    every braille udeb stanza (brltty-udeb; the installer carries no braille
+    stack) and the netinst's Architecture-less ``debian-installer`` build marker,
     which can be authorized by neither the pin nor the review ledger.  Stanzas
     are kept byte-for-byte otherwise; a malformed/empty result is not silently
     accepted by the caller.
@@ -333,7 +357,7 @@ def prune_initrd_status(text: str) -> tuple[str, list]:
                 pkg = line[len("Package: "):].strip()
             elif line.startswith("Architecture: "):
                 has_arch = True
-        if _KERNEL_ARTIFACT_RE.search(pkg) or (
+        if _KERNEL_ARTIFACT_RE.search(pkg) or _BRAILLE_PKG_RE.search(pkg) or (
             pkg == _DI_MARKER_PACKAGE and not has_arch
         ):
             dropped.append(pkg)
@@ -457,6 +481,95 @@ def verify_one_kernel_initrd(initrd: Path, our_kver: str) -> dict:
             "debian_kernel_status_pkgs": 0}
 
 
+# d-i packages the NCZ installer USES that only reach it through the pinned
+# netinst substrate's initrd, with the file each one must deliver. A substrate
+# that drops one fails the build here, not on a headless box.
+#   wget-udeb: preseed/ncz-fetch-payload.sh downloads the Magnetar payload with
+#   GNU wget; d-i's busybox has no wget applet (2026-10-26 KVM gate, rc=127).
+# Their provenance is the pinned forky snapshot (forky-provenance.py checks the
+# initrd's dpkg status against it), so they need no NCZ ledger row.
+REQUIRED_INITRD_PACKAGES = {
+    "wget-udeb": "usr/bin/wget",
+}
+
+
+def verify_required_initrd_packages(initrd: Path,
+                                    required: dict | None = None) -> dict:
+    """Fail the build if the FINAL initrd lacks a package the installer uses:
+    it must be in the effective dpkg status (the later archive wins) and its
+    file must be a member."""
+    if required is None:
+        required = REQUIRED_INITRD_PACKAGES
+    if not initrd.is_file():
+        raise RuntimeError(f"FATAL: patched initrd missing: {initrd}")
+    stream = _decompress_single_gzip(initrd)
+    members: set = set()
+    status = ""
+    try:
+        for entry in _parse_newc_entries(stream):
+            n = entry["name"].removeprefix("./")
+            members.add(n)
+            if n in (_STATUS_REL, "usr/" + _STATUS_REL):
+                status = entry["payload"].decode("utf-8", "surrogateescape")
+    except CpioError as exc:
+        raise RuntimeError(f"FATAL: malformed initrd cpio {initrd}: {exc}")
+    present = set()
+    for block in status.split("\n\n"):
+        m = re.search(r"^Package: (\S+)$", block, re.MULTILINE)
+        st = re.search(r"^Status: (.+)$", block, re.MULTILINE)
+        if m and st and st.group(1).strip() in ("install ok unpacked",
+                                                 "install ok installed"):
+            present.add(m.group(1))
+    missing = []
+    for pkg, path in sorted(required.items()):
+        if pkg not in present:
+            missing.append(f"{pkg} (not in the initrd dpkg status)")
+        elif path not in members:
+            missing.append(f"{pkg} (no /{path} member)")
+    if missing:
+        raise RuntimeError(
+            f"FATAL: {initrd} lacks installer package(s) the NCZ installer "
+            f"uses: {missing} -- the pinned substrate changed; pin one that "
+            f"carries them")
+    return {"required_initrd_packages": sorted(required)}
+
+
+def verify_no_braille_initrd(initrd: Path) -> dict:
+    """Fail the build if the FINAL initrd still carries any braille member.
+
+    Walks every concatenated archive (the kernel unpacks all of them), so a
+    later overlay that re-adds brltty is caught as well as a base prune that
+    missed a member. Also rejects a dpkg status that still lists a braille
+    udeb, which would make main-menu configure it.
+    """
+    if not initrd.is_file():
+        raise RuntimeError(f"FATAL: patched initrd missing: {initrd}")
+    stream = _decompress_single_gzip(initrd)
+    bad_paths: list = []
+    bad_pkgs: list = []
+    try:
+        for entry in _parse_newc_entries(stream):
+            n = entry["name"].removeprefix("./")
+            if n == _CPIO_TRAILER:
+                continue
+            if is_braille_member(n):
+                bad_paths.append(n)
+            if n in (_STATUS_REL, "usr/" + _STATUS_REL):
+                for line in entry["payload"].decode("utf-8", "surrogateescape").splitlines():
+                    if line.startswith("Package: ") and _BRAILLE_PKG_RE.search(line[9:]):
+                        bad_pkgs.append(line[9:].strip())
+    except CpioError as exc:
+        raise RuntimeError(f"FATAL: malformed initrd cpio {initrd}: {exc}")
+    if bad_paths or bad_pkgs:
+        raise RuntimeError(
+            f"FATAL: installer initrd {initrd} still carries braille support "
+            f"(the installer must not start brltty): "
+            f"{len(bad_paths)} member(s) e.g. {sorted(set(bad_paths))[:5]}, "
+            f"status package(s) {sorted(set(bad_pkgs))}"
+        )
+    return {"braille_members": 0, "braille_status_pkgs": 0}
+
+
 def _verify_node_outputs(
     node_dir: Path, preseed_cfg: Path, hook_name: str | None = None
 ) -> dict:
@@ -466,6 +579,9 @@ def _verify_node_outputs(
     exists."""
     if not (node_dir / "linux").is_file():
         raise RuntimeError(f"FATAL: initrd node {node_dir} has no kernel file (linux)")
+    verify_no_braille_initrd(node_dir / "initrd.gz")
+    # A cached node built before a requirement existed must meet it too.
+    verify_required_initrd_packages(node_dir / "initrd.gz")
     return verify_baked_preseed(node_dir / "initrd.gz", preseed_cfg, hook_name)
 
 
@@ -745,6 +861,10 @@ BAKED_HELPERS = [
     "clock-sync.sh",
     # 2026-10-13: USB-only install media lookup and the screen shown without one.
     "media-usb-only.sh",
+    # 2026-10-17: the HARDWARE SUMMARY note dialog (partman/early_command, after
+    # hardware detection and before the disk chooser). Baked for the same reason
+    # as the choosers: early_command runs at S33, before any medium is mounted.
+    "hw-summary.sh",
 ]
 
 # NCZ startup hook. d-i runs its /usr/lib/debian-installer-startup.d/S* scripts
@@ -798,6 +918,8 @@ def patch_t2_kernel(
     firmware_pool: Path | None = None,
     net_firmware_table: Path | None = DEFAULT_NET_FIRMWARE_TABLE,
     firmware_bom: Path | None = None,
+    release_conf: Path | None = None,
+    rel_fields: dict[str, str] | None = None,
 ) -> tuple[Path, Path]:
     if not base_initrd.is_file():
         raise RuntimeError(f"FATAL: no base initrd at {base_initrd}")
@@ -891,7 +1013,7 @@ def patch_t2_kernel(
 
     canonical = canonical_encode(
         {
-            "schema_version": "ncz-initrd-t2kernel/v7",
+            "schema_version": "ncz-initrd-t2kernel/v9",
             "arch": arch,
             "startup_hook": {
                 "name": NCZ_STARTUP_HOOK_NAME,
@@ -912,6 +1034,9 @@ def patch_t2_kernel(
                 _stat(net_firmware_table) if fw_rows else {"present": False}
             ),
             "firmware_bom": _stat(fw_bom) if fw_bom is not None else {"present": False},
+            "release_conf": _stat(release_conf)
+            if release_conf is not None
+            else {"present": False},
             "net_firmware_debs": {k: _stat(v) for k, v in sorted(fw_debs.items())},
         }
     )
@@ -1060,8 +1185,26 @@ def patch_t2_kernel(
         # later archive creates a DIRECTORY where the base has a SYMLINK
         # (lib -> usr/lib). Nothing in the base initrd is called "ncz".
         ncz_dir = overlay_root / "ncz"
-        if helpers or diag_busybox is not None:
-            ncz_dir.mkdir(parents=True, exist_ok=True)
+        ncz_dir.mkdir(parents=True, exist_ok=True)
+
+        # --- bake the authoritative release identity (S1-1) ----------------
+        # release.conf verbatim at /ncz/RELEASE. preseed/ncz-ui.sh's
+        # ncz_ui_brand() reads it FIRST and only falls back to the install
+        # medium's /ncz-payload/RELEASE, so every dialog title carries the
+        # identity this build was made from even if the medium copy is stale
+        # (written from an older tree) or tampered. Validated above: the bake
+        # never proceeds on an unreadable/incomplete release.conf.
+        if release_conf is None or not release_conf.is_file() or not rel_fields:
+            raise RuntimeError("FATAL: release.conf is required to bake /ncz/RELEASE")
+        rel_dst = ncz_dir / "RELEASE"
+        shutil.copy2(release_conf, rel_dst)
+        rel_dst.chmod(0o644)
+        log(
+            f"    baked {release_conf} -> initrd /ncz/RELEASE "
+            f"({rel_fields['NCZ_PRODUCT_NAME']} "
+            f"{rel_fields['NCZ_RELEASE_VERSION']} "
+            f"{rel_fields['NCZ_RELEASE_CODENAME']}; authoritative)"
+        )
         for h in helpers:
             dst = ncz_dir / h.name
             shutil.copy2(h, dst)
@@ -1173,9 +1316,10 @@ def patch_t2_kernel(
         overlay_status = overlay_root / "var" / "lib" / "dpkg" / "status"
         overlay_status.parent.mkdir(parents=True, exist_ok=True)
         overlay_status.write_text(pruned_status, errors="surrogateescape")
-        log(f"    pruned {len(pruned_status_pkgs)} Debian kernel-artifact / d-i "
-            f"marker dpkg records from the installer status "
-            f"(one-kernel policy)")
+        log(f"    pruned {len(pruned_status_pkgs)} Debian kernel-artifact / braille "
+            f"/ d-i marker dpkg records from the installer status "
+            f"(one-kernel policy, no braille in the installer): "
+            f"{sorted(p for p in pruned_status_pkgs if _BRAILLE_PKG_RE.search(p))}")
 
         # --- bake the single-preseed startup hook -------------------------
         # Runs after S60auto-install to reopen the locale/keyboard window that
@@ -1263,6 +1407,10 @@ def patch_t2_kernel(
         # Fail closed HERE if a Debian kernel artifact survived the prune
         # (the very failure the r203 provenance gate reported).
         verify_one_kernel_initrd(out_initrd, kver)
+        # No braille stack: brltty must never start in the installer.
+        verify_no_braille_initrd(out_initrd)
+        # The d-i packages the NCZ installer relies on are really there.
+        verify_required_initrd_packages(out_initrd)
         log(
             f"    verified initrd carries /{initrd_verify['preseed_member']} "
             f"({initrd_verify['preseed_sha256'][:12]}) and "
@@ -1345,8 +1493,19 @@ def main() -> int:
         "device/mount dependency). Required: there is no "
         "skip; the installer has no media preseed fallback.",
     )
-    ap.add_argument("--ssh-udeb-dir", type=Path, default=None,
-                     help="Directory of *.udeb files (openssh-server-udeb + "
+    ap.add_argument(
+        "--release-conf",
+        type=Path,
+        default=REPO_ROOT / "release.conf",
+        help="Authoritative release identity, baked into the initrd at "
+        "/ncz/RELEASE (release.conf verbatim). preseed/ncz-ui.sh's "
+        "ncz_ui_brand() reads it BEFORE the install medium's "
+        "/ncz-payload/RELEASE, so a stale/tampered medium copy can no "
+        "longer put a retired product name in the installer dialogs "
+        "(S1-1). Required: an unreadable/incomplete release.conf fails "
+        "the bake rather than shipping an ambiguous identity.",
+    )
+    ap.add_argument("--ssh-udeb-dir", type=Path, default=None,                     help="Directory of *.udeb files (openssh-server-udeb + "
                           "its real deps) baked into the initrd at "
                           "/ncz/ssh-udebs/ so early_command can udpkg -i "
                           "them with zero medium/device dependency -- d-i "
@@ -1387,6 +1546,40 @@ def main() -> int:
     if helper_dir is not None and not helper_dir.is_dir():
         log(f"FATAL: --helper-dir {helper_dir} is not a directory")
         return 1
+
+    # S1-1: bake the authoritative release identity BEFORE anything else can
+    # label the medium. ncz-ui.sh's ncz_ui_brand() reads this file ahead of the
+    # install medium's /ncz-payload/RELEASE, so a build whose release.conf is
+    # missing/incomplete must fail here -- shipping an ambiguous or stale
+    # product name into every installer dialog is the bug this guards.
+    release_conf = args.release_conf
+    if release_conf is None or not release_conf.is_file():
+        log(
+            "FATAL: a real --release-conf file is required. It is baked into "
+            "the initrd as /ncz/RELEASE, the authoritative identity every "
+            "installer dialog reads before the medium's own copy, so there is "
+            "no supported skip."
+        )
+        return 1
+    rel_fields = {}
+    for line in release_conf.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        rel_fields[key.strip()] = val.strip().strip('"').strip("'")
+    _rel_missing = [
+        k for k in ("NCZ_PRODUCT_NAME", "NCZ_RELEASE_VERSION", "NCZ_RELEASE_CODENAME")
+        if not rel_fields.get(k)
+    ]
+    if _rel_missing:
+        log(
+            f"FATAL: {release_conf} is missing identity field(s) "
+            f"{_rel_missing}; an installer medium must not be labelled "
+            f"ambiguously."
+        )
+        return 1
+
     diag_busybox = args.diag_busybox
     if diag_busybox is None:
         cand = REPO_ROOT / "assets" / "diag" / f"busybox-{args.arch}"
@@ -1414,6 +1607,7 @@ def main() -> int:
             args.kernel_image, args.modules_tar,
             args.firmware_pool, args.net_firmware_table,
             args.firmware_bom,
+            release_conf, rel_fields,
         )
     except RuntimeError as e:
         log(str(e))

@@ -1,0 +1,619 @@
+#!/bin/bash
+# test-npu-ssdt-delivery.sh -- prove the MS-R1 NPU ACPI SSDT is actually
+# DELIVERED into the initrd, board-gated, and idempotent.
+#
+# WHY THIS TEST EXISTS
+# --------------------
+# The MS-R1 shipped twice (r289, r290) logging
+#     "only 0 of 3 NPU cores usable - disabling NPU"
+# while the repo "had" an SSDT fix, because the fix was a compiled blob plus a
+# prepend that the initramfs generator silently discarded. This test is written
+# against the PROPERTY THAT MATTERS: after an initrd build on an MS-R1, the
+# image contains an uncompressed early CPIO carrying
+# kernel/firmware/acpi/ssdt-npucre.aml; on a Radxa/Orion board it contains
+# nothing of the sort. It tests the unit boundary (the decision helper), the
+# archive format (the kernel's contract), and the generator wiring (the thing
+# that was missing).
+#
+# NO HARDWARE, NO ROOT. /sys is a fixture tree (NCZ_SYS_ROOT) and the hook is
+# driven directly with DESTDIR/INITRD pointed into a temp dir. The real /sys and
+# the repo's assets are never written.
+#
+# CASES
+#   T1  iasl compiles the committed .asl -> a valid SSDT .aml (build-time step)
+#   T2  early CPIO layout: newc, uncompressed, exactly kernel/firmware/acpi/ssdt-npucre.aml
+#   T3  DMI gate: MS-R1 / "Micro Computer (HK)" -> apply
+#   T4  DMI gate: Radxa Orion O6N / Orange Pi -> skip (never inject)
+#   T5  ACPI signal: CIXH4000 present, <3 CIXH4010 cores -> apply
+#   T6  ACPI signal: 3 CIXH4010 cores natively -> skip
+#   T7  unknown board, no ACPI signal -> skip, and no stderr in the "apply" path
+#   T8  operator override file wins over DMI (force / skip)
+#   T9  idempotent: two builds are byte-identical; hook re-run is a no-op
+#   T10 initramfs-tools hook: stages the table only on an MS-R1 fixture
+#   T11 dracut module: check() always claims the module; install() is a no-op
+#       on a non-MS-R1 fixture and stages the CPIO on an MS-R1 fixture
+#   T12 the CPIO the hook writes is one the kernel's loader would accept
+#       (magic + inner ACPI header signature/length self-consistency)
+#   T14 the ESP copy is what boots: 58-boot-hygiene must install the dracut-
+#       safe sync (kernel postinst + path unit) and 80-npu must verify it.
+#   T15 MS-R1 RUNNING WITH THE INJECTED SSDT (3 live cores, NCZ NPUCRE table
+#       loaded): decision apply, the dracut module keeps + stages the host
+#       table (the 2026-11-02 regression decided skip and deleted it)
+#   T16 O6N with native cores: skip, the module stages nothing and turns
+#       dracut's acpi_override off for the build; a table already on disk
+#       is NOT deleted
+#   T17 unknown board with native cores: skip without deleting the table
+#   T18 dracut re-run twice on the same host: same decision, same bytes,
+#       the host table survives both runs (MS-R1 and O6N)
+#   T13 the MEDIUM STAGER produces the table: build/iso/write-usb-image.py
+#       must call build/iso/ncz_ssdt.py's ensure_npu_ssdt_aml() for arm64,
+#       which compiles assets/npu/ssdt-npucre.asl and raises (never warns)
+#       when it cannot. This is the case that would have caught the release
+#       that shipped "only 0 of 3 NPU cores usable".
+#
+# Requires: bash, cpio, iasl (acpica-tools). Skips iasl cases with SKIP if the
+# tool is absent rather than failing a host that cannot compile.
+set -uo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"
+LIB="$REPO/post-install/lib/npu-ssdt.sh"
+HOOK="$REPO/assets/initramfs/hooks/ncz-npu-ssdt"
+PUHOOK="$REPO/assets/initramfs/post-update.d/zz-ncz-npu-ssdt"
+MOD="$REPO/assets/dracut/modules.d/91ncz-npu-ssdt/module-setup.sh"
+ASL="$REPO/assets/npu/ssdt-npucre.asl"
+AML_NAME=ssdt-npucre.aml
+ENTRY=kernel/firmware/acpi/$AML_NAME
+
+W="$(mktemp -d "${TMPDIR:-/tmp}/npu-ssdt-test.XXXXXX")"
+trap 'rm -rf "$W"' EXIT
+
+pass=0; fail=0; skip=0
+ok()   { printf '  [PASS] %s\n' "$*"; pass=$((pass+1)); }
+no()   { printf '  [FAIL] %s\n' "$*" >&2; fail=$((fail+1)); }
+sk()   { printf '  [SKIP] %s\n' "$*"; skip=$((skip+1)); }
+
+for f in "$LIB" "$HOOK" "$PUHOOK" "$MOD" "$ASL"; do
+    [ -f "$f" ] || { echo "FATAL: missing required file: $f" >&2; exit 1; }
+done
+
+# --- fixture: a fake /sys with DMI + ACPI device tree --------------------
+# mkfix <dir> <product_name> <sys_vendor> <product_family> <n_cores> <has_4000>
+mkfix() {
+    local d="$1" pn="$2" sv="$3" pf="$4" nc="$5" npu="$6" i
+    mkdir -p "$d/class/dmi/id" "$d/bus/acpi/devices"
+    [ -n "$pn" ] && printf '%s\n' "$pn" > "$d/class/dmi/id/product_name"
+    [ -n "$sv" ] && printf '%s\n' "$sv" > "$d/class/dmi/id/sys_vendor"
+    [ -n "$pf" ] && printf '%s\n' "$pf" > "$d/class/dmi/id/product_family"
+    for ((i=0; i<nc; i++)); do mkdir -p "$d/bus/acpi/devices/CIXH4010:0$i"; done
+    [ "$npu" = 1 ] && mkdir -p "$d/bus/acpi/devices/CIXH4000:00"
+    return 0
+}
+
+# mktable <sysfixture> <name> <oemid6> <tableid8>: a live ACPI table header
+# under firmware/acpi/tables, as the kernel exposes an installed table.
+mktable() {
+    mkdir -p "$1/firmware/acpi/tables"
+    python3 -c '
+import struct, sys
+hdr = b"SSDT" + struct.pack("<I", 36) + b"\x02\x00" + sys.argv[2].encode().ljust(6)[:6] \
+    + sys.argv[3].encode().ljust(8)[:8] + b"\x01\x00\x00\x00" + b"INTL" + b"\x30\x09\x26\x20"
+open(sys.argv[1], "wb").write(hdr)
+' "$1/firmware/acpi/tables/$2" "$3" "$4"
+}
+
+# decide <sysfixture> [meta] -> apply|skip  (stderr discarded)
+decide() {
+    ( # shellcheck source=/dev/null
+      . "$LIB"
+      NCZ_SYS_ROOT="$1" ncz_npu_ssdt_decision "${2:-$W/meta/nonexistent}" 2>/dev/null )
+}
+
+# --- T1: compile the committed .asl with iasl ---------------------------
+echo "T1  build-time .asl -> .aml compilation"
+if command -v iasl >/dev/null 2>&1; then
+    mkdir -p "$W/aml"
+    cp "$ASL" "$W/aml/"
+    if ( cd "$W/aml" && iasl -p "$AML_NAME" ssdt-npucre.asl >/dev/null 2>&1 ) \
+            && [ -s "$W/aml/$AML_NAME" ]; then
+        sig=$(head -c 4 "$W/aml/$AML_NAME")
+        if [ "$sig" = "SSDT" ]; then
+            ok "iasl produced an SSDT .aml from the committed .asl"
+        else
+            no "compiled table signature is '$sig', expected SSDT"
+        fi
+    else
+        # iasl exits non-zero on warnings-with-errors; the table may still exist.
+        if [ -s "$W/aml/$AML_NAME" ] && [ "$(head -c 4 "$W/aml/$AML_NAME")" = "SSDT" ]; then
+            ok "iasl produced the SSDT .aml (non-zero exit, table valid)"
+        else
+            no "iasl could not compile $(basename "$ASL")"
+        fi
+    fi
+else
+    sk "iasl not installed (acpica-tools) -- cannot test compilation"
+    # Synthesize a header-only table so the remaining cases still run.
+    mkdir -p "$W/aml"
+    python3 -c '
+import struct, sys
+open(sys.argv[1], "wb").write(b"SSDT" + struct.pack("<I", 36) + b"\x00"*28)
+' "$W/aml/$AML_NAME"
+fi
+
+# --- meta tree the hook/CPIO builder reads --------------------------------
+mkdir -p "$W/meta/assets/npu"
+cp "$W/aml/$AML_NAME" "$W/meta/assets/npu/$AML_NAME"
+
+# --- T2: early CPIO layout -----------------------------------------------
+echo "T2  early CPIO layout (uncompressed newc, exact entry)"
+out="$W/out.cpio"
+# shellcheck source=post-install/lib/npu-ssdt.sh
+if ( . "$LIB"; ncz_npu_ssdt_build_early_cpio "$out" "$W/meta" ) >/dev/null 2>&1 && [ -s "$out" ]; then
+    magic=$(head -c 6 "$out")
+    [ "$magic" = "070701" ] && ok "archive magic is 070701 (newc, uncompressed)" \
+        || no "archive magic is '$magic', expected 070701"
+    # Directories are legitimately present (the kernel walks the path); what
+    # matters is that the ONLY regular file is the expected table -- no second
+    # table, no stray payload, nothing under a path the loader ignores.
+    # cpio -it alone does not mark directories; use the verbose form and keep
+    # only non-directory entries (leading '-' in the mode field).
+    files=$(cpio -itv < "$out" 2>/dev/null | grep '^-' | awk '{print $NF}' | sort | tr '\n' ' ')
+    if [ "$files" = "$ENTRY " ]; then
+        ok "archive's only regular file is $ENTRY"
+    else
+        no "archive regular files are '$files', expected only '$ENTRY'"
+    fi
+    # zstd/gzip magic must not be present: the kernel skips compressed members.
+    case "$(head -c 4 "$out" | od -An -tx1 | tr -d ' \n')" in
+        28b52ffd|1f8b*) no "archive is compressed -- the kernel would ignore it" ;;
+        *) ok "archive is not compressed" ;;
+    esac
+else
+    no "could not build the early CPIO from the fixture meta tree"
+fi
+
+# --- T3/T4: DMI gate -----------------------------------------------------
+echo "T3  DMI gate: MS-R1 variants resolve to apply"
+mkfix "$W/s_msr1_pn" "MS-R1"                 ""             ""        0 0
+mkfix "$W/s_msr1_sv" ""                      "Micro Computer (HK) Limited" "" 0 0
+mkfix "$W/s_msr1_pf" ""                      ""             "MS-R1"   0 0
+for fx in s_msr1_pn s_msr1_sv s_msr1_pf; do
+    r=$(decide "$W/$fx")
+    [ "$r" = "apply" ] && ok "$fx -> apply" || no "$fx -> '$r', expected apply"
+done
+
+echo "T4  DMI gate: known-good boards resolve to skip"
+mkfix "$W/s_o6n"    "Orion O6N"              "Radxa Computer (Shenzhen) Co., Ltd." "Orion O6" 0 1
+mkfix "$W/s_o6"     "Orion O6"               "Radxa Computer (Shenzhen) Co., Ltd." ""        0 1
+mkfix "$W/s_opi6"   "Orange Pi 6 Plus"       "Shenzhen Xunlong Software CO.,Limited" ""     0 1
+# Adversarial: an O6N whose DMI ALSO carries a matching vendor string must
+# still be skipped -- the allow-list has to win over the vendor fallback.
+mkfix "$W/s_o6n_adv" "Orion O6N"             "Micro Computer (HK) Limited" ""        0 1
+for fx in s_o6n s_o6 s_opi6 s_o6n_adv; do
+    r=$(decide "$W/$fx")
+    [ "$r" = "skip" ] && ok "$fx -> skip" || no "$fx -> '$r', expected skip"
+done
+
+# --- T5/T6: functional ACPI signal wins --------------------------------
+echo "T5  ACPI: CIXH4000 with 0/3 cores -> apply (the actual MS-R1 symptom)"
+mkfix "$W/s_acpi_gap" "" "" "" 0 1
+r=$(decide "$W/s_acpi_gap"); [ "$r" = "apply" ] && ok "0/3 cores -> apply" || no "-> '$r', expected apply"
+mkfix "$W/s_acpi_gap2" "" "" "" 2 1
+r=$(decide "$W/s_acpi_gap2"); [ "$r" = "apply" ] && ok "2/3 cores -> apply" || no "-> '$r', expected apply"
+
+echo "T6  ACPI: 3 cores enumerate natively -> skip (even with no DMI)"
+mkfix "$W/s_acpi_ok" "" "" "" 3 1
+r=$(decide "$W/s_acpi_ok"); [ "$r" = "skip" ] && ok "3/3 cores -> skip" || no "-> '$r', expected skip"
+
+# --- T7: unknown board ---------------------------------------------------
+echo "T7  unknown board, no ACPI signal -> skip"
+mkfix "$W/s_unknown" "Some Laptop" "Some Vendor" "Some Family" 0 0
+r=$(decide "$W/s_unknown"); [ "$r" = "skip" ] && ok "unknown -> skip" || no "-> '$r', expected skip"
+# A skip must be SILENT on stdout (exactly one token) so callers can compare.
+n=$(decide "$W/s_unknown" | wc -l)
+[ "$n" -le 1 ] && ok "decision output is a single token" || no "decision printed $n lines"
+
+# --- T8: operator override ----------------------------------------------
+echo "T8  operator override file wins over DMI"
+mkdir -p "$W/meta_force"
+printf 'force\n' > "$W/meta_force/NPU_SSDT"
+r=$(decide "$W/s_o6n" "$W/meta_force")
+[ "$r" = "apply" ] && ok "force on a known-good board -> apply" || no "-> '$r', expected apply"
+mkdir -p "$W/meta_skip"
+printf 'skip\n' > "$W/meta_skip/NPU_SSDT"
+r=$(decide "$W/s_msr1_pn" "$W/meta_skip")
+[ "$r" = "skip" ] && ok "skip on an MS-R1 -> skip" || no "-> '$r', expected skip"
+
+# --- T9: idempotency -----------------------------------------------------
+echo "T9  idempotency"
+( # shellcheck source=post-install/lib/npu-ssdt.sh
+  . "$LIB"; ncz_npu_ssdt_build_early_cpio "$W/a.cpio" "$W/meta" ) >/dev/null 2>&1
+sleep 1
+( # shellcheck source=post-install/lib/npu-ssdt.sh
+  . "$LIB"; ncz_npu_ssdt_build_early_cpio "$W/b.cpio" "$W/meta" ) >/dev/null 2>&1
+if cmp -s "$W/a.cpio" "$W/b.cpio"; then
+    ok "two builds one second apart are byte-identical (epoch-0 mtimes)"
+else
+    no "rebuild produced a different archive -- not reproducible"
+fi
+
+# --- T10: the initramfs-tools hook -------------------------------------
+echo "T10 initramfs-tools hook stages the table, board-gated"
+# The hook sources the decision helper from an absolute path; run it with a
+# PATH shim that returns the fixture's lib, and a fake hook-functions.
+mkdir -p "$W/shim"
+cat > "$W/shim/hook-functions" <<'EOF'
+# minimal stand-in for /usr/share/initramfs-tools/hook-functions
+:
+EOF
+# Simpler and more faithful: copy the lib into the meta tree the hook looks for.
+mkdir -p "$W/meta/post-install/lib"
+cp "$LIB" "$W/meta/post-install/lib/npu-ssdt.sh"
+mkdir -p "$W/fake_etc"
+for fx in s_msr1_pn s_o6n; do
+    dest="$W/initrd-$fx"
+    rm -rf "$dest"; mkdir -p "$dest"
+    # Drive the hook with the real code, overriding the helper search path via
+    # a rewritten copy in a sandbox (the shipped hook is not parameterisable
+    # by design: it must work unattended on the target).
+    hook_copy="$W/hook-$fx"
+    sed "s#/usr/local/lib/cix-installer#$W/meta#g; s#/cdrom/ncz-payload#$W/meta#g" \
+        "$HOOK" > "$hook_copy"
+    NCZ_SYS_ROOT="$W/$fx" NCZ_NPU_SSDT_META="$W/meta" DESTDIR="$dest" \
+    bash -c ". '$W/shim/hook-functions'; . '$hook_copy'" >/dev/null 2>&1
+    if [ "$fx" = "s_msr1_pn" ]; then
+        if [ -f "$dest/$ENTRY" ]; then
+            ok "MS-R1 fixture: hook staged $ENTRY"
+        else
+            no "MS-R1 fixture: hook did NOT stage $ENTRY"
+        fi
+    else
+        if [ -z "$(find "$dest" -name '*.aml' 2>/dev/null)" ]; then
+            ok "O6N fixture: hook staged no table (correctly gated)"
+        else
+            no "O6N fixture: hook staged an SSDT -- DMI gate bypassed"
+        fi
+    fi
+done
+
+# --- T11: the dracut module -------------------------------------------
+echo "T11 dracut module claims every image, acts only on MS-R1"
+# module-setup.sh is written for dracut: $initdir, derror() and the module
+# framework. Stand in for them and call check()/install() directly.
+cat > "$W/dracut_shim.sh" <<'EOF'
+derror()  { echo "derror: $*" >&2; }
+dwarn()   { echo "dwarn: $*" >&2; }
+dinstdir() { mkdir -p "$initdir/$1"; }
+EOF
+# NB: module-setup.sh is not a plain script -- it defines functions and expects
+# the dracut framework. Source it, then call into it.
+mod_case() {
+    local fx="$1" id="$W/mod-$1"
+    rm -rf "$id" "$W/acpi-$fx"; mkdir -p "$id"
+    ( set +u
+      . "$W/dracut_shim.sh"
+      # $initdir is the dracut module framework's staging root.
+      # shellcheck disable=SC2034
+      initdir="$id"
+      # NCZ_SYS_ROOT must be in the environment BEFORE module-setup.sh runs:
+      # it resolves the decision helper and the meta dir at source time.
+      export NCZ_SYS_ROOT="$W/$fx"
+      export NCZ_NPU_SSDT_LIB="$LIB"
+      export NCZ_NPU_SSDT_META="$W/meta"
+      # The module populates the host-side acpi_table_dir dracut reads for its
+      # native early-CPIO. Redirect it: the test must never touch /etc.
+      export NCZ_NPU_ACPI_DIR="$W/acpi-$fx"
+      # shellcheck source=/dev/null
+      . "$MOD"
+      _c=0; check || _c=$?
+      _i=0; install || _i=$?
+      a=no; c=no; t=no
+      [ -f "$id/usr/share/ncz/acpi/$AML_NAME" ] && a=yes
+      [ -f "$id/usr/share/ncz/acpi-early/npu-acpi-override.cpio" ] && c=yes
+      [ -f "$W/acpi-$fx/$AML_NAME" ] && t=yes
+      printf 'check:%s install:%s aml:%s cpio:%s tbl:%s' "$_c" "$_i" "$a" "$c" "$t"
+    ) 2>/dev/null
+}
+r=$(mod_case s_msr1_pn)
+case "$r" in
+    check:0*install:0*aml:yes*cpio:yes*tbl:yes*) ok "MS-R1 fixture: $r" ;;
+    *) no "MS-R1 fixture: $r (expected check:0 install:0 aml:yes cpio:yes tbl:yes)" ;;
+esac
+r=$(mod_case s_o6n)
+case "$r" in
+    check:0*install:0*aml:no*cpio:no*tbl:no*) ok "O6N fixture: $r" ;;
+    *) no "O6N fixture: $r (expected check:0 install:0 aml:no cpio:no tbl:no)" ;;
+esac
+# The native dracut path only works if the installer enables the knob for the
+# board and the module fills the directory it points at.
+if grep -q 'acpi_override="yes"' "$REPO/post-install/80-npu.sh" \
+   && grep -q 'acpi_table_dir=' "$REPO/post-install/80-npu.sh"; then
+    ok "80-npu.sh enables dracut acpi_override + acpi_table_dir on apply boards"
+else
+    no "80-npu.sh does not enable dracut's native ACPI override (kernel upgrades lose the NPU)"
+fi
+
+# --- T12: what the hook wrote is what the kernel would accept -----------
+echo "T12 kernel acceptance shape (magic + ACPI header self-consistency)"
+c="$W/initrd-s_msr1_pn/$ENTRY"
+if [ -f "$c" ]; then
+    python3 - "$c" <<'PY'
+import struct, sys
+d = open(sys.argv[1], "rb").read()
+ok = True
+if len(d) < 36:
+    print("  [FAIL] table shorter than the 36-byte ACPI header"); sys.exit(1)
+sig = d[:4].decode("ascii", "replace")
+length = struct.unpack("<I", d[4:8])[0]
+if sig != "SSDT":
+    print(f"  [FAIL] signature {sig!r}, expected SSDT"); ok = False
+else:
+    print(f"  [PASS] inner table signature SSDT, length field {length}B")
+if length != len(d):
+    print(f"  [FAIL] header length {length} != file size {len(d)}"); ok = False
+else:
+    print("  [PASS] header length matches file size (kernel walks tables by it)")
+sys.exit(0 if ok else 1)
+PY
+    if [ $? -eq 0 ]; then pass=$((pass+2)); else fail=$((fail+1)); fi
+else
+    no "no staged table from T10 to inspect"
+fi
+
+# --- T15-T18: the 2026-11-02 MS-R1 regression ------------------------------
+# A running MS-R1 shows 3 CIXH4010 cores ONLY because its current initrd
+# injected ssdt-npucre.aml. The old decision counted live cores first, said
+# "skip", and the dracut module then deleted /etc/ncz/npu-acpi/ssdt-npucre.aml.
+#
+# mod_run <fixture> <acpi-dir> -> one line:
+#   check:<rc> install:<rc> tbl:<yes|no> sha:<sha256|-> override:<value>
+# The acpi dir is NOT reset, so a pre-existing host table and a second run
+# see exactly what the first left behind. dracut's acpi_override/acpi_table_dir
+# globals are preset the way /etc/dracut.conf.d/90-ncz-npu-ssdt.conf sets them.
+mod_run() {
+    local fx="$1" ad="$2" id="$W/modrun-$1"
+    rm -rf "$id"; mkdir -p "$id"
+    ( set +u
+      . "$W/dracut_shim.sh"
+      # shellcheck disable=SC2034
+      initdir="$id"
+      acpi_override=yes
+      acpi_table_dir="$ad"
+      export NCZ_SYS_ROOT="$W/$fx" NCZ_NPU_SSDT_LIB="$LIB" \
+             NCZ_NPU_SSDT_META="$W/meta" NCZ_NPU_ACPI_DIR="$ad"
+      # shellcheck source=/dev/null
+      . "$MOD"
+      _c=0; check || _c=$?
+      _i=0; install || _i=$?
+      t=no; h=-
+      if [ -f "$ad/$AML_NAME" ]; then
+          t=yes; h=$(sha256sum "$ad/$AML_NAME" | cut -c1-16)
+      fi
+      printf 'check:%s install:%s tbl:%s sha:%s override:%s' "$_c" "$_i" "$t" "$h" "$acpi_override"
+    ) 2>/dev/null
+}
+want_sha=$(sha256sum "$W/meta/assets/npu/$AML_NAME" | cut -c1-16)
+
+echo "T15 MS-R1 running with the injected SSDT: keep + inject"
+mkfix "$W/s_msr1_live" "MS-R1" "Micro Computer (HK) Tech Limited" "" 3 1
+mktable "$W/s_msr1_live" SSDT1 "CIXTEK" "SKY1EDK2"
+mktable "$W/s_msr1_live" SSDT3 "NCZ" "NPUCRE"
+r=$(decide "$W/s_msr1_live")
+[ "$r" = apply ] && ok "MS-R1, 3 live cores from our table -> apply" \
+                 || no "MS-R1, 3 live cores from our table -> '$r', expected apply (the regression)"
+# Same live state with DMI unreadable: the loaded NCZ table alone must keep it.
+mkfix "$W/s_live_nodmi" "" "" "" 3 1
+mktable "$W/s_live_nodmi" SSDT3 "NCZ" "NPUCRE"
+r=$(decide "$W/s_live_nodmi")
+[ "$r" = apply ] && ok "no DMI, 3 cores + NCZ NPUCRE loaded -> apply" \
+                 || no "no DMI, 3 cores + NCZ NPUCRE loaded -> '$r', expected apply"
+# Another vendor's SSDT is not ours: 3 cores + only firmware tables -> native.
+mkfix "$W/s_live_other" "" "" "" 3 1
+mktable "$W/s_live_other" SSDT1 "CIXTEK" "SKY1EDK2"
+r=$(decide "$W/s_live_other")
+[ "$r" = skip ] && ok "no DMI, 3 cores, only firmware SSDTs -> skip (native)" \
+                || no "no DMI, 3 cores, only firmware SSDTs -> '$r', expected skip"
+AD15="$W/acpi15"; mkdir -p "$AD15"
+cp "$W/meta/assets/npu/$AML_NAME" "$AD15/$AML_NAME"
+r=$(mod_run s_msr1_live "$AD15")
+case "$r" in
+    "check:0 install:0 tbl:yes sha:$want_sha override:yes") ok "dracut module on the live MS-R1: $r" ;;
+    *) no "dracut module on the live MS-R1: '$r' (expected install:0 tbl:yes sha:$want_sha override:yes)" ;;
+esac
+[ -f "$W/modrun-s_msr1_live/usr/share/ncz/acpi/$AML_NAME" ] \
+    && ok "the table is staged into the initrd being built" \
+    || no "the table is NOT staged into the initrd being built"
+# Payload copy gone, host copy present: still apply from the host copy.
+mv "$W/meta/assets/npu/$AML_NAME" "$W/meta-aml.bak"
+r=$(mod_run s_msr1_live "$AD15")
+mv "$W/meta-aml.bak" "$W/meta/assets/npu/$AML_NAME"
+case "$r" in
+    "check:0 install:0 tbl:yes sha:$want_sha override:yes") ok "payload .aml gone: module uses the host table ($r)" ;;
+    *) no "payload .aml gone: '$r' (expected the host table to be used)" ;;
+esac
+
+echo "T16 O6N (native cores, no NPU SSDT need): skip, nothing injected, nothing deleted"
+mkfix "$W/s_o6n_live" "Orion O6N" "Radxa Computer (Shenzhen) Co., Ltd." "Orion O6" 3 1
+r=$(decide "$W/s_o6n_live")
+[ "$r" = skip ] && ok "O6N with 3 native cores -> skip" || no "O6N -> '$r', expected skip"
+AD16="$W/acpi16"; mkdir -p "$AD16"
+r=$(mod_run s_o6n_live "$AD16")
+case "$r" in
+    "check:0 install:0 tbl:no sha:- override:no") ok "O6N, empty table dir: $r" ;;
+    *) no "O6N, empty table dir: '$r' (expected tbl:no override:no)" ;;
+esac
+# A disk moved from an MS-R1: the host table is there. Keep the file, but
+# do not pack it into THIS initrd (acpi_override turned off for the build).
+cp "$W/meta/assets/npu/$AML_NAME" "$AD16/$AML_NAME"
+r=$(mod_run s_o6n_live "$AD16")
+case "$r" in
+    "check:0 install:0 tbl:yes sha:$want_sha override:no") ok "O6N with a table on disk: kept, not packed ($r)" ;;
+    *) no "O6N with a table on disk: '$r' (expected tbl:yes override:no)" ;;
+esac
+[ -z "$(find "$W/modrun-s_o6n_live" -name '*.aml' 2>/dev/null)" ] \
+    && ok "O6N: no table staged into the initrd" \
+    || no "O6N: a table was staged into the initrd"
+# An operator's own acpi_table_dir is not ours to switch off.
+r=$( ( set +u; . "$W/dracut_shim.sh"; initdir="$W/modrun-op"; mkdir -p "$initdir"
+       acpi_override=yes; acpi_table_dir="$W/operator-acpi"
+       export NCZ_SYS_ROOT="$W/s_o6n_live" NCZ_NPU_SSDT_LIB="$LIB" \
+              NCZ_NPU_SSDT_META="$W/meta" NCZ_NPU_ACPI_DIR="$AD16"
+       . "$MOD"; install; printf '%s' "$acpi_override" ) 2>/dev/null )
+[ "$r" = yes ] && ok "O6N: an operator's own acpi_table_dir keeps acpi_override=yes" \
+               || no "O6N: the module switched off an operator acpi_override ('$r')"
+
+echo "T17 unknown board with native cores: skip without deleting"
+mkfix "$W/s_native" "Some CIX Board" "Some Vendor" "" 3 1
+r=$(decide "$W/s_native")
+[ "$r" = skip ] && ok "unknown board, 3 native cores -> skip" || no "-> '$r', expected skip"
+AD17="$W/acpi17"; mkdir -p "$AD17"
+cp "$W/meta/assets/npu/$AML_NAME" "$AD17/$AML_NAME"
+r=$(mod_run s_native "$AD17")
+case "$r" in
+    "check:0 install:0 tbl:yes sha:$want_sha override:no") ok "native board: table kept on disk, not packed ($r)" ;;
+    *) no "native board: '$r' (expected tbl:yes override:no -- never delete)" ;;
+esac
+# The initramfs-tools hook must never delete anything either.
+grep -qE '^[^#]*rm -f[^#]*npu-acpi' "$HOOK" "$MOD" "$LIB" \
+    && no "a builder still deletes the host table" \
+    || ok "no builder deletes /etc/ncz/npu-acpi/$AML_NAME"
+
+echo "T18 dracut re-run twice on the same host"
+for fx in s_msr1_live s_o6n_live; do
+    AD="$W/acpi18-$fx"; rm -rf "$AD"; mkdir -p "$AD"
+    [ "$fx" = s_msr1_live ] && cp "$W/meta/assets/npu/$AML_NAME" "$AD/$AML_NAME"
+    r1=$(mod_run "$fx" "$AD"); m1=$(stat -c %Y "$AD/$AML_NAME" 2>/dev/null || echo -)
+    sleep 1
+    r2=$(mod_run "$fx" "$AD"); m2=$(stat -c %Y "$AD/$AML_NAME" 2>/dev/null || echo -)
+    d1=$(decide "$W/$fx"); d2=$(decide "$W/$fx")
+    if [ "$r1" = "$r2" ] && [ "$d1" = "$d2" ]; then
+        ok "$fx: two rebuilds agree ($d1; $r2)"
+    else
+        no "$fx: rebuilds disagree ('$d1' '$r1' vs '$d2' '$r2')"
+    fi
+    [ "$m1" = "$m2" ] && ok "$fx: second rebuild did not rewrite the host table (mtime $m2)" \
+                      || no "$fx: second rebuild rewrote the host table ($m1 -> $m2)"
+done
+case "$(mod_run s_msr1_live "$W/acpi18-s_msr1_live")" in
+    *tbl:yes*) ok "MS-R1: the host table is still there after repeated rebuilds" ;;
+    *) no "MS-R1: the host table vanished after repeated rebuilds" ;;
+esac
+
+echo "T13 the medium stager must produce the table (build/iso/ncz_ssdt.py)"
+# WHY: the 2026-10-28 root cause. Every unit above could pass while a real
+# image shipped assets/npu/ with only the .asl, because nothing in the build
+# ever compiled it -- the only caller of build/build-npu-ssdt.sh was
+# build/stage-canonical-assets.sh, which no stage runs. write-usb-image.py is
+# the ONE place that stages assets/* onto the medium, so it must call the
+# stager for arm64 and must fail the build when it cannot.
+STAGER="$REPO/build/iso/ncz_ssdt.py"
+MEDIUM="$REPO/build/iso/write-usb-image.py"
+if [ -f "$STAGER" ]; then ok "build/iso/ncz_ssdt.py exists"; else no "build/iso/ncz_ssdt.py missing"; fi
+if grep -q 'ensure_npu_ssdt_aml' "$MEDIUM" 2>/dev/null; then
+    ok "write-usb-image.py stages the table via ensure_npu_ssdt_aml()"
+else
+    no "write-usb-image.py does not call ensure_npu_ssdt_aml() (an arm64 image would ship no NPU table)"
+fi
+if command -v python3 >/dev/null 2>&1; then
+    TW="$W/stager"; mkdir -p "$TW/repo/assets/npu"
+    cp "$ASL" "$TW/repo/assets/npu/ssdt-npucre.asl"
+    # arm64 with iasl present -> builds a valid table
+    if command -v iasl >/dev/null 2>&1; then
+        rc=$( cd "$TW/repo" && python3 - "$STAGER" <<'PY'
+import sys, importlib.util, hashlib
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("ncz_ssdt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+p = m.ensure_npu_ssdt_aml(Path.cwd(), "arm64", log=lambda s: None)
+d = Path(p).read_bytes()
+assert d[:4] == b"SSDT" and d.count(b"CIXH4010") == 3, "bad table"
+cpio = Path.cwd()/"assets"/"npu"/"npu-acpi-override.cpio"
+assert cpio.is_file(), "early CPIO not staged (the target cannot copy it to /boot)"
+c = cpio.read_bytes()
+assert c[:6] == b"070701", "early CPIO is not newc"
+assert b"kernel/firmware/acpi/ssdt-npucre.aml" in c, "early CPIO names the wrong entry"
+assert b"TRAILER!!!" in c, "early CPIO has no trailer"
+h1 = hashlib.sha256(c).hexdigest()
+m.ensure_npu_ssdt_aml(Path.cwd(), "arm64", log=lambda s: None)
+h2 = hashlib.sha256(Path(cpio).read_bytes()).hexdigest()
+assert h1 == h2, "early CPIO is not reproducible across runs"
+print(p)
+PY
+        ) && ok "arm64: compiles ssdt-npucre.aml + reproducible newc early CPIO ($rc)" \
+          || no "arm64: ensure_npu_ssdt_aml did not produce a valid table + CPIO"
+    else
+        sk "iasl absent -- cannot prove the compile path on this host"
+    fi
+    # amd64 is a no-op (no CIX NPU on amd64 images)
+    rm -f "$TW/repo/assets/npu/$AML_NAME"
+    ( cd "$TW/repo" && python3 - "$STAGER" <<'PY'
+import sys, importlib.util
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("ncz_ssdt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+p = m.ensure_npu_ssdt_aml(Path.cwd(), "amd64", log=lambda s: None)
+assert p is None, "amd64 must not stage a table"
+assert not (Path.cwd()/"assets"/"npu"/"ssdt-npucre.aml").exists()
+PY
+    ) && ok "amd64: no-op (no CIX NPU)" || no "amd64: stager did something unexpected"
+    # arm64 with neither iasl nor a staged table must FAIL LOUDLY
+    if command -v iasl >/dev/null 2>&1; then
+        if ( cd "$TW/repo" && PATH=/nonexistent /usr/bin/python3 - "$STAGER" <<'PY'
+import sys, importlib.util
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("ncz_ssdt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+try:
+    m.ensure_npu_ssdt_aml(Path.cwd(), "arm64", log=lambda s: None)
+except RuntimeError as e:
+    assert "acpica-tools" in str(e), "error must name the fix"
+    sys.exit(0)
+sys.exit(3)
+PY
+        ); then ok "arm64 without iasl: raises naming acpica-tools (build stops)"
+        else no "arm64 without iasl: did not raise with the actionable message"; fi
+    fi
+    # missing .asl is fatal
+    mv "$TW/repo/assets/npu/ssdt-npucre.asl" "$TW/repo/assets/npu/x.asl"
+    if ( cd "$TW/repo" && python3 - "$STAGER" <<'PY'
+import sys, importlib.util
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("ncz_ssdt", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+try:
+    m.ensure_npu_ssdt_aml(Path.cwd(), "arm64", log=lambda s: None)
+except RuntimeError:
+    sys.exit(0)
+sys.exit(1)
+PY
+    ); then ok "missing committed .asl is fatal"; else no "missing .asl did not fail"; fi
+else
+    sk "python3 absent -- stager contract untested here"
+fi
+
+# --- T14: the ESP copy is what boots ------------------------------------
+echo "T14 rEFInd boots the ESP initrd: the sync must be wired for dracut"
+# MEASURED on the MS-R1 2026-10-28: a rebuilt /boot/initrd.img carrying the
+# SSDT had no effect because rEFInd's stanza points at /initrd.img-<ver> on
+# the ESP, which still held the install-day copy. 58-boot-hygiene.sh only
+# installed an initramfs-tools post-update hook, and this image uses dracut.
+BH="$REPO/post-install/58-boot-hygiene.sh"
+if grep -q 'ncz-sync-initrd-to-esp' "$BH"; then
+    ok "58-boot-hygiene installs ncz-sync-initrd-to-esp"
+else
+    no "58-boot-hygiene does not install the ESP initrd sync (dracut rebuilds never reach the bootloader)"
+fi
+grep -q 'etc/kernel/postinst.d/zz-ncz-refind-esp-sync' "$BH" \
+    && ok "kernel upgrades re-sync the ESP (postinst hook)" \
+    || no "no /etc/kernel/postinst.d hook: a kernel upgrade leaves the ESP stale"
+grep -q 'ncz-esp-initrd-sync.path' "$BH" \
+    && ok "rebuilds that bypass postinst are caught by the path unit" \
+    || no "no path unit: dracut -f / DKMS rebuilds leave the ESP stale"
+grep -q 'ESP copy' "$REPO/post-install/80-npu.sh" \
+    && ok "80-npu.sh verifies the ESP copy carries the SSDT" \
+    || no "80-npu.sh does not verify the ESP copy (it would pass while the board boots an old initrd)"
+
+# --- summary ------------------------------------------------------------
+echo ""
+echo "test-npu-ssdt-delivery: $pass passed, $fail failed, $skip skipped"
+[ "$fail" -eq 0 ] || exit 1
+exit 0

@@ -99,3 +99,51 @@ payload is rebuilt.
   kept, no EDID size, failed apply retried). Wired into `make parity`.
 * `build/test-greeter-output-mode.sh`: runs the real greeter autostart against
   a fake `wlr-randr`, with and without the helper.
+
+## Boot splash -> greeter ordering contract (DELL scanout race, 2026-10-27)
+
+The KMS boot splash (`singularity-boot-splash.service`) and the greeter
+(`greetd`) must NOT start in parallel. On the DELL Inspiron 5521 (Intel HD
+4000, desktop build 4971507b) the greeter ran for 16 h with the panel black:
+`seatd` logged `Could not make device fd drm master: Device or resource busy`
+because `ncz-boot-splash` still owned DRM when labwc called `drmSetMaster`,
+and a wlroots compositor does not retry the master after losing that race --
+it lived with a dead pipeline (every plane `crtc=(null)`, `fb=0`) until a
+manual `systemctl restart greetd`, after which the pipeline came up instantly
+(`crtc[54] pipe A enable=1 active=1, primary fb=115`). The driver was fine;
+the ordering was not.
+
+The contract, enforced by `post-install/60-boot-splash.sh` and
+`post-install/55-greeter.sh`:
+
+* The splash's DRM ownership is bounded to a total of <= 8 s (`timeout 6s`
+  + `--kill-after=2s`; `--max-life 5`). It is a `Type=oneshot` that owns DRM
+  until its own cap expires; the `rc=124` timeout is a clean exit, as before.
+* `greetd` is ordered `After= singularity-boot-splash.service` (a drop-in in
+  `greetd.service.d`, not a splash unit rewrite) so the compositor starts
+  only once DRM is released. This cannot deadlock: the splash no longer
+  waits on the greeter past its cap (the greeter-ready marker is a fast
+  handoff hint, the timeout is the hard bound) and the splash does not order
+  itself after greetd, so the two ordering directions cannot cycle. A
+  headless or splash-missing boot has nothing to wait on.
+* A post-greetd gate (`ncz-greeter-scanout.service`, `After=greetd.service`)
+  is the last line of defence against any other cause of a dead pipeline: it
+  waits up to ~10 s for an active CRTC (the kernel debugfs
+  `/sys/kernel/debug/dri/card*/state` -- a `crtc[N]` header followed by an
+  `enable=1 active=1` line -- with the `/sys/class/drm/card*-*` connector
+  `enabled`+`connected` sysfs attrs as the fallback when the file is
+  unreadable). If the greeter is up with no active CRTC it logs a
+  diagnostic, restarts greetd once, and if the pipeline is still dead falls
+  back to the existing text console path (`ncz-greeter-fallback`: message +
+  `getty@tty1`). The gate is a oneshot: nothing re-triggers it, so it cannot
+  loop.
+* On a laptop, the first boot raises the backlight to >= 40 % of max (the
+  DELL panel persisted at 342/4882 = 7 %, masking a partial success as black)
+  via `ncz-backlight-default.service` (`Before=greetd.service`), marked once
+  in `/var/lib/ncz` so a user-set value from a later boot is never
+  clobbered; desktop/VM chassis and `max<16` dummies are skipped.
+
+Do not "optimise" the splash/greetd ordering back into parallel: the bounded
+cap exists precisely so the `After=` wait terminates, and the gate exists
+precisely because a compositor that loses the DRM race will not recover on
+its own.

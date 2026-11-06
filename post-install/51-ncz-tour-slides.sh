@@ -6,8 +6,8 @@
 # ONLY on arm64/Sky1 (the platform that ships chromium-ncz-sky1, the NCZ Chromium
 # with VPU video acceleration). Arch-gated with the shared NCZ-PLATFORM-GUARD
 # idiom so an amd64 install never shows it. The first-login tour launcher is
-# generic. TODO split the Sky1 slide into a platform hook when phase C lands
-# (docs/platform-inventory.tsv, docs/PLATFORM-SPLIT-DESIGN.md).
+# generic. Split the Sky1 slide into a platform hook with the platform
+# inventory move — phase C in docs/PLATFORM-SPLIT-DESIGN.md (tracked there).
 #
 # The Singularity tour (dev.sinty.tour) ships ten upstream slides in
 # /opt/singularity/share/singularity/tour/, owned by the ncz-singularity-desktop

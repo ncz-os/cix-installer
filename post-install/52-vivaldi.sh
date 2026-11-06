@@ -142,7 +142,7 @@ x-scheme-handler/unknown=vivaldi-stable.desktop
 application/x-extension-htm=vivaldi-stable.desktop
 application/x-extension-html=vivaldi-stable.desktop
 application/xhtml+xml=vivaldi-stable.desktop
-inode/directory=thunar.desktop
+inode/directory=dev.sinty.files.desktop
 MIME
 # also seed the per-user default so the very first login already defaults right
 install -d /etc/skel/.config

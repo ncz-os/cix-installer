@@ -25,7 +25,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PACK="${1:-cygnus-2610}"
 OUT="${WALLPAPER_DEB_OUT:-$ROOT/build/wallpaper-debs}"
 # ArtistPack manifests (artist.json, pack.json) are vendored per pack under
-# assets/branding/wallpaper/artistpack/<pack>/ (ncz-os/artistpack 17196e2), so the
+# assets/branding/wallpaper/artistpack/<pack>/ (ncz-os/artistpack 4e69a5e), so the
 # package bytes depend on this tree only. A build used to prefer a checkout in the
 # builder's home directory, so two hosts with different checkouts produced two
 # packages under one version. ARTISTPACK_SOURCE_ROOT overrides, for pack authors only.

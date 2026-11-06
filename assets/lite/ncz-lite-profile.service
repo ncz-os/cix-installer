@@ -1,0 +1,15 @@
+[Unit]
+Description=NCZ first-login lite profile for weak GPUs / old PCs
+Documentation=file:///usr/share/doc/ncz-lite-profile.md
+PartOf=singularity-session.target graphical-session.target
+After=singularity-session.target graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ncz-profile auto-apply
+# Never block a login: the helper exits 0 on every path and this bound is a
+# belt-and-braces guard.
+TimeoutStartSec=30
+
+[Install]
+WantedBy=singularity-session.target

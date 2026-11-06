@@ -94,4 +94,27 @@ BUILD_VERSION="(unknown)"
     BUILD_VERSION=$(cat /usr/local/lib/cix-installer/BUILD_VERSION 2>/dev/null || true)
 
 echo "zz1-ncz-refind-refresh-amd64: KVER_STABLE=$KVER_STABLE (unified 7.3; no edge channel)"
-KVER_STABLE="$KVER_STABLE" KVER_EDGE="$KVER_EDGE" BUILD_VERSION="$BUILD_VERSION" "$REFRESH"
+# ADD-ONLY (2026-11-02): this hook runs on every kernel install, so it must NOT
+# regenerate the menu. Before this change it called the tool with no verb,
+# which WIPED the ESP and rebuilt the whole menu -- making the kernel that had
+# just been installed the DEFAULT on the next reboot (proven on CHIMERA and
+# PEGASUS, 2026-11-02). `--add` stages the new pair onto the ESP and APPENDS
+# one entry; it never wipes, never rewrites default_selection and never touches
+# the rescue entries. zz2-ncz-refind-promote-guard is the only thing that may
+# move the default afterwards, and only under an explicit operator pin.
+#
+# The pair is already in /boot at this point (the kernel package's own postinst
+# runs us after unpacking), so --add has everything it needs on the source
+# side; it refuses rather than fabricating a kernel if it does not.
+KVER_STABLE="$KVER_STABLE" KVER_EDGE="$KVER_EDGE" BUILD_VERSION="$BUILD_VERSION" \
+    KVER_STABLE_SRC="$BOOTDIR/vmlinuz-$KVER_STABLE" \
+    KVER_STABLE_INITRD="$BOOTDIR/initrd.img-$KVER_STABLE" \
+    "$REFRESH" --add
+rc=$?
+if [ "$rc" -ne 0 ]; then
+    # A kernel hook that cannot add is not fatal to the package transaction
+    # (the running system is unchanged and still boots), but it must be loud:
+    # the new kernel is NOT in the menu until this is fixed.
+    echo "zz1-ncz-refind-refresh-amd64: --add failed (rc=$rc); the new kernel is NOT in the rEFInd menu" >&2
+fi
+exit 0

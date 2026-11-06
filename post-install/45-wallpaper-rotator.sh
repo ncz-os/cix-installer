@@ -79,6 +79,8 @@ else
 fi
 if [ -x "$OCS_ASSETS/ncz-wallpaper-ocs" ]; then
     install -m 0755 "$OCS_ASSETS/ncz-wallpaper-ocs" /usr/local/bin/ncz-wallpaper-ocs
+    # The plugin looks its helper up as singularity-wallpaper-ocs in PATH.
+    ln -sf ncz-wallpaper-ocs /usr/local/bin/singularity-wallpaper-ocs
     echo "[45]   installed OCS wallpaper backend"
 else
     echo "[45]   WARN: OCS wallpaper backend asset missing" >&2
@@ -292,6 +294,8 @@ if [ ! -x "$OCS_ASSETS/ncz-wallpaper-bing" ]; then
     exit 1
 fi
 install -m 0755 "$OCS_ASSETS/ncz-wallpaper-bing" /usr/local/bin/ncz-wallpaper-bing
+# The plugin looks its helper up as singularity-wallpaper-bing in PATH.
+ln -sf ncz-wallpaper-bing /usr/local/bin/singularity-wallpaper-bing
 
 cat > /opt/singularity/share/singularity/wallpaper-collections/bing.collection <<'EOF'
 [Collection]
