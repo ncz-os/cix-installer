@@ -186,7 +186,7 @@ eq "late.sh: desktop label" "$(printf '%s\n' "$LD" | sed -n 's/^LABEL=//p')" "$D
 nocyg "late.sh: server progress/remove-media templates" "$LS"
 printf '%s\n' "$LS" | grep  "^Description: $SRV is installed - remove the USB stick now$" >/dev/null && ok "late.sh: server final screen names $SRV" || bad "late.sh: server final screen"
 printf '%s\n' "$LS" | grep  "^Description: Installing $SRV - this takes several minutes$" >/dev/null && ok "late.sh: server progress title" || bad "late.sh: server progress title"
-printf '%s\n' "$LS" | grep -qi 'desktop' && bad "late.sh: server templates mention a desktop: $(printf '%s\n' "$LS" | grep -i desktop | head -2)" || ok "late.sh: server templates promise no desktop"
+printf '%s\n' "$LS" | grep -i  'desktop' && bad "late.sh: server templates mention a desktop: $(printf '%s\n' "$LS" | grep -i desktop | head -2)" || ok "late.sh: server templates promise no desktop" >/dev/null
 printf '%s\n' "$LD" | grep  "^ The full desktop, GPU/NPU drivers, kernels and agents are being installed.$" >/dev/null && ok "late.sh: desktop progress text unchanged" || bad "late.sh: desktop progress text"
 printf '%s\n' "$LD" | grep  "^ desktop. If the USB stick is left inserted" >/dev/null && ok "late.sh: desktop remove-media text unchanged" || bad "late.sh: desktop remove-media text"
 # the progress line never shows the codename in a hook name on a server medium
@@ -411,9 +411,9 @@ case "$_m" in *"use a directory on disk"*)   # the matrix refuses a tmpfs work r
     _dd=$(mktemp -d "$ROOT/../.ncz-srv-brand-dry.XXXXXX");   # beside the tree, never inside it
  _m=$(bash "$W/dry/bin/kvm-install-gate-matrix.sh" "$W/dry/img.img" "$_dd/work" full server server-offline-negative nodesktop 2>&1); rm -rf "$_dd" ;;
 esac
-printf '%s\n' "$_m" | grep -q '^STUB set=server ui=1 server=1 offline=0 comps=rescue-partition$' && ok "matrix dry run: the server set runs the UI check" || bad "matrix dry run: server set: $(printf '%s\n' "$_m" | grep STUB)"
+printf '%s\n' "$_m" | grep  '^STUB set=server ui=1 server=1 offline=0 comps=rescue-partition$' && ok "matrix dry run: the server set runs the UI check" || bad "matrix dry run: server set: $(printf '%s\n' "$_m" | grep STUB)" >/dev/null
 printf '%s\n' "$_m" | grep  '^STUB set=server-offline-negative ui=0 ' >/dev/null && ok "matrix dry run: the offline-negative set does not" || bad "matrix dry run: offline set"
-printf '%s\n' "$_m" | grep -q '^STUB set=full ui=1 ' && printf '%s\n' "$_m" | grep -q '^STUB set=nodesktop ui=0 ' && ok "matrix dry run: desktop sets unchanged (full ui=1, nodesktop ui=0)" || bad "matrix dry run: desktop sets"
+printf '%s\n' "$_m" | grep  '^STUB set=full ui=1 ' && printf '%s\n' "$_m" | grep -q '^STUB set=nodesktop ui=0 ' && ok "matrix dry run: desktop sets unchanged (full ui=1, nodesktop ui=0)" || bad "matrix dry run: desktop sets" >/dev/null
 awk '/echo "  installer console UI check/{f=1} f{print} f && /^fi$/{exit}' "$ROOT/build/kvm-install-gate-gpt.sh" > "$W/dry/ui-block.sh"
 cat > "$W/dry/bin/kvm-installer-ui-check.sh" <<'STUB'
 #!/bin/bash
@@ -431,7 +431,7 @@ mkdir -p "$W/dry/mag"; : > "$W/dry/mag/base.squashfs"; : > "$W/dry/mag/ncz-asset
 _sr=$(bash -c "ncz_sudo_bash() { echo \"SUDO: \$*\"; echo 'MATRIX PASS'; }
     ROOT='$ROOT'; RUN_DIR='$W/dry'; ARCH=amd64; MAGNETAR_DIR='$W/dry/mag'; unset NCZ_PYTE_PYTHON
     . '$W/dry/srv-runner.sh'; pyvenv=/root/ncz-pyte-venv; stage_kvm_gate_server '$W/dry/srv.log' '$W/dry/img.img' '$W/dry/kw' 0:0 /root/ncz-pyte-venv" 2>&1)
-printf '%s\n' "$_sr" | grep '^SUDO: ' | grep -q "NCZ_PYTE_PYTHON='/root/ncz-pyte-venv/bin/python'" \
+printf '%s\n' "$_sr" | grep '^SUDO: ' | grep  "NCZ_PYTE_PYTHON='/root/ncz-pyte-venv/bin/python'" >/dev/null \
     && ok "build-image: the server gate runner passes NCZ_PYTE_PYTHON through sudo (the UI check finds pyte)" \
     || bad "build-image: the server gate runner's sudo line has no NCZ_PYTE_PYTHON: $(printf '%s\n' "$_sr" | grep '^SUDO: ' | cut -c1-300)"
 grep -q '^ui=server$' "$W/dry/kvm-gate.result" 2>/dev/null && ok "build-image: the server gate result records ui=server" || bad "build-image: kvm-gate.result ui field: $(grep '^ui=' "$W/dry/kvm-gate.result" 2>/dev/null)"

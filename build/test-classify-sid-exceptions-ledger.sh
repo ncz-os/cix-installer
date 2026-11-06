@@ -118,7 +118,7 @@ mk_fixture() {  # dir
         [ -s "$base" ] || { echo "FAIL: empty fixture slot $(basename "$base")" >&2; exit 1; }
     done
     xz -dc "$d/scratch/${SNAP}_sid_main_debian-installer_binary-amd64_Packages.xz" \
-        | grep -q '^Package: dpkg-udeb' \
+        | grep  '^Package: dpkg-udeb' >/dev/null \
         || { echo "FAIL: sid d-i fixture index was not seeded" >&2; exit 1; }
 }
 
@@ -153,12 +153,12 @@ L="$T/ledger.tsv"; mk_ledger "$L" 1.20.0 9.3-1
 before="$(sha256sum "$L" | awk '{print $1}')"
 out="$(run_classify "$F" "$L" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && ok "classify runs on the fixture (rc=0)" || bad "classify failed (rc=$rc)" "$out"
-printf '%s\n' "$out" | grep -q 'NEW sid exception needs a human review: dpkg-udeb' \
+printf '%s\n' "$out" | grep  'NEW sid exception needs a human review: dpkg-udeb' >/dev/null \
     && ok "the drifted row is reported for review" || bad "the drifted row was not reported" "$out"
-printf '%s\n' "$out" | grep -q 'version 1.20.0 -> 1.22.6' \
+printf '%s\n' "$out" | grep  'version 1.20.0 -> 1.22.6' >/dev/null \
     && ok "the report names the version drift (1.20.0 -> 1.22.6)" \
     || bad "the report does not name the version drift" "$out"
-printf '%s\n' "$out" | grep -q 'NEW sid exception needs a human review: nano-udeb' \
+printf '%s\n' "$out" | grep  'NEW sid exception needs a human review: nano-udeb' >/dev/null \
     && bad "an unchanged row was reported as NEW (over-reporting)" "$out" \
     || ok "the unchanged row (9.3-1) is not reported as NEW"
 # Without --accept-new-exceptions the unreviewed drift must NOT reach the
@@ -187,7 +187,7 @@ expect_rc "--require-accepted refuses an unreviewed version drift" 4 \
     run_classify "$F" "$L2" --require-accepted
 [ "$(sha256sum "$L2" | awk '{print $1}')" = "$before" ] \
     && ok "nothing was written on the refusal" || bad "the ledger was written on a refusal"
-printf '%s\n' "$LAST" | grep -q 'version 1.20.0 -> 1.22.6' \
+printf '%s\n' "$LAST" | grep  'version 1.20.0 -> 1.22.6' >/dev/null \
     && ok "the refusal names the version drift" || bad "the refusal hides the drift" "$LAST"
 
 echo "== a SHORT carried ledger row (4-6 columns) is not an IndexError =="
@@ -208,10 +208,10 @@ for n in 4 5 6; do
         0|4) ok "a $n-column carried row is handled (rc=$rc, no crash)" ;;
         *) bad "a $n-column carried row crashed the merge (rc=$rc)" "$out" ;;
     esac
-    printf '%s\n' "$out" | grep -q 'Traceback\|IndexError' \
+    printf '%s\n' "$out" | grep  'Traceback\|IndexError' >/dev/null \
         && bad "a $n-column carried row raised an IndexError" "$out" \
         || ok "a $n-column carried row raised no IndexError"
-    printf '%s\n' "$out" | grep -q 'needs a human review: carried-udeb 1.0-1' \
+    printf '%s\n' "$out" | grep  'needs a human review: carried-udeb 1.0-1' >/dev/null \
         && ok "a $n-column carried row is reported for review" \
         || bad "a $n-column carried row was not reported" "$out"
 done
@@ -228,7 +228,7 @@ LE="$T/ledger-exists.tsv"
 before="$(sha256sum "$LE" | awk '{print $1}')"
 expect_rc "--require-accepted refuses a row new to an existing ledger" 4 \
     run_classify "$F" "$LE" --require-accepted
-printf '%s\n' "$LAST" | grep -q 'needs a human review: nano-udeb 9.3-1' \
+printf '%s\n' "$LAST" | grep  'needs a human review: nano-udeb 9.3-1' >/dev/null \
     && ok "the new-to-existing row is named for review" \
     || bad "the new-to-existing row was not named" "$LAST"
 [ "$(sha256sum "$LE" | awk '{print $1}')" = "$before" ] \

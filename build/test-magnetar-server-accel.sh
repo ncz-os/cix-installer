@@ -77,9 +77,9 @@ newcase() {
 }
 
 echo "=== 1. the extracted function bodies are the shipped ones ==="
-extract "$HOOK" '^ncz_variant[(][)] [{]' | grep -q 'BUILD_VARIANT' \
+extract "$HOOK" '^ncz_variant[(][)] [{]' | grep  'BUILD_VARIANT' >/dev/null \
     && ok "ncz_variant: resolves the BUILD_VARIANT record" || bad "ncz_variant does not read BUILD_VARIANT"
-extract "$HOOK" '^ncz_cuda_component_wanted[(][)] [{]' | grep -q 'ncz_variant' \
+extract "$HOOK" '^ncz_cuda_component_wanted[(][)] [{]' | grep  'ncz_variant' >/dev/null \
     && ok "ncz_cuda_component_wanted: asks ncz_variant for the variant" || bad "variant resolution missing"
 
 echo "=== 2. desktop keeps the pre-SCOPE-002 behaviour byte-for-byte ==="
@@ -205,7 +205,7 @@ printf '%s\n' "$s_menu" | grep  'Rescue Partition' >/dev/null && ok "server: Res
 # Case-SENSITIVE and anchored on the entry names: "Console (All Accelerators,
 # Mali)" legitimately contains the word Mali, so a case-insensitive match on
 # 'mali' would flag the Console entry as a leak.
-printf '%s\n' "$s_menu" | grep -qE '7\.3 (Mali|Panthor|Rescue / No Accelerators)' \
+printf '%s\n' "$s_menu" | grep -E  '7\.3 (Mali|Panthor|Rescue / No Accelerators)' >/dev/null \
     && bad "server: a desktop-only entry leaked into the server menu" \
     || ok "server: no Mali/Panthor/desktop-Rescue entries"
 # ...and the same emission with no rescue partition selected still yields

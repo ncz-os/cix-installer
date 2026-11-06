@@ -146,9 +146,9 @@ echo "=== no AMD key/repo wiring: native NCZ only ==="
 # `ncz_amd_disable_legacy_vendor_list` -- the disabler is by design
 # required to recognize it.
 LIB_NOCOMMENTS="$(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$LIB")"
-printf '%s\n' "$LIB_NOCOMMENTS" | grep -q 'NCZ_AMD_KEY_SHA256=' \
+printf '%s\n' "$LIB_NOCOMMENTS" | grep  'NCZ_AMD_KEY_SHA256=' >/dev/null \
     && bad "lib still defines a vendored AMD key pin" || ok "lib has no vendored AMD key pin"
-printf '%s\n' "$LIB_NOCOMMENTS" | grep -q 'NCZ_AMD_KEY_URL=' \
+printf '%s\n' "$LIB_NOCOMMENTS" | grep  'NCZ_AMD_KEY_URL=' >/dev/null \
     && bad "lib still defines an AMD key URL"        || ok "lib has no AMD key URL"
 # The disabler MUST exist and reference the legacy URL pattern as a matcher
 # -- a literal grep ban would also ban the disabler, which is required.
@@ -157,12 +157,12 @@ grep -q 'ncz_amd_disable_legacy_vendor_list' "$LIB" \
     || bad "lib has no rocm.list disabler"
 # But the lib must NOT WRITE to the rocm list from active code (only the
 # disabler RENAMES it; nothing generates/refreshes/trusts it).
-printf '%s\n' "$LIB_NOCOMMENTS" | grep -qE '>[[:space:]]*/etc/apt/sources\.list\.d/rocm\.list[[:space:]]*$' \
+printf '%s\n' "$LIB_NOCOMMENTS" | grep -E  '>[[:space:]]*/etc/apt/sources\.list\.d/rocm\.list[[:space:]]*$' >/dev/null \
     && bad "lib still WRITES /etc/apt/sources.list.d/rocm.list" \
     || ok "lib does not write /etc/apt/sources.list.d/rocm.list"
 # And it must NOT install the repo.radeon.com ROCm set (that is 54's job,
 # not this lib's; this lib is native-NCZ + Debian-only).
-printf '%s\n' "$LIB_NOCOMMENTS" | grep -q 'repo.radeon.com' \
+printf '%s\n' "$LIB_NOCOMMENTS" | grep  'repo.radeon.com' >/dev/null \
     && bad "lib still references repo.radeon.com in active code (the disabler only)" \
     || ok "lib does not reference repo.radeon.com outside the disabler"
 
@@ -383,7 +383,7 @@ done
 # The lib MUST NOT install phantom (non-native) names; especially no bare
 # `amd-npu` (the old repo.radeon.com bug). Match the bare token only:
 # `amd-npu-xrt-2.0` carries a suffix and IS a legitimate native name.
-printf '%s\n' "$inst" | grep -qwE 'amd-npu( |-| |$)' \
+printf '%s\n' "$inst" | grep -wE  'amd-npu( |-| |$)' >/dev/null \
     && bad "asks for the legacy bare 'amd-npu' name (not a native NCZ package)" "$inst" \
     || ok "no phantom bare 'amd-npu' name requested"
 # NPU runtime + drivers must all show up in the SAME install -y call
@@ -598,13 +598,13 @@ wait "$_lkpid" 2>/dev/null
 # And it must not leave the marker holding only LAST= when the file
 # vanished between the existence check and the append (the reason the
 # append is guarded).
-grep -A2 'elif \[ -f "\$_pf" \]' "$LIB" | grep -q 'echo "LAST=' \
+grep -A2 'elif \[ -f "\$_pf" \]' "$LIB" | grep  'echo "LAST=' >/dev/null \
     && ok "the LAST= append stays guarded on the marker still existing" \
     || bad "the LAST= append is no longer existence-guarded"
 
-grep -A8 '^ncz_amd_recover()' "$LIB" | grep -q . \
-    && awk '/^ncz_amd_recover\(\)/,/^}/' "$LIB" | grep -q 'systemctl start ncz-amd-accel-setup.timer' \
-    && awk '/^ncz_amd_recover\(\)/,/^}/' "$LIB" | grep -q '\[ -z "$(_na_r)" \] && \[ -d /run/systemd/system \]' \
+grep -A8 '^ncz_amd_recover()' "$LIB" | grep  . >/dev/null \
+    && awk '/^ncz_amd_recover\(\)/,/^}/' "$LIB" | grep  'systemctl start ncz-amd-accel-setup.timer' >/dev/null \
+    && awk '/^ncz_amd_recover\(\)/,/^}/' "$LIB" | grep  '\[ -z "$(_na_r)" \] && \[ -d /run/systemd/system \]' >/dev/null \
     && ok "recover starts the timer on a running system only (not for a target root)" \
     || bad "recover does not start the timer on a running system"
 
