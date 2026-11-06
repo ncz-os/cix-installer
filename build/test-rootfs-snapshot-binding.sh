@@ -38,5 +38,27 @@ run_case "row snapshot equals the pin passes"                "$PIN"            p
 run_case "row at 20261018T082309Z under the pin is refused"  "20261018T082309Z" fail
 run_case "row with an empty snapshot column is refused"      ""                fail
 
+
+# publish side of M8: a rebuilt rootfs must state its snapshot, and the row must take that value
+pub_case() { # <label> <expect: pass|fail> [extra args...]
+  local label=$1 expect=$2; shift 2
+  printf 'amd64\tassets/mgmt/ncz-mgmt-rootfs.tar.zst\t%s\t%s\tfixture\t%s\n' "$SHA" "$SIZE" "$OLD_SNAP" > "$TMP/tsv"
+  printf 'changed\n' > "$TMP/tree/assets/mgmt/ncz-mgmt-rootfs.tar.zst"
+  local out rc
+  out=$(NCZ_BUILD_INPUTS_TSV="$TMP/tsv" NCZ_BUILD_INPUTS_PUBLIC_TSV="$TMP/public.tsv" \
+        NCZ_BUILD_INPUTS_TREE="$TMP/tree" NCZ_BUILD_INPUTS_DIR="$TMP/store" \
+        bash build/stage-build-inputs.sh --arch amd64 --publish "$@" 2>&1); rc=$?
+  if [ "$expect" = fail ]; then
+    if echo "$out" | grep -q "without --snapshot"; then pass=$((pass+1)); echo "ok   $label"; else fail=$((fail+1)); echo "FAIL $label (expected refusal)"; echo "$out" | tail -2; fi
+  else
+    last=$(tail -1 "$TMP/tsv" | cut -f6)
+    if [ "$last" = "$PIN" ]; then pass=$((pass+1)); echo "ok   $label"; else fail=$((fail+1)); echo "FAIL $label (row snapshot=$last, want $PIN)"; fi
+  fi
+  printf 'fixture-rootfs\n' > "$TMP/tree/assets/mgmt/ncz-mgmt-rootfs.tar.zst"
+}
+OLD_SNAP=20261018T082309Z
+pub_case "publish of a rootfs row without --snapshot is refused" fail
+pub_case "publish with --snapshot stamps that snapshot on the row" pass --snapshot "$PIN"
+
 printf '\n%d passed, %d failed (pin %s)\n' "$pass" "$fail" "$PIN"
 [ "$fail" -eq 0 ]
