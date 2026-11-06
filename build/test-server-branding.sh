@@ -260,7 +260,7 @@ printf 'X  ·  NCZ_ISSUE_SOC_PLACEHOLDER  (Kernel: \\r)\nIP:    NCZ_ISSUE_IP_PLA
 grep  'NCZ_ISSUE_' "$R/etc/issue" >/dev/null && bad "issue: an old token banner is not healed: $(cat "$R/etc/issue")" || ok "issue: an old token banner is healed by the refresh"
 # the unit: SoC before the first login prompt, the main process async
 _u="$R/etc/systemd/system/ncz-issue-refresh.service"
-grep  '^Before=getty-pre.target$' "$_u" >/dev/null && grep -q '^Wants=getty-pre.target$' "$_u" && grep -qE '^ExecStartPre=-(.*)?/usr/local/bin/ncz-issue-refresh --soc$' "$_u" && grep -q '^Type=simple$' "$_u" \
+grep  '^Before=getty-pre.target$' "$_u" >/dev/null && grep  '^Wants=getty-pre.target$' "$_u" >/dev/null && grep -E '^ExecStartPre=-(.*)?/usr/local/bin/ncz-issue-refresh --soc$' "$_u" >/dev/null && grep  '^Type=simple$' "$_u" >/dev/null \
     && ok "ncz-issue-refresh.service: SoC step ordered before getty-pre.target, main process Type=simple" || bad "ncz-issue-refresh.service: $(grep -E '^(Before|Wants|ExecStartPre|Type)=' "$_u" | tr '\n' ' ')"
 
 # the motd title row reads the edition from os-release VARIANT, never from the caller's environment
@@ -413,7 +413,7 @@ case "$_m" in *"use a directory on disk"*)   # the matrix refuses a tmpfs work r
 esac
 printf '%s\n' "$_m" | grep  '^STUB set=server ui=1 server=1 offline=0 comps=rescue-partition$' && ok "matrix dry run: the server set runs the UI check" || bad "matrix dry run: server set: $(printf '%s\n' "$_m" | grep STUB)" >/dev/null
 printf '%s\n' "$_m" | grep  '^STUB set=server-offline-negative ui=0 ' >/dev/null && ok "matrix dry run: the offline-negative set does not" || bad "matrix dry run: offline set"
-printf '%s\n' "$_m" | grep  '^STUB set=full ui=1 ' && printf '%s\n' "$_m" | grep -q '^STUB set=nodesktop ui=0 ' && ok "matrix dry run: desktop sets unchanged (full ui=1, nodesktop ui=0)" || bad "matrix dry run: desktop sets" >/dev/null
+printf '%s\n' "$_m" | grep  '^STUB set=full ui=1 ' && printf '%s\n' "$_m" | grep  '^STUB set=nodesktop ui=0 ' >/dev/null && ok "matrix dry run: desktop sets unchanged (full ui=1, nodesktop ui=0)" || bad "matrix dry run: desktop sets" >/dev/null
 awk '/echo "  installer console UI check/{f=1} f{print} f && /^fi$/{exit}' "$ROOT/build/kvm-install-gate-gpt.sh" > "$W/dry/ui-block.sh"
 cat > "$W/dry/bin/kvm-installer-ui-check.sh" <<'STUB'
 #!/bin/bash

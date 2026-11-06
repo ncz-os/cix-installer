@@ -60,20 +60,20 @@ kset "$W/r293b" r293 rebuilt   # same versions, different bytes
 
 echo "=== 1. positive ==="
 expect_rc "r293 debs with an r293 manifest pass" 0 bash "$PIN" --manifest "$W/m293.json" "$W/KVER" "$W/r293"
-if grep -q "Version and sha256 match" <<<"$LAST"; then ok "  OK line names the manifest"; else bad "  OK line lacks the manifest" "$LAST"; fi
+if grep  "Version and sha256 match" <<<"$LAST" >/dev/null; then ok "  OK line names the manifest"; else bad "  OK line lacks the manifest" "$LAST"; fi
 mkdir -p "$W/empty"
 expect_rc "a dir with no Sky1 kernel debs passes (amd64 mirror)" 0 bash "$PIN" --manifest "$W/m293.json" "$W/KVER" "$W/empty"
 expect_rc "--manifest without a value is a usage error" 2 bash "$PIN" --manifest
 
 echo "=== 2. negative ==="
 expect_rc "r292 debs under an r293 manifest FAIL" 1 bash "$PIN" --manifest "$W/m293.json" "$W/KVER" "$W/r292"
-if grep -q "linux-image-cixmini 7.3.0-sky1-ncz+r292 is not the pinned revision 7.3.0-sky1-ncz+r293" <<<"$LAST"; then ok "  finding names both revisions"; else bad "  finding does not name both revisions" "$LAST"; fi
+if grep  "linux-image-cixmini 7.3.0-sky1-ncz+r292 is not the pinned revision 7.3.0-sky1-ncz+r293" <<<"$LAST" >/dev/null; then ok "  finding names both revisions"; else bad "  finding does not name both revisions" "$LAST"; fi
 expect_rc "  (the KVER-only pin passes them: why M7 exists)" 0 bash "$PIN" "$W/KVER" "$W/r292"
 expect_rc "same Version, wrong sha256 FAILS" 1 bash "$PIN" --manifest "$W/m293.json" "$W/KVER" "$W/r293b"
-if grep -q "sha256 .* != pinned" <<<"$LAST"; then ok "  finding names the sha mismatch"; else bad "  sha mismatch not named" "$LAST"; fi
+if grep  "sha256 .* != pinned" <<<"$LAST" >/dev/null; then ok "  finding names the sha mismatch"; else bad "  sha mismatch not named" "$LAST"; fi
 mkdir -p "$W/part"; cp "$W/r293"/linux-image-cixmini_* "$W/r293"/linux-headers-cixmini_* "$W/part/"
 expect_rc "an incomplete set (no cixmini-boot) FAILS" 1 bash "$PIN" --manifest "$W/m293.json" "$W/KVER" "$W/part"
-if grep -q "incomplete Sky1 kernel set: cixmini-boot" <<<"$LAST"; then ok "  finding names the missing package"; else bad "  missing package not named" "$LAST"; fi
+if grep  "incomplete Sky1 kernel set: cixmini-boot" <<<"$LAST" >/dev/null; then ok "  finding names the missing package"; else bad "  missing package not named" "$LAST"; fi
 printf '{"kernel_debs": "nope"}' > "$W/broken.json"
 expect_rc "an unreadable manifest FAILS a dir holding kernel debs" 1 bash "$PIN" --manifest "$W/broken.json" "$W/KVER" "$W/r293"
 expect_rc "a missing manifest FAILS a dir holding kernel debs" 1 bash "$PIN" --manifest "$W/no-such.json" "$W/KVER" "$W/r293"
@@ -81,7 +81,7 @@ expect_rc "a missing manifest FAILS a dir holding kernel debs" 1 bash "$PIN" --m
 # directory holds a Sky1 deb (amd64 mirror, empty pool, or a dir that does
 # not exist yet): a broken pin file must never read as "nothing to check".
 expect_rc "an unreadable manifest FAILS even with no Sky1 debs present" 1 bash "$PIN" --manifest "$W/broken.json" "$W/KVER" "$W/empty"
-if grep -q "kernel-pin\] FAIL: .*broken.json" <<<"$LAST"; then ok "  finding names the manifest"; else bad "  manifest not named" "$LAST"; fi
+if grep  "kernel-pin\] FAIL: .*broken.json" <<<"$LAST" >/dev/null; then ok "  finding names the manifest"; else bad "  manifest not named" "$LAST"; fi
 expect_rc "a missing manifest FAILS even with no Sky1 debs present" 1 bash "$PIN" --manifest "$W/no-such.json" "$W/KVER" "$W/empty"
 expect_rc "a malformed manifest FAILS even when no deb dir exists" 1 bash "$PIN" --manifest "$W/broken.json" "$W/KVER" "$W/no-such-dir"
 printf '{"kernel_debs": []}' > "$W/nodebs.json"
@@ -94,8 +94,8 @@ expect_rc "vendor mirror refuses r292 debs under the r293 manifest" 1 env \
     SKY1_KERNEL_MANIFEST="$W/m293.json" \
     ARCH=arm64 USB_RECOVERY_DEBS="$W/none" SINTY_DEBS="$W/none" CHROME_DEB_CACHE="$W/chrome" \
     bash "$REPO/build/build-vendor-mirror.sh"
-if grep -q "is not the pinned revision" <<<"$LAST"; then ok "  refused by the revision pin"; else bad "  refused for another reason" "$LAST"; fi
-if find "$W/mirror" -name '*.deb' | grep -q .; then bad "vendor mirror pool is not empty after the refused run"
+if grep  "is not the pinned revision" <<<"$LAST" >/dev/null; then ok "  refused by the revision pin"; else bad "  refused for another reason" "$LAST"; fi
+if find "$W/mirror" -name '*.deb' | grep  . >/dev/null; then bad "vendor mirror pool is not empty after the refused run"
 else ok "nothing was published by the refused run"; fi
 
 echo "=== 3b. build-kernel-debs.sh packaging revision ==="
@@ -126,13 +126,13 @@ expect_rc "--print-build-rev after another argument is still the query" 0 \
     || bad "  the query changed the tree" "$(diff <(printf '%s\n' "$before") <(kd_tree))"
 printf 'r291\n' > "$KD/assets/kernel/mainline.deb-revision"
 expect_rc "deb-revision older than the staged release is refused" 1 kd_rev
-grep -q "mainline.deb-revision" <<<"$LAST" && ok "  refusal names mainline.deb-revision" || bad "  refused for another reason" "$LAST"
+grep  "mainline.deb-revision" <<<"$LAST" >/dev/null && ok "  refusal names mainline.deb-revision" || bad "  refused for another reason" "$LAST"
 printf '293\n' > "$KD/assets/kernel/mainline.deb-revision"
 expect_rc "a malformed deb-revision is refused" 1 kd_rev
-grep -q "mainline.deb-revision" <<<"$LAST" && ok "  refusal names mainline.deb-revision" || bad "  refused for another reason" "$LAST"
+grep  "mainline.deb-revision" <<<"$LAST" >/dev/null && ok "  refusal names mainline.deb-revision" || bad "  refused for another reason" "$LAST"
 printf '# empty\n' > "$KD/assets/kernel/mainline.deb-revision"
 expect_rc "an empty deb-revision is refused" 1 kd_rev
-grep -q "mainline.deb-revision" <<<"$LAST" && ok "  refusal names mainline.deb-revision" || bad "  refused for another reason" "$LAST"
+grep  "mainline.deb-revision" <<<"$LAST" >/dev/null && ok "  refusal names mainline.deb-revision" || bad "  refused for another reason" "$LAST"
 
 echo "=== 4. every caller pins the revision ==="
 # The patterns below match source text, so their $ are literal (SC2016).
@@ -141,15 +141,15 @@ n="$(grep -c 'check-kernel-deb-pin.sh" --manifest "\$SKY1_KERNEL_MANIFEST"' "$RE
 if [ "$n" = 2 ]; then ok "build-vendor-mirror.sh: both kernel-pin calls pass --manifest"
 else bad "build-vendor-mirror.sh: $n of 2 kernel-pin calls pass --manifest"; fi
 # shellcheck disable=SC2016
-if grep -q 'check-kernel-deb-pin.sh --manifest "$(ROOT)/assets/kernel-manifest.json" "$(ROOT)/assets/kernel/mainline/KVER" "$(BUILD)/kernel-debs"' "$REPO/Makefile"; then
+if grep  'check-kernel-deb-pin.sh --manifest "$(ROOT)/assets/kernel-manifest.json" "$(ROOT)/assets/kernel/mainline/KVER" "$(BUILD)/kernel-debs"' "$REPO/Makefile" >/dev/null; then
     ok "Makefile kernel-debs reuse decision passes --manifest"
 else bad "Makefile kernel-debs reuse decision does not pass --manifest"; fi
 pf="$(sed -n '/^stage_preflight() {/,/^}/p' "$REPO/build/build-image.sh")"
 # shellcheck disable=SC2016
 # (through build/lib/pin-coherence-gate.sh, which runs the checker it is given
 # with --root/--arch; the WARN/abort decision is tested in test-build-image.sh 2f)
-if grep -q 'ncz_pin_coherence_gate "\$ROOT/build/check-pin-coherence.sh" "\$ROOT" "\$ARCH"' <<<"$pf" \
-   && grep -q 'bash "\$checker" --root "\$root" --arch "\$arch"' "$REPO/build/lib/pin-coherence-gate.sh"; then
+if grep  'ncz_pin_coherence_gate "\$ROOT/build/check-pin-coherence.sh" "\$ROOT" "\$ARCH"' <<<"$pf" >/dev/null \
+   && grep  'bash "\$checker" --root "\$root" --arch "\$arch"' "$REPO/build/lib/pin-coherence-gate.sh" >/dev/null; then
     ok "build-image.sh stage_preflight runs check-pin-coherence.sh for the build arch"
 else bad "stage_preflight does not run check-pin-coherence.sh"; fi
 

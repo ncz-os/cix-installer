@@ -1182,7 +1182,7 @@ expect_rc "builders refuse non-Debian/unpinned mirrors" 0 bash -c '
   ! ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20200101T000000Z Debian 2>/dev/null' _ "$ROOT" "$REL_PIN"
 expect_rc "ncz_pin_snapshot parses the released pin exactly (well formed, = both base.pin rows)" 0 bash -c '
   . "$1/build/lib/mirror-apt-opts.sh"; pin="$2"
-  printf "%s\n" "$pin" | grep -Eqx "[0-9]{8}T[0-9]{6}Z" &&
+  printf "%s\n" "$pin" | grep -Ex "[0-9]{8}T[0-9]{6}Z" >/dev/null &&
   [ "$(ncz_pin_snapshot "$1")" = "$pin" ] &&
   [ "$(awk -F"\t" "\$1==\"amd64\"{print \$4}" "$1/manifests/base.pin")" = "$pin" ] &&
   [ "$(awk -F"\t" "\$1==\"arm64\"{print \$4}" "$1/manifests/base.pin")" = "$pin" ]' _ "$ROOT" "$REL_PIN"
@@ -1193,9 +1193,9 @@ expect_rc "ncz_pin_snapshot rejects a malformed/oversized pin" 0 bash -c '
 printf 'NCZ_BASE_MIRROR_SNAPSHOT="20260101T000000Z"\nNCZ_BASE_MIRROR_SNAPSHOT="20200101T000000Z"\n' > "$T/badconf/release.conf"
 expect_rc "ncz_pin_snapshot rejects a duplicate assignment" 0 bash -c '
   . "'"$ROOT"'/build/lib/mirror-apt-opts.sh"; ! ncz_pin_snapshot "'"$T"'/badconf"'
-expect_rc "build-mgmt-rootfs.sh calls ncz_require_debian_forky" 0 grep -q ncz_require_debian_forky "$ROOT/build/build-mgmt-rootfs.sh"
-expect_rc "build-rescue-rootfs.sh calls ncz_require_debian_forky" 0 grep -q ncz_require_debian_forky "$ROOT/build/build-rescue-rootfs.sh"
-expect_rc "build-baked-rootfs.sh calls ncz_require_debian_forky" 0 grep -q ncz_require_debian_forky "$ROOT/build/build-baked-rootfs.sh"
+expect_rc "build-mgmt-rootfs.sh calls ncz_require_debian_forky" 0 grep  ncz_require_debian_forky "$ROOT/build/build-mgmt-rootfs.sh" >/dev/null
+expect_rc "build-rescue-rootfs.sh calls ncz_require_debian_forky" 0 grep  ncz_require_debian_forky "$ROOT/build/build-rescue-rootfs.sh" >/dev/null
+expect_rc "build-baked-rootfs.sh calls ncz_require_debian_forky" 0 grep  ncz_require_debian_forky "$ROOT/build/build-baked-rootfs.sh" >/dev/null
 expect_rc "trust metadata pin matches release.conf" 0 bash -c '
   [ "$(sed -n "s/^snapshot\t//p" "'"$ROOT"'/manifests/forky-snapshot.tsv")" = "$(sed -n "s/^NCZ_BASE_MIRROR_SNAPSHOT=\"\{0,1\}\([0-9TZ]*\)\"\{0,1\}.*/\1/p" "'"$ROOT"'/release.conf")" ]'
 # build/testdata/forky-snapshot/InRelease is the pinned snapshot's real signed
@@ -1373,45 +1373,45 @@ mk_srv_medium orphanpool good "$T/srv/payload-orphan" || bad "fixture: server me
 srvscan() { "${PROV[@]}" --image "$T/srvmed/$1/m.img" --work "$T/srvmed/work" --variant server --server-payload "${2:-$T/srv/payload-good}" 2>&1; }
 out="$(srvscan bad "$T/srv/payload")"
 for msg in "medium carries squashfs layer" "medium carries an offline apt pool" "no ncz-payload/ncz-fetch-payload.manifest"; do
-    grep -q "$msg" <<<"$out" && ok "scan_image server: '$msg' on a medium that has that defect" || bad "server wiring: '$msg' not reported" "$out"
+    grep  "$msg" <<<"$out" >/dev/null && ok "scan_image server: '$msg' on a medium that has that defect" || bad "server wiring: '$msg' not reported" "$out"
 done
 out="$(srvscan withpool)"
-grep -q "medium carries an offline apt pool" <<<"$out" && ok "scan_image server: a medium that still carries the offline apt pool fails (option B)" \
+grep  "medium carries an offline apt pool" <<<"$out" >/dev/null && ok "scan_image server: a medium that still carries the offline apt pool fails (option B)" \
     || bad "server wiring: a pool-carrying server medium passed" "$out"
 out="$(srvscan nopoolpay "$T/srv/payload-nopool")"
-grep -q "ncz-pool-amd64.tar.gz :: server payload file is missing" <<<"$out" && ok "scan_image server: a payload without the pool fails" \
+grep  "ncz-pool-amd64.tar.gz :: server payload file is missing" <<<"$out" >/dev/null && ok "scan_image server: a payload without the pool fails" \
     || bad "server wiring: a missing pool payload passed" "$out"
 out="$(srvscan good)"
-if grep -qE "medium carries|fetch manifest|does not pin what|does not match the receipt pin|offline apt pool is not fully authorized" <<<"$out"; then
+if grep -E "medium carries|fetch manifest|does not pin what|does not match the receipt pin|offline apt pool is not fully authorized" <<<"$out" >/dev/null; then
     bad "server wiring: a server-shaped medium with matching pins drew a server-check FAIL" "$out"
 else
     ok "scan_image server: a server-shaped medium whose manifest matches the receipt passes the server checks"
 fi
-grep -q "PAYLOAD  base.squashfs: sha256 matches the pin" <<<"$out" && ok "scan_image server: the payload is hashed against the pin and scanned" \
+grep  "PAYLOAD  base.squashfs: sha256 matches the pin" <<<"$out" >/dev/null && ok "scan_image server: the payload is hashed against the pin and scanned" \
     || bad "server wiring: the payload was not scanned" "$out"
-grep -q "PAYLOAD  ncz-pool-amd64.tar.gz: sha256 matches the pin, 1 pool packages checked" <<<"$out" \
+grep  "PAYLOAD  ncz-pool-amd64.tar.gz: sha256 matches the pin, 1 pool packages checked" <<<"$out" >/dev/null \
     && ok "scan_image server: the pool payload is hashed, unpacked, scanned and authorized" || bad "server wiring: the pool was not scanned" "$out"
-grep -q "offline apt pool is not fully authorized" <<<"$out" && bad "server wiring: a snapshot-authorized pool was not authorized" "$out" \
+grep  "offline apt pool is not fully authorized" <<<"$out" >/dev/null && bad "server wiring: a snapshot-authorized pool was not authorized" "$out" \
     || ok "scan_image server: a snapshot-authorized pool binds"
 out="$(srvscan orphanpool "$T/srv/payload-orphan")"
-grep -q "offline apt pool is not fully authorized" <<<"$out" && ok "scan_image server: a pool with an orphan deb is not authorized" \
+grep  "offline apt pool is not fully authorized" <<<"$out" >/dev/null && ok "scan_image server: a pool with an orphan deb is not authorized" \
     || bad "server wiring: an orphan-carrying pool was authorized" "$out"
-grep -q "the asset bundle carries no rescue rootfs tarball" <<<"$out" && ok "scan_image server: the gzip bundle is extracted and must carry the rescue rootfs" \
+grep  "the asset bundle carries no rescue rootfs tarball" <<<"$out" >/dev/null && ok "scan_image server: the gzip bundle is extracted and must carry the rescue rootfs" \
     || bad "server wiring: the bundle was not extracted/checked" "$out"
 out="$(srvscan junk "$T/srv/payload")"
-grep -q "the asset bundle is neither a gzip nor a zstd tar" <<<"$out" && ok "scan_image server: a bundle that is not a gzip/zstd tar fails (decided by its bytes)" \
+grep  "the asset bundle is neither a gzip nor a zstd tar" <<<"$out" >/dev/null && ok "scan_image server: a bundle that is not a gzip/zstd tar fails (decided by its bytes)" \
     || bad "server wiring: a junk asset bundle was not refused" "$out"
 out="$(NCZ_PROV_MAX_TAR_BYTES=10 srvscan good)"
-grep -q "gzip expands past 10 bytes" <<<"$out" && ok "a bundle that expands past the cap is refused" || bad "decompression cap not enforced" "$out"
+grep  "gzip expands past 10 bytes" <<<"$out" >/dev/null && ok "a bundle that expands past the cap is refused" || bad "decompression cap not enforced" "$out"
 out="$(srvscan tampered)"
-grep -q "does not pin what the receipt pins" <<<"$out" && ok "scan_image server: a medium manifest that differs from the receipt fails" \
+grep  "does not pin what the receipt pins" <<<"$out" >/dev/null && ok "scan_image server: a medium manifest that differs from the receipt fails" \
     || bad "server wiring: manifest/receipt mismatch not reported" "$out"
 out="$("${PROV[@]}" --image "$T/srvmed/good/m.img" --work "$T/srvmed/work" 2>&1)"
-grep -q "receipt records variant=server" <<<"$out" && ok "scan_image: a server medium scanned in desktop mode fails" \
+grep  "receipt records variant=server" <<<"$out" >/dev/null && ok "scan_image: a server medium scanned in desktop mode fails" \
     || bad "server medium accepted in desktop mode" "$out"
 printf '["not", "an", "object"]' > "$T/srvmed/good/m.img.receipt.json"
 out="$(srvscan good)"
-grep -q "receipt is not a JSON object" <<<"$out" && ok "a non-object receipt is reported as such" || bad "non-object receipt not reported" "$out"
+grep  "receipt is not a JSON object" <<<"$out" >/dev/null && ok "a non-object receipt is reported as such" || bad "non-object receipt not reported" "$out"
 
 echo
 echo "no-ubuntu tests: $PASS passed, $FAIL failed"

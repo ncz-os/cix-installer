@@ -74,9 +74,9 @@ if [ "$ARCH" = amd64 ]; then
         || { echo "UI CHECK FAIL: the capture harness failed (see $WORK/harness.log)" >&2; tail -5 "$WORK/harness.log" >&2; exit 1; }
     # The test channel is only as good as the copy that carried it: prove the booted test image (not the shipped
     # one) has both halves before judging anything the UART says.
-    grep -q 'ncz_ui_check=1' "$WORK/rules.readback" 2>/dev/null \
+    grep  'ncz_ui_check=1' "$WORK/rules.readback" 2>/dev/null >/dev/null \
         || { echo "UI CHECK FAIL (amd64): the test copy's ESP has no ncz_ui_check=1 preseed hook; the UART text cannot be trusted" >&2; exit 1; }
-    install_entry "$WORK/refind.conf" | grep -q 'console=ttyS0,115200' \
+    install_entry "$WORK/refind.conf" | grep  'console=ttyS0,115200' >/dev/null \
         || { echo "UI CHECK FAIL (amd64): the test copy's Install entry has no console=ttyS0,115200; d-i never drew on the UART" >&2; exit 1; }
     # The MONITOR is judged on its own boot. With console=ttyS0 last, d-i's newt draws on the UART only and the
     # framebuffer stays on a static screen (2026-10-26, Preview4 amd64: no fb-states, 2 distinct frames), so the
@@ -88,7 +88,7 @@ if [ "$ARCH" = amd64 ]; then
     "$PY" "$HERE/boot-screens.py" "$IMG" "$FBW" --arch "$ARCH" --interactive --secs "$SECS" --enter-every 6 --enter-after 25 \
         > "$FBW/harness.log" 2>&1 \
         || { echo "UI CHECK FAIL: the framebuffer capture harness failed (see $FBW/harness.log)" >&2; tail -5 "$FBW/harness.log" >&2; exit 1; }
-    if install_entry "$FBW/refind.conf" | grep -q 'console=ttyS0'; then
+    if install_entry "$FBW/refind.conf" | grep  'console=ttyS0' >/dev/null; then
         echo "UI CHECK FAIL (amd64): the framebuffer boot's Install entry carries a UART console; the monitor would not show d-i" >&2; exit 1
     fi
 else
@@ -173,9 +173,9 @@ if [ "$VARIANT" = server ]; then
         [ -z "$_hit" ] || { echo "UI CHECK FAIL: a Magnetar Server installer screen names the desktop codename 'Cygnus': $_hit" >&2; rc=1; }
         _hit=$(grep -lE -- "optional components|Full Singularity desktop" "${_srv_screens[@]}" 2>/dev/null | head -3 | tr '\n' ' ')
         [ -z "$_hit" ] || { echo "UI CHECK FAIL: the desktop component selector appeared on a Magnetar Server medium: $_hit" >&2; rc=1; }
-        grep -q -- "Magnetar Server - Step 1 of 7: Choose your country" "${_srv_screens[@]}" 2>/dev/null \
+        grep  -- "Magnetar Server - Step 1 of 7: Choose your country" "${_srv_screens[@]}" 2>/dev/null >/dev/null \
             || { echo "UI CHECK FAIL: the first server dialog is not titled 'Magnetar Server - Step 1 of 7: Choose your country'" >&2; rc=1; }
-        grep -qE -- "NCZ-OS [0-9.]+ Magnetar Server \|" "${_srv_screens[@]}" 2>/dev/null \
+        grep -E -- "NCZ-OS [0-9.]+ Magnetar Server \|" "${_srv_screens[@]}" 2>/dev/null >/dev/null \
             || { echo "UI CHECK FAIL: no server dialog carries the full edition name 'NCZ-OS 26.10 Magnetar Server' on its id line" >&2; rc=1; }
     fi
     _ncz_rule0_missing="the region dialog (answer rule 0 on a server medium) was never reached/answered"
@@ -206,26 +206,26 @@ else
         # The server record is fixed (preseed/component-selector.sh: rescue partition only), so the review lists no
         # components, and it must
         # state the network requirement before the erase.
-        ! grep -qE "Components:|Singularity" "$_review" \
+        ! grep -E "Components:|Singularity" "$_review" >/dev/null \
             || { echo "UI CHECK FAIL: the Magnetar Server review lists desktop components: $(grep -oE 'Components:.*|.*Singularity.*' "$_review" | head -1)" >&2; rc=1; }
-        grep -q "downloads about 3 GB" "$_review" \
+        grep  "downloads about 3 GB" "$_review" >/dev/null \
             || { echo "UI CHECK FAIL: the Magnetar Server review does not say the install downloads about 3 GB before the disk is erased" >&2; rc=1; }
     else
-        grep -q "Components: *Full Singularity desktop" "$_review" \
+        grep  "Components: *Full Singularity desktop" "$_review" >/dev/null \
             || { echo "UI CHECK FAIL: Enter on the component dialog did not keep the default (all components): $(grep -o 'Components:.*' "$_review" | head -1)" >&2; rc=1; }
     fi
-    grep -q "Rescue partition: *yes" "$_review" \
+    grep  "Rescue partition: *yes" "$_review" >/dev/null \
         || { echo "UI CHECK FAIL: the default rescue partition was lost: $(grep -o 'Rescue partition:.*' "$_review" | head -1)" >&2; rc=1; }
 fi
 # Name the two ways the 2026-10-26 arm64 capture went wrong instead of leaving only their symptoms (a syslog
 # window on the console, a short capture): the erase confirmation answered No, and the debconf frontend died.
-if grep -q "the operator did not confirm erasing" "$WORK/serial0.log" "$WORK"/serial-screens/*.txt 2>/dev/null; then
+if grep  "the operator did not confirm erasing" "$WORK/serial0.log" "$WORK"/serial-screens/*.txt 2>/dev/null >/dev/null; then
     echo "UI CHECK FAIL: the erase confirmation was answered No (the answer keys did not select Yes; see answers.log)" >&2; rc=1
 fi
 if grep -aq "lookup_directive: Assertion" "$WORK/serial0.log" 2>/dev/null; then
     echo "UI CHECK FAIL: the debconf frontend aborted (cdebconf lookup_directive assertion: a \${...} reached a displayed question)" >&2; rc=1
 fi
-if grep -q "not in the candidate set" "$WORK"/serial-screens/*.txt 2>/dev/null; then
+if grep  "not in the candidate set" "$WORK"/serial-screens/*.txt 2>/dev/null >/dev/null; then
     echo "UI CHECK FAIL: the disk chooser rejected its own answer (Choices/Choices-C swapped?)" >&2; rc=1
 fi
 if [ "$ARCH" = amd64 ]; then

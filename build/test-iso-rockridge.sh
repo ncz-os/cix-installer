@@ -69,7 +69,7 @@ for (p, n), r in sorted(recs.items(), key=lambda kv: (kv[0][0], kv[0][1] or ""))
     if n is not None:
         print("REC", (p + "/" + n) if p else n, "dir" if r["is_dir"] else ("link" if r["is_link"] else "file"), r["size"], "rr" if r["rr"] else "ecma")
 ' "$W/rr.iso" 2>&1)
-has() { grep -qxF "$1" <<<"$out"; }
+has() { grep -xF "$1" <<<"$out" >/dev/null; }
 has "REC dists/forky/main/debian-installer/binary-amd64/Packages.gz file $(stat -c%s "$S/dists/forky/main/debian-installer/binary-amd64/Packages.gz") rr" \
     && ok "debian-installer/binary-amd64/Packages.gz by its real path" \
     || no "d-i Packages.gz not found by its real path: $(grep -i packages <<<"$out" | head -3)"
@@ -80,7 +80,7 @@ has "REC pool/main/l/linux-signed-amd64/$LONG file 5 rr" \
     || no "long name truncated: $(grep -i kernel-image <<<"$out")"
 has "REC Mixed/CaseDir/ReadMe.TXT file 2 rr" && ok "mixed-case names are preserved" || no "mixed case lost"
 has "REC dists/testing link 0 rr" && ok "dists/testing is a symlink, not a file" || no "symlink not recognised: $(grep testing <<<"$out")"
-grep -q 'DEBIAN_I\|BINARY_A\|PACKAGES' <<<"$out" && no "a truncated ECMA-119 name leaked through" \
+grep  'DEBIAN_I\|BINARY_A\|PACKAGES' <<<"$out" >/dev/null && no "a truncated ECMA-119 name leaked through" \
                                               || ok "no truncated 8.3 identifier is reported"
 
 echo "R2 deep tree relocated into rr_moved (CL/RE)"
@@ -92,14 +92,14 @@ paths = {(p + "/" + n) if p else n for (p, n) in recs if n is not None}
 print("DEEP", "a/b/c/d/e/f/g/h/i/j/deepfile.txt" in paths)
 print("MOVED", any(x.split("/")[0] in ("rr_moved", ".rr_moved") for x in paths))
 ' "$W/deep.iso" 2>&1)
-    grep -q '^DEEP True$' <<<"$out" && ok "relocated directory found at its real path" || no "relocated dir lost: $out"
-    grep -q '^MOVED False$' <<<"$out" && ok "rr_moved is hidden" || no "rr_moved shown: $out"
+    grep  '^DEEP True$' <<<"$out" >/dev/null && ok "relocated directory found at its real path" || no "relocated dir lost: $out"
+    grep  '^MOVED False$' <<<"$out" >/dev/null && ok "rr_moved is hidden" || no "rr_moved shown: $out"
     xorriso -indev "$W/deep.iso" -find / -exec lsdl -- 2>/dev/null > "$W/deep.lsdl"
     out=$(py '
 data = open(sys.argv[1], "rb").read()
 print("VERIFY", fp.iso_verify(open(sys.argv[2]).read(), data, "t") is not None, len(fp.FAILS))
 ' "$W/deep.iso" "$W/deep.lsdl" 2>&1)
-    grep -q '^VERIFY True 0$' <<<"$out" && ok "the relocated tree verifies against xorriso's listing" || no "deep verify: $out"
+    grep  '^VERIFY True 0$' <<<"$out" >/dev/null && ok "the relocated tree verifies against xorriso's listing" || no "deep verify: $out"
 else
     sk "this xorriso cannot write -rr_reloc_dir"
 fi
@@ -109,8 +109,8 @@ rc=0; out=$(python3 -I "$PY" --ubuntu-only --work "$W/work" --iso-evidence "$W/e
     --substrate-iso "$W/rr.iso" 2>&1) || rc=$?
 L="$W/ev/iso-listing.txt"
 [ "$rc" = 0 ] && [ -s "$L" ] && ok "--iso-evidence wrote $(wc -l < "$L") lines (rc=0)" || no "--iso-evidence rc=$rc: $out"
-head -1 "$L" | grep -q '^# ncz iso-listing v2' && ok "listing carries the v2 header" || no "no v2 header"
-grep -qF "'/dists/forky/main/debian-installer/binary-amd64/Packages.gz'" "$L" \
+head -1 "$L" | grep  '^# ncz iso-listing v2' >/dev/null && ok "listing carries the v2 header" || no "no v2 header"
+grep -F "'/dists/forky/main/debian-installer/binary-amd64/Packages.gz'" "$L" >/dev/null \
     && ok "listing names the full Rock Ridge path" || no "listing lacks the full path"
 verify() {  # listing -> "VERIFY <bool> <fails>"
     py '
@@ -118,21 +118,21 @@ data = open(sys.argv[1], "rb").read()
 print("VERIFY", fp.iso_verify(open(sys.argv[2]).read(), data, "t") is not None, len(fp.FAILS))
 ' "$W/rr.iso" "$1" 2>&1
 }
-grep -q '^VERIFY True 0$' <<<"$(verify "$L")" && ok "iso_verify accepts the ISO's own listing" || no "own listing refused: $(verify "$L")"
+grep  '^VERIFY True 0$' <<<"$(verify "$L")" >/dev/null && ok "iso_verify accepts the ISO's own listing" || no "own listing refused: $(verify "$L")"
 sed "s#^\(-[^']* \)11 \(.*Packages'\)\$#\112 \2#" "$L" > "$W/bad-size.txt"
 cmp -s "$L" "$W/bad-size.txt" && no "fixture edit did not change the size" || true
-grep -q '^VERIFY False' <<<"$(verify "$W/bad-size.txt")" && ok "a tampered file size is refused" || no "tampered size accepted"
+grep  '^VERIFY False' <<<"$(verify "$W/bad-size.txt")" >/dev/null && ok "a tampered file size is refused" || no "tampered size accepted"
 grep -v "ReadMe.TXT'" "$L" > "$W/bad-drop.txt"
-grep -q '^VERIFY False' <<<"$(verify "$W/bad-drop.txt")" && ok "a dropped member is refused" || no "dropped member accepted"
+grep  '^VERIFY False' <<<"$(verify "$W/bad-drop.txt")" >/dev/null && ok "a dropped member is refused" || no "dropped member accepted"
 grep -v "/Mixed" "$L" > "$W/bad-dir.txt"
-grep -q '^VERIFY False' <<<"$(verify "$W/bad-dir.txt")" && ok "a dropped directory subtree is refused" || no "dropped subtree accepted"
+grep  '^VERIFY False' <<<"$(verify "$W/bad-dir.txt")" >/dev/null && ok "a dropped directory subtree is refused" || no "dropped subtree accepted"
 sed "s#'/dists/testing' -> 'forky'#'/dists/testing'#; s#^l\(r.*'/dists/testing'\)#-\1#" "$L" > "$W/bad-link.txt"
-grep -q '^VERIFY False' <<<"$(verify "$W/bad-link.txt")" && ok "a symlink listed as a file is refused" || no "symlink-as-file accepted"
+grep  '^VERIFY False' <<<"$(verify "$W/bad-link.txt")" >/dev/null && ok "a symlink listed as a file is refused" || no "symlink-as-file accepted"
 xorriso -indev "$W/rr.iso" -ls / > "$W/old-ls.txt" 2>/dev/null
-grep -q '^VERIFY False' <<<"$(verify "$W/old-ls.txt")" && ok "the old short '-ls' listing is refused (empty)" || no "old -ls listing accepted"
+grep  '^VERIFY False' <<<"$(verify "$W/old-ls.txt")" >/dev/null && ok "the old short '-ls' listing is refused (empty)" || no "old -ls listing accepted"
 cp "$L" "$W/bad-line.txt"
 printf "%s\n" "-r--r--r--    1 0 0 x Oct 26 03:13 '/broken'" >> "$W/bad-line.txt"
-grep -q '^VERIFY False' <<<"$(verify "$W/bad-line.txt")" && ok "an unparseable entry line fails" || no "unparseable line accepted"
+grep  '^VERIFY False' <<<"$(verify "$W/bad-line.txt")" >/dev/null && ok "an unparseable entry line fails" || no "unparseable line accepted"
 out=$(py '
 w, i = fp._xorriso_word(sys.argv[1], 0)
 print("WORD", repr(w), i)
@@ -147,7 +147,7 @@ out=$(py '
 recs = fp.read_iso_records(open(sys.argv[1], "rb").read())
 print(sorted(((p + "/" + n) if p else n, r["rr"]) for (p, n), r in recs.items() if n))
 ' "$W/plain.iso" 2>&1)
-grep -q "('POOL/MAIN/A.UDEB', False)" <<<"$out" && ok "ECMA-119 identifiers, rr=False: $out" || no "plain ISO: $out"
+grep  "('POOL/MAIN/A.UDEB', False)" <<<"$out" >/dev/null && ok "ECMA-119 identifiers, rr=False: $out" || no "plain ISO: $out"
 
 echo "R5 the real Debian netinst"
 REAL="${NCZ_REAL_NETINST:-}"
@@ -170,10 +170,10 @@ print("UDEBS", sum(1 for x in names if x.endswith(".udeb")))
 print("VERIFY", fp.iso_verify(open(sys.argv[2]).read(), data, "t") is not None, len(fp.FAILS))
 ' "$REAL" "$W/real.lsdl" 2>&1)
     echo "    $(basename "$REAL"): $(tr '\n' ' ' <<<"$out")"
-    grep -qE '^DI [1-9]' <<<"$out" && ok "d-i Packages index found by its real path" || no "real netinst: no d-i Packages: $out"
-    grep -q '^TRUNC 0$' <<<"$out" && ok "no truncated DEBIAN_I path" || no "truncated names on the real netinst"
-    grep -qE '^UDEBS [1-9]' <<<"$out" && ok "pool udebs found" || no "no udebs found"
-    grep -q '^VERIFY True 0$' <<<"$out" && ok "xorriso's listing of the real netinst verifies" || no "real listing refused: $out"
+    grep -E '^DI [1-9]' <<<"$out" >/dev/null && ok "d-i Packages index found by its real path" || no "real netinst: no d-i Packages: $out"
+    grep  '^TRUNC 0$' <<<"$out" >/dev/null && ok "no truncated DEBIAN_I path" || no "truncated names on the real netinst"
+    grep -E '^UDEBS [1-9]' <<<"$out" >/dev/null && ok "pool udebs found" || no "no udebs found"
+    grep  '^VERIFY True 0$' <<<"$out" >/dev/null && ok "xorriso's listing of the real netinst verifies" || no "real listing refused: $out"
 else
     sk "no real netinst ISO here (set NCZ_REAL_NETINST)"
 fi

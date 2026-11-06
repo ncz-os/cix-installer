@@ -68,14 +68,14 @@ fi
     && ok "the reordered pair still sits between image (#$im) and kvm-gate (#$kg)" \
     || bad "gate order broken around image/kvm-gate (im=$im pg=$pg kg=$kg)"
 
-# The plan is read ONCE into a variable: `... | grep -q` under `set -o
+# The plan is read ONCE into a variable: `... | grep ` under `set -o >/dev/null
 # pipefail` returns 141 (grep exits at the first match, the writer gets
-# SIGPIPE, pipefail propagates it), so a piped `grep -q` reports "not found"
+# SIGPIPE, pipefail propagates it), so a piped `grep ` reports "not found" >/dev/null
 # for a line that IS present.  Herestrings have no pipe and no SIGPIPE.
 PLAN="$(bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null)"
 # both gates stay MANDATORY: neither may ever be listed [off ...]
 for g in provenance-gate secret-scan; do
-    if grep -qE "^[[:space:]]+\[off *\] [0-9]+ ${g}$" <<<"$PLAN"; then
+    if grep -E "^[[:space:]]+\[off *\] [0-9]+ ${g}$" <<<"$PLAN" >/dev/null; then
         bad "$g is switchable off in the default plan"
     else
         ok "$g is not switchable off in the default plan"
@@ -83,7 +83,7 @@ for g in provenance-gate secret-scan; do
 done
 # ... and both are RUN (not skip) in the default --full plan
 for g in provenance-gate secret-scan; do
-    grep -qE "^[[:space:]]+\[run *\] [0-9]+ ${g}$" <<<"$PLAN" \
+    grep -E "^[[:space:]]+\[run *\] [0-9]+ ${g}$" <<<"$PLAN" >/dev/null \
         && ok "the default plan RUNS $g" || bad "the default plan does not run $g"
 done
 
@@ -149,7 +149,7 @@ else
     printf '%s\n' "$inner" | head -5
 fi
 # the outer tee in run_stage() is what writes the log -- it must still be there
-awk '/^run_stage\(\) \{/{f=1} f&&/^\}/{exit} f' "$BIN" | grep -q 'tee -a "\$log"' \
+awk '/^run_stage\(\) \{/{f=1} f&&/^\}/{exit} f' "$BIN" | grep  'tee -a "\$log"' >/dev/null \
     && ok "run_stage() still writes the stage log through a single tee" \
     || bad "run_stage() lost its single tee -- the stage log would be empty"
 
@@ -359,7 +359,7 @@ fi
 # sub-script and print it once (never `| tee -a "$log"` -- section 3 forbids it).
 for fn in stage_kvm_gate stage_kvm_gate_server; do
     body="$(awk -v f="^$fn\\\\(\\\\)" '$0 ~ f { fn=1; next } fn && /^}/ { exit } fn' "$BIN")"
-    if grep -qE '^[[:space:]]*(gate_out|set_out)=' <<<"$body" && grep -q 'printf' <<<"$body"; then
+    if grep -E '^[[:space:]]*(gate_out|set_out)=' <<<"$body" >/dev/null && grep -q 'printf' <<<"$body"; then
         ok "$fn uses the capture+printf shape 4c exercises"
     else
         bad "$fn no longer uses the capture+printf shape -- 4c no longer covers a real stage"

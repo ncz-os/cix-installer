@@ -90,13 +90,13 @@ run() {
 setup 3840,2160 60 graphics ok; run
 [ "$RC" = 0 ] && ok "graphics-mode console exits 0" || bad "graphics-mode console rc=$RC: $OUT"
 [ -z "$CALLS" ] && ok "graphics-mode console: setfont not run" || bad "graphics-mode console ran setfont: $CALLS"
-grep -q 'graphics mode' <<<"$OUT" && ok "graphics-mode console logs why the font was left" \
+grep  'graphics mode' <<<"$OUT" >/dev/null && ok "graphics-mode console logs why the font was left" \
     || bad "graphics-mode console: no log line ($OUT)"
 
 # 2. kbdinfo says text, then setfont reports the real kernel refusal (race).
 setup 3840,2160 60 text graphics; run
 [ "$RC" = 0 ] && ok "setfont 'Console is not in text mode' exits 0" || bad "setfont text-mode refusal rc=$RC: $OUT"
-grep -q 'graphics mode; console font left unchanged' <<<"$OUT" \
+grep  'graphics mode; console font left unchanged' <<<"$OUT" >/dev/null \
     && ok "setfont text-mode refusal is logged" || bad "setfont text-mode refusal not logged ($OUT)"
 
 # 3. kbdinfo unavailable: setfont's own refusal is still classified.
@@ -108,7 +108,7 @@ setup 3840,2160 60 text ok; run
 [ "$RC" = 0 ] && ok "text-mode console exits 0" || bad "text-mode console rc=$RC: $OUT"
 [ "$CALLS" = "-C /dev/tty0 Lat15-Terminus20x10" ] && ok "text-mode console: setfont -C /dev/tty0 Lat15-Terminus20x10" \
     || bad "text-mode console setfont args: '$CALLS'"
-grep -q 'font set to Lat15-Terminus20x10' <<<"$OUT" && ok "text-mode success is logged" || bad "no success log ($OUT)"
+grep  'font set to Lat15-Terminus20x10' <<<"$OUT" >/dev/null && ok "text-mode success is logged" || bad "no success log ($OUT)"
 
 # 5. Text-mode success, Retina-class panel: 3072 px over 34 cm = 229 DPI -> 32x16.
 setup 3072,1920 34 text ok; run
@@ -124,24 +124,24 @@ setup 3840,2160 0 text ok; run
 setup 3840,2160 0 text ok
 PATH="$T/case/bin:$PATH" NCZ_CONSOLE_TTY=/dev/tty3 NCZ_FB_VIRTUAL_SIZE="$T/case/virtual_size" \
     NCZ_DRM_SYSFS="$T/case/drm" NCZ_CONSOLEFONTS_DIR="$T/case/fonts" NCZ_VTCONSOLE_SYSFS="$T/case/vtcon" sh "$S" >/dev/null 2>&1
-grep -q -- '-C /dev/tty3 getmode' "$T/case/kbdinfo.calls" 2>/dev/null && grep -q -- '-C /dev/tty3 ' "$T/case/setfont.calls" 2>/dev/null \
+grep  -- '-C /dev/tty3 getmode' "$T/case/kbdinfo.calls" 2>/dev/null >/dev/null && grep  -- '-C /dev/tty3 ' "$T/case/setfont.calls" 2>/dev/null >/dev/null \
     && ok "NCZ_CONSOLE_TTY targets that console" || bad "NCZ_CONSOLE_TTY not honoured"
 
 # 8. Missing display: no fb0 -> exit 0 with a log line, setfont not run.
 setup "" "" text ok; run
 [ "$RC" = 0 ] && ok "missing display exits 0" || bad "missing display rc=$RC: $OUT"
 [ -z "$CALLS" ] && ok "missing display: setfont not run" || bad "missing display ran setfont: $CALLS"
-grep -q 'no framebuffer console' <<<"$OUT" && ok "missing display is logged" || bad "missing display not logged ($OUT)"
+grep  'no framebuffer console' <<<"$OUT" >/dev/null && ok "missing display is logged" || bad "missing display not logged ($OUT)"
 
 # 9. Low-DPI large display: kernel default kept, exit 0, logged.
 setup 1920,1080 100 text ok; run
-[ "$RC" = 0 ] && [ -z "$CALLS" ] && grep -q 'kernel default font kept' <<<"$OUT" \
+[ "$RC" = 0 ] && [ -z "$CALLS" ] && grep  'kernel default font kept' <<<"$OUT" >/dev/null \
     && ok "low-DPI display keeps the kernel font (logged)" || bad "low-DPI path rc=$RC calls='$CALLS' out=$OUT"
 
 # 10. A real setfont failure still fails the unit.
 setup 3840,2160 60 text notfound; run
 [ "$RC" = 1 ] && ok "other setfont error still exits 1" || bad "other setfont error rc=$RC"
-grep -q 'Unable to find file' <<<"$OUT" && grep -q 'setfont Lat15-Terminus20x10 failed' <<<"$OUT" \
+grep  'Unable to find file' <<<"$OUT" >/dev/null && grep  'setfont Lat15-Terminus20x10 failed' <<<"$OUT" >/dev/null \
     && ok "other setfont error is reported with setfont's message" || bad "setfont error not reported ($OUT)"
 
 # 11. Missing font file still fails the unit.
@@ -154,7 +154,7 @@ setup 3840,2160 60 text ok; rm -f "$T/case/fonts/Lat15-Terminus20x10.psf.gz"; ru
 setup 1280,800 30 text dummy dummy; run
 [ "$RC" = 0 ] && ok "dummy console only (deferred takeover) exits 0" || bad "dummy console rc=$RC: $OUT"
 [ -z "$CALLS" ] && ok "dummy console: setfont not run" || bad "dummy console ran setfont: $CALLS"
-grep -q 'takeover deferred' <<<"$OUT" && ok "dummy console logs the deferred takeover" || bad "dummy console not logged ($OUT)"
+grep  'takeover deferred' <<<"$OUT" >/dev/null && ok "dummy console logs the deferred takeover" || bad "dummy console not logged ($OUT)"
 
 # 13. fbcon registered but not yet bound (bind=0), dummy still bound: same as 12.
 setup 1280,800 30 text dummy dummy
@@ -188,7 +188,7 @@ if [ -s "$R" ]; then
         && ok "udev rule restarts the unit when a non-dummy vtconsole is added" || bad "vtconsole udev rule missing or changed: $(cat "$R")"
     grep -E '^ACTION=="add", SUBSYSTEM=="graphics", KERNEL=="fb0", RUN\+="/usr/bin/systemctl --no-block restart ncz-console-font-autosize.service"$' "$R" >/dev/null \
         && ok "udev rule restarts the unit when fb0 is added" || bad "fb0 udev rule missing or changed"
-    grep -v '^#' "$R" | grep -q -- 'restart' && ! grep -v '^#' "$R" | grep -q -- 'systemctl restart' \
+    grep -v '^#' "$R" | grep  -- 'restart' >/dev/null && ! grep -v '^#' "$R" | grep  -- 'systemctl restart' >/dev/null \
         && ok "udev restarts are --no-block" || bad "a udev rule restarts without --no-block (would stall udev)"
     if command -v udevadm >/dev/null 2>&1; then
         cp "$R" "$T/90-ncz-console-font-autosize.rules"
@@ -210,14 +210,14 @@ for a in systemd-vconsole-setup.service systemd-udev-trigger.service local-fs.ta
     key After | grep >/dev/null -x "$a" && ok "unit After=$a" || bad "unit not ordered After=$a"
 done
 key Conflicts | grep >/dev/null -x shutdown.target && ok "unit Conflicts=shutdown.target" || bad "unit lacks Conflicts=shutdown.target"
-if grep -qE '^(Requires|RequiredBy|BindsTo|Requisite)=' "$U"; then
+if grep -E '^(Requires|RequiredBy|BindsTo|Requisite)=' "$U" >/dev/null; then
     bad "unit has a hard dependency that could block greetd"
 else
     ok "no hard dependency: a failure cannot block greetd"
 fi
-grep -qE '^TimeoutStartSec=[0-9]+s?$' "$U" && ok "unit start time is bounded" || bad "unit has no start timeout"
+grep -E '^TimeoutStartSec=[0-9]+s?$' "$U" >/dev/null && ok "unit start time is bounded" || bad "unit has no start timeout"
 key WantedBy | grep >/dev/null -x sysinit.target && ok "unit WantedBy=sysinit.target" || bad "unit install target changed"
-if [ -f "$SPLASH" ] && grep -qE '^(After|Before)=.*ncz-console-font-autosize' "$SPLASH"; then
+if [ -f "$SPLASH" ] && grep -E '^(After|Before)=.*ncz-console-font-autosize' "$SPLASH" >/dev/null; then
     bad "boot splash unit orders itself against the font unit (cycle risk)"
 else
     ok "boot splash unit has no reverse ordering against the font unit"

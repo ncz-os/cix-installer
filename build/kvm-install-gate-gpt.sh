@@ -170,7 +170,7 @@ ncz_gate_server_brand() {
     done
     l=$(grep -E '^(PRETTY_NAME|VERSION|VARIANT)=' "$osr" 2>/dev/null | grep -i cygnus || true)
     [ -z "$l" ] || { echo "FAIL: os-release names the desktop codename: $(printf '%s' "$l" | tr '\n' ' ')"; bad=1; }
-    if grep -q 'Magnetar Server' "$iss" 2>/dev/null; then echo "ok: /etc/issue names Magnetar Server"
+    if grep  'Magnetar Server' "$iss" 2>/dev/null >/dev/null; then echo "ok: /etc/issue names Magnetar Server"
     else echo "FAIL: /etc/issue does not name 'Magnetar Server' (got: $(head -1 "$iss" 2>/dev/null))"; bad=1; fi
     l=$(grep -i cygnus "$iss" 2>/dev/null || true)
     [ -z "$l" ] || { echo "FAIL: /etc/issue names the desktop codename: $l"; bad=1; }
@@ -340,7 +340,7 @@ CFG="$WORK/refind.conf"
 rm -f "$CFG"
 mcopy -i "$TEST_IMG@@$ESP_OFF" ::/EFI/BOOT/refind.conf "$CFG" \
   || { echo "GATE FAIL: no EFI/BOOT/refind.conf on the ESP" >&2; exit 2; }
-grep -q 'NCZ-OS Installer -- Install' "$CFG" \
+grep  'NCZ-OS Installer -- Install' "$CFG" >/dev/null \
   || { echo "GATE FAIL: refind.conf has no Install menuentry" >&2; exit 2; }
 
 # Answers d-i would otherwise stop for. The baked preseed deliberately leaves
@@ -419,11 +419,11 @@ mcopy -o -i "$TEST_IMG@@$ESP_OFF" "$CFG" ::/EFI/BOOT/refind.conf \
 VERIFY="$WORK/refind.conf.readback"
 rm -f "$VERIFY"
 mcopy -i "$TEST_IMG@@$ESP_OFF" ::/EFI/BOOT/refind.conf "$VERIFY"
-grep -q 'ncz_unattended=1' "$VERIFY" \
+grep  'ncz_unattended=1' "$VERIFY" >/dev/null \
   || { echo "GATE FAIL: patched refind.conf did not make it onto the ESP" >&2; exit 2; }
-grep -qE '^default_selection "NCZ-OS Installer -- Install"$' "$VERIFY" \
+grep -E '^default_selection "NCZ-OS Installer -- Install"$' "$VERIFY" >/dev/null \
   || { echo "GATE FAIL: default_selection is not a real directive on the ESP (landed in a comment?)" >&2; exit 2; }
-grep -qE '^timeout 1$' "$VERIFY" \
+grep -E '^timeout 1$' "$VERIFY" >/dev/null \
   || { echo "GATE FAIL: timeout was not reduced on the ESP" >&2; exit 2; }
 echo "    ESP readback confirms options, default_selection and timeout"
 
@@ -817,7 +817,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" = 1 ]; then
                     if [ -s "$_neg_installed" ]; then
                         fail "negative server run: an extraction ran despite the fetch failure"
                     fi
-                    if grep -q '^Inode:' "$_neg_varls"; then
+                    if grep  '^Inode:' "$_neg_varls" >/dev/null; then
                         fail "negative server run: /var/lib/dpkg on the target disk -- debootstrap wrote to the target despite the fetch failure"
                     fi
                     echo "  negative run: the root partition holds no os-release, no extracted tree, no dpkg database -- nothing was installed"
@@ -879,7 +879,7 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
             OPTION_FAIL="$OPTION_FAIL; the installed ESP has no EFI/BOOT/$_bootbin"
         fi
         if [ -s "$EVIDENCE/installed-refind.conf" ]; then
-            if grep -q '^menuentry .*Rescue Partition' "$EVIDENCE/installed-refind.conf"; then _has_rp=1; else _has_rp=0; fi
+            if grep  '^menuentry .*Rescue Partition' "$EVIDENCE/installed-refind.conf" >/dev/null; then _has_rp=1; else _has_rp=0; fi
             [ "$_has_rp" = "$WANT_RESCUE" ] || OPTION_FAIL="$OPTION_FAIL; installed rEFInd Rescue Partition entry present=$_has_rp, rescue-partition selected=$WANT_RESCUE"
             if [ "$WANT_DESKTOP" = 0 ]; then
                 grep -qE '^default_selection ".*Console[^"]*"$' "$EVIDENCE/installed-refind.conf" \
@@ -978,7 +978,7 @@ fi
 
 echo
 echo "[5/6] checking the install log"
-grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i |Linux version|Starting linux|Installing the base system|Starting NCZ-OS post-install plan" "$ILOG" \
+grep -E "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i |Linux version|Starting linux|Installing the base system|Starting NCZ-OS post-install plan" "$ILOG" >/dev/null \
   || fail "the installer never started (qemu rc=$irc) -- see $ILOG"
 
 # No braille in the installer. Phase 1 attaches an emulated USB-serial adapter
@@ -997,16 +997,16 @@ grep -qE "NCZ-OS INSTALLER|Debian installer|Starting system message bus|d-i |Lin
 # host 2026-10-12, `-device usb-serial,bus=xhci.0` (without -usb) is NOT
 # enumerated by the d-i guest at all, which makes the check vacuous; the probe
 # log lists the guest's USB ids so the devices' presence is on record.
-if grep -qai "indeed a braille device" "$ILOG"; then
+if grep -ai "indeed a braille device" "$ILOG" >/dev/null; then
     grep -ai -B2 -A4 "braille device" "$ILOG" | head -20 >&2
     fail "the installer asked the brltty 'Is the USB serial device indeed a braille device?' question -- the installer must carry no brltty"
 fi
 probe_verdict="$("$SCRIPT_DIR/kvm-installer-probe.sh" judge "$PROBE_LOG")" \
   || fail "installer probe ($PROBE_LOG): $probe_verdict"
 echo "  $probe_verdict"
-grep -q "usb .* 0403:fe72" "$PROBE_LOG" \
+grep  "usb .* 0403:fe72" "$PROBE_LOG" >/dev/null \
   || fail "installer probe: the emulated USB braille display (0403:fe72) was not seen by the guest -- the no-brltty check would be vacuous"
-grep -q "usb .* 0403:6001" "$PROBE_LOG" \
+grep  "usb .* 0403:6001" "$PROBE_LOG" >/dev/null \
   || fail "installer probe: the emulated USB-serial adapter (0403:6001) was not seen by the guest -- the no-brltty check would be vacuous"
 
 # The gaps this session fixed, each with its own message, so a failure names
@@ -1018,10 +1018,10 @@ grep -q "usb .* 0403:6001" "$PROBE_LOG" \
 grep -aqE "==== NCZ-OS INSTALLER [^ ]+ ==== diagnostics login: root / [^ ]{4,}" "$ILOG" \
   || fail "the installer boot banner does not show the diagnostics login line (preseed/ncz-ui.sh ncz_ui_diag_login)"
 echo "  installer banner shows the diagnostics login line"
-if grep -q "is NOT the NCZ squashfs stub" "$ILOG"; then
+if grep  "is NOT the NCZ squashfs stub" "$ILOG" >/dev/null; then
     fail "the r159 debootstrap stub was not installed -- see /var/log/ncz-debootstrap-stub.log in the guest"
 fi
-if grep -qE "no post-install/ on the install media AND none baked" "$ILOG"; then
+if grep -E "no post-install/ on the install media AND none baked" "$ILOG" >/dev/null; then
     fail "late.sh found no post-install scripts on the medium or in the image"
 fi
 # AUTHORITATIVE FIRST: post-install writes one row per step to progress.tsv,
@@ -1029,7 +1029,7 @@ fi
 # matching the serial log, because the serial log cannot distinguish a real
 # failure from d-i quoting the text of a command that failed (see below).
 PROGRESS_TSV="$EVIDENCE/cix-install/progress.tsv"
-if [ -f "$PROGRESS_TSV" ] && grep -q "^[0-9]*|[0-9]*|FAIL|" "$PROGRESS_TSV"; then
+if [ -f "$PROGRESS_TSV" ] && grep  "^[0-9]*|[0-9]*|FAIL|" "$PROGRESS_TSV" >/dev/null; then
     echo "  post-install step record ($PROGRESS_TSV):" >&2
     grep -E "^[0-9]*\|[0-9]*\|(FAIL|SKIP)\|" "$PROGRESS_TSV" | sed 's/^/    /' >&2
     failed_step="$(grep -m1 "^[0-9]*|[0-9]*|FAIL|" "$PROGRESS_TSV" | cut -d'|' -f7)"
@@ -1057,17 +1057,17 @@ fi
 # late.sh never runs, so no progress.tsv is produced and control reaches
 # here legitimately. If late.sh did run, progress.tsv exists and the check
 # above has already reported the real failing step.
-if grep -qE "\[ncz\] FATAL: (disk-fs-chooser|extract-rootfs|late)\.sh not found on install media" "$ILOG"; then
+if grep -E "\[ncz\] FATAL: (disk-fs-chooser|extract-rootfs|late)\.sh not found on install media" "$ILOG" >/dev/null; then
     fail "a payload script was not found on the medium -- the data partition may be empty"
 fi
 # Server runs too: the negative server run exits before this point
 # (GATE PASS (server-offline-negative) above), so only a positive install
 # reaches here, and a failed preseeded command must fail it as on desktop.
-if grep -qE "Failed to run preseeded command|failed with exit code|install aborts|70-bootloader\.sh FAILED rc=|Post-install failed: bootloader rc=|refusing to ship a broken install|refusing to boot" "$ILOG"; then
+if grep -E "Failed to run preseeded command|failed with exit code|install aborts|70-bootloader\.sh FAILED rc=|Post-install failed: bootloader rc=|refusing to ship a broken install|refusing to boot" "$ILOG" >/dev/null; then
     grep -nE -B3 -A6 "Failed to run preseeded command|failed with exit code|install aborts|70-bootloader\.sh FAILED rc=|Post-install failed: bootloader rc=|refusing to ship a broken install|refusing to boot" "$ILOG" | head -50 >&2
     fail "a preseeded command failed"
 fi
-if grep -qE "Kernel panic - not syncing" "$ILOG"; then
+if grep -E "Kernel panic - not syncing" "$ILOG" >/dev/null; then
     grep -nE -A10 "Kernel panic" "$ILOG" | head -30 >&2
     fail "kernel panic during install"
 fi
@@ -1088,7 +1088,7 @@ if ncz_norm_log "$ILOG" | grep >/dev/null -ai "Ship-critical post-install hooks 
     fail "a ship-critical post-install hook failed -- the install is not shippable"
 fi
 
-grep -qE "post-install hooks finished|finalizing apt sources|forcing clean reboot|nclawzero post-install complete|Post-install completed successfully|Completed with optional-step warnings" "$ILOG" \
+grep -E "post-install hooks finished|finalizing apt sources|forcing clean reboot|nclawzero post-install complete|Post-install completed successfully|Completed with optional-step warnings" "$ILOG" >/dev/null \
   || fail "install did not reach the finish stage -- qemu rc=${irc:-?} (rc=124 means the ${INSTALL_TIMEOUT}s timeout expired; any other rc means the run was terminated early, which is NOT a timeout) -- see $ILOG"
 echo "  install reached the finish stage with no ship-critical hook failure"
 # MAGNETAR(server): the payload came off the network; prove the fetcher
@@ -1143,7 +1143,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     [ -s "$_SRV_ROOT" ] || fail "server gate: could not extract the installed root partition from $DISK (qemu-img/sgdisk failed), so the installed-root assertions cannot run"
     EVIDENCE_ROOT="$_SRV_ROOT"
     "$DEBUGFS" -R "ls -p /etc/systemd/system/multi-user.target.wants" "$EVIDENCE_ROOT" > "$_ssh_want" 2>&1 || true
-    if grep -q 'ssh.service' "$_ssh_want"; then
+    if grep  'ssh.service' "$_ssh_want" >/dev/null; then
         echo "  server gate: ssh.service is enabled on the installed root (SSH listens on first boot)"
     else
         fail "server gate: ssh.service is not enabled under multi-user.target.wants -- a headless server that cannot be reached over SSH"
@@ -1156,8 +1156,8 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
               /etc/systemd/system/telnetd.socket /etc/systemd/system/sockets.target.wants/telnetd.socket \
               /etc/systemd/system/busybox-telnetd.socket /etc/systemd/system/ncz-failsafe.service; do
         _st=$("$DEBUGFS" -R "stat $_u" "$EVIDENCE_ROOT" 2>&1)
-        if printf '%s\n' "$_st" | grep -q '^Inode:' \
-           && ! printf '%s\n' "$_st" | grep -qF 'link dest: "/dev/null"'; then
+        if printf '%s\n' "$_st" | grep  '^Inode:' >/dev/null \
+           && ! printf '%s\n' "$_st" | grep -F 'link dest: "/dev/null"' >/dev/null; then
             _telnet_wants="$_telnet_wants ${_u##*/}"
         fi
     done
@@ -1185,7 +1185,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ -s "$EVIDENCE/installed-refind.conf" ]; then
     [ "$_m_total" -le 2 ] || fail "server gate: the installed rEFInd menu has $_m_total entries (server menu is Console + Rescue Partition only; got: $(grep '^menuentry ' "$EVIDENCE/installed-refind.conf" | sed 's/^menuentry \"//; s/\" {.*//' | sort | paste -sd', ' -))"
     # "7.3 Mali", not "Mali": the arm64 server Console entry is titled
     # "7.3 Console (All Accelerators, Mali)" and is the entry that must stay.
-    if grep -qE '^menuentry .*(\(Default\)|7\.3 Mali|Panthor|Rescue / No Accelerators)' "$EVIDENCE/installed-refind.conf"; then
+    if grep -E '^menuentry .*(\(Default\)|7\.3 Mali|Panthor|Rescue / No Accelerators)' "$EVIDENCE/installed-refind.conf" >/dev/null; then
         fail "server gate: the installed rEFInd menu still carries a desktop/graphical entry: $(grep -E '^menuentry .*(\(Default\)|7\.3 Mali|Panthor|Rescue / No Accelerators)' "$EVIDENCE/installed-refind.conf" | head -3)"
     fi
     grep -qE '^default_selection ".*Console' "$EVIDENCE/installed-refind.conf" \
@@ -1251,7 +1251,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     rm -f "$_dpkg_status" "$WORK/.server-variant" "$_SRV_ROOT"
     EVIDENCE_ROOT=""  # the raw root image is consumed; nothing downstream re-reads it
 fi
-grep -q "ORPHAN" "$ILOG" && { echo "  WARNING: orphaned hooks reported:" >&2; grep "ORPHAN" "$ILOG" | head -10 >&2; } || true
+grep  "ORPHAN" "$ILOG" >/dev/null && { echo "  WARNING: orphaned hooks reported:" >&2; grep "ORPHAN" "$ILOG" | head -10 >&2; } || true
 
 # Optional-hook failures do NOT fail the gate: run-all.sh runs Phase 2 in the
 # fail-tolerant phase deliberately, so the bootloader always gets written. But
@@ -1290,13 +1290,13 @@ set -e
 cat "$WORK/boot-serial0.log" >> "$BLOG" 2>/dev/null
 echo "  qemu rc=$brc"
 
-grep -qE "Linux version|Booting Linux|Starting vmlinuz-" "$BLOG" \
+grep -E "Linux version|Booting Linux|Starting vmlinuz-" "$BLOG" >/dev/null \
   || fail "the installed system produced no kernel banner -- the bootloader did not hand off (see $BLOG)"
-if grep -qE "Kernel panic - not syncing" "$BLOG"; then
+if grep -E "Kernel panic - not syncing" "$BLOG" >/dev/null; then
     grep -nE -A12 "Kernel panic" "$BLOG" | head -30 >&2
     fail "the installed system panicked on boot"
 fi
-grep -qE "Welcome to|systemd\[1\]|Reached target|login:|Started .*getty" "$BLOG" \
+grep -E "Welcome to|systemd\[1\]|Reached target|login:|Started .*getty" "$BLOG" >/dev/null \
   || fail "the installed system booted a kernel but never reached userspace (see $BLOG)"
 echo "  installed system reached userspace"
 # A login prompt, not just userspace: the serial getty prints "<host> login:".
@@ -1353,11 +1353,11 @@ else
     # "OK no GPU: software allowed"; "FAIL" means a GPU is present and software rendering is in use.
     if [ ! -s "$GHL" ]; then
         fail "no GPU health log (/var/log/ncz-gpu-health.log) on the installed disk -- 98-gpu-health / ncz-gpu-health.service did not run"
-    elif grep -q ' FAIL ' "$GHL"; then
+    elif grep  ' FAIL ' "$GHL" >/dev/null; then
         cat "$GHL" >&2; fail "the GPU health check reports software rendering on a machine with a GPU"
-    elif grep -q 'no GPU: software allowed' "$GHL"; then
+    elif grep  'no GPU: software allowed' "$GHL" >/dev/null; then
         echo "    GPU health: no GPU: software allowed (KVM guest has no hardware GPU)"
-    elif grep -q ' OK hardware GPU' "$GHL"; then
+    elif grep  ' OK hardware GPU' "$GHL" >/dev/null; then
         echo "    GPU health: hardware GPU, no software rendering"
     else
         cat "$GHL" >&2; fail "unrecognized GPU health log"
@@ -1426,7 +1426,7 @@ else
                 # login prompt from this boot.
                 if [ "$FB_GETTY1" = active ]; then
                     echo "    first boot: graphical.target, greetd inactive (arm64 guest: no Mali GPU) and a text login on tty1"
-                elif grep -qaE '^[A-Za-z0-9._-]+ login: *$' "$BLOG" 2>/dev/null; then
+                elif grep -aE '^[A-Za-z0-9._-]+ login: *$' "$BLOG" 2>/dev/null >/dev/null; then
                     echo "    first boot: graphical.target, greetd inactive (arm64 guest: no Mali GPU) and a serial login prompt on the console"
                 else
                     fail "desktop selected, greetd inactive and no login prompt on any console (first boot is unreachable)"

@@ -88,7 +88,7 @@ if [ -s "$W/pre-amd64.sh" ] && [ -s "$W/pre-arm64.sh" ]; then
     }
     full=desktop,browsers,wallpaper-rotator,mgmt-container,rescue-partition
     [ "$(pre meta "$full" abcd-1)" = "P=abcd-1 rc=0" ] && ok "rescue selected + marker: PARTUUID taken" || nok "rescue selected + marker: $(pre meta "$full" abcd-1)"
-    [ "$(pre meta "$full" -)" = " rc=1" ] && grep -q 'Refusing to modify the ESP' "$W/pre.out" && ok "rescue selected, no marker: refuses (rc 1)" || nok "rescue selected, no marker: $(pre meta "$full" -)"
+    [ "$(pre meta "$full" -)" = " rc=1" ] && grep  'Refusing to modify the ESP' "$W/pre.out" >/dev/null && ok "rescue selected, no marker: refuses (rc 1)" || nok "rescue selected, no marker: $(pre meta "$full" -)"
     [ "$(pre meta "$full" empty)" = " rc=1" ] && ok "rescue selected, marker without PARTUUID: refuses" || nok "marker without PARTUUID: $(pre meta "$full" empty)"
     [ "$(pre meta desktop,browsers,wallpaper-rotator -)" = "P= rc=0" ] && ok "rescue off + mgmt off (the failing install): no partition required" || nok "rescue off: $(pre meta desktop,browsers,wallpaper-rotator -)"
     [ "$(pre meta desktop,browsers,wallpaper-rotator,mgmt-container -)" = "P= rc=0" ] && ok "rescue off + mgmt on: no partition required" || nok "rescue off + mgmt on"
@@ -101,7 +101,7 @@ if [ -s "$W/pre-amd64.sh" ] && [ -s "$W/pre-arm64.sh" ]; then
     # A package hook calling the refresh mid-install, before 72 ran (all options on: the O6N/.66 log ERROR line).
     inst() { pre meta "$full" - >/dev/null; mkdir -p "$W/sb/meta"; echo "$1" > "$W/sb/meta/INSTALL_IN_PROGRESS"
         ( set -euo pipefail; INSTALLER_META="$W/sb/meta"; . "$W/pre-sb.sh" > "$W/pre.out" 2>&1 ); printf 'rc=%s' "$?"; }
-    [ "$(inst boot-A)" = rc=0 ] && grep -q 'ESP left to 70-bootloader' "$W/pre.out" && ! grep -q ERROR "$W/pre.out" \
+    [ "$(inst boot-A)" = rc=0 ] && grep  'ESP left to 70-bootloader' "$W/pre.out" >/dev/null && ! grep  ERROR "$W/pre.out" >/dev/null \
         && ok "mid-install, rescue selected, marker not written yet: no ERROR, ESP left to 70-bootloader" || nok "mid-install deferral: $(inst boot-A) $(cat "$W/pre.out")"
     [ "$(inst boot-B)" = rc=1 ] && ok "a left-over install marker from another boot does not defer (installed system)" || nok "stale install marker deferred"
     # The record locations and their order are run-all.sh's (COMP_FILE chain).
@@ -138,7 +138,7 @@ for s in "$AMD" "$ARM"; do
         && ok "$n: the Rescue Partition menuentry is written only when its options exist" || nok "$n: Rescue Partition entry not gated on RESCUEPART_OPTIONS"
 done
 awk '/^RESCUEPART_OPTIONS=""$/ {f=1} f {print} /^# Same-kernel rescue entry/ {exit}' "$ARM" > "$W/arm-region.sh"
-if grep -q 'NEXT_CONSOLE_EXISTING_BL' "$W/arm-region.sh"; then
+if grep  'NEXT_CONSOLE_EXISTING_BL' "$W/arm-region.sh" >/dev/null; then
     arm_opts() { ( NEXT_AVAILABLE=1 RESCUEPART_PARTUUID="$1" NEXT_CONSOLE_EXISTING_BL=typec_x
         NEXT_CONSOLE_CMDLINE_NOBL="root=PARTUUID=r console=tty0 sky1.gpu=vendor" RESCUE_ACCEL_BLACKLIST=panthor
         . "$W/arm-region.sh" >/dev/null 2>&1; printf '%s|%s' "$RESCUE_ACCEL_BLACKLIST" "$RESCUEPART_OPTIONS" ); }
@@ -166,7 +166,7 @@ if [ -s "$W/boot.sh" ]; then
     [ "$(bootable arm64 BOOTX64.EFI refind.conf)" = no ] && ok "arm64: the amd64 binary does not count" || nok "arm64 accepted BOOTX64"
     [ "$(NCZ_DEB_ARCH=amd64 sh -c ". '$W/boot.sh'; ncz_boot_binary")" = /target/boot/efi/EFI/BOOT/BOOTX64.EFI ] && ok "amd64 message names BOOTX64.EFI" || nok "amd64 message path"
     [ "$(NCZ_DEB_ARCH=arm64 sh -c ". '$W/boot.sh'; ncz_boot_binary")" = /target/boot/efi/EFI/BOOT/BOOTAA64.EFI ] && ok "arm64 message names BOOTAA64.EFI" || nok "arm64 message path"
-    grep -q 'no rEFInd at \$(ncz_boot_binary)' "$LATE" && ! grep -q 'no rEFInd at /target/boot/efi/EFI/BOOT/BOOTAA64.EFI' "$LATE" \
+    grep  'no rEFInd at \$(ncz_boot_binary)' "$LATE" >/dev/null && ! grep  'no rEFInd at /target/boot/efi/EFI/BOOT/BOOTAA64.EFI' "$LATE" >/dev/null \
         && ok "the NOT-bootable message uses the arch's path" || nok "the NOT-bootable message still hardcodes a path"
     al=$(grep -n '^NCZ_DEB_ARCH=' "$LATE" | head -1 | cut -d: -f1); ul=$(grep -n 'ncz_bootable &&\|ncz_bootable;' "$LATE" | head -1 | cut -d: -f1)
     [ -n "$al" ] && [ -n "$ul" ] && [ "$al" -lt "$ul" ] && ok "NCZ_DEB_ARCH is set (line $al) before the first bootability use (line $ul)" || nok "NCZ_DEB_ARCH set after use ($al vs $ul)"
@@ -244,11 +244,11 @@ if [ -s "$W/gate-comp.sh" ]; then
 else
     nok "KVM gate: NCZ-GATE-COMPONENTS markers missing"
 fi
-grep -q 'ncz_components=\$GATE_COMPONENTS_ARG' "$GATE" && ok "the gate passes the answer on the Install cmdline" || nok "gate cmdline still fixed"
-grep -q 'VERIFY_EXPECT_COMPONENTS="\$EXPECT_RECORD"' "$GATE" && ok "the gate hands the expected record to the verifier" || nok "verifier not told the record"
-grep -q "grep -aE 'Failed to run preseeded command|install is NOT bootable' >/dev/null" "$GATE" && grep -q 'wait "\$QEMU_PID"' "$GATE" \
+grep  'ncz_components=\$GATE_COMPONENTS_ARG' "$GATE" >/dev/null && ok "the gate passes the answer on the Install cmdline" || nok "gate cmdline still fixed"
+grep  'VERIFY_EXPECT_COMPONENTS="\$EXPECT_RECORD"' "$GATE" >/dev/null && ok "the gate hands the expected record to the verifier" || nok "verifier not told the record"
+grep  "grep -aE 'Failed to run preseeded command|install is NOT bootable' >/dev/null" "$GATE" >/dev/null && grep  'wait "\$QEMU_PID"' "$GATE" >/dev/null \
     && ok "a failed finish stops the install guest instead of waiting out the timeout" || nok "no early stop on a failed finish"
-grep -q -- '-i 3 ' "$GATE" && nok "the gate still assumes the root is partition 3" || ok "no fixed partition 3 in the gate"
+grep  -- '-i 3 ' "$GATE" >/dev/null && nok "the gate still assumes the root is partition 3" || ok "no fixed partition 3 in the gate"
 SGDISK="$(command -v sgdisk || echo /sbin/sgdisk)"
 if [ -x "$SGDISK" ]; then
     eval "$(awk '/^ncz_last_partnum\(\) \{/,/^}$/' "$GATE")"
@@ -268,9 +268,9 @@ if [ -s "$MATRIX" ]; then
         && [ "$(gate_set_components full)" = desktop,mgmt-container,rescue-partition ] && ok "matrix sets map to the expected answers" || nok "matrix set table"
     [ "$GATE_DEFAULT_SETS" = "norescue minimal stalefs" ] && ok "matrix default sets: rescue off + mgmt off, every option off, reinstall over old ext4" || nok "matrix default: $GATE_DEFAULT_SETS"
     [ "$(gate_set_disk stalefs)" = "btrfs 1" ] && [ "$(gate_set_disk minimal)" = "ext4 0" ] && ok "stalefs set: btrfs root over a seeded old disk" || nok "matrix disk table"
-    grep -q "NCZ_KVM_GATE_VARIANTS:-norescue minimal stalefs" "$ROOT/build/build-image.sh" && grep -q 'build/kvm-install-gate-matrix.sh' "$ROOT/build/build-image.sh" \
+    grep  "NCZ_KVM_GATE_VARIANTS:-norescue minimal stalefs" "$ROOT/build/build-image.sh" >/dev/null && grep  'build/kvm-install-gate-matrix.sh' "$ROOT/build/build-image.sh" >/dev/null \
         && ok "build-image.sh runs the option sets after the full gate" || nok "build-image.sh does not run the option sets"
-    grep -q "NCZ_GATE_UI_CHECK=\"\$_ui\"" "$MATRIX" && ok "the UI check runs only in the full set" || nok "matrix UI check handling"
+    grep  "NCZ_GATE_UI_CHECK=\"\$_ui\"" "$MATRIX" >/dev/null && ok "the UI check runs only in the full set" || nok "matrix UI check handling"
 else
     nok "build/kvm-install-gate-matrix.sh missing"
 fi
@@ -314,24 +314,24 @@ STUB
         ( export PATH="$W/rp/bin:$PATH" BLKID_PARTUUID="$1" BLKID_AMBI="$2" SFDISK_UUID="$3" SGDISK_UUID="$4" BLKID_PROBE="${5:-}" BLKID_PROBE_RC="${6:-0}"
           . "$W/rp-sb.sh" > "$W/rp.out" 2>&1; printf 'U=%s' "$ROOT_PARTUUID" ); printf ' rc=%s' "$?"; }
     [ "$(rp 11111111-2222-3333-4444-555555555555 '' '' '')" = "U=11111111-2222-3333-4444-555555555555 rc=0" ] && ok "blkid answer used" || nok "blkid answer: $(rp 11111111-2222-3333-4444-555555555555 '' '' '')"
-    [ "$(rp '' 1 EAEE905D-57A4-43D0-B926-3607DF73001D '')" = " rc=1" ] && grep -q 'ambivalent' "$W/rp.out" && grep -q 'eaee905d-57a4-43d0-b926-3607df73001d' "$W/rp.out" \
+    [ "$(rp '' 1 EAEE905D-57A4-43D0-B926-3607DF73001D '')" = " rc=1" ] && grep  'ambivalent' "$W/rp.out" >/dev/null && grep  'eaee905d-57a4-43d0-b926-3607df73001d' "$W/rp.out" >/dev/null \
         && ok "ambivalent probe (old ext4 under btrfs): refuses before the ESP and names the GPT GUID" || nok "ambivalent: $(rp '' 1 EAEE905D-57A4-43D0-B926-3607DF73001D '') $(cat "$W/rp.out")"
     for _probe_rc in 2 8; do
         [ "$(rp '' '' EAEE905D-57A4-43D0-B926-3607DF73001D '' '' "$_probe_rc")" = " rc=1" ] \
-            && grep -q "blkid rc=$_probe_rc" "$W/rp.out" && ok "probe rc=$_probe_rc without text: refuses GPT fallback" \
+            && grep  "blkid rc=$_probe_rc" "$W/rp.out" >/dev/null && ok "probe rc=$_probe_rc without text: refuses GPT fallback" \
             || nok "probe rc=$_probe_rc accepted GPT fallback"
     done
     [ "$(rp '' '' EAEE905D-57A4-43D0-B926-3607DF73001D '' ID_FS_AMBIVALENT=ext4:btrfs 0)" = " rc=1" ] \
-        && grep -q ambivalent "$W/rp.out" && ok "uppercase udev ambiguity marker: refuses even with rc=0" \
+        && grep  ambivalent "$W/rp.out" >/dev/null && ok "uppercase udev ambiguity marker: refuses even with rc=0" \
         || nok "uppercase ambiguity marker accepted GPT fallback"
     [ "$(rp '' '' EAEE905D-57A4-43D0-B926-3607DF73001D '')" = "U=eaee905d-57a4-43d0-b926-3607df73001d rc=0" ] && ok "blkid empty, probe clean: GPT GUID from sfdisk, lower case" || nok "sfdisk fallback: $(rp '' '' EAEE905D-57A4-43D0-B926-3607DF73001D '')"
     [ "$(rp '' '' '' ae16dfe4-3ce5-4da2-b670-96642566dde2)" = "U=ae16dfe4-3ce5-4da2-b670-96642566dde2 rc=0" ] && ok "sfdisk empty: GPT GUID from sgdisk" || nok "sgdisk fallback"
-    [ "$(rp '' '' '' '')" = " rc=1" ] && grep -q 'empty root=PARTUUID=' "$W/rp.out" && ok "no PARTUUID anywhere: refuses, never writes root=PARTUUID=" || nok "empty: $(rp '' '' '' '')"
+    [ "$(rp '' '' '' '')" = " rc=1" ] && grep  'empty root=PARTUUID=' "$W/rp.out" >/dev/null && ok "no PARTUUID anywhere: refuses, never writes root=PARTUUID=" || nok "empty: $(rp '' '' '' '')"
     for sc in "$AMD" "$ARM"; do
         n=$(basename "$sc"); bl=$(line_of "$sc" 'NCZ-ROOT-PARTUUID-BEGIN')
         first=$(grep -nE '^[^#]*(rm -[rf]+ +/boot/efi|install -m 0644 "\$REFIND_SRC"|^ncz_promote_outgoing_rescue /boot/efi)' "$sc" | head -1 | cut -d: -f1)
         [ -n "$bl" ] && [ -n "$first" ] && [ "$bl" -lt "$first" ] && ok "$n: root PARTUUID check (line $bl) before the first ESP write (line $first)" || nok "$n: root PARTUUID check after an ESP write"
-        grep -q 'ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC")$' "$sc" && nok "$n: a bare blkid PARTUUID assignment remains" || ok "$n: no bare blkid-only root PARTUUID"
+        grep  'ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$ROOT_SRC")$' "$sc" >/dev/null && nok "$n: a bare blkid PARTUUID assignment remains" || ok "$n: no bare blkid-only root PARTUUID"
     done
 else
     nok "NCZ-ROOT-PARTUUID markers missing in a refresh script"
@@ -387,7 +387,7 @@ if [ -s "$W/wipe.sh" ]; then
 else
     nok "disk-fs-chooser.sh: NCZ-WIPE-SIGNATURES markers missing"
 fi
-grep -q 'NCZ_GATE_STALE_DISK' "$GATE" && grep -q "is not the root partition's GPT GUID" "$GATE" && grep -q 'has an empty root=' "$GATE" \
+grep  'NCZ_GATE_STALE_DISK' "$GATE" >/dev/null && grep -q "is not the root partition's GPT GUID" "$GATE" && grep -q 'has an empty root=' "$GATE" \
     && ok "KVM gate: stale-disk seeding, empty root= and GPT-GUID checks on the installed menu" || nok "KVM gate PARTUUID checks missing"
 
 echo "=== 8. Magnetar server menu vs desktop menus (MEDIUM_VARIANT) ==="
@@ -398,13 +398,13 @@ echo "=== 8. Magnetar server menu vs desktop menus (MEDIUM_VARIANT) ==="
 # without desktop, and must keep its full menu.
 HOOK="$ROOT/assets/refind/zz1-ncz-refind-refresh-amd64"
 GATE_RE='^menuentry .*(\(Default\)|7\.3 Mali|Panthor|Rescue / No Accelerators)'
-grep -qF "$GATE_RE" "$GATE" && ok "KVM gate: the server desktop-entry pattern is the one tested here" || nok "KVM gate pattern differs from the test's"
+grep -F "$GATE_RE" "$GATE" >/dev/null && ok "KVM gate: the server desktop-entry pattern is the one tested here" || nok "KVM gate pattern differs from the test's"
 for s in "$AMD" "$ARM"; do
     n=$(basename "$s" .sh)
     between "$s" 'NCZ-MENU-VARIANT-BEGIN' 'NCZ-MENU-VARIANT-END' \
         | sed "s#/usr/local/lib/cix-installer#$W/mv/lib#g" > "$W/mv-$n.sh"
     awk '/^\{$/ {b=NR} /^\} > "\$REFIND_CONF"$/ {e=NR} {l[NR]=$0} END {for (i=b; i<=e; i++) print l[i]}' "$s" > "$W/menu-$n.sh"
-    if [ ! -s "$W/mv-$n.sh" ] || ! grep -q 'REFIND_CONF' "$W/menu-$n.sh"; then nok "$n: NCZ-MENU-VARIANT block or menu block not found"; continue; fi
+    if [ ! -s "$W/mv-$n.sh" ] || ! grep  'REFIND_CONF' "$W/menu-$n.sh" >/dev/null; then nok "$n: NCZ-MENU-VARIANT block or menu block not found"; continue; fi
     # menu <marker|-> <BUILD_VARIANT> <components> [NCZ_VARIANT] -> "<variant>|<default>|<entries>|<desktop entries>"
     menu() {
         rm -rf "$W/mv"; mkdir -p "$W/mv/lib"
@@ -427,7 +427,7 @@ for s in "$AMD" "$ARM"; do
     case "$r" in "desktop|Default|$full|"*) ok "$n: desktop medium, desktop on: full menu, default unchanged" ;; *) nok "$n: desktop install: $r" ;; esac
     r=$(menu server server rescue-partition)
     case "$r" in "server|"*"Console"*"|2|0") ok "$n: Magnetar medium: Console + Rescue Partition only, default Console, no desktop entry" ;; *) nok "$n: server menu: $r" ;; esac
-    grep -E '^menuentry ' "$W/mv/refind.conf" | grep -q 'Console' && grep -E '^menuentry ' "$W/mv/refind.conf" | grep -q 'Rescue Partition' \
+    grep -E '^menuentry ' "$W/mv/refind.conf" | grep  'Console' >/dev/null && grep -E '^menuentry ' "$W/mv/refind.conf" | grep  'Rescue Partition' >/dev/null \
         && ok "$n: the two server entries are Console and Rescue Partition" || nok "$n: server entries: $(grep '^menuentry ' "$W/mv/refind.conf")"
     r=$(menu server server rescue-partition desktop)
     case "$r" in "desktop|"*"|$full|"*) ok "$n: an explicit NCZ_VARIANT=desktop still wins over the marker" ;; *) nok "$n: env override: $r" ;; esac
@@ -460,7 +460,7 @@ hook() { rm -f "$W/hk/refind.conf" "$W/hk/lib/MEDIUM_VARIANT"; [ "$1" = - ] || e
 [ "$(hook server)" = "rc=0 n=2" ] && ok "kernel upgrade (amd64 postinst.d hook): a Magnetar install keeps the server menu" || nok "hook server: $(hook server) $(cat "$W/hk/out")"
 [ "$(hook -)" = "rc=0 n=4" ] && ok "kernel upgrade (amd64 postinst.d hook): a desktop-medium install keeps the full menu" || nok "hook desktop: $(hook -) $(cat "$W/hk/out")"
 # arm64's kernel-upgrade wrapper (11-fix-cixmini-boot.sh) must not pin a variant either.
-! grep -q 'NCZ_VARIANT' "$ROOT/post-install/11-fix-cixmini-boot.sh" "$HOOK" \
+! grep  'NCZ_VARIANT' "$ROOT/post-install/11-fix-cixmini-boot.sh" "$HOOK" >/dev/null \
     && ok "neither kernel-upgrade caller sets NCZ_VARIANT (the refresh decides from the marker)" || nok "a kernel-upgrade caller sets NCZ_VARIANT"
 
 echo "=== 9. late.sh refreshes every boot-control script over a baked base ==="
@@ -468,7 +468,7 @@ echo "=== 9. late.sh refreshes every boot-control script over a baked base ==="
 # and the amd64 kernel hook must come from the medium, or a fix to them never
 # reaches an install (2026-10-26: the amd64 server menu stayed the desktop one).
 awk '/^        for REFIND_REFRESH in /{f=1} f{print} f && /^        done$/{exit}' "$LATE" > "$W/late-rr.sh"
-if grep -q 'zz1-ncz-refind-refresh-amd64' "$W/late-rr.sh"; then
+if grep  'zz1-ncz-refind-refresh-amd64' "$W/late-rr.sh" >/dev/null; then
     rr() {  # rr <medium files...> -> rc + which DSTA copies now match the medium
         rm -rf "$W/rr"; mkdir -p "$W/rr/src/assets/refind" "$W/rr/dst/refind"
         for f in ncz-refind-refresh.sh ncz-refind-refresh-amd64.sh zz1-ncz-refind-refresh-amd64; do
@@ -477,12 +477,12 @@ if grep -q 'zz1-ncz-refind-refresh-amd64' "$W/late-rr.sh"; then
         ( SRC="$W/rr/src"; DSTA="$W/rr/dst"; . "$W/late-rr.sh" ) > "$W/rr/out" 2>&1; rc=$?
         printf 'rc=%s' "$rc"
         for f in ncz-refind-refresh.sh ncz-refind-refresh-amd64.sh zz1-ncz-refind-refresh-amd64; do
-            grep -q medium "$W/rr/dst/refind/$f" && printf ' %s' "$f"; done
+            grep  medium "$W/rr/dst/refind/$f" >/dev/null && printf ' %s' "$f"; done
     }
     all="ncz-refind-refresh.sh ncz-refind-refresh-amd64.sh zz1-ncz-refind-refresh-amd64"
     [ "$(rr $all)" = "rc=0 $all" ] && ok "all three generators/hooks replace the baked copies" || nok "refresh all: $(rr $all) $(cat "$W/rr/out")"
     [ "$(rr ncz-refind-refresh.sh)" = "rc=0 ncz-refind-refresh.sh" ] && ok "a medium without the amd64 scripts still refreshes the arm64 one" || nok "arm64-only medium: $(rr ncz-refind-refresh.sh)"
-    case "$(rr ncz-refind-refresh-amd64.sh zz1-ncz-refind-refresh-amd64)" in "rc=1"*) grep -q 'install media lacks refind/ncz-refind-refresh.sh' "$W/rr/out" \
+    case "$(rr ncz-refind-refresh-amd64.sh zz1-ncz-refind-refresh-amd64)" in "rc=1"*) grep  'install media lacks refind/ncz-refind-refresh.sh' "$W/rr/out" >/dev/null \
         && ok "a medium without the arm64 generator is still FATAL" || nok "missing arm64 generator: wrong message" ;; *) nok "missing arm64 generator not fatal" ;; esac
 else
     nok "late.sh boot-control refresh loop not found"
