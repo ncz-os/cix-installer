@@ -612,14 +612,17 @@ test -x "/work/stage'"$PREFIX"'/bin/singularity-boot-splash"
 # the patched header and archive. Put the superproject copies back.
 _ncz_inc="/work/stage/opt/singularity/include"
 _ncz_lib="/work/stage/opt/singularity/lib"
+# Every one of the three must be present: a silent skip here would leave a mixed
+# stage (patched header, unpatched archive) and the acceptance gate would be the
+# only thing between that and a pinned payload.
 for _lf in loginui.h widget.h; do
-    if [ -f "/work/singularity-desktop/subprojects/singularity-loginui/${_lf}" ]; then
-        install -m 644 "/work/singularity-desktop/subprojects/singularity-loginui/${_lf}" "${_ncz_inc}/${_lf}"
-    fi
+    [ -f "/work/singularity-desktop/subprojects/singularity-loginui/${_lf}" ] || {
+        echo "ERROR: cannot reinstall ${_lf}: superproject copy missing" >&2; exit 1; }
+    install -m 644 "/work/singularity-desktop/subprojects/singularity-loginui/${_lf}" "${_ncz_inc}/${_lf}"
 done
-if [ -f /work/singularity-desktop/build/subprojects/singularity-loginui/libloginui.a ]; then
-    install -m 644 /work/singularity-desktop/build/subprojects/singularity-loginui/libloginui.a "${_ncz_lib}/libloginui.a"
-fi
+[ -f /work/singularity-desktop/build/subprojects/singularity-loginui/libloginui.a ] || {
+    echo "ERROR: cannot reinstall libloginui.a: superproject build archive missing" >&2; exit 1; }
+install -m 644 /work/singularity-desktop/build/subprojects/singularity-loginui/libloginui.a "${_ncz_lib}/libloginui.a"
 
 # Package. Paths are opt/singularity/... so `tar -C /` lands at /opt/singularity.
 cd /work/stage
