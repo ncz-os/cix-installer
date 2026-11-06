@@ -27,8 +27,12 @@ nok() { printf '  FAIL  %s\n' "$1"; fail=$((fail + 1)); }
 [ -d "$PATCHES" ] || { echo "no patch directory"; exit 1; }
 
 # The standalone list, read from the script itself so the two cannot drift.
+if grep -q '^STANDALONE_QUEUES=' "$BUILD"; then
+    ok "STANDALONE_QUEUES is defined in build-singularity.sh"
+else
+    nok "STANDALONE_QUEUES is defined in build-singularity.sh"
+fi
 standalone="$(sed -n 's/^STANDALONE_QUEUES="\(.*\)"$/\1/p' "$BUILD")"
-[ -n "${standalone+x}" ] || nok "STANDALONE_QUEUES is defined in build-singularity.sh"
 ok "standalone list read: [${standalone:-}]"
 
 queues=0
@@ -53,7 +57,7 @@ for dir in "$PATCHES"/*/; do
             ;;
         *)
             # otherwise it must be a pinned subproject, or the root repo itself
-            if grep -qP "^subprojects/$name\t" "$PINS"; then
+            if awk -F'\t' -v want="subprojects/$name" '$1==want{found=1} END{exit !found}' "$PINS"; then
                 ok "$name: pinned subproject"
             elif [ "$name" = "singularity-desktop" ]; then
                 ok "$name: the root repository"
