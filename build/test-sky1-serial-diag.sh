@@ -83,7 +83,8 @@ for name in ("install", "expert"):
 check("console=ttyAMA0,115200" in arm["rescue"].split(), "arm64 rescue lost console=ttyAMA0,115200")
 # Rendered refind.conf: all three arm64 menu entries carry the token.
 conf = m.REFIND_CONF_TEXT_ARM64_TEMPLATE.format(
-    info_line="x", install_options=m.ARM64_INSTALL_OPTIONS,
+    info_line="x", theme_include=m.theme_include_block(False),
+    install_options=m.ARM64_INSTALL_OPTIONS,
     expert_options=m.ARM64_EXPERT_OPTIONS, rescue_options=m.ARM64_RESCUE_OPTIONS)
 opts_lines = [l for l in conf.splitlines() if l.strip().startswith("options ")]
 check(len(opts_lines) == 3, f"arm64 refind.conf has {len(opts_lines)} options lines, want 3")
