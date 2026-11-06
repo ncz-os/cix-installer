@@ -545,14 +545,32 @@ fi
 #      unless the host keeps them in $ESP/boot, which is also handled.
 # Fixture trees pass NCZ_ESP_DIR and use the same subdirectory rule, so the tests
 # exercise the same code the installer does.
+# ncz_fstype <dir> -- filesystem type of an exact mount point, or empty.
+# findmnt when it exists (the rest of this tool already requires it), otherwise
+# /proc/mounts: a rescue or minimal environment can lack util-linux, and guessing
+# the layout there would be worse than refusing.
+# NCZ_MOUNTS_FILE exists ONLY so the tests can exercise the fallback parser on a
+# host where findmnt is installed; it is not a layout override and the installer
+# never sets it.
+ncz_fstype() {
+    local d=$1 mounts="${NCZ_MOUNTS_FILE:-/proc/mounts}"
+    if [ -z "${NCZ_MOUNTS_FILE:-}" ] && command -v findmnt >/dev/null 2>&1; then
+        findmnt -no FSTYPE "$d" 2>/dev/null && return 0
+    fi
+    [ -r "$mounts" ] || return 0
+    awk -v want="$d" '$2==want{print $3; exit}' "$mounts" 2>/dev/null
+}
+
 if [ -n "${NCZ_ESP_DIR:-}" ]; then
     ESP_DIR="$NCZ_ESP_DIR"
-elif findmnt -no FSTYPE /boot 2>/dev/null | grep -qx vfat; then
+elif [ "$(ncz_fstype /boot)" = vfat ]; then
     ESP_DIR=/boot
 else
     ESP_DIR=/boot/efi
 fi
 ESP_KERNEL_DIR="$ESP_DIR"
+# compgen is a bash builtin and this script is #!/bin/bash (line 1); a plain glob
+# loop cannot express "did anything match" without expanding an unmatched pattern.
 if compgen -G "$ESP_DIR/boot/vmlinuz-*" >/dev/null 2>&1; then
     ESP_KERNEL_DIR="$ESP_DIR/boot"
 fi
@@ -566,9 +584,7 @@ ESP_CONF="$ESP_DIR/EFI/BOOT/refind.conf"
 
 esp_is_vfat() {
     [ -n "${NCZ_ESP_DIR:-}" ] && return 0   # fixture tree in the tests
-    local fstype
-    fstype=$(findmnt -no FSTYPE "$ESP_DIR" 2>/dev/null || true)
-    [ "$fstype" = vfat ]
+    [ "$(ncz_fstype "$ESP_DIR")" = vfat ]
 }
 
 # Same shell-glob-escape as the generated-entry helper: an option value with a

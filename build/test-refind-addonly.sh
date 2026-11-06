@@ -633,6 +633,34 @@ ROLLBACK
 
     rm -rf "$w"
 }
+# ---- 14. the /proc/mounts fallback, used when findmnt is absent ------------------
+# The layout decision must not be a guess in a rescue environment. The helper is
+# extracted and sourced so no tool logic runs against the host's real mounts.
+_fn_case() {
+    local w fn mf
+    w="$(mktemp -d "${TMPDIR:-/var/tmp}/ncz-fstype.XXXXXX")" || return
+    fn="$w/fn.sh"
+    sed -n '/^ncz_fstype() {/,/^}/p' "$REPO/assets/refind/ncz-refind-refresh-amd64.sh" > "$fn"
+    if [ -s "$fn" ]; then
+        mf="$w/mounts"
+        printf 'proc /proc proc rw 0 0\n/dev/sda1 /boot vfat rw 0 0\n/dev/sda2 / ext4 rw 0 0\n' > "$mf"
+        # shellcheck disable=SC1090
+        ( . "$fn"; NCZ_MOUNTS_FILE="$mf" ncz_fstype /boot ) > "$w/out" 2>/dev/null
+        [ "$(cat "$w/out")" = vfat ] && ok "14) the mounts fallback reads an exact vfat mount" \
+            || bad "14) the mounts fallback reads an exact vfat mount" "$(cat "$w/out")"
+        ( . "$fn"; NCZ_MOUNTS_FILE="$mf" ncz_fstype /boot/efi ) > "$w/out2" 2>/dev/null
+        [ -z "$(cat "$w/out2")" ] && ok "14b) an absent mount point yields nothing, not a guess" \
+            || bad "14b) an absent mount point yields nothing, not a guess" "$(cat "$w/out2")"
+        printf '/dev/sdb1 /boot/efi vfat rw 0 0\n' > "$mf"
+        ( . "$fn"; NCZ_MOUNTS_FILE="$mf" ncz_fstype /boot/efi ) > "$w/out3" 2>/dev/null
+        [ "$(cat "$w/out3")" = vfat ] && ok "14c) the helper resolves /boot/efi when that is the mount" \
+            || bad "14c) the helper resolves /boot/efi when that is the mount" "$(cat "$w/out3")"
+    else
+        bad "14) the fstype helper is extractable for testing"
+    fi
+    rm -rf "$w"
+}
+_fn_case
 
 # ---- 13. layout B: the ESP keeps its kernel pairs under $ESP/boot --------------
 # Ruling: the tool must DETECT the layout, not be told. On MEDUSA the ESP is
