@@ -310,8 +310,9 @@ index 172d835..fd64006 100644
  #endif
  };
  
-@@ -115,6 +121,9 @@ static bool status_error = false;
+@@ -115,7 +121,10 @@ static bool status_error = false;
  static char username[256] = "";
+ static char display_name[256] = "";
  
  static void render_output(struct lock_output *o);
 +#ifdef LOCK_FRAMESRC
