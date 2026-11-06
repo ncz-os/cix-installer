@@ -353,26 +353,24 @@ that toolbar is the static titlebar carrying minimize, maximize and close, so Le
 only app without window buttons. The patch hides the toolbar only in floating-bubbles mode.
 Not filed upstream yet (no PR link). Regression test: `build/test-titlebar-buttons.sh`.
 
+## singularity-nearby — retired 2026-11-06 (landed upstream)
+
+PR [#1](https://github.com/singularityos-lab/singularity-nearby/pull/1), patch
+`0001-fix-release-links-when-they-close.patch`, measured at the pin `c17a12a`:
+185 of 186 added lines are present across `meson.build`, `src/service.vala` and
+`tests/link_test.vala`; the test file itself is present (5309 bytes) and
+`meson.build` already declares the `nearby-link-test` target, so the regression
+test came with the fix. The one absent line is an explanatory comment, not code.
+
 ## singularity-nearby — active
 
 **Not yet filed upstream** (2026-10-13). Patch
 `0002-fix-keep-an-open-link-when-the-peer-announces-itself.patch`, stacked on
-0001 below: `LanProvider.discovered()` no longer opens a new connection for every
+0001 (now retired - landed upstream): `LanProvider.discovered()` no longer opens a new connection for every
 announcement while a link to that device is open, so links are not torn down
 and re-handshaken every 30 seconds. Incoming connections still replace the old
 link. No `**Upstream PR:**` link on purpose; it must not be retired when #1
 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-nearby#1](https://github.com/singularityos-lab/singularity-nearby/pull/1)
-— open, not yet merged. Patch `0001-fix-release-links-when-they-close.patch`
-(the PR head, b2c61cf9). `Service.on_link()` connected two closures to the link's own
-`packet-received` and `closed` signals and both captured the link, so no closed
-or replaced link (with its TLS connection) was ever freed. Every desktop on the
-network announces itself every 30 seconds and each announcement replaced the
-link, so with several desktops on one network the service grew by about 10 MB a
-minute. The handlers are now disconnected when the link closes;
-`tests/link_test.vala` (`meson test nearby-link`) fails on the pinned commit and
-passes with the patch. Delete this patch once PR #1 merges.
 
 ## Previously landed
 
