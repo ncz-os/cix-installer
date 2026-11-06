@@ -142,6 +142,23 @@ sensors plugin reads (interval 2 s with range 1-60, frequency, utilization, grou
 GPU and CPU zone). The earlier private `sensors-color-mode` key is gone: nothing in the
 pinned payload reads it. Delete this patch once PR #267 merges.
 
+## singularity-plugins — retired 2026-11-06 (landed upstream)
+
+Measured at the pin `ace60db`, in context rather than by ratio. Each of these
+patches adds exactly one line and that line is present inside the function the
+patch targets:
+
+* PR [#4](https://github.com/singularityos-lab/singularity-plugins/pull/4),
+  patch `0003-ocs-fetch-index.patch`: inside `Provider.choices()`,
+  `return WallpaperOcs.categories(yield command({helper, "index"}, cancel, 90), id);`
+* PR [#6](https://github.com/singularityos-lab/singularity-plugins/pull/6),
+  patch `0006-ocs-import-owner-id.patch`: on the items path after
+  `result.items = WallpaperOcs.items(...)`,
+  `foreach (var item in result.items) item.owner_id = id;`
+
+Still in review at the pin and NOT retired: 0001 (90 % of added lines present,
+needs a per-line pass), 0005 (85 %, same), 0002, 0004 and 0007 (real rebases).
+
 ## singularity-plugins — active
 
 All six patches are the heads of our upstream PRs, applied in order to the pinned commit
@@ -160,17 +177,9 @@ the market list comes from the helper `markets` command and the choice is read a
 saved through the helper `market` command (added to `assets/wallpaper/ncz-wallpaper-bing`,
 covered by `build/test-wallpaper-market.sh`). Delete this patch once PR #3 merges.
 
-**Upstream PR:** [singularityos-lab/singularity-plugins#4](https://github.com/singularityos-lab/singularity-plugins/pull/4)
-— open. Patch `0003-ocs-fetch-index.patch`. `choices()` fetches its own index from the
-helper. Delete this patch once PR #4 merges.
-
 **Upstream PR:** [singularityos-lab/singularity-plugins#5](https://github.com/singularityos-lab/singularity-plugins/pull/5)
 — open. Patch `0005-sensors-adaptive-contrast.patch`. WCAG contrast for the sensors chip
 and popover. Delete this patch once PR #5 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-plugins#6](https://github.com/singularityos-lab/singularity-plugins/pull/6)
-— open. Patch `0006-ocs-import-owner-id.patch`. Items carry the provider id as owner so
-imports find the provider. Delete this patch once PR #6 merges.
 
 **Not yet filed upstream.** Patch `0004-wallpapers-bing-prefetch.patch`, stacked on #3:
 runs the helper `fetch --if-stale` on activation, when the network returns and daily,
