@@ -75,6 +75,10 @@ ALLOW = {
     "ncz-rescue-net.service": "rescue network bring-up; TimeoutStartSec=25 on purpose",
     # Recovery-container parent-NIC resolver: must run Before= the container.
     "ncz-recovery-netparent.service": "recovery container bring-up; Before=systemd-nspawn@",
+    # post-greetd scanout assertion: it polls for an active CRTC and returns on the first hit
+    # (40 x 0.25 s bound), so a healthy pipeline pays milliseconds and a broken one is
+    # capped. It cannot be dropped - it is the last-line check for the greetd/DRM race.
+    "ncz-greeter-scanout.service": "post-greetd scanout assertion; exits on the first active CRTC",
 }
 
 # ExecStart tokens that are interpreters/utilities, not the repo's own scripts.
