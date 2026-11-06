@@ -71,7 +71,7 @@ if [ -z "$block" ]; then
 else
     for variant in desktop server; do
         for v in 0 1; do
-            out=$(NCZ_VARIANT=$variant PANTHOR_ENTRY=$v NEXT_AVAILABLE=1 NCZ_RELEASE_SHORT=NCZ KVER_NEXT=$K \
+            out=$(NCZ_MENU_VARIANT=$variant NCZ_VARIANT=$variant PANTHOR_ENTRY=$v NEXT_AVAILABLE=1 NCZ_RELEASE_SHORT=NCZ KVER_NEXT=$K \
                 REFIND_ICON=i NEXT_INITRD_AVAILABLE=1 MALI_OPTIONS=m PANTHOR_OPTIONS=p \
                 NEXT_CONSOLE_OPTIONS=c NEXT_RESCUE_OPTIONS=r bash -c "$block" 2>&1)
             # desktop: Mali, [Panthor], Console, Rescue; server: Console only
