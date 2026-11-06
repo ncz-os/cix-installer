@@ -385,10 +385,22 @@ fi
 # directory name rather than guessing from the patch content means a patch can
 # never be applied against the wrong tree -- the first version of this assumed
 # every patch was for labwc, which would have silently mis-targeted the shell.
+# Queues whose upstream is cloned as a STANDALONE repository rather than a
+# superproject submodule. Their patches are applied at the clone site further
+# down, with the same apply/skip/hard-fail contract, so this loop must not
+# require a subprojects/<name> tree for them. Adding a queue here without a
+# clone site is caught by build/test-singularity-patch-queues.sh.
+STANDALONE_QUEUES="singularity-boot-splash"
+
 if [ -d /ncz-patches ]; then
     for _sub in /ncz-patches/*/; do
         [ -d "$_sub" ] || continue
         _name=$(basename "$_sub")
+        case " $STANDALONE_QUEUES " in
+            *" $_name "*)
+                echo "    ncz patches ($_name): standalone repository, applied at its clone site"
+                continue ;;
+        esac
         _tree="subprojects/$_name"
         # A patch directory named after the ROOT repo itself (singularity-desktop
         # is not its own subproject/submodule) applies at the top level instead.
