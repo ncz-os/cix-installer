@@ -170,6 +170,9 @@ def snapshot_identities(ts: str, arch: str, cache: str):
         load(DI_SUITE, f"main/debian-installer/binary-{x}/Packages.xz")
     return ident, failed
 
+RUN_RE = re.compile(r"\b([0-9]{8}T[0-9]{6}Z)\b")
+
+
 def archive_runs(listing: str, days: set) -> list[str]:
     """The snapshot.debian.org archive run timestamps in a month listing page
     whose date (YYYYMMDD) is one of ``days``."""
