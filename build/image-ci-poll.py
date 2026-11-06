@@ -46,7 +46,7 @@ TIMEOUT = 25
 
 # name, poll source description, state key, rebuilds
 MATRIX = [
-    ("forky-pin", "daily pin resolve output (snapshot.debian.org listing is JS)", "forky.stamp",
+    ("forky-pin", "committed pin: manifests/base.pin (written by the daily resolve)", "forky.stamp",
      "image, amd64 + arm64 (base pins change)"),
     ("kernel-stable", "kernel.org releases.json, newest stable 7.x",
      "kernel.stable", "kernel debs (both arches), then the images"),
@@ -134,6 +134,22 @@ def parse_apt_release(doc):
     return out
 
 
+def pin_stamp(path):
+    """The snapshot stamp both arches agree on in base.pin, or why they do not."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            rows = [l.rstrip("\n").split("\t") for l in fh
+                    if l.strip() and not l.startswith("#")]
+    except OSError as exc:
+        return None, "cannot read %s: %s" % (path, exc)
+    stamps = {r[0]: r[3] for r in rows if len(r) >= 4}
+    if not stamps:
+        return None, "%s has no arch rows with a snapshot column" % path
+    if len(set(stamps.values())) != 1:
+        return None, "arches disagree in %s: %s" % (path, stamps)
+    return next(iter(stamps.values())), "%s (%s)" % (path, ",".join(sorted(stamps)))
+
+
 def singularity_state():
     """HEAD sha of the pinned git, newest tag, via git ls-remote (no API limit)."""
 
@@ -171,17 +187,12 @@ def probe(apt_base):
     """Poll every source. Returns {state_key: (value, detail)}; value None on error."""
     seen = {}
 
-    # snapshot.debian.org's archive listing is rendered client-side, so the
-    # newest stamp is not scrapeable. The poll source is our own resolver: the
-    # daily job records the stamp it would pin, and this compares it.
-    try:
-        with open(os.environ.get("NCZ_IMAGE_CI_FORKY_STATE",
-                                 os.path.expanduser("~/.cache/ncz-image-ci/forky-resolve.json")),
-                  encoding="utf-8") as fh:
-            doc = json.load(fh)
-        seen["forky.stamp"] = (doc.get("newest_stamp"), "daily resolve output")
-    except Exception as exc:
-        seen["forky.stamp"] = (None, "needs the daily resolve: %s" % exc)
+    # snapshot.debian.org's archive listing is rendered client-side, so the newest
+    # stamp is not scrapeable, and the resolver MEASURES a given base rather than
+    # discovering one. The honest signal for "a new forky pin landed" is the pin
+    # file the daily resolve commits: when it changes, the image must rebuild.
+    seen["forky.stamp"] = pin_stamp(os.environ.get("NCZ_IMAGE_CI_BASE_PIN",
+                                                   "manifests/base.pin"))
 
     try:
         stable, rc = parse_kernel_releases(fetch(KERNEL_RELEASES))
@@ -314,6 +325,21 @@ def self_test():
     check("tag ordering 0.10 > 0.9", numeric_key("v0.10.0") > numeric_key("v0.9.0"), True)
     check("different repos never share a state key",
           apt_tag("https://a/dists/any") != apt_tag("https://b/dists/any"), True)
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        good = os.path.join(td, "base.pin")
+        open(good, "w").write(
+            "# arch\tsubstrate_sha256\tsubstrate_date\tsnapshot\tcoverage\turl\n"
+            "amd64\taa\tMon, 02 Nov 2026 08:09:16 UTC\t20261102T082611Z\t100.0\tu\n"
+            "arm64\tbb\tMon, 02 Nov 2026 08:09:16 UTC\t20261102T082611Z\t100.0\tu\n")
+        check("pin stamp both arches agree", pin_stamp(good)[0], "20261102T082611Z")
+        bad = os.path.join(td, "bad.pin")
+        open(bad, "w").write(
+            "amd64\taa\td\t20261102T082611Z\t100.0\tu\n"
+            "arm64\tbb\td\t20261105T120000Z\t100.0\tu\n")
+        val, why = pin_stamp(bad)
+        check("disagreeing arches are refused", (val, "disagree" in why), (None, True))
 
     prev = {"forky.stamp": "20261102T082611Z", "kernel.stable": "7.3.4"}
     seen = {"forky.stamp": ("20261105T120000Z", ""),
