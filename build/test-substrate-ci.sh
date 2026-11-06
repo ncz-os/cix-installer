@@ -142,6 +142,71 @@ check(d["decision"] == "open-mr", "coverage below minimum blocks auto-merge")
 d = m.decide(True, True, True, m.classify_delta(old, {"a": "1.0-1"}), automerge_enabled=True)
 check(d["decision"] == "open-mr", "a removable delta blocks auto-merge even with green gates")
 
+# ---- transactional pin move (F5) -------------------------------------------
+import os, tempfile
+
+root = tempfile.mkdtemp(prefix="ncz-ci-test-")
+files = {
+    "manifests/base.pin": "OLD-BASE\n",
+    "release.conf": "OLD-CONF\n",
+    "manifests/forky-snapshot.tsv": "OLD-TSV\n",
+    "manifests/determinism.pin": "OLD-DET\n",
+}
+for rel, content in files.items():
+    os.makedirs(os.path.dirname(os.path.join(root, rel)) or root, exist_ok=True)
+    with open(os.path.join(root, rel), "w") as f:
+        f.write(content)
+
+new = {k: v.replace("OLD", "NEW") for k, v in files.items()}
+r = m.apply_pin_move(root, new)
+check(r["ok"] and len(r["written"]) == 4, "pin move writes all four files")
+check(all(open(os.path.join(root, k)).read().startswith("NEW") for k in files),
+      "all four files carry the new pin")
+
+# Failure injection: the third rename fails.  Everything must go back.
+state = {"n": 0}
+def flaky_replace(src, dst):
+    state["n"] += 1
+    if state["n"] == 3:
+        raise OSError("injected: simulated disk failure")
+    os.replace(src, dst)
+
+r = m.apply_pin_move(root, {k: v.replace("NEW", "FAILED") for k, v in files.items()},
+                     replace=flaky_replace)
+check(not r["ok"] and r["rolled_back"], "F5: a failed write is reported as rolled back")
+restored = all(open(os.path.join(root, k)).read().startswith("NEW") for k in files)
+check(restored, "F5: tree is fully restored - no half-moved pin")
+check(not any(fn.endswith(".ncz-tmp") for fn in
+              (os.path.join(dp, fn) for dp, _, fns in os.walk(root) for fn in fns)),
+      "no staging files left behind after a rollback")
+
+# A brand-new file must be removed again on rollback.
+state["n"] = 0
+r = m.apply_pin_move(root, {"manifests/new.pin": "X\n"}, replace=flaky_replace)
+check(r["ok"], "single new file writes cleanly")
+
+# ---- changelog -------------------------------------------------------------
+old = {"a": "1.0-1", "b": "2.1-3", "gone": "1.0-1"}
+new = {"a": "1.0-2", "b": "3.0-1", "fresh": "0.1-1"}
+big_old, big_new = {}, {}
+for i in range(60):
+    big_new["pkg%02d" % i] = "1.0-1"
+
+text = m.render_changelog(old, new, evidence=["https://snap.example/InRelease sha256=abc"])
+check("1 added" in text and "1 removed" in text and "2 changed" in text,
+      "changelog states the counts")
+check("`fresh`" in text and "`gone`" in text, "changelog lists added and removed packages")
+check("`b` 2.1-3 -> 3.0-1" in text, "changelog shows the version transition")
+check("Major version bumps" in text, "changelog calls out major bumps for review")
+check("https://snap.example/InRelease sha256=abc" in text, "changelog carries its evidence")
+
+text = m.render_changelog(big_old, big_new, cap=50)
+check("... and 10 more" in text,
+      "long lists are capped and counted (60 added, cap 50)")
+
+import shutil
+shutil.rmtree(root, ignore_errors=True)
+
 print("\n%d passed, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)
 PY

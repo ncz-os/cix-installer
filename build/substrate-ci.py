@@ -198,6 +198,107 @@ def decide(gates_green, coverage_ok, digests_equal, delta, automerge_enabled):
     return {"decision": "auto-merge", "blockers": []}
 
 
+# --- stage 3: transactional pin move + changelog ----------------------------
+
+def apply_pin_move(root, changes, replace=None):
+    """Write several files as one transaction.
+
+    A pin move touches base.pin, release.conf, forky-snapshot.tsv and
+    determinism.pin.  If a single write fails the tree is left half-moved --
+    release.conf on the new snapshot while base.pin still carries the old rows,
+    or the reverse -- which is an unbuildable substrate that still looks pinned
+    (F5).  Staging every file first and renaming afterwards shrinks the window
+    but does not remove it, so the originals are kept in memory and restored on
+    the first failure.
+
+    Returns dict(ok, written, rolled_back, error).
+    """
+    replace = replace or os.replace
+    originals = {}
+    staged = []
+    written = []
+    for rel, content in changes.items():
+        path = os.path.join(root, rel)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                originals[path] = f.read()
+        except FileNotFoundError:
+            originals[path] = None
+        tmp = path + ".ncz-tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        staged.append((path, tmp))
+    try:
+        for path, tmp in staged:
+            replace(tmp, path)
+            written.append(path)
+    except OSError as exc:
+        rolled = []
+        for path in written:
+            orig = originals.get(path)
+            try:
+                if orig is None:
+                    os.unlink(path)
+                else:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(orig)
+                rolled.append(path)
+            except OSError:
+                pass
+        for _, tmp in staged:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        return {"ok": False, "written": written, "rolled_back": rolled,
+                "error": str(exc)}
+    return {"ok": True, "written": written, "rolled_back": [], "error": None}
+
+
+def render_changelog(old, new, evidence=None, title="Substrate pin update", cap=50):
+    """Markdown changelog for a pin move. Every list is capped and counted."""
+    delta = classify_delta(old, new, max_delta=10 ** 9, allow_removals=True)
+    lines = ["# %s" % title, "",
+             "%d package changes: %d added, %d removed, %d changed."
+             % (delta["count"], len(delta["added"]), len(delta["removed"]),
+                len(delta["changed"])), ""]
+
+    def block(heading, items):
+        if not items:
+            return
+        lines.append("## %s (%d)" % (heading, len(items)))
+        for name in items[:cap]:
+            lines.append("- `%s`" % name)
+        if len(items) > cap:
+            lines.append("- ... and %d more" % (len(items) - cap))
+        lines.append("")
+
+    block("Added", delta["added"])
+    block("Removed", delta["removed"])
+
+    if delta["changed"]:
+        lines.append("## Changed (%d)" % len(delta["changed"]))
+        for name in delta["changed"][:cap]:
+            lines.append("- `%s` %s -> %s" % (name, old.get(name, "?"), new.get(name, "?")))
+        if len(delta["changed"]) > cap:
+            lines.append("- ... and %d more" % (len(delta["changed"]) - cap))
+        lines.append("")
+
+    if delta["major_bumps"]:
+        lines.append("## Major version bumps (review required)")
+        for b in delta["major_bumps"]:
+            lines.append("- `%s` %s -> %s" % (b["name"], b["old"], b["new"]))
+        lines.append("")
+
+    if evidence:
+        lines.append("## Evidence")
+        for e in evidence:
+            lines.append("- %s" % e)
+    return "\n".join(lines).rstrip() + "\n"
+
+
 # --- CLI --------------------------------------------------------------------
 
 def _cmd_preflight(args):
@@ -232,6 +333,29 @@ def _cmd_decide(args):
     return 0
 
 
+def _cmd_apply_pin(args):
+    with open(args.spec, "r", encoding="utf-8") as f:
+        spec = json.load(f)
+    result = apply_pin_move(spec["root"], spec["changes"])
+    print(json.dumps(result, indent=2))
+    return 0 if result["ok"] else 2
+
+
+def _cmd_changelog(args):
+    with open(args.spec, "r", encoding="utf-8") as f:
+        spec = json.load(f)
+    text = render_changelog(spec.get("old", {}), spec.get("new", {}),
+                            evidence=spec.get("evidence"),
+                            title=spec.get("title", "Substrate pin update"))
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as f:
+            f.write(text)
+        print("wrote %s" % args.out)
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="automatic substrate CI decision core")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -254,6 +378,15 @@ def main(argv=None):
     d.add_argument("--automerge", action="store_true",
                    help="honour NCZ_CI_AUTOMERGE=1 (default is to open an MR)")
     d.set_defaults(func=_cmd_decide)
+
+    a = sub.add_parser("apply-pin", help="stage 3: transactional pin move")
+    a.add_argument("spec", help="JSON: {\"root\": path, \"changes\": {relpath: content}}")
+    a.set_defaults(func=_cmd_apply_pin)
+
+    c = sub.add_parser("changelog", help="stage 3: render a pin-move changelog")
+    c.add_argument("spec", help="JSON: {\"old\": {pkg: ver}, \"new\": {...}, \"evidence\": [...]}")
+    c.add_argument("--out", default=None)
+    c.set_defaults(func=_cmd_changelog)
 
     args = ap.parse_args(argv)
     if args.cmd == "preflight" and not args.base:
