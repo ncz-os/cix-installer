@@ -77,6 +77,11 @@ printf '%s' "$out" | grep  'clearing a stale marker' >/dev/null \
 # 3c. the reservation is atomic AND never empty (an empty marker reads as stale)
 grep -q 'set -C; printf' "$RUN" && ok "the marker is reserved with O_EXCL semantics and a pid" \
     || nok "the marker is reserved by a check-then-create race, or reserved empty"
+# 3e. the child writes its own pid, so a runner crash cannot leave a stale marker
+grep -q 'BASHPID" > "$marker"' "$RUN" \
+    && ok "the child records its own pid before exec (no crash window)" \
+    || nok "the marker pid is written by the parent, leaving a crash window"
+
 # 3d. the recorded pid must be the subshell that waits for the build, not a wrapper
 grep -q 'setsid bash -c "$cmd" > "$log" 2>&1 ) &' "$RUN" \
     && ok "the recorded pid belongs to a process that outlives the wrapper" \

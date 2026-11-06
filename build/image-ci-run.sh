@@ -150,10 +150,14 @@ while IFS=$'\t' read -r trig verdict value; do
     # and then the recorded pid is dead immediately, so the marker looks stale and
     # the next run would start a second build. Background the SUBSHELL instead: it
     # waits for the build, so its pid is alive exactly as long as the build is.
-    ( export NCZ_IMAGE_CI_LAUNCHED_BY=image-ci-run
+    # The child records ITS OWN pid as its first action. Written by the parent
+    # instead, a crash between the fork and the write leaves the marker naming a
+    # dead runner while the build runs -- the next pass would call it stale and
+    # start a second build on the same host.
+    ( printf '%s\n' "$BASHPID" > "$marker"
+      export NCZ_IMAGE_CI_LAUNCHED_BY=image-ci-run
       setsid bash -c "$cmd" > "$log" 2>&1 ) &
     bpid=$!
-    printf '%s\n' "$bpid" > "$marker"
     pid="$bpid"
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
         printf '%-14s %-28s started pid=%s log=%s\n' "$trig" "$value" "$pid" "$log"
