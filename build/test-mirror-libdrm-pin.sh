@@ -9,6 +9,13 @@
 #      same version/other bytes, unpinned name, missing file) FAILS; the pinned set passes. The first two cases
 #      reproduce the d90ed961 amd64 mirror.
 # LEGACY=<build-desktop-mirror.sh> evaluates the rows of another script (shows case 1 fails on d90ed961).
+
+# This suite builds .deb fixtures. If the host cannot, say so once instead of
+# letting every assertion fail on an empty archive (build/lib/deb-fixture.sh).
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "test-mirror-libdrm-pin: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$HERE/.."

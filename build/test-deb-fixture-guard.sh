@@ -52,5 +52,20 @@ else
     bad "the dkms fixture still suppresses dpkg-deb's error"
 fi
 
+# 5. the invariant, so coverage cannot rot when a new suite starts building debs:
+# every build/test-*.sh that runs dpkg-deb must call the guard first.
+missing=""
+count=0
+for f in "$REPO"/build/test-*.sh; do
+    grep -qE 'dpkg-deb [^|]*(--build|\bbuild\b|-b\b)' "$f" 2>/dev/null || continue
+    count=$((count + 1))
+    grep -q 'ncz_deb_fixture_check' "$f" || missing="$missing $(basename "$f")"
+done
+if [ "$count" -gt 0 ] && [ -z "$missing" ]; then
+    ok "all $count suites that build deb fixtures call the guard"
+else
+    bad "a suite builds deb fixtures without the guard" "$missing"
+fi
+
 echo "test-deb-fixture-guard: $pass passed, $fail failed"
 [ "$fail" = 0 ]

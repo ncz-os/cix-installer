@@ -5,6 +5,13 @@
 #    really read (PIPESTATUS), so the WARN / failure fires (real blocks, extracted by marker)
 #  * build/lib/deb-version-gate.sh fails CLOSED when the published index is unreachable, unless
 #    NCZ_VERSION_GATE_STRICT=0 is set explicitly
+
+# This suite builds .deb fixtures. If the host cannot, say so once instead of
+# letting every assertion fail on an empty archive (build/lib/deb-fixture.sh).
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "test-hooks-fail-loudly: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/var/tmp}/failloud.XXXXXX")"; trap 'rm -rf "$T"' EXIT

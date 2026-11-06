@@ -1,6 +1,13 @@
 #!/bin/bash
 # test-google-chrome-pin.sh -- both mirror builders take Google Chrome only from the staged,
 # pinned deb (build/lib/google-chrome-pin.sh), never from Google's live "current stable".
+
+# This suite builds .deb fixtures. If the host cannot, say so once instead of
+# letting every assertion fail on an empty archive (build/lib/deb-fixture.sh).
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "test-google-chrome-pin: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 PASS=0; FAIL=0

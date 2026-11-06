@@ -9,6 +9,13 @@
 #
 # Skips (77) when dpkg-deb is unavailable. Uses $TMPDIR (already owned by the
 # caller / Projects) and never writes outside it.
+
+# This suite builds .deb fixtures. If the host cannot, say so once instead of
+# letting every assertion fail on an empty archive (build/lib/deb-fixture.sh).
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "test-stage-screensaver-plugin-public: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

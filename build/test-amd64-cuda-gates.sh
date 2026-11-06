@@ -12,6 +12,13 @@
 #     the real shipped patch and the real `patch`, apt hooks)
 # Style follows build/test-hostname-suggest.sh: fixtures in a temp dir, every
 # check prints ok/FAIL, exit status is the number of failures.
+
+# This suite builds .deb fixtures. If the host cannot, say so once instead of
+# letting every assertion fail on an empty archive (build/lib/deb-fixture.sh).
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "test-amd64-cuda-gates: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 set -uo pipefail
 # These cases exercise the DESKTOP installer's NVIDIA/CUDA selection logic, and
 # the suite runs inside image builds of BOTH variants. With NCZ_VARIANT=server in

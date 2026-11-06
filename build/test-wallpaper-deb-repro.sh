@@ -5,6 +5,13 @@
 # ArtistPack checkout in $HOME give the same deb; and a pack.json that does not
 # describe the packaged images fails the build.
 # Usage: build/test-wallpaper-deb-repro.sh
+
+# This suite builds .deb fixtures. If the host cannot, say so once instead of
+# letting every assertion fail on an empty archive (build/lib/deb-fixture.sh).
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "test-wallpaper-deb-repro: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 PASS=0; FAIL=0

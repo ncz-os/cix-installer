@@ -1,6 +1,13 @@
 #!/bin/bash
 # test-cix-mesa-repack.sh -- build/verify-cix-mesa-repack.py accepts exactly the -ncz1 change
 # (01-cixgpu-compat.conf commented out, Version bumped) and refuses anything more.
+
+# This suite builds .deb fixtures. If the host cannot, say so once instead of
+# letting every assertion fail on an empty archive (build/lib/deb-fixture.sh).
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "test-cix-mesa-repack: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PASS=0; FAIL=0
