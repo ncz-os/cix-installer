@@ -50,7 +50,7 @@ mkdir -p "$LAYERS_ROOT"
 # fixture repositories without a mounted Yocto export.
 # shellcheck source=lib/yocto-layers.sh
 . "$SCRIPT_DIR/lib/yocto-layers.sh"
-fetch_layer() { ncz_yocto_fetch_layer "$1" "$2" "$3" "$4" "$LAYERS_ROOT"; }
+fetch_layer() { STORE_BASE="$FALLBACK_BASE" ncz_yocto_fetch_layer "$1" "$2" "$3" "$4" "$LAYERS_ROOT"; }
 
 while IFS='|' read -r name url fallback revision; do
     [[ -z "$name" || "$name" == \#* ]] && continue
