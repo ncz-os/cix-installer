@@ -291,6 +291,37 @@ r = m.aggregate_gates(allpass + [{"name": "y"}])
 check(not r["green"], "a gate with no status is treated as an error")
 
 
+# ---- rehearsal: stages 2+6+7 composed --------------------------------------
+green_spec = {
+    "arches": {"amd64": {"snapshot": "S1", "coverage": 100.0, "inrelease_sha256": "aa"},
+               "arm64": {"snapshot": "S1", "coverage": 100.0, "inrelease_sha256": "aa"}},
+    "gates": [{"name": "substrate-pin", "status": "pass"}, {"name": "kvm-boot", "status": "pass"}],
+    "old": {"a": "1.0-1"},
+    "new": {"a": "1.0-2"},
+}
+r = m.rehearse(green_spec, automerge=True)
+check(r["decision"] == "auto-merge" and not r["blockers"],
+      "rehearse: everything green + switch on -> auto-merge")
+
+r = m.rehearse(green_spec, automerge=False)
+check(r["decision"] == "open-mr" and any("NCZ_CI_AUTOMERGE" in b for b in r["blockers"]),
+      "rehearse: default posture is open-mr")
+
+skipped = dict(green_spec, gates=green_spec["gates"] + [{"name": "driver-binding", "status": "skip"}])
+r = m.rehearse(skipped, automerge=True)
+check(r["decision"] == "open-mr" and any("SKIPPED" in b for b in r["blockers"]),
+      "rehearse: a skipped gate blocks the merge")
+
+split = dict(green_spec, arches={"amd64": green_spec["arches"]["amd64"],
+                                 "arm64": dict(green_spec["arches"]["arm64"], snapshot="S2")})
+r = m.rehearse(split, automerge=True)
+check(r["decision"] == "open-mr", "rehearse: divergent snapshots block the merge")
+
+big = dict(green_spec, new={("p%03d" % i): "1.0-1" for i in range(200)})
+r = m.rehearse(big, automerge=True)
+check(r["decision"] == "open-mr", "rehearse: a delta over the ceiling blocks the merge")
+
+
 print("\n%d passed, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)
 PY

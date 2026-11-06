@@ -303,6 +303,41 @@ def aggregate_gates(results):
     return {"green": not blockers, "ran": len(results), "blockers": blockers}
 
 
+# --- rehearsal: the whole verdict in one call -------------------------------
+
+def rehearse(spec, automerge=False, min_coverage=99.0, max_delta=150,
+             allow_removals=False):
+    """Compose stages 2, 6 and 7 into one verdict, the way a CI dry run would.
+
+    spec = {"arches": {amd64: {...}, arm64: {...}},
+            "gates": [{name, status}],
+            "old": {pkg: version}, "new": {pkg: version}}
+
+    Nothing here is new logic - it is the composition, so that a reviewer can see the
+    three inputs and the one answer together, and so the pipeline has a single call.
+    """
+    proof = aggregate_proof(spec.get("arches", {}), min_coverage=min_coverage)
+    gates = aggregate_gates(spec.get("gates", []))
+    delta = classify_delta(spec.get("old", {}), spec.get("new", {}),
+                           max_delta=max_delta, allow_removals=allow_removals)
+    out = decide(gates_green=gates["green"],
+                 coverage_ok=proof["coverage_ok"],
+                 digests_equal=proof["digests_equal"],
+                 delta=delta,
+                 automerge_enabled=automerge,
+                 snapshot_ok=proof["snapshot_ok"])
+    # decide() summarises a red suite as "gates not green"; a verdict that says only
+    # that hides WHICH gate failed, so replace the summary with the specifics.
+    blockers = []
+    for b in out["blockers"]:
+        if b == "gates not green on both arches" and gates["blockers"]:
+            blockers.extend(gates["blockers"])
+        else:
+            blockers.append(b)
+    return {"decision": out["decision"], "blockers": blockers,
+            "proof": proof, "gates": gates, "delta": delta}
+
+
 # --- stage 3: transactional pin move + changelog ----------------------------
 
 def apply_pin_move(root, changes, replace=None):
@@ -489,6 +524,14 @@ def _cmd_gates(args):
     return 0 if out["green"] else 1
 
 
+def _cmd_rehearse(args):
+    with open(args.spec, "r", encoding="utf-8") as f:
+        spec = json.load(f)
+    out = rehearse(spec, automerge=args.automerge, max_delta=args.max_delta)
+    print(json.dumps(out, indent=2))
+    return 0 if out["decision"] == "auto-merge" else 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="automatic substrate CI decision core")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -530,6 +573,13 @@ def main(argv=None):
     g2 = sub.add_parser("gates", help="stage 6: aggregate gate results")
     g2.add_argument("spec", help="JSON: [{\"name\": ..., \"status\": pass|fail|skip|error}, ...]")
     g2.set_defaults(func=_cmd_gates)
+
+    rh = sub.add_parser("rehearse", help="compose stages 2+6+7 into one verdict")
+    rh.add_argument("spec", help="JSON: arches, gates, old, new")
+    rh.add_argument("--automerge", action="store_true")
+    rh.add_argument("--max-delta", type=int,
+                    default=int(os.environ.get("NCZ_CI_MAX_PKG_DELTA", "150")))
+    rh.set_defaults(func=_cmd_rehearse)
 
     r = sub.add_parser("retention", help="stage 8: what to keep and what to prune")
     r.add_argument("spec", help="JSON: {\"items\": [...], \"validated\": name, \"keep_candidates\": 1}")
