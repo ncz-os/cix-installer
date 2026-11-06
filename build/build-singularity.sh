@@ -607,6 +607,25 @@ ninja -C build
 DESTDIR=/work/stage meson install -C build
 test -x "/work/stage'"$PREFIX"'/bin/singularity-boot-splash"
 
+# ncz-loginui-reinstall-after-boot-splash
+# The boot-splash repo bundles its OWN copy of singularity-loginui and installs it
+# AFTER the superproject, so it overwrites the patched loginui.h and libloginui.a
+# with copies that deliberately lack the session-only patches. Measured on the
+# 2026-11-06 payload: the staged header had no loginui_field_label even though the
+# superproject patch applied. Put the superproject's copies back - they are what the
+# payload's consumers are compiled against, and the boot-splash binary needs nothing
+# from its bundled header at run time.
+for _lf in loginui.h widget.h; do
+    if [ -f "/work/singularity-desktop/subprojects/singularity-loginui/$_lf" ]; then
+        install -m 644 "/work/singularity-desktop/subprojects/singularity-loginui/$_lf" \
+            "/work/stage'"$PREFIX"'/include/$_lf"
+    fi
+done
+if [ -f /work/singularity-desktop/build/subprojects/singularity-loginui/libloginui.a ]; then
+    install -m 644 /work/singularity-desktop/build/subprojects/singularity-loginui/libloginui.a \
+        "/work/stage'"$PREFIX"'/lib/libloginui.a"
+fi
+
 # Package. Paths are opt/singularity/... so `tar -C /` lands at /opt/singularity.
 cd /work/stage
 tar -czf /out/singularity-opt.tgz opt/singularity
