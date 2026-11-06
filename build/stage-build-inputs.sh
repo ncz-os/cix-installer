@@ -142,19 +142,26 @@ while IFS= read -r line || [ -n "$line" ]; do
     local_f="$TREE/$dest"; store_f="$STORE/$ARCH/$dest"
     case "$MODE" in
     publish)
-        if [ ! -f "$local_f" ]; then miss "$dest not in this tree ($local_f)"; printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$dest" "$sha" "$size" "$note" "${snap:-}" >> "$NEW"; continue; fi
-        nsha="$(sha_of "$local_f")"; nsize="$(stat -c %s "$local_f")"
-        mkdir -p "$(dirname "$store_f")"
-        cp -f "$local_f" "$store_f.part" && mv -f "$store_f.part" "$store_f"
-        [ "$(sha_of "$store_f")" = "$nsha" ] || { miss "$dest changed on the way to $store_f"; }
+        # M8 validation FIRST: a refusal must not touch the store, and must never drop the row --
+        # publish rebuilds the TSV from $NEW, so a bare `continue` would delete it from the manifest.
         case "$dest" in
           *rootfs*)
             if [ -z "${M8_SNAPSHOT:-}" ]; then
                 miss "$dest: refusing to publish a rootfs row without --snapshot <timestamp> (M8); a rebuilt tarball must state the snapshot it was built at"
+                printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$dest" "$sha" "$size" "$note" "${snap:-}" >> "$NEW"
                 continue
             fi
             snap="$M8_SNAPSHOT" ;;
         esac
+        if [ ! -f "$local_f" ]; then
+            miss "$dest not in this tree ($local_f)"
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$dest" "$sha" "$size" "$note" "${snap:-}" >> "$NEW"
+            continue
+        fi
+        nsha="$(sha_of "$local_f")"; nsize="$(stat -c %s "$local_f")"
+        mkdir -p "$(dirname "$store_f")"
+        cp -f "$local_f" "$store_f.part" && mv -f "$store_f.part" "$store_f"
+        [ "$(sha_of "$store_f")" = "$nsha" ] || { miss "$dest changed on the way to $store_f"; }
         printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$dest" "$nsha" "$nsize" "$note" "${snap:-}" >> "$NEW"
         echo "[build-inputs] published $dest sha256=$nsha ($nsize B)"; N_COPIED=$((N_COPIED + 1)) ;;
     *)
