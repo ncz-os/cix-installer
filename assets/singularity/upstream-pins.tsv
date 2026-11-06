@@ -67,7 +67,7 @@ subprojects/singularity-plugins	https://github.com/singularityos-lab/singularity
 subprojects/singularity-widgets	https://github.com/singularityos-lab/singularity-widgets.git	main	bd4d4d708950637b3116c70dcd9e5f8ef7d3cc81
 subprojects/singularity-session	https://github.com/singularityos-lab/singularity-session.git	main	2a1f43316e069235cbd4f4246bc30f20c652edaa
 subprojects/singularity-shell	https://github.com/singularityos-lab/singularity-shell.git	main	a175271e082ed91e2f6352e1dd67c411ad2e6d08
-subprojects/singularity-loginui	https://github.com/singularityos-lab/singularity-loginui.git	-	1a599d8786323af7fa86667322953ed42547662f
+subprojects/singularity-loginui	https://github.com/singularityos-lab/singularity-loginui.git	main	1c1eb0bd07359714c0a4c81e8fb2650673377f7e
 subprojects/singularity-installer	https://github.com/singularityos-lab/singularity-installer.git	-	d09d94f3e0e4b17909f6e9a2e744346775f80d94
 subprojects/singularity-gestures	https://github.com/singularityos-lab/singularity-gestures.git	main	c524945f57c3a973c3971891dd392ce285c4fd59
 subprojects/libinput	https://github.com/singularityos-lab/libinput.git	singularity	d20219b4a7350434fc058dcf00dec3f8cf13db47
