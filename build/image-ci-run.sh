@@ -113,13 +113,28 @@ while IFS=$'\t' read -r trig verdict value; do
     fi
     marker="$MARKER_DIR/ncz-image-ci-$trig"
     if [ -e "$marker" ]; then
-        printf '%-14s %-28s SKIP: a build already holds %s\n' "$trig" "$value" "$(basename "$marker")"
-        skipped=$((skipped + 1)); continue
+        mpid="$(tr -dc '0-9' < "$marker" 2>/dev/null)"
+        if [ -n "$mpid" ] && kill -0 "$mpid" 2>/dev/null; then
+            printf '%-14s %-28s SKIP: a build already holds %s (pid %s alive)\n' \
+                "$trig" "$value" "$(basename "$marker")" "$mpid"
+            skipped=$((skipped + 1)); continue
+        fi
+        # A marker whose pid is gone would block this trigger forever. Clear it and say so.
+        printf '%-14s %-28s clearing a stale marker (pid %s is not running)\n' \
+            "$trig" "$value" "${mpid:-empty}"
+        rm -f "$marker"
     fi
     if [ "$EXECUTE" != 1 ]; then
         printf '%-14s %-28s WOULD RUN: %s\n' "$trig" "$value" "$cmd"
         printf '%-14s %-28s            marker %s, run dir %s\n' "" "" "$marker" "$RUNS_DIR"
         did=$((did + 1)); continue
+    fi
+    # Reserve the marker atomically before launching: checking for the file and then
+    # creating it is a race two runners can both win. `set -C` gives O_EXCL.
+    if ! ( set -C; : > "$marker" ) 2>/dev/null; then
+        printf '%-14s %-28s SKIP: another runner reserved %s first\n' \
+            "$trig" "$value" "$(basename "$marker")"
+        skipped=$((skipped + 1)); continue
     fi
     # launch, record, then advance the state
     log="$RUNS_DIR/$trig-$(date -u +%Y%m%dT%H%M%SZ).log"

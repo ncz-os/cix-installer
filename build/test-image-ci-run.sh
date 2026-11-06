@@ -57,12 +57,26 @@ printf '%s' "$out" | grep -q 'refusing to start' && ok "the refusal says why" ||
 # 3. a host already building is skipped, with the reason
 out="$(cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='true' bash "$RUN" 2>&1)"
 printf '%s' "$out" | grep -q 'WOULD RUN' && ok "control: without a marker the action is planned" || nok "control failed"
-: > "$T/markers/ncz-image-ci-forky-pin"
+# a genuinely live pid: the marker must be judged by whether that process runs
+sleep 30 & LIVE=$!
+printf '%s\n' "$LIVE" > "$T/markers/ncz-image-ci-forky-pin"
 out="$(cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='true' bash "$RUN" 2>&1)"
+kill "$LIVE" 2>/dev/null; wait "$LIVE" 2>/dev/null
 printf '%s' "$out" | grep -q 'SKIP: a build already holds' \
-    && ok "an existing marker skips the action and names it" \
-    || nok "an existing marker did not skip the action"
+    && ok "an existing live marker skips the action and names it" \
+    || nok "an existing live marker did not skip the action"
 rm -f "$T/markers/ncz-image-ci-forky-pin"
+
+# 3b. a marker whose pid is gone must not block the trigger forever
+printf '999999\n' > "$T/markers/ncz-image-ci-forky-pin"
+out="$(cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='true' bash "$RUN" 2>&1)"
+printf '%s' "$out" | grep -q 'clearing a stale marker' \
+    && ok "a stale marker is cleared and named" \
+    || nok "a stale marker blocked the trigger: $(printf '%s' "$out" | grep forky | head -1)"
+[ ! -e "$T/markers/ncz-image-ci-forky-pin" ] && ok "the stale marker is gone" || nok "the stale marker survived"
+# 3c. the reservation is atomic, not check-then-create
+grep -q 'set -C; : > "$marker"' "$RUN" && ok "the marker is reserved with O_EXCL semantics" \
+    || nok "the marker is reserved by a check-then-create race"
 
 # 4. execute launches, records, keeps a marker, and advances the state
 out="$(cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='sleep 30' bash "$RUN" --execute 2>&1)"; rc=$?
