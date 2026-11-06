@@ -164,7 +164,7 @@ def singularity_state():
 def apt_tag(apt_base):
     """Short, stable tag for a repo URL, so two repos never share state keys."""
     import hashlib
-    return hashlib.sha256(apt_base.rstrip("/").encode()).hexdigest()[:8]
+    return hashlib.sha256(apt_base.rstrip("/").encode()).hexdigest()[:12]
 
 
 def probe(apt_base):
@@ -320,7 +320,7 @@ def self_test():
             "kernel.stable": ("7.3.4", ""),
             "kernel.rc": (None, ""),
             "singularity.head": (None, ""),
-            "ncz.index.amd64": (None, ""), "ncz.index.arm64": (None, "")}
+            }
     rows = decide(MATRIX, prev, seen, "https://example.invalid/dists/any")
     verdicts = {r[0]: r[3] for r in rows}
     check("forky moved", verdicts["forky-pin"], "WOULD TRIGGER")
