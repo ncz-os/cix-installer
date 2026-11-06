@@ -22,17 +22,18 @@ the dock (dock-icon-size plus padding) and a gap, never below 240 px.
  1 file changed, 225 insertions(+), 79 deletions(-)
 
 diff --git a/sensors/sensors.vala b/sensors/sensors.vala
-index 22648e0..587c1e7 100644
 --- a/sensors/sensors.vala
 +++ b/sensors/sensors.vala
-@@ -49,23 +49,59 @@ public class SensorsPlugin : Object, Singularity.Plugin {
+@@ -49,24 +49,61 @@
  class SensorsIndicator : Gtk.Box {
      // Sensor counts vary by two orders of magnitude across platforms, so
      // the detail list is capped rather than unbounded.
 -    private const int MAX_ROWS_PER_GROUP = 6;
 +    private const int MAX_ROWS_PER_GROUP = 12;
-     // Column count uses logical monitor geometry and is capped at three.
++    // Column count uses logical monitor geometry and is capped at three.
      private const int MAX_DETAIL_COLUMNS = 3;
+     private const int TWO_COLUMN_MIN_WIDTH = 1280;
+     private const int THREE_COLUMN_MIN_WIDTH = 1920;
      private const int DETAIL_COLUMN_WIDTH = 340;
      private const int DETAIL_COLUMN_SPACING = 18;
      private const int DETAIL_SCREEN_MARGIN = 96;
@@ -89,7 +90,7 @@ index 22648e0..587c1e7 100644
      private static Gtk.CssProvider? compact_rows_provider = null;
      private Gtk.CssProvider? contrast_provider = null;
      private SensorsContrast.Palette panel_palette;
-@@ -152,20 +188,28 @@ class SensorsIndicator : Gtk.Box {
+@@ -151,20 +188,28 @@
          // row, a tall CPU section does not leave a matching blank hole
          // beneath a short GPU section in the opposite column.
          detail_toggle_box = new Box(Orientation.VERTICAL, 4);
@@ -130,9 +131,9 @@ index 22648e0..587c1e7 100644
  
          Popover popover = new Popover();
          // Natural size is the ordinary presentation.  Automatic vertical
-@@ -377,18 +421,46 @@ class SensorsIndicator : Gtk.Box {
-         detail_column_count = int.min(MAX_DETAIL_COLUMNS,
-             int.max(1, (available_width + DETAIL_COLUMN_SPACING) / density_slot));
+@@ -374,18 +419,46 @@
+         detail_column_count = screen_width >= THREE_COLUMN_MIN_WIDTH ? 3
+             : screen_width >= TWO_COLUMN_MIN_WIDTH ? 2 : 1;
  
 -        for (int i = 0; i < MAX_DETAIL_COLUMNS; i++) {
 -            detail_columns[i].visible = i < detail_column_count;
@@ -183,7 +184,7 @@ index 22648e0..587c1e7 100644
      }
  
      /**
-@@ -823,13 +895,14 @@ class SensorsIndicator : Gtk.Box {
+@@ -728,13 +801,14 @@
  
          int target_column = 0;
          for (int i = 1; i < detail_column_count; i++) {
@@ -202,7 +203,7 @@ index 22648e0..587c1e7 100644
      }
  
      private void add_heading(string title) {
-@@ -1010,12 +1083,11 @@ class SensorsIndicator : Gtk.Box {
+@@ -915,12 +989,11 @@
       * in one render path and ignored in the other is how sensors-show-
       * frequency shipped a half-working toggle.
       */
@@ -216,7 +217,7 @@ index 22648e0..587c1e7 100644
          UtilizationReading[] cores = util.per_cpu();
          if (util.cpu_fraction >= 0.0 || cores.length > 0) {
              add_heading(_("Processor"));
-@@ -1053,7 +1125,13 @@ class SensorsIndicator : Gtk.Box {
+@@ -958,7 +1031,13 @@
              }
          }
  
@@ -231,7 +232,7 @@ index 22648e0..587c1e7 100644
          if (util.memory_fraction >= 0.0) {
              add_heading(_("Memory"));
              add_row(_("RAM"),
-@@ -1071,7 +1149,13 @@ class SensorsIndicator : Gtk.Box {
+@@ -976,7 +1055,13 @@
              }
          }
  
@@ -246,7 +247,7 @@ index 22648e0..587c1e7 100644
          CapacityReading[] volumes = util.filesystems();
          UtilizationReading[] spindles = util.disks();
          if (volumes.length > 0 || spindles.length > 0) {
-@@ -1209,7 +1293,7 @@ class SensorsIndicator : Gtk.Box {
+@@ -1114,7 +1199,7 @@
       * aggregate temperature for the whole CPU, and clock broken out by
       * cluster underneath it.
       */
@@ -255,7 +256,7 @@ index 22648e0..587c1e7 100644
          SensorReading[] cpu_temps = {};
          foreach (SensorReading reading in monitor.readings()) {
              if (reading.kind == SensorKind.CPU) {
-@@ -1225,7 +1309,13 @@ class SensorsIndicator : Gtk.Box {
+@@ -1130,7 +1215,13 @@
              return;
          }
  
@@ -269,7 +270,7 @@ index 22648e0..587c1e7 100644
              if (cpu_temps.length > 0) {
                  int64 sum = 0;
                  foreach (SensorReading reading in cpu_temps) {
-@@ -1294,6 +1384,16 @@ class SensorsIndicator : Gtk.Box {
+@@ -1199,6 +1290,16 @@
              return;
          }
  
@@ -286,7 +287,7 @@ index 22648e0..587c1e7 100644
          add_heading(_("CPU"));
          int shown = 0;
          int hidden = 0;
-@@ -1312,11 +1412,15 @@ class SensorsIndicator : Gtk.Box {
+@@ -1217,11 +1318,15 @@
              add_row(_("%d more").printf(hidden),
                      format_celsius((int) (hidden_millidegrees_sum / hidden)));
          }
@@ -307,7 +308,7 @@ index 22648e0..587c1e7 100644
          foreach (ClockReading c in clocks) {
              string value = c.max_khz > 0
                  ? "%s / %s".printf(format_clock(c.khz), format_clock(c.max_khz))
-@@ -1325,12 +1429,68 @@ class SensorsIndicator : Gtk.Box {
+@@ -1230,12 +1335,68 @@
          }
      }
  
@@ -379,7 +380,7 @@ index 22648e0..587c1e7 100644
          }
  
          // One control for the whole popover, at the top so its scope is
-@@ -1339,46 +1499,32 @@ class SensorsIndicator : Gtk.Box {
+@@ -1244,46 +1405,32 @@
          detail_target = detail_toggle_box;
          add_sensors_toggle();
  
@@ -419,10 +420,6 @@ index 22648e0..587c1e7 100644
 -        section = begin_detail_section();
 -        add_group(SensorKind.SYSTEM,  _("System"));
 -        finish_detail_section(section);
--
--        section = begin_detail_section();
--        add_utilization_details();
--        finish_detail_section(section);
 +        // One tab per category.  add_group() skips a kind with no sensors,
 +        // and a tab with nothing in it is left out of the switcher, so a PC
 +        // that reports only CPU and GPU still shows exactly two tabs.  Kinds
@@ -447,11 +444,11 @@ index 22648e0..587c1e7 100644
 +        add_section(() => add_group(SensorKind.SYSTEM, _("System")));
 +        add_section(() => add_group(SensorKind.BOARD, _("Board")));
 +        add_section(() => add_group(SensorKind.NETWORK, _("Network")));
-+
+ 
+-        section = begin_detail_section();
+-        add_utilization_details();
+-        finish_detail_section(section);
 +        refresh_detail_tabs();
      }
  
-     /**
--- 
-2.53.0
-
+     private static SensorMonitor new_sensor_monitor() {
