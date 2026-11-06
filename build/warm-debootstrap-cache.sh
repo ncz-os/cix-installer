@@ -12,6 +12,11 @@
 # own, in parallel, into the same cache directory.  debootstrap then resumes
 # from a warm cache and only walks packages that are still genuinely missing.
 #
+# A small serial probe runs first: if the mirror cannot serve even a three-file
+# sample it is down, and spraying several hundred requests at it would waste
+# the window in which it might recover.  Exit 3 = "down, try again later",
+# which the calling wrapper treats like any other failed attempt.
+#
 # Nothing here is trusted implicitly: debootstrap still checks every cached
 # .deb against the checksums in the signed Packages index, so a bad download is
 # rejected at unpack time rather than accepted.
@@ -23,6 +28,8 @@ PAR=${3:-4}
 
 [ -r "$LOG" ] || { echo "warm-cache: no log at $LOG" >&2; exit 1; }
 mkdir -p "$CACHE"
+# A killed run can leave a .part file behind; they are never used as cache.
+rm -f "$CACHE"/*.part 2>/dev/null
 
 mapfile -t urls < <(grep -o "https://[^[:space:]]*\.deb" "$LOG" | sort -u)
 if [ "${#urls[@]}" -eq 0 ]; then
@@ -40,6 +47,48 @@ if [ "${#miss[@]}" -eq 0 ]; then
     exit 0
 fi
 
+# ---- probe (breaker) -------------------------------------------------------
+probe_n=${#miss[@]}
+[ "$probe_n" -gt 3 ] && probe_n=3
+fail_probes=0
+i=0
+while [ "$i" -lt "$probe_n" ]; do
+    url=${miss[$i]}
+    f="$CACHE/$(basename "$url")"
+    ok=0
+    a=1
+    while [ "$a" -le 3 ]; do
+        if wget -q -T 45 -t 1 -O "$f.part" "$url" 2>/dev/null && [ -s "$f.part" ]; then
+            mv -f "$f.part" "$f"
+            ok=1
+            break
+        fi
+        rm -f "$f.part"
+        sleep $((2 * a))
+        a=$((a + 1))
+    done
+    [ "$ok" -eq 1 ] || fail_probes=$((fail_probes + 1))
+    i=$((i + 1))
+done
+
+if [ "$fail_probes" -eq "$probe_n" ]; then
+    echo "warm-cache: mirror appears DOWN (0/$probe_n probes fetched) - skipping this wave"
+    exit 3
+fi
+echo "warm-cache: probe ok ($((probe_n - fail_probes))/$probe_n fetched) - running the wave"
+
+# recompute: the probe may have filled some entries
+miss=()
+for u in "${urls[@]}"; do
+    f="$CACHE/$(basename "$u")"
+    [ -s "$f" ] || miss+=("$u")
+done
+if [ "${#miss[@]}" -eq 0 ]; then
+    echo "warm-cache: cache complete after probe"
+    exit 0
+fi
+
+# ---- wave ------------------------------------------------------------------
 fetch_one() {
     url="$1"
     f="$CACHE/$(basename "$url")"
