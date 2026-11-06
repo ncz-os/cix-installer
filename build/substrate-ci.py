@@ -405,6 +405,68 @@ def abi_verdict(lock, arch, payload_version, lib_sha):
     return out
 
 
+LIBSINGULARITY_SONAME = "libsingularity.so.0"
+
+
+def symbol_abi_verdict(baseline_syms, candidate_syms, plugin_undef, needed=(),
+                       soname=LIBSINGULARITY_SONAME):
+    """Decide whether a plugin built against one payload still resolves on another.
+
+    This answers the question a sha mismatch cannot: the lock's identity rule says
+    "rebuild against the exact payload", which is stricter than "the binary still
+    works". Given the exports of the baseline library, the exports of the candidate
+    library and the plugin's undefined symbols, a pass means
+
+      * the plugin still declares the library's SONAME as NEEDED,
+      * the candidate exports every symbol the baseline exported (a superset),
+      * and every symbol the plugin took from the baseline is present in the candidate.
+
+    Anything it cannot prove is a failure, not a pass: an empty baseline proves nothing.
+    """
+    base = set(s for s in baseline_syms if s)
+    cand = set(s for s in candidate_syms if s)
+    undef = set(s for s in plugin_undef if s)
+    need = [n for n in needed if n]
+    out = {"soname": soname, "soname_ok": None, "baseline_symbols": len(base),
+           "candidate_symbols": len(cand), "plugin_imports": 0, "removed": [],
+           "unsatisfied": [], "ok": False, "why": ""}
+
+    if need:
+        out["soname_ok"] = soname in need
+        if not out["soname_ok"]:
+            out["why"] = "the plugin does not declare %s as NEEDED (it links %s)" % (
+                soname, ", ".join(need) or "nothing")
+            return out
+
+    if not base:
+        out["why"] = "no baseline symbols: nothing to compare, so nothing is proven"
+        return out
+    if not cand:
+        out["why"] = "no candidate symbols: the library could not be read"
+        return out
+
+    removed = sorted(base - cand)
+    imports = sorted(undef & base)
+    unsatisfied = sorted(set(imports) - cand)
+    out["removed"] = removed
+    out["unsatisfied"] = unsatisfied
+    out["plugin_imports"] = len(imports)
+
+    if removed:
+        out["why"] = "the candidate dropped %d symbol(s) the baseline exported, e.g. %s" % (
+            len(removed), ", ".join(removed[:3]))
+        return out
+    if unsatisfied:
+        out["why"] = ("the plugin takes %d symbol(s) from the baseline that the candidate "
+                      "does not export, e.g. %s" % (len(unsatisfied),
+                                                    ", ".join(unsatisfied[:3])))
+        return out
+    out["ok"] = True
+    out["why"] = ("superset (+%d) and all %d symbol(s) the plugin imports are present"
+                  % (len(cand) - len(base), len(imports)))
+    return out
+
+
 # --- stage 1 input: the current pin inventory -------------------------------
 
 def read_pins(root):
@@ -744,6 +806,22 @@ def _cmd_abi(args):
     return 0 if out["ok"] else 1
 
 
+def _read_list(path):
+    if not path:
+        return []
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        return [line.strip() for line in f if line.strip()]
+
+
+def _cmd_abi_symbols(args):
+    out = symbol_abi_verdict(_read_list(args.baseline), _read_list(args.candidate),
+                             _read_list(args.plugin), _read_list(args.needed),
+                             soname=args.soname)
+    print(json.dumps(out, indent=2, sort_keys=True))
+    print("abi-symbols: %s - %s" % ("OK" if out["ok"] else "MISMATCH", out["why"]))
+    return 0 if out["ok"] else 1
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="automatic substrate CI decision core")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -797,6 +875,14 @@ def main(argv=None):
     pn.add_argument("--root", default=os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))))
     pn.set_defaults(func=_cmd_pins)
+
+    absym = sub.add_parser("abi-symbols", help="stage 6: does the plugin still resolve on a payload")
+    absym.add_argument("--baseline", required=True, help="file of the baseline library's exported symbols")
+    absym.add_argument("--candidate", required=True, help="file of the candidate library's exported symbols")
+    absym.add_argument("--plugin", required=True, help="file of the plugin's undefined symbols")
+    absym.add_argument("--needed", default="", help="file of the plugin's DT_NEEDED entries")
+    absym.add_argument("--soname", default=LIBSINGULARITY_SONAME)
+    absym.set_defaults(func=_cmd_abi_symbols)
 
     ab = sub.add_parser("abi", help="stage 6: does a payload satisfy the plugin ABI lock")
     ab.add_argument("--lock", required=True, help="post-install/lib/ncz-screensavers-plugin.lock")

@@ -437,7 +437,46 @@ check(not v["ok"] and "no row" in v["why"], "abi: an arch the lock does not cove
 empty = m.read_ssplugin_lock(os.path.join(abiroot, "no-such.lock"))
 check(empty["version"] is None and empty["payload"] == {}, "abi: a missing lock yields empty, not a crash")
 check(not m.abi_verdict(empty, "arm64", "v", "s")["ok"], "abi: a missing lock cannot pass")
+
+# ---- symbol-level ABI (stage 6, the question a sha cannot answer) ------------
+def _read(p):
+    return [l.strip() for l in open(p, encoding="utf-8") if l.strip()]
+
+
+def _sym(path, names):
+    open(path, "w").write("".join(n + "\n" for n in names))
+    return path
+
+base = _sym(os.path.join(abiroot, "base.syms"), ["alpha", "beta", "gamma"])
+cand = _sym(os.path.join(abiroot, "cand.syms"), ["alpha", "beta", "gamma", "delta"])
+plug = _sym(os.path.join(abiroot, "plug.und"), ["alpha", "delta", "gtk_init", "memcpy"])
+need = _sym(os.path.join(abiroot, "plug.need"), ["libc.so.6", "libsingularity.so.0"])
+
+v = m.symbol_abi_verdict(_read(base), _read(cand), _read(plug), _read(need))
+check(v["ok"] and "superset" in v["why"], "abi-symbols: superset with the SONAME passes")
+check(v["plugin_imports"] == 1, "abi-symbols: counts only imports the library provided")
+
+gone = _sym(os.path.join(abiroot, "gone.syms"), ["alpha", "gamma"])
+v = m.symbol_abi_verdict(_read(base), _read(gone), _read(plug), _read(need))
+check(not v["ok"] and v["removed"] == ["beta"], "abi-symbols: a dropped symbol fails and is named")
+
+v = m.symbol_abi_verdict(_read(base), _read(cand), _read(plug), _read(_sym(os.path.join(abiroot, "n.need"), ["libc.so.6"])))
+check(not v["ok"] and v["soname_ok"] is False, "abi-symbols: a plugin that does not link the library fails")
+
+v = m.symbol_abi_verdict(_read(base), _read(_sym(os.path.join(abiroot, "e.syms"), [])), _read(plug), _read(need))
+check(not v["ok"] and "could not be read" in v["why"], "abi-symbols: an unreadable candidate cannot pass")
+
+v = m.symbol_abi_verdict([], _read(cand), _read(plug), _read(need))
+check(not v["ok"] and "nothing is proven" in v["why"], "abi-symbols: an empty baseline proves nothing")
+
+# the plugin needs something the baseline had, but the candidate lost it
+cand2 = _sym(os.path.join(abiroot, "cand2.syms"), ["beta", "gamma", "delta"])
+v = m.symbol_abi_verdict(_read(base), _read(cand2), _read(plug), _read(need))
+check(not v["ok"] and ("alpha" in v["removed"] or "alpha" in v["unsatisfied"]),
+      "abi-symbols: a symbol the plugin needs and the candidate lost is a failure")
 _sh.rmtree(abiroot, ignore_errors=True)
+
+
 
 
 print("\n%d passed, %d failed" % (ok, fail))
