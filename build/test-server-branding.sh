@@ -131,7 +131,7 @@ sel() { # name payload cmdline-text -> rc; leaves $W/sel-<name>/
 }
 sel srv "$W/srv" "quiet"
 eq "selector, server medium: exit 0" "$(cat "$W/sel-srv/rc")" 0
-if grep -q '^INPUT' "$W/sel-srv/db.log" || [ -e "$W/sel-srv/db.log.tpl" ]; then
+if grep  '^INPUT' "$W/sel-srv/db.log" >/dev/null || [ -e "$W/sel-srv/db.log.tpl" ]; then
     bad "selector, server medium: the component dialog was shown ($(tr '\n' ' ' < "$W/sel-srv/db.log"))"
 else ok "selector, server medium: no component dialog"; fi
 eq "selector, server medium: record" "$(cat "$W/sel-srv/state/COMPONENTS" 2>/dev/null)" "rescue-partition"
@@ -143,13 +143,13 @@ SEL_MEDIA_DIR="$W/srv" sel srvmd "$W/desk" "quiet"
 eq "selector, NCZ_MEDIA_DIR is a server medium: record" "$(cat "$W/sel-srvmd/state/COMPONENTS" 2>/dev/null)" "rescue-partition"
 sel srvovr "$W/srv" "quiet ncz_components=desktop,mgmt-container"
 eq "selector, server medium: desktop dropped from an override" "$(cat "$W/sel-srvovr/state/COMPONENTS" 2>/dev/null)" "mgmt-container"
-grep -q 'a Magnetar Server medium has no desktop -- dropping' "$W/sel-srvovr/out" && ok "selector, server medium: the drop is logged" || bad "selector: drop not logged"
+grep  'a Magnetar Server medium has no desktop -- dropping' "$W/sel-srvovr/out" >/dev/null && ok "selector, server medium: the drop is logged" || bad "selector: drop not logged"
 sel srvdesk "$W/srv" "quiet ncz_components=desktop"
 eq "selector, server medium: desktop-only override = the server record" "$(cat "$W/sel-srvdesk/state/COMPONENTS" 2>/dev/null)" "rescue-partition"
 sel srvgate "$W/srv" "quiet ncz_components=rescue-partition"
 eq "selector, server medium: the server gate's override" "$(cat "$W/sel-srvgate/state/COMPONENTS" 2>/dev/null)" "rescue-partition"
 sel desk "$W/desk" "quiet"
-grep -q '^INPUT critical ncz/components' "$W/sel-desk/db.log" && ok "selector, desktop medium: dialog shown" || bad "selector, desktop medium: no dialog ($(cat "$W/sel-desk/out"))"
+grep  '^INPUT critical ncz/components' "$W/sel-desk/db.log" >/dev/null && ok "selector, desktop medium: dialog shown" || bad "selector, desktop medium: no dialog ($(cat "$W/sel-desk/out"))"
 eq "selector, desktop medium: record" "$(cat "$W/sel-desk/state/COMPONENTS" 2>/dev/null)" "desktop,browsers,wallpaper-rotator,mgmt-container,rescue-partition"
 eq "selector, desktop medium: dialog title" "$(sed -n 's/^Description: //p' "$W/sel-desk/db.log.tpl" 2>/dev/null)" "[5/8] $DESK_LABEL - optional components"
 
@@ -160,10 +160,10 @@ NCZ_UI_PAYLOAD="$W/srv" NCZ_UI_RELEASE="$ROOT/release.conf" NCZ_UI_CMDLINE=/dev/
     ". '$ROOT/preseed/ncz-ui.sh'; CHOSEN_DISK=/dev/sda; CHOSEN_FS=btrfs; _ncz_resc=yes; . '$W/confirm.sh'"
 if [ -s "$W/confirm.tpl" ]; then
     eq "erase confirm (server): title" "$(sed -n 's/^Description: //p' "$W/confirm.tpl")" "$SRV - Step 7 of 7: Erase disk and install?"
-    grep -q 'downloads about 3 GB after the disk is erased' "$W/confirm.tpl" && ok "erase confirm (server): states the 3 GB download before the erase" || bad "erase confirm (server): no download warning"
-    grep -q 'the disk is left erased with nothing installed' "$W/confirm.tpl" && ok "erase confirm (server): says what a failed download leaves" || bad "erase confirm (server): no failure consequence"
-    grep -qE 'Components:|desktop|Cygnus' "$W/confirm.tpl" && bad "erase confirm (server): lists components/desktop/codename" || ok "erase confirm (server): no components, no desktop, no codename"
-    grep -q "^ $SRVF | " "$W/confirm.tpl" && ok "erase confirm (server): id line carries the full edition" || bad "erase confirm (server): id line: $(tail -1 "$W/confirm.tpl")"
+    grep  'downloads about 3 GB after the disk is erased' "$W/confirm.tpl" >/dev/null && ok "erase confirm (server): states the 3 GB download before the erase" || bad "erase confirm (server): no download warning"
+    grep  'the disk is left erased with nothing installed' "$W/confirm.tpl" >/dev/null && ok "erase confirm (server): says what a failed download leaves" || bad "erase confirm (server): no failure consequence"
+    grep -E 'Components:|desktop|Cygnus' "$W/confirm.tpl" >/dev/null && bad "erase confirm (server): lists components/desktop/codename" || ok "erase confirm (server): no components, no desktop, no codename"
+    grep  "^ $SRVF | " "$W/confirm.tpl" >/dev/null && ok "erase confirm (server): id line carries the full edition" || bad "erase confirm (server): id line: $(tail -1 "$W/confirm.tpl")"
 else bad "erase confirm (server): the server template block was not found/rendered"; fi
 
 # --- 4. late.sh: the installer label and its templates ---------------------------------------------
@@ -230,13 +230,13 @@ nocyg "50-brand (real write, server): PRETTY_NAME/VERSION/VARIANT, issue, issue.
     "$(grep -E '^(PRETTY_NAME|VERSION|VARIANT)=' "$R/etc/os-release"; cat "$R/etc/issue" "$R/etc/issue.net" "$R/log")"
 R=$(realbrand desktop desktop)
 eq "50-brand (real write, desktop): PRETTY_NAME unchanged" "$(unset PRETTY_NAME; . "$R/etc/os-release"; echo "$PRETTY_NAME")" "$DESK_LABEL Desktop, based on $NCZ_BASE_LABEL"
-grep -q '^VARIANT' "$R/etc/os-release" && bad "50-brand (real write, desktop): gained a VARIANT key" || ok "50-brand (real write, desktop): no VARIANT key"
+grep  '^VARIANT' "$R/etc/os-release" >/dev/null && bad "50-brand (real write, desktop): gained a VARIANT key" || ok "50-brand (real write, desktop): no VARIANT key"
 case "$(head -1 "$R/etc/issue")" in "$DESK_LABEL Desktop  ·  (detecting hardware)  (Kernel: \r)") ok "50-brand (real write, desktop): /etc/issue first-boot text (no token)" ;; *) bad "50-brand (real write, desktop): issue: $(head -1 "$R/etc/issue")" ;; esac
 # --- the login banner never shows a raw token (2026-10-26, cyclops: agetty printed NCZ_ISSUE_*_PLACEHOLDER) --
 for _m in server desktop; do
     R=$(realbrand $_m $_m)
-    grep -q 'NCZ_ISSUE_' "$R/etc/issue" "$R/etc/issue.net" && bad "issue ($_m): first-boot text carries a raw NCZ_ISSUE_ token" || ok "issue ($_m): first-boot text has no raw token"
-    grep -q '^IP:    (waiting for network)$' "$R/etc/issue" && ok "issue ($_m): first-boot IP line reads '(waiting for network)'" || bad "issue ($_m): IP line: $(grep '^IP:' "$R/etc/issue")"
+    grep  'NCZ_ISSUE_' "$R/etc/issue" "$R/etc/issue.net" >/dev/null && bad "issue ($_m): first-boot text carries a raw NCZ_ISSUE_ token" || ok "issue ($_m): first-boot text has no raw token"
+    grep  '^IP:    (waiting for network)$' "$R/etc/issue" >/dev/null && ok "issue ($_m): first-boot IP line reads '(waiting for network)'" || bad "issue ($_m): IP line: $(grep '^IP:' "$R/etc/issue")"
     # the real refresh script the hook installed, run against the sandbox banner with stub hw-brand and ip
     mkdir -p "$R/stub"
     printf '#!/bin/sh\necho "SOC=Intel Core i5-2415M & co|x"\necho GPU=none\n' > "$R/stub/hw"; chmod +x "$R/stub/hw"
@@ -245,22 +245,22 @@ for _m in server desktop; do
     RF() { PATH="$R/stub:$PATH" NCZ_ISSUE_FILE="$R/etc/issue" NCZ_ISSUE_NET_FILE="$R/etc/issue.net" NCZ_HW_BRAND="$R/stub/hw" sh "$R/usr/local/bin/ncz-issue-refresh" "$@"; }
     RF --soc
     case "$(head -1 "$R/etc/issue")" in *"Intel Core i5-2415M & co|x"*) ok "issue ($_m): --soc fills the SoC before the gettys (special characters kept)" ;; *) bad "issue ($_m): after --soc: $(head -1 "$R/etc/issue")" ;; esac
-    grep -q '(Intel Core i5-2415M & co|x)$' "$R/etc/issue.net" && ok "issue.net ($_m): SoC filled, in brackets" || bad "issue.net ($_m): $(head -1 "$R/etc/issue.net")"
-    grep -q -- '--reload' "$R/agetty.calls" 2>/dev/null && ok "issue ($_m): the gettys are told to re-print (agetty --reload)" || bad "issue ($_m): no agetty --reload"
-    RF --ip-once; grep -q '^IP:    (waiting for network)$' "$R/etc/issue" && ok "issue ($_m): no address yet keeps the waiting text" || bad "issue ($_m): no-address IP line: $(grep '^IP:' "$R/etc/issue")"
+    grep  '(Intel Core i5-2415M & co|x)$' "$R/etc/issue.net" >/dev/null && ok "issue.net ($_m): SoC filled, in brackets" || bad "issue.net ($_m): $(head -1 "$R/etc/issue.net")"
+    grep  -- '--reload' "$R/agetty.calls" 2>/dev/null >/dev/null && ok "issue ($_m): the gettys are told to re-print (agetty --reload)" || bad "issue ($_m): no agetty --reload"
+    RF --ip-once; grep  '^IP:    (waiting for network)$' "$R/etc/issue" >/dev/null && ok "issue ($_m): no address yet keeps the waiting text" || bad "issue ($_m): no-address IP line: $(grep '^IP:' "$R/etc/issue")"
     echo 192.168.207.89 > "$R/addr"; RF --ip-once
-    grep -q '^IP:    192.168.207.89$' "$R/etc/issue" && ok "issue ($_m): the address is filled in" || bad "issue ($_m): IP line: $(grep '^IP:' "$R/etc/issue")"
+    grep  '^IP:    192.168.207.89$' "$R/etc/issue" >/dev/null && ok "issue ($_m): the address is filled in" || bad "issue ($_m): IP line: $(grep '^IP:' "$R/etc/issue")"
     echo 192.168.207.90 > "$R/addr"; RF --ip-once
-    grep -q '^IP:    192.168.207.90$' "$R/etc/issue" && ok "issue ($_m): a changed address replaces the old one (no stale banner)" || bad "issue ($_m): changed IP: $(grep '^IP:' "$R/etc/issue")"
-    grep -qE 'NCZ_ISSUE_|\(detecting hardware\)' "$R/etc/issue" "$R/etc/issue.net" && bad "issue ($_m): a token or waiting text survived the refresh" || ok "issue ($_m): after the refresh no token or waiting text remains"
+    grep  '^IP:    192.168.207.90$' "$R/etc/issue" >/dev/null && ok "issue ($_m): a changed address replaces the old one (no stale banner)" || bad "issue ($_m): changed IP: $(grep '^IP:' "$R/etc/issue")"
+    grep -E 'NCZ_ISSUE_|\(detecting hardware\)' "$R/etc/issue" "$R/etc/issue.net" >/dev/null && bad "issue ($_m): a token or waiting text survived the refresh" || ok "issue ($_m): after the refresh no token or waiting text remains"
     [ "$_m" = server ] && { head -1 "$R/etc/issue" | grep  'Desktop' >/dev/null && bad "issue (server): first line says Desktop" || ok "issue (server): first line has no 'Desktop'"; }
 done
 # an older banner that still carries the tokens is healed too
 printf 'X  ·  NCZ_ISSUE_SOC_PLACEHOLDER  (Kernel: \\r)\nIP:    NCZ_ISSUE_IP_PLACEHOLDER\n' > "$R/etc/issue"; echo 10.1.2.3 > "$R/addr"; RF --soc; RF --ip-once
-grep -q 'NCZ_ISSUE_' "$R/etc/issue" && bad "issue: an old token banner is not healed: $(cat "$R/etc/issue")" || ok "issue: an old token banner is healed by the refresh"
+grep  'NCZ_ISSUE_' "$R/etc/issue" >/dev/null && bad "issue: an old token banner is not healed: $(cat "$R/etc/issue")" || ok "issue: an old token banner is healed by the refresh"
 # the unit: SoC before the first login prompt, the main process async
 _u="$R/etc/systemd/system/ncz-issue-refresh.service"
-grep -q '^Before=getty-pre.target$' "$_u" && grep -q '^Wants=getty-pre.target$' "$_u" && grep -qE '^ExecStartPre=-(.*)?/usr/local/bin/ncz-issue-refresh --soc$' "$_u" && grep -q '^Type=simple$' "$_u" \
+grep  '^Before=getty-pre.target$' "$_u" >/dev/null && grep -q '^Wants=getty-pre.target$' "$_u" && grep -qE '^ExecStartPre=-(.*)?/usr/local/bin/ncz-issue-refresh --soc$' "$_u" && grep -q '^Type=simple$' "$_u" \
     && ok "ncz-issue-refresh.service: SoC step ordered before getty-pre.target, main process Type=simple" || bad "ncz-issue-refresh.service: $(grep -E '^(Before|Wants|ExecStartPre|Type)=' "$_u" | tr '\n' ' ')"
 
 # the motd title row reads the edition from os-release VARIANT, never from the caller's environment
@@ -284,9 +284,9 @@ awk '/^if \[ "\$_ncz_medium" = server \]; then$/{f=1} f{print} /^    } > \/etc\/
 ( set -euo pipefail; . "$H"; _ncz_medium=server; . "$W/issued.sh" )
 if [ -s "$W/10-ncz-server.issue" ]; then
     eq "48: server banner title" "$(sed -n 2p "$W/10-ncz-server.issue")" "$SRVF"
-    grep -qF 'ssh <user>@\4' "$W/10-ncz-server.issue" && ok "48: server banner shows the ssh login with agetty's address" || bad "48: no ssh line"
-    grep -qiE 'maximilian|cygnus|ncz desktop on' "$W/10-ncz-server.issue" && bad "48: server banner names a retired/desktop name or the desktop toggle" || ok "48: server banner has no retired name, no codename, no desktop toggle"
-    LC_ALL=C grep -q '[^ -~]' "$W/10-ncz-server.issue" && bad "48: server banner is not plain ASCII" || ok "48: server banner is plain ASCII"
+    grep -F 'ssh <user>@\4' "$W/10-ncz-server.issue" >/dev/null && ok "48: server banner shows the ssh login with agetty's address" || bad "48: no ssh line"
+    grep -iE 'maximilian|cygnus|ncz desktop on' "$W/10-ncz-server.issue" >/dev/null && bad "48: server banner names a retired/desktop name or the desktop toggle" || ok "48: server banner has no retired name, no codename, no desktop toggle"
+    LC_ALL=C grep  '[^ -~]' "$W/10-ncz-server.issue" >/dev/null && bad "48: server banner is not plain ASCII" || ok "48: server banner is plain ASCII"
 else bad "48: no server banner block"; fi
 
 # the whole 48 hook on a server medium (sandbox, systemctl/nmcli stubbed): no desktop advice in its log
@@ -296,7 +296,7 @@ printf '#!/bin/sh\nexit 0\n' > "$R48/bin/systemctl"; printf '#!/bin/sh\nexit 1\n
 sed "s#/usr/local/lib/cix-installer#$R48/lib/cix#g; s#/etc/#$R48/etc/#g" "$ROOT/post-install/48-server-variant.sh" > "$R48/hook/48.sh"
 PATH="$R48/bin:$PATH" bash "$R48/hook/48.sh" > "$R48/log" 2>&1; _r48=$?
 eq "48 (whole hook, server medium): exit status" "$_r48" 0
-grep -q 'ncz desktop on' "$R48/log" "$R48/etc/issue.d/10-ncz-server.issue" 2>/dev/null && bad "48 (whole hook, server medium): still advises 'ncz desktop on'" || ok "48 (whole hook, server medium): no 'ncz desktop on' advice"
+grep  'ncz desktop on' "$R48/log" "$R48/etc/issue.d/10-ncz-server.issue" 2>/dev/null >/dev/null && bad "48 (whole hook, server medium): still advises 'ncz desktop on'" || ok "48 (whole hook, server medium): no 'ncz desktop on' advice"
 eq "48 (whole hook, server medium): issue.d title" "$(sed -n 2p "$R48/etc/issue.d/10-ncz-server.issue" 2>/dev/null)" "$SRVF"
 
 # --- 7. installed rEFInd menus ----------------------------------------------------------------------
@@ -434,7 +434,7 @@ _sr=$(bash -c "ncz_sudo_bash() { echo \"SUDO: \$*\"; echo 'MATRIX PASS'; }
 printf '%s\n' "$_sr" | grep '^SUDO: ' | grep  "NCZ_PYTE_PYTHON='/root/ncz-pyte-venv/bin/python'" >/dev/null \
     && ok "build-image: the server gate runner passes NCZ_PYTE_PYTHON through sudo (the UI check finds pyte)" \
     || bad "build-image: the server gate runner's sudo line has no NCZ_PYTE_PYTHON: $(printf '%s\n' "$_sr" | grep '^SUDO: ' | cut -c1-300)"
-grep -q '^ui=server$' "$W/dry/kvm-gate.result" 2>/dev/null && ok "build-image: the server gate result records ui=server" || bad "build-image: kvm-gate.result ui field: $(grep '^ui=' "$W/dry/kvm-gate.result" 2>/dev/null)"
+grep  '^ui=server$' "$W/dry/kvm-gate.result" 2>/dev/null >/dev/null && ok "build-image: the server gate result records ui=server" || bad "build-image: kvm-gate.result ui field: $(grep '^ui=' "$W/dry/kvm-gate.result" 2>/dev/null)"
 
 if [ "$FAIL" != 0 ]; then echo "test-server-branding: FAIL" >&2; exit 1; fi
 echo "test-server-branding: PASS"

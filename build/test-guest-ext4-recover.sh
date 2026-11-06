@@ -46,7 +46,7 @@ truncate -s 64M "$T/root.raw"
 
 # 1. the incident: debugfs refuses the damaged copy
 out="$("$DEBUGFS" -R "cat /var/log/ncz-first-boot-report.txt" "$T/root.raw" 2>&1)"
-if grep -q "first boot report" <<<"$out"; then
+if grep  "first boot report" <<<"$out" >/dev/null; then
     bad "fixture is not damaged: debugfs read it directly"
 else
     ok "damaged copy: debugfs cannot read the report ($(grep -m1 -o 'checksum does not match[^.]*' <<<"$out" || echo refused))"
@@ -59,7 +59,7 @@ else
     bad "ncz_guest_ext4_recover failed: $(tail -3 "$T/e2fsck.log")"
 fi
 "$DEBUGFS" -R "dump /var/log/ncz-first-boot-report.txt $T/report" "$T/root.raw" >/dev/null 2>&1
-grep -q "^# first boot report" "$T/report" 2>/dev/null \
+grep  "^# first boot report" "$T/report" 2>/dev/null >/dev/null \
     && ok "after recovery the first-boot report reads back" || bad "report still unreadable after recovery"
 
 # 3. not a filesystem at all
@@ -71,7 +71,7 @@ else
 fi
 
 # 4. the gate uses it before reading the first-boot report
-grep -q '^\. "\$SCRIPT_DIR/lib/guest-ext4.sh"' "$GATE" && ok "gate sources lib/guest-ext4.sh" || bad "gate does not source lib/guest-ext4.sh"
+grep  '^\. "\$SCRIPT_DIR/lib/guest-ext4.sh"' "$GATE" >/dev/null && ok "gate sources lib/guest-ext4.sh" || bad "gate does not source lib/guest-ext4.sh"
 rec=$(grep -n 'ncz_guest_ext4_recover "\$FB_ROOT"' "$GATE" | head -1 | cut -d: -f1)
 dmp=$(grep -n 'dump /var/log/ncz-first-boot-report.txt' "$GATE" | head -1 | cut -d: -f1)
 if [ -n "$rec" ] && [ -n "$dmp" ] && [ "$rec" -lt "$dmp" ]; then
@@ -82,11 +82,11 @@ fi
 
 # 5. one name end to end: 97 writes it, its unit is conditioned on it, the gate dumps it
 HOOK="$HERE/../post-install/97-firstboot-report.sh"
-grep -q '} > /var/log/ncz-first-boot-report.txt' "$HOOK" && grep -q '^ConditionPathExists=!/var/log/ncz-first-boot-report.txt$' "$HOOK" \
+grep  '} > /var/log/ncz-first-boot-report.txt' "$HOOK" >/dev/null && grep -q '^ConditionPathExists=!/var/log/ncz-first-boot-report.txt$' "$HOOK" \
     && ok "97-firstboot-report writes and conditions on /var/log/ncz-first-boot-report.txt" || bad "97-firstboot-report path mismatch"
 grep -v '^#' "$HOOK" | grep -q 'ncz-first-boot-failed.txt' && bad "97-firstboot-report still names ncz-first-boot-failed.txt outside a comment" || ok "97-firstboot-report no longer writes the old name"
 leg=$(grep -n 'dump /var/log/ncz-first-boot-failed.txt' "$GATE" | head -1 | cut -d: -f1)
-if [ -n "$leg" ] && [ -n "$dmp" ] && [ "$leg" -gt "$dmp" ] && sed -n "${leg}p" "$GATE" | grep -q '\[ -s "\$FBR" \] ||'; then
+if [ -n "$leg" ] && [ -n "$dmp" ] && [ "$leg" -gt "$dmp" ] && sed -n "${leg}p" "$GATE" | grep  '\[ -s "\$FBR" \] ||' >/dev/null; then
     ok "gate falls back to the old ncz-first-boot-failed.txt only when the new report is absent (line $leg)"
 else
     bad "gate has no legacy-name fallback after the new-name dump (legacy=${leg:-none})"

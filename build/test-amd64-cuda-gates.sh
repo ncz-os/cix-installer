@@ -309,10 +309,10 @@ RTX='01:00.0 VGA compatible controller [0300]: NVIDIA Corporation TU106M [GeForc
 GTX='01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GP106 [GeForce GTX 1060] [10de:1c03]'
 GTX680='01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GK104 [GeForce GTX 680] [10de:1180]'
 got="$(run54w "$RTX" 0)";  eq "54: Turing GPU, install succeeds now" "$got" "installed:13.4.92-1"
-if grep -qF "$SB/usr/local/lib/ncz/nvidia-dkms" "$SB/nvfunc.sh" && ! grep -oE '[^ "=]*/usr/local/lib/ncz' "$SB/nvfunc.sh" | grep >/dev/null -v "^$SB"; then
+if grep -F "$SB/usr/local/lib/ncz/nvidia-dkms" "$SB/nvfunc.sh" >/dev/null && ! grep -oE '[^ "=]*/usr/local/lib/ncz' "$SB/nvfunc.sh" | grep >/dev/null -v "^$SB"; then
     ok "54: extracted block is sandboxed (/usr/local/lib/ncz)"
 else nok "54: extracted block writes the real /usr/local/lib/ncz (or does not install the DKMS patches at all)"; fi
-grep -q 'dkms not staged: no local NVIDIA DKMS patches' "$SB/log" && ok "54: missing DKMS patch assets are a note, not a failure" || nok "54: no note for missing DKMS patch assets"
+grep  'dkms not staged: no local NVIDIA DKMS patches' "$SB/log" >/dev/null && ok "54: missing DKMS patch assets are a note, not a failure" || nok "54: no note for missing DKMS patch assets"
 mkdir -p "$SB/assets/dkms/nvidia/0001-x"; printf 'p\n' > "$SB/assets/dkms/nvidia/0001-x/ncz-0001-x.patch"
 got="$(run54w "$RTX" 0)";  eq "54: with DKMS patch assets the install still succeeds" "$got" "installed:13.4.92-1"
 [ -f "$SB/usr/local/lib/ncz/nvidia-dkms/nvidia/0001-x/ncz-0001-x.patch" ] && ok "54: DKMS patch assets installed for ncz-cuda-setup" || nok "54: DKMS patch assets not installed"
@@ -320,41 +320,41 @@ rm -rf "$SB/assets/dkms"
 DMEM_SET="$ROOT/assets/nvidia/dkms/nvidia/0001-dmem-cgroup-init-linux-7.3"
 ls "$DMEM_SET/"*.patch >/dev/null 2>&1 && ok "assets: the dmem (Linux 7.3) DKMS patch set is shipped, keyed by module not by driver version" || nok "assets: dmem DKMS patch set missing"
 ls -d "$ROOT"/assets/nvidia/dkms/*-[0-9]* >/dev/null 2>&1 && nok "assets: a version-keyed patch dir is still shipped: $(ls -d "$ROOT"/assets/nvidia/dkms/*-[0-9]*)" || ok "assets: no version-keyed patch dirs"
-grep -q '^+.*dmem_cgroup_register_region(&init, "%s", name);' "$DMEM_SET/"*.patch 2>/dev/null \
+grep  '^+.*dmem_cgroup_register_region(&init, "%s", name);' "$DMEM_SET/"*.patch 2>/dev/null >/dev/null \
     && ok "assets: the patch passes the name through \"%s\"" || nok "assets: patch does not use the 7.3 init struct with \"%s\""
-grep -q 'NV_DMEM_CGROUP_INIT_PRESENT' "$DMEM_SET/"*.patch 2>/dev/null \
+grep  'NV_DMEM_CGROUP_INIT_PRESENT' "$DMEM_SET/"*.patch 2>/dev/null >/dev/null \
     && ok "assets: the patch is conftest-guarded (builds on pre-7.3 kernels too)" || nok "assets: patch is not conftest-guarded"
 nomark=0; for d in "$ROOT"/assets/nvidia/dkms/*/*/; do [ -d "$d" ] || continue; [ -n "$(sed -n 2p "$d/fixed-upstream" 2>/dev/null)" ] || nomark=1; done
 [ "$nomark" = 0 ] && ok "assets: every shipped patch set has a fixed-upstream marker" || nok "assets: a patch set lacks its fixed-upstream marker"
 dups=$(ls "$ROOT"/assets/nvidia/dkms/*/*/*.patch 2>/dev/null | xargs -n1 basename | sort | uniq -d)
 [ -z "$dups" ] && ok "assets: patch file names are unique across sets (they share one DKMS patches/ dir)" || nok "assets: duplicate patch names: $dups"
-grep -q '^FAMILY=turing-plus' "$SB/etc/ncz/cuda-selection.conf" && ok "54: cuda-selection.conf records the family" || nok "54: conf missing family"
-grep -q '^GPU_PCI_ID=10de:1f15' "$SB/etc/ncz/cuda-selection.conf" && ok "54: cuda-selection.conf records the GPU id" || nok "54: conf missing GPU id"
-grep -qF 'Pin: version [1-9][0-9][0-9]*' "$SB/etc/apt/preferences.d/ncz-nvidia-cuda.pref" && ok "54: family pin written (NVIDIA driver versions, any series)" || nok "54: pin missing"
+grep  '^FAMILY=turing-plus' "$SB/etc/ncz/cuda-selection.conf" >/dev/null && ok "54: cuda-selection.conf records the family" || nok "54: conf missing family"
+grep  '^GPU_PCI_ID=10de:1f15' "$SB/etc/ncz/cuda-selection.conf" >/dev/null && ok "54: cuda-selection.conf records the GPU id" || nok "54: conf missing GPU id"
+grep -F 'Pin: version [1-9][0-9][0-9]*' "$SB/etc/apt/preferences.d/ncz-nvidia-cuda.pref" >/dev/null && ok "54: family pin written (NVIDIA driver versions, any series)" || nok "54: pin missing"
 APTH="$SB/etc/apt/apt.conf.d/60ncz-nvidia-dkms"
-grep -q '^DPkg::Pre-Install-Pkgs .*ncz-cuda-setup apt-pre-install.*|| true' "$APTH" 2>/dev/null && ok "54: apt pre-install hook stages patches for driver updates (never fails apt)" || nok "54: apt pre-install hook missing"
-grep -q '^DPkg::Post-Invoke .*ncz-cuda-setup apt-post-invoke.*|| true' "$APTH" 2>/dev/null && ok "54: apt post-invoke hook re-arms the setup after a failed update" || nok "54: apt post-invoke hook missing"
-grep -q 'else cat >/dev/null' "$APTH" 2>/dev/null && ok "54: pre-install hook drains stdin when the tool is gone (no SIGPIPE to apt)" || nok "54: hook may break apt when the tool is missing"
+grep  '^DPkg::Pre-Install-Pkgs .*ncz-cuda-setup apt-pre-install.*|| true' "$APTH" 2>/dev/null >/dev/null && ok "54: apt pre-install hook stages patches for driver updates (never fails apt)" || nok "54: apt pre-install hook missing"
+grep  '^DPkg::Post-Invoke .*ncz-cuda-setup apt-post-invoke.*|| true' "$APTH" 2>/dev/null >/dev/null && ok "54: apt post-invoke hook re-arms the setup after a failed update" || nok "54: apt post-invoke hook missing"
+grep  'else cat >/dev/null' "$APTH" 2>/dev/null >/dev/null && ok "54: pre-install hook drains stdin when the tool is gone (no SIGPIPE to apt)" || nok "54: hook may break apt when the tool is missing"
 PDROP="$SB/etc/systemd/system/nvidia-persistenced.service.d/ncz-needs-module.conf"
-grep -q "^ExecCondition=/bin/sh -c 'exec modinfo -k %v nvidia >/dev/null 2>&1'" "$PDROP" 2>/dev/null && ok "54: nvidia-persistenced is skipped (not failed) without an nvidia module for the running kernel" || nok "54: persistenced drop-in missing"
-grep -q '^\[Service\]' "$PDROP" 2>/dev/null && ok "54: ExecCondition sits in [Service]" || nok "54: drop-in lacks [Service]"
+grep  "^ExecCondition=/bin/sh -c 'exec modinfo -k %v nvidia >/dev/null 2>&1'" "$PDROP" 2>/dev/null >/dev/null && ok "54: nvidia-persistenced is skipped (not failed) without an nvidia module for the running kernel" || nok "54: persistenced drop-in missing"
+grep  '^\[Service\]' "$PDROP" 2>/dev/null >/dev/null && ok "54: ExecCondition sits in [Service]" || nok "54: drop-in lacks [Service]"
 KH="$SB/etc/kernel/postinst.d/zz-ncz-nvidia"
-[ -x "$KH" ] && grep -q 'ncz-cuda-setup kernel-postinst "\$1"' "$KH" && grep -qx 'exit 0' "$KH" && ok "54: kernel postinst hook (after DKMS's) hands a failed rebuild to ncz-cuda-setup, never fails the kernel install" || nok "54: kernel postinst hook missing"
+[ -x "$KH" ] && grep  'ncz-cuda-setup kernel-postinst "\$1"' "$KH" >/dev/null && grep -qx 'exit 0' "$KH" && ok "54: kernel postinst hook (after DKMS's) hands a failed rebuild to ncz-cuda-setup, never fails the kernel install" || nok "54: kernel postinst hook missing"
 FBB="$SB/etc/modprobe.d/ncz-nvidia-legacy-fb.conf"
-grep -qx 'blacklist nvidiafb' "$FBB" 2>/dev/null && grep -qx 'blacklist rivafb' "$FBB" 2>/dev/null && ok "54: legacy nvidiafb/rivafb blacklisted" || nok "54: legacy fb blacklist missing"
-grep -qE 'blacklist (i915|xe|simpledrm|efifb|amdgpu)' "$FBB" 2>/dev/null && nok "54: blacklist touches the integrated/firmware display path" || ok "54: integrated GPU and firmware framebuffer stay untouched"
+grep -x 'blacklist nvidiafb' "$FBB" 2>/dev/null >/dev/null && grep -qx 'blacklist rivafb' "$FBB" 2>/dev/null && ok "54: legacy nvidiafb/rivafb blacklisted" || nok "54: legacy fb blacklist missing"
+grep -E 'blacklist (i915|xe|simpledrm|efifb|amdgpu)' "$FBB" 2>/dev/null >/dev/null && nok "54: blacklist touches the integrated/firmware display path" || ok "54: integrated GPU and firmware framebuffer stay untouched"
 [ -x "$SB/usr/local/sbin/ncz-cuda-setup" ] && ok "54: ncz-cuda-setup installed" || nok "54: ncz-cuda-setup not installed"
 [ -L "$SB/etc/systemd/system/timers.target.wants/ncz-cuda-setup.timer" ] && ok "54: deferred timer enabled" || nok "54: timer not enabled"
 got="$(run54w "$RTX" 75)"; eq "54: setup rc=75 (offline) leaves the deferred path armed" "$got" "installed:13.4.92-1"
-grep -q 'will retry after boot' "$SB/log" && ok "54: offline case logs that the timer will retry" || nok "54: offline case not logged"
+grep  'will retry after boot' "$SB/log" >/dev/null && ok "54: offline case logs that the timer will retry" || nok "54: offline case not logged"
 [ -L "$SB/etc/systemd/system/timers.target.wants/ncz-cuda-setup.timer" ] && ok "54: timer enabled in the offline case" || nok "54: timer missing in offline case"
 got="$(run54w "$GTX" 0)";  eq "54: Pascal GPU installs (stub)" "$got" "installed:13.4.92-1"
-grep -q '^FAMILY=maxwell-volta' "$SB/etc/ncz/cuda-selection.conf" && ok "54: Pascal family recorded" || nok "54: Pascal family missing"
-grep -q '^KMOD=proprietary' "$SB/etc/ncz/cuda-selection.conf" && ok "54: Pascal uses the proprietary module" || nok "54: Pascal KMOD wrong"
-grep -q 'Pin: version 580' "$SB/etc/apt/preferences.d/ncz-nvidia-cuda.pref" && ok "54: Pascal pin holds 580.*" || nok "54: Pascal pin wrong"
+grep  '^FAMILY=maxwell-volta' "$SB/etc/ncz/cuda-selection.conf" >/dev/null && ok "54: Pascal family recorded" || nok "54: Pascal family missing"
+grep  '^KMOD=proprietary' "$SB/etc/ncz/cuda-selection.conf" >/dev/null && ok "54: Pascal uses the proprietary module" || nok "54: Pascal KMOD wrong"
+grep  'Pin: version 580' "$SB/etc/apt/preferences.d/ncz-nvidia-cuda.pref" >/dev/null && ok "54: Pascal pin holds 580.*" || nok "54: Pascal pin wrong"
 [ -f "$SB/etc/apt/sources.list.d/ncz-cuda-debian12.list" ] && ok "54: Pascal gets the debian12 NVIDIA source" || nok "54: debian12 source missing"
-grep -q 'signed-by=.*ncz-cuda-debian12.gpg' "$SB/etc/apt/sources.list.d/ncz-cuda-debian12.list" && ok "54: debian12 source is signed-by its own key file" || nok "54: debian12 source not signed-by"
-grep -q '2027-12-31' "$SB/etc/crypto-policies/back-ends/apt-sequoia.config" 2>/dev/null && ok "54: Pascal machine gets the scoped SHA-1 policy extension" || nok "54: sequoia policy not written"
+grep  'signed-by=.*ncz-cuda-debian12.gpg' "$SB/etc/apt/sources.list.d/ncz-cuda-debian12.list" >/dev/null && ok "54: debian12 source is signed-by its own key file" || nok "54: debian12 source not signed-by"
+grep  '2027-12-31' "$SB/etc/crypto-policies/back-ends/apt-sequoia.config" 2>/dev/null >/dev/null && ok "54: Pascal machine gets the scoped SHA-1 policy extension" || nok "54: sequoia policy not written"
 got="$(run54w "$RTX" 0)"; [ ! -e "$SB/etc/crypto-policies/back-ends/apt-sequoia.config" ] && ok "54: Turing machine does NOT weaken the apt policy" || nok "54: Turing machine got the policy override"
 got="$(run54w "$GTX680" 0)"; eq "54: Kepler GPU is skipped and logged" "$got" "skipped:kepler-older-unsupported"
 [ ! -x "$SB/usr/local/sbin/ncz-cuda-setup" ] && ok "54: Kepler installs nothing" || nok "54: Kepler installed the setup tool"
@@ -403,8 +403,8 @@ got="$(NCZ_CUDA_SETUP_TIMEOUT=2 run54w "$RTX" 0)"
 _dt=$(( $(date +%s) - _t0 ))
 [ "$_dt" -lt 30 ] && ok "54: a hung ncz-cuda-setup is cut off by its deadline (${_dt}s)" || nok "54: hung ncz-cuda-setup held the hook ${_dt}s"
 eq "54: hung setup leaves the deferred install pending" "$got" "pending:install"
-grep -q 'timed out after 2s' "$SB/log" && ok "54: the CUDA timeout is logged" || nok "54: CUDA timeout not logged"
-grep -q 'will retry after boot' "$SB/log" && ok "54: hung setup logs that the timer will retry" || nok "54: hung setup retry not logged"
+grep  'timed out after 2s' "$SB/log" >/dev/null && ok "54: the CUDA timeout is logged" || nok "54: CUDA timeout not logged"
+grep  'will retry after boot' "$SB/log" >/dev/null && ok "54: hung setup logs that the timer will retry" || nok "54: hung setup retry not logged"
 _left=0
 for _i in 1 2 3 4 5 6 7 8 9 10; do
     _left=$(ps -u "$(id -u)" -o args= | awk '$1 ~ /(^|\/)sleep$/ && $2 == "3604" && NF == 2' | wc -l | tr -d ' ')
@@ -548,7 +548,7 @@ case "\$args" in *nvidia-kernel-open-dkms*)
   fail=0; [ "\${STUB_APT:-ok}" = dkmsfail ] && fail=1
   case " \${STUB_FAIL_VERS-} " in *" \$u "*) fail=1 ;; esac
   # a staged local patch "fixes" the stub build only when STUB_PATCH_FIXES=1
-  [ "\${STUB_PATCH_FIXES:-0}" = 1 ] && grep -q '^PATCH' "$CS/etc/dkms/nvidia-\$u.conf" 2>/dev/null && fail=0
+  [ "\${STUB_PATCH_FIXES:-0}" = 1 ] && grep  '^PATCH' "$CS/etc/dkms/nvidia-\$u.conf" 2>/dev/null >/dev/null && fail=0
   if [ "\$fail" = 1 ]; then
     mkdir -p "$CS/dkms/nvidia/\$u/build"
     { echo "DKMS (dkms-3.2.2) make.log for nvidia/\$u for kernel \${STUB_BUILDK:-\${STUB_KVER:-$KV_A}} (x86_64)"
@@ -610,7 +610,7 @@ csconf turing-plus; eq "setup: NVIDIA index not available yet -> retryable (rc 7
 eq "setup: index unavailable -> pending" "$(st)" "pending:index-unavailable"
 csconf turing-plus; eq "setup: a selected package missing from a usable index (renamed) -> hard failure (rc 1)" "$(STUB_APT=noindex cs run)" 1
 eq "setup: ... status failed:package-missing" "$(st)" "failed:package-missing"
-grep -q 'not in the index: cuda-compiler-13-4' "$CS/setup.log" && ok "setup: ... the missing name is logged" || nok "setup: missing package not named"
+grep  'not in the index: cuda-compiler-13-4' "$CS/setup.log" >/dev/null && ok "setup: ... the missing name is logged" || nok "setup: missing package not named"
 csconf turing-plus; eq "setup: download failure -> retryable (rc 75)" "$(STUB_APT=fetchfail cs run)" 75
 eq "setup: download failure -> pending:download" "$(st)" "pending:download"
 # a stale transient line earlier in the log must not hide a HARD driver failure (was: pending:download forever)
@@ -640,26 +640,26 @@ eq "setup: Kepler status" "$(st)" "skipped:kepler-older-unsupported"
 rm -rf "$CS/etc" "$CS/var"; mkdir -p "$CS/var/lib/ncz"
 eq "setup: no selection conf -> nothing to do (rc 0)" "$(cs run)" 0
 csconf maxwell-volta; eq "setup: status works and shows the family" "$(cs status)" 0
-grep -q 'FAMILY=maxwell-volta' "$CS/out" && ok "setup: status prints the selection (family)" || nok "setup: status lacks the family"
-grep -q 'KMOD=proprietary' "$CS/out" && ok "setup: status prints the kernel module kind" || nok "setup: status lacks KMOD"
+grep  'FAMILY=maxwell-volta' "$CS/out" >/dev/null && ok "setup: status prints the selection (family)" || nok "setup: status lacks the family"
+grep  'KMOD=proprietary' "$CS/out" >/dev/null && ok "setup: status prints the kernel module kind" || nok "setup: status lacks KMOD"
 eq "setup: bad usage exits 2" "$(cs bogus)" 2
 
 # ------------------------------- ncz-cuda-setup: toolkit chosen from the index, not hard-coded
 csconf turing-plus; eq "toolkit: newest complete 13.x is installed (rc 0)" "$(STUB_TKS='13-5 13-4 13-3' cs run)" 0
-grep -q 'cuda-compiler-13-5 cuda-libraries-13-5 cuda-libraries-dev-13-5' "$CS/apt.calls" && ok "toolkit: CUDA 13.5 (newest) package set installed" || nok "toolkit: newest toolkit not chosen: $(tail -n1 "$CS/apt.calls")"
-grep -qx 'INSTALLED_TOOLKIT=13-5' "$CS/etc/ncz/cuda-selection.conf" && grep -qx "INSTALLED_TOOLKIT_DIR=$CS/cuda-13.5" "$CS/etc/ncz/cuda-selection.conf" \
+grep  'cuda-compiler-13-5 cuda-libraries-13-5 cuda-libraries-dev-13-5' "$CS/apt.calls" >/dev/null && ok "toolkit: CUDA 13.5 (newest) package set installed" || nok "toolkit: newest toolkit not chosen: $(tail -n1 "$CS/apt.calls")"
+grep -x 'INSTALLED_TOOLKIT=13-5' "$CS/etc/ncz/cuda-selection.conf" >/dev/null && grep -qx "INSTALLED_TOOLKIT_DIR=$CS/cuda-13.5" "$CS/etc/ncz/cuda-selection.conf" \
     && ok "toolkit: what was installed is recorded in the selection (INSTALLED_TOOLKIT/_DIR)" || nok "toolkit: INSTALLED_TOOLKIT not recorded"
 csconf turing-plus; eq "toolkit: an incomplete newer set is skipped (rc 0)" "$(STUB_TKS='13-5 13-4' STUB_TK_MISSING='cuda-libraries-dev-13-5' cs run)" 0
-grep -q 'cuda-compiler-13-4 cuda-libraries-13-4 cuda-libraries-dev-13-4' "$CS/apt.calls" && ok "toolkit: fell back to the newest COMPLETE set (13.4)" || nok "toolkit: incomplete set not skipped"
-grep -q 'CUDA 13.5 is incomplete in the index (missing: cuda-libraries-dev-13-5)' "$CS/setup.log" && ok "toolkit: the incomplete set is logged with what is missing" || nok "toolkit: incomplete set not logged"
+grep  'cuda-compiler-13-4 cuda-libraries-13-4 cuda-libraries-dev-13-4' "$CS/apt.calls" >/dev/null && ok "toolkit: fell back to the newest COMPLETE set (13.4)" || nok "toolkit: incomplete set not skipped"
+grep  'CUDA 13.5 is incomplete in the index (missing: cuda-libraries-dev-13-5)' "$CS/setup.log" >/dev/null && ok "toolkit: the incomplete set is logged with what is missing" || nok "toolkit: incomplete set not logged"
 csconf turing-plus; eq "toolkit: renamed packages -> hard failure (rc 1)" "$(STUB_TKS='' cs run)" 1
 eq "toolkit: ... status failed:toolkit-not-found" "$(st)" "failed:toolkit-not-found"
-grep -q 'were the packages renamed' "$CS/setup.log" && ok "toolkit: the failure says what it looked for" || nok "toolkit: no loud message"
+grep  'were the packages renamed' "$CS/setup.log" >/dev/null && ok "toolkit: the failure says what it looked for" || nok "toolkit: no loud message"
 [ "$(drvcalls)" -ge 1 ] && ok "toolkit: a toolkit problem never costs the display driver (driver still installed)" || nok "toolkit: driver skipped because of the toolkit"
 csconf turing-plus; sed -i -e '/^TOOLKIT_SERIES=/d' -e "s/^TOOLKIT=.*/TOOLKIT=13-4/" -e "s/^TOOLKIT_PKGS=.*/TOOLKIT_PKGS='cuda-compiler-13-4 cuda-libraries-13-4 cuda-libraries-dev-13-4'/" "$CS/etc/ncz/cuda-selection.conf"
 echo "TOOLKIT_DIR=$CS/cuda-13.4" >> "$CS/etc/ncz/cuda-selection.conf"
 eq "toolkit: a selection written before this change (exact toolkit) still installs (rc 0)" "$(STUB_TKS='13-5 13-4' cs run)" 0
-grep -q 'cuda-compiler-13-4 cuda-libraries-13-4 cuda-libraries-dev-13-4' "$CS/apt.calls" && ok "toolkit: ... and keeps its exact toolkit" || nok "toolkit: legacy selection not honoured"
+grep  'cuda-compiler-13-4 cuda-libraries-13-4 cuda-libraries-dev-13-4' "$CS/apt.calls" >/dev/null && ok "toolkit: ... and keeps its exact toolkit" || nok "toolkit: legacy selection not honoured"
 
 # ------------------------------- ncz-cuda-setup: driver ladder (newest that builds wins)
 NV4='615.71.10-1 615.71.09-2 615.71.09-1 610.57.04-1'
@@ -669,12 +669,12 @@ eq "ladder: ... pin follows its series (point releases may update)" "$(pinline)"
 csconf turing-plus; eq "ladder: newest fails to build, the next older builds (rc 0)" "$(STUB_NVVERS="$NV4" STUB_FAIL_VERS=615.71.10 cs run)" 0
 eq "ladder: ... status installed" "$(st)" "installed:1.0"
 eq "ladder: ... the version that built is recorded" "$(cat "$CS/var/lib/ncz/cuda-setup.driver" 2>/dev/null)" "615.71.09-2"
-grep -qx 'INSTALLED_DRIVER=615.71.09-2' "$CS/etc/ncz/cuda-selection.conf" && ok "ladder: ... and written to the selection" || nok "ladder: INSTALLED_DRIVER missing"
+grep -x 'INSTALLED_DRIVER=615.71.09-2' "$CS/etc/ncz/cuda-selection.conf" >/dev/null && ok "ladder: ... and written to the selection" || nok "ladder: INSTALLED_DRIVER missing"
 eq "ladder: ... held at exactly that version (apt upgrade cannot pull the broken one back)" "$(pinline)" "version 615.71.09-2"
 eq "ladder: ... the driver set was installed at 615.71.10-1 then 615.71.09-2" "$(grep -v '^remove ' "$CS/apt.calls" | grep nvidia-kernel-open-dkms | sed 's/.*pin=//' | tr '\n' ' ')" "615.71.10-1 615.71.09-2 "
-grep -q 'pin=615.71.09-1' "$CS/apt.calls" && nok "ladder: an older packaging revision of the same driver was tried" || ok "ladder: one attempt per upstream version (highest revision)"
+grep  'pin=615.71.09-1' "$CS/apt.calls" >/dev/null && nok "ladder: an older packaging revision of the same driver was tried" || ok "ladder: one attempt per upstream version (highest revision)"
 eq "ladder: no half-configured module package left" "$(awk '$1=="nvidia-kernel-open-dkms"{print $2" "$3}' "$CS/dpkg.state")" "615.71.09-2 ii"
-grep -q 'held at 615.71.09-2 (newest offered: 615.71.10-1)' "$CS/setup.log" && ok "ladder: the hold and its reason are logged" || nok "ladder: hold not logged"
+grep  'held at 615.71.09-2 (newest offered: 615.71.10-1)' "$CS/setup.log" >/dev/null && ok "ladder: the hold and its reason are logged" || nok "ladder: hold not logged"
 csconf turing-plus; eq "ladder: an incomplete set at a version is skipped (rc 0)" "$(STUB_NVVERS="$NV4" STUB_UNSAT_VERS=615.71.10-1 cs run)" 0
 eq "ladder: ... next version installed" "$(cat "$CS/var/lib/ncz/cuda-setup.driver" 2>/dev/null)" "615.71.09-2"
 csconf turing-plus; eq "ladder: apt resolving the module to another version is refused (rc 1, nothing builds)" "$(STUB_NVVERS='615.71.10-1' STUB_SIMVER=615.71.10-9 cs run)" 1
@@ -691,11 +691,11 @@ csconf turing-plus; eq "allfail: no offered driver builds (rc 1)" "$(STUB_NVVERS
 eq "allfail: status failed:no-buildable-driver" "$(st)" "failed:no-buildable-driver"
 eq "allfail: every offered version was tried once" "$(drvcalls)" 3
 eq "allfail: one build record per version" "$(wc -l < "$CS/var/lib/ncz/cuda-setup.dkms-failed" | tr -d ' ')" 3
-grep -q '^remove .*nvidia-kernel-open-dkms' "$CS/apt.calls" && ok "allfail: the unbuildable module package was removed" || nok "allfail: module package not removed"
-awk '$1=="nvidia-kernel-open-dkms" && $3 ~ /^i[FUH]/' "$CS/dpkg.state" | grep -q . && nok "allfail: a half-configured module package was left behind" || ok "allfail: no half-configured (iF) module package left"
+grep  '^remove .*nvidia-kernel-open-dkms' "$CS/apt.calls" >/dev/null && ok "allfail: the unbuildable module package was removed" || nok "allfail: module package not removed"
+awk '$1=="nvidia-kernel-open-dkms" && $3 ~ /^i[FUH]/' "$CS/dpkg.state" | grep  . >/dev/null && nok "allfail: a half-configured module package was left behind" || ok "allfail: no half-configured (iF) module package left"
 eq "allfail: the family pin is restored" "$(pinline)" "version [1-9][0-9][0-9]*"
-grep -q 'integrated GPU' "$CS/etc/motd.d/ncz-nvidia-driver" 2>/dev/null && ok "allfail: a login notice tells the user (not just a failed unit)" || nok "allfail: no user-visible notice"
-cs status >/dev/null; grep -q '615.71.10 for kernel' "$CS/out" && grep -q '610.57.04 for kernel' "$CS/out" && ok "allfail: status lists every failed build with its first error" || nok "allfail: status lacks the build failures"
+grep  'integrated GPU' "$CS/etc/motd.d/ncz-nvidia-driver" 2>/dev/null >/dev/null && ok "allfail: a login notice tells the user (not just a failed unit)" || nok "allfail: no user-visible notice"
+cs status >/dev/null; grep  '615.71.10 for kernel' "$CS/out" >/dev/null && grep -q '610.57.04 for kernel' "$CS/out" && ok "allfail: status lists every failed build with its first error" || nok "allfail: status lacks the build failures"
 rm -f "$CS/apt.calls"
 eq "allfail: scheduled run with nothing new is a quiet no-op (rc 0)" "$(STUB_NVVERS="$NV3" STUB_FAIL_VERS='615.71.10 615.71.09 610.57.04' cs run --scheduled)" 0
 [ ! -e "$CS/apt.calls" ] && ok "allfail: ... no rebuild, no apt (the timer stays cheap)" || nok "allfail: timer rebuilt identical inputs"
@@ -704,7 +704,7 @@ eq "allfail: ... only the new version was built" "$(grep -v '^remove ' "$CS/apt.
 [ ! -e "$CS/etc/motd.d/ncz-nvidia-driver" ] && ok "allfail: the notice is removed once a driver works" || nok "allfail: stale notice left"
 csconf turing-plus; STUB_NVVERS="$NV3" STUB_FAIL_VERS='615.71.10 615.71.09 610.57.04' cs run >/dev/null; rm -f "$CS/apt.calls"
 eq "allfail: a NEW kernel retries every version (rc 0)" "$(STUB_KVER=$KV_B STUB_NVVERS="$NV3" cs run --scheduled)" 0
-grep -q 'not yet built with this kernel' "$CS/setup.log" && ok "allfail: retry reason logged" || nok "allfail: retry reason not logged"
+grep  'not yet built with this kernel' "$CS/setup.log" >/dev/null && ok "allfail: retry reason logged" || nok "allfail: retry reason not logged"
 csconf turing-plus; STUB_NVVERS="$NV3" STUB_FAIL_VERS='615.71.10 615.71.09 610.57.04' cs run >/dev/null; rm -f "$CS/apt.calls"
 echo '/* CONFIG_CGROUP_DMEM is not set */' > "$CS/modules/$KV_A/build/include/generated/autoconf.h"
 STUB_NVVERS="$NV3" cs run --scheduled >/dev/null
@@ -714,7 +714,7 @@ shipped
 STUB_NVVERS="$NV3" cs run --scheduled >/dev/null
 [ "$(drvcalls)" -ge 1 ] && ok "allfail: a new local patch set retried" || nok "allfail: new patch set not retried"
 csconf turing-plus; eq "ladder: a set that drops an NVIDIA driver package (another series) installs (rc 0)" "$(STUB_NVVERS='595.112.07-1' STUB_SIM_REMV='nvidia-powerd libnvidia-tileiras:amd64' cs run)" 0
-grep -q 'drops NVIDIA package(s): nvidia-powerd libnvidia-tileiras:amd64' "$CS/setup.log" && ok "ladder: ... the dropped driver packages are logged" || nok "ladder: dropped driver packages not logged"
+grep  'drops NVIDIA package(s): nvidia-powerd libnvidia-tileiras:amd64' "$CS/setup.log" >/dev/null && ok "ladder: ... the dropped driver packages are logged" || nok "ladder: dropped driver packages not logged"
 csconf turing-plus; eq "ladder: a non-NVIDIA removal is still refused (rc 1)" "$(STUB_NVVERS='595.112.07-1' STUB_SIM_REMV='nvidia-powerd libfoo' cs run)" 1
 eq "ladder: ... failed:would-remove-packages" "$(st)" "failed:would-remove-packages"
 [ "$(drvcalls)" = 0 ] && ok "ladder: ... nothing installed" || nok "ladder: installed despite a non-NVIDIA removal"
@@ -723,7 +723,7 @@ eq "ladder: ... after the cleanup removed the half-configured set, the not-insta
 eq "ladder: ... and installs on the next timer run (rc 0)" "$(STUB_NVVERS='615.71.10-1 610.57.04-1' STUB_FAIL_VERS=615.71.10 cs run --scheduled)" 0
 eq "ladder: ... 610.57.04-1 installed" "$(cat "$CS/var/lib/ncz/cuda-setup.driver" 2>/dev/null)" "610.57.04-1"
 csconf turing-plus; eq "allfail: removal that would take other packages is refused" "$(STUB_NVVERS='615.71.10-1' STUB_FAIL_VERS=615.71.10 STUB_REMV='nvidia-kernel-open-dkms libfoo' cs run)" 1
-grep -q 'NOT removing the unconfigured nvidia-kernel-open-dkms: it would also remove: libfoo' "$CS/setup.log" && ok "allfail: ... logged, nothing removed" || nok "allfail: unsafe removal not refused"
+grep  'NOT removing the unconfigured nvidia-kernel-open-dkms: it would also remove: libfoo' "$CS/setup.log" >/dev/null && ok "allfail: ... logged, nothing removed" || nok "allfail: unsafe removal not refused"
 csconf turing-plus; eq "allfail: explicit retry rebuilds and installs (rc 0)" "$(STUB_NVVERS="$NV3" STUB_FAIL_VERS='615.71.10' cs retry)" 0
 [ ! -e "$CS/var/lib/ncz/cuda-setup.dkms-failed" ] && ok "allfail: success clears the build records" || nok "allfail: build records survive success"
 csconf turing-plus; eq "ladder: at most NCZ_CUDA_DRIVER_TRIES versions per run (rc 1)" "$(NCZ_CUDA_DRIVER_TRIES=1 STUB_NVVERS="$NV3" STUB_FAIL_VERS='615.71.10' cs run)" 1
@@ -737,13 +737,13 @@ mkdir -p "$CS/nopatch"; for t in bash sh cat sed awk grep sort head tail tr cut 
 for t in "$CS/bin/"*; do ln -sf "$t" "$CS/nopatch/$(basename "$t")"; done
 csconf turing-plus; shipped
 PATH="$CS/nopatch" "$CS/ncz-cuda-setup" run >"$CS/out" 2>&1
-grep -q -- '--no-remove patch' "$CS/apt.calls" && ok "patch: patch(1) is installed before the local patches are checked" || nok "patch: patch(1) missing -> patches refused without trying to install it"
+grep  -- '--no-remove patch' "$CS/apt.calls" >/dev/null && ok "patch: patch(1) is installed before the local patches are checked" || nok "patch: patch(1) missing -> patches refused without trying to install it"
 
 # ------------------------------- ncz-cuda-setup: the module must exist for the kernel; kernel updates
 csconf turing-plus; eq "kmod: apt installed the set but no module exists for the kernel -> dkms autoinstall builds it (rc 0)" "$(STUB_NVVERS='615.71.10-1' STUB_NOMOD=1 cs run)" 0
-grep -q 'no nvidia module for kernel 7.3.0-t2-ncz; running dkms autoinstall' "$CS/setup.log" && ok "kmod: ... the missing module is noticed and logged" || nok "kmod: missing module not noticed"
+grep  'no nvidia module for kernel 7.3.0-t2-ncz; running dkms autoinstall' "$CS/setup.log" >/dev/null && ok "kmod: ... the missing module is noticed and logged" || nok "kmod: missing module not noticed"
 csconf turing-plus; eq "kmod: no module and dkms autoinstall fails for every version (rc 1)" "$(STUB_NVVERS='615.71.10-1 615.71.09-2' STUB_NOMOD=1 STUB_DKMS_FAIL=1 cs run)" 1
-grep -q 'nv.c:9:9: error: new kernel API' "$CS/var/lib/ncz/cuda-setup.dkms-failed" && ok "kmod: ... recorded as a DKMS build failure with its first error" || nok "kmod: autoinstall failure not recorded"
+grep  'nv.c:9:9: error: new kernel API' "$CS/var/lib/ncz/cuda-setup.dkms-failed" >/dev/null && ok "kmod: ... recorded as a DKMS build failure with its first error" || nok "kmod: autoinstall failure not recorded"
 eq "kmod: ... both versions tried" "$(drvcalls)" 2
 csconf turing-plus; STUB_NVVERS='615.71.10-1' cs run >/dev/null
 mkdir -p "$CS/modules/$KV_B/build"
@@ -782,10 +782,10 @@ rm -f "$CS/apt.calls"; STUB_KVER=6.1.0-installer STUB_NVVERS='615.71.10-1' cs ru
 
 # ------------------------------- ncz-cuda-setup: DKMS failure record
 csconf turing-plus; STUB_NVVERS='615.71.10-1' STUB_FAIL_VERS=615.71.10 cs run >/dev/null
-grep -q "os-interface.c:3031:48: error: passing argument 1 of 'dmem_cgroup_register_region'" "$CS/setup.log" \
+grep  "os-interface.c:3031:48: error: passing argument 1 of 'dmem_cgroup_register_region'" "$CS/setup.log" >/dev/null \
     && ok "dkms: the FIRST compiler error is logged" || nok "dkms: first compiler error not logged"
-grep -q "a later error" "$CS/setup.log" && nok "dkms: later compiler errors are logged too (only the first should be)" || ok "dkms: only the first compiler error is logged"
-grep -q "for kernel $KV_A" "$CS/setup.log" && ok "dkms: log names the kernel the build failed for" || nok "dkms: log does not name the kernel"
+grep  "a later error" "$CS/setup.log" >/dev/null && nok "dkms: later compiler errors are logged too (only the first should be)" || ok "dkms: only the first compiler error is logged"
+grep  "for kernel $KV_A" "$CS/setup.log" >/dev/null && ok "dkms: log names the kernel the build failed for" || nok "dkms: log does not name the kernel"
 # a stale make.log from an older attempt must not turn a generic dpkg failure into a DKMS record
 csconf turing-plus; mkdir -p "$CS/dkms/nvidia/615.71.09/build"
 printf 'DKMS make.log for nvidia/615.71.09 for kernel old (x86_64)\nx.c:1:1: error: stale\n' > "$CS/dkms/nvidia/615.71.09/build/make.log"
@@ -801,9 +801,9 @@ mksrc "$CS/usr/src/nvidia-615.80.01" 615.80.01 defect
 sum_before=$(cat "$CS/usr/src/nvidia-615.80.01/kernel-open/nvidia/os-interface.c" | cksum)
 eq "content: dkms-stage on a new point release with the same defect (rc 0)" "$(cs dkms-stage "$CS/usr/src/nvidia-615.80.01")" 0
 want_line='PATCH[${#PATCH[@]}]="ncz-0001-dmem-cgroup-init-linux-7.3.patch"'
-grep -qxF -- "$want_line" "$CS/etc/dkms/nvidia-615.80.01.conf" 2>/dev/null && ok "content: ... gets the patch (conf lists it)" || nok "content: defect source not patched: $(tail -n3 "$CS/setup.log")"
+grep -xF -- "$want_line" "$CS/etc/dkms/nvidia-615.80.01.conf" 2>/dev/null >/dev/null && ok "content: ... gets the patch (conf lists it)" || nok "content: defect source not patched: $(tail -n3 "$CS/setup.log")"
 [ -f "$CS/usr/src/nvidia-615.80.01/patches/ncz-0001-dmem-cgroup-init-linux-7.3.patch" ] && ok "content: ... patch staged in the DKMS source dir" || nok "content: patch not staged"
-grep -q 'applies to nvidia 615.80.01 exactly' "$CS/setup.log" && ok "content: ... the exact (fuzz 0) apply is logged" || nok "content: apply not logged"
+grep  'applies to nvidia 615.80.01 exactly' "$CS/setup.log" >/dev/null && ok "content: ... the exact (fuzz 0) apply is logged" || nok "content: apply not logged"
 eq "content: the driver source itself is never modified" "$(cat "$CS/usr/src/nvidia-615.80.01/kernel-open/nvidia/os-interface.c" | cksum)" "$sum_before"
 ( set +u; unset PATCH; . "$CS/etc/dkms/nvidia-615.80.01.conf"; [ "${PATCH[0]:-}" = ncz-0001-dmem-cgroup-init-linux-7.3.patch ] ) \
     && ok "content: the conf sources as bash and sets PATCH[0] when dkms.conf has no patches" || nok "content: conf does not source to PATCH[0]"
@@ -812,11 +812,11 @@ eq "content: the driver source itself is never modified" "$(cat "$CS/usr/src/nvi
 mksrc "$CS/usr/src/nvidia-615.80.02" 615.80.02 fixed
 eq "content: dkms-stage on a release that carries the fix upstream (rc 0)" "$(cs dkms-stage "$CS/usr/src/nvidia-615.80.02")" 0
 [ ! -e "$CS/etc/dkms/nvidia-615.80.02.conf" ] && ok "content: ... gets NO patch" || nok "content: patch staged although the fix is upstream"
-grep -q 'not needed, nvidia 615.80.02 already carries the fix' "$CS/setup.log" && ok "content: ... and says why" || nok "content: fixed-upstream not logged"
+grep  'not needed, nvidia 615.80.02 already carries the fix' "$CS/setup.log" >/dev/null && ok "content: ... and says why" || nok "content: fixed-upstream not logged"
 mksrc "$CS/usr/src/nvidia-615.80.03" 615.80.03 drift
 eq "content: dkms-stage on a release where the patch does not apply cleanly (rc 0)" "$(cs dkms-stage "$CS/usr/src/nvidia-615.80.03")" 0
 [ ! -e "$CS/etc/dkms/nvidia-615.80.03.conf" ] && ok "content: ... the patch is REFUSED (never force-applied)" || nok "content: patch staged on a source it does not fit"
-grep -q 'REFUSED for nvidia 615.80.03: ncz-0001-dmem-cgroup-init-linux-7.3.patch does not apply exactly' "$CS/setup.log" && ok "content: ... refusal logged" || nok "content: refusal not logged"
+grep  'REFUSED for nvidia 615.80.03: ncz-0001-dmem-cgroup-init-linux-7.3.patch does not apply exactly' "$CS/setup.log" >/dev/null && ok "content: ... refusal logged" || nok "content: refusal not logged"
 # a source that gains the fix later -> the staged patch is withdrawn
 mksrc "$CS/usr/src/nvidia-615.80.01" 615.80.01 fixed; mkdir -p "$CS/usr/src/nvidia-615.80.01/patches"
 cp "$SHIPPED_SET/"*.patch "$CS/usr/src/nvidia-615.80.01/patches/"
@@ -853,10 +853,10 @@ eq "content: dkms-stage on a directory without a usable dkms.conf exits 1" "$(cs
 mksrc "$CS/usr/src/nvidia-615.80.04" 615.80.04 defect
 rm -f "$CS/patches/nvidia/"*/fixed-upstream
 cs dkms-stage "$CS/usr/src/nvidia-615.80.04" >/dev/null
-[ ! -e "$CS/etc/dkms/nvidia-615.80.04.conf" ] && grep -q 'no usable fixed-upstream marker' "$CS/setup.log" && ok "content: a set without a fixed-upstream marker is refused" || nok "content: marker-less set applied"
+[ ! -e "$CS/etc/dkms/nvidia-615.80.04.conf" ] && grep  'no usable fixed-upstream marker' "$CS/setup.log" >/dev/null && ok "content: a set without a fixed-upstream marker is refused" || nok "content: marker-less set applied"
 shipped; printf '../../etc/passwd\nroot\n' > "$CS/patches/nvidia/$(basename "$SHIPPED_SET")/fixed-upstream"
 cs dkms-stage "$CS/usr/src/nvidia-615.80.04" >/dev/null
-grep -q "ignoring unsafe fixed-upstream path" "$CS/setup.log" && [ ! -e "$CS/etc/dkms/nvidia-615.80.04.conf" ] && ok "content: an unsafe marker path is refused and logged" || nok "content: unsafe marker path not rejected"
+grep  "ignoring unsafe fixed-upstream path" "$CS/setup.log" >/dev/null && [ ! -e "$CS/etc/dkms/nvidia-615.80.04.conf" ] && ok "content: an unsafe marker path is refused and logged" || nok "content: unsafe marker path not rejected"
 rm -rf "$CS/patches"; shipped; echo 'PATCH[0]="vendor.patch"' >> "$CS/usr/src/nvidia-615.80.04/dkms.conf"
 cs dkms-stage "$CS/usr/src/nvidia-615.80.04" >/dev/null
 [ ! -e "$CS/etc/dkms/nvidia-615.80.04.conf" ] && ok "content: not combined with patches the package already lists" || nok "content: combined with vendor patches unverified"
@@ -876,13 +876,13 @@ if [ "$HAVE_DPKG_DEB" = 1 ]; then
     csconf turing-plus; shipped; mkdeb "$CS/archives/nvidia-kernel-open-dkms_615.80.05-1_amd64.deb" 615.80.05-1 defect
     mkdir -p "$CS/archives/other"; printf 'Package: hello\nVersion: 1\nArchitecture: all\nMaintainer: t <t@t>\nDescription: t\n' > "$CS/archives/other/c"
     eq "hook: apt-pre-install always exits 0" "$(printf '%s\n%s\n' "$CS/archives/nvidia-kernel-open-dkms_615.80.05-1_amd64.deb" /nonexistent.deb | cs apt-pre-install)" 0
-    grep -qxF -- "$want_line" "$CS/etc/dkms/nvidia-615.80.05.conf" 2>/dev/null && ok "hook: a driver update through apt gets the content-matched patch" || nok "hook: patch not staged by the apt hook"
+    grep -xF -- "$want_line" "$CS/etc/dkms/nvidia-615.80.05.conf" 2>/dev/null >/dev/null && ok "hook: a driver update through apt gets the content-matched patch" || nok "hook: patch not staged by the apt hook"
     rm -f "$CS/etc/dkms/nvidia-615.80.05.conf"
     printf '%s\n' "$CS/archives/nvidia-kernel-open-dkms_615.80.05-1_amd64.deb" | NCZ_CUDA_SETUP_TXN=1 PATH="$CS/bin:$PATH" "$CS/ncz-cuda-setup" apt-pre-install >/dev/null 2>&1
     [ ! -e "$CS/etc/dkms/nvidia-615.80.05.conf" ] && ok "hook: skipped inside ncz-cuda-setup's own apt transaction (it stages)" || nok "hook: ran inside a ncz-cuda-setup transaction"
     ( exec 8>"$CS/lock"; flock -n 8; printf '%s\n' "$CS/archives/nvidia-kernel-open-dkms_615.80.05-1_amd64.deb" | PATH="$CS/bin:$PATH" "$CS/ncz-cuda-setup" apt-pre-install >/dev/null 2>&1 )
     [ -e "$CS/etc/dkms/nvidia-615.80.05.conf" ] && ok "hook: a user's apt while a setup run holds the lock still gets the patch" || nok "hook: skipped a foreign apt transaction because the run lock was held"
-    grep -q 'NCZ_CUDA_SETUP_TXN=1 apt-get' "$ROOT/assets/nvidia/ncz-cuda-setup" && ok "hook: every apt call of the tool carries the transaction marker" || nok "hook: apt_run lacks the marker"
+    grep  'NCZ_CUDA_SETUP_TXN=1 apt-get' "$ROOT/assets/nvidia/ncz-cuda-setup" >/dev/null && ok "hook: every apt call of the tool carries the transaction marker" || nok "hook: apt_run lacks the marker"
 else
     echo "SKIP content/hook .deb tests: no dpkg-deb on this host"
 fi
@@ -900,7 +900,7 @@ unset NCZ_NV_DKMS_PATCHES NCZ_DKMS_ETC NCZ_DKMS_TREE NCZ_SRC_ROOT NCZ_MODULES_RO
 NR="$W/notice"; rm -rf "$NR"; mkdir -p "$NR/var/lib/ncz" "$NR/var/lib/dpkg" "$NR/etc/ncz" "$NR/etc/systemd/system/timers.target.wants"
 : > "$NR/var/lib/dpkg/status"; echo FAMILY=turing-plus > "$NR/etc/ncz/cuda-selection.conf"; : > "$NR/etc/systemd/system/timers.target.wants/ncz-cuda-setup.timer"
 echo failed:no-buildable-driver > "$NR/var/lib/ncz/cuda-toolkit.status"
-( . "$ROOT/post-install/lib/dkms-pending.sh"; ncz_firstboot_gpu_notice "$NR" ) | grep -q 'integrated GPU' \
+( . "$ROOT/post-install/lib/dkms-pending.sh"; ncz_firstboot_gpu_notice "$NR" ) | grep  'integrated GPU' >/dev/null \
     && ok "notice: first boot explains that no NVIDIA driver builds and the iGPU is used" || nok "notice: no first-boot explanation for failed:no-buildable-driver"
 
 # ------------------------------------------- component chooser: "cuda" visibility
@@ -926,8 +926,8 @@ case "$(chooser_components "$W/pci4")" in *"|cuda:"*) ok "chooser: cuda offered 
 chooser_components_arch() { sed -n '/^COMPONENTS="\\$/,/^INTERNAL_COMPONENTS=/p' "$ROOT/preseed/component-selector.sh" | sed "s#/sys/bus/pci/devices#$1#g" | sed '$d' > "$W/chooser2.sh"; ( NCZ_UNAME_M="$2"; . "$W/chooser2.sh"; printf '%s' "$COMPONENTS" ); }
 case "$(chooser_components_arch "$W/pci1" aarch64)" in *cuda*) nok "chooser: cuda offered on an arm64 machine with an NVIDIA card";; *) ok "chooser: cuda is never offered on arm64 (54 is amd64-only)";; esac
 case "$(chooser_components_arch "$W/pci1" x86_64)" in *"|cuda:"*) ok "chooser: cuda offered on x86_64 with an NVIDIA GPU";; *) nok "chooser: cuda not offered on x86_64";; esac
-grep -q '^INTERNAL_COMPONENTS=.*cuda' "$ROOT/preseed/component-selector.sh" && ok "chooser: cuda is a valid ncz_components= token even when hidden" || nok "chooser: cuda not a valid token"
-grep -q 'cuda-selection\|COMPONENTS_\$_bit\|for _bit in .* cuda' "$ROOT/preseed/component-selector.sh" && ok "chooser: writes COMPONENTS_cuda for 54-gpu-accel.sh" || nok "chooser: COMPONENTS_cuda not written"
+grep  '^INTERNAL_COMPONENTS=.*cuda' "$ROOT/preseed/component-selector.sh" >/dev/null && ok "chooser: cuda is a valid ncz_components= token even when hidden" || nok "chooser: cuda not a valid token"
+grep  'cuda-selection\|COMPONENTS_\$_bit\|for _bit in .* cuda' "$ROOT/preseed/component-selector.sh" >/dev/null && ok "chooser: writes COMPONENTS_cuda for 54-gpu-accel.sh" || nok "chooser: COMPONENTS_cuda not written"
 
 echo "----"
 echo "PASS=$PASS FAIL=$FAILS"

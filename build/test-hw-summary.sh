@@ -191,8 +191,8 @@ has sk "Sky1 with no PCI devices: NPU/VPU still listed" "CIX Sky1 NPU and VPU"
 out=$(run gr --render 2>/dev/null); printf '%s' "$out" | grep  "HARDWARE SUMMARY" >/dev/null && ok "--render ignores the once-per-boot marker" || bad "--render ignores the once-per-boot marker" "$out"
 rm -f "$T/gr/state/.ncz-hwsummary-shown"
 # the dialog path loads the confmodule and the real template loader
-grep -q '/usr/share/debconf/confmodule' "$HS" && ok "--dialog sources the debconf confmodule" || bad "--dialog sources the debconf confmodule"
-grep -q 'debconf-loadtemplate ncz' "$HS" && ok "--dialog loads its template with debconf-loadtemplate" || bad "--dialog loads its template with debconf-loadtemplate"
+grep  '/usr/share/debconf/confmodule' "$HS" >/dev/null && ok "--dialog sources the debconf confmodule" || bad "--dialog sources the debconf confmodule"
+grep  'debconf-loadtemplate ncz' "$HS" >/dev/null && ok "--dialog loads its template with debconf-loadtemplate" || bad "--dialog loads its template with debconf-loadtemplate"
 
 # --- O6N / cixmini (CIX Sky1) ------------------------------------------------
 fx cix >/dev/null; sysv cix "CIX"; prod cix "Sky1 EVB"
@@ -245,7 +245,7 @@ for fxn in o6 qv t2 arrow nv cix; do
     if [ -n "$body" ] && [ -z "$badl" ]; then ok "$fxn: every summary line is verbatim (two spaces) or ' .'"
     else bad "$fxn: every summary line is verbatim (two spaces) or ' .'" "$badl" "$tpl"; fi
     for item in "  System:" "  CPU:" "  Memory:"; do
-        printf '%s\n' "$body" | grep -q "^$item" && ok "$fxn: '${item# }' starts its own line" \
+        printf '%s\n' "$body" | grep  "^$item" >/dev/null && ok "$fxn: '${item# }' starts its own line" \
             || { printf '%s\n' "$body" | grep  "${item#  }" >/dev/null && bad "$fxn: '${item# }' starts its own line" "$body" || ok "$fxn: '${item# }' absent (no data), nothing to check"; }
     done
     long=$(printf '%s\n' "$tpl" | awk 'length($0) > 70' | head -2)
@@ -329,7 +329,7 @@ env -u NCZ_TMP -u NCZ_HW_STATE -u FE_RC NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/
     NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
     NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent FE_RC=0 NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
     sh -c ". '$FE_OK'; . '$HS'" hw-summary.sh --dialog >"$T/d3" 2>&1
-if [ ! -e "$T/t2/state/.ncz-hwsummary-shown" ] && grep -q "ncz_hwsummary=0" "$T/d3"; then ok "ncz_hwsummary=0: dialog suppressed, reason logged"
+if [ ! -e "$T/t2/state/.ncz-hwsummary-shown" ] && grep  "ncz_hwsummary=0" "$T/d3" >/dev/null; then ok "ncz_hwsummary=0: dialog suppressed, reason logged"
 else bad "ncz_hwsummary=0: dialog suppressed, reason logged" "$(cat "$T/d3")"; fi
 out=$(run t2 --collect 2>/dev/null); [ -z "$out" ] && ok "ncz_hwsummary=0: no probe output in --collect either" || bad "ncz_hwsummary=0: no probe output in --collect either" "$out"
 
@@ -346,7 +346,7 @@ for tok in ncz_unattended=1 ncz_components=desktop,mgmt-container; do
         NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
         NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent FE_RC=0 \
         sh -c ". '$FE_OK'; . '$HS'" hw-summary.sh --dialog >"$T/d4" 2>&1
-    if [ ! -e "$T/t2/state/.ncz-hwsummary-shown" ] && grep -q "automated install" "$T/d4"; then ok "$tok: dialog skipped automatically"
+    if [ ! -e "$T/t2/state/.ncz-hwsummary-shown" ] && grep  "automated install" "$T/d4" >/dev/null; then ok "$tok: dialog skipped automatically"
     else bad "$tok: dialog skipped automatically" "$(cat "$T/d4")"; fi
 done
 printf 'BOOT_IMAGE=/linux quiet\n' > "$T/t2/proc/cmdline"
@@ -364,7 +364,7 @@ dlg "$T/cap1" "$T/d7"
     || bad "first --dialog shows the summary and writes the marker" "$(cat "$T/d7")"
 out=$(run t2 --collect 2>/dev/null); [ -n "$out" ] && ok "--collect still renders with the marker present (only the dialog is once per boot)" || bad "--collect still renders with the marker present" "$out"
 dlg "$T/cap2" "$T/d8"; rc=$?
-if [ "$rc" = 0 ] && [ ! -e "$T/cap2" ] && grep -q "already shown this boot" "$T/d8"; then ok "marker present: second --dialog not shown"
+if [ "$rc" = 0 ] && [ ! -e "$T/cap2" ] && grep  "already shown this boot" "$T/d8" >/dev/null; then ok "marker present: second --dialog not shown"
 else bad "marker present: second --dialog not shown" "rc=$rc" "$(cat "$T/d8")"; fi
 rm -f "$T/t2/state/.ncz-hwsummary-shown"
 
@@ -406,14 +406,14 @@ done
 # reachable and they move (informational when it is not checked out here)
 eng="${NCZ_SCREENSAVER_LAUNCHER:-}"
 if [ -n "$eng" ] && [ -r "$eng" ]; then
-    grep -q '"i915", "xe", "v3d", "vc4", "lima", "etnaviv"' "$eng" && grep -q 'discrete = vendor == "nvidia"' "$eng" \
+    grep  '"i915", "xe", "v3d", "vc4", "lima", "etnaviv"' "$eng" >/dev/null && grep -q 'discrete = vendor == "nvidia"' "$eng" \
         && ok "engine class_from_topology still matches the copied rules" \
         || bad "engine class_from_topology changed: update gpu_saver_class in $HS"
 else echo "note NCZ_SCREENSAVER_LAUNCHER unset: engine table cross-check skipped"; fi
 # a malformed sysfs id must not abort the script (dash dies on bad arithmetic)
 fx bad >/dev/null; pci bad 0000:01:00.0 030000 1002 zz; pci bad 0000:02:00.0 030000 10de zz
 out=$(run bad --collect); rc=$?
-[ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'GPU:' && ok "malformed PCI ids: exit 0, GPU lines still printed" \
+[ "$rc" = 0 ] && printf '%s' "$out" | grep  'GPU:' >/dev/null && ok "malformed PCI ids: exit 0, GPU lines still printed" \
     || bad "malformed PCI ids: exit 0" "rc=$rc" "$out"
 
 # --- the dialog text itself (title from ncz_ui_brand, brand + id last line) --
@@ -429,15 +429,15 @@ env CAPPED="$T/tpl" NCZ_HW_PROC="$T/t2/proc" NCZ_HW_SYS="$T/t2/sys" NCZ_HW_DMI="
     NCZ_HW_CMDLINE="$T/t2/proc/cmdline" NCZ_HW_STATE="$T/t2/state/.ncz-hwsummary-shown" NCZ_TMP="$T/t2/state" \
     NCZ_UI_SH="$ROOT/preseed/ncz-ui.sh" NCZ_UI_RELEASE="$T/RELEASE" NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent FE_RC=0 \
     CAPPED="$T/tpl" sh -c ". '$FE_OK'; . '$HS'" hw-summary.sh --dialog >"$T/d6" 2>&1
-if grep -q '^Description: NCZ-OS 26.10 Cygnus - HARDWARE SUMMARY$' "$T/tpl"; then ok "template title is '<brand> - HARDWARE SUMMARY'"
+if grep  '^Description: NCZ-OS 26.10 Cygnus - HARDWARE SUMMARY$' "$T/tpl" >/dev/null; then ok "template title is '<brand> - HARDWARE SUMMARY'"
 else bad "template title is '<brand> - HARDWARE SUMMARY'" "$(head -5 "$T/tpl" 2>/dev/null)"; fi
 for want in "Type: note" " Apple Inc. MacBookPro16,1" " Apple T2 security chip" " This is the machine NCZ-OS is being installed on."; do
-    grep -qF -- "$want" "$T/tpl" 2>/dev/null && ok "template carries: $want" || bad "template carries: $want" "$(head -30 "$T/tpl" 2>/dev/null)"
+    grep -F -- "$want" "$T/tpl" 2>/dev/null >/dev/null && ok "template carries: $want" || bad "template carries: $want" "$(head -30 "$T/tpl" 2>/dev/null)"
 done
 nonascii "$T/tpl" 2>/dev/null && bad "template is ASCII only" || ok "template is ASCII only"
 
 # --- registration -----------------------------------------------------------
-if grep -q 'sh "$_hs" --dialog' "$ROOT/preseed/preseed.cfg"; then
+if grep  'sh "$_hs" --dialog' "$ROOT/preseed/preseed.cfg" >/dev/null; then
     ok "preseed.cfg runs hw-summary.sh --dialog in partman/early_command"
 else bad "preseed.cfg runs hw-summary.sh --dialog in partman/early_command"; fi
 # It must not be chained into the fail-closed `exit $?` pattern the choosers use.
@@ -450,7 +450,7 @@ lin_dc=$(grep -n 'sh "$D/disk-fs-chooser.sh" || exit' "$ROOT/preseed/preseed.cfg
 if [ -n "$lin_hs" ] && [ -n "$lin_dc" ] && [ "$lin_hs" -lt "$lin_dc" ]; then
     ok "hw summary runs before the disk chooser (before anything is written)"
 else bad "hw summary runs before the disk chooser" "hs=$lin_hs dc=$lin_dc"; fi
-grep -qE '^[[:space:]]*"hw-summary\.sh",' "$ROOT/build/iso/patch-initrd-t2-kernel.py" \
+grep -E '^[[:space:]]*"hw-summary\.sh",' "$ROOT/build/iso/patch-initrd-t2-kernel.py" >/dev/null \
     && ok "hw-summary.sh is in BAKED_HELPERS (initrd)" || bad "hw-summary.sh is in BAKED_HELPERS (initrd)"
 for f in preseed/hw-summary.sh build/test-hw-summary.sh; do
     awk -F'\t' -v f="$f" '$1 == f { found = 1 } END { exit !found }' "$ROOT/docs/platform-inventory.tsv" \

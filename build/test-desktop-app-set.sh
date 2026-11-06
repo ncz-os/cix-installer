@@ -37,10 +37,10 @@ for m in desktop desktop-amd64; do
     done
     [ -z "$miss" ] && ok "$m.pkgs keeps the shared libraries/helpers" || bad "$m.pkgs lost:$miss"
 done
-seeds "$ROOT/manifests/desktop-amd64.pkgs" | grep -qx gnome-online-accounts \
+seeds "$ROOT/manifests/desktop-amd64.pkgs" | grep -x gnome-online-accounts >/dev/null \
     && ok "desktop-amd64.pkgs keeps gnome-online-accounts" || bad "desktop-amd64.pkgs lost gnome-online-accounts"
 for f in sbom/expected-packages.txt sbom/expected-packages-amd64.txt; do
-    hit=""; for p in $DROPPED; do grep -qE ":$p\$" "$ROOT/$f" && hit="$hit $p"; done
+    hit=""; for p in $DROPPED; do grep -E ":$p\$" "$ROOT/$f" >/dev/null && hit="$hit $p"; done
     [ -z "$hit" ] && ok "$f requires none of the dropped apps" || bad "$f still requires:$hit"
 done
 hit=""; for p in $DROPPED; do awk -F'\t' -v p="$p" '$1 == p' "$ROOT/manifests/components.tsv" | grep  . >/dev/null && hit="$hit $p"; done
@@ -52,7 +52,7 @@ refs=$(cd "$ROOT" && git ls-files -- post-install assets build tools preseed 2>/
     | grep -v '^build/test-desktop-app-set\.sh$' \
     | while IFS= read -r f; do [ -f "$f" ] && grep -IHnE "$IDS" "$f" 2>/dev/null; done | grep -vE ':[0-9]+:[[:space:]]*#')
 [ -z "$refs" ] && ok "no hook/asset/build script names a dropped app's desktop id or binary" || bad "dangling references" "$refs"
-grep -q 'inode/directory=thunar' "$ROOT/post-install/52-vivaldi.sh" \
+grep  'inode/directory=thunar' "$ROOT/post-install/52-vivaldi.sh" >/dev/null \
     && bad "52-vivaldi still seeds the absent thunar.desktop as the folder handler" \
     || ok "52-vivaldi does not seed the absent thunar.desktop"
 
@@ -65,7 +65,7 @@ printf '%s\n' "$pins" | grep -x 'dev.sinty.leafs.desktop' >/dev/null && ok "dock
 
 echo "== 4. default handlers"
 LIB="$ROOT/post-install/lib/ncz-default-apps.sh"
-grep -q 'ncz-default-apps.sh' "$ROOT/post-install/59-desktop-curate.sh" && grep -q 'ncz_default_apps_apply' "$ROOT/post-install/59-desktop-curate.sh" \
+grep  'ncz-default-apps.sh' "$ROOT/post-install/59-desktop-curate.sh" >/dev/null && grep -q 'ncz_default_apps_apply' "$ROOT/post-install/59-desktop-curate.sh" \
     && ok "59-desktop-curate applies lib/ncz-default-apps.sh" || bad "59-desktop-curate does not apply the default-apps helper"
 R="$T/root"; A="$R/opt/singularity/share/applications"
 mkdir -p "$A" "$R/etc/xdg" "$R/etc/skel/.config"
@@ -94,7 +94,7 @@ for m in "$R/etc/xdg/mimeapps.list" "$R/etc/skel/.config/mimeapps.list"; do
         [ "$got" = "${kv#*=}" ] && ok "$n: ${kv%%=*} -> $got" || bad "$n: ${kv%%=*} -> '$got' (want ${kv#*=})"
     done
     [ -z "$(dflt "$m" text/calendar)" ] && ok "$n: no default names the absent Calendar app" || bad "$n: text/calendar set although Calendar is absent"
-    grep -qx 'image/png=gimp.desktop;' "$m" && ok "$n: [Added Associations] left as written" || bad "$n: [Added Associations] changed" "$(cat "$m")"
+    grep -x 'image/png=gimp.desktop;' "$m" >/dev/null && ok "$n: [Added Associations] left as written" || bad "$n: [Added Associations] changed" "$(cat "$m")"
     [ "$(grep -c '^\[Default Applications\]$' "$m")" = 1 ] && [ "$(grep -c '^\[Added Associations\]$' "$m")" = 1 ] \
         && [ "$(awk '/^\[Added Associations\]$/{g=1; next} /^\[/{g=0} g && NF' "$m")" = 'image/png=gimp.desktop;' ] \
         && ok "$n: both groups kept once; nothing was moved into [Added Associations]" || bad "$n: group structure changed" "$(cat "$m")"
@@ -108,7 +108,7 @@ R2="$T/fresh"; mkdir -p "$R2/opt/singularity/share/applications"
 printf '[Desktop Entry]\n' > "$R2/opt/singularity/share/applications/dev.sinty.reader.desktop"
 # shellcheck source=post-install/lib/ncz-default-apps.sh
 ( . "$LIB"; ncz_default_apps_apply "$R2" ) >/dev/null 2>&1
-[ "$(dflt "$R2/etc/xdg/mimeapps.list" application/pdf)" = dev.sinty.reader.desktop ] && head -1 "$R2/etc/xdg/mimeapps.list" | grep -qx '\[Default Applications\]' \
+[ "$(dflt "$R2/etc/xdg/mimeapps.list" application/pdf)" = dev.sinty.reader.desktop ] && head -1 "$R2/etc/xdg/mimeapps.list" | grep -x '\[Default Applications\]' >/dev/null \
     && ok "no mimeapps.list yet: one is created with the group header" || bad "fresh root" "$(cat "$R2/etc/xdg/mimeapps.list" 2>&1)"
 
 if [ "$(id -u)" != 0 ]; then

@@ -33,7 +33,7 @@ mkdir -p "$SRV"
 head -c 2097152 /dev/zero > "$SRV/base.squashfs" || dd if=/dev/zero of="$SRV/base.squashfs" bs=1k count=2048 status=none
 tar czf "$SRV/ncz-assets-amd64.tar.gz" -C "$SRV" base.squashfs \
     || { echo "setup: cannot make the assets bundle" >&2; exit 1; }
-tar tzf "$SRV/ncz-assets-amd64.tar.gz" | grep -qx base.squashfs \
+tar tzf "$SRV/ncz-assets-amd64.tar.gz" | grep -x base.squashfs >/dev/null \
     || { echo "setup: the assets bundle does not carry base.squashfs" >&2; exit 1; }
 # option B: the offline apt pool, a repo/ tree the fetcher unpacks
 mkdir -p "$WORK/poolsrc/repo/dists/forky/main/binary-amd64" "$WORK/poolsrc/repo/pool/main"
@@ -160,13 +160,13 @@ if NCZ_PAYLOAD_DIR="$DEST" "$FETCH" > "$WORK/fetch-live.log" 2>&1; then
     [ -s "$DEST/repo/dists/forky/main/binary-amd64/Packages" ] && [ -f "$DEST/repo/pool/main/x_1_all.deb" ] \
         && ok "fetcher: the pool unpacked as <staging>/repo (where the stub binds the target's /cdrom)" \
         || bad "fetcher: the pool did not unpack to <staging>/repo"
-    grep -q "ncz-pool-amd64.tar.gz verified sha256=" "$WORK/fetch-live.log" \
+    grep  "ncz-pool-amd64.tar.gz verified sha256=" "$WORK/fetch-live.log" >/dev/null \
         && ok "fetcher: the pool's 'verified sha256=' line the gate asserts is present" || bad "fetcher: no pool 'verified sha256=' line"
 else
     bad "fetcher: a fetch that should succeed failed: $(tail -3 "$WORK/fetch-live.log")"
 fi
-grep -q "verified sha256" "$WORK/fetch-live.log" && ok "fetcher: the gate's asserted log line is present ('verified sha256=')" || bad "fetcher: no 'verified sha256' log line for the gate to assert"
-grep -q "all manifest artifacts fetched and verified" "$WORK/fetch-live.log" && ok "fetcher: the gate's second asserted line is present ('all manifest artifacts fetched and verified')" || bad "fetcher: no 'all manifest artifacts fetched and verified' line"
+grep  "verified sha256" "$WORK/fetch-live.log" >/dev/null && ok "fetcher: the gate's asserted log line is present ('verified sha256=')" || bad "fetcher: no 'verified sha256' log line for the gate to assert"
+grep  "all manifest artifacts fetched and verified" "$WORK/fetch-live.log" >/dev/null && ok "fetcher: the gate's second asserted line is present ('all manifest artifacts fetched and verified')" || bad "fetcher: no 'all manifest artifacts fetched and verified' line"
 
 # --- 5: the fetcher REFUSES a wrong sha256 (loud, no partial accept) -------
 DEST_BAD="$WORK/fetch-bad"; mkdir -p "$DEST_BAD"
@@ -196,17 +196,17 @@ if [ -e "$DEST_OFF/base.squashfs" ]; then
 else
     ok "negative: no half-written payload left behind (no partial file on the staging root)"
 fi
-grep -q "No root filesystem was installed" "$WORK/fetch-off.log" && ok "negative: the log carries the guest's refusal line the gate asserts" || bad "negative: no 'No root filesystem was installed' line: $(tail -2 "$WORK/fetch-off.log")"
+grep  "No root filesystem was installed" "$WORK/fetch-off.log" >/dev/null && ok "negative: the log carries the guest's refusal line the gate asserts" || bad "negative: no 'No root filesystem was installed' line: $(tail -2 "$WORK/fetch-off.log")"
 
 # --- 7: the gate serves and checks the pool (option B) ---------------------
 G="$ROOT/kvm-install-gate-gpt.sh"
 grep -q 'cp "$NCZ_GATE_SERVER_POOL" "$SRV_DIR/' "$G" && ok "gate: the pool is copied into the served dir" || bad "gate: the pool is not served"
-grep -q '\$1 ~ /^ncz-pool-/' "$G" && grep -q '\$1 ~ /^ncz-assets-/' "$G" \
+grep  '\$1 ~ /^ncz-pool-/' "$G" >/dev/null && grep -q '\$1 ~ /^ncz-assets-/' "$G" \
     && ok "gate: the bundle and pool pins are read by name (two untar rows)" || bad "gate: untar rows are not told apart"
-grep -q '_srv_check_url "$_srv_lurl"' "$G" && ok "gate: the pinned pool URL must answer 200 before the guest starts" || bad "gate: pool URL not checked"
-grep -q 'for _fa in base.squashfs "$_srv_name" "$_srv_pool_name"; do' "$G" \
+grep  '_srv_check_url "$_srv_lurl"' "$G" >/dev/null && ok "gate: the pinned pool URL must answer 200 before the guest starts" || bad "gate: pool URL not checked"
+grep  'for _fa in base.squashfs "$_srv_name" "$_srv_pool_name"; do' "$G" >/dev/null \
     && ok "gate: the guest must log 'verified sha256=' for the pool too" || bad "gate: pool fetch not asserted"
-grep -q 'no offline apt pool to serve' "$G" && ok "gate: a missing pool payload is a gate error" || bad "gate: missing pool not refused"
+grep  'no offline apt pool to serve' "$G" >/dev/null && ok "gate: a missing pool payload is a gate error" || bad "gate: missing pool not refused"
 
 echo
 [ "$FAIL" -eq 0 ] && echo "test-kvm-gate-server: ALL PASSED" || { echo "test-kvm-gate-server: FAILURES" >&2; exit 1; }

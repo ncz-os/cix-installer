@@ -191,7 +191,7 @@ run_for_source() {
     if [ "$(id -u)" = "0" ] && findmnt -no FSTYPE /boot/efi >/dev/null 2>&1; then
         NCZ_ESP_DIR="$w/esp1" KVER_STABLE="$NEW_KVER" NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" \
             >"$w/s1.log" 2>&1
-        if grep -q '^menuentry ' "$w/esp1/EFI/BOOT/refind.conf" 2>/dev/null; then
+        if grep  '^menuentry ' "$w/esp1/EFI/BOOT/refind.conf" 2>/dev/null >/dev/null; then
             ok "1) install-time generate still writes a menu"
         else
             bad "1) install-time generate still writes a menu" "$(cat "$w/s1.log")"
@@ -285,7 +285,7 @@ CONSTS
     NCZ_ESP_DIR="$w/esp4" KVER_STABLE="$MISSING" NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" --add \
         >"$w/s4.log" 2>&1
     rc=$?
-    if [ "$rc" = 1 ] && grep -q 'no complete kernel pair' "$w/s4.log" \
+    if [ "$rc" = 1 ] && grep  'no complete kernel pair' "$w/s4.log" >/dev/null \
        && cmp -s "$w/conf4.before" "$w/esp4/EFI/BOOT/refind.conf" \
        && [ ! -e "$w/esp4/vmlinuz-$MISSING" ]; then
         ok "4) --add refuses a kernel with no /boot pair; ESP left byte-identical"
@@ -300,7 +300,7 @@ CONSTS
     NCZ_ESP_DIR="$w/esp5" KVER_STABLE="6.1.0-13-amd64" NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" --add \
         >"$w/s5.log" 2>&1
     rc=$?
-    if [ "$rc" = 1 ] && grep -q 'Debian-archive kernel' "$w/s5.log" \
+    if [ "$rc" = 1 ] && grep  'Debian-archive kernel' "$w/s5.log" >/dev/null \
        && cmp -s "$w/conf5.before" "$w/esp5/EFI/BOOT/refind.conf"; then
         ok "5) --add refuses a Debian-archive kernel (7.3 policy); ESP untouched"
     else
@@ -331,7 +331,7 @@ CONSTS
     run5b >"$w/s5b-b.log" 2>&1; rc_b=$?
     if [ "$rc_a" = 0 ] && [ "$rc_b" = 0 ] \
        && cmp -s "$w/boot/vmlinuz-$NEW_KVER" "$w/esp5b/vmlinuz-$NEW_KVER" \
-       && grep -q 'refreshing vmlinuz-.*staged by this tool' "$w/s5b-b.log" \
+       && grep  'refreshing vmlinuz-.*staged by this tool' "$w/s5b-b.log" >/dev/null \
        && [ "$(grep '^menuentry ' "$w/esp5b/EFI/BOOT/refind.conf" | grep -cF -- "$NEW_KVER" || true)" = 1 ]; then
         ok "5b) a pair this tool staged is recognised and refreshed in place"
     else
@@ -361,7 +361,7 @@ CONSTS
         KVER_STABLE_INITRD="$w/boot/initrd.img-$NEW_KVER" \
         NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" --add >"$w/s5d.log" 2>&1
     rc=$?
-    if [ "$rc" = 1 ] && grep -q 'was not staged by this tool\|already exists on the ESP with DIFFERENT content' "$w/s5d.log" \
+    if [ "$rc" = 1 ] && grep  'was not staged by this tool\|already exists on the ESP with DIFFERENT content' "$w/s5d.log" >/dev/null \
        && cmp -s "$w/conf5d.before" "$w/esp5d/EFI/BOOT/refind.conf" \
        && [ "$(cat "$w/esp5d/vmlinuz-$NEW_KVER")" = "foreign-bytes" ]; then
         ok "5d) a foreign ESP copy is still refused and left untouched"
@@ -381,7 +381,7 @@ CONSTS
          <(grep -v '^default_selection' "$w/esp6/EFI/BOOT/refind.conf") >/dev/null 2>&1
     same_rest=$?
     if [ "$rc" = 0 ] && [ "$same_rest" = 0 ] \
-       && grep -q "^default_selection .*$NEW_KVER" "$w/esp6/EFI/BOOT/refind.conf"; then
+       && grep  "^default_selection .*$NEW_KVER" "$w/esp6/EFI/BOOT/refind.conf" >/dev/null; then
         ok "6) --promote changes only the default_selection line"
     else
         bad "6) --promote changes only the default_selection line" \
@@ -394,7 +394,7 @@ CONSTS
     NCZ_ESP_DIR="$w/esp7" NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" \
         --promote "no-such-entry-title" >"$w/s7.log" 2>&1
     rc=$?
-    if [ "$rc" = 1 ] && grep -q 'matches no menuentry' "$w/s7.log" \
+    if [ "$rc" = 1 ] && grep  'matches no menuentry' "$w/s7.log" >/dev/null \
        && cmp -s "$w/conf7.before" "$w/esp7/EFI/BOOT/refind.conf"; then
         ok "7) --promote refuses a title matching no entry; menu unchanged"
     else
@@ -427,8 +427,8 @@ CONSTS
         NCZ_SERIAL_CONSOLE=off bash "$w/tool.sh" --stage >"$w/s9.log" 2>&1
     rc=$?
     if [ "$rc" = 0 ] \
-       && grep -q 'verb=stage' "$w/s9.log" \
-       && ! grep -q 'wiping stale ESP entries' "$w/s9.log" \
+       && grep  'verb=stage' "$w/s9.log" >/dev/null \
+       && ! grep  'wiping stale ESP entries' "$w/s9.log" >/dev/null \
        && [ -s "$w/esp9/vmlinuz-$OLD_KVER" ] \
        && [ -s "$w/esp9/vmlinuz-$NEW_KVER" ] \
        && [ "$(grep '^menuentry ' "$w/esp9/EFI/BOOT/refind.conf" | grep -cF -- "$NEW_KVER" || true)" = 1 ] \
@@ -454,8 +454,8 @@ CONSTS
          <(grep -v '^default_selection' "$w/esp10/EFI/BOOT/refind.conf") >/dev/null 2>&1
     same_rest=$?
     if [ "$rc" = 0 ] && [ "$same_rest" = 0 ] \
-       && grep -qF "default_selection \"$sel10\"" "$w/esp10/EFI/BOOT/refind.conf" \
-       && ! grep -q 'wiping stale ESP entries' "$w/s10.log"; then
+       && grep -F "default_selection \"$sel10\"" "$w/esp10/EFI/BOOT/refind.conf" >/dev/null \
+       && ! grep  'wiping stale ESP entries' "$w/s10.log" >/dev/null; then
         ok "10) --promote works with no KVER_STABLE and rewrites only the default"
     else
         bad "10) --promote works with no KVER_STABLE and rewrites only the default" \
@@ -479,7 +479,7 @@ CONSTS
         _guard_bad="the KVER_STABLE guard is missing from the tool"
     else
         _guard_src=$(sed -n "$((_guard_line - 2)),${_guard_line}p" "$w/tool.sh")
-        printf '%s\n' "$_guard_src" | grep -q 'KVER_STABLE:-' \
+        printf '%s\n' "$_guard_src" | grep  'KVER_STABLE:-' >/dev/null \
             || _guard_bad="the guard does not use a defaulted KVER_STABLE expansion: $_guard_src"
     fi
     if [ -z "$_guard_bad" ]; then
@@ -513,7 +513,7 @@ CONSTS
         --promote "$cur11" --force >"$w/s11c.log" 2>&1
     rc_c=$?
     if [ "$rc_a" = 1 ] && [ "$unchanged" = 1 ] \
-       && [ "$rc_b" = 0 ] && grep -q "default_selection is already" "$w/s11b.log" \
+       && [ "$rc_b" = 0 ] && grep  "default_selection is already" "$w/s11b.log" >/dev/null \
        && [ "$f11b" = "$cur11" ] \
        && [ "$rc_c" = 0 ] && grep -q "^  default_selection '.*' -> '" "$w/s11c.log"; then
         ok "11) --promote uses the parsed title and honours --force"
@@ -542,8 +542,8 @@ CONSTS
     rc=$?
     if [ "$rc" = 0 ] \
        && [ "$(grep -c '^menuentry ' "$w/esp12a/EFI/BOOT/refind.conf")" = 3 ] \
-       && grep -qF "7.3 Kernel $NEW_KVER" "$w/esp12a/EFI/BOOT/refind.conf" \
-       && grep -qF "7.3 Kernel $LOOKALIKE" "$w/esp12a/EFI/BOOT/refind.conf"; then
+       && grep -F "7.3 Kernel $NEW_KVER" "$w/esp12a/EFI/BOOT/refind.conf" >/dev/null \
+       && grep -F "7.3 Kernel $LOOKALIKE" "$w/esp12a/EFI/BOOT/refind.conf" >/dev/null; then
         ok "12a) a look-alike title is not treated as a duplicate (literal match)"
     else
         bad "12a) a look-alike title is not treated as a duplicate (literal match)" \
@@ -571,7 +571,7 @@ APPEND
           bash "$w/harness12b.sh" ) >"$w/s12b.log" 2>&1
     rc=$?
     if [ "$rc" = 1 ] \
-       && grep -q 'would not leave exactly one match' "$w/s12b.log" \
+       && grep  'would not leave exactly one match' "$w/s12b.log" >/dev/null \
        && cmp -s "$w/conf12b.before" "$w/esp12b/EFI/BOOT/refind.conf" \
        && [ "$(grep -c '^menuentry ' "$w/esp12b/EFI/BOOT/refind.conf")" = 2 ]; then
         ok "12b) ncz_entry_append refuses a second match, menu byte-identical"
@@ -601,7 +601,7 @@ ROLLBACK
           bash "$w/harness12d.sh" ) >"$w/s12d.log" 2>&1
     rc=$?
     if [ "$rc" = 1 ] \
-       && grep -q 'restored the previous menu' "$w/s12d.log" \
+       && grep  'restored the previous menu' "$w/s12d.log" >/dev/null \
        && cmp -s "$w/conf12d.before" "$w/esp12d/EFI/BOOT/refind.conf"; then
         ok "12d) a post-replace failure restores the previous menu"
     else

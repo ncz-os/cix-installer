@@ -74,12 +74,12 @@ for SH in $SHELLS; do
     check "[$SH] no key pressed: does not run away (< 5s for 2 one-second steps)" \
         bash -c "[ ${DUR} -lt 5 ]"
     check "[$SH] final status line is the last second, not a half-finished count" \
-        grep -q 'Rebooting in 1s -- press Enter to reboot now' "$W/status1"
+        grep  'Rebooting in 1s -- press Enter to reboot now' "$W/status1" >/dev/null
     check "[$SH] status reached the tty1 fixture" [ -s "$W/status1" ]
     check "[$SH] status reached the tty3 fixture" [ -s "$W/status3" ]
     check "[$SH] status reached the console fixture" [ -s "$W/console" ]
     check "[$SH] countdown text is ASCII-only (same newt/C-locale constraint as every dialog string)" \
-        bash -c '! LC_ALL=C grep -q "[^[:print:][:space:]]" "$1"' _ "$W/status1"
+        bash -c '! LC_ALL=C grep  "[^[:print:][:space:]]" "$1"' _ "$W/status1" >/dev/null
 
     # --- a key is already waiting in the pipe: skip immediately, no wait ---
     exec 3<>"$INFIFO"
@@ -103,22 +103,22 @@ done
 # exact zero-delay flash this countdown exists to prevent. Pin the capability
 # probe and the portable fallback so that cannot come back.
 check "preseed/late.sh: ncz_shell_has_read_t probe exists (dash-safe wait path)" \
-    grep -q '^ncz_shell_has_read_t() {' "$LATE"
+    grep  '^ncz_shell_has_read_t() {' "$LATE" >/dev/null
 check "preseed/late.sh: the countdown delegates its wait to ncz_reboot_wait_1s" \
-    grep -q 'if ncz_reboot_wait_1s; then' "$LATE"
+    grep  'if ncz_reboot_wait_1s; then' "$LATE" >/dev/null
 check "preseed/late.sh: ncz_reboot_countdown itself uses no bare \`read -t\`" \
-    bash -c '! sed -n "/^ncz_reboot_countdown() {/,/^}/p" "$1" | grep -q "read -t"' _ "$LATE"
+    bash -c '! sed -n "/^ncz_reboot_countdown() {/,/^}/p" "$1" | grep  "read -t"' _ "$LATE" >/dev/null
 
 # --- ncz_force_reboot only counts down when explicitly told to (2nd arg "1");
 #     the unattended call site must stay silent, same as before this feature
 #     existed. Greps the call sites rather than running ncz_force_reboot
 #     itself (it calls reboot(8) at the end). ---
 check "preseed/late.sh: unattended call site passes no countdown flag" \
-    bash -c 'grep -q '"'"'ncz_force_reboot "unattended"$'"'"' "$1"' _ "$LATE"
+    bash -c 'grep  '"'"'ncz_force_reboot "unattended"$'"'"' "$1"' _ "$LATE" >/dev/null
 check "preseed/late.sh: interactive call site passes countdown flag 1" \
-    bash -c 'grep -q '"'"'ncz_force_reboot "interactive" 1$'"'"' "$1"' _ "$LATE"
+    bash -c 'grep  '"'"'ncz_force_reboot "interactive" 1$'"'"' "$1"' _ "$LATE" >/dev/null
 check "preseed/late.sh: ncz_force_reboot gates the countdown on \$2 = 1" \
-    bash -c 'grep -q '"'"'\[ "\$2" = "1" \] && ncz_reboot_countdown'"'"' "$1"' _ "$LATE"
+    bash -c 'grep  '"'"'\[ "\$2" = "1" \] && ncz_reboot_countdown'"'"' "$1"' _ "$LATE" >/dev/null
 
 echo
 echo "test-reboot-countdown: $PASS passed, $FAILS failed (shells: $SHELLS)"
