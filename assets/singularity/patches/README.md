@@ -142,6 +142,17 @@ fetched from the superproject itself:
 
 ## singularity-plugins — retired 2026-11-06 (landed upstream)
 
+  patch `0001-sensors-dpi-columns-bordered-sections.patch` (retired 2026-11-06):
+  upstream carries the structure it introduced - `MAX_DETAIL_COLUMNS`,
+  `Box[] detail_columns`, `detail_column_count`, `detail_column_rows` are all
+  present at the pin, which is why all eight of its hunks reject rather than just
+  drifting. What it asked for beyond that, recorded here so it can be re-proposed
+  deliberately if wanted: `MAX_ROWS_PER_GROUP` 6 -> 12, and a column count derived
+  from available width (slot = 2 x 340 + 18, so ~1400 px for two columns) instead of
+  upstream's fixed 1280/1920 thresholds. Adopted upstream's layout; geometry favours
+  its thresholds anyway (two 340 px columns need 698 px and fit inside 1184 at 1280).
+
+
   patch `0005-sensors-adaptive-contrast.patch` (retired 2026-11-06): upstream
   ships `sensors/contrast.vala` with a fuller WCAG implementation than the patch
   added - relative_luminance, contrast_ratio, composite, mix, near_black,
@@ -172,12 +183,6 @@ needs a per-line pass), 0005 (85 %, same), 0002, 0004 and 0007 (real rebases).
 All six patches are the heads of our upstream PRs, applied in order to the pinned commit
 (7bc0e598), except 0004. The 2026-10-07 convergence replaced the earlier private variants
 that had drifted from what the maintainer reviewed.
-
-**Upstream PR:** [singularityos-lab/singularity-plugins#2](https://github.com/singularityos-lab/singularity-plugins/pull/2)
-— open. Patch `0001-sensors-dpi-columns-bordered-sections.patch`. Popover column
-count from the logical width only (up to 3) and the `.sensors-resource-section`
-outline, defined in the plugin own `compact_rows_provider` so libsingularity is not
-touched. Delete this patch once PR #2 merges.
 
 **Upstream PR:** [singularityos-lab/singularity-plugins#3](https://github.com/singularityos-lab/singularity-plugins/pull/3)
 — open. Patch `0002-wallpapers-bing-preferred-market.patch`. Preferred Region row:
