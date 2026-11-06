@@ -222,3 +222,4 @@ tools/lockrig/hosts.tsv
 build/npu-embed-deb/
 assets/google-chrome/
 build/.substrate-derive-cache/
+build/.debootstrap-cache/
