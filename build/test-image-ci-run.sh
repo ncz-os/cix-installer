@@ -74,12 +74,21 @@ printf '%s' "$out" | grep -q 'clearing a stale marker' \
     && ok "a stale marker is cleared and named" \
     || nok "a stale marker blocked the trigger: $(printf '%s' "$out" | grep forky | head -1)"
 [ ! -e "$T/markers/ncz-image-ci-forky-pin" ] && ok "the stale marker is gone" || nok "the stale marker survived"
-# 3c. the reservation is atomic, not check-then-create
-grep -q 'set -C; : > "$marker"' "$RUN" && ok "the marker is reserved with O_EXCL semantics" \
-    || nok "the marker is reserved by a check-then-create race"
+# 3c. the reservation is atomic AND never empty (an empty marker reads as stale)
+grep -q 'set -C; printf' "$RUN" && ok "the marker is reserved with O_EXCL semantics and a pid" \
+    || nok "the marker is reserved by a check-then-create race, or reserved empty"
+# 3d. the recorded pid must be the subshell that waits for the build, not a wrapper
+grep -q 'setsid bash -c "$cmd" > "$log" 2>&1 ) &' "$RUN" \
+    && ok "the recorded pid belongs to a process that outlives the wrapper" \
+    || nok "the marker may record a wrapper pid that dies while the build runs"
 
 # 4. execute launches, records, keeps a marker, and advances the state
-out="$(cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='sleep 30' bash "$RUN" --execute 2>&1)"; rc=$?
+# Run it the way a timer or cron does: stdout to a file, NOT a command
+# substitution. A background job started inside $( ) dies with the substitution,
+# which is a property of the caller, not of the runner -- and testing through
+# $( ) would report a failure the timer would never see.
+( cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='sleep 30' bash "$RUN" --execute > "$T/exec.log" 2>&1 ); rc=$?
+out="$(cat "$T/exec.log")"
 [ "$rc" = 0 ] && ok "execute exits 0 when the launch succeeds" || nok "execute exited $rc"
 [ -s "$T/markers/ncz-image-ci-forky-pin" ] && ok "execute wrote a marker holding the pid" || nok "execute wrote no marker"
 pid="$(cat "$T/markers/ncz-image-ci-forky-pin" 2>/dev/null)"

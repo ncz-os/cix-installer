@@ -14,6 +14,11 @@
 #     failed launch does not swallow the trigger.
 #   * a trigger with no mapped action is reported, not guessed.
 #
+# INVOCATION: run it with stdout going to a file or the journal (cron, a timer, a
+# shell redirect). Do NOT wrap it in $( ... ): a background job started inside a
+# command substitution is torn down when the substitution finishes, so a build
+# launched that way dies immediately and the marker would look stale.
+#
 # Exit: 0 nothing to do or the plan printed, 1 execution attempted and failed,
 #       2 bad invocation.
 set -uo pipefail
@@ -131,17 +136,25 @@ while IFS=$'\t' read -r trig verdict value; do
     fi
     # Reserve the marker atomically before launching: checking for the file and then
     # creating it is a race two runners can both win. `set -C` gives O_EXCL.
-    if ! ( set -C; : > "$marker" ) 2>/dev/null; then
+    # Reserve with our own pid, never an empty file: an empty marker reads as
+    # "stale" to another runner, which would then clear a live reservation.
+    if ! ( set -C; printf '%s\n' "$$" > "$marker" ) 2>/dev/null; then
         printf '%-14s %-28s SKIP: another runner reserved %s first\n' \
             "$trig" "$value" "$(basename "$marker")"
         skipped=$((skipped + 1)); continue
     fi
     # launch, record, then advance the state
     log="$RUNS_DIR/$trig-$(date -u +%Y%m%dT%H%M%SZ).log"
+    # `nohup setsid cmd &` gives a pid that MAY be a wrapper which exits while the
+    # build keeps running -- setsid forks when it is already a process-group leader,
+    # and then the recorded pid is dead immediately, so the marker looks stale and
+    # the next run would start a second build. Background the SUBSHELL instead: it
+    # waits for the build, so its pid is alive exactly as long as the build is.
     ( export NCZ_IMAGE_CI_LAUNCHED_BY=image-ci-run
-      nohup setsid bash -c "$cmd" > "$log" 2>&1 &
-      echo $! > "$marker" )
-    pid="$(cat "$marker" 2>/dev/null)"
+      setsid bash -c "$cmd" > "$log" 2>&1 ) &
+    bpid=$!
+    printf '%s\n' "$bpid" > "$marker"
+    pid="$bpid"
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
         printf '%-14s %-28s started pid=%s log=%s\n' "$trig" "$value" "$pid" "$log"
         printf '{"trigger":"%s","pid":%s,"value":"%s","command":"%s","log":"%s","started_at":"%s"}\n' \
