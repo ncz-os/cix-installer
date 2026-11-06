@@ -267,6 +267,30 @@ r = m.retention_plan(items, validated=None, keep_candidates=2)
 check(len(r["keep"]) == 2 and len(r["prune"]) == 2,
       "an unvalidated pile keeps only N candidates")
 
+# ---- gate aggregation (stage 6) --------------------------------------------
+allpass = [{"name": "substrate-pin", "status": "pass"}, {"name": "kvm-boot", "status": "pass"}]
+r = m.aggregate_gates(allpass)
+check(r["green"] and not r["blockers"], "all gates pass -> green")
+
+r = m.aggregate_gates(allpass + [{"name": "modversions", "status": "fail"}])
+check(not r["green"] and any("modversions" in b for b in r["blockers"]),
+      "a failing gate -> red")
+
+r = m.aggregate_gates(allpass + [{"name": "driver-binding", "status": "skip"}])
+check(not r["green"] and any("SKIPPED" in b for b in r["blockers"]),
+      "a SKIPPED gate counts as a failure, not a pass")
+
+r = m.aggregate_gates([])
+check(not r["green"] and any("no gates ran" in b for b in r["blockers"]),
+      "an empty suite proves nothing and is not green")
+
+r = m.aggregate_gates([{"name": "x", "status": "error"}])
+check(not r["green"], "an errored gate -> red")
+
+r = m.aggregate_gates(allpass + [{"name": "y"}])
+check(not r["green"], "a gate with no status is treated as an error")
+
+
 print("\n%d passed, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)
 PY

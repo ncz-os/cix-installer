@@ -276,6 +276,33 @@ def retention_plan(items, validated=None, keep_candidates=1):
             "prune": [i.get("name") for i in prune]}
 
 
+# --- stage 6: gate aggregation ----------------------------------------------
+
+def aggregate_gates(results):
+    """Decide whether the gate suite is green.
+
+    results = [{"name": ..., "status": "pass"|"fail"|"skip"|"error"}]
+
+    Only "pass" counts. A gate that DID NOT RUN is a failure, not a pass - the design
+    note says so explicitly, because a suite that silently skips a gate reports green
+    while proving less than it claims. An empty suite is also not green: nothing was
+    proven.
+    """
+    blockers = []
+    if not results:
+        blockers.append("no gates ran")
+    for r in results:
+        name = r.get("name", "<unnamed>")
+        status = r.get("status", "error")
+        if status == "pass":
+            continue
+        if status == "skip":
+            blockers.append("gate %s was SKIPPED (counted as a failure)" % name)
+        else:
+            blockers.append("gate %s: %s" % (name, status))
+    return {"green": not blockers, "ran": len(results), "blockers": blockers}
+
+
 # --- stage 3: transactional pin move + changelog ----------------------------
 
 def apply_pin_move(root, changes, replace=None):
@@ -454,6 +481,14 @@ def _cmd_retention(args):
     return 0
 
 
+def _cmd_gates(args):
+    with open(args.spec, "r", encoding="utf-8") as f:
+        spec = json.load(f)
+    out = aggregate_gates(spec if isinstance(spec, list) else spec.get("gates", []))
+    print(json.dumps(out, indent=2))
+    return 0 if out["green"] else 1
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="automatic substrate CI decision core")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -491,6 +526,10 @@ def main(argv=None):
     g.add_argument("--min-coverage", type=float,
                    default=float(os.environ.get("NCZ_CI_MIN_COVERAGE", "99")))
     g.set_defaults(func=_cmd_aggregate)
+
+    g2 = sub.add_parser("gates", help="stage 6: aggregate gate results")
+    g2.add_argument("spec", help="JSON: [{\"name\": ..., \"status\": pass|fail|skip|error}, ...]")
+    g2.set_defaults(func=_cmd_gates)
 
     r = sub.add_parser("retention", help="stage 8: what to keep and what to prune")
     r.add_argument("spec", help="JSON: {\"items\": [...], \"validated\": name, \"keep_candidates\": 1}")
