@@ -247,6 +247,7 @@ while [ $# -gt 0 ]; do
         --resume-from) RESUME_FROM="${2:?--resume-from needs a stage}"; FORWARD+=("--resume-from" "$2"); shift 2 ;;
         --image) IMAGE_ARG="${2:?--image needs a path}"; FORWARD+=("--image" "$2"); shift 2 ;;
         --host) HOST_OVERRIDE="${2:?--host needs a host}"; shift 2 ;;
+        --rehearse) exec bash "$(dirname "$0")/rehearse.sh" ;;   # M6: static gates only, writes nothing
         --container) CONTAINER_TAG="${2:?--container needs a tag}"; FORWARD+=("--container" "$2"); shift 2 ;;
         --jobs) JOBS="${2:?--jobs needs N}"; FORWARD+=("--jobs" "$2"); shift 2 ;;
         --keep-work) KEEP_WORK=1; FORWARD+=("--keep-work"); shift ;;
