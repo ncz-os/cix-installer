@@ -158,7 +158,18 @@ trap cleanup EXIT
 # afterwards. The cache is therefore kept root-owned and mode 0700.
 if [ -n "${NCZ_DEBOOTSTRAP_CACHE:-}" ] && [ -d "$NCZ_DEBOOTSTRAP_CACHE" ]; then
     mkdir -p "$CHROOT/var/cache/apt/archives/partial"
-    chmod 700 "$NCZ_DEBOOTSTRAP_CACHE" 2>/dev/null || true   # see the trust chain above
+    # The cache must be root-owned and mode 0700 *before* the copy, because the
+    # comment above is only true if nobody can write it. A silent failure here would
+    # leave the shortcut running with none of its stated protection, so it stops the
+    # build instead.
+    chmod 700 "$NCZ_DEBOOTSTRAP_CACHE" 2>/dev/null || true
+    if [ "$(stat -c %u "$NCZ_DEBOOTSTRAP_CACHE" 2>/dev/null)" != "0" ] || \
+       [ "$(stat -c %a "$NCZ_DEBOOTSTRAP_CACHE" 2>/dev/null)" != "700" ]; then
+        echo "[mgmt-rootfs] FATAL: $NCZ_DEBOOTSTRAP_CACHE is not root-owned 0700;" >&2
+        echo "  apt does not re-hash cached archives (measured 2026-11-06), so an" >&2
+        echo "  unprotected cache is an unverified package path. Refusing to seed." >&2
+        exit 1
+    fi
     cp -n "$NCZ_DEBOOTSTRAP_CACHE"/*.deb "$CHROOT/var/cache/apt/archives/" 2>/dev/null || true
     echo "[mgmt-rootfs] seeded $(ls -1 "$CHROOT/var/cache/apt/archives/"*.deb 2>/dev/null | wc -l) cached .deb into the chroot archive dir"
 fi
