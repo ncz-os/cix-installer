@@ -62,6 +62,15 @@ OUT="${OUT:-$REPO/build/gst-cix-out}"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 
 CIX_GST_URL="${CIX_GST_URL:-https://github.com/cixtech/cix_gstreamer.git}"
+# shellcheck source=lib/fetch-pinned-rev.sh
+. "$REPO/build/lib/fetch-pinned-rev.sh"
+# M9: a branch name is not a pin. This tree's patch (PATCH_REL) is read from the checkout,
+# so whatever head happened to contain is what the build consumed. The revision lives in
+# release.conf; the environment overrides it for a deliberate one-off.
+if [ -z "${CIX_GST_REV:-}" ] && [ -r "$REPO/release.conf" ]; then
+    # shellcheck disable=SC1091
+    CIX_GST_REV="$(sed -n 's/^NCZ_GST_CIX_REV="\{0,1\}\([0-9a-f]*\)"\{0,1\}.*/\1/p' "$REPO/release.conf" | tail -1)"
+fi
 # Pin the patch we measured against. A newer quarterly drop may add files or
 # move the subproject; re-measure before bumping this rather than assuming.
 PATCH_REL="${PATCH_REL:-debian/gstreamer-1.22.1/patches/gstreamer_1_22_1_for_cix_2026q2.patch}"
@@ -76,8 +85,9 @@ esac
 command -v docker >/dev/null 2>&1 && ENGINE=docker || ENGINE=podman
 command -v "$ENGINE" >/dev/null 2>&1 || { echo "ERROR: need docker or podman" >&2; exit 1; }
 
-echo "== fetching $CIX_GST_URL"
-git clone --depth 1 -q "$CIX_GST_URL" "$WORK/cix_gstreamer"
+echo "== fetching $CIX_GST_URL at ${CIX_GST_REV:-<unpinned>}"
+ncz_fetch_pinned_rev "$CIX_GST_URL" "${CIX_GST_REV:-}" "$WORK/cix_gstreamer" \
+    || { echo "ERROR: refusing to build from an unpinned upstream" >&2; exit 1; }
 PATCH="$WORK/cix_gstreamer/$PATCH_REL"
 [ -f "$PATCH" ] || { echo "ERROR: patch not found: $PATCH_REL" >&2; exit 1; }
 
