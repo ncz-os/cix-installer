@@ -47,5 +47,17 @@
 # 291821e21f168e5f980d9b2f4954fea62594a20a, with shell 0024 (pause/resume and
 # the 60-second prompt limit). Both installed payloads pass the 74-case lock
 # assertions and independent process cleanup audit; image/hardware gates remain.
-amd64	9158e1f5b3e5050bdcc9a233ec6254af9eec41afac81435e0df894a8a2724188	ncz-singularity-desktop_20261025175504+bk0+tgz225dba22_amd64.deb
-arm64	92694c85b51d56b067ddbf7db5bf5f12b6189fdd1d209f9bb48c0a191202a47d	ncz-singularity-desktop_20261025175504+bk0+tgzc1c61921_arm64.deb
+# 20261105105000 is built from the 2026-11-05 upstream branch heads (the
+# all-heads set, orchestrator N12): 18 rows move from 20261025175504 --
+# superproject 6427e9c4, libsingularity 43ccc2cf, shell ca0d8290, greeter
+# 59560be4 (upstream output-scale fix), loginui 1c1eb0bd, labwc f579a4ef,
+# files 53e8e290, store b776e05a, themes bfd9110822, boot splash 23351025
+# and seven more. singularity-loginui 0002 is retired with the bump
+# (upstream 9cca2b9+1c1eb0b own the brand-splash logo sizing, N14): 33
+# patches remain. Built by cix-installer 2dce7f3d from one clean tree
+# on HYDRA (amd64) and ULTRA (arm64), shared build timestamp 20261105105000;
+# each .sources sidecar matches all 84 pins. ncz-screensavers-plugin 0.3.25
+# is relinked against these payloads (post-install/lib/ncz-screensavers-plugin.lock):
+# the pin set moves libsingularity, so the plugin is rebuilt, never reused.
+amd64	641a92b135b5e6c343de5f5ce6b5511295e61d5c289d7df6e9841adffca392b4	ncz-singularity-desktop_20261105105000+bk0+tgzeef2af9e_amd64.deb
+arm64	514e8cb8d7c346a2e058f3ebc6709d51a6a664b0f8e0905475a1d5ed139367a8	ncz-singularity-desktop_20261105105000+bk0+tgzb90b5d56_arm64.deb

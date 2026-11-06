@@ -266,32 +266,16 @@ upstream needs the singularityos-lab AI-disclosure trailers that the
 project's CI enforces. When it merges upstream, delete the patch and this
 block.
 
-**Not yet filed upstream.** Patch `0002-brand-splash-keep-logo-aspect-session-only.patch`.
-`loginui_render_brand()` (the splash `singularity-splash` shows after greeter login) scaled
-the logo with `cairo_scale(size / lw, size / lh)`, forcing every logo into a 256x256 square.
-`singularity-splash` loads the OS wordmark with `loginui_load_image(path, -1, 256)`, a wide
-image, so the 13:1 Cygnus wordmark came out squeezed horizontally and stretched vertically.
-The patch fits the logo inside a box (256 tall, up to 768 or half the surface wide) with one
-scale factor, centred, and puts the loading bar 48 px under the drawn logo; square emblems
-are unchanged. The file name carries `session-only`: the boot splash's bundled loginui copy
-has no `brand.c`, so the build and `singularity-pins.sh check-patches` skip such patches there.
-Separate from 0001, which fixes `loginui_render_splash()` (the boot splash).
-Covered by `build/test-splash-brand-aspect.sh` (manual, like `test-splash-logo-fit.sh`, which
-is a known environment-only failure on some build hosts). No `**Upstream PR:**` link on purpose.
-
-**Not yet filed upstream** (2026-10-12). Patch
-`0003-loginui-share-the-login-card-field-label-session-only.patch` adds
-`loginui_field_label()`: the one derivation of the login card's credential-field
-label, used by BOTH login surfaces (the greeter and the session lock) so the
-shared card cannot drift between them again. It normalises a greetd/PAM prompt
-(strips a trailing `:` and surrounding whitespace) so a PAM `Password: ` renders
-identically to the lock's own `Password`, and falls back to the credential kind
-(`PIN`/`Password`) when there is no prompt. The file name carries `session-only`:
-the boot splash's bundled loginui copy is a different commit and has no session
-surface, so `build-singularity.sh` and `singularity-pins.sh check-patches` skip
-it there (it is applied to the desktop `subprojects/singularity-loginui`).
-Parity evidence: `greetmatch` -- card-region pixel diff 0 px at all three target
-geometries. No `**Upstream PR:**` link on purpose.
+**RETIRED 2026-11-05** (was `0002-brand-splash-keep-logo-aspect-session-only.patch`).
+Upstream took the brand-splash logo sizing over: `singularity-loginui` `9cca2b9`
+("add the shared boot progress frame", which is also where the newer greeter gets
+`loginui_render_brand_progress()`) reworked `src/brand.c`, and `1c1eb0b` sized the
+boot logo to the screen instead of a fixed 256 px. The patch no longer applies at
+the 2026-11-05 pin (`1c1eb0bd`), so it was deleted in the same commit that bumped
+the pin. `build/test-splash-brand-aspect.sh` (manual) still renders the pinned
+sources and is the check that upstream keeps the wordmark aspect; if a metal test
+shows a regression against this reasoning, restore the behaviour as a rebase on
+the `9cca2b9` layout rather than reviving this file.
 
 ## singularity-session — active
 
@@ -469,3 +453,18 @@ with that script rather than committing the blob), installed by
 `post-install/45-wallpaper-rotator.sh` alongside the built-in `ncz` and
 `bing` collections. See [`docs/WALLPAPER-PACKS.md`](../../../docs/WALLPAPER-PACKS.md) for the
 `.collection` format these packs, and any future third-party one, use.
+
+## singularity-boot-splash — active
+
+Patch `0001-guard-cairo-surfaces.patch`.
+The native KMS boot splash creates two Cairo surfaces and never checks their
+status: the firmware-framebuffer surface in `create_fb()` and the loop surface on
+the DRM-fallback path. A nil surface (allocation failure, or a 0-sized mode)
+reaches `cairo_create()` and the draw dereferences through it -- DELL's 7.3.1
+boot logged a SIGSEGV in libcairo while the unit still reported
+"deactivated successfully". The patch guards all four sites: surface status in
+`create_fb()`, a NULL/status guard in `render()`, status plus `munmap` cleanup on
+the loop surface, and break-and-destroy when the loop context cannot be made.
+
+This queue patches the boot splash's OWN sources; the `singularity-loginui` queue
+is applied separately to the renderer copy that repository bundles.
