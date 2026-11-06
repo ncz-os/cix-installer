@@ -13,20 +13,19 @@ AI-Scope: Wrote the prefetch scheduler and NetworkMonitor handling from a descri
  1 file changed, 55 insertions(+)
 
 diff --git a/wallpapers-bing/wallpapers_bing.vala b/wallpapers-bing/wallpapers_bing.vala
-index 1e005f5..391014c 100644
 --- a/wallpapers-bing/wallpapers_bing.vala
 +++ b/wallpapers-bing/wallpapers_bing.vala
-@@ -13,6 +13,9 @@ public void peas_register_types(TypeModule module) {
+@@ -13,12 +13,21 @@
  
  namespace WallpapersBing {
  
 +    private const uint REFRESH_SECONDS = 86400;
 +    private const uint MAX_BACKOFF_SECONDS = 3600;
 +
-     /**
-      * Bing's daily wallpaper images, across every market. Requires the
-      * external `ncz-wallpaper-bing` helper, which is not shipped by plain
-@@ -24,6 +27,11 @@ namespace WallpapersBing {
++
+     public class Provider : WallpaperHelperProvider, WallpaperProvider {
+         // Set by choices() from the helper's own answer, never re-derived
+         // from the config file -- see WallpaperBing.CONSOLIDATED_ID. False
          // until the first choices() call, so the name starts as plain "Bing"
          // and the browser refreshes the label once the helper has replied.
          private bool combined = false;
@@ -38,10 +37,10 @@ index 1e005f5..391014c 100644
          public string id { get { return WallpaperBing.PROVIDER_ID; } }
          // Matches the collection label the rotator helper writes for the
          // same de-duplicated view, so the online browser and the wallpaper
-@@ -34,6 +42,51 @@ namespace WallpapersBing {
+@@ -29,6 +38,51 @@
          public bool requires_credentials { get { return false; } }
          public bool supports_search { get { return false; } }
-         public Provider() { base("/usr/local/bin/ncz-wallpaper-bing"); }
+         public Provider() { base("singularity-wallpaper-bing"); }
 +        public void start_prefetch() {
 +            cancel_all = new Cancellable();
 +            if (network_handler == 0)
@@ -87,10 +86,10 @@ index 1e005f5..391014c 100644
 +            });
 +        }
 +
-         public async string market_list(Cancellable? cancel) throws Error {
-             return yield command({helper, "markets"}, cancel, 30);
-         }
-@@ -80,10 +133,12 @@ public class WallpapersBingPlugin : Object, Singularity.Plugin {
+         public async ArrayList<WallpaperProviderChoice> choices(string index, Cancellable? cancel) throws Error {
+             var loaded = WallpaperBing.markets(yield command({helper, "markets"}, cancel, 30));
+             // The helper is expected to always advertise the combined view
+@@ -66,10 +120,12 @@
          this.context = ctx;
          provider = new WallpapersBing.Provider();
          context.add_wallpaper_provider(provider);
@@ -103,6 +102,3 @@ index 1e005f5..391014c 100644
              context.remove_wallpaper_provider(provider);
              provider = null;
          }
--- 
-2.53.0
-
