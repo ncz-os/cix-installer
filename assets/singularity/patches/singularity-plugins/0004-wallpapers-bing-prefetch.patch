@@ -86,10 +86,10 @@ diff --git a/wallpapers-bing/wallpapers_bing.vala b/wallpapers-bing/wallpapers_b
 +            });
 +        }
 +
-         public async ArrayList<WallpaperProviderChoice> choices(string index, Cancellable? cancel) throws Error {
-             var loaded = WallpaperBing.markets(yield command({helper, "markets"}, cancel, 30));
-             // The helper is expected to always advertise the combined view
-@@ -66,10 +120,12 @@
+         public async string market_list(Cancellable? cancel) throws Error {
+             return yield command({helper, "markets"}, cancel, 30);
+         }
+@@ -75,10 +129,12 @@
          this.context = ctx;
          provider = new WallpapersBing.Provider();
          context.add_wallpaper_provider(provider);
