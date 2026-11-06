@@ -17,6 +17,12 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$HERE/.."
+# The suite builds .deb fixtures. If the host cannot, say so once instead of
+# letting every assertion fail on an empty archive (see build/lib/deb-fixture.sh).
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "no-ubuntu: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 T="$(mktemp -d "${TMPDIR:-$HOME}/.no-ubuntu-test.XXXXXX")"; trap 'rm -rf "$T"' EXIT
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  PASS  $1"; }

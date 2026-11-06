@@ -40,6 +40,10 @@ xf()   { xfail=$((xfail + 1)); echo "  XFAIL $1"; [ -n "${2:-}" ] && printf '%s\
 command -v dpkg-deb >/dev/null || { echo "SKIP: no dpkg-deb"; exit 0; }
 command -v dpkg >/dev/null || { echo "SKIP: no dpkg"; exit 0; }
 
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "dkms-collision: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 T="$(mktemp -d "${TMPDIR:-/var/tmp}/ncz-dkms-collide.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT
 KV="9.9.9-test-ncz"
@@ -51,8 +55,10 @@ mkdeb() {  # mkdeb <name> <version> <file under updates/dkms>
     printf 'Package: %s\nVersion: %s\nArchitecture: all\nMaintainer: t <t@example.invalid>\nDescription: fixture\n' \
         "$n" "$v" > "$d/DEBIAN/control"
     : > "$d/lib/modules/$KV/updates/dkms/$f"
-    dpkg-deb --root-owner-group -b "$d" "$T/${n}_${v}_all.deb" >/dev/null 2>&1 \
-        || dpkg-deb -b "$d" "$T/${n}_${v}_all.deb" >/dev/null
+    local msg
+    msg="$(dpkg-deb --root-owner-group -b "$d" "$T/${n}_${v}_all.deb" 2>&1)" \
+        || msg="$(dpkg-deb -b "$d" "$T/${n}_${v}_all.deb" 2>&1)" \
+        || { echo "fixture build failed: $msg" >&2; return 1; }
     [ -s "$T/${n}_${v}_all.deb" ] || { bad "the fixture deb $n was built"; return 1; }
 }
 

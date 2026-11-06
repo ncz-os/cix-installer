@@ -14,6 +14,10 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${SSP_TEST_ROOT:-$(cd "$HERE/.." && pwd)}"
 command -v dpkg-deb >/dev/null || { echo "SKIP: dpkg-deb not available"; exit 0; }
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "ssplugin: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 T="$(mktemp -d "${TMPDIR:-/var/tmp}/ssp-test.XXXXXX")"
 trap 'rm -rf "$T"' EXIT
 PASS=0; FAILS=0
