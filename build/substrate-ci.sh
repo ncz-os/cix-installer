@@ -81,6 +81,7 @@ substrate-ci stages (docs/automatic-substrate-ci.md)
   0 preflight  IMPLEMENTED  build/substrate-ci.py preflight - mirror health, pin age
   1 resolve    TODO         derive-base-pin.py, resolve-sky1-kernel-inputs.sh,
                             singularity-pins.sh propose, runtime-mirror revs
+                            (--stage resolve checks that every named tool exists)
   2 prove      IMPLEMENTED  build/substrate-ci.py aggregate - coverage, one snapshot,
                             two-host InRelease digests
   3 propose    IMPLEMENTED  build/substrate-ci.py changelog + apply-pin (transactional)
@@ -92,6 +93,39 @@ substrate-ci stages (docs/automatic-substrate-ci.md)
 A pin move needs --apply. Until stages 1, 4-6 exist, --apply exits 3 rather than
 pretending the stage ran.
 PLAN
+        exit 0
+        ;;
+
+    resolve)
+        # Stage 1 is not implemented yet, but its plan is still checkable: every tool
+        # the design note names must exist, or the plan is fiction. This is the same
+        # discipline as the acceptance gate - verify the thing, not the intention.
+        rows=(
+            "debian-forky|build/derive-base-pin.py"
+            "kernel-firmware|build/resolve-sky1-kernel-inputs.sh"
+            "kernel-pin|build/check-kernel-deb-pin.sh"
+            "singularity|build/singularity-pins.sh"
+            "ncz-repo-policy|build/check-ncz-repo-policy.sh"
+        )
+        missing=0
+        for r in "${rows[@]}"; do
+            name="${r%%|*}"; tool="${r#*|}"
+            if [ -x "$ROOT/$tool" ]; then
+                printf "OK   %-16s %s\n" "$name" "$tool"
+            else
+                printf "MISS %-16s %s\n" "$name" "$tool"
+                missing=$((missing + 1))
+            fi
+        done
+        if [ "$APPLY" = 1 ]; then
+            echo "substrate-ci: stage 'resolve' is not implemented yet (see --stage plan)" >&2
+            exit 3
+        fi
+        if [ "$missing" -ne 0 ]; then
+            echo "substrate-ci: $missing resolver tool(s) missing - the plan names what the tree does not have" >&2
+            exit 4
+        fi
+        echo "---- stage 1 plan is complete; resolution itself is not implemented yet"
         exit 0
         ;;
 
