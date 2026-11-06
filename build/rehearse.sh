@@ -41,13 +41,22 @@ fi
 # 1b. temp space: the gates here unpack debs into TMPDIR, and a full tmpfs turns them into
 # false failures ("unreadable deb", "no .deb found in pool"). 11G of my own scratch once made
 # this suite look unstable; it was the host, not the tests.
-tmpdir_used_pct=$(df -P "${TMPDIR:-/tmp}" | awk "NR==2{gsub(/%/,"",$5); print $5}")
-if [ -n "${tmpdir_used_pct:-}" ] && [ "$tmpdir_used_pct" -gt 90 ]; then
-  echo "FAIL ${TMPDIR:-/tmp} is ${tmpdir_used_pct}% full -- clean scratch before rehearsing"
-  fail=$((fail + 1))
-else
-  ran=$((ran + 1)); echo "ok   temp space (${TMPDIR:-/tmp} ${tmpdir_used_pct:-?}% used)"
-fi
+# The awk program is single-quoted on purpose: inside double quotes the shell expands $5
+# first, and under set -u that aborts with "unbound variable" - the guard then read as a
+# pass with "?% used" and never measured anything. A guard that cannot measure must FAIL.
+tmpdir_used_pct=$(df -P "${TMPDIR:-/tmp}" | awk 'NR==2{gsub(/%/,"",$5); print $5}')
+case "${tmpdir_used_pct:-}" in
+  ''|*[!0-9]*)
+    echo "FAIL cannot read ${TMPDIR:-/tmp} usage from df -- the space guard did not run"
+    fail=$((fail + 1)) ;;
+  *)
+    if [ "$tmpdir_used_pct" -gt 90 ]; then
+      echo "FAIL ${TMPDIR:-/tmp} is ${tmpdir_used_pct}% full -- clean scratch before rehearsing"
+      fail=$((fail + 1))
+    else
+      ran=$((ran + 1)); echo "ok   temp space (${TMPDIR:-/tmp} ${tmpdir_used_pct}% used)"
+    fi ;;
+esac
 
 # 2. static gates that need no host
 for g in build/test-no-ubuntu.sh build/test-pin-coherence.sh build/test-no-pin-literals.sh; do
