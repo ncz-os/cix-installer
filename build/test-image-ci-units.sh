@@ -40,8 +40,6 @@ grep -q 'image-ci-run.sh --execute' "$SVC" \
     || bad "the service does not run image-ci-run.sh --execute"
 grep -q '^Type=oneshot' "$SVC" && ok "the service is oneshot" || bad "the service is not Type=oneshot"
 # Directives only: a comment saying "the runner refuses to publish" is not a hook.
-# One grep, no pipe: piping into `grep -q` under pipefail can report "no match"
-# when the first grep dies of SIGPIPE, which would be a false negative here.
 if grep -qiE '^(ExecStart|ExecStartPre|ExecStop|Environment)=.*(publish|reprepro|r2/)' "$SVC"; then
     bad "the service executes a publish hook"
 else
