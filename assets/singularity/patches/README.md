@@ -142,6 +142,16 @@ fetched from the superproject itself:
 
 ## singularity-plugins — retired 2026-11-06 (landed upstream)
 
+  patch `0005-sensors-adaptive-contrast.patch` (retired 2026-11-06): upstream
+  ships `sensors/contrast.vala` with a fuller WCAG implementation than the patch
+  added - relative_luminance, contrast_ratio, composite, mix, near_black,
+  near_white, neutral_for, ensure_contrast, best_contrast, muted_for,
+  median_by_luminance and a Palette class derived from the background luminance.
+  The patch created that same file and failed with "already exists in working
+  directory", so it could not apply at all. Retired rather than rebased: there is
+  nothing of ours left to preserve.
+
+
 Measured at the pin `ace60db`, in context rather than by ratio. Each of these
 patches adds exactly one line and that line is present inside the function the
 patch targets:
@@ -174,10 +184,6 @@ touched. Delete this patch once PR #2 merges.
 the market list comes from the helper `markets` command and the choice is read and
 saved through the helper `market` command (added to `assets/wallpaper/ncz-wallpaper-bing`,
 covered by `build/test-wallpaper-market.sh`). Delete this patch once PR #3 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-plugins#5](https://github.com/singularityos-lab/singularity-plugins/pull/5)
-— open. Patch `0005-sensors-adaptive-contrast.patch`. WCAG contrast for the sensors chip
-and popover. Delete this patch once PR #5 merges.
 
 **Not yet filed upstream.** Patch `0004-wallpapers-bing-prefetch.patch`, stacked on #3:
 runs the helper `fetch --if-stale` on activation, when the network returns and daily,
