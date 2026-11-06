@@ -30,9 +30,12 @@
 # full downstream queue applied (shell 13, loginui 3, greeter 3, nearby 1,
 # plugins 3, desktop 0) - version 20261106140923+bk0+git6427e9c4, built on ULTRA
 # by build/build-singularity.sh + build-singularity-deb.sh (PAYLOAD_RC=0,
-# 10235/10235 targets, 0 failures). The amd64 row is UNCHANGED: still the
-# 2026-10-13 prebuilt payload, because the payload build is arm64-only. Anything
-# shipped to amd64 from this tree therefore carries the older desktop, which is a
-# deliberate, visible skew rather than a silent one.
-amd64	1f2564d3d125ad1c8e2dc0ffbe64bc83b18eaa6ea6aafe5fc50b093dc37a8e1a	ncz-singularity-desktop_20261013233000+bk0+tgzef364e5b_amd64.deb
+# 10235/10235 targets, 0 failures).
+# 2026-11-06 (later): the amd64 row is now a LOCAL build of the SAME superproject
+# commit 6427e9c4, on HYDRA (docker 29.9.3, debian:forky amd64, native, no
+# emulation): 10236/10236 targets, 0 failures, ELF machine 0x3e, acceptance gate
+# build/check-payload-ships-patches.sh rc=0, version
+# 20261106212410+bk0+git6427e9c4. Both rows now describe the same upstream source,
+# so the earlier deliberate skew is CLOSED.
+amd64	7a6149d3b8fa74f7c78c9f4015e1e4d4e5ac0ba3e25b136a206c9e0bb67b4db5	ncz-singularity-desktop_20261106212410+bk0+git6427e9c4_amd64.deb
 arm64	ce3f987ed7fa6ed12dde94edd32dfee6f5f775b0efc3a9045ffaa34cd8ec6bd3	ncz-singularity-desktop_20261106151728+bk0+git6427e9c4_arm64.deb
