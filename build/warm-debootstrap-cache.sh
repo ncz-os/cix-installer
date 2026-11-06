@@ -111,7 +111,15 @@ fetch_one() {
 export -f fetch_one
 export CACHE
 
-printf "%s\n" "${miss[@]}" | xargs -r -P "$PAR" -I{} bash -c 'fetch_one "$@"' _ {} 2>/dev/null
+# A wave can otherwise run for over an hour: 63 files at 4-way parallel with eight
+# tries each and linear backoff reaches ~95 minutes in the worst case, and the
+# caller waits the whole time before its next build attempt.  Bound the wave by
+# wall clock; whatever is still missing is simply picked up next time.
+MAXS=${NCZ_WARM_MAX_SECONDS:-1800}
+printf "%s\n" "${miss[@]}" | timeout "$MAXS" xargs -r -P "$PAR" -I{} bash -c 'fetch_one "$@"' _ {} 2>/dev/null
+if [ $? -eq 124 ]; then
+    echo "warm-cache: wave hit the ${MAXS}s wall-clock bound; remaining files left for the next wave"
+fi
 
 got=0
 for u in "${miss[@]}"; do
