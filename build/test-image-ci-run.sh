@@ -52,11 +52,11 @@ printf '%s' "$out" | grep  'no-publish' >/dev/null \
 # 2. a command that would publish is refused before anything runs
 out="$(cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='bash build/ncz-reprepro-publish.sh' bash "$RUN" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && ok "a publishing command is refused with exit 2" || nok "publishing command exited $rc, wanted 2"
-printf '%s' "$out" | grep  'refusing to start' && ok "the refusal says why" || nok "the refusal does not say why" >/dev/null
+printf '%s' "$out" | grep 'refusing to start' >/dev/null && ok "the refusal says why" || nok "the refusal does not say why"
 
 # 3. a host already building is skipped, with the reason
 out="$(cd "$HERE/.." && NCZ_IMAGE_CI_CMD_FORKY_PIN='true' bash "$RUN" 2>&1)"
-printf '%s' "$out" | grep  'WOULD RUN' && ok "control: without a marker the action is planned" || nok "control failed" >/dev/null
+printf '%s' "$out" | grep 'WOULD RUN' >/dev/null && ok "control: without a marker the action is planned" || nok "control failed"
 # a genuinely live pid: the marker must be judged by whether that process runs
 sleep 30 & LIVE=$!
 printf '%s\n' "$LIVE" > "$T/markers/ncz-image-ci-forky-pin"
