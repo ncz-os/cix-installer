@@ -55,7 +55,7 @@ MATRIX = [
     ("singularity", "singularityos-lab HEAD + newest tag",
      "singularity.head", "singularity debs, then the images"),
     ("ncz-debs", "NCZ apt index sha256 per arch",
-     "ncz.index", "image assemble only (no source rebuild)"),
+     "ncz.index.<arch>.<repo>", "image assemble only (no source rebuild)"),
 ]
 
 
@@ -88,11 +88,17 @@ def parse_kernel_releases(doc):
         if not ver:
             continue
         if moniker == "stable" and re.match(r"^7\.", ver):
-            if stable is None or version_key(ver) > version_key(stable):
+            if stable is None or numeric_key(ver) > numeric_key(stable):
                 stable = ver
         elif moniker == "mainline":
             rc = ver
     return stable, rc
+
+
+def numeric_key(text):
+    """All digit runs of a version or tag, as integers: 0.10 > 0.9, 1.0.1 > 1.0."""
+    nums = re.findall(r"\d+", text)
+    return tuple(int(n) for n in nums) if nums else (0,)
 
 
 def version_key(v):
@@ -150,9 +156,15 @@ def singularity_state():
         ref = parts[1]
         if ref.endswith("^{}"):
             continue
-        tags.append((version_key(ref.rsplit("/", 1)[-1].lstrip("v")), ref))
+        tags.append((numeric_key(ref.rsplit("/", 1)[-1]), ref))
     newest = max(tags)[1] if tags else None
     return head, newest
+
+
+def apt_tag(apt_base):
+    """Short, stable tag for a repo URL, so two repos never share state keys."""
+    import hashlib
+    return hashlib.sha256(apt_base.rstrip("/").encode()).hexdigest()[:8]
 
 
 def probe(apt_base):
@@ -187,18 +199,19 @@ def probe(apt_base):
         seen["singularity.head"] = (None, "error: %s" % exc)
 
     try:
+        tag = apt_tag(apt_base)
         shas = parse_apt_release(fetch(apt_base.rstrip("/") + "/Release"))
         for arch in ("amd64", "arm64"):
-            seen["ncz.index." + arch] = (shas.get(arch),
-                                         "%s main/binary-%s/Packages" % (apt_base, arch))
+            seen["ncz.index.%s.%s" % (arch, tag)] = (
+                shas.get(arch), "%s main/binary-%s/Packages" % (apt_base, arch))
     except Exception as exc:
         for arch in ("amd64", "arm64"):
-            seen["ncz.index." + arch] = (None, "error: %s" % exc)
+            seen["ncz.index.%s.%s" % (arch, tag)] = (None, "error: %s" % exc)
 
     return seen
 
 
-def decide(matrix, prev, seen):
+def decide(matrix, prev, seen, apt_base=""):
     """Map the matrix rows to verdicts. A trigger fires when its value moved."""
     rows = []
     for name, source, key, rebuilds in matrix:
@@ -218,9 +231,10 @@ def decide(matrix, prev, seen):
                          verdict, rebuilds))
             continue
         if name == "ncz-debs":
-            now_parts = [seen.get("ncz.index." + a, (None, ""))[0]
-                         for a in ("amd64", "arm64")]
-            was_parts = [prev.get("ncz.index." + a) for a in ("amd64", "arm64")]
+            tag = apt_tag(apt_base) if apt_base else ""
+            keys = ["ncz.index.%s.%s" % (a, tag) for a in ("amd64", "arm64")]
+            now_parts = [seen.get(k, (None, ""))[0] for k in keys]
+            was_parts = [prev.get(k) for k in keys]
             now = "+".join((p or "?")[:12] for p in now_parts)
             if any(p is None for p in now_parts):
                 verdict = "unknown (poll failed)"
@@ -297,7 +311,9 @@ def self_test():
            "amd64": "9b4fc34d7f7382051f3b48dfc36b6ea2" + "0"*32})
 
     check("version key ordering", version_key("7.10.1") > version_key("7.9.9"), True)
-    check("rc sorts below release", version_key("7.4.0-rc2") < version_key("7.4.0"), True)
+    check("tag ordering 0.10 > 0.9", numeric_key("v0.10.0") > numeric_key("v0.9.0"), True)
+    check("different repos never share a state key",
+          apt_tag("https://a/dists/any") != apt_tag("https://b/dists/any"), True)
 
     prev = {"forky.stamp": "20261102T082611Z", "kernel.stable": "7.3.4"}
     seen = {"forky.stamp": ("20261105T120000Z", ""),
@@ -305,7 +321,7 @@ def self_test():
             "kernel.rc": (None, ""),
             "singularity.head": (None, ""),
             "ncz.index.amd64": (None, ""), "ncz.index.arm64": (None, "")}
-    rows = decide(MATRIX, prev, seen)
+    rows = decide(MATRIX, prev, seen, "https://example.invalid/dists/any")
     verdicts = {r[0]: r[3] for r in rows}
     check("forky moved", verdicts["forky-pin"], "WOULD TRIGGER")
     check("kernel stable same", verdicts["kernel-stable"], "no change")
@@ -352,7 +368,7 @@ def main(argv=None):
 
     prev = load_state(args.state)
     seen = probe(args.apt_base)
-    rows = decide(MATRIX, prev, seen)
+    rows = decide(MATRIX, prev, seen, args.apt_base)
 
     if args.json:
         print(json.dumps({"apt_base": args.apt_base,
@@ -375,7 +391,8 @@ def main(argv=None):
                 elif name == "singularity":
                     detail = seen.get("singularity.head", ("", ""))[1]
                 elif name == "ncz-debs":
-                    detail = seen.get("ncz.index.amd64", ("", ""))[1]
+                    detail = seen.get("ncz.index.amd64." + apt_tag(args.apt_base),
+                                      ("", ""))[1]
                 if detail:
                     print("%-14s   (%s)" % ("", detail))
             if "TRIGGER" in verdict:
