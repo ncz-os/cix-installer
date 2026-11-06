@@ -6,6 +6,7 @@ workflow:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "recovery/26.6-take1"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "schedule"
 
 pages:
   stage: deploy
@@ -34,3 +35,23 @@ pages:
   rules:
     - if: $CI_COMMIT_BRANCH == "recovery/26.6-take1"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ---------------------------------------------------------------------------
+# Automatic substrate CI, stage 0 (design: docs/automatic-substrate-ci.md).
+# Scheduled only: it probes the pinned snapshot and reports whether moving the
+# pin would be safe.  Read-only -- no branch, no commit, no merge.  A degraded
+# mirror intentionally exits 0 (alert, not a failed pipeline): the pipeline
+# failing every time Debian has a bad morning is how alerts get ignored.
+# ---------------------------------------------------------------------------
+substrate-ci:preflight:
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - python3 -I build/substrate-ci.py preflight
+        --base ${NCZ_BASE_MIRROR}
+        --pin-age-days ${NCZ_PIN_AGE_DAYS:-4}
+        --max-age-days ${NCZ_BASE_MIRROR_SNAPSHOT_MAX_AGE_DAYS:-14}
+        --json
+  artifacts:
+    when: always
