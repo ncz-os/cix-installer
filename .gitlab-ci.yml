@@ -48,10 +48,8 @@ substrate-ci:preflight:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   script:
-    - python3 -I build/substrate-ci.py preflight
-        --base ${NCZ_BASE_MIRROR}
-        --pin-age-days ${NCZ_PIN_AGE_DAYS:-4}
-        --max-age-days ${NCZ_BASE_MIRROR_SNAPSHOT_MAX_AGE_DAYS:-14}
-        --json
+    # The driver reads release.conf itself and refuses any stage that would move a
+    # pin without --apply, so the scheduled job cannot change the substrate by accident.
+    - bash build/substrate-ci.sh --stage preflight --json
   artifacts:
     when: always
