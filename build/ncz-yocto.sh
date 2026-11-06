@@ -46,40 +46,11 @@ STORE_SSH="${STORE_SSH:-ssh}"
 command -v git >/dev/null || { echo "ERROR: git is required" >&2; exit 1; }
 mkdir -p "$LAYERS_ROOT"
 
-fetch_layer() {
-    local name="$1" url="$2" fallback="$3" revision="$4" dir="$LAYERS_ROOT/$name"
-    if [ -z "$fallback" ] && [ -n "$FALLBACK_BASE" ]; then fallback="${FALLBACK_BASE%/}/$name.git"; fi
-    if [ -e "$dir" ] && [ ! -d "$dir/.git" ]; then
-        echo "ERROR: $dir exists but is not a git checkout" >&2; return 1
-    fi
-    if [ ! -d "$dir/.git" ]; then
-        echo "[ncz-yocto] clone $name"
-        if ! git clone "$url" "$dir"; then
-            [ -n "$fallback" ] || return 1
-            echo "[ncz-yocto] primary unavailable; trying the configured fallback for $name"
-            GIT_SSH_COMMAND="$STORE_SSH" git clone "$fallback" "$dir"
-        fi
-    fi
-    [ -w "$dir/.git/objects" ] || {
-        echo "ERROR: $dir/.git/objects is not writable (check for root-owned objects)" >&2; return 1
-    }
-    echo "[ncz-yocto] pin $name at $revision"
-    if [ -n "$(git -C "$dir" status --porcelain --untracked-files=no)" ]; then
-        echo "ERROR: $dir has tracked local changes; refusing to overwrite them" >&2; return 1
-    fi
-    if ! git -C "$dir" cat-file -e "$revision^{commit}" 2>/dev/null; then
-        git -C "$dir" fetch --tags origin || true
-    fi
-    if ! git -C "$dir" cat-file -e "$revision^{commit}" 2>/dev/null && [ -n "$fallback" ]; then
-        echo "[ncz-yocto] pinned object absent from primary; fetching the configured fallback for $name"
-        GIT_SSH_COMMAND="$STORE_SSH" \
-            git -C "$dir" fetch "$fallback" '+refs/heads/*:refs/remotes/fallback/*'
-    fi
-    git -C "$dir" cat-file -e "$revision^{commit}" 2>/dev/null || {
-        echo "ERROR: pinned revision $revision not found for $name" >&2; return 1
-    }
-    git -C "$dir" checkout --detach "$revision"
-}
+# The fetch itself lives in build/lib/yocto-layers.sh so it can be tested against
+# fixture repositories without a mounted Yocto export.
+# shellcheck source=lib/yocto-layers.sh
+. "$SCRIPT_DIR/lib/yocto-layers.sh"
+fetch_layer() { ncz_yocto_fetch_layer "$1" "$2" "$3" "$4" "$LAYERS_ROOT"; }
 
 while IFS='|' read -r name url fallback revision; do
     [[ -z "$name" || "$name" == \#* ]] && continue
