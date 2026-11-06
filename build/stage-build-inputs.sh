@@ -39,6 +39,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/build/lib/mirror-apt-opts.sh"   # ncz_pin_snapshot (M8)
 TSV="${NCZ_BUILD_INPUTS_TSV:-$ROOT/manifests/build-inputs.tsv}"
 TREE="${NCZ_BUILD_INPUTS_TREE:-$ROOT}"
 ARCH="" ; MODE=fetch ; ONLY="" ; REPLACE_LOCAL=0
@@ -51,6 +52,7 @@ while [ $# -gt 0 ]; do
         --replace-local) REPLACE_LOCAL=1 ;;
         --public) MODE=public ;;
         --only) ONLY="${2:?--only needs a dest prefix}"; shift ;;
+        --snapshot) M8_SNAPSHOT="${2:?--snapshot needs a snapshot timestamp}"; shift ;;
         -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "stage-build-inputs: unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -115,19 +117,52 @@ while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
         ''|'#'*) [ "$MODE" = publish ] && printf '%s\n' "$line" >> "$NEW"; continue ;;
     esac
-    IFS=$'\t' read -r a dest sha size note <<<"$line"
+    IFS=$'\t' read -r a dest sha size note snap <<<"$line"
     if [ "$a" != "$ARCH" ]; then [ "$MODE" = publish ] && printf '%s\n' "$line" >> "$NEW"; continue; fi
     if [ -n "$ONLY" ]; then case "$dest" in "$ONLY"*) ;; *) [ "$MODE" = publish ] && printf '%s\n' "$line" >> "$NEW"; continue ;; esac; fi
+    # M8: a prebuilt rootfs carries the snapshot it was produced at
+    # (publish is the mode that REPLACES a row, so the gate applies to every other mode), and a row whose
+    # snapshot differs from release.conf's pin must not stage. Without this the drift
+    # C5 describes (rootfs built at an older snapshot than the pin) survives to stage 80.
+    [ "$MODE" = publish ] || case "$dest" in
+      *rootfs*)
+        m8_pin="$(ncz_pin_snapshot "$ROOT" 2>/dev/null || true)"
+        if [ -z "$m8_pin" ]; then
+            miss "$dest: cannot resolve release.conf NCZ_BASE_MIRROR_SNAPSHOT, so the rootfs snapshot cannot be checked (M8)"
+            continue
+        fi
+        if [ -z "${snap:-}" ]; then
+            miss "$dest has no snapshot column (M8); expected $m8_pin"; continue
+        elif [ -n "$m8_pin" ] && [ "$snap" != "$m8_pin" ]; then
+            miss "$dest was built at snapshot $snap but release.conf pins $m8_pin (M8; rebuild required)"
+            continue
+        fi ;;
+    esac
     N=$((N + 1))
     local_f="$TREE/$dest"; store_f="$STORE/$ARCH/$dest"
     case "$MODE" in
     publish)
-        if [ ! -f "$local_f" ]; then miss "$dest not in this tree ($local_f)"; printf '%s\t%s\t%s\t%s\t%s\n' "$a" "$dest" "$sha" "$size" "$note" >> "$NEW"; continue; fi
+        # M8 validation FIRST: a refusal must not touch the store, and must never drop the row --
+        # publish rebuilds the TSV from $NEW, so a bare `continue` would delete it from the manifest.
+        case "$dest" in
+          *rootfs*)
+            if [ -z "${M8_SNAPSHOT:-}" ]; then
+                miss "$dest: refusing to publish a rootfs row without --snapshot <timestamp> (M8); a rebuilt tarball must state the snapshot it was built at"
+                printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$dest" "$sha" "$size" "$note" "${snap:-}" >> "$NEW"
+                continue
+            fi
+            snap="$M8_SNAPSHOT" ;;
+        esac
+        if [ ! -f "$local_f" ]; then
+            miss "$dest not in this tree ($local_f)"
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$dest" "$sha" "$size" "$note" "${snap:-}" >> "$NEW"
+            continue
+        fi
         nsha="$(sha_of "$local_f")"; nsize="$(stat -c %s "$local_f")"
         mkdir -p "$(dirname "$store_f")"
         cp -f "$local_f" "$store_f.part" && mv -f "$store_f.part" "$store_f"
         [ "$(sha_of "$store_f")" = "$nsha" ] || { miss "$dest changed on the way to $store_f"; }
-        printf '%s\t%s\t%s\t%s\t%s\n' "$a" "$dest" "$nsha" "$nsize" "$note" >> "$NEW"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$dest" "$nsha" "$nsize" "$note" "${snap:-}" >> "$NEW"
         echo "[build-inputs] published $dest sha256=$nsha ($nsize B)"; N_COPIED=$((N_COPIED + 1)) ;;
     *)
         if [ -f "$local_f" ] && [ "$(sha_of "$local_f")" = "$sha" ]; then N_OK=$((N_OK + 1)); continue; fi
