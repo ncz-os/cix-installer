@@ -35,7 +35,7 @@ logged, on a real MS-R1 install:
          NOT enumerate on this board.
 
 and then built an initrd with zero kernel/firmware/acpi/ entries (verified on
-cixmini/192.168.207.66 with `lsinitramfs | grep -c npucre` = 0 and
+the CIXMINI board with `lsinitramfs | grep -c npucre` = 0 and
 `head -c6 initrd` = zstd magic, i.e. nothing prepended).
 
 THE CONTRACT

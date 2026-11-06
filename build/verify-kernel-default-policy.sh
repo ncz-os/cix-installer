@@ -396,13 +396,17 @@ if [ -f "$_amd64_hook" ]; then
     if grep -qE '^[[:space:]]*"?\$REFRESH"?[[:space:]]*$|BUILD_VERSION="\$BUILD_VERSION" "\$REFRESH"[[:space:]]*$' "$_amd64_hook" 2>/dev/null; then
         err "amd64: zz1 still contains a verbless refresh invocation (it would wipe the menu)"
     fi
-fi
-if [ ! -f "$_amd64_zz2" ]; then
-    err "amd64: $_amd64_zz2 is missing (the promote guard that keeps default_selection stable)"
-elif ! grep -q -- '--promote' "$_amd64_zz2" 2>/dev/null; then
-    err "amd64: zz2-ncz-refind-promote-guard does not call --promote"
-else
-    log "amd64: promote guard (zz2) is present and delegates to --promote"
+    # Check 8b (continued): the promote guard must sit beside zz1. This nested here
+    # because "there is no refind hook in this root" is not a violation - before, the
+    # zz2 test ran unconditionally, so every root without assets/refind (an arm64
+    # fixture, a server-only tree) failed a check about a file it never had.
+    if [ ! -f "$_amd64_zz2" ]; then
+        err "amd64: $_amd64_zz2 is missing (the promote guard that keeps default_selection stable)"
+    elif ! grep -q -- '--promote' "$_amd64_zz2" 2>/dev/null; then
+        err "amd64: zz2-ncz-refind-promote-guard does not call --promote"
+    else
+        log "amd64: promote guard (zz2) is present and delegates to --promote"
+    fi
 fi
 if [ -f "$_amd64_refresh" ]; then
     if grep -q "$UNIFIED_MARKER" "$_amd64_refresh" 2>/dev/null; then
