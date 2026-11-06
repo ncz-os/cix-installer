@@ -421,6 +421,47 @@ def read_pins(root):
     return out
 
 
+# --- stage 3 composition: rehearse or write the proposal ---------------------
+
+def compose_proposal(spec, write=False, replace=None):
+    """Compose the stage-3 artefacts: delta report, changelog, transactional pin move.
+
+    spec = {"root": dir, "changes": {relpath: content}, "old": {pkg: ver},
+            "new": {pkg: ver}, "evidence": [...], "title": str,
+            "changelog_path": relpath}
+
+    Dry run by default. Nothing is written unless write=True, and even then the pin move
+    goes through apply_pin_move, which restores every file if one write fails. The
+    changelog path is supplied rather than derived from the clock, so the same spec
+    produces the same result twice.
+    """
+    old = spec.get("old", {})
+    new = spec.get("new", {})
+    delta = classify_delta(old, new, max_delta=10 ** 9, allow_removals=True)
+    changelog = render_changelog(old, new, evidence=spec.get("evidence"),
+                                 title=spec.get("title", "Substrate pin update"))
+    out = {"dry_run": not write, "delta": delta, "changelog_bytes": len(changelog),
+           "written": [], "error": None}
+    if not write:
+        return out
+
+    applied = apply_pin_move(spec["root"], spec.get("changes", {}), replace=replace)
+    out["applied"] = applied
+    if not applied["ok"]:
+        out["error"] = applied["error"]
+        return out
+    out["written"] = list(applied["written"])
+
+    cpath = spec.get("changelog_path")
+    if cpath:
+        full = os.path.join(spec["root"], cpath)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(changelog)
+        out["written"].append(full)
+    return out
+
+
 # --- stage 3: transactional pin move + changelog ----------------------------
 
 def apply_pin_move(root, changes, replace=None):
@@ -620,6 +661,14 @@ def _cmd_pins(args):
     return 0
 
 
+def _cmd_propose(args):
+    with open(args.spec, "r", encoding="utf-8") as f:
+        spec = json.load(f)
+    out = compose_proposal(spec, write=args.write)
+    print(json.dumps(out, indent=2))
+    return 0 if out.get("error") is None else 2
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="automatic substrate CI decision core")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -673,6 +722,11 @@ def main(argv=None):
     pn.add_argument("--root", default=os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))))
     pn.set_defaults(func=_cmd_pins)
+
+    pr = sub.add_parser("propose", help="stage 3: rehearse or write a pin move")
+    pr.add_argument("spec", help="JSON: root, changes, old, new, evidence, changelog_path")
+    pr.add_argument("--write", action="store_true", help="actually write (default is a dry run)")
+    pr.set_defaults(func=_cmd_propose)
 
     r = sub.add_parser("retention", help="stage 8: what to keep and what to prune")
     r.add_argument("spec", help="JSON: {\"items\": [...], \"validated\": name, \"keep_candidates\": 1}")

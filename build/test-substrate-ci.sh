@@ -361,6 +361,49 @@ import shutil as _sh
 _sh.rmtree(root, ignore_errors=True); _sh.rmtree(empty, ignore_errors=True)
 
 
+# ---- proposal composition (stage 3) ----------------------------------------
+root = tempfile.mkdtemp(prefix="ncz-prop-")
+os.makedirs(os.path.join(root, "manifests"))
+for rel, body in (("manifests/base.pin", "OLD-BASE\n"), ("release.conf", "OLD-CONF\n")):
+    open(os.path.join(root, rel), "w").write(body)
+
+spec = {"root": root,
+        "changes": {"manifests/base.pin": "NEW-BASE\n", "release.conf": "NEW-CONF\n"},
+        "old": {"a": "1.0-1"}, "new": {"a": "1.0-2"},
+        "evidence": ["https://snap.example/InRelease sha256=abc"],
+        "changelog_path": "docs/substrate-changelog-test.md"}
+
+r = m.compose_proposal(spec)
+check(r["dry_run"] and r["written"] == [], "propose: dry run writes nothing")
+check(open(os.path.join(root, "manifests/base.pin")).read() == "OLD-BASE\n",
+      "propose: dry run leaves the pin files untouched")
+check(not os.path.exists(os.path.join(root, "docs")), "propose: dry run creates no changelog")
+
+r = m.compose_proposal(spec, write=True)
+check(not r["dry_run"] and r["error"] is None, "propose: write mode succeeds")
+check(open(os.path.join(root, "manifests/base.pin")).read() == "NEW-BASE\n"
+      and open(os.path.join(root, "release.conf")).read() == "NEW-CONF\n",
+      "propose: both pin files carry the new content")
+cl = os.path.join(root, "docs/substrate-changelog-test.md")
+check(os.path.exists(cl) and "1.0-1 -> 1.0-2" in open(cl).read(),
+      "propose: changelog written with the transition")
+
+# a failing write must roll the pin files back
+open(os.path.join(root, "manifests/base.pin"), "w").write("KEEP-BASE\n")
+state = {"n": 0}
+def flaky(src, dst):
+    state["n"] += 1
+    if state["n"] == 2:
+        raise OSError("injected")
+    os.replace(src, dst)
+r = m.compose_proposal({"root": root,
+                        "changes": {"manifests/base.pin": "X\n", "release.conf": "Y\n"}},
+                       write=True, replace=flaky)
+check(r["error"] is not None and open(os.path.join(root, "manifests/base.pin")).read() == "KEEP-BASE\n",
+      "propose: a failed write rolls back and reports the error")
+_sh.rmtree(root, ignore_errors=True)
+
+
 print("\n%d passed, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)
 PY
