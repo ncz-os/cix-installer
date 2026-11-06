@@ -124,23 +124,21 @@ upstream.
 No `**Upstream PR:**` link on purpose (nothing is filed). Real-greetd
 confirmation on hardware is still to be done.
 
-## singularity-desktop — active
+## singularity-desktop — retired 2026-11-06 (landed upstream)
 
-**Upstream PR:** [singularityos-lab/singularity-desktop#262](https://github.com/singularityos-lab/singularity-desktop/pull/262)
-— open, not yet merged. Patch
-`0001-wallpaper-attribution-position-schema.patch` (applies at the
-top level, not under `subprojects/`, per this file's own root-repo
-exception above). Adds the `wallpaper-attribution-position` gschema
-key that `singularity-shell#30` above reads. Additive only, defaults
-to bottom-left, no existing behavior changes on its own.
+Checked against `data/dev.sinty.desktop.gschema.xml` at the pin `6427e9c`,
+fetched from the superproject itself:
 
-Delete this patch once PR #262 merges.
+* PR [#267](https://github.com/singularityos-lab/singularity-desktop/pull/267),
+  patch `0002-sensors-settings-keys.patch`: all 31 added lines are present.
+* PR [#262](https://github.com/singularityos-lab/singularity-desktop/pull/262),
+  patch `0001-wallpaper-attribution-position-schema.patch`: the
+  `wallpaper-attribution-position` key is present and upstream's version is
+  stronger than ours - it declares `<choices>` for the four corners and keeps
+  the same `bottom-left` default. The only absent lines are this patch's longer
+  summary/description prose, which upstream wrote its own way.
 
-**Upstream PR:** [singularityos-lab/singularity-desktop#267](https://github.com/singularityos-lab/singularity-desktop/pull/267)
-— open. Patch `0002-sensors-settings-keys.patch`. Declares the six `sensors-*` keys the
-sensors plugin reads (interval 2 s with range 1-60, frequency, utilization, grouped,
-GPU and CPU zone). The earlier private `sensors-color-mode` key is gone: nothing in the
-pinned payload reads it. Delete this patch once PR #267 merges.
+
 
 ## singularity-plugins — retired 2026-11-06 (landed upstream)
 
