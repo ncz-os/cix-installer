@@ -193,11 +193,27 @@ def archive_runs(listing: str, days: set) -> list[str]:
 
 def month_listing(year: int, month: int) -> str:
     url = f"{SNAP}/?year={year}&month={month}"
-    try:
-        with urllib.request.urlopen(url, timeout=120) as r:
-            return r.read().decode("utf-8", "replace")
-    except Exception:  # noqa: BLE001 - the fixed grid below still applies
-        return ""
+    # Retry: a silently failed listing shrinks the candidate set to the fixed
+    # grid and can pick a DIFFERENT snapshot than a run whose listing fetched
+    # (2026-11-06 r7/r8: the listing fetch failed, so the 082611Z archive run
+    # was not a candidate and amd64 pinned 120000Z while arm64, whose listing
+    # had fetched, pinned 082611Z -- one release.conf cannot carry both).
+    last = None
+    for delay in (0, 5, 15):
+        if delay:
+            time.sleep(delay)
+        try:
+            with urllib.request.urlopen(url, timeout=120) as r:
+                listing = r.read().decode("utf-8", "replace")
+            if RUN_RE.search(listing):
+                return listing
+            last = "listing page has no archive-run timestamps"
+        except Exception as e:  # noqa: BLE001
+            last = e
+    print(f"WARNING: archive-run listing for {year:04d}-{month:02d} unavailable"
+          f" after retries ({last}); candidate set is the fixed grid only",
+          file=sys.stderr, flush=True)
+    return ""
 
 
 def candidate_timestamps(sub_date: str, listing=month_listing) -> list[str]:
@@ -288,6 +304,37 @@ def main() -> int:
             return 2
         print("ERROR: no candidate snapshot index could be fetched", file=sys.stderr)
         return 2
+    # release.conf carries a single snapshot for both arches.  If the other
+    # arch's base.pin row already pins a snapshot that authorises THIS
+    # substrate at >= min-coverage, adopt it so both rows -- and the one
+    # release.conf -- agree; otherwise keep this run's own pick.  Measured,
+    # never assumed: an unverifiable other-arch snapshot is skipped.
+    if os.path.isfile(a.pin_out):
+        other = {}
+        for ln in open(a.pin_out, errors="replace"):
+            if ln.startswith("#") or not ln.strip():
+                continue
+            f = ln.rstrip("\n").split("\t")
+            if len(f) >= 6 and f[0] != a.arch:
+                other[f[0]] = f[3]
+        for arch_o in sorted(other):
+            ts_o = other[arch_o]
+            if ts_o == best[0]:
+                continue
+            snap_o, failed_o = snapshot_identities(ts_o, a.arch, cache)
+            if failed_o:
+                print(f"  cross-arch check {ts_o} ({arch_o} row): UNVERIFIABLE"
+                      f" ({len(failed_o)} fetches); keeping this run's pick",
+                      flush=True)
+                break
+            cov_o = 100.0 * len(sub & snap_o) / len(sub)
+            print(f"  cross-arch check {ts_o} ({arch_o} row): {len(sub & snap_o)}"
+                  f"/{len(sub)} = {cov_o:.1f}%", flush=True)
+            if cov_o >= a.min_coverage:
+                print(f"  adopting {ts_o} for cross-arch consistency"
+                      f" (release.conf is single-snapshot)", flush=True)
+                best = (ts_o, cov_o, sub - snap_o)
+            break
     ts, cov, missing = best
 
     hdr = ("# manifests/base.pin -- the single BUILD+provenance base pin.\n"
