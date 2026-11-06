@@ -120,6 +120,10 @@ while IFS= read -r line || [ -n "$line" ]; do
     IFS=$'\t' read -r a dest sha size note snap <<<"$line"
     if [ "$a" != "$ARCH" ]; then [ "$MODE" = publish ] && printf '%s\n' "$line" >> "$NEW"; continue; fi
     if [ -n "$ONLY" ]; then case "$dest" in "$ONLY"*) ;; *) [ "$MODE" = publish ] && printf '%s\n' "$line" >> "$NEW"; continue ;; esac; fi
+    # Count the row as selected here, before any rule can reject it: otherwise a row
+    # rejected below leaves N=0 and the final message claims "no rows for arch=… prefix=…",
+    # which sends the reader looking at filters instead of at the rule that fired.
+    N=$((N + 1))
     # M8: a prebuilt rootfs carries the snapshot it was produced at
     # (publish is the mode that REPLACES a row, so the gate applies to every other mode), and a row whose
     # snapshot differs from release.conf's pin must not stage. Without this the drift
@@ -138,7 +142,6 @@ while IFS= read -r line || [ -n "$line" ]; do
             continue
         fi ;;
     esac
-    N=$((N + 1))
     local_f="$TREE/$dest"; store_f="$STORE/$ARCH/$dest"
     case "$MODE" in
     publish)

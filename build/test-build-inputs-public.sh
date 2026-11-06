@@ -29,6 +29,9 @@ tar -C "$T/pub" -czf "$T/pub/uv.tar.gz" uv-x/uv
 head -c 1000 /dev/urandom > "$T/pub/internal.bin"
 cp "$T/pub/internal.bin" "$T/store/amd64/assets/mgmt/rootfs.tar.zst"
 PY=$(sha "$T/pub/python.tar.gz"); UV=$(sha "$T/pub/uv-x/uv"); IN=$(sha "$T/pub/internal.bin")
+# M8: a prebuilt rootfs row carries the snapshot it was produced at, so this fixture must
+# state the pin the stager will compare it to instead of writing a 5-column row.
+PIN=$(sed -n 's/^NCZ_BASE_MIRROR_SNAPSHOT="\([0-9TZ]*\)"/\1/p' "$ROOT/release.conf" | tail -1)
 printf "# pins\namd64\tassets/python311/python.tar.gz\t%s\t3000\tpy\namd64\tassets/python311/uv\t%s\t2000\tuv\n" "$PY" "$UV" > "$T/pins.tsv"
 printf "# public\namd64\tassets/python311/python.tar.gz\t%s\tfile://%s/pub/python.tar.gz\t-\tpy\namd64\tassets/python311/uv\t%s\tfile://%s/pub/uv.tar.gz\tuv-x/uv\tuv\n" "$PY" "$T" "$UV" "$T" > "$T/public.tsv"
 run() { NCZ_BUILD_INPUTS_TSV="$T/pins.tsv" NCZ_BUILD_INPUTS_PUBLIC_TSV="$T/public.tsv" NCZ_BUILD_INPUTS_TREE="$1" XDG_CONFIG_HOME="$T/xdg" bash "$STAGER" --arch amd64 "${@:2}"; }
@@ -55,7 +58,7 @@ run "$T/t4" --public --only assets/python311/uv >"$T/o4" 2>&1; rc=$?
 [ $rc != 0 ] && grep -q "stale build-inputs-public.tsv row" "$T/o4" && ok "a drifted public-source sha256 is refused" || { bad "drifted public row (rc=$rc)"; cat "$T/o4"; }
 
 # 5. internal-only row: reported by name, run fails, store ignored under --public
-printf "amd64\tassets/mgmt/rootfs.tar.zst\t%s\t1000\trecovery rootfs\n" "$IN" >> "$T/pins.tsv"
+printf "amd64\tassets/mgmt/rootfs.tar.zst\t%s\t1000\trecovery rootfs\t%s\n" "$IN" "$PIN" >> "$T/pins.tsv"
 NCZ_BUILD_INPUTS_DIR="$T/store" run "$T/t5" --public --only assets/mgmt >"$T/o5" 2>&1; rc=$?
 if [ $rc != 0 ] && grep -q "INTERNAL-ONLY: assets/mgmt/rootfs.tar.zst" "$T/o5" && grep -q "internal-only and cannot be fetched publicly" "$T/o5" \
    && [ ! -e "$T/t5/assets/mgmt/rootfs.tar.zst" ]; then ok "an input with no public source is reported INTERNAL-ONLY and the store is not read"
