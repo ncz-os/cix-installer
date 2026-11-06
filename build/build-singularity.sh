@@ -642,6 +642,22 @@ else
     bash /ncz-build/singularity-pins.sh clone singularity-boot-splash singularity-boot-splash
 fi
 cd singularity-boot-splash
+# The boot splash is its own repository, so its OWN sources take a queue too
+# (the loginui queue below patches the renderer it bundles, not this repo).
+if [ -d /ncz-patches/singularity-boot-splash ]; then
+    for _p in /ncz-patches/singularity-boot-splash/*.patch; do
+        [ -e "$_p" ] || continue
+        if git apply --check "$_p" 2>/dev/null; then
+            git apply "$_p"
+            echo "    ncz patch applied (boot-splash repo): $(basename "$_p")"
+        elif git apply --reverse --check "$_p" 2>/dev/null; then
+            echo "    ncz patch already present (boot-splash repo): $(basename "$_p")"
+        else
+            echo "ERROR: ncz patch does not apply to singularity-boot-splash: $(basename "$_p")" >&2
+            exit 1
+        fi
+    done
+fi
 # The boot splash bundles its OWN copy of singularity-loginui (the Cairo
 # renderer that draws the logo and loading bar), so the loginui patches the
 # desktop tree received above must be applied here as well, or the boot splash

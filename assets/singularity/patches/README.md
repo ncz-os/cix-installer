@@ -462,3 +462,18 @@ with that script rather than committing the blob), installed by
 `post-install/45-wallpaper-rotator.sh` alongside the built-in `ncz` and
 `bing` collections. See [`docs/WALLPAPER-PACKS.md`](../../../docs/WALLPAPER-PACKS.md) for the
 `.collection` format these packs, and any future third-party one, use.
+
+## singularity-boot-splash — active
+
+Patch `0001-guard-cairo-surfaces.patch`.
+The native KMS boot splash creates two Cairo surfaces and never checks their
+status: the firmware-framebuffer surface in `create_fb()` and the loop surface on
+the DRM-fallback path. A nil surface (allocation failure, or a 0-sized mode)
+reaches `cairo_create()` and the draw dereferences through it -- DELL's 7.3.1
+boot logged a SIGSEGV in libcairo while the unit still reported
+"deactivated successfully". The patch guards all four sites: surface status in
+`create_fb()`, a NULL/status guard in `render()`, status plus `munmap` cleanup on
+the loop surface, and break-and-destroy when the loop context cannot be made.
+
+This queue patches the boot splash's OWN sources; the `singularity-loginui` queue
+is applied separately to the renderer copy that repository bundles.

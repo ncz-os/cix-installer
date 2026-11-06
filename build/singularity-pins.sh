@@ -87,7 +87,13 @@ pin_url() {
 # Patch directory name -> pinned path. The root repo's own queue applies at
 # the top level ("."), matching build-singularity.sh.
 patch_dir_path() {
-    if [ "$1" = singularity-desktop ]; then echo "."; else echo "subprojects/$1"; fi
+    # Standalone repositories are pinned under their own name (REQUIRED_PATHS);
+    # everything else is a singularity-desktop submodule.
+    case "$1" in
+        singularity-desktop) echo "." ;;
+        vetro|singularity-boot-splash) echo "$1" ;;
+        *) echo "subprojects/$1" ;;
+    esac
 }
 
 cmd_validate() {
