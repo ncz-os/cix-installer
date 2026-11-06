@@ -129,24 +129,73 @@ def remove_redirects(segs):
     return out, n
 
 
+def split_commands(line):
+    """Split a line at unquoted shell operators, keeping quoted text intact.
+
+    Operators: && || ; | & (each becomes its own separator). A q flag and the
+    redirect that replaces it must live in the SAME simple command, so the
+    comparison is done piece by piece rather than over the whole line.
+    """
+    pieces, buf, i, q = [], [], 0, None
+    while i < len(line):
+        c = line[i]
+        if q is None:
+            if c in "'\"":
+                q = c
+                buf.append(c)
+                i += 1
+                continue
+            two = line[i:i + 2]
+            if two in ("&&", "||"):
+                pieces.append("".join(buf)); buf = []
+                i += 2
+                continue
+            if c in ";|&":
+                pieces.append("".join(buf)); buf = []
+                i += 1
+                continue
+            buf.append(c)
+            i += 1
+        else:
+            buf.append(c)
+            if c == q:
+                q = None
+            i += 1
+    pieces.append("".join(buf))
+    return [p for p in pieces if p.strip()]
+
+
 def check_pair(before, after):
-    """Return (ok, detail) for one -/+ pair."""
-    b, q_before = drop_q(segments(before))
-    b, r_before = remove_redirects(b)
-    a, q_after = drop_q(segments(after))
-    a, r_after = remove_redirects(a)
-    bn, an = normalize(b), normalize(a)
-    q_removed = q_before - q_after
-    r_added = r_after - r_before
-    if bn != an:
-        return False, "pattern or argument text changed: %r vs %r" % (bn, an)
-    if q_removed < 0:
-        return False, "a q flag was added, not removed"
-    if r_added < 0:
-        return False, "a redirect was removed, not added"
-    if not (q_removed or r_added):
-        return False, "line differs but neither a q nor a redirect explains it"
-    return True, "q removed=%d redirects added=%d" % (q_removed, r_added)
+    """One conversion per simple command: q removed <=> redirect added."""
+    bp = split_commands(before)
+    ap = split_commands(after)
+    if len(bp) != len(ap):
+        return False, ("command structure changed: %d simple command(s) -> %d"
+                       % (len(bp), len(ap)))
+    total_q = total_r = 0
+    for bcmd, acmd in zip(bp, ap):
+        b1, q_before = drop_q(segments(bcmd))
+        b1, r_before = remove_redirects(b1)
+        a1, q_after = drop_q(segments(acmd))
+        a1, r_after = remove_redirects(a1)
+        bn, an = normalize(b1), normalize(a1)
+        q_removed = q_before - q_after
+        r_added = r_after - r_before
+        if bn != an:
+            return False, ("pattern or argument text changed in %r: %r vs %r"
+                           % (bcmd.strip()[:60], bn, an))
+        if q_removed != r_added:
+            return False, ("unpaired change in %r: %d q flag(s) removed but "
+                           "%d redirect(s) added" % (bcmd.strip()[:60],
+                                                     q_removed, r_added))
+        if q_removed < 0 or r_added < 0:
+            return False, ("a q flag was added or a redirect removed in %r"
+                           % bcmd.strip()[:60])
+        total_q += q_removed
+        total_r += r_added
+    if not (total_q or total_r):
+        return False, "line differs but no q/redirect change explains it"
+    return True, "q removed=%d redirects added=%d" % (total_q, total_r)
 
 
 def hunks(text):
@@ -191,7 +240,7 @@ def run(text, verbose=False):
 
 
 SELF_TEST = """diff --git a/x.sh b/x.sh
-@@ -1,5 +1,5 @@
+@@ -1,7 +1,7 @@
 -grep -q 'PATTERN' "$f" && ok
 +grep 'PATTERN' "$f" >/dev/null && ok
 -grep -qF -- "$pkg"; then
@@ -202,22 +251,26 @@ SELF_TEST = """diff --git a/x.sh b/x.sh
 +grep "a b" "$f" >/dev/null
 -grep -q 'keep me' "$f"
 +grep 'keep  me' "$f" >/dev/null
+-grep -q 'lost its redirect' "$f"
++grep 'lost its redirect' "$f"
+-grep 'gained a redirect' "$f"
++grep 'gained a redirect' "$f" >/dev/null
 """
 
 
 def self_test():
-    """Three legitimate conversions must pass; two corruptions must be caught."""
+    """Three legitimate conversions pass; four one-sided/corrupt ones are caught."""
     ok, bad = run(SELF_TEST)
     failures = []
     if ok != 3:
         failures.append("expected 3 legitimate conversions to pass, got %d" % ok)
-    if bad != 2:
-        failures.append("expected 2 corruptions to be caught, got %d" % bad)
+    if bad != 4:
+        failures.append("expected 4 corruptions to be caught, got %d" % bad)
     if failures:
         for f in failures:
             print("SELF-TEST FAIL: %s" % f)
         return 1
-    print("self-test: 3 conversions accepted, 2 corruptions caught -- good")
+    print("self-test: 3 conversions accepted, 4 corruptions caught -- good")
     return 0
 
 

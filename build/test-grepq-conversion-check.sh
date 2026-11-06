@@ -27,7 +27,7 @@ ok "checker is present at build/check-grepq-conversion.py"
 out=$(python3 "$CHECKER" --self-test 2>&1)
 rc=$?
 if [ "$rc" = 0 ]; then
-    ok "self-test accepts 3 conversions and catches 2 corruptions"
+    ok "self-test accepts 3 conversions and catches 4 corruptions"
 else
     nok "self-test failed (rc=$rc): $(printf '%s' "$out" | tail -1)"
 fi
