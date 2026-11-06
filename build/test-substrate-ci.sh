@@ -207,6 +207,66 @@ check("... and 10 more" in text,
 import shutil
 shutil.rmtree(root, ignore_errors=True)
 
+# ---- prove aggregation (stage 2) -------------------------------------------
+good = {"amd64": {"snapshot": "20261102T082611Z", "coverage": 100.0, "inrelease_sha256": "aa"},
+        "arm64": {"snapshot": "20261102T082611Z", "coverage": 100.0, "inrelease_sha256": "aa"}}
+r = m.aggregate_proof(good)
+check(r["coverage_ok"] and r["digests_equal"] and r["snapshot"] == "20261102T082611Z",
+      "both arches 100% on one snapshot with equal digests -> proven")
+
+split = dict(good)
+split["arm64"] = dict(good["arm64"], snapshot="20261102T120000Z")
+r = m.aggregate_proof(split)
+check(not r["snapshot_ok"] and r["snapshot"] is None
+      and any("different snapshots" in b for b in r["blockers"]),
+      "F3: two arches on two snapshots -> not proven")
+
+d = m.decide(True, True, True, good_delta, automerge_enabled=True, snapshot_ok=False)
+check(d["decision"] == "open-mr" and any("different snapshots" in b for b in d["blockers"]),
+      "F3: a snapshot split blocks auto-merge even with everything else green")
+
+low = dict(good)
+low["amd64"] = dict(good["amd64"], coverage=98.4)
+r = m.aggregate_proof(low)
+check(not r["coverage_ok"] and any("98.4" in b for b in r["blockers"]),
+      "coverage below the floor -> not proven")
+
+samek = dict(good)
+samek["arm64"] = dict(good["arm64"], inrelease_sha256="bb")
+r = m.aggregate_proof(samek)
+check(not r["digests_equal"] and any("digests" in b for b in r["blockers"]),
+      "F5: unequal host digests -> not proven")
+
+missing = {"amd64": good["amd64"]}
+r = m.aggregate_proof(missing)
+check(not r["coverage_ok"] and any("no proof for: arm64" in b for b in r["blockers"]),
+      "a missing arch -> not proven")
+
+nosha = {"amd64": dict(good["amd64"], inrelease_sha256=""),
+         "arm64": dict(good["arm64"], inrelease_sha256="")}
+r = m.aggregate_proof(nosha)
+check(not r["digests_equal"], "F5: empty digests never count as equal")
+
+# ---- retention (stage 8) ---------------------------------------------------
+items = [
+    {"name": "validated-pin", "created": 100, "kind": "pin-branch"},
+    {"name": "candidate-new", "created": 400, "kind": "candidate"},
+    {"name": "candidate-old", "created": 300, "kind": "candidate"},
+    {"name": "candidate-ancient", "created": 200, "kind": "candidate"},
+]
+r = m.retention_plan(items, validated="validated-pin", keep_candidates=1)
+check("validated-pin" in r["keep"] and "candidate-new" in r["keep"],
+      "keeps the validated pin and the newest candidate")
+check(r["prune"] == ["candidate-old", "candidate-ancient"],
+      "prunes older candidates (got %s)" % r["prune"])
+
+r = m.retention_plan([items[0]], validated="validated-pin", keep_candidates=1)
+check(r["prune"] == [], "nothing to prune when only the validated pin exists")
+
+r = m.retention_plan(items, validated=None, keep_candidates=2)
+check(len(r["keep"]) == 2 and len(r["prune"]) == 2,
+      "an unvalidated pile keeps only N candidates")
+
 print("\n%d passed, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)
 PY

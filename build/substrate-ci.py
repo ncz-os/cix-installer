@@ -179,13 +179,16 @@ def classify_delta(old, new, max_delta=150, allow_removals=False):
 
 # --- final decision ---------------------------------------------------------
 
-def decide(gates_green, coverage_ok, digests_equal, delta, automerge_enabled):
+def decide(gates_green, coverage_ok, digests_equal, delta, automerge_enabled,
+           snapshot_ok=True):
     """The only place allowed to say 'merge'."""
     blockers = []
     if not gates_green:
         blockers.append("gates not green on both arches")
     if not coverage_ok:
         blockers.append("substrate coverage below the configured minimum")
+    if not snapshot_ok:
+        blockers.append("arches measured different snapshots")
     if not digests_equal:
         blockers.append("InRelease digests differ between the two hosts")
     if delta.get("decision") != "auto-merge-eligible":
@@ -196,6 +199,81 @@ def decide(gates_green, coverage_ok, digests_equal, delta, automerge_enabled):
     if blockers:
         return {"decision": "open-mr", "blockers": blockers}
     return {"decision": "auto-merge", "blockers": []}
+
+
+# --- stage 2: prove aggregation ---------------------------------------------
+
+def aggregate_proof(arch_rows, min_coverage=99.0):
+    """Combine the per-arch proof results into booleans for `decide`.
+
+    arch_rows = {"amd64": {snapshot, coverage, inrelease_sha256}, "arm64": {...}}
+
+    Three things must hold, and each of them has failed in the field:
+      * both arches measured at or above the coverage floor (F1 - a partial
+        index must never be scored as low coverage);
+      * both arches on the SAME snapshot, because release.conf carries exactly
+        one and a split leaves primary and arm64 building different substrates
+        (F3);
+      * the InRelease digest recorded independently on each host is identical
+        (F5 - two hosts, two fetches, one answer).
+    """
+    blockers = []
+    missing = [a for a in ("amd64", "arm64") if not arch_rows.get(a)]
+    if missing:
+        blockers.append("no proof for: " + ", ".join(missing))
+        return {"coverage_ok": False, "digests_equal": False,
+                "snapshot": None, "blockers": blockers}
+
+    rows = [arch_rows["amd64"], arch_rows["arm64"]]
+    coverage_ok = True
+    for arch, row in zip(("amd64", "arm64"), rows):
+        cov = row.get("coverage")
+        if cov is None or float(cov) < float(min_coverage):
+            coverage_ok = False
+            blockers.append("%s coverage %s below minimum %s"
+                            % (arch, cov, min_coverage))
+
+    snaps = {row.get("snapshot") for row in rows}
+    snapshot_ok = len(snaps) == 1 and None not in snaps
+    if not snapshot_ok:
+        blockers.append("arches measured different snapshots: "
+                        + ", ".join(sorted(str(s) for s in snaps)))
+
+    shas = [row.get("inrelease_sha256") for row in rows]
+    digests_equal = bool(shas[0]) and shas[0] == shas[1]
+    if not digests_equal:
+        blockers.append("InRelease digests missing or unequal between hosts")
+
+    return {"coverage_ok": coverage_ok,
+            "snapshot_ok": snapshot_ok,
+            "digests_equal": digests_equal,
+            "snapshot": next(iter(snaps)) if snapshot_ok else None,
+            "blockers": blockers}
+
+
+# --- stage 8: retention -----------------------------------------------------
+
+def retention_plan(items, validated=None, keep_candidates=1):
+    """Keep the validated pin plus at most N in-flight candidates; prune the rest.
+
+    items = [{"name": ..., "created": <epoch>, "kind": "pin-branch"|"candidate"}]
+    A validated pin is never pruned, and neither is the newest candidate: that
+    is the one currently being proven.  Everything older goes.
+    """
+    ordered = sorted(items, key=lambda i: i.get("created", 0), reverse=True)
+    keep, prune = [], []
+    candidates_kept = 0
+    for item in ordered:
+        if validated is not None and item.get("name") == validated:
+            keep.append(item)
+            continue
+        if candidates_kept < keep_candidates:
+            keep.append(item)
+            candidates_kept += 1
+            continue
+        prune.append(item)
+    return {"keep": [i.get("name") for i in keep],
+            "prune": [i.get("name") for i in prune]}
 
 
 # --- stage 3: transactional pin move + changelog ----------------------------
@@ -327,7 +405,8 @@ def _cmd_decide(args):
                  coverage_ok=payload.get("coverage_ok", False),
                  digests_equal=payload.get("digests_equal", False),
                  delta=delta,
-                 automerge_enabled=args.automerge)
+                 automerge_enabled=args.automerge,
+                 snapshot_ok=payload.get("snapshot_ok", True))
     out["delta"] = delta
     print(json.dumps(out, indent=2))
     return 0
@@ -353,6 +432,25 @@ def _cmd_changelog(args):
         print("wrote %s" % args.out)
     else:
         sys.stdout.write(text)
+    return 0
+
+
+def _cmd_aggregate(args):
+    with open(args.spec, "r", encoding="utf-8") as f:
+        spec = json.load(f)
+    rows = spec.get("arches", spec)
+    out = aggregate_proof(rows, min_coverage=args.min_coverage)
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+def _cmd_retention(args):
+    with open(args.spec, "r", encoding="utf-8") as f:
+        spec = json.load(f)
+    out = retention_plan(spec.get("items", []),
+                         validated=spec.get("validated"),
+                         keep_candidates=int(spec.get("keep_candidates", 1)))
+    print(json.dumps(out, indent=2))
     return 0
 
 
@@ -387,6 +485,16 @@ def main(argv=None):
     c.add_argument("spec", help="JSON: {\"old\": {pkg: ver}, \"new\": {...}, \"evidence\": [...]}")
     c.add_argument("--out", default=None)
     c.set_defaults(func=_cmd_changelog)
+
+    g = sub.add_parser("aggregate", help="stage 2: combine per-arch proof results")
+    g.add_argument("spec", help="JSON: {\"amd64\": {...}, \"arm64\": {...}} or {\"arches\": {...}}")
+    g.add_argument("--min-coverage", type=float,
+                   default=float(os.environ.get("NCZ_CI_MIN_COVERAGE", "99")))
+    g.set_defaults(func=_cmd_aggregate)
+
+    r = sub.add_parser("retention", help="stage 8: what to keep and what to prune")
+    r.add_argument("spec", help="JSON: {\"items\": [...], \"validated\": name, \"keep_candidates\": 1}")
+    r.set_defaults(func=_cmd_retention)
 
     args = ap.parse_args(argv)
     if args.cmd == "preflight" and not args.base:
