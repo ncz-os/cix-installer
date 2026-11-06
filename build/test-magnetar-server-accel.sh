@@ -77,9 +77,9 @@ newcase() {
 }
 
 echo "=== 1. the extracted function bodies are the shipped ones ==="
-extract "$HOOK" '^ncz_variant[(][)] [{]' | grep -q 'BUILD_VARIANT' \
+extract "$HOOK" '^ncz_variant[(][)] [{]' | grep  'BUILD_VARIANT' >/dev/null \
     && ok "ncz_variant: resolves the BUILD_VARIANT record" || bad "ncz_variant does not read BUILD_VARIANT"
-extract "$HOOK" '^ncz_cuda_component_wanted[(][)] [{]' | grep -q 'ncz_variant' \
+extract "$HOOK" '^ncz_cuda_component_wanted[(][)] [{]' | grep  'ncz_variant' >/dev/null \
     && ok "ncz_cuda_component_wanted: asks ncz_variant for the variant" || bad "variant resolution missing"
 
 echo "=== 2. desktop keeps the pre-SCOPE-002 behaviour byte-for-byte ==="
@@ -130,7 +130,7 @@ nv_calls=$(grep -n '^[[:space:]]*ncz_nvidia_dynamic_setup[[:space:]]*$' "$HOOK" 
 nv_ok=1
 [ -n "$nv_calls" ] || nv_ok=0
 for n in $nv_calls; do
-    sed -n "$((n - 1))p" "$HOOK" | grep -qx 'if \[ "\$HAS_NVIDIA" = 1 \]; then' || nv_ok=0
+    sed -n "$((n - 1))p" "$HOOK" | grep -x  'if >/dev/null \[ "\$HAS_NVIDIA" = 1 \]; then' || nv_ok=0
 done
 [ "$nv_ok" = 1 ] && ok "CUDA setup is gated on detected NVIDIA hardware" \
     || bad "ncz_nvidia_dynamic_setup is called outside the HAS_NVIDIA gate"
@@ -190,22 +190,22 @@ emit_menu() {   # emit_menu <variant> -> the menuentry titles
     grep -o 'menuentry "[^"]*"' "$out" 2>/dev/null | sed 's/^menuentry "//;s/"$//'
 }
 d_menu=$(emit_menu desktop); s_menu=$(emit_menu server)
-printf '%s\n' "$d_menu" | grep -q 'Mali' && ok "desktop: Mali entry present" || bad "desktop lost its Mali entry"
-printf '%s\n' "$d_menu" | grep -q 'Panthor' && ok "desktop: Panthor entry present" || bad "desktop lost its Panthor entry"
-printf '%s\n' "$d_menu" | grep -q 'Console (All Accelerators' && ok "desktop: Console entry present" || bad "desktop lost its Console entry"
-printf '%s\n' "$d_menu" | grep -q 'Rescue / No Accelerators' && ok "desktop: Rescue entry present" || bad "desktop lost its Rescue entry"
+printf '%s\n' "$d_menu" | grep  'Mali' >/dev/null && ok "desktop: Mali entry present" || bad "desktop lost its Mali entry"
+printf '%s\n' "$d_menu" | grep  'Panthor' >/dev/null && ok "desktop: Panthor entry present" || bad "desktop lost its Panthor entry"
+printf '%s\n' "$d_menu" | grep  'Console (All Accelerators' >/dev/null && ok "desktop: Console entry present" || bad "desktop lost its Console entry"
+printf '%s\n' "$d_menu" | grep  'Rescue / No Accelerators' >/dev/null && ok "desktop: Rescue entry present" || bad "desktop lost its Rescue entry"
 # Four accelerator/console entries plus the optional Rescue Partition entry
 # (that one is the rescue-partition component, offered on both variants).
 [ "$(printf '%s\n' "$d_menu" | wc -l)" = 5 ] && ok "desktop: four entries + Rescue Partition, unchanged" \
     || bad "desktop menu changed: $(printf '%s\n' "$d_menu" | wc -l) entries"
 [ "$(printf '%s\n' "$s_menu" | wc -l)" = 2 ] && ok "server: exactly two entries" \
     || bad "server menu has $(printf '%s\n' "$s_menu" | wc -l) entries: $s_menu"
-printf '%s\n' "$s_menu" | grep -q 'Console (All Accelerators' && ok "server: Console entry present" || bad "server: Console entry missing"
-printf '%s\n' "$s_menu" | grep -q 'Rescue Partition' && ok "server: Rescue Partition entry present" || bad "server: Rescue Partition entry missing"
+printf '%s\n' "$s_menu" | grep  'Console (All Accelerators' >/dev/null && ok "server: Console entry present" || bad "server: Console entry missing"
+printf '%s\n' "$s_menu" | grep  'Rescue Partition' >/dev/null && ok "server: Rescue Partition entry present" || bad "server: Rescue Partition entry missing"
 # Case-SENSITIVE and anchored on the entry names: "Console (All Accelerators,
 # Mali)" legitimately contains the word Mali, so a case-insensitive match on
 # 'mali' would flag the Console entry as a leak.
-printf '%s\n' "$s_menu" | grep -qE '7\.3 (Mali|Panthor|Rescue / No Accelerators)' \
+printf '%s\n' "$s_menu" | grep -E  '7\.3 (Mali|Panthor|Rescue / No Accelerators)' >/dev/null \
     && bad "server: a desktop-only entry leaked into the server menu" \
     || ok "server: no Mali/Panthor/desktop-Rescue entries"
 # ...and the same emission with no rescue partition selected still yields
@@ -234,7 +234,7 @@ gate_run() {   # gate_run <variant> -> fallthrough|exited
       awk '/^VARIANT=\$\(ncz_variant\)$/{f=1} f{print} f && /^esac$/{exit}' "$HOOK"
       echo 'echo fallthrough'; } | redirect /dev/stdin > "$W/gate.$1.sh"
     grep -q '^case "$VARIANT" in' "$W/gate.$1.sh" || { echo missing-gate; return; }
-    ( unset NCZ_VARIANT; bash "$W/gate.$1.sh" 2>/dev/null ) | tail -1 | grep -qx fallthrough && echo fallthrough || echo exited
+    ( unset NCZ_VARIANT; bash "$W/gate.$1.sh" 2>/dev/null ) | tail -1 | grep -x  fallthrough >/dev/null && echo fallthrough || echo exited
 }
 check "server falls through to the vendor blocks" "$(gate_run server)" fallthrough
 check "headless still skips accelerator wiring" "$(gate_run headless)" exited
@@ -269,7 +269,7 @@ for blk in '^if \[ "\$HAS_AMD" = 1 \]; then$' '^if \[ "\$HAS_INTEL" = 1 \] \|\| 
     # and \$ as a bracket expression and an anchor and never matches.
     body=$(BLK="$blk" awk '$0 ~ ENVIRON["BLK"] {f=1} f {print} f && /^fi$/ {exit}' "$HOOK")
     if [ -z "$body" ]; then bad "vendor block not found: $blk"
-    elif printf '%s\n' "$body" | grep -qE 'VARIANT|COMPONENTS'; then bad "vendor block is variant/record gated: $blk"
+    elif printf '%s\n' "$body" | grep -E  'VARIANT|COMPONENTS' >/dev/null; then bad "vendor block is variant/record gated: $blk"
     else ok "vendor block is hardware-gated only: $(printf '%s\n' "$body" | head -1)"; fi
 done
 # CIX Sky1: the NPU and Mali hooks are arch-gated only; nothing in them

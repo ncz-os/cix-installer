@@ -47,7 +47,7 @@ for row in "${EXPECTED[@]}"; do
             # script runs with pipefail - so capture first, then match.
             _syms=""
             [ -f "$LIB" ] && _syms=$(nm --defined-only "$LIB" 2>/dev/null || true)
-            if printf "%s\n" "$_syms" | grep -qw "$sym"; then
+            if printf "%s\n" "$_syms" | grep -w  "$sym" >/dev/null; then
                 echo "OK   $sym defined in lib/libloginui.a ($patch)"
             else
                 echo "FAIL $sym not defined in lib/libloginui.a ($patch)"; fail=1

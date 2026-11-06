@@ -479,7 +479,7 @@ CONSTS
         _guard_bad="the KVER_STABLE guard is missing from the tool"
     else
         _guard_src=$(sed -n "$((_guard_line - 2)),${_guard_line}p" "$w/tool.sh")
-        printf '%s\n' "$_guard_src" | grep -q 'KVER_STABLE:-' \
+        printf '%s\n' "$_guard_src" | grep  'KVER_STABLE:-' >/dev/null \
             || _guard_bad="the guard does not use a defaulted KVER_STABLE expansion: $_guard_src"
     fi
     if [ -z "$_guard_bad" ]; then

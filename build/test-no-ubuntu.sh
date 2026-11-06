@@ -1182,7 +1182,7 @@ expect_rc "builders refuse non-Debian/unpinned mirrors" 0 bash -c '
   ! ncz_require_debian_forky forky https://snapshot.debian.org/archive/debian/20200101T000000Z Debian 2>/dev/null' _ "$ROOT" "$REL_PIN"
 expect_rc "ncz_pin_snapshot parses the released pin exactly (well formed, = both base.pin rows)" 0 bash -c '
   . "$1/build/lib/mirror-apt-opts.sh"; pin="$2"
-  printf "%s\n" "$pin" | grep -Eqx "[0-9]{8}T[0-9]{6}Z" &&
+  printf "%s\n" "$pin" | grep -Ex  "[0-9]{8}T[0-9]{6}Z" >/dev/null &&
   [ "$(ncz_pin_snapshot "$1")" = "$pin" ] &&
   [ "$(awk -F"\t" "\$1==\"amd64\"{print \$4}" "$1/manifests/base.pin")" = "$pin" ] &&
   [ "$(awk -F"\t" "\$1==\"arm64\"{print \$4}" "$1/manifests/base.pin")" = "$pin" ]' _ "$ROOT" "$REL_PIN"

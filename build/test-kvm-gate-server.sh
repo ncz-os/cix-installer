@@ -33,7 +33,7 @@ mkdir -p "$SRV"
 head -c 2097152 /dev/zero > "$SRV/base.squashfs" || dd if=/dev/zero of="$SRV/base.squashfs" bs=1k count=2048 status=none
 tar czf "$SRV/ncz-assets-amd64.tar.gz" -C "$SRV" base.squashfs \
     || { echo "setup: cannot make the assets bundle" >&2; exit 1; }
-tar tzf "$SRV/ncz-assets-amd64.tar.gz" | grep -qx base.squashfs \
+tar tzf "$SRV/ncz-assets-amd64.tar.gz" | grep -x  base.squashfs >/dev/null \
     || { echo "setup: the assets bundle does not carry base.squashfs" >&2; exit 1; }
 # option B: the offline apt pool, a repo/ tree the fetcher unpacks
 mkdir -p "$WORK/poolsrc/repo/dists/forky/main/binary-amd64" "$WORK/poolsrc/repo/pool/main"

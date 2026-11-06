@@ -106,7 +106,7 @@ nocyg "server dialog titles" "$ST"
 _long=$(printf '%s\n' "$ST" | awk 'length($0) > 61')
 [ -z "$_long" ] && ok "server dialog titles fit d-i's 61 columns (66 with '[!!] ')" || bad "server titles too long: $_long"
 [ "$(printf '%s\n' "$ST" | grep -c "^$SRV - ")" = "$(printf '%s\n' "$ST" | grep -c .)" ] && ok "every server title starts '$SRV - '" || bad "server titles: $ST"
-printf '%s\n' "$DT" | grep -q "^\[6/8\] $DESK_LABEL - select the TARGET DISK (it will be ERASED)$" && ok "desktop disk title unchanged" || bad "desktop titles: $DT"
+printf '%s\n' "$DT" | grep  "^\[6/8\] $DESK_LABEL - select the TARGET DISK (it will be ERASED)$" >/dev/null && ok "desktop disk title unchanged" || bad "desktop titles: $DT"
 
 # --- 3. the component selector ------------------------------------------------------------------
 cat > "$W/confmodule" <<'CM'
@@ -184,11 +184,11 @@ LS=$(late srv "$W/srv"); LD=$(late desk "$W/desk")
 eq "late.sh: server label" "$(printf '%s\n' "$LS" | sed -n 's/^LABEL=//p')" "$SRVF"
 eq "late.sh: desktop label" "$(printf '%s\n' "$LD" | sed -n 's/^LABEL=//p')" "$DESK_LABEL"
 nocyg "late.sh: server progress/remove-media templates" "$LS"
-printf '%s\n' "$LS" | grep -q "^Description: $SRV is installed - remove the USB stick now$" && ok "late.sh: server final screen names $SRV" || bad "late.sh: server final screen"
-printf '%s\n' "$LS" | grep -q "^Description: Installing $SRV - this takes several minutes$" && ok "late.sh: server progress title" || bad "late.sh: server progress title"
-printf '%s\n' "$LS" | grep -qi 'desktop' && bad "late.sh: server templates mention a desktop: $(printf '%s\n' "$LS" | grep -i desktop | head -2)" || ok "late.sh: server templates promise no desktop"
-printf '%s\n' "$LD" | grep -q "^ The full desktop, GPU/NPU drivers, kernels and agents are being installed.$" && ok "late.sh: desktop progress text unchanged" || bad "late.sh: desktop progress text"
-printf '%s\n' "$LD" | grep -q "^ desktop. If the USB stick is left inserted" && ok "late.sh: desktop remove-media text unchanged" || bad "late.sh: desktop remove-media text"
+printf '%s\n' "$LS" | grep  "^Description: $SRV is installed - remove the USB stick now$" >/dev/null && ok "late.sh: server final screen names $SRV" || bad "late.sh: server final screen"
+printf '%s\n' "$LS" | grep  "^Description: Installing $SRV - this takes several minutes$" >/dev/null && ok "late.sh: server progress title" || bad "late.sh: server progress title"
+printf '%s\n' "$LS" | grep -i  'desktop' >/dev/null && bad "late.sh: server templates mention a desktop: $(printf '%s\n' "$LS" | grep -i desktop | head -2)" || ok "late.sh: server templates promise no desktop"
+printf '%s\n' "$LD" | grep  "^ The full desktop, GPU/NPU drivers, kernels and agents are being installed.$" >/dev/null && ok "late.sh: desktop progress text unchanged" || bad "late.sh: desktop progress text"
+printf '%s\n' "$LD" | grep  "^ desktop. If the USB stick is left inserted" >/dev/null && ok "late.sh: desktop remove-media text unchanged" || bad "late.sh: desktop remove-media text"
 # the progress line never shows the codename in a hook name on a server medium
 _hb=$(awk '/hb_label=\$\(printf .%s. "\$hb_label" \| sed/{f=1} f{print} /^    fi$/{if(f) exit}' "$ROOT/preseed/late.sh")
 hbl() { NCZ_LATE_VARIANT=$1 NCZ_RELEASE_CODENAME=Cygnus hb_label=$2 bash -c "$_hb"'
@@ -207,7 +207,7 @@ eq "50-brand: server /etc/issue first line" "$(printf '%s\n' "$B" | sed -n 's/^I
 nocyg "50-brand: server identity" "$B"
 eq "50-brand: desktop medium, desktop PRETTY_NAME unchanged" "$(brand desktop desktop | sed -n 's/^PRETTY_NAME=//p')" "$DESK_LABEL Desktop, based on $NCZ_BASE_LABEL"
 eq "50-brand: desktop medium, console-only install unchanged" "$(brand server desktop | sed -n 's/^PRETTY_NAME=//p')" "$DESK_LABEL Server, based on $NCZ_BASE_LABEL"
-brand desktop desktop | grep -q '^VARIANT=' && bad "50-brand: desktop gained a VARIANT key" || ok "50-brand: desktop has no VARIANT key"
+brand desktop desktop | grep  '^VARIANT=' >/dev/null && bad "50-brand: desktop gained a VARIANT key" || ok "50-brand: desktop has no VARIANT key"
 # the real writer (not only the print seam): 50-brand.sh run in a sandbox root, /etc and the installer meta dir
 # rewritten into it, systemctl stubbed
 realbrand() { # medium(server|desktop) build-variant -> sandbox root
@@ -253,7 +253,7 @@ for _m in server desktop; do
     echo 192.168.207.90 > "$R/addr"; RF --ip-once
     grep -q '^IP:    192.168.207.90$' "$R/etc/issue" && ok "issue ($_m): a changed address replaces the old one (no stale banner)" || bad "issue ($_m): changed IP: $(grep '^IP:' "$R/etc/issue")"
     grep -qE 'NCZ_ISSUE_|\(detecting hardware\)' "$R/etc/issue" "$R/etc/issue.net" && bad "issue ($_m): a token or waiting text survived the refresh" || ok "issue ($_m): after the refresh no token or waiting text remains"
-    [ "$_m" = server ] && { head -1 "$R/etc/issue" | grep -q 'Desktop' && bad "issue (server): first line says Desktop" || ok "issue (server): first line has no 'Desktop'"; }
+    [ "$_m" = server ] && { head -1 "$R/etc/issue" | grep  'Desktop' >/dev/null && bad "issue (server): first line says Desktop" || ok "issue (server): first line has no 'Desktop'"; }
 done
 # an older banner that still carries the tokens is healed too
 printf 'X  ·  NCZ_ISSUE_SOC_PLACEHOLDER  (Kernel: \\r)\nIP:    NCZ_ISSUE_IP_PLACEHOLDER\n' > "$R/etc/issue"; echo 10.1.2.3 > "$R/addr"; RF --soc; RF --ip-once
@@ -320,11 +320,11 @@ for s in "$ROOT/assets/refind/ncz-refind-refresh.sh" "$ROOT/assets/refind/ncz-re
     [ -n "$T" ] && [ "$(printf '%s\n' "$T" | grep -c "^menuentry \"$SRVF  -  ")" = "$(printf '%s\n' "$T" | grep -c '^menuentry ')" ] \
         && ok "$n: every server menu title starts '$SRVF  -  '" || bad "$n: server titles: $T"
     nocyg "$n: server menu titles" "$T"
-    printf '%s\n' "$T" | grep -q '^banner ' && bad "$n: the server menu still references the legacy banner image" || ok "$n: no legacy banner image on the server menu"
+    printf '%s\n' "$T" | grep  '^banner ' >/dev/null && bad "$n: the server menu still references the legacy banner image" || ok "$n: no legacy banner image on the server menu"
     T=$(titles -)
     [ "$(printf '%s\n' "$T" | grep -c '^menuentry ')" -ge 3 ] && [ "$(printf '%s\n' "$T" | grep -c "^menuentry \"$DESK_LABEL  -  ")" = "$(printf '%s\n' "$T" | grep -c '^menuentry ')" ] \
         && ok "$n: desktop-medium titles unchanged ('$DESK_LABEL  -  ')" || bad "$n: desktop titles: $T"
-    printf '%s\n' "$T" | grep -q '^banner ncz-banner.png' && ok "$n: desktop menu keeps its banner line" || bad "$n: desktop banner line lost"
+    printf '%s\n' "$T" | grep  '^banner ncz-banner.png' >/dev/null && ok "$n: desktop menu keeps its banner line" || bad "$n: desktop banner line lost"
 done
 
 # --- 8. the installer boot menu's identity line --------------------------------------------------------
@@ -337,7 +337,7 @@ mkdir -p "$W/espcopy/build/iso"; cp "$ROOT/build/iso/build-refind-esp.py" "$W/es
 _o=$(NCZ_VARIANT=server python3 -c "import importlib.util
 s=importlib.util.spec_from_file_location('e','$W/espcopy/build/iso/build-refind-esp.py'); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)
 print(m.build_info_line('amd64'))" 2>&1); _r=$?
-[ "$_r" != 0 ] && printf '%s' "$_o" | grep -q 'ncz-brand.sh is missing' && ok "build-refind-esp: a server build without the brand helper fails with a clear message" || bad "build-refind-esp: missing helper: rc=$_r $_o"
+[ "$_r" != 0 ] && printf '%s' "$_o" | grep  'ncz-brand.sh is missing' >/dev/null && ok "build-refind-esp: a server build without the brand helper fails with a clear message" || bad "build-refind-esp: missing helper: rc=$_r $_o"
 case "$(NCZ_VARIANT= esp_line '')" in "$DESK_LABEL -- built "*) ok "build-refind-esp: unset NCZ_VARIANT is desktop" ;; *) bad "build-refind-esp: unset variant" ;; esac
 
 # --- 9. ncz version ---------------------------------------------------------------------------------------
@@ -377,25 +377,25 @@ cp "$ROOT/manifests/server-codename-allowlist.tsv" "$W/cc/manifests/"
 NCZ_CODENAME_CHECK_ROOT="$W/cc" bash "$C" >/dev/null 2>&1 && ok "check-server-codename: the copy passes" || bad "check-server-codename: the copy fails"
 printf '\necho "NCZ-OS 26.10 Cygnus"\n' >> "$W/cc/preseed/region-chooser.sh"
 _o=$(NCZ_CODENAME_CHECK_ROOT="$W/cc" bash "$C" 2>&1); _r=$?
-[ "$_r" != 0 ] && printf '%s' "$_o" | grep -q 'preseed/region-chooser.sh' && ok "check-server-codename: a hard-coded Cygnus in a d-i helper fails" || bad "check-server-codename: injected literal not caught: $_o"
+[ "$_r" != 0 ] && printf '%s' "$_o" | grep  'preseed/region-chooser.sh' >/dev/null && ok "check-server-codename: a hard-coded Cygnus in a d-i helper fails" || bad "check-server-codename: injected literal not caught: $_o"
 cp "$ROOT/preseed/region-chooser.sh" "$W/cc/preseed/region-chooser.sh"
 printf '\nNCZ_LABEL="NCZ-OS 26.10 Cygnus"\n' >> "$W/cc/post-install/62-cygnus-screensaver-default.sh"
 _o=$(NCZ_CODENAME_CHECK_ROOT="$W/cc" bash "$C" 2>&1); _r=$?
-[ "$_r" != 0 ] && printf '%s' "$_o" | grep -q '62-cygnus-screensaver-default.sh' && ok "check-server-codename: a new label literal in an allow-listed hook is still a hit" || bad "check-server-codename: allow-list row too broad: $_o"
+[ "$_r" != 0 ] && printf '%s' "$_o" | grep  '62-cygnus-screensaver-default.sh' >/dev/null && ok "check-server-codename: a new label literal in an allow-listed hook is still a hit" || bad "check-server-codename: allow-list row too broad: $_o"
 cp "$ROOT/post-install/62-cygnus-screensaver-default.sh" "$W/cc/post-install/62-cygnus-screensaver-default.sh"
 printf '\necho "[62] Cygnus screensaver"; NCZ_LABEL="NCZ-OS 26.10 Cygnus"\n' >> "$W/cc/post-install/62-cygnus-screensaver-default.sh"
 _o=$(NCZ_CODENAME_CHECK_ROOT="$W/cc" bash "$C" 2>&1); _r=$?
-[ "$_r" != 0 ] && printf '%s' "$_o" | grep -q '62-cygnus-screensaver-default.sh' && ok "check-server-codename: a second, unlisted literal on an allow-listed line is still a hit" || bad "check-server-codename: per-line allow masked a literal: $_o"
+[ "$_r" != 0 ] && printf '%s' "$_o" | grep  '62-cygnus-screensaver-default.sh' >/dev/null && ok "check-server-codename: a second, unlisted literal on an allow-listed line is still a hit" || bad "check-server-codename: per-line allow masked a literal: $_o"
 cp "$ROOT/post-install/62-cygnus-screensaver-default.sh" "$W/cc/post-install/62-cygnus-screensaver-default.sh"
 printf '\n# the Cygnus prose in a comment is fine\n    # indented Cygnus prose too\n' >> "$W/cc/preseed/region-chooser.sh"
 NCZ_CODENAME_CHECK_ROOT="$W/cc" bash "$C" >/dev/null 2>&1 && ok "check-server-codename: comment prose is not a hit" || bad "check-server-codename: a comment was flagged"
 printf '    echo "NCZ-OS 26.10 Cygnus" # a trailing comment does not exempt the code\n' >> "$W/cc/preseed/region-chooser.sh"
 _o=$(NCZ_CODENAME_CHECK_ROOT="$W/cc" bash "$C" 2>&1); _r=$?
-[ "$_r" != 0 ] && printf '%s' "$_o" | grep -q 'region-chooser.sh' && ok "check-server-codename: code with a trailing comment is still a hit" || bad "check-server-codename: trailing-comment code passed: $_o"
+[ "$_r" != 0 ] && printf '%s' "$_o" | grep  'region-chooser.sh' >/dev/null && ok "check-server-codename: code with a trailing comment is still a hit" || bad "check-server-codename: trailing-comment code passed: $_o"
 cp "$ROOT/preseed/region-chooser.sh" "$W/cc/preseed/region-chooser.sh"
 printf 'preseed/late.sh\tnothing-matches-this\tstale\n' >> "$W/cc/manifests/server-codename-allowlist.tsv"
 _o=$(NCZ_CODENAME_CHECK_ROOT="$W/cc" bash "$C" 2>&1); _r=$?
-[ "$_r" != 0 ] && printf '%s' "$_o" | grep -q 'matches nothing' && ok "check-server-codename: a stale allow-list row fails" || bad "check-server-codename: stale row not caught: $_o"
+[ "$_r" != 0 ] && printf '%s' "$_o" | grep  'matches nothing' >/dev/null && ok "check-server-codename: a stale allow-list row fails" || bad "check-server-codename: stale row not caught: $_o"
 
 # --- 12. dry run of the gate wiring: the matrix runs the UI check in the server set, and the gate --
 #     hands it NCZ_UI_CHECK_VARIANT=server (real matrix + the gate's real dispatch block, stub gate/check)
@@ -411,9 +411,9 @@ case "$_m" in *"use a directory on disk"*)   # the matrix refuses a tmpfs work r
     _dd=$(mktemp -d "$ROOT/../.ncz-srv-brand-dry.XXXXXX");   # beside the tree, never inside it
  _m=$(bash "$W/dry/bin/kvm-install-gate-matrix.sh" "$W/dry/img.img" "$_dd/work" full server server-offline-negative nodesktop 2>&1); rm -rf "$_dd" ;;
 esac
-printf '%s\n' "$_m" | grep -q '^STUB set=server ui=1 server=1 offline=0 comps=rescue-partition$' && ok "matrix dry run: the server set runs the UI check" || bad "matrix dry run: server set: $(printf '%s\n' "$_m" | grep STUB)"
-printf '%s\n' "$_m" | grep -q '^STUB set=server-offline-negative ui=0 ' && ok "matrix dry run: the offline-negative set does not" || bad "matrix dry run: offline set"
-printf '%s\n' "$_m" | grep -q '^STUB set=full ui=1 ' && printf '%s\n' "$_m" | grep -q '^STUB set=nodesktop ui=0 ' && ok "matrix dry run: desktop sets unchanged (full ui=1, nodesktop ui=0)" || bad "matrix dry run: desktop sets"
+printf '%s\n' "$_m" | grep  '^STUB set=server ui=1 server=1 offline=0 comps=rescue-partition$' >/dev/null && ok "matrix dry run: the server set runs the UI check" || bad "matrix dry run: server set: $(printf '%s\n' "$_m" | grep STUB)"
+printf '%s\n' "$_m" | grep  '^STUB set=server-offline-negative ui=0 ' >/dev/null && ok "matrix dry run: the offline-negative set does not" || bad "matrix dry run: offline set"
+printf '%s\n' "$_m" | grep  '^STUB set=full ui=1 ' >/dev/null && printf '%s\n' "$_m" | grep  '^STUB set=nodesktop ui=0 ' >/dev/null && ok "matrix dry run: desktop sets unchanged (full ui=1, nodesktop ui=0)" || bad "matrix dry run: desktop sets"
 awk '/echo "  installer console UI check/{f=1} f{print} f && /^fi$/{exit}' "$ROOT/build/kvm-install-gate-gpt.sh" > "$W/dry/ui-block.sh"
 cat > "$W/dry/bin/kvm-installer-ui-check.sh" <<'STUB'
 #!/bin/bash
@@ -421,8 +421,8 @@ echo "UI-STUB variant=${NCZ_UI_CHECK_VARIANT:-unset} img=$1 arch=$2"
 STUB
 chmod +x "$W/dry/bin/kvm-installer-ui-check.sh"
 uidry() { bash -c "fail() { echo \"GATEFAIL \$*\"; }; SCRIPT_DIR='$W/dry/bin'; IMG=x.img; ARCH=amd64; WORK='$W/dry'; NCZ_GATE_SERVER=$1; NCZ_GATE_UI_CHECK=1; . '$W/dry/ui-block.sh'" 2>&1; }
-uidry 1 | grep -q 'UI-STUB variant=server' && ok "gate dry run: a server run calls the UI check with NCZ_UI_CHECK_VARIANT=server" || bad "gate dry run server: $(uidry 1)"
-uidry 0 | grep -q 'UI-STUB variant=desktop' && ok "gate dry run: a desktop run calls it with the desktop contract" || bad "gate dry run desktop: $(uidry 0)"
+uidry 1 | grep  'UI-STUB variant=server' >/dev/null && ok "gate dry run: a server run calls the UI check with NCZ_UI_CHECK_VARIANT=server" || bad "gate dry run server: $(uidry 1)"
+uidry 0 | grep  'UI-STUB variant=desktop' >/dev/null && ok "gate dry run: a desktop run calls it with the desktop contract" || bad "gate dry run desktop: $(uidry 0)"
 # build-image.sh's server gate runner: sudo's env_reset drops everything not on its command line, so the pyte
 # interpreter the UI check needs (the /root/ncz-pyte-venv the image build provisions) must be passed there, as the
 # desktop runner does. Run the real stage_kvm_gate_server with a stub ncz_sudo_bash that prints its command.
@@ -431,7 +431,7 @@ mkdir -p "$W/dry/mag"; : > "$W/dry/mag/base.squashfs"; : > "$W/dry/mag/ncz-asset
 _sr=$(bash -c "ncz_sudo_bash() { echo \"SUDO: \$*\"; echo 'MATRIX PASS'; }
     ROOT='$ROOT'; RUN_DIR='$W/dry'; ARCH=amd64; MAGNETAR_DIR='$W/dry/mag'; unset NCZ_PYTE_PYTHON
     . '$W/dry/srv-runner.sh'; pyvenv=/root/ncz-pyte-venv; stage_kvm_gate_server '$W/dry/srv.log' '$W/dry/img.img' '$W/dry/kw' 0:0 /root/ncz-pyte-venv" 2>&1)
-printf '%s\n' "$_sr" | grep '^SUDO: ' | grep -q "NCZ_PYTE_PYTHON='/root/ncz-pyte-venv/bin/python'" \
+printf '%s\n' "$_sr" | grep '^SUDO: ' | grep  "NCZ_PYTE_PYTHON='/root/ncz-pyte-venv/bin/python'" >/dev/null \
     && ok "build-image: the server gate runner passes NCZ_PYTE_PYTHON through sudo (the UI check finds pyte)" \
     || bad "build-image: the server gate runner's sudo line has no NCZ_PYTE_PYTHON: $(printf '%s\n' "$_sr" | grep '^SUDO: ' | cut -c1-300)"
 grep -q '^ui=server$' "$W/dry/kvm-gate.result" 2>/dev/null && ok "build-image: the server gate result records ui=server" || bad "build-image: kvm-gate.result ui field: $(grep '^ui=' "$W/dry/kvm-gate.result" 2>/dev/null)"

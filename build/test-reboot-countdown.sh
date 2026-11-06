@@ -107,7 +107,7 @@ check "preseed/late.sh: ncz_shell_has_read_t probe exists (dash-safe wait path)"
 check "preseed/late.sh: the countdown delegates its wait to ncz_reboot_wait_1s" \
     grep -q 'if ncz_reboot_wait_1s; then' "$LATE"
 check "preseed/late.sh: ncz_reboot_countdown itself uses no bare \`read -t\`" \
-    bash -c '! sed -n "/^ncz_reboot_countdown() {/,/^}/p" "$1" | grep -q "read -t"' _ "$LATE"
+    bash -c '! sed -n "/^ncz_reboot_countdown() {/,/^}/p" "$1" | grep  "read -t"' _ "$LATE" >/dev/null
 
 # --- ncz_force_reboot only counts down when explicitly told to (2nd arg "1");
 #     the unattended call site must stay silent, same as before this feature

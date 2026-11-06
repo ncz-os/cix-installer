@@ -1156,8 +1156,8 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
               /etc/systemd/system/telnetd.socket /etc/systemd/system/sockets.target.wants/telnetd.socket \
               /etc/systemd/system/busybox-telnetd.socket /etc/systemd/system/ncz-failsafe.service; do
         _st=$("$DEBUGFS" -R "stat $_u" "$EVIDENCE_ROOT" 2>&1)
-        if printf '%s\n' "$_st" | grep -q '^Inode:' \
-           && ! printf '%s\n' "$_st" | grep -qF 'link dest: "/dev/null"'; then
+        if printf '%s\n' "$_st" | grep  '^Inode:' >/dev/null \
+           && ! printf '%s\n' "$_st" | grep -F  'link dest: "/dev/null"' >/dev/null; then
             _telnet_wants="$_telnet_wants ${_u##*/}"
         fi
     done

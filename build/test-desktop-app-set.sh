@@ -30,20 +30,20 @@ seeds() { sed 's/#.*//' "$1" | awk 'NF {print $1}'; }
 echo "== 1. manifests"
 for m in desktop desktop-amd64; do
     f="$ROOT/manifests/$m.pkgs"
-    hit=""; for p in $DROPPED; do seeds "$f" | grep -qx -- "$p" && hit="$hit $p"; done
+    hit=""; for p in $DROPPED; do seeds "$f" | grep -x  -- "$p" >/dev/null && hit="$hit $p"; done
     [ -z "$hit" ] && ok "$m.pkgs seeds none of the dropped GNOME apps" || bad "$m.pkgs still seeds:$hit"
     miss=""; for p in zenity gnome-session-canberra libadwaita-1-0 geoclue-2.0 gnome-desktop3-data xdg-desktop-portal-gtk foot; do
-        seeds "$f" | grep -qx -- "$p" || miss="$miss $p"
+        seeds "$f" | grep -x  -- "$p" >/dev/null || miss="$miss $p"
     done
     [ -z "$miss" ] && ok "$m.pkgs keeps the shared libraries/helpers" || bad "$m.pkgs lost:$miss"
 done
-seeds "$ROOT/manifests/desktop-amd64.pkgs" | grep -qx gnome-online-accounts \
+seeds "$ROOT/manifests/desktop-amd64.pkgs" | grep -x  gnome-online-accounts >/dev/null \
     && ok "desktop-amd64.pkgs keeps gnome-online-accounts" || bad "desktop-amd64.pkgs lost gnome-online-accounts"
 for f in sbom/expected-packages.txt sbom/expected-packages-amd64.txt; do
     hit=""; for p in $DROPPED; do grep -qE ":$p\$" "$ROOT/$f" && hit="$hit $p"; done
     [ -z "$hit" ] && ok "$f requires none of the dropped apps" || bad "$f still requires:$hit"
 done
-hit=""; for p in $DROPPED; do awk -F'\t' -v p="$p" '$1 == p' "$ROOT/manifests/components.tsv" | grep -q . && hit="$hit $p"; done
+hit=""; for p in $DROPPED; do awk -F'\t' -v p="$p" '$1 == p' "$ROOT/manifests/components.tsv" | grep  . >/dev/null && hit="$hit $p"; done
 [ -z "$hit" ] && ok "components.tsv lists none of the dropped apps" || bad "components.tsv still lists:$hit"
 
 echo "== 2. no dangling references"
@@ -61,7 +61,7 @@ pins=$(sed -n "s/^pinned-apps=\[\(.*\)\]$/\1/p" "$ROOT/post-install/20-desktop.s
 [ -n "$pins" ] || bad "pinned-apps not found in 20-desktop.sh"
 odd=$(printf '%s\n' "$pins" | grep -vE '^dev\.sinty\.[A-Za-z0-9_.-]+\.desktop$|^(chromium-ncz-sky1|google-chrome)\.desktop$' || true)
 [ -z "$odd" ] && ok "dock pins only Singularity apps and the browsers" || bad "unexpected dock pins" "$odd"
-printf '%s\n' "$pins" | grep -qx 'dev.sinty.leafs.desktop' && ok "dock terminal is Singularity Leafs" || bad "Leafs is not pinned"
+printf '%s\n' "$pins" | grep -x  'dev.sinty.leafs.desktop' >/dev/null && ok "dock terminal is Singularity Leafs" || bad "Leafs is not pinned"
 
 echo "== 4. default handlers"
 LIB="$ROOT/post-install/lib/ncz-default-apps.sh"
@@ -108,7 +108,7 @@ R2="$T/fresh"; mkdir -p "$R2/opt/singularity/share/applications"
 printf '[Desktop Entry]\n' > "$R2/opt/singularity/share/applications/dev.sinty.reader.desktop"
 # shellcheck source=post-install/lib/ncz-default-apps.sh
 ( . "$LIB"; ncz_default_apps_apply "$R2" ) >/dev/null 2>&1
-[ "$(dflt "$R2/etc/xdg/mimeapps.list" application/pdf)" = dev.sinty.reader.desktop ] && head -1 "$R2/etc/xdg/mimeapps.list" | grep -qx '\[Default Applications\]' \
+[ "$(dflt "$R2/etc/xdg/mimeapps.list" application/pdf)" = dev.sinty.reader.desktop ] && head -1 "$R2/etc/xdg/mimeapps.list" | grep -x  '\[Default Applications\]' >/dev/null \
     && ok "no mimeapps.list yet: one is created with the group header" || bad "fresh root" "$(cat "$R2/etc/xdg/mimeapps.list" 2>&1)"
 
 if [ "$(id -u)" != 0 ]; then
@@ -127,7 +127,7 @@ echo "== 5. PipeWire plugins and mtp-probe"
 # /usr/lib/udev/mtp-probe" for every USB device (Chimera/Medusa, 2026-10-26).
 for m in desktop desktop-amd64; do
     miss=""; for p in libspa-0.2-bluetooth libspa-0.2-libcamera libcamera-ipa libmtp-runtime; do
-        seeds "$ROOT/manifests/$m.pkgs" | grep -qx -- "$p" || miss="$miss $p"
+        seeds "$ROOT/manifests/$m.pkgs" | grep -x  -- "$p" >/dev/null || miss="$miss $p"
     done
     [ -z "$miss" ] && ok "$m.pkgs seeds the Bluetooth/libcamera SPA plugins and libmtp-runtime" || bad "$m.pkgs is missing:$miss"
 done
@@ -135,7 +135,7 @@ done
 echo "== 6. rasdaemon is not on client images"
 # 9x "Can't get traces from cxl:*" + 9x "Can't write to set_event" every boot,
 # nothing depends on it (2026-10-26).
-hit=""; for f in "$ROOT"/manifests/*.pkgs; do seeds "$f" | grep -qx rasdaemon && hit="$hit ${f##*/}"; done
+hit=""; for f in "$ROOT"/manifests/*.pkgs; do seeds "$f" | grep -x  rasdaemon >/dev/null && hit="$hit ${f##*/}"; done
 [ -z "$hit" ] && ok "no manifest seeds rasdaemon" || bad "rasdaemon still seeded by:$hit"
 
 echo

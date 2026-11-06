@@ -188,7 +188,7 @@ if [ -s "$R" ]; then
         && ok "udev rule restarts the unit when a non-dummy vtconsole is added" || bad "vtconsole udev rule missing or changed: $(cat "$R")"
     grep -E '^ACTION=="add", SUBSYSTEM=="graphics", KERNEL=="fb0", RUN\+="/usr/bin/systemctl --no-block restart ncz-console-font-autosize.service"$' "$R" >/dev/null \
         && ok "udev rule restarts the unit when fb0 is added" || bad "fb0 udev rule missing or changed"
-    grep -v '^#' "$R" | grep -q -- 'restart' && ! grep -v '^#' "$R" | grep -q -- 'systemctl restart' \
+    grep -v '^#' "$R" | grep  -- 'restart' >/dev/null && ! grep -v '^#' "$R" | grep  -- 'systemctl restart' >/dev/null \
         && ok "udev restarts are --no-block" || bad "a udev rule restarts without --no-block (would stall udev)"
     if command -v udevadm >/dev/null 2>&1; then
         cp "$R" "$T/90-ncz-console-font-autosize.rules"

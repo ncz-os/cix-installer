@@ -149,7 +149,7 @@ else
     printf '%s\n' "$inner" | head -5
 fi
 # the outer tee in run_stage() is what writes the log -- it must still be there
-awk '/^run_stage\(\) \{/{f=1} f&&/^\}/{exit} f' "$BIN" | grep -q 'tee -a "\$log"' \
+awk '/^run_stage\(\) \{/{f=1} f&&/^\}/{exit} f' "$BIN" | grep  'tee -a "\$log"' >/dev/null \
     && ok "run_stage() still writes the stage log through a single tee" \
     || bad "run_stage() lost its single tee -- the stage log would be empty"
 

@@ -76,7 +76,7 @@ if [ "$ARCH" = amd64 ]; then
     # one) has both halves before judging anything the UART says.
     grep -q 'ncz_ui_check=1' "$WORK/rules.readback" 2>/dev/null \
         || { echo "UI CHECK FAIL (amd64): the test copy's ESP has no ncz_ui_check=1 preseed hook; the UART text cannot be trusted" >&2; exit 1; }
-    install_entry "$WORK/refind.conf" | grep -q 'console=ttyS0,115200' \
+    install_entry "$WORK/refind.conf" | grep  'console=ttyS0,115200' >/dev/null \
         || { echo "UI CHECK FAIL (amd64): the test copy's Install entry has no console=ttyS0,115200; d-i never drew on the UART" >&2; exit 1; }
     # The MONITOR is judged on its own boot. With console=ttyS0 last, d-i's newt draws on the UART only and the
     # framebuffer stays on a static screen (2026-10-26, Preview4 amd64: no fb-states, 2 distinct frames), so the
@@ -88,7 +88,7 @@ if [ "$ARCH" = amd64 ]; then
     "$PY" "$HERE/boot-screens.py" "$IMG" "$FBW" --arch "$ARCH" --interactive --secs "$SECS" --enter-every 6 --enter-after 25 \
         > "$FBW/harness.log" 2>&1 \
         || { echo "UI CHECK FAIL: the framebuffer capture harness failed (see $FBW/harness.log)" >&2; tail -5 "$FBW/harness.log" >&2; exit 1; }
-    if install_entry "$FBW/refind.conf" | grep -q 'console=ttyS0'; then
+    if install_entry "$FBW/refind.conf" | grep  'console=ttyS0' >/dev/null; then
         echo "UI CHECK FAIL (amd64): the framebuffer boot's Install entry carries a UART console; the monitor would not show d-i" >&2; exit 1
     fi
 else

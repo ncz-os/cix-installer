@@ -145,9 +145,9 @@ echo "=== no Intel key/repo wiring: native NCZ only ==="
 # allowed inside `ncz_intel_disable_legacy_vendor_list` -- the disabler is
 # by design required to recognize it.
 LIB_NOCOMMENTS="$(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$LIB")"
-printf '%s\n' "$LIB_NOCOMMENTS" | grep -q 'NCZ_INTEL_KEY_SHA256=' \
+printf '%s\n' "$LIB_NOCOMMENTS" | grep  'NCZ_INTEL_KEY_SHA256=' >/dev/null \
     && bad "lib still defines a vendored Intel key pin" || ok "lib has no vendored Intel key pin"
-printf '%s\n' "$LIB_NOCOMMENTS" | grep -q 'NCZ_INTEL_KEY_URL=' \
+printf '%s\n' "$LIB_NOCOMMENTS" | grep  'NCZ_INTEL_KEY_URL=' >/dev/null \
     && bad "lib still defines an Intel key URL"        || ok "lib has no Intel key URL"
 # The disabler MUST exist and reference the legacy URL pattern as a matcher
 # -- a literal grep ban would also ban the disabler, which is required.
@@ -156,13 +156,13 @@ grep -q 'ncz_intel_disable_legacy_vendor_list' "$LIB" \
     || bad "lib has no intel-openvino.list disabler"
 # But the lib must NOT WRITE to the Intel list from active code (only the
 # disabler RENAMES it; nothing generates/refreshes/trusts it).
-printf '%s\n' "$LIB_NOCOMMENTS" | grep -qE '>[[:space:]]*/etc/apt/sources\.list\.d/intel-openvino\.list[[:space:]]*$' \
+printf '%s\n' "$LIB_NOCOMMENTS" | grep -E  '>[[:space:]]*/etc/apt/sources\.list\.d/intel-openvino\.list[[:space:]]*$' >/dev/null \
     && bad "lib still WRITES /etc/apt/sources.list.d/intel-openvino.list" \
     || ok "lib does not write /etc/apt/sources.list.d/intel-openvino.list"
-printf '%s\n' "$LIB_NOCOMMENTS" | grep -q 'ubuntu24' \
+printf '%s\n' "$LIB_NOCOMMENTS" | grep  'ubuntu24' >/dev/null \
     && bad "lib still references the ubuntu24 component in active code" \
     || ok "lib does not trust the ubuntu24 component"
-printf '%s\n' "$LIB_NOCOMMENTS" | grep -qE 't2-ubuntu-repo|adityagarg8' \
+printf '%s\n' "$LIB_NOCOMMENTS" | grep -E  't2-ubuntu-repo|adityagarg8' >/dev/null \
     && bad "lib still references T2 Ubuntu repo in active code" \
     || ok "lib does not reference the T2 Ubuntu vendor repo"
 
@@ -554,7 +554,7 @@ inst=$(grep ' install -y' "$LOG")
     || bad "published run rc=$_rc5" "$(cat "$W/out")"
 for p in libopenvino-intel-npu-plugin-2026.4.1 \
          intel-driver-compiler-npu intel-fw-npu intel-level-zero-npu intel-validation-npu; do
-    printf '%s\n' "$inst" | grep -q -w -- "$p" || bad "deferred-then-published install lacks $p" "$inst"
+    printf '%s\n' "$inst" | grep  -w -- "$p" >/dev/null || bad "deferred-then-published install lacks $p" "$inst"
 done
 ok "deferred-then-published install carries the full NPU set"
 
@@ -874,9 +874,9 @@ grep -q 'ExecStart=/usr/local/sbin/ncz-intel-accel-setup run' "$ROOT/assets/inte
 # block must dispatch both words to ncz_intel_accel_run. They may share a
 # `run|rearm)` clause or be separate clauses (right side of the documented
 # `run` in the dispatched body), as long as both reach the same entry point.
-if printf '%s\n' "$LIB_NOCOMMENTS" | grep -Eq '^[[:space:]]*run\|rearm\)[[:space:]]*ncz_intel_accel_run' \
-   || { printf '%s\n' "$LIB_NOCOMMENTS" | grep -Eq '^[[:space:]]*run\)[[:space:]]*ncz_intel_accel_run' \
-        && printf '%s\n' "$LIB_NOCOMMENTS" | grep -Eq '^[[:space:]]*rearm\)[^)]*ncz_intel_accel_run'; }; then
+if printf '%s\n' "$LIB_NOCOMMENTS" | grep -E  '^[[:space:]]*run\|rearm\)[[:space:]]*ncz_intel_accel_run' >/dev/null \
+   || { printf '%s\n' "$LIB_NOCOMMENTS" | grep -E  '^[[:space:]]*run\)[[:space:]]*ncz_intel_accel_run' >/dev/null \
+        && printf '%s\n' "$LIB_NOCOMMENTS" | grep -E  '^[[:space:]]*rearm\)[^)]*ncz_intel_accel_run' >/dev/null; }; then
     ok "lib CLI entry dispatches both run and rearm to ncz_intel_accel_run"
 else
     bad "lib CLI entry missing run|rearm dispatch"
@@ -1037,13 +1037,13 @@ wait "$_lkpid" 2>/dev/null
     || bad "install-time entry ignores the run lock (marker '$(cat "$P")')" "$(cat "$W/out")"
 # And it must not leave the marker holding only LAST= when the file vanished
 # between the existence check and the append (the reason the append is guarded).
-grep -A2 'elif \[ -f "\$_pf" \]' "$LIB" | grep -q 'echo "LAST=' \
+grep -A2 'elif \[ -f "\$_pf" \]' "$LIB" | grep  'echo "LAST=' >/dev/null \
     && ok "the LAST= append stays guarded on the marker still existing" \
     || bad "the LAST= append is no longer existence-guarded"
 
-grep -A8 '^ncz_intel_recover()' "$LIB" | grep -q . \
-    && awk '/^ncz_intel_recover\(\)/,/^}/' "$LIB" | grep -q 'systemctl start ncz-intel-accel-setup.timer' \
-    && awk '/^ncz_intel_recover\(\)/,/^}/' "$LIB" | grep -q '\[ -z "$(_ni_r)" \] && \[ -d /run/systemd/system \]' \
+grep -A8 '^ncz_intel_recover()' "$LIB" | grep  . >/dev/null \
+    && awk '/^ncz_intel_recover\(\)/,/^}/' "$LIB" | grep  'systemctl start ncz-intel-accel-setup.timer' >/dev/null \
+    && awk '/^ncz_intel_recover\(\)/,/^}/' "$LIB" | grep  '\[ -z "$(_ni_r)" >/dev/null \] && \[ -d /run/systemd/system \]' \
     && ok "recover starts the timer on a running system only (not for a target root)" \
     || bad "recover does not start the timer on a running system"
 

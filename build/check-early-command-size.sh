@@ -170,12 +170,12 @@ for sh_cmd in "dash" "busybox sh" "/bin/sh"; do
 done
 
 # HAZARD: the command must not be able to return non-zero (see header).
-if ! printf '%s' "$joined" | grep -qE '(^|;|&&|\|\|)[[:space:]]*(true|exit 0)[[:space:]]*$'; then
+if ! printf '%s' "$joined" | grep -E  '(^| >/dev/null;|&&|\|\|)[[:space:]]*(true|exit 0)[[:space:]]*$'; then
     echo "check-early-command-size: FAIL: the joined preseed/early_command must end with 'true' (or 'exit 0')." >&2
     echo "check-early-command-size:       a non-zero exit makes d-i display preseed/command_failed with COMMAND=<this value>, and cdebconf 0.283 asserts on the \${...} expansions it contains (lookup_directive, question.c:276): the installer hangs instead of showing the error." >&2
     exit 1
 fi
-if ! printf '%s' "$joined" | grep -qE '(^|;)[[:space:]]*set \+e[[:space:]]*;'; then
+if ! printf '%s' "$joined" | grep -E  '(^| >/dev/null;)[[:space:]]*set \+e[[:space:]]*;'; then
     echo "check-early-command-size: FAIL: the joined preseed/early_command must start with 'set +e ;' (same reason: it must never return non-zero)." >&2
     exit 1
 fi
@@ -202,7 +202,7 @@ for key in partman/early_command preseed/late_command; do
         OK) ;;
         *) echo "check-early-command-size: unexpected parser output for $key: ${r:0:200}" >&2; exit 2 ;;
     esac
-    if printf '%s' "$j" | grep -qF '${'; then
+    if printf '%s' "$j" | grep -F  '${' >/dev/null; then
         echo "check-early-command-size: FAIL: $key contains a \${...} expansion: $(printf '%s' "$j" | grep -oE '\$\{[^}]*\}' | head -3 | tr '\n' ' ')" >&2
         echo "check-early-command-size:       it can exit non-zero; d-i then shows preseed/command_failed with COMMAND=<this value> and cdebconf 0.283 asserts on \${...} (lookup_directive, question.c:276), so the installer frontend dies instead of showing the error. Use \$var, or move the logic into a preseed/*.sh helper." >&2
         exit 1
