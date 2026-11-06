@@ -97,7 +97,20 @@ ncz_apt_leaked_versions() {
 
 # Vendor .debs that the offline pool stages (build/build-desktop-mirror.sh) but
 # that are NOT published to the NCZ repo; their own vendor repos update them.
-ncz_apt_vendor_staged() { printf '%s\n' google-chrome-stable vivaldi-stable; }
+# Names we publish from a vendor's build rather than build ourselves, so they are not
+# Debian's namespace and must not need a Debian-override row.
+#
+# The Intel NPU/OpenVINO set is here because of a measurement, not a preference
+# (2026-11-06): `apt-cache showpkg intel-level-zero-npu` on a host with Debian forky
+# enabled lists ONE source, this suite. Debian carries none of these names, while
+# libopenvino-2026.4.1 is installed from here at priority 990 - so "let Debian supply
+# it" is not an option, and the repo-content gate was reporting our own stack as a leak.
+ncz_apt_vendor_staged() {
+    printf '%s\n' google-chrome-stable vivaldi-stable \
+        intel-level-zero-npu intel-fw-npu intel-validation-npu intel-driver-compiler-npu \
+        libopenvino-2026.4.1 libopenvino-intel-cpu-plugin-2026.4.1 \
+        libopenvino-intel-gpu-plugin-2026.4.1 libopenvino-intel-npu-plugin-2026.4.1
+}
 
 # The known T2 package set from the third-party t2-ubuntu-repo (Ubuntu-built).
 # None of these names exist in Debian. post-install/55-t2-firmware.sh installs
@@ -136,6 +149,11 @@ ncz_apt_name_class() {
     done < <(ncz_apt_namespace_patterns)
     if ncz_apt_debian_overrides | cut -f1 | grep -qxF -- "$name"; then echo override; return; fi
     if ncz_apt_vendor_staged | grep -qxF -- "$name"; then echo vendor; return; fi
+    # The T2 set is declared in this file as third-party Ubuntu-built names that do not
+    # exist in Debian, but this classifier only consulted the override list and the
+    # vendor list - so the repo-content gate flagged the gate's own source of truth
+    # (apple-firmware-script, apple-t2-audio-config) as a Debian-named leak.
+    if ncz_apt_t2_packages | grep -qxF -- "$name"; then echo vendor; return; fi
     echo debian-named
 }
 
