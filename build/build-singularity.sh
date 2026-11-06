@@ -1,6 +1,7 @@
 #!/bin/bash
 # build-singularity.sh — reproducible build of the NCZ-OS Singularity Desktop
-# payload (/opt/singularity) for CIX Sky1 (arm64).
+# payload (/opt/singularity) for the host's architecture: arm64 (CIX Sky1) and
+# amd64 are both built natively; the .deb step selects the arch that matches.
 #
 # NCZ-OS 26.10 "Cygnus" ships Singularity Desktop (labwc/wlroots, GTK4/Vala,
 # GLES on CIX libmali) as THE desktop, replacing XFCE/X11. This script produces
@@ -10,8 +11,8 @@
 # reproducible from upstream sources.
 #
 # METHOD (matches the Sky1 bring-up build, docs/upstream/singularity/):
-#   1. debian:<codename> arm64 container, matching release.conf (native
-#      on any arm64 host with docker/podman).
+#   1. debian:<codename> container for this host's arch, matching release.conf
+#      (native on any arm64 or amd64 host with docker/podman).
 #   2. clone singularityos-lab/singularity-desktop --recursive.
 #   3. build the `vetro` Go host tool (UI transpiler) and put it on PATH.
 #   4. meson setup --prefix=/opt/singularity --libdir=lib ; ninja ; meson install
@@ -152,11 +153,20 @@ CE="$(command -v docker || command -v podman || true)"
     exit 1
 }
 
+# The container is debian:<codename> for the HOST's architecture, and the payload is
+# built natively for it (no cross, no emulation). Both arches are supported: the
+# amd64 payload was first built on HYDRA on 2026-11-06 (10236/10236 targets), and
+# build-singularity-deb.sh takes NCZ_SINGULARITY_ARCH so the .deb always matches the
+# tarball it packages. The only requirement is that the payload arch equals the arch
+# of the image it is baked into -- a mismatched tarball is caught by the deb step and
+# by the acceptance gate, not by refusing to build.
 ARCH="$(uname -m)"
 case "$ARCH" in
-    aarch64|arm64) ;;
-    *) echo "WARN: host arch=$ARCH — Singularity payload is arm64; build MUST run on/emulate aarch64 (this container image is $IMAGE)." >&2 ;;
+    aarch64|arm64|armv8l) PAYLOAD_ARCH=arm64 ;;
+    x86_64|amd64)         PAYLOAD_ARCH=amd64 ;;
+    *) echo "WARN: host arch=$ARCH is not one NCZ ships; the payload will be built natively for it and the deb step will refuse it." >&2 ;;
 esac
+echo "   arch   = ${PAYLOAD_ARCH:-unknown} (native, no emulation)"
 
 mkdir -p "$OUT"
 # The Depends sidecar is regenerated with the tarball; never let a previous
