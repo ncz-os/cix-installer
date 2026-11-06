@@ -25,7 +25,7 @@ done
 # 1. systemd's own parser, when present
 if command -v systemd-analyze >/dev/null 2>&1; then
     out="$(systemd-analyze verify "$SVC" "$TMR" 2>&1)"; rc=$?
-    if [ "$rc" = 0 ] && ! printf '%s' "$out" | grep -q 'image-ci'; then
+    if [ "$rc" = 0 ] && ! grep -q 'image-ci' <<< "$out"; then
         ok "systemd-analyze verify accepts both units with no finding about them"
     else
         bad "systemd-analyze verify accepts both units" "$(printf '%s\n' "$out" | grep image-ci | head -3)"
