@@ -38,6 +38,17 @@ else
   ran=$((ran + 1)); echo "ok   tree is clean"
 fi
 
+# 1b. temp space: the gates here unpack debs into TMPDIR, and a full tmpfs turns them into
+# false failures ("unreadable deb", "no .deb found in pool"). 11G of my own scratch once made
+# this suite look unstable; it was the host, not the tests.
+tmpdir_used_pct=$(df -P "${TMPDIR:-/tmp}" | awk "NR==2{gsub(/%/,"",$5); print $5}")
+if [ -n "${tmpdir_used_pct:-}" ] && [ "$tmpdir_used_pct" -gt 90 ]; then
+  echo "FAIL ${TMPDIR:-/tmp} is ${tmpdir_used_pct}% full -- clean scratch before rehearsing"
+  fail=$((fail + 1))
+else
+  ran=$((ran + 1)); echo "ok   temp space (${TMPDIR:-/tmp} ${tmpdir_used_pct:-?}% used)"
+fi
+
 # 2. static gates that need no host
 for g in build/test-no-ubuntu.sh build/test-pin-coherence.sh build/test-no-pin-literals.sh; do
   [ -x "$g" ] && run_gate "${g#build/}" bash "$g"
