@@ -26,5 +26,13 @@
 # PrepareForSleep), 0023 (saver resumes when the prompt lowers), leafs 0001
 # (window buttons with the classic titlebar) and nearby 0001+0002 (links are
 # freed when they close; an open link is kept when the peer announces itself).
+# 2026-11-06: the arm64 row is a LOCAL build from superproject 6427e9c with the
+# full downstream queue applied (shell 13, loginui 3, greeter 3, nearby 1,
+# plugins 3, desktop 0) - version 20261106140923+bk0+git6427e9c4, built on ULTRA
+# by build/build-singularity.sh + build-singularity-deb.sh (PAYLOAD_RC=0,
+# 10235/10235 targets, 0 failures). The amd64 row is UNCHANGED: still the
+# 2026-10-13 prebuilt payload, because the payload build is arm64-only. Anything
+# shipped to amd64 from this tree therefore carries the older desktop, which is a
+# deliberate, visible skew rather than a silent one.
 amd64	1f2564d3d125ad1c8e2dc0ffbe64bc83b18eaa6ea6aafe5fc50b093dc37a8e1a	ncz-singularity-desktop_20261013233000+bk0+tgzef364e5b_amd64.deb
-arm64	4d16a21f024ca74bb9e40ab74251f37a0591d7d55078548948108d4bc8715e31	ncz-singularity-desktop_20261013233000+bk0+tgz03b581f4_arm64.deb
+arm64	0bc267aff7977d88f7ef56cb4bcbf441cfc17b9a155bfa0927585f8f18f14381	ncz-singularity-desktop_20261106140923+bk0+git6427e9c4_arm64.deb
