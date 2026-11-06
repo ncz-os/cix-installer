@@ -36,27 +36,6 @@ run means a merged PR's patch won't sit stale for days between manual passes.
 
 ## singularity-shell — active
 
-**Upstream PR:** [singularityos-lab/singularity-shell#30](https://github.com/singularityos-lab/singularity-shell/pull/30)
-— open, not yet merged. Patch `0002-choose-attribution-quadrant.patch`.
-Needs its schema companion, `singularity-desktop#262` below, or the
-Settings row this adds writes a key the shell can't read yet. Extends
-the wallpaper title/author overlay from a fixed bottom-left position to
-a user-selected quadrant.
-
-Delete this patch once PR #30 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-shell#37](https://github.com/singularityos-lab/singularity-shell/pull/37)
-— open, not yet merged. Patch `0006-dock-launch-feedback-owned-timer-captures.patch`.
-Fixes a use-after-free in `DockLaunchFeedback.stretch_dot()`: the 10 s give-up
-timer captured the dock-item wrapper and its dot with `unowned` (raw) pointers,
-so a dock rebuild/destroy inside that window made the callback call
-`g_object_get_data()` on freed memory — SIGSEGV in
-`g_type_check_instance_is_fundamentally_a` (Radxa Orion O6N arm64, core pid 2613,
-2026-10-11). The patch makes the captures owned so the objects stay valid until
-the timer fires. This is the image-blocking arm64 crash-loop fix.
-
-Delete this patch once PR #37 merges.
-
 **Not yet filed upstream** (2026-10-11). Patches
 `0013-lockscreen-honour-output-scale.patch`,
 `0014-lockscreen-host-an-out-of-process-frame-source.patch`,
@@ -425,6 +404,22 @@ exists in this tree to delete — it was already removed before this branch's
 history begins, per the note that used to live here. Recorded now so a
 future reader isn't confused by this doc having previously described
 different code than what's actually upstream.
+
+## singularity-shell — retired 2026-11-06 (landed upstream)
+
+Both retirements were measured against the pinned commit `a175271`, not
+inferred from PR state:
+
+* PR [#30](https://github.com/singularityos-lab/singularity-shell/pull/30),
+  patch `0002-choose-attribution-quadrant.patch`: all 65 added lines are
+  present in `background.vala` and `desktop_page.vala` at the pin, including
+  the `CORNER_SAMPLE_X_LEFT` / `_RIGHT` / `_Y_TOP` / `_Y_BOTTOM` constants that
+  are only introduced by that change.
+* PR [#37](https://github.com/singularityos-lab/singularity-shell/pull/37),
+  patch `0006-dock-launch-feedback-owned-timer-captures.patch`: all 6 added
+  lines are present - `stretch_dot()` already holds an owned
+  `Gtk.Widget wrapper_ref` and `MotionBin bin_ref`. The use-after-free fix is
+  upstream; only our explanatory comment is not, which ships no behaviour.
 
 ## singularity-shell — retired (date unclear, inherited from `master`'s `59b48a7`)
 
