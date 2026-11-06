@@ -276,8 +276,8 @@ def run(text, verbose=False):
             used = [False] * len(plus)
             unpaired = 0
             for before in minus:
-                if not is_candidate_pair(before, after):
-                    continue          # no grep here to convert
+                if not is_candidate(before):
+                    continue          # only removed lines can be verified here
                 matched = False
                 for idx, after in enumerate(plus):
                     if used[idx]:
