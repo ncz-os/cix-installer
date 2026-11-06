@@ -254,13 +254,6 @@ when upstream's call compiles against the distribution's vapi.
 added, which Vala 0.56's gtk4.vapi declares abstract. Each reports "not
 supported". Delete it when upstream implements them.
 
-**Not filed upstream** (2026-10-07). Patch
-`singularity-shell/0004-wallpaper-tests-link-libm.patch`. Three wallpaper test
-executables compile `dynamic_wallpaper.vala` (which calls `sin()`) without a
-math library; Debian's linker has no implicit DT_NEEDED and stops with
-"undefined reference to symbol 'sin@@GLIBC_2.17'". Adds `cc.find_library('m')`.
-Delete it when upstream does.
-
 ## singularity-loginui — active
 
 **Not yet filed upstream.** Patch
