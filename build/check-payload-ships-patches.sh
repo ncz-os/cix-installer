@@ -43,7 +43,11 @@ for row in "${EXPECTED[@]}"; do
             fi
             ;;
         archive)
-            if [ -f "$LIB" ] && nm -g --defined-only "$LIB" 2>/dev/null | grep -qw "$sym"; then
+            # nm exits non-zero when any archive member has no symbols, and this
+            # script runs with pipefail - so capture first, then match.
+            _syms=""
+            [ -f "$LIB" ] && _syms=$(nm --defined-only "$LIB" 2>/dev/null || true)
+            if printf "%s\n" "$_syms" | grep -qw "$sym"; then
                 echo "OK   $sym defined in lib/libloginui.a ($patch)"
             else
                 echo "FAIL $sym not defined in lib/libloginui.a ($patch)"; fail=1

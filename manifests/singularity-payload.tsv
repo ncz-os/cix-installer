@@ -35,4 +35,4 @@
 # shipped to amd64 from this tree therefore carries the older desktop, which is a
 # deliberate, visible skew rather than a silent one.
 amd64	1f2564d3d125ad1c8e2dc0ffbe64bc83b18eaa6ea6aafe5fc50b093dc37a8e1a	ncz-singularity-desktop_20261013233000+bk0+tgzef364e5b_amd64.deb
-arm64	0bc267aff7977d88f7ef56cb4bcbf441cfc17b9a155bfa0927585f8f18f14381	ncz-singularity-desktop_20261106140923+bk0+git6427e9c4_arm64.deb
+arm64	ce3f987ed7fa6ed12dde94edd32dfee6f5f775b0efc3a9045ffaa34cd8ec6bd3	ncz-singularity-desktop_20261106151728+bk0+git6427e9c4_arm64.deb
