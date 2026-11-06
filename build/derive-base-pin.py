@@ -127,11 +127,11 @@ def snapshot_identities(ts: str, arch: str, cache: str):
         if not os.path.isfile(f) or os.path.getsize(f) == 0:
             url = f"{SNAP}/{ts}/dists/{suite}/{relpath}"
             last = None
-            for delay in (0, 5, 15):
+            for delay in (0, 5):
                 if delay:
                     time.sleep(delay)
                 try:
-                    with urllib.request.urlopen(url, timeout=180) as r, open(f, "wb") as o:
+                    with urllib.request.urlopen(url, timeout=75) as r, open(f, "wb") as o:
                         o.write(r.read())
                     last = None
                     break
@@ -226,15 +226,23 @@ def main() -> int:
         return 2
     best = None
     unverifiable = []
+    streak = 0
     for ts in candidate_timestamps(sub_date):
         snap, failed = snapshot_identities(ts, a.arch, a.scratch)
         if failed:
             print(f"  candidate snapshot {ts}: UNVERIFIABLE - {len(failed)} index"
                   f" fetches failed, first: {failed[0]}", file=sys.stderr)
             unverifiable.append(ts)
+            streak += 1
+            if streak >= 3:
+                print("ERROR: three consecutive candidates could not be verified;"
+                      " the snapshot.debian.org service is degraded. Aborting"
+                      " without a pin.", file=sys.stderr)
+                return 2
             continue
         if not snap:
             continue
+        streak = 0
         cov = 100.0 * len(sub & snap) / len(sub)
         print(f"  candidate snapshot {ts}: {len(sub & snap)}/{len(sub)} = {cov:.1f}%")
         if best is None or cov > best[1]:
