@@ -146,11 +146,19 @@ trap cleanup EXIT
 
 # Stage 2 fetches with apt, which keeps its own archive cache - the stage-1
 # debootstrap cache does not help it, so it refetches the same packages and fails
-# when the mirror is degraded. Seed the chroot archive directory from that cache so
-# apt verifies and reuses what is already on disk. apt still checksums every .deb
-# against the signed index, so nothing is trusted merely for being present.
+# when the mirror is degraded. Seed the chroot archive directory from that cache.
+#
+# TRUST CHAIN, measured rather than assumed (2026-11-06): apt does NOT re-hash a
+# .deb that is already in /var/cache/apt/archives. Planting a one-byte-corrupted
+# hostname_3.25_amd64.deb there and running apt-get install --reinstall handed it
+# straight to dpkg ("lzma compression failure"), with no hash-mismatch and no
+# re-fetch. So the safety of this shortcut rests entirely on the files in
+# NCZ_DEBOOTSTRAP_CACHE having been verified when debootstrap fetched them from the
+# pinned snapshot - which it does - and on nobody being able to write that cache
+# afterwards. The cache is therefore kept root-owned and mode 0700.
 if [ -n "${NCZ_DEBOOTSTRAP_CACHE:-}" ] && [ -d "$NCZ_DEBOOTSTRAP_CACHE" ]; then
     mkdir -p "$CHROOT/var/cache/apt/archives/partial"
+    chmod 700 "$NCZ_DEBOOTSTRAP_CACHE" 2>/dev/null || true   # see the trust chain above
     cp -n "$NCZ_DEBOOTSTRAP_CACHE"/*.deb "$CHROOT/var/cache/apt/archives/" 2>/dev/null || true
     echo "[mgmt-rootfs] seeded $(ls -1 "$CHROOT/var/cache/apt/archives/"*.deb 2>/dev/null | wc -l) cached .deb into the chroot archive dir"
 fi
