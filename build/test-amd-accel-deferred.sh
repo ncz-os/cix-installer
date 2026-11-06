@@ -392,7 +392,7 @@ printf '%s\n' "$inst" | grep -qwE 'amd-npu( |-| |$)' \
 # driver stack.
 _npucall=$(printf '%s\n' "$inst" | grep -w amd-npu-xrt-2.0 | head -1)
 for p in amd-xdna-driver amd-xdna-firmware amd-xdna-runtime amd-xdna-validation; do
-    printf '%s\n' "$_npucall" | grep -qw -- "$p" || bad "NPU runtime and $p are not in the same install call" "$_npucall"
+    printf '%s\n' "$_npucall" | grep -w -- "$p" >/dev/null || bad "NPU runtime and $p are not in the same install call" "$_npucall"
 done
 [ -n "$_npucall" ] && [ "$(printf '%s\n' "$_npucall" | grep -cwE 'amd-npu-xrt-2.0 amd-xdna-driver amd-xdna-firmware amd-xdna-runtime amd-xdna-validation')" -ge 1 ] \
     && ok "all 4 native NPU drivers + runtime were installed in the same call" \

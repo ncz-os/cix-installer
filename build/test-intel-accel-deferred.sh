@@ -554,7 +554,7 @@ inst=$(grep ' install -y' "$LOG")
     || bad "published run rc=$_rc5" "$(cat "$W/out")"
 for p in libopenvino-intel-npu-plugin-2026.4.1 \
          intel-driver-compiler-npu intel-fw-npu intel-level-zero-npu intel-validation-npu; do
-    printf '%s\n' "$inst" | grep -q -w -- "$p" || bad "deferred-then-published install lacks $p" "$inst"
+    printf '%s\n' "$inst" | grep  -w -- "$p" >/dev/null || bad "deferred-then-published install lacks $p" "$inst"
 done
 ok "deferred-then-published install carries the full NPU set"
 
