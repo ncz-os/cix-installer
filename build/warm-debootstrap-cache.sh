@@ -12,6 +12,10 @@
 # own, in parallel, into the same cache directory.  debootstrap then resumes
 # from a warm cache and only walks packages that are still genuinely missing.
 #
+# Each fetch is also wrapped in timeout(90): wget's -T bounds the socket timeout,
+# not total transfer, so a stalled connection can otherwise sit forever and pin
+# the wave (observed on ULTRA: one wget child 45 minutes old).
+#
 # A small serial probe runs first: if the mirror cannot serve even a three-file
 # sample it is down, and spraying several hundred requests at it would waste
 # the window in which it might recover.  Exit 3 = "down, try again later",
@@ -58,7 +62,7 @@ while [ "$i" -lt "$probe_n" ]; do
     ok=0
     a=1
     while [ "$a" -le 3 ]; do
-        if wget -q -T 45 -t 1 -O "$f.part" "$url" 2>/dev/null && [ -s "$f.part" ]; then
+        if timeout 90 wget -q -T 45 -t 1 -O "$f.part" "$url" 2>/dev/null && [ -s "$f.part" ]; then
             mv -f "$f.part" "$f"
             ok=1
             break
@@ -96,7 +100,7 @@ fetch_one() {
     [ -s "$f" ] && return 0
     a=1
     while [ "$a" -le "$tries" ]; do
-        if wget -q -T 45 -t 1 -O "$f.part" "$url" 2>/dev/null && [ -s "$f.part" ]; then
+        if timeout 90 wget -q -T 45 -t 1 -O "$f.part" "$url" 2>/dev/null && [ -s "$f.part" ]; then
             mv -f "$f.part" "$f"
             echo "OK   $(basename "$url") (attempt $a)"
             return 0
