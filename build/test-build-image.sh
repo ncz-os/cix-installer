@@ -173,6 +173,37 @@ else
     bad "--gates kvm dropped secret-scan from the plan entirely"
 fi
 
+# --- 2b2. M11: one writer, so every log line appears once -------------------
+echo "== 2b2. M11 log de-duplication =="
+# Structural: the two places that used to append to the stage log themselves. run_stage
+# pipes every stage's stdout through the log, so an inner tee made each of those lines
+# appear twice and moved every line number in the file.
+for fn in ncz_container_run stage_preflight; do
+    body="$(awk -v f="$fn" '$0 ~ "^"f"\\(\\)" {p=1} p' "$BIN" | awk 'p{print} /^}/&&p{exit}')"
+    if printf '%s\n' "$body" | grep -q 'tee -a "\$log"'; then
+        bad "$fn still appends to the stage log itself (M11: run_stage is the only writer)"
+    else
+        ok "$fn does not append to the stage log"
+    fi
+done
+# Functional: a fake stage that prints a marker must leave it in that stage's log exactly
+# once. Two occurrences is the old double-tee; zero is a lost log.
+DED="$SCRATCH/dedup"
+NCZ_TEST_STAGE_CMD='echo "MARKER-{stage}"' \
+    bash "$BIN" --arch amd64 --full --no-publish --run-dir "$DED" >/dev/null 2>&1
+ded_ok=1; ded_checked=0
+for f in "$DED"/logs/*.log; do
+    [ -f "$f" ] || continue
+    ded_checked=$((ded_checked + 1))
+    n="$(grep -c 'MARKER-' "$f" 2>/dev/null || true)"
+    [ "${n:-0}" = 1 ] || { ded_ok=0; bad "$(basename "$f") carries the marker ${n:-0} time(s), expected exactly 1"; }
+done
+if [ "$ded_checked" -gt 0 ] && [ "$ded_ok" = 1 ]; then
+    ok "every stage log carries its line exactly once ($ded_checked logs)"
+elif [ "$ded_checked" = 0 ]; then
+    bad "no stage logs were produced - the de-duplication check proved nothing"
+fi
+
 # --- 2c. fail-fast: a failing provenance stage stops the long stage -------
 # (uses the entrypoint's test-only NCZ_TEST_STAGE_CMD hook so no real stage runs)
 echo "== 2c. fail-fast ordering =="
@@ -529,20 +560,29 @@ pc_preflight() { # root arch -> prints preflight lines; rc 1 when preflight woul
 pc_fixture() { # name rc stub-output-lines... -> fixture root
     local d="$SCRATCH/pcroot-$1" rc="$2"; shift 2
     mkdir -p "$d/build" "$d/manifests"
-    cp "$ROOT/manifests/pin-coherence-known-fail.tsv" "$d/manifests/" 2>/dev/null
+    # A fixture states the known-fail ledger it needs. Copying the live one made these
+    # cases depend on today's repo: when rootfs-inputs was fixed (cycle 420) and its row
+    # deleted (cycle 421), three cases here started failing for the wrong reason.
+    # rule<TAB>owner<TAB>fix<TAB>reason - the four columns the gate requires; a row
+    # with the wrong shape is refused as malformed (that is a case of its own below).
+    printf '# fixture ledger: one known failure with owner, fix and reason\nrootfs-inputs\tsomeone\trebuild it: build/stage-build-inputs.sh --arch <arch> --publish\tknown until the rows are re-derived\n' \
+        > "$d/manifests/pin-coherence-known-fail.tsv"
     { echo '#!/bin/bash'; for l in "$@"; do printf 'echo %q\n' "$l"; done; echo "exit $rc"; } > "$d/build/check-pin-coherence.sh"
     printf '%s\n' "$d"
 }
 # (a) the real tree, real checker, real known-fail list: both arches proceed
 for a in arm64 amd64; do
     pout="$(pc_preflight "$ROOT" "$a")"; prc=$?
-    [ "$prc" = 0 ] && ok "real tree $a: preflight does not abort on the known rootfs-inputs failure" \
+    [ "$prc" = 0 ] && ok "real tree $a: preflight does not abort" \
         || bad "real tree $a: preflight aborts: $(grep 'FAIL' <<<"$pout" | head -3 | tr '\n' ' ')"
-    grep -q 'WARN: .*KNOWN pin-coherence failure: rootfs-inputs' <<<"$pout" \
-        && grep -q 'WARN: .*owner: ' <<<"$pout" \
-        && grep -q 'WARN: .*fix: .*stage-build-inputs.sh --arch <arch> --publish' <<<"$pout" \
-        && ok "real tree $a: loud WARN names rootfs-inputs, its owner and the exact fix" \
-        || bad "real tree $a: no WARN with owner + fix for rootfs-inputs: $(head -5 <<<"$pout" | tr '\n' ' ')"
+    # rootfs-inputs was the known failure until the four rows were re-derived from the
+    # real tarballs (cycle 420) and the ledger row deleted (cycle 421). So the real tree
+    # must now be clean - and the NO-WARN assertion below is the tripwire: if the rows
+    # drift again, the WARN comes back and this case fails instead of staying green.
+    grep -q 'pin coherence OK' <<<"$pout" \
+        && ! grep -q 'WARN: .*rootfs-inputs' <<<"$pout" \
+        && ok "real tree $a: pin coherence OK, no rootfs-inputs WARN (rows are bound)" \
+        || bad "real tree $a: expected a clean pin coherence with no rootfs-inputs WARN: $(head -5 <<<"$pout" | tr '\n' ' ')"
 done
 # (b) a failure outside the known list aborts
 F="$(pc_fixture new 1 '[pin-coherence] FAIL kernel-revision: manifest says r294')"

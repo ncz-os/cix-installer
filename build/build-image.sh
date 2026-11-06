@@ -737,12 +737,16 @@ STAGE_TIMES="$RUN_DIR/stages.tsv"
 # Rootful podman; the substrate is pre-staged into downloads/ so the container
 # does not need the host SUBSTRATE_CACHE_DIRS (r202 workaround #4).
 ncz_container_run() {
-    local line="$1" log="$2"
+    # M11: this helper used to `tee -a "$log"` as well, and run_stage pipes the stage's
+    # stdout through the same log - so every line of a container-run command appeared
+    # twice and log line numbers meant nothing. The only caller-side job here is to run
+    # the command; run_stage is the single writer of the stage log.
+    local line="$1"
     local -a mk=()
     [ -n "$JOBS" ] && mk=(-j "$JOBS")
     if [ "$USE_CONTAINER" != "1" ]; then
         ( cd "$ROOT" && for kv in "${NCZ_CRUN_HOSTENV[@]}"; do export "${kv?}"; done
-          bash -lc "$line" ) 2>&1 | tee -a "$log"
+          bash -lc "$line" ) 2>&1
         return "${PIPESTATUS[0]}"
     fi
     # M10: the container's make targets run as root inside a bind mount of the
@@ -798,7 +802,7 @@ ncz_container_run() {
     ncz_sudo podman run --rm --privileged --net=host "${mounts[@]}" \
         -w /work/cix-installer "${renv[@]}" \
         "$NCZ_IMAGEBUILD_TAG" \
-        bash -lc "git config --global --add safe.directory '*'; $line" 2>&1 | tee -a "$log"
+        bash -lc "git config --global --add safe.directory '*'; $line" 2>&1
     return "${PIPESTATUS[0]}"
 }
 
@@ -955,7 +959,8 @@ stage_preflight() {
         [ "$NO_PUBLISH" = 1 ] && hr_args+=(--no-publish)
         [ "$USE_CONTAINER" = 1 ] || hr_args+=(--no-container)
         hr_out="$(bash "$ROOT/build/host-ready.sh" "${hr_args[@]}" 2>&1)"; hr_rc=$?
-        printf '%s\n' "$hr_out" | tee -a "$log"
+        # M11: the same reason as ncz_container_run - run_stage appends the stage's stdout
+        printf '%s\n' "$hr_out"
         if [ "$hr_rc" = 0 ]; then
             say "host-ready: the builder host satisfies this commit"
         else
@@ -1214,7 +1219,7 @@ stage_stage_inputs() {
 # ---------------------------------------------------------------------------
 stage_offline_mirror() {
     local log="$1"
-    ncz_container_run "make offline-mirror ARCH=$ARCH BUILD_SHA=$GIT_SHA" "$log" || return $?
+    ncz_container_run "make offline-mirror ARCH=$ARCH BUILD_SHA=$GIT_SHA" || return $?
     # Record the mirror fingerprint so a later --respin can reuse it when its
     # inputs (release.conf + the pinned snapshot + the package manifests) are
     # unchanged.
@@ -1921,7 +1926,7 @@ stage_image() {
         NCZ_CRUN_MOUNTS=(-v "$MAGNETAR_DIR":/work/magnetar-payload)
         NCZ_CRUN_HOSTENV=("${srv[@]}" "NCZ_ASSETS_EXPORT_DIR=$MAGNETAR_DIR")
     fi
-    ncz_container_run "make image ARCH=$ARCH BUILD_SHA=$GIT_SHA" "$log"
+    ncz_container_run "make image ARCH=$ARCH BUILD_SHA=$GIT_SHA"
     local mrc=$?
     NCZ_CRUN_ENV=(); NCZ_CRUN_MOUNTS=(); NCZ_CRUN_HOSTENV=()
     [ "$mrc" = 0 ] || return "$mrc"
