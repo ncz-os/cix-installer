@@ -163,7 +163,11 @@ if [ -r "$CK" ]; then
     expect "abi: a rebuilt payload with a byte-identical libsingularity passes" 0 "ABI OK (lib-identical)" abi
     mkpayload "$C/ncz-singularity-desktop_20261008+bk0+tgzdddddddd_amd64.deb" amd64 20261008+bk0+tgzdddddddd LIB-CHANGED
     expect "abi: the newest payload with a changed libsingularity fails" 1 "ABI MISMATCH" abi
-    grep -q "amd64: .*container debian:forky" "$T/out" && grep -q "arm64: .*container debian:testing" "$T/out" && grep -q "tools/make-plugin-deb.sh" "$T/out" \
+    # The codename comes from release.conf, not from a hardcoded suite: the base has
+    # moved before, and an instruction that names the wrong container is worse than none.
+    base_codename="$(sed -n 's/^NCZ_BASE_CODENAME="\(.*\)"$/\1/p' "$ROOT/release.conf" 2>/dev/null)"
+    [ -n "$base_codename" ] || base_codename="forky"
+    grep -q "amd64: .*container debian:$base_codename" "$T/out" && grep -q "arm64: .*container debian:$base_codename" "$T/out" && grep -q "tools/make-plugin-deb.sh" "$T/out" \
         && ok "abi: the failure prints the rebuild hosts and commands" || bad "abi: the failure lacks rebuild instructions"
     expect "abi: --payload-deb selects an explicit payload" 0 "lib-identical" abi --payload-deb "$C/ncz-singularity-desktop_20261007+bk0+tgzcccccccc_amd64.deb"
     rm -f "$C/ncz-singularity-desktop_20261008"*
@@ -300,6 +304,24 @@ if python3 "$ROOT/build/gen-components-registry.py" --root "$ROOT" --out "$T/gen
     diff <(grep -P '^ncz-screensavers-plugin\t' "$T/gen.tsv") <(grep -P '^ncz-screensavers-plugin\t' "$ROOT/manifests/components.tsv") >/dev/null \
         && ok "registry: the committed plugin row is what the generator derives from the pin" || bad "registry: committed plugin row drifted from the pin"
 else bad "registry: generator failed"; fi
+
+# --- the additional symbol gate (ruling 1, 2026-11-06) -----------------------------
+# Identity must stay authoritative. These two checks are static on purpose: the
+# behavioural proof is the existing mismatch case above, which must still exit 1.
+grep -q 'check-payload-plugin-abi.sh' "$CK" \
+    && ok "abi: the stage-2 gate consults the symbol-superset tool" \
+    || bad "abi: the stage-2 gate never calls build/check-payload-plugin-abi.sh"
+grep -q 'this is not a waiver' "$CK" \
+    && ok "abi: a mismatch says in its own words that identity still governs" \
+    || bad "abi: the mismatch path does not state that identity still governs"
+# The symbol gate must never appear on the pass path: a mismatch has to exit 1 even
+# when the plugin would still load.
+# Range, not "any exit 0 after the verdict": from the mismatch message to the end of
+# the file there must be no exit 0, or a mismatch could be turned into a pass.
+awk '/identity gate: FAIL/{f=1} f && /exit 0/{print "BYPASS"; exit}' "$CK" \
+    | grep -q BYPASS \
+    && bad "abi: exit 0 is reachable after a mismatch" \
+    || ok "abi: nothing after the mismatch message can exit 0"
 
 echo "ssplugin supply-chain tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]
