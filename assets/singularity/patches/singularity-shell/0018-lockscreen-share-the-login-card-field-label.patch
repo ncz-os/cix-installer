@@ -32,7 +32,7 @@ index 786f63a..a4a5a2c 100644
 +     * label comes from the SAME shared resolver the greeter uses, so the two
 +     * login cards are built from one code path and cannot drift. */
 +    st.auth_label = loginui_field_label(label_buf, sizeof label_buf, NULL,
-+                                        access("/run/sinty-recoverd.sock", F_OK) == 0);
++                                        access("/run/sinty-recoverd.sock", F_OK) == 0, true);
      bool animating = apply_motion(&st);
  
  #ifdef LOCK_FRAMESRC

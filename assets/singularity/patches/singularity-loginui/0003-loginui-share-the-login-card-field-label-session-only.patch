@@ -28,7 +28,7 @@ diff --git a/loginui.h b/loginui.h
 + * credential kind ("PIN" for a PIN surface, else "Password").  The result is
 + * written into `out` (returned for convenience) or, when `out` is NULL/too
 + * small, a static default is returned. */
-+const char *loginui_field_label(char *out, size_t n, const char *prompt, bool is_pin);
++const char *loginui_field_label(char *out, size_t n, const char *prompt, bool is_pin, bool has_tpm);
 +
  /* align: 0 left, 1 centre, 2 right. */
  void loginui_render(cairo_t *cr, const LoginUiState *st,
@@ -43,8 +43,8 @@ diff --git a/src/render.c b/src/render.c
 +#include <string.h>
 +
 +/* See loginui.h.  One derivation of the field label for every login surface. */
-+const char *loginui_field_label(char *out, size_t n, const char *prompt, bool is_pin) {
-+    const char *fallback = is_pin ? "PIN" : "Password";
++const char *loginui_field_label(char *out, size_t n, const char *prompt, bool is_pin, bool has_tpm) {
++    const char *fallback = !is_pin ? "Password" : (has_tpm ? "PIN" : "Passphrase");
 +    if (!out || n == 0) return fallback;
 +    out[0] = '\0';
 +    if (prompt) {
