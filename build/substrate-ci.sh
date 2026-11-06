@@ -89,7 +89,7 @@ substrate-ci stages (docs/automatic-substrate-ci.md)
   4-5 build    TODO         rootfs + image per arch on the build hosts
   6 gate       PARTIAL      runs the gates that can run HERE (repo policy --live,
                             substrate pin, payload acceptance when the artifact is
-                            patch drift as a gate at the PINS, payload acceptance)
+                            patch drift at the PINS, payload acceptance, plugin ABI)
                             and aggregates them: skip is not pass. Read-only.
                             Not wired yet: payload ABI, image/metal
   7 decide     IMPLEMENTED  build/substrate-ci.py decide - auto-merge or open an MR
@@ -294,6 +294,7 @@ PYEOF
             _have="$(sha256sum "$_deb" 2>/dev/null | cut -d' ' -f1)"
             if [ "$_have" = "$_pin_sha" ]; then
                 _gate payload-acceptance bash "$ROOT/build/check-payload-ships-patches.sh" "$_deb"
+                _pinned_deb="$_deb"
             else
                 # Present but not the pin: a real fault, not a skip - either the artifact
                 # was overwritten or the pin was never rebuilt. Name-only would hide both.
@@ -309,6 +310,28 @@ PYEOF
             printf 'payload-acceptance\tskip\tpinned %s not on this host (%s)\n' "${_host_name:-<no pin for $_arch>}" "$_arch" >> "$_t"
         fi
 
+        # The plugin ABI is an artifact question too: the lock records the payload the
+        # screensaver plugin was built against and the libsingularity it links. Until
+        # this ran, nothing compared the payload we pin against that lock, so a payload
+        # could be pinned with a plugin that was never built against it.
+        if [ -n "${_pinned_deb:-}" ]; then
+            _alib="$(dpkg-deb --fsys-tarfile "$_pinned_deb" 2>/dev/null \
+                | tar -xO ./opt/singularity/lib/libsingularity.so.0.1.0 2>/dev/null \
+                | sha256sum | cut -d' ' -f1)"
+            _aver="$(dpkg-deb -f "$_pinned_deb" Version 2>/dev/null)"
+            if [ -n "$_alib" ]; then
+                _gate payload-abi python3 -I "$HERE/substrate-ci.py" abi \
+                    --lock "$ROOT/post-install/lib/ncz-screensavers-plugin.lock" \
+                    --arch "${_darch:-$_arch}" --payload-version "$_aver" --lib-sha "$_alib"
+            else
+                printf 'SKIP %-20s %s\n' payload-abi "cannot read libsingularity from the pinned payload"
+                printf 'payload-abi\tskip\tcannot read libsingularity\n' >> "$_t"
+            fi
+        else
+            printf 'SKIP %-20s %s\n' payload-abi "no pinned payload .deb on this host"
+            printf 'payload-abi\tskip\tno pinned payload .deb on this host\n' >> "$_t"
+        fi
+
         python3 -I - "$_t" "$_spec" <<'PYJSON'
 import json, sys
 rows = []
@@ -322,7 +345,7 @@ PYJSON
         echo
         python3 -I "$HERE/substrate-ci.py" gates "$_spec"
         _rc=$?
-        echo "---- not wired into stage 6 yet: payload ABI, image/metal checks"
+        echo "---- not wired into stage 6 yet: image/metal checks"
         echo "---- a red verdict here is a finding about the artifact, not a pin move"
         exit "$_rc"
         ;;

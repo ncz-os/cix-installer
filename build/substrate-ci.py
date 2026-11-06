@@ -339,6 +339,72 @@ def rehearse(spec, automerge=False, min_coverage=99.0, max_delta=150,
             "proof": proof, "gates": gates, "delta": delta}
 
 
+# --- the screensaver plugin's ABI contract -----------------------------------
+
+def read_ssplugin_lock(path):
+    """Read post-install/lib/ncz-screensavers-plugin.lock.
+
+    The lock is the single place that says which payload the shipped plugin was built
+    against and which libsingularity it links. It is shell assignments, so it is parsed
+    here once instead of grepped four times.
+    """
+    out = {"version": None, "abi_lib": None, "payload": {}, "libsha": {}, "package": None}
+    if not os.path.exists(path):
+        return out
+    for line in open(path, encoding="utf-8", errors="replace"):
+        # keys carry the arch in lower case (..._SHA256_arm64), so the key pattern has
+        # to accept lower case or the per-arch rows silently vanish
+        m = re.match(r'^(NCZ_SSPLUGIN_[A-Za-z0-9_]+)=["\']?([^"\'\n]*)["\']?\s*$', line)
+        if not m:
+            continue
+        key, val = m.group(1), m.group(2).strip()
+        if key == "NCZ_SSPLUGIN_VERSION":
+            out["version"] = val
+        elif key == "NCZ_SSPLUGIN_ABI_LIB":
+            out["abi_lib"] = val
+        elif key == "NCZ_SSPLUGIN_PACKAGE":
+            out["package"] = val
+        elif key.startswith("NCZ_SSPLUGIN_PAYLOAD_"):
+            out["payload"][key[len("NCZ_SSPLUGIN_PAYLOAD_"):].lower()] = val
+        elif key.startswith("NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_"):
+            out["libsha"][key[len("NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_"):].lower()] = val
+    return out
+
+
+def abi_verdict(lock, arch, payload_version, lib_sha):
+    """Decide whether a payload satisfies the plugin ABI the lock records.
+
+    The same rule as post-install/lib/ncz-ssplugin-install.sh::ssplugin_abi_verdict:
+    the payload version matches the locked one, OR the libsingularity it ships is
+    byte-identical to the locked library. Anything else is a mismatch - which is not a
+    formality: it means the plugin the image installs was never built against this
+    payload, and no gate had looked until now.
+    """
+    locked_payload = lock.get("payload", {}).get(arch)
+    locked_lib = lock.get("libsha", {}).get(arch)
+    out = {"arch": arch, "payload_version": payload_version, "lib_sha": lib_sha,
+           "locked_payload": locked_payload, "locked_libsha": locked_lib,
+           "ok": False, "verdict": "mismatch", "why": ""}
+    if not locked_payload and not locked_lib:
+        out["why"] = "the lock has no row for %s" % arch
+        return out
+    if payload_version and locked_payload and payload_version == locked_payload:
+        out["ok"] = True
+        out["verdict"] = "version-match"
+        out["why"] = "payload version %s is the one the plugin was built against" % payload_version
+        return out
+    if lib_sha and locked_lib and lib_sha == locked_lib:
+        out["ok"] = True
+        out["verdict"] = "lib-identical"
+        out["why"] = ("payload %s differs from the locked %s, but libsingularity is "
+                      "byte-identical (%s)" % (payload_version, locked_payload, lib_sha[:12]))
+        return out
+    out["why"] = ("payload %s ships libsingularity %s, the plugin lock expects %s from payload %s"
+                  % (payload_version, (lib_sha or "?")[:12], (locked_lib or "?")[:12],
+                     locked_payload))
+    return out
+
+
 # --- stage 1 input: the current pin inventory -------------------------------
 
 def read_pins(root):
@@ -669,6 +735,15 @@ def _cmd_propose(args):
     return 0 if out.get("error") is None else 2
 
 
+def _cmd_abi(args):
+    lock = read_ssplugin_lock(args.lock)
+    out = abi_verdict(lock, args.arch, args.payload_version, args.lib_sha)
+    print(json.dumps(out, indent=2, sort_keys=True))
+    # one readable line last: the CI driver reports the last line of a gate's output
+    print("abi: %s - %s" % (out["verdict"], out["why"]))
+    return 0 if out["ok"] else 1
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="automatic substrate CI decision core")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -722,6 +797,13 @@ def main(argv=None):
     pn.add_argument("--root", default=os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))))
     pn.set_defaults(func=_cmd_pins)
+
+    ab = sub.add_parser("abi", help="stage 6: does a payload satisfy the plugin ABI lock")
+    ab.add_argument("--lock", required=True, help="post-install/lib/ncz-screensavers-plugin.lock")
+    ab.add_argument("--arch", required=True, choices=["amd64", "arm64"])
+    ab.add_argument("--payload-version", default="")
+    ab.add_argument("--lib-sha", default="")
+    ab.set_defaults(func=_cmd_abi)
 
     pr = sub.add_parser("propose", help="stage 3: rehearse or write a pin move")
     pr.add_argument("spec", help="JSON: root, changes, old, new, evidence, changelog_path")

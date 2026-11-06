@@ -404,6 +404,42 @@ check(r["error"] is not None and open(os.path.join(root, "manifests/base.pin")).
 _sh.rmtree(root, ignore_errors=True)
 
 
+# ---- plugin ABI lock vs payload (stage 6) -----------------------------------
+abiroot = tempfile.mkdtemp(prefix="ncz-abi-")
+lock = os.path.join(abiroot, "plugin.lock")
+open(lock, "w").write(
+    "NCZ_SSPLUGIN_VERSION=0.3.25\n"
+    "NCZ_SSPLUGIN_PAYLOAD_amd64=20261013233000+bk0+tgzef364e5b\n"
+    "NCZ_SSPLUGIN_PAYLOAD_arm64=20261013233000+bk0+tgz03b581f4\n"
+    "NCZ_SSPLUGIN_ABI_LIB=/opt/singularity/lib/libsingularity.so.0\n"
+    "NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_amd64=aa97ef0a\n"
+    "NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_arm64=2da0aeb5\n")
+lk = m.read_ssplugin_lock(lock)
+check(lk["version"] == "0.3.25" and lk["abi_lib"].endswith("libsingularity.so.0"),
+      "abi: lock header parsed")
+check(lk["payload"]["arm64"] == "20261013233000+bk0+tgz03b581f4"
+      and lk["libsha"]["amd64"] == "aa97ef0a", "abi: per-arch rows parsed")
+
+v = m.abi_verdict(lk, "arm64", "20261013233000+bk0+tgz03b581f4", "ffff")
+check(v["ok"] and v["verdict"] == "version-match", "abi: same payload version passes")
+
+v = m.abi_verdict(lk, "arm64", "20261106151728+bk0+git6427e9c4", "2da0aeb5")
+check(v["ok"] and v["verdict"] == "lib-identical",
+      "abi: a new payload passes when libsingularity is byte-identical")
+
+v = m.abi_verdict(lk, "arm64", "20261106151728+bk0+git6427e9c4", "561e7a49")
+check(not v["ok"] and v["verdict"] == "mismatch", "abi: new payload + new library is a mismatch")
+check("2da0aeb5" in v["why"] and "561e7a49" in v["why"], "abi: the mismatch names both shas")
+
+v = m.abi_verdict(lk, "riscv64", "x", "y")
+check(not v["ok"] and "no row" in v["why"], "abi: an arch the lock does not cover is reported, not passed")
+
+empty = m.read_ssplugin_lock(os.path.join(abiroot, "no-such.lock"))
+check(empty["version"] is None and empty["payload"] == {}, "abi: a missing lock yields empty, not a crash")
+check(not m.abi_verdict(empty, "arm64", "v", "s")["ok"], "abi: a missing lock cannot pass")
+_sh.rmtree(abiroot, ignore_errors=True)
+
+
 print("\n%d passed, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)
 PY
