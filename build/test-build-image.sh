@@ -142,7 +142,7 @@ pp="$(spos provenance-predict)"; si="$(spos stage-inputs)"
 ss="$(spos secret-scan)"
 [ -n "$ss" ] && [ -n "$im" ] && [ "$ss" -gt "$im" ] && ok "secret-scan (#$ss) runs AFTER image (#$im)" || bad "secret-scan must run after image (ss=$ss im=$im)"
 [ -n "$ss" ] && [ -n "$kg" ] && [ "$ss" -lt "$kg" ] && ok "secret-scan (#$ss) runs BEFORE kvm-gate (#$kg)" || bad "secret-scan must run before kvm-gate (ss=$ss kg=$kg)"
-if bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null | grep -E  '^[[:space:]]+\[off *\] [0-9]+ secret-scan$' >/dev/null; then
+if bash "$BIN" --arch amd64 --full --dry-run 2>/dev/null | grep -qE '^[[:space:]]+\[off *\] [0-9]+ secret-scan$'; then
     bad "secret-scan is switchable off (it must always run)"
 else
     ok "secret-scan is never switched off by a gate/scope selection"
@@ -154,7 +154,7 @@ sg="$(spos static-gates)"
 [ -n "$sg" ] && [ -n "$lr" ] && [ "$sg" -lt "$lr" ] && ok "static-gates (#$sg) runs BEFORE layers (#$lr)" || bad "static-gates must run before layers (sg=$sg lr=$lr)"
 for gsel in --gates\ kvm --gates\ provenance; do
     for scope in --full --respin --rebuild-base --rebuild-hotfix --only-image; do
-        if bash "$BIN" --arch amd64 $scope --no-publish $gsel --dry-run 2>/dev/null | grep -E  '^[[:space:]]+\[off *\] [0-9]+ static-gates$' >/dev/null; then
+        if bash "$BIN" --arch amd64 $scope --no-publish $gsel --dry-run 2>/dev/null | grep -qE '^[[:space:]]+\[off *\] [0-9]+ static-gates$'; then
             bad "static-gates is switchable off ($scope $gsel)"
         else
             ok "static-gates is never switched off ($scope $gsel)"
@@ -163,8 +163,8 @@ for gsel in --gates\ kvm --gates\ provenance; do
 done
 gk_plan="$(bash "$BIN" --arch amd64 --full --no-publish --gates kvm --dry-run 2>/dev/null \
     | awk '/^  stages:/{f=1;next} f&&/^    \[/{print $0}')"
-if printf '%s\n' "$gk_plan" | grep  'secret-scan' >/dev/null; then
-    if printf '%s\n' "$gk_plan" | grep  '\[run *\] [0-9]* *secret-scan' >/dev/null; then
+if printf '%s\n' "$gk_plan" | grep -q 'secret-scan'; then
+    if printf '%s\n' "$gk_plan" | grep -q '\[run *\] [0-9]* *secret-scan'; then
         ok "--gates kvm still RUNS the mandatory secret-scan"
     else
         bad "--gates kvm listed secret-scan but did not run it"
@@ -180,7 +180,7 @@ echo "== 2b2. M11 log de-duplication =="
 # appear twice and moved every line number in the file.
 for fn in ncz_container_run stage_preflight; do
     body="$(awk -v f="$fn" '$0 ~ "^"f"\\(\\)" {p=1} p' "$BIN" | awk 'p{print} /^}/&&p{exit}')"
-    if printf '%s\n' "$body" | grep  'tee -a "\$log"' >/dev/null; then
+    if printf '%s\n' "$body" | grep -q 'tee -a "\$log"'; then
         bad "$fn still appends to the stage log itself (M11: run_stage is the only writer)"
     else
         ok "$fn does not append to the stage log"

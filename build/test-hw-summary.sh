@@ -101,10 +101,10 @@ say() {
 }
 has() { # NAME DESC NEEDLE
     local out; if ! out=$(say "$1"); then bad "$2: probe run failed"; return; fi
-    if printf '%s\n' "$out" | grep -F  -- "$3" >/dev/null; then ok "$2"; else bad "$2" "wanted: $3" "got:" "$out"; fi
+    if printf '%s\n' "$out" | grep -qF -- "$3"; then ok "$2"; else bad "$2" "wanted: $3" "got:" "$out"; fi
 }
 hasnt() { local out; out=$(say "$1")
-    if printf '%s\n' "$out" | grep -F  -- "$3" >/dev/null; then bad "$2" "unwanted: $3" "got:" "$out"; else ok "$2"; fi; }
+    if printf '%s\n' "$out" | grep -qF -- "$3"; then bad "$2" "unwanted: $3" "got:" "$out"; else ok "$2"; fi; }
 
 # --- T2 MacBookPro16,1 -------------------------------------------------------
 fx t2 >/dev/null; sysv t2 "Apple Inc."; prod t2 "MacBookPro16,1"; bios t2 "1037.0.9.0.0"
@@ -188,7 +188,7 @@ hasnt gr "two identical cards: neither called secondary" "secondary display func
 fx sk >/dev/null; sysv sk "CIX"; prod sk "Sky1 EVB"; cpu sk "CIX Sky1 CP8180" 12
 has sk "Sky1 with no PCI devices: NPU/VPU still listed" "CIX Sky1 NPU and VPU"
 : > "$T/gr/state/.ncz-hwsummary-shown"
-out=$(run gr --render 2>/dev/null); printf '%s' "$out" | grep  "HARDWARE SUMMARY" >/dev/null && ok "--render ignores the once-per-boot marker" || bad "--render ignores the once-per-boot marker" "$out"
+out=$(run gr --render 2>/dev/null); printf '%s' "$out" | grep -q "HARDWARE SUMMARY" && ok "--render ignores the once-per-boot marker" || bad "--render ignores the once-per-boot marker" "$out"
 rm -f "$T/gr/state/.ncz-hwsummary-shown"
 # the dialog path loads the confmodule and the real template loader
 grep -q '/usr/share/debconf/confmodule' "$HS" && ok "--dialog sources the debconf confmodule" || bad "--dialog sources the debconf confmodule"
@@ -245,8 +245,8 @@ for fxn in o6 qv t2 arrow nv cix; do
     if [ -n "$body" ] && [ -z "$badl" ]; then ok "$fxn: every summary line is verbatim (two spaces) or ' .'"
     else bad "$fxn: every summary line is verbatim (two spaces) or ' .'" "$badl" "$tpl"; fi
     for item in "  System:" "  CPU:" "  Memory:"; do
-        printf '%s\n' "$body" | grep  "^$item" >/dev/null && ok "$fxn: '${item# }' starts its own line" \
-            || { printf '%s\n' "$body" | grep  "${item#  }" >/dev/null && bad "$fxn: '${item# }' starts its own line" "$body" || ok "$fxn: '${item# }' absent (no data), nothing to check"; }
+        printf '%s\n' "$body" | grep -q "^$item" && ok "$fxn: '${item# }' starts its own line" \
+            || { printf '%s\n' "$body" | grep -q "${item#  }" && bad "$fxn: '${item# }' starts its own line" "$body" || ok "$fxn: '${item# }' absent (no data), nothing to check"; }
     done
     long=$(printf '%s\n' "$tpl" | awk 'length($0) > 70' | head -2)
     [ -z "$long" ] && ok "$fxn: no template line wider than 70 columns" || bad "$fxn: no template line wider than 70 columns" "$long"
@@ -266,7 +266,7 @@ mkdir -p "$T/none/proc" "$T/none/state"
 out=$(env NCZ_HW_PROC="$T/none/proc" NCZ_HW_SYS="$T/none/sys" NCZ_HW_DMI="$T/none/sys/class/dmi/id" \
     NCZ_HW_CMDLINE="$T/none/proc/cmdline" NCZ_HW_STATE="$T/none/state/.ncz-hwsummary-shown" NCZ_TMP="$T/none/state" \
     NCZ_UI_SH=/nonexistent NCZ_UI_PAYLOAD=/nonexistent NCZ_CONFMODULE=/nonexistent sh "$HS" --render 2>"$T/e1"); rc=$?
-if [ "$rc" = 0 ] && printf '%s' "$out" | grep  "No hardware could be identified" >/dev/null; then
+if [ "$rc" = 0 ] && printf '%s' "$out" | grep -q "No hardware could be identified"; then
     ok "no /proc, no /sys: exit 0 with the fallback sentence"
 else bad "no /proc, no /sys: exit 0 with the fallback sentence" "rc=$rc" "$out" "$(cat "$T/e1")"; fi
 # A command that fails mid-probe (the whole /proc is a directory we cannot
@@ -413,7 +413,7 @@ else echo "note NCZ_SCREENSAVER_LAUNCHER unset: engine table cross-check skipped
 # a malformed sysfs id must not abort the script (dash dies on bad arithmetic)
 fx bad >/dev/null; pci bad 0000:01:00.0 030000 1002 zz; pci bad 0000:02:00.0 030000 10de zz
 out=$(run bad --collect); rc=$?
-[ "$rc" = 0 ] && printf '%s' "$out" | grep  'GPU:' >/dev/null && ok "malformed PCI ids: exit 0, GPU lines still printed" \
+[ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'GPU:' && ok "malformed PCI ids: exit 0, GPU lines still printed" \
     || bad "malformed PCI ids: exit 0" "rc=$rc" "$out"
 
 # --- the dialog text itself (title from ncz_ui_brand, brand + id last line) --

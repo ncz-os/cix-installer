@@ -62,7 +62,7 @@ else
         "$(grep -n 'zz[12]-' "$BOOTLOADER")"
 fi
 if awk '/export KVER_STABLE/ { inblock=1 } inblock && /"\$SHARED_DST"/ { print; exit }' "$BOOTLOADER" \
-   | grep -E  '"\$SHARED_DST"[[:space:]]*$' >/dev/null; then
+   | grep -qE '"\$SHARED_DST"[[:space:]]*$'; then
     ok "A2) the install-time generator is still called without a verb (first install)"
 else
     bad "A2) the install-time generator is still called without a verb (first install)" \
@@ -75,7 +75,7 @@ fi
 # KVER_STABLE_SRC/INITRD paths "/vmlinuz-..." and every add would fail.
 _a3_bad=""
 for _h in "$ZZ1" "$ZZ2"; do
-    head -1 "$_h" | grep  '^#!/bin/bash' >/dev/null || _a3_bad="$_a3_bad $(basename "$_h"):no-shebang"
+    head -1 "$_h" | grep -q '^#!/bin/bash' || _a3_bad="$_a3_bad $(basename "$_h"):no-shebang"
 done
 grep -qE '^BOOTDIR="\$\{BOOTDIR:-/boot\}"' "$ZZ1" || _a3_bad="$_a3_bad zz1:no-BOOTDIR-default"
 grep -qE '\$BOOTDIR/vmlinuz-' "$ZZ1" || _a3_bad="$_a3_bad zz1:BOOTDIR-unused"
@@ -294,7 +294,7 @@ _added_opts="$(awk -v k="$NEW_KVER" '
             print line; exit
         }' "$w/esp/EFI/BOOT/refind.conf")"
 if [ -n "$_added_opts" ] \
-   && printf '%s\n' "$_added_opts" | grep -E  '(^|[[:space:]])root=PARTUUID=[^[:space:]]+' >/dev/null; then
+   && printf '%s\n' "$_added_opts" | grep -qE '(^|[[:space:]])root=PARTUUID=[^[:space:]]+'; then
     ok "C4) the appended entry carries a valid root=PARTUUID= (no probe needed)"
 else
     bad "C4) the appended entry carries a valid root=PARTUUID= (no probe needed)" \

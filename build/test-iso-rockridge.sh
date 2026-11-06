@@ -109,7 +109,7 @@ rc=0; out=$(python3 -I "$PY" --ubuntu-only --work "$W/work" --iso-evidence "$W/e
     --substrate-iso "$W/rr.iso" 2>&1) || rc=$?
 L="$W/ev/iso-listing.txt"
 [ "$rc" = 0 ] && [ -s "$L" ] && ok "--iso-evidence wrote $(wc -l < "$L") lines (rc=0)" || no "--iso-evidence rc=$rc: $out"
-head -1 "$L" | grep  '^# ncz iso-listing v2' >/dev/null && ok "listing carries the v2 header" || no "no v2 header"
+head -1 "$L" | grep -q '^# ncz iso-listing v2' && ok "listing carries the v2 header" || no "no v2 header"
 grep -qF "'/dists/forky/main/debian-installer/binary-amd64/Packages.gz'" "$L" \
     && ok "listing names the full Rock Ridge path" || no "listing lacks the full path"
 verify() {  # listing -> "VERIFY <bool> <fails>"

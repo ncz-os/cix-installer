@@ -131,7 +131,7 @@ EOF_SRV
         bash "$SCRIPT_DIR/kvm-install-gate-gpt.sh" "$IMG" "$_w" 2>&1 | tee "$WORKROOT/$_s.log"
     _rc="${PIPESTATUS[0]}"
     _dt=$(( $(date +%s) - _t0 ))
-    if [ "$_rc" = 0 ] && { grep -q '^GATE PASS' "$WORKROOT/$_s.log" || grep  '^GATE PASS (server-offline-negative)' "$WORKROOT/$_s.log" >/dev/null; }; then
+    if [ "$_rc" = 0 ] && { grep -q '^GATE PASS' "$WORKROOT/$_s.log" || grep -q '^GATE PASS (server-offline-negative)' "$WORKROOT/$_s.log"; }; then
         printf '%s\t%s\tPASS\t%s\t%s\t%s\n' "$_s" "$_c" "$_dt" "$_w" "$_coverage" >> "$SUMMARY"
         if [ "${NCZ_GATE_KEEP:-0}" != 1 ]; then
             rm -f "$_w"/*-qemutest.img "$_w/target.qcow2" "$_w/OVMF_VARS.fd"

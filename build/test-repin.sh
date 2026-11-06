@@ -302,7 +302,7 @@ done
 [ "$(git -C "$F" rev-list --count HEAD)" = 2 ] \
     && ok "the re-pin is exactly ONE commit on top of the base" \
     || bad "the re-pin is not exactly one commit" "$(git -C "$F" log --oneline)"
-git -C "$F" show --name-only --format= HEAD | grep -x  'manifests/determinism.pin' >/dev/null \
+git -C "$F" show --name-only --format= HEAD | grep -qx 'manifests/determinism.pin' \
     && ok "determinism.pin moved in the same commit" \
     || bad "determinism.pin did not move in the commit"
 [ -z "$(status_of "$F")" ] && ok "git status --porcelain is empty after the commit" \
@@ -329,7 +329,7 @@ printf '%s' "$(new_row_c newudeb)" > "$T/newrow"
 out="$(REPIN_EXTRA_ENV="STUB_NEW_ROW_FILE=$T/newrow" repin "$F" --arch both $(both) --commit 2>&1)"; rc=$?
 if [ "$rc" != 0 ]; then ok "an unreviewed new sid row stops the re-pin (rc=$rc)"; \
 else bad "a new sid row did not stop the re-pin" "$out"; fi
-echo "$out" | grep -i  'NEW sid exception needs a human review' >/dev/null \
+echo "$out" | grep -qi 'NEW sid exception needs a human review' \
     && ok "the new row is named for review" || bad "the new row was not named" "$out"
 [ "$(new_pin_of "$F")" = "$P0" ] && ok "nothing was pinned" \
     || bad "the pin moved despite new sid content"
@@ -401,7 +401,7 @@ for opt in --arch --snapshot --iso-amd64 --iso-arm64 --review-by \
     out="$(timeout 20 bash "$REPIN" "$opt" 2>&1)"; rc=$?
     [ "$rc" = 2 ] && ok "$opt with no value is a usage error (rc=2)" \
         || bad "$opt with no value did not die with rc 2 (rc=$rc)" "$out"
-    printf '%s\n' "$out" | grep -F  -e "$opt requires a value" >/dev/null \
+    printf '%s\n' "$out" | grep -qF -e "$opt requires a value" \
         && ok "$opt names the missing value" || bad "$opt error is unclear" "$out"
 done
 
@@ -416,7 +416,7 @@ mkdir -p "$H/build/lib"; cp "$ROOT/build/lib/"* "$H/build/lib/" 2>/dev/null
 out="$( bash "$H/build/refresh-substrate.sh" --sync-only 2>&1 )"; rc=$?
 [ "$rc" != 0 ] && ok "--sync-only refuses a one-arch base.pin (rc=$rc)" \
     || bad "--sync-only accepted a one-arch base.pin" "$out"
-echo "$out" | grep -i  'no arm64 row\|half pin' >/dev/null \
+echo "$out" | grep -qi 'no arm64 row\|half pin' \
     && ok "the half-pin refusal names the missing arch" || bad "unclear half-pin error" "$out"
 
 echo "-- results --"

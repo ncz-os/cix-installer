@@ -25,7 +25,7 @@ for f in preseed/*.sh preseed/preseed.cfg post-install/*.sh post-install/lib/*.s
          assets/refind/*.sh assets/refind/zz1-ncz-refind-refresh-amd64 assets/ncz-cli.sh \
          build/iso/build-refind-esp.py; do
     [ -f "$f" ] || continue
-    case "$f" in post-install/[0-9]*) printf '%s\n' "${f##*/}" | grep -E  "$SKIP" >/dev/null && continue ;; esac
+    case "$f" in post-install/[0-9]*) printf '%s\n' "${f##*/}" | grep -qE "$SKIP" && continue ;; esac
     files+=("$f")
 done
 
@@ -47,7 +47,7 @@ while IFS= read -r hit; do
         if [ "${cut%%$'\t'*}" != 0 ]; then used="$used $idx"; rest="${cut#*$'\t'}"; fi
     done < "$ALLOW"
     allowed=1
-    printf '%s\n' "$rest" | grep -i  cygnus >/dev/null && allowed=0
+    printf '%s\n' "$rest" | grep -qi cygnus && allowed=0
     if [ "$allowed" = 0 ]; then
         echo "FAIL $f:$n: names the desktop codename on the server install path: $(printf '%s' "$line" | sed 's/^[[:space:]]*//' | cut -c1-160)"
         fail=1

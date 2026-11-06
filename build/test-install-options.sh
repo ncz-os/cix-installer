@@ -427,7 +427,7 @@ for s in "$AMD" "$ARM"; do
     case "$r" in "desktop|Default|$full|"*) ok "$n: desktop medium, desktop on: full menu, default unchanged" ;; *) nok "$n: desktop install: $r" ;; esac
     r=$(menu server server rescue-partition)
     case "$r" in "server|"*"Console"*"|2|0") ok "$n: Magnetar medium: Console + Rescue Partition only, default Console, no desktop entry" ;; *) nok "$n: server menu: $r" ;; esac
-    grep -E '^menuentry ' "$W/mv/refind.conf" | grep  'Console' >/dev/null && grep -E '^menuentry ' "$W/mv/refind.conf" | grep  'Rescue Partition' >/dev/null \
+    grep -E '^menuentry ' "$W/mv/refind.conf" | grep -q 'Console' && grep -E '^menuentry ' "$W/mv/refind.conf" | grep -q 'Rescue Partition' \
         && ok "$n: the two server entries are Console and Rescue Partition" || nok "$n: server entries: $(grep '^menuentry ' "$W/mv/refind.conf")"
     r=$(menu server server rescue-partition desktop)
     case "$r" in "desktop|"*"|$full|"*) ok "$n: an explicit NCZ_VARIANT=desktop still wins over the marker" ;; *) nok "$n: env override: $r" ;; esac

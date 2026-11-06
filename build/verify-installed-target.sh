@@ -495,7 +495,7 @@ for _k in $(lsnames /usr/lib/modules 2>/dev/null | sed 's#/$##'); do
     case "$_k" in [0-9]*) ;; *) continue ;; esac      # skip banner/noise lines
     _ivpu_seen="$_ivpu_seen $_k"
     if exists "/usr/lib/modules/$_k/modules.dep" \
-       && dfs "cat /usr/lib/modules/$_k/modules.dep" 2>/dev/null | grep  'intel_vpu' >/dev/null; then
+       && dfs "cat /usr/lib/modules/$_k/modules.dep" 2>/dev/null | grep -q 'intel_vpu'; then
         _ivpu_found="$_k (modules.dep)"; break
     fi
     # Fallback: the module FILE itself, in case modules.dep was regenerated
@@ -509,7 +509,7 @@ done
 if [ -n "$_ivpu_found" ]; then
     echo "[verify-target]     intel_vpu present: $_ivpu_found"
 elif [ -n "$_ivpu_seen" ] && exists "/boot/config-$(printf '%s' "$_ivpu_seen" | awk '{print $1}')" \
-     && dfs "cat /boot/config-$(printf '%s' "$_ivpu_seen" | awk '{print $1}')" 2>/dev/null | grep  '^CONFIG_INTEL_VPU=y' >/dev/null; then
+     && dfs "cat /boot/config-$(printf '%s' "$_ivpu_seen" | awk '{print $1}')" 2>/dev/null | grep -q '^CONFIG_INTEL_VPU=y'; then
     echo "[verify-target]     intel_vpu is built in (CONFIG_INTEL_VPU=y)"
 else
     gate_miss intel-npu "intel_vpu absent from every module tree (scanned:${_ivpu_seen:- none}) -- no NPU on a Core Ultra host"
@@ -549,7 +549,7 @@ if exists /var/lib/ncz/intel-accel.status; then
         done)
             _dpkg="$(dfs "cat /var/lib/dpkg/status" 2>/dev/null)"
             for _p in intel-level-zero-npu intel-fw-npu intel-driver-compiler-npu intel-validation-npu; do
-                printf '%s\n' "$_dpkg" | grep -x  "Package: $_p" >/dev/null \
+                printf '%s\n' "$_dpkg" | grep -qx "Package: $_p" \
                     || gate_miss intel-npu "installer recorded NPU userspace 'done' but $_p is not installed"
             done
             echo "[verify-target]     installer marker 'done': NPU userspace packages present"

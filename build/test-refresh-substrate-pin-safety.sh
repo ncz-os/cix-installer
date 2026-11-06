@@ -75,7 +75,7 @@ out="$(run_sync "$F" NCZ_ALLOW_SUITE_DIGESTS_CMD=1 NCZ_SUITE_DIGESTS_CMD=true)";
     || bad "an injected snapshot stamp was accepted (rc=$rc)" "$out"
 [ ! -e "$MARK" ] && ok "the injected command did not execute" \
     || bad "the injected command EXECUTED (shell injection)" "$(cat "$MARK" 2>/dev/null)"
-printf '%s\n' "$out" | grep -i  'not a YYYYMMDDTHHMMSSZ' >/dev/null \
+printf '%s\n' "$out" | grep -qi 'not a YYYYMMDDTHHMMSSZ' \
     && ok "the refusal explains the required stamp format" \
     || bad "the refusal does not name the stamp format" "$out"
 
@@ -87,7 +87,7 @@ out="$(run_sync "$F" NCZ_SUITE_DIGESTS_CMD="touch $MARK2 --")"; rc=$?
     || bad "NCZ_SUITE_DIGESTS_CMD replaced the signed fetch without an opt-in (rc=$rc)" "$out"
 [ ! -e "$MARK2" ] && ok "the override command did not run" \
     || bad "the override command RAN without the test opt-in"
-printf '%s\n' "$out" | grep  'NCZ_ALLOW_SUITE_DIGESTS_CMD' >/dev/null \
+printf '%s\n' "$out" | grep -q 'NCZ_ALLOW_SUITE_DIGESTS_CMD' \
     && ok "the refusal names the required opt-in" \
     || bad "the refusal does not name the opt-in" "$out"
 

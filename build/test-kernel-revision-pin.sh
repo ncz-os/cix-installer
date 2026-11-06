@@ -95,7 +95,7 @@ expect_rc "vendor mirror refuses r292 debs under the r293 manifest" 1 env \
     ARCH=arm64 USB_RECOVERY_DEBS="$W/none" SINTY_DEBS="$W/none" CHROME_DEB_CACHE="$W/chrome" \
     bash "$REPO/build/build-vendor-mirror.sh"
 if grep -q "is not the pinned revision" <<<"$LAST"; then ok "  refused by the revision pin"; else bad "  refused for another reason" "$LAST"; fi
-if find "$W/mirror" -name '*.deb' | grep  . >/dev/null; then bad "vendor mirror pool is not empty after the refused run"
+if find "$W/mirror" -name '*.deb' | grep -q .; then bad "vendor mirror pool is not empty after the refused run"
 else ok "nothing was published by the refused run"; fi
 
 echo "=== 3b. build-kernel-debs.sh packaging revision ==="

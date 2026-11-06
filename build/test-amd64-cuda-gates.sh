@@ -692,7 +692,7 @@ eq "allfail: status failed:no-buildable-driver" "$(st)" "failed:no-buildable-dri
 eq "allfail: every offered version was tried once" "$(drvcalls)" 3
 eq "allfail: one build record per version" "$(wc -l < "$CS/var/lib/ncz/cuda-setup.dkms-failed" | tr -d ' ')" 3
 grep -q '^remove .*nvidia-kernel-open-dkms' "$CS/apt.calls" && ok "allfail: the unbuildable module package was removed" || nok "allfail: module package not removed"
-awk '$1=="nvidia-kernel-open-dkms" && $3 ~ /^i[FUH]/' "$CS/dpkg.state" | grep  . >/dev/null && nok "allfail: a half-configured module package was left behind" || ok "allfail: no half-configured (iF) module package left"
+awk '$1=="nvidia-kernel-open-dkms" && $3 ~ /^i[FUH]/' "$CS/dpkg.state" | grep -q . && nok "allfail: a half-configured module package was left behind" || ok "allfail: no half-configured (iF) module package left"
 eq "allfail: the family pin is restored" "$(pinline)" "version [1-9][0-9][0-9]*"
 grep -q 'integrated GPU' "$CS/etc/motd.d/ncz-nvidia-driver" 2>/dev/null && ok "allfail: a login notice tells the user (not just a failed unit)" || nok "allfail: no user-visible notice"
 cs status >/dev/null; grep -q '615.71.10 for kernel' "$CS/out" && grep -q '610.57.04 for kernel' "$CS/out" && ok "allfail: status lists every failed build with its first error" || nok "allfail: status lacks the build failures"
@@ -900,7 +900,7 @@ unset NCZ_NV_DKMS_PATCHES NCZ_DKMS_ETC NCZ_DKMS_TREE NCZ_SRC_ROOT NCZ_MODULES_RO
 NR="$W/notice"; rm -rf "$NR"; mkdir -p "$NR/var/lib/ncz" "$NR/var/lib/dpkg" "$NR/etc/ncz" "$NR/etc/systemd/system/timers.target.wants"
 : > "$NR/var/lib/dpkg/status"; echo FAMILY=turing-plus > "$NR/etc/ncz/cuda-selection.conf"; : > "$NR/etc/systemd/system/timers.target.wants/ncz-cuda-setup.timer"
 echo failed:no-buildable-driver > "$NR/var/lib/ncz/cuda-toolkit.status"
-( . "$ROOT/post-install/lib/dkms-pending.sh"; ncz_firstboot_gpu_notice "$NR" ) | grep  'integrated GPU' >/dev/null \
+( . "$ROOT/post-install/lib/dkms-pending.sh"; ncz_firstboot_gpu_notice "$NR" ) | grep -q 'integrated GPU' \
     && ok "notice: first boot explains that no NVIDIA driver builds and the iGPU is used" || nok "notice: no first-boot explanation for failed:no-buildable-driver"
 
 # ------------------------------------------- component chooser: "cuda" visibility

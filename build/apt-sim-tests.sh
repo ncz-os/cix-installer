@@ -242,7 +242,7 @@ inst_args=$(grep '^SIM=0' "$log" | sed 's/^SIM=0 args=//')
 expected_pkgs="ca-certificates git golang-go libtinysparql-dev libsoup-3.0-dev libgee-0.8-dev build-essential"
 for pkg in $expected_pkgs; do
     if [ "$sim_args" = "$inst_args" ] && \
-       printf '%s' "$sim_args" | grep -F  -- "$pkg" >/dev/null; then
+       printf '%s' "$sim_args" | grep -qF -- "$pkg"; then
         : # ok
     else
         fail "Test5: missing pkg or arg mismatch for $pkg"
@@ -255,8 +255,8 @@ else
     fail "Test5: arg parity broken on full list -- sim='$sim_args' install='$inst_args'"
 fi
 # Verify -y and --no-install-recommends were passed (not stripped)
-if printf '%s' "$sim_args" | grep  -- '-y' >/dev/null && \
-   printf '%s' "$sim_args" | grep  -- '--no-install-recommends' >/dev/null; then
+if printf '%s' "$sim_args" | grep -q -- '-y' && \
+   printf '%s' "$sim_args" | grep -q -- '--no-install-recommends'; then
     pass "Test5: -y and --no-install-recommends preserved verbatim"
 else
     fail "Test5: install flags lost"

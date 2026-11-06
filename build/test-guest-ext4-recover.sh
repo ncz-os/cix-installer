@@ -84,9 +84,9 @@ fi
 HOOK="$HERE/../post-install/97-firstboot-report.sh"
 grep -q '} > /var/log/ncz-first-boot-report.txt' "$HOOK" && grep -q '^ConditionPathExists=!/var/log/ncz-first-boot-report.txt$' "$HOOK" \
     && ok "97-firstboot-report writes and conditions on /var/log/ncz-first-boot-report.txt" || bad "97-firstboot-report path mismatch"
-grep -v '^#' "$HOOK" | grep  'ncz-first-boot-failed.txt' >/dev/null && bad "97-firstboot-report still names ncz-first-boot-failed.txt outside a comment" || ok "97-firstboot-report no longer writes the old name"
+grep -v '^#' "$HOOK" | grep -q 'ncz-first-boot-failed.txt' && bad "97-firstboot-report still names ncz-first-boot-failed.txt outside a comment" || ok "97-firstboot-report no longer writes the old name"
 leg=$(grep -n 'dump /var/log/ncz-first-boot-failed.txt' "$GATE" | head -1 | cut -d: -f1)
-if [ -n "$leg" ] && [ -n "$dmp" ] && [ "$leg" -gt "$dmp" ] && sed -n "${leg}p" "$GATE" | grep  '\[ -s "\$FBR" >/dev/null \] ||'; then
+if [ -n "$leg" ] && [ -n "$dmp" ] && [ "$leg" -gt "$dmp" ] && sed -n "${leg}p" "$GATE" | grep -q '\[ -s "\$FBR" \] ||'; then
     ok "gate falls back to the old ncz-first-boot-failed.txt only when the new report is absent (line $leg)"
 else
     bad "gate has no legacy-name fallback after the new-name dump (legacy=${leg:-none})"
