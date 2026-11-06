@@ -1,0 +1,18 @@
+# Image CI poll: ask the trigger matrix what moved and start one build per
+# moving trigger. Installed by the operator (see IMAGE-CI-TRIGGER-MATRIX.md);
+# the runner refuses to publish anything and takes one build per host.
+[Unit]
+Description=NCZ image CI: poll triggers and run what moved
+Documentation=file:/usr/local/share/ncz/IMAGE-CI-TRIGGER-MATRIX.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# The repo path and the store mirror are host-specific: they come from the
+# environment file, not from this unit, so the same unit works on any host.
+EnvironmentFile=-/etc/ncz/image-ci.env
+ExecStart=/bin/bash -c 'cd "$NCZ_IMAGE_CI_REPO" && exec bash build/image-ci-run.sh --execute'
+# A poll that fails must be visible in the journal and in the unit state.
+SuccessExitStatus=0
+TimeoutStartSec=15min
