@@ -13,10 +13,9 @@ AI-Scope: Wrote the picker row and the helper calls for listing, reading and sav
  1 file changed, 52 insertions(+)
 
 diff --git a/wallpapers-bing/wallpapers_bing.vala b/wallpapers-bing/wallpapers_bing.vala
-index aa95003..0b78734 100644
 --- a/wallpapers-bing/wallpapers_bing.vala
 +++ b/wallpapers-bing/wallpapers_bing.vala
-@@ -2,6 +2,7 @@ using GLib;
+@@ -2,6 +2,7 @@
  using Gtk;
  using Gee;
  using Singularity;
@@ -24,7 +23,23 @@ index aa95003..0b78734 100644
  using Peas;
  
  [ModuleInit]
-@@ -59,6 +60,7 @@ namespace WallpapersBing {
+@@ -28,6 +29,15 @@
+         public bool requires_credentials { get { return false; } }
+         public bool supports_search { get { return false; } }
+         public Provider() { base("singularity-wallpaper-bing"); }
++        public async string market_list(Cancellable? cancel) throws Error {
++            return yield command({helper, "markets"}, cancel, 30);
++        }
++        public async string preferred_market(Cancellable? cancel) throws Error {
++            return (yield command({helper, "market"}, cancel, 30)).strip();
++        }
++        public async void set_preferred_market(string market, Cancellable? cancel) throws Error {
++            yield command({helper, "market", market}, cancel, 30);
++        }
+         public async ArrayList<WallpaperProviderChoice> choices(string index, Cancellable? cancel) throws Error {
+             var loaded = WallpaperBing.markets(yield command({helper, "markets"}, cancel, 30));
+             // The helper is expected to always advertise the combined view
+@@ -59,6 +69,7 @@
  public class WallpapersBingPlugin : Object, Singularity.Plugin {
      private PluginContext context;
      private WallpapersBing.Provider? provider;
@@ -32,7 +47,7 @@ index aa95003..0b78734 100644
  
      public void activate(PluginContext ctx) {
          this.context = ctx;
-@@ -79,6 +81,47 @@ public class WallpapersBingPlugin : Object, Singularity.Plugin {
+@@ -79,6 +90,47 @@
          lbl.wrap = true;
          lbl.xalign = 0;
          box.append(lbl);
