@@ -93,10 +93,19 @@ echo "  BUILD_VERSION=$BUILD_VERSION"
 # ----------------------------------------------------------------------
 # Install systemd-boot + efibootmgr
 # ----------------------------------------------------------------------
+# M9 audit (2026-11-06): this installs from the chroot's own apt sources, which the build
+# pins to the substrate snapshot - it is not a live fetch. What it DID do was swallow its
+# own failure with `|| true` and then only check bootctl, while efibootmgr is used ~280
+# lines later to write the boot entries; a partial install therefore surfaced as a confusing
+# failure at the end of the hook instead of here. apt-get install of an already-installed
+# package exits 0, so the `|| true` was never needed for idempotence.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    systemd-boot efibootmgr || true
+    systemd-boot efibootmgr \
+    || { echo "ERROR: cannot install systemd-boot/efibootmgr from the pinned sources; refusing to continue to the ESP step" >&2; exit 1; }
 
 command -v bootctl >/dev/null || { echo "ERROR: bootctl not installed"; exit 1; }
+command -v efibootmgr >/dev/null \
+    || { echo "ERROR: efibootmgr not installed, but the boot entries are written with it later in this hook"; exit 1; }
 
 # Validate /boot/efi is actually mounted as the ESP — without this, a
 # missing ESP mount (e.g. preseed partman edge case) would let
