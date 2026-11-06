@@ -124,8 +124,20 @@ def snapshot_identities(ts: str, arch: str, cache: str):
 
     def load(suite: str, relpath: str) -> None:
         f = os.path.join(cache, f"{ts}_{suite}_" + relpath.replace("/", "_"))
-        if not os.path.isfile(f) or os.path.getsize(f) == 0:
-            url = f"{SNAP}/{ts}/dists/{suite}/{relpath}"
+        url = f"{SNAP}/{ts}/dists/{suite}/{relpath}"
+        text = None
+        if os.path.isfile(f) and os.path.getsize(f) > 0:
+            try:
+                text = read_maybe(f)
+            except Exception:  # noqa: BLE001
+                # a truncated cache entry (a run killed mid-write): drop it
+                # and fall through to a refetch instead of under-counting
+                # coverage from a partially parsed index
+                try:
+                    os.unlink(f)
+                except OSError:
+                    pass
+        if text is None:
             last = None
             for delay in (0, 5):
                 if delay:
@@ -150,10 +162,10 @@ def snapshot_identities(ts: str, arch: str, cache: str):
                 except OSError:
                     pass
                 return
-        try:
-            text = read_maybe(f)
-        except Exception:  # noqa: BLE001
-            return
+            try:
+                text = read_maybe(f)
+            except Exception:  # noqa: BLE001
+                return
         for d in parse_stanzas(text):
             if d.get("Package") and d.get("Version") and d.get("Architecture"):
                 ident.add((d["Package"], d["Version"], d["Architecture"]))
@@ -221,6 +233,13 @@ def main() -> int:
     ap.add_argument("--scratch", required=True)
     ap.add_argument("--min-coverage", type=float, default=99.0)
     a = ap.parse_args()
+    # The per-candidate index cache persists across runs (entries are keyed by
+    # snapshot timestamp, so they stay valid) instead of living in the
+    # throwaway --scratch dir: a re-run against a flaky service then only
+    # fetches what it has not fetched before.
+    cache = os.environ.get("NCZ_SUBSTRATE_DERIVE_CACHE") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "build", ".substrate-derive-cache", a.arch)
 
     iso_sha = sha256(a.iso)
     sub, sub_date = netinst_identities(a.iso, a.arch, a.scratch)
@@ -231,7 +250,7 @@ def main() -> int:
     unverifiable = []
     streak = 0
     for ts in candidate_timestamps(sub_date):
-        snap, failed = snapshot_identities(ts, a.arch, a.scratch)
+        snap, failed = snapshot_identities(ts, a.arch, cache)
         if failed:
             print(f"  candidate snapshot {ts}: UNVERIFIABLE - {len(failed)} index"
                   f" fetches failed, first: {failed[0]}", file=sys.stderr)
@@ -247,9 +266,19 @@ def main() -> int:
             continue
         streak = 0
         cov = 100.0 * len(sub & snap) / len(sub)
-        print(f"  candidate snapshot {ts}: {len(sub & snap)}/{len(sub)} = {cov:.1f}%")
+        print(f"  candidate snapshot {ts}: {len(sub & snap)}/{len(sub)} = {cov:.1f}%",
+              flush=True)
         if best is None or cov > best[1]:
             best = (ts, cov, sub - snap)
+        if len(sub & snap) == len(sub):
+            # Ascending scan, and coverage cannot exceed 100%: this is the
+            # EARLIEST full-coverage candidate, exactly what a complete scan
+            # would select (max coverage, earliest on a tie).  Stopping here
+            # keeps a verified 100% pin from being thrown away by transient
+            # failures on later candidates (2026-11-06 amd64 r6: 100.0% at
+            # 20261102T082611Z, then the breaker tripped on three late
+            # 503/504 candidates and the pin was lost).
+            break
     if best is None:
         if unverifiable:
             print(f"ERROR: no candidate snapshot could be verified ({len(unverifiable)}"

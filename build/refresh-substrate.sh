@@ -72,7 +72,7 @@ have_sha="$(sha256sum "$ISO" | awk '{print $1}')"
 
 # --- 3. derive base.pin (substrate -> snapshot by measurement) --------------
 echo "[substrate] deriving base.pin for $ARCH from $(basename "$ISO")"
-python3 -I "$HERE/derive-base-pin.py" --arch "$ARCH" --iso "$ISO" \
+python3 -I -u "$HERE/derive-base-pin.py" --arch "$ARCH" --iso "$ISO" \
   --scratch "$WORK/scratch" --min-coverage "${NCZ_SUBSTRATE_MIN_COVERAGE:-99}"
 rc=$?
 
