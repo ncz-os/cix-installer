@@ -610,8 +610,8 @@ test -x "/work/stage'"$PREFIX"'/bin/singularity-boot-splash"
 # ncz-loginui-reinstall-after-boot-splash - see the commit message: the boot-splash
 # repo bundles its own loginui and installs it after the superproject, overwriting
 # the patched header and archive. Put the superproject copies back.
-_ncz_inc="/work/stage${PREFIX}/include"
-_ncz_lib="/work/stage${PREFIX}/lib"
+_ncz_inc="/work/stage/opt/singularity/include"
+_ncz_lib="/work/stage/opt/singularity/lib"
 for _lf in loginui.h widget.h; do
     if [ -f "/work/singularity-desktop/subprojects/singularity-loginui/${_lf}" ]; then
         install -m 644 "/work/singularity-desktop/subprojects/singularity-loginui/${_lf}" "${_ncz_inc}/${_lf}"
