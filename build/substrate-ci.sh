@@ -89,8 +89,9 @@ substrate-ci stages (docs/automatic-substrate-ci.md)
   4-5 build    TODO         rootfs + image per arch on the build hosts
   6 gate       PARTIAL      runs the gates that can run HERE (repo policy --live,
                             substrate pin, payload acceptance when the artifact is
-                            present) and aggregates them: skip is not pass. Read-only.
-                            Not wired yet: patch drift, payload ABI, image/metal
+                            patch drift as a gate at the PINS, payload acceptance)
+                            and aggregates them: skip is not pass. Read-only.
+                            Not wired yet: payload ABI, image/metal
   7 decide     IMPLEMENTED  build/substrate-ci.py decide - auto-merge or open an MR
   8 retain     IMPLEMENTED  build/substrate-ci.py retention
 
@@ -224,6 +225,49 @@ PYEOF
         _gate repo-policy env NCZ_LIVE_REQUIRE_REACHABLE=1 bash "$ROOT/build/check-ncz-repo-policy.sh" --live
         _gate substrate-pin bash "$ROOT/build/check-substrate-pin.sh"
 
+        # Patch drift is the queue that produces the payload, so stage 6 runs it here
+        # instead of trusting that "the patches are in the tree". Two ways it can lie: a
+        # checkout that is not at the pinned commit proves the wrong tree, and a run
+        # against the wrong tree still prints "13 applied". So the pin identity is checked
+        # FIRST, and a mismatch is a failure rather than a skip.
+        _scratch_root="${NCZ_SINGULARITY_SCRATCH:-$HOME}"
+        _drift() {  # name
+            local name="$1" dir pin mypin head
+            dir="$(_scratch_dir "$name")"
+            mypin="$(awk -F'\t' -v p="subprojects/singularity-$name" '$1==p{print $4; exit}' \
+                "$ROOT/assets/singularity/upstream-pins.tsv" 2>/dev/null)"
+            if [ -z "$mypin" ]; then
+                printf 'FAIL %-20s %s\n' "patch-drift/$name" "no pin row for subprojects/singularity-$name"
+                printf 'patch-drift/%s\tfail\t%s\n' "$name" "no pin row" >> "$_t"
+                return
+            fi
+            if [ -z "$dir" ] || [ ! -d "$dir/.git" ]; then
+                printf 'SKIP %-20s %s\n' "patch-drift/$name" "no checkout under $_scratch_root (set NCZ_SINGULARITY_SCRATCH)"
+                printf 'patch-drift/%s\tskip\tno checkout\n' "$name" >> "$_t"
+                return
+            fi
+            head="$(git -C "$dir" rev-parse HEAD 2>/dev/null)"
+            if [ "${head:0:10}" != "${mypin:0:10}" ]; then
+                printf 'FAIL %-20s %s\n' "patch-drift/$name" \
+                    "checkout is not at the pinned commit: ${head:0:10} != ${mypin:0:10} ($(basename "$dir"))"
+                printf 'patch-drift/%s\tfail\tcheckout not at the pinned commit (%s != %s)\n' \
+                    "$name" "${head:0:10}" "${mypin:0:10}" >> "$_t"
+                return
+            fi
+            _gate "patch-drift/$name" bash "$ROOT/build/singularity-patch-drift.sh" --gate \
+                "$dir" "$ROOT/assets/singularity/patches/singularity-$name"
+        }
+        _scratch_dir() {  # name -> newest matching checkout, or empty
+            local name="$1" c best= newest=0
+            for c in "$_scratch_root/scratch-$name" "$_scratch_root/scratch-$name"-*; do
+                [ -d "$c/.git" ] || continue
+                if [ "$c" = "$_scratch_root/scratch-$name" ]; then echo "$c"; return; fi
+                if [ "$(stat -c %Y "$c" 2>/dev/null || echo 0)" -gt "$newest" ]; then newest="$(stat -c %Y "$c")"; best="$c"; fi
+            done
+            [ -n "$best" ] && echo "$best"
+        }
+        for _r in shell loginui greeter nearby plugins; do _drift "$_r"; done
+
         # The acceptance gate proves the ARTIFACT, so identify the pinned artifact by
         # name AND digest. Any .deb in the output directory is not the pin: running the
         # gate against a stale build reports "patches missing" about a payload nobody
@@ -278,7 +322,7 @@ PYJSON
         echo
         python3 -I "$HERE/substrate-ci.py" gates "$_spec"
         _rc=$?
-        echo "---- not wired into stage 6 yet: patch drift, payload ABI, image/metal checks"
+        echo "---- not wired into stage 6 yet: payload ABI, image/metal checks"
         echo "---- a red verdict here is a finding about the artifact, not a pin move"
         exit "$_rc"
         ;;
