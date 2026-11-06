@@ -40,7 +40,7 @@ grep -q 'image-ci-run.sh --execute' "$SVC" \
     || bad "the service does not run image-ci-run.sh --execute"
 grep -q '^Type=oneshot' "$SVC" && ok "the service is oneshot" || bad "the service is not Type=oneshot"
 # Directives only: a comment saying "the runner refuses to publish" is not a hook.
-if grep -E '^(ExecStart|ExecStartPre|ExecStop|Environment)=' "$SVC" | grep -qiE 'publish|reprepro|r2/'; then
+if grep -qiE '^(ExecStart|ExecStartPre|ExecStop|Environment)=.*(publish|reprepro|r2/)' "$SVC"; then
     bad "the service executes a publish hook"
 else
     ok "no ExecStart/Environment directive publishes"
