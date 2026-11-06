@@ -319,7 +319,7 @@ grep -q 'this is not a waiver' "$CK" \
 # Range, not "any exit 0 after the verdict": from the mismatch message to the end of
 # the file there must be no exit 0, or a mismatch could be turned into a pass.
 awk '/identity gate: FAIL/{f=1} f && /exit 0/{print "BYPASS"; exit}' "$CK" \
-    | grep -q BYPASS \
+    | grep BYPASS >/dev/null \
     && bad "abi: exit 0 is reachable after a mismatch" \
     || ok "abi: nothing after the mismatch message can exit 0"
 

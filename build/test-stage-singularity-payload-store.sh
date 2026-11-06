@@ -66,7 +66,7 @@ if [ "$RC" != 0 ] && [ ! -e "$T/repo/assets/cix-debs/$FILE" ]; then
 else
     bad "a wrong-sha store copy is refused and nothing is staged" "rc=$RC $(printf '%s' "$OUT" | tail -2)"
 fi
-printf '%s' "$OUT" | grep -q 'not used' \
+printf '%s' "$OUT" | grep 'not used' >/dev/null \
     && ok "the refusal names the sha mismatch" \
     || bad "the refusal names the sha mismatch" "$(printf '%s' "$OUT" | tail -2)"
 
