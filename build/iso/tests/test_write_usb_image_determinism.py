@@ -183,12 +183,10 @@ def _stage_aged(root: Path, base: int) -> Path:
     return src
 
 
-def _times(src: Path) -> set[tuple[int, int]]:
-    out = set()
-    for p in [src, *src.rglob("*")]:
-        st = os.lstat(p)
-        out.add((int(st.st_mtime), int(st.st_atime)))
-    return out
+def _mtimes(src: Path) -> set[int]:
+    # atime is not compared: reading a directory after the touch moves its
+    # atime to now (relatime), and mke2fs clamps any later time to SDE.
+    return {int(os.lstat(p).st_mtime) for p in [src, *src.rglob("*")]}
 
 
 def test_staged_times_are_pinned_to_epoch(writer, tmp_path, monkeypatch):
@@ -197,11 +195,11 @@ def test_staged_times_are_pinned_to_epoch(writer, tmp_path, monkeypatch):
     # one entry NEWER than the epoch too
     late = src / "pool" / "a.deb"
     os.utime(late, (SDE + 999, SDE + 999))
-    assert len(_times(src)) > 1
+    assert len(_mtimes(src)) > 1
     argv = writer.data_times_argv(src)
     assert argv is not None
     subprocess.run(argv, check=True)
-    assert _times(src) == {(SDE, SDE)}, "staged tree still carries its own times"
+    assert _mtimes(src) == {SDE}, "staged tree still carries its own times"
     link = os.lstat(src / "ncz-payload" / "link")
     assert int(link.st_mtime) == SDE, "symlink itself must be touched (-h)"
     # the target of the link was not followed out of the tree
@@ -273,4 +271,6 @@ def test_data_partition_identical_when_staged_times_predate_epoch(
     flat = [" ".join(c) for c in calls]
     touch = [n for n, c in enumerate(flat) if "touch" in c]
     mkfs = [n for n, c in enumerate(flat) if "mkfs.ext4" in c]
-    assert touch and mkfs and touch[-1] < mkfs[0], flat
+    assert len(touch) == len(mkfs) == 2, flat
+    assert all(t < m for t, m in zip(touch, mkfs)), flat
+    assert all(flat[n].startswith("sudo ") for n in touch), flat

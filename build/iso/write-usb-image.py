@@ -216,6 +216,26 @@ def write_medium_release(stage_dir: Path, suite: str, arch: str) -> Path:
     return release
 
 
+def data_times_argv(src_root: Path) -> list[str] | None:
+    """argv that sets atime and mtime of every entry under src_root (src_root
+    included, symlinks themselves via -h) to SOURCE_DATE_EPOCH; None when the
+    epoch is unset (ad-hoc run, times left alone).
+
+    Measured 2026-11-07, after the Release fix: two --only-image builds of
+    one commit still differed in the inode mtime of 688 (amd64) / 2218
+    (arm64) NCZDATA files, content identical. mke2fs -d only LOWERS times
+    later than SOURCE_DATE_EPOCH; a staged file older than the epoch (copied
+    with its mtime kept from a checkout that later moved forward) keeps its
+    own time, so each clone's times landed in the image. -depth touches
+    directories after their children. Run it as root like the mkfs (the
+    stage holds root-owned files)."""
+    sde = source_date_epoch()
+    if sde is None:
+        return None
+    return ["find", str(src_root), "-depth", "-exec",
+            "touch", "-h", "-d", f"@{sde}", "{}", "+"]
+
+
 def data_mkfs_argv(src_root: Path, out_img: Path) -> list[str]:
     """mkfs.ext4 argv that creates NCZDATA on out_img AND populates it from
     src_root (mke2fs -d), so no loop mount or cp is involved.
@@ -224,8 +244,9 @@ def data_mkfs_argv(src_root: Path, out_img: Path) -> list[str]:
     loop mount + cp -a gave every inode a wall-clock ctime/atime/crtime, kept
     checkout-time mtimes, stamped the superblock mount/write time and placed
     blocks differently (the kernel allocator), so NCZDATA never matched. mke2fs
-    -d allocates deterministically, and e2fsprogs >= 1.47.1 clamps every inode
-    and superblock time to SOURCE_DATE_EPOCH. UUID and hash seed are pinned
+    -d allocates deterministically, and e2fsprogs >= 1.47.1 clamps inode and
+    superblock times later than SOURCE_DATE_EPOCH down to it (earlier times
+    are kept: data_times_argv pins those first). UUID and hash seed are pinned
     from the build pin; the root directory is root:root 0755 as before. Run it
     as root (it must read every staged file); `env` carries SOURCE_DATE_EPOCH
     through sudo, which would otherwise drop it."""
@@ -1846,6 +1867,9 @@ def build_data_partition_img(ncz_payload_tree_dir: Path, out_img: Path,
     # applied it to the mounted copy, mke2fs copies modes verbatim.
     src_root = ncz_payload_tree_dir.parent
     run(["sudo", "chmod", "-R", "a+rX", str(ncz_payload_tree_dir)])
+    times_argv = data_times_argv(src_root)
+    if times_argv is not None:
+        run(["sudo", *times_argv])
     run(["sudo", *data_mkfs_argv(src_root, out_img)])
 
     # mke2fs fails on a full filesystem, but prove the content is really
