@@ -58,16 +58,17 @@ print(json.dumps({
     fi
 }
 
-# The selftest above runs before the key-master check on purpose: it needs no
-# credentials, and a host that cannot poll should still be able to prove its JSON
-# builder. Anything that needs python3 or sshpass is guarded from here on.
+# Guards, in the only order that works: row() needs python3 in --json mode, and the
+# selftest needs row(). The selftest sits between them on purpose -- a host with no
+# sshpass and no fleet credentials can still prove that its JSON builder is correct.
 command -v python3 >/dev/null || { echo "probe_sing: python3 is required" >&2; exit 2; }
-command -v sshpass >/dev/null || { echo "probe_sing: sshpass is required" >&2; exit 2; }
 
 if [ "${1:-}" = "--selftest-row" ]; then
     row 'h"ost' 'pay\load' 'eng' '3' '0' 'active' '1'
     exit 0
 fi
+
+command -v sshpass >/dev/null || { echo "probe_sing: sshpass is required" >&2; exit 2; }
 
 [ -r "$KEYMASTER" ] || { echo "probe_sing: cannot read $KEYMASTER" >&2; exit 2; }
 
