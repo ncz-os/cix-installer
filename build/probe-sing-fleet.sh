@@ -58,12 +58,9 @@ print(json.dumps({
     fi
 }
 
-if [ "${1:-}" = "--selftest-row" ]; then
-    row 'h"ost' 'pay\load' 'eng' '3' '0' 'active' '1'
-    exit 0
-fi
-
-
+# The selftest above runs before the key-master check on purpose: it needs no
+# credentials, and a host that cannot poll should still be able to prove its JSON
+# builder. Anything that needs python3 or sshpass is guarded from here on.
 command -v python3 >/dev/null || { echo "probe_sing: python3 is required" >&2; exit 2; }
 command -v sshpass >/dev/null || { echo "probe_sing: sshpass is required" >&2; exit 2; }
 
