@@ -738,3 +738,46 @@ build/test-singularity-patch-queues.sh	common	-	the singularity patch queues sti
 build/test-module-dkms-collision.sh	common	-	ruling-7 reproduction: two packages owning updates/dkms/t2gmux.ko; XFAIL until NCZ_EXPECT_COLLISION_FIXED=1 (cycle 470)
 build/lib/yocto-layers.sh	common	-	store-first yocto layer fetch, with upstream kept reachable (M9, cycle 4xx)
 build/test-yocto-layer-fetch.sh	common	-	store-first fetch with a negative control (M9)
+build/audit-dpkg-state.sh	common	-	build/audit-dpkg-state.sh: audit dpkg without lying about it, and name the DKMS overlap
+build/check-inputs-provenance.sh	common	-	check-inputs-provenance: forward --root to the verifier as --root-dir
+build/check-metal-bundle.sh	common	-	build: check a metal bundle before a human spends a session on it
+build/check-payload-plugin-abi.sh	common	-	build: check whether a plugin still resolves on a new payload (symbols, not shas)
+build/check-payload-ships-patches.sh	common	-	build: check that a payload actually ships the patches it claims
+build/host-ready.sh	common	-	WIP: preserve uncommitted work from an unfinished run
+.buildkite/singularity-weekly.yml	common	-	singularity: weekly both-arch head build pipeline and its runbook (design only)
+build/lib/fetch-pinned-rev.sh	common	-	M9: the GStreamer build fetches a revision, not a branch head
+build/lib/verify-build-input.sh	common	-	M9: the Python fetch trusts its pin instead of the network
+build/refresh-forky-inrelease-fixture.sh	common	-	build: generate the pinned-InRelease fixture from the pin, with checksum assertions (M4)
+build/rehearse.sh	common	-	M6: add --rehearse, the gates that need no host
+build/repin.sh	common	-	repin: one all-or-nothing re-pin for both arches (M2)
+build/singularity-patch-drift.sh	common	-	build: ordered-queue diagnostic for the singularity patch stack
+build/substrate-ci.py	common	-	substrate-ci: decision core + stage-0 scheduled job (design 7b6d81ce)
+build/substrate-ci.sh	common	-	substrate-ci: add the stage driver and point the scheduled job at it
+build/test-audit-dpkg-state.sh	common	-	build/audit-dpkg-state.sh: audit dpkg without lying about it, and name the DKMS overlap
+build/test-bootsplash-patch-queue.sh	common	-	singularity: gate the boot-splash patch-queue wiring
+build/test-build-log-dedup.sh	common	-	BUILD-STABILITY M11: provenance-gate before secret-scan, single stage-log writer
+build/test-check-metal-bundle.sh	common	-	build: check a metal bundle before a human spends a session on it
+build/test-classify-sid-exceptions-ledger.sh	common	-	classify: report a real version drift and pin it with a ledger test
+build/test-container-ownership-audit.sh	common	-	BUILD-STABILITY M10: audit container stages for uid-0 files, and chown back
+build/test-fetch-pinned-rev.sh	common	-	M9: the GStreamer build fetches a revision, not a branch head
+build/test-forky-inrelease-fixture.sh	common	-	build: generate the pinned-InRelease fixture from the pin, with checksum assertions (M4)
+build/test-host-ready.sh	common	-	host-ready: fix check_kvm default-gates logic; add build/test-host-ready.sh
+build/test-kvm-gate-arch-symbols.sh	common	-	gate: x86 support with per-arch required symbols
+build/test-no-pin-literals.sh	common	-	test: lint that no test or fixture hard-codes the release.conf snapshot pin (M4)
+build/test-provenance-predict.sh	common	-	test-provenance-predict: valid fixtures, and a summary that can fail
+build/test-recovery-netparent.sh	common	-	recovery: resolve the macvlan parent after udev settles and the route exists
+build/test-refind-addonly.sh	common	-	rEFInd: ship the add-only kernel hooks so a kernel install keeps the default
+build/test-refind-image-install.sh	common	-	rEFInd: ship the add-only kernel hooks so a kernel install keeps the default
+build/test-refresh-substrate-pin-safety.sh	common	-	refresh-substrate: validate the pin stamp and gate the test digest override
+build/test-repin.sh	common	-	repin: one all-or-nothing re-pin for both arches (M2)
+build/test-rootfs-snapshot-binding.sh	common	-	M8: bind prebuilt rootfs inputs to their snapshot
+build/test-stage-singularity-payload-store.sh	common	-	build: stage the pinned payload from the artifact store, not just the network
+build/test-substrate-ci-http.sh	common	-	substrate-ci: exercise preflight over real HTTP against a fault-injecting server
+build/test-substrate-ci.sh	common	-	substrate-ci: decision core + stage-0 scheduled job (design 7b6d81ce)
+build/test-verify-build-input.sh	common	-	M9: the Python fetch trusts its pin instead of the network
+build/warm-debootstrap-cache.sh	common	-	build: warm the debootstrap cache from a failed run instead of re-running it
+evidence/host-ready/M5-baseproof-20261102.txt	common	-	evidence: M5 host-ready base-proof for the parent commit
+PLAN-FB152.md	common	-	FB152: static gate over post-install scripts
+REVIEW_VERDICT_hv-cx-m10m11-rebase-20261031.json	common	-	review: structured non-author verdict for hv/cx-m10m11-rebase-20261031
+REVIEW_VERDICT_hv-cx-m1-early-provenance-20261031.json	common	-	READ-ONLY review. Do not modify any file, branch, or commit. Review the
+REVIEW_VERDICT_hv-cx-m5-host-ready-20261031.json	common	-	review(hv/cx-m5-host-ready-20261031): verdict request-changes for d1b9fb24
