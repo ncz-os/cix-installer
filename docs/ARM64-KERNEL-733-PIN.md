@@ -81,12 +81,22 @@ test-mali-overlay-abi-guard, test-module-abi-gate, `gen-base-pin.sh --check`,
 
 ## Applying it (after the O6N test passes)
 
+The patch has one placeholder, `@O6N_BOOT_DATE@`. It appears in the commit
+message, the KERNEL-LIFECYCLE comments and `sky1-manifest.json` (note and
+`hardware_boot`), and never in `manifests/`. Substituting the date therefore
+changes no ledger and leaves `components.tsv` and `determinism.pin` valid; this
+was checked on ULTRA.
+
 ```bash
 git checkout -b hv/rc4-arm64-kernel-733-promote <this branch>
-sed -i 's/<DATE>/2026-MM-DD/' docs/patches/arm64-kernel-733-pin.patch   # the O6N boot-test date
+D=2026-MM-DD    # the date of the passing O6N boot test
+sed -i "s/@O6N_BOOT_DATE@/$D/g" docs/patches/arm64-kernel-733-pin.patch
+! grep -n '@O6N_BOOT_DATE@' docs/patches/arm64-kernel-733-pin.patch
 git am docs/patches/arm64-kernel-733-pin.patch
-git rm docs/patches/arm64-kernel-733-pin.patch build/test-arm64-733-pin-patch.sh
-bash build/gen-base-pin.sh --check && python3 build/check-kernel-lifecycle.py --arch arm64
+git rm -q docs/patches/arm64-kernel-733-pin.patch build/test-arm64-733-pin-patch.sh
+git commit -qm "kernel: drop the applied arm64 7.3.3 pin patch and its test"
+bash build/gen-base-pin.sh --check && python3 build/gen-components-registry.py --check \
+  && python3 build/check-kernel-lifecycle.py --arch arm64
 # then the RC-DEFINITION check list; update the rc4 row in docs/RC-DEFINITION.md
 ```
 The kernel-ci registry entry moves r298 to `current`. The amd64 pin is not

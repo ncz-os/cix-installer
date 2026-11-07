@@ -1,4 +1,4 @@
-From a3af5571d179ef1c6b568a3a0b908e8d810c2b58 Mon Sep 17 00:00:00 2001
+From d1533ed8357c1f57d1e8054cc70f041f71711c70 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Sat, 7 Nov 2026 18:37:39 -0500
 Subject: [PATCH] kernel: pin arm64 to 7.3.3-sky1-ncz (r298), retire
@@ -6,7 +6,7 @@ Subject: [PATCH] kernel: pin arm64 to 7.3.3-sky1-ncz (r298), retire
 
 7.3.3-sky1-ncz r298 (v7.3.3 d50d994bffa3, meta-cix kb/sky1-7.3.3-r298-20261107
 ec3bacd1, the 7.3.1 series unchanged, 33 patches) passed the O6N boot test on
-<DATE>, so it becomes the arm64 CURRENT kernel; arm64 and amd64 now pin the
+@O6N_BOOT_DATE@, so it becomes the arm64 CURRENT kernel; arm64 and amd64 now pin the
 same 7.3.3.
 
 Staged release kernel-staging/r298-7.3.3-sky1-ncz-20261107 (mainline.release);
@@ -93,7 +93,7 @@ index 7aeaafa7..e23952e2 100644
        "npu": null
      }
 diff --git a/assets/kernel/KERNEL-LIFECYCLE b/assets/kernel/KERNEL-LIFECYCLE
-index 99c5c2d7..bccc510e 100644
+index 99c5c2d7..30462ba9 100644
 --- a/assets/kernel/KERNEL-LIFECYCLE
 +++ b/assets/kernel/KERNEL-LIFECYCLE
 @@ -25,11 +25,12 @@ MIN_VERSION=7.3.3
@@ -106,7 +106,7 @@ index 99c5c2d7..bccc510e 100644
 -CURRENT_KVER_arm64=
 -CURRENT_PKG_arm64=
 +# arm64: Sky1 7.3.3-sky1-ncz r298 (ULTRA build 2026-11-07, v7.3.3 d50d994bffa3,
-+# meta-cix kb/sky1-7.3.3-r298-20261107), boot-tested on O6N <DATE> (Image
++# meta-cix kb/sky1-7.3.3-r298-20261107), boot-tested on O6N @O6N_BOOT_DATE@ (Image
 +# sha256 f47b74e2..., vmlinux build id 19c5ddd7...). Pool dir
 +# kernel-staging/r298-7.3.3-sky1-ncz-20261107 (assets/kernel/mainline.release).
 +CURRENT_KVER_arm64=7.3.3-sky1-ncz
@@ -156,7 +156,7 @@ index 201c8efb..f07f8ce7 100644
 -r292-7.3.0-sky1-ncz-20261023
 +r298-7.3.3-sky1-ncz-20261107
 diff --git a/assets/kernel/sky1-manifest.json b/assets/kernel/sky1-manifest.json
-index e2bfb22a..119caa1d 100644
+index e2bfb22a..2c1f2a45 100644
 --- a/assets/kernel/sky1-manifest.json
 +++ b/assets/kernel/sky1-manifest.json
 @@ -2,71 +2,63 @@
@@ -174,7 +174,7 @@ index e2bfb22a..119caa1d 100644
 +  "staging_dir": "kernel-staging/r298-7.3.3-sky1-ncz-20261107",
    "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
 -  "note": "Sky1 arm64 DEFAULT kernel under the unified 7.3 policy: r292 = the v7.3.0 FINAL pin, re-verified independently on 2026-10-21. The r290 series (consolidated port patch + 27 numbered patches 0001-0011 + 0013-0028) was replayed onto the upstream v7.3 tag (peel c03c1a14) in SRC_URI order: 28/28 applied, 0 conflicts, 0 rejects, 0 fuzz. (Replaying in FILENAME order instead reports 21 spurious conflicts.) NO patch is upstream: each of the 28 was tested by reverse-apply check, by apply-then-compare against pristine v7.3, and by the ordered replay -- 0/28 are no-ops, so nothing was dropped. No upstream clobbering: the two files the port patch shares with upstream's rc7..v7.3 changes (panthor_hw.c c347fef5f8f8; quirks.c 0f8b5d90d179, 7209846a169f) all survive in the merged tree. Tree-equivalence: the same series replayed on rc7 and on v7.3 gives trees differing in 212 files, every one of which upstream itself changed between the tags -- zero unexplained differences. An independent from-scratch replay diffs 0 files against the tree this build compiled. Built in the ncz-yocto-y6 container on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0). 7.3.0-sky1-ncz is a NEW KVER, so all six accelerator overlays were rebuilt from this build's headers: verify-overlay-modversions PASS, 0 CRC mismatches, 0 unresolved. Gates re-run 2026-10-21: kvm-kernel-gate PASS (r292 vs r290 error histograms identical), dkms-abi-gate PASS, acceptance 28/28, 376 .ko with 0 .ko.xz. Debian debs built and byte-identical across two runs. STILL NOT DONE: no hardware boot (O6N/cixmini untouched), not published to apt. r292 = r291 + CIX patches-7.3 0029-0033 (same KVER 7.3.0-sky1-ncz, NOT ABI-compatible with r291: 0029 widens drm_crtc_state.plane_mask, 628 DRM symbol CRCs differ; overlays rebuilt).",
-+  "note": "Sky1 arm64 DEFAULT kernel under the unified 7.3 policy: r298 = linux-stable v7.3.3 (the same 7.3.3 as amd64 7.3.3-r297) with the r295/r297 7.3.1 series unchanged. The 33 SRC_URI patches (consolidated port patch + 0001-0011 + 0013-0033) and the defconfig are byte-identical to the 7.3.1 recipe's. Replayed in SRC_URI order on pristine v7.3.3 with fuzz 0: 33/33 applied (31 clean, 2 with line offsets only, the same as on v7.3.1), 0 reverse-apply on pristine v7.3.3 (none upstreamed); replay(v7.3.1) plus upstream v7.3.1..v7.3.3 equals replay(v7.3.3) (tree e101a48b); the only shared file is arm-smmu-v3.c, where upstream 73a1e1bfe3db (shutdown) and 0032 (IRQ setup/resume) touch disjoint code. The built kernel-source equals that replay file for file. Built in ncz-yocto-y6 on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0). New KVER, so all six accelerator overlays were rebuilt from this build: verify-overlay-modversions PASS, 0 CRC mismatches, 0 unresolved, this_module 0x500. Gates: kvm-kernel-gate PASS, qemu EFI boot PASS, dkms-abi-gate PASS, acceptance 42/42, 376 .ko with 0 compressed. Debian debs byte-identical across two runs. Boot-tested on O6N <DATE> (docs/O6N-TEST-PLAN-7.3.3.md). Not published to apt.",
++  "note": "Sky1 arm64 DEFAULT kernel under the unified 7.3 policy: r298 = linux-stable v7.3.3 (the same 7.3.3 as amd64 7.3.3-r297) with the r295/r297 7.3.1 series unchanged. The 33 SRC_URI patches (consolidated port patch + 0001-0011 + 0013-0033) and the defconfig are byte-identical to the 7.3.1 recipe's. Replayed in SRC_URI order on pristine v7.3.3 with fuzz 0: 33/33 applied (31 clean, 2 with line offsets only, the same as on v7.3.1), 0 reverse-apply on pristine v7.3.3 (none upstreamed); replay(v7.3.1) plus upstream v7.3.1..v7.3.3 equals replay(v7.3.3) (tree e101a48b); the only shared file is arm-smmu-v3.c, where upstream 73a1e1bfe3db (shutdown) and 0032 (IRQ setup/resume) touch disjoint code. The built kernel-source equals that replay file for file. Built in ncz-yocto-y6 on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0). New KVER, so all six accelerator overlays were rebuilt from this build: verify-overlay-modversions PASS, 0 CRC mismatches, 0 unresolved, this_module 0x500. Gates: kvm-kernel-gate PASS, qemu EFI boot PASS, dkms-abi-gate PASS, acceptance 42/42, 376 .ko with 0 compressed. Debian debs byte-identical across two runs. Boot-tested on O6N @O6N_BOOT_DATE@ (docs/O6N-TEST-PLAN-7.3.3.md). Not published to apt.",
    "source": {
 -    "base_tag": "v7.3",
 -    "base_peel": "c03c1a14507dfaf8b856c2608f9ac216021fc222",
@@ -258,7 +258,7 @@ index e2bfb22a..119caa1d 100644
 -      "config_diff_vs_r291": "none: built .config byte-identical to r291",
 -      "dtb_note": "sky1-orion-o6.dtb reused from r291 (byte-identical to r290); r292 patches touch no device tree",
 -      "hardware_boot": "O6N 2026-10-25: running image e8586c15, /dev/mali0 + /dev/aipu + /dev/video0-3, ncz-gpu-health PASS, greeter up"
-+      "hardware_boot": "PENDING: O6N, operator-supervised (docs/O6N-TEST-PLAN-7.3.3.md)"
++      "hardware_boot": "O6N @O6N_BOOT_DATE@: side-by-side 7.3.3 entry, docs/O6N-TEST-PLAN-7.3.3.md checklist PASS (Mali, Panthor, NPU, VPU, USB4/NVMe, Ethernet/Wi-Fi, dmesg)"
      },
 -    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc7.bb, branch sky1-73-adopt-cix-20261023",
 -    "recipe_commit": "7a120e4462c1ecf44dee1c2080c4098ce9e096db",
@@ -372,19 +372,19 @@ index 4523acfc..00fcd2b3 100644
  vulkan-tools	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
  vulkan-validationlayers	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 diff --git a/manifests/determinism.pin b/manifests/determinism.pin
-index 8934ae42..fa717a9b 100644
+index 8934ae42..00bebf9e 100644
 --- a/manifests/determinism.pin
 +++ b/manifests/determinism.pin
 @@ -1,6 +1,6 @@
  base_codename	forky
  manifest_build_inputs_sha256	d79c603d00977eea6a0e552fe48aa88c5587d350c286d90438964ee640d80c24
 -manifest_ncz_packages_sha256	d72c972502c278b17d96eda042cb52e58f9f1a0a83a6ea3e885d2439ad5cc74f
-+manifest_ncz_packages_sha256	d91b6ddf88cdbce3ffe76d9fcd85223e1ac53718203571965ef6d29b1be43fcb
++manifest_ncz_packages_sha256	d94ba8f11972249483afbc167a7693e8847fd7e6510added19576a1a3907d0c6
  manifest_vendor_debs_sha256	3fbbe587dd9ed08c480d005937dedd01580023393f91ada4a9f7107604535c11
  manifest_vendor_repos_sha256	eed1e1c049de39cc6d96b26356b59f4ce77915cd05088c6aa85bb332a9110f36
  singularity_payload_sha256_amd64	7a6149d3b8fa74f7c78c9f4015e1e4d4e5ac0ba3e25b136a206c9e0bb67b4db5
 diff --git a/manifests/ncz-packages.tsv b/manifests/ncz-packages.tsv
-index 094b83ec..220bdd9f 100644
+index 094b83ec..cf28d8e0 100644
 --- a/manifests/ncz-packages.tsv
 +++ b/manifests/ncz-packages.tsv
 @@ -37,9 +37,9 @@ libdrm2	2.4.134-3+ncz2	arm64	5770166ede09f1ac9c99b08db00201f5d7be4e01139ef9e22e0
@@ -394,7 +394,7 @@ index 094b83ec..220bdd9f 100644
 -linux-image-cixmini	7.3.0-sky1-ncz+r293	arm64	d771239535f9d0b0474bd090dd3ad94ae02054a3d5100fc23d7b9ccba6e272b0	build/build-kernel-debs.sh	kernel-source sky1 tree (KVER 7.3.0-sky1-ncz; v7.3 c03c1a1450, meta-cix 7a120e44 PR r2, patches 0001-0033 incl. CIX patches-7.3 0029-0033) +r293 packaging revision	2026-10-27 +r293: out-of-tree overlays (mali/npu/panthor/vpu) rebuilt against the packaged kernel headers so struct module matches the kernel (0x500; mali_kbase r53p0-00eac0, UK 1.36). Revision bumped because the deb content changed while the version stayed +r292, which would have left the broken modules installed on boards via apt.
 -linux-headers-cixmini	7.3.0-sky1-ncz+r293	arm64	882406b6edb82d85a3ee58f82e42d122043dd9398d80800feeae7d3cf94f807e	build/build-kernel-debs.sh	kernel-source sky1 tree (KVER 7.3.0-sky1-ncz; v7.3 c03c1a1450, meta-cix 7a120e44) +r293 packaging revision	2026-10-27 +r293: headers tree prepared by modules_prepare without re-running Kconfig, so autoconf.h keeps CONFIG_DEBUG_INFO_BTF_MODULES and the module ABI does not shrink. Matches linux-image-cixmini (=).
 -cixmini-boot	1.6+r293	arm64	58967e536818dfaeb42a0907f7c94dd9343847ec5fa42d47c3a2164f405e4601	build/build-kernel-debs.sh	build-kernel-debs.sh cixmini-boot step at BUILD_REV=r293	2026-10-27 1.6: shipped rEFInd generator now prunes NVRAM rows labelled NCZ-OS or the old nclawzero (rEFInd) and creates one NCZ-OS entry. apt only unpacks cixmini-boot when its version is newer, so the bump is required for upgraded boards. Kernel packages Depend on cixmini-boot (>= 1.2+r293).
-+linux-image-cixmini	7.3.3-sky1-ncz+r298	arm64	f53d7ed0328415e214c37ef94f9a79434ad5cc7381522bc55418f3c4198e36b7	build/build-kernel-debs.sh	kernel-source sky1 tree (KVER 7.3.3-sky1-ncz; v7.3.3 d50d994bff, meta-cix ec3bacd1, patches 0001-0033 + port patch, same series as 7.3.1) +r298	2026-11-07 r298: kernel 7.3.3 (unified 7.3 policy, same 7.3.3 as amd64). All six out-of-tree overlays rebuilt against this build (struct module 0x500). Boot-tested on O6N <DATE>.
++linux-image-cixmini	7.3.3-sky1-ncz+r298	arm64	f53d7ed0328415e214c37ef94f9a79434ad5cc7381522bc55418f3c4198e36b7	build/build-kernel-debs.sh	kernel-source sky1 tree (KVER 7.3.3-sky1-ncz; v7.3.3 d50d994bff, meta-cix ec3bacd1, patches 0001-0033 + port patch, same series as 7.3.1) +r298	2026-11-07 r298: kernel 7.3.3 (unified 7.3 policy, same 7.3.3 as amd64). All six out-of-tree overlays rebuilt against this build (struct module 0x500). Boot-tested on O6N (docs/O6N-TEST-PLAN-7.3.3.md).
 +linux-headers-cixmini	7.3.3-sky1-ncz+r298	arm64	e8286ae54e7245dc762690da8a67f7df71ae00b1bf67085fb88fd4d8df798a08	build/build-kernel-debs.sh	kernel-source sky1 tree (KVER 7.3.3-sky1-ncz; v7.3.3 d50d994bff, meta-cix ec3bacd1, patches 0001-0033 + port patch, same series as 7.3.1) +r298	2026-11-07 r298: headers of the 7.3.3 build; Module.symvers byte-identical to the build's, autoconf.h keeps CONFIG_DEBUG_INFO_BTF_MODULES. Matches linux-image-cixmini (=).
 +cixmini-boot	1.6+r298	arm64	0cf4e780215687d89d9f62dac78733bb6ef44ed7cfb7de9e1f05cd3c7881339a	build/build-kernel-debs.sh	build-kernel-debs.sh cixmini-boot step at BUILD_REV=r298	2026-11-07 1.6+r298: helper and rEFInd generator unchanged from 1.6+r293; revision follows the kernel. Kernel packages Depend on cixmini-boot (>= 1.2+r298).
  ncz-screensavers	0.8.18	amd64	dd311164e4a03b97dd9c46bbf4d58489204c5fc6707627cfded8818d207555b5	ncz-screensavers/debian/rules (dpkg-buildpackage -us -uc -b)	0.8.18 (amd64 build): Black Hole stages 1-4 -- deterministic viewing geometry, selectable accretion-flow geometry (disk/torus/riaf/spherical), Doppler modes and independently aimed jets, low-emission lens (dark-lens) and opt-in turbulence; new presets dark-lens, riaf, thick-torus, m87-jet, no-doppler; built natively in debian:forky from 07333ce64ac766c7b7b01c24017323cecff6708e (release/0.8.18-20261027); not yet published to the public apt repo (operator decision pending)	0.8.17 (amd64 build): fractasia declares GLSL ES 3.00 so it renders on Mali (ES 3.1) instead of black; Black Hole capped at 720 lines on Sky1; Magmasimplex realistic default + refraction optics; built natively in debian:forky at snapshot 20261018T082309Z; not yet published to the public apt repo (operator decision pending)
