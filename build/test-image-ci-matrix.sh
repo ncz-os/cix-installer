@@ -81,7 +81,7 @@ if [ "$NCZ_VARIANT" = server ]; then
             > "$RUN_DIR/payload/ncz-$n-$ARCH.tar.gz.sha256"
     done
 fi
-printf 'result=PASS\n' > "$RUN_DIR/kvm-gate.result"
+for g in kvm-gate provenance secret-scan; do printf 'result=PASS\n' > "$RUN_DIR/$g.result"; done
 exit 0
 STUB
 chmod +x "$F/build/build-image.sh"
@@ -170,7 +170,7 @@ out="$(NCZ_IMAGE_CI_HOSTNAME=studio bash "$M" --foreground --repo "$F" 2>&1)"; r
 out="$(NCZ_IMAGE_CI_UNAME=Darwin bash "$M" --foreground --repo "$F" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && grep -q 'never builds on macOS' <<<"$out" && ok "macOS (STUDIO) is refused" || nok "macOS accepted (rc=$rc)"
 other=arm64; [ "$HARCH" = arm64 ] && other=amd64
-out="$(NCZ_IMAGE_CI_HOSTNAME=t1 NCZ_IMAGE_CI_HOSTS_$(echo $other | tr a-z A-Z)=t1 bash "$M" --foreground --arch "$other" --repo "$F" 2>&1)"; rc=$?
+out="$(env NCZ_IMAGE_CI_HOSTNAME=t1 "NCZ_IMAGE_CI_HOSTS_$(echo $other | tr a-z A-Z)=t1" bash "$M" --foreground --arch "$other" --repo "$F" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && grep -q 'cannot build' <<<"$out" && ok "a cross-arch cell is refused on this host" || nok "cross-arch accepted (rc=$rc)"
 [ ! -s "$STUB_ORDER" ] && ok "no refusal started a build" || nok "a refusal started a build: $(cat "$STUB_ORDER")"
 
@@ -252,7 +252,40 @@ for _ in $(seq 1 60); do [ -e "$T/markers/ncz-image-ci-matrix" ] || break; sleep
 [ ! -e "$T/markers/ncz-image-ci-matrix" ] && ok "the detached run finished and released the marker" || nok "the detached run still holds the marker"
 [ "$(cat "$STUB_ORDER")" = "desktop-$HARCH-a" ] && ok "the detached run built its cell" || nok "detached run built: $(cat "$STUB_ORDER")"
 grep -q 'set -C; printf' "$M" && ok "the marker is reserved with O_EXCL semantics and a pid" || nok "marker reservation is racy"
-grep -q 'BASHPID" > "$marker"' "$M" && ok "the detached child records its own pid" || nok "the parent records the pid (crash window)"
+grep -q 'BASHPID" > "$MARKER"' "$M" && ok "the detached child records its own pid" || nok "the parent records the pid (crash window)"
+
+# --- 9. candidate status: the 2x2 grid ------------------------------------------
+# A release candidate is complete only when all four media (desktop + server on
+# amd64 + arm64) are built, gated, deterministic and provenance-recorded. The
+# arch halves run on different hosts, so --status reads every launch dir given.
+st="$(bash "$M" --status --repo "$F" --from "$L1" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && ok "status: two of four cells => candidate incomplete (exit 1)" || nok "status rc=$rc: $st"
+grep -q "^desktop .*deterministic" <<<"$st" && grep -q "^server .*deterministic" <<<"$st" \
+    && ok "status: the $HARCH cells read deterministic" || nok "status grid: $st"
+grep -q "not built" <<<"$st" && ok "status: the other arch reads 'not built'" || nok "status grid lacks 'not built': $st"
+grep -q "^candidate ${FSHA:0:12}: INCOMPLETE" <<<"$st" && ok "status: the verdict names the candidate and says INCOMPLETE" || nok "verdict: $(grep candidate <<<"$st")"
+# the other arch's half, as a launch dir copied back from its build host
+L2="$T/other-host/$(basename "$L1")"; mkdir -p "$L2"
+for v in desktop server; do cp -a "$L1/$v-$HARCH" "$L2/$v-$other"; done
+sed "s/	$HARCH	/	$other	/" "$L1/matrix.tsv" | sed "s#$L1/\([a-z]*\)-$HARCH#$L2/\1-$other#" > "$L2/matrix.tsv"
+st="$(bash "$M" --status --repo "$F" --from "$L1" --from "$L2" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -q "^candidate ${FSHA:0:12}: COMPLETE" <<<"$st" \
+    && ok "status: all four deterministic and provenance-recorded => COMPLETE (exit 0)" || nok "status rc=$rc: $st"
+rm -f "$L2/server-$other/run-a/provenance.result"
+st="$(bash "$M" --status --repo "$F" --from "$L1" --from "$L2" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && grep -q "^server .*built" <<<"$st" && ! grep -q "^server .*deterministic.*deterministic" <<<"$st" \
+    && ok "status: a cell without a provenance PASS is only 'built', candidate incomplete" || nok "status rc=$rc: $st"
+printf 'dest=STUDIO:~/Projects/ncz-images\n' > "$L1/desktop-$HARCH/shipped"
+st="$(bash "$M" --status --repo "$F" --from "$L1" --from "$L2" --json 2>&1)"
+python3 -I - "$st" "$HARCH" "$other" <<'PYX' && ok "status --json: per-cell state incl. shipped, complete=false" || nok "status --json: $st"
+import json, sys
+d = json.loads(sys.argv[1]); h, o = sys.argv[2], sys.argv[3]
+g = {(c["variant"], c["arch"]): c["state"] for c in d["cells"]}
+assert g[("desktop", h)] == "shipped", g
+assert g[("server", h)] == "deterministic", g
+assert g[("server", o)] == "built", g
+assert d["complete"] is False and len(d["cells"]) == 4
+PYX
 
 echo "test-image-ci-matrix: $pass passed, $fail failed"
 [ "$fail" = 0 ]
