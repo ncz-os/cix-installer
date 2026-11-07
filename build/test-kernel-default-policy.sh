@@ -42,6 +42,8 @@ pin() { policy_body > "$1/assets/kernel/KERNEL-POLICY"; }
 # (assets/kernel/KERNEL-LIFECYCLE). The fixtures model the pin as the promoted
 # kernel, with a floor low enough for the rc fixtures, so every other check
 # stays isolated; test-kernel-lifecycle.sh covers the lifecycle refusals.
+# Every fixture root models ONE arch (mkroot = arm64, mkamd64 = amd64, never
+# both on one root), so the file carries only that arch's CURRENT line.
 lifecycle() {
     printf 'LIFECYCLE_SCHEMA=1\nMIN_VERSION=7.2.0\nCURRENT_KVER_%s=%s\nRETIRED=%s\n' \
         "$2" "$3" "${4:-}" > "$1/assets/kernel/KERNEL-LIFECYCLE"
