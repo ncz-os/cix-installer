@@ -161,7 +161,7 @@ grep -q -- '--payload-pin "\$ROOT/manifests/singularity-payload.tsv"' <<< "$pp_b
 grep -q -- 'singularity-sources/payload-receipt.json' <<< "$pp_body" \
     && ok "the predict gate also reads this run's payload receipt when it exists" \
     || bad "predict ignores the run's payload receipt on a resume"
-if grep -qE -- '--exclude[^\n]*cix-debs|--no-debs' <<< "$pp_body"; then
+if grep -qE -- '--exclude.*cix-debs|--no-debs' <<< "$pp_body"; then
     bad "predict excludes the staged payload deb dir instead of authorizing it"
 else
     ok "predict does not exclude the staged deb dir"
