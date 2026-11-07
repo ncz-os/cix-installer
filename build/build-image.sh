@@ -652,6 +652,12 @@ RUN_DIR="$(cd "$RUN_DIR" 2>/dev/null && pwd || { mkdir -p "$RUN_DIR" && cd "$RUN
 # of each stage's subshell, which is what the per-stage ownership check reads.
 export NCZ_CHOWN_BACK="${NCZ_CHOWN_BACK:-$(id -u):$(id -g)}"
 export NCZ_CHOWN_BACK_PATHS="$ROOT:$RUN_DIR"
+# One-kernel policy (docs/ONE-KERNEL.md): the same default the Makefile sets
+# (NCZ_ONE_KERNEL ?= 1), so both entrypoints write the same /cdrom pool.  The
+# provenance input gate's substrate exemption (release.conf
+# NCZ_ONE_KERNEL_SUBSTRATE_UDEBS=exempt) is sound only because the writer
+# removes those udebs; the finished-image gate re-checks the medium without it.
+NCZ_ONE_KERNEL="${NCZ_ONE_KERNEL:-1}"; export NCZ_ONE_KERNEL
 LOGS="$RUN_DIR/logs"
 mkdir -p "$LOGS" "$RUN_DIR/tmp"
 # Image variant: desktop (default) or server (Magnetar). Only the image stage
