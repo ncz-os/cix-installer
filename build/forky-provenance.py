@@ -1171,6 +1171,19 @@ def classify_noarch(ref, src, name, ver, maint):
     Such a record is cleared only if its exact (name,version) is in the pinned
     snapshot for SOME architecture or in a reviewed ledger; it is never
     exonerated from the hard Ubuntu checks.  Anything else FAILS (genuine)."""
+    # The THIRD place the installer's own kernel udebs appear: this initrd's
+    # dpkg status, at the version the initrd was built with (7.2.14 on the
+    # 20261102 amd64 netinst -- OLDER than the pool's 7.2.15, which is why the
+    # pool-side exemption cannot cover them).  Same policy, same opt-in: when the
+    # trust root says NCZ_ONE_KERNEL_SUBSTRATE_UDEBS=exempt, docs/ONE-KERNEL.md
+    # removes these from the medium and the writer asserts that it did.
+    # Measured: without this the substrate scan reported 82 findings; with it, 3.
+    if _ncz_build_context(getattr(ref, "root", None)) and \
+            KERNEL_ARTIFACT_RE.search(name or ""):
+        print(f"NOTE  [{src}] {name} {ver} :: one-kernel-exempt "
+              f"(the installer's own kernel udeb, from the initrd status)")
+        return "one-kernel-exempt"
+
     what = f"{name} {ver} (no Architecture in dpkg status)"
     ref.note_kernel(name, ver, "")
     if UBU_CANONICAL.search(maint or ""):
