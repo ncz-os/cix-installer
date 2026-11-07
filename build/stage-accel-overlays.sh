@@ -44,6 +44,16 @@ CKDIR="/ybuild${KDIR#"$YB"}"
 TC="$CKDIR/recipe-sysroot-native/usr/bin/aarch64-nclawzero-linux"
 [ -x "$KDIR/recipe-sysroot-native/usr/bin/aarch64-nclawzero-linux/aarch64-nclawzero-linux-gcc" ] \
     || die "no OE toolchain under $KDIR/recipe-sysroot-native"
+# pahole: with CONFIG_DEBUG_INFO_BTF_MODULES=y every module link runs it
+# (scripts/gen-btf.sh). The yocto image has none; the kernel recipe builds
+# pahole-native into its own native sysroot, and that is the pahole the
+# kernel's in-tree modules were linked with. Appended after /usr/bin so it
+# shadows nothing the container already has.
+NATIVE_BIN="$CKDIR/recipe-sysroot-native/usr/bin"
+if grep -qx 'CONFIG_DEBUG_INFO_BTF_MODULES=y' "$KDIR/build/.config" 2>/dev/null; then
+    [ -x "$KDIR/recipe-sysroot-native/usr/bin/pahole" ] \
+        || die "CONFIG_DEBUG_INFO_BTF_MODULES=y but no pahole in $KDIR/recipe-sysroot-native/usr/bin"
+fi
 
 WORK="$ROOT/build/accel-overlays"
 OUT_REL="build/accel-overlays/$KVER"
@@ -53,7 +63,7 @@ mkdir -p "$WORK/tmp"
 echo "== building ${DRIVERS[*]} against $KVER ($KDIR)"
 podman run --rm --security-opt label=disable --userns=keep-id \
     -v "$YB:/ybuild" -v "$ROOT:/repo" --entrypoint /bin/bash "$IMAGE" \
-    -c "set -e; export TMPDIR=/repo/build/accel-overlays/tmp PATH=$TC:/usr/bin:/bin \
+    -c "set -e; export TMPDIR=/repo/build/accel-overlays/tmp PATH=$TC:/usr/bin:/bin:$NATIVE_BIN \
        CROSS_COMPILE=aarch64-nclawzero-linux- ARCH=arm64; cd /repo && \
      bash build/build-accel-overlays.sh $CKDIR/build $KVER /repo/$OUT_REL ${DRIVERS[*]}" \
     || die "accelerator overlay build failed (logs: $ROOT/$OUT_REL/build-<drv>.log)"
