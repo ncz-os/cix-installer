@@ -366,6 +366,10 @@ class OverlayCpioDeterminismTest(unittest.TestCase):
         names = [e["name"] for e in entries]
         self.assertIn("lib/firmware/a.fw", names)
 
+    def test_member_lists_are_byte_sorted_parents_first(self):
+        got = MODULE.c_sorted_lines("lib/b\nlib\nlib-x\n\nlib/a/z\nlib/a\n")
+        self.assertEqual(got, "lib\nlib-x\nlib/a\nlib/a/z\nlib/b\n")
+
     def test_clamp_only_lowers_newer_mtimes(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

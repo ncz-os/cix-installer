@@ -189,6 +189,14 @@ def clamp_tree_mtimes(root: Path, epoch: int | None) -> int:
 CPIO_NEWC_REPRODUCIBLE = ["cpio", "-o", "-H", "newc", "--quiet", "--reproducible"]
 
 
+def c_sorted_lines(text: str) -> str:
+    """The non-empty lines of text, sorted by their bytes (LC_ALL=C order: a
+    directory always precedes its members), newline-terminated."""
+    lines = [line for line in text.splitlines() if line]
+    lines.sort(key=lambda line: line.encode("utf-8", "surrogateescape"))
+    return "".join(line + "\n" for line in lines)
+
+
 def pack_overlay_cpio_gz(overlay_root: Path, filelist: Path, out_gz: Path,
                          epoch: int | None) -> None:
     """Pack the members named in filelist (paths relative to overlay_root, one
@@ -1393,30 +1401,23 @@ def patch_t2_kernel(
         # it's safe to list explicitly alongside the lib/ walk.
         overlay_cpio_gz = tmp / "overlay.cpio.gz"
         filelist = tmp / "overlay.filelist"
-        find_lib = subprocess.run(
-            ["find", "lib", "-mindepth", "1", "-print"],
-            cwd=overlay_root, check=True, capture_output=True, text=True,
-        ).stdout
+
+        def _find(*args: str) -> str:
+            # byte-sorted, so member order never follows readdir order
+            return c_sorted_lines(subprocess.run(
+                ["find", *args], cwd=overlay_root, check=True,
+                capture_output=True, text=True,
+            ).stdout)
+
         with filelist.open("w") as fl:
-            fl.write(find_lib)
+            fl.write(_find("lib", "-mindepth", "1", "-print"))
             fl.write("preseed.cfg\n")
             if ncz_dir.is_dir():
-                fl.write(subprocess.run(
-                    ["find", "ncz", "-print"],
-                    cwd=overlay_root, check=True, capture_output=True, text=True,
-                ).stdout)
-            fwcheck_root = overlay_root / "usr"
-            if fwcheck_root.is_dir():
-                fl.write(subprocess.run(
-                    ["find", "usr", "-print"], cwd=overlay_root, check=True,
-                    capture_output=True, text=True,
-                ).stdout)
-            branded_root = overlay_root / "var"
-            if branded_root.is_dir():
-                fl.write(subprocess.run(
-                    ["find", "var", "-print"], cwd=overlay_root, check=True,
-                    capture_output=True, text=True,
-                ).stdout)
+                fl.write(_find("ncz", "-print"))
+            if (overlay_root / "usr").is_dir():
+                fl.write(_find("usr", "-print"))
+            if (overlay_root / "var").is_dir():
+                fl.write(_find("var", "-print"))
         pack_overlay_cpio_gz(overlay_root, filelist, overlay_cpio_gz,
                              source_date_epoch())
         log(f"    overlay cpio: {overlay_cpio_gz.stat().st_size} bytes")

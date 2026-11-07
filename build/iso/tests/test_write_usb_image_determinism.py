@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -45,7 +46,10 @@ def test_build_date_follows_source_date_epoch(writer, monkeypatch):
 
 def test_build_date_without_epoch_is_the_clock(writer, monkeypatch):
     monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
-    assert writer.media_build_date().startswith(time.strftime("%Y-", time.gmtime()))
+    before = time.strftime("%Y-", time.gmtime())
+    got = writer.media_build_date()
+    after = time.strftime("%Y-", time.gmtime())
+    assert got.startswith(before) or got.startswith(after), got
 
 
 def _stage(root: Path) -> Path:
@@ -102,5 +106,5 @@ def test_data_partition_root_is_root_owned_0755(writer, tmp_path, monkeypatch):
         text=True,
         check=True,
     ).stdout
-    assert "User:     0   Group:     0" in out, out
-    assert "Mode:  0755" in out, out
+    assert re.search(r"User:\s+0\s+Group:\s+0\b", out), out
+    assert re.search(r"Mode:\s+0755\b", out), out

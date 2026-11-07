@@ -199,13 +199,15 @@ def patch_initrd(
         # Reproducible repack (measured 2026-11-07: two builds of one commit
         # differed in extraction-time directory mtimes, cpio inode numbers and
         # the gzip header time). Clamp mtimes newer than SOURCE_DATE_EPOCH,
-        # renumber inodes, and write gzip mtime 0.
+        # sort the members, renumber inodes, and write gzip mtime 0.
         clamp_tree_mtimes(extract_dir, source_date_epoch())
+        # byte-sorted member list: archive order never follows readdir order
         find_proc = subprocess.Popen(
-            ["find", "."], cwd=extract_dir, stdout=subprocess.PIPE,
+            ["sh", "-c", "find . -print0 | LC_ALL=C sort -z"],
+            cwd=extract_dir, stdout=subprocess.PIPE,
         )
         cpio_proc = subprocess.Popen(
-            ["cpio", "--quiet", "-o", "-H", "newc", "--reproducible"],
+            ["cpio", "--quiet", "--null", "-o", "-H", "newc", "--reproducible"],
             cwd=extract_dir,
             stdin=find_proc.stdout,
             stdout=subprocess.PIPE,
