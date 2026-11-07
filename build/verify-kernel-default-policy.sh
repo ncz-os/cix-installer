@@ -547,6 +547,8 @@ else
     if _lc_out=$(python3 -I "$_lifecycle" --root "$ROOT" --arch "$_lc_arch" 2>&1); then
         log "lifecycle: ${_lc_out#\[kernel-lifecycle\] }"
     else
+        _lc_rc=$?
+        err "lifecycle: build/check-kernel-lifecycle.py exited $_lc_rc"
         while IFS= read -r _l; do
             [ -n "$_l" ] && err "lifecycle: ${_l#\[kernel-lifecycle\] FAIL: }"
         done <<< "$_lc_out"
