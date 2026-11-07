@@ -55,16 +55,24 @@ for want in 'OnUnitActiveSec=30min' 'Persistent=true' 'RandomizedDelaySec=' 'Wan
 done
 
 # 4. the env example must name every input the runner needs
+# NCZ_IMAGE_CI_REPO may be commented out: the unit supplies the %h default.
 for want in NCZ_IMAGE_CI_REPO NCZ_PAYLOAD_SRC_ROOT NCZ_SSPLUGIN_SRC_ROOT; do
-    grep -q "^$want=" "$ENVF" && ok "env example defines $want" || bad "env example lacks $want"
+    grep -qE "^#?$want=" "$ENVF" && ok "env example names $want" || bad "env example never names $want"
 done
-# 4b. and it must not hardcode one host's clone: an absolute path that exists on
-# TYPHON made the example fail at `cd` when installed on HYDRA.
-if grep -E '^NCZ_IMAGE_CI_(REPO|PAYLOAD_SRC_ROOT|SSPLUGIN_SRC_ROOT|STATE)=' "$ENVF" | grep -q '/home/'; then
-    bad "the env example hardcodes an absolute home path (use %h)"
+# 4b. the clone path must have a host-agnostic default, and it must live where
+# systemd actually expands %h: ExecStart. EnvironmentFile values are literal, so
+# a %h in the env file would be passed through as text (review caught exactly that).
+grep -q '%h/' "$SVC" && ok "the unit's ExecStart carries the %h clone default" \
+    || bad "the unit has no %h default for the clone path"
+# only ASSIGNMENT lines matter; the comments explain why %h is unusable here
+if grep -E '^[[:space:]]*[A-Z_]+=' "$ENVF" | grep -q '%h'; then
+    bad "an env example assignment uses %h, which EnvironmentFile does not expand"
 else
-    ok "the env example uses %h, not one host's absolute path"
+    ok "no env example assignment uses %h (only the comments mention it)"
 fi
+grep -q 'EnvironmentFile files are read LITERALLY' "$ENVF" \
+    && ok "the env example says why %h cannot be used there" \
+    || bad "the env example does not explain the literal-read rule"
 
 # 5. the units must not be installed by this repo (operator's action)
 if grep -rq 'systemctl enable' "$D" 2>/dev/null; then

@@ -12,7 +12,10 @@ Type=oneshot
 # The repo path and the store mirror are host-specific: they come from the
 # environment file, not from this unit, so the same unit works on any host.
 EnvironmentFile=-/etc/ncz/image-ci.env
-ExecStart=/bin/bash -c 'cd "$NCZ_IMAGE_CI_REPO" && exec bash build/image-ci-run.sh --execute'
+# %h IS expanded in ExecStart (it is NOT in EnvironmentFile), so the clone path
+# has a host-agnostic default here and the env file only needs to override it
+# when a host keeps its clone under another name.
+ExecStart=/bin/bash -c 'cd "${NCZ_IMAGE_CI_REPO:-%h/Projects/lieutenant-ncz-work/cix-installer}" && exec bash build/image-ci-run.sh --execute'
 # A poll that fails must be visible in the journal and in the unit state.
 SuccessExitStatus=0
 TimeoutStartSec=15min
