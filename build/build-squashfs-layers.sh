@@ -1091,8 +1091,8 @@ build_base(){
   sudo tar -I 'zstd -d' -xf "$BASE_TARBALL" -C "$WORK/base"
   assert_rootfs_critical_owners "$WORK/base" "base rootfs"
   mount_chroot "$WORK/base"
-  if ! ncz_dracut_reproducible "$WORK/base"; then
-    log "ERROR: could not write the reproducible-initrd dracut drop-in"
+  if ! ncz_dracut_reproducible "$WORK/base" || ! ncz_initramfs_tools_reproducible "$WORK/base"; then
+    log "ERROR: could not write the reproducible-initrd dracut/initramfs-tools drop-ins"
     apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
     return 1
   fi
@@ -1661,16 +1661,44 @@ ncz_dracut_reproducible(){
     && sudo grep -qx 'reproducible="yes"' "$f"
 }
 
+# ncz_initramfs_tools_reproducible <root> -- the initramfs-tools counterpart of
+# ncz_dracut_reproducible. arm64 builds its initrds with initramfs-tools
+# (dracut is installed but loses), and mkinitramfs clamps member mtimes and
+# asks cpio for a reproducible archive only when SOURCE_DATE_EPOCH is set. The
+# layer stage reaches mkinitramfs through sudo, sudo chroot and mkosi's
+# sandbox, each of which drops it: measured 2026-11-07, two arm64 builds of the
+# same commit differed in 111 base and 114 desktop initrd members, mtime only.
+# mkinitramfs sources /etc/initramfs-tools/conf.d/* before it packs the
+# archive, so this drop-in sets SOURCE_DATE_EPOCH -- an explicit one wins,
+# else the mtime of the packaged mkinitramfs, the same rule dracut uses for
+# reproducible=yes -- for every caller. The file is also copied into the
+# initrd and sourced at boot, where mkinitramfs is absent: a silent no-op.
+# NCZ_MKINITRAMFS_REF exists for build/test-layer-gates.sh only.
+ncz_initramfs_tools_reproducible(){
+  local r="$1" f="$1/etc/initramfs-tools/conf.d/05-ncz-reproducible"
+  sudo install -d -m 0755 "$r/etc/initramfs-tools/conf.d" \
+    && printf '%s\n' \
+      '# NCZ-OS: reproducible initrds (build/build-squashfs-layers.sh)' \
+      'if [ -z "${SOURCE_DATE_EPOCH:-}" ] && [ -e "${NCZ_MKINITRAMFS_REF:-/usr/sbin/mkinitramfs}" ]; then' \
+      '	SOURCE_DATE_EPOCH=$(stat -c %Y "${NCZ_MKINITRAMFS_REF:-/usr/sbin/mkinitramfs}")' \
+      '	export SOURCE_DATE_EPOCH' \
+      'fi' \
+      | sudo tee "$f" >/dev/null \
+    && sudo chmod 0644 "$f" \
+    && sudo grep -q 'export SOURCE_DATE_EPOCH' "$f"
+}
+
 # ncz_regen_initrds_after_identity_reset <root> -- dracut's systemd module copies
 # a non-empty /etc/machine-id, /etc/hostname and /etc/hosts into the initrd. The
 # base initrd is written by the kernel triggers long before the golden identity
 # reset, so it carried the build chroot's random machine-id (measured
 # 2026-11-07: 33 bytes, a different id in each build) and the build host's name
-# into every install that boots it. Rebuild it from the stripped tree. Only
-# dracut is handled: initramfs-tools does not copy these files.
+# into every install that boots it. Rebuild it from the stripped tree.
+# initramfs-tools (arm64) copies none of these files, but its initrd is rebuilt
+# too, through the same update-initramfs, so both arches take one path.
 ncz_regen_initrds_after_identity_reset(){
   local r="$1" k n=0
-  [ -x "$r/usr/bin/dracut" ] || return 0
+  [ -x "$r/usr/bin/dracut" ] || [ -x "$r/usr/sbin/mkinitramfs" ] || return 0
   for k in "$r"/boot/initrd.img-*; do
     [ -e "$k" ] || continue
     k="${k##*/initrd.img-}"
