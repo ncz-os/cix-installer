@@ -689,7 +689,7 @@ def verify_candidate_mirror(ref, mirror, up_dir, fetch):
 
 
 def authorize_records(ref, records, root, auth_idx, src, orphan_root=None,
-                      sid_idx=None):
+                      sid_idx=None, exempt_substrate_kernel=False):
     """Authorize candidate Packages records AND their referenced pool bytes
     against auth_idx (an already-authenticated identity -> (sha, filename, size)
     map) plus the reviewed vendor/NCZ ledgers and -- only for an exact reviewed
@@ -737,6 +737,17 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None,
         elif ref.receipt_ts.get(key) == sha:
             # build-timestamped NCZ deb authorized by a run/pre-build receipt
             auth = "ncz-receipt"
+        if auth is None and exempt_substrate_kernel and \
+                KERNEL_ARTIFACT_RE.search(key[0]):
+            # docs/ONE-KERNEL.md: these are the INSTALLER's own kernel and module
+            # udebs -- d-i needs them to boot and partition.  The writer drops them
+            # from the medium when NCZ_ONE_KERNEL=1 and (since cycle 494) asserts
+            # that it did.  The exemption is passed in by ONE call site, the
+            # substrate INPUT scan; the finished-image scan never sets it, so an
+            # image that still carries them is reported as before.
+            print(f"NOTE  [{src}] {what} :: one-kernel-exempt "
+                  f"(the installer's own kernel udeb; removed from the medium)")
+            auth = "one-kernel-exempt"
         if auth is None:
             fail(src, what, "not authorized by the verified snapshot index or a "
                             "reviewed vendor/NCZ/sid-exceptions ledger")
@@ -760,6 +771,16 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None,
                   + rglob(orphan_root, "*.udeb")):
             rel = os.path.normpath(os.path.relpath(p, root))
             if rel not in referenced:
+                if exempt_substrate_kernel and \
+                        KERNEL_ARTIFACT_RE.search(os.path.basename(p).split("_", 1)[0]):
+                    # Same policy, same call site as the records-ladder exemption
+                    # above: the installer's own kernel udebs are not in the ISO's
+                    # own Packages index either, and the writer removes them from
+                    # the medium under NCZ_ONE_KERNEL=1.
+                    print(f"NOTE  [{src}] {rel} :: one-kernel-exempt "
+                          f"(the installer's own kernel udeb; removed from the medium)")
+                    referenced.add(rel)
+                    continue
                 fail(src, rel, "orphan pool file not listed in any Packages index")
     if len(FAILS) != before:
         return None
@@ -767,7 +788,7 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None,
 
 
 def authorize_pool(ref, root, auth_idx, src, flat=False, orphan_root=None,
-                   sid_idx=None):
+                   sid_idx=None, exempt_substrate_kernel=False):
     """Find a pool's own Packages index (flat at root, or under dists/) and
     authorize it against the ALREADY-authenticated auth_idx + ledgers.  Returns
     the authorized Filename set or None (missing/empty/partial/foreign/unapproved
@@ -792,7 +813,8 @@ def authorize_pool(ref, root, auth_idx, src, flat=False, orphan_root=None,
         fail(src, root, "offline pool has no readable Packages records")
         return None
     return authorize_records(ref, records, root, auth_idx, src,
-                             orphan_root=orphan_root, sid_idx=sid_idx)
+                             orphan_root=orphan_root, sid_idx=sid_idx,
+                             exempt_substrate_kernel=exempt_substrate_kernel)
 
 
 # ---------------------------------------------------------------- reference data
@@ -3095,7 +3117,12 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
         # finding, exactly as in the finished-image scan (authorize_pool above).
         # Without it an unauthorized udeb simply dropped into /pool would be
         # invisible to this gate -- the C3 failure it exists to catch early.
+        # The one-kernel exemption is opted into per trust root via
+        # release.conf: NCZ_ONE_KERNEL_SUBSTRATE_UDEBS=exempt (docs/ONE-KERNEL.md).
+        # Deliberately only here: the finished image is still checked without it.
+        _okx = _ncz_build_context(ref.root)
         auth = authorize_pool(ref, pool, ref.idx, src + ":/cdrom", flat=False,
+                              exempt_substrate_kernel=_okx,
                               orphan_root=pool, sid_idx=ref.sid_idx)
         if auth is None:
             fail(src, iso, "the substrate's /cdrom pool is not fully authorized "
