@@ -156,7 +156,15 @@ while IFS=$'\t' read -r trig verdict value; do
     # start a second build on the same host.
     ( printf '%s\n' "$BASHPID" > "$marker"
       export NCZ_IMAGE_CI_LAUNCHED_BY=image-ci-run
-      setsid bash -c "$cmd" > "$log" 2>&1 ) &
+      ( setsid bash -c "$cmd" > "$log" 2>&1 )
+      rc=$?
+      # Give the reservation back when the build ends, or every finished build
+      # leaves a dead marker that host_status.sh reports as a running build and
+      # the next pass has to clear.  Only if it is STILL OURS: a successor may
+      # have cleared and re-taken this marker while a long build ran, and
+      # removing its reservation would let a second build start on the host.
+      [ "$(cat "$marker" 2>/dev/null)" = "$BASHPID" ] && rm -f "$marker"
+      exit $rc ) &
     bpid=$!
     pid="$bpid"
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
