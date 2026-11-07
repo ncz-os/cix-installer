@@ -68,7 +68,6 @@ manifests/desktop.pkgs:imagemagick
 manifests/desktop.pkgs:imv
 manifests/desktop.pkgs:inetutils-telnetd
 manifests/desktop.pkgs:iperf3
-manifests/desktop.pkgs:kooha
 manifests/desktop.pkgs:libadwaita-1-0
 manifests/desktop.pkgs:libdbusmenu-glib4
 manifests/desktop.pkgs:libdrm-etnaviv1

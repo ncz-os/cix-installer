@@ -267,7 +267,8 @@ shotcut
 handbrake
 ffmpeg
 audacity
-kooha
+# kooha is not seeded: it is in no forky component (unstable only); see
+# manifests/desktop.pkgs (operator ruling 2026-11-07).
 celluloid
 drawing
 # Stock GNOME apps with a native Singularity twin are not installed (operator,

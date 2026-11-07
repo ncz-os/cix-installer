@@ -461,11 +461,13 @@ audacity
 
 # --- GTK4/libadwaita native-Wayland apps, hardware-accelerated via GSK's
 #     GL renderer (GSK_RENDERER=gl, already set in singularity-desktop-session).
-#     kooha fixes the earlier screen-recording bug -- goes through
-#     xdg-desktop-portal's ScreenCast interface, which singularity.portal
-#     does implement. celluloid is a native GTK4 GUI complement to the CLI
-#     mpv already above (same VAAPI hardware decode path). drawing is a
-#     small paint app. ---
+#     celluloid is a native GTK4 GUI complement to the CLI mpv already
+#     above (same VAAPI hardware decode path). drawing is a small paint app.
+#     kooha (GTK4 screen recorder) is NOT seeded (operator ruling 2026-11-07):
+#     it is in no Debian forky component, at the pinned snapshot or live
+#     (unstable carries 2.3.2-1, measured 2026-11-07), and a sid pull would
+#     break the pinned, deterministic package closure. wf-recorder (below)
+#     remains the screen recorder. ---
 #
 # Stock GNOME apps with a native Singularity twin are NOT installed (operator,
 # 2026-10-26: "We shouldn't be installing most of the gnome apps"). Dropped:
@@ -485,7 +487,6 @@ audacity
 #   gnome-desktop3-data  shared GNOME desktop data, kept by operator decision
 geoclue-2.0
 gnome-desktop3-data
-kooha
 celluloid
 drawing
 # Additional Wayland-first utilities: small native image viewers. They do not

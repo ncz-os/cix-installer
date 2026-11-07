@@ -312,8 +312,6 @@ kexec-tools	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-
 kexec-tools	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
 kmod	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
 kmod	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
-kooha	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
-kooha	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 kpartx	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
 kpartx	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
 less	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
