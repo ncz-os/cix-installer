@@ -141,6 +141,12 @@ r="$W/n17"; amd64tree "$r" banana-t2-ncz 1; lifecycle "$r" CURRENT_KVER_amd64=ba
 expect "amd64: unparseable KVER refused" 1 "parse" python3 "$GATE" --root "$r" --arch amd64
 r="$W/n18"; amd64tree "$r" 7.3.1-t2-ncz 7.3.1-r295; lifecycle "$r" LIFECYCLE_SCHEMA=2
 expect "lifecycle: unknown schema refused" 1 "SCHEMA" python3 "$GATE" --root "$r" --arch amd64
+r="$W/n19"; arm64tree "$r" 7.3.1-sky1-ncz 7.3.1-sky1-ncz+r297; lifecycle "$r"
+printf '{"schema":1,"variants":[],"kernel_debs":[null,"x"]}\n' > "$r/assets/kernel-manifest.json"
+expect "arm64: wrong-shaped kernel-manifest.json is a clean FAIL" 1 "FAIL: arm64: .*kernel-manifest.json" python3 "$GATE" --root "$r" --arch arm64
+r="$W/n20"; amd64tree "$r" 7.3.1-t2-ncz 7.3.1-r295; lifecycle "$r"
+printf '[1,2]\n' > "$r/assets/kernel/amd64-stable-manifest.json"
+expect "amd64: wrong-shaped amd64-stable-manifest.json is a clean FAIL" 1 "FAIL: amd64: .*amd64-stable-manifest.json" python3 "$GATE" --root "$r" --arch amd64
 expect "misuse: bad --arch" 2 "" python3 "$GATE" --root "$W/p1" --arch riscv64
 
 echo "=== the policy verifier runs the lifecycle gate ==="
