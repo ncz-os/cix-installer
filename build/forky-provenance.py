@@ -1177,7 +1177,7 @@ def classify_noarch(ref, src, name, ver, maint):
     if _ncz_build_context(getattr(ref, "root", None)) and \
             KERNEL_ARTIFACT_RE.search(name or ""):
         print(f"NOTE  [{src}] {name} {ver} :: one-kernel-exempt "
-              f"(installer initrd uts own kernel udeb)")
+              f"(the installer's own kernel udeb, from the initrd status)")
         return "one-kernel-exempt"
 
     what = f"{name} {ver} (no Architecture in dpkg status)"

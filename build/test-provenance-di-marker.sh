@@ -7,8 +7,9 @@
 # on any image, which is a false negative in a provenance decision.  The
 # exemption now needs BOTH the tree's own opt-in (NCZ_ONE_KERNEL_SUBSTRATE_UDEBS
 # =exempt, read through _ncz_build_context) AND the record to come from an
-# initrd's status file.  This suite pins all four cases:
+# initrd's status file.  This suite pins all five cases:
 #   1. opt-in + initrd origin + build stamp  -> exempted (di-build-marker)
+#   1b. the real cdrom-<variant>-<stamp> shape is exempted too
 #   2. no opt-in                             -> FAIL (not exempted)
 #   3. opt-in, but the record is not from an initrd -> FAIL
 #   4. opt-in + initrd, but the version is not a build stamp -> FAIL
@@ -75,6 +76,7 @@ def call(root, src, ver):
 
 cases = [
     ("opt-in + initrd origin + build stamp", tree("a", True), INITRD, STAMP, "di-build-marker"),
+    ("opt-in + initrd + cdrom-variant build stamp", tree("e", True), INITRD, "cdrom-firmware-" + STAMP, "di-build-marker"),
     ("no opt-in", tree("b", False), INITRD, STAMP, None),
     ("opt-in, but not an initrd record", tree("c", True), NON_INITRD, STAMP, None),
     ("opt-in + initrd, but not a build stamp", tree("d", True), INITRD, "2026.11.02", None),
