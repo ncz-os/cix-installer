@@ -388,6 +388,34 @@ grep -q '^\[host-ready\] FAIL container-image ' <<<"$out" \
     && ok "absent container image: the failure is named container-image" || bad "absent container image: not named ($(fails_of "$out"))" "$out"
 
 # ===========================================================================
+echo "== 13b. positive: the pinned config file follows the pinned KVER =="
+# A kernel bump changes the config file name (config-<KVER>). The check must
+# take it from the manifest, not from a name fixed to one release: a pin on
+# r298 (7.3.3-sky1-ncz) whose pool holds exactly the pinned bytes is not stale.
+H="$W/h13b"; H_RUN="$H/run"; mkhost "$H"; mktools "$H"; mkdf "$H"; mkfs "$H"
+rel=r298-7.3.3-sky1-ncz-20261107
+printf '%s\n' "$rel" > "$H/clone/assets/kernel/mainline.release"
+mkdir -p "$H/staging/$rel"
+for f in Image-cixmini.bin modules-cixmini.tgz config-7.3.3-sky1-ncz; do
+    printf 'fixture bytes for %s\n' "$f" > "$H/staging/$rel/$f"
+done
+printf '7.3.3-sky1-ncz' > "$H/staging/$rel/KVER"
+printf '{"variants":{"mainline":{"kver":"7.3.3-sky1-ncz","image":{"sha256":"%s"},"modules":{"sha256":"%s"},"config":{"file":"assets/kernel/mainline/config-7.3.3-sky1-ncz","sha256":"%s"}}}}\n' \
+    "$(sha_of "$H/staging/$rel/Image-cixmini.bin")" "$(sha_of "$H/staging/$rel/modules-cixmini.tgz")" \
+    "$(sha_of "$H/staging/$rel/config-7.3.3-sky1-ncz")" > "$H/clone/assets/kernel-manifest.json"
+git -C "$H/clone" add -A >/dev/null 2>&1; git -C "$H/clone" -c user.name=t -c user.email=t@t commit -qm pin733 >/dev/null 2>&1
+out="$(run "$H" arm64 --no-publish)"
+grep -qE '^\[host-ready\] OK +kernel-staging ' <<<"$out" \
+    && ok "7.3.3 pin, pool holds the pinned bytes: kernel-staging OK" \
+    || bad "7.3.3 pin: kernel-staging not OK ($(grep 'kernel-staging' <<<"$out" | head -1))" "$out"
+# and the config bytes still count: change them and the pool is stale
+printf 'other bytes\n' > "$H/staging/$rel/config-7.3.3-sky1-ncz"
+out="$(run "$H" arm64 --no-publish)"
+grep -q '^\[host-ready\] FAIL kernel-staging ' <<<"$out" \
+    && ok "7.3.3 pin, config bytes differ: kernel-staging fails" \
+    || bad "7.3.3 pin: a changed config was not caught" "$out"
+
+# ===========================================================================
 echo "== 14. usage errors =="
 expect_rc "no --arch is a usage error" 2 bash "$HR" --root "$W/h1/clone"
 expect_rc "a bad --arch is a usage error" 2 bash "$HR" --arch riscv64 --root "$W/h1/clone"
