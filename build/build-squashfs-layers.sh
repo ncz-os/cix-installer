@@ -64,6 +64,19 @@ else
     echo "[sqfs] WARNING: NCZ_SKIP_FRESHNESS_GATE=1 -- skipping freshness gate, building against whatever is on disk"
 fi
 
+# xattrs no layer archive may carry, as ONE regex: mksquashfs keeps only the
+# LAST -xattrs-exclude it is given (measured 2026-11-07 with 4.7.5), so a
+# second flag silently replaces the first.
+#   (trusted|user)\.overlay\.  overlayfs internals: origin file handles (lower
+#                    inode numbers), per-mount uuid, impure/opaque/metacopy
+#                    markers. user.* is what mkosi's rootless overlay writes.
+#                    Whiteouts and opaque dirs travel in the overlay manifest.
+#                    These made every desktop build differ (two builds of
+#                    096c74f4: the xattr table was the only difference).
+#   security\.selinux  the build host's MAC labels (see the desktop call).
+# security.capability and other xattrs are package content and stay.
+NCZ_LAYER_XATTRS_EXCLUDE='^((trusted|user)\.overlay\.|security\.selinux)'
+
 WORK="${WORK:-/tmp/ncz-sqfs}"
 
 # NEVER BUILD OR VERIFY A MULTI-GIGABYTE LAYER ON A tmpfs.
@@ -908,11 +921,11 @@ with open(output, "w", encoding="utf-8") as stream:
         stream.write(f"{operation}\t{path}\n")
 PYOVERLAY
   log "$role: mksquashfs upperdir delta -> $OUT/$role.squashfs"
-  # -xattrs-exclude is REPEATED, not replaced: mksquashfs accepts the flag more
-  # than once and the matches are OR'd.
-  #   ^trusted\.overlay\.  -- overlayfs internals (opaque/metacopy/redundant
-  #                          markers). Plain unsquashfs cannot replay them;
-  #                          keep them out of the published archive.
+  # One -xattrs-exclude regex, NCZ_LAYER_XATTRS_EXCLUDE (mksquashfs keeps only
+  # the last flag; the old pair here never excluded trusted.overlay.*).
+  #   overlay internals  -- trusted.overlay.* and user.overlay.* (opaque,
+  #                          metacopy, origin, uuid). Plain unsquashfs cannot
+  #                          replay them; keep them out of the published archive.
   #   ^security\.selinux  -- HOST SELinux labels. NCZ-OS is a Debian image and
   #                          must not carry the build host's MAC labels: on a
   #                          Fedora Asahi host (or any podman-managed build)
@@ -936,7 +949,7 @@ PYOVERLAY
   # env -u SOURCE_DATE_EPOCH: mksquashfs >= 4.7 refuses SOURCE_DATE_EPOCH +
   # explicit -all-time/-fstime together; we keep the explicit epoch-0 form.
   sudo env -u SOURCE_DATE_EPOCH mksquashfs "$U" "$OUT/$role.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 \
-    -xattrs-exclude '^trusted\.overlay\.' -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -2
+    -xattrs-exclude "$NCZ_LAYER_XATTRS_EXCLUDE" -noappend -no-progress 2>&1 | tail -2
   verify_squashfs "$OUT/$role.squashfs" "$role"
   log "$role DONE: delta $(du -h "$OUT/$role.squashfs"|cut -f1)"
   sudo rm -rf "$L" "$MG" "$WK"
@@ -1426,7 +1439,7 @@ ExecStartPre=/usr/sbin/sshd -t
   # content and is preserved -- this is NOT a blanket -no-xattrs.
   log "BASE: mksquashfs -> $OUT/base.squashfs"
   # env -u SOURCE_DATE_EPOCH: see the desktop-layer call above (mksquashfs>=4.7).
-  sudo env -u SOURCE_DATE_EPOCH mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -3
+  sudo env -u SOURCE_DATE_EPOCH mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude "$NCZ_LAYER_XATTRS_EXCLUDE" -noappend -no-progress 2>&1 | tail -3
   verify_squashfs "$OUT/base.squashfs" "base"
   log "BASE DONE: $(du -h "$OUT/base.squashfs"|cut -f1)"
 }
@@ -1896,7 +1909,7 @@ build_hotfix(){
   # content and is preserved -- this is NOT a blanket -no-xattrs.
   log "HOTFIX: mksquashfs $WORK/hotfix -> $OUT/desktop-hotfix.squashfs"
   # env -u SOURCE_DATE_EPOCH: see the desktop-layer call above (mksquashfs>=4.7).
-  sudo env -u SOURCE_DATE_EPOCH mksquashfs "$WORK/hotfix" "$OUT/desktop-hotfix.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -2
+  sudo env -u SOURCE_DATE_EPOCH mksquashfs "$WORK/hotfix" "$OUT/desktop-hotfix.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude "$NCZ_LAYER_XATTRS_EXCLUDE" -noappend -no-progress 2>&1 | tail -2
   verify_squashfs "$OUT/desktop-hotfix.squashfs" "desktop-hotfix"
   # Write the overlay manifest. The install-time stub applies the manifest
   # BEFORE unsquashfs extraction (see preseed/extract-rootfs.sh's
