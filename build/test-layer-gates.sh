@@ -29,6 +29,7 @@
 #      the shipped epoch-0 directory mtimes
 #  10. no layer archive carries overlayfs xattrs (one -xattrs-exclude regex)
 #  11. overlay manifest records user.overlay.opaque dirs only where base has the path
+#  12. initramfs-tools drop-in sets SOURCE_DATE_EPOCH for every mkinitramfs run
 # Ownership needs root semantics: the test re-runs itself under fakeroot.
 # Usage: build/test-layer-gates.sh
 set -uo pipefail
@@ -413,6 +414,47 @@ else
 fi
 grep -qF 'python3 - "$U" "$L" "$OUT/$role.overlay-manifest"' "$L" \
     && ok "build_layer passes the base lowerdir to the generator" || bad "build_layer does not pass \$L to the generator"
+
+# ===========================================================================
+echo "== 12. initramfs-tools initrds are reproducible (arm64 base/desktop) =="
+# Measured 2026-11-07 (two arm64 builds of 7a5309b6): the base and desktop
+# initrds (initramfs-tools; dracut loses on arm64) differed in 111 / 114 cpio
+# mtimes, content identical. mkinitramfs clamps mtimes and uses cpio
+# --reproducible only when SOURCE_DATE_EPOCH is set, and the layer build's
+# sudo/chroot calls (and mkosi's sandbox) drop it. mkinitramfs sources
+# /etc/initramfs-tools/conf.d/* before it builds the archive, so a drop-in
+# there sets it for every caller: the kernel postinst, update-initramfs in the
+# hooks, mkosi's apt triggers.
+L="$ROOT/build/build-squashfs-layers.sh"
+FN12="$T/itools.sh"
+{
+    echo 'sudo() { "$@"; }'; echo 'log() { echo "[log] $*"; }'
+    sed -n '/^ncz_initramfs_tools_reproducible(){/,/^}$/p' "$L"
+} > "$FN12"
+grep -q '^ncz_initramfs_tools_reproducible(){' "$FN12" && ok "initramfs-tools helper extracted" || bad "could not extract ncz_initramfs_tools_reproducible"
+R12="$T/itools-root"; mkdir -p "$R12/etc"
+bash -c ". '$FN12'; ncz_initramfs_tools_reproducible '$R12'" >/dev/null 2>&1; rc=$?
+D12="$R12/etc/initramfs-tools/conf.d/05-ncz-reproducible"
+[ "$rc" = 0 ] && [ -f "$D12" ] && ok "drop-in written (rc 0)" || bad "drop-in missing (rc=$rc)"
+# mkinitramfs only sources conf.d names matching its own filter
+basename "$D12" | grep '^[[:alnum:]][[:alnum:]\._-]*$' | grep -qv '\.dpkg-.*$' \
+    && ok "drop-in name passes mkinitramfs maybe_add_conf" || bad "mkinitramfs would ignore $(basename "$D12")"
+# sourced the way mkinitramfs does (plain sh, set -e): an explicit
+# SOURCE_DATE_EPOCH wins; without one it comes from the packaged mkinitramfs
+# mtime; where mkinitramfs is absent (inside the initrd, which also sources
+# conf.d at boot) it is a silent no-op
+got="$(SOURCE_DATE_EPOCH=1700000000 sh -ec ". '$D12'; echo \$SOURCE_DATE_EPOCH")"
+[ "$got" = 1700000000 ] && ok "an explicit SOURCE_DATE_EPOCH is kept" || bad "explicit SOURCE_DATE_EPOCH replaced: $got"
+F12="$T/fake-mkinitramfs"; : > "$F12"; touch -d @1600000000 "$F12"
+got="$(env -u SOURCE_DATE_EPOCH NCZ_MKINITRAMFS_REF="$F12" sh -ec ". '$D12'; echo \${SOURCE_DATE_EPOCH:-unset}")"
+[ "$got" = 1600000000 ] && ok "without one, SOURCE_DATE_EPOCH = mkinitramfs mtime" || bad "derived SOURCE_DATE_EPOCH: $got"
+out="$(env -u SOURCE_DATE_EPOCH NCZ_MKINITRAMFS_REF="$T/absent" sh -ec ". '$D12'; echo \${SOURCE_DATE_EPOCH:-unset}" 2>&1)"
+[ "$out" = unset ] && ok "no mkinitramfs (initrd boot): silent no-op" || bad "drop-in at boot printed/set: $out"
+bb="$(sed -n '/^build_base(){/,/^}$/p' "$L")"
+ln_it="$(printf '%s\n' "$bb" | grep -nF 'ncz_initramfs_tools_reproducible "$WORK/base"' | head -1 | cut -d: -f1)"
+ln_apt="$(printf '%s\n' "$bb" | grep -nF 'apt-get install' | head -1 | cut -d: -f1)"
+[ -n "$ln_it" ] && [ -n "$ln_apt" ] && [ "$ln_it" -lt "$ln_apt" ] \
+    && ok "base: initramfs-tools drop-in precedes the first apt-get install" || bad "base: drop-in line ${ln_it:-none} vs apt ${ln_apt:-none}"
 
 echo "test-layer-gates: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
