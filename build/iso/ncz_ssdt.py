@@ -213,8 +213,9 @@ def _stamp_source(asl: Path, aml: Path) -> None:
 
 
 def _built_from(asl: Path, aml: Path) -> bool:
+    # Bytes, not text: a corrupt (undecodable) stamp is stale, not a crash.
     try:
-        return _stamp_path(aml).read_text().strip() == _asl_digest(asl)
+        return _stamp_path(aml).read_bytes().strip() == _asl_digest(asl).encode()
     except OSError:
         return False
 
