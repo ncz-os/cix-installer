@@ -321,10 +321,10 @@ grep -qx 'reproducible="yes"' "$R9/etc/dracut.conf.d/05-ncz-reproducible.conf" 2
 # the base build writes the drop-in before its first apt-get install and
 # regenerates the initrd after the golden identity reset
 bb="$(sed -n '/^build_base(){/,/^}$/p' "$L")"
-ln_drop="$(printf '%s\n' "$bb" | grep -n 'ncz_dracut_reproducible "\$WORK/base"' | head -1 | cut -d: -f1)"
-ln_apt="$(printf '%s\n' "$bb" | grep -n 'apt-get install' | head -1 | cut -d: -f1)"
-ln_mid="$(printf '%s\n' "$bb" | grep -n 'truncate -s 0 "\$WORK/base/etc/machine-id"' | head -1 | cut -d: -f1)"
-ln_regen="$(printf '%s\n' "$bb" | grep -n 'ncz_regen_initrds_after_identity_reset "\$WORK/base"' | head -1 | cut -d: -f1)"
+ln_drop="$(printf '%s\n' "$bb" | grep -nF 'ncz_dracut_reproducible "$WORK/base"' | head -1 | cut -d: -f1)"
+ln_apt="$(printf '%s\n' "$bb" | grep -nF 'apt-get install' | head -1 | cut -d: -f1)"
+ln_mid="$(printf '%s\n' "$bb" | grep -nF 'truncate -s 0 "$WORK/base/etc/machine-id"' | head -1 | cut -d: -f1)"
+ln_regen="$(printf '%s\n' "$bb" | grep -nF 'ncz_regen_initrds_after_identity_reset "$WORK/base"' | head -1 | cut -d: -f1)"
 [ -n "$ln_drop" ] && [ -n "$ln_apt" ] && [ "$ln_drop" -lt "$ln_apt" ] \
     && ok "base: dracut drop-in precedes the first apt-get install" || bad "base: drop-in line ${ln_drop:-none} vs apt ${ln_apt:-none}"
 [ -n "$ln_mid" ] && [ -n "$ln_regen" ] && [ "$ln_regen" -gt "$ln_mid" ] \
@@ -338,13 +338,13 @@ mkdir -p "$T/fakechroot"; printf '#!/bin/sh\necho "$@" >> "%s/chroot.calls"\n' "
 PATH="$T/fakechroot:$PATH" bash -c ". '$FN9'; ncz_font_caches_for_shipped_mtimes '$F9' desktop" >/dev/null 2>&1; rc=$?
 [ "$rc" = 0 ] && ok "font caches: helper rc 0" || bad "font caches: rc=$rc"
 newer="$(find "$F9" -type d -newermt @0 | wc -l)"
-[ "$newer" = 0 ] && ok "font caches: no directory newer than epoch 0" || bad "font caches: $newer directories still newer than epoch 0"
+[ "$newer" -eq 0 ] && ok "font caches: no directory newer than epoch 0" || bad "font caches: $newer directories still newer than epoch 0"
 grep -q "^$F9 fc-cache -s -f\$" "$T/chroot.calls" 2>/dev/null && ok "font caches: fc-cache -s -f re-run in the chroot" || bad "font caches: chroot calls: $(cat "$T/chroot.calls" 2>/dev/null)"
 N9="$T/nofont"; mkdir -p "$N9/usr/share/fonts"; : > "$T/chroot.calls"
 PATH="$T/fakechroot:$PATH" bash -c ". '$FN9'; ncz_font_caches_for_shipped_mtimes '$N9' desktop" >/dev/null 2>&1
-[ ! -s "$T/chroot.calls" ] && [ "$(find "$N9" -type d -newermt @0 | wc -l)" != 0 ] \
+[ ! -s "$T/chroot.calls" ] && [ "$(find "$N9" -type d -newermt @0 | wc -l)" -ne 0 ] \
     && ok "font caches: a layer without fc-cache is left alone" || bad "font caches: touched a layer without fc-cache"
-grep -q 'ncz_font_caches_for_shipped_mtimes "\$MG" "\$role"' "$L" \
+grep -qF 'ncz_font_caches_for_shipped_mtimes "$MG" "$role"' "$L" \
     && ok "build_layer re-runs fc-cache in the merged chroot" || bad "build_layer does not call the font-cache helper"
 
 echo "test-layer-gates: $PASS passed, $FAIL failed"
