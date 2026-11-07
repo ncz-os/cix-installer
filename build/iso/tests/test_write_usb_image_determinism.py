@@ -115,3 +115,43 @@ def test_data_partition_root_is_root_owned_0755(writer, tmp_path, monkeypatch):
     ).stdout
     assert re.search(r"User:\s+0\s+Group:\s+0\b", out), out
     assert re.search(r"Mode:\s+0755\b", out), out
+
+
+def _dists(root: Path) -> Path:
+    suite_dir = root / "dists" / "forky"
+    idx = suite_dir / "main" / "binary-amd64"
+    idx.mkdir(parents=True)
+    (idx / "Packages").write_text("Package: x\n")
+    return suite_dir
+
+
+@pytest.mark.skipif(not shutil.which("apt-ftparchive"), reason="apt-ftparchive not available")
+def test_medium_release_is_byte_identical_and_dated_by_epoch(writer, tmp_path, monkeypatch):
+    """Measured 2026-11-07: with every layer identical, two builds of one
+    commit (amd64 and arm64) still differed in /dists/<suite>/Release on
+    NCZDATA: apt-ftparchive stamps the wall clock as Date (it ignores
+    SOURCE_DATE_EPOCH), and because its output was redirected INTO the tree
+    it scans, the file listed a checksum of its own half-written header."""
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
+    outs = []
+    for i in range(2):
+        root = tmp_path / f"run{i}"
+        if i:
+            time.sleep(1.2)
+        suite_dir = _dists(root)
+        writer.write_medium_release(root, "forky", "amd64")
+        outs.append((suite_dir / "Release").read_bytes())
+        assert sorted(p.name for p in root.iterdir()) == ["dists"], "temp file left on the medium"
+    assert outs[0] == outs[1], "Release differs between two runs"
+    text = outs[0].decode()
+    assert "Date: Tue, 14 Nov 2023 22:13:20 +0000" in text, text
+    listed = [line.split()[-1] for line in text.splitlines() if line.startswith(" ")]
+    assert "main/binary-amd64/Packages" in listed
+    assert "Release" not in listed, "Release lists a checksum of itself"
+
+
+def test_release_date_is_rfc2822_c_locale(writer, monkeypatch):
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1793607971")
+    assert writer.release_date() == "Mon, 02 Nov 2026 08:26:11 +0000"
+    monkeypatch.delenv("SOURCE_DATE_EPOCH")
+    assert writer.release_date() is None
