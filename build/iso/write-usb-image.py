@@ -145,7 +145,7 @@ def repro_uuid(kind: str) -> str | None:
 def source_date_epoch() -> int | None:
     """SOURCE_DATE_EPOCH from the environment, or None when unset/invalid."""
     val = os.environ.get("SOURCE_DATE_EPOCH", "")
-    return int(val) if val.isdigit() else None
+    return int(val) if val.isascii() and val.isdigit() else None
 
 
 def media_build_date() -> str:

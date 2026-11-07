@@ -333,7 +333,7 @@ class OverlayCpioDeterminismTest(unittest.TestCase):
     342d44bc): its members differed only in staging-time mtimes and cpio
     inode numbers."""
 
-    def _stage(self, root: Path) -> Path:
+    def _stage(self, root: Path) -> tuple[Path, Path]:
         tree = root / "overlay"
         (tree / "lib" / "firmware").mkdir(parents=True)
         (tree / "lib" / "firmware" / "a.fw").write_bytes(b"fw")
