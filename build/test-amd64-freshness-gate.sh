@@ -117,6 +117,39 @@ echo; echo "=== Case 4: pool has no -dbg (image only), local == pinned image -> 
 run_case "pinned image recognised with no -dbg present" 1 0 "$TMPROOT/case4" \
     'rm -f "$POOL/amd64-t2-rc7-r2-20261012/7.3.0-rc7-t2-ncz/linux-image-7.3.0-rc7-t2-ncz-dbg_7.3.0-rc7-2_amd64.deb"; stage_local "$TMPROOT/case4" r2-img 7.3.0-rc7-2'
 
+# Cases 5-6 (rc4 repin, 2026-11-07): three pool dirs share KVER 7.3.1-t2-ncz and
+# PKGVERSION 7.3.1-r295 (the 11-01 build, the HYDRA build, its NCZ-Maintainer
+# repack). KVER+PKGVERSION cannot pick one; the manifest's
+# staging_pool_relative must, exactly as stage-amd64-kernel.sh stages it.
+POOL3="$TMPROOT/pool3"
+mkpool_731() {
+    local n
+    for n in amd64-t2-7.3.1-r295-20261101:nov01 amd64-t2-7.3.1-r295-hydra-20261102:hydra \
+             amd64-t2-7.3.1-r295-hydra-20261102-repacked:repacked; do
+        mkdir -p "$POOL3/${n%%:*}/7.3.1-t2-ncz"
+        printf '7.3.1-t2-ncz\n' > "$POOL3/${n%%:*}/7.3.1-t2-ncz/KVER"
+        printf '%s-img\n' "${n#*:}" > "$POOL3/${n%%:*}/7.3.1-t2-ncz/linux-image-7.3.1-t2-ncz_7.3.1-r295_amd64.deb"
+    done
+}
+stage_local_731() {  # <repo> <image-content>
+    mkdir -p "$1/assets/kernel/amd64-stable"
+    printf '7.3.1-t2-ncz\n' > "$1/assets/kernel/amd64-stable/KVER"
+    printf '7.3.1-r295\n'   > "$1/assets/kernel/amd64-stable/PKGVERSION"
+    printf '%s\n' "$2"      > "$1/assets/kernel/amd64-stable/linux-image-7.3.1-t2-ncz_7.3.1-r295_amd64.deb"
+    printf '{"kver":"7.3.1-t2-ncz","package_revision":"7.3.1-r295","staging_pool_relative":"kernel-staging/amd64-t2-7.3.1-r295-hydra-20261102-repacked/7.3.1-t2-ncz"}\n' \
+        > "$1/assets/kernel/amd64-stable-manifest.json"
+}
+mkpool_731
+run_case_pool() { local _p="$POOL"; POOL="$POOL3"; run_case "$@"; POOL="$_p"; }
+
+echo; echo "=== Case 5: three same-KVER+PKGVERSION dirs, local == the manifest's dir -> OK ==="
+run_case_pool "manifest staging_pool_relative selects the repacked dir" 1 0 "$TMPROOT/case5" \
+    'stage_local_731 "$TMPROOT/case5" repacked-img'
+
+echo; echo "=== Case 6: local holds the 11-01 build while the manifest names the repack -> FAIL ==="
+run_case_pool "first same-name dir (11-01) is not the pinned build" 0 1 "$TMPROOT/case6" \
+    'stage_local_731 "$TMPROOT/case6" nov01-img'
+
 echo
 echo "=== amd64 freshness gate test: PASS=$PASS FAIL=$FAIL ==="
 [ "$FAIL" -eq 0 ]
