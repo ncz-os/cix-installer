@@ -60,6 +60,9 @@ res --arch amd64 --registry "$W/reg.json" --allow-committed-manifests >/dev/null
 mkroot 7.3.1-t2-ncz 7.3.1-r295
 out="$(res --arch amd64 --registry "$W/reg.json" --allow-committed-manifests)" && grep -qx "NCZ_KERNEL_KVER=7.3.1-t2-ncz" <<<"$out" \
     && ok "fallback accepts a live committed pin" || no "live fallback: $out $(cat "$W/err")"
+rm -f "$W/root/assets/kernel/amd64-stable/KVER"
+res --arch amd64 --registry "$W/reg.json" --allow-committed-manifests >/dev/null; [ $? -eq 3 ] \
+    && ok "fallback with no committed pin is refused" || no "empty pin accepted"
 for mode in tamper break-history retired-current; do
     mkreg "$W/bad.json" "7.3.1-t2-ncz+r295" "" "$mode"
     res --arch amd64 --registry "$W/bad.json" >/dev/null; [ $? -eq 3 ] && ok "refused: $mode" || no "accepted $mode"

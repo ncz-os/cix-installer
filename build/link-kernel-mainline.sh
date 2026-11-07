@@ -34,7 +34,7 @@ LINK="$ROOT/assets/kernel/mainline"
 REL="$(sed 's/#.*//' "$REL_FILE" | tr -d '[:space:]')"
 # The kernel-ci registry's current Sky1 release (build-image.sh exports it from
 # build/resolve-kernel-from-registry.py) wins over the committed mainline.release.
-[ -n "${NCZ_KERNEL_RELEASE:-}" ] && REL="$NCZ_KERNEL_RELEASE"
+[ -n "${NCZ_KERNEL_RELEASE:-}" ] && { REL="$NCZ_KERNEL_RELEASE"; REL_FILE="NCZ_KERNEL_RELEASE (kernel-ci registry)"; }
 case "$REL" in
     r[0-9]*-*-sky1-ncz-[0-9]*) ;;
     *) echo "link-kernel-mainline: '$REL' in $REL_FILE is not rNNN-<kver>-sky1-ncz-<date>" >&2; exit 2 ;;

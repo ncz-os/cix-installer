@@ -145,6 +145,10 @@ def resolve(
     if not tree:
         raise Refused(f"registry has no tree {ARCH_TREE[arch]} for {arch}")
     if allow_committed:
+        if not pins["kver"]:
+            raise Refused(
+                f"--allow-committed-manifests but no committed pin for {arch}"
+            )
         if pins["kver"] and is_retired(tree, pins["kver"], pins["rev"] or None):
             raise Refused(
                 f"committed pin {pins['kver']}+{pins['rev']} is RETIRED in the registry"
