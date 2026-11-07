@@ -885,14 +885,29 @@ PYMETACOPY
   # Strip overlay-internal xattrs from the payload after recording them so they
   # do not contaminate the installed filesystem.
   strip_build_host_state "$U" "$role" || exit 1
+  # The installer never mounts an overlay: it extracts base, rm -rf's every
+  # manifest path, then extracts the delta over it (patch-debootstrap-stub.py).
+  # An opaque directory left out of the manifest therefore MERGES with base.
+  # Two overlays mark directories opaque here: this script's own (root,
+  # trusted.overlay.opaque) and mkosi's rootless one (user.overlay.opaque).
+  # overlayfs makes every directory it creates inside a merged parent opaque, so
+  # nearly all markers sit on directories base does not have, where replace and
+  # merge are the same: measured 2026-11-07, all 2260 amd64 and 2368 arm64
+  # user-opaque directories were absent from base, and the amd64 KVM-gate
+  # target held no base entry in any of them. A user-opaque directory is
+  # recorded only when the base lowerdir has that path -- the one case where
+  # the two differ -- so the manifest stays exactly the set of operations that
+  # change the installed result. Read here, before NCZ_LAYER_XATTRS_EXCLUDE
+  # drops the xattrs from the archive.
   log "$role: generate overlay operation manifest"
-  sudo python3 - "$U" "$OUT/$role.overlay-manifest" <<'PYOVERLAY'
+  sudo python3 - "$U" "$L" "$OUT/$role.overlay-manifest" <<'PYOVERLAY'
 import os
 import stat
 import sys
 
-root, output = sys.argv[1:]
+root, lower, output = sys.argv[1:]
 operations = []
+user_opaque_new = 0
 for directory, names, files in os.walk(root):
     names.sort()
     files.sort()
@@ -900,6 +915,15 @@ for directory, names, files in os.walk(root):
     try:
         if os.getxattr(directory, "trusted.overlay.opaque") in (b"y", b"x"):
             operations.append(("opaque", relative_directory))
+    except OSError:
+        pass
+    try:
+        # "y" only: "x" marks a directory holding xwhiteouts, not an opaque one
+        if os.getxattr(directory, "user.overlay.opaque") == b"y":
+            if os.path.lexists(os.path.join(lower, relative_directory)):
+                operations.append(("opaque", relative_directory))
+            else:
+                user_opaque_new += 1
     except OSError:
         pass
     for name in names + files:
@@ -919,6 +943,8 @@ with open(output, "w", encoding="utf-8") as stream:
     stream.write("# NCZ overlay manifest v1\n")
     for operation, path in sorted(set(operations)):
         stream.write(f"{operation}\t{path}\n")
+print(f"overlay manifest: {len(set(operations))} operation(s); "
+      f"{user_opaque_new} user-opaque dir(s) absent from base (no-op, not recorded)")
 PYOVERLAY
   log "$role: mksquashfs upperdir delta -> $OUT/$role.squashfs"
   # One -xattrs-exclude regex, NCZ_LAYER_XATTRS_EXCLUDE (mksquashfs keeps only
