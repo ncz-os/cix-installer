@@ -38,6 +38,7 @@ assets/cix-py/	sky1	-	CIX NPU python glue
 assets/dev/	common	-	developer/diag helpers (disabled hook)
 assets/diag/busybox-amd64	amd64	-	static busybox for failsafe console (x86_64)
 assets/diag/busybox-arm64	sky1	-	static busybox for failsafe console (aarch64)
+manifests/di-build-markers.tsv	common	-	the d-i build-marker records (debian-installer cdrom-<variant>-<stamp>) the substrate provenance scan accepts by identity only, each tied to the base.pin substrate sha256
 manifests/diag-busybox.tsv	common	-	origin pin (Debian forky busybox-static deb + binary sha256) of assets/diag/busybox-<arch>
 build/stage-diag-busybox.sh	common	-	check / fetch / repin the diag busybox from the pinned Debian snapshot (sha256 + provenance-verified)
 assets/docs/	common	-	on-image documentation
