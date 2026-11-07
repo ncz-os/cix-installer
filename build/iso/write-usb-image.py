@@ -161,6 +161,61 @@ def media_build_date() -> str:
     return when.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+_RFC2822_DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_RFC2822_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def release_date() -> str | None:
+    """SOURCE_DATE_EPOCH as an apt Release Date (RFC 2822, English names
+    whatever the locale), or None when it is unset."""
+    sde = source_date_epoch()
+    if sde is None:
+        return None
+    t = datetime.fromtimestamp(sde, timezone.utc)
+    return (f"{_RFC2822_DAYS[t.weekday()]}, {t.day:02d} "
+            f"{_RFC2822_MONTHS[t.month - 1]} {t.year} "
+            f"{t.hour:02d}:{t.minute:02d}:{t.second:02d} +0000")
+
+
+def write_medium_release(stage_dir: Path, suite: str, arch: str) -> Path:
+    """Write <stage_dir>/dists/<suite>/Release for the medium's offline pool.
+
+    Measured 2026-11-07: with every layer identical, two builds of one commit
+    (amd64 and arm64) differed only in this file. apt-ftparchive stamps the
+    wall clock as Date and does not read SOURCE_DATE_EPOCH, so the Date comes
+    from APT::FTPArchive::Release::Date. Its stdout was also redirected into
+    the very tree it scans, so the file listed a checksum of its own
+    half-written header; it is now written beside the medium root and moved
+    into place."""
+    suite_dir = stage_dir / "dists" / suite
+    release = suite_dir / "Release"
+    release.unlink(missing_ok=True)
+    cmd = [
+        "apt-ftparchive",
+        "-o", f"APT::FTPArchive::Release::Suite={suite}",
+        "-o", f"APT::FTPArchive::Release::Codename={suite}",
+        "-o", f"APT::FTPArchive::Release::Architectures={arch}",
+        "-o", "APT::FTPArchive::Release::Components=main",
+        "-o", "APT::FTPArchive::Release::Origin=NCZ-OS",
+        "-o", "APT::FTPArchive::Release::Label=NCZ-OS offline media",
+    ]
+    date = release_date()
+    if date is not None:
+        cmd += ["-o", f"APT::FTPArchive::Release::Date={date}"]
+    cmd += ["release", str(suite_dir)]
+    fd, tmp = tempfile.mkstemp(prefix=".Release.", dir=str(stage_dir.parent))
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            subprocess.run(cmd, check=True, stdout=stream)
+        os.replace(tmp, release)
+        os.chmod(release, 0o644)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    return release
+
+
 def data_mkfs_argv(src_root: Path, out_img: Path) -> list[str]:
     """mkfs.ext4 argv that creates NCZDATA on out_img AND populates it from
     src_root (mke2fs -d), so no loop mount or cp is involved.
@@ -1571,19 +1626,7 @@ def stage_installer_substrate(stage_dir: Path, arch: str,
                        mode="wb", mtime=0) as stream:
         stream.write(packages.read_bytes())
 
-    release = stage_dir / "dists" / suite / "Release"
-    release_cmd = [
-        "apt-ftparchive",
-        "-o", f"APT::FTPArchive::Release::Suite={suite}",
-        "-o", f"APT::FTPArchive::Release::Codename={suite}",
-        "-o", f"APT::FTPArchive::Release::Architectures={arch}",
-        "-o", "APT::FTPArchive::Release::Components=main",
-        "-o", "APT::FTPArchive::Release::Origin=NCZ-OS",
-        "-o", "APT::FTPArchive::Release::Label=NCZ-OS offline media",
-        "release", str(stage_dir / "dists" / suite),
-    ]
-    with release.open("wb") as stream:
-        subprocess.run(release_cmd, check=True, stdout=stream)
+    write_medium_release(stage_dir, suite, arch)
 
 
 def medium_size_record(image: Path, esp_bytes: int, data_bytes: int,
