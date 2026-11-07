@@ -388,6 +388,17 @@ check_amd64_line() {
         _pkgver=""
         [ -s assets/kernel/amd64-stable/PKGVERSION ] && _pkgver="$(tr -d '[:space:]' < assets/kernel/amd64-stable/PKGVERSION)"
         mapfile -t _cands < <(find "$KERNEL_STAGING_DIR" -maxdepth 3 -type d \( -name 'amd64-stable-*' -o -path '*/amd64-t2-*/*' \) 2>/dev/null)
+        # The manifest's staging_pool_relative names the exact pool build
+        # (stage-amd64-kernel.sh stages that dir): same-KVER+PKGVERSION dirs
+        # (7.3.1-r295: the 11-01 build, the HYDRA build, its repack) are
+        # otherwise picked in find order. Only that dir is a candidate.
+        local _rel=""
+        if [ -s assets/kernel/amd64-stable-manifest.json ]; then
+            _rel="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("staging_pool_relative") or "")' assets/kernel/amd64-stable-manifest.json 2>/dev/null || true)"
+        fi
+        if [ -n "$_rel" ]; then
+            _cands=("$KERNEL_STAGING_DIR/${_rel#kernel-staging/}")
+        fi
         for _d in "${_cands[@]}"; do
             [ -d "$_d" ] || continue
             [ -s "$_d/KVER" ] || continue
