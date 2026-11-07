@@ -58,6 +58,13 @@ done
 for want in NCZ_IMAGE_CI_REPO NCZ_PAYLOAD_SRC_ROOT NCZ_SSPLUGIN_SRC_ROOT; do
     grep -q "^$want=" "$ENVF" && ok "env example defines $want" || bad "env example lacks $want"
 done
+# 4b. and it must not hardcode one host's clone: an absolute path that exists on
+# TYPHON made the example fail at `cd` when installed on HYDRA.
+if grep -E '^NCZ_IMAGE_CI_(REPO|PAYLOAD_SRC_ROOT|SSPLUGIN_SRC_ROOT|STATE)=' "$ENVF" | grep -q '/home/'; then
+    bad "the env example hardcodes an absolute home path (use %h)"
+else
+    ok "the env example uses %h, not one host's absolute path"
+fi
 
 # 5. the units must not be installed by this repo (operator's action)
 if grep -rq 'systemctl enable' "$D" 2>/dev/null; then
