@@ -1297,10 +1297,16 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     return receipt
 
 
+# The SAME source text as KERNEL_ARTIFACT_RE in build/forky-provenance.py and
+# build/classify-sid-exceptions.py: build/test-kernel-artifact-predicates.sh
+# asserts the three are identical.  They used to differ by one character (".+"
+# here vs ".*" there) on a version-less name like "foo-modules--di" -- where the
+# gate exempted the file from provenance while THIS filter kept it on the medium.
+# Broader here is the safe direction: delete everything the gate exempts.
 KERNEL_ARTIFACT_NAME_RE = re.compile(
     r"^(linux-image|linux-headers|linux-modules|linux-binary|kernel-image)"
     r"|^linux-base-"
-    r"|.+-modules-.+-di$|.+-binary-.+-di$")
+    r"|(^.+-(modules|binary)-.*-di$)")
 
 
 # brltty/brlapi packages (brltty, brltty-udeb, brltty-x11, libbrlapi*, xbrlapi,
