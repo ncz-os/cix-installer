@@ -341,7 +341,9 @@ class OverlayCpioDeterminismTest(unittest.TestCase):
         (tree / "ncz" / "helper.sh").write_text("#!/bin/sh\n")
         (tree / "preseed.cfg").write_text("d-i x\n")
         lst = root / "filelist"
-        lst.write_text("lib/firmware\nlib/firmware/a.fw\npreseed.cfg\nncz\nncz/helper.sh\n")
+        lst.write_text(
+            "lib/firmware\nlib/firmware/a.fw\npreseed.cfg\nncz\nncz/helper.sh\n"
+        )
         return tree, lst
 
     @unittest.skipUnless(shutil.which("cpio"), "cpio not available")

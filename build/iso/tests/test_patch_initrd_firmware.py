@@ -53,9 +53,7 @@ def _fixture(t: Path) -> tuple[Path, Path, dict]:
         check=True,
         capture_output=True,
     ).stdout
-    (node / "extract" / "d-i" / "initrd.gz").write_bytes(
-        gzip.compress(cpio, mtime=0)
-    )
+    (node / "extract" / "d-i" / "initrd.gz").write_bytes(gzip.compress(cpio, mtime=0))
 
     fw = t / "fw"
     fw.mkdir()

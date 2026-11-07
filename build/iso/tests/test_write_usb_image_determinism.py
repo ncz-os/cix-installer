@@ -59,10 +59,16 @@ def _stage(root: Path) -> Path:
 
 
 @pytest.mark.skipif(not os.path.exists(MKFS), reason="mkfs.ext4 not available")
-def test_data_partition_is_byte_identical_across_stagings(writer, tmp_path, monkeypatch):
+def test_data_partition_is_byte_identical_across_stagings(
+    writer, tmp_path, monkeypatch
+):
     monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
-    monkeypatch.setenv("NCZ_REPRO_UUID_EXT4_DATA", "13ace74c-e1f0-5444-bd73-8df753aa7297")
-    monkeypatch.setenv("NCZ_REPRO_UUID_EXT4_HASHSEED", "cb2f666d-2f17-5d93-a7d8-7ae1c5c3b98a")
+    monkeypatch.setenv(
+        "NCZ_REPRO_UUID_EXT4_DATA", "13ace74c-e1f0-5444-bd73-8df753aa7297"
+    )
+    monkeypatch.setenv(
+        "NCZ_REPRO_UUID_EXT4_HASHSEED", "cb2f666d-2f17-5d93-a7d8-7ae1c5c3b98a"
+    )
     imgs = []
     for i in range(2):
         run = tmp_path / f"run{i}"
@@ -90,7 +96,11 @@ def test_data_partition_root_is_root_owned_0755(writer, tmp_path, monkeypatch):
     with img.open("wb") as f:
         f.truncate(64 * 1024 * 1024)
     subprocess.run(writer.data_mkfs_argv(src, img), check=True)
-    out = subprocess.run(["debugfs", "-R", "stat /", str(img)],
-                         capture_output=True, text=True, check=True).stdout
+    out = subprocess.run(
+        ["debugfs", "-R", "stat /", str(img)],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
     assert "User:     0   Group:     0" in out, out
     assert "Mode:  0755" in out, out

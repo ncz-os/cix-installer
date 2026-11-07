@@ -159,6 +159,56 @@ def write_single_member_initrd(base_initrd: Path, overlay_initrd: Path,
                     shutil.copyfileobj(gz_in, gz_out)
 
 
+def source_date_epoch() -> int | None:
+    """SOURCE_DATE_EPOCH from the environment, or None when unset/invalid."""
+    val = os.environ.get("SOURCE_DATE_EPOCH", "")
+    return int(val) if val.isdigit() else None
+
+
+def clamp_tree_mtimes(root: Path, epoch: int | None) -> int:
+    """Lower every mtime under (and including) root that is newer than epoch
+    to epoch; older ones are kept. Symlinks are not followed. Returns the
+    number of entries changed (0 when epoch is None)."""
+    if epoch is None:
+        return 0
+    changed = 0
+    paths = [str(root)]
+    for dirpath, dirnames, filenames in os.walk(root):
+        paths.extend(os.path.join(dirpath, n) for n in dirnames + filenames)
+    for path in paths:
+        if os.lstat(path).st_mtime > epoch:
+            os.utime(path, (epoch, epoch), follow_symlinks=False)
+            changed += 1
+    return changed
+
+
+# GNU cpio --reproducible = --ignore-devno --renumber-inodes: without it every
+# member carries the staging filesystem's inode number (measured 2026-11-07:
+# all 8812 members of the shipped installer initrd differed between two builds
+# of one commit, along with staging-time mtimes).
+CPIO_NEWC_REPRODUCIBLE = ["cpio", "-o", "-H", "newc", "--quiet", "--reproducible"]
+
+
+def pack_overlay_cpio_gz(overlay_root: Path, filelist: Path, out_gz: Path,
+                         epoch: int | None) -> None:
+    """Pack the members named in filelist (paths relative to overlay_root, one
+    per line, in archive order) into a gzip'd newc archive whose bytes depend
+    only on the members' content, modes, owners and (clamped) mtimes."""
+    clamp_tree_mtimes(overlay_root, epoch)
+    with filelist.open("rb") as fl_in:
+        cpio_proc = subprocess.Popen(
+            CPIO_NEWC_REPRODUCIBLE,
+            cwd=overlay_root, stdin=fl_in, stdout=subprocess.PIPE,
+        )
+        with out_gz.open("wb") as out_f:
+            with gzip.GzipFile(fileobj=out_f, mode="wb", compresslevel=9,
+                               mtime=0) as gz_out:
+                shutil.copyfileobj(cpio_proc.stdout, gz_out)
+        cpio_proc.wait()
+    if cpio_proc.returncode != 0:
+        raise RuntimeError("FATAL: overlay cpio pack failed")
+
+
 def module_name(path: Path) -> str:
     """foo.ko / foo.ko.xz / foo.ko.zst -> foo"""
     return path.name.split(".ko")[0]
@@ -1013,7 +1063,7 @@ def patch_t2_kernel(
 
     canonical = canonical_encode(
         {
-            "schema_version": "ncz-initrd-t2kernel/v9",
+            "schema_version": "ncz-initrd-t2kernel/v10",  # v10: reproducible overlay cpio
             "arch": arch,
             "startup_hook": {
                 "name": NCZ_STARTUP_HOOK_NAME,
@@ -1367,17 +1417,8 @@ def patch_t2_kernel(
                     ["find", "var", "-print"], cwd=overlay_root, check=True,
                     capture_output=True, text=True,
                 ).stdout)
-        with filelist.open("rb") as fl_in:
-            cpio_proc = subprocess.Popen(
-                ["cpio", "-o", "-H", "newc", "--quiet"],
-                cwd=overlay_root, stdin=fl_in, stdout=subprocess.PIPE,
-            )
-            with overlay_cpio_gz.open("wb") as out_f:
-                with gzip.GzipFile(fileobj=out_f, mode="wb", compresslevel=9) as gz_out:
-                    shutil.copyfileobj(cpio_proc.stdout, gz_out)
-            cpio_proc.wait()
-        if cpio_proc.returncode != 0:
-            raise RuntimeError("FATAL: overlay cpio pack failed")
+        pack_overlay_cpio_gz(overlay_root, filelist, overlay_cpio_gz,
+                             source_date_epoch())
         log(f"    overlay cpio: {overlay_cpio_gz.stat().st_size} bytes")
 
         # Prune the base archive: drop the substrate's Debian kernel module
