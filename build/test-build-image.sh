@@ -863,5 +863,29 @@ grep -q 'NCZ_CRUN_ENV=(); NCZ_CRUN_MOUNTS=(); NCZ_CRUN_HOSTENV=()' <<<"$img_fn" 
     && ok "the server container env is cleared after the image call" || bad "server container env is not cleared"
 grep -q '"$NCZ_VARIANT" = server' <<<"$img_fn" && ok "server env is set only for NCZ_VARIANT=server" || bad "image stage does not gate on the variant"
 
+# the image a stage picks up is THIS variant's: desktop and server media of one
+# commit share a build dir (a respin, or --only-image after the other variant),
+# and the old `ls ...-$GIT_SHA*.img | tail -1` sorted -server.img after
+# -desktop.img, so a desktop run then gated and archived the server medium.
+FI="$SCRATCH/find-image"; mkdir -p "$FI"
+: > "$FI/ncz-os-amd64-20261107-abc1234-desktop.img"
+: > "$FI/ncz-os-amd64-20261107-abc1234-server.img"
+: > "$FI/ncz-os-amd64-20261107-abc1234-respin-server.img"
+: > "$FI/ncz-os-arm64-20261107-abc1234-desktop.img"
+fi_out="$( ( eval "$(fn ncz_find_image)"; ncz_find_image "$FI" amd64 abc1234 desktop ) 2>&1)"
+[ "$fi_out" = "$FI/ncz-os-amd64-20261107-abc1234-desktop.img" ] \
+    && ok "image lookup: a desktop run finds the desktop medium beside a server one" \
+    || bad "image lookup (desktop) returned '$fi_out'"
+fi_out="$( ( eval "$(fn ncz_find_image)"; ncz_find_image "$FI" arm64 abc1234 server ) 2>&1)"
+[ -z "$fi_out" ] && ok "image lookup: no server medium for arm64 => empty, not the desktop one" \
+    || bad "image lookup (arm64 server) returned '$fi_out'"
+fi_out="$( ( eval "$(fn ncz_find_image)"; ncz_find_image "$FI" amd64 abc1234 server ) 2>&1)"
+case "$fi_out" in "$FI"/ncz-os-amd64-20261107-abc1234*-server.img) ok "image lookup: a server run finds a server medium" ;;
+    *) bad "image lookup (server) returned '$fi_out'" ;; esac
+grep -q 'ncz_find_image "$BUILD" "$ARCH" "$GIT_SHA" "$NCZ_VARIANT"' <<<"$(fn stage_image)" \
+    && grep -q 'ncz_find_image "$BUILD" "$ARCH" "$GIT_SHA" "$NCZ_VARIANT"' <<<"$(fn stage_kvm_gate)" \
+    && ok "image and KVM stages look the image up by variant" \
+    || bad "an image stage still globs every variant's medium"
+
 printf '\n== build-image tests: %d passed, %d failed ==\n' "$PASS" "$FAIL"
 if [ "$FAIL" = 0 ]; then exit 0; else exit 1; fi
