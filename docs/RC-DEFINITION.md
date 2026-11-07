@@ -11,7 +11,7 @@ candidate complete, and how a new kernel gets into the next one.
 | rc1 | `096c74f4` | 7.3.0-t2-ncz (7.3.0-2) | 7.3.0-sky1-ncz (+r293) | superseded |
 | rc2 | `df719dc1` | 7.3.0-t2-ncz (7.3.0-2) | 7.3.0-sky1-ncz (+r293) | superseded |
 | rc3 | `ba74b7c7` | 7.3.0-t2-ncz (7.3.0-2) | 7.3.0-sky1-ncz (+r293) | **incorrect**: 7.3.0 was already retired for 7.3.1; desktop images built 2026-11-07 carry it (run metadata `kernel_kver 7.3.0-t2-ncz`) |
-| rc4 | branch `hv/rc4-kernel-731-20261107` | **7.3.3-t2-ncz (7.3.3-r297)** | none: refused (see arm64) | amd64 ready to build; arm64 blocked |
+| rc4 | branch `hv/rc4-kernel-731-20261107` | **7.3.3-t2-ncz (7.3.3-r297)** | 7.3.3-sky1-ncz (+r298) built and staged; refused until the O6N boot test (see arm64) | amd64 ready to build; arm64 waits for O6N |
 
 rc4 is rc3 (via the image-CI branch `hv/magnetar-ci-20261107` @ `13520afc`,
 which sits on `hv/ncz-opus-determinism3-20261107` @ `5702cc38` on `ba74b7c7`)
@@ -52,14 +52,16 @@ a 7.3.3 Sky1 build. None exists:
   7.3.3 anyway.
 - kernel-ci lists `sky1-arm64 stable 7.3.3` as queued, with no build adapter.
 
-Missing artifact: a staged `kernel-staging/rNNN-7.3.3-sky1-ncz-<date>/` with
-`KVER`, `Image-cixmini.bin`, `modules-cixmini.tgz`, `config-7.3.3-sky1-ncz`,
-`headers-cixmini.tar.zst`, `Module.symvers`, the six accelerator overlays
-rebuilt against it, and `linux-image-cixmini` / `linux-headers-cixmini` /
-`cixmini-boot` debs at `7.3.3-sky1-ncz+rNNN`; then an O6N boot test. Owner:
-the Sky1 kernel lane on ULTRA (meta-cix recipe build, `build/release-kernel.sh`
-/ `build/build-kernel-debs.sh`), followed by a promotion. Until then
-`CURRENT_KVER_arm64` is empty and every arm64 build stops at the policy gate.
+Update 2026-11-07: the missing artifact now exists. `7.3.3-sky1-ncz` r298
+(v7.3.3 `d50d994bffa3`, the 7.3.1 series unchanged) was built through the Sky1
+lane on ULTRA and staged as `kernel-staging/r298-7.3.3-sky1-ncz-20261107`. That
+dir holds the Image, modules, config, headers, Module.symvers, six rebuilt
+overlays, the `linux-image-cixmini` / `linux-headers-cixmini` /
+`cixmini-boot` debs at `+r298`, O6N side-by-side debs, PROVENANCE, BUILD-IDS
+and SHA256SUMS. It has not been booted on hardware. The pin is a ready patch,
+not applied (docs/ARM64-KERNEL-733-PIN.md), and the boot test is
+docs/O6N-TEST-PLAN-7.3.3.md. `CURRENT_KVER_arm64` stays empty, and every arm64
+build stops at the policy gate, until that test passes and the patch is applied.
 
 ## What a complete candidate is
 

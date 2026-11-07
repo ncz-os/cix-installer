@@ -1,0 +1,405 @@
+From a3af5571d179ef1c6b568a3a0b908e8d810c2b58 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Sat, 7 Nov 2026 18:37:39 -0500
+Subject: [PATCH] kernel: pin arm64 to 7.3.3-sky1-ncz (r298), retire
+ 7.3.1-sky1-ncz
+
+7.3.3-sky1-ncz r298 (v7.3.3 d50d994bffa3, meta-cix kb/sky1-7.3.3-r298-20261107
+ec3bacd1, the 7.3.1 series unchanged, 33 patches) passed the O6N boot test on
+<DATE>, so it becomes the arm64 CURRENT kernel; arm64 and amd64 now pin the
+same 7.3.3.
+
+Staged release kernel-staging/r298-7.3.3-sky1-ncz-20261107 (mainline.release);
+mainline.deb-revision is removed (the release carries its own revision).
+Image f47b74e2..., vmlinux build id 19c5ddd7..., 376 uncompressed modules,
+six overlays rebuilt against the r298 Module.symvers (already in
+assets/kernel/<drv>/7.3.3-sky1-ncz). linux-image-cixmini f53d7ed0...,
+linux-headers-cixmini e8286ae5..., cixmini-boot 1.6+r298 0cf4e780....
+build-kernel-debs.sh freezes the r298 deb epoch (1793607971, the epoch the
+pinned debs were built with).
+
+KERNEL-LIFECYCLE: CURRENT arm64 7.3.3-sky1-ncz / 7.3.3-sky1-ncz+r298, RETIRED
+adds 7.3.1-sky1-ncz. kernel-manifest.json regenerated (kernel-manifest.py gen),
+sky1-manifest.json, ledger rows, components.tsv (regenerated) and the
+determinism.pin ledger digest follow.
+---
+ assets/kernel-manifest.json         |  26 +++----
+ assets/kernel/KERNEL-LIFECYCLE      |  13 ++--
+ assets/kernel/KERNEL-POLICY         |   3 +-
+ assets/kernel/mainline.deb-revision |  13 ----
+ assets/kernel/mainline.release      |   2 +-
+ assets/kernel/sky1-manifest.json    | 108 +++++++++++++---------------
+ build/build-kernel-debs.sh          |   1 +
+ manifests/components.tsv            |  14 ++--
+ manifests/determinism.pin           |   2 +-
+ manifests/ncz-packages.tsv          |   6 +-
+ 10 files changed, 84 insertions(+), 104 deletions(-)
+ delete mode 100644 assets/kernel/mainline.deb-revision
+
+diff --git a/assets/kernel-manifest.json b/assets/kernel-manifest.json
+index 7aeaafa7..e23952e2 100644
+--- a/assets/kernel-manifest.json
++++ b/assets/kernel-manifest.json
+@@ -1,38 +1,38 @@
+ {
+-  "generated_utc": "2026-10-27T00:35:04Z",
++  "generated_utc": "2026-11-07T23:34:51Z",
+   "generator": "build/kernel-manifest.py",
+   "kernel_debs": [
+     {
+-      "file": "build/kernel-debs/cixmini-boot_1.6+r293_arm64.deb",
+-      "sha256": "58967e536818dfaeb42a0907f7c94dd9343847ec5fa42d47c3a2164f405e4601"
++      "file": "build/kernel-debs/cixmini-boot_1.6+r298_arm64.deb",
++      "sha256": "0cf4e780215687d89d9f62dac78733bb6ef44ed7cfb7de9e1f05cd3c7881339a"
+     },
+     {
+-      "file": "build/kernel-debs/linux-headers-cixmini_7.3.0-sky1-ncz+r293_arm64.deb",
+-      "sha256": "882406b6edb82d85a3ee58f82e42d122043dd9398d80800feeae7d3cf94f807e"
++      "file": "build/kernel-debs/linux-headers-cixmini_7.3.3-sky1-ncz+r298_arm64.deb",
++      "sha256": "e8286ae54e7245dc762690da8a67f7df71ae00b1bf67085fb88fd4d8df798a08"
+     },
+     {
+-      "file": "build/kernel-debs/linux-image-cixmini_7.3.0-sky1-ncz+r293_arm64.deb",
+-      "sha256": "d771239535f9d0b0474bd090dd3ad94ae02054a3d5100fc23d7b9ccba6e272b0"
++      "file": "build/kernel-debs/linux-image-cixmini_7.3.3-sky1-ncz+r298_arm64.deb",
++      "sha256": "f53d7ed0328415e214c37ef94f9a79434ad5cc7381522bc55418f3c4198e36b7"
+     }
+   ],
+   "schema": 1,
+   "variants": {
+     "mainline": {
+       "config": {
+-        "file": "assets/kernel/mainline/config-7.3.0-sky1-ncz",
+-        "sha256": "c87326fe35a49d543c7f9e7d3cb70247d98a819901908becfea56bfe3b17f533"
++        "file": "assets/kernel/mainline/config-7.3.3-sky1-ncz",
++        "sha256": "69f525bc414e52210050e54e4ff22805e5f7d7115cd31a2e36af876c1c4daa49"
+       },
+       "dir": "assets/kernel/mainline",
+       "image": {
+         "file": "assets/kernel/mainline/Image-cixmini.bin",
+-        "sha256": "e8586c1532520d17f486ae9f1b7b7e7c0eda26b05372b959248ce54f7b376c2d",
++        "sha256": "f47b74e20cb336a3adb2c5d0566d110528ec53c77fe947ae42ead15d38c3bf99",
+         "size": 57719296
+       },
+-      "kver": "7.3.0-sky1-ncz",
++      "kver": "7.3.3-sky1-ncz",
+       "modules": {
+         "file": "assets/kernel/mainline/modules-cixmini.tgz",
+-        "sha256": "ee28eebb31c862b414633779ff26c42ea16965f24b9c47d4ed95aba788ab8c6c",
+-        "size": 15172610
++        "sha256": "39e3aaf4c7162b73172b39928d31eb17739b2d7867a235c2d1978e4f04523744",
++        "size": 15166944
+       },
+       "npu": null
+     }
+diff --git a/assets/kernel/KERNEL-LIFECYCLE b/assets/kernel/KERNEL-LIFECYCLE
+index 99c5c2d7..bccc510e 100644
+--- a/assets/kernel/KERNEL-LIFECYCLE
++++ b/assets/kernel/KERNEL-LIFECYCLE
+@@ -25,11 +25,12 @@ MIN_VERSION=7.3.3
+ CURRENT_KVER_amd64=7.3.3-t2-ncz
+ CURRENT_PKG_amd64=7.3.3-r297
+ 
+-# arm64: none promoted. 7.3.0-sky1-ncz (r292/r293) is retired; no 7.3.3 Sky1
+-# build exists (7.3.1-sky1-ncz r297 exists only as side-by-side debs and is
+-# below MIN_VERSION). See docs/RC-DEFINITION.md "arm64".
+-CURRENT_KVER_arm64=
+-CURRENT_PKG_arm64=
++# arm64: Sky1 7.3.3-sky1-ncz r298 (ULTRA build 2026-11-07, v7.3.3 d50d994bffa3,
++# meta-cix kb/sky1-7.3.3-r298-20261107), boot-tested on O6N <DATE> (Image
++# sha256 f47b74e2..., vmlinux build id 19c5ddd7...). Pool dir
++# kernel-staging/r298-7.3.3-sky1-ncz-20261107 (assets/kernel/mainline.release).
++CURRENT_KVER_arm64=7.3.3-sky1-ncz
++CURRENT_PKG_arm64=7.3.3-sky1-ncz+r298
+ 
+ # Retired KVERs, comma-separated: never pinned again, on any arch.
+-RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.0-sky1-ncz
++RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.0-sky1-ncz,7.3.1-sky1-ncz
+diff --git a/assets/kernel/KERNEL-POLICY b/assets/kernel/KERNEL-POLICY
+index 3ad679cf..b91bbc8d 100644
+--- a/assets/kernel/KERNEL-POLICY
++++ b/assets/kernel/KERNEL-POLICY
+@@ -11,8 +11,7 @@
+ #   arm64: assets/kernel/mainline/KVER  (manifest variants.mainline.kver)
+ #   amd64: assets/kernel/amd64-stable/KVER
+ # Since 2026-11-07 (rc4) amd64 is 7.3.3-t2-ncz (7.3.3-r297, boot-tested on MEDUSA).
+-# arm64 is still 7.3.0-sky1-ncz (r292/r293), which is RETIRED: arm64 builds are
+-# refused until a 7.3.3 Sky1 build is staged and promoted.
++# arm64 is 7.3.3-sky1-ncz (r298, boot-tested on O6N), the same 7.3.3 as amd64.
+ # Which version may be pinned (MIN_VERSION, CURRENT, RETIRED) lives in
+ # assets/kernel/KERNEL-LIFECYCLE, written by the kernel-ci promotion registry.
+ DEFAULT_BASE=7.3
+diff --git a/assets/kernel/mainline.deb-revision b/assets/kernel/mainline.deb-revision
+deleted file mode 100644
+index a6c0726f..00000000
+--- a/assets/kernel/mainline.deb-revision
++++ /dev/null
+@@ -1,13 +0,0 @@
+-# Packaging revision of the Sky1 kernel debs (linux-image/headers-cixmini,
+-# cixmini-boot), when it differs from the staged release in mainline.release.
+-# Read by build/build-kernel-debs.sh (default BUILD_REV) and checked by
+-# build/check-pin-coherence.sh (== kernel-manifest.json == ncz-packages.tsv;
+-# never older than the staged release).  Delete this file when the next staged
+-# release (rNNN-...) is packaged at its own revision.
+-#
+-# r293 (2026-10-27) repackages the staged r292-7.3.0-sky1-ncz-20261023 kernel:
+-# same Image (kernel-manifest.json image sha256 e8586c15..., unchanged by
+-# 100bd157), overlays rebuilt against the r292 headers (1c2d3371), headers tree
+-# kept byte-identical by modules_prepare (a18a8d57), cixmini-boot 1.6
+-# (e7417407).  No r293 staging directory or kernel source tag exists.
+-r293
+diff --git a/assets/kernel/mainline.release b/assets/kernel/mainline.release
+index 201c8efb..f07f8ce7 100644
+--- a/assets/kernel/mainline.release
++++ b/assets/kernel/mainline.release
+@@ -1 +1 @@
+-r292-7.3.0-sky1-ncz-20261023
++r298-7.3.3-sky1-ncz-20261107
+diff --git a/assets/kernel/sky1-manifest.json b/assets/kernel/sky1-manifest.json
+index e2bfb22a..119caa1d 100644
+--- a/assets/kernel/sky1-manifest.json
++++ b/assets/kernel/sky1-manifest.json
+@@ -2,71 +2,63 @@
+   "schema": 1,
+   "channel": "default",
+   "arch": "arm64",
+-  "kver": "7.3.0-sky1-ncz",
+-  "build_rev": "r292",
+-  "staged_utc": "2026-10-23",
++  "kver": "7.3.3-sky1-ncz",
++  "build_rev": "r298",
++  "staged_utc": "2026-11-07",
+   "channel_pointer": "assets/kernel/mainline",
+-  "staging_dir": "kernel-staging/r292-7.3.0-sky1-ncz-20261023",
++  "staging_dir": "kernel-staging/r298-7.3.3-sky1-ncz-20261107",
+   "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
+-  "note": "Sky1 arm64 DEFAULT kernel under the unified 7.3 policy: r292 = the v7.3.0 FINAL pin, re-verified independently on 2026-10-21. The r290 series (consolidated port patch + 27 numbered patches 0001-0011 + 0013-0028) was replayed onto the upstream v7.3 tag (peel c03c1a14) in SRC_URI order: 28/28 applied, 0 conflicts, 0 rejects, 0 fuzz. (Replaying in FILENAME order instead reports 21 spurious conflicts.) NO patch is upstream: each of the 28 was tested by reverse-apply check, by apply-then-compare against pristine v7.3, and by the ordered replay -- 0/28 are no-ops, so nothing was dropped. No upstream clobbering: the two files the port patch shares with upstream's rc7..v7.3 changes (panthor_hw.c c347fef5f8f8; quirks.c 0f8b5d90d179, 7209846a169f) all survive in the merged tree. Tree-equivalence: the same series replayed on rc7 and on v7.3 gives trees differing in 212 files, every one of which upstream itself changed between the tags -- zero unexplained differences. An independent from-scratch replay diffs 0 files against the tree this build compiled. Built in the ncz-yocto-y6 container on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0). 7.3.0-sky1-ncz is a NEW KVER, so all six accelerator overlays were rebuilt from this build's headers: verify-overlay-modversions PASS, 0 CRC mismatches, 0 unresolved. Gates re-run 2026-10-21: kvm-kernel-gate PASS (r292 vs r290 error histograms identical), dkms-abi-gate PASS, acceptance 28/28, 376 .ko with 0 .ko.xz. Debian debs built and byte-identical across two runs. STILL NOT DONE: no hardware boot (O6N/cixmini untouched), not published to apt. r292 = r291 + CIX patches-7.3 0029-0033 (same KVER 7.3.0-sky1-ncz, NOT ABI-compatible with r291: 0029 widens drm_crtc_state.plane_mask, 628 DRM symbol CRCs differ; overlays rebuilt).",
++  "note": "Sky1 arm64 DEFAULT kernel under the unified 7.3 policy: r298 = linux-stable v7.3.3 (the same 7.3.3 as amd64 7.3.3-r297) with the r295/r297 7.3.1 series unchanged. The 33 SRC_URI patches (consolidated port patch + 0001-0011 + 0013-0033) and the defconfig are byte-identical to the 7.3.1 recipe's. Replayed in SRC_URI order on pristine v7.3.3 with fuzz 0: 33/33 applied (31 clean, 2 with line offsets only, the same as on v7.3.1), 0 reverse-apply on pristine v7.3.3 (none upstreamed); replay(v7.3.1) plus upstream v7.3.1..v7.3.3 equals replay(v7.3.3) (tree e101a48b); the only shared file is arm-smmu-v3.c, where upstream 73a1e1bfe3db (shutdown) and 0032 (IRQ setup/resume) touch disjoint code. The built kernel-source equals that replay file for file. Built in ncz-yocto-y6 on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0). New KVER, so all six accelerator overlays were rebuilt from this build: verify-overlay-modversions PASS, 0 CRC mismatches, 0 unresolved, this_module 0x500. Gates: kvm-kernel-gate PASS, qemu EFI boot PASS, dkms-abi-gate PASS, acceptance 42/42, 376 .ko with 0 compressed. Debian debs byte-identical across two runs. Boot-tested on O6N <DATE> (docs/O6N-TEST-PLAN-7.3.3.md). Not published to apt.",
+   "source": {
+-    "base_tag": "v7.3",
+-    "base_peel": "c03c1a14507dfaf8b856c2608f9ac216021fc222",
+-    "port_branch": "kernel-73final-port-20261019",
+-    "port_branch_tip": "0974edf1596f3d769e3a1c4690ce35e028b626b7",
++    "base_tag": "v7.3.3",
++    "base_peel": "d50d994bffa3c7c6db2d8bc4c5f0c55e3f46b0cd",
++    "git_form": {
++      "repo": "ncz-os/linux-cix",
++      "branch": "kernel-dev/sky1-7.3.3-r298-20261107",
++      "tip": "fbae53d674ce9b661eebd1c564d4e7053c68855f",
++      "tree": "e101a48bc9acc03541f4657226ea76a3de6195b6"
++    },
+     "port_patch": "sky1-ncz-v7.3-final-port.patch",
+-    "port_patch_sha256": "82e1fa72996b18ed201784f4f686a3da9e39557c8592829d0e122db5d519916c",
+-    "port_commits": {
+-      "from_rc6_count": 207,
+-      "from_rc6_branch": "kernel-73rc6-port",
+-      "from_rc6_tip": "c3e054c7d4ea349a2c2872dafa7df9bd38b24c39",
+-      "rebase_conflicts": 0,
+-      "extra_commits": [
+-        {
+-          "sha": "e53244fffc0bcea79e6d2ccd357cbb6d06a856d7",
+-          "subject": "drm/cix/dptx: recover a wedged DP AUX engine instead of stalling the modeset",
+-          "source_branch": "fix/dptx-aux-wedge-recovery-v2-20261011"
+-        }
+-      ],
+-      "replay_base_tag": "v7.3",
+-      "replay_result": "clean: 33/33 patches applied, 0 conflicts"
++    "port_patch_sha256": "a8bf80df7749c32000aca2616393ba23fa9e6aefb204fc5e810616913f5111c9",
++    "series_from": "linux-cix-sky1-ncz_7.3.1.bb (r295, meta-cix b6bc8a4; kb build 854323bb)",
++    "replay": {
++      "base_tag": "v7.3.3",
++      "result": "33/33 applied, fuzz 0, 31 clean, 2 offset (port +23, 0001 +82), 0 upstreamed",
++      "equivalence": "replay(v7.3.1) + diff(v7.3.1..v7.3.3) == replay(v7.3.3)"
+     },
+     "build": {
+-      "vmlinux_build_id": "775b40e6f087e29bd7ed0881d68cfe5b3b5b4973",
+-      "image_sha256": "e8586c1532520d17f486ae9f1b7b7e7c0eda26b05372b959248ce54f7b376c2d",
+-      "modules_tgz_sha256": "ee28eebb31c862b414633779ff26c42ea16965f24b9c47d4ed95aba788ab8c6c",
+-      "headers_tar_sha256": "9f7dce8e961ce9693b539a5bdfea7c0cbb2045bba49afca44702419ba5033c0d",
+-      "config_sha256": "c87326fe35a49d543c7f9e7d3cb70247d98a819901908becfea56bfe3b17f533",
++      "vmlinux_build_id": "19c5ddd7880e24c63af78a8df57414268a52d5d5",
++      "image_sha256": "f47b74e20cb336a3adb2c5d0566d110528ec53c77fe947ae42ead15d38c3bf99",
++      "modules_tgz_sha256": "39e3aaf4c7162b73172b39928d31eb17739b2d7867a235c2d1978e4f04523744",
++      "headers_tar_sha256": "b768480dc66318dea30be8a796a6647da4338e1d8ae264d68b640fc4121504c2",
++      "config_sha256": "69f525bc414e52210050e54e4ff22805e5f7d7115cd31a2e36af876c1c4daa49",
+       "dtb_sha256": "1aa102e7d699fc2cbdfc4cfdf44f88155e71972402eec4f4abe7d4e3d651873e",
+-      "builder": "ncz-yocto-y6:trixie container on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0)",
+-      "kvm_kernel_gate": "PASS (r292 Image reaches root-mount under qemu)",
++      "symvers_sha256": "0ad71e4dbe0420e00ab1ea629663aba74e5f1ef0d4098ec6f8c0e23625fc4f0b",
++      "symvers_crcs": 18773,
++      "builder": "ncz-yocto-y6:trixie container on ULTRA (aarch64-nclawzero-linux-gcc 15.3.0, GNU ld 2.46.1)",
++      "kvm_kernel_gate": "PASS (reaches root-mount under qemu -M virt, KVM)",
++      "qemu_efi_boot": "PASS (EDK2 QEMU_EFI.fd loads the Image EFI stub; root-mount panic, no kernel WARN/Oops/BUG)",
+       "dkms_abi_gate": "PASS (builder oe-user@oe-host, binutils 2.46.1, CONFIG_MODVERSIONS=y)",
+-      "verify_overlay_modversions": "PASS (6 modules rebuilt against r292 Module.symvers, 0 CRC mismatches, 0 unresolved)",
++      "verify_overlay_modversions": "PASS (6 modules rebuilt against r298 Module.symvers, 0 CRC mismatches, 0 unresolved, this_module 0x500)",
+       "config_audit": {
+         "CONFIG_MODVERSIONS": "y",
+         "CONFIG_MODULE_COMPRESS": "not set",
+         "CONFIG_RT_GROUP_SCHED": "not set",
+-        "CONFIG_CGROUP_SCHED": "y",
+-        "CONFIG_FAIR_GROUP_SCHED": "y",
+-        "CONFIG_CFS_BANDWIDTH": "y",
+-        "CONFIG_SCHED_AUTOGROUP": "y",
+         "CONFIG_DEBUG_INFO_BTF": "y",
++        "CONFIG_DEBUG_INFO_BTF_MODULES": "y",
++        "CONFIG_VIDEO_LINLON": "not set",
++        "CONFIG_ARMCHINA_NPU": "not set",
+         "CONFIG_I2C_CHARDEV": "m"
+       },
++      "config_diff_vs_r297_7_3_1": "none outside comment lines",
+       "modules_count": 376,
+       "modules_compressed": 0,
+-      "built_utc": "2026-10-23T16:03:03Z",
+-      "symvers_sha256": "ba30616c600a97a007727a6ef74ce4fa39960af157f923b41cdeca9031bc8deb",
+-      "symvers_crcs": 18771,
+-      "config_diff_vs_r290": "5 lines: banner 7.3.0-rc7->7.3.0; CONFIG_VIDEO_LINLON=m -> not set and +CONFIG_VIDEO_LINLON_OOT=m (patch 0022, in-tree VPU must not shadow the DKMS amvx.ko); the two VIDEO_LINLON sub-options disappear with their parent; and the DRM_MSM_VALIDATE_XML line is a host lxml probe (its Kconfig depends on $(success,$(PYTHON3) -c \"import lxml\")), not enabled either way. No behavioural regression.",
+       "deb_reproducibility": "the three Debian debs are byte-identical across two independent runs",
+-      "config_diff_vs_r291": "none: built .config byte-identical to r291",
+-      "dtb_note": "sky1-orion-o6.dtb reused from r291 (byte-identical to r290); r292 patches touch no device tree",
+-      "hardware_boot": "O6N 2026-10-25: running image e8586c15, /dev/mali0 + /dev/aipu + /dev/video0-3, ncz-gpu-health PASS, greeter up"
++      "hardware_boot": "PENDING: O6N, operator-supervised (docs/O6N-TEST-PLAN-7.3.3.md)"
+     },
+-    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc7.bb, branch sky1-73-adopt-cix-20261023",
+-    "recipe_commit": "7a120e4462c1ecf44dee1c2080c4098ce9e096db",
+-    "recipe_parent": "ff0a87a29c070c60ca985d045067d03a3bb30e7d",
++    "recipe": "meta-cix linux-cix-sky1-ncz_7.3.3.bb, branch kb/sky1-7.3.3-r298-20261107",
++    "recipe_commit": "ec3bacd1f3eb68fedda9753816b900794f64541e",
++    "recipe_parent": "6bd122d16384fa6123ed6e441f3aa17afc1608f3",
+     "applied_patches": [
+       "sky1-ncz-v7.3-final-port.patch",
+       "0001-drm-cix-trilin-dp-drop-fwnode_drm_find_panel-use-cou.patch",
+@@ -105,24 +97,24 @@
+   },
+   "debs": {
+     "linux-image-cixmini": {
+-      "version": "7.3.0-sky1-ncz+r292",
+-      "sha256": "249f2963751692b6a759479e9169ffb3371f882c6faa672cf87f0b7a73869be3"
++      "version": "7.3.3-sky1-ncz+r298",
++      "sha256": "f53d7ed0328415e214c37ef94f9a79434ad5cc7381522bc55418f3c4198e36b7"
+     },
+     "linux-headers-cixmini": {
+-      "version": "7.3.0-sky1-ncz+r292",
+-      "sha256": "f9cf30fc68d54b21c8f6397d40da8ad3009d7bb70109ba64019a451274e86a2a"
++      "version": "7.3.3-sky1-ncz+r298",
++      "sha256": "e8286ae54e7245dc762690da8a67f7df71ae00b1bf67085fb88fd4d8df798a08"
+     },
+     "cixmini-boot": {
+-      "version": "1.5+r292",
+-      "sha256": "7b51de6f3e1f8abf41d7965e63ff4dd7a0134973e3da60682332b77e7579ce45"
++      "version": "1.6+r298",
++      "sha256": "0cf4e780215687d89d9f62dac78733bb6ef44ed7cfb7de9e1f05cd3c7881339a"
+     }
+   },
+   "overlays_mirrored": {
+-    "assets/kernel/mali/7.3.0-sky1-ncz/mali_kbase.ko": "2f1d6b69a6cdc2c0d41732769bdc5f29b53fcb13eb8b4d2aa1868adab4196f56",
+-    "assets/kernel/mali/7.3.0-sky1-ncz/memory_group_manager.ko": "81a067cefe11fcee177095c711070960d46543c8e7f1409fa578835a822d310a",
+-    "assets/kernel/mali/7.3.0-sky1-ncz/protected_memory_allocator.ko": "5318b4121d0e444ef16fbbfc060f3354211c68906f667646c54539d7a2f891de",
+-    "assets/kernel/npu/7.3.0-sky1-ncz/aipu.ko": "5570e823546ce844efa415eb0b167005329c609ad810ff5765128002ca3fcf37",
+-    "assets/kernel/panthor/7.3.0-sky1-ncz/panthor.ko": "64517a57ee6d9f5b2ef9c8220026ca017d5d5fa08281ae29b39574ca0edae51f",
+-    "assets/kernel/vpu/7.3.0-sky1-ncz/amvx.ko": "36c38d73aac7ebce5ad7fc6af93c529d425e51c7971a43628ad2db4940bfd132"
++    "assets/kernel/mali/7.3.3-sky1-ncz/mali_kbase.ko": "802a3d3e470bd9ce0accfd0a9188c7e88c87f8c8adeb02b6ca4f92c0b0268fa9",
++    "assets/kernel/mali/7.3.3-sky1-ncz/memory_group_manager.ko": "c772180505d3eba0f6c5e3a671ee2ecaee0cb25485a36b5602018f557f8ea588",
++    "assets/kernel/mali/7.3.3-sky1-ncz/protected_memory_allocator.ko": "20c29d2ac426bdd45303781fb3ffd0c16a4b8042f19b3423f6dd3a2e53c3f838",
++    "assets/kernel/npu/7.3.3-sky1-ncz/aipu.ko": "52ddce933a0e64637dc48cca5605279d192619bf57e9978e308c1aeb43b99689",
++    "assets/kernel/panthor/7.3.3-sky1-ncz/panthor.ko": "2bd81fb6e94f23a208771d5f5101e7007a0e4523125c8782f1deb18aec11ec42",
++    "assets/kernel/vpu/7.3.3-sky1-ncz/amvx.ko": "401397e44aa6b8e014f36edf31f9c5e92c0b1fe9be66a90d4201aba31bbbaf9b"
+   }
+ }
+diff --git a/build/build-kernel-debs.sh b/build/build-kernel-debs.sh
+index 31236921..7a4b0d6f 100755
+--- a/build/build-kernel-debs.sh
++++ b/build/build-kernel-debs.sh
+@@ -239,6 +239,7 @@ case "${NCZ_KERNEL_DEB_EPOCH:-}" in
+             # kernel pin refused the repack (2026-11-07).  Freeze each revision when it is pinned
+             # (build/test-kernel-revision-pin.sh 3c fails otherwise).
+             r293) SOURCE_DATE_EPOCH=1792311789 ;;   # 2026-10-18T08:23:09Z, base.pin arm64 snapshot (kernel-manifest.json r293)
++            r298) SOURCE_DATE_EPOCH=1793607971 ;;   # 2026-11-02T08:26:11Z, base.pin arm64 snapshot (kernel-manifest.json r298)
+         esac ;;
+     *[!0-9]*) echo "ERROR: NCZ_KERNEL_DEB_EPOCH must be an integer" >&2; exit 1 ;;
+     *) SOURCE_DATE_EPOCH="$NCZ_KERNEL_DEB_EPOCH" ;;
+diff --git a/manifests/components.tsv b/manifests/components.tsv
+index 4523acfc..00fcd2b3 100644
+--- a/manifests/components.tsv
++++ b/manifests/components.tsv
+@@ -440,9 +440,9 @@ lz4	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-s
+ lz4	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
+ make	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs	
+ make	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs	
+-mali-mali_kbase	overlay	vendored:assets/kernel/mali/7.3.0-sky1-ncz/mali_kbase.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.0-sky1-ncz	post-install/82-mali-gpu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/mali/7.3.0-sky1-ncz/mali_kbase.ko, build_rev=r292)	Pinned Sky1 default-kernel overlay for mali (r292); no EDGE channel.
+-mali-memory_group_manager	overlay	vendored:assets/kernel/mali/7.3.0-sky1-ncz/memory_group_manager.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.0-sky1-ncz	post-install/82-mali-gpu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/mali/7.3.0-sky1-ncz/memory_group_manager.ko, build_rev=r292)	Pinned Sky1 default-kernel overlay for mali (r292); no EDGE channel.
+-mali-protected_memory_allocator	overlay	vendored:assets/kernel/mali/7.3.0-sky1-ncz/protected_memory_allocator.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.0-sky1-ncz	post-install/82-mali-gpu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/mali/7.3.0-sky1-ncz/protected_memory_allocator.ko, build_rev=r292)	Pinned Sky1 default-kernel overlay for mali (r292); no EDGE channel.
++mali-mali_kbase	overlay	vendored:assets/kernel/mali/7.3.3-sky1-ncz/mali_kbase.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.3-sky1-ncz	post-install/82-mali-gpu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/mali/7.3.3-sky1-ncz/mali_kbase.ko, build_rev=r298)	Pinned Sky1 default-kernel overlay for mali (r298); no EDGE channel.
++mali-memory_group_manager	overlay	vendored:assets/kernel/mali/7.3.3-sky1-ncz/memory_group_manager.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.3-sky1-ncz	post-install/82-mali-gpu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/mali/7.3.3-sky1-ncz/memory_group_manager.ko, build_rev=r298)	Pinned Sky1 default-kernel overlay for mali (r298); no EDGE channel.
++mali-protected_memory_allocator	overlay	vendored:assets/kernel/mali/7.3.3-sky1-ncz/protected_memory_allocator.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.3-sky1-ncz	post-install/82-mali-gpu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/mali/7.3.3-sky1-ncz/protected_memory_allocator.ko, build_rev=r298)	Pinned Sky1 default-kernel overlay for mali (r298); no EDGE channel.
+ mc	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	
+ mc	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs; manifests/rescue.pkgs	
+ mdadm	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
+@@ -499,7 +499,7 @@ nodejs	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh
+ nodejs	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+ npm	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+ npm	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+-npu-aipu	overlay	vendored:assets/kernel/npu/7.3.0-sky1-ncz/aipu.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.0-sky1-ncz	post-install/80-npu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/npu/7.3.0-sky1-ncz/aipu.ko, build_rev=r292)	Pinned Sky1 default-kernel overlay for npu (r292); no EDGE channel.
++npu-aipu	overlay	vendored:assets/kernel/npu/7.3.3-sky1-ncz/aipu.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.3-sky1-ncz	post-install/80-npu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/npu/7.3.3-sky1-ncz/aipu.ko, build_rev=r298)	Pinned Sky1 default-kernel overlay for npu (r298); no EDGE channel.
+ ntfs-3g	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
+ ntfs-3g	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
+ nvme-cli	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs; manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	
+@@ -510,7 +510,7 @@ openssh-server	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	ye
+ openssh-server	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs; manifests/mgmt.pkgs; manifests/rescue.pkgs	
+ openssh-sftp-server	debian	debian-forky	arm64	mgmt	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/mgmt.pkgs	
+ panthor-cix	dkms	vendored:assets/kernel/panthor	arm64	desktop,mgmt,rescue,server	yes	7.2.0	post-install/83-panthor-gpu.sh (panthor-cix-dkms deb; dkms build per kernel)	build/verify-dkms-deb-sources.py,build/build-accel-overlays.sh	assets/kernel/panthor/dkms.conf; deb from build/build-dkms-debs.sh	Sky1 Panthor GPU driver source. Every kernel gets a panthor.ko overlay compiled from it (SOURCE.sha256 stamp, CRC-checked) and the DKMS deb must carry it byte-for-byte.
+-panthor-panthor	overlay	vendored:assets/kernel/panthor/7.3.0-sky1-ncz/panthor.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.0-sky1-ncz	post-install/83-panthor-gpu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/panthor/7.3.0-sky1-ncz/panthor.ko, build_rev=r292)	Pinned Sky1 default-kernel overlay for panthor (r292); no EDGE channel.
++panthor-panthor	overlay	vendored:assets/kernel/panthor/7.3.3-sky1-ncz/panthor.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.3-sky1-ncz	post-install/83-panthor-gpu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/panthor/7.3.3-sky1-ncz/panthor.ko, build_rev=r298)	Pinned Sky1 default-kernel overlay for panthor (r298); no EDGE channel.
+ partclone	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
+ partclone	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue.pkgs	
+ parted	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	
+@@ -564,7 +564,7 @@ sg3-utils	debian	debian-forky	arm64	rescue	yes		manifest	build/verify-offline-mi
+ shotcut	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+ shotcut	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+ sky1-firmware-blobs	firmware	staged:assets/sky1-firmware/	arm64	desktop,installer,mgmt,rescue,server	yes		post-install/12-sky1-firmware.sh (mali_csffw, dsp_fw, *.fwb to /lib/firmware)	build/verify-assets.sh	assets/sky1-firmware/ (gitignored SoC blobs; restaged by build/stage-canonical-assets.sh)	CIX Sky1 SoC firmware. Real blobs are not in the repo.
+-sky1-mainline-kernel	kernel	vendored:assets/kernel/mainline	arm64	desktop,installer,mgmt,rescue,server	yes	7.3.0-sky1-ncz	post-install/10-our-kernel.sh	build/verify-base-kernel-assets.sh,build/verify-kernel-default-policy.sh	assets/kernel/sky1-manifest.json; assets/kernel/mainline (symlink -> NFS kernel staging); assets/kernel/KERNEL-POLICY (DEFAULT_BASE, EDGE_ENABLED=0)	Default + installer + rescue kernel on Sky1/arm64 (7.3.0-sky1-ncz). build_rev=r292. No EDGE channel. Symlink target lives outside the repo.
++sky1-mainline-kernel	kernel	vendored:assets/kernel/mainline	arm64	desktop,installer,mgmt,rescue,server	yes	7.3.3-sky1-ncz	post-install/10-our-kernel.sh	build/verify-base-kernel-assets.sh,build/verify-kernel-default-policy.sh	assets/kernel/sky1-manifest.json; assets/kernel/mainline (symlink -> NFS kernel staging); assets/kernel/KERNEL-POLICY (DEFAULT_BASE, EDGE_ENABLED=0)	Default + installer + rescue kernel on Sky1/arm64 (7.3.3-sky1-ncz). build_rev=r298. No EDGE channel. Symlink target lives outside the repo.
+ slirp4netns	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+ slirp4netns	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+ slurp	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+@@ -648,7 +648,7 @@ vim	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest
+ vim	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/installer-base.pkgs; manifests/rescue.pkgs	
+ vim-tiny	debian	debian-forky	arm64	mgmt	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/mgmt.pkgs	
+ vivaldi-stable	staged-deb	staged:assets/vivaldi/vivaldi-stable_*_${ARCH}.deb	all	desktop	no		post-install/52-vivaldi.sh (dpkg -i staged .deb)	build/verify-installed-target.sh	assets/vivaldi/ (vendor .debs, staged by build/stage-build-inputs.sh, pinned in manifests/build-inputs.tsv, refreshed from the vivaldi-stable alias by build/refresh-vivaldi.sh); post-install/52-vivaldi.sh	Default browser (x-www-browser + xdg mime). Skipped on server/headless variants.
+-vpu-amvx	overlay	vendored:assets/kernel/vpu/7.3.0-sky1-ncz/amvx.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.0-sky1-ncz	post-install/81-vpu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/vpu/7.3.0-sky1-ncz/amvx.ko, build_rev=r292)	Pinned Sky1 default-kernel overlay for vpu (r292); no EDGE channel.
++vpu-amvx	overlay	vendored:assets/kernel/vpu/7.3.3-sky1-ncz/amvx.ko	arm64	desktop,mgmt,rescue,server	yes	7.3.3-sky1-ncz	post-install/81-vpu.sh	build/verify-overlay-modversions.py,build/verify-overlays.py	assets/kernel/sky1-manifest.json (overlays_mirrored: assets/kernel/vpu/7.3.3-sky1-ncz/amvx.ko, build_rev=r298)	Pinned Sky1 default-kernel overlay for vpu (r298); no EDGE channel.
+ vulkan-tools	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+ vulkan-tools	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
+ vulkan-validationlayers	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
+diff --git a/manifests/determinism.pin b/manifests/determinism.pin
+index 8934ae42..fa717a9b 100644
+--- a/manifests/determinism.pin
++++ b/manifests/determinism.pin
+@@ -1,6 +1,6 @@
+ base_codename	forky
+ manifest_build_inputs_sha256	d79c603d00977eea6a0e552fe48aa88c5587d350c286d90438964ee640d80c24
+-manifest_ncz_packages_sha256	d72c972502c278b17d96eda042cb52e58f9f1a0a83a6ea3e885d2439ad5cc74f
++manifest_ncz_packages_sha256	d91b6ddf88cdbce3ffe76d9fcd85223e1ac53718203571965ef6d29b1be43fcb
+ manifest_vendor_debs_sha256	3fbbe587dd9ed08c480d005937dedd01580023393f91ada4a9f7107604535c11
+ manifest_vendor_repos_sha256	eed1e1c049de39cc6d96b26356b59f4ce77915cd05088c6aa85bb332a9110f36
+ singularity_payload_sha256_amd64	7a6149d3b8fa74f7c78c9f4015e1e4d4e5ac0ba3e25b136a206c9e0bb67b4db5
+diff --git a/manifests/ncz-packages.tsv b/manifests/ncz-packages.tsv
+index 094b83ec..220bdd9f 100644
+--- a/manifests/ncz-packages.tsv
++++ b/manifests/ncz-packages.tsv
+@@ -37,9 +37,9 @@ libdrm2	2.4.134-3+ncz2	arm64	5770166ede09f1ac9c99b08db00201f5d7be4e01139ef9e22e0
+ cix-npu-driver-dkms	6.2.0-cixdeb13-260714+ncz3	all	33c50737daf469322666aca6e8b5a866465bdb86ee0bc92173e7e6f152d826b4	packaging/cix-npu-driver-dkms-6.2.0	packaging/cix-npu-driver-dkms-6.2.0 patches 0001-0003; SDK 6.2.0-cixdeb13-260714	vendor NPU/aipu 6.2.0 KMD DKMS deb: SDK 6.2.0-cixdeb13-260714 + packaging/cix-npu-driver-dkms-6.2.0 patches 0001-0003 (+ncz3); SDK tarball is unreachable, so this built deb is the source of truth (r201)
+ linux-image-7.3.3-t2-ncz	7.3.3-r297	amd64	acd8182dad75de5e3429960c6201ce0cb5146d07d6d268fb233becff894ab48a	build/stage-amd64-kernel.sh	assets/kernel/amd64-stable (KVER 7.3.3-t2-ncz, PKGVERSION 7.3.3-r297); amd64-kernel-t2 0bed835, v7.3.3	T2 amd64 kernel image, 7.3.3 (t2linux patches incl. 9506 brcmfmac RX packet-ID map, 2010 boot-GPU guard, 6003, 9508); TYPHON build 2026-11-07, debs as built (not repacked), boot-tested on MEDUSA 2026-11-07
+ linux-headers-7.3.3-t2-ncz	7.3.3-r297	amd64	1fff1b802ef110a4231fef83af3b88e3d19ca1e93d869b92f581f727a0389980	build/stage-amd64-kernel.sh	assets/kernel/amd64-stable (KVER 7.3.3-t2-ncz, PKGVERSION 7.3.3-r297); amd64-kernel-t2 0bed835, v7.3.3	T2 amd64 kernel headers, 7.3.3; same TYPHON build as linux-image-7.3.3-t2-ncz
+-linux-image-cixmini	7.3.0-sky1-ncz+r293	arm64	d771239535f9d0b0474bd090dd3ad94ae02054a3d5100fc23d7b9ccba6e272b0	build/build-kernel-debs.sh	kernel-source sky1 tree (KVER 7.3.0-sky1-ncz; v7.3 c03c1a1450, meta-cix 7a120e44 PR r2, patches 0001-0033 incl. CIX patches-7.3 0029-0033) +r293 packaging revision	2026-10-27 +r293: out-of-tree overlays (mali/npu/panthor/vpu) rebuilt against the packaged kernel headers so struct module matches the kernel (0x500; mali_kbase r53p0-00eac0, UK 1.36). Revision bumped because the deb content changed while the version stayed +r292, which would have left the broken modules installed on boards via apt.
+-linux-headers-cixmini	7.3.0-sky1-ncz+r293	arm64	882406b6edb82d85a3ee58f82e42d122043dd9398d80800feeae7d3cf94f807e	build/build-kernel-debs.sh	kernel-source sky1 tree (KVER 7.3.0-sky1-ncz; v7.3 c03c1a1450, meta-cix 7a120e44) +r293 packaging revision	2026-10-27 +r293: headers tree prepared by modules_prepare without re-running Kconfig, so autoconf.h keeps CONFIG_DEBUG_INFO_BTF_MODULES and the module ABI does not shrink. Matches linux-image-cixmini (=).
+-cixmini-boot	1.6+r293	arm64	58967e536818dfaeb42a0907f7c94dd9343847ec5fa42d47c3a2164f405e4601	build/build-kernel-debs.sh	build-kernel-debs.sh cixmini-boot step at BUILD_REV=r293	2026-10-27 1.6: shipped rEFInd generator now prunes NVRAM rows labelled NCZ-OS or the old nclawzero (rEFInd) and creates one NCZ-OS entry. apt only unpacks cixmini-boot when its version is newer, so the bump is required for upgraded boards. Kernel packages Depend on cixmini-boot (>= 1.2+r293).
++linux-image-cixmini	7.3.3-sky1-ncz+r298	arm64	f53d7ed0328415e214c37ef94f9a79434ad5cc7381522bc55418f3c4198e36b7	build/build-kernel-debs.sh	kernel-source sky1 tree (KVER 7.3.3-sky1-ncz; v7.3.3 d50d994bff, meta-cix ec3bacd1, patches 0001-0033 + port patch, same series as 7.3.1) +r298	2026-11-07 r298: kernel 7.3.3 (unified 7.3 policy, same 7.3.3 as amd64). All six out-of-tree overlays rebuilt against this build (struct module 0x500). Boot-tested on O6N <DATE>.
++linux-headers-cixmini	7.3.3-sky1-ncz+r298	arm64	e8286ae54e7245dc762690da8a67f7df71ae00b1bf67085fb88fd4d8df798a08	build/build-kernel-debs.sh	kernel-source sky1 tree (KVER 7.3.3-sky1-ncz; v7.3.3 d50d994bff, meta-cix ec3bacd1, patches 0001-0033 + port patch, same series as 7.3.1) +r298	2026-11-07 r298: headers of the 7.3.3 build; Module.symvers byte-identical to the build's, autoconf.h keeps CONFIG_DEBUG_INFO_BTF_MODULES. Matches linux-image-cixmini (=).
++cixmini-boot	1.6+r298	arm64	0cf4e780215687d89d9f62dac78733bb6ef44ed7cfb7de9e1f05cd3c7881339a	build/build-kernel-debs.sh	build-kernel-debs.sh cixmini-boot step at BUILD_REV=r298	2026-11-07 1.6+r298: helper and rEFInd generator unchanged from 1.6+r293; revision follows the kernel. Kernel packages Depend on cixmini-boot (>= 1.2+r298).
+ ncz-screensavers	0.8.18	amd64	dd311164e4a03b97dd9c46bbf4d58489204c5fc6707627cfded8818d207555b5	ncz-screensavers/debian/rules (dpkg-buildpackage -us -uc -b)	0.8.18 (amd64 build): Black Hole stages 1-4 -- deterministic viewing geometry, selectable accretion-flow geometry (disk/torus/riaf/spherical), Doppler modes and independently aimed jets, low-emission lens (dark-lens) and opt-in turbulence; new presets dark-lens, riaf, thick-torus, m87-jet, no-doppler; built natively in debian:forky from 07333ce64ac766c7b7b01c24017323cecff6708e (release/0.8.18-20261027); not yet published to the public apt repo (operator decision pending)	0.8.17 (amd64 build): fractasia declares GLSL ES 3.00 so it renders on Mali (ES 3.1) instead of black; Black Hole capped at 720 lines on Sky1; Magmasimplex realistic default + refraction optics; built natively in debian:forky at snapshot 20261018T082309Z; not yet published to the public apt repo (operator decision pending)
+ ncz-screensavers	0.8.18	arm64	99a8a2a26851afbd10f829b6aeb18999c2ccc86c52ad5bbbae054f96ee685972	ncz-screensavers/debian/rules (dpkg-buildpackage -us -uc -b)	0.8.18 (arm64 build): Black Hole stages 1-4 -- deterministic viewing geometry, selectable accretion-flow geometry (disk/torus/riaf/spherical), Doppler modes and independently aimed jets, low-emission lens (dark-lens) and opt-in turbulence; new presets dark-lens, riaf, thick-torus, m87-jet, no-doppler; built natively in debian:forky from 07333ce64ac766c7b7b01c24017323cecff6708e (release/0.8.18-20261027); not yet published to the public apt repo (operator decision pending)	0.8.17 (arm64 build): fractasia declares GLSL ES 3.00 so it renders on Mali (ES 3.1) instead of black; Black Hole capped at 720 lines on Sky1; Magmasimplex realistic default + refraction optics; built natively in debian:forky at snapshot 20261018T082309Z; not yet published to the public apt repo (operator decision pending)
+ ncz-screensavers	0.8.19	amd64	970436860fe6b7d10704df59ce37f2a292b819a8a8bf28f77f7d71aa3afd6e37	ncz-screensavers/debian/rules (dpkg-buildpackage -us -uc -b)	0.8.19 (amd64 build): ncz-screensavers release/0.8.19-20261029; the packaged non-ELF files match 4eb9f67d5af7a0adf7f73496c3db0ecfa4ecfe1f (the compiled helpers are rebuilt binaries); committed as assets/screensaver/amd64/ncz-screensavers_0.8.19_amd64.deb by 0d52fd46	0.8.19: Black Hole ACES tone mapping and adaptive photon-sphere step; geometry re-drawn at every --duration boundary; feed renderer honours NCZ_MAX_RENDER_HEIGHT (O6N lock-screen regression); installed on the medium by post-install/59-ncz-screensavers-pkg.sh over the 0.8.18 pool package. Row added 2026-11-01 for the bytes already tracked in git (BUILD-STABILITY C3); not published to the public apt repo
+-- 
+2.56.0
+
