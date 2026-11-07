@@ -1,0 +1,17 @@
+# manifests/di-build-markers.tsv -- d-i build-marker records accepted by
+# IDENTITY ONLY (operator ruling 2026-11-07; docs/ONE-KERNEL.md).
+#
+# d-i writes "Package: debian-installer" with the image build stamp as its
+# Version (cdrom-<variant>-<YYYYMMDD>-<HH:MM:SS>) and no Architecture into the
+# installer initrd's dpkg status.  No archive index can carry a build stamp and
+# the record has no bytes of its own, so build/forky-provenance.py clears it only
+# when (name, version) matches a row here EXACTLY and the ISO being scanned is the
+# row's substrate_sha256, which must also be the sha256 pinned in
+# manifests/base.pin.  A re-pinned substrate therefore needs new rows (measured
+# from its provenance-predict FAIL lines); every other record keeps its hash check.
+#
+# columns (TAB): name version arch substrate_sha256 reason
+debian-installer	cdrom-gtk-20261102-00:02:07	amd64	7551cadf4f326c74d20d9289879fd0e39371001cd9be78c47aecf7283161a991	measured: initrd dpkg status of the pinned amd64 netinst (provenance-predict 2026-11-07)
+debian-installer	cdrom-isolinux-20261102-00:02:07	amd64	7551cadf4f326c74d20d9289879fd0e39371001cd9be78c47aecf7283161a991	measured: initrd dpkg status of the pinned amd64 netinst (provenance-predict 2026-11-07)
+debian-installer	cdrom-grub-20261102-01:02:00	arm64	9501c414cf8e289e5b41eddce419bc4ad4771755e86542b84a1ea0177e7434fe	measured: initrd dpkg status of the pinned arm64 netinst (provenance-predict 2026-11-07)
+debian-installer	cdrom-gtk-20261102-01:02:00	arm64	9501c414cf8e289e5b41eddce419bc4ad4771755e86542b84a1ea0177e7434fe	measured: initrd dpkg status of the pinned arm64 netinst (provenance-predict 2026-11-07)

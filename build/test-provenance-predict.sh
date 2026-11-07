@@ -979,5 +979,165 @@ else
     bad "no verified snapshot index must fail closed: rc=$rc" "$LAST"
 fi
 
+# ===========================================================================
+echo "== 5. the substrate's own kernel udebs and d-i build markers: scope =="
+# docs/ONE-KERNEL.md ("Substrate input scan").  The
+# one-kernel exemption clears ONLY d-i's installer-kernel udebs (a kernel-artifact
+# name that ends in -di) and ONLY inside the substrate whose sha256 is pinned in
+# manifests/base.pin.  The debian-installer build-marker records are cleared by
+# identity alone, and only for the exact (name, version) that a
+# manifests/di-build-markers.tsv row ties to that same pinned sha256.  Every
+# other record still needs its hash or a reviewed row.
+KMARK="cdrom-gtk-20300101-00:00:00"
+mkiso_k() {  # out-iso [--rogue] [--non-di-kernel] [--marker-in-pool] [--marker-ver V] [--no-pool-kernel]
+    local out="$1"; shift
+    local rogue=0 nondi=0 mpool=0 nopk=0 mver="$KMARK"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --rogue) rogue=1 ;;
+            --non-di-kernel) nondi=1 ;;
+            --marker-in-pool) mpool=1 ;;
+            --marker-ver) mver="$2"; shift ;;
+            --no-pool-kernel) nopk=1 ;;
+        esac
+        shift
+    done
+    local s="$T/isoroot-k"; rm -rf "$s"; mkdir -p "$s/pool/main"
+    cp "$REPO/pool/main/l/libc6/libc6_2.41-7_amd64.deb" "$s/pool/main/libc6.deb"
+    # listed in the pool index: d-i's own kernel-module udeb (no other origin)
+    [ "$nopk" = 1 ] || mkudeb "$s/pool/main/ext4k.udeb" ext4-modules-9-x-di 9-1 amd64
+    # NOT listed anywhere: the orphan walk sees it by file name only
+    [ "$nopk" = 1 ] || mkudeb "$s/pool/main/nic-modules-9-x-di_9_amd64.udeb" nic-modules-9-x-di 9 amd64
+    local idx="$s/dists/$SNAP/main/debian-installer/binary-amd64"
+    mkdir -p "$idx" "$s/dists/$SNAP/main/debian-installer/binary-all"
+    {
+        printf 'Package: libc6\nVersion: 2.41-7\nArchitecture: amd64\nFilename: pool/main/libc6.deb\nSize: %s\nSHA256: %s\n\n' \
+            "$(stat -c%s "$s/pool/main/libc6.deb")" "$(sha "$s/pool/main/libc6.deb")"
+        [ "$nopk" = 1 ] || printf 'Package: ext4-modules-9-x-di\nVersion: 9-1\nArchitecture: amd64\nFilename: pool/main/ext4k.udeb\nSize: %s\nSHA256: %s\n\n' \
+            "$(stat -c%s "$s/pool/main/ext4k.udeb")" "$(sha "$s/pool/main/ext4k.udeb")"
+        if [ "$nondi" = 1 ]; then
+            # a kernel artifact that is NOT a d-i udeb: never exempt
+            mkudeb "$s/pool/main/limg.udeb" linux-image-9-x 9-1 amd64
+            printf 'Package: linux-image-9-x\nVersion: 9-1\nArchitecture: amd64\nFilename: pool/main/limg.udeb\nSize: %s\nSHA256: %s\n\n' \
+                "$(stat -c%s "$s/pool/main/limg.udeb")" "$(sha "$s/pool/main/limg.udeb")"
+        fi
+        if [ "$mpool" = 1 ]; then
+            # the marker identity on a HASHED record: identity-only must not reach it
+            # (the bytes carry a plain version: dpkg-deb refuses the stamp's ':')
+            mkudeb "$s/pool/main/dimark.udeb" debian-installer 1 amd64
+            printf 'Package: debian-installer\nVersion: %s\nArchitecture: amd64\nFilename: pool/main/dimark.udeb\nSize: %s\nSHA256: %s\n\n' \
+                "$KMARK" "$(stat -c%s "$s/pool/main/dimark.udeb")" "$(sha "$s/pool/main/dimark.udeb")"
+        fi
+    } > "$idx/Packages"
+    cp "$idx/Packages" "$s/dists/$SNAP/main/debian-installer/binary-all/Packages"
+    [ "$rogue" = 1 ] && mkudeb "$s/pool/main/rogue.udeb" rogue-udeb 9.9 amd64
+    local ir; ir="$(mktemp -d "$T/initrd-k.XXXXXX")"
+    mkdir -p "$ir/udebs" "$ir/var/lib/dpkg"
+    cp "$T/debs/cdrom-checker-udeb_1.0_amd64.udeb" "$ir/udebs/cdromcheck.udeb"
+    # the d-i udpkg status format: no Architecture on these records
+    printf 'Package: ncz-installer\nStatus: install ok installed\nVersion: 7.3.0\nArchitecture: amd64\n\nPackage: fat-modules-9-x-di\nStatus: install ok installed\nVersion: 9-0\n\nPackage: debian-installer\nStatus: install ok installed\nVersion: %s\n' \
+        "$mver" > "$ir/var/lib/dpkg/status"
+    ( cd "$ir" && find . -mindepth 1 | sort | cpio -o -H newc --quiet ) | gzip -n -9 > "$s/initrd.gz"
+    rm -rf "$ir"
+    mkdir -p "$(dirname "$out")"
+    if command -v xorriso >/dev/null 2>&1; then
+        xorriso -as mkisofs -quiet -o "$out" -R -J -joliet-long -iso-level 3 \
+            -V NCZFIX "$s" >/dev/null 2>&1
+    else
+        xorriso_fallback "$s" "$out"
+    fi || { echo "FAIL: could not build fixture ISO $out" >&2; exit 1; }
+}
+# TRK: the fixture trust root that opts in (release.conf) and pins its substrate
+TRK="$T/trust-k"; rm -rf "$TRK"; cp -a "$TR" "$TRK"
+printf 'NCZ_ONE_KERNEL_SUBSTRATE_UDEBS=exempt\n' >> "$TRK/release.conf"
+pin_k() {  # iso [marker-row-substrate-sha]  -- base.pin pins THIS iso's bytes
+    local s; s="$(sha "$1")"
+    printf '# fixture\namd64\t%s\tThu, 01 Jan 2030 00:00:00 UTC\t%s\t100.0\thttps://example.invalid/netinst.iso\n' \
+        "$s" "$SNAP" > "$TRK/manifests/base.pin"
+    printf '# fixture\ndebian-installer\t%s\tamd64\t%s\tfixture: d-i build marker\n' \
+        "$KMARK" "${2:-$s}" > "$TRK/manifests/di-build-markers.tsv"
+}
+scan_k() {  # iso [root]
+    python3 -I "$PY" --substrate-iso "$1" --work "$WF" --root-dir "${2:-$TRK}" --index-dir "$IDX"
+}
+has()   { grep -qE -- "$2" <<<"$LAST" && ok "  $1" || bad "  $1" "$LAST"; }
+hasnt() { grep -qE -- "$2" <<<"$LAST" && bad "  $1" "$LAST" || ok "  $1"; }
+
+mkiso_k "$T/fix/k.iso"; pin_k "$T/fix/k.iso"
+expect_rc "pinned substrate + opt-in: d-i kernel udebs and the build marker clear" 0 \
+    scan_k "$T/fix/k.iso"
+has "the pool record is exempt by name" '^NOTE .*ext4-modules-9-x-di 9-1 amd64 :: one-kernel-exempt'
+has "the pool orphan is exempt by name" '^NOTE .*nic-modules-9-x-di_9_amd64.udeb :: one-kernel-exempt'
+has "the initrd status record is exempt by name" '^NOTE .*fat-modules-9-x-di 9-0 :: one-kernel-exempt'
+has "the build marker clears by identity" "^NOTE .*debian-installer $KMARK :: d-i build marker"
+
+expect_rc "no opt-in (release.conf): the same substrate's kernel udebs and marker FAIL" 1 \
+    scan_k "$T/fix/k.iso" "$TR"
+has "the pool record needs an origin" '^FAIL .*ext4-modules-9-x-di 9-1 amd64 :: not authorized'
+has "the pool orphan needs an origin" '^FAIL .*nic-modules-9-x-di_9_amd64.udeb :: orphan pool file'
+has "the substrate is refused as a whole" ':: the substrate.s /cdrom pool is not fully authorized'
+
+pin_k "$T/fix/k.iso"
+sed -i "s/^amd64\t[0-9a-f]\{64\}/amd64\t$(printf 'e%.0s' {1..64})/" "$TRK/manifests/base.pin"
+expect_rc "opt-in but the ISO is NOT the sha256-pinned substrate: nothing is exempt" 1 \
+    scan_k "$T/fix/k.iso"
+has "the pool record FAILS off the pin" '^FAIL .*ext4-modules-9-x-di 9-1 amd64 :: not authorized'
+has "the pool orphan FAILS off the pin" '^FAIL .*nic-modules-9-x-di_9_amd64.udeb :: orphan pool file'
+has "the scan says why" 'not the sha256-pinned substrate'
+# the initrd half, with a pool that needs no exemption so the scan reaches it
+mkiso_k "$T/fix/k-nopk.iso" --no-pool-kernel; pin_k "$T/fix/k-nopk.iso"
+expect_rc "  (control) the same initrd on the pinned substrate passes" 0 scan_k "$T/fix/k-nopk.iso"
+sed -i "s/^amd64\t[0-9a-f]\{64\}/amd64\t$(printf 'e%.0s' {1..64})/" "$TRK/manifests/base.pin"
+expect_rc "  off the pin, the initrd's kernel record and the marker FAIL" 1 scan_k "$T/fix/k-nopk.iso"
+has "the initrd status record FAILS off the pin" '^FAIL .*fat-modules-9-x-di 9-0'
+has "the marker FAILS off the pin" "^FAIL .*debian-installer $KMARK"
+
+mkiso_k "$T/fix/k-rogue.iso" --rogue; pin_k "$T/fix/k-rogue.iso"
+expect_rc "a NON-kernel unknown udeb in the pinned substrate still FAILS" 1 \
+    scan_k "$T/fix/k-rogue.iso"
+has "the rogue orphan is reported" '^FAIL .*rogue.udeb :: orphan pool file'
+hasnt "the rogue udeb is never exempt" 'rogue\.udeb :: one-kernel-exempt'
+
+mkiso_k "$T/fix/k-nondi.iso" --non-di-kernel; pin_k "$T/fix/k-nondi.iso"
+expect_rc "a kernel artifact that is not a d-i udeb still FAILS" 1 \
+    scan_k "$T/fix/k-nondi.iso"
+has "linux-image-* is not the installer's kernel udeb" '^FAIL .*linux-image-9-x 9-1 amd64 :: not authorized'
+
+mkiso_k "$T/fix/k-ver.iso" --marker-ver "cdrom-gtk-20300101-00:00:01"; pin_k "$T/fix/k-ver.iso"
+expect_rc "a changed marker version FAILS (identity is exact, not a pattern)" 1 \
+    scan_k "$T/fix/k-ver.iso"
+has "the changed marker is reported" '^FAIL .*debian-installer cdrom-gtk-20300101-00:00:01'
+
+pin_k "$T/fix/k.iso" "$(printf 'a%.0s' {1..64})"
+expect_rc "a marker row tied to ANOTHER substrate sha256 does not clear this one" 1 \
+    scan_k "$T/fix/k.iso"
+has "the marker is reported" "^FAIL .*debian-installer $KMARK"
+
+mkiso_k "$T/fix/k-mpool.iso" --marker-in-pool; pin_k "$T/fix/k-mpool.iso"
+expect_rc "the marker identity on a hashed pool record still needs its hash" 1 \
+    scan_k "$T/fix/k-mpool.iso"
+has "the hashed record is reported" "^FAIL .*debian-installer $KMARK amd64 :: not authorized"
+
+pin_k "$T/fix/k.iso"
+printf 'busybox-udeb\t1.0\tamd64\t%s\tnot a marker\n' "$(sha "$T/fix/k.iso")" \
+    >> "$TRK/manifests/di-build-markers.tsv"
+expect_rc "the marker ledger refuses a row that is not debian-installer" 2 \
+    scan_k "$T/fix/k.iso"
+pin_k "$T/fix/k.iso"
+
+# the finished-image path never gets either allowance, even with the opt-in:
+# a rootfs whose dpkg status carries the same no-Architecture records FAILS.
+rk="$(mktemp -d "$T/rootfs-k.XXXXXX")"; mkdir -p "$rk/var/lib/dpkg" "$rk/etc/apt" "$rk/usr/lib"
+printf 'Package: fat-modules-9-x-di\nStatus: install ok installed\nVersion: 9-0\n\nPackage: debian-installer\nStatus: install ok installed\nVersion: %s\n' \
+    "$KMARK" > "$rk/var/lib/dpkg/status"
+printf 'ID=ncz-os\nNAME="NCZ OS"\nVERSION_ID="4"\n' > "$rk/usr/lib/os-release"
+printf '%s\n' "$PIN_SRC" > "$rk/etc/apt/sources.list"
+tar -C "$rk" -cf - . | zstd -q -19 -o "$T/fix/k-rootfs.tar.zst" -f; rm -rf "$rk"
+expect_rc "outside the substrate scan neither allowance applies" 1 \
+    python3 -I "$PY" --rootfs-tar "$T/fix/k-rootfs.tar.zst" --work "$WF" \
+    --root-dir "$TRK" --index-dir "$IDX"
+has "the kernel record FAILS in a rootfs" '^FAIL .*fat-modules-9-x-di 9-0'
+has "the marker FAILS in a rootfs" "^FAIL .*debian-installer $KMARK"
+
 printf '\n== provenance-predict tests: %d passed, %d failed ==\n' "$PASS" "$FAIL"
 if [ "$FAIL" = 0 ]; then exit 0; else exit 1; fi

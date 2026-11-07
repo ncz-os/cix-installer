@@ -737,8 +737,7 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None,
         elif ref.receipt_ts.get(key) == sha:
             # build-timestamped NCZ deb authorized by a run/pre-build receipt
             auth = "ncz-receipt"
-        if auth is None and exempt_substrate_kernel and \
-                KERNEL_ARTIFACT_RE.search(key[0]):
+        if auth is None and exempt_substrate_kernel and _di_kernel_udeb(key[0]):
             # docs/ONE-KERNEL.md: these are the INSTALLER's own kernel and module
             # udebs -- d-i needs them to boot and partition.  The writer drops them
             # from the medium when NCZ_ONE_KERNEL=1 and (since cycle 494) asserts
@@ -772,7 +771,7 @@ def authorize_records(ref, records, root, auth_idx, src, orphan_root=None,
             rel = os.path.normpath(os.path.relpath(p, root))
             if rel not in referenced:
                 if exempt_substrate_kernel and \
-                        KERNEL_ARTIFACT_RE.search(os.path.basename(p).split("_", 1)[0]):
+                        _di_kernel_udeb(os.path.basename(p).split("_", 1)[0]):
                     # Same policy, same call site as the records-ladder exemption
                     # above: the installer's own kernel udebs are not in the ISO's
                     # own Packages index either, and the writer removes them from
@@ -956,6 +955,32 @@ class Ref:
                     "snapshot": r[9], "owner_action": r[10], "review_by": r[11],
                     "tracking_url": r[12],
                 }
+        # d-i build markers (operator ruling 2026-11-07; docs/ONE-KERNEL.md):
+        # {substrate_sha256: {(name, version)}}.  Identity only, and only while
+        # scanning the substrate whose sha256 the row names (classify_noarch).
+        self.di_markers = {}
+        path = os.path.join(self.root, "manifests/di-build-markers.tsv")
+        if os.path.isfile(path):
+            for n, r in load_tsv(path, 5, "manifests/di-build-markers.tsv"):
+                if r[0] != "debian-installer":
+                    die(f"di-build-markers.tsv:{n} name must be debian-installer "
+                        f"(got {r[0]!r}); only d-i's own build marker is identity-only")
+                if not DI_MARKER_VER_RE.match(r[1]):
+                    die(f"di-build-markers.tsv:{n} version is not a d-i build stamp: "
+                        f"{r[1]!r}")
+                if r[2] not in ("amd64", "arm64"):
+                    die(f"di-build-markers.tsv:{n} arch must be amd64|arm64 (got {r[2]!r})")
+                if not SHA256_RE.match(r[3]):
+                    die(f"di-build-markers.tsv:{n} substrate_sha256 is not 64 hex")
+                ids = self.di_markers.setdefault(r[3], set())
+                if (r[0], r[1]) in ids:
+                    die(f"di-build-markers.tsv:{n} duplicate entry for {r[0]} {r[1]}")
+                ids.add((r[0], r[1]))
+        # Set only for the duration of scan_substrate_iso(): which substrate is
+        # being read, whether its bytes are the pinned ones, and whether the
+        # one-kernel exemption applies.  None everywhere else (finished image,
+        # rootfs, staged debs), so neither allowance can widen to those scans.
+        self.substrate_scan = None
         # sid d-i index (signed, same pinned snapshot): used ONLY to chain a
         # ledger row to the archive and to reject a sid d-i package with no row.
         self.sid_idx = {}
@@ -1029,6 +1054,38 @@ KERNEL_ARTIFACT_RE = re.compile(
 # Packages excluded from the "one kernel version string" set (boot payload, not
 # the kernel itself).
 KERNEL_VERSION_EXEMPT_RE = re.compile(r"^(cixmini-boot)$")
+
+
+def _di_kernel_udeb(name):
+    """True for d-i's OWN installer-kernel udeb: a kernel-artifact name that is
+    also a kernel-wedge d-i udeb name (they all end in -di: *-modules-<abi>-di,
+    linux-base-<abi>-di, linux-binary-<abi>-di, kernel-image-<abi>-di).  This is
+    the only shape the one-kernel substrate exemption may clear (docs/ONE-KERNEL.md);
+    linux-image-*, linux-headers-* and every other name keep the normal check."""
+    return bool(name) and name.endswith("-di") and bool(KERNEL_ARTIFACT_RE.search(name))
+
+
+# The d-i build-marker record: d-i writes Package: debian-installer with the
+# image's build stamp as its Version (cdrom-gtk-20261102-00:02:07) into the
+# installer initrd's dpkg status.  manifests/di-build-markers.tsv rows must look
+# like one (docs/ONE-KERNEL.md, "Substrate input scan").
+DI_MARKER_VER_RE = re.compile(
+    r"^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9]{8}-[0-9]{2}:[0-9]{2}:[0-9]{2}$")
+
+
+def _pinned_substrate_shas(root):
+    """The substrate sha256s pinned in <root>/manifests/base.pin (column 2).  A
+    root without base.pin pins nothing, so nothing there is the pinned substrate."""
+    path = os.path.join(root or ROOT, "manifests/base.pin")
+    out = set()
+    if os.path.isfile(path):
+        for line in slurp(path, encoding="utf-8").splitlines():
+            if line.startswith("#") or not line.strip():
+                continue
+            f = line.split("\t")
+            if len(f) >= 2 and SHA256_RE.match(f[1]):
+                out.add(f[1])
+    return out
 
 
 def classify(ref, src, name, ver, arch, maint, sha=None):
@@ -1178,8 +1235,10 @@ def classify_noarch(ref, src, name, ver, maint):
     # trust root says NCZ_ONE_KERNEL_SUBSTRATE_UDEBS=exempt, docs/ONE-KERNEL.md
     # removes these from the medium and the writer asserts that it did.
     # Measured: without this the substrate scan reported 82 findings; with it, 3.
-    if _ncz_build_context(getattr(ref, "root", None)) and \
-            KERNEL_ARTIFACT_RE.search(name or ""):
+    # Only while scanning the sha256-pinned substrate with the release.conf
+    # opt-in (ref.substrate_scan, set by scan_substrate_iso); never elsewhere.
+    ss = getattr(ref, "substrate_scan", None)
+    if ss and ss["kernel_exempt"] and _di_kernel_udeb(name):
         print(f"NOTE  [{src}] {name} {ver} :: one-kernel-exempt "
               f"(the installer's own kernel udeb, from the initrd status)")
         return "one-kernel-exempt"
@@ -1229,6 +1288,16 @@ def classify_noarch(ref, src, name, ver, maint):
                             "index but NOT in manifests/sid-exceptions.tsv (no "
                             "blanket sid grant)")
             return None
+    # d-i's build-marker record (operator ruling 2026-11-07): no index can hold
+    # a build stamp and the record has no bytes of its own; it lives inside the
+    # initrd whose bytes the substrate sha256 pins.  Identity only, exact
+    # (name, version), and only for the substrate a reviewed row names.
+    if ss and ss["pinned"] and \
+            (name, ver) in getattr(ref, "di_markers", {}).get(ss["sha256"], ()):
+        print(f"NOTE  [{src}] {name} {ver} :: d-i build marker (identity only; "
+              f"manifests/di-build-markers.tsv row for the pinned substrate "
+              f"{ss['sha256'][:12]})")
+        return "di-build-marker"
     fail(src, what, "dpkg status record has no Architecture and its "
                     "(name,version) is not in the pinned snapshot or a reviewed ledger")
     return None
@@ -3055,6 +3124,19 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
         if not recs:
             fail(src, iso, "ISO has no readable ECMA-119 root directory")
             return 0
+    # Both substrate allowances (the one-kernel exemption and the d-i build
+    # markers) hold only for the substrate whose sha256 manifests/base.pin pins:
+    # they clear records by NAME, and a name means something only inside bytes
+    # that were pinned.  Any other ISO is checked without them.
+    iso_sha = hashlib.sha256(data).hexdigest()
+    pinned = iso_sha in _pinned_substrate_shas(ref.root)
+    optin = _ncz_build_context(ref.root)
+    if optin and not pinned:
+        print(f"NOTE  [{src}] {os.path.basename(iso)} (sha256 {iso_sha[:12]}) is not "
+              f"the sha256-pinned substrate (manifests/base.pin): no one-kernel "
+              f"exemption and no d-i build-marker allowance")
+    ref.substrate_scan = {"sha256": iso_sha, "pinned": pinned,
+                          "kernel_exempt": optin and pinned}
     owned = tempfile.mkdtemp(prefix="ncz-isoscan-", dir=work)
     try:
         total = 0
@@ -3133,7 +3215,8 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
         # The one-kernel exemption is opted into per trust root via
         # release.conf: NCZ_ONE_KERNEL_SUBSTRATE_UDEBS=exempt (docs/ONE-KERNEL.md).
         # Deliberately only here: the finished image is still checked without it.
-        _okx = _ncz_build_context(ref.root)
+        # It also needs the ISO to be the sha256-pinned substrate (above).
+        _okx = ref.substrate_scan["kernel_exempt"]
         auth = authorize_pool(ref, pool, ref.idx, src + ":/cdrom", flat=False,
                               exempt_substrate_kernel=_okx,
                               orphan_root=pool, sid_idx=ref.sid_idx)
@@ -3159,10 +3242,11 @@ def scan_substrate_iso(ref, iso, work, src, listing=None):
             with open(ip, "wb") as fh:
                 fh.write(b)
             total += _scan_initrd(ref, ip, owned, src=src + ":initrd",
-                                  skip_kernel_artifacts=_ncz_build_context(ref.root))
+                                  skip_kernel_artifacts=_okx)
         total += audit_kernel_purity(ref, src + ":substrate")
         return total
     finally:
+        ref.substrate_scan = None
         shutil.rmtree(owned, ignore_errors=True)
 
 
