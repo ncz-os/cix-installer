@@ -302,7 +302,7 @@ tsv="$(lc "$C")"; e="$(ev "$tsv" dpkg-status)"
 echo "== 9. layer determinism: dracut, base initrd identity, fontconfig caches =="
 # Measured 2026-11-07 (two amd64 builds of 342d44bc): base and desktop differed
 # only in /boot/initrd.img-* (cpio mtimes; the base one also embedded the build
-# chroot's machine-id), var/cache/ldconfig/aux-cache, 25 fontconfig caches
+# chroot's machine-id), var/cache/ldconfig/aux-cache, 24 fontconfig caches
 # (header = font directory mtime at fc-cache time) and setupcon's leaked
 # run/tmpkbd.XXXXXX directory. Items 1 covers the last two strip items.
 L="$ROOT/build/build-squashfs-layers.sh"

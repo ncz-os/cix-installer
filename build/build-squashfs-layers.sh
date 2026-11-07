@@ -1650,7 +1650,7 @@ ncz_regen_initrds_after_identity_reset(){
 # mtime is unchanged. mksquashfs -all-time 0 ships every directory with mtime 0,
 # so the caches fc-cache wrote during the build (with build-time mtimes) were
 # both stale on the target and different on every build (measured 2026-11-07:
-# all 25 caches, header bytes only). Set every directory newer than epoch 0 to
+# 24 of the 25 caches, header bytes only). Set every directory newer than epoch 0 to
 # 0 now -- the value the layer ships anyway -- and rebuild the caches in the
 # chroot, so they are valid on the target and identical across builds. The base
 # lowerdir comes from base.squashfs and is already at 0, so this touches only
