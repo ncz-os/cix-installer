@@ -854,6 +854,14 @@ run_stage() {
             ncz_log "RERUN [$name] (mandatory suite re-run before --resume-from ${RESUME_FROM})" ;;
     esac
     local t0; t0="$(date -u +%s)"
+    # A stage log is a RESULT, not a history.  The stage body is piped through
+    # `tee -a`, so a re-run in the same --run-dir used to append to the previous
+    # attempt: reading that file gives a mixture of two runs, and in cycle 489 it
+    # produced a wrong conclusion before a fresh run dir settled it.  Truncate at
+    # stage start so the file always describes THIS attempt; the run-level log the
+    # caller redirects keeps the narration, and stages.tsv keeps every attempt's
+    # verdict.
+    : > "$log"
     ncz_log "BEGIN [$name] log=$log"
     local rc=0
     if [ -n "${NCZ_TEST_STAGE_CMD:-}" ]; then

@@ -217,6 +217,28 @@ elif [ "$ded_checked" = 0 ]; then
     bad "no stage logs were produced - the de-duplication check proved nothing"
 fi
 
+# A stage log is a RESULT, not a history: re-running into an existing run dir must
+# REPLACE each stage log, not stack the previous attempt's lines.  Cycle 489 was
+# misled by exactly that -- a reused run dir's appended log looked like the current
+# outcome and cost a wrong conclusion before a fresh run dir settled it.
+REUSE="$SCRATCH/reuse"
+NCZ_TEST_STAGE_CMD='echo "FIRST-{stage}"' \
+    bash "$BIN" --arch amd64 --full --no-publish --run-dir "$REUSE" >/dev/null 2>&1
+NCZ_TEST_STAGE_CMD='echo "SECOND-{stage}"' \
+    bash "$BIN" --arch amd64 --full --no-publish --run-dir "$REUSE" >/dev/null 2>&1
+reuse_checked=0; stale=0; lost=0
+for f in "$REUSE"/logs/*.log; do
+    [ -f "$f" ] || continue
+    reuse_checked=$((reuse_checked + 1))
+    if grep -q 'FIRST-' "$f" 2>/dev/null; then stale=$((stale + 1)); bad "$(basename "$f") still carries the previous run's line"; fi
+    if ! grep -q 'SECOND-' "$f" 2>/dev/null; then lost=$((lost + 1)); bad "$(basename "$f") lost the current run's line"; fi
+done
+if [ "$reuse_checked" = 0 ]; then
+    bad "no stage logs were produced by the re-run - the reuse check proved nothing"
+elif [ "$stale" = 0 ] && [ "$lost" = 0 ]; then
+    ok "a re-run in the same run dir replaces its stage logs ($reuse_checked logs)"
+fi
+
 # --- 2c. fail-fast: a failing provenance stage stops the long stage -------
 # (uses the entrypoint's test-only NCZ_TEST_STAGE_CMD hook so no real stage runs)
 echo "== 2c. fail-fast ordering =="
