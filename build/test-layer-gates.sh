@@ -27,6 +27,7 @@
 #   9. layer determinism helpers: dracut reproducible drop-in, base initrd
 #      regenerated after the identity reset, fontconfig caches built against
 #      the shipped epoch-0 directory mtimes
+#  10. no layer archive carries overlayfs xattrs (one -xattrs-exclude regex)
 # Ownership needs root semantics: the test re-runs itself under fakeroot.
 # Usage: build/test-layer-gates.sh
 set -uo pipefail
@@ -346,6 +347,33 @@ PATH="$T/fakechroot:$PATH" bash -c ". '$FN9'; ncz_font_caches_for_shipped_mtimes
     && ok "font caches: a layer without fc-cache is left alone" || bad "font caches: touched a layer without fc-cache"
 grep -qF 'ncz_font_caches_for_shipped_mtimes "$MG" "$role"' "$L" \
     && ok "build_layer re-runs fc-cache in the merged chroot" || bad "build_layer does not call the font-cache helper"
+
+# ===========================================================================
+echo "== 10. overlay xattrs never reach a layer archive =="
+# Measured 2026-11-07 (two amd64 builds of 096c74f4): the desktop layer differed
+# only in its xattr table -- trusted.overlay.origin (lower-inode file handles),
+# trusted/user.overlay.uuid (random per mount), user.overlay.* from mkosi's
+# rootless overlay. mksquashfs keeps only the LAST -xattrs-exclude given, so
+# the '^trusted\.overlay\.' exclusion in front of '^security\.selinux' never
+# applied, and user.overlay.* was never excluded at all.
+L="$ROOT/build/build-squashfs-layers.sh"
+multi="$(grep -n -- '-xattrs-exclude.*-xattrs-exclude' "$L" | grep -v '^[0-9]*:[[:space:]]*#' | cut -d: -f1 | tr '\n' ' ')"
+[ -z "$multi" ] && ok "no mksquashfs call passes -xattrs-exclude twice" || bad "mksquashfs calls with repeated -xattrs-exclude (only the last applies): lines $multi"
+re="$(sed -n "s/^NCZ_LAYER_XATTRS_EXCLUDE='\(.*\)'\$/\1/p" "$L")"
+[ -n "$re" ] && ok "layer xattr exclusion is one regex: $re" || bad "NCZ_LAYER_XATTRS_EXCLUDE not defined"
+n="$(grep -cF -- '-xattrs-exclude "$NCZ_LAYER_XATTRS_EXCLUDE"' "$L")"
+[ "$n" -ge 3 ] && ok "base, desktop and hotfix archives use it ($n calls)" || bad "only $n mksquashfs calls use NCZ_LAYER_XATTRS_EXCLUDE"
+if command -v mksquashfs >/dev/null 2>&1 && command -v unsquashfs >/dev/null 2>&1 && [ -n "$re" ]; then
+    X="$T/xattr"; mkdir -p "$X/src/d"; echo f > "$X/src/d/f"
+    python3 -c 'import os,sys
+for k in ("user.overlay.origin","user.overlay.opaque","user.overlay.uuid","user.keep"): os.setxattr(sys.argv[1], k, b"y")' "$X/src/d/f"
+    mksquashfs "$X/src" "$X/o.sq" -quiet -no-progress -noappend -xattrs-exclude "$re" >/dev/null 2>&1
+    unsquashfs -q -n -d "$X/out" "$X/o.sq" >/dev/null 2>&1
+    got="$(python3 -c 'import os,sys; print(" ".join(sorted(os.listxattr(sys.argv[1]))))' "$X/out/d/f" 2>/dev/null)"
+    [ "$got" = user.keep ] && ok "the regex drops user.overlay.* and keeps other xattrs" || bad "xattrs after exclusion: '$got'"
+else
+    ok "skip: mksquashfs/unsquashfs absent (behavioural xattr check)"
+fi
 
 echo "test-layer-gates: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
