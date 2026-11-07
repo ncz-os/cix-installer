@@ -91,6 +91,18 @@ ncz_sudo() {
 # Run a whole command STRING as root (for callers that build a shell line).
 ncz_sudo_bash() {
     local line="$1"; shift
+    # Same hand-back as ncz_container_run(): this helper runs the command as root
+    # and its output lands in the clone and the run dir.  The trap must be
+    # installed in the CALLER's shell so it fires at the END OF THE STAGE (the
+    # stage body runs in a subshell), not at build exit -- otherwise the
+    # per-stage ownership post-check sees the root-owned files and fails the
+    # build after all the work (measured cycle 502: the layers stage left
+    # 134,821 root-owned paths and aborted itself).
+    if [ -n "${NCZ_CHOWN_BACK_PATHS:-}" ]; then
+        local -a _cbp=()
+        IFS=':' read -r -a _cbp <<< "$NCZ_CHOWN_BACK_PATHS"
+        [ "${#_cbp[@]}" -gt 0 ] && ncz_trap_chown_back "${_cbp[@]}"
+    fi
     ncz_sudo bash -c "$line" "$@"
 }
 

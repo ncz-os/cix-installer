@@ -647,6 +647,11 @@ fi
 BUILD_DATE="$(date -u +%Y%m%d)"
 : "${RUN_DIR:=$HOME/Projects/ncz-build-runs/${ARCH}-${BUILD_DATE}-${GIT_SHA}}"
 RUN_DIR="$(cd "$RUN_DIR" 2>/dev/null && pwd || { mkdir -p "$RUN_DIR" && cd "$RUN_DIR" && pwd; })"
+# Hand privileged output back to the invoking user.  ncz_container_run() and
+# ncz_sudo_bash() both install an EXIT trap from these; the trap fires at the end
+# of each stage's subshell, which is what the per-stage ownership check reads.
+export NCZ_CHOWN_BACK="${NCZ_CHOWN_BACK:-$(id -u):$(id -g)}"
+export NCZ_CHOWN_BACK_PATHS="$ROOT:$RUN_DIR"
 LOGS="$RUN_DIR/logs"
 mkdir -p "$LOGS" "$RUN_DIR/tmp"
 # Image variant: desktop (default) or server (Magnetar). Only the image stage
