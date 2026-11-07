@@ -43,7 +43,7 @@ echo CONFIG_MODVERSIONS=y > "$W/build/.config"
 
 run() {   # run <repo>
     NCZ_INSTALLER_DIR="$1" NCZ_KERNEL_WORKDIR="$W" BUILD_REV=r999 \
-        NCZ_SKIP_PACKAGING=1 NCZ_KERNEL_STAGING_ROOT= TMPDIR="$T" \
+        NCZ_SKIP_PACKAGING=1 NCZ_KERNEL_STAGING_ROOT='' TMPDIR="$T" \
         bash "$1/build/stage-kernel.sh" > "$1.log" 2>&1
 }
 
