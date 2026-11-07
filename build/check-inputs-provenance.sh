@@ -19,6 +19,12 @@
 #   --fetch-index       allow the index to be fetched from snapshot.debian.org
 #   --receipt FILE      a pre-build payload receipt (authorizes the freshly built
 #                       timestamped singularity deb), as stage 50 passes
+#   --payload-pin FILE  the reviewed payload pin (manifests/singularity-payload.tsv):
+#                       its row for --arch is read as a receipt entry, so a
+#                       pinned payload deb that is already staged (a re-run in a
+#                       clone that ran refresh-sources) is authorized by that
+#                       record.  Only the exact name+version+arch+sha256 the row
+#                       names; a malformed row or file is a usage error (rc 2)
 #   --substrate-iso F   the pinned installer substrate ISO (default:
 #                       downloads/debian-testing-$ARCH-netinst.iso when present)
 #   --iso-listing F     an `xorriso -find / -exec lsdl` manifest for that ISO (verified against
@@ -48,7 +54,7 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 ARCH=""; WORK=""; INDEX_DIR=""; FETCH=(); RECEIPT=(); ISO=""; ISO_SET=""
 LISTING=""; EVIDENCE=""; DO_SUBSTRATE=1; DO_ROOTFS=1; QUIET=""
-DEB_DIRS=(); EXCLUDES=(); REPORT=""
+DEB_DIRS=(); EXCLUDES=(); REPORT=""; PAYLOAD_PIN=""
 
 die2() { echo "check-inputs-provenance.sh: $*" >&2; exit 2; }
 while [ $# -gt 0 ]; do
@@ -59,6 +65,7 @@ while [ $# -gt 0 ]; do
         --index-dir)      INDEX_DIR="${2:?--index-dir needs a directory}"; shift 2 ;;
         --fetch-index)    FETCH=(--fetch-index); shift ;;
         --receipt)        RECEIPT+=(--receipt "${2:?--receipt needs a file}"); shift 2 ;;
+        --payload-pin)    PAYLOAD_PIN="${2:?--payload-pin needs a file}"; shift 2 ;;
         --substrate-iso)  ISO="${2:?--substrate-iso needs a file}"; ISO_SET=1; shift 2 ;;
         --iso-listing)    LISTING="${2:?--iso-listing needs a file}"; shift 2 ;;
         --iso-evidence)   EVIDENCE="${2:?--iso-evidence needs a directory}"; shift 2 ;;
@@ -96,6 +103,47 @@ if [ -z "$INDEX_DIR" ]; then
     INDEX_DIR="$ROOT/ncz-inputs-index"
 fi
 mkdir -p "$INDEX_DIR" || die2 "cannot create --index-dir: $INDEX_DIR"
+
+# The reviewed payload pin row for this arch, as a receipt entry.  The row is
+# "<arch>\t<sha256>\t<ncz-singularity-desktop_<version>_<arch>.deb>" (the shape
+# build/stage-singularity-payload.sh and build/gen-base-pin.sh read).  The entry
+# authorizes nothing by itself: forky-provenance.py still requires the staged
+# deb's name+arch to match a manifests/ncz-timestamped.tsv row, its version to
+# match that row's anchored regex, and its recomputed sha256 to EQUAL the pin.
+if [ -n "$PAYLOAD_PIN" ]; then
+    [ -f "$PAYLOAD_PIN" ] || die2 "no such --payload-pin file: $PAYLOAD_PIN"
+    PIN_RECEIPT="$WORK/payload-pin-receipt.json"
+    python3 -I - "$PAYLOAD_PIN" "$ARCH" "$PIN_RECEIPT" <<'PYEOF' || die2 "--payload-pin $PAYLOAD_PIN is malformed (see above)"
+import json, re, sys
+pin, arch, out = sys.argv[1:4]
+rows = []
+with open(pin, encoding="utf-8") as fh:
+    for ln in fh:
+        ln = ln.rstrip("\n")
+        if not ln.strip() or ln.lstrip().startswith("#"):
+            continue
+        f = ln.split("\t")
+        if f[0] == arch:
+            rows.append(f)
+if len(rows) > 1:
+    sys.exit(f"payload pin: {len(rows)} rows for {arch} (expected at most one)")
+entries = []
+if rows:
+    f = rows[0]
+    if len(f) < 3 or not re.fullmatch(r"[0-9a-f]{64}", f[1]):
+        sys.exit(f"payload pin: malformed {arch} row: {f!r}")
+    m = re.fullmatch(r"ncz-singularity-desktop_([^_/]+)_" + re.escape(arch) + r"\.deb", f[2])
+    if not m:
+        sys.exit(f"payload pin: {f[2]!r} is not an ncz-singularity-desktop {arch} deb")
+    entries.append({"name": "ncz-singularity-desktop", "version": m.group(1),
+                    "arch": arch, "sha256": f[1]})
+with open(out, "w", encoding="utf-8") as fh:
+    json.dump({"schema": "ncz-payload-pin-receipt/v1", "source": pin,
+               "ncz_timestamped_debs": entries}, fh, indent=2, sort_keys=True)
+    fh.write("\n")
+PYEOF
+    RECEIPT+=(--receipt "$PIN_RECEIPT")
+fi
 
 is_excluded() {  # path -- the caller said this input is out of scope
     local p="$1" x

@@ -148,6 +148,24 @@ grep -q -- '--index-dir "\$idx" --fetch-index' <<< "$pp_body" \
 grep -q 'OFFLINE" = 1 ] || args+=' <<< "$pp_body" \
     && ok "and the fetch is still skipped in an --offline build" \
     || bad "the predict fetch is not gated on --offline"
+# ...and it must authorize the pinned payload deb from the reviewed record.
+# Stage 25 runs before refresh-sources writes the run receipt, but a clone that
+# already ran refresh-sources (a CI re-run: assets/cix-debs is gitignored and
+# survives) holds the pinned payload deb at stage 25.  Measured on ULTRA,
+# 2026-11-07: that re-run failed "not recorded in the image receipt".  The stage
+# must pass the reviewed pin row (manifests/singularity-payload.tsv) and, on a
+# resume, the run receipt -- never a blanket skip of the deb dir.
+grep -q -- '--payload-pin "\$ROOT/manifests/singularity-payload.tsv"' <<< "$pp_body" \
+    && ok "the predict gate reads the reviewed payload pin row" \
+    || bad "predict does not pass --payload-pin manifests/singularity-payload.tsv: a re-run in a used clone fails"
+grep -q -- 'singularity-sources/payload-receipt.json' <<< "$pp_body" \
+    && ok "the predict gate also reads this run's payload receipt when it exists" \
+    || bad "predict ignores the run's payload receipt on a resume"
+if grep -qE -- '--exclude[^\n]*cix-debs|--no-debs' <<< "$pp_body"; then
+    bad "predict excludes the staged payload deb dir instead of authorizing it"
+else
+    ok "predict does not exclude the staged deb dir"
+fi
 [ -n "$pg" ] && [ -n "$kg" ] && [ "$pg" -lt "$kg" ] && ok "provenance-gate (#$pg) runs BEFORE kvm-gate (#$kg)" || bad "provenance-gate must run before kvm-gate (pg=$pg kg=$kg)"
 [ -n "$im" ] && [ -n "$pg" ] && [ "$im" -lt "$pg" ] && ok "provenance-gate runs AFTER image (#$im)" || bad "provenance-gate must run after image (im=$im pg=$pg)"
 # The shipped-artifact credential gate is MANDATORY and sits between the image

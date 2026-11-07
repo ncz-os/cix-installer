@@ -1139,5 +1139,71 @@ expect_rc "outside the substrate scan neither allowance applies" 1 \
 has "the kernel record FAILS in a rootfs" '^FAIL .*fat-modules-9-x-di 9-0'
 has "the marker FAILS in a rootfs" "^FAIL .*debian-installer $KMARK"
 
+# ===========================================================================
+echo "== 6. the pinned payload record authorizes a payload deb staged before refresh-sources =="
+# Measured on ULTRA, 2026-11-07 (arm64): a CI re-run in a clone whose earlier
+# run had reached refresh-sources.  assets/cix-debs is gitignored, so the pinned
+# payload deb that run staged was still there when stage 25 ran again; stage 25
+# runs BEFORE refresh-sources writes the run receipt, so the deb (sha256 equal to
+# manifests/singularity-payload.tsv) failed "not recorded in the image receipt".
+# The amd64 run on HYDRA passed only because its clone was fresh (no payload deb
+# at stage 25).  --payload-pin lets stage 25 read the REVIEWED pin row as the
+# record; bytes that row does not pin still fail closed.
+TRP="$T/trust-pin"; rm -rf "$TRP"; cp -a "$TR" "$TRP"; rm -rf "$TRP/assets"
+# no static ledger row for the payload: only the timestamped rule can apply
+sed -i '/^ncz-singularity-desktop\t/d' "$TRP/manifests/ncz-packages.tsv"
+printf 'ncz-singularity-desktop\t^[0-9]{14}\\+bk[0-9]+\\+(git|tgz)[0-9a-f]{8}$\tarm64\tbuild/build-singularity-deb.sh\tsingularity\tpayload\n' \
+    >> "$TRP/manifests/ncz-timestamped.tsv"
+PV=20261106222540+bk0+git6427e9c4
+PF="ncz-singularity-desktop_${PV}_arm64.deb"
+mkdir -p "$TRP/assets/cix-debs"
+mkdeb "$TRP/assets/cix-debs/$PF" ncz-singularity-desktop "$PV" arm64
+H_PAY="$(sha "$TRP/assets/cix-debs/$PF")"
+PIN="$T/pin"; mkdir -p "$PIN"
+pinrow() {  # out arch sha file
+    { printf '# fixture singularity-payload.tsv\n'; printf '%s\t%s\t%s\n' "$2" "$3" "$4"; } > "$1"
+}
+pinrow "$PIN/good.tsv" arm64 "$H_PAY" "$PF"
+gate_p() { bash "$CHK" --root "$TRP" --work "$WF" --index-dir "$IDX" --arch arm64 \
+    --no-substrate --no-rootfs "$@"; }
+
+expect_rc "6a. repro: the staged pinned payload with no receipt and no pin FAILS" 1 gate_p
+lastfind "not recorded in the image receipt"
+expect_rc "6b. the same deb passes when stage 25 reads the reviewed pin row" 0 \
+    gate_p --payload-pin "$PIN/good.tsv"
+pinrow "$PIN/othersha.tsv" arm64 "$(printf 'a%.0s' {1..64})" "$PF"
+expect_rc "6c. a deb whose sha256 the pin does NOT record still FAILS" 1 \
+    gate_p --payload-pin "$PIN/othersha.tsv"
+lastfind "does not match the image receipt"
+pinrow "$PIN/otherver.tsv" arm64 "$H_PAY" "ncz-singularity-desktop_20261013150000+bk0+tgz0badf00d_arm64.deb"
+expect_rc "6d. a staged deb of another version than the pin FAILS (stale leftover)" 1 \
+    gate_p --payload-pin "$PIN/otherver.tsv"
+lastfind "not recorded in the image receipt"
+pinrow "$PIN/amd64only.tsv" amd64 "$H_PAY" "ncz-singularity-desktop_${PV}_amd64.deb"
+expect_rc "6e. a pin with no row for this arch authorizes nothing" 1 \
+    gate_p --payload-pin "$PIN/amd64only.tsv"
+lastfind "not recorded in the image receipt"
+pinrow "$PIN/badsha.tsv" arm64 "NOTHEX" "$PF"
+expect_rc "6f. a malformed pin sha256 is refused (fail closed, rc 2)" 2 \
+    gate_p --payload-pin "$PIN/badsha.tsv"
+pinrow "$PIN/badname.tsv" arm64 "$H_PAY" "ncz-kernel_7.3.0+r293_arm64.deb"
+expect_rc "6g. a pin row naming another package is refused (rc 2)" 2 \
+    gate_p --payload-pin "$PIN/badname.tsv"
+expect_rc "6h. a missing pin file is refused (rc 2)" 2 \
+    gate_p --payload-pin "$PIN/nonexistent.tsv"
+# the pin is a record for the payload only: a different package with the same
+# timestamped shape and no reviewed row is still refused.
+mkdeb "$TRP/assets/cix-debs/ncz-rogue_${PV}_arm64.deb" ncz-rogue "$PV" arm64
+expect_rc "6i. the pin authorizes nothing but the payload deb it names" 1 \
+    gate_p --payload-pin "$PIN/good.tsv"
+lastfind "ncz-rogue"
+rm -f "$TRP/assets/cix-debs/ncz-rogue_${PV}_arm64.deb"
+# the run receipt (resume) and the pin can both be passed
+mkreceipt "$T/pay-arm64-receipt.json" ncz-singularity-desktop "$PV" arm64 "$H_PAY"
+expect_rc "6j. the run receipt alone authorizes it too (resume after refresh-sources)" 0 \
+    gate_p --receipt "$T/pay-arm64-receipt.json"
+expect_rc "6k. pin + run receipt together pass" 0 \
+    gate_p --payload-pin "$PIN/good.tsv" --receipt "$T/pay-arm64-receipt.json"
+
 printf '\n== provenance-predict tests: %d passed, %d failed ==\n' "$PASS" "$FAIL"
 if [ "$FAIL" = 0 ]; then exit 0; else exit 1; fi
