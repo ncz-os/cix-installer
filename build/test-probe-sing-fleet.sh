@@ -53,7 +53,11 @@ jout="$(NCZ_KEYMASTER="$T/dead.json" NCZ_SING_HOSTS=ghost timeout 180 bash "$PRO
 lines=$(printf '%s\n' "$jout" | grep -c .)
 [ "$lines" = 1 ] && ok "--json prints exactly one line for one host (no header)" || bad "--json printed $lines lines for 1 host" "$jout"
 json_ok "$(printf '%s\n' "$jout" | sed -n '1p')" && ok "the dead-host --json line parses with every field" || bad "the dead-host --json line is not valid JSON" "$jout"
-printf '%s' "$jout" | grep -q '"host":"ghost".*"attempts":3' && ok "the dead-host JSON records host and 3 attempts" || bad "the dead-host JSON lost host/attempts" "$jout"
+# parse, do not grep: json.dumps separates with ", " and a grep on the separator
+# is exactly the kind of assertion that breaks when the producer changes format.
+printf '%s' "$jout" | python3 -c 'import json,sys
+d=json.load(sys.stdin); sys.exit(0 if d["host"]=="ghost" and d["attempts"]==3 and d["payload"]=="UNREACHABLE" else 1)' 2>/dev/null \
+    && ok "the dead-host JSON records host, UNREACHABLE and 3 attempts" || bad "the dead-host JSON lost host/attempts" "$jout"
 
 # --- 2. a host with no key-master row is NO-CREDS, not an outage -------------------
 out="$(NCZ_KEYMASTER="$T/dead.json" NCZ_SING_HOSTS=stranger timeout 60 bash "$PROBE" 2>&1)"; rc=$?
@@ -64,6 +68,34 @@ grep -q 'UNREACHABLE' <<< "$out" && bad "a missing credential row was reported a
 # a key master with no fleet rows at all says so, instead of reading like six dead hosts
 out="$(NCZ_KEYMASTER="$T/dead.json" NCZ_SING_HOSTS="ghost stranger" timeout 180 bash "$PROBE" 2>&1)"
 grep -q "carries no usable fleet_test_hosts rows" <<< "$out" && bad "a mixed fleet was blamed on the key master" || ok "a partially-credentialled fleet is not blamed on the key master"
+
+# --- 2b. the credential triple must survive whitespace inside a field --------------
+# A space-separated triple split on whitespace, so a password containing a space
+# silently became part of the username and the login failed for the wrong reason.
+cat > "$T/spaced.json" <<'JSON'
+{"fleet_test_hosts": {"spaced": {"host": "127.0.0.1:9", "password": "a b c", "username": "ncz"}}}
+JSON
+out="$(NCZ_SING_DEBUG=1 NCZ_KEYMASTER="$T/spaced.json" NCZ_SING_HOSTS=spaced timeout 180 bash "$PROBE" 2>&1)"
+grep -q 'debug: host=127.0.0.1:9 user=ncz pw_len=5' <<< "$out" \
+    && ok "a password with spaces stays one field (pw_len=5, user intact)" \
+    || bad "the credential triple was split on whitespace" "$out"
+
+# --- 2c. a JSON row must survive a quote and a backslash ---------------------------
+sel="$(bash "$PROBE" --selftest-row --json 2>/dev/null)"
+json_ok "$sel" && ok "the hostile-input row parses as JSON" || bad "the hostile-input row is not valid JSON" "$sel"
+printf '%s' "$sel" | python3 -c 'import json,sys
+d=json.load(sys.stdin); sys.exit(0 if d["host"]=="h\"ost" and d["payload"]=="pay\\load" else 1)' 2>/dev/null \
+    && ok "the hostile-input row round-trips exactly" || bad "the hostile-input row did not round-trip" "$sel"
+
+# --- 2d. a missing tool is named, not rendered as a zero ---------------------------
+awk "/<<'PROBE'\$/{f=1;next} /^PROBE\$/{f=0} f" "$PROBE" > "$T/remote.sh"
+[ -s "$T/remote.sh" ] && ok "the remote probe body is extractable for testing" || bad "could not extract the remote probe body"
+mkdir -p "$T/emptybin"
+rout="$("$BASH" "$T/remote.sh" 2>/dev/null < /dev/null || true)"
+PATH="$T/emptybin" "$BASH" "$T/remote.sh" > "$T/rout.txt" 2>/dev/null
+pre_line="$(grep '^pre=' "$T/rout.txt" | head -1)"
+[ -n "${pre_line#pre=}" ] && ok "a host missing every tool reports them (${pre_line})" || bad "missing tools are not reported" "$(cat "$T/rout.txt")"
+grep -q 'missing tools' "$PROBE" && ok "the poll warns when a host lacks a tool" || bad "no warning for a host that lacks a tool"
 
 # --- 3. a healthy fleet yields parseable rows and valid JSON -----------------------
 have_live="$(python3 - "${NCZ_KEYMASTER:-$HOME/.api_keys_master.json}" <<'PY' 2>/dev/null

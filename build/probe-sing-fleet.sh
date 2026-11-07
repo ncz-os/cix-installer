@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# probe_sing.sh -- SING-TEST poll with retries, so a flaky login is not reported as a dead host.
+# probe-sing-fleet.sh -- SING-TEST poll with retries, so a flaky login is not reported as a dead host.
 #
 # WHY. On 2026-11-07 cycles 471 and 472 one or two hosts returned empty output from
 # the batch probe: DELL once, then PEGASUS and CIXMINI. Every one of them answered
@@ -18,8 +18,10 @@
 # Conflating a missing credential row with an outage is how a config mistake turns
 # into "the host is down".
 #
-# usage: probe_sing.sh [--json]
-#        NCZ_SING_HOSTS="a b c"  polls only those hosts (default: the six below)
+# usage: probe-sing-fleet.sh [--json]
+#        NCZ_SING_HOSTS="a b c"   polls only those hosts (default: the six below)
+#        NCZ_SING_DEBUG=1         prints the host/user/length it will dial, to stderr
+#        --selftest-row           prints one JSON row built from hostile input, exits 0
 set -uo pipefail
 
 KEYMASTER="${NCZ_KEYMASTER:-$HOME/.api_keys_master.json}"
@@ -31,9 +33,45 @@ fi
 ATTEMPTS=3
 DELAY=2
 JSON=0
-[ "${1:-}" = "--json" ] && JSON=1
+# Anywhere on the command line: --selftest-row and --json have to work together.
+for a in "$@"; do [ "$a" = "--json" ] && JSON=1; done
 
+# row <host> <payload> <engine> <cd2h> <failed_units> <greetd> <attempts>
+# One place that decides human table vs JSON, so the failure rows cannot drift.
+# JSON is built by json.dumps, not printf: a quote or backslash in any field would
+# otherwise produce a row that a consumer cannot parse (review caught that).
+row() {
+    if [ "$JSON" = 1 ]; then
+        python3 -c 'import json, sys
+def num(v):
+    try:
+        return int(str(v).strip())
+    except Exception:
+        return 0
+print(json.dumps({
+    "host": sys.argv[1], "payload": sys.argv[2], "engine": sys.argv[3],
+    "cd2h": num(sys.argv[4]), "failed_units": num(sys.argv[5]),
+    "greetd": sys.argv[6], "attempts": num(sys.argv[7]),
+}))' "$1" "$2" "$3" "${4:-}" "${5:-}" "${6:-}" "${7:-0}"
+    else
+        printf '%-15s %-32s %-14s %-4s %-4s %-7s %s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7"
+    fi
+}
+
+if [ "${1:-}" = "--selftest-row" ]; then
+    row 'h"ost' 'pay\load' 'eng' '3' '0' 'active' '1'
+    exit 0
+fi
+
+
+command -v python3 >/dev/null || { echo "probe_sing: python3 is required" >&2; exit 2; }
 command -v sshpass >/dev/null || { echo "probe_sing: sshpass is required" >&2; exit 2; }
+
+if [ "${1:-}" = "--selftest-row" ]; then
+    row 'h"ost' 'pay\load' 'eng' '3' '0' 'active' '1'
+    exit 0
+fi
+
 [ -r "$KEYMASTER" ] || { echo "probe_sing: cannot read $KEYMASTER" >&2; exit 2; }
 
 WORK="$(mktemp -d "${TMPDIR:-$HOME/.cache}/ncz-sing.XXXXXX")" || exit 2
@@ -44,58 +82,55 @@ echo "eng=$(sha256sum /opt/singularity/lib/singularity/plugins/screensaver/libsc
 echo "cdnew=$(coredumpctl list --since '2 hours ago' --no-pager 2>/dev/null | grep -ciE 'singularity|cairo')"
 echo "failunits=$(systemctl --failed --no-legend 2>/dev/null | wc -l)"
 echo "greetd=$(systemctl is-active greetd 2>/dev/null)"
+# A missing tool would otherwise look exactly like a zero: name it instead.
+missing=""
+for t in dpkg-query sha256sum coredumpctl systemctl; do
+    command -v "$t" >/dev/null 2>&1 || missing="$missing $t"
+done
+echo "pre=${missing# }"
 PROBE
 
 failures=0
 nocr=0
+
 # The header is for humans; --json consumers must get JSON on every line.
 [ "$JSON" = 1 ] || printf '%-15s %-32s %-14s %-4s %-4s %-7s %s\n' host payload engine cd/res failed greetd attempts
 
-# row <host> <payload> <engine> <cd> <failed> <greetd> <attempts>
-# One place that decides human table vs JSON, so the failure rows cannot drift.
-row() {
-    if [ "$JSON" = 1 ]; then
-        local cd="${4:-0}" fu="${5:-0}"
-        # an empty numeric field would emit invalid JSON (":, "), so default it
-        [[ "$cd" =~ ^[0-9]+$ ]] || cd=0
-        [[ "$fu" =~ ^[0-9]+$ ]] || fu=0
-        printf '{"host":"%s","payload":"%s","engine":"%s","cd2h":%s,"failed_units":%s,"greetd":"%s","attempts":%s}\n' \
-            "$1" "$2" "$3" "$cd" "$fu" "$6" "${7:-0}"
-    else
-        printf '%-15s %-32s %-14s %-4s %-4s %-7s %s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7"
-    fi
-}
-
 for h in "${HOSTS[@]}"; do
-    ip=""; pw=""; usr=""
-    creds="$(python3 - "$KEYMASTER" "$h" <<'PY' 2>&1
+    creds="$(python3 - "$KEYMASTER" "$h" <<'PY' 2>"$WORK/creds.err"
 import json, sys
 path, name = sys.argv[1], sys.argv[2]
 try:
     km = json.load(open(path))
 except Exception as e:
-    sys.exit("no-creds: cannot parse %s: %s" % (path, e))
+    sys.exit("cannot parse %s: %s" % (path, e))
 row = km.get("fleet_test_hosts", {}).get(name)
 if row is None:
-    sys.exit("no-creds: no fleet_test_hosts.%s" % name)
+    sys.exit("no fleet_test_hosts.%s" % name)
 # o6n_ncz carries no "host" key: it is the read-only board at the end of the list
 host = row.get("host") or row.get("ip") or ("192.168.207.3" if name.startswith("o6n") else "")
 if not host:
-    sys.exit("no-creds: no host for %s" % name)
+    sys.exit("no host for %s" % name)
 if not row.get("password"):
-    sys.exit("no-creds: no password for %s" % name)
-print(host, row["password"], row.get("username") or "ncz")
+    sys.exit("no password for %s" % name)
+# ONE FIELD PER LINE. A space-separated triple split on whitespace, so a password
+# containing a space silently became part of the username (review caught that).
+print(host)
+print(row["password"])
+print(row.get("username") or "ncz")
 PY
 )"
-    if [[ "$creds" == no-creds:* ]]; then
+    if [ $? -ne 0 ]; then
         # Retrying cannot fix a missing row, so do not dial.
-        echo "probe_sing: ${creds#no-creds: }" >&2
+        echo "probe_sing: $(head -1 "$WORK/creds.err" | sed 's/^ *//')" >&2
         row "$h" NO-CREDS - - - - 0
         failures=$((failures + 1))
         nocr=$((nocr + 1))
         continue
     fi
-    read -r ip pw usr <<< "$creds"
+    ip=""; pw=""; usr=""
+    { read -r ip; read -r pw; read -r usr; } <<< "$creds"
+    [ "${NCZ_SING_DEBUG:-0}" = 1 ] && echo "debug: host=$ip user=$usr pw_len=${#pw}" >&2
     out=""; used=0
     for try in $(seq 1 "$ATTEMPTS"); do
         used=$try
@@ -111,6 +146,9 @@ PY
         continue
     fi
     get() { printf '%s\n' "$out" | sed -n "s/^$1=//p" | head -1; }
+    pre="$(get pre)"
+    # An incomplete row is worth a warning; a silent blank field looks like a zero.
+    [ -n "$pre" ] && echo "probe_sing: $h is missing tools:$pre -- its fields may be blank" >&2
     row "$h" "$(get ver)" "$(get eng)" "$(get cdnew)" "$(get failunits)" "$(get greetd)" "$used"
 done
 
