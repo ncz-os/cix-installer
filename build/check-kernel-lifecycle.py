@@ -64,7 +64,14 @@ def read_lifecycle(path: Path) -> dict[str, str]:
 
 def load_json(path: Path) -> dict:
     with path.open(encoding="utf-8") as fh:
-        return json.load(fh)
+        d = json.load(fh)
+    if not isinstance(d, dict):
+        raise TypeError("top level is not an object")
+    return d
+
+
+def as_dict(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
 
 
 def ledger_kernel_rows(root: Path, arch: str) -> list[tuple[str, str, str]]:
@@ -105,7 +112,7 @@ def pins_amd64(root: Path, errors: list[str]) -> tuple[dict[str, str], dict[str,
     if man.is_file():
         try:
             d = load_json(man)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, TypeError) as exc:
             errors.append(f"amd64: {man.relative_to(root)} is not valid JSON ({exc})")
         else:
             if d.get("kver"):
@@ -124,16 +131,22 @@ def pins_arm64(root: Path, errors: list[str]) -> tuple[dict[str, str], dict[str,
     if man.is_file():
         try:
             d = load_json(man)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, TypeError) as exc:
             errors.append(
                 f"arm64: assets/kernel-manifest.json is not valid JSON ({exc})"
             )
         else:
-            kver = ((d.get("variants") or {}).get("mainline") or {}).get("kver")
+            kver = as_dict(as_dict(d.get("variants")).get("mainline")).get("kver")
             if kver:
                 kvers["assets/kernel-manifest.json variants.mainline.kver"] = str(kver)
-            for deb in d.get("kernel_debs") or []:
-                base = Path(str(deb.get("file", ""))).name
+            debs = d.get("kernel_debs")
+            if not isinstance(debs, list) or not isinstance(d.get("variants"), dict):
+                errors.append(
+                    "arm64: assets/kernel-manifest.json does not have the expected shape"
+                )
+                debs = []
+            for deb in debs:
+                base = Path(str(as_dict(deb).get("file", ""))).name
                 m = re.match(r"^linux-image-cixmini_([^_]+)_arm64\.deb$", base)
                 if m:
                     pkgs["assets/kernel-manifest.json linux-image-cixmini"] = m.group(1)
@@ -141,7 +154,7 @@ def pins_arm64(root: Path, errors: list[str]) -> tuple[dict[str, str], dict[str,
     if sky.is_file():
         try:
             d = load_json(sky)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, TypeError) as exc:
             errors.append(
                 f"arm64: assets/kernel/sky1-manifest.json is not valid JSON ({exc})"
             )
@@ -242,7 +255,7 @@ def main(argv: list[str]) -> int:
     else:
         try:
             lc = read_lifecycle(path)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, TypeError) as exc:
             errors.append(f"{LIFECYCLE_REL} is malformed: {exc}")
     if lc:
         if lc.get("LIFECYCLE_SCHEMA") != SCHEMA:
