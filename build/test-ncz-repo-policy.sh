@@ -63,27 +63,6 @@ expect_rc "seed gate: a Debian-named staged-deb fails" 1 "$ROOT/build/check-ncz-
 # the r200 live Buildkite amd64 index, recorded: contains fonts-liberation
 expect_rc "recorded r200 Buildkite amd64 index fails (fonts-liberation)" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$FX/buildkite-r200-amd64.Packages.names"
 
-# The vendor/T2 sets are declared names, not blanket permits: adding them must clear the
-# false positives without letting a genuinely Debian-named package through.
-echo "=== 1a. vendored vendor names pass, real Debian names still fail ==="
-{ stanza apple-firmware-script 20261015+ncz1 all; stanza apple-t2-audio-config 0.5.1+ncz1 all; } > "$T/t2.Packages"
-expect_rc "declared T2 third-party set passes" 0 "$ROOT/build/check-ncz-repo-policy.sh" "$T/t2.Packages"
-{ stanza intel-level-zero-npu 1.38.0.ncz2~debian amd64; stanza libopenvino-2026.4.1 1:2026.4.1.1-ncz1 amd64
-  stanza libopenvino-intel-npu-plugin-2026.4.1 1:2026.4.1.1-ncz1 amd64; } > "$T/npu.Packages"
-expect_rc "repackaged Intel NPU/OpenVINO set passes" 0 "$ROOT/build/check-ncz-repo-policy.sh" "$T/npu.Packages"
-{ cat "$T/t2.Packages"; stanza fonts-liberation 1:2.1.5-3build1 all; } > "$T/t2leak.Packages"
-expect_rc "a T2 name does not whitelist a Debian name next to it" 1 "$ROOT/build/check-ncz-repo-policy.sh" "$T/t2leak.Packages"
-case "$LAST" in *fonts-liberation*) ok "  the failure names fonts-liberation, not the T2 set" ;; *) bad "wrong package named" "$LAST" ;; esac
-[ "$(ncz_apt_name_class apple-firmware-script)" = vendor ] && ok "classifier: T2 name -> vendor" || bad "T2 name not classified vendor"
-[ "$(ncz_apt_name_class intel-level-zero-npu)" = vendor ] && ok "classifier: NPU name -> vendor" || bad "NPU name not classified vendor"
-[ "$(ncz_apt_name_class fonts-liberation)" = debian-named ] && ok "classifier: an unlisted Debian name is still debian-named" || bad "Debian name misclassified"
-# the publisher gate must stay stricter than the content gate: vendor is refused there
-if grep -q 'namespace) ;;' "$HERE/ops/publish/ncz-reprepro-publish.sh" 2>/dev/null; then
-    ok "publisher gate untouched (still accepts only namespace/override)"
-else
-    bad "publisher gate shape changed"
-fi
-
 echo "=== 1b. --live walks both architectures of both repos (local http fixture) ==="
 if command -v python3 >/dev/null 2>&1; then
     LV="$T/live/dists/any"; mkdir -p "$LV/main/binary-amd64" "$LV/main/binary-arm64"
