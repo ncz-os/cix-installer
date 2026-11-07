@@ -131,6 +131,16 @@ emit() {
 # (docs + scratch-and-cleanup policy).
 GITDIR="$(git -C "$ROOT" rev-parse --git-dir 2>/dev/null || echo "$ROOT/.git")"
 case "$GITDIR" in /*) ;; *) GITDIR="$ROOT/$GITDIR" ;; esac
+# A LINKED WORKTREE has a .git FILE, and a synthetic tree (the re-pin fixture, a
+# build clone with no history) has no .git at all -- in both cases mktemp under
+# "$GITDIR" fails with ENOENT and the whole re-pin aborts (measured: test-repin
+# 14/14 failing on the branch, cycles 518). The scratch only has to be outside
+# the tracked tree and off tmpfs; it is copied into place with cp -f below, so it
+# does not need to share a filesystem with the output.
+if [ ! -d "$GITDIR" ]; then
+    GITDIR="${XDG_CACHE_HOME:-${HOME:-}/.cache}/ncz-base-pin"
+    mkdir -p "$GITDIR" || { echo "gen-base-pin: cannot create $GITDIR" >&2; exit 3; }
+fi
 TMP="$(mktemp "$GITDIR/ncz-base-pin.XXXXXX")"
 trap 'rm -f "$TMP" "$TMP.canon" "$TMP.diff"' EXIT
 emit > "$TMP"
