@@ -1052,7 +1052,11 @@ build_base(){
   sudo tar -I 'zstd -d' -xf "$BASE_TARBALL" -C "$WORK/base"
   assert_rootfs_critical_owners "$WORK/base" "base rootfs"
   mount_chroot "$WORK/base"
-  ncz_dracut_reproducible "$WORK/base"
+  if ! ncz_dracut_reproducible "$WORK/base"; then
+    log "ERROR: could not write the reproducible-initrd dracut drop-in"
+    apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
+    return 1
+  fi
   # r190.2: same needrestart-hang fix as build_layer() below -- base hooks
   # (10-our-kernel etc) also apt-install packages and can hit the same
   # interactive "Pending kernel upgrade" whiptail hang.
@@ -1607,12 +1611,15 @@ build_singularity_payload(){
 # newer mtimes to it and asks cpio/3cpio for a reproducible archive. The
 # drop-in ships: an initrd regenerated on an installed system is clamped the
 # same way, which changes nothing it boots.
+# Callers run under `build_base || return 1`, where errexit is off, so every
+# step is chained and the result is read back.
 ncz_dracut_reproducible(){
-  local r="$1"
-  sudo install -d -m 0755 "$r/etc/dracut.conf.d"
-  printf '# NCZ-OS: reproducible initrds (build/build-squashfs-layers.sh)\nreproducible="yes"\n' \
-    | sudo tee "$r/etc/dracut.conf.d/05-ncz-reproducible.conf" >/dev/null
-  sudo chmod 0644 "$r/etc/dracut.conf.d/05-ncz-reproducible.conf"
+  local r="$1" f="$1/etc/dracut.conf.d/05-ncz-reproducible.conf"
+  sudo install -d -m 0755 "$r/etc/dracut.conf.d" \
+    && printf '# NCZ-OS: reproducible initrds (build/build-squashfs-layers.sh)\nreproducible="yes"\n' \
+      | sudo tee "$f" >/dev/null \
+    && sudo chmod 0644 "$f" \
+    && sudo grep -qx 'reproducible="yes"' "$f"
 }
 
 # ncz_regen_initrds_after_identity_reset <root> -- dracut's systemd module copies
@@ -1628,6 +1635,7 @@ ncz_regen_initrds_after_identity_reset(){
   for k in "$r"/boot/initrd.img-*; do
     [ -e "$k" ] || continue
     k="${k##*/initrd.img-}"
+    # set -o pipefail (top of file): the pipeline fails when update-initramfs does
     if ! sudo chroot "$r" update-initramfs -u -k "$k" 2>&1 | tail -2; then
       log "ERROR: could not regenerate /boot/initrd.img-$k after the identity reset"
       return 1
@@ -1650,7 +1658,10 @@ ncz_regen_initrds_after_identity_reset(){
 ncz_font_caches_for_shipped_mtimes(){
   local r="$1" label="$2"
   [ -x "$r/usr/bin/fc-cache" ] || return 0
-  sudo find "$r" -xdev -type d -newermt @0 -exec touch -h -d @0 {} +
+  if ! sudo find "$r" -xdev -type d -newermt @0 -exec touch -h -d @0 {} +; then
+    log "ERROR: $label: could not reset directory mtimes before fc-cache"
+    return 1
+  fi
   if ! sudo chroot "$r" fc-cache -s -f >/dev/null 2>&1; then
     log "ERROR: $label: fc-cache failed rebuilding the font caches"
     return 1
