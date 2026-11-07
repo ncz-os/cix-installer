@@ -1326,11 +1326,14 @@ def find_braille_package_files(pool_dir: Path) -> list:
     )
 
 
-def filter_substrate_kernel_artifacts(pool_dir: Path) -> int:
-    """One-kernel policy: remove Debian kernel/module/binary udebs+debs from a
-    merged /cdrom pool copy.  NCZ kernels (names containing cixmini/ncz) are
-    kept.  UNPROVEN until the KVM install gate passes on a rebuilt image."""
-    removed = 0
+def list_substrate_kernel_artifacts(pool_dir: Path) -> list:
+    """One-kernel policy: which Debian kernel/module/binary deb+udeb files are in a
+    merged /cdrom pool copy.  NCZ kernels (names containing cixmini/ncz) are kept.
+
+    Split out from the filter so the SAME predicate both deletes and verifies:
+    verifying with a second, differently-written test is how a strip can silently
+    leave files behind (see build/test-one-kernel-strip.sh)."""
+    out = []
     for p in sorted(pool_dir.rglob("*")):
         if not p.is_file() or p.suffix not in (".deb", ".udeb"):
             continue
@@ -1338,8 +1341,33 @@ def filter_substrate_kernel_artifacts(pool_dir: Path) -> int:
         if "cixmini" in pkg or "ncz" in pkg:
             continue
         if KERNEL_ARTIFACT_NAME_RE.search(pkg):
-            p.unlink()
-            removed += 1
+            out.append(p)
+    return out
+
+
+def assert_one_kernel_pool(pool_dir: Path) -> None:
+    """Fail closed when a one-kernel strip left Debian kernel artifacts in the pool.
+
+    Nothing else inspects the merged /cdrom pool -- chk_one_kernel() reads the
+    squashfs LAYERS only -- so without this the strip could remove nothing and the
+    medium would still carry a second kernel's installer modules while every gate
+    reported PASS."""
+    left = list_substrate_kernel_artifacts(pool_dir)
+    if left:
+        raise RuntimeError(
+            f"FATAL: one-kernel strip left {len(left)} Debian kernel artifact(s) in "
+            f"/cdrom/pool (e.g. {left[0].name}); the medium would carry a second "
+            f"kernel's installer modules")
+
+
+def filter_substrate_kernel_artifacts(pool_dir: Path) -> int:
+    """One-kernel policy: remove Debian kernel/module/binary udebs+debs from a
+    merged /cdrom pool copy.  NCZ kernels (names containing cixmini/ncz) are
+    kept.  UNPROVEN until the KVM install gate passes on a rebuilt image."""
+    removed = 0
+    for p in list_substrate_kernel_artifacts(pool_dir):
+        p.unlink()
+        removed += 1
     return removed
 
 
@@ -1471,6 +1499,8 @@ def stage_installer_substrate(stage_dir: Path, arch: str,
         removed = filter_substrate_kernel_artifacts(stage_dir / "pool")
         log(f"    one-kernel: removed {removed} Debian kernel/module artifact(s) "
             f"from the merged /cdrom pool")
+        # FAIL CLOSED on the result, not on the intent.
+        assert_one_kernel_pool(stage_dir / "pool")
     braille = find_braille_package_files(stage_dir / "pool")
     if braille:
         raise RuntimeError(
