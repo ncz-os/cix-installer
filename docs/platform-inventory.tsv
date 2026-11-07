@@ -765,6 +765,7 @@ build/test-host-ready.sh	common	-	host-ready: fix check_kvm default-gates logic;
 build/test-kvm-gate-arch-symbols.sh	common	-	gate: x86 support with per-arch required symbols
 build/test-no-pin-literals.sh	common	-	test: lint that no test or fixture hard-codes the release.conf snapshot pin (M4)
 build/test-provenance-predict.sh	common	-	test-provenance-predict: valid fixtures, and a summary that can fail
+build/test-provenance-di-marker.sh	common	-	the debian-installer build-marker exemption and its three refusals: opt-in + initrd origin exempts, no opt-in / non-initrd record / non-stamp version all FAIL (drives the real classify_noarch)
 build/test-recovery-netparent.sh	common	-	recovery: resolve the macvlan parent after udev settles and the route exists
 build/test-refind-addonly.sh	common	-	rEFInd: ship the add-only kernel hooks so a kernel install keeps the default
 build/test-refind-image-install.sh	common	-	rEFInd: ship the add-only kernel hooks so a kernel install keeps the default

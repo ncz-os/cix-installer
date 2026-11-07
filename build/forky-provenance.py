@@ -1171,17 +1171,13 @@ def classify_noarch(ref, src, name, ver, maint):
     Such a record is cleared only if its exact (name,version) is in the pinned
     snapshot for SOME architecture or in a reviewed ledger; it is never
     exonerated from the hard Ubuntu checks.  Anything else FAILS (genuine)."""
-    # The THIRD place the installer's own kernel udebs appear: this initrd's
-    # dpkg status, at the version the initrd was built with (7.2.14 on the
-    # 20261102 amd64 netinst -- OLDER than the pool's 7.2.15, which is why the
-    # pool-side exemption cannot cover them).  Same policy, same opt-in: when the
-    # trust root says NCZ_ONE_KERNEL_SUBSTRATE_UDEBS=exempt, docs/ONE-KERNEL.md
-    # removes these from the medium and the writer asserts that it did.
-    # Measured: without this the substrate scan reported 82 findings; with it, 3.
+    # EXPERIMENT (cycle 496): the installer's own kernel-module udebs also appear in
+    # the initrd's dpkg status, at the version the initrd was built with (7.2.14,
+    # older than the pool's 7.2.15). Same policy, same opt-in.
     if _ncz_build_context(getattr(ref, "root", None)) and \
             KERNEL_ARTIFACT_RE.search(name or ""):
         print(f"NOTE  [{src}] {name} {ver} :: one-kernel-exempt "
-              f"(the installer's own kernel udeb, from the initrd status)")
+              f"(installer initrd uts own kernel udeb)")
         return "one-kernel-exempt"
 
     what = f"{name} {ver} (no Architecture in dpkg status)"
@@ -1229,6 +1225,24 @@ def classify_noarch(ref, src, name, ver, maint):
                             "index but NOT in manifests/sid-exceptions.tsv (no "
                             "blanket sid grant)")
             return None
+    # EXPERIMENT (cycle 497): d-i's own build-marker record.  "debian-installer"
+    # carries the BUILD STAMP as its version (20261102-00:02:07) and no
+    # Architecture, inside an initrd whose bytes are pinned by the ISO's sha256.
+    # No index can contain a build stamp, and there are no bytes of its own to
+    # check, so the identity is all there is.
+    # Narrowed after review (cycle 552): an unconditional name+stamp match
+    # would exonerate ANY debian-installer record, including a genuine package
+    # on a normal image.  So this takes the SAME per-trust-root opt-in as the
+    # one-kernel exemption (_ncz_build_context: a shipped tree that states
+    # NCZ_ONE_KERNEL_SUBSTRATE_UDEBS=exempt), and it additionally requires the
+    # record to come FROM an initrd's status file -- the pinned-initrd origin is
+    # the whole justification for treating a build stamp as identity-only.
+    if (name or "") == "debian-installer" and _ncz_build_context(getattr(ref, "root", None)) \
+            and "initrd" in (src or "") \
+            and re.match(r"^(?:cdrom-[a-z0-9]+-)?[0-9]{8}-[0-9]{2}:[0-9]{2}:[0-9]{2}$", ver or ""):
+        print(f"NOTE  [{src}] debian-installer {ver} :: d-i build marker "
+              f"(identity only; inside the sha256-pinned initrd)")
+        return "di-build-marker"
     fail(src, what, "dpkg status record has no Architecture and its "
                     "(name,version) is not in the pinned snapshot or a reviewed ledger")
     return None
