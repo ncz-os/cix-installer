@@ -135,6 +135,19 @@ pp="$(spos provenance-predict)"; si="$(spos stage-inputs)"
 [ -n "$pp" ] && [ -n "$rs" ] && [ "$pp" -lt "$rs" ] && ok "provenance-predict (#$pp) runs BEFORE refresh-sources (#$rs)" || bad "provenance-predict must run before refresh-sources (pp=$pp rs=$rs)"
 [ -n "$pp" ] && [ -n "$si" ] && [ "$pp" -gt "$si" ] && ok "provenance-predict (#$pp) runs AFTER stage-inputs (#$si)" || bad "provenance-predict must run after stage-inputs (pp=$pp si=$si)"
 [ -n "$pp" ] && [ -n "$pi" ] && [ "$pp" -lt "$pi" ] && ok "provenance-predict (#$pp) runs BEFORE provenance-inputs (#$pi)" || bad "provenance-predict must run before provenance-inputs (pp=$pp pi=$pi)"
+# ...and it must be ABLE to pass there.  The index dir is per-run, so --index-dir
+# alone leaves it empty and every input fails closed with "no valid signed
+# InRelease for snapshot suite forky": the first build in a fresh --run-dir could
+# never get past stage 25 (measured on HYDRA, cycle 480 -- the store-staged inputs
+# were fine and the gate still refused all three of them).
+pp_body="$(awk '/^stage_provenance_predict\(\)/,/^}/' "$BIN")"
+[ -n "$pp_body" ] && ok "the predict stage body is extractable" || bad "could not extract stage_provenance_predict"
+grep -q -- '--index-dir "\$idx" --fetch-index' <<< "$pp_body" \
+    && ok "the predict gate fetches its own index when online" \
+    || bad "predict passes --index-dir without --fetch-index: a cold run dir cannot pass"
+grep -q 'OFFLINE" = 1 ] || args+=' <<< "$pp_body" \
+    && ok "and the fetch is still skipped in an --offline build" \
+    || bad "the predict fetch is not gated on --offline"
 [ -n "$pg" ] && [ -n "$kg" ] && [ "$pg" -lt "$kg" ] && ok "provenance-gate (#$pg) runs BEFORE kvm-gate (#$kg)" || bad "provenance-gate must run before kvm-gate (pg=$pg kg=$kg)"
 [ -n "$im" ] && [ -n "$pg" ] && [ "$im" -lt "$pg" ] && ok "provenance-gate runs AFTER image (#$im)" || bad "provenance-gate must run after image (im=$im pg=$pg)"
 # The shipped-artifact credential gate is MANDATORY and sits between the image

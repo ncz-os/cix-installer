@@ -1389,7 +1389,13 @@ stage_provenance_predict() {
     else
         args+=(--no-substrate)
     fi
-    [ "$OFFLINE" = 1 ] || args+=(--index-dir "$idx")
+    # --index-dir alone is not enough on a COLD run dir: the directory is per-run
+    # and empty, so every input fails closed with "no valid signed InRelease for
+    # snapshot suite forky" and the first build in a fresh run dir can never get
+    # past this stage (measured, cycle 480).  Fetch the signed InRelease too --
+    # stage 50 already does, it is a few tens of KB, and "predict before spending
+    # hours" is the whole point of this gate.
+    [ "$OFFLINE" = 1 ] || args+=(--index-dir "$idx" --fetch-index)
 
     if ( cd "$ROOT" && bash build/check-inputs-provenance.sh "${args[@]}" ) >>"$log" 2>&1; then
         say "every input verifies -- safe to spend the mirror and layer time"
