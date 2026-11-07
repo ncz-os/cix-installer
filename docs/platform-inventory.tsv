@@ -786,3 +786,7 @@ PLAN-FB152.md	common	-	FB152: static gate over post-install scripts
 REVIEW_VERDICT_hv-cx-m10m11-rebase-20261031.json	common	-	review: structured non-author verdict for hv/cx-m10m11-rebase-20261031
 REVIEW_VERDICT_hv-cx-m1-early-provenance-20261031.json	common	-	READ-ONLY review. Do not modify any file, branch, or commit. Review the
 REVIEW_VERDICT_hv-cx-m5-host-ready-20261031.json	common	-	review(hv/cx-m5-host-ready-20261031): verdict request-changes for d1b9fb24
+build/check-kernel-lifecycle.py	common	-	kernel lifecycle gate: pins must equal the promoted CURRENT kernel in assets/kernel/KERNEL-LIFECYCLE, not RETIRED, not below MIN_VERSION
+build/test-kernel-lifecycle.sh	common	-	fixture tests for check-kernel-lifecycle.py (retired, too old, unpromoted, inconsistent pins; real tree)
+build/test-stage-amd64-kernel.sh	amd64	-	stage-amd64-kernel.sh takes the manifest pool dir and checks every deb sha256 (same-KVER pool dirs)
+assets/kernel/KERNEL-LIFECYCLE	common	-	kernel promotion state (MIN_VERSION, CURRENT per arch, RETIRED) written by the kernel-ci registry; read by check-kernel-lifecycle.py
