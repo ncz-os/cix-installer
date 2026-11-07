@@ -233,6 +233,7 @@ build/test-gate-chown-back.sh	common	-	the privileged KVM/provenance gates chown
 build/test-apt-sources-offline-canary.sh	common	-	24-apt-sources offline live-update canary test
 build/test-dkms-prep-keep-going.sh	sky1	-	79-dkms-prep modules_prepare keep-going test
 build/test-headers-prepare-pristine.sh	sky1	-	modules_prepare on the installed header tree keeps the kernel's Kconfig output byte-for-byte (headers postinst, 79-dkms-prep, 10-our-kernel)
+build/test-kernel-hook-no-downgrade.sh	sky1	-	10-our-kernel installs zstd and its libraries from the pool without downgrading a package the installer already upgraded
 build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
 build/test-kernel-revision-pin.sh	sky1	-	M7 fixture tests: Sky1 kernel debs pinned by full +rNNN Version and sha256 to kernel-manifest.json; malformed manifest fatal; build-kernel-debs packaging revision
 build/test-pin-coherence.sh	common	-	M3 fixture tests for check-pin-coherence.sh (one negative per rule) plus the real tree against manifests/pin-coherence-known-fail.tsv
