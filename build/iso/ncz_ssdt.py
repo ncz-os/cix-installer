@@ -45,8 +45,9 @@ THE CONTRACT
 is called by build/iso/write-usb-image.py -- the ONE place that stages
 assets/* onto the medium -- for every arm64 image. It:
 
-  1. reuses assets/npu/ssdt-npucre.aml when it is newer than the .asl and is
-     a structurally valid SSDT;
+  1. reuses assets/npu/ssdt-npucre.aml when its stamp
+     (ssdt-npucre.aml.asl-sha256) names the current .asl and it is a
+     structurally valid SSDT (content, never file times);
   2. otherwise compiles the committed .asl with iasl, verifies the result
      (ACPI signature, length field, the three _HID strings) and stages it;
   3. RAISES if it cannot. A silent warning is exactly how two image releases
@@ -57,6 +58,7 @@ amd64 has no CIX NPU and is a no-op.
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import struct
 import subprocess
@@ -145,31 +147,38 @@ def _compile(asl: Path, out_aml: Path, repo_root: Path, log: Logger) -> None:
         shutil.copyfile(built, tmp_out)
         tmp_out.chmod(0o644)
         tmp_out.replace(out_aml)
+    _stamp_source(asl, out_aml)
     log(f"    NPU SSDT compiled: {out_aml} "
         f"({out_aml.stat().st_size} bytes, {EXPECTED_CORES} CIXH4010 cores)")
 
 
-def _newc_entry(name: str, data: bytes) -> bytes:
-    """One newc CPIO entry, fully reproducible (mtime 0, uid/gid 0, mode 0644)."""
+_CPIO_DIRS = ("kernel", "kernel/firmware", "kernel/firmware/acpi")
+_CPIO_BLOCK = 512
+
+
+def _newc_header(ino: int, mode: int, nlink: int, size: int, name: str) -> bytes:
+    """One newc header + name, 4-byte aligned. 13 fields: c_ino comes first
+    (measured 2026-11-07: leaving it out shifted every field, so readers saw
+    an entry with an empty name and the shipped scan rejected the medium)."""
     namez = name.encode() + b"\0"
-    fields = [
-        0o100644,  # mode: regular file, 0644
-        0,         # uid
-        0,         # gid
-        1,         # nlink
-        0,         # mtime (epoch 0: byte-identical rebuilds)
-        len(data), # filesize
-        0,         # devmajor
-        0,         # devminor
-        0,         # rdevmajor
-        0,         # rdevminor
-        len(namez),# namesize
-        0,         # check
-    ]
+    fields = (ino, mode, 0, 0, nlink, 0, size, 0, 0, 0, 0, len(namez), 0)
     header = b"070701" + b"".join(b"%08X" % f for f in fields) + namez
-    pad = (-len(header)) % 4
-    body = data + b"\0" * ((-len(data)) % 4)
-    return header + b"\0" * pad + body
+    return header + b"\0" * ((-len(header)) % 4)
+
+
+def early_cpio_bytes(aml_data: bytes) -> bytes:
+    """The early CPIO, byte-identical to build/build-npu-ssdt.sh's GNU cpio
+    archive (find kernel | sort | cpio -o -H newc --owner=0:0 --reproducible,
+    every time pinned to 0): the three directories, the table, the trailer,
+    padded to cpio's 512-byte block. Either producer gives the same medium."""
+    out = b""
+    for ino, d in enumerate(_CPIO_DIRS):
+        out += _newc_header(ino, 0o40755, 2, 0, d)
+    out += _newc_header(len(_CPIO_DIRS), 0o100644, 1, len(aml_data),
+                        f"kernel/firmware/acpi/{AML_NAME}")
+    out += aml_data + b"\0" * ((-len(aml_data)) % 4)
+    out += _newc_header(0, 0, 1, 0, "TRAILER!!!")
+    return out + b"\0" * ((-len(out)) % _CPIO_BLOCK)
 
 
 def _write_early_cpio(aml: Path, cpio: Path, log: Logger) -> None:
@@ -182,15 +191,32 @@ def _write_early_cpio(aml: Path, cpio: Path, log: Logger) -> None:
     used to need cpio(1) -- absent on a lean NCZ rootfs (measured on cixmini).
     Building it here means the medium always carries one.
     """
-    name = f"kernel/firmware/acpi/{AML_NAME}"
-    trailer = b"070701" + b"0" * 104 + b"TRAILER!!!\0"
-    trailer += b"\0" * ((-len(trailer)) % 4)
-    payload = _newc_entry(name, aml.read_bytes()) + trailer
+    payload = early_cpio_bytes(aml.read_bytes())
     tmp = cpio.with_suffix(cpio.suffix + ".tmp")
     tmp.write_bytes(payload)
     tmp.chmod(0o644)
     tmp.replace(cpio)
     log(f"    NPU SSDT early CPIO staged: {cpio} ({len(payload)} bytes)")
+
+
+def _stamp_path(aml: Path) -> Path:
+    return aml.with_name(aml.name + ".asl-sha256")
+
+
+def _asl_digest(asl: Path) -> str:
+    return hashlib.sha256(asl.read_bytes()).hexdigest()
+
+
+def _stamp_source(asl: Path, aml: Path) -> None:
+    """Record which .asl the .aml was compiled from (content, not mtime)."""
+    _stamp_path(aml).write_text(_asl_digest(asl) + "\n")
+
+
+def _built_from(asl: Path, aml: Path) -> bool:
+    try:
+        return _stamp_path(aml).read_text().strip() == _asl_digest(asl)
+    except OSError:
+        return False
 
 
 def ensure_npu_ssdt_aml(
@@ -217,9 +243,13 @@ def ensure_npu_ssdt_aml(
             "  It is not a build artifact -- it is tracked in git. Restore it."
         )
 
+    # Reuse is decided by content, never by file times: a fresh clone's .asl
+    # is newer than any copied .aml and a copied tree's is older, so an mtime
+    # test made two builds of one commit stage different tables (measured
+    # 2026-11-07). The .aml is reused only when its stamp names this .asl.
     if aml.is_file() and aml.stat().st_size > 0:
         reason = _valid_aml(aml)
-        stale = aml.stat().st_mtime < asl.stat().st_mtime
+        stale = not _built_from(asl, aml)
         if reason is None and not stale:
             log(f"    NPU SSDT staged: {aml} ({aml.stat().st_size} bytes)")
         else:
@@ -231,9 +261,11 @@ def ensure_npu_ssdt_aml(
     else:
         _compile(asl, aml, Path(repo_root), log)
 
-    # The convenience archive must be at least as new as the table it carries,
-    # or a stale blob would ship and the fallback would inject the wrong table.
-    if not cpio.is_file() or cpio.stat().st_mtime < aml.stat().st_mtime:
+    # The convenience archive must carry exactly this table, or a stale blob
+    # would ship and the fallback would inject the wrong one. Compared by
+    # content (an mtime test depended on how the tree was checked out).
+    want = early_cpio_bytes(aml.read_bytes())
+    if not cpio.is_file() or cpio.read_bytes() != want:
         _write_early_cpio(aml, cpio, log)
     else:
         log(f"    NPU SSDT early CPIO staged: {cpio} ({cpio.stat().st_size} bytes)")

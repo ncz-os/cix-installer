@@ -71,6 +71,9 @@ cp "$WORK/$TABLE" "$WORK/root/kernel/firmware/acpi/$TABLE"
 # gitignored build outputs regenerated from the committed .asl.
 cp "$WORK/$TABLE" "$OUT_AML"
 chmod 0644 "$OUT_AML"
+# Source stamp: build/iso/ncz_ssdt.py reuses this .aml only when the stamp
+# names the current .asl (content, never file times).
+sha256sum "$SRC" | cut -d" " -f1 > "$OUT_AML.asl-sha256"
 
 # Reproducible build: GNU cpio has no --mtime equivalent to tar's, and
 # embeds each file's real mtime by default -- iasl just created these
