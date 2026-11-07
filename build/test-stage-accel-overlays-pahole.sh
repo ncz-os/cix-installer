@@ -36,7 +36,10 @@ exit 1
 STUB
 chmod +x "$T/bin/podman"
 
-run() { PATH="$T/bin:$PATH" NCZ_YBUILD_DIR="$YB" bash "$HERE/stage-accel-overlays.sh" "$K" "$KVER" > "$T/run.log" 2>&1; }
+# a scratch copy: the script derives its repo root from its own path and
+# clears <root>/build/accel-overlays/<kver>, which must not be this tree's
+mkdir -p "$T/repo/build"; cp "$HERE/stage-accel-overlays.sh" "$T/repo/build/"
+run() { PATH="$T/bin:$PATH" NCZ_YBUILD_DIR="$YB" bash "$T/repo/build/stage-accel-overlays.sh" "$K" "$KVER" > "$T/run.log" 2>&1; }
 
 # 2. no pahole in the native sysroot
 rm -f "$T/podman.args"; run
@@ -50,7 +53,7 @@ fi
 printf '#!/bin/sh\n' > "$K/recipe-sysroot-native/usr/bin/pahole"; chmod +x "$K/recipe-sysroot-native/usr/bin/pahole"
 rm -f "$T/podman.args"; run
 CN="/ybuild/tmp/work/cixmini-nclawzero-linux/linux-cix-sky1-ncz/7.3.3+ncz/recipe-sysroot-native/usr/bin"
-if [ -e "$T/podman.args" ] && grep -q "PATH=[^ ]*:/usr/bin:/bin:$CN[: ]" "$T/podman.args"; then
+if [ -e "$T/podman.args" ] && grep -q "PATH=[^ ]*:/usr/bin:/bin:${CN}[: ]" "$T/podman.args"; then
     ok "container PATH ends with the kernel's native sysroot bin dir"
 else
     bad "container PATH lacks $CN after /usr/bin:/bin"; grep -o "PATH=[^ ]*" "$T/podman.args" 2>/dev/null
