@@ -159,3 +159,15 @@ def test_wrong_cpio_is_rewritten_even_when_newer(ssdt, tmp_path, monkeypatch):
     ssdt.ensure_npu_ssdt_aml(repo, "arm64", log=lambda s: None)
     entries = _parse_newc(bad.read_bytes())
     assert entries[-1][3] == _aml()
+
+
+def test_corrupt_stamp_is_stale_not_a_crash(ssdt, tmp_path, monkeypatch):
+    repo = _repo(tmp_path, _aml())
+    npu = repo / "assets" / "npu"
+    (npu / "ssdt-npucre.aml.asl-sha256").write_bytes(b"\xff\xfe not utf-8")
+    calls = []
+    monkeypatch.setattr(ssdt, "_compile",
+                        lambda asl, aml, r, log: (calls.append(1), aml.write_bytes(_aml()),
+                                                  ssdt._stamp_source(asl, aml)))
+    ssdt.ensure_npu_ssdt_aml(repo, "arm64", log=lambda s: None)
+    assert calls == [1]
