@@ -8,6 +8,11 @@
 #   2. the patch applies to this tree
 #   3. with the patch applied, the gate accepts arm64 (7.3.3-sky1-ncz,
 #      7.3.3-sky1-ncz+r298) and still accepts amd64
+#   4. the O6N boot date is the one placeholder, @O6N_BOOT_DATE@: it appears
+#      only in the commit message, KERNEL-LIFECYCLE comments and
+#      sky1-manifest.json (never in manifests/, whose ledgers feed
+#      determinism.pin), no other template token is left, and once a date is
+#      substituted no placeholder remains
 # Once the patch is applied this test only reports SKIP; the promotion commit
 # deletes the patch and this test.
 set -uo pipefail
@@ -32,6 +37,17 @@ python3 -I "$CHK" --root "$ROOT" --arch arm64 >/dev/null 2>&1 \
 git -C "$ROOT" apply --check "$P" 2>/dev/null && ok "pin patch applies to this tree" || bad "pin patch does not apply"
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/test-arm64-pin.XXXXXX")"; trap 'rm -rf "$T"' EXIT
+
+# 4. placeholder discipline
+TOK=@O6N_BOOT_DATE@
+bad_files=$(awk -v t="$TOK" '/^diff --git /{f=$4; sub(/^b\//,"",f)} index($0,t) && f!="" && f!="assets/kernel/KERNEL-LIFECYCLE" && f!="assets/kernel/sky1-manifest.json"{print f}' "$P" | sort -u)
+[ -z "$bad_files" ] && ok "boot-date placeholder only in KERNEL-LIFECYCLE / sky1-manifest.json hunks" \
+    || bad "boot-date placeholder in other files: $bad_files"
+grep -q "$TOK" "$P" && ok "patch carries the $TOK placeholder" || bad "no $TOK placeholder in the patch"
+grep -qE '<DATE>|<date>|YYYY-MM-DD' "$P" && bad "patch has another template token" || ok "no other template token in the patch"
+sed "s/$TOK/2026-01-01/g" "$P" > "$T/dated.patch"
+grep -q "$TOK" "$T/dated.patch" && bad "placeholder survives substitution" || ok "one substitution removes every placeholder"
+git -C "$ROOT" apply --check "$T/dated.patch" 2>/dev/null && ok "dated patch applies" || bad "dated patch does not apply"
 files=(assets/kernel/KERNEL-LIFECYCLE assets/kernel-manifest.json assets/kernel/sky1-manifest.json
        manifests/ncz-packages.tsv assets/kernel/amd64-stable/KVER assets/kernel/amd64-stable/PKGVERSION
        assets/kernel/amd64-stable-manifest.json)
