@@ -28,6 +28,7 @@
 #      regenerated after the identity reset, fontconfig caches built against
 #      the shipped epoch-0 directory mtimes
 #  10. no layer archive carries overlayfs xattrs (one -xattrs-exclude regex)
+#  11. overlay manifest records user.overlay.opaque dirs only where base has the path
 # Ownership needs root semantics: the test re-runs itself under fakeroot.
 # Usage: build/test-layer-gates.sh
 set -uo pipefail
@@ -374,6 +375,44 @@ for k in ("user.overlay.origin","user.overlay.opaque","user.overlay.uuid","user.
 else
     ok "skip: mksquashfs/unsquashfs absent (behavioural xattr check)"
 fi
+
+# ===========================================================================
+echo "== 11. overlay manifest: user.overlay.opaque directories =="
+# The installer does not mount overlays: it unsquashfs-es base, rm -rf's every
+# manifest path, then unsquashfs-es the delta over it (patch-debootstrap-stub.py),
+# so an opaque directory missing from the manifest MERGES with base content.
+# mkosi's rootless overlay marks directories with user.overlay.opaque, which the
+# generator used to ignore (2260 amd64 / 2368 arm64 dirs, 2026-11-07). Every one
+# of them was absent from base (overlayfs makes directories it creates inside a
+# merged parent opaque), so merge == replace and the installed result was
+# unchanged -- measured on the amd64 KVM-gate target: 0 base entries in them.
+# The generator now records a user-opaque directory only when the base lowerdir
+# has that path (the case where replace and merge differ), and not otherwise,
+# so today's manifests are byte-identical.
+L="$ROOT/build/build-squashfs-layers.sh"
+GEN="$T/gen-manifest.py"
+sed -n "/<<'PYOVERLAY'\$/,/^PYOVERLAY\$/p" "$L" | sed '1d;$d' > "$GEN"
+[ -s "$GEN" ] && ok "overlay manifest generator extracted" || bad "could not extract the PYOVERLAY generator"
+M="$T/opq"; U11="$M/up"; L11="$M/lower"
+mkdir -p "$U11/etc/new" "$U11/etc/shared" "$U11/usr/plain" "$L11/etc/shared" "$L11/usr/plain"
+echo old > "$L11/etc/shared/stale.conf"; echo new > "$U11/etc/shared/a.conf"
+if python3 -c 'import os,sys
+for d in sys.argv[1:]: os.setxattr(d, "user.overlay.opaque", b"y")' "$U11/etc/new" "$U11/etc/shared" 2>/dev/null; then
+    python3 -I "$GEN" "$U11" "$L11" "$M/manifest" >/dev/null 2>&1; rc=$?
+    [ "$rc" = 0 ] && ok "generator rc 0 with a lowerdir argument" || bad "generator rc=$rc"
+    grep -qxF "$(printf 'opaque\tetc/shared')" "$M/manifest" 2>/dev/null \
+        && ok "user-opaque dir that exists in base is recorded as opaque" || bad "etc/shared not recorded: $(cat "$M/manifest" 2>/dev/null)"
+    grep -qF 'etc/new' "$M/manifest" 2>/dev/null \
+        && bad "user-opaque dir absent from base was recorded (manifest would change for nothing)" \
+        || ok "user-opaque dir absent from base is not recorded (no-op either way)"
+    grep -qF 'usr/plain' "$M/manifest" 2>/dev/null && bad "a plain merged dir was recorded" || ok "a plain merged dir is not recorded"
+    python3 -I "$GEN" "$U11" "$L11" "$M/manifest2" >/dev/null 2>&1
+    cmp -s "$M/manifest" "$M/manifest2" && ok "manifest is deterministic" || bad "manifest differs between two runs"
+else
+    ok "skip: cannot set user.* xattrs here (behavioural manifest check)"
+fi
+grep -qF 'python3 - "$U" "$L" "$OUT/$role.overlay-manifest"' "$L" \
+    && ok "build_layer passes the base lowerdir to the generator" || bad "build_layer does not pass \$L to the generator"
 
 echo "test-layer-gates: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
