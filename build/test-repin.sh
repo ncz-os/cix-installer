@@ -208,7 +208,14 @@ new_row_c() {  # file
 mk_repo() {  # dir
     local d="$1"
     mkdir -p "$d/build/lib" "$d/build/testdata/forky-snapshot" "$d/manifests"
-    cp "$ROOT/build/lib/reproducible.py" "$ROOT/build/lib/ncz-site.sh" "$d/build/lib/"
+    # The substrate-stub fixtures later copy build/refresh-substrate.sh and all of
+    # build/lib into the fixture so the REAL stage can run there. Copied AFTER the
+    # commit those files are untracked, and repin's dirtiness guard then refuses the
+    # re-pin as "unrelated changes" -- the 5 failures in "a stale pin BLOCKS the
+    # builder; a committed re-pin unblocks it" (measured, cycles 520-522). Copying
+    # them here, before the base commit, makes the later copies no-ops.
+    cp -a "$ROOT/build/refresh-substrate.sh" "$d/build/" 2>/dev/null
+    cp -a "$ROOT/build/lib/"* "$d/build/lib/" 2>/dev/null
     printf 'NCZ_BASE_MIRROR_SNAPSHOT="%s"\nNCZ_BASE_MIRROR_SNAPSHOT_MAX_AGE_DAYS="14"\nNCZ_BASE_CODENAME="forky"\n' "$P0" \
         > "$d/release.conf"
     {
@@ -387,7 +394,7 @@ out="$( repin "$F" --arch both $(both) --commit 2>&1 )"; rc=$?
     || bad "the re-pin is not one commit" "$(git -C "$F" log --oneline)"
 [ -z "$(status_of "$F")" ] && ok "the tree is clean after the committed re-pin" \
     || bad "worktree dirty after the re-pin" "$(status_of "$F")"
-out="$( cd "$F" && bash build/refresh-substrate.sh --sync-only 2>&1 )"; rc=$?
+out="$( cd "$F" && NCZ_ALLOW_SUITE_DIGESTS_CMD=1 NCZ_SUITE_DIGESTS_CMD="bash '$SELF' --stub-suite-digests" bash build/refresh-substrate.sh --sync-only 2>&1 )"; rc=$?
 [ "$rc" = 0 ] && ok "the committed re-pin UNBLOCKS the substrate stage (rc=$rc)" \
     || bad "the re-pinned tree is still refused" "$out"
 [ -z "$(status_of "$F")" ] && ok "the passing stage left the tree untouched" \
