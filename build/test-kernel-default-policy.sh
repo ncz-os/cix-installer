@@ -155,6 +155,17 @@ sed -i 's/^RC_DEFAULT_ALLOWED=1/RC_DEFAULT_ALLOWED=0/' "$r/assets/kernel/KERNEL-
 rm -f "$r/assets/kernel/KERNEL-LIFECYCLE"
 run "amd64: missing KERNEL-LIFECYCLE refused" 1 --root "$r" --arch amd64
 
+# A lifecycle checker that fails without printing anything must still fail
+# the verifier (a crash, OOM or truncated output is not a pass).
+_silent="$WORK/silent-build"; mkdir -p "$_silent"
+cp "$VERIFIER" "$_silent/verify-kernel-default-policy.sh"
+printf 'import sys\nsys.exit(1)\n' > "$_silent/check-kernel-lifecycle.py"
+r="$WORK/n2i"; mkamd64 "$r" "7.3.1-t2-ncz" "7.3.1-t2-ncz"; pin "$r"
+sed -i 's/^RC_DEFAULT_ALLOWED=1/RC_DEFAULT_ALLOWED=0/' "$r/assets/kernel/KERNEL-POLICY"
+SKIP_RESCUE_CHECK=1 bash "$_silent/verify-kernel-default-policy.sh" --root "$r" --arch amd64 >/dev/null 2>&1; got=$?
+[ "$got" = 1 ] && { printf '  PASS  amd64: silent lifecycle checker failure fails the verifier\n'; PASS=$((PASS+1)); } \
+    || { printf '  FAIL  amd64: silent lifecycle checker failure passed (exit=%d)\n' "$got"; FAIL=$((FAIL+1)); }
+
 echo "=== Negative: rc allowance rules ==="
 r="$WORK/n3"; mkroot "$r" "7.3.0-rc7-sky1-ncz" "7.3.0-rc7-sky1-ncz"
 printf 'DEFAULT_BASE=7.3\nRC_DEFAULT_ALLOWED=0\nRESCUE_SAME_KERNEL=1\nRESCUE_ARM64_BLACKLIST=panthor\nEDGE_ENABLED=0\n' > "$r/assets/kernel/KERNEL-POLICY"
