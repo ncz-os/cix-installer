@@ -24,6 +24,9 @@
 #   7. 52-vivaldi.sh blocks Vivaldi's codec download in a layer build and
 #      restores update-ffmpeg; root home, home and var/opt/vivaldi codecs are
 #      stripped and checked
+#   9. layer determinism helpers: dracut reproducible drop-in, base initrd
+#      regenerated after the identity reset, fontconfig caches built against
+#      the shipped epoch-0 directory mtimes
 # Ownership needs root semantics: the test re-runs itself under fakeroot.
 # Usage: build/test-layer-gates.sh
 set -uo pipefail
@@ -77,6 +80,8 @@ mkdirty() {  # root -> a layer carrying every host-state item
     echo h > "$r/root/.bash_history"; echo h > "$r/home/u/.bash_history"; echo h > "$r/root/.lesshst"
     echo t > "$r/tmp/scratch"; echo t > "$r/var/tmp/scratch"
     echo vg > "$r/etc/lvm/backup/vg0"; echo nqn > "$r/etc/nvme/hostnqn"
+    mkdir -p "$r/var/cache/ldconfig" "$r/run/tmpkbd.sZMlzu" "$r/run/lock"
+    echo stat > "$r/var/cache/ldconfig/aux-cache"; echo x > "$r/run/tmpkbd.sZMlzu/keymap"
     mkdir -p "$r/root/.config/vivaldi" "$r/root/.local/lib/vivaldi/media-codecs-8.3" "$r/root/.cache/x" "$r/root/.ssh" "$r/var/opt/vivaldi/media-codecs-8.3"
     : > "$r/root/.config/vivaldi/update-ffmpeg-checked-8.2"; echo so > "$r/root/.local/lib/vivaldi/media-codecs-8.3/libffmpeg.so"
     echo so > "$r/var/opt/vivaldi/media-codecs-8.3/libffmpeg.so"; echo k > "$r/root/.ssh/authorized_keys"
@@ -98,7 +103,8 @@ grep -q builder "$D/etc/hosts" && bad "strip: hosts still names the builder" || 
 for f in var/lib/systemd/random-seed var/lib/systemd/credential.secret etc/ssh/ssh_host_ed25519_key etc/ssh/ssh_host_ed25519_key.pub \
          var/lib/dhcp/dhclient.eth0.leases var/cache/apt/pkgcache.bin var/cache/apt/archives/x_1_all.deb \
          var/lib/apt/lists/deb.example_dists_forky_InRelease var/log/dpkg.log var/log/journal/abc/system.journal \
-         root/.bash_history home/u/.bash_history root/.lesshst tmp/scratch var/tmp/scratch etc/lvm/backup/vg0 etc/nvme/hostnqn; do
+         root/.bash_history home/u/.bash_history root/.lesshst tmp/scratch var/tmp/scratch etc/lvm/backup/vg0 etc/nvme/hostnqn \
+         var/cache/ldconfig/aux-cache run/tmpkbd.sZMlzu; do
     [ ! -e "$D/$f" ] && ok "strip: $f removed" || bad "strip: $f left"
 done
 for f in root/.config root/.local root/.cache root/.ssh/authorized_keys home/u var/opt/vivaldi/media-codecs-8.3; do
@@ -107,6 +113,7 @@ done
 [ -f "$D/root/.bashrc" ] && [ -f "$D/root/.profile" ] && [ -d "$D/root/.ssh" ] && ok "strip: root keeps .bashrc, .profile and an empty .ssh" || bad "strip: removed an intended root file"
 [ -e "$D/var/lib/apt/lists/lock" ] && [ -e "$D/var/lib/apt/lists/.ncz-installer-refreshed" ] && [ -d "$D/tmp/.X11-unix" ] \
     && ok "strip: apt lock, installer marker and tmp socket dir kept" || bad "strip: removed a kept entry"
+[ -d "$D/run/lock" ] && ok "strip: run/lock kept (only setupcon's temp dir goes)" || bad "strip: removed run/lock"
 n1000="$(find "$D" \( -uid +999 ! -uid 65534 \) -o \( -gid +999 ! -gid 65534 \) | wc -l)"
 [ "$n1000" = 0 ] && ok "strip: no build-user owners left" || bad "strip: $n1000 build-user owned entries left"
 m="$(stat -c %a "$D/usr/local/lib/cix-installer/post-install/10-x.sh")"
@@ -290,6 +297,55 @@ tsv="$(lc "$C")"; e="$(ev "$tsv" dpkg-status)"
 printf 'Package: bar\nStatus: deinstall ok config-files\nVersion: 2\n' > "$C/var/lib/dpkg/status"
 tsv="$(lc "$C")"; e="$(ev "$tsv" dpkg-status)"
 [ "$(res "$tsv" dpkg-status)" = WARN ] && printf '%s' "$e" | grep >/dev/null 'bar(not allow-listed)' && ok "unreviewed config-files package: WARN naming it as not allow-listed" || bad "unreviewed config-files: $e"
+
+# ===========================================================================
+echo "== 9. layer determinism: dracut, base initrd identity, fontconfig caches =="
+# Measured 2026-11-07 (two amd64 builds of 342d44bc): base and desktop differed
+# only in /boot/initrd.img-* (cpio mtimes; the base one also embedded the build
+# chroot's machine-id), var/cache/ldconfig/aux-cache, 25 fontconfig caches
+# (header = font directory mtime at fc-cache time) and setupcon's leaked
+# run/tmpkbd.XXXXXX directory. Items 1 covers the last two strip items.
+L="$ROOT/build/build-squashfs-layers.sh"
+FN9="$T/det.sh"
+{
+    echo 'sudo() { "$@"; }'; echo 'log() { echo "[log] $*"; }'
+    sed -n '/^ncz_dracut_reproducible(){/,/^}$/p' "$L"
+    sed -n '/^ncz_font_caches_for_shipped_mtimes(){/,/^}$/p' "$L"
+} > "$FN9"
+grep -q '^ncz_dracut_reproducible(){' "$FN9" && grep -q '^ncz_font_caches_for_shipped_mtimes(){' "$FN9" \
+    && ok "determinism helpers extracted" || bad "could not extract the determinism helpers"
+R9="$T/det-root"; mkdir -p "$R9/etc"
+bash -c ". '$FN9'; ncz_dracut_reproducible '$R9'" >/dev/null 2>&1
+grep -qx 'reproducible="yes"' "$R9/etc/dracut.conf.d/05-ncz-reproducible.conf" 2>/dev/null \
+    && ok "dracut drop-in sets reproducible=yes" || bad "dracut drop-in missing or wrong"
+# the base build writes the drop-in before its first apt-get install and
+# regenerates the initrd after the golden identity reset
+bb="$(sed -n '/^build_base(){/,/^}$/p' "$L")"
+ln_drop="$(printf '%s\n' "$bb" | grep -n 'ncz_dracut_reproducible "\$WORK/base"' | head -1 | cut -d: -f1)"
+ln_apt="$(printf '%s\n' "$bb" | grep -n 'apt-get install' | head -1 | cut -d: -f1)"
+ln_mid="$(printf '%s\n' "$bb" | grep -n 'truncate -s 0 "\$WORK/base/etc/machine-id"' | head -1 | cut -d: -f1)"
+ln_regen="$(printf '%s\n' "$bb" | grep -n 'ncz_regen_initrds_after_identity_reset "\$WORK/base"' | head -1 | cut -d: -f1)"
+[ -n "$ln_drop" ] && [ -n "$ln_apt" ] && [ "$ln_drop" -lt "$ln_apt" ] \
+    && ok "base: dracut drop-in precedes the first apt-get install" || bad "base: drop-in line ${ln_drop:-none} vs apt ${ln_apt:-none}"
+[ -n "$ln_mid" ] && [ -n "$ln_regen" ] && [ "$ln_regen" -gt "$ln_mid" ] \
+    && ok "base: initrd regenerated after the machine-id reset" || bad "base: regen line ${ln_regen:-none} vs reset ${ln_mid:-none}"
+# fontconfig: every directory newer than epoch 0 goes to 0 (what mksquashfs
+# -all-time 0 ships) and fc-cache is re-run in the chroot; no fc-cache, no-op
+F9="$T/font-root"; mkdir -p "$F9/usr/bin" "$F9/usr/share/fonts/truetype/x" "$F9/old"
+printf '#!/bin/sh\n' > "$F9/usr/bin/fc-cache"; chmod 0755 "$F9/usr/bin/fc-cache"
+touch -h -d @0 "$F9/old"
+mkdir -p "$T/fakechroot"; printf '#!/bin/sh\necho "$@" >> "%s/chroot.calls"\n' "$T" > "$T/fakechroot/chroot"; chmod 0755 "$T/fakechroot/chroot"
+PATH="$T/fakechroot:$PATH" bash -c ". '$FN9'; ncz_font_caches_for_shipped_mtimes '$F9' desktop" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "font caches: helper rc 0" || bad "font caches: rc=$rc"
+newer="$(find "$F9" -type d -newermt @0 | wc -l)"
+[ "$newer" = 0 ] && ok "font caches: no directory newer than epoch 0" || bad "font caches: $newer directories still newer than epoch 0"
+grep -q "^$F9 fc-cache -s -f\$" "$T/chroot.calls" 2>/dev/null && ok "font caches: fc-cache -s -f re-run in the chroot" || bad "font caches: chroot calls: $(cat "$T/chroot.calls" 2>/dev/null)"
+N9="$T/nofont"; mkdir -p "$N9/usr/share/fonts"; : > "$T/chroot.calls"
+PATH="$T/fakechroot:$PATH" bash -c ". '$FN9'; ncz_font_caches_for_shipped_mtimes '$N9' desktop" >/dev/null 2>&1
+[ ! -s "$T/chroot.calls" ] && [ "$(find "$N9" -type d -newermt @0 | wc -l)" != 0 ] \
+    && ok "font caches: a layer without fc-cache is left alone" || bad "font caches: touched a layer without fc-cache"
+grep -q 'ncz_font_caches_for_shipped_mtimes "\$MG" "\$role"' "$L" \
+    && ok "build_layer re-runs fc-cache in the merged chroot" || bad "build_layer does not call the font-cache helper"
 
 echo "test-layer-gates: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

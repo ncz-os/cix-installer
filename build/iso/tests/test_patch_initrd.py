@@ -1,6 +1,9 @@
 import gzip
 import importlib.util
+import os
+import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -321,6 +324,60 @@ class RequiredInitrdPackagesTest(unittest.TestCase):
                                         b"Package: busybox-udeb\nStatus: install ok unpacked\n")]))
             with self.assertRaises(RuntimeError):
                 MODULE.verify_required_initrd_packages(bad)
+
+
+
+class OverlayCpioDeterminismTest(unittest.TestCase):
+    """The overlay archive appended to the d-i initrd must not depend on when
+    or where it was staged. Measured 2026-11-07 (two amd64 builds of
+    342d44bc): its members differed only in staging-time mtimes and cpio
+    inode numbers."""
+
+    def _stage(self, root: Path) -> Path:
+        tree = root / "overlay"
+        (tree / "lib" / "firmware").mkdir(parents=True)
+        (tree / "lib" / "firmware" / "a.fw").write_bytes(b"fw")
+        (tree / "ncz").mkdir()
+        (tree / "ncz" / "helper.sh").write_text("#!/bin/sh\n")
+        (tree / "preseed.cfg").write_text("d-i x\n")
+        lst = root / "filelist"
+        lst.write_text("lib/firmware\nlib/firmware/a.fw\npreseed.cfg\nncz\nncz/helper.sh\n")
+        return tree, lst
+
+    @unittest.skipUnless(shutil.which("cpio"), "cpio not available")
+    def test_same_overlay_packs_to_the_same_bytes(self):
+        sde = 1700000000
+        outs = []
+        with tempfile.TemporaryDirectory() as td:
+            for i in range(2):
+                root = Path(td) / f"run{i}"
+                root.mkdir()
+                if i:
+                    time.sleep(1.2)
+                tree, lst = self._stage(root)
+                out = root / "overlay.cpio.gz"
+                MODULE.pack_overlay_cpio_gz(tree, lst, out, sde)
+                outs.append(out.read_bytes())
+        self.assertEqual(outs[0], outs[1], "overlay cpio differs between runs")
+        entries = list(MODULE._parse_newc_entries(gzip.decompress(outs[0])))
+        self.assertTrue(entries)
+        names = [e["name"] for e in entries]
+        self.assertIn("lib/firmware/a.fw", names)
+
+    def test_clamp_only_lowers_newer_mtimes(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            old = root / "old"
+            new = root / "new"
+            old.write_text("o")
+            new.write_text("n")
+            os.utime(old, (1000, 1000))
+            n = MODULE.clamp_tree_mtimes(root, 5000)
+            self.assertEqual(os.lstat(old).st_mtime, 1000)
+            self.assertEqual(os.lstat(new).st_mtime, 5000)
+            self.assertEqual(os.lstat(root).st_mtime, 5000)
+            self.assertGreaterEqual(n, 2)
+            self.assertEqual(MODULE.clamp_tree_mtimes(root, None), 0)
 
 
 if __name__ == "__main__":
