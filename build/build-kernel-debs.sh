@@ -24,9 +24,15 @@ umask 022   # reproducible file modes: the version gate compares content, modes 
 # --print-build-rev: print the revision this tree would build and exit, before
 # anything is written.  Recognised in any argument position (it was $1 only, and
 # anywhere else the full packaging path ran, starting with rm -rf $OUT).
+# --print-deb-epoch: print the SOURCE_DATE_EPOCH (member mtime) the debs of that
+# revision would carry and exit, also before anything is written.
 _PRINT_BUILD_REV=0
+_PRINT_DEB_EPOCH=0
 for _arg in "$@"; do
-    case "$_arg" in --print-build-rev) _PRINT_BUILD_REV=1 ;; esac
+    case "$_arg" in
+        --print-build-rev) _PRINT_BUILD_REV=1 ;;
+        --print-deb-epoch) _PRINT_DEB_EPOCH=1 ;;
+    esac
 done
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"   # cix-installer/
@@ -228,11 +234,20 @@ case "${NCZ_KERNEL_DEB_EPOCH:-}" in
     '') case "$BUILD_REV" in
             r289) SOURCE_DATE_EPOCH=1791201600 ;;   # 2026-10-05T12:00:00Z (ledger rows for r289)
             r290) SOURCE_DATE_EPOCH=1791772496 ;;   # 2026-10-12T02:34:56Z, base.pin arm64 snapshot (ledger rows for r290)
+            # r293 was pinned (100bd157) from debs built at the 20261018T082309Z snapshot; the
+            # 20261102T082611Z re-pin (c9b4ef0d) moved every member mtime and the vendor-mirror
+            # kernel pin refused the repack (2026-11-07).  Freeze each revision when it is pinned
+            # (build/test-kernel-revision-pin.sh 3c fails otherwise).
+            r293) SOURCE_DATE_EPOCH=1792311789 ;;   # 2026-10-18T08:23:09Z, base.pin arm64 snapshot (kernel-manifest.json r293)
         esac ;;
     *[!0-9]*) echo "ERROR: NCZ_KERNEL_DEB_EPOCH must be an integer" >&2; exit 1 ;;
     *) SOURCE_DATE_EPOCH="$NCZ_KERNEL_DEB_EPOCH" ;;
 esac
 export SOURCE_DATE_EPOCH
+if [ "$_PRINT_DEB_EPOCH" = 1 ]; then
+    printf '%s\n' "$SOURCE_DATE_EPOCH"
+    exit 0
+fi
 MAINT="NCZ <nczero@nclawzero.dev>"
 
 # KVER comes from the ASSET WE ARE ABOUT TO PACKAGE, not from a previous
