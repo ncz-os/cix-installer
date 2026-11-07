@@ -125,13 +125,27 @@ ncz_chown_target() {
 # never reads a gate verdict.  NCZ_CHOWN_BACK_FORCE=1 lets the regression test
 # drive it as a normal user (with a stub chown); it only affects cleanup.
 ncz_chown_back() {
-    if [ "${NCZ_CHOWN_BACK_FORCE:-0}" != "1" ] && [ "$(id -u)" != "0" ]; then return 0; fi
     local target; target="$(ncz_chown_target)" || return 0
     [ -n "$target" ] || return 0
     local d
     for d in "$@"; do
         [ -e "$d" ] || continue
-        chown -R "$target" "$d" 2>/dev/null || true
+        if [ "$(id -u)" = "0" ] || [ "${NCZ_CHOWN_BACK_FORCE:-0}" = "1" ]; then
+            chown -R "$target" "$d" 2>/dev/null || true
+        else
+            # ...and only pay for the privileged walk when the tree really holds
+            # root-owned entries.  This trap fires once per stage, so a blind
+            # sudo chown -R over a whole clone would cost seconds every time.
+            find "$d" -user root -print -quit 2>/dev/null | grep -q . || continue
+            # The EXIT trap runs in the INVOKING user's shell, not in the root
+            # container.  This branch used to not exist -- a non-root caller
+            # returned early, so the host-side trap silently did nothing and every
+            # container stage left its output uid 0 (measured: 1730 paths under
+            # build/forky-mirror, cycle 500, which then failed the stage's own
+            # post-check).  ncz_sudo handles passwordless sudo and the master key;
+            # cleanup never fails the caller and never reads a gate verdict.
+            ncz_sudo chown -R "$target" "$d" >/dev/null 2>&1 || true
+        fi
     done
     return 0
 }
