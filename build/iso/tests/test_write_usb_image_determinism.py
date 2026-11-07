@@ -44,6 +44,13 @@ def test_build_date_follows_source_date_epoch(writer, monkeypatch):
     assert writer.media_build_date() == "2023-11-14T22:13:20Z"
 
 
+@pytest.mark.parametrize("bad", ["", "abc", "\u00b2", "99999999999999999999"])
+def test_invalid_epoch_is_ignored(writer, monkeypatch, bad):
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", bad)
+    assert writer.source_date_epoch() is None
+    assert writer.media_build_date()  # the clock, no crash
+
+
 def test_build_date_without_epoch_is_the_clock(writer, monkeypatch):
     monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
     before = time.strftime("%Y-", time.gmtime())

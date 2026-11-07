@@ -160,9 +160,12 @@ def write_single_member_initrd(base_initrd: Path, overlay_initrd: Path,
 
 
 def source_date_epoch() -> int | None:
-    """SOURCE_DATE_EPOCH from the environment, or None when unset/invalid."""
+    """SOURCE_DATE_EPOCH from the environment, or None when unset/invalid
+    (not ASCII digits, or past 9999-12-31, which no timestamp API takes)."""
     val = os.environ.get("SOURCE_DATE_EPOCH", "")
-    return int(val) if val.isascii() and val.isdigit() else None
+    if not (val.isascii() and val.isdigit()) or int(val) > 253402300799:
+        return None
+    return int(val)
 
 
 def clamp_tree_mtimes(root: Path, epoch: int | None) -> int:
