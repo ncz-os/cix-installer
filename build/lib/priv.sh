@@ -136,7 +136,11 @@ ncz_chown_back() {
             # ...and only pay for the privileged walk when the tree really holds
             # root-owned entries.  This trap fires once per stage, so a blind
             # sudo chown -R over a whole clone would cost seconds every time.
-            find "$d" -user root -print -quit 2>/dev/null | grep -q . || continue
+            # The PROBE must be privileged as well: an unprivileged find cannot
+            # descend into a directory the container made root-only, so it would
+            # report "nothing to chown" exactly in the case that matters (review,
+            # cycle 501).
+            ncz_sudo find "$d" -user root -print -quit 2>/dev/null | grep -q . || continue
             # The EXIT trap runs in the INVOKING user's shell, not in the root
             # container.  This branch used to not exist -- a non-root caller
             # returned early, so the host-side trap silently did nothing and every
