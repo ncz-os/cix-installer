@@ -351,20 +351,39 @@ check_kernel_staging_arm64() {
         _bad kernel-staging "assets/kernel-manifest.json is missing; the staged kernel cannot be checked against the pin"
         return
     fi
-    local want got name relfile
-    for relfile in Image-cixmini.bin modules-cixmini.tgz config-7.3.0-sky1-ncz; do
-        want="$(python3 -I - "$mf" "$relfile" <<'PYEOF' 2>/dev/null || true
-import json, sys
+    local want got key relfile
+    for key in image modules config; do
+        # The manifest names each pinned file (variants.mainline.<key>.file) and
+        # its sha256. The config is config-<KVER>, so its name changes with every
+        # kernel bump; a name fixed to one release reported the next pin's pool
+        # as stale (r298, 2026-11-07).
+        local pin
+        pin="$(python3 -I - "$mf" "$key" "$staged" <<'PYEOF' 2>/dev/null || true
+import json, os, sys
 try:
     d = json.load(open(sys.argv[1]))
 except Exception:
     sys.exit(1)
 m = d.get("variants", {}).get("mainline", {})
-key = {"Image-cixmini.bin": "image", "modules-cixmini.tgz": "modules", "config-7.3.0-sky1-ncz": "config"}[sys.argv[2]]
-print(m.get(key, {}).get("sha256", ""))
+e = m.get(sys.argv[2], {}) or {}
+name = os.path.basename(e.get("file", "") or "")
+if not name:
+    name = {"image": "Image-cixmini.bin", "modules": "modules-cixmini.tgz"}.get(sys.argv[2], "")
+    kver = m.get("kver") or ""
+    if not kver:
+        try:
+            kver = open(os.path.join(sys.argv[3], "KVER")).read().strip()
+        except OSError:
+            kver = ""
+    if not name and kver:
+        name = "config-" + kver
+print(name, e.get("sha256", ""))
 PYEOF
 )"
-        [ -n "$want" ] || continue
+        relfile="${pin%% *}"; want="${pin#* }"
+        [ "$relfile" = "$pin" ] && want=""
+        case "$relfile" in */*|.*) relfile="" ;; esac
+        [ -n "$want" ] && [ -n "$relfile" ] || continue
         if [ ! -f "$staged/$relfile" ]; then
             _bad kernel-staging "the staged release $staged does not hold $relfile, which assets/kernel-manifest.json pins; the pool is stale"
             return
