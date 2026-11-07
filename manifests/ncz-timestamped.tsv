@@ -12,7 +12,18 @@
 #     timestamped package with no matching receipt entry FAILS CLOSED.
 #
 # A row here is a reviewed act: the recipe and source_revision (upstream pins)
+#
+# THE VERSION SHAPE MUST DESCRIBE THE PRODUCER.  build/build-singularity-deb.sh
+# sets GIT_TAG to "git<sha8>" when it builds from a git tree and "tgz<sha8>" when
+# it builds from a tarball, so BOTH are legitimate for the same package; the
+# buildkite number is $BUILDKITE_BUILD_NUMBER (usually 0 but not always).
+# An earlier form of these rows pinned ^<ts>+bk0+tgz<hex>$, which cannot match the
+# artifact the --sources pinned path actually ships
+# (...+bk0+git6427e9c4), so that path failed the provenance gate on its own
+# registry -- measured on HYDRA, cycle 482.  build/test-timestamped-registry.sh
+# now asserts every row matches the version the tree ships, so this cannot drift
+# silently again.
 # must be non-empty, exactly like manifests/ncz-packages.tsv.
 # name	version_regex	arch	recipe	source_revision	note
-ncz-singularity-desktop	^[0-9]{14}\+bk0\+tgz[0-9a-f]+$	amd64	build/build-singularity-deb.sh (run by build/build-squashfs-layers.sh build_singularity_payload)	assets/singularity/upstream-pins.tsv (singularityos-lab/singularity + labwc/wlroots pinned commits)	Singularity Desktop payload; version = YYYYMMDDhhmmss+bk0+tgz<sha-prefix>; sha256 only via the image receipt
-ncz-singularity-desktop	^[0-9]{14}\+bk0\+tgz[0-9a-f]+$	arm64	build/build-singularity-deb.sh (run by build/build-squashfs-layers.sh build_singularity_payload)	assets/singularity/upstream-pins.tsv (singularityos-lab/singularity + labwc/wlroots pinned commits)	Singularity Desktop payload; version = YYYYMMDDhhmmss+bk0+tgz<sha-prefix>; sha256 only via the image receipt
+ncz-singularity-desktop	^[0-9]{14}\+bk[0-9]+\+(git|tgz)[0-9a-f]{8}$	amd64	build/build-singularity-deb.sh (run by build/build-squashfs-layers.sh build_singularity_payload)	assets/singularity/upstream-pins.tsv (singularityos-lab/singularity + labwc/wlroots pinned commits)	Singularity Desktop payload; version = YYYYMMDDhhmmss+bk0+tgz<sha-prefix>; sha256 only via the image receipt
+ncz-singularity-desktop	^[0-9]{14}\+bk[0-9]+\+(git|tgz)[0-9a-f]{8}$	arm64	build/build-singularity-deb.sh (run by build/build-squashfs-layers.sh build_singularity_payload)	assets/singularity/upstream-pins.tsv (singularityos-lab/singularity + labwc/wlroots pinned commits)	Singularity Desktop payload; version = YYYYMMDDhhmmss+bk0+tgz<sha-prefix>; sha256 only via the image receipt
