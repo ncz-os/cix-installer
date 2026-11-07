@@ -1,6 +1,6 @@
 #!/bin/bash
 # test-arm64-733-pin-patch.sh: the arm64 7.3.3 (r298) pin is carried as a
-# ready-to-apply patch, docs/patches/arm64-kernel-733-pin.patch, until the O6N
+# ready-to-apply patch, docs/patches/arm64-kernel-733-pin.patch.in, until the O6N
 # boot test passes (docs/O6N-TEST-PLAN-7.3.3.md, docs/ARM64-KERNEL-733-PIN.md).
 #
 # While it is not applied (CURRENT_KVER_arm64 empty):
@@ -17,7 +17,7 @@
 # deletes the patch and this test.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-P="$ROOT/docs/patches/arm64-kernel-733-pin.patch"
+P="$ROOT/docs/patches/arm64-kernel-733-pin.patch.in"
 CHK="$ROOT/build/check-kernel-lifecycle.py"
 pass=0; fail=0
 ok()  { echo "PASS  $1"; pass=$((pass+1)); }
