@@ -139,8 +139,10 @@ def pins_arm64(root: Path, errors: list[str]) -> tuple[dict[str, str], dict[str,
             kver = as_dict(as_dict(d.get("variants")).get("mainline")).get("kver")
             if kver:
                 kvers["assets/kernel-manifest.json variants.mainline.kver"] = str(kver)
-            debs = d.get("kernel_debs")
-            if not isinstance(debs, list) or not isinstance(d.get("variants"), dict):
+            debs = d.get("kernel_debs", [])
+            if not isinstance(debs, list) or not isinstance(
+                d.get("variants", {}), dict
+            ):
                 errors.append(
                     "arm64: assets/kernel-manifest.json does not have the expected shape"
                 )
