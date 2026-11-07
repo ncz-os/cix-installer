@@ -142,6 +142,54 @@ def repro_uuid(kind: str) -> str | None:
     except Exception:
         return None
 
+def source_date_epoch() -> int | None:
+    """SOURCE_DATE_EPOCH from the environment, or None when unset/invalid
+    (not ASCII digits, or past 9999-12-31, which no timestamp API takes)."""
+    val = os.environ.get("SOURCE_DATE_EPOCH", "")
+    if not (val.isascii() and val.isdigit()) or int(val) > 253402300799:
+        return None
+    return int(val)
+
+
+def media_build_date() -> str:
+    """/ncz-payload/BUILD_DATE: SOURCE_DATE_EPOCH when the build sets it (every
+    build/build-image.sh run does), else the clock for an ad-hoc run. The wall
+    clock made two builds of one commit differ (measured 2026-11-07)."""
+    sde = source_date_epoch()
+    when = (datetime.fromtimestamp(sde, timezone.utc) if sde is not None
+            else datetime.now(timezone.utc))
+    return when.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def data_mkfs_argv(src_root: Path, out_img: Path) -> list[str]:
+    """mkfs.ext4 argv that creates NCZDATA on out_img AND populates it from
+    src_root (mke2fs -d), so no loop mount or cp is involved.
+
+    Measured 2026-11-07, two builds of one commit: populating through a kernel
+    loop mount + cp -a gave every inode a wall-clock ctime/atime/crtime, kept
+    checkout-time mtimes, stamped the superblock mount/write time and placed
+    blocks differently (the kernel allocator), so NCZDATA never matched. mke2fs
+    -d allocates deterministically, and e2fsprogs >= 1.47.1 clamps every inode
+    and superblock time to SOURCE_DATE_EPOCH. UUID and hash seed are pinned
+    from the build pin; the root directory is root:root 0755 as before. Run it
+    as root (it must read every staged file); `env` carries SOURCE_DATE_EPOCH
+    through sudo, which would otherwise drop it."""
+    argv = []
+    sde = source_date_epoch()
+    if sde is not None:
+        argv += ["env", f"SOURCE_DATE_EPOCH={sde}"]
+    argv += ["/sbin/mkfs.ext4", "-F", "-L", "NCZDATA", "-q"]
+    data_uuid = repro_uuid("ext4-data")
+    if data_uuid:
+        argv += ["-U", data_uuid]
+    ext = ["root_owner=0:0"]
+    hash_seed = repro_uuid("ext4-hashseed")
+    if hash_seed:
+        ext.insert(0, f"hash_seed={hash_seed}")
+    argv += ["-E", ",".join(ext), "-d", str(src_root), str(out_img)]
+    return argv
+
+
 # Real staleness bug found 2026-09-24: write-image.py's stage_ncz_payload()
 # `expected` list never picked up desktop-hotfix.squashfs / its manifest /
 # busybox-$ARCH even after stage-ncz-payload.py started producing them
@@ -1265,7 +1313,7 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         receipt["release_conf_sha256"] = sha256_file(release_conf)
     meta = {
         "BUILD_VERSION": build_version or "",
-        "BUILD_DATE": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "BUILD_DATE": media_build_date(),
         "BUILD_HOST": socket.gethostname(),
         "BUILD_ARCH": arch,
     }
@@ -1715,10 +1763,9 @@ def release_codename() -> str:
 def build_data_partition_img(ncz_payload_tree_dir: Path, out_img: Path,
                              size_mib: int | None) -> int:
     """Build an ext4 filesystem image containing ncz_payload_tree_dir's
-    PARENT layout (i.e. out_img's root gets a real /ncz-payload dir) via a
-    real loopback mount (root required for device-node ownership inside
-    the ext4 image, same pattern already used by patch-initrd-t2-kernel.py
-    for depmod). Returns the final image size in bytes."""
+    PARENT layout (i.e. out_img's root gets a real /ncz-payload dir) with
+    mke2fs -d, run as root so ownership and every staged file carry over
+    (data_mkfs_argv). Returns the final image size in bytes."""
     content_bytes = du_bytes(ncz_payload_tree_dir.parent)
     if size_mib is None:
         # 20% headroom for ext4 metadata/journal + round up to 64MiB boundary.
@@ -1751,53 +1798,15 @@ def build_data_partition_img(ncz_payload_tree_dir: Path, out_img: Path,
     with out_img.open("wb") as f:
         f.truncate(size_bytes)
 
-    # Deterministic filesystem: pin the UUID and the directory hash_seed so two
-    # builds of the same pin are byte-identical (mke2fs otherwise randomises
-    # both, which alone makes the image differ every run).  mke2fs honours
-    # SOURCE_DATE_EPOCH for the superblock/inode creation time.
-    mkfs_cmd = ["/sbin/mkfs.ext4", "-F", "-L", "NCZDATA", "-q"]
-    data_uuid = repro_uuid("ext4-data")
-    hash_seed = repro_uuid("ext4-hashseed")
-    if data_uuid:
-        mkfs_cmd += ["-U", data_uuid]
-    if hash_seed:
-        mkfs_cmd += ["-E", f"hash_seed={hash_seed}"]
-    mkfs_cmd.append(str(out_img))
-    run(mkfs_cmd)
+    # Deterministic filesystem, created and populated in one mke2fs -d pass
+    # (see data_mkfs_argv). The tree gets a+rX first: the old loop-mount path
+    # applied it to the mounted copy, mke2fs copies modes verbatim.
+    src_root = ncz_payload_tree_dir.parent
+    run(["sudo", "chmod", "-R", "a+rX", str(ncz_payload_tree_dir)])
+    run(["sudo", *data_mkfs_argv(src_root, out_img)])
 
-    # Take the loop device straight from --show. The previous code discarded
-    # it and re-queried via "losetup -j", parsing the first line of what can
-    # be a multi-line listing -- a needless way to end up on another device.
-    mnt = Path(tempfile.mkdtemp(prefix="ncz-data-mnt-", dir=str(out_img.parent)))
-    loop_dev = ""
-    try:
-        loop_dev = run(["sudo", "/sbin/losetup", "-f", "--show", str(out_img)],
-                       stdout=subprocess.PIPE, text=True).stdout.strip()
-        if not loop_dev:
-            raise RuntimeError(f"FATAL: losetup --show gave no device for {out_img}")
-        run(["sudo", "mount", loop_dev, str(mnt)])
-        try:
-            # Copy every staged top-level entry, not just ncz-payload. The
-            # docstring above and the content_bytes sizing already treat the
-            # PARENT as the image root; copying one child silently dropped
-            # anything else staged beside it (notably the offline apt
-            # closure's dists/ and pool/).
-            for _entry in sorted(ncz_payload_tree_dir.parent.iterdir()):
-                run(["sudo", "cp", "-a", str(_entry), str(mnt) + "/"])
-            run(["sudo", "chmod", "-R", "a+rX", str(mnt / "ncz-payload")])
-            # cp never fsyncs, so a writeback failure (ENOSPC on the BACKING
-            # file) is invisible to it. Force the flush here, where a real
-            # error can still surface instead of being swallowed by umount.
-            run(["sudo", "sync", "-f", str(mnt)])
-        finally:
-            run(["sudo", "umount", str(mnt)])
-    finally:
-        if loop_dev:
-            subprocess.run(["sudo", "/sbin/losetup", "-d", loop_dev])
-        shutil.rmtree(mnt, ignore_errors=True)
-
-    # "sync -f" is necessary but NOT sufficient: ext4 with errors=continue
-    # keeps going after a write error. Prove the content is really there.
+    # mke2fs fails on a full filesystem, but prove the content is really
+    # there anyway (read-only loop mount, every staged file compared).
     verify_data_partition_content(out_img, ncz_payload_tree_dir.parent)
 
     return size_bytes
