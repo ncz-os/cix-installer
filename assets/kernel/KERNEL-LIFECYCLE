@@ -1,0 +1,35 @@
+# NCZ-OS kernel lifecycle (promotion state), machine-readable. KEY=value.
+# Read by build/check-kernel-lifecycle.py (run by verify-kernel-default-policy.sh
+# Check 11 before any kernel is staged). Flow and rules: docs/RC-DEFINITION.md.
+#
+# WRITER: the kernel-ci promotion registry
+# (<artifact store>/projects/kernel-ci/registry.json, states
+# provisional -> boot-tested -> current; the previous current -> retired)
+# regenerates this file on every promotion and opens a pin-bump branch that
+# changes it together with the per-arch pins. Do not hand-edit it per release.
+# The values below are the hand-written SEED (rc4, 2026-11-07), the first
+# promotion; the registry takes over from it.
+#
+# Every committed pin for an arch must equal CURRENT_KVER_<arch> (and
+# CURRENT_PKG_<arch> when set), must not be RETIRED and must not sort below
+# MIN_VERSION (an -rcN sorts below its final release). An empty CURRENT_KVER_<arch>
+# means no kernel is promoted for that arch: its builds are refused.
+LIFECYCLE_SCHEMA=1
+LIFECYCLE_SOURCE=seed-rc4-20261107
+
+# Lowest upstream kernel version any default may pin.
+MIN_VERSION=7.3.1
+
+# amd64: T2 7.3.1-r295 (HYDRA build 2026-11-02), running on CHIMERA and
+# PEGASUS (vmlinuz sha256 e63ed040...). Pool dir in amd64-stable-manifest.json.
+CURRENT_KVER_amd64=7.3.1-t2-ncz
+CURRENT_PKG_amd64=7.3.1-r295
+
+# arm64: none promoted. 7.3.0-sky1-ncz (r292/r293) is retired; the 7.3.1-sky1-ncz
+# build exists only as side-by-side debs (r297), not as an image-consumable
+# staging dir. See docs/RC-DEFINITION.md "arm64".
+CURRENT_KVER_arm64=
+CURRENT_PKG_arm64=
+
+# Retired KVERs, comma-separated: never pinned again, on any arch.
+RETIRED=7.3.0-t2-ncz,7.3.0-sky1-ncz

@@ -45,6 +45,9 @@
 #       must match DEFAULT_BASE (7.3); an -rcN default is allowed only while
 #       RC_DEFAULT_ALLOWED=1 and the pinned version really is an -rcN; EDGE must
 #       be disabled; and no 7.2.x channel/overlay asset may be staged.
+#  11.  (both arches) build/check-kernel-lifecycle.py: every committed pin
+#       equals the promoted CURRENT kernel in assets/kernel/KERNEL-LIFECYCLE,
+#       is not RETIRED and is not below MIN_VERSION (missing file = FAIL).
 #
 # Usage:
 #   verify-kernel-default-policy.sh [--root <repo-root>] [--arch arm64|amd64]
@@ -525,6 +528,29 @@ if [ -s "$POLICY_FILE" ]; then
             [ -n "$RESCUE_ARM64" ] || err "RESCUE_ARM64_BLACKLIST is empty in assets/kernel/KERNEL-POLICY"
             ;;
     esac
+fi
+
+# ---------------------------------------------------------------------------
+# Check 11 (both arches, 2026-11-07): the kernel lifecycle. Every committed pin
+# must equal the promoted CURRENT kernel in assets/kernel/KERNEL-LIFECYCLE (the
+# file the kernel-ci promotion registry regenerates), must not be RETIRED and
+# must not sort below MIN_VERSION. rc3 (ba74b7c7) shipped the retired 7.3.0
+# kernels because only the 7.3 series was checked.
+# ---------------------------------------------------------------------------
+_lifecycle="$(cd "$(dirname "$0")" && pwd)/check-kernel-lifecycle.py"
+if [ ! -f "$_lifecycle" ]; then
+    err "build/check-kernel-lifecycle.py is missing (the retired-kernel gate cannot run)"
+elif ! command -v python3 >/dev/null 2>&1; then
+    err "python3 is required for the kernel lifecycle gate"
+else
+    case "$ARCH" in amd64|x86_64) _lc_arch=amd64 ;; *) _lc_arch=arm64 ;; esac
+    if _lc_out=$(python3 -I "$_lifecycle" --root "$ROOT" --arch "$_lc_arch" 2>&1); then
+        log "$_lc_out"
+    else
+        while IFS= read -r _l; do
+            [ -n "$_l" ] && err "$_l"
+        done <<< "$_lc_out"
+    fi
 fi
 
 if [ "$FAIL" = 1 ]; then

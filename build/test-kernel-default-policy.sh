@@ -38,6 +38,15 @@ POL
 }
 pin() { policy_body > "$1/assets/kernel/KERNEL-POLICY"; }
 
+# lifecycle <root> <arch> <kver> [retired]: the promotion state Check 11 reads
+# (assets/kernel/KERNEL-LIFECYCLE). The fixtures model the pin as the promoted
+# kernel, with a floor low enough for the rc fixtures, so every other check
+# stays isolated; test-kernel-lifecycle.sh covers the lifecycle refusals.
+lifecycle() {
+    printf 'LIFECYCLE_SCHEMA=1\nMIN_VERSION=7.2.0\nCURRENT_KVER_%s=%s\nRETIRED=%s\n' \
+        "$2" "$3" "${4:-}" > "$1/assets/kernel/KERNEL-LIFECYCLE"
+}
+
 # mkroot <root> <mainline-kver> [manifest-mainline-kver]
 mkroot() {
     local root="$1" mainline_kver="$2" manifest_mainline="${3:-}"
@@ -58,6 +67,7 @@ mkroot() {
     fi
 
     local mver="${manifest_mainline:-$mainline_kver}"
+    [ "$mainline_kver" = DANGLING ] || lifecycle "$root" arm64 "$mver"
     if [ -n "$mver" ]; then
         cat > "$root/assets/kernel-manifest.json" <<JSON
 {
@@ -89,6 +99,7 @@ JSON
     cat > "$root/assets/kernel-manifest.json" <<JSON
 {"schema":1,"variants":{"mainline":{"dir":"assets/kernel/amd64-stable","kver":"$mver"}}}
 JSON
+    lifecycle "$root" amd64 "$kver"
 }
 
 # run <label> <expect_exit> [args...]
@@ -128,6 +139,21 @@ run "amd64: removed 9011-quirk build (rc6-3) pin refused" 1 --root "$r" --arch a
 r="$WORK/n2e"; mkamd64 "$r" "7.3.0-rc7-t2-ncz" "7.3.0-rc7-t2-ncz"; pin "$r"
 sed -i.bak 's#"t2_cyclops_patch":"[^"]*"#"t2_cyclops_patch":""#' "$r/assets/kernel/amd64-stable-manifest.json"
 run "amd64: default without the 2010 boot-GPU manifest field refused" 1 --root "$r" --arch amd64
+
+echo "=== Negative: kernel lifecycle (Check 11) ==="
+r="$WORK/n2f"; mkamd64 "$r" "7.3.0-t2-ncz" "7.3.0-t2-ncz"; pin "$r"
+sed -i 's/^RC_DEFAULT_ALLOWED=1/RC_DEFAULT_ALLOWED=0/' "$r/assets/kernel/KERNEL-POLICY"
+run "amd64: 7.3.0 final passes while it is the promoted kernel" 0 --root "$r" --arch amd64
+lifecycle "$r" amd64 "7.3.1-t2-ncz" "7.3.0-t2-ncz"
+run "amd64: retired 7.3.0-t2-ncz refused (rc3's kernel)" 1 --root "$r" --arch amd64
+r="$WORK/n2g"; mkroot "$r" "7.3.0-sky1-ncz" "7.3.0-sky1-ncz"
+printf 'DEFAULT_BASE=7.3\nRESCUE_SAME_KERNEL=1\nRESCUE_ARM64_BLACKLIST=panthor\nEDGE_ENABLED=0\n' > "$r/assets/kernel/KERNEL-POLICY"
+lifecycle "$r" arm64 "" "7.3.0-sky1-ncz"
+run "arm64: retired 7.3.0-sky1-ncz with nothing promoted refused" 1 --root "$r" --arch arm64
+r="$WORK/n2h"; mkamd64 "$r" "7.3.1-t2-ncz" "7.3.1-t2-ncz"; pin "$r"
+sed -i 's/^RC_DEFAULT_ALLOWED=1/RC_DEFAULT_ALLOWED=0/' "$r/assets/kernel/KERNEL-POLICY"
+rm -f "$r/assets/kernel/KERNEL-LIFECYCLE"
+run "amd64: missing KERNEL-LIFECYCLE refused" 1 --root "$r" --arch amd64
 
 echo "=== Negative: rc allowance rules ==="
 r="$WORK/n3"; mkroot "$r" "7.3.0-rc7-sky1-ncz" "7.3.0-rc7-sky1-ncz"
@@ -183,6 +209,7 @@ cat > "$r/assets/kernel-manifest.json" <<'JSON'
 JSON
 : > "$r/release.conf"; echo "NCZ_TARGET_ARCH=arm64" >> "$r/release.conf"
 pin "$r"
+lifecycle "$r" arm64 "7.3.0-rc7-sky1-ncz"
 out=$(SKIP_RESCUE_CHECK=1 "$VERIFIER" --root "$r" --arch arm64 2>&1); got=$?
 if [ "$got" = 0 ] && printf '%s' "$out" | grep >/dev/null "using it (build farm uses the pool-mounted symlink)"; then
     printf '  PASS  arm64: offline fallback finds local sibling tree\n'; PASS=$((PASS+1))
