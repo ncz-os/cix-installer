@@ -884,7 +884,9 @@ case "$fi_out" in "$FI"/ncz-os-amd64-20261107-abc1234*-server.img) ok "image loo
     *) bad "image lookup (server) returned '$fi_out'" ;; esac
 grep -q 'ncz_find_image "$BUILD" "$ARCH" "$GIT_SHA" "$NCZ_VARIANT"' <<<"$(fn stage_image)" \
     && grep -q 'ncz_find_image "$BUILD" "$ARCH" "$GIT_SHA" "$NCZ_VARIANT"' <<<"$(fn stage_kvm_gate)" \
-    && ok "image and KVM stages look the image up by variant" \
+    && grep -q 'ncz_find_image "$BUILD" "$ARCH" "$GIT_SHA" "$NCZ_VARIANT"' <<<"$(fn stage_secret_scan)" \
+    && ! grep -q 'ncz-os-"$ARCH"-\*-"$GIT_SHA"\*\.img' "$BIN" \
+    && ok "image, secret-scan and KVM stages look the image up by variant" \
     || bad "an image stage still globs every variant's medium"
 
 printf '\n== build-image tests: %d passed, %d failed ==\n' "$PASS" "$FAIL"
