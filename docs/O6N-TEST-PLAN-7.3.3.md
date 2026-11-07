@@ -5,7 +5,7 @@ and cixmini (`.66`) were not contacted while the kernel was built.
 
 This test gates the promotion of `7.3.3-sky1-ncz` to `CURRENT_KVER_arm64`
 (docs/RC-DEFINITION.md, "Kernel promotion"). Until it passes, the pin patch
-`docs/patches/arm64-kernel-733-pin.patch` (docs/ARM64-KERNEL-733-PIN.md) stays
+`docs/patches/arm64-kernel-733-pin.patch.in` (docs/ARM64-KERNEL-733-PIN.md) stays
 unapplied and every arm64 image build stops at the lifecycle gate.
 
 ## What gets installed
@@ -178,8 +178,11 @@ ssh $O6N 'sudo systemctl unmask sleep.target suspend.target hibernate.target hyb
 Removing 7.3.3 is optional (only if the operator wants it gone):
 ```bash
 ssh $O6N 'sudo apt-get remove -s linux-image-7.3.3-sky1-ncz linux-headers-7.3.3-sky1-ncz | grep -E "^Remv"'
-# exactly those two lines; then run it again without -s. The prerm refuses to remove the running kernel.
+# exactly those two lines; then run it again without -s.
 ```
+Remove 7.3.3 only while 7.3.0 is running (the `uname -r` check above). The
+package's prerm refuses to remove the kernel that is currently running, so it
+cannot take out the kernel the board booted.
 The 7.3.3 ESP files and rEFInd entry stay (add-only policy) and are harmless.
 Never delete the Default or rescue entries.
 

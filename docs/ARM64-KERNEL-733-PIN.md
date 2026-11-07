@@ -1,9 +1,10 @@
 # arm64 kernel pin: 7.3.3-sky1-ncz (r298), ready but not applied
 
 The Sky1 7.3.3 kernel is built, gated and staged. The pin that makes arm64
-images use it is kept as a patch,
-[`docs/patches/arm64-kernel-733-pin.patch`](patches/arm64-kernel-733-pin.patch),
-and is not applied. The reason is the operator rule in docs/RC-DEFINITION.md: a
+images use it is kept as a patch template,
+[`docs/patches/arm64-kernel-733-pin.patch.in`](patches/arm64-kernel-733-pin.patch.in),
+and is not applied. It is a template because the pin records the O6N boot-test
+date, which does not exist yet. The reason is the operator rule in docs/RC-DEFINITION.md: a
 kernel is pinned only after it passes a hardware boot test, and this one has not
 been booted on O6N yet. Until it is applied, `CURRENT_KVER_arm64` stays empty
 and `build/check-kernel-lifecycle.py --arch arm64` (verify-kernel-default-policy
@@ -90,11 +91,11 @@ was checked on ULTRA.
 ```bash
 git checkout -b hv/rc4-arm64-kernel-733-promote <this branch>
 D=2026-MM-DD    # the date of the passing O6N boot test
-sed -i "s/@O6N_BOOT_DATE@/$D/g" docs/patches/arm64-kernel-733-pin.patch
-! grep -n '@O6N_BOOT_DATE@' docs/patches/arm64-kernel-733-pin.patch
-git am docs/patches/arm64-kernel-733-pin.patch
-git rm -q docs/patches/arm64-kernel-733-pin.patch build/test-arm64-733-pin-patch.sh
-git commit -qm "kernel: drop the applied arm64 7.3.3 pin patch and its test"
+sed "s/@O6N_BOOT_DATE@/$D/g" docs/patches/arm64-kernel-733-pin.patch.in > arm64-kernel-733-pin.patch
+! grep -n '@O6N_BOOT_DATE@' arm64-kernel-733-pin.patch
+git am arm64-kernel-733-pin.patch && rm arm64-kernel-733-pin.patch
+git rm -q docs/patches/arm64-kernel-733-pin.patch.in build/test-arm64-733-pin-patch.sh
+git commit -qm "kernel: drop the applied arm64 7.3.3 pin template and its test"
 bash build/gen-base-pin.sh --check && python3 build/gen-components-registry.py --check \
   && python3 build/check-kernel-lifecycle.py --arch arm64
 # then the RC-DEFINITION check list; update the rc4 row in docs/RC-DEFINITION.md
