@@ -18,18 +18,18 @@ LIFECYCLE_SCHEMA=1
 LIFECYCLE_SOURCE=seed-rc4-20261107
 
 # Lowest upstream kernel version any default may pin.
-MIN_VERSION=7.3.1
+MIN_VERSION=7.3.3
 
-# amd64: T2 7.3.1-r295 (HYDRA build 2026-11-02), running on CHIMERA and
-# PEGASUS (vmlinuz sha256 e63ed040...). Pool dir in amd64-stable-manifest.json.
-CURRENT_KVER_amd64=7.3.1-t2-ncz
-CURRENT_PKG_amd64=7.3.1-r295
+# amd64: T2 7.3.3-r297 (TYPHON build 2026-11-07), boot-tested on MEDUSA
+# 2026-11-07 (vmlinuz sha256 f0709e47...). Pool dir in amd64-stable-manifest.json.
+CURRENT_KVER_amd64=7.3.3-t2-ncz
+CURRENT_PKG_amd64=7.3.3-r297
 
-# arm64: none promoted. 7.3.0-sky1-ncz (r292/r293) is retired; the 7.3.1-sky1-ncz
-# build exists only as side-by-side debs (r297), not as an image-consumable
-# staging dir. See docs/RC-DEFINITION.md "arm64".
+# arm64: none promoted. 7.3.0-sky1-ncz (r292/r293) is retired; no 7.3.3 Sky1
+# build exists (7.3.1-sky1-ncz r297 exists only as side-by-side debs and is
+# below MIN_VERSION). See docs/RC-DEFINITION.md "arm64".
 CURRENT_KVER_arm64=
 CURRENT_PKG_arm64=
 
 # Retired KVERs, comma-separated: never pinned again, on any arch.
-RETIRED=7.3.0-t2-ncz,7.3.0-sky1-ncz
+RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.0-sky1-ncz

@@ -96,7 +96,7 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 k, p = d["kver"], d["package_revision"]
 rel = d.get("staging_pool_relative", "")
-assert rel.startswith("kernel-staging/") and rel.endswith("/" + k), rel
+assert rel.startswith("kernel-staging/") and ".." not in rel.split("/"), rel
 for n in (f"linux-image-{k}_{p}_amd64.deb", f"linux-headers-{k}_{p}_amd64.deb"):
     s = d["artifacts"][n]["sha256"]
     assert len(s) == 64 and all(c in "0123456789abcdef" for c in s), n

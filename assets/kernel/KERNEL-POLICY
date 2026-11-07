@@ -10,7 +10,11 @@
 # The exact pinned version lives in the per-arch sidecars/manifests, not here:
 #   arm64: assets/kernel/mainline/KVER  (manifest variants.mainline.kver)
 #   amd64: assets/kernel/amd64-stable/KVER
-# Since 2026-10-25 both are 7.3.0 final builds (arm64 r292, amd64 7.3.0-2).
+# Since 2026-11-07 (rc4) amd64 is 7.3.3-t2-ncz (7.3.3-r297, boot-tested on MEDUSA).
+# arm64 is still 7.3.0-sky1-ncz (r292/r293), which is RETIRED: arm64 builds are
+# refused until a 7.3.3 Sky1 build is staged and promoted.
+# Which version may be pinned (MIN_VERSION, CURRENT, RETIRED) lives in
+# assets/kernel/KERNEL-LIFECYCLE, written by the kernel-ci promotion registry.
 DEFAULT_BASE=7.3
 
 # An -rcN default is permitted ONLY while the pinned 7.3 version is still an

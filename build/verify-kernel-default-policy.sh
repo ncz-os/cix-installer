@@ -545,10 +545,10 @@ elif ! command -v python3 >/dev/null 2>&1; then
 else
     case "$ARCH" in amd64|x86_64) _lc_arch=amd64 ;; *) _lc_arch=arm64 ;; esac
     if _lc_out=$(python3 -I "$_lifecycle" --root "$ROOT" --arch "$_lc_arch" 2>&1); then
-        log "$_lc_out"
+        log "lifecycle: ${_lc_out#\[kernel-lifecycle\] }"
     else
         while IFS= read -r _l; do
-            [ -n "$_l" ] && err "$_l"
+            [ -n "$_l" ] && err "lifecycle: ${_l#\[kernel-lifecycle\] FAIL: }"
         done <<< "$_lc_out"
     fi
 fi
