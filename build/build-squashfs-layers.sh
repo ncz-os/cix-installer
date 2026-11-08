@@ -1212,6 +1212,14 @@ build_base(){
       done
     done
     sudo rm -rf "$_ka"/r[0-9]*-* "$_ka"/test-*
+    # The staged Sky1 release also carries o6n-sidebyside/ (the O6N hardware
+    # test-kit debs: linux-image-7.3.3-sky1-ncz, linux-headers-7.3.3-sky1-ncz,
+    # cixmini-boot 1.7). They are not release inputs, are not in the reviewed
+    # ledger, and their non-NCZ kernel package names trip the one-kernel rule:
+    # the 2026-11-08 arm64 image failed the provenance gate on exactly these
+    # three debs. Keep them in the staging pool for the O6N kit, never in an
+    # image.
+    sudo rm -rf "$_ka/mainline/o6n-sidebyside" 2>/dev/null || true
     # assets/kernel/mainline is the build tree's link into this host's
     # kernel-staging pool (build/link-kernel-mainline.sh); on an installed
     # system it dangles. The installer takes the Sky1 kernel from the medium
