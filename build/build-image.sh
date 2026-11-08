@@ -2362,22 +2362,18 @@ meta = {
 with open(out, "w") as fh:
     json.dump(meta, fh, indent=2, sort_keys=True)
     fh.write("\n")
-# a small, non-hashed gate summary next to the image for the archive stage
-if img:
-    gsum = {"all_required_passed": (meta["gates"]["kvm"] == "PASS"
-                                    and meta["gates"]["provenance"] == "PASS"
-                                    and meta["gates"]["secret_scan"] == "PASS"),
-            "gates": meta["gates"], "required": sorted(required),
-            "mode": scope, "base_pin_digest": pin_digest}
-    try:
-        with open(img + ".gates.json", "w") as fh:
-            json.dump(gsum, fh, indent=2, sort_keys=True)
-            fh.write("\n")
-    except OSError:
-        pass
 print("[receipt] wrote", out)
 PYEOF
-    return "${PIPESTATUS[0]}"
+    local rc="${PIPESTATUS[0]}"
+    # A small, non-hashed gate summary next to the image for the archive stage.
+    # receipt-gates.py also carries the two rules that run inside other gates:
+    # one_kernel (from provenance.result) and ui (from kvm-gate.result); the
+    # summary used to omit them, so an archived image could not evidence them.
+    if [ -n "$img" ] && [ -f "$ROOT/build/receipt-gates.py" ]; then
+        python3 "$ROOT/build/receipt-gates.py" "$RUN_DIR" --variant "$NCZ_VARIANT" \
+            > "$img.gates.json" || true
+    fi
+    return "$rc"
 }
 
 # ---------------------------------------------------------------------------

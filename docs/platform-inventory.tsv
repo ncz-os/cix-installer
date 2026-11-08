@@ -801,3 +801,5 @@ build/test-kernel-registry-resolve.sh	common	-	fixture tests for resolve-kernel-
 build/test-release-kernel-manifest-order.sh	common	-	asserts release-kernel.sh regenerates the kernel manifest before the accelerator-overlay gate
 build/test-stage-accel-overlays-pahole.sh	sky1	-	contract tests: the overlay container uses the kernel's native pahole, BTF_MODULES without native pahole is refused
 build/test-stage-kernel-skip-packaging.sh	common	-	contract tests: skip-packaging leaves kernel-debs alone; a failing gate still fails stage-kernel
+build/test-receipt-gates.sh	common	-	contract tests: gates.json evidences one_kernel and ui, and a FAIL gate is not summarized as passed
+build/receipt-gates.py	common	-	derive gates.json from a run's result files, carrying one_kernel (provenance) and ui (kvm gate)
