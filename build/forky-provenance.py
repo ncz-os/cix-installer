@@ -1831,7 +1831,16 @@ def server_pins(img, rec):
     """The online payload pins a server receipt records, or None (with FAILs).
     Every pin is required: a server medium with a missing pin can only fail at
     install time."""
-    of = ((rec or {}).get("ncz_payload") or {}).get("online_fetch")
+    pl = (rec or {}).get("ncz_payload") or {}
+    if pl.get("server_payload") == "medium":
+        # Self-contained medium: the payload is on the medium and there are no
+        # URL pins. The image stage already verified the staged files; the scan
+        # below then treats the on-medium layers/pool like a desktop medium.
+        if "base.squashfs" not in (pl.get("staged_files") or []):
+            fail("image", img, "self-contained server medium does not stage base.squashfs")
+            return None
+        return {"self_contained": True}
+    of = pl.get("online_fetch")
     if not isinstance(of, dict):
         fail("image", img, "server receipt has no ncz_payload.online_fetch payload pins")
         return None
@@ -2027,7 +2036,7 @@ def scan_image(ref, img, work, variant="desktop", payload_dir=None):
         pins = server_pins(img, rec)
         if pins is None:
             return 0
-        if not payload_dir or not os.path.isdir(payload_dir):
+        if not pins.get("self_contained") and (not payload_dir or not os.path.isdir(payload_dir)):
             fail("image", img, "--variant server needs --server-payload DIR holding "
                                "the pinned base.squashfs and asset bundle")
             return 0
@@ -2216,11 +2225,17 @@ def scan_image(ref, img, work, variant="desktop", payload_dir=None):
                 fail("image", img, "/ncz-payload/apt-repo present but not fully "
                                    "authorized; its file: source cannot be trusted")
         layers = sorted(rglob(pl, "*.squashfs"))
-        if variant == "server":
-            # A server medium ships its layers, rescue rootfs and (option B,
-            # operator 2026-10-26) its offline apt pool OFF the medium; prove
-            # it is one (no layer, no regular pool, the fetch manifest pinning
-            # all three) and scan the payload itself.
+        if variant == "server" and (pins or {}).get("self_contained"):
+            # A self-contained server medium carries its layers and pool ON the
+            # medium (NCZ_SERVER_PAYLOAD=medium); the generic layer scan below
+            # covers it. There is no fetch manifest or online payload to pin.
+            if not layers:
+                fail("image", img, "self-contained server medium carries no squashfs layer")
+        elif variant == "server":
+            # An online server medium ships its layers, rescue rootfs and
+            # (option B, operator 2026-10-26) its offline apt pool OFF the
+            # medium; prove it is one (no layer, no regular pool, the fetch
+            # manifest pinning all three) and scan the payload itself.
             if layers:
                 fail("image", img, "--variant server, but the medium carries squashfs "
                                    f"layer(s): {[os.path.basename(f) for f in layers]}")
