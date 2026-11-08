@@ -121,6 +121,13 @@ KVER="$(cat "$KDIR/build/include/config/kernel.release" 2>/dev/null)"
 echo "  KVER = $KVER"
 echo "  from = $KDIR"
 
+# Regenerate the manifest before any overlay gate. A KVER bump otherwise stops at
+# stage-accel-overlays.sh: that gate checks the manifest, which still names the
+# previous KVER because step 7 has not run yet. Step 7 regenerates again and
+# strictly checks the final (overlay-complete) manifest.
+step "1b/7 regenerate the kernel manifest for the new KVER (pre-overlay)"
+( cd "$REPO" && python3 build/kernel-manifest.py gen ) || die "manifest gen failed (pre-overlay)"
+
 # ------------------------------------------------------------- 2. gpu (mali)
 if [ "$SKIP_GPU" = 0 ]; then
     step "2/7 build cix-gpu-kmd (mali) against $KVER"
