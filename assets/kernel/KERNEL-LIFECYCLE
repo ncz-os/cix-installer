@@ -25,11 +25,12 @@ MIN_VERSION=7.3.3
 CURRENT_KVER_amd64=7.3.3-t2-ncz
 CURRENT_PKG_amd64=7.3.3-r297
 
-# arm64: none promoted. 7.3.0-sky1-ncz (r292/r293) is retired; no 7.3.3 Sky1
-# build exists (7.3.1-sky1-ncz r297 exists only as side-by-side debs and is
-# below MIN_VERSION). See docs/RC-DEFINITION.md "arm64".
-CURRENT_KVER_arm64=
-CURRENT_PKG_arm64=
+# arm64: Sky1 7.3.3-sky1-ncz r298 (ULTRA build 2026-11-07, v7.3.3 d50d994bffa3,
+# meta-cix kb/sky1-7.3.3-r298-20261107), boot-tested on O6N 2026-11-08 (Image
+# sha256 f47b74e2..., vmlinux build id 19c5ddd7...). Pool dir
+# kernel-staging/r298-7.3.3-sky1-ncz-20261107 (assets/kernel/mainline.release).
+CURRENT_KVER_arm64=7.3.3-sky1-ncz
+CURRENT_PKG_arm64=7.3.3-sky1-ncz+r298
 
 # Retired KVERs, comma-separated: never pinned again, on any arch.
-RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.0-sky1-ncz
+RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.0-sky1-ncz,7.3.1-sky1-ncz

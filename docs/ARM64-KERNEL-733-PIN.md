@@ -1,4 +1,9 @@
-# arm64 kernel pin: 7.3.3-sky1-ncz (r298), ready but not applied
+# arm64 kernel pin: 7.3.3-sky1-ncz (r298) — APPLIED 2026-11-08
+
+> **Status: applied.** The O6N boot test passed on 2026-11-08; the pin patch was
+> applied with that date, and `docs/patches/arm64-kernel-733-pin.patch.in` and
+> `build/test-arm64-733-pin-patch.sh` were deleted. The text below is the
+> pre-application record.
 
 The Sky1 7.3.3 kernel is built, gated and staged. The pin that makes arm64
 images use it is kept as a patch template,

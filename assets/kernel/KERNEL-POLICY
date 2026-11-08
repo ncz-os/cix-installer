@@ -11,8 +11,7 @@
 #   arm64: assets/kernel/mainline/KVER  (manifest variants.mainline.kver)
 #   amd64: assets/kernel/amd64-stable/KVER
 # Since 2026-11-07 (rc4) amd64 is 7.3.3-t2-ncz (7.3.3-r297, boot-tested on MEDUSA).
-# arm64 is still 7.3.0-sky1-ncz (r292/r293), which is RETIRED: arm64 builds are
-# refused until a 7.3.3 Sky1 build is staged and promoted.
+# arm64 is 7.3.3-sky1-ncz (r298, boot-tested on O6N), the same 7.3.3 as amd64.
 # Which version may be pinned (MIN_VERSION, CURRENT, RETIRED) lives in
 # assets/kernel/KERNEL-LIFECYCLE, written by the kernel-ci promotion registry.
 DEFAULT_BASE=7.3

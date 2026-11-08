@@ -239,6 +239,7 @@ case "${NCZ_KERNEL_DEB_EPOCH:-}" in
             # kernel pin refused the repack (2026-11-07).  Freeze each revision when it is pinned
             # (build/test-kernel-revision-pin.sh 3c fails otherwise).
             r293) SOURCE_DATE_EPOCH=1792311789 ;;   # 2026-10-18T08:23:09Z, base.pin arm64 snapshot (kernel-manifest.json r293)
+            r298) SOURCE_DATE_EPOCH=1793607971 ;;   # 2026-11-02T08:26:11Z, base.pin arm64 snapshot (kernel-manifest.json r298)
         esac ;;
     *[!0-9]*) echo "ERROR: NCZ_KERNEL_DEB_EPOCH must be an integer" >&2; exit 1 ;;
     *) SOURCE_DATE_EPOCH="$NCZ_KERNEL_DEB_EPOCH" ;;

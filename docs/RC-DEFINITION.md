@@ -11,7 +11,7 @@ candidate complete, and how a new kernel gets into the next one.
 | rc1 | `096c74f4` | 7.3.0-t2-ncz (7.3.0-2) | 7.3.0-sky1-ncz (+r293) | superseded |
 | rc2 | `df719dc1` | 7.3.0-t2-ncz (7.3.0-2) | 7.3.0-sky1-ncz (+r293) | superseded |
 | rc3 | `ba74b7c7` | 7.3.0-t2-ncz (7.3.0-2) | 7.3.0-sky1-ncz (+r293) | **incorrect**: 7.3.0 was already retired for 7.3.1; desktop images built 2026-11-07 carry it (run metadata `kernel_kver 7.3.0-t2-ncz`) |
-| rc4 | branch `hv/rc4-kernel-731-20261107` | **7.3.3-t2-ncz (7.3.3-r297)** | 7.3.3-sky1-ncz (+r298) built and staged; refused until the O6N boot test (see arm64) | amd64 ready to build; arm64 waits for O6N |
+| rc4 | branch `hv/ncz-rc4-integration-20261107` | **7.3.3-t2-ncz (7.3.3-r297)** | **7.3.3-sky1-ncz (+r298)** — pinned 2026-11-08 after the O6N boot test | both arches ready to build |
 
 rc4 is rc3 (via the image-CI branch `hv/magnetar-ci-20261107` @ `13520afc`,
 which sits on `hv/ncz-opus-determinism3-20261107` @ `5702cc38` on `ba74b7c7`)
@@ -51,6 +51,14 @@ a 7.3.3 Sky1 build. None exists:
   that r297 kernel twice on 2026-11-02 (journal), but it is below MIN_VERSION
   7.3.3 anyway.
 - kernel-ci lists `sky1-arm64 stable 7.3.3` as queued, with no build adapter.
+
+Promoted 2026-11-08: the O6N boot test passed (operator boot, orchestrator
+verified 04:20Z: 0 failed units, mali/npu/vpu present, validate-accelerators
+PASS), kernel-ci marks r298 `current` and retires `7.3.0-sky1-ncz+r293`; the
+pin patch was applied with the 2026-11-08 boot date and
+`docs/patches/arm64-kernel-733-pin.patch.in` plus its test were deleted.
+`CURRENT_KVER_arm64=7.3.3-sky1-ncz` (`CURRENT_PKG_arm64=7.3.3-sky1-ncz+r298`).
+The historical note below records how the artifact came to exist.
 
 Update 2026-11-07: the missing artifact now exists. `7.3.3-sky1-ncz` r298
 (v7.3.3 `d50d994bffa3`, the 7.3.1 series unchanged) was built through the Sky1
