@@ -76,7 +76,7 @@ def build_fixture_repo(root: Path) -> Path:
     (refind / "zz2-ncz-refind-promote-guard").write_bytes(b"x")
     (refind / "ncz-refind-refresh.sh").write_bytes(b"#!/bin/sh\n")
     npu = root / "assets" / "npu"
-    npu.mkdir(parents=True)
+    npu.mkdir(parents=True, exist_ok=True)
     shutil.copy(REPO / "assets" / "npu" / "ssdt-npucre.asl", npu / "ssdt-npucre.asl")
     rescue = root / "assets" / "rescue"
     (rescue / "rescue-rootfs-amd64.tar.zst").write_bytes(b"zst" * 2048)
