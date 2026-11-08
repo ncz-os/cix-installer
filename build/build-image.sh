@@ -1959,8 +1959,11 @@ if bad:
     for b in bad:
         print("[magnetar] FAIL:", b, file=sys.stderr)
     sys.exit(1)
-print(f"[magnetar] payload pinned and present: {of['payload_name']} {of['payload_sha256'][:16]}..., "
-      f"{of['assets_name']} {of['assets_sha256'][:16]}..., {of['pool_name']} {of['pool_sha256'][:16]}...")
+if pl.get("server_payload") == "medium":
+    print("[magnetar] self-contained medium: base.squashfs staged on the medium, no URL pins")
+else:
+    print(f"[magnetar] payload pinned and present: {of['payload_name']} {of['payload_sha256'][:16]}..., "
+          f"{of['assets_name']} {of['assets_sha256'][:16]}..., {of['pool_name']} {of['pool_sha256'][:16]}...")
 PY
 }
 
