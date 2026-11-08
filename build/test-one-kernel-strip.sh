@@ -68,7 +68,7 @@ keep = [
     "bash_5.2-1_amd64.deb",
     "libpcre2-8-0-udeb_10.49-1_amd64.udeb",
     "ncz-linux-image-cixmini-7.3.0_amd64.deb",    # NCZ kernel: must be spared
-    "ncz-screensavers-plugin_0.3.25_amd64.deb",
+    "ncz-screensavers-plugin_0.3.26_amd64.deb",
 ]
 for n in debian + keep:
     (pool / n).write_bytes(b"x")
