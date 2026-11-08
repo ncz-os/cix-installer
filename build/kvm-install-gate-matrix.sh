@@ -25,6 +25,9 @@
 #                                                             the gate's own HTTP payload server;
 #                                                             requires a server image, refused on
 #                                                             desktop media)
+#   server-medium   rescue-partition                (self-contained server medium:
+#                                                             install+boot from the payload ON the
+#                                                             medium; no HTTP payload server)
 #   server-offline-negative  rescue-partition                (NEGATIVE: same server image, the payload
 #                                                             server is NOT started; the install must
 #                                                             fail loudly within the deadline and
@@ -57,6 +60,7 @@ gate_set_components() {
         stalefs)       echo "desktop,mgmt-container,rescue-partition" ;;
         server)        echo "rescue-partition" ;;
         server-offline-negative) echo "rescue-partition" ;;
+        server-medium) echo "rescue-partition" ;;
         *)             return 1 ;;
     esac
 }
@@ -68,6 +72,7 @@ gate_set_server() {
     case "$1" in
         server)                  echo "1 0" ;;
         server-offline-negative) echo "1 1" ;;
+        server-medium)           echo "0 0" ;;
         *)                       echo "0 0" ;;
     esac
 }
@@ -78,7 +83,7 @@ gate_set_disk() {
         *)       echo "ext4 0" ;;
     esac
 }
-GATE_ALL_SETS="full norescue norescue-mgmt nodesktop minimal stalefs server server-offline-negative"
+GATE_ALL_SETS="full norescue norescue-mgmt nodesktop minimal stalefs server server-medium server-offline-negative"
 GATE_DEFAULT_SETS="norescue minimal stalefs"
 # NCZ-GATE-SETS-END
 

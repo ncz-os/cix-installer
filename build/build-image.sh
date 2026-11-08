@@ -2218,11 +2218,23 @@ stage_kvm_gate() {
 # sudo's env_reset drops anything that is not on it.
 stage_kvm_gate_server() {
     local log="$1" img="$2" work="$3" invoker="$4" pyvenv="${5:-/root/ncz-pyte-venv}" sets mrc
-    sets="${NCZ_KVM_GATE_SERVER_SETS:-server server-offline-negative}"
-    local assets="$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz" pool="$MAGNETAR_DIR/ncz-pool-$ARCH.tar.gz"
-    if [ ! -f "$MAGNETAR_DIR/base.squashfs" ] || [ ! -f "$assets" ] || [ ! -f "$pool" ]; then
-        echo "[kvm-gate] FAIL: Magnetar payload missing in $MAGNETAR_DIR (run the image stage)" >&2
-        return 1
+    local medium=0
+    [ "${NCZ_SERVER_PAYLOAD:-online}" = medium ] && medium=1
+    if [ "$medium" = 1 ]; then
+        # Self-contained medium: the installer reads the payload from the
+        # medium itself, so the gate boots it with no HTTP payload server.
+        sets="${NCZ_KVM_GATE_SERVER_SETS:-server-medium}"
+        if [ ! -f "$MAGNETAR_DIR/base.squashfs" ]; then
+            echo "[kvm-gate] FAIL: base.squashfs missing in $MAGNETAR_DIR (run the image stage)" >&2
+            return 1
+        fi
+    else
+        sets="${NCZ_KVM_GATE_SERVER_SETS:-server server-offline-negative}"
+        local assets="$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz" pool="$MAGNETAR_DIR/ncz-pool-$ARCH.tar.gz"
+        if [ ! -f "$MAGNETAR_DIR/base.squashfs" ] || [ ! -f "$assets" ] || [ ! -f "$pool" ]; then
+            echo "[kvm-gate] FAIL: Magnetar payload missing in $MAGNETAR_DIR (run the image stage)" >&2
+            return 1
+        fi
     fi
     echo "[kvm-gate] Magnetar server sets: $sets (payload from $MAGNETAR_DIR)"
     local set_out

@@ -208,5 +208,13 @@ grep  'for _fa in base.squashfs "$_srv_name" "$_srv_pool_name"; do' "$G" >/dev/n
     && ok "gate: the guest must log 'verified sha256=' for the pool too" || bad "gate: pool fetch not asserted"
 grep  'no offline apt pool to serve' "$G" >/dev/null && ok "gate: a missing pool payload is a gate error" || bad "gate: missing pool not refused"
 
+# --- 8: the self-contained (medium) server set ------------------------------
+M="$ROOT/kvm-install-gate-matrix.sh"
+grep -q 'server-medium) echo "rescue-partition"' "$M" && ok "matrix: server-medium installs rescue-partition" || bad "matrix: server-medium components missing"
+grep -q 'server-medium)           echo "0 0"' "$M" && ok "matrix: server-medium runs with no HTTP payload server" || bad "matrix: server-medium server bits wrong"
+grep -q 'GATE_ALL_SETS=.*server-medium' "$M" && ok "matrix: server-medium is a known set" || bad "matrix: server-medium not listed"
+grep -q 'sets="${NCZ_KVM_GATE_SERVER_SETS:-server-medium}"' "$ROOT/build-image.sh" \
+    && ok "build-image: medium server builds gate with server-medium" || bad "build-image: medium gate set missing"
+
 echo
 [ "$FAIL" -eq 0 ] && echo "test-kvm-gate-server: ALL PASSED" || { echo "test-kvm-gate-server: FAILURES" >&2; exit 1; }
