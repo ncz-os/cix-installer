@@ -95,10 +95,18 @@ ncz_ui_variant() {
         ncz_brand_medium_variant "${NCZ_MEDIA_DIR:-}" "$_ncz_vdir"
         return 0
     fi
-    # No helper on the medium: the same marker test, so a server medium never
-    # falls back to the desktop flow just because a file is missing.
+    # No helper on the medium: the same marker tests, so a server medium never
+    # falls back to the desktop flow just because a file is missing. The fetch
+    # manifest exists only on an online server medium; a SELF-CONTAINED server
+    # medium (no manifest) identifies itself with MEDIUM_VARIANT=server.
     for _ncz_vd in "${NCZ_MEDIA_DIR:-}" "$_ncz_vdir"; do
-        [ -n "$_ncz_vd" ] && [ -f "$_ncz_vd/ncz-fetch-payload.manifest" ] && { echo server; return 0; }
+        [ -n "$_ncz_vd" ] || continue
+        [ -f "$_ncz_vd/ncz-fetch-payload.manifest" ] && { echo server; return 0; }
+        if [ -r "$_ncz_vd/MEDIUM_VARIANT" ]; then
+            case "$(tr -d ' \t\r\n' < "$_ncz_vd/MEDIUM_VARIANT" 2>/dev/null)" in
+                server) echo server; return 0 ;;
+            esac
+        fi
     done
     echo desktop
 }

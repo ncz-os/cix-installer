@@ -118,6 +118,12 @@ NCZ_GATE_SERVER="${NCZ_GATE_SERVER:-0}"
 case "$NCZ_GATE_SERVER" in 0|1) ;; *) echo "GATE FAIL: NCZ_GATE_SERVER must be 0 or 1" >&2; exit 2 ;; esac
 NCZ_GATE_SERVER_OFFLINE="${NCZ_GATE_SERVER_OFFLINE:-0}"
 case "$NCZ_GATE_SERVER_OFFLINE" in 0|1) ;; *) echo "GATE FAIL: NCZ_GATE_SERVER_OFFLINE must be 0 or 1" >&2; exit 2 ;; esac
+# A SELF-CONTAINED server medium (server-medium set): the payload is on the
+# medium, so NCZ_GATE_SERVER stays 0 (no HTTP payload server), but the medium
+# and the installed system are still a Magnetar Server and must prove it (the
+# operator found desktop options offered on such a medium, MEDUSA 2026-11-08).
+NCZ_GATE_SERVER_MEDIUM="${NCZ_GATE_SERVER_MEDIUM:-0}"
+case "$NCZ_GATE_SERVER_MEDIUM" in 0|1) ;; *) echo "GATE FAIL: NCZ_GATE_SERVER_MEDIUM must be 0 or 1" >&2; exit 2 ;; esac
 if [ "$NCZ_GATE_SERVER" = 1 ]; then
     # Server install = console system: no desktop, no management container.
     # The rescue partition IS selected: the documented server menu is
@@ -286,6 +292,31 @@ elif [ -e /dev/kvm ]; then
 fi
 
 TEST_IMG="$WORK/$(basename "${IMG%.img}")-qemutest.img"
+
+# --- self-contained server medium: it must SAY it is a server ---------------
+# A server medium built with NCZ_SERVER_PAYLOAD=medium carries no fetch
+# manifest, so the only variant signal is ncz-payload/MEDIUM_VARIANT. The
+# operator's MEDUSA run proved that without it the installer offers the desktop
+# component dialog. Refuse the medium before booting it.
+if [ "$NCZ_GATE_SERVER_MEDIUM" = 1 ]; then
+    _mvd="$WORK/.medium-variant"
+    rm -f "$_mvd"
+    _dpart="$("$SGDISK" -p "$IMG" 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && $NF == "NCZDATA" {print $1; exit}')"
+    [ -n "$_dpart" ] || { echo "GATE FAIL: server-medium: no NCZDATA partition in $IMG" >&2; exit 2; }
+    _dlba="$("$SGDISK" -i "$_dpart" "$IMG" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')"
+    _dend="$("$SGDISK" -i "$_dpart" "$IMG" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')"
+    [ -n "$_dlba" ] && [ -n "$_dend" ] || { echo "GATE FAIL: server-medium: cannot read NCZDATA bounds" >&2; exit 2; }
+    _dimg="$WORK/.server-medium-data.raw"
+    qemu-img convert --image-opts -S 4k -O raw         "driver=raw,file.driver=file,file.filename=$IMG,offset=$((_dlba * 512)),size=$(( (_dend - _dlba + 1) * 512 ))" "$_dimg" >/dev/null 2>&1         || { echo "GATE FAIL: server-medium: cannot extract NCZDATA" >&2; exit 2; }
+    "$DEBUGFS" -R "dump ncz-payload/MEDIUM_VARIANT $_mvd" "$_dimg" >/dev/null 2>&1 || true
+    rm -f "$_dimg"
+    if [ -s "$_mvd" ] && [ "$(tr -d ' \t\r\n' < "$_mvd")" = server ]; then
+        echo "  server-medium gate: medium carries MEDIUM_VARIANT=server (installer takes the server path)"
+    else
+        echo "GATE FAIL: server-medium: ncz-payload/MEDIUM_VARIANT is missing or not 'server' (got: $(cat "$_mvd" 2>/dev/null | tr -d '\n' || echo missing)); the installer would offer the desktop component dialog" >&2
+        exit 2
+    fi
+fi
 
 echo "[1/6] copying $IMG -> $TEST_IMG (the shipped image is never modified)"
 rm -f "$TEST_IMG"
@@ -1193,7 +1224,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ -s "$EVIDENCE/installed-refind.conf" ]; then
     echo "  server gate: installed boot menu is Console + Rescue Partition, default on the Console entry"
 fi
 # MAGNETAR(server): the installed system names its edition (ncz_gate_server_brand above).
-if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
+if { [ "$NCZ_GATE_SERVER" = 1 ] || [ "$NCZ_GATE_SERVER_MEDIUM" = 1 ]; } && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     "$DEBUGFS" -R "dump /etc/os-release $EVIDENCE/installed-os-release" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
     # Debian-family systems make /etc/os-release a symlink to ../usr/lib/os-release,
     # and a debugfs dump of a symlink produces nothing - the server gate then
@@ -1217,7 +1248,7 @@ fi
 # is read from the installed root with debugfs; a stray "install ok
 # installed" stanza for any of them is a desktop leak that would have pulled
 # the headless build back into a graphical one.
-if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
+if { [ "$NCZ_GATE_SERVER" = 1 ] || [ "$NCZ_GATE_SERVER_MEDIUM" = 1 ]; } && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     _dpkg_status="$WORK/.server-dpkg-status"; rm -f "$_dpkg_status"
     "$DEBUGFS" -R "dump /var/lib/dpkg/status $_dpkg_status" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
     if [ -s "$_dpkg_status" ]; then

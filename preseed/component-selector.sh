@@ -102,7 +102,14 @@ if command -v ncz_ui_variant >/dev/null 2>&1; then
     NCZ_COMP_VARIANT=$(ncz_ui_variant)
 else
     for _ncz_md in "${NCZ_MEDIA_DIR:-}" /cdrom/ncz-payload /hd-media/ncz-payload /media/cdrom/ncz-payload /run/live/medium/ncz-payload; do
-        [ -n "$_ncz_md" ] && [ -f "$_ncz_md/ncz-fetch-payload.manifest" ] && { NCZ_COMP_VARIANT=server; break; }
+        [ -n "$_ncz_md" ] || continue
+        [ -f "$_ncz_md/ncz-fetch-payload.manifest" ] && { NCZ_COMP_VARIANT=server; break; }
+        # A self-contained (medium) server medium has no fetch manifest; the
+        # explicit marker names the variant (the bug the operator hit: the
+        # installer offered the desktop component dialog on the server image).
+        if [ -r "$_ncz_md/MEDIUM_VARIANT" ] && [ "$(tr -d ' \t\r\n' < "$_ncz_md/MEDIUM_VARIANT" 2>/dev/null)" = server ]; then
+            NCZ_COMP_VARIANT=server; break
+        fi
     done
 fi
 

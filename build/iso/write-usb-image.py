@@ -929,6 +929,15 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
         staged.append(name)
     log(f"    ncz-payload tree staged: {staged}")
 
+    # The variant marker, written for BOTH variants in BOTH payload modes. A
+    # SELF-CONTAINED server medium (NCZ_SERVER_PAYLOAD=medium) has no fetch
+    # manifest, and the installer used to fall through to the desktop
+    # component dialog on it (operator defect, MEDUSA 2026-11-08). Every
+    # consumer (preseed/ncz-ui.sh ncz_ui_variant, preseed/component-selector.sh,
+    # post-install/lib/ncz-brand.sh) reads MEDIUM_VARIANT=server as the
+    # explicit signal; the manifest stays a second signal for online media.
+    (ncz_payload_dst / "MEDIUM_VARIANT").write_text(_variant() + "\n")
+
     # The staging loop skips anything absent, so without this it accepts an
     # EMPTY payload directory without complaint and happily builds install
     # media that cannot install anything (found 2026-09-24 alongside the

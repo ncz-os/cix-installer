@@ -49,6 +49,11 @@ mkmedium() { # dir server(0|1)
 }
 mkmedium "$W/desk" 0; mkmedium "$W/srv" 1
 mkdir -p "$W/srv-nolib"; cp -a "$W/srv/." "$W/srv-nolib/"; rm -f "$W/srv-nolib/post-install/lib/ncz-brand.sh"
+# A SELF-CONTAINED server medium (NCZ_SERVER_PAYLOAD=medium) has no fetch
+# manifest; it identifies itself with MEDIUM_VARIANT=server. This is the shape
+# the operator flashed on MEDUSA, where the installer offered desktop options.
+mkmedium "$W/srvmark" 0; echo server > "$W/srvmark/MEDIUM_VARIANT"
+mkdir -p "$W/srvmark-nolib"; cp -a "$W/srvmark/." "$W/srvmark-nolib/"; rm -f "$W/srvmark-nolib/post-install/lib/ncz-brand.sh"
 
 # --- 1. the helper ---------------------------------------------------------------------------
 H="$ROOT/post-install/lib/ncz-brand.sh"
@@ -79,6 +84,10 @@ eq "ncz_ui_variant: server medium" "$(ui "$W/srv" ncz_ui_variant)" server
 eq "ncz_ui_variant: server medium without the helper (marker fallback)" "$(ui "$W/srv-nolib" ncz_ui_variant)" server
 eq "ncz_ui_variant: NCZ_MEDIA_DIR (partman/early_command) decides" \
     "$(NCZ_MEDIA_DIR="$W/srv" ui "$W/desk" ncz_ui_variant)" server
+eq "ncz_ui_variant: MEDIUM_VARIANT=server self-contained medium" \
+    "$(ui "$W/srvmark" ncz_ui_variant)" server
+eq "ncz_ui_variant: MEDIUM_VARIANT marker without the helper (fallback)" \
+    "$(ui "$W/srvmark-nolib" ncz_ui_variant)" server
 eq "ncz_ui_step: desktop 5 of 8" "$(ui "$W/desk" ncz_ui_step 5)" "[5/8] "
 eq "ncz_ui_step: desktop 8 of 8" "$(ui "$W/desk" ncz_ui_step 8)" "[8/8] "
 eq "ncz_ui_title: desktop step title unchanged" "$(ui "$W/desk" ncz_ui_title 1 "select your REGION" "Choose your country")" "[1/8] $DESK_LABEL - select your REGION"
@@ -138,6 +147,13 @@ eq "selector, server medium: record" "$(cat "$W/sel-srv/state/COMPONENTS" 2>/dev
 eq "selector, server medium: /tmp mirror" "$(cat "$W/sel-srv/tmp/ncz-components" 2>/dev/null)" "rescue-partition"
 eq "selector, server medium: COMPONENTS_desktop" "$(cat "$W/sel-srv/target/etc/cix-installer/COMPONENTS_desktop" 2>/dev/null)" 0
 eq "selector, server medium: COMPONENTS_rescue-partition" "$(cat "$W/sel-srv/target/etc/cix-installer/COMPONENTS_rescue-partition" 2>/dev/null)" 1
+# self-contained server medium: marker only, no fetch manifest and no brand lib
+sel srvmark "$W/srvmark-nolib" "quiet"
+eq "selector, MEDIUM_VARIANT server: exit 0" "$(cat "$W/sel-srvmark/rc")" 0
+if grep  '^INPUT' "$W/sel-srvmark/db.log" >/dev/null || [ -e "$W/sel-srvmark/db.log.tpl" ]; then
+    bad "selector, MEDIUM_VARIANT server: the component dialog was shown ($(tr '\n' ' ' < "$W/sel-srvmark/db.log"))"
+else ok "selector, MEDIUM_VARIANT server: no component dialog"; fi
+eq "selector, MEDIUM_VARIANT server: record" "$(cat "$W/sel-srvmark/state/COMPONENTS" 2>/dev/null)" "rescue-partition"
 [ -e "$W/sel-srv/tmp/.ncz-components-done" ] && ok "selector, server medium: answered once per boot" || bad "selector, server medium: no done marker"
 SEL_MEDIA_DIR="$W/srv" sel srvmd "$W/desk" "quiet"
 eq "selector, NCZ_MEDIA_DIR is a server medium: record" "$(cat "$W/sel-srvmd/state/COMPONENTS" 2>/dev/null)" "rescue-partition"
@@ -435,6 +451,23 @@ printf '%s\n' "$_sr" | grep '^SUDO: ' | grep  "NCZ_PYTE_PYTHON='/root/ncz-pyte-v
     && ok "build-image: the server gate runner passes NCZ_PYTE_PYTHON through sudo (the UI check finds pyte)" \
     || bad "build-image: the server gate runner's sudo line has no NCZ_PYTE_PYTHON: $(printf '%s\n' "$_sr" | grep '^SUDO: ' | cut -c1-300)"
 grep  '^ui=server$' "$W/dry/kvm-gate.result" 2>/dev/null >/dev/null && ok "build-image: the server gate result records ui=server" || bad "build-image: kvm-gate.result ui field: $(grep '^ui=' "$W/dry/kvm-gate.result" 2>/dev/null)"
+
+# --- 11. the self-contained server medium marker ------------------------------------------------
+# The writer must emit MEDIUM_VARIANT for both variants (the operator's MEDUSA
+# medium had none, so the installer offered desktop options); every consumer
+# must read it as the server signal.
+for f in build/iso/write-usb-image.py preseed/ncz-ui.sh preseed/component-selector.sh \
+         post-install/lib/ncz-brand.sh build/kvm-install-gate-gpt.sh; do
+    grep -q 'MEDIUM_VARIANT' "$ROOT/$f" && ok "MEDIUM_VARIANT: $f" || bad "MEDIUM_VARIANT: $f does not reference the marker"
+done
+grep -q '"MEDIUM_VARIANT"' "$ROOT/build/iso/write-usb-image.py" \
+    && ok "MEDIUM_VARIANT: the writer emits it" || bad "MEDIUM_VARIANT: the writer does not emit it"
+grep -q 'NCZ_GATE_SERVER_MEDIUM' "$ROOT/build/kvm-install-gate-matrix.sh" \
+    && ok "server-medium gate: the matrix passes NCZ_GATE_SERVER_MEDIUM" \
+    || bad "server-medium gate: the matrix does not pass NCZ_GATE_SERVER_MEDIUM"
+
+echo
+if [ "$FAIL" = 0 ]; then echo "test-server-branding: PASS"; else echo "test-server-branding: FAIL"; exit 1; fi
 
 if [ "$FAIL" != 0 ]; then echo "test-server-branding: FAIL" >&2; exit 1; fi
 echo "test-server-branding: PASS"

@@ -119,10 +119,12 @@ EOF_SRV
     # Magnetar Server set (its screens differ: no component dialog, the edition
     # in every title); the other sets share the full set's UI.
     _ui=0; { [ "$_s" = full ] || [ "$_s" = server ]; } && _ui="${NCZ_GATE_UI_CHECK:-1}"
+    _srvmd=0; [ "$_s" = server-medium ] && _srvmd=1
     _coverage=target-logs-and-verifier
     [ "$_fs" = ext4 ] || _coverage=SKIP-target-logs-and-verifier
     [ "$_ui" != 0 ] || _coverage="$_coverage;SKIP-UI"
     [ "$_srv" = 1 ] && _coverage="$_coverage;server-variant"
+    [ "$_srvmd" = 1 ] && _coverage="$_coverage;server-medium-variant"
     echo
     if [ "$_srv" = 1 ]; then
         echo "################ server set: $_s ($_c, root $_fs, payload server $([ "$_srv_off" = 1 ] && echo OFF || echo ON)) ################"
@@ -132,7 +134,7 @@ EOF_SRV
     _t0=$(date +%s)
     _rc=0
     NCZ_GATE_COMPONENTS="$_c" NCZ_GATE_UI_CHECK="$_ui" NCZ_GATE_FS="$_fs" NCZ_GATE_STALE_DISK="$_stale" \
-        NCZ_GATE_SERVER="$_srv" NCZ_GATE_SERVER_OFFLINE="$_srv_off" \
+        NCZ_GATE_SERVER="$_srv" NCZ_GATE_SERVER_OFFLINE="$_srv_off" NCZ_GATE_SERVER_MEDIUM="$_srvmd" \
         bash "$SCRIPT_DIR/kvm-install-gate-gpt.sh" "$IMG" "$_w" 2>&1 | tee "$WORKROOT/$_s.log"
     _rc="${PIPESTATUS[0]}"
     _dt=$(( $(date +%s) - _t0 ))
