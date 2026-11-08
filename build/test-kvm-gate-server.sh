@@ -213,7 +213,7 @@ M="$ROOT/kvm-install-gate-matrix.sh"
 grep -q 'server-medium) echo "rescue-partition"' "$M" && ok "matrix: server-medium installs rescue-partition" || bad "matrix: server-medium components missing"
 grep -q 'server-medium)           echo "0 0"' "$M" && ok "matrix: server-medium runs with no HTTP payload server" || bad "matrix: server-medium server bits wrong"
 grep -q 'GATE_ALL_SETS=.*server-medium' "$M" && ok "matrix: server-medium is a known set" || bad "matrix: server-medium not listed"
-grep -q 'sets="${NCZ_KVM_GATE_SERVER_SETS:-server-medium}"' "$ROOT/build-image.sh" \
+grep -q 'sets=server-medium' "$ROOT/build-image.sh" \
     && ok "build-image: medium server builds gate with server-medium" || bad "build-image: medium gate set missing"
 
 echo
