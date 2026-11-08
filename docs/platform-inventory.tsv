@@ -791,3 +791,11 @@ build/check-kernel-lifecycle.py	common	-	kernel lifecycle gate: pins must equal 
 build/test-kernel-lifecycle.sh	common	-	fixture tests for check-kernel-lifecycle.py (retired, too old, unpromoted, inconsistent pins; real tree)
 build/test-stage-amd64-kernel.sh	amd64	-	stage-amd64-kernel.sh takes the manifest pool dir and checks every deb sha256 (same-KVER pool dirs)
 assets/kernel/KERNEL-LIFECYCLE	common	-	kernel promotion state (MIN_VERSION, CURRENT per arch, RETIRED) written by the kernel-ci registry; read by check-kernel-lifecycle.py
+build/resolve-kernel-from-registry.py	mixed	-	resolves the kernel-ci registry current pointer per arch into build env (KVER, staged dir, retirement); consumed by build-image.sh
+build/test-arm64-733-pin-patch.sh	sky1	-	contract test for the unapplied arm64 7.3.3 pin template (docs/patches/arm64-kernel-733-pin.patch.in); refuses an applied pin while O6N is pending
+build/test-image-ci-matrix-stage-inputs.sh	common	-	asserts image-ci-matrix.sh stages the gitignored build inputs per cell before build-image.sh
+build/test-kernel-debs-arch-policy.sh	common	-	asserts the kernel-debs gate verifies the target arch instead of always arm64 (pending arm64 pin must not block amd64)
+build/test-kernel-registry-resolve.sh	common	-	fixture tests for resolve-kernel-from-registry.py: current/retired/hash-chain, committed-manifest fallback, pin drift
+build/test-release-kernel-manifest-order.sh	common	-	asserts release-kernel.sh regenerates the kernel manifest before the accelerator-overlay gate
+build/test-stage-accel-overlays-pahole.sh	sky1	-	contract tests: the overlay container uses the kernel's native pahole, BTF_MODULES without native pahole is refused
+build/test-stage-kernel-skip-packaging.sh	common	-	contract tests: skip-packaging leaves kernel-debs alone; a failing gate still fails stage-kernel
