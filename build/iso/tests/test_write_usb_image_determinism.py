@@ -155,3 +155,122 @@ def test_release_date_is_rfc2822_c_locale(writer, monkeypatch):
     assert writer.release_date() == "Mon, 02 Nov 2026 08:26:11 +0000"
     monkeypatch.delenv("SOURCE_DATE_EPOCH")
     assert writer.release_date() is None
+
+
+# --- staged-tree times -----------------------------------------------------
+#
+# Measured 2026-11-07 after the Release fix: two --only-image builds of one
+# commit (amd64 HYDRA pair, arm64 ULTRA pair) still differed in the inode
+# mtime (and inode checksum) of 688 / 2218 files on NCZDATA; no content
+# differed. mke2fs -d only LOWERS times later than SOURCE_DATE_EPOCH, so a
+# staged file older than the epoch (a checkout moved forward to a newer
+# commit, a file copied with its mtime preserved) keeps its own time. Each
+# clone's times then land in the image. The tests below stage files whose
+# times predate the epoch and differ between the two stagings.
+
+SDE = 1700000000
+
+
+def _stage_aged(root: Path, base: int) -> Path:
+    """_stage() plus a symlink, every entry dated before SDE by `base`-ish
+    seconds (different per entry and per staging)."""
+    src = _stage(root)
+    (src / "ncz-payload" / "link").symlink_to("base.squashfs")
+    entries = sorted(src.rglob("*"), reverse=True) + [src]
+    for n, p in enumerate(entries):
+        t = SDE - base - 37 * n
+        os.utime(p, (t, t), follow_symlinks=False)
+    return src
+
+
+def _mtimes(src: Path) -> set[int]:
+    # atime is not compared: reading a directory after the touch moves its
+    # atime to now (relatime), and mke2fs clamps any later time to SDE.
+    return {int(os.lstat(p).st_mtime) for p in [src, *src.rglob("*")]}
+
+
+def test_staged_times_are_pinned_to_epoch(writer, tmp_path, monkeypatch):
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", str(SDE))
+    src = _stage_aged(tmp_path, 5000)
+    # one entry NEWER than the epoch too
+    late = src / "pool" / "a.deb"
+    os.utime(late, (SDE + 999, SDE + 999))
+    assert len(_mtimes(src)) > 1
+    argv = writer.data_times_argv(src)
+    assert argv is not None
+    subprocess.run(argv, check=True)
+    assert _mtimes(src) == {SDE}, "staged tree still carries its own times"
+    link = os.lstat(src / "ncz-payload" / "link")
+    assert int(link.st_mtime) == SDE, "symlink itself must be touched (-h)"
+    # the target of the link was not followed out of the tree
+    assert (src / "ncz-payload" / "link").is_symlink()
+
+
+def test_no_epoch_leaves_times_alone(writer, monkeypatch, tmp_path):
+    monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+    assert writer.data_times_argv(tmp_path) is None
+
+
+def _env_pins(monkeypatch):
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", str(SDE))
+    monkeypatch.setenv(
+        "NCZ_REPRO_UUID_EXT4_DATA", "13ace74c-e1f0-5444-bd73-8df753aa7297"
+    )
+    monkeypatch.setenv(
+        "NCZ_REPRO_UUID_EXT4_HASHSEED", "cb2f666d-2f17-5d93-a7d8-7ae1c5c3b98a"
+    )
+
+
+@pytest.mark.skipif(not os.path.exists(MKFS), reason="mkfs.ext4 not available")
+def test_mke2fs_alone_keeps_pre_epoch_times(writer, tmp_path, monkeypatch):
+    """Negative control: the bare mkfs argv on two stagings with different
+    pre-epoch times gives different images (so the next test is not vacuous)."""
+    _env_pins(monkeypatch)
+    imgs = []
+    for i in range(2):
+        run = tmp_path / f"run{i}"
+        run.mkdir()
+        src = _stage_aged(run, 5000 + 1000 * i)
+        img = run / "data.img"
+        with img.open("wb") as f:
+            f.truncate(64 * 1024 * 1024)
+        subprocess.run(writer.data_mkfs_argv(src, img), check=True)
+        imgs.append(img.read_bytes())
+    if imgs[0] == imgs[1]:
+        pytest.skip("this mke2fs pins pre-epoch times itself")
+
+
+@pytest.mark.skipif(not os.path.exists(MKFS), reason="mkfs.ext4 not available")
+def test_data_partition_identical_when_staged_times_predate_epoch(
+    writer, tmp_path, monkeypatch
+):
+    """End to end through build_data_partition_img (sudo stripped, the
+    loop-mount content check stubbed): two stagings whose files predate the
+    epoch by different amounts give byte-identical NCZDATA images."""
+    _env_pins(monkeypatch)
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append([str(c) for c in cmd])
+        if cmd and cmd[0] == "sudo":
+            cmd = cmd[1:]
+        return subprocess.run(cmd, check=True, **kw)
+
+    monkeypatch.setattr(writer, "run", fake_run)
+    monkeypatch.setattr(writer, "verify_data_partition_content", lambda *a: None)
+    monkeypatch.setattr(writer, "require_free_space", lambda *a: None)
+    imgs = []
+    for i in range(2):
+        run = tmp_path / f"run{i}"
+        run.mkdir()
+        src = _stage_aged(run, 5000 + 1000 * i)
+        img = run / "out" / "data.img"
+        writer.build_data_partition_img(src / "ncz-payload", img, 64)
+        imgs.append(img.read_bytes())
+    assert imgs[0] == imgs[1], "NCZDATA differs: staged times leaked into the image"
+    flat = [" ".join(c) for c in calls]
+    touch = [n for n, c in enumerate(flat) if "touch" in c]
+    mkfs = [n for n, c in enumerate(flat) if "mkfs.ext4" in c]
+    assert len(touch) == len(mkfs) == 2, flat
+    assert all(t < m for t, m in zip(touch, mkfs)), flat
+    assert all(flat[n].startswith("sudo ") for n in touch), flat
