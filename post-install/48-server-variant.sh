@@ -160,85 +160,137 @@ systemctl enable ncz-console-blank.service 2>&1 | sed 's/^/    /' || true
 echo "[48] console idle blanking installed (ncz-console-blank, /etc/ncz/console.conf)"
 
 # Optional tier BEFORE the blank (off by default): a tiny text saver that
-# drifts the brand wordmark, dimmed, and exits on any key. No third-party
-# packages (operator: no cmatrix/pipes); python3 + ANSI only. Started by the
-# idle watcher at 2 minutes when NCZ_CONSOLE_SAVER=wordmark; the blank unit
-# still applies at NCZ_CONSOLE_IDLE_MIN.
+# drifts the brand wordmark, dimmed, and stops on any key. No third-party
+# packages (operator: no cmatrix/pipes); python3 + ANSI only. One daemon owns
+# both the idle judgement and the drawing: it holds the console open, reads it
+# (so "any key" is the same read that resets the idle clock), and only draws
+# between 2 minutes idle and the blank deadline, then stops writing so the
+# kernel can blank the panel without being woken by the saver.
 cat > /usr/local/sbin/ncz-console-saver <<'SAVER'
 #!/usr/bin/env python3
-"""ncz-console-saver -- drift the NCZ wordmark on a text console; any key exits.
+"""ncz-console-saver -- idle console wordmark drift; any key stops the saver.
 
-Off by default (NCZ_CONSOLE_SAVER=none). Dependency-free: ANSI escapes and
-stdin in raw mode; no curses, no packages. Dimmed, 0.5 Hz, and it leaves the
-cursor hidden but restores the screen on exit so agetty redraws cleanly.
+Off by default (NCZ_CONSOLE_SAVER=wordmark enables it). Dependency-free: ANSI
+escapes and a blocking read on the console device; no curses, no packages.
+The daemon tracks console input itself: 2 minutes of silence starts the drift,
+and it stops drawing at NCZ_CONSOLE_IDLE_MIN so the kernel can blank the panel
+without the saver's output waking it. Any key clears the saver immediately.
 """
 import os, select, sys, termios, time, tty
 
 WORD = ("N C Z - O S", "M a g n e t a r   S e r v e r")
-DIM = "\x1b[2m"
-RST = "\x1b[0m"
-CLR = "\x1b[2J\x1b[H"
-SHOW = "\x1b[?25l"
-HIDE = "\x1b[?25h"
+DIM, RST, CLR, HIDE, SHOW = "\x1b[2m", "\x1b[0m", "\x1b[2J\x1b[H", "\x1b[?25h", "\x1b[?25l"
+SAVER_AFTER = 120.0      # seconds of console silence before the drift starts
+POLL = 1.0               # select timeout, so idle is tracked at 1 Hz
+
+
+def conf(path="/etc/ncz/console.conf"):
+    v = {"NCZ_CONSOLE_SAVER": "none", "NCZ_CONSOLE_IDLE_MIN": "5"}
+    try:
+        with open(path) as fh:
+            for line in fh:
+                k, sep, val = line.strip().partition("=")
+                if sep and k in v:
+                    v[k] = val.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return v
+
+
+def open_tty():
+    for p in ("/dev/tty", "/dev/tty1"):
+        try:
+            return os.open(p, os.O_RDWR | os.O_NOCTTY)
+        except OSError:
+            continue
+    return None
+
 
 def main():
-    ttyf = os.open("/dev/tty1", os.O_RDWR | os.O_NOCTTY)
-    attrs = termios.tcgetattr(ttyf)
+    c = conf()
+    if c["NCZ_CONSOLE_SAVER"] != "wordmark":
+        return 0
     try:
-        tty.setraw(ttyf)
-        os.write(ttyf, (CLR + SHOW).encode())
+        idle_min = max(1, int(c["NCZ_CONSOLE_IDLE_MIN"]))
+    except ValueError:
+        idle_min = 5
+    blank_at = idle_min * 60.0
+    fd = open_tty()
+    if fd is None:
+        return 0
+    attrs = None
+    try:
+        try:
+            attrs = termios.tcgetattr(fd)
+            tty.setraw(fd)
+        except termios.error:
+            attrs = None
+        os.write(fd, SHOW.encode())
+        last = time.monotonic()
+        drawing = False
+        x = y = 4
         dx = dy = 1
-        x, y = 4, 2
         while True:
-            # 0.5 Hz; any byte on the console ends the saver
-            r, _, _ = select.select([0], [], [], 2.0)
+            r, _, _ = select.select([fd], [], [], POLL)
             if r:
-                return 0
-            os.write(ttyf, CLR.encode())
-            for i, line in enumerate(WORD):
-                row = y + i
-                if 1 <= row <= 24:
-                    os.write(ttyf, f"\x1b[{row};{x}H{DIM}{line}{RST}".encode())
-            x += dx; y += dy
-            if x < 2 or x > 40: dx = -dx
-            if y < 1 or y > 18: dy = -dy
+                try:
+                    os.read(fd, 4096)
+                except OSError:
+                    pass
+                last = time.monotonic()
+                if drawing:
+                    os.write(fd, (RST + CLR).encode())
+                    drawing = False
+                continue
+            idle = time.monotonic() - last
+            if SAVER_AFTER <= idle < blank_at:
+                if not drawing:
+                    os.write(fd, CLR.encode())
+                    drawing = True
+                os.write(fd, CLR.encode())
+                for i, line in enumerate(WORD):
+                    row = y + i
+                    if 1 <= row <= 24:
+                        os.write(fd, f"\x1b[{row};{x}H{DIM}{line}{RST}".encode())
+                x += dx
+                y += dy
+                if x < 2 or x > 40:
+                    dx = -dx
+                if y < 1 or y > 18:
+                    dy = -dy
+            elif idle >= blank_at and drawing:
+                # Stop writing: the kernel's consoleblank now owns the panel.
+                os.write(fd, (RST + CLR).encode())
+                drawing = False
     finally:
-        os.write(ttyf, (RST + HIDE + CLR).encode())
-        termios.tcsetattr(ttyf, termios.TCSADRAIN, attrs)
-        os.close(ttyf)
+        try:
+            os.write(fd, (RST + SHOW + CLR).encode())
+        except OSError:
+            pass
+        if attrs is not None:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, attrs)
+            except termios.error:
+                pass
+        os.close(fd)
+
 
 if __name__ == "__main__":
     sys.exit(main())
 SAVER
 chmod 0755 /usr/local/sbin/ncz-console-saver
 
-# Idle watcher: after 2 minutes without console input start the saver, but
-# only when the config asks for it and the panel is not blanked already.
-cat > /usr/local/sbin/ncz-console-idle <<'IDLE'
-#!/bin/bash
-# ncz-console-idle -- start the optional wordmark saver on an idle console.
-set -u
-conf=/etc/ncz/console.conf
-NCZ_CONSOLE_SAVER=none
-NCZ_CONSOLE_IDLE_MIN=5
-[ -r "$conf" ] && . "$conf"
-[ "${NCZ_CONSOLE_SAVER:-none}" = wordmark ] || exit 0
-[ -c /dev/tty1 ] || exit 0
-if [ -r /sys/class/graphics/fb0/blank ] && [ "$(cat /sys/class/graphics/fb0/blank)" != 0 ]; then
-    exit 0
-fi
-exec /usr/local/sbin/ncz-console-saver < /dev/tty1 > /dev/tty1 2>/dev/null
-IDLE
-chmod 0755 /usr/local/sbin/ncz-console-idle
-
-cat > /etc/systemd/system/ncz-console-idle.service <<'UNIT'
+cat > /etc/systemd/system/ncz-console-saver.service <<'UNIT'
 [Unit]
-Description=NCZ console idle watcher (optional wordmark saver)
+Description=NCZ console wordmark saver (idle drift; optional)
 After=ncz-console-blank.service
+ConditionPathExists=/etc/ncz/console.conf
 
 [Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/ncz-console-idle
+Type=simple
+ExecStart=/usr/local/sbin/ncz-console-saver
+Restart=always
+RestartSec=2
 StandardInput=tty
 TTYPath=/dev/tty1
 TTYReset=no
@@ -247,22 +299,8 @@ TTYVHangup=no
 [Install]
 WantedBy=multi-user.target
 UNIT
-chmod 0644 /etc/systemd/system/ncz-console-idle.service
-
-cat > /etc/systemd/system/ncz-console-idle.timer <<'UNIT'
-[Unit]
-Description=Start the NCZ console wordmark saver after 2 idle minutes
-
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=2min
-AccuracySec=15s
-
-[Install]
-WantedBy=timers.target
-UNIT
-chmod 0644 /etc/systemd/system/ncz-console-idle.timer
-systemctl enable ncz-console-idle.timer 2>&1 | sed 's/^/    /' || true
+chmod 0644 /etc/systemd/system/ncz-console-saver.service
+systemctl enable ncz-console-saver.service 2>&1 | sed 's/^/    /' || true
 echo "[48] console saver tier installed (ncz-console-saver, wordmark only; off by default)"
 
 
