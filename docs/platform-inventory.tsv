@@ -805,3 +805,4 @@ build/test-server-time-sync.sh	common	-	contract test: the installer-base manife
 build/test-console-blank.sh	common	-	contract test: server console burn-in protection (config, unit, udev, cmdline, gate assertion)
 build/test-server-online-release.sh	common	-	contract test: the release server medium uses the online (option B) payload with a published https base and never publishes
 build/build-server-online.sh	common	-	release wrapper: builds the ONLINE (option B) server medium against a published https payload base; refuses LAN URLs and never publishes
+build/test-ui-socket-path.sh	common	-	contract test: the UI capture harness keeps its qemu UNIX sockets in a short base, not the deep run dir

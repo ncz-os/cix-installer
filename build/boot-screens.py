@@ -204,7 +204,9 @@ else:
     qemu, machine, code, srcvars, gpu = "qemu-system-x86_64", "q35", "/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd", ["-vga", "std"]
 # A UNIX socket path is capped at ~108 bytes. The harness's own files stay in WORKDIR, but a deep WORKDIR (a mktemp
 # under a job workspace, say) would break the two qemu sockets -- so those get a short private directory instead.
-SOCKD = tempfile.mkdtemp(prefix="ncz-bs-")
+# tempfile.mkdtemp honours TMPDIR, and the image gate deliberately sets TMPDIR to the run dir (also deep: the arm64
+# 2026-11-08 UI check died with "AF_UNIX path too long"), so the sockets are forced into a short base.
+SOCKD = tempfile.mkdtemp(prefix="ncz-bs-", dir=os.environ.get("NCZ_UI_SOCKDIR") or "/tmp")
 ser = os.path.join(SOCKD, "serial.sock"); disk = os.path.join(W, "target.qcow2"); vars_ = os.path.join(W, "VARS.fd"); s0 = os.path.join(W, "serial0.log"); mon = os.path.join(SOCKD, "mon.sock")
 for f in (disk, vars_, s0, mon, ser):
     if os.path.exists(f): os.remove(f)
