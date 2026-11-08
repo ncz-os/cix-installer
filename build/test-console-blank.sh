@@ -19,7 +19,11 @@ grep -q 'ncz-console-saver' "$H" && ok "optional wordmark saver installed" || ba
 grep -q 'ncz-console-saver.service' "$H" && ok "saver daemon service installed" || bad "saver daemon service missing"
 ! grep -q 'OnUnitActiveSec' "$H" && ok "no periodic timer (true idle tracking)" || bad "periodic timer still used"
 grep -qF 'select.select([fd]' "$H" && ok "saver selects on the console fd" || bad "saver selects on stdin, not the tty"
-grep -qF 'SAVER_AFTER = 120.0' "$H" && ok "saver waits for a real idle interval" || bad "saver idle gate missing"
+grep -qF 'DRIFT_AFTER = 120.0' "$H" && ok "wordmark waits for a real idle interval" || bad "wordmark idle gate missing"
+grep -qF 'BANNER_AFTER = 60.0' "$H" && ok "status banner starts after 1 min idle" || bad "banner idle gate missing"
+grep -q 'NCZ_CONSOLE_BANNER=yes' "$H" && ok "banner tier enabled by default" || bad "banner config missing"
+grep -q 'next_banner = now + 60.0' "$H" && ok "banner redraws once a minute" || bad "banner does not pace at 1/min"
+grep -qF 'x += dx * 3' "$H" && ok "banner moves a few cells each redraw" || bad "banner does not move"
 grep -qF 'idle >= blank_at' "$H" && ok "saver stops before the blank deadline" || bad "saver does not stop at the blank deadline"
 grep -qE 'apt-get install[^#]*(cmatrix|pipes)' "$H" && bad "third-party saver installed" || ok "no third-party saver packages"
 for f in assets/refind/ncz-refind-refresh-amd64.sh assets/refind/ncz-refind-refresh.sh; do

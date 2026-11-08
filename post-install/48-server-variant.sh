@@ -109,6 +109,9 @@ NCZ_CONSOLE_BLANK=yes
 NCZ_CONSOLE_IDLE_MIN=5
 NCZ_CONSOLE_POWERDOWN_MIN=1
 NCZ_CONSOLE_SAVER=none
+# Status banner tier: redraw the host/IP banner once a minute after 1 min idle,
+# moving it so the fixed position cannot burn the panel. yes|no.
+NCZ_CONSOLE_BANNER=yes
 CONF
 chmod 0644 /etc/ncz/console.conf
 
@@ -168,24 +171,29 @@ echo "[48] console idle blanking installed (ncz-console-blank, /etc/ncz/console.
 # kernel can blank the panel without being woken by the saver.
 cat > /usr/local/sbin/ncz-console-saver <<'SAVER'
 #!/usr/bin/env python3
-"""ncz-console-saver -- idle console wordmark drift; any key stops the saver.
+"""ncz-console-saver -- idle console protection; any key stops it.
 
-Off by default (NCZ_CONSOLE_SAVER=wordmark enables it). Dependency-free: ANSI
-escapes and a blocking read on the console device; no curses, no packages.
-The daemon tracks console input itself: 2 minutes of silence starts the drift,
-and it stops drawing at NCZ_CONSOLE_IDLE_MIN so the kernel can blank the panel
-without the saver's output waking it. Any key clears the saver immediately.
+Two tiers (both off unless the config asks):
+  NCZ_CONSOLE_SAVER=wordmark  drift the brand wordmark after 120 s (dimmed)
+  NCZ_CONSOLE_BANNER=yes      otherwise, redraw a status banner once a minute
+                              after 60 s idle, moving a few cells each time --
+                              the fixed banner is a burn-in source (operator
+                              2026-11-08). Default yes.
+Both stop drawing at NCZ_CONSOLE_IDLE_MIN so the kernel can blank the panel
+without the console being woken. Dependency-free: ANSI + a blocking read on the
+console device; no curses, no packages. Any key clears the tier immediately.
 """
-import os, select, sys, termios, time, tty
+import os, select, socket, subprocess, sys, termios, time, tty
 
-WORD = ("N C Z - O S", "M a g n e t a r   S e r v e r")
 DIM, RST, CLR, HIDE, SHOW = "\x1b[2m", "\x1b[0m", "\x1b[2J\x1b[H", "\x1b[?25h", "\x1b[?25l"
-SAVER_AFTER = 120.0      # seconds of console silence before the drift starts
-POLL = 1.0               # select timeout, so idle is tracked at 1 Hz
+DRIFT_AFTER = 120.0      # wordmark tier
+BANNER_AFTER = 60.0      # status-banner tier
+POLL = 1.0
 
 
 def conf(path="/etc/ncz/console.conf"):
-    v = {"NCZ_CONSOLE_SAVER": "none", "NCZ_CONSOLE_IDLE_MIN": "5"}
+    v = {"NCZ_CONSOLE_SAVER": "none", "NCZ_CONSOLE_BANNER": "yes",
+         "NCZ_CONSOLE_IDLE_MIN": "5"}
     try:
         with open(path) as fh:
             for line in fh:
@@ -195,6 +203,26 @@ def conf(path="/etc/ncz/console.conf"):
     except OSError:
         pass
     return v
+
+
+def status_lines():
+    host = socket.gethostname()
+    try:
+        ip = subprocess.run(["hostname", "-I"], capture_output=True, text=True,
+                            timeout=3).stdout.split()
+        ip = ip[0] if ip else "-"
+    except Exception:
+        ip = "-"
+    try:
+        kver = os.uname().release
+    except Exception:
+        kver = "-"
+    try:
+        up = subprocess.run(["uptime", "-p"], capture_output=True, text=True,
+                            timeout=3).stdout.strip()
+    except Exception:
+        up = ""
+    return (f"{host}  {ip}", f"{kver}  {up}")
 
 
 def open_tty():
@@ -208,16 +236,16 @@ def open_tty():
 
 def main():
     c = conf()
-    if c["NCZ_CONSOLE_SAVER"] != "wordmark":
+    wordmark = c["NCZ_CONSOLE_SAVER"] == "wordmark"
+    banner = c["NCZ_CONSOLE_BANNER"] not in ("no", "0", "false", "disabled")
+    if not wordmark and not banner:
         return 0
     try:
         idle_min = max(1, int(c["NCZ_CONSOLE_IDLE_MIN"]))
     except ValueError:
         idle_min = 5
     blank_at = idle_min * 60.0
-    if blank_at <= SAVER_AFTER:
-        # The configured blank deadline is at or before the saver start; the
-        # blank wins and the saver has no window (idle_min <= 2).
+    if (wordmark and blank_at <= DRIFT_AFTER) or (not wordmark and blank_at <= BANNER_AFTER):
         return 0
     fd = open_tty()
     if fd is None:
@@ -232,8 +260,8 @@ def main():
         os.write(fd, SHOW.encode())
         last = time.monotonic()
         drawing = False
-        x = y = 4
-        dx = dy = 1
+        x, y, dx, dy = 4, 2, 1, 1
+        next_banner = 0.0
         while True:
             r, _, _ = select.select([fd], [], [], POLL)
             if r:
@@ -242,29 +270,44 @@ def main():
                 except OSError:
                     pass
                 last = time.monotonic()
+                next_banner = 0.0
                 if drawing:
                     os.write(fd, (RST + CLR).encode())
                     drawing = False
                 continue
-            idle = time.monotonic() - last
-            if SAVER_AFTER <= idle < blank_at:
-                if not drawing:
-                    drawing = True
+            now = time.monotonic()
+            idle = now - last
+            if idle >= blank_at:
+                if drawing:
+                    os.write(fd, (RST + CLR).encode())
+                    drawing = False
+                continue
+            if wordmark and idle >= DRIFT_AFTER:
                 os.write(fd, CLR.encode())
-                for i, line in enumerate(WORD):
+                for i, line in enumerate(("N C Z - O S", "M a g n e t a r   S e r v e r")):
                     row = y + i
                     if 1 <= row <= 24:
                         os.write(fd, f"\x1b[{row};{x}H{DIM}{line}{RST}".encode())
-                x += dx
-                y += dy
+                x += dx; y += dy
                 if x < 2 or x > 40:
                     dx = -dx
                 if y < 1 or y > 18:
                     dy = -dy
-            elif idle >= blank_at and drawing:
-                # Stop writing: the kernel's consoleblank now owns the panel.
-                os.write(fd, (RST + CLR).encode())
-                drawing = False
+                drawing = True
+            elif banner and idle >= BANNER_AFTER and now >= next_banner:
+                lines = status_lines()
+                os.write(fd, CLR.encode())
+                for i, line in enumerate(lines):
+                    row = y + i
+                    if 1 <= row <= 24:
+                        os.write(fd, f"\x1b[{row};{x}H{DIM}{line[:60]}{RST}".encode())
+                x += dx * 3; y += dy
+                if x < 2 or x > 40:
+                    dx = -dx
+                if y < 1 or y > 20:
+                    dy = -dy
+                next_banner = now + 60.0
+                drawing = True
     finally:
         try:
             os.write(fd, (RST + SHOW + CLR).encode())
