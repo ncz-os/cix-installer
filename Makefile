@@ -309,7 +309,8 @@ iso iso-verified:
 #
 # Design rule 2026-09-30 (the Sky1 test-board incident), updated 2026-10-05: the
 # unified 7.3 kernel must be the default kernel on every arch. Gate the kernel-debs target with the kernel-default
-# policy verifier before doing anything else -- a misdirected
+# policy verifier for the TARGET arch before doing anything else -- an unconditional arm64 check
+# blocked every amd64 build while the arm64 7.3.3 pin is an explicitly unapplied template. A misdirected
 # assets/kernel/mainline symlink (that incident's root cause) silently produces
 # wrong .debs here if this gate is skipped.
 kernel-debs:
@@ -317,7 +318,7 @@ kernel-debs:
 	    echo "[kernel-debs] FATAL: $(ROOT)/build/verify-kernel-default-policy.sh is missing or not executable" >&2; \
 	    exit 1; \
 	fi
-	@if ! bash $(ROOT)/build/verify-kernel-default-policy.sh --root $(ROOT) --arch arm64; then \
+	@if ! bash $(ROOT)/build/verify-kernel-default-policy.sh --root $(ROOT) --arch $(ARCH); then \
 	    echo "[kernel-debs] FATAL: kernel default policy failed -- refusing to package" >&2; \
 	    exit 1; \
 	fi
