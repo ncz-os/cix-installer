@@ -245,7 +245,6 @@ def main():
             idle = time.monotonic() - last
             if SAVER_AFTER <= idle < blank_at:
                 if not drawing:
-                    os.write(fd, CLR.encode())
                     drawing = True
                 os.write(fd, CLR.encode())
                 for i, line in enumerate(WORD):
@@ -283,6 +282,7 @@ chmod 0755 /usr/local/sbin/ncz-console-saver
 cat > /etc/systemd/system/ncz-console-saver.service <<'UNIT'
 [Unit]
 Description=NCZ console wordmark saver (idle drift; optional)
+Requires=ncz-console-blank.service
 After=ncz-console-blank.service
 ConditionPathExists=/etc/ncz/console.conf
 

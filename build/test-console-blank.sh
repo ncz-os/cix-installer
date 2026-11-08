@@ -18,10 +18,10 @@ grep -q 'vtconsole' "$H" && ok "udev re-applies on a new VT" || bad "no udev re-
 grep -q 'ncz-console-saver' "$H" && ok "optional wordmark saver installed" || bad "saver missing"
 grep -q 'ncz-console-saver.service' "$H" && ok "saver daemon service installed" || bad "saver daemon service missing"
 ! grep -q 'OnUnitActiveSec' "$H" && ok "no periodic timer (true idle tracking)" || bad "periodic timer still used"
-grep -q 'select.select(\[fd\]' "$H" && ok "saver selects on the console fd" || bad "saver selects on stdin, not the tty"
-grep -q 'SAVER_AFTER' "$H" && ok "saver waits for a real idle interval" || bad "saver idle gate missing"
-grep -q 'blank_at' "$H" && ok "saver stops before the blank deadline" || bad "saver does not stop at the blank deadline"
-grep -qE 'apt-get[^#]*(cmatrix|pipes)' "$H" && bad "third-party saver installed" || ok "no third-party saver packages"
+grep -qF 'select.select([fd]' "$H" && ok "saver selects on the console fd" || bad "saver selects on stdin, not the tty"
+grep -qF 'SAVER_AFTER = 120.0' "$H" && ok "saver waits for a real idle interval" || bad "saver idle gate missing"
+grep -qF 'idle >= blank_at' "$H" && ok "saver stops before the blank deadline" || bad "saver does not stop at the blank deadline"
+grep -qE 'apt-get install[^#]*(cmatrix|pipes)' "$H" && bad "third-party saver installed" || ok "no third-party saver packages"
 for f in assets/refind/ncz-refind-refresh-amd64.sh assets/refind/ncz-refind-refresh.sh; do
     grep -q 'consoleblank=300' "$ROOT/$f" && ok "$f server cmdline" || bad "$f missing consoleblank=300"
 done
