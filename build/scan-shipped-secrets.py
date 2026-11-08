@@ -1978,10 +1978,18 @@ def _walk_image(img: str, scanner: Scanner, workdir: str, rep: Report,
             run_tasks(rep, pool, tasks)
             del tasks
 
-        if variant == "server":
-            # A Magnetar medium ships its layers OFF the medium (--payload
-            # scans them). Prove the medium really is one: no layer on it,
-            # and the fetch manifest that pins the payload is present.
+        if variant == "server" and receipt_medium(img):
+            # Self-contained server medium: the squashed payload is ON the
+            # medium, so layers are expected and scanned by the generic pass;
+            # there is no fetch manifest and no off-medium payload to pin.
+            if not layers:
+                raise Unreadable(
+                    "--variant server (medium), but the self-contained medium "
+                    "carries no squashfs layer")
+        elif variant == "server":
+            # An online Magnetar medium ships its layers OFF the medium
+            # (--payload scans them). Prove the medium really is one: no layer
+            # on it, and the fetch manifest that pins the payload is present.
             if layers:
                 raise Unreadable(
                     "--variant server, but the medium carries squashfs "
@@ -2068,6 +2076,19 @@ def receipt_variant(img: str) -> str:
             return str(json.load(fh).get("variant", "desktop"))
     except (OSError, ValueError) as exc:
         raise Unreadable(f"cannot read the image receipt {path}: {exc}")
+
+
+def receipt_medium(img: str) -> bool:
+    """True when the receipt records a self-contained (server_payload=medium)
+    server medium: its payload is ON the medium, so layers/pool are expected
+    there rather than fetched."""
+    path = img + ".receipt.json"
+    try:
+        with open(path, encoding="utf-8") as fh:
+            rec = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    return ((rec.get("ncz_payload") or {}).get("server_payload") == "medium")
 PAYLOAD_TAR_BATCH = 256 << 20     # bytes of tar members held before a flush
 
 

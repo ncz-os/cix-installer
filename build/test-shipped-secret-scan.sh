@@ -909,6 +909,13 @@ receipt_for "$WORK/clean.img" server
 out="$($PY "$SCAN" --image "$WORK/clean.img" --hash-file "$WORK/hashes.json" --variant server 2>&1)"; rc=$?
 [ "$rc" = 1 ] && grep -q 'carries squashfs layer' <<<"$out" \
     && pass "a desktop medium with a server receipt fails --variant server" || fail "desktop medium passed as server (rc=$rc): $out"
+# A self-contained server medium records server_payload=medium and carries its
+# squashed payload ON the medium: the scan must accept it (and scan the layer),
+# not refuse it as "a server medium ships none".
+printf '{"variant":"server","ncz_payload":{"server_payload":"medium","staged_files":["base.squashfs"]}}\n' > "$WORK/clean.img.receipt.json"
+out="$($PY "$SCAN" --image "$WORK/clean.img" --hash-file "$WORK/hashes.json" --variant server 2>&1)"; rc=$?
+[ "$rc" = 0 ] && pass "self-contained server medium with the layer on it passes --variant server" \
+    || fail "self-contained server medium rejected (rc=$rc): $out"
 rm -f "$WORK/clean.img.receipt.json"
 SERVER=1 SERVER_NO_MANIFEST=1 build_image "$WORK/server-nomf.img" clean || exit 1
 receipt_for "$WORK/server-nomf.img" server
