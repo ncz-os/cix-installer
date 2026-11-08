@@ -803,3 +803,5 @@ build/test-receipt-gates.sh	common	-	contract tests: gates.json evidences one_ke
 build/receipt-gates.py	common	-	derive gates.json from a run's result files, carrying one_kernel (provenance) and ui (kvm gate)
 build/test-server-time-sync.sh	common	-	contract test: the installer-base manifests seed a time daemon and the server gate asserts an enabled time-sync unit
 build/test-console-blank.sh	common	-	contract test: server console burn-in protection (config, unit, udev, cmdline, gate assertion)
+build/test-server-online-release.sh	common	-	contract test: the release server medium uses the online (option B) payload with a published https base and never publishes
+build/build-server-online.sh	common	-	release wrapper: builds the ONLINE (option B) server medium against a published https payload base; refuses LAN URLs and never publishes
