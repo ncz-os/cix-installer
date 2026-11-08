@@ -75,6 +75,8 @@ stage_default() {
     [ -s "$pin_file" ] || { echo "ERROR: $pin_file missing -- the pinned amd64 7.3 KVER must be committed" >&2; return 1; }
     local wanted d
     wanted=$(tr -d '[:space:]' < "$pin_file")
+    # The kernel-ci registry's current kernel (exported by build-image.sh) wins.
+    [ -n "${NCZ_KERNEL_KVER:-}" ] && wanted="$NCZ_KERNEL_KVER"
     [ -n "$wanted" ] || { echo "ERROR: $pin_file is empty" >&2; return 1; }
     case "$wanted" in
         7.3.*|7.3-*) ;;
@@ -93,6 +95,8 @@ stage_default() {
     fi
     local rel=""
     rel=$(manifest_rel)
+    [ -n "${NCZ_KERNEL_PKGVERSION:-}" ] && pkgver="$NCZ_KERNEL_PKGVERSION"
+    [ -z "${AMD64_SRC:-}" ] && [ -n "${NCZ_KERNEL_STAGED_DIR:-}" ] && AMD64_SRC="$NCZ_KERNEL_STAGED_DIR"
     if [ -n "${AMD64_SRC:-}" ]; then
         src="$AMD64_SRC"
     elif [ -n "$rel" ]; then

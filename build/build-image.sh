@@ -102,6 +102,7 @@ USE_CONTAINER="${NCZ_BUILD_CONTAINER:-1}"
 NO_ARCHIVE=0
 IMAGE_ARG=""
 KEEP_GOING=0
+KERNEL_FROM_MANIFESTS=0   # 1 = --kernel-from-manifests (committed pins, never a retired one)
 SCOPE=""              # full|respin|rebuild-base|rebuild-desktop|rebuild-hotfix|components|only-image
 COMPONENTS=""         # comma list (scope=components)
 GATES=""              # comma list; empty => all
@@ -178,6 +179,9 @@ OPTIONS
   --arch amd64|arm64|both   REQUIRED. 'both' builds the two arches in parallel on
                             their hosts (NCZ_AMD64_HOST, NCZ_ARM64_HOST)
   --no-publish              build + gates, never copy to the image archive
+  --kernel-from-manifests   build with the committed kernel pins instead of the
+                            kernel-ci registry's current kernel (still refuses a
+                            kernel the registry lists as retired)
   --gates kvm,provenance    run only these gates (REQUIRES --no-publish)
   --substrate refresh|pinned  substrate policy (refresh is the --full default)
   --sources latest|pinned   singularity payload source pins: 'latest' resolves
@@ -258,6 +262,7 @@ while [ $# -gt 0 ]; do
         --no-container) USE_CONTAINER=0; FORWARD+=("--no-container"); shift ;;
         --no-archive) NO_ARCHIVE=1; FORWARD+=("--no-archive"); shift ;;
         --keep-going) KEEP_GOING=1; FORWARD+=("--keep-going"); shift ;;
+        --kernel-from-manifests) KERNEL_FROM_MANIFESTS=1; shift ;;
         -h|--help) usage 0 ;;
         --) shift; break ;;
         *) echo "build-image.sh: unknown argument: $1" >&2; usage 2 ;;
@@ -589,6 +594,9 @@ fi
 # alternate (the bind mount in preflight).
 ncz_resolve_kver() {
     local arch="$1" k t
+    # The kernel-ci registry's current kernel (exported below by
+    # build/resolve-kernel-from-registry.py) wins over every committed pin.
+    if [ -n "${NCZ_KERNEL_KVER:-}" ]; then printf '%s\n' "$NCZ_KERNEL_KVER"; return 0; fi
     if [ "$arch" = "amd64" ]; then
         k="$(tr -d '[:space:]' < "$ROOT/assets/kernel/amd64-stable/KVER" 2>/dev/null || true)"
         [ -n "$k" ] && { printf '%s\n' "$k"; return 0; }
@@ -705,6 +713,18 @@ if [ "$DRY_RUN" != 1 ]; then
 fi
 
 RUN_PIN="$RUN_DIR/run.pin"
+# Kernel: the kernel-ci promotion registry's current pointer for this arch
+# (fleet-ops gitops/fleet/kernel-ci). A promotion changes the next build with no
+# commit here; a missing, unverifiable or retired kernel stops the build.
+_kres=(--arch "$ARCH"); [ "$KERNEL_FROM_MANIFESTS" = 1 ] && _kres+=(--allow-committed-manifests)
+if ! KERNEL_RESOLVED="$(python3 "$ROOT/build/resolve-kernel-from-registry.py" "${_kres[@]}")"; then
+    echo "build-image.sh: kernel resolution refused (see above)" >&2
+    exit 4
+fi
+while IFS='=' read -r _k _v; do
+    case "$_k" in NCZ_KERNEL_[A-Z_]*) export "$_k=$_v" ;; esac
+done <<<"$KERNEL_RESOLVED"
+echo "build-image.sh: kernel $NCZ_KERNEL_BUILD (source: $NCZ_KERNEL_SOURCE)"
 # generate the build-local assets/kernel/mainline link before anything reads it
 MAINLINE_LINK_MSG="$(bash "$ROOT/build/link-kernel-mainline.sh" 2>&1)"; MAINLINE_LINK_RC=$?
 KVER="$(ncz_resolve_kver "$ARCH" || true)"
