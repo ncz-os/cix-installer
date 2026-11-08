@@ -498,6 +498,34 @@ payload:
   artifacts, proves each pinned URL answers 200 before the guest boots, and
   requires the guest's `[FETCH] <name> verified sha256=` line for each.
 
+## CI and determinism (2026-11-07)
+
+The image CI builds server media next to desktop media on both arches
+(docs/IMAGE-CI-MATRIX.md, build/image-ci-matrix.sh). Each server cell is built
+twice from clean clones and compared with `compare-images.sh --payload`, which
+covers base.squashfs, `ncz-assets-<arch>.tar.gz`, `ncz-pool-<arch>.tar.gz` and
+the `.sha256` sidecars. A CI server medium is a gate medium: the payload URLs are
+removed from its build environment, so it pins the KVM gate's local server.
+
+Determinism fixes that only the server variant needed:
+
+- The pool tarball packs `build/<suite>-mirror` as the mirror stage left it.
+  `build-forky-mirror.sh` wrote that Release with the wall clock as Date and
+  redirected it into the tree it was scanning. It now uses `ncz_apt_release`
+  (build/lib/apt-release.sh): Date from SOURCE_DATE_EPOCH, file written outside
+  `dists/<suite>` and moved in. The desktop medium was not affected because the
+  writer rewrites its own copy (write_medium_release).
+- The image, secret-scan and KVM stages looked the medium up with an unscoped
+  glob, which sorts `-server.img` after `-desktop.img`. They now use
+  `ncz_find_image`, which matches the variant.
+
+The asset bundle and the pool were already reproducible apart from that
+Release (make_targz: sorted members, mtime/uid/gid 0, no owner names, gzip
+header mtime 0 and no name). build/iso/tests/test_magnetar_payload_determinism.py
+proves it on two fixture trees with different mtimes, creation order and
+xattrs. Section 11 of build/test-build-determinism.sh runs ncz_magnetar_prepare,
+the writer's export and ncz_magnetar_collect twice and compares the results.
+
 ## The LAN-served payload
 
 The gate serves the payload itself: it reads the pins back off the medium,

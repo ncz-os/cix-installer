@@ -145,4 +145,9 @@ else
     echo "=== packaging as $REV"
     cd "$REPO" && BUILD_REV="$REV" build/build-kernel-debs.sh
 fi
-[ "$CHANNEL" = edge ] || ls -la "$REPO/build/kernel-debs/" | tail -4
+# List the debs only when this run packaged them. With NCZ_SKIP_PACKAGING=1 a
+# fresh tree has no build/kernel-debs/ yet, and a failing ls under pipefail
+# used to turn a fully passing staging run into exit 2 (r298, 2026-11-07).
+if [ "$CHANNEL" != edge ] && [ "${NCZ_SKIP_PACKAGING:-0}" != 1 ]; then
+    ls -la "$REPO/build/kernel-debs/" | tail -4
+fi

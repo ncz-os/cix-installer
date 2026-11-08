@@ -58,14 +58,17 @@ cmd_for() {
     var="NCZ_IMAGE_CI_CMD_$(echo "$trig" | tr 'a-z-' 'A-Z_')"
     if [ -n "${!var:-}" ]; then printf '%s' "${!var}"; return; fi
     case "$trig" in
+        # Image triggers run the matrix for this host's arch: desktop and server
+        # (Magnetar) media, each built twice from clean clones and compared.
+        # Every build in it is --no-publish (image-ci-matrix.sh refuses otherwise).
         forky-pin)
-            printf '%s' "bash $REPO/build/build-image.sh --arch $host_arch --full --sources pinned --substrate pinned --no-publish" ;;
+            printf '%s' "bash $REPO/build/image-ci-matrix.sh --foreground --arch $host_arch" ;;
         kernel-stable|kernel-rc)
             printf '%s' "bash $REPO/build/build-kernel-debs.sh --arch $host_arch" ;;
         singularity)
             printf '%s' "bash $REPO/build/build-singularity.sh" ;;
         ncz-debs)
-            printf '%s' "bash $REPO/build/build-image.sh --arch $host_arch --full --sources pinned --substrate pinned --no-publish" ;;
+            printf '%s' "bash $REPO/build/image-ci-matrix.sh --foreground --arch $host_arch" ;;
         *)
             printf '%s' "" ;;
     esac

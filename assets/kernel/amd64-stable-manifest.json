@@ -2,27 +2,28 @@
   "schema": 1,
   "channel": "default",
   "arch": "amd64",
-  "kver": "7.3.0-t2-ncz",
-  "package_revision": "7.3.0-2",
-  "build_rev": "amd64-t2-7.3.0-2-20261021",
-  "staged_utc": "2026-10-25",
+  "kver": "7.3.3-t2-ncz",
+  "package_revision": "7.3.3-r297",
+  "build_rev": "amd64-t2-7.3.3-r297-20261107",
+  "staged_utc": "2026-11-07",
   "channel_pointer": "assets/kernel/amd64-stable",
-  "staging_pool_relative": "kernel-staging/amd64-t2-7.3.0-2-20261021/7.3.0-t2-ncz",
+  "staging_pool_relative": "kernel-staging/amd64-stable-7.3.3-t2-ncz-20261107",
   "staging_pool_note": "Path is relative to the shared kernel-staging export of the project artifact store; the mount root differs per build host.",
-  "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
-  "note": "amd64 DEFAULT, installer and rescue kernel under the unified 7.3 policy: the T2 7.3.0 FINAL build (v7.3 c03c1a14507d), package revision 7.3.0-2. 7.3.0-2 = 7.3.0-1 + 9506, which maps the brcmfmac msgbuf RX packet IDs DMA_BIDIRECTIONAL again (upstream f0ba5fd51ff2 made them DMA_FROM_DEVICE; the BCM4364 firmware reads them, so with VT-d translation every read faulted 'PTE Read access is not set' and the firmware crash-looped). The same change is posted upstream (linux-wireless, Acked-by Arend van Spriel) and carried by t2linux as 9005. 9011 (Apple SEP ANFE quirk) is upstream in the v7.3 base as 7209846a169f and no longer applied; 2010 (boot-GPU guard) is kept. Rolled out to six test hosts on 2026-10-21 (0 DMAR faults, 0 firmware crashes). The published debs differ from the build output only in DEBIAN/control Maintainer (REPACK-NOTE.txt in the pool).",
+  "build_evidence": "/mnt/argonas/datapool/projects/t2-kernel-stage/7.3.3-r297 (artifact store; SHA256SUMS, PROVENANCE + addendum, BUILD-IDS.txt, kvm-gate.out, MEDUSA-TEST-PLAN.md, medusa-20261107/)",
+  "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel) + assets/kernel/KERNEL-LIFECYCLE (MIN_VERSION 7.3.3; 7.3.0-t2-ncz and 7.3.1-t2-ncz retired)",
+  "note": "amd64 DEFAULT, installer and rescue kernel for rc4: the T2 7.3.3 build (v7.3.3 d50d994bffa3), package revision 7.3.3-r297, built on TYPHON 2026-11-07 from amd64-kernel-t2 0bed835 (feat/amd64-7.3.3-r297-20261107; 26 patches applied, 0 skipped, same set as 7.3.1-r295). Boot-tested on MEDUSA 2026-11-07 and promoted: it replaces 7.3.1-t2-ncz (7.3.1-r295), and rc3's 7.3.0-t2-ncz (7.3.0-2) stays retired. Published unchanged into the kernel-staging pool by build/publish-amd64-kernel.sh (staging_pool_relative); the debs are the build output as-is (control Maintainer is the container default, not repacked). Not bit-reproducible (per-build module signing key).",
   "source": {
-    "base_tag": "v7.3",
-    "base_commit": "c03c1a14507dfaf8b856c2608f9ac216021fc222",
+    "base_tag": "v7.3.3",
+    "base_commit": "d50d994bffa3c7c6db2d8bc4c5f0c55e3f46b0cd",
     "t2_repo": "amd64-kernel-t2",
-    "t2_branch": "release/t2-7.3.0-2-brcmfmac-rx-20261021",
-    "t2_repo_commit": "fe1781066e83ae8175b0c631066d36c66d57a156",
+    "t2_branch": "feat/amd64-7.3.3-r297-20261107",
+    "t2_repo_commit": "0bed8354d3c9f2efd0bcda1b2335d702329685c0",
     "t2_aer_patch": null,
     "t2_cyclops_patch": "patches/2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch",
-    "applied_patch_count": 24,
-    "kernel_ref": "v7.3 (c03c1a14507d)",
-    "build_host": "amd64 build host, bare (Ubuntu config template and toolchain, operator choice 2026-10-21)",
-    "built_utc": "2026-10-21T15:47:00Z",
+    "applied_patch_count": 26,
+    "kernel_ref": "v7.3.3 (d50d994bffa3)",
+    "build_host": "TYPHON (amd64), Docker debian:forky, gcc 16.2.0-3 (Ubuntu config template)",
+    "built_utc": "2026-11-07T20:11:09Z",
     "applied_patches": [
       "1001",
       "1002",
@@ -37,6 +38,7 @@
       "5002",
       "6001",
       "6002",
+      "6003",
       "7001",
       "8001",
       "8002",
@@ -47,59 +49,67 @@
       "9102",
       "9503",
       "9504",
-      "9506"
+      "9506",
+      "9508"
     ],
     "held_not_applied": [
       "9011",
       "9507"
     ],
-    "t2_aer_note": "9011's quirk_no_aer_anfe is upstream in v7.3 (7209846a169f); the patch is held, not applied",
+    "t2_aer_note": "9011's quirk_no_aer_anfe is upstream in the v7.3.3 base (7209846a169f); the patch is held, not applied",
     "t2_wifi_patch": "patches/9506-wifi-brcmfmac-map-RX-packet-IDs-bidirectional.patch",
-    "t2_cyclops_note": "Patch 2010 restores the upstream boot-GPU guard in vga_switcheroo_client_probe_defer() scoped to non-T2 Apple; unchanged since the rc7 r2 build."
+    "t2_cyclops_note": "Patch 2010 restores the upstream boot-GPU guard in vga_switcheroo_client_probe_defer() scoped to non-T2 Apple; unchanged.",
+    "kernel_tag_object": "b7cb9f473aa648c37e68d08cb2f3c154f17f593c",
+    "kernel_tarball_sha256": "79c66dde66cd96877fcde8f7d36aec946b1f423d2b97b5a7b1751b75c764f3d1",
+    "patch_list_sha256": "e3acf06ce5597a5a97ef50ed28e0be05db1f430a3e7dc5fde171b1f7c3fbe5ca"
   },
   "artifacts": {
-    "linux-image-7.3.0-t2-ncz_7.3.0-2_amd64.deb": {
-      "sha256": "4812a6d27229ab3aaddfd3f6af396bca82545776d9c156547a7e933a22ba9800",
-      "size": 108819788
+    "linux-image-7.3.3-t2-ncz_7.3.3-r297_amd64.deb": {
+      "sha256": "acd8182dad75de5e3429960c6201ce0cb5146d07d6d268fb233becff894ab48a",
+      "size": 109857644
     },
-    "linux-headers-7.3.0-t2-ncz_7.3.0-2_amd64.deb": {
-      "sha256": "fb73f240db060df31ab4bd6af19a97a8a8cb4caac0227a1a94ea88d7beb6b9f0",
-      "size": 10283712
+    "linux-headers-7.3.3-t2-ncz_7.3.3-r297_amd64.deb": {
+      "sha256": "1fff1b802ef110a4231fef83af3b88e3d19ca1e93d869b92f581f727a0389980",
+      "size": 10292416
     },
-    "kernel_config_7.3.0-t2-ncz": {
-      "sha256": "77dc893b73bea15b2a95b7c6fc99216b8f8a7fe37a690fc313809158a45edc3d",
-      "size": 309461
+    "kernel_config_7.3.3-t2-ncz": {
+      "sha256": "ca3d073e6903de2d4e32305016c7dae1ecba69e330958a9873b594ec7853c7ba",
+      "size": 309266
     },
-    "PROVENANCE-7.3.0-t2-ncz": {
-      "sha256": "37a3bf34f4f6ac01d2c7c0a343eb5c764b3826cbb3f9570f4b5d0fc6ccf1db5e",
-      "size": 3211
+    "PROVENANCE-7.3.3-t2-ncz": {
+      "sha256": "11461107573f8f740eff46ff6eea7a8a5f5d9b577266eb0333c056d5c91faaf5",
+      "size": 3436
     },
-    "KVM-GATE.log": {
-      "sha256": "7250c40991dfbe7f011773b6135b4e39933f18699464b99b055328f601c0d079",
-      "size": 2455
+    "PROVENANCE-ADDENDUM-7.3.3-t2-ncz": {
+      "sha256": "869eb905b2e08540485724688b14d6ddb6d4f79567ae798bb508a5e38d7ec272",
+      "size": 673
     },
-    "REPACK-NOTE.txt": {
-      "sha256": "8b6cd066ec425420a00a90a2665f35776c581ec9d6681dabab91c15f42c4b9ca",
-      "size": 634
+    "BUILD-IDS.txt": {
+      "sha256": "64e1de4204bd56d8150aca7d74c021c2b64613b394dcf730048adf62851b879c",
+      "size": 2105
     }
   },
   "identity": {
-    "image_deb_package": "linux-image-7.3.0-t2-ncz",
-    "image_deb_version": "7.3.0-2",
-    "headers_deb_package": "linux-headers-7.3.0-t2-ncz",
-    "headers_deb_version": "7.3.0-2",
-    "kernel_release": "7.3.0-t2-ncz",
-    "module_vermagic": "7.3.0-t2-ncz SMP preempt mod_unload modversions",
-    "vmlinux_build_id": "fc45ee06f803037798bfed19e8620f3ad0a76138",
-    "vmlinuz_sha256": "e5f824e92d06a44ccbf0ae1bdb6245315aefc0ec9244f1bbeb1364293c338690",
-    "config_reference": "kernel_config_7.3.0-t2-ncz in the staging pool; identical to 7.3.0-1 except rustc version metadata (CONFIG_RUST off)."
+    "image_deb_package": "linux-image-7.3.3-t2-ncz",
+    "image_deb_version": "7.3.3-r297",
+    "headers_deb_package": "linux-headers-7.3.3-t2-ncz",
+    "headers_deb_version": "7.3.3-r297",
+    "kernel_release": "7.3.3-t2-ncz",
+    "module_vermagic": "7.3.3-t2-ncz SMP preempt mod_unload modversions",
+    "vmlinux_build_id": "6c0964025578f800beaca05e7c84b5c639025bd2",
+    "vmlinuz_sha256": "f0709e473fe9cc9fe3f9163307de3a097a0c3f6f3c108c87806efd1d96ff5854",
+    "image_data_tar_sha256": "f0495fdd81e3a83f7ec54a2ef06d9c35de444efa6ca71cbe68ccc205946c2d49",
+    "headers_data_tar_sha256": "fe3262e5977ff327c9c382bcd11c190e8b6e40949023f16b45948200bb8341a7",
+    "module_count": 6890,
+    "module_compression": "none (0 compressed .ko)",
+    "config_reference": "kernel_config_7.3.3-t2-ncz in the staging pool (sha256 above)."
   },
   "gates": {
-    "static_gate": "PASS (amd64-kernel-t2 tests/patch_set_test.sh 55/55, tests/series_apply_test.sh 12/12 against pristine v7.3; zoder review approve gemma4-31b)",
-    "initramfs_check": "not run here",
-    "kvm_gate": "PASS (boots to root mount, not tainted, build #2; KVM-GATE.log)",
-    "hardware_gate": "PASS on six hosts 2026-10-21: MEDUSA and CHIMERA (MacBookPro16,1, intel_iommu on, 0 DMAR faults, wlan0 up), PEGASUS (ROG Zephyrus M15), DELL (Inspiron 5521), CYCLOPS (Macmini5,1, i915 + /dev/dri), PROTEUS (HP OmniDesk)",
+    "static_gate": "build.sh gates on the applied tree: 26/26 patches, 0 skipped; in-tree modversions 894 checked, 0 mismatch (PROVENANCE-ADDENDUM)",
+    "initramfs_check": "dracut proof initrd in the build evidence; on MEDUSA dracut built 661 modules, the same set as 7.3.1",
+    "kvm_gate": "PASS: the port build's kvm-gate.out (EFI boot, t2bce/apfs/brcmfmac modprobe, verdict PASS), and re-run 2026-11-07 on the pinned vmlinuz (qemu/KVM, no root: expected VFS root-mount panic, 'Not tainted 7.3.3-t2-ncz', no oops/BUG/WARNING; log sha256 7cb48ee39a73d2a1a7877ea5ee251f759457b0a11bfafaea9bf0320032d6fa46)",
+    "hardware_gate": "PASS on MEDUSA (MacBookPro16,1) 2026-11-07: one-shot boot, uname 7.3.3-t2-ncz #r297, /boot/vmlinuz sha256 f0709e47... = this build, 31 min soak, the same 25 err lines as 7.3.1, 0 oops/BUG/WARNING/DMAR/AER, 0 brcmfmac firmware crashes; Wi-Fi scan, Bluetooth, T2 audio, Touch Bar, amdgpu Navi14 ok; loaded module build IDs match BUILD-IDS.txt. CHIMERA and PEGASUS still run 7.3.1-r295; DELL still runs 7.3.0.",
     "interrupt_transcript": "n/a"
   },
-  "hardware_note": "Hardware-validated 2026-10-21 (this 7.3.0-2 build): see gates.hardware_gate and amd64-kernel-t2 reports/t2-7.3.0-2-release-20261021/REPORT.md."
+  "hardware_note": "Single-host hardware gate (MEDUSA), unlike 7.3.0-2's six-host rollout."
 }

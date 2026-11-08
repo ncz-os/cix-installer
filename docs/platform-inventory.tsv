@@ -729,6 +729,9 @@ build/test-probe-sing-fleet.sh	common	-	the poll's failure paths: dead host, no 
 build/image-ci-poll.py	common	-	the five image-CI triggers with per-trigger state files (cycle 449)
 build/image-ci-run.sh	common	-	turns a moved trigger into one detached build; dry run by default, marker, launched.jsonl, state advanced only on a live pid (cycles 449, 483)
 build/test-image-ci-run.sh	common	-	the runner's contract: nothing publishes, one build per host, marker released by its own child, state advanced only on success (cycles 449, 483)
+build/image-ci-matrix.sh	common	-	the image CI matrix: desktop + server (Magnetar) x amd64 + arm64, two clean builds + compare per cell, host lock, Hive marker, --status candidate grid
+build/test-image-ci-matrix.sh	common	-	the matrix contract on a stub build: plan, refusals, order, gate media, marker, determinism verdicts, cleanup, candidate grid
+build/lib/apt-release.sh	common	-	reproducible apt Release (Date from SOURCE_DATE_EPOCH, written outside the scanned tree) for the offline mirror the Magnetar pool packs
 build/test-image-ci-units.sh	common	-	the systemd units and env example: no %h in EnvironmentFile, paths host-agnostic, nothing installs itself (cycle 477)
 build/deb-retention.py	common	-	n-2 deb retention: plan by default, --apply requires --yes-really, refuses a non-directory source (cycle 478)
 build/test-deb-retention-apply.sh	common	-	the deleting half of retention: only the plan goes, newest build per release survives, out-of-scope untouched (cycle 478)
@@ -784,3 +787,7 @@ PLAN-FB152.md	common	-	FB152: static gate over post-install scripts
 REVIEW_VERDICT_hv-cx-m10m11-rebase-20261031.json	common	-	review: structured non-author verdict for hv/cx-m10m11-rebase-20261031
 REVIEW_VERDICT_hv-cx-m1-early-provenance-20261031.json	common	-	READ-ONLY review. Do not modify any file, branch, or commit. Review the
 REVIEW_VERDICT_hv-cx-m5-host-ready-20261031.json	common	-	review(hv/cx-m5-host-ready-20261031): verdict request-changes for d1b9fb24
+build/check-kernel-lifecycle.py	common	-	kernel lifecycle gate: pins must equal the promoted CURRENT kernel in assets/kernel/KERNEL-LIFECYCLE, not RETIRED, not below MIN_VERSION
+build/test-kernel-lifecycle.sh	common	-	fixture tests for check-kernel-lifecycle.py (retired, too old, unpromoted, inconsistent pins; real tree)
+build/test-stage-amd64-kernel.sh	amd64	-	stage-amd64-kernel.sh takes the manifest pool dir and checks every deb sha256 (same-KVER pool dirs)
+assets/kernel/KERNEL-LIFECYCLE	common	-	kernel promotion state (MIN_VERSION, CURRENT per arch, RETIRED) written by the kernel-ci registry; read by check-kernel-lifecycle.py

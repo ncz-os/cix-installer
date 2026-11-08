@@ -8,6 +8,8 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 . "$REPO/release.conf"
 # shellcheck source=lib/mirror-apt-opts.sh
 . "$REPO/build/lib/mirror-apt-opts.sh"
+# shellcheck source=lib/apt-release.sh
+. "$REPO/build/lib/apt-release.sh"
 
 SUITE="${SUITE:-$NCZ_BASE_CODENAME}"
 # 2026-09-15: was hardcoded "arm64" regardless of caller -- an AMD64 build
@@ -159,21 +161,12 @@ fi
     > "dists/$SUITE/main/binary-$ARCH/Packages")
 gzip -9n -c "$OUT/dists/$SUITE/main/binary-$ARCH/Packages" \
     > "$OUT/dists/$SUITE/main/binary-$ARCH/Packages.gz"
-# Remove any previous Release BEFORE regenerating it. The shell truncates the
-# redirect target before apt-ftparchive scans the tree, and with a stale file
-# present the emitted checksums could describe a Packages that no longer
-# exists -- apt then rejects the mirror with "Hash Sum mismatch". Measured
-# 2026-08-11 on build/forky-mirror: Release claimed sha256 b79c1dd8 for a
-# Packages whose real hash was 733df18b, and deleting the old Release first
-# fixed it. Same fix build-vendor-mirror.sh already carries.
-(cd "$OUT" && rm -f "dists/$SUITE/Release" && apt-ftparchive \
-    -o "APT::FTPArchive::Release::Origin=NCZ-OS" \
-    -o "APT::FTPArchive::Release::Label=NCZ-OS-$SUITE" \
-    -o "APT::FTPArchive::Release::Suite=$SUITE" \
-    -o "APT::FTPArchive::Release::Codename=$SUITE" \
-    -o "APT::FTPArchive::Release::Components=main" \
-    -o "APT::FTPArchive::Release::Architectures=$ARCH" \
-    release "dists/$SUITE" > "dists/$SUITE/Release")
+# Release: the stale file is removed before the scan (2026-08-11: a stale
+# Release beside a new Packages gave "Hash Sum mismatch"), the Date comes from
+# SOURCE_DATE_EPOCH and the file is written outside the scanned tree. The
+# Magnetar pool tarball packs this mirror as is, so a wall-clock Date changed
+# its sha256 pin on every build (build/lib/apt-release.sh).
+ncz_apt_release "$OUT" "$SUITE" "$ARCH" "NCZ-OS" "NCZ-OS-$SUITE"
 
 # grep -c exits 1 when the count is 0, which under pipefail kills the
 # script with no message. An empty index is a bug and must say so; a

@@ -887,9 +887,26 @@ release-image:
 gen-base-pin:
 	@bash $(ROOT)/build/gen-base-pin.sh
 
-# Unit-level determinism tests (derivation + wrapper byte-stability).
+# Unit-level determinism tests (derivation + wrapper byte-stability), including
+# the Magnetar payload (asset bundle, offline pool, sha256 sidecars).
 test-build-determinism:
 	@bash $(ROOT)/build/test-build-determinism.sh
+	@python3 -m pytest $(ROOT)/build/iso/tests/test_magnetar_payload_determinism.py -q
+
+# The image CI: trigger runner + the desktop/server x amd64/arm64 matrix
+# (no image is built; the matrix test runs a stub build-image.sh).
+.PHONY: test-image-ci image-ci-matrix image-ci-status
+test-image-ci:
+	@bash $(ROOT)/build/test-image-ci-run.sh
+	@bash $(ROOT)/build/test-image-ci-matrix.sh
+
+# Print the four-cell plan (dry run; starts nothing).
+image-ci-matrix:
+	@bash $(ROOT)/build/image-ci-matrix.sh $(IMAGE_CI_MATRIX_ARGS)
+
+# The release-candidate grid for HEAD (or IMAGE_CI_MATRIX_ARGS="--ref R --from DIR").
+image-ci-status:
+	@bash $(ROOT)/build/image-ci-matrix.sh --status $(IMAGE_CI_MATRIX_ARGS)
 
 # CLI / plan / fingerprint / both-arch tests for the single entrypoint.
 test-build-image:
@@ -902,7 +919,7 @@ test-layers-hardening:
 	@bash $(ROOT)/build/test-layer-gates.sh
 
 # Everything about the build process itself (no image is built).
-test-build: test-build-determinism test-build-image test-layers-hardening
+test-build: test-build-determinism test-build-image test-layers-hardening test-image-ci
 	@echo "[test-build] OK: determinism + entrypoint + layer-hardening tests passed"
 
 # Compare two built artifacts with the documented normalisation rules.

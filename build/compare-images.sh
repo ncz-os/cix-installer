@@ -2,7 +2,12 @@
 # compare-images.sh -- prove (or explain) determinism between two builds.
 #
 #   build/compare-images.sh [--arch A] [--layers DIR_A DIR_B] \
-#       [--report OUT.json] [--expect FILE] IMG_A IMG_B
+#       [--payload DIR_A DIR_B] [--report OUT.json] [--expect FILE] IMG_A IMG_B
+#
+# --payload compares a Magnetar server build's pinned payload (the run dir's
+# payload/: base.squashfs, ncz-assets-<arch>.tar.gz, ncz-pool-<arch>.tar.gz and
+# their .sha256 sidecars). A server medium pins those by sha256, so a payload
+# difference is a medium difference; this names which artifact moved.
 #
 # For each artifact it compares the whole-file sha256.  Equal => IDENTICAL.
 # Different => it decomposes:
@@ -11,6 +16,7 @@
 #     report;
 #   * ESP/FAT: normalised mtools listing;
 #   * initrd (cpio.gz): normalised tar/cpio listing;
+#   * payload tarballs (tar.gz): member listing with content hashes;
 #   * ext4: whole-file sha (mkfs is pinned; a diff here is a determinism bug);
 #   * any JSON sidecar: canonical JSON with volatile keys dropped.
 #
@@ -25,7 +31,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=/dev/null
 . "$ROOT/build/lib/compare-lib.sh"
 
-ARCH="" REPORT="" EXPECT="" LAYERS_A="" LAYERS_B=""
+ARCH="" REPORT="" EXPECT="" LAYERS_A="" LAYERS_B="" PAYLOAD_A="" PAYLOAD_B=""
 POS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -33,7 +39,8 @@ while [ $# -gt 0 ]; do
         --report) REPORT="${2:?}"; shift 2 ;;
         --expect) EXPECT="${2:?}"; shift 2 ;;
         --layers) LAYERS_A="${2:?}"; LAYERS_B="${3:?}"; shift 3 ;;
-        -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --payload) PAYLOAD_A="${2:?}"; PAYLOAD_B="${3:?}"; shift 3 ;;
+        -h|--help) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) POS+=("$1"); shift ;;
     esac
 done
@@ -79,6 +86,13 @@ compare_file() {
             detail="member listings identical; only squashfs container metadata differs"
         else
             detail="member listings differ"
+        fi ;;
+    targz)
+        if diff <(ncz_canon_targz_list "$fa") <(ncz_canon_targz_list "$fb") >/dev/null 2>&1; then
+            reason="content-equal-container-diff"
+            detail="tar members and contents identical; only tar/gzip container metadata differs"
+        else
+            detail="tar members differ: $(diff <(ncz_canon_targz_list "$fa") <(ncz_canon_targz_list "$fb") 2>/dev/null | grep -c '^[<>]') listing line(s)"
         fi ;;
     fat)
         if diff <(ncz_canon_fat_list "$fa") <(ncz_canon_fat_list "$fb") >/dev/null 2>&1; then
@@ -136,6 +150,25 @@ if [ -n "$LAYERS_A" ] && [ -n "$LAYERS_B" ]; then
         esac
         compare_file "$f" "$fa" "$fb" "$kind"
     done
+fi
+
+if [ -n "$PAYLOAD_A" ] && [ -n "$PAYLOAD_B" ]; then
+    note "== Magnetar payload ($PAYLOAD_A vs $PAYLOAD_B) =="
+    for d in "$PAYLOAD_A" "$PAYLOAD_B"; do
+        [ -d "$d" ] || { note "  payload dir missing: $d"; RESULTS+=("payload	missing	$d		"); FAILS=1; }
+    done
+    # The union of both sides: a payload file present on one side only is a
+    # determinism failure (MISSING), never a silent skip. *.part is in-flight.
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        kind=binary
+        case "$f" in
+            *.squashfs) kind=squashfs ;;
+            *.tar.gz) kind=targz ;;
+        esac
+        compare_file "payload/$f" "$PAYLOAD_A/$f" "$PAYLOAD_B/$f" "$kind"
+    done < <( { ls -1 "$PAYLOAD_A" 2>/dev/null; ls -1 "$PAYLOAD_B" 2>/dev/null; } \
+              | grep -E '^(base\.squashfs|ncz-[a-z]+-[a-z0-9]+\.tar\.gz(\.sha256)?)$' | LC_ALL=C sort -u )
 fi
 
 # JSON report -- emitted by python so paths/names are properly escaped (a raw

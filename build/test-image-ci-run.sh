@@ -40,12 +40,17 @@ out="$(cd "$HERE/.." && bash "$RUN" 2>&1)"; rc=$?
 printf '%s' "$out" | grep  'forky-pin.*WOULD RUN' >/dev/null \
     && ok "dry run names the forky trigger and the command" \
     || nok "dry run did not plan the forky trigger: $(printf '%s' "$out" | head -3)"
-printf '%s' "$out" | grep  'build/build-image.sh' >/dev/null \
-    && ok "the planned command is the documented image build" \
-    || nok "the planned command is not build-image.sh"
-printf '%s' "$out" | grep  'no-publish' >/dev/null \
-    && ok "the planned command carries --no-publish" \
-    || nok "the planned command does not carry --no-publish"
+# An image trigger runs the matrix for this host's arch: desktop AND server
+# (Magnetar), each built twice and compared (image-ci-matrix.sh).
+printf '%s' "$out" | grep 'forky-pin.*WOULD RUN' | grep 'build/image-ci-matrix.sh --foreground --arch' >/dev/null \
+    && ok "the planned command is the image matrix for this host's arch" \
+    || nok "the planned command is not the image matrix: $(printf '%s' "$out" | grep forky-pin | head -1)"
+mx="$(cd "$HERE/.." && bash build/image-ci-matrix.sh --arch "$(dpkg --print-architecture 2>/dev/null || echo amd64)" 2>&1)"
+[ "$(grep -c '^cell \(desktop\|server\)/' <<<"$mx")" = 2 ] \
+    && ok "that matrix covers both variants" || nok "the matrix does not cover desktop and server: $(grep '^cell' <<<"$mx")"
+! grep '^  build' <<<"$mx" | grep -v -- '--no-publish' | grep -q . && grep -q '^  build a:' <<<"$mx" \
+    && ok "every build the matrix plans carries --no-publish" \
+    || nok "a build the matrix plans does not carry --no-publish"
 [ -z "$(ls -A "$T/markers" 2>/dev/null)" ] && ok "dry run wrote no marker" || nok "dry run wrote a marker"
 [ ! -e "$T/runs/launched.jsonl" ] && ok "dry run recorded no launch" || nok "dry run recorded a launch"
 

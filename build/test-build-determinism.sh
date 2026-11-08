@@ -15,6 +15,9 @@
 #      and the negative control (plain tar of changed mtimes DOES differ)
 #   6. squashfs wrapper byte-stability
 #   7. entrypoint --dry-run works and names the stages
+#   ...
+#  11. Magnetar payload: two prepare->export->collect runs are byte-identical
+#      and compare-images.sh --payload reports (and fails on) differences
 #
 # Exit 0 all pass (skips are reported, not failures), 1 any FAIL.
 set -uo pipefail
@@ -261,6 +264,94 @@ if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 \
     git -C "$ROOT" worktree remove --force "$SCRATCH/wt" >/dev/null 2>&1 || true
 else
     skip "not a git checkout: worktree case not exercised"
+fi
+
+printf '== 11. Magnetar payload: two prepare runs, compare-images --payload ==\n'
+# Two clean server builds of one commit, reduced to the payload chain:
+# ncz_magnetar_prepare (pins base.squashfs) -> the writer's export of the asset
+# bundle and the offline pool (make_targz + export_assets_bundle, exactly the
+# calls write-usb-image.py makes) -> ncz_magnetar_collect (copies base.squashfs
+# beside them and checks the receipt pins). Each run starts from its own
+# fixture tree with different mtimes, so only the content is shared.
+_bi="$ROOT/build/build-image.sh"
+_fn() { awk -v f="$1" '$0 ~ "^"f"\\(\\) \\{" {p=1} p {print} p && /^\}/ {exit}' "$_bi"; }
+_mk_payload() {   # $1 run label, $2 mtime, $3 extra kernel note (content change)
+    local r="$SCRATCH/mag-$1" t
+    mkdir -p "$r/root/assets/squashfs" "$r/root/build" "$r/tree/usr/share/ncz" \
+             "$r/stage/assets/rescue" "$r/stage/assets/kernel" "$r/stage/assets/firmware" \
+             "$r/stage/assets/branding" "$r/mirror/dists/forky/main/binary-amd64" "$r/mirror/pool/main/a"
+    ln -s "$ROOT/build/iso" "$r/root/build/iso"
+    printf 'base-root-content\n' > "$r/tree/usr/share/ncz/base"
+    printf 'rescue\n' > "$r/stage/assets/rescue/rootfs.tar.zst"
+    printf 'kernel%s\n' "$3" > "$r/stage/assets/kernel/KVER"
+    printf 'fw\n' > "$r/stage/assets/firmware/fw.bin"
+    printf 'logo\n' > "$r/stage/assets/branding/logo.png"
+    printf 'deb\n' > "$r/mirror/pool/main/a/a_1_amd64.deb"
+    printf 'Package: a\n' > "$r/mirror/dists/forky/main/binary-amd64/Packages"
+    printf 'Date: Wed, 07 Oct 2026 20:24:37 +0000\n' > "$r/mirror/dists/forky/Release"
+    find "$r/tree" "$r/stage" "$r/mirror" -exec touch -h -d "@$2" {} +
+    if command -v mksquashfs >/dev/null 2>&1; then
+        ncz_mksquashfs "$r/tree" "$r/root/assets/squashfs/base.squashfs" >/dev/null 2>&1 || return 1
+    else
+        cp "$r/tree/usr/share/ncz/base" "$r/root/assets/squashfs/base.squashfs"
+    fi
+    ( eval "$(_fn ncz_magnetar_prepare)"; eval "$(_fn ncz_magnetar_collect)"
+      ncz_magnetar_prepare "$r/root" amd64 "$r/payload" || exit 1
+      python3 -I - "$ROOT/build/iso/write-usb-image.py" "$r" "$MAGNETAR_PAYLOAD_URL" \
+          "$MAGNETAR_PAYLOAD_SHA256" "$MAGNETAR_ASSETS_URL" "$MAGNETAR_POOL_URL" <<'PYEOF' || exit 1
+import importlib.util, json, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("w", sys.argv[1]); w = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(w)
+r, purl, psha, aurl, lurl = Path(sys.argv[2]), *sys.argv[3:7]
+work = r / "online"; work.mkdir()
+bundle, pool = work / "ncz-assets-amd64.tar.gz", work / "ncz-pool-amd64.tar.gz"
+w.make_targz(r / "stage", [f"assets/{n}" for n in w.SERVER_ONLINE_ASSET_DIRS], bundle)
+w.make_targz(r / "mirror", ["dists", "pool"], pool, arc_prefix=w.SERVER_POOL_REPO_DIR + "/", compresslevel=1)
+w.export_assets_bundle(bundle, r / "payload", w.sha256_file(bundle))
+w.export_assets_bundle(pool, r / "payload", w.sha256_file(pool), what="offline apt pool")
+of = {"payload_name": "base.squashfs", "payload_url": purl, "payload_sha256": psha,
+      "assets_name": bundle.name, "assets_url": aurl, "assets_sha256": w.sha256_file(bundle),
+      "pool_name": pool.name, "pool_url": lurl, "pool_sha256": w.sha256_file(pool)}
+(r / "img.receipt.json").write_text(json.dumps({"variant": "server", "ncz_payload": {"online_fetch": of}}))
+PYEOF
+      printf 'medium\n' > "$r/img"
+      ncz_magnetar_collect "$r/img" >/dev/null || exit 1 ) 2>"$r/err"
+}
+if _mk_payload a 1000000000 "" && _mk_payload b 1700000000 ""; then
+    ok "two Magnetar payload runs (prepare -> export -> collect) succeed"
+    for f in base.squashfs ncz-assets-amd64.tar.gz ncz-assets-amd64.tar.gz.sha256 \
+             ncz-pool-amd64.tar.gz ncz-pool-amd64.tar.gz.sha256; do
+        cmp -s "$SCRATCH/mag-a/payload/$f" "$SCRATCH/mag-b/payload/$f"
+        check $? "Magnetar payload $f byte-identical across two runs"
+    done
+    bash "$ROOT/build/compare-images.sh" --arch amd64 --payload "$SCRATCH/mag-a/payload" "$SCRATCH/mag-b/payload" \
+        --report "$SCRATCH/mag.json" "$SCRATCH/mag-a/img" "$SCRATCH/mag-b/img" > "$SCRATCH/mag.txt" 2>&1
+    check $? "compare-images --payload: identical payloads => exit 0"
+    grep -q 'RESULT: DETERMINISTIC' "$SCRATCH/mag.txt"; check $? "compare-images --payload verdict is DETERMINISTIC"
+    _rows="$(python3 -I -c 'import json,sys; print(" ".join(sorted(a["asset"] for a in json.load(open(sys.argv[1]))["assets"])))' "$SCRATCH/mag.json" 2>/dev/null)"
+    [ "$_rows" = "final.img payload/base.squashfs payload/ncz-assets-amd64.tar.gz payload/ncz-assets-amd64.tar.gz.sha256 payload/ncz-pool-amd64.tar.gz payload/ncz-pool-amd64.tar.gz.sha256" ]
+    check $? "compare-images --payload reports every payload artifact ($_rows)"
+    # negative control: one changed asset must be named, not hidden
+    if _mk_payload c 1000000000 "-changed"; then
+        bash "$ROOT/build/compare-images.sh" --arch amd64 --payload "$SCRATCH/mag-a/payload" "$SCRATCH/mag-c/payload" \
+            "$SCRATCH/mag-a/img" "$SCRATCH/mag-c/img" > "$SCRATCH/mag-c.txt" 2>&1
+        [ $? = 1 ]; check $? "compare-images --payload: a changed asset => exit 1"
+        grep -q 'payload/ncz-assets-amd64.tar.gz: DIFF' "$SCRATCH/mag-c.txt" && grep -q 'tar members differ' "$SCRATCH/mag-c.txt"
+        check $? "the changed asset bundle is named and decomposed to its members"
+        grep -q 'payload/ncz-pool-amd64.tar.gz: IDENTICAL' "$SCRATCH/mag-c.txt"
+        check $? "the unchanged pool is still reported IDENTICAL"
+    else
+        bad "third Magnetar payload run failed: $(tail -3 "$SCRATCH/mag-c/err" 2>/dev/null)"
+    fi
+    # a payload file present on one side only is a failure, not a silent skip
+    rm -f "$SCRATCH/mag-b/payload/ncz-pool-amd64.tar.gz.sha256"
+    bash "$ROOT/build/compare-images.sh" --payload "$SCRATCH/mag-a/payload" "$SCRATCH/mag-b/payload" \
+        "$SCRATCH/mag-a/img" "$SCRATCH/mag-b/img" > "$SCRATCH/mag-m.txt" 2>&1
+    [ $? = 1 ] && grep -q 'ncz-pool-amd64.tar.gz.sha256: MISSING' "$SCRATCH/mag-m.txt"
+    check $? "compare-images --payload: a payload file missing on one side fails"
+else
+    bad "Magnetar payload fixture run failed: $(tail -3 "$SCRATCH/mag-a/err" "$SCRATCH/mag-b/err" 2>/dev/null)"
 fi
 
 printf '\n== determinism tests: %d passed, %d failed, %d skipped ==\n' "$PASS" "$FAIL" "$SKIP"

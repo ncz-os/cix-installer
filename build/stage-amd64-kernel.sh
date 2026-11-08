@@ -52,6 +52,22 @@ prune_debs() {
     find "$1" -maxdepth 1 -type f -name '*.deb' -delete
 }
 
+# The amd64 manifest names the EXACT pool build (staging_pool_relative) and
+# the sha256 of each deb (artifacts). KVER + PKGVERSION alone are ambiguous:
+# on 2026-11-07 three pool dirs carried KVER 7.3.1-t2-ncz and the
+# linux-image-7.3.1-t2-ncz_7.3.1-r295_amd64.deb name (the 2026-11-01 build,
+# the HYDRA build the test hosts run, and its Maintainer repack), and the
+# glob below took the first: a different binary from the pinned one.
+MANIFEST="$ROOT/assets/kernel/amd64-stable-manifest.json"
+manifest_rel() {  # -> staging_pool_relative or empty
+    [ -s "$MANIFEST" ] || return 0
+    python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("staging_pool_relative") or "")' "$MANIFEST"
+}
+manifest_sha256() {  # <deb basename> -> pinned sha256 or empty
+    [ -s "$MANIFEST" ] || return 0
+    python3 -I -c 'import json,sys; a=json.load(open(sys.argv[1])).get("artifacts") or {}; print((a.get(sys.argv[2]) or {}).get("sha256") or "")' "$MANIFEST" "$1"
+}
+
 stage_default() {
     # Copy the build that matches the committed pin. The pin is the contract:
     # a pool build whose KVER disagrees with it is never staged.
@@ -75,8 +91,24 @@ stage_default() {
     if [ -s "$ROOT/assets/kernel/amd64-stable/PKGVERSION" ]; then
         pkgver=$(tr -d '[:space:]' < "$ROOT/assets/kernel/amd64-stable/PKGVERSION")
     fi
+    local rel=""
+    rel=$(manifest_rel)
     if [ -n "${AMD64_SRC:-}" ]; then
         src="$AMD64_SRC"
+    elif [ -n "$rel" ]; then
+        # The manifest's pool dir, relative to the shared export root.
+        case "$rel" in
+            kernel-staging/*) ;;
+            *) echo "ERROR: $MANIFEST staging_pool_relative '$rel' is not under kernel-staging/" >&2; return 1 ;;
+        esac
+        case "/$rel/" in
+            */../*|*/./*) echo "ERROR: $MANIFEST staging_pool_relative '$rel' is not a plain pool path" >&2; return 1 ;;
+        esac
+        src="$SHARED/${rel#kernel-staging/}"
+        [ -d "$src" ] || {
+            echo "ERROR: the pinned pool dir $src (amd64-stable-manifest.json staging_pool_relative) does not exist" >&2
+            return 1
+        }
     else
         # Search the pool for a directory whose KVER sidecar matches the pin.
         # Covers the multi-variant amd64-t2-* build trees (e.g.
@@ -124,6 +156,20 @@ stage_default() {
     mkdir -p "$dest"
     prune_debs "$dest"
     cp -f "${imgs[0]}" "${hdrs[0]}" "$src/KVER" "$dest/"
+    # Every staged deb must be the pinned bytes. With a manifest present a
+    # deb it does not pin, or one whose sha256 differs, is removed again.
+    if [ -s "$MANIFEST" ]; then
+        local f want got
+        for f in "$dest"/*.deb; do
+            want=$(manifest_sha256 "$(basename "$f")")
+            got=$(sha256sum "$f" | cut -d' ' -f1)
+            if [ -z "$want" ] || [ "$want" != "$got" ]; then
+                echo "ERROR: $(basename "$f") from $src has sha256 $got; amd64-stable-manifest.json pins '${want:-<none>}' -- refusing to stage" >&2
+                prune_debs "$dest"
+                return 1
+            fi
+        done
+    fi
     echo "[stage-amd64-kernel] amd64-stable <- $(basename "$src") (pinned KVER $wanted, staged exactly $(ls "$dest"/*.deb 2>/dev/null | wc -l) debs: the image+headers pair)"
 }
 

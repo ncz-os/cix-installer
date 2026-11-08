@@ -1944,6 +1944,15 @@ print(f"[magnetar] payload pinned and present: {of['payload_name']} {of['payload
 PY
 }
 
+# ncz_find_image BUILD ARCH SHA VARIANT -> the newest medium of THIS variant.
+# The Makefile names every medium ...-<sha>[-<mode>]-<variant>.img. Desktop and
+# server media of one commit can share a build dir (a respin, or --only-image
+# after the other variant), and an unscoped glob sorted -server.img after
+# -desktop.img, so a desktop run scanned, gated and archived the server medium.
+ncz_find_image() {
+    ls -1 "$1"/ncz-os-"$2"-*-"$3"*-"$4".img 2>/dev/null | tail -1
+}
+
 NCZ_CRUN_ENV=(); NCZ_CRUN_MOUNTS=(); NCZ_CRUN_HOSTENV=()
 stage_image() {
     local log="$1"
@@ -1971,7 +1980,7 @@ stage_image() {
     # kvm-gate and needs the path, so it can no longer be written by the KVM gate.
     local img="${IMAGE_ARG:-}"
     if [ -z "$img" ]; then
-        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA"*.img 2>/dev/null | tail -1)"
+        img="$(ncz_find_image "$BUILD" "$ARCH" "$GIT_SHA" "$NCZ_VARIANT")"
     fi
     if [ -z "$img" ] || [ ! -f "$img" ]; then
         echo "[image] FAIL: no image found for $ARCH $GIT_SHA" >&2
@@ -2015,7 +2024,7 @@ stage_secret_scan() {
     local img; img="$(cat "$RUN_DIR/image.path" 2>/dev/null || true)"
     [ -n "$img" ] || img="${IMAGE_ARG:-}"
     if [ -z "$img" ]; then
-        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA"*.img 2>/dev/null | tail -1)"
+        img="$(ncz_find_image "$BUILD" "$ARCH" "$GIT_SHA" "$NCZ_VARIANT")"
     fi
     [ -n "$img" ] && [ -f "$img" ] || { echo "[secret-scan] FAIL: no image found for $ARCH $GIT_SHA" >&2; return 1; }
     local hashf
@@ -2114,7 +2123,7 @@ stage_kvm_gate() {
     local img; img="$(cat "$RUN_DIR/image.path" 2>/dev/null || true)"
     [ -n "$img" ] || img="${IMAGE_ARG:-}"
     if [ -z "$img" ]; then
-        img="$(ls -1 "$BUILD"/ncz-os-"$ARCH"-*-"$GIT_SHA"*.img 2>/dev/null | tail -1)"
+        img="$(ncz_find_image "$BUILD" "$ARCH" "$GIT_SHA" "$NCZ_VARIANT")"
     fi
     [ -n "$img" ] && [ -f "$img" ] || { echo "[kvm-gate] FAIL: no image found for $ARCH $GIT_SHA (pass --image)" >&2; return 1; }
     local pyvenv="/root/ncz-pyte-venv"
