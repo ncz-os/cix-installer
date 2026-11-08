@@ -412,14 +412,14 @@ _sh.rmtree(root, ignore_errors=True)
 abiroot = tempfile.mkdtemp(prefix="ncz-abi-")
 lock = os.path.join(abiroot, "plugin.lock")
 open(lock, "w").write(
-    "NCZ_SSPLUGIN_VERSION=0.3.25\n"
+    "NCZ_SSPLUGIN_VERSION=0.3.26\n"
     "NCZ_SSPLUGIN_PAYLOAD_amd64=20261013233000+bk0+tgzef364e5b\n"
     "NCZ_SSPLUGIN_PAYLOAD_arm64=20261013233000+bk0+tgz03b581f4\n"
     "NCZ_SSPLUGIN_ABI_LIB=/opt/singularity/lib/libsingularity.so.0\n"
     "NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_amd64=aa97ef0a\n"
     "NCZ_SSPLUGIN_LIBSINGULARITY_SHA256_arm64=2da0aeb5\n")
 lk = m.read_ssplugin_lock(lock)
-check(lk["version"] == "0.3.25" and lk["abi_lib"].endswith("libsingularity.so.0"),
+check(lk["version"] == "0.3.26" and lk["abi_lib"].endswith("libsingularity.so.0"),
       "abi: lock header parsed")
 check(lk["payload"]["arm64"] == "20261013233000+bk0+tgz03b581f4"
       and lk["libsha"]["amd64"] == "aa97ef0a", "abi: per-arch rows parsed")
