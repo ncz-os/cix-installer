@@ -1,10 +1,10 @@
 {
-  "generated_utc": "2026-11-07T23:34:51Z",
+  "generated_utc": "2026-11-08T18:11:39Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
       "file": "build/kernel-debs/cixmini-boot_1.6+r298_arm64.deb",
-      "sha256": "0cf4e780215687d89d9f62dac78733bb6ef44ed7cfb7de9e1f05cd3c7881339a"
+      "sha256": "5d08ae681ff90811335850ffdf769612100aed8a098725782911841dafedbf2f"
     },
     {
       "file": "build/kernel-debs/linux-headers-cixmini_7.3.3-sky1-ncz+r298_arm64.deb",
