@@ -2098,7 +2098,10 @@ stage_secret_scan() {
         "${extra[@]}"
     local rc="${PIPESTATUS[0]}"
     local preceipt="$RUN_DIR/secret-scan-payload.receipt.json" prc=0
-    if [ "$NCZ_VARIANT" = server ] && [ "$rc" = 0 ]; then
+    # A self-contained (medium) server medium carries its payload ON the medium
+    # and the --variant server scan already covered it; there is no off-medium
+    # payload dir to scan.
+    if [ "$NCZ_VARIANT" = server ] && [ "$rc" = 0 ] && [ "${NCZ_SERVER_PAYLOAD:-online}" != medium ]; then
         local -a pay=()
         local pf
         for pf in "$MAGNETAR_DIR/base.squashfs" "$MAGNETAR_DIR/ncz-assets-$ARCH.tar.gz" "$MAGNETAR_DIR/ncz-pool-$ARCH.tar.gz"; do
