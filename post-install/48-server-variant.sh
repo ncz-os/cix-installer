@@ -215,6 +215,10 @@ def main():
     except ValueError:
         idle_min = 5
     blank_at = idle_min * 60.0
+    if blank_at <= SAVER_AFTER:
+        # The configured blank deadline is at or before the saver start; the
+        # blank wins and the saver has no window (idle_min <= 2).
+        return 0
     fd = open_tty()
     if fd is None:
         return 0
