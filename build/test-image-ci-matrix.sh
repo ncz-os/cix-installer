@@ -62,6 +62,7 @@ malive=no; [ -n "$mpid" ] && kill -0 "$mpid" 2>/dev/null && malive=yes
 { echo "args=$all"; echo "variant=${NCZ_VARIANT:-}"; echo "lock=${NCZ_BUILD_LOCK:-}"
   echo "kvm_sets=${NCZ_KVM_GATE_VARIANTS:-}"; echo "server_sets=${NCZ_KVM_GATE_SERVER_SETS:-}"
   echo "payload_base=${NCZ_PAYLOAD_BASE_URL:-<unset>}"; echo "payload_url=${NCZ_PAYLOAD_URL:-<unset>}"
+  echo "server_payload=${NCZ_SERVER_PAYLOAD:-<unset>}"
   echo "pwd=$PWD"; echo "marker_alive=$malive"; echo "tmpdir=${TMPDIR:-}"; } > "$RUN_DIR/stub.env"
 echo "${NCZ_VARIANT:-}-$ARCH-$side" >> "$STUB_ORDER"
 case ",${STUB_FAIL:-}," in *",${NCZ_VARIANT}-$side,"*) echo "stub: failing on purpose"; exit 1 ;; esac
@@ -85,6 +86,12 @@ for g in kvm-gate provenance secret-scan; do printf 'result=PASS\n' > "$RUN_DIR/
 exit 0
 STUB
 chmod +x "$F/build/build-image.sh"
+cat > "$F/build/stage-build-inputs.sh" <<'STUB'
+#!/bin/bash
+# stub stage-build-inputs.sh: the fixture build needs no build inputs
+exit 0
+STUB
+chmod +x "$F/build/stage-build-inputs.sh"
 git -C "$F" init -q
 git -C "$F" -c user.name=t -c user.email=t@t add -A
 git -C "$F" -c user.name=t -c user.email=t@t commit -q -m fixture
@@ -209,6 +216,10 @@ e="$L1/server-$HARCH/run-a/stub.env"
 grep -q '^server_sets=server server-offline-negative$' "$e" && ok "server build got the Magnetar KVM sets" || nok "server sets: $(grep server_sets= "$e")"
 grep -q '^payload_base=<unset>$' "$e" && grep -q '^payload_url=<unset>$' "$e" \
     && ok "server build is a gate medium: the caller's payload URL was dropped" || nok "a payload URL leaked into the CI build: $(grep payload "$e")"
+grep -q '^server_payload=medium$' "$e" \
+    && ok "server build pins the self-contained medium (NCZ_SERVER_PAYLOAD=medium)" || nok "server build payload mode: $(grep server_payload= "$e")"
+grep -q '^server_payload=medium$' "$L1/desktop-$HARCH/run-a/stub.env" \
+    && nok "desktop build set the self-contained server payload mode" || ok "desktop build keeps the online payload default"
 grep -q '^kvm_sets=norescue norescue-mgmt nodesktop minimal stalefs$' "$L1/desktop-$HARCH/run-a/stub.env" \
     && ok "desktop build got the desktop KVM sets" || nok "desktop sets: $(grep kvm_sets= "$L1/desktop-$HARCH/run-a/stub.env")"
 python3 -I -c 'import json,sys; a=[x["asset"] for x in json.load(open(sys.argv[1]))["assets"]]; sys.exit(0 if "payload/ncz-pool-'"$HARCH"'.tar.gz" in a else 1)' "$L1/server-$HARCH/compare.json" 2>/dev/null \

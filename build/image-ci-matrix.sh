@@ -396,8 +396,14 @@ run_cell() {   # VARIANT ARCH -> appends one row to matrix.tsv
         rc=$?
         if [ "$rc" != 0 ]; then result=FAIL stage="inputs-$side"; break; fi
         echo "   build $side: $(date -u +%H:%M:%SZ) start (log $c/build-$side.log)"
-        ( cd "$c/src-$side" && env "${unset_args[@]}" NCZ_VARIANT="$v" NCZ_BUILD_LOCK="$LOCK" \
-              TMPDIR="$c/tmp" "${envs[@]}" bash build/build-image.sh --arch "$a" "${BUILD_ARGV[@]}" \
+        # The server CI medium is self-contained: no payload URL is pinned to
+        # the medium and base.squashfs ships inside it (the writer refuses LAN
+        # URLs, and the caller's URL vars are dropped above). The desktop image
+        # keeps the online default.
+        if [ "$v" = server ]; then payload_mode=medium; else payload_mode=online; fi
+        ( cd "$c/src-$side" && env "${unset_args[@]}" NCZ_VARIANT="$v" NCZ_SERVER_PAYLOAD="$payload_mode" \
+              NCZ_BUILD_LOCK="$LOCK" TMPDIR="$c/tmp" "${envs[@]}" \
+              bash build/build-image.sh --arch "$a" "${BUILD_ARGV[@]}" \
               --run-dir "$c/run-$side" ) >> "$c/build-$side.log" 2>&1
         rc=$?
         echo "   build $side: $(date -u +%H:%M:%SZ) rc=$rc"
