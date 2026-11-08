@@ -605,8 +605,8 @@ systemd-coredump	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-pa
 systemd-resolved	debian	debian-forky	arm64	mgmt	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/mgmt.pkgs	
 systemd-sysv	debian	debian-forky	amd64	rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/rescue-amd64.pkgs	
 systemd-sysv	debian	debian-forky	arm64	mgmt,rescue	yes		manifest	build/verify-offline-mirror-seeds.sh	manifests/mgmt.pkgs; manifests/rescue.pkgs	
-systemd-timesyncd	debian	debian-forky	amd64	desktop,rescue	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs; manifests/rescue-amd64.pkgs	
-systemd-timesyncd	debian	debian-forky	arm64	desktop,rescue	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs; manifests/rescue.pkgs	
+systemd-timesyncd	debian	debian-forky	amd64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs; manifests/installer-base-amd64.pkgs; manifests/rescue-amd64.pkgs	
+systemd-timesyncd	debian	debian-forky	arm64	desktop,installer,mgmt,rescue,server	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs; manifests/installer-base.pkgs; manifests/rescue.pkgs	
 systemd-zram-generator	debian	debian-forky	amd64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop-amd64.pkgs	
 systemd-zram-generator	debian	debian-forky	arm64	desktop	yes		manifest	build/verify-packages.sh	manifests/desktop.pkgs	
 t2gmux	dkms	vendored:assets/kernel/t2gmux	amd64	desktop,installer,mgmt,rescue,server	yes	0.8	post-install/56-t2-dkms.sh (dkms build/install)	build/verify-dkms-modules.sh	assets/kernel/t2gmux/dkms.conf; assets/kernel/t2gmux/PROVENANCE (Module: t2gmux (Apple T2 GMUX: dGPU/GPU mux power control)); post-install/56-t2-dkms.sh	Default T2 DKMS module (APP000B gmux). Built per-kernel on T2 hardware; apple_gmux blacklisted.

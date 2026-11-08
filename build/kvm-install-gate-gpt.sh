@@ -1242,6 +1242,32 @@ if { [ "$NCZ_GATE_SERVER" = 1 ] || [ "$NCZ_GATE_SERVER_MEDIUM" = 1 ]; } && [ "$N
         fail "server gate: the installed system does not name its edition 'Magnetar Server' everywhere (see above)"
     fi
 fi
+# MAGNETAR(server) time sync: the server image must have a time-sync daemon
+# installed and enabled. MEDUSA booted the 2026-11-08 server build with
+# "System clock synchronized: no" and no NTP client at all (Debian forky splits
+# systemd-timesyncd out of systemd, and a medium-mode server has no offline apt
+# pool for the hook's fallback). Assert the enabled unit, not just the package.
+if { [ "$NCZ_GATE_SERVER" = 1 ] || [ "$NCZ_GATE_SERVER_MEDIUM" = 1 ]; } && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
+    _ts_ok=0
+    for _ts in \
+        /etc/systemd/system/sysinit.target.wants/systemd-timesyncd.service \
+        /etc/systemd/system/multi-user.target.wants/systemd-timesyncd.service \
+        /etc/systemd/system/sysinit.target.wants/chrony.service \
+        /etc/systemd/system/multi-user.target.wants/chrony.service \
+        /etc/systemd/system/sysinit.target.wants/chronyd.service \
+        /etc/systemd/system/multi-user.target.wants/chronyd.service \
+        /etc/systemd/system/sysinit.target.wants/ntpsec.service; do
+        if "$DEBUGFS" -R "stat $_ts" "$EVIDENCE_ROOT" 2>/dev/null | grep -q 'Inode:'; then
+            _ts_ok=1; _ts_unit="$_ts"; break
+        fi
+    done
+    if [ "$_ts_ok" = 1 ]; then
+        echo "  server gate: time-sync unit enabled ($_ts_unit)"
+    else
+        fail "server gate: no time-sync unit is enabled in the installed root (systemd-timesyncd/chrony; MEDUSA defect 2026-11-08)"
+    fi
+fi
+
 # MAGNETAR(server): the installed root must carry NO desktop layer. The
 # server variant skips post-install/20-desktop.sh (BUILD_VARIANT=server), so
 # none of the packages that hook installs may be present. dpkg's status file

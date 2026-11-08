@@ -179,3 +179,12 @@ locales
 # unreadable). kbd provides setfont itself.
 console-setup
 kbd
+
+# --- time sync (2026-11-08, MEDUSA server finding) ------------------------
+# Debian forky splits systemd-timesyncd out of systemd. The desktop layer
+# already seeds it, but a MEDIUM-MODE SERVER install ships only the base layer
+# and has no offline apt pool, so post-install/37-ntp-hostname.sh's apt
+# fallback cannot install it: MEDUSA booted with "System clock synchronized:
+# no" and no time daemon at all. Seed it in the base so every variant has a
+# time source; the hook only enables it.
+systemd-timesyncd

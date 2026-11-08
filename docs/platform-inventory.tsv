@@ -801,3 +801,4 @@ build/test-stage-accel-overlays-pahole.sh	sky1	-	contract tests: the overlay con
 build/test-stage-kernel-skip-packaging.sh	common	-	contract tests: skip-packaging leaves kernel-debs alone; a failing gate still fails stage-kernel
 build/test-receipt-gates.sh	common	-	contract tests: gates.json evidences one_kernel and ui, and a FAIL gate is not summarized as passed
 build/receipt-gates.py	common	-	derive gates.json from a run's result files, carrying one_kernel (provenance) and ui (kvm gate)
+build/test-server-time-sync.sh	common	-	contract test: the installer-base manifests seed a time daemon and the server gate asserts an enabled time-sync unit
