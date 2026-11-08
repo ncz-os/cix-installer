@@ -15,6 +15,10 @@ grep -q 'NCZ_CONSOLE_SAVER=none' "$H" && ok "config saver default none" || bad "
 grep -q 'ncz-console-blank.service' "$H" && ok "unit installed + enabled" || bad "unit not installed"
 grep -q 'setterm --blank' "$H" && ok "unit applies setterm blanking" || bad "setterm blanking missing"
 grep -q 'vtconsole' "$H" && ok "udev re-applies on a new VT" || bad "no udev re-apply"
+grep -q 'ncz-console-saver' "$H" && ok "optional wordmark saver installed" || bad "saver missing"
+grep -q 'ncz-console-idle.timer' "$H" && ok "idle watcher timer installed" || bad "idle watcher missing"
+grep -q 'select.select' "$H" && ok "saver exits on any key (select on console)" || bad "saver does not watch for a key"
+grep -qE 'apt-get[^#]*(cmatrix|pipes)' "$H" && bad "third-party saver installed" || ok "no third-party saver packages"
 for f in assets/refind/ncz-refind-refresh-amd64.sh assets/refind/ncz-refind-refresh.sh; do
     grep -q 'consoleblank=300' "$ROOT/$f" && ok "$f server cmdline" || bad "$f missing consoleblank=300"
 done
