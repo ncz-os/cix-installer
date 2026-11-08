@@ -167,7 +167,7 @@ build_cmd_text() {   # VARIANT ARCH SIDE -> the exact build, as one shell line
     local v="$1" a="$2" s="$3" c kv envs=""
     c="$(cell_dir "$v" "$a")"
     while IFS= read -r kv; do envs="$envs ${kv%%=*}='${kv#*=}'"; done < <(gate_env "$v")
-    printf 'cd %s/src-%s && env' "$c" "$s"
+    printf 'cd %s/src-%s && bash build/stage-build-inputs.sh --arch %s && env' "$c" "$s" "$a"
     printf ' -u %s' "${DROP_ENV[@]}"
     printf ' NCZ_VARIANT=%s NCZ_BUILD_LOCK=%s TMPDIR=%s/tmp%s bash build/build-image.sh --arch %s %s --run-dir %s/run-%s' \
         "$v" "$LOCK" "$c" "$envs" "$a" "$BUILD_ARGS" "$c" "$s"
@@ -389,10 +389,16 @@ run_cell() {   # VARIANT ARCH -> appends one row to matrix.tsv
                && git -C "$c/src-$side" checkout -q --detach "$REF_SHA"; } > "$c/clone-$side.log" 2>&1; then
             result=FAIL stage="clone-$side"; break
         fi
+        echo "   inputs $side: staging build inputs (log $c/build-$side.log)"
+        ( cd "$c/src-$side" && env "${unset_args[@]}" NCZ_VARIANT="$v" NCZ_BUILD_LOCK="$LOCK" \
+              TMPDIR="$c/tmp" "${envs[@]}" bash build/stage-build-inputs.sh --arch "$a" \
+              ) >> "$c/build-$side.log" 2>&1
+        rc=$?
+        if [ "$rc" != 0 ]; then result=FAIL stage="inputs-$side"; break; fi
         echo "   build $side: $(date -u +%H:%M:%SZ) start (log $c/build-$side.log)"
         ( cd "$c/src-$side" && env "${unset_args[@]}" NCZ_VARIANT="$v" NCZ_BUILD_LOCK="$LOCK" \
               TMPDIR="$c/tmp" "${envs[@]}" bash build/build-image.sh --arch "$a" "${BUILD_ARGV[@]}" \
-              --run-dir "$c/run-$side" ) > "$c/build-$side.log" 2>&1
+              --run-dir "$c/run-$side" ) >> "$c/build-$side.log" 2>&1
         rc=$?
         echo "   build $side: $(date -u +%H:%M:%SZ) rc=$rc"
         if [ "$rc" != 0 ]; then result=FAIL stage="build-$side"; break; fi
