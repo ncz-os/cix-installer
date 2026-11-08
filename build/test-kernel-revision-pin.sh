@@ -141,6 +141,48 @@ printf '# empty\n' > "$KD/assets/kernel/mainline.deb-revision"
 expect_rc "an empty deb-revision is refused" 1 kd_rev
 grep  "mainline.deb-revision" <<<"$LAST" >/dev/null && ok "  refusal names mainline.deb-revision" || bad "  refused for another reason" "$LAST"
 
+echo "=== 3c. the pinned revision's deb epoch does not follow base.pin ==="
+# 2026-11-07: the substrate re-pin to 20261102T082611Z (c9b4ef0d) moved the
+# arm64 snapshot, build-kernel-debs.sh derived SOURCE_DATE_EPOCH from it for
+# r293, and every member mtime changed: the same staged r292 inputs repacked
+# to three sha256s that kernel-manifest.json does not pin (vendor-mirror
+# kernel-pin FAIL).  The pinned r293 debs carry the 20261018T082309Z snapshot
+# epoch.  A revision whose debs are pinned must have a frozen epoch.
+mkdir -p "$KD/build/lib"; cp "$REPO/build/lib/reproducible.py" "$KD/build/lib/"
+pinned_rev="$(python3 -I -c '
+import json, re, sys
+for d in json.load(open(sys.argv[1], encoding="utf-8"))["kernel_debs"]:
+    m = re.match(r"^linux-image-cixmini_[^_]*\+(r[0-9]+)_arm64\.deb$", d["file"].rsplit("/", 1)[-1])
+    if m: print(m.group(1))
+' "$REPO/assets/kernel-manifest.json")"
+[ -n "$pinned_rev" ] && ok "kernel-manifest.json pins linux-image-cixmini at $pinned_rev" \
+    || bad "kernel-manifest.json pins no linux-image-cixmini revision"
+printf '%s\n' "$pinned_rev" > "$KD/assets/kernel/mainline.deb-revision"
+kd_epoch() { env -u BUILD_REV -u NCZ_KERNEL_DEB_EPOCH bash "$KD/build/build-kernel-debs.sh" --print-deb-epoch; }
+set_snapshot() {  # rewrite the arm64 snapshot column of the sandbox base.pin
+    awk -F'\t' -v OFS='\t' -v s="$1" '$1=="arm64"{$4=s} {print}' "$REPO/manifests/base.pin" > "$KD/manifests/base.pin"
+}
+set_snapshot 20261018T082309Z
+before="$(kd_tree)"
+expect_rc "--print-deb-epoch at snapshot 20261018T082309Z" 0 kd_epoch
+e1="$LAST"
+[ "$before" = "$(kd_tree)" ] && ok "  the epoch query wrote nothing under the tree" \
+    || bad "  the epoch query changed the tree" "$(diff <(printf '%s\n' "$before") <(kd_tree))"
+set_snapshot 20261201T000000Z
+expect_rc "--print-deb-epoch at snapshot 20261201T000000Z" 0 kd_epoch
+e2="$LAST"
+case "$e1" in ''|*[!0-9]*) bad "  epoch is not an integer" "$e1"; e1="?$e1" ;; *) ok "  epoch is an integer ($e1)" ;; esac
+[ "$e1" = "$e2" ] && ok "  $pinned_rev epoch is frozen across base.pin refreshes ($e1)" \
+    || bad "  $pinned_rev epoch follows base.pin ($e1 -> $e2): its pinned debs cannot be rebuilt"
+if [ "$pinned_rev" = r293 ]; then
+    [ "$e1" = 1792311789 ] && ok "  r293 epoch is 1792311789 (20261018T082309Z, the pinned debs' mtime)" \
+        || bad "  r293 epoch $e1 is not 1792311789, the mtime of the pinned r293 debs"
+fi
+cp "$REPO/manifests/base.pin" "$KD/manifests/base.pin"
+expect_rc "NCZ_KERNEL_DEB_EPOCH still overrides the frozen epoch" 0 \
+    env -u BUILD_REV NCZ_KERNEL_DEB_EPOCH=1700000000 bash "$KD/build/build-kernel-debs.sh" --print-deb-epoch
+[ "$LAST" = 1700000000 ] && ok "  -> 1700000000" || bad "  wanted 1700000000" "$LAST"
+
 echo "=== 4. every caller pins the revision ==="
 # The patterns below match source text, so their $ are literal (SC2016).
 # shellcheck disable=SC2016

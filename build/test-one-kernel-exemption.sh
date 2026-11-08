@@ -17,7 +17,10 @@
 #                   the pool's). Missing any one leaves the build blocked; the third
 #                   was found by running the build end to end, cycle 496.
 #   * WIDENING   -- if the flag reached the finished-image scan, an image that still
-#                   carried a second kernel's installer modules would pass.
+#                   carried a second kernel's installer modules would pass. It also
+#                   holds only for d-i kernel udeb NAMES (-di) inside the substrate
+#                   whose sha256 manifests/base.pin pins; the behaviour is tested
+#                   end to end in build/test-provenance-predict.sh section 5.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -95,10 +98,18 @@ print(("PASS" if "orphan pool file not listed in any Packages index" in recs els
       " the pool's orphan walk lives in that same function (one implementation)")
 
 noarch = body("classify_noarch")
-ok_noarch = ("_ncz_build_context" in noarch and "one-kernel-exempt" in noarch
-             and "KERNEL_ARTIFACT_RE.search" in noarch)
+ok_noarch = ("substrate_scan" in noarch and "one-kernel-exempt" in noarch
+             and "_di_kernel_udeb(name)" in noarch)
 print(("PASS" if ok_noarch else "FAIL") +
       " the initrd dpkg status honours the same exemption (the third site)")
+print(("PASS" if recs.count("_di_kernel_udeb(") == 2 else "FAIL") +
+      " the pool records and the orphan walk use the same d-i kernel-udeb predicate")
+dik = body("_di_kernel_udeb")
+print(("PASS" if ('endswith("-di")' in dik and "KERNEL_ARTIFACT_RE.search" in dik) else "FAIL") +
+      " that predicate is the kernel-artifact pattern narrowed to d-i udeb names (-di)")
+sub = body("scan_substrate_iso")
+print(("PASS" if ("_ncz_build_context" in sub and "_pinned_substrate_shas" in sub) else "FAIL") +
+      " the substrate scan needs BOTH the release.conf opt-in and the base.pin sha256")
 print(("PASS" if src.count("KERNEL_ARTIFACT_RE = re.compile") == 1 else "FAIL") +
       " the kernel predicate is defined once, not copied per site")
 PY

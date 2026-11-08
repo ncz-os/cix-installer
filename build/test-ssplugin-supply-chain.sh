@@ -94,6 +94,13 @@ if [ -r "$LOCK" ] && [ -r "$LIB" ]; then
     expect "pin: a pin missing a field is refused" 1 "no value for SSP_PAYLOAD" bash -c ". '$LIB'; ssplugin_load_lock '$T/lock.nopayload' arm64"
     sed 's/^\(NCZ_SSPLUGIN_SHA256_amd64=\).*/\1ZZZ/' "$LOCK" > "$T/lock.badhex"
     expect "pin: a non-hex sha256 is refused" 1 "not lowercase hex" bash -c ". '$LIB'; ssplugin_load_lock '$T/lock.badhex' amd64"
+    # The provenance gate authorizes the plugin deb in the image through its
+    # reviewed NCZ ledger row, so that row must carry the lock's sha256: a re-pin
+    # that updated only the lock fails provenance-gate on the finished image
+    # ("NCZ ledger sha256 mismatch"), hours into the build.
+    for a in amd64 arm64; do
+        expect "pin: the NCZ ledger row carries the lock sha256 for $a" 0 "" bash -c ". '$LIB'; ssplugin_load_lock '$LOCK' $a || exit 1; awk -F'\t' -v n=ncz-screensavers-plugin -v v=\"\$SSP_VERSION\" -v a=$a -v h=\"\$SSP_SHA256\" '\$1==n && \$2==v && \$3==a && \$4==h {f=1} END {exit !f}' '$ROOT/manifests/ncz-packages.tsv'"
+    done
 else
     FAILS=$((FAILS + 1)); echo "FAIL pin: $LOCK or $LIB missing (the plugin is not wired)"
 fi

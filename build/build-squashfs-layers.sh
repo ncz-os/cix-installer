@@ -64,6 +64,19 @@ else
     echo "[sqfs] WARNING: NCZ_SKIP_FRESHNESS_GATE=1 -- skipping freshness gate, building against whatever is on disk"
 fi
 
+# xattrs no layer archive may carry, as ONE regex: mksquashfs keeps only the
+# LAST -xattrs-exclude it is given (measured 2026-11-07 with 4.7.5), so a
+# second flag silently replaces the first.
+#   (trusted|user)\.overlay\.  overlayfs internals: origin file handles (lower
+#                    inode numbers), per-mount uuid, impure/opaque/metacopy
+#                    markers. user.* is what mkosi's rootless overlay writes.
+#                    Whiteouts and opaque dirs travel in the overlay manifest.
+#                    These made every desktop build differ (two builds of
+#                    096c74f4: the xattr table was the only difference).
+#   security\.selinux  the build host's MAC labels (see the desktop call).
+# security.capability and other xattrs are package content and stay.
+NCZ_LAYER_XATTRS_EXCLUDE='^((trusted|user)\.overlay\.|security\.selinux)'
+
 WORK="${WORK:-/tmp/ncz-sqfs}"
 
 # NEVER BUILD OR VERIFY A MULTI-GIGABYTE LAYER ON A tmpfs.
@@ -826,6 +839,10 @@ $_found"
     # (/usr/bin/Xwayland from the xwayland pkg, not an X11 session).
     sudo rm -rf "$MG/usr/share/xsessions" "$MG/usr/share/xsessions.disabled" 2>/dev/null || true
   fi
+  if ! ncz_font_caches_for_shipped_mtimes "$MG" "$role"; then
+    apt_unmount "$MG"; umount_chroot "$MG"; sudo umount -lf "$MG" 2>/dev/null || true
+    return 1
+  fi
   sudo rm -f "$MG/usr/sbin/policy-rc.d"
   sudo chroot "$MG" apt-get clean 2>/dev/null || true
   # Overlayfs may represent a copied-up file as metadata-only
@@ -868,14 +885,29 @@ PYMETACOPY
   # Strip overlay-internal xattrs from the payload after recording them so they
   # do not contaminate the installed filesystem.
   strip_build_host_state "$U" "$role" || exit 1
+  # The installer never mounts an overlay: it extracts base, rm -rf's every
+  # manifest path, then extracts the delta over it (patch-debootstrap-stub.py).
+  # An opaque directory left out of the manifest therefore MERGES with base.
+  # Two overlays mark directories opaque here: this script's own (root,
+  # trusted.overlay.opaque) and mkosi's rootless one (user.overlay.opaque).
+  # overlayfs makes every directory it creates inside a merged parent opaque, so
+  # nearly all markers sit on directories base does not have, where replace and
+  # merge are the same: measured 2026-11-07, all 2260 amd64 and 2368 arm64
+  # user-opaque directories were absent from base, and the amd64 KVM-gate
+  # target held no base entry in any of them. A user-opaque directory is
+  # recorded only when the base lowerdir has that path -- the one case where
+  # the two differ -- so the manifest stays exactly the set of operations that
+  # change the installed result. Read here, before NCZ_LAYER_XATTRS_EXCLUDE
+  # drops the xattrs from the archive.
   log "$role: generate overlay operation manifest"
-  sudo python3 - "$U" "$OUT/$role.overlay-manifest" <<'PYOVERLAY'
+  sudo python3 - "$U" "$L" "$OUT/$role.overlay-manifest" <<'PYOVERLAY'
 import os
 import stat
 import sys
 
-root, output = sys.argv[1:]
+root, lower, output = sys.argv[1:]
 operations = []
+user_opaque_new = 0
 for directory, names, files in os.walk(root):
     names.sort()
     files.sort()
@@ -883,6 +915,15 @@ for directory, names, files in os.walk(root):
     try:
         if os.getxattr(directory, "trusted.overlay.opaque") in (b"y", b"x"):
             operations.append(("opaque", relative_directory))
+    except OSError:
+        pass
+    try:
+        # "y" only: "x" marks a directory holding xwhiteouts, not an opaque one
+        if os.getxattr(directory, "user.overlay.opaque") == b"y":
+            if os.path.lexists(os.path.join(lower, relative_directory)):
+                operations.append(("opaque", relative_directory))
+            else:
+                user_opaque_new += 1
     except OSError:
         pass
     for name in names + files:
@@ -902,13 +943,15 @@ with open(output, "w", encoding="utf-8") as stream:
     stream.write("# NCZ overlay manifest v1\n")
     for operation, path in sorted(set(operations)):
         stream.write(f"{operation}\t{path}\n")
+print(f"overlay manifest: {len(set(operations))} operation(s); "
+      f"{user_opaque_new} user-opaque dir(s) absent from base (no-op, not recorded)")
 PYOVERLAY
   log "$role: mksquashfs upperdir delta -> $OUT/$role.squashfs"
-  # -xattrs-exclude is REPEATED, not replaced: mksquashfs accepts the flag more
-  # than once and the matches are OR'd.
-  #   ^trusted\.overlay\.  -- overlayfs internals (opaque/metacopy/redundant
-  #                          markers). Plain unsquashfs cannot replay them;
-  #                          keep them out of the published archive.
+  # One -xattrs-exclude regex, NCZ_LAYER_XATTRS_EXCLUDE (mksquashfs keeps only
+  # the last flag; the old pair here never excluded trusted.overlay.*).
+  #   overlay internals  -- trusted.overlay.* and user.overlay.* (opaque,
+  #                          metacopy, origin, uuid). Plain unsquashfs cannot
+  #                          replay them; keep them out of the published archive.
   #   ^security\.selinux  -- HOST SELinux labels. NCZ-OS is a Debian image and
   #                          must not carry the build host's MAC labels: on a
   #                          Fedora Asahi host (or any podman-managed build)
@@ -932,7 +975,7 @@ PYOVERLAY
   # env -u SOURCE_DATE_EPOCH: mksquashfs >= 4.7 refuses SOURCE_DATE_EPOCH +
   # explicit -all-time/-fstime together; we keep the explicit epoch-0 form.
   sudo env -u SOURCE_DATE_EPOCH mksquashfs "$U" "$OUT/$role.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 \
-    -xattrs-exclude '^trusted\.overlay\.' -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -2
+    -xattrs-exclude "$NCZ_LAYER_XATTRS_EXCLUDE" -noappend -no-progress 2>&1 | tail -2
   verify_squashfs "$OUT/$role.squashfs" "$role"
   log "$role DONE: delta $(du -h "$OUT/$role.squashfs"|cut -f1)"
   sudo rm -rf "$L" "$MG" "$WK"
@@ -1048,6 +1091,11 @@ build_base(){
   sudo tar -I 'zstd -d' -xf "$BASE_TARBALL" -C "$WORK/base"
   assert_rootfs_critical_owners "$WORK/base" "base rootfs"
   mount_chroot "$WORK/base"
+  if ! ncz_dracut_reproducible "$WORK/base" || ! ncz_initramfs_tools_reproducible "$WORK/base"; then
+    log "ERROR: could not write the reproducible-initrd dracut/initramfs-tools drop-ins"
+    apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
+    return 1
+  fi
   # r190.2: same needrestart-hang fix as build_layer() below -- base hooks
   # (10-our-kernel etc) also apt-install packages and can hit the same
   # interactive "Pending kernel upgrade" whiptail hang.
@@ -1363,6 +1411,15 @@ ExecStartPre=
 ExecStartPre=/usr/bin/ssh-keygen -A
 ExecStartPre=/usr/sbin/sshd -t
 ' | sudo tee "$WORK/base/etc/systemd/system/ssh.service.d/10-ensure-hostkeys.conf" >/dev/null
+  # The base initrd was written by the kernel triggers while the chroot still
+  # had the build identity (machine-id, /etc/hostname = the build host,
+  # /etc/hosts); dracut copies all three in. Strip the identity now, while the
+  # chroot still works, and rebuild the initrd from the clean tree. The strip
+  # below runs again after unmount and is idempotent.
+  if ! strip_build_host_state "$WORK/base" base || ! ncz_regen_initrds_after_identity_reset "$WORK/base"; then
+    apt_unmount "$WORK/base"; umount_chroot "$WORK/base"; sudo umount -lf "$WORK/base" 2>/dev/null || true
+    return 1
+  fi
   # cleanup
   sudo rm -f "$WORK/base/usr/sbin/policy-rc.d" "$WORK/base/usr/bin/$QEMU_BIN"
   sudo chroot "$WORK/base" apt-get clean 2>/dev/null || true
@@ -1408,7 +1465,7 @@ ExecStartPre=/usr/sbin/sshd -t
   # content and is preserved -- this is NOT a blanket -no-xattrs.
   log "BASE: mksquashfs -> $OUT/base.squashfs"
   # env -u SOURCE_DATE_EPOCH: see the desktop-layer call above (mksquashfs>=4.7).
-  sudo env -u SOURCE_DATE_EPOCH mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -3
+  sudo env -u SOURCE_DATE_EPOCH mksquashfs "$WORK/base" "$OUT/base.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude "$NCZ_LAYER_XATTRS_EXCLUDE" -noappend -no-progress 2>&1 | tail -3
   verify_squashfs "$OUT/base.squashfs" "base"
   log "BASE DONE: $(du -h "$OUT/base.squashfs"|cut -f1)"
 }
@@ -1582,6 +1639,103 @@ build_singularity_payload(){
   log "SINGULARITY: staged $(basename "$_deb") -> assets/cix-debs/ (fresh, from the pinned sources)"
 }
 
+# ncz_dracut_reproducible <root> -- every initrd dracut writes in this layer
+# (kernel postinst triggers, 60-boot-splash, 80-npu, the base regeneration
+# below) must not depend on the clock. The layer build runs its chroots under
+# sudo, which drops SOURCE_DATE_EPOCH, so dracut stamped each cpio member with
+# its build time: measured 2026-11-07, two amd64 builds of the same commit
+# differed in 596 base and 608 desktop initrd members, mtime only. With
+# reproducible=yes dracut takes SOURCE_DATE_EPOCH from its own
+# dracut-functions.sh (a packaged file, so the same on every build), clamps
+# newer mtimes to it and asks cpio/3cpio for a reproducible archive. The
+# drop-in ships: an initrd regenerated on an installed system is clamped the
+# same way, which changes nothing it boots.
+# Callers run under `build_base || return 1`, where errexit is off, so every
+# step is chained and the result is read back.
+ncz_dracut_reproducible(){
+  local r="$1" f="$1/etc/dracut.conf.d/05-ncz-reproducible.conf"
+  sudo install -d -m 0755 "$r/etc/dracut.conf.d" \
+    && printf '# NCZ-OS: reproducible initrds (build/build-squashfs-layers.sh)\nreproducible="yes"\n' \
+      | sudo tee "$f" >/dev/null \
+    && sudo chmod 0644 "$f" \
+    && sudo grep -qx 'reproducible="yes"' "$f"
+}
+
+# ncz_initramfs_tools_reproducible <root> -- the initramfs-tools counterpart of
+# ncz_dracut_reproducible. arm64 builds its initrds with initramfs-tools
+# (dracut is installed but loses), and mkinitramfs clamps member mtimes and
+# asks cpio for a reproducible archive only when SOURCE_DATE_EPOCH is set. The
+# layer stage reaches mkinitramfs through sudo, sudo chroot and mkosi's
+# sandbox, each of which drops it: measured 2026-11-07, two arm64 builds of the
+# same commit differed in 111 base and 114 desktop initrd members, mtime only.
+# mkinitramfs sources /etc/initramfs-tools/conf.d/* before it packs the
+# archive, so this drop-in sets SOURCE_DATE_EPOCH -- an explicit one wins,
+# else the mtime of the packaged mkinitramfs, the same rule dracut uses for
+# reproducible=yes -- for every caller. The file is also copied into the
+# initrd and sourced at boot, where mkinitramfs is absent: a silent no-op.
+# NCZ_MKINITRAMFS_REF exists for build/test-layer-gates.sh only.
+ncz_initramfs_tools_reproducible(){
+  local r="$1" f="$1/etc/initramfs-tools/conf.d/05-ncz-reproducible"
+  sudo install -d -m 0755 "$r/etc/initramfs-tools/conf.d" \
+    && printf '%s\n' \
+      '# NCZ-OS: reproducible initrds (build/build-squashfs-layers.sh)' \
+      'if [ -z "${SOURCE_DATE_EPOCH:-}" ] && [ -e "${NCZ_MKINITRAMFS_REF:-/usr/sbin/mkinitramfs}" ]; then' \
+      '	SOURCE_DATE_EPOCH=$(stat -c %Y "${NCZ_MKINITRAMFS_REF:-/usr/sbin/mkinitramfs}")' \
+      '	export SOURCE_DATE_EPOCH' \
+      'fi' \
+      | sudo tee "$f" >/dev/null \
+    && sudo chmod 0644 "$f" \
+    && sudo grep -q 'export SOURCE_DATE_EPOCH' "$f"
+}
+
+# ncz_regen_initrds_after_identity_reset <root> -- dracut's systemd module copies
+# a non-empty /etc/machine-id, /etc/hostname and /etc/hosts into the initrd. The
+# base initrd is written by the kernel triggers long before the golden identity
+# reset, so it carried the build chroot's random machine-id (measured
+# 2026-11-07: 33 bytes, a different id in each build) and the build host's name
+# into every install that boots it. Rebuild it from the stripped tree.
+# initramfs-tools (arm64) copies none of these files, but its initrd is rebuilt
+# too, through the same update-initramfs, so both arches take one path.
+ncz_regen_initrds_after_identity_reset(){
+  local r="$1" k n=0
+  [ -x "$r/usr/bin/dracut" ] || [ -x "$r/usr/sbin/mkinitramfs" ] || return 0
+  for k in "$r"/boot/initrd.img-*; do
+    [ -e "$k" ] || continue
+    k="${k##*/initrd.img-}"
+    # set -o pipefail (top of file): the pipeline fails when update-initramfs does
+    if ! sudo chroot "$r" update-initramfs -u -k "$k" 2>&1 | tail -2; then
+      log "ERROR: could not regenerate /boot/initrd.img-$k after the identity reset"
+      return 1
+    fi
+    n=$((n + 1))
+  done
+  log "  regenerated $n initrd(s) after the identity reset (no build machine-id)"
+}
+
+# ncz_font_caches_for_shipped_mtimes <merged-root> <label> -- a fontconfig cache
+# records the mtime of the directory it describes and is only valid while that
+# mtime is unchanged. mksquashfs -all-time 0 ships every directory with mtime 0,
+# so the caches fc-cache wrote during the build (with build-time mtimes) were
+# both stale on the target and different on every build (measured 2026-11-07:
+# 24 of the 25 caches, header bytes only). Set every directory newer than epoch 0 to
+# 0 now -- the value the layer ships anyway -- and rebuild the caches in the
+# chroot, so they are valid on the target and identical across builds. The base
+# lowerdir comes from base.squashfs and is already at 0, so this touches only
+# directories this layer created and never copies a lower directory up.
+ncz_font_caches_for_shipped_mtimes(){
+  local r="$1" label="$2"
+  [ -x "$r/usr/bin/fc-cache" ] || return 0
+  if ! sudo find "$r" -xdev -type d -newermt @0 -exec touch -h -d @0 {} +; then
+    log "ERROR: $label: could not reset directory mtimes before fc-cache"
+    return 1
+  fi
+  if ! sudo chroot "$r" fc-cache -s -f >/dev/null 2>&1; then
+    log "ERROR: $label: fc-cache failed rebuilding the font caches"
+    return 1
+  fi
+  log "$label: fontconfig caches rebuilt against the shipped (epoch 0) directory mtimes"
+}
+
 # strip_build_host_state <root> <label> -- a layer must not describe the machine
 # that built it. Package scripts run inside the build chroot record the BUILD
 # HOST: mmdebstrap copies its /etc/hostname, lvm2's vgcfgbackup writes its volume
@@ -1613,6 +1767,10 @@ build_singularity_payload(){
 #   var/opt/vivaldi/media-codecs-*   removed (fetched by Vivaldi's update-ffmpeg,
 #                         part of no package; 52-vivaldi.sh blocks the fetch)
 #   tmp/*, var/tmp/*      removed
+#   var/cache/ldconfig/aux-cache   removed (inode/ctime of every library at build
+#                         time; ldconfig rebuilds it, ld.so.cache does not use it)
+#   run/tmpkbd.*          removed (setupcon's mktemp dir, left by the dracut
+#                         console-setup module; /run is a tmpfs on the target)
 #   etc/lvm/backup, etc/lvm/archive, etc/nvme/hostnqn|hostid   removed
 #   file owners           the build tree is copied with cp -a, so files carry
 #                         the build user's uid/gid (1000): every owner or group
@@ -1673,6 +1831,8 @@ strip_build_host_state(){
   sudo rm -rf "$r"/var/opt/vivaldi/media-codecs-* 2>/dev/null || true
   sudo find "$r/tmp" "$r/var/tmp" -mindepth 1 -maxdepth 1 \
     ! -name .X11-unix ! -name .ICE-unix ! -name .XIM-unix ! -name .font-unix -exec rm -rf {} + 2>/dev/null || true
+  sudo rm -f "$r/var/cache/ldconfig/aux-cache" 2>/dev/null || true
+  sudo find "$r/run" -mindepth 1 -maxdepth 1 -type d -name 'tmpkbd.*' -exec rm -rf {} + 2>/dev/null || true
   # owners: build uid/gid -> root; project tree: no group/other write
   sudo find "$r" -xdev \( \( -uid +999 ! -uid 65534 \) -o \( -gid +999 ! -gid 65534 \) \) -exec chown -h 0:0 {} + 2>/dev/null || true
   if [ -d "$r/usr/local/lib/cix-installer" ]; then
@@ -1691,6 +1851,8 @@ strip_build_host_state(){
           sudo find "$r/root" -mindepth 1 -maxdepth 1 ! -name .bashrc ! -name .profile ! -name .ssh 2>/dev/null; \
           sudo find "$r/root/.ssh" "$r/home" -mindepth 1 2>/dev/null; \
           sudo find "$r/var/opt/vivaldi" -maxdepth 1 -name 'media-codecs-*' 2>/dev/null; \
+          sudo find "$r/var/cache/ldconfig" -maxdepth 1 -name aux-cache 2>/dev/null; \
+          sudo find "$r/run" -mindepth 1 -maxdepth 1 -type d -name 'tmpkbd.*' 2>/dev/null; \
           sudo find "$r" -xdev \( \( -uid +999 ! -uid 65534 \) -o \( -gid +999 ! -gid 65534 \) \) -print 2>/dev/null | head -5)"
   if [ "$label" = base ] && [ "$(sudo cat "$r/etc/hostname" 2>/dev/null)" != localhost ]; then
     left="$left /etc/hostname"
@@ -1705,7 +1867,7 @@ strip_build_host_state(){
     log "ERROR: $label layer would carry build-host state: $(printf '%s' "$left" | tr '\n' ' ')"
     return 1
   fi
-  log "$label: no build-host state (hostname, hosts, resolv.conf, machine-id, mtab, random seed, ssh host keys, leases, apt caches, logs, journal, root and home contents, downloaded codecs, tmp, LVM backup, NVMe ids, build-user owners)"
+  log "$label: no build-host state (hostname, hosts, resolv.conf, machine-id, mtab, random seed, ssh host keys, leases, apt caches, logs, journal, root and home contents, downloaded codecs, tmp, LVM backup, NVMe ids, ldconfig aux-cache, setupcon temp dirs, build-user owners)"
 }
 
 ensure_wallpaper_packs(){
@@ -1801,7 +1963,7 @@ build_hotfix(){
   # content and is preserved -- this is NOT a blanket -no-xattrs.
   log "HOTFIX: mksquashfs $WORK/hotfix -> $OUT/desktop-hotfix.squashfs"
   # env -u SOURCE_DATE_EPOCH: see the desktop-layer call above (mksquashfs>=4.7).
-  sudo env -u SOURCE_DATE_EPOCH mksquashfs "$WORK/hotfix" "$OUT/desktop-hotfix.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude '^security\.selinux' -noappend -no-progress 2>&1 | tail -2
+  sudo env -u SOURCE_DATE_EPOCH mksquashfs "$WORK/hotfix" "$OUT/desktop-hotfix.squashfs" -comp zstd -Xcompression-level 15 -all-time 0 -fstime 0 -processors 1 -xattrs-exclude "$NCZ_LAYER_XATTRS_EXCLUDE" -noappend -no-progress 2>&1 | tail -2
   verify_squashfs "$OUT/desktop-hotfix.squashfs" "desktop-hotfix"
   # Write the overlay manifest. The install-time stub applies the manifest
   # BEFORE unsquashfs extraction (see preseed/extract-rootfs.sh's

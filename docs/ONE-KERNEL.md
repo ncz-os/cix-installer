@@ -71,6 +71,31 @@ hook failure, and the installed system booted.
 `build/iso/tests/test_patch_initrd.py` unit-tests the prune both directions
 (wired into `make parity`).
 
+## Substrate input scan (provenance-predict, operator rulings 2026-11-07)
+
+`build/forky-provenance.py --substrate-iso` checks the pinned netinst BEFORE the
+mirror and layers stages. Two things in it can never have an archive origin, and
+both are cleared only while scanning the netinst whose sha256 `manifests/base.pin`
+pins (any other ISO is checked without them):
+
+1. **d-i's own installer-kernel udebs** (`*-modules-<abi>-di`, `linux-base-<abi>-di`,
+   `linux-binary-<abi>-di`, `kernel-image-<abi>-di`: a kernel-artifact name ending
+   in `-di`). With `NCZ_ONE_KERNEL_SUBSTRATE_UDEBS=exempt` in `release.conf` they
+   are cleared by name in the pool records, the pool orphan walk and the initrd
+   dpkg status, because Step 1 and Step 2 above remove them from the medium
+   (`build/build-image.sh` exports `NCZ_ONE_KERNEL=1`, the Makefile default). Any
+   other name (`linux-image-*`, an unknown udeb) still needs a reviewed origin, and
+   the finished-image gate scans the medium without the exemption.
+2. **The `debian-installer` build-marker records** (Version
+   `cdrom-<variant>-<YYYYMMDD>-<HH:MM:SS>`, no Architecture) in the initrd dpkg
+   status. They are accepted by identity only, for the exact (name, version) a
+   `manifests/di-build-markers.tsv` row ties to the pinned substrate sha256; a
+   changed stamp, another substrate or the same identity on a hashed pool record
+   still fails. A re-pinned substrate needs new rows, taken from its
+   provenance-predict FAIL lines.
+
+`build/test-provenance-predict.sh` section 5 tests both in each direction.
+
 ## Residual after the one-kernel fix
 
 With the Debian kernel modules gone from the image, the kernel residual is

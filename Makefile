@@ -823,6 +823,7 @@ parity:
 	build/test-apt-sources-offline-canary.sh
 	build/test-dkms-prep-keep-going.sh
 	build/test-headers-prepare-pristine.sh
+	@bash build/test-kernel-hook-no-downgrade.sh; rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 77 ]; then exit $$rc; fi
 	build/test-dkms-prep-genksyms.sh
 	build/test-stale-singularity-prune.sh
 	build/test-kernel-purity-pin.sh

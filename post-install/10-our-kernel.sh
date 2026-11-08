@@ -141,10 +141,44 @@ LIBGCC_DEB=$(local_deb 'libgcc-s1_*.deb')
 LIBLZ4_DEB=$(local_deb 'liblz4-1_*.deb')
 LIBLZMA_DEB=$(local_deb 'liblzma5_*.deb')
 LIBSTDCXX_DEB=$(local_deb 'libstdc++6_*.deb')
+# >>> ncz_debs_to_install
+# ncz_debs_to_install <deb>... -- print the debs that would install or upgrade
+# a package; a deb whose package is already installed at the same or a newer
+# version is left out. 2026-11-07: d-i base-installer had already upgraded the
+# target from the live mirror (zlib1g, zlib1g-dev 1.3.2-3 -> 1.3.2-4); dpkg -i
+# of the pool's zlib1g 1.3.2-3 downgraded it under zlib1g-dev (= 1.3.2-4) and
+# every later apt-get install failed with "Unmet dependencies" (firmware BOM,
+# desktop layer). build/test-kernel-hook-no-downgrade.sh covers this block.
+ncz_debs_to_install() {
+    local deb pkg ver arch inst
+    for deb in "$@"; do
+        pkg=$(dpkg-deb -f "$deb" Package 2>/dev/null) || { echo "$deb"; continue; }
+        ver=$(dpkg-deb -f "$deb" Version 2>/dev/null) || { echo "$deb"; continue; }
+        arch=$(dpkg-deb -f "$deb" Architecture 2>/dev/null || true)
+        [ -n "$arch" ] && [ "$arch" != all ] && pkg="$pkg:$arch"
+        inst=$(dpkg-query -W -f='${db:Status-Status} ${Version}' "$pkg" 2>/dev/null || true)
+        case "$inst" in
+            "installed "*)
+                if dpkg --compare-versions "${inst#installed }" ge "$ver"; then
+                    echo "  [deps] keeping installed $pkg ${inst#installed } (pool has $ver)" >&2
+                    continue
+                fi ;;
+        esac
+        echo "$deb"
+    done
+}
+# <<< ncz_debs_to_install
 if [ -n "$ZSTD_DEB" ] && [ -n "$ZLIB_DEB" ] && [ -n "$LIBGCC_DEB" ] && \
    [ -n "$LIBLZ4_DEB" ] && [ -n "$LIBLZMA_DEB" ] && [ -n "$LIBSTDCXX_DEB" ]; then
     echo "  [deps] using embedded zstd deb: $(basename "$ZSTD_DEB")"
-    dpkg -i "$LIBGCC_DEB" "$LIBLZ4_DEB" "$LIBLZMA_DEB" "$LIBSTDCXX_DEB" "$ZLIB_DEB" "$ZSTD_DEB"
+    mapfile -t _dep_debs < <(ncz_debs_to_install "$LIBGCC_DEB" "$LIBLZ4_DEB" \
+        "$LIBLZMA_DEB" "$LIBSTDCXX_DEB" "$ZLIB_DEB" "$ZSTD_DEB")
+    if [ "${#_dep_debs[@]}" -gt 0 ]; then
+        dpkg -i "${_dep_debs[@]}"
+    else
+        echo "  [deps] zstd and its libraries are already installed at the pool version or newer"
+    fi
+    unset _dep_debs
 else
     apt-get install -y --no-install-recommends kmod initramfs-tools zstd
 fi

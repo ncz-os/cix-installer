@@ -652,6 +652,12 @@ RUN_DIR="$(cd "$RUN_DIR" 2>/dev/null && pwd || { mkdir -p "$RUN_DIR" && cd "$RUN
 # of each stage's subshell, which is what the per-stage ownership check reads.
 export NCZ_CHOWN_BACK="${NCZ_CHOWN_BACK:-$(id -u):$(id -g)}"
 export NCZ_CHOWN_BACK_PATHS="$ROOT:$RUN_DIR"
+# One-kernel policy (docs/ONE-KERNEL.md): the same default the Makefile sets
+# (NCZ_ONE_KERNEL ?= 1), so both entrypoints write the same /cdrom pool.  The
+# provenance input gate's substrate exemption (release.conf
+# NCZ_ONE_KERNEL_SUBSTRATE_UDEBS=exempt) is sound only because the writer
+# removes those udebs; the finished-image gate re-checks the medium without it.
+NCZ_ONE_KERNEL="${NCZ_ONE_KERNEL:-1}"; export NCZ_ONE_KERNEL
 LOGS="$RUN_DIR/logs"
 mkdir -p "$LOGS" "$RUN_DIR/tmp"
 # Image variant: desktop (default) or server (Magnetar). Only the image stage
@@ -1409,6 +1415,18 @@ stage_provenance_predict() {
     # stage 50 already does, it is a few tens of KB, and "predict before spending
     # hours" is the whole point of this gate.
     [ "$OFFLINE" = 1 ] || args+=(--index-dir "$idx" --fetch-index)
+    # The build-timestamped payload deb is authorized by a reviewed RECORD, never
+    # by skipping it.  This stage runs before refresh-sources writes the run
+    # receipt, yet assets/cix-debs is gitignored: a clone that already ran
+    # refresh-sources (a CI re-run) still holds the pinned payload deb here.
+    # Measured on ULTRA 2026-11-07 (arm64 re-run): that deb, sha256 equal to the
+    # pin, failed "not recorded in the image receipt".  Read the reviewed pin row
+    # (exact name+version+arch+sha256), plus this run's receipt on a resume.
+    if [ -f "$ROOT/manifests/singularity-payload.tsv" ]; then
+        args+=(--payload-pin "$ROOT/manifests/singularity-payload.tsv")
+    fi
+    local preceipt="$RUN_DIR/singularity-sources/payload-receipt.json"
+    [ -f "$preceipt" ] && args+=(--receipt "$preceipt")
 
     if ( cd "$ROOT" && bash build/check-inputs-provenance.sh "${args[@]}" ) >>"$log" 2>&1; then
         say "every input verifies -- safe to spend the mirror and layer time"

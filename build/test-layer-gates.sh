@@ -24,6 +24,12 @@
 #   7. 52-vivaldi.sh blocks Vivaldi's codec download in a layer build and
 #      restores update-ffmpeg; root home, home and var/opt/vivaldi codecs are
 #      stripped and checked
+#   9. layer determinism helpers: dracut reproducible drop-in, base initrd
+#      regenerated after the identity reset, fontconfig caches built against
+#      the shipped epoch-0 directory mtimes
+#  10. no layer archive carries overlayfs xattrs (one -xattrs-exclude regex)
+#  11. overlay manifest records user.overlay.opaque dirs only where base has the path
+#  12. initramfs-tools drop-in sets SOURCE_DATE_EPOCH for every mkinitramfs run
 # Ownership needs root semantics: the test re-runs itself under fakeroot.
 # Usage: build/test-layer-gates.sh
 set -uo pipefail
@@ -77,6 +83,8 @@ mkdirty() {  # root -> a layer carrying every host-state item
     echo h > "$r/root/.bash_history"; echo h > "$r/home/u/.bash_history"; echo h > "$r/root/.lesshst"
     echo t > "$r/tmp/scratch"; echo t > "$r/var/tmp/scratch"
     echo vg > "$r/etc/lvm/backup/vg0"; echo nqn > "$r/etc/nvme/hostnqn"
+    mkdir -p "$r/var/cache/ldconfig" "$r/run/tmpkbd.sZMlzu" "$r/run/lock"
+    echo stat > "$r/var/cache/ldconfig/aux-cache"; echo x > "$r/run/tmpkbd.sZMlzu/keymap"
     mkdir -p "$r/root/.config/vivaldi" "$r/root/.local/lib/vivaldi/media-codecs-8.3" "$r/root/.cache/x" "$r/root/.ssh" "$r/var/opt/vivaldi/media-codecs-8.3"
     : > "$r/root/.config/vivaldi/update-ffmpeg-checked-8.2"; echo so > "$r/root/.local/lib/vivaldi/media-codecs-8.3/libffmpeg.so"
     echo so > "$r/var/opt/vivaldi/media-codecs-8.3/libffmpeg.so"; echo k > "$r/root/.ssh/authorized_keys"
@@ -98,7 +106,8 @@ grep -q builder "$D/etc/hosts" && bad "strip: hosts still names the builder" || 
 for f in var/lib/systemd/random-seed var/lib/systemd/credential.secret etc/ssh/ssh_host_ed25519_key etc/ssh/ssh_host_ed25519_key.pub \
          var/lib/dhcp/dhclient.eth0.leases var/cache/apt/pkgcache.bin var/cache/apt/archives/x_1_all.deb \
          var/lib/apt/lists/deb.example_dists_forky_InRelease var/log/dpkg.log var/log/journal/abc/system.journal \
-         root/.bash_history home/u/.bash_history root/.lesshst tmp/scratch var/tmp/scratch etc/lvm/backup/vg0 etc/nvme/hostnqn; do
+         root/.bash_history home/u/.bash_history root/.lesshst tmp/scratch var/tmp/scratch etc/lvm/backup/vg0 etc/nvme/hostnqn \
+         var/cache/ldconfig/aux-cache run/tmpkbd.sZMlzu; do
     [ ! -e "$D/$f" ] && ok "strip: $f removed" || bad "strip: $f left"
 done
 for f in root/.config root/.local root/.cache root/.ssh/authorized_keys home/u var/opt/vivaldi/media-codecs-8.3; do
@@ -107,6 +116,7 @@ done
 [ -f "$D/root/.bashrc" ] && [ -f "$D/root/.profile" ] && [ -d "$D/root/.ssh" ] && ok "strip: root keeps .bashrc, .profile and an empty .ssh" || bad "strip: removed an intended root file"
 [ -e "$D/var/lib/apt/lists/lock" ] && [ -e "$D/var/lib/apt/lists/.ncz-installer-refreshed" ] && [ -d "$D/tmp/.X11-unix" ] \
     && ok "strip: apt lock, installer marker and tmp socket dir kept" || bad "strip: removed a kept entry"
+[ -d "$D/run/lock" ] && ok "strip: run/lock kept (only setupcon's temp dir goes)" || bad "strip: removed run/lock"
 n1000="$(find "$D" \( -uid +999 ! -uid 65534 \) -o \( -gid +999 ! -gid 65534 \) | wc -l)"
 [ "$n1000" = 0 ] && ok "strip: no build-user owners left" || bad "strip: $n1000 build-user owned entries left"
 m="$(stat -c %a "$D/usr/local/lib/cix-installer/post-install/10-x.sh")"
@@ -290,6 +300,161 @@ tsv="$(lc "$C")"; e="$(ev "$tsv" dpkg-status)"
 printf 'Package: bar\nStatus: deinstall ok config-files\nVersion: 2\n' > "$C/var/lib/dpkg/status"
 tsv="$(lc "$C")"; e="$(ev "$tsv" dpkg-status)"
 [ "$(res "$tsv" dpkg-status)" = WARN ] && printf '%s' "$e" | grep >/dev/null 'bar(not allow-listed)' && ok "unreviewed config-files package: WARN naming it as not allow-listed" || bad "unreviewed config-files: $e"
+
+# ===========================================================================
+echo "== 9. layer determinism: dracut, base initrd identity, fontconfig caches =="
+# Measured 2026-11-07 (two amd64 builds of 342d44bc): base and desktop differed
+# only in /boot/initrd.img-* (cpio mtimes; the base one also embedded the build
+# chroot's machine-id), var/cache/ldconfig/aux-cache, 24 fontconfig caches
+# (header = font directory mtime at fc-cache time) and setupcon's leaked
+# run/tmpkbd.XXXXXX directory. Items 1 covers the last two strip items.
+L="$ROOT/build/build-squashfs-layers.sh"
+FN9="$T/det.sh"
+{
+    echo 'sudo() { "$@"; }'; echo 'log() { echo "[log] $*"; }'
+    sed -n '/^ncz_dracut_reproducible(){/,/^}$/p' "$L"
+    sed -n '/^ncz_font_caches_for_shipped_mtimes(){/,/^}$/p' "$L"
+} > "$FN9"
+grep -q '^ncz_dracut_reproducible(){' "$FN9" && grep -q '^ncz_font_caches_for_shipped_mtimes(){' "$FN9" \
+    && ok "determinism helpers extracted" || bad "could not extract the determinism helpers"
+R9="$T/det-root"; mkdir -p "$R9/etc"
+bash -c ". '$FN9'; ncz_dracut_reproducible '$R9'" >/dev/null 2>&1
+grep -qx 'reproducible="yes"' "$R9/etc/dracut.conf.d/05-ncz-reproducible.conf" 2>/dev/null \
+    && ok "dracut drop-in sets reproducible=yes" || bad "dracut drop-in missing or wrong"
+# the base build writes the drop-in before its first apt-get install and
+# regenerates the initrd after the golden identity reset
+bb="$(sed -n '/^build_base(){/,/^}$/p' "$L")"
+ln_drop="$(printf '%s\n' "$bb" | grep -nF 'ncz_dracut_reproducible "$WORK/base"' | head -1 | cut -d: -f1)"
+ln_apt="$(printf '%s\n' "$bb" | grep -nF 'apt-get install' | head -1 | cut -d: -f1)"
+ln_mid="$(printf '%s\n' "$bb" | grep -nF 'truncate -s 0 "$WORK/base/etc/machine-id"' | head -1 | cut -d: -f1)"
+ln_regen="$(printf '%s\n' "$bb" | grep -nF 'ncz_regen_initrds_after_identity_reset "$WORK/base"' | head -1 | cut -d: -f1)"
+[ -n "$ln_drop" ] && [ -n "$ln_apt" ] && [ "$ln_drop" -lt "$ln_apt" ] \
+    && ok "base: dracut drop-in precedes the first apt-get install" || bad "base: drop-in line ${ln_drop:-none} vs apt ${ln_apt:-none}"
+[ -n "$ln_mid" ] && [ -n "$ln_regen" ] && [ "$ln_regen" -gt "$ln_mid" ] \
+    && ok "base: initrd regenerated after the machine-id reset" || bad "base: regen line ${ln_regen:-none} vs reset ${ln_mid:-none}"
+# fontconfig: every directory newer than epoch 0 goes to 0 (what mksquashfs
+# -all-time 0 ships) and fc-cache is re-run in the chroot; no fc-cache, no-op
+F9="$T/font-root"; mkdir -p "$F9/usr/bin" "$F9/usr/share/fonts/truetype/x" "$F9/old"
+printf '#!/bin/sh\n' > "$F9/usr/bin/fc-cache"; chmod 0755 "$F9/usr/bin/fc-cache"
+touch -h -d @0 "$F9/old"
+mkdir -p "$T/fakechroot"; printf '#!/bin/sh\necho "$@" >> "%s/chroot.calls"\n' "$T" > "$T/fakechroot/chroot"; chmod 0755 "$T/fakechroot/chroot"
+PATH="$T/fakechroot:$PATH" bash -c ". '$FN9'; ncz_font_caches_for_shipped_mtimes '$F9' desktop" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "font caches: helper rc 0" || bad "font caches: rc=$rc"
+newer="$(find "$F9" -type d -newermt @0 | wc -l)"
+[ "$newer" -eq 0 ] && ok "font caches: no directory newer than epoch 0" || bad "font caches: $newer directories still newer than epoch 0"
+grep -q "^$F9 fc-cache -s -f\$" "$T/chroot.calls" 2>/dev/null && ok "font caches: fc-cache -s -f re-run in the chroot" || bad "font caches: chroot calls: $(cat "$T/chroot.calls" 2>/dev/null)"
+N9="$T/nofont"; mkdir -p "$N9/usr/share/fonts"; : > "$T/chroot.calls"
+PATH="$T/fakechroot:$PATH" bash -c ". '$FN9'; ncz_font_caches_for_shipped_mtimes '$N9' desktop" >/dev/null 2>&1
+[ ! -s "$T/chroot.calls" ] && [ "$(find "$N9" -type d -newermt @0 | wc -l)" -ne 0 ] \
+    && ok "font caches: a layer without fc-cache is left alone" || bad "font caches: touched a layer without fc-cache"
+grep -qF 'ncz_font_caches_for_shipped_mtimes "$MG" "$role"' "$L" \
+    && ok "build_layer re-runs fc-cache in the merged chroot" || bad "build_layer does not call the font-cache helper"
+
+# ===========================================================================
+echo "== 10. overlay xattrs never reach a layer archive =="
+# Measured 2026-11-07 (two amd64 builds of 096c74f4): the desktop layer differed
+# only in its xattr table -- trusted.overlay.origin (lower-inode file handles),
+# trusted/user.overlay.uuid (random per mount), user.overlay.* from mkosi's
+# rootless overlay. mksquashfs keeps only the LAST -xattrs-exclude given, so
+# the '^trusted\.overlay\.' exclusion in front of '^security\.selinux' never
+# applied, and user.overlay.* was never excluded at all.
+L="$ROOT/build/build-squashfs-layers.sh"
+multi="$(grep -n -- '-xattrs-exclude.*-xattrs-exclude' "$L" | grep -v '^[0-9]*:[[:space:]]*#' | cut -d: -f1 | tr '\n' ' ')"
+[ -z "$multi" ] && ok "no mksquashfs call passes -xattrs-exclude twice" || bad "mksquashfs calls with repeated -xattrs-exclude (only the last applies): lines $multi"
+re="$(sed -n "s/^NCZ_LAYER_XATTRS_EXCLUDE='\(.*\)'\$/\1/p" "$L")"
+[ -n "$re" ] && ok "layer xattr exclusion is one regex: $re" || bad "NCZ_LAYER_XATTRS_EXCLUDE not defined"
+n="$(grep -cF -- '-xattrs-exclude "$NCZ_LAYER_XATTRS_EXCLUDE"' "$L")"
+[ "$n" -ge 3 ] && ok "base, desktop and hotfix archives use it ($n calls)" || bad "only $n mksquashfs calls use NCZ_LAYER_XATTRS_EXCLUDE"
+if command -v mksquashfs >/dev/null 2>&1 && command -v unsquashfs >/dev/null 2>&1 && [ -n "$re" ]; then
+    X="$T/xattr"; mkdir -p "$X/src/d"; echo f > "$X/src/d/f"
+    python3 -c 'import os,sys
+for k in ("user.overlay.origin","user.overlay.opaque","user.overlay.uuid","user.keep"): os.setxattr(sys.argv[1], k, b"y")' "$X/src/d/f"
+    mksquashfs "$X/src" "$X/o.sq" -quiet -no-progress -noappend -xattrs-exclude "$re" >/dev/null 2>&1
+    unsquashfs -q -n -d "$X/out" "$X/o.sq" >/dev/null 2>&1
+    got="$(python3 -c 'import os,sys; print(" ".join(sorted(os.listxattr(sys.argv[1]))))' "$X/out/d/f" 2>/dev/null)"
+    [ "$got" = user.keep ] && ok "the regex drops user.overlay.* and keeps other xattrs" || bad "xattrs after exclusion: '$got'"
+else
+    ok "skip: mksquashfs/unsquashfs absent (behavioural xattr check)"
+fi
+
+# ===========================================================================
+echo "== 11. overlay manifest: user.overlay.opaque directories =="
+# The installer does not mount overlays: it unsquashfs-es base, rm -rf's every
+# manifest path, then unsquashfs-es the delta over it (patch-debootstrap-stub.py),
+# so an opaque directory missing from the manifest MERGES with base content.
+# mkosi's rootless overlay marks directories with user.overlay.opaque, which the
+# generator used to ignore (2260 amd64 / 2368 arm64 dirs, 2026-11-07). Every one
+# of them was absent from base (overlayfs makes directories it creates inside a
+# merged parent opaque), so merge == replace and the installed result was
+# unchanged -- measured on the amd64 KVM-gate target: 0 base entries in them.
+# The generator now records a user-opaque directory only when the base lowerdir
+# has that path (the case where replace and merge differ), and not otherwise,
+# so today's manifests are byte-identical.
+L="$ROOT/build/build-squashfs-layers.sh"
+GEN="$T/gen-manifest.py"
+sed -n "/<<'PYOVERLAY'\$/,/^PYOVERLAY\$/p" "$L" | sed '1d;$d' > "$GEN"
+[ -s "$GEN" ] && ok "overlay manifest generator extracted" || bad "could not extract the PYOVERLAY generator"
+M="$T/opq"; U11="$M/up"; L11="$M/lower"
+mkdir -p "$U11/etc/new" "$U11/etc/shared" "$U11/usr/plain" "$L11/etc/shared" "$L11/usr/plain"
+echo old > "$L11/etc/shared/stale.conf"; echo new > "$U11/etc/shared/a.conf"
+if python3 -c 'import os,sys
+for d in sys.argv[1:]: os.setxattr(d, "user.overlay.opaque", b"y")' "$U11/etc/new" "$U11/etc/shared" 2>/dev/null; then
+    python3 -I "$GEN" "$U11" "$L11" "$M/manifest" >/dev/null 2>&1; rc=$?
+    [ "$rc" = 0 ] && ok "generator rc 0 with a lowerdir argument" || bad "generator rc=$rc"
+    grep -qxF "$(printf 'opaque\tetc/shared')" "$M/manifest" 2>/dev/null \
+        && ok "user-opaque dir that exists in base is recorded as opaque" || bad "etc/shared not recorded: $(cat "$M/manifest" 2>/dev/null)"
+    grep -qF 'etc/new' "$M/manifest" 2>/dev/null \
+        && bad "user-opaque dir absent from base was recorded (manifest would change for nothing)" \
+        || ok "user-opaque dir absent from base is not recorded (no-op either way)"
+    grep -qF 'usr/plain' "$M/manifest" 2>/dev/null && bad "a plain merged dir was recorded" || ok "a plain merged dir is not recorded"
+    python3 -I "$GEN" "$U11" "$L11" "$M/manifest2" >/dev/null 2>&1
+    cmp -s "$M/manifest" "$M/manifest2" && ok "manifest is deterministic" || bad "manifest differs between two runs"
+else
+    ok "skip: cannot set user.* xattrs here (behavioural manifest check)"
+fi
+grep -qF 'python3 - "$U" "$L" "$OUT/$role.overlay-manifest"' "$L" \
+    && ok "build_layer passes the base lowerdir to the generator" || bad "build_layer does not pass \$L to the generator"
+
+# ===========================================================================
+echo "== 12. initramfs-tools initrds are reproducible (arm64 base/desktop) =="
+# Measured 2026-11-07 (two arm64 builds of 7a5309b6): the base and desktop
+# initrds (initramfs-tools; dracut loses on arm64) differed in 111 / 114 cpio
+# mtimes, content identical. mkinitramfs clamps mtimes and uses cpio
+# --reproducible only when SOURCE_DATE_EPOCH is set, and the layer build's
+# sudo/chroot calls (and mkosi's sandbox) drop it. mkinitramfs sources
+# /etc/initramfs-tools/conf.d/* before it builds the archive, so a drop-in
+# there sets it for every caller: the kernel postinst, update-initramfs in the
+# hooks, mkosi's apt triggers.
+L="$ROOT/build/build-squashfs-layers.sh"
+FN12="$T/itools.sh"
+{
+    echo 'sudo() { "$@"; }'; echo 'log() { echo "[log] $*"; }'
+    sed -n '/^ncz_initramfs_tools_reproducible(){/,/^}$/p' "$L"
+} > "$FN12"
+grep -q '^ncz_initramfs_tools_reproducible(){' "$FN12" && ok "initramfs-tools helper extracted" || bad "could not extract ncz_initramfs_tools_reproducible"
+R12="$T/itools-root"; mkdir -p "$R12/etc"
+bash -c ". '$FN12'; ncz_initramfs_tools_reproducible '$R12'" >/dev/null 2>&1; rc=$?
+D12="$R12/etc/initramfs-tools/conf.d/05-ncz-reproducible"
+[ "$rc" = 0 ] && [ -f "$D12" ] && ok "drop-in written (rc 0)" || bad "drop-in missing (rc=$rc)"
+# mkinitramfs only sources conf.d names matching its own filter
+basename "$D12" | grep '^[[:alnum:]][[:alnum:]\._-]*$' | grep -qv '\.dpkg-.*$' \
+    && ok "drop-in name passes mkinitramfs maybe_add_conf" || bad "mkinitramfs would ignore $(basename "$D12")"
+# sourced the way mkinitramfs does (plain sh, set -e): an explicit
+# SOURCE_DATE_EPOCH wins; without one it comes from the packaged mkinitramfs
+# mtime; where mkinitramfs is absent (inside the initrd, which also sources
+# conf.d at boot) it is a silent no-op
+got="$(SOURCE_DATE_EPOCH=1700000000 sh -ec ". '$D12'; echo \$SOURCE_DATE_EPOCH")"
+[ "$got" = 1700000000 ] && ok "an explicit SOURCE_DATE_EPOCH is kept" || bad "explicit SOURCE_DATE_EPOCH replaced: $got"
+F12="$T/fake-mkinitramfs"; : > "$F12"; touch -d @1600000000 "$F12"
+got="$(env -u SOURCE_DATE_EPOCH NCZ_MKINITRAMFS_REF="$F12" sh -ec ". '$D12'; echo \${SOURCE_DATE_EPOCH:-unset}")"
+[ "$got" = 1600000000 ] && ok "without one, SOURCE_DATE_EPOCH = mkinitramfs mtime" || bad "derived SOURCE_DATE_EPOCH: $got"
+out="$(env -u SOURCE_DATE_EPOCH NCZ_MKINITRAMFS_REF="$T/absent" sh -ec ". '$D12'; echo \${SOURCE_DATE_EPOCH:-unset}" 2>&1)"
+[ "$out" = unset ] && ok "no mkinitramfs (initrd boot): silent no-op" || bad "drop-in at boot printed/set: $out"
+bb="$(sed -n '/^build_base(){/,/^}$/p' "$L")"
+ln_it="$(printf '%s\n' "$bb" | grep -nF 'ncz_initramfs_tools_reproducible "$WORK/base"' | head -1 | cut -d: -f1)"
+ln_apt="$(printf '%s\n' "$bb" | grep -nF 'apt-get install' | head -1 | cut -d: -f1)"
+[ -n "$ln_it" ] && [ -n "$ln_apt" ] && [ "$ln_it" -lt "$ln_apt" ] \
+    && ok "base: initramfs-tools drop-in precedes the first apt-get install" || bad "base: drop-in line ${ln_it:-none} vs apt ${ln_apt:-none}"
 
 echo "test-layer-gates: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

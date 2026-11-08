@@ -182,7 +182,6 @@ manifests/desktop-amd64.pkgs:shotcut
 manifests/desktop-amd64.pkgs:handbrake
 manifests/desktop-amd64.pkgs:ffmpeg
 manifests/desktop-amd64.pkgs:audacity
-manifests/desktop-amd64.pkgs:kooha
 manifests/desktop-amd64.pkgs:celluloid
 manifests/desktop-amd64.pkgs:drawing
 manifests/desktop-amd64.pkgs:imv

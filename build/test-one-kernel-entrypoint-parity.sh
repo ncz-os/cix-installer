@@ -16,10 +16,10 @@
 # removed.  That is why the class-K question could not be answered by reading the
 # policy: the policy is applied by only one of the two entrypoints.
 #
-# While the divergence is open this test reports XFAIL and exits 0, so CI is not
-# red for a known defect.  Set NCZ_EXPECT_ONE_KERNEL_ALIGNED=1 once build-image.sh
-# sets the same default as the Makefile; then the parity assertion becomes hard-red
-# if anyone removes it again.
+# build-image.sh now sets the same default (NCZ_ONE_KERNEL="${NCZ_ONE_KERNEL:-1}"),
+# so NCZ_EXPECT_ONE_KERNEL_ALIGNED defaults to 1 and the parity assertion is
+# hard-red if anyone removes it again (NCZ_EXPECT_ONE_KERNEL_ALIGNED=0 restores
+# the old XFAIL report).
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -48,7 +48,7 @@ grep -qE 'NCZ_ONE_KERNEL' "$BI" && bi_sets=1
 
 if [ "$bi_sets" = 0 ]; then
     # the known defect
-    if [ "${NCZ_EXPECT_ONE_KERNEL_ALIGNED:-0}" = 1 ]; then
+    if [ "${NCZ_EXPECT_ONE_KERNEL_ALIGNED:-1}" = 1 ]; then
         bad "build-image.sh still does not set NCZ_ONE_KERNEL (expected aligned)"
     else
         xf "build-image.sh does not set NCZ_ONE_KERNEL: 'make release-image' strips the substrate kernel udebs and build-image.sh does not (known defect)"
@@ -65,7 +65,7 @@ m = re.search(r'NCZ_ONE_KERNEL="?\$\{NCZ_ONE_KERNEL:-1\}"?', src) or \
 sys.exit(0 if m else 1)
 PY
     ok "build-image.sh sets NCZ_ONE_KERNEL=1 by default"
-    if [ "${NCZ_EXPECT_ONE_KERNEL_ALIGNED:-0}" = 1 ]; then
+    if [ "${NCZ_EXPECT_ONE_KERNEL_ALIGNED:-1}" = 1 ]; then
         ok "the two entrypoints agree (fix verified)"
     else
         echo "  NOTE  the divergence is fixed; flip NCZ_EXPECT_ONE_KERNEL_ALIGNED=1 in CI"
