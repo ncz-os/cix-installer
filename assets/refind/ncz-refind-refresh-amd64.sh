@@ -1420,6 +1420,12 @@ if [ "$NCZ_MENU_VARIANT" = server ]; then
     # theme hides it, but it would show whenever the theme is absent. A server
     # menu never references it.
     REFIND_BANNER=""
+    # Server consoles burn the panel on idle (operator 2026-11-08): ask the
+    # kernel for a 5-minute blank. The unit ncz-console-blank (post-install/
+    # 48-server-variant.sh) applies the same to every VT and powers the panel
+    # down after a further minute; any key wakes.
+    case " $STABLE_OPTIONS " in *" consoleblank="*) ;; *) STABLE_OPTIONS="$STABLE_OPTIONS consoleblank=300" ;; esac
+    case " $STABLE_CONSOLE_OPTIONS " in *" consoleblank="*) ;; *) STABLE_CONSOLE_OPTIONS="$STABLE_CONSOLE_OPTIONS consoleblank=300" ;; esac
 fi
 if [ "$NCZ_MENU_VARIANT" != desktop ] && [ "$STABLE_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="7.3 Console"

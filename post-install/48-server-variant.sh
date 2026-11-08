@@ -96,6 +96,69 @@ fi
 systemctl enable getty@tty2.service 2>&1 | sed 's/^/    /' || true
 echo "[48] getty@tty2 enabled (default operator console)"
 
+# Console burn-in protection (operator 2026-11-08): a server left on a console
+# burns the panel in. Blank after 5 minutes, power the panel down after one
+# more; any key wakes. Kernel cmdline also carries consoleblank=300 for the
+# boot menu entries; this unit re-applies the same policy on every VT (the
+# cmdline only covers the boot console) and re-runs when a new VT appears.
+mkdir -p /etc/ncz
+cat > /etc/ncz/console.conf <<'CONF'
+# /etc/ncz/console.conf -- server console idle policy (ncz-console-blank).
+# Sourceable by /bin/sh. NCZ_CONSOLE_BLANK=no disables everything.
+NCZ_CONSOLE_BLANK=yes
+NCZ_CONSOLE_IDLE_MIN=5
+NCZ_CONSOLE_POWERDOWN_MIN=1
+NCZ_CONSOLE_SAVER=none
+CONF
+chmod 0644 /etc/ncz/console.conf
+
+cat > /usr/local/sbin/ncz-console-blank <<'SCRIPT'
+#!/bin/bash
+# ncz-console-blank -- apply the /etc/ncz/console.conf idle policy to every VT.
+# Server consoles only; a desktop session owns DPMS itself. Idempotent: setterm
+# writes the console escape sequence, so re-running on a new VT is safe.
+set -u
+conf=/etc/ncz/console.conf
+NCZ_CONSOLE_BLANK=yes
+NCZ_CONSOLE_IDLE_MIN=5
+NCZ_CONSOLE_POWERDOWN_MIN=1
+[ -r "$conf" ] && . "$conf"
+case "${NCZ_CONSOLE_BLANK:-yes}" in
+    no|0|false|disabled) exit 0 ;;
+esac
+idle="${NCZ_CONSOLE_IDLE_MIN:-5}"; power="${NCZ_CONSOLE_POWERDOWN_MIN:-1}"
+for _t in /dev/console /dev/tty0 /dev/tty[1-9] /dev/tty1[0-9] /dev/tty2[0-9] /dev/tty3[0-9]; do
+    [ -c "$_t" ] || continue
+    setterm --blank "$idle" --powerdown "$power" > "$_t" 2>/dev/null || true
+done
+exit 0
+SCRIPT
+chmod 0755 /usr/local/sbin/ncz-console-blank
+
+cat > /etc/systemd/system/ncz-console-blank.service <<'UNIT'
+[Unit]
+Description=NCZ console idle blanking (server burn-in protection)
+After=getty.target multi-user.target
+ConditionPathExists=/etc/ncz/console.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ncz-console-blank
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+chmod 0644 /etc/systemd/system/ncz-console-blank.service
+
+# A VT appears later (Alt+F3 on a freshly booted server): re-apply at once.
+cat > /etc/udev/rules.d/90-ncz-console-blank.rules <<'RULES'
+ACTION=="add", SUBSYSTEM=="vtconsole", KERNEL=="vtcon*", ATTR{name}!="*dummy device", RUN+="/usr/bin/systemctl --no-block restart ncz-console-blank.service"
+RULES
+chmod 0644 /etc/udev/rules.d/90-ncz-console-blank.rules
+systemctl enable ncz-console-blank.service 2>&1 | sed 's/^/    /' || true
+echo "[48] console idle blanking installed (ncz-console-blank, /etc/ncz/console.conf)"
+
 
 
 # r76 fix #4 — issue.d pointer so the user knows where to log in.

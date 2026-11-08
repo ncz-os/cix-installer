@@ -1266,6 +1266,18 @@ if { [ "$NCZ_GATE_SERVER" = 1 ] || [ "$NCZ_GATE_SERVER_MEDIUM" = 1 ]; } && [ "$N
     else
         fail "server gate: no time-sync unit is enabled in the installed root (systemd-timesyncd/chrony; MEDUSA defect 2026-11-08)"
     fi
+    # Console burn-in protection (operator 2026-11-08): the installed server must
+    # boot with consoleblank=300 and have the per-VT blanking unit enabled.
+    if grep -q 'consoleblank=300' "$EVIDENCE/installed-refind.conf" 2>/dev/null; then
+        echo "  server gate: installed boot entries carry consoleblank=300"
+    else
+        fail "server gate: no installed boot entry carries consoleblank=300 (console burn-in protection missing)"
+    fi
+    if "$DEBUGFS" -R "stat /etc/systemd/system/multi-user.target.wants/ncz-console-blank.service" "$EVIDENCE_ROOT" 2>/dev/null | grep -q 'Inode:'; then
+        echo "  server gate: ncz-console-blank.service enabled"
+    else
+        fail "server gate: ncz-console-blank.service is not enabled in the installed root (console burn-in protection missing)"
+    fi
 fi
 
 # MAGNETAR(server): the installed root must carry NO desktop layer. The
