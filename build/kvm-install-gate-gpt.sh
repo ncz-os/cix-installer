@@ -725,6 +725,21 @@ ncz_last_partnum() {
     "$SGDISK" -p "$1" 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {n=$1} END {print n}'
 }
 
+# ncz_extract_part RAW LBA END OUT -- carve one partition out of a whole-disk
+# raw image by sector range. dd, NOT `qemu-img convert --image-opts offset=...`:
+# qemu-img mis-reads the offset for the root partition here and writes an
+# unrecognised "data" image where dd reads a valid ext4 superblock, so
+# /etc/os-release and /etc/issue came back empty and the server gate reported
+# them "not extracted" (measured 2026-11-08 on the arm64 server-medium cell,
+# tip 9937de3c). dd reads the same sectors correctly; debugfs then reads the
+# os-release/issue from the carved root without needing a journal recovery.
+ncz_extract_part() {
+    local raw="$1" lba="$2" end="$3" out="$4"
+    [ -n "$lba" ] && [ -n "$end" ] && [ "$end" -ge "$lba" ] 2>/dev/null || return 1
+    dd if="$raw" of="$out" bs=512 skip="$lba" count=$((end - lba + 1)) status=none 2>/dev/null
+    [ -s "$out" ]
+}
+
 echo
 echo "[4/6] phase 1: install (timeout ${INSTALL_TIMEOUT}s)"
 date -u +"  started %H:%M:%SZ"
@@ -830,9 +845,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" = 1 ]; then
             ROOT_LBA=$("$SGDISK" -i "$ROOT_PART" "$EVIDENCE_DISK" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
             ROOT_END_LBA=$("$SGDISK" -i "$ROOT_PART" "$EVIDENCE_DISK" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
             if [ -n "$ROOT_LBA" ] && [ -n "$ROOT_END_LBA" ]; then
-                if qemu-img convert --image-opts -S 4k -O raw \
-                    "driver=raw,file.driver=file,file.filename=$EVIDENCE_DISK,offset=$((ROOT_LBA * 512)),size=$(( (ROOT_END_LBA - ROOT_LBA + 1) * 512 ))" \
-                    "$EVIDENCE_ROOT" >/dev/null 2>&1; then
+                if ncz_extract_part "$EVIDENCE_DISK" "$ROOT_LBA" "$ROOT_END_LBA" "$EVIDENCE_ROOT"; then
                     _neg_osrel="$WORK/.neg-osrel"; rm -f "$_neg_osrel"
                     _neg_installed="$WORK/.neg-installed"; rm -f "$_neg_installed"
                     _neg_varls="$WORK/.neg-varls"; rm -f "$_neg_varls"
@@ -935,10 +948,7 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
     if [ "$GATE_FS" != ext4 ]; then
         echo "  root is $GATE_FS: target logs and the installed-target verifier need ext4 (debugfs); checked from the ESP, the GPT and the boot"
     elif [ -n "$ROOT_LBA" ] && [ -n "$ROOT_END_LBA" ]; then
-        ROOT_BYTES=$(((ROOT_END_LBA - ROOT_LBA + 1) * 512))
-        if qemu-img convert --image-opts -S 4k -O raw \
-            "driver=raw,file.driver=file,file.filename=$EVIDENCE_DISK,offset=$((ROOT_LBA * 512)),size=$ROOT_BYTES" \
-            "$EVIDENCE_ROOT"; then
+        if ncz_extract_part "$EVIDENCE_DISK" "$ROOT_LBA" "$ROOT_END_LBA" "$EVIDENCE_ROOT"; then
             "$DEBUGFS" -R "dump /var/log/cix-installer-late.log $EVIDENCE/cix-installer-late.log" \
                 "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
             "$DEBUGFS" -R "rdump /var/log/cix-install $EVIDENCE" \
@@ -1163,9 +1173,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
                 _SRV_LBA=$("$SGDISK" -i "$_SRV_PART" "$_SRV_EVD" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
                 _SRV_END=$("$SGDISK" -i "$_SRV_PART" "$_SRV_EVD" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
                 if [ -n "$_SRV_LBA" ] && [ -n "$_SRV_END" ]; then
-                    qemu-img convert --image-opts -S 4k -O raw \
-                        "driver=raw,file.driver=file,file.filename=$_SRV_EVD,offset=$((_SRV_LBA * 512)),size=$(( (_SRV_END - _SRV_LBA + 1) * 512 ))" \
-                        "$_SRV_ROOT" >/dev/null 2>&1 || true
+                    ncz_extract_part "$_SRV_EVD" "$_SRV_LBA" "$_SRV_END" "$_SRV_ROOT" || true
                 fi
             fi
             rm -f "$_SRV_EVD"
