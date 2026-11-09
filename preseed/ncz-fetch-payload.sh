@@ -42,33 +42,51 @@ set -u
 # the PL011 debug UART is ttyAMA0) and amd64 (the 16550 serial console
 # ttyS0 of a headless server, and the on-screen console tty0 of a T2 box;
 # d-i's own serial sidecar is diag-console.sh, not this script).
-# The server medium is headless, so a failure that lands on only some of the
+# The server medium is headless, so a FAILURE that lands on only some of the
 # consoles is a silent box. ttyS0 was missing until 2026-10-26: on an amd64
 # server (and the amd64 KVM gate, whose serial is ttyS0) no [FETCH] line
 # reached the serial console at all. /dev/console is intentionally NOT
 # written: it is one of these devices already, and on a d-i that reopened
 # console the write would disturb the installer's console device.
+# 2026-11-09: the consoles get ONLY the loud terminal lines ([FETCH] HARD
+# FAIL / [FETCH] FATAL). Progress chatter overprints the installer dialog on
+# the shared serial/VT (the kvm-gate screen check fails a garbled dialog row;
+# measured: 8 captures failed "dialog without the branded header" because
+# [FETCH] lines mangled the d-i progress dialog frame). Every line still goes
+# to stderr (the installer log) and to the fetch transcript on the target,
+# which is what the gate reads for the verified-lines evidence.
 # NCZ_FETCH_CONSOLES overrides the list (tests); entries that are not a
 # character device or a FIFO are skipped.
 CONSOLES="${NCZ_FETCH_CONSOLES:-/dev/ttyAMA0 /dev/ttyS0 /dev/tty0}"
 DEST_DIR="${NCZ_PAYLOAD_DIR:-/cdrom/ncz-payload}"
 MANIFEST="${NCZ_FETCH_MANIFEST:-$DEST_DIR/ncz-fetch-payload.manifest}"
+# The full [FETCH] transcript lands beside the fetched payload on the target
+# (the gate extracts it with debugfs as its fetch evidence; the negative
+# gate's no-rootfs assertions do not treat it as an installed rootfs).
+TRANSCRIPT="${NCZ_FETCH_TRANSCRIPT:-$DEST_DIR/.ncz-fetch-transcript.log}"
 MAX_TRIES="${NCZ_FETCH_MAX_TRIES:-10}"
 CONNECT_TIMEOUT="${NCZ_FETCH_CONNECT_TIMEOUT:-10}"
 OVERALL_TIMEOUT="${NCZ_FETCH_OVERALL_TIMEOUT:-1800}"
 TMPDIR_FETCH="${NCZ_FETCH_TMPDIR:-/tmp}"
 
 # Every line goes to stderr (the r159 stub forwards it to the installer log
-# and tells the operator to "see the [FETCH] lines above") and to each console
-# that exists. Writes are independent: a console that exists but is not
-# writable must not silence the other one or the log.
+# and tells the operator to "see the [FETCH] lines above") and to the fetch
+# transcript beside the payload. ONLY the loud terminal lines also go to each
+# console that exists, so the installer dialog on the shared serial/VT is
+# never overprinted (see the CONSOLES comment above). Writes are independent:
+# a console that exists but is not writable must not silence the others, the
+# log or the transcript.
 say() {
     _line="$*"
     printf '%s\n' "$_line" >&2 2>/dev/null || true
-    for _c in $CONSOLES; do
-        [ -c "$_c" ] || [ -p "$_c" ] || continue
-        printf '%s\n' "$_line" 2>/dev/null >>"$_c" || true
-    done
+    [ -n "${TRANSCRIPT:-}" ] && printf '%s\n' "$_line" >>"$TRANSCRIPT" 2>/dev/null || true
+    case "$_line" in
+        "[FETCH] HARD FAIL"*|"[FETCH] FATAL"*)
+            for _c in $CONSOLES; do
+                [ -c "$_c" ] || [ -p "$_c" ] || continue
+                printf '%s\n' "$_line" 2>/dev/null >>"$_c" || true
+            done ;;
+    esac
 }
 
 start=$(date +%s 2>/dev/null || echo 0)

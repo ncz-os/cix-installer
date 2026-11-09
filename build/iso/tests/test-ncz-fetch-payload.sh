@@ -209,9 +209,18 @@ else
     echo "skip - GNU wget case (no GNU wget on this host)"
 fi
 
-# --- 8. every [FETCH] line reaches the consoles (amd64 serial is ttyS0) ---
-# The default console list must name the serial console of BOTH arches; a
-# FIFO stands in for a console device so the test can read what was written.
+# --- 8. console routing: ONLY terminal failures on the operator console ---
+# The default console list must name the serial console of BOTH arches. The
+# console carries ONLY the loud terminal lines ([FETCH] HARD FAIL / FATAL):
+# progress chatter overprints the installer dialog on the shared serial/VT
+# (the kvm-gate screen check treats a garbled dialog row as a defect -- the
+# 2026-11-09 server gate: 8 captures failed "dialog without the branded
+# header" because [FETCH] progress lines mangled the dialog frame). Every
+# line still reaches stderr (the installer log) and the fetch transcript on
+# the target, which is where the gate reads the verified lines.
+# This replaces the earlier "every [FETCH] line reaches the consoles"
+# assertion: that behaviour garbles the operator's dialog and is
+# demonstrably wrong against the installer-screen spec (pristine goldens).
 grep -qE '^CONSOLES="\$\{NCZ_FETCH_CONSOLES:-[^"]*/dev/ttyS0' "$FETCH" \
     && grep -qE '^CONSOLES="\$\{NCZ_FETCH_CONSOLES:-[^"]*/dev/ttyAMA0' "$FETCH" \
     && ok "the default consoles include ttyS0 (amd64 serial) and ttyAMA0 (arm64 serial)" \
@@ -230,11 +239,41 @@ _rc=$?
 # drop the holder: the fetcher has exited, so cat now sees EOF
 exec 9>&-
 wait "$_catpid" 2>/dev/null
-if [ "$_rc" = 0 ] && grep -qF "[FETCH] base.squashfs verified sha256=" "$WORK/con/serial.log" \
-   && grep -qF "all manifest artifacts fetched and verified" "$WORK/con/serial.log"; then
-    ok "[FETCH] verified lines reach the serial console (and a missing console is skipped)"
+if [ "$_rc" = 0 ] && grep -qF "[FETCH] base.squashfs verified sha256=" "$WORK/con/run.log" \
+   && grep -qF "all manifest artifacts fetched and verified" "$WORK/con/run.log"; then
+    ok "[FETCH] progress and verified lines reach stderr (the installer log)"
 else
-    fail "run8b: the serial console did not get the [FETCH] lines (rc=$_rc)"; sed -n '1,10p' "$WORK/con/serial.log"
+    fail "run8b: stderr did not get the [FETCH] lines (rc=$_rc)"; sed -n '1,10p' "$WORK/con/run.log"
+fi
+if grep -qF "[FETCH]" "$WORK/con/serial.log"; then
+    fail "run8c: [FETCH] chatter reached the operator console (it overprints the installer dialog)"; sed -n '1,10p' "$WORK/con/serial.log"
+else
+    ok "a clean fetch writes NOTHING to the operator console (the dialog stays pristine)"
+fi
+if [ -s "$WORK/con/dest/.ncz-fetch-transcript.log" ] \
+   && grep -qF "[FETCH] base.squashfs verified sha256=" "$WORK/con/dest/.ncz-fetch-transcript.log"; then
+    ok "the fetch transcript on the target carries the verified lines (the gate's evidence)"
+else
+    fail "run8d: the fetch transcript is missing or lacks the verified lines"
+fi
+# terminal failures MUST be loud on the console: a silent fetch failure on a
+# headless box leaves no rootfs and no message (the negative gate contract)
+rm -rf "$WORK/con-fail"; mkdir -p "$WORK/con-fail/dest"
+mkfifo "$WORK/con-fail/ttyS0"
+cat "$WORK/con-fail/ttyS0" > "$WORK/con-fail/serial.log" &
+_catpid=$!
+exec 8<>"$WORK/con-fail/ttyS0"
+printf '%s\t%s\t%s\tfile\n' "base.squashfs" "http://127.0.0.1:$PORT/base.squashfs" \
+    "1111111111111111111111111111111111111111111111111111111111111111" > "$WORK/con-fail/dest/ncz-fetch-payload.manifest"
+NCZ_FETCH_CONSOLES="$WORK/con-fail/ttyS0" NCZ_PAYLOAD_DIR="$WORK/con-fail/dest" \
+    NCZ_FETCH_MAX_TRIES=1 sh "$FETCH" >"$WORK/con-fail/run.log" 2>&1
+_rc=$?
+exec 8>&-
+wait "$_catpid" 2>/dev/null
+if [ "$_rc" != 0 ] && grep -qE '\[FETCH\] (HARD FAIL|FATAL)' "$WORK/con-fail/serial.log"; then
+    ok "a terminal fetch failure is loud on the operator console (the headless-box contract)"
+else
+    fail "run8e: terminal failure not loud on the console (rc=$_rc)"; sed -n '1,10p' "$WORK/con-fail/serial.log"
 fi
 
 echo

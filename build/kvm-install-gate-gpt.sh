@@ -518,6 +518,35 @@ ncz_srv_cleanup() {
     [ -n "$SRV_PID" ] && wait "$SRV_PID" 2>/dev/null || true
     SRV_PID=""
 }
+ncz_gate_srv_dead_manifest() {
+    # $1 = the run's qemutest image COPY. Rewrite the pinned URLs in its
+    # NCZDATA ncz-payload/ncz-fetch-payload.manifest to a refused endpoint
+    # (build/kvm-gate-dead-manifest.sh: names, hashes and modes preserved) so
+    # the negative run's fetch fails AT THE PINNED SOURCE. Needed because in
+    # online mode the medium pins a LIVE published URL and "the payload server
+    # is OFF" alone cannot make the guest fail (measured 2026-11-09: the
+    # negative run fetched all three artifacts from the live bucket). The
+    # shipped image is never modified -- only this run's copy, same as the
+    # rEFInd entry patching in step [3/6].
+    local img="$1" _dpart _dlba _dend _db
+    _dpart=$("$SGDISK" -p "$img" 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && $NF == "NCZDATA" {print $1; exit}')
+    [ -n "$_dpart" ] && [ "$_dpart" -ge 1 ] || return 1
+    _dlba=$("$SGDISK" -i "$_dpart" "$img" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+    _dend=$("$SGDISK" -i "$_dpart" "$img" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+    [ -n "$_dlba" ] && [ -n "$_dend" ] || return 1
+    _db=$(mktemp "$WORK/.dead-data-XXXXXX.raw")
+    if ! qemu-img convert --image-opts -S 4k -O raw \
+        "driver=raw,file.driver=file,file.filename=$img,offset=$((_dlba * 512)),size=$(( ($_dend - _dlba + 1) * 512 ))" "$_db" >/dev/null 2>&1; then
+        rm -f "$_db"; return 1
+    fi
+    if ! "$SCRIPT_DIR/kvm-gate-dead-manifest.sh" "$_db"; then
+        rm -f "$_db"; return 1
+    fi
+    if ! dd if="$_db" of="$img" bs=512 seek="$_dlba" conv=notrunc status=none; then
+        rm -f "$_db"; return 1
+    fi
+    rm -f "$_db"
+}
 ncz_gate_srv_start() {
     # $1 = the base URL the guest's manifest pins (scheme://host[:port]).
     # Starts the server and proves it actually ANSWERS (a full HTTP request
@@ -735,7 +764,13 @@ elif [ "$NCZ_GATE_SERVER" = 1 ]; then
     # Negative run: the server is deliberately absent. The guest's fetcher
     # must fail loud and bounded; phase 2 and the finish checks below are
     # replaced by the no-rootfs assertions at the end of this gate.
-    echo "  NEGATIVE run: the payload HTTP server is OFF; the install must fail within the deadline and leave no rootfs"
+    # The pinned source must be DEAD for that to be provable: an online-mode
+    # medium pins a LIVE published URL, so dead-end the manifest on this run's
+    # copy before boot (2026-11-09: without this the "offline" negative run
+    # fetched every artifact from the live bucket and proved nothing).
+    ncz_gate_srv_dead_manifest "$TEST_IMG" \
+        || fail "negative server run: could not dead-end the manifest pins in $TEST_IMG"
+    echo "  NEGATIVE run: the payload HTTP server is OFF and the manifest pins are dead-ended; the install must fail within the deadline and leave no rootfs"
 fi
 
 
@@ -1010,6 +1045,12 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
                 "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
             "$DEBUGFS" -R "rdump /var/log/cix-install $EVIDENCE" \
                 "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
+            # The guest's [FETCH] transcript (ncz-fetch-payload.sh writes it
+            # beside the fetched payload). 2026-11-09: progress [FETCH] lines
+            # no longer reach the serial console (they overprint the installer
+            # dialog), so this transcript is the gate's fetch evidence.
+            "$DEBUGFS" -R "dump /ncz-online/ncz-payload/.ncz-fetch-transcript.log $EVIDENCE/ncz-fetch-transcript.log" \
+                "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
             # arm64 ONLY: before we throw away the raw root image, assert that
             # the installed target actually carries the Sky1/Cix/NPU userspace
             # the rest of the install chain claims it does. The companion
@@ -1190,8 +1231,11 @@ grep -E "post-install hooks finished|finalizing apt sources|forcing clean reboot
   || fail "install did not reach the finish stage -- qemu rc=${irc:-?} (rc=124 means the ${INSTALL_TIMEOUT}s timeout expired; any other rc means the run was terminated early, which is NOT a timeout) -- see $ILOG"
 echo "  install reached the finish stage with no ship-critical hook failure"
 # MAGNETAR(server): the payload came off the network; prove the fetcher
-# fetched it and verified the sha256 BEFORE use (its own [FETCH] lines on the
-# serial console, which ncz-fetch-payload.sh tees to the serial device).
+# fetched it and verified the sha256 BEFORE use. Evidence: the guest's own
+# [FETCH] transcript beside the fetched payload (preserved above); the serial
+# console only carries the loud terminal lines now (2026-11-09 -- progress
+# chatter overprints the installer dialog), so $ILOG is the fallback when the
+# transcript could not be extracted.
 if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # The fetcher logs per artifact ("[FETCH] base.squashfs verified sha256=...",
     # "[FETCH] ncz-assets-<arch>.tar.gz verified sha256=...") and a final
@@ -1199,11 +1243,16 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # install (the debootstrap stub), so on a fresh gate install both
     # artifacts must have been downloaded: a "skip ...: already present"
     # line means they came from the medium or a stale root, not this server.
+    if [ -s "$EVIDENCE/ncz-fetch-transcript.log" ]; then
+        _fetch_xcript="$EVIDENCE/ncz-fetch-transcript.log"
+    else
+        _fetch_xcript="$ILOG"
+    fi
     for _fa in base.squashfs "$_srv_name" "$_srv_pool_name"; do
-        ncz_norm_log "$ILOG" | grep -aF "[FETCH] $_fa verified sha256=" >/dev/null \
-            || fail "server gate: the serial log has no '[FETCH] $_fa verified sha256=' line -- $_fa was not fetched from the gate's server and verified (it may have come from the medium or a stale staging root)"
+        ncz_norm_log "$_fetch_xcript" | grep -aF "[FETCH] $_fa verified sha256=" >/dev/null \
+            || fail "server gate: no '[FETCH] $_fa verified sha256=' line in the guest's fetch transcript ($_fetch_xcript) -- $_fa was not fetched from the pinned source and verified (it may have come from the medium or a stale staging root)"
     done
-    ncz_norm_log "$ILOG" | grep -a 'all manifest artifacts fetched and verified' >/dev/null \
+    ncz_norm_log "$_fetch_xcript" | grep -a 'all manifest artifacts fetched and verified' >/dev/null \
         || fail "server gate: the fetcher never reported 'all manifest artifacts fetched and verified'"
     echo "  server gate: payload fetched from ${SRV_URL_BASE} and sha256-verified by the guest before use"
     # The headless server contract on the installed root (debugfs reads,
