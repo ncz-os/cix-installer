@@ -1046,9 +1046,14 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
             "$DEBUGFS" -R "rdump /var/log/cix-install $EVIDENCE" \
                 "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
             # The guest's [FETCH] transcript (ncz-fetch-payload.sh writes it
-            # beside the fetched payload). 2026-11-09: progress [FETCH] lines
-            # no longer reach the serial console (they overprint the installer
-            # dialog), so this transcript is the gate's fetch evidence.
+            # beside the fetched payload; late.sh preserves it into
+            # /var/log/cix-install before the staging root is removed).
+            # 2026-11-09: progress [FETCH] lines no longer reach the serial
+            # console (they overprint the installer dialog), so this transcript
+            # is the gate's fetch evidence. The rdump above already carries the
+            # preserved copy; these dumps cover both locations explicitly.
+            "$DEBUGFS" -R "dump /var/log/cix-install/ncz-fetch-transcript.log $EVIDENCE/ncz-fetch-transcript.log" \
+                "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
             "$DEBUGFS" -R "dump /ncz-online/ncz-payload/.ncz-fetch-transcript.log $EVIDENCE/ncz-fetch-transcript.log" \
                 "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
             # arm64 ONLY: before we throw away the raw root image, assert that
@@ -1243,7 +1248,9 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # install (the debootstrap stub), so on a fresh gate install both
     # artifacts must have been downloaded: a "skip ...: already present"
     # line means they came from the medium or a stale root, not this server.
-    if [ -s "$EVIDENCE/ncz-fetch-transcript.log" ]; then
+    if [ -s "$EVIDENCE/cix-install/ncz-fetch-transcript.log" ]; then
+        _fetch_xcript="$EVIDENCE/cix-install/ncz-fetch-transcript.log"
+    elif [ -s "$EVIDENCE/ncz-fetch-transcript.log" ]; then
         _fetch_xcript="$EVIDENCE/ncz-fetch-transcript.log"
     else
         _fetch_xcript="$ILOG"
