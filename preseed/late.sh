@@ -660,7 +660,20 @@ fi
 # this marker (at install and on every later kernel upgrade) to write the
 # server menu, Console + Rescue Partition only. A desktop medium writes
 # nothing here, so its installs are unchanged.
-if [ -n "$SRC" ] && [ -f "$SRC/ncz-fetch-payload.manifest" ]; then
+# A Magnetar server medium identifies itself two ways (2026-11-09): an ONLINE
+# medium (NCZ_SERVER_PAYLOAD=online) carries ncz-fetch-payload.manifest; a
+# SELF-CONTAINED medium (NCZ_SERVER_PAYLOAD=medium) carries no manifest and
+# instead stamps ncz-payload/MEDIUM_VARIANT=server (build/...; the kvm gate
+# reads that marker). Checking only the manifest missed the self-contained
+# medium, so its installs were branded "Cygnus Server" (console-only desktop
+# naming) instead of "Magnetar Server" (measured 2026-11-08, arm64 server
+# kvm-gate, tip 9937de3c). Accept either signal.
+_ncz_srv_medium=0
+if [ -n "$SRC" ]; then
+    [ -f "$SRC/ncz-fetch-payload.manifest" ] && _ncz_srv_medium=1
+    [ -r "$SRC/MEDIUM_VARIANT" ] && [ "$(tr -d ' \t\r\n' < "$SRC/MEDIUM_VARIANT" 2>/dev/null)" = server ] && _ncz_srv_medium=1
+fi
+if [ "$_ncz_srv_medium" = 1 ]; then
     mkdir -p /target/usr/local/lib/cix-installer
     echo "server" > /target/usr/local/lib/cix-installer/MEDIUM_VARIANT
     echo "    Magnetar server medium: MEDIUM_VARIANT=server"
