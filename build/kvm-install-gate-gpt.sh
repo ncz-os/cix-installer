@@ -740,6 +740,33 @@ ncz_extract_part() {
     [ -s "$out" ]
 }
 
+# ncz_carve_root DISK OUT -- carve the installed root partition of a target
+# qcow2 out to OUT (rootless): convert to raw, take the LAST GPT partition
+# (the installed root: p3 after ESP + NCZRESCUE, p2 without the rescue
+# partition), dd its sector range. The shared evidence path deletes its big
+# raw root after the installed-target verifier runs, so every later server
+# assertion re-carves with this. Always re-extract: a failed earlier run in
+# the same work dir leaves its root behind, and reading that would judge the
+# wrong install.
+ncz_carve_root() {
+    local disk="$1" out="$2" evd part lba end
+    [ -s "$disk" ] || return 1
+    rm -f "$out"
+    evd="$WORK/.carve-evidence.raw"
+    rm -f "$evd"
+    qemu-img convert -S 4k -O raw "$disk" "$evd" >/dev/null 2>&1 || { rm -f "$evd"; return 1; }
+    part=$(ncz_last_partnum "$evd" || true)
+    if [ -n "$part" ] && [ "$part" -ge 1 ] 2>/dev/null; then
+        lba=$("$SGDISK" -i "$part" "$evd" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+        end=$("$SGDISK" -i "$part" "$evd" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+        if [ -n "$lba" ] && [ -n "$end" ]; then
+            ncz_extract_part "$evd" "$lba" "$end" "$out" || true
+        fi
+    fi
+    rm -f "$evd"
+    [ -s "$out" ]
+}
+
 echo
 echo "[4/6] phase 1: install (timeout ${INSTALL_TIMEOUT}s)"
 date -u +"  started %H:%M:%SZ"
@@ -1159,27 +1186,11 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # surface; ssh is the only remote access the variant ships.
     _ssh_want="$WORK/.ssh-want"
     # The normal path deleted EVIDENCE_ROOT already; the server assertions
-    # need it, so convert the root partition ourselves (rootless, same way
-    # the negative run does).
-    # Always re-extract: a failed earlier run in the same work dir leaves its
-    # root behind, and reading that would judge the wrong install.
+    # need it, so carve the root partition ourselves (rootless, same way
+    # the negative run does; ncz_carve_root always re-extracts).
     _SRV_ROOT="$WORK/.server-root.raw"
-    rm -f "$_SRV_ROOT"
-    if [ -s "$DISK" ]; then
-        _SRV_EVD="$WORK/.server-evidence.raw"
-        if qemu-img convert -S 4k -O raw "$DISK" "$_SRV_EVD" >/dev/null 2>&1; then
-            _SRV_PART=$(ncz_last_partnum "$_SRV_EVD" || true)
-            if [ -n "$_SRV_PART" ] && [ "$_SRV_PART" -ge 1 ] 2>/dev/null; then
-                _SRV_LBA=$("$SGDISK" -i "$_SRV_PART" "$_SRV_EVD" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
-                _SRV_END=$("$SGDISK" -i "$_SRV_PART" "$_SRV_EVD" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
-                if [ -n "$_SRV_LBA" ] && [ -n "$_SRV_END" ]; then
-                    ncz_extract_part "$_SRV_EVD" "$_SRV_LBA" "$_SRV_END" "$_SRV_ROOT" || true
-                fi
-            fi
-            rm -f "$_SRV_EVD"
-        fi
-    fi
-    [ -s "$_SRV_ROOT" ] || fail "server gate: could not extract the installed root partition from $DISK (qemu-img/sgdisk failed), so the installed-root assertions cannot run"
+    ncz_carve_root "$DISK" "$_SRV_ROOT" \
+        || fail "server gate: could not extract the installed root partition from $DISK (qemu-img/sgdisk failed), so the installed-root assertions cannot run"
     EVIDENCE_ROOT="$_SRV_ROOT"
     "$DEBUGFS" -R "ls -p /etc/systemd/system/multi-user.target.wants" "$EVIDENCE_ROOT" > "$_ssh_want" 2>&1 || true
     if grep  'ssh.service' "$_ssh_want" >/dev/null; then
@@ -1233,6 +1244,20 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ -s "$EVIDENCE/installed-refind.conf" ]; then
 fi
 # MAGNETAR(server): the installed system names its edition (ncz_gate_server_brand above).
 if { [ "$NCZ_GATE_SERVER" = 1 ] || [ "$NCZ_GATE_SERVER_MEDIUM" = 1 ]; } && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
+    # The shared evidence path consumes its raw root after the verifier
+    # (above) and the fetch block re-carves only for the online sets; a
+    # SELF-CONTAINED server-medium run (NCZ_GATE_SERVER=0,
+    # NCZ_GATE_SERVER_MEDIUM=1) reached this block with no root image at all,
+    # and every debugfs read silently returned nothing -- os-release/issue
+    # then read "not extracted" although the install was fine (measured
+    # 2026-11-09, arm64 server-medium). Carve it here; the desktop-leak block
+    # below cleans $_SRV_ROOT up as before.
+    if [ ! -s "$EVIDENCE_ROOT" ]; then
+        _SRV_ROOT="$WORK/.server-root.raw"
+        ncz_carve_root "$DISK" "$_SRV_ROOT" \
+            || fail "server gate: could not extract the installed root partition from $DISK, so the edition assertions cannot run"
+        EVIDENCE_ROOT="$_SRV_ROOT"
+    fi
     "$DEBUGFS" -R "dump /etc/os-release $EVIDENCE/installed-os-release" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
     # Debian-family systems make /etc/os-release a symlink to ../usr/lib/os-release,
     # and a debugfs dump of a symlink produces nothing - the server gate then
