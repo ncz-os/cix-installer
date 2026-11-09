@@ -630,3 +630,42 @@ NCZ_VARIANT=server NCZ_SERVER_PAYLOAD=medium \
   bash build/build-image.sh --arch amd64 --full --sources pinned \
     --substrate pinned --no-publish --run-dir <run>
 ```
+
+## The console saver (operator 2026-11-09 04:40Z)
+
+On the server variant the text console runs the black-hole saver
+automatically after `idle_seconds` of idleness and any key gives the console
+back -- no operator action. The desktop image is untouched.
+
+What ships (via the payload path, **not** a deb -- the stated B3 decision,
+ncz-screensavers `5ae8a71f`; staged as `assets/console-saver/` onto the
+medium's `ncz-payload/assets/console-saver/`, union-synced into
+`/usr/local/lib/cix-installer/assets/`):
+
+- `/usr/local/bin/ncz-console-saver` -- the idle-driven VT daemon. Watches
+  idleness via evdev (`/dev/input/event*`, logind `IdleHint` or VT atime as
+  fallbacks); never polls the screen. Inhibitors: a held ncz test lease
+  (`/run/ncz/test-lease`), `KD_GRAPHICS` on the active VT, a sleep/suspend
+  inhibitor, or input within `idle_seconds`.
+- `/usr/local/bin/ncz-bh-console` -- the Rust ASCII black-hole renderer it
+  spawns on a free VT (kernel `VT_OPENQRY`; never an occupied VT, never
+  `ttyS*`/`ttyAMA*`).
+- `/etc/systemd/system/ncz-console-saver.service` -- enabled by default on
+  the server variant only (`ConditionPathExists=/dev/tty0`, so serial-only
+  boxes never start it). Installed-but-disabled on headless.
+- `/etc/ncz/console-saver.conf` -- `enabled`, `idle_seconds` (default 180),
+  `grid`, `colour`, `scene`, `max_failures`. A typo fails the service rather
+  than silently falling back. An existing file is never overwritten.
+
+Blanking interplay (04:40Z item 4): the daemon **owns** `consoleblank` while
+armed (300 -> 1800, restored on exit) -- the saver runs first and the kernel
+blank stays a last-resort backstop; tmux/ssh sessions are untouched.
+
+**How to disable:** put `enabled = 0` in `/etc/ncz/console-saver.conf`, or
+`systemctl disable --now ncz-console-saver`.
+
+The saver source and its unit tests live in ncz-screensavers
+(`tools/bh-console/saver`, branch `b3/console-saver-20261109`; idle state
+machine tests with a fake clock/input). The KVM-gate check for the server
+image (idle_seconds=10 -> saver on the free VT, key -> VT restored, no
+leftovers, CPU <= 2% of one core, RSS < 16 MB) is the scheduled follow-up.
