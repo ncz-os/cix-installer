@@ -64,6 +64,13 @@ eq "helper: server label without a version" "$(. "$H"; ncz_brand_label server "$
 eq "helper: server label" "$(. "$H"; ncz_brand_label server "" NCZ-OS "$NCZ_RELEASE_VERSION")" "$SRVF"
 eq "helper: medium with fetch manifest is server" "$(. "$H"; ncz_brand_medium_variant "$W/srv")" server
 eq "helper: medium without it is desktop" "$(. "$H"; ncz_brand_medium_variant "$W/desk")" desktop
+# Self-contained medium (NCZ_SERVER_PAYLOAD=medium): no manifest, stamps
+# MEDIUM_VARIANT=server. This is the signal late.sh now accepts when it writes
+# the installed marker, and the one 50-brand reads to name the edition
+# "Magnetar Server" (fix 2026-11-09; without it the install said "Cygnus Server").
+eq "helper: self-contained MEDIUM_VARIANT=server marker is server" "$(. "$H"; ncz_brand_medium_variant "$W/srvmark")" server
+eq "helper: self-contained marker names the Magnetar Server edition" \
+    "$(. "$H"; ncz_brand_label "$(ncz_brand_medium_variant "$W/srvmark")" "" NCZ-OS "$NCZ_RELEASE_VERSION")" "$SRVF"
 mkdir -p "$W/inst"; echo server > "$W/inst/MEDIUM_VARIANT"
 eq "helper: installed MEDIUM_VARIANT=server" "$(. "$H"; ncz_brand_medium_variant "$W/desk" "$W/inst")" server
 echo desktop > "$W/inst/MEDIUM_VARIANT"
