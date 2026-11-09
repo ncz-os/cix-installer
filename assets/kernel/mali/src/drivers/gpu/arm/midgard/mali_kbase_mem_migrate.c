@@ -70,7 +70,7 @@ bool kbase_alloc_page_metadata(struct kbase_device *kbdev, struct page *p, dma_a
 	if (!page_md)
 		return false;
 
-	SetPagePrivate(p);
+	/* PG_private flag removed in Linux 7.4; non-NULL private is the marker. */
 	set_page_private(p, (unsigned long)page_md);
 	page_md->dma_addr = dma_addr;
 	page_md->status = PAGE_STATUS_SET(page_md->status, (u8)ALLOCATE_IN_PROGRESS);
@@ -130,7 +130,6 @@ static void kbase_free_page_metadata(struct kbase_device *kbdev, struct page *p,
 
 	kmem_cache_free(kbdev->page_metadata_slab, page_md);
 	set_page_private(p, 0);
-	ClearPagePrivate(p);
 }
 
 /* This function is only called when page migration
@@ -234,7 +233,6 @@ static int kbasep_migrate_page_pt_mapped(struct page *old_page, struct page *new
 	if (ret == 0) {
 		dma_unmap_page(kbdev->dev, old_dma_addr, PAGE_SIZE, DMA_BIDIRECTIONAL);
 		__ClearPageMovable(old_page);
-		ClearPagePrivate(old_page);
 		put_page(old_page);
 
 #if (KERNEL_VERSION(6, 0, 0) <= LINUX_VERSION_CODE)
@@ -246,7 +244,6 @@ static int kbasep_migrate_page_pt_mapped(struct page *old_page, struct page *new
 			page_md->status = PAGE_MOVABLE_SET(page_md->status);
 		}
 #endif
-		SetPagePrivate(new_page);
 		get_page(new_page);
 	} else
 		dma_unmap_page(kbdev->dev, new_dma_addr, PAGE_SIZE, DMA_BIDIRECTIONAL);
@@ -317,11 +314,9 @@ static int kbasep_migrate_page_allocated_mapped(struct page *old_page, struct pa
 	if (ret == 0) {
 		dma_unmap_page(kbdev->dev, old_dma_addr, PAGE_SIZE, DMA_BIDIRECTIONAL);
 
-		SetPagePrivate(new_page);
 		get_page(new_page);
 
 		/* Clear PG_movable from the old page and release reference. */
-		ClearPagePrivate(old_page);
 		__ClearPageMovable(old_page);
 		put_page(old_page);
 
