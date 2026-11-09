@@ -111,6 +111,11 @@ SMP="${SMP:-4}"
 #   NCZ_GATE_SERVER_PAYLOAD       path to base.squashfs (default $SERVER_DEFAULTS)
 #   NCZ_GATE_SERVER_ASSETS        path to ncz-assets-<arch>.tar.gz (default
 #                                 $SERVER_DEFAULTS)
+#   NCZ_GATE_SERVER_ONLINE        1 = force online mode (the medium pins a
+#                                 published URL: preflight it at its own host
+#                                 instead of shadow-serving), 0 = force the
+#                                 legacy shadow server, unset = auto (see
+#                                 build/kvm-gate-server-lib.sh)
 # Both defaults are the build's payload work dir of the same run
 # ($WORK/..: build-image.sh passes WORKDIR=$RUN_DIR/kvm-gate/<set> and keeps
 # the layer payloads under $RUN_DIR).
@@ -124,6 +129,11 @@ case "$NCZ_GATE_SERVER_OFFLINE" in 0|1) ;; *) echo "GATE FAIL: NCZ_GATE_SERVER_O
 # operator found desktop options offered on such a medium, MEDUSA 2026-11-08).
 NCZ_GATE_SERVER_MEDIUM="${NCZ_GATE_SERVER_MEDIUM:-0}"
 case "$NCZ_GATE_SERVER_MEDIUM" in 0|1) ;; *) echo "GATE FAIL: NCZ_GATE_SERVER_MEDIUM must be 0 or 1" >&2; exit 2 ;; esac
+NCZ_GATE_SERVER_ONLINE="${NCZ_GATE_SERVER_ONLINE:-}"
+case "$NCZ_GATE_SERVER_ONLINE" in ''|0|1) ;; *) echo "GATE FAIL: NCZ_GATE_SERVER_ONLINE must be empty, 0 or 1" >&2; exit 2 ;; esac
+# local shadow-serve vs online preflight decisions live in the sourced lib so
+# build/test-kvm-gate-server.sh section 9 tests the exact code the gate runs.
+. "$(dirname "${BASH_SOURCE[0]}")/kvm-gate-server-lib.sh"
 if [ "$NCZ_GATE_SERVER" = 1 ]; then
     # Server install = console system: no desktop, no management container.
     # The rescue partition IS selected: the documented server menu is
@@ -650,6 +660,25 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # ncz-assets-<arch>.tar.gz; the pin is authoritative).
     _srv_name=$(basename "${_srv_aurl%%\?*}")
     _srv_pool_name=$(basename "${_srv_lurl%%\?*}")
+    # LOCAL vs ONLINE. A pin naming a host of this machine (10.0.2.2 for the
+    # QEMU user-net gateway, or NCZ_GATE_SERVER_HOST at build time) is served
+    # by the gate's own shadow server AT the pin, so the two cannot drift. A
+    # pin naming a REMOTE endpoint (the published release payload on the
+    # public R2 bucket) cannot be bound -- `bind pub-…r2.dev:80` is
+    # [Errno 99] Cannot assign requested address (measured 2026-11-09, run
+    # server-online-amd64-20261109) -- and must not be shadow-served at all:
+    # the "KVM after upload" run verifies the REAL endpoint the release
+    # installs from, so the gate only preflights it and the guest fetches
+    # through QEMU's NAT. Decided by ncz_gate_srv_mode (tested lib).
+    SRV_MODE=$(ncz_gate_srv_mode "$_srv_pinhost")
+    echo "  server mode: ${SRV_MODE} (pin host ${_srv_pinhost}, NCZ_GATE_SERVER_ONLINE=${NCZ_GATE_SERVER_ONLINE:-auto})"
+    if [ "$SRV_MODE" = online ]; then
+        SRV_URL_BASE="$_srv_base"
+        for _srv_u in "$_srv_purl" "$_srv_aurl" "$_srv_lurl"; do
+            _srv_c=$(ncz_gate_srv_preflight "$_srv_u") || fail "server gate (online): the published URL is not reachable at ${_srv_u} (got: ${_srv_c}) -- the guest would fail at install time"
+        done
+        echo "  all three artifacts answer 200 at the pinned host (online mode: the guest installs from the published URL; no shadow server)"
+    else
     # Armed before the start, which can exit while its server is still alive;
     # INT/TERM too, until the QEMU-phase traps replace these.
     trap 'ncz_srv_cleanup' EXIT
@@ -701,6 +730,7 @@ PY
     case "$_srv_code_a" in "HTTP/"*" 200 "*) : ;; *) fail "server gate: the asset bundle is not being served at ${_srv_aurl} (got: ${_srv_code_a}) -- the guest's fetcher would refuse it at install time" ;; esac
     case "$_srv_code_l" in "HTTP/"*" 200 "*) : ;; *) fail "server gate: the offline apt pool is not being served at ${_srv_lurl} (got: ${_srv_code_l}) -- the guest's fetcher would refuse it at install time" ;; esac
     echo "  all three artifacts answer 200 on the gate's server"
+    fi
 elif [ "$NCZ_GATE_SERVER" = 1 ]; then
     # Negative run: the server is deliberately absent. The guest's fetcher
     # must fail loud and bounded; phase 2 and the finish checks below are
