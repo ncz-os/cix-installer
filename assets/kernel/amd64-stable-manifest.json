@@ -2,9 +2,9 @@
   "schema": 1,
   "channel": "default",
   "arch": "amd64",
-  "kver": "7.3.3-t2-ncz",
-  "package_revision": "7.3.3-r297",
-  "build_rev": "amd64-t2-7.3.3-r297-20261107",
+  "kver": "7.4.0-rc2-t2-ncz",
+  "package_revision": "7.4.0-rc2-2",
+  "build_rev": "7.4.0-rc2-t2-ncz+2",
   "staged_utc": "2026-11-07",
   "channel_pointer": "assets/kernel/amd64-stable",
   "staging_pool_relative": "kernel-staging/amd64-stable-7.3.3-t2-ncz-20261107",
@@ -13,55 +13,7 @@
   "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel) + assets/kernel/KERNEL-LIFECYCLE (MIN_VERSION 7.3.3; 7.3.0-t2-ncz and 7.3.1-t2-ncz retired)",
   "note": "amd64 DEFAULT, installer and rescue kernel for rc4: the T2 7.3.3 build (v7.3.3 d50d994bffa3), package revision 7.3.3-r297, built on TYPHON 2026-11-07 from amd64-kernel-t2 0bed835 (feat/amd64-7.3.3-r297-20261107; 26 patches applied, 0 skipped, same set as 7.3.1-r295). Boot-tested on MEDUSA 2026-11-07 and promoted: it replaces 7.3.1-t2-ncz (7.3.1-r295), and rc3's 7.3.0-t2-ncz (7.3.0-2) stays retired. Published unchanged into the kernel-staging pool by build/publish-amd64-kernel.sh (staging_pool_relative); the debs are the build output as-is (control Maintainer is the container default, not repacked). Not bit-reproducible (per-build module signing key).",
   "source": {
-    "base_tag": "v7.3.3",
-    "base_commit": "d50d994bffa3c7c6db2d8bc4c5f0c55e3f46b0cd",
-    "t2_repo": "amd64-kernel-t2",
-    "t2_branch": "feat/amd64-7.3.3-r297-20261107",
-    "t2_repo_commit": "0bed8354d3c9f2efd0bcda1b2335d702329685c0",
-    "t2_aer_patch": null,
-    "t2_cyclops_patch": "patches/2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch",
-    "applied_patch_count": 26,
-    "kernel_ref": "v7.3.3 (d50d994bffa3)",
-    "build_host": "TYPHON (amd64), Docker debian:forky, gcc 16.2.0-3 (Ubuntu config template)",
-    "built_utc": "2026-11-07T20:11:09Z",
-    "applied_patches": [
-      "1001",
-      "1002",
-      "1003",
-      "2008",
-      "2009",
-      "2010",
-      "4001",
-      "4003",
-      "4004",
-      "5001",
-      "5002",
-      "6001",
-      "6002",
-      "6003",
-      "7001",
-      "8001",
-      "8002",
-      "9001",
-      "9002",
-      "9013",
-      "9101",
-      "9102",
-      "9503",
-      "9504",
-      "9506",
-      "9508"
-    ],
-    "held_not_applied": [
-      "9011",
-      "9507"
-    ],
-    "t2_aer_note": "9011's quirk_no_aer_anfe is upstream in the v7.3.3 base (7209846a169f); the patch is held, not applied",
-    "t2_wifi_patch": "patches/9506-wifi-brcmfmac-map-RX-packet-IDs-bidirectional.patch",
-    "t2_cyclops_note": "Patch 2010 restores the upstream boot-GPU guard in vga_switcheroo_client_probe_defer() scoped to non-T2 Apple; unchanged.",
-    "kernel_tag_object": "b7cb9f473aa648c37e68d08cb2f3c154f17f593c",
-    "kernel_tarball_sha256": "79c66dde66cd96877fcde8f7d36aec946b1f423d2b97b5a7b1751b75c764f3d1",
-    "patch_list_sha256": "e3acf06ce5597a5a97ef50ed28e0be05db1f430a3e7dc5fde171b1f7c3fbe5ca"
+    "note": "see the staged PROVENANCE in registry.staged_dir"
   },
   "artifacts": {
     "linux-image-7.3.3-t2-ncz_7.3.3-r297_amd64.deb": {
@@ -111,5 +63,12 @@
     "hardware_gate": "PASS on MEDUSA (MacBookPro16,1) 2026-11-07: one-shot boot, uname 7.3.3-t2-ncz #r297, /boot/vmlinuz sha256 f0709e47... = this build, 31 min soak, the same 25 err lines as 7.3.1, 0 oops/BUG/WARNING/DMAR/AER, 0 brcmfmac firmware crashes; Wi-Fi scan, Bluetooth, T2 audio, Touch Bar, amdgpu Navi14 ok; loaded module build IDs match BUILD-IDS.txt. CHIMERA and PEGASUS still run 7.3.1-r295; DELL still runs 7.3.0.",
     "interrupt_transcript": "n/a"
   },
-  "hardware_note": "Single-host hardware gate (MEDUSA), unlike 7.3.0-2's six-host rollout."
+  "hardware_note": "Single-host hardware gate (MEDUSA), unlike 7.3.0-2's six-host rollout.",
+  "registry": {
+    "registry_build": "7.4.0-rc2-t2-ncz+2",
+    "registry_tree": "t2-amd64",
+    "promoted_at": "2026-11-09T23:58:06Z",
+    "boot_test_host": "TYPHON/ULTRA (KVM boot gate)",
+    "staged_dir": "/mnt/argonas/datapool/yocto-shared/kernel-staging/amd64-t2-rc2-20261109/7.4.0-rc2-t2-ncz"
+  }
 }
