@@ -332,10 +332,12 @@ sed "s#/usr/local/lib/cix-installer#$R48/lib/cix#g; s#/etc/#$R48/etc/#g" "$ROOT/
 PATH="$R48/bin:$PATH" bash "$R48/hook/48.sh" > "$R48/log" 2>&1; _r48=$?
 eq "48 (whole hook, server medium): exit status" "$_r48" 0
 grep  'ncz desktop on' "$R48/log" "$R48/etc/issue.d/10-ncz-server.issue" 2>/dev/null >/dev/null && bad "48 (whole hook, server medium): still advises 'ncz desktop on'" || ok "48 (whole hook, server medium): no 'ncz desktop on' advice"
-case "$(cat "$R48/etc/issue.d/10-ncz-server.issue" 2>/dev/null)" in
-    *NCZ-OS*|*RELEASE_VERSION*|*Magnetar*) bad "48 (whole hook, server medium): issue.d restates the product line (duplicates /etc/issue)" ;;
-    *) ok "48 (whole hook, server medium): issue.d adds only guidance (no duplicate identity)" ;;
-esac
+if [ -s "$R48/etc/issue.d/10-ncz-server.issue" ]; then
+    case "$(cat "$R48/etc/issue.d/10-ncz-server.issue")" in
+        *NCZ-OS*|*RELEASE_VERSION*|*Magnetar*) bad "48 (whole hook, server medium): issue.d restates the product line (duplicates /etc/issue)" ;;
+        *) ok "48 (whole hook, server medium): issue.d adds only guidance (no duplicate identity)" ;;
+    esac
+else bad "48 (whole hook, server medium): issue.d banner missing (10-ncz-server.issue not written)"; fi
 
 # --- 7. installed rEFInd menus ----------------------------------------------------------------------
 for s in "$ROOT/assets/refind/ncz-refind-refresh.sh" "$ROOT/assets/refind/ncz-refind-refresh-amd64.sh"; do
