@@ -158,6 +158,8 @@ build/iso/tests/prove-arm64-stage2-fixes.py	sky1	-	arm64 stage-2 proof
 build/iso/write-usb-image.py	common	-	USB image writer
 build/kernel-manifest.py	sky1	-	Sky1 accelerator module overlay manifest
 build/kernel-port-watch.sh	sky1	-	Sky1 kernel forward-port watcher
+build/kvm-gate-dead-manifest.sh	common	-	rewrites the pinned URL authorities in a run copy's NCZDATA ncz-fetch-payload.manifest to a refused endpoint (KVM gate negative run; names, sha256s and modes preserved, read-back verified)
+build/test-kvm-gate-dead-manifest.sh	common	-	shell test for kvm-gate-dead-manifest.sh (ext4 round-trip, pins dead-ended, non-URL fields preserved entry-by-entry, a dead pin fails the real fetcher loudly)
 build/kvm-install-gate-gpt.sh	common	-	architecture-generic KVM gate for raw GPT images
 build/kvm-gate-server-lib.sh	common	-	shared payload-server library for the KVM gate (local and online fetch)
 build/kvm-install-gate-matrix.sh	common	-	runs the KVM gate once per install-option set (rescue partition / management container / desktop off)
