@@ -20,10 +20,13 @@ LIFECYCLE_SOURCE=seed-rc4-20261107
 # Lowest upstream kernel version any default may pin.
 MIN_VERSION=7.3.3
 
-# amd64: T2 7.3.3-r297 (TYPHON build 2026-11-07), boot-tested on MEDUSA
-# 2026-11-07 (vmlinuz sha256 f0709e47...). Pool dir in amd64-stable-manifest.json.
-CURRENT_KVER_amd64=7.3.3-t2-ncz
-CURRENT_PKG_amd64=7.3.3-r297
+# amd64: T2 7.4.0-rc2-2 (HYDRA build 2026-11-09), CANDIDATE on the 7.4 kernel
+# line (operator 2026-11-09 22:20Z). KVM boot gate PASS 2026-11-09 (gate-kvm2);
+# hardware boot PENDING (NEEDS 6) -- promotion to the live registry waits for
+# the human-supervised boot per the same order. Pool dir in
+# amd64-stable-manifest.json.
+CURRENT_KVER_amd64=7.4.0-rc2-t2-ncz
+CURRENT_PKG_amd64=7.4.0-rc2-2
 
 # arm64: Sky1 7.3.3-sky1-ncz r298 (ULTRA build 2026-11-07, v7.3.3 d50d994bffa3,
 # meta-cix kb/sky1-7.3.3-r298-20261107), boot-tested on O6N 2026-11-08 (Image
@@ -33,4 +36,7 @@ CURRENT_KVER_arm64=7.3.3-sky1-ncz
 CURRENT_PKG_arm64=7.3.3-sky1-ncz+r298
 
 # Retired KVERs, comma-separated: never pinned again, on any arch.
-RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.0-sky1-ncz,7.3.1-sky1-ncz
+# 7.3.3-t2-ncz retired at the 7.4 line switch (candidate pin bump; the rescue
+# entry on installed hosts keeps the same kernel + accelerator blacklist per
+# ONE-KERNEL, so nothing pins a retired KVER).
+RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.3-t2-ncz,7.3.0-sky1-ncz,7.3.1-sky1-ncz
