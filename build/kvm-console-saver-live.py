@@ -85,9 +85,9 @@ class Expect:
         rx = re.compile(pattern, re.S)
         deadline = time.time() + timeout
         while time.time() < deadline:
-            m = rx.search(self.buf)
+            text = self.buf.decode("utf-8", "replace")
+            m = rx.search(text)
             if m:
-                text = self.buf.decode("utf-8", "replace")
                 self.buf = b""
                 return text
             try:
@@ -188,7 +188,7 @@ def main():
     work = args.workdir or os.path.join(
         "/tmp", "ncz-cs-live-%d" % os.getpid())
     os.makedirs(work, exist_ok=True)
-    disk = os.path.join(work, "test.qcow2")
+    disk = os.path.join(work, "test.img")
     shutil.copyfile(args.disk, disk)
 
     code, vars_f = pick_firmware(args.arch)
@@ -213,14 +213,33 @@ def main():
         "-accel", "kvm", "-smp", "2", "-m", "2048",
         "-drive", "if=pflash,format=raw,unit=0,file=%s,readonly=on" % code,
         "-drive", "if=pflash,format=raw,unit=1,file=%s" % vars_work,
-        "-drive", "file=%s,if=virtio,format=qcow2" % disk,
+        "-drive", "file=%s,if=virtio,format=raw" % disk,
         "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,romfile=",
         "-serial", "unix:%s,server,nowait" % serial_path,
         "-monitor", "unix:%s,server,nowait" % monitor_path,
         "-display", "none", "-no-reboot",
     ]
     say("booting %s (%s) from %s" % (os.path.basename(args.disk), args.arch, disk))
-    proc = subprocess.Popen(qemu, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    err_path = os.path.join(work, "qemu.err")
+    err_f = open(err_path, "wb")
+    proc = subprocess.Popen(qemu, stdout=subprocess.DEVNULL, stderr=err_f)
+
+    # QEMU creates its unix sockets asynchronously at startup; connecting before
+    # they exist raises FileNotFoundError. Wait for the serial socket to appear,
+    # and surface a QEMU startup failure instead of a raw traceback.
+    deadline = time.time() + 15
+    while not os.path.exists(serial_path):
+        if proc.poll() is not None:
+            err_f.close()
+            tail = open(err_path, "rb").read()[-2000:].decode("utf-8", "replace")
+            no("qemu exited rc=%d before creating %s" % (proc.returncode, serial_path))
+            if tail.strip():
+                say("qemu stderr tail: %s" % tail.strip()[-500:])
+            return 1
+        if time.time() > deadline:
+            no("serial socket %s did not appear within 15s" % serial_path)
+            return 1
+        time.sleep(0.2)
 
     ex = mon = None
     try:
@@ -230,6 +249,9 @@ def main():
         # 1. boot to the serial login prompt
         if ex.read_until(r"[Ll]ogin:") is None:
             no("boot: no serial login prompt within %ds" % args.boot_timeout)
+            tail = ex.buf.decode("utf-8", "replace")[-800:]
+            if tail.strip():
+                say("serial tail: %s" % tail.strip()[-500:])
             return 1
         ok("boot: serial login prompt")
 
