@@ -208,8 +208,12 @@ cmd_live() {
         esac
     done
     [ -n "$disk" ] || die "--live needs <installed-target.img> (a kvm-install-gate kept target.qcow2)"
-    python3 "$SCRIPT_DIR/kvm-console-saver-live.py" \
-        --disk "$disk" --arch "$arch" --idle "$idle" ${work:+--workdir "$work"}
+    if python3 "$SCRIPT_DIR/kvm-console-saver-live.py" \
+        --disk "$disk" --arch "$arch" --idle "$idle" ${work:+--workdir "$work"}; then
+        ok "live driver: every assertion passed"
+    else
+        no "live driver: assertions failed (see the per-assertion output above)"
+    fi
     verdict
 }
 

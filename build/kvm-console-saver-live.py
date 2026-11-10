@@ -64,8 +64,9 @@ def free_port():
 class Expect:
     """Minimal expect driver over a unix-server serial socket."""
 
-    def __init__(self, path, timeout=30):
+    def __init__(self, path, timeout=30, log_path=None):
         self.buf = b""
+        self.log_f = open(log_path, "ab") if log_path else None
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         deadline = time.time() + 30
         while True:
@@ -95,6 +96,9 @@ class Expect:
             except socket.timeout:
                 continue
             if chunk:
+                if self.log_f:
+                    self.log_f.write(chunk)
+                    self.log_f.flush()
                 self.buf += chunk
         return None
 
@@ -106,6 +110,8 @@ class Expect:
             self.sock.close()
         except OSError:
             pass
+        if self.log_f:
+            self.log_f.close()
 
 
 class Monitor:
@@ -141,11 +147,65 @@ class Monitor:
             pass
 
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\\")
+_MARK_N = 0
+
+
+_BRACKET_RE = re.compile(r"\x1b\[\?2004[hl]|\x1b\\")
+# OSC sequences (e.g. the guest PS1's shell-integration metadata
+# \x1b]3008;...;pid=N;cwd=P\x1b\\) are terminal control, not content.
+# 2026-11-10: they survived CSI stripping as multi-field lines and glued
+# onto command output; strip whole OSC payloads (BEL or ST terminated).
+_OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+_PS1_LINE_RE = re.compile(r"([^;\r\n]*;)?pid=\d+;cwd=")
+_PROMPT_PREFIX_RE = re.compile(r"^[^\s]*@[^:]*:[^$#]*[$#] ")
+
+
+def slice_cmd_output(out, mark):
+    """Wire text -> the command's clean output for marker `mark`."""
+    # Materialize control-sequence boundaries as newlines BEFORE dropping
+    # the sequences themselves (2026-11-10: PS1 fragments were gluing onto
+    # command output).
+    out = _OSC_RE.sub("\n", out)
+    out = _BRACKET_RE.sub("\n", out)
+    out = _ANSI_RE.sub("", out)
+    # The echoed command carries the marker text literally (`:$?`); the real
+    # marker line carries the exit status (`:<digits>`). Cut after the echo
+    # line, then up to the real marker -- never split on the bare mark.
+    anchor = out.find("%s:$?" % mark)
+    if anchor >= 0:
+        nl = out.find("\n", anchor)
+        body = out[nl + 1:] if nl >= 0 else ""
+    else:
+        body = out
+    body = re.split(r"%s:\d+" % re.escape(mark), body)[0]
+    lines = []
+    for ln in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        # The line may be echoed twice (readline redraw after the OSC 3008
+        # mark); both echoes carry our literal `:$?` marker tail.
+        if ("echo %s:$?" % mark) in ln:
+            continue
+        if _PS1_LINE_RE.search(ln):
+            continue
+        lines.append(_PROMPT_PREFIX_RE.sub("", ln))
+    return "\n".join(lines).strip("\n")
+
+
 def shell(ex, line, timeout=20):
-    """Run a command in the guest; return its output (echo + prompt stripped)."""
-    ex.send(line)
-    out = ex.read_until(r"\r?\n[^\r\n]*[$#] ", timeout)
-    return out or ""
+    """Run a command in the guest; return its output (clean, no prompt).
+
+    Marker-based capture: the guest shell's PS1 is two-line (pid=/cwd= then
+    user@host) with bracketed-paste escapes, so prompt-stripping regexes are
+    unreliable (2026-11-10 run: they matched the echoed command and the
+    prompt itself, corrupting every assertion's input). Slice the wire text
+    between the echoed command and an `echo <mark>:$?` marker instead.
+    """
+    global _MARK_N
+    _MARK_N += 1
+    mark = "CSX%dX" % _MARK_N
+    ex.send("%s; echo %s:$?" % (line, mark))
+    out = ex.read_until(r"%s:\d+" % re.escape(mark), timeout) or ""
+    return slice_cmd_output(out, mark)
 
 
 def budget_ok(cpu_s, rss_s):
@@ -272,7 +332,8 @@ def main():
 
     ex = mon = None
     try:
-        ex = Expect(serial_path, timeout=args.boot_timeout)
+        ex = Expect(serial_path, timeout=args.boot_timeout,
+                    log_path=os.path.join(work, "serial.raw"))
         mon = Monitor(monitor_path)
 
         # 1. boot to the serial login prompt
@@ -301,7 +362,17 @@ def main():
             return 1
         ok("login: %s shell on the serial console" % USER)
 
-        # 3. the service is enabled and active
+        # 3. the installed layout is the FULL tier, then the service state.
+        # (2026-11-10: hook 48 ships a skeleton unit with no daemon; only the
+        # ORPHANed hook 61 brings the binaries + conf. Assert the files, not
+        # just the unit, or a skeleton install passes here.)
+        out = shell(ex, "test -x /usr/local/bin/ncz-console-saver -a "
+                        "-x /usr/local/bin/ncz-bh-console -a "
+                        "-f /etc/ncz/console-saver.conf && echo FULLTIER")
+        if re.search(r"(?m)^FULLTIER\s*$", out):
+            ok("layout: daemon binaries + conf present (full tier)")
+        else:
+            no("layout: full console-saver tier missing (skeleton unit only?)")
         out = shell(ex, "systemctl is-enabled ncz-console-saver")
         if re.search(r"(?m)^enabled\s*$", out):
             ok("service: ncz-console-saver enabled")
@@ -315,24 +386,18 @@ def main():
 
         # 4. baseline VT + shorten the idle period
         out = shell(ex, "cat /sys/class/tty/tty0/active")
-        baseline = (re.search(r"(tty\S+)", out) or [None, "tty1"])[1] if re.search(
-            r"(tty\S+)", out) else "tty1"
-        baseline = re.search(r"(tty\S+)", out).group(1) if re.search(r"(tty\S+)", out) else "tty1"
+        m = re.search(r"(tty\S+)", out)
+        baseline = m.group(1) if m else "tty1"
         say("baseline VT: %s" % baseline)
-        shell(ex, "sudo -S sed -i 's/^idle_seconds=.*/idle_seconds=%d/; "
+        shell(ex, "echo %s | sudo -S sed -i 's/^idle_seconds=.*/idle_seconds=%d/; "
                   "s/^enabled=.*/enabled=1/' /etc/ncz/console-saver.conf"
-                  % args.idle)
-        # sudo -S prompts on the terminal; feed it once then re-run cleanly
-        ex.send(PASS)
-        ex.read_until(r"\r?\n[^\r\n]*[$#] ", 10)
+                  % (PASS, args.idle))
         out = shell(ex, "grep ^idle_seconds /etc/ncz/console-saver.conf")
         if ("idle_seconds=%d" % args.idle) in out:
             ok("conf: idle_seconds=%d" % args.idle)
         else:
             no("conf: idle_seconds not applied (%r)" % out.strip()[-60:])
-        shell(ex, "sudo -S systemctl restart ncz-console-saver")
-        ex.send(PASS)
-        ex.read_until(r"\r?\n[^\r\n]*[$#] ", 10)
+        shell(ex, "echo %s | sudo -S systemctl restart ncz-console-saver" % PASS)
 
         # 5. the saver arms: ncz-bh-console appears on a free VT
         deadline = time.time() + args.idle + 20
@@ -406,7 +471,7 @@ def main():
         else:
             no("service: daemon died during the cycle")
 
-        shell(ex, "sudo poweroff")
+        shell(ex, "echo %s | sudo -S poweroff" % PASS)
         say("guest powered off")
     finally:
         if ex:
