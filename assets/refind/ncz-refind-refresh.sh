@@ -854,9 +854,18 @@ if [ "$NCZ_MENU_VARIANT" = server ]; then
     # Server consoles burn the panel on idle (operator 2026-11-08): ask the
     # kernel for a 5-minute blank. The unit ncz-console-blank (post-install/
     # 48-server-variant.sh) applies the same to every VT and powers the panel
-    # down after a further minute; any key wakes.
-    case " $STABLE_OPTIONS " in *" consoleblank="*) ;; *) STABLE_OPTIONS="$STABLE_OPTIONS consoleblank=300" ;; esac
-    case " $STABLE_CONSOLE_OPTIONS " in *" consoleblank="*) ;; *) STABLE_CONSOLE_OPTIONS="$STABLE_CONSOLE_OPTIONS consoleblank=300" ;; esac
+    # down after a further minute; any key wakes. Append to the option strings
+    # this script actually EMITS (NEXT_CONSOLE_OPTIONS/RESCUEPART_OPTIONS are
+    # composed above and printed in the menuentry block below): the amd64
+    # generator's STABLE_OPTIONS/STABLE_CONSOLE_OPTIONS names do not exist
+    # here, and appending to them was a silent no-op -- the installed server
+    # menu carried no consoleblank=300 (kvm-gate caught it 2026-11-09).
+    if [ -n "$NEXT_CONSOLE_OPTIONS" ]; then
+        case " $NEXT_CONSOLE_OPTIONS " in *" consoleblank="*) ;; *) NEXT_CONSOLE_OPTIONS="$NEXT_CONSOLE_OPTIONS consoleblank=300" ;; esac
+    fi
+    if [ -n "$RESCUEPART_OPTIONS" ]; then
+        case " $RESCUEPART_OPTIONS " in *" consoleblank="*) ;; *) RESCUEPART_OPTIONS="$RESCUEPART_OPTIONS consoleblank=300" ;; esac
+    fi
 fi
 if [ "$NCZ_MENU_VARIANT" != desktop ] && [ "$NEXT_AVAILABLE" = "1" ]; then
     DEFAULT_TOKEN="7.3 Console (All Accelerators, Mali)"

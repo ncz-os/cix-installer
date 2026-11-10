@@ -216,5 +216,82 @@ grep -q 'GATE_ALL_SETS=.*server-medium' "$M" && ok "matrix: server-medium is a k
 grep -q 'sets=server-medium' "$ROOT/build-image.sh" \
     && ok "build-image: medium server builds gate with server-medium" || bad "build-image: medium gate set missing"
 
+# --- 9: online mode — a published pin must NOT be shadow-served -----------
+# The release medium pins the published R2 URL (NCZ_PAYLOAD_BASE_URL). The
+# gate's shadow server tried to BIND that name and died at startup:
+# `bind pub-…r2.dev:80 failed: [Errno 99] Cannot assign requested address`
+# (run server-online-amd64-20261109, matrix set server, 2026-11-09). The
+# decision + preflight live in build/kvm-gate-server-lib.sh, sourced here and
+# by the gate itself (one copy under test).
+L="$ROOT/kvm-gate-server-lib.sh"
+[ -f "$L" ] && ok "lib: build/kvm-gate-server-lib.sh exists" || bad "lib: missing $L"
+# shellcheck source=/dev/null
+. "$L"
+m=$(NCZ_GATE_SERVER_ONLINE= ncz_gate_srv_mode 10.0.2.2)
+[ "$m" = local ] && ok "mode: the 10.0.2.2 QEMU-gateway pin is local (shadow-served)" || bad "mode: 10.0.2.2 -> $m (want local)"
+m=$(NCZ_GATE_SERVER_ONLINE= ncz_gate_srv_mode 127.0.0.1)
+[ "$m" = local ] && ok "mode: 127.0.0.1 is local" || bad "mode: 127.0.0.1 -> $m (want local)"
+m=$(NCZ_GATE_SERVER_ONLINE= ncz_gate_srv_mode pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev)
+[ "$m" = online ] && ok "mode: the published R2 pin host is online (must never be bound)" || bad "mode: R2 pin -> $m (want online)"
+m=$(NCZ_GATE_SERVER_ONLINE= ncz_gate_srv_mode example.com)
+[ "$m" = online ] && ok "mode: an external host is online" || bad "mode: example.com -> $m (want online)"
+m=$(NCZ_GATE_SERVER_ONLINE=1 ncz_gate_srv_mode 10.0.2.2)
+[ "$m" = online ] && ok "mode: NCZ_GATE_SERVER_ONLINE=1 forces online" || bad "mode: override=1 -> $m (want online)"
+m=$(NCZ_GATE_SERVER_ONLINE=0 ncz_gate_srv_mode pub-d7b784e01679403d9c70fcd23fff5b96.r2.dev)
+[ "$m" = local ] && ok "mode: NCZ_GATE_SERVER_ONLINE=0 forces local (legacy shadow server)" || bad "mode: override=0 -> $m (want local)"
+_myip=$(hostname -I 2>/dev/null | tr ' \t' '\n' | sed -n 1p)
+if [ -n "$_myip" ]; then
+    m=$(NCZ_GATE_SERVER_ONLINE= ncz_gate_srv_mode "$_myip")
+    [ "$m" = local ] && ok "mode: an address of this host ($_myip) is local (NCZ_GATE_SERVER_HOST case)" || bad "mode: own address $_myip -> $m (want local)"
+fi
+# preflight: header-level 200 at the pinned URL's own host
+PORT2=$((20000 + RANDOM % 20000))
+python3 - "$SRV" "127.0.0.1" "$PORT2" <<'PY' >"$WORK/srv2.log" 2>&1 &
+import http.server, os, socketserver, sys
+os.chdir(sys.argv[1])
+class H(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *a): pass
+socketserver.TCPServer.allow_reuse_address = True
+for _ in range(20):
+    try:
+        srv = socketserver.TCPServer((sys.argv[2], int(sys.argv[3])), H)
+        break
+    except OSError as e:
+        if _ == 19:
+            raise SystemExit(f"bind {sys.argv[2]}:{sys.argv[3]} failed: {e}")
+        import time; time.sleep(0.25)
+print("serving", os.getcwd(), "on", sys.argv[2] + ":" + sys.argv[3], flush=True)
+srv.serve_forever()
+PY
+SRV2_PID=$!
+for _ in $(seq 1 20); do
+    curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:$PORT2/base.squashfs" 2>/dev/null && break
+    sleep 0.2
+done
+_c=$(ncz_gate_srv_preflight "http://127.0.0.1:$PORT2/base.squashfs") && \
+    ok "preflight: an answering pinned URL passes (got $_c)" \
+    || bad "preflight: an answering pinned URL failed (got ${_c:-NO-RESPONSE})"
+if ncz_gate_srv_preflight "http://127.0.0.1:$PORT2/no-such-file" >/dev/null 2>&1; then
+    bad "preflight: a 404 passed -- the guest would fail at install time"
+else
+    ok "preflight: a URL the server does not serve fails loudly"
+fi
+if ncz_gate_srv_preflight "http://127.0.0.1:1/dead" >/dev/null 2>&1; then
+    bad "preflight: an unreachable endpoint passed"
+else
+    ok "preflight: an unreachable endpoint fails (bounded, no hang)"
+fi
+kill "$SRV2_PID" 2>/dev/null || true
+wait "$SRV2_PID" 2>/dev/null || true
+grep -q 'ncz_gate_srv_mode "$_srv_pinhost"' "$G" \
+    && ok "gate: the mode is decided from the medium's own pin (no run-time pin rewrite)" \
+    || bad "gate: mode decision not wired to the manifest pin"
+grep -q 'ncz_gate_srv_preflight "$_srv_u"' "$G" \
+    && ok "gate: online mode preflights the pinned URLs before the guest starts" \
+    || bad "gate: online preflight not wired"
+grep -q 'kvm-gate-server-lib.sh' "$G" \
+    && ok "gate: sources the lib this test exercises" \
+    || bad "gate: does not source kvm-gate-server-lib.sh"
+
 echo
 [ "$FAIL" -eq 0 ] && echo "test-kvm-gate-server: ALL PASSED" || { echo "test-kvm-gate-server: FAILURES" >&2; exit 1; }

@@ -64,6 +64,13 @@ eq "helper: server label without a version" "$(. "$H"; ncz_brand_label server "$
 eq "helper: server label" "$(. "$H"; ncz_brand_label server "" NCZ-OS "$NCZ_RELEASE_VERSION")" "$SRVF"
 eq "helper: medium with fetch manifest is server" "$(. "$H"; ncz_brand_medium_variant "$W/srv")" server
 eq "helper: medium without it is desktop" "$(. "$H"; ncz_brand_medium_variant "$W/desk")" desktop
+# Self-contained medium (NCZ_SERVER_PAYLOAD=medium): no manifest, stamps
+# MEDIUM_VARIANT=server. This is the signal late.sh now accepts when it writes
+# the installed marker, and the one 50-brand reads to name the edition
+# "Magnetar Server" (fix 2026-11-09; without it the install said "Cygnus Server").
+eq "helper: self-contained MEDIUM_VARIANT=server marker is server" "$(. "$H"; ncz_brand_medium_variant "$W/srvmark")" server
+eq "helper: self-contained marker names the Magnetar Server edition" \
+    "$(. "$H"; ncz_brand_label "$(ncz_brand_medium_variant "$W/srvmark")" "" NCZ-OS "$NCZ_RELEASE_VERSION")" "$SRVF"
 mkdir -p "$W/inst"; echo server > "$W/inst/MEDIUM_VARIANT"
 eq "helper: installed MEDIUM_VARIANT=server" "$(. "$H"; ncz_brand_medium_variant "$W/desk" "$W/inst")" server
 echo desktop > "$W/inst/MEDIUM_VARIANT"
@@ -295,13 +302,25 @@ case "$(motd "$W/osr-srv")" in *"  $SRVF - unknown "*) ok "motd: server title ro
 case "$(motd "$W/osr-desk")" in *"NCZ-OS $NCZ_RELEASE_VERSION $NCZ_RELEASE_CODENAME Desktop  ·  unknown edge agent"*) ok "motd: desktop title row unchanged" ;; *) bad "motd: desktop title row: $(motd "$W/osr-desk")" ;; esac
 
 # --- 6. 48-server-variant.sh: the server console banner ---------------------------------------------
-awk '/^if \[ "\$_ncz_medium" = server \]; then$/{f=1} f{print} /^    } > \/etc\/issue.d\/10-ncz-server.issue$/{exit}' "$ROOT/post-install/48-server-variant.sh" \
-    | sed "s#/etc/issue.d#$W#; s#/usr/local/lib/cix-installer/RELEASE#$ROOT/release.conf#" > "$W/issued.sh"; echo fi >> "$W/issued.sh"
-( set -euo pipefail; . "$H"; _ncz_medium=server; . "$W/issued.sh" )
+# The banner contract lives in build/test-release-identity.sh (b63acaf0, the
+# operator photo of 2026-10-28): /etc/issue owns the identity, so the issue.d
+# block adds ONLY headless-mode guidance -- no product line, no codename, no
+# box. An earlier revision of this section asserted the pre-b63acaf0 shape
+# (title "NCZ-OS <ver> Magnetar Server" on line 2, 'ssh <user>@\4'); that
+# product line printed twice on one console (under a correct /etc/issue), which
+# is the very defect the operator reported, so those expectations are
+# superseded by the ones below (the newer contract is 64/64 on this tree).
+sed -n '/WHAT IT IS NOW/,/chmod 0644 \/etc\/issue.d/p' "$ROOT/post-install/48-server-variant.sh" \
+    | sed "s#/etc/issue.d#$W#" > "$W/issued.sh"
+( set -euo pipefail; _ncz_medium=server; . "$W/issued.sh" )
 if [ -s "$W/10-ncz-server.issue" ]; then
-    eq "48: server banner title" "$(sed -n 2p "$W/10-ncz-server.issue")" "$SRVF"
-    grep -F 'ssh <user>@\4' "$W/10-ncz-server.issue" >/dev/null && ok "48: server banner shows the ssh login with agetty's address" || bad "48: no ssh line"
+    grep -F 'headless server mode' "$W/10-ncz-server.issue" >/dev/null && ok "48: server banner says the box is headless" || bad "48: headless guidance missing"
+    grep -F 'ssh ' "$W/10-ncz-server.issue" >/dev/null && ok "48: server banner shows the ssh guidance" || bad "48: no ssh guidance"
     grep -iE 'maximilian|cygnus|ncz desktop on' "$W/10-ncz-server.issue" >/dev/null && bad "48: server banner names a retired/desktop name or the desktop toggle" || ok "48: server banner has no retired name, no codename, no desktop toggle"
+    case "$(cat "$W/10-ncz-server.issue")" in
+        *NCZ-OS*|*RELEASE_VERSION*|*Magnetar*) bad "48: server banner restates the product line (duplicates /etc/issue)" ;;
+        *) ok "48: server banner adds only guidance (no duplicate identity)" ;;
+    esac
     LC_ALL=C grep  '[^ -~]' "$W/10-ncz-server.issue" >/dev/null && bad "48: server banner is not plain ASCII" || ok "48: server banner is plain ASCII"
 else bad "48: no server banner block"; fi
 
@@ -313,7 +332,12 @@ sed "s#/usr/local/lib/cix-installer#$R48/lib/cix#g; s#/etc/#$R48/etc/#g" "$ROOT/
 PATH="$R48/bin:$PATH" bash "$R48/hook/48.sh" > "$R48/log" 2>&1; _r48=$?
 eq "48 (whole hook, server medium): exit status" "$_r48" 0
 grep  'ncz desktop on' "$R48/log" "$R48/etc/issue.d/10-ncz-server.issue" 2>/dev/null >/dev/null && bad "48 (whole hook, server medium): still advises 'ncz desktop on'" || ok "48 (whole hook, server medium): no 'ncz desktop on' advice"
-eq "48 (whole hook, server medium): issue.d title" "$(sed -n 2p "$R48/etc/issue.d/10-ncz-server.issue" 2>/dev/null)" "$SRVF"
+if [ -s "$R48/etc/issue.d/10-ncz-server.issue" ]; then
+    case "$(cat "$R48/etc/issue.d/10-ncz-server.issue")" in
+        *NCZ-OS*|*RELEASE_VERSION*|*Magnetar*) bad "48 (whole hook, server medium): issue.d restates the product line (duplicates /etc/issue)" ;;
+        *) ok "48 (whole hook, server medium): issue.d adds only guidance (no duplicate identity)" ;;
+    esac
+else bad "48 (whole hook, server medium): issue.d banner missing (10-ncz-server.issue not written)"; fi
 
 # --- 7. installed rEFInd menus ----------------------------------------------------------------------
 for s in "$ROOT/assets/refind/ncz-refind-refresh.sh" "$ROOT/assets/refind/ncz-refind-refresh-amd64.sh"; do

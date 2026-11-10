@@ -160,12 +160,36 @@ def write_single_member_initrd(base_initrd: Path, overlay_initrd: Path,
 
 
 def source_date_epoch() -> int | None:
-    """SOURCE_DATE_EPOCH from the environment, or None when unset/invalid
-    (not ASCII digits, or past 9999-12-31, which no timestamp API takes)."""
+    """SOURCE_DATE_EPOCH resolution for the overlay pack.
+
+    The environment wins.  When it is unset (or not ASCII digits, or past
+    9999-12-31, which no timestamp API takes) the determinism contract's own
+    derivation resolves it instead: build/lib/reproducible.py sde --pin
+    manifests/base.pin (git commit time, else the pin's snapshot_epoch).
+    Only when that too is unavailable: None -- and the packer then refuses
+    to pack (an absent env must never silently skip the mtime clamp: two
+    builds of one commit shipped /preseed.cfg and /ncz/RELEASE with
+    build-wall-clock mtimes that way, measured 2026-11-09)."""
     val = os.environ.get("SOURCE_DATE_EPOCH", "")
-    if not (val.isascii() and val.isdigit()) or int(val) > 253402300799:
-        return None
-    return int(val)
+    if val.isascii() and val.isdigit() and int(val) <= 253402300799:
+        return int(val)
+    root = Path(__file__).resolve().parents[2]
+    py = root / "build" / "lib" / "reproducible.py"
+    pin = root / "manifests" / "base.pin"
+    if py.is_file() and pin.is_file():
+        args = ["python3", "-I", str(py), "sde", "--pin", str(pin)]
+        # .git is a directory in a clone and a file in a worktree: accept both.
+        if (root / ".git").exists():
+            args += ["--repo", str(root)]
+        try:
+            out = subprocess.run(args, capture_output=True, text=True,
+                                 check=True, timeout=60)
+        except (subprocess.SubprocessError, OSError, ValueError):
+            return None
+        v = out.stdout.strip()
+        if v.isascii() and v.isdigit() and int(v) <= 253402300799:
+            return int(v)
+    return None
 
 
 def clamp_tree_mtimes(root: Path, epoch: int | None) -> int:
@@ -205,6 +229,11 @@ def pack_overlay_cpio_gz(overlay_root: Path, filelist: Path, out_gz: Path,
     """Pack the members named in filelist (paths relative to overlay_root, one
     per line, in archive order) into a gzip'd newc archive whose bytes depend
     only on the members' content, modes, owners and (clamped) mtimes."""
+    if epoch is None:
+        raise RuntimeError(
+            "FATAL: refusing to pack the overlay cpio without a resolvable "
+            "SOURCE_DATE_EPOCH (the clamp is what keeps member mtimes out of "
+            "the artifact; packing without it is a determinism regression)")
     clamp_tree_mtimes(overlay_root, epoch)
     with filelist.open("rb") as fl_in:
         cpio_proc = subprocess.Popen(

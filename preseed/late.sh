@@ -449,6 +449,16 @@ if [ -d "$NCZ_ONLINE" ]; then
     fi
     # BUILD_VARIANT is decided further down from the component selection; do not
     # second-guess it here.
+    # The fetch transcript is the fetcher's evidence ([FETCH] progress and
+    # verified lines). 2026-11-09: those lines no longer reach the serial
+    # console (it must stay free for the installer dialog), so keep the
+    # transcript on the installed system before the staging root goes away --
+    # the KVM gate reads it from /var/log/cix-install (its preserved evidence
+    # directory) and so can an operator debugging a failed install.
+    if [ -f "$NCZ_ONLINE/.ncz-fetch-transcript.log" ]; then
+        mkdir -p /target/var/log/cix-install
+        cp -a "$NCZ_ONLINE/.ncz-fetch-transcript.log" /target/var/log/cix-install/ncz-fetch-transcript.log
+    fi
     if [ -d "$NCZ_ONLINE/repo/dists" ]; then
         # Magnetar option B: the fetched offline apt repository is the target's
         # /cdrom (the r159 stub bound it) until the hooks are done; it is
@@ -660,7 +670,20 @@ fi
 # this marker (at install and on every later kernel upgrade) to write the
 # server menu, Console + Rescue Partition only. A desktop medium writes
 # nothing here, so its installs are unchanged.
-if [ -n "$SRC" ] && [ -f "$SRC/ncz-fetch-payload.manifest" ]; then
+# A Magnetar server medium identifies itself two ways (2026-11-09): an ONLINE
+# medium (NCZ_SERVER_PAYLOAD=online) carries ncz-fetch-payload.manifest; a
+# SELF-CONTAINED medium (NCZ_SERVER_PAYLOAD=medium) carries no manifest and
+# instead stamps ncz-payload/MEDIUM_VARIANT=server (build/...; the kvm gate
+# reads that marker). Checking only the manifest missed the self-contained
+# medium, so its installs were branded "Cygnus Server" (console-only desktop
+# naming) instead of "Magnetar Server" (measured 2026-11-08, arm64 server
+# kvm-gate, tip 9937de3c). Accept either signal.
+_ncz_srv_medium=0
+if [ -n "$SRC" ]; then
+    [ -f "$SRC/ncz-fetch-payload.manifest" ] && _ncz_srv_medium=1
+    [ -r "$SRC/MEDIUM_VARIANT" ] && [ "$(tr -d ' \t\r\n' < "$SRC/MEDIUM_VARIANT" 2>/dev/null)" = server ] && _ncz_srv_medium=1
+fi
+if [ "$_ncz_srv_medium" = 1 ]; then
     mkdir -p /target/usr/local/lib/cix-installer
     echo "server" > /target/usr/local/lib/cix-installer/MEDIUM_VARIANT
     echo "    Magnetar server medium: MEDIUM_VARIANT=server"
@@ -1934,6 +1957,12 @@ ncz_teardown_fetched_repo() {
     fi
     grep -qs ' /target/cdrom ' /proc/mounts && echo "WARN: /target/cdrom is still mounted"
     rmdir /target/cdrom 2>/dev/null || true
+    # keep the fetch transcript on the installed system (same as the staging
+    # cleanup above: the gate and the operator read it from /var/log/cix-install)
+    if [ -f /target/ncz-online/ncz-payload/.ncz-fetch-transcript.log ]; then
+        mkdir -p /target/var/log/cix-install
+        cp -a /target/ncz-online/ncz-payload/.ncz-fetch-transcript.log /target/var/log/cix-install/ncz-fetch-transcript.log 2>/dev/null || true
+    fi
     rm -rf /target/ncz-online
     [ -e /target/ncz-online ] && echo "WARN: /target/ncz-online could not be removed" \
         || echo "[late] fetched apt repository unmounted from /target/cdrom and removed"

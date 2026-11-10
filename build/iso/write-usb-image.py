@@ -893,6 +893,52 @@ def stage_ssplugin_deb(assets_dst: Path, arch: str,
     return name
 
 
+CONSOLE_SAVER_SRC = REPO_ROOT / "assets" / "console-saver"
+
+
+def stage_console_saver(assets_dst: Path, arch: str) -> str | None:
+    """Put the Magnetar server console saver on the medium.
+
+    post-install/61-ncz-console-saver.sh installs it from
+    /cdrom/ncz-payload/assets/console-saver/ (late.sh also union-syncs it
+    into /usr/local/lib/cix-installer/assets/). Server variant only -- the
+    desktop image never stages it. NOT a deb: the release binaries + unit +
+    conf ride the payload path (the stated B3 decision, ncz-screensavers
+    5ae8a71f). It is deliberately NOT in SERVER_ONLINE_ASSET_DIRS: the
+    bundle tar would delete it from the medium, and the published server
+    payload (20261108-9937de3c) predates the saver, so every existing
+    payload would install a saver-less system. Staging on the medium keeps
+    all payloads installable today; when the saver joins a future payload
+    republish, add "console-saver" to SERVER_ONLINE_ASSET_DIRS and it
+    self-removes from the medium like the other bundle members. Returns the
+    staged file list, or None on a checkout that predates
+    assets/console-saver/.
+    """
+    src_root = CONSOLE_SAVER_SRC
+    if not src_root.is_dir():
+        return None
+    names = []
+    dst = assets_dst / "console-saver"
+    dst.mkdir(parents=True, exist_ok=True)
+    for shared in ("ncz-console-saver.service", "console-saver.conf", "README.md"):
+        src = src_root / shared
+        if not src.is_file():
+            raise RuntimeError(
+                f"FATAL: {src} missing from the console-saver asset tree")
+        shutil.copy2(src, dst / shared)
+        names.append(shared)
+    for binary in ("ncz-console-saver", "ncz-bh-console"):
+        src = src_root / arch / binary
+        if not src.is_file():
+            raise RuntimeError(
+                f"FATAL: {src} missing; build the console saver for {arch} "
+                f"(ncz-screensavers tools/bh-console, b3 branch) into "
+                f"assets/console-saver/{arch}/")
+        shutil.copy2(src, dst / binary)
+        names.append(binary)
+    return ", ".join(names)
+
+
 def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
                            patched_udeb: Path | None, preseed_dir: Path | None,
                            allow_missing_stub: bool = False,
@@ -1258,6 +1304,18 @@ def build_ncz_payload_tree(stage_dir: Path, payload_dir: Path, arch: str,
     if ssplugin:
         copied_assets.append("ncz-screensavers-plugin")
         log(f"    screensaver settings plugin staged: {ssplugin}")
+
+    # MAGNETAR(server): the console saver is a SERVER artifact -- the
+    # idle-driven VT black-hole saver (04:40Z order). Desktop must not ship
+    # it, exactly mirroring the plugin guard above.
+    console_saver = None
+    if _variant() == "server":
+        console_saver = stage_console_saver(assets_dst, arch)
+    else:
+        log("    desktop variant: skipping console saver (server-only artifact)")
+    if console_saver:
+        copied_assets.append("console-saver")
+        log(f"    console saver staged: {console_saver}")
 
     # MAGNETAR(server): the multi-hundred-MB runtime assets come OFF the medium
     # (see SERVER_ONLINE_ASSET_DIRS for the measurement). They are staged
