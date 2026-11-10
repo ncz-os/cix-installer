@@ -287,16 +287,17 @@ check_arm64_channel() {
     local pin_name pin_class
     pin_name="$(basename "$abs_target")"
     if is_prerelease "$pin_name"; then pin_class="prerelease"; else pin_class="stable"; fi
-    # Unified 7.3 policy (2026-10-05): there is ONE arm64 channel.
-    # want_class=unified accepts either a 7.3 -rcN or a 7.3 final pin (rc is
+    # Kernel line policy (2026-10-05 unified 7.3; line switch to 7.4 by
+    # operator 2026-11-09 22:20Z): there is ONE arm64 channel.
+    # want_class=unified accepts a 7.3 or 7.4 -rcN/final pin (rc is
     # allowed while KERNEL-POLICY RC_DEFAULT_ALLOWED=1) but refuses any other
     # series (7.2.x is retired).
     if [ "$want_class" = "unified" ]; then
         case "$pin_name" in
-            *7.3.*|*7.3-*) ;;
+            *7.3.*|*7.3-*|*7.4.*|*7.4-*) ;;
             *)
-                echo "[3] FAIL: arm64 $label -- $local_pointer -> $pin_name is not the unified 7.3 kernel"
-                echo "          (7.2.x is retired; policy 2026-10-05). Repoint $local_pointer at the 7.3 build."
+                echo "[3] FAIL: arm64 $label -- $local_pointer -> $pin_name is not the unified 7.3/7.4 kernel line"
+                echo "          (7.2.x is retired; 2026-11-09 line switch). Repoint $local_pointer at the 7.3/7.4 build."
                 FAIL=$((FAIL + 1))
                 return
                 ;;
@@ -320,7 +321,7 @@ check_arm64_channel() {
         mt="${line%% *}"
         mt="${mt%%.*}"
         if [ "$want_class" = "unified" ]; then
-            case "$name" in *7.3.*|*7.3-*) ;; *) continue ;; esac
+            case "$name" in *7.3.*|*7.3-*|*7.4.*|*7.4-*) ;; *) continue ;; esac
         elif is_prerelease "$name"; then
             [ "$want_class" = prerelease ] || continue
         else

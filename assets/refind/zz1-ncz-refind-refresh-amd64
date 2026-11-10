@@ -38,9 +38,11 @@ is_prerelease() {
     case "$1" in *-rc[0-9]*) return 0 ;; *) return 1 ;; esac
 }
 
-# The unified default is the NCZ 7.3 kernel line. A Debian-archive kernel
-# (<ver>-amd64, forky 7.1.x) is never staged. classify() drops everything
-# that is not 7.3.
+# The unified default is the NCZ kernel line: 7.3 while it ships, and 7.4
+# from the 2026-11-09 22:20Z line switch (both are default-class while
+# DEFAULT_BASE=7.3,7.4; the exact pin is enforced at build time). A
+# Debian-archive kernel (<ver>-amd64, forky 7.1.x) is never staged.
+# classify() drops everything that is not 7.3/7.4.
 is_debian_kernel() {
     case "$1" in
         *-amd64|7.1.*|7.1-*) return 0 ;;
@@ -55,7 +57,7 @@ classify() {
     esac
     is_debian_kernel "$1" && return
     case "$1" in
-        7.3.*|7.3-*) echo default ;;
+        7.3.*|7.3-*|7.4.*|7.4-*) echo default ;;
     esac
 }
 

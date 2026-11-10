@@ -216,6 +216,27 @@ else
     FAIL=$((FAIL+1))
 fi
 
+# --- Case 8: 7.4 line switch (operator 2026-11-09 22:20Z). The unified class
+#     is now 7.3+7.4 while the switch is in flight: a mainline pin on the
+#     newest 7.4 build must be OK.
+echo; echo "=== Case 8: 7.4 line switch -- mainline on the newest 7.4 build ==="
+run_case "mainline on r299-7.4.0-rc2 (newest unified build) is OK" 1 0 0 '
+    set -e
+    mkpool "$KERNEL_STAGING_DIR" \
+        "r290-7.3.0-rc7-sky1-ncz-20261017|2026-10-17 12:00:00" \
+        "r299-7.4.0-rc2-sky1-ncz-20261110|2026-11-10"
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r299-7.4.0-rc2-sky1-ncz-20261110"
+    one'
+
+echo; echo "=== Case 8b: NEGATIVE -- mainline=r290 7.3 while newer 7.4 r299 exists ==="
+run_case "stale 7.3 pin with a newer 7.4 build is FAIL" 0 0 1 '
+    set -e
+    mkpool "$KERNEL_STAGING_DIR" \
+        "r290-7.3.0-rc7-sky1-ncz-20261017|2026-10-17 12:00:00" \
+        "r299-7.4.0-rc2-sky1-ncz-20261110|2026-11-10"
+    mksymlink "$ASSETS/kernel/mainline" "$KERNEL_STAGING_DIR/r290-7.3.0-rc7-sky1-ncz-20261017"
+    one'
+
 echo
 echo "=== arm64 freshness gate test: PASS=$PASS FAIL=$FAIL ==="
 [ "$FAIL" -eq 0 ]
