@@ -78,9 +78,13 @@ stage_default() {
     # The kernel-ci registry's current kernel (exported by build-image.sh) wins.
     [ -n "${NCZ_KERNEL_KVER:-}" ] && wanted="$NCZ_KERNEL_KVER"
     [ -n "$wanted" ] || { echo "ERROR: $pin_file is empty" >&2; return 1; }
+    # The unified kernel line is 7.3.x/7.4.x (operator 2026-11-09 22:20Z:
+    # "move away from 7.3 and go directly to 7.4, on both architectures" --
+    # 7.4-rc kernels are stageable now; the line floor is enforced by
+    # build/check-kernel-lifecycle.py MIN_VERSION, not here).
     case "$wanted" in
-        7.3.*|7.3-*) ;;
-        *) echo "ERROR: pinned amd64 KVER '$wanted' is not the unified 7.3 series" >&2; return 1 ;;
+        7.3.*|7.3-*|7.4.*|7.4-*) ;;
+        *) echo "ERROR: pinned amd64 KVER '$wanted' is not the unified 7.3/7.4 kernel line" >&2; return 1 ;;
     esac
     local src=""
     # Optional package-REVISION pin: assets/kernel/amd64-stable/PKGVERSION.

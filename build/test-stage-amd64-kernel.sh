@@ -90,6 +90,31 @@ out=$(AMD64_SRC="$POOL/amd64-t2-7.3.1-r295-20261101/$K" stage "$r"); rc=$?
     && ok "AMD64_SRC pointing at another build is refused by the sha256 check (rc=$rc)" \
     || bad "AMD64_SRC to a different build was staged" "$out"
 
+echo "=== the 7.4 kernel line stages (operator 2026-11-09 22:20Z: kernel line = 7.4.x) ==="
+K74=7.4.0-rc2-t2-ncz; P74=7.4.0-rc2-2
+D74="$POOL/amd64-t2-rc2-20261109/$K74"; mkdir -p "$D74"
+printf '%s\n' "$K74" > "$D74/KVER"; printf '%s\n' "$P74" > "$D74/PKGVERSION"
+printf 'img74\n' > "$D74/linux-image-${K74}_${P74}_amd64.deb"
+printf 'hdr74\n' > "$D74/linux-headers-${K74}_${P74}_amd64.deb"
+r="$W/r74"; mkdir -p "$r/build/lib" "$r/assets/kernel/amd64-stable"
+cp "$REPO/build/stage-amd64-kernel.sh" "$r/build/"
+cp "$REPO/build/lib/ncz-site.sh" "$r/build/lib/"
+printf '%s\n' "$K74" > "$r/assets/kernel/amd64-stable/KVER"
+printf '%s\n' "$P74" > "$r/assets/kernel/amd64-stable/PKGVERSION"
+I74=$(sha "$D74/linux-image-${K74}_${P74}_amd64.deb"); H74=$(sha "$D74/linux-headers-${K74}_${P74}_amd64.deb")
+python3 - "$r/assets/kernel/amd64-stable-manifest.json" "$I74" "$H74" "$K74" "$P74" <<'PY'
+import json, sys
+out, isha, hsha, k, p = sys.argv[1:]
+json.dump({"schema": 1, "kver": k, "package_revision": p,
+           "staging_pool_relative": f"kernel-staging/amd64-t2-rc2-20261109/{k}",
+           "artifacts": {f"linux-image-{k}_{p}_amd64.deb": {"sha256": isha},
+                         f"linux-headers-{k}_{p}_amd64.deb": {"sha256": hsha}}}, open(out, "w"), indent=1)
+PY
+out=$(stage "$r"); rc=$?
+got=$(cat "$r/assets/kernel/amd64-stable/linux-image-${K74}_${P74}_amd64.deb" 2>/dev/null)
+if [ "$rc" = 0 ] && [ "$got" = img74 ]; then ok "7.4.0-rc2-t2-ncz staged (7.4 kernel line accepted)"
+else bad "7.4 kernel rejected by the series guard (rc=$rc)" "$out"; fi
+
 echo "=== the real manifest names an existing pool dir form and pins both debs ==="
 python3 - "$REPO/assets/kernel/amd64-stable-manifest.json" <<'PY' && ok "real manifest: staging_pool_relative + image/headers sha256 present" || bad "real manifest lacks staging_pool_relative or deb sha256"
 import json, sys
