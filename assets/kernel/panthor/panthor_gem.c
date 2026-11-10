@@ -10,6 +10,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/err.h>
 #include <linux/slab.h>
+#include <linux/version.h>
 #include <linux/vmalloc.h>
 
 #include <drm/drm_debugfs.h>
@@ -1508,6 +1509,26 @@ static bool panthor_gem_try_evict(struct drm_gem_object *obj,
 	return panthor_gem_try_evict_no_resv_wait(&bo->base, ticket);
 }
 
+/* drm_gem_lru_scan() lost its ww_acquire_ctx *ticket parameter in the 7.4
+ * DRM rework (on both the call and the shrink callback).  Every call site
+ * here passed ticket = NULL anyway, so thin wrappers preserve behaviour. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 4, 0)
+static bool panthor_gem_try_evict_no_resv_wait_shrink(struct drm_gem_object *obj)
+{
+	return panthor_gem_try_evict_no_resv_wait(obj, NULL);
+}
+
+static bool panthor_gem_try_evict_shrink(struct drm_gem_object *obj)
+{
+	return panthor_gem_try_evict(obj, NULL);
+}
+#define DRM_GEM_LRU_SCAN(dev, lru, nr, rem, cb) \
+	drm_gem_lru_scan(dev, lru, nr, rem, cb##_shrink)
+#else
+#define DRM_GEM_LRU_SCAN(dev, lru, nr, rem, cb) \
+	drm_gem_lru_scan(dev, lru, nr, rem, cb, NULL)
+#endif
+
 static unsigned long
 panthor_gem_shrinker_scan(struct shrinker *shrinker, struct shrink_control *sc)
 {
@@ -1518,29 +1539,34 @@ panthor_gem_shrinker_scan(struct shrinker *shrinker, struct shrink_control *sc)
 	if (!can_swap())
 		goto out;
 
-	freed += drm_gem_lru_scan(&ptdev->base, &ptdev->reclaim.unused,
-				  sc->nr_to_scan - freed, &remaining,
-				  panthor_gem_try_evict_no_resv_wait, NULL);
+	freed += DRM_GEM_LRU_SCAN(&ptdev->base, &ptdev->reclaim.unused,
+				 sc->nr_to_scan - freed, &remaining,
+				 panthor_gem_try_evict_no_resv_wait);
 	if (freed >= sc->nr_to_scan)
 		goto out;
 
-	freed += drm_gem_lru_scan(&ptdev->base, &ptdev->reclaim.mmapped,
-				  sc->nr_to_scan - freed, &remaining,
-				  panthor_gem_try_evict_no_resv_wait, NULL);
+	freed += DRM_GEM_LRU_SCAN(&ptdev->base, &ptdev->reclaim.mmapped,
+				 sc->nr_to_scan - freed, &remaining,
+				 panthor_gem_try_evict_no_resv_wait);
 	if (freed >= sc->nr_to_scan)
 		goto out;
 
 	if (!can_block(sc))
 		goto out;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 4, 0)
+	freed += panthor_mmu_reclaim_priv_bos(ptdev, sc->nr_to_scan - freed,
+					      &remaining, panthor_gem_try_evict_shrink);
+#else
 	freed += panthor_mmu_reclaim_priv_bos(ptdev, sc->nr_to_scan - freed,
 					      &remaining, panthor_gem_try_evict);
+#endif
 	if (freed >= sc->nr_to_scan)
 		goto out;
 
-	freed += drm_gem_lru_scan(&ptdev->base, &ptdev->reclaim.gpu_mapped_shared,
-				  sc->nr_to_scan - freed, &remaining,
-				  panthor_gem_try_evict, NULL);
+	freed += DRM_GEM_LRU_SCAN(&ptdev->base, &ptdev->reclaim.gpu_mapped_shared,
+				 sc->nr_to_scan - freed, &remaining,
+				 panthor_gem_try_evict);
 
 out:
 #ifdef CONFIG_DEBUG_FS

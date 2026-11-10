@@ -7,6 +7,17 @@
 #define __PANTHOR_MMU_H__
 
 #include <linux/dma-resv.h>
+#include <linux/version.h>
+
+/* drm_gem_lru_scan() lost its ww_acquire_ctx *ticket parameter in the 7.4
+ * DRM rework (on both the call and the shrink callback).  Every caller here
+ * passed ticket = NULL anyway. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 4, 0)
+typedef bool (*panthor_reclaim_fn)(struct drm_gem_object *obj);
+#else
+typedef bool (*panthor_reclaim_fn)(struct drm_gem_object *obj,
+				   struct ww_acquire_ctx *ticket);
+#endif
 
 struct drm_exec;
 struct drm_sched_job;
@@ -52,8 +63,7 @@ int panthor_vm_evict_bo_mappings_locked(struct panthor_gem_object *bo);
 unsigned long
 panthor_mmu_reclaim_priv_bos(struct panthor_device *ptdev,
 			     unsigned int nr_to_scan, unsigned long *remaining,
-			     bool (*shrink)(struct drm_gem_object *,
-					    struct ww_acquire_ctx *));
+			     panthor_reclaim_fn shrink);
 int panthor_vm_prepare_mapped_bos_resvs(struct drm_exec *exec,
 					struct panthor_vm *vm,
 					u32 slot_count);
