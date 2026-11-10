@@ -121,7 +121,11 @@ check_variant() { # $1=root.raw $2=label $3=present|absent
         fi
     done
     if [ "$want" = present ]; then
-        if fs_cat "$root" /etc/ncz/console-saver.conf | grep -q '^enabled=1'; then
+        # The daemon's canonical format is `key = value` (config.rs accepts
+        # any spacing around '='); match both spellings so a conforming conf
+        # never fails this check (c368: shipped `enabled = 1` tripped the
+        # old '^enabled=1' grep).
+        if fs_cat "$root" /etc/ncz/console-saver.conf | grep -qE '^enabled *= *1$'; then
             ok "$label conf has enabled=1"
         else
             no "$label conf lacks enabled=1"
@@ -278,8 +282,10 @@ cmd_evidence() {
 # self-test: the gate's pure logic against fixtures (no VM, any host)
 # ---------------------------------------------------------------------------
 conf_apply_idle() { # stdin: conf, $1: idle -- the live phase's edit, pure
-    sed -e "s/^idle_seconds=.*/idle_seconds=$1/" \
-        -e 's/^enabled=.*/enabled=1/'
+    # Normalise to the compact `key=value` output; tolerate the daemon's
+    # canonical `key = value` spacing in the input (config.rs trims both).
+    sed -e "s/^idle_seconds *= *.*/idle_seconds=$1/" \
+        -e 's/^enabled *= *.*/enabled=1/'
 }
 
 budget_ok() { # $1: %cpu (float), $2: RSS kB -- PASS when within budget
@@ -302,6 +308,15 @@ cmd_self_test() {
     grep -qx 'idle_seconds=10' /tmp/cs-gate.$$.conf && ok "idle_seconds rewritten to 10" || no "idle_seconds rewrite"
     grep -qx 'enabled=1' /tmp/cs-gate.$$.conf && ok "forced enabled=1" || no "enabled rewrite"
     grep -qx 'scene=grid' /tmp/cs-gate.$$.conf && ok "unrelated keys untouched" || no "unrelated keys clobbered"
+    rm -f /tmp/cs-gate.$$.conf
+
+    echo "[self-test] conf_apply_idle (canonical 'key = value' spacing)"
+    printf 'enabled = 0\nidle_seconds = 3600\nscene = grid\n' | conf_apply_idle 10 > /tmp/cs-gate.$$.conf
+    grep -qx 'idle_seconds=10' /tmp/cs-gate.$$.conf && ok "spaced idle_seconds rewritten to 10" || no "spaced idle_seconds rewrite"
+    grep -qx 'enabled=1' /tmp/cs-gate.$$.conf && ok "spaced enabled forced to 1" || no "spaced enabled rewrite"
+    grep -qx 'scene = grid' /tmp/cs-gate.$$.conf && ok "spaced unrelated keys untouched" || no "spaced unrelated keys clobbered"
+    printf 'enabled = 1\n' | grep -qE '^enabled *= *1$' && ok "enabled=1 check accepts spaced form" || no "enabled=1 spaced check"
+    printf 'enabled=1\n' | grep -qE '^enabled *= *1$' && ok "enabled=1 check accepts compact form" || no "enabled=1 compact check"
     rm -f /tmp/cs-gate.$$.conf
 
     echo "[self-test] budget_ok thresholds (CPU <= 2.0% of a core, RSS < 16 MB)"
